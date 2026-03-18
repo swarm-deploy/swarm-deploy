@@ -1,7 +1,6 @@
 package web
 
 import (
-	"embed"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -9,10 +8,8 @@ import (
 
 	"github.com/artarts36/swarm-deploy/internal/config"
 	"github.com/artarts36/swarm-deploy/internal/controller"
+	"github.com/artarts36/swarm-deploy/ui"
 )
-
-//go:embed ui/*
-var uiFS embed.FS
 
 type Server struct {
 	cfg     *config.Config
@@ -43,7 +40,7 @@ func (s *Server) registerRoutes() {
 		s.mux.HandleFunc(s.cfg.Spec.Sync.Webhook.Path, s.handleGitWebhook)
 	}
 
-	uiSub, err := fsSub(uiFS, "ui")
+	uiSub, err := fsSub(ui.FS, "ui")
 	if err == nil {
 		s.mux.Handle("/ui/", http.StripPrefix("/ui/", http.FileServer(http.FS(uiSub))))
 		s.mux.Handle("/", http.FileServer(http.FS(uiSub)))
