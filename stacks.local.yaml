@@ -1,0 +1,5 @@
+stacks:
+  - name: app
+    composeFile: example/myapp.yml
+
+

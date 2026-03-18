@@ -1,0 +1,42 @@
+version: "3.9"
+
+services:
+  swarm-deploy:
+    build:
+      context: .
+    image: swarm-deploy:local
+    command: ["-config", "/etc/swarm-deploy/swarm-deploy.yaml"]
+    environment:
+      DOCKER_CONFIG: /run/secrets
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./swarm-deploy.yaml:/etc/swarm-deploy/swarm-deploy.yaml:ro
+      - ./stacks.yaml:/etc/swarm-deploy/stacks.yaml:ro
+      - swarm-deploy-data:/etc/swarm-deploy/.swarm-deploy
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+    restart: unless-stopped
+    secrets:
+      - source: deploy_key
+        target: deploy_key
+      - source: telegram_bot_token
+        target: telegram_bot_token
+      - source: webhook_secret
+        target: webhook_secret
+      # docker cli will use /run/secrets/config.json because DOCKER_CONFIG=/run/secrets
+      - source: registry_auth_config
+        target: config.json
+
+volumes:
+  swarm-deploy-data: {}
+
+secrets:
+  deploy_key:
+    file: ./secrets/deploy_key
+  telegram_bot_token:
+    file: ./secrets/telegram_bot_token
+  webhook_secret:
+    file: ./secrets/webhook_secret
+  registry_auth_config:
+    file: ${DOCKER_CONFIG_JSON_FILE:-./secrets/docker-config.json}

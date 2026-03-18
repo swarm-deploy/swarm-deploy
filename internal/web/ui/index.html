@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Swarm Deploy</title>
+  <link rel="stylesheet" href="/ui/styles.css" />
+</head>
+<body>
+  <div class="bg-shape shape-1"></div>
+  <div class="bg-shape shape-2"></div>
+  <main class="layout">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">GitOps for Docker Swarm</p>
+        <h1>Swarm Deploy</h1>
+      </div>
+      <div class="actions">
+        <button id="sync-now" type="button">Sync now</button>
+      </div>
+    </header>
+    <section class="status-panel">
+      <p id="sync-status">Loading...</p>
+    </section>
+    <section>
+      <div id="stacks" class="stack-grid"></div>
+    </section>
+  </main>
+  <script src="/ui/app.js" defer></script>
+</body>
+</html>
+

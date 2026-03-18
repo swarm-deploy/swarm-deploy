@@ -1,0 +1,142 @@
+openapi: 3.0.3
+info:
+  title: Swarm Deploy API
+  version: 0.1.0
+  description: |
+    MVP API for Swarm Deploy.
+    Includes stack status, manual sync and generic git webhook endpoint.
+servers:
+  - url: http://localhost:8080
+paths:
+  /api/v1/stacks:
+    get:
+      operationId: listStacks
+      responses:
+        '200':
+          description: List of tracked stacks
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StacksResponse'
+  /api/v1/sync:
+    post:
+      operationId: triggerSync
+      responses:
+        '202':
+          description: Sync trigger accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueResponse'
+  /api/v1/webhooks/git:
+    post:
+      operationId: receiveGitWebhook
+      parameters:
+        - name: X-Swarm-Deploy-Secret
+          in: header
+          schema:
+            type: string
+          required: false
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GitWebhookPayload'
+      responses:
+        '202':
+          description: Webhook accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueResponse'
+        '401':
+          description: Invalid webhook secret
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+components:
+  schemas:
+    QueueResponse:
+      type: object
+      required: [queued]
+      properties:
+        queued:
+          type: boolean
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+    GitWebhookPayload:
+      type: object
+      additionalProperties: true
+      properties:
+        provider:
+          type: string
+          example: github
+        repository:
+          type: string
+          example: org/repo
+        ref:
+          type: string
+          example: refs/heads/main
+        commits:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+    SyncInfo:
+      type: object
+      additionalProperties:
+        type: string
+    ServiceView:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        image:
+          type: string
+        image_version:
+          type: string
+        last_status:
+          type: string
+        last_deploy_at:
+          type: string
+          format: date-time
+    StackView:
+      type: object
+      required: [name, compose_file, last_status, services]
+      properties:
+        name:
+          type: string
+        compose_file:
+          type: string
+        last_status:
+          type: string
+        last_error:
+          type: string
+        last_commit:
+          type: string
+        last_deploy_at:
+          type: string
+          format: date-time
+        source_digest:
+          type: string
+        services:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceView'
+    StacksResponse:
+      type: object
+      required: [stacks, sync]
+      properties:
+        stacks:
+          type: array
+          items:
+            $ref: '#/components/schemas/StackView'
+        sync:
+          $ref: '#/components/schemas/SyncInfo'

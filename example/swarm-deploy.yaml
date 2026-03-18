@@ -1,0 +1,64 @@
+git:
+  repository: git@github.com:your-org/your-stacks-repo.git
+  branch: main
+  path: example
+  auth:
+    type: ssh
+    ssh:
+      user: git
+      privateKeyPath: /run/secrets/deploy_key
+      knownHostsPath: /etc/ssh/ssh_known_hosts
+
+sync:
+  mode: hybrid
+  pollInterval: 30s
+  webhook:
+    enabled: true
+    path: /api/v1/webhooks/git
+    secretFile: /run/secrets/webhook_secret
+
+stacksFile: ./stacks.yaml
+
+secretRotation:
+  enabled: true
+  hashLength: 10
+  includePath: true
+
+notifications:
+  telegram:
+    - name: ops
+      botTokenSecretFile: /run/secrets/telegram_bot_token
+      chatId: "-1000000000000"
+      chatThreadId: 42
+      message: |
+        deploy {{.status}}
+        stack_name: {{.stack_name}}
+        service: {{.service}}
+        image.full_name: {{.image.full_name}}
+        image.version: {{.image.version}}
+  custom:
+    - name: audit
+      url: https://hooks.example.com/swarm-deploy
+      method: POST
+
+web:
+  address: ":8080"
+
+healthServer:
+  address: ":8081"
+  metrics:
+    enabled: true
+    path: /metrics
+  healthz:
+    enabled: true
+    path: /healthz
+
+swarm:
+  command: docker
+  stackDeployArgs:
+    - stack
+    - deploy
+    - --with-registry-auth
+    - --prune
+  initJobPollEvery: 2s
+  initJobMaxDuration: 10m

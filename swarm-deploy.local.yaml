@@ -1,0 +1,69 @@
+git:
+  repository: git@github.com:company/platform-infra.git
+  branch: main
+  path: stacks
+  auth:
+    type: ssh
+    ssh:
+      user: git
+      privateKeyPath: /run/secrets/git-private-key
+      #knownHostsPath: /etc/ssh/ssh_known_hosts
+
+sync:
+  mode: hybrid # pull | webhook | hybrid
+  pollInterval: 30s
+  webhook:
+    enabled: true
+    path: /api/v1/webhooks/git
+    secretFile: /run/secrets/webhook-secret
+
+stacksFile: ./stacks.local.yaml
+
+secretRotation:
+  enabled: true
+  hashLength: 10
+  includePath: true
+
+notifications:
+  telegram:
+    - name: ops-telegram
+      botTokenSecretFile: /run/secrets/telegram-bot-token
+      chatId: "-1001234567890"
+      chatThreadId: 42
+      message: |
+        deploy {{.status}}
+        stack_name: {{.stack_name}}
+        service: {{.service}}
+        image.full_name: {{.image.full_name}}
+        image.version: {{.image.version}}
+        {{- if .error }}
+        error: {{.error}}
+        {{- end }}
+  custom:
+    - name: release-audit
+      url: https://hooks.example.com/swarm-deploy
+      method: POST
+      header:
+        X-Env: production
+
+web:
+  address: ":8080"
+
+healthServer:
+  address: ":8081"
+  metrics:
+    enabled: true
+    path: /metrics
+  healthz:
+    enabled: true
+    path: /healthz
+
+swarm:
+  command: docker
+  stackDeployArgs:
+    - stack
+    - deploy
+    - --with-registry-auth
+    - --prune
+  initJobPollEvery: 2s
+  initJobMaxDuration: 10m

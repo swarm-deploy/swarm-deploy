@@ -1,0 +1,4 @@
+stacks:
+  - name: myapp
+    composeFile: myapp.yaml
+

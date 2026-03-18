@@ -1,0 +1,487 @@
+package compose
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"gopkg.in/yaml.v3"
+)
+
+type ObjectRef struct {
+	Source string `json:"source"`
+	Target string `json:"target,omitempty"`
+}
+
+type InitJob struct {
+	Name        string            `json:"name"`
+	Image       string            `json:"image"`
+	Command     []string          `json:"command"`
+	Environment map[string]string `json:"environment,omitempty"`
+	Networks    []string          `json:"networks,omitempty"`
+	Secrets     []ObjectRef       `json:"secrets,omitempty"`
+	Configs     []ObjectRef       `json:"configs,omitempty"`
+	Timeout     time.Duration     `json:"timeout,omitempty"`
+}
+
+type Service struct {
+	Name     string      `json:"name"`
+	Image    string      `json:"image"`
+	Networks []string    `json:"networks,omitempty"`
+	Secrets  []ObjectRef `json:"secrets,omitempty"`
+	Configs  []ObjectRef `json:"configs,omitempty"`
+	InitJobs []InitJob   `json:"init_jobs,omitempty"`
+}
+
+type File struct {
+	RawMap   map[string]any `json:"-"`
+	RawBytes []byte         `json:"-"`
+	Services []Service      `json:"services"`
+}
+
+func Load(path string) (*File, error) {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read compose file %s: %w", path, err)
+	}
+
+	root := map[string]any{}
+	if err := yaml.Unmarshal(raw, &root); err != nil {
+		return nil, fmt.Errorf("decode compose yaml: %w", err)
+	}
+
+	services, err := parseServices(root)
+	if err != nil {
+		return nil, err
+	}
+
+	return &File{
+		RawMap:   root,
+		RawBytes: raw,
+		Services: services,
+	}, nil
+}
+
+func (f *File) MarshalYAML() ([]byte, error) {
+	payload, err := yaml.Marshal(f.RawMap)
+	if err != nil {
+		return nil, fmt.Errorf("marshal compose yaml: %w", err)
+	}
+	return payload, nil
+}
+
+func (f *File) ComputeDigest(composePath string) (string, error) {
+	if f == nil {
+		return "", errors.New("compose file is nil")
+	}
+
+	baseDir := filepath.Dir(composePath)
+	hasher := sha256.New()
+	hasher.Write(f.RawBytes)
+
+	for _, objectType := range []string{"configs", "secrets"} {
+		objects, ok := asMap(f.RawMap[objectType])
+		if !ok {
+			continue
+		}
+
+		names := mapKeys(objects)
+		sort.Strings(names)
+
+		for _, name := range names {
+			objectMap, ok := asMap(objects[name])
+			if !ok {
+				return "", fmt.Errorf("compose %s.%s must be a map", objectType, name)
+			}
+			if isExternalObject(objectMap) {
+				continue
+			}
+
+			fileValue := asString(objectMap["file"])
+			if fileValue == "" {
+				continue
+			}
+
+			absPath := filepath.Join(baseDir, fileValue)
+			content, err := os.ReadFile(absPath)
+			if err != nil {
+				return "", fmt.Errorf("read %s file %s for digest: %w", objectType, absPath, err)
+			}
+
+			hasher.Write([]byte(objectType))
+			hasher.Write([]byte(name))
+			hasher.Write([]byte(fileValue))
+			hasher.Write(content)
+		}
+	}
+
+	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+func (f *File) ApplyObjectRotation(
+	stackName string,
+	composePath string,
+	hashLength int,
+	includePath bool,
+) (bool, error) {
+	baseDir := filepath.Dir(composePath)
+	changed := false
+
+	for _, objectType := range []string{"configs", "secrets"} {
+		objects, ok := asMap(f.RawMap[objectType])
+		if !ok {
+			continue
+		}
+
+		for objectName, object := range objects {
+			objectMap, ok := asMap(object)
+			if !ok {
+				return false, fmt.Errorf("compose %s.%s must be a map", objectType, objectName)
+			}
+			if isExternalObject(objectMap) {
+				continue
+			}
+
+			fileValue := asString(objectMap["file"])
+			if fileValue == "" {
+				continue
+			}
+
+			fileBytes, err := os.ReadFile(filepath.Join(baseDir, fileValue))
+			if err != nil {
+				return false, fmt.Errorf("read %s %s for rotation: %w", objectType, fileValue, err)
+			}
+
+			sum := sha256.Sum256(fileBytes)
+			hash := hex.EncodeToString(sum[:])
+			if includePath {
+				pathSum := sha256.Sum256([]byte(fileValue))
+				hash = hash + hex.EncodeToString(pathSum[:])
+			}
+			if hashLength > 0 && hashLength < len(hash) {
+				hash = hash[:hashLength]
+			}
+
+			rotatedName := fmt.Sprintf("%s-%s-%s", stackName, objectName, hash)
+			if asString(objectMap["name"]) != rotatedName {
+				objectMap["name"] = rotatedName
+				changed = true
+			}
+		}
+	}
+
+	return changed, nil
+}
+
+func parseServices(root map[string]any) ([]Service, error) {
+	servicesMap, ok := asMap(root["services"])
+	if !ok {
+		return nil, errors.New("compose file does not contain services map")
+	}
+
+	names := mapKeys(servicesMap)
+	sort.Strings(names)
+
+	services := make([]Service, 0, len(names))
+	for _, name := range names {
+		serviceMap, ok := asMap(servicesMap[name])
+		if !ok {
+			return nil, fmt.Errorf("compose services.%s must be a map", name)
+		}
+
+		initJobs, err := parseInitJobs(serviceMap["x-init-deploy-jobs"])
+		if err != nil {
+			return nil, fmt.Errorf("parse services.%s.x-init-deploy-jobs: %w", name, err)
+		}
+
+		services = append(services, Service{
+			Name:     name,
+			Image:    asString(serviceMap["image"]),
+			Networks: parseNetworks(serviceMap["networks"]),
+			Secrets:  parseObjectRefs(serviceMap["secrets"]),
+			Configs:  parseObjectRefs(serviceMap["configs"]),
+			InitJobs: initJobs,
+		})
+	}
+
+	return services, nil
+}
+
+func parseInitJobs(raw any) ([]InitJob, error) {
+	if raw == nil {
+		return nil, nil
+	}
+
+	items, ok := raw.([]any)
+	if !ok {
+		return nil, errors.New("must be an array")
+	}
+
+	jobs := make([]InitJob, 0, len(items))
+	for i, item := range items {
+		jobMap, ok := asMap(item)
+		if !ok {
+			return nil, fmt.Errorf("item %d must be map", i)
+		}
+
+		name := asString(jobMap["name"])
+		if name == "" {
+			name = fmt.Sprintf("job-%d", i)
+		}
+
+		image := asString(jobMap["image"])
+		if image == "" {
+			return nil, fmt.Errorf("item %d image is required", i)
+		}
+
+		command, err := parseCommand(jobMap["command"])
+		if err != nil {
+			return nil, fmt.Errorf("item %d command: %w", i, err)
+		}
+
+		timeout, err := parseTimeout(jobMap["timeout"])
+		if err != nil {
+			return nil, fmt.Errorf("item %d timeout: %w", i, err)
+		}
+
+		jobs = append(jobs, InitJob{
+			Name:        name,
+			Image:       image,
+			Command:     command,
+			Environment: parseEnvironment(jobMap["environment"]),
+			Networks:    parseNetworks(jobMap["networks"]),
+			Secrets:     parseObjectRefs(jobMap["secrets"]),
+			Configs:     parseObjectRefs(jobMap["configs"]),
+			Timeout:     timeout,
+		})
+	}
+
+	return jobs, nil
+}
+
+func parseTimeout(v any) (time.Duration, error) {
+	switch t := v.(type) {
+	case nil:
+		return 0, nil
+	case int:
+		return time.Duration(t) * time.Second, nil
+	case int64:
+		return time.Duration(t) * time.Second, nil
+	case float64:
+		return time.Duration(int64(t)) * time.Second, nil
+	case string:
+		if t == "" {
+			return 0, nil
+		}
+		return time.ParseDuration(t)
+	default:
+		return 0, fmt.Errorf("unsupported type %T", v)
+	}
+}
+
+func parseCommand(raw any) ([]string, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	if s, ok := raw.(string); ok {
+		return strings.Fields(s), nil
+	}
+	items, ok := raw.([]any)
+	if !ok {
+		return nil, fmt.Errorf("command must be string or array")
+	}
+	result := make([]string, 0, len(items))
+	for i, item := range items {
+		result = append(result, asString(item))
+		if result[len(result)-1] == "" {
+			return nil, fmt.Errorf("command[%d] must be string", i)
+		}
+	}
+	return result, nil
+}
+
+func parseEnvironment(raw any) map[string]string {
+	if raw == nil {
+		return nil
+	}
+
+	out := map[string]string{}
+
+	if pairs, ok := raw.([]any); ok {
+		for _, pair := range pairs {
+			chunks := strings.SplitN(asString(pair), "=", 2)
+			if len(chunks) == 2 {
+				out[chunks[0]] = chunks[1]
+			}
+		}
+		return out
+	}
+
+	if envMap, ok := asMap(raw); ok {
+		for k, v := range envMap {
+			out[k] = asString(v)
+		}
+	}
+
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func parseNetworks(raw any) []string {
+	if raw == nil {
+		return nil
+	}
+
+	if list, ok := raw.([]any); ok {
+		out := make([]string, 0, len(list))
+		for _, item := range list {
+			v := asString(item)
+			if v != "" {
+				out = append(out, v)
+			}
+		}
+		return out
+	}
+
+	if mapValue, ok := asMap(raw); ok {
+		out := mapKeys(mapValue)
+		sort.Strings(out)
+		return out
+	}
+
+	one := asString(raw)
+	if one == "" {
+		return nil
+	}
+	return []string{one}
+}
+
+func parseObjectRefs(raw any) []ObjectRef {
+	if raw == nil {
+		return nil
+	}
+
+	items, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+
+	result := make([]ObjectRef, 0, len(items))
+	for _, item := range items {
+		if name := asString(item); name != "" {
+			result = append(result, ObjectRef{Source: name})
+			continue
+		}
+
+		entry, ok := asMap(item)
+		if !ok {
+			continue
+		}
+		source := asString(entry["source"])
+		target := asString(entry["target"])
+		if source == "" {
+			source = asString(entry["secret"])
+		}
+		if source == "" {
+			source = asString(entry["config"])
+		}
+		if source == "" {
+			continue
+		}
+		result = append(result, ObjectRef{Source: source, Target: target})
+	}
+
+	return result
+}
+
+func asMap(v any) (map[string]any, bool) {
+	if v == nil {
+		return nil, false
+	}
+	typed, ok := v.(map[string]any)
+	if ok {
+		return typed, true
+	}
+
+	typedIface, ok := v.(map[any]any)
+	if !ok {
+		return nil, false
+	}
+
+	out := make(map[string]any, len(typedIface))
+	for k, value := range typedIface {
+		out[asString(k)] = value
+	}
+	return out, true
+}
+
+func mapKeys(v map[string]any) []string {
+	keys := make([]string, 0, len(v))
+	for key := range v {
+		keys = append(keys, key)
+	}
+	return keys
+}
+
+func asString(v any) string {
+	switch typed := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return typed
+	case fmt.Stringer:
+		return typed.String()
+	case int:
+		return strconv.Itoa(typed)
+	case int64:
+		return strconv.FormatInt(typed, 10)
+	case float64:
+		return strconv.FormatFloat(typed, 'f', -1, 64)
+	case bool:
+		if typed {
+			return "true"
+		}
+		return "false"
+	default:
+		return ""
+	}
+}
+
+func isExternalObject(objectMap map[string]any) bool {
+	externalRaw, ok := objectMap["external"]
+	if !ok {
+		return false
+	}
+	switch typed := externalRaw.(type) {
+	case bool:
+		return typed
+	case string:
+		return strings.EqualFold(strings.TrimSpace(typed), "true")
+	default:
+		return false
+	}
+}
+
+func ImageVersion(fullName string) string {
+	if fullName == "" {
+		return ""
+	}
+	if idx := strings.LastIndex(fullName, "@"); idx >= 0 && idx+1 < len(fullName) {
+		return fullName[idx+1:]
+	}
+	lastSlash := strings.LastIndex(fullName, "/")
+	lastColon := strings.LastIndex(fullName, ":")
+	if lastColon > lastSlash && lastColon+1 < len(fullName) {
+		return fullName[lastColon+1:]
+	}
+	return "latest"
+}

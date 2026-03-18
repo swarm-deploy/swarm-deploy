@@ -1,0 +1,33 @@
+version: "3.9"
+
+services:
+  swarm-deploy:
+    image: golang:1.25-alpine
+    working_dir: /app
+    command: "go run ./cmd/swarm-deploy -config swarm-deploy.local.yaml"
+    volumes:
+      - ./:/app
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "8080:8080"
+      - "8081:8081"
+    restart: unless-stopped
+    secrets:
+      - git-private-key
+      - telegram-bot-token
+      - webhook-secret
+      - source: registry-auth-config
+        target: /etc/docker/config.json
+
+volumes:
+  swarm-deploy-data: {}
+
+secrets:
+  git-private-key:
+    file: ./secrets/git-private-key
+  telegram-bot-token:
+    file: ./secrets/telegram-bot-token
+  webhook-secret:
+    file: ./secrets/webhook-secret
+  registry-auth-config:
+    file: ./secrets/docker-config.json
