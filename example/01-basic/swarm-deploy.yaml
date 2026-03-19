@@ -42,3 +42,23 @@ swarm:
   initJobPollEvery: 2s
   # Maximum init job duration.
   initJobMaxDuration: 10m
+
+# UI and API web server addresses.
+web:
+  # API server listen address.
+  apiAddress: ":8080"
+  # Frontend server listen address.
+  frontendAddress: ":8082"
+
+# Dedicated health/metrics server.
+healthServer:
+  # Health/metrics server listen address.
+  address: ":8081"
+  # Metrics endpoint settings.
+  metrics:
+    # Prometheus metrics HTTP path.
+    path: /metrics
+  # Health endpoint settings.
+  healthz:
+    # Health-check HTTP path.
+    path: /healthz

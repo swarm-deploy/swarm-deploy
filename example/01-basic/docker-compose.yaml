@@ -8,6 +8,10 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - swarm-deploy-data:/etc/swarm-deploy/.swarm-deploy
     restart: unless-stopped
+    ports:
+      - "8080:8080"
+      - "8082:8082"
+      - "8081:8081"
     configs:
       - source: stacks
         target: /etc/swarm-deploy/stacks.yaml
