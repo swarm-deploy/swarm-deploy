@@ -67,16 +67,8 @@ func (d *Deployer) RunInitJob(ctx context.Context, spec InitJobSpec) error {
 	return d.runInitJobAPI(ctx, spec)
 }
 
-func buildInitJobName(stackName, serviceName, jobName string) string {
-	now := time.Now().UnixNano()
-	parts := []string{
-		sanitizeForName("init"),
-		sanitizeForName(stackName),
-		sanitizeForName(serviceName),
-		sanitizeForName(jobName),
-		fmt.Sprintf("%d", now),
-	}
-	return strings.Join(parts, "-")
+func buildInitJobName(_, _, jobName string) string {
+	return fmt.Sprintf("%s-%d", sanitizeForName(jobName), time.Now().UnixNano())
 }
 
 func sanitizeForName(v string) string {

@@ -231,6 +231,8 @@ func parseServices(root map[string]any) ([]Service, error) {
 		return nil, errors.New("compose file does not contain services map")
 	}
 
+	networkNames := parseTopLevelNetworkNames(root["networks"])
+
 	names := mapKeys(servicesMap)
 	sort.Strings(names)
 
@@ -241,7 +243,7 @@ func parseServices(root map[string]any) ([]Service, error) {
 			return nil, fmt.Errorf("compose services.%s must be a map", name)
 		}
 
-		initJobs, err := parseInitJobs(serviceMap["x-init-deploy-jobs"])
+		initJobs, err := parseInitJobs(serviceMap["x-init-deploy-jobs"], networkNames)
 		if err != nil {
 			return nil, fmt.Errorf("parse services.%s.x-init-deploy-jobs: %w", name, err)
 		}
@@ -249,7 +251,7 @@ func parseServices(root map[string]any) ([]Service, error) {
 		services = append(services, Service{
 			Name:     name,
 			Image:    asString(serviceMap["image"]),
-			Networks: parseNetworks(serviceMap["networks"]),
+			Networks: resolveNetworkAliases(parseNetworks(serviceMap["networks"]), networkNames),
 			Secrets:  parseObjectRefs(serviceMap["secrets"]),
 			Configs:  parseObjectRefs(serviceMap["configs"]),
 			InitJobs: initJobs,
@@ -259,7 +261,7 @@ func parseServices(root map[string]any) ([]Service, error) {
 	return services, nil
 }
 
-func parseInitJobs(raw any) ([]InitJob, error) {
+func parseInitJobs(raw any, networkNames map[string]string) ([]InitJob, error) {
 	if raw == nil {
 		return nil, nil
 	}
@@ -301,7 +303,7 @@ func parseInitJobs(raw any) ([]InitJob, error) {
 			Image:       image,
 			Command:     command,
 			Environment: parseEnvironment(jobMap["environment"]),
-			Networks:    parseNetworks(jobMap["networks"]),
+			Networks:    resolveNetworkAliases(parseNetworks(jobMap["networks"]), networkNames),
 			Secrets:     parseObjectRefs(jobMap["secrets"]),
 			Configs:     parseObjectRefs(jobMap["configs"]),
 			Timeout:     timeout,
@@ -408,6 +410,50 @@ func parseNetworks(raw any) []string {
 		return nil
 	}
 	return []string{one}
+}
+
+func parseTopLevelNetworkNames(raw any) map[string]string {
+	networkDefs, ok := asMap(raw)
+	if !ok {
+		return nil
+	}
+
+	out := make(map[string]string, len(networkDefs))
+	for alias, networkRaw := range networkDefs {
+		resolved := alias
+		if networkMap, networkIsMap := asMap(networkRaw); networkIsMap {
+			if name := asString(networkMap["name"]); name != "" {
+				resolved = name
+			}
+		}
+		out[alias] = resolved
+	}
+
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func resolveNetworkAliases(networks []string, namesByAlias map[string]string) []string {
+	if len(networks) == 0 {
+		return nil
+	}
+
+	if len(namesByAlias) == 0 {
+		return networks
+	}
+
+	out := make([]string, 0, len(networks))
+	for _, network := range networks {
+		resolved, ok := namesByAlias[network]
+		if ok && resolved != "" {
+			out = append(out, resolved)
+			continue
+		}
+		out = append(out, network)
+	}
+	return out
 }
 
 func parseObjectRefs(raw any) []ObjectRef {
