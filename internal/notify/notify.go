@@ -48,7 +48,7 @@ func (m *Manager) Notify(ctx context.Context, event Event) error {
 	)
 
 	for _, n := range m.notifiers {
-		n := n
+
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
