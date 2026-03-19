@@ -100,27 +100,30 @@ func (r *stackReconciler) Reconcile(
 
 	deployComposePath := composePath
 	if r.cfg.Spec.SecretRotation.Enabled {
-		if _, err := stackFile.ApplyObjectRotation(
+		_, err = stackFile.ApplyObjectRotation(
 			stackCfg.Name,
 			composePath,
 			r.cfg.Spec.SecretRotation.HashLength,
 			r.cfg.Spec.SecretRotation.IncludePath,
-		); err != nil {
+		)
+		if err != nil {
 			return result, wrapStackReconcileError("rotate objects", result.Services, err)
 		}
 
-		renderedPath, err := r.writeRenderedCompose(stackCfg.Name, stackFile)
-		if err != nil {
-			return result, wrapStackReconcileError("write rendered compose", result.Services, err)
+		renderedPath, renderedPathErr := r.writeRenderedCompose(stackCfg.Name, stackFile)
+		if renderedPathErr != nil {
+			return result, wrapStackReconcileError("write rendered compose", result.Services, renderedPathErr)
 		}
 		deployComposePath = renderedPath
 	}
 
-	if err := r.runInitJobs(ctx, stackCfg.Name, stackFile.Services); err != nil {
+	err = r.runInitJobs(ctx, stackCfg.Name, stackFile.Services)
+	if err != nil {
 		return result, wrapStackReconcileError("init jobs", result.Services, err)
 	}
 
-	if err := r.deployer.DeployStack(ctx, stackCfg.Name, deployComposePath); err != nil {
+	err = r.deployer.DeployStack(ctx, stackCfg.Name, deployComposePath)
+	if err != nil {
 		return result, wrapStackReconcileError("deploy", result.Services, err)
 	}
 
@@ -159,7 +162,8 @@ func (r *stackReconciler) writeRenderedCompose(stackName string, stackFile *comp
 	}
 
 	target := filepath.Join(renderedDir, stackName+".yaml")
-	if err := os.WriteFile(target, payload, 0o600); err != nil {
+	err = os.WriteFile(target, payload, 0o600)
+	if err != nil {
 		return "", fmt.Errorf("write rendered compose %s: %w", target, err)
 	}
 

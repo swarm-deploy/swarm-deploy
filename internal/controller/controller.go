@@ -164,7 +164,8 @@ func (c *Controller) syncOnce(ctx context.Context, reason TriggerReason) {
 
 	var deployErrs []error
 	for _, stackCfg := range c.cfg.Spec.Stacks {
-		if err := c.syncStack(ctx, stackCfg, syncResult.NewRevision); err != nil {
+		err = c.syncStack(ctx, stackCfg, syncResult.NewRevision)
+		if err != nil {
 			deployErrs = append(deployErrs, err)
 			slog.Error("sync failed for stack",
 				slog.String("reason", string(reason)),

@@ -17,6 +17,11 @@ const (
 	SyncModePull    = "pull"
 	SyncModeWebhook = "webhook"
 	SyncModeHybrid  = "hybrid"
+
+	defaultSyncPollInterval   = 30 * time.Second
+	defaultInitJobPollEvery   = 2 * time.Second
+	defaultInitJobMaxDuration = 10 * time.Minute
+	defaultInitJobsTimeout    = 10 * time.Minute
 )
 
 type Config struct {
@@ -71,6 +76,7 @@ type GitHTTPAuth struct {
 	// Username is HTTP basic auth username.
 	Username string `yaml:"username"`
 	// Password is HTTP basic auth password.
+	//nolint:gosec // Field name is part of a user-facing config schema and does not imply hardcoded secret usage.
 	Password string `yaml:"password"`
 	// PasswordEnv is an env variable name containing HTTP password.
 	PasswordEnv string `yaml:"passwordEnv"`
@@ -210,19 +216,23 @@ func Load(path string) (*Config, error) {
 	}
 
 	cfg := &Config{}
-	if err := yaml.Unmarshal(data, cfg); err != nil {
+	err = yaml.Unmarshal(data, cfg)
+	if err != nil {
 		return nil, fmt.Errorf("decode config yaml: %w", err)
 	}
 
 	configDir := filepath.Dir(path)
 
-	if err := cfg.applyDefaults(configDir); err != nil {
+	err = cfg.applyDefaults(configDir)
+	if err != nil {
 		return nil, err
 	}
-	if err := cfg.loadStacks(configDir); err != nil {
+	err = cfg.loadStacks(configDir)
+	if err != nil {
 		return nil, err
 	}
-	if err := cfg.validate(); err != nil {
+	err = cfg.validate()
+	if err != nil {
 		return nil, err
 	}
 
@@ -231,7 +241,20 @@ func Load(path string) (*Config, error) {
 
 func (c *Config) applyDefaults(configDir string) error {
 	c.Spec.DataDir = filepath.Join(configDir, ".swarm-deploy")
+	c.applyGitAndSyncDefaults(configDir)
+	c.applyWebAndHealthDefaults()
+	c.applyNotificationDefaults(configDir)
+	c.applySwarmDefaults()
+	c.applySecretRotationDefaults()
 
+	if err := os.MkdirAll(c.Spec.DataDir, 0o755); err != nil {
+		return fmt.Errorf("create data dir %s: %w", c.Spec.DataDir, err)
+	}
+
+	return nil
+}
+
+func (c *Config) applyGitAndSyncDefaults(configDir string) {
 	if c.Spec.Git.Branch == "" {
 		c.Spec.Git.Branch = "main"
 	}
@@ -239,7 +262,7 @@ func (c *Config) applyDefaults(configDir string) error {
 		c.Spec.Sync.Mode = SyncModeHybrid
 	}
 	if c.Spec.Sync.PollInterval.Value <= 0 {
-		c.Spec.Sync.PollInterval.Value = 30 * time.Second
+		c.Spec.Sync.PollInterval.Value = defaultSyncPollInterval
 	}
 	if c.Spec.Sync.Webhook.Path == "" {
 		c.Spec.Sync.Webhook.Path = "/api/v1/webhooks/git"
@@ -247,16 +270,20 @@ func (c *Config) applyDefaults(configDir string) error {
 	if strings.TrimSpace(c.Spec.Sync.Webhook.Address) == "" {
 		c.Spec.Sync.Webhook.Address = ":8080"
 	}
-	if secretPath := strings.TrimSpace(c.Spec.Sync.Webhook.SecretPath); secretPath != "" && !filepath.IsAbs(secretPath) {
+	if secretPath := strings.TrimSpace(c.Spec.Sync.Webhook.SecretPath); secretPath != "" &&
+		!filepath.IsAbs(secretPath) {
 		c.Spec.Sync.Webhook.SecretPath = filepath.Join(configDir, secretPath)
 	}
-	if passphrasePath := strings.TrimSpace(c.Spec.Git.Auth.SSH.PassphrasePath); passphrasePath != "" && !filepath.IsAbs(passphrasePath) {
+	if passphrasePath := strings.TrimSpace(c.Spec.Git.Auth.SSH.PassphrasePath); passphrasePath != "" &&
+		!filepath.IsAbs(passphrasePath) {
 		c.Spec.Git.Auth.SSH.PassphrasePath = filepath.Join(configDir, passphrasePath)
 	}
 	if c.Spec.Sync.Mode == SyncModeWebhook && !c.Spec.Sync.Webhook.Enabled {
 		c.Spec.Sync.Webhook.Enabled = true
 	}
+}
 
+func (c *Config) applyWebAndHealthDefaults() {
 	if strings.TrimSpace(c.Spec.Web.APIAddress) == "" {
 		c.Spec.Web.APIAddress = ":8080"
 	}
@@ -272,14 +299,18 @@ func (c *Config) applyDefaults(configDir string) error {
 	if c.Spec.HealthServer.Healthz.Path == "" {
 		c.Spec.HealthServer.Healthz.Path = "/healthz"
 	}
+}
 
+func (c *Config) applyNotificationDefaults(configDir string) {
 	for i := range c.Spec.Notifications.Telegram {
 		tokenPath := strings.TrimSpace(c.Spec.Notifications.Telegram[i].BotTokenPath)
 		if tokenPath != "" && !filepath.IsAbs(tokenPath) {
 			c.Spec.Notifications.Telegram[i].BotTokenPath = filepath.Join(configDir, tokenPath)
 		}
 	}
+}
 
+func (c *Config) applySwarmDefaults() {
 	if c.Spec.Swarm.Command == "" {
 		c.Spec.Swarm.Command = "docker"
 	}
@@ -287,24 +318,20 @@ func (c *Config) applyDefaults(configDir string) error {
 		c.Spec.Swarm.StackDeployArgs = []string{"stack", "deploy", "--with-registry-auth", "--prune"}
 	}
 	if c.Spec.Swarm.InitJobPollEvery.Value <= 0 {
-		c.Spec.Swarm.InitJobPollEvery.Value = 2 * time.Second
+		c.Spec.Swarm.InitJobPollEvery.Value = defaultInitJobPollEvery
 	}
 	if c.Spec.Swarm.InitJobMaxDuration.Value <= 0 {
-		c.Spec.Swarm.InitJobMaxDuration.Value = 10 * time.Minute
+		c.Spec.Swarm.InitJobMaxDuration.Value = defaultInitJobMaxDuration
 	}
 	if c.Spec.InitJobsTimeout.Value <= 0 {
-		c.Spec.InitJobsTimeout.Value = 10 * time.Minute
+		c.Spec.InitJobsTimeout.Value = defaultInitJobsTimeout
 	}
+}
 
+func (c *Config) applySecretRotationDefaults() {
 	if c.Spec.SecretRotation.HashLength <= 0 {
 		c.Spec.SecretRotation.HashLength = 8
 	}
-
-	if err := os.MkdirAll(c.Spec.DataDir, 0o755); err != nil {
-		return fmt.Errorf("create data dir %s: %w", c.Spec.DataDir, err)
-	}
-
-	return nil
 }
 
 func (c *Config) loadStacks(configDir string) error {
@@ -327,7 +354,8 @@ func (c *Config) loadStacks(configDir string) error {
 	}
 
 	var container stacksContainer
-	if err := yaml.Unmarshal(data, &container); err != nil {
+	err = yaml.Unmarshal(data, &container)
+	if err != nil {
 		return fmt.Errorf("decode stacks file %s: %w", stacksPath, err)
 	}
 	if len(container.Stacks) > 0 {
@@ -336,7 +364,8 @@ func (c *Config) loadStacks(configDir string) error {
 	}
 
 	var list []StackSpec
-	if err := yaml.Unmarshal(data, &list); err != nil {
+	err = yaml.Unmarshal(data, &list)
+	if err != nil {
 		return fmt.Errorf("decode stacks list %s: %w", stacksPath, err)
 	}
 	if len(list) == 0 {
@@ -350,6 +379,19 @@ func (c *Config) loadStacks(configDir string) error {
 func (c *Config) validate() error {
 	var errs []error
 
+	errs = append(errs, c.validateRequired()...)
+	errs = append(errs, c.validateStacks()...)
+	errs = append(errs, c.validateSync()...)
+	errs = append(errs, c.validateGitAuth()...)
+	errs = append(errs, c.validateTelegramNotifications()...)
+	errs = append(errs, c.validateCustomNotifications()...)
+
+	return errors.Join(errs...)
+}
+
+func (c *Config) validateRequired() []error {
+	var errs []error
+
 	if c.Spec.Git.Repository == "" {
 		errs = append(errs, errors.New("git.repository is required"))
 	}
@@ -359,6 +401,12 @@ func (c *Config) validate() error {
 	if len(c.Spec.Stacks) == 0 {
 		errs = append(errs, errors.New("stacks file must contain at least one stack"))
 	}
+
+	return errs
+}
+
+func (c *Config) validateStacks() []error {
+	var errs []error
 
 	seen := map[string]struct{}{}
 	for i, stack := range c.Spec.Stacks {
@@ -374,11 +422,28 @@ func (c *Config) validate() error {
 		seen[stack.Name] = struct{}{}
 	}
 
+	return errs
+}
+
+func (c *Config) validateSync() []error {
+	var errs []error
+
 	switch c.Spec.Sync.Mode {
 	case SyncModePull, SyncModeWebhook, SyncModeHybrid:
 	default:
 		errs = append(errs, fmt.Errorf("sync.mode must be one of %q|%q|%q", SyncModePull, SyncModeWebhook, SyncModeHybrid))
 	}
+
+	if c.Spec.Sync.Webhook.Enabled && c.Spec.Sync.Mode == SyncModePull {
+		errs = append(errs, errors.New("sync.webhook.enabled=true conflicts with sync.mode=pull"))
+	}
+	errs = append(errs, c.validateWebhookSecret()...)
+
+	return errs
+}
+
+func (c *Config) validateGitAuth() []error {
+	var errs []error
 
 	authType := strings.ToLower(strings.TrimSpace(c.Spec.Git.Auth.Type))
 	switch authType {
@@ -387,23 +452,32 @@ func (c *Config) validate() error {
 		errs = append(errs, fmt.Errorf("git.auth.type must be one of none|http|ssh, got %q", c.Spec.Git.Auth.Type))
 	}
 
-	if c.Spec.Sync.Webhook.Enabled && c.Spec.Sync.Mode == SyncModePull {
-		errs = append(errs, errors.New("sync.webhook.enabled=true conflicts with sync.mode=pull"))
+	return errs
+}
+
+func (c *Config) validateWebhookSecret() []error {
+	if !c.Spec.Sync.Webhook.Enabled {
+		return nil
 	}
 
-	if c.Spec.Sync.Webhook.Enabled {
-		secretPath := strings.TrimSpace(c.Spec.Sync.Webhook.SecretPath)
-		if secretPath == "" {
-			errs = append(errs, errors.New("webhook enabled but sync.webhook.secretPath is empty"))
-		} else {
-			payload, err := os.ReadFile(secretPath)
-			if err != nil {
-				errs = append(errs, fmt.Errorf("read sync.webhook.secretPath %s: %w", secretPath, err))
-			} else if strings.TrimSpace(string(payload)) == "" {
-				errs = append(errs, errors.New("webhook enabled but sync.webhook.secretPath contains empty secret"))
-			}
-		}
+	secretPath := strings.TrimSpace(c.Spec.Sync.Webhook.SecretPath)
+	if secretPath == "" {
+		return []error{errors.New("webhook enabled but sync.webhook.secretPath is empty")}
 	}
+
+	payload, err := os.ReadFile(secretPath)
+	if err != nil {
+		return []error{fmt.Errorf("read sync.webhook.secretPath %s: %w", secretPath, err)}
+	}
+	if strings.TrimSpace(string(payload)) == "" {
+		return []error{errors.New("webhook enabled but sync.webhook.secretPath contains empty secret")}
+	}
+
+	return nil
+}
+
+func (c *Config) validateTelegramNotifications() []error {
+	var errs []error
 
 	for i, tg := range c.Spec.Notifications.Telegram {
 		if tg.ChatID == "" {
@@ -420,13 +494,19 @@ func (c *Config) validate() error {
 		}
 	}
 
+	return errs
+}
+
+func (c *Config) validateCustomNotifications() []error {
+	var errs []error
+
 	for i, ch := range c.Spec.Notifications.Custom {
 		if ch.ResolveURL() == "" {
 			errs = append(errs, fmt.Errorf("notifications.custom[%d].url or urlEnv is required", i))
 		}
 	}
 
-	return errors.Join(errs...)
+	return errs
 }
 
 func (w WebhookSpec) ResolveSecret() string {

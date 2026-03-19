@@ -10,6 +10,8 @@ import (
 	"github.com/docker/docker/client"
 )
 
+const deployArgsExtraCount = 3
+
 type Deployer struct {
 	command         string
 	stackDeployArgs []string
@@ -51,7 +53,7 @@ func NewDeployer(
 }
 
 func (d *Deployer) DeployStack(ctx context.Context, stackName, composePath string) error {
-	args := make([]string, 0, len(d.stackDeployArgs)+3)
+	args := make([]string, 0, len(d.stackDeployArgs)+deployArgsExtraCount)
 	args = append(args, d.stackDeployArgs...)
 	args = append(args, "-c", composePath, stackName)
 

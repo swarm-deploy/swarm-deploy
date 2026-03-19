@@ -59,7 +59,7 @@ func NewTelegramNotifier(name, token, chatID string, options TelegramOptions) (*
 		chatThreadID: options.ChatThreadID,
 		apiBaseURL:   strings.TrimRight(apiBaseURL, "/"),
 		messageTmpl:  tmpl,
-		client:       &http.Client{Timeout: 10 * time.Second},
+		client:       &http.Client{Timeout: defaultNotifyHTTPTimeout},
 	}, nil
 }
 
@@ -100,6 +100,7 @@ func (n *TelegramNotifier) Notify(ctx context.Context, event Event) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
+	//nolint:gosec // Telegram endpoint is configured by operator and required for outbound notifications.
 	resp, err := n.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("send request: %w", err)

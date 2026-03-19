@@ -46,6 +46,10 @@ type File struct {
 	Services []Service      `json:"services"`
 }
 
+const envPairParts = 2
+
+var rotatableObjectTypes = []string{"configs", "secrets"}
+
 func Load(path string) (*File, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -53,7 +57,8 @@ func Load(path string) (*File, error) {
 	}
 
 	root := map[string]any{}
-	if err := yaml.Unmarshal(raw, &root); err != nil {
+	err = yaml.Unmarshal(raw, &root)
+	if err != nil {
 		return nil, fmt.Errorf("decode compose yaml: %w", err)
 	}
 
@@ -86,9 +91,9 @@ func (f *File) ComputeDigest(composePath string) (string, error) {
 	hasher := sha256.New()
 	hasher.Write(f.RawBytes)
 
-	for _, objectType := range []string{"configs", "secrets"} {
-		objects, ok := asMap(f.RawMap[objectType])
-		if !ok {
+	for _, objectType := range rotatableObjectTypes {
+		objects, hasObjects := asMap(f.RawMap[objectType])
+		if !hasObjects {
 			continue
 		}
 
@@ -96,8 +101,8 @@ func (f *File) ComputeDigest(composePath string) (string, error) {
 		sort.Strings(names)
 
 		for _, name := range names {
-			objectMap, ok := asMap(objects[name])
-			if !ok {
+			objectMap, objectMapValid := asMap(objects[name])
+			if !objectMapValid {
 				return "", fmt.Errorf("compose %s.%s must be a map", objectType, name)
 			}
 			if isExternalObject(objectMap) {
@@ -134,55 +139,95 @@ func (f *File) ApplyObjectRotation(
 	baseDir := filepath.Dir(composePath)
 	changed := false
 
-	for _, objectType := range []string{"configs", "secrets"} {
-		objects, ok := asMap(f.RawMap[objectType])
-		if !ok {
-			continue
+	for _, objectType := range rotatableObjectTypes {
+		typeChanged, err := f.applyObjectTypeRotation(
+			objectType,
+			stackName,
+			baseDir,
+			hashLength,
+			includePath,
+		)
+		if err != nil {
+			return false, err
 		}
-
-		for objectName, object := range objects {
-			objectMap, ok := asMap(object)
-			if !ok {
-				return false, fmt.Errorf("compose %s.%s must be a map", objectType, objectName)
-			}
-			if isExternalObject(objectMap) {
-				continue
-			}
-
-			fileValue := asString(objectMap["file"])
-			if fileValue == "" {
-				continue
-			}
-
-			fileBytes, err := os.ReadFile(filepath.Join(baseDir, fileValue))
-			if err != nil {
-				return false, fmt.Errorf("read %s %s for rotation: %w", objectType, fileValue, err)
-			}
-
-			sum := sha256.Sum256(fileBytes)
-			hash := hex.EncodeToString(sum[:])
-			if includePath {
-				pathSum := sha256.Sum256([]byte(fileValue))
-				hash = hash + hex.EncodeToString(pathSum[:])
-			}
-			if hashLength > 0 && hashLength < len(hash) {
-				hash = hash[:hashLength]
-			}
-
-			rotatedName := fmt.Sprintf("%s-%s-%s", stackName, objectName, hash)
-			if asString(objectMap["name"]) != rotatedName {
-				objectMap["name"] = rotatedName
-				changed = true
-			}
+		if typeChanged {
+			changed = true
 		}
 	}
 
 	return changed, nil
 }
 
+func (f *File) applyObjectTypeRotation(
+	objectType string,
+	stackName string,
+	baseDir string,
+	hashLength int,
+	includePath bool,
+) (bool, error) {
+	objects, hasObjects := asMap(f.RawMap[objectType])
+	if !hasObjects {
+		return false, nil
+	}
+
+	changed := false
+	for objectName, object := range objects {
+		objectMap, objectMapValid := asMap(object)
+		if !objectMapValid {
+			return false, fmt.Errorf("compose %s.%s must be a map", objectType, objectName)
+		}
+		if isExternalObject(objectMap) {
+			continue
+		}
+
+		fileValue := asString(objectMap["file"])
+		if fileValue == "" {
+			continue
+		}
+
+		fileBytes, err := os.ReadFile(filepath.Join(baseDir, fileValue))
+		if err != nil {
+			return false, fmt.Errorf("read %s %s for rotation: %w", objectType, fileValue, err)
+		}
+
+		rotatedName := buildRotatedObjectName(stackName, objectName, fileValue, fileBytes, hashLength, includePath)
+		if asString(objectMap["name"]) == rotatedName {
+			continue
+		}
+
+		objectMap["name"] = rotatedName
+		changed = true
+	}
+
+	return changed, nil
+}
+
+func buildRotatedObjectName(
+	stackName string,
+	objectName string,
+	fileValue string,
+	fileBytes []byte,
+	hashLength int,
+	includePath bool,
+) string {
+	sum := sha256.Sum256(fileBytes)
+	hash := hex.EncodeToString(sum[:])
+
+	if includePath {
+		pathSum := sha256.Sum256([]byte(fileValue))
+		hash += hex.EncodeToString(pathSum[:])
+	}
+
+	if hashLength > 0 && hashLength < len(hash) {
+		hash = hash[:hashLength]
+	}
+
+	return fmt.Sprintf("%s-%s-%s", stackName, objectName, hash)
+}
+
 func parseServices(root map[string]any) ([]Service, error) {
-	servicesMap, ok := asMap(root["services"])
-	if !ok {
+	servicesMap, servicesMapFound := asMap(root["services"])
+	if !servicesMapFound {
 		return nil, errors.New("compose file does not contain services map")
 	}
 
@@ -191,8 +236,8 @@ func parseServices(root map[string]any) ([]Service, error) {
 
 	services := make([]Service, 0, len(names))
 	for _, name := range names {
-		serviceMap, ok := asMap(servicesMap[name])
-		if !ok {
+		serviceMap, serviceMapValid := asMap(servicesMap[name])
+		if !serviceMapValid {
 			return nil, fmt.Errorf("compose services.%s must be a map", name)
 		}
 
@@ -219,15 +264,15 @@ func parseInitJobs(raw any) ([]InitJob, error) {
 		return nil, nil
 	}
 
-	items, ok := raw.([]any)
-	if !ok {
+	items, itemsIsArray := raw.([]any)
+	if !itemsIsArray {
 		return nil, errors.New("must be an array")
 	}
 
 	jobs := make([]InitJob, 0, len(items))
 	for i, item := range items {
-		jobMap, ok := asMap(item)
-		if !ok {
+		jobMap, itemIsMap := asMap(item)
+		if !itemIsMap {
 			return nil, fmt.Errorf("item %d must be map", i)
 		}
 
@@ -316,8 +361,8 @@ func parseEnvironment(raw any) map[string]string {
 
 	if pairs, ok := raw.([]any); ok {
 		for _, pair := range pairs {
-			chunks := strings.SplitN(asString(pair), "=", 2)
-			if len(chunks) == 2 {
+			chunks := strings.SplitN(asString(pair), "=", envPairParts)
+			if len(chunks) == envPairParts {
 				out[chunks[0]] = chunks[1]
 			}
 		}
@@ -352,7 +397,7 @@ func parseNetworks(raw any) []string {
 		return out
 	}
 
-	if mapValue, ok := asMap(raw); ok {
+	if mapValue, mapValueFound := asMap(raw); mapValueFound {
 		out := mapKeys(mapValue)
 		sort.Strings(out)
 		return out
@@ -370,8 +415,8 @@ func parseObjectRefs(raw any) []ObjectRef {
 		return nil
 	}
 
-	items, ok := raw.([]any)
-	if !ok {
+	items, itemsIsArray := raw.([]any)
+	if !itemsIsArray {
 		return nil
 	}
 
@@ -382,8 +427,8 @@ func parseObjectRefs(raw any) []ObjectRef {
 			continue
 		}
 
-		entry, ok := asMap(item)
-		if !ok {
+		entry, entryIsMap := asMap(item)
+		if !entryIsMap {
 			continue
 		}
 		source := asString(entry["source"])

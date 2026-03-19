@@ -12,6 +12,8 @@ import (
 	"github.com/artarts36/swarm-deploy/internal/controller"
 )
 
+const readHeaderTimeout = 10 * time.Second
+
 type Application struct {
 	mux     *http.ServeMux
 	server  *http.Server
@@ -30,7 +32,7 @@ func NewApplication(address string, cfg *config.Config, control *controller.Cont
 	app.server = &http.Server{
 		Addr:              address,
 		Handler:           app.mux,
-		ReadHeaderTimeout: 10 * time.Second,
+		ReadHeaderTimeout: readHeaderTimeout,
 	}
 
 	return app

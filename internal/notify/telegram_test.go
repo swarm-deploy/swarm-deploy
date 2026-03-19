@@ -36,8 +36,9 @@ func TestTelegramNotifierSendsThreadAndRenderedTemplate(t *testing.T) {
 			}
 
 			defer r.Body.Close()
-			if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
-				t.Fatalf("decode request body: %v", err)
+			decodeErr := json.NewDecoder(r.Body).Decode(&received)
+			if decodeErr != nil {
+				t.Fatalf("decode request body: %v", decodeErr)
 			}
 
 			return &http.Response{
@@ -66,7 +67,11 @@ func TestTelegramNotifierSendsThreadAndRenderedTemplate(t *testing.T) {
 	if received["chat_id"] != "-100123" {
 		t.Fatalf("unexpected chat_id: %#v", received["chat_id"])
 	}
-	if int64(received["message_thread_id"].(float64)) != 42 {
+	threadIDRaw, ok := received["message_thread_id"].(float64)
+	if !ok {
+		t.Fatalf("message_thread_id has unexpected type: %#v", received["message_thread_id"])
+	}
+	if int64(threadIDRaw) != 42 {
 		t.Fatalf("unexpected message_thread_id: %#v", received["message_thread_id"])
 	}
 	if received["text"] != "stack=app image=ghcr.io/acme/api:1.2.3 success=true" {

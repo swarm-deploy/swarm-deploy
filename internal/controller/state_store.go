@@ -80,29 +80,29 @@ func (s *runtimeStateStore) listStacks(specs []config.StackSpec) []StackView {
 	stacks := make([]StackView, 0, len(specs))
 
 	for _, stackCfg := range specs {
-		stackState, ok := snapshot.Stacks[stackCfg.Name]
+		stackSnapshot, exists := snapshot.Stacks[stackCfg.Name]
 		view := StackView{
 			Name:         stackCfg.Name,
 			ComposeFile:  stackCfg.ComposeFile,
 			LastStatus:   "unknown",
-			SourceDigest: stackState.SourceDigest,
+			SourceDigest: stackSnapshot.SourceDigest,
 			Services:     nil,
 		}
-		if ok {
-			view.LastStatus = stackState.LastStatus
-			view.LastError = stackState.LastError
-			view.LastCommit = stackState.LastCommit
-			view.LastDeployAt = stackState.LastDeployAt
+		if exists {
+			view.LastStatus = stackSnapshot.LastStatus
+			view.LastError = stackSnapshot.LastError
+			view.LastCommit = stackSnapshot.LastCommit
+			view.LastDeployAt = stackSnapshot.LastDeployAt
 		}
 
-		serviceNames := make([]string, 0, len(stackState.Services))
-		for serviceName := range stackState.Services {
+		serviceNames := make([]string, 0, len(stackSnapshot.Services))
+		for serviceName := range stackSnapshot.Services {
 			serviceNames = append(serviceNames, serviceName)
 		}
 		sort.Strings(serviceNames)
 
 		for _, serviceName := range serviceNames {
-			service := stackState.Services[serviceName]
+			service := stackSnapshot.Services[serviceName]
 			view.Services = append(view.Services, ServiceView{
 				Name:         serviceName,
 				Image:        service.Image,

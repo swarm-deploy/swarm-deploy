@@ -9,6 +9,8 @@ import (
 	"github.com/artarts36/swarm-deploy/internal/controller"
 )
 
+const readHeaderTimeout = 10 * time.Second
+
 type Application struct {
 	mux     *http.ServeMux
 	server  *http.Server
@@ -25,14 +27,14 @@ func NewApplication(address string, control *controller.Controller) *Application
 	app.server = &http.Server{
 		Addr:              address,
 		Handler:           app.mux,
-		ReadHeaderTimeout: 10 * time.Second,
+		ReadHeaderTimeout: readHeaderTimeout,
 	}
 
 	return app
 }
 
 func (a *Application) Entrypoint() entrypoint.Entrypoint {
-	return entrypoint.HTTPServer("APIServer", a.server)
+	return entrypoint.HTTPServer("api-server", a.server)
 }
 
 func (a *Application) registerRoutes() {

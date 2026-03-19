@@ -22,8 +22,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-func main() {
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+const shutdownTimeout = 30 * time.Second
+
+func main() { //nolint:funlen // not need
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	slog.SetDefault(logger)
 
 	configPath := flag.String("config", "swarm-deploy.yaml", "Path to config file")
@@ -35,7 +37,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := os.MkdirAll(cfg.Spec.DataDir, 0o755); err != nil {
+	err = os.MkdirAll(cfg.Spec.DataDir, 0o755)
+	if err != nil {
 		slog.Error("failed to create data dir", slog.String("dir", cfg.Spec.DataDir), slog.Any("err", err))
 		os.Exit(1)
 	}
@@ -105,7 +108,7 @@ func main() {
 
 	runner := entrypoint.NewRunner(
 		entrypoints,
-		entrypoint.WithShutdownTimeout(30*time.Second),
+		entrypoint.WithShutdownTimeout(shutdownTimeout),
 	)
 
 	slog.Info("starting swarm deploy",
@@ -119,7 +122,8 @@ func main() {
 		slog.String("mode", cfg.Spec.Sync.Mode),
 		slog.String("repo", cfg.Spec.Git.Repository),
 	)
-	if err := runner.Run(); err != nil {
+	err = runner.Run()
+	if err != nil {
 		slog.Error("failed to run", slog.Any("err", err))
 		os.Exit(1)
 	}

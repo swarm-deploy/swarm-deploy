@@ -7,10 +7,10 @@ import (
 )
 
 type Recorder struct {
-	deployTotal    *prometheus.CounterVec
-	gitUpdates     *prometheus.CounterVec
-	syncRuns       *prometheus.CounterVec
-	syncDurationMs *prometheus.HistogramVec
+	deployTotal  *prometheus.CounterVec
+	gitUpdates   *prometheus.CounterVec
+	syncRuns     *prometheus.CounterVec
+	syncDuration *prometheus.HistogramVec
 }
 
 func New(reg prometheus.Registerer) (*Recorder, error) {
@@ -38,11 +38,11 @@ func New(reg prometheus.Registerer) (*Recorder, error) {
 		[]string{"reason", "result"},
 	)
 
-	syncDurationMs := prometheus.NewHistogramVec(
+	syncDuration := prometheus.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "swarm_sync_duration_milliseconds",
-			Help:    "Sync run duration in milliseconds.",
-			Buckets: []float64{100, 250, 500, 1000, 2500, 5000, 10000, 30000, 60000, 120000},
+			Name:    "swarm_sync_duration_seconds",
+			Help:    "Sync run duration in seconds.",
+			Buckets: []float64{0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120},
 		},
 		[]string{"reason", "result"},
 	)
@@ -56,15 +56,15 @@ func New(reg prometheus.Registerer) (*Recorder, error) {
 	if err := reg.Register(syncRuns); err != nil {
 		return nil, err
 	}
-	if err := reg.Register(syncDurationMs); err != nil {
+	if err := reg.Register(syncDuration); err != nil {
 		return nil, err
 	}
 
 	return &Recorder{
-		deployTotal:    deployTotal,
-		gitUpdates:     gitUpdates,
-		syncRuns:       syncRuns,
-		syncDurationMs: syncDurationMs,
+		deployTotal:  deployTotal,
+		gitUpdates:   gitUpdates,
+		syncRuns:     syncRuns,
+		syncDuration: syncDuration,
 	}, nil
 }
 
@@ -78,5 +78,5 @@ func (r *Recorder) RecordGitUpdate(repo, result string) {
 
 func (r *Recorder) RecordSyncRun(reason, result string, duration time.Duration) {
 	r.syncRuns.WithLabelValues(reason, result).Inc()
-	r.syncDurationMs.WithLabelValues(reason, result).Observe(float64(duration.Milliseconds()))
+	r.syncDuration.WithLabelValues(reason, result).Observe(duration.Seconds())
 }

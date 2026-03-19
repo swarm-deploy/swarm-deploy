@@ -9,6 +9,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
+const readHeaderTimeout = 10 * time.Second
+
 type Application struct {
 	mux *http.ServeMux
 
@@ -26,14 +28,14 @@ func NewApplication(cfg config.HealthServerSpec) *Application {
 	s.server = &http.Server{
 		Addr:              cfg.Address,
 		Handler:           s.mux,
-		ReadHeaderTimeout: 10 * time.Second,
+		ReadHeaderTimeout: readHeaderTimeout,
 	}
 
 	return s
 }
 
 func (s *Application) Entrypoint() entrypoint.Entrypoint {
-	return entrypoint.HTTPServer("HealthServer", s.server)
+	return entrypoint.HTTPServer("health-server", s.server)
 }
 
 func (s *Application) handleHealth(w http.ResponseWriter, _ *http.Request) {

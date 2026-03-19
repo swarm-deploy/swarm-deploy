@@ -10,6 +10,12 @@ import (
 	"time"
 )
 
+const (
+	defaultNotifyHTTPTimeout = 10 * time.Second
+	httpStatusClassDivisor   = 100
+	httpStatusClassSuccess   = 2
+)
+
 type CustomWebhookNotifier struct {
 	name    string
 	url     string
@@ -27,7 +33,7 @@ func NewCustomWebhookNotifier(name, url, method string, headers map[string]strin
 		url:     url,
 		method:  strings.ToUpper(method),
 		headers: headers,
-		client:  &http.Client{Timeout: 10 * time.Second},
+		client:  &http.Client{Timeout: defaultNotifyHTTPTimeout},
 	}
 }
 
@@ -54,13 +60,14 @@ func (n *CustomWebhookNotifier) Notify(ctx context.Context, event Event) error {
 		req.Header.Set(key, val)
 	}
 
+	//nolint:gosec // Destination URL is controlled by operator configuration for webhook notifications.
 	resp, err := n.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("send request: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode/100 != 2 {
+	if resp.StatusCode/httpStatusClassDivisor != httpStatusClassSuccess {
 		return fmt.Errorf("unexpected status: %s", resp.Status)
 	}
 	return nil

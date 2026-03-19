@@ -137,6 +137,7 @@ func resolveHead(repo *git.Repository) (string, error) {
 func buildAuthMethod(auth config.GitAuthSpec) (transport.AuthMethod, error) {
 	switch strings.ToLower(strings.TrimSpace(auth.Type)) {
 	case "", "none":
+		//nolint:nilnil // nil auth method explicitly means anonymous access for go-git.
 		return nil, nil
 	case "http":
 		password := auth.HTTP.ResolvePassword()
@@ -181,15 +182,16 @@ func buildSSHAuthMethod(auth config.GitSSHAuthSpec) (transport.AuthMethod, error
 
 	if auth.InsecureIgnoreHostKey {
 		pk.HostKeyCallbackHelper = gitssh.HostKeyCallbackHelper{
+			//nolint:gosec // This mode is explicitly requested by configuration for legacy/private infrastructures.
 			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		}
 		return pk, nil
 	}
 
 	if auth.KnownHostsPath != "" {
-		callback, err := knownhosts.New(auth.KnownHostsPath)
-		if err != nil {
-			return nil, fmt.Errorf("build known_hosts callback: %w", err)
+		callback, callbackErr := knownhosts.New(auth.KnownHostsPath)
+		if callbackErr != nil {
+			return nil, fmt.Errorf("build known_hosts callback: %w", callbackErr)
 		}
 		pk.HostKeyCallbackHelper = gitssh.HostKeyCallbackHelper{
 			HostKeyCallback: callback,

@@ -54,6 +54,10 @@ linters:
     - usestdlibvars
     - wastedassign
   settings:
+    revive:
+      rules:
+        - name: confusing-naming
+          disabled: true
     cyclop:
       max-complexity: 30
       package-average: 10

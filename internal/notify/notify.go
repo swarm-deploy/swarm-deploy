@@ -37,7 +37,7 @@ func NewManager(notifiers ...Notifier) *Manager {
 }
 
 func (m *Manager) Notify(ctx context.Context, event Event) error {
-	if m == nil || len(m.notifiers) == 0 {
+	if len(m.notifiers) == 0 {
 		return nil
 	}
 
@@ -48,7 +48,6 @@ func (m *Manager) Notify(ctx context.Context, event Event) error {
 	)
 
 	for _, n := range m.notifiers {
-
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
