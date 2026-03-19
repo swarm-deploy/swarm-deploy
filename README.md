@@ -107,6 +107,7 @@ In a Telegram channel you can set:
 Available template fields:
 
 - `.status`
+- `.success` (bool, `true` when `.status == "success"`)
 - `.stack_name`
 - `.service`
 - `.image.full_name`

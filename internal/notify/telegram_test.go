@@ -19,7 +19,7 @@ func TestTelegramNotifierSendsThreadAndRenderedTemplate(t *testing.T) {
 		"-100123",
 		TelegramOptions{
 			ChatThreadID: 42,
-			Message:      "stack={{.stack_name}} image={{.image.full_name}}:{{.image.version}}",
+			Message:      "stack={{.stack_name}} image={{.image.full_name}}:{{.image.version}} success={{.success}}",
 			APIBaseURL:   "https://telegram.invalid",
 		},
 	)
@@ -69,7 +69,7 @@ func TestTelegramNotifierSendsThreadAndRenderedTemplate(t *testing.T) {
 	if int64(received["message_thread_id"].(float64)) != 42 {
 		t.Fatalf("unexpected message_thread_id: %#v", received["message_thread_id"])
 	}
-	if received["text"] != "stack=app image=ghcr.io/acme/api:1.2.3" {
+	if received["text"] != "stack=app image=ghcr.io/acme/api:1.2.3 success=true" {
 		t.Fatalf("unexpected text: %#v", received["text"])
 	}
 }

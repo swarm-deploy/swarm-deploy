@@ -121,6 +121,7 @@ func (n *TelegramNotifier) Notify(ctx context.Context, event Event) error {
 func (n *TelegramNotifier) renderMessage(event Event) (string, error) {
 	data := map[string]any{
 		"status":     event.Status,
+		"success":    strings.EqualFold(event.Status, "success"),
 		"stack_name": event.StackName,
 		"service":    event.Service,
 		"image": map[string]any{
