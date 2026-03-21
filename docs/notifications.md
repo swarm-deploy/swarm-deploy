@@ -10,13 +10,11 @@ In a Telegram channel you can set:
 
 Available template fields:
 
-- For `deploySuccess` and `deployFailed`:
-  - `.event.StackName`
-  - `.event.Services`
-  - `.event.Commit`
-  - `.event.Error`
-- For `syncManualStarted`:
-  - `.event` (event object without fields)
+- `.event.stack_name`
+- `.event.services.*.name`
+- `.event.services.*.image`
+- `.event.commit`
+- `.event.error`
 
 Example:
 
@@ -35,10 +33,10 @@ notifications:
           # Message text template.
           message: |
             💚 deploy successful
-            stack_name: {{.event.StackName}}
-            {{ range .event.Services }}
-            service: {{.Name}}
-            image: {{.Image}}
+            stack_name: {{.event.stack_name}}
+            {{ range .event.services }}
+            service: {{.name}}
+            image: {{.image}}
             ---
             {{ end }}
 
@@ -52,19 +50,11 @@ notifications:
           # Message text template.
           message: |
             🔻deploy failed
-            stack_name: {{.event.StackName}}
-            {{ range .event.Services }}
-            service: {{.Name}}
-            image: {{.Image}}
+            stack_name: {{.event.stack_name}}
+            {{ range .event.services }}
+            service: {{.name}}
+            image: {{.image}}
             ---
             {{ end }}
-            error: {{.event.Error}}
-
-    syncManualStarted:
-      telegram:
-        - name: ops-manual-sync
-          botTokenPath: /run/secrets/telegram_bot_token
-          chatId: "-1001234567890"
-          message: |
-            sync started manually
+            error: {{.error}}
 ```
