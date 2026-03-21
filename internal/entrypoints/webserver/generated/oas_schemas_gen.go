@@ -6,6 +6,91 @@ import (
 	"time"
 )
 
+// Ref: #/components/schemas/EventHistoryItem
+type EventHistoryItem struct {
+	Type      string    `json:"type"`
+	CreatedAt time.Time `json:"created_at"`
+	Message   string    `json:"message"`
+	Stack     OptString `json:"stack"`
+	Commit    OptString `json:"commit"`
+	Error     OptString `json:"error"`
+}
+
+// GetType returns the value of Type.
+func (s *EventHistoryItem) GetType() string {
+	return s.Type
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *EventHistoryItem) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetMessage returns the value of Message.
+func (s *EventHistoryItem) GetMessage() string {
+	return s.Message
+}
+
+// GetStack returns the value of Stack.
+func (s *EventHistoryItem) GetStack() OptString {
+	return s.Stack
+}
+
+// GetCommit returns the value of Commit.
+func (s *EventHistoryItem) GetCommit() OptString {
+	return s.Commit
+}
+
+// GetError returns the value of Error.
+func (s *EventHistoryItem) GetError() OptString {
+	return s.Error
+}
+
+// SetType sets the value of Type.
+func (s *EventHistoryItem) SetType(val string) {
+	s.Type = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *EventHistoryItem) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetMessage sets the value of Message.
+func (s *EventHistoryItem) SetMessage(val string) {
+	s.Message = val
+}
+
+// SetStack sets the value of Stack.
+func (s *EventHistoryItem) SetStack(val OptString) {
+	s.Stack = val
+}
+
+// SetCommit sets the value of Commit.
+func (s *EventHistoryItem) SetCommit(val OptString) {
+	s.Commit = val
+}
+
+// SetError sets the value of Error.
+func (s *EventHistoryItem) SetError(val OptString) {
+	s.Error = val
+}
+
+// Ref: #/components/schemas/EventHistoryResponse
+type EventHistoryResponse struct {
+	Events []EventHistoryItem `json:"events"`
+}
+
+// GetEvents returns the value of Events.
+func (s *EventHistoryResponse) GetEvents() []EventHistoryItem {
+	return s.Events
+}
+
+// SetEvents sets the value of Events.
+func (s *EventHistoryResponse) SetEvents(val []EventHistoryItem) {
+	s.Events = val
+}
+
 // NewOptDateTime returns new OptDateTime with value set to v.
 func NewOptDateTime(v time.Time) OptDateTime {
 	return OptDateTime{

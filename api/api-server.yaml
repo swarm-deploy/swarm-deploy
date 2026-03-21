@@ -28,6 +28,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/QueueResponse'
+  /api/v1/events:
+    get:
+      operationId: listEvents
+      responses:
+        '200':
+          description: Latest events from local history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventHistoryResponse'
   /api/v1/stacks/{stack}/services/{service}/status:
     get:
       operationId: getServiceStatus
@@ -57,6 +67,31 @@ components:
       properties:
         queued:
           type: boolean
+    EventHistoryResponse:
+      type: object
+      required: [events]
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventHistoryItem'
+    EventHistoryItem:
+      type: object
+      required: [type, created_at, message]
+      properties:
+        type:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        message:
+          type: string
+        stack:
+          type: string
+        commit:
+          type: string
+        error:
+          type: string
     SyncInfo:
       type: object
       additionalProperties:

@@ -40,6 +40,11 @@ body {
   margin-bottom: 20px;
 }
 
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
 .eyebrow {
   margin: 0 0 6px;
   letter-spacing: 0.09em;
@@ -212,6 +217,22 @@ button:hover {
 .modal-body {
   display: grid;
   gap: 12px;
+}
+
+.event-list {
+  display: grid;
+  gap: 8px;
+}
+
+.event-item {
+  border: 1px solid rgba(161, 192, 204, 0.2);
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(10, 21, 33, 0.5);
+}
+
+.event-item p {
+  margin: 0;
 }
 
 .service-metrics {

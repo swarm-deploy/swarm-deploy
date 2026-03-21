@@ -26,6 +26,7 @@ const (
 
 	defaultWebAddress         = ":8080"
 	defaultWebhookAddress     = ":8082"
+	defaultEventHistoryCap    = 500
 	defaultSyncPollInterval   = 30 * time.Second
 	defaultInitJobPollEvery   = 2 * time.Second
 	defaultInitJobMaxDuration = 10 * time.Minute
@@ -58,8 +59,15 @@ type Spec struct {
 	Swarm SwarmSpec `yaml:"swarm"`
 	// SecretRotation controls secret/config name rotation strategy.
 	SecretRotation SecretRotationSpec `yaml:"secretRotation"`
+	// EventHistory controls persisted event history settings.
+	EventHistory EventHistorySpec `yaml:"eventHistory"`
 	// InitJobsTimeout is a global timeout for init jobs.
 	InitJobsTimeout specw.Duration `yaml:"initJobsTimeout"`
+}
+
+type EventHistorySpec struct {
+	// Capacity is a maximum number of events to keep in history.
+	Capacity int `yaml:"capacity"`
 }
 
 type GitSpec struct {
@@ -278,6 +286,7 @@ func (c *Config) applyDefaults(configDir string) error {
 	c.applyNotificationDefaults(configDir)
 	c.applySwarmDefaults()
 	c.applySecretRotationDefaults()
+	c.applyEventHistoryDefaults()
 
 	if err := os.MkdirAll(c.Spec.DataDir, 0o755); err != nil {
 		return fmt.Errorf("create data dir %s: %w", c.Spec.DataDir, err)
@@ -371,6 +380,12 @@ func (c *Config) applySwarmDefaults() {
 func (c *Config) applySecretRotationDefaults() {
 	if c.Spec.SecretRotation.HashLength <= 0 {
 		c.Spec.SecretRotation.HashLength = 8
+	}
+}
+
+func (c *Config) applyEventHistoryDefaults() {
+	if c.Spec.EventHistory.Capacity <= 0 {
+		c.Spec.EventHistory.Capacity = defaultEventHistoryCap
 	}
 }
 

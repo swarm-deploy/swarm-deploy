@@ -11,6 +11,7 @@ import (
 	"github.com/artarts36/swarm-deploy/internal/entrypoints/webserver/authenticator"
 	generated "github.com/artarts36/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/artarts36/swarm-deploy/internal/entrypoints/webserver/middlewares"
+	"github.com/artarts36/swarm-deploy/internal/event/history"
 	"github.com/artarts36/swarm-deploy/internal/swarm"
 	"github.com/artarts36/swarm-deploy/ui"
 )
@@ -25,9 +26,10 @@ func NewApplication(
 	address string,
 	control *controller.Controller,
 	inspector *swarm.Inspector,
+	eventHistory *history.Store,
 	authCfg config.AuthenticationSpec,
 ) (*Application, error) {
-	h := NewHandler(control, inspector)
+	h := NewHandler(control, inspector, eventHistory)
 
 	apiHandler, err := generated.NewServer(h, generated.WithErrorHandler(handleHTTPError))
 	if err != nil {

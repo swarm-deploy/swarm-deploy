@@ -20,6 +20,13 @@ func (UnimplementedHandler) GetServiceStatus(ctx context.Context, params GetServ
 	return r, ht.ErrNotImplemented
 }
 
+// ListEvents implements listEvents operation.
+//
+// GET /api/v1/events
+func (UnimplementedHandler) ListEvents(ctx context.Context) (r *EventHistoryResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListStacks implements listStacks operation.
 //
 // GET /api/v1/stacks

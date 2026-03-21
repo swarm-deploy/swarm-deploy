@@ -21,6 +21,11 @@ stacks:
   # Path to stacks definition file in git repository (relative to repo root).
   file: ./stacks.yaml
 
+# Event history settings.
+eventHistory:
+  # Maximum number of events stored on disk.
+  capacity: 500
+
 # Notification channels grouped by event type.
 notifications:
   on:

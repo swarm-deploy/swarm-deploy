@@ -3,6 +3,7 @@ package webserver
 import (
 	"github.com/artarts36/swarm-deploy/internal/controller"
 	generated "github.com/artarts36/swarm-deploy/internal/entrypoints/webserver/generated"
+	"github.com/artarts36/swarm-deploy/internal/event/history"
 	"github.com/artarts36/swarm-deploy/internal/swarm"
 )
 
@@ -78,4 +79,27 @@ func toGeneratedServiceStatus(status swarm.ServiceStatus) *generated.ServiceStat
 	}
 
 	return resp
+}
+
+func toGeneratedEvents(entries []history.Entry) []generated.EventHistoryItem {
+	mapped := make([]generated.EventHistoryItem, 0, len(entries))
+	for _, entry := range entries {
+		item := generated.EventHistoryItem{
+			Type:      string(entry.Type),
+			CreatedAt: entry.CreatedAt,
+			Message:   entry.Message,
+		}
+		if entry.Stack != "" {
+			item.Stack = generated.NewOptString(entry.Stack)
+		}
+		if entry.Commit != "" {
+			item.Commit = generated.NewOptString(entry.Commit)
+		}
+		if entry.Error != "" {
+			item.Error = generated.NewOptString(entry.Error)
+		}
+		mapped = append(mapped, item)
+	}
+
+	return mapped
 }

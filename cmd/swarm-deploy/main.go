@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"time"
 
 	entrypoint "github.com/artarts36/go-entrypoint"
@@ -16,6 +17,7 @@ import (
 	"github.com/artarts36/swarm-deploy/internal/entrypoints/webserver"
 	"github.com/artarts36/swarm-deploy/internal/event/dispatcher"
 	"github.com/artarts36/swarm-deploy/internal/event/events"
+	"github.com/artarts36/swarm-deploy/internal/event/history"
 	"github.com/artarts36/swarm-deploy/internal/event/notifiers"
 	notify2 "github.com/artarts36/swarm-deploy/internal/event/notify"
 	gitx "github.com/artarts36/swarm-deploy/internal/git"
@@ -72,7 +74,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	eventDispatcher, err := buildEventDispatcher(cfg)
+	eventDispatcher, eventHistory, err := buildEventDispatcher(cfg)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to build event dispatcher", slog.Any("err", err))
 		os.Exit(1)
@@ -107,6 +109,7 @@ func main() {
 		cfg.Spec.Web.Address,
 		control,
 		inspector,
+		eventHistory,
 		cfg.Spec.Web.Security.Authentication,
 	)
 	if err != nil {
@@ -154,17 +157,26 @@ func main() {
 	}
 }
 
-func buildEventDispatcher(cfg *config.Config) (dispatcher.Dispatcher, error) {
+func buildEventDispatcher(cfg *config.Config) (dispatcher.Dispatcher, *history.Store, error) {
 	subs := map[events.Type][]dispatcher.Subscriber{}
+
+	historyStore, err := history.NewStore(
+		filepath.Join(cfg.Spec.DataDir, "event-history.json"),
+		cfg.Spec.EventHistory.Capacity,
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("build history store: %w", err)
+	}
+	addEventHistorySubscriber(subs, historyStore)
 
 	for eventType, channels := range cfg.Spec.Notifications.On {
 		for _, tg := range channels.Telegram {
-			token, err := tg.ResolveToken()
-			if err != nil {
-				return nil, fmt.Errorf("resolve telegram token for %q: %w", tg.Name, err)
+			token, resolveErr := tg.ResolveToken()
+			if resolveErr != nil {
+				return nil, nil, fmt.Errorf("resolve telegram token for %q: %w", tg.Name, resolveErr)
 			}
 
-			tgNotifier, err := notifiers.NewTelegramNotifier(
+			tgNotifier, notifierErr := notifiers.NewTelegramNotifier(
 				tg.Name,
 				token,
 				tg.ChatID,
@@ -173,8 +185,8 @@ func buildEventDispatcher(cfg *config.Config) (dispatcher.Dispatcher, error) {
 					Message:      tg.Message,
 				},
 			)
-			if err != nil {
-				return nil, fmt.Errorf("build telegram notifier %q: %w", tg.Name, err)
+			if notifierErr != nil {
+				return nil, nil, fmt.Errorf("build telegram notifier %q: %w", tg.Name, notifierErr)
 			}
 
 			subs[eventType] = append(subs[eventType], notify2.NewSubscriber(tgNotifier))
@@ -187,13 +199,17 @@ func buildEventDispatcher(cfg *config.Config) (dispatcher.Dispatcher, error) {
 		}
 	}
 
-	if len(subs) == 0 {
-		slog.Info("event subscribers not found")
-
-		return &dispatcher.NopDispatcher{}, nil
+	if len(cfg.Spec.Notifications.On) == 0 {
+		slog.Info("notification subscribers not found")
 	}
 
 	slog.Info("found event subscribers", slog.Int("subscribers", len(subs)))
 
-	return dispatcher.NewQueueDispatcher(subs), nil
+	return dispatcher.NewQueueDispatcher(subs), historyStore, nil
+}
+
+func addEventHistorySubscriber(subs map[events.Type][]dispatcher.Subscriber, store *history.Store) {
+	subs[events.TypeDeploySuccess] = append(subs[events.TypeDeploySuccess], store)
+	subs[events.TypeDeployFailed] = append(subs[events.TypeDeployFailed], store)
+	subs[events.TypeSyncManualStarted] = append(subs[events.TypeSyncManualStarted], store)
 }
