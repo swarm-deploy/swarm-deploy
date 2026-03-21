@@ -246,13 +246,15 @@ func (d *Deployer) resolveSecretReferenceAPI(
 				SecretID:   secret.ID,
 				SecretName: secret.Spec.Name,
 			}
-			if target != "" {
-				ref.File = &dockerswarm.SecretReferenceFileTarget{
-					Name: target,
-					UID:  "0",
-					GID:  "0",
-					Mode: secretOrConfigFileMode,
-				}
+			if target == "" {
+				target = fmt.Sprintf("/run/secrets/%s", ref.SecretName)
+			}
+
+			ref.File = &dockerswarm.SecretReferenceFileTarget{
+				Name: target,
+				UID:  "0",
+				GID:  "0",
+				Mode: secretOrConfigFileMode,
 			}
 			return ref, true, nil
 		}

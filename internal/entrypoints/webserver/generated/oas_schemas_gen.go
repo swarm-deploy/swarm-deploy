@@ -6,6 +6,91 @@ import (
 	"time"
 )
 
+// Ref: #/components/schemas/EventHistoryItem
+type EventHistoryItem struct {
+	Type      string    `json:"type"`
+	CreatedAt time.Time `json:"created_at"`
+	Message   string    `json:"message"`
+	Stack     OptString `json:"stack"`
+	Commit    OptString `json:"commit"`
+	Error     OptString `json:"error"`
+}
+
+// GetType returns the value of Type.
+func (s *EventHistoryItem) GetType() string {
+	return s.Type
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *EventHistoryItem) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetMessage returns the value of Message.
+func (s *EventHistoryItem) GetMessage() string {
+	return s.Message
+}
+
+// GetStack returns the value of Stack.
+func (s *EventHistoryItem) GetStack() OptString {
+	return s.Stack
+}
+
+// GetCommit returns the value of Commit.
+func (s *EventHistoryItem) GetCommit() OptString {
+	return s.Commit
+}
+
+// GetError returns the value of Error.
+func (s *EventHistoryItem) GetError() OptString {
+	return s.Error
+}
+
+// SetType sets the value of Type.
+func (s *EventHistoryItem) SetType(val string) {
+	s.Type = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *EventHistoryItem) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetMessage sets the value of Message.
+func (s *EventHistoryItem) SetMessage(val string) {
+	s.Message = val
+}
+
+// SetStack sets the value of Stack.
+func (s *EventHistoryItem) SetStack(val OptString) {
+	s.Stack = val
+}
+
+// SetCommit sets the value of Commit.
+func (s *EventHistoryItem) SetCommit(val OptString) {
+	s.Commit = val
+}
+
+// SetError sets the value of Error.
+func (s *EventHistoryItem) SetError(val OptString) {
+	s.Error = val
+}
+
+// Ref: #/components/schemas/EventHistoryResponse
+type EventHistoryResponse struct {
+	Events []EventHistoryItem `json:"events"`
+}
+
+// GetEvents returns the value of Events.
+func (s *EventHistoryResponse) GetEvents() []EventHistoryItem {
+	return s.Events
+}
+
+// SetEvents sets the value of Events.
+func (s *EventHistoryResponse) SetEvents(val []EventHistoryItem) {
+	s.Events = val
+}
+
 // NewOptDateTime returns new OptDateTime with value set to v.
 func NewOptDateTime(v time.Time) OptDateTime {
 	return OptDateTime{
@@ -111,6 +196,87 @@ func (s *QueueResponse) GetQueued() bool {
 // SetQueued sets the value of Queued.
 func (s *QueueResponse) SetQueued(val bool) {
 	s.Queued = val
+}
+
+// Ref: #/components/schemas/ServiceStatusResponse
+type ServiceStatusResponse struct {
+	Stack             string `json:"stack"`
+	Service           string `json:"service"`
+	Image             string `json:"image"`
+	RequestedRAMBytes int64  `json:"requested_ram_bytes"`
+	RequestedCPUNano  int64  `json:"requested_cpu_nano"`
+	LimitRAMBytes     int64  `json:"limit_ram_bytes"`
+	LimitCPUNano      int64  `json:"limit_cpu_nano"`
+}
+
+// GetStack returns the value of Stack.
+func (s *ServiceStatusResponse) GetStack() string {
+	return s.Stack
+}
+
+// GetService returns the value of Service.
+func (s *ServiceStatusResponse) GetService() string {
+	return s.Service
+}
+
+// GetImage returns the value of Image.
+func (s *ServiceStatusResponse) GetImage() string {
+	return s.Image
+}
+
+// GetRequestedRAMBytes returns the value of RequestedRAMBytes.
+func (s *ServiceStatusResponse) GetRequestedRAMBytes() int64 {
+	return s.RequestedRAMBytes
+}
+
+// GetRequestedCPUNano returns the value of RequestedCPUNano.
+func (s *ServiceStatusResponse) GetRequestedCPUNano() int64 {
+	return s.RequestedCPUNano
+}
+
+// GetLimitRAMBytes returns the value of LimitRAMBytes.
+func (s *ServiceStatusResponse) GetLimitRAMBytes() int64 {
+	return s.LimitRAMBytes
+}
+
+// GetLimitCPUNano returns the value of LimitCPUNano.
+func (s *ServiceStatusResponse) GetLimitCPUNano() int64 {
+	return s.LimitCPUNano
+}
+
+// SetStack sets the value of Stack.
+func (s *ServiceStatusResponse) SetStack(val string) {
+	s.Stack = val
+}
+
+// SetService sets the value of Service.
+func (s *ServiceStatusResponse) SetService(val string) {
+	s.Service = val
+}
+
+// SetImage sets the value of Image.
+func (s *ServiceStatusResponse) SetImage(val string) {
+	s.Image = val
+}
+
+// SetRequestedRAMBytes sets the value of RequestedRAMBytes.
+func (s *ServiceStatusResponse) SetRequestedRAMBytes(val int64) {
+	s.RequestedRAMBytes = val
+}
+
+// SetRequestedCPUNano sets the value of RequestedCPUNano.
+func (s *ServiceStatusResponse) SetRequestedCPUNano(val int64) {
+	s.RequestedCPUNano = val
+}
+
+// SetLimitRAMBytes sets the value of LimitRAMBytes.
+func (s *ServiceStatusResponse) SetLimitRAMBytes(val int64) {
+	s.LimitRAMBytes = val
+}
+
+// SetLimitCPUNano sets the value of LimitCPUNano.
+func (s *ServiceStatusResponse) SetLimitCPUNano(val int64) {
+	s.LimitCPUNano = val
 }
 
 // Ref: #/components/schemas/ServiceView

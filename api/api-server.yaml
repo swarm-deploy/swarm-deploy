@@ -28,6 +28,37 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/QueueResponse'
+  /api/v1/events:
+    get:
+      operationId: listEvents
+      responses:
+        '200':
+          description: Latest events from local history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventHistoryResponse'
+  /api/v1/stacks/{stack}/services/{service}/status:
+    get:
+      operationId: getServiceStatus
+      parameters:
+        - in: path
+          name: stack
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: service
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Service status and current container metrics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceStatusResponse'
 components:
   schemas:
     QueueResponse:
@@ -36,6 +67,31 @@ components:
       properties:
         queued:
           type: boolean
+    EventHistoryResponse:
+      type: object
+      required: [events]
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventHistoryItem'
+    EventHistoryItem:
+      type: object
+      required: [type, created_at, message]
+      properties:
+        type:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        message:
+          type: string
+        stack:
+          type: string
+        commit:
+          type: string
+        error:
+          type: string
     SyncInfo:
       type: object
       additionalProperties:
@@ -55,6 +111,32 @@ components:
         last_deploy_at:
           type: string
           format: date-time
+    ServiceStatusResponse:
+      type: object
+      required: [stack, service, image, requested_ram_bytes, requested_cpu_nano, limit_ram_bytes, limit_cpu_nano]
+      properties:
+        stack:
+          type: string
+        service:
+          type: string
+        image:
+          type: string
+        requested_ram_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        requested_cpu_nano:
+          type: integer
+          format: int64
+          minimum: 0
+        limit_ram_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        limit_cpu_nano:
+          type: integer
+          format: int64
+          minimum: 0
     StackView:
       type: object
       required: [name, compose_file, last_status, services]

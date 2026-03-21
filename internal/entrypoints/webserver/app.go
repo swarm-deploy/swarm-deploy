@@ -11,6 +11,8 @@ import (
 	"github.com/artarts36/swarm-deploy/internal/entrypoints/webserver/authenticator"
 	generated "github.com/artarts36/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/artarts36/swarm-deploy/internal/entrypoints/webserver/middlewares"
+	"github.com/artarts36/swarm-deploy/internal/event/history"
+	"github.com/artarts36/swarm-deploy/internal/swarm"
 	"github.com/artarts36/swarm-deploy/ui"
 )
 
@@ -23,11 +25,13 @@ type Application struct {
 func NewApplication(
 	address string,
 	control *controller.Controller,
+	inspector *swarm.Inspector,
+	eventHistory *history.Store,
 	authCfg config.AuthenticationSpec,
 ) (*Application, error) {
-	h := NewHandler(control)
+	h := NewHandler(control, inspector, eventHistory)
 
-	apiHandler, err := generated.NewServer(h)
+	apiHandler, err := generated.NewServer(h, generated.WithErrorHandler(handleHTTPError))
 	if err != nil {
 		return nil, fmt.Errorf("build ogen api server: %w", err)
 	}

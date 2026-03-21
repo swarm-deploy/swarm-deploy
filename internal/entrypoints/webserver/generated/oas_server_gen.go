@@ -8,6 +8,14 @@ import (
 
 // Handler handles operations described by OpenAPI v3 specification.
 type Handler interface {
+	// GetServiceStatus implements getServiceStatus operation.
+	//
+	// GET /api/v1/stacks/{stack}/services/{service}/status
+	GetServiceStatus(ctx context.Context, params GetServiceStatusParams) (*ServiceStatusResponse, error)
+	// ListEvents implements listEvents operation.
+	//
+	// GET /api/v1/events
+	ListEvents(ctx context.Context) (*EventHistoryResponse, error)
 	// ListStacks implements listStacks operation.
 	//
 	// GET /api/v1/stacks

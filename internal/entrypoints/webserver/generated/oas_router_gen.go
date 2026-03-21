@@ -40,6 +40,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.notFound(w, r)
 		return
 	}
+	args := [2]string{}
 
 	// Static code generated router with unwrapped path search.
 	switch {
@@ -48,9 +49,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		switch elem[0] {
-		case '/': // Prefix: "/api/v1/s"
+		case '/': // Prefix: "/api/v1/"
 
-			if l := len("/api/v1/s"); len(elem) >= l && elem[0:l] == "/api/v1/s" {
+			if l := len("/api/v1/"); len(elem) >= l && elem[0:l] == "/api/v1/" {
 				elem = elem[l:]
 			} else {
 				break
@@ -60,9 +61,9 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 			switch elem[0] {
-			case 't': // Prefix: "tacks"
+			case 'e': // Prefix: "events"
 
-				if l := len("tacks"); len(elem) >= l && elem[0:l] == "tacks" {
+				if l := len("events"); len(elem) >= l && elem[0:l] == "events" {
 					elem = elem[l:]
 				} else {
 					break
@@ -72,7 +73,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					// Leaf node.
 					switch r.Method {
 					case "GET":
-						s.handleListStacksRequest([0]string{}, elemIsEscaped, w, r)
+						s.handleListEventsRequest([0]string{}, elemIsEscaped, w, r)
 					default:
 						s.notAllowed(w, r, "GET")
 					}
@@ -80,24 +81,128 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 
-			case 'y': // Prefix: "ync"
+			case 's': // Prefix: "s"
 
-				if l := len("ync"); len(elem) >= l && elem[0:l] == "ync" {
+				if l := len("s"); len(elem) >= l && elem[0:l] == "s" {
 					elem = elem[l:]
 				} else {
 					break
 				}
 
 				if len(elem) == 0 {
-					// Leaf node.
-					switch r.Method {
-					case "POST":
-						s.handleTriggerSyncRequest([0]string{}, elemIsEscaped, w, r)
-					default:
-						s.notAllowed(w, r, "POST")
+					break
+				}
+				switch elem[0] {
+				case 't': // Prefix: "tacks"
+
+					if l := len("tacks"); len(elem) >= l && elem[0:l] == "tacks" {
+						elem = elem[l:]
+					} else {
+						break
 					}
 
-					return
+					if len(elem) == 0 {
+						switch r.Method {
+						case "GET":
+							s.handleListStacksRequest([0]string{}, elemIsEscaped, w, r)
+						default:
+							s.notAllowed(w, r, "GET")
+						}
+
+						return
+					}
+					switch elem[0] {
+					case '/': // Prefix: "/"
+
+						if l := len("/"); len(elem) >= l && elem[0:l] == "/" {
+							elem = elem[l:]
+						} else {
+							break
+						}
+
+						// Param: "stack"
+						// Match until "/"
+						idx := strings.IndexByte(elem, '/')
+						if idx < 0 {
+							idx = len(elem)
+						}
+						args[0] = elem[:idx]
+						elem = elem[idx:]
+
+						if len(elem) == 0 {
+							break
+						}
+						switch elem[0] {
+						case '/': // Prefix: "/services/"
+
+							if l := len("/services/"); len(elem) >= l && elem[0:l] == "/services/" {
+								elem = elem[l:]
+							} else {
+								break
+							}
+
+							// Param: "service"
+							// Match until "/"
+							idx := strings.IndexByte(elem, '/')
+							if idx < 0 {
+								idx = len(elem)
+							}
+							args[1] = elem[:idx]
+							elem = elem[idx:]
+
+							if len(elem) == 0 {
+								break
+							}
+							switch elem[0] {
+							case '/': // Prefix: "/status"
+
+								if l := len("/status"); len(elem) >= l && elem[0:l] == "/status" {
+									elem = elem[l:]
+								} else {
+									break
+								}
+
+								if len(elem) == 0 {
+									// Leaf node.
+									switch r.Method {
+									case "GET":
+										s.handleGetServiceStatusRequest([2]string{
+											args[0],
+											args[1],
+										}, elemIsEscaped, w, r)
+									default:
+										s.notAllowed(w, r, "GET")
+									}
+
+									return
+								}
+
+							}
+
+						}
+
+					}
+
+				case 'y': // Prefix: "ync"
+
+					if l := len("ync"); len(elem) >= l && elem[0:l] == "ync" {
+						elem = elem[l:]
+					} else {
+						break
+					}
+
+					if len(elem) == 0 {
+						// Leaf node.
+						switch r.Method {
+						case "POST":
+							s.handleTriggerSyncRequest([0]string{}, elemIsEscaped, w, r)
+						default:
+							s.notAllowed(w, r, "POST")
+						}
+
+						return
+					}
+
 				}
 
 			}
@@ -114,7 +219,7 @@ type Route struct {
 	operationID string
 	pathPattern string
 	count       int
-	args        [0]string
+	args        [2]string
 }
 
 // Name returns ogen operation name.
@@ -182,9 +287,9 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 			break
 		}
 		switch elem[0] {
-		case '/': // Prefix: "/api/v1/s"
+		case '/': // Prefix: "/api/v1/"
 
-			if l := len("/api/v1/s"); len(elem) >= l && elem[0:l] == "/api/v1/s" {
+			if l := len("/api/v1/"); len(elem) >= l && elem[0:l] == "/api/v1/" {
 				elem = elem[l:]
 			} else {
 				break
@@ -194,9 +299,9 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 				break
 			}
 			switch elem[0] {
-			case 't': // Prefix: "tacks"
+			case 'e': // Prefix: "events"
 
-				if l := len("tacks"); len(elem) >= l && elem[0:l] == "tacks" {
+				if l := len("events"); len(elem) >= l && elem[0:l] == "events" {
 					elem = elem[l:]
 				} else {
 					break
@@ -206,10 +311,10 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 					// Leaf node.
 					switch method {
 					case "GET":
-						r.name = ListStacksOperation
+						r.name = ListEventsOperation
 						r.summary = ""
-						r.operationID = "listStacks"
-						r.pathPattern = "/api/v1/stacks"
+						r.operationID = "listEvents"
+						r.pathPattern = "/api/v1/events"
 						r.args = args
 						r.count = 0
 						return r, true
@@ -218,28 +323,137 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 					}
 				}
 
-			case 'y': // Prefix: "ync"
+			case 's': // Prefix: "s"
 
-				if l := len("ync"); len(elem) >= l && elem[0:l] == "ync" {
+				if l := len("s"); len(elem) >= l && elem[0:l] == "s" {
 					elem = elem[l:]
 				} else {
 					break
 				}
 
 				if len(elem) == 0 {
-					// Leaf node.
-					switch method {
-					case "POST":
-						r.name = TriggerSyncOperation
-						r.summary = ""
-						r.operationID = "triggerSync"
-						r.pathPattern = "/api/v1/sync"
-						r.args = args
-						r.count = 0
-						return r, true
-					default:
-						return
+					break
+				}
+				switch elem[0] {
+				case 't': // Prefix: "tacks"
+
+					if l := len("tacks"); len(elem) >= l && elem[0:l] == "tacks" {
+						elem = elem[l:]
+					} else {
+						break
 					}
+
+					if len(elem) == 0 {
+						switch method {
+						case "GET":
+							r.name = ListStacksOperation
+							r.summary = ""
+							r.operationID = "listStacks"
+							r.pathPattern = "/api/v1/stacks"
+							r.args = args
+							r.count = 0
+							return r, true
+						default:
+							return
+						}
+					}
+					switch elem[0] {
+					case '/': // Prefix: "/"
+
+						if l := len("/"); len(elem) >= l && elem[0:l] == "/" {
+							elem = elem[l:]
+						} else {
+							break
+						}
+
+						// Param: "stack"
+						// Match until "/"
+						idx := strings.IndexByte(elem, '/')
+						if idx < 0 {
+							idx = len(elem)
+						}
+						args[0] = elem[:idx]
+						elem = elem[idx:]
+
+						if len(elem) == 0 {
+							break
+						}
+						switch elem[0] {
+						case '/': // Prefix: "/services/"
+
+							if l := len("/services/"); len(elem) >= l && elem[0:l] == "/services/" {
+								elem = elem[l:]
+							} else {
+								break
+							}
+
+							// Param: "service"
+							// Match until "/"
+							idx := strings.IndexByte(elem, '/')
+							if idx < 0 {
+								idx = len(elem)
+							}
+							args[1] = elem[:idx]
+							elem = elem[idx:]
+
+							if len(elem) == 0 {
+								break
+							}
+							switch elem[0] {
+							case '/': // Prefix: "/status"
+
+								if l := len("/status"); len(elem) >= l && elem[0:l] == "/status" {
+									elem = elem[l:]
+								} else {
+									break
+								}
+
+								if len(elem) == 0 {
+									// Leaf node.
+									switch method {
+									case "GET":
+										r.name = GetServiceStatusOperation
+										r.summary = ""
+										r.operationID = "getServiceStatus"
+										r.pathPattern = "/api/v1/stacks/{stack}/services/{service}/status"
+										r.args = args
+										r.count = 2
+										return r, true
+									default:
+										return
+									}
+								}
+
+							}
+
+						}
+
+					}
+
+				case 'y': // Prefix: "ync"
+
+					if l := len("ync"); len(elem) >= l && elem[0:l] == "ync" {
+						elem = elem[l:]
+					} else {
+						break
+					}
+
+					if len(elem) == 0 {
+						// Leaf node.
+						switch method {
+						case "POST":
+							r.name = TriggerSyncOperation
+							r.summary = ""
+							r.operationID = "triggerSync"
+							r.pathPattern = "/api/v1/sync"
+							r.args = args
+							r.count = 0
+							return r, true
+						default:
+							return
+						}
+					}
+
 				}
 
 			}

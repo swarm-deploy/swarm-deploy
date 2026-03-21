@@ -1,6 +1,14 @@
 const stacksEl = document.getElementById("stacks");
 const syncStatusEl = document.getElementById("sync-status");
 const syncNowBtn = document.getElementById("sync-now");
+const showEventsBtn = document.getElementById("show-events");
+const serviceStatusModalEl = document.getElementById("service-status-modal");
+const serviceStatusBodyEl = document.getElementById("service-status-body");
+const serviceStatusTitleEl = document.getElementById("service-status-title");
+const serviceStatusCloseBtn = document.getElementById("service-status-close");
+const eventHistoryModalEl = document.getElementById("event-history-modal");
+const eventHistoryBodyEl = document.getElementById("event-history-body");
+const eventHistoryCloseBtn = document.getElementById("event-history-close");
 
 function fmtDate(raw) {
   if (!raw) {
@@ -11,6 +19,140 @@ function fmtDate(raw) {
     return raw;
   }
   return d.toLocaleString();
+}
+
+function fmtBytes(value) {
+  if (value === undefined || value === null || Number.isNaN(Number(value))) {
+    return "n/a";
+  }
+  const bytes = Number(value);
+  const units = ["B", "KB", "MB", "GB", "TB"];
+  let idx = 0;
+  let amount = bytes;
+  while (amount >= 1024 && idx < units.length - 1) {
+    amount /= 1024;
+    idx += 1;
+  }
+  return `${amount.toFixed(idx === 0 ? 0 : 2)} ${units[idx]}`;
+}
+
+function showServiceStatusModal() {
+  serviceStatusModalEl.classList.remove("hidden");
+  serviceStatusModalEl.setAttribute("aria-hidden", "false");
+}
+
+function hideServiceStatusModal() {
+  serviceStatusModalEl.classList.add("hidden");
+  serviceStatusModalEl.setAttribute("aria-hidden", "true");
+}
+
+function renderServiceStatusLoading(stackName, serviceName) {
+  serviceStatusTitleEl.textContent = `${stackName} / ${serviceName}`;
+  serviceStatusBodyEl.innerHTML = `<p class="meta">Loading service status...</p>`;
+}
+
+function renderServiceStatusError(message) {
+  serviceStatusBodyEl.innerHTML = `<p class="meta">Failed to load service status: ${message}</p>`;
+}
+
+function renderServiceStatus(data) {
+  serviceStatusTitleEl.textContent = `${data.stack} / ${data.service}`;
+  serviceStatusBodyEl.innerHTML = `
+    <div class="service-metrics">
+      <p><strong>Image:</strong> ${data.image || "n/a"}</p>
+      <p><strong>Requested RAM:</strong> ${fmtBytes(data.requested_ram_bytes)}</p>
+      <p><strong>Requested CPU:</strong> ${data.requested_cpu_nano || 0} nano-CPUs</p>
+      <p><strong>RAM Limit:</strong> ${fmtBytes(data.limit_ram_bytes)}</p>
+      <p><strong>CPU Limit:</strong> ${data.limit_cpu_nano || 0} nano-CPUs</p>
+    </div>
+  `;
+}
+
+function showEventHistoryModal() {
+  eventHistoryModalEl.classList.remove("hidden");
+  eventHistoryModalEl.setAttribute("aria-hidden", "false");
+}
+
+function hideEventHistoryModal() {
+  eventHistoryModalEl.classList.add("hidden");
+  eventHistoryModalEl.setAttribute("aria-hidden", "true");
+}
+
+function renderEventHistoryLoading() {
+  eventHistoryBodyEl.innerHTML = `<p class="meta">Loading event history...</p>`;
+}
+
+function renderEventHistoryError(message) {
+  eventHistoryBodyEl.innerHTML = `<p class="meta">Failed to load event history: ${message}</p>`;
+}
+
+function renderEventHistory(events) {
+  if (!Array.isArray(events) || events.length === 0) {
+    eventHistoryBodyEl.innerHTML = `<p class="meta">No events yet.</p>`;
+    return;
+  }
+
+  eventHistoryBodyEl.innerHTML = `
+    <div class="event-list">
+      ${events
+        .slice()
+        .reverse()
+        .map(
+          (event) => `
+            <article class="event-item">
+              <p><strong>${event.type || "unknown"}</strong> - ${fmtDate(event.created_at)}</p>
+              <p class="meta">${event.message || "No details"}</p>
+              <p class="meta">stack: ${event.stack || "n/a"} | commit: ${event.commit || "n/a"}</p>
+              ${event.error ? `<p class="meta">error: ${event.error}</p>` : ""}
+            </article>
+          `,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+async function openEventHistoryModal() {
+  showEventHistoryModal();
+  renderEventHistoryLoading();
+
+  try {
+    const response = await fetch("/api/v1/events");
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    const data = await response.json();
+    renderEventHistory(data.events);
+  } catch (err) {
+    renderEventHistoryError(err.message);
+  }
+}
+
+async function openServiceStatusModal(stackName, serviceName) {
+  showServiceStatusModal();
+  renderServiceStatusLoading(stackName, serviceName);
+
+  try {
+    const response = await fetch(
+      `/api/v1/stacks/${encodeURIComponent(stackName)}/services/${encodeURIComponent(serviceName)}/status`,
+    );
+    if (!response.ok) {
+      let message = `HTTP ${response.status}`;
+      try {
+        const payload = await response.json();
+        if (payload.error_message) {
+          message = payload.error_message;
+        }
+      } catch (error) {
+        // Keep fallback message from status code.
+      }
+      throw new Error(message);
+    }
+    const data = await response.json();
+    renderServiceStatus(data);
+  } catch (err) {
+    renderServiceStatusError(err.message);
+  }
 }
 
 function renderStacks(stacks) {
@@ -29,9 +171,19 @@ function renderStacks(stacks) {
           : services
               .map(
                 (service) => `
-                  <li>
-                    <strong>${service.name || "unknown"}</strong><br />
-                    <span>${service.image || "unknown image"} (${service.image_version || "unknown"})</span>
+                  <li class="service-item">
+                    <div>
+                      <strong>${service.name || "unknown"}</strong><br />
+                      <span>${service.image || "unknown image"} (${service.image_version || "unknown"})</span>
+                    </div>
+                    <button
+                      type="button"
+                      class="service-status-btn"
+                      data-stack="${stack.name || ""}"
+                      data-service="${service.name || ""}"
+                    >
+                      Status
+                    </button>
                   </li>
                 `,
               )
@@ -95,6 +247,45 @@ async function triggerManualSync() {
 }
 
 syncNowBtn.addEventListener("click", triggerManualSync);
+showEventsBtn.addEventListener("click", openEventHistoryModal);
+stacksEl.addEventListener("click", (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLElement)) {
+    return;
+  }
+  if (!target.classList.contains("service-status-btn")) {
+    return;
+  }
+  const stackName = target.dataset.stack;
+  const serviceName = target.dataset.service;
+  if (!stackName || !serviceName) {
+    return;
+  }
+  openServiceStatusModal(stackName, serviceName);
+});
+serviceStatusCloseBtn.addEventListener("click", hideServiceStatusModal);
+serviceStatusModalEl.addEventListener("click", (event) => {
+  const target = event.target;
+  if (target instanceof HTMLElement && target.dataset.closeModal === "true") {
+    hideServiceStatusModal();
+  }
+});
+eventHistoryCloseBtn.addEventListener("click", hideEventHistoryModal);
+eventHistoryModalEl.addEventListener("click", (event) => {
+  const target = event.target;
+  if (target instanceof HTMLElement && target.dataset.closeEventHistory === "true") {
+    hideEventHistoryModal();
+  }
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !serviceStatusModalEl.classList.contains("hidden")) {
+    hideServiceStatusModal();
+    return;
+  }
+  if (event.key === "Escape" && !eventHistoryModalEl.classList.contains("hidden")) {
+    hideEventHistoryModal();
+  }
+});
 
 refresh();
 setInterval(refresh, 10000);

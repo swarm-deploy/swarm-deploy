@@ -16,6 +16,7 @@
         <h1>Swarm Deploy</h1>
       </div>
       <div class="actions">
+        <button id="show-events" type="button">Event history</button>
         <button id="sync-now" type="button">Sync now</button>
       </div>
     </header>
@@ -26,6 +27,26 @@
       <div id="stacks" class="stack-grid"></div>
     </section>
   </main>
+  <div id="service-status-modal" class="modal hidden" aria-hidden="true">
+    <div class="modal-overlay" data-close-modal="true"></div>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="service-status-title">
+      <div class="modal-header">
+        <h2 id="service-status-title">Service status</h2>
+        <button id="service-status-close" class="modal-close" type="button" aria-label="Close modal">x</button>
+      </div>
+      <div id="service-status-body" class="modal-body"></div>
+    </div>
+  </div>
+  <div id="event-history-modal" class="modal hidden" aria-hidden="true">
+    <div class="modal-overlay" data-close-event-history="true"></div>
+    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="event-history-title">
+      <div class="modal-header">
+        <h2 id="event-history-title">Event history</h2>
+        <button id="event-history-close" class="modal-close" type="button" aria-label="Close modal">x</button>
+      </div>
+      <div id="event-history-body" class="modal-body"></div>
+    </div>
+  </div>
   <script src="/ui/app.js" defer></script>
 </body>
 </html>

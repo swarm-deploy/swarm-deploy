@@ -13,6 +13,20 @@ type UnimplementedHandler struct{}
 
 var _ Handler = UnimplementedHandler{}
 
+// GetServiceStatus implements getServiceStatus operation.
+//
+// GET /api/v1/stacks/{stack}/services/{service}/status
+func (UnimplementedHandler) GetServiceStatus(ctx context.Context, params GetServiceStatusParams) (r *ServiceStatusResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListEvents implements listEvents operation.
+//
+// GET /api/v1/events
+func (UnimplementedHandler) ListEvents(ctx context.Context) (r *EventHistoryResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListStacks implements listStacks operation.
 //
 // GET /api/v1/stacks

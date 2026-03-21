@@ -12,3 +12,6 @@ gen:
 .PHONY: test
 test:
 	go test ./...
+
+.PHONY: check
+check: lint test
