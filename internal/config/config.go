@@ -11,6 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/artarts36/specw"
+	"github.com/artarts36/swarm-deploy/internal/event/events"
 )
 
 const (
@@ -139,10 +140,13 @@ type StackSpec struct {
 }
 
 type NotificationSpec struct {
-	// Telegram is a list of Telegram notification channels.
-	Telegram []TelegramChannel `yaml:"telegram"`
-	// Custom is a list of custom webhook notification channels.
-	Custom []CustomChannel `yaml:"custom"`
+	// On maps event types to notification channels.
+	On map[events.Type]struct {
+		// Telegram is a list of Telegram notification channels.
+		Telegram []TelegramChannel `yaml:"telegram"`
+		// Custom is a list of custom webhook notification channels.
+		Custom []CustomChannel `yaml:"custom"`
+	} `yaml:"on"`
 }
 
 type TelegramChannel struct {
@@ -334,11 +338,15 @@ func (c *Config) applySecurityDefaults(configDir string) {
 }
 
 func (c *Config) applyNotificationDefaults(configDir string) {
-	for i := range c.Spec.Notifications.Telegram {
-		tokenPath := strings.TrimSpace(c.Spec.Notifications.Telegram[i].BotTokenPath)
-		if tokenPath != "" && !filepath.IsAbs(tokenPath) {
-			c.Spec.Notifications.Telegram[i].BotTokenPath = filepath.Join(configDir, tokenPath)
+	for eventType, channels := range c.Spec.Notifications.On {
+		for i := range channels.Telegram {
+			tokenPath := strings.TrimSpace(channels.Telegram[i].BotTokenPath)
+			if tokenPath != "" && !filepath.IsAbs(tokenPath) {
+				channels.Telegram[i].BotTokenPath = filepath.Join(configDir, tokenPath)
+			}
 		}
+
+		c.Spec.Notifications.On[eventType] = channels
 	}
 }
 
@@ -475,8 +483,7 @@ func (c *Config) validate() error {
 	errs = append(errs, c.validateSync()...)
 	errs = append(errs, c.validateGitAuth()...)
 	errs = append(errs, c.validateSecurity()...)
-	errs = append(errs, c.validateTelegramNotifications()...)
-	errs = append(errs, c.validateCustomNotifications()...)
+	errs = append(errs, c.validateNotifications()...)
 
 	return errors.Join(errs...)
 }
@@ -590,33 +597,38 @@ func (c *Config) validateWebhookSecret() []error {
 	return nil
 }
 
-func (c *Config) validateTelegramNotifications() []error {
+func (c *Config) validateNotifications() []error {
 	var errs []error
 
-	for i, tg := range c.Spec.Notifications.Telegram {
-		if tg.ChatID == "" {
-			errs = append(errs, fmt.Errorf("notifications.telegram[%d].chatId is required", i))
+	for eventType, channels := range c.Spec.Notifications.On {
+		for i, tg := range channels.Telegram {
+			if tg.ChatID == "" {
+				errs = append(errs, fmt.Errorf("notifications.on[%q].telegram[%d].chatId is required", eventType, i))
+			}
+			token, err := tg.ResolveToken()
+			if err != nil {
+				errs = append(errs, fmt.Errorf("notifications.on[%q].telegram[%d]: %w", eventType, i, err))
+			} else if token == "" {
+				errs = append(
+					errs,
+					fmt.Errorf("notifications.on[%q].telegram[%d].botTokenPath contains empty token", eventType, i),
+				)
+			}
+			if tg.ResolveChatThreadID() < 0 {
+				errs = append(
+					errs,
+					fmt.Errorf("notifications.on[%q].telegram[%d].chatThreadId must be >= 0", eventType, i),
+				)
+			}
 		}
-		token, err := tg.ResolveToken()
-		if err != nil {
-			errs = append(errs, fmt.Errorf("notifications.telegram[%d]: %w", i, err))
-		} else if token == "" {
-			errs = append(errs, fmt.Errorf("notifications.telegram[%d].botTokenPath contains empty token", i))
-		}
-		if tg.ResolveChatThreadID() < 0 {
-			errs = append(errs, fmt.Errorf("notifications.telegram[%d].chatThreadId must be >= 0", i))
-		}
-	}
 
-	return errs
-}
-
-func (c *Config) validateCustomNotifications() []error {
-	var errs []error
-
-	for i, ch := range c.Spec.Notifications.Custom {
-		if ch.ResolveURL() == "" {
-			errs = append(errs, fmt.Errorf("notifications.custom[%d].url or urlEnv is required", i))
+		for i, ch := range channels.Custom {
+			if ch.ResolveURL() == "" {
+				errs = append(
+					errs,
+					fmt.Errorf("notifications.on[%q].custom[%d].url or urlEnv is required", eventType, i),
+				)
+			}
 		}
 	}
 

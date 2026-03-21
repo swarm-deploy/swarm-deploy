@@ -1,4 +1,4 @@
-package notify
+package notifiers
 
 import (
 	"bytes"
@@ -44,7 +44,7 @@ func (n *CustomWebhookNotifier) Name() string {
 	return "custom"
 }
 
-func (n *CustomWebhookNotifier) Notify(ctx context.Context, event Event) error {
+func (n *CustomWebhookNotifier) Notify(ctx context.Context, event Message) error {
 	body, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("marshal payload: %w", err)

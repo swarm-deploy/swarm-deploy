@@ -9,10 +9,10 @@ import (
 
 	"github.com/artarts36/swarm-deploy/internal/compose"
 	"github.com/artarts36/swarm-deploy/internal/config"
-	"github.com/artarts36/swarm-deploy/internal/event"
+	"github.com/artarts36/swarm-deploy/internal/event/dispatcher"
+	"github.com/artarts36/swarm-deploy/internal/event/events"
 	"github.com/artarts36/swarm-deploy/internal/gitops"
 	"github.com/artarts36/swarm-deploy/internal/metrics"
-	"github.com/artarts36/swarm-deploy/internal/notify"
 	"github.com/artarts36/swarm-deploy/internal/swarm"
 )
 
@@ -51,7 +51,7 @@ type Controller struct {
 	gitSync  *gitops.Syncer
 	deployer *swarm.Deployer
 	metrics  *metrics.Recorder
-	event    *event.Dispatcher
+	event    dispatcher.Dispatcher
 
 	stateStore      *runtimeStateStore
 	stackReconciler *stackReconciler
@@ -64,14 +64,14 @@ func New(
 	gitSync *gitops.Syncer,
 	deployer *swarm.Deployer,
 	metricRecorder *metrics.Recorder,
-	notifier *notify.Manager,
+	eventDispatcher dispatcher.Dispatcher,
 ) *Controller {
 	return &Controller{
 		cfg:        cfg,
 		gitSync:    gitSync,
 		deployer:   deployer,
 		metrics:    metricRecorder,
-		event:      event.NewDispatcher(notifier),
+		event:      eventDispatcher,
 		stateStore: newRuntimeStateStore(),
 		stackReconciler: newStackReconciler(
 			cfg,
@@ -272,7 +272,7 @@ func (c *Controller) syncStack(ctx context.Context, stackCfg config.StackSpec, c
 		}
 	})
 
-	c.event.DispatchSuccessfulDeploy(event.SuccessfulDeployEvent{
+	c.event.Dispatch(ctx, &events.DeploySuccess{
 		StackName: stackCfg.Name,
 		Commit:    commit,
 		Services:  reconcileResult.Services,
@@ -306,7 +306,7 @@ func (c *Controller) recordStackFailure(stackName, commit string, services []com
 		}
 	})
 
-	c.event.DispatchFailedDeploy(event.FailedDeployEvent{
+	c.event.Dispatch(context.Background(), &events.DeployFailed{
 		StackName: stackName,
 		Commit:    commit,
 		Services:  services,

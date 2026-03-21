@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/artarts36/swarm-deploy/internal/event/events"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -439,4 +440,82 @@ stacks:
 	assert.Equal(t, configStacksPath, loadedFrom, "expected fallback config stacks path")
 	require.Len(t, cfg.Spec.Stacks, 1, "expected one stack")
 	assert.Equal(t, "from-config", cfg.Spec.Stacks[0].Name, "expected stack from config")
+}
+
+func TestLoadResolvesRelativeTelegramBotTokenPathInNotificationsOn(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	tokenPath := filepath.Join(dir, "telegram_bot_token")
+	require.NoError(t, os.WriteFile(tokenPath, []byte("token-value"), 0o600), "write bot token file")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(`
+git:
+  repository: https://example.com/repo.git
+stacks:
+  file: ./stacks.yaml
+notifications:
+  on:
+    deploySuccess:
+      telegram:
+        - name: ops
+          botTokenPath: ./telegram_bot_token
+          chatId: "-1001234567890"
+`)
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err, "load config")
+	channels, ok := cfg.Spec.Notifications.On[events.TypeDeploySuccess]
+	require.True(t, ok, "expected deploySuccess notifications")
+	require.Len(t, channels.Telegram, 1, "expected one telegram channel")
+	assert.Equal(
+		t,
+		tokenPath,
+		channels.Telegram[0].BotTokenPath,
+		"expected resolved telegram token path",
+	)
+}
+
+func TestLoadFailsOnCustomNotificationWithoutURLInNotificationsOn(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(`
+git:
+  repository: https://example.com/repo.git
+stacks:
+  file: ./stacks.yaml
+notifications:
+  on:
+    deploySuccess:
+      custom:
+        - name: audit
+`)
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	_, err := Load(configPath)
+	require.Error(t, err, "expected error")
+	assert.Contains(
+		t,
+		err.Error(),
+		`notifications.on["deploySuccess"].custom[0].url or urlEnv is required`,
+		"unexpected error",
+	)
 }

@@ -1,11 +1,10 @@
-package notify
+package notifiers
 
 import (
 	"context"
 	"errors"
 	"fmt"
 	"sync"
-	"time"
 )
 
 type Image struct {
@@ -13,19 +12,13 @@ type Image struct {
 	Version  string `json:"version"`
 }
 
-type Event struct {
-	Status    string    `json:"status"`
-	StackName string    `json:"stack_name"`
-	Service   string    `json:"service"`
-	Image     Image     `json:"image"`
-	Commit    string    `json:"commit,omitempty"`
-	Error     string    `json:"error,omitempty"`
-	Timestamp time.Time `json:"timestamp"`
+type Message struct {
+	Payload any `json:",inline"`
 }
 
 type Notifier interface {
 	Name() string
-	Notify(ctx context.Context, event Event) error
+	Notify(ctx context.Context, event Message) error
 }
 
 type Manager struct {
@@ -36,7 +29,7 @@ func NewManager(notifiers ...Notifier) *Manager {
 	return &Manager{notifiers: notifiers}
 }
 
-func (m *Manager) Notify(ctx context.Context, event Event) error {
+func (m *Manager) Notify(ctx context.Context, event Message) error {
 	if len(m.notifiers) == 0 {
 		return nil
 	}

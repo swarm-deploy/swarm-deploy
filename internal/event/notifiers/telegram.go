@@ -1,4 +1,4 @@
-package notify
+package notifiers
 
 import (
 	"bytes"
@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"strings"
 	"text/template"
-	"time"
 )
 
 const defaultTelegramMessageTemplate = `deploy {{.status}}
@@ -70,7 +69,7 @@ func (n *TelegramNotifier) Name() string {
 	return "telegram"
 }
 
-func (n *TelegramNotifier) Notify(ctx context.Context, event Event) error {
+func (n *TelegramNotifier) Notify(ctx context.Context, event Message) error {
 	message, err := n.renderMessage(event)
 	if err != nil {
 		return err
@@ -119,21 +118,9 @@ func (n *TelegramNotifier) Notify(ctx context.Context, event Event) error {
 	return fmt.Errorf("unexpected status: %s, response: %s", resp.Status, string(respBody))
 }
 
-func (n *TelegramNotifier) renderMessage(event Event) (string, error) {
+func (n *TelegramNotifier) renderMessage(event Message) (string, error) {
 	data := map[string]any{
-		"status":     event.Status,
-		"success":    strings.EqualFold(event.Status, "success"),
-		"stack_name": event.StackName,
-		"service":    event.Service,
-		"image": map[string]any{
-			"full_name": event.Image.FullName,
-			"version":   event.Image.Version,
-		},
-		"commit":          event.Commit,
-		"error":           event.Error,
-		"timestamp":       event.Timestamp.UTC().Format(time.RFC3339),
-		"image_full_name": event.Image.FullName,
-		"image_version":   event.Image.Version,
+		"event": event.Payload,
 	}
 
 	var out bytes.Buffer

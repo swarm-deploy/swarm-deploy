@@ -21,6 +21,35 @@ stacks:
   # Path to stacks definition file in git repository (relative to repo root).
   file: ./stacks.yaml
 
+# Notification channels grouped by event type.
+notifications:
+  on:
+    # Event type: deploySuccess | deployFailed
+    deploySuccess:
+      telegram:
+        - name: ops-success
+          botTokenPath: /run/secrets/telegram_bot_token
+          chatId: "-1001234567890"
+      custom:
+        - name: success-webhook
+          url: https://hooks.example.com/deploy-success
+          method: POST
+          header:
+            Content-Type: application/json
+
+    deployFailed:
+      telegram:
+        - name: ops-failed
+          botTokenPath: /run/secrets/telegram_bot_token
+          chatId: "-1001234567890"
+          message: |
+            deploy {{.status}}
+            stack_name: {{.stack_name}}
+            service: {{.service}}
+            {{- if .error }}
+            error: {{.error}}
+            {{- end }}
+
 # Secret/config name rotation settings.
 secretRotation:
   # Enable rotation.
