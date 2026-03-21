@@ -134,6 +134,9 @@ func (c *Controller) syncOnce(ctx context.Context, reason TriggerReason) { //nol
 	startedAt := time.Now()
 
 	slog.InfoContext(ctx, "[controller] run sync", slog.String("reason", string(reason)))
+	if reason == TriggerManual {
+		c.event.Dispatch(ctx, &events.SyncManualStarted{})
+	}
 
 	syncResult, err := c.gitSync.Sync(ctx)
 	if err != nil {

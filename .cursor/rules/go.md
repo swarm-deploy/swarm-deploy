@@ -50,3 +50,8 @@ type GRPCConfig struct {
 	UseReflection bool `env:"USE_REFLECTION"`
 }
 ```
+
+# Event Dispatcher
+- Project use Event Dispatching for notifications and save events to history
+- Events declared in ./internal/event/events
+- Notification subscribers config located in ./internal/config NotificationSpec

@@ -24,7 +24,7 @@ stacks:
 # Notification channels grouped by event type.
 notifications:
   on:
-    # Event type: deploySuccess | deployFailed
+    # Event type: deploySuccess | deployFailed | syncManualStarted
     deploySuccess:
       telegram:
         - name: ops-success
@@ -49,6 +49,14 @@ notifications:
             {{- if .error }}
             error: {{.error}}
             {{- end }}
+
+    syncManualStarted:
+      telegram:
+        - name: ops-manual-sync
+          botTokenPath: /run/secrets/telegram_bot_token
+          chatId: "-1001234567890"
+          message: |
+            sync started manually
 
 # Secret/config name rotation settings.
 secretRotation:
