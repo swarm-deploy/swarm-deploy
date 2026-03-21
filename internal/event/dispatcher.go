@@ -8,12 +8,17 @@ import (
 	"time"
 
 	"github.com/artarts36/swarm-deploy/internal/compose"
+	"github.com/artarts36/swarm-deploy/internal/event/events"
 	"github.com/artarts36/swarm-deploy/internal/notify"
 )
 
 const (
 	defaultEventsQueueLen = 128
 )
+
+type Event interface {
+	Type() events.Type
+}
 
 type notifier interface {
 	// Notify sends a notification event.
@@ -43,43 +48,42 @@ func NewDispatcher(notifier notifier) *Dispatcher {
 	return d
 }
 
-func (d *Dispatcher) DispatchSuccessfulDeploy(event SuccessfulDeployEvent) {
-	for _, service := range event.Services {
-		imageName := service.Image
-		if imageName == "" {
-			imageName = "unknown"
+func (d *Dispatcher) Dispatch(event Event) {
+	switch e := event.(type) {
+	case *events.DeploySuccess:
+		for _, service := range e.Services {
+			imageName := service.Image
+			if imageName == "" {
+				imageName = "unknown"
+			}
+
+			d.dispatch(notify.Event{
+				Status:    "success",
+				StackName: e.StackName,
+				Service:   service.Name,
+				Image: notify.Image{
+					FullName: imageName,
+					Version:  compose.ImageVersion(imageName),
+				},
+				Commit:    e.Commit,
+				Timestamp: d.now(),
+			})
 		}
-
-		d.dispatch(notify.Event{
-			Status:    "success",
-			StackName: event.StackName,
-			Service:   service.Name,
-			Image: notify.Image{
-				FullName: imageName,
-				Version:  compose.ImageVersion(imageName),
-			},
-			Commit:    event.Commit,
-			Timestamp: d.now(),
-		})
-	}
-}
-
-func (d *Dispatcher) DispatchFailedDeploy(
-	event FailedDeployEvent,
-) {
-	for _, service := range event.Services {
-		d.dispatch(notify.Event{
-			Status:    "failed",
-			StackName: event.StackName,
-			Service:   service.Name,
-			Image: notify.Image{
-				FullName: "unknown",
-				Version:  "unknown",
-			},
-			Commit:    event.Commit,
-			Error:     event.Error.Error(),
-			Timestamp: d.now(),
-		})
+	case *events.DeployFailed:
+		for _, service := range e.Services {
+			d.dispatch(notify.Event{
+				Status:    "failed",
+				StackName: e.StackName,
+				Service:   service.Name,
+				Image: notify.Image{
+					FullName: "unknown",
+					Version:  "unknown",
+				},
+				Commit:    e.Commit,
+				Error:     e.Error.Error(),
+				Timestamp: d.now(),
+			})
+		}
 	}
 }
 

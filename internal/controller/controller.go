@@ -10,6 +10,7 @@ import (
 	"github.com/artarts36/swarm-deploy/internal/compose"
 	"github.com/artarts36/swarm-deploy/internal/config"
 	"github.com/artarts36/swarm-deploy/internal/event"
+	"github.com/artarts36/swarm-deploy/internal/event/events"
 	"github.com/artarts36/swarm-deploy/internal/gitops"
 	"github.com/artarts36/swarm-deploy/internal/metrics"
 	"github.com/artarts36/swarm-deploy/internal/notify"
@@ -272,7 +273,7 @@ func (c *Controller) syncStack(ctx context.Context, stackCfg config.StackSpec, c
 		}
 	})
 
-	c.event.DispatchSuccessfulDeploy(event.SuccessfulDeployEvent{
+	c.event.Dispatch(&events.DeploySuccess{
 		StackName: stackCfg.Name,
 		Commit:    commit,
 		Services:  reconcileResult.Services,
@@ -306,7 +307,7 @@ func (c *Controller) recordStackFailure(stackName, commit string, services []com
 		}
 	})
 
-	c.event.DispatchFailedDeploy(event.FailedDeployEvent{
+	c.event.Dispatch(&events.DeployFailed{
 		StackName: stackName,
 		Commit:    commit,
 		Services:  services,
