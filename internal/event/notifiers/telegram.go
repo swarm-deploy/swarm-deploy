@@ -120,7 +120,7 @@ func (n *TelegramNotifier) Notify(ctx context.Context, event Message) error {
 
 func (n *TelegramNotifier) renderMessage(event Message) (string, error) {
 	data := map[string]any{
-		"event": event,
+		"event": event.Payload,
 	}
 
 	var out bytes.Buffer
