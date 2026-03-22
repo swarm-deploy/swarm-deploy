@@ -98,6 +98,31 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					break
 				}
 				switch elem[0] {
+				case 'e': // Prefix: "ervices"
+
+					if l := len("ervices"); len(elem) >= l && elem[0:l] == "ervices" {
+						elem = elem[l:]
+					} else {
+						break
+					}
+
+					if len(elem) == 0 {
+						// Leaf node.
+						switch r.Method {
+						case "GET":
+							s.handleListServicesRequest([0]string{}, elemIsEscaped, w, r)
+						default:
+							s.notAllowed(w, r, notAllowedParams{
+								allowedMethods: "GET",
+								allowedHeaders: nil,
+								acceptPost:     "",
+								acceptPatch:    "",
+							})
+						}
+
+						return
+					}
+
 				case 't': // Prefix: "tacks"
 
 					if l := len("tacks"); len(elem) >= l && elem[0:l] == "tacks" {
@@ -362,6 +387,31 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 					break
 				}
 				switch elem[0] {
+				case 'e': // Prefix: "ervices"
+
+					if l := len("ervices"); len(elem) >= l && elem[0:l] == "ervices" {
+						elem = elem[l:]
+					} else {
+						break
+					}
+
+					if len(elem) == 0 {
+						// Leaf node.
+						switch method {
+						case "GET":
+							r.name = ListServicesOperation
+							r.summary = ""
+							r.operationID = "listServices"
+							r.operationGroup = ""
+							r.pathPattern = "/api/v1/services"
+							r.args = args
+							r.count = 0
+							return r, true
+						default:
+							return
+						}
+					}
+
 				case 't': // Prefix: "tacks"
 
 					if l := len("tacks"); len(elem) >= l && elem[0:l] == "tacks" {

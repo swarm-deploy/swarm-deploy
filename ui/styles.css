@@ -59,7 +59,8 @@ h1 {
   font-weight: 700;
 }
 
-button {
+button,
+.button-link {
   border: 1px solid rgba(255, 255, 255, 0.3);
   color: #13202d;
   background: linear-gradient(135deg, #f8c37e, var(--accent));
@@ -70,9 +71,17 @@ button {
   transition: transform 120ms ease, filter 120ms ease;
 }
 
-button:hover {
+button:hover,
+.button-link:hover {
   transform: translateY(-1px);
   filter: brightness(1.08);
+}
+
+.button-link {
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .status-panel {
@@ -84,10 +93,76 @@ button:hover {
   backdrop-filter: blur(8px);
 }
 
+.services-link-panel {
+  margin-bottom: 20px;
+}
+
 .stack-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
   gap: 14px;
+}
+
+.service-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 14px;
+}
+
+.service-card {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--card);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: reveal 260ms ease both;
+}
+
+.service-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.service-name {
+  margin: 0;
+  font-size: 1.02rem;
+}
+
+.service-type {
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 0.8rem;
+  border: 1px solid;
+  align-self: flex-start;
+}
+
+.service-type.application {
+  color: var(--muted);
+  border-color: rgba(161, 192, 204, 0.4);
+}
+
+.service-type.monitoring {
+  color: #9bc6ff;
+  border-color: rgba(155, 198, 255, 0.5);
+}
+
+.service-type.delivery {
+  color: #f7b267;
+  border-color: rgba(247, 178, 103, 0.5);
+}
+
+.service-type.reverseProxy {
+  color: #f2a6ff;
+  border-color: rgba(242, 166, 255, 0.5);
+}
+
+.service-type.database {
+  color: var(--success);
+  border-color: rgba(107, 203, 154, 0.5);
 }
 
 .stack-card {

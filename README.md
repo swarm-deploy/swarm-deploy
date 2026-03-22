@@ -12,6 +12,7 @@ GitOps controller for Docker Swarm with an ArgoCD-inspired, but Swarm-native, co
 - UI and API are served by a single web server on `web.address`.
 - Optional HTTP Basic authentication for UI and API via `web.security.authentication.basic.htpasswdFile`.
 - [Notification hooks for successful and failed deployments](./docs/notifications.md)
+- [Services catalog persisted on disk and available via API](./docs/services.md)
 - [Init Deploy Jobs](./docs/init-deploy-jobs.md)
 - [Secrets Rotation](./docs/secrets-rotation.md)
 

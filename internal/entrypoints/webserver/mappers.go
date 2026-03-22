@@ -4,6 +4,7 @@ import (
 	"github.com/artarts36/swarm-deploy/internal/controller"
 	generated "github.com/artarts36/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/artarts36/swarm-deploy/internal/event/history"
+	"github.com/artarts36/swarm-deploy/internal/service"
 	"github.com/artarts36/swarm-deploy/internal/swarm"
 )
 
@@ -100,4 +101,39 @@ func toGeneratedEvents(entries []history.Entry) []generated.EventHistoryItem {
 	}
 
 	return mapped
+}
+
+func toGeneratedServiceInfos(services []service.Info) []generated.ServiceInfo {
+	mapped := make([]generated.ServiceInfo, 0, len(services))
+	for _, serviceInfo := range services {
+		mappedItem := generated.ServiceInfo{
+			Name:  serviceInfo.Name,
+			Stack: serviceInfo.Stack,
+			Type:  toGeneratedServiceType(serviceInfo.Type),
+			Image: serviceInfo.Image,
+		}
+		if serviceInfo.Description != "" {
+			mappedItem.Description = generated.NewOptString(serviceInfo.Description)
+		}
+
+		mapped = append(mapped, mappedItem)
+	}
+	return mapped
+}
+
+func toGeneratedServiceType(serviceType service.Type) generated.ServiceInfoType {
+	switch serviceType {
+	case service.TypeApplication:
+		return generated.ServiceInfoTypeApplication
+	case service.TypeMonitoring:
+		return generated.ServiceInfoTypeMonitoring
+	case service.TypeDelivery:
+		return generated.ServiceInfoTypeDelivery
+	case service.TypeReverseProxy:
+		return generated.ServiceInfoTypeReverseProxy
+	case service.TypeDatabase:
+		return generated.ServiceInfoTypeDatabase
+	default:
+		return generated.ServiceInfoTypeApplication
+	}
 }

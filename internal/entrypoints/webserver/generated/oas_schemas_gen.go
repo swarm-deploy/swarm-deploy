@@ -4,6 +4,8 @@ package api
 
 import (
 	"time"
+
+	"github.com/go-faster/errors"
 )
 
 // Ref: #/components/schemas/EventHistoryItem
@@ -233,6 +235,127 @@ func (s *QueueResponse) SetQueued(val bool) {
 	s.Queued = val
 }
 
+// Ref: #/components/schemas/ServiceInfo
+type ServiceInfo struct {
+	Name        string          `json:"name"`
+	Stack       string          `json:"stack"`
+	Description OptString       `json:"description"`
+	Type        ServiceInfoType `json:"type"`
+	Image       string          `json:"image"`
+}
+
+// GetName returns the value of Name.
+func (s *ServiceInfo) GetName() string {
+	return s.Name
+}
+
+// GetStack returns the value of Stack.
+func (s *ServiceInfo) GetStack() string {
+	return s.Stack
+}
+
+// GetDescription returns the value of Description.
+func (s *ServiceInfo) GetDescription() OptString {
+	return s.Description
+}
+
+// GetType returns the value of Type.
+func (s *ServiceInfo) GetType() ServiceInfoType {
+	return s.Type
+}
+
+// GetImage returns the value of Image.
+func (s *ServiceInfo) GetImage() string {
+	return s.Image
+}
+
+// SetName sets the value of Name.
+func (s *ServiceInfo) SetName(val string) {
+	s.Name = val
+}
+
+// SetStack sets the value of Stack.
+func (s *ServiceInfo) SetStack(val string) {
+	s.Stack = val
+}
+
+// SetDescription sets the value of Description.
+func (s *ServiceInfo) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// SetType sets the value of Type.
+func (s *ServiceInfo) SetType(val ServiceInfoType) {
+	s.Type = val
+}
+
+// SetImage sets the value of Image.
+func (s *ServiceInfo) SetImage(val string) {
+	s.Image = val
+}
+
+type ServiceInfoType string
+
+const (
+	ServiceInfoTypeApplication  ServiceInfoType = "application"
+	ServiceInfoTypeMonitoring   ServiceInfoType = "monitoring"
+	ServiceInfoTypeDelivery     ServiceInfoType = "delivery"
+	ServiceInfoTypeReverseProxy ServiceInfoType = "reverseProxy"
+	ServiceInfoTypeDatabase     ServiceInfoType = "database"
+)
+
+// AllValues returns all ServiceInfoType values.
+func (ServiceInfoType) AllValues() []ServiceInfoType {
+	return []ServiceInfoType{
+		ServiceInfoTypeApplication,
+		ServiceInfoTypeMonitoring,
+		ServiceInfoTypeDelivery,
+		ServiceInfoTypeReverseProxy,
+		ServiceInfoTypeDatabase,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s ServiceInfoType) MarshalText() ([]byte, error) {
+	switch s {
+	case ServiceInfoTypeApplication:
+		return []byte(s), nil
+	case ServiceInfoTypeMonitoring:
+		return []byte(s), nil
+	case ServiceInfoTypeDelivery:
+		return []byte(s), nil
+	case ServiceInfoTypeReverseProxy:
+		return []byte(s), nil
+	case ServiceInfoTypeDatabase:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *ServiceInfoType) UnmarshalText(data []byte) error {
+	switch ServiceInfoType(data) {
+	case ServiceInfoTypeApplication:
+		*s = ServiceInfoTypeApplication
+		return nil
+	case ServiceInfoTypeMonitoring:
+		*s = ServiceInfoTypeMonitoring
+		return nil
+	case ServiceInfoTypeDelivery:
+		*s = ServiceInfoTypeDelivery
+		return nil
+	case ServiceInfoTypeReverseProxy:
+		*s = ServiceInfoTypeReverseProxy
+		return nil
+	case ServiceInfoTypeDatabase:
+		*s = ServiceInfoTypeDatabase
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
 // Ref: #/components/schemas/ServiceStatusResponse
 type ServiceStatusResponse struct {
 	Stack             string `json:"stack"`
@@ -371,6 +494,21 @@ func (s *ServiceView) SetLastStatus(val OptString) {
 // SetLastDeployAt sets the value of LastDeployAt.
 func (s *ServiceView) SetLastDeployAt(val OptDateTime) {
 	s.LastDeployAt = val
+}
+
+// Ref: #/components/schemas/ServicesResponse
+type ServicesResponse struct {
+	Services []ServiceInfo `json:"services"`
+}
+
+// GetServices returns the value of Services.
+func (s *ServicesResponse) GetServices() []ServiceInfo {
+	return s.Services
+}
+
+// SetServices sets the value of Services.
+func (s *ServicesResponse) SetServices(val []ServiceInfo) {
+	s.Services = val
 }
 
 // Ref: #/components/schemas/StackView

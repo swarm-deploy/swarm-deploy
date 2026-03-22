@@ -8,6 +8,7 @@ type OperationName = string
 const (
 	GetServiceStatusOperation OperationName = "GetServiceStatus"
 	ListEventsOperation       OperationName = "ListEvents"
+	ListServicesOperation     OperationName = "ListServices"
 	ListStacksOperation       OperationName = "ListStacks"
 	TriggerSyncOperation      OperationName = "TriggerSync"
 )

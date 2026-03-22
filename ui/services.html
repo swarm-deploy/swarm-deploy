@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Swarm Deploy - Services</title>
+  <link rel="stylesheet" href="/ui/styles.css" />
+</head>
+<body>
+  <div class="bg-shape shape-1"></div>
+  <div class="bg-shape shape-2"></div>
+  <main class="layout">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">GitOps for Docker Swarm</p>
+        <h1>Services</h1>
+      </div>
+      <div class="actions">
+        <a class="button-link" href="/ui/">Back</a>
+      </div>
+    </header>
+    <section class="status-panel">
+      <p id="services-status">Loading...</p>
+    </section>
+    <section>
+      <div id="services-list" class="service-grid"></div>
+    </section>
+  </main>
+  <script src="/ui/services.js" defer></script>
+</body>
+</html>

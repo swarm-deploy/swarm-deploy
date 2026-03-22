@@ -23,6 +23,7 @@ import (
 	gitx "github.com/artarts36/swarm-deploy/internal/git"
 	"github.com/artarts36/swarm-deploy/internal/gitops"
 	"github.com/artarts36/swarm-deploy/internal/metrics"
+	"github.com/artarts36/swarm-deploy/internal/service"
 	"github.com/artarts36/swarm-deploy/internal/swarm"
 	"github.com/cappuccinotm/slogx"
 	"github.com/cappuccinotm/slogx/slogm"
@@ -74,11 +75,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	eventDispatcher, eventHistory, err := buildEventDispatcher(cfg)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to build event dispatcher", slog.Any("err", err))
-		os.Exit(1)
-	}
 	deployer, err := swarm.NewDeployer(
 		cfg.Spec.Swarm.Command,
 		cfg.Spec.Swarm.StackDeployArgs,
@@ -97,6 +93,12 @@ func main() {
 		os.Exit(1)
 	}
 
+	eventDispatcher, eventHistory, serviceStore, err := buildEventDispatcher(cfg, inspector)
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to build event dispatcher", slog.Any("err", err))
+		os.Exit(1)
+	}
+
 	control := controller.New(
 		cfg,
 		gitSyncer,
@@ -110,6 +112,7 @@ func main() {
 		control,
 		inspector,
 		eventHistory,
+		serviceStore,
 		eventDispatcher,
 		cfg.Spec.Web.Security.Authentication,
 	)
@@ -158,7 +161,10 @@ func main() {
 	}
 }
 
-func buildEventDispatcher(cfg *config.Config) (dispatcher.Dispatcher, *history.Store, error) {
+func buildEventDispatcher(
+	cfg *config.Config,
+	inspector *swarm.Inspector,
+) (dispatcher.Dispatcher, *history.Store, *service.Store, error) {
 	subs := map[events.Type][]dispatcher.Subscriber{}
 
 	historyStore, err := history.NewStore(
@@ -166,9 +172,18 @@ func buildEventDispatcher(cfg *config.Config) (dispatcher.Dispatcher, *history.S
 		cfg.Spec.EventHistory.Capacity,
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("build history store: %w", err)
+		return nil, nil, nil, fmt.Errorf("build history store: %w", err)
 	}
 	addEventHistorySubscriber(subs, historyStore)
+
+	serviceStore, err := service.NewStore(filepath.Join(cfg.Spec.DataDir, "services.json"))
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("build service store: %w", err)
+	}
+	subs[events.TypeDeploySuccess] = append(
+		subs[events.TypeDeploySuccess],
+		service.NewSubscriber(serviceStore, inspector, nil),
+	)
 
 	dispatcherLink := &dispatcherProxy{}
 
@@ -176,7 +191,7 @@ func buildEventDispatcher(cfg *config.Config) (dispatcher.Dispatcher, *history.S
 		for _, tg := range channels.Telegram {
 			token, resolveErr := tg.ResolveToken()
 			if resolveErr != nil {
-				return nil, nil, fmt.Errorf("resolve telegram token for %q: %w", tg.Name, resolveErr)
+				return nil, nil, nil, fmt.Errorf("resolve telegram token for %q: %w", tg.Name, resolveErr)
 			}
 
 			tgNotifier, notifierErr := notifiers.NewTelegramNotifier(
@@ -189,7 +204,7 @@ func buildEventDispatcher(cfg *config.Config) (dispatcher.Dispatcher, *history.S
 				},
 			)
 			if notifierErr != nil {
-				return nil, nil, fmt.Errorf("build telegram notifier %q: %w", tg.Name, notifierErr)
+				return nil, nil, nil, fmt.Errorf("build telegram notifier %q: %w", tg.Name, notifierErr)
 			}
 
 			sub := notify2.NewSubscriber(tgNotifier, dispatcherLink)
@@ -213,7 +228,7 @@ func buildEventDispatcher(cfg *config.Config) (dispatcher.Dispatcher, *history.S
 	eventDispatcher := dispatcher.NewQueueDispatcher(subs)
 	dispatcherLink.Dispatcher = eventDispatcher
 
-	return eventDispatcher, historyStore, nil
+	return eventDispatcher, historyStore, serviceStore, nil
 }
 
 func addEventHistorySubscriber(subs map[events.Type][]dispatcher.Subscriber, store *history.Store) {

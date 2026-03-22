@@ -38,6 +38,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EventHistoryResponse'
+  /api/v1/services:
+    get:
+      operationId: listServices
+      responses:
+        '200':
+          description: Latest service metadata collected after successful deploys
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServicesResponse'
   /api/v1/stacks/{stack}/services/{service}/status:
     get:
       operationId: getServiceStatus
@@ -90,6 +100,29 @@ components:
           type: object
           additionalProperties:
             type: string
+    ServicesResponse:
+      type: object
+      required: [services]
+      properties:
+        services:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceInfo'
+    ServiceInfo:
+      type: object
+      required: [name, stack, type, image]
+      properties:
+        name:
+          type: string
+        stack:
+          type: string
+        description:
+          type: string
+        type:
+          type: string
+          enum: [application, monitoring, delivery, reverseProxy, database]
+        image:
+          type: string
     SyncInfo:
       type: object
       additionalProperties:

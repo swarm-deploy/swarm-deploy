@@ -32,6 +32,16 @@ type ServiceStatus struct {
 	LimitCPUNano int64
 }
 
+// ServiceLabels contains labels from service, container and image inspect.
+type ServiceLabels struct {
+	// Service contains Docker service-level labels from annotations.
+	Service map[string]string
+	// Container contains container labels from task template.
+	Container map[string]string
+	// Image contains OCI labels from image config.
+	Image map[string]string
+}
+
 func NewInspector() (*Inspector, error) {
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
