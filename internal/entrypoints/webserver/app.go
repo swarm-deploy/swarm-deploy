@@ -10,6 +10,7 @@ import (
 	"github.com/artarts36/swarm-deploy/internal/controller"
 	"github.com/artarts36/swarm-deploy/internal/entrypoints/webserver/authenticator"
 	generated "github.com/artarts36/swarm-deploy/internal/entrypoints/webserver/generated"
+	"github.com/artarts36/swarm-deploy/internal/entrypoints/webserver/handlers"
 	"github.com/artarts36/swarm-deploy/internal/entrypoints/webserver/middlewares"
 	"github.com/artarts36/swarm-deploy/internal/event/dispatcher"
 	"github.com/artarts36/swarm-deploy/internal/event/history"
@@ -33,9 +34,9 @@ func NewApplication(
 	eventDispatcher dispatcher.Dispatcher,
 	authCfg config.AuthenticationSpec,
 ) (*Application, error) {
-	h := NewHandler(control, inspector, eventHistory, serviceStore)
+	h := handlers.New(control, inspector, eventHistory, serviceStore)
 
-	apiHandler, err := generated.NewServer(h, generated.WithErrorHandler(handleHTTPError))
+	apiHandler, err := generated.NewServer(h, generated.WithErrorHandler(handlers.HandleHTTPError))
 	if err != nil {
 		return nil, fmt.Errorf("build ogen api server: %w", err)
 	}

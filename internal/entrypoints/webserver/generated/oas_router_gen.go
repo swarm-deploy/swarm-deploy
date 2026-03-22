@@ -75,12 +75,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					case "GET":
 						s.handleListEventsRequest([0]string{}, elemIsEscaped, w, r)
 					default:
-						s.notAllowed(w, r, notAllowedParams{
-							allowedMethods: "GET",
-							allowedHeaders: nil,
-							acceptPost:     "",
-							acceptPatch:    "",
-						})
+						s.notAllowed(w, r, "GET")
 					}
 
 					return
@@ -112,12 +107,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 						case "GET":
 							s.handleListServicesRequest([0]string{}, elemIsEscaped, w, r)
 						default:
-							s.notAllowed(w, r, notAllowedParams{
-								allowedMethods: "GET",
-								allowedHeaders: nil,
-								acceptPost:     "",
-								acceptPatch:    "",
-							})
+							s.notAllowed(w, r, "GET")
 						}
 
 						return
@@ -136,12 +126,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 						case "GET":
 							s.handleListStacksRequest([0]string{}, elemIsEscaped, w, r)
 						default:
-							s.notAllowed(w, r, notAllowedParams{
-								allowedMethods: "GET",
-								allowedHeaders: nil,
-								acceptPost:     "",
-								acceptPatch:    "",
-							})
+							s.notAllowed(w, r, "GET")
 						}
 
 						return
@@ -206,12 +191,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 											args[1],
 										}, elemIsEscaped, w, r)
 									default:
-										s.notAllowed(w, r, notAllowedParams{
-											allowedMethods: "GET",
-											allowedHeaders: nil,
-											acceptPost:     "",
-											acceptPatch:    "",
-										})
+										s.notAllowed(w, r, "GET")
 									}
 
 									return
@@ -237,12 +217,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 						case "POST":
 							s.handleTriggerSyncRequest([0]string{}, elemIsEscaped, w, r)
 						default:
-							s.notAllowed(w, r, notAllowedParams{
-								allowedMethods: "POST",
-								allowedHeaders: nil,
-								acceptPost:     "",
-								acceptPatch:    "",
-							})
+							s.notAllowed(w, r, "POST")
 						}
 
 						return
@@ -259,13 +234,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // Route is route object.
 type Route struct {
-	name           string
-	summary        string
-	operationID    string
-	operationGroup string
-	pathPattern    string
-	count          int
-	args           [2]string
+	name        string
+	summary     string
+	operationID string
+	pathPattern string
+	count       int
+	args        [2]string
 }
 
 // Name returns ogen operation name.
@@ -283,11 +257,6 @@ func (r Route) Summary() string {
 // OperationID returns OpenAPI operationId.
 func (r Route) OperationID() string {
 	return r.operationID
-}
-
-// OperationGroup returns the x-ogen-operation-group value.
-func (r Route) OperationGroup() string {
-	return r.operationGroup
 }
 
 // PathPattern returns OpenAPI path.
@@ -365,7 +334,6 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 						r.name = ListEventsOperation
 						r.summary = ""
 						r.operationID = "listEvents"
-						r.operationGroup = ""
 						r.pathPattern = "/api/v1/events"
 						r.args = args
 						r.count = 0
@@ -402,7 +370,6 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 							r.name = ListServicesOperation
 							r.summary = ""
 							r.operationID = "listServices"
-							r.operationGroup = ""
 							r.pathPattern = "/api/v1/services"
 							r.args = args
 							r.count = 0
@@ -426,7 +393,6 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 							r.name = ListStacksOperation
 							r.summary = ""
 							r.operationID = "listStacks"
-							r.operationGroup = ""
 							r.pathPattern = "/api/v1/stacks"
 							r.args = args
 							r.count = 0
@@ -493,7 +459,6 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 										r.name = GetServiceStatusOperation
 										r.summary = ""
 										r.operationID = "getServiceStatus"
-										r.operationGroup = ""
 										r.pathPattern = "/api/v1/stacks/{stack}/services/{service}/status"
 										r.args = args
 										r.count = 2
@@ -524,7 +489,6 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 							r.name = TriggerSyncOperation
 							r.summary = ""
 							r.operationID = "triggerSync"
-							r.operationGroup = ""
 							r.pathPattern = "/api/v1/sync"
 							r.args = args
 							r.count = 0

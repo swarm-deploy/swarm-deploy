@@ -1,6 +1,8 @@
-package webserver
+package handlers
 
 import (
+	"time"
+
 	"github.com/artarts36/swarm-deploy/internal/controller"
 	generated "github.com/artarts36/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/artarts36/swarm-deploy/internal/event/history"
@@ -24,19 +26,12 @@ func toGeneratedStack(stack controller.StackView) generated.StackView {
 		ComposeFile: stack.ComposeFile,
 		LastStatus:  stack.LastStatus,
 		Services:    toGeneratedServices(stack.Services),
-	}
-
-	if stack.LastError != "" {
-		mapped.LastError = generated.NewOptString(stack.LastError)
-	}
-	if stack.LastCommit != "" {
-		mapped.LastCommit = generated.NewOptString(stack.LastCommit)
-	}
-	if !stack.LastDeployAt.IsZero() {
-		mapped.LastDeployAt = generated.NewOptDateTime(stack.LastDeployAt)
-	}
-	if stack.SourceDigest != "" {
-		mapped.SourceDigest = generated.NewOptString(stack.SourceDigest)
+		LastError:   toOptString(stack.LastError),
+		LastCommit:  toOptString(stack.LastCommit),
+		LastDeployAt: toOptDateTime(
+			stack.LastDeployAt,
+		),
+		SourceDigest: toOptString(stack.SourceDigest),
 	}
 
 	return mapped
@@ -47,25 +42,33 @@ func toGeneratedServices(services []controller.ServiceView) []generated.ServiceV
 
 	for _, service := range services {
 		mappedService := generated.ServiceView{
-			Name: service.Name,
-		}
-		if service.Image != "" {
-			mappedService.Image = generated.NewOptString(service.Image)
-		}
-		if service.ImageVersion != "" {
-			mappedService.ImageVersion = generated.NewOptString(service.ImageVersion)
-		}
-		if service.LastStatus != "" {
-			mappedService.LastStatus = generated.NewOptString(service.LastStatus)
-		}
-		if !service.LastDeployAt.IsZero() {
-			mappedService.LastDeployAt = generated.NewOptDateTime(service.LastDeployAt)
+			Name:         service.Name,
+			Image:        service.Image,
+			ImageVersion: service.ImageVersion,
+			LastStatus:   toOptString(service.LastStatus),
+			LastDeployAt: toOptDateTime(service.LastDeployAt),
 		}
 
 		mapped = append(mapped, mappedService)
 	}
 
 	return mapped
+}
+
+func toOptString(value string) generated.OptString {
+	if value == "" {
+		return generated.OptString{}
+	}
+
+	return generated.NewOptString(value)
+}
+
+func toOptDateTime(value time.Time) generated.OptDateTime {
+	if value.IsZero() {
+		return generated.OptDateTime{}
+	}
+
+	return generated.NewOptDateTime(value)
 }
 
 func toGeneratedServiceStatus(status swarm.ServiceStatus) *generated.ServiceStatusResponse {
@@ -107,13 +110,11 @@ func toGeneratedServiceInfos(services []service.Info) []generated.ServiceInfo {
 	mapped := make([]generated.ServiceInfo, 0, len(services))
 	for _, serviceInfo := range services {
 		mappedItem := generated.ServiceInfo{
-			Name:  serviceInfo.Name,
-			Stack: serviceInfo.Stack,
-			Type:  toGeneratedServiceType(serviceInfo.Type),
-			Image: serviceInfo.Image,
-		}
-		if serviceInfo.Description != "" {
-			mappedItem.Description = generated.NewOptString(serviceInfo.Description)
+			Name:        serviceInfo.Name,
+			Stack:       serviceInfo.Stack,
+			Type:        toGeneratedServiceType(serviceInfo.Type),
+			Image:       serviceInfo.Image,
+			Description: toOptString(serviceInfo.Description),
 		}
 
 		mapped = append(mapped, mappedItem)

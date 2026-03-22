@@ -1,4 +1,4 @@
-package webserver
+package handlers
 
 import (
 	"context"
@@ -29,7 +29,7 @@ func withStatusError(code int, err error) error {
 	}
 }
 
-func handleHTTPError(_ context.Context, w http.ResponseWriter, _ *http.Request, err error) {
+func HandleHTTPError(_ context.Context, w http.ResponseWriter, _ *http.Request, err error) {
 	code := ogenerrors.ErrorCode(err)
 	var sErr *statusError
 	if errors.As(err, &sErr) {

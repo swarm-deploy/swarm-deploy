@@ -1,4 +1,4 @@
-package webserver
+package handlers
 
 import (
 	"github.com/artarts36/swarm-deploy/internal/controller"
@@ -18,7 +18,7 @@ type handler struct {
 
 var _ generated.Handler = (*handler)(nil)
 
-func NewHandler(
+func New(
 	control *controller.Controller,
 	inspector *swarm.Inspector,
 	history *history.Store,

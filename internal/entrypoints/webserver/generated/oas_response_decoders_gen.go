@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-faster/errors"
 	"github.com/go-faster/jx"
+
 	"github.com/ogen-go/ogen/ogenerrors"
 	"github.com/ogen-go/ogen/validate"
 )
@@ -60,7 +61,7 @@ func decodeGetServiceStatusResponse(resp *http.Response) (res *ServiceStatusResp
 			return res, validate.InvalidContentType(ct)
 		}
 	}
-	return res, validate.UnexpectedStatusCodeWithResponse(resp)
+	return res, validate.UnexpectedStatusCode(resp.StatusCode)
 }
 
 func decodeListEventsResponse(resp *http.Response) (res *EventHistoryResponse, _ error) {
@@ -110,7 +111,7 @@ func decodeListEventsResponse(resp *http.Response) (res *EventHistoryResponse, _
 			return res, validate.InvalidContentType(ct)
 		}
 	}
-	return res, validate.UnexpectedStatusCodeWithResponse(resp)
+	return res, validate.UnexpectedStatusCode(resp.StatusCode)
 }
 
 func decodeListServicesResponse(resp *http.Response) (res *ServicesResponse, _ error) {
@@ -160,7 +161,7 @@ func decodeListServicesResponse(resp *http.Response) (res *ServicesResponse, _ e
 			return res, validate.InvalidContentType(ct)
 		}
 	}
-	return res, validate.UnexpectedStatusCodeWithResponse(resp)
+	return res, validate.UnexpectedStatusCode(resp.StatusCode)
 }
 
 func decodeListStacksResponse(resp *http.Response) (res *StacksResponse, _ error) {
@@ -210,7 +211,7 @@ func decodeListStacksResponse(resp *http.Response) (res *StacksResponse, _ error
 			return res, validate.InvalidContentType(ct)
 		}
 	}
-	return res, validate.UnexpectedStatusCodeWithResponse(resp)
+	return res, validate.UnexpectedStatusCode(resp.StatusCode)
 }
 
 func decodeTriggerSyncResponse(resp *http.Response) (res *QueueResponse, _ error) {
@@ -251,5 +252,5 @@ func decodeTriggerSyncResponse(resp *http.Response) (res *QueueResponse, _ error
 			return res, validate.InvalidContentType(ct)
 		}
 	}
-	return res, validate.UnexpectedStatusCodeWithResponse(resp)
+	return res, validate.UnexpectedStatusCode(resp.StatusCode)
 }

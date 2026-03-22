@@ -440,8 +440,8 @@ func (s *ServiceStatusResponse) SetLimitCPUNano(val int64) {
 // Ref: #/components/schemas/ServiceView
 type ServiceView struct {
 	Name         string      `json:"name"`
-	Image        OptString   `json:"image"`
-	ImageVersion OptString   `json:"image_version"`
+	Image        string      `json:"image"`
+	ImageVersion string      `json:"image_version"`
 	LastStatus   OptString   `json:"last_status"`
 	LastDeployAt OptDateTime `json:"last_deploy_at"`
 }
@@ -452,12 +452,12 @@ func (s *ServiceView) GetName() string {
 }
 
 // GetImage returns the value of Image.
-func (s *ServiceView) GetImage() OptString {
+func (s *ServiceView) GetImage() string {
 	return s.Image
 }
 
 // GetImageVersion returns the value of ImageVersion.
-func (s *ServiceView) GetImageVersion() OptString {
+func (s *ServiceView) GetImageVersion() string {
 	return s.ImageVersion
 }
 
@@ -477,12 +477,12 @@ func (s *ServiceView) SetName(val string) {
 }
 
 // SetImage sets the value of Image.
-func (s *ServiceView) SetImage(val OptString) {
+func (s *ServiceView) SetImage(val string) {
 	s.Image = val
 }
 
 // SetImageVersion sets the value of ImageVersion.
-func (s *ServiceView) SetImageVersion(val OptString) {
+func (s *ServiceView) SetImageVersion(val string) {
 	s.ImageVersion = val
 }
 

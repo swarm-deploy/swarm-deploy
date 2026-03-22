@@ -129,7 +129,7 @@ components:
         type: string
     ServiceView:
       type: object
-      required: [name]
+      required: [name, image, image_version]
       properties:
         name:
           type: string

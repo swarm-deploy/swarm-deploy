@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-faster/errors"
 	"github.com/go-faster/jx"
+
 	"github.com/ogen-go/ogen/json"
 	"github.com/ogen-go/ogen/validate"
 )
@@ -942,16 +943,12 @@ func (s *ServiceView) encodeFields(e *jx.Encoder) {
 		e.Str(s.Name)
 	}
 	{
-		if s.Image.Set {
-			e.FieldStart("image")
-			s.Image.Encode(e)
-		}
+		e.FieldStart("image")
+		e.Str(s.Image)
 	}
 	{
-		if s.ImageVersion.Set {
-			e.FieldStart("image_version")
-			s.ImageVersion.Encode(e)
-		}
+		e.FieldStart("image_version")
+		e.Str(s.ImageVersion)
 	}
 	{
 		if s.LastStatus.Set {
@@ -997,9 +994,11 @@ func (s *ServiceView) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"name\"")
 			}
 		case "image":
+			requiredBitSet[0] |= 1 << 1
 			if err := func() error {
-				s.Image.Reset()
-				if err := s.Image.Decode(d); err != nil {
+				v, err := d.Str()
+				s.Image = string(v)
+				if err != nil {
 					return err
 				}
 				return nil
@@ -1007,9 +1006,11 @@ func (s *ServiceView) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"image\"")
 			}
 		case "image_version":
+			requiredBitSet[0] |= 1 << 2
 			if err := func() error {
-				s.ImageVersion.Reset()
-				if err := s.ImageVersion.Decode(d); err != nil {
+				v, err := d.Str()
+				s.ImageVersion = string(v)
+				if err != nil {
 					return err
 				}
 				return nil
@@ -1046,7 +1047,7 @@ func (s *ServiceView) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00000001,
+		0b00000111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
