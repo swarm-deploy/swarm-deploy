@@ -9,6 +9,7 @@ const serviceStatusCloseBtn = document.getElementById("service-status-close");
 const eventHistoryModalEl = document.getElementById("event-history-modal");
 const eventHistoryBodyEl = document.getElementById("event-history-body");
 const eventHistoryCloseBtn = document.getElementById("event-history-close");
+const eventDetailsPriority = ["stack", "commit", "destination", "channel", "event_type", "error"];
 
 function fmtDate(raw) {
   if (!raw) {
@@ -34,6 +35,51 @@ function fmtBytes(value) {
     idx += 1;
   }
   return `${amount.toFixed(idx === 0 ? 0 : 2)} ${units[idx]}`;
+}
+
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function sortEventDetails(detailPairs) {
+  const weightByKey = Object.fromEntries(eventDetailsPriority.map((key, idx) => [key, idx]));
+  return detailPairs.sort(([leftKey], [rightKey]) => {
+    const leftWeight = weightByKey[leftKey] ?? Number.MAX_SAFE_INTEGER;
+    const rightWeight = weightByKey[rightKey] ?? Number.MAX_SAFE_INTEGER;
+    if (leftWeight !== rightWeight) {
+      return leftWeight - rightWeight;
+    }
+    return leftKey.localeCompare(rightKey);
+  });
+}
+
+function renderEventDetails(event) {
+  const details = event.details && typeof event.details === "object" ? event.details : {};
+  const detailPairs = sortEventDetails(Object.entries(details));
+  if (detailPairs.length === 0) {
+    return `<p class="meta">details: n/a</p>`;
+  }
+
+  return `
+    <ul class="event-details">
+      ${detailPairs
+        .map(([key, value]) => {
+          const isError = key === "error";
+          return `
+            <li class="event-detail ${isError ? "event-detail-error" : ""}">
+              <span class="event-detail-key">${escapeHtml(key)}</span>
+              <code class="event-detail-value">${escapeHtml(value)}</code>
+            </li>
+          `;
+        })
+        .join("")}
+    </ul>
+  `;
 }
 
 function showServiceStatusModal() {
@@ -98,14 +144,15 @@ function renderEventHistory(events) {
         .slice()
         .reverse()
         .map(
-          (event) => `
+          (event) => {
+            return `
             <article class="event-item">
-              <p><strong>${event.type || "unknown"}</strong> - ${fmtDate(event.created_at)}</p>
-              <p class="meta">${event.message || "No details"}</p>
-              <p class="meta">stack: ${event.stack || "n/a"} | commit: ${event.commit || "n/a"}</p>
-              ${event.error ? `<p class="meta">error: ${event.error}</p>` : ""}
+              <p><strong>${escapeHtml(event.type || "unknown")}</strong> - ${escapeHtml(fmtDate(event.created_at))}</p>
+              <p class="meta">${escapeHtml(event.message || "No details")}</p>
+              ${renderEventDetails(event)}
             </article>
-          `,
+          `;
+          },
         )
         .join("")}
     </div>

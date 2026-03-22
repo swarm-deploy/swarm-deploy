@@ -44,6 +44,10 @@ func (n *CustomWebhookNotifier) Name() string {
 	return "custom"
 }
 
+func (*CustomWebhookNotifier) Kind() string {
+	return "custom"
+}
+
 func (n *CustomWebhookNotifier) Notify(ctx context.Context, event Message) error {
 	body, err := json.Marshal(event)
 	if err != nil {

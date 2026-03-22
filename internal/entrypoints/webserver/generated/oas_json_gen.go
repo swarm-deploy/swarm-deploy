@@ -9,7 +9,6 @@ import (
 
 	"github.com/go-faster/errors"
 	"github.com/go-faster/jx"
-
 	"github.com/ogen-go/ogen/json"
 	"github.com/ogen-go/ogen/validate"
 )
@@ -36,32 +35,18 @@ func (s *EventHistoryItem) encodeFields(e *jx.Encoder) {
 		e.Str(s.Message)
 	}
 	{
-		if s.Stack.Set {
-			e.FieldStart("stack")
-			s.Stack.Encode(e)
-		}
-	}
-	{
-		if s.Commit.Set {
-			e.FieldStart("commit")
-			s.Commit.Encode(e)
-		}
-	}
-	{
-		if s.Error.Set {
-			e.FieldStart("error")
-			s.Error.Encode(e)
+		if s.Details.Set {
+			e.FieldStart("details")
+			s.Details.Encode(e)
 		}
 	}
 }
 
-var jsonFieldsNameOfEventHistoryItem = [6]string{
+var jsonFieldsNameOfEventHistoryItem = [4]string{
 	0: "type",
 	1: "created_at",
 	2: "message",
-	3: "stack",
-	4: "commit",
-	5: "error",
+	3: "details",
 }
 
 // Decode decodes EventHistoryItem from json.
@@ -109,35 +94,15 @@ func (s *EventHistoryItem) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"message\"")
 			}
-		case "stack":
+		case "details":
 			if err := func() error {
-				s.Stack.Reset()
-				if err := s.Stack.Decode(d); err != nil {
+				s.Details.Reset()
+				if err := s.Details.Decode(d); err != nil {
 					return err
 				}
 				return nil
 			}(); err != nil {
-				return errors.Wrap(err, "decode field \"stack\"")
-			}
-		case "commit":
-			if err := func() error {
-				s.Commit.Reset()
-				if err := s.Commit.Decode(d); err != nil {
-					return err
-				}
-				return nil
-			}(); err != nil {
-				return errors.Wrap(err, "decode field \"commit\"")
-			}
-		case "error":
-			if err := func() error {
-				s.Error.Reset()
-				if err := s.Error.Decode(d); err != nil {
-					return err
-				}
-				return nil
-			}(); err != nil {
-				return errors.Wrap(err, "decode field \"error\"")
+				return errors.Wrap(err, "decode field \"details\"")
 			}
 		default:
 			return d.Skip()
@@ -191,6 +156,62 @@ func (s *EventHistoryItem) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *EventHistoryItem) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s EventHistoryItemDetails) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields implements json.Marshaler.
+func (s EventHistoryItemDetails) encodeFields(e *jx.Encoder) {
+	for k, elem := range s {
+		e.FieldStart(k)
+
+		e.Str(elem)
+	}
+}
+
+// Decode decodes EventHistoryItemDetails from json.
+func (s *EventHistoryItemDetails) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode EventHistoryItemDetails to nil")
+	}
+	m := s.init()
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		var elem string
+		if err := func() error {
+			v, err := d.Str()
+			elem = string(v)
+			if err != nil {
+				return err
+			}
+			return nil
+		}(); err != nil {
+			return errors.Wrapf(err, "decode field %q", k)
+		}
+		m[string(k)] = elem
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode EventHistoryItemDetails")
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s EventHistoryItemDetails) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *EventHistoryItemDetails) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -334,6 +355,40 @@ func (s OptDateTime) MarshalJSON() ([]byte, error) {
 func (s *OptDateTime) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d, json.DecodeDateTime)
+}
+
+// Encode encodes EventHistoryItemDetails as json.
+func (o OptEventHistoryItemDetails) Encode(e *jx.Encoder) {
+	if !o.Set {
+		return
+	}
+	o.Value.Encode(e)
+}
+
+// Decode decodes EventHistoryItemDetails from json.
+func (o *OptEventHistoryItemDetails) Decode(d *jx.Decoder) error {
+	if o == nil {
+		return errors.New("invalid: unable to decode OptEventHistoryItemDetails to nil")
+	}
+	o.Set = true
+	o.Value = make(EventHistoryItemDetails)
+	if err := o.Value.Decode(d); err != nil {
+		return err
+	}
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s OptEventHistoryItemDetails) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *OptEventHistoryItemDetails) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
 }
 
 // Encode encodes string as json.

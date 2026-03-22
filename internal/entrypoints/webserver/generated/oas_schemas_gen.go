@@ -8,12 +8,10 @@ import (
 
 // Ref: #/components/schemas/EventHistoryItem
 type EventHistoryItem struct {
-	Type      string    `json:"type"`
-	CreatedAt time.Time `json:"created_at"`
-	Message   string    `json:"message"`
-	Stack     OptString `json:"stack"`
-	Commit    OptString `json:"commit"`
-	Error     OptString `json:"error"`
+	Type      string                     `json:"type"`
+	CreatedAt time.Time                  `json:"created_at"`
+	Message   string                     `json:"message"`
+	Details   OptEventHistoryItemDetails `json:"details"`
 }
 
 // GetType returns the value of Type.
@@ -31,19 +29,9 @@ func (s *EventHistoryItem) GetMessage() string {
 	return s.Message
 }
 
-// GetStack returns the value of Stack.
-func (s *EventHistoryItem) GetStack() OptString {
-	return s.Stack
-}
-
-// GetCommit returns the value of Commit.
-func (s *EventHistoryItem) GetCommit() OptString {
-	return s.Commit
-}
-
-// GetError returns the value of Error.
-func (s *EventHistoryItem) GetError() OptString {
-	return s.Error
+// GetDetails returns the value of Details.
+func (s *EventHistoryItem) GetDetails() OptEventHistoryItemDetails {
+	return s.Details
 }
 
 // SetType sets the value of Type.
@@ -61,19 +49,20 @@ func (s *EventHistoryItem) SetMessage(val string) {
 	s.Message = val
 }
 
-// SetStack sets the value of Stack.
-func (s *EventHistoryItem) SetStack(val OptString) {
-	s.Stack = val
+// SetDetails sets the value of Details.
+func (s *EventHistoryItem) SetDetails(val OptEventHistoryItemDetails) {
+	s.Details = val
 }
 
-// SetCommit sets the value of Commit.
-func (s *EventHistoryItem) SetCommit(val OptString) {
-	s.Commit = val
-}
+type EventHistoryItemDetails map[string]string
 
-// SetError sets the value of Error.
-func (s *EventHistoryItem) SetError(val OptString) {
-	s.Error = val
+func (s *EventHistoryItemDetails) init() EventHistoryItemDetails {
+	m := *s
+	if m == nil {
+		m = map[string]string{}
+		*s = m
+	}
+	return m
 }
 
 // Ref: #/components/schemas/EventHistoryResponse
@@ -131,6 +120,52 @@ func (o OptDateTime) Get() (v time.Time, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptDateTime) Or(d time.Time) time.Time {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptEventHistoryItemDetails returns new OptEventHistoryItemDetails with value set to v.
+func NewOptEventHistoryItemDetails(v EventHistoryItemDetails) OptEventHistoryItemDetails {
+	return OptEventHistoryItemDetails{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptEventHistoryItemDetails is optional EventHistoryItemDetails.
+type OptEventHistoryItemDetails struct {
+	Value EventHistoryItemDetails
+	Set   bool
+}
+
+// IsSet returns true if OptEventHistoryItemDetails was set.
+func (o OptEventHistoryItemDetails) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptEventHistoryItemDetails) Reset() {
+	var v EventHistoryItemDetails
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptEventHistoryItemDetails) SetTo(v EventHistoryItemDetails) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptEventHistoryItemDetails) Get() (v EventHistoryItemDetails, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptEventHistoryItemDetails) Or(d EventHistoryItemDetails) EventHistoryItemDetails {
 	if v, ok := o.Get(); ok {
 		return v
 	}

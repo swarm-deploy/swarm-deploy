@@ -86,12 +86,10 @@ components:
           format: date-time
         message:
           type: string
-        stack:
-          type: string
-        commit:
-          type: string
-        error:
-          type: string
+        details:
+          type: object
+          additionalProperties:
+            type: string
     SyncInfo:
       type: object
       additionalProperties:

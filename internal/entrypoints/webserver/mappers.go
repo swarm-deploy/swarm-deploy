@@ -89,14 +89,12 @@ func toGeneratedEvents(entries []history.Entry) []generated.EventHistoryItem {
 			CreatedAt: entry.CreatedAt,
 			Message:   entry.Message,
 		}
-		if entry.Stack != "" {
-			item.Stack = generated.NewOptString(entry.Stack)
-		}
-		if entry.Commit != "" {
-			item.Commit = generated.NewOptString(entry.Commit)
-		}
-		if entry.Error != "" {
-			item.Error = generated.NewOptString(entry.Error)
+		if len(entry.Details) > 0 {
+			details := make(map[string]string, len(entry.Details))
+			for key, value := range entry.Details {
+				details[key] = value
+			}
+			item.Details = generated.NewOptEventHistoryItemDetails(details)
 		}
 		mapped = append(mapped, item)
 	}

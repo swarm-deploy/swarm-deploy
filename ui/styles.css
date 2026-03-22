@@ -235,6 +235,51 @@ button:hover {
   margin: 0;
 }
 
+.event-details {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 6px;
+}
+
+.event-detail {
+  display: grid;
+  grid-template-columns: minmax(84px, max-content) 1fr;
+  gap: 8px;
+  align-items: start;
+  font-size: 0.82rem;
+}
+
+.event-detail-key {
+  display: inline-block;
+  color: #13202d;
+  background: rgba(247, 178, 103, 0.9);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-weight: 700;
+}
+
+.event-detail-value {
+  margin: 0;
+  color: var(--text);
+  background: rgba(161, 192, 204, 0.1);
+  border: 1px solid rgba(161, 192, 204, 0.22);
+  border-radius: 8px;
+  padding: 4px 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.event-detail-error .event-detail-key {
+  background: rgba(244, 124, 124, 0.94);
+}
+
+.event-detail-error .event-detail-value {
+  border-color: rgba(244, 124, 124, 0.44);
+}
+
 .service-metrics {
   display: grid;
   gap: 4px;
@@ -301,6 +346,10 @@ button:hover {
   .topbar {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .event-detail {
+    grid-template-columns: 1fr;
   }
 }
 

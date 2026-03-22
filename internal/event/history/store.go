@@ -23,12 +23,8 @@ type Entry struct {
 	CreatedAt time.Time `json:"created_at"`
 	// Message is a short human-readable event description.
 	Message string `json:"message"`
-	// Stack is a related stack name if event belongs to a stack.
-	Stack string `json:"stack,omitempty"`
-	// Commit is a related git commit if available.
-	Commit string `json:"commit,omitempty"`
-	// Error contains a failure reason for failed events.
-	Error string `json:"error,omitempty"`
+	// Details contains optional event-specific details like stack, commit or error.
+	Details map[string]string `json:"details,omitempty"`
 }
 
 // Store persists a bounded event list in a json file.
@@ -78,7 +74,11 @@ func (s *Store) List() []Entry {
 	defer s.mu.RUnlock()
 
 	out := make([]Entry, len(s.entries))
-	copy(out, s.entries)
+	for i, entry := range s.entries {
+		out[i] = entry
+		out[i].Details = cloneDetails(entry.Details)
+	}
+
 	return out
 }
 
@@ -134,32 +134,23 @@ func (s *Store) flushLocked() error {
 }
 
 func toEntry(now time.Time, event events.Event) Entry {
-	e := Entry{
+	return Entry{
 		Type:      event.Type(),
 		CreatedAt: now,
-		Message:   "Event captured",
+		Message:   event.Message(),
+		Details:   cloneDetails(event.Details()),
+	}
+}
+
+func cloneDetails(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
 	}
 
-	switch typed := event.(type) {
-	case *events.DeploySuccess:
-		e.Stack = typed.StackName
-		e.Commit = typed.Commit
-		e.Message = fmt.Sprintf("Deploy succeeded for stack %s", typed.StackName)
-	case *events.DeployFailed:
-		e.Stack = typed.StackName
-		e.Commit = typed.Commit
-		e.Message = fmt.Sprintf("Deploy failed for stack %s", typed.StackName)
-		if typed.Error != nil {
-			e.Error = typed.Error.Error()
-		}
-	case *events.SyncManualStarted:
-		e.Message = "Manual sync started"
-	case *events.UserAuthenticated:
-		e.Message = "User authenticated"
-		if typed.Username != "" {
-			e.Message = fmt.Sprintf("User %s authenticated", typed.Username)
-		}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
 	}
 
-	return e
+	return out
 }

@@ -69,6 +69,10 @@ func (n *TelegramNotifier) Name() string {
 	return "telegram"
 }
 
+func (*TelegramNotifier) Kind() string {
+	return "telegram"
+}
+
 func (n *TelegramNotifier) Notify(ctx context.Context, event Message) error {
 	message, err := n.renderMessage(event)
 	if err != nil {

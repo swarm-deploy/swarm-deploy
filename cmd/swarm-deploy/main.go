@@ -170,6 +170,8 @@ func buildEventDispatcher(cfg *config.Config) (dispatcher.Dispatcher, *history.S
 	}
 	addEventHistorySubscriber(subs, historyStore)
 
+	dispatcherLink := &dispatcherProxy{}
+
 	for eventType, channels := range cfg.Spec.Notifications.On {
 		for _, tg := range channels.Telegram {
 			token, resolveErr := tg.ResolveToken()
@@ -190,13 +192,15 @@ func buildEventDispatcher(cfg *config.Config) (dispatcher.Dispatcher, *history.S
 				return nil, nil, fmt.Errorf("build telegram notifier %q: %w", tg.Name, notifierErr)
 			}
 
-			subs[eventType] = append(subs[eventType], notify2.NewSubscriber(tgNotifier))
+			sub := notify2.NewSubscriber(tgNotifier, dispatcherLink)
+			subs[eventType] = append(subs[eventType], sub)
 		}
 
 		for _, custom := range channels.Custom {
 			notifier := notifiers.NewCustomWebhookNotifier(custom.Name, custom.ResolveURL(), custom.Method, custom.Header)
 
-			subs[eventType] = append(subs[eventType], notify2.NewSubscriber(notifier))
+			sub := notify2.NewSubscriber(notifier, dispatcherLink)
+			subs[eventType] = append(subs[eventType], sub)
 		}
 	}
 
@@ -206,12 +210,20 @@ func buildEventDispatcher(cfg *config.Config) (dispatcher.Dispatcher, *history.S
 
 	slog.Info("found event subscribers", slog.Int("subscribers", len(subs)))
 
-	return dispatcher.NewQueueDispatcher(subs), historyStore, nil
+	eventDispatcher := dispatcher.NewQueueDispatcher(subs)
+	dispatcherLink.Dispatcher = eventDispatcher
+
+	return eventDispatcher, historyStore, nil
 }
 
 func addEventHistorySubscriber(subs map[events.Type][]dispatcher.Subscriber, store *history.Store) {
 	subs[events.TypeDeploySuccess] = append(subs[events.TypeDeploySuccess], store)
 	subs[events.TypeDeployFailed] = append(subs[events.TypeDeployFailed], store)
+	subs[events.TypeSendNotificationFailed] = append(subs[events.TypeSendNotificationFailed], store)
 	subs[events.TypeSyncManualStarted] = append(subs[events.TypeSyncManualStarted], store)
 	subs[events.TypeUserAuthenticated] = append(subs[events.TypeUserAuthenticated], store)
+}
+
+type dispatcherProxy struct {
+	dispatcher.Dispatcher
 }
