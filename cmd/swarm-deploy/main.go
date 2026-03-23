@@ -10,9 +10,11 @@ import (
 	"time"
 
 	entrypoint "github.com/artarts36/go-entrypoint"
+	"github.com/artarts36/swarm-deploy/internal/assistant"
 	"github.com/artarts36/swarm-deploy/internal/config"
 	"github.com/artarts36/swarm-deploy/internal/controller"
 	"github.com/artarts36/swarm-deploy/internal/entrypoints/healthserver"
+	"github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver"
 	"github.com/artarts36/swarm-deploy/internal/entrypoints/webhookserver"
 	"github.com/artarts36/swarm-deploy/internal/entrypoints/webserver"
 	"github.com/artarts36/swarm-deploy/internal/event/dispatcher"
@@ -107,12 +109,20 @@ func main() {
 		eventDispatcher,
 	)
 
+	assistantService, err := buildAssistantService(cfg, serviceStore, eventHistory, control)
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to build assistant service", slog.Any("err", err))
+		os.Exit(1)
+	}
+
 	webApplication, err := webserver.NewApplication(
 		cfg.Spec.Web.Address,
 		control,
 		inspector,
 		eventHistory,
 		serviceStore,
+		assistantService,
+		cfg.Spec.Assistant.Enabled,
 		eventDispatcher,
 		cfg.Spec.Web.Security.Authentication,
 	)
@@ -154,12 +164,52 @@ func main() {
 		slog.String("mode", cfg.Spec.Sync.Mode),
 		slog.String("repo", cfg.Spec.Git.Repository),
 		slog.String("log.level", cfg.Spec.Log.Level.String()),
+		slog.Bool("assistant.enabled", cfg.Spec.Assistant.Enabled),
 	)
 	err = runner.Run()
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to run", slog.Any("err", err))
 		os.Exit(1)
 	}
+}
+
+func buildAssistantService(
+	cfg *config.Config,
+	serviceStore *service.Store,
+	eventHistory *history.Store,
+	control *controller.Controller,
+) (*assistant.Service, error) {
+	if !cfg.Spec.Assistant.Enabled {
+		return nil, nil
+	}
+
+	apiToken, err := cfg.Spec.Assistant.Model.OpenAI.ResolveAPIToken()
+	if err != nil {
+		return nil, fmt.Errorf("resolve assistant api token: %w", err)
+	}
+
+	temperature, err := cfg.Spec.Assistant.Model.OpenAI.ResolveTemperature()
+	if err != nil {
+		return nil, fmt.Errorf("resolve assistant temperature: %w", err)
+	}
+
+	maxTokens, err := cfg.Spec.Assistant.Model.OpenAI.ResolveMaxTokens()
+	if err != nil {
+		return nil, fmt.Errorf("resolve assistant maxTokens: %w", err)
+	}
+
+	toolExecutor := mcpserver.NewTools(eventHistory, control)
+
+	return assistant.NewService(assistant.Config{
+		Enabled:      cfg.Spec.Assistant.Enabled,
+		ModelName:    cfg.Spec.Assistant.Model.Name,
+		BaseURL:      cfg.Spec.Assistant.Model.OpenAI.BaseURL,
+		APIToken:     apiToken,
+		Temperature:  temperature,
+		MaxTokens:    maxTokens,
+		SystemPrompt: cfg.Spec.Assistant.SystemPrompt,
+		AllowedTools: cfg.Spec.Assistant.Tools,
+	}, serviceStore, toolExecutor)
 }
 
 func buildEventDispatcher(

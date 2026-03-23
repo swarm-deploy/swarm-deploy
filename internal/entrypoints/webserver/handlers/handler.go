@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"github.com/artarts36/swarm-deploy/internal/assistant"
 	"github.com/artarts36/swarm-deploy/internal/controller"
 	generated "github.com/artarts36/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/artarts36/swarm-deploy/internal/event/history"
@@ -14,6 +15,9 @@ type handler struct {
 	inspector *swarm.Inspector
 	history   *history.Store
 	services  *service.Store
+	assistant *assistant.Service
+
+	assistantEnabled bool
 }
 
 var _ generated.Handler = (*handler)(nil)
@@ -23,11 +27,16 @@ func New(
 	inspector *swarm.Inspector,
 	history *history.Store,
 	services *service.Store,
+	assistantService *assistant.Service,
+	assistantEnabled bool,
 ) generated.Handler {
 	return &handler{
 		control:   control,
 		inspector: inspector,
 		history:   history,
 		services:  services,
+		assistant: assistantService,
+
+		assistantEnabled: assistantEnabled,
 	}
 }

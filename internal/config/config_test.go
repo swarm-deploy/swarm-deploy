@@ -519,3 +519,191 @@ notifications:
 		"unexpected error",
 	)
 }
+
+func TestLoadResolvesRelativeAssistantAPITokenPath(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	tokenPath := filepath.Join(dir, "assistant_token")
+	require.NoError(t, os.WriteFile(tokenPath, []byte(" token-value \n"), 0o600), "write assistant token")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(`
+git:
+  repository: https://example.com/repo.git
+stacks:
+  file: ./stacks.yaml
+assistant:
+  enabled: true
+  model:
+    name: gpt-4o-mini
+    openai:
+      apiTokenPath: ./assistant_token
+`)
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err, "load config")
+	assert.Equal(t, tokenPath, cfg.Spec.Assistant.Model.OpenAI.APITokenPath, "expected resolved apiTokenPath")
+	assert.Equal(t, defaultAssistantOpenAIBaseURL, cfg.Spec.Assistant.Model.OpenAI.BaseURL, "expected default baseUrl")
+	assert.Equal(
+		t,
+		defaultAssistantTemperature,
+		cfg.Spec.Assistant.Model.OpenAI.Temperature,
+		"expected default temperature",
+	)
+	assert.Equal(
+		t,
+		defaultAssistantMaxTokens,
+		cfg.Spec.Assistant.Model.OpenAI.MaxTokens,
+		"expected default maxTokens",
+	)
+
+	token, err := cfg.Spec.Assistant.Model.OpenAI.ResolveAPIToken()
+	require.NoError(t, err, "resolve assistant token")
+	assert.Equal(t, "token-value", token, "expected assistant token from file")
+}
+
+func TestLoadFailsWhenAssistantEnabledWithoutTokenPath(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(`
+git:
+  repository: https://example.com/repo.git
+stacks:
+  file: ./stacks.yaml
+assistant:
+  enabled: true
+  model:
+    name: gpt-4o-mini
+`)
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	_, err := Load(configPath)
+	require.Error(t, err, "expected error")
+	assert.Contains(
+		t,
+		err.Error(),
+		"assistant.model.openai.apiTokenPath is required when assistant.enabled=true",
+		"unexpected error",
+	)
+}
+
+func TestLoadFailsWhenAssistantTemperatureIsInvalid(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	tokenPath := filepath.Join(dir, "assistant_token")
+	require.NoError(t, os.WriteFile(tokenPath, []byte("token-value"), 0o600), "write assistant token")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(`
+git:
+  repository: https://example.com/repo.git
+stacks:
+  file: ./stacks.yaml
+assistant:
+  enabled: true
+  model:
+    name: gpt-4o-mini
+    openai:
+      apiTokenPath: ./assistant_token
+      temperature: "oops"
+`)
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	_, err := Load(configPath)
+	require.Error(t, err, "expected error")
+	assert.Contains(t, err.Error(), "assistant.model.openai.temperature", "unexpected error")
+}
+
+func TestLoadFailsWhenAssistantMaxTokensIsNotPositive(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	tokenPath := filepath.Join(dir, "assistant_token")
+	require.NoError(t, os.WriteFile(tokenPath, []byte("token-value"), 0o600), "write assistant token")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(`
+git:
+  repository: https://example.com/repo.git
+stacks:
+  file: ./stacks.yaml
+assistant:
+  enabled: true
+  model:
+    name: gpt-4o-mini
+    openai:
+      apiTokenPath: ./assistant_token
+      maxTokens: "0"
+`)
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	_, err := Load(configPath)
+	require.Error(t, err, "expected error")
+	assert.Contains(t, err.Error(), "assistant.model.openai.maxTokens must be > 0", "unexpected error")
+}
+
+func TestLoadAllowsInvalidAssistantModelWhenDisabled(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(`
+git:
+  repository: https://example.com/repo.git
+stacks:
+  file: ./stacks.yaml
+assistant:
+  enabled: false
+  tools: ["sync", " "]
+  model:
+    name: ""
+    openai:
+      apiTokenPath: ./missing-token
+      temperature: "not-a-number"
+      maxTokens: "-1"
+`)
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	_, err := Load(configPath)
+	require.NoError(t, err, "assistant config must be ignored when disabled")
+}

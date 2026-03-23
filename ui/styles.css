@@ -254,6 +254,10 @@ button:hover,
   display: none;
 }
 
+.hidden {
+  display: none !important;
+}
+
 .modal-overlay {
   position: absolute;
   inset: 0;
@@ -270,6 +274,12 @@ button:hover,
   padding: 14px;
   max-height: 84vh;
   overflow: auto;
+}
+
+.assistant-chat-card {
+  width: min(760px, 94vw);
+  display: grid;
+  gap: 12px;
 }
 
 .modal-header {
@@ -292,6 +302,83 @@ button:hover,
 .modal-body {
   display: grid;
   gap: 12px;
+}
+
+.assistant-chat-body {
+  min-height: 320px;
+  max-height: 56vh;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+
+.assistant-chat-list {
+  display: grid;
+  gap: 8px;
+}
+
+.assistant-chat-message {
+  border: 1px solid rgba(161, 192, 204, 0.2);
+  border-radius: 10px;
+  padding: 10px;
+  background: rgba(10, 21, 33, 0.5);
+}
+
+.assistant-chat-message-user {
+  border-color: rgba(247, 178, 103, 0.45);
+}
+
+.assistant-chat-message-assistant {
+  border-color: rgba(107, 203, 154, 0.45);
+}
+
+.assistant-chat-message-error {
+  border-color: rgba(244, 124, 124, 0.45);
+}
+
+.assistant-chat-role {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.assistant-chat-text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.assistant-chat-form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.assistant-chat-form input {
+  width: 100%;
+  border: 1px solid rgba(161, 192, 204, 0.34);
+  border-radius: 999px;
+  background: rgba(9, 18, 28, 0.92);
+  color: var(--text);
+  padding: 10px 14px;
+}
+
+.assistant-chat-form input:focus {
+  outline: 1px solid rgba(247, 178, 103, 0.55);
+}
+
+.assistant-fab {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 25;
+  width: 56px;
+  height: 56px;
+  border-radius: 999px;
+  padding: 0;
+  font-size: 0.95rem;
 }
 
 .event-list {

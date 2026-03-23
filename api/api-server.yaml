@@ -28,6 +28,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/QueueResponse'
+  /api/v1/assistant/chat:
+    post:
+      operationId: assistantChat
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AssistantChatRequest'
+      responses:
+        '200':
+          description: Assistant long-poll response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssistantChatResponse'
   /api/v1/events:
     get:
       operationId: listEvents
@@ -71,6 +87,55 @@ paths:
                 $ref: '#/components/schemas/ServiceStatusResponse'
 components:
   schemas:
+    AssistantChatRequest:
+      type: object
+      properties:
+        conversation_id:
+          type: string
+        request_id:
+          type: string
+        message:
+          type: string
+        wait_timeout_ms:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 30000
+    AssistantToolCall:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        arguments:
+          type: string
+        result:
+          type: string
+        error:
+          type: string
+    AssistantChatResponse:
+      type: object
+      required: [status, request_id, conversation_id]
+      properties:
+        status:
+          type: string
+          enum: [in_progress, completed, failed, rejected, disabled]
+        request_id:
+          type: string
+        conversation_id:
+          type: string
+        answer:
+          type: string
+        tool_calls:
+          type: array
+          items:
+            $ref: '#/components/schemas/AssistantToolCall'
+        error_message:
+          type: string
+        poll_after_ms:
+          type: integer
+          format: int32
+          minimum: 1
     QueueResponse:
       type: object
       required: [queued]

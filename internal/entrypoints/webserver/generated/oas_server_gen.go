@@ -8,6 +8,10 @@ import (
 
 // Handler handles operations described by OpenAPI v3 specification.
 type Handler interface {
+	// AssistantChat implements assistantChat operation.
+	//
+	// POST /api/v1/assistant/chat
+	AssistantChat(ctx context.Context, req *AssistantChatRequest) (*AssistantChatResponse, error)
 	// GetServiceStatus implements getServiceStatus operation.
 	//
 	// GET /api/v1/stacks/{stack}/services/{service}/status

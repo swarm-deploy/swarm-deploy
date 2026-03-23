@@ -8,16 +8,15 @@ import (
 	"time"
 
 	"github.com/go-faster/errors"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/metric"
-	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
-	"go.opentelemetry.io/otel/trace"
-
 	ht "github.com/ogen-go/ogen/http"
 	"github.com/ogen-go/ogen/middleware"
 	"github.com/ogen-go/ogen/ogenerrors"
 	"github.com/ogen-go/ogen/otelogen"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/metric"
+	semconv "go.opentelemetry.io/otel/semconv/v1.39.0"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type codeRecorder struct {
@@ -28,6 +27,151 @@ type codeRecorder struct {
 func (c *codeRecorder) WriteHeader(status int) {
 	c.status = status
 	c.ResponseWriter.WriteHeader(status)
+}
+
+func (c *codeRecorder) Unwrap() http.ResponseWriter {
+	return c.ResponseWriter
+}
+
+// handleAssistantChatRequest handles assistantChat operation.
+//
+// POST /api/v1/assistant/chat
+func (s *Server) handleAssistantChatRequest(args [0]string, argsEscaped bool, w http.ResponseWriter, r *http.Request) {
+	statusWriter := &codeRecorder{ResponseWriter: w}
+	w = statusWriter
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("assistantChat"),
+		semconv.HTTPRequestMethodKey.String("POST"),
+		semconv.HTTPRouteKey.String("/api/v1/assistant/chat"),
+	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
+
+	// Start a span for this request.
+	ctx, span := s.cfg.Tracer.Start(r.Context(), AssistantChatOperation,
+		trace.WithAttributes(otelAttrs...),
+		serverSpanKind,
+	)
+	defer span.End()
+
+	// Add Labeler to context.
+	labeler := &Labeler{attrs: otelAttrs}
+	ctx = contextWithLabeler(ctx, labeler)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		elapsedDuration := time.Since(startTime)
+
+		attrSet := labeler.AttributeSet()
+		attrs := attrSet.ToSlice()
+		code := statusWriter.status
+		if code != 0 {
+			codeAttr := semconv.HTTPResponseStatusCode(code)
+			attrs = append(attrs, codeAttr)
+			span.SetAttributes(codeAttr)
+		}
+		attrOpt := metric.WithAttributes(attrs...)
+
+		// Increment request counter.
+		s.requests.Add(ctx, 1, attrOpt)
+
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		s.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), attrOpt)
+	}()
+
+	var (
+		recordError = func(stage string, err error) {
+			span.RecordError(err)
+
+			// https://opentelemetry.io/docs/specs/semconv/http/http-spans/#status
+			// Span Status MUST be left unset if HTTP status code was in the 1xx, 2xx or 3xx ranges,
+			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
+			// max redirects exceeded), in which case status MUST be set to Error.
+			code := statusWriter.status
+			if code < 100 || code >= 500 {
+				span.SetStatus(codes.Error, stage)
+			}
+
+			attrSet := labeler.AttributeSet()
+			attrs := attrSet.ToSlice()
+			if code != 0 {
+				attrs = append(attrs, semconv.HTTPResponseStatusCode(code))
+			}
+
+			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
+		}
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: AssistantChatOperation,
+			ID:   "assistantChat",
+		}
+	)
+
+	var rawBody []byte
+	request, rawBody, close, err := s.decodeAssistantChatRequest(r)
+	if err != nil {
+		err = &ogenerrors.DecodeRequestError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeRequest", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+	defer func() {
+		if err := close(); err != nil {
+			recordError("CloseRequest", err)
+		}
+	}()
+
+	var response *AssistantChatResponse
+	if m := s.cfg.Middleware; m != nil {
+		mreq := middleware.Request{
+			Context:          ctx,
+			OperationName:    AssistantChatOperation,
+			OperationSummary: "",
+			OperationID:      "assistantChat",
+			Body:             request,
+			RawBody:          rawBody,
+			Params:           middleware.Parameters{},
+			Raw:              r,
+		}
+
+		type (
+			Request  = *AssistantChatRequest
+			Params   = struct{}
+			Response = *AssistantChatResponse
+		)
+		response, err = middleware.HookMiddleware[
+			Request,
+			Params,
+			Response,
+		](
+			m,
+			mreq,
+			nil,
+			func(ctx context.Context, request Request, params Params) (response Response, err error) {
+				response, err = s.h.AssistantChat(ctx, request)
+				return response, err
+			},
+		)
+	} else {
+		response, err = s.h.AssistantChat(ctx, request)
+	}
+	if err != nil {
+		defer recordError("Internal", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
+
+	if err := encodeAssistantChatResponse(response, w, span); err != nil {
+		defer recordError("EncodeResponse", err)
+		if !errors.Is(err, ht.ErrInternalServerErrorResponse) {
+			s.cfg.ErrorHandler(ctx, w, r, err)
+		}
+		return
+	}
 }
 
 // handleGetServiceStatusRequest handles getServiceStatus operation.
@@ -41,6 +185,8 @@ func (s *Server) handleGetServiceStatusRequest(args [2]string, argsEscaped bool,
 		semconv.HTTPRequestMethodKey.String("GET"),
 		semconv.HTTPRouteKey.String("/api/v1/stacks/{stack}/services/{service}/status"),
 	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
 
 	// Start a span for this request.
 	ctx, span := s.cfg.Tracer.Start(r.Context(), GetServiceStatusOperation,
@@ -84,7 +230,7 @@ func (s *Server) handleGetServiceStatusRequest(args [2]string, argsEscaped bool,
 			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
 			// max redirects exceeded), in which case status MUST be set to Error.
 			code := statusWriter.status
-			if code >= 100 && code < 500 {
+			if code < 100 || code >= 500 {
 				span.SetStatus(codes.Error, stage)
 			}
 
@@ -113,6 +259,8 @@ func (s *Server) handleGetServiceStatusRequest(args [2]string, argsEscaped bool,
 		return
 	}
 
+	var rawBody []byte
+
 	var response *ServiceStatusResponse
 	if m := s.cfg.Middleware; m != nil {
 		mreq := middleware.Request{
@@ -121,6 +269,7 @@ func (s *Server) handleGetServiceStatusRequest(args [2]string, argsEscaped bool,
 			OperationSummary: "",
 			OperationID:      "getServiceStatus",
 			Body:             nil,
+			RawBody:          rawBody,
 			Params: middleware.Parameters{
 				{
 					Name: "stack",
@@ -181,6 +330,8 @@ func (s *Server) handleListEventsRequest(args [0]string, argsEscaped bool, w htt
 		semconv.HTTPRequestMethodKey.String("GET"),
 		semconv.HTTPRouteKey.String("/api/v1/events"),
 	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
 
 	// Start a span for this request.
 	ctx, span := s.cfg.Tracer.Start(r.Context(), ListEventsOperation,
@@ -224,7 +375,7 @@ func (s *Server) handleListEventsRequest(args [0]string, argsEscaped bool, w htt
 			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
 			// max redirects exceeded), in which case status MUST be set to Error.
 			code := statusWriter.status
-			if code >= 100 && code < 500 {
+			if code < 100 || code >= 500 {
 				span.SetStatus(codes.Error, stage)
 			}
 
@@ -239,6 +390,8 @@ func (s *Server) handleListEventsRequest(args [0]string, argsEscaped bool, w htt
 		err error
 	)
 
+	var rawBody []byte
+
 	var response *EventHistoryResponse
 	if m := s.cfg.Middleware; m != nil {
 		mreq := middleware.Request{
@@ -247,6 +400,7 @@ func (s *Server) handleListEventsRequest(args [0]string, argsEscaped bool, w htt
 			OperationSummary: "",
 			OperationID:      "listEvents",
 			Body:             nil,
+			RawBody:          rawBody,
 			Params:           middleware.Parameters{},
 			Raw:              r,
 		}
@@ -298,6 +452,8 @@ func (s *Server) handleListServicesRequest(args [0]string, argsEscaped bool, w h
 		semconv.HTTPRequestMethodKey.String("GET"),
 		semconv.HTTPRouteKey.String("/api/v1/services"),
 	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
 
 	// Start a span for this request.
 	ctx, span := s.cfg.Tracer.Start(r.Context(), ListServicesOperation,
@@ -341,7 +497,7 @@ func (s *Server) handleListServicesRequest(args [0]string, argsEscaped bool, w h
 			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
 			// max redirects exceeded), in which case status MUST be set to Error.
 			code := statusWriter.status
-			if code >= 100 && code < 500 {
+			if code < 100 || code >= 500 {
 				span.SetStatus(codes.Error, stage)
 			}
 
@@ -356,6 +512,8 @@ func (s *Server) handleListServicesRequest(args [0]string, argsEscaped bool, w h
 		err error
 	)
 
+	var rawBody []byte
+
 	var response *ServicesResponse
 	if m := s.cfg.Middleware; m != nil {
 		mreq := middleware.Request{
@@ -364,6 +522,7 @@ func (s *Server) handleListServicesRequest(args [0]string, argsEscaped bool, w h
 			OperationSummary: "",
 			OperationID:      "listServices",
 			Body:             nil,
+			RawBody:          rawBody,
 			Params:           middleware.Parameters{},
 			Raw:              r,
 		}
@@ -415,6 +574,8 @@ func (s *Server) handleListStacksRequest(args [0]string, argsEscaped bool, w htt
 		semconv.HTTPRequestMethodKey.String("GET"),
 		semconv.HTTPRouteKey.String("/api/v1/stacks"),
 	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
 
 	// Start a span for this request.
 	ctx, span := s.cfg.Tracer.Start(r.Context(), ListStacksOperation,
@@ -458,7 +619,7 @@ func (s *Server) handleListStacksRequest(args [0]string, argsEscaped bool, w htt
 			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
 			// max redirects exceeded), in which case status MUST be set to Error.
 			code := statusWriter.status
-			if code >= 100 && code < 500 {
+			if code < 100 || code >= 500 {
 				span.SetStatus(codes.Error, stage)
 			}
 
@@ -473,6 +634,8 @@ func (s *Server) handleListStacksRequest(args [0]string, argsEscaped bool, w htt
 		err error
 	)
 
+	var rawBody []byte
+
 	var response *StacksResponse
 	if m := s.cfg.Middleware; m != nil {
 		mreq := middleware.Request{
@@ -481,6 +644,7 @@ func (s *Server) handleListStacksRequest(args [0]string, argsEscaped bool, w htt
 			OperationSummary: "",
 			OperationID:      "listStacks",
 			Body:             nil,
+			RawBody:          rawBody,
 			Params:           middleware.Parameters{},
 			Raw:              r,
 		}
@@ -532,6 +696,8 @@ func (s *Server) handleTriggerSyncRequest(args [0]string, argsEscaped bool, w ht
 		semconv.HTTPRequestMethodKey.String("POST"),
 		semconv.HTTPRouteKey.String("/api/v1/sync"),
 	}
+	// Add attributes from config.
+	otelAttrs = append(otelAttrs, s.cfg.Attributes...)
 
 	// Start a span for this request.
 	ctx, span := s.cfg.Tracer.Start(r.Context(), TriggerSyncOperation,
@@ -575,7 +741,7 @@ func (s *Server) handleTriggerSyncRequest(args [0]string, argsEscaped bool, w ht
 			// unless there was another error (e.g., network error receiving the response body; or 3xx codes with
 			// max redirects exceeded), in which case status MUST be set to Error.
 			code := statusWriter.status
-			if code >= 100 && code < 500 {
+			if code < 100 || code >= 500 {
 				span.SetStatus(codes.Error, stage)
 			}
 
@@ -590,6 +756,8 @@ func (s *Server) handleTriggerSyncRequest(args [0]string, argsEscaped bool, w ht
 		err error
 	)
 
+	var rawBody []byte
+
 	var response *QueueResponse
 	if m := s.cfg.Middleware; m != nil {
 		mreq := middleware.Request{
@@ -598,6 +766,7 @@ func (s *Server) handleTriggerSyncRequest(args [0]string, argsEscaped bool, w ht
 			OperationSummary: "",
 			OperationID:      "triggerSync",
 			Body:             nil,
+			RawBody:          rawBody,
 			Params:           middleware.Parameters{},
 			Raw:              r,
 		}

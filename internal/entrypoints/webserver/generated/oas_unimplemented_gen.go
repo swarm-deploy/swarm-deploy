@@ -13,6 +13,13 @@ type UnimplementedHandler struct{}
 
 var _ Handler = UnimplementedHandler{}
 
+// AssistantChat implements assistantChat operation.
+//
+// POST /api/v1/assistant/chat
+func (UnimplementedHandler) AssistantChat(ctx context.Context, req *AssistantChatRequest) (r *AssistantChatResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetServiceStatus implements getServiceStatus operation.
 //
 // GET /api/v1/stacks/{stack}/services/{service}/status

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +32,10 @@ const (
 	defaultInitJobPollEvery   = 2 * time.Second
 	defaultInitJobMaxDuration = 10 * time.Minute
 	defaultInitJobsTimeout    = 10 * time.Minute
+
+	defaultAssistantOpenAIBaseURL = "https://api.openai.com/v1"
+	defaultAssistantTemperature   = "0.2"
+	defaultAssistantMaxTokens     = "800"
 )
 
 type Config struct {
@@ -61,6 +66,8 @@ type Spec struct {
 	SecretRotation SecretRotationSpec `yaml:"secretRotation"`
 	// EventHistory controls persisted event history settings.
 	EventHistory EventHistorySpec `yaml:"eventHistory"`
+	// Assistant contains AI assistant settings.
+	Assistant AssistantSpec `yaml:"assistant"`
 	// InitJobsTimeout is a global timeout for init jobs.
 	InitJobsTimeout specw.Duration `yaml:"initJobsTimeout"`
 	// Log contains level settings.
@@ -73,6 +80,38 @@ type Spec struct {
 type EventHistorySpec struct {
 	// Capacity is a maximum number of events to keep in history.
 	Capacity int `yaml:"capacity"`
+}
+
+// AssistantSpec configures AI assistant behavior.
+type AssistantSpec struct {
+	// Enabled toggles assistant API and UI visibility.
+	Enabled bool `yaml:"enabled"`
+	// Tools contains a list of allowed tool names. Empty means all built-in tools.
+	Tools []string `yaml:"tools"`
+	// SystemPrompt is an extra system instruction appended to built-in safety prompt.
+	SystemPrompt string `yaml:"systemPrompt"`
+	// Model contains LLM provider configuration.
+	Model AssistantModelSpec `yaml:"model"`
+}
+
+// AssistantModelSpec contains model-level settings.
+type AssistantModelSpec struct {
+	// Name is a model identifier used for chat and embeddings.
+	Name string `yaml:"name"`
+	// OpenAI contains OpenAI-compatible endpoint and auth settings.
+	OpenAI AssistantOpenAISpec `yaml:"openai"`
+}
+
+// AssistantOpenAISpec contains OpenAI-compatible transport settings.
+type AssistantOpenAISpec struct {
+	// BaseURL is an OpenAI-compatible API base URL.
+	BaseURL string `yaml:"baseUrl"`
+	// APITokenPath is a path to file containing API token.
+	APITokenPath string `yaml:"apiTokenPath"`
+	// Temperature is a model temperature value in [0, 2].
+	Temperature string `yaml:"temperature"`
+	// MaxTokens is a max generated token count.
+	MaxTokens string `yaml:"maxTokens"`
 }
 
 type GitSpec struct {
@@ -289,6 +328,7 @@ func (c *Config) applyDefaults(configDir string) error {
 	c.applyWebAndHealthDefaults()
 	c.applySecurityDefaults(configDir)
 	c.applyNotificationDefaults(configDir)
+	c.applyAssistantDefaults(configDir)
 	c.applySwarmDefaults()
 	c.applySecretRotationDefaults()
 	c.applyEventHistoryDefaults()
@@ -361,6 +401,36 @@ func (c *Config) applyNotificationDefaults(configDir string) {
 		}
 
 		c.Spec.Notifications.On[eventType] = channels
+	}
+}
+
+func (c *Config) applyAssistantDefaults(configDir string) {
+	c.Spec.Assistant.SystemPrompt = strings.TrimSpace(c.Spec.Assistant.SystemPrompt)
+	c.Spec.Assistant.Model.Name = strings.TrimSpace(c.Spec.Assistant.Model.Name)
+
+	for i, tool := range c.Spec.Assistant.Tools {
+		c.Spec.Assistant.Tools[i] = strings.TrimSpace(tool)
+	}
+
+	openaiCfg := &c.Spec.Assistant.Model.OpenAI
+	openaiCfg.BaseURL = strings.TrimSpace(openaiCfg.BaseURL)
+	if openaiCfg.BaseURL == "" {
+		openaiCfg.BaseURL = defaultAssistantOpenAIBaseURL
+	}
+
+	openaiCfg.APITokenPath = strings.TrimSpace(openaiCfg.APITokenPath)
+	if openaiCfg.APITokenPath != "" && !filepath.IsAbs(openaiCfg.APITokenPath) {
+		openaiCfg.APITokenPath = filepath.Join(configDir, openaiCfg.APITokenPath)
+	}
+
+	openaiCfg.Temperature = strings.TrimSpace(openaiCfg.Temperature)
+	if openaiCfg.Temperature == "" {
+		openaiCfg.Temperature = defaultAssistantTemperature
+	}
+
+	openaiCfg.MaxTokens = strings.TrimSpace(openaiCfg.MaxTokens)
+	if openaiCfg.MaxTokens == "" {
+		openaiCfg.MaxTokens = defaultAssistantMaxTokens
 	}
 }
 
@@ -504,6 +574,7 @@ func (c *Config) validate() error {
 	errs = append(errs, c.validateGitAuth()...)
 	errs = append(errs, c.validateSecurity()...)
 	errs = append(errs, c.validateNotifications()...)
+	errs = append(errs, c.validateAssistant()...)
 
 	return errors.Join(errs...)
 }
@@ -655,6 +726,51 @@ func (c *Config) validateNotifications() []error {
 	return errs
 }
 
+func (c *Config) validateAssistant() []error {
+	if !c.Spec.Assistant.Enabled {
+		return nil
+	}
+
+	var errs []error
+	if strings.TrimSpace(c.Spec.Assistant.Model.Name) == "" {
+		errs = append(errs, errors.New("assistant.model.name is required when assistant.enabled=true"))
+	}
+
+	tokenPath := strings.TrimSpace(c.Spec.Assistant.Model.OpenAI.APITokenPath)
+	if tokenPath == "" {
+		errs = append(errs, errors.New("assistant.model.openai.apiTokenPath is required when assistant.enabled=true"))
+	} else {
+		token, err := c.Spec.Assistant.Model.OpenAI.ResolveAPIToken()
+		if err != nil {
+			errs = append(errs, err)
+		} else if token == "" {
+			errs = append(errs, errors.New("assistant.model.openai.apiTokenPath contains empty token"))
+		}
+	}
+
+	temperature, err := c.Spec.Assistant.Model.OpenAI.ResolveTemperature()
+	if err != nil {
+		errs = append(errs, fmt.Errorf("assistant.model.openai.temperature %w", err))
+	} else if temperature < 0 || temperature > 2 {
+		errs = append(errs, errors.New("assistant.model.openai.temperature must be between 0 and 2"))
+	}
+
+	maxTokens, err := c.Spec.Assistant.Model.OpenAI.ResolveMaxTokens()
+	if err != nil {
+		errs = append(errs, fmt.Errorf("assistant.model.openai.maxTokens %w", err))
+	} else if maxTokens <= 0 {
+		errs = append(errs, errors.New("assistant.model.openai.maxTokens must be > 0"))
+	}
+
+	for i, toolName := range c.Spec.Assistant.Tools {
+		if strings.TrimSpace(toolName) == "" {
+			errs = append(errs, fmt.Errorf("assistant.tools[%d] must not be empty", i))
+		}
+	}
+
+	return errs
+}
+
 func (w WebhookSpec) ResolveSecret() string {
 	secretPath := strings.TrimSpace(w.SecretPath)
 	if secretPath == "" {
@@ -665,6 +781,48 @@ func (w WebhookSpec) ResolveSecret() string {
 		return ""
 	}
 	return strings.TrimSpace(string(payload))
+}
+
+func (a AssistantOpenAISpec) ResolveAPIToken() (string, error) {
+	tokenPath := strings.TrimSpace(a.APITokenPath)
+	if tokenPath == "" {
+		return "", nil
+	}
+
+	payload, err := os.ReadFile(tokenPath)
+	if err != nil {
+		return "", fmt.Errorf("read assistant.model.openai.apiTokenPath %s: %w", tokenPath, err)
+	}
+
+	return strings.TrimSpace(string(payload)), nil
+}
+
+func (a AssistantOpenAISpec) ResolveTemperature() (float64, error) {
+	temperature := strings.TrimSpace(a.Temperature)
+	if temperature == "" {
+		return 0, errors.New("is empty")
+	}
+
+	value, err := strconv.ParseFloat(temperature, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse %q: %w", temperature, err)
+	}
+
+	return value, nil
+}
+
+func (a AssistantOpenAISpec) ResolveMaxTokens() (int, error) {
+	maxTokens := strings.TrimSpace(a.MaxTokens)
+	if maxTokens == "" {
+		return 0, errors.New("is empty")
+	}
+
+	value, err := strconv.Atoi(maxTokens)
+	if err != nil {
+		return 0, fmt.Errorf("parse %q: %w", maxTokens, err)
+	}
+
+	return value, nil
 }
 
 func (c *Config) WebhookSecret() string {

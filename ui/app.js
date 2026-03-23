@@ -9,7 +9,19 @@ const serviceStatusCloseBtn = document.getElementById("service-status-close");
 const eventHistoryModalEl = document.getElementById("event-history-modal");
 const eventHistoryBodyEl = document.getElementById("event-history-body");
 const eventHistoryCloseBtn = document.getElementById("event-history-close");
+const assistantOpenBtn = document.getElementById("assistant-open");
+const assistantModalEl = document.getElementById("assistant-chat-modal");
+const assistantBodyEl = document.getElementById("assistant-chat-body");
+const assistantCloseBtn = document.getElementById("assistant-chat-close");
+const assistantFormEl = document.getElementById("assistant-chat-form");
+const assistantInputEl = document.getElementById("assistant-chat-input");
+const assistantSendBtn = document.getElementById("assistant-chat-send");
 const eventDetailsPriority = ["stack", "commit", "destination", "channel", "event_type", "error"];
+
+const assistantMessages = [];
+let assistantConversationID = "";
+let assistantActiveRequestID = "";
+let assistantPending = false;
 
 function fmtDate(raw) {
   if (!raw) {
@@ -44,6 +56,12 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll("\"", "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
 
 function sortEventDetails(detailPairs) {
@@ -159,6 +177,161 @@ function renderEventHistory(events) {
   `;
 }
 
+function showAssistantModal() {
+  assistantModalEl.classList.remove("hidden");
+  assistantModalEl.setAttribute("aria-hidden", "false");
+}
+
+function hideAssistantModal() {
+  assistantModalEl.classList.add("hidden");
+  assistantModalEl.setAttribute("aria-hidden", "true");
+}
+
+function setAssistantPending(pending) {
+  assistantPending = pending;
+  assistantSendBtn.disabled = pending;
+  assistantInputEl.disabled = pending;
+}
+
+function setAssistantEnabled(enabled) {
+  if (enabled) {
+    assistantOpenBtn.classList.remove("hidden");
+    return;
+  }
+
+  assistantOpenBtn.classList.add("hidden");
+  hideAssistantModal();
+}
+
+function renderAssistantMessages() {
+  if (assistantMessages.length === 0) {
+    assistantBodyEl.innerHTML = `<p class="meta">Assistant is ready.</p>`;
+    return;
+  }
+
+  assistantBodyEl.innerHTML = `
+    <div class="assistant-chat-list">
+      ${assistantMessages
+        .map((message) => {
+          const roleClass = `assistant-chat-message-${message.role}`;
+          const roleLabel = message.role === "user" ? "You" : message.role === "assistant" ? "Assistant" : "System";
+          return `
+            <article class="assistant-chat-message ${roleClass}">
+              <p class="assistant-chat-role">${escapeHtml(roleLabel)}</p>
+              <p class="assistant-chat-text">${escapeHtml(message.text)}</p>
+            </article>
+          `;
+        })
+        .join("")}
+    </div>
+  `;
+  assistantBodyEl.scrollTop = assistantBodyEl.scrollHeight;
+}
+
+function pushAssistantMessage(role, text) {
+  assistantMessages.push({
+    role,
+    text,
+  });
+  renderAssistantMessages();
+}
+
+function describeToolCalls(toolCalls) {
+  if (!Array.isArray(toolCalls) || toolCalls.length === 0) {
+    return "";
+  }
+
+  return toolCalls
+    .map((toolCall) => {
+      const result = toolCall.result || toolCall.error || "no output";
+      return `tool ${toolCall.name}: ${result}`;
+    })
+    .join("\n");
+}
+
+async function requestAssistant(payload) {
+  const response = await fetch("/api/v1/assistant/chat", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
+
+  return response.json();
+}
+
+async function runAssistantMessage(message) {
+  let payload = {
+    conversation_id: assistantConversationID || undefined,
+    message,
+    wait_timeout_ms: 12000,
+  };
+
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const response = await requestAssistant(payload);
+    assistantConversationID = response.conversation_id || assistantConversationID;
+    assistantActiveRequestID = response.request_id || assistantActiveRequestID;
+
+    if (response.status === "in_progress") {
+      const delay = Number(response.poll_after_ms) > 0 ? Number(response.poll_after_ms) : 1000;
+      payload = {
+        conversation_id: assistantConversationID || undefined,
+        request_id: assistantActiveRequestID || undefined,
+        wait_timeout_ms: 12000,
+      };
+      await sleep(delay);
+      continue;
+    }
+
+    assistantActiveRequestID = "";
+    if (response.status === "completed") {
+      const answer = response.answer || "Assistant returned empty answer.";
+      const toolSummary = describeToolCalls(response.tool_calls);
+      pushAssistantMessage("assistant", toolSummary ? `${answer}\n\n${toolSummary}` : answer);
+      return;
+    }
+
+    if (response.status === "disabled") {
+      setAssistantEnabled(false);
+    }
+
+    pushAssistantMessage("system", response.error_message || `Assistant status: ${response.status}`);
+    return;
+  }
+
+  assistantActiveRequestID = "";
+  pushAssistantMessage("system", "Assistant request timeout. Try again.");
+}
+
+async function submitAssistantMessage(event) {
+  event.preventDefault();
+  if (assistantPending) {
+    return;
+  }
+
+  const message = assistantInputEl.value.trim();
+  if (!message) {
+    return;
+  }
+
+  assistantInputEl.value = "";
+  pushAssistantMessage("user", message);
+  setAssistantPending(true);
+  try {
+    await runAssistantMessage(message);
+  } catch (err) {
+    assistantActiveRequestID = "";
+    pushAssistantMessage("system", `Assistant failed: ${err.message}`);
+  } finally {
+    setAssistantPending(false);
+    assistantInputEl.focus();
+  }
+}
+
 async function openEventHistoryModal() {
   showEventHistoryModal();
   renderEventHistoryLoading();
@@ -253,9 +426,11 @@ function renderStacks(stacks) {
 
 function renderSync(syncInfo) {
   if (!syncInfo) {
+    setAssistantEnabled(false);
     syncStatusEl.textContent = "Sync status is unavailable.";
     return;
   }
+  setAssistantEnabled(syncInfo.assistant_enabled === "true");
   syncStatusEl.textContent =
     `Last sync: ${fmtDate(syncInfo.last_sync_at)} | ` +
     `reason: ${syncInfo.last_sync_reason || "n/a"} | ` +
@@ -295,6 +470,18 @@ async function triggerManualSync() {
 
 syncNowBtn.addEventListener("click", triggerManualSync);
 showEventsBtn.addEventListener("click", openEventHistoryModal);
+assistantOpenBtn.addEventListener("click", () => {
+  showAssistantModal();
+  assistantInputEl.focus();
+});
+assistantCloseBtn.addEventListener("click", hideAssistantModal);
+assistantModalEl.addEventListener("click", (event) => {
+  const target = event.target;
+  if (target instanceof HTMLElement && target.dataset.closeAssistant === "true") {
+    hideAssistantModal();
+  }
+});
+assistantFormEl.addEventListener("submit", submitAssistantMessage);
 stacksEl.addEventListener("click", (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement)) {
@@ -325,6 +512,10 @@ eventHistoryModalEl.addEventListener("click", (event) => {
   }
 });
 document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !assistantModalEl.classList.contains("hidden")) {
+    hideAssistantModal();
+    return;
+  }
   if (event.key === "Escape" && !serviceStatusModalEl.classList.contains("hidden")) {
     hideServiceStatusModal();
     return;
@@ -334,6 +525,7 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
+renderAssistantMessages();
 refresh();
 setInterval(refresh, 10000);
 
