@@ -13,7 +13,7 @@ import (
 
 const fileModePrivate = 0o600
 
-// Store persists service metadata in a json file.
+// Store persists service metadata in a JSON file.
 type Store struct {
 	mu   sync.RWMutex
 	path string

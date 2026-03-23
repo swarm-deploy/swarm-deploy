@@ -37,11 +37,6 @@ func main() {
 	ctx := context.Background()
 
 	slogx.RequestIDKey = "x-request-id"
-	logger := slog.New(slogx.NewChain(
-		slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}),
-		slogm.RequestID(),
-	))
-	slog.SetDefault(logger)
 
 	configPath := flag.String("config", "swarm-deploy.yaml", "Path to config file")
 	flag.Parse()
@@ -51,6 +46,11 @@ func main() {
 		slog.ErrorContext(ctx, "failed to load config", slog.Any("err", err))
 		os.Exit(1)
 	}
+
+	slog.SetDefault(slog.New(slogx.NewChain(
+		slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.Spec.Log.Level.Level()}),
+		slogm.RequestID(),
+	)))
 
 	err = os.MkdirAll(cfg.Spec.DataDir, 0o755)
 	if err != nil {
@@ -153,6 +153,7 @@ func main() {
 		slog.String("metrics.path", cfg.Spec.HealthServer.Metrics.Path),
 		slog.String("mode", cfg.Spec.Sync.Mode),
 		slog.String("repo", cfg.Spec.Git.Repository),
+		slog.String("log.level", cfg.Spec.Log.Level.String()),
 	)
 	err = runner.Run()
 	if err != nil {

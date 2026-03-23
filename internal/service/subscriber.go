@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
 
@@ -13,31 +12,27 @@ import (
 // LabelsInspector provides labels from service, container and image inspect.
 type LabelsInspector interface {
 	// InspectServiceLabels returns labels for a service and its image.
-	InspectServiceLabels(ctx context.Context, stackName, serviceName, imageRef string) (swarm.ServiceLabels, error)
+	InspectServiceLabels(ctx context.Context, stackName, serviceName string) (swarm.ServiceLabels, error)
 }
 
 // Subscriber persists service metadata on deploySuccess events.
 type Subscriber struct {
 	store     *Store
 	inspector LabelsInspector
-	resolver  *MetadataExtractor
+	metadata  *MetadataExtractor
 }
 
 // NewSubscriber creates a service metadata event subscriber.
-func NewSubscriber(store *Store, inspector LabelsInspector, resolver *MetadataExtractor) *Subscriber {
+func NewSubscriber(store *Store, inspector LabelsInspector, metadata *MetadataExtractor) *Subscriber {
 	return &Subscriber{
 		store:     store,
 		inspector: inspector,
-		resolver:  resolver,
+		metadata:  metadata,
 	}
 }
 
 // Handle processes deploySuccess events and persists resolved services snapshot.
 func (s *Subscriber) Handle(ctx context.Context, event events.Event) error {
-	if s.store == nil {
-		return errors.New("service store is nil")
-	}
-
 	deploySuccess, ok := event.(*events.DeploySuccess)
 	if !ok {
 		return nil
@@ -45,11 +40,15 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Event) error {
 
 	services := make([]Info, 0, len(deploySuccess.Services))
 	for _, deployedService := range deploySuccess.Services {
+		slog.DebugContext(ctx, "[service-store] inspecting service labels",
+			slog.String("stack_name", deploySuccess.StackName),
+			slog.String("service_name", deployedService.Name),
+		)
+
 		inspectedLabels, inspectErr := s.inspector.InspectServiceLabels(
 			ctx,
 			deploySuccess.StackName,
 			deployedService.Name,
-			deployedService.Image,
 		)
 		if inspectErr != nil {
 			slog.WarnContext(
@@ -66,7 +65,7 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Event) error {
 			Image:     inspectedLabels.Image,
 		}
 
-		resolved := s.resolver.Resolve(deployedService.Image, labels)
+		resolved := s.metadata.Resolve(deployedService.Image, labels)
 		services = append(services, Info{
 			Name:        deployedService.Name,
 			Stack:       deploySuccess.StackName,

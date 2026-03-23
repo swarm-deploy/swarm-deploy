@@ -63,6 +63,11 @@ type Spec struct {
 	EventHistory EventHistorySpec `yaml:"eventHistory"`
 	// InitJobsTimeout is a global timeout for init jobs.
 	InitJobsTimeout specw.Duration `yaml:"initJobsTimeout"`
+	// Log contains level settings.
+	Log struct {
+		// Level for write logs. Default: INFO
+		Level specw.SlogLevel `yaml:"level,omitempty"`
+	} `yaml:"log"`
 }
 
 type EventHistorySpec struct {

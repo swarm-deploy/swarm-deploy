@@ -33,7 +33,7 @@ type MetadataExtractor struct {
 	typeResolve        *serviceType.Resolver
 }
 
-// NewMetadataExtractor creates metadata resolver with custom image dictionary.
+// NewMetadataExtractor creates metadata extractor with custom image dictionary.
 func NewMetadataExtractor() *MetadataExtractor {
 	return &MetadataExtractor{
 		descriptionResolve: serviceDescription.NewResolver(),

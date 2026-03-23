@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
+	"log/slog"
 
 	cerrdefs "github.com/containerd/errdefs"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
@@ -47,12 +47,8 @@ func (i *Inspector) InspectServiceStatus(ctx context.Context, stackName, service
 // InspectServiceLabels returns service, container and image labels for a stack service.
 func (i *Inspector) InspectServiceLabels(
 	ctx context.Context,
-	stackName, serviceName, imageRef string,
+	stackName, serviceName string,
 ) (ServiceLabels, error) {
-	if i.dockerClient == nil {
-		return ServiceLabels{}, errors.New("docker api client is not initialized")
-	}
-
 	fullServiceName := fmt.Sprintf("%s_%s", stackName, serviceName)
 	service, _, err := i.dockerClient.ServiceInspectWithRaw(ctx, fullServiceName, dockerswarm.ServiceInspectOptions{})
 	if err != nil {
@@ -65,24 +61,26 @@ func (i *Inspector) InspectServiceLabels(
 	labels := ServiceLabels{
 		Service: cloneStringMap(service.Spec.Labels),
 	}
-	inspectedImageRef := strings.TrimSpace(imageRef)
-	if service.Spec.TaskTemplate.ContainerSpec != nil {
-		labels.Container = cloneStringMap(service.Spec.TaskTemplate.ContainerSpec.Labels)
-		if inspectedImageRef == "" {
-			inspectedImageRef = strings.TrimSpace(service.Spec.TaskTemplate.ContainerSpec.Image)
-		}
-	}
-	if inspectedImageRef == "" {
-		return labels, nil
-	}
 
-	image, err := i.dockerClient.ImageInspect(ctx, inspectedImageRef)
+	labels.Container = cloneStringMap(service.Spec.TaskTemplate.ContainerSpec.Labels)
+	imageRef := service.Spec.TaskTemplate.ContainerSpec.Image
+
+	slog.DebugContext(ctx, "[swarm] inspecting image", slog.String("image_ref", imageRef))
+
+	image, err := i.dockerClient.ImageInspect(ctx, imageRef)
 	if err != nil {
 		if cerrdefs.IsNotFound(err) {
+			slog.DebugContext(ctx, "[swarm] image not found", slog.String("image_ref", imageRef))
+
 			return labels, nil
 		}
-		return labels, fmt.Errorf("inspect image %s: %w", inspectedImageRef, err)
+		return labels, fmt.Errorf("inspect image %s: %w", imageRef, err)
 	}
+
+	slog.DebugContext(ctx, "[swarm] image inspected",
+		slog.String("image_ref", imageRef),
+		slog.Any("image", image),
+	)
 
 	if image.Config != nil {
 		labels.Image = cloneStringMap(image.Config.Labels)
