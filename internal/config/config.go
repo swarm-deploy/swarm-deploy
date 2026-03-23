@@ -82,51 +82,6 @@ type EventHistorySpec struct {
 	Capacity int `yaml:"capacity"`
 }
 
-type GitSpec struct {
-	// Repository is a git repository URL (ssh or https).
-	Repository string `yaml:"repository"`
-	// Branch is a git branch to track.
-	Branch string `yaml:"branch"`
-	// Auth contains git authentication settings.
-	Auth GitAuthSpec `yaml:"auth"`
-}
-
-type GitAuthSpec struct {
-	// Type is git auth type: none, http, or ssh.
-	Type string `yaml:"type"`
-	// HTTP is HTTP(S) basic/token authentication configuration.
-	HTTP GitHTTPAuth `yaml:"http"`
-	// SSH is SSH authentication configuration.
-	SSH GitSSHAuthSpec `yaml:"ssh"`
-}
-
-type GitHTTPAuth struct {
-	// Username is HTTP basic auth username.
-	Username string `yaml:"username"`
-	// Password is HTTP basic auth password.
-	//nolint:gosec // Field name is part of a user-facing config schema and does not imply hardcoded secret usage.
-	Password string `yaml:"password"`
-	// PasswordEnv is an env variable name containing HTTP password.
-	PasswordEnv string `yaml:"passwordEnv"`
-	// Token is an HTTP token value used as password.
-	Token string `yaml:"token"`
-	// TokenEnv is an env variable name containing HTTP token.
-	TokenEnv string `yaml:"tokenEnv"`
-}
-
-type GitSSHAuthSpec struct {
-	// User is an SSH user, typically "git".
-	User string `yaml:"user"`
-	// PrivateKeyPath is a path to a private key file for git SSH auth.
-	PrivateKeyPath string `yaml:"privateKeyPath"`
-	// KnownHostsPath is a path to known_hosts file used for host verification.
-	KnownHostsPath string `yaml:"knownHostsPath"`
-	// InsecureIgnoreHostKey disables SSH host key verification.
-	InsecureIgnoreHostKey bool `yaml:"insecureIgnoreHostKey"`
-	// PassphrasePath is a path to file containing private key passphrase.
-	PassphrasePath string `yaml:"passphrasePath"`
-}
-
 type SyncSpec struct {
 	// Mode is sync mode: pull, webhook, or hybrid.
 	Mode string `yaml:"mode"`
@@ -327,10 +282,6 @@ func (c *Config) applyGitAndSyncDefaults(configDir string) {
 	if secretPath := strings.TrimSpace(c.Spec.Sync.Webhook.SecretPath); secretPath != "" &&
 		!filepath.IsAbs(secretPath) {
 		c.Spec.Sync.Webhook.SecretPath = filepath.Join(configDir, secretPath)
-	}
-	if passphrasePath := strings.TrimSpace(c.Spec.Git.Auth.SSH.PassphrasePath); passphrasePath != "" &&
-		!filepath.IsAbs(passphrasePath) {
-		c.Spec.Git.Auth.SSH.PassphrasePath = filepath.Join(configDir, passphrasePath)
 	}
 	if c.Spec.Sync.Mode == SyncModeWebhook && !c.Spec.Sync.Webhook.Enabled {
 		c.Spec.Sync.Webhook.Enabled = true
@@ -780,44 +731,6 @@ func (a AuthenticationSpec) Strategy() string {
 	}
 
 	return AuthenticationStrategyNone
-}
-
-func (a GitHTTPAuth) ResolvePassword() string {
-	if a.PasswordEnv != "" {
-		return os.Getenv(a.PasswordEnv)
-	}
-	if a.TokenEnv != "" {
-		return os.Getenv(a.TokenEnv)
-	}
-	if a.Token != "" {
-		return a.Token
-	}
-	return a.Password
-}
-
-func (a GitHTTPAuth) ResolveUsername() string {
-	if a.Username != "" {
-		return a.Username
-	}
-	if a.Token != "" || a.TokenEnv != "" {
-		// go-git basic auth requires non-empty username when token is used.
-		return "oauth2"
-	}
-	return ""
-}
-
-func (a GitSSHAuthSpec) ResolvePassphrase() (string, error) {
-	passphrasePath := strings.TrimSpace(a.PassphrasePath)
-	if passphrasePath == "" {
-		return "", nil
-	}
-
-	payload, err := os.ReadFile(passphrasePath)
-	if err != nil {
-		return "", fmt.Errorf("read passphrasePath %s: %w", passphrasePath, err)
-	}
-
-	return strings.TrimSpace(string(payload)), nil
 }
 
 func (t TelegramChannel) ResolveToken() (string, error) {

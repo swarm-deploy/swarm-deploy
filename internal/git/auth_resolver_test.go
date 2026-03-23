@@ -104,22 +104,6 @@ func TestAuthResolverResolveSSHRequiresPrivateKeyPath(t *testing.T) {
 	assert.Contains(t, err.Error(), "ssh auth requires privateKeyPath", "unexpected error")
 }
 
-func TestAuthResolverResolveSSHReturnsPassphraseResolveError(t *testing.T) {
-	resolver := NewAuthResolver()
-	keyPath := writePrivateKeyFile(t, t.TempDir())
-
-	authMethod, err := resolver.Resolve(config.GitAuthSpec{
-		Type: "ssh",
-		SSH: config.GitSSHAuthSpec{
-			PrivateKeyPath: keyPath,
-			PassphrasePath: filepath.Join(t.TempDir(), "missing-passphrase"),
-		},
-	})
-	require.Error(t, err, "ssh auth with unreadable passphrase must fail")
-	assert.Nil(t, authMethod, "auth method must be nil on error")
-	assert.Contains(t, err.Error(), "resolve ssh passphrase", "unexpected error")
-}
-
 func TestAuthResolverResolveSSHReturnsPrivateKeyReadError(t *testing.T) {
 	resolver := NewAuthResolver()
 

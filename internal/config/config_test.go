@@ -330,49 +330,6 @@ stacks:
 	assert.Equal(t, defaultWebhookAddress, cfg.Spec.Sync.Webhook.Address, "expected sync.webhook.address")
 }
 
-func TestLoadResolvesRelativeGitSSHPassphrasePath(t *testing.T) {
-	dir := t.TempDir()
-
-	stacksPath := filepath.Join(dir, "stacks.yaml")
-	stacksPayload := []byte(`
-stacks:
-  - name: app
-    composeFile: app/docker-compose.yml
-`)
-	if err := os.WriteFile(stacksPath, stacksPayload, 0o600); err != nil {
-		require.NoError(t, err, "write stacks file")
-	}
-
-	passphrasePath := filepath.Join(dir, "git_passphrase")
-	if err := os.WriteFile(passphrasePath, []byte(" super-secret \n"), 0o600); err != nil {
-		require.NoError(t, err, "write passphrase file")
-	}
-
-	configPath := filepath.Join(dir, "swarm-deploy.yaml")
-	configPayload := []byte(`
-git:
-  repository: git@github.com:your-org/your-stacks-repo.git
-  auth:
-    type: ssh
-    ssh:
-      privateKeyPath: /run/secrets/deploy_key
-      passphrasePath: ./git_passphrase
-stacks:
-  file: ./stacks.yaml
-`)
-	if err := os.WriteFile(configPath, configPayload, 0o600); err != nil {
-		require.NoError(t, err, "write config file")
-	}
-
-	cfg, err := Load(configPath)
-	require.NoError(t, err, "load config")
-	assert.Equal(t, passphrasePath, cfg.Spec.Git.Auth.SSH.PassphrasePath, "expected passphrasePath")
-
-	passphrase, err := cfg.Spec.Git.Auth.SSH.ResolvePassphrase()
-	require.NoError(t, err, "resolve passphrase")
-	assert.Equal(t, "super-secret", passphrase, "expected passphrase")
-}
-
 func TestReloadStacksPrefersFirstAvailableBaseDir(t *testing.T) {
 	dir := t.TempDir()
 	configDir := filepath.Join(dir, "config")

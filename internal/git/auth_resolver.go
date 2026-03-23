@@ -46,10 +46,6 @@ func (r *AuthResolver) buildSSHAuthMethod(auth config.GitSSHAuthSpec) (transport
 	if user == "" {
 		user = "git"
 	}
-	passphrase, err := auth.ResolvePassphrase()
-	if err != nil {
-		return nil, fmt.Errorf("resolve ssh passphrase: %w", err)
-	}
 
 	var (
 		pk     *gitssh.PublicKeys
@@ -57,7 +53,7 @@ func (r *AuthResolver) buildSSHAuthMethod(auth config.GitSSHAuthSpec) (transport
 	)
 
 	if auth.PrivateKeyPath != "" {
-		pk, keyErr = gitssh.NewPublicKeysFromFile(user, auth.PrivateKeyPath, passphrase)
+		pk, keyErr = gitssh.NewPublicKeysFromFile(user, auth.PrivateKeyPath, string(auth.Passphrase.Content))
 		if keyErr != nil {
 			return nil, fmt.Errorf("read ssh private key from file: %w", keyErr)
 		}
