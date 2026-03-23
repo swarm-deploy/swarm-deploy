@@ -184,11 +184,6 @@ func buildAssistantService(
 		return nil, nil
 	}
 
-	apiToken, err := cfg.Spec.Assistant.Model.OpenAI.ResolveAPIToken()
-	if err != nil {
-		return nil, fmt.Errorf("resolve assistant api token: %w", err)
-	}
-
 	temperature, err := cfg.Spec.Assistant.Model.OpenAI.ResolveTemperature()
 	if err != nil {
 		return nil, fmt.Errorf("resolve assistant temperature: %w", err)
@@ -205,7 +200,7 @@ func buildAssistantService(
 		Enabled:        cfg.Spec.Assistant.Enabled,
 		ModelName:      cfg.Spec.Assistant.Model.Name,
 		BaseURL:        cfg.Spec.Assistant.Model.OpenAI.BaseURL,
-		APIToken:       apiToken,
+		APIToken:       string(cfg.Spec.Assistant.Model.OpenAI.APIToken.Content),
 		OrganizationID: cfg.Spec.Assistant.Model.OpenAI.OrganizationID,
 		Temperature:    temperature,
 		MaxTokens:      maxTokens,

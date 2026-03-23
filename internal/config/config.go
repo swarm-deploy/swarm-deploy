@@ -296,7 +296,7 @@ func (c *Config) applyDefaults(configDir string) error {
 	c.applyWebAndHealthDefaults()
 	c.applySecurityDefaults(configDir)
 	c.applyNotificationDefaults(configDir)
-	c.applyAssistantDefaults(configDir)
+	c.applyAssistantDefaults()
 	c.applySwarmDefaults()
 	c.applySecretRotationDefaults()
 	c.applyEventHistoryDefaults()
@@ -372,7 +372,7 @@ func (c *Config) applyNotificationDefaults(configDir string) {
 	}
 }
 
-func (c *Config) applyAssistantDefaults(configDir string) {
+func (c *Config) applyAssistantDefaults() {
 	c.Spec.Assistant.SystemPrompt = strings.TrimSpace(c.Spec.Assistant.SystemPrompt)
 	c.Spec.Assistant.Model.Name = strings.TrimSpace(c.Spec.Assistant.Model.Name)
 
@@ -386,10 +386,6 @@ func (c *Config) applyAssistantDefaults(configDir string) {
 		openaiCfg.BaseURL = defaultAssistantOpenAIBaseURL
 	}
 
-	openaiCfg.APITokenPath = strings.TrimSpace(openaiCfg.APITokenPath)
-	if openaiCfg.APITokenPath != "" && !filepath.IsAbs(openaiCfg.APITokenPath) {
-		openaiCfg.APITokenPath = filepath.Join(configDir, openaiCfg.APITokenPath)
-	}
 	openaiCfg.OrganizationID = strings.TrimSpace(openaiCfg.OrganizationID)
 
 	openaiCfg.Temperature = strings.TrimSpace(openaiCfg.Temperature)
@@ -705,16 +701,9 @@ func (c *Config) validateAssistant() []error {
 		errs = append(errs, errors.New("assistant.model.name is required when assistant.enabled=true"))
 	}
 
-	tokenPath := strings.TrimSpace(c.Spec.Assistant.Model.OpenAI.APITokenPath)
-	if tokenPath == "" {
+	token := c.Spec.Assistant.Model.OpenAI.APIToken.Content
+	if len(token) == 0 {
 		errs = append(errs, errors.New("assistant.model.openai.apiTokenPath is required when assistant.enabled=true"))
-	} else {
-		token, err := c.Spec.Assistant.Model.OpenAI.ResolveAPIToken()
-		if err != nil {
-			errs = append(errs, err)
-		} else if token == "" {
-			errs = append(errs, errors.New("assistant.model.openai.apiTokenPath contains empty token"))
-		}
 	}
 
 	temperature, err := c.Spec.Assistant.Model.OpenAI.ResolveTemperature()
@@ -750,20 +739,6 @@ func (w WebhookSpec) ResolveSecret() string {
 		return ""
 	}
 	return strings.TrimSpace(string(payload))
-}
-
-func (a AssistantOpenAISpec) ResolveAPIToken() (string, error) {
-	tokenPath := strings.TrimSpace(a.APITokenPath)
-	if tokenPath == "" {
-		return "", nil
-	}
-
-	payload, err := os.ReadFile(tokenPath)
-	if err != nil {
-		return "", fmt.Errorf("read assistant.model.openai.apiTokenPath %s: %w", tokenPath, err)
-	}
-
-	return strings.TrimSpace(string(payload)), nil
 }
 
 func (a AssistantOpenAISpec) ResolveTemperature() (float64, error) {

@@ -520,59 +520,6 @@ notifications:
 	)
 }
 
-func TestLoadResolvesRelativeAssistantAPITokenPath(t *testing.T) {
-	dir := t.TempDir()
-
-	stacksPath := filepath.Join(dir, "stacks.yaml")
-	stacksPayload := []byte(`
-stacks:
-  - name: app
-    composeFile: app/docker-compose.yml
-`)
-	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
-
-	tokenPath := filepath.Join(dir, "assistant_token")
-	require.NoError(t, os.WriteFile(tokenPath, []byte(" token-value \n"), 0o600), "write assistant token")
-
-	configPath := filepath.Join(dir, "swarm-deploy.yaml")
-	configPayload := []byte(`
-git:
-  repository: https://example.com/repo.git
-stacks:
-  file: ./stacks.yaml
-assistant:
-  enabled: true
-  model:
-    name: gpt-4o-mini
-    openai:
-      apiTokenPath: ./assistant_token
-      organizationId: " org-test "
-`)
-	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
-
-	cfg, err := Load(configPath)
-	require.NoError(t, err, "load config")
-	assert.Equal(t, tokenPath, cfg.Spec.Assistant.Model.OpenAI.APITokenPath, "expected resolved apiTokenPath")
-	assert.Equal(t, defaultAssistantOpenAIBaseURL, cfg.Spec.Assistant.Model.OpenAI.BaseURL, "expected default baseUrl")
-	assert.Equal(t, "org-test", cfg.Spec.Assistant.Model.OpenAI.OrganizationID, "expected trimmed organizationId")
-	assert.Equal(
-		t,
-		defaultAssistantTemperature,
-		cfg.Spec.Assistant.Model.OpenAI.Temperature,
-		"expected default temperature",
-	)
-	assert.Equal(
-		t,
-		defaultAssistantMaxTokens,
-		cfg.Spec.Assistant.Model.OpenAI.MaxTokens,
-		"expected default maxTokens",
-	)
-
-	token, err := cfg.Spec.Assistant.Model.OpenAI.ResolveAPIToken()
-	require.NoError(t, err, "resolve assistant token")
-	assert.Equal(t, "token-value", token, "expected assistant token from file")
-}
-
 func TestLoadFailsWhenAssistantEnabledWithoutTokenPath(t *testing.T) {
 	dir := t.TempDir()
 

@@ -17,6 +17,8 @@ github.com/artarts36/go-entrypoint v0.2.1 h1:6P+rrS1NesITwyDK7eUFA4C3W2JcAw1t6hB
 github.com/artarts36/go-entrypoint v0.2.1/go.mod h1:5uYdUxopW6JoRpEMWXXTnrhrxUCKPw8/owK66APCDZo=
 github.com/artarts36/specw v0.1.4 h1:lntMqXh9naGQnaHn+cqrxeo6KG0muwczeClnN9QZDSg=
 github.com/artarts36/specw v0.1.4/go.mod h1:6dtnh2tg3D1nUdNEcTQfFTjRMVyreObkgO3JmfEeehg=
+github.com/artarts36/specw v0.1.5 h1:tU7FskbEe2NuPL385mhGW1T4maDsLDPYyt8cr5XBNXo=
+github.com/artarts36/specw v0.1.5/go.mod h1:6dtnh2tg3D1nUdNEcTQfFTjRMVyreObkgO3JmfEeehg=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=
 github.com/beorn7/perks v1.0.1/go.mod h1:G2ZrVWU2WbWT9wwq4/hrbKbnv/1ERSJQ0ibhJ6rlkpw=
 github.com/buildkite/interpolate v0.1.5 h1:v2Ji3voik69UZlbfoqzx+qfcsOKLA61nHdU79VV+tPU=

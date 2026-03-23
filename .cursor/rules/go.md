@@ -27,6 +27,7 @@ apply: by file patterns
 - Database config actually have `DSN` variable which secret and loaded from mounted file. Library automatically loaded file and set value into `Config` structure
 - Secret values like API key or DSN must be loaded from mounted file.
 - Every time you change configs update the documentation in the `example/**` folder
+- When working with secrets (API token, password), always use files. Don't manually write file reads in your code; use the `specw.File` from the library https://github.com/ArtARTs36/specw
 
 Example of a valid configuration file:
 

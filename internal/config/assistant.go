@@ -1,5 +1,7 @@
 package config
 
+import "github.com/artarts36/specw"
+
 // AssistantSpec configures AI assistant behavior.
 type AssistantSpec struct {
 	// Enabled toggles assistant API and UI visibility.
@@ -24,8 +26,8 @@ type AssistantModelSpec struct {
 type AssistantOpenAISpec struct {
 	// BaseURL is an OpenAI-compatible API base URL.
 	BaseURL string `yaml:"baseUrl"`
-	// APITokenPath is a path to file containing API token.
-	APITokenPath string `yaml:"apiTokenPath"`
+	// APIToken is a path to file containing API token.
+	APIToken specw.File `yaml:"apiTokenPath"`
 	// OrganizationID is an optional OpenAI organization identifier.
 	OrganizationID string `yaml:"organizationId"`
 	// Temperature is a model temperature value in [0, 2].

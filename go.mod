@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/artarts36/go-entrypoint v0.2.1
-	github.com/artarts36/specw v0.1.4
+	github.com/artarts36/specw v0.1.5
 	github.com/cappuccinotm/slogx v1.4.2
 	github.com/containerd/errdefs v1.0.0
 	github.com/distribution/reference v0.6.0
