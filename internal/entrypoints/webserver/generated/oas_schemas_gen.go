@@ -62,7 +62,6 @@ type AssistantChatResponse struct {
 	RequestID      string                      `json:"request_id"`
 	ConversationID string                      `json:"conversation_id"`
 	Answer         OptString                   `json:"answer"`
-	ToolCalls      []AssistantToolCall         `json:"tool_calls"`
 	ErrorMessage   OptString                   `json:"error_message"`
 	PollAfterMs    OptInt32                    `json:"poll_after_ms"`
 }
@@ -85,11 +84,6 @@ func (s *AssistantChatResponse) GetConversationID() string {
 // GetAnswer returns the value of Answer.
 func (s *AssistantChatResponse) GetAnswer() OptString {
 	return s.Answer
-}
-
-// GetToolCalls returns the value of ToolCalls.
-func (s *AssistantChatResponse) GetToolCalls() []AssistantToolCall {
-	return s.ToolCalls
 }
 
 // GetErrorMessage returns the value of ErrorMessage.
@@ -120,11 +114,6 @@ func (s *AssistantChatResponse) SetConversationID(val string) {
 // SetAnswer sets the value of Answer.
 func (s *AssistantChatResponse) SetAnswer(val OptString) {
 	s.Answer = val
-}
-
-// SetToolCalls sets the value of ToolCalls.
-func (s *AssistantChatResponse) SetToolCalls(val []AssistantToolCall) {
-	s.ToolCalls = val
 }
 
 // SetErrorMessage sets the value of ErrorMessage.
@@ -197,54 +186,6 @@ func (s *AssistantChatResponseStatus) UnmarshalText(data []byte) error {
 	default:
 		return errors.Errorf("invalid value: %q", data)
 	}
-}
-
-// Ref: #/components/schemas/AssistantToolCall
-type AssistantToolCall struct {
-	Name      string    `json:"name"`
-	Arguments OptString `json:"arguments"`
-	Result    OptString `json:"result"`
-	Error     OptString `json:"error"`
-}
-
-// GetName returns the value of Name.
-func (s *AssistantToolCall) GetName() string {
-	return s.Name
-}
-
-// GetArguments returns the value of Arguments.
-func (s *AssistantToolCall) GetArguments() OptString {
-	return s.Arguments
-}
-
-// GetResult returns the value of Result.
-func (s *AssistantToolCall) GetResult() OptString {
-	return s.Result
-}
-
-// GetError returns the value of Error.
-func (s *AssistantToolCall) GetError() OptString {
-	return s.Error
-}
-
-// SetName sets the value of Name.
-func (s *AssistantToolCall) SetName(val string) {
-	s.Name = val
-}
-
-// SetArguments sets the value of Arguments.
-func (s *AssistantToolCall) SetArguments(val OptString) {
-	s.Arguments = val
-}
-
-// SetResult sets the value of Result.
-func (s *AssistantToolCall) SetResult(val OptString) {
-	s.Result = val
-}
-
-// SetError sets the value of Error.
-func (s *AssistantToolCall) SetError(val OptString) {
-	s.Error = val
 }
 
 // Ref: #/components/schemas/EventHistoryItem

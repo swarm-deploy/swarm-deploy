@@ -56,8 +56,6 @@ type ChatResponse struct {
 	RequestID string
 	// Answer is a final assistant answer for completed runs.
 	Answer string
-	// ToolCalls contains tool call details captured during run.
-	ToolCalls []ToolCall
 	// ErrorMessage contains a user-safe error when run failed or was rejected.
 	ErrorMessage string
 	// PollAfterMS is a suggested delay before next poll request.

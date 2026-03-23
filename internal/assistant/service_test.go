@@ -201,9 +201,6 @@ func TestServiceChatHandlesToolCalls(t *testing.T) {
 	})
 	assert.Equal(t, StatusCompleted, response.Status, "expected completed response")
 	assert.Equal(t, "Sync was queued.", response.Answer, "unexpected answer")
-	require.Len(t, response.ToolCalls, 1, "expected one tool call")
-	assert.Equal(t, "sync", response.ToolCalls[0].Name, "expected sync tool")
-	assert.Contains(t, response.ToolCalls[0].Result, "queued", "expected tool output")
 }
 
 func TestServiceChatFailsOnUnknownPollRequestID(t *testing.T) {

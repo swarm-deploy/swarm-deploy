@@ -156,16 +156,6 @@ func (s *AssistantChatResponse) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
-		if s.ToolCalls != nil {
-			e.FieldStart("tool_calls")
-			e.ArrStart()
-			for _, elem := range s.ToolCalls {
-				elem.Encode(e)
-			}
-			e.ArrEnd()
-		}
-	}
-	{
 		if s.ErrorMessage.Set {
 			e.FieldStart("error_message")
 			s.ErrorMessage.Encode(e)
@@ -179,14 +169,13 @@ func (s *AssistantChatResponse) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfAssistantChatResponse = [7]string{
+var jsonFieldsNameOfAssistantChatResponse = [6]string{
 	0: "status",
 	1: "request_id",
 	2: "conversation_id",
 	3: "answer",
-	4: "tool_calls",
-	5: "error_message",
-	6: "poll_after_ms",
+	4: "error_message",
+	5: "poll_after_ms",
 }
 
 // Decode decodes AssistantChatResponse from json.
@@ -241,23 +230,6 @@ func (s *AssistantChatResponse) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"answer\"")
-			}
-		case "tool_calls":
-			if err := func() error {
-				s.ToolCalls = make([]AssistantToolCall, 0)
-				if err := d.Arr(func(d *jx.Decoder) error {
-					var elem AssistantToolCall
-					if err := elem.Decode(d); err != nil {
-						return err
-					}
-					s.ToolCalls = append(s.ToolCalls, elem)
-					return nil
-				}); err != nil {
-					return err
-				}
-				return nil
-			}(); err != nil {
-				return errors.Wrap(err, "decode field \"tool_calls\"")
 			}
 		case "error_message":
 			if err := func() error {
@@ -377,153 +349,6 @@ func (s AssistantChatResponseStatus) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *AssistantChatResponseStatus) UnmarshalJSON(data []byte) error {
-	d := jx.DecodeBytes(data)
-	return s.Decode(d)
-}
-
-// Encode implements json.Marshaler.
-func (s *AssistantToolCall) Encode(e *jx.Encoder) {
-	e.ObjStart()
-	s.encodeFields(e)
-	e.ObjEnd()
-}
-
-// encodeFields encodes fields.
-func (s *AssistantToolCall) encodeFields(e *jx.Encoder) {
-	{
-		e.FieldStart("name")
-		e.Str(s.Name)
-	}
-	{
-		if s.Arguments.Set {
-			e.FieldStart("arguments")
-			s.Arguments.Encode(e)
-		}
-	}
-	{
-		if s.Result.Set {
-			e.FieldStart("result")
-			s.Result.Encode(e)
-		}
-	}
-	{
-		if s.Error.Set {
-			e.FieldStart("error")
-			s.Error.Encode(e)
-		}
-	}
-}
-
-var jsonFieldsNameOfAssistantToolCall = [4]string{
-	0: "name",
-	1: "arguments",
-	2: "result",
-	3: "error",
-}
-
-// Decode decodes AssistantToolCall from json.
-func (s *AssistantToolCall) Decode(d *jx.Decoder) error {
-	if s == nil {
-		return errors.New("invalid: unable to decode AssistantToolCall to nil")
-	}
-	var requiredBitSet [1]uint8
-
-	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
-		switch string(k) {
-		case "name":
-			requiredBitSet[0] |= 1 << 0
-			if err := func() error {
-				v, err := d.Str()
-				s.Name = string(v)
-				if err != nil {
-					return err
-				}
-				return nil
-			}(); err != nil {
-				return errors.Wrap(err, "decode field \"name\"")
-			}
-		case "arguments":
-			if err := func() error {
-				s.Arguments.Reset()
-				if err := s.Arguments.Decode(d); err != nil {
-					return err
-				}
-				return nil
-			}(); err != nil {
-				return errors.Wrap(err, "decode field \"arguments\"")
-			}
-		case "result":
-			if err := func() error {
-				s.Result.Reset()
-				if err := s.Result.Decode(d); err != nil {
-					return err
-				}
-				return nil
-			}(); err != nil {
-				return errors.Wrap(err, "decode field \"result\"")
-			}
-		case "error":
-			if err := func() error {
-				s.Error.Reset()
-				if err := s.Error.Decode(d); err != nil {
-					return err
-				}
-				return nil
-			}(); err != nil {
-				return errors.Wrap(err, "decode field \"error\"")
-			}
-		default:
-			return d.Skip()
-		}
-		return nil
-	}); err != nil {
-		return errors.Wrap(err, "decode AssistantToolCall")
-	}
-	// Validate required fields.
-	var failures []validate.FieldError
-	for i, mask := range [1]uint8{
-		0b00000001,
-	} {
-		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
-			// Mask only required fields and check equality to mask using XOR.
-			//
-			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
-			// Bits of fields which would be set are actually bits of missed fields.
-			missed := bits.OnesCount8(result)
-			for bitN := 0; bitN < missed; bitN++ {
-				bitIdx := bits.TrailingZeros8(result)
-				fieldIdx := i*8 + bitIdx
-				var name string
-				if fieldIdx < len(jsonFieldsNameOfAssistantToolCall) {
-					name = jsonFieldsNameOfAssistantToolCall[fieldIdx]
-				} else {
-					name = strconv.Itoa(fieldIdx)
-				}
-				failures = append(failures, validate.FieldError{
-					Name:  name,
-					Error: validate.ErrFieldRequired,
-				})
-				// Reset bit.
-				result &^= 1 << bitIdx
-			}
-		}
-	}
-	if len(failures) > 0 {
-		return &validate.Error{Fields: failures}
-	}
-
-	return nil
-}
-
-// MarshalJSON implements stdjson.Marshaler.
-func (s *AssistantToolCall) MarshalJSON() ([]byte, error) {
-	e := jx.Encoder{}
-	s.Encode(&e)
-	return e.Bytes(), nil
-}
-
-// UnmarshalJSON implements stdjson.Unmarshaler.
-func (s *AssistantToolCall) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

@@ -35,23 +35,11 @@ func (h *handler) AssistantChat(
 }
 
 func toGeneratedAssistantChatResponse(resp assistant.ChatResponse) *generated.AssistantChatResponse {
-	generatedToolCalls := make([]generated.AssistantToolCall, 0, len(resp.ToolCalls))
-	for _, toolCall := range resp.ToolCalls {
-		generatedCall := generated.AssistantToolCall{
-			Name:      toolCall.Name,
-			Arguments: toOptString(toolCall.Arguments),
-			Result:    toOptString(toolCall.Result),
-			Error:     toOptString(toolCall.Error),
-		}
-		generatedToolCalls = append(generatedToolCalls, generatedCall)
-	}
-
 	generatedResp := &generated.AssistantChatResponse{
 		Status:         toGeneratedAssistantStatus(resp.Status),
 		RequestID:      resp.RequestID,
 		ConversationID: resp.ConversationID,
 		Answer:         toOptString(resp.Answer),
-		ToolCalls:      generatedToolCalls,
 		ErrorMessage:   toOptString(resp.ErrorMessage),
 	}
 	if resp.PollAfterMS > 0 {

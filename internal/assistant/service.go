@@ -139,13 +139,12 @@ func (s *Service) runAssistant(conversationID, message string, run *chatRun) {
 	defer cancel()
 
 	history := s.getConversation(conversationID)
-	answer, toolCalls, err := s.graph.run(ctx, history, message)
+	answer, _, err := s.graph.run(ctx, history, message)
 	if err != nil {
 		if errors.Is(err, errPromptInjection) {
 			run.finish(
 				StatusRejected,
 				"",
-				toolCalls,
 				"Request was rejected by prompt injection protection. Rephrase your debugging question.",
 			)
 			return
@@ -158,7 +157,7 @@ func (s *Service) runAssistant(conversationID, message string, run *chatRun) {
 			slog.String("request_id", run.requestID),
 			slog.Any("err", err),
 		)
-		run.finish(StatusFailed, "", toolCalls, "Failed to generate assistant response")
+		run.finish(StatusFailed, "", "Failed to generate assistant response")
 		return
 	}
 
@@ -175,7 +174,7 @@ func (s *Service) runAssistant(conversationID, message string, run *chatRun) {
 		content: answer,
 	})
 
-	run.finish(StatusCompleted, answer, toolCalls, "")
+	run.finish(StatusCompleted, answer, "")
 }
 
 func (s *Service) awaitRun(ctx context.Context, run *chatRun, waitTimeout time.Duration) ChatResponse {
@@ -296,7 +295,6 @@ type chatRun struct {
 	mu         sync.RWMutex
 	status     Status
 	answer     string
-	toolCalls  []ToolCall
 	error      string
 	finishedAt time.Time
 }
@@ -317,7 +315,7 @@ func (r *chatRun) isFinished() bool {
 	return r.status != StatusInProgress
 }
 
-func (r *chatRun) finish(status Status, answer string, toolCalls []ToolCall, errorMessage string) {
+func (r *chatRun) finish(status Status, answer string, errorMessage string) {
 	r.mu.Lock()
 	if r.status != StatusInProgress {
 		r.mu.Unlock()
@@ -326,7 +324,6 @@ func (r *chatRun) finish(status Status, answer string, toolCalls []ToolCall, err
 
 	r.status = status
 	r.answer = strings.TrimSpace(answer)
-	r.toolCalls = append([]ToolCall(nil), toolCalls...)
 	r.error = strings.TrimSpace(errorMessage)
 	r.finishedAt = time.Now()
 	r.mu.Unlock()
@@ -343,7 +340,6 @@ func (r *chatRun) snapshot() ChatResponse {
 		ConversationID: r.conversationID,
 		RequestID:      r.requestID,
 		Answer:         r.answer,
-		ToolCalls:      append([]ToolCall(nil), r.toolCalls...),
 		ErrorMessage:   r.error,
 	}
 }
