@@ -70,7 +70,7 @@ func (c *openAIClient) complete(ctx context.Context, req modelRequest) (modelRes
 					Function: openai.FunctionDefinitionParam{
 						Name:        strings.TrimSpace(tool.Name),
 						Description: openai.String(strings.TrimSpace(tool.Description)),
-						Parameters:  openai.FunctionParameters(tool.ParametersJSONSchema),
+						Parameters:  tool.ParametersJSONSchema,
 					},
 				},
 			})
@@ -78,7 +78,7 @@ func (c *openAIClient) complete(ctx context.Context, req modelRequest) (modelRes
 	}
 
 	response, err := c.client.Chat.Completions.New(ctx, openai.ChatCompletionNewParams{
-		Model:       openai.ChatModel(strings.TrimSpace(req.Model)),
+		Model:       strings.TrimSpace(req.Model),
 		Messages:    messages,
 		Temperature: openai.Float(req.Temperature),
 		MaxTokens:   openai.Int(int64(req.MaxTokens)),
@@ -120,7 +120,7 @@ func (c *openAIClient) embed(ctx context.Context, model string, inputs []string)
 	}
 
 	response, err := c.client.Embeddings.New(ctx, openai.EmbeddingNewParams{
-		Model: openai.EmbeddingModel(strings.TrimSpace(model)),
+		Model: strings.TrimSpace(model),
 		Input: openai.EmbeddingNewParamsInputUnion{
 			OfArrayOfStrings: inputs,
 		},

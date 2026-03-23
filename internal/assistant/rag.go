@@ -10,8 +10,6 @@ import (
 	"github.com/artarts36/swarm-deploy/internal/service"
 )
 
-const defaultTopK = 5
-
 type retriever struct {
 	store     ServiceStore
 	embedder  *openAIClient
@@ -26,17 +24,10 @@ func newRetriever(store ServiceStore, embedder *openAIClient, modelName string) 
 	}
 }
 
-func (r *retriever) retrieve(ctx context.Context, query string, topK int) ([]service.Info, error) {
+func (r *retriever) retrieve(ctx context.Context, query string) ([]service.Info, error) {
 	services := r.store.List()
 	if len(services) == 0 {
 		return nil, nil
-	}
-
-	if topK <= 0 {
-		topK = defaultTopK
-	}
-	if topK > len(services) {
-		topK = len(services)
 	}
 
 	documents := make([]string, 0, len(services))
@@ -47,7 +38,7 @@ func (r *retriever) retrieve(ctx context.Context, query string, topK int) ([]ser
 	inputs := append([]string{query}, documents...)
 	embeddings, err := r.embedder.embed(ctx, r.modelName, inputs)
 	if err != nil {
-		return r.retrieveLexical(query, services, topK), nil
+		return r.retrieveLexical(query, services), nil
 	}
 	if len(embeddings) != len(inputs) {
 		return nil, fmt.Errorf("invalid embeddings size: got %d, expected %d", len(embeddings), len(inputs))
@@ -78,21 +69,18 @@ func (r *retriever) retrieve(ctx context.Context, query string, topK int) ([]ser
 		return scored[i].service.Name < scored[j].service.Name
 	})
 
-	selected := make([]service.Info, 0, topK)
+	selected := make([]service.Info, 0)
 	for _, item := range scored {
 		selected = append(selected, item.service)
-		if len(selected) >= topK {
-			break
-		}
 	}
 
 	return selected, nil
 }
 
-func (r *retriever) retrieveLexical(query string, services []service.Info, topK int) []service.Info {
+func (r *retriever) retrieveLexical(query string, services []service.Info) []service.Info {
 	normalizedQuery := strings.ToLower(strings.TrimSpace(query))
 	if normalizedQuery == "" {
-		return services[:topK]
+		return services
 	}
 
 	terms := strings.Fields(normalizedQuery)
@@ -126,12 +114,9 @@ func (r *retriever) retrieveLexical(query string, services []service.Info, topK 
 		return scored[i].service.Name < scored[j].service.Name
 	})
 
-	selected := make([]service.Info, 0, topK)
+	selected := make([]service.Info, 0)
 	for _, item := range scored {
 		selected = append(selected, item.service)
-		if len(selected) >= topK {
-			break
-		}
 	}
 
 	return selected

@@ -3,12 +3,12 @@ package assistant
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/artarts36/swarm-deploy/internal/assistant/guard"
 	"github.com/google/uuid"
 )
 
@@ -56,11 +56,6 @@ func newService(
 		return nil, errors.New("assistant model client is nil")
 	}
 
-	guard, err := newPromptGuard()
-	if err != nil {
-		return nil, fmt.Errorf("build prompt guard: %w", err)
-	}
-
 	retriever := newRetriever(store, modelClient, strings.TrimSpace(config.ModelName))
 	allowedTools := normalizeAllowedTools(config.AllowedTools)
 
@@ -68,7 +63,7 @@ func newService(
 		config: config,
 		graph: newGraph(
 			config,
-			guard,
+			guard.NewInjectionChecker(),
 			retriever,
 			modelClient,
 			tools,

@@ -3,13 +3,19 @@ package assistant
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/artarts36/swarm-deploy/internal/assistant/guard"
 	"github.com/artarts36/swarm-deploy/internal/service"
 )
 
 const maxToolIterations = 3
+
+var (
+	errPromptInjection = errors.New("request rejected by prompt injection guard")
+)
 
 type conversationTurn struct {
 	role    string
@@ -18,7 +24,7 @@ type conversationTurn struct {
 
 type graph struct {
 	config         Config
-	guard          *promptGuard
+	guard          *guard.InjectionChecker
 	retriever      *retriever
 	chat           *openAIClient
 	tools          ToolExecutor
@@ -27,7 +33,7 @@ type graph struct {
 
 func newGraph(
 	config Config,
-	guard *promptGuard,
+	guard *guard.InjectionChecker,
 	retriever *retriever,
 	chat *openAIClient,
 	tools ToolExecutor,
@@ -44,11 +50,11 @@ func newGraph(
 }
 
 func (g *graph) run(ctx context.Context, history []conversationTurn, userMessage string) (string, []ToolCall, error) {
-	if err := g.guard.validate(userMessage); err != nil {
-		return "", nil, err
+	if hasInjections := g.guard.Check(userMessage); hasInjections {
+		return "", nil, errPromptInjection
 	}
 
-	relevantServices, err := g.retriever.retrieve(ctx, userMessage, defaultTopK)
+	relevantServices, err := g.retriever.retrieve(ctx, userMessage)
 	if err != nil {
 		return "", nil, fmt.Errorf("retrieve context: %w", err)
 	}
