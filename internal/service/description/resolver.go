@@ -32,8 +32,26 @@ func NewResolver() *Resolver {
 // Resolve resolves service description from labels by priority.
 func (*Resolver) Resolve(labels Labels) string {
 	return firstNonEmptyLabel(
-		[]map[string]string{labels.Service, labels.Container, labels.Image, labels.Image},
-		[]string{LabelService, LabelService, LabelImageTitle, LabelImageDescription},
+		[]map[string]string{
+			labels.Service,
+			labels.Container,
+			labels.Service,
+			labels.Container,
+			labels.Image,
+			labels.Service,
+			labels.Container,
+			labels.Image,
+		},
+		[]string{
+			LabelService,
+			LabelService,
+			LabelImageDescription,
+			LabelImageDescription,
+			LabelImageDescription,
+			LabelImageTitle,
+			LabelImageTitle,
+			LabelImageTitle,
+		},
 	)
 }
 

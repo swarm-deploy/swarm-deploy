@@ -182,7 +182,7 @@ func buildEventDispatcher(
 	}
 	subs[events.TypeDeploySuccess] = append(
 		subs[events.TypeDeploySuccess],
-		service.NewSubscriber(serviceStore, inspector, nil),
+		service.NewSubscriber(serviceStore, inspector, service.NewMetadataExtractor()),
 	)
 
 	dispatcherLink := &dispatcherProxy{}

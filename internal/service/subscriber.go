@@ -20,15 +20,11 @@ type LabelsInspector interface {
 type Subscriber struct {
 	store     *Store
 	inspector LabelsInspector
-	resolver  *Resolver
+	resolver  *MetadataExtractor
 }
 
 // NewSubscriber creates a service metadata event subscriber.
-func NewSubscriber(store *Store, inspector LabelsInspector, resolver *Resolver) *Subscriber {
-	if resolver == nil {
-		resolver = NewResolver(nil)
-	}
-
+func NewSubscriber(store *Store, inspector LabelsInspector, resolver *MetadataExtractor) *Subscriber {
 	return &Subscriber{
 		store:     store,
 		inspector: inspector,
@@ -49,28 +45,25 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Event) error {
 
 	services := make([]Info, 0, len(deploySuccess.Services))
 	for _, deployedService := range deploySuccess.Services {
-		labels := Labels{}
-		if s.inspector != nil {
-			inspectedLabels, inspectErr := s.inspector.InspectServiceLabels(
+		inspectedLabels, inspectErr := s.inspector.InspectServiceLabels(
+			ctx,
+			deploySuccess.StackName,
+			deployedService.Name,
+			deployedService.Image,
+		)
+		if inspectErr != nil {
+			slog.WarnContext(
 				ctx,
-				deploySuccess.StackName,
-				deployedService.Name,
-				deployedService.Image,
+				"[service] failed to inspect service labels",
+				slog.String("stack", deploySuccess.StackName),
+				slog.String("service", deployedService.Name),
+				slog.Any("err", inspectErr),
 			)
-			if inspectErr != nil {
-				slog.WarnContext(
-					ctx,
-					"[service] failed to inspect service labels",
-					slog.String("stack", deploySuccess.StackName),
-					slog.String("service", deployedService.Name),
-					slog.Any("err", inspectErr),
-				)
-			}
-			labels = Labels{
-				Service:   inspectedLabels.Service,
-				Container: inspectedLabels.Container,
-				Image:     inspectedLabels.Image,
-			}
+		}
+		labels := Labels{
+			Service:   inspectedLabels.Service,
+			Container: inspectedLabels.Container,
+			Image:     inspectedLabels.Image,
 		}
 
 		resolved := s.resolver.Resolve(deployedService.Image, labels)

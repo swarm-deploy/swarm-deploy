@@ -7,6 +7,7 @@ import (
 	generated "github.com/artarts36/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/artarts36/swarm-deploy/internal/event/history"
 	"github.com/artarts36/swarm-deploy/internal/service"
+	serviceType "github.com/artarts36/swarm-deploy/internal/service/stype"
 	"github.com/artarts36/swarm-deploy/internal/swarm"
 )
 
@@ -122,17 +123,17 @@ func toGeneratedServiceInfos(services []service.Info) []generated.ServiceInfo {
 	return mapped
 }
 
-func toGeneratedServiceType(serviceType service.Type) generated.ServiceInfoType {
-	switch serviceType {
-	case service.TypeApplication:
+func toGeneratedServiceType(typ serviceType.Type) generated.ServiceInfoType {
+	switch typ {
+	case serviceType.Application:
 		return generated.ServiceInfoTypeApplication
-	case service.TypeMonitoring:
+	case serviceType.Monitoring:
 		return generated.ServiceInfoTypeMonitoring
-	case service.TypeDelivery:
+	case serviceType.Delivery:
 		return generated.ServiceInfoTypeDelivery
-	case service.TypeReverseProxy:
+	case serviceType.ReverseProxy:
 		return generated.ServiceInfoTypeReverseProxy
-	case service.TypeDatabase:
+	case serviceType.Database:
 		return generated.ServiceInfoTypeDatabase
 	default:
 		return generated.ServiceInfoTypeApplication

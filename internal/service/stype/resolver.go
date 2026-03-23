@@ -12,17 +12,20 @@ const (
 	imageRefSplitParts = 2
 )
 
+// Type is a service classification.
+type Type string
+
 const (
 	// Application is a default service type for business applications.
-	Application = "application"
+	Application Type = "application"
 	// Monitoring is a service type for observability and monitoring tools.
-	Monitoring = "monitoring"
+	Monitoring Type = "monitoring"
 	// Delivery is a service type for traffic delivery and edge components.
-	Delivery = "delivery"
+	Delivery Type = "delivery"
 	// ReverseProxy is a service type for reverse proxy components.
-	ReverseProxy = "reverseProxy"
+	ReverseProxy Type = "reverseProxy"
 	// Database is a service type for data stores.
-	Database = "database"
+	Database Type = "database"
 )
 
 // Labels groups metadata labels for type resolving.
@@ -34,44 +37,22 @@ type Labels struct {
 }
 
 // Resolver resolves service type using labels and image dictionary.
-type Resolver struct {
-	typeByImageName map[string]string
-}
+type Resolver struct{}
 
 // NewResolver creates type resolver with custom image dictionary.
-func NewResolver(typeByImageName map[string]string) *Resolver {
-	if len(typeByImageName) == 0 {
-		typeByImageName = DefaultByImageName()
-	}
-
-	normalized := make(map[string]string, len(typeByImageName))
-	for imageName, serviceType := range typeByImageName {
-		parsedType, ok := Parse(serviceType)
-		if !ok {
-			continue
-		}
-
-		key := strings.ToLower(strings.TrimSpace(imageName))
-		if key == "" {
-			continue
-		}
-		normalized[key] = parsedType
-	}
-
-	return &Resolver{
-		typeByImageName: normalized,
-	}
+func NewResolver() *Resolver {
+	return &Resolver{}
 }
 
 // Resolve resolves service type from labels and image name.
-func (r *Resolver) Resolve(image string, labels Labels) string {
+func (r *Resolver) Resolve(image string, labels Labels) Type {
 	if resolvedType, ok := resolveFromLabels(labels); ok {
 		return resolvedType
 	}
 
 	imageName := imageNameFromReference(image)
 	if imageName != "" {
-		if resolvedType, ok := r.typeByImageName[imageName]; ok {
+		if resolvedType, ok := imageTypeDict[imageName]; ok {
 			return resolvedType
 		}
 	}
@@ -79,63 +60,25 @@ func (r *Resolver) Resolve(image string, labels Labels) string {
 	return Application
 }
 
-// DefaultByImageName returns built-in type dictionary by normalized image name.
-func DefaultByImageName() map[string]string {
-	return map[string]string{
-		"postgres":      Database,
-		"postgresql":    Database,
-		"mysql":         Database,
-		"mariadb":       Database,
-		"mongo":         Database,
-		"mongodb":       Database,
-		"redis":         Database,
-		"valkey":        Database,
-		"clickhouse":    Database,
-		"elasticsearch": Database,
-		"opensearch":    Database,
-		"qdrant":        Database,
-
-		"prometheus":    Monitoring,
-		"grafana":       Monitoring,
-		"loki":          Monitoring,
-		"promtail":      Monitoring,
-		"tempo":         Monitoring,
-		"alertmanager":  Monitoring,
-		"cadvisor":      Monitoring,
-		"node-exporter": Monitoring,
-		"pushgateway":   Monitoring,
-
-		"traefik":      ReverseProxy,
-		"nginx":        ReverseProxy,
-		"nginx-proxy":  ReverseProxy,
-		"haproxy":      ReverseProxy,
-		"envoy":        ReverseProxy,
-		"caddy":        ReverseProxy,
-		"port-forward": ReverseProxy,
-		"registry":     Delivery,
-		"distribution": Delivery,
-	}
-}
-
-// Parse validates and normalizes service type.
-func Parse(raw string) (string, bool) {
+// NormalizeTypeName validates and normalizes service type.
+func NormalizeTypeName(raw string) (Type, bool) {
 	switch normalized := strings.ToLower(strings.TrimSpace(raw)); normalized {
-	case Application:
+	case string(Application):
 		return Application, true
-	case Monitoring:
+	case string(Monitoring):
 		return Monitoring, true
-	case Delivery:
+	case string(Delivery):
 		return Delivery, true
 	case "reverseproxy", "reverse_proxy", "reverse-proxy":
 		return ReverseProxy, true
-	case Database:
+	case string(Database):
 		return Database, true
 	default:
 		return "", false
 	}
 }
 
-func resolveFromLabels(labels Labels) (string, bool) {
+func resolveFromLabels(labels Labels) (Type, bool) {
 	for _, source := range []map[string]string{labels.Service, labels.Container} {
 		if source == nil {
 			continue
@@ -146,7 +89,7 @@ func resolveFromLabels(labels Labels) (string, bool) {
 			continue
 		}
 
-		parsedType, ok := Parse(value)
+		parsedType, ok := NormalizeTypeName(value)
 		if ok {
 			return parsedType, true
 		}

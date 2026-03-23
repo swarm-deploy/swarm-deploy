@@ -45,11 +45,6 @@ func (s *Store) List() []Info {
 
 // ReplaceStack replaces stack services with a new snapshot and saves it to disk.
 func (s *Store) ReplaceStack(stackName string, services []Info) error {
-	stackName = strings.TrimSpace(stackName)
-	if stackName == "" {
-		return errors.New("stack name is required")
-	}
-
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -132,12 +127,6 @@ func normalizeInfo(info Info) Info {
 	info.Stack = strings.TrimSpace(info.Stack)
 	info.Description = strings.TrimSpace(info.Description)
 	info.Image = strings.TrimSpace(info.Image)
-
-	parsedType, ok := ParseType(string(info.Type))
-	if !ok {
-		parsedType = TypeApplication
-	}
-	info.Type = parsedType
 
 	return info
 }

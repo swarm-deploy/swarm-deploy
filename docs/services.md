@@ -22,8 +22,8 @@ Priority (top to bottom):
 
 1. Service label `org.swarm-deploy.service.description`
 2. Container label `org.swarm-deploy.service.description`
-3. Image label `org.opencontainers.image.title`
-4. Image label `org.opencontainers.image.description`
+3. Label `org.opencontainers.image.description` (service -> container -> image)
+4. Label `org.opencontainers.image.title` (service -> container -> image)
 
 ## Type resolving strategy
 

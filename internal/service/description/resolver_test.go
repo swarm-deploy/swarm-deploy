@@ -44,14 +44,41 @@ func TestResolverResolvePriority(t *testing.T) {
 			description: "Container description",
 		},
 		{
-			name: "image title is used before image description",
+			name: "service image title is used before container and image labels",
+			labels: Labels{
+				Service: map[string]string{
+					LabelImageTitle: "Service image title",
+				},
+				Container: map[string]string{
+					LabelImageTitle: "Container image title",
+				},
+				Image: map[string]string{
+					LabelImageTitle: "Image title",
+				},
+			},
+			description: "Service image title",
+		},
+		{
+			name: "container image description is used when title is absent",
+			labels: Labels{
+				Container: map[string]string{
+					LabelImageDescription: "Container image description",
+				},
+				Image: map[string]string{
+					LabelImageDescription: "Image description",
+				},
+			},
+			description: "Container image description",
+		},
+		{
+			name: "image description is used before image title",
 			labels: Labels{
 				Image: map[string]string{
 					LabelImageTitle:       "Image title",
 					LabelImageDescription: "Image description",
 				},
 			},
-			description: "Image title",
+			description: "Image description",
 		},
 		{
 			name: "image description is used when title is absent",

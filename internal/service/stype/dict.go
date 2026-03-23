@@ -1,0 +1,36 @@
+package stype
+
+var imageTypeDict = map[string]Type{
+	"postgres":      Database,
+	"postgresql":    Database,
+	"mysql":         Database,
+	"mariadb":       Database,
+	"mongo":         Database,
+	"mongodb":       Database,
+	"redis":         Database,
+	"valkey":        Database,
+	"clickhouse":    Database,
+	"elasticsearch": Database,
+	"opensearch":    Database,
+	"qdrant":        Database,
+
+	"prometheus":    Monitoring,
+	"grafana":       Monitoring,
+	"loki":          Monitoring,
+	"promtail":      Monitoring,
+	"tempo":         Monitoring,
+	"alertmanager":  Monitoring,
+	"cadvisor":      Monitoring,
+	"node-exporter": Monitoring,
+	"pushgateway":   Monitoring,
+
+	"traefik":      ReverseProxy,
+	"nginx":        ReverseProxy,
+	"nginx-proxy":  ReverseProxy,
+	"haproxy":      ReverseProxy,
+	"envoy":        ReverseProxy,
+	"caddy":        ReverseProxy,
+	"port-forward": ReverseProxy,
+	"registry":     Delivery,
+	"distribution": Delivery,
+}
