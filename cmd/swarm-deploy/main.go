@@ -109,7 +109,7 @@ func main() {
 		eventDispatcher,
 	)
 
-	assistantService, err := buildAssistantService(cfg, serviceStore, eventHistory, control)
+	assistantService, err := buildAssistantService(cfg, serviceStore, eventHistory, control, eventDispatcher)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to build assistant service", slog.Any("err", err))
 		os.Exit(1)
@@ -178,6 +178,7 @@ func buildAssistantService(
 	serviceStore *service.Store,
 	eventHistory *history.Store,
 	control *controller.Controller,
+	eventDispatcher dispatcher.Dispatcher,
 ) (*assistant.Service, error) {
 	if !cfg.Spec.Assistant.Enabled {
 		return nil, nil
@@ -210,7 +211,7 @@ func buildAssistantService(
 		MaxTokens:      maxTokens,
 		SystemPrompt:   cfg.Spec.Assistant.SystemPrompt,
 		AllowedTools:   cfg.Spec.Assistant.Tools,
-	}, serviceStore, toolExecutor)
+	}, serviceStore, toolExecutor, eventDispatcher)
 }
 
 func buildEventDispatcher(
@@ -289,6 +290,7 @@ func addEventHistorySubscriber(subs map[events.Type][]dispatcher.Subscriber, sto
 	subs[events.TypeSendNotificationFailed] = append(subs[events.TypeSendNotificationFailed], store)
 	subs[events.TypeSyncManualStarted] = append(subs[events.TypeSyncManualStarted], store)
 	subs[events.TypeUserAuthenticated] = append(subs[events.TypeUserAuthenticated], store)
+	subs[events.TypeAssistantPromptInjectionDetected] = append(subs[events.TypeAssistantPromptInjectionDetected], store)
 }
 
 type dispatcherProxy struct {

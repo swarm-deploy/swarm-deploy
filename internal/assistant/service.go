@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/artarts36/swarm-deploy/internal/assistant/guard"
+	"github.com/artarts36/swarm-deploy/internal/event/dispatcher"
+	"github.com/artarts36/swarm-deploy/internal/event/events"
 	"github.com/google/uuid"
 )
 
@@ -31,30 +33,18 @@ type Service struct {
 
 	conversationMu sync.RWMutex
 	conversation   map[string][]conversationTurn
+
+	event dispatcher.Dispatcher
 }
 
 // NewService creates assistant service with OpenAI-compatible clients.
-func NewService(config Config, store ServiceStore, tools ToolExecutor) (*Service, error) {
-	modelClient := newOpenAIClient(config.BaseURL, config.APIToken, config.OrganizationID)
-
-	return newService(config, store, tools, modelClient)
-}
-
-func newService(
+func NewService(
 	config Config,
 	store ServiceStore,
 	tools ToolExecutor,
-	modelClient *openAIClient,
+	eventDispatcher dispatcher.Dispatcher,
 ) (*Service, error) {
-	if store == nil {
-		return nil, errors.New("assistant service store is nil")
-	}
-	if tools == nil {
-		return nil, errors.New("assistant tools executor is nil")
-	}
-	if modelClient == nil {
-		return nil, errors.New("assistant model client is nil")
-	}
+	modelClient := newOpenAIClient(config.BaseURL, config.APIToken, config.OrganizationID)
 
 	retriever := newRetriever(store, modelClient, strings.TrimSpace(config.ModelName))
 	allowedTools := normalizeAllowedTools(config.AllowedTools)
@@ -71,6 +61,7 @@ func newService(
 		),
 		runs:         map[string]*chatRun{},
 		conversation: map[string][]conversationTurn{},
+		event:        eventDispatcher,
 	}, nil
 }
 
@@ -142,6 +133,11 @@ func (s *Service) runAssistant(conversationID, message string, run *chatRun) {
 				"",
 				"Request was rejected by prompt injection protection. Rephrase your debugging question.",
 			)
+
+			s.event.Dispatch(ctx, &events.AssistantPromptInjectionDetected{
+				Prompt: message,
+			})
+
 			return
 		}
 
