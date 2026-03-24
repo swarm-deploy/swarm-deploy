@@ -225,7 +225,7 @@ func buildAssistantService(
 		return nil, fmt.Errorf("resolve assistant maxTokens: %w", err)
 	}
 
-	toolExecutor := mcpserver.NewTools(eventHistory, nodeStore, control)
+	toolExecutor := mcpserver.NewTools(eventHistory, nodeStore, control, eventDispatcher)
 
 	return assistant.NewService(assistant.Config{
 		Enabled:                 cfg.Spec.Assistant.Enabled,
@@ -308,12 +308,9 @@ func buildEventDispatcher(
 }
 
 func subscribeOnAllEvents(dispatcher dispatcher.Dispatcher, subscriber dispatcher.Subscriber) {
-	dispatcher.Subscribe(events.TypeDeploySuccess, subscriber)
-	dispatcher.Subscribe(events.TypeDeployFailed, subscriber)
-	dispatcher.Subscribe(events.TypeSendNotificationFailed, subscriber)
-	dispatcher.Subscribe(events.TypeSyncManualStarted, subscriber)
-	dispatcher.Subscribe(events.TypeUserAuthenticated, subscriber)
-	dispatcher.Subscribe(events.TypeAssistantPromptInjectionDetected, subscriber)
+	for _, typ := range events.Types {
+		dispatcher.Subscribe(typ, subscriber)
+	}
 }
 
 type dispatcherProxy struct {

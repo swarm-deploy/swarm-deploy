@@ -20,7 +20,7 @@ type Event interface {
 	Details() map[string]string
 }
 
-var AllTypes = []Type{
+var Types = []Type{
 	TypeDeploySuccess,
 	TypeDeployFailed,
 	TypeSendNotificationFailed,

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/artarts36/swarm-deploy/internal/assistant"
+	"github.com/artarts36/swarm-deploy/internal/event/dispatcher"
 )
 
 // Executor provides direct-call MCP tools without running external server.
@@ -16,11 +17,17 @@ type Executor struct {
 var _ assistant.ToolExecutor = (*Executor)(nil)
 
 // NewExecutor creates an MCP tool executor from independent tool components.
-func NewExecutor(historyStore HistoryReader, nodesStore NodesReader, control SyncTrigger) *Executor {
+func NewExecutor(
+	historyStore HistoryReader,
+	nodesStore NodesReader,
+	control SyncTrigger,
+	eventDispatcher dispatcher.Dispatcher,
+) *Executor {
 	toolComponents := []Tool{
 		NewListHistoryEvents(historyStore),
 		NewSync(control),
 		NewListNodes(nodesStore),
+		NewReportPromptInjection(eventDispatcher),
 	}
 
 	tools := make(map[string]Tool, len(toolComponents))

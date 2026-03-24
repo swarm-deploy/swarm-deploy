@@ -1,7 +1,15 @@
 package events
 
+type AssistantPromptInjectionDetector string
+
+const (
+	AssistantPromptInjectionDetectorRegexp AssistantPromptInjectionDetector = "regexp"
+	AssistantPromptInjectionDetectorModel  AssistantPromptInjectionDetector = "model"
+)
+
 type AssistantPromptInjectionDetected struct {
-	Prompt string
+	Prompt   string
+	Detector AssistantPromptInjectionDetector
 }
 
 func (m *AssistantPromptInjectionDetected) Type() Type {
@@ -13,7 +21,9 @@ func (m *AssistantPromptInjectionDetected) Message() string {
 }
 
 func (m *AssistantPromptInjectionDetected) Details() map[string]string {
-	details := map[string]string{}
+	details := map[string]string{
+		"detector": string(m.Detector),
+	}
 
 	if m.Prompt != "" {
 		details["prompt"] = m.Prompt

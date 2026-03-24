@@ -137,7 +137,8 @@ func (s *Service) runAssistant(conversationID, message string, run *chatRun) {
 			)
 
 			s.event.Dispatch(ctx, &events.AssistantPromptInjectionDetected{
-				Prompt: message,
+				Prompt:   message,
+				Detector: events.AssistantPromptInjectionDetectorRegexp,
 			})
 
 			return
