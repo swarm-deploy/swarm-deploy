@@ -55,14 +55,7 @@ func NewService(
 	retriever := rag.NewRetriever(store, modelClient, strings.TrimSpace(config.ModelName), ragIndex, ragObserver)
 	ragSubscriber := rag.NewIndexSubscriber(store, modelClient, strings.TrimSpace(config.ModelName), ragIndex, ragObserver)
 	allowedTools := normalizeAllowedTools(config.AllowedTools)
-
-	type subscriberAdder interface {
-		AddSubscriber(eventType events.Type, subscriber dispatcher.Subscriber)
-	}
-
-	if adder, ok := eventDispatcher.(subscriberAdder); ok {
-		adder.AddSubscriber(events.TypeDeploySuccess, ragSubscriber)
-	}
+	eventDispatcher.Subscribe(events.TypeDeploySuccess, ragSubscriber)
 
 	return &Service{
 		config: config,
