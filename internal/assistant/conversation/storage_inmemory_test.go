@@ -29,7 +29,11 @@ func TestInMemoryStoragePrunesByTTL(t *testing.T) {
 
 	storage.Append("conv-1", Turn{Role: "user", Content: "hello"})
 
-	now = now.Add(11 * time.Second)
+	storage.now = func() time.Time {
+		return now.Add(11 * time.Second)
+	}
+
+	storage.prune()
 
 	_, ok := storage.Get("conv-1")
 	assert.False(t, ok, "conversation must be removed after ttl")

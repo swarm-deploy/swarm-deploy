@@ -24,7 +24,7 @@ func NewInMemoryStorage(ttl time.Duration, maxTurns int) *InMemoryStorage {
 		now:           time.Now,
 	}
 
-	go s.prune()
+	go s.pruneBackground()
 
 	return s
 }
@@ -57,22 +57,29 @@ func (s *InMemoryStorage) Append(conversationID string, turns ...Turn) {
 	s.conversations[conversationID] = conversationData
 }
 
-func (s *InMemoryStorage) prune() {
+func (s *InMemoryStorage) pruneBackground() {
 	tc := time.Tick(time.Minute)
 
 	for range tc {
-		deleted := 0
-
-		cutoff := s.now().Add(-s.ttl)
-		for conversationID, conversationData := range s.conversations {
-			if conversationData.LastMessageAt.IsZero() || conversationData.LastMessageAt.Before(cutoff) {
-				delete(s.conversations, conversationID)
-				deleted++
-			}
-		}
-
-		slog.Debug("[assistant][conversation-inmemory] pruned", slog.Int("deleted", deleted))
+		s.prune()
 	}
+}
+
+func (s *InMemoryStorage) prune() {
+	deleted := 0
+	cutoff := s.now().Add(-s.ttl)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for conversationID, conversationData := range s.conversations {
+		if conversationData.LastMessageAt.IsZero() || conversationData.LastMessageAt.Before(cutoff) {
+			delete(s.conversations, conversationID)
+			deleted++
+		}
+	}
+
+	slog.Info("[assistant][conversation-inmemory] pruned", slog.Int("deleted", deleted))
 }
 
 func copyConversation(conversationData Conversation) Conversation {
