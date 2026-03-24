@@ -132,7 +132,6 @@ func main() {
 		eventHistory,
 		serviceStore,
 		assistantService,
-		cfg.Spec.Assistant.Enabled,
 		eventDispatcher,
 		cfg.Spec.Web.Security.Authentication,
 	)
@@ -189,9 +188,9 @@ func buildAssistantService(
 	eventHistory *history.Store,
 	control *controller.Controller,
 	eventDispatcher dispatcher.Dispatcher,
-) (*assistant.Service, error) {
+) (assistant.Assistant, error) {
 	if !cfg.Spec.Assistant.Enabled {
-		return nil, errAssistantDisabled
+		return &assistant.DisabledAssistant{}, nil
 	}
 
 	metricsRecorder, err := assistantmetrics.New("swarm_deploy")

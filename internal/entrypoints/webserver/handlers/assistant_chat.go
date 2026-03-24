@@ -12,24 +12,11 @@ func (h *handler) AssistantChat(
 	ctx context.Context,
 	req *generated.AssistantChatRequest,
 ) (*generated.AssistantChatResponse, error) {
-	if req == nil {
-		req = &generated.AssistantChatRequest{}
-	}
-
 	request := assistant.ChatRequest{
-		ConversationID: req.ConversationID.Or(""),
-		RequestID:      req.RequestID.Or(""),
-		Message:        req.Message.Or(""),
-		WaitTimeoutMS:  int(req.WaitTimeoutMs.Or(0)),
-	}
-
-	if !h.assistantEnabled || h.assistant == nil {
-		return toGeneratedAssistantChatResponse(assistant.ChatResponse{
-			Status:         assistant.StatusDisabled,
-			ConversationID: request.ConversationID,
-			RequestID:      request.RequestID,
-			ErrorMessage:   "assistant is disabled in configuration",
-		}), nil
+		ConversationID: req.ConversationID.Value,
+		RequestID:      req.RequestID.Value,
+		Message:        req.Message.Value,
+		WaitTimeoutMS:  int(req.WaitTimeoutMs.Value),
 	}
 
 	return toGeneratedAssistantChatResponse(h.assistant.Chat(ctx, request)), nil

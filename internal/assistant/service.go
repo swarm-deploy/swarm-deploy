@@ -89,15 +89,6 @@ func (s *Service) Chat(ctx context.Context, request ChatRequest) ChatResponse {
 	requestID := strings.TrimSpace(request.RequestID)
 	message := strings.TrimSpace(request.Message)
 
-	if !s.config.Enabled {
-		return ChatResponse{
-			Status:         StatusDisabled,
-			ConversationID: conversationID,
-			RequestID:      requestID,
-			ErrorMessage:   "assistant is disabled in configuration",
-		}
-	}
-
 	waitTimeout := sanitizeWaitTimeout(request.WaitTimeoutMS)
 
 	if requestID != "" && message == "" {
