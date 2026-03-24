@@ -96,6 +96,13 @@ func main() {
 		os.Exit(1)
 	}
 
+	nodeStore, err := swarm.NewNodeStore(filepath.Join(cfg.Spec.DataDir, "nodes.json"))
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to init node store", slog.Any("err", err))
+		os.Exit(1)
+	}
+	nodeCollector := swarm.NewNodeCollector(inspector, nodeStore)
+
 	eventDispatcher, eventHistory, serviceStore, err := buildEventDispatcher(cfg, inspector)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to build event dispatcher", slog.Any("err", err))
@@ -114,6 +121,7 @@ func main() {
 		cfg,
 		serviceStore,
 		eventHistory,
+		nodeStore,
 		control,
 		eventDispatcher,
 	)
@@ -128,6 +136,7 @@ func main() {
 		inspector,
 		eventHistory,
 		serviceStore,
+		nodeStore,
 		assistantService,
 		eventDispatcher,
 		cfg.Spec.Web.Security.Authentication,
@@ -143,6 +152,12 @@ func main() {
 	entrypoints := []entrypoint.Entrypoint{
 		webApplication.Entrypoint(),
 		healthServer.Entrypoint(),
+		{
+			Name: "nodes-collector",
+			Run: func(ctx context.Context) error {
+				return nodeCollector.Run(ctx)
+			},
+		},
 		{
 			Name: "sync-controller",
 			Run: func(ctx context.Context) error {
@@ -183,6 +198,7 @@ func buildAssistantService(
 	cfg *config.Config,
 	serviceStore *service.Store,
 	eventHistory *history.Store,
+	nodeStore *swarm.NodeStore,
 	control *controller.Controller,
 	eventDispatcher dispatcher.Dispatcher,
 ) (assistant.Assistant, error) {
@@ -208,7 +224,7 @@ func buildAssistantService(
 		return nil, fmt.Errorf("resolve assistant maxTokens: %w", err)
 	}
 
-	toolExecutor := mcpserver.NewTools(eventHistory, control)
+	toolExecutor := mcpserver.NewTools(eventHistory, nodeStore, control)
 
 	return assistant.NewService(assistant.Config{
 		Enabled:                 cfg.Spec.Assistant.Enabled,
@@ -291,12 +307,9 @@ func buildEventDispatcher(
 }
 
 func subscribeOnAllEvents(dispatcher dispatcher.Dispatcher, subscriber dispatcher.Subscriber) {
-	dispatcher.Subscribe(events.TypeDeploySuccess, subscriber)
-	dispatcher.Subscribe(events.TypeDeployFailed, subscriber)
-	dispatcher.Subscribe(events.TypeSendNotificationFailed, subscriber)
-	dispatcher.Subscribe(events.TypeSyncManualStarted, subscriber)
-	dispatcher.Subscribe(events.TypeUserAuthenticated, subscriber)
-	dispatcher.Subscribe(events.TypeAssistantPromptInjectionDetected, subscriber)
+	for _, typ := range events.AllTypes {
+		dispatcher.Subscribe(typ, subscriber)
+	}
 }
 
 type dispatcherProxy struct {

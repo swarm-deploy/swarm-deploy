@@ -123,6 +123,23 @@ func toGeneratedServiceInfos(services []service.Info) []generated.ServiceInfo {
 	return mapped
 }
 
+func toGeneratedNodes(nodes []swarm.NodeInfo) []generated.NodeInfo {
+	mapped := make([]generated.NodeInfo, 0, len(nodes))
+	for _, node := range nodes {
+		mapped = append(mapped, generated.NodeInfo{
+			ID:            node.ID,
+			Hostname:      node.Hostname,
+			Status:        node.Status,
+			Availability:  node.Availability,
+			ManagerStatus: node.ManagerStatus,
+			EngineVersion: node.EngineVersion,
+			Addr:          node.Addr,
+		})
+	}
+
+	return mapped
+}
+
 func toGeneratedServiceType(typ serviceType.Type) generated.ServiceInfoType {
 	switch typ {
 	case serviceType.Application:

@@ -15,6 +15,7 @@ type handler struct {
 	inspector *swarm.Inspector
 	history   *history.Store
 	services  *service.Store
+	nodes     *swarm.NodeStore
 	assistant assistant.Assistant
 }
 
@@ -25,6 +26,7 @@ func New(
 	inspector *swarm.Inspector,
 	history *history.Store,
 	services *service.Store,
+	nodes *swarm.NodeStore,
 	assistantService assistant.Assistant,
 ) generated.Handler {
 	return &handler{
@@ -32,6 +34,7 @@ func New(
 		inspector: inspector,
 		history:   history,
 		services:  services,
+		nodes:     nodes,
 		assistant: assistantService,
 	}
 }

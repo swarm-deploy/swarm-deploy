@@ -11,6 +11,7 @@ import (
 	"github.com/artarts36/swarm-deploy/internal/assistant"
 	"github.com/artarts36/swarm-deploy/internal/controller"
 	"github.com/artarts36/swarm-deploy/internal/event/history"
+	"github.com/artarts36/swarm-deploy/internal/swarm"
 )
 
 const (
@@ -21,6 +22,7 @@ const (
 // Tools provides direct-call MCP tools without running external server.
 type Tools struct {
 	history historyReader
+	nodes   nodesReader
 	control syncTrigger
 }
 
@@ -36,10 +38,16 @@ type syncTrigger interface {
 	Trigger(reason controller.TriggerReason) bool
 }
 
+type nodesReader interface {
+	// List returns current nodes snapshot.
+	List() []swarm.NodeInfo
+}
+
 // NewTools creates a tool executor.
-func NewTools(historyStore historyReader, control syncTrigger) *Tools {
+func NewTools(historyStore historyReader, nodesStore nodesReader, control syncTrigger) *Tools {
 	return &Tools{
 		history: historyStore,
+		nodes:   nodesStore,
 		control: control,
 	}
 }
@@ -70,6 +78,14 @@ func (t *Tools) Definitions() []assistant.ToolDefinition {
 				"properties": map[string]any{},
 			},
 		},
+		{
+			Name:        "list_nodes",
+			Description: "Returns current Docker Swarm nodes snapshot.",
+			ParametersJSONSchema: map[string]any{
+				"type":       "object",
+				"properties": map[string]any{},
+			},
+		},
 	}
 }
 
@@ -80,6 +96,8 @@ func (t *Tools) Execute(_ context.Context, name string, arguments map[string]any
 		return t.executeListHistoryEvents(arguments)
 	case "sync":
 		return t.executeSync()
+	case "list_nodes":
+		return t.executeListNodes()
 	default:
 		return "", fmt.Errorf("unknown tool %q", name)
 	}
@@ -127,6 +145,24 @@ func (t *Tools) executeSync() (string, error) {
 	encoded, err := json.Marshal(payload)
 	if err != nil {
 		return "", fmt.Errorf("encode sync tool response: %w", err)
+	}
+
+	return string(encoded), nil
+}
+
+func (t *Tools) executeListNodes() (string, error) {
+	if t.nodes == nil {
+		return "", fmt.Errorf("nodes store is not configured")
+	}
+
+	payload := struct {
+		Nodes []swarm.NodeInfo `json:"nodes"`
+	}{
+		Nodes: t.nodes.List(),
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("encode nodes tool response: %w", err)
 	}
 
 	return string(encoded), nil

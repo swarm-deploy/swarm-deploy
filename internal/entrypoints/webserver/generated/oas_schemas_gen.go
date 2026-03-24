@@ -262,6 +262,102 @@ func (s *EventHistoryResponse) SetEvents(val []EventHistoryItem) {
 	s.Events = val
 }
 
+// Ref: #/components/schemas/NodeInfo
+type NodeInfo struct {
+	ID            string `json:"id"`
+	Hostname      string `json:"hostname"`
+	Status        string `json:"status"`
+	Availability  string `json:"availability"`
+	ManagerStatus string `json:"manager_status"`
+	EngineVersion string `json:"engine_version"`
+	Addr          string `json:"addr"`
+}
+
+// GetID returns the value of ID.
+func (s *NodeInfo) GetID() string {
+	return s.ID
+}
+
+// GetHostname returns the value of Hostname.
+func (s *NodeInfo) GetHostname() string {
+	return s.Hostname
+}
+
+// GetStatus returns the value of Status.
+func (s *NodeInfo) GetStatus() string {
+	return s.Status
+}
+
+// GetAvailability returns the value of Availability.
+func (s *NodeInfo) GetAvailability() string {
+	return s.Availability
+}
+
+// GetManagerStatus returns the value of ManagerStatus.
+func (s *NodeInfo) GetManagerStatus() string {
+	return s.ManagerStatus
+}
+
+// GetEngineVersion returns the value of EngineVersion.
+func (s *NodeInfo) GetEngineVersion() string {
+	return s.EngineVersion
+}
+
+// GetAddr returns the value of Addr.
+func (s *NodeInfo) GetAddr() string {
+	return s.Addr
+}
+
+// SetID sets the value of ID.
+func (s *NodeInfo) SetID(val string) {
+	s.ID = val
+}
+
+// SetHostname sets the value of Hostname.
+func (s *NodeInfo) SetHostname(val string) {
+	s.Hostname = val
+}
+
+// SetStatus sets the value of Status.
+func (s *NodeInfo) SetStatus(val string) {
+	s.Status = val
+}
+
+// SetAvailability sets the value of Availability.
+func (s *NodeInfo) SetAvailability(val string) {
+	s.Availability = val
+}
+
+// SetManagerStatus sets the value of ManagerStatus.
+func (s *NodeInfo) SetManagerStatus(val string) {
+	s.ManagerStatus = val
+}
+
+// SetEngineVersion sets the value of EngineVersion.
+func (s *NodeInfo) SetEngineVersion(val string) {
+	s.EngineVersion = val
+}
+
+// SetAddr sets the value of Addr.
+func (s *NodeInfo) SetAddr(val string) {
+	s.Addr = val
+}
+
+// Ref: #/components/schemas/NodesResponse
+type NodesResponse struct {
+	Nodes []NodeInfo `json:"nodes"`
+}
+
+// GetNodes returns the value of Nodes.
+func (s *NodesResponse) GetNodes() []NodeInfo {
+	return s.Nodes
+}
+
+// SetNodes sets the value of Nodes.
+func (s *NodesResponse) SetNodes(val []NodeInfo) {
+	s.Nodes = val
+}
+
 // NewOptDateTime returns new OptDateTime with value set to v.
 func NewOptDateTime(v time.Time) OptDateTime {
 	return OptDateTime{

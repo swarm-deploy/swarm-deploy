@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Swarm Deploy - Services</title>
+  <title>Swarm Deploy - Nodes</title>
   <link rel="stylesheet" href="/ui/styles.css" />
 </head>
 <body>
@@ -13,18 +13,18 @@
     <header class="topbar">
       <div>
         <p class="eyebrow">GitOps for Docker Swarm</p>
-        <h1>Services</h1>
+        <h1>Nodes</h1>
       </div>
       <div class="actions">
-        <a class="button-link" href="/ui/nodes.html">Nodes</a>
+        <a class="button-link" href="/ui/services.html">Services</a>
         <a class="button-link" href="/ui/">Back</a>
       </div>
     </header>
     <section class="status-panel">
-      <p id="services-status">Loading...</p>
+      <p id="nodes-status">Loading...</p>
     </section>
     <section>
-      <div id="services-list" class="service-grid"></div>
+      <div id="nodes-list" class="node-grid"></div>
     </section>
   </main>
   <button
@@ -49,7 +49,7 @@
         <input
           id="assistant-chat-input"
           type="text"
-          placeholder="Ask about services, events, or sync issues..."
+          placeholder="Ask about nodes, services, events, or sync issues..."
           autocomplete="off"
         />
         <button id="assistant-chat-send" type="submit">Send</button>
@@ -58,6 +58,6 @@
   </div>
   <script src="/ui/assistant-availability.js" defer></script>
   <script src="/ui/assistant.js" defer></script>
-  <script src="/ui/services.js" defer></script>
+  <script src="/ui/nodes.js" defer></script>
 </body>
 </html>

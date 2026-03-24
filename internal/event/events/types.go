@@ -19,3 +19,12 @@ type Event interface {
 	// Details returns event-specific details for history and notifications.
 	Details() map[string]string
 }
+
+var AllTypes = []Type{
+	TypeDeploySuccess,
+	TypeDeployFailed,
+	TypeSendNotificationFailed,
+	TypeSyncManualStarted,
+	TypeUserAuthenticated,
+	TypeAssistantPromptInjectionDetected,
+}

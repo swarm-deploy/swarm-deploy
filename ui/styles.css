@@ -95,6 +95,9 @@ button:hover,
 
 .services-link-panel {
   margin-bottom: 20px;
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .stack-grid {
@@ -109,6 +112,12 @@ button:hover,
   gap: 14px;
 }
 
+.node-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 14px;
+}
+
 .service-card {
   border: 1px solid var(--line);
   border-radius: 16px;
@@ -118,6 +127,30 @@ button:hover,
   flex-direction: column;
   gap: 8px;
   animation: reveal 260ms ease both;
+}
+
+.node-card {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--card);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: reveal 260ms ease both;
+}
+
+.node-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.node-name {
+  margin: 0;
+  font-size: 1.02rem;
+  overflow-wrap: anywhere;
 }
 
 .service-card-header {

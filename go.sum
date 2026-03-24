@@ -15,8 +15,6 @@ github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5 h1:0CwZNZbxp69SHPd
 github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5/go.mod h1:wHh0iHkYZB8zMSxRWpUBQtwG5a7fFgvEO+odwuTv2gs=
 github.com/artarts36/go-entrypoint v0.2.1 h1:6P+rrS1NesITwyDK7eUFA4C3W2JcAw1t6hBmYVsDJcg=
 github.com/artarts36/go-entrypoint v0.2.1/go.mod h1:5uYdUxopW6JoRpEMWXXTnrhrxUCKPw8/owK66APCDZo=
-github.com/artarts36/specw v0.1.4 h1:lntMqXh9naGQnaHn+cqrxeo6KG0muwczeClnN9QZDSg=
-github.com/artarts36/specw v0.1.4/go.mod h1:6dtnh2tg3D1nUdNEcTQfFTjRMVyreObkgO3JmfEeehg=
 github.com/artarts36/specw v0.1.5 h1:tU7FskbEe2NuPL385mhGW1T4maDsLDPYyt8cr5XBNXo=
 github.com/artarts36/specw v0.1.5/go.mod h1:6dtnh2tg3D1nUdNEcTQfFTjRMVyreObkgO3JmfEeehg=
 github.com/beorn7/perks v1.0.1 h1:VlbKKnNfV8bJzeqoa4cOKqO6bYr3WgKZxO8Z16+hsOM=
@@ -25,6 +23,7 @@ github.com/buildkite/interpolate v0.1.5 h1:v2Ji3voik69UZlbfoqzx+qfcsOKLA61nHdU79
 github.com/buildkite/interpolate v0.1.5/go.mod h1:dHnrwHew5O8VNOAgMDpwRlFnhL5VSN6M1bHVmRZ9Ccc=
 github.com/cappuccinotm/slogx v1.4.2 h1:QKhrgxWdG3Qh1Gt+pvj9ieJipyNhKJ5jX5WftEmq8wQ=
 github.com/cappuccinotm/slogx v1.4.2/go.mod h1:Q9lmOfumtErQpVTT5/3nKH++YRJMrYNvGe7Xkqnjr2Q=
+github.com/cenkalti/backoff v2.2.1+incompatible h1:tNowT99t7UNflLxfYYSlKYsBpXdEet03Pg2g16Swow4=
 github.com/cenkalti/backoff/v5 v5.0.3 h1:ZN+IMa753KfX5hd8vVaMixjnqRZ3y8CuJKRKj1xcsSM=
 github.com/cenkalti/backoff/v5 v5.0.3/go.mod h1:rkhZdG3JZukswDf7f0cwqPNk4K0sa+F97BxZthm/crw=
 github.com/cespare/xxhash/v2 v2.3.0 h1:UL815xU9SqsFlibzuggzjXhog7bL6oX9BbNZnL2UFvs=
@@ -274,6 +273,7 @@ golang.org/x/xerrors v0.0.0-20190717185122-a985d3407aa7/go.mod h1:I/5z698sn9Ka8T
 golang.org/x/xerrors v0.0.0-20191011141410-1b5146add898/go.mod h1:I/5z698sn9Ka8TeJc9MKroUUfqBBauWjQqLJ2OPfmY0=
 golang.org/x/xerrors v0.0.0-20191204190536-9bdfabe68543/go.mod h1:I/5z698sn9Ka8TeJc9MKroUUfqBBauWjQqLJ2OPfmY0=
 golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1/go.mod h1:I/5z698sn9Ka8TeJc9MKroUUfqBBauWjQqLJ2OPfmY0=
+google.golang.org/genproto v0.0.0-20240123012728-ef4313101c80 h1:KAeGQVN3M9nD0/bQXnr/ClcEMJ968gUXJQ9pwfSynuQ=
 google.golang.org/genproto/googleapis/api v0.0.0-20260209200024-4cfbd4190f57 h1:JLQynH/LBHfCTSbDWl+py8C+Rg/k1OVH3xfcaiANuF0=
 google.golang.org/genproto/googleapis/api v0.0.0-20260209200024-4cfbd4190f57/go.mod h1:kSJwQxqmFXeo79zOmbrALdflXQeAYcUbgS7PbpMknCY=
 google.golang.org/genproto/googleapis/rpc v0.0.0-20260209200024-4cfbd4190f57 h1:mWPCjDEyshlQYzBpMNHaEof6UX1PmHcaUODUywQ0uac=

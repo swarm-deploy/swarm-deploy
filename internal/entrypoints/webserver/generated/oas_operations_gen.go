@@ -9,6 +9,7 @@ const (
 	AssistantChatOperation    OperationName = "AssistantChat"
 	GetServiceStatusOperation OperationName = "GetServiceStatus"
 	ListEventsOperation       OperationName = "ListEvents"
+	ListNodesOperation        OperationName = "ListNodes"
 	ListServicesOperation     OperationName = "ListServices"
 	ListStacksOperation       OperationName = "ListStacks"
 	TriggerSyncOperation      OperationName = "TriggerSync"

@@ -34,6 +34,13 @@ func (UnimplementedHandler) ListEvents(ctx context.Context) (r *EventHistoryResp
 	return r, ht.ErrNotImplemented
 }
 
+// ListNodes implements listNodes operation.
+//
+// GET /api/v1/nodes
+func (UnimplementedHandler) ListNodes(ctx context.Context) (r *NodesResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListServices implements listServices operation.
 //
 // GET /api/v1/services

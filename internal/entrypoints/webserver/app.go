@@ -32,11 +32,12 @@ func NewApplication(
 	inspector *swarm.Inspector,
 	eventHistory *history.Store,
 	serviceStore *service.Store,
+	nodeStore *swarm.NodeStore,
 	assistantService assistant.Assistant,
 	eventDispatcher dispatcher.Dispatcher,
 	authCfg config.AuthenticationSpec,
 ) (*Application, error) {
-	h := handlers.New(control, inspector, eventHistory, serviceStore, assistantService)
+	h := handlers.New(control, inspector, eventHistory, serviceStore, nodeStore, assistantService)
 
 	apiHandler, err := generated.NewServer(h, generated.WithErrorHandler(handlers.HandleHTTPError))
 	if err != nil {

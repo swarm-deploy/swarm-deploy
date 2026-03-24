@@ -20,6 +20,10 @@ type Handler interface {
 	//
 	// GET /api/v1/events
 	ListEvents(ctx context.Context) (*EventHistoryResponse, error)
+	// ListNodes implements listNodes operation.
+	//
+	// GET /api/v1/nodes
+	ListNodes(ctx context.Context) (*NodesResponse, error)
 	// ListServices implements listServices operation.
 	//
 	// GET /api/v1/services

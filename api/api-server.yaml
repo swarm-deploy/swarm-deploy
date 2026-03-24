@@ -64,6 +64,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ServicesResponse'
+  /api/v1/nodes:
+    get:
+      operationId: listNodes
+      responses:
+        '200':
+          description: Current Docker Swarm nodes snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NodesResponse'
   /api/v1/stacks/{stack}/services/{service}/status:
     get:
       operationId: getServiceStatus
@@ -171,6 +181,32 @@ components:
           type: string
           enum: [application, monitoring, delivery, reverseProxy, database]
         image:
+          type: string
+    NodesResponse:
+      type: object
+      required: [nodes]
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/NodeInfo'
+    NodeInfo:
+      type: object
+      required: [id, hostname, status, availability, manager_status, engine_version, addr]
+      properties:
+        id:
+          type: string
+        hostname:
+          type: string
+        status:
+          type: string
+        availability:
+          type: string
+        manager_status:
+          type: string
+        engine_version:
+          type: string
+        addr:
           type: string
     SyncInfo:
       type: object
