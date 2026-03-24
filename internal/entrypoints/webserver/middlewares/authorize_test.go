@@ -34,6 +34,8 @@ func (c *captureDispatcher) Dispatch(_ context.Context, event events.Event) {
 	c.dispatched = append(c.dispatched, event)
 }
 
+func (c *captureDispatcher) Subscribe(events.Type, dispatcher.Subscriber) {}
+
 func (*captureDispatcher) Shutdown(context.Context) error {
 	return nil
 }

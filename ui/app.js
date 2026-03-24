@@ -254,14 +254,9 @@ function renderStacks(stacks) {
 
 function renderSync(syncInfo) {
   if (!syncInfo) {
-    window.setAssistantEnabledCache(false);
-    assistantChat.setEnabled(false);
     syncStatusEl.textContent = "Sync status is unavailable.";
     return;
   }
-  const assistantEnabled = syncInfo.assistant_enabled === "true";
-  window.setAssistantEnabledCache(assistantEnabled);
-  assistantChat.setEnabled(assistantEnabled);
   syncStatusEl.textContent =
     `Last sync: ${fmtDate(syncInfo.last_sync_at)} | ` +
     `reason: ${syncInfo.last_sync_reason || "n/a"} | ` +
@@ -340,6 +335,7 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
+assistantChat.setEnabled(true);
 refresh();
 setInterval(refresh, 10000);
 

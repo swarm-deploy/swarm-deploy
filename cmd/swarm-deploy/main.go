@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -35,8 +34,6 @@ import (
 )
 
 const shutdownTimeout = 30 * time.Second
-
-var errAssistantDisabled = errors.New("assistant is disabled")
 
 //nolint:funlen//not need
 func main() {
@@ -120,7 +117,7 @@ func main() {
 		control,
 		eventDispatcher,
 	)
-	if err != nil && !errors.Is(err, errAssistantDisabled) {
+	if err != nil {
 		slog.ErrorContext(ctx, "failed to build assistant service", slog.Any("err", err))
 		os.Exit(1)
 	}
@@ -240,7 +237,6 @@ func buildEventDispatcher(
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("build history store: %w", err)
 	}
-	addEventHistorySubscriber(subs, historyStore)
 
 	serviceStore, err := service.NewStore(filepath.Join(cfg.Spec.DataDir, "services.json"))
 	if err != nil {
@@ -251,21 +247,19 @@ func buildEventDispatcher(
 		service.NewSubscriber(serviceStore, inspector, service.NewMetadataExtractor()),
 	)
 
+	eventDispatcher := dispatcher.NewQueueDispatcher()
+	subscribeOnAllEvents(eventDispatcher, historyStore)
+
 	dispatcherLink := &dispatcherProxy{}
 
 	for eventType, channels := range cfg.Spec.Notifications.On {
 		for _, tg := range channels.Telegram {
-			token, resolveErr := tg.ResolveToken()
-			if resolveErr != nil {
-				return nil, nil, nil, fmt.Errorf("resolve telegram token for %q: %w", tg.Name, resolveErr)
-			}
-
 			tgNotifier, notifierErr := notifiers.NewTelegramNotifier(
 				tg.Name,
-				token,
+				string(tg.BotToken.Content),
 				tg.ChatID,
 				notifiers.TelegramOptions{
-					ChatThreadID: tg.ResolveChatThreadID(),
+					ChatThreadID: tg.ChatThreadID,
 					Message:      tg.Message,
 				},
 			)
@@ -278,7 +272,7 @@ func buildEventDispatcher(
 		}
 
 		for _, custom := range channels.Custom {
-			notifier := notifiers.NewCustomWebhookNotifier(custom.Name, custom.ResolveURL(), custom.Method, custom.Header)
+			notifier := notifiers.NewCustomWebhookNotifier(custom.Name, custom.URL.Value.String(), custom.Method, custom.Header)
 
 			sub := notify2.NewSubscriber(notifier, dispatcherLink)
 			subs[eventType] = append(subs[eventType], sub)
@@ -291,19 +285,18 @@ func buildEventDispatcher(
 
 	slog.Info("found event subscribers", slog.Int("subscribers", len(subs)))
 
-	eventDispatcher := dispatcher.NewQueueDispatcher(subs)
 	dispatcherLink.Dispatcher = eventDispatcher
 
 	return eventDispatcher, historyStore, serviceStore, nil
 }
 
-func addEventHistorySubscriber(subs map[events.Type][]dispatcher.Subscriber, store *history.Store) {
-	subs[events.TypeDeploySuccess] = append(subs[events.TypeDeploySuccess], store)
-	subs[events.TypeDeployFailed] = append(subs[events.TypeDeployFailed], store)
-	subs[events.TypeSendNotificationFailed] = append(subs[events.TypeSendNotificationFailed], store)
-	subs[events.TypeSyncManualStarted] = append(subs[events.TypeSyncManualStarted], store)
-	subs[events.TypeUserAuthenticated] = append(subs[events.TypeUserAuthenticated], store)
-	subs[events.TypeAssistantPromptInjectionDetected] = append(subs[events.TypeAssistantPromptInjectionDetected], store)
+func subscribeOnAllEvents(dispatcher dispatcher.Dispatcher, subscriber dispatcher.Subscriber) {
+	dispatcher.Subscribe(events.TypeDeploySuccess, subscriber)
+	dispatcher.Subscribe(events.TypeDeployFailed, subscriber)
+	dispatcher.Subscribe(events.TypeSendNotificationFailed, subscriber)
+	dispatcher.Subscribe(events.TypeSyncManualStarted, subscriber)
+	dispatcher.Subscribe(events.TypeUserAuthenticated, subscriber)
+	dispatcher.Subscribe(events.TypeAssistantPromptInjectionDetected, subscriber)
 }
 
 type dispatcherProxy struct {

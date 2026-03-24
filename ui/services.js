@@ -61,17 +61,10 @@ async function refreshServices() {
   }
 }
 
-async function refreshAssistantAvailability() {
-  try {
-    const assistantEnabled = await window.getAssistantEnabled({ maxAgeMs: 30000 });
-    assistantChat.setEnabled(assistantEnabled);
-  } catch (err) {
-    assistantChat.setEnabled(false);
-  }
-}
+assistantChat.setEnabled(true);
 
 async function refreshAll() {
-  await Promise.all([refreshServices(), refreshAssistantAvailability()]);
+  await Promise.all([refreshServices()]);
 }
 
 refreshAll();

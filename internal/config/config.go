@@ -99,8 +99,8 @@ type WebhookSpec struct {
 	Address string `yaml:"address"`
 	// Path is an HTTP path for webhook endpoint.
 	Path string `yaml:"path"`
-	// SecretPath is a path to file containing webhook shared secret.
-	SecretPath string `yaml:"secretPath"`
+	// Secret is a path to file containing webhook shared secret.
+	Secret specw.File `yaml:"secretPath"`
 }
 
 type StacksSourceSpec struct {
@@ -128,8 +128,8 @@ type NotificationSpec struct {
 type TelegramChannel struct {
 	// Name is a logical channel name used in logs/diagnostics.
 	Name string `yaml:"name"`
-	// BotTokenPath is a path to file containing Telegram bot token.
-	BotTokenPath string `yaml:"botTokenPath"`
+	// BotToken is a path to file containing Telegram bot token.
+	BotToken specw.File `yaml:"botTokenPath,omitempty"`
 	// ChatID is a target Telegram chat identifier.
 	ChatID string `yaml:"chatId"`
 	// ChatThreadID is an optional topic/thread id inside target chat.
@@ -142,9 +142,7 @@ type CustomChannel struct {
 	// Name is a logical channel name used in logs/diagnostics.
 	Name string `yaml:"name"`
 	// URL is a webhook endpoint URL.
-	URL string `yaml:"url"`
-	// URLEnv is an env variable name containing webhook URL.
-	URLEnv string `yaml:"urlEnv"`
+	URL specw.Env[specw.URL] `yaml:"url"`
 	// Method is an HTTP method for webhook delivery.
 	Method string `yaml:"method"`
 	// Header contains additional HTTP headers for webhook delivery.
@@ -248,10 +246,9 @@ func Load(path string) (*Config, error) {
 
 func (c *Config) applyDefaults(configDir string) error {
 	c.Spec.DataDir = filepath.Join(configDir, ".swarm-deploy")
-	c.applyGitAndSyncDefaults(configDir)
+	c.applyGitAndSyncDefaults()
 	c.applyWebAndHealthDefaults()
 	c.applySecurityDefaults(configDir)
-	c.applyNotificationDefaults(configDir)
 	c.applyAssistantDefaults()
 	c.applySwarmDefaults()
 	c.applySecretRotationDefaults()
@@ -264,7 +261,7 @@ func (c *Config) applyDefaults(configDir string) error {
 	return nil
 }
 
-func (c *Config) applyGitAndSyncDefaults(configDir string) {
+func (c *Config) applyGitAndSyncDefaults() {
 	if c.Spec.Git.Branch == "" {
 		c.Spec.Git.Branch = "main"
 	}
@@ -279,10 +276,6 @@ func (c *Config) applyGitAndSyncDefaults(configDir string) {
 	}
 	if strings.TrimSpace(c.Spec.Sync.Webhook.Address) == "" {
 		c.Spec.Sync.Webhook.Address = defaultWebhookAddress
-	}
-	if secretPath := strings.TrimSpace(c.Spec.Sync.Webhook.SecretPath); secretPath != "" &&
-		!filepath.IsAbs(secretPath) {
-		c.Spec.Sync.Webhook.SecretPath = filepath.Join(configDir, secretPath)
 	}
 	if c.Spec.Sync.Mode == SyncModeWebhook && !c.Spec.Sync.Webhook.Enabled {
 		c.Spec.Sync.Webhook.Enabled = true
@@ -308,19 +301,6 @@ func (c *Config) applySecurityDefaults(configDir string) {
 	htpasswdPath := strings.TrimSpace(c.Spec.Web.Security.Authentication.Basic.HTPasswdFile)
 	if htpasswdPath != "" && !filepath.IsAbs(htpasswdPath) {
 		c.Spec.Web.Security.Authentication.Basic.HTPasswdFile = filepath.Join(configDir, htpasswdPath)
-	}
-}
-
-func (c *Config) applyNotificationDefaults(configDir string) {
-	for eventType, channels := range c.Spec.Notifications.On {
-		for i := range channels.Telegram {
-			tokenPath := strings.TrimSpace(channels.Telegram[i].BotTokenPath)
-			if tokenPath != "" && !filepath.IsAbs(tokenPath) {
-				channels.Telegram[i].BotTokenPath = filepath.Join(configDir, tokenPath)
-			}
-		}
-
-		c.Spec.Notifications.On[eventType] = channels
 	}
 }
 
@@ -594,16 +574,7 @@ func (c *Config) validateWebhookSecret() []error {
 		return nil
 	}
 
-	secretPath := strings.TrimSpace(c.Spec.Sync.Webhook.SecretPath)
-	if secretPath == "" {
-		return []error{errors.New("webhook enabled but sync.webhook.secretPath is empty")}
-	}
-
-	payload, err := os.ReadFile(secretPath)
-	if err != nil {
-		return []error{fmt.Errorf("read sync.webhook.secretPath %s: %w", secretPath, err)}
-	}
-	if strings.TrimSpace(string(payload)) == "" {
+	if strings.TrimSpace(string(c.Spec.Sync.Webhook.Secret.Content)) == "" {
 		return []error{errors.New("webhook enabled but sync.webhook.secretPath contains empty secret")}
 	}
 
@@ -618,16 +589,15 @@ func (c *Config) validateNotifications() []error {
 			if tg.ChatID == "" {
 				errs = append(errs, fmt.Errorf("notifications.on[%q].telegram[%d].chatId is required", eventType, i))
 			}
-			token, err := tg.ResolveToken()
-			if err != nil {
-				errs = append(errs, fmt.Errorf("notifications.on[%q].telegram[%d]: %w", eventType, i, err))
-			} else if token == "" {
+
+			if len(tg.BotToken.Content) == 0 {
 				errs = append(
 					errs,
 					fmt.Errorf("notifications.on[%q].telegram[%d].botTokenPath contains empty token", eventType, i),
 				)
 			}
-			if tg.ResolveChatThreadID() < 0 {
+
+			if tg.ChatThreadID < 0 {
 				errs = append(
 					errs,
 					fmt.Errorf("notifications.on[%q].telegram[%d].chatThreadId must be >= 0", eventType, i),
@@ -636,7 +606,7 @@ func (c *Config) validateNotifications() []error {
 		}
 
 		for i, ch := range channels.Custom {
-			if ch.ResolveURL() == "" {
+			if ch.URL.Value.String() == "" {
 				errs = append(
 					errs,
 					fmt.Errorf("notifications.on[%q].custom[%d].url or urlEnv is required", eventType, i),
@@ -686,18 +656,6 @@ func (c *Config) validateAssistant() []error {
 	return errs
 }
 
-func (w WebhookSpec) ResolveSecret() string {
-	secretPath := strings.TrimSpace(w.SecretPath)
-	if secretPath == "" {
-		return ""
-	}
-	payload, err := os.ReadFile(secretPath)
-	if err != nil {
-		return ""
-	}
-	return strings.TrimSpace(string(payload))
-}
-
 func (a AssistantOpenAISpec) ResolveTemperature() (float64, error) {
 	temperature := strings.TrimSpace(a.Temperature)
 	if temperature == "" {
@@ -726,10 +684,6 @@ func (a AssistantOpenAISpec) ResolveMaxTokens() (int, error) {
 	return value, nil
 }
 
-func (c *Config) WebhookSecret() string {
-	return c.Spec.Sync.Webhook.ResolveSecret()
-}
-
 // Strategy resolves configured web authentication strategy.
 func (a AuthenticationSpec) Strategy() string {
 	if strings.TrimSpace(a.Basic.HTPasswdFile) != "" {
@@ -737,29 +691,4 @@ func (a AuthenticationSpec) Strategy() string {
 	}
 
 	return AuthenticationStrategyNone
-}
-
-func (t TelegramChannel) ResolveToken() (string, error) {
-	tokenPath := strings.TrimSpace(t.BotTokenPath)
-	if tokenPath == "" {
-		return "", errors.New("botTokenPath is required")
-	}
-
-	payload, err := os.ReadFile(tokenPath)
-	if err != nil {
-		return "", fmt.Errorf("read botTokenPath %s: %w", tokenPath, err)
-	}
-
-	return strings.TrimSpace(string(payload)), nil
-}
-
-func (t TelegramChannel) ResolveChatThreadID() int64 {
-	return t.ChatThreadID
-}
-
-func (c CustomChannel) ResolveURL() string {
-	if c.URLEnv != "" {
-		return os.Getenv(c.URLEnv)
-	}
-	return c.URL
 }

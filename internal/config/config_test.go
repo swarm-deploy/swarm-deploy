@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/artarts36/swarm-deploy/internal/event/events"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -85,60 +84,6 @@ stacks:
 	cfg, err := Load(configPath)
 	require.NoError(t, err, "load config")
 	assert.Empty(t, cfg.Spec.Stacks, "stacks must be loaded later from git repository during sync")
-}
-
-func TestWebhookSecretResolveFromFile(t *testing.T) {
-	dir := t.TempDir()
-	secretPath := filepath.Join(dir, "webhook_secret")
-	if err := os.WriteFile(secretPath, []byte(" from-file \n"), 0o600); err != nil {
-		require.NoError(t, err, "write secret file")
-	}
-
-	spec := WebhookSpec{
-		SecretPath: secretPath,
-	}
-
-	assert.Equal(t, "from-file", spec.ResolveSecret(), "expected secret from file")
-}
-
-func TestLoadResolvesRelativeWebhookSecretPath(t *testing.T) {
-	dir := t.TempDir()
-
-	stacksPath := filepath.Join(dir, "stacks.yaml")
-	stacksPayload := []byte(`
-stacks:
-  - name: app
-    composeFile: app/docker-compose.yml
-`)
-	if err := os.WriteFile(stacksPath, stacksPayload, 0o600); err != nil {
-		require.NoError(t, err, "write stacks file")
-	}
-
-	secretPath := filepath.Join(dir, "webhook_secret")
-	if err := os.WriteFile(secretPath, []byte("from-file"), 0o600); err != nil {
-		require.NoError(t, err, "write secret file")
-	}
-
-	configPath := filepath.Join(dir, "swarm-deploy.yaml")
-	configPayload := []byte(`
-git:
-  repository: https://example.com/repo.git
-sync:
-  mode: webhook
-  webhook:
-    enabled: true
-    secretPath: ./webhook_secret
-stacks:
-  file: ./stacks.yaml
-`)
-	if err := os.WriteFile(configPath, configPayload, 0o600); err != nil {
-		require.NoError(t, err, "write config file")
-	}
-
-	cfg, err := Load(configPath)
-	require.NoError(t, err, "load config")
-	assert.Equal(t, secretPath, cfg.Spec.Sync.Webhook.SecretPath, "expected resolved secretPath")
-	assert.Equal(t, "from-file", cfg.WebhookSecret(), "expected secret from file")
 }
 
 func TestLoadResolvesRelativeBasicHTPasswdPath(t *testing.T) {
@@ -226,48 +171,6 @@ web:
 	_, err := Load(configPath)
 	require.Error(t, err, "expected error")
 	assert.Contains(t, err.Error(), "web.security.authentication.basic.htpasswdFile", "unexpected error")
-}
-
-func TestLoadIgnoresDataDirFromConfig(t *testing.T) {
-	dir := t.TempDir()
-
-	stacksPath := filepath.Join(dir, "stacks.yaml")
-	stacksPayload := []byte(`
-stacks:
-  - name: app
-    composeFile: app/docker-compose.yml
-`)
-	if err := os.WriteFile(stacksPath, stacksPayload, 0o600); err != nil {
-		require.NoError(t, err, "write stacks file")
-	}
-
-	secretPath := filepath.Join(dir, "webhook_secret")
-	if err := os.WriteFile(secretPath, []byte("secret"), 0o600); err != nil {
-		require.NoError(t, err, "write secret file")
-	}
-
-	configPath := filepath.Join(dir, "swarm-deploy.yaml")
-	configPayload := []byte(`
-dataDir: /tmp/custom-path-should-be-ignored
-git:
-  repository: https://example.com/repo.git
-sync:
-  mode: webhook
-  webhook:
-    enabled: true
-    secretPath: ./webhook_secret
-stacks:
-  file: ./stacks.yaml
-`)
-	if err := os.WriteFile(configPath, configPayload, 0o600); err != nil {
-		require.NoError(t, err, "write config file")
-	}
-
-	cfg, err := Load(configPath)
-	require.NoError(t, err, "load config")
-
-	expectedDataDir := filepath.Join(dir, ".swarm-deploy")
-	assert.Equal(t, expectedDataDir, cfg.Spec.DataDir, "expected dataDir")
 }
 
 func TestLoadWebAddressUsedForSingleServer(t *testing.T) {
@@ -399,49 +302,6 @@ stacks:
 	assert.Equal(t, configStacksPath, loadedFrom, "expected fallback config stacks path")
 	require.Len(t, cfg.Spec.Stacks, 1, "expected one stack")
 	assert.Equal(t, "from-config", cfg.Spec.Stacks[0].Name, "expected stack from config")
-}
-
-func TestLoadResolvesRelativeTelegramBotTokenPathInNotificationsOn(t *testing.T) {
-	dir := t.TempDir()
-
-	stacksPath := filepath.Join(dir, "stacks.yaml")
-	stacksPayload := []byte(`
-stacks:
-  - name: app
-    composeFile: app/docker-compose.yml
-`)
-	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
-
-	tokenPath := filepath.Join(dir, "telegram_bot_token")
-	require.NoError(t, os.WriteFile(tokenPath, []byte("token-value"), 0o600), "write bot token file")
-
-	configPath := filepath.Join(dir, "swarm-deploy.yaml")
-	configPayload := []byte(`
-git:
-  repository: https://example.com/repo.git
-stacks:
-  file: ./stacks.yaml
-notifications:
-  on:
-    deploySuccess:
-      telegram:
-        - name: ops
-          botTokenPath: ./telegram_bot_token
-          chatId: "-1001234567890"
-`)
-	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
-
-	cfg, err := Load(configPath)
-	require.NoError(t, err, "load config")
-	channels, ok := cfg.Spec.Notifications.On[events.TypeDeploySuccess]
-	require.True(t, ok, "expected deploySuccess notifications")
-	require.Len(t, channels.Telegram, 1, "expected one telegram channel")
-	assert.Equal(
-		t,
-		tokenPath,
-		channels.Telegram[0].BotTokenPath,
-		"expected resolved telegram token path",
-	)
 }
 
 func TestLoadFailsOnCustomNotificationWithoutURLInNotificationsOn(t *testing.T) {

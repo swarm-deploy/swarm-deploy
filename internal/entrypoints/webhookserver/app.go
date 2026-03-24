@@ -77,7 +77,7 @@ func (a *Application) handleGitWebhook(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Application) validateWebhookSecret(r *http.Request) bool {
-	expected := strings.TrimSpace(a.cfg.WebhookSecret())
+	expected := strings.TrimSpace(string(a.cfg.Spec.Sync.Webhook.Secret.Content))
 	if expected == "" {
 		return true
 	}

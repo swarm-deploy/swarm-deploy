@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/artarts36/swarm-deploy/internal/event/dispatcher"
 	"github.com/artarts36/swarm-deploy/internal/event/events"
 	"github.com/artarts36/swarm-deploy/internal/event/notifiers"
 	"github.com/stretchr/testify/assert"
@@ -25,6 +26,8 @@ type testDispatcher struct {
 func (d *testDispatcher) Dispatch(_ context.Context, event events.Event) {
 	d.lastEvent = event
 }
+
+func (*testDispatcher) Subscribe(events.Type, dispatcher.Subscriber) {}
 
 func (*testDispatcher) Shutdown(context.Context) error {
 	return nil
