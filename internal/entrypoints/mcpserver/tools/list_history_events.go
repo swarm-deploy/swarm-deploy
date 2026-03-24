@@ -1,13 +1,14 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
 	"strconv"
 	"strings"
 
-	"github.com/artarts36/swarm-deploy/internal/assistant"
+	"github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/artarts36/swarm-deploy/internal/event/history"
 )
 
@@ -27,8 +28,8 @@ func NewListHistoryEvents(historyStore HistoryReader) *ListHistoryEvents {
 }
 
 // Definition returns tool metadata visible to the model.
-func (l *ListHistoryEvents) Definition() assistant.ToolDefinition {
-	return assistant.ToolDefinition{
+func (l *ListHistoryEvents) Definition() routing.ToolDefinition {
+	return routing.ToolDefinition{
 		Name:        "list_history_events",
 		Description: "Returns latest events from local event history.",
 		ParametersJSONSchema: map[string]any{
@@ -46,10 +47,10 @@ func (l *ListHistoryEvents) Definition() assistant.ToolDefinition {
 }
 
 // Execute runs list_history_events tool.
-func (l *ListHistoryEvents) Execute(arguments map[string]any) (string, error) {
-	limit, err := parseHistoryLimit(arguments["limit"])
+func (l *ListHistoryEvents) Execute(_ context.Context, request routing.Request) (routing.Response, error) {
+	limit, err := parseHistoryLimit(request.Payload["limit"])
 	if err != nil {
-		return "", err
+		return routing.Response{}, err
 	}
 
 	entries := l.history.List()
@@ -62,12 +63,9 @@ func (l *ListHistoryEvents) Execute(arguments map[string]any) (string, error) {
 	}{
 		Events: entries,
 	}
-	encoded, err := json.Marshal(payload)
-	if err != nil {
-		return "", fmt.Errorf("encode history tool response: %w", err)
-	}
-
-	return string(encoded), nil
+	return routing.Response{
+		Payload: payload,
+	}, nil
 }
 
 func parseHistoryLimit(raw any) (int, error) {

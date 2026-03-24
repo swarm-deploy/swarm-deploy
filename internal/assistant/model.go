@@ -1,5 +1,7 @@
 package assistant
 
+import "github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/routing"
+
 type modelMessage struct {
 	Role       string
 	Content    string
@@ -19,7 +21,7 @@ type modelRequest struct {
 	Temperature float64
 	MaxTokens   int
 	Messages    []modelMessage
-	Tools       []ToolDefinition
+	Tools       []routing.ToolDefinition
 }
 
 type modelResponse struct {

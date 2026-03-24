@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/artarts36/swarm-deploy/internal/event/dispatcher"
 	"github.com/artarts36/swarm-deploy/internal/service"
 	"github.com/stretchr/testify/assert"
@@ -31,8 +32,8 @@ type fakeTools struct {
 	calls []string
 }
 
-func (f *fakeTools) Definitions() []ToolDefinition {
-	return []ToolDefinition{
+func (f *fakeTools) Definitions() []routing.ToolDefinition {
+	return []routing.ToolDefinition{
 		{
 			Name:        "sync",
 			Description: "Trigger sync",

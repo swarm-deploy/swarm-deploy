@@ -1,11 +1,10 @@
 package tools
 
 import (
-	"encoding/json"
-	"fmt"
+	"context"
 
-	"github.com/artarts36/swarm-deploy/internal/assistant"
 	"github.com/artarts36/swarm-deploy/internal/controller"
+	"github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/routing"
 )
 
 // Sync triggers manual synchronization run.
@@ -19,8 +18,8 @@ func NewSync(control SyncTrigger) *Sync {
 }
 
 // Definition returns tool metadata visible to the model.
-func (s *Sync) Definition() assistant.ToolDefinition {
-	return assistant.ToolDefinition{
+func (s *Sync) Definition() routing.ToolDefinition {
+	return routing.ToolDefinition{
 		Name:        "sync",
 		Description: "Triggers manual synchronization run.",
 		ParametersJSONSchema: map[string]any{
@@ -31,17 +30,15 @@ func (s *Sync) Definition() assistant.ToolDefinition {
 }
 
 // Execute runs sync tool.
-func (s *Sync) Execute(_ map[string]any) (string, error) {
+func (s *Sync) Execute(_ context.Context, _ routing.Request) (routing.Response, error) {
 	queued := s.control.Trigger(controller.TriggerManual)
 	payload := struct {
 		Queued bool `json:"queued"`
 	}{
 		Queued: queued,
 	}
-	encoded, err := json.Marshal(payload)
-	if err != nil {
-		return "", fmt.Errorf("encode sync tool response: %w", err)
-	}
 
-	return string(encoded), nil
+	return routing.Response{
+		Payload: payload,
+	}, nil
 }

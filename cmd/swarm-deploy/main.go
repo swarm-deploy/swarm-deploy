@@ -207,12 +207,14 @@ func buildAssistantService(
 		return &assistant.DisabledAssistant{}, nil
 	}
 
-	metricsRecorder, err := assistantmetrics.New("swarm_deploy")
-	if err != nil {
-		return nil, fmt.Errorf("init metrics: %w", err)
-	}
-	if err = prometheus.Register(metricsRecorder); err != nil {
+	metricsRecorder := assistantmetrics.New("swarm_deploy")
+	if err := prometheus.Register(metricsRecorder); err != nil {
 		return nil, fmt.Errorf("register metrics: %w", err)
+	}
+
+	mcpMetrics := mcpserver.NewMetrics("swarm_deploy")
+	if err := prometheus.Register(mcpMetrics); err != nil {
+		return nil, fmt.Errorf("register mcp metrics: %w", err)
 	}
 
 	temperature, err := cfg.Spec.Assistant.Model.OpenAI.ResolveTemperature()
@@ -225,7 +227,7 @@ func buildAssistantService(
 		return nil, fmt.Errorf("resolve assistant maxTokens: %w", err)
 	}
 
-	toolExecutor := mcpserver.NewTools(eventHistory, nodeStore, control, eventDispatcher)
+	toolExecutor := mcpserver.NewExecutor(eventHistory, nodeStore, control, eventDispatcher, mcpMetrics)
 
 	return assistant.NewService(assistant.Config{
 		Enabled:                 cfg.Spec.Assistant.Enabled,

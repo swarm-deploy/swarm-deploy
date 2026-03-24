@@ -1,9 +1,11 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
+	"github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -12,14 +14,16 @@ func TestSyncExecute(t *testing.T) {
 	control := &fakeSyncControl{queued: true}
 	tool := NewSync(control)
 
-	raw, err := tool.Execute(nil)
+	response, err := tool.Execute(context.Background(), routing.Request{})
 	require.NoError(t, err, "execute sync tool")
 
 	var payload struct {
 		Queued bool `json:"queued"`
 	}
 
-	require.NoError(t, json.Unmarshal([]byte(raw), &payload), "decode response")
+	encoded, err := json.Marshal(response.Payload)
+	require.NoError(t, err, "encode response payload")
+	require.NoError(t, json.Unmarshal(encoded, &payload), "decode response")
 	assert.True(t, payload.Queued, "expected queued=true response")
 	assert.Equal(t, 1, control.called, "expected single trigger call")
 }

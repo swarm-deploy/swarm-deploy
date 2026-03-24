@@ -1,10 +1,12 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
 
+	"github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/artarts36/swarm-deploy/internal/event/events"
 	"github.com/artarts36/swarm-deploy/internal/event/history"
 	"github.com/stretchr/testify/assert"
@@ -20,8 +22,10 @@ func TestListHistoryEventsExecute(t *testing.T) {
 		},
 	})
 
-	raw, err := tool.Execute(map[string]any{
-		"limit": float64(2),
+	response, err := tool.Execute(context.Background(), routing.Request{
+		Payload: map[string]any{
+			"limit": float64(2),
+		},
 	})
 	require.NoError(t, err, "execute list_history_events")
 
@@ -29,7 +33,9 @@ func TestListHistoryEventsExecute(t *testing.T) {
 		Events []history.Entry `json:"events"`
 	}
 
-	require.NoError(t, json.Unmarshal([]byte(raw), &payload), "decode response")
+	encoded, err := json.Marshal(response.Payload)
+	require.NoError(t, err, "encode response payload")
+	require.NoError(t, json.Unmarshal(encoded, &payload), "decode response")
 	require.Len(t, payload.Events, 2, "expected limited response")
 	assert.Equal(t, "2", payload.Events[0].Message, "expected latest events slice")
 	assert.Equal(t, "3", payload.Events[1].Message, "expected latest events slice")
@@ -38,8 +44,10 @@ func TestListHistoryEventsExecute(t *testing.T) {
 func TestListHistoryEventsExecuteFailsOnInvalidLimit(t *testing.T) {
 	tool := NewListHistoryEvents(&fakeHistoryStore{})
 
-	_, err := tool.Execute(map[string]any{
-		"limit": "abc",
+	_, err := tool.Execute(context.Background(), routing.Request{
+		Payload: map[string]any{
+			"limit": "abc",
+		},
 	})
 	require.Error(t, err, "expected parse error")
 	assert.Contains(t, err.Error(), "limit must be integer", "unexpected error")

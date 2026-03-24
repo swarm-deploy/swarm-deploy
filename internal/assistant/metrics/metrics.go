@@ -19,7 +19,7 @@ type Recorder struct {
 var _ rag.Observer = (*Recorder)(nil)
 
 // New creates assistant metrics recorder and registers all collectors.
-func New(namespace string) (*Recorder, error) {
+func New(namespace string) *Recorder {
 	return &Recorder{
 		ragIndexRebuildTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
@@ -60,7 +60,7 @@ func New(namespace string) (*Recorder, error) {
 				Help:      "Unix timestamp of the last successful RAG index update.",
 			},
 		),
-	}, nil
+	}
 }
 
 func (r *Recorder) Describe(ch chan<- *prometheus.Desc) {

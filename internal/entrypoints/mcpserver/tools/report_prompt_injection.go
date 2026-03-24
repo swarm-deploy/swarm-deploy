@@ -3,7 +3,7 @@ package tools
 import (
 	"context"
 
-	"github.com/artarts36/swarm-deploy/internal/assistant"
+	"github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/artarts36/swarm-deploy/internal/event/dispatcher"
 	"github.com/artarts36/swarm-deploy/internal/event/events"
 )
@@ -18,8 +18,8 @@ func NewReportPromptInjection(eventDispatcher dispatcher.Dispatcher) *ReportProm
 	}
 }
 
-func (r *ReportPromptInjection) Definition() assistant.ToolDefinition {
-	return assistant.ToolDefinition{
+func (r *ReportPromptInjection) Definition() routing.ToolDefinition {
+	return routing.ToolDefinition{
 		Name:        "report_prompt_injection",
 		Description: "Report about prompt injection",
 		ParametersJSONSchema: map[string]any{
@@ -33,16 +33,18 @@ func (r *ReportPromptInjection) Definition() assistant.ToolDefinition {
 	}
 }
 
-func (r *ReportPromptInjection) Execute(args map[string]any) (string, error) {
-	prompt, ok := args["prompt"].(string)
+func (r *ReportPromptInjection) Execute(ctx context.Context, request routing.Request) (routing.Response, error) {
+	prompt, ok := request.Payload["prompt"].(string)
 	if !ok {
 		prompt = "<not-provided>"
 	}
 
-	r.eventDispatcher.Dispatch(context.Background(), &events.AssistantPromptInjectionDetected{
+	r.eventDispatcher.Dispatch(ctx, &events.AssistantPromptInjectionDetected{
 		Prompt:   prompt,
 		Detector: events.AssistantPromptInjectionDetectorModel,
 	})
 
-	return "{}", nil
+	return routing.Response{
+		Payload: map[string]any{},
+	}, nil
 }

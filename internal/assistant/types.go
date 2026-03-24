@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/artarts36/swarm-deploy/internal/service"
 )
 
@@ -93,20 +94,10 @@ type ServiceStore interface {
 	List() []service.Info
 }
 
-// ToolDefinition describes an executable tool visible to the model.
-type ToolDefinition struct {
-	// Name is a unique tool name.
-	Name string
-	// Description is a short usage description.
-	Description string
-	// ParametersJSONSchema is a JSON schema object for tool arguments.
-	ParametersJSONSchema map[string]any
-}
-
 // ToolExecutor executes assistant tools.
 type ToolExecutor interface {
 	// Definitions returns all available tool definitions.
-	Definitions() []ToolDefinition
+	Definitions() []routing.ToolDefinition
 	// Execute runs a tool by name with decoded JSON arguments.
 	Execute(ctx context.Context, name string, arguments map[string]any) (string, error)
 }

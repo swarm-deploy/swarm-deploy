@@ -1,9 +1,11 @@
 package tools
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
+	"github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/artarts36/swarm-deploy/internal/swarm/inspector"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -24,14 +26,16 @@ func TestListNodesExecute(t *testing.T) {
 		},
 	})
 
-	raw, err := tool.Execute(nil)
+	response, err := tool.Execute(context.Background(), routing.Request{})
 	require.NoError(t, err, "execute list_nodes tool")
 
 	var payload struct {
 		Nodes []inspector.NodeInfo `json:"nodes"`
 	}
 
-	require.NoError(t, json.Unmarshal([]byte(raw), &payload), "decode response")
+	encoded, err := json.Marshal(response.Payload)
+	require.NoError(t, err, "encode response payload")
+	require.NoError(t, json.Unmarshal(encoded, &payload), "decode response")
 	require.Len(t, payload.Nodes, 1, "expected one node")
 	assert.Equal(t, "node-1", payload.Nodes[0].ID, "unexpected node id")
 	assert.Equal(t, "manager-1", payload.Nodes[0].Hostname, "unexpected hostname")

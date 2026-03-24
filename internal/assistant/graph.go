@@ -10,6 +10,7 @@ import (
 	"github.com/artarts36/swarm-deploy/internal/assistant/conversation"
 	"github.com/artarts36/swarm-deploy/internal/assistant/guard"
 	"github.com/artarts36/swarm-deploy/internal/assistant/rag"
+	"github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/artarts36/swarm-deploy/internal/service"
 	"github.com/tmc/langchaingo/llms"
 	langgraph "github.com/tmc/langgraphgo/graph"
@@ -236,13 +237,13 @@ func (g *graph) executeToolCall(ctx context.Context, modelToolCall modelToolCall
 	return toolCallInfo, result
 }
 
-func (g *graph) allowedToolDefinitions() []ToolDefinition {
+func (g *graph) allowedToolDefinitions() []routing.ToolDefinition {
 	definitions := g.tools.Definitions()
 	if len(g.allowedToolSet) == 0 {
 		return definitions
 	}
 
-	filtered := make([]ToolDefinition, 0, len(definitions))
+	filtered := make([]routing.ToolDefinition, 0, len(definitions))
 	for _, definition := range definitions {
 		if g.isToolAllowed(definition.Name) {
 			filtered = append(filtered, definition)

@@ -1,10 +1,10 @@
 package tools
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 
-	"github.com/artarts36/swarm-deploy/internal/assistant"
+	"github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/artarts36/swarm-deploy/internal/swarm/inspector"
 )
 
@@ -19,8 +19,8 @@ func NewListNodes(nodesStore NodesReader) *ListNodes {
 }
 
 // Definition returns tool metadata visible to the model.
-func (l *ListNodes) Definition() assistant.ToolDefinition {
-	return assistant.ToolDefinition{
+func (l *ListNodes) Definition() routing.ToolDefinition {
+	return routing.ToolDefinition{
 		Name:        "list_nodes",
 		Description: "Returns current Docker Swarm nodes snapshot.",
 		ParametersJSONSchema: map[string]any{
@@ -31,9 +31,9 @@ func (l *ListNodes) Definition() assistant.ToolDefinition {
 }
 
 // Execute runs list_nodes tool.
-func (l *ListNodes) Execute(_ map[string]any) (string, error) {
+func (l *ListNodes) Execute(_ context.Context, _ routing.Request) (routing.Response, error) {
 	if l.nodes == nil {
-		return "", fmt.Errorf("nodes store is not configured")
+		return routing.Response{}, fmt.Errorf("nodes store is not configured")
 	}
 
 	payload := struct {
@@ -41,10 +41,7 @@ func (l *ListNodes) Execute(_ map[string]any) (string, error) {
 	}{
 		Nodes: l.nodes.List(),
 	}
-	encoded, err := json.Marshal(payload)
-	if err != nil {
-		return "", fmt.Errorf("encode nodes tool response: %w", err)
-	}
-
-	return string(encoded), nil
+	return routing.Response{
+		Payload: payload,
+	}, nil
 }
