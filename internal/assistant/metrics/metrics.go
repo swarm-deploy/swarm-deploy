@@ -19,69 +19,64 @@ type Recorder struct {
 var _ rag.Observer = (*Recorder)(nil)
 
 // New creates assistant metrics recorder and registers all collectors.
-func New(reg prometheus.Registerer) (*Recorder, error) {
-	ragIndexRebuildTotal := prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "swarm_assistant_rag_index_rebuild_total",
-			Help: "Number of RAG index rebuild attempts grouped by status.",
-		},
-		[]string{"status"},
-	)
-
-	ragIndexRebuildDuration := prometheus.NewHistogramVec(
-		prometheus.HistogramOpts{
-			Name:    "swarm_assistant_rag_index_rebuild_duration_seconds",
-			Help:    "RAG index rebuild duration in seconds grouped by status.",
-			Buckets: []float64{0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30},
-		},
-		[]string{"status"},
-	)
-
-	ragRetrieveFallbackTotal := prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "swarm_assistant_rag_retrieve_fallback_total",
-			Help: "Number of retrieval fallbacks grouped by reason.",
-		},
-		[]string{"reason"},
-	)
-
-	ragIndexSize := prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Name: "swarm_assistant_rag_index_size",
-			Help: "Current number of services in RAG index snapshot.",
-		},
-	)
-
-	ragIndexUpdatedAt := prometheus.NewGauge(
-		prometheus.GaugeOpts{
-			Name: "swarm_assistant_rag_index_updated_at_unix",
-			Help: "Unix timestamp of the last successful RAG index update.",
-		},
-	)
-
-	if err := reg.Register(ragIndexRebuildTotal); err != nil {
-		return nil, err
-	}
-	if err := reg.Register(ragIndexRebuildDuration); err != nil {
-		return nil, err
-	}
-	if err := reg.Register(ragRetrieveFallbackTotal); err != nil {
-		return nil, err
-	}
-	if err := reg.Register(ragIndexSize); err != nil {
-		return nil, err
-	}
-	if err := reg.Register(ragIndexUpdatedAt); err != nil {
-		return nil, err
-	}
-
+func New(namespace string) (*Recorder, error) {
 	return &Recorder{
-		ragIndexRebuildTotal:     ragIndexRebuildTotal,
-		ragIndexRebuildDuration:  ragIndexRebuildDuration,
-		ragRetrieveFallbackTotal: ragRetrieveFallbackTotal,
-		ragIndexSize:             ragIndexSize,
-		ragIndexUpdatedAt:        ragIndexUpdatedAt,
+		ragIndexRebuildTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: namespace,
+				Name:      "assistant_rag_index_rebuild_total",
+				Help:      "Number of RAG index rebuild attempts grouped by status.",
+			},
+			[]string{"status"},
+		),
+		ragIndexRebuildDuration: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Namespace: namespace,
+				Name:      "assistant_rag_index_rebuild_duration_seconds",
+				Help:      "RAG index rebuild duration in seconds grouped by status.",
+				Buckets:   []float64{0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 30},
+			},
+			[]string{"status"},
+		),
+		ragRetrieveFallbackTotal: prometheus.NewCounterVec(
+			prometheus.CounterOpts{
+				Namespace: namespace,
+				Name:      "assistant_rag_retrieve_fallback_total",
+				Help:      "Number of retrieval fallbacks grouped by reason.",
+			},
+			[]string{"reason"},
+		),
+		ragIndexSize: prometheus.NewGauge(
+			prometheus.GaugeOpts{
+				Namespace: namespace,
+				Name:      "assistant_rag_index_size",
+				Help:      "Current number of services in RAG index snapshot.",
+			},
+		),
+		ragIndexUpdatedAt: prometheus.NewGauge(
+			prometheus.GaugeOpts{
+				Namespace: namespace,
+				Name:      "assistant_rag_index_updated_at_unix",
+				Help:      "Unix timestamp of the last successful RAG index update.",
+			},
+		),
 	}, nil
+}
+
+func (r *Recorder) Describe(ch chan<- *prometheus.Desc) {
+	r.ragIndexRebuildTotal.Describe(ch)
+	r.ragIndexRebuildDuration.Describe(ch)
+	r.ragRetrieveFallbackTotal.Describe(ch)
+	r.ragIndexSize.Describe(ch)
+	r.ragIndexUpdatedAt.Describe(ch)
+}
+
+func (r *Recorder) Collect(ch chan<- prometheus.Metric) {
+	r.ragIndexRebuildTotal.Collect(ch)
+	r.ragIndexRebuildDuration.Collect(ch)
+	r.ragRetrieveFallbackTotal.Collect(ch)
+	r.ragIndexSize.Collect(ch)
+	r.ragIndexUpdatedAt.Collect(ch)
 }
 
 // RecordIndexRebuild tracks index rebuild outcome and timing.

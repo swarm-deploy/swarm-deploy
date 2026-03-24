@@ -81,12 +81,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	assistantMetricRecorder, err := assistantmetrics.New(prometheus.DefaultRegisterer)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to init assistant metrics", slog.Any("err", err))
-		os.Exit(1)
-	}
-
 	deployer, err := swarm.NewDeployer(
 		cfg.Spec.Swarm.Command,
 		cfg.Spec.Swarm.StackDeployArgs,
@@ -125,7 +119,6 @@ func main() {
 		eventHistory,
 		control,
 		eventDispatcher,
-		assistantMetricRecorder,
 	)
 	if err != nil && !errors.Is(err, errAssistantDisabled) {
 		slog.ErrorContext(ctx, "failed to build assistant service", slog.Any("err", err))
@@ -196,10 +189,17 @@ func buildAssistantService(
 	eventHistory *history.Store,
 	control *controller.Controller,
 	eventDispatcher dispatcher.Dispatcher,
-	ragObserver assistant.RAGObserver,
 ) (*assistant.Service, error) {
 	if !cfg.Spec.Assistant.Enabled {
 		return nil, errAssistantDisabled
+	}
+
+	metricsRecorder, err := assistantmetrics.New("swarm_deploy")
+	if err != nil {
+		return nil, fmt.Errorf("init metrics: %w", err)
+	}
+	if err = prometheus.Register(metricsRecorder); err != nil {
+		return nil, fmt.Errorf("register metrics: %w", err)
 	}
 
 	temperature, err := cfg.Spec.Assistant.Model.OpenAI.ResolveTemperature()
@@ -225,7 +225,7 @@ func buildAssistantService(
 		SystemPrompt:            cfg.Spec.Assistant.SystemPrompt,
 		AllowedTools:            cfg.Spec.Assistant.Tools,
 		ConversationInMemoryTTL: cfg.Spec.Assistant.Conversation.Storage.InMemory.TTL.Value,
-	}, serviceStore, toolExecutor, eventDispatcher, ragObserver)
+	}, serviceStore, toolExecutor, eventDispatcher, metricsRecorder)
 }
 
 func buildEventDispatcher(
