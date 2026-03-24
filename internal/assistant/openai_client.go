@@ -14,10 +14,8 @@ import (
 const defaultOpenAIRequestTimeout = 60 * time.Second
 
 type openAIClient struct {
-	baseURL        string
-	token          string
-	organizationID string
-	client         openai.Client
+	baseURL string
+	client  openai.Client
 }
 
 func newOpenAIClient(baseURL, token, organizationID string) *openAIClient {
@@ -37,10 +35,8 @@ func newOpenAIClient(baseURL, token, organizationID string) *openAIClient {
 	}
 
 	return &openAIClient{
-		baseURL:        baseURL,
-		token:          token,
-		organizationID: organizationID,
-		client:         openai.NewClient(options...),
+		baseURL: baseURL,
+		client:  openai.NewClient(options...),
 	}
 }
 
