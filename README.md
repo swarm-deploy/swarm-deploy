@@ -13,6 +13,7 @@ GitOps controller for Docker Swarm with an ArgoCD-inspired, but Swarm-native, co
 - Optional HTTP Basic authentication for UI and API via `web.security.authentication.basic.htpasswdFile`.
 - [Notification hooks for successful and failed deployments](./docs/notifications.md)
 - [Services catalog persisted on disk and available via API](./docs/services.md)
+- [AI assistant with long-poll chat API and RAG over service metadata](./docs/assistant.md)
 - [Init Deploy Jobs](./docs/init-deploy-jobs.md)
 - [Secrets Rotation](./docs/secrets-rotation.md)
 

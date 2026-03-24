@@ -26,11 +26,11 @@ type QueueDispatcher struct {
 	wg     sync.WaitGroup
 }
 
-func NewQueueDispatcher(subscribers map[events.Type][]Subscriber) *QueueDispatcher {
+func NewQueueDispatcher() *QueueDispatcher {
 	d := &QueueDispatcher{
 		now:         time.Now,
 		queue:       make(chan events.Event, defaultEventsQueueLen),
-		subscribers: subscribers,
+		subscribers: map[events.Type][]Subscriber{},
 	}
 
 	d.wg.Add(1)
@@ -55,6 +55,13 @@ func (d *QueueDispatcher) Dispatch(ctx context.Context, event events.Event) {
 	d.queue <- event
 }
 
+// Subscribe registers a subscriber for event type.
+func (d *QueueDispatcher) Subscribe(eventType events.Type, subscriber Subscriber) {
+	d.mu.Lock()
+	d.subscribers[eventType] = append(d.subscribers[eventType], subscriber)
+	d.mu.Unlock()
+}
+
 func (d *QueueDispatcher) runWorker() {
 	defer d.wg.Done()
 
@@ -76,7 +83,11 @@ func (d *QueueDispatcher) runWorker() {
 	}
 
 	for event := range d.queue {
-		for _, subscriber := range d.subscribers[event.Type()] {
+		d.mu.RLock()
+		subscribers := append([]Subscriber{}, d.subscribers[event.Type()]...)
+		d.mu.RUnlock()
+
+		for _, subscriber := range subscribers {
 			handle(subscriber, event)
 		}
 	}

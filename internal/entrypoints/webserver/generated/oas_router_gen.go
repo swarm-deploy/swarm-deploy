@@ -61,6 +61,26 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 			switch elem[0] {
+			case 'a': // Prefix: "assistant/chat"
+
+				if l := len("assistant/chat"); len(elem) >= l && elem[0:l] == "assistant/chat" {
+					elem = elem[l:]
+				} else {
+					break
+				}
+
+				if len(elem) == 0 {
+					// Leaf node.
+					switch r.Method {
+					case "POST":
+						s.handleAssistantChatRequest([0]string{}, elemIsEscaped, w, r)
+					default:
+						s.notAllowed(w, r, "POST")
+					}
+
+					return
+				}
+
 			case 'e': // Prefix: "events"
 
 				if l := len("events"); len(elem) >= l && elem[0:l] == "events" {
@@ -319,6 +339,30 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 				break
 			}
 			switch elem[0] {
+			case 'a': // Prefix: "assistant/chat"
+
+				if l := len("assistant/chat"); len(elem) >= l && elem[0:l] == "assistant/chat" {
+					elem = elem[l:]
+				} else {
+					break
+				}
+
+				if len(elem) == 0 {
+					// Leaf node.
+					switch method {
+					case "POST":
+						r.name = AssistantChatOperation
+						r.summary = ""
+						r.operationID = "assistantChat"
+						r.pathPattern = "/api/v1/assistant/chat"
+						r.args = args
+						r.count = 0
+						return r, true
+					default:
+						return
+					}
+				}
+
 			case 'e': // Prefix: "events"
 
 				if l := len("events"); len(elem) >= l && elem[0:l] == "events" {

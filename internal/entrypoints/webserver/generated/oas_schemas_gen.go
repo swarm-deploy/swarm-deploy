@@ -8,6 +8,186 @@ import (
 	"github.com/go-faster/errors"
 )
 
+// Ref: #/components/schemas/AssistantChatRequest
+type AssistantChatRequest struct {
+	ConversationID OptString `json:"conversation_id"`
+	RequestID      OptString `json:"request_id"`
+	Message        OptString `json:"message"`
+	WaitTimeoutMs  OptInt32  `json:"wait_timeout_ms"`
+}
+
+// GetConversationID returns the value of ConversationID.
+func (s *AssistantChatRequest) GetConversationID() OptString {
+	return s.ConversationID
+}
+
+// GetRequestID returns the value of RequestID.
+func (s *AssistantChatRequest) GetRequestID() OptString {
+	return s.RequestID
+}
+
+// GetMessage returns the value of Message.
+func (s *AssistantChatRequest) GetMessage() OptString {
+	return s.Message
+}
+
+// GetWaitTimeoutMs returns the value of WaitTimeoutMs.
+func (s *AssistantChatRequest) GetWaitTimeoutMs() OptInt32 {
+	return s.WaitTimeoutMs
+}
+
+// SetConversationID sets the value of ConversationID.
+func (s *AssistantChatRequest) SetConversationID(val OptString) {
+	s.ConversationID = val
+}
+
+// SetRequestID sets the value of RequestID.
+func (s *AssistantChatRequest) SetRequestID(val OptString) {
+	s.RequestID = val
+}
+
+// SetMessage sets the value of Message.
+func (s *AssistantChatRequest) SetMessage(val OptString) {
+	s.Message = val
+}
+
+// SetWaitTimeoutMs sets the value of WaitTimeoutMs.
+func (s *AssistantChatRequest) SetWaitTimeoutMs(val OptInt32) {
+	s.WaitTimeoutMs = val
+}
+
+// Ref: #/components/schemas/AssistantChatResponse
+type AssistantChatResponse struct {
+	Status         AssistantChatResponseStatus `json:"status"`
+	RequestID      string                      `json:"request_id"`
+	ConversationID string                      `json:"conversation_id"`
+	Answer         OptString                   `json:"answer"`
+	ErrorMessage   OptString                   `json:"error_message"`
+	PollAfterMs    OptInt32                    `json:"poll_after_ms"`
+}
+
+// GetStatus returns the value of Status.
+func (s *AssistantChatResponse) GetStatus() AssistantChatResponseStatus {
+	return s.Status
+}
+
+// GetRequestID returns the value of RequestID.
+func (s *AssistantChatResponse) GetRequestID() string {
+	return s.RequestID
+}
+
+// GetConversationID returns the value of ConversationID.
+func (s *AssistantChatResponse) GetConversationID() string {
+	return s.ConversationID
+}
+
+// GetAnswer returns the value of Answer.
+func (s *AssistantChatResponse) GetAnswer() OptString {
+	return s.Answer
+}
+
+// GetErrorMessage returns the value of ErrorMessage.
+func (s *AssistantChatResponse) GetErrorMessage() OptString {
+	return s.ErrorMessage
+}
+
+// GetPollAfterMs returns the value of PollAfterMs.
+func (s *AssistantChatResponse) GetPollAfterMs() OptInt32 {
+	return s.PollAfterMs
+}
+
+// SetStatus sets the value of Status.
+func (s *AssistantChatResponse) SetStatus(val AssistantChatResponseStatus) {
+	s.Status = val
+}
+
+// SetRequestID sets the value of RequestID.
+func (s *AssistantChatResponse) SetRequestID(val string) {
+	s.RequestID = val
+}
+
+// SetConversationID sets the value of ConversationID.
+func (s *AssistantChatResponse) SetConversationID(val string) {
+	s.ConversationID = val
+}
+
+// SetAnswer sets the value of Answer.
+func (s *AssistantChatResponse) SetAnswer(val OptString) {
+	s.Answer = val
+}
+
+// SetErrorMessage sets the value of ErrorMessage.
+func (s *AssistantChatResponse) SetErrorMessage(val OptString) {
+	s.ErrorMessage = val
+}
+
+// SetPollAfterMs sets the value of PollAfterMs.
+func (s *AssistantChatResponse) SetPollAfterMs(val OptInt32) {
+	s.PollAfterMs = val
+}
+
+type AssistantChatResponseStatus string
+
+const (
+	AssistantChatResponseStatusInProgress AssistantChatResponseStatus = "in_progress"
+	AssistantChatResponseStatusCompleted  AssistantChatResponseStatus = "completed"
+	AssistantChatResponseStatusFailed     AssistantChatResponseStatus = "failed"
+	AssistantChatResponseStatusRejected   AssistantChatResponseStatus = "rejected"
+	AssistantChatResponseStatusDisabled   AssistantChatResponseStatus = "disabled"
+)
+
+// AllValues returns all AssistantChatResponseStatus values.
+func (AssistantChatResponseStatus) AllValues() []AssistantChatResponseStatus {
+	return []AssistantChatResponseStatus{
+		AssistantChatResponseStatusInProgress,
+		AssistantChatResponseStatusCompleted,
+		AssistantChatResponseStatusFailed,
+		AssistantChatResponseStatusRejected,
+		AssistantChatResponseStatusDisabled,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s AssistantChatResponseStatus) MarshalText() ([]byte, error) {
+	switch s {
+	case AssistantChatResponseStatusInProgress:
+		return []byte(s), nil
+	case AssistantChatResponseStatusCompleted:
+		return []byte(s), nil
+	case AssistantChatResponseStatusFailed:
+		return []byte(s), nil
+	case AssistantChatResponseStatusRejected:
+		return []byte(s), nil
+	case AssistantChatResponseStatusDisabled:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *AssistantChatResponseStatus) UnmarshalText(data []byte) error {
+	switch AssistantChatResponseStatus(data) {
+	case AssistantChatResponseStatusInProgress:
+		*s = AssistantChatResponseStatusInProgress
+		return nil
+	case AssistantChatResponseStatusCompleted:
+		*s = AssistantChatResponseStatusCompleted
+		return nil
+	case AssistantChatResponseStatusFailed:
+		*s = AssistantChatResponseStatusFailed
+		return nil
+	case AssistantChatResponseStatusRejected:
+		*s = AssistantChatResponseStatusRejected
+		return nil
+	case AssistantChatResponseStatusDisabled:
+		*s = AssistantChatResponseStatusDisabled
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
 // Ref: #/components/schemas/EventHistoryItem
 type EventHistoryItem struct {
 	Type      string                     `json:"type"`
@@ -168,6 +348,52 @@ func (o OptEventHistoryItemDetails) Get() (v EventHistoryItemDetails, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptEventHistoryItemDetails) Or(d EventHistoryItemDetails) EventHistoryItemDetails {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptInt32 returns new OptInt32 with value set to v.
+func NewOptInt32(v int32) OptInt32 {
+	return OptInt32{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptInt32 is optional int32.
+type OptInt32 struct {
+	Value int32
+	Set   bool
+}
+
+// IsSet returns true if OptInt32 was set.
+func (o OptInt32) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptInt32) Reset() {
+	var v int32
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptInt32) SetTo(v int32) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptInt32) Get() (v int32, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptInt32) Or(d int32) int32 {
 	if v, ok := o.Get(); ok {
 		return v
 	}

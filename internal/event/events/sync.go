@@ -1,7 +1,9 @@
 package events
 
 // SyncManualStarted is emitted when a manual sync run starts.
-type SyncManualStarted struct{}
+type SyncManualStarted struct {
+	TriggeredBy string
+}
 
 func (m *SyncManualStarted) Type() Type {
 	return TypeSyncManualStarted
@@ -12,5 +14,11 @@ func (m *SyncManualStarted) Message() string {
 }
 
 func (m *SyncManualStarted) Details() map[string]string {
-	return nil
+	details := map[string]string{}
+
+	if m.TriggeredBy != "" {
+		details["triggered_by"] = m.TriggeredBy
+	}
+
+	return details
 }

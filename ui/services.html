@@ -26,6 +26,37 @@
       <div id="services-list" class="service-grid"></div>
     </section>
   </main>
+  <button
+    id="assistant-open"
+    class="assistant-fab hidden"
+    type="button"
+    aria-label="Open assistant chat"
+  >
+    AI
+  </button>
+  <div id="assistant-chat-modal" class="modal hidden" aria-hidden="true">
+    <div class="modal-overlay" data-close-assistant="true"></div>
+    <div class="modal-card assistant-chat-card" role="dialog" aria-modal="true" aria-labelledby="assistant-chat-title">
+      <div class="modal-header">
+        <h2 id="assistant-chat-title">Assistant</h2>
+        <button id="assistant-chat-close" class="modal-close" type="button" aria-label="Close assistant">x</button>
+      </div>
+      <div id="assistant-chat-body" class="modal-body assistant-chat-body">
+        <p class="meta">Assistant is ready.</p>
+      </div>
+      <form id="assistant-chat-form" class="assistant-chat-form">
+        <input
+          id="assistant-chat-input"
+          type="text"
+          placeholder="Ask about services, events, or sync issues..."
+          autocomplete="off"
+        />
+        <button id="assistant-chat-send" type="submit">Send</button>
+      </form>
+    </div>
+  </div>
+  <script src="/ui/assistant-availability.js" defer></script>
+  <script src="/ui/assistant.js" defer></script>
   <script src="/ui/services.js" defer></script>
 </body>
 </html>

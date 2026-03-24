@@ -3,11 +3,12 @@ package events
 type Type string
 
 const (
-	TypeDeploySuccess          = "deploySuccess"
-	TypeDeployFailed           = "deployFailed"
-	TypeSendNotificationFailed = "sendNotificationFailed"
-	TypeSyncManualStarted      = "syncManualStarted"
-	TypeUserAuthenticated      = "userAuthenticated"
+	TypeDeploySuccess                    = "deploySuccess"
+	TypeDeployFailed                     = "deployFailed"
+	TypeSendNotificationFailed           = "sendNotificationFailed"
+	TypeSyncManualStarted                = "syncManualStarted"
+	TypeUserAuthenticated                = "userAuthenticated"
+	TypeAssistantPromptInjectionDetected = "assistantPromptInjectionDetected"
 )
 
 type Event interface {

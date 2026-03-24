@@ -1,0 +1,51 @@
+version: "3.9"
+
+services:
+  api:
+    image: ghcr.io/acme/api:1.12.0
+    ports:
+      - "8081:8080"
+    networks:
+      - backend
+    secrets:
+      - source: db_password
+        target: db_password
+    configs:
+      - source: api_env
+        target: /etc/api/env
+    x-init-deploy-jobs:
+      - name: migrate
+        image: ghcr.io/acme/api:1.12.0
+        command: ["./bin/migrate", "up"]
+        timeout: 5m
+        environment:
+          DB_HOST: postgres
+          DB_USER: app
+        secrets:
+          - source: db_password
+            target: db_password
+        configs:
+          - source: api_env
+            target: /etc/api/env
+
+  postgres:
+    image: postgres:17-alpine
+    networks:
+      - backend
+    environment:
+      POSTGRES_DB: app
+      POSTGRES_USER: app
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+    secrets:
+      - db_password
+
+networks:
+  backend: {}
+
+secrets:
+  db_password:
+    external: true
+
+configs:
+  api_env:
+    external: true

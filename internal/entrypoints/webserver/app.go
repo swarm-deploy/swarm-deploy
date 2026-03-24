@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/artarts36/go-entrypoint"
+	"github.com/artarts36/swarm-deploy/internal/assistant"
 	"github.com/artarts36/swarm-deploy/internal/config"
 	"github.com/artarts36/swarm-deploy/internal/controller"
 	"github.com/artarts36/swarm-deploy/internal/entrypoints/webserver/authenticator"
@@ -31,10 +32,11 @@ func NewApplication(
 	inspector *swarm.Inspector,
 	eventHistory *history.Store,
 	serviceStore *service.Store,
+	assistantService assistant.Assistant,
 	eventDispatcher dispatcher.Dispatcher,
 	authCfg config.AuthenticationSpec,
 ) (*Application, error) {
-	h := handlers.New(control, inspector, eventHistory, serviceStore)
+	h := handlers.New(control, inspector, eventHistory, serviceStore, assistantService)
 
 	apiHandler, err := generated.NewServer(h, generated.WithErrorHandler(handlers.HandleHTTPError))
 	if err != nil {

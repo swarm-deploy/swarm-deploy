@@ -1,0 +1,30 @@
+version: "3.9"
+
+services:
+  swarm-deploy:
+    image: artarts36/swarm-deploy:0.1.0
+    command: ["-config", "/etc/swarm-deploy/swarm-deploy.yaml"]
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - swarm-deploy-data:/etc/swarm-deploy/.swarm-deploy
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+      - "8082:8082"
+    configs:
+      - source: swarm-deploy
+        target: /etc/swarm-deploy/swarm-deploy.yaml
+        mode: 0400
+    deploy:
+      restart_policy:
+        condition: on-failure
+      placement:
+        constraints:
+          - node.role == manager
+
+volumes:
+  swarm-deploy-data: {}
+
+configs:
+  swarm-deploy:
+    file: ./swarm-deploy.yaml

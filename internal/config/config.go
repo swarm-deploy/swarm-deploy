@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -31,6 +32,11 @@ const (
 	defaultInitJobPollEvery   = 2 * time.Second
 	defaultInitJobMaxDuration = 10 * time.Minute
 	defaultInitJobsTimeout    = 10 * time.Minute
+
+	defaultAssistantOpenAIBaseURL           = "https://api.openai.com/v1"
+	defaultAssistantTemperature             = "0.2"
+	defaultAssistantMaxTokens               = "800"
+	defaultAssistantConversationInMemoryTTL = 1 * time.Hour
 )
 
 type Config struct {
@@ -61,6 +67,8 @@ type Spec struct {
 	SecretRotation SecretRotationSpec `yaml:"secretRotation"`
 	// EventHistory controls persisted event history settings.
 	EventHistory EventHistorySpec `yaml:"eventHistory"`
+	// Assistant contains AI assistant settings.
+	Assistant AssistantSpec `yaml:"assistant"`
 	// InitJobsTimeout is a global timeout for init jobs.
 	InitJobsTimeout specw.Duration `yaml:"initJobsTimeout"`
 	// Log contains level settings.
@@ -73,51 +81,6 @@ type Spec struct {
 type EventHistorySpec struct {
 	// Capacity is a maximum number of events to keep in history.
 	Capacity int `yaml:"capacity"`
-}
-
-type GitSpec struct {
-	// Repository is a git repository URL (ssh or https).
-	Repository string `yaml:"repository"`
-	// Branch is a git branch to track.
-	Branch string `yaml:"branch"`
-	// Auth contains git authentication settings.
-	Auth GitAuthSpec `yaml:"auth"`
-}
-
-type GitAuthSpec struct {
-	// Type is git auth type: none, http, or ssh.
-	Type string `yaml:"type"`
-	// HTTP is HTTP(S) basic/token authentication configuration.
-	HTTP GitHTTPAuth `yaml:"http"`
-	// SSH is SSH authentication configuration.
-	SSH GitSSHAuthSpec `yaml:"ssh"`
-}
-
-type GitHTTPAuth struct {
-	// Username is HTTP basic auth username.
-	Username string `yaml:"username"`
-	// Password is HTTP basic auth password.
-	//nolint:gosec // Field name is part of a user-facing config schema and does not imply hardcoded secret usage.
-	Password string `yaml:"password"`
-	// PasswordEnv is an env variable name containing HTTP password.
-	PasswordEnv string `yaml:"passwordEnv"`
-	// Token is an HTTP token value used as password.
-	Token string `yaml:"token"`
-	// TokenEnv is an env variable name containing HTTP token.
-	TokenEnv string `yaml:"tokenEnv"`
-}
-
-type GitSSHAuthSpec struct {
-	// User is an SSH user, typically "git".
-	User string `yaml:"user"`
-	// PrivateKeyPath is a path to a private key file for git SSH auth.
-	PrivateKeyPath string `yaml:"privateKeyPath"`
-	// KnownHostsPath is a path to known_hosts file used for host verification.
-	KnownHostsPath string `yaml:"knownHostsPath"`
-	// InsecureIgnoreHostKey disables SSH host key verification.
-	InsecureIgnoreHostKey bool `yaml:"insecureIgnoreHostKey"`
-	// PassphrasePath is a path to file containing private key passphrase.
-	PassphrasePath string `yaml:"passphrasePath"`
 }
 
 type SyncSpec struct {
@@ -136,8 +99,8 @@ type WebhookSpec struct {
 	Address string `yaml:"address"`
 	// Path is an HTTP path for webhook endpoint.
 	Path string `yaml:"path"`
-	// SecretPath is a path to file containing webhook shared secret.
-	SecretPath string `yaml:"secretPath"`
+	// Secret is a path to file containing webhook shared secret.
+	Secret specw.File `yaml:"secretPath"`
 }
 
 type StacksSourceSpec struct {
@@ -165,8 +128,8 @@ type NotificationSpec struct {
 type TelegramChannel struct {
 	// Name is a logical channel name used in logs/diagnostics.
 	Name string `yaml:"name"`
-	// BotTokenPath is a path to file containing Telegram bot token.
-	BotTokenPath string `yaml:"botTokenPath"`
+	// BotToken is a path to file containing Telegram bot token.
+	BotToken specw.File `yaml:"botTokenPath,omitempty"`
 	// ChatID is a target Telegram chat identifier.
 	ChatID string `yaml:"chatId"`
 	// ChatThreadID is an optional topic/thread id inside target chat.
@@ -179,9 +142,7 @@ type CustomChannel struct {
 	// Name is a logical channel name used in logs/diagnostics.
 	Name string `yaml:"name"`
 	// URL is a webhook endpoint URL.
-	URL string `yaml:"url"`
-	// URLEnv is an env variable name containing webhook URL.
-	URLEnv string `yaml:"urlEnv"`
+	URL specw.Env[specw.URL] `yaml:"url"`
 	// Method is an HTTP method for webhook delivery.
 	Method string `yaml:"method"`
 	// Header contains additional HTTP headers for webhook delivery.
@@ -285,10 +246,10 @@ func Load(path string) (*Config, error) {
 
 func (c *Config) applyDefaults(configDir string) error {
 	c.Spec.DataDir = filepath.Join(configDir, ".swarm-deploy")
-	c.applyGitAndSyncDefaults(configDir)
+	c.applyGitAndSyncDefaults()
 	c.applyWebAndHealthDefaults()
 	c.applySecurityDefaults(configDir)
-	c.applyNotificationDefaults(configDir)
+	c.applyAssistantDefaults()
 	c.applySwarmDefaults()
 	c.applySecretRotationDefaults()
 	c.applyEventHistoryDefaults()
@@ -300,7 +261,7 @@ func (c *Config) applyDefaults(configDir string) error {
 	return nil
 }
 
-func (c *Config) applyGitAndSyncDefaults(configDir string) {
+func (c *Config) applyGitAndSyncDefaults() {
 	if c.Spec.Git.Branch == "" {
 		c.Spec.Git.Branch = "main"
 	}
@@ -315,14 +276,6 @@ func (c *Config) applyGitAndSyncDefaults(configDir string) {
 	}
 	if strings.TrimSpace(c.Spec.Sync.Webhook.Address) == "" {
 		c.Spec.Sync.Webhook.Address = defaultWebhookAddress
-	}
-	if secretPath := strings.TrimSpace(c.Spec.Sync.Webhook.SecretPath); secretPath != "" &&
-		!filepath.IsAbs(secretPath) {
-		c.Spec.Sync.Webhook.SecretPath = filepath.Join(configDir, secretPath)
-	}
-	if passphrasePath := strings.TrimSpace(c.Spec.Git.Auth.SSH.PassphrasePath); passphrasePath != "" &&
-		!filepath.IsAbs(passphrasePath) {
-		c.Spec.Git.Auth.SSH.PassphrasePath = filepath.Join(configDir, passphrasePath)
 	}
 	if c.Spec.Sync.Mode == SyncModeWebhook && !c.Spec.Sync.Webhook.Enabled {
 		c.Spec.Sync.Webhook.Enabled = true
@@ -351,16 +304,35 @@ func (c *Config) applySecurityDefaults(configDir string) {
 	}
 }
 
-func (c *Config) applyNotificationDefaults(configDir string) {
-	for eventType, channels := range c.Spec.Notifications.On {
-		for i := range channels.Telegram {
-			tokenPath := strings.TrimSpace(channels.Telegram[i].BotTokenPath)
-			if tokenPath != "" && !filepath.IsAbs(tokenPath) {
-				channels.Telegram[i].BotTokenPath = filepath.Join(configDir, tokenPath)
-			}
-		}
+func (c *Config) applyAssistantDefaults() {
+	c.Spec.Assistant.SystemPrompt = strings.TrimSpace(c.Spec.Assistant.SystemPrompt)
+	c.Spec.Assistant.Model.Name = strings.TrimSpace(c.Spec.Assistant.Model.Name)
 
-		c.Spec.Notifications.On[eventType] = channels
+	for i, tool := range c.Spec.Assistant.Tools {
+		c.Spec.Assistant.Tools[i] = strings.TrimSpace(tool)
+	}
+
+	openaiCfg := &c.Spec.Assistant.Model.OpenAI
+	openaiCfg.BaseURL = strings.TrimSpace(openaiCfg.BaseURL)
+	if openaiCfg.BaseURL == "" {
+		openaiCfg.BaseURL = defaultAssistantOpenAIBaseURL
+	}
+
+	openaiCfg.OrganizationID = strings.TrimSpace(openaiCfg.OrganizationID)
+
+	openaiCfg.Temperature = strings.TrimSpace(openaiCfg.Temperature)
+	if openaiCfg.Temperature == "" {
+		openaiCfg.Temperature = defaultAssistantTemperature
+	}
+
+	openaiCfg.MaxTokens = strings.TrimSpace(openaiCfg.MaxTokens)
+	if openaiCfg.MaxTokens == "" {
+		openaiCfg.MaxTokens = defaultAssistantMaxTokens
+	}
+
+	inMemoryStorageCfg := &c.Spec.Assistant.Conversation.Storage.InMemory
+	if inMemoryStorageCfg.TTL.Value <= 0 {
+		inMemoryStorageCfg.TTL.Value = defaultAssistantConversationInMemoryTTL
 	}
 }
 
@@ -504,6 +476,7 @@ func (c *Config) validate() error {
 	errs = append(errs, c.validateGitAuth()...)
 	errs = append(errs, c.validateSecurity()...)
 	errs = append(errs, c.validateNotifications()...)
+	errs = append(errs, c.validateAssistant()...)
 
 	return errors.Join(errs...)
 }
@@ -601,16 +574,7 @@ func (c *Config) validateWebhookSecret() []error {
 		return nil
 	}
 
-	secretPath := strings.TrimSpace(c.Spec.Sync.Webhook.SecretPath)
-	if secretPath == "" {
-		return []error{errors.New("webhook enabled but sync.webhook.secretPath is empty")}
-	}
-
-	payload, err := os.ReadFile(secretPath)
-	if err != nil {
-		return []error{fmt.Errorf("read sync.webhook.secretPath %s: %w", secretPath, err)}
-	}
-	if strings.TrimSpace(string(payload)) == "" {
+	if strings.TrimSpace(string(c.Spec.Sync.Webhook.Secret.Content)) == "" {
 		return []error{errors.New("webhook enabled but sync.webhook.secretPath contains empty secret")}
 	}
 
@@ -625,16 +589,15 @@ func (c *Config) validateNotifications() []error {
 			if tg.ChatID == "" {
 				errs = append(errs, fmt.Errorf("notifications.on[%q].telegram[%d].chatId is required", eventType, i))
 			}
-			token, err := tg.ResolveToken()
-			if err != nil {
-				errs = append(errs, fmt.Errorf("notifications.on[%q].telegram[%d]: %w", eventType, i, err))
-			} else if token == "" {
+
+			if len(tg.BotToken.Content) == 0 {
 				errs = append(
 					errs,
 					fmt.Errorf("notifications.on[%q].telegram[%d].botTokenPath contains empty token", eventType, i),
 				)
 			}
-			if tg.ResolveChatThreadID() < 0 {
+
+			if tg.ChatThreadID < 0 {
 				errs = append(
 					errs,
 					fmt.Errorf("notifications.on[%q].telegram[%d].chatThreadId must be >= 0", eventType, i),
@@ -643,7 +606,7 @@ func (c *Config) validateNotifications() []error {
 		}
 
 		for i, ch := range channels.Custom {
-			if ch.ResolveURL() == "" {
+			if ch.URL.Value.String() == "" {
 				errs = append(
 					errs,
 					fmt.Errorf("notifications.on[%q].custom[%d].url or urlEnv is required", eventType, i),
@@ -655,20 +618,70 @@ func (c *Config) validateNotifications() []error {
 	return errs
 }
 
-func (w WebhookSpec) ResolveSecret() string {
-	secretPath := strings.TrimSpace(w.SecretPath)
-	if secretPath == "" {
-		return ""
+func (c *Config) validateAssistant() []error {
+	if !c.Spec.Assistant.Enabled {
+		return nil
 	}
-	payload, err := os.ReadFile(secretPath)
+
+	var errs []error
+	if strings.TrimSpace(c.Spec.Assistant.Model.Name) == "" {
+		errs = append(errs, errors.New("assistant.model.name is required when assistant.enabled=true"))
+	}
+
+	token := c.Spec.Assistant.Model.OpenAI.APIToken.Content
+	if len(token) == 0 {
+		errs = append(errs, errors.New("assistant.model.openai.apiTokenPath is required when assistant.enabled=true"))
+	}
+
+	temperature, err := c.Spec.Assistant.Model.OpenAI.ResolveTemperature()
 	if err != nil {
-		return ""
+		errs = append(errs, fmt.Errorf("assistant.model.openai.temperature %w", err))
+	} else if temperature < 0 || temperature > 2 {
+		errs = append(errs, errors.New("assistant.model.openai.temperature must be between 0 and 2"))
 	}
-	return strings.TrimSpace(string(payload))
+
+	maxTokens, err := c.Spec.Assistant.Model.OpenAI.ResolveMaxTokens()
+	if err != nil {
+		errs = append(errs, fmt.Errorf("assistant.model.openai.maxTokens %w", err))
+	} else if maxTokens <= 0 {
+		errs = append(errs, errors.New("assistant.model.openai.maxTokens must be > 0"))
+	}
+
+	for i, toolName := range c.Spec.Assistant.Tools {
+		if strings.TrimSpace(toolName) == "" {
+			errs = append(errs, fmt.Errorf("assistant.tools[%d] must not be empty", i))
+		}
+	}
+
+	return errs
 }
 
-func (c *Config) WebhookSecret() string {
-	return c.Spec.Sync.Webhook.ResolveSecret()
+func (a AssistantOpenAISpec) ResolveTemperature() (float64, error) {
+	temperature := strings.TrimSpace(a.Temperature)
+	if temperature == "" {
+		return 0, errors.New("is empty")
+	}
+
+	value, err := strconv.ParseFloat(temperature, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse %q: %w", temperature, err)
+	}
+
+	return value, nil
+}
+
+func (a AssistantOpenAISpec) ResolveMaxTokens() (int, error) {
+	maxTokens := strings.TrimSpace(a.MaxTokens)
+	if maxTokens == "" {
+		return 0, errors.New("is empty")
+	}
+
+	value, err := strconv.Atoi(maxTokens)
+	if err != nil {
+		return 0, fmt.Errorf("parse %q: %w", maxTokens, err)
+	}
+
+	return value, nil
 }
 
 // Strategy resolves configured web authentication strategy.
@@ -678,67 +691,4 @@ func (a AuthenticationSpec) Strategy() string {
 	}
 
 	return AuthenticationStrategyNone
-}
-
-func (a GitHTTPAuth) ResolvePassword() string {
-	if a.PasswordEnv != "" {
-		return os.Getenv(a.PasswordEnv)
-	}
-	if a.TokenEnv != "" {
-		return os.Getenv(a.TokenEnv)
-	}
-	if a.Token != "" {
-		return a.Token
-	}
-	return a.Password
-}
-
-func (a GitHTTPAuth) ResolveUsername() string {
-	if a.Username != "" {
-		return a.Username
-	}
-	if a.Token != "" || a.TokenEnv != "" {
-		// go-git basic auth requires non-empty username when token is used.
-		return "oauth2"
-	}
-	return ""
-}
-
-func (a GitSSHAuthSpec) ResolvePassphrase() (string, error) {
-	passphrasePath := strings.TrimSpace(a.PassphrasePath)
-	if passphrasePath == "" {
-		return "", nil
-	}
-
-	payload, err := os.ReadFile(passphrasePath)
-	if err != nil {
-		return "", fmt.Errorf("read passphrasePath %s: %w", passphrasePath, err)
-	}
-
-	return strings.TrimSpace(string(payload)), nil
-}
-
-func (t TelegramChannel) ResolveToken() (string, error) {
-	tokenPath := strings.TrimSpace(t.BotTokenPath)
-	if tokenPath == "" {
-		return "", errors.New("botTokenPath is required")
-	}
-
-	payload, err := os.ReadFile(tokenPath)
-	if err != nil {
-		return "", fmt.Errorf("read botTokenPath %s: %w", tokenPath, err)
-	}
-
-	return strings.TrimSpace(string(payload)), nil
-}
-
-func (t TelegramChannel) ResolveChatThreadID() int64 {
-	return t.ChatThreadID
-}
-
-func (c CustomChannel) ResolveURL() string {
-	if c.URLEnv != "" {
-		return os.Getenv(c.URLEnv)
-	}
-	return c.URL
 }

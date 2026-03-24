@@ -9,6 +9,7 @@ const serviceStatusCloseBtn = document.getElementById("service-status-close");
 const eventHistoryModalEl = document.getElementById("event-history-modal");
 const eventHistoryBodyEl = document.getElementById("event-history-body");
 const eventHistoryCloseBtn = document.getElementById("event-history-close");
+const assistantChat = window.createAssistantChat();
 const eventDetailsPriority = ["stack", "commit", "destination", "channel", "event_type", "error"];
 
 function fmtDate(raw) {
@@ -334,6 +335,7 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
+assistantChat.setEnabled(true);
 refresh();
 setInterval(refresh, 10000);
 

@@ -59,7 +59,6 @@ func New(reg prometheus.Registerer) (*Recorder, error) {
 	if err := reg.Register(syncDuration); err != nil {
 		return nil, err
 	}
-
 	return &Recorder{
 		deployTotal:  deployTotal,
 		gitUpdates:   gitUpdates,

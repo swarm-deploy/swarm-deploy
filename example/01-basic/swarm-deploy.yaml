@@ -16,6 +16,27 @@ sync:
   # Pull polling interval.
   pollInterval: 30s
 
+# AI assistant settings.
+assistant:
+  # Enable assistant API and UI.
+  enabled: false
+  # Allowed tool list. Empty means all built-in tools.
+  tools: []
+  # Extra project-specific prompt.
+  systemPrompt: ""
+  model:
+    # Chat model name.
+    name: gpt-4o-mini
+    openai:
+      # OpenAI-compatible API base URL.
+      baseUrl: https://api.openai.com/v1
+      # Path to file containing API token.
+      apiTokenPath: /run/secrets/openai_api_token
+      # Sampling temperature in range [0, 2].
+      temperature: "0.2"
+      # Max generated tokens for response.
+      maxTokens: "800"
+
 # Stacks source settings.
 stacks:
   # Path to stacks definition file in git repository (relative to repo root).
@@ -62,35 +83,6 @@ notifications:
           chatId: "-1001234567890"
           message: |
             sync started manually
-
-# Notification channels grouped by event type.
-notifications:
-  on:
-    # Event type: deploySuccess | deployFailed | userAuthenticated
-    deploySuccess:
-      telegram:
-        - name: ops-success
-          botTokenPath: /run/secrets/telegram_bot_token
-          chatId: "-1001234567890"
-      custom:
-        - name: success-webhook
-          url: https://hooks.example.com/deploy-success
-          method: POST
-          header:
-            Content-Type: application/json
-
-    deployFailed:
-      telegram:
-        - name: ops-failed
-          botTokenPath: /run/secrets/telegram_bot_token
-          chatId: "-1001234567890"
-          message: |
-            deploy {{.status}}
-            stack_name: {{.stack_name}}
-            service: {{.service}}
-            {{- if .error }}
-            error: {{.error}}
-            {{- end }}
 
 # Secret/config name rotation settings.
 secretRotation:

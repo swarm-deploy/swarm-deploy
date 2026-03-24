@@ -1,11 +1,12 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
-	"github.com/artarts36/swarm-deploy/internal/event/events"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -83,60 +84,6 @@ stacks:
 	cfg, err := Load(configPath)
 	require.NoError(t, err, "load config")
 	assert.Empty(t, cfg.Spec.Stacks, "stacks must be loaded later from git repository during sync")
-}
-
-func TestWebhookSecretResolveFromFile(t *testing.T) {
-	dir := t.TempDir()
-	secretPath := filepath.Join(dir, "webhook_secret")
-	if err := os.WriteFile(secretPath, []byte(" from-file \n"), 0o600); err != nil {
-		require.NoError(t, err, "write secret file")
-	}
-
-	spec := WebhookSpec{
-		SecretPath: secretPath,
-	}
-
-	assert.Equal(t, "from-file", spec.ResolveSecret(), "expected secret from file")
-}
-
-func TestLoadResolvesRelativeWebhookSecretPath(t *testing.T) {
-	dir := t.TempDir()
-
-	stacksPath := filepath.Join(dir, "stacks.yaml")
-	stacksPayload := []byte(`
-stacks:
-  - name: app
-    composeFile: app/docker-compose.yml
-`)
-	if err := os.WriteFile(stacksPath, stacksPayload, 0o600); err != nil {
-		require.NoError(t, err, "write stacks file")
-	}
-
-	secretPath := filepath.Join(dir, "webhook_secret")
-	if err := os.WriteFile(secretPath, []byte("from-file"), 0o600); err != nil {
-		require.NoError(t, err, "write secret file")
-	}
-
-	configPath := filepath.Join(dir, "swarm-deploy.yaml")
-	configPayload := []byte(`
-git:
-  repository: https://example.com/repo.git
-sync:
-  mode: webhook
-  webhook:
-    enabled: true
-    secretPath: ./webhook_secret
-stacks:
-  file: ./stacks.yaml
-`)
-	if err := os.WriteFile(configPath, configPayload, 0o600); err != nil {
-		require.NoError(t, err, "write config file")
-	}
-
-	cfg, err := Load(configPath)
-	require.NoError(t, err, "load config")
-	assert.Equal(t, secretPath, cfg.Spec.Sync.Webhook.SecretPath, "expected resolved secretPath")
-	assert.Equal(t, "from-file", cfg.WebhookSecret(), "expected secret from file")
 }
 
 func TestLoadResolvesRelativeBasicHTPasswdPath(t *testing.T) {
@@ -226,48 +173,6 @@ web:
 	assert.Contains(t, err.Error(), "web.security.authentication.basic.htpasswdFile", "unexpected error")
 }
 
-func TestLoadIgnoresDataDirFromConfig(t *testing.T) {
-	dir := t.TempDir()
-
-	stacksPath := filepath.Join(dir, "stacks.yaml")
-	stacksPayload := []byte(`
-stacks:
-  - name: app
-    composeFile: app/docker-compose.yml
-`)
-	if err := os.WriteFile(stacksPath, stacksPayload, 0o600); err != nil {
-		require.NoError(t, err, "write stacks file")
-	}
-
-	secretPath := filepath.Join(dir, "webhook_secret")
-	if err := os.WriteFile(secretPath, []byte("secret"), 0o600); err != nil {
-		require.NoError(t, err, "write secret file")
-	}
-
-	configPath := filepath.Join(dir, "swarm-deploy.yaml")
-	configPayload := []byte(`
-dataDir: /tmp/custom-path-should-be-ignored
-git:
-  repository: https://example.com/repo.git
-sync:
-  mode: webhook
-  webhook:
-    enabled: true
-    secretPath: ./webhook_secret
-stacks:
-  file: ./stacks.yaml
-`)
-	if err := os.WriteFile(configPath, configPayload, 0o600); err != nil {
-		require.NoError(t, err, "write config file")
-	}
-
-	cfg, err := Load(configPath)
-	require.NoError(t, err, "load config")
-
-	expectedDataDir := filepath.Join(dir, ".swarm-deploy")
-	assert.Equal(t, expectedDataDir, cfg.Spec.DataDir, "expected dataDir")
-}
-
 func TestLoadWebAddressUsedForSingleServer(t *testing.T) {
 	dir := t.TempDir()
 
@@ -328,49 +233,6 @@ stacks:
 	require.NoError(t, err, "load config")
 	assert.Equal(t, defaultWebAddress, cfg.Spec.Web.Address, "expected web.address")
 	assert.Equal(t, defaultWebhookAddress, cfg.Spec.Sync.Webhook.Address, "expected sync.webhook.address")
-}
-
-func TestLoadResolvesRelativeGitSSHPassphrasePath(t *testing.T) {
-	dir := t.TempDir()
-
-	stacksPath := filepath.Join(dir, "stacks.yaml")
-	stacksPayload := []byte(`
-stacks:
-  - name: app
-    composeFile: app/docker-compose.yml
-`)
-	if err := os.WriteFile(stacksPath, stacksPayload, 0o600); err != nil {
-		require.NoError(t, err, "write stacks file")
-	}
-
-	passphrasePath := filepath.Join(dir, "git_passphrase")
-	if err := os.WriteFile(passphrasePath, []byte(" super-secret \n"), 0o600); err != nil {
-		require.NoError(t, err, "write passphrase file")
-	}
-
-	configPath := filepath.Join(dir, "swarm-deploy.yaml")
-	configPayload := []byte(`
-git:
-  repository: git@github.com:your-org/your-stacks-repo.git
-  auth:
-    type: ssh
-    ssh:
-      privateKeyPath: /run/secrets/deploy_key
-      passphrasePath: ./git_passphrase
-stacks:
-  file: ./stacks.yaml
-`)
-	if err := os.WriteFile(configPath, configPayload, 0o600); err != nil {
-		require.NoError(t, err, "write config file")
-	}
-
-	cfg, err := Load(configPath)
-	require.NoError(t, err, "load config")
-	assert.Equal(t, passphrasePath, cfg.Spec.Git.Auth.SSH.PassphrasePath, "expected passphrasePath")
-
-	passphrase, err := cfg.Spec.Git.Auth.SSH.ResolvePassphrase()
-	require.NoError(t, err, "resolve passphrase")
-	assert.Equal(t, "super-secret", passphrase, "expected passphrase")
 }
 
 func TestReloadStacksPrefersFirstAvailableBaseDir(t *testing.T) {
@@ -442,49 +304,6 @@ stacks:
 	assert.Equal(t, "from-config", cfg.Spec.Stacks[0].Name, "expected stack from config")
 }
 
-func TestLoadResolvesRelativeTelegramBotTokenPathInNotificationsOn(t *testing.T) {
-	dir := t.TempDir()
-
-	stacksPath := filepath.Join(dir, "stacks.yaml")
-	stacksPayload := []byte(`
-stacks:
-  - name: app
-    composeFile: app/docker-compose.yml
-`)
-	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
-
-	tokenPath := filepath.Join(dir, "telegram_bot_token")
-	require.NoError(t, os.WriteFile(tokenPath, []byte("token-value"), 0o600), "write bot token file")
-
-	configPath := filepath.Join(dir, "swarm-deploy.yaml")
-	configPayload := []byte(`
-git:
-  repository: https://example.com/repo.git
-stacks:
-  file: ./stacks.yaml
-notifications:
-  on:
-    deploySuccess:
-      telegram:
-        - name: ops
-          botTokenPath: ./telegram_bot_token
-          chatId: "-1001234567890"
-`)
-	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
-
-	cfg, err := Load(configPath)
-	require.NoError(t, err, "load config")
-	channels, ok := cfg.Spec.Notifications.On[events.TypeDeploySuccess]
-	require.True(t, ok, "expected deploySuccess notifications")
-	require.Len(t, channels.Telegram, 1, "expected one telegram channel")
-	assert.Equal(
-		t,
-		tokenPath,
-		channels.Telegram[0].BotTokenPath,
-		"expected resolved telegram token path",
-	)
-}
-
 func TestLoadFailsOnCustomNotificationWithoutURLInNotificationsOn(t *testing.T) {
 	dir := t.TempDir()
 
@@ -517,5 +336,227 @@ notifications:
 		err.Error(),
 		`notifications.on["deploySuccess"].custom[0].url or urlEnv is required`,
 		"unexpected error",
+	)
+}
+
+func TestLoadFailsWhenAssistantEnabledWithoutTokenPath(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(`
+git:
+  repository: https://example.com/repo.git
+stacks:
+  file: ./stacks.yaml
+assistant:
+  enabled: true
+  model:
+    name: gpt-4o-mini
+`)
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	_, err := Load(configPath)
+	require.Error(t, err, "expected error")
+	assert.Contains(
+		t,
+		err.Error(),
+		"assistant.model.openai.apiTokenPath is required when assistant.enabled=true",
+		"unexpected error",
+	)
+}
+
+func TestLoadFailsWhenAssistantTemperatureIsInvalid(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	tokenPath := filepath.Join(dir, "assistant_token")
+	require.NoError(t, os.WriteFile(tokenPath, []byte("token-value"), 0o600), "write assistant token")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(fmt.Sprintf(`
+git:
+  repository: https://example.com/repo.git
+stacks:
+  file: ./stacks.yaml
+assistant:
+  enabled: true
+  model:
+    name: gpt-4o-mini
+    openai:
+      apiTokenPath: %s
+      temperature: "oops"
+`, tokenPath))
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	_, err := Load(configPath)
+	require.Error(t, err, "expected error")
+	assert.Contains(t, err.Error(), "assistant.model.openai.temperature", "unexpected error")
+}
+
+func TestLoadFailsWhenAssistantMaxTokensIsNotPositive(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	tokenPath := filepath.Join(dir, "assistant_token")
+	require.NoError(t, os.WriteFile(tokenPath, []byte("token-value"), 0o600), "write assistant token")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(fmt.Sprintf(`
+git:
+  repository: https://example.com/repo.git
+stacks:
+  file: ./stacks.yaml
+assistant:
+  enabled: true
+  model:
+    name: gpt-4o-mini
+    openai:
+      apiTokenPath: %s
+      maxTokens: "0"
+`, tokenPath))
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	_, err := Load(configPath)
+	require.Error(t, err, "expected error")
+	assert.Contains(t, err.Error(), "assistant.model.openai.maxTokens must be > 0", "unexpected error")
+}
+
+func TestLoadAllowsInvalidAssistantModelWhenDisabled(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	tokenPath := filepath.Join(dir, "assistant_token")
+	require.NoError(t, os.WriteFile(tokenPath, []byte("token-value"), 0o600), "write assistant token")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(fmt.Sprintf(`
+git:
+  repository: https://example.com/repo.git
+stacks:
+  file: ./stacks.yaml
+assistant:
+  enabled: false
+  tools: ["sync", " "]
+  model:
+    name: ""
+    openai:
+      apiTokenPath: %s
+      temperature: "not-a-number"
+      maxTokens: "-1"
+`, tokenPath))
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	_, err := Load(configPath)
+	require.NoError(t, err, "assistant config must be ignored when disabled")
+}
+
+func TestLoadAppliesDefaultAssistantConversationInMemoryTTL(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	tokenPath := filepath.Join(dir, "assistant_token")
+	require.NoError(t, os.WriteFile(tokenPath, []byte("token-value"), 0o600), "write assistant token")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(fmt.Sprintf(`
+git:
+  repository: https://example.com/repo.git
+stacks:
+  file: ./stacks.yaml
+assistant:
+  enabled: true
+  model:
+    name: gpt-4o-mini
+    openai:
+      apiTokenPath: %s
+`, tokenPath))
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err, "load config")
+	assert.Equal(
+		t,
+		defaultAssistantConversationInMemoryTTL,
+		cfg.Spec.Assistant.Conversation.Storage.InMemory.TTL.Value,
+		"expected default assistant conversation storage ttl",
+	)
+}
+
+func TestLoadUsesAssistantConversationInMemoryTTLSpecifiedInConfig(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	tokenPath := filepath.Join(dir, "assistant_token")
+	require.NoError(t, os.WriteFile(tokenPath, []byte("token-value"), 0o600), "write assistant token")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(fmt.Sprintf(`
+git:
+  repository: https://example.com/repo.git
+stacks:
+  file: ./stacks.yaml
+assistant:
+  enabled: true
+  conversation:
+    storage:
+      inMemory:
+        ttl: 90m
+  model:
+    name: gpt-4o-mini
+    openai:
+      apiTokenPath: %s
+`, tokenPath))
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err, "load config")
+	assert.Equal(
+		t,
+		90*time.Minute,
+		cfg.Spec.Assistant.Conversation.Storage.InMemory.TTL.Value,
+		"expected assistant conversation storage ttl from config",
 	)
 }

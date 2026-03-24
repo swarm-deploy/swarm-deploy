@@ -1,0 +1,143 @@
+# Git repository settings for stack manifests.
+git:
+  # Repository URL (ssh/https).
+  repository: https://github.com/your-org/your-stacks-repo.git
+  # Branch to synchronize.
+  branch: main
+  # Git authentication settings.
+  auth:
+    # Authentication type: none | http | ssh.
+    type: none
+
+# Git-to-deploy synchronization settings.
+sync:
+  # Synchronization mode: pull | webhook | hybrid.
+  mode: pull
+  # Pull polling interval.
+  pollInterval: 30s
+
+# AI assistant settings.
+assistant:
+  # Enable assistant API and UI.
+  enabled: true
+  conversation:
+    storage:
+      inMemory:
+        # Dialog retention in in-memory storage.
+        ttl: 1h
+  # Allowed tool list. Empty means all built-in tools.
+  tools: []
+  # Extra project-specific prompt.
+  systemPrompt: ""
+  model:
+    # Chat model name.
+    name: gpt-4o-mini
+    openai:
+      # OpenAI-compatible API base URL.
+      baseUrl: https://foundation-models.api.cloud.ru/v1
+      # Path to file containing API token.
+      apiTokenPath: /run/secrets/openai_api_token
+      # Optional OpenAI organization identifier.
+      organizationId: ""
+      # Sampling temperature in range [0, 2].
+      temperature: "0.2"
+      # Max generated tokens for response.
+      maxTokens: "800"
+
+# Stacks source settings.
+stacks:
+  # Path to stacks definition file in git repository (relative to repo root).
+  file: ./stacks.yaml
+
+# Event history settings.
+eventHistory:
+  # Maximum number of events stored on disk.
+  capacity: 500
+
+# Notification channels grouped by event type.
+notifications:
+  on:
+    # Event type: deploySuccess | deployFailed | syncManualStarted | userAuthenticated
+    deploySuccess:
+      telegram:
+        - name: ops-success
+          botTokenPath: /run/secrets/telegram_bot_token
+          chatId: "-1001234567890"
+      custom:
+        - name: success-webhook
+          url: https://hooks.example.com/deploy-success
+          method: POST
+          header:
+            Content-Type: application/json
+
+    deployFailed:
+      telegram:
+        - name: ops-failed
+          botTokenPath: /run/secrets/telegram_bot_token
+          chatId: "-1001234567890"
+          message: |
+            deploy {{.status}}
+            stack_name: {{.stack_name}}
+            service: {{.service}}
+            {{- if .error }}
+            error: {{.error}}
+            {{- end }}
+
+    syncManualStarted:
+      telegram:
+        - name: ops-manual-sync
+          botTokenPath: /run/secrets/telegram_bot_token
+          chatId: "-1001234567890"
+          message: |
+            sync started manually
+
+
+# Secret/config name rotation settings.
+secretRotation:
+  # Enable rotation.
+  enabled: true
+  # Hash suffix length.
+  hashLength: 10
+  # Include source file path in hash.
+  includePath: true
+
+# Docker stack deploy execution settings.
+swarm:
+  # Docker CLI command.
+  command: docker
+  # Stack deploy command arguments.
+  stackDeployArgs:
+    - stack
+    - deploy
+    - --with-registry-auth
+    - --prune
+  # Init job polling interval.
+  initJobPollEvery: 2s
+  # Maximum init job duration.
+  initJobMaxDuration: 10m
+
+# UI and API web server address.
+web:
+  # Single web server listen address for UI and API.
+  address: ":8080"
+  # UI/API access control settings.
+  security:
+    authentication:
+      basic:
+        # Path to htpasswd file with bcrypt hashes (mounted secret recommended).
+        # Example: /run/secrets/basic.htpasswd
+        # Leave empty to disable authentication.
+        htpasswdFile: ""
+
+# Dedicated health/metrics server.
+healthServer:
+  # Health/metrics server listen address.
+  address: ":8082"
+  # Metrics endpoint settings.
+  metrics:
+    # Prometheus metrics HTTP path.
+    path: /metrics
+  # Health endpoint settings.
+  healthz:
+    # Health-check HTTP path.
+    path: /healthz

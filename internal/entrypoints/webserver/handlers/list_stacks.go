@@ -7,8 +7,10 @@ import (
 )
 
 func (h *handler) ListStacks(_ context.Context) (*generated.StacksResponse, error) {
+	syncInfo := h.control.LastSyncInfo()
+
 	return &generated.StacksResponse{
 		Stacks: toGeneratedStacks(h.control.ListStacks()),
-		Sync:   h.control.LastSyncInfo(),
+		Sync:   syncInfo,
 	}, nil
 }

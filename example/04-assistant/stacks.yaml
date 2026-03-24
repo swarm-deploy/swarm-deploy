@@ -1,0 +1,6 @@
+# Stack list for deployment.
+stacks:
+  - # Docker Swarm stack name (must be unique in this file).
+    name: myapp
+    # Path to compose file relative to git repository root.
+    composeFile: myapp.yaml
