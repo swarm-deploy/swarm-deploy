@@ -24,6 +24,10 @@ const (
 )
 
 const (
+	servicesContextMaxRows = 64
+)
+
+const (
 	graphNodeGuard          = "guard"
 	graphNodeRetrieve       = "retrieve_context"
 	graphNodePrepare        = "prepare_messages"
@@ -294,11 +298,18 @@ func buildServicesContextMessage(services []service.Info) string {
 	}
 
 	builder := strings.Builder{}
-	builder.WriteString("Relevant service metadata from service.store:\n")
-	for _, serviceInfo := range services {
+	builder.WriteString("Relevant service metadata from service.store (RAG retrieval, sorted by relevance):\n")
+	limited := services
+	if len(limited) > servicesContextMaxRows {
+		limited = limited[:servicesContextMaxRows]
+	}
+	for _, serviceInfo := range limited {
 		builder.WriteString("- ")
 		builder.WriteString(serviceToContextDocument(serviceInfo))
 		builder.WriteByte('\n')
+	}
+	if len(limited) < len(services) {
+		fmt.Fprintf(&builder, "- ... and %d more services\n", len(services)-len(limited))
 	}
 
 	return strings.TrimSpace(builder.String())

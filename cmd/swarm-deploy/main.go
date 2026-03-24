@@ -247,8 +247,6 @@ func buildEventDispatcher(
 	cfg *config.Config,
 	inspectorSvc *swarminspector.Inspector,
 ) (*dispatcher.QueueDispatcher, *history.Store, *service.Store, error) {
-	subs := map[events.Type][]dispatcher.Subscriber{}
-
 	historyStore, err := history.NewStore(
 		filepath.Join(cfg.Spec.DataDir, "event-history.json"),
 		cfg.Spec.EventHistory.Capacity,
@@ -261,15 +259,18 @@ func buildEventDispatcher(
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("build service store: %w", err)
 	}
-	subs[events.TypeDeploySuccess] = append(
-		subs[events.TypeDeploySuccess],
-		service.NewSubscriber(serviceStore, inspectorSvc, service.NewMetadataExtractor()),
-	)
 
 	eventDispatcher := dispatcher.NewQueueDispatcher()
 	subscribeOnAllEvents(eventDispatcher, historyStore)
 
-	dispatcherLink := &dispatcherProxy{}
+	dispatcherLink := &dispatcherProxy{Dispatcher: eventDispatcher}
+	subscribersCount := 0
+
+	eventDispatcher.Subscribe(
+		events.TypeDeploySuccess,
+		service.NewSubscriber(serviceStore, inspectorSvc, service.NewMetadataExtractor()),
+	)
+	subscribersCount++
 
 	for eventType, channels := range cfg.Spec.Notifications.On {
 		for _, tg := range channels.Telegram {
@@ -286,15 +287,15 @@ func buildEventDispatcher(
 				return nil, nil, nil, fmt.Errorf("build telegram notifier %q: %w", tg.Name, notifierErr)
 			}
 
-			sub := notify2.NewSubscriber(tgNotifier, dispatcherLink)
-			subs[eventType] = append(subs[eventType], sub)
+			eventDispatcher.Subscribe(eventType, notify2.NewSubscriber(tgNotifier, dispatcherLink))
+			subscribersCount++
 		}
 
 		for _, custom := range channels.Custom {
 			notifier := notifiers.NewCustomWebhookNotifier(custom.Name, custom.URL.Value.String(), custom.Method, custom.Header)
 
-			sub := notify2.NewSubscriber(notifier, dispatcherLink)
-			subs[eventType] = append(subs[eventType], sub)
+			eventDispatcher.Subscribe(eventType, notify2.NewSubscriber(notifier, dispatcherLink))
+			subscribersCount++
 		}
 	}
 
@@ -302,9 +303,10 @@ func buildEventDispatcher(
 		slog.Info("notification subscribers not found")
 	}
 
-	slog.Info("found event subscribers", slog.Int("subscribers", len(subs)))
-
-	dispatcherLink.Dispatcher = eventDispatcher
+	slog.Info(
+		"found event subscribers",
+		slog.Int("subscribers", subscribersCount),
+	)
 
 	return eventDispatcher, historyStore, serviceStore, nil
 }
