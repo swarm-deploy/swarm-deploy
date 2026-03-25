@@ -262,11 +262,13 @@
     function showModal() {
       modalEl.classList.remove("hidden");
       modalEl.setAttribute("aria-hidden", "false");
+      document.body.classList.add("assistant-modal-open");
     }
 
     function hideModal() {
       modalEl.classList.add("hidden");
       modalEl.setAttribute("aria-hidden", "true");
+      document.body.classList.remove("assistant-modal-open");
     }
 
     function setPending(nextPending) {

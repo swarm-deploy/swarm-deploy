@@ -304,6 +304,14 @@ button:hover,
   display: none !important;
 }
 
+.assistant-modal-open {
+  overflow: hidden;
+}
+
+.assistant-modal-open .assistant-fab {
+  display: none !important;
+}
+
 .modal-overlay {
   position: absolute;
   inset: 0;
@@ -670,5 +678,50 @@ button:hover,
 
   .event-detail {
     grid-template-columns: 1fr;
+  }
+
+  .assistant-fab {
+    right: 16px;
+    bottom: 16px;
+    width: 52px;
+    height: 52px;
+  }
+
+  .assistant-chat-card {
+    width: 100vw;
+    height: 100dvh;
+    margin: 0;
+    max-height: 100dvh;
+    border-radius: 0;
+    padding: 12px;
+    gap: 10px;
+    overflow: hidden;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+
+  .modal-card.assistant-chat-card {
+    width: 100vw;
+    margin: 0;
+  }
+
+  .assistant-chat-body {
+    min-height: 0;
+    max-height: none;
+    padding-right: 0;
+    padding-bottom: 6px;
+  }
+
+  .assistant-chat-form input {
+    font-size: 16px;
+  }
+}
+
+@media (max-width: 380px) {
+  .assistant-chat-form {
+    grid-template-columns: 1fr;
+  }
+
+  .assistant-chat-form button {
+    width: 100%;
   }
 }
