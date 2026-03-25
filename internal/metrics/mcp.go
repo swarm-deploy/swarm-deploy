@@ -1,4 +1,4 @@
-package mcpserver
+package metrics
 
 import (
 	"strconv"
@@ -7,19 +7,42 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 )
 
-// Metrics stores MCP server telemetry metrics.
-type Metrics struct {
+type MCP interface {
+	subsystem
+
+	RecordToolExecution(toolName string, ok bool, duration time.Duration)
+	RecordUnknownTool(toolName string)
+}
+
+type prometheusMCP struct {
 	toolExecutionTotal *prometheus.CounterVec
 	toolExecutionTime  *prometheus.HistogramVec
 	unknownToolTotal   *prometheus.CounterVec
 }
 
-// NewMetrics creates MCP server metrics recorder and registers all collectors.
-func NewMetrics(namespace string) *Metrics {
-	return &Metrics{
+type nopMCP struct{}
+
+func (nopMCP) collectors() []prometheus.Collector {
+	return []prometheus.Collector{}
+}
+
+func (n nopMCP) RecordToolExecution(string, bool, time.Duration) {}
+
+func (n nopMCP) RecordUnknownTool(string) {}
+
+func newMCP(namespace string, enabled bool) MCP {
+	if enabled {
+		return newPrometheusMCP(namespace)
+	}
+	return &nopMCP{}
+}
+
+func newPrometheusMCP(namespace string) MCP {
+	return &prometheusMCP{
 		toolExecutionTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
+				Subsystem: "mcp",
 				Name:      "assistant_mcp_tool_execution_total",
 				Help:      "Number of MCP tool executions grouped by tool and ok flag.",
 			},
@@ -45,26 +68,22 @@ func NewMetrics(namespace string) *Metrics {
 	}
 }
 
-func (m *Metrics) Describe(ch chan<- *prometheus.Desc) {
-	m.toolExecutionTotal.Describe(ch)
-	m.toolExecutionTime.Describe(ch)
-	m.unknownToolTotal.Describe(ch)
-}
-
-func (m *Metrics) Collect(ch chan<- prometheus.Metric) {
-	m.toolExecutionTotal.Collect(ch)
-	m.toolExecutionTime.Collect(ch)
-	m.unknownToolTotal.Collect(ch)
-}
-
 // RecordToolExecution tracks MCP tool execution by tool name and success flag.
-func (m *Metrics) RecordToolExecution(toolName string, ok bool, duration time.Duration) {
+func (m *prometheusMCP) RecordToolExecution(toolName string, ok bool, duration time.Duration) {
 	okValue := strconv.FormatBool(ok)
 	m.toolExecutionTotal.WithLabelValues(toolName, okValue).Inc()
 	m.toolExecutionTime.WithLabelValues(toolName, okValue).Observe(duration.Seconds())
 }
 
 // RecordUnknownTool tracks calls with an unknown tool name.
-func (m *Metrics) RecordUnknownTool(toolName string) {
+func (m *prometheusMCP) RecordUnknownTool(toolName string) {
 	m.unknownToolTotal.WithLabelValues(toolName).Inc()
+}
+
+func (m *prometheusMCP) collectors() []prometheus.Collector {
+	return []prometheus.Collector{
+		m.toolExecutionTime,
+		m.toolExecutionTotal,
+		m.unknownToolTotal,
+	}
 }

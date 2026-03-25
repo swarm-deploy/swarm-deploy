@@ -50,7 +50,7 @@ type Controller struct {
 	cfg      *config.Config
 	gitSync  *gitops.Syncer
 	deployer *swarm.Deployer
-	metrics  *metrics.Recorder
+	metrics  *metrics.Group
 	event    dispatcher.Dispatcher
 
 	stateStore      *runtimeStateStore
@@ -63,14 +63,14 @@ func New(
 	cfg *config.Config,
 	gitSync *gitops.Syncer,
 	deployer *swarm.Deployer,
-	metricRecorder *metrics.Recorder,
+	metricGroup *metrics.Group,
 	eventDispatcher dispatcher.Dispatcher,
 ) *Controller {
 	return &Controller{
 		cfg:        cfg,
 		gitSync:    gitSync,
 		deployer:   deployer,
-		metrics:    metricRecorder,
+		metrics:    metricGroup,
 		event:      eventDispatcher,
 		stateStore: newRuntimeStateStore(),
 		stackReconciler: newStackReconciler(
@@ -145,8 +145,8 @@ func (c *Controller) syncOnce(ctx context.Context, reason TriggerReason) { //nol
 			slog.String("repository", c.cfg.Spec.Git.Repository),
 			slog.Any("err", err),
 		)
-		c.metrics.RecordGitUpdate(c.cfg.Spec.Git.Repository, "error")
-		c.metrics.RecordSyncRun(string(reason), "error", time.Since(startedAt))
+		c.metrics.Git.RecordGitUpdate(c.cfg.Spec.Git.Repository, "error")
+		c.metrics.Sync.RecordSyncRun(string(reason), "error", time.Since(startedAt))
 		c.updateState(func(s *runtimeState) {
 			s.LastSyncAt = time.Now()
 			s.LastSyncReason = string(reason)
@@ -162,7 +162,7 @@ func (c *Controller) syncOnce(ctx context.Context, reason TriggerReason) { //nol
 	if syncResult.Updated {
 		updateResult = "updated"
 	}
-	c.metrics.RecordGitUpdate(c.cfg.Spec.Git.Repository, updateResult)
+	c.metrics.Git.RecordGitUpdate(c.cfg.Spec.Git.Repository, updateResult)
 
 	reloadedFrom, reloadErr := c.reloadStacks()
 	if reloadErr != nil {
@@ -171,7 +171,7 @@ func (c *Controller) syncOnce(ctx context.Context, reason TriggerReason) { //nol
 			slog.String("stacks.file", c.cfg.Spec.StacksSource.File),
 			slog.Any("err", reloadErr),
 		)
-		c.metrics.RecordSyncRun(string(reason), "error", time.Since(startedAt))
+		c.metrics.Sync.RecordSyncRun(string(reason), "error", time.Since(startedAt))
 		c.updateState(func(s *runtimeState) {
 			s.LastSyncAt = time.Now()
 			s.LastSyncReason = string(reason)
@@ -188,7 +188,7 @@ func (c *Controller) syncOnce(ctx context.Context, reason TriggerReason) { //nol
 	)
 
 	if !syncResult.Updated && reason != TriggerManual {
-		c.metrics.RecordSyncRun(string(reason), "no_change", time.Since(startedAt))
+		c.metrics.Sync.RecordSyncRun(string(reason), "no_change", time.Since(startedAt))
 		c.updateState(func(s *runtimeState) {
 			s.LastSyncAt = time.Now()
 			s.LastSyncReason = string(reason)
@@ -224,7 +224,7 @@ func (c *Controller) syncOnce(ctx context.Context, reason TriggerReason) { //nol
 		)
 	}
 
-	c.metrics.RecordSyncRun(string(reason), result, time.Since(startedAt))
+	c.metrics.Sync.RecordSyncRun(string(reason), result, time.Since(startedAt))
 	c.updateState(func(s *runtimeState) {
 		s.LastSyncAt = time.Now()
 		s.LastSyncReason = string(reason)
@@ -261,7 +261,7 @@ func (c *Controller) syncStack(ctx context.Context, stackCfg config.StackSpec, c
 			LastStatus:   "success",
 			LastDeployAt: now,
 		}
-		c.metrics.RecordDeploy(stackCfg.Name, service.Name, "success")
+		c.metrics.Deploys.RecordDeploy(stackCfg.Name, service.Name, "success")
 	}
 
 	c.updateState(func(s *runtimeState) {
@@ -292,10 +292,10 @@ func (c *Controller) recordStackFailure(stackName, commit string, services []com
 			LastStatus:   "failed",
 			LastDeployAt: now,
 		}
-		c.metrics.RecordDeploy(stackName, service.Name, "failed")
+		c.metrics.Deploys.RecordDeploy(stackName, service.Name, "failed")
 	}
 	if len(servicesState) == 0 {
-		c.metrics.RecordDeploy(stackName, "unknown", "failed")
+		c.metrics.Deploys.RecordDeploy(stackName, "unknown", "failed")
 	}
 
 	c.updateState(func(s *runtimeState) {

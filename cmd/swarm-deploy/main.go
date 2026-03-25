@@ -11,7 +11,6 @@ import (
 
 	entrypoint "github.com/artarts36/go-entrypoint"
 	"github.com/artarts36/swarm-deploy/internal/assistant"
-	assistantmetrics "github.com/artarts36/swarm-deploy/internal/assistant/metrics"
 	"github.com/artarts36/swarm-deploy/internal/config"
 	"github.com/artarts36/swarm-deploy/internal/controller"
 	"github.com/artarts36/swarm-deploy/internal/entrypoints/healthserver"
@@ -21,6 +20,7 @@ import (
 	"github.com/artarts36/swarm-deploy/internal/event/dispatcher"
 	"github.com/artarts36/swarm-deploy/internal/event/events"
 	"github.com/artarts36/swarm-deploy/internal/event/history"
+	eventmetrics "github.com/artarts36/swarm-deploy/internal/event/metrics"
 	"github.com/artarts36/swarm-deploy/internal/event/notifiers"
 	notify2 "github.com/artarts36/swarm-deploy/internal/event/notify"
 	gitx "github.com/artarts36/swarm-deploy/internal/git"
@@ -73,8 +73,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	metricRecorder, err := metrics.New(prometheus.DefaultRegisterer)
-	if err != nil {
+	metricsGroup := metrics.NewGroup(metrics.CreateGroupParams{
+		Namespace: "swarm_deploy",
+		Assistant: cfg.Spec.Assistant.Enabled,
+		MCP:       cfg.Spec.Assistant.Enabled,
+	})
+	if err = prometheus.Register(metricsGroup); err != nil {
 		slog.ErrorContext(ctx, "failed to init metrics", slog.Any("err", err))
 		os.Exit(1)
 	}
@@ -104,7 +108,7 @@ func main() {
 	}
 	nodeCollector := swarminspector.NewNodeCollector(inspectorSvc, nodeStore)
 
-	eventDispatcher, eventHistory, serviceStore, err := buildEventDispatcher(cfg, inspectorSvc)
+	eventDispatcher, eventHistory, serviceStore, err := buildEventDispatcher(cfg, inspectorSvc, metricsGroup.Events)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to build event dispatcher", slog.Any("err", err))
 		os.Exit(1)
@@ -114,7 +118,7 @@ func main() {
 		cfg,
 		gitSyncer,
 		deployer,
-		metricRecorder,
+		metricsGroup,
 		eventDispatcher,
 	)
 
@@ -125,6 +129,8 @@ func main() {
 		nodeStore,
 		control,
 		eventDispatcher,
+		metricsGroup.Assistant,
+		metricsGroup.MCP,
 	)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to build assistant service", slog.Any("err", err))
@@ -202,19 +208,11 @@ func buildAssistantService(
 	nodeStore *swarminspector.NodeStore,
 	control *controller.Controller,
 	eventDispatcher dispatcher.Dispatcher,
+	ragObserver assistant.RAGObserver,
+	mcpMetrics metrics.MCP,
 ) (assistant.Assistant, error) {
 	if !cfg.Spec.Assistant.Enabled {
 		return &assistant.DisabledAssistant{}, nil
-	}
-
-	metricsRecorder := assistantmetrics.New("swarm_deploy")
-	if err := prometheus.Register(metricsRecorder); err != nil {
-		return nil, fmt.Errorf("register metrics: %w", err)
-	}
-
-	mcpMetrics := mcpserver.NewMetrics("swarm_deploy")
-	if err := prometheus.Register(mcpMetrics); err != nil {
-		return nil, fmt.Errorf("register mcp metrics: %w", err)
 	}
 
 	temperature, err := cfg.Spec.Assistant.Model.OpenAI.ResolveTemperature()
@@ -240,12 +238,13 @@ func buildAssistantService(
 		SystemPrompt:            cfg.Spec.Assistant.SystemPrompt,
 		AllowedTools:            cfg.Spec.Assistant.Tools,
 		ConversationInMemoryTTL: cfg.Spec.Assistant.Conversation.Storage.InMemory.TTL.Value,
-	}, serviceStore, toolExecutor, eventDispatcher, metricsRecorder)
+	}, serviceStore, toolExecutor, eventDispatcher, ragObserver)
 }
 
 func buildEventDispatcher(
 	cfg *config.Config,
 	inspectorSvc *swarminspector.Inspector,
+	eventMetrics metrics.Events,
 ) (*dispatcher.QueueDispatcher, *history.Store, *service.Store, error) {
 	historyStore, err := history.NewStore(
 		filepath.Join(cfg.Spec.DataDir, "event-history.json"),
@@ -262,6 +261,7 @@ func buildEventDispatcher(
 
 	eventDispatcher := dispatcher.NewQueueDispatcher()
 	subscribeOnAllEvents(eventDispatcher, historyStore)
+	subscribeOnAllEvents(eventDispatcher, eventmetrics.NewSubscriber(eventMetrics))
 
 	dispatcherLink := &dispatcherProxy{Dispatcher: eventDispatcher}
 	subscribersCount := 0

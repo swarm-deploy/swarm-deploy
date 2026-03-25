@@ -7,6 +7,7 @@ import (
 	"github.com/artarts36/swarm-deploy/internal/controller"
 	"github.com/artarts36/swarm-deploy/internal/event/dispatcher"
 	"github.com/artarts36/swarm-deploy/internal/event/history"
+	"github.com/artarts36/swarm-deploy/internal/metrics"
 	"github.com/artarts36/swarm-deploy/internal/swarm/inspector"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -51,7 +52,10 @@ func TestExecutorExecuteUnknownTool(t *testing.T) {
 		&fakeNodeStore{},
 		&fakeSyncControl{},
 		&dispatcher.NopDispatcher{},
-		NewMetrics("test"),
+		metrics.NewGroup(metrics.CreateGroupParams{
+			Namespace: "test",
+			MCP:       true,
+		}).MCP,
 	)
 
 	_, err := executor.Execute(context.Background(), "unknown_tool", nil)

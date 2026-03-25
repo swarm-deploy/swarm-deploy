@@ -9,13 +9,14 @@ import (
 	"github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	mcpTools "github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/tools"
 	"github.com/artarts36/swarm-deploy/internal/event/dispatcher"
+	"github.com/artarts36/swarm-deploy/internal/metrics"
 )
 
 // Executor provides direct-call MCP tools without running external server.
 type Executor struct {
 	tools       map[string]routing.Tool
 	definitions []routing.ToolDefinition
-	metrics     *Metrics
+	metrics     metrics.MCP
 }
 
 // NewExecutor creates an MCP tool executor from independent tool components.
@@ -24,7 +25,7 @@ func NewExecutor(
 	nodesStore mcpTools.NodesReader,
 	control mcpTools.SyncTrigger,
 	eventDispatcher dispatcher.Dispatcher,
-	metrics *Metrics,
+	mcpMetrics metrics.MCP,
 ) *Executor {
 	toolComponents := []routing.Tool{
 		mcpTools.NewListHistoryEvents(historyStore),
@@ -45,7 +46,7 @@ func NewExecutor(
 	return &Executor{
 		tools:       tools,
 		definitions: definitions,
-		metrics:     metrics,
+		metrics:     mcpMetrics,
 	}
 }
 
