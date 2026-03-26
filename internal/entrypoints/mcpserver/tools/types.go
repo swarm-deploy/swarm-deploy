@@ -1,8 +1,11 @@
 package tools
 
 import (
+	"context"
+
 	"github.com/artarts36/swarm-deploy/internal/controller"
 	"github.com/artarts36/swarm-deploy/internal/event/history"
+	"github.com/artarts36/swarm-deploy/internal/registry"
 	"github.com/artarts36/swarm-deploy/internal/service"
 	"github.com/artarts36/swarm-deploy/internal/swarm/inspector"
 )
@@ -29,4 +32,10 @@ type NodesReader interface {
 type ServicesReader interface {
 	// List returns current services metadata snapshot.
 	List() []service.Info
+}
+
+// ImageVersionResolver resolves current image version in a container registry.
+type ImageVersionResolver interface {
+	// ResolveActualVersion resolves current image version in a container registry.
+	ResolveActualVersion(ctx context.Context, image string) (registry.ImageVersion, error)
 }

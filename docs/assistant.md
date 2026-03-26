@@ -53,6 +53,12 @@ The endpoint supports start and poll with the same route.
 - `sync` - triggers manual sync (same as `POST /api/v1/sync`)
 - `list_nodes` - returns current Docker Swarm nodes snapshot
 - `ping_web_routes` - checks web routes for a specific service from `service.store` and returns HTTP results for each route
+- `get_actual_image_version` - resolves актуальный тег и digest Docker-образа в registry (Docker Hub и совместимые)
+  - registry is selected automatically by tool logic
+
+Example use-case:
+- Question: `Я использую актуальную версию этого сервиса?`
+- Expected assistant flow: detect current service image from `service.store` -> call `get_actual_image_version` for current image and for upstream latest image -> compare and answer with concrete tag/digest difference.
 
 Tool access is controlled by `assistant.tools`:
 

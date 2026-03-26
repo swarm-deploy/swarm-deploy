@@ -8,6 +8,7 @@ import (
 	"github.com/artarts36/swarm-deploy/internal/event/dispatcher"
 	"github.com/artarts36/swarm-deploy/internal/event/history"
 	"github.com/artarts36/swarm-deploy/internal/metrics"
+	"github.com/artarts36/swarm-deploy/internal/registry"
 	"github.com/artarts36/swarm-deploy/internal/service"
 	"github.com/artarts36/swarm-deploy/internal/swarm/inspector"
 	"github.com/stretchr/testify/assert"
@@ -58,11 +59,21 @@ func (f *fakeServiceStore) List() []service.Info {
 	return out
 }
 
+type fakeImageVersionResolver struct{}
+
+func (f *fakeImageVersionResolver) ResolveActualVersion(
+	_ context.Context,
+	_ string,
+) (registry.ImageVersion, error) {
+	return registry.ImageVersion{}, nil
+}
+
 func TestExecutorExecuteUnknownTool(t *testing.T) {
 	executor := NewExecutor(
 		&fakeHistoryStore{},
 		&fakeNodeStore{},
 		&fakeServiceStore{},
+		&fakeImageVersionResolver{},
 		&fakeSyncControl{},
 		&dispatcher.NopDispatcher{},
 		metrics.NewGroup(metrics.CreateGroupParams{

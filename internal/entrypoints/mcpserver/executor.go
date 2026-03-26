@@ -24,6 +24,7 @@ func NewExecutor(
 	historyStore mcpTools.HistoryReader,
 	nodesStore mcpTools.NodesReader,
 	serviceStore mcpTools.ServicesReader,
+	imageVersionResolver mcpTools.ImageVersionResolver,
 	control mcpTools.SyncTrigger,
 	eventDispatcher dispatcher.Dispatcher,
 	mcpMetrics metrics.MCP,
@@ -33,6 +34,7 @@ func NewExecutor(
 		mcpTools.NewSync(control),
 		mcpTools.NewListNodes(nodesStore),
 		mcpTools.NewPingWebRoutes(serviceStore),
+		mcpTools.NewGetActualImageVersion(imageVersionResolver),
 		mcpTools.NewReportPromptInjection(eventDispatcher),
 	}
 

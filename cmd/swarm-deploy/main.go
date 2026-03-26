@@ -27,6 +27,7 @@ import (
 	gitx "github.com/artarts36/swarm-deploy/internal/git"
 	"github.com/artarts36/swarm-deploy/internal/gitops"
 	"github.com/artarts36/swarm-deploy/internal/metrics"
+	"github.com/artarts36/swarm-deploy/internal/registry"
 	"github.com/artarts36/swarm-deploy/internal/service"
 	"github.com/artarts36/swarm-deploy/internal/swarm"
 	swarminspector "github.com/artarts36/swarm-deploy/internal/swarm/inspector"
@@ -227,7 +228,20 @@ func buildAssistantService(
 		return nil, fmt.Errorf("resolve assistant maxTokens: %w", err)
 	}
 
-	toolExecutor := mcpserver.NewExecutor(eventHistory, nodeStore, serviceStore, control, eventDispatcher, mcpMetrics)
+	imageVersionResolver, err := registry.NewImageVersionResolver()
+	if err != nil {
+		return nil, fmt.Errorf("build image version resolver: %w", err)
+	}
+
+	toolExecutor := mcpserver.NewExecutor(
+		eventHistory,
+		nodeStore,
+		serviceStore,
+		imageVersionResolver,
+		control,
+		eventDispatcher,
+		mcpMetrics,
+	)
 
 	return assistant.NewService(assistant.Config{
 		Enabled:                 cfg.Spec.Assistant.Enabled,
