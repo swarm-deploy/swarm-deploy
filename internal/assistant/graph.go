@@ -48,12 +48,11 @@ type graph struct {
 }
 
 type graphExecutionState struct {
-	history            []conversation.Turn
-	userMessage        string
-	relevantServices   []service.Info
-	modelMessages      []modelMessage
-	collectedToolCalls []ToolCall
-	answer             string
+	history          []conversation.Turn
+	userMessage      string
+	relevantServices []service.Info
+	modelMessages    []modelMessage
+	answer           string
 }
 
 func newGraph(
@@ -74,23 +73,22 @@ func newGraph(
 	}
 }
 
-func (g *graph) run(ctx context.Context, history []conversation.Turn, userMessage string) (string, []ToolCall, error) {
+func (g *graph) run(ctx context.Context, history []conversation.Turn, userMessage string) (string, error) {
 	executionState := &graphExecutionState{
-		history:            history,
-		userMessage:        userMessage,
-		collectedToolCalls: make([]ToolCall, 0, defaultCollectedToolCallsCapacity),
+		history:     history,
+		userMessage: userMessage,
 	}
 
 	runnable, err := g.compile(executionState)
 	if err != nil {
-		return "", executionState.collectedToolCalls, err
+		return "", err
 	}
 
 	if _, invokeErr := runnable.Invoke(ctx, nil); invokeErr != nil {
-		return "", executionState.collectedToolCalls, invokeErr
+		return "", invokeErr
 	}
 
-	return executionState.answer, executionState.collectedToolCalls, nil
+	return executionState.answer, nil
 }
 
 func (g *graph) compile(executionState *graphExecutionState) (*langgraph.Runnable, error) {
@@ -199,8 +197,7 @@ func (g *graph) generateAnswerNode(
 			})
 
 			for _, modelToolCall := range completion.ToolCalls {
-				toolCallInfo, toolResultMessage := g.executeToolCall(ctx, modelToolCall)
-				executionState.collectedToolCalls = append(executionState.collectedToolCalls, toolCallInfo)
+				_, toolResultMessage := g.executeToolCall(ctx, modelToolCall)
 				executionState.modelMessages = append(executionState.modelMessages, modelMessage{
 					Role:       "tool",
 					Name:       modelToolCall.Name,

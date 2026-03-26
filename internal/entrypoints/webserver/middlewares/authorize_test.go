@@ -9,6 +9,7 @@ import (
 	"github.com/artarts36/swarm-deploy/internal/entrypoints/webserver/authenticator"
 	"github.com/artarts36/swarm-deploy/internal/event/dispatcher"
 	"github.com/artarts36/swarm-deploy/internal/event/events"
+	"github.com/artarts36/swarm-deploy/internal/security"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -18,8 +19,10 @@ type fakeAuthenticator struct {
 	challenged         bool
 }
 
-func (f *fakeAuthenticator) Authenticate(_ *http.Request) bool {
-	return f.authenticateResult
+func (f *fakeAuthenticator) Authenticate(_ *http.Request) (security.User, bool) {
+	return security.User{
+		Name: "admin",
+	}, f.authenticateResult
 }
 
 func (f *fakeAuthenticator) Challenge(_ http.ResponseWriter) {

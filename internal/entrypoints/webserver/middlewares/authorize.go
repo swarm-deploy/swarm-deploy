@@ -7,6 +7,7 @@ import (
 	"github.com/artarts36/swarm-deploy/internal/entrypoints/webserver/authenticator"
 	"github.com/artarts36/swarm-deploy/internal/event/dispatcher"
 	"github.com/artarts36/swarm-deploy/internal/event/events"
+	"github.com/artarts36/swarm-deploy/internal/security"
 )
 
 const (
@@ -23,21 +24,24 @@ func Authorize(
 		return next
 	}
 
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		slog.InfoContext(r.Context(), "[security] authorizing request")
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		slog.InfoContext(req.Context(), "[security] authorizing request")
 
-		if auth.Authenticate(r) {
-			slog.InfoContext(r.Context(), "[security] request authorized")
-			username, _, _ := r.BasicAuth()
-			if !hasActiveAuthSession(r) {
-				eventDispatcher.Dispatch(r.Context(), &events.UserAuthenticated{Username: username})
+		user, authenticated := auth.Authenticate(req)
+		if authenticated {
+			req = req.WithContext(security.ContextWithUser(req.Context(), user))
+
+			slog.InfoContext(req.Context(), "[security] request authorized")
+			if !hasActiveAuthSession(req) {
+				eventDispatcher.Dispatch(req.Context(), &events.UserAuthenticated{Username: user.Name})
 				setActiveAuthSession(w)
 			}
-			next.ServeHTTP(w, r)
+
+			next.ServeHTTP(w, req)
 			return
 		}
 
-		slog.InfoContext(r.Context(), "[security] request rejected")
+		slog.InfoContext(req.Context(), "[security] request rejected")
 		auth.Challenge(w)
 	})
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/artarts36/swarm-deploy/internal/security"
 	"github.com/tg123/go-htpasswd"
 )
 
@@ -25,13 +26,20 @@ func newBasicAuthenticator(htpasswdFile string) (Authenticator, error) {
 	}, nil
 }
 
-func (s *basicAuthenticator) Authenticate(r *http.Request) bool {
+func (s *basicAuthenticator) Authenticate(r *http.Request) (security.User, bool) {
 	username, password, ok := r.BasicAuth()
 	if !ok {
-		return false
+		return security.User{}, false
 	}
 
-	return s.credentials.Match(username, password)
+	matched := s.credentials.Match(username, password)
+	if !matched {
+		return security.User{}, false
+	}
+
+	return security.User{
+		Name: username,
+	}, true
 }
 
 func (s *basicAuthenticator) Challenge(w http.ResponseWriter) {

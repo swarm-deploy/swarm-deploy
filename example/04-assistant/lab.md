@@ -63,6 +63,8 @@ assistant:
 Промпт находится в: [internal/assistant/prompt.md](./../../internal/assistant/prompt.md)
 При сборке образа, промпт грузится в память приложения. Промпт также можно дополнить правилами конкретного проекта/окружения.
 
+Также реализована защита от иньъекций регулярками: [internal/assistant/guard/injection.go](./../../internal/assistant/guard/injection.go)
+
 # RAG
 
 Реализован RAG по сервисам, задеплоенным в Docker Swarm, включая: название, образ, тип сервиса (бизнес-приложение или инфраструктура), веб-маршруты.
@@ -88,6 +90,22 @@ RAG строится после деплоя сервисов.
 
 Инструменты находятся в: [internal/entrypoints/mcpserver](./../../internal/entrypoints/mcpserver)
 
+# Аудит
+
+Приложение хранит историю событий, в том числе события о попытках внедрения Prompt Injection.
+Prompt Injection может определить как регулярка, так и сама модель.
+
+Например, после такого чата
+
+![prompt_injection_chat.png](prompt_injection_chat.png)
+
+В истории событий будут записи с:
+- `Detector` - кто определил инъекцию: регулярка или модель
+- `Prompt` - какой запрос поступил к ассистенту
+- `Username` - аутентифицированный пользователь, который попытался атаковать ассистента
+
+![prompt_injection_event_history.png](prompt_injection_event_history.png)
+
 # Мониторинг
 
 Приложение отдает метрики в формате Prometheus.
@@ -101,7 +119,7 @@ RAG строится после деплоя сервисов.
 - RAG: Размер индекса
 - RAG: Время последнего обновления индекса
 
-Также в проекте есть общие метрики на количество событий. Одно из важных событий: количество Prompt Injection.
+Также в проекте есть общие метрики на количество событий. Здесь смотрим на события Prompt Injection.
 
 - Метрики для MCP: [internal/metrics/mcp.go](../../internal/metrics/mcp.go)
 - Метрики для RAG: [internal/metrics/assistant.go](../../internal/metrics/assistant.go)

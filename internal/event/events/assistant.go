@@ -10,6 +10,7 @@ const (
 type AssistantPromptInjectionDetected struct {
 	Prompt   string
 	Detector AssistantPromptInjectionDetector
+	Username string
 }
 
 func (m *AssistantPromptInjectionDetected) Type() Type {
@@ -29,5 +30,17 @@ func (m *AssistantPromptInjectionDetected) Details() map[string]string {
 		details["prompt"] = m.Prompt
 	}
 
+	if m.Username != "" {
+		details["username"] = m.Username
+	}
+
 	return details
+}
+
+func (m *AssistantPromptInjectionDetected) WithUsername(username string) Event {
+	return &AssistantPromptInjectionDetected{
+		Prompt:   m.Prompt,
+		Detector: m.Detector,
+		Username: username,
+	}
 }

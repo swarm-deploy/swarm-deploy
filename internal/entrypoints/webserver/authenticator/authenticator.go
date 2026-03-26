@@ -5,11 +5,12 @@ import (
 	"net/http"
 
 	"github.com/artarts36/swarm-deploy/internal/config"
+	"github.com/artarts36/swarm-deploy/internal/security"
 )
 
 type Authenticator interface {
 	// Authenticate checks whether request credentials are valid.
-	Authenticate(r *http.Request) bool
+	Authenticate(r *http.Request) (security.User, bool)
 	// Challenge writes an unauthorized response with auth challenge headers.
 	Challenge(w http.ResponseWriter)
 }

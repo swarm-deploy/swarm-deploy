@@ -120,18 +120,23 @@ func (s *Service) Chat(ctx context.Context, request ChatRequest) ChatResponse {
 
 	run, created := s.getOrCreateRun(requestID, conversationID)
 	if created {
-		go s.runAssistant(conversationID, message, run)
+		go s.runAssistant(context.WithoutCancel(ctx), conversationID, message, run)
 	}
 
 	return s.awaitRun(ctx, run, waitTimeout)
 }
 
-func (s *Service) runAssistant(conversationID, message string, run *chatRun) {
-	ctx, cancel := context.WithTimeout(context.Background(), runExecutionTimeout)
+func (s *Service) runAssistant(
+	ctx context.Context,
+	conversationID,
+	message string,
+	run *chatRun,
+) {
+	runCtx, cancel := context.WithTimeout(ctx, runExecutionTimeout)
 	defer cancel()
 
 	history := s.getConversation(conversationID)
-	answer, _, err := s.graph.run(ctx, history, message)
+	answer, err := s.graph.run(runCtx, history, message)
 	if err != nil {
 		if errors.Is(err, errPromptInjection) {
 			run.finish(
@@ -140,7 +145,7 @@ func (s *Service) runAssistant(conversationID, message string, run *chatRun) {
 				"Request was rejected by prompt injection protection. Rephrase your debugging question.",
 			)
 
-			s.event.Dispatch(ctx, &events.AssistantPromptInjectionDetected{
+			s.event.Dispatch(runCtx, &events.AssistantPromptInjectionDetected{
 				Prompt:   message,
 				Detector: events.AssistantPromptInjectionDetectorRegexp,
 			})
@@ -149,7 +154,7 @@ func (s *Service) runAssistant(conversationID, message string, run *chatRun) {
 		}
 
 		slog.ErrorContext(
-			ctx,
+			runCtx,
 			"[assistant] failed to generate response",
 			slog.String("conversation_id", conversationID),
 			slog.String("request_id", run.requestID),

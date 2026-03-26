@@ -28,6 +28,7 @@ import (
 	"github.com/artarts36/swarm-deploy/internal/gitops"
 	"github.com/artarts36/swarm-deploy/internal/metrics"
 	"github.com/artarts36/swarm-deploy/internal/registry"
+	"github.com/artarts36/swarm-deploy/internal/security"
 	"github.com/artarts36/swarm-deploy/internal/service"
 	"github.com/artarts36/swarm-deploy/internal/swarm"
 	swarminspector "github.com/artarts36/swarm-deploy/internal/swarm/inspector"
@@ -57,6 +58,7 @@ func main() {
 		slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.Spec.Log.Level.Level()}),
 		slogm.RequestID(),
 		logx.EventType(),
+		security.LogUser(),
 	)))
 
 	err = os.MkdirAll(cfg.Spec.DataDir, 0o755)

@@ -22,3 +22,9 @@ func (m *SyncManualStarted) Details() map[string]string {
 
 	return details
 }
+
+func (m *SyncManualStarted) WithUserName(username string) Event {
+	return &SyncManualStarted{
+		TriggeredBy: username,
+	}
+}
