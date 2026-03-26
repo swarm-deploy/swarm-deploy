@@ -1,0 +1,44 @@
+global:
+  scrape_interval:     15s
+  evaluation_interval: 15s
+
+# A scrape configuration containing exactly one endpoint to scrape.
+scrape_configs:
+  - job_name: 'swarm-deploy'
+    scrape_interval: 30s
+    dockerswarm_sd_configs:
+      - host: unix:///var/run/docker.sock
+        role: tasks
+    relabel_configs:
+      - source_labels: [__meta_dockerswarm_task_desired_state]
+        regex: running
+        action: keep
+      - source_labels: [ __meta_dockerswarm_service_label_prometheus_port ]
+        action: keep
+        regex: .+
+      - source_labels: [ __meta_dockerswarm_service_label_org_group ]
+        action: keep
+        regex: swarm-deploy
+      - source_labels: [ __meta_dockerswarm_service_label_prometheus_port ]
+        regex: (\d+)
+        target_label: __port__
+        replacement: $1
+        action: replace
+      # Extract container ip from address
+      - source_labels: [__address__]
+        regex: '([^:]+):\d+'
+        target_label: __container_ip
+      # Set address to container ip:(prometheus.port label)
+      - source_labels: [__container_ip, __meta_dockerswarm_service_label_prometheus_port]
+        target_label: __address__
+        regex: '(.+);(.+)'
+        replacement: $1:$2
+      # Use Swarm service name as Prometheus job label.
+      - source_labels: [__meta_dockerswarm_service_name]
+        target_label: service
+      # Save swarm stack name
+      - source_labels: [__meta_dockerswarm_service_label_com_docker_stack_namespace]
+        target_label: namespace
+      # Set hostname as instance label
+      - source_labels: [__meta_dockerswarm_node_hostname]
+        target_label: node

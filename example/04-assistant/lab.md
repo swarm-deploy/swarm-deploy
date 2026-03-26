@@ -106,6 +106,30 @@ Prompt Injection может определить как регулярка, та
 
 ![prompt_injection_event_history.png](prompt_injection_event_history.png)
 
+Также можно настроить алертинг в Telegram, добавив конфиг:
+```yaml
+notifications:
+  on:
+    assistantPromptInjectionDetected:
+      telegram:
+        - name: ops-prompt-injection
+          # Path to file with bot token.
+          botTokenPath: /run/secrets/swarm-deploy-notifications-telegram-token
+          # Chat/channel ID.
+          chatId: "<chat-id>"
+          # Thread (topic) ID inside chat.
+          chatThreadId: 155
+          # Message text template.
+          message: |
+            ⚠️ Обнаружена попытка Prompt Injection.
+            Промпт: {{ .event.Prompt }}
+            Детектор: {{ .event.Detector }}
+```
+
+И получать вот такие сообщения:
+
+![prompt_injection_alert.png](prompt_injection_alert.png)
+
 # Мониторинг
 
 Приложение отдает метрики в формате Prometheus.

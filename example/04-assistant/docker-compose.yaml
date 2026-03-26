@@ -16,6 +16,8 @@ services:
         target: /etc/swarm-deploy/swarm-deploy.yaml
         mode: 0400
     deploy:
+      labels:
+        - prometheus.port=8081
       restart_policy:
         condition: on-failure
       placement:

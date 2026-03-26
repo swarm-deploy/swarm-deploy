@@ -223,7 +223,32 @@
           },
           "unit": "none"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "__systemRef": "hideSeriesFrom",
+            "matcher": {
+              "id": "byNames",
+              "options": {
+                "mode": "exclude",
+                "names": [
+                  "ping_web_routes ok=true"
+                ],
+                "prefix": "All except:",
+                "readOnly": true
+              }
+            },
+            "properties": [
+              {
+                "id": "custom.hideFrom",
+                "value": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": true
+                }
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 8,
@@ -249,7 +274,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum by (tool, ok) (increase(swarm_deploy_mcp_assistant_mcp_tool_execution_total[1m]))",
+          "expr": "sum by (tool, ok) (increase(swarm_deploy_mcp_tool_execution_total[1m]))",
           "legendFormat": "{{tool}} ok={{ok}}",
           "range": true,
           "refId": "A"
@@ -369,7 +394,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "histogram_quantile(0.95, sum by (le, tool, ok) (rate(swarm_deploy_assistant_mcp_tool_execution_duration_seconds_bucket[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le, tool, ok) (rate(swarm_deploy_mcp_tool_execution_duration_seconds_bucket[$__rate_interval])))",
           "legendFormat": "{{tool}} ok={{ok}}",
           "range": true,
           "refId": "A"
@@ -919,7 +944,7 @@
     }
   ],
   "preload": false,
-  "refresh": "30s",
+  "refresh": "5s",
   "schemaVersion": 41,
   "tags": [
     "swarm-deploy",
@@ -946,12 +971,12 @@
     ]
   },
   "time": {
-    "from": "now-6h",
+    "from": "now-1h",
     "to": "now"
   },
   "timepicker": {},
   "timezone": "",
   "title": "Swarm Deploy - Assistant & MCP",
   "uid": "swarm-deploy-assistant-mcp",
-  "version": 12
+  "version": 14
 }

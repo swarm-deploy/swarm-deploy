@@ -43,7 +43,7 @@ func newPrometheusMCP(namespace string) MCP {
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: "mcp",
-				Name:      "assistant_mcp_tool_execution_total",
+				Name:      "tool_execution_total",
 				Help:      "Number of MCP tool executions grouped by tool and ok flag.",
 			},
 			[]string{"tool", "ok"},
@@ -51,7 +51,8 @@ func newPrometheusMCP(namespace string) MCP {
 		toolExecutionTime: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: namespace,
-				Name:      "assistant_mcp_tool_execution_duration_seconds",
+				Subsystem: "mcp",
+				Name:      "tool_execution_duration_seconds",
 				Help:      "MCP tool execution duration in seconds grouped by tool and ok flag.",
 				Buckets:   []float64{0.001, 0.005, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10},
 			},
@@ -60,7 +61,8 @@ func newPrometheusMCP(namespace string) MCP {
 		unknownToolTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
-				Name:      "assistant_mcp_tool_unknown_total",
+				Subsystem: "mcp",
+				Name:      "tool_unknown_total",
 				Help:      "Number of unknown MCP tool invocations grouped by requested tool name.",
 			},
 			[]string{"tool"},
