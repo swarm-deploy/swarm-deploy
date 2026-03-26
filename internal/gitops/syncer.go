@@ -2,16 +2,10 @@ package gitops
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 
-	"github.com/artarts36/swarm-deploy/internal/config"
 	gitx "github.com/artarts36/swarm-deploy/internal/git"
-	git "github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/transport"
 )
 
 type SyncResult struct {
@@ -21,24 +15,15 @@ type SyncResult struct {
 }
 
 type Syncer struct {
-	repositoryURL string
-	branch        string
 	repositoryDir string
-	auth          transport.AuthMethod
+	repository    gitx.Repository
 }
 
-func NewSyncer(authResolver *gitx.AuthResolver, gitSpec config.GitSpec, dataDir string) (*Syncer, error) {
-	authMethod, err := authResolver.Resolve(gitSpec.Auth)
-	if err != nil {
-		return nil, err
-	}
-
+func NewSyncer(repository gitx.Repository, dataDir string) *Syncer {
 	return &Syncer{
-		repositoryURL: gitSpec.Repository,
-		branch:        gitSpec.Branch,
 		repositoryDir: filepath.Join(dataDir, "repo"),
-		auth:          authMethod,
-	}, nil
+		repository:    repository,
+	}
 }
 
 func (s *Syncer) RepositoryDir() string {
@@ -50,40 +35,17 @@ func (s *Syncer) WorkingDir() string {
 }
 
 func (s *Syncer) Sync(ctx context.Context) (SyncResult, error) {
-	if _, err := os.Stat(filepath.Join(s.repositoryDir, ".git")); err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return s.clone(ctx)
-		}
-		return SyncResult{}, fmt.Errorf("stat repository dir: %w", err)
-	}
-
-	repo, err := git.PlainOpen(s.repositoryDir)
-	if err != nil {
-		return SyncResult{}, fmt.Errorf("open repository: %w", err)
-	}
-
-	oldHead, err := resolveHead(repo)
+	oldHead, err := s.repository.Head(ctx)
 	if err != nil {
 		return SyncResult{}, fmt.Errorf("resolve old head: %w", err)
 	}
 
-	worktree, err := repo.Worktree()
+	err = s.repository.Pull(ctx)
 	if err != nil {
-		return SyncResult{}, fmt.Errorf("open worktree: %w", err)
+		return SyncResult{}, err
 	}
 
-	err = worktree.PullContext(ctx, &git.PullOptions{
-		RemoteName:    "origin",
-		SingleBranch:  true,
-		ReferenceName: plumbing.NewBranchReferenceName(s.branch),
-		Auth:          s.auth,
-		Force:         true,
-	})
-	if err != nil && !errors.Is(err, git.NoErrAlreadyUpToDate) {
-		return SyncResult{}, fmt.Errorf("git pull: %w", err)
-	}
-
-	newHead, err := resolveHead(repo)
+	newHead, err := s.repository.Head(ctx)
 	if err != nil {
 		return SyncResult{}, fmt.Errorf("resolve new head: %w", err)
 	}
@@ -93,39 +55,4 @@ func (s *Syncer) Sync(ctx context.Context) (SyncResult, error) {
 		OldRevision: oldHead,
 		NewRevision: newHead,
 	}, nil
-}
-
-func (s *Syncer) clone(ctx context.Context) (SyncResult, error) {
-	if err := os.MkdirAll(s.repositoryDir, 0o755); err != nil {
-		return SyncResult{}, fmt.Errorf("create repository dir: %w", err)
-	}
-
-	repo, err := git.PlainCloneContext(ctx, s.repositoryDir, false, &git.CloneOptions{
-		URL:           s.repositoryURL,
-		Auth:          s.auth,
-		SingleBranch:  true,
-		ReferenceName: plumbing.NewBranchReferenceName(s.branch),
-	})
-	if err != nil {
-		return SyncResult{}, fmt.Errorf("git clone: %w", err)
-	}
-
-	head, err := resolveHead(repo)
-	if err != nil {
-		return SyncResult{}, fmt.Errorf("resolve clone head: %w", err)
-	}
-
-	return SyncResult{
-		Updated:     true,
-		OldRevision: "",
-		NewRevision: head,
-	}, nil
-}
-
-func resolveHead(repo *git.Repository) (string, error) {
-	headRef, err := repo.Head()
-	if err != nil {
-		return "", err
-	}
-	return headRef.Hash().String(), nil
 }

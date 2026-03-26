@@ -8,17 +8,19 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/artarts36/swarm-deploy/internal/config"
+	gogit "github.com/go-git/go-git/v5"
+	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestAuthResolverResolveAnonymous(t *testing.T) {
-	resolver := NewAuthResolver()
-
+func TestResolveAuthMethodAnonymous(t *testing.T) {
 	testCases := []string{
 		"",
 		"none",
@@ -26,7 +28,7 @@ func TestAuthResolverResolveAnonymous(t *testing.T) {
 	}
 
 	for _, authType := range testCases {
-		authMethod, err := resolver.Resolve(config.GitAuthSpec{
+		authMethod, err := resolveAuthMethod(config.GitAuthSpec{
 			Type: authType,
 		})
 		require.NoError(t, err, "resolve auth for type %q", authType)
@@ -34,10 +36,8 @@ func TestAuthResolverResolveAnonymous(t *testing.T) {
 	}
 }
 
-func TestAuthResolverResolveHTTPWithUsernameAndPassword(t *testing.T) {
-	resolver := NewAuthResolver()
-
-	authMethod, err := resolver.Resolve(config.GitAuthSpec{
+func TestResolveAuthMethodHTTPWithUsernameAndPassword(t *testing.T) {
+	authMethod, err := resolveAuthMethod(config.GitAuthSpec{
 		Type: "http",
 		HTTP: config.GitHTTPAuth{
 			Username: "robot",
@@ -52,10 +52,8 @@ func TestAuthResolverResolveHTTPWithUsernameAndPassword(t *testing.T) {
 	assert.Equal(t, "secret", basicAuth.Password, "unexpected http password")
 }
 
-func TestAuthResolverResolveHTTPWithToken(t *testing.T) {
-	resolver := NewAuthResolver()
-
-	authMethod, err := resolver.Resolve(config.GitAuthSpec{
+func TestResolveAuthMethodHTTPWithToken(t *testing.T) {
+	authMethod, err := resolveAuthMethod(config.GitAuthSpec{
 		Type: "http",
 		HTTP: config.GitHTTPAuth{
 			Token: "token-value",
@@ -69,22 +67,18 @@ func TestAuthResolverResolveHTTPWithToken(t *testing.T) {
 	assert.Equal(t, "token-value", basicAuth.Password, "token auth should use token as password")
 }
 
-func TestAuthResolverResolveHTTPRequiresCredentials(t *testing.T) {
-	resolver := NewAuthResolver()
-
-	authMethod, err := resolver.Resolve(config.GitAuthSpec{
+func TestResolveAuthMethodHTTPRequiresCredentials(t *testing.T) {
+	authMethod, err := resolveAuthMethod(config.GitAuthSpec{
 		Type: "http",
 		HTTP: config.GitHTTPAuth{},
 	})
-	require.Error(t, err, "resolve http auth without credentials must fail")
+	require.Error(t, err, "http auth without credentials must fail")
 	assert.Nil(t, authMethod, "auth method must be nil on error")
 	assert.Contains(t, err.Error(), "http auth requires non-empty username and password/token", "unexpected error")
 }
 
-func TestAuthResolverResolveUnsupportedType(t *testing.T) {
-	resolver := NewAuthResolver()
-
-	authMethod, err := resolver.Resolve(config.GitAuthSpec{
+func TestResolveAuthMethodUnsupportedType(t *testing.T) {
+	authMethod, err := resolveAuthMethod(config.GitAuthSpec{
 		Type: "kerberos",
 	})
 	require.Error(t, err, "unsupported auth type must fail")
@@ -92,10 +86,8 @@ func TestAuthResolverResolveUnsupportedType(t *testing.T) {
 	assert.Contains(t, err.Error(), "unsupported git auth type", "unexpected error")
 }
 
-func TestAuthResolverResolveSSHRequiresPrivateKeyPath(t *testing.T) {
-	resolver := NewAuthResolver()
-
-	authMethod, err := resolver.Resolve(config.GitAuthSpec{
+func TestResolveAuthMethodSSHRequiresPrivateKeyPath(t *testing.T) {
+	authMethod, err := resolveAuthMethod(config.GitAuthSpec{
 		Type: "ssh",
 		SSH:  config.GitSSHAuthSpec{},
 	})
@@ -104,10 +96,8 @@ func TestAuthResolverResolveSSHRequiresPrivateKeyPath(t *testing.T) {
 	assert.Contains(t, err.Error(), "ssh auth requires privateKeyPath", "unexpected error")
 }
 
-func TestAuthResolverResolveSSHReturnsPrivateKeyReadError(t *testing.T) {
-	resolver := NewAuthResolver()
-
-	authMethod, err := resolver.Resolve(config.GitAuthSpec{
+func TestResolveAuthMethodSSHReturnsPrivateKeyReadError(t *testing.T) {
+	authMethod, err := resolveAuthMethod(config.GitAuthSpec{
 		Type: "ssh",
 		SSH: config.GitSSHAuthSpec{
 			PrivateKeyPath: filepath.Join(t.TempDir(), "missing-id_rsa"),
@@ -118,11 +108,10 @@ func TestAuthResolverResolveSSHReturnsPrivateKeyReadError(t *testing.T) {
 	assert.Contains(t, err.Error(), "read ssh private key from file", "unexpected error")
 }
 
-func TestAuthResolverResolveSSHWithInsecureIgnoreHostKey(t *testing.T) {
-	resolver := NewAuthResolver()
+func TestResolveAuthMethodSSHWithInsecureIgnoreHostKey(t *testing.T) {
 	keyPath := writePrivateKeyFile(t, t.TempDir())
 
-	authMethod, err := resolver.Resolve(config.GitAuthSpec{
+	authMethod, err := resolveAuthMethod(config.GitAuthSpec{
 		Type: "ssh",
 		SSH: config.GitSSHAuthSpec{
 			User:                  "deploy",
@@ -138,11 +127,10 @@ func TestAuthResolverResolveSSHWithInsecureIgnoreHostKey(t *testing.T) {
 	assert.NotNil(t, publicKeys.HostKeyCallback, "host key callback should be set")
 }
 
-func TestAuthResolverResolveSSHWithKnownHostsCallbackError(t *testing.T) {
-	resolver := NewAuthResolver()
+func TestResolveAuthMethodSSHWithKnownHostsCallbackError(t *testing.T) {
 	keyPath := writePrivateKeyFile(t, t.TempDir())
 
-	authMethod, err := resolver.Resolve(config.GitAuthSpec{
+	authMethod, err := resolveAuthMethod(config.GitAuthSpec{
 		Type: "ssh",
 		SSH: config.GitSSHAuthSpec{
 			PrivateKeyPath: keyPath,
@@ -154,11 +142,10 @@ func TestAuthResolverResolveSSHWithKnownHostsCallbackError(t *testing.T) {
 	assert.Contains(t, err.Error(), "build known_hosts callback", "unexpected error")
 }
 
-func TestAuthResolverResolveSSHUsesDefaultUser(t *testing.T) {
-	resolver := NewAuthResolver()
+func TestResolveAuthMethodSSHUsesDefaultUser(t *testing.T) {
 	keyPath := writePrivateKeyFile(t, t.TempDir())
 
-	authMethod, err := resolver.Resolve(config.GitAuthSpec{
+	authMethod, err := resolveAuthMethod(config.GitAuthSpec{
 		Type: "ssh",
 		SSH: config.GitSSHAuthSpec{
 			PrivateKeyPath: keyPath,
@@ -169,6 +156,53 @@ func TestAuthResolverResolveSSHUsesDefaultUser(t *testing.T) {
 	publicKeys, ok := authMethod.(*gitssh.PublicKeys)
 	require.True(t, ok, "auth method should be *ssh.PublicKeys")
 	assert.Equal(t, "git", publicKeys.User, "default ssh user should be git")
+}
+
+func TestNewGoGitRepositoryClonesRepositoryAndStoresGoGitRepository(t *testing.T) {
+	sourceRepositoryPath, sourceHead := initSourceRepository(t)
+	targetRepositoryPath := filepath.Join(t.TempDir(), "target")
+
+	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+		Repository: sourceRepositoryPath,
+		Branch:     sourceHead.Name().Short(),
+	}, targetRepositoryPath)
+	require.NoError(t, err, "create go-git repository")
+	require.NotNil(t, repository.repository, "go-git repository should be initialized by constructor")
+
+	head, err := repository.Head(t.Context())
+	require.NoError(t, err, "resolve head")
+	assert.Equal(t, sourceHead.Hash().String(), head, "unexpected repository head")
+}
+
+func TestNewGoGitRepositoryOpensExistingRepositoryWithoutClone(t *testing.T) {
+	sourceRepositoryPath, sourceHead := initSourceRepository(t)
+
+	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+		Repository: sourceRepositoryPath,
+		Branch:     "main",
+	}, sourceRepositoryPath)
+	require.NoError(t, err, "create repository over existing path")
+
+	head, err := repository.Head(t.Context())
+	require.NoError(t, err, "resolve head on existing repository")
+	assert.Equal(t, sourceHead.Hash().String(), head, "unexpected head for existing repository")
+}
+
+func TestLazyProxyInitializesRepositoryLazily(t *testing.T) {
+	sourceRepositoryPath, sourceHead := initSourceRepository(t)
+	targetRepositoryPath := filepath.Join(t.TempDir(), "target")
+
+	proxy := NewLazyProxy(config.GitSpec{
+		Repository: sourceRepositoryPath,
+		Branch:     sourceHead.Name().Short(),
+	}, targetRepositoryPath)
+
+	head, err := proxy.Head(t.Context())
+	require.NoError(t, err, "resolve proxy head")
+	assert.Equal(t, sourceHead.Hash().String(), head, "unexpected proxy head")
+
+	err = proxy.Pull(t.Context())
+	require.NoError(t, err, "pull lazy proxy repository")
 }
 
 func writePrivateKeyFile(t *testing.T, dir string) string {
@@ -188,4 +222,36 @@ func writePrivateKeyFile(t *testing.T, dir string) string {
 	require.NoError(t, err, "write private key file")
 
 	return keyPath
+}
+
+func initSourceRepository(t *testing.T) (string, *plumbing.Reference) {
+	t.Helper()
+
+	sourceRepositoryPath := filepath.Join(t.TempDir(), "source")
+	sourceRepository, err := gogit.PlainInit(sourceRepositoryPath, false)
+	require.NoError(t, err, "init source repository")
+
+	filePath := filepath.Join(sourceRepositoryPath, "README.md")
+	err = os.WriteFile(filePath, []byte("hello"), 0o600)
+	require.NoError(t, err, "write source repository file")
+
+	worktree, err := sourceRepository.Worktree()
+	require.NoError(t, err, "open source repository worktree")
+
+	_, err = worktree.Add("README.md")
+	require.NoError(t, err, "git add file")
+
+	_, err = worktree.Commit("initial commit", &gogit.CommitOptions{
+		Author: &object.Signature{
+			Name:  "test",
+			Email: "test@example.com",
+			When:  time.Now(),
+		},
+	})
+	require.NoError(t, err, "commit file")
+
+	head, err := sourceRepository.Head()
+	require.NoError(t, err, "resolve source repository head")
+
+	return sourceRepositoryPath, head
 }
