@@ -52,6 +52,7 @@ The endpoint supports start and poll with the same route.
 - `list_history_events` - returns recent events from event history
 - `sync` - triggers manual sync (same as `POST /api/v1/sync`)
 - `list_nodes` - returns current Docker Swarm nodes snapshot
+- `docker_network_list` - returns current Docker networks snapshot (`name`, `scope`, `driver`, `internal`, `attachable`, `ingress`, `labels`)
 - `ping_web_routes` - checks web routes for a specific service from `service.store` and returns HTTP results for each route
 - `get_actual_image_version` - resolves актуальный тег и digest Docker-образа в registry (Docker Hub и совместимые)
   - registry is selected automatically by tool logic

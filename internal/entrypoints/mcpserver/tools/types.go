@@ -30,6 +30,12 @@ type NodesReader interface {
 	List() []inspector.NodeInfo
 }
 
+// NetworkInspector inspects current Docker networks snapshot.
+type NetworkInspector interface {
+	// InspectNetworks returns current Docker networks snapshot.
+	InspectNetworks(ctx context.Context) ([]inspector.NetworkInfo, error)
+}
+
 // ServicesReader reads current service metadata snapshot.
 type ServicesReader interface {
 	// List returns current services metadata snapshot.

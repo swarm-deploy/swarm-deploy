@@ -24,6 +24,7 @@ type Executor struct {
 func NewExecutor(
 	historyStore mcpTools.HistoryReader,
 	nodesStore mcpTools.NodesReader,
+	networkInspector mcpTools.NetworkInspector,
 	serviceStore mcpTools.ServicesReader,
 	imageVersionResolver mcpTools.ImageVersionResolver,
 	gitRepository mcpTools.GitRepository,
@@ -37,6 +38,7 @@ func NewExecutor(
 		mcpTools.NewListHistoryEvents(historyStore),
 		mcpTools.NewSync(control),
 		mcpTools.NewListNodes(nodesStore),
+		mcpTools.NewDockerNetworkList(networkInspector),
 		mcpTools.NewPingWebRoutes(serviceStore),
 		mcpTools.NewGetActualImageVersion(imageVersionResolver),
 		mcpTools.NewListGitCommits(gitRepository),

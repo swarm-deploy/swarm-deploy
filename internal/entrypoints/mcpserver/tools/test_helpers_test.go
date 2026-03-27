@@ -46,6 +46,24 @@ func (f *fakeNodeStore) List() []inspector.NodeInfo {
 	return out
 }
 
+type fakeNetworkInspector struct {
+	networks []inspector.NetworkInfo
+	err      error
+	called   int
+}
+
+func (f *fakeNetworkInspector) InspectNetworks(_ context.Context) ([]inspector.NetworkInfo, error) {
+	f.called++
+	if f.err != nil {
+		return nil, f.err
+	}
+
+	out := make([]inspector.NetworkInfo, len(f.networks))
+	copy(out, f.networks)
+
+	return out, nil
+}
+
 type fakeServiceStore struct {
 	services []service.Info
 }

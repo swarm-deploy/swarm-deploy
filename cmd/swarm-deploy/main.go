@@ -131,6 +131,7 @@ func main() {
 		serviceStore,
 		eventHistory,
 		nodeStore,
+		inspectorSvc,
 		gitRepository,
 		control,
 		eventDispatcher,
@@ -211,6 +212,7 @@ func buildAssistantService(
 	serviceStore *service.Store,
 	eventHistory *history.Store,
 	nodeStore *swarminspector.NodeStore,
+	inspectorSvc *swarminspector.Inspector,
 	gitRepository gitx.Repository,
 	control *controller.Controller,
 	eventDispatcher dispatcher.Dispatcher,
@@ -241,6 +243,7 @@ func buildAssistantService(
 	toolExecutor := mcpserver.NewExecutor(
 		eventHistory,
 		nodeStore,
+		inspectorSvc,
 		serviceStore,
 		imageVersionResolver,
 		gitRepository,
