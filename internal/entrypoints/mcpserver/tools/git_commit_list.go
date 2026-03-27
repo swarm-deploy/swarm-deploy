@@ -21,7 +21,7 @@ type ListGitCommits struct {
 	repository GitRepository
 }
 
-// NewListGitCommits creates git_list_commits component.
+// NewListGitCommits creates git_commit_list component.
 func NewListGitCommits(repository GitRepository) *ListGitCommits {
 	return &ListGitCommits{
 		repository: repository,
@@ -31,7 +31,7 @@ func NewListGitCommits(repository GitRepository) *ListGitCommits {
 // Definition returns tool metadata visible to the model.
 func (l *ListGitCommits) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
-		Name:        "git_list_commits",
+		Name:        "git_commit_list",
 		Description: "Returns latest commits from repository history.",
 		ParametersJSONSchema: map[string]any{
 			"type": "object",
@@ -47,7 +47,7 @@ func (l *ListGitCommits) Definition() routing.ToolDefinition {
 	}
 }
 
-// Execute runs git_list_commits tool.
+// Execute runs git_commit_list tool.
 func (l *ListGitCommits) Execute(ctx context.Context, request routing.Request) (routing.Response, error) {
 	limit, err := parseGitCommitsLimit(request.Payload["limit"])
 	if err != nil {

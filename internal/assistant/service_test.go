@@ -36,7 +36,7 @@ type fakeTools struct {
 func (f *fakeTools) Definitions() []routing.ToolDefinition {
 	return []routing.ToolDefinition{
 		{
-			Name:        "sync",
+			Name:        "deploy_sync_trigger",
 			Description: "Trigger sync",
 			ParametersJSONSchema: map[string]any{
 				"type":       "object",
@@ -164,7 +164,7 @@ func TestServiceChatHandlesToolCalls(t *testing.T) {
 										"id":   "tool-1",
 										"type": "function",
 										"function": map[string]any{
-											"name":      "sync",
+											"name":      "deploy_sync_trigger",
 											"arguments": "{}",
 										},
 									},

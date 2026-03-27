@@ -13,7 +13,7 @@ type ListNodes struct {
 	nodes NodesReader
 }
 
-// NewListNodes creates list_nodes component.
+// NewListNodes creates swarm_node_list component.
 func NewListNodes(nodesStore NodesReader) *ListNodes {
 	return &ListNodes{nodes: nodesStore}
 }
@@ -21,7 +21,7 @@ func NewListNodes(nodesStore NodesReader) *ListNodes {
 // Definition returns tool metadata visible to the model.
 func (l *ListNodes) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
-		Name:        "list_nodes",
+		Name:        "swarm_node_list",
 		Description: "Returns current Docker Swarm nodes snapshot.",
 		ParametersJSONSchema: map[string]any{
 			"type":       "object",
@@ -30,7 +30,7 @@ func (l *ListNodes) Definition() routing.ToolDefinition {
 	}
 }
 
-// Execute runs list_nodes tool.
+// Execute runs swarm_node_list tool.
 func (l *ListNodes) Execute(_ context.Context, _ routing.Request) (routing.Response, error) {
 	if l.nodes == nil {
 		return routing.Response{}, fmt.Errorf("nodes store is not configured")

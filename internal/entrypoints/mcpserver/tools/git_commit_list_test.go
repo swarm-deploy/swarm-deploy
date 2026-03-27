@@ -37,7 +37,7 @@ func TestListGitCommitsExecute(t *testing.T) {
 			"limit": float64(2),
 		},
 	})
-	require.NoError(t, err, "execute git_list_commits")
+	require.NoError(t, err, "execute git_commit_list")
 
 	repository, ok := tool.repository.(*fakeGitRepository)
 	require.True(t, ok, "expected fake git repository")
@@ -63,7 +63,7 @@ func TestListGitCommitsExecuteUsesDefaultLimit(t *testing.T) {
 	_, err := tool.Execute(context.Background(), routing.Request{
 		Payload: map[string]any{},
 	})
-	require.NoError(t, err, "execute git_list_commits with default limit")
+	require.NoError(t, err, "execute git_commit_list with default limit")
 
 	repository, ok := tool.repository.(*fakeGitRepository)
 	require.True(t, ok, "expected fake git repository")

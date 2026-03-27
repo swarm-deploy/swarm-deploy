@@ -29,7 +29,7 @@ type PingWebRoutes struct {
 	client   HTTPDoer
 }
 
-// NewPingWebRoutes creates ping_web_routes component.
+// NewPingWebRoutes creates service_webroute_ping component.
 func NewPingWebRoutes(services ServicesReader) *PingWebRoutes {
 	return &PingWebRoutes{
 		services: services,
@@ -42,7 +42,7 @@ func NewPingWebRoutes(services ServicesReader) *PingWebRoutes {
 // Definition returns tool metadata visible to the model.
 func (p *PingWebRoutes) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
-		Name:        "ping_web_routes",
+		Name:        "service_webroute_ping",
 		Description: "Checks web routes for a specific service from service.store and returns HTTP results for each route.",
 		ParametersJSONSchema: map[string]any{
 			"type": "object",
@@ -63,7 +63,7 @@ func (p *PingWebRoutes) Definition() routing.ToolDefinition {
 	}
 }
 
-// Execute runs ping_web_routes tool.
+// Execute runs service_webroute_ping tool.
 func (p *PingWebRoutes) Execute(ctx context.Context, request routing.Request) (routing.Response, error) {
 	if p.services == nil {
 		return routing.Response{}, fmt.Errorf("services store is not configured")

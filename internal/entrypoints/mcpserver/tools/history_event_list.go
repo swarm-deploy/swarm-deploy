@@ -22,7 +22,7 @@ type ListHistoryEvents struct {
 	history HistoryReader
 }
 
-// NewListHistoryEvents creates list_history_events component.
+// NewListHistoryEvents creates history_event_list component.
 func NewListHistoryEvents(historyStore HistoryReader) *ListHistoryEvents {
 	return &ListHistoryEvents{history: historyStore}
 }
@@ -30,7 +30,7 @@ func NewListHistoryEvents(historyStore HistoryReader) *ListHistoryEvents {
 // Definition returns tool metadata visible to the model.
 func (l *ListHistoryEvents) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
-		Name:        "list_history_events",
+		Name:        "history_event_list",
 		Description: "Returns latest events from local event history.",
 		ParametersJSONSchema: map[string]any{
 			"type": "object",
@@ -46,7 +46,7 @@ func (l *ListHistoryEvents) Definition() routing.ToolDefinition {
 	}
 }
 
-// Execute runs list_history_events tool.
+// Execute runs history_event_list tool.
 func (l *ListHistoryEvents) Execute(_ context.Context, request routing.Request) (routing.Response, error) {
 	limit, err := parseHistoryLimit(request.Payload["limit"])
 	if err != nil {

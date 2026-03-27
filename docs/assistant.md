@@ -49,18 +49,18 @@ The endpoint supports start and poll with the same route.
 
 ## Built-in tools
 
-- `list_history_events` - returns recent events from event history
-- `sync` - triggers manual sync (same as `POST /api/v1/sync`)
-- `list_nodes` - returns current Docker Swarm nodes snapshot
+- `history_event_list` - returns recent events from event history
+- `deploy_sync_trigger` - triggers manual sync (same as `POST /api/v1/sync`)
+- `swarm_node_list` - returns current Docker Swarm nodes snapshot
 - `docker_network_list` - returns current Docker networks snapshot (`name`, `scope`, `driver`, `internal`, `attachable`, `ingress`, `labels`)
-- `ping_web_routes` - checks web routes for a specific service from `service.store` and returns HTTP results for each route
-- `get_actual_image_version` - resolves актуальный тег и digest Docker-образа в registry (Docker Hub и совместимые)
+- `service_webroute_ping` - checks web routes for a specific service from `service.store` and returns HTTP results for each route
+- `registry_image_version_get` - resolves актуальный тег и digest Docker-образа в registry (Docker Hub и совместимые)
   - registry is selected automatically by tool logic
-- `git_list_commits` - returns latest git commits from repository history (`limit` optional, default 10)
+- `git_commit_list` - returns latest git commits from repository history (`limit` optional, default 10)
 
 Example use-case:
 - Question: `Я использую актуальную версию этого сервиса?`
-- Expected assistant flow: detect current service image from `service.store` -> call `get_actual_image_version` for current image and for upstream latest image -> compare and answer with concrete tag/digest difference.
+- Expected assistant flow: detect current service image from `service.store` -> call `registry_image_version_get` for current image and for upstream latest image -> compare and answer with concrete tag/digest difference.
 
 Tool access is controlled by `assistant.tools`:
 

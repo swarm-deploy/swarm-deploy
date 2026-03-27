@@ -28,7 +28,7 @@ func TestGetActualImageVersionExecute(t *testing.T) {
 			"image": "nginx",
 		},
 	})
-	require.NoError(t, err, "execute get_actual_image_version")
+	require.NoError(t, err, "execute registry_image_version_get")
 	assert.Equal(t, 1, resolver.called, "resolver must be called once")
 	assert.Equal(t, "docker.io/library/nginx", resolver.image, "unexpected image passed into resolver")
 
@@ -68,7 +68,7 @@ func TestGetActualImageVersionExecuteWithDockerHubRegistry(t *testing.T) {
 			"image": "postgres:15",
 		},
 	})
-	require.NoError(t, err, "execute get_actual_image_version with docker hub image")
+	require.NoError(t, err, "execute registry_image_version_get with docker hub image")
 	assert.Equal(t, "docker.io/library/postgres:15", resolver.image, "tool must force Docker Hub image reference")
 }
 
@@ -110,6 +110,6 @@ func TestGetActualImageVersionExecuteKeepsCustomRegistryImage(t *testing.T) {
 			"image": "registry.example.com/team/api:1.2.3",
 		},
 	})
-	require.NoError(t, err, "execute get_actual_image_version with custom registry image")
+	require.NoError(t, err, "execute registry_image_version_get with custom registry image")
 	assert.Equal(t, "registry.example.com/team/api:1.2.3", resolver.image, "custom registry image must not be rewritten")
 }

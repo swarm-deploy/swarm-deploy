@@ -465,7 +465,7 @@ stacks:
   file: ./stacks.yaml
 assistant:
   enabled: false
-  tools: ["sync", " "]
+  tools: ["deploy_sync_trigger", " "]
   model:
     name: ""
     openai:

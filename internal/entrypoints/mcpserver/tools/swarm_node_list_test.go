@@ -27,7 +27,7 @@ func TestListNodesExecute(t *testing.T) {
 	})
 
 	response, err := tool.Execute(context.Background(), routing.Request{})
-	require.NoError(t, err, "execute list_nodes tool")
+	require.NoError(t, err, "execute swarm_node_list tool")
 
 	var payload struct {
 		Nodes []inspector.NodeInfo `json:"nodes"`

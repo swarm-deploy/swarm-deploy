@@ -59,7 +59,7 @@ func TestPingWebRoutesExecute(t *testing.T) {
 			"service": "api",
 		},
 	})
-	require.NoError(t, err, "execute ping_web_routes")
+	require.NoError(t, err, "execute service_webroute_ping")
 
 	var payload struct {
 		Results []struct {
@@ -170,7 +170,7 @@ func TestPingWebRoutesExecuteWithStack(t *testing.T) {
 			"stack":   "edge",
 		},
 	})
-	require.NoError(t, err, "execute ping_web_routes with stack")
+	require.NoError(t, err, "execute service_webroute_ping with stack")
 
 	var payload struct {
 		Results []struct {

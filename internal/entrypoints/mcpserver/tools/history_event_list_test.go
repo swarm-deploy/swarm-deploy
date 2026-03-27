@@ -27,7 +27,7 @@ func TestListHistoryEventsExecute(t *testing.T) {
 			"limit": float64(2),
 		},
 	})
-	require.NoError(t, err, "execute list_history_events")
+	require.NoError(t, err, "execute history_event_list")
 
 	var payload struct {
 		Events []history.Entry `json:"events"`

@@ -15,7 +15,7 @@ type GetActualImageVersion struct {
 	resolver ImageVersionResolver
 }
 
-// NewGetActualImageVersion creates get_actual_image_version component.
+// NewGetActualImageVersion creates registry_image_version_get component.
 func NewGetActualImageVersion(resolver ImageVersionResolver) *GetActualImageVersion {
 	return &GetActualImageVersion{
 		resolver: resolver,
@@ -25,7 +25,7 @@ func NewGetActualImageVersion(resolver ImageVersionResolver) *GetActualImageVers
 // Definition returns tool metadata visible to the model.
 func (g *GetActualImageVersion) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
-		Name:        "get_actual_image_version",
+		Name:        "registry_image_version_get",
 		Description: "Resolves an actual image tag and digest in container registry (Docker Hub and registry v2 compatible registries).", //nolint:lll//not need
 		ParametersJSONSchema: map[string]any{
 			"type": "object",
@@ -42,7 +42,7 @@ func (g *GetActualImageVersion) Definition() routing.ToolDefinition {
 	}
 }
 
-// Execute runs get_actual_image_version tool.
+// Execute runs registry_image_version_get tool.
 func (g *GetActualImageVersion) Execute(ctx context.Context, request routing.Request) (routing.Response, error) {
 	if g.resolver == nil {
 		return routing.Response{}, fmt.Errorf("image version resolver is not configured")

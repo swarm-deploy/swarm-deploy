@@ -15,7 +15,7 @@ func TestSyncExecute(t *testing.T) {
 	tool := NewSync(control)
 
 	response, err := tool.Execute(context.Background(), routing.Request{})
-	require.NoError(t, err, "execute sync tool")
+	require.NoError(t, err, "execute deploy_sync_trigger tool")
 
 	var payload struct {
 		Queued bool `json:"queued"`

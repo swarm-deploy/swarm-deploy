@@ -12,7 +12,7 @@ type Sync struct {
 	control SyncTrigger
 }
 
-// NewSync creates sync component.
+// NewSync creates deploy_sync_trigger component.
 func NewSync(control SyncTrigger) *Sync {
 	return &Sync{control: control}
 }
@@ -20,7 +20,7 @@ func NewSync(control SyncTrigger) *Sync {
 // Definition returns tool metadata visible to the model.
 func (s *Sync) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
-		Name:        "sync",
+		Name:        "deploy_sync_trigger",
 		Description: "Triggers manual synchronization run.",
 		ParametersJSONSchema: map[string]any{
 			"type":       "object",
@@ -29,7 +29,7 @@ func (s *Sync) Definition() routing.ToolDefinition {
 	}
 }
 
-// Execute runs sync tool.
+// Execute runs deploy_sync_trigger tool.
 func (s *Sync) Execute(_ context.Context, _ routing.Request) (routing.Response, error) {
 	queued := s.control.Trigger(controller.TriggerManual)
 	payload := struct {
