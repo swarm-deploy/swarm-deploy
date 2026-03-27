@@ -5,11 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/artarts36/swarm-deploy/internal/config"
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/object"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
@@ -17,11 +20,39 @@ import (
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
+// Commit describes git commit metadata and per-file diff data.
+type Commit struct {
+	// Author is a commit author name.
+	Author string
+	// AuthorEmail is a commit author email.
+	AuthorEmail string
+	// Time is a commit author timestamp.
+	Time time.Time
+	// Files contains per-file diffs between commit parent and commit itself.
+	Files []CommitFileDiff
+}
+
+// CommitFileDiff contains one changed file snapshot in commit diff.
+type CommitFileDiff struct {
+	// OldPath is a file path before change.
+	OldPath string
+	// NewPath is a file path after change.
+	NewPath string
+	// OldContent is a text file content before change. Empty for binary/non-existent files.
+	OldContent string
+	// NewContent is a text file content after change. Empty for binary/non-existent files.
+	NewContent string
+	// Patch is a unified diff for this file.
+	Patch string
+}
+
 type Repository interface {
 	// Pull fetches latest changes from origin for configured branch.
 	Pull(ctx context.Context) error
 	// Head resolves current HEAD revision hash.
 	Head(ctx context.Context) (string, error)
+	// Show returns commit metadata and per-file diff for a given revision.
+	Show(ctx context.Context, commitHash string) (Commit, error)
 }
 
 type GoGitRepository struct {
@@ -80,6 +111,128 @@ func (r *GoGitRepository) Head(context.Context) (string, error) {
 	}
 
 	return headRef.Hash().String(), nil
+}
+
+func (r *GoGitRepository) Show(ctx context.Context, commitHash string) (Commit, error) {
+	trimmedHash := strings.TrimSpace(commitHash)
+	if trimmedHash == "" {
+		return Commit{}, errors.New("commit hash is required")
+	}
+
+	commit, err := r.repository.CommitObject(plumbing.NewHash(trimmedHash))
+	if err != nil {
+		return Commit{}, fmt.Errorf("find commit %q: %w", trimmedHash, err)
+	}
+
+	fileDiffs, err := buildCommitFileDiffs(ctx, commit)
+	if err != nil {
+		return Commit{}, fmt.Errorf("build commit %q file diff: %w", trimmedHash, err)
+	}
+
+	return Commit{
+		Author:      commit.Author.Name,
+		AuthorEmail: commit.Author.Email,
+		Time:        commit.Author.When,
+		Files:       fileDiffs,
+	}, nil
+}
+
+func buildCommitFileDiffs(ctx context.Context, commit *object.Commit) ([]CommitFileDiff, error) {
+	commitTree, err := commit.Tree()
+	if err != nil {
+		return nil, fmt.Errorf("resolve commit tree: %w", err)
+	}
+
+	var parentTree *object.Tree
+	if commit.NumParents() > 0 {
+		parentCommit, parentCommitErr := commit.Parent(0)
+		if parentCommitErr != nil {
+			return nil, fmt.Errorf("resolve parent commit: %w", parentCommitErr)
+		}
+
+		parentTree, err = parentCommit.Tree()
+		if err != nil {
+			return nil, fmt.Errorf("resolve parent tree: %w", err)
+		}
+	}
+
+	changes, err := object.DiffTreeWithOptions(ctx, parentTree, commitTree, object.DefaultDiffTreeOptions)
+	if err != nil {
+		return nil, fmt.Errorf("diff trees: %w", err)
+	}
+
+	sort.Slice(changes, func(i, j int) bool {
+		return changedPath(changes[i]) < changedPath(changes[j])
+	})
+
+	diffs := make([]CommitFileDiff, 0, len(changes))
+	for _, change := range changes {
+		fileDiff, fileDiffErr := buildCommitFileDiff(ctx, change)
+		if fileDiffErr != nil {
+			return nil, fileDiffErr
+		}
+		diffs = append(diffs, fileDiff)
+	}
+
+	return diffs, nil
+}
+
+func changedPath(change *object.Change) string {
+	if change.To.Name != "" {
+		return change.To.Name
+	}
+	return change.From.Name
+}
+
+func buildCommitFileDiff(ctx context.Context, change *object.Change) (CommitFileDiff, error) {
+	fromFile, toFile, err := change.Files()
+	if err != nil {
+		return CommitFileDiff{}, fmt.Errorf("read changed files: %w", err)
+	}
+
+	oldContent, err := readTextFileContent(fromFile)
+	if err != nil {
+		return CommitFileDiff{}, fmt.Errorf("read old file content: %w", err)
+	}
+
+	newContent, err := readTextFileContent(toFile)
+	if err != nil {
+		return CommitFileDiff{}, fmt.Errorf("read new file content: %w", err)
+	}
+
+	patch, err := change.PatchContext(ctx)
+	if err != nil {
+		return CommitFileDiff{}, fmt.Errorf("build file patch: %w", err)
+	}
+
+	return CommitFileDiff{
+		OldPath:    strings.TrimSpace(change.From.Name),
+		NewPath:    strings.TrimSpace(change.To.Name),
+		OldContent: oldContent,
+		NewContent: newContent,
+		Patch:      patch.String(),
+	}, nil
+}
+
+func readTextFileContent(file *object.File) (string, error) {
+	if file == nil {
+		return "", nil
+	}
+
+	isBinary, err := file.IsBinary()
+	if err != nil {
+		return "", err
+	}
+	if isBinary {
+		return "", nil
+	}
+
+	content, err := file.Contents()
+	if err != nil {
+		return "", err
+	}
+
+	return content, nil
 }
 
 func openRepository(

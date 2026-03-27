@@ -32,12 +32,13 @@ type InitJob struct {
 }
 
 type Service struct {
-	Name     string      `json:"name"`
-	Image    string      `json:"image"`
-	Networks []string    `json:"networks,omitempty"`
-	Secrets  []ObjectRef `json:"secrets,omitempty"`
-	Configs  []ObjectRef `json:"configs,omitempty"`
-	InitJobs []InitJob   `json:"init_jobs,omitempty"`
+	Name        string            `json:"name"`
+	Image       string            `json:"image"`
+	Environment map[string]string `json:"environment,omitempty"`
+	Networks    []string          `json:"networks,omitempty"`
+	Secrets     []ObjectRef       `json:"secrets,omitempty"`
+	Configs     []ObjectRef       `json:"configs,omitempty"`
+	InitJobs    []InitJob         `json:"init_jobs,omitempty"`
 }
 
 type File struct {
@@ -56,8 +57,12 @@ func Load(path string) (*File, error) {
 		return nil, fmt.Errorf("read compose file %s: %w", path, err)
 	}
 
+	return Parse(raw)
+}
+
+func Parse(raw []byte) (*File, error) {
 	root := map[string]any{}
-	err = yaml.Unmarshal(raw, &root)
+	err := yaml.Unmarshal(raw, &root)
 	if err != nil {
 		return nil, fmt.Errorf("decode compose yaml: %w", err)
 	}
@@ -245,12 +250,13 @@ func parseServices(root map[string]any) ([]Service, error) {
 		}
 
 		services = append(services, Service{
-			Name:     name,
-			Image:    asString(serviceMap["image"]),
-			Networks: resolveNetworkAliases(parseNetworks(serviceMap["networks"]), networkNames),
-			Secrets:  parseObjectRefs(serviceMap["secrets"]),
-			Configs:  parseObjectRefs(serviceMap["configs"]),
-			InitJobs: initJobs,
+			Name:        name,
+			Image:       asString(serviceMap["image"]),
+			Environment: parseEnvironment(serviceMap["environment"]),
+			Networks:    resolveNetworkAliases(parseNetworks(serviceMap["networks"]), networkNames),
+			Secrets:     parseObjectRefs(serviceMap["secrets"]),
+			Configs:     parseObjectRefs(serviceMap["configs"]),
+			InitJobs:    initJobs,
 		})
 	}
 

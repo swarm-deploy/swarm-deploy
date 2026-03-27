@@ -40,6 +40,15 @@ func (p *LazyProxy) Head(ctx context.Context) (string, error) {
 	return repo.Head(ctx)
 }
 
+func (p *LazyProxy) Show(ctx context.Context, commitHash string) (Commit, error) {
+	repo, err := p.init(ctx)
+	if err != nil {
+		return Commit{}, err
+	}
+
+	return repo.Show(ctx, commitHash)
+}
+
 func (p *LazyProxy) init(ctx context.Context) (*GoGitRepository, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

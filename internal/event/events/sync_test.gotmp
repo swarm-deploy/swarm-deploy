@@ -1,0 +1,41 @@
+package events
+
+import (
+	"errors"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestSyncManualStartedWithUsername(t *testing.T) {
+	event := (&SyncManualStarted{}).WithUsername("devops-admin")
+
+	startedEvent, ok := event.(*SyncManualStarted)
+	require.True(t, ok, "expected SyncManualStarted event")
+	assert.Equal(t, "devops-admin", startedEvent.TriggeredBy, "expected username in details")
+	assert.Equal(t, TypeSyncManualStarted, startedEvent.Type(), "expected event type")
+}
+
+func TestSyncFinishedDetails(t *testing.T) {
+	event := &SyncFinished{
+		Reason: "manual",
+		Result: "partial_error",
+		Commit: "abc123",
+		Error:  errors.New("deploy failed"),
+	}
+
+	assert.Equal(t, TypeSyncFinished, event.Type(), "expected event type")
+	assert.Equal(t, "Sync finished with result partial_error", event.Message(), "unexpected message")
+	assert.Equal(t, map[string]string{
+		"reason": "manual",
+		"result": "partial_error",
+		"commit": "abc123",
+		"error":  "deploy failed",
+	}, event.Details(), "unexpected details")
+}
+
+func TestSyncFinishedMessage(t *testing.T) {
+	assert.Equal(t, "Sync finished", (&SyncFinished{}).Message(), "expected default message")
+	assert.Equal(t, "Sync finished successfully", (&SyncFinished{Result: "success"}).Message(), "expected success message")
+}

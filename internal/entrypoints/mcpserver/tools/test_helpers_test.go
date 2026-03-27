@@ -2,9 +2,12 @@ package tools
 
 import (
 	"context"
+	"time"
 
 	"github.com/artarts36/swarm-deploy/internal/controller"
+	"github.com/artarts36/swarm-deploy/internal/differ"
 	"github.com/artarts36/swarm-deploy/internal/event/history"
+	gitx "github.com/artarts36/swarm-deploy/internal/git"
 	"github.com/artarts36/swarm-deploy/internal/registry"
 	"github.com/artarts36/swarm-deploy/internal/service"
 	"github.com/artarts36/swarm-deploy/internal/swarm/inspector"
@@ -73,4 +76,44 @@ func (f *fakeImageVersionResolver) ResolveActualVersion(
 	}
 
 	return f.version, nil
+}
+
+type fakeGitRepository struct {
+	commit gitx.Commit
+	err    error
+	called int
+	hash   string
+}
+
+func (f *fakeGitRepository) Show(_ context.Context, hash string) (gitx.Commit, error) {
+	f.called++
+	f.hash = hash
+	if f.err != nil {
+		return gitx.Commit{}, f.err
+	}
+
+	return f.commit, nil
+}
+
+type fakeCommitDiffer struct {
+	diff         differ.Diff
+	err          error
+	called       int
+	composeFiles []differ.ComposeFile
+}
+
+func (f *fakeCommitDiffer) Compare(composeFiles []differ.ComposeFile) (differ.Diff, error) {
+	f.called++
+	f.composeFiles = make([]differ.ComposeFile, len(composeFiles))
+	copy(f.composeFiles, composeFiles)
+
+	if f.err != nil {
+		return differ.Diff{}, f.err
+	}
+
+	return f.diff, nil
+}
+
+func defaultCommitTime() time.Time {
+	return time.Date(2026, time.March, 27, 0, 0, 0, 0, time.UTC)
 }

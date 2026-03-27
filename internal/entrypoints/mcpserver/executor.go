@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/artarts36/swarm-deploy/internal/config"
 	"github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	mcpTools "github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/tools"
 	"github.com/artarts36/swarm-deploy/internal/event/dispatcher"
@@ -25,6 +26,9 @@ func NewExecutor(
 	nodesStore mcpTools.NodesReader,
 	serviceStore mcpTools.ServicesReader,
 	imageVersionResolver mcpTools.ImageVersionResolver,
+	gitRepository mcpTools.GitRepository,
+	stacks []config.StackSpec,
+	commitDiffer mcpTools.CommitDiffer,
 	control mcpTools.SyncTrigger,
 	eventDispatcher dispatcher.Dispatcher,
 	mcpMetrics metrics.MCP,
@@ -35,6 +39,7 @@ func NewExecutor(
 		mcpTools.NewListNodes(nodesStore),
 		mcpTools.NewPingWebRoutes(serviceStore),
 		mcpTools.NewGetActualImageVersion(imageVersionResolver),
+		mcpTools.NewGitCommitDiff(gitRepository, stacks, commitDiffer),
 		mcpTools.NewReportPromptInjection(eventDispatcher),
 	}
 
