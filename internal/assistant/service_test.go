@@ -19,10 +19,13 @@ import (
 )
 
 type fakeStore struct {
-	services []service.Info
+	services  []service.Info
+	listCalls atomic.Int64
 }
 
 func (f *fakeStore) List() []service.Info {
+	f.listCalls.Add(1)
+
 	out := make([]service.Info, len(f.services))
 	copy(out, f.services)
 	return out
@@ -214,6 +217,57 @@ func TestServiceChatHandlesToolCalls(t *testing.T) {
 	})
 	assert.Equal(t, StatusCompleted, response.Status, "expected completed response")
 	assert.Equal(t, "Sync was queued.", response.Answer, "unexpected answer")
+}
+
+func TestServiceChatSkipsRetrievalForSmallTalk(t *testing.T) {
+	store := &fakeStore{
+		services: []service.Info{{Name: "api", Stack: "app", Image: "example/api:v1"}},
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/chat/completions":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"choices": []map[string]any{
+					{
+						"message": map[string]any{
+							"content": "Привет! Чем помочь по Swarm?",
+						},
+					},
+				},
+			})
+		case "/embeddings":
+			t.Fatalf("unexpected embeddings call on small-talk route")
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	serviceInstance, err := NewService(
+		Config{
+			Enabled:                 true,
+			ModelName:               "gpt-4o-mini",
+			BaseURL:                 server.URL,
+			APIToken:                "test-token",
+			Temperature:             0.2,
+			MaxTokens:               64,
+			SystemPrompt:            "debug helper",
+			ConversationInMemoryTTL: time.Hour,
+		},
+		store,
+		&fakeTools{},
+		&dispatcher.NopDispatcher{},
+		metrics.NopAssistant{},
+	)
+	require.NoError(t, err, "create assistant service")
+
+	response := serviceInstance.Chat(context.Background(), ChatRequest{
+		Message: "привет",
+	})
+	assert.Equal(t, StatusCompleted, response.Status, "expected completed response")
+	assert.Equal(t, "Привет! Чем помочь по Swarm?", response.Answer, "unexpected answer")
+	assert.Equal(t, int64(0), store.listCalls.Load(), "small-talk path should skip retrieve_context node")
 }
 
 func TestServiceChatFailsOnUnknownPollRequestID(t *testing.T) {

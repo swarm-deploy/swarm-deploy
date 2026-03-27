@@ -34,6 +34,20 @@ const (
 	graphNodeGenerateAnswer = "generate_answer"
 )
 
+var helloMessages = map[string]struct{}{
+	"hello":       {},
+	"hi":          {},
+	"hey":         {},
+	"thanks":      {},
+	"thank you":   {},
+	"привет":      {},
+	"здарова":     {},
+	"ку":          {},
+	"здравствуй":  {},
+	"добрый день": {},
+	"спасибо":     {},
+}
+
 var (
 	errPromptInjection = errors.New("request rejected by prompt injection guard")
 )
@@ -99,7 +113,12 @@ func (g *graph) compile(executionState *graphExecutionState) (*langgraph.Runnabl
 	messageGraph.AddNode(graphNodePrepare, g.prepareNode(executionState))
 	messageGraph.AddNode(graphNodeGenerateAnswer, g.generateAnswerNode(executionState))
 
-	messageGraph.AddEdge(graphNodeGuard, graphNodeRetrieve)
+	if shouldSkipContextRetrieval(executionState.userMessage) {
+		messageGraph.AddEdge(graphNodeGuard, graphNodePrepare)
+	} else {
+		messageGraph.AddEdge(graphNodeGuard, graphNodeRetrieve)
+	}
+
 	messageGraph.AddEdge(graphNodeRetrieve, graphNodePrepare)
 	messageGraph.AddEdge(graphNodePrepare, graphNodeGenerateAnswer)
 	messageGraph.AddEdge(graphNodeGenerateAnswer, langgraph.END)
@@ -287,6 +306,16 @@ func decodeToolArguments(raw string) (map[string]any, error) {
 	}
 
 	return decoded, nil
+}
+
+func shouldSkipContextRetrieval(userMessage string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(userMessage))
+	if normalized == "" {
+		return true
+	}
+
+	_, ok := helloMessages[normalized]
+	return ok
 }
 
 func buildServicesContextMessage(services []service.Info) string {

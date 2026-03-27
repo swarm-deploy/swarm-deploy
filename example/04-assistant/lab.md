@@ -65,6 +65,31 @@ assistant:
 
 Также реализована защита от иньъекций регулярками: [internal/assistant/guard/injection.go](./../../internal/assistant/guard/injection.go)
 
+# LangGraph
+
+Граф находится в: [internal/assistant/graph.go](./../../internal/assistant/graph.go)
+
+Узлы графа:
+- `guard` — проверка пользовательского сообщения на Prompt Injection
+- `retrieve_context` — получение релевантных сервисов из RAG
+- `prepare_messages` — сборка финального набора сообщений для модели
+- `generate_answer` — генерация ответа и выполнение tool calls
+
+Ветвление после `guard`:
+- Для приветственных сообщений (`привет`, `hello`, `thanks` и т.д.) граф идет по короткому пути `guard -> prepare_messages`
+- Для остальных сообщений используется полный путь `guard -> retrieve_context -> prepare_messages`
+
+После этого обе ветки сходятся в `generate_answer`.
+
+```mermaid
+flowchart TD
+  A[guard] -->|small-talk| C[prepare_messages]
+  A -->|обычный запрос| B[retrieve_context]
+  B --> C
+  C --> D[generate_answer]
+  D --> E[END]
+```
+
 # RAG
 
 Реализован RAG по сервисам, задеплоенным в Docker Swarm, включая: название, образ, тип сервиса (бизнес-приложение или инфраструктура), веб-маршруты.
