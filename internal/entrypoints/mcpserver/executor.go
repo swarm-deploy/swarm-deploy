@@ -41,6 +41,7 @@ func NewExecutor(
 		mcpTools.NewGetActualImageVersion(imageVersionResolver),
 		mcpTools.NewListGitCommits(gitRepository),
 		mcpTools.NewGitCommitDiff(gitRepository, stacks, commitDiffer),
+		mcpTools.NewDate(),
 		mcpTools.NewReportPromptInjection(eventDispatcher),
 	}
 

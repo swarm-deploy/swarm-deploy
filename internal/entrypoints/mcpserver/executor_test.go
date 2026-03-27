@@ -112,3 +112,28 @@ func TestExecutorExecuteUnknownTool(t *testing.T) {
 	require.Error(t, err, "expected unknown tool error")
 	assert.Contains(t, err.Error(), "unknown tool", "unexpected error")
 }
+
+func TestExecutorDefinitionsContainDate(t *testing.T) {
+	executor := NewExecutor(
+		&fakeHistoryStore{},
+		&fakeNodeStore{},
+		&fakeServiceStore{},
+		&fakeImageVersionResolver{},
+		&fakeGitRepository{},
+		[]config.StackSpec{},
+		&fakeCommitDiffer{},
+		&fakeSyncControl{},
+		&dispatcher.NopDispatcher{},
+		metrics.NewGroup(metrics.CreateGroupParams{
+			Namespace: "test",
+			MCP:       true,
+		}).MCP,
+	)
+
+	toolNames := make([]string, 0, len(executor.Definitions()))
+	for _, definition := range executor.Definitions() {
+		toolNames = append(toolNames, definition.Name)
+	}
+
+	assert.Contains(t, toolNames, "date", "expected date tool definition")
+}
