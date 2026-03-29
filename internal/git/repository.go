@@ -84,18 +84,18 @@ func NewRepository(spec config.GitSpec, path string) Repository {
 }
 
 func NewGoGitRepository(ctx context.Context, spec config.GitSpec, path string) (*GoGitRepository, error) {
-	authMethod, err := resolveAuthMethod(spec.Auth)
+	authMethod, err := resolveAuthMethod(spec.Pull.Auth)
 	if err != nil {
 		return nil, err
 	}
 
-	repo, err := openRepository(ctx, path, spec.Repository, spec.Branch, authMethod)
+	repo, err := openRepository(ctx, path, spec.Pull.Repository, spec.Pull.Branch, authMethod)
 	if err != nil {
 		return nil, err
 	}
 
 	return &GoGitRepository{
-		branch:     spec.Branch,
+		branch:     spec.Pull.Branch,
 		auth:       authMethod,
 		repository: repo,
 	}, nil

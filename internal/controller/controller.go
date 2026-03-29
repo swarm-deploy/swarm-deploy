@@ -142,10 +142,10 @@ func (c *Controller) syncOnce(ctx context.Context, reason TriggerReason) { //nol
 	if err != nil {
 		slog.ErrorContext(ctx, "sync failed at git stage",
 			slog.String("reason", string(reason)),
-			slog.String("repository", c.cfg.Spec.Git.Repository),
+			slog.String("repository", c.cfg.Spec.Git.Pull.Repository),
 			slog.Any("err", err),
 		)
-		c.metrics.Git.RecordGitUpdate(c.cfg.Spec.Git.Repository, "error")
+		c.metrics.Git.RecordGitUpdate(c.cfg.Spec.Git.Pull.Repository, "error")
 		c.metrics.Sync.RecordSyncRun(string(reason), "error", time.Since(startedAt))
 		c.updateState(func(s *runtimeState) {
 			s.LastSyncAt = time.Now()
@@ -162,7 +162,7 @@ func (c *Controller) syncOnce(ctx context.Context, reason TriggerReason) { //nol
 	if syncResult.Updated {
 		updateResult = "updated"
 	}
-	c.metrics.Git.RecordGitUpdate(c.cfg.Spec.Git.Repository, updateResult)
+	c.metrics.Git.RecordGitUpdate(c.cfg.Spec.Git.Pull.Repository, updateResult)
 
 	reloadedFrom, reloadErr := c.reloadStacks()
 	if reloadErr != nil {

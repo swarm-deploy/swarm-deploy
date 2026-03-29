@@ -41,9 +41,165 @@ stacks:
 
 	cfg, err := Load(configPath)
 	require.NoError(t, err, "load config")
+	assert.Equal(t, "https://example.com/repo.git", cfg.Spec.Git.Pull.Repository, "unexpected pull repository")
+	assert.Equal(t, "https://example.com/repo.git", cfg.Spec.Git.Push.Repository, "unexpected push repository")
+	assert.Equal(t, "main", cfg.Spec.Git.Pull.Branch, "unexpected pull branch")
+	assert.Equal(t, "main", cfg.Spec.Git.Push.Branch, "unexpected push branch")
 	require.Len(t, cfg.Spec.Stacks, 2, "expected 2 stacks")
 	assert.Equal(t, "app", cfg.Spec.Stacks[0].Name, "unexpected first stack")
 	assert.Equal(t, "worker", cfg.Spec.Stacks[1].Name, "unexpected second stack")
+}
+
+func TestLoadWithGitPullAndPush(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	if err := os.WriteFile(stacksPath, stacksPayload, 0o600); err != nil {
+		require.NoError(t, err, "write stacks file")
+	}
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(`
+git:
+  pull:
+    repository: https://example.com/pull.git
+    branch: develop
+    auth:
+      type: none
+  push:
+    repository: https://example.com/push.git
+    branch: release
+    auth:
+      type: none
+stacks:
+  file: ./stacks.yaml
+`)
+	if err := os.WriteFile(configPath, configPayload, 0o600); err != nil {
+		require.NoError(t, err, "write config file")
+	}
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err, "load config")
+	assert.Equal(t, "https://example.com/pull.git", cfg.Spec.Git.Pull.Repository, "unexpected pull repository")
+	assert.Equal(t, "develop", cfg.Spec.Git.Pull.Branch, "unexpected pull branch")
+	assert.Equal(t, "https://example.com/push.git", cfg.Spec.Git.Push.Repository, "unexpected push repository")
+	assert.Equal(t, "release", cfg.Spec.Git.Push.Branch, "unexpected push branch")
+}
+
+func TestLoadFailsWithGitRepositoryPullAndPush(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(`
+git:
+  repository:
+    pull:
+      repository: https://example.com/pull.git
+      branch: develop
+      auth:
+        type: none
+    push:
+      repository: https://example.com/push.git
+      branch: release
+      auth:
+        type: none
+stacks:
+  file: ./stacks.yaml
+`)
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	_, err := Load(configPath)
+	require.Error(t, err, "expected error")
+	assert.Contains(t, err.Error(), "git.repository as object is not supported; use git.pull and git.push", "unexpected error")
+}
+
+func TestLoadWithGitPushAPIToken(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	apiTokenPath := filepath.Join(dir, "git-push-api-token")
+	require.NoError(t, os.WriteFile(apiTokenPath, []byte("token-value"), 0o600), "write push api token")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(fmt.Sprintf(`
+git:
+  pull:
+    repository: https://example.com/pull.git
+    auth:
+      type: none
+  push:
+    repository: https://example.com/push.git
+    auth:
+      type: none
+    apiToken: %s
+stacks:
+  file: ./stacks.yaml
+`, apiTokenPath))
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err, "load config")
+	assert.Equal(t, "token-value", string(cfg.Spec.Git.Push.APIToken.Content), "unexpected push api token")
+}
+
+func TestLoadFailsWhenGitPullWithoutPush(t *testing.T) {
+	dir := t.TempDir()
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(`
+git:
+  pull:
+    repository: https://example.com/pull.git
+stacks:
+  file: ./stacks.yaml
+`)
+	if err := os.WriteFile(configPath, configPayload, 0o600); err != nil {
+		require.NoError(t, err, "write config file")
+	}
+
+	_, err := Load(configPath)
+	require.Error(t, err, "expected error")
+	assert.Contains(t, err.Error(), "git.push is required when git.pull is set", "unexpected error")
+}
+
+func TestLoadFailsWhenGitPushWithoutPull(t *testing.T) {
+	dir := t.TempDir()
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(`
+git:
+  push:
+    repository: https://example.com/push.git
+stacks:
+  file: ./stacks.yaml
+`)
+	if err := os.WriteFile(configPath, configPayload, 0o600); err != nil {
+		require.NoError(t, err, "write config file")
+	}
+
+	_, err := Load(configPath)
+	require.Error(t, err, "expected error")
+	assert.Contains(t, err.Error(), "git.pull is required when git.push is set", "unexpected error")
 }
 
 func TestLoadFailsWithoutStacksFile(t *testing.T) {

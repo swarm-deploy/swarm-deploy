@@ -163,8 +163,14 @@ func TestNewGoGitRepositoryClonesRepositoryAndStoresGoGitRepository(t *testing.T
 	targetRepositoryPath := filepath.Join(t.TempDir(), "target")
 
 	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
-		Repository: sourceRepositoryPath,
-		Branch:     sourceHead.Name().Short(),
+		Pull: config.GitPullSpec{
+			Repository: sourceRepositoryPath,
+			Branch:     sourceHead.Name().Short(),
+		},
+		Push: config.GitPushSpec{
+			Repository: sourceRepositoryPath,
+			Branch:     sourceHead.Name().Short(),
+		},
 	}, targetRepositoryPath)
 	require.NoError(t, err, "create go-git repository")
 	require.NotNil(t, repository.repository, "go-git repository should be initialized by constructor")
@@ -178,8 +184,14 @@ func TestNewGoGitRepositoryOpensExistingRepositoryWithoutClone(t *testing.T) {
 	sourceRepositoryPath, sourceHead := initSourceRepository(t)
 
 	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
-		Repository: sourceRepositoryPath,
-		Branch:     "main",
+		Pull: config.GitPullSpec{
+			Repository: sourceRepositoryPath,
+			Branch:     "main",
+		},
+		Push: config.GitPushSpec{
+			Repository: sourceRepositoryPath,
+			Branch:     "main",
+		},
 	}, sourceRepositoryPath)
 	require.NoError(t, err, "create repository over existing path")
 
@@ -193,8 +205,14 @@ func TestLazyProxyInitializesRepositoryLazily(t *testing.T) {
 	targetRepositoryPath := filepath.Join(t.TempDir(), "target")
 
 	proxy := NewLazyProxy(config.GitSpec{
-		Repository: sourceRepositoryPath,
-		Branch:     sourceHead.Name().Short(),
+		Pull: config.GitPullSpec{
+			Repository: sourceRepositoryPath,
+			Branch:     sourceHead.Name().Short(),
+		},
+		Push: config.GitPushSpec{
+			Repository: sourceRepositoryPath,
+			Branch:     sourceHead.Name().Short(),
+		},
 	}, targetRepositoryPath)
 
 	head, err := proxy.Head(t.Context())
@@ -244,8 +262,14 @@ func TestGoGitRepositoryShowReturnsCommitMetadataAndFileDiff(t *testing.T) {
 	require.NoError(t, err, "commit changes")
 
 	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
-		Repository: sourceRepositoryPath,
-		Branch:     sourceHead.Name().Short(),
+		Pull: config.GitPullSpec{
+			Repository: sourceRepositoryPath,
+			Branch:     sourceHead.Name().Short(),
+		},
+		Push: config.GitPushSpec{
+			Repository: sourceRepositoryPath,
+			Branch:     sourceHead.Name().Short(),
+		},
 	}, sourceRepositoryPath)
 	require.NoError(t, err, "create go-git repository")
 
@@ -285,8 +309,14 @@ func TestGoGitRepositoryShowFailsOnUnknownCommit(t *testing.T) {
 	sourceRepositoryPath, sourceHead := initSourceRepository(t)
 
 	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
-		Repository: sourceRepositoryPath,
-		Branch:     sourceHead.Name().Short(),
+		Pull: config.GitPullSpec{
+			Repository: sourceRepositoryPath,
+			Branch:     sourceHead.Name().Short(),
+		},
+		Push: config.GitPushSpec{
+			Repository: sourceRepositoryPath,
+			Branch:     sourceHead.Name().Short(),
+		},
 	}, sourceRepositoryPath)
 	require.NoError(t, err, "create repository")
 
@@ -319,8 +349,14 @@ func TestGoGitRepositoryListReturnsLatestCommits(t *testing.T) {
 	require.NoError(t, err, "commit second revision")
 
 	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
-		Repository: sourceRepositoryPath,
-		Branch:     sourceHead.Name().Short(),
+		Pull: config.GitPullSpec{
+			Repository: sourceRepositoryPath,
+			Branch:     sourceHead.Name().Short(),
+		},
+		Push: config.GitPushSpec{
+			Repository: sourceRepositoryPath,
+			Branch:     sourceHead.Name().Short(),
+		},
 	}, sourceRepositoryPath)
 	require.NoError(t, err, "create go-git repository")
 
@@ -337,8 +373,14 @@ func TestGoGitRepositoryListFailsOnInvalidLimit(t *testing.T) {
 	sourceRepositoryPath, sourceHead := initSourceRepository(t)
 
 	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
-		Repository: sourceRepositoryPath,
-		Branch:     sourceHead.Name().Short(),
+		Pull: config.GitPullSpec{
+			Repository: sourceRepositoryPath,
+			Branch:     sourceHead.Name().Short(),
+		},
+		Push: config.GitPushSpec{
+			Repository: sourceRepositoryPath,
+			Branch:     sourceHead.Name().Short(),
+		},
 	}, sourceRepositoryPath)
 	require.NoError(t, err, "create repository")
 

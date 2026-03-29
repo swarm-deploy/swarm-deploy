@@ -262,8 +262,11 @@ func (c *Config) applyDefaults(configDir string) error {
 }
 
 func (c *Config) applyGitAndSyncDefaults() {
-	if c.Spec.Git.Branch == "" {
-		c.Spec.Git.Branch = "main"
+	if c.Spec.Git.Pull.Branch == "" {
+		c.Spec.Git.Pull.Branch = "main"
+	}
+	if c.Spec.Git.Push.Branch == "" {
+		c.Spec.Git.Push.Branch = c.Spec.Git.Pull.Branch
 	}
 	if c.Spec.Sync.Mode == "" {
 		c.Spec.Sync.Mode = SyncModeHybrid
@@ -488,8 +491,11 @@ func (c *Config) validate() error {
 func (c *Config) validateRequired() []error {
 	var errs []error
 
-	if c.Spec.Git.Repository == "" {
-		errs = append(errs, errors.New("git.repository is required"))
+	if c.Spec.Git.Pull.Repository == "" {
+		errs = append(errs, errors.New("git.pull.repository is required"))
+	}
+	if c.Spec.Git.Push.Repository == "" {
+		errs = append(errs, errors.New("git.push.repository is required"))
 	}
 	if c.Spec.StacksSource.File == "" {
 		errs = append(errs, errors.New("stacks.file is required"))
@@ -546,14 +552,20 @@ func (c *Config) validateSync() []error {
 func (c *Config) validateGitAuth() []error {
 	var errs []error
 
-	authType := strings.ToLower(strings.TrimSpace(c.Spec.Git.Auth.Type))
-	switch authType {
-	case "", "none", "http", "ssh":
-	default:
-		errs = append(errs, fmt.Errorf("git.auth.type must be one of none|http|ssh, got %q", c.Spec.Git.Auth.Type))
-	}
+	errs = append(errs, validateGitAuthType("git.pull.auth", c.Spec.Git.Pull.Auth)...)
+	errs = append(errs, validateGitAuthType("git.push.auth", c.Spec.Git.Push.Auth)...)
 
 	return errs
+}
+
+func validateGitAuthType(path string, auth GitAuthSpec) []error {
+	authType := strings.ToLower(strings.TrimSpace(auth.Type))
+	switch authType {
+	case "", "none", "http", "ssh":
+		return nil
+	default:
+		return []error{fmt.Errorf("%s.type must be one of none|http|ssh, got %q", path, auth.Type)}
+	}
 }
 
 func (c *Config) validateSecurity() []error {

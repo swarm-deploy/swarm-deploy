@@ -1,13 +1,25 @@
 # Git repository settings for stack manifests.
 git:
-  # Repository URL (ssh/https).
-  repository: https://github.com/your-org/your-stacks-repo.git
-  # Branch to synchronize.
-  branch: main
-  # Git authentication settings.
-  auth:
-    # Authentication type: none | http | ssh.
-    type: none
+  pull:
+    # Repository URL (ssh/https) for pull operations.
+    repository: https://github.com/your-org/your-stacks-repo.git
+    # Branch to synchronize.
+    branch: main
+    # Git authentication settings.
+    auth:
+      # Authentication type: none | http | ssh.
+      type: none
+  push:
+    # Repository URL (ssh/https) for push operations.
+    repository: https://github.com/your-org/your-stacks-repo.git
+    # Branch for push operations.
+    branch: main
+    # Git authentication settings.
+    auth:
+      # Authentication type: none | http | ssh.
+      type: none
+    # Optional path to file containing API token for push integrations.
+    # apiToken: /run/secrets/git_push_api_token
 
 # Git-to-deploy synchronization settings.
 sync:
