@@ -2,29 +2,23 @@ package assistant
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/artarts36/swarm-deploy/internal/assistant/conversation"
 	"github.com/artarts36/swarm-deploy/internal/assistant/guard"
 	"github.com/artarts36/swarm-deploy/internal/assistant/rag"
-	"github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/artarts36/swarm-deploy/internal/service"
 	"github.com/tmc/langchaingo/llms"
 	langgraph "github.com/tmc/langgraphgo/graph"
 )
 
-const maxToolIterations = 3
-
 const (
-	defaultCollectedToolCallsCapacity = 2
-	prepareMessagesExtraCapacity      = 4
-)
-
-const (
-	servicesContextMaxRows = 64
+	maxToolIterations            = 3
+	prepareMessagesExtraCapacity = 4
+	servicesContextMaxRows       = 64
 )
 
 const (
@@ -251,9 +245,9 @@ func (g *graph) prepareNode(
 func (g *graph) generateAnswerNode(
 	executionState *graphExecutionState,
 ) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
-	return func(ctx context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
-		allowedToolDefinitions := g.allowedToolDefinitions()
+	allowedToolDefinitions := g.allowedToolDefinitions()
 
+	return func(ctx context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
 		for i := 0; i < maxToolIterations; i++ {
 			completion, completionErr := g.chat.complete(ctx, modelRequest{
 				Model:       g.config.ModelName,
@@ -278,7 +272,16 @@ func (g *graph) generateAnswerNode(
 			})
 
 			for _, modelToolCall := range completion.ToolCalls {
-				_, toolResultMessage := g.executeToolCall(ctx, modelToolCall)
+				slog.InfoContext(ctx, "[graph] running mcp tool", slog.String("tool.name", modelToolCall.Name))
+
+				toolResultMessage, err := g.executeToolCall(ctx, modelToolCall)
+				if err != nil {
+					slog.ErrorContext(ctx, "[graph] failed to run mcp tool",
+						slog.String("tool.name", modelToolCall.Name),
+						slog.Any("err", err),
+					)
+				}
+
 				executionState.modelMessages = append(executionState.modelMessages, modelMessage{
 					Role:       "tool",
 					Name:       modelToolCall.Name,
@@ -290,84 +293,6 @@ func (g *graph) generateAnswerNode(
 
 		return messages, fmt.Errorf("tool iteration limit exceeded")
 	}
-}
-
-func (g *graph) executeToolCall(ctx context.Context, modelToolCall modelToolCall) (ToolCall, string) {
-	toolCallInfo := ToolCall{
-		Name:      modelToolCall.Name,
-		Arguments: modelToolCall.Arguments,
-	}
-
-	if !g.isToolAllowed(modelToolCall.Name) {
-		toolCallInfo.Error = "tool is not allowed by assistant.tools configuration"
-		return toolCallInfo, toolCallInfo.Error
-	}
-
-	arguments, decodeErr := decodeToolArguments(modelToolCall.Arguments)
-	if decodeErr != nil {
-		toolCallInfo.Error = decodeErr.Error()
-		return toolCallInfo, toolCallInfo.Error
-	}
-
-	result, runErr := g.tools.Execute(ctx, modelToolCall.Name, arguments)
-	if runErr != nil {
-		toolCallInfo.Error = runErr.Error()
-		return toolCallInfo, toolCallInfo.Error
-	}
-
-	toolCallInfo.Result = result
-	return toolCallInfo, result
-}
-
-func (g *graph) allowedToolDefinitions() []routing.ToolDefinition {
-	definitions := g.tools.Definitions()
-	if len(g.allowedToolSet) == 0 {
-		return definitions
-	}
-
-	filtered := make([]routing.ToolDefinition, 0, len(definitions))
-	for _, definition := range definitions {
-		if g.isToolAllowed(definition.Name) {
-			filtered = append(filtered, definition)
-		}
-	}
-
-	return filtered
-}
-
-func (g *graph) allowedToolNames() []string {
-	definitions := g.allowedToolDefinitions()
-	names := make([]string, 0, len(definitions))
-	for _, definition := range definitions {
-		names = append(names, definition.Name)
-	}
-
-	return names
-}
-
-func (g *graph) isToolAllowed(toolName string) bool {
-	if len(g.allowedToolSet) == 0 {
-		return true
-	}
-
-	_, ok := g.allowedToolSet[toolName]
-	return ok
-}
-
-func decodeToolArguments(raw string) (map[string]any, error) {
-	if strings.TrimSpace(raw) == "" {
-		return map[string]any{}, nil
-	}
-
-	var decoded map[string]any
-	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
-		return nil, fmt.Errorf("decode tool arguments: %w", err)
-	}
-	if decoded == nil {
-		return map[string]any{}, nil
-	}
-
-	return decoded, nil
 }
 
 func shouldSkipContextRetrieval(userMessage string) bool {
