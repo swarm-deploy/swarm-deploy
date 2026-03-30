@@ -16,10 +16,10 @@ type SyncResult struct {
 
 type Syncer struct {
 	repositoryDir string
-	repository    gitx.PullRepository
+	repository    gitx.Repository
 }
 
-func NewSyncer(repository gitx.PullRepository, dataDir string) *Syncer {
+func NewSyncer(repository gitx.Repository, dataDir string) *Syncer {
 	return &Syncer{
 		repositoryDir: filepath.Join(dataDir, "repo"),
 		repository:    repository,

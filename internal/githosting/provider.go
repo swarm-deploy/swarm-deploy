@@ -14,8 +14,8 @@ type CreateMergeRequestRequest struct {
 	Title string
 	// Body is a merge request body.
 	Body string
-	// APIToken is an API token for git hosting provider.
-	APIToken string
+	// Token is an API token for git hosting provider.
+	Token string
 }
 
 // Provider creates merge requests for a specific git hosting.

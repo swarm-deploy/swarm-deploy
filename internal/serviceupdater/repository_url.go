@@ -7,6 +7,8 @@ import (
 	"strings"
 )
 
+const repositoryPathSegmentsCount = 2
+
 type repositoryReference struct {
 	webScheme string
 	host      string
@@ -59,11 +61,11 @@ func parseURLRepositoryReference(raw string) (repositoryReference, error) {
 	repositoryPath = strings.TrimSuffix(repositoryPath, ".git")
 
 	segments := strings.Split(repositoryPath, "/")
-	if len(segments) < 2 {
+	if len(segments) < repositoryPathSegmentsCount {
 		return repositoryReference{}, fmt.Errorf("repository url %q must contain owner and repository", raw)
 	}
 
-	owner := segments[len(segments)-2]
+	owner := segments[len(segments)-repositoryPathSegmentsCount]
 	name := segments[len(segments)-1]
 	if owner == "" || name == "" {
 		return repositoryReference{}, fmt.Errorf("repository url %q must contain owner and repository", raw)
@@ -84,8 +86,8 @@ func parseURLRepositoryReference(raw string) (repositoryReference, error) {
 
 func parseSCPRepositoryReference(raw string) (repositoryReference, error) {
 	withoutUser := strings.TrimPrefix(raw, "git@")
-	parts := strings.SplitN(withoutUser, ":", 2)
-	if len(parts) != 2 {
+	parts := strings.SplitN(withoutUser, ":", repositoryPathSegmentsCount)
+	if len(parts) != repositoryPathSegmentsCount {
 		return repositoryReference{}, fmt.Errorf("parse repository url %q", raw)
 	}
 

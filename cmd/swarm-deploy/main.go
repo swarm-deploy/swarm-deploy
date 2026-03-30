@@ -75,7 +75,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	gitRepository := gitx.NewRepository(cfg.Spec.Git, filepath.Join(cfg.Spec.DataDir, "repo"))
+	gitRepository := gitx.NewRepository(cfg.Spec.Git.Pull.GitRepositorySpec, filepath.Join(cfg.Spec.DataDir, "repo"))
 
 	gitSyncer := gitops.NewSyncer(gitRepository, cfg.Spec.DataDir)
 
@@ -214,7 +214,7 @@ func buildAssistantService(
 	eventHistory *history.Store,
 	nodeStore *swarminspector.NodeStore,
 	inspectorSvc *swarminspector.Inspector,
-	gitRepository gitx.PullRepository,
+	gitRepository gitx.Repository,
 	control *controller.Controller,
 	eventDispatcher dispatcher.Dispatcher,
 	metrics *metrics.Group,
@@ -241,7 +241,7 @@ func buildAssistantService(
 	commitDiffer := differ.New()
 
 	pushGitRepository := gitx.NewLazyProxy(
-		buildPushRepositoryGitSpec(cfg.Spec.Git),
+		cfg.Spec.Git.Push.GitRepositorySpec,
 		filepath.Join(cfg.Spec.DataDir, "push-repo"),
 	)
 	stacksProvider := func() []config.StackSpec {
@@ -290,17 +290,6 @@ func buildAssistantService(
 		AllowedTools:            cfg.Spec.Assistant.Tools,
 		ConversationInMemoryTTL: cfg.Spec.Assistant.Conversation.Storage.InMemory.TTL.Value,
 	}, serviceStore, toolExecutor, eventDispatcher, metrics.Assistant)
-}
-
-func buildPushRepositoryGitSpec(spec config.GitSpec) config.GitSpec {
-	return config.GitSpec{
-		Pull: config.GitPullSpec{
-			Repository: spec.Push.Repository,
-			Branch:     spec.Push.Branch,
-			Auth:       spec.Push.Auth,
-		},
-		Push: spec.Push,
-	}
 }
 
 func buildEventDispatcher(

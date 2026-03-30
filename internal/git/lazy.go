@@ -7,7 +7,7 @@ import (
 	"github.com/artarts36/swarm-deploy/internal/config"
 )
 
-func NewLazyProxy(spec config.GitSpec, path string) *LazyProxy {
+func NewLazyProxy(spec config.GitRepositorySpec, path string) *LazyProxy {
 	return &LazyProxy{
 		spec: spec,
 		path: path,
@@ -15,7 +15,7 @@ func NewLazyProxy(spec config.GitSpec, path string) *LazyProxy {
 }
 
 type LazyProxy struct {
-	spec config.GitSpec
+	spec config.GitRepositorySpec
 	path string
 
 	mu         sync.Mutex
@@ -58,22 +58,13 @@ func (p *LazyProxy) Show(ctx context.Context, commitHash string) (Commit, error)
 	return repo.Show(ctx, commitHash)
 }
 
-func (p *LazyProxy) SyncBranch(ctx context.Context, branch string) error {
+func (p *LazyProxy) Branch(ctx context.Context, branch string) (Repository, error) {
 	repo, err := p.init(ctx)
 	if err != nil {
-		return err
+		return repo, err
 	}
 
-	return repo.SyncBranch(ctx, branch)
-}
-
-func (p *LazyProxy) CreateBranch(ctx context.Context, branch string) error {
-	repo, err := p.init(ctx)
-	if err != nil {
-		return err
-	}
-
-	return repo.CreateBranch(ctx, branch)
+	return repo.Branch(ctx, branch)
 }
 
 func (p *LazyProxy) Add(ctx context.Context, path string) error {

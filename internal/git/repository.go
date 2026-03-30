@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"sort"
 	"strings"
@@ -25,38 +26,47 @@ import (
 type GoGitRepository struct {
 	path       string
 	pullBranch string
-	pullAuth   transport.AuthMethod
-	pushAuth   transport.AuthMethod
+	auth       transport.AuthMethod
 
-	repository *gogit.Repository
+	repository    *gogit.Repository
+	repositoryURL string
 }
 
-func NewRepository(spec config.GitSpec, path string) PullRepository {
+func NewRepository(spec config.GitRepositorySpec, path string) Repository {
 	return NewLazyProxy(spec, path)
 }
 
-func NewGoGitRepository(ctx context.Context, spec config.GitSpec, path string) (*GoGitRepository, error) {
-	pullAuthMethod, err := resolveAuthMethod(spec.Pull.Auth)
+func NewGoGitRepository(
+	ctx context.Context,
+	cfg config.GitRepositorySpec,
+	path string,
+) (*GoGitRepository, error) {
+	authMethod, err := resolveAuthMethod(cfg.Auth)
 	if err != nil {
 		return nil, err
 	}
 
-	pushAuthMethod, err := resolveAuthMethod(spec.Push.Auth)
-	if err != nil {
-		return nil, err
-	}
+	return newGoGitRepository(ctx, path, cfg.Branch, authMethod, cfg.Repository)
+}
 
-	repo, err := openRepository(ctx, path, spec.Pull.Repository, spec.Pull.Branch, pullAuthMethod)
+func newGoGitRepository(
+	ctx context.Context,
+	path,
+	branch string,
+	auth transport.AuthMethod,
+	repoURL string,
+) (*GoGitRepository, error) {
+	repo, err := openRepository(ctx, path, repoURL, branch, auth)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open repository: %w", err)
 	}
 
 	return &GoGitRepository{
-		path:       path,
-		pullBranch: spec.Pull.Branch,
-		pullAuth:   pullAuthMethod,
-		pushAuth:   pushAuthMethod,
-		repository: repo,
+		path:          path,
+		pullBranch:    branch,
+		auth:          auth,
+		repository:    repo,
+		repositoryURL: repoURL,
 	}, nil
 }
 
@@ -70,7 +80,7 @@ func (r *GoGitRepository) Pull(ctx context.Context) error {
 		RemoteName:    "origin",
 		SingleBranch:  true,
 		ReferenceName: plumbing.NewBranchReferenceName(r.pullBranch),
-		Auth:          r.pullAuth,
+		Auth:          r.auth,
 		Force:         true,
 	})
 	if err != nil && !errors.Is(err, gogit.NoErrAlreadyUpToDate) {
@@ -157,64 +167,25 @@ func (r *GoGitRepository) Show(ctx context.Context, commitHash string) (Commit, 
 	}, nil
 }
 
-func (r *GoGitRepository) SyncBranch(ctx context.Context, branch string) error {
-	worktree, err := r.repository.Worktree()
+func (r *GoGitRepository) Branch(ctx context.Context, branchName string) (Repository, error) {
+	newPath := r.path + "-" + branchName
+
+	repo, err := newGoGitRepository(ctx, newPath, r.pullBranch, r.auth, r.repositoryURL)
 	if err != nil {
-		return fmt.Errorf("open worktree: %w", err)
+		return nil, err
 	}
 
-	if checkoutErr := r.checkoutBranch(worktree, branch, false); checkoutErr != nil {
-		if !errors.Is(checkoutErr, plumbing.ErrReferenceNotFound) {
-			return fmt.Errorf("checkout branch %q: %w", branch, checkoutErr)
-		}
-
-		remoteRef, remoteErr := r.repository.Reference(plumbing.NewRemoteReferenceName("origin", branch), true)
-		if remoteErr != nil {
-			return fmt.Errorf("resolve remote branch %q: %w", branch, remoteErr)
-		}
-
-		checkoutErr = worktree.Checkout(&gogit.CheckoutOptions{
-			Hash:   remoteRef.Hash(),
-			Branch: plumbing.NewBranchReferenceName(branch),
-			Create: true,
-			Force:  true,
-		})
-		if checkoutErr != nil {
-			return fmt.Errorf("create local branch %q from remote: %w", branch, checkoutErr)
-		}
-	}
-
-	err = worktree.PullContext(ctx, &gogit.PullOptions{
-		RemoteName:    "origin",
-		SingleBranch:  true,
-		ReferenceName: plumbing.NewBranchReferenceName(branch),
-		Auth:          r.pushAuth,
-		Force:         true,
-	})
-	if err != nil && !errors.Is(err, gogit.NoErrAlreadyUpToDate) {
-		return fmt.Errorf("pull branch %q: %w", branch, err)
-	}
-
-	return nil
-}
-
-func (r *GoGitRepository) CreateBranch(_ context.Context, branch string) error {
-	branchName := strings.TrimSpace(branch)
-	if branchName == "" {
-		return errors.New("branch is required")
-	}
-
-	worktree, err := r.repository.Worktree()
+	worktree, err := repo.repository.Worktree()
 	if err != nil {
-		return fmt.Errorf("open worktree: %w", err)
+		return nil, fmt.Errorf("open worktree: %w", err)
 	}
 
 	err = r.checkoutBranch(worktree, branchName, true)
 	if err != nil {
-		return fmt.Errorf("create branch %q: %w", branchName, err)
+		return nil, fmt.Errorf("create branch %q: %w", branchName, err)
 	}
 
-	return nil
+	return repo, nil
 }
 
 func (r *GoGitRepository) Add(_ context.Context, path string) error {
@@ -264,7 +235,7 @@ func (r *GoGitRepository) Commit(_ context.Context, message string, author Commi
 func (r *GoGitRepository) Push(ctx context.Context, branch string) error {
 	err := r.repository.PushContext(ctx, &gogit.PushOptions{
 		RemoteName: "origin",
-		Auth:       r.pushAuth,
+		Auth:       r.auth,
 		RefSpecs: []gogitcfg.RefSpec{
 			gogitcfg.RefSpec(fmt.Sprintf("refs/heads/%s:refs/heads/%s", branch, branch)),
 		},
@@ -404,6 +375,8 @@ func openRepository(
 	if err = os.MkdirAll(path, 0o755); err != nil {
 		return nil, fmt.Errorf("create repository dir: %w", err)
 	}
+
+	slog.InfoContext(ctx, "[git] cloning repository", slog.String("repository.url", url))
 
 	repo, err = gogit.PlainCloneContext(ctx, path, false, &gogit.CloneOptions{
 		URL:           url,

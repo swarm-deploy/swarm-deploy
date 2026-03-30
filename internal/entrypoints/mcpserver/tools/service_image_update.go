@@ -24,8 +24,9 @@ func NewServiceImageUpdate(updater ServiceUpdater) *ServiceImageUpdate {
 // Definition returns tool metadata visible to the model.
 func (s *ServiceImageUpdate) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
-		Name:        "service_image_update",
-		Description: "Updates service image version in stack compose file, commits and pushes changes to push repository, and creates merge request when supported.",
+		Name: "service_image_update",
+		Description: "Updates service image version in stack compose file, commits and pushes changes " +
+			"to push repository, and creates merge request when supported.",
 		ParametersJSONSchema: map[string]any{
 			"type": "object",
 			"required": []string{

@@ -123,7 +123,12 @@ stacks:
 
 	_, err := Load(configPath)
 	require.Error(t, err, "expected error")
-	assert.Contains(t, err.Error(), "git.repository as object is not supported; use git.pull and git.push", "unexpected error")
+	assert.Contains(
+		t,
+		err.Error(),
+		"git.repository as object is not supported; use git.pull and git.push",
+		"unexpected error",
+	)
 }
 
 func TestLoadWithGitPushAPIToken(t *testing.T) {
@@ -151,7 +156,7 @@ git:
     repository: https://example.com/push.git
     auth:
       type: none
-    apiToken: %s
+    apiTokenPath: %s
 stacks:
   file: ./stacks.yaml
 `, apiTokenPath))

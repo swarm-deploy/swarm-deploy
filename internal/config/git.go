@@ -15,7 +15,7 @@ type GitSpec struct {
 	Push GitPushSpec `yaml:"push"`
 }
 
-type GitPullSpec struct {
+type GitRepositorySpec struct {
 	// Repository is a git repository URL (ssh or https).
 	Repository string `yaml:"repository"`
 	// Branch is a git branch to track.
@@ -24,15 +24,14 @@ type GitPullSpec struct {
 	Auth GitAuthSpec `yaml:"auth"`
 }
 
+type GitPullSpec struct {
+	GitRepositorySpec
+}
+
 type GitPushSpec struct {
-	// Repository is a git repository URL (ssh or https).
-	Repository string `yaml:"repository"`
-	// Branch is a git branch to push.
-	Branch string `yaml:"branch"`
-	// Auth contains git authentication settings.
-	Auth GitAuthSpec `yaml:"auth"`
+	GitRepositorySpec
 	// APIToken is an optional API token used by push integrations.
-	APIToken specw.File `yaml:"apiToken,omitempty"`
+	APIToken specw.File `yaml:"apiTokenPath,omitempty"`
 }
 
 type GitAuthSpec struct {
@@ -117,16 +116,14 @@ func (s *GitSpec) unmarshalSingleRepository(node *yaml.Node) error {
 		return fmt.Errorf("unmarshal single spec: %w", err)
 	}
 
-	s.Pull = GitPullSpec{
+	repositorySpec := GitRepositorySpec{
 		Repository: singleSpec.Repository,
 		Branch:     singleSpec.Branch,
 		Auth:       singleSpec.Auth,
 	}
-	s.Push = GitPushSpec{
-		Repository: singleSpec.Repository,
-		Branch:     singleSpec.Branch,
-		Auth:       singleSpec.Auth,
-	}
+
+	s.Pull = GitPullSpec{GitRepositorySpec: repositorySpec}
+	s.Push = GitPushSpec{GitRepositorySpec: repositorySpec}
 
 	return nil
 }

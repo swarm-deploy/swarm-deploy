@@ -15,9 +15,21 @@ import (
 func TestGitHubProviderSupports(t *testing.T) {
 	provider := NewGitHubProvider()
 
-	assert.True(t, provider.Supports("https://github.com/acme/swarm-config.git"), "github repository should be supported")
-	assert.True(t, provider.Supports("git@github.com:acme/swarm-config.git"), "github ssh repository should be supported")
-	assert.False(t, provider.Supports("https://gitlab.com/acme/swarm-config.git"), "gitlab repository should not be supported")
+	assert.True(
+		t,
+		provider.Supports("https://github.com/acme/swarm-config.git"),
+		"github repository should be supported",
+	)
+	assert.True(
+		t,
+		provider.Supports("git@github.com:acme/swarm-config.git"),
+		"github ssh repository should be supported",
+	)
+	assert.False(
+		t,
+		provider.Supports("https://gitlab.com/acme/swarm-config.git"),
+		"gitlab repository should not be supported",
+	)
 }
 
 func TestGitHubProviderCreateMergeRequest(t *testing.T) {
@@ -54,7 +66,7 @@ func TestGitHubProviderCreateMergeRequest(t *testing.T) {
 		HeadBranch:    "api-up-image-2.0.0",
 		Title:         "chore(api): up image to 2.0.0",
 		Body:          "please update by artem",
-		APIToken:      "token-1",
+		Token:         "token-1",
 	})
 	require.NoError(t, err, "create merge request")
 	assert.Equal(t, "https://github.com/acme/swarm-config/pull/11", url, "unexpected merge request url")

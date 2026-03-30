@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -24,22 +25,6 @@ const (
 )
 
 var gitBranchUnsafePartRegex = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
-
-// Repository provides git write operations required for service image updates.
-type Repository interface {
-	// SyncBranch checks out the requested branch and synchronizes it from origin.
-	SyncBranch(ctx context.Context, branch string) error
-	// CreateBranch creates and checks out a new branch from current HEAD.
-	CreateBranch(ctx context.Context, branch string) error
-	// Add stages a file path relative to repository root.
-	Add(ctx context.Context, path string) error
-	// Commit creates a commit from staged changes and returns commit hash.
-	Commit(ctx context.Context, message string, author gitx.CommitAuthor) (string, error)
-	// Push pushes branch to origin.
-	Push(ctx context.Context, branch string) error
-	// WorkingDir returns local repository working directory path.
-	WorkingDir() string
-}
 
 // ImageVersionResolver resolves image versions in container registry.
 type ImageVersionResolver interface {
@@ -87,7 +72,7 @@ type UpdateImageVersionResult struct {
 // ServiceUpdater updates service image version in push repository and creates merge request.
 type ServiceUpdater struct {
 	stacksProvider    StacksProvider
-	repository        Repository
+	repository        gitx.Repository
 	imageResolver     ImageVersionResolver
 	pushRepositoryURL string
 	pushBaseBranch    string
@@ -95,20 +80,27 @@ type ServiceUpdater struct {
 
 	mergeRequestProviders []githosting.Provider
 
+	steps []serviceUpdateStep
+
 	mu sync.Mutex
+}
+
+type serviceUpdateStep struct {
+	Name   string
+	Action func(ctx context.Context, session *updateImageVersionSession) error
 }
 
 // NewServiceUpdater creates service updater component.
 func NewServiceUpdater(
 	stacksProvider StacksProvider,
-	repository Repository,
+	repository gitx.Repository,
 	imageResolver ImageVersionResolver,
 	pushRepositoryURL string,
 	pushBaseBranch string,
 	pushAPIToken string,
 	mergeRequestProviders []githosting.Provider,
 ) *ServiceUpdater {
-	return &ServiceUpdater{
+	su := &ServiceUpdater{
 		stacksProvider:        stacksProvider,
 		repository:            repository,
 		imageResolver:         imageResolver,
@@ -117,6 +109,42 @@ func NewServiceUpdater(
 		pushAPIToken:          pushAPIToken,
 		mergeRequestProviders: mergeRequestProviders,
 	}
+
+	su.steps = []serviceUpdateStep{
+		{
+			Name:   "0. validate stack and service",
+			Action: su.step0ValidateStackAndService,
+		},
+		{
+			Name:   "1. validate image exists",
+			Action: su.step1ValidateImageExists,
+		},
+		{
+			Name:   "2. create branch",
+			Action: su.step2CreateBranch,
+		},
+		{
+			Name:   "3. update version in compose file",
+			Action: su.step3UpdateComposeImageVersion,
+		},
+		{
+			Name:   "4. commit changes",
+			Action: su.step4CommitChanges,
+		},
+		{
+			Name:   "5. push changes",
+			Action: su.step5PushChanges,
+		},
+	}
+
+	if pushAPIToken != "" {
+		su.steps = append(su.steps, serviceUpdateStep{
+			Name:   "6. create merge request",
+			Action: su.step6CreateMergeRequest,
+		})
+	}
+
+	return su
 }
 
 // UpdateImageVersion validates image and updates compose file in push repository.
@@ -136,29 +164,20 @@ func (s *ServiceUpdater) UpdateImageVersion(
 		input: input,
 	}
 
-	if err = s.step0ValidateStackAndService(ctx, session); err != nil {
-		return UpdateImageVersionResult{}, err
-	}
-	if err = s.step1ValidateImageExists(ctx, session); err != nil {
-		return UpdateImageVersionResult{}, err
-	}
-	if err = s.step2CreateBranch(ctx, session); err != nil {
-		return UpdateImageVersionResult{}, err
-	}
-	if err = s.step3UpdateComposeImageVersion(session); err != nil {
-		return UpdateImageVersionResult{}, err
-	}
-	if err = s.step4CommitChanges(ctx, session); err != nil {
-		return UpdateImageVersionResult{}, err
-	}
-	if err = s.step5PushChanges(ctx, session); err != nil {
-		return UpdateImageVersionResult{}, err
-	}
-	if err = s.step6BuildBranchURL(session); err != nil {
-		return UpdateImageVersionResult{}, err
-	}
-	if err = s.step7CreateMergeRequest(ctx, session); err != nil {
-		return UpdateImageVersionResult{}, err
+	var stepErr error
+
+	for _, step := range s.steps {
+		slog.InfoContext(ctx, "[service-updater] running step", slog.String("step.name", step.Name))
+
+		stepErr = step.Action(ctx, session)
+		if stepErr != nil {
+			slog.ErrorContext(ctx, "[service-updater] step failed",
+				slog.String("step.name", step.Name),
+				slog.Any("err", stepErr),
+			)
+
+			break
+		}
 	}
 
 	return UpdateImageVersionResult{
@@ -170,17 +189,13 @@ func (s *ServiceUpdater) UpdateImageVersion(
 		BranchURL:       session.branchURL,
 		CommitHash:      session.commitHash,
 		MergeRequestURL: session.mergeRequestURL,
-	}, nil
+	}, stepErr
 }
 
 func (s *ServiceUpdater) step0ValidateStackAndService(
-	ctx context.Context,
+	_ context.Context,
 	session *updateImageVersionSession,
 ) error {
-	if err := s.repository.SyncBranch(ctx, s.pushBaseBranch); err != nil {
-		return fmt.Errorf("sync branch %q: %w", s.pushBaseBranch, err)
-	}
-
 	stackSpec, err := s.resolveStack(session.input.StackName)
 	if err != nil {
 		return err
@@ -240,16 +255,28 @@ func (s *ServiceUpdater) step2CreateBranch(
 		return err
 	}
 
-	if err = s.repository.CreateBranch(ctx, branchName); err != nil {
+	branch, err := s.repository.Branch(ctx, branchName)
+	if err != nil {
 		return fmt.Errorf("create branch %q: %w", branchName, err)
 	}
 
+	session.branch = branch
 	session.branchName = branchName
+
+	branchURL, err := buildBranchURL(s.pushRepositoryURL, session.branchName)
+	if err != nil {
+		return fmt.Errorf("build branch url: %w", err)
+	}
+
+	session.branchURL = branchURL
 
 	return nil
 }
 
-func (s *ServiceUpdater) step3UpdateComposeImageVersion(session *updateImageVersionSession) error {
+func (s *ServiceUpdater) step3UpdateComposeImageVersion(
+	_ context.Context,
+	session *updateImageVersionSession,
+) error {
 	err := setServiceImage(session.composeFile, session.input.ServiceName, session.newImage)
 	if err != nil {
 		return fmt.Errorf("set service image in compose: %w", err)
@@ -309,24 +336,10 @@ func (s *ServiceUpdater) step5PushChanges(
 	return nil
 }
 
-func (s *ServiceUpdater) step6BuildBranchURL(session *updateImageVersionSession) error {
-	branchURL, err := buildBranchURL(s.pushRepositoryURL, session.branchName)
-	if err != nil {
-		return fmt.Errorf("build branch url: %w", err)
-	}
-
-	session.branchURL = branchURL
-	return nil
-}
-
-func (s *ServiceUpdater) step7CreateMergeRequest(
+func (s *ServiceUpdater) step6CreateMergeRequest(
 	ctx context.Context,
 	session *updateImageVersionSession,
 ) error {
-	if s.pushAPIToken == "" {
-		return nil
-	}
-
 	provider := s.resolveMergeRequestProvider()
 	if provider == nil {
 		return nil
@@ -338,7 +351,7 @@ func (s *ServiceUpdater) step7CreateMergeRequest(
 		HeadBranch:    session.branchName,
 		Title:         buildMergeRequestTitle(session.input.ServiceName, session.input.ImageVersion),
 		Body:          fmt.Sprintf("%s by %s", session.input.Reason, session.input.UserName),
-		APIToken:      s.pushAPIToken,
+		Token:         s.pushAPIToken,
 	})
 	if err != nil {
 		return fmt.Errorf("create merge request: %w", err)
@@ -491,6 +504,7 @@ type updateImageVersionSession struct {
 	currentImage string
 	newImage     string
 
+	branch          gitx.Repository
 	branchName      string
 	branchURL       string
 	commitHash      string

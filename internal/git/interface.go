@@ -8,10 +8,6 @@ import (
 type Repository interface {
 	// WorkingDir returns local repository working directory path.
 	WorkingDir() string
-}
-
-type PullRepository interface {
-	Repository
 
 	// Pull fetches latest changes from origin for configured branch.
 	Pull(ctx context.Context) error
@@ -21,16 +17,10 @@ type PullRepository interface {
 	List(ctx context.Context, limit int) ([]CommitMeta, error)
 	// Show returns commit metadata and per-file diff for a given revision.
 	Show(ctx context.Context, commitHash string) (Commit, error)
-}
 
-// Repository provides git write operations required for service image updates.
-type PushRepository interface {
-	Repository
+	// Branch create isolated branch and repository.
+	Branch(ctx context.Context, branchName string) (Repository, error)
 
-	// SyncBranch checks out the requested branch and synchronizes it from origin.
-	SyncBranch(ctx context.Context, branch string) error
-	// CreateBranch creates and checks out a new branch from current HEAD.
-	CreateBranch(ctx context.Context, branch string) error
 	// Add stages a file path relative to repository root.
 	Add(ctx context.Context, path string) error
 	// Commit creates a commit from staged changes and returns commit hash.

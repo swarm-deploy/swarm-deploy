@@ -30,7 +30,7 @@ func TestReloadStacksUsesRepositoryDirFirst(t *testing.T) {
 		},
 	}
 
-	repository := git.NewRepository(config.GitSpec{}, filepath.Join(dataDir, "repo"))
+	repository := git.NewRepository(config.GitRepositorySpec{}, filepath.Join(dataDir, "repo"))
 	gitSync := gitops.NewSyncer(repository, dataDir)
 
 	c := &Controller{
