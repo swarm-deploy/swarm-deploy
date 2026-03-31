@@ -78,3 +78,11 @@ func decodeToolArguments(raw string) (map[string]any, error) {
 
 	return decoded, nil
 }
+
+func formatMCPToolCallError(toolName string, runErr error) string {
+	return fmt.Sprintf(
+		"MCP tool call failed: tool %q could not be executed. Error: %s",
+		strings.TrimSpace(toolName),
+		strings.TrimSpace(runErr.Error()),
+	)
+}

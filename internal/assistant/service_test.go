@@ -32,8 +32,10 @@ func (f *fakeStore) List() []service.Info {
 }
 
 type fakeTools struct {
-	mu    sync.Mutex
-	calls []string
+	mu            sync.Mutex
+	calls         []string
+	executeErr    error
+	executeResult string
 }
 
 func (f *fakeTools) Definitions() []routing.ToolDefinition {
@@ -53,6 +55,14 @@ func (f *fakeTools) Execute(_ context.Context, name string, _ map[string]any) (s
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls = append(f.calls, name)
+
+	if f.executeErr != nil {
+		return "", f.executeErr
+	}
+	if f.executeResult != "" {
+		return f.executeResult, nil
+	}
+
 	return `{"queued":true}`, nil
 }
 

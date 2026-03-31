@@ -28,6 +28,7 @@ const (
 	graphNodeRetrieveSemantic = "retrieve_semantic"
 	graphNodePrepare          = "prepare_messages"
 	graphNodeGenerateAnswer   = "generate_answer"
+	graphNodeExecuteMCP       = "execute_mcp"
 )
 
 var helloMessages = map[string]struct{}{
@@ -63,6 +64,8 @@ type graphExecutionState struct {
 	retrievalPlan    *rag.RetrievalPlan
 	relevantServices []service.Info
 	modelMessages    []modelMessage
+	pendingToolCalls []modelToolCall
+	toolIterations   int
 	answer           string
 }
 
@@ -111,6 +114,7 @@ func (g *graph) compile(executionState *graphExecutionState) (*langgraph.Runnabl
 	messageGraph.AddNode(graphNodeRetrieveSemantic, g.retrieveSemanticNode(executionState))
 	messageGraph.AddNode(graphNodePrepare, g.prepareNode(executionState))
 	messageGraph.AddNode(graphNodeGenerateAnswer, g.generateAnswerNode(executionState))
+	messageGraph.AddNode(graphNodeExecuteMCP, g.executeMCPNode(executionState))
 
 	messageGraph.AddConditionalEdges(
 		graphNodeGuard,
@@ -149,7 +153,21 @@ func (g *graph) compile(executionState *graphExecutionState) (*langgraph.Runnabl
 	messageGraph.AddEdge(graphNodeRetrieveLexical, graphNodePrepare)
 	messageGraph.AddEdge(graphNodeRetrieveSemantic, graphNodePrepare)
 	messageGraph.AddEdge(graphNodePrepare, graphNodeGenerateAnswer)
-	messageGraph.AddEdge(graphNodeGenerateAnswer, langgraph.END)
+	messageGraph.AddConditionalEdges(
+		graphNodeGenerateAnswer,
+		func(_ context.Context, _ []llms.MessageContent) string {
+			if len(executionState.pendingToolCalls) == 0 {
+				return langgraph.END
+			}
+
+			return graphNodeExecuteMCP
+		},
+		map[string]string{
+			langgraph.END:       langgraph.END,
+			graphNodeExecuteMCP: graphNodeExecuteMCP,
+		},
+	)
+	messageGraph.AddEdge(graphNodeExecuteMCP, graphNodeGenerateAnswer)
 	messageGraph.SetEntryPoint(graphNodeGuard)
 
 	return messageGraph.Compile()
@@ -248,50 +266,69 @@ func (g *graph) generateAnswerNode(
 	allowedToolDefinitions := g.allowedToolDefinitions()
 
 	return func(ctx context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
-		for i := 0; i < maxToolIterations; i++ {
-			completion, completionErr := g.chat.complete(ctx, modelRequest{
-				Model:       g.config.ModelName,
-				Temperature: g.config.Temperature,
-				MaxTokens:   g.config.MaxTokens,
-				Messages:    executionState.modelMessages,
-				Tools:       allowedToolDefinitions,
-			})
-			if completionErr != nil {
-				return messages, fmt.Errorf("chat completion: %w", completionErr)
+		if executionState.toolIterations >= maxToolIterations {
+			return messages, fmt.Errorf("tool iteration limit exceeded")
+		}
+
+		completion, completionErr := g.chat.complete(ctx, modelRequest{
+			Model:       g.config.ModelName,
+			Temperature: g.config.Temperature,
+			MaxTokens:   g.config.MaxTokens,
+			Messages:    executionState.modelMessages,
+			Tools:       allowedToolDefinitions,
+		})
+		if completionErr != nil {
+			return messages, fmt.Errorf("chat completion: %w", completionErr)
+		}
+
+		if len(completion.ToolCalls) == 0 {
+			executionState.answer = strings.TrimSpace(completion.Content)
+			executionState.pendingToolCalls = nil
+			return messages, nil
+		}
+
+		executionState.modelMessages = append(executionState.modelMessages, modelMessage{
+			Role:      "assistant",
+			Content:   completion.Content,
+			ToolCalls: completion.ToolCalls,
+		})
+		executionState.pendingToolCalls = completion.ToolCalls
+		executionState.toolIterations++
+
+		return messages, nil
+	}
+}
+
+func (g *graph) executeMCPNode(
+	executionState *graphExecutionState,
+) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
+	return func(ctx context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
+		for _, modelToolCall := range executionState.pendingToolCalls {
+			slog.InfoContext(ctx, "[graph] running mcp tool", slog.String("tool.name", modelToolCall.Name))
+
+			toolResultMessage, err := g.executeToolCall(ctx, modelToolCall)
+			if err != nil {
+				slog.ErrorContext(ctx, "[graph] failed to run mcp tool",
+					slog.String("tool.name", modelToolCall.Name),
+					slog.Any("err", err),
+				)
+				toolResultMessage = formatMCPToolCallError(modelToolCall.Name, err)
 			}
 
-			if len(completion.ToolCalls) == 0 {
-				executionState.answer = strings.TrimSpace(completion.Content)
-				return messages, nil
+			if strings.TrimSpace(toolResultMessage) == "" {
+				toolResultMessage = "MCP tool returned empty content."
 			}
 
 			executionState.modelMessages = append(executionState.modelMessages, modelMessage{
-				Role:      "assistant",
-				Content:   completion.Content,
-				ToolCalls: completion.ToolCalls,
+				Role:       "tool",
+				Name:       modelToolCall.Name,
+				ToolCallID: modelToolCall.ID,
+				Content:    strings.TrimSpace(toolResultMessage),
 			})
-
-			for _, modelToolCall := range completion.ToolCalls {
-				slog.InfoContext(ctx, "[graph] running mcp tool", slog.String("tool.name", modelToolCall.Name))
-
-				toolResultMessage, err := g.executeToolCall(ctx, modelToolCall)
-				if err != nil {
-					slog.ErrorContext(ctx, "[graph] failed to run mcp tool",
-						slog.String("tool.name", modelToolCall.Name),
-						slog.Any("err", err),
-					)
-				}
-
-				executionState.modelMessages = append(executionState.modelMessages, modelMessage{
-					Role:       "tool",
-					Name:       modelToolCall.Name,
-					ToolCallID: modelToolCall.ID,
-					Content:    strings.TrimSpace(toolResultMessage),
-				})
-			}
 		}
 
-		return messages, fmt.Errorf("tool iteration limit exceeded")
+		executionState.pendingToolCalls = nil
+		return messages, nil
 	}
 }
 

@@ -75,7 +75,8 @@ assistant:
 - `retrieve_lexical` — лексический поиск по документам сервисов
 - `retrieve_semantic` — семантический поиск по embeddings
 - `prepare_messages` — сборка финального набора сообщений для модели
-- `generate_answer` — генерация ответа и выполнение tool calls
+- `generate_answer` — запрос к LLM: либо финальный ответ, либо список tool calls
+- `execute_mcp` — выполнение MCP tool calls и добавление `tool`-сообщений в контекст
 
 Ветвление после `guard`:
 - Для приветственных сообщений (`привет`, `hello`, `thanks` и т.д.) граф идет по короткому пути `guard -> prepare_messages`
@@ -85,6 +86,11 @@ assistant:
   - сразу `prepare_messages`, если сервисов нет
 
 После этого обе ветки сходятся в `generate_answer`.
+
+Ветвление после `generate_answer`:
+- Если tool calls нет, граф завершает выполнение (`END`)
+- Если LLM вернула tool calls, граф переходит в `execute_mcp`, затем снова в `generate_answer`
+- При ошибке MCP вызова в сообщение кладется явный маркер ошибки (`MCP tool call failed: ...`), чтобы агент видел, что инструмент не выполнился
 
 ```mermaid
 flowchart TD
@@ -96,7 +102,9 @@ flowchart TD
   E --> C
   F --> C
   C --> D[generate_answer]
-  D --> G[END]
+  D -->|no tool calls| G[END]
+  D -->|tool calls requested| H[execute_mcp]
+  H --> D
 ```
 
 # RAG
