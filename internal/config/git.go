@@ -28,12 +28,8 @@ type GitHTTPAuth struct {
 	// Password is HTTP basic auth password.
 	//nolint:gosec // Field name is part of a user-facing config schema and does not imply hardcoded secret usage.
 	Password string `yaml:"password"`
-	// PasswordEnv is an env variable name containing HTTP password.
-	PasswordEnv string `yaml:"passwordEnv"`
 	// Token is an HTTP token value used as password.
 	Token string `yaml:"token"`
-	// TokenEnv is an env variable name containing HTTP token.
-	TokenEnv string `yaml:"tokenEnv"`
 }
 
 type GitSSHAuthSpec struct {
@@ -60,7 +56,7 @@ func (a GitHTTPAuth) ResolveUsername() string {
 	if a.Username != "" {
 		return a.Username
 	}
-	if a.Token != "" || a.TokenEnv != "" {
+	if a.Token != "" {
 		// go-git basic auth requires non-empty username when token is used.
 		return "oauth2"
 	}
