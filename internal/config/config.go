@@ -149,28 +149,6 @@ type CustomChannel struct {
 	Header map[string]string `yaml:"header"`
 }
 
-type WebSpec struct {
-	// Address is an HTTP listen address for UI and API server.
-	Address string `yaml:"address"`
-	// Security contains UI and API access settings.
-	Security SecuritySpec `yaml:"security"`
-}
-
-type SecuritySpec struct {
-	// Authentication contains web authentication strategy settings.
-	Authentication AuthenticationSpec `yaml:"authentication"`
-}
-
-type AuthenticationSpec struct {
-	// Basic contains HTTP Basic authentication settings.
-	Basic BasicAuthenticationSpec `yaml:"basic"`
-}
-
-type BasicAuthenticationSpec struct {
-	// HTPasswdFile is a path to htpasswd file with user credentials.
-	HTPasswdFile string `yaml:"htpasswdFile"`
-}
-
 type HealthServerSpec struct {
 	// Address is an HTTP listen address for health/metrics server.
 	Address string `yaml:"address"`
@@ -248,7 +226,6 @@ func (c *Config) applyDefaults(configDir string) error {
 	c.Spec.DataDir = filepath.Join(configDir, ".swarm-deploy")
 	c.applyGitAndSyncDefaults()
 	c.applyWebAndHealthDefaults()
-	c.applySecurityDefaults(configDir)
 	c.applyAssistantDefaults()
 	c.applySwarmDefaults()
 	c.applySecretRotationDefaults()
@@ -294,13 +271,6 @@ func (c *Config) applyWebAndHealthDefaults() {
 	}
 	if c.Spec.HealthServer.Healthz.Path == "" {
 		c.Spec.HealthServer.Healthz.Path = "/healthz"
-	}
-}
-
-func (c *Config) applySecurityDefaults(configDir string) {
-	htpasswdPath := strings.TrimSpace(c.Spec.Web.Security.Authentication.Basic.HTPasswdFile)
-	if htpasswdPath != "" && !filepath.IsAbs(htpasswdPath) {
-		c.Spec.Web.Security.Authentication.Basic.HTPasswdFile = filepath.Join(configDir, htpasswdPath)
 	}
 }
 
@@ -557,16 +527,11 @@ func (c *Config) validateGitAuth() []error {
 }
 
 func (c *Config) validateSecurity() []error {
-	htpasswdPath := strings.TrimSpace(c.Spec.Web.Security.Authentication.Basic.HTPasswdFile)
-	if htpasswdPath == "" {
+	if c.Spec.Web.Security.Authentication.Basic.HTPasswdFile.Path == "" {
 		return nil
 	}
 
-	payload, err := os.ReadFile(htpasswdPath)
-	if err != nil {
-		return []error{fmt.Errorf("read web.security.authentication.basic.htpasswdFile %s: %w", htpasswdPath, err)}
-	}
-	if strings.TrimSpace(string(payload)) == "" {
+	if strings.TrimSpace(string(c.Spec.Web.Security.Authentication.Basic.HTPasswdFile.Content)) == "" {
 		return []error{errors.New("web.security.authentication.basic.htpasswdFile contains empty credentials")}
 	}
 
@@ -690,7 +655,7 @@ func (a AssistantOpenAISpec) ResolveMaxTokens() (int, error) {
 
 // Strategy resolves configured web authentication strategy.
 func (a AuthenticationSpec) Strategy() string {
-	if strings.TrimSpace(a.Basic.HTPasswdFile) != "" {
+	if strings.TrimSpace(a.Basic.HTPasswdFile.Path) != "" {
 		return AuthenticationStrategyBasic
 	}
 

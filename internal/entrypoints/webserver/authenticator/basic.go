@@ -1,10 +1,12 @@
 package authenticator
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"net/http"
 
+	"github.com/artarts36/specw"
 	"github.com/artarts36/swarm-deploy/internal/security"
 	"github.com/tg123/go-htpasswd"
 )
@@ -15,7 +17,7 @@ type basicAuthenticator struct {
 	credentials *htpasswd.File
 }
 
-func newBasicAuthenticator(htpasswdFile string) (Authenticator, error) {
+func newBasicAuthenticator(htpasswdFile specw.File) (Authenticator, error) {
 	credentials, err := newBcryptHTPasswdFile(htpasswdFile)
 	if err != nil {
 		return nil, err
@@ -47,7 +49,7 @@ func (s *basicAuthenticator) Challenge(w http.ResponseWriter) {
 	http.Error(w, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 }
 
-func newBcryptHTPasswdFile(path string) (*htpasswd.File, error) {
+func newBcryptHTPasswdFile(authFile specw.File) (*htpasswd.File, error) {
 	var parseErrs []error
 	acceptedEntries := 0
 
@@ -62,18 +64,25 @@ func newBcryptHTPasswdFile(path string) (*htpasswd.File, error) {
 		return matcher, nil
 	}
 
-	file, err := htpasswd.New(path, []htpasswd.PasswdParser{bcryptOnlyParser}, func(err error) {
-		parseErrs = append(parseErrs, err)
-	})
+	file, err := htpasswd.NewFromReader(
+		bytes.NewBuffer(authFile.Content),
+		[]htpasswd.PasswdParser{bcryptOnlyParser},
+		func(err error) {
+			parseErrs = append(parseErrs, err)
+		},
+	)
 	if err != nil {
-		return nil, fmt.Errorf("open htpasswd file %s: %w", path, err)
+		return nil, fmt.Errorf("open htpasswd file %s: %w", authFile, err)
 	}
 
 	if len(parseErrs) > 0 {
-		return nil, fmt.Errorf("parse htpasswd file %s: only bcrypt is supported: %w", path, errors.Join(parseErrs...))
+		return nil, fmt.Errorf("parse htpasswd file %s: only bcrypt is supported: %w", authFile, errors.Join(parseErrs...))
 	}
 	if acceptedEntries == 0 {
-		return nil, fmt.Errorf("parse htpasswd file %s: %w", path, errors.New("htpasswd file does not contain credentials"))
+		return nil, fmt.Errorf("parse htpasswd file %s: %w",
+			authFile,
+			errors.New("htpasswd file does not contain credentials"),
+		)
 	}
 
 	return file, nil
