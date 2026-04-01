@@ -20,7 +20,10 @@ func (g *graph) executeToolCall(ctx context.Context, modelToolCall modelToolCall
 		return "", fmt.Errorf("decode tool arguments: %w", decodeErr)
 	}
 
-	result, runErr := g.tools.Execute(ctx, modelToolCall.Name, arguments)
+	result, runErr := g.tools.Execute(ctx, routing.Request{
+		ToolName: modelToolCall.Name,
+		Payload:  arguments,
+	})
 	if runErr != nil {
 		return "", runErr
 	}

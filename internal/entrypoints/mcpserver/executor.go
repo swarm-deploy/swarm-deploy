@@ -72,30 +72,28 @@ func (e *Executor) Definitions() []routing.ToolDefinition {
 }
 
 // Execute runs a tool by name.
-func (e *Executor) Execute(ctx context.Context, name string, arguments map[string]any) (string, error) {
+func (e *Executor) Execute(ctx context.Context, req routing.Request) (string, error) {
 	startedAt := time.Now()
 	success := false
 	defer func() {
-		e.metrics.RecordToolExecution(name, success, time.Since(startedAt))
+		e.metrics.RecordToolExecution(req.ToolName, success, time.Since(startedAt))
 	}()
 
-	tool, ok := e.tools[name]
+	tool, ok := e.tools[req.ToolName]
 	if !ok {
-		e.metrics.RecordUnknownTool(name)
+		e.metrics.RecordUnknownTool(req.ToolName)
 
-		return "", fmt.Errorf("unknown tool %q", name)
+		return "", fmt.Errorf("unknown tool %q", req.ToolName)
 	}
 
-	result, err := tool.Execute(ctx, routing.Request{
-		Payload: arguments,
-	})
+	result, err := tool.Execute(ctx, req)
 	if err != nil {
 		return "", err
 	}
 
 	encoded, err := json.Marshal(result.Payload)
 	if err != nil {
-		return "", fmt.Errorf("encode %q tool response: %w", name, err)
+		return "", fmt.Errorf("encode %q tool response: %w", req.ToolName, err)
 	}
 
 	success = true

@@ -14,6 +14,8 @@ type ToolDefinition struct {
 
 // Request describes an input payload for tool execution.
 type Request struct {
+	ToolName string
+
 	// Payload contains decoded JSON arguments keyed by argument name.
 	Payload map[string]any
 }

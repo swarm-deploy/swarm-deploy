@@ -8,6 +8,7 @@ import (
 	"github.com/artarts36/swarm-deploy/internal/config"
 	"github.com/artarts36/swarm-deploy/internal/controller"
 	"github.com/artarts36/swarm-deploy/internal/differ"
+	"github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/artarts36/swarm-deploy/internal/event/dispatcher"
 	"github.com/artarts36/swarm-deploy/internal/event/history"
 	gitx "github.com/artarts36/swarm-deploy/internal/git"
@@ -122,7 +123,10 @@ func TestExecutorExecuteUnknownTool(t *testing.T) {
 		}).MCP,
 	)
 
-	_, err := executor.Execute(context.Background(), "unknown_tool", nil)
+	_, err := executor.Execute(context.Background(), routing.Request{
+		ToolName: "unknown_tool",
+		Payload:  nil,
+	})
 	require.Error(t, err, "expected unknown tool error")
 	assert.Contains(t, err.Error(), "unknown tool", "unexpected error")
 }

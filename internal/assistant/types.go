@@ -101,5 +101,5 @@ type ToolExecutor interface {
 	// Definitions returns all available tool definitions.
 	Definitions() []routing.ToolDefinition
 	// Execute runs a tool by name with decoded JSON arguments.
-	Execute(ctx context.Context, name string, arguments map[string]any) (string, error)
+	Execute(ctx context.Context, req routing.Request) (string, error)
 }

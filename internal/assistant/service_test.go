@@ -51,10 +51,10 @@ func (f *fakeTools) Definitions() []routing.ToolDefinition {
 	}
 }
 
-func (f *fakeTools) Execute(_ context.Context, name string, _ map[string]any) (string, error) {
+func (f *fakeTools) Execute(_ context.Context, req routing.Request) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.calls = append(f.calls, name)
+	f.calls = append(f.calls, req.ToolName)
 
 	if f.executeErr != nil {
 		return "", f.executeErr
