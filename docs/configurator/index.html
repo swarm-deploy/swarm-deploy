@@ -1,0 +1,1569 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>swarm-deploy Config Wizard</title>
+    <style>
+      @import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap");
+
+      :root {
+        --bg-top: #f3f8ff;
+        --bg-bottom: #fff9f2;
+        --panel: #ffffff;
+        --ink: #14233a;
+        --muted: #5f6f83;
+        --line: #d8e2ee;
+        --accent: #0f8f7a;
+        --accent-2: #f08b36;
+        --danger: #b03a2e;
+        --radius: 18px;
+        --shadow: 0 16px 50px rgba(20, 35, 58, 0.08);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: var(--ink);
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+        background:
+          radial-gradient(circle at 10% 0%, #d9f3ee 0, rgba(217, 243, 238, 0) 45%),
+          radial-gradient(circle at 90% 18%, #ffe4ca 0, rgba(255, 228, 202, 0) 42%),
+          linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
+      }
+
+      .shell {
+        width: min(980px, calc(100% - 2.2rem));
+        margin: 2rem auto 3rem;
+      }
+
+      .hero {
+        padding: 1.3rem 1.4rem;
+        border: 1px solid rgba(15, 143, 122, 0.24);
+        border-radius: var(--radius);
+        background: rgba(255, 255, 255, 0.84);
+        backdrop-filter: blur(3px);
+      }
+
+      .hero h1 {
+        margin: 0 0 0.35rem;
+        font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+        font-size: clamp(1.4rem, 2vw + 0.75rem, 2rem);
+      }
+
+      .hero p {
+        margin: 0;
+        color: var(--muted);
+      }
+
+      .hero-top {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 0.4rem;
+      }
+
+      .hero-top h1 {
+        margin: 0;
+      }
+
+      .lang-switch {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        font-size: 0.9rem;
+      }
+
+      .lang-switch label {
+        color: #3a4f6b;
+        font-weight: 600;
+      }
+
+      .lang-switch select {
+        min-width: 90px;
+        padding: 0.35rem 0.45rem;
+      }
+
+      .wizard {
+        margin-top: 1rem;
+        padding: 1.4rem;
+        border-radius: var(--radius);
+        background: var(--panel);
+        border: 1px solid var(--line);
+        box-shadow: var(--shadow);
+      }
+
+      .progress-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 1rem;
+      }
+
+      #progressLabel {
+        margin: 0;
+        color: var(--muted);
+        font-size: 0.95rem;
+      }
+
+      .progress-track {
+        margin-top: 0.55rem;
+        width: 100%;
+        height: 8px;
+        border-radius: 999px;
+        background: #e6edf6;
+        overflow: hidden;
+      }
+
+      #progressFill {
+        height: 100%;
+        width: 20%;
+        background: linear-gradient(90deg, var(--accent), var(--accent-2));
+        transition: width 260ms ease;
+      }
+
+      .step-pill-list {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+        margin-top: 0.8rem;
+      }
+
+      .step-pill {
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        padding: 0.24rem 0.64rem;
+        font-size: 0.84rem;
+        color: #34435c;
+        background: #fbfdff;
+      }
+
+      .step-pill.active {
+        border-color: rgba(15, 143, 122, 0.32);
+        background: rgba(15, 143, 122, 0.14);
+        color: #0f5f53;
+      }
+
+      .step {
+        display: none;
+        margin-top: 1rem;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 1.1rem;
+        background: #fcfeff;
+      }
+
+      .step.active {
+        display: block;
+      }
+
+      .step h2 {
+        margin: 0 0 0.45rem;
+        font-family: "Space Grotesk", "IBM Plex Sans", sans-serif;
+      }
+
+      .step p {
+        margin: 0.4rem 0;
+        color: #304256;
+      }
+
+      .feature-list,
+      .mini-list {
+        margin: 0.55rem 0 0;
+        padding-left: 1.1rem;
+        color: #304256;
+      }
+
+      .feature-list li,
+      .mini-list li {
+        margin: 0.28rem 0;
+      }
+
+      .grid-2 {
+        display: grid;
+        gap: 0.9rem;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+      .field {
+        margin-top: 0.9rem;
+      }
+
+      .field label,
+      .field legend {
+        display: block;
+        margin: 0 0 0.35rem;
+        font-weight: 600;
+        color: #233652;
+      }
+
+      input[type="text"],
+      input[type="url"],
+      input[type="number"],
+      select,
+      textarea {
+        width: 100%;
+        border: 1px solid #bfd0e2;
+        border-radius: 10px;
+        background: #fff;
+        padding: 0.62rem 0.7rem;
+        color: var(--ink);
+        font-size: 0.98rem;
+      }
+
+      textarea {
+        min-height: 280px;
+        font-family: "IBM Plex Mono", "JetBrains Mono", monospace;
+        line-height: 1.45;
+      }
+
+      .inline-options {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.8rem;
+        margin-top: 0.35rem;
+      }
+
+      .inline-options label,
+      .checkbox-grid label {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.38rem;
+        font-weight: 500;
+        color: #2e425f;
+      }
+
+      .checkbox-grid {
+        margin-top: 0.35rem;
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+        gap: 0.4rem 0.8rem;
+      }
+
+      fieldset {
+        border: 1px solid #d7e1ec;
+        border-radius: 10px;
+        padding: 0.7rem;
+        margin: 0.9rem 0 0;
+      }
+
+      .hint-card {
+        margin-top: 0.8rem;
+        padding: 0.8rem;
+        border-radius: 10px;
+        border: 1px solid #ffd8b8;
+        background: #fff5eb;
+      }
+
+      .hint-card h3 {
+        margin: 0 0 0.25rem;
+        font-size: 1rem;
+      }
+
+      pre {
+        margin: 0.55rem 0 0;
+        padding: 0.7rem;
+        border-radius: 10px;
+        border: 1px solid #d3deeb;
+        background: #f7faff;
+        overflow: auto;
+        font-family: "IBM Plex Mono", "JetBrains Mono", monospace;
+        font-size: 0.88rem;
+        line-height: 1.38;
+      }
+
+      code {
+        font-family: "IBM Plex Mono", "JetBrains Mono", monospace;
+        font-size: 0.92em;
+        background: #eef3f9;
+        border: 1px solid #d4deea;
+        border-radius: 5px;
+        padding: 0.08rem 0.34rem;
+      }
+
+      .methods-card {
+        margin-top: 0.8rem;
+        border: 1px solid #d7e1ed;
+        border-radius: 10px;
+        padding: 0.78rem;
+        background: #f8fbff;
+      }
+
+      .methods-card h3 {
+        margin: 0 0 0.35rem;
+        font-size: 0.98rem;
+      }
+
+      .actions {
+        margin-top: 1rem;
+        display: flex;
+        align-items: center;
+        gap: 0.65rem;
+        flex-wrap: wrap;
+      }
+
+      button {
+        border: 1px solid transparent;
+        border-radius: 11px;
+        padding: 0.56rem 0.95rem;
+        font-size: 0.96rem;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      #prevBtn {
+        background: #eef4fb;
+        color: #2d4260;
+        border-color: #d7e3f0;
+      }
+
+      #nextBtn {
+        color: #fff;
+        background: linear-gradient(110deg, #177f6d, #f08b36);
+      }
+
+      #copyBtn,
+      #downloadBtn {
+        background: #fff;
+        color: #254060;
+        border-color: #c7d7e8;
+      }
+
+      .error {
+        margin-top: 0.75rem;
+        color: var(--danger);
+        min-height: 1.2rem;
+        font-weight: 600;
+      }
+
+      #resultStatus {
+        margin: 0.3rem 0 0;
+        min-height: 1.1rem;
+        font-weight: 600;
+        color: #265a8a;
+      }
+
+      .hidden {
+        display: none !important;
+      }
+
+      @media (max-width: 760px) {
+        .shell {
+          margin-top: 1rem;
+          width: calc(100% - 1.2rem);
+        }
+
+        .wizard {
+          padding: 1rem;
+        }
+
+        .step {
+          padding: 0.9rem;
+        }
+
+        .grid-2 {
+          grid-template-columns: 1fr;
+        }
+
+        .hero-top {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="hero">
+        <div class="hero-top">
+          <h1 id="heroTitle">Мастер конфигурации swarm-deploy</h1>
+          <div class="lang-switch">
+            <label id="languageLabel" for="languageSelect">Язык</label>
+            <select id="languageSelect">
+              <option value="ru">Русский</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+        </div>
+        <p id="heroSubtitle">
+          Пошаговый мастер для подготовки <code>swarm-deploy.yaml</code> с учетом Git,
+          stacks и нотификаций.
+        </p>
+      </header>
+
+      <section class="wizard">
+        <div class="progress-head">
+          <p id="progressLabel">Шаг 1 из 5</p>
+        </div>
+        <div class="progress-track"><div id="progressFill"></div></div>
+        <div class="step-pill-list">
+          <span id="pill1" class="step-pill active" data-pill="1">1. О swarm-deploy</span>
+          <span id="pill2" class="step-pill" data-pill="2">2. Git</span>
+          <span id="pill3" class="step-pill" data-pill="3">3. Stacks</span>
+          <span id="pill4" class="step-pill" data-pill="4">4. Нотификации</span>
+          <span id="pill5" class="step-pill" data-pill="5">5. Результат</span>
+        </div>
+
+        <section class="step active" data-step="1">
+          <h2 id="step1Title">О swarm-deploy</h2>
+          <p id="step1Desc1">
+            <code>swarm-deploy</code> автоматически подтягивает изменения из Git и
+            обновляет Docker Swarm стеки.
+          </p>
+          <ul class="feature-list">
+            <li id="step1Feature1">Поддерживает <code>pull</code>, <code>webhook</code> и <code>hybrid</code> режимы синхронизации.</li>
+            <li id="step1Feature2">Работает с <code>none/http/ssh</code> аутентификацией Git.</li>
+            <li id="step1Feature3">Позволяет отправлять нотификации по событиям деплоя и безопасности.</li>
+          </ul>
+          <p id="step1Desc2">Далее соберем минимально рабочий, валидный <code>swarm-deploy.yaml</code>.</p>
+        </section>
+
+        <section class="step" data-step="2">
+          <h2 id="step2Title">Git</h2>
+          <p id="step2Desc">Укажите репозиторий и способ доступа к нему.</p>
+
+          <div class="grid-2">
+            <div class="field">
+              <label id="labelGitRepository" for="gitRepository">Ссылка на репозиторий *</label>
+              <input
+                id="gitRepository"
+                type="url"
+                placeholder="https://github.com/your-org/infra.git"
+              />
+            </div>
+            <div class="field">
+              <label id="labelGitBranch" for="gitBranch">Ветка</label>
+              <input id="gitBranch" type="text" value="main" />
+            </div>
+          </div>
+
+          <fieldset class="field">
+            <legend id="legendAuthType">Тип аутентификации</legend>
+            <div class="inline-options">
+              <label>
+                <input type="radio" name="authType" value="none" checked />
+                <span id="authNoneText">none</span>
+              </label>
+              <label>
+                <input type="radio" name="authType" value="http" />
+                <span id="authHttpText">http</span>
+              </label>
+              <label>
+                <input type="radio" name="authType" value="ssh" />
+                <span id="authSshText">ssh</span>
+              </label>
+            </div>
+          </fieldset>
+
+          <section id="httpAuthFields" class="hidden">
+            <fieldset>
+              <legend id="legendHttpMode">HTTP credential mode</legend>
+              <div class="inline-options">
+                <label>
+                  <input type="radio" name="httpMode" value="token" checked />
+                  <span id="httpModeTokenText">Token</span>
+                </label>
+                <label>
+                  <input type="radio" name="httpMode" value="password" />
+                  <span id="httpModePasswordText">Username + Password</span>
+                </label>
+              </div>
+            </fieldset>
+
+            <div id="httpTokenFields" class="field">
+              <label id="labelHttpTokenPath" for="httpTokenPath"><code>tokenPath</code> *</label>
+              <input
+                id="httpTokenPath"
+                type="text"
+                value="/run/secrets/git_http_token"
+              />
+            </div>
+
+            <div id="httpPasswordFields" class="hidden">
+              <div class="grid-2">
+                <div class="field">
+                  <label id="labelHttpUsername" for="httpUsername"><code>username</code> *</label>
+                  <input id="httpUsername" type="text" placeholder="git-user" />
+                </div>
+                <div class="field">
+                  <label id="labelHttpPasswordPath" for="httpPasswordPath"><code>passwordPath</code> *</label>
+                  <input
+                    id="httpPasswordPath"
+                    type="text"
+                    value="/run/secrets/git_http_password"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div class="hint-card">
+              <h3 id="httpHintTitle">Для <code>http</code> credentials используйте Docker Swarm secrets</h3>
+              <ul class="mini-list">
+                <li id="httpHintItem1"><code>token</code> mode: создайте секрет для <code>tokenPath</code>.</li>
+                <li id="httpHintItem2"><code>username + password</code> mode: username укажите в YAML, пароль храните в секрете для <code>passwordPath</code>.</li>
+              </ul>
+              <pre id="httpHintCommands">docker secret create git_http_token ./git.token
+docker secret create git_http_password ./git.password</pre>
+            </div>
+          </section>
+
+          <section id="sshAuthFields" class="hidden">
+            <div class="grid-2">
+              <div class="field">
+                <label id="labelSshUser" for="sshUser"><code>user</code></label>
+                <input id="sshUser" type="text" value="git" />
+              </div>
+              <div class="field">
+                <label id="labelSshPrivateKeyPath" for="sshPrivateKeyPath"><code>privateKeyPath</code> *</label>
+                <input
+                  id="sshPrivateKeyPath"
+                  type="text"
+                  value="/run/secrets/git_ssh_private_key"
+                />
+              </div>
+              <div class="field">
+                <label id="labelSshKnownHostsPath" for="sshKnownHostsPath"><code>knownHostsPath</code> *</label>
+                <input
+                  id="sshKnownHostsPath"
+                  type="text"
+                  value="/run/secrets/git_ssh_known_hosts"
+                />
+              </div>
+              <div class="field">
+                <label id="labelSshPassphrasePath" for="sshPassphrasePath"><code>passphrasePath</code> (опционально)</label>
+                <input
+                  id="sshPassphrasePath"
+                  type="text"
+                  placeholder="/run/secrets/git_ssh_passphrase"
+                />
+              </div>
+            </div>
+            <div class="field">
+              <label>
+                <input id="sshInsecureIgnoreHostKey" type="checkbox" />
+                <span id="labelSshInsecure"><code>insecureIgnoreHostKey: true</code> (не рекомендуется для production)</span>
+              </label>
+            </div>
+
+            <div class="hint-card">
+              <h3 id="sshHintTitle">Для <code>ssh</code> понадобятся секреты Docker Swarm</h3>
+              <ul class="mini-list">
+                <li id="sshHintItem1"><code>privateKey</code> (обязательно)</li>
+                <li id="sshHintItem2"><code>knownHosts</code> (обязательно)</li>
+                <li id="sshHintItem3"><code>passphrase</code> (опционально)</li>
+              </ul>
+              <pre>docker secret create git_ssh_private_key ./id_ed25519
+docker secret create git_ssh_known_hosts ./known_hosts
+docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
+            </div>
+          </section>
+        </section>
+
+        <section class="step" data-step="3">
+          <h2 id="step3Title">Stacks</h2>
+          <p id="step3Desc1">
+            <code>stacks.file</code> указывает на файл внутри Git-репозитория, где описан
+            список стэков для деплоя.
+          </p>
+          <p id="step3Desc2">По умолчанию используется <code>./stacks.yaml</code>.</p>
+
+          <pre>stacks:
+  - name: app
+    composeFile: ./deploy/app.stack.yaml</pre>
+
+          <div class="field">
+            <label id="labelStacksFile" for="stacksFile">Путь к файлу со стэками *</label>
+            <input id="stacksFile" type="text" value="./stacks.yaml" />
+          </div>
+        </section>
+
+        <section class="step" data-step="4">
+          <h2 id="step4Title">Нотификации (опционально)</h2>
+          <p id="step4Desc">
+            Можно отправлять уведомления в Telegram и/или custom webhook по
+            выбранным событиям.
+          </p>
+          <div class="methods-card">
+            <h3 id="methodsTitle">Доступные способы</h3>
+            <ul class="mini-list">
+              <li id="methodsItem1"><code>telegram</code>: бот-токен, chatId, шаблон сообщения.</li>
+              <li id="methodsItem2"><code>custom</code>: webhook URL, HTTP method, headers.</li>
+            </ul>
+          </div>
+          <div class="methods-card">
+            <h3 id="eventsTitle">Доступные события</h3>
+            <ul class="mini-list">
+              <li id="eventsItemDeploySuccess"><code>deploySuccess</code>: успешный деплой стэка.</li>
+              <li id="eventsItemDeployFailed"><code>deployFailed</code>: ошибка деплоя стэка.</li>
+              <li id="eventsItemSyncManualStarted"><code>syncManualStarted</code>: пользователь запустил ручной sync.</li>
+              <li id="eventsItemUserAuthenticated"><code>userAuthenticated</code>: пользователь успешно прошел web-аутентификацию.</li>
+              <li id="eventsItemSendNotificationFailed"><code>sendNotificationFailed</code>: не удалось отправить нотификацию.</li>
+              <li id="eventsItemAssistantPromptInjectionDetected"><code>assistantPromptInjectionDetected</code>: детектирована prompt injection атака.</li>
+            </ul>
+          </div>
+
+          <fieldset class="field">
+            <legend id="legendNotificationsEnabled">Включить нотификации?</legend>
+            <div class="inline-options">
+              <label>
+                <input type="radio" name="notificationsEnabled" value="no" checked />
+                <span id="notificationsNoText">Нет, пропустить</span>
+              </label>
+              <label>
+                <input type="radio" name="notificationsEnabled" value="yes" />
+                <span id="notificationsYesText">Да, настроить</span>
+              </label>
+            </div>
+          </fieldset>
+
+          <section id="notificationsConfig" class="hidden">
+            <fieldset class="field">
+              <legend id="legendNotificationChannel">Канал нотификаций</legend>
+              <div class="inline-options">
+                <label>
+                  <input id="methodTelegram" type="checkbox" value="telegram" checked />
+                  <span id="methodTelegramText">Telegram</span>
+                </label>
+                <label>
+                  <input id="methodCustom" type="checkbox" value="custom" />
+                  <span id="methodCustomText">Custom webhook</span>
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset id="telegramFields" class="field">
+              <legend id="legendTelegramFields">Telegram</legend>
+              <div class="grid-2">
+                <div class="field">
+                  <label id="labelTelegramName" for="telegramName"><code>name</code></label>
+                  <input id="telegramName" type="text" value="ops-telegram" />
+                </div>
+                <div class="field">
+                  <label id="labelTelegramBotTokenPath" for="telegramBotTokenPath"><code>botTokenPath</code> *</label>
+                  <input
+                    id="telegramBotTokenPath"
+                    type="text"
+                    value="/run/secrets/telegram_bot_token"
+                  />
+                </div>
+                <div class="field">
+                  <label id="labelTelegramChatId" for="telegramChatId"><code>chatId</code> *</label>
+                  <input
+                    id="telegramChatId"
+                    type="text"
+                    placeholder="-1001234567890"
+                  />
+                </div>
+                <div class="field">
+                  <label id="labelTelegramChatThreadId" for="telegramChatThreadId"><code>chatThreadId</code> (опционально)</label>
+                  <input id="telegramChatThreadId" type="number" min="0" />
+                </div>
+              </div>
+            </fieldset>
+
+            <fieldset id="customFields" class="field hidden">
+              <legend id="legendCustomFields">Custom webhook</legend>
+              <div class="grid-2">
+                <div class="field">
+                  <label id="labelCustomName" for="customName"><code>name</code></label>
+                  <input id="customName" type="text" value="ops-webhook" />
+                </div>
+                <div class="field">
+                  <label id="labelCustomURL" for="customURL"><code>url</code> *</label>
+                  <input
+                    id="customURL"
+                    type="url"
+                    placeholder="https://hooks.example.com/swarm-deploy"
+                  />
+                </div>
+                <div class="field">
+                  <label id="labelCustomMethod" for="customMethod"><code>method</code></label>
+                  <select id="customMethod">
+                    <option>POST</option>
+                    <option>PUT</option>
+                    <option>PATCH</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label id="labelCustomContentType" for="customContentType"><code>header.Content-Type</code></label>
+                  <input id="customContentType" type="text" value="application/json" />
+                </div>
+              </div>
+            </fieldset>
+
+            <fieldset class="field">
+              <legend id="legendEvents">События для уведомлений *</legend>
+              <div class="checkbox-grid">
+                <label>
+                  <input type="checkbox" name="events" value="deploySuccess" checked />
+                  deploySuccess
+                </label>
+                <label>
+                  <input type="checkbox" name="events" value="deployFailed" checked />
+                  deployFailed
+                </label>
+                <label>
+                  <input type="checkbox" name="events" value="syncManualStarted" />
+                  syncManualStarted
+                </label>
+                <label>
+                  <input type="checkbox" name="events" value="userAuthenticated" />
+                  userAuthenticated
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    name="events"
+                    value="sendNotificationFailed"
+                  />
+                  sendNotificationFailed
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    name="events"
+                    value="assistantPromptInjectionDetected"
+                  />
+                  assistantPromptInjectionDetected
+                </label>
+              </div>
+            </fieldset>
+
+            <fieldset class="field">
+              <legend id="legendTemplatePreview">Сгенерированные шаблоны сообщений (Telegram)</legend>
+              <pre id="templatePreview">Выберите события, чтобы увидеть шаблон.</pre>
+            </fieldset>
+          </section>
+        </section>
+
+        <section class="step" data-step="5">
+          <h2 id="step5Title">Результат</h2>
+          <p id="step5Desc">
+            Ниже валидный <code>swarm-deploy.yaml</code>, сформированный из введенных данных.
+          </p>
+          <textarea id="yamlOutput" readonly></textarea>
+          <div class="actions">
+            <button id="copyBtn" type="button">Скопировать YAML</button>
+            <button id="downloadBtn" type="button">Скачать файл</button>
+          </div>
+          <p id="resultStatus"></p>
+        </section>
+
+        <p class="error" id="stepError" aria-live="polite"></p>
+
+        <div class="actions">
+          <button id="prevBtn" type="button">Назад</button>
+          <button id="nextBtn" type="button">Далее</button>
+        </div>
+      </section>
+    </main>
+
+    <script>
+      const I18N = {
+        ru: {
+          languageLabel: "Language",
+          heroTitle: "Мастер конфигурации swarm-deploy",
+          heroSubtitle:
+            "Пошаговый мастер для подготовки конфигурации для swarm-deploy",
+          progress: "Шаг {step} из {total}",
+          pill1: "1. О swarm-deploy",
+          pill2: "2. Git",
+          pill3: "3. Stacks",
+          pill4: "4. Нотификации",
+          pill5: "5. Результат",
+          step1Title: "О swarm-deploy",
+          step1Desc1:
+            "<code>swarm-deploy</code> автоматически подтягивает изменения из Git и обновляет Docker Swarm стеки.",
+          step1Feature1:
+            "Поддерживает <code>pull</code>, <code>webhook</code> и <code>hybrid</code> режимы синхронизации.",
+          step1Feature2: "Работает с <code>none/http/ssh</code> аутентификацией Git.",
+          step1Feature3: "Позволяет отправлять нотификации по событиям деплоя и безопасности.",
+          step1Desc2: "Далее соберем минимально рабочий, валидный <code>swarm-deploy.yaml</code>.",
+          step2Title: "Git",
+          step2Desc: "Укажите репозиторий и способ доступа к нему.",
+          labelGitRepository: "Ссылка на репозиторий *",
+          labelGitBranch: "Ветка",
+          legendAuthType: "Тип аутентификации",
+          authNoneText: "none",
+          authHttpText: "http",
+          authSshText: "ssh",
+          legendHttpMode: "Режим HTTP credentials",
+          httpModeTokenText: "Token",
+          httpModePasswordText: "Username + Password",
+          labelHttpTokenPath: "<code>tokenPath</code> *",
+          labelHttpUsername: "<code>username</code> *",
+          labelHttpPasswordPath: "<code>passwordPath</code> *",
+          httpHintTitle: "Для <code>http</code> credentials используйте Docker Swarm secrets",
+          httpHintItem1: "<code>token</code> mode: создайте секрет для <code>tokenPath</code>.",
+          httpHintItem2:
+            "<code>username + password</code> mode: username укажите в YAML, пароль храните в секрете для <code>passwordPath</code>.",
+          httpHintCommands:
+            "docker secret create git_http_token ./git.token\ndocker secret create git_http_password ./git.password",
+          labelSshUser: "<code>user</code>",
+          labelSshPrivateKeyPath: "<code>privateKeyPath</code> *",
+          labelSshKnownHostsPath: "<code>knownHostsPath</code> *",
+          labelSshPassphrasePath: "<code>passphrasePath</code> (опционально)",
+          labelSshInsecure:
+            "<code>insecureIgnoreHostKey: true</code> (не рекомендуется для production)",
+          sshHintTitle: "Для <code>ssh</code> понадобятся секреты Docker Swarm",
+          sshHintItem1: "<code>privateKey</code> (обязательно)",
+          sshHintItem2: "<code>knownHosts</code> (обязательно)",
+          sshHintItem3: "<code>passphrase</code> (опционально)",
+          step3Title: "Stacks",
+          step3Desc1:
+            "<code>stacks.file</code> указывает на файл внутри Git-репозитория, где описан список стэков для деплоя.",
+          step3Desc2: "По умолчанию используется <code>./stacks.yaml</code>.",
+          labelStacksFile: "Путь к файлу со стэками *",
+          step4Title: "Нотификации (опционально)",
+          step4Desc: "Можно отправлять уведомления в Telegram и/или custom webhook по выбранным событиям.",
+          methodsTitle: "Доступные способы",
+          methodsItem1: "<code>telegram</code>: бот-токен, chatId, шаблон сообщения.",
+          methodsItem2: "<code>custom</code>: webhook URL, HTTP method, headers.",
+          eventsTitle: "Доступные события",
+          eventsItemDeploySuccess: "<code>deploySuccess</code>: успешный деплой стэка.",
+          eventsItemDeployFailed: "<code>deployFailed</code>: ошибка деплоя стэка.",
+          eventsItemSyncManualStarted:
+            "<code>syncManualStarted</code>: пользователь запустил ручной sync.",
+          eventsItemUserAuthenticated:
+            "<code>userAuthenticated</code>: пользователь успешно прошел web-аутентификацию.",
+          eventsItemSendNotificationFailed:
+            "<code>sendNotificationFailed</code>: не удалось отправить нотификацию.",
+          eventsItemAssistantPromptInjectionDetected:
+            "<code>assistantPromptInjectionDetected</code>: детектирована prompt injection атака.",
+          legendNotificationsEnabled: "Включить нотификации?",
+          notificationsNoText: "Нет, пропустить",
+          notificationsYesText: "Да, настроить",
+          legendNotificationChannel: "Канал нотификаций",
+          methodTelegramText: "Telegram",
+          methodCustomText: "Custom webhook",
+          legendTelegramFields: "Telegram",
+          labelTelegramName: "<code>name</code>",
+          labelTelegramBotTokenPath: "<code>botTokenPath</code> *",
+          labelTelegramChatId: "<code>chatId</code> *",
+          labelTelegramChatThreadId: "<code>chatThreadId</code> (опционально)",
+          legendCustomFields: "Custom webhook",
+          labelCustomName: "<code>name</code>",
+          labelCustomURL: "<code>url</code> *",
+          labelCustomMethod: "<code>method</code>",
+          labelCustomContentType: "<code>header.Content-Type</code>",
+          legendEvents: "События для уведомлений *",
+          legendTemplatePreview: "Сгенерированные шаблоны сообщений (Telegram)",
+          step5Title: "Результат",
+          step5Desc: "Ниже валидный <code>swarm-deploy.yaml</code>, сформированный из введенных данных.",
+          btnPrev: "Назад",
+          btnNext: "Далее",
+          btnGenerate: "Сгенерировать YAML",
+          btnRefresh: "Обновить YAML",
+          btnCopy: "Скопировать YAML",
+          btnDownload: "Скачать файл",
+          previewNoTelegram: "Telegram не выбран. Шаблоны не требуются.",
+          previewPickEvents: "Выберите события, чтобы увидеть шаблон.",
+          errRepoRequired: "Заполните ссылку на репозиторий.",
+          errHttpTokenPath: "Для HTTP token режима обязателен tokenPath.",
+          errHttpUserPass: "Для HTTP password режима обязательны username и passwordPath.",
+          errSshPaths: "Для SSH обязательны privateKeyPath и knownHostsPath.",
+          errStacksFile: "Укажите путь к stacks.file.",
+          errChannelRequired: "Выберите хотя бы один канал нотификаций.",
+          errEventsRequired: "Выберите хотя бы одно событие для нотификаций.",
+          errTelegramRequired: "Для Telegram заполните botTokenPath и chatId.",
+          errCustomURLRequired: "Для custom webhook заполните url.",
+          statusYamlUpdated: "YAML обновлен.",
+          statusCopied: "YAML скопирован в буфер обмена.",
+          statusCopyFailed: "Не удалось скопировать автоматически. Скопируйте вручную.",
+          statusDownloaded: "Файл swarm-deploy.yaml скачан.",
+          templates: {
+            deploySuccess: [
+              "деплой успешен",
+              "stack: {{.event.stack_name}}",
+              "{{ range .event.services }}service: {{.name}} | image: {{.image}}{{ end }}",
+              "commit: {{.event.commit}}",
+            ],
+            deployFailed: [
+              "деплой завершился ошибкой",
+              "stack: {{.event.stack_name}}",
+              "{{ range .event.services }}service: {{.name}} | image: {{.image}}{{ end }}",
+              "error: {{.event.error}}",
+            ],
+            syncManualStarted: ["ручной sync запущен"],
+            userAuthenticated: ["пользователь авторизован", "username: {{.event.username}}"],
+            sendNotificationFailed: [
+              "ошибка отправки нотификации",
+              "destination: {{.event.destination}}",
+              "channel: {{.event.channel}}",
+              "event_type: {{.event.event_type}}",
+              "error: {{.event.error}}",
+            ],
+            assistantPromptInjectionDetected: [
+              "обнаружена prompt injection атака",
+              "detector: {{.event.detector}}",
+              "username: {{.event.username}}",
+            ],
+          },
+        },
+        en: {
+          languageLabel: "Язык",
+          heroTitle: "Configurator for swarm-deploy",
+          heroSubtitle:
+            "Step-by-step wizard for building swarm-deploy.yaml configuration.",
+          progress: "Step {step} of {total}",
+          pill1: "1. About swarm-deploy",
+          pill2: "2. Git",
+          pill3: "3. Stacks",
+          pill4: "4. Notifications",
+          pill5: "5. Result",
+          step1Title: "About swarm-deploy",
+          step1Desc1:
+            "<code>swarm-deploy</code> automatically pulls updates from Git and deploys Docker Swarm stacks.",
+          step1Feature1:
+            "Supports <code>pull</code>, <code>webhook</code>, and <code>hybrid</code> sync modes.",
+          step1Feature2: "Works with <code>none/http/ssh</code> Git authentication.",
+          step1Feature3: "Can send notifications for deploy and security events.",
+          step1Desc2: "Next, we will assemble a minimal valid <code>swarm-deploy.yaml</code>.",
+          step2Title: "Git",
+          step2Desc: "Provide repository details and the access method.",
+          labelGitRepository: "Repository URL *",
+          labelGitBranch: "Branch",
+          legendAuthType: "Authentication type",
+          authNoneText: "none",
+          authHttpText: "http",
+          authSshText: "ssh",
+          legendHttpMode: "HTTP credentials mode",
+          httpModeTokenText: "Token",
+          httpModePasswordText: "Username + Password",
+          labelHttpTokenPath: "<code>tokenPath</code> *",
+          labelHttpUsername: "<code>username</code> *",
+          labelHttpPasswordPath: "<code>passwordPath</code> *",
+          httpHintTitle: "Use Docker Swarm secrets for <code>http</code> credentials",
+          httpHintItem1: "<code>token</code> mode: create a secret for <code>tokenPath</code>.",
+          httpHintItem2:
+            "<code>username + password</code> mode: keep username in YAML and store password as a secret for <code>passwordPath</code>.",
+          httpHintCommands:
+            "docker secret create git_http_token ./git.token\ndocker secret create git_http_password ./git.password",
+          labelSshUser: "<code>user</code>",
+          labelSshPrivateKeyPath: "<code>privateKeyPath</code> *",
+          labelSshKnownHostsPath: "<code>knownHostsPath</code> *",
+          labelSshPassphrasePath: "<code>passphrasePath</code> (optional)",
+          labelSshInsecure:
+            "<code>insecureIgnoreHostKey: true</code> (not recommended for production)",
+          sshHintTitle: "<code>ssh</code> requires Docker Swarm secrets",
+          sshHintItem1: "<code>privateKey</code> (required)",
+          sshHintItem2: "<code>knownHosts</code> (required)",
+          sshHintItem3: "<code>passphrase</code> (optional)",
+          step3Title: "Stacks",
+          step3Desc1:
+            "<code>stacks.file</code> points to the file in your Git repository that lists stacks to deploy.",
+          step3Desc2: "Default value is <code>./stacks.yaml</code>.",
+          labelStacksFile: "Stacks file path *",
+          step4Title: "Notifications (optional)",
+          step4Desc: "You can send alerts to Telegram and/or a custom webhook for selected events.",
+          methodsTitle: "Available methods",
+          methodsItem1: "<code>telegram</code>: bot token, chatId, message template.",
+          methodsItem2: "<code>custom</code>: webhook URL, HTTP method, headers.",
+          eventsTitle: "Available events",
+          eventsItemDeploySuccess: "<code>deploySuccess</code>: stack deployment succeeded.",
+          eventsItemDeployFailed: "<code>deployFailed</code>: stack deployment failed.",
+          eventsItemSyncManualStarted:
+            "<code>syncManualStarted</code>: a user started manual sync.",
+          eventsItemUserAuthenticated:
+            "<code>userAuthenticated</code>: a user successfully passed web authentication.",
+          eventsItemSendNotificationFailed:
+            "<code>sendNotificationFailed</code>: notification delivery failed.",
+          eventsItemAssistantPromptInjectionDetected:
+            "<code>assistantPromptInjectionDetected</code>: a prompt injection attack was detected.",
+          legendNotificationsEnabled: "Enable notifications?",
+          notificationsNoText: "No, skip",
+          notificationsYesText: "Yes, configure",
+          legendNotificationChannel: "Notification channel",
+          methodTelegramText: "Telegram",
+          methodCustomText: "Custom webhook",
+          legendTelegramFields: "Telegram",
+          labelTelegramName: "<code>name</code>",
+          labelTelegramBotTokenPath: "<code>botTokenPath</code> *",
+          labelTelegramChatId: "<code>chatId</code> *",
+          labelTelegramChatThreadId: "<code>chatThreadId</code> (optional)",
+          legendCustomFields: "Custom webhook",
+          labelCustomName: "<code>name</code>",
+          labelCustomURL: "<code>url</code> *",
+          labelCustomMethod: "<code>method</code>",
+          labelCustomContentType: "<code>header.Content-Type</code>",
+          legendEvents: "Events for notifications *",
+          legendTemplatePreview: "Generated message templates (Telegram)",
+          step5Title: "Result",
+          step5Desc: "Below is a valid <code>swarm-deploy.yaml</code> generated from your inputs.",
+          btnPrev: "Back",
+          btnNext: "Next",
+          btnGenerate: "Generate YAML",
+          btnRefresh: "Refresh YAML",
+          btnCopy: "Copy YAML",
+          btnDownload: "Download file",
+          previewNoTelegram: "Telegram is not selected. No templates are needed.",
+          previewPickEvents: "Select events to preview templates.",
+          errRepoRequired: "Please fill in the repository URL.",
+          errHttpTokenPath: "HTTP token mode requires tokenPath.",
+          errHttpUserPass: "HTTP password mode requires username and passwordPath.",
+          errSshPaths: "SSH mode requires privateKeyPath and knownHostsPath.",
+          errStacksFile: "Please provide stacks.file path.",
+          errChannelRequired: "Select at least one notification channel.",
+          errEventsRequired: "Select at least one event for notifications.",
+          errTelegramRequired: "For Telegram, fill botTokenPath and chatId.",
+          errCustomURLRequired: "For custom webhook, fill url.",
+          statusYamlUpdated: "YAML updated.",
+          statusCopied: "YAML copied to clipboard.",
+          statusCopyFailed: "Automatic copy failed. Please copy manually.",
+          statusDownloaded: "swarm-deploy.yaml downloaded.",
+          templates: {
+            deploySuccess: [
+              "deploy succeeded",
+              "stack: {{.event.stack_name}}",
+              "{{ range .event.services }}service: {{.name}} | image: {{.image}}{{ end }}",
+              "commit: {{.event.commit}}",
+            ],
+            deployFailed: [
+              "deploy failed",
+              "stack: {{.event.stack_name}}",
+              "{{ range .event.services }}service: {{.name}} | image: {{.image}}{{ end }}",
+              "error: {{.event.error}}",
+            ],
+            syncManualStarted: ["manual sync started"],
+            userAuthenticated: ["user authenticated", "username: {{.event.username}}"],
+            sendNotificationFailed: [
+              "notification failed",
+              "destination: {{.event.destination}}",
+              "channel: {{.event.channel}}",
+              "event_type: {{.event.event_type}}",
+              "error: {{.event.error}}",
+            ],
+            assistantPromptInjectionDetected: [
+              "assistant prompt injection detected",
+              "detector: {{.event.detector}}",
+              "username: {{.event.username}}",
+            ],
+          },
+        },
+      };
+
+      const totalSteps = 5;
+      let currentStep = 1;
+      let currentLang = "ru";
+
+      const stepError = document.getElementById("stepError");
+      const progressLabel = document.getElementById("progressLabel");
+      const progressFill = document.getElementById("progressFill");
+      const prevBtn = document.getElementById("prevBtn");
+      const nextBtn = document.getElementById("nextBtn");
+      const yamlOutput = document.getElementById("yamlOutput");
+      const resultStatus = document.getElementById("resultStatus");
+      const languageSelect = document.getElementById("languageSelect");
+
+      function t(key, params = {}) {
+        let value = I18N[currentLang][key] ?? I18N.ru[key] ?? key;
+        if (typeof value !== "string") {
+          return value;
+        }
+        Object.entries(params).forEach(([name, paramValue]) => {
+          value = value.replaceAll(`{${name}}`, String(paramValue));
+        });
+        return value;
+      }
+
+      function setText(id, key) {
+        const node = document.getElementById(id);
+        if (node) {
+          node.textContent = t(key);
+        }
+      }
+
+      function setHTML(id, key) {
+        const node = document.getElementById(id);
+        if (node) {
+          node.innerHTML = t(key);
+        }
+      }
+
+      function getSelectedRadio(name) {
+        const item = document.querySelector(`input[name="${name}"]:checked`);
+        return item ? item.value : "";
+      }
+
+      function yamlString(value) {
+        const escaped = String(value)
+          .replace(/\\/g, "\\\\")
+          .replace(/"/g, '\\"')
+          .replace(/\n/g, "\\n");
+        return `"${escaped}"`;
+      }
+
+      function setError(text) {
+        stepError.textContent = text || "";
+      }
+
+      function applyLanguage() {
+        document.documentElement.lang = currentLang;
+
+        setText("languageLabel", "languageLabel");
+        setText("heroTitle", "heroTitle");
+        setHTML("heroSubtitle", "heroSubtitle");
+
+        setText("pill1", "pill1");
+        setText("pill2", "pill2");
+        setText("pill3", "pill3");
+        setText("pill4", "pill4");
+        setText("pill5", "pill5");
+
+        setText("step1Title", "step1Title");
+        setHTML("step1Desc1", "step1Desc1");
+        setHTML("step1Feature1", "step1Feature1");
+        setHTML("step1Feature2", "step1Feature2");
+        setHTML("step1Feature3", "step1Feature3");
+        setHTML("step1Desc2", "step1Desc2");
+
+        setText("step2Title", "step2Title");
+        setText("step2Desc", "step2Desc");
+        setText("labelGitRepository", "labelGitRepository");
+        setText("labelGitBranch", "labelGitBranch");
+        setText("legendAuthType", "legendAuthType");
+        setText("authNoneText", "authNoneText");
+        setText("authHttpText", "authHttpText");
+        setText("authSshText", "authSshText");
+        setText("legendHttpMode", "legendHttpMode");
+        setText("httpModeTokenText", "httpModeTokenText");
+        setText("httpModePasswordText", "httpModePasswordText");
+        setHTML("labelHttpTokenPath", "labelHttpTokenPath");
+        setHTML("labelHttpUsername", "labelHttpUsername");
+        setHTML("labelHttpPasswordPath", "labelHttpPasswordPath");
+        setHTML("httpHintTitle", "httpHintTitle");
+        setHTML("httpHintItem1", "httpHintItem1");
+        setHTML("httpHintItem2", "httpHintItem2");
+        setText("httpHintCommands", "httpHintCommands");
+        setHTML("labelSshUser", "labelSshUser");
+        setHTML("labelSshPrivateKeyPath", "labelSshPrivateKeyPath");
+        setHTML("labelSshKnownHostsPath", "labelSshKnownHostsPath");
+        setHTML("labelSshPassphrasePath", "labelSshPassphrasePath");
+        setHTML("labelSshInsecure", "labelSshInsecure");
+        setHTML("sshHintTitle", "sshHintTitle");
+        setHTML("sshHintItem1", "sshHintItem1");
+        setHTML("sshHintItem2", "sshHintItem2");
+        setHTML("sshHintItem3", "sshHintItem3");
+
+        setHTML("step3Title", "step3Title");
+        setHTML("step3Desc1", "step3Desc1");
+        setHTML("step3Desc2", "step3Desc2");
+        setText("labelStacksFile", "labelStacksFile");
+
+        setText("step4Title", "step4Title");
+        setText("step4Desc", "step4Desc");
+        setText("methodsTitle", "methodsTitle");
+        setHTML("methodsItem1", "methodsItem1");
+        setHTML("methodsItem2", "methodsItem2");
+        setText("eventsTitle", "eventsTitle");
+        setHTML("eventsItemDeploySuccess", "eventsItemDeploySuccess");
+        setHTML("eventsItemDeployFailed", "eventsItemDeployFailed");
+        setHTML("eventsItemSyncManualStarted", "eventsItemSyncManualStarted");
+        setHTML("eventsItemUserAuthenticated", "eventsItemUserAuthenticated");
+        setHTML("eventsItemSendNotificationFailed", "eventsItemSendNotificationFailed");
+        setHTML(
+          "eventsItemAssistantPromptInjectionDetected",
+          "eventsItemAssistantPromptInjectionDetected",
+        );
+        setText("legendNotificationsEnabled", "legendNotificationsEnabled");
+        setText("notificationsNoText", "notificationsNoText");
+        setText("notificationsYesText", "notificationsYesText");
+        setText("legendNotificationChannel", "legendNotificationChannel");
+        setText("methodTelegramText", "methodTelegramText");
+        setText("methodCustomText", "methodCustomText");
+        setText("legendTelegramFields", "legendTelegramFields");
+        setHTML("labelTelegramName", "labelTelegramName");
+        setHTML("labelTelegramBotTokenPath", "labelTelegramBotTokenPath");
+        setHTML("labelTelegramChatId", "labelTelegramChatId");
+        setHTML("labelTelegramChatThreadId", "labelTelegramChatThreadId");
+        setText("legendCustomFields", "legendCustomFields");
+        setHTML("labelCustomName", "labelCustomName");
+        setHTML("labelCustomURL", "labelCustomURL");
+        setHTML("labelCustomMethod", "labelCustomMethod");
+        setHTML("labelCustomContentType", "labelCustomContentType");
+        setText("legendEvents", "legendEvents");
+        setText("legendTemplatePreview", "legendTemplatePreview");
+
+        setText("step5Title", "step5Title");
+        setHTML("step5Desc", "step5Desc");
+        setText("copyBtn", "btnCopy");
+        setText("downloadBtn", "btnDownload");
+        setText("prevBtn", "btnPrev");
+
+        renderTemplatePreview();
+        showStep(currentStep);
+      }
+
+      function showStep(step) {
+        currentStep = step;
+        document.querySelectorAll(".step").forEach((node) => {
+          node.classList.toggle("active", Number(node.dataset.step) === step);
+        });
+        document.querySelectorAll(".step-pill").forEach((node) => {
+          node.classList.toggle("active", Number(node.dataset.pill) === step);
+        });
+
+        progressLabel.textContent = t("progress", { step, total: totalSteps });
+        progressFill.style.width = `${(step / totalSteps) * 100}%`;
+
+        prevBtn.classList.toggle("hidden", step === 1);
+        nextBtn.textContent = step === 4 ? t("btnGenerate") : t("btnNext");
+        if (step === 5) {
+          nextBtn.textContent = t("btnRefresh");
+          generateYamlToResult();
+        }
+
+        setError("");
+      }
+
+      function switchAuthFields() {
+        const authType = getSelectedRadio("authType");
+        document.getElementById("httpAuthFields").classList.toggle("hidden", authType !== "http");
+        document.getElementById("sshAuthFields").classList.toggle("hidden", authType !== "ssh");
+      }
+
+      function switchHTTPModeFields() {
+        const mode = getSelectedRadio("httpMode");
+        document.getElementById("httpTokenFields").classList.toggle("hidden", mode !== "token");
+        document.getElementById("httpPasswordFields").classList.toggle("hidden", mode !== "password");
+      }
+
+      function switchNotificationsBlock() {
+        const enabled = getSelectedRadio("notificationsEnabled") === "yes";
+        document.getElementById("notificationsConfig").classList.toggle("hidden", !enabled);
+        updateNotificationMethodFields();
+        renderTemplatePreview();
+      }
+
+      function updateNotificationMethodFields() {
+        const telegramEnabled = document.getElementById("methodTelegram").checked;
+        const customEnabled = document.getElementById("methodCustom").checked;
+        document.getElementById("telegramFields").classList.toggle("hidden", !telegramEnabled);
+        document.getElementById("customFields").classList.toggle("hidden", !customEnabled);
+      }
+
+      function selectedEvents() {
+        return Array.from(document.querySelectorAll('input[name="events"]:checked')).map(
+          (item) => item.value,
+        );
+      }
+
+      function templateForEvent(eventName) {
+        return I18N[currentLang].templates[eventName] ?? I18N.ru.templates[eventName] ?? ["event happened"];
+      }
+
+      function renderTemplatePreview() {
+        const preview = document.getElementById("templatePreview");
+        const notificationsEnabled = getSelectedRadio("notificationsEnabled") === "yes";
+        const telegramEnabled = document.getElementById("methodTelegram").checked;
+
+        if (!notificationsEnabled || !telegramEnabled) {
+          preview.textContent = t("previewNoTelegram");
+          return;
+        }
+
+        const events = selectedEvents();
+        if (events.length === 0) {
+          preview.textContent = t("previewPickEvents");
+          return;
+        }
+
+        const blocks = events.map((eventName) => {
+          const body = templateForEvent(eventName).join("\n");
+          return `# ${eventName}\n${body}`;
+        });
+        preview.textContent = blocks.join("\n\n");
+      }
+
+      function validateStep() {
+        if (currentStep === 2) {
+          const repo = document.getElementById("gitRepository").value.trim();
+          if (!repo) {
+            return t("errRepoRequired");
+          }
+
+          const authType = getSelectedRadio("authType");
+          if (authType === "http") {
+            const mode = getSelectedRadio("httpMode");
+            if (mode === "token") {
+              const tokenPath = document.getElementById("httpTokenPath").value.trim();
+              if (!tokenPath) {
+                return t("errHttpTokenPath");
+              }
+            } else {
+              const username = document.getElementById("httpUsername").value.trim();
+              const passwordPath = document.getElementById("httpPasswordPath").value.trim();
+              if (!username || !passwordPath) {
+                return t("errHttpUserPass");
+              }
+            }
+          }
+
+          if (authType === "ssh") {
+            const privateKeyPath = document.getElementById("sshPrivateKeyPath").value.trim();
+            const knownHostsPath = document.getElementById("sshKnownHostsPath").value.trim();
+            if (!privateKeyPath || !knownHostsPath) {
+              return t("errSshPaths");
+            }
+          }
+        }
+
+        if (currentStep === 3) {
+          const stacksFile = document.getElementById("stacksFile").value.trim();
+          if (!stacksFile) {
+            return t("errStacksFile");
+          }
+        }
+
+        if (currentStep === 4) {
+          const notificationsEnabled = getSelectedRadio("notificationsEnabled") === "yes";
+          if (!notificationsEnabled) {
+            return "";
+          }
+
+          const telegramEnabled = document.getElementById("methodTelegram").checked;
+          const customEnabled = document.getElementById("methodCustom").checked;
+          if (!telegramEnabled && !customEnabled) {
+            return t("errChannelRequired");
+          }
+
+          const events = selectedEvents();
+          if (events.length === 0) {
+            return t("errEventsRequired");
+          }
+
+          if (telegramEnabled) {
+            const botTokenPath = document.getElementById("telegramBotTokenPath").value.trim();
+            const chatId = document.getElementById("telegramChatId").value.trim();
+            if (!botTokenPath || !chatId) {
+              return t("errTelegramRequired");
+            }
+          }
+
+          if (customEnabled) {
+            const url = document.getElementById("customURL").value.trim();
+            if (!url) {
+              return t("errCustomURLRequired");
+            }
+          }
+        }
+
+        return "";
+      }
+
+      function generateYamlText() {
+        const repository = document.getElementById("gitRepository").value.trim();
+        const branch = document.getElementById("gitBranch").value.trim() || "main";
+        const authType = getSelectedRadio("authType");
+        const stacksFile = document.getElementById("stacksFile").value.trim() || "./stacks.yaml";
+
+        const lines = [];
+        lines.push("git:");
+        lines.push(`  repository: ${yamlString(repository)}`);
+        lines.push(`  branch: ${yamlString(branch)}`);
+        lines.push("  auth:");
+        lines.push(`    type: ${yamlString(authType)}`);
+
+        if (authType === "http") {
+          lines.push("    http:");
+          const httpMode = getSelectedRadio("httpMode");
+          if (httpMode === "token") {
+            lines.push(
+              `      tokenPath: ${yamlString(document.getElementById("httpTokenPath").value.trim())}`,
+            );
+          } else {
+            lines.push(
+              `      username: ${yamlString(document.getElementById("httpUsername").value.trim())}`,
+            );
+            lines.push(
+              `      passwordPath: ${yamlString(document.getElementById("httpPasswordPath").value.trim())}`,
+            );
+          }
+        } else if (authType === "ssh") {
+          lines.push("    ssh:");
+          lines.push(`      user: ${yamlString(document.getElementById("sshUser").value.trim() || "git")}`);
+          lines.push(
+            `      privateKeyPath: ${yamlString(document.getElementById("sshPrivateKeyPath").value.trim())}`,
+          );
+          lines.push(
+            `      knownHostsPath: ${yamlString(document.getElementById("sshKnownHostsPath").value.trim())}`,
+          );
+          const passphrasePath = document.getElementById("sshPassphrasePath").value.trim();
+          if (passphrasePath) {
+            lines.push(`      passphrasePath: ${yamlString(passphrasePath)}`);
+          }
+          if (document.getElementById("sshInsecureIgnoreHostKey").checked) {
+            lines.push("      insecureIgnoreHostKey: true");
+          }
+        }
+
+        lines.push("");
+        lines.push("sync:");
+        lines.push('  mode: "pull"');
+        lines.push('  pollInterval: "30s"');
+        lines.push("");
+        lines.push("stacks:");
+        lines.push(`  file: ${yamlString(stacksFile)}`);
+
+        lines.push("");
+        lines.push("# Docker stack deploy execution settings.");
+        lines.push("swarm:");
+        lines.push("  # Docker CLI command.");
+        lines.push("  command: docker");
+        lines.push("  # Stack deploy command arguments.");
+        lines.push("  stackDeployArgs:");
+        lines.push("    - stack");
+        lines.push("    - deploy");
+        lines.push("    - --with-registry-auth");
+        lines.push("    - --prune");
+        lines.push("  # Init job polling interval.");
+        lines.push("  initJobPollEvery: 2s");
+        lines.push("  # Maximum init job duration.");
+        lines.push("  initJobMaxDuration: 10m");
+
+        const notificationsEnabled = getSelectedRadio("notificationsEnabled") === "yes";
+        if (notificationsEnabled) {
+          const events = selectedEvents();
+          const telegramEnabled = document.getElementById("methodTelegram").checked;
+          const customEnabled = document.getElementById("methodCustom").checked;
+          const tgName = document.getElementById("telegramName").value.trim() || "ops-telegram";
+          const tgBotTokenPath = document.getElementById("telegramBotTokenPath").value.trim();
+          const tgChatId = document.getElementById("telegramChatId").value.trim();
+          const tgThread = document.getElementById("telegramChatThreadId").value.trim();
+
+          const customName = document.getElementById("customName").value.trim() || "ops-webhook";
+          const customURL = document.getElementById("customURL").value.trim();
+          const customMethod = document.getElementById("customMethod").value.trim() || "POST";
+          const customContentType =
+            document.getElementById("customContentType").value.trim() || "application/json";
+
+          lines.push("");
+          lines.push("notifications:");
+          lines.push("  on:");
+
+          events.forEach((eventName) => {
+            lines.push(`    ${eventName}:`);
+
+            if (telegramEnabled) {
+              lines.push("      telegram:");
+              lines.push(`        - name: ${yamlString(`${tgName}-${eventName}`)}`);
+              lines.push(`          botTokenPath: ${yamlString(tgBotTokenPath)}`);
+              lines.push(`          chatId: ${yamlString(tgChatId)}`);
+              if (tgThread) {
+                lines.push(`          chatThreadId: ${Number(tgThread)}`);
+              }
+              lines.push("          message: |");
+              templateForEvent(eventName).forEach((line) => {
+                lines.push(`            ${line}`);
+              });
+            }
+
+            if (customEnabled) {
+              lines.push("      custom:");
+              lines.push(`        - name: ${yamlString(`${customName}-${eventName}`)}`);
+              lines.push(`          url: ${yamlString(customURL)}`);
+              lines.push(`          method: ${yamlString(customMethod)}`);
+              lines.push("          header:");
+              lines.push(`            Content-Type: ${yamlString(customContentType)}`);
+            }
+          });
+        }
+
+        return lines.join("\n");
+      }
+
+      function generateYamlToResult() {
+        yamlOutput.value = generateYamlText();
+      }
+
+      prevBtn.addEventListener("click", () => {
+        if (currentStep > 1) {
+          showStep(currentStep - 1);
+        }
+      });
+
+      nextBtn.addEventListener("click", () => {
+        const error = validateStep();
+        if (error) {
+          setError(error);
+          return;
+        }
+
+        if (currentStep < totalSteps) {
+          showStep(currentStep + 1);
+          return;
+        }
+
+        generateYamlToResult();
+        resultStatus.textContent = t("statusYamlUpdated");
+      });
+
+      document.querySelectorAll('input[name="authType"]').forEach((node) => {
+        node.addEventListener("change", switchAuthFields);
+      });
+
+      document.querySelectorAll('input[name="httpMode"]').forEach((node) => {
+        node.addEventListener("change", switchHTTPModeFields);
+      });
+
+      document.querySelectorAll('input[name="notificationsEnabled"]').forEach((node) => {
+        node.addEventListener("change", switchNotificationsBlock);
+      });
+
+      document.getElementById("methodTelegram").addEventListener("change", () => {
+        updateNotificationMethodFields();
+        renderTemplatePreview();
+      });
+      document.getElementById("methodCustom").addEventListener("change", updateNotificationMethodFields);
+
+      document.querySelectorAll('input[name="events"]').forEach((node) => {
+        node.addEventListener("change", renderTemplatePreview);
+      });
+
+      document.getElementById("copyBtn").addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(yamlOutput.value);
+          resultStatus.textContent = t("statusCopied");
+        } catch (error) {
+          resultStatus.textContent = t("statusCopyFailed");
+        }
+      });
+
+      document.getElementById("downloadBtn").addEventListener("click", () => {
+        const blob = new Blob([yamlOutput.value], { type: "application/yaml" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "swarm-deploy.yaml";
+        link.click();
+        URL.revokeObjectURL(url);
+        resultStatus.textContent = t("statusDownloaded");
+      });
+
+      languageSelect.addEventListener("change", () => {
+        currentLang = languageSelect.value;
+        localStorage.setItem("swarmDeployWizardLang", currentLang);
+        applyLanguage();
+      });
+
+      const savedLang = localStorage.getItem("swarmDeployWizardLang");
+      if (savedLang === "ru" || savedLang === "en") {
+        currentLang = savedLang;
+      } else if ((navigator.language || "").toLowerCase().startsWith("en")) {
+        currentLang = "en";
+      }
+      languageSelect.value = currentLang;
+
+      switchAuthFields();
+      switchHTTPModeFields();
+      switchNotificationsBlock();
+      applyLanguage();
+      showStep(1);
+    </script>
+  </body>
+</html>
