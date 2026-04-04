@@ -298,21 +298,21 @@ func openRepository(
 }
 
 func resolveAuthMethod(auth config.GitAuthSpec) (transport.AuthMethod, error) {
-	switch strings.ToLower(strings.TrimSpace(auth.Type)) {
-	case "", "none":
+	switch auth.Type {
+	case "", config.GitAuthTypeNone:
 		//nolint:nilnil // nil auth method explicitly means anonymous access for go-git.
 		return nil, nil
-	case "http":
+	case config.GitAuthTypeHTTP:
 		password := auth.HTTP.ResolvePassword()
 		username := auth.HTTP.ResolveUsername()
 		if username == "" || password == "" {
-			return nil, errors.New("http auth requires non-empty username and password/token")
+			return nil, errors.New("http auth requires username+passwordPath or tokenPath")
 		}
 		return &githttp.BasicAuth{
 			Username: username,
 			Password: password,
 		}, nil
-	case "ssh":
+	case config.GitAuthTypeSSH:
 		return buildSSHAuthMethod(auth.SSH)
 	default:
 		return nil, fmt.Errorf("unsupported git auth type: %s", auth.Type)

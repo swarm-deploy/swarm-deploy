@@ -65,10 +65,7 @@ func NewExecutor(
 
 // Definitions returns available MCP tool metadata.
 func (e *Executor) Definitions() []routing.ToolDefinition {
-	definitions := make([]routing.ToolDefinition, len(e.definitions))
-	copy(definitions, e.definitions)
-
-	return definitions
+	return e.definitions
 }
 
 // Execute runs a tool by name.

@@ -519,3 +519,104 @@ assistant:
 		"expected assistant embedding model name from config",
 	)
 }
+
+func TestLoadFailsWhenGitHTTPAuthCredentialsAreMissing(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(`
+git:
+  repository: https://example.com/repo.git
+  auth:
+    type: http
+stacks:
+  file: ./stacks.yaml
+`)
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	_, err := Load(configPath)
+	require.Error(t, err, "expected error")
+	assert.Contains(t, err.Error(), "git.auth.http requires username+passwordPath or tokenPath", "unexpected error")
+}
+
+func TestLoadFailsWhenGitHTTPAuthHasBothPasswordAndToken(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	passwordPath := filepath.Join(dir, "git_password")
+	require.NoError(t, os.WriteFile(passwordPath, []byte("secret"), 0o600), "write git password")
+	tokenPath := filepath.Join(dir, "git_token")
+	require.NoError(t, os.WriteFile(tokenPath, []byte("token-value"), 0o600), "write git token")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(fmt.Sprintf(`
+git:
+  repository: https://example.com/repo.git
+  auth:
+    type: http
+    http:
+      username: robot
+      passwordPath: %s
+      tokenPath: %s
+stacks:
+  file: ./stacks.yaml
+`, passwordPath, tokenPath))
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	_, err := Load(configPath)
+	require.Error(t, err, "expected error")
+	assert.Contains(
+		t,
+		err.Error(),
+		"git.auth.http.tokenPath and git.auth.http.passwordPath are mutually exclusive",
+		"unexpected error",
+	)
+}
+
+func TestLoadSupportsGitHTTPAuthWithTokenOnly(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	tokenPath := filepath.Join(dir, "git_token")
+	require.NoError(t, os.WriteFile(tokenPath, []byte("token-value"), 0o600), "write git token")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(fmt.Sprintf(`
+git:
+  repository: https://example.com/repo.git
+  auth:
+    type: http
+    http:
+      tokenPath: %s
+stacks:
+  file: ./stacks.yaml
+`, tokenPath))
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err, "load config")
+	assert.Equal(t, "oauth2", cfg.Spec.Git.Auth.HTTP.ResolveUsername(), "expected oauth2 fallback for token auth")
+	assert.Equal(t, "token-value", cfg.Spec.Git.Auth.HTTP.ResolvePassword(), "expected token as password")
+}

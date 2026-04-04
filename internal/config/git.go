@@ -1,8 +1,32 @@
 package config
 
 import (
+	"strings"
+
 	"github.com/artarts36/specw"
 )
+
+// GitAuthType defines supported git authentication type values.
+type GitAuthType string
+
+const (
+	// GitAuthTypeNone disables git authentication.
+	GitAuthTypeNone GitAuthType = "none"
+	// GitAuthTypeHTTP enables HTTP(S) authentication.
+	GitAuthTypeHTTP GitAuthType = "http"
+	// GitAuthTypeSSH enables SSH key authentication.
+	GitAuthTypeSSH GitAuthType = "ssh"
+)
+
+// IsSupported reports whether auth type is one of supported enum values.
+func (t GitAuthType) IsSupported() bool {
+	switch t {
+	case "", GitAuthTypeNone, GitAuthTypeHTTP, GitAuthTypeSSH:
+		return true
+	default:
+		return false
+	}
+}
 
 type GitSpec struct {
 	// Repository is a git repository URL (ssh or https).
@@ -15,7 +39,7 @@ type GitSpec struct {
 
 type GitAuthSpec struct {
 	// Type is git auth type: none, http, or ssh.
-	Type string `yaml:"type"`
+	Type GitAuthType `yaml:"type"`
 	// HTTP is HTTP(S) basic/token authentication configuration.
 	HTTP GitHTTPAuth `yaml:"http"`
 	// SSH is SSH authentication configuration.
@@ -25,11 +49,10 @@ type GitAuthSpec struct {
 type GitHTTPAuth struct {
 	// Username is HTTP basic auth username.
 	Username string `yaml:"username"`
-	// Password is HTTP basic auth password.
-	//nolint:gosec // Field name is part of a user-facing config schema and does not imply hardcoded secret usage.
-	Password string `yaml:"password"`
-	// Token is an HTTP token value used as password.
-	Token string `yaml:"token"`
+	// Password is a path to file containing HTTP basic auth password.
+	Password specw.File `yaml:"passwordPath,omitempty"`
+	// Token is a path to file containing HTTP token used as password.
+	Token specw.File `yaml:"tokenPath,omitempty"`
 }
 
 type GitSSHAuthSpec struct {
@@ -46,17 +69,20 @@ type GitSSHAuthSpec struct {
 }
 
 func (a GitHTTPAuth) ResolvePassword() string {
-	if a.Token != "" {
-		return a.Token
+	token := strings.TrimSpace(string(a.Token.Content))
+	if token != "" {
+		return token
 	}
-	return a.Password
+
+	return strings.TrimSpace(string(a.Password.Content))
 }
 
 func (a GitHTTPAuth) ResolveUsername() string {
-	if a.Username != "" {
-		return a.Username
+	username := strings.TrimSpace(a.Username)
+	if username != "" {
+		return username
 	}
-	if a.Token != "" {
+	if a.Token.String() != "" {
 		// go-git basic auth requires non-empty username when token is used.
 		return "oauth2"
 	}

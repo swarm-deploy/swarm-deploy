@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/artarts36/specw"
 	"github.com/artarts36/swarm-deploy/internal/config"
 	gogit "github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -24,12 +25,11 @@ func TestResolveAuthMethodAnonymous(t *testing.T) {
 	testCases := []string{
 		"",
 		"none",
-		" NoNe ",
 	}
 
 	for _, authType := range testCases {
 		authMethod, err := resolveAuthMethod(config.GitAuthSpec{
-			Type: authType,
+			Type: config.GitAuthType(authType),
 		})
 		require.NoError(t, err, "resolve auth for type %q", authType)
 		assert.Nil(t, authMethod, "auth method should be nil for anonymous type %q", authType)
@@ -41,7 +41,9 @@ func TestResolveAuthMethodHTTPWithUsernameAndPassword(t *testing.T) {
 		Type: "http",
 		HTTP: config.GitHTTPAuth{
 			Username: "robot",
-			Password: "secret",
+			Password: specw.File{
+				Content: []byte("secret"),
+			},
 		},
 	})
 	require.NoError(t, err, "resolve http auth")
@@ -56,7 +58,9 @@ func TestResolveAuthMethodHTTPWithToken(t *testing.T) {
 	authMethod, err := resolveAuthMethod(config.GitAuthSpec{
 		Type: "http",
 		HTTP: config.GitHTTPAuth{
-			Token: "token-value",
+			Token: specw.File{
+				Content: []byte("token-value"),
+			},
 		},
 	})
 	require.NoError(t, err, "resolve http auth with token")
@@ -74,7 +78,7 @@ func TestResolveAuthMethodHTTPRequiresCredentials(t *testing.T) {
 	})
 	require.Error(t, err, "http auth without credentials must fail")
 	assert.Nil(t, authMethod, "auth method must be nil on error")
-	assert.Contains(t, err.Error(), "http auth requires non-empty username and password/token", "unexpected error")
+	assert.Contains(t, err.Error(), "http auth requires username+passwordPath or tokenPath", "unexpected error")
 }
 
 func TestResolveAuthMethodUnsupportedType(t *testing.T) {
