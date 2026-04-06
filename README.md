@@ -12,7 +12,8 @@ GitOps controller for Docker Swarm with an ArgoCD-inspired, but Swarm-native, co
   - `hybrid` (both modes at the same time).
 - Stack deployment only when a diff is detected (`compose + referenced configs/secrets` digest). .
 - UI and API are served by a single web server on `web.address`.
-- Optional HTTP Basic authentication for UI and API via `web.security.authentication.basic.htpasswdFile`.
+- HTTP Basic authentication for UI and API via `web.security.authentication.basic.htpasswdFile`.
+- [Event History & Audit](./docs/event-history.md)
 - [Notification hooks for successful and failed deployments](./docs/notifications.md)
 - [Services catalog persisted on disk and available via API](./docs/services.md)
 - [AI assistant with long-poll chat API and RAG over service metadata](./docs/assistant.md)

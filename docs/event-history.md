@@ -1,5 +1,14 @@
 ## Event history
 
+| Type                               | Trigger                             | Details keys                                                 |
+|------------------------------------|-------------------------------------|--------------------------------------------------------------|
+| `deploySuccess`                    | Successful stack deployment         | `stack`, `commit`                                            |
+| `deployFailed`                     | Failed stack deployment             | `stack`, `commit`, `error` (if present)                      |
+| `sendNotificationFailed`           | Notification delivery failure       | `destination`, `channel`, `event_type`, `error` (if present) |
+| `syncManualStarted`                | Manual sync run started             | `triggered_by` (if present)                                  |
+| `userAuthenticated`                | User passed web authentication      | `username`                                                   |
+| `assistantPromptInjectionDetected` | Assistant prompt injection detected | `detector`, `prompt` (if present), `username` (if present)   |
+
 All runtime events are persisted to disk in `.swarm-deploy/event-history.json` and can be viewed via API:
 
 - `GET /api/v1/events` - returns latest stored events
