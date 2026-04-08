@@ -103,13 +103,3 @@ type AssistantConversationInMemoryStorageSpec struct {
 	// TTL is a dialog retention duration for in-memory storage.
 	TTL specw.Duration `yaml:"ttl"`
 }
-
-// ToolNames returns configured tool names as string slice.
-func (s AssistantSpec) ToolNames() []string {
-	names := make([]string, len(s.Tools))
-	for i, name := range s.Tools {
-		names[i] = string(name)
-	}
-
-	return names
-}
