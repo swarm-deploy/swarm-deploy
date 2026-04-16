@@ -41,6 +41,12 @@ type PluginInspector interface {
 	InspectPlugins(ctx context.Context) ([]inspector.PluginInfo, error)
 }
 
+// SecretInspector inspects current Docker secrets snapshot.
+type SecretInspector interface {
+	// InspectSecrets returns current Docker secrets snapshot.
+	InspectSecrets(ctx context.Context) ([]inspector.SecretInfo, error)
+}
+
 // ServicesReader reads current service metadata snapshot.
 type ServicesReader interface {
 	// List returns current services metadata snapshot.

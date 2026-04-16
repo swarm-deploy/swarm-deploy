@@ -241,6 +241,7 @@ func buildAssistantService(
 		nodeStore,
 		inspectorSvc,
 		inspectorSvc,
+		inspectorSvc,
 		serviceStore,
 		imageVersionResolver,
 		gitRepository,
