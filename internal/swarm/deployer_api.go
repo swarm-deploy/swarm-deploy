@@ -17,9 +17,6 @@ import (
 const secretOrConfigFileMode = 0o444
 
 func (d *Deployer) runInitJobAPI(ctx context.Context, spec InitJobSpec) error {
-	if d.dockerClient == nil {
-		return errors.New("docker api client is not initialized")
-	}
 	if spec.Job.Image == "" {
 		return errors.New("init job image is required")
 	}
@@ -102,12 +99,9 @@ func (d *Deployer) buildInitServiceSpecAPI(
 	secrets := mergeObjectRefs(spec.ServiceSecrets, spec.Job.Secrets)
 	containerSpec.Secrets = make([]*dockerswarm.SecretReference, 0, len(secrets))
 	for _, secret := range secrets {
-		ref, ok, err := d.resolveSecretReferenceAPI(ctx, spec.StackName, secret.Source, secret.Target)
+		ref, err := d.resolveSecretReferenceAPI(ctx, secret.Source, secret.Target)
 		if err != nil {
 			return dockerswarm.ServiceSpec{}, err
-		}
-		if !ok {
-			continue
 		}
 		containerSpec.Secrets = append(containerSpec.Secrets, ref)
 	}
@@ -232,49 +226,31 @@ func (d *Deployer) resolveNetworkTargetAPI(ctx context.Context, stackName, netwo
 
 func (d *Deployer) resolveSecretReferenceAPI(
 	ctx context.Context,
-	stackName, source, target string,
-) (*dockerswarm.SecretReference, bool, error) {
-	candidates := []string{source}
-	if !strings.HasPrefix(source, stackName+"_") {
-		candidates = append(candidates, stackName+"_"+source)
-	}
-
-	for _, candidate := range uniqueStrings(candidates) {
-		secret, _, err := d.dockerClient.SecretInspectWithRaw(ctx, candidate)
-		if err == nil {
-			ref := &dockerswarm.SecretReference{
-				SecretID:   secret.ID,
-				SecretName: secret.Spec.Name,
-			}
-			if target == "" {
-				target = fmt.Sprintf("/run/secrets/%s", ref.SecretName)
-			}
-
-			ref.File = &dockerswarm.SecretReferenceFileTarget{
-				Name: target,
-				UID:  "0",
-				GID:  "0",
-				Mode: secretOrConfigFileMode,
-			}
-			return ref, true, nil
-		}
-		if !cerrdefs.IsNotFound(err) {
-			return nil, false, fmt.Errorf("inspect secret %s: %w", candidate, err)
-		}
+	source,
+	target string,
+) (*dockerswarm.SecretReference, error) {
+	secret, _, err := d.dockerClient.SecretInspectWithRaw(ctx, source)
+	if err != nil {
+		return nil, fmt.Errorf("inspect secret: %w", err)
 	}
 
 	ref := &dockerswarm.SecretReference{
-		SecretName: source,
+		SecretID:   secret.ID,
+		SecretName: secret.Spec.Name,
 	}
-	if target != "" {
-		ref.File = &dockerswarm.SecretReferenceFileTarget{
-			Name: target,
-			UID:  "0",
-			GID:  "0",
-			Mode: secretOrConfigFileMode,
-		}
+
+	if target == "" {
+		target = fmt.Sprintf("/run/secrets/%s", ref.SecretName)
 	}
-	return ref, true, nil
+
+	ref.File = &dockerswarm.SecretReferenceFileTarget{
+		Name: target,
+		UID:  "0",
+		GID:  "0",
+		Mode: secretOrConfigFileMode,
+	}
+
+	return ref, nil
 }
 
 func (d *Deployer) resolveConfigReferenceAPI(
