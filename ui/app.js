@@ -102,15 +102,97 @@ function renderServiceStatusError(message) {
   serviceStatusBodyEl.innerHTML = `<p class="meta">Failed to load service status: ${message}</p>`;
 }
 
+function renderServiceStatusLabels(labels) {
+  const entries = labels && typeof labels === "object" ? Object.entries(labels) : [];
+  if (entries.length === 0) {
+    return `<p class="meta">No labels.</p>`;
+  }
+
+  const sortedEntries = entries.slice().sort(([left], [right]) => left.localeCompare(right));
+  return `
+    <ul class="event-details">
+      ${sortedEntries
+        .map(
+          ([key, value]) =>
+            `<li class="event-detail"><span class="event-detail-key">${escapeHtml(key)}</span><code class="event-detail-value">${escapeHtml(value)}</code></li>`,
+        )
+        .join("")}
+    </ul>
+  `;
+}
+
+function renderServiceStatusSecrets(secrets) {
+  const rows = Array.isArray(secrets) ? secrets : [];
+  if (rows.length === 0) {
+    return `<p class="meta">No secrets.</p>`;
+  }
+
+  return `
+    <ul class="event-details">
+      ${rows
+        .map((secret) => {
+          const meta = [];
+          if (secret.secret_id) {
+            meta.push(`id=${secret.secret_id}`);
+          }
+          if (secret.target) {
+            meta.push(`target=${secret.target}`);
+          }
+
+          return `
+            <li class="event-detail">
+              <span class="event-detail-key">${escapeHtml(secret.secret_name || "unknown")}</span>
+              <code class="event-detail-value">${escapeHtml(meta.join(", ") || "-")}</code>
+            </li>
+          `;
+        })
+        .join("")}
+    </ul>
+  `;
+}
+
+function renderServiceStatusNetworks(networks) {
+  const rows = Array.isArray(networks) ? networks : [];
+  if (rows.length === 0) {
+    return `<p class="meta">No network attachments.</p>`;
+  }
+
+  return `
+    <ul class="event-details">
+      ${rows
+        .map((network) => {
+          const aliases = Array.isArray(network.aliases) && network.aliases.length > 0 ? network.aliases.join(", ") : "-";
+          return `
+            <li class="event-detail">
+              <span class="event-detail-key">${escapeHtml(network.target || "unknown")}</span>
+              <code class="event-detail-value">${escapeHtml(`aliases=${aliases}`)}</code>
+            </li>
+          `;
+        })
+        .join("")}
+    </ul>
+  `;
+}
+
 function renderServiceStatus(data) {
+  const spec = data && typeof data.spec === "object" ? data.spec : {};
+
   serviceStatusTitleEl.textContent = `${data.stack} / ${data.service}`;
   serviceStatusBodyEl.innerHTML = `
     <div class="service-metrics">
-      <p><strong>Image:</strong> ${escapeHtml(data.image || "n/a")}</p>
-      <p><strong>Requested RAM:</strong> ${fmtBytes(data.requested_ram_bytes)}</p>
-      <p><strong>Requested CPU:</strong> ${data.requested_cpu_nano || 0} nano-CPUs</p>
-      <p><strong>RAM Limit:</strong> ${fmtBytes(data.limit_ram_bytes)}</p>
-      <p><strong>CPU Limit:</strong> ${data.limit_cpu_nano || 0} nano-CPUs</p>
+      <p><strong>Image:</strong> ${escapeHtml(spec.image || "n/a")}</p>
+      <p><strong>Deploy Mode:</strong> ${escapeHtml(spec.mode || "n/a")}</p>
+      <p><strong>Replicas:</strong> ${Number.isNaN(Number(spec.replicas)) ? "n/a" : Number(spec.replicas)}</p>
+      <p><strong>Requested RAM:</strong> ${fmtBytes(spec.requested_ram_bytes)}</p>
+      <p><strong>Requested CPU:</strong> ${spec.requested_cpu_nano || 0} nano-CPUs</p>
+      <p><strong>RAM Limit:</strong> ${fmtBytes(spec.limit_ram_bytes)}</p>
+      <p><strong>CPU Limit:</strong> ${spec.limit_cpu_nano || 0} nano-CPUs</p>
+      <p><strong>Labels</strong></p>
+      ${renderServiceStatusLabels(spec.labels)}
+      <p><strong>Secrets</strong></p>
+      ${renderServiceStatusSecrets(spec.secrets)}
+      <p><strong>Network</strong></p>
+      ${renderServiceStatusNetworks(spec.network)}
     </div>
   `;
 }

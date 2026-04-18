@@ -90,7 +90,7 @@ paths:
             type: string
       responses:
         '200':
-          description: Service status and current container metrics
+          description: Service status and compact runtime spec
           content:
             application/json:
               schema:
@@ -245,14 +245,26 @@ components:
           format: date-time
     ServiceStatusResponse:
       type: object
-      required: [stack, service, image, requested_ram_bytes, requested_cpu_nano, limit_ram_bytes, limit_cpu_nano]
+      required: [stack, service, spec]
       properties:
         stack:
           type: string
         service:
           type: string
+        spec:
+          $ref: '#/components/schemas/ServiceSpecResponse'
+    ServiceSpecResponse:
+      type: object
+      required: [image, mode, replicas, requested_ram_bytes, requested_cpu_nano, limit_ram_bytes, limit_cpu_nano]
+      properties:
         image:
           type: string
+        mode:
+          type: string
+        replicas:
+          type: integer
+          format: int64
+          minimum: 0
         requested_ram_bytes:
           type: integer
           format: int64
@@ -269,6 +281,38 @@ components:
           type: integer
           format: int64
           minimum: 0
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+        secrets:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceSpecSecretResponse'
+        network:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceSpecNetworkResponse'
+    ServiceSpecSecretResponse:
+      type: object
+      required: [secret_name]
+      properties:
+        secret_id:
+          type: string
+        secret_name:
+          type: string
+        target:
+          type: string
+    ServiceSpecNetworkResponse:
+      type: object
+      required: [target]
+      properties:
+        target:
+          type: string
+        aliases:
+          type: array
+          items:
+            type: string
     StackView:
       type: object
       required: [name, compose_file, last_status, services]

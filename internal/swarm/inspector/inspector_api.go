@@ -24,34 +24,49 @@ const (
 	serviceLogsScannerMaxTokenBufSize = 1 << 20
 )
 
+// InspectServiceStatus returns compact status snapshot for a stack service.
 func (i *Inspector) InspectServiceStatus(ctx context.Context, stackName, serviceName string) (ServiceStatus, error) {
+	service, err := i.inspectService(ctx, stackName, serviceName)
+	if err != nil {
+		return ServiceStatus{}, err
+	}
+
+	return ServiceStatus{
+		Stack:   stackName,
+		Service: serviceName,
+		Spec:    toServiceSpec(service.Spec),
+	}, nil
+}
+
+// InspectServiceSpec returns full compact service projection for a stack service.
+func (i *Inspector) InspectServiceSpec(ctx context.Context, stackName, serviceName string) (Service, error) {
+	service, err := i.inspectService(ctx, stackName, serviceName)
+	if err != nil {
+		return Service{}, err
+	}
+
+	return Service{
+		ID:           service.ID,
+		CreatedAt:    service.CreatedAt,
+		UpdatedAt:    service.UpdatedAt,
+		Secrets:      toServiceSecrets(service.Spec.TaskTemplate.ContainerSpec),
+		Spec:         toServiceSpec(service.Spec),
+		PreviousSpec: toPreviousServiceSpec(service.PreviousSpec),
+		UpdateStatus: toServiceUpdateStatus(service.UpdateStatus),
+	}, nil
+}
+
+func (i *Inspector) inspectService(ctx context.Context, stackName, serviceName string) (dockerswarm.Service, error) {
 	fullServiceName := fmt.Sprintf("%s_%s", stackName, serviceName)
 	service, _, err := i.dockerClient.ServiceInspectWithRaw(ctx, fullServiceName, dockerswarm.ServiceInspectOptions{})
 	if err != nil {
 		if cerrdefs.IsNotFound(err) {
-			return ServiceStatus{}, ErrServiceNotFound
+			return dockerswarm.Service{}, ErrServiceNotFound
 		}
-		return ServiceStatus{}, fmt.Errorf("inspect service %s: %w", fullServiceName, err)
+		return dockerswarm.Service{}, fmt.Errorf("inspect service %s: %w", fullServiceName, err)
 	}
 
-	status := ServiceStatus{
-		Stack:   stackName,
-		Service: serviceName,
-	}
-	if service.Spec.TaskTemplate.ContainerSpec != nil {
-		status.Image = service.Spec.TaskTemplate.ContainerSpec.Image
-	}
-
-	if resources := service.Spec.TaskTemplate.Resources; resources != nil && resources.Reservations != nil {
-		status.RequestedRAMBytes = resources.Reservations.MemoryBytes
-		status.RequestedCPUNano = resources.Reservations.NanoCPUs
-	}
-	if resources := service.Spec.TaskTemplate.Resources; resources != nil && resources.Limits != nil {
-		status.LimitRAMBytes = resources.Limits.MemoryBytes
-		status.LimitCPUNano = resources.Limits.NanoCPUs
-	}
-
-	return status, nil
+	return service, nil
 }
 
 // InspectServiceLabels returns service, container and image labels for a stack service.
@@ -242,6 +257,140 @@ func demultiplexDockerLogStream(raw []byte) []byte {
 	}
 
 	return decoded.Bytes()
+}
+
+func toServiceSpec(spec dockerswarm.ServiceSpec) ServiceSpec {
+	mode, replicas := resolveServiceDeployMode(spec.Mode)
+
+	mapped := ServiceSpec{
+		Mode:     mode,
+		Replicas: replicas,
+		Labels:   cloneStringMap(spec.Labels),
+		Network:  toServiceNetworks(spec.TaskTemplate.Networks),
+	}
+
+	containerSpec := spec.TaskTemplate.ContainerSpec
+	if containerSpec != nil {
+		mapped.Image = containerSpec.Image
+		mapped.Secrets = toServiceSecrets(containerSpec)
+	}
+
+	if resources := spec.TaskTemplate.Resources; resources != nil && resources.Reservations != nil {
+		mapped.RequestedRAMBytes = resources.Reservations.MemoryBytes
+		mapped.RequestedCPUNano = resources.Reservations.NanoCPUs
+	}
+	if resources := spec.TaskTemplate.Resources; resources != nil && resources.Limits != nil {
+		mapped.LimitRAMBytes = resources.Limits.MemoryBytes
+		mapped.LimitCPUNano = resources.Limits.NanoCPUs
+	}
+
+	return mapped
+}
+
+func resolveServiceDeployMode(mode dockerswarm.ServiceMode) (string, uint64) {
+	switch {
+	case mode.Replicated != nil:
+		replicas := uint64(0)
+		if mode.Replicated.Replicas != nil {
+			replicas = *mode.Replicated.Replicas
+		}
+		return "replicated", replicas
+	case mode.Global != nil:
+		return "global", 0
+	case mode.ReplicatedJob != nil:
+		replicas := uint64(0)
+		if mode.ReplicatedJob.MaxConcurrent != nil {
+			replicas = *mode.ReplicatedJob.MaxConcurrent
+		}
+		return "replicated-job", replicas
+	case mode.GlobalJob != nil:
+		return "global-job", 0
+	default:
+		return "unknown", 0
+	}
+}
+
+func toPreviousServiceSpec(previous *dockerswarm.ServiceSpec) *ServiceSpec {
+	if previous == nil {
+		return nil
+	}
+
+	mapped := toServiceSpec(*previous)
+
+	return &mapped
+}
+
+func toServiceUpdateStatus(status *dockerswarm.UpdateStatus) *ServiceUpdateStatus {
+	if status == nil {
+		return nil
+	}
+
+	startedAt := time.Time{}
+	if status.StartedAt != nil {
+		startedAt = *status.StartedAt
+	}
+
+	completedAt := time.Time{}
+	if status.CompletedAt != nil {
+		completedAt = *status.CompletedAt
+	}
+
+	return &ServiceUpdateStatus{
+		State:       string(status.State),
+		StartedAt:   startedAt,
+		CompletedAt: completedAt,
+		Message:     status.Message,
+	}
+}
+
+func toServiceSecrets(containerSpec *dockerswarm.ContainerSpec) []ServiceSecret {
+	if containerSpec == nil || len(containerSpec.Secrets) == 0 {
+		return nil
+	}
+
+	mapped := make([]ServiceSecret, 0, len(containerSpec.Secrets))
+	for _, secret := range containerSpec.Secrets {
+		if secret == nil {
+			continue
+		}
+
+		target := ""
+		if secret.File != nil {
+			target = secret.File.Name
+		}
+
+		secretName := secret.SecretName
+		if secretName == "" {
+			secretName = secret.SecretID
+		}
+
+		mapped = append(mapped, ServiceSecret{
+			SecretID:   secret.SecretID,
+			SecretName: secretName,
+			Target:     target,
+		})
+	}
+	if len(mapped) == 0 {
+		return nil
+	}
+
+	return mapped
+}
+
+func toServiceNetworks(networks []dockerswarm.NetworkAttachmentConfig) []ServiceNetwork {
+	if len(networks) == 0 {
+		return nil
+	}
+
+	mapped := make([]ServiceNetwork, 0, len(networks))
+	for _, network := range networks {
+		mapped = append(mapped, ServiceNetwork{
+			Target:  network.Target,
+			Aliases: cloneStringSlice(network.Aliases),
+		})
+	}
+
+	return mapped
 }
 
 func cloneStringMap(in map[string]string) map[string]string {

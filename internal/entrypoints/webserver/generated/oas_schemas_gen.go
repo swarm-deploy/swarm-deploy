@@ -496,6 +496,52 @@ func (o OptInt32) Or(d int32) int32 {
 	return d
 }
 
+// NewOptServiceSpecResponseLabels returns new OptServiceSpecResponseLabels with value set to v.
+func NewOptServiceSpecResponseLabels(v ServiceSpecResponseLabels) OptServiceSpecResponseLabels {
+	return OptServiceSpecResponseLabels{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptServiceSpecResponseLabels is optional ServiceSpecResponseLabels.
+type OptServiceSpecResponseLabels struct {
+	Value ServiceSpecResponseLabels
+	Set   bool
+}
+
+// IsSet returns true if OptServiceSpecResponseLabels was set.
+func (o OptServiceSpecResponseLabels) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptServiceSpecResponseLabels) Reset() {
+	var v ServiceSpecResponseLabels
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptServiceSpecResponseLabels) SetTo(v ServiceSpecResponseLabels) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptServiceSpecResponseLabels) Get() (v ServiceSpecResponseLabels, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptServiceSpecResponseLabels) Or(d ServiceSpecResponseLabels) ServiceSpecResponseLabels {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptString returns new OptString with value set to v.
 func NewOptString(v string) OptString {
 	return OptString{
@@ -700,15 +746,199 @@ func (s *ServiceInfoType) UnmarshalText(data []byte) error {
 	}
 }
 
+// Ref: #/components/schemas/ServiceSpecNetworkResponse
+type ServiceSpecNetworkResponse struct {
+	Target  string   `json:"target"`
+	Aliases []string `json:"aliases"`
+}
+
+// GetTarget returns the value of Target.
+func (s *ServiceSpecNetworkResponse) GetTarget() string {
+	return s.Target
+}
+
+// GetAliases returns the value of Aliases.
+func (s *ServiceSpecNetworkResponse) GetAliases() []string {
+	return s.Aliases
+}
+
+// SetTarget sets the value of Target.
+func (s *ServiceSpecNetworkResponse) SetTarget(val string) {
+	s.Target = val
+}
+
+// SetAliases sets the value of Aliases.
+func (s *ServiceSpecNetworkResponse) SetAliases(val []string) {
+	s.Aliases = val
+}
+
+// Ref: #/components/schemas/ServiceSpecResponse
+type ServiceSpecResponse struct {
+	Image             string                       `json:"image"`
+	Mode              string                       `json:"mode"`
+	Replicas          int64                        `json:"replicas"`
+	RequestedRAMBytes int64                        `json:"requested_ram_bytes"`
+	RequestedCPUNano  int64                        `json:"requested_cpu_nano"`
+	LimitRAMBytes     int64                        `json:"limit_ram_bytes"`
+	LimitCPUNano      int64                        `json:"limit_cpu_nano"`
+	Labels            OptServiceSpecResponseLabels `json:"labels"`
+	Secrets           []ServiceSpecSecretResponse  `json:"secrets"`
+	Network           []ServiceSpecNetworkResponse `json:"network"`
+}
+
+// GetImage returns the value of Image.
+func (s *ServiceSpecResponse) GetImage() string {
+	return s.Image
+}
+
+// GetMode returns the value of Mode.
+func (s *ServiceSpecResponse) GetMode() string {
+	return s.Mode
+}
+
+// GetReplicas returns the value of Replicas.
+func (s *ServiceSpecResponse) GetReplicas() int64 {
+	return s.Replicas
+}
+
+// GetRequestedRAMBytes returns the value of RequestedRAMBytes.
+func (s *ServiceSpecResponse) GetRequestedRAMBytes() int64 {
+	return s.RequestedRAMBytes
+}
+
+// GetRequestedCPUNano returns the value of RequestedCPUNano.
+func (s *ServiceSpecResponse) GetRequestedCPUNano() int64 {
+	return s.RequestedCPUNano
+}
+
+// GetLimitRAMBytes returns the value of LimitRAMBytes.
+func (s *ServiceSpecResponse) GetLimitRAMBytes() int64 {
+	return s.LimitRAMBytes
+}
+
+// GetLimitCPUNano returns the value of LimitCPUNano.
+func (s *ServiceSpecResponse) GetLimitCPUNano() int64 {
+	return s.LimitCPUNano
+}
+
+// GetLabels returns the value of Labels.
+func (s *ServiceSpecResponse) GetLabels() OptServiceSpecResponseLabels {
+	return s.Labels
+}
+
+// GetSecrets returns the value of Secrets.
+func (s *ServiceSpecResponse) GetSecrets() []ServiceSpecSecretResponse {
+	return s.Secrets
+}
+
+// GetNetwork returns the value of Network.
+func (s *ServiceSpecResponse) GetNetwork() []ServiceSpecNetworkResponse {
+	return s.Network
+}
+
+// SetImage sets the value of Image.
+func (s *ServiceSpecResponse) SetImage(val string) {
+	s.Image = val
+}
+
+// SetMode sets the value of Mode.
+func (s *ServiceSpecResponse) SetMode(val string) {
+	s.Mode = val
+}
+
+// SetReplicas sets the value of Replicas.
+func (s *ServiceSpecResponse) SetReplicas(val int64) {
+	s.Replicas = val
+}
+
+// SetRequestedRAMBytes sets the value of RequestedRAMBytes.
+func (s *ServiceSpecResponse) SetRequestedRAMBytes(val int64) {
+	s.RequestedRAMBytes = val
+}
+
+// SetRequestedCPUNano sets the value of RequestedCPUNano.
+func (s *ServiceSpecResponse) SetRequestedCPUNano(val int64) {
+	s.RequestedCPUNano = val
+}
+
+// SetLimitRAMBytes sets the value of LimitRAMBytes.
+func (s *ServiceSpecResponse) SetLimitRAMBytes(val int64) {
+	s.LimitRAMBytes = val
+}
+
+// SetLimitCPUNano sets the value of LimitCPUNano.
+func (s *ServiceSpecResponse) SetLimitCPUNano(val int64) {
+	s.LimitCPUNano = val
+}
+
+// SetLabels sets the value of Labels.
+func (s *ServiceSpecResponse) SetLabels(val OptServiceSpecResponseLabels) {
+	s.Labels = val
+}
+
+// SetSecrets sets the value of Secrets.
+func (s *ServiceSpecResponse) SetSecrets(val []ServiceSpecSecretResponse) {
+	s.Secrets = val
+}
+
+// SetNetwork sets the value of Network.
+func (s *ServiceSpecResponse) SetNetwork(val []ServiceSpecNetworkResponse) {
+	s.Network = val
+}
+
+type ServiceSpecResponseLabels map[string]string
+
+func (s *ServiceSpecResponseLabels) init() ServiceSpecResponseLabels {
+	m := *s
+	if m == nil {
+		m = map[string]string{}
+		*s = m
+	}
+	return m
+}
+
+// Ref: #/components/schemas/ServiceSpecSecretResponse
+type ServiceSpecSecretResponse struct {
+	SecretID   OptString `json:"secret_id"`
+	SecretName string    `json:"secret_name"`
+	Target     OptString `json:"target"`
+}
+
+// GetSecretID returns the value of SecretID.
+func (s *ServiceSpecSecretResponse) GetSecretID() OptString {
+	return s.SecretID
+}
+
+// GetSecretName returns the value of SecretName.
+func (s *ServiceSpecSecretResponse) GetSecretName() string {
+	return s.SecretName
+}
+
+// GetTarget returns the value of Target.
+func (s *ServiceSpecSecretResponse) GetTarget() OptString {
+	return s.Target
+}
+
+// SetSecretID sets the value of SecretID.
+func (s *ServiceSpecSecretResponse) SetSecretID(val OptString) {
+	s.SecretID = val
+}
+
+// SetSecretName sets the value of SecretName.
+func (s *ServiceSpecSecretResponse) SetSecretName(val string) {
+	s.SecretName = val
+}
+
+// SetTarget sets the value of Target.
+func (s *ServiceSpecSecretResponse) SetTarget(val OptString) {
+	s.Target = val
+}
+
 // Ref: #/components/schemas/ServiceStatusResponse
 type ServiceStatusResponse struct {
-	Stack             string `json:"stack"`
-	Service           string `json:"service"`
-	Image             string `json:"image"`
-	RequestedRAMBytes int64  `json:"requested_ram_bytes"`
-	RequestedCPUNano  int64  `json:"requested_cpu_nano"`
-	LimitRAMBytes     int64  `json:"limit_ram_bytes"`
-	LimitCPUNano      int64  `json:"limit_cpu_nano"`
+	Stack   string              `json:"stack"`
+	Service string              `json:"service"`
+	Spec    ServiceSpecResponse `json:"spec"`
 }
 
 // GetStack returns the value of Stack.
@@ -721,29 +951,9 @@ func (s *ServiceStatusResponse) GetService() string {
 	return s.Service
 }
 
-// GetImage returns the value of Image.
-func (s *ServiceStatusResponse) GetImage() string {
-	return s.Image
-}
-
-// GetRequestedRAMBytes returns the value of RequestedRAMBytes.
-func (s *ServiceStatusResponse) GetRequestedRAMBytes() int64 {
-	return s.RequestedRAMBytes
-}
-
-// GetRequestedCPUNano returns the value of RequestedCPUNano.
-func (s *ServiceStatusResponse) GetRequestedCPUNano() int64 {
-	return s.RequestedCPUNano
-}
-
-// GetLimitRAMBytes returns the value of LimitRAMBytes.
-func (s *ServiceStatusResponse) GetLimitRAMBytes() int64 {
-	return s.LimitRAMBytes
-}
-
-// GetLimitCPUNano returns the value of LimitCPUNano.
-func (s *ServiceStatusResponse) GetLimitCPUNano() int64 {
-	return s.LimitCPUNano
+// GetSpec returns the value of Spec.
+func (s *ServiceStatusResponse) GetSpec() ServiceSpecResponse {
+	return s.Spec
 }
 
 // SetStack sets the value of Stack.
@@ -756,29 +966,9 @@ func (s *ServiceStatusResponse) SetService(val string) {
 	s.Service = val
 }
 
-// SetImage sets the value of Image.
-func (s *ServiceStatusResponse) SetImage(val string) {
-	s.Image = val
-}
-
-// SetRequestedRAMBytes sets the value of RequestedRAMBytes.
-func (s *ServiceStatusResponse) SetRequestedRAMBytes(val int64) {
-	s.RequestedRAMBytes = val
-}
-
-// SetRequestedCPUNano sets the value of RequestedCPUNano.
-func (s *ServiceStatusResponse) SetRequestedCPUNano(val int64) {
-	s.RequestedCPUNano = val
-}
-
-// SetLimitRAMBytes sets the value of LimitRAMBytes.
-func (s *ServiceStatusResponse) SetLimitRAMBytes(val int64) {
-	s.LimitRAMBytes = val
-}
-
-// SetLimitCPUNano sets the value of LimitCPUNano.
-func (s *ServiceStatusResponse) SetLimitCPUNano(val int64) {
-	s.LimitCPUNano = val
+// SetSpec sets the value of Spec.
+func (s *ServiceStatusResponse) SetSpec(val ServiceSpecResponse) {
+	s.Spec = val
 }
 
 // Ref: #/components/schemas/ServiceView

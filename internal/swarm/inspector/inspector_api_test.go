@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/docker/docker/api/types/container"
+	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -58,6 +59,28 @@ func TestBuildDockerServiceLogsOptionsWithBounds(t *testing.T) {
 	assert.True(t, options.ShowStdout, "stdout must be enabled")
 	assert.True(t, options.ShowStderr, "stderr must be enabled")
 	assert.True(t, options.Timestamps, "timestamps must be enabled")
+}
+
+func TestResolveServiceDeployModeReplicated(t *testing.T) {
+	replicas := uint64(4)
+
+	mode, count := resolveServiceDeployMode(dockerswarm.ServiceMode{
+		Replicated: &dockerswarm.ReplicatedService{
+			Replicas: &replicas,
+		},
+	})
+
+	assert.Equal(t, "replicated", mode, "unexpected deploy mode")
+	assert.Equal(t, uint64(4), count, "unexpected replicas count")
+}
+
+func TestResolveServiceDeployModeGlobal(t *testing.T) {
+	mode, count := resolveServiceDeployMode(dockerswarm.ServiceMode{
+		Global: &dockerswarm.GlobalService{},
+	})
+
+	assert.Equal(t, "global", mode, "unexpected deploy mode")
+	assert.Equal(t, uint64(0), count, "global mode must not report replicas")
 }
 
 func encodeDockerLogFrame(stream byte, payload []byte) []byte {

@@ -243,6 +243,7 @@ func buildAssistantService(
 		inspectorSvc,
 		inspectorSvc,
 		inspectorSvc,
+		inspectorSvc,
 		serviceStore,
 		imageVersionResolver,
 		gitRepository,

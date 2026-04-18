@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"math"
 	"time"
 
 	"github.com/artarts36/swarm-deploy/internal/controller"
@@ -75,16 +76,74 @@ func toOptDateTime(value time.Time) generated.OptDateTime {
 
 func toGeneratedServiceStatus(status swarminspector.ServiceStatus) *generated.ServiceStatusResponse {
 	resp := &generated.ServiceStatusResponse{
-		Stack:             status.Stack,
-		Service:           status.Service,
-		Image:             status.Image,
-		RequestedRAMBytes: status.RequestedRAMBytes,
-		RequestedCPUNano:  status.RequestedCPUNano,
-		LimitRAMBytes:     status.LimitRAMBytes,
-		LimitCPUNano:      status.LimitCPUNano,
+		Stack:   status.Stack,
+		Service: status.Service,
+		Spec:    toGeneratedServiceSpec(status.Spec),
 	}
 
 	return resp
+}
+
+func toGeneratedServiceSpec(spec swarminspector.ServiceSpec) generated.ServiceSpecResponse {
+	mapped := generated.ServiceSpecResponse{
+		Image:             spec.Image,
+		Mode:              spec.Mode,
+		Replicas:          toInt64FromUint64(spec.Replicas),
+		RequestedRAMBytes: spec.RequestedRAMBytes,
+		RequestedCPUNano:  spec.RequestedCPUNano,
+		LimitRAMBytes:     spec.LimitRAMBytes,
+		LimitCPUNano:      spec.LimitCPUNano,
+		Secrets:           toGeneratedServiceSpecSecrets(spec.Secrets),
+		Network:           toGeneratedServiceSpecNetworks(spec.Network),
+	}
+
+	if len(spec.Labels) > 0 {
+		labels := make(generated.ServiceSpecResponseLabels, len(spec.Labels))
+		for key, value := range spec.Labels {
+			labels[key] = value
+		}
+		mapped.Labels = generated.NewOptServiceSpecResponseLabels(labels)
+	}
+
+	return mapped
+}
+
+func toGeneratedServiceSpecSecrets(secrets []swarminspector.ServiceSecret) []generated.ServiceSpecSecretResponse {
+	if len(secrets) == 0 {
+		return nil
+	}
+
+	mapped := make([]generated.ServiceSpecSecretResponse, 0, len(secrets))
+	for _, secret := range secrets {
+		item := generated.ServiceSpecSecretResponse{
+			SecretName: secret.SecretName,
+		}
+		if secret.SecretID != "" {
+			item.SecretID = generated.NewOptString(secret.SecretID)
+		}
+		if secret.Target != "" {
+			item.Target = generated.NewOptString(secret.Target)
+		}
+		mapped = append(mapped, item)
+	}
+
+	return mapped
+}
+
+func toGeneratedServiceSpecNetworks(networks []swarminspector.ServiceNetwork) []generated.ServiceSpecNetworkResponse {
+	if len(networks) == 0 {
+		return nil
+	}
+
+	mapped := make([]generated.ServiceSpecNetworkResponse, 0, len(networks))
+	for _, network := range networks {
+		mapped = append(mapped, generated.ServiceSpecNetworkResponse{
+			Target:  network.Target,
+			Aliases: cloneStringSlice(network.Aliases),
+		})
+	}
+
+	return mapped
 }
 
 func toGeneratedEvents(entries []history.Entry) []generated.EventHistoryItem {
@@ -175,4 +234,23 @@ func toGeneratedServiceType(typ serviceType.Type) generated.ServiceInfoType {
 	default:
 		return generated.ServiceInfoTypeApplication
 	}
+}
+
+func cloneStringSlice(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	out := make([]string, len(values))
+	copy(out, values)
+
+	return out
+}
+
+func toInt64FromUint64(value uint64) int64 {
+	if value > math.MaxInt64 {
+		return math.MaxInt64
+	}
+
+	return int64(value)
 }

@@ -59,6 +59,12 @@ type ServiceLogsInspector interface {
 	) ([]string, error)
 }
 
+// ServiceSpecInspector reads compact service spec snapshot for a stack service.
+type ServiceSpecInspector interface {
+	// InspectServiceSpec returns compact service projection for the given stack service.
+	InspectServiceSpec(ctx context.Context, stackName string, serviceName string) (inspector.Service, error)
+}
+
 // ServicesReader reads current service metadata snapshot.
 type ServicesReader interface {
 	// List returns current services metadata snapshot.

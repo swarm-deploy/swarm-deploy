@@ -96,6 +96,18 @@ func (f *fakeServiceLogsInspector) InspectServiceLogs(
 	return out, nil
 }
 
+type fakeServiceSpecInspector struct {
+	service inspector.Service
+}
+
+func (f *fakeServiceSpecInspector) InspectServiceSpec(
+	_ context.Context,
+	_ string,
+	_ string,
+) (inspector.Service, error) {
+	return f.service, nil
+}
+
 type fakeServiceStore struct {
 	services []service.Info
 }
@@ -143,6 +155,7 @@ func TestExecutorExecuteUnknownTool(t *testing.T) {
 		&fakePluginInspector{},
 		&fakeSecretInspector{},
 		&fakeServiceLogsInspector{},
+		&fakeServiceSpecInspector{},
 		&fakeServiceStore{},
 		&fakeImageVersionResolver{},
 		&fakeGitRepository{},
@@ -172,6 +185,7 @@ func TestExecutorDefinitionsContainDate(t *testing.T) {
 		&fakePluginInspector{},
 		&fakeSecretInspector{},
 		&fakeServiceLogsInspector{},
+		&fakeServiceSpecInspector{},
 		&fakeServiceStore{},
 		&fakeImageVersionResolver{},
 		&fakeGitRepository{},
@@ -195,5 +209,6 @@ func TestExecutorDefinitionsContainDate(t *testing.T) {
 	assert.Contains(t, toolNames, "docker_plugin_list", "expected docker_plugin_list tool definition")
 	assert.Contains(t, toolNames, "docker_secret_list", "expected docker_secret_list tool definition")
 	assert.Contains(t, toolNames, "service_logs_get", "expected service_logs_get tool definition")
+	assert.Contains(t, toolNames, "service_spec_get", "expected service_spec_get tool definition")
 	assert.Contains(t, toolNames, "dns_name_resolve", "expected dns_name_resolve tool definition")
 }
