@@ -22,7 +22,7 @@ func TestSetServiceReplicasExecute(t *testing.T) {
 			"replicas": "5",
 		},
 	})
-	require.NoError(t, err, "execute swarm_service_replicas_set")
+	require.NoError(t, err, "execute service_replicas_set")
 
 	var payload struct {
 		Stack    string `json:"stack"`

@@ -6,7 +6,6 @@ import (
 	"fmt"
 
 	cerrdefs "github.com/containerd/errdefs"
-	dockertypes "github.com/docker/docker/api/types"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 )
 
@@ -46,7 +45,7 @@ func (i *Inspector) UpdateServiceReplicas(
 	spec := service.Spec
 	spec.Mode.Replicated.Replicas = &replicas
 
-	_, err = i.dockerClient.ServiceUpdate(ctx, service.ID, service.Version, spec, dockertypes.ServiceUpdateOptions{})
+	_, err = i.dockerClient.ServiceUpdate(ctx, service.ID, service.Version, spec, dockerswarm.ServiceUpdateOptions{})
 	if err != nil {
 		return fmt.Errorf("update service %s replicas to %d: %w", fullServiceName, replicas, err)
 	}

@@ -12,7 +12,7 @@ type SetServiceReplicas struct {
 	manager ServiceReplicasManager
 }
 
-// NewSetServiceReplicas creates swarm_service_replicas_set component.
+// NewSetServiceReplicas creates service_replicas_set component.
 func NewSetServiceReplicas(manager ServiceReplicasManager) *SetServiceReplicas {
 	return &SetServiceReplicas{
 		manager: manager,
@@ -22,7 +22,7 @@ func NewSetServiceReplicas(manager ServiceReplicasManager) *SetServiceReplicas {
 // Definition returns tool metadata visible to the model.
 func (s *SetServiceReplicas) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
-		Name:        "swarm_service_replicas_set",
+		Name:        "service_replicas_set",
 		Description: "Updates replicas count for a stack service.",
 		ParametersJSONSchema: map[string]any{
 			"type": "object",
@@ -50,7 +50,7 @@ func (s *SetServiceReplicas) Definition() routing.ToolDefinition {
 	}
 }
 
-// Execute runs swarm_service_replicas_set tool.
+// Execute runs service_replicas_set tool.
 func (s *SetServiceReplicas) Execute(ctx context.Context, request routing.Request) (routing.Response, error) {
 	target, err := parseServiceReplicasTarget(request.Payload)
 	if err != nil {
