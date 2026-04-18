@@ -26,3 +26,6 @@ GitOps controller for Docker Swarm with an ArgoCD-inspired, but Swarm-native, co
 - TODO: Example of deploy private repositories via webhook
 - [AI Assistant](./example/04-assistant)
 - [Monitoring configurations: Grafana and Prometheus](./monitoring)
+
+## Ecosystem
+- [cloud-vector](https://github.com/swarm-deploy/cloud-vector) - logging for Docker Swarm
