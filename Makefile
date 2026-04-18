@@ -3,7 +3,7 @@ run:
 
 .PHONY: lint
 lint:
-	golangci-lint run --fix
+	golangci-lint run
 
 .PHONY: gen
 gen:

@@ -90,7 +90,7 @@ func (d *Deployer) buildInitServiceSpecAPI(
 	secrets := mergeObjectRefs(spec.ServiceSecrets, spec.Job.Secrets)
 	containerSpec.Secrets = make([]*dockerswarm.SecretReference, 0, len(secrets))
 	for _, secret := range secrets {
-		ref, err := d.resolveSecretReferenceAPI(ctx, secret.Source, secret.Target)
+		ref, err := d.secretResolver.ResolveReference(ctx, secret.Source, secret.Target)
 		if err != nil {
 			return dockerswarm.ServiceSpec{}, err
 		}
@@ -157,35 +157,6 @@ func (d *Deployer) resolveNetworkTargetAPI(ctx context.Context, stackName, netwo
 	}
 
 	return network
-}
-
-func (d *Deployer) resolveSecretReferenceAPI(
-	ctx context.Context,
-	source,
-	target string,
-) (*dockerswarm.SecretReference, error) {
-	secret, _, err := d.dockerClient.SecretInspectWithRaw(ctx, source)
-	if err != nil {
-		return nil, fmt.Errorf("inspect secret: %w", err)
-	}
-
-	ref := &dockerswarm.SecretReference{
-		SecretID:   secret.ID,
-		SecretName: secret.Spec.Name,
-	}
-
-	if target == "" {
-		target = fmt.Sprintf("/run/secrets/%s", ref.SecretName)
-	}
-
-	ref.File = &dockerswarm.SecretReferenceFileTarget{
-		Name: target,
-		UID:  "0",
-		GID:  "0",
-		Mode: secretOrConfigFileMode,
-	}
-
-	return ref, nil
 }
 
 func (d *Deployer) resolveConfigReferenceAPI(
