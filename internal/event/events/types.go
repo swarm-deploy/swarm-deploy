@@ -7,6 +7,8 @@ const (
 	TypeDeployFailed                     = "deployFailed"
 	TypeSendNotificationFailed           = "sendNotificationFailed"
 	TypeSyncManualStarted                = "syncManualStarted"
+	TypeServiceReplicasIncreased         = "serviceReplicasIncreased"
+	TypeServiceReplicasDecreased         = "serviceReplicasDecreased"
 	TypeUserAuthenticated                = "userAuthenticated"
 	TypeAssistantPromptInjectionDetected = "assistantPromptInjectionDetected"
 )
@@ -25,6 +27,8 @@ var Types = []Type{
 	TypeDeployFailed,
 	TypeSendNotificationFailed,
 	TypeSyncManualStarted,
+	TypeServiceReplicasIncreased,
+	TypeServiceReplicasDecreased,
 	TypeUserAuthenticated,
 	TypeAssistantPromptInjectionDetected,
 }

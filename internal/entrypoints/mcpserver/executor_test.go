@@ -119,6 +119,25 @@ func (f *fakeServiceStore) List() []service.Info {
 	return out
 }
 
+type fakeServiceReplicasManager struct{}
+
+func (f *fakeServiceReplicasManager) InspectServiceReplicas(
+	_ context.Context,
+	_,
+	_ string,
+) (uint64, error) {
+	return 1, nil
+}
+
+func (f *fakeServiceReplicasManager) UpdateServiceReplicas(
+	_ context.Context,
+	_,
+	_ string,
+	_ uint64,
+) error {
+	return nil
+}
+
 type fakeImageVersionResolver struct{}
 
 func (f *fakeImageVersionResolver) ResolveActualVersion(
@@ -157,6 +176,7 @@ func TestExecutorExecuteUnknownTool(t *testing.T) {
 		&fakeServiceLogsInspector{},
 		&fakeServiceSpecInspector{},
 		&fakeServiceStore{},
+		&fakeServiceReplicasManager{},
 		&fakeImageVersionResolver{},
 		&fakeGitRepository{},
 		[]config.StackSpec{},
@@ -187,6 +207,7 @@ func TestExecutorDefinitionsContainDate(t *testing.T) {
 		&fakeServiceLogsInspector{},
 		&fakeServiceSpecInspector{},
 		&fakeServiceStore{},
+		&fakeServiceReplicasManager{},
 		&fakeImageVersionResolver{},
 		&fakeGitRepository{},
 		[]config.StackSpec{},
@@ -211,4 +232,5 @@ func TestExecutorDefinitionsContainDate(t *testing.T) {
 	assert.Contains(t, toolNames, "service_logs_get", "expected service_logs_get tool definition")
 	assert.Contains(t, toolNames, "service_spec_get", "expected service_spec_get tool definition")
 	assert.Contains(t, toolNames, "dns_name_resolve", "expected dns_name_resolve tool definition")
+	assert.Contains(t, toolNames, "service_replicas_set", "expected service_replicas_set tool definition")
 }

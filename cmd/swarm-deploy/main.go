@@ -245,6 +245,7 @@ func buildAssistantService(
 		inspectorSvc,
 		inspectorSvc,
 		serviceStore,
+		inspectorSvc,
 		imageVersionResolver,
 		gitRepository,
 		cfg.Spec.Stacks,

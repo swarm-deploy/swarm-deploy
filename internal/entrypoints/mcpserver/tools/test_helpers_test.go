@@ -110,6 +110,65 @@ func (f *fakeServiceStore) List() []service.Info {
 	return out
 }
 
+type fakeServiceReplicasManager struct {
+	replicasByService map[string]uint64
+	inspectErr        error
+	updateErr         error
+
+	inspectCalled int
+	updateCalled  int
+
+	inspectedStack   string
+	inspectedService string
+
+	updatedStack    string
+	updatedService  string
+	updatedReplicas uint64
+}
+
+func (f *fakeServiceReplicasManager) InspectServiceReplicas(
+	_ context.Context,
+	stackName,
+	serviceName string,
+) (uint64, error) {
+	f.inspectCalled++
+	f.inspectedStack = stackName
+	f.inspectedService = serviceName
+
+	if f.inspectErr != nil {
+		return 0, f.inspectErr
+	}
+
+	if f.replicasByService == nil {
+		return 0, nil
+	}
+
+	return f.replicasByService[stackName+"_"+serviceName], nil
+}
+
+func (f *fakeServiceReplicasManager) UpdateServiceReplicas(
+	_ context.Context,
+	stackName,
+	serviceName string,
+	replicas uint64,
+) error {
+	f.updateCalled++
+	f.updatedStack = stackName
+	f.updatedService = serviceName
+	f.updatedReplicas = replicas
+
+	if f.updateErr != nil {
+		return f.updateErr
+	}
+
+	if f.replicasByService == nil {
+		f.replicasByService = map[string]uint64{}
+	}
+	f.replicasByService[stackName+"_"+serviceName] = replicas
+
+	return nil
+}
+
 type fakeImageVersionResolver struct {
 	version registry.ImageVersion
 	err     error
