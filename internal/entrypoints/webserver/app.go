@@ -16,6 +16,7 @@ import (
 	"github.com/artarts36/swarm-deploy/internal/event/dispatcher"
 	"github.com/artarts36/swarm-deploy/internal/event/history"
 	"github.com/artarts36/swarm-deploy/internal/service"
+	"github.com/artarts36/swarm-deploy/internal/swarm"
 	swarminspector "github.com/artarts36/swarm-deploy/internal/swarm/inspector"
 	"github.com/artarts36/swarm-deploy/ui"
 )
@@ -29,7 +30,7 @@ type Application struct {
 func NewApplication(
 	address string,
 	control *controller.Controller,
-	inspectorSvc *swarminspector.Inspector,
+	serviceInspector *swarm.ServiceManager,
 	eventHistory *history.Store,
 	serviceStore *service.Store,
 	nodeStore *swarminspector.NodeStore,
@@ -37,7 +38,7 @@ func NewApplication(
 	eventDispatcher dispatcher.Dispatcher,
 	authCfg config.AuthenticationSpec,
 ) (*Application, error) {
-	h := handlers.New(control, inspectorSvc, eventHistory, serviceStore, nodeStore, assistantService)
+	h := handlers.New(control, serviceInspector, eventHistory, serviceStore, nodeStore, assistantService)
 
 	apiHandler, err := generated.NewServer(h, generated.WithErrorHandler(handlers.HandleHTTPError))
 	if err != nil {

@@ -7,13 +7,13 @@ import (
 
 	"github.com/artarts36/swarm-deploy/internal/event/events"
 	"github.com/artarts36/swarm-deploy/internal/service/webroute"
-	swarminspector "github.com/artarts36/swarm-deploy/internal/swarm/inspector"
+	"github.com/artarts36/swarm-deploy/internal/swarm"
 )
 
 // LabelsInspector provides labels from service, container and image inspect.
 type LabelsInspector interface {
 	// InspectServiceLabels returns labels for a service and its image.
-	InspectServiceLabels(ctx context.Context, stackName, serviceName string) (swarminspector.ServiceLabels, error)
+	Labels(ctx context.Context, stackName, serviceName string) (swarm.ServiceLabels, error)
 }
 
 // Subscriber persists service metadata on deploySuccess events.
@@ -52,7 +52,7 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Event) error {
 			slog.String("service_name", deployedService.Name),
 		)
 
-		inspectedLabels, inspectErr := s.inspector.InspectServiceLabels(
+		inspectedLabels, inspectErr := s.inspector.Labels(
 			ctx,
 			deploySuccess.StackName,
 			deployedService.Name,

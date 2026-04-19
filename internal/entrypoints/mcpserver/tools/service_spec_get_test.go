@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/routing"
-	"github.com/artarts36/swarm-deploy/internal/swarm/inspector"
+	"github.com/artarts36/swarm-deploy/internal/swarm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -16,18 +16,18 @@ func TestGetServiceSpecExecute(t *testing.T) {
 	createdAt := time.Date(2026, time.April, 19, 10, 12, 45, 0, time.UTC)
 	updatedAt := createdAt.Add(2 * time.Minute)
 	fakeInspector := &fakeToolServiceSpecInspector{
-		service: inspector.Service{
+		service: swarm.Service{
 			ID:        "service-id-1",
 			CreatedAt: createdAt,
 			UpdatedAt: updatedAt,
-			Secrets: []inspector.ServiceSecret{
+			Secrets: []swarm.ServiceSecret{
 				{
 					SecretID:   "secret-id-1",
 					SecretName: "core_db_password",
 					Target:     "/run/secrets/core_db_password",
 				},
 			},
-			Spec: inspector.ServiceSpec{
+			Spec: swarm.ServiceSpec{
 				Image:             "ghcr.io/org/api:1.8.4",
 				Mode:              "replicated",
 				Replicas:          3,
@@ -38,26 +38,26 @@ func TestGetServiceSpecExecute(t *testing.T) {
 				Labels: map[string]string{
 					"com.docker.stack.namespace": "core",
 				},
-				Secrets: []inspector.ServiceSecret{
+				Secrets: []swarm.ServiceSecret{
 					{
 						SecretID:   "secret-id-1",
 						SecretName: "core_db_password",
 						Target:     "/run/secrets/core_db_password",
 					},
 				},
-				Network: []inspector.ServiceNetwork{
+				Network: []swarm.ServiceNetwork{
 					{
 						Target:  "core_default",
 						Aliases: []string{"api"},
 					},
 				},
 			},
-			PreviousSpec: &inspector.ServiceSpec{
+			PreviousSpec: &swarm.ServiceSpec{
 				Image:    "ghcr.io/org/api:1.8.3",
 				Mode:     "replicated",
 				Replicas: 2,
 			},
-			UpdateStatus: &inspector.ServiceUpdateStatus{
+			UpdateStatus: &swarm.ServiceUpdateStatus{
 				State:       "completed",
 				StartedAt:   createdAt,
 				CompletedAt: updatedAt,
@@ -79,9 +79,9 @@ func TestGetServiceSpecExecute(t *testing.T) {
 	assert.Equal(t, "api", fakeInspector.serviceName, "unexpected service arg")
 
 	var payload struct {
-		StackName   string            `json:"stack_name"`
-		ServiceName string            `json:"service_name"`
-		Service     inspector.Service `json:"service"`
+		StackName   string        `json:"stack_name"`
+		ServiceName string        `json:"service_name"`
+		Service     swarm.Service `json:"service"`
 	}
 
 	encoded, err := json.Marshal(response.Payload)
@@ -140,7 +140,7 @@ func TestGetServiceSpecExecuteReturnsInspectorError(t *testing.T) {
 }
 
 type fakeToolServiceSpecInspector struct {
-	service inspector.Service
+	service swarm.Service
 	err     error
 
 	called      int
@@ -148,16 +148,16 @@ type fakeToolServiceSpecInspector struct {
 	serviceName string
 }
 
-func (f *fakeToolServiceSpecInspector) InspectServiceSpec(
+func (f *fakeToolServiceSpecInspector) Get(
 	_ context.Context,
 	stackName string,
 	serviceName string,
-) (inspector.Service, error) {
+) (swarm.Service, error) {
 	f.called++
 	f.stackName = stackName
 	f.serviceName = serviceName
 	if f.err != nil {
-		return inspector.Service{}, f.err
+		return swarm.Service{}, f.err
 	}
 
 	return f.service, nil

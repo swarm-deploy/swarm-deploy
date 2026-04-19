@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/routing"
-	"github.com/artarts36/swarm-deploy/internal/swarm/inspector"
+	"github.com/artarts36/swarm-deploy/internal/swarm"
 )
 
 // GetServiceSpec returns compact service spec projection from Docker Swarm.
@@ -63,7 +63,7 @@ func (g *GetServiceSpec) Execute(ctx context.Context, request routing.Request) (
 		return routing.Response{}, fmt.Errorf("service_name is required")
 	}
 
-	service, err := g.inspector.InspectServiceSpec(ctx, stackName, serviceName)
+	service, err := g.inspector.Get(ctx, stackName, serviceName)
 	if err != nil {
 		return routing.Response{}, err
 	}
@@ -74,7 +74,7 @@ func (g *GetServiceSpec) Execute(ctx context.Context, request routing.Request) (
 		// ServiceName is a target service name.
 		ServiceName string `json:"service_name"`
 		// Service contains compact service projection.
-		Service inspector.Service `json:"service"`
+		Service swarm.Service `json:"service"`
 	}{
 		StackName:   stackName,
 		ServiceName: serviceName,

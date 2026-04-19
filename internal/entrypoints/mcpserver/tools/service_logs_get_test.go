@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/routing"
-	"github.com/artarts36/swarm-deploy/internal/swarm/inspector"
+	"github.com/artarts36/swarm-deploy/internal/swarm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -252,14 +252,14 @@ type fakeServiceLogsInspector struct {
 	called      int
 	stackName   string
 	serviceName string
-	options     inspector.ServiceLogsOptions
+	options     swarm.ServiceLogsOptions
 }
 
-func (f *fakeServiceLogsInspector) InspectServiceLogs(
+func (f *fakeServiceLogsInspector) Logs(
 	_ context.Context,
 	stackName string,
 	serviceName string,
-	options inspector.ServiceLogsOptions,
+	options swarm.ServiceLogsOptions,
 ) ([]string, error) {
 	f.called++
 	f.stackName = stackName

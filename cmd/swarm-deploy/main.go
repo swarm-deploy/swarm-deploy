@@ -113,7 +113,11 @@ func main() {
 	}
 	nodeCollector := swarminspector.NewNodeCollector(inspectorSvc, nodeStore)
 
-	eventDispatcher, eventHistory, serviceStore, err := buildEventDispatcher(cfg, inspectorSvc, metricsGroup.Events)
+	eventDispatcher, eventHistory, serviceStore, err := buildEventDispatcher(
+		cfg,
+		swarmService.Services,
+		metricsGroup.Events,
+	)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to build event dispatcher", slog.Any("err", err))
 		os.Exit(1)
@@ -132,7 +136,6 @@ func main() {
 		serviceStore,
 		eventHistory,
 		nodeStore,
-		inspectorSvc,
 		swarmService,
 		gitRepository,
 		control,
@@ -147,7 +150,7 @@ func main() {
 	webApplication, err := webserver.NewApplication(
 		cfg.Spec.Web.Address,
 		control,
-		inspectorSvc,
+		swarmService.Services,
 		eventHistory,
 		serviceStore,
 		nodeStore,
@@ -214,7 +217,6 @@ func buildAssistantService(
 	serviceStore *service.Store,
 	eventHistory *history.Store,
 	nodeStore *swarminspector.NodeStore,
-	inspectorSvc *swarminspector.Inspector,
 	swarmService *swarm.Swarm,
 	gitRepository gitx.Repository,
 	control *controller.Controller,
@@ -246,8 +248,6 @@ func buildAssistantService(
 		eventHistory,
 		nodeStore,
 		swarmService,
-		inspectorSvc,
-		inspectorSvc,
 		serviceStore,
 		imageVersionResolver,
 		gitRepository,
@@ -275,7 +275,7 @@ func buildAssistantService(
 
 func buildEventDispatcher(
 	cfg *config.Config,
-	inspectorSvc *swarminspector.Inspector,
+	serviceLabelsInspector service.LabelsInspector,
 	eventMetrics metrics.Events,
 ) (dispatcher.Dispatcher, *history.Store, *service.Store, error) {
 	historyStore, err := history.NewStore(
@@ -308,7 +308,7 @@ func buildEventDispatcher(
 
 	eventDispatcher.Subscribe(
 		events.TypeDeploySuccess,
-		service.NewSubscriber(serviceStore, inspectorSvc, service.NewMetadataExtractor()),
+		service.NewSubscriber(serviceStore, serviceLabelsInspector, service.NewMetadataExtractor()),
 	)
 	subscribersCount++
 

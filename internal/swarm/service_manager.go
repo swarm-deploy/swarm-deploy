@@ -1,4 +1,4 @@
-package inspector
+package swarm
 
 import (
 	"bufio"
@@ -12,9 +12,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/avast/retry-go/v5"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/container"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
+	"github.com/docker/docker/client"
 )
 
 const (
@@ -24,9 +26,95 @@ const (
 	serviceLogsScannerMaxTokenBufSize = 1 << 20
 )
 
-// InspectServiceStatus returns compact status snapshot for a stack service.
-func (i *Inspector) InspectServiceStatus(ctx context.Context, stackName, serviceName string) (ServiceStatus, error) {
-	service, err := i.inspectService(ctx, stackName, serviceName)
+// ServiceManager manages stack service replicas.
+type ServiceManager struct {
+	dockerClient *client.Client
+}
+
+// newServiceManager creates service manager with provided docker API client.
+func newServiceManager(dockerClient *client.Client) *ServiceManager {
+	return &ServiceManager{
+		dockerClient: dockerClient,
+	}
+}
+
+// GetReplicas returns desired replicas count for a stack service.
+func (m *ServiceManager) GetReplicas(
+	ctx context.Context,
+	serviceRef ServiceReference,
+) (uint64, error) {
+	service, fullServiceName, err := m.inspect(ctx, serviceRef)
+	if err != nil {
+		return 0, err
+	}
+	if service.Spec.Mode.Replicated == nil {
+		return 0, fmt.Errorf("service %s is not replicated mode", fullServiceName)
+	}
+	if service.Spec.Mode.Replicated.Replicas == nil {
+		return 0, nil
+	}
+
+	return *service.Spec.Mode.Replicated.Replicas, nil
+}
+
+// Scale sets desired replicas count for a stack service.
+func (m *ServiceManager) Scale(
+	ctx context.Context,
+	serviceRef ServiceReference,
+	replicas uint64,
+) error {
+	service, fullServiceName, err := m.inspect(ctx, serviceRef)
+	if err != nil {
+		return err
+	}
+	if service.Spec.Mode.Replicated == nil || service.Spec.Mode.Replicated.Replicas == nil {
+		return fmt.Errorf("service %s is not replicated mode", fullServiceName)
+	}
+
+	spec := service.Spec
+	spec.Mode.Replicated.Replicas = &replicas
+
+	_, err = m.dockerClient.ServiceUpdate(ctx, service.ID, service.Version, spec, dockerswarm.ServiceUpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("update service %s replicas to %d: %w", fullServiceName, replicas, err)
+	}
+
+	return nil
+}
+
+const (
+	restartServiceRetryAttempts = 3
+	restartServiceDelay         = 250 * time.Second
+)
+
+// Restart restarts stack service by scaling replicas to zero and restoring previous count.
+func (m *ServiceManager) Restart(
+	ctx context.Context,
+	serviceRef ServiceReference,
+) (uint64, error) {
+	currentReplicas, err := m.GetReplicas(ctx, serviceRef)
+	if err != nil {
+		return 0, fmt.Errorf("inspect service replicas: %w", err)
+	}
+
+	err = m.Scale(ctx, serviceRef, 0)
+	if err != nil {
+		return 0, fmt.Errorf("scale service replicas to 0: %w", err)
+	}
+
+	err = retry.New(retry.Attempts(restartServiceRetryAttempts), retry.Delay(restartServiceDelay)).Do(func() error {
+		return m.Scale(ctx, serviceRef, currentReplicas)
+	})
+	if err != nil {
+		return 0, fmt.Errorf("restore service replicas to %d: %w", currentReplicas, err)
+	}
+
+	return currentReplicas, nil
+}
+
+// GetStatus returns compact status snapshot for a stack service.
+func (m *ServiceManager) GetStatus(ctx context.Context, stackName, serviceName string) (ServiceStatus, error) {
+	service, _, err := m.inspect(ctx, NewServiceReference(stackName, serviceName))
 	if err != nil {
 		return ServiceStatus{}, err
 	}
@@ -38,9 +126,9 @@ func (i *Inspector) InspectServiceStatus(ctx context.Context, stackName, service
 	}, nil
 }
 
-// InspectServiceSpec returns full compact service projection for a stack service.
-func (i *Inspector) InspectServiceSpec(ctx context.Context, stackName, serviceName string) (Service, error) {
-	service, err := i.inspectService(ctx, stackName, serviceName)
+// Get returns full compact service projection for a stack service.
+func (m *ServiceManager) Get(ctx context.Context, stackName, serviceName string) (Service, error) {
+	service, _, err := m.inspect(ctx, NewServiceReference(stackName, serviceName))
 	if err != nil {
 		return Service{}, err
 	}
@@ -56,31 +144,14 @@ func (i *Inspector) InspectServiceSpec(ctx context.Context, stackName, serviceNa
 	}, nil
 }
 
-func (i *Inspector) inspectService(ctx context.Context, stackName, serviceName string) (dockerswarm.Service, error) {
-	fullServiceName := fmt.Sprintf("%s_%s", stackName, serviceName)
-	service, _, err := i.dockerClient.ServiceInspectWithRaw(ctx, fullServiceName, dockerswarm.ServiceInspectOptions{})
-	if err != nil {
-		if cerrdefs.IsNotFound(err) {
-			return dockerswarm.Service{}, ErrServiceNotFound
-		}
-		return dockerswarm.Service{}, fmt.Errorf("inspect service %s: %w", fullServiceName, err)
-	}
-
-	return service, nil
-}
-
-// InspectServiceLabels returns service, container and image labels for a stack service.
-func (i *Inspector) InspectServiceLabels(
+// Labels returns service, container and image labels for a stack service.
+func (m *ServiceManager) Labels(
 	ctx context.Context,
 	stackName, serviceName string,
 ) (ServiceLabels, error) {
-	fullServiceName := fmt.Sprintf("%s_%s", stackName, serviceName)
-	service, _, err := i.dockerClient.ServiceInspectWithRaw(ctx, fullServiceName, dockerswarm.ServiceInspectOptions{})
+	service, _, err := m.inspect(ctx, NewServiceReference(stackName, serviceName))
 	if err != nil {
-		if cerrdefs.IsNotFound(err) {
-			return ServiceLabels{}, ErrServiceNotFound
-		}
-		return ServiceLabels{}, fmt.Errorf("inspect service %s: %w", fullServiceName, err)
+		return ServiceLabels{}, err
 	}
 
 	labels := ServiceLabels{
@@ -100,9 +171,9 @@ func (i *Inspector) InspectServiceLabels(
 
 	slog.DebugContext(ctx, "[swarm] inspecting image", slog.String("image_ref", imageRef))
 
-	image, err := i.dockerClient.ImageInspect(ctx, imageRef)
+	image, err := m.dockerClient.ImageInspect(ctx, imageRef)
 	if err != nil {
-		if cerrdefs.IsNotFound(err) {
+		if isNotFoundErr(err) {
 			slog.DebugContext(ctx, "[swarm] image not found", slog.String("image_ref", imageRef))
 
 			return labels, nil
@@ -121,27 +192,19 @@ func (i *Inspector) InspectServiceLabels(
 	return labels, nil
 }
 
-// ServiceLogsOptions configures stack service logs query.
-type ServiceLogsOptions struct {
-	// Limit is max number of latest lines to return.
-	Limit int
-	// Since defines lower bound for log timestamps.
-	Since *time.Time
-	// Until defines upper bound for log timestamps.
-	Until *time.Time
-}
-
-// InspectServiceLogs returns recent logs for a stack service.
-func (i *Inspector) InspectServiceLogs(
+// Logs returns recent logs for a stack service.
+func (m *ServiceManager) Logs(
 	ctx context.Context,
 	stackName string,
 	serviceName string,
 	options ServiceLogsOptions,
 ) ([]string, error) {
-	fullServiceName := fmt.Sprintf("%s_%s", stackName, serviceName)
-	reader, err := i.dockerClient.ServiceLogs(ctx, fullServiceName, buildDockerServiceLogsOptions(options))
+	serviceRef := NewServiceReference(stackName, serviceName)
+	fullServiceName := serviceRef.Name()
+
+	reader, err := m.dockerClient.ServiceLogs(ctx, fullServiceName, buildDockerServiceLogsOptions(options))
 	if err != nil {
-		if cerrdefs.IsNotFound(err) {
+		if isNotFoundErr(err) {
 			return nil, ErrServiceNotFound
 		}
 
@@ -414,4 +477,25 @@ func cloneStringSlice(in []string) []string {
 	copy(out, in)
 
 	return out
+}
+
+func (m *ServiceManager) inspect(
+	ctx context.Context,
+	serviceRef ServiceReference,
+) (dockerswarm.Service, string, error) {
+	fullServiceName := serviceRef.Name()
+	service, _, err := m.dockerClient.ServiceInspectWithRaw(ctx, fullServiceName, dockerswarm.ServiceInspectOptions{})
+	if err != nil {
+		if isNotFoundErr(err) {
+			return dockerswarm.Service{}, fullServiceName, ErrServiceNotFound
+		}
+
+		return dockerswarm.Service{}, fullServiceName, fmt.Errorf("inspect service %s: %w", fullServiceName, err)
+	}
+
+	return service, fullServiceName, nil
+}
+
+func isNotFoundErr(err error) bool {
+	return cerrdefs.IsNotFound(err)
 }

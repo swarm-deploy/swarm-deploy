@@ -52,18 +52,18 @@ type SecretReader interface {
 // ServiceLogsInspector reads logs of a specific stack service.
 type ServiceLogsInspector interface {
 	// InspectServiceLogs returns recent log lines for the given stack service.
-	InspectServiceLogs(
+	Logs(
 		ctx context.Context,
 		stackName string,
 		serviceName string,
-		options inspector.ServiceLogsOptions,
+		options swarm.ServiceLogsOptions,
 	) ([]string, error)
 }
 
 // ServiceSpecInspector reads compact service spec snapshot for a stack service.
 type ServiceSpecInspector interface {
 	// InspectServiceSpec returns compact service projection for the given stack service.
-	InspectServiceSpec(ctx context.Context, stackName string, serviceName string) (inspector.Service, error)
+	Get(ctx context.Context, stackName string, serviceName string) (swarm.Service, error)
 }
 
 // ServicesReader reads current service metadata snapshot.

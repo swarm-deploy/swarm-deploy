@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/routing"
-	"github.com/artarts36/swarm-deploy/internal/swarm/inspector"
+	"github.com/artarts36/swarm-deploy/internal/swarm"
 )
 
 const (
@@ -87,7 +87,7 @@ func (g *GetServiceLogs) Execute(ctx context.Context, request routing.Request) (
 		return routing.Response{}, err
 	}
 
-	queryOptions := inspector.ServiceLogsOptions{
+	queryOptions := swarm.ServiceLogsOptions{
 		Limit: params.Limit + 1,
 		Since: params.Since,
 		Until: params.Until,
@@ -97,7 +97,7 @@ func (g *GetServiceLogs) Execute(ctx context.Context, request routing.Request) (
 		queryOptions.Until = &exclusiveUntil
 	}
 
-	logs, err := g.logsInspector.InspectServiceLogs(ctx, params.StackName, params.ServiceName, queryOptions)
+	logs, err := g.logsInspector.Logs(ctx, params.StackName, params.ServiceName, queryOptions)
 	if err != nil {
 		return routing.Response{}, err
 	}

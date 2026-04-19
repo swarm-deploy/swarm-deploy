@@ -1,4 +1,4 @@
-package inspector
+package swarm
 
 import (
 	"encoding/binary"
