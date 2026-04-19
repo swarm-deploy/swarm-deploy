@@ -114,6 +114,7 @@ type fakeServiceReplicasManager struct {
 	replicasByService map[string]uint64
 	inspectErr        error
 	updateErr         error
+	updateErrOnCall   int
 
 	inspectCalled int
 	updateCalled  int
@@ -124,6 +125,7 @@ type fakeServiceReplicasManager struct {
 	updatedStack    string
 	updatedService  string
 	updatedReplicas uint64
+	updatedHistory  []uint64
 }
 
 func (f *fakeServiceReplicasManager) InspectServiceReplicas(
@@ -156,8 +158,9 @@ func (f *fakeServiceReplicasManager) UpdateServiceReplicas(
 	f.updatedStack = stackName
 	f.updatedService = serviceName
 	f.updatedReplicas = replicas
+	f.updatedHistory = append(f.updatedHistory, replicas)
 
-	if f.updateErr != nil {
+	if f.updateErr != nil && (f.updateErrOnCall == 0 || f.updateCalled == f.updateErrOnCall) {
 		return f.updateErr
 	}
 

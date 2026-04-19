@@ -2,7 +2,6 @@ package inspector
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	cerrdefs "github.com/containerd/errdefs"
@@ -36,10 +35,6 @@ func (i *Inspector) UpdateServiceReplicas(
 	serviceName string,
 	replicas uint64,
 ) error {
-	if replicas == 0 {
-		return errors.New("replicas must be > 0")
-	}
-
 	service, fullServiceName, err := i.inspectStackService(ctx, stackName, serviceName)
 	if err != nil {
 		return err

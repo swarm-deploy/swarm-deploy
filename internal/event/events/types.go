@@ -9,6 +9,7 @@ const (
 	TypeSyncManualStarted                = "syncManualStarted"
 	TypeServiceReplicasIncreased         = "serviceReplicasIncreased"
 	TypeServiceReplicasDecreased         = "serviceReplicasDecreased"
+	TypeServiceRestarted                 = "serviceRestarted"
 	TypeUserAuthenticated                = "userAuthenticated"
 	TypeAssistantPromptInjectionDetected = "assistantPromptInjectionDetected"
 )
@@ -29,6 +30,7 @@ var Types = []Type{
 	TypeSyncManualStarted,
 	TypeServiceReplicasIncreased,
 	TypeServiceReplicasDecreased,
+	TypeServiceRestarted,
 	TypeUserAuthenticated,
 	TypeAssistantPromptInjectionDetected,
 }

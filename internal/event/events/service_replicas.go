@@ -110,3 +110,55 @@ func (s *ServiceReplicasDecreased) WithUsername(username string) Event {
 		Username:         username,
 	}
 }
+
+// ServiceRestarted is emitted when service is restarted by scaling to zero and back.
+type ServiceRestarted struct {
+	// StackName is a stack name where service lives.
+	StackName string
+	// ServiceName is a stack service name without stack prefix.
+	ServiceName string
+	// PreviousReplicas is desired replicas count before restart.
+	PreviousReplicas uint64
+	// CurrentReplicas is desired replicas count after restart.
+	CurrentReplicas uint64
+	// Username is an optional user who triggered the restart.
+	Username string
+}
+
+func (s *ServiceRestarted) Type() Type {
+	return TypeServiceRestarted
+}
+
+func (s *ServiceRestarted) Message() string {
+	return fmt.Sprintf(
+		"Service %s/%s restarted with replicas %d",
+		s.StackName,
+		s.ServiceName,
+		s.CurrentReplicas,
+	)
+}
+
+func (s *ServiceRestarted) Details() map[string]string {
+	details := map[string]string{
+		"stack":             s.StackName,
+		"service":           s.ServiceName,
+		"previous_replicas": strconv.FormatUint(s.PreviousReplicas, 10),
+		"current_replicas":  strconv.FormatUint(s.CurrentReplicas, 10),
+	}
+
+	if s.Username != "" {
+		details["username"] = s.Username
+	}
+
+	return details
+}
+
+func (s *ServiceRestarted) WithUsername(username string) Event {
+	return &ServiceRestarted{
+		StackName:        s.StackName,
+		ServiceName:      s.ServiceName,
+		PreviousReplicas: s.PreviousReplicas,
+		CurrentReplicas:  s.CurrentReplicas,
+		Username:         username,
+	}
+}

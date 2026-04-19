@@ -51,6 +51,7 @@ func NewExecutor(
 		mcpTools.NewDNSNameResolve(),
 		mcpTools.NewPingWebRoutes(serviceStore),
 		mcpTools.NewSetServiceReplicas(serviceReplicasManager, eventDispatcher),
+		mcpTools.NewRestartService(serviceReplicasManager, eventDispatcher),
 		mcpTools.NewGetActualImageVersion(imageVersionResolver),
 		mcpTools.NewListGitCommits(gitRepository),
 		mcpTools.NewGitCommitDiff(gitRepository, stacks, commitDiffer),

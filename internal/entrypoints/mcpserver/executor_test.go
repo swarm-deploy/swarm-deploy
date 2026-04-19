@@ -233,4 +233,5 @@ func TestExecutorDefinitionsContainDate(t *testing.T) {
 	assert.Contains(t, toolNames, "service_spec_get", "expected service_spec_get tool definition")
 	assert.Contains(t, toolNames, "dns_name_resolve", "expected dns_name_resolve tool definition")
 	assert.Contains(t, toolNames, "service_replicas_set", "expected service_replicas_set tool definition")
+	assert.Contains(t, toolNames, "service_restart_trigger", "expected service_restart_trigger tool definition")
 }
