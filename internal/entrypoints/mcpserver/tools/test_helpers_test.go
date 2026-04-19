@@ -89,7 +89,7 @@ type fakeSecretInspector struct {
 	called  int
 }
 
-func (f *fakeSecretInspector) InspectSecrets(_ context.Context) ([]swarm.Secret, error) {
+func (f *fakeSecretInspector) List(_ context.Context) ([]swarm.Secret, error) {
 	f.called++
 	if f.err != nil {
 		return nil, f.err

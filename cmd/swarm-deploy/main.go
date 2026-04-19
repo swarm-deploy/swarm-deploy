@@ -247,7 +247,7 @@ func buildAssistantService(
 		nodeStore,
 		inspectorSvc,
 		inspectorSvc,
-		inspectorSvc,
+		swarmService.Secrets,
 		inspectorSvc,
 		inspectorSvc,
 		serviceStore,

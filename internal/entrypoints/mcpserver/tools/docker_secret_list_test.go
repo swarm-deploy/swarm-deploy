@@ -42,12 +42,12 @@ func TestDockerSecretListExecute(t *testing.T) {
 	assert.Equal(t, "external-vault", payload.Secrets[0].Driver, "unexpected secret driver")
 }
 
-func TestDockerSecretListExecuteFailsOnInspectError(t *testing.T) {
+func TestDockerSecretListExecuteFailsOnListError(t *testing.T) {
 	tool := NewDockerSecretList(&fakeSecretInspector{
 		err: errors.New("docker unavailable"),
 	})
 
 	_, err := tool.Execute(context.Background(), routing.Request{})
 	require.Error(t, err, "expected execute error")
-	assert.Contains(t, err.Error(), "inspect secrets", "unexpected error")
+	assert.Contains(t, err.Error(), "list secrets", "unexpected error")
 }

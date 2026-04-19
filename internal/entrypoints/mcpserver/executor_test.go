@@ -72,7 +72,7 @@ type fakeSecretInspector struct {
 	secrets []swarm.Secret
 }
 
-func (f *fakeSecretInspector) InspectSecrets(
+func (f *fakeSecretInspector) List(
 	_ context.Context,
 ) ([]swarm.Secret, error) {
 	out := make([]swarm.Secret, len(f.secrets))
