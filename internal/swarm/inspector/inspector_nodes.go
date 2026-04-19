@@ -12,10 +12,6 @@ import (
 
 // InspectNodes returns current swarm nodes snapshot.
 func (i *Inspector) InspectNodes(ctx context.Context) ([]NodeInfo, error) {
-	if i.dockerClient == nil {
-		return nil, errors.New("docker api client is not initialized")
-	}
-
 	nodes, err := i.dockerClient.NodeList(ctx, dockerswarm.NodeListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("list swarm nodes: %w", err)

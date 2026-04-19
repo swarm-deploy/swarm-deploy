@@ -2,7 +2,6 @@ package inspector
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	dockertypes "github.com/docker/docker/api/types"
@@ -11,10 +10,6 @@ import (
 
 // InspectPlugins returns current Docker plugins snapshot.
 func (i *Inspector) InspectPlugins(ctx context.Context) ([]PluginInfo, error) {
-	if i.dockerClient == nil {
-		return nil, errors.New("docker api client is not initialized")
-	}
-
 	plugins, err := i.dockerClient.PluginList(ctx, filters.NewArgs())
 	if err != nil {
 		return nil, fmt.Errorf("list docker plugins: %w", err)

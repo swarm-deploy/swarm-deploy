@@ -1,29 +1,11 @@
 package inspector
 
 import (
-	"context"
 	"testing"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
-
-func TestInspectorInspectNodesFailsWithoutDockerClient(t *testing.T) {
-	inspector := &Inspector{}
-
-	_, err := inspector.InspectNodes(context.Background())
-	require.Error(t, err, "expected error")
-	assert.Contains(t, err.Error(), "docker api client is not initialized", "unexpected error")
-}
-
-func TestInspectorWatchNodeEventsFailsWithoutDockerClient(t *testing.T) {
-	inspector := &Inspector{}
-
-	_, _, err := inspector.WatchNodeEvents(context.Background())
-	require.Error(t, err, "expected error")
-	assert.Contains(t, err.Error(), "docker api client is not initialized", "unexpected error")
-}
 
 func TestToNodeInfoMapsFields(t *testing.T) {
 	node := dockerswarm.Node{

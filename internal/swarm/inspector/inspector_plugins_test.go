@@ -1,21 +1,12 @@
 package inspector
 
 import (
-	"context"
 	"testing"
 
 	dockertypes "github.com/docker/docker/api/types"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestInspectorInspectPluginsFailsWithoutDockerClient(t *testing.T) {
-	inspector := &Inspector{}
-
-	_, err := inspector.InspectPlugins(context.Background())
-	require.Error(t, err, "expected error")
-	assert.Contains(t, err.Error(), "docker api client is not initialized", "unexpected error")
-}
 
 func TestToPluginInfoMapsFields(t *testing.T) {
 	plugin := dockertypes.Plugin{

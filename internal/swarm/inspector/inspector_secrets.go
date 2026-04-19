@@ -35,6 +35,6 @@ func toSecretInfo(secret dockerswarm.Secret) SecretInfo {
 		CreatedAt: secret.CreatedAt,
 		UpdatedAt: secret.UpdatedAt,
 		Driver:    driver,
-		Labels:    cloneStringMap(secret.Spec.Labels),
+		Labels:    secret.Spec.Labels,
 	}
 }

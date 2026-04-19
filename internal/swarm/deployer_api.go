@@ -116,9 +116,9 @@ func (d *Deployer) buildInitServiceSpecAPI(
 		Annotations: dockerswarm.Annotations{
 			Name: jobName,
 			Labels: map[string]string{
-				"swarmdeploy.io/init-job": "true",
-				"swarmdeploy.io/stack":    spec.StackName,
-				"swarmdeploy.io/service":  spec.ServiceName,
+				"org.swarm-deploy.init-job.name":    jobName,
+				"org.swarm-deploy.init-job.stack":   spec.StackName,
+				"org.swarm-deploy.init-job.service": spec.ServiceName,
 			},
 		},
 		TaskTemplate: dockerswarm.TaskSpec{
