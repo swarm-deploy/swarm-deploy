@@ -36,8 +36,18 @@ func (m *NetworkManager) List(ctx context.Context) ([]Network, error) {
 	return mapped, nil
 }
 
+func (m *NetworkManager) Get(ctx context.Context, name string) (Network, error) {
+	network, err := m.dockerClient.NetworkInspect(ctx, name, dockernetwork.InspectOptions{})
+	if err != nil {
+		return Network{}, fmt.Errorf("inspect network: %w", err)
+	}
+
+	return m.mapNetwork(network), nil
+}
+
 func (*NetworkManager) mapNetwork(network dockernetwork.Summary) Network {
 	return Network{
+		ID:         network.ID,
 		Name:       network.Name,
 		Scope:      network.Scope,
 		Driver:     network.Driver,

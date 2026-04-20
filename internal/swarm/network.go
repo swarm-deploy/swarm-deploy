@@ -2,6 +2,7 @@ package swarm
 
 // Network is a runtime snapshot of Docker network metadata.
 type Network struct {
+	ID string `json:"id"`
 	// Name is a Docker network name.
 	Name string `json:"name"`
 	// Scope describes where network exists (for example: local or swarm).

@@ -15,7 +15,6 @@ import (
 	"github.com/avast/retry-go/v5"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/filters"
-	dockernetwork "github.com/docker/docker/api/types/network"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
 )
@@ -265,7 +264,7 @@ func (r *InitJobRunner) resolveNetworkTarget(ctx context.Context, stackName, net
 	}
 
 	for _, candidate := range uniqueStrings(candidates) {
-		netResource, err := r.dockerClient.NetworkInspect(ctx, candidate, dockernetwork.InspectOptions{})
+		netResource, err := r.swarmService.Networks.Get(ctx, candidate)
 		if err == nil {
 			return netResource.ID
 		}
