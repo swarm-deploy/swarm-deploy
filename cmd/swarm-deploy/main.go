@@ -101,6 +101,7 @@ func main() {
 		swarmService.BinaryRunner,
 		dockerClient,
 		swarmService,
+		metricsGroup.Deploys,
 	)
 
 	nodeStore, err := swarmnode.NewNodeStore(filepath.Join(cfg.Spec.DataDir, "nodes.json"))
@@ -318,6 +319,7 @@ func buildEventDispatcher(
 				notifiers.TelegramOptions{
 					ChatThreadID:  tg.ChatThreadID,
 					Message:       tg.Message,
+					Retries:       cfg.Spec.Notifications.Messengers.Telegram.Retries,
 					SOCKS5Address: cfg.Spec.Notifications.Messengers.Telegram.Proxy.SOCKS5.Address.Value,
 				},
 			)

@@ -2,7 +2,6 @@ package deployer
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -13,52 +12,10 @@ import (
 
 const secretOrConfigFileMode = 0o444
 
-func (d *Deployer) runInitJobAPI(ctx context.Context, spec InitJobSpec) error {
-	if spec.Job.Image == "" {
-		return errors.New("init job image is required")
-	}
-
-	timeout := d.initJobTimeout
-	if spec.Job.Timeout > 0 {
-		timeout = spec.Job.Timeout
-	}
-	jobCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	jobName := buildInitJobName(spec.StackName, spec.ServiceName, spec.Job.Name)
-
-	serviceSpec, err := d.buildInitServiceSpecAPI(jobCtx, spec, jobName)
-	if err != nil {
-		return err
-	}
-
-	serviceCreateOptions, err := d.buildInitServiceCreateOptions(spec.Job.Image)
-	if err != nil {
-		return fmt.Errorf("build init job service create options: %w", err)
-	}
-
-	serviceCreate, err := d.dockerClient.ServiceCreate(jobCtx, serviceSpec, serviceCreateOptions)
-	if err != nil {
-		return fmt.Errorf("create init job service %s: %w", jobName, err)
-	}
-
-	serviceID := serviceCreate.ID
-	defer func() {
-		_ = d.dockerClient.ServiceRemove(context.Background(), serviceID)
-	}()
-
-	err = d.initJobRunner.WaitJob(jobCtx, serviceID, jobName)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (d *Deployer) buildInitServiceSpecAPI(
+func (r *InitJobRunner) buildInitServiceSpec(
 	ctx context.Context,
 	spec InitJobSpec,
-	jobName string,
+	serviceName string,
 ) (dockerswarm.ServiceSpec, error) {
 	containerSpec := &dockerswarm.ContainerSpec{
 		Image:   spec.Job.Image,
@@ -80,7 +37,7 @@ func (d *Deployer) buildInitServiceSpecAPI(
 
 	networkAttachments := make([]dockerswarm.NetworkAttachmentConfig, 0, len(networks))
 	for _, network := range networks {
-		target := d.resolveNetworkTargetAPI(ctx, spec.StackName, network)
+		target := r.resolveNetworkTarget(ctx, spec.StackName, network)
 		if target == "" {
 			continue
 		}
@@ -90,7 +47,7 @@ func (d *Deployer) buildInitServiceSpecAPI(
 	secrets := mergeObjectRefs(spec.ServiceSecrets, spec.Job.Secrets)
 	containerSpec.Secrets = make([]*dockerswarm.SecretReference, 0, len(secrets))
 	for _, secret := range secrets {
-		ref, err := d.secretResolver.ResolveReference(ctx, secret.Source, secret.Target)
+		ref, err := r.secretResolver.ResolveReference(ctx, secret.Source, secret.Target)
 		if err != nil {
 			return dockerswarm.ServiceSpec{}, err
 		}
@@ -100,7 +57,7 @@ func (d *Deployer) buildInitServiceSpecAPI(
 	configs := mergeObjectRefs(spec.ServiceConfigs, spec.Job.Configs)
 	containerSpec.Configs = make([]*dockerswarm.ConfigReference, 0, len(configs))
 	for _, cfg := range configs {
-		ref, ok, err := d.resolveConfigReferenceAPI(ctx, spec.StackName, cfg.Source, cfg.Target)
+		ref, ok, err := r.resolveConfigReference(ctx, spec.StackName, cfg.Source, cfg.Target)
 		if err != nil {
 			return dockerswarm.ServiceSpec{}, err
 		}
@@ -114,9 +71,9 @@ func (d *Deployer) buildInitServiceSpecAPI(
 
 	return dockerswarm.ServiceSpec{
 		Annotations: dockerswarm.Annotations{
-			Name: jobName,
+			Name: serviceName,
 			Labels: map[string]string{
-				"org.swarm-deploy.init-job.name":    jobName,
+				"org.swarm-deploy.init-job.name":    serviceName,
 				"org.swarm-deploy.init-job.stack":   spec.StackName,
 				"org.swarm-deploy.init-job.service": spec.ServiceName,
 			},
@@ -136,7 +93,7 @@ func (d *Deployer) buildInitServiceSpecAPI(
 	}, nil
 }
 
-func (d *Deployer) resolveNetworkTargetAPI(ctx context.Context, stackName, network string) string {
+func (r *InitJobRunner) resolveNetworkTarget(ctx context.Context, stackName, network string) string {
 	candidates := []string{network}
 	if !strings.HasPrefix(network, stackName+"_") {
 		candidates = append(candidates, stackName+"_"+network)
@@ -146,7 +103,7 @@ func (d *Deployer) resolveNetworkTargetAPI(ctx context.Context, stackName, netwo
 	}
 
 	for _, candidate := range uniqueStrings(candidates) {
-		netResource, err := d.dockerClient.NetworkInspect(ctx, candidate, dockernetwork.InspectOptions{})
+		netResource, err := r.dockerClient.NetworkInspect(ctx, candidate, dockernetwork.InspectOptions{})
 		if err == nil {
 			return netResource.ID
 		}
@@ -159,7 +116,7 @@ func (d *Deployer) resolveNetworkTargetAPI(ctx context.Context, stackName, netwo
 	return network
 }
 
-func (d *Deployer) resolveConfigReferenceAPI(
+func (r *InitJobRunner) resolveConfigReference(
 	ctx context.Context,
 	stackName, source, target string,
 ) (*dockerswarm.ConfigReference, bool, error) {
@@ -169,7 +126,7 @@ func (d *Deployer) resolveConfigReferenceAPI(
 	}
 
 	for _, candidate := range uniqueStrings(candidates) {
-		cfg, _, err := d.dockerClient.ConfigInspectWithRaw(ctx, candidate)
+		cfg, _, err := r.dockerClient.ConfigInspectWithRaw(ctx, candidate)
 		if err == nil {
 			ref := &dockerswarm.ConfigReference{
 				ConfigID:   cfg.ID,

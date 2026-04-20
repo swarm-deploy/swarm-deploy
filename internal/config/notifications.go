@@ -7,6 +7,8 @@ import (
 	"github.com/artarts36/swarm-deploy/internal/event/events"
 )
 
+const defaultNotificationTelegramRetries = 3
+
 type NotificationSpec struct {
 	// Messengers contains global messenger settings used by notification channels.
 	Messengers NotificationMessengersSpec `yaml:"messengers"`
@@ -25,6 +27,8 @@ type NotificationMessengersSpec struct {
 }
 
 type NotificationTelegramSpec struct {
+	// Retries is a number of attempts to deliver Telegram notification.
+	Retries uint `yaml:"retries"`
 	// Proxy contains global proxy settings for Telegram notifications.
 	Proxy NotificationTelegramProxySpec `yaml:"proxy"`
 }
@@ -61,6 +65,12 @@ type CustomChannel struct {
 	Method string `yaml:"method"`
 	// Header contains additional HTTP headers for webhook delivery.
 	Header map[string]string `yaml:"header"`
+}
+
+func (c *NotificationSpec) applyDefaults() {
+	if c.Messengers.Telegram.Retries <= 0 {
+		c.Messengers.Telegram.Retries = defaultNotificationTelegramRetries
+	}
 }
 
 func (c *NotificationSpec) validate() []error {

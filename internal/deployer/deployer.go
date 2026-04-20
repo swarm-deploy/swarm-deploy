@@ -3,12 +3,9 @@ package deployer
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/artarts36/swarm-deploy/internal/compose"
-	"github.com/artarts36/swarm-deploy/internal/deployer/initjob"
-	"github.com/artarts36/swarm-deploy/internal/registry"
 	"github.com/artarts36/swarm-deploy/internal/swarm"
 	"github.com/docker/docker/client"
 )
@@ -17,23 +14,29 @@ const deployArgsExtraCount = 3
 
 type Deployer struct {
 	stackDeployArgs []string
-	initJobPoll     time.Duration
-	initJobTimeout  time.Duration
 	runner          Runner
-	dockerClient    *client.Client
-	authManager     registry.AuthManager
-	secretResolver  *swarm.SecretManager
 
-	initJobRunner *initjob.Runner
+	initJobRunner *InitJobRunner
+}
+
+type InitJobMetrics interface {
+	// RecordInitJobRun records one init job run by stack and service.
+	RecordInitJobRun(stack, service string)
 }
 
 type InitJobSpec struct {
-	StackName      string
-	ServiceName    string
+	// StackName is a stack where init job service is created.
+	StackName string
+	// ServiceName is a parent service name that owns init job declaration.
+	ServiceName string
+	// DefaultNetwork is a fallback list of networks from parent service.
 	DefaultNetwork []string
+	// ServiceSecrets is a list of parent service secret references.
 	ServiceSecrets []compose.ObjectRef
+	// ServiceConfigs is a list of parent service config references.
 	ServiceConfigs []compose.ObjectRef
-	Job            compose.InitJob
+	// Job is a source compose init job specification.
+	Job compose.InitJob
 }
 
 func NewDeployer(
@@ -43,16 +46,19 @@ func NewDeployer(
 	runner Runner,
 	dockerClient *client.Client,
 	swarmService *swarm.Swarm,
+	initJobMetrics InitJobMetrics,
 ) *Deployer {
 	return &Deployer{
 		stackDeployArgs: stackDeployArgs,
-		initJobPoll:     initJobPoll,
-		initJobTimeout:  initJobTimeout,
 		runner:          runner,
-		dockerClient:    dockerClient,
-		authManager:     registry.NewAuthManager(),
-		secretResolver:  swarmService.Secrets,
-		initJobRunner:   initjob.NewRunner(dockerClient, initJobPoll),
+		initJobRunner: NewInitJobRunner(
+			dockerClient,
+			swarmService.Services,
+			swarmService.Secrets,
+			initJobPoll,
+			initJobTimeout,
+			initJobMetrics,
+		),
 	}
 }
 
@@ -68,73 +74,5 @@ func (d *Deployer) DeployStack(ctx context.Context, stackName, composePath strin
 }
 
 func (d *Deployer) RunInitJob(ctx context.Context, spec InitJobSpec) error {
-	return d.runInitJobAPI(ctx, spec)
-}
-
-func buildInitJobName(_, _, jobName string) string {
-	return fmt.Sprintf("%s-%d", sanitizeForName(jobName), time.Now().UnixNano())
-}
-
-func sanitizeForName(v string) string {
-	if v == "" {
-		return "job"
-	}
-	var out strings.Builder
-	for _, r := range strings.ToLower(v) {
-		switch {
-		case r >= 'a' && r <= 'z':
-			out.WriteRune(r)
-		case r >= '0' && r <= '9':
-			out.WriteRune(r)
-		default:
-			out.WriteRune('-')
-		}
-	}
-	result := strings.Trim(out.String(), "-")
-	if result == "" {
-		return "job"
-	}
-	return result
-}
-
-func uniqueStrings(values []string) []string {
-	seen := map[string]struct{}{}
-	out := make([]string, 0, len(values))
-	for _, v := range values {
-		v = strings.TrimSpace(v)
-		if v == "" {
-			continue
-		}
-		if _, ok := seen[v]; ok {
-			continue
-		}
-		seen[v] = struct{}{}
-		out = append(out, v)
-	}
-	return out
-}
-
-func mergeObjectRefs(a, b []compose.ObjectRef) []compose.ObjectRef {
-	seen := map[string]struct{}{}
-	out := make([]compose.ObjectRef, 0, len(a)+len(b))
-
-	appendOne := func(ref compose.ObjectRef) {
-		key := ref.Source + "|" + ref.Target
-		if ref.Source == "" {
-			return
-		}
-		if _, ok := seen[key]; ok {
-			return
-		}
-		seen[key] = struct{}{}
-		out = append(out, ref)
-	}
-
-	for _, ref := range a {
-		appendOne(ref)
-	}
-	for _, ref := range b {
-		appendOne(ref)
-	}
-	return out
+	return d.initJobRunner.Run(ctx, spec)
 }

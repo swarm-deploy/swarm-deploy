@@ -17,10 +17,10 @@ func TestBuildInitServiceCreateOptionsUsesAuthFromDockerAuthConfigEnv(t *testing
 	t.Setenv("DOCKER_AUTH_CONFIG", `{"auths":{"wmb-prod.cr.cloud.ru":{"auth":"`+rawAuth+`"}}}`)
 	t.Setenv("DOCKER_CONFIG", t.TempDir())
 
-	deployer := &Deployer{
+	runner := &InitJobRunner{
 		authManager: registry.NewAuthManager(),
 	}
-	options, err := deployer.buildInitServiceCreateOptions(privateImage)
+	options, err := runner.buildInitServiceCreateOptions(privateImage)
 	require.NoError(t, err, "build service create options")
 	require.NotEmpty(t, options.EncodedRegistryAuth, "registry auth must be set for private registry")
 	assert.True(t, options.QueryRegistry, "query registry must be enabled when registry auth is provided")
@@ -36,10 +36,10 @@ func TestBuildInitServiceCreateOptionsReturnsEmptyWithoutAuthConfig(t *testing.T
 	t.Setenv("DOCKER_AUTH_CONFIG", "")
 	t.Setenv("DOCKER_CONFIG", t.TempDir())
 
-	deployer := &Deployer{
+	runner := &InitJobRunner{
 		authManager: registry.NewAuthManager(),
 	}
-	options, err := deployer.buildInitServiceCreateOptions(privateImage)
+	options, err := runner.buildInitServiceCreateOptions(privateImage)
 	require.NoError(t, err, "build service create options")
 	assert.Empty(t, options.EncodedRegistryAuth, "registry auth must be empty without auth config")
 	assert.False(t, options.QueryRegistry, "query registry should be disabled without auth")

@@ -1,10 +1,13 @@
-package initjob
+package deployer
 
 import "fmt"
 
 type JobFailedError struct {
-	ID     string
-	Name   string
+	// ID is a failed Docker task identifier.
+	ID string
+	// Name is an init job service name.
+	Name string
+	// Reason is a failure reason from task status.
 	Reason string
 	logs   []string
 }

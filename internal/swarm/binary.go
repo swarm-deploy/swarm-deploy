@@ -19,7 +19,7 @@ func newBinaryRunner(command string) *BinaryRunner {
 }
 
 func (r *BinaryRunner) Run(ctx context.Context, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, r.command, args...)
+	cmd := exec.CommandContext(ctx, r.command, args...) //nolint:gosec // command got from configuration
 	var out bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out

@@ -13,6 +13,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/avast/retry-go/v5"
 	"golang.org/x/net/proxy"
 )
 
@@ -27,9 +28,15 @@ error: {{.error}}{{end}}`
 var telegramBotSendMessagePathPattern = regexp.MustCompile(`/bot[^/\s]+/sendMessage`)
 
 type TelegramOptions struct {
-	ChatThreadID  int64
-	Message       string
-	APIBaseURL    string
+	// ChatThreadID is a thread/topic identifier in Telegram chat.
+	ChatThreadID int64
+	// Message is a Go template used for notification body.
+	Message string
+	// APIBaseURL is a base URL for Telegram Bot API.
+	APIBaseURL string
+	// Retries is a number of send attempts for Telegram notification.
+	Retries uint
+	// SOCKS5Address is an optional SOCKS5 proxy address in host:port format.
 	SOCKS5Address string
 }
 
@@ -40,8 +47,11 @@ type TelegramNotifier struct {
 	chatThreadID int64
 	apiBaseURL   string
 	messageTmpl  *template.Template
+	retries      uint
 	client       *http.Client
 }
+
+const defaultTelegramRetries = 3
 
 func NewTelegramNotifier(name, token, chatID string, options TelegramOptions) (*TelegramNotifier, error) {
 	templateText := strings.TrimSpace(options.Message)
@@ -59,6 +69,11 @@ func NewTelegramNotifier(name, token, chatID string, options TelegramOptions) (*
 		apiBaseURL = "https://api.telegram.org"
 	}
 
+	retries := options.Retries
+	if retries <= 0 {
+		retries = defaultTelegramRetries
+	}
+
 	client, err := buildTelegramHTTPClient(options.SOCKS5Address)
 	if err != nil {
 		return nil, fmt.Errorf("build http client: %w", err)
@@ -71,6 +86,7 @@ func NewTelegramNotifier(name, token, chatID string, options TelegramOptions) (*
 		chatThreadID: options.ChatThreadID,
 		apiBaseURL:   strings.TrimRight(apiBaseURL, "/"),
 		messageTmpl:  tmpl,
+		retries:      retries,
 		client:       client,
 	}, nil
 }
@@ -105,6 +121,21 @@ func (n *TelegramNotifier) Notify(ctx context.Context, event Message) error {
 		return fmt.Errorf("marshal request: %w", err)
 	}
 
+	err = retry.New(
+		retry.Attempts(n.retries),
+		retry.Context(ctx),
+		retry.LastErrorOnly(true),
+	).Do(func() error {
+		return n.sendRequest(ctx, body)
+	})
+	if err != nil {
+		return fmt.Errorf("send request after %d attempts: %w", n.retries, err)
+	}
+
+	return nil
+}
+
+func (n *TelegramNotifier) sendRequest(ctx context.Context, body []byte) error {
 	req, err := http.NewRequestWithContext(
 		ctx,
 		http.MethodPost,

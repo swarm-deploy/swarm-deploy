@@ -191,6 +191,7 @@ func (c *Config) applyDefaults(configDir string) error {
 	c.Spec.DataDir = filepath.Join(configDir, ".swarm-deploy")
 	c.applyGitAndSyncDefaults()
 	c.applyWebAndHealthDefaults()
+	c.Spec.Notifications.applyDefaults()
 	c.applyAssistantDefaults()
 	c.applySwarmDefaults()
 	c.applySecretRotationDefaults()
