@@ -12,7 +12,10 @@ import (
 	"github.com/artarts36/swarm-deploy/internal/event/dispatcher"
 	"github.com/artarts36/swarm-deploy/internal/metrics"
 	"github.com/artarts36/swarm-deploy/internal/swarm"
+	"github.com/prometheus/client_golang/prometheus"
 )
+
+const selfMetricsNamePrefix = "swarm_deploy_"
 
 // Executor provides direct-call MCP tools without running external server.
 type Executor struct {
@@ -52,6 +55,7 @@ func NewExecutor(
 		mcpTools.NewListGitCommits(gitRepository),
 		mcpTools.NewGitCommitDiff(gitRepository, stacks, commitDiffer),
 		mcpTools.NewDate(),
+		mcpTools.NewSelfMetricsList(prometheus.DefaultGatherer, selfMetricsNamePrefix),
 		mcpTools.NewReportPromptInjection(eventDispatcher),
 	}
 

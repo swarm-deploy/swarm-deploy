@@ -61,6 +61,7 @@ The endpoint supports start and poll with the same route.
 - `registry_image_version_get` - resolves актуальный тег и digest Docker-образа в registry (Docker Hub и совместимые)
   - registry is selected automatically by tool logic
 - `git_commit_list` - returns latest git commits from repository history (`limit` optional, default 10)
+- `self_metrics_list` - returns structured snapshot of internal Prometheus metrics (`swarm_deploy_*`)
 
 Example use-case:
 - Question: `Я использую актуальную версию этого сервиса?`
