@@ -2,7 +2,7 @@
 
 GitOps controller for Docker Swarm with an ArgoCD-inspired, but Swarm-native, configuration style.
 
-[Wizard for easy configuration](https://artarts36.github.io/swarm-deploy/configurator/)
+[Wizard for easy configuration](https://swarm-deploy.github.io/swarm-deploy/docs/configurator/)
 
 ## Capabilities
 
