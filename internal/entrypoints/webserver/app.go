@@ -31,9 +31,11 @@ type Application struct {
 	server *http.Server
 }
 
+const indexHtml = "index.html"
+
 func buildSPAFallbackHandler(uiFS fs.FS) http.Handler {
 	fileServer := http.FileServer(http.FS(uiFS))
-	indexBytes, indexErr := fs.ReadFile(uiFS, "index.html")
+	indexBytes, indexErr := fs.ReadFile(uiFS, indexHtml)
 	if indexErr != nil {
 		panic(fmt.Errorf("read embedded index.html: %w", indexErr))
 	}
@@ -51,15 +53,15 @@ func buildSPAFallbackHandler(uiFS fs.FS) http.Handler {
 
 		cleanPath := path.Clean(strings.TrimPrefix(r.URL.Path, "/"))
 		if cleanPath == "." || cleanPath == "/" || cleanPath == "" {
-			cleanPath = "index.html"
+			cleanPath = indexHtml
 		}
 
-		if cleanPath == "index.html" {
+		if cleanPath == indexHtml {
 			serveIndex(w, r)
 			return
 		}
 
-		if cleanPath != "index.html" {
+		if cleanPath != indexHtml {
 			file, err := uiFS.Open(cleanPath)
 			if err == nil {
 				defer file.Close()

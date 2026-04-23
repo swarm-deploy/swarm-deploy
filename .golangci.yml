@@ -15,7 +15,6 @@ linters:
     - forbidigo
     - funlen
     - gocheckcompilerdirectives
-    - gochecknoinits
     - gocognit
     - goconst
     - gocritic

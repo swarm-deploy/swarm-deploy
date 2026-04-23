@@ -7,7 +7,10 @@ import (
 	"github.com/opencontainers/go-digest"
 )
 
-const digestPrefixLen = 12
+const (
+	digestPrefixLen = 12
+	latestVersion   = "latest"
+)
 
 // Version returns a display version for an OCI/Docker image reference (tag or short digest).
 func Version(image string) string {
@@ -34,7 +37,7 @@ func Version(image string) string {
 		return tagged.Tag()
 	}
 
-	return "latest"
+	return latestVersion
 }
 
 func shortDigest(d digest.Digest) string {
@@ -56,11 +59,11 @@ func versionFallback(s string) string {
 
 	colon := strings.LastIndex(s, ":")
 	if colon < 0 || colon == len(s)-1 {
-		return "latest"
+		return latestVersion
 	}
 	candidate := s[colon+1:]
 	if strings.ContainsAny(candidate, "/") {
-		return "latest"
+		return latestVersion
 	}
 	return candidate
 }

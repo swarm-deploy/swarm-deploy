@@ -19,7 +19,7 @@ type fakeServiceStatusInspector struct {
 	err    error
 }
 
-func (f fakeServiceStatusInspector) GetStatus(_ context.Context, _ swarm.ServiceReference) (swarm.ServiceStatus, error) {
+func (f fakeServiceStatusInspector) GetStatus(context.Context, swarm.ServiceReference) (swarm.ServiceStatus, error) {
 	if f.err != nil {
 		return swarm.ServiceStatus{}, f.err
 	}
