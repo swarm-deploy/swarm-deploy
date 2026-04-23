@@ -74,6 +74,32 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NodesResponse'
+  /api/v1/secrets:
+    get:
+      operationId: listSecrets
+      responses:
+        '200':
+          description: Current Docker Swarm secrets snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecretsResponse'
+  /api/v1/secrets/{name}:
+    get:
+      operationId: getSecretByName
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Detailed secret metadata by name.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecretDetailsResponse'
   /api/v1/stacks/{stack}/services/{service}/status:
     get:
       operationId: getServiceStatus
@@ -95,6 +121,63 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ServiceStatusResponse'
+  /api/v1/stacks/{stack}/services/{service}/deployments:
+    get:
+      operationId: listServiceDeployments
+      parameters:
+        - in: path
+          name: stack
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: service
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 100
+            default: 5
+      responses:
+        '200':
+          description: Latest deployments for a stack service
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceDeploymentsResponse'
+  /api/v1/search:
+    get:
+      operationId: search
+      parameters:
+        - in: query
+          name: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        '200':
+          description: Search results for services, secrets, and stacks.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
+  /api/v1/users/me:
+    get:
+      operationId: getCurrentUser
+      responses:
+        '200':
+          description: Current authenticated user profile.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CurrentUserResponse'
 components:
   schemas:
     AssistantChatRequest:
@@ -169,7 +252,7 @@ components:
             $ref: '#/components/schemas/ServiceInfo'
     ServiceInfo:
       type: object
-      required: [name, stack, type, image]
+      required: [name, stack, type, type_title, image, image_version]
       properties:
         name:
           type: string
@@ -180,8 +263,14 @@ components:
         type:
           type: string
           enum: [application, monitoring, delivery, reverseProxy, database]
+        type_title:
+          type: string
+          description: Human-readable title for the service type enum.
         image:
           type: string
+        image_version:
+          type: string
+          description: Tag or short digest string derived from the image reference.
         repository_url:
           type: string
         web_routes:
@@ -223,6 +312,64 @@ components:
         engine_version:
           type: string
         addr:
+          type: string
+    SecretsResponse:
+      type: object
+      required: [secrets]
+      properties:
+        secrets:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecretInfo'
+    SecretInfo:
+      type: object
+      required: [id, name, version_id, created_at]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        version_id:
+          type: integer
+          format: int64
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+        external:
+          $ref: '#/components/schemas/SecretExternalInfo'
+    SecretDetailsResponse:
+      type: object
+      required: [id, name, version_id, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        version_id:
+          type: integer
+          format: int64
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        driver:
+          type: string
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+        external:
+          $ref: '#/components/schemas/SecretExternalInfo'
+    SecretExternalInfo:
+      type: object
+      properties:
+        path:
+          type: string
+        version_id:
           type: string
     SyncInfo:
       type: object
@@ -282,9 +429,7 @@ components:
           format: int64
           minimum: 0
         labels:
-          type: object
-          additionalProperties:
-            type: string
+          $ref: '#/components/schemas/ServiceSpecLabelsResponse'
         secrets:
           type: array
           items:
@@ -293,6 +438,17 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ServiceSpecNetworkResponse'
+    ServiceSpecLabelsResponse:
+      type: object
+      properties:
+        docker:
+          $ref: '#/components/schemas/ServiceSpecLabelGroupResponse'
+        custom:
+          $ref: '#/components/schemas/ServiceSpecLabelGroupResponse'
+    ServiceSpecLabelGroupResponse:
+      type: object
+      additionalProperties:
+        type: string
     ServiceSpecSecretResponse:
       type: object
       required: [secret_name]
@@ -313,9 +469,37 @@ components:
           type: array
           items:
             type: string
+    ServiceDeploymentStatus:
+      type: string
+      enum: [success, failed]
+    ServiceDeploymentResponse:
+      type: object
+      required: [created_at, status, image, image_version]
+      properties:
+        created_at:
+          type: string
+          format: date-time
+        status:
+          $ref: '#/components/schemas/ServiceDeploymentStatus'
+        image:
+          type: string
+        image_version:
+          type: string
+        message:
+          type: string
+        commit:
+          type: string
+    ServiceDeploymentsResponse:
+      type: object
+      required: [deployments]
+      properties:
+        deployments:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceDeploymentResponse'
     StackView:
       type: object
-      required: [name, compose_file, last_status, services]
+      required: [name, compose_file, last_status]
       properties:
         name:
           type: string
@@ -332,10 +516,6 @@ components:
           format: date-time
         source_digest:
           type: string
-        services:
-          type: array
-          items:
-            $ref: '#/components/schemas/ServiceView'
     StacksResponse:
       type: object
       required: [stacks, sync]
@@ -346,3 +526,35 @@ components:
             $ref: '#/components/schemas/StackView'
         sync:
           $ref: '#/components/schemas/SyncInfo'
+    SearchResponse:
+      type: object
+      required: [results]
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchResult'
+    SearchResult:
+      type: object
+      required: [kind, match, label]
+      properties:
+        kind:
+          type: string
+          enum: [service, secret, stack]
+        match:
+          type: string
+          enum: [service_name, service_web_route, secret_name, stack_name]
+        label:
+          type: string
+        stack:
+          type: string
+        service:
+          type: string
+        secret_name:
+          type: string
+    CurrentUserResponse:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string

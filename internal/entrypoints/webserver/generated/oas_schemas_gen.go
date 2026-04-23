@@ -188,6 +188,21 @@ func (s *AssistantChatResponseStatus) UnmarshalText(data []byte) error {
 	}
 }
 
+// Ref: #/components/schemas/CurrentUserResponse
+type CurrentUserResponse struct {
+	Name string `json:"name"`
+}
+
+// GetName returns the value of Name.
+func (s *CurrentUserResponse) GetName() string {
+	return s.Name
+}
+
+// SetName sets the value of Name.
+func (s *CurrentUserResponse) SetName(val string) {
+	s.Name = val
+}
+
 // Ref: #/components/schemas/EventHistoryItem
 type EventHistoryItem struct {
 	Type      string                     `json:"type"`
@@ -496,38 +511,38 @@ func (o OptInt32) Or(d int32) int32 {
 	return d
 }
 
-// NewOptServiceSpecResponseLabels returns new OptServiceSpecResponseLabels with value set to v.
-func NewOptServiceSpecResponseLabels(v ServiceSpecResponseLabels) OptServiceSpecResponseLabels {
-	return OptServiceSpecResponseLabels{
+// NewOptSecretDetailsResponseLabels returns new OptSecretDetailsResponseLabels with value set to v.
+func NewOptSecretDetailsResponseLabels(v SecretDetailsResponseLabels) OptSecretDetailsResponseLabels {
+	return OptSecretDetailsResponseLabels{
 		Value: v,
 		Set:   true,
 	}
 }
 
-// OptServiceSpecResponseLabels is optional ServiceSpecResponseLabels.
-type OptServiceSpecResponseLabels struct {
-	Value ServiceSpecResponseLabels
+// OptSecretDetailsResponseLabels is optional SecretDetailsResponseLabels.
+type OptSecretDetailsResponseLabels struct {
+	Value SecretDetailsResponseLabels
 	Set   bool
 }
 
-// IsSet returns true if OptServiceSpecResponseLabels was set.
-func (o OptServiceSpecResponseLabels) IsSet() bool { return o.Set }
+// IsSet returns true if OptSecretDetailsResponseLabels was set.
+func (o OptSecretDetailsResponseLabels) IsSet() bool { return o.Set }
 
 // Reset unsets value.
-func (o *OptServiceSpecResponseLabels) Reset() {
-	var v ServiceSpecResponseLabels
+func (o *OptSecretDetailsResponseLabels) Reset() {
+	var v SecretDetailsResponseLabels
 	o.Value = v
 	o.Set = false
 }
 
 // SetTo sets value to v.
-func (o *OptServiceSpecResponseLabels) SetTo(v ServiceSpecResponseLabels) {
+func (o *OptSecretDetailsResponseLabels) SetTo(v SecretDetailsResponseLabels) {
 	o.Set = true
 	o.Value = v
 }
 
 // Get returns value and boolean that denotes whether value was set.
-func (o OptServiceSpecResponseLabels) Get() (v ServiceSpecResponseLabels, ok bool) {
+func (o OptSecretDetailsResponseLabels) Get() (v SecretDetailsResponseLabels, ok bool) {
 	if !o.Set {
 		return v, false
 	}
@@ -535,7 +550,145 @@ func (o OptServiceSpecResponseLabels) Get() (v ServiceSpecResponseLabels, ok boo
 }
 
 // Or returns value if set, or given parameter if does not.
-func (o OptServiceSpecResponseLabels) Or(d ServiceSpecResponseLabels) ServiceSpecResponseLabels {
+func (o OptSecretDetailsResponseLabels) Or(d SecretDetailsResponseLabels) SecretDetailsResponseLabels {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptSecretExternalInfo returns new OptSecretExternalInfo with value set to v.
+func NewOptSecretExternalInfo(v SecretExternalInfo) OptSecretExternalInfo {
+	return OptSecretExternalInfo{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptSecretExternalInfo is optional SecretExternalInfo.
+type OptSecretExternalInfo struct {
+	Value SecretExternalInfo
+	Set   bool
+}
+
+// IsSet returns true if OptSecretExternalInfo was set.
+func (o OptSecretExternalInfo) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptSecretExternalInfo) Reset() {
+	var v SecretExternalInfo
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptSecretExternalInfo) SetTo(v SecretExternalInfo) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptSecretExternalInfo) Get() (v SecretExternalInfo, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptSecretExternalInfo) Or(d SecretExternalInfo) SecretExternalInfo {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptServiceSpecLabelGroupResponse returns new OptServiceSpecLabelGroupResponse with value set to v.
+func NewOptServiceSpecLabelGroupResponse(v ServiceSpecLabelGroupResponse) OptServiceSpecLabelGroupResponse {
+	return OptServiceSpecLabelGroupResponse{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptServiceSpecLabelGroupResponse is optional ServiceSpecLabelGroupResponse.
+type OptServiceSpecLabelGroupResponse struct {
+	Value ServiceSpecLabelGroupResponse
+	Set   bool
+}
+
+// IsSet returns true if OptServiceSpecLabelGroupResponse was set.
+func (o OptServiceSpecLabelGroupResponse) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptServiceSpecLabelGroupResponse) Reset() {
+	var v ServiceSpecLabelGroupResponse
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptServiceSpecLabelGroupResponse) SetTo(v ServiceSpecLabelGroupResponse) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptServiceSpecLabelGroupResponse) Get() (v ServiceSpecLabelGroupResponse, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptServiceSpecLabelGroupResponse) Or(d ServiceSpecLabelGroupResponse) ServiceSpecLabelGroupResponse {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptServiceSpecLabelsResponse returns new OptServiceSpecLabelsResponse with value set to v.
+func NewOptServiceSpecLabelsResponse(v ServiceSpecLabelsResponse) OptServiceSpecLabelsResponse {
+	return OptServiceSpecLabelsResponse{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptServiceSpecLabelsResponse is optional ServiceSpecLabelsResponse.
+type OptServiceSpecLabelsResponse struct {
+	Value ServiceSpecLabelsResponse
+	Set   bool
+}
+
+// IsSet returns true if OptServiceSpecLabelsResponse was set.
+func (o OptServiceSpecLabelsResponse) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptServiceSpecLabelsResponse) Reset() {
+	var v ServiceSpecLabelsResponse
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptServiceSpecLabelsResponse) SetTo(v ServiceSpecLabelsResponse) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptServiceSpecLabelsResponse) Get() (v ServiceSpecLabelsResponse, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptServiceSpecLabelsResponse) Or(d ServiceSpecLabelsResponse) ServiceSpecLabelsResponse {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -603,15 +756,537 @@ func (s *QueueResponse) SetQueued(val bool) {
 	s.Queued = val
 }
 
+// Ref: #/components/schemas/SearchResponse
+type SearchResponse struct {
+	Results []SearchResult `json:"results"`
+}
+
+// GetResults returns the value of Results.
+func (s *SearchResponse) GetResults() []SearchResult {
+	return s.Results
+}
+
+// SetResults sets the value of Results.
+func (s *SearchResponse) SetResults(val []SearchResult) {
+	s.Results = val
+}
+
+// Ref: #/components/schemas/SearchResult
+type SearchResult struct {
+	Kind       SearchResultKind  `json:"kind"`
+	Match      SearchResultMatch `json:"match"`
+	Label      string            `json:"label"`
+	Stack      OptString         `json:"stack"`
+	Service    OptString         `json:"service"`
+	SecretName OptString         `json:"secret_name"`
+}
+
+// GetKind returns the value of Kind.
+func (s *SearchResult) GetKind() SearchResultKind {
+	return s.Kind
+}
+
+// GetMatch returns the value of Match.
+func (s *SearchResult) GetMatch() SearchResultMatch {
+	return s.Match
+}
+
+// GetLabel returns the value of Label.
+func (s *SearchResult) GetLabel() string {
+	return s.Label
+}
+
+// GetStack returns the value of Stack.
+func (s *SearchResult) GetStack() OptString {
+	return s.Stack
+}
+
+// GetService returns the value of Service.
+func (s *SearchResult) GetService() OptString {
+	return s.Service
+}
+
+// GetSecretName returns the value of SecretName.
+func (s *SearchResult) GetSecretName() OptString {
+	return s.SecretName
+}
+
+// SetKind sets the value of Kind.
+func (s *SearchResult) SetKind(val SearchResultKind) {
+	s.Kind = val
+}
+
+// SetMatch sets the value of Match.
+func (s *SearchResult) SetMatch(val SearchResultMatch) {
+	s.Match = val
+}
+
+// SetLabel sets the value of Label.
+func (s *SearchResult) SetLabel(val string) {
+	s.Label = val
+}
+
+// SetStack sets the value of Stack.
+func (s *SearchResult) SetStack(val OptString) {
+	s.Stack = val
+}
+
+// SetService sets the value of Service.
+func (s *SearchResult) SetService(val OptString) {
+	s.Service = val
+}
+
+// SetSecretName sets the value of SecretName.
+func (s *SearchResult) SetSecretName(val OptString) {
+	s.SecretName = val
+}
+
+type SearchResultKind string
+
+const (
+	SearchResultKindService SearchResultKind = "service"
+	SearchResultKindSecret  SearchResultKind = "secret"
+	SearchResultKindStack   SearchResultKind = "stack"
+)
+
+// AllValues returns all SearchResultKind values.
+func (SearchResultKind) AllValues() []SearchResultKind {
+	return []SearchResultKind{
+		SearchResultKindService,
+		SearchResultKindSecret,
+		SearchResultKindStack,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s SearchResultKind) MarshalText() ([]byte, error) {
+	switch s {
+	case SearchResultKindService:
+		return []byte(s), nil
+	case SearchResultKindSecret:
+		return []byte(s), nil
+	case SearchResultKindStack:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *SearchResultKind) UnmarshalText(data []byte) error {
+	switch SearchResultKind(data) {
+	case SearchResultKindService:
+		*s = SearchResultKindService
+		return nil
+	case SearchResultKindSecret:
+		*s = SearchResultKindSecret
+		return nil
+	case SearchResultKindStack:
+		*s = SearchResultKindStack
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+type SearchResultMatch string
+
+const (
+	SearchResultMatchServiceName     SearchResultMatch = "service_name"
+	SearchResultMatchServiceWebRoute SearchResultMatch = "service_web_route"
+	SearchResultMatchSecretName      SearchResultMatch = "secret_name"
+	SearchResultMatchStackName       SearchResultMatch = "stack_name"
+)
+
+// AllValues returns all SearchResultMatch values.
+func (SearchResultMatch) AllValues() []SearchResultMatch {
+	return []SearchResultMatch{
+		SearchResultMatchServiceName,
+		SearchResultMatchServiceWebRoute,
+		SearchResultMatchSecretName,
+		SearchResultMatchStackName,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s SearchResultMatch) MarshalText() ([]byte, error) {
+	switch s {
+	case SearchResultMatchServiceName:
+		return []byte(s), nil
+	case SearchResultMatchServiceWebRoute:
+		return []byte(s), nil
+	case SearchResultMatchSecretName:
+		return []byte(s), nil
+	case SearchResultMatchStackName:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *SearchResultMatch) UnmarshalText(data []byte) error {
+	switch SearchResultMatch(data) {
+	case SearchResultMatchServiceName:
+		*s = SearchResultMatchServiceName
+		return nil
+	case SearchResultMatchServiceWebRoute:
+		*s = SearchResultMatchServiceWebRoute
+		return nil
+	case SearchResultMatchSecretName:
+		*s = SearchResultMatchSecretName
+		return nil
+	case SearchResultMatchStackName:
+		*s = SearchResultMatchStackName
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/SecretDetailsResponse
+type SecretDetailsResponse struct {
+	ID        string                         `json:"id"`
+	Name      string                         `json:"name"`
+	VersionID int64                          `json:"version_id"`
+	CreatedAt time.Time                      `json:"created_at"`
+	UpdatedAt time.Time                      `json:"updated_at"`
+	Driver    OptString                      `json:"driver"`
+	Labels    OptSecretDetailsResponseLabels `json:"labels"`
+	External  OptSecretExternalInfo          `json:"external"`
+}
+
+// GetID returns the value of ID.
+func (s *SecretDetailsResponse) GetID() string {
+	return s.ID
+}
+
+// GetName returns the value of Name.
+func (s *SecretDetailsResponse) GetName() string {
+	return s.Name
+}
+
+// GetVersionID returns the value of VersionID.
+func (s *SecretDetailsResponse) GetVersionID() int64 {
+	return s.VersionID
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *SecretDetailsResponse) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *SecretDetailsResponse) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetDriver returns the value of Driver.
+func (s *SecretDetailsResponse) GetDriver() OptString {
+	return s.Driver
+}
+
+// GetLabels returns the value of Labels.
+func (s *SecretDetailsResponse) GetLabels() OptSecretDetailsResponseLabels {
+	return s.Labels
+}
+
+// GetExternal returns the value of External.
+func (s *SecretDetailsResponse) GetExternal() OptSecretExternalInfo {
+	return s.External
+}
+
+// SetID sets the value of ID.
+func (s *SecretDetailsResponse) SetID(val string) {
+	s.ID = val
+}
+
+// SetName sets the value of Name.
+func (s *SecretDetailsResponse) SetName(val string) {
+	s.Name = val
+}
+
+// SetVersionID sets the value of VersionID.
+func (s *SecretDetailsResponse) SetVersionID(val int64) {
+	s.VersionID = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *SecretDetailsResponse) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *SecretDetailsResponse) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetDriver sets the value of Driver.
+func (s *SecretDetailsResponse) SetDriver(val OptString) {
+	s.Driver = val
+}
+
+// SetLabels sets the value of Labels.
+func (s *SecretDetailsResponse) SetLabels(val OptSecretDetailsResponseLabels) {
+	s.Labels = val
+}
+
+// SetExternal sets the value of External.
+func (s *SecretDetailsResponse) SetExternal(val OptSecretExternalInfo) {
+	s.External = val
+}
+
+type SecretDetailsResponseLabels map[string]string
+
+func (s *SecretDetailsResponseLabels) init() SecretDetailsResponseLabels {
+	m := *s
+	if m == nil {
+		m = map[string]string{}
+		*s = m
+	}
+	return m
+}
+
+// Ref: #/components/schemas/SecretExternalInfo
+type SecretExternalInfo struct {
+	Path      OptString `json:"path"`
+	VersionID OptString `json:"version_id"`
+}
+
+// GetPath returns the value of Path.
+func (s *SecretExternalInfo) GetPath() OptString {
+	return s.Path
+}
+
+// GetVersionID returns the value of VersionID.
+func (s *SecretExternalInfo) GetVersionID() OptString {
+	return s.VersionID
+}
+
+// SetPath sets the value of Path.
+func (s *SecretExternalInfo) SetPath(val OptString) {
+	s.Path = val
+}
+
+// SetVersionID sets the value of VersionID.
+func (s *SecretExternalInfo) SetVersionID(val OptString) {
+	s.VersionID = val
+}
+
+// Ref: #/components/schemas/SecretInfo
+type SecretInfo struct {
+	ID        string                `json:"id"`
+	Name      string                `json:"name"`
+	VersionID int64                 `json:"version_id"`
+	CreatedAt time.Time             `json:"created_at"`
+	External  OptSecretExternalInfo `json:"external"`
+}
+
+// GetID returns the value of ID.
+func (s *SecretInfo) GetID() string {
+	return s.ID
+}
+
+// GetName returns the value of Name.
+func (s *SecretInfo) GetName() string {
+	return s.Name
+}
+
+// GetVersionID returns the value of VersionID.
+func (s *SecretInfo) GetVersionID() int64 {
+	return s.VersionID
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *SecretInfo) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetExternal returns the value of External.
+func (s *SecretInfo) GetExternal() OptSecretExternalInfo {
+	return s.External
+}
+
+// SetID sets the value of ID.
+func (s *SecretInfo) SetID(val string) {
+	s.ID = val
+}
+
+// SetName sets the value of Name.
+func (s *SecretInfo) SetName(val string) {
+	s.Name = val
+}
+
+// SetVersionID sets the value of VersionID.
+func (s *SecretInfo) SetVersionID(val int64) {
+	s.VersionID = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *SecretInfo) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetExternal sets the value of External.
+func (s *SecretInfo) SetExternal(val OptSecretExternalInfo) {
+	s.External = val
+}
+
+// Ref: #/components/schemas/SecretsResponse
+type SecretsResponse struct {
+	Secrets []SecretInfo `json:"secrets"`
+}
+
+// GetSecrets returns the value of Secrets.
+func (s *SecretsResponse) GetSecrets() []SecretInfo {
+	return s.Secrets
+}
+
+// SetSecrets sets the value of Secrets.
+func (s *SecretsResponse) SetSecrets(val []SecretInfo) {
+	s.Secrets = val
+}
+
+// Ref: #/components/schemas/ServiceDeploymentResponse
+type ServiceDeploymentResponse struct {
+	CreatedAt    time.Time               `json:"created_at"`
+	Status       ServiceDeploymentStatus `json:"status"`
+	Image        string                  `json:"image"`
+	ImageVersion string                  `json:"image_version"`
+	Message      OptString               `json:"message"`
+	Commit       OptString               `json:"commit"`
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *ServiceDeploymentResponse) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetStatus returns the value of Status.
+func (s *ServiceDeploymentResponse) GetStatus() ServiceDeploymentStatus {
+	return s.Status
+}
+
+// GetImage returns the value of Image.
+func (s *ServiceDeploymentResponse) GetImage() string {
+	return s.Image
+}
+
+// GetImageVersion returns the value of ImageVersion.
+func (s *ServiceDeploymentResponse) GetImageVersion() string {
+	return s.ImageVersion
+}
+
+// GetMessage returns the value of Message.
+func (s *ServiceDeploymentResponse) GetMessage() OptString {
+	return s.Message
+}
+
+// GetCommit returns the value of Commit.
+func (s *ServiceDeploymentResponse) GetCommit() OptString {
+	return s.Commit
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *ServiceDeploymentResponse) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetStatus sets the value of Status.
+func (s *ServiceDeploymentResponse) SetStatus(val ServiceDeploymentStatus) {
+	s.Status = val
+}
+
+// SetImage sets the value of Image.
+func (s *ServiceDeploymentResponse) SetImage(val string) {
+	s.Image = val
+}
+
+// SetImageVersion sets the value of ImageVersion.
+func (s *ServiceDeploymentResponse) SetImageVersion(val string) {
+	s.ImageVersion = val
+}
+
+// SetMessage sets the value of Message.
+func (s *ServiceDeploymentResponse) SetMessage(val OptString) {
+	s.Message = val
+}
+
+// SetCommit sets the value of Commit.
+func (s *ServiceDeploymentResponse) SetCommit(val OptString) {
+	s.Commit = val
+}
+
+// Ref: #/components/schemas/ServiceDeploymentStatus
+type ServiceDeploymentStatus string
+
+const (
+	ServiceDeploymentStatusSuccess ServiceDeploymentStatus = "success"
+	ServiceDeploymentStatusFailed  ServiceDeploymentStatus = "failed"
+)
+
+// AllValues returns all ServiceDeploymentStatus values.
+func (ServiceDeploymentStatus) AllValues() []ServiceDeploymentStatus {
+	return []ServiceDeploymentStatus{
+		ServiceDeploymentStatusSuccess,
+		ServiceDeploymentStatusFailed,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s ServiceDeploymentStatus) MarshalText() ([]byte, error) {
+	switch s {
+	case ServiceDeploymentStatusSuccess:
+		return []byte(s), nil
+	case ServiceDeploymentStatusFailed:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *ServiceDeploymentStatus) UnmarshalText(data []byte) error {
+	switch ServiceDeploymentStatus(data) {
+	case ServiceDeploymentStatusSuccess:
+		*s = ServiceDeploymentStatusSuccess
+		return nil
+	case ServiceDeploymentStatusFailed:
+		*s = ServiceDeploymentStatusFailed
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/ServiceDeploymentsResponse
+type ServiceDeploymentsResponse struct {
+	Deployments []ServiceDeploymentResponse `json:"deployments"`
+}
+
+// GetDeployments returns the value of Deployments.
+func (s *ServiceDeploymentsResponse) GetDeployments() []ServiceDeploymentResponse {
+	return s.Deployments
+}
+
+// SetDeployments sets the value of Deployments.
+func (s *ServiceDeploymentsResponse) SetDeployments(val []ServiceDeploymentResponse) {
+	s.Deployments = val
+}
+
 // Ref: #/components/schemas/ServiceInfo
 type ServiceInfo struct {
-	Name          string          `json:"name"`
-	Stack         string          `json:"stack"`
-	Description   OptString       `json:"description"`
-	Type          ServiceInfoType `json:"type"`
-	Image         string          `json:"image"`
-	RepositoryURL OptString       `json:"repository_url"`
-	WebRoutes     []WebRoute      `json:"web_routes"`
+	Name        string          `json:"name"`
+	Stack       string          `json:"stack"`
+	Description OptString       `json:"description"`
+	Type        ServiceInfoType `json:"type"`
+	// Human-readable title for the service type enum.
+	TypeTitle string `json:"type_title"`
+	Image     string `json:"image"`
+	// Tag or short digest string derived from the image reference.
+	ImageVersion  string     `json:"image_version"`
+	RepositoryURL OptString  `json:"repository_url"`
+	WebRoutes     []WebRoute `json:"web_routes"`
 }
 
 // GetName returns the value of Name.
@@ -634,9 +1309,19 @@ func (s *ServiceInfo) GetType() ServiceInfoType {
 	return s.Type
 }
 
+// GetTypeTitle returns the value of TypeTitle.
+func (s *ServiceInfo) GetTypeTitle() string {
+	return s.TypeTitle
+}
+
 // GetImage returns the value of Image.
 func (s *ServiceInfo) GetImage() string {
 	return s.Image
+}
+
+// GetImageVersion returns the value of ImageVersion.
+func (s *ServiceInfo) GetImageVersion() string {
+	return s.ImageVersion
 }
 
 // GetRepositoryURL returns the value of RepositoryURL.
@@ -669,9 +1354,19 @@ func (s *ServiceInfo) SetType(val ServiceInfoType) {
 	s.Type = val
 }
 
+// SetTypeTitle sets the value of TypeTitle.
+func (s *ServiceInfo) SetTypeTitle(val string) {
+	s.TypeTitle = val
+}
+
 // SetImage sets the value of Image.
 func (s *ServiceInfo) SetImage(val string) {
 	s.Image = val
+}
+
+// SetImageVersion sets the value of ImageVersion.
+func (s *ServiceInfo) SetImageVersion(val string) {
+	s.ImageVersion = val
 }
 
 // SetRepositoryURL sets the value of RepositoryURL.
@@ -746,6 +1441,44 @@ func (s *ServiceInfoType) UnmarshalText(data []byte) error {
 	}
 }
 
+// Ref: #/components/schemas/ServiceSpecLabelGroupResponse
+type ServiceSpecLabelGroupResponse map[string]string
+
+func (s *ServiceSpecLabelGroupResponse) init() ServiceSpecLabelGroupResponse {
+	m := *s
+	if m == nil {
+		m = map[string]string{}
+		*s = m
+	}
+	return m
+}
+
+// Ref: #/components/schemas/ServiceSpecLabelsResponse
+type ServiceSpecLabelsResponse struct {
+	Docker OptServiceSpecLabelGroupResponse `json:"docker"`
+	Custom OptServiceSpecLabelGroupResponse `json:"custom"`
+}
+
+// GetDocker returns the value of Docker.
+func (s *ServiceSpecLabelsResponse) GetDocker() OptServiceSpecLabelGroupResponse {
+	return s.Docker
+}
+
+// GetCustom returns the value of Custom.
+func (s *ServiceSpecLabelsResponse) GetCustom() OptServiceSpecLabelGroupResponse {
+	return s.Custom
+}
+
+// SetDocker sets the value of Docker.
+func (s *ServiceSpecLabelsResponse) SetDocker(val OptServiceSpecLabelGroupResponse) {
+	s.Docker = val
+}
+
+// SetCustom sets the value of Custom.
+func (s *ServiceSpecLabelsResponse) SetCustom(val OptServiceSpecLabelGroupResponse) {
+	s.Custom = val
+}
+
 // Ref: #/components/schemas/ServiceSpecNetworkResponse
 type ServiceSpecNetworkResponse struct {
 	Target  string   `json:"target"`
@@ -781,7 +1514,7 @@ type ServiceSpecResponse struct {
 	RequestedCPUNano  int64                        `json:"requested_cpu_nano"`
 	LimitRAMBytes     int64                        `json:"limit_ram_bytes"`
 	LimitCPUNano      int64                        `json:"limit_cpu_nano"`
-	Labels            OptServiceSpecResponseLabels `json:"labels"`
+	Labels            OptServiceSpecLabelsResponse `json:"labels"`
 	Secrets           []ServiceSpecSecretResponse  `json:"secrets"`
 	Network           []ServiceSpecNetworkResponse `json:"network"`
 }
@@ -822,7 +1555,7 @@ func (s *ServiceSpecResponse) GetLimitCPUNano() int64 {
 }
 
 // GetLabels returns the value of Labels.
-func (s *ServiceSpecResponse) GetLabels() OptServiceSpecResponseLabels {
+func (s *ServiceSpecResponse) GetLabels() OptServiceSpecLabelsResponse {
 	return s.Labels
 }
 
@@ -872,7 +1605,7 @@ func (s *ServiceSpecResponse) SetLimitCPUNano(val int64) {
 }
 
 // SetLabels sets the value of Labels.
-func (s *ServiceSpecResponse) SetLabels(val OptServiceSpecResponseLabels) {
+func (s *ServiceSpecResponse) SetLabels(val OptServiceSpecLabelsResponse) {
 	s.Labels = val
 }
 
@@ -884,17 +1617,6 @@ func (s *ServiceSpecResponse) SetSecrets(val []ServiceSpecSecretResponse) {
 // SetNetwork sets the value of Network.
 func (s *ServiceSpecResponse) SetNetwork(val []ServiceSpecNetworkResponse) {
 	s.Network = val
-}
-
-type ServiceSpecResponseLabels map[string]string
-
-func (s *ServiceSpecResponseLabels) init() ServiceSpecResponseLabels {
-	m := *s
-	if m == nil {
-		m = map[string]string{}
-		*s = m
-	}
-	return m
 }
 
 // Ref: #/components/schemas/ServiceSpecSecretResponse
@@ -971,65 +1693,6 @@ func (s *ServiceStatusResponse) SetSpec(val ServiceSpecResponse) {
 	s.Spec = val
 }
 
-// Ref: #/components/schemas/ServiceView
-type ServiceView struct {
-	Name         string      `json:"name"`
-	Image        string      `json:"image"`
-	ImageVersion string      `json:"image_version"`
-	LastStatus   OptString   `json:"last_status"`
-	LastDeployAt OptDateTime `json:"last_deploy_at"`
-}
-
-// GetName returns the value of Name.
-func (s *ServiceView) GetName() string {
-	return s.Name
-}
-
-// GetImage returns the value of Image.
-func (s *ServiceView) GetImage() string {
-	return s.Image
-}
-
-// GetImageVersion returns the value of ImageVersion.
-func (s *ServiceView) GetImageVersion() string {
-	return s.ImageVersion
-}
-
-// GetLastStatus returns the value of LastStatus.
-func (s *ServiceView) GetLastStatus() OptString {
-	return s.LastStatus
-}
-
-// GetLastDeployAt returns the value of LastDeployAt.
-func (s *ServiceView) GetLastDeployAt() OptDateTime {
-	return s.LastDeployAt
-}
-
-// SetName sets the value of Name.
-func (s *ServiceView) SetName(val string) {
-	s.Name = val
-}
-
-// SetImage sets the value of Image.
-func (s *ServiceView) SetImage(val string) {
-	s.Image = val
-}
-
-// SetImageVersion sets the value of ImageVersion.
-func (s *ServiceView) SetImageVersion(val string) {
-	s.ImageVersion = val
-}
-
-// SetLastStatus sets the value of LastStatus.
-func (s *ServiceView) SetLastStatus(val OptString) {
-	s.LastStatus = val
-}
-
-// SetLastDeployAt sets the value of LastDeployAt.
-func (s *ServiceView) SetLastDeployAt(val OptDateTime) {
-	s.LastDeployAt = val
-}
-
 // Ref: #/components/schemas/ServicesResponse
 type ServicesResponse struct {
 	Services []ServiceInfo `json:"services"`
@@ -1047,14 +1710,13 @@ func (s *ServicesResponse) SetServices(val []ServiceInfo) {
 
 // Ref: #/components/schemas/StackView
 type StackView struct {
-	Name         string        `json:"name"`
-	ComposeFile  string        `json:"compose_file"`
-	LastStatus   string        `json:"last_status"`
-	LastError    OptString     `json:"last_error"`
-	LastCommit   OptString     `json:"last_commit"`
-	LastDeployAt OptDateTime   `json:"last_deploy_at"`
-	SourceDigest OptString     `json:"source_digest"`
-	Services     []ServiceView `json:"services"`
+	Name         string      `json:"name"`
+	ComposeFile  string      `json:"compose_file"`
+	LastStatus   string      `json:"last_status"`
+	LastError    OptString   `json:"last_error"`
+	LastCommit   OptString   `json:"last_commit"`
+	LastDeployAt OptDateTime `json:"last_deploy_at"`
+	SourceDigest OptString   `json:"source_digest"`
 }
 
 // GetName returns the value of Name.
@@ -1092,11 +1754,6 @@ func (s *StackView) GetSourceDigest() OptString {
 	return s.SourceDigest
 }
 
-// GetServices returns the value of Services.
-func (s *StackView) GetServices() []ServiceView {
-	return s.Services
-}
-
 // SetName sets the value of Name.
 func (s *StackView) SetName(val string) {
 	s.Name = val
@@ -1130,11 +1787,6 @@ func (s *StackView) SetLastDeployAt(val OptDateTime) {
 // SetSourceDigest sets the value of SourceDigest.
 func (s *StackView) SetSourceDigest(val OptString) {
 	s.SourceDigest = val
-}
-
-// SetServices sets the value of Services.
-func (s *StackView) SetServices(val []ServiceView) {
-	s.Services = val
 }
 
 // Ref: #/components/schemas/StacksResponse

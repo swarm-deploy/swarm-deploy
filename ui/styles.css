@@ -203,6 +203,7 @@ button:hover,
   border-radius: 16px;
   background: var(--card);
   padding: 14px;
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -212,6 +213,264 @@ button:hover,
 .stack-title {
   margin: 0;
   font-size: 1.1rem;
+  padding-right: 96px;
+  overflow-wrap: anywhere;
+}
+
+.stack-card-status {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+}
+
+.services-page {
+  display: grid;
+  gap: 12px;
+}
+
+.service-details-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+  gap: 12px;
+  align-items: start;
+}
+
+.service-details-card {
+  min-width: 0;
+}
+
+.service-details-side {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+
+.service-details-list {
+  margin: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.service-details-item {
+  display: grid;
+  grid-template-columns: minmax(140px, 180px) minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+}
+
+.service-details-item dt {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.service-details-item dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.service-details-tags {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+}
+
+.service-details-tags li {
+  overflow-wrap: anywhere;
+}
+
+.service-secrets-list {
+  list-style: none;
+  padding-left: 0;
+}
+
+.service-details-docker-tags {
+  margin-top: 6px;
+}
+
+.service-deployments-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 8px;
+}
+
+.service-deployment-item {
+  border-top: 1px solid rgba(161, 192, 204, 0.2);
+  padding-top: 8px;
+}
+
+.service-deployment-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.services-header {
+  display: grid;
+  gap: 4px;
+}
+
+.services-header h2 {
+  margin: 0;
+  font-size: 1.2rem;
+}
+
+.secrets-toolbar {
+  display: grid;
+  gap: 6px;
+}
+
+.secrets-search-input {
+  width: 100%;
+  border: 1px solid rgba(161, 192, 204, 0.34);
+  border-radius: 999px;
+  background: rgba(9, 18, 28, 0.92);
+  color: var(--text);
+  padding: 10px 14px;
+}
+
+.secrets-table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  padding: 4px 10px 10px;
+}
+
+.services-empty {
+  border: 1px dashed rgba(161, 192, 204, 0.3);
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.stack-dropdown-list {
+  display: grid;
+  gap: 8px;
+}
+
+.stack-dropdown {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--card);
+  overflow: hidden;
+}
+
+.stack-dropdown[open] {
+  border-color: rgba(247, 178, 103, 0.45);
+}
+
+.stack-summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.stack-summary::-webkit-details-marker {
+  display: none;
+}
+
+.stack-summary::marker {
+  content: "";
+}
+
+.stack-summary-title {
+  font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.stack-summary-chevron {
+  font-size: 0.78rem;
+  color: var(--muted);
+  transition: transform 120ms ease;
+}
+
+.stack-dropdown[open] .stack-summary-chevron {
+  transform: rotate(180deg);
+}
+
+.stack-summary-meta {
+  margin-left: auto;
+  min-width: 84px;
+  text-align: right;
+  white-space: nowrap;
+  overflow-wrap: anywhere;
+}
+
+.stack-summary-meta {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.stack-services-table-wrap {
+  margin: 0;
+  padding: 0 12px 10px;
+  overflow-x: auto;
+}
+
+.stack-service-empty-cell {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+/* Fixed column widths so tables align across stacks (same % of full content width). */
+.services-stack-table {
+  table-layout: fixed;
+}
+
+.services-stack-table th,
+.services-stack-table td {
+  vertical-align: middle;
+}
+
+.services-stack-table .services-col-name {
+  width: 38%;
+}
+
+.services-stack-table .services-col-type {
+  width: 15%;
+}
+
+.services-stack-table .services-col-version {
+  width: 35%;
+}
+
+.services-stack-table .services-col-actions {
+  width: 12%;
+}
+
+.services-stack-table .services-cell-name,
+.services-stack-table .services-cell-type,
+.services-stack-table .services-cell-version {
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.services-stack-table .stack-service-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stack-service-name {
+  font-weight: 600;
+}
+
+.stack-service-actions-cell {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  white-space: nowrap;
+  vertical-align: middle;
 }
 
 .meta {
@@ -330,6 +589,25 @@ button:hover,
   padding: 6px 10px;
   font-size: 0.75rem;
   flex-shrink: 0;
+}
+
+.service-secret-badge {
+  background: transparent;
+  font-weight: 600;
+  line-height: 1.2;
+  transition: filter 120ms ease;
+}
+
+.service-secret-badge:hover:not(:disabled) {
+  transform: none;
+  filter: brightness(1.08);
+}
+
+.service-secret-badge:disabled {
+  transform: none;
+  filter: none;
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .modal {
@@ -659,6 +937,47 @@ button:hover,
   margin: 0;
 }
 
+.service-status-summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  border: 1px solid rgba(161, 192, 204, 0.24);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.service-status-summary-table th,
+.service-status-summary-table td {
+  padding: 8px 10px;
+  border-top: 1px solid rgba(161, 192, 204, 0.2);
+  text-align: left;
+  vertical-align: top;
+}
+
+.service-status-summary-table tr:first-child th,
+.service-status-summary-table tr:first-child td {
+  border-top: none;
+}
+
+.service-status-summary-table th {
+  width: 38%;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.service-status-summary-table td {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.service-status-link-panel {
+  margin-bottom: 0;
+}
+
+.service-status-open-details-btn {
+  width: 100%;
+}
+
 .container-status-table {
   width: 100%;
   border-collapse: collapse;
@@ -671,6 +990,17 @@ button:hover,
   text-align: left;
   padding: 8px 6px;
   vertical-align: top;
+}
+
+/* Services table: row height follows Details button; keep text vertically centered. */
+.container-status-table.services-stack-table th,
+.container-status-table.services-stack-table td {
+  vertical-align: middle;
+}
+
+.container-status-table.services-stack-table th:last-child,
+.container-status-table.services-stack-table td.stack-service-actions-cell {
+  padding-right: 0;
 }
 
 .bg-shape {
@@ -711,6 +1041,14 @@ button:hover,
 @media (max-width: 650px) {
   .layout {
     padding-top: 20px;
+  }
+
+  .service-details-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .service-details-item {
+    grid-template-columns: 1fr;
   }
 
   .topbar {

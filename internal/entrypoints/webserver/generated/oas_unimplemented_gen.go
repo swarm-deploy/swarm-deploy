@@ -20,6 +20,20 @@ func (UnimplementedHandler) AssistantChat(ctx context.Context, req *AssistantCha
 	return r, ht.ErrNotImplemented
 }
 
+// GetCurrentUser implements getCurrentUser operation.
+//
+// GET /api/v1/users/me
+func (UnimplementedHandler) GetCurrentUser(ctx context.Context) (r *CurrentUserResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetSecretByName implements getSecretByName operation.
+//
+// GET /api/v1/secrets/{name}
+func (UnimplementedHandler) GetSecretByName(ctx context.Context, params GetSecretByNameParams) (r *SecretDetailsResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetServiceStatus implements getServiceStatus operation.
 //
 // GET /api/v1/stacks/{stack}/services/{service}/status
@@ -41,6 +55,20 @@ func (UnimplementedHandler) ListNodes(ctx context.Context) (r *NodesResponse, _ 
 	return r, ht.ErrNotImplemented
 }
 
+// ListSecrets implements listSecrets operation.
+//
+// GET /api/v1/secrets
+func (UnimplementedHandler) ListSecrets(ctx context.Context) (r *SecretsResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListServiceDeployments implements listServiceDeployments operation.
+//
+// GET /api/v1/stacks/{stack}/services/{service}/deployments
+func (UnimplementedHandler) ListServiceDeployments(ctx context.Context, params ListServiceDeploymentsParams) (r *ServiceDeploymentsResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListServices implements listServices operation.
 //
 // GET /api/v1/services
@@ -52,6 +80,13 @@ func (UnimplementedHandler) ListServices(ctx context.Context) (r *ServicesRespon
 //
 // GET /api/v1/stacks
 func (UnimplementedHandler) ListStacks(ctx context.Context) (r *StacksResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// Search implements search operation.
+//
+// GET /api/v1/search
+func (UnimplementedHandler) Search(ctx context.Context, params SearchParams) (r *SearchResponse, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

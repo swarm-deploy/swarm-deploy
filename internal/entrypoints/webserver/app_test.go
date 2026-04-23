@@ -11,22 +11,57 @@ import (
 )
 
 func TestUIRoutes(t *testing.T) {
-	app, err := NewApplication(":0", nil, nil, nil, nil, nil, nil, nil, config.AuthenticationSpec{})
+	app, err := NewApplication(":0", nil, nil, nil, nil, nil, nil, nil, nil, config.AuthenticationSpec{})
 	require.NoError(t, err, "new application")
 
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-	app.server.Handler.ServeHTTP(rec, req)
-	assert.Equal(t, 200, rec.Code, "expected / status 200")
+	testCases := []struct {
+		name           string
+		path           string
+		wantCode       int
+		wantLocation   string
+		locationAssert bool
+	}{
+		{
+			name:     "root serves spa index",
+			path:     "/",
+			wantCode: 200,
+		},
+		{
+			name:     "overview route uses spa fallback",
+			path:     "/overview",
+			wantCode: 200,
+		},
+		{
+			name:     "secrets route uses spa fallback",
+			path:     "/secrets",
+			wantCode: 200,
+		},
+		{
+			name:           "ui root redirects to overview",
+			path:           "/ui",
+			wantCode:       301,
+			wantLocation:   "/overview",
+			locationAssert: true,
+		},
+		{
+			name:           "ui prefix redirects to overview",
+			path:           "/ui/legacy",
+			wantCode:       301,
+			wantLocation:   "/overview",
+			locationAssert: true,
+		},
+	}
 
-	rec = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodGet, "/ui", nil)
-	app.server.Handler.ServeHTTP(rec, req)
-	assert.Equal(t, 301, rec.Code, "expected /ui status 301")
-	assert.Equal(t, "/ui/", rec.Header().Get("Location"), "expected /ui redirect to /ui/")
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequest(http.MethodGet, testCase.path, nil)
+			app.server.Handler.ServeHTTP(rec, req)
 
-	rec = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodGet, "/ui/", nil)
-	app.server.Handler.ServeHTTP(rec, req)
-	assert.Equal(t, 200, rec.Code, "expected /ui/ status 200")
+			assert.Equal(t, testCase.wantCode, rec.Code, "status mismatch")
+			if testCase.locationAssert {
+				assert.Equal(t, testCase.wantLocation, rec.Header().Get("Location"), "redirect mismatch")
+			}
+		})
+	}
 }

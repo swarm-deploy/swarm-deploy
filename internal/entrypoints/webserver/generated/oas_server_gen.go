@@ -12,6 +12,14 @@ type Handler interface {
 	//
 	// POST /api/v1/assistant/chat
 	AssistantChat(ctx context.Context, req *AssistantChatRequest) (*AssistantChatResponse, error)
+	// GetCurrentUser implements getCurrentUser operation.
+	//
+	// GET /api/v1/users/me
+	GetCurrentUser(ctx context.Context) (*CurrentUserResponse, error)
+	// GetSecretByName implements getSecretByName operation.
+	//
+	// GET /api/v1/secrets/{name}
+	GetSecretByName(ctx context.Context, params GetSecretByNameParams) (*SecretDetailsResponse, error)
 	// GetServiceStatus implements getServiceStatus operation.
 	//
 	// GET /api/v1/stacks/{stack}/services/{service}/status
@@ -24,6 +32,14 @@ type Handler interface {
 	//
 	// GET /api/v1/nodes
 	ListNodes(ctx context.Context) (*NodesResponse, error)
+	// ListSecrets implements listSecrets operation.
+	//
+	// GET /api/v1/secrets
+	ListSecrets(ctx context.Context) (*SecretsResponse, error)
+	// ListServiceDeployments implements listServiceDeployments operation.
+	//
+	// GET /api/v1/stacks/{stack}/services/{service}/deployments
+	ListServiceDeployments(ctx context.Context, params ListServiceDeploymentsParams) (*ServiceDeploymentsResponse, error)
 	// ListServices implements listServices operation.
 	//
 	// GET /api/v1/services
@@ -32,6 +48,10 @@ type Handler interface {
 	//
 	// GET /api/v1/stacks
 	ListStacks(ctx context.Context) (*StacksResponse, error)
+	// Search implements search operation.
+	//
+	// GET /api/v1/search
+	Search(ctx context.Context, params SearchParams) (*SearchResponse, error)
 	// TriggerSync implements triggerSync operation.
 	//
 	// POST /api/v1/sync

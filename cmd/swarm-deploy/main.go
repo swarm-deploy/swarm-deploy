@@ -149,6 +149,7 @@ func main() {
 		cfg.Spec.Web.Address,
 		control,
 		swarmService.Services,
+		swarmService.Secrets,
 		eventHistory,
 		serviceStore,
 		nodeStore,

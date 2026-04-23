@@ -70,6 +70,7 @@ func (*SecretManager) mapSecretInfo(secret dockerswarm.Secret) Secret {
 
 	return Secret{
 		ID:        secret.ID,
+		VersionID: secret.Version.Index,
 		Name:      secret.Spec.Name,
 		CreatedAt: secret.CreatedAt,
 		UpdatedAt: secret.UpdatedAt,

@@ -9,6 +9,8 @@ const secretFileMode = 0o444
 type Secret struct {
 	// ID is a unique Docker secret identifier.
 	ID string `json:"id"`
+	// VersionID is a monotonic secret version index from Docker metadata.
+	VersionID uint64 `json:"version_id"`
 	// Name is a Docker secret name.
 	Name string `json:"name"`
 	// CreatedAt is a secret creation timestamp.

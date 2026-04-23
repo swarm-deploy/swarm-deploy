@@ -18,10 +18,17 @@ type ServiceStatusInspector interface {
 	GetStatus(ctx context.Context, serviceRef swarm.ServiceReference) (swarm.ServiceStatus, error)
 }
 
+// SecretsReader reads current Docker secrets snapshot.
+type SecretsReader interface {
+	// List returns current Docker secrets snapshot.
+	List(ctx context.Context) ([]swarm.Secret, error)
+}
+
 type handler struct {
 	generated.UnimplementedHandler
 	control          *controller.Controller
 	serviceInspector ServiceStatusInspector
+	secrets          SecretsReader
 	history          *history.Store
 	services         *service.Store
 	nodes            *swarmnode.Store
@@ -33,6 +40,7 @@ var _ generated.Handler = (*handler)(nil)
 func New(
 	control *controller.Controller,
 	serviceInspector ServiceStatusInspector,
+	secrets SecretsReader,
 	history *history.Store,
 	services *service.Store,
 	nodes *swarmnode.Store,
@@ -41,6 +49,7 @@ func New(
 	return &handler{
 		control:          control,
 		serviceInspector: serviceInspector,
+		secrets:          secrets,
 		history:          history,
 		services:         services,
 		nodes:            nodes,

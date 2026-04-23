@@ -6,11 +6,16 @@ package api
 type OperationName = string
 
 const (
-	AssistantChatOperation    OperationName = "AssistantChat"
-	GetServiceStatusOperation OperationName = "GetServiceStatus"
-	ListEventsOperation       OperationName = "ListEvents"
-	ListNodesOperation        OperationName = "ListNodes"
-	ListServicesOperation     OperationName = "ListServices"
-	ListStacksOperation       OperationName = "ListStacks"
-	TriggerSyncOperation      OperationName = "TriggerSync"
+	AssistantChatOperation          OperationName = "AssistantChat"
+	GetCurrentUserOperation         OperationName = "GetCurrentUser"
+	GetSecretByNameOperation        OperationName = "GetSecretByName"
+	GetServiceStatusOperation       OperationName = "GetServiceStatus"
+	ListEventsOperation             OperationName = "ListEvents"
+	ListNodesOperation              OperationName = "ListNodes"
+	ListSecretsOperation            OperationName = "ListSecrets"
+	ListServiceDeploymentsOperation OperationName = "ListServiceDeployments"
+	ListServicesOperation           OperationName = "ListServices"
+	ListStacksOperation             OperationName = "ListStacks"
+	SearchOperation                 OperationName = "Search"
+	TriggerSyncOperation            OperationName = "TriggerSync"
 )
