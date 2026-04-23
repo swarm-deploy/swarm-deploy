@@ -107,6 +107,33 @@ export interface SecretsResponse {
   secrets: SecretInfo[];
 }
 
+export interface SecretDetailsResponse {
+  id: string;
+  name: string;
+  version_id: number;
+  created_at: string;
+  updated_at: string;
+  driver?: string;
+  labels?: Record<string, string>;
+  external?: SecretExternalInfo;
+}
+
+export type SearchResultKind = "service" | "secret" | "stack";
+export type SearchResultMatch = "service_name" | "service_web_route" | "secret_name" | "stack_name";
+
+export interface SearchResult {
+  kind: SearchResultKind;
+  match: SearchResultMatch;
+  label: string;
+  stack?: string;
+  service?: string;
+  secret_name?: string;
+}
+
+export interface SearchResponse {
+  results: SearchResult[];
+}
+
 export type AssistantStatus = "in_progress" | "completed" | "failed" | "rejected" | "disabled";
 
 export interface AssistantChatRequest {

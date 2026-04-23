@@ -9,6 +9,8 @@ import AssistantDrawer from "../assistant/AssistantDrawer.vue";
 import SidebarNav from "./SidebarNav.vue";
 import TopBar from "./TopBar.vue";
 import EventHistoryModal from "../overview/EventHistoryModal.vue";
+import ServiceStatusModal from "../overview/ServiceStatusModal.vue";
+import SecretDetailsModal from "../secrets/SecretDetailsModal.vue";
 
 const route = useRoute();
 const overviewStore = useOverviewStore();
@@ -65,6 +67,8 @@ function handleAssistantToggle() {
       </div>
     </div>
     <EventHistoryModal />
+    <ServiceStatusModal />
+    <SecretDetailsModal />
     <AssistantDrawer />
   </div>
 </template>

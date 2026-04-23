@@ -496,6 +496,52 @@ func (o OptInt32) Or(d int32) int32 {
 	return d
 }
 
+// NewOptSecretDetailsResponseLabels returns new OptSecretDetailsResponseLabels with value set to v.
+func NewOptSecretDetailsResponseLabels(v SecretDetailsResponseLabels) OptSecretDetailsResponseLabels {
+	return OptSecretDetailsResponseLabels{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptSecretDetailsResponseLabels is optional SecretDetailsResponseLabels.
+type OptSecretDetailsResponseLabels struct {
+	Value SecretDetailsResponseLabels
+	Set   bool
+}
+
+// IsSet returns true if OptSecretDetailsResponseLabels was set.
+func (o OptSecretDetailsResponseLabels) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptSecretDetailsResponseLabels) Reset() {
+	var v SecretDetailsResponseLabels
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptSecretDetailsResponseLabels) SetTo(v SecretDetailsResponseLabels) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptSecretDetailsResponseLabels) Get() (v SecretDetailsResponseLabels, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptSecretDetailsResponseLabels) Or(d SecretDetailsResponseLabels) SecretDetailsResponseLabels {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptSecretExternalInfo returns new OptSecretExternalInfo with value set to v.
 func NewOptSecretExternalInfo(v SecretExternalInfo) OptSecretExternalInfo {
 	return OptSecretExternalInfo{
@@ -647,6 +693,297 @@ func (s *QueueResponse) GetQueued() bool {
 // SetQueued sets the value of Queued.
 func (s *QueueResponse) SetQueued(val bool) {
 	s.Queued = val
+}
+
+// Ref: #/components/schemas/SearchResponse
+type SearchResponse struct {
+	Results []SearchResult `json:"results"`
+}
+
+// GetResults returns the value of Results.
+func (s *SearchResponse) GetResults() []SearchResult {
+	return s.Results
+}
+
+// SetResults sets the value of Results.
+func (s *SearchResponse) SetResults(val []SearchResult) {
+	s.Results = val
+}
+
+// Ref: #/components/schemas/SearchResult
+type SearchResult struct {
+	Kind       SearchResultKind  `json:"kind"`
+	Match      SearchResultMatch `json:"match"`
+	Label      string            `json:"label"`
+	Stack      OptString         `json:"stack"`
+	Service    OptString         `json:"service"`
+	SecretName OptString         `json:"secret_name"`
+}
+
+// GetKind returns the value of Kind.
+func (s *SearchResult) GetKind() SearchResultKind {
+	return s.Kind
+}
+
+// GetMatch returns the value of Match.
+func (s *SearchResult) GetMatch() SearchResultMatch {
+	return s.Match
+}
+
+// GetLabel returns the value of Label.
+func (s *SearchResult) GetLabel() string {
+	return s.Label
+}
+
+// GetStack returns the value of Stack.
+func (s *SearchResult) GetStack() OptString {
+	return s.Stack
+}
+
+// GetService returns the value of Service.
+func (s *SearchResult) GetService() OptString {
+	return s.Service
+}
+
+// GetSecretName returns the value of SecretName.
+func (s *SearchResult) GetSecretName() OptString {
+	return s.SecretName
+}
+
+// SetKind sets the value of Kind.
+func (s *SearchResult) SetKind(val SearchResultKind) {
+	s.Kind = val
+}
+
+// SetMatch sets the value of Match.
+func (s *SearchResult) SetMatch(val SearchResultMatch) {
+	s.Match = val
+}
+
+// SetLabel sets the value of Label.
+func (s *SearchResult) SetLabel(val string) {
+	s.Label = val
+}
+
+// SetStack sets the value of Stack.
+func (s *SearchResult) SetStack(val OptString) {
+	s.Stack = val
+}
+
+// SetService sets the value of Service.
+func (s *SearchResult) SetService(val OptString) {
+	s.Service = val
+}
+
+// SetSecretName sets the value of SecretName.
+func (s *SearchResult) SetSecretName(val OptString) {
+	s.SecretName = val
+}
+
+type SearchResultKind string
+
+const (
+	SearchResultKindService SearchResultKind = "service"
+	SearchResultKindSecret  SearchResultKind = "secret"
+	SearchResultKindStack   SearchResultKind = "stack"
+)
+
+// AllValues returns all SearchResultKind values.
+func (SearchResultKind) AllValues() []SearchResultKind {
+	return []SearchResultKind{
+		SearchResultKindService,
+		SearchResultKindSecret,
+		SearchResultKindStack,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s SearchResultKind) MarshalText() ([]byte, error) {
+	switch s {
+	case SearchResultKindService:
+		return []byte(s), nil
+	case SearchResultKindSecret:
+		return []byte(s), nil
+	case SearchResultKindStack:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *SearchResultKind) UnmarshalText(data []byte) error {
+	switch SearchResultKind(data) {
+	case SearchResultKindService:
+		*s = SearchResultKindService
+		return nil
+	case SearchResultKindSecret:
+		*s = SearchResultKindSecret
+		return nil
+	case SearchResultKindStack:
+		*s = SearchResultKindStack
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+type SearchResultMatch string
+
+const (
+	SearchResultMatchServiceName     SearchResultMatch = "service_name"
+	SearchResultMatchServiceWebRoute SearchResultMatch = "service_web_route"
+	SearchResultMatchSecretName      SearchResultMatch = "secret_name"
+	SearchResultMatchStackName       SearchResultMatch = "stack_name"
+)
+
+// AllValues returns all SearchResultMatch values.
+func (SearchResultMatch) AllValues() []SearchResultMatch {
+	return []SearchResultMatch{
+		SearchResultMatchServiceName,
+		SearchResultMatchServiceWebRoute,
+		SearchResultMatchSecretName,
+		SearchResultMatchStackName,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s SearchResultMatch) MarshalText() ([]byte, error) {
+	switch s {
+	case SearchResultMatchServiceName:
+		return []byte(s), nil
+	case SearchResultMatchServiceWebRoute:
+		return []byte(s), nil
+	case SearchResultMatchSecretName:
+		return []byte(s), nil
+	case SearchResultMatchStackName:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *SearchResultMatch) UnmarshalText(data []byte) error {
+	switch SearchResultMatch(data) {
+	case SearchResultMatchServiceName:
+		*s = SearchResultMatchServiceName
+		return nil
+	case SearchResultMatchServiceWebRoute:
+		*s = SearchResultMatchServiceWebRoute
+		return nil
+	case SearchResultMatchSecretName:
+		*s = SearchResultMatchSecretName
+		return nil
+	case SearchResultMatchStackName:
+		*s = SearchResultMatchStackName
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/SecretDetailsResponse
+type SecretDetailsResponse struct {
+	ID        string                         `json:"id"`
+	Name      string                         `json:"name"`
+	VersionID int64                          `json:"version_id"`
+	CreatedAt time.Time                      `json:"created_at"`
+	UpdatedAt time.Time                      `json:"updated_at"`
+	Driver    OptString                      `json:"driver"`
+	Labels    OptSecretDetailsResponseLabels `json:"labels"`
+	External  OptSecretExternalInfo          `json:"external"`
+}
+
+// GetID returns the value of ID.
+func (s *SecretDetailsResponse) GetID() string {
+	return s.ID
+}
+
+// GetName returns the value of Name.
+func (s *SecretDetailsResponse) GetName() string {
+	return s.Name
+}
+
+// GetVersionID returns the value of VersionID.
+func (s *SecretDetailsResponse) GetVersionID() int64 {
+	return s.VersionID
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *SecretDetailsResponse) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *SecretDetailsResponse) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetDriver returns the value of Driver.
+func (s *SecretDetailsResponse) GetDriver() OptString {
+	return s.Driver
+}
+
+// GetLabels returns the value of Labels.
+func (s *SecretDetailsResponse) GetLabels() OptSecretDetailsResponseLabels {
+	return s.Labels
+}
+
+// GetExternal returns the value of External.
+func (s *SecretDetailsResponse) GetExternal() OptSecretExternalInfo {
+	return s.External
+}
+
+// SetID sets the value of ID.
+func (s *SecretDetailsResponse) SetID(val string) {
+	s.ID = val
+}
+
+// SetName sets the value of Name.
+func (s *SecretDetailsResponse) SetName(val string) {
+	s.Name = val
+}
+
+// SetVersionID sets the value of VersionID.
+func (s *SecretDetailsResponse) SetVersionID(val int64) {
+	s.VersionID = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *SecretDetailsResponse) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *SecretDetailsResponse) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetDriver sets the value of Driver.
+func (s *SecretDetailsResponse) SetDriver(val OptString) {
+	s.Driver = val
+}
+
+// SetLabels sets the value of Labels.
+func (s *SecretDetailsResponse) SetLabels(val OptSecretDetailsResponseLabels) {
+	s.Labels = val
+}
+
+// SetExternal sets the value of External.
+func (s *SecretDetailsResponse) SetExternal(val OptSecretExternalInfo) {
+	s.External = val
+}
+
+type SecretDetailsResponseLabels map[string]string
+
+func (s *SecretDetailsResponseLabels) init() SecretDetailsResponseLabels {
+	m := *s
+	if m == nil {
+		m = map[string]string{}
+		*s = m
+	}
+	return m
 }
 
 // Ref: #/components/schemas/SecretExternalInfo

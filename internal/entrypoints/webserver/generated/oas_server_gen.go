@@ -12,6 +12,10 @@ type Handler interface {
 	//
 	// POST /api/v1/assistant/chat
 	AssistantChat(ctx context.Context, req *AssistantChatRequest) (*AssistantChatResponse, error)
+	// GetSecretByName implements getSecretByName operation.
+	//
+	// GET /api/v1/secrets/{name}
+	GetSecretByName(ctx context.Context, params GetSecretByNameParams) (*SecretDetailsResponse, error)
 	// GetServiceStatus implements getServiceStatus operation.
 	//
 	// GET /api/v1/stacks/{stack}/services/{service}/status
@@ -36,6 +40,10 @@ type Handler interface {
 	//
 	// GET /api/v1/stacks
 	ListStacks(ctx context.Context) (*StacksResponse, error)
+	// Search implements search operation.
+	//
+	// GET /api/v1/search
+	Search(ctx context.Context, params SearchParams) (*SearchResponse, error)
 	// TriggerSync implements triggerSync operation.
 	//
 	// POST /api/v1/sync

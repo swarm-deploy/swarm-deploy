@@ -3,11 +3,13 @@ import { computed, onMounted, ref } from "vue";
 
 import { fetchSecrets } from "../api/secrets";
 import type { SecretInfo } from "../api/types";
+import { useSecretDetailsStore } from "../stores/secretDetails";
 
 const loading = ref(false);
 const loadingError = ref("");
 const secrets = ref<SecretInfo[]>([]);
 const searchQuery = ref("");
+const secretDetailsStore = useSecretDetailsStore();
 
 const normalizedQuery = computed(() => searchQuery.value.trim().toLowerCase());
 
@@ -58,6 +60,10 @@ async function loadSecrets() {
 onMounted(() => {
   void loadSecrets();
 });
+
+async function openSecretDetails(secretName: string) {
+  await secretDetailsStore.openSecretDetails(secretName);
+}
 
 function formatDate(value: string): string {
   const date = new Date(value);
@@ -110,6 +116,7 @@ function formatDate(value: string): string {
             <th>Date Added</th>
             <th>External Path</th>
             <th>External Version ID</th>
+            <th />
           </tr>
         </thead>
         <tbody>
@@ -121,6 +128,16 @@ function formatDate(value: string): string {
             <td>{{ formatDate(secret.created_at) }}</td>
             <td>{{ secret.external?.path || "n/a" }}</td>
             <td>{{ secret.external?.version_id || "n/a" }}</td>
+            <td>
+              <button
+                type="button"
+                class="service-status-btn"
+                :disabled="!secret.name"
+                @click="secret.name && openSecretDetails(secret.name)"
+              >
+                Details
+              </button>
+            </td>
           </tr>
         </tbody>
       </table>

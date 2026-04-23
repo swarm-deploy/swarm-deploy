@@ -84,6 +84,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SecretsResponse'
+  /api/v1/secrets/{name}:
+    get:
+      operationId: getSecretByName
+      parameters:
+        - in: path
+          name: name
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Detailed secret metadata by name.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecretDetailsResponse'
   /api/v1/stacks/{stack}/services/{service}/status:
     get:
       operationId: getServiceStatus
@@ -105,6 +121,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ServiceStatusResponse'
+  /api/v1/search:
+    get:
+      operationId: search
+      parameters:
+        - in: query
+          name: query
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        '200':
+          description: Search results for services, secrets, and stacks.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchResponse'
 components:
   schemas:
     AssistantChatRequest:
@@ -259,6 +292,32 @@ components:
           format: date-time
         external:
           $ref: '#/components/schemas/SecretExternalInfo'
+    SecretDetailsResponse:
+      type: object
+      required: [id, name, version_id, created_at, updated_at]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        version_id:
+          type: integer
+          format: int64
+          minimum: 0
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        driver:
+          type: string
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+        external:
+          $ref: '#/components/schemas/SecretExternalInfo'
     SecretExternalInfo:
       type: object
       properties:
@@ -388,3 +447,29 @@ components:
             $ref: '#/components/schemas/StackView'
         sync:
           $ref: '#/components/schemas/SyncInfo'
+    SearchResponse:
+      type: object
+      required: [results]
+      properties:
+        results:
+          type: array
+          items:
+            $ref: '#/components/schemas/SearchResult'
+    SearchResult:
+      type: object
+      required: [kind, match, label]
+      properties:
+        kind:
+          type: string
+          enum: [service, secret, stack]
+        match:
+          type: string
+          enum: [service_name, service_web_route, secret_name, stack_name]
+        label:
+          type: string
+        stack:
+          type: string
+        service:
+          type: string
+        secret_name:
+          type: string
