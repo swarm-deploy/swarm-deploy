@@ -91,6 +91,21 @@ export interface ServiceStatusResponse {
   spec: ServiceSpecResponse;
 }
 
+export type ServiceDeploymentStatus = "success" | "failed";
+
+export interface ServiceDeploymentResponse {
+  created_at: string;
+  status: ServiceDeploymentStatus;
+  image: string;
+  image_version: string;
+  message?: string;
+  commit?: string;
+}
+
+export interface ServiceDeploymentsResponse {
+  deployments: ServiceDeploymentResponse[];
+}
+
 export interface NodeInfo {
   id: string;
   hostname: string;

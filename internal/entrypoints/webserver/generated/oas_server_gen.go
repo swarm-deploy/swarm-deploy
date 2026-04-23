@@ -32,6 +32,10 @@ type Handler interface {
 	//
 	// GET /api/v1/secrets
 	ListSecrets(ctx context.Context) (*SecretsResponse, error)
+	// ListServiceDeployments implements listServiceDeployments operation.
+	//
+	// GET /api/v1/stacks/{stack}/services/{service}/deployments
+	ListServiceDeployments(ctx context.Context, params ListServiceDeploymentsParams) (*ServiceDeploymentsResponse, error)
 	// ListServices implements listServices operation.
 	//
 	// GET /api/v1/services

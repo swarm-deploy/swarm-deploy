@@ -1,13 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted } from "vue";
+import { useRouter } from "vue-router";
 
 import type { ServiceSpecNetworkResponse, ServiceSpecSecretResponse } from "../../api/types";
 import { useOverviewStore } from "../../stores/overview";
 import { formatBytes } from "../../utils/format";
 
 const overviewStore = useOverviewStore();
+const router = useRouter();
 
 const serviceSpec = computed(() => overviewStore.serviceStatusData?.spec);
+const canOpenDetails = computed(
+  () => overviewStore.serviceStatusStack.trim().length > 0 && overviewStore.serviceStatusService.trim().length > 0,
+);
 const serviceLabels = computed(() => {
   const labels = serviceSpec.value?.labels;
   if (!labels || typeof labels !== "object") {
@@ -45,6 +50,24 @@ function closeServiceStatusModal() {
   overviewStore.closeServiceStatusModal();
 }
 
+async function openServiceDetails() {
+  if (!canOpenDetails.value) {
+    return;
+  }
+
+  const stackName = overviewStore.serviceStatusStack;
+  const serviceName = overviewStore.serviceStatusService;
+  closeServiceStatusModal();
+
+  await router.push({
+    name: "service-details",
+    params: {
+      stack: stackName,
+      service: serviceName,
+    },
+  });
+}
+
 function handleEscape(event: KeyboardEvent) {
   if (event.key === "Escape" && overviewStore.serviceStatusModalOpen) {
     closeServiceStatusModal();
@@ -69,7 +92,9 @@ onUnmounted(() => {
           {{
             overviewStore.serviceStatusData
               ? `${overviewStore.serviceStatusData.stack} / ${overviewStore.serviceStatusData.service}`
-              : "Service status"
+              : canOpenDetails
+                ? `${overviewStore.serviceStatusStack} / ${overviewStore.serviceStatusService}`
+                : "Service status"
           }}
         </h2>
         <button class="modal-close" type="button" aria-label="Close modal" @click="closeServiceStatusModal">x</button>
@@ -112,6 +137,9 @@ onUnmounted(() => {
             </li>
           </ul>
           <p v-else class="meta">No network attachments.</p>
+        </div>
+        <div v-if="canOpenDetails" class="services-link-panel">
+          <button type="button" @click="openServiceDetails">Open details</button>
         </div>
       </div>
     </div>

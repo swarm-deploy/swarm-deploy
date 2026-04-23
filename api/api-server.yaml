@@ -121,6 +121,36 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ServiceStatusResponse'
+  /api/v1/stacks/{stack}/services/{service}/deployments:
+    get:
+      operationId: listServiceDeployments
+      parameters:
+        - in: path
+          name: stack
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: service
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 100
+            default: 5
+      responses:
+        '200':
+          description: Latest deployments for a stack service
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceDeploymentsResponse'
   /api/v1/search:
     get:
       operationId: search
@@ -420,6 +450,34 @@ components:
           type: array
           items:
             type: string
+    ServiceDeploymentStatus:
+      type: string
+      enum: [success, failed]
+    ServiceDeploymentResponse:
+      type: object
+      required: [created_at, status, image, image_version]
+      properties:
+        created_at:
+          type: string
+          format: date-time
+        status:
+          $ref: '#/components/schemas/ServiceDeploymentStatus'
+        image:
+          type: string
+        image_version:
+          type: string
+        message:
+          type: string
+        commit:
+          type: string
+    ServiceDeploymentsResponse:
+      type: object
+      required: [deployments]
+      properties:
+        deployments:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceDeploymentResponse'
     StackView:
       type: object
       required: [name, compose_file, last_status]

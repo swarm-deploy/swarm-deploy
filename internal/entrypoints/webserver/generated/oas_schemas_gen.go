@@ -1086,6 +1086,133 @@ func (s *SecretsResponse) SetSecrets(val []SecretInfo) {
 	s.Secrets = val
 }
 
+// Ref: #/components/schemas/ServiceDeploymentResponse
+type ServiceDeploymentResponse struct {
+	CreatedAt    time.Time               `json:"created_at"`
+	Status       ServiceDeploymentStatus `json:"status"`
+	Image        string                  `json:"image"`
+	ImageVersion string                  `json:"image_version"`
+	Message      OptString               `json:"message"`
+	Commit       OptString               `json:"commit"`
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *ServiceDeploymentResponse) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetStatus returns the value of Status.
+func (s *ServiceDeploymentResponse) GetStatus() ServiceDeploymentStatus {
+	return s.Status
+}
+
+// GetImage returns the value of Image.
+func (s *ServiceDeploymentResponse) GetImage() string {
+	return s.Image
+}
+
+// GetImageVersion returns the value of ImageVersion.
+func (s *ServiceDeploymentResponse) GetImageVersion() string {
+	return s.ImageVersion
+}
+
+// GetMessage returns the value of Message.
+func (s *ServiceDeploymentResponse) GetMessage() OptString {
+	return s.Message
+}
+
+// GetCommit returns the value of Commit.
+func (s *ServiceDeploymentResponse) GetCommit() OptString {
+	return s.Commit
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *ServiceDeploymentResponse) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetStatus sets the value of Status.
+func (s *ServiceDeploymentResponse) SetStatus(val ServiceDeploymentStatus) {
+	s.Status = val
+}
+
+// SetImage sets the value of Image.
+func (s *ServiceDeploymentResponse) SetImage(val string) {
+	s.Image = val
+}
+
+// SetImageVersion sets the value of ImageVersion.
+func (s *ServiceDeploymentResponse) SetImageVersion(val string) {
+	s.ImageVersion = val
+}
+
+// SetMessage sets the value of Message.
+func (s *ServiceDeploymentResponse) SetMessage(val OptString) {
+	s.Message = val
+}
+
+// SetCommit sets the value of Commit.
+func (s *ServiceDeploymentResponse) SetCommit(val OptString) {
+	s.Commit = val
+}
+
+// Ref: #/components/schemas/ServiceDeploymentStatus
+type ServiceDeploymentStatus string
+
+const (
+	ServiceDeploymentStatusSuccess ServiceDeploymentStatus = "success"
+	ServiceDeploymentStatusFailed  ServiceDeploymentStatus = "failed"
+)
+
+// AllValues returns all ServiceDeploymentStatus values.
+func (ServiceDeploymentStatus) AllValues() []ServiceDeploymentStatus {
+	return []ServiceDeploymentStatus{
+		ServiceDeploymentStatusSuccess,
+		ServiceDeploymentStatusFailed,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s ServiceDeploymentStatus) MarshalText() ([]byte, error) {
+	switch s {
+	case ServiceDeploymentStatusSuccess:
+		return []byte(s), nil
+	case ServiceDeploymentStatusFailed:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *ServiceDeploymentStatus) UnmarshalText(data []byte) error {
+	switch ServiceDeploymentStatus(data) {
+	case ServiceDeploymentStatusSuccess:
+		*s = ServiceDeploymentStatusSuccess
+		return nil
+	case ServiceDeploymentStatusFailed:
+		*s = ServiceDeploymentStatusFailed
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/ServiceDeploymentsResponse
+type ServiceDeploymentsResponse struct {
+	Deployments []ServiceDeploymentResponse `json:"deployments"`
+}
+
+// GetDeployments returns the value of Deployments.
+func (s *ServiceDeploymentsResponse) GetDeployments() []ServiceDeploymentResponse {
+	return s.Deployments
+}
+
+// SetDeployments sets the value of Deployments.
+func (s *ServiceDeploymentsResponse) SetDeployments(val []ServiceDeploymentResponse) {
+	s.Deployments = val
+}
+
 // Ref: #/components/schemas/ServiceInfo
 type ServiceInfo struct {
 	Name        string          `json:"name"`

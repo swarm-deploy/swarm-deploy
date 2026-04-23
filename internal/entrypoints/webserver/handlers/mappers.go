@@ -6,6 +6,7 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/controller"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
+	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
 	"github.com/swarm-deploy/swarm-deploy/internal/imageref"
 	"github.com/swarm-deploy/swarm-deploy/internal/service"
@@ -69,6 +70,69 @@ func toGeneratedServiceStatus(status swarm.ServiceStatus) *generated.ServiceStat
 	}
 
 	return resp
+}
+
+func toGeneratedServiceDeployments(
+	entries []history.Entry,
+	stackName string,
+	serviceName string,
+	image string,
+	limit int,
+) []generated.ServiceDeploymentResponse {
+	if len(entries) == 0 || stackName == "" {
+		return []generated.ServiceDeploymentResponse{}
+	}
+
+	imageVersion := imageref.Version(image)
+	out := make([]generated.ServiceDeploymentResponse, 0, len(entries))
+
+	for idx := len(entries) - 1; idx >= 0; idx-- {
+		entry := entries[idx]
+
+		status, ok := toGeneratedServiceDeploymentStatus(entry.Type)
+		if !ok {
+			continue
+		}
+
+		if entry.Details["stack"] != stackName {
+			continue
+		}
+		if serviceInEvent := entry.Details["service"]; serviceInEvent != "" && serviceInEvent != serviceName {
+			continue
+		}
+
+		item := generated.ServiceDeploymentResponse{
+			CreatedAt:    entry.CreatedAt,
+			Status:       status,
+			Image:        image,
+			ImageVersion: imageVersion,
+		}
+
+		if entry.Message != "" {
+			item.Message = generated.NewOptString(entry.Message)
+		}
+		if commit := entry.Details["commit"]; commit != "" {
+			item.Commit = generated.NewOptString(commit)
+		}
+
+		out = append(out, item)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+
+	return out
+}
+
+func toGeneratedServiceDeploymentStatus(typ events.Type) (generated.ServiceDeploymentStatus, bool) {
+	switch typ {
+	case events.TypeDeploySuccess:
+		return generated.ServiceDeploymentStatusSuccess, true
+	case events.TypeDeployFailed:
+		return generated.ServiceDeploymentStatusFailed, true
+	default:
+		return "", false
+	}
 }
 
 func toGeneratedServiceSpec(spec swarm.ServiceSpec) generated.ServiceSpecResponse {
@@ -157,21 +221,23 @@ func toGeneratedEvents(entries []history.Entry) []generated.EventHistoryItem {
 func toGeneratedServiceInfos(services []service.Info) []generated.ServiceInfo {
 	mapped := make([]generated.ServiceInfo, 0, len(services))
 	for _, serviceInfo := range services {
-		mappedItem := generated.ServiceInfo{
-			Name:            serviceInfo.Name,
-			Stack:           serviceInfo.Stack,
-			Type:            toGeneratedServiceType(serviceInfo.Type),
-			TypeTitle:       serviceType.Title(serviceInfo.Type),
-			Image:           serviceInfo.Image,
-			ImageVersion:    imageref.Version(serviceInfo.Image),
-			RepositoryURL:   toOptString(serviceInfo.RepositoryURL),
-			Description:     toOptString(serviceInfo.Description),
-			WebRoutes:       toGeneratedWebRoutes(serviceInfo.WebRoutes),
-		}
-
-		mapped = append(mapped, mappedItem)
+		mapped = append(mapped, toGeneratedServiceInfo(serviceInfo))
 	}
 	return mapped
+}
+
+func toGeneratedServiceInfo(serviceInfo service.Info) generated.ServiceInfo {
+	return generated.ServiceInfo{
+		Name:          serviceInfo.Name,
+		Stack:         serviceInfo.Stack,
+		Type:          toGeneratedServiceType(serviceInfo.Type),
+		TypeTitle:     serviceType.Title(serviceInfo.Type),
+		Image:         serviceInfo.Image,
+		ImageVersion:  imageref.Version(serviceInfo.Image),
+		RepositoryURL: toOptString(serviceInfo.RepositoryURL),
+		Description:   toOptString(serviceInfo.Description),
+		WebRoutes:     toGeneratedWebRoutes(serviceInfo.WebRoutes),
+	}
 }
 
 func toGeneratedWebRoutes(routes []webroute.Route) []generated.WebRoute {

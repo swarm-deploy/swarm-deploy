@@ -20,6 +20,8 @@ body {
 .layout-shell {
   position: relative;
   z-index: 2;
+  --shell-sidebar-width: 240px;
+  --shell-column-gap: 16px;
   width: min(1400px, 96vw);
   margin: 0 auto;
   padding: 24px 0 48px;
@@ -30,14 +32,15 @@ body {
 .topbar-shell {
   position: relative;
   z-index: 6;
+  --topbar-padding-inline: 14px;
   border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--card);
   backdrop-filter: blur(10px);
-  padding: 14px;
+  padding: 14px var(--topbar-padding-inline);
   display: grid;
-  grid-template-columns: auto minmax(220px, 1fr) auto;
-  gap: 10px;
+  grid-template-columns: calc(var(--shell-sidebar-width) - var(--topbar-padding-inline)) minmax(220px, 1fr) auto;
+  gap: var(--shell-column-gap);
   align-items: center;
 }
 
@@ -140,8 +143,8 @@ body {
 
 .shell-content {
   display: grid;
-  grid-template-columns: 240px 1fr;
-  gap: 16px;
+  grid-template-columns: var(--shell-sidebar-width) 1fr;
+  gap: var(--shell-column-gap);
   min-height: calc(100vh - 170px);
 }
 

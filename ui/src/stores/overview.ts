@@ -19,6 +19,8 @@ interface OverviewState {
   serviceStatusLoading: boolean;
   serviceStatusError: string;
   serviceStatusModalOpen: boolean;
+  serviceStatusStack: string;
+  serviceStatusService: string;
 }
 
 export const useOverviewStore = defineStore("overview", {
@@ -37,6 +39,8 @@ export const useOverviewStore = defineStore("overview", {
     serviceStatusLoading: false,
     serviceStatusError: "",
     serviceStatusModalOpen: false,
+    serviceStatusStack: "",
+    serviceStatusService: "",
   }),
   actions: {
     async loadOverview() {
@@ -108,6 +112,9 @@ export const useOverviewStore = defineStore("overview", {
       this.serviceStatusModalOpen = true;
       this.serviceStatusLoading = true;
       this.serviceStatusError = "";
+      this.serviceStatusData = null;
+      this.serviceStatusStack = stackName;
+      this.serviceStatusService = serviceName;
 
       try {
         this.serviceStatusData = await fetchServiceStatus(stackName, serviceName);
@@ -122,6 +129,8 @@ export const useOverviewStore = defineStore("overview", {
       this.serviceStatusData = null;
       this.serviceStatusError = "";
       this.serviceStatusLoading = false;
+      this.serviceStatusStack = "";
+      this.serviceStatusService = "";
     },
   },
 });

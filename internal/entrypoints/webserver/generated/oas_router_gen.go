@@ -346,32 +346,74 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 								break
 							}
 							switch elem[0] {
-							case '/': // Prefix: "/status"
+							case '/': // Prefix: "/"
 
-								if l := len("/status"); len(elem) >= l && elem[0:l] == "/status" {
+								if l := len("/"); len(elem) >= l && elem[0:l] == "/" {
 									elem = elem[l:]
 								} else {
 									break
 								}
 
 								if len(elem) == 0 {
-									// Leaf node.
-									switch r.Method {
-									case "GET":
-										s.handleGetServiceStatusRequest([2]string{
-											args[0],
-											args[1],
-										}, elemIsEscaped, w, r)
-									default:
-										s.notAllowed(w, r, notAllowedParams{
-											allowedMethods: "GET",
-											allowedHeaders: nil,
-											acceptPost:     "",
-											acceptPatch:    "",
-										})
+									break
+								}
+								switch elem[0] {
+								case 'd': // Prefix: "deployments"
+
+									if l := len("deployments"); len(elem) >= l && elem[0:l] == "deployments" {
+										elem = elem[l:]
+									} else {
+										break
 									}
 
-									return
+									if len(elem) == 0 {
+										// Leaf node.
+										switch r.Method {
+										case "GET":
+											s.handleListServiceDeploymentsRequest([2]string{
+												args[0],
+												args[1],
+											}, elemIsEscaped, w, r)
+										default:
+											s.notAllowed(w, r, notAllowedParams{
+												allowedMethods: "GET",
+												allowedHeaders: nil,
+												acceptPost:     "",
+												acceptPatch:    "",
+											})
+										}
+
+										return
+									}
+
+								case 's': // Prefix: "status"
+
+									if l := len("status"); len(elem) >= l && elem[0:l] == "status" {
+										elem = elem[l:]
+									} else {
+										break
+									}
+
+									if len(elem) == 0 {
+										// Leaf node.
+										switch r.Method {
+										case "GET":
+											s.handleGetServiceStatusRequest([2]string{
+												args[0],
+												args[1],
+											}, elemIsEscaped, w, r)
+										default:
+											s.notAllowed(w, r, notAllowedParams{
+												allowedMethods: "GET",
+												allowedHeaders: nil,
+												acceptPost:     "",
+												acceptPatch:    "",
+											})
+										}
+
+										return
+									}
+
 								}
 
 							}
@@ -784,29 +826,68 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 								break
 							}
 							switch elem[0] {
-							case '/': // Prefix: "/status"
+							case '/': // Prefix: "/"
 
-								if l := len("/status"); len(elem) >= l && elem[0:l] == "/status" {
+								if l := len("/"); len(elem) >= l && elem[0:l] == "/" {
 									elem = elem[l:]
 								} else {
 									break
 								}
 
 								if len(elem) == 0 {
-									// Leaf node.
-									switch method {
-									case "GET":
-										r.name = GetServiceStatusOperation
-										r.summary = ""
-										r.operationID = "getServiceStatus"
-										r.operationGroup = ""
-										r.pathPattern = "/api/v1/stacks/{stack}/services/{service}/status"
-										r.args = args
-										r.count = 2
-										return r, true
-									default:
-										return
+									break
+								}
+								switch elem[0] {
+								case 'd': // Prefix: "deployments"
+
+									if l := len("deployments"); len(elem) >= l && elem[0:l] == "deployments" {
+										elem = elem[l:]
+									} else {
+										break
 									}
+
+									if len(elem) == 0 {
+										// Leaf node.
+										switch method {
+										case "GET":
+											r.name = ListServiceDeploymentsOperation
+											r.summary = ""
+											r.operationID = "listServiceDeployments"
+											r.operationGroup = ""
+											r.pathPattern = "/api/v1/stacks/{stack}/services/{service}/deployments"
+											r.args = args
+											r.count = 2
+											return r, true
+										default:
+											return
+										}
+									}
+
+								case 's': // Prefix: "status"
+
+									if l := len("status"); len(elem) >= l && elem[0:l] == "status" {
+										elem = elem[l:]
+									} else {
+										break
+									}
+
+									if len(elem) == 0 {
+										// Leaf node.
+										switch method {
+										case "GET":
+											r.name = GetServiceStatusOperation
+											r.summary = ""
+											r.operationID = "getServiceStatus"
+											r.operationGroup = ""
+											r.pathPattern = "/api/v1/stacks/{stack}/services/{service}/status"
+											r.args = args
+											r.count = 2
+											return r, true
+										default:
+											return
+										}
+									}
+
 								}
 
 							}

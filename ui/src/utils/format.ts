@@ -27,3 +27,17 @@ export function formatBytes(value: number | undefined): string {
 
   return `${amount.toFixed(index === 0 ? 0 : 2)} ${units[index]}`;
 }
+
+export function formatNanoCPU(value: number | undefined): string {
+  if (value === undefined || value === null || Number.isNaN(Number(value))) {
+    return "n/a";
+  }
+
+  const nano = Number(value);
+  const cpu = nano / 1_000_000_000;
+  if (!Number.isFinite(cpu)) {
+    return "n/a";
+  }
+
+  return `${cpu.toFixed(cpu >= 1 ? 2 : 3)} CPU`;
+}

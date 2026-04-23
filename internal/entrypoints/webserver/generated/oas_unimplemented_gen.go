@@ -55,6 +55,13 @@ func (UnimplementedHandler) ListSecrets(ctx context.Context) (r *SecretsResponse
 	return r, ht.ErrNotImplemented
 }
 
+// ListServiceDeployments implements listServiceDeployments operation.
+//
+// GET /api/v1/stacks/{stack}/services/{service}/deployments
+func (UnimplementedHandler) ListServiceDeployments(ctx context.Context, params ListServiceDeploymentsParams) (r *ServiceDeploymentsResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListServices implements listServices operation.
 //
 // GET /api/v1/services

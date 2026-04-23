@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted } from "vue";
+import { useRouter } from "vue-router";
 
 import { useOverviewStore } from "../stores/overview";
 
 const overviewStore = useOverviewStore();
+const router = useRouter();
 
 const servicesByStack = computed(() => {
   const grouped = new Map<string, typeof overviewStore.services>();
@@ -28,8 +30,18 @@ const servicesByStack = computed(() => {
     .sort((left, right) => left.stackName.localeCompare(right.stackName));
 });
 
-async function openServiceStatus(stackName: string, serviceName: string) {
-  await overviewStore.openServiceStatusModal(stackName, serviceName);
+async function openServiceDetails(stackName: string, serviceName: string) {
+  if (!stackName || !serviceName) {
+    return;
+  }
+
+  await router.push({
+    name: "service-details",
+    params: {
+      stack: stackName,
+      service: serviceName,
+    },
+  });
 }
 
 onMounted(async () => {
@@ -93,7 +105,7 @@ onMounted(async () => {
                 <td class="services-cell-type">{{ service.type_title || service.type }}</td>
                 <td class="services-cell-version" :title="service.image">{{ service.image_version || "—" }}</td>
                 <td class="stack-service-actions-cell">
-                  <button type="button" class="service-status-btn" @click="openServiceStatus(group.stackName, service.name)">
+                  <button type="button" class="service-status-btn" @click="openServiceDetails(group.stackName, service.name)">
                     Details
                   </button>
                 </td>

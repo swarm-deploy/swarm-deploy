@@ -1,5 +1,11 @@
 import { apiRequest } from "./client";
-import type { EventHistoryResponse, QueueResponse, ServiceStatusResponse, StacksResponse } from "./types";
+import type {
+  EventHistoryResponse,
+  QueueResponse,
+  ServiceDeploymentsResponse,
+  ServiceStatusResponse,
+  StacksResponse,
+} from "./types";
 
 export function fetchStacks(): Promise<StacksResponse> {
   return apiRequest<StacksResponse>("/api/v1/stacks");
@@ -19,4 +25,17 @@ export function fetchServiceStatus(stackName: string, serviceName: string): Prom
   const encodedStack = encodeURIComponent(stackName);
   const encodedService = encodeURIComponent(serviceName);
   return apiRequest<ServiceStatusResponse>(`/api/v1/stacks/${encodedStack}/services/${encodedService}/status`);
+}
+
+export function fetchServiceDeployments(
+  stackName: string,
+  serviceName: string,
+  limit?: number,
+): Promise<ServiceDeploymentsResponse> {
+  const encodedStack = encodeURIComponent(stackName);
+  const encodedService = encodeURIComponent(serviceName);
+  const query = typeof limit === "number" ? `?limit=${encodeURIComponent(String(limit))}` : "";
+  return apiRequest<ServiceDeploymentsResponse>(
+    `/api/v1/stacks/${encodedStack}/services/${encodedService}/deployments${query}`,
+  );
 }

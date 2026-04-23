@@ -11,6 +11,10 @@ const links = [
 ];
 
 function isActive(path: string): boolean {
+  if (path === "/services") {
+    return route.path === "/services" || route.path.startsWith("/services/");
+  }
+
   return route.path === path;
 }
 </script>
