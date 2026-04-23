@@ -1,8 +1,7 @@
 import { createRouter, createWebHistory } from "vue-router";
 
-import ApplicationsView from "../views/ApplicationsView.vue";
+import ServicesView from "../views/ApplicationsView.vue";
 import ClusterView from "../views/ClusterView.vue";
-import DeploymentsView from "../views/DeploymentsView.vue";
 import EventsView from "../views/EventsView.vue";
 import OverviewView from "../views/OverviewView.vue";
 import SecretsView from "../views/SecretsView.vue";
@@ -20,14 +19,9 @@ export const router = createRouter({
       component: OverviewView,
     },
     {
-      path: "/applications",
-      name: "applications",
-      component: ApplicationsView,
-    },
-    {
-      path: "/deployments",
-      name: "deployments",
-      component: DeploymentsView,
+      path: "/services",
+      name: "services",
+      component: ServicesView,
     },
     {
       path: "/cluster",

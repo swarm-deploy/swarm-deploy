@@ -31,7 +31,7 @@ const emit = defineEmits<{
       <button type="button" :disabled="syncDisabled || syncPending" @click="emit('syncNow')">
         {{ syncPending ? "Syncing..." : "Sync now" }}
       </button>
-      <button type="button" :disabled="notificationsDisabled" @click="emit('openNotifications')">Notifications</button>
+      <button type="button" :disabled="notificationsDisabled" @click="emit('openNotifications')">Events</button>
       <button type="button" :disabled="!assistantEnabled" @click="emit('toggleAssistant')">
         {{ assistantOpen ? "Assistant Open" : "Assistant" }}
       </button>

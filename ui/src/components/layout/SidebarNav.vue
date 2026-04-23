@@ -5,8 +5,7 @@ const route = useRoute();
 
 const links = [
   { to: "/overview", label: "Overview" },
-  { to: "/applications", label: "Applications" },
-  { to: "/deployments", label: "Deployments" },
+  { to: "/services", label: "Services" },
   { to: "/cluster", label: "Cluster" },
   { to: "/events", label: "Events & Audit" },
   { to: "/secrets", label: "Secrets & Config" },
