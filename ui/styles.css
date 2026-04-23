@@ -386,7 +386,9 @@ button:hover,
 }
 
 .stack-service-actions-cell {
-  text-align: right;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
   white-space: nowrap;
   vertical-align: middle;
 }
@@ -854,6 +856,11 @@ button:hover,
 .container-status-table.services-stack-table th,
 .container-status-table.services-stack-table td {
   vertical-align: middle;
+}
+
+.container-status-table.services-stack-table th:last-child,
+.container-status-table.services-stack-table td.stack-service-actions-cell {
+  padding-right: 0;
 }
 
 .bg-shape {
