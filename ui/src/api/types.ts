@@ -76,6 +76,20 @@ export interface ServiceStatusResponse {
   spec: ServiceSpecResponse;
 }
 
+export interface NodeInfo {
+  id: string;
+  hostname: string;
+  status: string;
+  availability: string;
+  manager_status: string;
+  engine_version: string;
+  addr: string;
+}
+
+export interface NodesResponse {
+  nodes: NodeInfo[];
+}
+
 export type AssistantStatus = "in_progress" | "completed" | "failed" | "rejected" | "disabled";
 
 export interface AssistantChatRequest {
