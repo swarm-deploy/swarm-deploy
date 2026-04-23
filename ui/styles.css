@@ -909,6 +909,47 @@ button:hover,
   margin: 0;
 }
 
+.service-status-summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  border: 1px solid rgba(161, 192, 204, 0.24);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.service-status-summary-table th,
+.service-status-summary-table td {
+  padding: 8px 10px;
+  border-top: 1px solid rgba(161, 192, 204, 0.2);
+  text-align: left;
+  vertical-align: top;
+}
+
+.service-status-summary-table tr:first-child th,
+.service-status-summary-table tr:first-child td {
+  border-top: none;
+}
+
+.service-status-summary-table th {
+  width: 38%;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.service-status-summary-table td {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.service-status-link-panel {
+  margin-bottom: 0;
+}
+
+.service-status-open-details-btn {
+  width: 100%;
+}
+
 .container-status-table {
   width: 100%;
   border-collapse: collapse;

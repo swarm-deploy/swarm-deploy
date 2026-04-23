@@ -2,9 +2,8 @@
 import { computed, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 
-import type { ServiceSpecNetworkResponse, ServiceSpecSecretResponse } from "../../api/types";
 import { useOverviewStore } from "../../stores/overview";
-import { formatBytes } from "../../utils/format";
+import { formatDate } from "../../utils/format";
 
 const overviewStore = useOverviewStore();
 const router = useRouter();
@@ -13,38 +12,6 @@ const serviceSpec = computed(() => overviewStore.serviceStatusData?.spec);
 const canOpenDetails = computed(
   () => overviewStore.serviceStatusStack.trim().length > 0 && overviewStore.serviceStatusService.trim().length > 0,
 );
-const serviceLabels = computed(() => {
-  const labels = serviceSpec.value?.labels;
-  if (!labels || typeof labels !== "object") {
-    return [];
-  }
-
-  return Object.entries(labels).sort(([left], [right]) => left.localeCompare(right));
-});
-const serviceSecrets = computed(() => {
-  const secrets = serviceSpec.value?.secrets;
-  return Array.isArray(secrets) ? secrets : [];
-});
-const serviceNetworks = computed(() => {
-  const network = serviceSpec.value?.network;
-  return Array.isArray(network) ? network : [];
-});
-
-function formatSecretMeta(secret: ServiceSpecSecretResponse): string {
-  const parts: string[] = [];
-  if (secret.secret_id) {
-    parts.push(`id=${secret.secret_id}`);
-  }
-  if (secret.target) {
-    parts.push(`target=${secret.target}`);
-  }
-  return parts.join(", ") || "-";
-}
-
-function formatNetworkMeta(network: ServiceSpecNetworkResponse): string {
-  const aliases = Array.isArray(network.aliases) && network.aliases.length > 0 ? network.aliases.join(", ") : "-";
-  return `aliases=${aliases}`;
-}
 
 function closeServiceStatusModal() {
   overviewStore.closeServiceStatusModal();
@@ -106,40 +73,25 @@ onUnmounted(() => {
           Failed to load service status: {{ overviewStore.serviceStatusError }}
         </p>
         <div v-else-if="serviceSpec" class="service-metrics">
-          <p><strong>Image:</strong> {{ serviceSpec.image || "n/a" }}</p>
-          <p><strong>Deploy Mode:</strong> {{ serviceSpec.mode || "n/a" }}</p>
-          <p><strong>Replicas:</strong> {{ Number.isFinite(serviceSpec.replicas) ? serviceSpec.replicas : "n/a" }}</p>
-          <p><strong>Requested RAM:</strong> {{ formatBytes(serviceSpec.requested_ram_bytes) }}</p>
-          <p><strong>Requested CPU:</strong> {{ serviceSpec.requested_cpu_nano || 0 }} nano-CPUs</p>
-          <p><strong>RAM Limit:</strong> {{ formatBytes(serviceSpec.limit_ram_bytes) }}</p>
-          <p><strong>CPU Limit:</strong> {{ serviceSpec.limit_cpu_nano || 0 }} nano-CPUs</p>
-          <p><strong>Labels</strong></p>
-          <ul v-if="serviceLabels.length > 0" class="event-details">
-            <li v-for="[key, value] in serviceLabels" :key="key" class="event-detail">
-              <span class="event-detail-key">{{ key }}</span>
-              <code class="event-detail-value">{{ value }}</code>
-            </li>
-          </ul>
-          <p v-else class="meta">No labels.</p>
-          <p><strong>Secrets</strong></p>
-          <ul v-if="serviceSecrets.length > 0" class="event-details">
-            <li v-for="secret in serviceSecrets" :key="`${secret.secret_name}-${secret.secret_id}`" class="event-detail">
-              <span class="event-detail-key">{{ secret.secret_name || "unknown" }}</span>
-              <code class="event-detail-value">{{ formatSecretMeta(secret) }}</code>
-            </li>
-          </ul>
-          <p v-else class="meta">No secrets.</p>
-          <p><strong>Network</strong></p>
-          <ul v-if="serviceNetworks.length > 0" class="event-details">
-            <li v-for="network in serviceNetworks" :key="`${network.target}-${formatNetworkMeta(network)}`" class="event-detail">
-              <span class="event-detail-key">{{ network.target || "unknown" }}</span>
-              <code class="event-detail-value">{{ formatNetworkMeta(network) }}</code>
-            </li>
-          </ul>
-          <p v-else class="meta">No network attachments.</p>
+          <table class="service-status-summary-table" aria-label="Service summary">
+            <tbody>
+              <tr>
+                <th scope="row">Stack</th>
+                <td>{{ overviewStore.serviceStatusData?.stack || overviewStore.serviceStatusStack || "n/a" }}</td>
+              </tr>
+              <tr>
+                <th scope="row">Image</th>
+                <td>{{ serviceSpec.image || "n/a" }}</td>
+              </tr>
+              <tr>
+                <th scope="row">Latest Deployment</th>
+                <td>{{ formatDate(overviewStore.serviceStatusLatestDeploymentAt) }}</td>
+              </tr>
+            </tbody>
+          </table>
         </div>
-        <div v-if="canOpenDetails" class="services-link-panel">
-          <button type="button" @click="openServiceDetails">Open details</button>
+        <div v-if="canOpenDetails" class="services-link-panel service-status-link-panel">
+          <button type="button" class="service-status-open-details-btn" @click="openServiceDetails">Open details</button>
         </div>
       </div>
     </div>

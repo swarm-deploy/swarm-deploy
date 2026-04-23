@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 
-import { fetchEvents, fetchServiceStatus, fetchStacks, triggerSync } from "../api/overview";
+import { fetchEvents, fetchServiceDeployments, fetchServiceStatus, fetchStacks, triggerSync } from "../api/overview";
 import { fetchServices } from "../api/services";
 import type { EventHistoryItem, ServiceInfo, ServiceStatusResponse, StackView, SyncInfo } from "../api/types";
 
@@ -21,6 +21,7 @@ interface OverviewState {
   serviceStatusModalOpen: boolean;
   serviceStatusStack: string;
   serviceStatusService: string;
+  serviceStatusLatestDeploymentAt: string;
 }
 
 export const useOverviewStore = defineStore("overview", {
@@ -41,6 +42,7 @@ export const useOverviewStore = defineStore("overview", {
     serviceStatusModalOpen: false,
     serviceStatusStack: "",
     serviceStatusService: "",
+    serviceStatusLatestDeploymentAt: "",
   }),
   actions: {
     async loadOverview() {
@@ -115,9 +117,23 @@ export const useOverviewStore = defineStore("overview", {
       this.serviceStatusData = null;
       this.serviceStatusStack = stackName;
       this.serviceStatusService = serviceName;
+      this.serviceStatusLatestDeploymentAt = "";
 
       try {
-        this.serviceStatusData = await fetchServiceStatus(stackName, serviceName);
+        const [statusResult, deploymentsResult] = await Promise.allSettled([
+          fetchServiceStatus(stackName, serviceName),
+          fetchServiceDeployments(stackName, serviceName, 1),
+        ]);
+
+        if (statusResult.status === "fulfilled") {
+          this.serviceStatusData = statusResult.value;
+        } else {
+          throw statusResult.reason;
+        }
+
+        if (deploymentsResult.status === "fulfilled") {
+          this.serviceStatusLatestDeploymentAt = deploymentsResult.value.deployments.at(0)?.created_at ?? "";
+        }
       } catch (error) {
         this.serviceStatusError = error instanceof Error ? error.message : "Failed to load service status";
       } finally {
@@ -131,6 +147,7 @@ export const useOverviewStore = defineStore("overview", {
       this.serviceStatusLoading = false;
       this.serviceStatusStack = "";
       this.serviceStatusService = "";
+      this.serviceStatusLatestDeploymentAt = "";
     },
   },
 });
