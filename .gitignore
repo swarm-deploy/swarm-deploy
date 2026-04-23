@@ -3,3 +3,4 @@ vendor
 .gopath
 .idea
 ui/node_modules
+ui/dist
