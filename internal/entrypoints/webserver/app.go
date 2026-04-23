@@ -1,8 +1,12 @@
 package webserver
 
 import (
+	"bytes"
 	"fmt"
+	"io/fs"
 	"net/http"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/artarts36/go-entrypoint"
@@ -27,6 +31,51 @@ type Application struct {
 	server *http.Server
 }
 
+func buildSPAFallbackHandler(uiFS fs.FS) http.Handler {
+	fileServer := http.FileServer(http.FS(uiFS))
+	indexBytes, indexErr := fs.ReadFile(uiFS, "index.html")
+	if indexErr != nil {
+		panic(fmt.Errorf("read embedded index.html: %w", indexErr))
+	}
+
+	serveIndex := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		http.ServeContent(w, r, "index.html", time.Time{}, bytes.NewReader(indexBytes))
+	}
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.NotFound(w, r)
+			return
+		}
+
+		cleanPath := path.Clean(strings.TrimPrefix(r.URL.Path, "/"))
+		if cleanPath == "." || cleanPath == "/" || cleanPath == "" {
+			cleanPath = "index.html"
+		}
+
+		if cleanPath == "index.html" {
+			serveIndex(w, r)
+			return
+		}
+
+		if cleanPath != "index.html" {
+			file, err := uiFS.Open(cleanPath)
+			if err == nil {
+				defer file.Close()
+
+				info, statErr := file.Stat()
+				if statErr == nil && !info.IsDir() {
+					fileServer.ServeHTTP(w, r)
+					return
+				}
+			}
+		}
+
+		serveIndex(w, r)
+	})
+}
+
 func NewApplication(
 	address string,
 	control *controller.Controller,
@@ -48,11 +97,13 @@ func NewApplication(
 	mux := http.NewServeMux()
 	mux.Handle("/api/", apiHandler)
 
-	uiHandler := http.FileServer(http.FS(ui.FS))
+	uiHandler := buildSPAFallbackHandler(ui.FS)
 	mux.HandleFunc("/ui", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/ui/", http.StatusMovedPermanently)
+		http.Redirect(w, r, "/overview", http.StatusMovedPermanently)
 	})
-	mux.Handle("/ui/", http.StripPrefix("/ui/", uiHandler))
+	mux.HandleFunc("/ui/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/overview", http.StatusMovedPermanently)
+	})
 	mux.Handle("/", uiHandler)
 
 	rootHandler := http.Handler(mux)

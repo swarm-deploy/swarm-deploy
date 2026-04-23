@@ -1,5 +1,17 @@
 # syntax=docker/dockerfile:1
 
+FROM node:22-alpine AS ui-builder
+
+WORKDIR /ui
+
+COPY ui/package.json ui/package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm \
+    npm install
+
+COPY ui/index.html ui/styles.css ui/vite.config.ts ui/tsconfig.json ./
+COPY ui/src ./src
+RUN npm run build
+
 FROM golang:1.25-alpine AS builder
 
 WORKDIR /src
@@ -9,6 +21,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 
 COPY . .
+COPY --from=ui-builder /ui/dist ./ui/dist
 
 ARG TARGETOS=linux
 ARG TARGETARCH=amd64
