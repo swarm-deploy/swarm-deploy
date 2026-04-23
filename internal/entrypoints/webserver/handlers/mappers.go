@@ -7,6 +7,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/controller"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
+	"github.com/swarm-deploy/swarm-deploy/internal/imageref"
 	"github.com/swarm-deploy/swarm-deploy/internal/service"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/service/stype"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -157,13 +158,15 @@ func toGeneratedServiceInfos(services []service.Info) []generated.ServiceInfo {
 	mapped := make([]generated.ServiceInfo, 0, len(services))
 	for _, serviceInfo := range services {
 		mappedItem := generated.ServiceInfo{
-			Name:          serviceInfo.Name,
-			Stack:         serviceInfo.Stack,
-			Type:          toGeneratedServiceType(serviceInfo.Type),
-			Image:         serviceInfo.Image,
-			RepositoryURL: toOptString(serviceInfo.RepositoryURL),
-			Description:   toOptString(serviceInfo.Description),
-			WebRoutes:     toGeneratedWebRoutes(serviceInfo.WebRoutes),
+			Name:            serviceInfo.Name,
+			Stack:           serviceInfo.Stack,
+			Type:            toGeneratedServiceType(serviceInfo.Type),
+			TypeTitle:       serviceType.Title(serviceInfo.Type),
+			Image:           serviceInfo.Image,
+			ImageVersion:    imageref.Version(serviceInfo.Image),
+			RepositoryURL:   toOptString(serviceInfo.RepositoryURL),
+			Description:     toOptString(serviceInfo.Description),
+			WebRoutes:       toGeneratedWebRoutes(serviceInfo.WebRoutes),
 		}
 
 		mapped = append(mapped, mappedItem)

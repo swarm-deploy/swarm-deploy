@@ -328,46 +328,67 @@ button:hover,
   font-size: 0.82rem;
 }
 
-.stack-services {
+.stack-services-table-wrap {
   margin: 0;
   padding: 0 12px 10px;
-  list-style: none;
-  display: grid;
-  gap: 6px;
+  overflow-x: auto;
 }
 
-.stack-service-item,
-.stack-service-empty {
-  border-top: 1px dashed rgba(161, 192, 204, 0.2);
-  padding-top: 6px;
-}
-
-.stack-service-item {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.stack-service-actions {
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-}
-
-.stack-service-main {
-  min-width: 0;
-  display: grid;
-  gap: 2px;
-}
-
-.stack-service-main strong {
-  overflow-wrap: anywhere;
-}
-
-.stack-service-empty {
+.stack-service-empty-cell {
   color: var(--muted);
   font-size: 0.88rem;
+}
+
+/* Fixed column widths so tables align across stacks (same % of full content width). */
+.services-stack-table {
+  table-layout: fixed;
+}
+
+.services-stack-table th,
+.services-stack-table td {
+  vertical-align: middle;
+}
+
+.services-stack-table .services-col-name {
+  width: 38%;
+}
+
+.services-stack-table .services-col-type {
+  width: 15%;
+}
+
+.services-stack-table .services-col-version {
+  width: 35%;
+}
+
+.services-stack-table .services-col-actions {
+  width: 12%;
+}
+
+.services-stack-table .services-cell-name,
+.services-stack-table .services-cell-type,
+.services-stack-table .services-cell-version {
+  max-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.services-stack-table .stack-service-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.stack-service-name {
+  font-weight: 600;
+}
+
+.stack-service-actions-cell {
+  text-align: right;
+  white-space: nowrap;
+  vertical-align: middle;
 }
 
 .meta {
@@ -827,6 +848,12 @@ button:hover,
   text-align: left;
   padding: 8px 6px;
   vertical-align: top;
+}
+
+/* Services table: row height follows Details button; keep text vertically centered. */
+.container-status-table.services-stack-table th,
+.container-status-table.services-stack-table td {
+  vertical-align: middle;
 }
 
 .bg-shape {

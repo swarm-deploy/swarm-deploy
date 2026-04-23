@@ -34,7 +34,9 @@ export interface ServiceInfo {
   name: string;
   stack: string;
   type: ServiceType;
+  type_title: string;
   image: string;
+  image_version: string;
   description?: string;
   repository_url?: string;
   web_routes?: WebRoute[];

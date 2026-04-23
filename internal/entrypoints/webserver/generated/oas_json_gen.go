@@ -2319,8 +2319,16 @@ func (s *ServiceInfo) encodeFields(e *jx.Encoder) {
 		s.Type.Encode(e)
 	}
 	{
+		e.FieldStart("type_title")
+		e.Str(s.TypeTitle)
+	}
+	{
 		e.FieldStart("image")
 		e.Str(s.Image)
+	}
+	{
+		e.FieldStart("image_version")
+		e.Str(s.ImageVersion)
 	}
 	{
 		if s.RepositoryURL.Set {
@@ -2340,14 +2348,16 @@ func (s *ServiceInfo) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfServiceInfo = [7]string{
+var jsonFieldsNameOfServiceInfo = [9]string{
 	0: "name",
 	1: "stack",
 	2: "description",
 	3: "type",
-	4: "image",
-	5: "repository_url",
-	6: "web_routes",
+	4: "type_title",
+	5: "image",
+	6: "image_version",
+	7: "repository_url",
+	8: "web_routes",
 }
 
 // Decode decodes ServiceInfo from json.
@@ -2355,7 +2365,7 @@ func (s *ServiceInfo) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode ServiceInfo to nil")
 	}
-	var requiredBitSet [1]uint8
+	var requiredBitSet [2]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -2403,8 +2413,20 @@ func (s *ServiceInfo) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"type\"")
 			}
-		case "image":
+		case "type_title":
 			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				v, err := d.Str()
+				s.TypeTitle = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"type_title\"")
+			}
+		case "image":
+			requiredBitSet[0] |= 1 << 5
 			if err := func() error {
 				v, err := d.Str()
 				s.Image = string(v)
@@ -2414,6 +2436,18 @@ func (s *ServiceInfo) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"image\"")
+			}
+		case "image_version":
+			requiredBitSet[0] |= 1 << 6
+			if err := func() error {
+				v, err := d.Str()
+				s.ImageVersion = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"image_version\"")
 			}
 		case "repository_url":
 			if err := func() error {
@@ -2451,8 +2485,9 @@ func (s *ServiceInfo) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [1]uint8{
-		0b00011011,
+	for i, mask := range [2]uint8{
+		0b01111011,
+		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

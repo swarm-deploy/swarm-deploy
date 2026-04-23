@@ -1088,13 +1088,17 @@ func (s *SecretsResponse) SetSecrets(val []SecretInfo) {
 
 // Ref: #/components/schemas/ServiceInfo
 type ServiceInfo struct {
-	Name          string          `json:"name"`
-	Stack         string          `json:"stack"`
-	Description   OptString       `json:"description"`
-	Type          ServiceInfoType `json:"type"`
-	Image         string          `json:"image"`
-	RepositoryURL OptString       `json:"repository_url"`
-	WebRoutes     []WebRoute      `json:"web_routes"`
+	Name        string          `json:"name"`
+	Stack       string          `json:"stack"`
+	Description OptString       `json:"description"`
+	Type        ServiceInfoType `json:"type"`
+	// Human-readable title for the service type enum.
+	TypeTitle string `json:"type_title"`
+	Image     string `json:"image"`
+	// Tag or short digest string derived from the image reference.
+	ImageVersion  string     `json:"image_version"`
+	RepositoryURL OptString  `json:"repository_url"`
+	WebRoutes     []WebRoute `json:"web_routes"`
 }
 
 // GetName returns the value of Name.
@@ -1117,9 +1121,19 @@ func (s *ServiceInfo) GetType() ServiceInfoType {
 	return s.Type
 }
 
+// GetTypeTitle returns the value of TypeTitle.
+func (s *ServiceInfo) GetTypeTitle() string {
+	return s.TypeTitle
+}
+
 // GetImage returns the value of Image.
 func (s *ServiceInfo) GetImage() string {
 	return s.Image
+}
+
+// GetImageVersion returns the value of ImageVersion.
+func (s *ServiceInfo) GetImageVersion() string {
+	return s.ImageVersion
 }
 
 // GetRepositoryURL returns the value of RepositoryURL.
@@ -1152,9 +1166,19 @@ func (s *ServiceInfo) SetType(val ServiceInfoType) {
 	s.Type = val
 }
 
+// SetTypeTitle sets the value of TypeTitle.
+func (s *ServiceInfo) SetTypeTitle(val string) {
+	s.TypeTitle = val
+}
+
 // SetImage sets the value of Image.
 func (s *ServiceInfo) SetImage(val string) {
 	s.Image = val
+}
+
+// SetImageVersion sets the value of ImageVersion.
+func (s *ServiceInfo) SetImageVersion(val string) {
+	s.ImageVersion = val
 }
 
 // SetRepositoryURL sets the value of RepositoryURL.

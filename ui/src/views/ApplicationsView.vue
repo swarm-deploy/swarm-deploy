@@ -66,22 +66,41 @@ onMounted(async () => {
           <span class="stack-summary-chevron" aria-hidden="true">▾</span>
         </summary>
 
-        <ul class="stack-services">
-          <li v-if="group.services.length === 0" class="stack-service-empty">
-            No services captured yet.
-          </li>
-          <li v-for="service in group.services" :key="`${group.stackName}-${service.name}`" class="stack-service-item">
-            <div class="stack-service-main">
-              <strong>{{ service.name || "unknown" }}</strong>
-              <span class="meta">{{ service.image || "unknown image" }}</span>
-            </div>
-            <div class="stack-service-actions">
-              <button type="button" class="service-status-btn" @click="openServiceStatus(group.stackName, service.name)">
-                Status
-              </button>
-            </div>
-          </li>
-        </ul>
+        <div class="stack-services-table-wrap">
+          <table class="container-status-table services-stack-table">
+            <colgroup>
+              <col class="services-col-name" />
+              <col class="services-col-type" />
+              <col class="services-col-version" />
+              <col class="services-col-actions" />
+            </colgroup>
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Type</th>
+                <th>Version</th>
+                <th />
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-if="group.services.length === 0">
+                <td colspan="4" class="stack-service-empty-cell">No services captured yet.</td>
+              </tr>
+              <tr v-for="service in group.services" :key="`${group.stackName}-${service.name}`">
+                <td class="services-cell-name" :title="service.name || undefined">
+                  <strong class="stack-service-name">{{ service.name || "unknown" }}</strong>
+                </td>
+                <td class="services-cell-type">{{ service.type_title || service.type }}</td>
+                <td class="services-cell-version" :title="service.image">{{ service.image_version || "—" }}</td>
+                <td class="stack-service-actions-cell">
+                  <button type="button" class="service-status-btn" @click="openServiceStatus(group.stackName, service.name)">
+                    Details
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
       </details>
     </div>
   </section>

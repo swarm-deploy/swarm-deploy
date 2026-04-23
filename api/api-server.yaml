@@ -212,7 +212,7 @@ components:
             $ref: '#/components/schemas/ServiceInfo'
     ServiceInfo:
       type: object
-      required: [name, stack, type, image]
+      required: [name, stack, type, type_title, image, image_version]
       properties:
         name:
           type: string
@@ -223,8 +223,14 @@ components:
         type:
           type: string
           enum: [application, monitoring, delivery, reverseProxy, database]
+        type_title:
+          type: string
+          description: Human-readable title for the service type enum.
         image:
           type: string
+        image_version:
+          type: string
+          description: Tag or short digest string derived from the image reference.
         repository_url:
           type: string
         web_routes:
