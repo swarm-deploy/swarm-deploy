@@ -279,23 +279,9 @@ button:hover,
   overflow-wrap: anywhere;
 }
 
-.service-label-toggle {
-  border: none;
-  background: transparent;
-  padding: 0;
-  font: inherit;
-  line-height: inherit;
-  cursor: pointer;
-  text-align: left;
-}
-
-.service-label-toggle:hover {
-  filter: brightness(0.95);
-}
-
-.service-label-toggle:focus-visible {
-  outline: 2px solid rgba(247, 178, 103, 0.65);
-  outline-offset: 1px;
+.service-secrets-list {
+  list-style: none;
+  padding-left: 0;
 }
 
 .service-details-docker-tags {
@@ -603,6 +589,25 @@ button:hover,
   padding: 6px 10px;
   font-size: 0.75rem;
   flex-shrink: 0;
+}
+
+.service-secret-badge {
+  background: transparent;
+  font-weight: 600;
+  line-height: 1.2;
+  transition: filter 120ms ease;
+}
+
+.service-secret-badge:hover:not(:disabled) {
+  transform: none;
+  filter: brightness(1.08);
+}
+
+.service-secret-badge:disabled {
+  transform: none;
+  filter: none;
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .modal {

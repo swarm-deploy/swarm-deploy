@@ -7,9 +7,9 @@ import { fetchServices } from "../api/services";
 import type {
   ServiceDeploymentResponse,
   ServiceInfo,
-  ServiceSpecSecretResponse,
   ServiceStatusResponse,
 } from "../api/types";
+import { useSecretDetailsStore } from "../stores/secretDetails";
 import { formatBytes, formatDate, formatNanoCPU } from "../utils/format";
 
 const route = useRoute();
@@ -22,6 +22,7 @@ const serviceDeployments = ref<ServiceDeploymentResponse[]>([]);
 const deploymentsLoading = ref(false);
 const deploymentsError = ref("");
 const showDockerLabels = ref(false);
+const secretDetailsStore = useSecretDetailsStore();
 
 const stackName = computed(() => String(route.params.stack ?? "").trim());
 const serviceName = computed(() => String(route.params.service ?? "").trim());
@@ -84,19 +85,12 @@ function deploymentStatusClass(status: ServiceDeploymentResponse["status"]): str
   return "unknown";
 }
 
-function formatSecretMeta(secret: ServiceSpecSecretResponse): string {
-  const parts: string[] = [];
-  if (secret.secret_id) {
-    parts.push(`id=${secret.secret_id}`);
-  }
-  if (secret.target) {
-    parts.push(`target=${secret.target}`);
-  }
-  return parts.join(", ") || "-";
-}
-
 function deploymentKey(item: ServiceDeploymentResponse, index: number): string {
   return `${item.created_at}-${item.status}-${item.image_version}-${index}`;
+}
+
+function openSecretDetails(secretName: string): void {
+  void secretDetailsStore.openSecretDetails(secretName);
 }
 
 function toggleDockerLabels(): void {
@@ -252,24 +246,32 @@ watch(
             <tr>
               <th scope="row">Labels</th>
               <td>
-                <ul v-if="customServiceLabels.length > 0 || dockerServiceLabels.length > 0" class="event-details">
+                <ul v-if="customServiceLabels.length > 0" class="event-details">
                   <li v-for="[key, value] in customServiceLabels" :key="key" class="event-detail">
                     <span class="event-detail-key">{{ key }}</span>
                     <code class="event-detail-value">{{ value }}</code>
                   </li>
-                  <li v-if="dockerServiceLabels.length > 0" class="event-detail">
+                </ul>
+                <span v-else class="meta">No labels.</span>
+              </td>
+            </tr>
+            <tr v-if="dockerServiceLabels.length > 0">
+              <th scope="row">Docker Labels</th>
+              <td>
+                <ul class="event-details">
+                  <li class="event-detail">
                     <button
                       type="button"
-                      class="service-label-toggle event-detail-key"
+                      class="service-secret-badge status unknown"
                       :aria-expanded="showDockerLabels ? 'true' : 'false'"
                       @click="toggleDockerLabels"
                     >
-                      {{ showDockerLabels ? "Hide Docker Labels" : "Show Docker Labels" }}
+                      {{ showDockerLabels ? "Hide" : "Show" }}
                     </button>
                   </li>
                 </ul>
                 <ul
-                  v-if="dockerServiceLabels.length > 0 && showDockerLabels"
+                  v-if="showDockerLabels"
                   class="event-details service-details-docker-tags"
                 >
                   <li v-for="[key, value] in dockerServiceLabels" :key="key" class="event-detail">
@@ -277,7 +279,6 @@ watch(
                     <code class="event-detail-value">{{ value }}</code>
                   </li>
                 </ul>
-                <span v-if="customServiceLabels.length === 0 && dockerServiceLabels.length === 0" class="meta">No labels.</span>
               </td>
             </tr>
             <tr>
@@ -294,9 +295,16 @@ watch(
             <tr>
               <th scope="row">Secrets</th>
               <td>
-                <ul v-if="serviceSecrets.length > 0" class="service-details-tags">
+                <ul v-if="serviceSecrets.length > 0" class="service-details-tags service-secrets-list">
                   <li v-for="secret in serviceSecrets" :key="`${secret.secret_name}-${secret.secret_id}`">
-                    {{ secret.secret_name }} ({{ formatSecretMeta(secret) }})
+                    <button
+                      type="button"
+                      class="service-secret-badge status unknown"
+                      :disabled="!secret.secret_name"
+                      @click="secret.secret_name && openSecretDetails(secret.secret_name)"
+                    >
+                      {{ secret.secret_name || "n/a" }}
+                    </button>
                   </li>
                 </ul>
                 <span v-else>n/a</span>
