@@ -233,7 +233,7 @@ watch(
               </td>
             </tr>
             <tr>
-              <th scope="row">webroutes</th>
+              <th scope="row">Web Routes</th>
               <td>
                 <ul v-if="serviceRoutes.length > 0" class="service-details-tags">
                   <li v-for="routeItem in serviceRoutes" :key="`${routeItem.domain}-${routeItem.address}-${routeItem.port}`">
@@ -326,11 +326,11 @@ watch(
               </tr>
               <tr>
                 <th scope="row">Requested / limited RAM</th>
-                <td>{{ formatBytes(serviceSpec?.requested_ram_bytes) }} / {{ formatBytes(serviceSpec?.limit_ram_bytes) }}</td>
+                <td>{{ serviceSpec?.requested_ram_bytes ? formatBytes(serviceSpec?.requested_ram_bytes) : 0 }} / {{ serviceSpec?.limit_ram_bytes ? formatBytes(serviceSpec?.limit_ram_bytes) : '∞' }}</td>
               </tr>
               <tr>
                 <th scope="row">Requested / limited CPU</th>
-                <td>{{ formatNanoCPU(serviceSpec?.requested_cpu_nano) }} / {{ formatNanoCPU(serviceSpec?.limit_cpu_nano) }}</td>
+                <td>{{ serviceSpec?.requested_cpu_nano ? formatNanoCPU(serviceSpec?.requested_cpu_nano) : 0 }} / {{ serviceSpec?.limit_cpu_nano? formatNanoCPU(serviceSpec?.limit_cpu_nano) : '∞' }}</td>
               </tr>
             </tbody>
           </table>

@@ -13,7 +13,7 @@ export function formatDate(raw: string | undefined): string {
 
 export function formatBytes(value: number | undefined): string {
   if (value === undefined || value === null || Number.isNaN(Number(value))) {
-    return "∞";
+    return "n/a";
   }
 
   const bytes = Number(value);
