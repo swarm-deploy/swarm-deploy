@@ -1,8 +1,9 @@
 module github.com/swarm-deploy/swarm-deploy
 
-go 1.25.0
+go 1.26.1
 
 require (
+	github.com/artarts36/envmasker v0.0.0-20260424231721-45f9d0bb307b
 	github.com/artarts36/go-entrypoint v0.2.1
 	github.com/artarts36/specw v0.1.6-0.20260329194557-bfc86ff4f662
 	github.com/avast/retry-go/v5 v5.0.0

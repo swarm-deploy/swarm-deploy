@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/artarts36/envmasker"
+
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 )
 
@@ -274,25 +276,31 @@ func compareEnvironment(oldEnvironment map[string]string, newEnvironment map[str
 		case !oldExists && newExists:
 			diffs = append(diffs, EnvironmentDiff{
 				VarName: variableName,
-				Value:   newValue,
+				Value:   maskEnvValue(variableName, newValue),
 				Added:   true,
 			})
 		case oldExists && !newExists:
 			diffs = append(diffs, EnvironmentDiff{
 				VarName: variableName,
-				Value:   oldValue,
+				Value:   maskEnvValue(variableName, oldValue),
 				Deleted: true,
 			})
 		case oldExists && newExists && oldValue != newValue:
 			diffs = append(diffs, EnvironmentDiff{
 				VarName: variableName,
-				Value:   newValue,
+				Value:   maskEnvValue(variableName, newValue),
 				Changed: true,
 			})
 		}
 	}
 
 	return diffs
+}
+
+func maskEnvValue(key string, value string) string {
+	maskedValue, _ := envmasker.Mask(key, value)
+
+	return maskedValue
 }
 
 func compareNetworks(oldNetworks []string, newNetworks []string) []NetworkDiff {

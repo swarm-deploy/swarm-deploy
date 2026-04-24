@@ -71,7 +71,6 @@ func (g *GitCommitDiff) Execute(ctx context.Context, request routing.Request) (r
 	if err != nil {
 		return routing.Response{}, err
 	}
-	diff = sanitizeDiffForModel(diff)
 
 	payload := struct {
 		// Commit is an inspected commit hash.
@@ -97,16 +96,6 @@ func (g *GitCommitDiff) Execute(ctx context.Context, request routing.Request) (r
 	}
 
 	return routing.Response{Payload: payload}, nil
-}
-
-func sanitizeDiffForModel(diff differ.Diff) differ.Diff {
-	for serviceIndex := range diff.Services {
-		for environmentIndex := range diff.Services[serviceIndex].Environment {
-			diff.Services[serviceIndex].Environment[environmentIndex].Value = ""
-		}
-	}
-
-	return diff
 }
 
 func (g *GitCommitDiff) collectComposeFiles(fileDiffs []git.CommitFileDiff) []differ.ComposeFile {

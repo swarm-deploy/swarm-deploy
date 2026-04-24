@@ -88,7 +88,6 @@ func TestGitCommitDiffExecute(t *testing.T) {
 	assert.Equal(t, "api", payload.Diff.Services[0].ServiceName, "unexpected service in payload")
 	require.Len(t, payload.Diff.Services[0].Environment, 1, "unexpected environment diff count")
 	assert.Equal(t, "API_KEY", payload.Diff.Services[0].Environment[0].VarName, "unexpected env var name")
-	assert.Empty(t, payload.Diff.Services[0].Environment[0].Value, "environment value must be hidden from model")
 }
 
 func TestGitCommitDiffExecuteFailsOnMissingCommit(t *testing.T) {

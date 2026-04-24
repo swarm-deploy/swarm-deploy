@@ -15,6 +15,10 @@ github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be h1:9AeTilPcZAjCFI
 github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be/go.mod h1:ySMOLuWl6zY27l47sB3qLNK6tF2fkHG55UZxx8oIVo4=
 github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5 h1:0CwZNZbxp69SHPdPJAN/hZIm0C4OItdklCFmMRWYpio=
 github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5/go.mod h1:wHh0iHkYZB8zMSxRWpUBQtwG5a7fFgvEO+odwuTv2gs=
+github.com/artarts36/envmasker v0.0.0-20260424231206-5935eabdda90 h1:5bx/IztmZZ/IBSXf6j4GqosvvBAV5KSo2H8bni7wft8=
+github.com/artarts36/envmasker v0.0.0-20260424231206-5935eabdda90/go.mod h1:7Q0Q99dPgkUwh/o/CgpYfGAK00Oc03Q6jKDdMgxIRR0=
+github.com/artarts36/envmasker v0.0.0-20260424231721-45f9d0bb307b h1:koX6dv79BAKVJtOwW+1CGZHc8xfzLVbS6TW3Hn9OhRw=
+github.com/artarts36/envmasker v0.0.0-20260424231721-45f9d0bb307b/go.mod h1:7Q0Q99dPgkUwh/o/CgpYfGAK00Oc03Q6jKDdMgxIRR0=
 github.com/artarts36/go-entrypoint v0.2.1 h1:6P+rrS1NesITwyDK7eUFA4C3W2JcAw1t6hBmYVsDJcg=
 github.com/artarts36/go-entrypoint v0.2.1/go.mod h1:5uYdUxopW6JoRpEMWXXTnrhrxUCKPw8/owK66APCDZo=
 github.com/artarts36/specw v0.1.6-0.20260329194557-bfc86ff4f662 h1:tVNDWwFwTmQpyoxFxaswZr/R8elOYIsgcDfaIiwGap8=
