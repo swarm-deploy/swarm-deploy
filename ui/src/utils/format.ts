@@ -41,3 +41,13 @@ export function formatNanoCPU(value: number | undefined): string {
 
   return `${cpu.toFixed(cpu >= 1 ? 2 : 3)} CPU`;
 }
+
+export function shortCommitHash(raw: string | undefined, length = 6): string {
+  const value = String(raw || "").trim();
+  if (!value) {
+    return "n/a";
+  }
+
+  const normalizedLength = Number.isFinite(length) ? Math.max(1, Math.floor(length)) : 6;
+  return value.slice(0, normalizedLength);
+}

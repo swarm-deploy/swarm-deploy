@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted } from "vue";
 
 import { useOverviewStore } from "../stores/overview";
-import { formatDate } from "../utils/format";
+import { formatDate, shortCommitHash } from "../utils/format";
 
 const overviewStore = useOverviewStore();
 
@@ -13,15 +13,6 @@ const syncRevision = computed(() => String(syncInfo.value?.git_revision ?? "").t
 
 function isStatusClass(status: string, expected: string): boolean {
   return status.toLowerCase() === expected;
-}
-
-function shortCommitHash(hash: string | undefined): string {
-  const value = String(hash || "").trim();
-  if (!value) {
-    return "n/a";
-  }
-
-  return value.slice(0, 6);
 }
 
 async function openCommitDetails(commitHash: string | undefined) {

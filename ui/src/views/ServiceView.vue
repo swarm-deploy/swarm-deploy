@@ -9,8 +9,9 @@ import type {
   ServiceInfo,
   ServiceStatusResponse,
 } from "../api/types";
+import { useOverviewStore } from "../stores/overview";
 import { useSecretDetailsStore } from "../stores/secretDetails";
-import { formatBytes, formatDate, formatNanoCPU } from "../utils/format";
+import { formatBytes, formatDate, formatNanoCPU, shortCommitHash } from "../utils/format";
 
 const route = useRoute();
 
@@ -23,6 +24,7 @@ const deploymentsLoading = ref(false);
 const deploymentsError = ref("");
 const showDockerLabels = ref(false);
 const secretDetailsStore = useSecretDetailsStore();
+const overviewStore = useOverviewStore();
 
 const stackName = computed(() => String(route.params.stack ?? "").trim());
 const serviceName = computed(() => String(route.params.service ?? "").trim());
@@ -87,6 +89,15 @@ function deploymentStatusClass(status: ServiceDeploymentResponse["status"]): str
 
 function deploymentKey(item: ServiceDeploymentResponse, index: number): string {
   return `${item.created_at}-${item.status}-${item.image_version}-${index}`;
+}
+
+async function openCommitDetails(commitHash: string | undefined): Promise<void> {
+  const hash = String(commitHash || "").trim();
+  if (!hash) {
+    return;
+  }
+
+  await overviewStore.openCommitDetailsModal(hash);
 }
 
 function openSecretDetails(secretName: string): void {
@@ -350,7 +361,18 @@ watch(
                 <span class="meta">{{ formatDate(deployment.created_at) }}</span>
               </div>
               <p class="meta">image version: {{ deployment.image_version || "n/a" }}</p>
-              <p v-if="deployment.commit" class="meta">commit: {{ deployment.commit }}</p>
+              <p class="meta">
+                commit:
+                <button
+                  v-if="deployment.commit"
+                  type="button"
+                  class="stack-commit-badge status unknown"
+                  @click="openCommitDetails(deployment.commit)"
+                >
+                  {{ shortCommitHash(deployment.commit) }}
+                </button>
+                <span v-else> n/a</span>
+              </p>
             </li>
           </ul>
         </article>

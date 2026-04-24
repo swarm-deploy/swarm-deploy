@@ -4,7 +4,7 @@ import { computed, onMounted, onUnmounted } from "vue";
 import { useAssistantStore } from "../../stores/assistant";
 import { useOverviewStore } from "../../stores/overview";
 import { useUIStore } from "../../stores/ui";
-import { formatDate } from "../../utils/format";
+import { formatDate, shortCommitHash } from "../../utils/format";
 
 const overviewStore = useOverviewStore();
 const assistantStore = useAssistantStore();
@@ -13,12 +13,7 @@ const uiStore = useUIStore();
 const commitDetails = computed(() => overviewStore.commitDetailsData);
 const currentCommitHash = computed(() => commitDetails.value?.full_hash || overviewStore.commitDetailsHash);
 const shortHash = computed(() => {
-  const hash = currentCommitHash.value.trim();
-  if (!hash) {
-    return "n/a";
-  }
-
-  return hash.slice(0, 6);
+  return shortCommitHash(currentCommitHash.value);
 });
 const titleText = computed(() => {
   const author = commitDetails.value?.author?.trim() || "unknown";
