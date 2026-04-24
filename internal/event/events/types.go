@@ -45,6 +45,15 @@ type Type struct {
 	category Category
 }
 
+type Event interface {
+	// Type returns unique event type identifier.
+	Type() Type
+	// Message returns short human-readable event description.
+	Message() string
+	// Details returns event-specific details for history and notifications.
+	Details() map[string]string
+}
+
 var (
 	TypeDeploySuccess = Type{
 		name:     TypeNameDeploySuccess,
@@ -91,6 +100,18 @@ var (
 		severity: SeverityAlert,
 		category: CategorySecurity,
 	}
+
+	Types = []Type{
+		TypeDeploySuccess,
+		TypeDeployFailed,
+		TypeSendNotificationFailed,
+		TypeSyncManualStarted,
+		TypeServiceReplicasIncreased,
+		TypeServiceReplicasDecreased,
+		TypeServiceRestarted,
+		TypeUserAuthenticated,
+		TypeAssistantPromptInjectionDetected,
+	}
 )
 
 // Name returns unique machine-readable event name.
@@ -134,9 +155,34 @@ func (t *Type) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func (n TypeName) Valid() bool {
+	switch n {
+	case TypeNameDeploySuccess:
+		return true
+	case TypeNameDeployFailed:
+		return true
+	case TypeNameSendNotificationFailed:
+		return true
+	case TypeNameSyncManualStarted:
+		return true
+	case TypeNameServiceReplicasIncreased:
+		return true
+	case TypeNameServiceReplicasDecreased:
+		return true
+	case TypeNameServiceRestarted:
+		return true
+	case TypeNameUserAuthenticated:
+		return true
+	case TypeNameAssistantPromptInjectionDetected:
+		return true
+	default:
+		return false
+	}
+}
+
 // ParseType resolves event type metadata by event name.
 func ParseType(name string) (Type, bool) {
-	switch TypeName(strings.TrimSpace(name)) {
+	switch TypeName(name) {
 	case TypeNameDeploySuccess:
 		return TypeDeploySuccess, true
 	case TypeNameDeployFailed:
@@ -162,7 +208,7 @@ func ParseType(name string) (Type, bool) {
 
 // ParseSeverity decodes severity from text.
 func ParseSeverity(raw string) (Severity, bool) {
-	switch Severity(strings.ToLower(strings.TrimSpace(raw))) {
+	switch Severity(raw) {
 	case SeverityInfo:
 		return SeverityInfo, true
 	case SeverityWarn:
@@ -178,7 +224,7 @@ func ParseSeverity(raw string) (Severity, bool) {
 
 // ParseCategory decodes category from text.
 func ParseCategory(raw string) (Category, bool) {
-	switch Category(strings.ToLower(strings.TrimSpace(raw))) {
+	switch Category(raw) {
 	case CategorySync:
 		return CategorySync, true
 	case CategorySecurity:
@@ -186,25 +232,4 @@ func ParseCategory(raw string) (Category, bool) {
 	default:
 		return "", false
 	}
-}
-
-type Event interface {
-	// Type returns unique event type identifier.
-	Type() Type
-	// Message returns short human-readable event description.
-	Message() string
-	// Details returns event-specific details for history and notifications.
-	Details() map[string]string
-}
-
-var Types = []Type{
-	TypeDeploySuccess,
-	TypeDeployFailed,
-	TypeSendNotificationFailed,
-	TypeSyncManualStarted,
-	TypeServiceReplicasIncreased,
-	TypeServiceReplicasDecreased,
-	TypeServiceRestarted,
-	TypeUserAuthenticated,
-	TypeAssistantPromptInjectionDetected,
 }

@@ -77,7 +77,7 @@ func (c *NotificationSpec) validate() []error {
 	var errs []error
 
 	for eventTypeName, channels := range c.On {
-		if _, ok := events.ParseType(string(eventTypeName)); !ok {
+		if !eventTypeName.Valid() {
 			errs = append(errs, fmt.Errorf("notifications.on[%q] has unknown event type", eventTypeName))
 			continue
 		}
