@@ -61,19 +61,19 @@ var (
 		name:     TypeNameDeploySuccess,
 		severity: SeverityInfo,
 		category: CategorySync,
-		window:   5 * time.Second,
+		window:   1 * time.Minute,
 	}
 	TypeDeployFailed = Type{
 		name:     TypeNameDeployFailed,
 		severity: SeverityAlert,
 		category: CategorySync,
-		window:   5 * time.Second,
+		window:   1 * time.Minute,
 	}
 	TypeSendNotificationFailed = Type{
 		name:     TypeNameSendNotificationFailed,
 		severity: SeverityError,
 		category: CategorySync,
-		window:   15 * time.Second,
+		window:   1 * time.Hour,
 	}
 	TypeSyncManualStarted = Type{
 		name:     TypeNameSyncManualStarted,

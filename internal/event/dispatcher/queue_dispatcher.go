@@ -32,10 +32,9 @@ type QueueDispatcher struct {
 	handledM sync.Mutex
 	closed   bool
 	wg       sync.WaitGroup
-	stopCh   chan struct{}
 }
 
-const workersCount = 2
+const workersCount = 1
 
 func NewQueueDispatcher() *QueueDispatcher {
 	d := &QueueDispatcher{
@@ -45,12 +44,10 @@ func NewQueueDispatcher() *QueueDispatcher {
 		fastQueue:   newQueue(),
 		slowQueue:   newQueue(),
 		handled:     map[string]time.Time{},
-		stopCh:      make(chan struct{}),
 	}
 
 	d.wg.Add(workersCount)
 	go d.runQueueWorker()
-	go d.runHandledCleaner()
 
 	return d
 }
@@ -81,6 +78,7 @@ func (d *QueueDispatcher) skipDispatching(now time.Time, event events.Event) boo
 
 	d.handledM.Lock()
 	defer d.handledM.Unlock()
+	d.cleanHandledLocked(now)
 
 	if nextHandle, ok := d.handled[key]; ok && now.Before(nextHandle) {
 		return true
@@ -129,26 +127,7 @@ func (d *QueueDispatcher) runQueueWorker() {
 	}
 }
 
-func (d *QueueDispatcher) runHandledCleaner() {
-	defer d.wg.Done()
-
-	ticker := time.NewTicker(time.Minute)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			d.cleanHandled(d.now())
-		case <-d.stopCh:
-			return
-		}
-	}
-}
-
-func (d *QueueDispatcher) cleanHandled(now time.Time) {
-	d.handledM.Lock()
-	defer d.handledM.Unlock()
-
+func (d *QueueDispatcher) cleanHandledLocked(now time.Time) {
 	for key, nextHandle := range d.handled {
 		if now.Before(nextHandle) {
 			continue
@@ -193,7 +172,6 @@ func (d *QueueDispatcher) Shutdown(ctx context.Context) error {
 
 	d.slowQueue.Close()
 	d.fastQueue.Close()
-	close(d.stopCh)
 
 	d.mu.Unlock()
 
