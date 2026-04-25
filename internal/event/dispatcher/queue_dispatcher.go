@@ -3,7 +3,10 @@ package dispatcher
 import (
 	"context"
 	"errors"
+	"fmt"
+	"hash/fnv"
 	"log/slog"
+	"sort"
 	"sync"
 	"time"
 
@@ -23,13 +26,16 @@ type QueueDispatcher struct {
 	queue     chan events.Event
 	fastQueue *queue
 	slowQueue *queue
+	handled   map[string]time.Time
 
-	mu     sync.RWMutex
-	closed bool
-	wg     sync.WaitGroup
+	mu       sync.RWMutex
+	handledM sync.Mutex
+	closed   bool
+	wg       sync.WaitGroup
+	stopCh   chan struct{}
 }
 
-const queuesSize = 3
+const workersCount = 2
 
 func NewQueueDispatcher() *QueueDispatcher {
 	d := &QueueDispatcher{
@@ -38,10 +44,13 @@ func NewQueueDispatcher() *QueueDispatcher {
 		subscribers: map[events.Type][]Subscriber{},
 		fastQueue:   newQueue(),
 		slowQueue:   newQueue(),
+		handled:     map[string]time.Time{},
+		stopCh:      make(chan struct{}),
 	}
 
-	d.wg.Add(queuesSize)
+	d.wg.Add(workersCount)
 	go d.runQueueWorker()
+	go d.runHandledCleaner()
 
 	return d
 }
@@ -62,6 +71,25 @@ func (d *QueueDispatcher) Dispatch(ctx context.Context, event events.Event) {
 	d.queue <- event
 }
 
+func (d *QueueDispatcher) skipDispatching(now time.Time, event events.Event) bool {
+	window := event.Type().Window()
+	if window <= 0 {
+		return false
+	}
+
+	key := deduplicateKey(event)
+
+	d.handledM.Lock()
+	defer d.handledM.Unlock()
+
+	if nextHandle, ok := d.handled[key]; ok && now.Before(nextHandle) {
+		return true
+	}
+
+	d.handled[key] = now.Add(window)
+	return false
+}
+
 // Subscribe registers a subscriber for event type.
 func (d *QueueDispatcher) Subscribe(eventType events.Type, subscriber Subscriber) {
 	d.mu.Lock()
@@ -73,6 +101,15 @@ func (d *QueueDispatcher) runQueueWorker() {
 	defer d.wg.Done()
 
 	for event := range d.queue {
+		now := d.now()
+		if d.skipDispatching(now, event) {
+			slog.DebugContext(context.Background(), "[event] event skipped by deduplication window",
+				slog.String("event.type", event.Type().String()),
+			)
+
+			continue
+		}
+
 		d.mu.RLock()
 		subscribers := append([]Subscriber{}, d.subscribers[event.Type()]...)
 		d.mu.RUnlock()
@@ -92,6 +129,59 @@ func (d *QueueDispatcher) runQueueWorker() {
 	}
 }
 
+func (d *QueueDispatcher) runHandledCleaner() {
+	defer d.wg.Done()
+
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			d.cleanHandled(d.now())
+		case <-d.stopCh:
+			return
+		}
+	}
+}
+
+func (d *QueueDispatcher) cleanHandled(now time.Time) {
+	d.handledM.Lock()
+	defer d.handledM.Unlock()
+
+	for key, nextHandle := range d.handled {
+		if now.Before(nextHandle) {
+			continue
+		}
+
+		delete(d.handled, key)
+	}
+}
+
+func deduplicateKey(event events.Event) string {
+	details := event.Details()
+	keys := make([]string, 0, len(details))
+
+	for key := range details {
+		keys = append(keys, key)
+	}
+
+	sort.Strings(keys)
+
+	hash := fnv.New64a()
+	_, _ = hash.Write([]byte(event.Type().String()))
+	_, _ = hash.Write([]byte{0})
+
+	for _, key := range keys {
+		_, _ = hash.Write([]byte(key))
+		_, _ = hash.Write([]byte{0})
+		_, _ = hash.Write([]byte(details[key]))
+		_, _ = hash.Write([]byte{0})
+	}
+
+	return fmt.Sprintf("%s:%x", event.Type().String(), hash.Sum64())
+}
+
 func (d *QueueDispatcher) Shutdown(ctx context.Context) error {
 	d.mu.Lock()
 	if d.closed {
@@ -103,6 +193,7 @@ func (d *QueueDispatcher) Shutdown(ctx context.Context) error {
 
 	d.slowQueue.Close()
 	d.fastQueue.Close()
+	close(d.stopCh)
 
 	d.mu.Unlock()
 

@@ -3,6 +3,7 @@ package events
 import (
 	"encoding/json"
 	"strings"
+	"time"
 )
 
 // TypeName is an unique machine-readable event type identifier.
@@ -43,6 +44,7 @@ type Type struct {
 	name     TypeName
 	severity Severity
 	category Category
+	window   time.Duration
 }
 
 type Event interface {
@@ -59,46 +61,55 @@ var (
 		name:     TypeNameDeploySuccess,
 		severity: SeverityInfo,
 		category: CategorySync,
+		window:   5 * time.Second,
 	}
 	TypeDeployFailed = Type{
 		name:     TypeNameDeployFailed,
 		severity: SeverityAlert,
 		category: CategorySync,
+		window:   5 * time.Second,
 	}
 	TypeSendNotificationFailed = Type{
 		name:     TypeNameSendNotificationFailed,
 		severity: SeverityError,
 		category: CategorySync,
+		window:   15 * time.Second,
 	}
 	TypeSyncManualStarted = Type{
 		name:     TypeNameSyncManualStarted,
 		severity: SeverityInfo,
 		category: CategorySync,
+		window:   5 * time.Second,
 	}
 	TypeServiceReplicasIncreased = Type{
 		name:     TypeNameServiceReplicasIncreased,
 		severity: SeverityInfo,
 		category: CategorySync,
+		window:   15 * time.Second,
 	}
 	TypeServiceReplicasDecreased = Type{
 		name:     TypeNameServiceReplicasDecreased,
 		severity: SeverityInfo,
 		category: CategorySync,
+		window:   15 * time.Second,
 	}
 	TypeServiceRestarted = Type{
 		name:     TypeNameServiceRestarted,
 		severity: SeverityInfo,
 		category: CategorySync,
+		window:   15 * time.Second,
 	}
 	TypeUserAuthenticated = Type{
 		name:     TypeNameUserAuthenticated,
 		severity: SeverityInfo,
 		category: CategorySecurity,
+		window:   1 * time.Minute,
 	}
 	TypeAssistantPromptInjectionDetected = Type{
 		name:     TypeNameAssistantPromptInjectionDetected,
 		severity: SeverityAlert,
 		category: CategorySecurity,
+		window:   30 * time.Second,
 	}
 
 	Types = []Type{
@@ -127,6 +138,11 @@ func (t Type) Severity() Severity {
 // Category returns event functional group.
 func (t Type) Category() Category {
 	return t.category
+}
+
+// Window returns deduplication interval for events with identical details.
+func (t Type) Window() time.Duration {
+	return t.window
 }
 
 func (t Type) String() string {
