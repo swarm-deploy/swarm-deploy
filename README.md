@@ -30,3 +30,4 @@ GitOps controller for Docker Swarm with an ArgoCD-inspired, but Swarm-native, co
 ## Ecosystem
 - [cloud-vector](https://github.com/swarm-deploy/cloud-vector) - logging for Docker Swarm
 - [cloud-secrets](https://github.com/swarm-deploy/cloud-secrets) - background service for update secrets in Docker Swarm cluster
+- [init-jobs](https://github.com/swarm-deploy/init-jobs) - Collection for ready init jobs. Example: [postgres](https://github.com/swarm-deploy/init-jobs/blob/master/postgres/README.md) for create database
