@@ -3,83 +3,21 @@ package controller
 import (
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
-	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/controller/statem"
 )
 
-type serviceState struct {
-	Image        string
-	LastStatus   string
-	LastDeployAt time.Time
+func newRuntimeStateStore() *statem.MemoryStore {
+	return statem.NewMemoryStore()
 }
 
-type stackState struct {
-	SourceDigest string
-	LastCommit   string
-	LastStatus   string
-	LastError    string
-	LastDeployAt time.Time
-	Services     map[string]serviceState
-}
+func (c *Controller) ListStacks() []StackView {
+	snapshot := c.stateStore.Get()
+	stacks := make([]StackView, 0, len(c.cfg.Spec.Stacks))
 
-type runtimeState struct {
-	LastSyncAt     time.Time
-	LastSyncReason string
-	LastSyncResult string
-	LastSyncError  string
-	GitRevision    string
-	Stacks         map[string]stackState
-}
-
-type runtimeStateStore struct {
-	mu    sync.RWMutex
-	state runtimeState
-}
-
-func newRuntimeStateStore() *runtimeStateStore {
-	return &runtimeStateStore{
-		state: runtimeState{
-			Stacks: map[string]stackState{},
-		},
-	}
-}
-
-func (s *runtimeStateStore) snapshot() runtimeState {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	cloned := s.state
-	cloned.Stacks = map[string]stackState{}
-	for stackName, st := range s.state.Stacks {
-		stackCopy := st
-		stackCopy.Services = map[string]serviceState{}
-		for serviceName, service := range st.Services {
-			stackCopy.Services[serviceName] = service
-		}
-		cloned.Stacks[stackName] = stackCopy
-	}
-
-	return cloned
-}
-
-func (s *runtimeStateStore) update(fn func(*runtimeState)) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	fn(&s.state)
-	if s.state.Stacks == nil {
-		s.state.Stacks = map[string]stackState{}
-	}
-}
-
-func (s *runtimeStateStore) listStacks(specs []config.StackSpec) []StackView {
-	snapshot := s.snapshot()
-	stacks := make([]StackView, 0, len(specs))
-
-	for _, stackCfg := range specs {
+	for _, stackCfg := range c.cfg.Spec.Stacks {
 		stackSnapshot, exists := snapshot.Stacks[stackCfg.Name]
 		view := StackView{
 			Name:         stackCfg.Name,
@@ -118,8 +56,8 @@ func (s *runtimeStateStore) listStacks(specs []config.StackSpec) []StackView {
 	return stacks
 }
 
-func (s *runtimeStateStore) lastSyncInfo() map[string]string {
-	state := s.snapshot()
+func (c *Controller) LastSyncInfo() map[string]string {
+	state := c.snapshotState()
 	info := map[string]string{
 		"last_sync_reason": state.LastSyncReason,
 		"last_sync_result": state.LastSyncResult,
@@ -132,18 +70,10 @@ func (s *runtimeStateStore) lastSyncInfo() map[string]string {
 	return info
 }
 
-func (c *Controller) ListStacks() []StackView {
-	return c.stateStore.listStacks(c.cfg.Spec.Stacks)
+func (c *Controller) snapshotState() statem.Runtime {
+	return c.stateStore.Get()
 }
 
-func (c *Controller) LastSyncInfo() map[string]string {
-	return c.stateStore.lastSyncInfo()
-}
-
-func (c *Controller) snapshotState() runtimeState {
-	return c.stateStore.snapshot()
-}
-
-func (c *Controller) updateState(fn func(*runtimeState)) {
-	c.stateStore.update(fn)
+func (c *Controller) updateState(fn func(*statem.Runtime)) {
+	c.stateStore.Update(fn)
 }

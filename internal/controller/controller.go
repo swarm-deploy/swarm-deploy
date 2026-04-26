@@ -9,6 +9,7 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/controller/statem"
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
@@ -54,7 +55,7 @@ type Controller struct {
 	metrics  *metrics.Group
 	event    dispatcher.Dispatcher
 
-	stateStore      *runtimeStateStore
+	stateStore      *statem.MemoryStore
 	stackReconciler *stackReconciler
 
 	triggerCh chan triggerTask
@@ -174,7 +175,7 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 		)
 		c.metrics.Git.RecordGitUpdate(c.cfg.Spec.Git.Repository, "error")
 		c.metrics.Sync.RecordSyncRun(string(task.reason), "error", time.Since(startedAt))
-		c.updateState(func(s *runtimeState) {
+		c.updateState(func(s *statem.Runtime) {
 			s.LastSyncAt = time.Now()
 			s.LastSyncReason = string(task.reason)
 			s.LastSyncResult = "error"
@@ -199,7 +200,7 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 			slog.Any("err", reloadErr),
 		)
 		c.metrics.Sync.RecordSyncRun(string(task.reason), "error", time.Since(startedAt))
-		c.updateState(func(s *runtimeState) {
+		c.updateState(func(s *statem.Runtime) {
 			s.LastSyncAt = time.Now()
 			s.LastSyncReason = string(task.reason)
 			s.LastSyncResult = "error"
@@ -216,7 +217,7 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 
 	if !syncResult.Updated && task.reason != TriggerManual {
 		c.metrics.Sync.RecordSyncRun(string(task.reason), "no_change", time.Since(startedAt))
-		c.updateState(func(s *runtimeState) {
+		c.updateState(func(s *statem.Runtime) {
 			s.LastSyncAt = time.Now()
 			s.LastSyncReason = string(task.reason)
 			s.LastSyncResult = "no_change"
@@ -252,7 +253,7 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 	}
 
 	c.metrics.Sync.RecordSyncRun(string(task.reason), result, time.Since(startedAt))
-	c.updateState(func(s *runtimeState) {
+	c.updateState(func(s *statem.Runtime) {
 		s.LastSyncAt = time.Now()
 		s.LastSyncReason = string(task.reason)
 		s.LastSyncResult = result
@@ -269,7 +270,7 @@ func (c *Controller) reloadStacks() (string, error) {
 }
 
 func (c *Controller) syncStack(ctx context.Context, stackCfg config.StackSpec, commit string) error {
-	currentState := c.snapshotState()
+	currentState := c.stateStore.Get()
 	prev, exists := currentState.Stacks[stackCfg.Name]
 	reconcileResult, err := c.stackReconciler.Reconcile(ctx, stackCfg, prev.SourceDigest, exists)
 	if err != nil {
@@ -281,9 +282,9 @@ func (c *Controller) syncStack(ctx context.Context, stackCfg config.StackSpec, c
 	}
 
 	now := time.Now()
-	servicesState := map[string]serviceState{}
+	servicesState := map[string]statem.Service{}
 	for _, service := range reconcileResult.Services {
-		servicesState[service.Name] = serviceState{
+		servicesState[service.Name] = statem.Service{
 			Image:        service.Image,
 			LastStatus:   "success",
 			LastDeployAt: now,
@@ -291,8 +292,8 @@ func (c *Controller) syncStack(ctx context.Context, stackCfg config.StackSpec, c
 		c.metrics.Deploys.RecordDeploy(stackCfg.Name, service.Name, "success")
 	}
 
-	c.updateState(func(s *runtimeState) {
-		s.Stacks[stackCfg.Name] = stackState{
+	c.updateState(func(s *statem.Runtime) {
+		s.Stacks[stackCfg.Name] = statem.Stack{
 			SourceDigest: reconcileResult.SourceDigest,
 			LastCommit:   commit,
 			LastStatus:   "success",
@@ -312,9 +313,9 @@ func (c *Controller) syncStack(ctx context.Context, stackCfg config.StackSpec, c
 
 func (c *Controller) recordStackFailure(stackName, commit string, services []compose.Service, reason error) {
 	now := time.Now()
-	servicesState := map[string]serviceState{}
+	servicesState := map[string]statem.Service{}
 	for _, service := range services {
-		servicesState[service.Name] = serviceState{
+		servicesState[service.Name] = statem.Service{
 			Image:        service.Image,
 			LastStatus:   "failed",
 			LastDeployAt: now,
@@ -325,8 +326,8 @@ func (c *Controller) recordStackFailure(stackName, commit string, services []com
 		c.metrics.Deploys.RecordDeploy(stackName, "unknown", "failed")
 	}
 
-	c.updateState(func(s *runtimeState) {
-		s.Stacks[stackName] = stackState{
+	c.updateState(func(s *statem.Runtime) {
+		s.Stacks[stackName] = statem.Stack{
 			SourceDigest: "",
 			LastCommit:   commit,
 			LastStatus:   "failed",
