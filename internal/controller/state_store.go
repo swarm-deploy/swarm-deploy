@@ -9,10 +9,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/controller/statem"
 )
 
-func newRuntimeStateStore() *statem.MemoryStore {
-	return statem.NewMemoryStore()
-}
-
 func (c *Controller) ListStacks() []StackView {
 	snapshot := c.stateStore.Get()
 	stacks := make([]StackView, 0, len(c.cfg.Spec.Stacks))

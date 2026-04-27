@@ -55,7 +55,7 @@ type Controller struct {
 	metrics  *metrics.Group
 	event    dispatcher.Dispatcher
 
-	stateStore      *statem.MemoryStore
+	stateStore      statem.Store
 	stackReconciler *stackReconciler
 
 	triggerCh chan triggerTask
@@ -72,6 +72,7 @@ func New(
 	deployer *deployer.Deployer,
 	metricGroup *metrics.Group,
 	eventDispatcher dispatcher.Dispatcher,
+	stateStore statem.Store,
 ) *Controller {
 	return &Controller{
 		cfg:        cfg,
@@ -79,7 +80,7 @@ func New(
 		deployer:   deployer,
 		metrics:    metricGroup,
 		event:      eventDispatcher,
-		stateStore: newRuntimeStateStore(),
+		stateStore: stateStore,
 		stackReconciler: newStackReconciler(
 			cfg,
 			git,
@@ -217,8 +218,9 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 
 	if !syncResult.Updated && task.reason != TriggerManual {
 		c.metrics.Sync.RecordSyncRun(string(task.reason), "no_change", time.Since(startedAt))
+		currTime := time.Now()
 		c.updateState(func(s *statem.Runtime) {
-			s.LastSyncAt = time.Now()
+			s.LastSyncAt = currTime
 			s.LastSyncReason = string(task.reason)
 			s.LastSyncResult = "no_change"
 			s.LastSyncError = ""

@@ -12,7 +12,7 @@ COPY ui/index.html ui/styles.css ui/vite.config.ts ui/tsconfig.json ./
 COPY ui/src ./src
 RUN npm run build
 
-FROM golang:1.26.1-alpine AS builder
+FROM golang:1.26.2-alpine AS builder
 
 WORKDIR /src
 
@@ -31,7 +31,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags="-s -w" -o /out/swarm-deploy ./cmd/swarm-deploy
 
-FROM alpine:3.21
+FROM alpine:3.21.7
 
 RUN apk add --no-cache ca-certificates docker-cli tzdata
 

@@ -1,6 +1,6 @@
 module github.com/swarm-deploy/swarm-deploy
 
-go 1.26.1
+go 1.26.2
 
 require (
 	github.com/artarts36/envmasker v0.0.0-20260424231721-45f9d0bb307b
