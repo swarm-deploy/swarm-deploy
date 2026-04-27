@@ -17,6 +17,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/assistant"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/controller"
+	"github.com/swarm-deploy/swarm-deploy/internal/controller/statem"
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/differ"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/healthserver"
@@ -121,12 +122,22 @@ func main() {
 		os.Exit(1)
 	}
 
+	stateFileStore, err := statem.NewFileStore(filepath.Join(cfg.Spec.DataDir, "controller.state.json"))
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to build controller file state", slog.Any("err", err))
+		os.Exit(1)
+	}
+
+	stateStore := statem.NewWarmupStore(statem.NewMemoryStore(), stateFileStore)
+	stateStore.Warmup()
+
 	control := controller.New(
 		cfg,
 		gitRepository,
 		deployerSvc,
 		metricsGroup,
 		eventDispatcher,
+		stateStore,
 	)
 
 	assistantService, err := buildAssistantService(
@@ -167,6 +178,17 @@ func main() {
 	healthServer := healthserver.NewApplication(cfg.Spec.HealthServer)
 
 	entrypoints := []entrypoint.Entrypoint{
+		{
+			Name: "state-store",
+			Run: func(ctx context.Context) error {
+				stateStore.Sync()
+				return nil
+			},
+			Stop: func(ctx context.Context) error {
+				stateStore.Stop()
+				return nil
+			},
+		},
 		webApplication.Entrypoint(),
 		healthServer.Entrypoint(),
 		{
