@@ -36,6 +36,10 @@ const (
 	defaultAssistantTemperature             = "0.2"
 	defaultAssistantMaxTokens               = "800"
 	defaultAssistantConversationInMemoryTTL = 1 * time.Hour
+	defaultManagedNetworkDriver             = "overlay"
+
+	managedNetworkLabelKey   = "org.swarm-deploy.network.managed"
+	managedNetworkLabelValue = "true"
 )
 
 type Config struct {
@@ -54,6 +58,10 @@ type Spec struct {
 	StacksSource StacksSourceSpec `yaml:"stacks"`
 	// Stacks is a parsed list of stack specifications loaded from stacks.file.
 	Stacks []StackSpec `yaml:"-"`
+	// NetworksSource contains path to network definitions file inside git repository.
+	NetworksSource NetworksSourceSpec `yaml:"networks"`
+	// Networks is a parsed list of network specifications loaded from networks.file.
+	Networks []NetworkSpec `yaml:"-"`
 	// Notifications contains notification channel configuration.
 	Notifications NotificationSpec `yaml:"notifications"`
 	// Web contains public HTTP server settings.
@@ -107,11 +115,31 @@ type StacksSourceSpec struct {
 	File string `yaml:"file"`
 }
 
+type NetworksSourceSpec struct {
+	// File is a path to YAML file with network definitions relative to repository root.
+	File string `yaml:"file"`
+}
+
 type StackSpec struct {
 	// Name is a Docker Swarm stack name.
 	Name string `yaml:"name"`
 	// ComposeFile is a path to stack compose file relative to repo root.
 	ComposeFile string `yaml:"composeFile"`
+}
+
+type NetworkSpec struct {
+	// Name is a Docker network name.
+	Name string `yaml:"name"`
+	// Driver is a Docker network driver (for example: overlay, bridge).
+	Driver string `yaml:"driver"`
+	// Attachable allows standalone containers to attach to the network.
+	Attachable bool `yaml:"attachable"`
+	// Internal marks network as internal-only.
+	Internal bool `yaml:"internal"`
+	// Labels contains custom Docker network labels.
+	Labels map[string]string `yaml:"labels"`
+	// Options contains driver-specific network options.
+	Options map[string]string `yaml:"options"`
 }
 
 type HealthServerSpec struct {
@@ -176,6 +204,10 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 	err = cfg.loadStacks(configDir)
+	if err != nil {
+		return nil, err
+	}
+	err = cfg.loadNetworks(configDir)
 	if err != nil {
 		return nil, err
 	}
@@ -317,6 +349,22 @@ func (c *Config) loadStacks(configDir string) error {
 	return err
 }
 
+func (c *Config) loadNetworks(configDir string) error {
+	if strings.TrimSpace(c.Spec.NetworksSource.File) == "" {
+		c.Spec.Networks = nil
+		return nil
+	}
+
+	_, err := c.ReloadNetworks(filepath.Join(c.Spec.DataDir, "repo"), configDir)
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
 // ReloadStacks reloads stack definitions from the first existing base directory.
 // If stacks.file is absolute, the absolute path is used directly.
 func (c *Config) ReloadStacks(baseDirs ...string) (string, error) {
@@ -335,6 +383,26 @@ func (c *Config) ReloadStacks(baseDirs ...string) (string, error) {
 
 	c.Spec.Stacks = stacks
 	return stacksPath, nil
+}
+
+// ReloadNetworks reloads network definitions from the first existing base directory.
+// If networks.file is absolute, the absolute path is used directly.
+func (c *Config) ReloadNetworks(baseDirs ...string) (string, error) {
+	networksPath, err := c.resolveNetworksPath(baseDirs...)
+	if err != nil {
+		return "", err
+	}
+
+	networks, err := loadNetworksFromFile(networksPath)
+	if err != nil {
+		return "", err
+	}
+	if errs := validateNetworksList(networks); len(errs) > 0 {
+		return "", errors.Join(errs...)
+	}
+
+	c.Spec.Networks = networks
+	return networksPath, nil
 }
 
 func (c *Config) resolveStacksPath(baseDirs ...string) (string, error) {
@@ -376,6 +444,45 @@ func (c *Config) resolveStacksPath(baseDirs ...string) (string, error) {
 	)
 }
 
+func (c *Config) resolveNetworksPath(baseDirs ...string) (string, error) {
+	if c.Spec.NetworksSource.File == "" {
+		return "", errors.New("networks.file is required")
+	}
+
+	if filepath.IsAbs(c.Spec.NetworksSource.File) {
+		return c.Spec.NetworksSource.File, nil
+	}
+
+	var candidates []string
+	for _, baseDir := range baseDirs {
+		if strings.TrimSpace(baseDir) == "" {
+			continue
+		}
+
+		candidate := filepath.Join(baseDir, c.Spec.NetworksSource.File)
+		candidates = append(candidates, candidate)
+
+		_, err := os.Stat(candidate)
+		if err == nil {
+			return candidate, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("stat networks file %s: %w", candidate, err)
+		}
+	}
+
+	if len(candidates) == 0 {
+		return "", errors.New("networks.file is relative and no baseDirs provided")
+	}
+
+	return "", fmt.Errorf(
+		"networks file %s not found in any base dir: %s: %w",
+		c.Spec.NetworksSource.File,
+		strings.Join(candidates, ", "),
+		os.ErrNotExist,
+	)
+}
+
 func loadStacksFromFile(stacksPath string) ([]StackSpec, error) {
 	data, err := os.ReadFile(stacksPath)
 	if err != nil {
@@ -407,11 +514,57 @@ func loadStacksFromFile(stacksPath string) ([]StackSpec, error) {
 	return list, nil
 }
 
+func loadNetworksFromFile(networksPath string) ([]NetworkSpec, error) {
+	data, err := os.ReadFile(networksPath)
+	if err != nil {
+		return nil, fmt.Errorf("read networks file %s: %w", networksPath, err)
+	}
+
+	type networksContainer struct {
+		Networks []NetworkSpec `yaml:"networks"`
+	}
+
+	var container networksContainer
+	err = yaml.Unmarshal(data, &container)
+	if err != nil {
+		return nil, fmt.Errorf("decode networks file %s: %w", networksPath, err)
+	}
+	for i := range container.Networks {
+		container.Networks[i].Name = strings.TrimSpace(container.Networks[i].Name)
+		container.Networks[i].Driver = strings.TrimSpace(container.Networks[i].Driver)
+		if container.Networks[i].Driver == "" {
+			container.Networks[i].Driver = defaultManagedNetworkDriver
+		}
+	}
+	if len(container.Networks) > 0 {
+		return container.Networks, nil
+	}
+
+	var list []NetworkSpec
+	err = yaml.Unmarshal(data, &list)
+	if err != nil {
+		return nil, fmt.Errorf("decode networks list %s: %w", networksPath, err)
+	}
+	for i := range list {
+		list[i].Name = strings.TrimSpace(list[i].Name)
+		list[i].Driver = strings.TrimSpace(list[i].Driver)
+		if list[i].Driver == "" {
+			list[i].Driver = defaultManagedNetworkDriver
+		}
+	}
+	if len(list) == 0 {
+		return nil, fmt.Errorf("networks file %s does not contain any networks", networksPath)
+	}
+
+	return list, nil
+}
+
 func (c *Config) validate() error {
 	var errs []error
 
 	errs = append(errs, c.validateRequired()...)
 	errs = append(errs, c.validateStacks()...)
+	errs = append(errs, c.validateNetworks()...)
 	errs = append(errs, c.validateSync()...)
 	errs = append(errs, c.validateGitAuth()...)
 	errs = append(errs, c.validateSecurity()...)
@@ -442,6 +595,14 @@ func (c *Config) validateStacks() []error {
 	return validateStacksList(c.Spec.Stacks)
 }
 
+func (c *Config) validateNetworks() []error {
+	if len(c.Spec.Networks) == 0 {
+		return nil
+	}
+
+	return validateNetworksList(c.Spec.Networks)
+}
+
 func validateStacksList(stacks []StackSpec) []error {
 	var errs []error
 
@@ -457,6 +618,39 @@ func validateStacksList(stacks []StackSpec) []error {
 			errs = append(errs, fmt.Errorf("stacks.file has duplicated name %q", stack.Name))
 		}
 		seen[stack.Name] = struct{}{}
+	}
+
+	return errs
+}
+
+func validateNetworksList(networks []NetworkSpec) []error {
+	var errs []error
+
+	seen := map[string]struct{}{}
+	for i, network := range networks {
+		if network.Name == "" {
+			errs = append(errs, fmt.Errorf("networks.file[%d].name is required", i))
+		}
+		if network.Driver == "" {
+			errs = append(errs, fmt.Errorf("networks.file[%d].driver is required", i))
+		}
+		if _, exists := seen[network.Name]; exists {
+			errs = append(errs, fmt.Errorf("networks.file has duplicated name %q", network.Name))
+		}
+		if labelValue, exists := network.Labels[managedNetworkLabelKey]; exists {
+			if strings.TrimSpace(labelValue) != managedNetworkLabelValue {
+				errs = append(
+					errs,
+					fmt.Errorf(
+						"networks.file[%d].labels[%q] must be %q when specified",
+						i,
+						managedNetworkLabelKey,
+						managedNetworkLabelValue,
+					),
+				)
+			}
+		}
+		seen[network.Name] = struct{}{}
 	}
 
 	return errs

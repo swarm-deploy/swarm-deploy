@@ -15,6 +15,9 @@ func TestNetworkManagerMapNetworkMapsFields(t *testing.T) {
 		Internal:   true,
 		Attachable: true,
 		Ingress:    false,
+		Options: map[string]string{
+			"encrypted": "true",
+		},
 		Labels: map[string]string{
 			"com.example.team": "platform",
 		},
@@ -28,5 +31,6 @@ func TestNetworkManagerMapNetworkMapsFields(t *testing.T) {
 	assert.True(t, mapped.Internal, "unexpected internal flag")
 	assert.True(t, mapped.Attachable, "unexpected attachable flag")
 	assert.False(t, mapped.Ingress, "unexpected ingress flag")
+	assert.Equal(t, map[string]string{"encrypted": "true"}, mapped.Options, "unexpected network options")
 	assert.Equal(t, map[string]string{"com.example.team": "platform"}, mapped.Labels, "unexpected labels")
 }

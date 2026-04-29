@@ -25,11 +25,18 @@ type SecretsReader interface {
 	List(ctx context.Context) ([]swarm.Secret, error)
 }
 
+// NetworksReader reads current Docker networks snapshot.
+type NetworksReader interface {
+	// List returns current Docker networks snapshot.
+	List(ctx context.Context) ([]swarm.Network, error)
+}
+
 type handler struct {
 	generated.UnimplementedHandler
 	control          *controller.Controller
 	serviceInspector ServiceStatusInspector
 	secrets          SecretsReader
+	networks         NetworksReader
 	history          *history.Store
 	services         *service.Store
 	nodes            *swarmnode.Store
@@ -44,6 +51,7 @@ func New(
 	gitRepository gitx.Repository,
 	serviceInspector ServiceStatusInspector,
 	secrets SecretsReader,
+	networks NetworksReader,
 	history *history.Store,
 	services *service.Store,
 	nodes *swarmnode.Store,
@@ -53,6 +61,7 @@ func New(
 		control:          control,
 		serviceInspector: serviceInspector,
 		secrets:          secrets,
+		networks:         networks,
 		history:          history,
 		services:         services,
 		nodes:            nodes,

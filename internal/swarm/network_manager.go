@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 
+	"github.com/docker/docker/api/types/filters"
 	dockernetwork "github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 )
@@ -22,7 +23,9 @@ func newNetworkManager(dockerClient *client.Client) *NetworkManager {
 
 // List returns current Docker networks snapshot.
 func (m *NetworkManager) List(ctx context.Context) ([]Network, error) {
-	networks, err := m.dockerClient.NetworkList(ctx, dockernetwork.ListOptions{})
+	networks, err := m.dockerClient.NetworkList(ctx, dockernetwork.ListOptions{
+		Filters: filters.NewArgs(filters.Arg("scope", "swarm")),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list docker networks: %w", err)
 	}
@@ -39,10 +42,29 @@ func (m *NetworkManager) List(ctx context.Context) ([]Network, error) {
 func (m *NetworkManager) Get(ctx context.Context, name string) (Network, error) {
 	network, err := m.dockerClient.NetworkInspect(ctx, name, dockernetwork.InspectOptions{})
 	if err != nil {
+		if isNotFoundErr(err) {
+			return Network{}, ErrNetworkNotFound
+		}
+
 		return Network{}, fmt.Errorf("inspect network: %w", err)
 	}
 
 	return m.mapNetwork(network), nil
+}
+
+func (m *NetworkManager) Create(ctx context.Context, req CreateNetworkRequest) (string, error) {
+	resp, err := m.dockerClient.NetworkCreate(ctx, req.Name, dockernetwork.CreateOptions{
+		Driver:     req.Driver,
+		Attachable: req.Attachable,
+		Internal:   req.Internal,
+		Options:    req.Options,
+		Labels:     req.Labels,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	return resp.ID, nil
 }
 
 func (*NetworkManager) mapNetwork(network dockernetwork.Summary) Network {
@@ -55,6 +77,7 @@ func (*NetworkManager) mapNetwork(network dockernetwork.Summary) Network {
 		Attachable: network.Attachable,
 		Ingress:    network.Ingress,
 		Labels:     network.Labels,
+		Options:    network.Options,
 	}
 }
 

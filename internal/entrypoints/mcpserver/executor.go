@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -94,6 +95,11 @@ func (e *Executor) Execute(ctx context.Context, req routing.Request) (string, er
 
 		return "", fmt.Errorf("unknown tool %q", req.ToolName)
 	}
+
+	slog.InfoContext(ctx, "[mcp-executor] executing tool",
+		slog.String("tool.name", req.ToolName),
+		slog.Any("request", req.Payload),
+	)
 
 	result, err := tool.Execute(ctx, req)
 	if err != nil {

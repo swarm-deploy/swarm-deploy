@@ -1,0 +1,6 @@
+networks:
+  - name: shared-backend
+    driver: overlay
+    attachable: true
+    labels:
+      team: platform

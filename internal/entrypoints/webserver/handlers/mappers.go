@@ -321,6 +321,31 @@ func toGeneratedNodes(nodes []swarm.Node) []generated.NodeInfo {
 	return mapped
 }
 
+func toGeneratedNetworks(networks []swarm.Network) []generated.NetworkInfo {
+	mapped := make([]generated.NetworkInfo, 0, len(networks))
+	for _, network := range networks {
+		item := generated.NetworkInfo{
+			ID:         network.ID,
+			Name:       network.Name,
+			Scope:      network.Scope,
+			Driver:     network.Driver,
+			Internal:   network.Internal,
+			Attachable: network.Attachable,
+			Ingress:    network.Ingress,
+		}
+		if len(network.Labels) > 0 {
+			item.Labels = generated.NewOptNetworkInfoLabels(cloneStringMap(network.Labels))
+		}
+		if len(network.Options) > 0 {
+			item.Options = generated.NewOptNetworkInfoOptions(cloneStringMap(network.Options))
+		}
+
+		mapped = append(mapped, item)
+	}
+
+	return mapped
+}
+
 func toGeneratedSecrets(secrets []swarm.Secret) []generated.SecretInfo {
 	mapped := make([]generated.SecretInfo, 0, len(secrets))
 	for _, secret := range secrets {
@@ -387,6 +412,19 @@ func cloneStringSlice(values []string) []string {
 
 	out := make([]string, len(values))
 	copy(out, values)
+
+	return out
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	out := make(map[string]string, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
 
 	return out
 }

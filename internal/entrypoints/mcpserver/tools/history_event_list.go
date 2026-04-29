@@ -187,6 +187,8 @@ func parseStringList(raw any, field string) ([]string, error) {
 	switch value := raw.(type) {
 	case []string:
 		return value, nil
+	case string:
+		return []string{value}, nil
 	default:
 		return nil, fmt.Errorf("%s must be array of strings", field)
 	}

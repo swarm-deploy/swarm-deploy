@@ -26,6 +26,19 @@ type Stack struct {
 	Services map[string]Service `json:"services"`
 }
 
+type Network struct {
+	// Driver is a Docker network driver from desired network specification.
+	Driver string `json:"driver"`
+	// LastCommit is the git commit hash that triggered the latest network reconciliation.
+	LastCommit string `json:"last_commit"`
+	// LastStatus is the latest reconciliation status for the network.
+	LastStatus string `json:"last_status"`
+	// LastError contains the latest reconciliation error message for the network.
+	LastError string `json:"last_error"`
+	// LastSyncAt is the timestamp of the latest network reconciliation attempt.
+	LastSyncAt time.Time `json:"last_sync_at"`
+}
+
 type Runtime struct {
 	// LastSyncAt is the timestamp of the latest Sync attempt.
 	LastSyncAt time.Time `json:"last_sync_at"`
@@ -39,6 +52,8 @@ type Runtime struct {
 	GitRevision string `json:"git_revision"`
 	// Stacks stores deployment state keyed by stack name.
 	Stacks map[string]Stack `json:"stacks"`
+	// Networks stores network reconciliation state keyed by network name.
+	Networks map[string]Network `json:"networks"`
 }
 
 func cloneRuntime(state Runtime) Runtime {
@@ -51,6 +66,10 @@ func cloneRuntime(state Runtime) Runtime {
 			stackCopy.Services[serviceName] = service
 		}
 		cloned.Stacks[stackName] = stackCopy
+	}
+	cloned.Networks = map[string]Network{}
+	for networkName, network := range state.Networks {
+		cloned.Networks[networkName] = network
 	}
 
 	return cloned

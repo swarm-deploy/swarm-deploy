@@ -12,7 +12,8 @@ type MemoryStore struct {
 func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{
 		state: Runtime{
-			Stacks: map[string]Stack{},
+			Stacks:   map[string]Stack{},
+			Networks: map[string]Network{},
 		},
 	}
 }
@@ -31,7 +32,4 @@ func (s *MemoryStore) Update(fn func(*Runtime)) {
 	defer s.mu.Unlock()
 
 	fn(&s.state)
-	if s.state.Stacks == nil {
-		s.state.Stacks = map[string]Stack{}
-	}
 }

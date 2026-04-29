@@ -153,29 +153,68 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 
-			case 'n': // Prefix: "nodes"
+			case 'n': // Prefix: "n"
 
-				if l := len("nodes"); len(elem) >= l && elem[0:l] == "nodes" {
+				if l := len("n"); len(elem) >= l && elem[0:l] == "n" {
 					elem = elem[l:]
 				} else {
 					break
 				}
 
 				if len(elem) == 0 {
-					// Leaf node.
-					switch r.Method {
-					case "GET":
-						s.handleListNodesRequest([0]string{}, elemIsEscaped, w, r)
-					default:
-						s.notAllowed(w, r, notAllowedParams{
-							allowedMethods: "GET",
-							allowedHeaders: nil,
-							acceptPost:     "",
-							acceptPatch:    "",
-						})
+					break
+				}
+				switch elem[0] {
+				case 'e': // Prefix: "etworks"
+
+					if l := len("etworks"); len(elem) >= l && elem[0:l] == "etworks" {
+						elem = elem[l:]
+					} else {
+						break
 					}
 
-					return
+					if len(elem) == 0 {
+						// Leaf node.
+						switch r.Method {
+						case "GET":
+							s.handleListNetworksRequest([0]string{}, elemIsEscaped, w, r)
+						default:
+							s.notAllowed(w, r, notAllowedParams{
+								allowedMethods: "GET",
+								allowedHeaders: nil,
+								acceptPost:     "",
+								acceptPatch:    "",
+							})
+						}
+
+						return
+					}
+
+				case 'o': // Prefix: "odes"
+
+					if l := len("odes"); len(elem) >= l && elem[0:l] == "odes" {
+						elem = elem[l:]
+					} else {
+						break
+					}
+
+					if len(elem) == 0 {
+						// Leaf node.
+						switch r.Method {
+						case "GET":
+							s.handleListNodesRequest([0]string{}, elemIsEscaped, w, r)
+						default:
+							s.notAllowed(w, r, notAllowedParams{
+								allowedMethods: "GET",
+								allowedHeaders: nil,
+								acceptPost:     "",
+								acceptPatch:    "",
+							})
+						}
+
+						return
+					}
+
 				}
 
 			case 's': // Prefix: "s"
@@ -694,29 +733,68 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 					}
 				}
 
-			case 'n': // Prefix: "nodes"
+			case 'n': // Prefix: "n"
 
-				if l := len("nodes"); len(elem) >= l && elem[0:l] == "nodes" {
+				if l := len("n"); len(elem) >= l && elem[0:l] == "n" {
 					elem = elem[l:]
 				} else {
 					break
 				}
 
 				if len(elem) == 0 {
-					// Leaf node.
-					switch method {
-					case "GET":
-						r.name = ListNodesOperation
-						r.summary = ""
-						r.operationID = "listNodes"
-						r.operationGroup = ""
-						r.pathPattern = "/api/v1/nodes"
-						r.args = args
-						r.count = 0
-						return r, true
-					default:
-						return
+					break
+				}
+				switch elem[0] {
+				case 'e': // Prefix: "etworks"
+
+					if l := len("etworks"); len(elem) >= l && elem[0:l] == "etworks" {
+						elem = elem[l:]
+					} else {
+						break
 					}
+
+					if len(elem) == 0 {
+						// Leaf node.
+						switch method {
+						case "GET":
+							r.name = ListNetworksOperation
+							r.summary = ""
+							r.operationID = "listNetworks"
+							r.operationGroup = ""
+							r.pathPattern = "/api/v1/networks"
+							r.args = args
+							r.count = 0
+							return r, true
+						default:
+							return
+						}
+					}
+
+				case 'o': // Prefix: "odes"
+
+					if l := len("odes"); len(elem) >= l && elem[0:l] == "odes" {
+						elem = elem[l:]
+					} else {
+						break
+					}
+
+					if len(elem) == 0 {
+						// Leaf node.
+						switch method {
+						case "GET":
+							r.name = ListNodesOperation
+							r.summary = ""
+							r.operationID = "listNodes"
+							r.operationGroup = ""
+							r.pathPattern = "/api/v1/nodes"
+							r.args = args
+							r.count = 0
+							return r, true
+						default:
+							return
+						}
+					}
+
 				}
 
 			case 's': // Prefix: "s"

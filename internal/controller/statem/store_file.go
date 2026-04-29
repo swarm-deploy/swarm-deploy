@@ -24,7 +24,8 @@ func NewFileStore(path string) (*FileStore, error) {
 	s := &FileStore{
 		path: path,
 		state: Runtime{
-			Stacks: map[string]Stack{},
+			Stacks:   map[string]Stack{},
+			Networks: map[string]Network{},
 		},
 	}
 
@@ -87,6 +88,9 @@ func (s *FileStore) load() error {
 	}
 	if decoded.Stacks == nil {
 		decoded.Stacks = map[string]Stack{}
+	}
+	if decoded.Networks == nil {
+		decoded.Networks = map[string]Network{}
 	}
 
 	s.state = decoded

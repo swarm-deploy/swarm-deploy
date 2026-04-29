@@ -86,6 +86,75 @@ stacks:
 	assert.Empty(t, cfg.Spec.Stacks, "stacks must be loaded later from git repository during sync")
 }
 
+func TestLoadWithNetworksFile(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	networksPath := filepath.Join(dir, "networks.yaml")
+	networksPayload := []byte(`
+networks:
+  - name: app_backend
+    labels:
+      team: platform
+`)
+	require.NoError(t, os.WriteFile(networksPath, networksPayload, 0o600), "write networks file")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(`
+git:
+  repository: https://example.com/repo.git
+sync:
+  mode: pull
+stacks:
+  file: ./stacks.yaml
+networks:
+  file: ./networks.yaml
+`)
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err, "load config")
+	require.Len(t, cfg.Spec.Networks, 1, "expected one network")
+	assert.Equal(t, "app_backend", cfg.Spec.Networks[0].Name, "unexpected network name")
+	assert.Equal(t, "overlay", cfg.Spec.Networks[0].Driver, "unexpected default network driver")
+}
+
+func TestLoadAllowsMissingNetworksFileBeforeFirstSync(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(`
+git:
+  repository: https://example.com/repo.git
+sync:
+  mode: pull
+stacks:
+  file: ./stacks.yaml
+networks:
+  file: ./networks.yaml
+`)
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err, "load config")
+	assert.Empty(t, cfg.Spec.Networks, "networks must be loaded later from git repository during sync")
+}
+
 func TestLoadWebAddressUsedForSingleServer(t *testing.T) {
 	dir := t.TempDir()
 
@@ -215,6 +284,87 @@ stacks:
 	assert.Equal(t, configStacksPath, loadedFrom, "expected fallback config stacks path")
 	require.Len(t, cfg.Spec.Stacks, 1, "expected one stack")
 	assert.Equal(t, "from-config", cfg.Spec.Stacks[0].Name, "expected stack from config")
+}
+
+func TestReloadNetworksPrefersFirstAvailableBaseDir(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, "config")
+	repoDir := filepath.Join(dir, "repo")
+
+	require.NoError(t, os.MkdirAll(configDir, 0o755), "create config dir")
+	require.NoError(t, os.MkdirAll(repoDir, 0o755), "create repo dir")
+
+	configNetworksPath := filepath.Join(configDir, "networks.yaml")
+	repoNetworksPath := filepath.Join(repoDir, "networks.yaml")
+
+	configNetworks := []byte(`
+networks:
+  - name: from-config
+`)
+	repoNetworks := []byte(`
+networks:
+  - name: from-repo
+`)
+
+	require.NoError(t, os.WriteFile(configNetworksPath, configNetworks, 0o600), "write config networks")
+	require.NoError(t, os.WriteFile(repoNetworksPath, repoNetworks, 0o600), "write repo networks")
+
+	cfg := &Config{
+		Spec: Spec{
+			NetworksSource: NetworksSourceSpec{
+				File: "./networks.yaml",
+			},
+		},
+	}
+
+	loadedFrom, err := cfg.ReloadNetworks(repoDir, configDir)
+	require.NoError(t, err, "reload networks")
+	assert.Equal(t, repoNetworksPath, loadedFrom, "expected repo networks path")
+	require.Len(t, cfg.Spec.Networks, 1, "expected one network")
+	assert.Equal(t, "from-repo", cfg.Spec.Networks[0].Name, "expected network from repo")
+}
+
+func TestLoadFailsOnManagedNetworkLabelNotTrue(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	networksPath := filepath.Join(dir, "networks.yaml")
+	networksPayload := []byte(`
+networks:
+  - name: app_backend
+    labels:
+      org.swarm-deploy.network.managed: "false"
+`)
+	require.NoError(t, os.WriteFile(networksPath, networksPayload, 0o600), "write networks file")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(`
+git:
+  repository: https://example.com/repo.git
+sync:
+  mode: pull
+stacks:
+  file: ./stacks.yaml
+networks:
+  file: ./networks.yaml
+`)
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	_, err := Load(configPath)
+	require.Error(t, err, "expected error")
+	assert.Contains(
+		t,
+		err.Error(),
+		`labels["org.swarm-deploy.network.managed"] must be "true"`,
+		"unexpected error",
+	)
 }
 
 func TestLoadFailsOnCustomNotificationWithoutURLInNotificationsOn(t *testing.T) {

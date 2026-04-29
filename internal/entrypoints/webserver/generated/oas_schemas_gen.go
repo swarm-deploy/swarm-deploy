@@ -445,6 +445,146 @@ func (s *GitCommitDetailsResponse) SetChangedFiles(val []string) {
 	s.ChangedFiles = val
 }
 
+// Ref: #/components/schemas/NetworkInfo
+type NetworkInfo struct {
+	ID         string                `json:"id"`
+	Name       string                `json:"name"`
+	Scope      string                `json:"scope"`
+	Driver     string                `json:"driver"`
+	Internal   bool                  `json:"internal"`
+	Attachable bool                  `json:"attachable"`
+	Ingress    bool                  `json:"ingress"`
+	Labels     OptNetworkInfoLabels  `json:"labels"`
+	Options    OptNetworkInfoOptions `json:"options"`
+}
+
+// GetID returns the value of ID.
+func (s *NetworkInfo) GetID() string {
+	return s.ID
+}
+
+// GetName returns the value of Name.
+func (s *NetworkInfo) GetName() string {
+	return s.Name
+}
+
+// GetScope returns the value of Scope.
+func (s *NetworkInfo) GetScope() string {
+	return s.Scope
+}
+
+// GetDriver returns the value of Driver.
+func (s *NetworkInfo) GetDriver() string {
+	return s.Driver
+}
+
+// GetInternal returns the value of Internal.
+func (s *NetworkInfo) GetInternal() bool {
+	return s.Internal
+}
+
+// GetAttachable returns the value of Attachable.
+func (s *NetworkInfo) GetAttachable() bool {
+	return s.Attachable
+}
+
+// GetIngress returns the value of Ingress.
+func (s *NetworkInfo) GetIngress() bool {
+	return s.Ingress
+}
+
+// GetLabels returns the value of Labels.
+func (s *NetworkInfo) GetLabels() OptNetworkInfoLabels {
+	return s.Labels
+}
+
+// GetOptions returns the value of Options.
+func (s *NetworkInfo) GetOptions() OptNetworkInfoOptions {
+	return s.Options
+}
+
+// SetID sets the value of ID.
+func (s *NetworkInfo) SetID(val string) {
+	s.ID = val
+}
+
+// SetName sets the value of Name.
+func (s *NetworkInfo) SetName(val string) {
+	s.Name = val
+}
+
+// SetScope sets the value of Scope.
+func (s *NetworkInfo) SetScope(val string) {
+	s.Scope = val
+}
+
+// SetDriver sets the value of Driver.
+func (s *NetworkInfo) SetDriver(val string) {
+	s.Driver = val
+}
+
+// SetInternal sets the value of Internal.
+func (s *NetworkInfo) SetInternal(val bool) {
+	s.Internal = val
+}
+
+// SetAttachable sets the value of Attachable.
+func (s *NetworkInfo) SetAttachable(val bool) {
+	s.Attachable = val
+}
+
+// SetIngress sets the value of Ingress.
+func (s *NetworkInfo) SetIngress(val bool) {
+	s.Ingress = val
+}
+
+// SetLabels sets the value of Labels.
+func (s *NetworkInfo) SetLabels(val OptNetworkInfoLabels) {
+	s.Labels = val
+}
+
+// SetOptions sets the value of Options.
+func (s *NetworkInfo) SetOptions(val OptNetworkInfoOptions) {
+	s.Options = val
+}
+
+type NetworkInfoLabels map[string]string
+
+func (s *NetworkInfoLabels) init() NetworkInfoLabels {
+	m := *s
+	if m == nil {
+		m = map[string]string{}
+		*s = m
+	}
+	return m
+}
+
+type NetworkInfoOptions map[string]string
+
+func (s *NetworkInfoOptions) init() NetworkInfoOptions {
+	m := *s
+	if m == nil {
+		m = map[string]string{}
+		*s = m
+	}
+	return m
+}
+
+// Ref: #/components/schemas/NetworksResponse
+type NetworksResponse struct {
+	Networks []NetworkInfo `json:"networks"`
+}
+
+// GetNetworks returns the value of Networks.
+func (s *NetworksResponse) GetNetworks() []NetworkInfo {
+	return s.Networks
+}
+
+// SetNetworks sets the value of Networks.
+func (s *NetworksResponse) SetNetworks(val []NetworkInfo) {
+	s.Networks = val
+}
+
 // Ref: #/components/schemas/NodeInfo
 type NodeInfo struct {
 	ID            string `json:"id"`
@@ -673,6 +813,98 @@ func (o OptInt32) Get() (v int32, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptInt32) Or(d int32) int32 {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptNetworkInfoLabels returns new OptNetworkInfoLabels with value set to v.
+func NewOptNetworkInfoLabels(v NetworkInfoLabels) OptNetworkInfoLabels {
+	return OptNetworkInfoLabels{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptNetworkInfoLabels is optional NetworkInfoLabels.
+type OptNetworkInfoLabels struct {
+	Value NetworkInfoLabels
+	Set   bool
+}
+
+// IsSet returns true if OptNetworkInfoLabels was set.
+func (o OptNetworkInfoLabels) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptNetworkInfoLabels) Reset() {
+	var v NetworkInfoLabels
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptNetworkInfoLabels) SetTo(v NetworkInfoLabels) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptNetworkInfoLabels) Get() (v NetworkInfoLabels, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptNetworkInfoLabels) Or(d NetworkInfoLabels) NetworkInfoLabels {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptNetworkInfoOptions returns new OptNetworkInfoOptions with value set to v.
+func NewOptNetworkInfoOptions(v NetworkInfoOptions) OptNetworkInfoOptions {
+	return OptNetworkInfoOptions{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptNetworkInfoOptions is optional NetworkInfoOptions.
+type OptNetworkInfoOptions struct {
+	Value NetworkInfoOptions
+	Set   bool
+}
+
+// IsSet returns true if OptNetworkInfoOptions was set.
+func (o OptNetworkInfoOptions) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptNetworkInfoOptions) Reset() {
+	var v NetworkInfoOptions
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptNetworkInfoOptions) SetTo(v NetworkInfoOptions) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptNetworkInfoOptions) Get() (v NetworkInfoOptions, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptNetworkInfoOptions) Or(d NetworkInfoOptions) NetworkInfoOptions {
 	if v, ok := o.Get(); ok {
 		return v
 	}

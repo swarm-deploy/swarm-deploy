@@ -105,6 +105,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NodesResponse'
+  /api/v1/networks:
+    get:
+      operationId: listNetworks
+      responses:
+        '200':
+          description: Current Docker networks snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NetworksResponse'
   /api/v1/secrets:
     get:
       operationId: listSecrets
@@ -336,6 +346,14 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/NodeInfo'
+    NetworksResponse:
+      type: object
+      required: [networks]
+      properties:
+        networks:
+          type: array
+          items:
+            $ref: '#/components/schemas/NetworkInfo'
     NodeInfo:
       type: object
       required: [id, hostname, status, availability, manager_status, engine_version, addr]
@@ -354,6 +372,32 @@ components:
           type: string
         addr:
           type: string
+    NetworkInfo:
+      type: object
+      required: [id, name, scope, driver, internal, attachable, ingress]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        scope:
+          type: string
+        driver:
+          type: string
+        internal:
+          type: boolean
+        attachable:
+          type: boolean
+        ingress:
+          type: boolean
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+        options:
+          type: object
+          additionalProperties:
+            type: string
     SecretsResponse:
       type: object
       required: [secrets]

@@ -141,6 +141,22 @@ export interface NodesResponse {
   nodes: NodeInfo[];
 }
 
+export interface NetworkInfo {
+  id: string;
+  name: string;
+  scope: string;
+  driver: string;
+  internal: boolean;
+  attachable: boolean;
+  ingress: boolean;
+  labels?: Record<string, string>;
+  options?: Record<string, string>;
+}
+
+export interface NetworksResponse {
+  networks: NetworkInfo[];
+}
+
 export interface SecretExternalInfo {
   path?: string;
   version_id?: string;

@@ -12,6 +12,7 @@ const (
 	GetSecretByNameOperation        OperationName = "GetSecretByName"
 	GetServiceStatusOperation       OperationName = "GetServiceStatus"
 	ListEventsOperation             OperationName = "ListEvents"
+	ListNetworksOperation           OperationName = "ListNetworks"
 	ListNodesOperation              OperationName = "ListNodes"
 	ListSecretsOperation            OperationName = "ListSecrets"
 	ListServiceDeploymentsOperation OperationName = "ListServiceDeployments"

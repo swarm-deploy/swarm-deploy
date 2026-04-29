@@ -61,4 +61,4 @@ type GRPCConfig struct {
 ## Structure initialization
 - For DTO use default initialization.
 - For service components use constructor functions like New{StructName} to initialize structs. In structure methods not repeat dependency validation.
-- Do not use `nil-guard`. No validate dependencies in struct methods
+- Do not use `nil-guard`

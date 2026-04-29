@@ -134,6 +134,7 @@ func main() {
 	control := controller.New(
 		cfg,
 		gitRepository,
+		swarmService.Networks,
 		deployerSvc,
 		metricsGroup,
 		eventDispatcher,
@@ -161,6 +162,7 @@ func main() {
 		control,
 		gitRepository,
 		swarmService.Services,
+		swarmService.Networks,
 		swarmService.Secrets,
 		eventHistory,
 		serviceStore,

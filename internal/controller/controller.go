@@ -27,7 +27,15 @@ const (
 	TriggerManual  TriggerReason = "manual"
 )
 
-const eventShutdownTimeout = 5 * time.Second
+const (
+	eventShutdownTimeout = 5 * time.Second
+
+	syncRunResultError        = "error"
+	syncRunResultNoChange     = "no_change"
+	syncRunResultUpdated      = "updated"
+	syncRunResultSuccess      = "success"
+	syncRunResultPartialError = "partial_error"
+)
 
 type StackView struct {
 	Name         string        `json:"name"`
@@ -55,8 +63,9 @@ type Controller struct {
 	metrics  *metrics.Group
 	event    dispatcher.Dispatcher
 
-	stateStore      statem.Store
-	stackReconciler *stackReconciler
+	stateStore        statem.Store
+	networkReconciler *networkReconciler
+	stackReconciler   *stackReconciler
 
 	triggerCh chan triggerTask
 }
@@ -69,6 +78,7 @@ type triggerTask struct {
 func New(
 	cfg *config.Config,
 	git gitx.Repository,
+	networks networkManager,
 	deployer *deployer.Deployer,
 	metricGroup *metrics.Group,
 	eventDispatcher dispatcher.Dispatcher,
@@ -81,6 +91,9 @@ func New(
 		metrics:    metricGroup,
 		event:      eventDispatcher,
 		stateStore: stateStore,
+		networkReconciler: newNetworkReconciler(
+			networks,
+		),
 		stackReconciler: newStackReconciler(
 			cfg,
 			git,
@@ -175,11 +188,11 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 			slog.Any("err", err),
 		)
 		c.metrics.Git.RecordGitUpdate(c.cfg.Spec.Git.Repository, "error")
-		c.metrics.Sync.RecordSyncRun(string(task.reason), "error", time.Since(startedAt))
+		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
 		c.updateState(func(s *statem.Runtime) {
 			s.LastSyncAt = time.Now()
 			s.LastSyncReason = string(task.reason)
-			s.LastSyncResult = "error"
+			s.LastSyncResult = syncRunResultError
 			s.LastSyncError = err.Error()
 		})
 		return
@@ -187,11 +200,53 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 
 	slog.InfoContext(ctx, "[controller] git synced", slog.Any("result", syncResult))
 
-	updateResult := "no_change"
+	updateResult := syncRunResultNoChange
 	if syncResult.Updated {
-		updateResult = "updated"
+		updateResult = syncRunResultUpdated
 	}
 	c.metrics.Git.RecordGitUpdate(c.cfg.Spec.Git.Repository, updateResult)
+
+	reloadedNetworksFrom, reloadNetworksErr := c.reloadNetworks()
+	if reloadNetworksErr != nil {
+		slog.ErrorContext(ctx, "sync failed at networks reload stage",
+			slog.String("reason", string(task.reason)),
+			slog.String("networks.file", c.cfg.Spec.NetworksSource.File),
+			slog.Any("err", reloadNetworksErr),
+		)
+		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
+		c.stateStore.Update(func(s *statem.Runtime) {
+			s.LastSyncAt = time.Now()
+			s.LastSyncReason = string(task.reason)
+			s.LastSyncResult = syncRunResultError
+			s.LastSyncError = reloadNetworksErr.Error()
+			s.GitRevision = syncResult.NewRevision
+		})
+		return
+	}
+	if reloadedNetworksFrom != "" {
+		slog.InfoContext(ctx, "[controller] networks reloaded",
+			slog.String("path", reloadedNetworksFrom),
+			slog.Int("count", len(c.cfg.Spec.Networks)),
+		)
+	}
+
+	reconcileNetworksErr := c.syncNetworks(ctx, syncResult.NewRevision)
+	if reconcileNetworksErr != nil {
+		slog.ErrorContext(ctx, "sync failed at networks reconcile stage",
+			slog.String("reason", string(task.reason)),
+			slog.String("commit", syncResult.NewRevision),
+			slog.Any("err", reconcileNetworksErr),
+		)
+		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
+		c.stateStore.Update(func(s *statem.Runtime) {
+			s.LastSyncAt = time.Now()
+			s.LastSyncReason = string(task.reason)
+			s.LastSyncResult = syncRunResultError
+			s.LastSyncError = reconcileNetworksErr.Error()
+			s.GitRevision = syncResult.NewRevision
+		})
+		return
+	}
 
 	reloadedFrom, reloadErr := c.reloadStacks()
 	if reloadErr != nil {
@@ -200,11 +255,11 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 			slog.String("stacks.file", c.cfg.Spec.StacksSource.File),
 			slog.Any("err", reloadErr),
 		)
-		c.metrics.Sync.RecordSyncRun(string(task.reason), "error", time.Since(startedAt))
+		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
 		c.updateState(func(s *statem.Runtime) {
 			s.LastSyncAt = time.Now()
 			s.LastSyncReason = string(task.reason)
-			s.LastSyncResult = "error"
+			s.LastSyncResult = syncRunResultError
 			s.LastSyncError = reloadErr.Error()
 			s.GitRevision = syncResult.NewRevision
 		})
@@ -217,12 +272,12 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 	)
 
 	if !syncResult.Updated && task.reason != TriggerManual {
-		c.metrics.Sync.RecordSyncRun(string(task.reason), "no_change", time.Since(startedAt))
+		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultNoChange, time.Since(startedAt))
 		currTime := time.Now()
 		c.updateState(func(s *statem.Runtime) {
 			s.LastSyncAt = currTime
 			s.LastSyncReason = string(task.reason)
-			s.LastSyncResult = "no_change"
+			s.LastSyncResult = syncRunResultNoChange
 			s.LastSyncError = ""
 			s.GitRevision = syncResult.NewRevision
 		})
@@ -243,10 +298,10 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 		}
 	}
 
-	result := "success"
+	result := syncRunResultSuccess
 	combinedErr := errors.Join(deployErrs...)
 	if combinedErr != nil {
-		result = "partial_error"
+		result = syncRunResultPartialError
 		slog.ErrorContext(ctx, "sync finished with errors",
 			slog.String("reason", string(task.reason)),
 			slog.String("commit", syncResult.NewRevision),

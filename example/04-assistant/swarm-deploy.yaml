@@ -51,6 +51,11 @@ stacks:
   # Path to stacks definition file in git repository (relative to repo root).
   file: ./stacks.yaml
 
+# Managed Docker networks source settings.
+networks:
+  # Path to network definitions file in git repository (relative to repo root).
+  file: ./networks.yaml
+
 # Event history settings.
 eventHistory:
   # Maximum number of events stored on disk.
