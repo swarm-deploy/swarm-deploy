@@ -99,9 +99,6 @@ func TestHandlerSearch_PriorityAndDedupe(t *testing.T) {
 		{
 			Name: "billing",
 			Type: "application",
-			Networks: []string{
-				"billing-internal",
-			},
 			WebRoutes: []webroute.Route{
 				{Domain: "billing.example.com", Address: "10.10.0.7", Port: "443"},
 			},
@@ -113,6 +110,11 @@ func TestHandlerSearch_PriorityAndDedupe(t *testing.T) {
 		secrets: fakeSecretsReader{
 			list: []swarm.Secret{
 				{Name: "api-app-secret"},
+			},
+		},
+		networks: fakeNetworksReader{
+			list: []swarm.Network{
+				{Name: "billing-internal"},
 			},
 		},
 	}
@@ -132,7 +134,7 @@ func TestHandlerSearch_PriorityAndDedupe(t *testing.T) {
 	resp, err = h.Search(context.Background(), generated.SearchParams{Query: "internal"})
 	require.NoError(t, err)
 	require.Len(t, resp.Results, 1)
-	assert.Equal(t, generated.SearchResultKindService, resp.Results[0].Kind)
-	assert.Equal(t, generated.SearchResultMatchServiceWebRoute, resp.Results[0].Match)
-	assert.Equal(t, "billing", resp.Results[0].Label)
+	assert.Equal(t, generated.SearchResultKindStack, resp.Results[0].Kind)
+	assert.Equal(t, generated.SearchResultMatchStackName, resp.Results[0].Match)
+	assert.Equal(t, "billing-internal", resp.Results[0].Label)
 }

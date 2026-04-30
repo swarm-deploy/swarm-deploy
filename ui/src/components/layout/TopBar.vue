@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { RouterLink } from "vue-router";
+import { RouterLink, useRouter } from "vue-router";
 
 import { fetchSearch } from "../../api/search";
 import type { SearchResult } from "../../api/types";
@@ -28,6 +28,7 @@ const SEARCH_DEBOUNCE_MS = 300;
 const overviewStore = useOverviewStore();
 const currentUserStore = useCurrentUserStore();
 const secretDetailsStore = useSecretDetailsStore();
+const router = useRouter();
 
 const searchRootRef = ref<HTMLElement | null>(null);
 const searchQuery = ref("");
@@ -44,10 +45,11 @@ const visibleResults = computed(() => {
   if (!searchOpen.value) {
     return [];
   }
-  return searchResults.value.filter((item) => item.kind === "service" || item.kind === "secret");
+  return searchResults.value.filter((item) => item.kind === "service" || item.kind === "secret" || item.kind === "stack");
 });
 const serviceResults = computed(() => visibleResults.value.filter((item) => item.kind === "service"));
 const secretResults = computed(() => visibleResults.value.filter((item) => item.kind === "secret"));
+const networkResults = computed(() => visibleResults.value.filter((item) => item.kind === "stack"));
 const showNoResults = computed(
   () => searchOpen.value && !searchLoading.value && !searchError.value && visibleResults.value.length === 0,
 );
@@ -127,6 +129,11 @@ async function selectSecret(item: SearchResult) {
   await secretDetailsStore.openSecretDetails(secretName);
 }
 
+async function selectNetwork() {
+  closeSearch();
+  await router.push({ name: "networks" });
+}
+
 function handleDocumentClick(event: MouseEvent) {
   const root = searchRootRef.value;
   if (!root) {
@@ -201,6 +208,18 @@ onUnmounted(() => {
               type="button"
               class="topbar-search-item"
               @click="selectSecret(item)"
+            >
+              <span>{{ item.label }}</span>
+            </button>
+          </div>
+          <div v-if="networkResults.length > 0" class="topbar-search-group">
+            <p class="topbar-search-group-title">Networks</p>
+            <button
+              v-for="item in networkResults"
+              :key="`network-${item.label}-${item.match}`"
+              type="button"
+              class="topbar-search-item"
+              @click="selectNetwork"
             >
               <span>{{ item.label }}</span>
             </button>

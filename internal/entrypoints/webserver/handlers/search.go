@@ -24,7 +24,7 @@ func (h *handler) Search(
 
 	results = append(results, h.searchServicesByName(query)...)
 	results = append(results, h.searchServicesByWebRoute(query)...)
-	results = append(results, h.searchServicesByNetwork(query)...)
+	results = append(results, h.searchNetworksByName(ctx, query)...)
 
 	if h.secrets != nil {
 		secrets, err := h.secrets.List(ctx)
@@ -90,27 +90,26 @@ func (h *handler) searchServicesByWebRoute(query string) []generated.SearchResul
 	return results
 }
 
-func (h *handler) searchServicesByNetwork(query string) []generated.SearchResult {
-	if h.services == nil {
+func (h *handler) searchNetworksByName(ctx context.Context, query string) []generated.SearchResult {
+	if h.networks == nil {
 		return nil
 	}
 
-	services := h.services.List()
-	results := make([]generated.SearchResult, 0, len(services))
-	for _, serviceInfo := range services {
-		if strings.Contains(strings.ToLower(serviceInfo.Name), query) {
-			continue
-		}
-		if !containsNetwork(serviceInfo.Networks, query) {
+	networks, err := h.networks.List(ctx)
+	if err != nil {
+		return nil
+	}
+
+	results := make([]generated.SearchResult, 0, len(networks))
+	for _, network := range networks {
+		if !strings.Contains(strings.ToLower(network.Name), query) {
 			continue
 		}
 
 		results = append(results, generated.SearchResult{
-			Kind:    generated.SearchResultKindService,
-			Match:   generated.SearchResultMatchServiceWebRoute,
-			Label:   serviceInfo.Name,
-			Stack:   generated.NewOptString(serviceInfo.Stack),
-			Service: generated.NewOptString(serviceInfo.Name),
+			Kind:  generated.SearchResultKindStack,
+			Match: generated.SearchResultMatchStackName,
+			Label: network.Name,
 		})
 	}
 
@@ -162,16 +161,6 @@ func containsWebRoute(routes []webroute.Route, query string) bool {
 	for _, route := range routes {
 		value := strings.ToLower(strings.Join([]string{route.Domain, route.Address, route.Port}, " "))
 		if strings.Contains(value, query) {
-			return true
-		}
-	}
-
-	return false
-}
-
-func containsNetwork(networks []string, query string) bool {
-	for _, network := range networks {
-		if strings.Contains(strings.ToLower(network), query) {
 			return true
 		}
 	}
