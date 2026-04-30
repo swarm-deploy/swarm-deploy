@@ -99,6 +99,9 @@ func TestHandlerSearch_PriorityAndDedupe(t *testing.T) {
 		{
 			Name: "billing",
 			Type: "application",
+			Networks: []string{
+				"billing-internal",
+			},
 			WebRoutes: []webroute.Route{
 				{Domain: "billing.example.com", Address: "10.10.0.7", Port: "443"},
 			},
@@ -125,4 +128,11 @@ func TestHandlerSearch_PriorityAndDedupe(t *testing.T) {
 	assert.Equal(t, generated.SearchResultMatchSecretName, resp.Results[1].Match)
 	assert.Equal(t, generated.SearchResultKindSecret, resp.Results[1].Kind)
 	assert.Equal(t, "api-app-secret", resp.Results[1].Label)
+
+	resp, err = h.Search(context.Background(), generated.SearchParams{Query: "internal"})
+	require.NoError(t, err)
+	require.Len(t, resp.Results, 1)
+	assert.Equal(t, generated.SearchResultKindService, resp.Results[0].Kind)
+	assert.Equal(t, generated.SearchResultMatchServiceWebRoute, resp.Results[0].Match)
+	assert.Equal(t, "billing", resp.Results[0].Label)
 }

@@ -131,8 +131,31 @@ func normalizeInfo(info Info) Info {
 	info.Image = strings.TrimSpace(info.Image)
 	info.RepositoryURL = strings.TrimSpace(info.RepositoryURL)
 	info.WebRoutes = normalizeWebRoutes(info.WebRoutes)
+	info.Networks = normalizeStringSlice(info.Networks)
 
 	return info
+}
+
+func normalizeStringSlice(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	normalized := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		normalized = append(normalized, trimmed)
+	}
+	if len(normalized) == 0 {
+		return nil
+	}
+
+	sort.Strings(normalized)
+
+	return normalized
 }
 
 func normalizeWebRoutes(routes []webroute.Route) []webroute.Route {

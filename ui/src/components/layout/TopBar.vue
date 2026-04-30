@@ -172,8 +172,8 @@ onUnmounted(() => {
       <input
         v-model="searchQuery"
         type="search"
-        placeholder="Search services and secrets"
-        aria-label="Search services and secrets"
+        placeholder="Search services, networks and secrets"
+        aria-label="Search services, networks and secrets"
         @focus="scheduleSearch"
       />
       <div v-if="searchOpen" class="topbar-search-dropdown">
