@@ -26,8 +26,8 @@ func TestDNSNameResolveExecute(t *testing.T) {
 	}
 
 	response, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"name": "api.example.com",
+		Payload: dnsNameResolveRequest{
+			Name: "api.example.com",
 		},
 	})
 	require.NoError(t, err, "execute dns_name_resolve")
@@ -50,7 +50,7 @@ func TestDNSNameResolveExecuteRequiresName(t *testing.T) {
 	tool := NewDNSNameResolve()
 
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{},
+		Payload: dnsNameResolveRequest{},
 	})
 	require.Error(t, err, "expected required name error")
 	assert.Contains(t, err.Error(), "name is required", "unexpected error")
@@ -65,7 +65,7 @@ func TestDNSNameResolveExecuteNameMustBeString(t *testing.T) {
 		},
 	})
 	require.Error(t, err, "expected name type error")
-	assert.Contains(t, err.Error(), "name must be string", "unexpected error")
+	assert.Contains(t, err.Error(), "request payload has unexpected type", "unexpected error")
 }
 
 func TestDNSNameResolveExecuteResolveError(t *testing.T) {
@@ -75,8 +75,8 @@ func TestDNSNameResolveExecuteResolveError(t *testing.T) {
 	}
 
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"name": "missing.example.com",
+		Payload: dnsNameResolveRequest{
+			Name: "missing.example.com",
 		},
 	})
 	require.Error(t, err, "expected resolve error")

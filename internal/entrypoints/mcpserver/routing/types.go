@@ -10,14 +10,16 @@ type ToolDefinition struct {
 	Description string
 	// ParametersJSONSchema is a JSON schema object for tool arguments.
 	ParametersJSONSchema map[string]any
+	// Request describes a typed request payload shape used by the tool.
+	Request any
 }
 
 // Request describes an input payload for tool execution.
 type Request struct {
 	ToolName string
 
-	// Payload contains decoded JSON arguments keyed by argument name.
-	Payload map[string]any
+	// Payload contains decoded tool arguments.
+	Payload any
 }
 
 // Response describes a tool execution result payload.

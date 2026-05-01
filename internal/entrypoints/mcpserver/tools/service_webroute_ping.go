@@ -2,12 +2,9 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -27,6 +24,11 @@ type HTTPDoer interface {
 type PingWebRoutes struct {
 	services ServicesReader
 	client   HTTPDoer
+}
+
+type pingWebRoutesRequest struct {
+	Service string `json:"service"`
+	Stack   string `json:"stack"`
 }
 
 // NewPingWebRoutes creates service_webroute_ping component.
@@ -60,6 +62,7 @@ func (p *PingWebRoutes) Definition() routing.ToolDefinition {
 				},
 			},
 		},
+		Request: pingWebRoutesRequest{},
 	}
 }
 
@@ -69,7 +72,12 @@ func (p *PingWebRoutes) Execute(ctx context.Context, request routing.Request) (r
 		return routing.Response{}, fmt.Errorf("services store is not configured")
 	}
 
-	serviceName, stackName, err := parsePingWebRoutesParams(request.Payload)
+	parsedRequest, err := convertRequestPayload[pingWebRoutesRequest](request.Payload)
+	if err != nil {
+		return routing.Response{}, err
+	}
+
+	serviceName, stackName, err := parsePingWebRoutesParams(parsedRequest)
 	if err != nil {
 		return routing.Response{}, err
 	}
@@ -98,45 +106,14 @@ func (p *PingWebRoutes) Execute(ctx context.Context, request routing.Request) (r
 	return routing.Response{Payload: payload}, nil
 }
 
-func parsePingWebRoutesParams(payload map[string]any) (string, string, error) {
-	serviceName, err := parseStringParam(payload["service"], "service")
-	if err != nil {
-		return "", "", err
-	}
+func parsePingWebRoutesParams(request pingWebRoutesRequest) (string, string, error) {
+	serviceName := strings.TrimSpace(request.Service)
 	if serviceName == "" {
 		return "", "", fmt.Errorf("service is required")
 	}
 
-	stackName, err := parseStringParam(payload["stack"], "stack")
-	if err != nil {
-		return "", "", err
-	}
-
+	stackName := strings.TrimSpace(request.Stack)
 	return serviceName, stackName, nil
-}
-
-func parseStringParam(raw any, fieldName string) (string, error) {
-	if raw == nil {
-		return "", nil
-	}
-
-	switch value := raw.(type) {
-	case string:
-		return strings.TrimSpace(value), nil
-	case json.Number:
-		return strings.TrimSpace(value.String()), nil
-	case float64:
-		if value == math.Trunc(value) {
-			return strconv.FormatInt(int64(value), 10), nil
-		}
-		return strconv.FormatFloat(value, 'f', -1, 64), nil
-	case int:
-		return strconv.Itoa(value), nil
-	case int64:
-		return strconv.FormatInt(value, 10), nil
-	default:
-		return "", fmt.Errorf("%s must be string", fieldName)
-	}
 }
 
 func findTargetService(serviceRows []service.Info, serviceName string, stackName string) (service.Info, error) {

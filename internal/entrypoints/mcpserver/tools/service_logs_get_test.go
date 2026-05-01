@@ -23,10 +23,10 @@ func TestGetServiceLogsExecuteAppliesTimePagination(t *testing.T) {
 	tool := NewGetServiceLogs(logInspector)
 
 	response, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"stack_name":   "core",
-			"service_name": "api",
-			"limit":        2,
+		Payload: getServiceLogsRequest{
+			StackName:   "core",
+			ServiceName: "api",
+			Limit:       intPointer(2),
 		},
 	})
 	require.NoError(t, err, "execute service_logs_get")
@@ -75,12 +75,12 @@ func TestGetServiceLogsExecuteWithSinceUntil(t *testing.T) {
 	tool := NewGetServiceLogs(logInspector)
 
 	response, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"stack_name":   "core",
-			"service_name": "api",
-			"since":        "2026-04-18T12:00:00+03:00",
-			"until":        "2026-04-18T12:05:00+03:00",
-			"limit":        5,
+		Payload: getServiceLogsRequest{
+			StackName:   "core",
+			ServiceName: "api",
+			Since:       "2026-04-18T12:00:00+03:00",
+			Until:       "2026-04-18T12:05:00+03:00",
+			Limit:       intPointer(5),
 		},
 	})
 	require.NoError(t, err, "execute service_logs_get with since/until")
@@ -121,9 +121,9 @@ func TestGetServiceLogsExecuteWithNilInspector(t *testing.T) {
 	tool := NewGetServiceLogs(nil)
 
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"stack_name":   "core",
-			"service_name": "api",
+		Payload: getServiceLogsRequest{
+			StackName:   "core",
+			ServiceName: "api",
 		},
 	})
 	require.Error(t, err, "expected nil inspector error")
@@ -134,8 +134,8 @@ func TestGetServiceLogsExecuteRequiresStackName(t *testing.T) {
 	tool := NewGetServiceLogs(&fakeServiceLogsInspector{})
 
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"service_name": "api",
+		Payload: getServiceLogsRequest{
+			ServiceName: "api",
 		},
 	})
 	require.Error(t, err, "expected stack_name required error")
@@ -146,8 +146,8 @@ func TestGetServiceLogsExecuteRequiresServiceName(t *testing.T) {
 	tool := NewGetServiceLogs(&fakeServiceLogsInspector{})
 
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"stack_name": "core",
+		Payload: getServiceLogsRequest{
+			StackName: "core",
 		},
 	})
 	require.Error(t, err, "expected service_name required error")
@@ -158,10 +158,10 @@ func TestGetServiceLogsExecuteFailsOnInvalidLimit(t *testing.T) {
 	tool := NewGetServiceLogs(&fakeServiceLogsInspector{})
 
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"stack_name":   "core",
-			"service_name": "api",
-			"limit":        0,
+		Payload: getServiceLogsRequest{
+			StackName:   "core",
+			ServiceName: "api",
+			Limit:       intPointer(0),
 		},
 	})
 	require.Error(t, err, "expected invalid limit error")
@@ -172,10 +172,10 @@ func TestGetServiceLogsExecuteFailsWhenLimitIsTooHigh(t *testing.T) {
 	tool := NewGetServiceLogs(&fakeServiceLogsInspector{})
 
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"stack_name":   "core",
-			"service_name": "api",
-			"limit":        maxServiceLogsLimit + 1,
+		Payload: getServiceLogsRequest{
+			StackName:   "core",
+			ServiceName: "api",
+			Limit:       intPointer(maxServiceLogsLimit + 1),
 		},
 	})
 	require.Error(t, err, "expected too high limit error")
@@ -186,10 +186,10 @@ func TestGetServiceLogsExecuteFailsOnInvalidSince(t *testing.T) {
 	tool := NewGetServiceLogs(&fakeServiceLogsInspector{})
 
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"stack_name":   "core",
-			"service_name": "api",
-			"since":        "invalid",
+		Payload: getServiceLogsRequest{
+			StackName:   "core",
+			ServiceName: "api",
+			Since:       "invalid",
 		},
 	})
 	require.Error(t, err, "expected invalid since error")
@@ -200,11 +200,11 @@ func TestGetServiceLogsExecuteFailsWhenSinceAfterUntil(t *testing.T) {
 	tool := NewGetServiceLogs(&fakeServiceLogsInspector{})
 
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"stack_name":   "core",
-			"service_name": "api",
-			"since":        "2026-04-18T12:10:00Z",
-			"until":        "2026-04-18T12:00:00Z",
+		Payload: getServiceLogsRequest{
+			StackName:   "core",
+			ServiceName: "api",
+			Since:       "2026-04-18T12:10:00Z",
+			Until:       "2026-04-18T12:00:00Z",
 		},
 	})
 	require.Error(t, err, "expected invalid time window error")
@@ -220,10 +220,10 @@ func TestGetServiceLogsExecuteFailsWhenOldestLogHasNoTimestamp(t *testing.T) {
 	})
 
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"stack_name":   "core",
-			"service_name": "api",
-			"limit":        1,
+		Payload: getServiceLogsRequest{
+			StackName:   "core",
+			ServiceName: "api",
+			Limit:       intPointer(1),
 		},
 	})
 	require.Error(t, err, "expected invalid oldest timestamp error")
@@ -236,9 +236,9 @@ func TestGetServiceLogsExecuteReturnsInspectorError(t *testing.T) {
 	})
 
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"stack_name":   "core",
-			"service_name": "api",
+		Payload: getServiceLogsRequest{
+			StackName:   "core",
+			ServiceName: "api",
 		},
 	})
 	require.Error(t, err, "expected inspector error")

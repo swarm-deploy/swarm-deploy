@@ -15,6 +15,11 @@ type RestartService struct {
 	eventDispatcher dispatcher.Dispatcher
 }
 
+type restartServiceRequest struct {
+	Stack   string `json:"stack"`
+	Service string `json:"service"`
+}
+
 // NewRestartService creates service_restart_trigger component.
 func NewRestartService(manager ServiceReplicasManager, eventDispatcher dispatcher.Dispatcher) *RestartService {
 	return &RestartService{
@@ -45,12 +50,18 @@ func (s *RestartService) Definition() routing.ToolDefinition {
 				},
 			},
 		},
+		Request: restartServiceRequest{},
 	}
 }
 
 // Execute runs service_restart_trigger tool.
 func (s *RestartService) Execute(ctx context.Context, request routing.Request) (routing.Response, error) {
-	target, err := parseServiceReplicasTarget(request.Payload)
+	parsedRequest, err := convertRequestPayload[restartServiceRequest](request.Payload)
+	if err != nil {
+		return routing.Response{}, err
+	}
+
+	target, err := parseServiceReplicasTarget(parsedRequest.Stack, parsedRequest.Service)
 	if err != nil {
 		return routing.Response{}, err
 	}

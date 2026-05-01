@@ -55,8 +55,8 @@ func TestPingWebRoutesExecute(t *testing.T) {
 	}
 
 	response, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"service": "api",
+		Payload: pingWebRoutesRequest{
+			Service: "api",
 		},
 	})
 	require.NoError(t, err, "execute service_webroute_ping")
@@ -91,8 +91,8 @@ func TestPingWebRoutesExecuteWithNilServicesStore(t *testing.T) {
 	tool := NewPingWebRoutes(nil)
 
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"service": "api",
+		Payload: pingWebRoutesRequest{
+			Service: "api",
 		},
 	})
 	require.Error(t, err, "expected nil services store error")
@@ -103,7 +103,7 @@ func TestPingWebRoutesExecuteRequiresService(t *testing.T) {
 	tool := NewPingWebRoutes(&fakeServiceStore{})
 
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{},
+		Payload: pingWebRoutesRequest{},
 	})
 	require.Error(t, err, "expected service required error")
 	assert.Contains(t, err.Error(), "service is required", "unexpected error")
@@ -118,8 +118,8 @@ func TestPingWebRoutesExecuteFailsOnAmbiguousService(t *testing.T) {
 	})
 
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"service": "api",
+		Payload: pingWebRoutesRequest{
+			Service: "api",
 		},
 	})
 	require.Error(t, err, "expected ambiguous service error")
@@ -165,9 +165,9 @@ func TestPingWebRoutesExecuteWithStack(t *testing.T) {
 	}
 
 	response, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"service": "api",
-			"stack":   "edge",
+		Payload: pingWebRoutesRequest{
+			Service: "api",
+			Stack:   "edge",
 		},
 	})
 	require.NoError(t, err, "execute service_webroute_ping with stack")

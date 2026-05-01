@@ -33,8 +33,8 @@ func TestListGitCommitsExecute(t *testing.T) {
 	})
 
 	response, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"limit": float64(2),
+		Payload: listGitCommitsRequest{
+			Limit: intPointer(2),
 		},
 	})
 	require.NoError(t, err, "execute git_commit_list")
@@ -61,7 +61,7 @@ func TestListGitCommitsExecuteUsesDefaultLimit(t *testing.T) {
 	tool := NewListGitCommits(&fakeGitRepository{})
 
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{},
+		Payload: listGitCommitsRequest{},
 	})
 	require.NoError(t, err, "execute git_commit_list with default limit")
 
@@ -80,5 +80,9 @@ func TestListGitCommitsExecuteFailsOnInvalidLimit(t *testing.T) {
 		},
 	})
 	require.Error(t, err, "expected parse error")
-	assert.Contains(t, err.Error(), "limit must be integer", "unexpected error")
+	assert.Contains(t, err.Error(), "request payload has unexpected type", "unexpected error")
+}
+
+func intPointer(value int) *int {
+	return &value
 }

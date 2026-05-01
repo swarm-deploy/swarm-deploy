@@ -19,6 +19,10 @@ type GitCommitDiff struct {
 	stacks     []config.StackSpec
 }
 
+type gitCommitDiffRequest struct {
+	Commit string `json:"commit"`
+}
+
 // NewGitCommitDiff creates git_commit_diff component.
 func NewGitCommitDiff(repository GitRepository, stacks []config.StackSpec, composeDiffer CommitDiffer) *GitCommitDiff {
 	copiedStacks := make([]config.StackSpec, len(stacks))
@@ -48,15 +52,18 @@ func (g *GitCommitDiff) Definition() routing.ToolDefinition {
 				},
 			},
 		},
+		Request: gitCommitDiffRequest{},
 	}
 }
 
 // Execute runs git_commit_diff tool.
 func (g *GitCommitDiff) Execute(ctx context.Context, request routing.Request) (routing.Response, error) {
-	commitHash, err := parseStringParam(request.Payload["commit"], "commit")
+	parsedRequest, err := convertRequestPayload[gitCommitDiffRequest](request.Payload)
 	if err != nil {
 		return routing.Response{}, err
 	}
+
+	commitHash := strings.TrimSpace(parsedRequest.Commit)
 	if commitHash == "" {
 		return routing.Response{}, fmt.Errorf("commit is required")
 	}

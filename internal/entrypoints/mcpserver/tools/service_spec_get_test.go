@@ -68,9 +68,9 @@ func TestGetServiceSpecExecute(t *testing.T) {
 	tool := NewGetServiceSpec(fakeInspector)
 
 	response, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"stack_name":   "core",
-			"service_name": "api",
+		Payload: getServiceSpecRequest{
+			StackName:   "core",
+			ServiceName: "api",
 		},
 	})
 	require.NoError(t, err, "execute service_spec_get")
@@ -104,8 +104,8 @@ func TestGetServiceSpecExecuteRequiresStackName(t *testing.T) {
 	tool := NewGetServiceSpec(&fakeToolServiceSpecInspector{})
 
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"service_name": "api",
+		Payload: getServiceSpecRequest{
+			ServiceName: "api",
 		},
 	})
 	require.Error(t, err, "expected stack_name required error")
@@ -116,8 +116,8 @@ func TestGetServiceSpecExecuteRequiresServiceName(t *testing.T) {
 	tool := NewGetServiceSpec(&fakeToolServiceSpecInspector{})
 
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"stack_name": "core",
+		Payload: getServiceSpecRequest{
+			StackName: "core",
 		},
 	})
 	require.Error(t, err, "expected service_name required error")
@@ -130,9 +130,9 @@ func TestGetServiceSpecExecuteReturnsInspectorError(t *testing.T) {
 	})
 
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"stack_name":   "core",
-			"service_name": "api",
+		Payload: getServiceSpecRequest{
+			StackName:   "core",
+			ServiceName: "api",
 		},
 	})
 	require.Error(t, err, "expected inspector error")

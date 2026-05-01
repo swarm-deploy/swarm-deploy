@@ -29,6 +29,7 @@ func (l *DockerNetworkList) Definition() routing.ToolDefinition {
 			"type":       "object",
 			"properties": map[string]any{},
 		},
+		Request: struct{}{},
 	}
 }
 

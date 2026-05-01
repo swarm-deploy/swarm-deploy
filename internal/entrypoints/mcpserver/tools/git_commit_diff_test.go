@@ -57,8 +57,8 @@ func TestGitCommitDiffExecute(t *testing.T) {
 	}, composeDiffer)
 
 	response, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"commit": "abc123",
+		Payload: gitCommitDiffRequest{
+			Commit: "abc123",
 		},
 	})
 	require.NoError(t, err, "execute git_commit_diff")
@@ -93,7 +93,7 @@ func TestGitCommitDiffExecute(t *testing.T) {
 func TestGitCommitDiffExecuteFailsOnMissingCommit(t *testing.T) {
 	tool := NewGitCommitDiff(&fakeGitRepository{}, nil, &fakeCommitDiffer{})
 
-	_, err := tool.Execute(context.Background(), routing.Request{Payload: map[string]any{}})
+	_, err := tool.Execute(context.Background(), routing.Request{Payload: gitCommitDiffRequest{}})
 	require.Error(t, err, "commit is required")
 	assert.Contains(t, err.Error(), "commit is required", "unexpected error")
 }
@@ -101,7 +101,7 @@ func TestGitCommitDiffExecuteFailsOnMissingCommit(t *testing.T) {
 func TestGitCommitDiffExecuteFailsOnRepositoryError(t *testing.T) {
 	tool := NewGitCommitDiff(&fakeGitRepository{err: errors.New("boom")}, nil, &fakeCommitDiffer{})
 
-	_, err := tool.Execute(context.Background(), routing.Request{Payload: map[string]any{"commit": "abc123"}})
+	_, err := tool.Execute(context.Background(), routing.Request{Payload: gitCommitDiffRequest{Commit: "abc123"}})
 	require.Error(t, err, "repository error must be returned")
 	assert.Contains(t, err.Error(), "boom", "unexpected error")
 }
@@ -112,7 +112,7 @@ func TestGitCommitDiffExecuteFailsOnDifferError(t *testing.T) {
 	}
 	tool := NewGitCommitDiff(repository, nil, &fakeCommitDiffer{err: errors.New("diff failed")})
 
-	_, err := tool.Execute(context.Background(), routing.Request{Payload: map[string]any{"commit": "abc123"}})
+	_, err := tool.Execute(context.Background(), routing.Request{Payload: gitCommitDiffRequest{Commit: "abc123"}})
 	require.Error(t, err, "differ error must be returned")
 	assert.Contains(t, err.Error(), "diff failed", "unexpected error")
 }

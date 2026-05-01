@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 
@@ -19,6 +18,14 @@ const (
 // GetServiceLogs returns recent log lines from a stack service.
 type GetServiceLogs struct {
 	logsInspector ServiceLogsInspector
+}
+
+type getServiceLogsRequest struct {
+	StackName   string `json:"stack_name"`
+	ServiceName string `json:"service_name"`
+	Limit       *int   `json:"limit"`
+	Since       string `json:"since"`
+	Until       string `json:"until"`
 }
 
 // NewGetServiceLogs creates service_logs_get component.
@@ -73,6 +80,7 @@ func (g *GetServiceLogs) Definition() routing.ToolDefinition {
 				},
 			},
 		},
+		Request: getServiceLogsRequest{},
 	}
 }
 
@@ -82,7 +90,12 @@ func (g *GetServiceLogs) Execute(ctx context.Context, request routing.Request) (
 		return routing.Response{}, fmt.Errorf("service logs inspector is not configured")
 	}
 
-	params, err := parseGetServiceLogsParams(request.Payload)
+	parsedRequest, err := convertRequestPayload[getServiceLogsRequest](request.Payload)
+	if err != nil {
+		return routing.Response{}, err
+	}
+
+	params, err := parseGetServiceLogsParams(parsedRequest)
 	if err != nil {
 		return routing.Response{}, err
 	}
@@ -163,29 +176,23 @@ type getServiceLogsParams struct {
 	Until       *time.Time
 }
 
-func parseGetServiceLogsParams(payload map[string]any) (getServiceLogsParams, error) {
-	stackName, err := parseStringParam(payload["stack_name"], "stack_name")
-	if err != nil {
-		return getServiceLogsParams{}, err
-	}
+func parseGetServiceLogsParams(request getServiceLogsRequest) (getServiceLogsParams, error) {
+	stackName := strings.TrimSpace(request.StackName)
 	if stackName == "" {
 		return getServiceLogsParams{}, fmt.Errorf("stack_name is required")
 	}
 
-	serviceName, err := parseStringParam(payload["service_name"], "service_name")
-	if err != nil {
-		return getServiceLogsParams{}, err
-	}
+	serviceName := strings.TrimSpace(request.ServiceName)
 	if serviceName == "" {
 		return getServiceLogsParams{}, fmt.Errorf("service_name is required")
 	}
 
-	limit, err := parseServiceLogsLimit(payload["limit"])
+	limit, err := parseServiceLogsLimit(request.Limit)
 	if err != nil {
 		return getServiceLogsParams{}, err
 	}
 
-	sinceValue, hasSince, err := parseRFC3339TimestampParam(payload["since"], "since")
+	sinceValue, hasSince, err := parseRFC3339TimestampParam(request.Since, "since")
 	if err != nil {
 		return getServiceLogsParams{}, err
 	}
@@ -194,7 +201,7 @@ func parseGetServiceLogsParams(payload map[string]any) (getServiceLogsParams, er
 		since = &sinceValue
 	}
 
-	untilValue, hasUntil, err := parseRFC3339TimestampParam(payload["until"], "until")
+	untilValue, hasUntil, err := parseRFC3339TimestampParam(request.Until, "until")
 	if err != nil {
 		return getServiceLogsParams{}, err
 	}
@@ -216,39 +223,24 @@ func parseGetServiceLogsParams(payload map[string]any) (getServiceLogsParams, er
 	}, nil
 }
 
-func parseServiceLogsLimit(raw any) (int, error) {
-	if raw == nil {
+func parseServiceLogsLimit(limit *int) (int, error) {
+	if limit == nil {
 		return defaultServiceLogsLimit, nil
 	}
 
-	value, err := parseStringParam(raw, "limit")
-	if err != nil {
-		return 0, fmt.Errorf("limit must be integer")
-	}
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return 0, fmt.Errorf("limit must be integer")
-	}
-
-	limit, err := strconv.Atoi(value)
-	if err != nil {
-		return 0, fmt.Errorf("limit must be integer")
-	}
-	if limit <= 0 {
+	parsed := *limit
+	if parsed <= 0 {
 		return 0, fmt.Errorf("limit must be > 0")
 	}
-	if limit > maxServiceLogsLimit {
+	if parsed > maxServiceLogsLimit {
 		return 0, fmt.Errorf("limit must be <= %d", maxServiceLogsLimit)
 	}
 
-	return limit, nil
+	return parsed, nil
 }
 
-func parseRFC3339TimestampParam(raw any, fieldName string) (time.Time, bool, error) {
-	value, err := parseStringParam(raw, fieldName)
-	if err != nil {
-		return time.Time{}, false, err
-	}
+func parseRFC3339TimestampParam(value string, fieldName string) (time.Time, bool, error) {
+	value = strings.TrimSpace(value)
 	if value == "" {
 		return time.Time{}, false, nil
 	}

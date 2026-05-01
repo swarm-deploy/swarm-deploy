@@ -24,8 +24,8 @@ func TestGetActualImageVersionExecute(t *testing.T) {
 
 	tool := NewGetActualImageVersion(resolver)
 	response, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"image": "nginx",
+		Payload: getActualImageVersionRequest{
+			Image: "nginx",
 		},
 	})
 	require.NoError(t, err, "execute registry_image_version_get")
@@ -64,8 +64,8 @@ func TestGetActualImageVersionExecuteWithDockerHubRegistry(t *testing.T) {
 
 	tool := NewGetActualImageVersion(resolver)
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"image": "postgres:15",
+		Payload: getActualImageVersionRequest{
+			Image: "postgres:15",
 		},
 	})
 	require.NoError(t, err, "execute registry_image_version_get with docker hub image")
@@ -76,7 +76,7 @@ func TestGetActualImageVersionExecuteFailsOnMissingImage(t *testing.T) {
 	tool := NewGetActualImageVersion(&fakeImageVersionResolver{})
 
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{},
+		Payload: getActualImageVersionRequest{},
 	})
 	require.Error(t, err, "expected image required error")
 	assert.Contains(t, err.Error(), "image is required", "unexpected error")
@@ -86,8 +86,8 @@ func TestGetActualImageVersionExecuteFailsOnNilResolver(t *testing.T) {
 	tool := NewGetActualImageVersion(nil)
 
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"image": "nginx",
+		Payload: getActualImageVersionRequest{
+			Image: "nginx",
 		},
 	})
 	require.Error(t, err, "expected missing resolver error")
@@ -106,8 +106,8 @@ func TestGetActualImageVersionExecuteKeepsCustomRegistryImage(t *testing.T) {
 	}
 	tool := NewGetActualImageVersion(resolver)
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"image": "registry.example.com/team/api:1.2.3",
+		Payload: getActualImageVersionRequest{
+			Image: "registry.example.com/team/api:1.2.3",
 		},
 	})
 	require.NoError(t, err, "execute registry_image_version_get with custom registry image")

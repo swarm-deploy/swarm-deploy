@@ -2,11 +2,7 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"math"
-	"strconv"
-	"strings"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 )
@@ -19,6 +15,10 @@ const (
 // ListGitCommits returns latest commits from git repository.
 type ListGitCommits struct {
 	repository GitRepository
+}
+
+type listGitCommitsRequest struct {
+	Limit *int `json:"limit"`
 }
 
 // NewListGitCommits creates git_commit_list component.
@@ -44,12 +44,18 @@ func (l *ListGitCommits) Definition() routing.ToolDefinition {
 				},
 			},
 		},
+		Request: listGitCommitsRequest{},
 	}
 }
 
 // Execute runs git_commit_list tool.
 func (l *ListGitCommits) Execute(ctx context.Context, request routing.Request) (routing.Response, error) {
-	limit, err := parseGitCommitsLimit(request.Payload["limit"])
+	parsedRequest, err := convertRequestPayload[listGitCommitsRequest](request.Payload)
+	if err != nil {
+		return routing.Response{}, err
+	}
+
+	limit, err := parseGitCommitsLimit(parsedRequest.Limit)
 	if err != nil {
 		return routing.Response{}, err
 	}
@@ -79,38 +85,12 @@ func (l *ListGitCommits) Execute(ctx context.Context, request routing.Request) (
 	}, nil
 }
 
-func parseGitCommitsLimit(raw any) (int, error) {
-	if raw == nil {
+func parseGitCommitsLimit(limit *int) (int, error) {
+	if limit == nil {
 		return defaultGitCommitsLimit, nil
 	}
 
-	var parsed int
-	switch value := raw.(type) {
-	case float64:
-		if value != math.Trunc(value) {
-			return 0, fmt.Errorf("limit must be integer")
-		}
-		parsed = int(value)
-	case int:
-		parsed = value
-	case int64:
-		parsed = int(value)
-	case json.Number:
-		number, err := strconv.Atoi(value.String())
-		if err != nil {
-			return 0, fmt.Errorf("limit must be integer: %w", err)
-		}
-		parsed = number
-	case string:
-		number, err := strconv.Atoi(strings.TrimSpace(value))
-		if err != nil {
-			return 0, fmt.Errorf("limit must be integer: %w", err)
-		}
-		parsed = number
-	default:
-		return 0, fmt.Errorf("limit must be integer")
-	}
-
+	parsed := *limit
 	if parsed <= 0 {
 		return 0, fmt.Errorf("limit must be > 0")
 	}

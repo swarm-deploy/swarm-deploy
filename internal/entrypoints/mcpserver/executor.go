@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"reflect"
+	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -22,6 +24,7 @@ const selfMetricsNamePrefix = "swarm_deploy_"
 type Executor struct {
 	tools       map[string]routing.Tool
 	definitions []routing.ToolDefinition
+	requests    map[string]any
 	metrics     metrics.MCP
 }
 
@@ -61,17 +64,20 @@ func NewExecutor(
 	}
 
 	tools := make(map[string]routing.Tool, len(toolComponents))
+	requests := make(map[string]any, len(toolComponents))
 	definitions := make([]routing.ToolDefinition, 0, len(toolComponents))
 
 	for _, tool := range toolComponents {
 		definition := tool.Definition()
 		tools[definition.Name] = tool
+		requests[definition.Name] = definition.Request
 		definitions = append(definitions, definition)
 	}
 
 	return &Executor{
 		tools:       tools,
 		definitions: definitions,
+		requests:    requests,
 		metrics:     mcpMetrics,
 	}
 }
@@ -96,6 +102,12 @@ func (e *Executor) Execute(ctx context.Context, req routing.Request) (string, er
 		return "", fmt.Errorf("unknown tool %q", req.ToolName)
 	}
 
+	decodedPayload, err := decodeToolRequestPayload(req.Payload, e.requests[req.ToolName])
+	if err != nil {
+		return "", fmt.Errorf("decode %q request payload: %w", req.ToolName, err)
+	}
+	req.Payload = decodedPayload
+
 	slog.InfoContext(ctx, "[mcp-executor] executing tool",
 		slog.String("tool.name", req.ToolName),
 		slog.Any("request", req.Payload),
@@ -113,4 +125,55 @@ func (e *Executor) Execute(ctx context.Context, req routing.Request) (string, er
 
 	success = true
 	return string(encoded), nil
+}
+
+func decodeToolRequestPayload(payload any, requestShape any) (any, error) {
+	if requestShape == nil {
+		return payload, nil
+	}
+
+	requestType := reflect.TypeOf(requestShape)
+	if requestType == nil {
+		return payload, nil
+	}
+
+	if payload == nil {
+		return reflect.Zero(requestType).Interface(), nil
+	}
+
+	if reflect.TypeOf(payload) == requestType {
+		return payload, nil
+	}
+
+	decoded := reflect.New(requestType)
+
+	switch raw := payload.(type) {
+	case string:
+		if strings.TrimSpace(raw) == "" {
+			return reflect.Zero(requestType).Interface(), nil
+		}
+
+		if err := json.Unmarshal([]byte(raw), decoded.Interface()); err != nil {
+			return nil, fmt.Errorf("decode payload: %w", err)
+		}
+	case []byte:
+		if len(raw) == 0 {
+			return reflect.Zero(requestType).Interface(), nil
+		}
+
+		if err := json.Unmarshal(raw, decoded.Interface()); err != nil {
+			return nil, fmt.Errorf("decode payload: %w", err)
+		}
+	default:
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			return nil, fmt.Errorf("encode payload: %w", err)
+		}
+
+		if err = json.Unmarshal(encoded, decoded.Interface()); err != nil {
+			return nil, fmt.Errorf("decode payload: %w", err)
+		}
+	}
+
+	return decoded.Elem().Interface(), nil
 }

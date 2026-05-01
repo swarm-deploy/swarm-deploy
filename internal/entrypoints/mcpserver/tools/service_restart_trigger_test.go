@@ -22,9 +22,9 @@ func TestRestartServiceExecute(t *testing.T) {
 	tool := NewRestartService(manager, dispatcher)
 
 	response, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"stack":   "core",
-			"service": "api",
+		Payload: restartServiceRequest{
+			Stack:   "core",
+			Service: "api",
 		},
 	})
 	require.NoError(t, err, "execute service_restart_trigger")
@@ -63,9 +63,9 @@ func TestRestartServiceExecuteFailsOnInspect(t *testing.T) {
 	}, dispatcher)
 
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"stack":   "core",
-			"service": "api",
+		Payload: restartServiceRequest{
+			Stack:   "core",
+			Service: "api",
 		},
 	})
 	require.Error(t, err, "expected execute error")
@@ -85,9 +85,9 @@ func TestRestartServiceExecuteFailsOnRestore(t *testing.T) {
 	tool := NewRestartService(manager, dispatcher)
 
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"stack":   "core",
-			"service": "api",
+		Payload: restartServiceRequest{
+			Stack:   "core",
+			Service: "api",
 		},
 	})
 	require.Error(t, err, "expected execute error")

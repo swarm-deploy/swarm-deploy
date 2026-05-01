@@ -45,8 +45,8 @@ func TestDateExecuteWithTimezone(t *testing.T) {
 	}
 
 	response, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"timezone": "Europe/Moscow",
+		Payload: dateRequest{
+			Timezone: "Europe/Moscow",
 		},
 	})
 	require.NoError(t, err, "execute date")
@@ -78,15 +78,15 @@ func TestDateExecuteInvalidTimezoneType(t *testing.T) {
 		},
 	})
 	require.Error(t, err, "expected timezone type error")
-	assert.Contains(t, err.Error(), "timezone must be string", "unexpected error")
+	assert.Contains(t, err.Error(), "request payload has unexpected type", "unexpected error")
 }
 
 func TestDateExecuteInvalidTimezone(t *testing.T) {
 	tool := NewDate()
 
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"timezone": "Mars/Colony-1",
+		Payload: dateRequest{
+			Timezone: "Mars/Colony-1",
 		},
 	})
 	require.Error(t, err, "expected timezone load error")

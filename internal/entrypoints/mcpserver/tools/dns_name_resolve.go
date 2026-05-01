@@ -14,6 +14,10 @@ type DNSNameResolve struct {
 	resolver DNSResolver
 }
 
+type dnsNameResolveRequest struct {
+	Name string `json:"name"`
+}
+
 // NewDNSNameResolve creates dns_name_resolve component.
 func NewDNSNameResolve() *DNSNameResolve {
 	return &DNSNameResolve{
@@ -38,12 +42,18 @@ func (d *DNSNameResolve) Definition() routing.ToolDefinition {
 				},
 			},
 		},
+		Request: dnsNameResolveRequest{},
 	}
 }
 
 // Execute runs dns_name_resolve tool.
 func (d *DNSNameResolve) Execute(ctx context.Context, request routing.Request) (routing.Response, error) {
-	name, err := parseDNSName(request.Payload["name"])
+	parsedRequest, err := convertRequestPayload[dnsNameResolveRequest](request.Payload)
+	if err != nil {
+		return routing.Response{}, err
+	}
+
+	name, err := parseDNSName(parsedRequest.Name)
 	if err != nil {
 		return routing.Response{}, err
 	}
@@ -73,16 +83,7 @@ func (d *DNSNameResolve) Execute(ctx context.Context, request routing.Request) (
 	}, nil
 }
 
-func parseDNSName(raw any) (string, error) {
-	if raw == nil {
-		return "", fmt.Errorf("name is required")
-	}
-
-	name, ok := raw.(string)
-	if !ok {
-		return "", fmt.Errorf("name must be string")
-	}
-
+func parseDNSName(name string) (string, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return "", fmt.Errorf("name is required")

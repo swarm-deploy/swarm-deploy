@@ -15,6 +15,12 @@ type SetServiceReplicas struct {
 	eventDispatcher dispatcher.Dispatcher
 }
 
+type setServiceReplicasRequest struct {
+	Stack    string  `json:"stack"`
+	Service  string  `json:"service"`
+	Replicas *uint64 `json:"replicas"`
+}
+
 // NewSetServiceReplicas creates service_replicas_set component.
 func NewSetServiceReplicas(manager ServiceReplicasManager, eventDispatcher dispatcher.Dispatcher) *SetServiceReplicas {
 	return &SetServiceReplicas{
@@ -51,17 +57,23 @@ func (s *SetServiceReplicas) Definition() routing.ToolDefinition {
 				},
 			},
 		},
+		Request: setServiceReplicasRequest{},
 	}
 }
 
 // Execute runs service_replicas_set tool.
 func (s *SetServiceReplicas) Execute(ctx context.Context, request routing.Request) (routing.Response, error) {
-	target, err := parseServiceReplicasTarget(request.Payload)
+	parsedRequest, err := convertRequestPayload[setServiceReplicasRequest](request.Payload)
 	if err != nil {
 		return routing.Response{}, err
 	}
 
-	replicas, err := parseReplicasParam(request.Payload["replicas"])
+	target, err := parseServiceReplicasTarget(parsedRequest.Stack, parsedRequest.Service)
+	if err != nil {
+		return routing.Response{}, err
+	}
+
+	replicas, err := parseReplicasParam(parsedRequest.Replicas)
 	if err != nil {
 		return routing.Response{}, err
 	}

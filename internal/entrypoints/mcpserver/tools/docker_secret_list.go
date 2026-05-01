@@ -29,6 +29,7 @@ func (l *DockerSecretList) Definition() routing.ToolDefinition {
 			"type":       "object",
 			"properties": map[string]any{},
 		},
+		Request: struct{}{},
 	}
 }
 

@@ -23,10 +23,10 @@ func TestSetServiceReplicasExecute(t *testing.T) {
 	tool := NewSetServiceReplicas(manager, dispatcher)
 
 	response, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"stack":    "core",
-			"service":  "api",
-			"replicas": "5",
+		Payload: setServiceReplicasRequest{
+			Stack:    "core",
+			Service:  "api",
+			Replicas: uint64Pointer(5),
 		},
 	})
 	require.NoError(t, err, "execute service_replicas_set")
@@ -66,10 +66,10 @@ func TestSetServiceReplicasExecuteFailsOnValidation(t *testing.T) {
 	tool := NewSetServiceReplicas(&fakeServiceReplicasManager{}, dispatcher)
 
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"stack":    "core",
-			"service":  "api",
-			"replicas": 0,
+		Payload: setServiceReplicasRequest{
+			Stack:    "core",
+			Service:  "api",
+			Replicas: uint64Pointer(0),
 		},
 	})
 	require.Error(t, err, "expected execute error")
@@ -87,10 +87,10 @@ func TestSetServiceReplicasExecuteFailsOnUpdate(t *testing.T) {
 	}, dispatcher)
 
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"stack":    "core",
-			"service":  "api",
-			"replicas": 2,
+		Payload: setServiceReplicasRequest{
+			Stack:    "core",
+			Service:  "api",
+			Replicas: uint64Pointer(2),
 		},
 	})
 	require.Error(t, err, "expected execute error")
@@ -108,10 +108,10 @@ func TestSetServiceReplicasExecuteDispatchesEventOnDecrease(t *testing.T) {
 	tool := NewSetServiceReplicas(manager, dispatcher)
 
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"stack":    "core",
-			"service":  "api",
-			"replicas": 2,
+		Payload: setServiceReplicasRequest{
+			Stack:    "core",
+			Service:  "api",
+			Replicas: uint64Pointer(2),
 		},
 	})
 	require.NoError(t, err, "execute service_replicas_set")
@@ -135,10 +135,10 @@ func TestSetServiceReplicasExecuteSkipsEventOnSameReplicas(t *testing.T) {
 	tool := NewSetServiceReplicas(manager, dispatcher)
 
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"stack":    "core",
-			"service":  "api",
-			"replicas": 5,
+		Payload: setServiceReplicasRequest{
+			Stack:    "core",
+			Service:  "api",
+			Replicas: uint64Pointer(5),
 		},
 	})
 	require.NoError(t, err, "execute service_replicas_set")

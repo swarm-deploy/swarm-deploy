@@ -1,22 +1,19 @@
 package tools
 
 import (
-	"encoding/json"
 	"fmt"
-	"math"
-	"strconv"
 	"strings"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
-func parseServiceReplicasTarget(payload map[string]any) (swarm.ServiceReference, error) {
-	stackName, err := parseRequiredStringParam(payload["stack"], "stack")
+func parseServiceReplicasTarget(stackName string, serviceName string) (swarm.ServiceReference, error) {
+	stackName, err := parseRequiredStringParam(stackName, "stack")
 	if err != nil {
 		return swarm.ServiceReference{}, err
 	}
 
-	serviceName, err := parseRequiredStringParam(payload["service"], "service")
+	serviceName, err = parseRequiredStringParam(serviceName, "service")
 	if err != nil {
 		return swarm.ServiceReference{}, err
 	}
@@ -24,66 +21,19 @@ func parseServiceReplicasTarget(payload map[string]any) (swarm.ServiceReference,
 	return swarm.NewServiceReference(stackName, serviceName), nil
 }
 
-func parseReplicasParam(raw any) (uint64, error) {
-	if raw == nil {
+func parseReplicasParam(replicas *uint64) (uint64, error) {
+	if replicas == nil {
 		return 0, fmt.Errorf("replicas is required")
 	}
 
-	switch value := raw.(type) {
-	case float64:
-		if value != math.Trunc(value) {
-			return 0, fmt.Errorf("replicas must be integer")
-		}
-		if value <= 0 {
-			return 0, fmt.Errorf("replicas must be > 0")
-		}
-
-		return uint64(value), nil
-	case int:
-		if value <= 0 {
-			return 0, fmt.Errorf("replicas must be > 0")
-		}
-
-		return uint64(value), nil
-	case int64:
-		if value <= 0 {
-			return 0, fmt.Errorf("replicas must be > 0")
-		}
-
-		return uint64(value), nil
-	case json.Number:
-		parsed, err := strconv.ParseUint(strings.TrimSpace(value.String()), 10, 64)
-		if err != nil {
-			return 0, fmt.Errorf("replicas must be integer: %w", err)
-		}
-		if parsed == 0 {
-			return 0, fmt.Errorf("replicas must be > 0")
-		}
-		return parsed, nil
-	case string:
-		parsed, err := strconv.ParseUint(strings.TrimSpace(value), 10, 64)
-		if err != nil {
-			return 0, fmt.Errorf("replicas must be integer: %w", err)
-		}
-		if parsed == 0 {
-			return 0, fmt.Errorf("replicas must be > 0")
-		}
-		return parsed, nil
-	default:
-		return 0, fmt.Errorf("replicas must be integer")
+	if *replicas == 0 {
+		return 0, fmt.Errorf("replicas must be > 0")
 	}
+
+	return *replicas, nil
 }
 
-func parseRequiredStringParam(raw any, fieldName string) (string, error) {
-	if raw == nil {
-		return "", fmt.Errorf("%s is required", fieldName)
-	}
-
-	value, ok := raw.(string)
-	if !ok {
-		return "", fmt.Errorf("%s must be string", fieldName)
-	}
-
+func parseRequiredStringParam(value string, fieldName string) (string, error) {
 	value = strings.TrimSpace(value)
 	if value == "" {
 		return "", fmt.Errorf("%s is required", fieldName)

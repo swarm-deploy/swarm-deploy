@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -11,6 +12,11 @@ import (
 // GetServiceSpec returns compact service spec projection from Docker Swarm.
 type GetServiceSpec struct {
 	inspector ServiceSpecInspector
+}
+
+type getServiceSpecRequest struct {
+	StackName   string `json:"stack_name"`
+	ServiceName string `json:"service_name"`
 }
 
 // NewGetServiceSpec creates service_spec_get component.
@@ -42,23 +48,23 @@ func (g *GetServiceSpec) Definition() routing.ToolDefinition {
 				},
 			},
 		},
+		Request: getServiceSpecRequest{},
 	}
 }
 
 // Execute runs service_spec_get tool.
 func (g *GetServiceSpec) Execute(ctx context.Context, request routing.Request) (routing.Response, error) {
-	stackName, err := parseStringParam(request.Payload["stack_name"], "stack_name")
+	parsedRequest, err := convertRequestPayload[getServiceSpecRequest](request.Payload)
 	if err != nil {
 		return routing.Response{}, err
 	}
+
+	stackName := strings.TrimSpace(parsedRequest.StackName)
 	if stackName == "" {
 		return routing.Response{}, fmt.Errorf("stack_name is required")
 	}
 
-	serviceName, err := parseStringParam(request.Payload["service_name"], "service_name")
-	if err != nil {
-		return routing.Response{}, err
-	}
+	serviceName := strings.TrimSpace(parsedRequest.ServiceName)
 	if serviceName == "" {
 		return routing.Response{}, fmt.Errorf("service_name is required")
 	}

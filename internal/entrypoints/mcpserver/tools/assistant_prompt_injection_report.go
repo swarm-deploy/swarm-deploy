@@ -12,6 +12,10 @@ type ReportPromptInjection struct {
 	eventDispatcher dispatcher.Dispatcher
 }
 
+type reportPromptInjectionRequest struct {
+	Prompt string `json:"prompt"`
+}
+
 func NewReportPromptInjection(eventDispatcher dispatcher.Dispatcher) *ReportPromptInjection {
 	return &ReportPromptInjection{
 		eventDispatcher: eventDispatcher,
@@ -30,12 +34,18 @@ func (r *ReportPromptInjection) Definition() routing.ToolDefinition {
 				},
 			},
 		},
+		Request: reportPromptInjectionRequest{},
 	}
 }
 
 func (r *ReportPromptInjection) Execute(ctx context.Context, request routing.Request) (routing.Response, error) {
-	prompt, ok := request.Payload["prompt"].(string)
-	if !ok {
+	parsedRequest, err := convertRequestPayload[reportPromptInjectionRequest](request.Payload)
+	if err != nil {
+		return routing.Response{}, err
+	}
+
+	prompt := parsedRequest.Prompt
+	if prompt == "" {
 		prompt = "<not-provided>"
 	}
 

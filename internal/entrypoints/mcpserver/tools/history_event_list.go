@@ -2,11 +2,7 @@ package tools
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"math"
-	"strconv"
-	"strings"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
@@ -21,6 +17,12 @@ const (
 // ListHistoryEvents returns latest events from local event history.
 type ListHistoryEvents struct {
 	history HistoryReader
+}
+
+type listHistoryEventsRequest struct {
+	Limit      *int     `json:"limit"`
+	Severities []string `json:"severities"`
+	Categories []string `json:"categories"`
 }
 
 // NewListHistoryEvents creates history_event_list component.
@@ -68,20 +70,26 @@ func (l *ListHistoryEvents) Definition() routing.ToolDefinition {
 				},
 			},
 		},
+		Request: listHistoryEventsRequest{},
 	}
 }
 
 // Execute runs history_event_list tool.
 func (l *ListHistoryEvents) Execute(_ context.Context, request routing.Request) (routing.Response, error) {
-	limit, err := parseHistoryLimit(request.Payload["limit"])
+	parsedRequest, err := convertRequestPayload[listHistoryEventsRequest](request.Payload)
 	if err != nil {
 		return routing.Response{}, err
 	}
-	severities, err := parseHistorySeverities(request.Payload["severities"])
+
+	limit, err := parseHistoryLimit(parsedRequest.Limit)
 	if err != nil {
 		return routing.Response{}, err
 	}
-	categories, err := parseHistoryCategories(request.Payload["categories"])
+	severities, err := parseHistorySeverities(parsedRequest.Severities)
+	if err != nil {
+		return routing.Response{}, err
+	}
+	categories, err := parseHistoryCategories(parsedRequest.Categories)
 	if err != nil {
 		return routing.Response{}, err
 	}
@@ -101,38 +109,12 @@ func (l *ListHistoryEvents) Execute(_ context.Context, request routing.Request) 
 	}, nil
 }
 
-func parseHistoryLimit(raw any) (int, error) {
-	if raw == nil {
+func parseHistoryLimit(limit *int) (int, error) {
+	if limit == nil {
 		return defaultHistoryLimit, nil
 	}
 
-	var parsed int
-	switch value := raw.(type) {
-	case float64:
-		if value != math.Trunc(value) {
-			return 0, fmt.Errorf("limit must be integer")
-		}
-		parsed = int(value)
-	case int:
-		parsed = value
-	case int64:
-		parsed = int(value)
-	case json.Number:
-		number, err := strconv.Atoi(value.String())
-		if err != nil {
-			return 0, fmt.Errorf("limit must be integer: %w", err)
-		}
-		parsed = number
-	case string:
-		number, err := strconv.Atoi(strings.TrimSpace(value))
-		if err != nil {
-			return 0, fmt.Errorf("limit must be integer: %w", err)
-		}
-		parsed = number
-	default:
-		return 0, fmt.Errorf("limit must be integer")
-	}
-
+	parsed := *limit
 	if parsed <= 0 {
 		return 0, fmt.Errorf("limit must be > 0")
 	}
@@ -143,12 +125,7 @@ func parseHistoryLimit(raw any) (int, error) {
 	return parsed, nil
 }
 
-func parseHistorySeverities(raw any) ([]events.Severity, error) {
-	values, err := parseStringList(raw, "severities")
-	if err != nil {
-		return nil, err
-	}
-
+func parseHistorySeverities(values []string) ([]events.Severity, error) {
 	out := make([]events.Severity, 0, len(values))
 	for _, value := range values {
 		parsed, ok := events.ParseSeverity(value)
@@ -161,12 +138,7 @@ func parseHistorySeverities(raw any) ([]events.Severity, error) {
 	return out, nil
 }
 
-func parseHistoryCategories(raw any) ([]events.Category, error) {
-	values, err := parseStringList(raw, "categories")
-	if err != nil {
-		return nil, err
-	}
-
+func parseHistoryCategories(values []string) ([]events.Category, error) {
 	out := make([]events.Category, 0, len(values))
 	for _, value := range values {
 		parsed, ok := events.ParseCategory(value)
@@ -177,19 +149,4 @@ func parseHistoryCategories(raw any) ([]events.Category, error) {
 	}
 
 	return out, nil
-}
-
-func parseStringList(raw any, field string) ([]string, error) {
-	if raw == nil {
-		return nil, nil
-	}
-
-	switch value := raw.(type) {
-	case []string:
-		return value, nil
-	case string:
-		return []string{value}, nil
-	default:
-		return nil, fmt.Errorf("%s must be array of strings", field)
-	}
 }

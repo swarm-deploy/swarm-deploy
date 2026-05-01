@@ -2,7 +2,6 @@ package assistant
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -15,14 +14,9 @@ func (g *graph) executeToolCall(ctx context.Context, modelToolCall modelToolCall
 		return "", errors.New("tool is not allowed by assistant.tools configuration")
 	}
 
-	arguments, decodeErr := decodeToolArguments(modelToolCall.Arguments)
-	if decodeErr != nil {
-		return "", fmt.Errorf("decode tool arguments: %w", decodeErr)
-	}
-
 	result, runErr := g.tools.Execute(ctx, routing.Request{
 		ToolName: modelToolCall.Name,
-		Payload:  arguments,
+		Payload:  modelToolCall.Arguments,
 	})
 	if runErr != nil {
 		return "", runErr
@@ -64,22 +58,6 @@ func (g *graph) isToolAllowed(toolName string) bool {
 
 	_, ok := g.allowedToolSet[toolName]
 	return ok
-}
-
-func decodeToolArguments(raw string) (map[string]any, error) {
-	if strings.TrimSpace(raw) == "" {
-		return map[string]any{}, nil
-	}
-
-	var decoded map[string]any
-	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
-		return nil, fmt.Errorf("decode tool arguments: %w", err)
-	}
-	if decoded == nil {
-		return map[string]any{}, nil
-	}
-
-	return decoded, nil
 }
 
 func formatMCPToolCallError(toolName string, runErr error) string {
