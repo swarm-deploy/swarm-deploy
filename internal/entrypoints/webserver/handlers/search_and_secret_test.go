@@ -112,6 +112,11 @@ func TestHandlerSearch_PriorityAndDedupe(t *testing.T) {
 				{Name: "api-app-secret"},
 			},
 		},
+		networks: fakeNetworksReader{
+			list: []swarm.Network{
+				{Name: "billing-internal"},
+			},
+		},
 	}
 
 	resp, err := h.Search(context.Background(), generated.SearchParams{Query: "api-app"})
@@ -125,4 +130,11 @@ func TestHandlerSearch_PriorityAndDedupe(t *testing.T) {
 	assert.Equal(t, generated.SearchResultMatchSecretName, resp.Results[1].Match)
 	assert.Equal(t, generated.SearchResultKindSecret, resp.Results[1].Kind)
 	assert.Equal(t, "api-app-secret", resp.Results[1].Label)
+
+	resp, err = h.Search(context.Background(), generated.SearchParams{Query: "internal"})
+	require.NoError(t, err)
+	require.Len(t, resp.Results, 1)
+	assert.Equal(t, generated.SearchResultKindStack, resp.Results[0].Kind)
+	assert.Equal(t, generated.SearchResultMatchStackName, resp.Results[0].Match)
+	assert.Equal(t, "billing-internal", resp.Results[0].Label)
 }

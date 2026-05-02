@@ -24,6 +24,7 @@ func (h *handler) Search(
 
 	results = append(results, h.searchServicesByName(query)...)
 	results = append(results, h.searchServicesByWebRoute(query)...)
+	results = append(results, h.searchNetworksByName(ctx, query)...)
 
 	if h.secrets != nil {
 		secrets, err := h.secrets.List(ctx)
@@ -83,6 +84,32 @@ func (h *handler) searchServicesByWebRoute(query string) []generated.SearchResul
 			Label:   serviceInfo.Name,
 			Stack:   generated.NewOptString(serviceInfo.Stack),
 			Service: generated.NewOptString(serviceInfo.Name),
+		})
+	}
+
+	return results
+}
+
+func (h *handler) searchNetworksByName(ctx context.Context, query string) []generated.SearchResult {
+	if h.networks == nil {
+		return nil
+	}
+
+	networks, err := h.networks.List(ctx)
+	if err != nil {
+		return nil
+	}
+
+	results := make([]generated.SearchResult, 0, len(networks))
+	for _, network := range networks {
+		if !strings.Contains(strings.ToLower(network.Name), query) {
+			continue
+		}
+
+		results = append(results, generated.SearchResult{
+			Kind:  generated.SearchResultKindStack,
+			Match: generated.SearchResultMatchStackName,
+			Label: network.Name,
 		})
 	}
 

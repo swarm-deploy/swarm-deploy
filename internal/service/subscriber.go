@@ -84,6 +84,7 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Event) error {
 			Image:         deployedService.Image,
 			RepositoryURL: repositoryURL,
 			WebRoutes:     s.webRouteResolver.Resolve(inspectedLabels.ContainerEnv),
+			Networks:      deployedService.Networks,
 		})
 	}
 
