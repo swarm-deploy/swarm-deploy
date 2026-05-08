@@ -25,6 +25,8 @@ func TestNodeStoreReplaceAndLoad(t *testing.T) {
 			ManagerStatus: "worker",
 			EngineVersion: "28.3.0",
 			Addr:          "10.0.0.2",
+			CPUNano:       4_000_000_000,
+			MemoryBytes:   17_179_869_184,
 		},
 		{
 			ID:            "a",
@@ -34,6 +36,8 @@ func TestNodeStoreReplaceAndLoad(t *testing.T) {
 			ManagerStatus: "leader",
 			EngineVersion: "28.3.0",
 			Addr:          "10.0.0.1",
+			CPUNano:       8_000_000_000,
+			MemoryBytes:   34_359_738_368,
 		},
 	})
 	require.NoError(t, err, "replace nodes")

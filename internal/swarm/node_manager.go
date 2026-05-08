@@ -71,6 +71,8 @@ func (*NodeManager) mapNode(node dockerswarm.Node) Node {
 		ManagerStatus: managerStatus,
 		EngineVersion: node.Description.Engine.EngineVersion,
 		Addr:          node.Status.Addr,
+		CPUNano:       node.Description.Resources.NanoCPUs,
+		MemoryBytes:   node.Description.Resources.MemoryBytes,
 	}
 }
 

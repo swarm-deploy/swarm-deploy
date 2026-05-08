@@ -135,6 +135,8 @@ export interface NodeInfo {
   manager_status: string;
   engine_version: string;
   addr: string;
+  cpu_nano: number;
+  memory_bytes: number;
 }
 
 export interface NodesResponse {

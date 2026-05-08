@@ -356,7 +356,7 @@ components:
             $ref: '#/components/schemas/NetworkInfo'
     NodeInfo:
       type: object
-      required: [id, hostname, status, availability, manager_status, engine_version, addr]
+      required: [id, hostname, status, availability, manager_status, engine_version, addr, cpu_nano, memory_bytes]
       properties:
         id:
           type: string
@@ -372,6 +372,14 @@ components:
           type: string
         addr:
           type: string
+        cpu_nano:
+          type: integer
+          format: int64
+          minimum: 0
+        memory_bytes:
+          type: integer
+          format: int64
+          minimum: 0
     NetworkInfo:
       type: object
       required: [id, name, scope, driver, internal, attachable, ingress]

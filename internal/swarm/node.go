@@ -28,4 +28,8 @@ type Node struct {
 	EngineVersion string `json:"engine_version"`
 	// Addr is a node address from node status.
 	Addr string `json:"addr"`
+	// CPUNano is total CPU capacity in nano-CPU units.
+	CPUNano int64 `json:"cpu_nano"`
+	// MemoryBytes is total memory capacity in bytes.
+	MemoryBytes int64 `json:"memory_bytes"`
 }

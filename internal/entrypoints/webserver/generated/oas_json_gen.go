@@ -1518,9 +1518,17 @@ func (s *NodeInfo) encodeFields(e *jx.Encoder) {
 		e.FieldStart("addr")
 		e.Str(s.Addr)
 	}
+	{
+		e.FieldStart("cpu_nano")
+		e.Int64(s.CPUNano)
+	}
+	{
+		e.FieldStart("memory_bytes")
+		e.Int64(s.MemoryBytes)
+	}
 }
 
-var jsonFieldsNameOfNodeInfo = [7]string{
+var jsonFieldsNameOfNodeInfo = [9]string{
 	0: "id",
 	1: "hostname",
 	2: "status",
@@ -1528,6 +1536,8 @@ var jsonFieldsNameOfNodeInfo = [7]string{
 	4: "manager_status",
 	5: "engine_version",
 	6: "addr",
+	7: "cpu_nano",
+	8: "memory_bytes",
 }
 
 // Decode decodes NodeInfo from json.
@@ -1535,7 +1545,7 @@ func (s *NodeInfo) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode NodeInfo to nil")
 	}
-	var requiredBitSet [1]uint8
+	var requiredBitSet [2]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -1623,6 +1633,30 @@ func (s *NodeInfo) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"addr\"")
 			}
+		case "cpu_nano":
+			requiredBitSet[0] |= 1 << 7
+			if err := func() error {
+				v, err := d.Int64()
+				s.CPUNano = int64(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"cpu_nano\"")
+			}
+		case "memory_bytes":
+			requiredBitSet[1] |= 1 << 0
+			if err := func() error {
+				v, err := d.Int64()
+				s.MemoryBytes = int64(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"memory_bytes\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -1632,8 +1666,9 @@ func (s *NodeInfo) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [1]uint8{
-		0b01111111,
+	for i, mask := range [2]uint8{
+		0b11111111,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

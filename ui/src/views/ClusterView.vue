@@ -3,6 +3,7 @@ import { onMounted, ref } from "vue";
 
 import { fetchNodes } from "../api/cluster";
 import type { NodeInfo } from "../api/types";
+import { formatBytes, formatNanoCPU } from "../utils/format";
 
 const nodes = ref<NodeInfo[]>([]);
 const loading = ref(false);
@@ -22,6 +23,14 @@ function statusClass(status: string): "success" | "failed" | "unknown" {
     return "failed";
   }
   return "unknown";
+}
+
+function nodeCPU(node: NodeInfo): string {
+  return node.cpu_nano > 0 ? formatNanoCPU(node.cpu_nano) : "n/a";
+}
+
+function nodeRAM(node: NodeInfo): string {
+  return node.memory_bytes > 0 ? formatBytes(node.memory_bytes) : "n/a";
 }
 
 async function loadNodes() {
@@ -79,6 +88,8 @@ onMounted(() => {
         </div>
         <p class="meta">availability: {{ node.availability || "n/a" }}</p>
         <p class="meta">manager: {{ node.manager_status || "n/a" }}</p>
+        <p class="meta">cpu: {{ nodeCPU(node) }}</p>
+        <p class="meta">ram: {{ nodeRAM(node) }}</p>
         <p class="meta">address: {{ node.addr || "n/a" }}</p>
         <p class="meta">engine: {{ node.engine_version || "n/a" }}</p>
         <p class="meta">id: {{ node.id || "n/a" }}</p>

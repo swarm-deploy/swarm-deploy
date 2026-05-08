@@ -594,6 +594,8 @@ type NodeInfo struct {
 	ManagerStatus string `json:"manager_status"`
 	EngineVersion string `json:"engine_version"`
 	Addr          string `json:"addr"`
+	CPUNano       int64  `json:"cpu_nano"`
+	MemoryBytes   int64  `json:"memory_bytes"`
 }
 
 // GetID returns the value of ID.
@@ -631,6 +633,16 @@ func (s *NodeInfo) GetAddr() string {
 	return s.Addr
 }
 
+// GetCPUNano returns the value of CPUNano.
+func (s *NodeInfo) GetCPUNano() int64 {
+	return s.CPUNano
+}
+
+// GetMemoryBytes returns the value of MemoryBytes.
+func (s *NodeInfo) GetMemoryBytes() int64 {
+	return s.MemoryBytes
+}
+
 // SetID sets the value of ID.
 func (s *NodeInfo) SetID(val string) {
 	s.ID = val
@@ -664,6 +676,16 @@ func (s *NodeInfo) SetEngineVersion(val string) {
 // SetAddr sets the value of Addr.
 func (s *NodeInfo) SetAddr(val string) {
 	s.Addr = val
+}
+
+// SetCPUNano sets the value of CPUNano.
+func (s *NodeInfo) SetCPUNano(val int64) {
+	s.CPUNano = val
+}
+
+// SetMemoryBytes sets the value of MemoryBytes.
+func (s *NodeInfo) SetMemoryBytes(val int64) {
+	s.MemoryBytes = val
 }
 
 // Ref: #/components/schemas/NodesResponse

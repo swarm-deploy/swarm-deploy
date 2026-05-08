@@ -15,6 +15,10 @@ func TestNodeManagerMapNodeMapsFields(t *testing.T) {
 			Engine: dockerswarm.EngineDescription{
 				EngineVersion: " 28.3.0 ",
 			},
+			Resources: dockerswarm.Resources{
+				NanoCPUs:    8_000_000_000,
+				MemoryBytes: 34_359_738_368,
+			},
 		},
 		Status: dockerswarm.NodeStatus{
 			State: dockerswarm.NodeStateReady,
@@ -37,6 +41,8 @@ func TestNodeManagerMapNodeMapsFields(t *testing.T) {
 	assert.Equal(t, NodeManagerStatusLeader, mapped.ManagerStatus, "unexpected managerStatus")
 	assert.Equal(t, " 28.3.0 ", mapped.EngineVersion, "unexpected engine version")
 	assert.Equal(t, " 10.0.0.1 ", mapped.Addr, "unexpected addr")
+	assert.Equal(t, int64(8_000_000_000), mapped.CPUNano, "unexpected cpu")
+	assert.Equal(t, int64(34_359_738_368), mapped.MemoryBytes, "unexpected memory")
 }
 
 func TestNodeManagerMapNodeSetsWorkerManagerStatusForWorkers(t *testing.T) {

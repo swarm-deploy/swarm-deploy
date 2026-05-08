@@ -315,6 +315,8 @@ func toGeneratedNodes(nodes []swarm.Node) []generated.NodeInfo {
 			ManagerStatus: string(node.ManagerStatus),
 			EngineVersion: node.EngineVersion,
 			Addr:          node.Addr,
+			CPUNano:       node.CPUNano,
+			MemoryBytes:   node.MemoryBytes,
 		})
 	}
 
