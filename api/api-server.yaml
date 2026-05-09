@@ -380,6 +380,10 @@ components:
           type: integer
           format: int64
           minimum: 0
+        labels:
+          type: object
+          additionalProperties:
+            type: string
     NetworkInfo:
       type: object
       required: [id, name, scope, driver, internal, attachable, ingress]

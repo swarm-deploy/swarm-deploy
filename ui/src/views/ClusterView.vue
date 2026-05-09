@@ -33,6 +33,18 @@ function nodeRAM(node: NodeInfo): string {
   return node.memory_bytes > 0 ? formatBytes(node.memory_bytes) : "n/a";
 }
 
+function labelsText(labels?: Record<string, string>): string {
+  const entries = Object.entries(labels ?? {});
+  if (entries.length === 0) {
+    return "n/a";
+  }
+
+  return entries
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}=${value}`)
+    .join(", ");
+}
+
 async function loadNodes() {
   loading.value = true;
   loadingError.value = "";
@@ -92,6 +104,7 @@ onMounted(() => {
         <p class="meta">ram: {{ nodeRAM(node) }}</p>
         <p class="meta">address: {{ node.addr || "n/a" }}</p>
         <p class="meta">engine: {{ node.engine_version || "n/a" }}</p>
+        <p class="meta">labels: {{ labelsText(node.labels) }}</p>
         <p class="meta">id: {{ node.id || "n/a" }}</p>
       </article>
     </div>

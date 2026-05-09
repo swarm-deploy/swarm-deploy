@@ -39,9 +39,7 @@ func (s *Store) List() []swarm.Node {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	out := make([]swarm.Node, len(s.rows))
-	copy(out, s.rows)
-	return out
+	return cloneNodes(s.rows)
 }
 
 // Replace replaces nodes snapshot and saves it to disk.
@@ -49,7 +47,7 @@ func (s *Store) Replace(nodes []swarm.Node) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.rows = nodes
+	s.rows = cloneNodes(nodes)
 	sortNodes(s.rows)
 
 	return s.flushLocked()
@@ -108,4 +106,39 @@ func sortNodes(nodes []swarm.Node) {
 
 		return nodes[i].ID < nodes[j].ID
 	})
+}
+
+func cloneNodes(nodes []swarm.Node) []swarm.Node {
+	if len(nodes) == 0 {
+		return nil
+	}
+
+	out := make([]swarm.Node, 0, len(nodes))
+	for _, node := range nodes {
+		out = append(out, cloneNode(node))
+	}
+
+	return out
+}
+
+func cloneNode(node swarm.Node) swarm.Node {
+	if len(node.Labels) == 0 {
+		return node
+	}
+
+	node.Labels = cloneStringMap(node.Labels)
+	return node
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	out := make(map[string]string, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+
+	return out
 }

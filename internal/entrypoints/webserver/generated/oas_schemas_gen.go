@@ -587,15 +587,16 @@ func (s *NetworksResponse) SetNetworks(val []NetworkInfo) {
 
 // Ref: #/components/schemas/NodeInfo
 type NodeInfo struct {
-	ID            string `json:"id"`
-	Hostname      string `json:"hostname"`
-	Status        string `json:"status"`
-	Availability  string `json:"availability"`
-	ManagerStatus string `json:"manager_status"`
-	EngineVersion string `json:"engine_version"`
-	Addr          string `json:"addr"`
-	CPUNano       int64  `json:"cpu_nano"`
-	MemoryBytes   int64  `json:"memory_bytes"`
+	ID            string            `json:"id"`
+	Hostname      string            `json:"hostname"`
+	Status        string            `json:"status"`
+	Availability  string            `json:"availability"`
+	ManagerStatus string            `json:"manager_status"`
+	EngineVersion string            `json:"engine_version"`
+	Addr          string            `json:"addr"`
+	CPUNano       int64             `json:"cpu_nano"`
+	MemoryBytes   int64             `json:"memory_bytes"`
+	Labels        OptNodeInfoLabels `json:"labels"`
 }
 
 // GetID returns the value of ID.
@@ -643,6 +644,11 @@ func (s *NodeInfo) GetMemoryBytes() int64 {
 	return s.MemoryBytes
 }
 
+// GetLabels returns the value of Labels.
+func (s *NodeInfo) GetLabels() OptNodeInfoLabels {
+	return s.Labels
+}
+
 // SetID sets the value of ID.
 func (s *NodeInfo) SetID(val string) {
 	s.ID = val
@@ -686,6 +692,22 @@ func (s *NodeInfo) SetCPUNano(val int64) {
 // SetMemoryBytes sets the value of MemoryBytes.
 func (s *NodeInfo) SetMemoryBytes(val int64) {
 	s.MemoryBytes = val
+}
+
+// SetLabels sets the value of Labels.
+func (s *NodeInfo) SetLabels(val OptNodeInfoLabels) {
+	s.Labels = val
+}
+
+type NodeInfoLabels map[string]string
+
+func (s *NodeInfoLabels) init() NodeInfoLabels {
+	m := *s
+	if m == nil {
+		m = map[string]string{}
+		*s = m
+	}
+	return m
 }
 
 // Ref: #/components/schemas/NodesResponse
@@ -927,6 +949,52 @@ func (o OptNetworkInfoOptions) Get() (v NetworkInfoOptions, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptNetworkInfoOptions) Or(d NetworkInfoOptions) NetworkInfoOptions {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptNodeInfoLabels returns new OptNodeInfoLabels with value set to v.
+func NewOptNodeInfoLabels(v NodeInfoLabels) OptNodeInfoLabels {
+	return OptNodeInfoLabels{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptNodeInfoLabels is optional NodeInfoLabels.
+type OptNodeInfoLabels struct {
+	Value NodeInfoLabels
+	Set   bool
+}
+
+// IsSet returns true if OptNodeInfoLabels was set.
+func (o OptNodeInfoLabels) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptNodeInfoLabels) Reset() {
+	var v NodeInfoLabels
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptNodeInfoLabels) SetTo(v NodeInfoLabels) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptNodeInfoLabels) Get() (v NodeInfoLabels, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptNodeInfoLabels) Or(d NodeInfoLabels) NodeInfoLabels {
 	if v, ok := o.Get(); ok {
 		return v
 	}

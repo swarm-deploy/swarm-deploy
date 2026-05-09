@@ -318,6 +318,10 @@ func toGeneratedNodes(nodes []swarm.Node) []generated.NodeInfo {
 			CPUNano:       node.CPUNano,
 			MemoryBytes:   node.MemoryBytes,
 		})
+		last := &mapped[len(mapped)-1]
+		if len(node.Labels) > 0 {
+			last.Labels = generated.NewOptNodeInfoLabels(cloneStringMap(node.Labels))
+		}
 	}
 
 	return mapped

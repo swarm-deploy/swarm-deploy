@@ -32,4 +32,6 @@ type Node struct {
 	CPUNano int64 `json:"cpu_nano"`
 	// MemoryBytes is total memory capacity in bytes.
 	MemoryBytes int64 `json:"memory_bytes"`
+	// Labels contains custom Docker node labels.
+	Labels map[string]string `json:"labels"`
 }

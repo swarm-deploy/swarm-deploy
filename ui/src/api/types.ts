@@ -137,6 +137,7 @@ export interface NodeInfo {
   addr: string;
   cpu_nano: number;
   memory_bytes: number;
+  labels?: Record<string, string>;
 }
 
 export interface NodesResponse {
