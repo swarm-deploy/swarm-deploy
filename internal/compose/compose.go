@@ -16,29 +16,29 @@ import (
 )
 
 type ObjectRef struct {
-	Source string `json:"source"`
-	Target string `json:"target,omitempty"`
+	Source string `yaml:"source" json:"source"`
+	Target string `yaml:"target" json:"target,omitempty"`
 }
 
 type InitJob struct {
-	Name        string            `json:"name"`
-	Image       string            `json:"image"`
-	Command     []string          `json:"command"`
-	Environment map[string]string `json:"environment,omitempty"`
-	Networks    []string          `json:"networks,omitempty"`
-	Secrets     []ObjectRef       `json:"secrets,omitempty"`
-	Configs     []ObjectRef       `json:"configs,omitempty"`
-	Timeout     time.Duration     `json:"timeout,omitempty"`
+	Name        string        `yaml:"name" json:"name"`
+	Image       string        `yaml:"image" json:"image"`
+	Command     []string      `yaml:"command" json:"command"`
+	Environment Environment   `yaml:"environment" json:"environment,omitempty"`
+	Networks    []string      `yaml:"networks" json:"networks,omitempty"`
+	Secrets     []ObjectRef   `yaml:"secrets" json:"secrets,omitempty"`
+	Configs     []ObjectRef   `yaml:"configs" json:"configs,omitempty"`
+	Timeout     time.Duration `yaml:"timeout" json:"timeout,omitempty"`
 }
 
 type Service struct {
-	Name        string            `json:"name"`
-	Image       string            `json:"image"`
-	Environment map[string]string `json:"environment,omitempty"`
-	Networks    []string          `json:"networks,omitempty"`
-	Secrets     []ObjectRef       `json:"secrets,omitempty"`
-	Configs     []ObjectRef       `json:"configs,omitempty"`
-	InitJobs    []InitJob         `json:"init_jobs,omitempty"`
+	Name        string      `yaml:"name" json:"name"`
+	Image       string      `yaml:"image" json:"image"`
+	Environment Environment `yaml:"environment" json:"environment,omitempty"`
+	Networks    []string    `yaml:"networks" json:"networks,omitempty"`
+	Secrets     []ObjectRef `yaml:"secrets" json:"secrets,omitempty"`
+	Configs     []ObjectRef `yaml:"configs" json:"configs,omitempty"`
+	InitJobs    []InitJob   `yaml:"x-init-deploy-jobs" json:"init_jobs,omitempty"`
 }
 
 type File struct {
