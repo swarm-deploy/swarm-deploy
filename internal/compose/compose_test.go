@@ -32,9 +32,9 @@ services:
 	require.NoError(t, err, "load compose")
 
 	require.Len(t, file.Services, 1, "expected 1 service")
-	require.Len(t, file.Services[0].InitJobs, 1, "expected 1 init job")
+	require.Len(t, file.Services["api"].InitJobs, 1, "expected 1 init job")
 
-	first := file.Services[0].InitJobs[0]
+	first := file.Services["api"].InitJobs[0]
 	assert.Equal(t, "postgres", first.Environment["DB_HOST"], "unexpected DB_HOST")
 	assert.Equal(t, "app", first.Environment["DB_USER"], "unexpected DB_USER")
 }
@@ -44,15 +44,15 @@ func TestLoadResolvesNetworkAliasesToNames(t *testing.T) {
 	composePath := filepath.Join(dir, "docker-compose.yaml")
 	composePayload := []byte(`
 services:
-  content-discovery-grpc:
-    image: wmb-prod.cr.cloud.ru/services/content-discovery-grpc:latest
+  api:
+    image: super-org/super-image:latest
     networks:
       - infra
     x-init-deploy-jobs:
       - name: migrations
-        image: wmb-prod.cr.cloud.ru/services/content-discovery-migrations:latest
+        image: super-org/super-image:latest
       - name: explicit-network
-        image: wmb-prod.cr.cloud.ru/services/content-discovery-migrations:latest
+        image: super-org/super-image:latest
         networks:
           - infra
 networks:
@@ -68,7 +68,7 @@ networks:
 	require.NoError(t, err, "load compose")
 	require.Len(t, file.Services, 1, "unexpected services count")
 
-	service := file.Services[0]
+	service := file.Services["api"]
 	require.Equal(t, []string{"wmb-infra"}, service.Networks, "service network alias must resolve to name")
 	require.Len(t, service.InitJobs, 2, "unexpected init jobs count")
 	assert.Nil(t, service.InitJobs[0].Networks, "job without explicit networks must keep nil networks")

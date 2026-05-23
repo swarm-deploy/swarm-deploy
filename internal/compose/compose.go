@@ -3,15 +3,14 @@ package compose
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
-	"time"
 
+	"github.com/artarts36/specw"
 	"gopkg.in/yaml.v3"
 )
 
@@ -21,14 +20,14 @@ type ObjectRef struct {
 }
 
 type InitJob struct {
-	Name        string        `yaml:"name" json:"name"`
-	Image       string        `yaml:"image" json:"image"`
-	Command     []string      `yaml:"command" json:"command"`
-	Environment Environment   `yaml:"environment" json:"environment,omitempty"`
-	Networks    []string      `yaml:"networks" json:"networks,omitempty"`
-	Secrets     []ObjectRef   `yaml:"secrets" json:"secrets,omitempty"`
-	Configs     []ObjectRef   `yaml:"configs" json:"configs,omitempty"`
-	Timeout     time.Duration `yaml:"timeout" json:"timeout,omitempty"`
+	Name        string         `yaml:"name" json:"name"`
+	Image       string         `yaml:"image" json:"image"`
+	Command     []string       `yaml:"command" json:"command"`
+	Environment Environment    `yaml:"environment" json:"environment,omitempty"`
+	Networks    []string       `yaml:"networks" json:"networks,omitempty"`
+	Secrets     []ObjectRef    `yaml:"secrets" json:"secrets,omitempty"`
+	Configs     []ObjectRef    `yaml:"configs" json:"configs,omitempty"`
+	Timeout     specw.Duration `yaml:"timeout" json:"timeout,omitempty"`
 }
 
 type Service struct {
@@ -42,9 +41,10 @@ type Service struct {
 }
 
 type File struct {
-	RawMap   map[string]any `json:"-"`
-	RawBytes []byte         `json:"-"`
-	Services []Service      `json:"services"`
+	RawMap   map[string]any     `json:"-"`
+	RawBytes []byte             `json:"-"`
+	Services map[string]Service `yaml:"services" json:"services"`
+	Networks map[string]Network `yaml:"networks" json:"networks"`
 }
 
 const envPairParts = 2
@@ -67,16 +67,21 @@ func Parse(raw []byte) (*File, error) {
 		return nil, fmt.Errorf("decode compose yaml: %w", err)
 	}
 
-	services, err := parseServices(root)
+	schema := File{}
+	err = yaml.Unmarshal(raw, &schema)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decode compose schema: %w", err)
 	}
 
-	return &File{
-		RawMap:   root,
-		RawBytes: raw,
-		Services: services,
-	}, nil
+	err = linkServices(&schema)
+	if err != nil {
+		return nil, fmt.Errorf("link: %w", err)
+	}
+
+	schema.RawBytes = raw
+	schema.RawMap = root
+
+	return &schema, nil
 }
 
 func (f *File) MarshalYAML() ([]byte, error) {
@@ -226,207 +231,37 @@ func buildRotatedObjectName(
 	return fmt.Sprintf("%s-%s-%s", stackName, objectName, hash)
 }
 
-func parseServices(root map[string]any) ([]Service, error) {
-	servicesMap, servicesMapFound := asMap(root["services"])
-	if !servicesMapFound {
-		return nil, errors.New("compose file does not contain services map")
-	}
+func linkServices(file *File) error {
+	networkNames := parseTopLevelNetworkNames(file.Networks)
 
-	networkNames := parseTopLevelNetworkNames(root["networks"])
+	for name, service := range file.Services {
+		service.Name = name
+		service.Networks = resolveNetworkAliases(service.Networks, networkNames)
+		service.Secrets = normalizeObjectRefs(service.Secrets)
+		service.Configs = normalizeObjectRefs(service.Configs)
 
-	names := mapKeys(servicesMap)
-	sort.Strings(names)
-
-	services := make([]Service, 0, len(names))
-	for _, name := range names {
-		serviceMap, serviceMapValid := asMap(servicesMap[name])
-		if !serviceMapValid {
-			return nil, fmt.Errorf("compose services.%s must be a map", name)
-		}
-
-		initJobs, err := parseInitJobs(serviceMap["x-init-deploy-jobs"], networkNames)
+		initJobs, err := normalizeInitJobs(service.InitJobs, networkNames)
 		if err != nil {
-			return nil, fmt.Errorf("parse services.%s.x-init-deploy-jobs: %w", name, err)
+			return fmt.Errorf("parse services.%s.x-init-deploy-jobs: %w", name, err)
 		}
+		service.InitJobs = initJobs
 
-		services = append(services, Service{
-			Name:        name,
-			Image:       asString(serviceMap["image"]),
-			Environment: parseEnvironment(serviceMap["environment"]),
-			Networks:    resolveNetworkAliases(parseNetworks(serviceMap["networks"]), networkNames),
-			Secrets:     parseObjectRefs(serviceMap["secrets"]),
-			Configs:     parseObjectRefs(serviceMap["configs"]),
-			InitJobs:    initJobs,
-		})
+		file.Services[name] = service
 	}
 
-	return services, nil
+	return nil
 }
 
-func parseInitJobs(raw any, networkNames map[string]string) ([]InitJob, error) {
-	if raw == nil {
-		return nil, nil
-	}
-
-	items, itemsIsArray := raw.([]any)
-	if !itemsIsArray {
-		return nil, errors.New("must be an array")
-	}
-
-	jobs := make([]InitJob, 0, len(items))
-	for i, item := range items {
-		jobMap, itemIsMap := asMap(item)
-		if !itemIsMap {
-			return nil, fmt.Errorf("item %d must be map", i)
-		}
-
-		name := asString(jobMap["name"])
-		if name == "" {
-			name = fmt.Sprintf("job-%d", i)
-		}
-
-		image := asString(jobMap["image"])
-		if image == "" {
-			return nil, fmt.Errorf("item %d image is required", i)
-		}
-
-		command, err := parseCommand(jobMap["command"])
-		if err != nil {
-			return nil, fmt.Errorf("item %d command: %w", i, err)
-		}
-
-		timeout, err := parseTimeout(jobMap["timeout"])
-		if err != nil {
-			return nil, fmt.Errorf("item %d timeout: %w", i, err)
-		}
-
-		jobs = append(jobs, InitJob{
-			Name:        name,
-			Image:       image,
-			Command:     command,
-			Environment: parseEnvironment(jobMap["environment"]),
-			Networks:    resolveNetworkAliases(parseNetworks(jobMap["networks"]), networkNames),
-			Secrets:     parseObjectRefs(jobMap["secrets"]),
-			Configs:     parseObjectRefs(jobMap["configs"]),
-			Timeout:     timeout,
-		})
-	}
-
-	return jobs, nil
-}
-
-func parseTimeout(v any) (time.Duration, error) {
-	switch t := v.(type) {
-	case nil:
-		return 0, nil
-	case int:
-		return time.Duration(t) * time.Second, nil
-	case int64:
-		return time.Duration(t) * time.Second, nil
-	case float64:
-		return time.Duration(int64(t)) * time.Second, nil
-	case string:
-		if t == "" {
-			return 0, nil
-		}
-		return time.ParseDuration(t)
-	default:
-		return 0, fmt.Errorf("unsupported type %T", v)
-	}
-}
-
-func parseCommand(raw any) ([]string, error) {
-	if raw == nil {
-		return nil, nil
-	}
-	if s, ok := raw.(string); ok {
-		return strings.Fields(s), nil
-	}
-	items, ok := raw.([]any)
-	if !ok {
-		return nil, fmt.Errorf("command must be string or array")
-	}
-	result := make([]string, 0, len(items))
-	for i, item := range items {
-		result = append(result, asString(item))
-		if result[len(result)-1] == "" {
-			return nil, fmt.Errorf("command[%d] must be string", i)
-		}
-	}
-	return result, nil
-}
-
-func parseEnvironment(raw any) map[string]string {
-	if raw == nil {
+func parseTopLevelNetworkNames(networkDefinitions map[string]Network) map[string]string {
+	if len(networkDefinitions) == 0 {
 		return nil
 	}
 
-	out := map[string]string{}
-
-	if pairs, ok := raw.([]any); ok {
-		for _, pair := range pairs {
-			chunks := strings.SplitN(asString(pair), "=", envPairParts)
-			if len(chunks) == envPairParts {
-				out[chunks[0]] = chunks[1]
-			}
-		}
-		return out
-	}
-
-	if envMap, ok := asMap(raw); ok {
-		for k, v := range envMap {
-			out[k] = asString(v)
-		}
-	}
-
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-func parseNetworks(raw any) []string {
-	if raw == nil {
-		return nil
-	}
-
-	if list, ok := raw.([]any); ok {
-		out := make([]string, 0, len(list))
-		for _, item := range list {
-			v := asString(item)
-			if v != "" {
-				out = append(out, v)
-			}
-		}
-		return out
-	}
-
-	if mapValue, mapValueFound := asMap(raw); mapValueFound {
-		out := mapKeys(mapValue)
-		sort.Strings(out)
-		return out
-	}
-
-	one := asString(raw)
-	if one == "" {
-		return nil
-	}
-	return []string{one}
-}
-
-func parseTopLevelNetworkNames(raw any) map[string]string {
-	networkDefs, ok := asMap(raw)
-	if !ok {
-		return nil
-	}
-
-	out := make(map[string]string, len(networkDefs))
-	for alias, networkRaw := range networkDefs {
+	out := make(map[string]string, len(networkDefinitions))
+	for alias, networkDefinition := range networkDefinitions {
 		resolved := alias
-		if networkMap, networkIsMap := asMap(networkRaw); networkIsMap {
-			if name := asString(networkMap["name"]); name != "" {
-				resolved = name
-			}
+		if networkDefinition.Name != "" {
+			resolved = networkDefinition.Name
 		}
 		out[alias] = resolved
 	}
@@ -458,42 +293,39 @@ func resolveNetworkAliases(networks []string, namesByAlias map[string]string) []
 	return out
 }
 
-func parseObjectRefs(raw any) []ObjectRef {
-	if raw == nil {
+func normalizeInitJobs(jobs []InitJob, networkNames map[string]string) ([]InitJob, error) {
+	for i := range jobs {
+		if jobs[i].Name == "" {
+			jobs[i].Name = fmt.Sprintf("job-%d", i)
+		}
+		if jobs[i].Image == "" {
+			return nil, fmt.Errorf("item %d image is required", i)
+		}
+		jobs[i].Networks = resolveNetworkAliases(jobs[i].Networks, networkNames)
+		jobs[i].Secrets = normalizeObjectRefs(jobs[i].Secrets)
+		jobs[i].Configs = normalizeObjectRefs(jobs[i].Configs)
+	}
+	return jobs, nil
+}
+
+func normalizeObjectRefs(refs []ObjectRef) []ObjectRef {
+	if len(refs) == 0 {
 		return nil
 	}
 
-	items, itemsIsArray := raw.([]any)
-	if !itemsIsArray {
+	out := make([]ObjectRef, 0, len(refs))
+	for _, ref := range refs {
+		if ref.Source == "" {
+			continue
+		}
+		out = append(out, ref)
+	}
+
+	if len(out) == 0 {
 		return nil
 	}
 
-	result := make([]ObjectRef, 0, len(items))
-	for _, item := range items {
-		if name := asString(item); name != "" {
-			result = append(result, ObjectRef{Source: name})
-			continue
-		}
-
-		entry, entryIsMap := asMap(item)
-		if !entryIsMap {
-			continue
-		}
-		source := asString(entry["source"])
-		target := asString(entry["target"])
-		if source == "" {
-			source = asString(entry["secret"])
-		}
-		if source == "" {
-			source = asString(entry["config"])
-		}
-		if source == "" {
-			continue
-		}
-		result = append(result, ObjectRef{Source: source, Target: target})
-	}
-
-	return result
+	return out
 }
 
 func asMap(v any) (map[string]any, bool) {

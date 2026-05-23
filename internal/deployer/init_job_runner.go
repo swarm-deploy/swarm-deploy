@@ -76,8 +76,8 @@ func (r *InitJobRunner) Run(ctx context.Context, spec InitJobSpec) error {
 	r.metrics.RecordInitJobRun(spec.StackName, spec.ServiceName)
 
 	timeout := r.timeout
-	if spec.Job.Timeout > 0 {
-		timeout = spec.Job.Timeout
+	if spec.Job.Timeout.Value > 0 {
+		timeout = spec.Job.Timeout.Value
 	}
 
 	jobCtx, cancel := context.WithTimeout(ctx, timeout)
