@@ -263,18 +263,3 @@ func isExternalObject(objectMap map[string]any) bool {
 		return false
 	}
 }
-
-func ImageVersion(fullName string) string {
-	if fullName == "" {
-		return ""
-	}
-	if idx := strings.LastIndex(fullName, "@"); idx >= 0 && idx+1 < len(fullName) {
-		return fullName[idx+1:]
-	}
-	lastSlash := strings.LastIndex(fullName, "/")
-	lastColon := strings.LastIndex(fullName, ":")
-	if lastColon > lastSlash && lastColon+1 < len(fullName) {
-		return fullName[lastColon+1:]
-	}
-	return "latest"
-}
