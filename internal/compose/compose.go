@@ -10,24 +10,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/artarts36/specw"
 	"gopkg.in/yaml.v3"
 )
 
 type ObjectRef struct {
 	Source string `yaml:"source" json:"source"`
 	Target string `yaml:"target" json:"target,omitempty"`
-}
-
-type InitJob struct {
-	Name        string         `yaml:"name" json:"name"`
-	Image       string         `yaml:"image" json:"image"`
-	Command     []string       `yaml:"command" json:"command"`
-	Environment Environment    `yaml:"environment" json:"environment,omitempty"`
-	Networks    []string       `yaml:"networks" json:"networks,omitempty"`
-	Secrets     []ObjectRef    `yaml:"secrets" json:"secrets,omitempty"`
-	Configs     []ObjectRef    `yaml:"configs" json:"configs,omitempty"`
-	Timeout     specw.Duration `yaml:"timeout" json:"timeout,omitempty"`
 }
 
 type Service struct {
@@ -232,15 +220,13 @@ func buildRotatedObjectName(
 }
 
 func linkServices(file *File) error {
-	networkNames := parseTopLevelNetworkNames(file.Networks)
-
 	for name, service := range file.Services {
 		service.Name = name
-		service.Networks = resolveNetworkAliases(service.Networks, networkNames)
+		service.Networks = resolveNetworkAliases(service.Networks, file.Networks)
 		service.Secrets = normalizeObjectRefs(service.Secrets)
 		service.Configs = normalizeObjectRefs(service.Configs)
 
-		initJobs, err := normalizeInitJobs(service.InitJobs, networkNames)
+		initJobs, err := normalizeInitJobs(service.InitJobs, file.Networks)
 		if err != nil {
 			return fmt.Errorf("parse services.%s.x-init-deploy-jobs: %w", name, err)
 		}
@@ -252,27 +238,7 @@ func linkServices(file *File) error {
 	return nil
 }
 
-func parseTopLevelNetworkNames(networkDefinitions map[string]Network) map[string]string {
-	if len(networkDefinitions) == 0 {
-		return nil
-	}
-
-	out := make(map[string]string, len(networkDefinitions))
-	for alias, networkDefinition := range networkDefinitions {
-		resolved := alias
-		if networkDefinition.Name != "" {
-			resolved = networkDefinition.Name
-		}
-		out[alias] = resolved
-	}
-
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-func resolveNetworkAliases(networks []string, namesByAlias map[string]string) []string {
+func resolveNetworkAliases(networks []string, namesByAlias map[string]Network) []string {
 	if len(networks) == 0 {
 		return nil
 	}
@@ -284,28 +250,13 @@ func resolveNetworkAliases(networks []string, namesByAlias map[string]string) []
 	out := make([]string, 0, len(networks))
 	for _, network := range networks {
 		resolved, ok := namesByAlias[network]
-		if ok && resolved != "" {
-			out = append(out, resolved)
+		if ok && resolved.Name != "" {
+			out = append(out, resolved.Name)
 			continue
 		}
 		out = append(out, network)
 	}
 	return out
-}
-
-func normalizeInitJobs(jobs []InitJob, networkNames map[string]string) ([]InitJob, error) {
-	for i := range jobs {
-		if jobs[i].Name == "" {
-			jobs[i].Name = fmt.Sprintf("job-%d", i)
-		}
-		if jobs[i].Image == "" {
-			return nil, fmt.Errorf("item %d image is required", i)
-		}
-		jobs[i].Networks = resolveNetworkAliases(jobs[i].Networks, networkNames)
-		jobs[i].Secrets = normalizeObjectRefs(jobs[i].Secrets)
-		jobs[i].Configs = normalizeObjectRefs(jobs[i].Configs)
-	}
-	return jobs, nil
 }
 
 func normalizeObjectRefs(refs []ObjectRef) []ObjectRef {
