@@ -11,6 +11,7 @@ type Compose struct {
 	Networks map[string]Network `yaml:"networks" json:"networks"`
 	Configs  SharedObjects      `yaml:"configs" json:"configs"`
 	Secrets  SharedObjects      `yaml:"secrets" json:"secrets"`
+	Volumes  Volumes            `yaml:"volumes" json:"volumes"`
 }
 
 func Parse(raw []byte) (*Compose, error) {
