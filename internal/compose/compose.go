@@ -16,7 +16,7 @@ type File struct {
 	RawMap   map[string]any `json:"-"`
 	RawBytes []byte         `json:"-"`
 
-	Services map[string]Service `yaml:"services" json:"services"`
+	Services Services           `yaml:"services" json:"services"`
 	Networks map[string]Network `yaml:"networks" json:"networks"`
 	Configs  SharedObjects      `yaml:"configs" json:"configs"`
 	Secrets  SharedObjects      `yaml:"secrets" json:"secrets"`
@@ -31,35 +31,14 @@ const envPairParts = 2
 
 var rotatableObjectTypes = []string{"configs", "secrets"}
 
-func Load(path string) (*File, error) {
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read compose file %s: %w", path, err)
-	}
-
-	return Parse(raw)
-}
-
 func Parse(raw []byte) (*File, error) {
-	root := map[string]any{}
-	err := yaml.Unmarshal(raw, &root)
-	if err != nil {
-		return nil, fmt.Errorf("decode compose yaml: %w", err)
-	}
-
 	schema := File{}
-	err = yaml.Unmarshal(raw, &schema)
+	err := yaml.Unmarshal(raw, &schema)
 	if err != nil {
 		return nil, fmt.Errorf("decode compose schema: %w", err)
 	}
 
-	err = linkServices(&schema)
-	if err != nil {
-		return nil, fmt.Errorf("link: %w", err)
-	}
-
 	schema.RawBytes = raw
-	schema.RawMap = root
 
 	return &schema, nil
 }
@@ -208,22 +187,6 @@ func buildRotatedObjectName(
 	return fmt.Sprintf("%s-%s-%s", stackName, objectName, hash)
 }
 
-func linkServices(file *File) error {
-	for name, service := range file.Services {
-		service.Name = name
-		service.Networks = resolveNetworkAliases(service.Networks, file.Networks)
-		service.Secrets = normalizeObjectRefs(service.Secrets)
-		service.Configs = normalizeObjectRefs(service.Configs)
-
-		initJobs := normalizeInitJobs(service.InitJobs, file.Networks)
-		service.InitJobs = initJobs
-
-		file.Services[name] = service
-	}
-
-	return nil
-}
-
 func resolveNetworkAliases(networks []string, namesByAlias map[string]Network) []string {
 	if len(networks) == 0 {
 		return nil
@@ -242,26 +205,6 @@ func resolveNetworkAliases(networks []string, namesByAlias map[string]Network) [
 		}
 		out = append(out, network)
 	}
-	return out
-}
-
-func normalizeObjectRefs(refs []ObjectRef) []ObjectRef {
-	if len(refs) == 0 {
-		return nil
-	}
-
-	out := make([]ObjectRef, 0, len(refs))
-	for _, ref := range refs {
-		if ref.Source == "" {
-			continue
-		}
-		out = append(out, ref)
-	}
-
-	if len(out) == 0 {
-		return nil
-	}
-
 	return out
 }
 

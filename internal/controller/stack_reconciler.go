@@ -20,9 +20,10 @@ type stackReconcileResult struct {
 }
 
 type stackReconciler struct {
-	cfg      *config.Config
-	git      gitx.Repository
-	deployer *deployer.Deployer
+	cfg           *config.Config
+	git           gitx.Repository
+	deployer      *deployer.Deployer
+	composeLoader *compose.Loader
 }
 
 type stackReconcileError struct {
@@ -31,11 +32,16 @@ type stackReconcileError struct {
 	err      error
 }
 
-func newStackReconciler(cfg *config.Config, gitSync gitx.Repository, deployer *deployer.Deployer) *stackReconciler {
+func newStackReconciler(
+	cfg *config.Config,
+	gitSync gitx.Repository,
+	deployer *deployer.Deployer,
+) *stackReconciler {
 	return &stackReconciler{
-		cfg:      cfg,
-		git:      gitSync,
-		deployer: deployer,
+		cfg:           cfg,
+		git:           gitSync,
+		deployer:      deployer,
+		composeLoader: compose.NewLoader(),
 	}
 }
 
@@ -79,7 +85,7 @@ func (r *stackReconciler) Reconcile(
 	hasPrev bool,
 ) (stackReconcileResult, error) {
 	composePath := filepath.Join(r.git.WorkingDir(), stackCfg.ComposeFile)
-	stackFile, err := compose.Load(composePath)
+	stackFile, err := r.composeLoader.Load(composePath)
 	if err != nil {
 		return stackReconcileResult{}, wrapStackReconcileError("load compose", nil, err)
 	}

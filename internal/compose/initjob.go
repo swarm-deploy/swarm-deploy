@@ -23,8 +23,6 @@ func normalizeInitJobs(jobs []InitJob, networks map[string]Network) []InitJob {
 			jobs[i].Name = fmt.Sprintf("job-%d", i)
 		}
 		jobs[i].Networks = resolveNetworkAliases(jobs[i].Networks, networks)
-		jobs[i].Secrets = normalizeObjectRefs(jobs[i].Secrets)
-		jobs[i].Configs = normalizeObjectRefs(jobs[i].Configs)
 	}
 
 	return jobs
