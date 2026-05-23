@@ -22,6 +22,8 @@ func (s *SharedObjects) UnmarshalYAML(n *yaml.Node) error {
 		return fmt.Errorf("expected mapping node, got %T", n.Kind)
 	}
 
+	*s = map[string]*SharedObject{}
+
 	name := ""
 
 	for i, cn := range n.Content {

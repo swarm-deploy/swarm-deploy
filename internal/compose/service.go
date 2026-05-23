@@ -9,14 +9,15 @@ import (
 type Services []Service
 
 type Service struct {
-	Name        string        `yaml:"name" json:"name"`
-	Image       string        `yaml:"image" json:"image"`
-	Environment Environment   `yaml:"environment" json:"environment,omitempty"`
-	Networks    []string      `yaml:"networks" json:"networks,omitempty"`
-	Secrets     []ObjectRef   `yaml:"secrets" json:"secrets,omitempty"`
-	Configs     []ObjectRef   `yaml:"configs" json:"configs,omitempty"`
-	InitJobs    []InitJob     `yaml:"x-init-deploy-jobs" json:"init_jobs,omitempty"`
-	Deploy      ServiceDeploy `yaml:"deploy" json:"deploy"`
+	Name        string            `yaml:"-" json:"name"`
+	Image       string            `yaml:"image" json:"image"`
+	Command     Command           `yaml:"command" json:"command"`
+	Networks    []*ServiceNetwork `yaml:"networks,omitempty" json:"networks,omitempty"`
+	Environment Environment       `yaml:"environment,omitempty" json:"environment,omitempty"`
+	Secrets     []ObjectRef       `yaml:"secrets,omitempty" json:"secrets,omitempty"`
+	Configs     []ObjectRef       `yaml:"configs,omitempty" json:"configs,omitempty"`
+	InitJobs    []InitJob         `yaml:"x-init-deploy-jobs,omitempty" json:"init_jobs,omitempty"`
+	Deploy      ServiceDeploy     `yaml:"deploy,omitempty" json:"deploy"`
 }
 
 func (s *Services) UnmarshalYAML(n *yaml.Node) error {
@@ -48,4 +49,33 @@ func (s *Services) UnmarshalYAML(n *yaml.Node) error {
 	*s = services
 
 	return nil
+}
+
+func (s Services) MarshalYAML() (interface{}, error) {
+	const nodesMul = 2
+
+	root := yaml.Node{
+		Kind:    yaml.MappingNode,
+		Content: make([]*yaml.Node, 0, nodesMul*len(s)),
+	}
+
+	for _, service := range s {
+		root.Content = append(root.Content, &yaml.Node{
+			Kind:  yaml.ScalarNode,
+			Value: service.Name,
+		})
+
+		node := &yaml.Node{
+			Kind: yaml.MappingNode,
+		}
+
+		err := node.Encode(service)
+		if err != nil {
+			return nil, fmt.Errorf("encode service with name %q: %w", service.Name, err)
+		}
+
+		root.Content = append(root.Content, node)
+	}
+
+	return &root, nil
 }

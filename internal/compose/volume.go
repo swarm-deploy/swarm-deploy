@@ -24,6 +24,8 @@ func (s *Volumes) UnmarshalYAML(n *yaml.Node) error {
 		return fmt.Errorf("expected mapping node, got %T", n.Kind)
 	}
 
+	*s = map[string]*Volume{}
+
 	alias := ""
 
 	for i, cn := range n.Content {

@@ -8,10 +8,10 @@ import (
 
 type Compose struct {
 	Services Services           `yaml:"services" json:"services"`
-	Networks map[string]Network `yaml:"networks" json:"networks"`
-	Configs  SharedObjects      `yaml:"configs" json:"configs"`
-	Secrets  SharedObjects      `yaml:"secrets" json:"secrets"`
-	Volumes  Volumes            `yaml:"volumes" json:"volumes"`
+	Networks map[string]Network `yaml:"networks,omitempty" json:"networks"`
+	Configs  SharedObjects      `yaml:"configs,omitempty" json:"configs"`
+	Secrets  SharedObjects      `yaml:"secrets,omitempty" json:"secrets"`
+	Volumes  Volumes            `yaml:"volumes,omitempty" json:"volumes"`
 }
 
 func Parse(raw []byte) (*Compose, error) {

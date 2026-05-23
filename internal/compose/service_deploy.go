@@ -2,7 +2,7 @@ package compose
 
 type ServiceDeploy struct {
 	EndpointMode   string                       `yaml:"endpoint_mode,omitempty" json:"endpoint_mode,omitempty"`
-	Labels         map[string]string            `yaml:"labels,omitempty" json:"labels,omitempty"`
+	Labels         Environment                  `yaml:"labels,omitempty" json:"labels,omitempty"`
 	Mode           string                       `yaml:"mode,omitempty" json:"mode,omitempty"`
 	Placement      *ServiceDeployPlacement      `yaml:"placement,omitempty" json:"placement,omitempty"`
 	Replicas       *uint64                      `yaml:"replicas,omitempty" json:"replicas,omitempty"`
@@ -51,7 +51,7 @@ type ServiceDeployResource struct {
 type ServiceDeployPlacement struct {
 	Constraints        []string                           `yaml:"constraints,omitempty" json:"constraints,omitempty"`
 	Preferences        []ServiceDeployPlacementPreference `yaml:"preferences,omitempty" json:"preferences,omitempty"`
-	MaxReplicasPerNode *uint64                            `yaml:"max_replicas_per_node,omitempty" json:"max_replicas_per_node,omitempty"`
+	MaxReplicasPerNode *uint64                            `yaml:"max_replicas_per_node,omitempty" json:"max_replicas_per_node,omitempty"` //nolint:lll // nn
 }
 
 type ServiceDeployPlacementPreference struct {

@@ -1,0 +1,22 @@
+services:
+  infra-vector:
+    image: swarmdeployorg/cloud-vector:latest
+    command:
+      - --config
+      - /etc/vector/vector.toml
+    environment:
+      CLOUDRU_IAM_ADDRESS: iam.api.cloud.ru:443
+      CLOUDRU_IAM_CLIENT_ID: /run/secrets/infra-vector-iam-client-id
+      CLOUDRU_IAM_CLIENT_SECRET: /run/secrets/infra-vector-iam-client-secret
+      CLOUDRU_LOG_GROUP_ID: 92b329b9-aaf0-41de-8fea-173f555b9d9d
+      CLOUDRU_LOGGING_ENDPOINT: https://logging.api.cloud.ru/api/v1/logs
+      CLOUDRU_PROJECT_ID: 92b329b9-aaf0-41de-8fea-173f555b9d9d
+      HOSTNAME: '{{.Node.Hostname}}'
+    deploy:
+      mode: global
+      resources:
+        limits:
+          cpus: "0.05"
+          memory: 128M
+      restart_policy:
+        condition: on-failure

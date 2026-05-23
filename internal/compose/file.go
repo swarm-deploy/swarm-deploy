@@ -64,7 +64,7 @@ func (l *FileLoader) Load(path string) (*File, error) {
 
 func (*FileLoader) linkServices(compose *Compose) {
 	for name, service := range compose.Services {
-		service.Networks = resolveNetworkAliases(service.Networks, compose.Networks)
+		resolveNetworkAliases(service.Networks, compose.Networks)
 
 		initJobs := normalizeInitJobs(service.InitJobs, compose.Networks)
 		service.InitJobs = initJobs
