@@ -25,11 +25,6 @@ type Compose struct {
 	Secrets  SharedObjects      `yaml:"secrets" json:"secrets"`
 }
 
-type ObjectRef struct {
-	Source string `yaml:"source" json:"source"`
-	Target string `yaml:"target" json:"target,omitempty"`
-}
-
 const envPairParts = 2
 
 var rotatableObjectTypes = []string{"configs", "secrets"}
