@@ -18,14 +18,14 @@ type File struct {
 	Digest   string         `json:"digest"`
 }
 
-type Loader struct {
+type FileLoader struct {
 }
 
-func NewLoader() *Loader {
-	return &Loader{}
+func NewFileLoader() *FileLoader {
+	return &FileLoader{}
 }
 
-func (l *Loader) Load(path string) (*File, error) {
+func (l *FileLoader) Load(path string) (*File, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read compose file %s: %w", path, err)
@@ -65,7 +65,7 @@ func (l *Loader) Load(path string) (*File, error) {
 	return file, nil
 }
 
-func (*Loader) linkServices(compose *Compose) error {
+func (*FileLoader) linkServices(compose *Compose) error {
 	for name, service := range compose.Services {
 		service.Networks = resolveNetworkAliases(service.Networks, compose.Networks)
 
@@ -78,7 +78,7 @@ func (*Loader) linkServices(compose *Compose) error {
 	return nil
 }
 
-func (l *Loader) computeDigest(file File) (string, error) {
+func (l *FileLoader) computeDigest(file File) (string, error) {
 	baseDir := filepath.Dir(file.Path)
 	hasher := sha256.New()
 	hasher.Write(file.RawBytes)
