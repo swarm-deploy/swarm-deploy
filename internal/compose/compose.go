@@ -6,33 +6,25 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 )
 
+type File struct {
+	RawMap   map[string]any `json:"-"`
+	RawBytes []byte         `json:"-"`
+
+	Services map[string]Service `yaml:"services" json:"services"`
+	Networks map[string]Network `yaml:"networks" json:"networks"`
+	Configs  SharedObjects      `yaml:"configs" json:"configs"`
+	Secrets  SharedObjects      `yaml:"secrets" json:"secrets"`
+}
+
 type ObjectRef struct {
 	Source string `yaml:"source" json:"source"`
 	Target string `yaml:"target" json:"target,omitempty"`
-}
-
-type Service struct {
-	Name        string      `yaml:"name" json:"name"`
-	Image       string      `yaml:"image" json:"image"`
-	Environment Environment `yaml:"environment" json:"environment,omitempty"`
-	Networks    []string    `yaml:"networks" json:"networks,omitempty"`
-	Secrets     []ObjectRef `yaml:"secrets" json:"secrets,omitempty"`
-	Configs     []ObjectRef `yaml:"configs" json:"configs,omitempty"`
-	InitJobs    []InitJob   `yaml:"x-init-deploy-jobs" json:"init_jobs,omitempty"`
-}
-
-type File struct {
-	RawMap   map[string]any     `json:"-"`
-	RawBytes []byte             `json:"-"`
-	Services map[string]Service `yaml:"services" json:"services"`
-	Networks map[string]Network `yaml:"networks" json:"networks"`
 }
 
 const envPairParts = 2
@@ -85,40 +77,37 @@ func (f *File) ComputeDigest(composePath string) (string, error) {
 	hasher := sha256.New()
 	hasher.Write(f.RawBytes)
 
-	for _, objectType := range rotatableObjectTypes {
-		objects, hasObjects := asMap(f.RawMap[objectType])
-		if !hasObjects {
-			continue
-		}
-
-		names := mapKeys(objects)
-		sort.Strings(names)
-
-		for _, name := range names {
-			objectMap, objectMapValid := asMap(objects[name])
-			if !objectMapValid {
-				return "", fmt.Errorf("compose %s.%s must be a map", objectType, name)
-			}
-			if isExternalObject(objectMap) {
+	compute := func(objects map[string]SharedObject, objectType string) error {
+		for _, object := range objects {
+			if object.External {
 				continue
 			}
 
-			fileValue := asString(objectMap["file"])
-			if fileValue == "" {
+			if object.File != "" {
 				continue
 			}
 
-			absPath := filepath.Join(baseDir, fileValue)
+			absPath := filepath.Join(baseDir, object.File)
 			content, err := os.ReadFile(absPath)
 			if err != nil {
-				return "", fmt.Errorf("read %s file %s for digest: %w", objectType, absPath, err)
+				return fmt.Errorf("read %s file %s for digest: %w", objectType, absPath, err)
 			}
 
 			hasher.Write([]byte(objectType))
-			hasher.Write([]byte(name))
-			hasher.Write([]byte(fileValue))
+			hasher.Write([]byte(object.Name))
+			hasher.Write([]byte(object.File))
 			hasher.Write(content)
 		}
+
+		return nil
+	}
+
+	if err := compute(f.Configs, "configs"); err != nil {
+		return "", fmt.Errorf("compute for configs: %w", err)
+	}
+
+	if err := compute(f.Secrets, "secrets"); err != nil {
+		return "", fmt.Errorf("compute for secrets: %w", err)
 	}
 
 	return hex.EncodeToString(hasher.Sum(nil)), nil
@@ -295,14 +284,6 @@ func asMap(v any) (map[string]any, bool) {
 		out[asString(k)] = value
 	}
 	return out, true
-}
-
-func mapKeys(v map[string]any) []string {
-	keys := make([]string, 0, len(v))
-	for key := range v {
-		keys = append(keys, key)
-	}
-	return keys
 }
 
 func asString(v any) string {
