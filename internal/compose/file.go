@@ -11,11 +11,10 @@ import (
 )
 
 type File struct {
-	Path     string         `json:"path"`
-	RawMap   map[string]any `json:"-"`
-	RawBytes []byte         `json:"-"`
-	Compose  Compose        `json:"compose"`
-	Digest   string         `json:"digest"`
+	Path     string  `json:"path"`
+	RawBytes []byte  `json:"-"`
+	Compose  Compose `json:"compose"`
+	Digest   string  `json:"digest"`
 }
 
 type FileLoader struct {
@@ -29,12 +28,6 @@ func (l *FileLoader) Load(path string) (*File, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read compose file %s: %w", path, err)
-	}
-
-	root := map[string]any{}
-	err = yaml.Unmarshal(raw, &root)
-	if err != nil {
-		return nil, fmt.Errorf("decode compose yaml: %w", err)
 	}
 
 	schema := Compose{}
@@ -51,7 +44,6 @@ func (l *FileLoader) Load(path string) (*File, error) {
 	file := &File{
 		Path:     path,
 		RawBytes: raw,
-		RawMap:   root,
 		Compose:  schema,
 	}
 

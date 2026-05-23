@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -21,8 +19,6 @@ type Compose struct {
 
 const envPairParts = 2
 
-var rotatableObjectTypes = []string{"configs", "secrets"}
-
 func Parse(raw []byte) (*Compose, error) {
 	schema := Compose{}
 	err := yaml.Unmarshal(raw, &schema)
@@ -34,7 +30,7 @@ func Parse(raw []byte) (*Compose, error) {
 }
 
 func (f *File) MarshalYAML() ([]byte, error) {
-	payload, err := yaml.Marshal(f.RawMap)
+	payload, err := yaml.Marshal(f.Compose)
 	if err != nil {
 		return nil, fmt.Errorf("marshal compose yaml: %w", err)
 	}
@@ -50,63 +46,62 @@ func (f *File) ApplyObjectRotation(
 	baseDir := filepath.Dir(composePath)
 	changed := false
 
-	for _, objectType := range rotatableObjectTypes {
+	apply := func(objects SharedObjects) error {
 		typeChanged, err := f.applyObjectTypeRotation(
-			objectType,
+			objects,
 			stackName,
 			baseDir,
 			hashLength,
 			includePath,
 		)
 		if err != nil {
-			return false, err
+			return err
 		}
 		if typeChanged {
 			changed = true
 		}
+		return nil
+	}
+
+	if err := apply(f.Compose.Configs); err != nil {
+		return changed, fmt.Errorf("configs: %w", err)
+	}
+
+	if err := apply(f.Compose.Secrets); err != nil {
+		return changed, fmt.Errorf("secrets: %w", err)
 	}
 
 	return changed, nil
 }
 
 func (f *File) applyObjectTypeRotation(
-	objectType string,
+	objects SharedObjects,
 	stackName string,
 	baseDir string,
 	hashLength int,
 	includePath bool,
 ) (bool, error) {
-	objects, hasObjects := asMap(f.RawMap[objectType])
-	if !hasObjects {
-		return false, nil
-	}
-
 	changed := false
 	for objectName, object := range objects {
-		objectMap, objectMapValid := asMap(object)
-		if !objectMapValid {
-			return false, fmt.Errorf("compose %s.%s must be a map", objectType, objectName)
-		}
-		if isExternalObject(objectMap) {
+		if object.External {
 			continue
 		}
 
-		fileValue := asString(objectMap["file"])
-		if fileValue == "" {
+		if object.File == "" {
 			continue
 		}
 
-		fileBytes, err := os.ReadFile(filepath.Join(baseDir, fileValue))
+		fileBytes, err := os.ReadFile(filepath.Join(baseDir, object.File))
 		if err != nil {
-			return false, fmt.Errorf("read %s %s for rotation: %w", objectType, fileValue, err)
+			return false, fmt.Errorf("read %s for rotation: %w", object.File, err)
 		}
 
-		rotatedName := buildRotatedObjectName(stackName, objectName, fileValue, fileBytes, hashLength, includePath)
-		if asString(objectMap["name"]) == rotatedName {
+		rotatedName := buildRotatedObjectName(stackName, objectName, object.File, fileBytes, hashLength, includePath)
+		if object.File == rotatedName {
 			continue
 		}
 
-		objectMap["name"] = rotatedName
+		object.Name = rotatedName // @todo
 		changed = true
 	}
 
@@ -155,64 +150,4 @@ func resolveNetworkAliases(networks []string, namesByAlias map[string]Network) [
 		out = append(out, network)
 	}
 	return out
-}
-
-func asMap(v any) (map[string]any, bool) {
-	if v == nil {
-		return nil, false
-	}
-	typed, ok := v.(map[string]any)
-	if ok {
-		return typed, true
-	}
-
-	typedIface, ok := v.(map[any]any)
-	if !ok {
-		return nil, false
-	}
-
-	out := make(map[string]any, len(typedIface))
-	for k, value := range typedIface {
-		out[asString(k)] = value
-	}
-	return out, true
-}
-
-func asString(v any) string {
-	switch typed := v.(type) {
-	case nil:
-		return ""
-	case string:
-		return typed
-	case fmt.Stringer:
-		return typed.String()
-	case int:
-		return strconv.Itoa(typed)
-	case int64:
-		return strconv.FormatInt(typed, 10)
-	case float64:
-		return strconv.FormatFloat(typed, 'f', -1, 64)
-	case bool:
-		if typed {
-			return "true"
-		}
-		return "false"
-	default:
-		return ""
-	}
-}
-
-func isExternalObject(objectMap map[string]any) bool {
-	externalRaw, ok := objectMap["external"]
-	if !ok {
-		return false
-	}
-	switch typed := externalRaw.(type) {
-	case bool:
-		return typed
-	case string:
-		return strings.EqualFold(strings.TrimSpace(typed), "true")
-	default:
-		return false
-	}
 }
