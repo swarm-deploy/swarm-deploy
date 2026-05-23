@@ -91,7 +91,7 @@ func (r *InitJobRunner) Run(ctx context.Context, spec InitJobSpec) error {
 		return err
 	}
 
-	serviceCreateOptions, err := r.buildInitServiceCreateOptions(spec.Job.Image)
+	serviceCreateOptions, err := r.buildInitServiceCreateOptions(string(spec.Job.Image))
 	if err != nil {
 		return fmt.Errorf("build init job service create options: %w", err)
 	}
@@ -182,7 +182,7 @@ func (r *InitJobRunner) buildInitServiceSpec(
 	serviceName string,
 ) (dockerswarm.ServiceSpec, error) {
 	containerSpec := &dockerswarm.ContainerSpec{
-		Image:   spec.Job.Image,
+		Image:   string(spec.Job.Image),
 		Command: spec.Job.Command,
 	}
 

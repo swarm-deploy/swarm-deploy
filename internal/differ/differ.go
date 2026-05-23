@@ -130,7 +130,7 @@ func parseComposeFile(raw string) (*compose.Compose, error) {
 		return nil, err
 	}
 
-	return &parsed.Compose, nil
+	return parsed, nil
 }
 
 func compareServices(stackName string, oldCompose *compose.Compose, newCompose *compose.Compose) []ServiceDiff {

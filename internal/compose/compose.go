@@ -34,14 +34,12 @@ const envPairParts = 2
 
 var rotatableObjectTypes = []string{"configs", "secrets"}
 
-func Parse(raw []byte) (*File, error) {
-	schema := File{}
+func Parse(raw []byte) (*Compose, error) {
+	schema := Compose{}
 	err := yaml.Unmarshal(raw, &schema)
 	if err != nil {
 		return nil, fmt.Errorf("decode compose schema: %w", err)
 	}
-
-	schema.RawBytes = raw
 
 	return &schema, nil
 }

@@ -6,7 +6,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type Services map[string]Service
+type Services []Service
 
 type Service struct {
 	Name        string      `yaml:"name" json:"name"`
@@ -24,6 +24,7 @@ func (s *Services) UnmarshalYAML(n *yaml.Node) error {
 	}
 
 	name := ""
+	services := make([]Service, 0)
 
 	for i, cn := range n.Content {
 		if i%2 == 0 {
@@ -33,15 +34,17 @@ func (s *Services) UnmarshalYAML(n *yaml.Node) error {
 
 		var srv Service
 
-		err := cn.Decode(srv)
+		err := cn.Decode(&srv)
 		if err != nil {
 			return fmt.Errorf("decode service with name %q: %w", name, err)
 		}
 
 		srv.Name = name
 
-		(*s)[name] = srv
+		services = append(services, srv)
 	}
+
+	*s = services
 
 	return nil
 }
