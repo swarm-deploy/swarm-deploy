@@ -15,7 +15,7 @@ type SharedObject struct {
 	External bool   `yaml:"external" json:"external"`
 }
 
-type SharedObjects map[string]SharedObject
+type SharedObjects map[string]*SharedObject
 
 func (s *SharedObjects) UnmarshalYAML(n *yaml.Node) error {
 	if n.Kind != yaml.MappingNode {
@@ -32,14 +32,14 @@ func (s *SharedObjects) UnmarshalYAML(n *yaml.Node) error {
 
 		var cos SharedObject
 
-		err := cn.Decode(cos)
+		err := cn.Decode(&cos)
 		if err != nil {
 			return fmt.Errorf("decode config/secret with key %q: %w", name, err)
 		}
 
 		cos.Name = name
 
-		(*s)[name] = cos
+		(*s)[name] = &cos
 	}
 
 	return nil

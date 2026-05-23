@@ -24,6 +24,14 @@ func NewFileLoader() *FileLoader {
 	return &FileLoader{}
 }
 
+func (f *File) MarshalYAML() ([]byte, error) {
+	payload, err := yaml.Marshal(f.Compose)
+	if err != nil {
+		return nil, fmt.Errorf("marshal compose yaml: %w", err)
+	}
+	return payload, nil
+}
+
 func (l *FileLoader) Load(path string) (*File, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -36,10 +44,7 @@ func (l *FileLoader) Load(path string) (*File, error) {
 		return nil, fmt.Errorf("decode compose schema: %w", err)
 	}
 
-	err = l.linkServices(&schema)
-	if err != nil {
-		return nil, fmt.Errorf("link: %w", err)
-	}
+	l.linkServices(&schema)
 
 	file := &File{
 		Path:     path,
@@ -57,7 +62,7 @@ func (l *FileLoader) Load(path string) (*File, error) {
 	return file, nil
 }
 
-func (*FileLoader) linkServices(compose *Compose) error {
+func (*FileLoader) linkServices(compose *Compose) {
 	for name, service := range compose.Services {
 		service.Networks = resolveNetworkAliases(service.Networks, compose.Networks)
 
@@ -66,8 +71,6 @@ func (*FileLoader) linkServices(compose *Compose) error {
 
 		compose.Services[name] = service
 	}
-
-	return nil
 }
 
 func (l *FileLoader) computeDigest(file File) (string, error) {
@@ -75,7 +78,7 @@ func (l *FileLoader) computeDigest(file File) (string, error) {
 	hasher := sha256.New()
 	hasher.Write(file.RawBytes)
 
-	compute := func(objects map[string]SharedObject, objectType string) error {
+	compute := func(objects SharedObjects, objectType string) error {
 		for _, object := range objects {
 			if object.External {
 				continue

@@ -20,10 +20,11 @@ type stackReconcileResult struct {
 }
 
 type stackReconciler struct {
-	cfg           *config.Config
-	git           gitx.Repository
-	deployer      *deployer.Deployer
-	composeLoader *compose.FileLoader
+	cfg            *config.Config
+	git            gitx.Repository
+	deployer       *deployer.Deployer
+	composeLoader  *compose.FileLoader
+	composeRotator *compose.Rotator
 }
 
 type stackReconcileError struct {
@@ -38,10 +39,11 @@ func newStackReconciler(
 	deployer *deployer.Deployer,
 ) *stackReconciler {
 	return &stackReconciler{
-		cfg:           cfg,
-		git:           gitSync,
-		deployer:      deployer,
-		composeLoader: compose.NewFileLoader(),
+		cfg:            cfg,
+		git:            gitSync,
+		deployer:       deployer,
+		composeLoader:  compose.NewFileLoader(),
+		composeRotator: compose.NewRotator(),
 	}
 }
 
@@ -105,9 +107,8 @@ func (r *stackReconciler) Reconcile(
 	if r.cfg.Spec.SecretRotation.Enabled {
 		// Rotation mutates secret/config object names in the in-memory compose model.
 		// We keep digest based on original source, but deploy a rendered, rotated file.
-		_, err = stackFile.ApplyObjectRotation(
+		_, err = r.composeRotator.Rotate(stackFile,
 			stackCfg.Name,
-			composePath,
 			r.cfg.Spec.SecretRotation.HashLength,
 			r.cfg.Spec.SecretRotation.IncludePath,
 		)

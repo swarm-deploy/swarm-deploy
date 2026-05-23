@@ -8,6 +8,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const envPairParts = 2
+
 type Environment map[string]string
 
 func (e *Environment) UnmarshalYAML(node *yaml.Node) error {
