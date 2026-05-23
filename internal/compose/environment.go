@@ -26,6 +26,10 @@ func (e *Environment) UnmarshalYAML(node *yaml.Node) error {
 		return nil
 	}
 
+	return e.unmarshalFromSequence(node)
+}
+
+func (e *Environment) unmarshalFromSequence(node *yaml.Node) error {
 	mmap := map[string]string{}
 
 	for i, item := range node.Content {

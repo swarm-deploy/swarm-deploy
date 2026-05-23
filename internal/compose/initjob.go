@@ -8,7 +8,7 @@ import (
 
 type InitJob struct {
 	Name        string         `yaml:"name" json:"name"`
-	Image       string         `yaml:"image" json:"image"`
+	Image       specw.String   `yaml:"image" json:"image"`
 	Command     []string       `yaml:"command" json:"command"`
 	Environment Environment    `yaml:"environment" json:"environment,omitempty"`
 	Networks    []string       `yaml:"networks" json:"networks,omitempty"`
@@ -17,18 +17,15 @@ type InitJob struct {
 	Timeout     specw.Duration `yaml:"timeout" json:"timeout,omitempty"`
 }
 
-func normalizeInitJobs(jobs []InitJob, networks map[string]Network) ([]InitJob, error) {
+func normalizeInitJobs(jobs []InitJob, networks map[string]Network) []InitJob {
 	for i := range jobs {
 		if jobs[i].Name == "" {
 			jobs[i].Name = fmt.Sprintf("job-%d", i)
-		}
-		if jobs[i].Image == "" {
-			return nil, fmt.Errorf("item %d image is required", i)
 		}
 		jobs[i].Networks = resolveNetworkAliases(jobs[i].Networks, networks)
 		jobs[i].Secrets = normalizeObjectRefs(jobs[i].Secrets)
 		jobs[i].Configs = normalizeObjectRefs(jobs[i].Configs)
 	}
 
-	return jobs, nil
+	return jobs
 }

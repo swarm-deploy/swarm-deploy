@@ -226,10 +226,7 @@ func linkServices(file *File) error {
 		service.Secrets = normalizeObjectRefs(service.Secrets)
 		service.Configs = normalizeObjectRefs(service.Configs)
 
-		initJobs, err := normalizeInitJobs(service.InitJobs, file.Networks)
-		if err != nil {
-			return fmt.Errorf("parse services.%s.x-init-deploy-jobs: %w", name, err)
-		}
+		initJobs := normalizeInitJobs(service.InitJobs, file.Networks)
 		service.InitJobs = initJobs
 
 		file.Services[name] = service
