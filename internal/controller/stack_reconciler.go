@@ -91,7 +91,7 @@ func (r *stackReconciler) Reconcile(
 	}
 
 	result := stackReconcileResult{
-		Services: stackFile.Services,
+		Services: stackFile.Compose.Services,
 	}
 
 	digest, err := stackFile.ComputeDigest(composePath)
@@ -128,7 +128,7 @@ func (r *stackReconciler) Reconcile(
 	}
 
 	// Deployer encapsulates init jobs orchestration and stack deployment.
-	err = r.deployer.DeployStack(ctx, stackCfg.Name, deployComposePath, stackFile.Services)
+	err = r.deployer.DeployStack(ctx, stackCfg.Name, deployComposePath, stackFile.Compose.Services)
 	if err != nil {
 		return result, wrapStackReconcileError("deploy", result.Services, err)
 	}

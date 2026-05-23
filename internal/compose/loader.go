@@ -26,7 +26,7 @@ func (l *Loader) Load(path string) (*File, error) {
 		return nil, fmt.Errorf("decode compose yaml: %w", err)
 	}
 
-	schema := File{}
+	schema := Compose{}
 	err = yaml.Unmarshal(raw, &schema)
 	if err != nil {
 		return nil, fmt.Errorf("decode compose schema: %w", err)
@@ -37,20 +37,21 @@ func (l *Loader) Load(path string) (*File, error) {
 		return nil, fmt.Errorf("link: %w", err)
 	}
 
-	schema.RawBytes = raw
-	schema.RawMap = root
-
-	return &schema, nil
+	return &File{
+		RawBytes: raw,
+		RawMap:   root,
+		Compose:  schema,
+	}, nil
 }
 
-func (*Loader) linkServices(file *File) error {
-	for name, service := range file.Services {
-		service.Networks = resolveNetworkAliases(service.Networks, file.Networks)
+func (*Loader) linkServices(compose *Compose) error {
+	for name, service := range compose.Services {
+		service.Networks = resolveNetworkAliases(service.Networks, compose.Networks)
 
-		initJobs := normalizeInitJobs(service.InitJobs, file.Networks)
+		initJobs := normalizeInitJobs(service.InitJobs, compose.Networks)
 		service.InitJobs = initJobs
 
-		file.Services[name] = service
+		compose.Services[name] = service
 	}
 
 	return nil

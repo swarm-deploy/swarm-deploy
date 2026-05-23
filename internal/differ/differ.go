@@ -124,16 +124,16 @@ func (d *Differ) Compare(composeFiles []ComposeFile) (Diff, error) {
 	return Diff{Services: serviceDiffs}, nil
 }
 
-func parseComposeFile(raw string) (*compose.File, error) {
+func parseComposeFile(raw string) (*compose.Compose, error) {
 	parsed, err := compose.Parse([]byte(raw))
 	if err != nil {
 		return nil, err
 	}
 
-	return parsed, nil
+	return &parsed.Compose, nil
 }
 
-func compareServices(stackName string, oldCompose *compose.File, newCompose *compose.File) []ServiceDiff {
+func compareServices(stackName string, oldCompose *compose.Compose, newCompose *compose.Compose) []ServiceDiff {
 	oldServices := mapServicesByName(oldCompose)
 	newServices := mapServicesByName(newCompose)
 
@@ -169,7 +169,7 @@ func compareServices(stackName string, oldCompose *compose.File, newCompose *com
 	return serviceDiffs
 }
 
-func mapServicesByName(composeFile *compose.File) map[string]compose.Service {
+func mapServicesByName(composeFile *compose.Compose) map[string]compose.Service {
 	if composeFile == nil {
 		return map[string]compose.Service{}
 	}

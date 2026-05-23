@@ -15,7 +15,10 @@ import (
 type File struct {
 	RawMap   map[string]any `json:"-"`
 	RawBytes []byte         `json:"-"`
+	Compose  Compose        `json:"compose"`
+}
 
+type Compose struct {
 	Services Services           `yaml:"services" json:"services"`
 	Networks map[string]Network `yaml:"networks" json:"networks"`
 	Configs  SharedObjects      `yaml:"configs" json:"configs"`
@@ -81,11 +84,11 @@ func (f *File) ComputeDigest(composePath string) (string, error) {
 		return nil
 	}
 
-	if err := compute(f.Configs, "configs"); err != nil {
+	if err := compute(f.Compose.Configs, "configs"); err != nil {
 		return "", fmt.Errorf("compute for configs: %w", err)
 	}
 
-	if err := compute(f.Secrets, "secrets"); err != nil {
+	if err := compute(f.Compose.Secrets, "secrets"); err != nil {
 		return "", fmt.Errorf("compute for secrets: %w", err)
 	}
 
