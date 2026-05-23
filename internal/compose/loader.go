@@ -1,11 +1,22 @@
 package compose
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"gopkg.in/yaml.v3"
 )
+
+type File struct {
+	Path     string         `json:"path"`
+	RawMap   map[string]any `json:"-"`
+	RawBytes []byte         `json:"-"`
+	Compose  Compose        `json:"compose"`
+	Digest   string         `json:"digest"`
+}
 
 type Loader struct {
 }
@@ -37,11 +48,21 @@ func (l *Loader) Load(path string) (*File, error) {
 		return nil, fmt.Errorf("link: %w", err)
 	}
 
-	return &File{
+	file := &File{
+		Path:     path,
 		RawBytes: raw,
 		RawMap:   root,
 		Compose:  schema,
-	}, nil
+	}
+
+	digest, err := l.computeDigest(*file)
+	if err != nil {
+		return nil, fmt.Errorf("compute digest: %w", err)
+	}
+
+	file.Digest = digest
+
+	return file, nil
 }
 
 func (*Loader) linkServices(compose *Compose) error {
@@ -55,4 +76,45 @@ func (*Loader) linkServices(compose *Compose) error {
 	}
 
 	return nil
+}
+
+func (l *Loader) computeDigest(file File) (string, error) {
+	baseDir := filepath.Dir(file.Path)
+	hasher := sha256.New()
+	hasher.Write(file.RawBytes)
+
+	compute := func(objects map[string]SharedObject, objectType string) error {
+		for _, object := range objects {
+			if object.External {
+				continue
+			}
+
+			if object.File != "" {
+				continue
+			}
+
+			absPath := filepath.Join(baseDir, object.File)
+			content, err := os.ReadFile(absPath)
+			if err != nil {
+				return fmt.Errorf("read %s file %s for digest: %w", objectType, absPath, err)
+			}
+
+			hasher.Write([]byte(objectType))
+			hasher.Write([]byte(object.Name))
+			hasher.Write([]byte(object.File))
+			hasher.Write(content)
+		}
+
+		return nil
+	}
+
+	if err := compute(file.Compose.Configs, "configs"); err != nil {
+		return "", fmt.Errorf("compute for configs: %w", err)
+	}
+
+	if err := compute(file.Compose.Secrets, "secrets"); err != nil {
+		return "", fmt.Errorf("compute for secrets: %w", err)
+	}
+
+	return hex.EncodeToString(hasher.Sum(nil)), nil
 }

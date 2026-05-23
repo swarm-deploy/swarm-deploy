@@ -12,12 +12,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type File struct {
-	RawMap   map[string]any `json:"-"`
-	RawBytes []byte         `json:"-"`
-	Compose  Compose        `json:"compose"`
-}
-
 type Compose struct {
 	Services Services           `yaml:"services" json:"services"`
 	Networks map[string]Network `yaml:"networks" json:"networks"`
@@ -45,47 +39,6 @@ func (f *File) MarshalYAML() ([]byte, error) {
 		return nil, fmt.Errorf("marshal compose yaml: %w", err)
 	}
 	return payload, nil
-}
-
-func (f *File) ComputeDigest(composePath string) (string, error) {
-	baseDir := filepath.Dir(composePath)
-	hasher := sha256.New()
-	hasher.Write(f.RawBytes)
-
-	compute := func(objects map[string]SharedObject, objectType string) error {
-		for _, object := range objects {
-			if object.External {
-				continue
-			}
-
-			if object.File != "" {
-				continue
-			}
-
-			absPath := filepath.Join(baseDir, object.File)
-			content, err := os.ReadFile(absPath)
-			if err != nil {
-				return fmt.Errorf("read %s file %s for digest: %w", objectType, absPath, err)
-			}
-
-			hasher.Write([]byte(objectType))
-			hasher.Write([]byte(object.Name))
-			hasher.Write([]byte(object.File))
-			hasher.Write(content)
-		}
-
-		return nil
-	}
-
-	if err := compute(f.Compose.Configs, "configs"); err != nil {
-		return "", fmt.Errorf("compute for configs: %w", err)
-	}
-
-	if err := compute(f.Compose.Secrets, "secrets"); err != nil {
-		return "", fmt.Errorf("compute for secrets: %w", err)
-	}
-
-	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
 func (f *File) ApplyObjectRotation(

@@ -94,14 +94,9 @@ func (r *stackReconciler) Reconcile(
 		Services: stackFile.Compose.Services,
 	}
 
-	digest, err := stackFile.ComputeDigest(composePath)
-	if err != nil {
-		return result, wrapStackReconcileError("compute digest", result.Services, err)
-	}
-
 	// Skip reconciliation when source compose content is unchanged since last successful apply.
-	if hasPrev && prevDigest == digest {
-		result.SourceDigest = digest
+	if hasPrev && prevDigest == stackFile.Digest {
+		result.SourceDigest = stackFile.Digest
 		result.Skipped = true
 		return result, nil
 	}
@@ -133,7 +128,7 @@ func (r *stackReconciler) Reconcile(
 		return result, wrapStackReconcileError("deploy", result.Services, err)
 	}
 
-	result.SourceDigest = digest
+	result.SourceDigest = stackFile.Digest
 	return result, nil
 }
 
