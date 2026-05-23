@@ -32,13 +32,15 @@ type InitJob struct {
 }
 
 type Service struct {
-	Name        string            `json:"name"`
-	Image       string            `json:"image"`
-	Environment map[string]string `json:"environment,omitempty"`
-	Networks    []string          `json:"networks,omitempty"`
-	Secrets     []ObjectRef       `json:"secrets,omitempty"`
-	Configs     []ObjectRef       `json:"configs,omitempty"`
-	InitJobs    []InitJob         `json:"init_jobs,omitempty"`
+	Name  string `json:"name"`
+	Image string `json:"image"`
+	// DeployLabels are Docker service-level labels from compose deploy.labels.
+	DeployLabels map[string]string `json:"deploy_labels,omitempty"`
+	Environment  map[string]string `json:"environment,omitempty"`
+	Networks     []string          `json:"networks,omitempty"`
+	Secrets      []ObjectRef       `json:"secrets,omitempty"`
+	Configs      []ObjectRef       `json:"configs,omitempty"`
+	InitJobs     []InitJob         `json:"init_jobs,omitempty"`
 }
 
 type File struct {
@@ -85,6 +87,53 @@ func (f *File) MarshalYAML() ([]byte, error) {
 		return nil, fmt.Errorf("marshal compose yaml: %w", err)
 	}
 	return payload, nil
+}
+
+func (f *File) ApplyServiceDeployLabels(labels map[string]string) (bool, error) {
+	if len(labels) == 0 {
+		return false, nil
+	}
+
+	servicesMap, servicesMapFound := asMap(f.RawMap["services"])
+	if !servicesMapFound {
+		return false, errors.New("compose file does not contain services map")
+	}
+
+	changed := false
+	for serviceName, rawService := range servicesMap {
+		serviceMap, serviceMapValid := asMap(rawService)
+		if !serviceMapValid {
+			return false, fmt.Errorf("compose services.%s must be a map", serviceName)
+		}
+
+		deployMap, deployMapFound := asMap(serviceMap["deploy"])
+		if !deployMapFound {
+			deployMap = map[string]any{}
+			serviceMap["deploy"] = deployMap
+			changed = true
+		}
+
+		serviceLabelsMap, serviceLabelsFound := asMap(deployMap["labels"])
+		if !serviceLabelsFound {
+			serviceLabelsMap = map[string]any{}
+			for key, value := range parseStringMap(deployMap["labels"]) {
+				serviceLabelsMap[key] = value
+			}
+			deployMap["labels"] = serviceLabelsMap
+			changed = true
+		}
+
+		for key, value := range labels {
+			if asString(serviceLabelsMap[key]) == value {
+				continue
+			}
+
+			serviceLabelsMap[key] = value
+			changed = true
+		}
+	}
+
+	return changed, nil
 }
 
 func (f *File) ComputeDigest(composePath string) (string, error) {
@@ -250,17 +299,27 @@ func parseServices(root map[string]any) ([]Service, error) {
 		}
 
 		services = append(services, Service{
-			Name:        name,
-			Image:       asString(serviceMap["image"]),
-			Environment: parseEnvironment(serviceMap["environment"]),
-			Networks:    resolveNetworkAliases(parseNetworks(serviceMap["networks"]), networkNames),
-			Secrets:     parseObjectRefs(serviceMap["secrets"]),
-			Configs:     parseObjectRefs(serviceMap["configs"]),
-			InitJobs:    initJobs,
+			Name:         name,
+			Image:        asString(serviceMap["image"]),
+			DeployLabels: parseServiceDeployLabels(serviceMap),
+			Environment:  parseEnvironment(serviceMap["environment"]),
+			Networks:     resolveNetworkAliases(parseNetworks(serviceMap["networks"]), networkNames),
+			Secrets:      parseObjectRefs(serviceMap["secrets"]),
+			Configs:      parseObjectRefs(serviceMap["configs"]),
+			InitJobs:     initJobs,
 		})
 	}
 
 	return services, nil
+}
+
+func parseServiceDeployLabels(serviceMap map[string]any) map[string]string {
+	deployMap, deployMapFound := asMap(serviceMap["deploy"])
+	if !deployMapFound {
+		return nil
+	}
+
+	return parseStringMap(deployMap["labels"])
 }
 
 func parseInitJobs(raw any, networkNames map[string]string) ([]InitJob, error) {
@@ -357,6 +416,10 @@ func parseCommand(raw any) ([]string, error) {
 }
 
 func parseEnvironment(raw any) map[string]string {
+	return parseStringMap(raw)
+}
+
+func parseStringMap(raw any) map[string]string {
 	if raw == nil {
 		return nil
 	}

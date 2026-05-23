@@ -1420,7 +1420,6 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
         lines.push("    - stack");
         lines.push("    - deploy");
         lines.push("    - --with-registry-auth");
-        lines.push("    - --prune");
         lines.push("  # Init job polling interval.");
         lines.push("  initJobPollEvery: 2s");
         lines.push("  # Maximum init job duration.");

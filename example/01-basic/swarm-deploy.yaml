@@ -15,6 +15,9 @@ sync:
   mode: pull
   # Pull polling interval.
   pollInterval: 30s
+  policy:
+    # Removes orphaned managed services that are no longer defined in compose.
+    prune: true
 
 # Stacks source settings.
 stacks:
@@ -34,7 +37,7 @@ eventHistory:
 # Notification channels grouped by event type.
 notifications:
   on:
-    # Event type: deploySuccess | deployFailed | syncManualStarted | userAuthenticated
+    # Event type: deploySuccess | deployFailed | servicePruned | syncManualStarted | userAuthenticated
     deploySuccess:
       telegram:
         - name: ops-success
@@ -86,7 +89,6 @@ swarm:
     - stack
     - deploy
     - --with-registry-auth
-    - --prune
   # Init job polling interval.
   initJobPollEvery: 2s
   # Maximum init job duration.

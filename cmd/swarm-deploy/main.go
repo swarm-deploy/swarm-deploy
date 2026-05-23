@@ -135,6 +135,7 @@ func main() {
 		cfg,
 		gitRepository,
 		swarmService.Networks,
+		swarmService.Services,
 		deployerSvc,
 		metricsGroup,
 		eventDispatcher,

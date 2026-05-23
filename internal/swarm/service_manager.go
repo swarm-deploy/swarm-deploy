@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/avast/retry-go/v5"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
 )
@@ -24,6 +26,8 @@ const (
 	dockerLogFrameHeaderSize          = 8
 	serviceLogsScannerInitialBufSize  = 64 * 1024
 	serviceLogsScannerMaxTokenBufSize = 1 << 20
+
+	stackNamespaceLabelKey = "com.docker.stack.namespace"
 )
 
 // ServiceManager manages stack service replicas.
@@ -55,6 +59,47 @@ func (m *ServiceManager) GetReplicas(
 	}
 
 	return *service.Spec.Mode.Replicated.Replicas, nil
+}
+
+// ListStackServices returns services currently attached to provided stack.
+func (m *ServiceManager) ListStackServices(ctx context.Context, stackName string) ([]StackService, error) {
+	services, err := m.dockerClient.ServiceList(ctx, dockerswarm.ServiceListOptions{
+		Filters: filters.NewArgs(filters.Arg("label", stackNamespaceLabelKey+"="+stackName)),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list services for stack %s: %w", stackName, err)
+	}
+
+	mapped := make([]StackService, 0, len(services))
+	for _, service := range services {
+		fullName := service.Spec.Name
+		mapped = append(mapped, StackService{
+			ID:       service.ID,
+			Name:     stackServiceNameFromFullName(stackName, fullName),
+			FullName: fullName,
+			Labels:   cloneStringMap(service.Spec.Labels),
+		})
+	}
+
+	sort.Slice(mapped, func(i, j int) bool {
+		return mapped[i].FullName < mapped[j].FullName
+	})
+
+	return mapped, nil
+}
+
+// Remove deletes service by Docker service identifier or full service name.
+func (m *ServiceManager) Remove(ctx context.Context, serviceIDOrName string) error {
+	err := m.dockerClient.ServiceRemove(ctx, serviceIDOrName)
+	if err != nil {
+		if isNotFoundErr(err) {
+			return ErrServiceNotFound
+		}
+
+		return fmt.Errorf("remove service %s: %w", serviceIDOrName, err)
+	}
+
+	return nil
 }
 
 // Scale sets desired replicas count for a stack service.
@@ -493,4 +538,13 @@ func (m *ServiceManager) inspect(
 
 func isNotFoundErr(err error) bool {
 	return cerrdefs.IsNotFound(err)
+}
+
+func stackServiceNameFromFullName(stackName string, fullName string) string {
+	prefix := stackName + "_"
+	if strings.HasPrefix(fullName, prefix) {
+		return strings.TrimPrefix(fullName, prefix)
+	}
+
+	return fullName
 }

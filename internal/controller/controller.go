@@ -79,6 +79,7 @@ func New(
 	cfg *config.Config,
 	git gitx.Repository,
 	networks networkManager,
+	services stackServiceManager,
 	deployer *deployer.Deployer,
 	metricGroup *metrics.Group,
 	eventDispatcher dispatcher.Dispatcher,
@@ -98,6 +99,7 @@ func New(
 			cfg,
 			git,
 			deployer,
+			services,
 		),
 		triggerCh: make(chan triggerTask, 1),
 	}
@@ -335,6 +337,7 @@ func (c *Controller) syncStack(ctx context.Context, stackCfg config.StackSpec, c
 		return fmt.Errorf("stack %s %w", stackCfg.Name, err)
 	}
 	if reconcileResult.Skipped {
+		c.dispatchPrunedEvents(ctx, stackCfg.Name, commit, reconcileResult.PrunedServices)
 		return nil
 	}
 
@@ -365,7 +368,18 @@ func (c *Controller) syncStack(ctx context.Context, stackCfg config.StackSpec, c
 		Commit:    commit,
 		Services:  reconcileResult.Services,
 	})
+	c.dispatchPrunedEvents(ctx, stackCfg.Name, commit, reconcileResult.PrunedServices)
 	return nil
+}
+
+func (c *Controller) dispatchPrunedEvents(ctx context.Context, stackName string, commit string, serviceNames []string) {
+	for _, serviceName := range serviceNames {
+		c.event.Dispatch(ctx, &events.ServicePruned{
+			StackName:   stackName,
+			ServiceName: serviceName,
+			Commit:      commit,
+		})
+	}
 }
 
 func (c *Controller) recordStackFailure(stackName, commit string, services []compose.Service, reason error) {

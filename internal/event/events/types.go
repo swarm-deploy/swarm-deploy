@@ -23,6 +23,7 @@ const (
 	TypeNameServiceReplicasIncreased         TypeName = "serviceReplicasIncreased"
 	TypeNameServiceReplicasDecreased         TypeName = "serviceReplicasDecreased"
 	TypeNameServiceRestarted                 TypeName = "serviceRestarted"
+	TypeNameServicePruned                    TypeName = "servicePruned"
 	TypeNameUserAuthenticated                TypeName = "userAuthenticated"
 	TypeNameAssistantPromptInjectionDetected TypeName = "assistantPromptInjectionDetected"
 )
@@ -105,6 +106,12 @@ var (
 		category: CategorySync,
 		window:   serviceDedupWindow,
 	}
+	TypeServicePruned = Type{
+		name:     TypeNameServicePruned,
+		severity: SeverityInfo,
+		category: CategorySync,
+		window:   serviceDedupWindow,
+	}
 	TypeUserAuthenticated = Type{
 		name:     TypeNameUserAuthenticated,
 		severity: SeverityInfo,
@@ -126,6 +133,7 @@ var (
 		TypeServiceReplicasIncreased,
 		TypeServiceReplicasDecreased,
 		TypeServiceRestarted,
+		TypeServicePruned,
 		TypeUserAuthenticated,
 		TypeAssistantPromptInjectionDetected,
 	}
@@ -193,6 +201,8 @@ func (n TypeName) Valid() bool {
 		return true
 	case TypeNameServiceRestarted:
 		return true
+	case TypeNameServicePruned:
+		return true
 	case TypeNameUserAuthenticated:
 		return true
 	case TypeNameAssistantPromptInjectionDetected:
@@ -219,6 +229,8 @@ func ParseType(name string) (Type, bool) {
 		return TypeServiceReplicasDecreased, true
 	case TypeNameServiceRestarted:
 		return TypeServiceRestarted, true
+	case TypeNameServicePruned:
+		return TypeServicePruned, true
 	case TypeNameUserAuthenticated:
 		return TypeUserAuthenticated, true
 	case TypeNameAssistantPromptInjectionDetected:
