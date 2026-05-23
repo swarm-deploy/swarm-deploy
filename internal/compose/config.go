@@ -8,11 +8,13 @@ import (
 
 // SharedObject wraps configs and secrets in compose top level.
 type SharedObject struct {
-	Name string `yaml:"name" json:"name"` // alias from map.
+	Alias string `yaml:"-"`
 
-	File     string `yaml:"file" json:"file,omitempty"`
-	Driver   string `yaml:"driver" json:"driver"`
-	External bool   `yaml:"external" json:"external"`
+	Name string `yaml:"name" json:"name"`
+
+	File     string `yaml:"file,omitempty" json:"file,omitempty"`
+	Driver   string `yaml:"drive,omitempty" json:"driver"`
+	External bool   `yaml:"external,omitempty" json:"external"`
 }
 
 type SharedObjects map[string]*SharedObject
@@ -24,11 +26,11 @@ func (s *SharedObjects) UnmarshalYAML(n *yaml.Node) error {
 
 	*s = map[string]*SharedObject{}
 
-	name := ""
+	alias := ""
 
 	for i, cn := range n.Content {
 		if i%2 == 0 {
-			name = cn.Value
+			alias = cn.Value
 			continue
 		}
 
@@ -36,12 +38,12 @@ func (s *SharedObjects) UnmarshalYAML(n *yaml.Node) error {
 
 		err := cn.Decode(&cos)
 		if err != nil {
-			return fmt.Errorf("decode config/secret with key %q: %w", name, err)
+			return fmt.Errorf("decode config/secret with key %q: %w", alias, err)
 		}
 
-		cos.Name = name
+		cos.Alias = alias
 
-		(*s)[name] = &cos
+		(*s)[alias] = &cos
 	}
 
 	return nil

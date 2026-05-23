@@ -7,34 +7,55 @@ import (
 )
 
 type ObjectRef struct {
+	objectRef `yaml:"-" json:"-"`
+
+	isString bool
+}
+
+type objectRef struct {
 	Source string `yaml:"source" json:"source"`
 	Target string `yaml:"target" json:"target,omitempty"`
 }
 
-func (ref *ObjectRef) UnmarshalYAML(n *yaml.Node) error {
+func (r *ObjectRef) UnmarshalYAML(n *yaml.Node) error {
 	if n.Kind == yaml.ScalarNode {
-		*ref = ObjectRef{
+		r.objectRef = objectRef{
 			Source: n.Value,
 			Target: "/run/secrets/" + n.Value,
 		}
+		r.isString = true
+
+		*r = ObjectRef{
+			objectRef: objectRef{
+				Source: n.Value,
+				Target: "/run/secrets/" + n.Value,
+			},
+			isString: true,
+		}
+
 		return nil
 	}
 
 	if n.Kind != yaml.MappingNode {
-		return fmt.Errorf("expected mapping node, got %T", n.Kind)
+		return fmt.Errorf("expected mapping node, got %s", n.Tag)
 	}
 
-	var schema struct {
-		Source string `yaml:"source" json:"source"`
-		Target string `yaml:"target" json:"target,omitempty"`
-	}
+	var schema objectRef
 
 	err := n.Decode(&schema)
 	if err != nil {
 		return err
 	}
 
-	*ref = schema
+	r.objectRef = schema
 
 	return nil
+}
+
+func (r ObjectRef) MarshalYAML() (interface{}, error) {
+	if r.isString {
+		return r.Source, nil
+	}
+
+	return r.objectRef, nil
 }

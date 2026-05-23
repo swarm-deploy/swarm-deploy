@@ -13,9 +13,9 @@ type Service struct {
 	Image       string            `yaml:"image" json:"image"`
 	Command     Command           `yaml:"command" json:"command"`
 	Networks    []*ServiceNetwork `yaml:"networks,omitempty" json:"networks,omitempty"`
-	Environment Environment       `yaml:"environment,omitempty" json:"environment,omitempty"`
 	Secrets     []ObjectRef       `yaml:"secrets,omitempty" json:"secrets,omitempty"`
 	Configs     []ObjectRef       `yaml:"configs,omitempty" json:"configs,omitempty"`
+	Environment Environment       `yaml:"environment,omitempty" json:"environment,omitempty"`
 	InitJobs    []InitJob         `yaml:"x-init-deploy-jobs,omitempty" json:"init_jobs,omitempty"`
 	Deploy      ServiceDeploy     `yaml:"deploy,omitempty" json:"deploy"`
 }
