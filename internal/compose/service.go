@@ -11,6 +11,7 @@ type Services []Service
 type Service struct {
 	Name        string            `yaml:"-" json:"name"`
 	Image       string            `yaml:"image" json:"image"`
+	Ports       ServicePorts      `yaml:"ports,omitempty" json:"ports,omitempty"`
 	Command     Command           `yaml:"command" json:"command"`
 	Networks    []*ServiceNetwork `yaml:"networks,omitempty" json:"networks,omitempty"`
 	Secrets     []ObjectRef       `yaml:"secrets,omitempty" json:"secrets,omitempty"`
