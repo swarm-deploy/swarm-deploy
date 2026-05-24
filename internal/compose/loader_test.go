@@ -42,8 +42,6 @@ func TestLoader_Load(t *testing.T) {
 			if string(file.RawBytes) != result.String() {
 				err = os.WriteFile(fmt.Sprintf("./tests/loader/%d.actual.yaml", i), result.Bytes(), 0666)
 				require.NoError(t, err)
-
-				fmt.Println(file.Compose.Services[0].Networks)
 			}
 
 			assert.Equal(t, string(file.RawBytes), result.String())
