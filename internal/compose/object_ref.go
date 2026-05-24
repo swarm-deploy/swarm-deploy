@@ -7,7 +7,8 @@ import (
 )
 
 type ObjectRef struct {
-	objectRef `yaml:"-" json:"-"`
+	Source string `yaml:"source" json:"source"`
+	Target string `yaml:"target" json:"target,omitempty"`
 
 	isString bool
 }
@@ -19,19 +20,9 @@ type objectRef struct {
 
 func (r *ObjectRef) UnmarshalYAML(n *yaml.Node) error {
 	if n.Kind == yaml.ScalarNode {
-		r.objectRef = objectRef{
-			Source: n.Value,
-			Target: "/run/secrets/" + n.Value,
-		}
+		r.Source = n.Value
+		r.Target = "/run/secrets/" + n.Value
 		r.isString = true
-
-		*r = ObjectRef{
-			objectRef: objectRef{
-				Source: n.Value,
-				Target: "/run/secrets/" + n.Value,
-			},
-			isString: true,
-		}
 
 		return nil
 	}
@@ -47,7 +38,8 @@ func (r *ObjectRef) UnmarshalYAML(n *yaml.Node) error {
 		return err
 	}
 
-	r.objectRef = schema
+	r.Source = schema.Source
+	r.Target = schema.Target
 
 	return nil
 }
@@ -57,5 +49,8 @@ func (r ObjectRef) MarshalYAML() (interface{}, error) {
 		return r.Source, nil
 	}
 
-	return r.objectRef, nil
+	return objectRef{
+		Source: r.Source,
+		Target: r.Target,
+	}, nil
 }

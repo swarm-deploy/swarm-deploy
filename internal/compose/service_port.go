@@ -60,9 +60,9 @@ func (sp *ServicePorts) UnmarshalYAML(root *yaml.Node) error {
 	}
 
 	for i, node := range root.Content {
-		switch node.Kind {
+		switch node.Kind { //nolint:exhaustive // expect only mapping or scalar
 		case yaml.MappingNode:
-			port := defaultServicePort("", 8000)
+			port := defaultServicePort("", 0)
 			if err := node.Decode(&port); err != nil {
 				return fmt.Errorf("decode %d port: %w", i, err)
 			}
@@ -75,6 +75,8 @@ func (sp *ServicePorts) UnmarshalYAML(root *yaml.Node) error {
 			}
 
 			sp.Ports = append(sp.Ports, *port)
+		default:
+			return fmt.Errorf("expect mapping or string node, got %s", root.Tag)
 		}
 	}
 
@@ -83,9 +85,11 @@ func (sp *ServicePorts) UnmarshalYAML(root *yaml.Node) error {
 
 func (sp ServicePorts) MarshalYAML() (interface{}, error) {
 	if sp.isMap {
+		const mappingNodesMul = 2
+
 		root := yaml.Node{
 			Kind:    yaml.MappingNode,
-			Content: make([]*yaml.Node, 0, 2*len(sp.Ports)),
+			Content: make([]*yaml.Node, 0, mappingNodesMul*len(sp.Ports)),
 		}
 
 		for _, port := range sp.Ports {
@@ -105,7 +109,7 @@ func (sp ServicePorts) MarshalYAML() (interface{}, error) {
 	return sp.Ports, nil
 }
 
-func (sp *ServicePorts) parseStringView(s string) (*ServicePort, error) {
+func (sp *ServicePorts) parseStringView(s string) (*ServicePort, error) { //nolint:gocognit // not need
 	if len(s) == 0 {
 		return nil, fmt.Errorf("empty string")
 	}
@@ -143,7 +147,7 @@ func (sp *ServicePorts) parseStringView(s string) (*ServicePort, error) {
 				if c < '0' || c > '9' {
 					return nil, fmt.Errorf("invalid target character")
 				}
-				targetVal = targetVal*10 + int(c-'0')
+				targetVal = targetVal*10 + int(c-'0') //nolint:mnd // not need
 				hasTarget = true
 			}
 		}

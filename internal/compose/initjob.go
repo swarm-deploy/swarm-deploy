@@ -27,3 +27,13 @@ func normalizeInitJobs(jobs []InitJob, networks map[string]Network) []InitJob {
 
 	return jobs
 }
+
+func (job *InitJob) NetworkNames() []string {
+	names := make([]string, len(job.Networks))
+
+	for i, network := range job.Networks {
+		names[i] = network.Name
+	}
+
+	return names
+}

@@ -186,14 +186,14 @@ func (r *InitJobRunner) buildInitServiceSpec(
 		Command: spec.Job.Command,
 	}
 
-	if len(spec.Job.Environment) > 0 {
-		containerSpec.Env = make([]string, 0, len(spec.Job.Environment))
-		for key, val := range spec.Job.Environment {
+	if len(spec.Job.Environment.Map) > 0 {
+		containerSpec.Env = make([]string, 0, len(spec.Job.Environment.Map))
+		for key, val := range spec.Job.Environment.Map {
 			containerSpec.Env = append(containerSpec.Env, fmt.Sprintf("%s=%s", key, val))
 		}
 	}
 
-	networks := spec.Job.Networks
+	networks := spec.Job.NetworkNames()
 	if len(networks) == 0 {
 		networks = spec.DefaultNetwork
 	}

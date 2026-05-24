@@ -212,19 +212,19 @@ func compareService(
 
 	oldEnvironment := map[string]string{}
 	if oldExists {
-		oldEnvironment = oldService.Environment
+		oldEnvironment = oldService.Environment.Map
 	}
 	newEnvironment := map[string]string{}
 	if newExists {
-		newEnvironment = newService.Environment
+		newEnvironment = newService.Environment.Map
 	}
 	serviceDiff.Environment = compareEnvironment(oldEnvironment, newEnvironment)
 
-	oldNetworks := []string(nil)
+	oldNetworks := []*compose.ServiceNetwork{}
 	if oldExists {
 		oldNetworks = oldService.Networks
 	}
-	newNetworks := []string(nil)
+	newNetworks := []*compose.ServiceNetwork{}
 	if newExists {
 		newNetworks = newService.Networks
 	}
@@ -303,7 +303,7 @@ func maskEnvValue(key string, value string) string {
 	return maskedValue
 }
 
-func compareNetworks(oldNetworks []string, newNetworks []string) []NetworkDiff {
+func compareNetworks(oldNetworks []*compose.ServiceNetwork, newNetworks []*compose.ServiceNetwork) []NetworkDiff {
 	oldSet := stringSliceToSet(oldNetworks)
 	newSet := stringSliceToSet(newNetworks)
 
@@ -392,10 +392,10 @@ func mapSecretRefs(secrets []compose.ObjectRef) map[string]compose.ObjectRef {
 	return set
 }
 
-func stringSliceToSet(values []string) map[string]struct{} {
+func stringSliceToSet(values []*compose.ServiceNetwork) map[string]struct{} {
 	set := map[string]struct{}{}
 	for _, value := range values {
-		trimmedValue := strings.TrimSpace(value)
+		trimmedValue := strings.TrimSpace(value.Alias)
 		if trimmedValue == "" {
 			continue
 		}
