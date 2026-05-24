@@ -10,7 +10,11 @@ import (
 
 const envPairParts = 2
 
-type Environment map[string]string
+type Environment struct {
+	Map map[string]string
+
+	isMap bool
+}
 
 func (e *Environment) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind != yaml.MappingNode && node.Kind != yaml.SequenceNode {
@@ -18,17 +22,32 @@ func (e *Environment) UnmarshalYAML(node *yaml.Node) error {
 	}
 
 	if node.Kind == yaml.MappingNode {
-		mmap := make(map[string]string)
-		if err := node.Decode(&mmap); err != nil {
+		if err := node.Decode(&e.Map); err != nil {
 			return err
 		}
 
-		*e = mmap
+		e.isMap = true
 
 		return nil
 	}
 
 	return e.unmarshalFromSequence(node)
+}
+
+func (e Environment) MarshalYAML() (interface{}, error) {
+	if e.isMap {
+		return e.Map, nil
+	}
+
+	values := make([]string, len(e.Map))
+	i := 0
+
+	for k, v := range e.Map {
+		values[i] = k + "=" + v
+		i++
+	}
+
+	return values, nil
 }
 
 func (e *Environment) unmarshalFromSequence(node *yaml.Node) error {
@@ -47,7 +66,7 @@ func (e *Environment) unmarshalFromSequence(node *yaml.Node) error {
 		}
 	}
 
-	*e = mmap
+	e.Map = mmap
 
 	return nil
 }

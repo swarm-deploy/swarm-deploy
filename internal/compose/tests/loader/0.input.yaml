@@ -6,6 +6,8 @@ services:
       - /etc/vector/vector.toml
     ports:
       1234: 4321
+    labels:
+      label-key: label-value
     environment:
       CLOUDRU_IAM_ADDRESS: iam.api.cloud.ru:443
       CLOUDRU_IAM_CLIENT_ID: /run/secrets/infra-vector-iam-client-id

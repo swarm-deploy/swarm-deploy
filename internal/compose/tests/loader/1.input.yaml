@@ -10,6 +10,8 @@ services:
         protocol: tcp
     networks:
       - infra
+    labels:
+      - label-key=label-value
     environment:
       CLOUDRU_IAM_ADDRESS: iam.api.cloud.ru:443
       CLOUDRU_IAM_CLIENT_ID: /run/secrets/infra-vector-iam-client-id
