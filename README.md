@@ -1,5 +1,7 @@
 # swarm-deploy
 
+![Docker Pulls](https://img.shields.io/docker/pulls/swarmdeployorg/swarm-deploy)
+
 GitOps controller for Docker Swarm with an ArgoCD-inspired, but Swarm-native, configuration style.
 
 [Wizard for easy configuration](https://swarm-deploy.github.io/swarm-deploy/docs/configurator/)
