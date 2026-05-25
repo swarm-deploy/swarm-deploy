@@ -193,7 +193,7 @@ func (r *InitJobRunner) buildInitServiceSpec(
 		}
 	}
 
-	networks := spec.Job.NetworkNames()
+	networks := spec.Job.Networks.Names
 	if len(networks) == 0 {
 		networks = spec.DefaultNetwork
 	}

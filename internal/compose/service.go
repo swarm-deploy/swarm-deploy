@@ -9,20 +9,20 @@ import (
 type Services []Service
 
 type Service struct {
-	Name        string            `yaml:"-" json:"name"`
-	Image       string            `yaml:"image" json:"image"`
-	Command     Command           `yaml:"command" json:"command"`
-	Healthcheck ServiceHealth     `yaml:"healthcheck,omitempty" json:"healthcheck,omitempty"`
-	Ports       ServicePorts      `yaml:"ports,omitempty" json:"ports,omitempty"`
-	Networks    []*ServiceNetwork `yaml:"networks,omitempty" json:"networks,omitempty"`
-	Secrets     []ObjectRef       `yaml:"secrets,omitempty" json:"secrets,omitempty"`
-	Configs     []ObjectRef       `yaml:"configs,omitempty" json:"configs,omitempty"`
-	Labels      Environment       `yaml:"labels,omitempty" json:"labels,omitempty"`
-	EnvFiles    []string          `yaml:"env_file,omitempty" json:"env_file,omitempty"`
-	Environment Environment       `yaml:"environment,omitempty" json:"environment,omitempty"`
-	InitJobs    []InitJob         `yaml:"x-init-deploy-jobs,omitempty" json:"init_jobs,omitempty"`
-	Deploy      ServiceDeploy     `yaml:"deploy,omitempty" json:"deploy"`
-	Logging     ServiceLogging    `yaml:"logging,omitempty" json:"logging,omitempty"`
+	Name        string           `yaml:"-" json:"name"`
+	Image       string           `yaml:"image" json:"image"`
+	Command     Command          `yaml:"command" json:"command"`
+	Healthcheck *ServiceHealth   `yaml:"healthcheck,omitempty" json:"healthcheck,omitempty"`
+	Ports       ServicePorts     `yaml:"ports,omitempty" json:"ports,omitempty"`
+	Networks    *ServiceNetworks `yaml:"networks,omitempty" json:"networks,omitempty"`
+	Secrets     []ObjectRef      `yaml:"secrets,omitempty" json:"secrets,omitempty"`
+	Configs     []ObjectRef      `yaml:"configs,omitempty" json:"configs,omitempty"`
+	Labels      Environment      `yaml:"labels,omitempty" json:"labels,omitempty"`
+	EnvFiles    []string         `yaml:"env_file,omitempty" json:"env_file,omitempty"`
+	Environment Environment      `yaml:"environment,omitempty" json:"environment,omitempty"`
+	InitJobs    []InitJob        `yaml:"x-init-deploy-jobs,omitempty" json:"init_jobs,omitempty"`
+	Deploy      ServiceDeploy    `yaml:"deploy,omitempty" json:"deploy"`
+	Logging     ServiceLogging   `yaml:"logging,omitempty" json:"logging,omitempty"`
 
 	Extra map[string]interface{} `yaml:",inline"`
 }

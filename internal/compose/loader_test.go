@@ -19,10 +19,10 @@ func TestLoader_Load(t *testing.T) {
 			Title: "0. simple, without dependencies, service ports: mappings, labels: mappings",
 		},
 		{
-			Title: "1. with networks, service ports: sequence, labels: sequence",
+			Title: "1. with networks, service ports: sequence, labels: sequence, networks: sequence",
 		},
 		{
-			Title: "2. with secrets and configs, volumes: sequence",
+			Title: "2. with secrets and configs, volumes: sequence, networks: mapping",
 		},
 	}
 

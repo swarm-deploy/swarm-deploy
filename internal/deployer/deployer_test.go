@@ -49,7 +49,7 @@ func TestDeployStackRunsInitJobsBeforeDeploy(t *testing.T) {
 			Name: "api",
 			Networks: []*compose.ServiceNetwork{
 				{
-					Name: "default",
+					ResolvedName: "default",
 				},
 			},
 			Secrets: []compose.ObjectRef{

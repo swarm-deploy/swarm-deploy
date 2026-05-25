@@ -220,15 +220,7 @@ func compareService(
 	}
 	serviceDiff.Environment = compareEnvironment(oldEnvironment, newEnvironment)
 
-	oldNetworks := []*compose.ServiceNetwork{}
-	if oldExists {
-		oldNetworks = oldService.Networks
-	}
-	newNetworks := []*compose.ServiceNetwork{}
-	if newExists {
-		newNetworks = newService.Networks
-	}
-	serviceDiff.Networks = compareNetworks(oldNetworks, newNetworks)
+	serviceDiff.Networks = compareNetworks(oldService.Networks, newService.Networks)
 
 	oldSecrets := []compose.ObjectRef(nil)
 	if oldExists {
@@ -303,15 +295,15 @@ func maskEnvValue(key string, value string) string {
 	return maskedValue
 }
 
-func compareNetworks(oldNetworks []*compose.ServiceNetwork, newNetworks []*compose.ServiceNetwork) []NetworkDiff {
-	oldSet := stringSliceToSet(oldNetworks)
-	newSet := stringSliceToSet(newNetworks)
+func compareNetworks(oldNetworks *compose.ServiceNetworks, newNetworks *compose.ServiceNetworks) []NetworkDiff {
+	oldSet := oldNetworks.Map
+	newSet := newNetworks.Map
 
 	networkNames := map[string]struct{}{}
-	for networkName := range oldSet {
+	for _, networkName := range oldNetworks.Names {
 		networkNames[networkName] = struct{}{}
 	}
-	for networkName := range newSet {
+	for _, networkName := range newNetworks.Names {
 		networkNames[networkName] = struct{}{}
 	}
 

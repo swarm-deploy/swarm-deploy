@@ -85,7 +85,7 @@ func (d *Deployer) runInitJobs(ctx context.Context, stackName string, services [
 	for _, service := range services {
 		serviceNetworkNames := make([]string, len(service.Networks))
 		for i, network := range service.Networks {
-			serviceNetworkNames[i] = network.Name
+			serviceNetworkNames[i] = network.ResolvedName
 		}
 
 		// Jobs are run in declaration order per service to keep behavior deterministic.

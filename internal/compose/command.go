@@ -24,7 +24,7 @@ func (c *Command) UnmarshalYAML(node *yaml.Node) error {
 		return node.Decode(&c.Args)
 	}
 
-	return fmt.Errorf("expected string or sequence node, got %T", node.Kind)
+	return fmt.Errorf("expected string or sequence node, got %s", node.Tag)
 }
 
 func (c Command) MarshalYAML() (interface{}, error) {

@@ -8,17 +8,17 @@ type Network struct {
 	Extra map[string]interface{} `yaml:",inline"`
 }
 
-func resolveNetworkAliases(networks []*ServiceNetwork, namesByAlias map[string]Network) {
-	if len(networks) == 0 || len(namesByAlias) == 0 {
+func resolveNetworkAliases(networks *ServiceNetworks, namesByAlias map[string]Network) {
+	if len(networks.List) == 0 || len(namesByAlias) == 0 {
 		return
 	}
 
-	for _, network := range networks {
+	for _, network := range networks.List {
 		resolved, ok := namesByAlias[network.Alias]
 		if ok && resolved.Name != "" {
 			continue
 		}
 
-		network.Name = resolved.Name
+		network.ResolvedName = resolved.Name
 	}
 }

@@ -5,7 +5,9 @@ services:
       - --config
       - /etc/vector/vector.toml
     networks:
-      - infra
+      infra:
+        aliases:
+            - my-name
     secrets:
       - infra-vector-iam-client-id
     configs:
