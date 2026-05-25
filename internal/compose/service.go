@@ -14,7 +14,6 @@ type Service struct {
 	Command     Command           `yaml:"command" json:"command"`
 	Healthcheck ServiceHealth     `yaml:"healthcheck,omitempty" json:"healthcheck,omitempty"`
 	Ports       ServicePorts      `yaml:"ports,omitempty" json:"ports,omitempty"`
-	Volumes     []ServiceVolume   `yaml:"volumes,omitempty" json:"volumes,omitempty"`
 	Networks    []*ServiceNetwork `yaml:"networks,omitempty" json:"networks,omitempty"`
 	Secrets     []ObjectRef       `yaml:"secrets,omitempty" json:"secrets,omitempty"`
 	Configs     []ObjectRef       `yaml:"configs,omitempty" json:"configs,omitempty"`
@@ -24,6 +23,8 @@ type Service struct {
 	InitJobs    []InitJob         `yaml:"x-init-deploy-jobs,omitempty" json:"init_jobs,omitempty"`
 	Deploy      ServiceDeploy     `yaml:"deploy,omitempty" json:"deploy"`
 	Logging     ServiceLogging    `yaml:"logging,omitempty" json:"logging,omitempty"`
+
+	Extra map[string]interface{} `yaml:",inline"`
 }
 
 type ServiceHealth struct {

@@ -4,8 +4,6 @@ services:
     command:
       - --config
       - /etc/vector/vector.toml
-    volumes:
-      - my-volume
     networks:
       - infra
     secrets:
@@ -28,6 +26,8 @@ services:
           memory: 128M
       restart_policy:
         condition: on-failure
+    volumes:
+      - my-volume
 networks:
   infra:
     name: org-infra

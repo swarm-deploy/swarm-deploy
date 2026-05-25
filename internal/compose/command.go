@@ -9,7 +9,7 @@ import (
 type Command struct {
 	Args []string
 
-	IsList bool
+	isList bool
 }
 
 func (c *Command) UnmarshalYAML(node *yaml.Node) error {
@@ -19,7 +19,7 @@ func (c *Command) UnmarshalYAML(node *yaml.Node) error {
 	}
 
 	if node.Kind == yaml.SequenceNode {
-		c.IsList = true
+		c.isList = true
 
 		return node.Decode(&c.Args)
 	}
@@ -32,7 +32,7 @@ func (c Command) MarshalYAML() (interface{}, error) {
 		return "", nil
 	}
 
-	if c.IsList {
+	if c.isList {
 		return c.Args, nil
 	}
 

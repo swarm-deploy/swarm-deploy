@@ -12,6 +12,8 @@ type Compose struct {
 	Configs  SharedObjects      `yaml:"configs,omitempty" json:"configs"`
 	Secrets  SharedObjects      `yaml:"secrets,omitempty" json:"secrets"`
 	Volumes  Volumes            `yaml:"volumes,omitempty" json:"volumes"`
+
+	Extra map[string]interface{} `yaml:",inline"`
 }
 
 func Parse(raw []byte) (*Compose, error) {

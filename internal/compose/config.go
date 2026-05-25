@@ -15,6 +15,8 @@ type SharedObject struct {
 	File     string `yaml:"file,omitempty" json:"file,omitempty"`
 	Driver   string `yaml:"drive,omitempty" json:"driver"`
 	External bool   `yaml:"external,omitempty" json:"external"`
+
+	Extra map[string]interface{} `yaml:",inline"`
 }
 
 type SharedObjects map[string]*SharedObject

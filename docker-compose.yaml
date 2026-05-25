@@ -14,7 +14,9 @@ services:
       - ./stacks.yaml:/etc/swarm-deploy/stacks.yaml:ro
       - swarm-deploy-data:/etc/swarm-deploy/.swarm-deploy
     ports:
-      - protocol:
+      - "8080:8080"
+      - "8082:8082"
+      - "8083:8083"
     restart: unless-stopped
     secrets:
       - source: deploy_key

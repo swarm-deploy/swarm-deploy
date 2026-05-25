@@ -10,12 +10,16 @@ type ObjectRef struct {
 	Source string `yaml:"source" json:"source"`
 	Target string `yaml:"target" json:"target,omitempty"`
 
+	Extra map[string]interface{} `yaml:",inline"`
+
 	isString bool
 }
 
 type objectRef struct {
 	Source string `yaml:"source" json:"source"`
 	Target string `yaml:"target" json:"target,omitempty"`
+
+	Extra map[string]interface{} `yaml:",inline"`
 }
 
 func (r *ObjectRef) UnmarshalYAML(n *yaml.Node) error {
@@ -40,6 +44,7 @@ func (r *ObjectRef) UnmarshalYAML(n *yaml.Node) error {
 
 	r.Source = schema.Source
 	r.Target = schema.Target
+	r.Extra = schema.Extra
 
 	return nil
 }
@@ -52,5 +57,6 @@ func (r ObjectRef) MarshalYAML() (interface{}, error) {
 	return objectRef{
 		Source: r.Source,
 		Target: r.Target,
+		Extra:  r.Extra,
 	}, nil
 }
