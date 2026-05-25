@@ -5,7 +5,7 @@ services:
       - --config
       - /etc/vector/vector.toml
     ports:
-      - published: "1234"
+      - published: 1234
         target: 4321
         protocol: tcp
     networks:

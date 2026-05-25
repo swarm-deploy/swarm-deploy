@@ -14,7 +14,7 @@ type ServicePorts struct {
 }
 
 type ServicePort struct {
-	Published   string       `yaml:"published" json:"published"`
+	Published   int          `yaml:"published" json:"published"`
 	Target      int          `yaml:"target" json:"target"`
 	Protocol    PortProtocol `yaml:"protocol,omitempty" json:"protocol,omitempty"`
 	AppProtocol string       `yaml:"app_protocol,omitempty" json:"app_protocol,omitempty"`
@@ -35,19 +35,23 @@ func (p PortProtocol) Valid() bool {
 	return p == PortProtocolTCP || p == PortProtocolUDP
 }
 
-func (sp *ServicePorts) UnmarshalYAML(root *yaml.Node) error {
+func (sp *ServicePorts) UnmarshalYAML(root *yaml.Node) error { //nolint:gocognit // not need
 	if root.Kind == yaml.MappingNode {
-		published := ""
+		published := 0
 
 		for i, node := range root.Content {
 			if i%2 == 0 {
-				published = node.Value
+				var err error
+				published, err = strconv.Atoi(node.Value)
+				if err != nil {
+					return fmt.Errorf("parse value %q as published port: %w", node.Value, err)
+				}
 				continue
 			}
 
 			targetPort, err := strconv.Atoi(node.Value)
 			if err != nil {
-				return fmt.Errorf("parse value %q as port: %w", node.Value, err)
+				return fmt.Errorf("parse value %q as target port: %w", node.Value, err)
 			}
 
 			sp.Ports = append(sp.Ports, defaultServicePort(published, targetPort))
@@ -64,7 +68,7 @@ func (sp *ServicePorts) UnmarshalYAML(root *yaml.Node) error {
 	for i, node := range root.Content {
 		switch node.Kind { //nolint:exhaustive // expect only mapping or scalar
 		case yaml.MappingNode:
-			port := defaultServicePort("", 0)
+			port := defaultServicePort(0, 0)
 			if err := node.Decode(&port); err != nil {
 				return fmt.Errorf("decode %d port: %w", i, err)
 			}
@@ -97,7 +101,7 @@ func (sp ServicePorts) MarshalYAML() (interface{}, error) {
 		for _, port := range sp.Ports {
 			root.Content = append(root.Content, &yaml.Node{
 				Kind:  yaml.ScalarNode,
-				Value: port.Published,
+				Value: strconv.Itoa(port.Published),
 			})
 			root.Content = append(root.Content, &yaml.Node{
 				Kind:  yaml.ScalarNode,
@@ -111,66 +115,45 @@ func (sp ServicePorts) MarshalYAML() (interface{}, error) {
 	return sp.Ports, nil
 }
 
-func (sp *ServicePorts) parseStringView(s string) (*ServicePort, error) { //nolint:gocognit // not need
-	if len(s) == 0 {
-		return nil, fmt.Errorf("empty string")
-	}
+func (sp *ServicePorts) parseStringView(s string) (*ServicePort, error) {
+	port := defaultServicePort(0, 0)
 
-	published := ""
-	protocol := ""
-	colonIdx := -1
-	slashIdx := -1
-	targetVal := 0
-	hasTarget := false
-	inTarget := false
+	intVal := 0
 
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch c {
+	for i, char := range s {
+		switch char {
 		case ':':
-			if colonIdx != -1 || i == 0 {
-				return nil, fmt.Errorf("invalid colon")
-			}
-			colonIdx = i
-			published = s[:i]
-			inTarget = true
+			port.Published = intVal
+			intVal = 0
 		case '/':
-			if colonIdx == -1 {
-				return nil, fmt.Errorf("slash before colon")
-			}
-			if slashIdx != -1 {
-				return nil, fmt.Errorf("multiple slashes")
-			}
-			slashIdx = i
-			inTarget = false
-			protocol = s[i+1:]
+			port.Target = intVal
+			port.Protocol = PortProtocol(s[i+1:])
+			return &port, nil
 		default:
-			if inTarget {
-				if c < '0' || c > '9' {
-					return nil, fmt.Errorf("invalid target character")
-				}
-				targetVal = targetVal*10 + int(c-'0') //nolint:mnd // not need
-				hasTarget = true
+			if char < '0' || char > '9' {
+				return nil, fmt.Errorf("invalid target character %q", char)
+			}
+
+			if intVal == 0 {
+				intVal = int(char - '0')
+			} else {
+				intVal = intVal*10 + int(char-'0') //nolint:mnd // not need
+			}
+
+			if i == len(s)-1 {
+				port.Target = intVal
 			}
 		}
 	}
 
-	if colonIdx == -1 {
-		return nil, fmt.Errorf("missing colon")
-	}
-	if !hasTarget {
-		return nil, fmt.Errorf("empty target")
-	}
-
-	port := defaultServicePort(published, targetVal)
-	if protocol != "" {
-		port.Protocol = PortProtocol(protocol)
+	if port.Protocol == "" {
+		port.Protocol = PortProtocolTCP
 	}
 
 	return &port, nil
 }
 
-func defaultServicePort(published string, target int) ServicePort {
+func defaultServicePort(published, target int) ServicePort {
 	return ServicePort{
 		Published: published,
 		Target:    target,
