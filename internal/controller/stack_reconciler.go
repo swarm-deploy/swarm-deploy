@@ -20,9 +20,11 @@ type stackReconcileResult struct {
 }
 
 type stackReconciler struct {
-	cfg      *config.Config
-	git      gitx.Repository
-	deployer *deployer.Deployer
+	cfg            *config.Config
+	git            gitx.Repository
+	deployer       *deployer.Deployer
+	composeLoader  *compose.FileLoader
+	composeRotator *Rotator
 }
 
 type stackReconcileError struct {
@@ -31,11 +33,17 @@ type stackReconcileError struct {
 	err      error
 }
 
-func newStackReconciler(cfg *config.Config, gitSync gitx.Repository, deployer *deployer.Deployer) *stackReconciler {
+func newStackReconciler(
+	cfg *config.Config,
+	gitSync gitx.Repository,
+	deployer *deployer.Deployer,
+) *stackReconciler {
 	return &stackReconciler{
-		cfg:      cfg,
-		git:      gitSync,
-		deployer: deployer,
+		cfg:            cfg,
+		git:            gitSync,
+		deployer:       deployer,
+		composeLoader:  compose.NewFileLoader(),
+		composeRotator: NewRotator(),
 	}
 }
 
@@ -79,23 +87,18 @@ func (r *stackReconciler) Reconcile(
 	hasPrev bool,
 ) (stackReconcileResult, error) {
 	composePath := filepath.Join(r.git.WorkingDir(), stackCfg.ComposeFile)
-	stackFile, err := compose.Load(composePath)
+	stackFile, err := r.composeLoader.Load(composePath)
 	if err != nil {
 		return stackReconcileResult{}, wrapStackReconcileError("load compose", nil, err)
 	}
 
 	result := stackReconcileResult{
-		Services: stackFile.Services,
-	}
-
-	digest, err := stackFile.ComputeDigest(composePath)
-	if err != nil {
-		return result, wrapStackReconcileError("compute digest", result.Services, err)
+		Services: stackFile.Compose.Services,
 	}
 
 	// Skip reconciliation when source compose content is unchanged since last successful apply.
-	if hasPrev && prevDigest == digest {
-		result.SourceDigest = digest
+	if hasPrev && prevDigest == stackFile.Digest {
+		result.SourceDigest = stackFile.Digest
 		result.Skipped = true
 		return result, nil
 	}
@@ -104,9 +107,8 @@ func (r *stackReconciler) Reconcile(
 	if r.cfg.Spec.SecretRotation.Enabled {
 		// Rotation mutates secret/config object names in the in-memory compose model.
 		// We keep digest based on original source, but deploy a rendered, rotated file.
-		_, err = stackFile.ApplyObjectRotation(
+		_, err = r.composeRotator.Rotate(stackFile,
 			stackCfg.Name,
-			composePath,
 			r.cfg.Spec.SecretRotation.HashLength,
 			r.cfg.Spec.SecretRotation.IncludePath,
 		)
@@ -122,12 +124,12 @@ func (r *stackReconciler) Reconcile(
 	}
 
 	// Deployer encapsulates init jobs orchestration and stack deployment.
-	err = r.deployer.DeployStack(ctx, stackCfg.Name, deployComposePath, stackFile.Services)
+	err = r.deployer.DeployStack(ctx, stackCfg.Name, deployComposePath, stackFile.Compose.Services)
 	if err != nil {
 		return result, wrapStackReconcileError("deploy", result.Services, err)
 	}
 
-	result.SourceDigest = digest
+	result.SourceDigest = stackFile.Digest
 	return result, nil
 }
 
