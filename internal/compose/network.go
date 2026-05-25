@@ -9,6 +9,10 @@ type Network struct {
 }
 
 func resolveNetworkAliases(networks *ServiceNetworks, namesByAlias map[string]Network) {
+	if networks == nil {
+		return
+	}
+
 	if len(networks.List) == 0 || len(namesByAlias) == 0 {
 		return
 	}

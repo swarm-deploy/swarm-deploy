@@ -83,17 +83,12 @@ func (d *Deployer) DeployStack(ctx context.Context, stackName, composePath strin
 
 func (d *Deployer) runInitJobs(ctx context.Context, stackName string, services []compose.Service) error {
 	for _, service := range services {
-		serviceNetworkNames := make([]string, len(service.Networks))
-		for i, network := range service.Networks {
-			serviceNetworkNames[i] = network.ResolvedName
-		}
-
 		// Jobs are run in declaration order per service to keep behavior deterministic.
 		for _, job := range service.InitJobs {
 			err := d.initJobRunner.Run(ctx, InitJobSpec{
 				StackName:      stackName,
 				ServiceName:    service.Name,
-				DefaultNetwork: serviceNetworkNames,
+				DefaultNetwork: service.Networks.GetNames(),
 				ServiceSecrets: service.Secrets,
 				ServiceConfigs: service.Configs,
 				Job:            job,

@@ -30,6 +30,14 @@ func TestLoader_Load(t *testing.T) {
 		t.Run(test.Title, func(t *testing.T) {
 			loader := NewFileLoader()
 
+			fileRaw := []byte{}
+
+			loader.fileReader = func(string) ([]byte, error) {
+				var err error
+				fileRaw, err = os.ReadFile(fmt.Sprintf("./tests/loader/%d.input.yaml", i))
+				return fileRaw, err
+			}
+
 			file, err := loader.Load(fmt.Sprintf("./tests/loader/%d.input.yaml", i))
 			require.NoError(t, err)
 
@@ -39,12 +47,12 @@ func TestLoader_Load(t *testing.T) {
 			err = encoder.Encode(file.Compose)
 			require.NoError(t, err)
 
-			if string(file.RawBytes) != result.String() {
+			if string(fileRaw) != result.String() {
 				err = os.WriteFile(fmt.Sprintf("./tests/loader/%d.actual.yaml", i), result.Bytes(), 0666)
 				require.NoError(t, err)
 			}
 
-			assert.Equal(t, string(file.RawBytes), result.String())
+			assert.Equal(t, string(fileRaw), result.String())
 		})
 	}
 }

@@ -11,17 +11,19 @@ import (
 )
 
 type File struct {
-	Path     string  `json:"path"`
-	RawBytes []byte  `json:"-"`
-	Compose  Compose `json:"compose"`
-	Digest   string  `json:"digest"`
+	Path    string  `json:"path"`
+	Compose Compose `json:"compose"`
+	Digest  string  `json:"digest"`
 }
 
 type FileLoader struct {
+	fileReader func(path string) ([]byte, error)
 }
 
 func NewFileLoader() *FileLoader {
-	return &FileLoader{}
+	return &FileLoader{
+		fileReader: os.ReadFile,
+	}
 }
 
 func (f *File) MarshalYAML() ([]byte, error) {
@@ -33,7 +35,7 @@ func (f *File) MarshalYAML() ([]byte, error) {
 }
 
 func (l *FileLoader) Load(path string) (*File, error) {
-	raw, err := os.ReadFile(path)
+	raw, err := l.fileReader(path)
 	if err != nil {
 		return nil, fmt.Errorf("read compose file %s: %w", path, err)
 	}
@@ -47,12 +49,11 @@ func (l *FileLoader) Load(path string) (*File, error) {
 	l.linkServices(&schema)
 
 	file := &File{
-		Path:     path,
-		RawBytes: raw,
-		Compose:  schema,
+		Path:    path,
+		Compose: schema,
 	}
 
-	digest, err := l.computeDigest(*file)
+	digest, err := l.computeDigest(*file, raw)
 	if err != nil {
 		return nil, fmt.Errorf("compute digest: %w", err)
 	}
@@ -73,10 +74,10 @@ func (*FileLoader) linkServices(compose *Compose) {
 	}
 }
 
-func (l *FileLoader) computeDigest(file File) (string, error) {
+func (l *FileLoader) computeDigest(file File, raw []byte) (string, error) {
 	baseDir := filepath.Dir(file.Path)
 	hasher := sha256.New()
-	hasher.Write(file.RawBytes)
+	hasher.Write(raw)
 
 	compute := func(objects SharedObjects, objectType string) error {
 		for _, object := range objects {

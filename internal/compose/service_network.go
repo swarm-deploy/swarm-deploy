@@ -9,8 +9,9 @@ import (
 type ServiceNetworks struct {
 	Names []string
 
-	List []*ServiceNetwork
-	Map  map[string]*ServiceNetwork
+	List     []*ServiceNetwork
+	AliasMap map[string]*ServiceNetwork
+	Aliases  []string
 
 	onlyAlias bool
 }
@@ -27,10 +28,36 @@ type ServiceNetwork struct {
 	Extra map[string]interface{} `yaml:",inline"`
 }
 
+func NewServiceNetworks(nets ...*ServiceNetwork) *ServiceNetworks {
+	sn := &ServiceNetworks{}
+
+	sn.Names = make([]string, 0, len(nets))
+	sn.List = make([]*ServiceNetwork, 0, len(nets))
+	sn.AliasMap = make(map[string]*ServiceNetwork, len(nets))
+	sn.Aliases = make([]string, 0, len(nets))
+
+	for _, net := range nets {
+		sn.Names = append(sn.Names, net.ResolvedName)
+		sn.List = append(sn.List, net)
+		sn.AliasMap[net.Alias] = net
+		sn.Aliases = append(sn.Aliases, net.Alias)
+	}
+
+	return sn
+}
+
+func (s *ServiceNetworks) GetNames() []string {
+	if s == nil {
+		return nil
+	}
+	return s.Names
+}
+
 func (s *ServiceNetworks) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind == yaml.SequenceNode {
 		s.Names = make([]string, 0, len(node.Content))
-		s.Map = make(map[string]*ServiceNetwork, len(node.Content))
+		s.AliasMap = make(map[string]*ServiceNetwork, len(node.Content))
+		s.Aliases = make([]string, 0, len(node.Content))
 
 		for i, child := range node.Content {
 			if child.Kind != yaml.ScalarNode {
@@ -43,7 +70,8 @@ func (s *ServiceNetworks) UnmarshalYAML(node *yaml.Node) error {
 
 			s.Names = append(s.Names, child.Value)
 			s.List = append(s.List, network)
-			s.Map[child.Value] = network
+			s.AliasMap[child.Value] = network
+			s.Aliases = append(s.Aliases, network.Alias)
 			s.onlyAlias = true
 		}
 		return nil
@@ -55,7 +83,8 @@ func (s *ServiceNetworks) UnmarshalYAML(node *yaml.Node) error {
 
 	const networksLenDiv = 2
 
-	s.Map = make(map[string]*ServiceNetwork, len(node.Content)/networksLenDiv)
+	s.AliasMap = make(map[string]*ServiceNetwork, len(node.Content)/networksLenDiv)
+	s.Aliases = make([]string, 0, len(node.Content)/networksLenDiv)
 
 	alias := ""
 	for i, child := range node.Content {
@@ -77,7 +106,8 @@ func (s *ServiceNetworks) UnmarshalYAML(node *yaml.Node) error {
 
 		s.Names = append(s.Names, alias)
 		s.List = append(s.List, &network)
-		s.Map[alias] = &network
+		s.AliasMap[alias] = &network
+		s.Aliases = append(s.Aliases, alias)
 	}
 
 	return nil

@@ -7,7 +7,7 @@ services:
     networks:
       infra:
         aliases:
-            - my-name
+          - my-name
     secrets:
       - infra-vector-iam-client-id
     configs:

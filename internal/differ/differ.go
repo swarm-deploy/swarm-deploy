@@ -296,14 +296,14 @@ func maskEnvValue(key string, value string) string {
 }
 
 func compareNetworks(oldNetworks *compose.ServiceNetworks, newNetworks *compose.ServiceNetworks) []NetworkDiff {
-	oldSet := oldNetworks.Map
-	newSet := newNetworks.Map
+	oldSet := networkAliasesSet(oldNetworks)
+	newSet := networkAliasesSet(newNetworks)
 
 	networkNames := map[string]struct{}{}
-	for _, networkName := range oldNetworks.Names {
+	for _, networkName := range oldNetworks.GetNames() {
 		networkNames[networkName] = struct{}{}
 	}
-	for _, networkName := range newNetworks.Names {
+	for _, networkName := range newNetworks.GetNames() {
 		networkNames[networkName] = struct{}{}
 	}
 
@@ -384,10 +384,14 @@ func mapSecretRefs(secrets []compose.ObjectRef) map[string]compose.ObjectRef {
 	return set
 }
 
-func stringSliceToSet(values []*compose.ServiceNetwork) map[string]struct{} {
+func networkAliasesSet(networks *compose.ServiceNetworks) map[string]struct{} {
+	if networks == nil {
+		return map[string]struct{}{}
+	}
+
 	set := map[string]struct{}{}
-	for _, value := range values {
-		trimmedValue := strings.TrimSpace(value.Alias)
+	for _, value := range networks.Aliases {
+		trimmedValue := strings.TrimSpace(value)
 		if trimmedValue == "" {
 			continue
 		}
