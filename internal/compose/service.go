@@ -17,7 +17,7 @@ type Service struct {
 	Networks    *ServiceNetworks `yaml:"networks,omitempty" json:"networks,omitempty"`
 	Secrets     []ObjectRef      `yaml:"secrets,omitempty" json:"secrets,omitempty"`
 	Configs     []ObjectRef      `yaml:"configs,omitempty" json:"configs,omitempty"`
-	Labels      Environment      `yaml:"labels,omitempty" json:"labels,omitempty"`
+	Labels      Labels           `yaml:"labels,omitempty" json:"labels,omitempty"`
 	EnvFiles    []string         `yaml:"env_file,omitempty" json:"env_file,omitempty"`
 	Environment Environment      `yaml:"environment,omitempty" json:"environment,omitempty"`
 	InitJobs    []InitJob        `yaml:"x-init-deploy-jobs,omitempty" json:"init_jobs,omitempty"`

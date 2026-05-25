@@ -2,7 +2,7 @@ package compose
 
 type ServiceDeploy struct {
 	EndpointMode   string                       `yaml:"endpoint_mode,omitempty" json:"endpoint_mode,omitempty"`
-	Labels         Environment                  `yaml:"labels,omitempty" json:"labels,omitempty"`
+	Labels         Labels                       `yaml:"labels,omitempty" json:"labels,omitempty"`
 	Mode           string                       `yaml:"mode,omitempty" json:"mode,omitempty"`
 	Placement      *ServiceDeployPlacement      `yaml:"placement,omitempty" json:"placement,omitempty"`
 	Replicas       *uint64                      `yaml:"replicas,omitempty" json:"replicas,omitempty"`
