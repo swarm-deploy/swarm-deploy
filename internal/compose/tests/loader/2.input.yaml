@@ -4,6 +4,8 @@ services:
     command:
       - --config
       - /etc/vector/vector.toml
+    volumes:
+      - my-volume
     networks:
       - infra
     secrets:
@@ -38,3 +40,6 @@ secrets:
   infra-vector-iam-client-id:
     name: infra-vector-iam-client-id
     external: true
+volumes:
+  my-volume:
+    name: external-name

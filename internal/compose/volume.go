@@ -12,11 +12,11 @@ type Volume struct {
 	Alias string `yaml:"-" json:"-"`
 
 	Name     string            `yaml:"name" json:"name"`
-	External string            `yaml:"external" json:"external"`
-	Labels   map[string]string `yaml:"labels" json:"labels"`
+	External string            `yaml:"external,omitempty" json:"external,omitempty"`
+	Labels   map[string]string `yaml:"labels,omitempty" json:"labels,omitempty"`
 
-	Driver     string            `yaml:"driver" json:"driver"`
-	DriverOpts map[string]string `yaml:"driver_opts" json:"driver_opts"`
+	Driver     string            `yaml:"driver,omitempty" json:"driver,omitempty"`
+	DriverOpts map[string]string `yaml:"driver_opts,omitempty" json:"driver_opts,omitempty"`
 }
 
 func (s *Volumes) UnmarshalYAML(n *yaml.Node) error {
@@ -41,7 +41,7 @@ func (s *Volumes) UnmarshalYAML(n *yaml.Node) error {
 			return fmt.Errorf("decode volume with alias %q: %w", alias, err)
 		}
 
-		vol.Name = alias
+		vol.Alias = alias
 
 		(*s)[alias] = &vol
 	}

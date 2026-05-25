@@ -22,7 +22,7 @@ func TestLoader_Load(t *testing.T) {
 			Title: "1. with networks, service ports: sequence, labels: sequence",
 		},
 		{
-			Title: "2. with secrets and configs",
+			Title: "2. with secrets and configs, volumes: sequence",
 		},
 	}
 
