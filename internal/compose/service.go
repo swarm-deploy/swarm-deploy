@@ -12,6 +12,7 @@ type Service struct {
 	Name        string            `yaml:"-" json:"name"`
 	Image       string            `yaml:"image" json:"image"`
 	Command     Command           `yaml:"command" json:"command"`
+	Healthcheck ServiceHealth     `yaml:"healthcheck,omitempty" json:"healthcheck,omitempty"`
 	Ports       ServicePorts      `yaml:"ports,omitempty" json:"ports,omitempty"`
 	Volumes     []ServiceVolume   `yaml:"volumes,omitempty" json:"volumes,omitempty"`
 	Networks    []*ServiceNetwork `yaml:"networks,omitempty" json:"networks,omitempty"`
@@ -22,6 +23,22 @@ type Service struct {
 	Environment Environment       `yaml:"environment,omitempty" json:"environment,omitempty"`
 	InitJobs    []InitJob         `yaml:"x-init-deploy-jobs,omitempty" json:"init_jobs,omitempty"`
 	Deploy      ServiceDeploy     `yaml:"deploy,omitempty" json:"deploy"`
+	Logging     ServiceLogging    `yaml:"logging,omitempty" json:"logging,omitempty"`
+}
+
+type ServiceHealth struct {
+	Test          Command `yaml:"test,omitempty" json:"test,omitempty"`
+	Interval      string  `yaml:"interval,omitempty" json:"interval,omitempty"`
+	Timeout       string  `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	Retries       *uint64 `yaml:"retries,omitempty" json:"retries,omitempty"`
+	StartPeriod   string  `yaml:"start_period,omitempty" json:"start_period,omitempty"`
+	StartInterval string  `yaml:"start_interval,omitempty" json:"start_interval,omitempty"`
+	Disable       bool    `yaml:"disable,omitempty" json:"disable,omitempty"`
+}
+
+type ServiceLogging struct {
+	Driver  string            `yaml:"driver,omitempty" json:"driver,omitempty"`
+	Options map[string]string `yaml:"options,omitempty" json:"options,omitempty"`
 }
 
 func (s *Services) UnmarshalYAML(n *yaml.Node) error {
