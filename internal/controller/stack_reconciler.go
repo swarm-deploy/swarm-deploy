@@ -24,7 +24,7 @@ type stackReconciler struct {
 	git            gitx.Repository
 	deployer       *deployer.Deployer
 	composeLoader  *compose.FileLoader
-	composeRotator *compose.Rotator
+	composeRotator *Rotator
 }
 
 type stackReconcileError struct {
@@ -43,7 +43,7 @@ func newStackReconciler(
 		git:            gitSync,
 		deployer:       deployer,
 		composeLoader:  compose.NewFileLoader(),
-		composeRotator: compose.NewRotator(),
+		composeRotator: NewRotator(),
 	}
 }
 

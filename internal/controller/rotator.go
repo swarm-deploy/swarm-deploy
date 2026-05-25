@@ -1,4 +1,4 @@
-package compose
+package controller
 
 import (
 	"crypto/sha256"
@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 )
 
 type Rotator struct {
@@ -16,7 +18,7 @@ func NewRotator() *Rotator {
 }
 
 func (f *Rotator) Rotate(
-	file *File,
+	file *compose.File,
 	stackName string,
 	hashLength int,
 	includePath bool,
@@ -24,7 +26,7 @@ func (f *Rotator) Rotate(
 	baseDir := filepath.Dir(file.Path)
 	changed := false
 
-	apply := func(objects SharedObjects) error {
+	apply := func(objects compose.SharedObjects) error {
 		typeChanged, err := f.applyObjectTypeRotation(
 			objects,
 			stackName,
@@ -53,7 +55,7 @@ func (f *Rotator) Rotate(
 }
 
 func (f *Rotator) applyObjectTypeRotation(
-	objects SharedObjects,
+	objects compose.SharedObjects,
 	stackName string,
 	baseDir string,
 	hashLength int,
