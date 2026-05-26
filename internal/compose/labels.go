@@ -16,6 +16,14 @@ type Labels struct {
 	isMap bool
 }
 
+func (e *Labels) Add(key, value string) bool {
+	_, present := e.Map[key]
+
+	e.Map[key] = value
+
+	return present
+}
+
 func (e *Labels) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind != yaml.MappingNode && node.Kind != yaml.SequenceNode {
 		return errors.New("environment must be a map or a sequence node")

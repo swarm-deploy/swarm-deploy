@@ -2,7 +2,6 @@ package controller
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +11,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/git"
 )
+
+const serviceManagedLabel = "org.swarm-deploy.service.managed"
 
 type stackReconcileResult struct {
 	SourceDigest string
@@ -25,12 +26,7 @@ type stackReconciler struct {
 	deployer       *deployer.Deployer
 	composeLoader  *compose.FileLoader
 	composeRotator *Rotator
-}
-
-type stackReconcileError struct {
-	op       string
-	services []compose.Service
-	err      error
+	pipeline       *pipeline
 }
 
 func newStackReconciler(
@@ -38,46 +34,17 @@ func newStackReconciler(
 	gitSync gitx.Repository,
 	deployer *deployer.Deployer,
 ) *stackReconciler {
-	return &stackReconciler{
+	reconciler := &stackReconciler{
 		cfg:            cfg,
 		git:            gitSync,
 		deployer:       deployer,
 		composeLoader:  compose.NewFileLoader(),
 		composeRotator: NewRotator(),
 	}
-}
 
-func (e *stackReconcileError) Error() string {
-	return fmt.Sprintf("%s: %v", e.op, e.err)
-}
+	reconciler.attachComposePipeline()
 
-func (e *stackReconcileError) Unwrap() error {
-	return e.err
-}
-
-func (e *stackReconcileError) FailedServices() []compose.Service {
-	return e.services
-}
-
-func wrapStackReconcileError(op string, services []compose.Service, err error) error {
-	if err == nil {
-		return nil
-	}
-
-	return &stackReconcileError{
-		op:       op,
-		services: services,
-		err:      err,
-	}
-}
-
-func failedServicesFromReconcileError(err error) []compose.Service {
-	var reconcileErr *stackReconcileError
-	// Preserve detailed service context when the caller receives wrapped errors.
-	if errors.As(err, &reconcileErr) {
-		return reconcileErr.FailedServices()
-	}
-	return nil
+	return reconciler
 }
 
 func (r *stackReconciler) Reconcile(
@@ -104,18 +71,12 @@ func (r *stackReconciler) Reconcile(
 	}
 
 	deployComposePath := composePath
-	if r.cfg.Spec.SecretRotation.Enabled {
-		// Rotation mutates secret/config object names in the in-memory compose model.
-		// We keep digest based on original source, but deploy a rendered, rotated file.
-		_, err = r.composeRotator.Rotate(stackFile,
-			stackCfg.Name,
-			r.cfg.Spec.SecretRotation.HashLength,
-			r.cfg.Spec.SecretRotation.IncludePath,
-		)
-		if err != nil {
-			return result, wrapStackReconcileError("rotate objects", result.Services, err)
-		}
+	composeChanged, pipeErr := r.pipeline.Run(stackFile, stackCfg.Name)
+	if pipeErr != nil {
+		return stackReconcileResult{}, wrapStackReconcileError(pipeErr.stepName, nil, err)
+	}
 
+	if composeChanged {
 		renderedPath, renderedPathErr := r.writeRenderedCompose(stackCfg.Name, stackFile)
 		if renderedPathErr != nil {
 			return result, wrapStackReconcileError("write rendered compose", result.Services, renderedPathErr)
