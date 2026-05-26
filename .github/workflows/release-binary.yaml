@@ -1,0 +1,117 @@
+name: release
+
+on:
+  release: # Docs: <https://help.github.com/en/articles/events-that-trigger-workflows#release-event-release>
+    types:
+      - released
+      - prereleased
+  workflow_dispatch:
+
+env:
+  GO_VERSION: 1.26.2
+
+jobs:
+  binary:
+    name: Release binaries
+    runs-on: ubuntu-latest
+    permissions: write-all
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Generate builder values
+        id: values
+        run: |
+          echo "version=$(echo ${GITHUB_REF##*/} | sed -e 's/^[vV ]*//')" >> $GITHUB_OUTPUT
+          echo "buildDate=$(echo $(date +%FT%T%z))" >> $GITHUB_OUTPUT
+
+      - name: Compile binary files
+        uses: crazy-max/ghaction-xgo@v3
+        with:
+          xgo_version: latest
+          go_version: ${{ env.GO_VERSION }}
+          dest: dist
+          pkg: ./cmd/cli
+          prefix: sd
+          targets: windows/amd64,linux/amd64,linux/arm64,darwin/arm64,darwin/amd64
+          v: true
+          x: false
+          race: false
+          ldflags: -s -w -X main.Version=${{ steps.values.outputs.version }} -X main.BuildDate=${{ steps.values.outputs.buildDate }}
+          buildmode: default
+          trimpath: true
+
+      - name: Print compiled files
+        run: ls -la ./dist
+
+      - name: Compress dist files
+        run: |
+          files=("sd-darwin-amd64" "sd-darwin-arm64" "sd-linux-amd64" "sd-linux-arm64" "sd-windows-amd64.exe")
+          
+          cp README.md LICENSE dist
+          
+          cd dist
+
+          for file in "${files[@]}"; do
+            if [ -f "$file" ]; then
+              filename=$(basename -- "$file")
+              extension="${filename##*.}"
+              newFilename="sd.$extension"
+              if [ "${filename}" == "${extension}" ]; then
+                extension=""
+                newFilename="sd"
+              fi
+
+              mv $file $newFilename
+
+              zip -r "$file.zip" "$newFilename" README.md LICENSE
+          
+              rm $newFilename
+            fi
+          done
+
+      - name: Attach binary files to release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "dist/*.zip"
+          generateReleaseNotes: false
+          omitBodyDuringUpdate: true
+          allowUpdates: true
+
+  docker:
+    name: Build docker image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v3
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2 # Action page: <https://github.com/docker/setup-qemu-action>
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2 # Action page: <https://github.com/docker/setup-buildx-action>
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_LOGIN }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      - name: Generate builder values
+        id: values
+        run: |
+          echo "version_full=$(echo ${GITHUB_REF##*/} | sed -e 's/^[vV ]*//')" >> $GITHUB_OUTPUT
+          echo "timestamp=$(echo $(date +%FT%T%z))" >> $GITHUB_OUTPUT
+
+      - name: Build image
+        uses: docker/build-push-action@v4 # Action page: <https://github.com/docker/build-push-action>
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          build-args: |
+            APP_VERSION=${{ steps.values.outputs.version_full}}
+            BUILD_TIME=${{ steps.values.outputs.timestamp }}
+          tags: |
+            swarmdeployorg/swarm-deploy:${{ steps.values.outputs.version_full}}

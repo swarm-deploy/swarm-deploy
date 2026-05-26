@@ -11,6 +11,11 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 )
 
+var (
+	Version   = "0.1.0"
+	BuildDate = "2026-05-26 23:51:00"
+)
+
 func main() {
 	cmd := go_console.Command{
 		Description: "Swarm Deploy CLI",
@@ -26,6 +31,11 @@ func main() {
 					},
 				},
 				Runner: lintRunner,
+				BuildInfo: &go_console.BuildInfo{
+					Name:      "swarm-deploy-cli",
+					Version:   Version,
+					BuildFlag: BuildDate,
+				},
 			},
 		},
 	}
