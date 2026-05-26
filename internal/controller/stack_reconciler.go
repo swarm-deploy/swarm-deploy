@@ -2,7 +2,6 @@ package controller
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,6 +12,8 @@ import (
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/git"
 )
 
+const serviceManagedLabel = "org.swarm-deploy.service.managed"
+
 type stackReconcileResult struct {
 	SourceDigest string
 	Services     []compose.Service
@@ -20,56 +21,30 @@ type stackReconcileResult struct {
 }
 
 type stackReconciler struct {
-	cfg      *config.Config
-	git      gitx.Repository
-	deployer *deployer.Deployer
+	cfg            *config.Config
+	git            gitx.Repository
+	deployer       *deployer.Deployer
+	composeLoader  *compose.FileLoader
+	composeRotator *Rotator
+	pipeline       *pipeline
 }
 
-type stackReconcileError struct {
-	op       string
-	services []compose.Service
-	err      error
-}
-
-func newStackReconciler(cfg *config.Config, gitSync gitx.Repository, deployer *deployer.Deployer) *stackReconciler {
-	return &stackReconciler{
-		cfg:      cfg,
-		git:      gitSync,
-		deployer: deployer,
-	}
-}
-
-func (e *stackReconcileError) Error() string {
-	return fmt.Sprintf("%s: %v", e.op, e.err)
-}
-
-func (e *stackReconcileError) Unwrap() error {
-	return e.err
-}
-
-func (e *stackReconcileError) FailedServices() []compose.Service {
-	return e.services
-}
-
-func wrapStackReconcileError(op string, services []compose.Service, err error) error {
-	if err == nil {
-		return nil
+func newStackReconciler(
+	cfg *config.Config,
+	gitSync gitx.Repository,
+	deployer *deployer.Deployer,
+) *stackReconciler {
+	reconciler := &stackReconciler{
+		cfg:            cfg,
+		git:            gitSync,
+		deployer:       deployer,
+		composeLoader:  compose.NewFileLoader(),
+		composeRotator: NewRotator(),
 	}
 
-	return &stackReconcileError{
-		op:       op,
-		services: services,
-		err:      err,
-	}
-}
+	reconciler.attachComposePipeline()
 
-func failedServicesFromReconcileError(err error) []compose.Service {
-	var reconcileErr *stackReconcileError
-	// Preserve detailed service context when the caller receives wrapped errors.
-	if errors.As(err, &reconcileErr) {
-		return reconcileErr.FailedServices()
-	}
-	return nil
+	return reconciler
 }
 
 func (r *stackReconciler) Reconcile(
@@ -79,41 +54,29 @@ func (r *stackReconciler) Reconcile(
 	hasPrev bool,
 ) (stackReconcileResult, error) {
 	composePath := filepath.Join(r.git.WorkingDir(), stackCfg.ComposeFile)
-	stackFile, err := compose.Load(composePath)
+	stackFile, err := r.composeLoader.Load(composePath)
 	if err != nil {
 		return stackReconcileResult{}, wrapStackReconcileError("load compose", nil, err)
 	}
 
 	result := stackReconcileResult{
-		Services: stackFile.Services,
-	}
-
-	digest, err := stackFile.ComputeDigest(composePath)
-	if err != nil {
-		return result, wrapStackReconcileError("compute digest", result.Services, err)
+		Services: stackFile.Compose.Services,
 	}
 
 	// Skip reconciliation when source compose content is unchanged since last successful apply.
-	if hasPrev && prevDigest == digest {
-		result.SourceDigest = digest
+	if hasPrev && prevDigest == stackFile.Digest {
+		result.SourceDigest = stackFile.Digest
 		result.Skipped = true
 		return result, nil
 	}
 
 	deployComposePath := composePath
-	if r.cfg.Spec.SecretRotation.Enabled {
-		// Rotation mutates secret/config object names in the in-memory compose model.
-		// We keep digest based on original source, but deploy a rendered, rotated file.
-		_, err = stackFile.ApplyObjectRotation(
-			stackCfg.Name,
-			composePath,
-			r.cfg.Spec.SecretRotation.HashLength,
-			r.cfg.Spec.SecretRotation.IncludePath,
-		)
-		if err != nil {
-			return result, wrapStackReconcileError("rotate objects", result.Services, err)
-		}
+	composeChanged, pipeErr := r.pipeline.Run(stackFile, stackCfg.Name)
+	if pipeErr != nil {
+		return stackReconcileResult{}, wrapStackReconcileError(pipeErr.stepName, nil, err)
+	}
 
+	if composeChanged {
 		renderedPath, renderedPathErr := r.writeRenderedCompose(stackCfg.Name, stackFile)
 		if renderedPathErr != nil {
 			return result, wrapStackReconcileError("write rendered compose", result.Services, renderedPathErr)
@@ -122,12 +85,12 @@ func (r *stackReconciler) Reconcile(
 	}
 
 	// Deployer encapsulates init jobs orchestration and stack deployment.
-	err = r.deployer.DeployStack(ctx, stackCfg.Name, deployComposePath, stackFile.Services)
+	err = r.deployer.DeployStack(ctx, stackCfg.Name, deployComposePath, stackFile.Compose.Services)
 	if err != nil {
 		return result, wrapStackReconcileError("deploy", result.Services, err)
 	}
 
-	result.SourceDigest = digest
+	result.SourceDigest = stackFile.Digest
 	return result, nil
 }
 

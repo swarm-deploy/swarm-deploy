@@ -46,8 +46,10 @@ func TestDeployStackRunsInitJobsBeforeDeploy(t *testing.T) {
 
 	services := []compose.Service{
 		{
-			Name:     "api",
-			Networks: []string{"default"},
+			Name: "api",
+			Networks: compose.NewServiceNetworks(&compose.ServiceNetwork{
+				ResolvedName: "default",
+			}),
 			Secrets: []compose.ObjectRef{
 				{Source: "db-password"},
 			},

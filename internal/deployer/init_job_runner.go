@@ -76,8 +76,8 @@ func (r *InitJobRunner) Run(ctx context.Context, spec InitJobSpec) error {
 	r.metrics.RecordInitJobRun(spec.StackName, spec.ServiceName)
 
 	timeout := r.timeout
-	if spec.Job.Timeout > 0 {
-		timeout = spec.Job.Timeout
+	if spec.Job.Timeout.Value > 0 {
+		timeout = spec.Job.Timeout.Value
 	}
 
 	jobCtx, cancel := context.WithTimeout(ctx, timeout)
@@ -91,7 +91,7 @@ func (r *InitJobRunner) Run(ctx context.Context, spec InitJobSpec) error {
 		return err
 	}
 
-	serviceCreateOptions, err := r.buildInitServiceCreateOptions(spec.Job.Image)
+	serviceCreateOptions, err := r.buildInitServiceCreateOptions(string(spec.Job.Image))
 	if err != nil {
 		return fmt.Errorf("build init job service create options: %w", err)
 	}
@@ -182,18 +182,18 @@ func (r *InitJobRunner) buildInitServiceSpec(
 	serviceName string,
 ) (dockerswarm.ServiceSpec, error) {
 	containerSpec := &dockerswarm.ContainerSpec{
-		Image:   spec.Job.Image,
+		Image:   string(spec.Job.Image),
 		Command: spec.Job.Command,
 	}
 
-	if len(spec.Job.Environment) > 0 {
-		containerSpec.Env = make([]string, 0, len(spec.Job.Environment))
-		for key, val := range spec.Job.Environment {
+	if len(spec.Job.Environment.Map) > 0 {
+		containerSpec.Env = make([]string, 0, len(spec.Job.Environment.Map))
+		for key, val := range spec.Job.Environment.Map {
 			containerSpec.Env = append(containerSpec.Env, fmt.Sprintf("%s=%s", key, val))
 		}
 	}
 
-	networks := spec.Job.Networks
+	networks := spec.Job.Networks.Names
 	if len(networks) == 0 {
 		networks = spec.DefaultNetwork
 	}

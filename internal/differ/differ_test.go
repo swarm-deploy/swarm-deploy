@@ -82,8 +82,8 @@ services:
 		[]SecretDiff{
 			{Name: "app-secret", MountFile: "/run/secrets/app-secret", Removed: true},
 			{Name: "app-secret", MountFile: "/run/secrets/app-secret-v2", Added: true},
-			{Name: "current-secret", Added: true},
-			{Name: "legacy-secret", Removed: true},
+			{Name: "current-secret", MountFile: "/run/secrets/current-secret", Added: true},
+			{Name: "legacy-secret", MountFile: "/run/secrets/legacy-secret", Removed: true},
 		},
 		serviceDiff.Secrets,
 		"unexpected secret diff",
