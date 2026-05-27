@@ -162,6 +162,28 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ServiceStatusResponse'
+
+  /api/v1/stacks/{stack}/services/{service}/realtime:
+    get:
+      operationId: getServiceRealtime
+      parameters:
+        - in: path
+          name: stack
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: service
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Service realtime tasks status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceRealtimeResponse'
   /api/v1/stacks/{stack}/services/{service}/deployments:
     get:
       operationId: listServiceDeployments
@@ -581,6 +603,27 @@ components:
           type: array
           items:
             type: string
+
+    ServiceRealtimeTask:
+      type: object
+      required: [id, node, current_state]
+      properties:
+        id:
+          type: string
+        node:
+          type: string
+        current_state:
+          type: string
+        error:
+          type: string
+    ServiceRealtimeResponse:
+      type: object
+      required: [tasks]
+      properties:
+        tasks:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceRealtimeTask'
     ServiceDeploymentStatus:
       type: string
       enum: [success, failed]

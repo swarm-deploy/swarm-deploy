@@ -461,6 +461,34 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 										return
 									}
 
+								case 'r': // Prefix: "realtime"
+
+									if l := len("realtime"); len(elem) >= l && elem[0:l] == "realtime" {
+										elem = elem[l:]
+									} else {
+										break
+									}
+
+									if len(elem) == 0 {
+										// Leaf node.
+										switch r.Method {
+										case "GET":
+											s.handleGetServiceRealtimeRequest([2]string{
+												args[0],
+												args[1],
+											}, elemIsEscaped, w, r)
+										default:
+											s.notAllowed(w, r, notAllowedParams{
+												allowedMethods: "GET",
+												allowedHeaders: nil,
+												acceptPost:     "",
+												acceptPatch:    "",
+											})
+										}
+
+										return
+									}
+
 								case 's': // Prefix: "status"
 
 									if l := len("status"); len(elem) >= l && elem[0:l] == "status" {
@@ -1028,6 +1056,31 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 											r.operationID = "listServiceDeployments"
 											r.operationGroup = ""
 											r.pathPattern = "/api/v1/stacks/{stack}/services/{service}/deployments"
+											r.args = args
+											r.count = 2
+											return r, true
+										default:
+											return
+										}
+									}
+
+								case 'r': // Prefix: "realtime"
+
+									if l := len("realtime"); len(elem) >= l && elem[0:l] == "realtime" {
+										elem = elem[l:]
+									} else {
+										break
+									}
+
+									if len(elem) == 0 {
+										// Leaf node.
+										switch method {
+										case "GET":
+											r.name = GetServiceRealtimeOperation
+											r.summary = ""
+											r.operationID = "getServiceRealtime"
+											r.operationGroup = ""
+											r.pathPattern = "/api/v1/stacks/{stack}/services/{service}/realtime"
 											r.args = args
 											r.count = 2
 											return r, true

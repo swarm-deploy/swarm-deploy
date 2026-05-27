@@ -24,6 +24,10 @@ type Handler interface {
 	//
 	// GET /api/v1/secrets/{name}
 	GetSecretByName(ctx context.Context, params GetSecretByNameParams) (*SecretDetailsResponse, error)
+	// GetServiceRealtime implements getServiceRealtime operation.
+	//
+	// GET /api/v1/stacks/{stack}/services/{service}/realtime
+	GetServiceRealtime(ctx context.Context, params GetServiceRealtimeParams) (*ServiceRealtimeResponse, error)
 	// GetServiceStatus implements getServiceStatus operation.
 	//
 	// GET /api/v1/stacks/{stack}/services/{service}/status

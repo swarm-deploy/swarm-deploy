@@ -74,6 +74,23 @@ func toGeneratedServiceStatus(status swarm.ServiceStatus) *generated.ServiceStat
 	return resp
 }
 
+func toGeneratedServiceRealtimeTasks(tasks []swarm.ServiceTaskRealtime) []generated.ServiceRealtimeTask {
+	mapped := make([]generated.ServiceRealtimeTask, 0, len(tasks))
+	for _, task := range tasks {
+		item := generated.ServiceRealtimeTask{
+			ID:           task.ID,
+			Node:         task.Node,
+			CurrentState: task.CurrentState,
+		}
+		if task.Error != "" {
+			item.Error = generated.NewOptString(task.Error)
+		}
+		mapped = append(mapped, item)
+	}
+
+	return mapped
+}
+
 func toGeneratedServiceDeployments(
 	entries []history.Entry,
 	stackName string,

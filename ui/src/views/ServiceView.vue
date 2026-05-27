@@ -2,11 +2,12 @@
 import { computed, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
-import { fetchServiceDeployments, fetchServiceStatus } from "../api/overview";
+import { fetchServiceDeployments, fetchServiceRealtime, fetchServiceStatus } from "../api/overview";
 import { fetchServices } from "../api/services";
 import type {
   ServiceDeploymentResponse,
   ServiceInfo,
+  ServiceRealtimeTask,
   ServiceStatusResponse,
 } from "../api/types";
 import { useOverviewStore } from "../stores/overview";
@@ -22,6 +23,9 @@ const serviceStatus = ref<ServiceStatusResponse | null>(null);
 const serviceDeployments = ref<ServiceDeploymentResponse[]>([]);
 const deploymentsLoading = ref(false);
 const deploymentsError = ref("");
+const realtimeTasks = ref<ServiceRealtimeTask[]>([]);
+const realtimeLoading = ref(false);
+const realtimeError = ref("");
 const showDockerLabels = ref(false);
 const secretDetailsStore = useSecretDetailsStore();
 const overviewStore = useOverviewStore();
@@ -74,6 +78,11 @@ const serviceNetworkNames = computed(() => {
 });
 const deployments = computed(() => {
   const items = serviceDeployments.value;
+  return Array.isArray(items) ? items : [];
+});
+
+const realtime = computed(() => {
+  const items = realtimeTasks.value;
   return Array.isArray(items) ? items : [];
 });
 
@@ -160,6 +169,27 @@ async function loadServiceDetails() {
   }
 }
 
+
+async function loadServiceRealtime() {
+  if (!stackName.value || !serviceName.value) {
+    realtimeTasks.value = [];
+    realtimeError.value = "Invalid service route parameters";
+    return;
+  }
+
+  realtimeLoading.value = true;
+  realtimeError.value = "";
+  try {
+    const response = await fetchServiceRealtime(stackName.value, serviceName.value);
+    realtimeTasks.value = Array.isArray(response.tasks) ? response.tasks : [];
+  } catch (error) {
+    realtimeTasks.value = [];
+    realtimeError.value = error instanceof Error ? error.message : "Failed to load service realtime";
+  } finally {
+    realtimeLoading.value = false;
+  }
+}
+
 async function loadServiceDeployments() {
   if (!stackName.value || !serviceName.value) {
     serviceDeployments.value = [];
@@ -186,6 +216,7 @@ watch(
     showDockerLabels.value = false;
     void loadServiceDetails();
     void loadServiceDeployments();
+    void loadServiceRealtime();
   },
   { immediate: true },
 );
@@ -342,6 +373,28 @@ watch(
               <tr>
                 <th scope="row">Requested / limited CPU</th>
                 <td>{{ serviceSpec?.requested_cpu_nano ? formatNanoCPU(serviceSpec?.requested_cpu_nano) : 0 }} / {{ serviceSpec?.limit_cpu_nano? formatNanoCPU(serviceSpec?.limit_cpu_nano) : '∞' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+
+
+
+        <article class="stack-card service-realtime-card">
+          <h3 class="stack-title">Realtime</h3>
+          <p v-if="realtimeLoading" class="meta">Loading realtime...</p>
+          <p v-else-if="realtimeError" class="meta">Failed to load realtime: {{ realtimeError }}</p>
+          <p v-else-if="realtime.length === 0" class="meta">No tasks yet.</p>
+          <table v-else class="service-status-summary-table" aria-label="Service realtime">
+            <thead>
+              <tr><th>ID</th><th>Node</th><th>Current State</th><th>Error</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="task in realtime" :key="task.id">
+                <td><code>{{ task.id }}</code></td>
+                <td><code>{{ task.node || 'n/a' }}</code></td>
+                <td>{{ task.current_state || 'n/a' }}</td>
+                <td>{{ task.error || 'n/a' }}</td>
               </tr>
             </tbody>
           </table>

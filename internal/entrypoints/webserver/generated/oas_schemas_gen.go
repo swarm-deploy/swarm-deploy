@@ -1931,6 +1931,69 @@ func (s *ServiceInfoType) UnmarshalText(data []byte) error {
 	}
 }
 
+// Ref: #/components/schemas/ServiceRealtimeResponse
+type ServiceRealtimeResponse struct {
+	Tasks []ServiceRealtimeTask `json:"tasks"`
+}
+
+// GetTasks returns the value of Tasks.
+func (s *ServiceRealtimeResponse) GetTasks() []ServiceRealtimeTask {
+	return s.Tasks
+}
+
+// SetTasks sets the value of Tasks.
+func (s *ServiceRealtimeResponse) SetTasks(val []ServiceRealtimeTask) {
+	s.Tasks = val
+}
+
+// Ref: #/components/schemas/ServiceRealtimeTask
+type ServiceRealtimeTask struct {
+	ID           string    `json:"id"`
+	Node         string    `json:"node"`
+	CurrentState string    `json:"current_state"`
+	Error        OptString `json:"error"`
+}
+
+// GetID returns the value of ID.
+func (s *ServiceRealtimeTask) GetID() string {
+	return s.ID
+}
+
+// GetNode returns the value of Node.
+func (s *ServiceRealtimeTask) GetNode() string {
+	return s.Node
+}
+
+// GetCurrentState returns the value of CurrentState.
+func (s *ServiceRealtimeTask) GetCurrentState() string {
+	return s.CurrentState
+}
+
+// GetError returns the value of Error.
+func (s *ServiceRealtimeTask) GetError() OptString {
+	return s.Error
+}
+
+// SetID sets the value of ID.
+func (s *ServiceRealtimeTask) SetID(val string) {
+	s.ID = val
+}
+
+// SetNode sets the value of Node.
+func (s *ServiceRealtimeTask) SetNode(val string) {
+	s.Node = val
+}
+
+// SetCurrentState sets the value of CurrentState.
+func (s *ServiceRealtimeTask) SetCurrentState(val string) {
+	s.CurrentState = val
+}
+
+// SetError sets the value of Error.
+func (s *ServiceRealtimeTask) SetError(val OptString) {
+	s.Error = val
+}
+
 // Ref: #/components/schemas/ServiceSpecLabelGroupResponse
 type ServiceSpecLabelGroupResponse map[string]string
 

@@ -27,6 +27,14 @@ func (f fakeServiceStatusInspector) GetStatus(context.Context, swarm.ServiceRefe
 	return f.status, nil
 }
 
+func (f fakeServiceStatusInspector) Realtime(context.Context, swarm.ServiceReference) ([]swarm.ServiceTaskRealtime, error) {
+	if f.err != nil {
+		return nil, f.err
+	}
+
+	return nil, nil
+}
+
 func TestHandlerGetServiceStatus(t *testing.T) {
 	t.Parallel()
 
