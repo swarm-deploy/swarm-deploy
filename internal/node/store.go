@@ -16,9 +16,10 @@ const storeFileModePrivate = 0o600
 
 // Store persists nodes snapshot in a JSON file.
 type Store struct {
-	mu   sync.RWMutex
-	path string
-	rows []swarm.Node
+	mu      sync.RWMutex
+	path    string
+	rows    []swarm.Node
+	nodeMap map[string]swarm.Node
 }
 
 // NewNodeStore creates nodes store and loads saved rows from disk.
@@ -34,6 +35,14 @@ func NewNodeStore(path string) (*Store, error) {
 	return s, nil
 }
 
+// Map returns map<node.id>swarm.Node.
+func (s *Store) Map() map[string]swarm.Node {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.nodeMap
+}
+
 // List returns a copy of all saved nodes.
 func (s *Store) List() []swarm.Node {
 	s.mu.RLock()
@@ -47,8 +56,7 @@ func (s *Store) Replace(nodes []swarm.Node) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	s.rows = cloneNodes(nodes)
-	sortNodes(s.rows)
+	s.setNodes(nodes)
 
 	return s.flushLocked()
 }
@@ -75,9 +83,7 @@ func (s *Store) load() error {
 		return fmt.Errorf("decode nodes file: %w", unmarshalErr)
 	}
 
-	s.rows = rows
-
-	sortNodes(s.rows)
+	s.setNodes(rows)
 	return nil
 }
 
@@ -96,6 +102,20 @@ func (s *Store) flushLocked() error {
 	}
 
 	return nil
+}
+
+func (s *Store) setNodes(rows []swarm.Node) {
+	s.nodeMap = make(map[string]swarm.Node, len(s.rows))
+	s.rows = make([]swarm.Node, len(rows))
+
+	for i, row := range rows {
+		node := cloneNode(row)
+
+		s.rows[i] = node
+		s.nodeMap[row.ID] = node
+	}
+
+	sortNodes(s.rows)
 }
 
 func sortNodes(nodes []swarm.Node) {

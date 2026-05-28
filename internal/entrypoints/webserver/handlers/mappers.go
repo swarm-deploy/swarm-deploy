@@ -76,7 +76,7 @@ func toGeneratedServiceStatus(status swarm.ServiceStatus) *generated.ServiceStat
 
 func toGeneratedServiceRealtimeTasks(
 	tasks []swarm.ServiceTask,
-	nodeHostnamesByID map[string]string,
+	nodeMap map[string]swarm.Node,
 ) []generated.ServiceRealtimeTask {
 	mapped := make([]generated.ServiceRealtimeTask, 0, len(tasks))
 	for _, task := range tasks {
@@ -91,8 +91,8 @@ func toGeneratedServiceRealtimeTasks(
 		if !task.UpdatedAt.IsZero() {
 			item.UpdatedAt = generated.NewOptDateTime(task.UpdatedAt)
 		}
-		if nodeName := nodeHostnamesByID[task.Node]; nodeName != "" {
-			item.NodeName = generated.NewOptString(nodeName)
+		if node, nodeExists := nodeMap[task.Node]; nodeExists {
+			item.NodeName = generated.NewOptString(node.Hostname)
 		}
 		if task.Error != "" {
 			item.Error = generated.NewOptString(task.Error)
@@ -101,23 +101,6 @@ func toGeneratedServiceRealtimeTasks(
 	}
 
 	return mapped
-}
-
-func toNodeHostnameMap(nodes []swarm.Node) map[string]string {
-	if len(nodes) == 0 {
-		return nil
-	}
-
-	nodeHostnamesByID := make(map[string]string, len(nodes))
-	for _, node := range nodes {
-		if node.ID == "" || node.Hostname == "" {
-			continue
-		}
-
-		nodeHostnamesByID[node.ID] = node.Hostname
-	}
-
-	return nodeHostnamesByID
 }
 
 func toGeneratedServiceDeployments(
