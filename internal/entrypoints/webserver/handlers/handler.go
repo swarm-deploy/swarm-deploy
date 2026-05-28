@@ -51,9 +51,7 @@ var _ generated.Handler = (*handler)(nil)
 func New(
 	control *controller.Controller,
 	gitRepository gitx.Repository,
-	serviceInspector ServiceStatusInspector,
-	secrets SecretsReader,
-	networks NetworksReader,
+	swarmService *swarm.Swarm,
 	history *history.Store,
 	services *service.Store,
 	nodes *swarmnode.Store,
@@ -61,9 +59,9 @@ func New(
 ) generated.Handler {
 	return &handler{
 		control:          control,
-		serviceInspector: serviceInspector,
-		secrets:          secrets,
-		networks:         networks,
+		serviceInspector: swarmService.Services,
+		secrets:          swarmService.Secrets,
+		networks:         swarmService.Networks,
 		history:          history,
 		services:         services,
 		nodes:            nodes,

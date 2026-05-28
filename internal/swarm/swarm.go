@@ -4,7 +4,7 @@ import "github.com/docker/docker/client"
 
 type Swarm struct {
 	// Services manages Docker swarm services.
-	Services *ServiceManager
+	Services ServiceManager
 	// Secrets manages Docker swarm secrets.
 	Secrets *SecretManager
 	// Configs manages Docker swarm configs.

@@ -15,16 +15,10 @@ github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be h1:9AeTilPcZAjCFI
 github.com/anmitsu/go-shlex v0.0.0-20200514113438-38f4b401e2be/go.mod h1:ySMOLuWl6zY27l47sB3qLNK6tF2fkHG55UZxx8oIVo4=
 github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5 h1:0CwZNZbxp69SHPdPJAN/hZIm0C4OItdklCFmMRWYpio=
 github.com/armon/go-socks5 v0.0.0-20160902184237-e75332964ef5/go.mod h1:wHh0iHkYZB8zMSxRWpUBQtwG5a7fFgvEO+odwuTv2gs=
-github.com/artarts36/envmasker v0.0.0-20260424231206-5935eabdda90 h1:5bx/IztmZZ/IBSXf6j4GqosvvBAV5KSo2H8bni7wft8=
-github.com/artarts36/envmasker v0.0.0-20260424231206-5935eabdda90/go.mod h1:7Q0Q99dPgkUwh/o/CgpYfGAK00Oc03Q6jKDdMgxIRR0=
 github.com/artarts36/envmasker v0.0.0-20260424231721-45f9d0bb307b h1:koX6dv79BAKVJtOwW+1CGZHc8xfzLVbS6TW3Hn9OhRw=
 github.com/artarts36/envmasker v0.0.0-20260424231721-45f9d0bb307b/go.mod h1:7Q0Q99dPgkUwh/o/CgpYfGAK00Oc03Q6jKDdMgxIRR0=
 github.com/artarts36/go-entrypoint v0.2.1 h1:6P+rrS1NesITwyDK7eUFA4C3W2JcAw1t6hBmYVsDJcg=
 github.com/artarts36/go-entrypoint v0.2.1/go.mod h1:5uYdUxopW6JoRpEMWXXTnrhrxUCKPw8/owK66APCDZo=
-github.com/artarts36/specw v0.1.6-0.20260329194557-bfc86ff4f662 h1:tVNDWwFwTmQpyoxFxaswZr/R8elOYIsgcDfaIiwGap8=
-github.com/artarts36/specw v0.1.6-0.20260329194557-bfc86ff4f662/go.mod h1:6dtnh2tg3D1nUdNEcTQfFTjRMVyreObkgO3JmfEeehg=
-github.com/artarts36/specw v0.1.7 h1:9Rzm786TrzA9Ry0x24DTDoQM/WoRZWVwMRYVCOBXgw4=
-github.com/artarts36/specw v0.1.7/go.mod h1:6dtnh2tg3D1nUdNEcTQfFTjRMVyreObkgO3JmfEeehg=
 github.com/artarts36/specw v0.1.8-0.20260523160820-f2315a835abf h1:X0HpInArBXvChwhbS7tYtNmqdBVnVTrerjBc6grciWU=
 github.com/artarts36/specw v0.1.8-0.20260523160820-f2315a835abf/go.mod h1:6dtnh2tg3D1nUdNEcTQfFTjRMVyreObkgO3JmfEeehg=
 github.com/avast/retry-go/v5 v5.0.0 h1:kf1Qc2UsTZ4qq8elDymqfbISvkyMuhgRxuJqX2NHP7k=
@@ -224,6 +218,8 @@ go.opentelemetry.io/proto/otlp v1.9.0 h1:l706jCMITVouPOqEnii2fIAuO3IVGBRPV5ICjce
 go.opentelemetry.io/proto/otlp v1.9.0/go.mod h1:xE+Cx5E/eEHw+ISFkwPLwCZefwVjY+pqKg1qcK03+/4=
 go.uber.org/goleak v1.3.0 h1:2K3zAYmnTNqV73imy9J1T3WC+gmCePx2hEGkimedGto=
 go.uber.org/goleak v1.3.0/go.mod h1:CoHD4mav9JJNrW/WLlf7HGZPjdw8EucARQHekz1X6bE=
+go.uber.org/mock v0.6.0 h1:hyF9dfmbgIX5EfOdasqLsWD6xqpNZlXblLB/Dbnwv3Y=
+go.uber.org/mock v0.6.0/go.mod h1:KiVJ4BqZJaMj4svdfmHM0AUx4NJYO8ZNpPnZn1Z+BBU=
 go.uber.org/multierr v1.11.0 h1:blXXJkSxSSfBVBlC76pxqeO+LN3aDfLQo+309xJstO0=
 go.uber.org/multierr v1.11.0/go.mod h1:20+QtiLqy0Nd6FdQB9TLXag12DsQkrbs3htMFfDN80Y=
 go.uber.org/zap v1.27.1 h1:08RqriUEv8+ArZRYSTXy1LeBScaMpVSTBhCeaZYfMYc=
