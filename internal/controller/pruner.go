@@ -12,12 +12,12 @@ import (
 )
 
 type ServicePruner struct {
-	services stackServiceManager
+	services swarm.ServiceManager
 	syncCfg  config.SyncPolicySpec
 }
 
 func NewServicePruner(
-	serviceManager stackServiceManager,
+	serviceManager swarm.ServiceManager,
 	syncCfg config.SyncPolicySpec,
 ) *ServicePruner {
 	return &ServicePruner{
