@@ -34,13 +34,6 @@ type stackDeployer interface {
 	DeployStack(ctx context.Context, stackName, composePath string, services []compose.Service) error
 }
 
-type stackServiceManager interface {
-	// ListStackServices returns services currently attached to a stack.
-	ListStackServices(ctx context.Context, stackName string) ([]swarm.StackService, error)
-	// Remove deletes service by docker identifier or full service name.
-	Remove(ctx context.Context, serviceIDOrName string) error
-}
-
 type stackReconciler struct {
 	cfg            *config.Config
 	git            gitx.Repository
