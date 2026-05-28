@@ -15,9 +15,9 @@ import (
 	"github.com/avast/retry-go/v5"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
-	"github.com/docker/docker/api/types/filters"
 )
 
 const (

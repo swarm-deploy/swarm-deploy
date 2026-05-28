@@ -17,7 +17,7 @@ import (
 type ServiceStatusInspector interface {
 	// InspectServiceStatus returns compact status snapshot for a stack service.
 	GetStatus(ctx context.Context, serviceRef swarm.ServiceReference) (swarm.ServiceStatus, error)
-	// Realtime returns service tasks for realtime container status rendering.
+	// ListTasks returns service tasks for realtime container status rendering.
 	ListTasks(ctx context.Context, serviceRef swarm.ServiceReference) ([]swarm.ServiceTask, error)
 }
 
