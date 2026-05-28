@@ -17,6 +17,8 @@ import (
 type ServiceStatusInspector interface {
 	// InspectServiceStatus returns compact status snapshot for a stack service.
 	GetStatus(ctx context.Context, serviceRef swarm.ServiceReference) (swarm.ServiceStatus, error)
+	// ListTasks returns service tasks for realtime container status rendering.
+	ListTasks(ctx context.Context, serviceRef swarm.ServiceReference) ([]swarm.ServiceTask, error)
 }
 
 // SecretsReader reads current Docker secrets snapshot.

@@ -19,6 +19,7 @@ GitOps controller for Docker Swarm with an ArgoCD-inspired, but Swarm-native, co
 - Stack deployment only when a diff is detected (`compose + referenced configs/secrets` digest). .
 - GitOps reconciliation for Docker networks from `networks.file` with managed label `org.swarm-deploy.network.managed=true`.
 - UI and API are served by a single web server on `web.address`.
+- Service Realtime page with task snapshot (node hostname, state, created/updated timestamps, and task ID).
 - HTTP Basic authentication for UI and API via `web.security.authentication.basic.htpasswdFile`.
 - [Event History & Audit](./docs/event-history.md)
 - [Notification hooks for successful and failed deployments](./docs/notifications.md)

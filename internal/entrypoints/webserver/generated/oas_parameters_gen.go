@@ -145,6 +145,124 @@ func decodeGetSecretByNameParams(args [1]string, argsEscaped bool, r *http.Reque
 	return params, nil
 }
 
+// GetServiceRealtimeParams is parameters of getServiceRealtime operation.
+type GetServiceRealtimeParams struct {
+	Stack   string
+	Service string
+}
+
+func unpackGetServiceRealtimeParams(packed middleware.Parameters) (params GetServiceRealtimeParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "stack",
+			In:   "path",
+		}
+		params.Stack = packed[key].(string)
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "service",
+			In:   "path",
+		}
+		params.Service = packed[key].(string)
+	}
+	return params
+}
+
+func decodeGetServiceRealtimeParams(args [2]string, argsEscaped bool, r *http.Request) (params GetServiceRealtimeParams, _ error) {
+	// Decode path: stack.
+	if err := func() error {
+		param := args[0]
+		if argsEscaped {
+			unescaped, err := url.PathUnescape(args[0])
+			if err != nil {
+				return errors.Wrap(err, "unescape path")
+			}
+			param = unescaped
+		}
+		if len(param) > 0 {
+			d := uri.NewPathDecoder(uri.PathDecoderConfig{
+				Param:   "stack",
+				Value:   param,
+				Style:   uri.PathStyleSimple,
+				Explode: false,
+			})
+
+			if err := func() error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToString(val)
+				if err != nil {
+					return err
+				}
+
+				params.Stack = c
+				return nil
+			}(); err != nil {
+				return err
+			}
+		} else {
+			return validate.ErrFieldRequired
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "stack",
+			In:   "path",
+			Err:  err,
+		}
+	}
+	// Decode path: service.
+	if err := func() error {
+		param := args[1]
+		if argsEscaped {
+			unescaped, err := url.PathUnescape(args[1])
+			if err != nil {
+				return errors.Wrap(err, "unescape path")
+			}
+			param = unescaped
+		}
+		if len(param) > 0 {
+			d := uri.NewPathDecoder(uri.PathDecoderConfig{
+				Param:   "service",
+				Value:   param,
+				Style:   uri.PathStyleSimple,
+				Explode: false,
+			})
+
+			if err := func() error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToString(val)
+				if err != nil {
+					return err
+				}
+
+				params.Service = c
+				return nil
+			}(); err != nil {
+				return err
+			}
+		} else {
+			return validate.ErrFieldRequired
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "service",
+			In:   "path",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
 // GetServiceStatusParams is parameters of getServiceStatus operation.
 type GetServiceStatusParams struct {
 	Stack   string

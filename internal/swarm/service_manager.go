@@ -15,6 +15,7 @@ import (
 	"github.com/avast/retry-go/v5"
 	cerrdefs "github.com/containerd/errdefs"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
 )
@@ -124,6 +125,36 @@ func (m *ServiceManager) GetStatus(ctx context.Context, serviceRef ServiceRefere
 		Service: serviceRef.ServiceName(),
 		Spec:    toServiceSpec(service.Spec),
 	}, nil
+}
+
+// ListTasks returns service tasks for realtime container status rendering.
+func (m *ServiceManager) ListTasks(ctx context.Context, serviceRef ServiceReference) ([]ServiceTask, error) {
+	fullServiceName := serviceRef.Name()
+
+	tasks, err := m.dockerClient.TaskList(ctx, dockerswarm.TaskListOptions{
+		Filters: filters.NewArgs(filters.Arg("service", fullServiceName)),
+	})
+	if err != nil {
+		if isNotFoundErr(err) {
+			return nil, ErrServiceNotFound
+		}
+
+		return nil, fmt.Errorf("list tasks for service %s: %w", fullServiceName, err)
+	}
+
+	out := make([]ServiceTask, 0, len(tasks))
+	for _, task := range tasks {
+		out = append(out, ServiceTask{
+			ID:           task.ID,
+			Node:         task.NodeID,
+			CreatedAt:    task.CreatedAt,
+			UpdatedAt:    task.UpdatedAt,
+			CurrentState: string(task.Status.State),
+			Error:        task.Status.Err,
+		})
+	}
+
+	return out, nil
 }
 
 // Get returns full compact service projection for a stack service.
