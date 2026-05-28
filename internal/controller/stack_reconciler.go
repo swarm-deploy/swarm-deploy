@@ -3,15 +3,13 @@ package controller
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
-	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -47,7 +45,7 @@ type stackReconciler struct {
 	cfg            *config.Config
 	git            gitx.Repository
 	deployer       stackDeployer
-	services stackServiceManager
+	pruner         *ServicePruner
 	composeLoader  *compose.FileLoader
 	composeRotator *Rotator
 	pipeline       *pipeline
@@ -57,6 +55,7 @@ func newStackReconciler(
 	cfg *config.Config,
 	gitSync gitx.Repository,
 	deployer *deployer.Deployer,
+	swarmService *swarm.Swarm,
 ) *stackReconciler {
 	reconciler := &stackReconciler{
 		cfg:            cfg,
@@ -64,6 +63,7 @@ func newStackReconciler(
 		deployer:       deployer,
 		composeLoader:  compose.NewFileLoader(),
 		composeRotator: NewRotator(),
+		pruner:         NewServicePruner(swarmService.Services, cfg.Spec.Sync.Policy),
 	}
 
 	reconciler.attachComposePipeline()
@@ -76,6 +76,7 @@ func (r *stackReconciler) Reconcile(
 	stackCfg config.StackSpec,
 	prevDigest string,
 	hasPrev bool,
+	isManual bool,
 ) (stackReconcileResult, error) {
 	composePath := filepath.Join(r.git.WorkingDir(), stackCfg.ComposeFile)
 	stackFile, err := r.composeLoader.Load(composePath)
@@ -92,11 +93,13 @@ func (r *stackReconciler) Reconcile(
 		result.SourceDigest = stackFile.Digest
 		result.Skipped = true
 
-		prunedServices, pruneErr := r.pruneOrphanedServices(ctx, stackCfg, stackFile.Services)
-		if pruneErr != nil {
-			return result, wrapStackReconcileError("prune orphaned services", result.Services, pruneErr)
+		if isManual {
+			prunedServices, pruneErr := r.pruner.Prune(ctx, stackCfg, stackFile.Compose.Services)
+			if pruneErr != nil {
+				return result, wrapStackReconcileError("prune orphaned services", result.Services, pruneErr)
+			}
+			result.PrunedServices = prunedServices
 		}
-		result.PrunedServices = prunedServices
 
 		return result, nil
 	}
@@ -121,7 +124,7 @@ func (r *stackReconciler) Reconcile(
 		return result, wrapStackReconcileError("deploy", result.Services, err)
 	}
 
-	prunedServices, pruneErr := r.pruneOrphanedServices(ctx, stackCfg, stackFile.Services)
+	prunedServices, pruneErr := r.pruner.Prune(ctx, stackCfg, stackFile.Compose.Services)
 	if pruneErr != nil {
 		return result, wrapStackReconcileError("prune orphaned services", result.Services, pruneErr)
 	}
@@ -130,96 +133,8 @@ func (r *stackReconciler) Reconcile(
 	return result, nil
 }
 
-func (r *stackReconciler) pruneOrphanedServices(
-	ctx context.Context,
-	stackCfg config.StackSpec,
-	desiredServices []compose.Service,
-) ([]string, error) {
-	stackServices, err := r.services.ListStackServices(ctx, stackCfg.Name)
-	if err != nil {
-		return nil, err
-	}
-
-	desiredServiceNames := make(map[string]struct{}, len(desiredServices))
-	for _, service := range desiredServices {
-		desiredServiceNames[service.Name] = struct{}{}
-	}
-
-	prunedServices := make([]string, 0)
-	for _, stackService := range stackServices {
-		if _, exists := desiredServiceNames[stackService.Name]; exists {
-			continue
-		}
-		if !isManagedService(stackService.Labels) {
-			continue
-		}
-
-		pruneEnabled, resolveErr := resolveServicePrunePolicy(
-			stackService.Labels,
-			stackCfg,
-			r.cfg.Spec.Sync.Policy,
-		)
-		if resolveErr != nil {
-			return nil, fmt.Errorf(
-				"resolve prune policy for service %s/%s: %w",
-				stackCfg.Name,
-				stackService.Name,
-				resolveErr,
-			)
-		}
-		if !pruneEnabled {
-			continue
-		}
-
-		removeErr := r.services.Remove(ctx, stackService.ID)
-		if removeErr != nil {
-			if errors.Is(removeErr, swarm.ErrServiceNotFound) {
-				continue
-			}
-			return nil, removeErr
-		}
-
-		slog.InfoContext(
-			ctx,
-			"[stack-reconciler] service pruned",
-			slog.String("stack", stackCfg.Name),
-			slog.String("service", stackService.Name),
-		)
-		prunedServices = append(prunedServices, stackService.Name)
-	}
-
-	sort.Strings(prunedServices)
-	return prunedServices, nil
-}
-
 func isManagedService(labels map[string]string) bool {
 	return strings.TrimSpace(labels[managedServiceLabelKey]) == managedServiceLabelValue
-}
-
-func resolveServicePrunePolicy(
-	serviceLabels map[string]string,
-	stackCfg config.StackSpec,
-	globalPolicy config.SyncPolicySpec,
-) (bool, error) {
-	if rawValue, exists := serviceLabels[serviceSyncPolicyPruneLabelKey]; exists {
-		value, err := strconv.ParseBool(strings.TrimSpace(rawValue))
-		if err != nil {
-			return false, fmt.Errorf(
-				"parse label %q=%q: %w",
-				serviceSyncPolicyPruneLabelKey,
-				rawValue,
-				err,
-			)
-		}
-
-		return value, nil
-	}
-
-	if stackCfg.Sync.Policy.Prune != nil {
-		return *stackCfg.Sync.Policy.Prune, nil
-	}
-
-	return globalPolicy.Prune, nil
 }
 
 func (r *stackReconciler) writeRenderedCompose(stackName string, stackFile *compose.File) (string, error) {

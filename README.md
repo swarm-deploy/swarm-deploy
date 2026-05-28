@@ -17,7 +17,7 @@ GitOps controller for Docker Swarm with an ArgoCD-inspired, but Swarm-native, co
   - `webhook`,
   - `hybrid` (both modes at the same time).
 - Stack deployment only when a diff is detected (`compose + referenced configs/secrets` digest). .
-- Pruning of orphaned managed services removed from desired compose (`org.swarm-deploy.service.managed=true`).
+- [Pruning of orphaned managed services removed from desired compose](./docs/prune.md).
 - GitOps reconciliation for Docker networks from `networks.file` with managed label `org.swarm-deploy.network.managed=true`.
 - UI and API are served by a single web server on `web.address`.
 - Service Realtime page with task snapshot (node hostname, state, created/updated timestamps, and task ID).
@@ -28,16 +28,6 @@ GitOps controller for Docker Swarm with an ArgoCD-inspired, but Swarm-native, co
 - [AI assistant with long-poll chat API and RAG over service metadata](./docs/assistant.md)
 - [Init Deploy Jobs](./docs/init-deploy-jobs.md)
 - [Secrets Rotation](./docs/secrets-rotation.md)
-
-## Prune policy
-
-When `sync.policy.prune=true`, swarm-deploy removes orphaned services that are no longer defined in desired compose, but only for services marked as managed (`org.swarm-deploy.service.managed=true`).
-
-Prune policy priority (highest to lowest):
-
-1. Service label `org.swarm-deploy.service.sync.policy.prune` (from compose `deploy.labels`).
-2. Stack override `stacks[].sync.policy.prune`.
-3. Global `sync.policy.prune`.
 
 ## Usage examples
 - [Basic: deploy public repositories](./example/01-basic)
