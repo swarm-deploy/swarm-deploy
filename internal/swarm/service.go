@@ -19,8 +19,8 @@ type ServiceStatus struct {
 	Spec ServiceSpec
 }
 
-// ServiceTaskRealtime contains compact realtime task data for service container status.
-type ServiceTaskRealtime struct {
+// ServiceTask contains compact realtime task data for service container status.
+type ServiceTask struct {
 	// ID is a Docker task identifier.
 	ID string
 	// Node is a task node identifier.

@@ -15,7 +15,7 @@ func (h *handler) GetServiceRealtime(
 	ctx context.Context,
 	params generated.GetServiceRealtimeParams,
 ) (*generated.ServiceRealtimeResponse, error) {
-	tasks, err := h.serviceInspector.Realtime(ctx, swarm.NewServiceReference(params.Stack, params.Service))
+	tasks, err := h.serviceInspector.ListTasks(ctx, swarm.NewServiceReference(params.Stack, params.Service))
 	if err == nil {
 		return &generated.ServiceRealtimeResponse{Tasks: toGeneratedServiceRealtimeTasks(tasks)}, nil
 	}

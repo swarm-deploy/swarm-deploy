@@ -74,7 +74,7 @@ func toGeneratedServiceStatus(status swarm.ServiceStatus) *generated.ServiceStat
 	return resp
 }
 
-func toGeneratedServiceRealtimeTasks(tasks []swarm.ServiceTaskRealtime) []generated.ServiceRealtimeTask {
+func toGeneratedServiceRealtimeTasks(tasks []swarm.ServiceTask) []generated.ServiceRealtimeTask {
 	mapped := make([]generated.ServiceRealtimeTask, 0, len(tasks))
 	for _, task := range tasks {
 		item := generated.ServiceRealtimeTask{

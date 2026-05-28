@@ -127,8 +127,8 @@ func (m *ServiceManager) GetStatus(ctx context.Context, serviceRef ServiceRefere
 	}, nil
 }
 
-// Realtime returns service tasks for realtime container status rendering.
-func (m *ServiceManager) Realtime(ctx context.Context, serviceRef ServiceReference) ([]ServiceTaskRealtime, error) {
+// ListTasks returns service tasks for realtime container status rendering.
+func (m *ServiceManager) ListTasks(ctx context.Context, serviceRef ServiceReference) ([]ServiceTask, error) {
 	fullServiceName := serviceRef.Name()
 
 	tasks, err := m.dockerClient.TaskList(ctx, dockerswarm.TaskListOptions{
@@ -142,9 +142,9 @@ func (m *ServiceManager) Realtime(ctx context.Context, serviceRef ServiceReferen
 		return nil, fmt.Errorf("list tasks for service %s: %w", fullServiceName, err)
 	}
 
-	out := make([]ServiceTaskRealtime, 0, len(tasks))
+	out := make([]ServiceTask, 0, len(tasks))
 	for _, task := range tasks {
-		out = append(out, ServiceTaskRealtime{
+		out = append(out, ServiceTask{
 			ID:           task.ID,
 			Node:         task.NodeID,
 			CurrentState: string(task.Status.State),
