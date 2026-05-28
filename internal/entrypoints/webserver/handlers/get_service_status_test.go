@@ -16,6 +16,7 @@ import (
 
 type fakeServiceStatusInspector struct {
 	status swarm.ServiceStatus
+	tasks  []swarm.ServiceTask
 	err    error
 }
 
@@ -32,7 +33,7 @@ func (f fakeServiceStatusInspector) ListTasks(context.Context, swarm.ServiceRefe
 		return nil, f.err
 	}
 
-	return nil, nil
+	return f.tasks, nil
 }
 
 func TestHandlerGetServiceStatus(t *testing.T) {

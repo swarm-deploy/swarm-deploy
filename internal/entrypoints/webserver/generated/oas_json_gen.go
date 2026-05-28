@@ -4091,6 +4091,24 @@ func (s *ServiceRealtimeTask) encodeFields(e *jx.Encoder) {
 		e.Str(s.Node)
 	}
 	{
+		if s.NodeName.Set {
+			e.FieldStart("node_name")
+			s.NodeName.Encode(e)
+		}
+	}
+	{
+		if s.CreatedAt.Set {
+			e.FieldStart("created_at")
+			s.CreatedAt.Encode(e, json.EncodeDateTime)
+		}
+	}
+	{
+		if s.UpdatedAt.Set {
+			e.FieldStart("updated_at")
+			s.UpdatedAt.Encode(e, json.EncodeDateTime)
+		}
+	}
+	{
 		e.FieldStart("current_state")
 		e.Str(s.CurrentState)
 	}
@@ -4102,11 +4120,14 @@ func (s *ServiceRealtimeTask) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfServiceRealtimeTask = [4]string{
+var jsonFieldsNameOfServiceRealtimeTask = [7]string{
 	0: "id",
 	1: "node",
-	2: "current_state",
-	3: "error",
+	2: "node_name",
+	3: "created_at",
+	4: "updated_at",
+	5: "current_state",
+	6: "error",
 }
 
 // Decode decodes ServiceRealtimeTask from json.
@@ -4142,8 +4163,38 @@ func (s *ServiceRealtimeTask) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"node\"")
 			}
+		case "node_name":
+			if err := func() error {
+				s.NodeName.Reset()
+				if err := s.NodeName.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"node_name\"")
+			}
+		case "created_at":
+			if err := func() error {
+				s.CreatedAt.Reset()
+				if err := s.CreatedAt.Decode(d, json.DecodeDateTime); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"created_at\"")
+			}
+		case "updated_at":
+			if err := func() error {
+				s.UpdatedAt.Reset()
+				if err := s.UpdatedAt.Decode(d, json.DecodeDateTime); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"updated_at\"")
+			}
 		case "current_state":
-			requiredBitSet[0] |= 1 << 2
+			requiredBitSet[0] |= 1 << 5
 			if err := func() error {
 				v, err := d.Str()
 				s.CurrentState = string(v)
@@ -4174,7 +4225,7 @@ func (s *ServiceRealtimeTask) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00000111,
+		0b00100011,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

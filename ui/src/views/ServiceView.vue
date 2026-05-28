@@ -100,6 +100,33 @@ function deploymentKey(item: ServiceDeploymentResponse, index: number): string {
   return `${item.created_at}-${item.status}-${item.image_version}-${index}`;
 }
 
+async function copyTaskID(taskID: string): Promise<void> {
+  const id = String(taskID || "").trim();
+  if (!id) {
+    return;
+  }
+
+  if (window.isSecureContext && navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(id);
+      return;
+    } catch {
+      // Fall back to legacy clipboard API when browser blocks navigator.clipboard.
+    }
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = id;
+  textarea.setAttribute("readonly", "true");
+  textarea.style.position = "fixed";
+  textarea.style.left = "-9999px";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  document.execCommand("copy");
+  document.body.removeChild(textarea);
+}
+
 async function openCommitDetails(commitHash: string | undefined): Promise<void> {
   const hash = String(commitHash || "").trim();
   if (!hash) {
@@ -237,125 +264,169 @@ watch(
     </div>
 
     <div v-else class="service-details-layout">
-      <article class="stack-card service-details-card">
-        <h3 class="stack-title">Service</h3>
-        <table class="service-status-summary-table" aria-label="Service details">
-          <tbody>
-            <tr>
-              <th scope="row">Name</th>
-              <td>{{ serviceInfo?.name || serviceName }}</td>
-            </tr>
-            <tr>
-              <th scope="row">Stack</th>
-              <td>{{ serviceInfo?.stack || stackName }}</td>
-            </tr>
-            <tr>
-              <th scope="row">Type</th>
-              <td>{{ serviceInfo?.type_title || serviceInfo?.type || "n/a" }}</td>
-            </tr>
-            <tr>
-              <th scope="row">Description</th>
-              <td>{{ serviceInfo?.description || "n/a" }}</td>
-            </tr>
-            <tr>
-              <th scope="row">Image</th>
-              <td>{{ serviceInfo?.image || serviceSpec?.image || "n/a" }}</td>
-            </tr>
-            <tr v-if="serviceInfo && serviceInfo.repository_url">
-              <th scope="row">Repository</th>
-              <td>
-                <a
-                  :href="serviceInfo.repository_url"
-                  class="assistant-md-link"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  {{ serviceInfo.repository_url }}
-                </a>
-              </td>
-            </tr>
-            <tr>
-              <th scope="row">Web Routes</th>
-              <td>
-                <ul v-if="serviceRoutes.length > 0" class="service-details-tags">
-                  <li v-for="routeItem in serviceRoutes" :key="`${routeItem.domain}-${routeItem.address}-${routeItem.port}`">
-                    {{ routeItem.domain }} ({{ routeItem.address }}:{{ routeItem.port }})
-                  </li>
-                </ul>
-                <span v-else>n/a</span>
-              </td>
-            </tr>
-            <tr>
-              <th scope="row">Labels</th>
-              <td>
-                <ul v-if="customServiceLabels.length > 0" class="event-details">
-                  <li v-for="[key, value] in customServiceLabels" :key="key" class="event-detail">
-                    <span class="event-detail-key">{{ key }}</span>
-                    <code class="event-detail-value">{{ value }}</code>
-                  </li>
-                </ul>
-                <span v-else class="meta">No labels.</span>
-              </td>
-            </tr>
-            <tr v-if="dockerServiceLabels.length > 0">
-              <th scope="row">Docker Labels</th>
-              <td>
-                <ul class="event-details">
-                  <li class="event-detail">
-                    <button
-                      type="button"
-                      class="service-secret-badge status unknown"
-                      :aria-expanded="showDockerLabels ? 'true' : 'false'"
-                      @click="toggleDockerLabels"
-                    >
-                      {{ showDockerLabels ? "Hide" : "Show" }}
-                    </button>
-                  </li>
-                </ul>
-                <ul
-                  v-if="showDockerLabels"
-                  class="event-details service-details-docker-tags"
-                >
-                  <li v-for="[key, value] in dockerServiceLabels" :key="key" class="event-detail">
-                    <span class="event-detail-key">{{ key }}</span>
-                    <code class="event-detail-value">{{ value }}</code>
-                  </li>
-                </ul>
-              </td>
-            </tr>
-            <tr>
-              <th scope="row">Networks</th>
-              <td>
-                <ul v-if="serviceNetworkNames.length > 0" class="service-details-tags">
-                  <li v-for="networkName in serviceNetworkNames" :key="networkName">
-                    {{ networkName }}
-                  </li>
-                </ul>
-                <span v-else>n/a</span>
-              </td>
-            </tr>
-            <tr>
-              <th scope="row">Secrets</th>
-              <td>
-                <ul v-if="serviceSecrets.length > 0" class="service-details-tags service-secrets-list">
-                  <li v-for="secret in serviceSecrets" :key="`${secret.secret_name}-${secret.secret_id}`">
-                    <button
-                      type="button"
-                      class="service-secret-badge status unknown"
-                      :disabled="!secret.secret_name"
-                      @click="secret.secret_name && openSecretDetails(secret.secret_name)"
-                    >
-                      {{ secret.secret_name || "n/a" }}
-                    </button>
-                  </li>
-                </ul>
-                <span v-else>n/a</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        <p v-if="loadingError" class="meta">Warning: {{ loadingError }}</p>
-      </article>
+      <div class="service-details-main">
+        <article class="stack-card service-details-card">
+          <h3 class="stack-title">Service</h3>
+          <table class="service-status-summary-table" aria-label="Service details">
+            <tbody>
+              <tr>
+                <th scope="row">Name</th>
+                <td>{{ serviceInfo?.name || serviceName }}</td>
+              </tr>
+              <tr>
+                <th scope="row">Stack</th>
+                <td>{{ serviceInfo?.stack || stackName }}</td>
+              </tr>
+              <tr>
+                <th scope="row">Type</th>
+                <td>{{ serviceInfo?.type_title || serviceInfo?.type || "n/a" }}</td>
+              </tr>
+              <tr>
+                <th scope="row">Description</th>
+                <td>{{ serviceInfo?.description || "n/a" }}</td>
+              </tr>
+              <tr>
+                <th scope="row">Image</th>
+                <td>{{ serviceInfo?.image || serviceSpec?.image || "n/a" }}</td>
+              </tr>
+              <tr v-if="serviceInfo && serviceInfo.repository_url">
+                <th scope="row">Repository</th>
+                <td>
+                  <a
+                    :href="serviceInfo.repository_url"
+                    class="assistant-md-link"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    {{ serviceInfo.repository_url }}
+                  </a>
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">Web Routes</th>
+                <td>
+                  <ul v-if="serviceRoutes.length > 0" class="service-details-tags">
+                    <li v-for="routeItem in serviceRoutes" :key="`${routeItem.domain}-${routeItem.address}-${routeItem.port}`">
+                      {{ routeItem.domain }} ({{ routeItem.address }}:{{ routeItem.port }})
+                    </li>
+                  </ul>
+                  <span v-else>n/a</span>
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">Labels</th>
+                <td>
+                  <ul v-if="customServiceLabels.length > 0" class="event-details">
+                    <li v-for="[key, value] in customServiceLabels" :key="key" class="event-detail">
+                      <span class="event-detail-key">{{ key }}</span>
+                      <code class="event-detail-value">{{ value }}</code>
+                    </li>
+                  </ul>
+                  <span v-else class="meta">No labels.</span>
+                </td>
+              </tr>
+              <tr v-if="dockerServiceLabels.length > 0">
+                <th scope="row">Docker Labels</th>
+                <td>
+                  <ul class="event-details">
+                    <li class="event-detail">
+                      <button
+                        type="button"
+                        class="service-secret-badge status unknown"
+                        :aria-expanded="showDockerLabels ? 'true' : 'false'"
+                        @click="toggleDockerLabels"
+                      >
+                        {{ showDockerLabels ? "Hide" : "Show" }}
+                      </button>
+                    </li>
+                  </ul>
+                  <ul
+                    v-if="showDockerLabels"
+                    class="event-details service-details-docker-tags"
+                  >
+                    <li v-for="[key, value] in dockerServiceLabels" :key="key" class="event-detail">
+                      <span class="event-detail-key">{{ key }}</span>
+                      <code class="event-detail-value">{{ value }}</code>
+                    </li>
+                  </ul>
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">Networks</th>
+                <td>
+                  <ul v-if="serviceNetworkNames.length > 0" class="service-details-tags">
+                    <li v-for="networkName in serviceNetworkNames" :key="networkName">
+                      {{ networkName }}
+                    </li>
+                  </ul>
+                  <span v-else>n/a</span>
+                </td>
+              </tr>
+              <tr>
+                <th scope="row">Secrets</th>
+                <td>
+                  <ul v-if="serviceSecrets.length > 0" class="service-details-tags service-secrets-list">
+                    <li v-for="secret in serviceSecrets" :key="`${secret.secret_name}-${secret.secret_id}`">
+                      <button
+                        type="button"
+                        class="service-secret-badge status unknown"
+                        :disabled="!secret.secret_name"
+                        @click="secret.secret_name && openSecretDetails(secret.secret_name)"
+                      >
+                        {{ secret.secret_name || "n/a" }}
+                      </button>
+                    </li>
+                  </ul>
+                  <span v-else>n/a</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <p v-if="loadingError" class="meta">Warning: {{ loadingError }}</p>
+        </article>
+
+        <article class="stack-card service-realtime-card">
+          <h3 class="stack-title">Realtime</h3>
+          <p v-if="realtimeLoading" class="meta">Loading realtime...</p>
+          <p v-else-if="realtimeError" class="meta">Failed to load realtime: {{ realtimeError }}</p>
+          <p v-else-if="realtime.length === 0" class="meta">No tasks yet.</p>
+          <table v-else class="service-status-summary-table service-realtime-table" aria-label="Service realtime">
+            <thead>
+              <tr><th>ID</th><th>Node Name</th><th>Current State</th><th>Created At</th><th>Updated At</th><th>Error</th></tr>
+            </thead>
+            <tbody>
+              <tr v-for="task in realtime" :key="task.id">
+                <td class="service-realtime-copy-cell">
+                  <button
+                    type="button"
+                    class="service-copy-task-id-button"
+                    :disabled="!task.id"
+                    :aria-label="`Copy task ID ${task.id}`"
+                    title="Copy task ID"
+                    @click="copyTaskID(task.id)"
+                  >
+                    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                      <path
+                        d="M5 1.5A1.5 1.5 0 0 0 3.5 3v7A1.5 1.5 0 0 0 5 11.5h7A1.5 1.5 0 0 0 13.5 10V3A1.5 1.5 0 0 0 12 1.5H5Zm0 1h7a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-.5.5H5a.5.5 0 0 1-.5-.5V3a.5.5 0 0 1 .5-.5Z"
+                        fill="currentColor"
+                      />
+                      <path
+                        d="M2 4.5a.5.5 0 0 1 .5.5V12A1.5 1.5 0 0 0 4 13.5h7a.5.5 0 0 1 0 1H4A2.5 2.5 0 0 1 1.5 12V5a.5.5 0 0 1 .5-.5Z"
+                        fill="currentColor"
+                      />
+                    </svg>
+                  </button>
+                </td>
+                <td><code>{{ task.node_name || task.node || 'n/a' }}</code></td>
+                <td>{{ task.current_state || 'n/a' }}</td>
+                <td>{{ formatDate(task.created_at) }}</td>
+                <td>{{ formatDate(task.updated_at) }}</td>
+                <td>{{ task.error || 'n/a' }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </article>
+      </div>
 
       <div class="service-details-side">
         <article class="stack-card service-resources-card">
@@ -379,26 +450,6 @@ watch(
         </article>
 
 
-
-        <article class="stack-card service-realtime-card">
-          <h3 class="stack-title">Realtime</h3>
-          <p v-if="realtimeLoading" class="meta">Loading realtime...</p>
-          <p v-else-if="realtimeError" class="meta">Failed to load realtime: {{ realtimeError }}</p>
-          <p v-else-if="realtime.length === 0" class="meta">No tasks yet.</p>
-          <table v-else class="service-status-summary-table" aria-label="Service realtime">
-            <thead>
-              <tr><th>ID</th><th>Node</th><th>Current State</th><th>Error</th></tr>
-            </thead>
-            <tbody>
-              <tr v-for="task in realtime" :key="task.id">
-                <td><code>{{ task.id }}</code></td>
-                <td><code>{{ task.node || 'n/a' }}</code></td>
-                <td>{{ task.current_state || 'n/a' }}</td>
-                <td>{{ task.error || 'n/a' }}</td>
-              </tr>
-            </tbody>
-          </table>
-        </article>
 
         <article class="stack-card service-deployments-card">
           <h3 class="stack-title">Latest deployments</h3>

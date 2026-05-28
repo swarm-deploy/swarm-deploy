@@ -235,6 +235,13 @@ button:hover,
   align-items: start;
 }
 
+.service-details-main {
+  display: grid;
+  gap: 12px;
+  align-content: start;
+  min-width: 0;
+}
+
 .service-details-card {
   min-width: 0;
 }
@@ -1018,6 +1025,73 @@ button:hover,
 .service-status-summary-table td {
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.service-realtime-table th {
+  width: auto;
+}
+
+.service-realtime-table th:nth-child(1),
+.service-realtime-table td:nth-child(1) {
+  width: 56px;
+  text-align: center;
+}
+
+.service-realtime-table th:nth-child(2),
+.service-realtime-table td:nth-child(2) {
+  width: 18%;
+}
+
+.service-realtime-table th:nth-child(3),
+.service-realtime-table td:nth-child(3) {
+  width: 14%;
+}
+
+.service-realtime-table th:nth-child(4),
+.service-realtime-table td:nth-child(4) {
+  width: 14%;
+}
+
+.service-realtime-table th:nth-child(5),
+.service-realtime-table td:nth-child(5) {
+  width: 14%;
+}
+
+.service-realtime-table th:nth-child(6),
+.service-realtime-table td:nth-child(6) {
+  width: 40%;
+}
+
+.service-realtime-copy-cell {
+  white-space: nowrap;
+}
+
+.service-copy-task-id-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  color: var(--text);
+  background: rgba(161, 192, 204, 0.12);
+  border: 1px solid rgba(161, 192, 204, 0.3);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.service-copy-task-id-button:hover {
+  background: rgba(161, 192, 204, 0.2);
+}
+
+.service-copy-task-id-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.service-copy-task-id-button svg {
+  width: 14px;
+  height: 14px;
 }
 
 .service-status-link-panel {

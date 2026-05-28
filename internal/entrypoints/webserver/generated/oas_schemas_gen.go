@@ -1948,10 +1948,13 @@ func (s *ServiceRealtimeResponse) SetTasks(val []ServiceRealtimeTask) {
 
 // Ref: #/components/schemas/ServiceRealtimeTask
 type ServiceRealtimeTask struct {
-	ID           string    `json:"id"`
-	Node         string    `json:"node"`
-	CurrentState string    `json:"current_state"`
-	Error        OptString `json:"error"`
+	ID           string      `json:"id"`
+	Node         string      `json:"node"`
+	NodeName     OptString   `json:"node_name"`
+	CreatedAt    OptDateTime `json:"created_at"`
+	UpdatedAt    OptDateTime `json:"updated_at"`
+	CurrentState string      `json:"current_state"`
+	Error        OptString   `json:"error"`
 }
 
 // GetID returns the value of ID.
@@ -1962,6 +1965,21 @@ func (s *ServiceRealtimeTask) GetID() string {
 // GetNode returns the value of Node.
 func (s *ServiceRealtimeTask) GetNode() string {
 	return s.Node
+}
+
+// GetNodeName returns the value of NodeName.
+func (s *ServiceRealtimeTask) GetNodeName() OptString {
+	return s.NodeName
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *ServiceRealtimeTask) GetCreatedAt() OptDateTime {
+	return s.CreatedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *ServiceRealtimeTask) GetUpdatedAt() OptDateTime {
+	return s.UpdatedAt
 }
 
 // GetCurrentState returns the value of CurrentState.
@@ -1982,6 +2000,21 @@ func (s *ServiceRealtimeTask) SetID(val string) {
 // SetNode sets the value of Node.
 func (s *ServiceRealtimeTask) SetNode(val string) {
 	s.Node = val
+}
+
+// SetNodeName sets the value of NodeName.
+func (s *ServiceRealtimeTask) SetNodeName(val OptString) {
+	s.NodeName = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *ServiceRealtimeTask) SetCreatedAt(val OptDateTime) {
+	s.CreatedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *ServiceRealtimeTask) SetUpdatedAt(val OptDateTime) {
+	s.UpdatedAt = val
 }
 
 // SetCurrentState sets the value of CurrentState.

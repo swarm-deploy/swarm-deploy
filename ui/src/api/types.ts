@@ -115,6 +115,9 @@ export interface ServiceStatusResponse {
 export interface ServiceRealtimeTask {
   id: string;
   node: string;
+  node_name?: string;
+  created_at?: string;
+  updated_at?: string;
   current_state: string;
   error?: string;
 }

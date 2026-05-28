@@ -25,6 +25,10 @@ type ServiceTask struct {
 	ID string
 	// Node is a task node identifier.
 	Node string
+	// CreatedAt is task creation timestamp from Docker Swarm.
+	CreatedAt time.Time
+	// UpdatedAt is task last update timestamp from Docker Swarm.
+	UpdatedAt time.Time
 	// CurrentState is a current task state in docker status format.
 	CurrentState string
 	// Error is a task runtime error.

@@ -612,6 +612,14 @@ components:
           type: string
         node:
           type: string
+        node_name:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
         current_state:
           type: string
         error:

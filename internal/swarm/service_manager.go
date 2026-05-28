@@ -147,6 +147,8 @@ func (m *ServiceManager) ListTasks(ctx context.Context, serviceRef ServiceRefere
 		out = append(out, ServiceTask{
 			ID:           task.ID,
 			Node:         task.NodeID,
+			CreatedAt:    task.CreatedAt,
+			UpdatedAt:    task.UpdatedAt,
 			CurrentState: string(task.Status.State),
 			Error:        task.Status.Err,
 		})
