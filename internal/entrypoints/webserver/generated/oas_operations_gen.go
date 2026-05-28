@@ -10,6 +10,7 @@ const (
 	GetCurrentUserOperation         OperationName = "GetCurrentUser"
 	GetGitCommitOperation           OperationName = "GetGitCommit"
 	GetSecretByNameOperation        OperationName = "GetSecretByName"
+	GetServiceRealtimeOperation     OperationName = "GetServiceRealtime"
 	GetServiceStatusOperation       OperationName = "GetServiceStatus"
 	ListEventsOperation             OperationName = "ListEvents"
 	ListNetworksOperation           OperationName = "ListNetworks"

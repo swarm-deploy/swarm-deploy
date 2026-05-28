@@ -1,5 +1,7 @@
 # swarm-deploy
 
+![Docker Pulls](https://img.shields.io/docker/pulls/swarmdeployorg/swarm-deploy)
+
 GitOps controller for Docker Swarm with an ArgoCD-inspired, but Swarm-native, configuration style.
 
 [Wizard for easy configuration](https://swarm-deploy.github.io/swarm-deploy/docs/configurator/)
@@ -18,6 +20,7 @@ GitOps controller for Docker Swarm with an ArgoCD-inspired, but Swarm-native, co
 - Pruning of orphaned managed services removed from desired compose (`org.swarm-deploy.service.managed=true`).
 - GitOps reconciliation for Docker networks from `networks.file` with managed label `org.swarm-deploy.network.managed=true`.
 - UI and API are served by a single web server on `web.address`.
+- Service Realtime page with task snapshot (node hostname, state, created/updated timestamps, and task ID).
 - HTTP Basic authentication for UI and API via `web.security.authentication.basic.htpasswdFile`.
 - [Event History & Audit](./docs/event-history.md)
 - [Notification hooks for successful and failed deployments](./docs/notifications.md)

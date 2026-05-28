@@ -171,6 +171,36 @@ func (m *ServiceManager) GetStatus(ctx context.Context, serviceRef ServiceRefere
 	}, nil
 }
 
+// ListTasks returns service tasks for realtime container status rendering.
+func (m *ServiceManager) ListTasks(ctx context.Context, serviceRef ServiceReference) ([]ServiceTask, error) {
+	fullServiceName := serviceRef.Name()
+
+	tasks, err := m.dockerClient.TaskList(ctx, dockerswarm.TaskListOptions{
+		Filters: filters.NewArgs(filters.Arg("service", fullServiceName)),
+	})
+	if err != nil {
+		if isNotFoundErr(err) {
+			return nil, ErrServiceNotFound
+		}
+
+		return nil, fmt.Errorf("list tasks for service %s: %w", fullServiceName, err)
+	}
+
+	out := make([]ServiceTask, 0, len(tasks))
+	for _, task := range tasks {
+		out = append(out, ServiceTask{
+			ID:           task.ID,
+			Node:         task.NodeID,
+			CreatedAt:    task.CreatedAt,
+			UpdatedAt:    task.UpdatedAt,
+			CurrentState: string(task.Status.State),
+			Error:        task.Status.Err,
+		})
+	}
+
+	return out, nil
+}
+
 // Get returns full compact service projection for a stack service.
 func (m *ServiceManager) Get(ctx context.Context, serviceRef ServiceReference) (Service, error) {
 	service, _, err := m.inspect(ctx, serviceRef)

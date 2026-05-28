@@ -112,6 +112,20 @@ export interface ServiceStatusResponse {
   spec: ServiceSpecResponse;
 }
 
+export interface ServiceRealtimeTask {
+  id: string;
+  node: string;
+  node_name?: string;
+  created_at?: string;
+  updated_at?: string;
+  current_state: string;
+  error?: string;
+}
+
+export interface ServiceRealtimeResponse {
+  tasks: ServiceRealtimeTask[];
+}
+
 export type ServiceDeploymentStatus = "success" | "failed";
 
 export interface ServiceDeploymentResponse {

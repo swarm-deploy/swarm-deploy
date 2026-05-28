@@ -88,7 +88,7 @@ func (d *Deployer) runInitJobs(ctx context.Context, stackName string, services [
 			err := d.initJobRunner.Run(ctx, InitJobSpec{
 				StackName:      stackName,
 				ServiceName:    service.Name,
-				DefaultNetwork: service.Networks,
+				DefaultNetwork: service.Networks.GetNames(),
 				ServiceSecrets: service.Secrets,
 				ServiceConfigs: service.Configs,
 				Job:            job,
