@@ -13,6 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
+	events "github.com/docker/docker/api/types/events"
 	swarm "github.com/docker/docker/api/types/swarm"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -310,4 +311,59 @@ func (m *MockNetworkManager) List(ctx context.Context) ([]Network, error) {
 func (mr *MockNetworkManagerMockRecorder) List(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockNetworkManager)(nil).List), ctx)
+}
+
+// MockNodeManager is a mock of NodeManager interface.
+type MockNodeManager struct {
+	ctrl     *gomock.Controller
+	recorder *MockNodeManagerMockRecorder
+	isgomock struct{}
+}
+
+// MockNodeManagerMockRecorder is the mock recorder for MockNodeManager.
+type MockNodeManagerMockRecorder struct {
+	mock *MockNodeManager
+}
+
+// NewMockNodeManager creates a new mock instance.
+func NewMockNodeManager(ctrl *gomock.Controller) *MockNodeManager {
+	mock := &MockNodeManager{ctrl: ctrl}
+	mock.recorder = &MockNodeManagerMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockNodeManager) EXPECT() *MockNodeManagerMockRecorder {
+	return m.recorder
+}
+
+// List mocks base method.
+func (m *MockNodeManager) List(ctx context.Context) ([]Node, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "List", ctx)
+	ret0, _ := ret[0].([]Node)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// List indicates an expected call of List.
+func (mr *MockNodeManagerMockRecorder) List(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockNodeManager)(nil).List), ctx)
+}
+
+// Watch mocks base method.
+func (m *MockNodeManager) Watch(ctx context.Context) (<-chan events.Message, <-chan error, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Watch", ctx)
+	ret0, _ := ret[0].(<-chan events.Message)
+	ret1, _ := ret[1].(<-chan error)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// Watch indicates an expected call of Watch.
+func (mr *MockNodeManagerMockRecorder) Watch(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Watch", reflect.TypeOf((*MockNodeManager)(nil).Watch), ctx)
 }

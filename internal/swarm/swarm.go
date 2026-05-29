@@ -10,7 +10,7 @@ type Swarm struct {
 	// Configs manages Docker swarm configs.
 	Configs *ConfigManager
 	// Nodes manages Docker swarm nodes.
-	Nodes *NodeManager
+	Nodes NodeManager
 	// Networks manages Docker networks.
 	Networks NetworkManager
 	// Plugins manages Docker plugins.

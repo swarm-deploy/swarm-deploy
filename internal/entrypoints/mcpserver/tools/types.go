@@ -30,12 +30,6 @@ type NodesReader interface {
 	List() []swarm.Node
 }
 
-// NetworkReader reads current Docker networks snapshot.
-type NetworkReader interface {
-	// List returns current Docker networks snapshot.
-	List(ctx context.Context) ([]swarm.Network, error)
-}
-
 // PluginReader reads current Docker plugins snapshot.
 type PluginReader interface {
 	// List returns current Docker plugins snapshot.

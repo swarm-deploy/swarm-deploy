@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"time"
 
-	dockerevents "github.com/docker/docker/api/types/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
@@ -15,22 +14,14 @@ const defaultCollectorReconnectDelay = 5 * time.Second
 
 // Collector collects and persists swarm nodes snapshot.
 type Collector struct {
-	inspector inspector
+	inspector swarm.NodeManager
 	store     *Store
 
 	reconnectDelay time.Duration
 }
 
-// inspector inspects nodes and watches docker node events.
-type inspector interface {
-	// List returns current swarm nodes snapshot.
-	List(ctx context.Context) ([]swarm.Node, error)
-	// Watch subscribes to Docker node events stream.
-	Watch(ctx context.Context) (<-chan dockerevents.Message, <-chan error, error)
-}
-
 // NewNodeCollector creates node collector.
-func NewNodeCollector(inspector inspector, store *Store) *Collector {
+func NewNodeCollector(inspector swarm.NodeManager, store *Store) *Collector {
 	return &Collector{
 		inspector:      inspector,
 		store:          store,

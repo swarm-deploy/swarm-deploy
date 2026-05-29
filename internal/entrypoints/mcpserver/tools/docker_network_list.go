@@ -10,11 +10,11 @@ import (
 
 // DockerNetworkList returns current Docker networks snapshot.
 type DockerNetworkList struct {
-	reader NetworkReader
+	reader swarm.NetworkManager
 }
 
 // NewDockerNetworkList creates docker_network_list component.
-func NewDockerNetworkList(networkReader NetworkReader) *DockerNetworkList {
+func NewDockerNetworkList(networkReader swarm.NetworkManager) *DockerNetworkList {
 	return &DockerNetworkList{
 		reader: networkReader,
 	}

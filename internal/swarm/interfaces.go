@@ -4,6 +4,7 @@ package swarm
 import (
 	"context"
 
+	dockerevents "github.com/docker/docker/api/types/events"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 )
 
@@ -54,4 +55,12 @@ type NetworkManager interface {
 	List(ctx context.Context) ([]Network, error)
 
 	Create(ctx context.Context, req CreateNetworkRequest) (string, error)
+}
+
+type NodeManager interface {
+	// List returns current Docker Swarm nodes snapshot.
+	List(ctx context.Context) ([]Node, error)
+
+	// Watch subscribes to Docker node events stream.
+	Watch(ctx context.Context) (<-chan dockerevents.Message, <-chan error, error)
 }
