@@ -17,6 +17,10 @@ type Labels struct {
 }
 
 func (e *Labels) Add(key, value string) bool {
+	if e.Map == nil {
+		e.Map = make(map[string]string)
+	}
+
 	_, present := e.Map[key]
 
 	e.Map[key] = value

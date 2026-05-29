@@ -24,7 +24,7 @@ func (r *stackReconciler) addManagedLabel(file *compose.File, _ string) (bool, e
 	changed := false
 
 	for _, service := range file.Compose.Services {
-		present := service.Labels.Add(serviceManagedLabel, "true")
+		present := service.Deploy.Labels.Add(serviceManagedLabel, "true")
 		if !present {
 			changed = true
 		}
