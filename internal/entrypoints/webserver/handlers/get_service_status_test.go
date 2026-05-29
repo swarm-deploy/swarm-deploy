@@ -12,45 +12,28 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.uber.org/mock/gomock"
 )
-
-type fakeServiceStatusInspector struct {
-	status swarm.ServiceStatus
-	tasks  []swarm.ServiceTask
-	err    error
-}
-
-func (f fakeServiceStatusInspector) GetStatus(context.Context, swarm.ServiceReference) (swarm.ServiceStatus, error) {
-	if f.err != nil {
-		return swarm.ServiceStatus{}, f.err
-	}
-
-	return f.status, nil
-}
-
-func (f fakeServiceStatusInspector) ListTasks(context.Context, swarm.ServiceReference) ([]swarm.ServiceTask, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-
-	return f.tasks, nil
-}
 
 func TestHandlerGetServiceStatus(t *testing.T) {
 	t.Parallel()
 
+	ctrl := gomock.NewController(t)
+	serviceInspector := swarm.NewMockServiceManager(ctrl)
 	h := &handler{
-		serviceInspector: fakeServiceStatusInspector{
-			status: swarm.ServiceStatus{
-				Stack:   "payments",
-				Service: "api",
-				Spec: swarm.ServiceSpec{
-					Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
-					Mode:  "replicated",
-				},
-			},
-		},
+		serviceInspector: serviceInspector,
 	}
+
+	serviceInspector.EXPECT().
+		GetStatus(gomock.Any(), swarm.NewServiceReference("payments", "api")).
+		Return(swarm.ServiceStatus{
+			Stack:   "payments",
+			Service: "api",
+			Spec: swarm.ServiceSpec{
+				Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
+				Mode:  "replicated",
+			},
+		}, nil)
 
 	resp, err := h.GetServiceStatus(context.Background(), generated.GetServiceStatusParams{
 		Stack:   "payments",
@@ -69,23 +52,27 @@ func TestHandlerGetServiceStatus(t *testing.T) {
 func TestHandlerGetServiceStatus_MapsGroupedLabels(t *testing.T) {
 	t.Parallel()
 
+	ctrl := gomock.NewController(t)
+	serviceInspector := swarm.NewMockServiceManager(ctrl)
 	h := &handler{
-		serviceInspector: fakeServiceStatusInspector{
-			status: swarm.ServiceStatus{
-				Stack:   "payments",
-				Service: "api",
-				Spec: swarm.ServiceSpec{
-					Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
-					Mode:  "replicated",
-					Labels: map[string]string{
-						"com.docker.stack.namespace": "payments",
-						"com.docker.service.name":    "payments_api",
-						"app.env":                    "prod",
-					},
+		serviceInspector: serviceInspector,
+	}
+
+	serviceInspector.EXPECT().
+		GetStatus(gomock.Any(), swarm.NewServiceReference("payments", "api")).
+		Return(swarm.ServiceStatus{
+			Stack:   "payments",
+			Service: "api",
+			Spec: swarm.ServiceSpec{
+				Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
+				Mode:  "replicated",
+				Labels: map[string]string{
+					"com.docker.stack.namespace": "payments",
+					"com.docker.service.name":    "payments_api",
+					"app.env":                    "prod",
 				},
 			},
-		},
-	}
+		}, nil)
 
 	resp, err := h.GetServiceStatus(context.Background(), generated.GetServiceStatusParams{
 		Stack:   "payments",
@@ -135,19 +122,23 @@ func TestHandlerListServiceDeployments_MapsFromHistory(t *testing.T) {
 		Commit:    "other-stack",
 	}))
 
+	ctrl := gomock.NewController(t)
+	serviceInspector := swarm.NewMockServiceManager(ctrl)
 	h := &handler{
-		serviceInspector: fakeServiceStatusInspector{
-			status: swarm.ServiceStatus{
-				Stack:   "payments",
-				Service: "api",
-				Spec: swarm.ServiceSpec{
-					Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
-					Mode:  "replicated",
-				},
-			},
-		},
-		history: store,
+		serviceInspector: serviceInspector,
+		history:          store,
 	}
+
+	serviceInspector.EXPECT().
+		GetStatus(gomock.Any(), swarm.NewServiceReference("payments", "api")).
+		Return(swarm.ServiceStatus{
+			Stack:   "payments",
+			Service: "api",
+			Spec: swarm.ServiceSpec{
+				Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
+				Mode:  "replicated",
+			},
+		}, nil)
 
 	resp, err := h.ListServiceDeployments(context.Background(), generated.ListServiceDeploymentsParams{
 		Stack:   "payments",
@@ -172,18 +163,22 @@ func TestHandlerListServiceDeployments_MapsFromHistory(t *testing.T) {
 func TestHandlerListServiceDeployments_NoHistoryReturnsEmpty(t *testing.T) {
 	t.Parallel()
 
+	ctrl := gomock.NewController(t)
+	serviceInspector := swarm.NewMockServiceManager(ctrl)
 	h := &handler{
-		serviceInspector: fakeServiceStatusInspector{
-			status: swarm.ServiceStatus{
-				Stack:   "payments",
-				Service: "api",
-				Spec: swarm.ServiceSpec{
-					Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
-					Mode:  "replicated",
-				},
-			},
-		},
+		serviceInspector: serviceInspector,
 	}
+
+	serviceInspector.EXPECT().
+		GetStatus(gomock.Any(), swarm.NewServiceReference("payments", "api")).
+		Return(swarm.ServiceStatus{
+			Stack:   "payments",
+			Service: "api",
+			Spec: swarm.ServiceSpec{
+				Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
+				Mode:  "replicated",
+			},
+		}, nil)
 
 	resp, err := h.ListServiceDeployments(context.Background(), generated.ListServiceDeploymentsParams{
 		Stack:   "payments",
@@ -211,19 +206,23 @@ func TestHandlerListServiceDeployments_RespectsLimitParam(t *testing.T) {
 		Error:     errors.New("boom"),
 	}))
 
+	ctrl := gomock.NewController(t)
+	serviceInspector := swarm.NewMockServiceManager(ctrl)
 	h := &handler{
-		serviceInspector: fakeServiceStatusInspector{
-			status: swarm.ServiceStatus{
-				Stack:   "payments",
-				Service: "api",
-				Spec: swarm.ServiceSpec{
-					Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
-					Mode:  "replicated",
-				},
-			},
-		},
-		history: store,
+		serviceInspector: serviceInspector,
+		history:          store,
 	}
+
+	serviceInspector.EXPECT().
+		GetStatus(gomock.Any(), swarm.NewServiceReference("payments", "api")).
+		Return(swarm.ServiceStatus{
+			Stack:   "payments",
+			Service: "api",
+			Spec: swarm.ServiceSpec{
+				Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
+				Mode:  "replicated",
+			},
+		}, nil)
 
 	resp, err := h.ListServiceDeployments(context.Background(), generated.ListServiceDeploymentsParams{
 		Stack:   "payments",
@@ -239,11 +238,15 @@ func TestHandlerListServiceDeployments_RespectsLimitParam(t *testing.T) {
 func TestHandlerListServiceDeployments_NotFound(t *testing.T) {
 	t.Parallel()
 
+	ctrl := gomock.NewController(t)
+	serviceInspector := swarm.NewMockServiceManager(ctrl)
 	h := &handler{
-		serviceInspector: fakeServiceStatusInspector{
-			err: swarm.ErrServiceNotFound,
-		},
+		serviceInspector: serviceInspector,
 	}
+
+	serviceInspector.EXPECT().
+		GetStatus(gomock.Any(), swarm.NewServiceReference("payments", "api")).
+		Return(swarm.ServiceStatus{}, swarm.ErrServiceNotFound)
 
 	_, err := h.ListServiceDeployments(context.Background(), generated.ListServiceDeploymentsParams{
 		Stack:   "payments",

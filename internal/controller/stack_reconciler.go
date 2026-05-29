@@ -11,16 +11,9 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
-
-const (
-	managedServiceLabelKey         = "org.swarm-deploy.service.managed"
-	managedServiceLabelValue       = "true"
-	serviceSyncPolicyPruneLabelKey = "org.swarm-deploy.service.sync.policy.prune"
-)
-
-const serviceManagedLabel = "org.swarm-deploy.service.managed"
 
 type stackReconcileResult struct {
 	SourceDigest   string
@@ -127,7 +120,7 @@ func (r *stackReconciler) Reconcile(
 }
 
 func isManagedService(labels map[string]string) bool {
-	return strings.TrimSpace(labels[managedServiceLabelKey]) == managedServiceLabelValue
+	return strings.TrimSpace(labels[labelsdict.ServiceManagedLabelKey]) == labelsdict.ServiceManagedLabelValue
 }
 
 func (r *stackReconciler) writeRenderedCompose(stackName string, stackFile *compose.File) (string, error) {

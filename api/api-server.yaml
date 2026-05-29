@@ -496,11 +496,13 @@ components:
         type: string
     GitCommitDetailsResponse:
       type: object
-      required: [full_hash, author, date, changed_files]
+      required: [full_hash, author, message, date, changed_files]
       properties:
         full_hash:
           type: string
         author:
+          type: string
+        message:
           type: string
         date:
           type: string

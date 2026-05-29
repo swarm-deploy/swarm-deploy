@@ -10,16 +10,38 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.uber.org/mock/gomock"
 )
 
 func TestGetServiceSpecExecute(t *testing.T) {
 	createdAt := time.Date(2026, time.April, 19, 10, 12, 45, 0, time.UTC)
 	updatedAt := createdAt.Add(2 * time.Minute)
-	fakeInspector := &fakeToolServiceSpecInspector{
-		service: swarm.Service{
-			ID:        "service-id-1",
-			CreatedAt: createdAt,
-			UpdatedAt: updatedAt,
+	ctrl := gomock.NewController(t)
+	specInspector := swarm.NewMockServiceManager(ctrl)
+	tool := NewGetServiceSpec(specInspector)
+
+	expectedService := swarm.Service{
+		ID:        "service-id-1",
+		CreatedAt: createdAt,
+		UpdatedAt: updatedAt,
+		Secrets: []swarm.ServiceSecret{
+			{
+				SecretID:   "secret-id-1",
+				SecretName: "core_db_password",
+				Target:     "/run/secrets/core_db_password",
+			},
+		},
+		Spec: swarm.ServiceSpec{
+			Image:             "ghcr.io/org/api:1.8.4",
+			Mode:              "replicated",
+			Replicas:          3,
+			RequestedRAMBytes: 268435456,
+			RequestedCPUNano:  500000000,
+			LimitRAMBytes:     536870912,
+			LimitCPUNano:      1000000000,
+			Labels: map[string]string{
+				"com.docker.stack.namespace": "core",
+			},
 			Secrets: []swarm.ServiceSecret{
 				{
 					SecretID:   "secret-id-1",
@@ -27,45 +49,28 @@ func TestGetServiceSpecExecute(t *testing.T) {
 					Target:     "/run/secrets/core_db_password",
 				},
 			},
-			Spec: swarm.ServiceSpec{
-				Image:             "ghcr.io/org/api:1.8.4",
-				Mode:              "replicated",
-				Replicas:          3,
-				RequestedRAMBytes: 268435456,
-				RequestedCPUNano:  500000000,
-				LimitRAMBytes:     536870912,
-				LimitCPUNano:      1000000000,
-				Labels: map[string]string{
-					"com.docker.stack.namespace": "core",
+			Network: []swarm.ServiceNetwork{
+				{
+					Target:  "core_default",
+					Aliases: []string{"api"},
 				},
-				Secrets: []swarm.ServiceSecret{
-					{
-						SecretID:   "secret-id-1",
-						SecretName: "core_db_password",
-						Target:     "/run/secrets/core_db_password",
-					},
-				},
-				Network: []swarm.ServiceNetwork{
-					{
-						Target:  "core_default",
-						Aliases: []string{"api"},
-					},
-				},
-			},
-			PreviousSpec: &swarm.ServiceSpec{
-				Image:    "ghcr.io/org/api:1.8.3",
-				Mode:     "replicated",
-				Replicas: 2,
-			},
-			UpdateStatus: &swarm.ServiceUpdateStatus{
-				State:       "completed",
-				StartedAt:   createdAt,
-				CompletedAt: updatedAt,
-				Message:     "update completed",
 			},
 		},
+		PreviousSpec: &swarm.ServiceSpec{
+			Image:    "ghcr.io/org/api:1.8.3",
+			Mode:     "replicated",
+			Replicas: 2,
+		},
+		UpdateStatus: &swarm.ServiceUpdateStatus{
+			State:       "completed",
+			StartedAt:   createdAt,
+			CompletedAt: updatedAt,
+			Message:     "update completed",
+		},
 	}
-	tool := NewGetServiceSpec(fakeInspector)
+	specInspector.EXPECT().
+		Get(gomock.Any(), swarm.NewServiceReference("core", "api")).
+		Return(expectedService, nil)
 
 	response, err := tool.Execute(context.Background(), routing.Request{
 		Payload: getServiceSpecRequest{
@@ -74,9 +79,6 @@ func TestGetServiceSpecExecute(t *testing.T) {
 		},
 	})
 	require.NoError(t, err, "execute service_spec_get")
-	assert.Equal(t, 1, fakeInspector.called, "inspector must be called once")
-	assert.Equal(t, "core", fakeInspector.stackName, "unexpected stack arg")
-	assert.Equal(t, "api", fakeInspector.serviceName, "unexpected service arg")
 
 	var payload struct {
 		StackName   string        `json:"stack_name"`
@@ -101,7 +103,8 @@ func TestGetServiceSpecExecute(t *testing.T) {
 }
 
 func TestGetServiceSpecExecuteRequiresStackName(t *testing.T) {
-	tool := NewGetServiceSpec(&fakeToolServiceSpecInspector{})
+	ctrl := gomock.NewController(t)
+	tool := NewGetServiceSpec(swarm.NewMockServiceManager(ctrl))
 
 	_, err := tool.Execute(context.Background(), routing.Request{
 		Payload: getServiceSpecRequest{
@@ -113,7 +116,8 @@ func TestGetServiceSpecExecuteRequiresStackName(t *testing.T) {
 }
 
 func TestGetServiceSpecExecuteRequiresServiceName(t *testing.T) {
-	tool := NewGetServiceSpec(&fakeToolServiceSpecInspector{})
+	ctrl := gomock.NewController(t)
+	tool := NewGetServiceSpec(swarm.NewMockServiceManager(ctrl))
 
 	_, err := tool.Execute(context.Background(), routing.Request{
 		Payload: getServiceSpecRequest{
@@ -125,9 +129,13 @@ func TestGetServiceSpecExecuteRequiresServiceName(t *testing.T) {
 }
 
 func TestGetServiceSpecExecuteReturnsInspectorError(t *testing.T) {
-	tool := NewGetServiceSpec(&fakeToolServiceSpecInspector{
-		err: assert.AnError,
-	})
+	ctrl := gomock.NewController(t)
+	specInspector := swarm.NewMockServiceManager(ctrl)
+	tool := NewGetServiceSpec(specInspector)
+
+	specInspector.EXPECT().
+		Get(gomock.Any(), swarm.NewServiceReference("core", "api")).
+		Return(swarm.Service{}, assert.AnError)
 
 	_, err := tool.Execute(context.Background(), routing.Request{
 		Payload: getServiceSpecRequest{
@@ -137,27 +145,4 @@ func TestGetServiceSpecExecuteReturnsInspectorError(t *testing.T) {
 	})
 	require.Error(t, err, "expected inspector error")
 	assert.ErrorIs(t, err, assert.AnError, "unexpected inspector error")
-}
-
-type fakeToolServiceSpecInspector struct {
-	service swarm.Service
-	err     error
-
-	called      int
-	stackName   string
-	serviceName string
-}
-
-func (f *fakeToolServiceSpecInspector) Get(
-	_ context.Context,
-	serviceRef swarm.ServiceReference,
-) (swarm.Service, error) {
-	f.called++
-	f.stackName = serviceRef.StackName()
-	f.serviceName = serviceRef.ServiceName()
-	if f.err != nil {
-		return swarm.Service{}, f.err
-	}
-
-	return f.service, nil
 }

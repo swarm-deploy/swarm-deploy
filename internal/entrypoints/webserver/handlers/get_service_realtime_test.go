@@ -9,6 +9,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/mock/gomock"
+
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/node"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -26,20 +28,24 @@ func TestHandlerGetServiceRealtime_MapsNodeHostname(t *testing.T) {
 		},
 	}))
 
+	ctrl := gomock.NewController(t)
+	serviceInspector := swarm.NewMockServiceManager(ctrl)
 	h := &handler{
-		serviceInspector: fakeServiceStatusInspector{
-			tasks: []swarm.ServiceTask{
-				{
-					ID:           "task-1",
-					Node:         "node-1",
-					CreatedAt:    time.Date(2026, time.May, 29, 9, 0, 0, 0, time.UTC),
-					UpdatedAt:    time.Date(2026, time.May, 29, 9, 1, 0, 0, time.UTC),
-					CurrentState: "running",
-				},
-			},
-		},
-		nodes: nodeStore,
+		serviceInspector: serviceInspector,
+		nodes:            nodeStore,
 	}
+
+	serviceInspector.EXPECT().
+		ListTasks(gomock.Any(), swarm.NewServiceReference("payments", "api")).
+		Return([]swarm.ServiceTask{
+			{
+				ID:           "task-1",
+				Node:         "node-1",
+				CreatedAt:    time.Date(2026, time.May, 29, 9, 0, 0, 0, time.UTC),
+				UpdatedAt:    time.Date(2026, time.May, 29, 9, 1, 0, 0, time.UTC),
+				CurrentState: "running",
+			},
+		}, nil)
 
 	resp, err := h.GetServiceRealtime(context.Background(), generated.GetServiceRealtimeParams{
 		Stack:   "payments",
@@ -72,18 +78,22 @@ func TestHandlerGetServiceRealtime_LeavesNodeNameEmptyIfNodeIsUnknown(t *testing
 		},
 	}))
 
+	ctrl := gomock.NewController(t)
+	serviceInspector := swarm.NewMockServiceManager(ctrl)
 	h := &handler{
-		serviceInspector: fakeServiceStatusInspector{
-			tasks: []swarm.ServiceTask{
-				{
-					ID:           "task-1",
-					Node:         "node-1",
-					CurrentState: "running",
-				},
-			},
-		},
-		nodes: nodeStore,
+		serviceInspector: serviceInspector,
+		nodes:            nodeStore,
 	}
+
+	serviceInspector.EXPECT().
+		ListTasks(gomock.Any(), swarm.NewServiceReference("payments", "api")).
+		Return([]swarm.ServiceTask{
+			{
+				ID:           "task-1",
+				Node:         "node-1",
+				CurrentState: "running",
+			},
+		}, nil)
 
 	resp, err := h.GetServiceRealtime(context.Background(), generated.GetServiceRealtimeParams{
 		Stack:   "payments",
@@ -100,11 +110,15 @@ func TestHandlerGetServiceRealtime_LeavesNodeNameEmptyIfNodeIsUnknown(t *testing
 func TestHandlerGetServiceRealtime_NotFound(t *testing.T) {
 	t.Parallel()
 
+	ctrl := gomock.NewController(t)
+	serviceInspector := swarm.NewMockServiceManager(ctrl)
 	h := &handler{
-		serviceInspector: fakeServiceStatusInspector{
-			err: swarm.ErrServiceNotFound,
-		},
+		serviceInspector: serviceInspector,
 	}
+
+	serviceInspector.EXPECT().
+		ListTasks(gomock.Any(), swarm.NewServiceReference("payments", "api")).
+		Return(nil, swarm.ErrServiceNotFound)
 
 	_, err := h.GetServiceRealtime(context.Background(), generated.GetServiceRealtimeParams{
 		Stack:   "payments",

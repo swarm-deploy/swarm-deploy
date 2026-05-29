@@ -34,6 +34,7 @@ func (h *handler) GetGitCommit(
 	return &generated.GitCommitDetailsResponse{
 		FullHash:     commitHash,
 		Author:       commit.Author,
+		Message:      commit.Message,
 		Date:         commit.Time,
 		ChangedFiles: commitChangedFiles(commit.Files),
 	}, nil

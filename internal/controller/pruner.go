@@ -8,6 +8,7 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
@@ -79,7 +80,7 @@ func (p *ServicePruner) Prune(
 }
 
 func (p *ServicePruner) resolvePolicy(serviceLabels map[string]string, stackCfg config.StackSpec) bool {
-	if rawValue, exists := serviceLabels[serviceSyncPolicyPruneLabelKey]; exists {
+	if rawValue, exists := serviceLabels[labelsdict.ServiceSyncPolicyPruneLabelKey]; exists {
 		return strings.EqualFold(rawValue, "true")
 	}
 

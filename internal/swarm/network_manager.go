@@ -11,18 +11,18 @@ import (
 )
 
 // NetworkManager reads current Docker networks snapshot.
-type NetworkManager struct {
+type networkManager struct {
 	dockerClient *client.Client
 }
 
-func newNetworkManager(dockerClient *client.Client) *NetworkManager {
-	return &NetworkManager{
+func newNetworkManager(dockerClient *client.Client) NetworkManager {
+	return &networkManager{
 		dockerClient: dockerClient,
 	}
 }
 
 // List returns current Docker networks snapshot.
-func (m *NetworkManager) List(ctx context.Context) ([]Network, error) {
+func (m *networkManager) List(ctx context.Context) ([]Network, error) {
 	networks, err := m.dockerClient.NetworkList(ctx, dockernetwork.ListOptions{
 		Filters: filters.NewArgs(filters.Arg("scope", "swarm")),
 	})
@@ -39,7 +39,7 @@ func (m *NetworkManager) List(ctx context.Context) ([]Network, error) {
 	return mapped, nil
 }
 
-func (m *NetworkManager) Get(ctx context.Context, name string) (Network, error) {
+func (m *networkManager) Get(ctx context.Context, name string) (Network, error) {
 	network, err := m.dockerClient.NetworkInspect(ctx, name, dockernetwork.InspectOptions{})
 	if err != nil {
 		if isNotFoundErr(err) {
@@ -52,7 +52,7 @@ func (m *NetworkManager) Get(ctx context.Context, name string) (Network, error) 
 	return m.mapNetwork(network), nil
 }
 
-func (m *NetworkManager) Create(ctx context.Context, req CreateNetworkRequest) (string, error) {
+func (m *networkManager) Create(ctx context.Context, req CreateNetworkRequest) (string, error) {
 	resp, err := m.dockerClient.NetworkCreate(ctx, req.Name, dockernetwork.CreateOptions{
 		Driver:     req.Driver,
 		Attachable: req.Attachable,
@@ -67,7 +67,7 @@ func (m *NetworkManager) Create(ctx context.Context, req CreateNetworkRequest) (
 	return resp.ID, nil
 }
 
-func (*NetworkManager) mapNetwork(network dockernetwork.Summary) Network {
+func (*networkManager) mapNetwork(network dockernetwork.Summary) Network {
 	return Network{
 		ID:         network.ID,
 		Name:       network.Name,
@@ -81,7 +81,7 @@ func (*NetworkManager) mapNetwork(network dockernetwork.Summary) Network {
 	}
 }
 
-func (*NetworkManager) sortNetworks(networks []Network) {
+func (*networkManager) sortNetworks(networks []Network) {
 	sort.Slice(networks, func(i, j int) bool {
 		return networks[i].Name < networks[j].Name
 	})

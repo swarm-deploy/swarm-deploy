@@ -30,55 +30,16 @@ type NodesReader interface {
 	List() []swarm.Node
 }
 
-// NetworkReader reads current Docker networks snapshot.
-type NetworkReader interface {
-	// List returns current Docker networks snapshot.
-	List(ctx context.Context) ([]swarm.Network, error)
-}
-
 // PluginReader reads current Docker plugins snapshot.
 type PluginReader interface {
 	// List returns current Docker plugins snapshot.
 	List(ctx context.Context) ([]swarm.Plugin, error)
 }
 
-// SecretReader reads current Docker secrets snapshot.
-type SecretReader interface {
-	// List returns current Docker secrets snapshot.
-	List(ctx context.Context) ([]swarm.Secret, error)
-}
-
-// ServiceLogsInspector reads logs of a specific stack service.
-type ServiceLogsInspector interface {
-	// Logs returns recent log lines for the given stack service.
-	Logs(
-		ctx context.Context,
-		serviceRef swarm.ServiceReference,
-		options swarm.ServiceLogsOptions,
-	) ([]string, error)
-}
-
-// ServiceSpecInspector reads compact service spec snapshot for a stack service.
-type ServiceSpecInspector interface {
-	// InspectServiceSpec returns compact service projection for the given stack service.
-	Get(ctx context.Context, serviceRef swarm.ServiceReference) (swarm.Service, error)
-}
-
 // ServicesReader reads current service metadata snapshot.
 type ServicesReader interface {
 	// List returns current services metadata snapshot.
 	List() []service.Info
-}
-
-// ServiceReplicasManager manages replicas for stack services.
-type ServiceReplicasManager interface {
-	// GetReplicas returns current desired service replicas count.
-	GetReplicas(ctx context.Context, serviceRef swarm.ServiceReference) (uint64, error)
-	// Scale sets desired service replicas count.
-	Scale(ctx context.Context, serviceRef swarm.ServiceReference, replicas uint64) error
-	// Restart restarts service by scaling replicas to zero and restoring previous count.
-	// Returned value is the replicas count restored after restart.
-	Restart(ctx context.Context, serviceRef swarm.ServiceReference) (uint64, error)
 }
 
 // DNSResolver resolves DNS names to IP addresses.

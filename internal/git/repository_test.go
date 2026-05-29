@@ -257,6 +257,7 @@ func TestGoGitRepositoryShowReturnsCommitMetadataAndFileDiff(t *testing.T) {
 	require.NoError(t, err, "show commit")
 	assert.Equal(t, "alice", commit.Author, "unexpected commit author")
 	assert.Equal(t, "alice@example.com", commit.AuthorEmail, "unexpected commit author email")
+	assert.Equal(t, "second commit", commit.Message, "unexpected commit message")
 	assert.Equal(t, commitTime.Unix(), commit.Time.Unix(), "unexpected commit author time")
 	require.Len(t, commit.Files, 2, "expected diff by two files")
 

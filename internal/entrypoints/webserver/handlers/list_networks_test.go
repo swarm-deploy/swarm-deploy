@@ -8,43 +8,35 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.uber.org/mock/gomock"
 )
-
-type fakeNetworksReader struct {
-	list []swarm.Network
-	err  error
-}
-
-func (f fakeNetworksReader) List(_ context.Context) ([]swarm.Network, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-
-	return f.list, nil
-}
 
 func TestHandlerListNetworks(t *testing.T) {
 	t.Parallel()
 
+	ctrl := gomock.NewController(t)
+	networksReader := swarm.NewMockNetworkManager(ctrl)
 	h := &handler{
-		networks: fakeNetworksReader{
-			list: []swarm.Network{
-				{
-					ID:         "net-1",
-					Name:       "shared-backend",
-					Scope:      "swarm",
-					Driver:     "overlay",
-					Attachable: true,
-					Labels: map[string]string{
-						"org.swarm-deploy.network.managed": "true",
-					},
-					Options: map[string]string{
-						"encrypted": "true",
-					},
+		networks: networksReader,
+	}
+
+	networksReader.EXPECT().
+		List(gomock.Any()).
+		Return([]swarm.Network{
+			{
+				ID:         "net-1",
+				Name:       "shared-backend",
+				Scope:      "swarm",
+				Driver:     "overlay",
+				Attachable: true,
+				Labels: map[string]string{
+					"org.swarm-deploy.network.managed": "true",
+				},
+				Options: map[string]string{
+					"encrypted": "true",
 				},
 			},
-		},
-	}
+		}, nil)
 
 	resp, err := h.ListNetworks(context.Background())
 	require.NoError(t, err, "list networks")
@@ -63,11 +55,15 @@ func TestHandlerListNetworks(t *testing.T) {
 func TestHandlerListNetworksReturnsReaderError(t *testing.T) {
 	t.Parallel()
 
+	ctrl := gomock.NewController(t)
+	networksReader := swarm.NewMockNetworkManager(ctrl)
 	h := &handler{
-		networks: fakeNetworksReader{
-			err: errors.New("unreachable"),
-		},
+		networks: networksReader,
 	}
+
+	networksReader.EXPECT().
+		List(gomock.Any()).
+		Return(nil, errors.New("unreachable"))
 
 	_, err := h.ListNetworks(context.Background())
 	require.Error(t, err, "expected error")

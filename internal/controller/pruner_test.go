@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -44,12 +45,12 @@ func TestServicePrunerPrune(t *testing.T) {
 				{
 					ID:     "service-api-id",
 					Name:   "api",
-					Labels: map[string]string{managedServiceLabelKey: managedServiceLabelValue},
+					Labels: map[string]string{labelsdict.ServiceManagedLabelKey: labelsdict.ServiceManagedLabelValue},
 				},
 				{
 					ID:     "service-worker-id",
 					Name:   "worker",
-					Labels: map[string]string{managedServiceLabelKey: managedServiceLabelValue},
+					Labels: map[string]string{labelsdict.ServiceManagedLabelKey: labelsdict.ServiceManagedLabelValue},
 				},
 				{
 					ID:     "service-legacy-id",
@@ -71,8 +72,8 @@ func TestServicePrunerPrune(t *testing.T) {
 					ID:   "service-worker-id",
 					Name: "worker",
 					Labels: map[string]string{
-						managedServiceLabelKey:         managedServiceLabelValue,
-						serviceSyncPolicyPruneLabelKey: "false",
+						labelsdict.ServiceManagedLabelKey:         labelsdict.ServiceManagedLabelValue,
+						labelsdict.ServiceSyncPolicyPruneLabelKey: "false",
 					},
 				},
 			},
@@ -93,7 +94,7 @@ func TestServicePrunerPrune(t *testing.T) {
 				{
 					ID:     "service-worker-id",
 					Name:   "worker",
-					Labels: map[string]string{managedServiceLabelKey: managedServiceLabelValue},
+					Labels: map[string]string{labelsdict.ServiceManagedLabelKey: labelsdict.ServiceManagedLabelValue},
 				},
 			},
 			expectedPruned: []string{},
@@ -109,8 +110,8 @@ func TestServicePrunerPrune(t *testing.T) {
 					ID:   "service-worker-id",
 					Name: "worker",
 					Labels: map[string]string{
-						managedServiceLabelKey:         managedServiceLabelValue,
-						serviceSyncPolicyPruneLabelKey: "true",
+						labelsdict.ServiceManagedLabelKey:         labelsdict.ServiceManagedLabelValue,
+						labelsdict.ServiceSyncPolicyPruneLabelKey: "true",
 					},
 				},
 			},
@@ -127,7 +128,7 @@ func TestServicePrunerPrune(t *testing.T) {
 				{
 					ID:     "service-worker-id",
 					Name:   "worker",
-					Labels: map[string]string{managedServiceLabelKey: managedServiceLabelValue},
+					Labels: map[string]string{labelsdict.ServiceManagedLabelKey: labelsdict.ServiceManagedLabelValue},
 				},
 			},
 			removeCalls:    []removeExpectation{{serviceID: "service-worker-id", err: swarm.ErrServiceNotFound}},
@@ -152,7 +153,7 @@ func TestServicePrunerPrune(t *testing.T) {
 				{
 					ID:     "service-worker-id",
 					Name:   "worker",
-					Labels: map[string]string{managedServiceLabelKey: managedServiceLabelValue},
+					Labels: map[string]string{labelsdict.ServiceManagedLabelKey: labelsdict.ServiceManagedLabelValue},
 				},
 			},
 			removeCalls: []removeExpectation{

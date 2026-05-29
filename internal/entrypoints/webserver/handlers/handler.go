@@ -1,8 +1,6 @@
 package handlers
 
 import (
-	"context"
-
 	"github.com/swarm-deploy/swarm-deploy/internal/assistant"
 	"github.com/swarm-deploy/swarm-deploy/internal/controller"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
@@ -13,32 +11,12 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
-// ServiceStatusInspector reads compact status snapshot for a stack service.
-type ServiceStatusInspector interface {
-	// InspectServiceStatus returns compact status snapshot for a stack service.
-	GetStatus(ctx context.Context, serviceRef swarm.ServiceReference) (swarm.ServiceStatus, error)
-	// ListTasks returns service tasks for realtime container status rendering.
-	ListTasks(ctx context.Context, serviceRef swarm.ServiceReference) ([]swarm.ServiceTask, error)
-}
-
-// SecretsReader reads current Docker secrets snapshot.
-type SecretsReader interface {
-	// List returns current Docker secrets snapshot.
-	List(ctx context.Context) ([]swarm.Secret, error)
-}
-
-// NetworksReader reads current Docker networks snapshot.
-type NetworksReader interface {
-	// List returns current Docker networks snapshot.
-	List(ctx context.Context) ([]swarm.Network, error)
-}
-
 type handler struct {
 	generated.UnimplementedHandler
 	control          *controller.Controller
-	serviceInspector ServiceStatusInspector
-	secrets          SecretsReader
-	networks         NetworksReader
+	serviceInspector swarm.ServiceManager
+	secrets          swarm.SecretManager
+	networks         swarm.NetworkManager
 	history          *history.Store
 	services         *service.Store
 	nodes            *swarmnode.Store

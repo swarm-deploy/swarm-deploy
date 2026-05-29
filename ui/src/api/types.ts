@@ -25,6 +25,7 @@ export interface StacksResponse {
 export interface GitCommitDetailsResponse {
   full_hash: string;
   author: string;
+  message: string;
   date: string;
   changed_files: string[];
 }

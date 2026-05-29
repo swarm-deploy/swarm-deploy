@@ -38,7 +38,7 @@ func TestNodeManagerMapNodeMapsFields(t *testing.T) {
 		},
 	}
 
-	mapped := (&NodeManager{}).mapNode(node)
+	mapped := (&nodeManager{}).mapNode(node)
 
 	assert.Equal(t, " node-1 ", mapped.ID, "unexpected id")
 	assert.Equal(t, " manager-1 ", mapped.Hostname, "unexpected hostname")
@@ -57,7 +57,7 @@ func TestNodeManagerMapNodeSetsWorkerManagerStatusForWorkers(t *testing.T) {
 		ID: "node-2",
 	}
 
-	mapped := (&NodeManager{}).mapNode(node)
+	mapped := (&nodeManager{}).mapNode(node)
 
 	assert.Equal(t, NodeManagerStatusWorker, mapped.ManagerStatus, "worker node must have worker managerStatus")
 	assert.Nil(t, mapped.Labels, "worker node without labels must keep labels nil")

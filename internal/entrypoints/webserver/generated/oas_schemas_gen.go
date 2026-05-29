@@ -401,6 +401,7 @@ func (s *EventSeverity) UnmarshalText(data []byte) error {
 type GitCommitDetailsResponse struct {
 	FullHash     string    `json:"full_hash"`
 	Author       string    `json:"author"`
+	Message      string    `json:"message"`
 	Date         time.Time `json:"date"`
 	ChangedFiles []string  `json:"changed_files"`
 }
@@ -413,6 +414,11 @@ func (s *GitCommitDetailsResponse) GetFullHash() string {
 // GetAuthor returns the value of Author.
 func (s *GitCommitDetailsResponse) GetAuthor() string {
 	return s.Author
+}
+
+// GetMessage returns the value of Message.
+func (s *GitCommitDetailsResponse) GetMessage() string {
+	return s.Message
 }
 
 // GetDate returns the value of Date.
@@ -433,6 +439,11 @@ func (s *GitCommitDetailsResponse) SetFullHash(val string) {
 // SetAuthor sets the value of Author.
 func (s *GitCommitDetailsResponse) SetAuthor(val string) {
 	s.Author = val
+}
+
+// SetMessage sets the value of Message.
+func (s *GitCommitDetailsResponse) SetMessage(val string) {
+	s.Message = val
 }
 
 // SetDate sets the value of Date.

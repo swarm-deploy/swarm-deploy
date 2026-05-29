@@ -12,18 +12,18 @@ import (
 )
 
 // NodeManager manages Docker Swarm nodes.
-type NodeManager struct {
+type nodeManager struct {
 	dockerClient *client.Client
 }
 
-func newNodeManager(dockerClient *client.Client) *NodeManager {
-	return &NodeManager{
+func newNodeManager(dockerClient *client.Client) NodeManager {
+	return &nodeManager{
 		dockerClient: dockerClient,
 	}
 }
 
 // List returns current Docker Swarm nodes snapshot.
-func (m *NodeManager) List(ctx context.Context) ([]Node, error) {
+func (m *nodeManager) List(ctx context.Context) ([]Node, error) {
 	nodes, err := m.dockerClient.NodeList(ctx, dockerswarm.NodeListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("list swarm nodes: %w", err)
@@ -39,7 +39,7 @@ func (m *NodeManager) List(ctx context.Context) ([]Node, error) {
 }
 
 // Watch subscribes to Docker node events stream.
-func (m *NodeManager) Watch(
+func (m *nodeManager) Watch(
 	ctx context.Context,
 ) (<-chan dockerevents.Message, <-chan error, error) {
 	eventsFilter := filters.NewArgs(filters.Arg("type", string(dockerevents.NodeEventType)))
@@ -50,7 +50,7 @@ func (m *NodeManager) Watch(
 	return messages, errs, nil
 }
 
-func (*NodeManager) mapNode(node dockerswarm.Node) Node {
+func (*nodeManager) mapNode(node dockerswarm.Node) Node {
 	managerStatus := NodeManagerStatusWorker
 	if node.ManagerStatus != nil {
 		switch {
@@ -73,11 +73,11 @@ func (*NodeManager) mapNode(node dockerswarm.Node) Node {
 		Addr:          node.Status.Addr,
 		CPUNano:       node.Description.Resources.NanoCPUs,
 		MemoryBytes:   node.Description.Resources.MemoryBytes,
-		Labels:        cloneStringMap(node.Spec.Labels),
+		Labels:        node.Spec.Labels,
 	}
 }
 
-func (*NodeManager) sortInfos(nodes []Node) {
+func (*nodeManager) sortInfos(nodes []Node) {
 	sort.Slice(nodes, func(i, j int) bool {
 		return nodes[i].Hostname < nodes[j].Hostname
 	})
