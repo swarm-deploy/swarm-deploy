@@ -280,6 +280,11 @@ func buildAssistantService(
 		metrics.MCP,
 	)
 
+	allowedTools := make([]string, len(cfg.Spec.Assistant.Tools))
+	for i, toolName := range cfg.Spec.Assistant.Tools {
+		allowedTools[i] = string(toolName)
+	}
+
 	return assistant.NewService(assistant.Config{
 		Enabled:                 cfg.Spec.Assistant.Enabled,
 		ModelName:               cfg.Spec.Assistant.Model.Name,
@@ -290,7 +295,7 @@ func buildAssistantService(
 		Temperature:             temperature,
 		MaxTokens:               maxTokens,
 		SystemPrompt:            cfg.Spec.Assistant.SystemPrompt,
-		AllowedTools:            cfg.Spec.Assistant.Tools,
+		AllowedTools:            allowedTools,
 		ConversationInMemoryTTL: cfg.Spec.Assistant.Conversation.Storage.InMemory.TTL.Value,
 	}, serviceStore, toolExecutor, eventDispatcher, metrics.Assistant)
 }

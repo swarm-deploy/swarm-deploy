@@ -299,10 +299,6 @@ func (c *Config) applyAssistantDefaults() {
 		c.Spec.Assistant.Model.EmbeddingName = c.Spec.Assistant.Model.Name
 	}
 
-	for i, tool := range c.Spec.Assistant.Tools {
-		c.Spec.Assistant.Tools[i] = strings.TrimSpace(tool)
-	}
-
 	openaiCfg := &c.Spec.Assistant.Model.OpenAI
 	openaiCfg.BaseURL = strings.TrimSpace(openaiCfg.BaseURL)
 	if openaiCfg.BaseURL == "" {
@@ -773,8 +769,17 @@ func (c *Config) validateAssistant() []error {
 	}
 
 	for i, toolName := range c.Spec.Assistant.Tools {
-		if strings.TrimSpace(toolName) == "" {
+		rawToolName := string(toolName)
+		if rawToolName == "" {
 			errs = append(errs, fmt.Errorf("assistant.tools[%d] must not be empty", i))
+			continue
+		}
+
+		if !AssistantToolName(rawToolName).IsSupported() {
+			errs = append(
+				errs,
+				fmt.Errorf("assistant.tools[%d] has unsupported tool %q", i, rawToolName),
+			)
 		}
 	}
 
