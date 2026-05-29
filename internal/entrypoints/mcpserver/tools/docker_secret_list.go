@@ -10,11 +10,11 @@ import (
 
 // DockerSecretList returns current Docker secrets snapshot.
 type DockerSecretList struct {
-	secrets SecretReader
+	secrets swarm.SecretManager
 }
 
 // NewDockerSecretList creates docker_secret_list component.
-func NewDockerSecretList(secretReader SecretReader) *DockerSecretList {
+func NewDockerSecretList(secretReader swarm.SecretManager) *DockerSecretList {
 	return &DockerSecretList{
 		secrets: secretReader,
 	}

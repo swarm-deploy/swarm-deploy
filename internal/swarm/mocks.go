@@ -13,6 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
+	swarm "github.com/docker/docker/api/types/swarm"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -186,4 +187,58 @@ func (m *MockServiceManager) Scale(ctx context.Context, serviceRef ServiceRefere
 func (mr *MockServiceManagerMockRecorder) Scale(ctx, serviceRef, replicas any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Scale", reflect.TypeOf((*MockServiceManager)(nil).Scale), ctx, serviceRef, replicas)
+}
+
+// MockSecretManager is a mock of SecretManager interface.
+type MockSecretManager struct {
+	ctrl     *gomock.Controller
+	recorder *MockSecretManagerMockRecorder
+	isgomock struct{}
+}
+
+// MockSecretManagerMockRecorder is the mock recorder for MockSecretManager.
+type MockSecretManagerMockRecorder struct {
+	mock *MockSecretManager
+}
+
+// NewMockSecretManager creates a new mock instance.
+func NewMockSecretManager(ctrl *gomock.Controller) *MockSecretManager {
+	mock := &MockSecretManager{ctrl: ctrl}
+	mock.recorder = &MockSecretManagerMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockSecretManager) EXPECT() *MockSecretManagerMockRecorder {
+	return m.recorder
+}
+
+// List mocks base method.
+func (m *MockSecretManager) List(ctx context.Context) ([]Secret, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "List", ctx)
+	ret0, _ := ret[0].([]Secret)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// List indicates an expected call of List.
+func (mr *MockSecretManagerMockRecorder) List(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockSecretManager)(nil).List), ctx)
+}
+
+// ResolveReference mocks base method.
+func (m *MockSecretManager) ResolveReference(ctx context.Context, source, target string) (*swarm.SecretReference, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResolveReference", ctx, source, target)
+	ret0, _ := ret[0].(*swarm.SecretReference)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ResolveReference indicates an expected call of ResolveReference.
+func (mr *MockSecretManagerMockRecorder) ResolveReference(ctx, source, target any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolveReference", reflect.TypeOf((*MockSecretManager)(nil).ResolveReference), ctx, source, target)
 }

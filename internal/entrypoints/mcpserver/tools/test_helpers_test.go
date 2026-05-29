@@ -69,24 +69,6 @@ func (f *fakePluginReader) List(_ context.Context) ([]swarm.Plugin, error) {
 	return out, nil
 }
 
-type fakeSecretInspector struct {
-	secrets []swarm.Secret
-	err     error
-	called  int
-}
-
-func (f *fakeSecretInspector) List(_ context.Context) ([]swarm.Secret, error) {
-	f.called++
-	if f.err != nil {
-		return nil, f.err
-	}
-
-	out := make([]swarm.Secret, len(f.secrets))
-	copy(out, f.secrets)
-
-	return out, nil
-}
-
 type fakeServiceStore struct {
 	services []service.Info
 }

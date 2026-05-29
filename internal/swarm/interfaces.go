@@ -1,7 +1,11 @@
 //go:generate mockgen -source=$GOFILE -destination=mocks.go -package=swarm
 package swarm
 
-import "context"
+import (
+	"context"
+
+	dockerswarm "github.com/docker/docker/api/types/swarm"
+)
 
 type ServiceManager interface {
 	// GetReplicas returns desired replicas count for a stack service.
@@ -33,4 +37,10 @@ type ServiceManager interface {
 
 	// Logs returns recent logs for a stack service.
 	Logs(ctx context.Context, serviceRef ServiceReference, options ServiceLogsOptions) ([]string, error)
+}
+
+type SecretManager interface {
+	List(ctx context.Context) ([]Secret, error)
+
+	ResolveReference(ctx context.Context, source, target string) (*dockerswarm.SecretReference, error)
 }

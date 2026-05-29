@@ -10,11 +10,17 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.uber.org/mock/gomock"
 )
 
 func TestDockerSecretListExecute(t *testing.T) {
-	tool := NewDockerSecretList(&fakeSecretInspector{
-		secrets: []swarm.Secret{
+	ctrl := gomock.NewController(t)
+	secretReader := swarm.NewMockSecretManager(ctrl)
+	tool := NewDockerSecretList(secretReader)
+
+	secretReader.EXPECT().
+		List(gomock.Any()).
+		Return([]swarm.Secret{
 			{
 				ID:     "secret-1",
 				Name:   "db_password",
@@ -23,8 +29,7 @@ func TestDockerSecretListExecute(t *testing.T) {
 					"com.example.team": "platform",
 				},
 			},
-		},
-	})
+		}, nil)
 
 	response, err := tool.Execute(context.Background(), routing.Request{})
 	require.NoError(t, err, "execute docker_secret_list")
@@ -43,9 +48,13 @@ func TestDockerSecretListExecute(t *testing.T) {
 }
 
 func TestDockerSecretListExecuteFailsOnListError(t *testing.T) {
-	tool := NewDockerSecretList(&fakeSecretInspector{
-		err: errors.New("docker unavailable"),
-	})
+	ctrl := gomock.NewController(t)
+	secretReader := swarm.NewMockSecretManager(ctrl)
+	tool := NewDockerSecretList(secretReader)
+
+	secretReader.EXPECT().
+		List(gomock.Any()).
+		Return(nil, errors.New("docker unavailable"))
 
 	_, err := tool.Execute(context.Background(), routing.Request{})
 	require.Error(t, err, "expected execute error")

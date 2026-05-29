@@ -42,12 +42,6 @@ type PluginReader interface {
 	List(ctx context.Context) ([]swarm.Plugin, error)
 }
 
-// SecretReader reads current Docker secrets snapshot.
-type SecretReader interface {
-	// List returns current Docker secrets snapshot.
-	List(ctx context.Context) ([]swarm.Secret, error)
-}
-
 // ServicesReader reads current service metadata snapshot.
 type ServicesReader interface {
 	// List returns current services metadata snapshot.

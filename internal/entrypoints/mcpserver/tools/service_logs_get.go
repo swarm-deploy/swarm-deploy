@@ -86,10 +86,6 @@ func (g *GetServiceLogs) Definition() routing.ToolDefinition {
 
 // Execute runs service_logs_get tool.
 func (g *GetServiceLogs) Execute(ctx context.Context, request routing.Request) (routing.Response, error) {
-	if g.logsInspector == nil {
-		return routing.Response{}, fmt.Errorf("service logs inspector is not configured")
-	}
-
 	parsedRequest, err := convertRequestPayload[getServiceLogsRequest](request.Payload)
 	if err != nil {
 		return routing.Response{}, err

@@ -135,19 +135,6 @@ func TestGetServiceLogsExecuteWithSinceUntil(t *testing.T) {
 	assert.Equal(t, 6, actualOptions.Limit, "unexpected inspector limit")
 }
 
-func TestGetServiceLogsExecuteWithNilInspector(t *testing.T) {
-	tool := NewGetServiceLogs(nil)
-
-	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: getServiceLogsRequest{
-			StackName:   "core",
-			ServiceName: "api",
-		},
-	})
-	require.Error(t, err, "expected nil inspector error")
-	assert.Contains(t, err.Error(), "service logs inspector is not configured", "unexpected error")
-}
-
 func TestGetServiceLogsExecuteRequiresStackName(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	tool := NewGetServiceLogs(swarm.NewMockServiceManager(ctrl))

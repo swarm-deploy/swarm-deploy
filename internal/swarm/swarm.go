@@ -6,7 +6,7 @@ type Swarm struct {
 	// Services manages Docker swarm services.
 	Services ServiceManager
 	// Secrets manages Docker swarm secrets.
-	Secrets *SecretManager
+	Secrets SecretManager
 	// Configs manages Docker swarm configs.
 	Configs *ConfigManager
 	// Nodes manages Docker swarm nodes.
