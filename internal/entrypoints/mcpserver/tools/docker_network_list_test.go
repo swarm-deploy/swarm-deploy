@@ -6,15 +6,21 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/routing"
-	"github.com/artarts36/swarm-deploy/internal/swarm/inspector"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.uber.org/mock/gomock"
 )
 
 func TestDockerNetworkListExecute(t *testing.T) {
-	tool := NewDockerNetworkList(&fakeNetworkInspector{
-		networks: []inspector.NetworkInfo{
+	ctrl := gomock.NewController(t)
+	networkReader := swarm.NewMockNetworkManager(ctrl)
+	tool := NewDockerNetworkList(networkReader)
+
+	networkReader.EXPECT().
+		List(gomock.Any()).
+		Return([]swarm.Network{
 			{
 				Name:       "backend",
 				Scope:      "swarm",
@@ -26,14 +32,13 @@ func TestDockerNetworkListExecute(t *testing.T) {
 					"com.example.team": "platform",
 				},
 			},
-		},
-	})
+		}, nil)
 
 	response, err := tool.Execute(context.Background(), routing.Request{})
 	require.NoError(t, err, "execute docker_network_list")
 
 	var payload struct {
-		Networks []inspector.NetworkInfo `json:"networks"`
+		Networks []swarm.Network `json:"networks"`
 	}
 
 	encoded, err := json.Marshal(response.Payload)
@@ -45,11 +50,15 @@ func TestDockerNetworkListExecute(t *testing.T) {
 }
 
 func TestDockerNetworkListExecuteFailsOnInspectError(t *testing.T) {
-	tool := NewDockerNetworkList(&fakeNetworkInspector{
-		err: errors.New("docker unavailable"),
-	})
+	ctrl := gomock.NewController(t)
+	networkReader := swarm.NewMockNetworkManager(ctrl)
+	tool := NewDockerNetworkList(networkReader)
+
+	networkReader.EXPECT().
+		List(gomock.Any()).
+		Return(nil, errors.New("docker unavailable"))
 
 	_, err := tool.Execute(context.Background(), routing.Request{})
 	require.Error(t, err, "expected execute error")
-	assert.Contains(t, err.Error(), "inspect networks", "unexpected error")
+	assert.Contains(t, err.Error(), "list networks", "unexpected error")
 }

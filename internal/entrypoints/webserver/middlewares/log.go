@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"time"
 
-	api "github.com/artarts36/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/cappuccinotm/slogx/slogm"
 	"github.com/google/uuid"
+	api "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 )
 
 type Log struct {

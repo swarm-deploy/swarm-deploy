@@ -4,19 +4,19 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/routing"
-	"github.com/artarts36/swarm-deploy/internal/swarm/inspector"
+	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 // DockerNetworkList returns current Docker networks snapshot.
 type DockerNetworkList struct {
-	inspector NetworkInspector
+	reader swarm.NetworkManager
 }
 
 // NewDockerNetworkList creates docker_network_list component.
-func NewDockerNetworkList(networkInspector NetworkInspector) *DockerNetworkList {
+func NewDockerNetworkList(networkReader swarm.NetworkManager) *DockerNetworkList {
 	return &DockerNetworkList{
-		inspector: networkInspector,
+		reader: networkReader,
 	}
 }
 
@@ -29,18 +29,19 @@ func (l *DockerNetworkList) Definition() routing.ToolDefinition {
 			"type":       "object",
 			"properties": map[string]any{},
 		},
+		Request: struct{}{},
 	}
 }
 
 // Execute runs docker_network_list tool.
 func (l *DockerNetworkList) Execute(ctx context.Context, _ routing.Request) (routing.Response, error) {
-	networks, err := l.inspector.InspectNetworks(ctx)
+	networks, err := l.reader.List(ctx)
 	if err != nil {
-		return routing.Response{}, fmt.Errorf("inspect networks: %w", err)
+		return routing.Response{}, fmt.Errorf("list networks: %w", err)
 	}
 
 	payload := struct {
-		Networks []inspector.NetworkInfo `json:"networks"`
+		Networks []swarm.Network `json:"networks"`
 	}{
 		Networks: networks,
 	}

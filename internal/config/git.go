@@ -1,12 +1,35 @@
 package config
 
 import (
+	"strings"
 	"errors"
 	"fmt"
 
 	"github.com/artarts36/specw"
 	"gopkg.in/yaml.v3"
 )
+
+// GitAuthType defines supported git authentication type values.
+type GitAuthType string
+
+const (
+	// GitAuthTypeNone disables git authentication.
+	GitAuthTypeNone GitAuthType = "none"
+	// GitAuthTypeHTTP enables HTTP(S) authentication.
+	GitAuthTypeHTTP GitAuthType = "http"
+	// GitAuthTypeSSH enables SSH key authentication.
+	GitAuthTypeSSH GitAuthType = "ssh"
+)
+
+// IsSupported reports whether auth type is one of supported enum values.
+func (t GitAuthType) IsSupported() bool {
+	switch t {
+	case "", GitAuthTypeNone, GitAuthTypeHTTP, GitAuthTypeSSH:
+		return true
+	default:
+		return false
+	}
+}
 
 type GitSpec struct {
 	// Pull contains git repository settings used for read operations.
@@ -36,7 +59,7 @@ type GitPushSpec struct {
 
 type GitAuthSpec struct {
 	// Type is git auth type: none, http, or ssh.
-	Type string `yaml:"type"`
+	Type GitAuthType `yaml:"type"`
 	// HTTP is HTTP(S) basic/token authentication configuration.
 	HTTP GitHTTPAuth `yaml:"http"`
 	// SSH is SSH authentication configuration.
@@ -46,15 +69,10 @@ type GitAuthSpec struct {
 type GitHTTPAuth struct {
 	// Username is HTTP basic auth username.
 	Username string `yaml:"username"`
-	// Password is HTTP basic auth password.
-	//nolint:gosec // Field name is part of a user-facing config schema and does not imply hardcoded secret usage.
-	Password string `yaml:"password"`
-	// PasswordEnv is an env variable name containing HTTP password.
-	PasswordEnv string `yaml:"passwordEnv"`
-	// Token is an HTTP token value used as password.
-	Token string `yaml:"token"`
-	// TokenEnv is an env variable name containing HTTP token.
-	TokenEnv string `yaml:"tokenEnv"`
+	// Password is a path to file containing HTTP basic auth password.
+	Password specw.File `yaml:"passwordPath,omitempty"`
+	// Token is a path to file containing HTTP token used as password.
+	Token specw.File `yaml:"tokenPath,omitempty"`
 }
 
 type GitSSHAuthSpec struct {
@@ -143,17 +161,20 @@ func findYAMLMappingValue(node *yaml.Node, key string) (*yaml.Node, bool) {
 }
 
 func (a GitHTTPAuth) ResolvePassword() string {
-	if a.Token != "" {
-		return a.Token
+	token := strings.TrimSpace(string(a.Token.Content))
+	if token != "" {
+		return token
 	}
-	return a.Password
+
+	return strings.TrimSpace(string(a.Password.Content))
 }
 
 func (a GitHTTPAuth) ResolveUsername() string {
-	if a.Username != "" {
-		return a.Username
+	username := strings.TrimSpace(a.Username)
+	if username != "" {
+		return username
 	}
-	if a.Token != "" || a.TokenEnv != "" {
+	if a.Token.String() != "" {
 		// go-git basic auth requires non-empty username when token is used.
 		return "oauth2"
 	}

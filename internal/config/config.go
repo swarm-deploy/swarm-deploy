@@ -12,7 +12,6 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/artarts36/specw"
-	"github.com/artarts36/swarm-deploy/internal/event/events"
 )
 
 const (
@@ -37,6 +36,10 @@ const (
 	defaultAssistantTemperature             = "0.2"
 	defaultAssistantMaxTokens               = "800"
 	defaultAssistantConversationInMemoryTTL = 1 * time.Hour
+	defaultManagedNetworkDriver             = "overlay"
+
+	managedNetworkLabelKey   = "org.swarm-deploy.network.managed"
+	managedNetworkLabelValue = "true"
 )
 
 type Config struct {
@@ -55,6 +58,10 @@ type Spec struct {
 	StacksSource StacksSourceSpec `yaml:"stacks"`
 	// Stacks is a parsed list of stack specifications loaded from stacks.file.
 	Stacks []StackSpec `yaml:"-"`
+	// NetworksSource contains path to network definitions file inside git repository.
+	NetworksSource NetworksSourceSpec `yaml:"networks"`
+	// Networks is a parsed list of network specifications loaded from networks.file.
+	Networks []NetworkSpec `yaml:"-"`
 	// Notifications contains notification channel configuration.
 	Notifications NotificationSpec `yaml:"notifications"`
 	// Web contains public HTTP server settings.
@@ -88,8 +95,15 @@ type SyncSpec struct {
 	Mode string `yaml:"mode"`
 	// PollInterval is an interval between git pull attempts.
 	PollInterval specw.Duration `yaml:"pollInterval"`
+	// Policy contains synchronization behavior flags.
+	Policy SyncPolicySpec `yaml:"policy"`
 	// Webhook contains webhook sync trigger settings.
 	Webhook WebhookSpec `yaml:"webhook"`
+}
+
+type SyncPolicySpec struct {
+	// Prune enables deletion of orphaned managed services.
+	Prune bool `yaml:"prune"`
 }
 
 type WebhookSpec struct {
@@ -108,67 +122,43 @@ type StacksSourceSpec struct {
 	File string `yaml:"file"`
 }
 
+type NetworksSourceSpec struct {
+	// File is a path to YAML file with network definitions relative to repository root.
+	File string `yaml:"file"`
+}
+
 type StackSpec struct {
 	// Name is a Docker Swarm stack name.
 	Name string `yaml:"name"`
 	// ComposeFile is a path to stack compose file relative to repo root.
 	ComposeFile string `yaml:"composeFile"`
+	// Sync contains stack-specific synchronization options.
+	Sync StackSyncSpec `yaml:"sync"`
 }
 
-type NotificationSpec struct {
-	// On maps event types to notification channels.
-	On map[events.Type]struct {
-		// Telegram is a list of Telegram notification channels.
-		Telegram []TelegramChannel `yaml:"telegram"`
-		// Custom is a list of custom webhook notification channels.
-		Custom []CustomChannel `yaml:"custom"`
-	} `yaml:"on"`
+type StackSyncSpec struct {
+	// Policy contains stack-specific synchronization behavior flags.
+	Policy StackSyncPolicySpec `yaml:"policy"`
 }
 
-type TelegramChannel struct {
-	// Name is a logical channel name used in logs/diagnostics.
+type StackSyncPolicySpec struct {
+	// Prune overrides global prune policy for this stack when specified.
+	Prune *bool `yaml:"prune"`
+}
+
+type NetworkSpec struct {
+	// Name is a Docker network name.
 	Name string `yaml:"name"`
-	// BotToken is a path to file containing Telegram bot token.
-	BotToken specw.File `yaml:"botTokenPath,omitempty"`
-	// ChatID is a target Telegram chat identifier.
-	ChatID string `yaml:"chatId"`
-	// ChatThreadID is an optional topic/thread id inside target chat.
-	ChatThreadID int64 `yaml:"chatThreadId"`
-	// Message is a text/template used for notification rendering.
-	Message string `yaml:"message"`
-}
-
-type CustomChannel struct {
-	// Name is a logical channel name used in logs/diagnostics.
-	Name string `yaml:"name"`
-	// URL is a webhook endpoint URL.
-	URL specw.Env[specw.URL] `yaml:"url"`
-	// Method is an HTTP method for webhook delivery.
-	Method string `yaml:"method"`
-	// Header contains additional HTTP headers for webhook delivery.
-	Header map[string]string `yaml:"header"`
-}
-
-type WebSpec struct {
-	// Address is an HTTP listen address for UI and API server.
-	Address string `yaml:"address"`
-	// Security contains UI and API access settings.
-	Security SecuritySpec `yaml:"security"`
-}
-
-type SecuritySpec struct {
-	// Authentication contains web authentication strategy settings.
-	Authentication AuthenticationSpec `yaml:"authentication"`
-}
-
-type AuthenticationSpec struct {
-	// Basic contains HTTP Basic authentication settings.
-	Basic BasicAuthenticationSpec `yaml:"basic"`
-}
-
-type BasicAuthenticationSpec struct {
-	// HTPasswdFile is a path to htpasswd file with user credentials.
-	HTPasswdFile string `yaml:"htpasswdFile"`
+	// Driver is a Docker network driver (for example: overlay, bridge).
+	Driver string `yaml:"driver"`
+	// Attachable allows standalone containers to attach to the network.
+	Attachable bool `yaml:"attachable"`
+	// Internal marks network as internal-only.
+	Internal bool `yaml:"internal"`
+	// Labels contains custom Docker network labels.
+	Labels map[string]string `yaml:"labels"`
+	// Options contains driver-specific network options.
+	Options map[string]string `yaml:"options"`
 }
 
 type HealthServerSpec struct {
@@ -214,41 +204,11 @@ func (c *Config) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
-func Load(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read config %s: %w", path, err)
-	}
-
-	cfg := &Config{}
-	err = yaml.Unmarshal(data, cfg)
-	if err != nil {
-		return nil, fmt.Errorf("decode config yaml: %w", err)
-	}
-
-	configDir := filepath.Dir(path)
-
-	err = cfg.applyDefaults(configDir)
-	if err != nil {
-		return nil, err
-	}
-	err = cfg.loadStacks(configDir)
-	if err != nil {
-		return nil, err
-	}
-	err = cfg.validate()
-	if err != nil {
-		return nil, err
-	}
-
-	return cfg, nil
-}
-
 func (c *Config) applyDefaults(configDir string) error {
 	c.Spec.DataDir = filepath.Join(configDir, ".swarm-deploy")
 	c.applyGitAndSyncDefaults()
 	c.applyWebAndHealthDefaults()
-	c.applySecurityDefaults(configDir)
+	c.Spec.Notifications.applyDefaults()
 	c.applyAssistantDefaults()
 	c.applySwarmDefaults()
 	c.applySecretRotationDefaults()
@@ -300,13 +260,6 @@ func (c *Config) applyWebAndHealthDefaults() {
 	}
 }
 
-func (c *Config) applySecurityDefaults(configDir string) {
-	htpasswdPath := strings.TrimSpace(c.Spec.Web.Security.Authentication.Basic.HTPasswdFile)
-	if htpasswdPath != "" && !filepath.IsAbs(htpasswdPath) {
-		c.Spec.Web.Security.Authentication.Basic.HTPasswdFile = filepath.Join(configDir, htpasswdPath)
-	}
-}
-
 func (c *Config) applyAssistantDefaults() {
 	c.Spec.Assistant.SystemPrompt = strings.TrimSpace(c.Spec.Assistant.SystemPrompt)
 	c.Spec.Assistant.Model.Name = strings.TrimSpace(c.Spec.Assistant.Model.Name)
@@ -348,7 +301,7 @@ func (c *Config) applySwarmDefaults() {
 		c.Spec.Swarm.Command = "docker"
 	}
 	if len(c.Spec.Swarm.StackDeployArgs) == 0 {
-		c.Spec.Swarm.StackDeployArgs = []string{"stack", "deploy", "--with-registry-auth", "--prune"}
+		c.Spec.Swarm.StackDeployArgs = []string{"stack", "deploy", "--with-registry-auth"}
 	}
 	if c.Spec.Swarm.InitJobPollEvery.Value <= 0 {
 		c.Spec.Swarm.InitJobPollEvery.Value = defaultInitJobPollEvery
@@ -384,6 +337,22 @@ func (c *Config) loadStacks(configDir string) error {
 	return err
 }
 
+func (c *Config) loadNetworks(configDir string) error {
+	if strings.TrimSpace(c.Spec.NetworksSource.File) == "" {
+		c.Spec.Networks = nil
+		return nil
+	}
+
+	_, err := c.ReloadNetworks(filepath.Join(c.Spec.DataDir, "repo"), configDir)
+	if err == nil {
+		return nil
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
 // ReloadStacks reloads stack definitions from the first existing base directory.
 // If stacks.file is absolute, the absolute path is used directly.
 func (c *Config) ReloadStacks(baseDirs ...string) (string, error) {
@@ -402,6 +371,26 @@ func (c *Config) ReloadStacks(baseDirs ...string) (string, error) {
 
 	c.Spec.Stacks = stacks
 	return stacksPath, nil
+}
+
+// ReloadNetworks reloads network definitions from the first existing base directory.
+// If networks.file is absolute, the absolute path is used directly.
+func (c *Config) ReloadNetworks(baseDirs ...string) (string, error) {
+	networksPath, err := c.resolveNetworksPath(baseDirs...)
+	if err != nil {
+		return "", err
+	}
+
+	networks, err := loadNetworksFromFile(networksPath)
+	if err != nil {
+		return "", err
+	}
+	if errs := validateNetworksList(networks); len(errs) > 0 {
+		return "", errors.Join(errs...)
+	}
+
+	c.Spec.Networks = networks
+	return networksPath, nil
 }
 
 func (c *Config) resolveStacksPath(baseDirs ...string) (string, error) {
@@ -443,6 +432,45 @@ func (c *Config) resolveStacksPath(baseDirs ...string) (string, error) {
 	)
 }
 
+func (c *Config) resolveNetworksPath(baseDirs ...string) (string, error) {
+	if c.Spec.NetworksSource.File == "" {
+		return "", errors.New("networks.file is required")
+	}
+
+	if filepath.IsAbs(c.Spec.NetworksSource.File) {
+		return c.Spec.NetworksSource.File, nil
+	}
+
+	var candidates []string
+	for _, baseDir := range baseDirs {
+		if strings.TrimSpace(baseDir) == "" {
+			continue
+		}
+
+		candidate := filepath.Join(baseDir, c.Spec.NetworksSource.File)
+		candidates = append(candidates, candidate)
+
+		_, err := os.Stat(candidate)
+		if err == nil {
+			return candidate, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", fmt.Errorf("stat networks file %s: %w", candidate, err)
+		}
+	}
+
+	if len(candidates) == 0 {
+		return "", errors.New("networks.file is relative and no baseDirs provided")
+	}
+
+	return "", fmt.Errorf(
+		"networks file %s not found in any base dir: %s: %w",
+		c.Spec.NetworksSource.File,
+		strings.Join(candidates, ", "),
+		os.ErrNotExist,
+	)
+}
+
 func loadStacksFromFile(stacksPath string) ([]StackSpec, error) {
 	data, err := os.ReadFile(stacksPath)
 	if err != nil {
@@ -474,15 +502,61 @@ func loadStacksFromFile(stacksPath string) ([]StackSpec, error) {
 	return list, nil
 }
 
+func loadNetworksFromFile(networksPath string) ([]NetworkSpec, error) {
+	data, err := os.ReadFile(networksPath)
+	if err != nil {
+		return nil, fmt.Errorf("read networks file %s: %w", networksPath, err)
+	}
+
+	type networksContainer struct {
+		Networks []NetworkSpec `yaml:"networks"`
+	}
+
+	var container networksContainer
+	err = yaml.Unmarshal(data, &container)
+	if err != nil {
+		return nil, fmt.Errorf("decode networks file %s: %w", networksPath, err)
+	}
+	for i := range container.Networks {
+		container.Networks[i].Name = strings.TrimSpace(container.Networks[i].Name)
+		container.Networks[i].Driver = strings.TrimSpace(container.Networks[i].Driver)
+		if container.Networks[i].Driver == "" {
+			container.Networks[i].Driver = defaultManagedNetworkDriver
+		}
+	}
+	if len(container.Networks) > 0 {
+		return container.Networks, nil
+	}
+
+	var list []NetworkSpec
+	err = yaml.Unmarshal(data, &list)
+	if err != nil {
+		return nil, fmt.Errorf("decode networks list %s: %w", networksPath, err)
+	}
+	for i := range list {
+		list[i].Name = strings.TrimSpace(list[i].Name)
+		list[i].Driver = strings.TrimSpace(list[i].Driver)
+		if list[i].Driver == "" {
+			list[i].Driver = defaultManagedNetworkDriver
+		}
+	}
+	if len(list) == 0 {
+		return nil, fmt.Errorf("networks file %s does not contain any networks", networksPath)
+	}
+
+	return list, nil
+}
+
 func (c *Config) validate() error {
 	var errs []error
 
 	errs = append(errs, c.validateRequired()...)
 	errs = append(errs, c.validateStacks()...)
+	errs = append(errs, c.validateNetworks()...)
 	errs = append(errs, c.validateSync()...)
 	errs = append(errs, c.validateGitAuth()...)
 	errs = append(errs, c.validateSecurity()...)
-	errs = append(errs, c.validateNotifications()...)
+	errs = append(errs, c.Spec.Notifications.validate()...)
 	errs = append(errs, c.validateAssistant()...)
 
 	return errors.Join(errs...)
@@ -512,6 +586,14 @@ func (c *Config) validateStacks() []error {
 	return validateStacksList(c.Spec.Stacks)
 }
 
+func (c *Config) validateNetworks() []error {
+	if len(c.Spec.Networks) == 0 {
+		return nil
+	}
+
+	return validateNetworksList(c.Spec.Networks)
+}
+
 func validateStacksList(stacks []StackSpec) []error {
 	var errs []error
 
@@ -527,6 +609,39 @@ func validateStacksList(stacks []StackSpec) []error {
 			errs = append(errs, fmt.Errorf("stacks.file has duplicated name %q", stack.Name))
 		}
 		seen[stack.Name] = struct{}{}
+	}
+
+	return errs
+}
+
+func validateNetworksList(networks []NetworkSpec) []error {
+	var errs []error
+
+	seen := map[string]struct{}{}
+	for i, network := range networks {
+		if network.Name == "" {
+			errs = append(errs, fmt.Errorf("networks.file[%d].name is required", i))
+		}
+		if network.Driver == "" {
+			errs = append(errs, fmt.Errorf("networks.file[%d].driver is required", i))
+		}
+		if _, exists := seen[network.Name]; exists {
+			errs = append(errs, fmt.Errorf("networks.file has duplicated name %q", network.Name))
+		}
+		if labelValue, exists := network.Labels[managedNetworkLabelKey]; exists {
+			if strings.TrimSpace(labelValue) != managedNetworkLabelValue {
+				errs = append(
+					errs,
+					fmt.Errorf(
+						"networks.file[%d].labels[%q] must be %q when specified",
+						i,
+						managedNetworkLabelKey,
+						managedNetworkLabelValue,
+					),
+				)
+			}
+		}
+		seen[network.Name] = struct{}{}
 	}
 
 	return errs
@@ -552,33 +667,36 @@ func (c *Config) validateSync() []error {
 func (c *Config) validateGitAuth() []error {
 	var errs []error
 
-	errs = append(errs, validateGitAuthType("git.pull.auth", c.Spec.Git.Pull.Auth)...)
-	errs = append(errs, validateGitAuthType("git.push.auth", c.Spec.Git.Push.Auth)...)
+	authType := c.Spec.Git.Auth.Type
+	if !authType.IsSupported() {
+		errs = append(errs, fmt.Errorf("git.auth.type must be one of none|http|ssh, got %q", c.Spec.Git.Auth.Type))
+	}
+
+	if authType == GitAuthTypeHTTP {
+		username := strings.TrimSpace(c.Spec.Git.Auth.HTTP.Username)
+		password := strings.TrimSpace(string(c.Spec.Git.Auth.HTTP.Password.Content))
+		token := strings.TrimSpace(string(c.Spec.Git.Auth.HTTP.Token.Content))
+
+		if token != "" && password != "" {
+			errs = append(errs, errors.New("git.auth.http.tokenPath and git.auth.http.passwordPath are mutually exclusive"))
+		}
+		if token == "" && (username == "" || password == "") {
+			errs = append(
+				errs,
+				errors.New("git.auth.http requires username+passwordPath or tokenPath"),
+			)
+		}
+	}
 
 	return errs
 }
 
-func validateGitAuthType(path string, auth GitAuthSpec) []error {
-	authType := strings.ToLower(strings.TrimSpace(auth.Type))
-	switch authType {
-	case "", "none", "http", "ssh":
-		return nil
-	default:
-		return []error{fmt.Errorf("%s.type must be one of none|http|ssh, got %q", path, auth.Type)}
-	}
-}
-
 func (c *Config) validateSecurity() []error {
-	htpasswdPath := strings.TrimSpace(c.Spec.Web.Security.Authentication.Basic.HTPasswdFile)
-	if htpasswdPath == "" {
+	if c.Spec.Web.Security.Authentication.Basic.HTPasswdFile.Path == "" {
 		return nil
 	}
 
-	payload, err := os.ReadFile(htpasswdPath)
-	if err != nil {
-		return []error{fmt.Errorf("read web.security.authentication.basic.htpasswdFile %s: %w", htpasswdPath, err)}
-	}
-	if strings.TrimSpace(string(payload)) == "" {
+	if strings.TrimSpace(string(c.Spec.Web.Security.Authentication.Basic.HTPasswdFile.Content)) == "" {
 		return []error{errors.New("web.security.authentication.basic.htpasswdFile contains empty credentials")}
 	}
 
@@ -595,43 +713,6 @@ func (c *Config) validateWebhookSecret() []error {
 	}
 
 	return nil
-}
-
-func (c *Config) validateNotifications() []error {
-	var errs []error
-
-	for eventType, channels := range c.Spec.Notifications.On {
-		for i, tg := range channels.Telegram {
-			if tg.ChatID == "" {
-				errs = append(errs, fmt.Errorf("notifications.on[%q].telegram[%d].chatId is required", eventType, i))
-			}
-
-			if len(tg.BotToken.Content) == 0 {
-				errs = append(
-					errs,
-					fmt.Errorf("notifications.on[%q].telegram[%d].botTokenPath contains empty token", eventType, i),
-				)
-			}
-
-			if tg.ChatThreadID < 0 {
-				errs = append(
-					errs,
-					fmt.Errorf("notifications.on[%q].telegram[%d].chatThreadId must be >= 0", eventType, i),
-				)
-			}
-		}
-
-		for i, ch := range channels.Custom {
-			if ch.URL.Value.String() == "" {
-				errs = append(
-					errs,
-					fmt.Errorf("notifications.on[%q].custom[%d].url or urlEnv is required", eventType, i),
-				)
-			}
-		}
-	}
-
-	return errs
 }
 
 func (c *Config) validateAssistant() []error {
@@ -702,7 +783,7 @@ func (a AssistantOpenAISpec) ResolveMaxTokens() (int, error) {
 
 // Strategy resolves configured web authentication strategy.
 func (a AuthenticationSpec) Strategy() string {
-	if strings.TrimSpace(a.Basic.HTPasswdFile) != "" {
+	if strings.TrimSpace(a.Basic.HTPasswdFile.Path) != "" {
 		return AuthenticationStrategyBasic
 	}
 

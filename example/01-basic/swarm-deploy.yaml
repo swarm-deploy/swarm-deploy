@@ -15,34 +15,19 @@ sync:
   mode: pull
   # Pull polling interval.
   pollInterval: 30s
-
-# AI assistant settings.
-assistant:
-  # Enable assistant API and UI.
-  enabled: false
-  # Allowed tool list. Empty means all built-in tools.
-  tools: []
-  # Extra project-specific prompt.
-  systemPrompt: ""
-  model:
-    # Chat model name.
-    name: gpt-4o-mini
-    # Embeddings model name. Falls back to model.name when empty.
-    embeddingName: ""
-    openai:
-      # OpenAI-compatible API base URL.
-      baseUrl: https://api.openai.com/v1
-      # Path to file containing API token.
-      apiTokenPath: /run/secrets/openai_api_token
-      # Sampling temperature in range [0, 2].
-      temperature: "0.2"
-      # Max generated tokens for response.
-      maxTokens: "800"
+  policy:
+    # Removes orphaned managed services that are no longer defined in compose.
+    prune: true
 
 # Stacks source settings.
 stacks:
   # Path to stacks definition file in git repository (relative to repo root).
   file: ./stacks.yaml
+
+# Managed Docker networks source settings.
+networks:
+  # Path to network definitions file in git repository (relative to repo root).
+  file: ./networks.yaml
 
 # Event history settings.
 eventHistory:
@@ -52,7 +37,7 @@ eventHistory:
 # Notification channels grouped by event type.
 notifications:
   on:
-    # Event type: deploySuccess | deployFailed | syncManualStarted | userAuthenticated
+    # Event type: deploySuccess | deployFailed | servicePruned | syncManualStarted | userAuthenticated
     deploySuccess:
       telegram:
         - name: ops-success
@@ -104,7 +89,6 @@ swarm:
     - stack
     - deploy
     - --with-registry-auth
-    - --prune
   # Init job polling interval.
   initJobPollEvery: 2s
   # Maximum init job duration.
@@ -114,14 +98,6 @@ swarm:
 web:
   # Single web server listen address for UI and API.
   address: ":8080"
-  # UI/API access control settings.
-  security:
-    authentication:
-      basic:
-        # Path to htpasswd file with bcrypt hashes (mounted secret recommended).
-        # Example: /run/secrets/basic.htpasswd
-        # Leave empty to disable authentication.
-        htpasswdFile: ""
 
 # Dedicated health/metrics server.
 healthServer:

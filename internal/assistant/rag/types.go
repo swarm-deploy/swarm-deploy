@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/artarts36/swarm-deploy/internal/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/service"
 )
 
 // ServiceStore provides access to current service metadata.

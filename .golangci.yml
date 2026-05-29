@@ -15,7 +15,6 @@ linters:
     - forbidigo
     - funlen
     - gocheckcompilerdirectives
-    - gochecknoinits
     - gocognit
     - goconst
     - gocritic
@@ -175,6 +174,7 @@ linters:
       - third_party$
       - builtin$
       - examples$
+      - vendor$
 issues:
   max-same-issues: 50
 formatters:
@@ -186,3 +186,4 @@ formatters:
       - third_party$
       - builtin$
       - examples$
+      - vendor$

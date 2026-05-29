@@ -6,12 +6,16 @@ import (
 	"strings"
 	"time"
 
-	"github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/routing"
+	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 )
 
 // Date returns current time for the requested timezone.
 type Date struct {
 	now func() time.Time
+}
+
+type dateRequest struct {
+	Timezone string `json:"timezone"`
 }
 
 // NewDate creates date component.
@@ -35,12 +39,18 @@ func (d *Date) Definition() routing.ToolDefinition {
 				},
 			},
 		},
+		Request: dateRequest{},
 	}
 }
 
 // Execute runs date tool.
 func (d *Date) Execute(_ context.Context, request routing.Request) (routing.Response, error) {
-	location, err := parseCurrentTimeLocation(request.Payload["timezone"])
+	parsedRequest, err := convertRequestPayload[dateRequest](request.Payload)
+	if err != nil {
+		return routing.Response{}, err
+	}
+
+	location, err := parseCurrentTimeLocation(parsedRequest.Timezone)
 	if err != nil {
 		return routing.Response{}, err
 	}
@@ -70,16 +80,7 @@ func (d *Date) Execute(_ context.Context, request routing.Request) (routing.Resp
 	}, nil
 }
 
-func parseCurrentTimeLocation(raw any) (*time.Location, error) {
-	if raw == nil {
-		return time.UTC, nil
-	}
-
-	timezone, ok := raw.(string)
-	if !ok {
-		return nil, fmt.Errorf("timezone must be string")
-	}
-
+func parseCurrentTimeLocation(timezone string) (*time.Location, error) {
 	timezone = strings.TrimSpace(timezone)
 	if timezone == "" {
 		return time.UTC, nil

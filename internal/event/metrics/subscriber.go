@@ -3,7 +3,7 @@ package metrics
 import (
 	"context"
 
-	"github.com/artarts36/swarm-deploy/internal/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 )
 
 type EventRecorder interface {
@@ -20,6 +20,10 @@ func NewSubscriber(recorder EventRecorder) *Subscriber {
 
 func (*Subscriber) Name() string {
 	return "record-event-metrics"
+}
+
+func (*Subscriber) Slow() bool {
+	return false
 }
 
 func (s *Subscriber) Handle(_ context.Context, event events.Event) error {

@@ -53,10 +53,15 @@ The endpoint supports start and poll with the same route.
 - `deploy_sync_trigger` - triggers manual sync (same as `POST /api/v1/sync`)
 - `swarm_node_list` - returns current Docker Swarm nodes snapshot
 - `docker_network_list` - returns current Docker networks snapshot (`name`, `scope`, `driver`, `internal`, `attachable`, `ingress`, `labels`)
+- `docker_plugin_list` - returns current Docker plugins snapshot (`id`, `name`, `description`, `enabled`, `plugin_reference`, `capabilities`)
+- `docker_secret_list` - returns current Docker secrets snapshot (`id`, `name`, `created_at`, `updated_at`, `driver`, `labels`)
+- `service_replicas_set` - updates desired replicas count for a specific stack service
+- `service_restart_trigger` - restarts service by scaling replicas to `0` and restoring previous count
 - `service_webroute_ping` - checks web routes for a specific service from `service.store` and returns HTTP results for each route
 - `registry_image_version_get` - resolves актуальный тег и digest Docker-образа в registry (Docker Hub и совместимые)
   - registry is selected automatically by tool logic
 - `git_commit_list` - returns latest git commits from repository history (`limit` optional, default 10)
+- `self_metrics_list` - returns structured snapshot of internal Prometheus metrics (`swarm_deploy_*`)
 
 Example use-case:
 - Question: `Я использую актуальную версию этого сервиса?`

@@ -5,11 +5,11 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/artarts36/swarm-deploy/internal/event/dispatcher"
-	"github.com/artarts36/swarm-deploy/internal/event/events"
-	"github.com/artarts36/swarm-deploy/internal/event/notifiers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/event/notifiers"
 )
 
 type testNotifier struct {

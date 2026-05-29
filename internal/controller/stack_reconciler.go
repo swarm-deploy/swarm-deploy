@@ -2,74 +2,59 @@ package controller
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
-	"github.com/artarts36/swarm-deploy/internal/compose"
-	"github.com/artarts36/swarm-deploy/internal/config"
-	"github.com/artarts36/swarm-deploy/internal/gitops"
-	"github.com/artarts36/swarm-deploy/internal/swarm"
+	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
+	gitx "github.com/swarm-deploy/swarm-deploy/internal/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/labelsdict"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 type stackReconcileResult struct {
-	SourceDigest string
-	Services     []compose.Service
-	Skipped      bool
+	SourceDigest   string
+	Services       []compose.Service
+	PrunedServices []string
+	Skipped        bool
+}
+
+type stackDeployer interface {
+	// DeployStack reconciles one stack via docker stack deploy command.
+	DeployStack(ctx context.Context, stackName, composePath string, services []compose.Service) error
 }
 
 type stackReconciler struct {
-	cfg      *config.Config
-	gitSync  *gitops.Syncer
-	deployer *swarm.Deployer
+	cfg            *config.Config
+	git            gitx.Repository
+	deployer       stackDeployer
+	pruner         *ServicePruner
+	composeLoader  *compose.FileLoader
+	composeRotator *Rotator
+	pipeline       *pipeline
 }
 
-type stackReconcileError struct {
-	op       string
-	services []compose.Service
-	err      error
-}
-
-func newStackReconciler(cfg *config.Config, gitSync *gitops.Syncer, deployer *swarm.Deployer) *stackReconciler {
-	return &stackReconciler{
-		cfg:      cfg,
-		gitSync:  gitSync,
-		deployer: deployer,
-	}
-}
-
-func (e *stackReconcileError) Error() string {
-	return fmt.Sprintf("%s: %v", e.op, e.err)
-}
-
-func (e *stackReconcileError) Unwrap() error {
-	return e.err
-}
-
-func (e *stackReconcileError) FailedServices() []compose.Service {
-	return e.services
-}
-
-func wrapStackReconcileError(op string, services []compose.Service, err error) error {
-	if err == nil {
-		return nil
+func newStackReconciler(
+	cfg *config.Config,
+	gitSync gitx.Repository,
+	deployer *deployer.Deployer,
+	swarmService *swarm.Swarm,
+) *stackReconciler {
+	reconciler := &stackReconciler{
+		cfg:            cfg,
+		git:            gitSync,
+		deployer:       deployer,
+		composeLoader:  compose.NewFileLoader(),
+		composeRotator: NewRotator(),
+		pruner:         NewServicePruner(swarmService.Services, cfg.Spec.Sync.Policy),
 	}
 
-	return &stackReconcileError{
-		op:       op,
-		services: services,
-		err:      err,
-	}
-}
+	reconciler.attachComposePipeline()
 
-func failedServicesFromReconcileError(err error) []compose.Service {
-	var reconcileErr *stackReconcileError
-	// Preserve detailed service context when the caller receives wrapped errors.
-	if errors.As(err, &reconcileErr) {
-		return reconcileErr.FailedServices()
-	}
-	return nil
+	return reconciler
 }
 
 func (r *stackReconciler) Reconcile(
@@ -77,43 +62,41 @@ func (r *stackReconciler) Reconcile(
 	stackCfg config.StackSpec,
 	prevDigest string,
 	hasPrev bool,
+	isManual bool,
 ) (stackReconcileResult, error) {
-	composePath := filepath.Join(r.gitSync.WorkingDir(), stackCfg.ComposeFile)
-	stackFile, err := compose.Load(composePath)
+	composePath := filepath.Join(r.git.WorkingDir(), stackCfg.ComposeFile)
+	stackFile, err := r.composeLoader.Load(composePath)
 	if err != nil {
 		return stackReconcileResult{}, wrapStackReconcileError("load compose", nil, err)
 	}
 
 	result := stackReconcileResult{
-		Services: stackFile.Services,
-	}
-
-	digest, err := stackFile.ComputeDigest(composePath)
-	if err != nil {
-		return result, wrapStackReconcileError("compute digest", result.Services, err)
+		Services: stackFile.Compose.Services,
 	}
 
 	// Skip reconciliation when source compose content is unchanged since last successful apply.
-	if hasPrev && prevDigest == digest {
-		result.SourceDigest = digest
+	if hasPrev && prevDigest == stackFile.Digest {
+		result.SourceDigest = stackFile.Digest
 		result.Skipped = true
+
+		if isManual {
+			prunedServices, pruneErr := r.pruner.Prune(ctx, stackCfg, stackFile.Compose.Services)
+			if pruneErr != nil {
+				return result, wrapStackReconcileError("prune orphaned services", result.Services, pruneErr)
+			}
+			result.PrunedServices = prunedServices
+		}
+
 		return result, nil
 	}
 
 	deployComposePath := composePath
-	if r.cfg.Spec.SecretRotation.Enabled {
-		// Rotation mutates secret/config object names in the in-memory compose model.
-		// We keep digest based on original source, but deploy a rendered, rotated file.
-		_, err = stackFile.ApplyObjectRotation(
-			stackCfg.Name,
-			composePath,
-			r.cfg.Spec.SecretRotation.HashLength,
-			r.cfg.Spec.SecretRotation.IncludePath,
-		)
-		if err != nil {
-			return result, wrapStackReconcileError("rotate objects", result.Services, err)
-		}
+	composeChanged, pipeErr := r.pipeline.Run(stackFile, stackCfg.Name)
+	if pipeErr != nil {
+		return stackReconcileResult{}, wrapStackReconcileError(pipeErr.stepName, nil, err)
+	}
 
+	if composeChanged {
 		renderedPath, renderedPathErr := r.writeRenderedCompose(stackCfg.Name, stackFile)
 		if renderedPathErr != nil {
 			return result, wrapStackReconcileError("write rendered compose", result.Services, renderedPathErr)
@@ -121,40 +104,23 @@ func (r *stackReconciler) Reconcile(
 		deployComposePath = renderedPath
 	}
 
-	// Init jobs are executed before stack deployment to satisfy runtime prerequisites
-	// (for example schema/bootstrap tasks expected by service startup).
-	err = r.runInitJobs(ctx, stackCfg.Name, stackFile.Services)
-	if err != nil {
-		return result, wrapStackReconcileError("init jobs", result.Services, err)
-	}
-
-	err = r.deployer.DeployStack(ctx, stackCfg.Name, deployComposePath)
+	// Deployer encapsulates init jobs orchestration and stack deployment.
+	err = r.deployer.DeployStack(ctx, stackCfg.Name, deployComposePath, stackFile.Compose.Services)
 	if err != nil {
 		return result, wrapStackReconcileError("deploy", result.Services, err)
 	}
 
-	result.SourceDigest = digest
+	prunedServices, pruneErr := r.pruner.Prune(ctx, stackCfg, stackFile.Compose.Services)
+	if pruneErr != nil {
+		return result, wrapStackReconcileError("prune orphaned services", result.Services, pruneErr)
+	}
+	result.PrunedServices = prunedServices
+	result.SourceDigest = stackFile.Digest
 	return result, nil
 }
 
-func (r *stackReconciler) runInitJobs(ctx context.Context, stackName string, services []compose.Service) error {
-	for _, service := range services {
-		// Jobs are run in declaration order per service to keep behavior deterministic.
-		for _, job := range service.InitJobs {
-			err := r.deployer.RunInitJob(ctx, swarm.InitJobSpec{
-				StackName:      stackName,
-				ServiceName:    service.Name,
-				DefaultNetwork: service.Networks,
-				ServiceSecrets: service.Secrets,
-				ServiceConfigs: service.Configs,
-				Job:            job,
-			})
-			if err != nil {
-				return fmt.Errorf("service %s init job %s: %w", service.Name, job.Name, err)
-			}
-		}
-	}
-	return nil
+func isManagedService(labels map[string]string) bool {
+	return strings.TrimSpace(labels[labelsdict.ServiceManagedLabelKey]) == labelsdict.ServiceManagedLabelValue
 }
 
 func (r *stackReconciler) writeRenderedCompose(stackName string, stackFile *compose.File) (string, error) {

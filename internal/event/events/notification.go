@@ -31,7 +31,7 @@ func (n *SendNotificationFailed) Details() map[string]string {
 	details := map[string]string{
 		"destination": n.Destination,
 		"channel":     n.Channel,
-		"event_type":  string(n.EventType),
+		"event_type":  n.EventType.String(),
 	}
 	if n.Error != nil {
 		details["error"] = n.Error.Error()

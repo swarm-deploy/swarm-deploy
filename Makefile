@@ -3,7 +3,7 @@ run:
 
 .PHONY: lint
 lint:
-	golangci-lint run --fix
+	golangci-lint run
 
 .PHONY: gen
 gen:
@@ -15,3 +15,8 @@ test:
 
 .PHONY: check
 check: lint test
+
+.PHONY: test-cli
+cli:
+	go run ./cmd/sd/main.go lint ./example/04-assistant/swarm-deploy.yaml
+

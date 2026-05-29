@@ -1,15 +1,26 @@
 package handlers
 
 import (
+	"math"
+	"strings"
 	"time"
 
-	"github.com/artarts36/swarm-deploy/internal/controller"
-	generated "github.com/artarts36/swarm-deploy/internal/entrypoints/webserver/generated"
-	"github.com/artarts36/swarm-deploy/internal/event/history"
-	"github.com/artarts36/swarm-deploy/internal/service"
-	serviceType "github.com/artarts36/swarm-deploy/internal/service/stype"
-	"github.com/artarts36/swarm-deploy/internal/service/webroute"
-	swarminspector "github.com/artarts36/swarm-deploy/internal/swarm/inspector"
+	"github.com/swarm-deploy/swarm-deploy/internal/controller"
+	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
+	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
+	"github.com/swarm-deploy/swarm-deploy/internal/imageref"
+	"github.com/swarm-deploy/swarm-deploy/internal/labelsdict"
+	"github.com/swarm-deploy/swarm-deploy/internal/service"
+	serviceType "github.com/swarm-deploy/swarm-deploy/internal/service/stype"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"github.com/swarm-deploy/webroute"
+)
+
+const (
+	externalPathLabel      = "external_path"
+	externalVersionIDLabel = "external_version_id"
+	dockerLabelPrefix      = "com.docker."
 )
 
 func toGeneratedStacks(stacks []controller.StackView) []generated.StackView {
@@ -27,31 +38,12 @@ func toGeneratedStack(stack controller.StackView) generated.StackView {
 		Name:        stack.Name,
 		ComposeFile: stack.ComposeFile,
 		LastStatus:  stack.LastStatus,
-		Services:    toGeneratedServices(stack.Services),
 		LastError:   toOptString(stack.LastError),
 		LastCommit:  toOptString(stack.LastCommit),
 		LastDeployAt: toOptDateTime(
 			stack.LastDeployAt,
 		),
 		SourceDigest: toOptString(stack.SourceDigest),
-	}
-
-	return mapped
-}
-
-func toGeneratedServices(services []controller.ServiceView) []generated.ServiceView {
-	mapped := make([]generated.ServiceView, 0, len(services))
-
-	for _, service := range services {
-		mappedService := generated.ServiceView{
-			Name:         service.Name,
-			Image:        service.Image,
-			ImageVersion: service.ImageVersion,
-			LastStatus:   toOptString(service.LastStatus),
-			LastDeployAt: toOptDateTime(service.LastDeployAt),
-		}
-
-		mapped = append(mapped, mappedService)
 	}
 
 	return mapped
@@ -73,25 +65,194 @@ func toOptDateTime(value time.Time) generated.OptDateTime {
 	return generated.NewOptDateTime(value)
 }
 
-func toGeneratedServiceStatus(status swarminspector.ServiceStatus) *generated.ServiceStatusResponse {
+func toGeneratedServiceStatus(status swarm.ServiceStatus) *generated.ServiceStatusResponse {
 	resp := &generated.ServiceStatusResponse{
-		Stack:             status.Stack,
-		Service:           status.Service,
-		Image:             status.Image,
-		RequestedRAMBytes: status.RequestedRAMBytes,
-		RequestedCPUNano:  status.RequestedCPUNano,
-		LimitRAMBytes:     status.LimitRAMBytes,
-		LimitCPUNano:      status.LimitCPUNano,
+		Stack:   status.Stack,
+		Service: status.Service,
+		Spec:    toGeneratedServiceSpec(status.Spec),
 	}
 
 	return resp
+}
+
+func toGeneratedServiceRealtimeTasks(
+	tasks []swarm.ServiceTask,
+	nodeMap map[string]swarm.Node,
+) []generated.ServiceRealtimeTask {
+	mapped := make([]generated.ServiceRealtimeTask, 0, len(tasks))
+	for _, task := range tasks {
+		item := generated.ServiceRealtimeTask{
+			ID:           task.ID,
+			Node:         task.Node,
+			CurrentState: task.CurrentState,
+		}
+		if !task.CreatedAt.IsZero() {
+			item.CreatedAt = generated.NewOptDateTime(task.CreatedAt)
+		}
+		if !task.UpdatedAt.IsZero() {
+			item.UpdatedAt = generated.NewOptDateTime(task.UpdatedAt)
+		}
+		if node, nodeExists := nodeMap[task.Node]; nodeExists {
+			item.NodeName = generated.NewOptString(node.Hostname)
+		}
+		if task.Error != "" {
+			item.Error = generated.NewOptString(task.Error)
+		}
+		mapped = append(mapped, item)
+	}
+
+	return mapped
+}
+
+func toGeneratedServiceDeployments(
+	entries []history.Entry,
+	stackName string,
+	serviceName string,
+	image string,
+	limit int,
+) []generated.ServiceDeploymentResponse {
+	if len(entries) == 0 || stackName == "" {
+		return []generated.ServiceDeploymentResponse{}
+	}
+
+	imageVersion := imageref.Version(image)
+	out := make([]generated.ServiceDeploymentResponse, 0, len(entries))
+
+	for idx := len(entries) - 1; idx >= 0; idx-- {
+		entry := entries[idx]
+
+		status, ok := toGeneratedServiceDeploymentStatus(entry.Type)
+		if !ok {
+			continue
+		}
+
+		if entry.Details["stack"] != stackName {
+			continue
+		}
+		if serviceInEvent := entry.Details["service"]; serviceInEvent != "" && serviceInEvent != serviceName {
+			continue
+		}
+
+		item := generated.ServiceDeploymentResponse{
+			CreatedAt:    entry.CreatedAt,
+			Status:       status,
+			Image:        image,
+			ImageVersion: imageVersion,
+		}
+
+		if entry.Message != "" {
+			item.Message = generated.NewOptString(entry.Message)
+		}
+		if commit := entry.Details["commit"]; commit != "" {
+			item.Commit = generated.NewOptString(commit)
+		}
+
+		out = append(out, item)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+
+	return out
+}
+
+func toGeneratedServiceDeploymentStatus(typ events.Type) (generated.ServiceDeploymentStatus, bool) {
+	switch typ {
+	case events.TypeDeploySuccess:
+		return generated.ServiceDeploymentStatusSuccess, true
+	case events.TypeDeployFailed:
+		return generated.ServiceDeploymentStatusFailed, true
+	default:
+		return "", false
+	}
+}
+
+func toGeneratedServiceSpec(spec swarm.ServiceSpec) generated.ServiceSpecResponse {
+	mapped := generated.ServiceSpecResponse{
+		Image:             spec.Image,
+		Mode:              spec.Mode,
+		Replicas:          toInt64FromUint64(spec.Replicas),
+		RequestedRAMBytes: spec.RequestedRAMBytes,
+		RequestedCPUNano:  spec.RequestedCPUNano,
+		LimitRAMBytes:     spec.LimitRAMBytes,
+		LimitCPUNano:      spec.LimitCPUNano,
+		Secrets:           toGeneratedServiceSpecSecrets(spec.Secrets),
+		Network:           toGeneratedServiceSpecNetworks(spec.Network),
+	}
+
+	if len(spec.Labels) > 0 {
+		dockerLabels := make(generated.ServiceSpecLabelGroupResponse)
+		customLabels := make(generated.ServiceSpecLabelGroupResponse)
+
+		for key, value := range spec.Labels {
+			if strings.HasPrefix(key, dockerLabelPrefix) {
+				dockerLabels[key] = value
+				continue
+			}
+
+			customLabels[key] = value
+		}
+
+		groupedLabels := generated.ServiceSpecLabelsResponse{}
+		if len(dockerLabels) > 0 {
+			groupedLabels.Docker = generated.NewOptServiceSpecLabelGroupResponse(dockerLabels)
+		}
+		if len(customLabels) > 0 {
+			groupedLabels.Custom = generated.NewOptServiceSpecLabelGroupResponse(customLabels)
+		}
+		if groupedLabels.Docker.IsSet() || groupedLabels.Custom.IsSet() {
+			mapped.Labels = generated.NewOptServiceSpecLabelsResponse(groupedLabels)
+		}
+	}
+
+	return mapped
+}
+
+func toGeneratedServiceSpecSecrets(secrets []swarm.ServiceSecret) []generated.ServiceSpecSecretResponse {
+	if len(secrets) == 0 {
+		return nil
+	}
+
+	mapped := make([]generated.ServiceSpecSecretResponse, 0, len(secrets))
+	for _, secret := range secrets {
+		item := generated.ServiceSpecSecretResponse{
+			SecretName: secret.SecretName,
+		}
+		if secret.SecretID != "" {
+			item.SecretID = generated.NewOptString(secret.SecretID)
+		}
+		if secret.Target != "" {
+			item.Target = generated.NewOptString(secret.Target)
+		}
+		mapped = append(mapped, item)
+	}
+
+	return mapped
+}
+
+func toGeneratedServiceSpecNetworks(networks []swarm.ServiceNetwork) []generated.ServiceSpecNetworkResponse {
+	if len(networks) == 0 {
+		return nil
+	}
+
+	mapped := make([]generated.ServiceSpecNetworkResponse, 0, len(networks))
+	for _, network := range networks {
+		mapped = append(mapped, generated.ServiceSpecNetworkResponse{
+			Target:  network.Target,
+			Aliases: cloneStringSlice(network.Aliases),
+		})
+	}
+
+	return mapped
 }
 
 func toGeneratedEvents(entries []history.Entry) []generated.EventHistoryItem {
 	mapped := make([]generated.EventHistoryItem, 0, len(entries))
 	for _, entry := range entries {
 		item := generated.EventHistoryItem{
-			Type:      string(entry.Type),
+			Type:      entry.Type.String(),
+			Severity:  toGeneratedEventSeverity(entry.Severity),
+			Category:  toGeneratedEventCategory(entry.Category),
 			CreatedAt: entry.CreatedAt,
 			Message:   entry.Message,
 		}
@@ -108,21 +269,52 @@ func toGeneratedEvents(entries []history.Entry) []generated.EventHistoryItem {
 	return mapped
 }
 
+func toGeneratedEventSeverity(severity events.Severity) generated.EventSeverity {
+	switch severity {
+	case events.SeverityWarn:
+		return generated.EventSeverityWarn
+	case events.SeverityError:
+		return generated.EventSeverityError
+	case events.SeverityAlert:
+		return generated.EventSeverityAlert
+	case events.SeverityInfo:
+		fallthrough
+	default:
+		return generated.EventSeverityInfo
+	}
+}
+
+func toGeneratedEventCategory(category events.Category) generated.EventCategory {
+	switch category {
+	case events.CategorySecurity:
+		return generated.EventCategorySecurity
+	case events.CategorySync:
+		fallthrough
+	default:
+		return generated.EventCategorySync
+	}
+}
+
 func toGeneratedServiceInfos(services []service.Info) []generated.ServiceInfo {
 	mapped := make([]generated.ServiceInfo, 0, len(services))
 	for _, serviceInfo := range services {
-		mappedItem := generated.ServiceInfo{
-			Name:        serviceInfo.Name,
-			Stack:       serviceInfo.Stack,
-			Type:        toGeneratedServiceType(serviceInfo.Type),
-			Image:       serviceInfo.Image,
-			Description: toOptString(serviceInfo.Description),
-			WebRoutes:   toGeneratedWebRoutes(serviceInfo.WebRoutes),
-		}
-
-		mapped = append(mapped, mappedItem)
+		mapped = append(mapped, toGeneratedServiceInfo(serviceInfo))
 	}
 	return mapped
+}
+
+func toGeneratedServiceInfo(serviceInfo service.Info) generated.ServiceInfo {
+	return generated.ServiceInfo{
+		Name:          serviceInfo.Name,
+		Stack:         serviceInfo.Stack,
+		Type:          toGeneratedServiceType(serviceInfo.Type),
+		TypeTitle:     serviceType.Title(serviceInfo.Type),
+		Image:         serviceInfo.Image,
+		ImageVersion:  imageref.Version(serviceInfo.Image),
+		RepositoryURL: toOptString(serviceInfo.RepositoryURL),
+		Description:   toOptString(serviceInfo.Description),
+		WebRoutes:     toGeneratedWebRoutes(serviceInfo.WebRoutes),
+	}
 }
 
 func toGeneratedWebRoutes(routes []webroute.Route) []generated.WebRoute {
@@ -142,7 +334,7 @@ func toGeneratedWebRoutes(routes []webroute.Route) []generated.WebRoute {
 	return mapped
 }
 
-func toGeneratedNodes(nodes []swarminspector.NodeInfo) []generated.NodeInfo {
+func toGeneratedNodes(nodes []swarm.Node) []generated.NodeInfo {
 	mapped := make([]generated.NodeInfo, 0, len(nodes))
 	for _, node := range nodes {
 		mapped = append(mapped, generated.NodeInfo{
@@ -150,13 +342,97 @@ func toGeneratedNodes(nodes []swarminspector.NodeInfo) []generated.NodeInfo {
 			Hostname:      node.Hostname,
 			Status:        node.Status,
 			Availability:  node.Availability,
-			ManagerStatus: node.ManagerStatus,
+			ManagerStatus: string(node.ManagerStatus),
 			EngineVersion: node.EngineVersion,
 			Addr:          node.Addr,
+			CPUNano:       node.CPUNano,
+			MemoryBytes:   node.MemoryBytes,
 		})
+		last := &mapped[len(mapped)-1]
+		if len(node.Labels) > 0 {
+			last.Labels = generated.NewOptNodeInfoLabels(cloneStringMap(node.Labels))
+		}
 	}
 
 	return mapped
+}
+
+func toGeneratedNetworks(networks []swarm.Network) []generated.NetworkInfo {
+	mapped := make([]generated.NetworkInfo, 0, len(networks))
+	for _, network := range networks {
+		item := generated.NetworkInfo{
+			ID:         network.ID,
+			Name:       network.Name,
+			Scope:      network.Scope,
+			Driver:     network.Driver,
+			Internal:   network.Internal,
+			Attachable: network.Attachable,
+			Ingress:    network.Ingress,
+		}
+		if len(network.Labels) > 0 {
+			labels := network.Labels
+
+			if stackName := labelsdict.GetStackName(labels); stackName != "" {
+				item.SetStackName(generated.NewOptString(stackName))
+			}
+
+			item.Managed = labelsdict.NetworkManaged(labels)
+
+			delete(labels, labelsdict.NetworkManagedKey)
+			delete(labels, labelsdict.StackNamespace)
+
+			item.Labels = generated.NewOptNetworkInfoLabels(labels)
+		}
+		if len(network.Options) > 0 {
+			item.Options = generated.NewOptNetworkInfoOptions(cloneStringMap(network.Options))
+		}
+
+		mapped = append(mapped, item)
+	}
+
+	return mapped
+}
+
+func toGeneratedSecrets(secrets []swarm.Secret) []generated.SecretInfo {
+	mapped := make([]generated.SecretInfo, 0, len(secrets))
+	for _, secret := range secrets {
+		item := generated.SecretInfo{
+			ID:        secret.ID,
+			Name:      secret.Name,
+			VersionID: toInt64FromUint64(secret.VersionID),
+			CreatedAt: secret.CreatedAt,
+			External:  toGeneratedSecretExternal(secret.Labels),
+		}
+
+		mapped = append(mapped, item)
+	}
+
+	return mapped
+}
+
+func toGeneratedSecretExternal(labels map[string]string) generated.OptSecretExternalInfo {
+	if len(labels) == 0 {
+		return generated.OptSecretExternalInfo{}
+	}
+
+	external := generated.SecretExternalInfo{}
+	hasExternalData := false
+
+	if path, ok := labels[externalPathLabel]; ok && path != "" {
+		external.Path = generated.NewOptString(path)
+		hasExternalData = true
+	}
+
+	if versionID, ok := labels[externalVersionIDLabel]; ok && versionID != "" {
+		external.VersionID = generated.NewOptString(versionID)
+		hasExternalData = true
+	}
+
+	if !hasExternalData {
+		return generated.OptSecretExternalInfo{}
+	}
+
+	return generated.NewOptSecretExternalInfo(external)
 }
 
 func toGeneratedServiceType(typ serviceType.Type) generated.ServiceInfoType {
@@ -171,7 +447,43 @@ func toGeneratedServiceType(typ serviceType.Type) generated.ServiceInfoType {
 		return generated.ServiceInfoTypeReverseProxy
 	case serviceType.Database:
 		return generated.ServiceInfoTypeDatabase
+	case serviceType.SecretManager:
+		return generated.ServiceInfoTypeSecretManager
+	case serviceType.DeploymentManagementSystem:
+		return generated.ServiceInfoTypeDeploymentManagementSystem
 	default:
 		return generated.ServiceInfoTypeApplication
 	}
+}
+
+func cloneStringSlice(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	out := make([]string, len(values))
+	copy(out, values)
+
+	return out
+}
+
+func cloneStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	out := make(map[string]string, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+
+	return out
+}
+
+func toInt64FromUint64(value uint64) int64 {
+	if value > math.MaxInt64 {
+		return math.MaxInt64
+	}
+
+	return int64(value)
 }

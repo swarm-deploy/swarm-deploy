@@ -2,7 +2,7 @@ version: "3.9"
 
 services:
   swarm-deploy:
-    image: artarts36/swarm-deploy:0.1.0
+    image: swarmdeployorg/swarm-deploy:0.1.0
     command: ["-config", "/etc/swarm-deploy/swarm-deploy.yaml"]
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock

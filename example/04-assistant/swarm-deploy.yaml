@@ -27,6 +27,9 @@ sync:
   mode: pull
   # Pull polling interval.
   pollInterval: 30s
+  policy:
+    # Removes orphaned managed services that are no longer defined in compose.
+    prune: true
 
 # AI assistant settings.
 assistant:
@@ -63,6 +66,11 @@ stacks:
   # Path to stacks definition file in git repository (relative to repo root).
   file: ./stacks.yaml
 
+# Managed Docker networks source settings.
+networks:
+  # Path to network definitions file in git repository (relative to repo root).
+  file: ./networks.yaml
+
 # Event history settings.
 eventHistory:
   # Maximum number of events stored on disk.
@@ -71,7 +79,7 @@ eventHistory:
 # Notification channels grouped by event type.
 notifications:
   on:
-    # Event type: deploySuccess | deployFailed | syncManualStarted | userAuthenticated
+    # Event type examples: deploySuccess | deployFailed | servicePruned | syncManualStarted | serviceRestarted | userAuthenticated
     deploySuccess:
       telegram:
         - name: ops-success
@@ -124,7 +132,6 @@ swarm:
     - stack
     - deploy
     - --with-registry-auth
-    - --prune
   # Init job polling interval.
   initJobPollEvery: 2s
   # Maximum init job duration.

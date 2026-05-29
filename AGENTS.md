@@ -1,4 +1,5 @@
 ## Project Context
+- Name of project = Swarm Deploy
 - This project implements Continuous Deployment for Docker Swarm
 
 ## Projects Rules
@@ -18,6 +19,7 @@
 - - `./internal/entrypoints/webhookserver` - Entrypoint for Webhook Server, receive webhooks from another systems, like GitHub, GitLab, etc.
 - - `./internal/entrypoints/mcpserver` - Entrypoint for MCP Server & Tools
 - `./internal/swarm` - Package with working Swarm API
+- `./internal/metrics` - Metrics for Swarm Deploy
 - `./api/api-server.yaml` - OpenAPI contracts for API Server of `webserver`
 
 ## MCP Tools

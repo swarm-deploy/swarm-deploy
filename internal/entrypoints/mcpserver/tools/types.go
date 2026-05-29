@@ -2,15 +2,15 @@ package tools
 
 import (
 	"context"
+	"net"
 
-	"github.com/artarts36/swarm-deploy/internal/controller"
-	"github.com/artarts36/swarm-deploy/internal/differ"
-	"github.com/artarts36/swarm-deploy/internal/event/history"
-	gitx "github.com/artarts36/swarm-deploy/internal/git"
-	"github.com/artarts36/swarm-deploy/internal/registry"
-	"github.com/artarts36/swarm-deploy/internal/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/differ"
+	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
+	gitx "github.com/swarm-deploy/swarm-deploy/internal/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/registry"
+	"github.com/swarm-deploy/swarm-deploy/internal/service"
 	"github.com/artarts36/swarm-deploy/internal/serviceupdater"
-	"github.com/artarts36/swarm-deploy/internal/swarm/inspector"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 // HistoryReader reads current event history snapshot.
@@ -21,26 +21,32 @@ type HistoryReader interface {
 
 // SyncTrigger triggers synchronization run.
 type SyncTrigger interface {
-	// Trigger enqueues synchronization by reason.
-	Trigger(reason controller.TriggerReason) bool
+	// Manual enqueues synchronization.
+	Manual(ctx context.Context) bool
 }
 
 // NodesReader reads current Swarm nodes snapshot.
 type NodesReader interface {
 	// List returns current nodes snapshot.
-	List() []inspector.NodeInfo
+	List() []swarm.Node
 }
 
-// NetworkInspector inspects current Docker networks snapshot.
-type NetworkInspector interface {
-	// InspectNetworks returns current Docker networks snapshot.
-	InspectNetworks(ctx context.Context) ([]inspector.NetworkInfo, error)
+// PluginReader reads current Docker plugins snapshot.
+type PluginReader interface {
+	// List returns current Docker plugins snapshot.
+	List(ctx context.Context) ([]swarm.Plugin, error)
 }
 
 // ServicesReader reads current service metadata snapshot.
 type ServicesReader interface {
 	// List returns current services metadata snapshot.
 	List() []service.Info
+}
+
+// DNSResolver resolves DNS names to IP addresses.
+type DNSResolver interface {
+	// LookupIPAddr resolves host and returns a list of addresses.
+	LookupIPAddr(ctx context.Context, host string) ([]net.IPAddr, error)
 }
 
 // ImageVersionResolver resolves current image version in a container registry.

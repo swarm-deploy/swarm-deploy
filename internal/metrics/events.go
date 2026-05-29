@@ -1,14 +1,14 @@
 package metrics
 
 import (
-	"github.com/artarts36/swarm-deploy/internal/event/events"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 )
 
 type Events interface {
-	IncTotal(typ events.Type)
+	subsystem
 
-	collectors() []prometheus.Collector
+	IncTotal(typ events.Type)
 }
 
 type prometheusEvents struct {
@@ -30,7 +30,7 @@ func newPrometheusEvents(namespace string) *prometheusEvents {
 }
 
 func (e *prometheusEvents) IncTotal(typ events.Type) {
-	e.total.WithLabelValues(string(typ)).Inc()
+	e.total.WithLabelValues(typ.String()).Inc()
 }
 
 func (e *prometheusEvents) collectors() []prometheus.Collector {

@@ -1,6 +1,6 @@
 package assistant
 
-import "github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/routing"
+import "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 
 type modelMessage struct {
 	Role       string

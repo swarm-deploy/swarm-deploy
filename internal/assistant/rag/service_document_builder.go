@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/artarts36/swarm-deploy/internal/service"
-	"github.com/artarts36/swarm-deploy/internal/service/webroute"
+	"github.com/swarm-deploy/swarm-deploy/internal/service"
+	"github.com/swarm-deploy/webroute"
 )
 
 // ServiceDocumentBuilder builds RAG document text from service metadata.

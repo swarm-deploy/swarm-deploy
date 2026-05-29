@@ -5,8 +5,8 @@ import (
 	"time"
 
 	"github.com/artarts36/go-entrypoint"
-	"github.com/artarts36/swarm-deploy/internal/config"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 )
 
 const readHeaderTimeout = 10 * time.Second

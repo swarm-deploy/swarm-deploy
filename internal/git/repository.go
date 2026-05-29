@@ -10,9 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"time"
 
-	"github.com/artarts36/swarm-deploy/internal/config"
 	gogit "github.com/go-git/go-git/v5"
 	gogitcfg "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
@@ -20,6 +18,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
@@ -71,6 +70,11 @@ func newGoGitRepository(
 	}, nil
 }
 
+func (r *GoGitRepository) WorkingDir() string {
+	return r.path
+}
+
+func (r *GoGitRepository) Pull(ctx context.Context) (PullResult, error) {
 func (r *GoGitRepository) AddFile(ctx context.Context, path string, content []byte) error {
 	fullPath := filepath.Join(r.path, path)
 
@@ -85,7 +89,12 @@ func (r *GoGitRepository) AddFile(ctx context.Context, path string, content []by
 func (r *GoGitRepository) Pull(ctx context.Context) error {
 	worktree, err := r.repository.Worktree()
 	if err != nil {
-		return fmt.Errorf("open worktree: %w", err)
+		return PullResult{}, fmt.Errorf("open worktree: %w", err)
+	}
+
+	previousHash, err := r.Head(ctx)
+	if err != nil {
+		return PullResult{}, fmt.Errorf("get current head: %w", err)
 	}
 
 	err = worktree.PullContext(ctx, &gogit.PullOptions{
@@ -96,10 +105,19 @@ func (r *GoGitRepository) Pull(ctx context.Context) error {
 		Force:         true,
 	})
 	if err != nil && !errors.Is(err, gogit.NoErrAlreadyUpToDate) {
-		return fmt.Errorf("git pull: %w", err)
+		return PullResult{}, fmt.Errorf("git pull: %w", err)
 	}
 
-	return nil
+	newHash, err := r.Head(ctx)
+	if err != nil {
+		return PullResult{}, fmt.Errorf("get current head after pull: %w", err)
+	}
+
+	return PullResult{
+		OldRevision: previousHash,
+		NewRevision: newHash,
+		Updated:     previousHash != newHash,
+	}, nil
 }
 
 func (r *GoGitRepository) ReadFile(_ context.Context, path string) ([]byte, error) {
@@ -180,6 +198,7 @@ func (r *GoGitRepository) Show(ctx context.Context, commitHash string) (Commit, 
 	return Commit{
 		Author:      commit.Author.Name,
 		AuthorEmail: commit.Author.Email,
+		Message:     strings.TrimSpace(commit.Message),
 		Time:        commit.Author.When,
 		Files:       fileDiffs,
 	}, nil
@@ -423,21 +442,21 @@ func openRepository(
 }
 
 func resolveAuthMethod(auth config.GitAuthSpec) (transport.AuthMethod, error) {
-	switch strings.ToLower(strings.TrimSpace(auth.Type)) {
-	case "", "none":
+	switch auth.Type {
+	case "", config.GitAuthTypeNone:
 		//nolint:nilnil // nil auth method explicitly means anonymous access for go-git.
 		return nil, nil
-	case "http":
+	case config.GitAuthTypeHTTP:
 		password := auth.HTTP.ResolvePassword()
 		username := auth.HTTP.ResolveUsername()
 		if username == "" || password == "" {
-			return nil, errors.New("http auth requires non-empty username and password/token")
+			return nil, errors.New("http auth requires username+passwordPath or tokenPath")
 		}
 		return &githttp.BasicAuth{
 			Username: username,
 			Password: password,
 		}, nil
-	case "ssh":
+	case config.GitAuthTypeSSH:
 		return buildSSHAuthMethod(auth.SSH)
 	default:
 		return nil, fmt.Errorf("unsupported git auth type: %s", auth.Type)

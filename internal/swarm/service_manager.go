@@ -1,0 +1,580 @@
+package swarm
+
+import (
+	"bufio"
+	"bytes"
+	"context"
+	"encoding/binary"
+	"fmt"
+	"io"
+	"log/slog"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/avast/retry-go/v5"
+	cerrdefs "github.com/containerd/errdefs"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
+	dockerswarm "github.com/docker/docker/api/types/swarm"
+	"github.com/docker/docker/client"
+)
+
+const (
+	defaultServiceLogsLimit           = 200
+	dockerLogFrameHeaderSize          = 8
+	serviceLogsScannerInitialBufSize  = 64 * 1024
+	serviceLogsScannerMaxTokenBufSize = 1 << 20
+
+	stackNamespaceLabelKey = "com.docker.stack.namespace"
+)
+
+// ServiceManager manages stack service.
+type serviceManager struct {
+	dockerClient *client.Client
+}
+
+// newServiceManager creates service manager with provided docker API client.
+func newServiceManager(dockerClient *client.Client) *serviceManager {
+	return &serviceManager{
+		dockerClient: dockerClient,
+	}
+}
+
+// GetReplicas returns desired replicas count for a stack service.
+func (m *serviceManager) GetReplicas(
+	ctx context.Context,
+	serviceRef ServiceReference,
+) (uint64, error) {
+	service, fullServiceName, err := m.inspect(ctx, serviceRef)
+	if err != nil {
+		return 0, err
+	}
+	if service.Spec.Mode.Replicated == nil {
+		return 0, fmt.Errorf("service %s is not replicated mode", fullServiceName)
+	}
+	if service.Spec.Mode.Replicated.Replicas == nil {
+		return 0, nil
+	}
+
+	return *service.Spec.Mode.Replicated.Replicas, nil
+}
+
+// ListStackServices returns services currently attached to provided stack.
+func (m *serviceManager) ListStackServices(ctx context.Context, stackName string) ([]StackService, error) {
+	services, err := m.dockerClient.ServiceList(ctx, dockerswarm.ServiceListOptions{
+		Filters: filters.NewArgs(filters.Arg("label", stackNamespaceLabelKey+"="+stackName)),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list services for stack %s: %w", stackName, err)
+	}
+
+	mapped := make([]StackService, 0, len(services))
+	for _, service := range services {
+		fullName := service.Spec.Name
+		mapped = append(mapped, StackService{
+			ID:       service.ID,
+			Name:     stackServiceNameFromFullName(stackName, fullName),
+			FullName: fullName,
+			Labels:   cloneStringMap(service.Spec.Labels),
+		})
+	}
+
+	sort.Slice(mapped, func(i, j int) bool {
+		return mapped[i].FullName < mapped[j].FullName
+	})
+
+	return mapped, nil
+}
+
+// Remove deletes service by Docker service identifier or full service name.
+func (m *serviceManager) Remove(ctx context.Context, serviceIDOrName string) error {
+	err := m.dockerClient.ServiceRemove(ctx, serviceIDOrName)
+	if err != nil {
+		if isNotFoundErr(err) {
+			return ErrServiceNotFound
+		}
+
+		return fmt.Errorf("remove service %s: %w", serviceIDOrName, err)
+	}
+
+	return nil
+}
+
+// Scale sets desired replicas count for a stack service.
+func (m *serviceManager) Scale(
+	ctx context.Context,
+	serviceRef ServiceReference,
+	replicas uint64,
+) error {
+	service, fullServiceName, err := m.inspect(ctx, serviceRef)
+	if err != nil {
+		return err
+	}
+	if service.Spec.Mode.Replicated == nil || service.Spec.Mode.Replicated.Replicas == nil {
+		return fmt.Errorf("service %s is not replicated mode", fullServiceName)
+	}
+
+	spec := service.Spec
+	spec.Mode.Replicated.Replicas = &replicas
+
+	_, err = m.dockerClient.ServiceUpdate(ctx, service.ID, service.Version, spec, dockerswarm.ServiceUpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("update service %s replicas to %d: %w", fullServiceName, replicas, err)
+	}
+
+	return nil
+}
+
+const (
+	restartServiceRetryAttempts = 3
+	restartServiceDelay         = 250 * time.Second
+)
+
+// Restart restarts stack service by scaling replicas to zero and restoring previous count.
+func (m *serviceManager) Restart(
+	ctx context.Context,
+	serviceRef ServiceReference,
+) (uint64, error) {
+	currentReplicas, err := m.GetReplicas(ctx, serviceRef)
+	if err != nil {
+		return 0, fmt.Errorf("inspect service replicas: %w", err)
+	}
+
+	err = m.Scale(ctx, serviceRef, 0)
+	if err != nil {
+		return 0, fmt.Errorf("scale service replicas to 0: %w", err)
+	}
+
+	err = retry.New(retry.Attempts(restartServiceRetryAttempts), retry.Delay(restartServiceDelay)).Do(func() error {
+		return m.Scale(ctx, serviceRef, currentReplicas)
+	})
+	if err != nil {
+		return 0, fmt.Errorf("restore service replicas to %d: %w", currentReplicas, err)
+	}
+
+	return currentReplicas, nil
+}
+
+// GetStatus returns compact status snapshot for a stack service.
+func (m *serviceManager) GetStatus(ctx context.Context, serviceRef ServiceReference) (ServiceStatus, error) {
+	service, _, err := m.inspect(ctx, serviceRef)
+	if err != nil {
+		return ServiceStatus{}, err
+	}
+
+	return ServiceStatus{
+		Stack:   serviceRef.StackName(),
+		Service: serviceRef.ServiceName(),
+		Spec:    toServiceSpec(service.Spec),
+	}, nil
+}
+
+// ListTasks returns service tasks for realtime container status rendering.
+func (m *serviceManager) ListTasks(ctx context.Context, serviceRef ServiceReference) ([]ServiceTask, error) {
+	fullServiceName := serviceRef.Name()
+
+	tasks, err := m.dockerClient.TaskList(ctx, dockerswarm.TaskListOptions{
+		Filters: filters.NewArgs(filters.Arg("service", fullServiceName)),
+	})
+	if err != nil {
+		if isNotFoundErr(err) {
+			return nil, ErrServiceNotFound
+		}
+
+		return nil, fmt.Errorf("list tasks for service %s: %w", fullServiceName, err)
+	}
+
+	out := make([]ServiceTask, 0, len(tasks))
+	for _, task := range tasks {
+		out = append(out, ServiceTask{
+			ID:           task.ID,
+			Node:         task.NodeID,
+			CreatedAt:    task.CreatedAt,
+			UpdatedAt:    task.UpdatedAt,
+			CurrentState: string(task.Status.State),
+			Error:        task.Status.Err,
+		})
+	}
+
+	return out, nil
+}
+
+// Get returns full compact service projection for a stack service.
+func (m *serviceManager) Get(ctx context.Context, serviceRef ServiceReference) (Service, error) {
+	service, _, err := m.inspect(ctx, serviceRef)
+	if err != nil {
+		return Service{}, err
+	}
+
+	return Service{
+		ID:           service.ID,
+		CreatedAt:    service.CreatedAt,
+		UpdatedAt:    service.UpdatedAt,
+		Secrets:      toServiceSecrets(service.Spec.TaskTemplate.ContainerSpec),
+		Spec:         toServiceSpec(service.Spec),
+		PreviousSpec: toPreviousServiceSpec(service.PreviousSpec),
+		UpdateStatus: toServiceUpdateStatus(service.UpdateStatus),
+	}, nil
+}
+
+// Labels returns service, container and image labels for a stack service.
+func (m *serviceManager) Labels(ctx context.Context, serviceRef ServiceReference) (ServiceLabels, error) {
+	service, _, err := m.inspect(ctx, serviceRef)
+	if err != nil {
+		return ServiceLabels{}, err
+	}
+
+	labels := ServiceLabels{
+		Service: cloneStringMap(service.Spec.Labels),
+	}
+
+	containerSpec := service.Spec.TaskTemplate.ContainerSpec
+	if containerSpec != nil {
+		labels.Container = cloneStringMap(containerSpec.Labels)
+		labels.ContainerEnv = cloneStringSlice(containerSpec.Env)
+	}
+
+	imageRef := ""
+	if containerSpec != nil {
+		imageRef = containerSpec.Image
+	}
+
+	slog.DebugContext(ctx, "[swarm] inspecting image", slog.String("image_ref", imageRef))
+
+	image, err := m.dockerClient.ImageInspect(ctx, imageRef)
+	if err != nil {
+		if isNotFoundErr(err) {
+			slog.DebugContext(ctx, "[swarm] image not found", slog.String("image_ref", imageRef))
+
+			return labels, nil
+		}
+		return labels, fmt.Errorf("inspect image %s: %w", imageRef, err)
+	}
+
+	slog.DebugContext(ctx, "[swarm] image inspected",
+		slog.String("image_ref", imageRef),
+		slog.Any("image", image),
+	)
+
+	if image.Config != nil {
+		labels.Image = cloneStringMap(image.Config.Labels)
+	}
+	return labels, nil
+}
+
+// Logs returns recent logs for a stack service.
+func (m *serviceManager) Logs(
+	ctx context.Context,
+	serviceRef ServiceReference,
+	options ServiceLogsOptions,
+) ([]string, error) {
+	fullServiceName := serviceRef.Name()
+
+	reader, err := m.dockerClient.ServiceLogs(ctx, fullServiceName, buildDockerServiceLogsOptions(options))
+	if err != nil {
+		if isNotFoundErr(err) {
+			return nil, ErrServiceNotFound
+		}
+
+		return nil, fmt.Errorf("read logs for service %s: %w", fullServiceName, err)
+	}
+	defer reader.Close()
+
+	rawLogs, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("read logs stream for service %s: %w", fullServiceName, err)
+	}
+
+	decodedLogs := demultiplexDockerLogStream(rawLogs)
+
+	logs := make([]string, 0)
+
+	scanner := bufio.NewScanner(bytes.NewReader(decodedLogs))
+	scanner.Buffer(
+		make([]byte, 0, serviceLogsScannerInitialBufSize),
+		serviceLogsScannerMaxTokenBufSize,
+	)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+
+		logs = append(logs, line)
+	}
+	if scanErr := scanner.Err(); scanErr != nil {
+		return nil, fmt.Errorf("scan logs for service %s: %w", fullServiceName, scanErr)
+	}
+
+	return logs, nil
+}
+
+func buildDockerServiceLogsOptions(options ServiceLogsOptions) container.LogsOptions {
+	limit := options.Limit
+	if limit <= 0 {
+		limit = defaultServiceLogsLimit
+	}
+
+	logsOptions := container.LogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Timestamps: true,
+		Tail:       strconv.Itoa(limit),
+	}
+
+	if options.Since != nil {
+		logsOptions.Since = options.Since.UTC().Format(time.RFC3339Nano)
+	}
+	if options.Until != nil {
+		logsOptions.Until = options.Until.UTC().Format(time.RFC3339Nano)
+	}
+
+	return logsOptions
+}
+
+func demultiplexDockerLogStream(raw []byte) []byte {
+	// Docker multiplexed logs use 8-byte frame headers:
+	// [stream(1)][0][0][0][payload_size_be_uint32].
+	// If payload is shorter than a single header, treat it as plain text.
+	if len(raw) < dockerLogFrameHeaderSize {
+		return raw
+	}
+
+	decoded := bytes.NewBuffer(make([]byte, 0, len(raw)))
+	cursor := 0
+	parsedFrames := false
+
+	for cursor+dockerLogFrameHeaderSize <= len(raw) {
+		header := raw[cursor : cursor+dockerLogFrameHeaderSize]
+		// Non-zero reserved bytes mean this is not a Docker multiplexed frame.
+		// If this happens before any parsed frame, keep stream untouched.
+		// If we already parsed something, append the remainder as best-effort.
+		if header[1] != 0 || header[2] != 0 || header[3] != 0 {
+			if !parsedFrames {
+				return raw
+			}
+
+			decoded.Write(raw[cursor:])
+			return decoded.Bytes()
+		}
+
+		frameSize := int(binary.BigEndian.Uint32(header[4:dockerLogFrameHeaderSize]))
+		cursor += dockerLogFrameHeaderSize
+
+		// Broken frame length: keep behavior safe and non-destructive.
+		if frameSize < 0 || cursor+frameSize > len(raw) {
+			if !parsedFrames {
+				return raw
+			}
+
+			decoded.Write(raw[cursor-dockerLogFrameHeaderSize:])
+			return decoded.Bytes()
+		}
+
+		if frameSize > 0 {
+			decoded.Write(raw[cursor : cursor+frameSize])
+		}
+		cursor += frameSize
+		parsedFrames = true
+	}
+
+	// Preserve trailing bytes that don't form a full header.
+	if cursor < len(raw) {
+		decoded.Write(raw[cursor:])
+	}
+	// If we did not recognize a single frame, return original stream.
+	if !parsedFrames {
+		return raw
+	}
+
+	return decoded.Bytes()
+}
+
+func toServiceSpec(spec dockerswarm.ServiceSpec) ServiceSpec {
+	mode, replicas := resolveServiceDeployMode(spec.Mode)
+
+	mapped := ServiceSpec{
+		Mode:     mode,
+		Replicas: replicas,
+		Labels:   cloneStringMap(spec.Labels),
+		Network:  toServiceNetworks(spec.TaskTemplate.Networks),
+	}
+
+	containerSpec := spec.TaskTemplate.ContainerSpec
+	if containerSpec != nil {
+		mapped.Image = containerSpec.Image
+		mapped.Secrets = toServiceSecrets(containerSpec)
+	}
+
+	if resources := spec.TaskTemplate.Resources; resources != nil && resources.Reservations != nil {
+		mapped.RequestedRAMBytes = resources.Reservations.MemoryBytes
+		mapped.RequestedCPUNano = resources.Reservations.NanoCPUs
+	}
+	if resources := spec.TaskTemplate.Resources; resources != nil && resources.Limits != nil {
+		mapped.LimitRAMBytes = resources.Limits.MemoryBytes
+		mapped.LimitCPUNano = resources.Limits.NanoCPUs
+	}
+
+	return mapped
+}
+
+func resolveServiceDeployMode(mode dockerswarm.ServiceMode) (string, uint64) {
+	switch {
+	case mode.Replicated != nil:
+		replicas := uint64(0)
+		if mode.Replicated.Replicas != nil {
+			replicas = *mode.Replicated.Replicas
+		}
+		return "replicated", replicas
+	case mode.Global != nil:
+		return "global", 0
+	case mode.ReplicatedJob != nil:
+		replicas := uint64(0)
+		if mode.ReplicatedJob.MaxConcurrent != nil {
+			replicas = *mode.ReplicatedJob.MaxConcurrent
+		}
+		return "replicated-job", replicas
+	case mode.GlobalJob != nil:
+		return "global-job", 0
+	default:
+		return "unknown", 0
+	}
+}
+
+func toPreviousServiceSpec(previous *dockerswarm.ServiceSpec) *ServiceSpec {
+	if previous == nil {
+		return nil
+	}
+
+	mapped := toServiceSpec(*previous)
+
+	return &mapped
+}
+
+func toServiceUpdateStatus(status *dockerswarm.UpdateStatus) *ServiceUpdateStatus {
+	if status == nil {
+		return nil
+	}
+
+	startedAt := time.Time{}
+	if status.StartedAt != nil {
+		startedAt = *status.StartedAt
+	}
+
+	completedAt := time.Time{}
+	if status.CompletedAt != nil {
+		completedAt = *status.CompletedAt
+	}
+
+	return &ServiceUpdateStatus{
+		State:       string(status.State),
+		StartedAt:   startedAt,
+		CompletedAt: completedAt,
+		Message:     status.Message,
+	}
+}
+
+func toServiceSecrets(containerSpec *dockerswarm.ContainerSpec) []ServiceSecret {
+	if containerSpec == nil || len(containerSpec.Secrets) == 0 {
+		return nil
+	}
+
+	mapped := make([]ServiceSecret, 0, len(containerSpec.Secrets))
+	for _, secret := range containerSpec.Secrets {
+		if secret == nil {
+			continue
+		}
+
+		target := ""
+		if secret.File != nil {
+			target = secret.File.Name
+		}
+
+		secretName := secret.SecretName
+		if secretName == "" {
+			secretName = secret.SecretID
+		}
+
+		mapped = append(mapped, ServiceSecret{
+			SecretID:   secret.SecretID,
+			SecretName: secretName,
+			Target:     target,
+		})
+	}
+	if len(mapped) == 0 {
+		return nil
+	}
+
+	return mapped
+}
+
+func toServiceNetworks(networks []dockerswarm.NetworkAttachmentConfig) []ServiceNetwork {
+	if len(networks) == 0 {
+		return nil
+	}
+
+	mapped := make([]ServiceNetwork, 0, len(networks))
+	for _, network := range networks {
+		mapped = append(mapped, ServiceNetwork{
+			Target:  network.Target,
+			Aliases: cloneStringSlice(network.Aliases),
+		})
+	}
+
+	return mapped
+}
+
+func cloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
+}
+
+func cloneStringSlice(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]string, len(in))
+	copy(out, in)
+
+	return out
+}
+
+func (m *serviceManager) inspect(
+	ctx context.Context,
+	serviceRef ServiceReference,
+) (dockerswarm.Service, string, error) {
+	fullServiceName := serviceRef.Name()
+	service, _, err := m.dockerClient.ServiceInspectWithRaw(ctx, fullServiceName, dockerswarm.ServiceInspectOptions{})
+	if err != nil {
+		if isNotFoundErr(err) {
+			return dockerswarm.Service{}, fullServiceName, ErrServiceNotFound
+		}
+
+		return dockerswarm.Service{}, fullServiceName, fmt.Errorf("inspect service %s: %w", fullServiceName, err)
+	}
+
+	return service, fullServiceName, nil
+}
+
+func isNotFoundErr(err error) bool {
+	return cerrdefs.IsNotFound(err)
+}
+
+func stackServiceNameFromFullName(stackName string, fullName string) string {
+	prefix := stackName + "_"
+	if strings.HasPrefix(fullName, prefix) {
+		return strings.TrimPrefix(fullName, prefix)
+	}
+
+	return fullName
+}

@@ -43,4 +43,4 @@ jobs:
             APP_VERSION=${{ steps.values.outputs.version_full}}
             BUILD_TIME=${{ steps.values.outputs.timestamp }}
           tags: |
-            artarts36/swarm-deploy:${{ steps.values.outputs.version_full}}
+            swarmdeployorg/swarm-deploy:${{ steps.values.outputs.version_full}}

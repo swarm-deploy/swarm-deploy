@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	"github.com/artarts36/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 )
 
 func NewLazyProxy(spec config.GitRepositorySpec, path string) *LazyProxy {
@@ -22,6 +22,11 @@ type LazyProxy struct {
 	repository *GoGitRepository
 }
 
+func (p *LazyProxy) WorkingDir() string {
+	return p.path
+}
+
+func (p *LazyProxy) Pull(ctx context.Context) (PullResult, error) {
 func (p *LazyProxy) AddFile(ctx context.Context, path string, content []byte) error {
 	repo, err := p.init(ctx)
 	if err != nil {
@@ -43,7 +48,7 @@ func (p *LazyProxy) ReadFile(ctx context.Context, path string) ([]byte, error) {
 func (p *LazyProxy) Pull(ctx context.Context) error {
 	repo, err := p.init(ctx)
 	if err != nil {
-		return err
+		return PullResult{}, err
 	}
 
 	return repo.Pull(ctx)

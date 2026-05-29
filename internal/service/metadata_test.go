@@ -3,8 +3,8 @@ package service
 import (
 	"testing"
 
-	serviceType "github.com/artarts36/swarm-deploy/internal/service/stype"
 	"github.com/stretchr/testify/assert"
+	serviceType "github.com/swarm-deploy/swarm-deploy/internal/service/stype"
 )
 
 func TestMetadataExtractorResolveTypePriority(t *testing.T) {

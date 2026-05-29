@@ -6,10 +6,10 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/artarts36/swarm-deploy/internal/config"
-	"github.com/artarts36/swarm-deploy/internal/differ"
-	"github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/routing"
-	"github.com/artarts36/swarm-deploy/internal/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/differ"
+	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
+	"github.com/swarm-deploy/swarm-deploy/internal/git"
 )
 
 // GitCommitDiff resolves semantic compose changes for a git commit.
@@ -17,6 +17,10 @@ type GitCommitDiff struct {
 	repository GitRepository
 	differ     CommitDiffer
 	stacks     []config.StackSpec
+}
+
+type gitCommitDiffRequest struct {
+	Commit string `json:"commit"`
 }
 
 // NewGitCommitDiff creates git_commit_diff component.
@@ -48,15 +52,18 @@ func (g *GitCommitDiff) Definition() routing.ToolDefinition {
 				},
 			},
 		},
+		Request: gitCommitDiffRequest{},
 	}
 }
 
 // Execute runs git_commit_diff tool.
 func (g *GitCommitDiff) Execute(ctx context.Context, request routing.Request) (routing.Response, error) {
-	commitHash, err := parseStringParam(request.Payload["commit"], "commit")
+	parsedRequest, err := convertRequestPayload[gitCommitDiffRequest](request.Payload)
 	if err != nil {
 		return routing.Response{}, err
 	}
+
+	commitHash := strings.TrimSpace(parsedRequest.Commit)
 	if commitHash == "" {
 		return routing.Response{}, fmt.Errorf("commit is required")
 	}
@@ -71,7 +78,6 @@ func (g *GitCommitDiff) Execute(ctx context.Context, request routing.Request) (r
 	if err != nil {
 		return routing.Response{}, err
 	}
-	diff = sanitizeDiffForModel(diff)
 
 	payload := struct {
 		// Commit is an inspected commit hash.
@@ -97,16 +103,6 @@ func (g *GitCommitDiff) Execute(ctx context.Context, request routing.Request) (r
 	}
 
 	return routing.Response{Payload: payload}, nil
-}
-
-func sanitizeDiffForModel(diff differ.Diff) differ.Diff {
-	for serviceIndex := range diff.Services {
-		for environmentIndex := range diff.Services[serviceIndex].Environment {
-			diff.Services[serviceIndex].Environment[environmentIndex].Value = ""
-		}
-	}
-
-	return diff
 }
 
 func (g *GitCommitDiff) collectComposeFiles(fileDiffs []git.CommitFileDiff) []differ.ComposeFile {

@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/artarts36/go-entrypoint"
-	"github.com/artarts36/swarm-deploy/internal/config"
-	"github.com/artarts36/swarm-deploy/internal/controller"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/controller"
 )
 
 const readHeaderTimeout = 10 * time.Second
@@ -70,7 +70,7 @@ func (a *Application) handleGitWebhook(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(io.Discard, r.Body)
 	_ = r.Body.Close()
 
-	queued := a.control.Trigger(controller.TriggerWebhook)
+	queued := a.control.Webhook()
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"queued": queued,
 	})

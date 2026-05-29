@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/routing"
-	"github.com/artarts36/swarm-deploy/internal/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
+	"github.com/swarm-deploy/swarm-deploy/internal/service"
 )
 
 // Status is an assistant chat run state.
@@ -75,7 +75,7 @@ type Config struct {
 	// BaseURL is an OpenAI-compatible API base URL.
 	BaseURL string
 	// APIToken is an OpenAI-compatible bearer token.
-	APIToken string //nolint:gosec // Config only carries secret from file-based source and is not an API payload.
+	APIToken string `json:"-"`
 	// OrganizationID is an optional OpenAI organization identifier.
 	OrganizationID string
 	// Temperature controls model sampling temperature.
@@ -101,5 +101,5 @@ type ToolExecutor interface {
 	// Definitions returns all available tool definitions.
 	Definitions() []routing.ToolDefinition
 	// Execute runs a tool by name with decoded JSON arguments.
-	Execute(ctx context.Context, name string, arguments map[string]any) (string, error)
+	Execute(ctx context.Context, req routing.Request) (string, error)
 }

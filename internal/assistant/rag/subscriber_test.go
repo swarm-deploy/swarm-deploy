@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/artarts36/swarm-deploy/internal/event/events"
-	"github.com/artarts36/swarm-deploy/internal/service"
-	"github.com/artarts36/swarm-deploy/internal/service/webroute"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/service"
+	"github.com/swarm-deploy/webroute"
 )
 
 type countingEmbedder struct {

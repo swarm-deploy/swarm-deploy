@@ -1,8 +1,8 @@
 package service
 
 import (
-	serviceType "github.com/artarts36/swarm-deploy/internal/service/stype"
-	"github.com/artarts36/swarm-deploy/internal/service/webroute"
+	serviceType "github.com/swarm-deploy/swarm-deploy/internal/service/stype"
+	"github.com/swarm-deploy/webroute"
 )
 
 // Info is a persisted service metadata record.
@@ -17,6 +17,8 @@ type Info struct {
 	Type serviceType.Type `json:"type"`
 	// Image is a service container image reference.
 	Image string `json:"image"`
+	// RepositoryURL is a source repository URL resolved from service labels.
+	RepositoryURL string `json:"repository_url,omitempty"`
 	// WebRoutes is a list of public web routes resolved from service environment.
 	WebRoutes []webroute.Route `json:"web_routes,omitempty"`
 }

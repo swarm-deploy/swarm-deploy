@@ -1,8 +1,8 @@
 package service
 
 import (
-	serviceDescription "github.com/artarts36/swarm-deploy/internal/service/description"
-	serviceType "github.com/artarts36/swarm-deploy/internal/service/stype"
+	serviceDescription "github.com/swarm-deploy/swarm-deploy/internal/service/description"
+	serviceType "github.com/swarm-deploy/swarm-deploy/internal/service/stype"
 )
 
 const (

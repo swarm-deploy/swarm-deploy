@@ -10,12 +10,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/routing"
-	"github.com/artarts36/swarm-deploy/internal/event/dispatcher"
-	"github.com/artarts36/swarm-deploy/internal/metrics"
-	"github.com/artarts36/swarm-deploy/internal/service"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
+	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	"github.com/swarm-deploy/swarm-deploy/internal/service"
 )
 
 type fakeStore struct {
@@ -51,10 +51,10 @@ func (f *fakeTools) Definitions() []routing.ToolDefinition {
 	}
 }
 
-func (f *fakeTools) Execute(_ context.Context, name string, _ map[string]any) (string, error) {
+func (f *fakeTools) Execute(_ context.Context, req routing.Request) (string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.calls = append(f.calls, name)
+	f.calls = append(f.calls, req.ToolName)
 
 	if f.executeErr != nil {
 		return "", f.executeErr

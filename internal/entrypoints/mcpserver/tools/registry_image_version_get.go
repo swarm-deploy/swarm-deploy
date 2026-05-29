@@ -7,12 +7,16 @@ import (
 
 	"github.com/distribution/reference"
 
-	"github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/routing"
+	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 )
 
 // GetActualImageVersion returns actual image version from registry.
 type GetActualImageVersion struct {
 	resolver ImageVersionResolver
+}
+
+type getActualImageVersionRequest struct {
+	Image string `json:"image"`
 }
 
 // NewGetActualImageVersion creates registry_image_version_get component.
@@ -39,6 +43,7 @@ func (g *GetActualImageVersion) Definition() routing.ToolDefinition {
 				},
 			},
 		},
+		Request: getActualImageVersionRequest{},
 	}
 }
 
@@ -48,11 +53,12 @@ func (g *GetActualImageVersion) Execute(ctx context.Context, request routing.Req
 		return routing.Response{}, fmt.Errorf("image version resolver is not configured")
 	}
 
-	imageRaw, err := parseStringParam(request.Payload["image"], "image")
+	parsedRequest, err := convertRequestPayload[getActualImageVersionRequest](request.Payload)
 	if err != nil {
 		return routing.Response{}, err
 	}
-	image := strings.TrimSpace(imageRaw)
+
+	image := strings.TrimSpace(parsedRequest.Image)
 	if image == "" {
 		return routing.Response{}, fmt.Errorf("image is required")
 	}

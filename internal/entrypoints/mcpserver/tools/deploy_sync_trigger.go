@@ -3,8 +3,7 @@ package tools
 import (
 	"context"
 
-	"github.com/artarts36/swarm-deploy/internal/controller"
-	"github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/routing"
+	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 )
 
 // Sync triggers manual synchronization run.
@@ -26,12 +25,13 @@ func (s *Sync) Definition() routing.ToolDefinition {
 			"type":       "object",
 			"properties": map[string]any{},
 		},
+		Request: struct{}{},
 	}
 }
 
 // Execute runs deploy_sync_trigger tool.
-func (s *Sync) Execute(_ context.Context, _ routing.Request) (routing.Response, error) {
-	queued := s.control.Trigger(controller.TriggerManual)
+func (s *Sync) Execute(ctx context.Context, _ routing.Request) (routing.Response, error) {
+	queued := s.control.Manual(ctx)
 	payload := struct {
 		Queued bool `json:"queued"`
 	}{

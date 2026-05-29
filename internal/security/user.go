@@ -5,6 +5,8 @@ import (
 	"log/slog"
 
 	"github.com/cappuccinotm/slogx"
+	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 )
 
 type User struct {
@@ -33,5 +35,18 @@ func LogUser() slogx.Middleware {
 			}
 			return next(ctx, rec)
 		}
+	}
+}
+
+func PropagateEvent() dispatcher.Propagator {
+	return func(ctx context.Context, event events.Event) events.Event {
+		eventAwareUser, ok := event.(events.AwareUser)
+		if ok {
+			user, uok := UserFromContext(ctx)
+			if uok {
+				event = eventAwareUser.WithUsername(user.Name)
+			}
+		}
+		return event
 	}
 }

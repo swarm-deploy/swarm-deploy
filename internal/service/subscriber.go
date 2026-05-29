@@ -5,15 +5,14 @@ import (
 	"fmt"
 	"log/slog"
 
-	"github.com/artarts36/swarm-deploy/internal/event/events"
-	"github.com/artarts36/swarm-deploy/internal/service/webroute"
-	swarminspector "github.com/artarts36/swarm-deploy/internal/swarm/inspector"
+	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 // LabelsInspector provides labels from service, container and image inspect.
 type LabelsInspector interface {
 	// InspectServiceLabels returns labels for a service and its image.
-	InspectServiceLabels(ctx context.Context, stackName, serviceName string) (swarminspector.ServiceLabels, error)
+	Labels(ctx context.Context, serviceRef swarm.ServiceReference) (swarm.ServiceLabels, error)
 }
 
 // Subscriber persists service metadata on deploySuccess events.
@@ -21,7 +20,7 @@ type Subscriber struct {
 	store            *Store
 	inspector        LabelsInspector
 	metadata         *MetadataExtractor
-	webRouteResolver *webroute.Resolver
+	webRouteResolver *WebRouteResolver
 }
 
 // NewSubscriber creates a service metadata event subscriber.
@@ -30,12 +29,16 @@ func NewSubscriber(store *Store, inspector LabelsInspector, metadata *MetadataEx
 		store:            store,
 		inspector:        inspector,
 		metadata:         metadata,
-		webRouteResolver: webroute.NewResolver(),
+		webRouteResolver: NewWebRouteResolver(),
 	}
 }
 
 func (s *Subscriber) Name() string {
 	return "save-service-metadata"
+}
+
+func (s *Subscriber) Slow() bool {
+	return true
 }
 
 // Handle processes deploySuccess events and persists resolved services snapshot.
@@ -52,10 +55,9 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Event) error {
 			slog.String("service_name", deployedService.Name),
 		)
 
-		inspectedLabels, inspectErr := s.inspector.InspectServiceLabels(
+		inspectedLabels, inspectErr := s.inspector.Labels(
 			ctx,
-			deploySuccess.StackName,
-			deployedService.Name,
+			swarm.NewServiceReference(deploySuccess.StackName, deployedService.Name),
 		)
 		if inspectErr != nil {
 			slog.WarnContext(
@@ -73,13 +75,15 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Event) error {
 		}
 
 		resolved := s.metadata.Resolve(deployedService.Image, labels)
+		repositoryURL := ResolveRepositoryURL(labels)
 		services = append(services, Info{
-			Name:        deployedService.Name,
-			Stack:       deploySuccess.StackName,
-			Description: resolved.Description,
-			Type:        resolved.Type,
-			Image:       deployedService.Image,
-			WebRoutes:   s.webRouteResolver.Resolve(inspectedLabels.ContainerEnv),
+			Name:          deployedService.Name,
+			Stack:         deploySuccess.StackName,
+			Description:   resolved.Description,
+			Type:          resolved.Type,
+			Image:         deployedService.Image,
+			RepositoryURL: repositoryURL,
+			WebRoutes:     s.webRouteResolver.Resolve(inspectedLabels.ContainerEnv),
 		})
 	}
 

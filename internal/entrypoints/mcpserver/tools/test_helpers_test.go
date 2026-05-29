@@ -4,63 +4,50 @@ import (
 	"context"
 	"time"
 
-	"github.com/artarts36/swarm-deploy/internal/controller"
-	"github.com/artarts36/swarm-deploy/internal/differ"
-	"github.com/artarts36/swarm-deploy/internal/event/history"
-	gitx "github.com/artarts36/swarm-deploy/internal/git"
-	"github.com/artarts36/swarm-deploy/internal/registry"
-	"github.com/artarts36/swarm-deploy/internal/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/differ"
+	gitx "github.com/swarm-deploy/swarm-deploy/internal/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/registry"
+	"github.com/swarm-deploy/swarm-deploy/internal/service"
 	"github.com/artarts36/swarm-deploy/internal/serviceupdater"
-	"github.com/artarts36/swarm-deploy/internal/swarm/inspector"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
-
-type fakeHistoryStore struct {
-	entries []history.Entry
-}
-
-func (f *fakeHistoryStore) List() []history.Entry {
-	out := make([]history.Entry, len(f.entries))
-	copy(out, f.entries)
-
-	return out
-}
 
 type fakeSyncControl struct {
 	queued bool
 	called int
 }
 
-func (f *fakeSyncControl) Trigger(_ controller.TriggerReason) bool {
+func (f *fakeSyncControl) Manual(_ context.Context) bool {
 	f.called++
 
 	return f.queued
 }
 
 type fakeNodeStore struct {
-	nodes []inspector.NodeInfo
+	nodes []swarm.Node
 }
 
-func (f *fakeNodeStore) List() []inspector.NodeInfo {
-	out := make([]inspector.NodeInfo, len(f.nodes))
+func (f *fakeNodeStore) List() []swarm.Node {
+	out := make([]swarm.Node, len(f.nodes))
 	copy(out, f.nodes)
 
 	return out
 }
 
-type fakeNetworkInspector struct {
-	networks []inspector.NetworkInfo
-	err      error
-	called   int
+type fakePluginReader struct {
+	plugins []swarm.Plugin
+	err     error
+	called  int
 }
 
-func (f *fakeNetworkInspector) InspectNetworks(_ context.Context) ([]inspector.NetworkInfo, error) {
+func (f *fakePluginReader) List(_ context.Context) ([]swarm.Plugin, error) {
 	f.called++
 	if f.err != nil {
 		return nil, f.err
 	}
 
-	out := make([]inspector.NetworkInfo, len(f.networks))
-	copy(out, f.networks)
+	out := make([]swarm.Plugin, len(f.plugins))
+	copy(out, f.plugins)
 
 	return out, nil
 }

@@ -3,7 +3,7 @@ package handlers
 import (
 	"context"
 
-	generated "github.com/artarts36/swarm-deploy/internal/entrypoints/webserver/generated"
+	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 )
 
 func (h *handler) ListNodes(_ context.Context) (*generated.NodesResponse, error) {

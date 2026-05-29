@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/artarts36/swarm-deploy/internal/service/webroute"
+	"github.com/swarm-deploy/webroute"
 )
 
 const fileModePrivate = 0o600
@@ -129,6 +129,7 @@ func normalizeInfo(info Info) Info {
 	info.Stack = strings.TrimSpace(info.Stack)
 	info.Description = strings.TrimSpace(info.Description)
 	info.Image = strings.TrimSpace(info.Image)
+	info.RepositoryURL = strings.TrimSpace(info.RepositoryURL)
 	info.WebRoutes = normalizeWebRoutes(info.WebRoutes)
 
 	return info

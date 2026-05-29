@@ -247,7 +247,7 @@ stacks:
 	assert.Empty(t, cfg.Spec.Stacks, "stacks must be loaded later from git repository during sync")
 }
 
-func TestLoadResolvesRelativeBasicHTPasswdPath(t *testing.T) {
+func TestLoadWithNetworksFile(t *testing.T) {
 	dir := t.TempDir()
 
 	stacksPath := filepath.Join(dir, "stacks.yaml")
@@ -256,51 +256,38 @@ stacks:
   - name: app
     composeFile: app/docker-compose.yml
 `)
-	if err := os.WriteFile(stacksPath, stacksPayload, 0o600); err != nil {
-		require.NoError(t, err, "write stacks file")
-	}
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
 
-	htpasswdPath := filepath.Join(dir, "basic.htpasswd")
-	htpasswdContent := []byte(
-		"admin:$2a$10$abcdefghijklmnopqrstuu5Lo0M/JD0P7P4nM8JrIoYNewc0hXtNq\n",
-	)
-	if err := os.WriteFile(htpasswdPath, htpasswdContent, 0o600); err != nil {
-		require.NoError(t, err, "write htpasswd file")
-	}
+	networksPath := filepath.Join(dir, "networks.yaml")
+	networksPayload := []byte(`
+networks:
+  - name: app_backend
+    labels:
+      team: platform
+`)
+	require.NoError(t, os.WriteFile(networksPath, networksPayload, 0o600), "write networks file")
 
 	configPath := filepath.Join(dir, "swarm-deploy.yaml")
 	configPayload := []byte(`
 git:
   repository: https://example.com/repo.git
+sync:
+  mode: pull
 stacks:
   file: ./stacks.yaml
-web:
-  security:
-    authentication:
-      basic:
-        htpasswdFile: ./basic.htpasswd
+networks:
+  file: ./networks.yaml
 `)
-	if err := os.WriteFile(configPath, configPayload, 0o600); err != nil {
-		require.NoError(t, err, "write config file")
-	}
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
 
 	cfg, err := Load(configPath)
 	require.NoError(t, err, "load config")
-	assert.Equal(
-		t,
-		htpasswdPath,
-		cfg.Spec.Web.Security.Authentication.Basic.HTPasswdFile,
-		"expected resolved htpasswd path",
-	)
-	assert.Equal(
-		t,
-		AuthenticationStrategyBasic,
-		cfg.Spec.Web.Security.Authentication.Strategy(),
-		"expected basic auth strategy",
-	)
+	require.Len(t, cfg.Spec.Networks, 1, "expected one network")
+	assert.Equal(t, "app_backend", cfg.Spec.Networks[0].Name, "unexpected network name")
+	assert.Equal(t, "overlay", cfg.Spec.Networks[0].Driver, "unexpected default network driver")
 }
 
-func TestLoadFailsOnMissingBasicHTPasswdFile(t *testing.T) {
+func TestLoadAllowsMissingNetworksFileBeforeFirstSync(t *testing.T) {
 	dir := t.TempDir()
 
 	stacksPath := filepath.Join(dir, "stacks.yaml")
@@ -309,29 +296,24 @@ stacks:
   - name: app
     composeFile: app/docker-compose.yml
 `)
-	if err := os.WriteFile(stacksPath, stacksPayload, 0o600); err != nil {
-		require.NoError(t, err, "write stacks file")
-	}
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
 
 	configPath := filepath.Join(dir, "swarm-deploy.yaml")
 	configPayload := []byte(`
 git:
   repository: https://example.com/repo.git
+sync:
+  mode: pull
 stacks:
   file: ./stacks.yaml
-web:
-  security:
-    authentication:
-      basic:
-        htpasswdFile: ./missing.htpasswd
+networks:
+  file: ./networks.yaml
 `)
-	if err := os.WriteFile(configPath, configPayload, 0o600); err != nil {
-		require.NoError(t, err, "write config file")
-	}
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
 
-	_, err := Load(configPath)
-	require.Error(t, err, "expected error")
-	assert.Contains(t, err.Error(), "web.security.authentication.basic.htpasswdFile", "unexpected error")
+	cfg, err := Load(configPath)
+	require.NoError(t, err, "load config")
+	assert.Empty(t, cfg.Spec.Networks, "networks must be loaded later from git repository during sync")
 }
 
 func TestLoadWebAddressUsedForSingleServer(t *testing.T) {
@@ -465,6 +447,87 @@ stacks:
 	assert.Equal(t, "from-config", cfg.Spec.Stacks[0].Name, "expected stack from config")
 }
 
+func TestReloadNetworksPrefersFirstAvailableBaseDir(t *testing.T) {
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, "config")
+	repoDir := filepath.Join(dir, "repo")
+
+	require.NoError(t, os.MkdirAll(configDir, 0o755), "create config dir")
+	require.NoError(t, os.MkdirAll(repoDir, 0o755), "create repo dir")
+
+	configNetworksPath := filepath.Join(configDir, "networks.yaml")
+	repoNetworksPath := filepath.Join(repoDir, "networks.yaml")
+
+	configNetworks := []byte(`
+networks:
+  - name: from-config
+`)
+	repoNetworks := []byte(`
+networks:
+  - name: from-repo
+`)
+
+	require.NoError(t, os.WriteFile(configNetworksPath, configNetworks, 0o600), "write config networks")
+	require.NoError(t, os.WriteFile(repoNetworksPath, repoNetworks, 0o600), "write repo networks")
+
+	cfg := &Config{
+		Spec: Spec{
+			NetworksSource: NetworksSourceSpec{
+				File: "./networks.yaml",
+			},
+		},
+	}
+
+	loadedFrom, err := cfg.ReloadNetworks(repoDir, configDir)
+	require.NoError(t, err, "reload networks")
+	assert.Equal(t, repoNetworksPath, loadedFrom, "expected repo networks path")
+	require.Len(t, cfg.Spec.Networks, 1, "expected one network")
+	assert.Equal(t, "from-repo", cfg.Spec.Networks[0].Name, "expected network from repo")
+}
+
+func TestLoadFailsOnManagedNetworkLabelNotTrue(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	networksPath := filepath.Join(dir, "networks.yaml")
+	networksPayload := []byte(`
+networks:
+  - name: app_backend
+    labels:
+      org.swarm-deploy.network.managed: "false"
+`)
+	require.NoError(t, os.WriteFile(networksPath, networksPayload, 0o600), "write networks file")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(`
+git:
+  repository: https://example.com/repo.git
+sync:
+  mode: pull
+stacks:
+  file: ./stacks.yaml
+networks:
+  file: ./networks.yaml
+`)
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	_, err := Load(configPath)
+	require.Error(t, err, "expected error")
+	assert.Contains(
+		t,
+		err.Error(),
+		`labels["org.swarm-deploy.network.managed"] must be "true"`,
+		"unexpected error",
+	)
+}
+
 func TestLoadFailsOnCustomNotificationWithoutURLInNotificationsOn(t *testing.T) {
 	dir := t.TempDir()
 
@@ -498,6 +561,37 @@ notifications:
 		`notifications.on["deploySuccess"].custom[0].url or urlEnv is required`,
 		"unexpected error",
 	)
+}
+
+func TestLoadFailsOnUnknownNotificationEventType(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(`
+git:
+  repository: https://example.com/repo.git
+stacks:
+  file: ./stacks.yaml
+notifications:
+  on:
+    unknownEvent:
+      custom:
+        - name: audit
+          url: https://example.com/hook
+`)
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	_, err := Load(configPath)
+	require.Error(t, err, "expected error")
+	assert.Contains(t, err.Error(), `notifications.on["unknownEvent"] has unknown event type`, "unexpected error")
 }
 
 func TestLoadFailsWhenAssistantEnabledWithoutTokenPath(t *testing.T) {
@@ -766,4 +860,105 @@ assistant:
 		cfg.Spec.Assistant.Model.EmbeddingName,
 		"expected assistant embedding model name from config",
 	)
+}
+
+func TestLoadFailsWhenGitHTTPAuthCredentialsAreMissing(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(`
+git:
+  repository: https://example.com/repo.git
+  auth:
+    type: http
+stacks:
+  file: ./stacks.yaml
+`)
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	_, err := Load(configPath)
+	require.Error(t, err, "expected error")
+	assert.Contains(t, err.Error(), "git.auth.http requires username+passwordPath or tokenPath", "unexpected error")
+}
+
+func TestLoadFailsWhenGitHTTPAuthHasBothPasswordAndToken(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	passwordPath := filepath.Join(dir, "git_password")
+	require.NoError(t, os.WriteFile(passwordPath, []byte("secret"), 0o600), "write git password")
+	tokenPath := filepath.Join(dir, "git_token")
+	require.NoError(t, os.WriteFile(tokenPath, []byte("token-value"), 0o600), "write git token")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(fmt.Sprintf(`
+git:
+  repository: https://example.com/repo.git
+  auth:
+    type: http
+    http:
+      username: robot
+      passwordPath: %s
+      tokenPath: %s
+stacks:
+  file: ./stacks.yaml
+`, passwordPath, tokenPath))
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	_, err := Load(configPath)
+	require.Error(t, err, "expected error")
+	assert.Contains(
+		t,
+		err.Error(),
+		"git.auth.http.tokenPath and git.auth.http.passwordPath are mutually exclusive",
+		"unexpected error",
+	)
+}
+
+func TestLoadSupportsGitHTTPAuthWithTokenOnly(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	tokenPath := filepath.Join(dir, "git_token")
+	require.NoError(t, os.WriteFile(tokenPath, []byte("token-value"), 0o600), "write git token")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(fmt.Sprintf(`
+git:
+  repository: https://example.com/repo.git
+  auth:
+    type: http
+    http:
+      tokenPath: %s
+stacks:
+  file: ./stacks.yaml
+`, tokenPath))
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err, "load config")
+	assert.Equal(t, "oauth2", cfg.Spec.Git.Auth.HTTP.ResolveUsername(), "expected oauth2 fallback for token auth")
+	assert.Equal(t, "token-value", cfg.Spec.Git.Auth.HTTP.ResolvePassword(), "expected token as password")
 }

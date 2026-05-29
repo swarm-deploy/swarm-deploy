@@ -4,8 +4,8 @@ import (
 	"context"
 	"math"
 
-	"github.com/artarts36/swarm-deploy/internal/assistant"
-	generated "github.com/artarts36/swarm-deploy/internal/entrypoints/webserver/generated"
+	"github.com/swarm-deploy/swarm-deploy/internal/assistant"
+	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 )
 
 func (h *handler) AssistantChat(
