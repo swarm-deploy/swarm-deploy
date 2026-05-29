@@ -21,4 +21,6 @@ type Info struct {
 	RepositoryURL string `json:"repository_url,omitempty"`
 	// WebRoutes is a list of public web routes resolved from service environment.
 	WebRoutes []webroute.Route `json:"web_routes,omitempty"`
+	// Networks is a list of docker network names attached to the service.
+	Networks []string `json:"networks,omitempty"`
 }
