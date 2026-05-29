@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/controller/statem"
+	"github.com/swarm-deploy/swarm-deploy/internal/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -48,8 +49,8 @@ func TestNetworkReconcilerReconcileCreatesManagedNetwork(t *testing.T) {
 	assert.True(t, createReq.Attachable, "unexpected attachable flag")
 	assert.Equal(
 		t,
-		managedNetworkLabelValue,
-		createReq.Labels[managedNetworkLabelKey],
+		labelsdict.ManagedNetworkValue,
+		createReq.Labels[labelsdict.ManagedNetworkKey],
 		"expected managed label",
 	)
 }
@@ -84,7 +85,7 @@ func TestNetworkReconcilerReconcileFailsOnManagedLabelOverride(t *testing.T) {
 		Name:   "app_backend",
 		Driver: "overlay",
 		Labels: map[string]string{
-			managedNetworkLabelKey: "false",
+			labelsdict.ManagedNetworkKey: "false",
 		},
 	})
 
@@ -104,8 +105,8 @@ func TestNetworkReconcilerReconcileSkipsMatchingManagedNetwork(t *testing.T) {
 			Attachable: true,
 			Internal:   true,
 			Labels: map[string]string{
-				managedNetworkLabelKey: managedNetworkLabelValue,
-				"team":                 "platform",
+				labelsdict.ManagedNetworkKey: labelsdict.ManagedNetworkValue,
+				"team":                       "platform",
 			},
 			Options: map[string]string{
 				"encrypted": "true",
