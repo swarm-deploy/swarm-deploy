@@ -40,7 +40,7 @@ func (r *networkReconciler) Reconcile(ctx context.Context, networkCfg config.Net
 		Attachable: networkCfg.Attachable,
 		Internal:   networkCfg.Internal,
 		Labels:     desiredLabels,
-		Options:    cloneStringMap(networkCfg.Options),
+		Options:    networkCfg.Options,
 	}
 
 	current, err := r.manager.Get(ctx, networkCfg.Name)

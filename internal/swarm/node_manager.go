@@ -73,7 +73,7 @@ func (*NodeManager) mapNode(node dockerswarm.Node) Node {
 		Addr:          node.Status.Addr,
 		CPUNano:       node.Description.Resources.NanoCPUs,
 		MemoryBytes:   node.Description.Resources.MemoryBytes,
-		Labels:        cloneStringMap(node.Spec.Labels),
+		Labels:        node.Spec.Labels,
 	}
 }
 
