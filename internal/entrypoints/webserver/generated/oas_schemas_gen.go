@@ -467,6 +467,8 @@ type NetworkInfo struct {
 	Ingress    bool                  `json:"ingress"`
 	Labels     OptNetworkInfoLabels  `json:"labels"`
 	Options    OptNetworkInfoOptions `json:"options"`
+	StackName  OptString             `json:"stack_name"`
+	Managed    bool                  `json:"managed"`
 }
 
 // GetID returns the value of ID.
@@ -514,6 +516,16 @@ func (s *NetworkInfo) GetOptions() OptNetworkInfoOptions {
 	return s.Options
 }
 
+// GetStackName returns the value of StackName.
+func (s *NetworkInfo) GetStackName() OptString {
+	return s.StackName
+}
+
+// GetManaged returns the value of Managed.
+func (s *NetworkInfo) GetManaged() bool {
+	return s.Managed
+}
+
 // SetID sets the value of ID.
 func (s *NetworkInfo) SetID(val string) {
 	s.ID = val
@@ -557,6 +569,16 @@ func (s *NetworkInfo) SetLabels(val OptNetworkInfoLabels) {
 // SetOptions sets the value of Options.
 func (s *NetworkInfo) SetOptions(val OptNetworkInfoOptions) {
 	s.Options = val
+}
+
+// SetStackName sets the value of StackName.
+func (s *NetworkInfo) SetStackName(val OptString) {
+	s.StackName = val
+}
+
+// SetManaged sets the value of Managed.
+func (s *NetworkInfo) SetManaged(val bool) {
+	s.Managed = val
 }
 
 type NetworkInfoLabels map[string]string

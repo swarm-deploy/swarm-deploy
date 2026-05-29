@@ -169,6 +169,8 @@ export interface NetworkInfo {
   ingress: boolean;
   labels?: Record<string, string>;
   options?: Record<string, string>;
+  stack_name?: string;
+  managed: boolean;
 }
 
 export interface NetworksResponse {

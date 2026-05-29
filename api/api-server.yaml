@@ -408,7 +408,7 @@ components:
             type: string
     NetworkInfo:
       type: object
-      required: [id, name, scope, driver, internal, attachable, ingress]
+      required: [id, name, scope, driver, internal, attachable, ingress, managed]
       properties:
         id:
           type: string
@@ -432,6 +432,10 @@ components:
           type: object
           additionalProperties:
             type: string
+        stack_name:
+          type: string
+        managed:
+          type: boolean
     SecretsResponse:
       type: object
       required: [secrets]

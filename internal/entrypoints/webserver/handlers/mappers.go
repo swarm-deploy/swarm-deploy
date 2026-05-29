@@ -10,6 +10,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
 	"github.com/swarm-deploy/swarm-deploy/internal/imageref"
+	"github.com/swarm-deploy/swarm-deploy/internal/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/service"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/service/stype"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -369,7 +370,18 @@ func toGeneratedNetworks(networks []swarm.Network) []generated.NetworkInfo {
 			Ingress:    network.Ingress,
 		}
 		if len(network.Labels) > 0 {
-			item.Labels = generated.NewOptNetworkInfoLabels(cloneStringMap(network.Labels))
+			labels := network.Labels
+
+			if stackName := labelsdict.GetStackName(labels); stackName != "" {
+				item.SetStackName(generated.NewOptString(stackName))
+			}
+
+			item.Managed = labelsdict.NetworkManaged(labels)
+
+			delete(labels, labelsdict.NetworkManagedKey)
+			delete(labels, labelsdict.StackNamespace)
+
+			item.Labels = generated.NewOptNetworkInfoLabels(labels)
 		}
 		if len(network.Options) > 0 {
 			item.Options = generated.NewOptNetworkInfoOptions(cloneStringMap(network.Options))

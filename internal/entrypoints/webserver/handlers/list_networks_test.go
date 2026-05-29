@@ -44,12 +44,7 @@ func TestHandlerListNetworks(t *testing.T) {
 	require.Len(t, resp.Networks, 1, "expected one network")
 	assert.Equal(t, "shared-backend", resp.Networks[0].Name, "unexpected network name")
 	require.True(t, resp.Networks[0].Labels.IsSet(), "labels must be set")
-	assert.Equal(
-		t,
-		"true",
-		resp.Networks[0].Labels.Value["org.swarm-deploy.network.managed"],
-		"unexpected managed label",
-	)
+	assert.True(t, resp.Networks[0].Managed, "network must be managed")
 }
 
 func TestHandlerListNetworksReturnsReaderError(t *testing.T) {

@@ -1096,18 +1096,30 @@ func (s *NetworkInfo) encodeFields(e *jx.Encoder) {
 			s.Options.Encode(e)
 		}
 	}
+	{
+		if s.StackName.Set {
+			e.FieldStart("stack_name")
+			s.StackName.Encode(e)
+		}
+	}
+	{
+		e.FieldStart("managed")
+		e.Bool(s.Managed)
+	}
 }
 
-var jsonFieldsNameOfNetworkInfo = [9]string{
-	0: "id",
-	1: "name",
-	2: "scope",
-	3: "driver",
-	4: "internal",
-	5: "attachable",
-	6: "ingress",
-	7: "labels",
-	8: "options",
+var jsonFieldsNameOfNetworkInfo = [11]string{
+	0:  "id",
+	1:  "name",
+	2:  "scope",
+	3:  "driver",
+	4:  "internal",
+	5:  "attachable",
+	6:  "ingress",
+	7:  "labels",
+	8:  "options",
+	9:  "stack_name",
+	10: "managed",
 }
 
 // Decode decodes NetworkInfo from json.
@@ -1223,6 +1235,28 @@ func (s *NetworkInfo) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"options\"")
 			}
+		case "stack_name":
+			if err := func() error {
+				s.StackName.Reset()
+				if err := s.StackName.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"stack_name\"")
+			}
+		case "managed":
+			requiredBitSet[1] |= 1 << 2
+			if err := func() error {
+				v, err := d.Bool()
+				s.Managed = bool(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"managed\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -1234,7 +1268,7 @@ func (s *NetworkInfo) Decode(d *jx.Decoder) error {
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
 		0b01111111,
-		0b00000000,
+		0b00000100,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
