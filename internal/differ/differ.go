@@ -300,10 +300,10 @@ func compareNetworks(oldNetworks *compose.ServiceNetworks, newNetworks *compose.
 	newSet := networkAliasesSet(newNetworks)
 
 	networkNames := map[string]struct{}{}
-	for _, networkName := range oldNetworks.GetNames() {
+	for _, networkName := range oldNetworks.GetAliases() {
 		networkNames[networkName] = struct{}{}
 	}
-	for _, networkName := range newNetworks.GetNames() {
+	for _, networkName := range newNetworks.GetAliases() {
 		networkNames[networkName] = struct{}{}
 	}
 

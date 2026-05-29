@@ -10,7 +10,7 @@ import (
 type SharedObject struct {
 	Alias string `yaml:"-"`
 
-	Name string `yaml:"name" json:"name"`
+	Name string `yaml:"name,omitempty" json:"name,omitempty"`
 
 	File     string `yaml:"file,omitempty" json:"file,omitempty"`
 	Driver   string `yaml:"drive,omitempty" json:"driver"`

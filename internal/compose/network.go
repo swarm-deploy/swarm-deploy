@@ -17,12 +17,19 @@ func resolveNetworkAliases(networks *ServiceNetworks, namesByAlias map[string]Ne
 		return
 	}
 
+	networkSet := map[string]struct{}{}
+
 	for _, network := range networks.List {
 		resolved, ok := namesByAlias[network.Alias]
-		if ok && resolved.Name != "" {
+		if !ok || resolved.Name == "" {
 			continue
 		}
 
 		network.ResolvedName = resolved.Name
+
+		if _, exists := networkSet[resolved.Name]; !exists {
+			networks.Names = append(networks.Names, resolved.Name)
+			networkSet[resolved.Name] = struct{}{}
+		}
 	}
 }

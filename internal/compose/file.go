@@ -46,7 +46,9 @@ func (l *FileLoader) Load(path string) (*File, error) {
 		return nil, fmt.Errorf("decode compose schema: %w", err)
 	}
 
-	l.linkServices(&schema)
+	if err = l.linkServices(&schema); err != nil {
+		return nil, fmt.Errorf("link services: %w", err)
+	}
 
 	file := &File{
 		Path:    path,
@@ -63,15 +65,20 @@ func (l *FileLoader) Load(path string) (*File, error) {
 	return file, nil
 }
 
-func (*FileLoader) linkServices(compose *Compose) {
-	for name, service := range compose.Services {
+func (*FileLoader) linkServices(compose *Compose) error {
+	for ind, service := range compose.Services {
 		resolveNetworkAliases(service.Networks, compose.Networks)
 
-		initJobs := normalizeInitJobs(service.InitJobs, compose.Networks)
+		initJobs, err := normalizeInitJobs(service.InitJobs, compose.Networks)
+		if err != nil {
+			return fmt.Errorf("load init jobs for service %q: %w", service.Name, err)
+		}
 		service.InitJobs = initJobs
 
-		compose.Services[name] = service
+		compose.Services[ind] = service
 	}
+
+	return nil
 }
 
 func (l *FileLoader) computeDigest(file File, raw []byte) (string, error) {

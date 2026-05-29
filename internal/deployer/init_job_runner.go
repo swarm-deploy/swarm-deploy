@@ -91,10 +91,19 @@ func (r *InitJobRunner) Run(ctx context.Context, spec InitJobSpec) error {
 		return err
 	}
 
-	serviceCreateOptions, err := r.buildInitServiceCreateOptions(string(spec.Job.Image))
+	serviceCreateOptions, err := r.buildInitServiceCreateOptions(spec.Job.Image)
 	if err != nil {
 		return fmt.Errorf("build init job service create options: %w", err)
 	}
+
+	slog.InfoContext(ctx, "[initjob] running job",
+		slog.String("stack.name", spec.StackName),
+		slog.String("service.name", spec.ServiceName),
+		slog.String("initjob.name", spec.Job.Name),
+		slog.String("initjob.image", spec.Job.Image),
+		slog.Any("initjob.networks", serviceSpec.TaskTemplate.Networks),
+		slog.String("initjob.timeout", spec.Job.Timeout.Value.String()),
+	)
 
 	serviceCreate, err := r.dockerClient.ServiceCreate(jobCtx, serviceSpec, serviceCreateOptions)
 	if err != nil {
@@ -182,7 +191,7 @@ func (r *InitJobRunner) buildInitServiceSpec(
 	serviceName string,
 ) (dockerswarm.ServiceSpec, error) {
 	containerSpec := &dockerswarm.ContainerSpec{
-		Image:   string(spec.Job.Image),
+		Image:   spec.Job.Image,
 		Command: spec.Job.Command,
 	}
 
@@ -193,7 +202,7 @@ func (r *InitJobRunner) buildInitServiceSpec(
 		}
 	}
 
-	networks := spec.Job.Networks.Names
+	networks := spec.Job.Networks.GetNames()
 	if len(networks) == 0 {
 		networks = spec.DefaultNetwork
 	}
