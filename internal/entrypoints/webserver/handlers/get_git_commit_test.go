@@ -51,8 +51,9 @@ func TestHandlerGetGitCommitReturnsCommitMetadata(t *testing.T) {
 	commitDate := time.Date(2026, time.April, 25, 1, 2, 3, 0, time.UTC)
 	repo := &fakeCommitRepository{
 		commit: gitx.Commit{
-			Author: "alice",
-			Time:   commitDate,
+			Author:  "alice",
+			Message: "second commit",
+			Time:    commitDate,
 			Files: []gitx.CommitFileDiff{
 				{NewPath: "README.md"},
 				{OldPath: "docker-compose.yaml"},
@@ -73,6 +74,7 @@ func TestHandlerGetGitCommitReturnsCommitMetadata(t *testing.T) {
 	assert.Equal(t, "4bd9beaa8f7f5737f73d8f92de130f7ec32f07cc", repo.showHash)
 	assert.Equal(t, "4bd9beaa8f7f5737f73d8f92de130f7ec32f07cc", resp.FullHash)
 	assert.Equal(t, "alice", resp.Author)
+	assert.Equal(t, "second commit", resp.Message)
 	assert.Equal(t, commitDate.Unix(), resp.Date.Unix())
 	assert.Equal(t, []string{"README.md", "docker-compose.yaml"}, resp.ChangedFiles)
 }

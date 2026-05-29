@@ -162,6 +162,7 @@ func (r *GoGitRepository) Show(ctx context.Context, commitHash string) (Commit, 
 	return Commit{
 		Author:      commit.Author.Name,
 		AuthorEmail: commit.Author.Email,
+		Message:     strings.TrimSpace(commit.Message),
 		Time:        commit.Author.When,
 		Files:       fileDiffs,
 	}, nil

@@ -1027,6 +1027,10 @@ button:hover,
   word-break: break-word;
 }
 
+.commit-details-message {
+  white-space: pre-wrap;
+}
+
 .service-realtime-table th {
   width: auto;
 }

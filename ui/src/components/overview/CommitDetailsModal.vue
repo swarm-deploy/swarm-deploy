@@ -31,6 +31,14 @@ const changedFilesText = computed(() => {
 
   return files.join(", ");
 });
+const commitMessageText = computed(() => {
+  const message = commitDetails.value?.message?.trim();
+  if (!message) {
+    return "n/a";
+  }
+
+  return message;
+});
 const explainDisabled = computed(() => {
   return (
     !assistantStore.enabled ||
@@ -95,6 +103,10 @@ onUnmounted(() => {
             <tr>
               <th scope="row">Author</th>
               <td>{{ commitDetails?.author || "n/a" }}</td>
+            </tr>
+            <tr>
+              <th scope="row">Message</th>
+              <td class="commit-details-message">{{ commitMessageText }}</td>
             </tr>
             <tr>
               <th scope="row">Date</th>

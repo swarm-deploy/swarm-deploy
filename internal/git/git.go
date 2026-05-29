@@ -23,6 +23,8 @@ type Commit struct {
 	Author string
 	// AuthorEmail is a commit author email.
 	AuthorEmail string
+	// Message is a commit message title/body.
+	Message string
 	// Time is a commit author timestamp.
 	Time time.Time
 	// Files contains per-file diffs between commit parent and commit itself.
