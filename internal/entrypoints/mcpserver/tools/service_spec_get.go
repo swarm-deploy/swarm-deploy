@@ -11,7 +11,7 @@ import (
 
 // GetServiceSpec returns compact service spec projection from Docker Swarm.
 type GetServiceSpec struct {
-	inspector ServiceSpecInspector
+	inspector swarm.ServiceManager
 }
 
 type getServiceSpecRequest struct {
@@ -20,7 +20,7 @@ type getServiceSpecRequest struct {
 }
 
 // NewGetServiceSpec creates service_spec_get component.
-func NewGetServiceSpec(specInspector ServiceSpecInspector) *GetServiceSpec {
+func NewGetServiceSpec(specInspector swarm.ServiceManager) *GetServiceSpec {
 	return &GetServiceSpec{
 		inspector: specInspector,
 	}

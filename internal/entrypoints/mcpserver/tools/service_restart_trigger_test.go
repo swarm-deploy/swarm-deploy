@@ -10,16 +10,18 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.uber.org/mock/gomock"
 )
 
 func TestRestartServiceExecute(t *testing.T) {
-	manager := &fakeServiceReplicasManager{
-		replicasByService: map[string]uint64{
-			"core_api": 3,
-		},
-	}
+	ctrl := gomock.NewController(t)
+	manager := swarm.NewMockServiceManager(ctrl)
 	dispatcher := &fakeEventDispatcher{}
 	tool := NewRestartService(manager, dispatcher)
+
+	serviceRef := swarm.NewServiceReference("core", "api")
+	manager.EXPECT().Restart(gomock.Any(), serviceRef).Return(uint64(3), nil)
 
 	response, err := tool.Execute(context.Background(), routing.Request{
 		Payload: restartServiceRequest{
@@ -42,12 +44,6 @@ func TestRestartServiceExecute(t *testing.T) {
 	assert.Equal(t, "core", payload.Stack, "unexpected stack")
 	assert.Equal(t, "api", payload.Service, "unexpected service")
 	assert.Equal(t, uint64(3), payload.Replicas, "unexpected replicas")
-	assert.Equal(t, 1, manager.restartCalled, "expected single restart call")
-	assert.Equal(t, "core", manager.restartedStack, "unexpected restarted stack")
-	assert.Equal(t, "api", manager.restartedService, "unexpected restarted service")
-	assert.Equal(t, 1, manager.inspectCalled, "expected single inspect call")
-	assert.Equal(t, 2, manager.updateCalled, "expected scale down and restore calls")
-	assert.Equal(t, []uint64{0, 3}, manager.updatedHistory, "unexpected replicas update sequence")
 
 	require.Len(t, dispatcher.events, 1, "expected single dispatched event")
 	restartEvent, ok := dispatcher.events[0].(*events.ServiceRestarted)
@@ -57,10 +53,15 @@ func TestRestartServiceExecute(t *testing.T) {
 }
 
 func TestRestartServiceExecuteFailsOnInspect(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	manager := swarm.NewMockServiceManager(ctrl)
 	dispatcher := &fakeEventDispatcher{}
-	tool := NewRestartService(&fakeServiceReplicasManager{
-		inspectErr: errors.New("inspect unavailable"),
-	}, dispatcher)
+	tool := NewRestartService(manager, dispatcher)
+
+	serviceRef := swarm.NewServiceReference("core", "api")
+	manager.EXPECT().
+		Restart(gomock.Any(), serviceRef).
+		Return(uint64(0), errors.New("inspect service replicas: inspect unavailable"))
 
 	_, err := tool.Execute(context.Background(), routing.Request{
 		Payload: restartServiceRequest{
@@ -74,15 +75,15 @@ func TestRestartServiceExecuteFailsOnInspect(t *testing.T) {
 }
 
 func TestRestartServiceExecuteFailsOnRestore(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	manager := swarm.NewMockServiceManager(ctrl)
 	dispatcher := &fakeEventDispatcher{}
-	manager := &fakeServiceReplicasManager{
-		replicasByService: map[string]uint64{
-			"core_api": 2,
-		},
-		updateErr:       errors.New("restore failed"),
-		updateErrOnCall: 2,
-	}
 	tool := NewRestartService(manager, dispatcher)
+
+	serviceRef := swarm.NewServiceReference("core", "api")
+	manager.EXPECT().
+		Restart(gomock.Any(), serviceRef).
+		Return(uint64(0), errors.New("restore service replicas to 2: restore failed"))
 
 	_, err := tool.Execute(context.Background(), routing.Request{
 		Payload: restartServiceRequest{
@@ -91,9 +92,6 @@ func TestRestartServiceExecuteFailsOnRestore(t *testing.T) {
 		},
 	})
 	require.Error(t, err, "expected execute error")
-	assert.Equal(t, 1, manager.restartCalled, "expected single restart call")
 	assert.Contains(t, err.Error(), "restore service replicas", "unexpected error")
-	assert.Equal(t, 2, manager.updateCalled, "expected scale down and restore calls")
-	assert.Equal(t, []uint64{0, 2}, manager.updatedHistory, "unexpected update sequence before failure")
 	assert.Empty(t, dispatcher.events, "failed restore must not dispatch events")
 }

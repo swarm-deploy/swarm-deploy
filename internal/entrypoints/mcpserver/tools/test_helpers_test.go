@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/differ"
@@ -97,98 +96,6 @@ func (f *fakeServiceStore) List() []service.Info {
 	copy(out, f.services)
 
 	return out
-}
-
-type fakeServiceReplicasManager struct {
-	replicasByService map[string]uint64
-	inspectErr        error
-	updateErr         error
-	updateErrOnCall   int
-	restartErr        error
-
-	inspectCalled int
-	updateCalled  int
-	restartCalled int
-
-	inspectedStack   string
-	inspectedService string
-
-	updatedStack    string
-	updatedService  string
-	updatedReplicas uint64
-	updatedHistory  []uint64
-
-	restartedStack   string
-	restartedService string
-}
-
-func (f *fakeServiceReplicasManager) GetReplicas(
-	_ context.Context,
-	serviceRef swarm.ServiceReference,
-) (uint64, error) {
-	f.inspectCalled++
-	f.inspectedStack = serviceRef.StackName()
-	f.inspectedService = serviceRef.ServiceName()
-
-	if f.inspectErr != nil {
-		return 0, f.inspectErr
-	}
-
-	if f.replicasByService == nil {
-		return 0, nil
-	}
-
-	return f.replicasByService[serviceRef.Name()], nil
-}
-
-func (f *fakeServiceReplicasManager) Scale(
-	_ context.Context,
-	serviceRef swarm.ServiceReference,
-	replicas uint64,
-) error {
-	f.updateCalled++
-	f.updatedStack = serviceRef.StackName()
-	f.updatedService = serviceRef.ServiceName()
-	f.updatedReplicas = replicas
-	f.updatedHistory = append(f.updatedHistory, replicas)
-
-	if f.updateErr != nil && (f.updateErrOnCall == 0 || f.updateCalled == f.updateErrOnCall) {
-		return f.updateErr
-	}
-
-	if f.replicasByService == nil {
-		f.replicasByService = map[string]uint64{}
-	}
-	f.replicasByService[serviceRef.Name()] = replicas
-
-	return nil
-}
-
-func (f *fakeServiceReplicasManager) Restart(ctx context.Context, serviceRef swarm.ServiceReference) (uint64, error) {
-	f.restartCalled++
-	f.restartedStack = serviceRef.StackName()
-	f.restartedService = serviceRef.ServiceName()
-
-	if f.restartErr != nil {
-		return 0, f.restartErr
-	}
-
-	currentReplicas, err := f.GetReplicas(ctx, serviceRef)
-	if err != nil {
-		return 0, fmt.Errorf("inspect service replicas: %w", err)
-	}
-
-	err = f.Scale(ctx, serviceRef, 0)
-	if err != nil {
-		return 0, fmt.Errorf("scale service replicas to 0: %w", err)
-	}
-
-	err = f.Scale(ctx, serviceRef, currentReplicas)
-	if err != nil {
-		return 0, fmt.Errorf("restore service replicas to %d: %w", currentReplicas, err)
-	}
-
-	return currentReplicas, nil
 }
 
 type fakeImageVersionResolver struct {

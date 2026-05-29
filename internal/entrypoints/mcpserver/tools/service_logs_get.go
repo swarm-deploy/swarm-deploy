@@ -17,7 +17,7 @@ const (
 
 // GetServiceLogs returns recent log lines from a stack service.
 type GetServiceLogs struct {
-	logsInspector ServiceLogsInspector
+	logsInspector swarm.ServiceManager
 }
 
 type getServiceLogsRequest struct {
@@ -29,7 +29,7 @@ type getServiceLogsRequest struct {
 }
 
 // NewGetServiceLogs creates service_logs_get component.
-func NewGetServiceLogs(logsInspector ServiceLogsInspector) *GetServiceLogs {
+func NewGetServiceLogs(logsInspector swarm.ServiceManager) *GetServiceLogs {
 	return &GetServiceLogs{
 		logsInspector: logsInspector,
 	}

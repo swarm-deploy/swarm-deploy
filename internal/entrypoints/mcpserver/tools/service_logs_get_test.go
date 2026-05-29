@@ -10,17 +10,25 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.uber.org/mock/gomock"
 )
 
 func TestGetServiceLogsExecuteAppliesTimePagination(t *testing.T) {
-	logInspector := &fakeServiceLogsInspector{
-		logs: []string{
+	ctrl := gomock.NewController(t)
+	logInspector := swarm.NewMockServiceManager(ctrl)
+	tool := NewGetServiceLogs(logInspector)
+
+	expectedServiceRef := swarm.NewServiceReference("core", "api")
+	expectedOptions := swarm.ServiceLogsOptions{
+		Limit: 3,
+	}
+	logInspector.EXPECT().
+		Logs(gomock.Any(), expectedServiceRef, expectedOptions).
+		Return([]string{
 			"2026-04-18T12:00:00Z stdout oldest",
 			"2026-04-18T12:00:01Z stdout middle",
 			"2026-04-18T12:00:02Z stdout latest",
-		},
-	}
-	tool := NewGetServiceLogs(logInspector)
+		}, nil)
 
 	response, err := tool.Execute(context.Background(), routing.Request{
 		Payload: getServiceLogsRequest{
@@ -57,22 +65,31 @@ func TestGetServiceLogsExecuteAppliesTimePagination(t *testing.T) {
 	assert.Empty(t, payload.AppliedUntil, "unexpected applied_until")
 	assert.True(t, payload.HasMore, "expected older logs availability")
 	assert.Equal(t, "2026-04-18T12:00:01Z", payload.NextUntil, "unexpected next_until")
-
-	assert.Equal(t, 1, logInspector.called, "inspector must be called once")
-	assert.Equal(t, "core", logInspector.stackName, "unexpected stack arg")
-	assert.Equal(t, "api", logInspector.serviceName, "unexpected service arg")
-	assert.Equal(t, 3, logInspector.options.Limit, "unexpected inspector limit")
-	assert.Nil(t, logInspector.options.Since, "unexpected inspector since")
-	assert.Nil(t, logInspector.options.Until, "unexpected inspector until")
 }
 
 func TestGetServiceLogsExecuteWithSinceUntil(t *testing.T) {
-	logInspector := &fakeServiceLogsInspector{
-		logs: []string{
-			"2026-04-18T12:00:01Z stdout one",
-		},
-	}
+	ctrl := gomock.NewController(t)
+	logInspector := swarm.NewMockServiceManager(ctrl)
 	tool := NewGetServiceLogs(logInspector)
+
+	var (
+		actualServiceRef swarm.ServiceReference
+		actualOptions    swarm.ServiceLogsOptions
+	)
+	logInspector.EXPECT().
+		Logs(gomock.Any(), gomock.Any(), gomock.Any()).
+		DoAndReturn(func(
+			_ context.Context,
+			serviceRef swarm.ServiceReference,
+			options swarm.ServiceLogsOptions,
+		) ([]string, error) {
+			actualServiceRef = serviceRef
+			actualOptions = options
+
+			return []string{
+				"2026-04-18T12:00:01Z stdout one",
+			}, nil
+		})
 
 	response, err := tool.Execute(context.Background(), routing.Request{
 		Payload: getServiceLogsRequest{
@@ -100,21 +117,22 @@ func TestGetServiceLogsExecuteWithSinceUntil(t *testing.T) {
 	assert.False(t, payload.HasMore, "expected no older logs")
 	assert.Empty(t, payload.NextUntil, "unexpected next_until")
 
-	require.NotNil(t, logInspector.options.Since, "since must be forwarded to inspector")
-	require.NotNil(t, logInspector.options.Until, "until must be forwarded to inspector")
+	assert.Equal(t, swarm.NewServiceReference("core", "api"), actualServiceRef, "unexpected service ref")
+	require.NotNil(t, actualOptions.Since, "since must be forwarded to inspector")
+	require.NotNil(t, actualOptions.Until, "until must be forwarded to inspector")
 	assert.Equal(
 		t,
 		"2026-04-18T09:00:00Z",
-		logInspector.options.Since.UTC().Format(time.RFC3339Nano),
+		actualOptions.Since.UTC().Format(time.RFC3339Nano),
 		"unexpected inspector since",
 	)
 	assert.Equal(
 		t,
 		"2026-04-18T09:04:59.999999999Z",
-		logInspector.options.Until.UTC().Format(time.RFC3339Nano),
+		actualOptions.Until.UTC().Format(time.RFC3339Nano),
 		"unexpected exclusive inspector until",
 	)
-	assert.Equal(t, 6, logInspector.options.Limit, "unexpected inspector limit")
+	assert.Equal(t, 6, actualOptions.Limit, "unexpected inspector limit")
 }
 
 func TestGetServiceLogsExecuteWithNilInspector(t *testing.T) {
@@ -131,7 +149,8 @@ func TestGetServiceLogsExecuteWithNilInspector(t *testing.T) {
 }
 
 func TestGetServiceLogsExecuteRequiresStackName(t *testing.T) {
-	tool := NewGetServiceLogs(&fakeServiceLogsInspector{})
+	ctrl := gomock.NewController(t)
+	tool := NewGetServiceLogs(swarm.NewMockServiceManager(ctrl))
 
 	_, err := tool.Execute(context.Background(), routing.Request{
 		Payload: getServiceLogsRequest{
@@ -143,7 +162,8 @@ func TestGetServiceLogsExecuteRequiresStackName(t *testing.T) {
 }
 
 func TestGetServiceLogsExecuteRequiresServiceName(t *testing.T) {
-	tool := NewGetServiceLogs(&fakeServiceLogsInspector{})
+	ctrl := gomock.NewController(t)
+	tool := NewGetServiceLogs(swarm.NewMockServiceManager(ctrl))
 
 	_, err := tool.Execute(context.Background(), routing.Request{
 		Payload: getServiceLogsRequest{
@@ -155,7 +175,8 @@ func TestGetServiceLogsExecuteRequiresServiceName(t *testing.T) {
 }
 
 func TestGetServiceLogsExecuteFailsOnInvalidLimit(t *testing.T) {
-	tool := NewGetServiceLogs(&fakeServiceLogsInspector{})
+	ctrl := gomock.NewController(t)
+	tool := NewGetServiceLogs(swarm.NewMockServiceManager(ctrl))
 
 	_, err := tool.Execute(context.Background(), routing.Request{
 		Payload: getServiceLogsRequest{
@@ -169,7 +190,8 @@ func TestGetServiceLogsExecuteFailsOnInvalidLimit(t *testing.T) {
 }
 
 func TestGetServiceLogsExecuteFailsWhenLimitIsTooHigh(t *testing.T) {
-	tool := NewGetServiceLogs(&fakeServiceLogsInspector{})
+	ctrl := gomock.NewController(t)
+	tool := NewGetServiceLogs(swarm.NewMockServiceManager(ctrl))
 
 	_, err := tool.Execute(context.Background(), routing.Request{
 		Payload: getServiceLogsRequest{
@@ -183,7 +205,8 @@ func TestGetServiceLogsExecuteFailsWhenLimitIsTooHigh(t *testing.T) {
 }
 
 func TestGetServiceLogsExecuteFailsOnInvalidSince(t *testing.T) {
-	tool := NewGetServiceLogs(&fakeServiceLogsInspector{})
+	ctrl := gomock.NewController(t)
+	tool := NewGetServiceLogs(swarm.NewMockServiceManager(ctrl))
 
 	_, err := tool.Execute(context.Background(), routing.Request{
 		Payload: getServiceLogsRequest{
@@ -197,7 +220,8 @@ func TestGetServiceLogsExecuteFailsOnInvalidSince(t *testing.T) {
 }
 
 func TestGetServiceLogsExecuteFailsWhenSinceAfterUntil(t *testing.T) {
-	tool := NewGetServiceLogs(&fakeServiceLogsInspector{})
+	ctrl := gomock.NewController(t)
+	tool := NewGetServiceLogs(swarm.NewMockServiceManager(ctrl))
 
 	_, err := tool.Execute(context.Background(), routing.Request{
 		Payload: getServiceLogsRequest{
@@ -212,12 +236,16 @@ func TestGetServiceLogsExecuteFailsWhenSinceAfterUntil(t *testing.T) {
 }
 
 func TestGetServiceLogsExecuteFailsWhenOldestLogHasNoTimestamp(t *testing.T) {
-	tool := NewGetServiceLogs(&fakeServiceLogsInspector{
-		logs: []string{
+	ctrl := gomock.NewController(t)
+	logInspector := swarm.NewMockServiceManager(ctrl)
+	tool := NewGetServiceLogs(logInspector)
+
+	logInspector.EXPECT().
+		Logs(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return([]string{
 			"2026-04-18T12:00:00Z stdout older",
 			"broken-log-line",
-		},
-	})
+		}, nil)
 
 	_, err := tool.Execute(context.Background(), routing.Request{
 		Payload: getServiceLogsRequest{
@@ -231,9 +259,13 @@ func TestGetServiceLogsExecuteFailsWhenOldestLogHasNoTimestamp(t *testing.T) {
 }
 
 func TestGetServiceLogsExecuteReturnsInspectorError(t *testing.T) {
-	tool := NewGetServiceLogs(&fakeServiceLogsInspector{
-		err: assert.AnError,
-	})
+	ctrl := gomock.NewController(t)
+	logInspector := swarm.NewMockServiceManager(ctrl)
+	tool := NewGetServiceLogs(logInspector)
+
+	logInspector.EXPECT().
+		Logs(gomock.Any(), gomock.Any(), gomock.Any()).
+		Return(nil, assert.AnError)
 
 	_, err := tool.Execute(context.Background(), routing.Request{
 		Payload: getServiceLogsRequest{
@@ -243,34 +275,4 @@ func TestGetServiceLogsExecuteReturnsInspectorError(t *testing.T) {
 	})
 	require.Error(t, err, "expected inspector error")
 	assert.ErrorIs(t, err, assert.AnError, "unexpected inspector error")
-}
-
-type fakeServiceLogsInspector struct {
-	logs []string
-	err  error
-
-	called      int
-	stackName   string
-	serviceName string
-	options     swarm.ServiceLogsOptions
-}
-
-func (f *fakeServiceLogsInspector) Logs(
-	_ context.Context,
-	serviceRef swarm.ServiceReference,
-	options swarm.ServiceLogsOptions,
-) ([]string, error) {
-	f.called++
-	f.stackName = serviceRef.StackName()
-	f.serviceName = serviceRef.ServiceName()
-	f.options = options
-
-	if f.err != nil {
-		return nil, f.err
-	}
-
-	out := make([]string, len(f.logs))
-	copy(out, f.logs)
-
-	return out, nil
 }

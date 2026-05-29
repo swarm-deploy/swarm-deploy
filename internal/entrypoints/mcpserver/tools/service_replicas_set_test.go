@@ -11,16 +11,19 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.uber.org/mock/gomock"
 )
 
 func TestSetServiceReplicasExecute(t *testing.T) {
-	manager := &fakeServiceReplicasManager{
-		replicasByService: map[string]uint64{
-			"core_api": 3,
-		},
-	}
+	ctrl := gomock.NewController(t)
+	manager := swarm.NewMockServiceManager(ctrl)
 	dispatcher := &fakeEventDispatcher{}
 	tool := NewSetServiceReplicas(manager, dispatcher)
+
+	serviceRef := swarm.NewServiceReference("core", "api")
+	manager.EXPECT().GetReplicas(gomock.Any(), serviceRef).Return(uint64(3), nil)
+	manager.EXPECT().Scale(gomock.Any(), serviceRef, uint64(5)).Return(nil)
 
 	response, err := tool.Execute(context.Background(), routing.Request{
 		Payload: setServiceReplicasRequest{
@@ -44,13 +47,6 @@ func TestSetServiceReplicasExecute(t *testing.T) {
 	assert.Equal(t, "core", payload.Stack, "unexpected stack")
 	assert.Equal(t, "api", payload.Service, "unexpected service")
 	assert.Equal(t, uint64(5), payload.Replicas, "unexpected replicas")
-	assert.Equal(t, 1, manager.inspectCalled, "expected single inspect call")
-	assert.Equal(t, "core", manager.inspectedStack, "unexpected inspected stack")
-	assert.Equal(t, "api", manager.inspectedService, "unexpected inspected service")
-	assert.Equal(t, 1, manager.updateCalled, "expected single update call")
-	assert.Equal(t, "core", manager.updatedStack, "unexpected updated stack")
-	assert.Equal(t, "api", manager.updatedService, "unexpected updated service")
-	assert.Equal(t, uint64(5), manager.updatedReplicas, "unexpected updated replicas")
 	require.Len(t, dispatcher.events, 1, "expected single dispatched event")
 
 	replicasEvent, ok := dispatcher.events[0].(*events.ServiceReplicasIncreased)
@@ -62,8 +58,9 @@ func TestSetServiceReplicasExecute(t *testing.T) {
 }
 
 func TestSetServiceReplicasExecuteFailsOnValidation(t *testing.T) {
+	ctrl := gomock.NewController(t)
 	dispatcher := &fakeEventDispatcher{}
-	tool := NewSetServiceReplicas(&fakeServiceReplicasManager{}, dispatcher)
+	tool := NewSetServiceReplicas(swarm.NewMockServiceManager(ctrl), dispatcher)
 
 	_, err := tool.Execute(context.Background(), routing.Request{
 		Payload: setServiceReplicasRequest{
@@ -78,13 +75,14 @@ func TestSetServiceReplicasExecuteFailsOnValidation(t *testing.T) {
 }
 
 func TestSetServiceReplicasExecuteFailsOnUpdate(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	manager := swarm.NewMockServiceManager(ctrl)
 	dispatcher := &fakeEventDispatcher{}
-	tool := NewSetServiceReplicas(&fakeServiceReplicasManager{
-		replicasByService: map[string]uint64{
-			"core_api": 1,
-		},
-		updateErr: errors.New("docker unavailable"),
-	}, dispatcher)
+	tool := NewSetServiceReplicas(manager, dispatcher)
+
+	serviceRef := swarm.NewServiceReference("core", "api")
+	manager.EXPECT().GetReplicas(gomock.Any(), serviceRef).Return(uint64(1), nil)
+	manager.EXPECT().Scale(gomock.Any(), serviceRef, uint64(2)).Return(errors.New("docker unavailable"))
 
 	_, err := tool.Execute(context.Background(), routing.Request{
 		Payload: setServiceReplicasRequest{
@@ -99,13 +97,14 @@ func TestSetServiceReplicasExecuteFailsOnUpdate(t *testing.T) {
 }
 
 func TestSetServiceReplicasExecuteDispatchesEventOnDecrease(t *testing.T) {
-	manager := &fakeServiceReplicasManager{
-		replicasByService: map[string]uint64{
-			"core_api": 5,
-		},
-	}
+	ctrl := gomock.NewController(t)
+	manager := swarm.NewMockServiceManager(ctrl)
 	dispatcher := &fakeEventDispatcher{}
 	tool := NewSetServiceReplicas(manager, dispatcher)
+
+	serviceRef := swarm.NewServiceReference("core", "api")
+	manager.EXPECT().GetReplicas(gomock.Any(), serviceRef).Return(uint64(5), nil)
+	manager.EXPECT().Scale(gomock.Any(), serviceRef, uint64(2)).Return(nil)
 
 	_, err := tool.Execute(context.Background(), routing.Request{
 		Payload: setServiceReplicasRequest{
@@ -126,13 +125,14 @@ func TestSetServiceReplicasExecuteDispatchesEventOnDecrease(t *testing.T) {
 }
 
 func TestSetServiceReplicasExecuteSkipsEventOnSameReplicas(t *testing.T) {
-	manager := &fakeServiceReplicasManager{
-		replicasByService: map[string]uint64{
-			"core_api": 5,
-		},
-	}
+	ctrl := gomock.NewController(t)
+	manager := swarm.NewMockServiceManager(ctrl)
 	dispatcher := &fakeEventDispatcher{}
 	tool := NewSetServiceReplicas(manager, dispatcher)
+
+	serviceRef := swarm.NewServiceReference("core", "api")
+	manager.EXPECT().GetReplicas(gomock.Any(), serviceRef).Return(uint64(5), nil)
+	manager.EXPECT().Scale(gomock.Any(), serviceRef, uint64(5)).Return(nil)
 
 	_, err := tool.Execute(context.Background(), routing.Request{
 		Payload: setServiceReplicasRequest{
