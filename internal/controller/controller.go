@@ -16,6 +16,7 @@ import (
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 type TriggerReason string
@@ -78,7 +79,7 @@ type triggerTask struct {
 func New(
 	cfg *config.Config,
 	git gitx.Repository,
-	networks networkManager,
+	swarmService *swarm.Swarm,
 	deployer *deployer.Deployer,
 	metricGroup *metrics.Group,
 	eventDispatcher dispatcher.Dispatcher,
@@ -92,12 +93,13 @@ func New(
 		event:      eventDispatcher,
 		stateStore: stateStore,
 		networkReconciler: newNetworkReconciler(
-			networks,
+			swarmService.Networks,
 		),
 		stackReconciler: newStackReconciler(
 			cfg,
 			git,
 			deployer,
+			swarmService,
 		),
 		triggerCh: make(chan triggerTask, 1),
 	}
@@ -286,7 +288,7 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 
 	var deployErrs []error
 	for _, stackCfg := range c.cfg.Spec.Stacks {
-		err = c.syncStack(ctx, stackCfg, syncResult.NewRevision)
+		err = c.syncStack(ctx, stackCfg, syncResult.NewRevision, task.reason == TriggerManual)
 		if err != nil {
 			deployErrs = append(deployErrs, err)
 			slog.ErrorContext(ctx, "sync failed for stack",
@@ -326,15 +328,21 @@ func (c *Controller) reloadStacks() (string, error) {
 	return c.cfg.ReloadStacks(c.git.WorkingDir())
 }
 
-func (c *Controller) syncStack(ctx context.Context, stackCfg config.StackSpec, commit string) error {
+func (c *Controller) syncStack(
+	ctx context.Context,
+	stackCfg config.StackSpec,
+	commit string,
+	isManual bool,
+) error {
 	currentState := c.stateStore.Get()
 	prev, exists := currentState.Stacks[stackCfg.Name]
-	reconcileResult, err := c.stackReconciler.Reconcile(ctx, stackCfg, prev.SourceDigest, exists)
+	reconcileResult, err := c.stackReconciler.Reconcile(ctx, stackCfg, prev.SourceDigest, exists, isManual)
 	if err != nil {
 		c.recordStackFailure(stackCfg.Name, commit, failedServicesFromReconcileError(err), err)
 		return fmt.Errorf("stack %s %w", stackCfg.Name, err)
 	}
 	if reconcileResult.Skipped {
+		c.dispatchPrunedEvents(ctx, stackCfg.Name, commit, reconcileResult.PrunedServices)
 		return nil
 	}
 
@@ -365,7 +373,18 @@ func (c *Controller) syncStack(ctx context.Context, stackCfg config.StackSpec, c
 		Commit:    commit,
 		Services:  reconcileResult.Services,
 	})
+	c.dispatchPrunedEvents(ctx, stackCfg.Name, commit, reconcileResult.PrunedServices)
 	return nil
+}
+
+func (c *Controller) dispatchPrunedEvents(ctx context.Context, stackName string, commit string, serviceNames []string) {
+	for _, serviceName := range serviceNames {
+		c.event.Dispatch(ctx, &events.ServicePruned{
+			StackName:   stackName,
+			ServiceName: serviceName,
+			Commit:      commit,
+		})
+	}
 }
 
 func (c *Controller) recordStackFailure(stackName, commit string, services []compose.Service, reason error) {

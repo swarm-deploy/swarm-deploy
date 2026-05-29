@@ -18,7 +18,6 @@ func Test_ServiceNetwork_UnmarshalYAML(t *testing.T) {
 			Title: "parse string value, only alias",
 			Input: "- infra",
 			Expected: &ServiceNetworks{
-				Names:   []string{"infra"},
 				Aliases: []string{"infra"},
 				AliasMap: map[string]*ServiceNetwork{
 					"infra": {
@@ -42,7 +41,6 @@ infra:
   x-key: val
 `,
 			Expected: &ServiceNetworks{
-				Names:   []string{"infra"},
 				Aliases: []string{"infra"},
 				AliasMap: map[string]*ServiceNetwork{
 					"infra": {

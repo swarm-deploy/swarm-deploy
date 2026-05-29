@@ -95,8 +95,15 @@ type SyncSpec struct {
 	Mode string `yaml:"mode"`
 	// PollInterval is an interval between git pull attempts.
 	PollInterval specw.Duration `yaml:"pollInterval"`
+	// Policy contains synchronization behavior flags.
+	Policy SyncPolicySpec `yaml:"policy"`
 	// Webhook contains webhook sync trigger settings.
 	Webhook WebhookSpec `yaml:"webhook"`
+}
+
+type SyncPolicySpec struct {
+	// Prune enables deletion of orphaned managed services.
+	Prune bool `yaml:"prune"`
 }
 
 type WebhookSpec struct {
@@ -125,6 +132,18 @@ type StackSpec struct {
 	Name string `yaml:"name"`
 	// ComposeFile is a path to stack compose file relative to repo root.
 	ComposeFile string `yaml:"composeFile"`
+	// Sync contains stack-specific synchronization options.
+	Sync StackSyncSpec `yaml:"sync"`
+}
+
+type StackSyncSpec struct {
+	// Policy contains stack-specific synchronization behavior flags.
+	Policy StackSyncPolicySpec `yaml:"policy"`
+}
+
+type StackSyncPolicySpec struct {
+	// Prune overrides global prune policy for this stack when specified.
+	Prune *bool `yaml:"prune"`
 }
 
 type NetworkSpec struct {
@@ -313,7 +332,7 @@ func (c *Config) applySwarmDefaults() {
 		c.Spec.Swarm.Command = "docker"
 	}
 	if len(c.Spec.Swarm.StackDeployArgs) == 0 {
-		c.Spec.Swarm.StackDeployArgs = []string{"stack", "deploy", "--with-registry-auth", "--prune"}
+		c.Spec.Swarm.StackDeployArgs = []string{"stack", "deploy", "--with-registry-auth"}
 	}
 	if c.Spec.Swarm.InitJobPollEvery.Value <= 0 {
 		c.Spec.Swarm.InitJobPollEvery.Value = defaultInitJobPollEvery

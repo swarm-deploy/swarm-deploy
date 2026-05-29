@@ -129,6 +129,18 @@ type ServiceLogsOptions struct {
 	Until *time.Time
 }
 
+// StackService is a compact snapshot of a service belonging to a stack.
+type StackService struct {
+	// ID is a Docker service identifier.
+	ID string
+	// Name is a service name without stack prefix.
+	Name string
+	// FullName is a Docker service name formatted as "<stack>_<service>".
+	FullName string
+	// Labels contains Docker service annotations labels.
+	Labels map[string]string
+}
+
 type ServiceReference struct {
 	stackName   string
 	serviceName string

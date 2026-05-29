@@ -5,25 +5,40 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+)
+
+const (
+	managedServiceLabelKey         = "org.swarm-deploy.service.managed"
+	managedServiceLabelValue       = "true"
+	serviceSyncPolicyPruneLabelKey = "org.swarm-deploy.service.sync.policy.prune"
 )
 
 const serviceManagedLabel = "org.swarm-deploy.service.managed"
 
 type stackReconcileResult struct {
-	SourceDigest string
-	Services     []compose.Service
-	Skipped      bool
+	SourceDigest   string
+	Services       []compose.Service
+	PrunedServices []string
+	Skipped        bool
+}
+
+type stackDeployer interface {
+	// DeployStack reconciles one stack via docker stack deploy command.
+	DeployStack(ctx context.Context, stackName, composePath string, services []compose.Service) error
 }
 
 type stackReconciler struct {
 	cfg            *config.Config
 	git            gitx.Repository
-	deployer       *deployer.Deployer
+	deployer       stackDeployer
+	pruner         *ServicePruner
 	composeLoader  *compose.FileLoader
 	composeRotator *Rotator
 	pipeline       *pipeline
@@ -33,6 +48,7 @@ func newStackReconciler(
 	cfg *config.Config,
 	gitSync gitx.Repository,
 	deployer *deployer.Deployer,
+	swarmService *swarm.Swarm,
 ) *stackReconciler {
 	reconciler := &stackReconciler{
 		cfg:            cfg,
@@ -40,6 +56,7 @@ func newStackReconciler(
 		deployer:       deployer,
 		composeLoader:  compose.NewFileLoader(),
 		composeRotator: NewRotator(),
+		pruner:         NewServicePruner(swarmService.Services, cfg.Spec.Sync.Policy),
 	}
 
 	reconciler.attachComposePipeline()
@@ -52,6 +69,7 @@ func (r *stackReconciler) Reconcile(
 	stackCfg config.StackSpec,
 	prevDigest string,
 	hasPrev bool,
+	isManual bool,
 ) (stackReconcileResult, error) {
 	composePath := filepath.Join(r.git.WorkingDir(), stackCfg.ComposeFile)
 	stackFile, err := r.composeLoader.Load(composePath)
@@ -67,6 +85,15 @@ func (r *stackReconciler) Reconcile(
 	if hasPrev && prevDigest == stackFile.Digest {
 		result.SourceDigest = stackFile.Digest
 		result.Skipped = true
+
+		if isManual {
+			prunedServices, pruneErr := r.pruner.Prune(ctx, stackCfg, stackFile.Compose.Services)
+			if pruneErr != nil {
+				return result, wrapStackReconcileError("prune orphaned services", result.Services, pruneErr)
+			}
+			result.PrunedServices = prunedServices
+		}
+
 		return result, nil
 	}
 
@@ -90,8 +117,17 @@ func (r *stackReconciler) Reconcile(
 		return result, wrapStackReconcileError("deploy", result.Services, err)
 	}
 
+	prunedServices, pruneErr := r.pruner.Prune(ctx, stackCfg, stackFile.Compose.Services)
+	if pruneErr != nil {
+		return result, wrapStackReconcileError("prune orphaned services", result.Services, pruneErr)
+	}
+	result.PrunedServices = prunedServices
 	result.SourceDigest = stackFile.Digest
 	return result, nil
+}
+
+func isManagedService(labels map[string]string) bool {
+	return strings.TrimSpace(labels[managedServiceLabelKey]) == managedServiceLabelValue
 }
 
 func (r *stackReconciler) writeRenderedCompose(stackName string, stackFile *compose.File) (string, error) {

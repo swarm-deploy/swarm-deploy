@@ -17,6 +17,7 @@ GitOps controller for Docker Swarm with an ArgoCD-inspired, but Swarm-native, co
   - `webhook`,
   - `hybrid` (both modes at the same time).
 - Stack deployment only when a diff is detected (`compose + referenced configs/secrets` digest). .
+- [Pruning of orphaned managed services removed from desired compose](./docs/prune.md).
 - GitOps reconciliation for Docker networks from `networks.file` with managed label `org.swarm-deploy.network.managed=true`.
 - UI and API are served by a single web server on `web.address`.
 - Service Realtime page with task snapshot (node hostname, state, created/updated timestamps, and task ID).

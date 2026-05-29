@@ -4,3 +4,7 @@ stacks:
     name: myapp
     # Path to compose file relative to git repository root.
     composeFile: myapp.yaml
+    sync:
+      policy:
+        # Optional per-stack override for prune policy.
+        prune: true

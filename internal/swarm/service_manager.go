@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -25,22 +26,24 @@ const (
 	dockerLogFrameHeaderSize          = 8
 	serviceLogsScannerInitialBufSize  = 64 * 1024
 	serviceLogsScannerMaxTokenBufSize = 1 << 20
+
+	stackNamespaceLabelKey = "com.docker.stack.namespace"
 )
 
-// ServiceManager manages stack service replicas.
-type ServiceManager struct {
+// ServiceManager manages stack service.
+type serviceManager struct {
 	dockerClient *client.Client
 }
 
 // newServiceManager creates service manager with provided docker API client.
-func newServiceManager(dockerClient *client.Client) *ServiceManager {
-	return &ServiceManager{
+func newServiceManager(dockerClient *client.Client) *serviceManager {
+	return &serviceManager{
 		dockerClient: dockerClient,
 	}
 }
 
 // GetReplicas returns desired replicas count for a stack service.
-func (m *ServiceManager) GetReplicas(
+func (m *serviceManager) GetReplicas(
 	ctx context.Context,
 	serviceRef ServiceReference,
 ) (uint64, error) {
@@ -58,8 +61,49 @@ func (m *ServiceManager) GetReplicas(
 	return *service.Spec.Mode.Replicated.Replicas, nil
 }
 
+// ListStackServices returns services currently attached to provided stack.
+func (m *serviceManager) ListStackServices(ctx context.Context, stackName string) ([]StackService, error) {
+	services, err := m.dockerClient.ServiceList(ctx, dockerswarm.ServiceListOptions{
+		Filters: filters.NewArgs(filters.Arg("label", stackNamespaceLabelKey+"="+stackName)),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list services for stack %s: %w", stackName, err)
+	}
+
+	mapped := make([]StackService, 0, len(services))
+	for _, service := range services {
+		fullName := service.Spec.Name
+		mapped = append(mapped, StackService{
+			ID:       service.ID,
+			Name:     stackServiceNameFromFullName(stackName, fullName),
+			FullName: fullName,
+			Labels:   cloneStringMap(service.Spec.Labels),
+		})
+	}
+
+	sort.Slice(mapped, func(i, j int) bool {
+		return mapped[i].FullName < mapped[j].FullName
+	})
+
+	return mapped, nil
+}
+
+// Remove deletes service by Docker service identifier or full service name.
+func (m *serviceManager) Remove(ctx context.Context, serviceIDOrName string) error {
+	err := m.dockerClient.ServiceRemove(ctx, serviceIDOrName)
+	if err != nil {
+		if isNotFoundErr(err) {
+			return ErrServiceNotFound
+		}
+
+		return fmt.Errorf("remove service %s: %w", serviceIDOrName, err)
+	}
+
+	return nil
+}
+
 // Scale sets desired replicas count for a stack service.
-func (m *ServiceManager) Scale(
+func (m *serviceManager) Scale(
 	ctx context.Context,
 	serviceRef ServiceReference,
 	replicas uint64,
@@ -89,7 +133,7 @@ const (
 )
 
 // Restart restarts stack service by scaling replicas to zero and restoring previous count.
-func (m *ServiceManager) Restart(
+func (m *serviceManager) Restart(
 	ctx context.Context,
 	serviceRef ServiceReference,
 ) (uint64, error) {
@@ -114,7 +158,7 @@ func (m *ServiceManager) Restart(
 }
 
 // GetStatus returns compact status snapshot for a stack service.
-func (m *ServiceManager) GetStatus(ctx context.Context, serviceRef ServiceReference) (ServiceStatus, error) {
+func (m *serviceManager) GetStatus(ctx context.Context, serviceRef ServiceReference) (ServiceStatus, error) {
 	service, _, err := m.inspect(ctx, serviceRef)
 	if err != nil {
 		return ServiceStatus{}, err
@@ -128,7 +172,7 @@ func (m *ServiceManager) GetStatus(ctx context.Context, serviceRef ServiceRefere
 }
 
 // ListTasks returns service tasks for realtime container status rendering.
-func (m *ServiceManager) ListTasks(ctx context.Context, serviceRef ServiceReference) ([]ServiceTask, error) {
+func (m *serviceManager) ListTasks(ctx context.Context, serviceRef ServiceReference) ([]ServiceTask, error) {
 	fullServiceName := serviceRef.Name()
 
 	tasks, err := m.dockerClient.TaskList(ctx, dockerswarm.TaskListOptions{
@@ -158,7 +202,7 @@ func (m *ServiceManager) ListTasks(ctx context.Context, serviceRef ServiceRefere
 }
 
 // Get returns full compact service projection for a stack service.
-func (m *ServiceManager) Get(ctx context.Context, serviceRef ServiceReference) (Service, error) {
+func (m *serviceManager) Get(ctx context.Context, serviceRef ServiceReference) (Service, error) {
 	service, _, err := m.inspect(ctx, serviceRef)
 	if err != nil {
 		return Service{}, err
@@ -176,7 +220,7 @@ func (m *ServiceManager) Get(ctx context.Context, serviceRef ServiceReference) (
 }
 
 // Labels returns service, container and image labels for a stack service.
-func (m *ServiceManager) Labels(ctx context.Context, serviceRef ServiceReference) (ServiceLabels, error) {
+func (m *serviceManager) Labels(ctx context.Context, serviceRef ServiceReference) (ServiceLabels, error) {
 	service, _, err := m.inspect(ctx, serviceRef)
 	if err != nil {
 		return ServiceLabels{}, err
@@ -221,7 +265,7 @@ func (m *ServiceManager) Labels(ctx context.Context, serviceRef ServiceReference
 }
 
 // Logs returns recent logs for a stack service.
-func (m *ServiceManager) Logs(
+func (m *serviceManager) Logs(
 	ctx context.Context,
 	serviceRef ServiceReference,
 	options ServiceLogsOptions,
@@ -505,7 +549,7 @@ func cloneStringSlice(in []string) []string {
 	return out
 }
 
-func (m *ServiceManager) inspect(
+func (m *serviceManager) inspect(
 	ctx context.Context,
 	serviceRef ServiceReference,
 ) (dockerswarm.Service, string, error) {
@@ -524,4 +568,13 @@ func (m *ServiceManager) inspect(
 
 func isNotFoundErr(err error) bool {
 	return cerrdefs.IsNotFound(err)
+}
+
+func stackServiceNameFromFullName(stackName string, fullName string) string {
+	prefix := stackName + "_"
+	if strings.HasPrefix(fullName, prefix) {
+		return strings.TrimPrefix(fullName, prefix)
+	}
+
+	return fullName
 }
