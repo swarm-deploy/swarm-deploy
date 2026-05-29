@@ -25,6 +25,7 @@ export interface StacksResponse {
 export interface GitCommitDetailsResponse {
   full_hash: string;
   author: string;
+  message: string;
   date: string;
   changed_files: string[];
 }
@@ -112,6 +113,20 @@ export interface ServiceStatusResponse {
   spec: ServiceSpecResponse;
 }
 
+export interface ServiceRealtimeTask {
+  id: string;
+  node: string;
+  node_name?: string;
+  created_at?: string;
+  updated_at?: string;
+  current_state: string;
+  error?: string;
+}
+
+export interface ServiceRealtimeResponse {
+  tasks: ServiceRealtimeTask[];
+}
+
 export type ServiceDeploymentStatus = "success" | "failed";
 
 export interface ServiceDeploymentResponse {
@@ -154,6 +169,8 @@ export interface NetworkInfo {
   ingress: boolean;
   labels?: Record<string, string>;
   options?: Record<string, string>;
+  stack_name?: string;
+  managed: boolean;
 }
 
 export interface NetworksResponse {

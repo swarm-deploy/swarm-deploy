@@ -10,11 +10,17 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.uber.org/mock/gomock"
 )
 
 func TestDockerNetworkListExecute(t *testing.T) {
-	tool := NewDockerNetworkList(&fakeNetworkReader{
-		networks: []swarm.Network{
+	ctrl := gomock.NewController(t)
+	networkReader := swarm.NewMockNetworkManager(ctrl)
+	tool := NewDockerNetworkList(networkReader)
+
+	networkReader.EXPECT().
+		List(gomock.Any()).
+		Return([]swarm.Network{
 			{
 				Name:       "backend",
 				Scope:      "swarm",
@@ -26,8 +32,7 @@ func TestDockerNetworkListExecute(t *testing.T) {
 					"com.example.team": "platform",
 				},
 			},
-		},
-	})
+		}, nil)
 
 	response, err := tool.Execute(context.Background(), routing.Request{})
 	require.NoError(t, err, "execute docker_network_list")
@@ -45,9 +50,13 @@ func TestDockerNetworkListExecute(t *testing.T) {
 }
 
 func TestDockerNetworkListExecuteFailsOnInspectError(t *testing.T) {
-	tool := NewDockerNetworkList(&fakeNetworkReader{
-		err: errors.New("docker unavailable"),
-	})
+	ctrl := gomock.NewController(t)
+	networkReader := swarm.NewMockNetworkManager(ctrl)
+	tool := NewDockerNetworkList(networkReader)
+
+	networkReader.EXPECT().
+		List(gomock.Any()).
+		Return(nil, errors.New("docker unavailable"))
 
 	_, err := tool.Execute(context.Background(), routing.Request{})
 	require.Error(t, err, "expected execute error")

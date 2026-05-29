@@ -1,6 +1,9 @@
 package controller
 
-import "github.com/swarm-deploy/swarm-deploy/internal/compose"
+import (
+	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/labelsdict"
+)
 
 func (r *stackReconciler) attachComposePipeline() {
 	composePipelineSteps := []pipelineStep{
@@ -24,7 +27,7 @@ func (r *stackReconciler) addManagedLabel(file *compose.File, _ string) (bool, e
 	changed := false
 
 	for _, service := range file.Compose.Services {
-		present := service.Labels.Add(serviceManagedLabel, "true")
+		present := service.Deploy.Labels.Add(labelsdict.ServiceManagedLabelKey, labelsdict.ServiceManagedLabelValue)
 		if !present {
 			changed = true
 		}

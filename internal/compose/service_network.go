@@ -53,9 +53,15 @@ func (s *ServiceNetworks) GetNames() []string {
 	return s.Names
 }
 
+func (s *ServiceNetworks) GetAliases() []string {
+	if s == nil {
+		return nil
+	}
+	return s.Aliases
+}
+
 func (s *ServiceNetworks) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind == yaml.SequenceNode {
-		s.Names = make([]string, 0, len(node.Content))
 		s.AliasMap = make(map[string]*ServiceNetwork, len(node.Content))
 		s.Aliases = make([]string, 0, len(node.Content))
 
@@ -68,7 +74,6 @@ func (s *ServiceNetworks) UnmarshalYAML(node *yaml.Node) error {
 				Alias: child.Value,
 			}
 
-			s.Names = append(s.Names, child.Value)
 			s.List = append(s.List, network)
 			s.AliasMap[child.Value] = network
 			s.Aliases = append(s.Aliases, network.Alias)
@@ -104,7 +109,6 @@ func (s *ServiceNetworks) UnmarshalYAML(node *yaml.Node) error {
 
 		network.Alias = alias
 
-		s.Names = append(s.Names, alias)
 		s.List = append(s.List, &network)
 		s.AliasMap[alias] = &network
 		s.Aliases = append(s.Aliases, alias)
@@ -115,7 +119,7 @@ func (s *ServiceNetworks) UnmarshalYAML(node *yaml.Node) error {
 
 func (s ServiceNetworks) MarshalYAML() (interface{}, error) {
 	if s.onlyAlias {
-		return s.Names, nil
+		return s.Aliases, nil
 	}
 
 	const childNodesMul = 2

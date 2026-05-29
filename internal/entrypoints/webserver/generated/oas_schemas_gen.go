@@ -401,6 +401,7 @@ func (s *EventSeverity) UnmarshalText(data []byte) error {
 type GitCommitDetailsResponse struct {
 	FullHash     string    `json:"full_hash"`
 	Author       string    `json:"author"`
+	Message      string    `json:"message"`
 	Date         time.Time `json:"date"`
 	ChangedFiles []string  `json:"changed_files"`
 }
@@ -413,6 +414,11 @@ func (s *GitCommitDetailsResponse) GetFullHash() string {
 // GetAuthor returns the value of Author.
 func (s *GitCommitDetailsResponse) GetAuthor() string {
 	return s.Author
+}
+
+// GetMessage returns the value of Message.
+func (s *GitCommitDetailsResponse) GetMessage() string {
+	return s.Message
 }
 
 // GetDate returns the value of Date.
@@ -433,6 +439,11 @@ func (s *GitCommitDetailsResponse) SetFullHash(val string) {
 // SetAuthor sets the value of Author.
 func (s *GitCommitDetailsResponse) SetAuthor(val string) {
 	s.Author = val
+}
+
+// SetMessage sets the value of Message.
+func (s *GitCommitDetailsResponse) SetMessage(val string) {
+	s.Message = val
 }
 
 // SetDate sets the value of Date.
@@ -456,6 +467,8 @@ type NetworkInfo struct {
 	Ingress    bool                  `json:"ingress"`
 	Labels     OptNetworkInfoLabels  `json:"labels"`
 	Options    OptNetworkInfoOptions `json:"options"`
+	StackName  OptString             `json:"stack_name"`
+	Managed    bool                  `json:"managed"`
 }
 
 // GetID returns the value of ID.
@@ -503,6 +516,16 @@ func (s *NetworkInfo) GetOptions() OptNetworkInfoOptions {
 	return s.Options
 }
 
+// GetStackName returns the value of StackName.
+func (s *NetworkInfo) GetStackName() OptString {
+	return s.StackName
+}
+
+// GetManaged returns the value of Managed.
+func (s *NetworkInfo) GetManaged() bool {
+	return s.Managed
+}
+
 // SetID sets the value of ID.
 func (s *NetworkInfo) SetID(val string) {
 	s.ID = val
@@ -546,6 +569,16 @@ func (s *NetworkInfo) SetLabels(val OptNetworkInfoLabels) {
 // SetOptions sets the value of Options.
 func (s *NetworkInfo) SetOptions(val OptNetworkInfoOptions) {
 	s.Options = val
+}
+
+// SetStackName sets the value of StackName.
+func (s *NetworkInfo) SetStackName(val OptString) {
+	s.StackName = val
+}
+
+// SetManaged sets the value of Managed.
+func (s *NetworkInfo) SetManaged(val bool) {
+	s.Managed = val
 }
 
 type NetworkInfoLabels map[string]string
@@ -1929,6 +1962,102 @@ func (s *ServiceInfoType) UnmarshalText(data []byte) error {
 	default:
 		return errors.Errorf("invalid value: %q", data)
 	}
+}
+
+// Ref: #/components/schemas/ServiceRealtimeResponse
+type ServiceRealtimeResponse struct {
+	Tasks []ServiceRealtimeTask `json:"tasks"`
+}
+
+// GetTasks returns the value of Tasks.
+func (s *ServiceRealtimeResponse) GetTasks() []ServiceRealtimeTask {
+	return s.Tasks
+}
+
+// SetTasks sets the value of Tasks.
+func (s *ServiceRealtimeResponse) SetTasks(val []ServiceRealtimeTask) {
+	s.Tasks = val
+}
+
+// Ref: #/components/schemas/ServiceRealtimeTask
+type ServiceRealtimeTask struct {
+	ID           string      `json:"id"`
+	Node         string      `json:"node"`
+	NodeName     OptString   `json:"node_name"`
+	CreatedAt    OptDateTime `json:"created_at"`
+	UpdatedAt    OptDateTime `json:"updated_at"`
+	CurrentState string      `json:"current_state"`
+	Error        OptString   `json:"error"`
+}
+
+// GetID returns the value of ID.
+func (s *ServiceRealtimeTask) GetID() string {
+	return s.ID
+}
+
+// GetNode returns the value of Node.
+func (s *ServiceRealtimeTask) GetNode() string {
+	return s.Node
+}
+
+// GetNodeName returns the value of NodeName.
+func (s *ServiceRealtimeTask) GetNodeName() OptString {
+	return s.NodeName
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *ServiceRealtimeTask) GetCreatedAt() OptDateTime {
+	return s.CreatedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *ServiceRealtimeTask) GetUpdatedAt() OptDateTime {
+	return s.UpdatedAt
+}
+
+// GetCurrentState returns the value of CurrentState.
+func (s *ServiceRealtimeTask) GetCurrentState() string {
+	return s.CurrentState
+}
+
+// GetError returns the value of Error.
+func (s *ServiceRealtimeTask) GetError() OptString {
+	return s.Error
+}
+
+// SetID sets the value of ID.
+func (s *ServiceRealtimeTask) SetID(val string) {
+	s.ID = val
+}
+
+// SetNode sets the value of Node.
+func (s *ServiceRealtimeTask) SetNode(val string) {
+	s.Node = val
+}
+
+// SetNodeName sets the value of NodeName.
+func (s *ServiceRealtimeTask) SetNodeName(val OptString) {
+	s.NodeName = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *ServiceRealtimeTask) SetCreatedAt(val OptDateTime) {
+	s.CreatedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *ServiceRealtimeTask) SetUpdatedAt(val OptDateTime) {
+	s.UpdatedAt = val
+}
+
+// SetCurrentState sets the value of CurrentState.
+func (s *ServiceRealtimeTask) SetCurrentState(val string) {
+	s.CurrentState = val
+}
+
+// SetError sets the value of Error.
+func (s *ServiceRealtimeTask) SetError(val OptString) {
+	s.Error = val
 }
 
 // Ref: #/components/schemas/ServiceSpecLabelGroupResponse

@@ -83,6 +83,21 @@ func TestResolveServiceDeployModeGlobal(t *testing.T) {
 	assert.Equal(t, uint64(0), count, "global mode must not report replicas")
 }
 
+func TestStackServiceNameFromFullName(t *testing.T) {
+	assert.Equal(
+		t,
+		"api",
+		stackServiceNameFromFullName("payments", "payments_api"),
+		"stack prefix must be removed",
+	)
+	assert.Equal(
+		t,
+		"foreign_api",
+		stackServiceNameFromFullName("payments", "foreign_api"),
+		"foreign service names must stay unchanged",
+	)
+}
+
 func encodeDockerLogFrame(stream byte, payload []byte) []byte {
 	frame := make([]byte, dockerLogFrameHeaderSize+len(payload))
 	frame[0] = stream

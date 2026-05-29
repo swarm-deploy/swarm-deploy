@@ -23,7 +23,7 @@ func TestNetworkManagerMapNetworkMapsFields(t *testing.T) {
 		},
 	}
 
-	mapped := (&NetworkManager{}).mapNetwork(network)
+	mapped := (&networkManager{}).mapNetwork(network)
 
 	assert.Equal(t, "backend", mapped.Name, "unexpected network name")
 	assert.Equal(t, "swarm", mapped.Scope, "unexpected scope")

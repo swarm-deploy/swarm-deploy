@@ -15,6 +15,9 @@ sync:
   mode: pull
   # Pull polling interval.
   pollInterval: 30s
+  policy:
+    # Removes orphaned managed services that are no longer defined in compose.
+    prune: true
 
 # AI assistant settings.
 assistant:
@@ -64,7 +67,7 @@ eventHistory:
 # Notification channels grouped by event type.
 notifications:
   on:
-    # Event type examples: deploySuccess | deployFailed | syncManualStarted | serviceRestarted | userAuthenticated
+    # Event type examples: deploySuccess | deployFailed | servicePruned | syncManualStarted | serviceRestarted | userAuthenticated
     deploySuccess:
       telegram:
         - name: ops-success
@@ -117,7 +120,6 @@ swarm:
     - stack
     - deploy
     - --with-registry-auth
-    - --prune
   # Init job polling interval.
   initJobPollEvery: 2s
   # Maximum init job duration.

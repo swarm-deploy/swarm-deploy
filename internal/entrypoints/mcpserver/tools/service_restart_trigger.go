@@ -7,11 +7,12 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 // RestartService restarts stack service by scaling replicas to zero and restoring previous value.
 type RestartService struct {
-	manager         ServiceReplicasManager
+	manager         swarm.ServiceManager
 	eventDispatcher dispatcher.Dispatcher
 }
 
@@ -21,7 +22,7 @@ type restartServiceRequest struct {
 }
 
 // NewRestartService creates service_restart_trigger component.
-func NewRestartService(manager ServiceReplicasManager, eventDispatcher dispatcher.Dispatcher) *RestartService {
+func NewRestartService(manager swarm.ServiceManager, eventDispatcher dispatcher.Dispatcher) *RestartService {
 	return &RestartService{
 		manager:         manager,
 		eventDispatcher: eventDispatcher,

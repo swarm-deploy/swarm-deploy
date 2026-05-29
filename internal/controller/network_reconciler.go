@@ -10,26 +10,15 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/controller/statem"
+	"github.com/swarm-deploy/swarm-deploy/internal/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
-const (
-	managedNetworkLabelKey   = "org.swarm-deploy.network.managed"
-	managedNetworkLabelValue = "true"
-)
-
-type networkManager interface {
-	// Get returns network metadata by name.
-	Get(ctx context.Context, name string) (swarm.Network, error)
-	// Create creates a Docker network with provided spec.
-	Create(ctx context.Context, req swarm.CreateNetworkRequest) (string, error)
-}
-
 type networkReconciler struct {
-	manager networkManager
+	manager swarm.NetworkManager
 }
 
-func newNetworkReconciler(manager networkManager) *networkReconciler {
+func newNetworkReconciler(manager swarm.NetworkManager) *networkReconciler {
 	return &networkReconciler{
 		manager: manager,
 	}
@@ -47,7 +36,7 @@ func (r *networkReconciler) Reconcile(ctx context.Context, networkCfg config.Net
 		Attachable: networkCfg.Attachable,
 		Internal:   networkCfg.Internal,
 		Labels:     desiredLabels,
-		Options:    cloneStringMap(networkCfg.Options),
+		Options:    networkCfg.Options,
 	}
 
 	current, err := r.manager.Get(ctx, networkCfg.Name)
@@ -80,27 +69,30 @@ func (r *networkReconciler) Reconcile(ctx context.Context, networkCfg config.Net
 func withManagedNetworkLabel(labels map[string]string) (map[string]string, error) {
 	normalized := cloneStringMap(labels)
 
-	if labelValue, exists := normalized[managedNetworkLabelKey]; exists {
-		if strings.TrimSpace(labelValue) != managedNetworkLabelValue {
-			return nil, fmt.Errorf("label %q must be %q", managedNetworkLabelKey, managedNetworkLabelValue)
+	if labelValue, exists := normalized[labelsdict.NetworkManagedKey]; exists {
+		if strings.TrimSpace(labelValue) != labelsdict.NetworkManagedValue {
+			return nil, fmt.Errorf("label %q must be %q",
+				labelsdict.NetworkManagedKey,
+				labelsdict.NetworkManagedValue,
+			)
 		}
 	}
 
-	normalized[managedNetworkLabelKey] = managedNetworkLabelValue
+	normalized[labelsdict.NetworkManagedKey] = labelsdict.NetworkManagedValue
 	return normalized, nil
 }
 
 func ensureManagedNetwork(network swarm.Network) error {
-	labelValue := strings.TrimSpace(network.Labels[managedNetworkLabelKey])
-	if labelValue == managedNetworkLabelValue {
+	labelValue := strings.TrimSpace(network.Labels[labelsdict.NetworkManagedKey])
+	if labelValue == labelsdict.NetworkManagedValue {
 		return nil
 	}
 
 	return fmt.Errorf(
 		"network %s already exists but is not managed by swarm-deploy: missing label %s=%s",
 		network.Name,
-		managedNetworkLabelKey,
-		managedNetworkLabelValue,
+		labelsdict.NetworkManagedKey,
+		labelsdict.NetworkManagedValue,
 	)
 }
 

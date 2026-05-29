@@ -7,11 +7,12 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 // SetServiceReplicas updates service replicas count.
 type SetServiceReplicas struct {
-	manager         ServiceReplicasManager
+	manager         swarm.ServiceManager
 	eventDispatcher dispatcher.Dispatcher
 }
 
@@ -22,7 +23,7 @@ type setServiceReplicasRequest struct {
 }
 
 // NewSetServiceReplicas creates service_replicas_set component.
-func NewSetServiceReplicas(manager ServiceReplicasManager, eventDispatcher dispatcher.Dispatcher) *SetServiceReplicas {
+func NewSetServiceReplicas(manager swarm.ServiceManager, eventDispatcher dispatcher.Dispatcher) *SetServiceReplicas {
 	return &SetServiceReplicas{
 		manager:         manager,
 		eventDispatcher: eventDispatcher,

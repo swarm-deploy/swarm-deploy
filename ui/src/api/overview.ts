@@ -4,6 +4,7 @@ import type {
   GitCommitDetailsResponse,
   QueueResponse,
   ServiceDeploymentsResponse,
+  ServiceRealtimeResponse,
   ServiceStatusResponse,
   StacksResponse,
 } from "./types";
@@ -44,4 +45,10 @@ export function fetchServiceDeployments(
   return apiRequest<ServiceDeploymentsResponse>(
     `/api/v1/stacks/${encodedStack}/services/${encodedService}/deployments${query}`,
   );
+}
+
+export function fetchServiceRealtime(stackName: string, serviceName: string): Promise<ServiceRealtimeResponse> {
+  const encodedStack = encodeURIComponent(stackName);
+  const encodedService = encodeURIComponent(serviceName);
+  return apiRequest<ServiceRealtimeResponse>(`/api/v1/stacks/${encodedStack}/services/${encodedService}/realtime`);
 }

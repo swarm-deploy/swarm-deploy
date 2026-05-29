@@ -24,8 +24,9 @@ const filteredNetworks = computed(() => {
     const options = Object.entries(network.options ?? {})
       .map(([key, value]) => `${key}=${value}`)
       .join(" ");
+    const managed = boolText(network.managed);
 
-    return `${network.name} ${network.scope} ${network.driver} ${network.id} ${labels} ${options}`
+    return `${network.name} ${network.stack_name ?? ""} ${network.scope} ${network.driver} ${network.id} ${managed} ${labels} ${options}`
       .toLowerCase()
       .includes(query);
   });
@@ -79,7 +80,7 @@ onMounted(() => {
         v-model="searchQuery"
         type="search"
         class="secrets-search-input"
-        placeholder="Search by name, scope, driver, labels..."
+        placeholder="Search by name, stack, scope, driver, labels..."
         aria-label="Search networks"
       />
     </section>
@@ -105,10 +106,12 @@ onMounted(() => {
         <thead>
           <tr>
             <th>Name</th>
+            <th>Stack</th>
             <th>Driver</th>
             <th>Attachable</th>
             <th>Internal</th>
             <th>Ingress</th>
+            <th>Managed</th>
             <th>Labels</th>
             <th>Options</th>
           </tr>
@@ -116,10 +119,12 @@ onMounted(() => {
         <tbody>
           <tr v-for="network in filteredNetworks" :key="network.id">
             <td>{{ network.name || "n/a" }}</td>
+            <td>{{ network.stack_name || "n/a" }}</td>
             <td>{{ network.driver || "n/a" }}</td>
             <td>{{ boolText(network.attachable) }}</td>
             <td>{{ boolText(network.internal) }}</td>
             <td>{{ boolText(network.ingress) }}</td>
+            <td>{{ boolText(network.managed) }}</td>
             <td>{{ mapText(network.labels) }}</td>
             <td>{{ mapText(network.options) }}</td>
           </tr>

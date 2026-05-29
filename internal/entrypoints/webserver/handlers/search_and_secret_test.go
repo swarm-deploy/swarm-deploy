@@ -12,44 +12,36 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"github.com/swarm-deploy/webroute"
+	"go.uber.org/mock/gomock"
 )
-
-type fakeSecretsReader struct {
-	list []swarm.Secret
-	err  error
-}
-
-func (f fakeSecretsReader) List(_ context.Context) ([]swarm.Secret, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-
-	return f.list, nil
-}
 
 func TestHandlerGetSecretByName(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now().UTC()
+	ctrl := gomock.NewController(t)
+	secretsReader := swarm.NewMockSecretManager(ctrl)
 	h := &handler{
-		secrets: fakeSecretsReader{
-			list: []swarm.Secret{
-				{
-					ID:        "secret-id",
-					Name:      "db-password",
-					VersionID: 7,
-					CreatedAt: now.Add(-time.Hour),
-					UpdatedAt: now,
-					Driver:    "vault",
-					Labels: map[string]string{
-						"external_path":       "kv/prod/db-password",
-						"external_version_id": "v12",
-						"scope":               "production",
-					},
+		secrets: secretsReader,
+	}
+
+	secretsReader.EXPECT().
+		List(gomock.Any()).
+		Return([]swarm.Secret{
+			{
+				ID:        "secret-id",
+				Name:      "db-password",
+				VersionID: 7,
+				CreatedAt: now.Add(-time.Hour),
+				UpdatedAt: now,
+				Driver:    "vault",
+				Labels: map[string]string{
+					"external_path":       "kv/prod/db-password",
+					"external_version_id": "v12",
+					"scope":               "production",
 				},
 			},
-		},
-	}
+		}, nil)
 
 	resp, err := h.GetSecretByName(context.Background(), generated.GetSecretByNameParams{Name: "db-password"})
 	require.NoError(t, err)
@@ -69,11 +61,15 @@ func TestHandlerGetSecretByName(t *testing.T) {
 func TestHandlerGetSecretByName_NotFound(t *testing.T) {
 	t.Parallel()
 
+	ctrl := gomock.NewController(t)
+	secretsReader := swarm.NewMockSecretManager(ctrl)
 	h := &handler{
-		secrets: fakeSecretsReader{
-			list: []swarm.Secret{{Name: "known-secret"}},
-		},
+		secrets: secretsReader,
 	}
+
+	secretsReader.EXPECT().
+		List(gomock.Any()).
+		Return([]swarm.Secret{{Name: "known-secret"}}, nil)
 
 	_, err := h.GetSecretByName(context.Background(), generated.GetSecretByNameParams{Name: "unknown-secret"})
 	require.Error(t, err)
@@ -105,14 +101,18 @@ func TestHandlerSearch_PriorityAndDedupe(t *testing.T) {
 		},
 	}))
 
+	ctrl := gomock.NewController(t)
+	secretsReader := swarm.NewMockSecretManager(ctrl)
 	h := &handler{
 		services: servicesStore,
-		secrets: fakeSecretsReader{
-			list: []swarm.Secret{
-				{Name: "api-app-secret"},
-			},
-		},
+		secrets:  secretsReader,
 	}
+
+	secretsReader.EXPECT().
+		List(gomock.Any()).
+		Return([]swarm.Secret{
+			{Name: "api-app-secret"},
+		}, nil)
 
 	resp, err := h.Search(context.Background(), generated.SearchParams{Query: "api-app"})
 	require.NoError(t, err)

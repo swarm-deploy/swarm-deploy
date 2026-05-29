@@ -8,17 +8,16 @@ GitOps controller for Docker Swarm with an ArgoCD-inspired, but Swarm-native, co
 
 ## Capabilities
 
-- Sync:
-- - Stacks
-- - Services
-- - Networks
+- Sync: stacks, services, networks
 - Operating modes:
   - `pull` (polling),
   - `webhook`,
   - `hybrid` (both modes at the same time).
 - Stack deployment only when a diff is detected (`compose + referenced configs/secrets` digest). .
+- [Pruning of orphaned managed services removed from desired compose](./docs/prune.md).
 - GitOps reconciliation for Docker networks from `networks.file` with managed label `org.swarm-deploy.network.managed=true`.
 - UI and API are served by a single web server on `web.address`.
+- Service Realtime page with task snapshot (node hostname, state, created/updated timestamps, and task ID).
 - HTTP Basic authentication for UI and API via `web.security.authentication.basic.htpasswdFile`.
 - [Event History & Audit](./docs/event-history.md)
 - [Notification hooks for successful and failed deployments](./docs/notifications.md)
@@ -38,3 +37,4 @@ GitOps controller for Docker Swarm with an ArgoCD-inspired, but Swarm-native, co
 - [cloud-vector](https://github.com/swarm-deploy/cloud-vector) - logging for Docker Swarm
 - [cloud-secrets](https://github.com/swarm-deploy/cloud-secrets) - background service for update secrets in Docker Swarm cluster
 - [init-jobs](https://github.com/swarm-deploy/init-jobs) - Collection for ready init jobs. Example: [postgres](https://github.com/swarm-deploy/init-jobs/blob/master/postgres/README.md) for create database
+- [node-agent](https://github.com/swarm-deploy/node-agent) - agent for nodes with metrics collecting and cleaning volumes, containers

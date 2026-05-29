@@ -9,17 +9,17 @@ import (
 	"github.com/docker/docker/client"
 )
 
-type SecretManager struct {
+type secretManager struct {
 	dockerClient *client.Client
 }
 
-func newSecretManager(dockerClient *client.Client) *SecretManager {
-	return &SecretManager{
+func newSecretManager(dockerClient *client.Client) SecretManager {
+	return &secretManager{
 		dockerClient: dockerClient,
 	}
 }
 
-func (r *SecretManager) List(ctx context.Context) ([]Secret, error) {
+func (r *secretManager) List(ctx context.Context) ([]Secret, error) {
 	secrets, err := r.dockerClient.SecretList(ctx, dockerswarm.SecretListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("list docker secrets: %w", err)
@@ -34,7 +34,7 @@ func (r *SecretManager) List(ctx context.Context) ([]Secret, error) {
 	return mapped, nil
 }
 
-func (r *SecretManager) ResolveReference(
+func (r *secretManager) ResolveReference(
 	ctx context.Context,
 	source, target string,
 ) (*dockerswarm.SecretReference, error) {
@@ -62,7 +62,7 @@ func (r *SecretManager) ResolveReference(
 	return ref, nil
 }
 
-func (*SecretManager) mapSecretInfo(secret dockerswarm.Secret) Secret {
+func (*secretManager) mapSecretInfo(secret dockerswarm.Secret) Secret {
 	driver := ""
 	if secret.Spec.Driver != nil {
 		driver = secret.Spec.Driver.Name
@@ -79,7 +79,7 @@ func (*SecretManager) mapSecretInfo(secret dockerswarm.Secret) Secret {
 	}
 }
 
-func (*SecretManager) sortSecretInfos(secrets []Secret) {
+func (*secretManager) sortSecretInfos(secrets []Secret) {
 	sort.Slice(secrets, func(i, j int) bool {
 		if secrets[i].Name != secrets[j].Name {
 			return secrets[i].Name < secrets[j].Name

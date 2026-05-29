@@ -19,6 +19,22 @@ type ServiceStatus struct {
 	Spec ServiceSpec
 }
 
+// ServiceTask contains compact realtime task data for service container status.
+type ServiceTask struct {
+	// ID is a Docker task identifier.
+	ID string
+	// Node is a task node identifier.
+	Node string
+	// CreatedAt is task creation timestamp from Docker Swarm.
+	CreatedAt time.Time
+	// UpdatedAt is task last update timestamp from Docker Swarm.
+	UpdatedAt time.Time
+	// CurrentState is a current task state in docker status format.
+	CurrentState string
+	// Error is a task runtime error.
+	Error string
+}
+
 // ServiceSpec is a compact service spec projection.
 type ServiceSpec struct {
 	// Image is a full image reference configured for the service.
@@ -111,6 +127,18 @@ type ServiceLogsOptions struct {
 	Since *time.Time
 	// Until defines upper bound for log timestamps.
 	Until *time.Time
+}
+
+// StackService is a compact snapshot of a service belonging to a stack.
+type StackService struct {
+	// ID is a Docker service identifier.
+	ID string
+	// Name is a service name without stack prefix.
+	Name string
+	// FullName is a Docker service name formatted as "<stack>_<service>".
+	FullName string
+	// Labels contains Docker service annotations labels.
+	Labels map[string]string
 }
 
 type ServiceReference struct {
