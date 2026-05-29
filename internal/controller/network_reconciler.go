@@ -69,30 +69,30 @@ func (r *networkReconciler) Reconcile(ctx context.Context, networkCfg config.Net
 func withManagedNetworkLabel(labels map[string]string) (map[string]string, error) {
 	normalized := cloneStringMap(labels)
 
-	if labelValue, exists := normalized[labelsdict.ManagedNetworkKey]; exists {
-		if strings.TrimSpace(labelValue) != labelsdict.ManagedNetworkValue {
+	if labelValue, exists := normalized[labelsdict.NetworkManagedKey]; exists {
+		if strings.TrimSpace(labelValue) != labelsdict.NetworkManagedValue {
 			return nil, fmt.Errorf("label %q must be %q",
-				labelsdict.ManagedNetworkKey,
-				labelsdict.ManagedNetworkValue,
+				labelsdict.NetworkManagedKey,
+				labelsdict.NetworkManagedValue,
 			)
 		}
 	}
 
-	normalized[labelsdict.ManagedNetworkKey] = labelsdict.ManagedNetworkValue
+	normalized[labelsdict.NetworkManagedKey] = labelsdict.NetworkManagedValue
 	return normalized, nil
 }
 
 func ensureManagedNetwork(network swarm.Network) error {
-	labelValue := strings.TrimSpace(network.Labels[labelsdict.ManagedNetworkKey])
-	if labelValue == labelsdict.ManagedNetworkValue {
+	labelValue := strings.TrimSpace(network.Labels[labelsdict.NetworkManagedKey])
+	if labelValue == labelsdict.NetworkManagedValue {
 		return nil
 	}
 
 	return fmt.Errorf(
 		"network %s already exists but is not managed by swarm-deploy: missing label %s=%s",
 		network.Name,
-		labelsdict.ManagedNetworkKey,
-		labelsdict.ManagedNetworkValue,
+		labelsdict.NetworkManagedKey,
+		labelsdict.NetworkManagedValue,
 	)
 }
 

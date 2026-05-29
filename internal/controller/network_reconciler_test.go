@@ -49,8 +49,8 @@ func TestNetworkReconcilerReconcileCreatesManagedNetwork(t *testing.T) {
 	assert.True(t, createReq.Attachable, "unexpected attachable flag")
 	assert.Equal(
 		t,
-		labelsdict.ManagedNetworkValue,
-		createReq.Labels[labelsdict.ManagedNetworkKey],
+		labelsdict.NetworkManagedValue,
+		createReq.Labels[labelsdict.NetworkManagedKey],
 		"expected managed label",
 	)
 }
@@ -85,7 +85,7 @@ func TestNetworkReconcilerReconcileFailsOnManagedLabelOverride(t *testing.T) {
 		Name:   "app_backend",
 		Driver: "overlay",
 		Labels: map[string]string{
-			labelsdict.ManagedNetworkKey: "false",
+			labelsdict.NetworkManagedKey: "false",
 		},
 	})
 
@@ -105,7 +105,7 @@ func TestNetworkReconcilerReconcileSkipsMatchingManagedNetwork(t *testing.T) {
 			Attachable: true,
 			Internal:   true,
 			Labels: map[string]string{
-				labelsdict.ManagedNetworkKey: labelsdict.ManagedNetworkValue,
+				labelsdict.NetworkManagedKey: labelsdict.NetworkManagedValue,
 				"team":                       "platform",
 			},
 			Options: map[string]string{
