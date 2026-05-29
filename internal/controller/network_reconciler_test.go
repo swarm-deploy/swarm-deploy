@@ -9,38 +9,25 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/controller/statem"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.uber.org/mock/gomock"
 )
 
-type fakeNetworkManager struct {
-	getNetwork swarm.Network
-	getErr     error
-	getCalls   int
-
-	createReq   *swarm.CreateNetworkRequest
-	createErr   error
-	createCalls int
-}
-
-func (m *fakeNetworkManager) Get(context.Context, string) (swarm.Network, error) {
-	m.getCalls++
-	return m.getNetwork, m.getErr
-}
-
-func (m *fakeNetworkManager) Create(_ context.Context, req swarm.CreateNetworkRequest) (string, error) {
-	m.createCalls++
-	m.createReq = &req
-	if m.createErr != nil {
-		return "", m.createErr
-	}
-	return "created-id", nil
-}
-
 func TestNetworkReconcilerReconcileCreatesManagedNetwork(t *testing.T) {
-	manager := &fakeNetworkManager{
-		getErr: swarm.ErrNetworkNotFound,
-	}
+	ctrl := gomock.NewController(t)
+	manager := swarm.NewMockNetworkManager(ctrl)
 
 	reconciler := newNetworkReconciler(manager)
+	var createReq *swarm.CreateNetworkRequest
+	manager.EXPECT().
+		Get(gomock.Any(), "app_backend").
+		Return(swarm.Network{}, swarm.ErrNetworkNotFound)
+	manager.EXPECT().
+		Create(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, req swarm.CreateNetworkRequest) (string, error) {
+			createReq = &req
+			return "created-id", nil
+		})
+
 	skipped, err := reconciler.Reconcile(context.Background(), config.NetworkSpec{
 		Name:       "app_backend",
 		Driver:     "overlay",
@@ -55,25 +42,28 @@ func TestNetworkReconcilerReconcileCreatesManagedNetwork(t *testing.T) {
 
 	require.NoError(t, err, "reconcile network")
 	assert.False(t, skipped, "expected created network")
-	require.NotNil(t, manager.createReq, "expected create request")
-	assert.Equal(t, "app_backend", manager.createReq.Name, "unexpected network name")
-	assert.Equal(t, "overlay", manager.createReq.Driver, "unexpected driver")
-	assert.True(t, manager.createReq.Attachable, "unexpected attachable flag")
+	require.NotNil(t, createReq, "expected create request")
+	assert.Equal(t, "app_backend", createReq.Name, "unexpected network name")
+	assert.Equal(t, "overlay", createReq.Driver, "unexpected driver")
+	assert.True(t, createReq.Attachable, "unexpected attachable flag")
 	assert.Equal(
 		t,
 		managedNetworkLabelValue,
-		manager.createReq.Labels[managedNetworkLabelKey],
+		createReq.Labels[managedNetworkLabelKey],
 		"expected managed label",
 	)
 }
 
 func TestNetworkReconcilerReconcileFailsWhenExistingNetworkIsNotManaged(t *testing.T) {
-	manager := &fakeNetworkManager{
-		getNetwork: swarm.Network{
+	ctrl := gomock.NewController(t)
+	manager := swarm.NewMockNetworkManager(ctrl)
+
+	manager.EXPECT().
+		Get(gomock.Any(), "app_backend").
+		Return(swarm.Network{
 			Name:   "app_backend",
 			Driver: "overlay",
-		},
-	}
+		}, nil)
 
 	reconciler := newNetworkReconciler(manager)
 	_, err := reconciler.Reconcile(context.Background(), config.NetworkSpec{
@@ -86,9 +76,8 @@ func TestNetworkReconcilerReconcileFailsWhenExistingNetworkIsNotManaged(t *testi
 }
 
 func TestNetworkReconcilerReconcileFailsOnManagedLabelOverride(t *testing.T) {
-	manager := &fakeNetworkManager{
-		getErr: swarm.ErrNetworkNotFound,
-	}
+	ctrl := gomock.NewController(t)
+	manager := swarm.NewMockNetworkManager(ctrl)
 
 	reconciler := newNetworkReconciler(manager)
 	_, err := reconciler.Reconcile(context.Background(), config.NetworkSpec{
@@ -104,8 +93,12 @@ func TestNetworkReconcilerReconcileFailsOnManagedLabelOverride(t *testing.T) {
 }
 
 func TestNetworkReconcilerReconcileSkipsMatchingManagedNetwork(t *testing.T) {
-	manager := &fakeNetworkManager{
-		getNetwork: swarm.Network{
+	ctrl := gomock.NewController(t)
+	manager := swarm.NewMockNetworkManager(ctrl)
+
+	manager.EXPECT().
+		Get(gomock.Any(), "app_backend").
+		Return(swarm.Network{
 			Name:       "app_backend",
 			Driver:     "overlay",
 			Attachable: true,
@@ -118,8 +111,7 @@ func TestNetworkReconcilerReconcileSkipsMatchingManagedNetwork(t *testing.T) {
 				"encrypted": "true",
 				"mtu":       "1450",
 			},
-		},
-	}
+		}, nil)
 
 	reconciler := newNetworkReconciler(manager)
 	skipped, err := reconciler.Reconcile(context.Background(), config.NetworkSpec{
@@ -137,13 +129,18 @@ func TestNetworkReconcilerReconcileSkipsMatchingManagedNetwork(t *testing.T) {
 
 	require.NoError(t, err, "reconcile network")
 	assert.True(t, skipped, "expected skip")
-	assert.Nil(t, manager.createReq, "create should not be called")
 }
 
 func TestControllerSyncNetworksStoresState(t *testing.T) {
-	manager := &fakeNetworkManager{
-		getErr: swarm.ErrNetworkNotFound,
-	}
+	ctrl := gomock.NewController(t)
+	manager := swarm.NewMockNetworkManager(ctrl)
+
+	manager.EXPECT().
+		Get(gomock.Any(), "app_backend").
+		Return(swarm.Network{}, swarm.ErrNetworkNotFound)
+	manager.EXPECT().
+		Create(gomock.Any(), gomock.Any()).
+		Return("created-id", nil)
 
 	store := statem.NewMemoryStore()
 	c := &Controller{
@@ -176,12 +173,15 @@ func TestControllerSyncNetworksStoresState(t *testing.T) {
 }
 
 func TestControllerSyncNetworksStoresFailedState(t *testing.T) {
-	manager := &fakeNetworkManager{
-		getNetwork: swarm.Network{
+	ctrl := gomock.NewController(t)
+	manager := swarm.NewMockNetworkManager(ctrl)
+
+	manager.EXPECT().
+		Get(gomock.Any(), "app_backend").
+		Return(swarm.Network{
 			Name:   "app_backend",
 			Driver: "overlay",
-		},
-	}
+		}, nil)
 
 	store := statem.NewMemoryStore()
 	c := &Controller{
@@ -226,7 +226,7 @@ func TestControllerSyncNetworksClearsStateWhenNetworksListIsEmpty(t *testing.T) 
 				Networks: nil,
 			},
 		},
-		networkReconciler: newNetworkReconciler(&fakeNetworkManager{}),
+		networkReconciler: newNetworkReconciler(swarm.NewMockNetworkManager(gomock.NewController(t))),
 		stateStore:        store,
 	}
 
@@ -248,9 +248,8 @@ func TestControllerSyncNetworksSkipsReconcileWhenStateAlreadySyncedForCommit(t *
 		}
 	})
 
-	manager := &fakeNetworkManager{
-		getErr: swarm.ErrNetworkNotFound,
-	}
+	ctrl := gomock.NewController(t)
+	manager := swarm.NewMockNetworkManager(ctrl)
 
 	c := &Controller{
 		cfg: &config.Config{
@@ -269,8 +268,6 @@ func TestControllerSyncNetworksSkipsReconcileWhenStateAlreadySyncedForCommit(t *
 
 	err := c.syncNetworks(context.Background(), "commit-4")
 	require.NoError(t, err, "sync networks")
-	assert.Equal(t, 0, manager.getCalls, "expected no docker inspect when state already synced")
-	assert.Equal(t, 0, manager.createCalls, "expected no docker create when state already synced")
 
 	state := store.Get()
 	networkState := state.Networks["app_backend"]

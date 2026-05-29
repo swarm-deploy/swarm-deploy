@@ -40,7 +40,18 @@ type ServiceManager interface {
 }
 
 type SecretManager interface {
+	// List returns current Docker secrets snapshot.
 	List(ctx context.Context) ([]Secret, error)
 
+	// ResolveReference resolves a secret reference by source and target.
 	ResolveReference(ctx context.Context, source, target string) (*dockerswarm.SecretReference, error)
+}
+
+type NetworkManager interface {
+	Get(ctx context.Context, name string) (Network, error)
+
+	// List returns current Docker networks snapshot.
+	List(ctx context.Context) ([]Network, error)
+
+	Create(ctx context.Context, req CreateNetworkRequest) (string, error)
 }

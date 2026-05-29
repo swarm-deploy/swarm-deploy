@@ -12,7 +12,7 @@ type Swarm struct {
 	// Nodes manages Docker swarm nodes.
 	Nodes *NodeManager
 	// Networks manages Docker networks.
-	Networks *NetworkManager
+	Networks NetworkManager
 	// Plugins manages Docker plugins.
 	Plugins *PluginManager
 	// BinaryRunner executes docker CLI commands.

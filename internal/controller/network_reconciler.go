@@ -18,18 +18,11 @@ const (
 	managedNetworkLabelValue = "true"
 )
 
-type networkManager interface {
-	// Get returns network metadata by name.
-	Get(ctx context.Context, name string) (swarm.Network, error)
-	// Create creates a Docker network with provided spec.
-	Create(ctx context.Context, req swarm.CreateNetworkRequest) (string, error)
-}
-
 type networkReconciler struct {
-	manager networkManager
+	manager swarm.NetworkManager
 }
 
-func newNetworkReconciler(manager networkManager) *networkReconciler {
+func newNetworkReconciler(manager swarm.NetworkManager) *networkReconciler {
 	return &networkReconciler{
 		manager: manager,
 	}

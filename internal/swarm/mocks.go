@@ -242,3 +242,72 @@ func (mr *MockSecretManagerMockRecorder) ResolveReference(ctx, source, target an
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolveReference", reflect.TypeOf((*MockSecretManager)(nil).ResolveReference), ctx, source, target)
 }
+
+// MockNetworkManager is a mock of NetworkManager interface.
+type MockNetworkManager struct {
+	ctrl     *gomock.Controller
+	recorder *MockNetworkManagerMockRecorder
+	isgomock struct{}
+}
+
+// MockNetworkManagerMockRecorder is the mock recorder for MockNetworkManager.
+type MockNetworkManagerMockRecorder struct {
+	mock *MockNetworkManager
+}
+
+// NewMockNetworkManager creates a new mock instance.
+func NewMockNetworkManager(ctrl *gomock.Controller) *MockNetworkManager {
+	mock := &MockNetworkManager{ctrl: ctrl}
+	mock.recorder = &MockNetworkManagerMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockNetworkManager) EXPECT() *MockNetworkManagerMockRecorder {
+	return m.recorder
+}
+
+// Create mocks base method.
+func (m *MockNetworkManager) Create(ctx context.Context, req CreateNetworkRequest) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Create", ctx, req)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Create indicates an expected call of Create.
+func (mr *MockNetworkManagerMockRecorder) Create(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockNetworkManager)(nil).Create), ctx, req)
+}
+
+// Get mocks base method.
+func (m *MockNetworkManager) Get(ctx context.Context, name string) (Network, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Get", ctx, name)
+	ret0, _ := ret[0].(Network)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Get indicates an expected call of Get.
+func (mr *MockNetworkManagerMockRecorder) Get(ctx, name any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockNetworkManager)(nil).Get), ctx, name)
+}
+
+// List mocks base method.
+func (m *MockNetworkManager) List(ctx context.Context) ([]Network, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "List", ctx)
+	ret0, _ := ret[0].([]Network)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// List indicates an expected call of List.
+func (mr *MockNetworkManagerMockRecorder) List(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockNetworkManager)(nil).List), ctx)
+}
