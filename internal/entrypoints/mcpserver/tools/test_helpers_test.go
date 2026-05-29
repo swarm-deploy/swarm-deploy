@@ -33,24 +33,6 @@ func (f *fakeNodeStore) List() []swarm.Node {
 	return out
 }
 
-type fakeNetworkReader struct {
-	networks []swarm.Network
-	err      error
-	called   int
-}
-
-func (f *fakeNetworkReader) List(_ context.Context) ([]swarm.Network, error) {
-	f.called++
-	if f.err != nil {
-		return nil, f.err
-	}
-
-	out := make([]swarm.Network, len(f.networks))
-	copy(out, f.networks)
-
-	return out, nil
-}
-
 type fakePluginReader struct {
 	plugins []swarm.Plugin
 	err     error
