@@ -1905,11 +1905,13 @@ func (s *ServiceInfo) SetWebRoutes(val []WebRoute) {
 type ServiceInfoType string
 
 const (
-	ServiceInfoTypeApplication  ServiceInfoType = "application"
-	ServiceInfoTypeMonitoring   ServiceInfoType = "monitoring"
-	ServiceInfoTypeDelivery     ServiceInfoType = "delivery"
-	ServiceInfoTypeReverseProxy ServiceInfoType = "reverseProxy"
-	ServiceInfoTypeDatabase     ServiceInfoType = "database"
+	ServiceInfoTypeApplication                ServiceInfoType = "application"
+	ServiceInfoTypeMonitoring                 ServiceInfoType = "monitoring"
+	ServiceInfoTypeDelivery                   ServiceInfoType = "delivery"
+	ServiceInfoTypeReverseProxy               ServiceInfoType = "reverseProxy"
+	ServiceInfoTypeDatabase                   ServiceInfoType = "database"
+	ServiceInfoTypeSecretManager              ServiceInfoType = "secretManager"
+	ServiceInfoTypeDeploymentManagementSystem ServiceInfoType = "deploymentManagementSystem"
 )
 
 // AllValues returns all ServiceInfoType values.
@@ -1920,6 +1922,8 @@ func (ServiceInfoType) AllValues() []ServiceInfoType {
 		ServiceInfoTypeDelivery,
 		ServiceInfoTypeReverseProxy,
 		ServiceInfoTypeDatabase,
+		ServiceInfoTypeSecretManager,
+		ServiceInfoTypeDeploymentManagementSystem,
 	}
 }
 
@@ -1935,6 +1939,10 @@ func (s ServiceInfoType) MarshalText() ([]byte, error) {
 	case ServiceInfoTypeReverseProxy:
 		return []byte(s), nil
 	case ServiceInfoTypeDatabase:
+		return []byte(s), nil
+	case ServiceInfoTypeSecretManager:
+		return []byte(s), nil
+	case ServiceInfoTypeDeploymentManagementSystem:
 		return []byte(s), nil
 	default:
 		return nil, errors.Errorf("invalid value: %q", s)
@@ -1958,6 +1966,12 @@ func (s *ServiceInfoType) UnmarshalText(data []byte) error {
 		return nil
 	case ServiceInfoTypeDatabase:
 		*s = ServiceInfoTypeDatabase
+		return nil
+	case ServiceInfoTypeSecretManager:
+		*s = ServiceInfoTypeSecretManager
+		return nil
+	case ServiceInfoTypeDeploymentManagementSystem:
+		*s = ServiceInfoTypeDeploymentManagementSystem
 		return nil
 	default:
 		return errors.Errorf("invalid value: %q", data)

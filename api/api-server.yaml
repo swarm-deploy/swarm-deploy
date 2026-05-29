@@ -335,7 +335,7 @@ components:
           type: string
         type:
           type: string
-          enum: [application, monitoring, delivery, reverseProxy, database]
+          enum: [application, monitoring, delivery, reverseProxy, database, secretManager, deploymentManagementSystem]
         type_title:
           type: string
           description: Human-readable title for the service type enum.

@@ -6,9 +6,9 @@ import (
 )
 
 type Events interface {
-	IncTotal(typ events.Type)
+	subsystem
 
-	collectors() []prometheus.Collector
+	IncTotal(typ events.Type)
 }
 
 type prometheusEvents struct {

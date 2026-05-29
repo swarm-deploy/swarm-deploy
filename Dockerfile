@@ -39,6 +39,17 @@ WORKDIR /etc/swarm-deploy
 
 COPY --from=builder /out/swarm-deploy /usr/local/bin/swarm-deploy
 
+LABEL org.opencontainers.image.title="swarm-deploy"
+LABEL org.opencontainers.image.description="GitOps controller for Docker Swarm"
+LABEL org.opencontainers.image.url="https://github.com/swarm-deploy/swarm-deploy"
+LABEL org.opencontainers.image.source="https://github.com/swarm-deploy/swarm-deploy"
+LABEL org.opencontainers.image.vendor="swarm-deploy"
+LABEL org.opencontainers.image.version="$APP_VERSION"
+LABEL org.opencontainers.image.created="$BUILD_TIME"
+LABEL org.opencontainers.image.licenses="Apache 2.0"
+LABEL org.swarm-deploy.sd=true
+LABEL org.swarm-deploy.service.type="DeploymentManagementSystem"
+
 ENTRYPOINT ["/usr/local/bin/swarm-deploy"]
 CMD ["-config", "/etc/swarm-deploy/swarm-deploy.yaml"]
 

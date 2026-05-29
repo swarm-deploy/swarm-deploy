@@ -674,6 +674,10 @@ func (s ServiceInfoType) Validate() error {
 		return nil
 	case "database":
 		return nil
+	case "secretManager":
+		return nil
+	case "deploymentManagementSystem":
+		return nil
 	default:
 		return errors.Errorf("invalid value: %v", s)
 	}

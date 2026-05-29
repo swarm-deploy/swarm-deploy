@@ -3998,6 +3998,10 @@ func (s *ServiceInfoType) Decode(d *jx.Decoder) error {
 		*s = ServiceInfoTypeReverseProxy
 	case ServiceInfoTypeDatabase:
 		*s = ServiceInfoTypeDatabase
+	case ServiceInfoTypeSecretManager:
+		*s = ServiceInfoTypeSecretManager
+	case ServiceInfoTypeDeploymentManagementSystem:
+		*s = ServiceInfoTypeDeploymentManagementSystem
 	default:
 		*s = ServiceInfoType(v)
 	}
