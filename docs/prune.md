@@ -7,3 +7,5 @@ Prune policy priority (highest to lowest):
 1. Service label `org.swarm-deploy.service.sync.policy.prune` (from compose `deploy.labels`).
 2. Stack `stacks[].sync.policy.prune`.
 3. Global `sync.policy.prune`.
+
+When the service is deleted, the `servicePruned` event will be dispatched.
