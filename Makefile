@@ -15,3 +15,8 @@ test:
 
 .PHONY: check
 check: lint test
+
+.PHONY: test-cli
+cli:
+	go run ./cmd/cli/main.go lint ./example/04-assistant/swarm-deploy.yaml
+
