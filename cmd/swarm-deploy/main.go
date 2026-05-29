@@ -42,6 +42,11 @@ import (
 
 const shutdownTimeout = 30 * time.Second
 
+var (
+	Version   = "0.1.0"
+	BuildDate = "2026-05-26 23:51:00"
+)
+
 //nolint:funlen//not need
 func main() {
 	ctx := context.Background()
@@ -86,6 +91,8 @@ func main() {
 		slog.ErrorContext(ctx, "failed to init metrics", slog.Any("err", err))
 		os.Exit(1)
 	}
+
+	metricsGroup.BuildInfo.Set(Version, BuildDate)
 
 	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
