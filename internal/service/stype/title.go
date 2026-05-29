@@ -13,6 +13,10 @@ func Title(typ Type) string {
 		return "Reverse Proxy"
 	case Database:
 		return "Database"
+	case SecretManager:
+		return "Secret Manager"
+	case DeploymentManagementSystem:
+		return "Deployment Management System"
 	default:
 		return "Application"
 	}

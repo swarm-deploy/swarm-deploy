@@ -447,6 +447,10 @@ func toGeneratedServiceType(typ serviceType.Type) generated.ServiceInfoType {
 		return generated.ServiceInfoTypeReverseProxy
 	case serviceType.Database:
 		return generated.ServiceInfoTypeDatabase
+	case serviceType.SecretManager:
+		return generated.ServiceInfoTypeSecretManager
+	case serviceType.DeploymentManagementSystem:
+		return generated.ServiceInfoTypeDeploymentManagementSystem
 	default:
 		return generated.ServiceInfoTypeApplication
 	}

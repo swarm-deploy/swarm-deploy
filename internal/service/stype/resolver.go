@@ -23,9 +23,11 @@ const (
 	// Delivery is a service type for traffic delivery and edge components.
 	Delivery Type = "delivery"
 	// ReverseProxy is a service type for reverse proxy components.
-	ReverseProxy Type = "reverseProxy"
+	ReverseProxy               Type = "reverseProxy"
+	DeploymentManagementSystem Type = "deploymentManagementSystem"
 	// Database is a service type for data stores.
-	Database Type = "database"
+	Database      Type = "database"
+	SecretManager Type = "secretManager"
 )
 
 // Labels groups metadata labels for type resolving.
@@ -73,6 +75,10 @@ func NormalizeTypeName(raw string) (Type, bool) {
 		return ReverseProxy, true
 	case string(Database):
 		return Database, true
+	case string(SecretManager):
+		return SecretManager, true
+	case string(DeploymentManagementSystem):
+		return DeploymentManagementSystem, true
 	default:
 		return "", false
 	}
