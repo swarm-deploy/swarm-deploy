@@ -5,6 +5,7 @@ go 1.26.2
 require (
 	github.com/DrSmithFr/go-console v1.4.4
 	github.com/artarts36/envmasker v0.0.0-20260424231721-45f9d0bb307b
+	github.com/artarts36/gds v0.2.5
 	github.com/artarts36/go-entrypoint v0.2.1
 	github.com/artarts36/specw v0.1.8-0.20260526200511-8bb157c70b9d
 	github.com/avast/retry-go/v5 v5.0.0
@@ -52,6 +53,7 @@ require (
 	github.com/docker/go-connections v0.6.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/emirpasic/gods v1.18.1 // indirect
+	github.com/fatih/camelcase v1.0.0 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
 	github.com/ghodss/yaml v1.0.0 // indirect
@@ -62,7 +64,9 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
+	github.com/iancoleman/strcase v0.3.0 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
+	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/kevinburke/ssh_config v1.2.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect

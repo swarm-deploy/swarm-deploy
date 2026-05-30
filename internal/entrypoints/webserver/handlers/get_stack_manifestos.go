@@ -33,7 +33,7 @@ func (h *handler) GetStackManifestos(
 		return nil, withStatusError(http.StatusInternalServerError, errors.New("unable to get stack desired manifest"))
 	}
 
-	liveCompose, err := livemanifest.NewComputer(h.serviceInspector).ComputeStack(ctx, params.Stack)
+	liveCompose, err := livemanifest.NewComputer(h.serviceInspector, h.networks).ComputeStack(ctx, params.Stack)
 	if err != nil {
 		slog.ErrorContext(
 			ctx,

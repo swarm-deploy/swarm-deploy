@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/artarts36/gds"
+
 	container "github.com/docker/docker/api/types/container"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -17,12 +19,14 @@ const nanoCPUToCPUScale = 1_000_000_000
 // Computer computes current stack live manifest from swarm state.
 type Computer struct {
 	serviceManager swarm.ServiceManager
+	networkManager swarm.NetworkManager
 }
 
 // NewComputer creates live manifest computer.
-func NewComputer(serviceManager swarm.ServiceManager) *Computer {
+func NewComputer(serviceManager swarm.ServiceManager, networkManager swarm.NetworkManager) *Computer {
 	return &Computer{
 		serviceManager: serviceManager,
+		networkManager: networkManager,
 	}
 }
 
@@ -34,8 +38,9 @@ func (c *Computer) ComputeStack(ctx context.Context, stackName string) (*compose
 	}
 
 	services := make(compose.Services, 0, len(stackServices))
+	networkIDs := gds.NewSet[string]()
 	for _, stackService := range stackServices {
-		mappedService, mapErr := mapStackServiceToCompose(stackService)
+		mappedService, mapErr := mapStackServiceToCompose(stackService, networkIDs)
 		if mapErr != nil {
 			return nil, fmt.Errorf("map stack service %q to compose service: %w", stackService.Name, mapErr)
 		}
@@ -43,13 +48,49 @@ func (c *Computer) ComputeStack(ctx context.Context, stackName string) (*compose
 		services = append(services, mappedService)
 	}
 
+	networks, err := c.networkManager.Map(ctx, networkIDs.List())
+	if err != nil {
+		return nil, fmt.Errorf("list networks for stack %q: %w", stackName, err)
+	}
+
+	composeNetworks := make(map[string]compose.Network)
+	for _, network := range networks {
+		if network.Stack == stackName {
+			continue
+		}
+
+		composeNetworks[network.Name] = compose.Network{
+			Name:     network.Name,
+			Internal: ptr(network.Internal),
+			External: true,
+		}
+	}
+
+	for i, service := range services {
+		newServiceNetworks := make([]*compose.ServiceNetwork, 0, len(networks))
+
+		for _, network := range service.Networks.List {
+			net, ok := networks[network.Alias]
+			if !ok {
+				continue
+			}
+
+			network.Alias = net.Name
+			network.ResolvedName = net.Name
+			newServiceNetworks = append(newServiceNetworks, network)
+		}
+
+		services[i].Networks = compose.NewServiceNetworks(newServiceNetworks...)
+	}
+
 	return &compose.Compose{
 		Services: services,
+		Networks: composeNetworks,
 	}, nil
 }
 
-func mapStackServiceToCompose(stackService swarm.StackService) (compose.Service, error) {
-	service, err := mapRawServiceSpec(stackService.Name, stackService.ServiceSpec)
+func mapStackServiceToCompose(stackService swarm.StackService, networkIDs *gds.Set[string]) (compose.Service, error) {
+	service, err := mapRawServiceSpec(stackService.Name, stackService.ServiceSpec, networkIDs)
 	if err != nil {
 		return compose.Service{}, err
 	}
@@ -74,7 +115,7 @@ func mapStackServiceToCompose(stackService swarm.StackService) (compose.Service,
 	return service, nil
 }
 
-func mapRawServiceSpec(serviceName string, spec dockerswarm.ServiceSpec) (compose.Service, error) {
+func mapRawServiceSpec(serviceName string, spec dockerswarm.ServiceSpec, networkIDs *gds.Set[string]) (compose.Service, error) {
 	service := compose.Service{
 		Name: serviceName,
 	}
@@ -89,7 +130,7 @@ func mapRawServiceSpec(serviceName string, spec dockerswarm.ServiceSpec) (compos
 	}
 
 	if len(spec.TaskTemplate.Networks) > 0 {
-		service.Networks = toComposeServiceNetworks(spec.TaskTemplate.Networks)
+		service.Networks = toComposeServiceNetworks(spec.TaskTemplate.Networks, networkIDs)
 	}
 
 	if spec.TaskTemplate.LogDriver != nil {
@@ -300,7 +341,10 @@ func toComposePorts(rawPorts []dockerswarm.PortConfig) compose.ServicePorts {
 	return ports
 }
 
-func toComposeServiceNetworks(rawNetworks []dockerswarm.NetworkAttachmentConfig) *compose.ServiceNetworks {
+func toComposeServiceNetworks(
+	rawNetworks []dockerswarm.NetworkAttachmentConfig,
+	networkIDs *gds.Set[string],
+) *compose.ServiceNetworks {
 	if len(rawNetworks) == 0 {
 		return nil
 	}
@@ -313,6 +357,8 @@ func toComposeServiceNetworks(rawNetworks []dockerswarm.NetworkAttachmentConfig)
 			Aliases:      rawNetwork.Aliases,
 			DriverOpts:   rawNetwork.DriverOpts,
 		})
+
+		networkIDs.Add(rawNetwork.Target)
 	}
 
 	if len(networks) == 0 {
