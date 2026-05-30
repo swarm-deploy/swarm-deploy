@@ -2341,6 +2341,21 @@ func (s *ServicesResponse) SetServices(val []ServiceInfo) {
 	s.Services = val
 }
 
+// Ref: #/components/schemas/StackManifestosResponse
+type StackManifestosResponse struct {
+	Desired string `json:"desired"`
+}
+
+// GetDesired returns the value of Desired.
+func (s *StackManifestosResponse) GetDesired() string {
+	return s.Desired
+}
+
+// SetDesired sets the value of Desired.
+func (s *StackManifestosResponse) SetDesired(val string) {
+	s.Desired = val
+}
+
 // Ref: #/components/schemas/StackView
 type StackView struct {
 	Name         string      `json:"name"`

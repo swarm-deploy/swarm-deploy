@@ -1,0 +1,117 @@
+package handlers
+
+import (
+	"context"
+	"errors"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/controller"
+	"github.com/swarm-deploy/swarm-deploy/internal/controller/statem"
+	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
+	gitx "github.com/swarm-deploy/swarm-deploy/internal/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.uber.org/mock/gomock"
+)
+
+func TestHandlerGetStackManifestos(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	gitRepository := gitx.NewMockRepository(ctrl)
+	control := newControllerWithStacks([]config.StackSpec{
+		{
+			Name:        "payments",
+			ComposeFile: "stacks/payments.yaml",
+		},
+	})
+
+	gitRepository.EXPECT().
+		ReadFile(gomock.Any(), "stacks/payments.yaml").
+		Return([]byte("services:\n  api:\n    image: ghcr.io/swarm-deploy/payments-api:v1.2.3\n"), nil)
+
+	h := &handler{
+		control: control,
+		git:     gitRepository,
+	}
+
+	resp, err := h.GetStackManifestos(context.Background(), generated.GetStackManifestosParams{
+		Stack: "payments",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	assert.Equal(t, "services:\n  api:\n    image: ghcr.io/swarm-deploy/payments-api:v1.2.3\n", resp.Desired)
+}
+
+func TestHandlerGetStackManifestos_StackNotFound(t *testing.T) {
+	t.Parallel()
+
+	h := &handler{
+		control: newControllerWithStacks([]config.StackSpec{
+			{
+				Name:        "payments",
+				ComposeFile: "stacks/payments.yaml",
+			},
+		}),
+	}
+
+	_, err := h.GetStackManifestos(context.Background(), generated.GetStackManifestosParams{
+		Stack: "billing",
+	})
+	require.Error(t, err)
+
+	var statusErr *statusError
+	require.True(t, errors.As(err, &statusErr))
+	assert.Equal(t, 404, statusErr.code)
+	assert.Equal(t, "stack billing not found", statusErr.Error())
+}
+
+func TestHandlerGetStackManifestos_GitReadError(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	gitRepository := gitx.NewMockRepository(ctrl)
+	control := newControllerWithStacks([]config.StackSpec{
+		{
+			Name:        "payments",
+			ComposeFile: "stacks/payments.yaml",
+		},
+	})
+
+	gitRepository.EXPECT().
+		ReadFile(gomock.Any(), "stacks/payments.yaml").
+		Return(nil, errors.New("read failed"))
+
+	h := &handler{
+		control: control,
+		git:     gitRepository,
+	}
+
+	_, err := h.GetStackManifestos(context.Background(), generated.GetStackManifestosParams{
+		Stack: "payments",
+	})
+	require.Error(t, err)
+
+	var statusErr *statusError
+	require.True(t, errors.As(err, &statusErr))
+	assert.Equal(t, 500, statusErr.code)
+	assert.Equal(t, "unable to get stack desired manifest", statusErr.Error())
+}
+
+func newControllerWithStacks(stacks []config.StackSpec) *controller.Controller {
+	return controller.New(
+		&config.Config{
+			Spec: config.Spec{
+				Stacks: stacks,
+			},
+		},
+		nil,
+		&swarm.Swarm{},
+		nil,
+		nil,
+		nil,
+		statem.NewMemoryStore(),
+	)
+}

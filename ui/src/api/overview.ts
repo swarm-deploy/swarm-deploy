@@ -6,6 +6,7 @@ import type {
   ServiceDeploymentsResponse,
   ServiceRealtimeResponse,
   ServiceStatusResponse,
+  StackManifestosResponse,
   StacksResponse,
 } from "./types";
 
@@ -51,4 +52,9 @@ export function fetchServiceRealtime(stackName: string, serviceName: string): Pr
   const encodedStack = encodeURIComponent(stackName);
   const encodedService = encodeURIComponent(serviceName);
   return apiRequest<ServiceRealtimeResponse>(`/api/v1/stacks/${encodedStack}/services/${encodedService}/realtime`);
+}
+
+export function fetchStackManifestos(stackName: string): Promise<StackManifestosResponse> {
+  const encodedStack = encodeURIComponent(stackName);
+  return apiRequest<StackManifestosResponse>(`/api/v1/stacks/${encodedStack}/manifestos`);
 }
