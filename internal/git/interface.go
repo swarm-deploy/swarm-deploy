@@ -1,3 +1,4 @@
+//go:generate mockgen -source=$GOFILE -destination=mock.go -package=git
 package git
 
 import (

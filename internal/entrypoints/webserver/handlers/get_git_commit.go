@@ -18,9 +18,6 @@ func (h *handler) GetGitCommit(
 	if commitHash == "" {
 		return nil, withStatusError(http.StatusBadRequest, errors.New("commit hash is required"))
 	}
-	if h.git == nil {
-		return nil, errors.New("git repository is not configured")
-	}
 
 	commit, err := h.git.Show(ctx, commitHash)
 	if err != nil {
