@@ -82,6 +82,11 @@ func (r *GoGitRepository) AddFile(ctx context.Context, path string, content []by
 	return r.add(ctx, path)
 }
 
+func (r *GoGitRepository) ReadFile(_ context.Context, path string) ([]byte, error) {
+	fullPath := filepath.Join(r.path, path)
+	return os.ReadFile(fullPath)
+}
+
 func (r *GoGitRepository) Pull(ctx context.Context) (PullResult, error) {
 	worktree, err := r.repository.Worktree()
 	if err != nil {

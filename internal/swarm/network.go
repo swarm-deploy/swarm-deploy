@@ -24,6 +24,8 @@ type Network struct {
 	Labels map[string]string `json:"labels"`
 	// Options contains driver-specific network options.
 	Options map[string]string `json:"options"`
+	// Stack name of stack, computed from labels,
+	Stack string `json:"stack,omitempty"`
 }
 
 type CreateNetworkRequest struct {

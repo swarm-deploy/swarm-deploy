@@ -18,6 +18,22 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StacksResponse'
+  /api/v1/stacks/{stack}/manifestos:
+    get:
+      operationId: getStackManifestos
+      parameters:
+        - in: path
+          name: stack
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Desired and live manifests for a stack.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StackManifestosResponse'
   /api/v1/git/commits/{commit}:
     get:
       operationId: getGitCommit
@@ -695,6 +711,14 @@ components:
             $ref: '#/components/schemas/StackView'
         sync:
           $ref: '#/components/schemas/SyncInfo'
+    StackManifestosResponse:
+      type: object
+      required: [desired, live]
+      properties:
+        desired:
+          type: string
+        live:
+          type: string
     SearchResponse:
       type: object
       required: [results]

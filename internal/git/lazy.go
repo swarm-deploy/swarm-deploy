@@ -40,6 +40,15 @@ func (p *LazyProxy) ReadFile(ctx context.Context, path string) ([]byte, error) {
 	return repo.ReadFile(ctx, path)
 }
 
+func (p *LazyProxy) ReadFile(ctx context.Context, path string) ([]byte, error) {
+	repo, err := p.init(ctx)
+	if err != nil {
+		return []byte{}, err
+	}
+
+	return repo.ReadFile(ctx, path)
+}
+
 func (p *LazyProxy) Pull(ctx context.Context) (PullResult, error) {
 	repo, err := p.init(ctx)
 	if err != nil {

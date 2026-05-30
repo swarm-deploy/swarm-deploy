@@ -223,6 +223,18 @@ button:hover,
   right: 14px;
 }
 
+.stack-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  margin-top: auto;
+  padding-top: 6px;
+}
+
+.stack-manifest-open-button {
+  flex-shrink: 0;
+}
+
 .services-page {
   display: grid;
   gap: 12px;
@@ -696,6 +708,69 @@ button:hover,
 .modal-body {
   display: grid;
   gap: 12px;
+}
+
+.manifest-modal-card {
+  width: min(980px, 96vw);
+}
+
+.manifest-tabs {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.manifest-tab-btn,
+.manifest-tab-btn:hover {
+  border-radius: 10px;
+  background: rgba(9, 18, 28, 0.88);
+  border: 1px solid rgba(161, 192, 204, 0.28);
+  color: var(--muted);
+  padding: 8px 14px;
+  transform: none;
+  filter: none;
+}
+
+.manifest-tab-btn.active,
+.manifest-tab-btn.active:hover {
+  color: var(--text);
+  border-color: rgba(247, 178, 103, 0.55);
+  background: rgba(247, 178, 103, 0.18);
+}
+
+.manifest-viewer,
+.manifest-live-placeholder {
+  border: 1px solid rgba(161, 192, 204, 0.24);
+  border-radius: 10px;
+  background: rgba(9, 18, 28, 0.92);
+  padding: 10px;
+}
+
+.manifest-viewer {
+  max-height: 58vh;
+  overflow: auto;
+}
+
+.manifest-lines {
+  margin: 0;
+  padding: 0 0 0 44px;
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.manifest-line {
+  padding: 0 10px 0 8px;
+}
+
+.manifest-line::marker {
+  color: var(--muted);
+}
+
+.manifest-line code {
+  display: block;
+  white-space: pre;
+  font-family: inherit;
 }
 
 .assistant-chat-body {

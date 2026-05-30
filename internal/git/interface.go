@@ -7,12 +7,13 @@ import (
 )
 
 type Repository interface {
-	// WorkingDir returns local repository working directory path.
+	// WorkingDir returns local repository path.
 	WorkingDir() string
 
-	AddFile(ctx context.Context, path string, content []byte) error
-
+	// ReadFile reads raw file content from current repository working tree.
 	ReadFile(ctx context.Context, path string) ([]byte, error)
+
+	AddFile(ctx context.Context, path string, content []byte) error
 
 	// Pull fetches latest changes from origin for configured branch.
 	Pull(ctx context.Context) (PullResult, error)

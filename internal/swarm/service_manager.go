@@ -73,11 +73,28 @@ func (m *serviceManager) ListStackServices(ctx context.Context, stackName string
 	mapped := make([]StackService, 0, len(services))
 	for _, service := range services {
 		fullName := service.Spec.Name
+
+		mode, replicas := resolveServiceDeployMode(service.Spec.Mode)
+		replicasPtr := (*uint64)(nil)
+		if mode == "replicated" {
+			replicasCopy := replicas
+			replicasPtr = &replicasCopy
+		}
+
+		image := ""
+		if service.Spec.TaskTemplate.ContainerSpec != nil {
+			image = service.Spec.TaskTemplate.ContainerSpec.Image
+		}
+
 		mapped = append(mapped, StackService{
-			ID:       service.ID,
-			Name:     stackServiceNameFromFullName(stackName, fullName),
-			FullName: fullName,
-			Labels:   cloneStringMap(service.Spec.Labels),
+			ID:          service.ID,
+			Name:        stackServiceNameFromFullName(stackName, fullName),
+			FullName:    fullName,
+			Image:       image,
+			Mode:        mode,
+			Replicas:    replicasPtr,
+			ServiceSpec: service.Spec,
+			Labels:      cloneStringMap(service.Spec.Labels),
 		})
 	}
 

@@ -32,6 +32,10 @@ type Handler interface {
 	//
 	// GET /api/v1/stacks/{stack}/services/{service}/status
 	GetServiceStatus(ctx context.Context, params GetServiceStatusParams) (*ServiceStatusResponse, error)
+	// GetStackManifestos implements getStackManifestos operation.
+	//
+	// GET /api/v1/stacks/{stack}/manifestos
+	GetStackManifestos(ctx context.Context, params GetStackManifestosParams) (*StackManifestosResponse, error)
 	// ListEvents implements listEvents operation.
 	//
 	// GET /api/v1/events

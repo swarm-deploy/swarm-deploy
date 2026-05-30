@@ -381,6 +381,71 @@ func decodeGetServiceStatusParams(args [2]string, argsEscaped bool, r *http.Requ
 	return params, nil
 }
 
+// GetStackManifestosParams is parameters of getStackManifestos operation.
+type GetStackManifestosParams struct {
+	Stack string
+}
+
+func unpackGetStackManifestosParams(packed middleware.Parameters) (params GetStackManifestosParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "stack",
+			In:   "path",
+		}
+		params.Stack = packed[key].(string)
+	}
+	return params
+}
+
+func decodeGetStackManifestosParams(args [1]string, argsEscaped bool, r *http.Request) (params GetStackManifestosParams, _ error) {
+	// Decode path: stack.
+	if err := func() error {
+		param := args[0]
+		if argsEscaped {
+			unescaped, err := url.PathUnescape(args[0])
+			if err != nil {
+				return errors.Wrap(err, "unescape path")
+			}
+			param = unescaped
+		}
+		if len(param) > 0 {
+			d := uri.NewPathDecoder(uri.PathDecoderConfig{
+				Param:   "stack",
+				Value:   param,
+				Style:   uri.PathStyleSimple,
+				Explode: false,
+			})
+
+			if err := func() error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToString(val)
+				if err != nil {
+					return err
+				}
+
+				params.Stack = c
+				return nil
+			}(); err != nil {
+				return err
+			}
+		} else {
+			return validate.ErrFieldRequired
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "stack",
+			In:   "path",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
 // ListEventsParams is parameters of listEvents operation.
 type ListEventsParams struct {
 	Severities []EventSeverity `json:",omitempty"`
