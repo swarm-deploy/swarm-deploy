@@ -8,7 +8,7 @@ import (
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	"github.com/swarm-deploy/swarm-deploy/internal/service"
-	"github.com/artarts36/swarm-deploy/internal/serviceupdater"
+	"github.com/swarm-deploy/swarm-deploy/internal/serviceupdater"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 

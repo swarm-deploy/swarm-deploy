@@ -5,16 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
 
-	"github.com/artarts36/swarm-deploy/internal/compose"
-	"github.com/artarts36/swarm-deploy/internal/config"
-	gitx "github.com/artarts36/swarm-deploy/internal/git"
-	"github.com/artarts36/swarm-deploy/internal/githosting"
-	"github.com/artarts36/swarm-deploy/internal/registry"
 	"github.com/distribution/reference"
+
+	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	gitx "github.com/swarm-deploy/swarm-deploy/internal/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
+	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 )
 
 const (
@@ -79,6 +81,7 @@ type ServiceUpdater struct {
 	pushAPIToken      string
 
 	mergeRequestProviders []githosting.Provider
+	composeLoader         *compose.FileLoader
 
 	steps []serviceUpdateStep
 
@@ -109,6 +112,7 @@ func NewServiceUpdater(
 		pushBaseBranch:        pushBaseBranch,
 		pushAPIToken:          pushAPIToken,
 		mergeRequestProviders: mergeRequestProviders,
+		composeLoader:         compose.NewFileLoader(),
 	}
 
 	su.steps = []serviceUpdateStep{
@@ -197,7 +201,7 @@ func (s *ServiceUpdater) UpdateImageVersion(
 }
 
 func (s *ServiceUpdater) step0ValidateStackAndService(
-	ctx context.Context,
+	_ context.Context,
 	session *updateImageVersionSession,
 ) error {
 	stackSpec, err := s.resolveStack(session.input.StackName)
@@ -205,12 +209,7 @@ func (s *ServiceUpdater) step0ValidateStackAndService(
 		return err
 	}
 
-	composeContent, err := s.repository.ReadFile(ctx, stackSpec.ComposeFile)
-	if err != nil {
-		return fmt.Errorf("read compose file: %w", err)
-	}
-
-	composeFile, err := compose.Parse(composeContent)
+	composeFile, err := s.composeLoader.Load(filepath.Join(s.repository.WorkingDir(), stackSpec.ComposeFile))
 	if err != nil {
 		return fmt.Errorf("parse compose for stack %q: %w", stackSpec.Name, err)
 	}
@@ -421,7 +420,7 @@ func (s *ServiceUpdater) resolveStack(stackName string) (config.StackSpec, error
 }
 
 func resolveServiceImage(file *compose.File, serviceName string) (string, error) {
-	for _, service := range file.Services {
+	for _, service := range file.Compose.Services {
 		if service.Name != serviceName {
 			continue
 		}
@@ -450,22 +449,21 @@ func buildImageWithVersion(image string, version string) (string, error) {
 }
 
 func setServiceImage(file *compose.File, serviceName string, image string) error {
-	servicesMap, ok := file.RawMap["services"].(map[string]any)
-	if !ok {
-		return errors.New("compose file does not contain services map")
+	var service *compose.Service
+
+	for _, srv := range file.Compose.Services {
+		if srv.Name == serviceName {
+			service = &srv
+			break
+		}
 	}
 
-	serviceRaw, ok := servicesMap[serviceName]
-	if !ok {
-		return fmt.Errorf("service %q not found in compose map", serviceName)
+	if service == nil {
+		return fmt.Errorf("service %q not found", serviceName)
 	}
 
-	serviceMap, ok := serviceRaw.(map[string]any)
-	if !ok {
-		return fmt.Errorf("compose services.%s must be a map", serviceName)
-	}
+	service.Image = image
 
-	serviceMap["image"] = image
 	return nil
 }
 

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	gogit "github.com/go-git/go-git/v5"
 	gogitcfg "github.com/go-git/go-git/v5/config"
@@ -70,11 +71,6 @@ func newGoGitRepository(
 	}, nil
 }
 
-func (r *GoGitRepository) WorkingDir() string {
-	return r.path
-}
-
-func (r *GoGitRepository) Pull(ctx context.Context) (PullResult, error) {
 func (r *GoGitRepository) AddFile(ctx context.Context, path string, content []byte) error {
 	fullPath := filepath.Join(r.path, path)
 
@@ -86,7 +82,7 @@ func (r *GoGitRepository) AddFile(ctx context.Context, path string, content []by
 	return r.add(ctx, path)
 }
 
-func (r *GoGitRepository) Pull(ctx context.Context) error {
+func (r *GoGitRepository) Pull(ctx context.Context) (PullResult, error) {
 	worktree, err := r.repository.Worktree()
 	if err != nil {
 		return PullResult{}, fmt.Errorf("open worktree: %w", err)

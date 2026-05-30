@@ -959,6 +959,6 @@ stacks:
 
 	cfg, err := Load(configPath)
 	require.NoError(t, err, "load config")
-	assert.Equal(t, "oauth2", cfg.Spec.Git.Auth.HTTP.ResolveUsername(), "expected oauth2 fallback for token auth")
-	assert.Equal(t, "token-value", cfg.Spec.Git.Auth.HTTP.ResolvePassword(), "expected token as password")
+	assert.Equal(t, "oauth2", cfg.Spec.Git.Pull.Auth.HTTP.ResolveUsername(), "expected oauth2 fallback for token auth")
+	assert.Equal(t, "token-value", cfg.Spec.Git.Pull.Auth.HTTP.ResolvePassword(), "expected token as password")
 }

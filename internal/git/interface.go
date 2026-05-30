@@ -14,7 +14,7 @@ type Repository interface {
 	ReadFile(ctx context.Context, path string) ([]byte, error)
 
 	// Pull fetches latest changes from origin for configured branch.
-	Pull(ctx context.Context) error
+	Pull(ctx context.Context) (PullResult, error)
 	// Head resolves current HEAD revision hash.
 	Head(ctx context.Context) (string, error)
 	// List returns latest commits from HEAD up to the provided limit.
@@ -40,7 +40,8 @@ type Commit struct {
 	// Time is a commit author timestamp.
 	Time time.Time
 	// Files contains per-file diffs between commit parent and commit itself.
-	Files []CommitFileDiff
+	Files   []CommitFileDiff
+	Message string
 }
 
 // CommitMeta describes lightweight git commit metadata.
@@ -77,4 +78,10 @@ type CommitAuthor struct {
 	Name string
 	// Email is a commit author email.
 	Email string
+}
+
+type PullResult struct {
+	OldRevision string
+	NewRevision string
+	Updated     bool
 }

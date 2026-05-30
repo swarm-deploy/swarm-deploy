@@ -2,16 +2,22 @@ package tools
 
 import (
 	"context"
-	"fmt"
 
-	"github.com/artarts36/swarm-deploy/internal/entrypoints/mcpserver/routing"
-	"github.com/artarts36/swarm-deploy/internal/security"
-	"github.com/artarts36/swarm-deploy/internal/serviceupdater"
+	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
+	"github.com/swarm-deploy/swarm-deploy/internal/security"
+	"github.com/swarm-deploy/swarm-deploy/internal/serviceupdater"
 )
 
 // ServiceImageUpdate updates image version for a service in push repository.
 type ServiceImageUpdate struct {
 	updater ServiceUpdater
+}
+
+type updateServiceImageRequest struct {
+	Stack        string `json:"stack"`
+	Service      string `json:"service"`
+	ImageVersion string `json:"imageVersion"`
+	Reason       string `json:"reason"`
 }
 
 // NewServiceImageUpdate creates service_image_update component.
@@ -59,36 +65,9 @@ func (s *ServiceImageUpdate) Definition() routing.ToolDefinition {
 
 // Execute runs service_image_update tool.
 func (s *ServiceImageUpdate) Execute(ctx context.Context, request routing.Request) (routing.Response, error) {
-	stackName, err := parseStringParam(request.Payload["stack"], "stack")
+	parsedRequest, err := convertRequestPayload[updateServiceImageRequest](request)
 	if err != nil {
 		return routing.Response{}, err
-	}
-	if stackName == "" {
-		return routing.Response{}, fmt.Errorf("stack is required")
-	}
-
-	serviceName, err := parseStringParam(request.Payload["service"], "service")
-	if err != nil {
-		return routing.Response{}, err
-	}
-	if serviceName == "" {
-		return routing.Response{}, fmt.Errorf("service is required")
-	}
-
-	imageVersion, err := parseStringParam(request.Payload["imageVersion"], "imageVersion")
-	if err != nil {
-		return routing.Response{}, err
-	}
-	if imageVersion == "" {
-		return routing.Response{}, fmt.Errorf("imageVersion is required")
-	}
-
-	reason, err := parseStringParam(request.Payload["reason"], "reason")
-	if err != nil {
-		return routing.Response{}, err
-	}
-	if reason == "" {
-		return routing.Response{}, fmt.Errorf("reason is required")
 	}
 
 	userName := "unknown-user"
@@ -97,10 +76,10 @@ func (s *ServiceImageUpdate) Execute(ctx context.Context, request routing.Reques
 	}
 
 	result, err := s.updater.UpdateImageVersion(ctx, serviceupdater.UpdateImageVersionInput{
-		StackName:    stackName,
-		ServiceName:  serviceName,
-		ImageVersion: imageVersion,
-		Reason:       reason,
+		StackName:    parsedRequest.Stack,
+		ServiceName:  parsedRequest.Service,
+		ImageVersion: parsedRequest.ImageVersion,
+		Reason:       parsedRequest.Reason,
 		UserName:     userName,
 	})
 	if err != nil {
