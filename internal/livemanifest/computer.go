@@ -164,6 +164,9 @@ func applyContainerSpec(service *compose.Service, containerSpec *dockerswarm.Con
 
 	service.Image = containerSpec.Image
 	service.Command = compose.NewCommand(append(containerSpec.Command, containerSpec.Args...))
+	service.Secrets = toComposeSecrets(containerSpec.Secrets)
+	service.Configs = toComposeConfigs(containerSpec.Configs)
+	service.Healthcheck = toComposeHealthcheck(containerSpec.Healthcheck)
 
 	if len(containerSpec.Env) > 0 {
 		environment, err := compose.NewEnvironment(containerSpec.Env)
@@ -176,16 +179,6 @@ func applyContainerSpec(service *compose.Service, containerSpec *dockerswarm.Con
 	if len(containerSpec.Labels) > 0 {
 		service.Labels = *compose.NewLabels(containerSpec.Labels)
 	}
-
-	if len(containerSpec.Secrets) > 0 {
-		service.Secrets = toComposeSecrets(containerSpec.Secrets)
-	}
-
-	if len(containerSpec.Configs) > 0 {
-		service.Configs = toComposeConfigs(containerSpec.Configs)
-	}
-
-	service.Healthcheck = toComposeHealthcheck(containerSpec.Healthcheck)
 
 	return nil
 }
