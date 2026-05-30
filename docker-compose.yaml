@@ -2,8 +2,6 @@ version: "3.9"
 
 services:
   swarm-deploy:
-    build:
-      context: .
     image: swarm-deploy:local
     command: ["-config", "/etc/swarm-deploy/swarm-deploy.yaml"]
     environment:

@@ -713,9 +713,11 @@ components:
           $ref: '#/components/schemas/SyncInfo'
     StackManifestosResponse:
       type: object
-      required: [desired]
+      required: [desired, live]
       properties:
         desired:
+          type: string
+        live:
           type: string
     SearchResponse:
       type: object

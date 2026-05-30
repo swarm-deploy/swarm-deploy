@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	dockerswarm "github.com/docker/docker/api/types/swarm"
 )
 
 // ErrServiceNotFound means that service does not exist in swarm.
@@ -137,6 +139,14 @@ type StackService struct {
 	Name string
 	// FullName is a Docker service name formatted as "<stack>_<service>".
 	FullName string
+	// Image is a container image reference configured for the service.
+	Image string
+	// Mode is a service deploy mode (for example: replicated, global).
+	Mode string
+	// Replicas is desired replicas count for replicated mode.
+	Replicas *uint64
+	// ServiceSpec is raw Docker service specification snapshot.
+	ServiceSpec dockerswarm.ServiceSpec
 	// Labels contains Docker service annotations labels.
 	Labels map[string]string
 }

@@ -47,6 +47,7 @@ interface OverviewState {
   stackManifestError: string;
   stackManifestStack: string;
   stackManifestDesired: string;
+  stackManifestLive: string;
 }
 
 export const useOverviewStore = defineStore("overview", {
@@ -78,6 +79,7 @@ export const useOverviewStore = defineStore("overview", {
     stackManifestError: "",
     stackManifestStack: "",
     stackManifestDesired: "",
+    stackManifestLive: "",
   }),
   actions: {
     async loadOverview() {
@@ -217,10 +219,12 @@ export const useOverviewStore = defineStore("overview", {
       this.stackManifestError = "";
       this.stackManifestStack = stack;
       this.stackManifestDesired = "";
+      this.stackManifestLive = "";
 
       try {
         const manifestos = await fetchStackManifestos(stack);
         this.stackManifestDesired = String(manifestos.desired ?? "");
+        this.stackManifestLive = String(manifestos.live ?? "");
       } catch (error) {
         this.stackManifestError = error instanceof Error ? error.message : "Failed to load stack manifest";
       } finally {
@@ -233,6 +237,7 @@ export const useOverviewStore = defineStore("overview", {
       this.stackManifestError = "";
       this.stackManifestStack = "";
       this.stackManifestDesired = "";
+      this.stackManifestLive = "";
     },
   },
 });

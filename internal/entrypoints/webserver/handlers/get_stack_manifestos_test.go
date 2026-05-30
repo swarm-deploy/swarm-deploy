@@ -21,6 +21,7 @@ func TestHandlerGetStackManifestos(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	gitRepository := gitx.NewMockRepository(ctrl)
+	serviceInspector := swarm.NewMockServiceManager(ctrl)
 	control := newControllerWithStacks([]config.StackSpec{
 		{
 			Name:        "payments",
@@ -32,9 +33,22 @@ func TestHandlerGetStackManifestos(t *testing.T) {
 		ReadFile(gomock.Any(), "stacks/payments.yaml").
 		Return([]byte("services:\n  api:\n    image: ghcr.io/swarm-deploy/payments-api:v1.2.3\n"), nil)
 
+	replicas := uint64(3)
+	serviceInspector.EXPECT().
+		ListStackServices(gomock.Any(), "payments").
+		Return([]swarm.StackService{
+			{
+				Name:     "api",
+				Image:    "ghcr.io/swarm-deploy/payments-api:v1.2.4",
+				Mode:     "replicated",
+				Replicas: &replicas,
+			},
+		}, nil)
+
 	h := &handler{
-		control: control,
-		git:     gitRepository,
+		control:          control,
+		git:              gitRepository,
+		serviceInspector: serviceInspector,
 	}
 
 	resp, err := h.GetStackManifestos(context.Background(), generated.GetStackManifestosParams{
@@ -43,6 +57,11 @@ func TestHandlerGetStackManifestos(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	assert.Equal(t, "services:\n  api:\n    image: ghcr.io/swarm-deploy/payments-api:v1.2.3\n", resp.Desired)
+	assert.Contains(t, resp.Live, "services:")
+	assert.Contains(t, resp.Live, "api:")
+	assert.Contains(t, resp.Live, "image: ghcr.io/swarm-deploy/payments-api:v1.2.4")
+	assert.Contains(t, resp.Live, "mode: replicated")
+	assert.Contains(t, resp.Live, "replicas: 3")
 }
 
 func TestHandlerGetStackManifestos_StackNotFound(t *testing.T) {
@@ -98,6 +117,44 @@ func TestHandlerGetStackManifestos_GitReadError(t *testing.T) {
 	require.True(t, errors.As(err, &statusErr))
 	assert.Equal(t, 500, statusErr.code)
 	assert.Equal(t, "unable to get stack desired manifest", statusErr.Error())
+}
+
+func TestHandlerGetStackManifestos_LiveManifestError(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	gitRepository := gitx.NewMockRepository(ctrl)
+	serviceInspector := swarm.NewMockServiceManager(ctrl)
+	control := newControllerWithStacks([]config.StackSpec{
+		{
+			Name:        "payments",
+			ComposeFile: "stacks/payments.yaml",
+		},
+	})
+
+	gitRepository.EXPECT().
+		ReadFile(gomock.Any(), "stacks/payments.yaml").
+		Return([]byte("services:\n  api:\n    image: ghcr.io/swarm-deploy/payments-api:v1.2.3\n"), nil)
+
+	serviceInspector.EXPECT().
+		ListStackServices(gomock.Any(), "payments").
+		Return(nil, errors.New("swarm unavailable"))
+
+	h := &handler{
+		control:          control,
+		git:              gitRepository,
+		serviceInspector: serviceInspector,
+	}
+
+	_, err := h.GetStackManifestos(context.Background(), generated.GetStackManifestosParams{
+		Stack: "payments",
+	})
+	require.Error(t, err)
+
+	var statusErr *statusError
+	require.True(t, errors.As(err, &statusErr))
+	assert.Equal(t, 500, statusErr.code)
+	assert.Equal(t, "unable to get stack live manifest", statusErr.Error())
 }
 
 func newControllerWithStacks(stacks []config.StackSpec) *controller.Controller {

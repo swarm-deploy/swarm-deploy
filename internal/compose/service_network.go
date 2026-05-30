@@ -24,6 +24,8 @@ type ServiceNetwork struct {
 
 	IPV4Address string   `yaml:"ipv4_address,omitempty" json:"ipv4_address,omitempty"`
 	Aliases     []string `yaml:"aliases,omitempty" json:"aliases,omitempty"`
+	// DriverOpts contains network attachment driver options.
+	DriverOpts map[string]string `yaml:"driver_opts,omitempty" json:"driver_opts,omitempty"`
 
 	Extra map[string]interface{} `yaml:",inline"`
 }

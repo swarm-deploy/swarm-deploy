@@ -24,6 +24,7 @@ export interface StacksResponse {
 
 export interface StackManifestosResponse {
   desired: string;
+  live: string;
 }
 
 export interface GitCommitDetailsResponse {

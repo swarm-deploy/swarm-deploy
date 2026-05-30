@@ -21,6 +21,11 @@ const desiredManifestLines = computed(() => {
   const payload = String(desiredManifest.value || "");
   return payload.split(/\r?\n/);
 });
+const liveManifest = computed(() => overviewStore.stackManifestLive);
+const liveManifestLines = computed(() => {
+  const payload = String(liveManifest.value || "");
+  return payload.split(/\r?\n/);
+});
 
 function setActiveTab(tab: ManifestTab) {
   activeTab.value = tab;
@@ -105,8 +110,17 @@ onUnmounted(() => {
             </ol>
           </div>
 
-          <div v-else class="manifest-live-placeholder">
-            <p class="meta">Live manifest is not available yet.</p>
+          <div v-else class="manifest-viewer">
+            <p v-if="liveManifest.trim().length === 0" class="meta">Live manifest is empty.</p>
+            <ol v-else class="manifest-lines" aria-label="Live manifest yaml">
+              <li
+                v-for="(line, lineIndex) in liveManifestLines"
+                :key="`${lineIndex}-${line}`"
+                class="manifest-line"
+              >
+                <code>{{ line || " " }}</code>
+              </li>
+            </ol>
           </div>
         </template>
       </div>

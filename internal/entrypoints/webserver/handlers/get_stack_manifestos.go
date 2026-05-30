@@ -8,6 +8,8 @@ import (
 	"net/http"
 
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
+	"github.com/swarm-deploy/swarm-deploy/internal/livemanifest"
+	"gopkg.in/yaml.v3"
 )
 
 func (h *handler) GetStackManifestos(
@@ -31,8 +33,33 @@ func (h *handler) GetStackManifestos(
 		return nil, withStatusError(http.StatusInternalServerError, errors.New("unable to get stack desired manifest"))
 	}
 
+	liveCompose, err := livemanifest.NewComputer(h.serviceInspector).ComputeStack(ctx, params.Stack)
+	if err != nil {
+		slog.ErrorContext(
+			ctx,
+			"[webserver] failed to compute stack live manifest",
+			slog.String("stack", params.Stack),
+			slog.Any("err", err),
+		)
+
+		return nil, withStatusError(http.StatusInternalServerError, errors.New("unable to get stack live manifest"))
+	}
+
+	liveManifest, err := yaml.Marshal(liveCompose)
+	if err != nil {
+		slog.ErrorContext(
+			ctx,
+			"[webserver] failed to marshal stack live manifest",
+			slog.String("stack", params.Stack),
+			slog.Any("err", err),
+		)
+
+		return nil, withStatusError(http.StatusInternalServerError, errors.New("unable to get stack live manifest"))
+	}
+
 	return &generated.StackManifestosResponse{
 		Desired: string(desiredManifest),
+		Live:    string(liveManifest),
 	}, nil
 }
 
