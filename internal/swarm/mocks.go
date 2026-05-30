@@ -313,6 +313,21 @@ func (mr *MockNetworkManagerMockRecorder) List(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockNetworkManager)(nil).List), ctx)
 }
 
+// Map mocks base method.
+func (m *MockNetworkManager) Map(ctx context.Context, ids []string) (map[string]Network, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Map", ctx, ids)
+	ret0, _ := ret[0].(map[string]Network)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Map indicates an expected call of Map.
+func (mr *MockNetworkManagerMockRecorder) Map(ctx, ids any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Map", reflect.TypeOf((*MockNetworkManager)(nil).Map), ctx, ids)
+}
+
 // MockNodeManager is a mock of NodeManager interface.
 type MockNodeManager struct {
 	ctrl     *gomock.Controller

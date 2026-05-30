@@ -7,6 +7,12 @@ import (
 )
 
 type Repository interface {
+	// WorkingDir returns local repository path.
+	WorkingDir() string
+
+	// ReadFile reads raw file content from current repository working tree.
+	ReadFile(ctx context.Context, path string) ([]byte, error)
+
 	// Pull fetches latest changes from origin for configured branch.
 	Pull(ctx context.Context) (PullResult, error)
 	// Head resolves current HEAD revision hash.
@@ -15,7 +21,6 @@ type Repository interface {
 	List(ctx context.Context, limit int) ([]CommitMeta, error)
 	// Show returns commit metadata and per-file diff for a given revision.
 	Show(ctx context.Context, commitHash string) (Commit, error)
-	WorkingDir() string
 }
 
 // Commit describes git commit metadata and per-file diff data.

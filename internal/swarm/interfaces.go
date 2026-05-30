@@ -54,6 +54,8 @@ type NetworkManager interface {
 	// List returns current Docker networks snapshot.
 	List(ctx context.Context) ([]Network, error)
 
+	Map(ctx context.Context, ids []string) (map[string]Network, error)
+
 	Create(ctx context.Context, req CreateNetworkRequest) (string, error)
 }
 

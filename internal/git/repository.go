@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -54,6 +55,11 @@ func NewGoGitRepository(ctx context.Context, spec config.GitSpec, path string) (
 
 func (r *GoGitRepository) WorkingDir() string {
 	return r.path
+}
+
+func (r *GoGitRepository) ReadFile(_ context.Context, path string) ([]byte, error) {
+	fullPath := filepath.Join(r.path, path)
+	return os.ReadFile(fullPath)
 }
 
 func (r *GoGitRepository) Pull(ctx context.Context) (PullResult, error) {

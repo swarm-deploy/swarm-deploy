@@ -16,6 +16,13 @@ type Labels struct {
 	isMap bool
 }
 
+func NewLabels(labels map[string]string) *Labels {
+	return &Labels{
+		Map:   labels,
+		isMap: true,
+	}
+}
+
 func (e *Labels) Add(key, value string) bool {
 	if e.Map == nil {
 		e.Map = make(map[string]string)

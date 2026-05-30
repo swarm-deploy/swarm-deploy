@@ -12,6 +12,13 @@ type Command struct {
 	isList bool
 }
 
+func NewCommand(args []string) Command {
+	return Command{
+		Args:   args,
+		isList: true,
+	}
+}
+
 func (c *Command) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind == yaml.ScalarNode {
 		c.Args = []string{node.Value}
