@@ -121,12 +121,6 @@ func (r *GoGitRepository) Pull(ctx context.Context) (PullResult, error) {
 	}, nil
 }
 
-func (r *GoGitRepository) ReadFile(_ context.Context, path string) ([]byte, error) {
-	fullPath := filepath.Join(r.path, path)
-
-	return os.ReadFile(fullPath)
-}
-
 func (r *GoGitRepository) Head(context.Context) (string, error) {
 	headRef, err := r.repository.Head()
 	if err != nil {
