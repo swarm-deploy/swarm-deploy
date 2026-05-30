@@ -692,7 +692,7 @@ func validateGitAuthType(path string, auth GitAuthSpec) []error {
 				errors.New("git.auth.http requires username+passwordPath or tokenPath"),
 			)
 		}
-	case "", "none", "ssh":
+	case "", GitAuthTypeNone, GitAuthTypeSSH:
 		return nil
 	default:
 		return []error{fmt.Errorf("%s.type must be one of none|http|ssh, got %q", path, auth.Type)}

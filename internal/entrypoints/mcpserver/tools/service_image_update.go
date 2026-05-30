@@ -65,7 +65,7 @@ func (s *ServiceImageUpdate) Definition() routing.ToolDefinition {
 
 // Execute runs service_image_update tool.
 func (s *ServiceImageUpdate) Execute(ctx context.Context, request routing.Request) (routing.Response, error) {
-	parsedRequest, err := convertRequestPayload[updateServiceImageRequest](request)
+	parsedRequest, err := convertRequestPayload[updateServiceImageRequest](request.Payload)
 	if err != nil {
 		return routing.Response{}, err
 	}

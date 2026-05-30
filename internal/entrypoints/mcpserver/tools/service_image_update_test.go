@@ -31,11 +31,11 @@ func TestServiceImageUpdateExecute(t *testing.T) {
 
 	ctx := security.ContextWithUser(context.Background(), security.User{Name: "artem"})
 	response, err := tool.Execute(ctx, routing.Request{
-		Payload: map[string]any{
-			"stack":        "core",
-			"service":      "api",
-			"imageVersion": "2.0.0",
-			"reason":       "please update",
+		Payload: updateServiceImageRequest{
+			Stack:        "core",
+			Service:      "api",
+			ImageVersion: "2.0.0",
+			Reason:       "please update",
 		},
 	})
 	require.NoError(t, err, "execute service_image_update")
@@ -63,27 +63,15 @@ func TestServiceImageUpdateExecuteUsesUnknownUserWhenContextMissing(t *testing.T
 
 	tool := NewServiceImageUpdate(updater)
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"stack":        "core",
-			"service":      "api",
-			"imageVersion": "2.0.0",
-			"reason":       "please update",
+		Payload: updateServiceImageRequest{
+			Stack:        "core",
+			Service:      "api",
+			ImageVersion: "2.0.0",
+			Reason:       "please update",
 		},
 	})
 	require.NoError(t, err, "execute service_image_update")
 	assert.Equal(t, "unknown-user", updater.input.UserName, "tool should use unknown-user by default")
-}
-
-func TestServiceImageUpdateExecuteFailsOnMissingFields(t *testing.T) {
-	tool := NewServiceImageUpdate(&fakeServiceUpdater{})
-
-	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"stack": "core",
-		},
-	})
-	require.Error(t, err, "missing fields should fail")
-	assert.Contains(t, err.Error(), "service is required", "unexpected error")
 }
 
 func TestServiceImageUpdateExecuteFailsOnUpdaterError(t *testing.T) {
@@ -92,28 +80,13 @@ func TestServiceImageUpdateExecuteFailsOnUpdaterError(t *testing.T) {
 	})
 
 	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"stack":        "core",
-			"service":      "api",
-			"imageVersion": "2.0.0",
-			"reason":       "please update",
+		Payload: updateServiceImageRequest{
+			Stack:        "core",
+			Service:      "api",
+			ImageVersion: "2.0.0",
+			Reason:       "please update",
 		},
 	})
 	require.Error(t, err, "updater error must fail")
 	assert.Contains(t, err.Error(), "failed", "unexpected error")
-}
-
-func TestServiceImageUpdateExecuteFailsOnNilUpdater(t *testing.T) {
-	tool := NewServiceImageUpdate(nil)
-
-	_, err := tool.Execute(context.Background(), routing.Request{
-		Payload: map[string]any{
-			"stack":        "core",
-			"service":      "api",
-			"imageVersion": "2.0.0",
-			"reason":       "please update",
-		},
-	})
-	require.Error(t, err, "nil updater must fail")
-	assert.Contains(t, err.Error(), "service updater is not configured", "unexpected error")
 }

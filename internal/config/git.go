@@ -1,9 +1,9 @@
 package config
 
 import (
-	"strings"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/artarts36/specw"
 	"gopkg.in/yaml.v3"

@@ -493,9 +493,8 @@ func buildMergeRequestTitle(serviceName string, imageVersion string) string {
 type updateImageVersionSession struct {
 	input UpdateImageVersionInput
 
-	composePath         string
-	composeRelativePath string
-	composeFile         *compose.File
+	composePath string
+	composeFile *compose.File
 
 	currentImage string
 	newImage     string
