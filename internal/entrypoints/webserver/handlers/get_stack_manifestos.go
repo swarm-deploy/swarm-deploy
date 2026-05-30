@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -11,6 +12,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/livemanifest"
 	"gopkg.in/yaml.v3"
 )
+
+const yamlOutputIndent = 2
 
 func (h *handler) GetStackManifestos(
 	ctx context.Context,
@@ -45,7 +48,12 @@ func (h *handler) GetStackManifestos(
 		return nil, withStatusError(http.StatusInternalServerError, errors.New("unable to get stack live manifest"))
 	}
 
-	liveManifest, err := yaml.Marshal(liveCompose)
+	liveManifest := bytes.NewBuffer(nil)
+
+	yamlEncoder := yaml.NewEncoder(liveManifest)
+	yamlEncoder.SetIndent(yamlOutputIndent)
+
+	err = yamlEncoder.Encode(liveCompose)
 	if err != nil {
 		slog.ErrorContext(
 			ctx,
@@ -59,7 +67,7 @@ func (h *handler) GetStackManifestos(
 
 	return &generated.StackManifestosResponse{
 		Desired: string(desiredManifest),
-		Live:    string(liveManifest),
+		Live:    liveManifest.String(),
 	}, nil
 }
 
