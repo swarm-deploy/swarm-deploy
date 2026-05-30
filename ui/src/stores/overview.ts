@@ -5,6 +5,7 @@ import {
   fetchGitCommit,
   fetchServiceDeployments,
   fetchServiceStatus,
+  fetchStackManifestos,
   fetchStacks,
   triggerSync,
 } from "../api/overview";
@@ -41,6 +42,12 @@ interface OverviewState {
   commitDetailsError: string;
   commitDetailsModalOpen: boolean;
   commitDetailsHash: string;
+  stackManifestModalOpen: boolean;
+  stackManifestLoading: boolean;
+  stackManifestError: string;
+  stackManifestStack: string;
+  stackManifestDesired: string;
+  stackManifestLive: string;
 }
 
 export const useOverviewStore = defineStore("overview", {
@@ -67,6 +74,12 @@ export const useOverviewStore = defineStore("overview", {
     commitDetailsError: "",
     commitDetailsModalOpen: false,
     commitDetailsHash: "",
+    stackManifestModalOpen: false,
+    stackManifestLoading: false,
+    stackManifestError: "",
+    stackManifestStack: "",
+    stackManifestDesired: "",
+    stackManifestLive: "",
   }),
   actions: {
     async loadOverview() {
@@ -194,6 +207,37 @@ export const useOverviewStore = defineStore("overview", {
       this.commitDetailsLoading = false;
       this.commitDetailsError = "";
       this.commitDetailsHash = "";
+    },
+    async openStackManifestModal(stackName: string) {
+      const stack = String(stackName || "").trim();
+      if (!stack) {
+        return;
+      }
+
+      this.stackManifestModalOpen = true;
+      this.stackManifestLoading = true;
+      this.stackManifestError = "";
+      this.stackManifestStack = stack;
+      this.stackManifestDesired = "";
+      this.stackManifestLive = "";
+
+      try {
+        const manifestos = await fetchStackManifestos(stack);
+        this.stackManifestDesired = String(manifestos.desired ?? "");
+        this.stackManifestLive = String(manifestos.live ?? "");
+      } catch (error) {
+        this.stackManifestError = error instanceof Error ? error.message : "Failed to load stack manifest";
+      } finally {
+        this.stackManifestLoading = false;
+      }
+    },
+    closeStackManifestModal() {
+      this.stackManifestModalOpen = false;
+      this.stackManifestLoading = false;
+      this.stackManifestError = "";
+      this.stackManifestStack = "";
+      this.stackManifestDesired = "";
+      this.stackManifestLive = "";
     },
   },
 });

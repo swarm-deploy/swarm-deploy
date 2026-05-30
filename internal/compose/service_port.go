@@ -27,12 +27,13 @@ type ServicePort struct {
 type PortProtocol string
 
 const (
-	PortProtocolTCP PortProtocol = "tcp"
-	PortProtocolUDP PortProtocol = "udp"
+	PortProtocolTCP  PortProtocol = "tcp"
+	PortProtocolUDP  PortProtocol = "udp"
+	PortProtocolSctp PortProtocol = "sctp"
 )
 
 func (p PortProtocol) Valid() bool {
-	return p == PortProtocolTCP || p == PortProtocolUDP
+	return p == PortProtocolTCP || p == PortProtocolUDP || p == PortProtocolSctp
 }
 
 func (sp *ServicePorts) UnmarshalYAML(root *yaml.Node) error { //nolint:gocognit // not need

@@ -400,121 +400,162 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 							break
 						}
 						switch elem[0] {
-						case '/': // Prefix: "/services/"
+						case '/': // Prefix: "/"
 
-							if l := len("/services/"); len(elem) >= l && elem[0:l] == "/services/" {
+							if l := len("/"); len(elem) >= l && elem[0:l] == "/" {
 								elem = elem[l:]
 							} else {
 								break
 							}
 
-							// Param: "service"
-							// Match until "/"
-							idx := strings.IndexByte(elem, '/')
-							if idx < 0 {
-								idx = len(elem)
-							}
-							args[1] = elem[:idx]
-							elem = elem[idx:]
-
 							if len(elem) == 0 {
 								break
 							}
 							switch elem[0] {
-							case '/': // Prefix: "/"
+							case 'm': // Prefix: "manifestos"
 
-								if l := len("/"); len(elem) >= l && elem[0:l] == "/" {
+								if l := len("manifestos"); len(elem) >= l && elem[0:l] == "manifestos" {
 									elem = elem[l:]
 								} else {
 									break
 								}
 
 								if len(elem) == 0 {
+									// Leaf node.
+									switch r.Method {
+									case "GET":
+										s.handleGetStackManifestosRequest([1]string{
+											args[0],
+										}, elemIsEscaped, w, r)
+									default:
+										s.notAllowed(w, r, notAllowedParams{
+											allowedMethods: "GET",
+											allowedHeaders: nil,
+											acceptPost:     "",
+											acceptPatch:    "",
+										})
+									}
+
+									return
+								}
+
+							case 's': // Prefix: "services/"
+
+								if l := len("services/"); len(elem) >= l && elem[0:l] == "services/" {
+									elem = elem[l:]
+								} else {
+									break
+								}
+
+								// Param: "service"
+								// Match until "/"
+								idx := strings.IndexByte(elem, '/')
+								if idx < 0 {
+									idx = len(elem)
+								}
+								args[1] = elem[:idx]
+								elem = elem[idx:]
+
+								if len(elem) == 0 {
 									break
 								}
 								switch elem[0] {
-								case 'd': // Prefix: "deployments"
+								case '/': // Prefix: "/"
 
-									if l := len("deployments"); len(elem) >= l && elem[0:l] == "deployments" {
+									if l := len("/"); len(elem) >= l && elem[0:l] == "/" {
 										elem = elem[l:]
 									} else {
 										break
 									}
 
 									if len(elem) == 0 {
-										// Leaf node.
-										switch r.Method {
-										case "GET":
-											s.handleListServiceDeploymentsRequest([2]string{
-												args[0],
-												args[1],
-											}, elemIsEscaped, w, r)
-										default:
-											s.notAllowed(w, r, notAllowedParams{
-												allowedMethods: "GET",
-												allowedHeaders: nil,
-												acceptPost:     "",
-												acceptPatch:    "",
-											})
-										}
-
-										return
-									}
-
-								case 'r': // Prefix: "realtime"
-
-									if l := len("realtime"); len(elem) >= l && elem[0:l] == "realtime" {
-										elem = elem[l:]
-									} else {
 										break
 									}
+									switch elem[0] {
+									case 'd': // Prefix: "deployments"
 
-									if len(elem) == 0 {
-										// Leaf node.
-										switch r.Method {
-										case "GET":
-											s.handleGetServiceRealtimeRequest([2]string{
-												args[0],
-												args[1],
-											}, elemIsEscaped, w, r)
-										default:
-											s.notAllowed(w, r, notAllowedParams{
-												allowedMethods: "GET",
-												allowedHeaders: nil,
-												acceptPost:     "",
-												acceptPatch:    "",
-											})
+										if l := len("deployments"); len(elem) >= l && elem[0:l] == "deployments" {
+											elem = elem[l:]
+										} else {
+											break
 										}
 
-										return
-									}
+										if len(elem) == 0 {
+											// Leaf node.
+											switch r.Method {
+											case "GET":
+												s.handleListServiceDeploymentsRequest([2]string{
+													args[0],
+													args[1],
+												}, elemIsEscaped, w, r)
+											default:
+												s.notAllowed(w, r, notAllowedParams{
+													allowedMethods: "GET",
+													allowedHeaders: nil,
+													acceptPost:     "",
+													acceptPatch:    "",
+												})
+											}
 
-								case 's': // Prefix: "status"
-
-									if l := len("status"); len(elem) >= l && elem[0:l] == "status" {
-										elem = elem[l:]
-									} else {
-										break
-									}
-
-									if len(elem) == 0 {
-										// Leaf node.
-										switch r.Method {
-										case "GET":
-											s.handleGetServiceStatusRequest([2]string{
-												args[0],
-												args[1],
-											}, elemIsEscaped, w, r)
-										default:
-											s.notAllowed(w, r, notAllowedParams{
-												allowedMethods: "GET",
-												allowedHeaders: nil,
-												acceptPost:     "",
-												acceptPatch:    "",
-											})
+											return
 										}
 
-										return
+									case 'r': // Prefix: "realtime"
+
+										if l := len("realtime"); len(elem) >= l && elem[0:l] == "realtime" {
+											elem = elem[l:]
+										} else {
+											break
+										}
+
+										if len(elem) == 0 {
+											// Leaf node.
+											switch r.Method {
+											case "GET":
+												s.handleGetServiceRealtimeRequest([2]string{
+													args[0],
+													args[1],
+												}, elemIsEscaped, w, r)
+											default:
+												s.notAllowed(w, r, notAllowedParams{
+													allowedMethods: "GET",
+													allowedHeaders: nil,
+													acceptPost:     "",
+													acceptPatch:    "",
+												})
+											}
+
+											return
+										}
+
+									case 's': // Prefix: "status"
+
+										if l := len("status"); len(elem) >= l && elem[0:l] == "status" {
+											elem = elem[l:]
+										} else {
+											break
+										}
+
+										if len(elem) == 0 {
+											// Leaf node.
+											switch r.Method {
+											case "GET":
+												s.handleGetServiceStatusRequest([2]string{
+													args[0],
+													args[1],
+												}, elemIsEscaped, w, r)
+											default:
+												s.notAllowed(w, r, notAllowedParams{
+													allowedMethods: "GET",
+													allowedHeaders: nil,
+													acceptPost:     "",
+													acceptPatch:    "",
+												})
+											}
+
+											return
+										}
+
 									}
 
 								}
@@ -1006,112 +1047,151 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 							break
 						}
 						switch elem[0] {
-						case '/': // Prefix: "/services/"
+						case '/': // Prefix: "/"
 
-							if l := len("/services/"); len(elem) >= l && elem[0:l] == "/services/" {
+							if l := len("/"); len(elem) >= l && elem[0:l] == "/" {
 								elem = elem[l:]
 							} else {
 								break
 							}
 
-							// Param: "service"
-							// Match until "/"
-							idx := strings.IndexByte(elem, '/')
-							if idx < 0 {
-								idx = len(elem)
-							}
-							args[1] = elem[:idx]
-							elem = elem[idx:]
-
 							if len(elem) == 0 {
 								break
 							}
 							switch elem[0] {
-							case '/': // Prefix: "/"
+							case 'm': // Prefix: "manifestos"
 
-								if l := len("/"); len(elem) >= l && elem[0:l] == "/" {
+								if l := len("manifestos"); len(elem) >= l && elem[0:l] == "manifestos" {
 									elem = elem[l:]
 								} else {
 									break
 								}
 
 								if len(elem) == 0 {
+									// Leaf node.
+									switch method {
+									case "GET":
+										r.name = GetStackManifestosOperation
+										r.summary = ""
+										r.operationID = "getStackManifestos"
+										r.operationGroup = ""
+										r.pathPattern = "/api/v1/stacks/{stack}/manifestos"
+										r.args = args
+										r.count = 1
+										return r, true
+									default:
+										return
+									}
+								}
+
+							case 's': // Prefix: "services/"
+
+								if l := len("services/"); len(elem) >= l && elem[0:l] == "services/" {
+									elem = elem[l:]
+								} else {
+									break
+								}
+
+								// Param: "service"
+								// Match until "/"
+								idx := strings.IndexByte(elem, '/')
+								if idx < 0 {
+									idx = len(elem)
+								}
+								args[1] = elem[:idx]
+								elem = elem[idx:]
+
+								if len(elem) == 0 {
 									break
 								}
 								switch elem[0] {
-								case 'd': // Prefix: "deployments"
+								case '/': // Prefix: "/"
 
-									if l := len("deployments"); len(elem) >= l && elem[0:l] == "deployments" {
+									if l := len("/"); len(elem) >= l && elem[0:l] == "/" {
 										elem = elem[l:]
 									} else {
 										break
 									}
 
 									if len(elem) == 0 {
-										// Leaf node.
-										switch method {
-										case "GET":
-											r.name = ListServiceDeploymentsOperation
-											r.summary = ""
-											r.operationID = "listServiceDeployments"
-											r.operationGroup = ""
-											r.pathPattern = "/api/v1/stacks/{stack}/services/{service}/deployments"
-											r.args = args
-											r.count = 2
-											return r, true
-										default:
-											return
-										}
-									}
-
-								case 'r': // Prefix: "realtime"
-
-									if l := len("realtime"); len(elem) >= l && elem[0:l] == "realtime" {
-										elem = elem[l:]
-									} else {
 										break
 									}
+									switch elem[0] {
+									case 'd': // Prefix: "deployments"
 
-									if len(elem) == 0 {
-										// Leaf node.
-										switch method {
-										case "GET":
-											r.name = GetServiceRealtimeOperation
-											r.summary = ""
-											r.operationID = "getServiceRealtime"
-											r.operationGroup = ""
-											r.pathPattern = "/api/v1/stacks/{stack}/services/{service}/realtime"
-											r.args = args
-											r.count = 2
-											return r, true
-										default:
-											return
+										if l := len("deployments"); len(elem) >= l && elem[0:l] == "deployments" {
+											elem = elem[l:]
+										} else {
+											break
 										}
-									}
 
-								case 's': // Prefix: "status"
-
-									if l := len("status"); len(elem) >= l && elem[0:l] == "status" {
-										elem = elem[l:]
-									} else {
-										break
-									}
-
-									if len(elem) == 0 {
-										// Leaf node.
-										switch method {
-										case "GET":
-											r.name = GetServiceStatusOperation
-											r.summary = ""
-											r.operationID = "getServiceStatus"
-											r.operationGroup = ""
-											r.pathPattern = "/api/v1/stacks/{stack}/services/{service}/status"
-											r.args = args
-											r.count = 2
-											return r, true
-										default:
-											return
+										if len(elem) == 0 {
+											// Leaf node.
+											switch method {
+											case "GET":
+												r.name = ListServiceDeploymentsOperation
+												r.summary = ""
+												r.operationID = "listServiceDeployments"
+												r.operationGroup = ""
+												r.pathPattern = "/api/v1/stacks/{stack}/services/{service}/deployments"
+												r.args = args
+												r.count = 2
+												return r, true
+											default:
+												return
+											}
 										}
+
+									case 'r': // Prefix: "realtime"
+
+										if l := len("realtime"); len(elem) >= l && elem[0:l] == "realtime" {
+											elem = elem[l:]
+										} else {
+											break
+										}
+
+										if len(elem) == 0 {
+											// Leaf node.
+											switch method {
+											case "GET":
+												r.name = GetServiceRealtimeOperation
+												r.summary = ""
+												r.operationID = "getServiceRealtime"
+												r.operationGroup = ""
+												r.pathPattern = "/api/v1/stacks/{stack}/services/{service}/realtime"
+												r.args = args
+												r.count = 2
+												return r, true
+											default:
+												return
+											}
+										}
+
+									case 's': // Prefix: "status"
+
+										if l := len("status"); len(elem) >= l && elem[0:l] == "status" {
+											elem = elem[l:]
+										} else {
+											break
+										}
+
+										if len(elem) == 0 {
+											// Leaf node.
+											switch method {
+											case "GET":
+												r.name = GetServiceStatusOperation
+												r.summary = ""
+												r.operationID = "getServiceStatus"
+												r.operationGroup = ""
+												r.pathPattern = "/api/v1/stacks/{stack}/services/{service}/status"
+												r.args = args
+												r.count = 2
+												return r, true
+											default:
+												return
+											}
+										}
+
 									}
 
 								}

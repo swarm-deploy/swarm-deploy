@@ -22,6 +22,11 @@ export interface StacksResponse {
   sync: SyncInfo;
 }
 
+export interface StackManifestosResponse {
+  desired: string;
+  live: string;
+}
+
 export interface GitCommitDetailsResponse {
   full_hash: string;
   author: string;

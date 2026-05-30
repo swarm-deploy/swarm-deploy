@@ -8,6 +8,7 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	dockernetwork "github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
+	"github.com/swarm-deploy/swarm-deploy/internal/labelsdict"
 )
 
 // NetworkManager reads current Docker networks snapshot.
@@ -35,6 +36,28 @@ func (m *networkManager) List(ctx context.Context) ([]Network, error) {
 		mapped[i] = m.mapNetwork(network)
 	}
 	m.sortNetworks(mapped)
+
+	return mapped, nil
+}
+
+// Map returns current Docker networks snapshot.
+func (m *networkManager) Map(ctx context.Context, ids []string) (map[string]Network, error) {
+	filterArgs := make([]filters.KeyValuePair, len(ids))
+	for i, id := range ids {
+		filterArgs[i] = filters.Arg("id", id)
+	}
+
+	networks, err := m.dockerClient.NetworkList(ctx, dockernetwork.ListOptions{
+		Filters: filters.NewArgs(filterArgs...),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("list docker networks: %w", err)
+	}
+
+	mapped := make(map[string]Network, len(networks))
+	for _, network := range networks {
+		mapped[network.ID] = m.mapNetwork(network)
+	}
 
 	return mapped, nil
 }
@@ -78,6 +101,7 @@ func (*networkManager) mapNetwork(network dockernetwork.Summary) Network {
 		Ingress:    network.Ingress,
 		Labels:     network.Labels,
 		Options:    network.Options,
+		Stack:      labelsdict.GetStackName(network.Labels),
 	}
 }
 

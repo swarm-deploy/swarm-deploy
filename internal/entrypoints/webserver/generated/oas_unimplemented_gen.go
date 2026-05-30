@@ -55,6 +55,13 @@ func (UnimplementedHandler) GetServiceStatus(ctx context.Context, params GetServ
 	return r, ht.ErrNotImplemented
 }
 
+// GetStackManifestos implements getStackManifestos operation.
+//
+// GET /api/v1/stacks/{stack}/manifestos
+func (UnimplementedHandler) GetStackManifestos(ctx context.Context, params GetStackManifestosParams) (r *StackManifestosResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListEvents implements listEvents operation.
 //
 // GET /api/v1/events

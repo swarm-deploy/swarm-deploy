@@ -16,6 +16,23 @@ type Environment struct {
 	isMap bool
 }
 
+func NewEnvironment(values []string) (*Environment, error) {
+	env := &Environment{
+		Map: make(map[string]string, len(values)),
+	}
+
+	for i, raw := range values {
+		key, value, err := env.parseVar(raw)
+		if err != nil {
+			return nil, fmt.Errorf("environment[%d] %q: %w", i, raw, err)
+		}
+
+		env.Map[key] = value
+	}
+
+	return env, nil
+}
+
 func (e *Environment) UnmarshalYAML(node *yaml.Node) error {
 	if node.Kind != yaml.MappingNode && node.Kind != yaml.SequenceNode {
 		return errors.New("environment must be a map or a sequence node")
@@ -58,15 +75,24 @@ func (e *Environment) unmarshalFromSequence(node *yaml.Node) error {
 			return fmt.Errorf("environment[%d] contains non-scalar node type", i)
 		}
 
-		chunks := strings.SplitN(item.Value, "=", envPairParts)
-		if len(chunks) == envPairParts {
-			mmap[chunks[0]] = chunks[1]
-		} else {
-			return fmt.Errorf("environment[%d] contains non-pair value", i)
+		key, value, err := e.parseVar(item.Value)
+		if err != nil {
+			return fmt.Errorf("environment[%d] %q: %w", i, item.Value, err)
 		}
+
+		mmap[key] = value
 	}
 
 	e.Map = mmap
 
 	return nil
+}
+
+func (e *Environment) parseVar(raw string) (string, string, error) {
+	chunks := strings.SplitN(raw, "=", envPairParts)
+	if len(chunks) == envPairParts {
+		return chunks[0], chunks[1], nil
+	}
+
+	return "", "", errors.New("contains non-pair value")
 }
