@@ -20,26 +20,7 @@ func TestComputerComputeStackMapsRawServiceSpec(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	serviceManager := swarm.NewMockServiceManager(ctrl)
-	networkMapCalls := 0
-	networkManager := fakeNetworkManager{
-		mapFn: func(_ context.Context, ids []string) (map[string]swarm.Network, error) {
-			networkMapCalls++
-			assert.ElementsMatch(t, []string{"payments_default", "payments_public"}, ids)
-
-			return map[string]swarm.Network{
-				"payments_default": {
-					ID:    "payments_default",
-					Name:  "payments_default",
-					Stack: "payments",
-				},
-				"payments_public": {
-					ID:    "payments_public",
-					Name:  "payments_public",
-					Stack: "infra",
-				},
-			}, nil
-		},
-	}
+	networkManager := swarm.NewMockNetworkManager(ctrl)
 
 	replicas := uint64(3)
 	maxAttempts := uint64(5)
@@ -166,12 +147,30 @@ func TestComputerComputeStackMapsRawServiceSpec(t *testing.T) {
 				},
 			},
 		}, nil)
+	networkManager.EXPECT().
+		Map(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, ids []string) (map[string]swarm.Network, error) {
+			assert.ElementsMatch(t, []string{"payments_default", "payments_public"}, ids)
+
+			return map[string]swarm.Network{
+				"payments_default": {
+					ID:    "payments_default",
+					Name:  "payments_default",
+					Stack: "payments",
+				},
+				"payments_public": {
+					ID:    "payments_public",
+					Name:  "payments_public",
+					Stack: "infra",
+				},
+			}, nil
+		}).
+		Times(1)
 
 	computed, err := NewComputer(serviceManager, networkManager).ComputeStack(context.Background(), "payments")
 	require.NoError(t, err)
 	require.NotNil(t, computed)
 	require.Len(t, computed.Services, 1)
-	assert.Equal(t, 1, networkMapCalls)
 
 	service := computed.Services[0]
 	assert.Equal(t, "api", service.Name)
@@ -275,14 +274,7 @@ func TestComputerComputeStackFallsBackToCompactStackService(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	serviceManager := swarm.NewMockServiceManager(ctrl)
-	networkMapCalls := 0
-	networkManager := fakeNetworkManager{
-		mapFn: func(_ context.Context, ids []string) (map[string]swarm.Network, error) {
-			networkMapCalls++
-			assert.Empty(t, ids)
-			return map[string]swarm.Network{}, nil
-		},
-	}
+	networkManager := swarm.NewMockNetworkManager(ctrl)
 
 	replicas := uint64(2)
 	serviceManager.EXPECT().
@@ -295,12 +287,18 @@ func TestComputerComputeStackFallsBackToCompactStackService(t *testing.T) {
 				Replicas: &replicas,
 			},
 		}, nil)
+	networkManager.EXPECT().
+		Map(gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, ids []string) (map[string]swarm.Network, error) {
+			assert.Empty(t, ids)
+			return map[string]swarm.Network{}, nil
+		}).
+		Times(1)
 
 	computed, err := NewComputer(serviceManager, networkManager).ComputeStack(context.Background(), "payments")
 	require.NoError(t, err)
 	require.NotNil(t, computed)
 	require.Len(t, computed.Services, 1)
-	assert.Equal(t, 1, networkMapCalls)
 
 	assert.Equal(t, "worker", computed.Services[0].Name)
 	assert.Equal(t, "ghcr.io/swarm-deploy/payments-worker:v4.5.6", computed.Services[0].Image)
@@ -314,47 +312,16 @@ func TestComputerComputeStackReturnsServiceManagerError(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	serviceManager := swarm.NewMockServiceManager(ctrl)
-	networkMapCalled := false
-	networkManager := fakeNetworkManager{
-		mapFn: func(_ context.Context, _ []string) (map[string]swarm.Network, error) {
-			networkMapCalled = true
-			return map[string]swarm.Network{}, nil
-		},
-	}
+	networkManager := swarm.NewMockNetworkManager(ctrl)
 	serviceManager.EXPECT().
 		ListStackServices(gomock.Any(), "payments").
 		Return(nil, errors.New("swarm unavailable"))
+	networkManager.EXPECT().
+		Map(gomock.Any(), gomock.Any()).
+		Times(0)
 
 	computed, err := NewComputer(serviceManager, networkManager).ComputeStack(context.Background(), "payments")
 	require.Error(t, err)
 	assert.Nil(t, computed)
-	assert.False(t, networkMapCalled)
 	assert.Contains(t, err.Error(), "list stack services")
-}
-
-type fakeNetworkManager struct {
-	mapFn func(ctx context.Context, ids []string) (map[string]swarm.Network, error)
-}
-
-func (m fakeNetworkManager) Get(context.Context, string) (swarm.Network, error) {
-	panic("unexpected call to fakeNetworkManager.Get")
-}
-
-func (m fakeNetworkManager) List(context.Context) ([]swarm.Network, error) {
-	panic("unexpected call to fakeNetworkManager.List")
-}
-
-func (m fakeNetworkManager) Map(
-	ctx context.Context,
-	ids []string,
-) (map[string]swarm.Network, error) {
-	if m.mapFn == nil {
-		return map[string]swarm.Network{}, nil
-	}
-
-	return m.mapFn(ctx, ids)
-}
-
-func (m fakeNetworkManager) Create(context.Context, swarm.CreateNetworkRequest) (string, error) {
-	panic("unexpected call to fakeNetworkManager.Create")
 }

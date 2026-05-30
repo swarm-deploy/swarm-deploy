@@ -20,6 +20,7 @@ apply: by file patterns
 # Go Testing
 - For asserts use library `github.com/stretchr/testify/assert`. Example: `assert.Equal(t, 123, 123, "they should be equal")`
 - For stoppable asserts use library `github.com/stretchr/testify/require`. Example: `require.Equal(t, 123, 123, "they should be equal")`
+- For mocking use `go.uber.org/mock/gomock`
 
 # Configuration / Environment
 - Environment variables are described in the `Config` structure
