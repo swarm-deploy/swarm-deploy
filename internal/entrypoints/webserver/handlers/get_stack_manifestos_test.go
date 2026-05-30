@@ -22,6 +22,7 @@ func TestHandlerGetStackManifestos(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	gitRepository := gitx.NewMockRepository(ctrl)
 	serviceInspector := swarm.NewMockServiceManager(ctrl)
+	networkManager := swarm.NewMockNetworkManager(ctrl)
 	control := newControllerWithStacks([]config.StackSpec{
 		{
 			Name:        "payments",
@@ -44,11 +45,15 @@ func TestHandlerGetStackManifestos(t *testing.T) {
 				Replicas: &replicas,
 			},
 		}, nil)
+	networkManager.EXPECT().
+		Map(gomock.Any(), gomock.Any()).
+		Return(map[string]swarm.Network{}, nil)
 
 	h := &handler{
 		control:          control,
 		git:              gitRepository,
 		serviceInspector: serviceInspector,
+		networks:         networkManager,
 	}
 
 	resp, err := h.GetStackManifestos(context.Background(), generated.GetStackManifestosParams{
@@ -125,6 +130,7 @@ func TestHandlerGetStackManifestos_LiveManifestError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	gitRepository := gitx.NewMockRepository(ctrl)
 	serviceInspector := swarm.NewMockServiceManager(ctrl)
+	networkManager := swarm.NewMockNetworkManager(ctrl)
 	control := newControllerWithStacks([]config.StackSpec{
 		{
 			Name:        "payments",
@@ -144,6 +150,7 @@ func TestHandlerGetStackManifestos_LiveManifestError(t *testing.T) {
 		control:          control,
 		git:              gitRepository,
 		serviceInspector: serviceInspector,
+		networks:         networkManager,
 	}
 
 	_, err := h.GetStackManifestos(context.Background(), generated.GetStackManifestosParams{

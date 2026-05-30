@@ -67,7 +67,11 @@ func (c *Computer) ComputeStack(ctx context.Context, stackName string) (*compose
 	}
 
 	for i, service := range services {
-		newServiceNetworks := make([]*compose.ServiceNetwork, 0, len(networks))
+		if service.Networks == nil {
+			continue
+		}
+
+		newServiceNetworks := make([]*compose.ServiceNetwork, 0, len(service.Networks.List))
 
 		for _, network := range service.Networks.List {
 			net, ok := networks[network.Alias]
@@ -115,7 +119,11 @@ func mapStackServiceToCompose(stackService swarm.StackService, networkIDs *gds.S
 	return service, nil
 }
 
-func mapRawServiceSpec(serviceName string, spec dockerswarm.ServiceSpec, networkIDs *gds.Set[string]) (compose.Service, error) {
+func mapRawServiceSpec(
+	serviceName string,
+	spec dockerswarm.ServiceSpec,
+	networkIDs *gds.Set[string],
+) (compose.Service, error) {
 	service := compose.Service{
 		Name: serviceName,
 	}
