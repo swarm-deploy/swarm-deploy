@@ -166,7 +166,7 @@ func TestNewGoGitRepositoryClonesRepositoryAndStoresGoGitRepository(t *testing.T
 	sourceRepositoryPath, sourceHead := initSourceRepository(t)
 	targetRepositoryPath := filepath.Join(t.TempDir(), "target")
 
-	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+	repository, err := NewGoGitRepository(t.Context(), config.GitRepositorySpec{
 		Repository: sourceRepositoryPath,
 		Branch:     sourceHead.Name().Short(),
 	}, targetRepositoryPath)
@@ -181,7 +181,7 @@ func TestNewGoGitRepositoryClonesRepositoryAndStoresGoGitRepository(t *testing.T
 func TestNewGoGitRepositoryOpensExistingRepositoryWithoutClone(t *testing.T) {
 	sourceRepositoryPath, sourceHead := initSourceRepository(t)
 
-	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+	repository, err := NewGoGitRepository(t.Context(), config.GitRepositorySpec{
 		Repository: sourceRepositoryPath,
 		Branch:     "main",
 	}, sourceRepositoryPath)
@@ -196,7 +196,7 @@ func TestLazyProxyInitializesRepositoryLazily(t *testing.T) {
 	sourceRepositoryPath, sourceHead := initSourceRepository(t)
 	targetRepositoryPath := filepath.Join(t.TempDir(), "target")
 
-	proxy := NewLazyProxy(config.GitSpec{
+	proxy := NewLazyProxy(config.GitRepositorySpec{
 		Repository: sourceRepositoryPath,
 		Branch:     sourceHead.Name().Short(),
 	}, targetRepositoryPath)
@@ -247,7 +247,7 @@ func TestGoGitRepositoryShowReturnsCommitMetadataAndFileDiff(t *testing.T) {
 	})
 	require.NoError(t, err, "commit changes")
 
-	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+	repository, err := NewGoGitRepository(t.Context(), config.GitRepositorySpec{
 		Repository: sourceRepositoryPath,
 		Branch:     sourceHead.Name().Short(),
 	}, sourceRepositoryPath)
@@ -289,7 +289,7 @@ func TestGoGitRepositoryShowReturnsCommitMetadataAndFileDiff(t *testing.T) {
 func TestGoGitRepositoryShowFailsOnUnknownCommit(t *testing.T) {
 	sourceRepositoryPath, sourceHead := initSourceRepository(t)
 
-	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+	repository, err := NewGoGitRepository(t.Context(), config.GitRepositorySpec{
 		Repository: sourceRepositoryPath,
 		Branch:     sourceHead.Name().Short(),
 	}, sourceRepositoryPath)
@@ -323,7 +323,7 @@ func TestGoGitRepositoryListReturnsLatestCommits(t *testing.T) {
 	})
 	require.NoError(t, err, "commit second revision")
 
-	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+	repository, err := NewGoGitRepository(t.Context(), config.GitRepositorySpec{
 		Repository: sourceRepositoryPath,
 		Branch:     sourceHead.Name().Short(),
 	}, sourceRepositoryPath)
@@ -341,7 +341,7 @@ func TestGoGitRepositoryListReturnsLatestCommits(t *testing.T) {
 func TestGoGitRepositoryListFailsOnInvalidLimit(t *testing.T) {
 	sourceRepositoryPath, sourceHead := initSourceRepository(t)
 
-	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+	repository, err := NewGoGitRepository(t.Context(), config.GitRepositorySpec{
 		Repository: sourceRepositoryPath,
 		Branch:     sourceHead.Name().Short(),
 	}, sourceRepositoryPath)

@@ -14,29 +14,37 @@ import (
 	"github.com/cappuccinotm/slogx/slogm"
 	"github.com/docker/docker/client"
 	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/swarm-deploy/swarm-deploy/internal/assistant"
+
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+
 	"github.com/swarm-deploy/swarm-deploy/internal/controller"
 	"github.com/swarm-deploy/swarm-deploy/internal/controller/statem"
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
+
 	"github.com/swarm-deploy/swarm-deploy/internal/differ"
+
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/healthserver"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webhookserver"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
+
 	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/logx"
 	eventmetrics "github.com/swarm-deploy/swarm-deploy/internal/event/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/notifiers"
 	notify2 "github.com/swarm-deploy/swarm-deploy/internal/event/notify"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/node"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
 	"github.com/swarm-deploy/swarm-deploy/internal/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/serviceupdater"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
@@ -80,7 +88,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	gitRepository := gitx.NewRepository(cfg.Spec.Git, filepath.Join(cfg.Spec.DataDir, "repo"))
+	gitRepository := gitx.NewRepository(cfg.Spec.Git.Pull.GitRepositorySpec, filepath.Join(cfg.Spec.DataDir, "repo"))
 
 	metricsGroup := metrics.NewGroup(metrics.CreateGroupParams{
 		Namespace: "swarm_deploy",
@@ -230,7 +238,8 @@ func main() {
 		slog.String("healthz.path", cfg.Spec.HealthServer.Healthz.Path),
 		slog.String("metrics.path", cfg.Spec.HealthServer.Metrics.Path),
 		slog.String("mode", cfg.Spec.Sync.Mode),
-		slog.String("repo", cfg.Spec.Git.Repository),
+		slog.String("git.pull.repo", cfg.Spec.Git.Pull.Repository),
+		slog.String("git.push.repo", cfg.Spec.Git.Push.Repository),
 		slog.String("log.level", cfg.Spec.Log.Level.String()),
 		slog.Bool("assistant.enabled", cfg.Spec.Assistant.Enabled),
 	)
@@ -273,12 +282,35 @@ func buildAssistantService(
 
 	commitDiffer := differ.New()
 
+	pushGitRepository := gitx.NewLazyProxy(
+		cfg.Spec.Git.Push.GitRepositorySpec,
+		filepath.Join(cfg.Spec.DataDir, "push-repo"),
+	)
+	stacksProvider := func() []config.StackSpec {
+		stacks := make([]config.StackSpec, len(cfg.Spec.Stacks))
+		copy(stacks, cfg.Spec.Stacks)
+		return stacks
+	}
+	gitHostingProviders := []githosting.Provider{
+		githosting.NewGitHubProvider(),
+	}
+	serviceUpdater := serviceupdater.NewServiceUpdater(
+		stacksProvider,
+		pushGitRepository,
+		imageVersionResolver,
+		cfg.Spec.Git.Push.Repository,
+		cfg.Spec.Git.Push.Branch,
+		string(cfg.Spec.Git.Push.APIToken.Content),
+		gitHostingProviders,
+	)
+
 	toolExecutor := mcpserver.NewExecutor(
 		eventHistory,
 		nodeStore,
 		swarmService,
 		serviceStore,
 		imageVersionResolver,
+		serviceUpdater,
 		gitRepository,
 		cfg.Spec.Stacks,
 		commitDiffer,

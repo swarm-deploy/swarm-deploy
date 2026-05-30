@@ -9,6 +9,14 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 )
 
+type toolFailedError struct {
+	Err error
+}
+
+func (e *toolFailedError) Error() string {
+	return e.Err.Error()
+}
+
 func (g *graph) executeToolCall(ctx context.Context, modelToolCall modelToolCall) (string, error) {
 	if !g.isToolAllowed(modelToolCall.Name) {
 		return "", errors.New("tool is not allowed by assistant.tools configuration")
@@ -19,7 +27,9 @@ func (g *graph) executeToolCall(ctx context.Context, modelToolCall modelToolCall
 		Payload:  modelToolCall.Arguments,
 	})
 	if runErr != nil {
-		return "", runErr
+		return "", &toolFailedError{
+			Err: runErr,
+		}
 	}
 
 	return result, nil

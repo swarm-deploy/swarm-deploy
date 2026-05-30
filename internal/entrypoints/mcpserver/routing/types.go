@@ -1,6 +1,8 @@
 package routing
 
-import "context"
+import (
+	"context"
+)
 
 // ToolDefinition describes an executable tool visible to the model.
 type ToolDefinition struct {

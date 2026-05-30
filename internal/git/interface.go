@@ -7,6 +7,13 @@ import (
 )
 
 type Repository interface {
+	// WorkingDir returns local repository working directory path.
+	WorkingDir() string
+
+	AddFile(ctx context.Context, path string, content []byte) error
+
+	ReadFile(ctx context.Context, path string) ([]byte, error)
+
 	// Pull fetches latest changes from origin for configured branch.
 	Pull(ctx context.Context) (PullResult, error)
 	// Head resolves current HEAD revision hash.
@@ -15,7 +22,14 @@ type Repository interface {
 	List(ctx context.Context, limit int) ([]CommitMeta, error)
 	// Show returns commit metadata and per-file diff for a given revision.
 	Show(ctx context.Context, commitHash string) (Commit, error)
-	WorkingDir() string
+
+	// Branch create isolated branch and repository.
+	Branch(ctx context.Context, branchName string) (Repository, error)
+
+	// Commit creates a commit from staged changes and returns commit hash.
+	Commit(ctx context.Context, message string, author CommitAuthor) (string, error)
+	// Push pushes branch to origin.
+	Push(ctx context.Context, branch string) error
 }
 
 // Commit describes git commit metadata and per-file diff data.
@@ -24,12 +38,11 @@ type Commit struct {
 	Author string
 	// AuthorEmail is a commit author email.
 	AuthorEmail string
-	// Message is a commit message title/body.
-	Message string
 	// Time is a commit author timestamp.
 	Time time.Time
 	// Files contains per-file diffs between commit parent and commit itself.
-	Files []CommitFileDiff
+	Files   []CommitFileDiff
+	Message string
 }
 
 // CommitMeta describes lightweight git commit metadata.
@@ -58,6 +71,14 @@ type CommitFileDiff struct {
 	NewContent string
 	// Patch is a unified diff for this file.
 	Patch string
+}
+
+// CommitAuthor describes commit author identity.
+type CommitAuthor struct {
+	// Name is a commit author display name.
+	Name string
+	// Email is a commit author email.
+	Email string
 }
 
 type PullResult struct {
