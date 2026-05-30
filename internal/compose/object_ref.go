@@ -51,6 +51,9 @@ func (r *ObjectRef) UnmarshalYAML(n *yaml.Node) error {
 
 	r.Source = schema.Source
 	r.Target = schema.Target
+	r.Mode = schema.Mode
+	r.Gid = schema.Gid
+	r.Uid = schema.Uid
 	r.Extra = schema.Extra
 
 	return nil
@@ -66,6 +69,7 @@ func (r ObjectRef) MarshalYAML() (interface{}, error) {
 		Target: r.Target,
 		Gid:    r.Gid,
 		Uid:    r.Uid,
+		Mode:   r.Mode,
 		Extra:  r.Extra,
 	}, nil
 }
