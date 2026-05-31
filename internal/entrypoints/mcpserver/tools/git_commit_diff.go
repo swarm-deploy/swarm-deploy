@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/artarts36/envmasker"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/differ"
 	"github.com/swarm-deploy/swarm-deploy/internal/differ/diff"
@@ -78,6 +79,13 @@ func (g *GitCommitDiff) Execute(ctx context.Context, request routing.Request) (r
 	semanticDiff, err := g.differ.Compare(composeFiles)
 	if err != nil {
 		return routing.Response{}, err
+	}
+
+	for s, service := range semanticDiff.Services {
+		for e, environmentDiff := range service.Environment {
+			masked, _ := envmasker.Mask(environmentDiff.VarName, environmentDiff.Value)
+			semanticDiff.Services[s].Environment[e].Value = masked
+		}
 	}
 
 	payload := struct {
