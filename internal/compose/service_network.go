@@ -150,3 +150,8 @@ func (s ServiceNetworks) MarshalYAML() (interface{}, error) {
 
 	return root, nil
 }
+
+func (s *ServiceNetworks) HasAlias(alias string) bool {
+	_, has := s.AliasMap[alias]
+	return has
+}

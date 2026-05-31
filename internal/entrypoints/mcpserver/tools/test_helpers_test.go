@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/differ"
+	"github.com/swarm-deploy/swarm-deploy/internal/differ/diff"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	"github.com/swarm-deploy/swarm-deploy/internal/service"
@@ -119,19 +120,19 @@ func (f *fakeGitRepository) List(_ context.Context, limit int) ([]gitx.CommitMet
 }
 
 type fakeCommitDiffer struct {
-	diff         differ.Diff
+	diff         diff.Diff
 	err          error
 	called       int
 	composeFiles []differ.ComposeFile
 }
 
-func (f *fakeCommitDiffer) Compare(composeFiles []differ.ComposeFile) (differ.Diff, error) {
+func (f *fakeCommitDiffer) Compare(composeFiles []differ.ComposeFile) (diff.Diff, error) {
 	f.called++
 	f.composeFiles = make([]differ.ComposeFile, len(composeFiles))
 	copy(f.composeFiles, composeFiles)
 
 	if f.err != nil {
-		return differ.Diff{}, f.err
+		return diff.Diff{}, f.err
 	}
 
 	return f.diff, nil

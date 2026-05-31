@@ -124,6 +124,44 @@ func TestHandlerGetStackManifestos_GitReadError(t *testing.T) {
 	assert.Equal(t, "unable to get stack desired manifest", statusErr.Error())
 }
 
+func TestHandlerGetStackManifestos_ListStackServicesError(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	gitRepository := gitx.NewMockRepository(ctrl)
+	serviceInspector := swarm.NewMockServiceManager(ctrl)
+	control := newControllerWithStacks([]config.StackSpec{
+		{
+			Name:        "payments",
+			ComposeFile: "stacks/payments.yaml",
+		},
+	})
+
+	gitRepository.EXPECT().
+		ReadFile(gomock.Any(), "stacks/payments.yaml").
+		Return([]byte("services:\n  api:\n    image: ghcr.io/swarm-deploy/payments-api:v1.2.3\n"), nil)
+
+	serviceInspector.EXPECT().
+		ListStackServices(gomock.Any(), "payments").
+		Return(nil, errors.New("swarm unavailable"))
+
+	h := &handler{
+		control:          control,
+		git:              gitRepository,
+		serviceInspector: serviceInspector,
+	}
+
+	_, err := h.GetStackManifestos(context.Background(), generated.GetStackManifestosParams{
+		Stack: "payments",
+	})
+	require.Error(t, err)
+
+	var statusErr *statusError
+	require.True(t, errors.As(err, &statusErr))
+	assert.Equal(t, 500, statusErr.code)
+	assert.Equal(t, "unable to list stack services", statusErr.Error())
+}
+
 func TestHandlerGetStackManifestos_LiveManifestError(t *testing.T) {
 	t.Parallel()
 
@@ -144,6 +182,14 @@ func TestHandlerGetStackManifestos_LiveManifestError(t *testing.T) {
 
 	serviceInspector.EXPECT().
 		ListStackServices(gomock.Any(), "payments").
+		Return([]swarm.StackService{
+			{
+				Name:  "api",
+				Image: "ghcr.io/swarm-deploy/payments-api:v1.2.4",
+			},
+		}, nil)
+	networkManager.EXPECT().
+		Map(gomock.Any(), gomock.Any()).
 		Return(nil, errors.New("swarm unavailable"))
 
 	h := &handler{

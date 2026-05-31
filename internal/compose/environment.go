@@ -11,14 +11,16 @@ import (
 const envPairParts = 2
 
 type Environment struct {
-	Map map[string]string
+	Map  map[string]string
+	Keys []string
 
 	isMap bool
 }
 
 func NewEnvironment(values []string) (*Environment, error) {
 	env := &Environment{
-		Map: make(map[string]string, len(values)),
+		Map:  make(map[string]string, len(values)),
+		Keys: make([]string, 0, len(values)),
 	}
 
 	for i, raw := range values {
@@ -28,6 +30,7 @@ func NewEnvironment(values []string) (*Environment, error) {
 		}
 
 		env.Map[key] = value
+		env.Keys = append(env.Keys, key)
 	}
 
 	return env, nil
@@ -39,8 +42,17 @@ func (e *Environment) UnmarshalYAML(node *yaml.Node) error {
 	}
 
 	if node.Kind == yaml.MappingNode {
-		if err := node.Decode(&e.Map); err != nil {
-			return err
+		e.Map = make(map[string]string, len(node.Content)/envPairParts)
+		e.Keys = make([]string, 0, len(node.Content)/envPairParts)
+
+		key := ""
+		for i, child := range node.Content {
+			if i%2 == 0 {
+				key = child.Value
+			} else {
+				e.Map[key] = child.Value
+				e.Keys = append(e.Keys, key)
+			}
 		}
 
 		e.isMap = true
@@ -67,8 +79,35 @@ func (e Environment) MarshalYAML() (interface{}, error) {
 	return values, nil
 }
 
+func (e *Environment) IsEmpty() bool {
+	return len(e.Map) == 0
+}
+
+func (e *Environment) Clone() *Environment {
+	values := make(map[string]string, len(e.Map))
+	for k, v := range e.Map {
+		values[k] = v
+	}
+
+	return &Environment{
+		Map:   values,
+		isMap: e.isMap,
+	}
+}
+
+func (e *Environment) Has(key string) bool {
+	_, has := e.Map[key]
+	return has
+}
+
+func (e *Environment) Get(key string) (string, bool) {
+	value, has := e.Map[key]
+	return value, has
+}
+
 func (e *Environment) unmarshalFromSequence(node *yaml.Node) error {
 	mmap := map[string]string{}
+	keys := make([]string, 0, len(node.Content))
 
 	for i, item := range node.Content {
 		if item.Kind != yaml.ScalarNode {
@@ -81,9 +120,11 @@ func (e *Environment) unmarshalFromSequence(node *yaml.Node) error {
 		}
 
 		mmap[key] = value
+		keys = append(keys, key)
 	}
 
 	e.Map = mmap
+	e.Keys = keys
 
 	return nil
 }

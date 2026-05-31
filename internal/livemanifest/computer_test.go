@@ -19,7 +19,6 @@ func TestComputerComputeStackMapsRawServiceSpec(t *testing.T) {
 	t.Parallel()
 
 	ctrl := gomock.NewController(t)
-	serviceManager := swarm.NewMockServiceManager(ctrl)
 	networkManager := swarm.NewMockNetworkManager(ctrl)
 
 	replicas := uint64(3)
@@ -28,9 +27,9 @@ func TestComputerComputeStackMapsRawServiceSpec(t *testing.T) {
 	restartDelay := 3 * time.Second
 	restartWindow := 30 * time.Second
 
-	serviceManager.EXPECT().
-		ListStackServices(gomock.Any(), "payments").
-		Return([]swarm.StackService{
+	stack := Stack{
+		Name: "payments",
+		Services: []swarm.StackService{
 			{
 				Name: "api",
 				ServiceSpec: dockerswarm.ServiceSpec{
@@ -146,7 +145,8 @@ func TestComputerComputeStackMapsRawServiceSpec(t *testing.T) {
 					},
 				},
 			},
-		}, nil)
+		},
+	}
 	networkManager.EXPECT().
 		Map(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, ids []string) (map[string]swarm.Network, error) {
@@ -167,7 +167,7 @@ func TestComputerComputeStackMapsRawServiceSpec(t *testing.T) {
 		}).
 		Times(1)
 
-	computed, err := NewComputer(serviceManager, networkManager).ComputeStack(context.Background(), "payments")
+	computed, err := NewComputer(nil, networkManager).ComputeStack(context.Background(), stack)
 	require.NoError(t, err)
 	require.NotNil(t, computed)
 	require.Len(t, computed.Services, 1)
@@ -273,20 +273,20 @@ func TestComputerComputeStackFallsBackToCompactStackService(t *testing.T) {
 	t.Parallel()
 
 	ctrl := gomock.NewController(t)
-	serviceManager := swarm.NewMockServiceManager(ctrl)
 	networkManager := swarm.NewMockNetworkManager(ctrl)
 
 	replicas := uint64(2)
-	serviceManager.EXPECT().
-		ListStackServices(gomock.Any(), "payments").
-		Return([]swarm.StackService{
+	stack := Stack{
+		Name: "payments",
+		Services: []swarm.StackService{
 			{
 				Name:     "worker",
 				Image:    "ghcr.io/swarm-deploy/payments-worker:v4.5.6",
 				Mode:     "replicated",
 				Replicas: &replicas,
 			},
-		}, nil)
+		},
+	}
 	networkManager.EXPECT().
 		Map(gomock.Any(), gomock.Any()).
 		DoAndReturn(func(_ context.Context, ids []string) (map[string]swarm.Network, error) {
@@ -295,7 +295,7 @@ func TestComputerComputeStackFallsBackToCompactStackService(t *testing.T) {
 		}).
 		Times(1)
 
-	computed, err := NewComputer(serviceManager, networkManager).ComputeStack(context.Background(), "payments")
+	computed, err := NewComputer(nil, networkManager).ComputeStack(context.Background(), stack)
 	require.NoError(t, err)
 	require.NotNil(t, computed)
 	require.Len(t, computed.Services, 1)
@@ -307,21 +307,20 @@ func TestComputerComputeStackFallsBackToCompactStackService(t *testing.T) {
 	assert.Equal(t, uint64(2), *computed.Services[0].Deploy.Replicas)
 }
 
-func TestComputerComputeStackReturnsServiceManagerError(t *testing.T) {
+func TestComputerComputeStackReturnsNetworkManagerError(t *testing.T) {
 	t.Parallel()
 
 	ctrl := gomock.NewController(t)
-	serviceManager := swarm.NewMockServiceManager(ctrl)
 	networkManager := swarm.NewMockNetworkManager(ctrl)
-	serviceManager.EXPECT().
-		ListStackServices(gomock.Any(), "payments").
-		Return(nil, errors.New("swarm unavailable"))
 	networkManager.EXPECT().
 		Map(gomock.Any(), gomock.Any()).
-		Times(0)
+		Return(nil, errors.New("swarm unavailable")).
+		Times(1)
 
-	computed, err := NewComputer(serviceManager, networkManager).ComputeStack(context.Background(), "payments")
+	stack := Stack{Name: "payments"}
+
+	computed, err := NewComputer(nil, networkManager).ComputeStack(context.Background(), stack)
 	require.Error(t, err)
 	assert.Nil(t, computed)
-	assert.Contains(t, err.Error(), "list stack services")
+	assert.Contains(t, err.Error(), "list networks")
 }

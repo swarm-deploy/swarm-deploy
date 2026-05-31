@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	diffmodel "github.com/swarm-deploy/swarm-deploy/internal/differ/diff"
 )
 
 func TestDifferCompareServiceChanges(t *testing.T) {
@@ -60,7 +61,7 @@ services:
 
 	assert.Equal(
 		t,
-		[]EnvironmentDiff{
+		[]diffmodel.EnvironmentDiff{
 			{VarName: "A", Value: "1", Deleted: true},
 			{VarName: "B", Value: "3", Changed: true},
 			{VarName: "C", Value: "4", Added: true},
@@ -70,7 +71,7 @@ services:
 	)
 	assert.Equal(
 		t,
-		[]NetworkDiff{
+		[]diffmodel.NetworkDiff{
 			{Name: "backend", Connected: false},
 			{Name: "frontend", Connected: true},
 		},
@@ -79,7 +80,7 @@ services:
 	)
 	assert.Equal(
 		t,
-		[]SecretDiff{
+		[]diffmodel.SecretDiff{
 			{Name: "app-secret", MountFile: "/run/secrets/app-secret", Removed: true},
 			{Name: "app-secret", MountFile: "/run/secrets/app-secret-v2", Added: true},
 			{Name: "current-secret", MountFile: "/run/secrets/current-secret", Added: true},

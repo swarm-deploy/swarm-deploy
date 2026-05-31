@@ -5,6 +5,7 @@ import (
 	"net"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/differ"
+	"github.com/swarm-deploy/swarm-deploy/internal/differ/diff"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
@@ -65,5 +66,5 @@ type GitRepository interface {
 // CommitDiffer compares old/new compose snapshots and returns semantic diff.
 type CommitDiffer interface {
 	// Compare returns changed services in old/new compose snapshots.
-	Compare(composeFiles []differ.ComposeFile) (differ.Diff, error)
+	Compare(composeFiles []differ.ComposeFile) (diff.Diff, error)
 }

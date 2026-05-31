@@ -30,16 +30,16 @@ func NewComputer(serviceManager swarm.ServiceManager, networkManager swarm.Netwo
 	}
 }
 
-// ComputeStack computes current stack live manifest.
-func (c *Computer) ComputeStack(ctx context.Context, stackName string) (*compose.Compose, error) {
-	stackServices, err := c.serviceManager.ListStackServices(ctx, stackName)
-	if err != nil {
-		return nil, fmt.Errorf("list stack services for stack %q: %w", stackName, err)
-	}
+type Stack struct {
+	Name     string
+	Services []swarm.StackService
+}
 
-	services := make(compose.Services, 0, len(stackServices))
+// ComputeStack computes current stack live manifest.
+func (c *Computer) ComputeStack(ctx context.Context, stack Stack) (*compose.Compose, error) {
+	services := make(compose.Services, 0, len(stack.Services))
 	networkIDs := gds.NewSet[string]()
-	for _, stackService := range stackServices {
+	for _, stackService := range stack.Services {
 		mappedService, mapErr := mapStackServiceToCompose(stackService, networkIDs)
 		if mapErr != nil {
 			return nil, fmt.Errorf("map stack service %q to compose service: %w", stackService.Name, mapErr)
@@ -50,12 +50,12 @@ func (c *Computer) ComputeStack(ctx context.Context, stackName string) (*compose
 
 	networks, err := c.networkManager.Map(ctx, networkIDs.List())
 	if err != nil {
-		return nil, fmt.Errorf("list networks for stack %q: %w", stackName, err)
+		return nil, fmt.Errorf("list networks %w", err)
 	}
 
 	composeNetworks := make(map[string]compose.Network)
 	for _, network := range networks {
-		if network.Stack == stackName {
+		if network.Stack == stack.Name {
 			continue
 		}
 
