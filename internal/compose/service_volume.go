@@ -16,6 +16,9 @@ const (
 
 type ServiceVolumes struct {
 	Volumes []*ServiceVolume
+
+	// Map<ServiceVolume.Target, ServiceVolume>
+	Map map[string]*ServiceVolume
 }
 
 type ServiceVolume struct {
@@ -41,7 +44,7 @@ type ServiceVolumeBind struct {
 
 type ServiceVolumeVolume struct {
 	Nocopy bool `yaml:"nocopy"`
-	
+
 	Extra map[string]interface{} `yaml:",inline"`
 }
 
@@ -62,6 +65,8 @@ func (sv *ServiceVolumes) UnmarshalYAML(root *yaml.Node) error {
 		return fmt.Errorf("expected sequence node, got %q", root.Tag)
 	}
 
+	sv.Map = make(map[string]*ServiceVolume, len(root.Content))
+
 	for _, child := range root.Content {
 		volume := &ServiceVolume{}
 
@@ -75,6 +80,7 @@ func (sv *ServiceVolumes) UnmarshalYAML(root *yaml.Node) error {
 			}
 
 			sv.Volumes = append(sv.Volumes, volume)
+			sv.Map[volume.Target] = volume
 			continue
 		}
 
@@ -92,6 +98,7 @@ func (sv *ServiceVolumes) UnmarshalYAML(root *yaml.Node) error {
 		volume.Extra = schema.Extra
 
 		sv.Volumes = append(sv.Volumes, volume)
+		sv.Map[volume.Target] = volume
 	}
 
 	return nil

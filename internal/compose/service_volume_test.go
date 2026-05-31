@@ -136,6 +136,14 @@ func TestServiceVolumesUnmarshalYAML(t *testing.T) {
 						isString: true,
 					},
 				},
+				Map: map[string]*ServiceVolume{
+					"/var/nginx": {
+						Type:     ServiceVolumeTypeBind,
+						Source:   "/var/log/nginx",
+						Target:   "/var/nginx",
+						isString: true,
+					},
+				},
 			},
 		},
 		{
@@ -150,6 +158,16 @@ func TestServiceVolumesUnmarshalYAML(t *testing.T) {
 			Expected: ServiceVolumes{
 				Volumes: []*ServiceVolume{
 					{
+						Type:   ServiceVolumeTypeBind,
+						Source: "/mnt/host-data",
+						Target: "/data",
+						Bind: &ServiceVolumeBind{
+							Propagation: "rslave",
+						},
+					},
+				},
+				Map: map[string]*ServiceVolume{
+					"/data": {
 						Type:   ServiceVolumeTypeBind,
 						Source: "/mnt/host-data",
 						Target: "/data",
