@@ -9,6 +9,7 @@ import (
 	"github.com/artarts36/gds"
 
 	container "github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/mount"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -167,6 +168,7 @@ func applyContainerSpec(service *compose.Service, containerSpec *dockerswarm.Con
 	service.Secrets = toComposeSecrets(containerSpec.Secrets)
 	service.Configs = toComposeConfigs(containerSpec.Configs)
 	service.Healthcheck = toComposeHealthcheck(containerSpec.Healthcheck)
+	service.Volumes = toComposeServiceVolumes(containerSpec.Mounts)
 
 	if len(containerSpec.Env) > 0 {
 		environment, err := compose.NewEnvironment(containerSpec.Env)
@@ -261,6 +263,45 @@ func toComposeConfigs(rawRefs []*dockerswarm.ConfigReference) []compose.ObjectRe
 
 	if len(mapped) == 0 {
 		return nil
+	}
+
+	return mapped
+}
+
+func toComposeServiceVolumes(rawMounts []mount.Mount) compose.ServiceVolumes {
+	if len(rawMounts) == 0 {
+		return compose.ServiceVolumes{}
+	}
+
+	mapped := compose.ServiceVolumes{
+		Volumes: make([]*compose.ServiceVolume, 0, len(rawMounts)),
+		Map:     make(map[string]*compose.ServiceVolume, len(rawMounts)),
+	}
+
+	for _, rawMount := range rawMounts {
+		volume := &compose.ServiceVolume{
+			Type:     compose.ServiceVolumeType(rawMount.Type),
+			Source:   rawMount.Source,
+			Target:   rawMount.Target,
+			ReadOnly: rawMount.ReadOnly,
+		}
+
+		if rawMount.BindOptions != nil {
+			volume.Bind = &compose.ServiceVolumeBind{
+				CreateHostPath: ptr(rawMount.BindOptions.CreateMountpoint),
+				Propagation:    rawMount.BindOptions.Propagation,
+			}
+		}
+
+		if rawMount.VolumeOptions != nil {
+			volume.Volume = &compose.ServiceVolumeVolume{
+				Nocopy:  rawMount.VolumeOptions.NoCopy,
+				Subpath: rawMount.VolumeOptions.Subpath,
+			}
+		}
+
+		mapped.Volumes = append(mapped.Volumes, volume)
+		mapped.Map[volume.Target] = volume
 	}
 
 	return mapped

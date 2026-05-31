@@ -7,6 +7,7 @@ import (
 	"time"
 
 	container "github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/mount"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -70,6 +71,27 @@ func TestComputerComputeStackMapsRawServiceSpec(t *testing.T) {
 								StartPeriod:   5 * time.Second,
 								StartInterval: 2 * time.Second,
 								Retries:       4,
+							},
+							Mounts: []mount.Mount{
+								{
+									Type:     mount.TypeBind,
+									Source:   "/srv/payments/data",
+									Target:   "/var/lib/payments",
+									ReadOnly: true,
+									BindOptions: &mount.BindOptions{
+										Propagation:      mount.PropagationRSlave,
+										CreateMountpoint: true,
+									},
+								},
+								{
+									Type:   mount.TypeVolume,
+									Source: "payments-cache",
+									Target: "/var/cache/payments",
+									VolumeOptions: &mount.VolumeOptions{
+										NoCopy:  true,
+										Subpath: "api",
+									},
+								},
 							},
 						},
 						Resources: &dockerswarm.ResourceRequirements{
@@ -215,6 +237,29 @@ func TestComputerComputeStackMapsRawServiceSpec(t *testing.T) {
 	require.Len(t, service.Configs, 1)
 	assert.Equal(t, "api_config", service.Configs[0].Source)
 	assert.Equal(t, "/etc/app/config.yml", service.Configs[0].Target)
+
+	require.Len(t, service.Volumes.Volumes, 2)
+	require.Contains(t, service.Volumes.Map, "/var/lib/payments")
+	require.Contains(t, service.Volumes.Map, "/var/cache/payments")
+
+	bindVolume := service.Volumes.Map["/var/lib/payments"]
+	require.NotNil(t, bindVolume)
+	assert.Equal(t, compose.ServiceVolumeTypeBind, string(bindVolume.Type))
+	assert.Equal(t, "/srv/payments/data", bindVolume.Source)
+	assert.Equal(t, "/var/lib/payments", bindVolume.Target)
+	assert.True(t, bindVolume.ReadOnly)
+	require.NotNil(t, bindVolume.Bind)
+	assert.True(t, *bindVolume.Bind.CreateHostPath)
+	assert.Equal(t, mount.PropagationRSlave, bindVolume.Bind.Propagation)
+
+	namedVolume := service.Volumes.Map["/var/cache/payments"]
+	require.NotNil(t, namedVolume)
+	assert.Equal(t, compose.ServiceVolumeTypeVolume, string(namedVolume.Type))
+	assert.Equal(t, "payments-cache", namedVolume.Source)
+	assert.Equal(t, "/var/cache/payments", namedVolume.Target)
+	assert.False(t, namedVolume.ReadOnly)
+	require.NotNil(t, namedVolume.Volume)
+	assert.True(t, namedVolume.Volume.Nocopy)
 
 	assert.Equal(t, "replicated", service.Deploy.Mode)
 	require.NotNil(t, service.Deploy.Replicas)

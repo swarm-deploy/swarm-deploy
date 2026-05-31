@@ -2,8 +2,10 @@ package compose
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
+	"github.com/docker/docker/api/types/mount"
 	"gopkg.in/yaml.v3"
 )
 
@@ -27,8 +29,8 @@ type ServiceVolume struct {
 	Target   string
 	ReadOnly bool
 
-	Bind   *ServiceVolumeBind `yaml:"bind,omitempty"`
-	Volume *ServiceVolumeBind `yaml:"volume,omitempty"`
+	Bind   *ServiceVolumeBind   `yaml:"bind,omitempty"`
+	Volume *ServiceVolumeVolume `yaml:"volume,omitempty"`
 
 	Extra map[string]interface{} `yaml:",inline"`
 
@@ -36,14 +38,15 @@ type ServiceVolume struct {
 }
 
 type ServiceVolumeBind struct {
-	CreateHostPath bool   `yaml:"create_host_path,omitempty"`
-	Propagation    string `yaml:"propagation,omitempty"`
+	CreateHostPath *bool             `yaml:"create_host_path,omitempty"`
+	Propagation    mount.Propagation `yaml:"propagation,omitempty"`
 
 	Extra map[string]interface{} `yaml:",inline"`
 }
 
 type ServiceVolumeVolume struct {
-	Nocopy bool `yaml:"nocopy"`
+	Nocopy  bool   `yaml:"nocopy"`
+	Subpath string `yaml:"subpath"`
 
 	Extra map[string]interface{} `yaml:",inline"`
 }
@@ -54,8 +57,8 @@ type serviceVolumeSchema struct {
 	Target   string            `yaml:"target"`
 	ReadOnly bool              `yaml:"read_only"`
 
-	Bind   *ServiceVolumeBind `yaml:"bind,omitempty"`
-	Volume *ServiceVolumeBind `yaml:"volume,omitempty"`
+	Bind   *ServiceVolumeBind   `yaml:"bind,omitempty"`
+	Volume *ServiceVolumeVolume `yaml:"volume,omitempty"`
 
 	Extra map[string]interface{} `yaml:",inline"`
 }
@@ -143,7 +146,7 @@ func (sv *ServiceVolume) MarshalString() string {
 				buf.WriteString(",")
 			}
 
-			buf.WriteString(sv.Bind.Propagation)
+			buf.WriteString(string(sv.Bind.Propagation))
 		}
 	}
 
@@ -173,14 +176,13 @@ func (sv *ServiceVolume) UnmarshalString(raw string) error {
 		}
 
 		for _, mode := range strings.Split(parts[2], ",") {
-			switch strings.ToLower(mode) {
-			case "ro":
+			mode = strings.ToLower(mode)
+
+			if mode == "ro" {
 				sv.ReadOnly = true
-			case "slave", "rslave", "shared", "rshared", "private", "rprivate":
-				if sv.Bind == nil {
-					sv.Bind = &ServiceVolumeBind{
-						Propagation: mode,
-					}
+			} else if slices.Contains(mount.Propagations, mount.Propagation(mode)) {
+				sv.Bind = &ServiceVolumeBind{
+					Propagation: mount.Propagation(mode),
 				}
 			}
 		}
