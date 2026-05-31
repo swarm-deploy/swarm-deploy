@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/artarts36/envmasker"
+	"github.com/swarm-deploy/swarm-deploy/internal/differ/comparators"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/differ/diff"
@@ -24,11 +24,17 @@ type ComposeFile struct {
 }
 
 // Differ compares compose file snapshots.
-type Differ struct{}
+type Differ struct {
+	serviceComparator comparators.ServiceComparator
+}
 
 // New creates compose differ component.
 func New() *Differ {
-	return &Differ{}
+	return &Differ{
+		serviceComparator: comparators.NewComposeServiceComparator(
+			&comparators.ServiceEnvComparator{},
+		),
+	}
 }
 
 // Compare compares compose file snapshots and returns per-service changes.
@@ -45,7 +51,7 @@ func (d *Differ) Compare(composeFiles []ComposeFile) (diff.Diff, error) {
 			return diff.Diff{}, fmt.Errorf("parse new compose file[%d] %q: %w", i, composeFile.ComposePath, err)
 		}
 
-		serviceDiffs = append(serviceDiffs, compareServices(composeFile.StackName, oldCompose, newCompose)...)
+		serviceDiffs = append(serviceDiffs, d.compareServices(composeFile.StackName, oldCompose, newCompose)...)
 	}
 
 	sort.Slice(serviceDiffs, func(i, j int) bool {
@@ -69,7 +75,7 @@ func parseComposeFile(raw string) (*compose.Compose, error) {
 	return parsed, nil
 }
 
-func compareServices(stackName string, oldCompose *compose.Compose, newCompose *compose.Compose) []diff.ServiceDiff {
+func (d *Differ) compareServices(stackName string, oldCompose *compose.Compose, newCompose *compose.Compose) []diff.ServiceDiff {
 	oldServices := mapServicesByName(oldCompose)
 	newServices := mapServicesByName(newCompose)
 
@@ -95,7 +101,7 @@ func compareServices(stackName string, oldCompose *compose.Compose, newCompose *
 	for _, serviceName := range serviceNames {
 		oldService, oldExists := oldServices[serviceName]
 		newService, newExists := newServices[serviceName]
-		serviceDiff, changed := compareService(stackName, serviceName, oldService, oldExists, newService, newExists)
+		serviceDiff, changed := d.compareService(stackName, serviceName, oldService, oldExists, newService, newExists)
 		if !changed {
 			continue
 		}
@@ -118,7 +124,7 @@ func mapServicesByName(composeFile *compose.Compose) map[string]compose.Service 
 	return services
 }
 
-func compareService(
+func (d *Differ) compareService(
 	stackName string,
 	serviceName string,
 	oldService compose.Service,
@@ -146,15 +152,7 @@ func compareService(
 		}
 	}
 
-	oldEnvironment := map[string]string{}
-	if oldExists {
-		oldEnvironment = oldService.Environment.Map
-	}
-	newEnvironment := map[string]string{}
-	if newExists {
-		newEnvironment = newService.Environment.Map
-	}
-	serviceDiff.Environment = compareEnvironment(oldEnvironment, newEnvironment)
+	d.serviceComparator.Compare(oldService, newService, &serviceDiff)
 
 	serviceDiff.Networks = compareNetworks(oldService.Networks, newService.Networks)
 
@@ -174,61 +172,6 @@ func compareService(
 		len(serviceDiff.Secrets) > 0
 
 	return serviceDiff, changed
-}
-
-func compareEnvironment(oldEnvironment map[string]string, newEnvironment map[string]string) []diff.EnvironmentDiff {
-	if oldEnvironment == nil {
-		oldEnvironment = map[string]string{}
-	}
-	if newEnvironment == nil {
-		newEnvironment = map[string]string{}
-	}
-
-	variableNames := map[string]struct{}{}
-	for variableName := range oldEnvironment {
-		variableNames[variableName] = struct{}{}
-	}
-	for variableName := range newEnvironment {
-		variableNames[variableName] = struct{}{}
-	}
-
-	sortedVariableNames := mapKeys(variableNames)
-	sort.Strings(sortedVariableNames)
-
-	diffs := make([]diff.EnvironmentDiff, 0, len(sortedVariableNames))
-	for _, variableName := range sortedVariableNames {
-		oldValue, oldExists := oldEnvironment[variableName]
-		newValue, newExists := newEnvironment[variableName]
-
-		switch {
-		case !oldExists && newExists:
-			diffs = append(diffs, diff.EnvironmentDiff{
-				VarName: variableName,
-				Value:   maskEnvValue(variableName, newValue),
-				Added:   true,
-			})
-		case oldExists && !newExists:
-			diffs = append(diffs, diff.EnvironmentDiff{
-				VarName: variableName,
-				Value:   maskEnvValue(variableName, oldValue),
-				Deleted: true,
-			})
-		case oldExists && newExists && oldValue != newValue:
-			diffs = append(diffs, diff.EnvironmentDiff{
-				VarName: variableName,
-				Value:   maskEnvValue(variableName, newValue),
-				Changed: true,
-			})
-		}
-	}
-
-	return diffs
-}
-
-func maskEnvValue(key string, value string) string {
-	maskedValue, _ := envmasker.Mask(key, value)
-
-	return maskedValue
 }
 
 func compareNetworks(oldNetworks *compose.ServiceNetworks, newNetworks *compose.ServiceNetworks) []diff.NetworkDiff {
