@@ -103,7 +103,7 @@ func (c *Computer) mapStackServiceToCompose(
 	stackService swarm.StackService,
 	networkIDs *gds.Set[string],
 ) (compose.Service, error) {
-	service, err := c.mapRawServiceSpec(stackService.Name, stackService.ServiceSpec, networkIDs)
+	service, err := c.mapRawServiceSpec(stackService.Name, stackService, networkIDs)
 	if err != nil {
 		return compose.Service{}, err
 	}
@@ -130,38 +130,38 @@ func (c *Computer) mapStackServiceToCompose(
 
 func (c *Computer) mapRawServiceSpec(
 	serviceName string,
-	spec dockerswarm.ServiceSpec,
+	live swarm.StackService,
 	networkIDs *gds.Set[string],
 ) (compose.Service, error) {
 	service := compose.Service{
 		Name: serviceName,
 	}
 
-	c.mapper.Map(&service, spec)
+	c.mapper.Map(&service, live)
 
-	err := applyContainerSpec(&service, spec.TaskTemplate.ContainerSpec)
+	err := applyContainerSpec(&service, live.ServiceSpec.TaskTemplate.ContainerSpec)
 	if err != nil {
 		return compose.Service{}, err
 	}
 
-	if spec.EndpointSpec != nil && len(spec.EndpointSpec.Ports) > 0 {
-		service.Ports = toComposePorts(spec.EndpointSpec.Ports)
+	if live.ServiceSpec.EndpointSpec != nil && len(live.ServiceSpec.EndpointSpec.Ports) > 0 {
+		service.Ports = toComposePorts(live.ServiceSpec.EndpointSpec.Ports)
 	}
 
-	if len(spec.TaskTemplate.Networks) > 0 {
-		service.Networks = toComposeServiceNetworks(spec.TaskTemplate.Networks, networkIDs)
+	if len(live.ServiceSpec.TaskTemplate.Networks) > 0 {
+		service.Networks = toComposeServiceNetworks(live.ServiceSpec.TaskTemplate.Networks, networkIDs)
 	}
 
-	if spec.TaskTemplate.LogDriver != nil {
+	if live.ServiceSpec.TaskTemplate.LogDriver != nil {
 		service.Logging = compose.ServiceLogging{
-			Driver:  spec.TaskTemplate.LogDriver.Name,
-			Options: spec.TaskTemplate.LogDriver.Options,
+			Driver:  live.ServiceSpec.TaskTemplate.LogDriver.Name,
+			Options: live.ServiceSpec.TaskTemplate.LogDriver.Options,
 		}
 	}
 
-	deploy := toComposeDeploy(spec)
-	if len(spec.Labels) > 0 {
-		deploy.Labels = *compose.NewLabels(spec.Labels)
+	deploy := toComposeDeploy(live.ServiceSpec)
+	if len(live.Labels) > 0 {
+		deploy.Labels = *compose.NewLabels(live.Labels)
 	}
 	service.Deploy = deploy
 

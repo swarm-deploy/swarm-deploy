@@ -1,12 +1,12 @@
 package srvmappers
 
 import (
-	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 type Mapper interface {
-	Map(service *compose.Service, live dockerswarm.ServiceSpec)
+	Map(service *compose.Service, live swarm.StackService)
 }
 
 type ComposeMapper struct {
@@ -19,7 +19,7 @@ func NewComposeMapper(mappers ...Mapper) *ComposeMapper {
 	}
 }
 
-func (m *ComposeMapper) Map(service *compose.Service, live dockerswarm.ServiceSpec) {
+func (m *ComposeMapper) Map(service *compose.Service, live swarm.StackService) {
 	for _, mapper := range m.mappers {
 		mapper.Map(service, live)
 	}

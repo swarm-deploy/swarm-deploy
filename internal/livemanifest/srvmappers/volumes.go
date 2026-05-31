@@ -2,18 +2,18 @@ package srvmappers
 
 import (
 	"github.com/docker/docker/api/types/mount"
-	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 type VolumesMapper struct{}
 
-func (m *VolumesMapper) Map(service *compose.Service, live dockerswarm.ServiceSpec) {
-	if live.TaskTemplate.ContainerSpec == nil {
+func (m *VolumesMapper) Map(service *compose.Service, live swarm.StackService) {
+	if live.ServiceSpec.TaskTemplate.ContainerSpec == nil {
 		return
 	}
 
-	service.Volumes = m.mapVolumes(live.TaskTemplate.ContainerSpec.Mounts)
+	service.Volumes = m.mapVolumes(live.ServiceSpec.TaskTemplate.ContainerSpec.Mounts)
 }
 
 func (m *VolumesMapper) mapVolumes(rawMounts []mount.Mount) compose.ServiceVolumes {
