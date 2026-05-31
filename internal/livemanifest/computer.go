@@ -7,9 +7,9 @@ import (
 	"strings"
 
 	"github.com/artarts36/gds"
+	"github.com/swarm-deploy/swarm-deploy/internal/livemanifest/srvmappers"
 
 	container "github.com/docker/docker/api/types/container"
-	"github.com/docker/docker/api/types/mount"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -21,6 +21,8 @@ const nanoCPUToCPUScale = 1_000_000_000
 type Computer struct {
 	serviceManager swarm.ServiceManager
 	networkManager swarm.NetworkManager
+
+	mapper srvmappers.Mapper
 }
 
 // NewComputer creates live manifest computer.
@@ -28,6 +30,9 @@ func NewComputer(serviceManager swarm.ServiceManager, networkManager swarm.Netwo
 	return &Computer{
 		serviceManager: serviceManager,
 		networkManager: networkManager,
+		mapper: srvmappers.NewComposeMapper(
+			&srvmappers.VolumesMapper{},
+		),
 	}
 }
 
@@ -41,7 +46,7 @@ func (c *Computer) ComputeStack(ctx context.Context, stack Stack) (*compose.Comp
 	services := make(compose.Services, 0, len(stack.Services))
 	networkIDs := gds.NewSet[string]()
 	for _, stackService := range stack.Services {
-		mappedService, mapErr := mapStackServiceToCompose(stackService, networkIDs)
+		mappedService, mapErr := c.mapStackServiceToCompose(stackService, networkIDs)
 		if mapErr != nil {
 			return nil, fmt.Errorf("map stack service %q to compose service: %w", stackService.Name, mapErr)
 		}
@@ -94,8 +99,11 @@ func (c *Computer) ComputeStack(ctx context.Context, stack Stack) (*compose.Comp
 	}, nil
 }
 
-func mapStackServiceToCompose(stackService swarm.StackService, networkIDs *gds.Set[string]) (compose.Service, error) {
-	service, err := mapRawServiceSpec(stackService.Name, stackService.ServiceSpec, networkIDs)
+func (c *Computer) mapStackServiceToCompose(
+	stackService swarm.StackService,
+	networkIDs *gds.Set[string],
+) (compose.Service, error) {
+	service, err := c.mapRawServiceSpec(stackService.Name, stackService.ServiceSpec, networkIDs)
 	if err != nil {
 		return compose.Service{}, err
 	}
@@ -120,7 +128,7 @@ func mapStackServiceToCompose(stackService swarm.StackService, networkIDs *gds.S
 	return service, nil
 }
 
-func mapRawServiceSpec(
+func (c *Computer) mapRawServiceSpec(
 	serviceName string,
 	spec dockerswarm.ServiceSpec,
 	networkIDs *gds.Set[string],
@@ -128,6 +136,8 @@ func mapRawServiceSpec(
 	service := compose.Service{
 		Name: serviceName,
 	}
+
+	c.mapper.Map(&service, spec)
 
 	err := applyContainerSpec(&service, spec.TaskTemplate.ContainerSpec)
 	if err != nil {
@@ -168,7 +178,6 @@ func applyContainerSpec(service *compose.Service, containerSpec *dockerswarm.Con
 	service.Secrets = toComposeSecrets(containerSpec.Secrets)
 	service.Configs = toComposeConfigs(containerSpec.Configs)
 	service.Healthcheck = toComposeHealthcheck(containerSpec.Healthcheck)
-	service.Volumes = toComposeServiceVolumes(containerSpec.Mounts)
 
 	if len(containerSpec.Env) > 0 {
 		environment, err := compose.NewEnvironment(containerSpec.Env)
@@ -263,45 +272,6 @@ func toComposeConfigs(rawRefs []*dockerswarm.ConfigReference) []compose.ObjectRe
 
 	if len(mapped) == 0 {
 		return nil
-	}
-
-	return mapped
-}
-
-func toComposeServiceVolumes(rawMounts []mount.Mount) compose.ServiceVolumes {
-	if len(rawMounts) == 0 {
-		return compose.ServiceVolumes{}
-	}
-
-	mapped := compose.ServiceVolumes{
-		Volumes: make([]*compose.ServiceVolume, 0, len(rawMounts)),
-		Map:     make(map[string]*compose.ServiceVolume, len(rawMounts)),
-	}
-
-	for _, rawMount := range rawMounts {
-		volume := &compose.ServiceVolume{
-			Type:     compose.ServiceVolumeType(rawMount.Type),
-			Source:   rawMount.Source,
-			Target:   rawMount.Target,
-			ReadOnly: rawMount.ReadOnly,
-		}
-
-		if rawMount.BindOptions != nil {
-			volume.Bind = &compose.ServiceVolumeBind{
-				CreateHostPath: ptr(rawMount.BindOptions.CreateMountpoint),
-				Propagation:    rawMount.BindOptions.Propagation,
-			}
-		}
-
-		if rawMount.VolumeOptions != nil {
-			volume.Volume = &compose.ServiceVolumeVolume{
-				Nocopy:  rawMount.VolumeOptions.NoCopy,
-				Subpath: rawMount.VolumeOptions.Subpath,
-			}
-		}
-
-		mapped.Volumes = append(mapped.Volumes, volume)
-		mapped.Map[volume.Target] = volume
 	}
 
 	return mapped
