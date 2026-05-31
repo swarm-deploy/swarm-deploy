@@ -6,6 +6,7 @@ import (
 )
 
 type Comparator interface {
+	// Compare writes service differences to diff.
 	Compare(left, right compose.Service, diff *diff.ServiceDiff)
 }
 
