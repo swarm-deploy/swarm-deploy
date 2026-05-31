@@ -131,19 +131,19 @@ func (sv *ServiceVolume) MarshalString() string {
 	buf.WriteString(":")
 	buf.WriteString(sv.Target)
 
-	if sv.ReadOnly || (sv.Bind != nil && sv.Bind.Propagation == "rslave") {
+	if sv.ReadOnly || (sv.Bind != nil && sv.Bind.Propagation != "") {
 		buf.WriteString(":")
 
 		if sv.ReadOnly {
 			buf.WriteString("ro")
 		}
 
-		if sv.Bind != nil && sv.Bind.Propagation == "rslave" {
+		if sv.Bind != nil && sv.Bind.Propagation != "" {
 			if sv.ReadOnly {
 				buf.WriteString(",")
 			}
 
-			buf.WriteString("rslave")
+			buf.WriteString(sv.Bind.Propagation)
 		}
 	}
 
@@ -157,14 +157,14 @@ func (sv *ServiceVolume) UnmarshalString(raw string) error {
 	switch len(parts) {
 	case 1:
 		sv.Target = parts[0]
-	case 2:
+	case 2: //nolint:mnd // volume and bind
 		sv.Type = ServiceVolumeTypeVolume
 		sv.Source = parts[0]
 		sv.Target = parts[1]
 		if strings.Contains(sv.Source, ".") || strings.Contains(sv.Source, "/") {
 			sv.Type = ServiceVolumeTypeBind
 		}
-	case 3:
+	case 3: //nolint:mnd // volume and bind with modes
 		sv.Type = ServiceVolumeTypeVolume
 		sv.Source = parts[0]
 		sv.Target = parts[1]
