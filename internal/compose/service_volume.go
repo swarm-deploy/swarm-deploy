@@ -7,17 +7,27 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type ServiceVolumeType string
+
+const (
+	ServiceVolumeTypeBind   = "bind"
+	ServiceVolumeTypeVolume = "volume"
+)
+
 type ServiceVolumes struct {
 	Volumes []*ServiceVolume
 }
 
 type ServiceVolume struct {
-	Type     string
+	Type     ServiceVolumeType
 	Source   string
 	Target   string
 	ReadOnly bool
 
-	Bind *ServiceVolumeBind `yaml:"bind,omitempty"`
+	Bind   *ServiceVolumeBind `yaml:"bind,omitempty"`
+	Volume *ServiceVolumeBind `yaml:"volume,omitempty"`
+
+	Extra map[string]interface{} `yaml:",inline"`
 
 	isString bool
 }
@@ -25,15 +35,26 @@ type ServiceVolume struct {
 type ServiceVolumeBind struct {
 	CreateHostPath bool   `yaml:"create_host_path,omitempty"`
 	Propagation    string `yaml:"propagation,omitempty"`
+
+	Extra map[string]interface{} `yaml:",inline"`
+}
+
+type ServiceVolumeVolume struct {
+	Nocopy bool `yaml:"nocopy"`
+	
+	Extra map[string]interface{} `yaml:",inline"`
 }
 
 type serviceVolumeSchema struct {
-	Type     string `yaml:"type"`
-	Source   string `yaml:"source"`
-	Target   string `yaml:"target"`
-	ReadOnly bool   `yaml:"read_only"`
+	Type     ServiceVolumeType `yaml:"type"`
+	Source   string            `yaml:"source"`
+	Target   string            `yaml:"target"`
+	ReadOnly bool              `yaml:"read_only"`
 
-	Bind *ServiceVolumeBind `yaml:"bind,omitempty"`
+	Bind   *ServiceVolumeBind `yaml:"bind,omitempty"`
+	Volume *ServiceVolumeBind `yaml:"volume,omitempty"`
+
+	Extra map[string]interface{} `yaml:",inline"`
 }
 
 func (sv *ServiceVolumes) UnmarshalYAML(root *yaml.Node) error {
@@ -67,6 +88,8 @@ func (sv *ServiceVolumes) UnmarshalYAML(root *yaml.Node) error {
 		volume.Target = schema.Target
 		volume.ReadOnly = schema.ReadOnly
 		volume.Bind = schema.Bind
+		volume.Volume = schema.Volume
+		volume.Extra = schema.Extra
 
 		sv.Volumes = append(sv.Volumes, volume)
 	}
@@ -85,6 +108,8 @@ func (sv ServiceVolume) MarshalYAML() (interface{}, error) {
 		Target:   sv.Target,
 		ReadOnly: sv.ReadOnly,
 		Bind:     sv.Bind,
+		Volume:   sv.Volume,
+		Extra:    sv.Extra,
 	}, nil
 }
 
@@ -126,22 +151,28 @@ func (sv *ServiceVolume) UnmarshalString(raw string) error {
 	case 1:
 		sv.Target = parts[0]
 	case 2:
+		sv.Type = ServiceVolumeTypeVolume
 		sv.Source = parts[0]
 		sv.Target = parts[1]
+		if strings.Contains(sv.Source, ".") || strings.Contains(sv.Source, "/") {
+			sv.Type = ServiceVolumeTypeBind
+		}
 	case 3:
+		sv.Type = ServiceVolumeTypeVolume
 		sv.Source = parts[0]
 		sv.Target = parts[1]
+		if strings.Contains(sv.Source, ".") || strings.Contains(sv.Source, "/") {
+			sv.Type = ServiceVolumeTypeBind
+		}
 
-		modes := strings.Split(parts[2], ",")
-
-		for _, mode := range modes {
+		for _, mode := range strings.Split(parts[2], ",") {
 			switch strings.ToLower(mode) {
 			case "ro":
 				sv.ReadOnly = true
-			case "rsalve":
+			case "slave", "rslave", "shared", "rshared", "private", "rprivate":
 				if sv.Bind == nil {
 					sv.Bind = &ServiceVolumeBind{
-						Propagation: "rslave",
+						Propagation: mode,
 					}
 				}
 			}

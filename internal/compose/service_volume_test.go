@@ -25,9 +25,9 @@ func TestServiceVolume_MarshalString(t *testing.T) {
 			Title: "bind",
 			Input: ServiceVolume{
 				Source: "/var/log/nginx",
-				Target: "/var/log/nginx",
+				Target: "/var/nginx",
 			},
-			Expected: "/var/log/nginx",
+			Expected: "/var/log/nginx:/var/nginx",
 		},
 		{
 			Title: "bind with readonly",
@@ -60,6 +60,62 @@ func TestServiceVolume_MarshalString(t *testing.T) {
 	}
 }
 
+func TestServiceVolume_UnmarshalString(t *testing.T) {
+	tests := []struct {
+		Title    string
+		Input    string
+		Expected ServiceVolume
+	}{
+		{
+			Title: "bind",
+			Input: "/var/log/nginx:/var/nginx",
+			Expected: ServiceVolume{
+				Type:     ServiceVolumeTypeBind,
+				Source:   "/var/log/nginx",
+				Target:   "/var/nginx",
+				ReadOnly: false,
+				isString: true,
+			},
+		},
+		{
+			Title: "bind readonly",
+			Input: "/var/log/nginx:/var/nginx:ro",
+			Expected: ServiceVolume{
+				Type:     ServiceVolumeTypeBind,
+				Source:   "/var/log/nginx",
+				Target:   "/var/nginx",
+				ReadOnly: true,
+				isString: true,
+			},
+		},
+		{
+			Title: "bind readonly and rslave",
+			Input: "/var/log/nginx:/var/nginx:ro,rslave",
+			Expected: ServiceVolume{
+				Type:     ServiceVolumeTypeBind,
+				Source:   "/var/log/nginx",
+				Target:   "/var/nginx",
+				ReadOnly: true,
+				Bind: &ServiceVolumeBind{
+					Propagation: "rslave",
+				},
+				isString: true,
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.Title, func(t *testing.T) {
+			sv := &ServiceVolume{}
+
+			err := sv.UnmarshalString(test.Input)
+			require.NoError(t, err)
+
+			assert.Equal(t, test.Expected, *sv)
+		})
+	}
+}
+
 func TestServiceVolumesUnmarshalYAML(t *testing.T) {
 	tests := []struct {
 		Title    string
@@ -74,6 +130,7 @@ func TestServiceVolumesUnmarshalYAML(t *testing.T) {
 			Expected: ServiceVolumes{
 				Volumes: []*ServiceVolume{
 					{
+						Type:     ServiceVolumeTypeBind,
 						Source:   "/var/log/nginx",
 						Target:   "/var/nginx",
 						isString: true,
@@ -93,7 +150,7 @@ func TestServiceVolumesUnmarshalYAML(t *testing.T) {
 			Expected: ServiceVolumes{
 				Volumes: []*ServiceVolume{
 					{
-						Type:   "bind",
+						Type:   ServiceVolumeTypeBind,
 						Source: "/mnt/host-data",
 						Target: "/data",
 						Bind: &ServiceVolumeBind{
