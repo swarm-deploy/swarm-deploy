@@ -56,9 +56,36 @@ func (sv *ServiceVolumes) UnmarshalYAML(root *yaml.Node) error {
 			sv.Volumes = append(sv.Volumes, volume)
 			continue
 		}
+
+		var schema serviceVolumeSchema
+		if err := child.Decode(&schema); err != nil {
+			return fmt.Errorf("unmarshal from mapping: %w", err)
+		}
+
+		volume.Type = schema.Type
+		volume.Source = schema.Source
+		volume.Target = schema.Target
+		volume.ReadOnly = schema.ReadOnly
+		volume.Bind = schema.Bind
+
+		sv.Volumes = append(sv.Volumes, volume)
 	}
 
 	return nil
+}
+
+func (sv ServiceVolume) MarshalYAML() (interface{}, error) {
+	if sv.isString {
+		return sv.MarshalString(), nil
+	}
+
+	return &serviceVolumeSchema{
+		Type:     sv.Type,
+		Source:   sv.Source,
+		Target:   sv.Target,
+		ReadOnly: sv.ReadOnly,
+		Bind:     sv.Bind,
+	}, nil
 }
 
 func (sv *ServiceVolume) MarshalString() string {
