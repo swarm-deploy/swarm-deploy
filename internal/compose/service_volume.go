@@ -190,3 +190,7 @@ func (sv *ServiceVolume) UnmarshalString(raw string) error {
 
 	return nil
 }
+
+func (sv ServiceVolumes) MarshalYAML() (interface{}, error) {
+	return sv.Volumes, nil
+}
