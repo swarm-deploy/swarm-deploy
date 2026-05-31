@@ -33,6 +33,7 @@ func New() *Differ {
 	return &Differ{
 		serviceComparator: comparators.NewComposeServiceComparator(
 			&comparators.ServiceEnvComparator{},
+			&comparators.ServiceImageComparator{},
 		),
 	}
 }
@@ -135,21 +136,6 @@ func (d *Differ) compareService(
 	serviceDiff := diff.ServiceDiff{
 		ServiceName: serviceName,
 		StackName:   stackName,
-	}
-
-	oldImage := ""
-	if oldExists {
-		oldImage = strings.TrimSpace(oldService.Image)
-	}
-	newImage := ""
-	if newExists {
-		newImage = strings.TrimSpace(newService.Image)
-	}
-	if oldImage != newImage {
-		serviceDiff.Image = &diff.ImageDiff{
-			Old: oldImage,
-			New: newImage,
-		}
 	}
 
 	d.serviceComparator.Compare(oldService, newService, &serviceDiff)
