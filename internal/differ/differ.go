@@ -8,6 +8,7 @@ import (
 	"github.com/artarts36/envmasker"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/differ/diff"
 )
 
 // ComposeFile contains old/new compose snapshots for one stack.
@@ -22,71 +23,6 @@ type ComposeFile struct {
 	NewComposeFile string
 }
 
-// Diff is a per-service compose changeset.
-type Diff struct {
-	// Services contains changed services.
-	Services []ServiceDiff `json:"services"`
-}
-
-// ServiceDiff describes changed entities for one service.
-type ServiceDiff struct {
-	// ServiceName is a changed service name.
-	ServiceName string `json:"serviceName"`
-	// StackName is a stack where service belongs.
-	StackName string `json:"stackName"`
-
-	// Image contains image change details. Nil when image is unchanged.
-	Image *ImageDiff `json:"image,omitempty"`
-	// Environment contains changed service environment variables.
-	Environment []EnvironmentDiff `json:"environment,omitempty"`
-	// Networks contains changed service network attachments.
-	Networks []NetworkDiff `json:"networks,omitempty"`
-	// Secrets contains changed service secrets.
-	Secrets []SecretDiff `json:"secrets,omitempty"`
-}
-
-// ImageDiff describes image value transition.
-type ImageDiff struct {
-	// Old is image before change.
-	Old string `json:"old"`
-	// New is image after change.
-	New string `json:"new"`
-}
-
-// EnvironmentDiff describes one changed environment variable.
-type EnvironmentDiff struct {
-	// VarName is an environment variable name.
-	VarName string `json:"varName"`
-	// Value is a current variable value for add/change and old value for delete.
-	Value string `json:"value"`
-	// Added reports that variable is newly added.
-	Added bool `json:"added,omitempty"`
-	// Changed reports that variable value has changed.
-	Changed bool `json:"changed,omitempty"`
-	// Deleted reports that variable was removed.
-	Deleted bool `json:"deleted,omitempty"`
-}
-
-// NetworkDiff describes one changed network connection.
-type NetworkDiff struct {
-	// Name is a network name.
-	Name string `json:"name"`
-	// Connected reports whether service is connected to this network after commit.
-	Connected bool `json:"connected"`
-}
-
-// SecretDiff describes one changed secret mount.
-type SecretDiff struct {
-	// Name is a secret name.
-	Name string `json:"name"`
-	// MountFile is a target mount path in service container.
-	MountFile string `json:"mountFile,omitempty"`
-	// Added reports that secret mount was added.
-	Added bool `json:"added,omitempty"`
-	// Removed reports that secret mount was removed.
-	Removed bool `json:"removed,omitempty"`
-}
-
 // Differ compares compose file snapshots.
 type Differ struct{}
 
@@ -96,17 +32,17 @@ func New() *Differ {
 }
 
 // Compare compares compose file snapshots and returns per-service changes.
-func (d *Differ) Compare(composeFiles []ComposeFile) (Diff, error) {
-	serviceDiffs := make([]ServiceDiff, 0)
+func (d *Differ) Compare(composeFiles []ComposeFile) (diff.Diff, error) {
+	serviceDiffs := make([]diff.ServiceDiff, 0)
 	for i, composeFile := range composeFiles {
 		oldCompose, err := parseComposeFile(composeFile.OldComposeFile)
 		if err != nil {
-			return Diff{}, fmt.Errorf("parse old compose file[%d] %q: %w", i, composeFile.ComposePath, err)
+			return diff.Diff{}, fmt.Errorf("parse old compose file[%d] %q: %w", i, composeFile.ComposePath, err)
 		}
 
 		newCompose, err := parseComposeFile(composeFile.NewComposeFile)
 		if err != nil {
-			return Diff{}, fmt.Errorf("parse new compose file[%d] %q: %w", i, composeFile.ComposePath, err)
+			return diff.Diff{}, fmt.Errorf("parse new compose file[%d] %q: %w", i, composeFile.ComposePath, err)
 		}
 
 		serviceDiffs = append(serviceDiffs, compareServices(composeFile.StackName, oldCompose, newCompose)...)
@@ -121,7 +57,7 @@ func (d *Differ) Compare(composeFiles []ComposeFile) (Diff, error) {
 		return left.StackName < right.StackName
 	})
 
-	return Diff{Services: serviceDiffs}, nil
+	return diff.Diff{Services: serviceDiffs}, nil
 }
 
 func parseComposeFile(raw string) (*compose.Compose, error) {
@@ -133,7 +69,7 @@ func parseComposeFile(raw string) (*compose.Compose, error) {
 	return parsed, nil
 }
 
-func compareServices(stackName string, oldCompose *compose.Compose, newCompose *compose.Compose) []ServiceDiff {
+func compareServices(stackName string, oldCompose *compose.Compose, newCompose *compose.Compose) []diff.ServiceDiff {
 	oldServices := mapServicesByName(oldCompose)
 	newServices := mapServicesByName(newCompose)
 
@@ -155,7 +91,7 @@ func compareServices(stackName string, oldCompose *compose.Compose, newCompose *
 	}
 	sort.Strings(serviceNames)
 
-	serviceDiffs := make([]ServiceDiff, 0, len(serviceNames))
+	serviceDiffs := make([]diff.ServiceDiff, 0, len(serviceNames))
 	for _, serviceName := range serviceNames {
 		oldService, oldExists := oldServices[serviceName]
 		newService, newExists := newServices[serviceName]
@@ -189,8 +125,8 @@ func compareService(
 	oldExists bool,
 	newService compose.Service,
 	newExists bool,
-) (ServiceDiff, bool) {
-	serviceDiff := ServiceDiff{
+) (diff.ServiceDiff, bool) {
+	serviceDiff := diff.ServiceDiff{
 		ServiceName: serviceName,
 		StackName:   stackName,
 	}
@@ -204,7 +140,7 @@ func compareService(
 		newImage = strings.TrimSpace(newService.Image)
 	}
 	if oldImage != newImage {
-		serviceDiff.Image = &ImageDiff{
+		serviceDiff.Image = &diff.ImageDiff{
 			Old: oldImage,
 			New: newImage,
 		}
@@ -240,7 +176,7 @@ func compareService(
 	return serviceDiff, changed
 }
 
-func compareEnvironment(oldEnvironment map[string]string, newEnvironment map[string]string) []EnvironmentDiff {
+func compareEnvironment(oldEnvironment map[string]string, newEnvironment map[string]string) []diff.EnvironmentDiff {
 	if oldEnvironment == nil {
 		oldEnvironment = map[string]string{}
 	}
@@ -259,26 +195,26 @@ func compareEnvironment(oldEnvironment map[string]string, newEnvironment map[str
 	sortedVariableNames := mapKeys(variableNames)
 	sort.Strings(sortedVariableNames)
 
-	diffs := make([]EnvironmentDiff, 0, len(sortedVariableNames))
+	diffs := make([]diff.EnvironmentDiff, 0, len(sortedVariableNames))
 	for _, variableName := range sortedVariableNames {
 		oldValue, oldExists := oldEnvironment[variableName]
 		newValue, newExists := newEnvironment[variableName]
 
 		switch {
 		case !oldExists && newExists:
-			diffs = append(diffs, EnvironmentDiff{
+			diffs = append(diffs, diff.EnvironmentDiff{
 				VarName: variableName,
 				Value:   maskEnvValue(variableName, newValue),
 				Added:   true,
 			})
 		case oldExists && !newExists:
-			diffs = append(diffs, EnvironmentDiff{
+			diffs = append(diffs, diff.EnvironmentDiff{
 				VarName: variableName,
 				Value:   maskEnvValue(variableName, oldValue),
 				Deleted: true,
 			})
 		case oldExists && newExists && oldValue != newValue:
-			diffs = append(diffs, EnvironmentDiff{
+			diffs = append(diffs, diff.EnvironmentDiff{
 				VarName: variableName,
 				Value:   maskEnvValue(variableName, newValue),
 				Changed: true,
@@ -295,7 +231,7 @@ func maskEnvValue(key string, value string) string {
 	return maskedValue
 }
 
-func compareNetworks(oldNetworks *compose.ServiceNetworks, newNetworks *compose.ServiceNetworks) []NetworkDiff {
+func compareNetworks(oldNetworks *compose.ServiceNetworks, newNetworks *compose.ServiceNetworks) []diff.NetworkDiff {
 	oldSet := networkAliasesSet(oldNetworks)
 	newSet := networkAliasesSet(newNetworks)
 
@@ -310,23 +246,23 @@ func compareNetworks(oldNetworks *compose.ServiceNetworks, newNetworks *compose.
 	sortedNetworkNames := mapKeys(networkNames)
 	sort.Strings(sortedNetworkNames)
 
-	diffs := make([]NetworkDiff, 0, len(sortedNetworkNames))
+	diffs := make([]diff.NetworkDiff, 0, len(sortedNetworkNames))
 	for _, networkName := range sortedNetworkNames {
 		_, oldExists := oldSet[networkName]
 		_, newExists := newSet[networkName]
 
 		switch {
 		case !oldExists && newExists:
-			diffs = append(diffs, NetworkDiff{Name: networkName, Connected: true})
+			diffs = append(diffs, diff.NetworkDiff{Name: networkName, Connected: true})
 		case oldExists && !newExists:
-			diffs = append(diffs, NetworkDiff{Name: networkName, Connected: false})
+			diffs = append(diffs, diff.NetworkDiff{Name: networkName, Connected: false})
 		}
 	}
 
 	return diffs
 }
 
-func compareSecrets(oldSecrets []compose.ObjectRef, newSecrets []compose.ObjectRef) []SecretDiff {
+func compareSecrets(oldSecrets []compose.ObjectRef, newSecrets []compose.ObjectRef) []diff.SecretDiff {
 	oldSet := mapSecretRefs(oldSecrets)
 	newSet := mapSecretRefs(newSecrets)
 
@@ -341,20 +277,20 @@ func compareSecrets(oldSecrets []compose.ObjectRef, newSecrets []compose.ObjectR
 	sortedKeys := mapKeys(keys)
 	sort.Strings(sortedKeys)
 
-	diffs := make([]SecretDiff, 0, len(sortedKeys))
+	diffs := make([]diff.SecretDiff, 0, len(sortedKeys))
 	for _, key := range sortedKeys {
 		oldRef, oldExists := oldSet[key]
 		newRef, newExists := newSet[key]
 
 		switch {
 		case !oldExists && newExists:
-			diffs = append(diffs, SecretDiff{
+			diffs = append(diffs, diff.SecretDiff{
 				Name:      newRef.Source,
 				MountFile: newRef.Target,
 				Added:     true,
 			})
 		case oldExists && !newExists:
-			diffs = append(diffs, SecretDiff{
+			diffs = append(diffs, diff.SecretDiff{
 				Name:      oldRef.Source,
 				MountFile: oldRef.Target,
 				Removed:   true,

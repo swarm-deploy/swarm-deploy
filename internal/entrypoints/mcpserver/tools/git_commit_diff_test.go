@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
-	"github.com/swarm-deploy/swarm-deploy/internal/differ"
+	"github.com/swarm-deploy/swarm-deploy/internal/differ/diff"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/git"
 )
@@ -34,11 +34,11 @@ func TestGitCommitDiffExecute(t *testing.T) {
 	}
 
 	composeDiffer := &fakeCommitDiffer{
-		diff: differ.Diff{
-			Services: []differ.ServiceDiff{{
+		diff: diff.Diff{
+			Services: []diff.ServiceDiff{{
 				ServiceName: "api",
 				StackName:   "core",
-				Environment: []differ.EnvironmentDiff{
+				Environment: []diff.EnvironmentDiff{
 					{
 						VarName: "API_KEY",
 						Value:   "super-secret",
@@ -70,11 +70,11 @@ func TestGitCommitDiffExecute(t *testing.T) {
 	assert.Equal(t, "deploy/app.yaml", composeDiffer.composeFiles[0].ComposePath, "unexpected compose path")
 
 	var payload struct {
-		Commit      string      `json:"commit"`
-		Author      string      `json:"author"`
-		AuthorEmail string      `json:"authorEmail"`
-		Time        string      `json:"time"`
-		Diff        differ.Diff `json:"diff"`
+		Commit      string    `json:"commit"`
+		Author      string    `json:"author"`
+		AuthorEmail string    `json:"authorEmail"`
+		Time        string    `json:"time"`
+		Diff        diff.Diff `json:"diff"`
 	}
 
 	encoded, err := json.Marshal(response.Payload)

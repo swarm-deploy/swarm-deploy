@@ -8,6 +8,7 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/differ"
+	"github.com/swarm-deploy/swarm-deploy/internal/differ/diff"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/git"
 )
@@ -74,7 +75,7 @@ func (g *GitCommitDiff) Execute(ctx context.Context, request routing.Request) (r
 	}
 
 	composeFiles := g.collectComposeFiles(commit.Files)
-	diff, err := g.differ.Compare(composeFiles)
+	semanticDiff, err := g.differ.Compare(composeFiles)
 	if err != nil {
 		return routing.Response{}, err
 	}
@@ -93,13 +94,13 @@ func (g *GitCommitDiff) Execute(ctx context.Context, request routing.Request) (r
 		Time string `json:"time"`
 
 		// Diff contains semantic per-service changes.
-		Diff differ.Diff `json:"diff"`
+		Diff diff.Diff `json:"diff"`
 	}{
 		Commit:      commitHash,
 		Author:      commit.Author,
 		AuthorEmail: commit.AuthorEmail,
 		Time:        commit.Time.UTC().Format("2006-01-02T15:04:05Z07:00"),
-		Diff:        diff,
+		Diff:        semanticDiff,
 	}
 
 	return routing.Response{Payload: payload}, nil
