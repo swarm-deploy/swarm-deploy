@@ -13,6 +13,8 @@ type ServiceDiff struct {
 	// StackName is a stack where service belongs.
 	StackName string `json:"stackName"`
 
+	HasChanges bool `json:"hasChanges"`
+
 	// Image contains image change details. Nil when image is unchanged.
 	Image *ImageDiff `json:"image,omitempty"`
 	// Environment contains changed service environment variables.

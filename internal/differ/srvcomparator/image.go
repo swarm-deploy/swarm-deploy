@@ -1,13 +1,13 @@
-package comparators
+package srvcomparator
 
 import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/differ/diff"
 )
 
-type ServiceImageComparator struct{}
+type ImageComparator struct{}
 
-func (s ServiceImageComparator) Compare(left, right compose.Service, sdiff *diff.ServiceDiff) {
+func (s ImageComparator) Compare(left, right compose.Service, sdiff *diff.ServiceDiff) {
 	if left.Image == right.Image {
 		return
 	}

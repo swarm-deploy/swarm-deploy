@@ -23,6 +23,7 @@ func TestEnvironment_UnmarshalYAML(t *testing.T) {
 				Map: map[string]string{
 					"label": "value",
 				},
+				Keys: []string{"label"},
 			},
 		},
 	}

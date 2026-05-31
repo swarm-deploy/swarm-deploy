@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/differ/comparators"
+	"github.com/swarm-deploy/swarm-deploy/internal/differ/srvcomparator"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/differ/diff"
@@ -25,15 +25,15 @@ type ComposeFile struct {
 
 // Differ compares compose file snapshots.
 type Differ struct {
-	serviceComparator comparators.ServiceComparator
+	serviceComparator srvcomparator.Comparator
 }
 
 // New creates compose differ component.
 func New() *Differ {
 	return &Differ{
-		serviceComparator: comparators.NewComposeServiceComparator(
-			&comparators.ServiceEnvComparator{},
-			&comparators.ServiceImageComparator{},
+		serviceComparator: srvcomparator.NewComposeComparator(
+			&srvcomparator.EnvComparator{},
+			&srvcomparator.ImageComparator{},
 		),
 	}
 }
@@ -76,7 +76,11 @@ func parseComposeFile(raw string) (*compose.Compose, error) {
 	return parsed, nil
 }
 
-func (d *Differ) compareServices(stackName string, oldCompose *compose.Compose, newCompose *compose.Compose) []diff.ServiceDiff {
+func (d *Differ) compareServices(
+	stackName string,
+	oldCompose *compose.Compose,
+	newCompose *compose.Compose,
+) []diff.ServiceDiff {
 	oldServices := mapServicesByName(oldCompose)
 	newServices := mapServicesByName(newCompose)
 
@@ -125,6 +129,11 @@ func mapServicesByName(composeFile *compose.Compose) map[string]compose.Service 
 	return services
 }
 
+func (d *Differ) CompareService(stackName string, left compose.Service, right compose.Service) diff.ServiceDiff {
+	sdiff, _ := d.compareService(stackName, left.Name, left, true, right, true)
+	return sdiff
+}
+
 func (d *Differ) compareService(
 	stackName string,
 	serviceName string,
@@ -156,6 +165,8 @@ func (d *Differ) compareService(
 		len(serviceDiff.Environment) > 0 ||
 		len(serviceDiff.Networks) > 0 ||
 		len(serviceDiff.Secrets) > 0
+
+	serviceDiff.HasChanges = changed
 
 	return serviceDiff, changed
 }

@@ -1,4 +1,4 @@
-package comparators
+package srvcomparator
 
 import (
 	"testing"
@@ -10,7 +10,7 @@ import (
 )
 
 func TestServiceEnvComparatorCompareEnv(t *testing.T) {
-	comparator := &ServiceEnvComparator{}
+	comparator := &EnvComparator{}
 
 	testCases := []struct {
 		name      string
@@ -49,7 +49,7 @@ func TestServiceEnvComparatorCompareEnv(t *testing.T) {
 }
 
 func TestServiceEnvComparatorCompareSetsEnvironmentDiff(t *testing.T) {
-	comparator := &ServiceEnvComparator{}
+	comparator := &EnvComparator{}
 
 	leftService := compose.Service{
 		Environment: mustEnvironment(t, "A=1", "B=2"),
