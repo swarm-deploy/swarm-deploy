@@ -67,6 +67,27 @@ func (e Environment) MarshalYAML() (interface{}, error) {
 	return values, nil
 }
 
+func (e *Environment) IsEmpty() bool {
+	return len(e.Map) == 0
+}
+
+func (e *Environment) Clone() *Environment {
+	values := make(map[string]string, len(e.Map))
+	for k, v := range e.Map {
+		values[k] = v
+	}
+
+	return &Environment{
+		Map:   values,
+		isMap: e.isMap,
+	}
+}
+
+func (e *Environment) Has(key string) bool {
+	_, has := e.Map[key]
+	return has
+}
+
 func (e *Environment) unmarshalFromSequence(node *yaml.Node) error {
 	mmap := map[string]string{}
 
