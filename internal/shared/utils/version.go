@@ -1,4 +1,4 @@
-package imageref
+package utils
 
 import (
 	"strings"
@@ -12,8 +12,8 @@ const (
 	latestVersion   = "latest"
 )
 
-// Version returns a display version for an OCI/Docker image reference (tag or short digest).
-func Version(image string) string {
+// ImageVersion returns a display version for an OCI/Docker image reference (tag or short digest).
+func ImageVersion(image string) string {
 	s := strings.TrimSpace(image)
 	if s == "" {
 		return ""

@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
-	"github.com/swarm-deploy/swarm-deploy/internal/imageref"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/utils"
 )
 
 func (c *Controller) ListStacks() []StackView {
@@ -40,7 +40,7 @@ func (c *Controller) ListStacks() []StackView {
 			view.Services = append(view.Services, ServiceView{
 				Name:         serviceName,
 				Image:        service.Image,
-				ImageVersion: imageref.Version(service.Image),
+				ImageVersion: utils.ImageVersion(service.Image),
 				LastStatus:   service.LastStatus,
 				LastDeployAt: service.LastDeployAt,
 			})

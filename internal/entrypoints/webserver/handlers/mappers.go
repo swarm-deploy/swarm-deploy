@@ -9,10 +9,10 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller"
-	"github.com/swarm-deploy/swarm-deploy/internal/imageref"
 	"github.com/swarm-deploy/swarm-deploy/internal/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/service"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/service/stype"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/utils"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"github.com/swarm-deploy/webroute"
 )
@@ -115,7 +115,7 @@ func toGeneratedServiceDeployments(
 		return []generated.ServiceDeploymentResponse{}
 	}
 
-	imageVersion := imageref.Version(image)
+	imageVersion := utils.ImageVersion(image)
 	out := make([]generated.ServiceDeploymentResponse, 0, len(entries))
 
 	for idx := len(entries) - 1; idx >= 0; idx-- {
@@ -310,7 +310,7 @@ func toGeneratedServiceInfo(serviceInfo service.Info) generated.ServiceInfo {
 		Type:          toGeneratedServiceType(serviceInfo.Type),
 		TypeTitle:     serviceType.Title(serviceInfo.Type),
 		Image:         serviceInfo.Image,
-		ImageVersion:  imageref.Version(serviceInfo.Image),
+		ImageVersion:  utils.ImageVersion(serviceInfo.Image),
 		RepositoryURL: toOptString(serviceInfo.RepositoryURL),
 		Description:   toOptString(serviceInfo.Description),
 		WebRoutes:     toGeneratedWebRoutes(serviceInfo.WebRoutes),

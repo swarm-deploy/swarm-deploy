@@ -1,4 +1,4 @@
-package imageref
+package utils
 
 import (
 	"testing"
@@ -26,7 +26,7 @@ func TestVersion(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.image, func(t *testing.T) {
 			t.Parallel()
-			assert.Equal(t, tc.want, Version(tc.image))
+			assert.Equal(t, tc.want, ImageVersion(tc.image))
 		})
 	}
 }
