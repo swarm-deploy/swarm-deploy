@@ -2,6 +2,7 @@
 import { computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 
+import type { ServiceSyncStatus } from "../api/types";
 import { useOverviewStore } from "../stores/overview";
 
 const overviewStore = useOverviewStore();
@@ -47,6 +48,30 @@ async function openServiceDetails(stackName: string, serviceName: string) {
 onMounted(async () => {
   await overviewStore.loadOverview();
 });
+
+function syncStatusClass(status: ServiceSyncStatus | string | undefined): string {
+  const normalizedStatus = String(status || "").trim().toLowerCase();
+  if (normalizedStatus === "synced") {
+    return "success";
+  }
+  if (normalizedStatus === "outofsync") {
+    return "failed";
+  }
+
+  return "unknown";
+}
+
+function syncStatusLabel(status: ServiceSyncStatus | string | undefined): string {
+  const normalizedStatus = String(status || "").trim().toLowerCase();
+  if (normalizedStatus === "synced") {
+    return "Synced";
+  }
+  if (normalizedStatus === "outofsync") {
+    return "OutOfSync";
+  }
+
+  return "unknown";
+}
 </script>
 
 <template>
@@ -82,6 +107,7 @@ onMounted(async () => {
           <table class="container-status-table services-stack-table">
             <colgroup>
               <col class="services-col-name" />
+              <col class="services-col-sync-status" />
               <col class="services-col-type" />
               <col class="services-col-version" />
               <col class="services-col-actions" />
@@ -89,6 +115,7 @@ onMounted(async () => {
             <thead>
               <tr>
                 <th>Name</th>
+                <th>Sync Status</th>
                 <th>Type</th>
                 <th>Version</th>
                 <th />
@@ -96,11 +123,16 @@ onMounted(async () => {
             </thead>
             <tbody>
               <tr v-if="group.services.length === 0">
-                <td colspan="4" class="stack-service-empty-cell">No services captured yet.</td>
+                <td colspan="5" class="stack-service-empty-cell">No services captured yet.</td>
               </tr>
               <tr v-for="service in group.services" :key="`${group.stackName}-${service.name}`">
                 <td class="services-cell-name" :title="service.name || undefined">
                   <strong class="stack-service-name">{{ service.name || "unknown" }}</strong>
+                </td>
+                <td class="services-cell-sync-status">
+                  <span class="status" :class="syncStatusClass(service.sync_status)">
+                    {{ syncStatusLabel(service.sync_status) }}
+                  </span>
                 </td>
                 <td class="services-cell-type">{{ service.type_title || service.type }}</td>
                 <td class="services-cell-version" :title="service.image">{{ service.image_version || "—" }}</td>

@@ -315,18 +315,19 @@ func toGeneratedEventCategory(category events.Category) generated.EventCategory 
 	}
 }
 
-func toGeneratedServiceInfos(services []service.Info) []generated.ServiceInfo {
+func toGeneratedServiceInfos(services []service.Info, runtime model.Runtime) []generated.ServiceInfo {
 	mapped := make([]generated.ServiceInfo, 0, len(services))
 	for _, serviceInfo := range services {
-		mapped = append(mapped, toGeneratedServiceInfo(serviceInfo))
+		mapped = append(mapped, toGeneratedServiceInfo(serviceInfo, runtime))
 	}
 	return mapped
 }
 
-func toGeneratedServiceInfo(serviceInfo service.Info) generated.ServiceInfo {
+func toGeneratedServiceInfo(serviceInfo service.Info, runtime model.Runtime) generated.ServiceInfo {
 	return generated.ServiceInfo{
 		Name:          serviceInfo.Name,
 		Stack:         serviceInfo.Stack,
+		SyncStatus:    toGeneratedServiceSyncStatus(serviceInfo, runtime),
 		Type:          toGeneratedServiceType(serviceInfo.Type),
 		TypeTitle:     serviceType.Title(serviceInfo.Type),
 		Image:         serviceInfo.Image,
@@ -334,6 +335,27 @@ func toGeneratedServiceInfo(serviceInfo service.Info) generated.ServiceInfo {
 		RepositoryURL: toOptString(serviceInfo.RepositoryURL),
 		Description:   toOptString(serviceInfo.Description),
 		WebRoutes:     toGeneratedWebRoutes(serviceInfo.WebRoutes),
+	}
+}
+
+func toGeneratedServiceSyncStatus(serviceInfo service.Info, runtime model.Runtime) generated.ServiceSyncStatus {
+	stackState, exists := runtime.Stacks[serviceInfo.Stack]
+	if !exists {
+		return generated.ServiceSyncStatusUnknown
+	}
+
+	serviceState, exists := stackState.Services[serviceInfo.Name]
+	if !exists {
+		return generated.ServiceSyncStatusUnknown
+	}
+
+	switch serviceState.SyncStatus {
+	case model.SyncStatusSynced:
+		return generated.ServiceSyncStatusSynced
+	case model.SyncStatusOutOfSync:
+		return generated.ServiceSyncStatusOutOfSync
+	default:
+		return generated.ServiceSyncStatusUnknown
 	}
 }
 

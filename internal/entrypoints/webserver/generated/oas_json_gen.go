@@ -3748,6 +3748,10 @@ func (s *ServiceInfo) encodeFields(e *jx.Encoder) {
 		e.Str(s.Stack)
 	}
 	{
+		e.FieldStart("sync_status")
+		s.SyncStatus.Encode(e)
+	}
+	{
 		if s.Description.Set {
 			e.FieldStart("description")
 			s.Description.Encode(e)
@@ -3787,16 +3791,17 @@ func (s *ServiceInfo) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfServiceInfo = [9]string{
+var jsonFieldsNameOfServiceInfo = [10]string{
 	0: "name",
 	1: "stack",
-	2: "description",
-	3: "type",
-	4: "type_title",
-	5: "image",
-	6: "image_version",
-	7: "repository_url",
-	8: "web_routes",
+	2: "sync_status",
+	3: "description",
+	4: "type",
+	5: "type_title",
+	6: "image",
+	7: "image_version",
+	8: "repository_url",
+	9: "web_routes",
 }
 
 // Decode decodes ServiceInfo from json.
@@ -3832,6 +3837,16 @@ func (s *ServiceInfo) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"stack\"")
 			}
+		case "sync_status":
+			requiredBitSet[0] |= 1 << 2
+			if err := func() error {
+				if err := s.SyncStatus.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"sync_status\"")
+			}
 		case "description":
 			if err := func() error {
 				s.Description.Reset()
@@ -3843,7 +3858,7 @@ func (s *ServiceInfo) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"description\"")
 			}
 		case "type":
-			requiredBitSet[0] |= 1 << 3
+			requiredBitSet[0] |= 1 << 4
 			if err := func() error {
 				if err := s.Type.Decode(d); err != nil {
 					return err
@@ -3853,7 +3868,7 @@ func (s *ServiceInfo) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"type\"")
 			}
 		case "type_title":
-			requiredBitSet[0] |= 1 << 4
+			requiredBitSet[0] |= 1 << 5
 			if err := func() error {
 				v, err := d.Str()
 				s.TypeTitle = string(v)
@@ -3865,7 +3880,7 @@ func (s *ServiceInfo) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"type_title\"")
 			}
 		case "image":
-			requiredBitSet[0] |= 1 << 5
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				v, err := d.Str()
 				s.Image = string(v)
@@ -3877,7 +3892,7 @@ func (s *ServiceInfo) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"image\"")
 			}
 		case "image_version":
-			requiredBitSet[0] |= 1 << 6
+			requiredBitSet[0] |= 1 << 7
 			if err := func() error {
 				v, err := d.Str()
 				s.ImageVersion = string(v)
@@ -3925,7 +3940,7 @@ func (s *ServiceInfo) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
-		0b01111011,
+		0b11110111,
 		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
@@ -5114,6 +5129,48 @@ func (s *ServiceStatusResponse) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *ServiceStatusResponse) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode encodes ServiceSyncStatus as json.
+func (s ServiceSyncStatus) Encode(e *jx.Encoder) {
+	e.Str(string(s))
+}
+
+// Decode decodes ServiceSyncStatus from json.
+func (s *ServiceSyncStatus) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ServiceSyncStatus to nil")
+	}
+	v, err := d.StrBytes()
+	if err != nil {
+		return err
+	}
+	// Try to use constant string.
+	switch ServiceSyncStatus(v) {
+	case ServiceSyncStatusSynced:
+		*s = ServiceSyncStatusSynced
+	case ServiceSyncStatusOutOfSync:
+		*s = ServiceSyncStatusOutOfSync
+	case ServiceSyncStatusUnknown:
+		*s = ServiceSyncStatusUnknown
+	default:
+		*s = ServiceSyncStatus(v)
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s ServiceSyncStatus) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ServiceSyncStatus) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }

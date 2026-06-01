@@ -449,7 +449,11 @@ button:hover,
 }
 
 .services-stack-table .services-col-name {
-  width: 38%;
+  width: 30%;
+}
+
+.services-stack-table .services-col-sync-status {
+  width: 17%;
 }
 
 .services-stack-table .services-col-type {
@@ -457,7 +461,7 @@ button:hover,
 }
 
 .services-stack-table .services-col-version {
-  width: 35%;
+  width: 26%;
 }
 
 .services-stack-table .services-col-actions {
@@ -465,12 +469,17 @@ button:hover,
 }
 
 .services-stack-table .services-cell-name,
+.services-stack-table .services-cell-sync-status,
 .services-stack-table .services-cell-type,
 .services-stack-table .services-cell-version {
   max-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.services-stack-table .services-cell-sync-status {
+  min-width: 0;
 }
 
 .services-stack-table .stack-service-name {

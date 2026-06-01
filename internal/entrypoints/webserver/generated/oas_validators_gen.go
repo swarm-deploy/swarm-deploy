@@ -646,6 +646,17 @@ func (s *ServiceInfo) Validate() error {
 
 	var failures []validate.FieldError
 	if err := func() error {
+		if err := s.SyncStatus.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "sync_status",
+			Error: err,
+		})
+	}
+	if err := func() error {
 		if err := s.Type.Validate(); err != nil {
 			return err
 		}
@@ -844,6 +855,19 @@ func (s *ServiceStatusResponse) Validate() error {
 		return &validate.Error{Fields: failures}
 	}
 	return nil
+}
+
+func (s ServiceSyncStatus) Validate() error {
+	switch s {
+	case "Synced":
+		return nil
+	case "OutOfSync":
+		return nil
+	case "unknown":
+		return nil
+	default:
+		return errors.Errorf("invalid value: %v", s)
+	}
 }
 
 func (s *ServicesResponse) Validate() error {

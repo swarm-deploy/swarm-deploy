@@ -341,12 +341,14 @@ components:
             $ref: '#/components/schemas/ServiceInfo'
     ServiceInfo:
       type: object
-      required: [name, stack, type, type_title, image, image_version]
+      required: [name, stack, sync_status, type, type_title, image, image_version]
       properties:
         name:
           type: string
         stack:
           type: string
+        sync_status:
+          $ref: '#/components/schemas/ServiceSyncStatus'
         description:
           type: string
         type:
@@ -366,6 +368,9 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/WebRoute'
+    ServiceSyncStatus:
+      type: string
+      enum: [Synced, OutOfSync, unknown]
     WebRoute:
       type: object
       required: [domain, address, port]

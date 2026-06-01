@@ -41,6 +41,7 @@ export interface GitCommitDetailsResponse {
 }
 
 export type ServiceType = "application" | "monitoring" | "delivery" | "reverseProxy" | "database";
+export type ServiceSyncStatus = "Synced" | "OutOfSync" | "unknown";
 
 export interface WebRoute {
   domain: string;
@@ -51,6 +52,7 @@ export interface WebRoute {
 export interface ServiceInfo {
   name: string;
   stack: string;
+  sync_status: ServiceSyncStatus;
   type: ServiceType;
   type_title: string;
   image: string;

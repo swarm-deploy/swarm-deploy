@@ -1799,10 +1799,11 @@ func (s *ServiceDeploymentsResponse) SetDeployments(val []ServiceDeploymentRespo
 
 // Ref: #/components/schemas/ServiceInfo
 type ServiceInfo struct {
-	Name        string          `json:"name"`
-	Stack       string          `json:"stack"`
-	Description OptString       `json:"description"`
-	Type        ServiceInfoType `json:"type"`
+	Name        string            `json:"name"`
+	Stack       string            `json:"stack"`
+	SyncStatus  ServiceSyncStatus `json:"sync_status"`
+	Description OptString         `json:"description"`
+	Type        ServiceInfoType   `json:"type"`
 	// Human-readable title for the service type enum.
 	TypeTitle string `json:"type_title"`
 	Image     string `json:"image"`
@@ -1820,6 +1821,11 @@ func (s *ServiceInfo) GetName() string {
 // GetStack returns the value of Stack.
 func (s *ServiceInfo) GetStack() string {
 	return s.Stack
+}
+
+// GetSyncStatus returns the value of SyncStatus.
+func (s *ServiceInfo) GetSyncStatus() ServiceSyncStatus {
+	return s.SyncStatus
 }
 
 // GetDescription returns the value of Description.
@@ -1865,6 +1871,11 @@ func (s *ServiceInfo) SetName(val string) {
 // SetStack sets the value of Stack.
 func (s *ServiceInfo) SetStack(val string) {
 	s.Stack = val
+}
+
+// SetSyncStatus sets the value of SyncStatus.
+func (s *ServiceInfo) SetSyncStatus(val ServiceSyncStatus) {
+	s.SyncStatus = val
 }
 
 // SetDescription sets the value of Description.
@@ -2324,6 +2335,55 @@ func (s *ServiceStatusResponse) SetService(val string) {
 // SetSpec sets the value of Spec.
 func (s *ServiceStatusResponse) SetSpec(val ServiceSpecResponse) {
 	s.Spec = val
+}
+
+// Ref: #/components/schemas/ServiceSyncStatus
+type ServiceSyncStatus string
+
+const (
+	ServiceSyncStatusSynced    ServiceSyncStatus = "Synced"
+	ServiceSyncStatusOutOfSync ServiceSyncStatus = "OutOfSync"
+	ServiceSyncStatusUnknown   ServiceSyncStatus = "unknown"
+)
+
+// AllValues returns all ServiceSyncStatus values.
+func (ServiceSyncStatus) AllValues() []ServiceSyncStatus {
+	return []ServiceSyncStatus{
+		ServiceSyncStatusSynced,
+		ServiceSyncStatusOutOfSync,
+		ServiceSyncStatusUnknown,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s ServiceSyncStatus) MarshalText() ([]byte, error) {
+	switch s {
+	case ServiceSyncStatusSynced:
+		return []byte(s), nil
+	case ServiceSyncStatusOutOfSync:
+		return []byte(s), nil
+	case ServiceSyncStatusUnknown:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *ServiceSyncStatus) UnmarshalText(data []byte) error {
+	switch ServiceSyncStatus(data) {
+	case ServiceSyncStatusSynced:
+		*s = ServiceSyncStatusSynced
+		return nil
+	case ServiceSyncStatusOutOfSync:
+		*s = ServiceSyncStatusOutOfSync
+		return nil
+	case ServiceSyncStatusUnknown:
+		*s = ServiceSyncStatusUnknown
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
 }
 
 // Ref: #/components/schemas/ServicesResponse
