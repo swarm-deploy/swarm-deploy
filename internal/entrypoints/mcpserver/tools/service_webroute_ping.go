@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
-	"github.com/swarm-deploy/swarm-deploy/internal/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 )
 
 const webRoutePingTimeout = 5 * time.Second

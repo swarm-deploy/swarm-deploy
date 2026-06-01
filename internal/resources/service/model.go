@@ -1,7 +1,7 @@
 package service
 
 import (
-	serviceType "github.com/swarm-deploy/swarm-deploy/internal/service/stype"
+	serviceType "github.com/swarm-deploy/swarm-deploy/internal/resources/service/stype"
 	"github.com/swarm-deploy/webroute"
 )
 

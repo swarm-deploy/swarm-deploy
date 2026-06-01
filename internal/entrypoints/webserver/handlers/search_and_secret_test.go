@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
-	"github.com/swarm-deploy/swarm-deploy/internal/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"github.com/swarm-deploy/webroute"
 	"go.uber.org/mock/gomock"

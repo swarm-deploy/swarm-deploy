@@ -1,8 +1,8 @@
 package service
 
 import (
-	serviceDescription "github.com/swarm-deploy/swarm-deploy/internal/service/description"
-	serviceType "github.com/swarm-deploy/swarm-deploy/internal/service/stype"
+	serviceDescription "github.com/swarm-deploy/swarm-deploy/internal/resources/service/description"
+	serviceType "github.com/swarm-deploy/swarm-deploy/internal/resources/service/stype"
 )
 
 // Labels groups metadata labels from different inspection scopes.

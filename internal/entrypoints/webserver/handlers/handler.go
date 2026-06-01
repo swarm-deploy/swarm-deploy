@@ -7,7 +7,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
 	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/resources/node"
-	"github.com/swarm-deploy/swarm-deploy/internal/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 

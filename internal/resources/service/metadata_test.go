@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	serviceType "github.com/swarm-deploy/swarm-deploy/internal/service/stype"
+	serviceType "github.com/swarm-deploy/swarm-deploy/internal/resources/service/stype"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 )
 

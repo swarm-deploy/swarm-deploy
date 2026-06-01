@@ -35,8 +35,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/resources/node"
+	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
-	"github.com/swarm-deploy/swarm-deploy/internal/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 

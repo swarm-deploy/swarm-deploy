@@ -10,7 +10,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/assistant/guard"
 	"github.com/swarm-deploy/swarm-deploy/internal/assistant/rag"
-	"github.com/swarm-deploy/swarm-deploy/internal/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 	"github.com/tmc/langchaingo/llms"
 	langgraph "github.com/tmc/langgraphgo/graph"
 )
