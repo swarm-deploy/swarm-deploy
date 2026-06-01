@@ -14,6 +14,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller/statem"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -191,7 +192,7 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 		)
 		c.metrics.Git.RecordGitUpdate(c.cfg.Spec.Git.Repository, "error")
 		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
-		c.updateState(func(s *statem.Runtime) {
+		c.updateState(func(s *model.Runtime) {
 			s.LastSyncAt = time.Now()
 			s.LastSyncReason = string(task.reason)
 			s.LastSyncResult = syncRunResultError
@@ -216,7 +217,7 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 			slog.Any("err", reloadNetworksErr),
 		)
 		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
-		c.stateStore.Update(func(s *statem.Runtime) {
+		c.stateStore.Update(func(s *model.Runtime) {
 			s.LastSyncAt = time.Now()
 			s.LastSyncReason = string(task.reason)
 			s.LastSyncResult = syncRunResultError
@@ -240,7 +241,7 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 			slog.Any("err", reconcileNetworksErr),
 		)
 		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
-		c.stateStore.Update(func(s *statem.Runtime) {
+		c.stateStore.Update(func(s *model.Runtime) {
 			s.LastSyncAt = time.Now()
 			s.LastSyncReason = string(task.reason)
 			s.LastSyncResult = syncRunResultError
@@ -258,7 +259,7 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 			slog.Any("err", reloadErr),
 		)
 		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
-		c.updateState(func(s *statem.Runtime) {
+		c.updateState(func(s *model.Runtime) {
 			s.LastSyncAt = time.Now()
 			s.LastSyncReason = string(task.reason)
 			s.LastSyncResult = syncRunResultError
@@ -276,7 +277,7 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 	if !syncResult.Updated && task.reason != TriggerManual {
 		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultNoChange, time.Since(startedAt))
 		currTime := time.Now()
-		c.updateState(func(s *statem.Runtime) {
+		c.updateState(func(s *model.Runtime) {
 			s.LastSyncAt = currTime
 			s.LastSyncReason = string(task.reason)
 			s.LastSyncResult = syncRunResultNoChange
@@ -312,7 +313,7 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 	}
 
 	c.metrics.Sync.RecordSyncRun(string(task.reason), result, time.Since(startedAt))
-	c.updateState(func(s *statem.Runtime) {
+	c.updateState(func(s *model.Runtime) {
 		s.LastSyncAt = time.Now()
 		s.LastSyncReason = string(task.reason)
 		s.LastSyncResult = result
@@ -347,9 +348,9 @@ func (c *Controller) syncStack(
 	}
 
 	now := time.Now()
-	servicesState := map[string]statem.Service{}
+	servicesState := map[string]model.Service{}
 	for _, service := range reconcileResult.Services {
-		servicesState[service.Name] = statem.Service{
+		servicesState[service.Name] = model.Service{
 			Image:        service.Image,
 			LastStatus:   "success",
 			LastDeployAt: now,
@@ -357,8 +358,8 @@ func (c *Controller) syncStack(
 		c.metrics.Deploys.RecordDeploy(stackCfg.Name, service.Name, "success")
 	}
 
-	c.updateState(func(s *statem.Runtime) {
-		s.Stacks[stackCfg.Name] = statem.Stack{
+	c.updateState(func(s *model.Runtime) {
+		s.Stacks[stackCfg.Name] = model.Stack{
 			SourceDigest: reconcileResult.SourceDigest,
 			LastCommit:   commit,
 			LastStatus:   "success",
@@ -389,9 +390,9 @@ func (c *Controller) dispatchPrunedEvents(ctx context.Context, stackName string,
 
 func (c *Controller) recordStackFailure(stackName, commit string, services []compose.Service, reason error) {
 	now := time.Now()
-	servicesState := map[string]statem.Service{}
+	servicesState := map[string]model.Service{}
 	for _, service := range services {
-		servicesState[service.Name] = statem.Service{
+		servicesState[service.Name] = model.Service{
 			Image:        service.Image,
 			LastStatus:   "failed",
 			LastDeployAt: now,
@@ -402,8 +403,8 @@ func (c *Controller) recordStackFailure(stackName, commit string, services []com
 		c.metrics.Deploys.RecordDeploy(stackName, "unknown", "failed")
 	}
 
-	c.updateState(func(s *statem.Runtime) {
-		s.Stacks[stackName] = statem.Stack{
+	c.updateState(func(s *model.Runtime) {
+		s.Stacks[stackName] = model.Stack{
 			SourceDigest: "",
 			LastCommit:   commit,
 			LastStatus:   "failed",

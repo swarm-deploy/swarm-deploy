@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller/statem"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/imageref"
 )
 
@@ -66,10 +66,10 @@ func (c *Controller) LastSyncInfo() map[string]string {
 	return info
 }
 
-func (c *Controller) snapshotState() statem.Runtime {
+func (c *Controller) snapshotState() model.Runtime {
 	return c.stateStore.Get()
 }
 
-func (c *Controller) updateState(fn func(*statem.Runtime)) {
+func (c *Controller) updateState(fn func(*model.Runtime)) {
 	c.stateStore.Update(fn)
 }

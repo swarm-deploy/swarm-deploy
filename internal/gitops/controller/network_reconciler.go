@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
-	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller/statem"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -156,15 +156,15 @@ func (c *Controller) reloadNetworks() (string, error) {
 
 func (c *Controller) syncNetworks(ctx context.Context, commit string) error {
 	if len(c.cfg.Spec.Networks) == 0 {
-		c.stateStore.Update(func(s *statem.Runtime) {
-			s.Networks = map[string]statem.Network{}
+		c.stateStore.Update(func(s *model.Runtime) {
+			s.Networks = map[string]model.Network{}
 		})
 		return nil
 	}
 
 	currentState := c.snapshotState()
 	syncedAt := time.Now()
-	nextState := make(map[string]statem.Network, len(c.cfg.Spec.Networks))
+	nextState := make(map[string]model.Network, len(c.cfg.Spec.Networks))
 	var reconcileErrs []error
 	for _, networkCfg := range c.cfg.Spec.Networks {
 		if previousState, exists := currentState.Networks[networkCfg.Name]; exists {
@@ -177,7 +177,7 @@ func (c *Controller) syncNetworks(ctx context.Context, commit string) error {
 
 		skipped, err := c.networkReconciler.Reconcile(ctx, networkCfg)
 
-		networkState := statem.Network{
+		networkState := model.Network{
 			Driver:     networkCfg.Driver,
 			LastCommit: commit,
 			LastStatus: "success",
@@ -198,7 +198,7 @@ func (c *Controller) syncNetworks(ctx context.Context, commit string) error {
 		nextState[networkCfg.Name] = networkState
 	}
 
-	c.stateStore.Update(func(s *statem.Runtime) {
+	c.stateStore.Update(func(s *model.Runtime) {
 		s.Networks = nextState
 	})
 

@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller/statem"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
@@ -214,8 +215,8 @@ func TestControllerSyncNetworksStoresFailedState(t *testing.T) {
 
 func TestControllerSyncNetworksClearsStateWhenNetworksListIsEmpty(t *testing.T) {
 	store := statem.NewMemoryStore()
-	store.Update(func(s *statem.Runtime) {
-		s.Networks["legacy"] = statem.Network{
+	store.Update(func(s *model.Runtime) {
+		s.Networks["legacy"] = model.Network{
 			Driver:     "overlay",
 			LastStatus: "success",
 		}
@@ -240,8 +241,8 @@ func TestControllerSyncNetworksClearsStateWhenNetworksListIsEmpty(t *testing.T) 
 
 func TestControllerSyncNetworksSkipsReconcileWhenStateAlreadySyncedForCommit(t *testing.T) {
 	store := statem.NewMemoryStore()
-	store.Update(func(s *statem.Runtime) {
-		s.Networks["app_backend"] = statem.Network{
+	store.Update(func(s *model.Runtime) {
+		s.Networks["app_backend"] = model.Network{
 			Driver:     "overlay",
 			LastCommit: "commit-4",
 			LastStatus: "success",

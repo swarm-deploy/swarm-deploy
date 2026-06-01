@@ -1,4 +1,4 @@
-package statem
+package model
 
 import "time"
 
@@ -56,10 +56,11 @@ type Runtime struct {
 	Networks map[string]Network `json:"networks"`
 }
 
-func cloneRuntime(state Runtime) Runtime {
-	cloned := state
+func (r *Runtime) Clone() Runtime {
+	cloned := *r
 	cloned.Stacks = map[string]Stack{}
-	for stackName, stack := range state.Stacks {
+
+	for stackName, stack := range r.Stacks {
 		stackCopy := stack
 		stackCopy.Services = map[string]Service{}
 		for serviceName, service := range stack.Services {
@@ -68,7 +69,7 @@ func cloneRuntime(state Runtime) Runtime {
 		cloned.Stacks[stackName] = stackCopy
 	}
 	cloned.Networks = map[string]Network{}
-	for networkName, network := range state.Networks {
+	for networkName, network := range r.Networks {
 		cloned.Networks[networkName] = network
 	}
 

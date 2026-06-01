@@ -3,6 +3,8 @@ package statem
 import (
 	"log/slog"
 	"time"
+
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
 )
 
 type WarmupStore struct {
@@ -22,7 +24,7 @@ func NewWarmupStore(hot Store, cold Store) *WarmupStore {
 	return s
 }
 
-func (s *WarmupStore) Get() Runtime {
+func (s *WarmupStore) Get() model.Runtime {
 	return s.hot.Get()
 }
 
@@ -33,14 +35,14 @@ func (s *WarmupStore) Stop() {
 	s.cold.Stop()
 }
 
-func (s *WarmupStore) Update(fn func(*Runtime)) {
+func (s *WarmupStore) Update(fn func(*model.Runtime)) {
 	s.hot.Update(fn)
 }
 
 func (s *WarmupStore) Warmup() {
 	val := s.cold.Get()
 
-	s.hot.Update(func(runtime *Runtime) {
+	s.hot.Update(func(runtime *model.Runtime) {
 		*runtime = val
 	})
 }
@@ -61,7 +63,7 @@ func (s *WarmupStore) Sync() {
 				continue
 			}
 
-			s.cold.Update(func(runtime *Runtime) {
+			s.cold.Update(func(runtime *model.Runtime) {
 				*runtime = val
 			})
 		}

@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
 )
 
 const fileModePrivate = 0o600
@@ -16,16 +18,16 @@ const fileModePrivate = 0o600
 type FileStore struct {
 	mu    sync.RWMutex
 	path  string
-	state Runtime
+	state model.Runtime
 }
 
 // NewFileStore creates a file-backed runtime state store and loads current state from disk.
 func NewFileStore(path string) (*FileStore, error) {
 	s := &FileStore{
 		path: path,
-		state: Runtime{
-			Stacks:   map[string]Stack{},
-			Networks: map[string]Network{},
+		state: model.Runtime{
+			Stacks:   map[string]model.Stack{},
+			Networks: map[string]model.Network{},
 		},
 	}
 
@@ -37,15 +39,15 @@ func NewFileStore(path string) (*FileStore, error) {
 }
 
 // Get returns a snapshot copy of current runtime state.
-func (s *FileStore) Get() Runtime {
+func (s *FileStore) Get() model.Runtime {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	return cloneRuntime(s.state)
+	return s.state.Clone()
 }
 
 // Update applies state mutation and persists updated runtime state to disk.
-func (s *FileStore) Update(fn func(*Runtime)) {
+func (s *FileStore) Update(fn func(*model.Runtime)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -82,15 +84,15 @@ func (s *FileStore) load() error {
 		return nil
 	}
 
-	var decoded Runtime
+	var decoded model.Runtime
 	if unmarshalErr := json.Unmarshal(payload, &decoded); unmarshalErr != nil {
 		return fmt.Errorf("decode runtime state file: %w", unmarshalErr)
 	}
 	if decoded.Stacks == nil {
-		decoded.Stacks = map[string]Stack{}
+		decoded.Stacks = map[string]model.Stack{}
 	}
 	if decoded.Networks == nil {
-		decoded.Networks = map[string]Network{}
+		decoded.Networks = map[string]model.Network{}
 	}
 
 	s.state = decoded
