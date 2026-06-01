@@ -127,10 +127,10 @@ func NewApplication(
 	return &Application{
 		server: &http.Server{
 			Addr: address,
-			Handler: middlewares.NewLog(
+			Handler: middlewares.Recovery(middlewares.NewLog(
 				middlewares.Authorize(rootHandler, auth, eventDispatcher),
 				apiHandler.FindRoute,
-			),
+			)),
 			ReadHeaderTimeout: readHeaderTimeout,
 		},
 	}, nil

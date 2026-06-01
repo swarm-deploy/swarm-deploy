@@ -152,6 +152,10 @@ func (s ServiceNetworks) MarshalYAML() (interface{}, error) {
 }
 
 func (s *ServiceNetworks) HasAlias(alias string) bool {
+	if s == nil {
+		return false
+	}
+
 	_, has := s.AliasMap[alias]
 	return has
 }
