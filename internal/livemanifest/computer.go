@@ -160,8 +160,13 @@ func (c *Computer) mapRawServiceSpec(
 	}
 
 	deploy := toComposeDeploy(live.ServiceSpec)
-	if len(live.Labels) > 0 {
-		deploy.Labels = *compose.NewLabels(live.Labels)
+	serviceLabels := live.Labels
+	if len(serviceLabels) == 0 {
+		serviceLabels = live.ServiceSpec.Labels
+	}
+
+	if len(serviceLabels) > 0 {
+		deploy.Labels = *compose.NewLabels(serviceLabels)
 	}
 	service.Deploy = deploy
 
