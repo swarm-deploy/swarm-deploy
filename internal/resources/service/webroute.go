@@ -46,7 +46,7 @@ func (r *WebRouteResolver) Resolve(containerEnv []string) []webroute.Route {
 		}
 
 		for _, route := range prRoutes {
-			key := route.Domain + "\x00" + route.Address + "\x00" + route.Port
+			key := route.Domain + "-" + route.Address + "-" + route.Port
 			if _, ok := seen[key]; ok {
 				continue
 			}
