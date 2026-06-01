@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 
+	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"gopkg.in/yaml.v3"
 )
 
@@ -14,26 +15,14 @@ type ServicePorts struct {
 }
 
 type ServicePort struct {
-	Published   int          `yaml:"published" json:"published"`
-	Target      int          `yaml:"target" json:"target"`
-	Protocol    PortProtocol `yaml:"protocol,omitempty" json:"protocol,omitempty"`
-	AppProtocol string       `yaml:"app_protocol,omitempty" json:"app_protocol,omitempty"`
-	Mode        string       `yaml:"mode,omitempty" json:"mode,omitempty"`
-	HostIP      string       `yaml:"host_ip,omitempty" json:"host_ip,omitempty"`
+	Published   int                            `yaml:"published" json:"published"`
+	Target      int                            `yaml:"target" json:"target"`
+	Protocol    dockerswarm.PortConfigProtocol `yaml:"protocol,omitempty" json:"protocol,omitempty"`
+	AppProtocol string                         `yaml:"app_protocol,omitempty" json:"app_protocol,omitempty"`
+	Mode        string                         `yaml:"mode,omitempty" json:"mode,omitempty"`
+	HostIP      string                         `yaml:"host_ip,omitempty" json:"host_ip,omitempty"`
 
 	Extra map[string]interface{} `yaml:",inline"`
-}
-
-type PortProtocol string
-
-const (
-	PortProtocolTCP  PortProtocol = "tcp"
-	PortProtocolUDP  PortProtocol = "udp"
-	PortProtocolSctp PortProtocol = "sctp"
-)
-
-func (p PortProtocol) Valid() bool {
-	return p == PortProtocolTCP || p == PortProtocolUDP || p == PortProtocolSctp
 }
 
 func (sp *ServicePorts) UnmarshalYAML(root *yaml.Node) error { //nolint:gocognit // not need
@@ -128,7 +117,7 @@ func (sp *ServicePorts) parseStringView(s string) (*ServicePort, error) {
 			intVal = 0
 		case '/':
 			port.Target = intVal
-			port.Protocol = PortProtocol(s[i+1:])
+			port.Protocol = dockerswarm.PortConfigProtocol(s[i+1:])
 			return &port, nil
 		default:
 			if char < '0' || char > '9' {
@@ -148,7 +137,7 @@ func (sp *ServicePorts) parseStringView(s string) (*ServicePort, error) {
 	}
 
 	if port.Protocol == "" {
-		port.Protocol = PortProtocolTCP
+		port.Protocol = dockerswarm.PortConfigProtocolTCP
 	}
 
 	return &port, nil
@@ -158,6 +147,6 @@ func defaultServicePort(published, target int) ServicePort {
 	return ServicePort{
 		Published: published,
 		Target:    target,
-		Protocol:  PortProtocolTCP,
+		Protocol:  dockerswarm.PortConfigProtocolTCP,
 	}
 }

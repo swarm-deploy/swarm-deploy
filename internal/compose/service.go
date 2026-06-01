@@ -23,6 +23,7 @@ type Service struct {
 	InitJobs    []InitJob        `yaml:"x-init-deploy-jobs,omitempty" json:"init_jobs,omitempty"`
 	Deploy      ServiceDeploy    `yaml:"deploy,omitempty" json:"deploy"`
 	Logging     ServiceLogging   `yaml:"logging,omitempty" json:"logging,omitempty"`
+	Volumes     ServiceVolumes   `yaml:"volumes,omitempty" json:"volumes"`
 
 	Extra map[string]interface{} `yaml:",inline"`
 }
