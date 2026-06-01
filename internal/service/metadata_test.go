@@ -5,6 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/service/stype"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 )
 
 func TestMetadataExtractorResolveTypePriority(t *testing.T) {
@@ -21,10 +22,10 @@ func TestMetadataExtractorResolveTypePriority(t *testing.T) {
 			image: "docker.io/library/postgres:16",
 			labels: Labels{
 				Service: map[string]string{
-					labelServiceType: "monitoring",
+					labelsdict.ServiceType: "monitoring",
 				},
 				Container: map[string]string{
-					labelServiceType: "database",
+					labelsdict.ServiceType: "database",
 				},
 			},
 			expected: serviceType.Monitoring,
@@ -34,10 +35,10 @@ func TestMetadataExtractorResolveTypePriority(t *testing.T) {
 			image: "docker.io/library/postgres:16",
 			labels: Labels{
 				Service: map[string]string{
-					labelServiceType: "invalid",
+					labelsdict.ServiceType: "invalid",
 				},
 				Container: map[string]string{
-					labelServiceType: "delivery",
+					labelsdict.ServiceType: "delivery",
 				},
 			},
 			expected: serviceType.Delivery,

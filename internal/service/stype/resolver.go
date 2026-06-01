@@ -4,11 +4,11 @@ import (
 	"strings"
 
 	"github.com/distribution/reference"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 )
 
 const (
 	// LabelService is a service/container label with service type value.
-	LabelService       = "org.swarm-deploy.service.type"
 	imageRefSplitParts = 2
 )
 
@@ -90,7 +90,7 @@ func resolveFromLabels(labels Labels) (Type, bool) {
 			continue
 		}
 
-		value := strings.TrimSpace(source[LabelService])
+		value := strings.TrimSpace(source[labelsdict.ServiceType])
 		if value == "" {
 			continue
 		}

@@ -5,10 +5,6 @@ import (
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/service/stype"
 )
 
-const (
-	labelServiceType = serviceType.LabelService
-)
-
 // Labels groups metadata labels from different inspection scopes.
 type Labels struct {
 	// Service contains labels from docker service annotations.
