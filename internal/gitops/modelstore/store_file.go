@@ -1,4 +1,4 @@
-package statem
+package modelstore
 
 import (
 	"encoding/json"

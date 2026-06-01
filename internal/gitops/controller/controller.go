@@ -12,9 +12,9 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
-	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller/statem"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -65,7 +65,7 @@ type Controller struct {
 	metrics  *metrics.Group
 	event    dispatcher.Dispatcher
 
-	stateStore        statem.Store
+	stateStore        modelstore.Store
 	networkReconciler *networkReconciler
 	stackReconciler   *stackReconciler
 
@@ -84,7 +84,7 @@ func New(
 	deployer *deployer.Deployer,
 	metricGroup *metrics.Group,
 	eventDispatcher dispatcher.Dispatcher,
-	stateStore statem.Store,
+	stateStore modelstore.Store,
 ) *Controller {
 	return &Controller{
 		cfg:        cfg,

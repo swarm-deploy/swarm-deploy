@@ -10,8 +10,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller"
-	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller/statem"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -222,6 +222,6 @@ func newControllerWithStacks(stacks []config.StackSpec) *controller.Controller {
 		nil,
 		nil,
 		nil,
-		statem.NewMemoryStore(),
+		modelstore.NewMemoryStore(),
 	)
 }

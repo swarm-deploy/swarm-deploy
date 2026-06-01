@@ -29,9 +29,9 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/event/notifiers"
 	notify2 "github.com/swarm-deploy/swarm-deploy/internal/event/notify"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller"
-	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller/statem"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/differ"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/resources/node"
@@ -129,13 +129,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	stateFileStore, err := statem.NewFileStore(filepath.Join(cfg.Spec.DataDir, "controller.state.json"))
+	stateFileStore, err := modelstore.NewFileStore(filepath.Join(cfg.Spec.DataDir, "controller.state.json"))
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to build controller file state", slog.Any("err", err))
 		os.Exit(1)
 	}
 
-	stateStore := statem.NewWarmupStore(statem.NewMemoryStore(), stateFileStore)
+	stateStore := modelstore.NewWarmupStore(modelstore.NewMemoryStore(), stateFileStore)
 	stateStore.Warmup()
 
 	control := controller.New(

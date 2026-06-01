@@ -1,4 +1,4 @@
-package statem
+package modelstore
 
 import "github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
 
