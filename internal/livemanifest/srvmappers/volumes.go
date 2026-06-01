@@ -30,10 +30,11 @@ func (m *VolumesMapper) mapVolumes(rawMounts []mount.Mount) compose.ServiceVolum
 
 	for _, rawMount := range rawMounts {
 		volume := &compose.ServiceVolume{
-			Type:     compose.ServiceVolumeType(rawMount.Type),
-			Source:   rawMount.Source,
-			Target:   rawMount.Target,
-			ReadOnly: rawMount.ReadOnly,
+			Type:        compose.ServiceVolumeType(rawMount.Type),
+			Source:      rawMount.Source,
+			Target:      rawMount.Target,
+			ReadOnly:    rawMount.ReadOnly,
+			Consistency: rawMount.Consistency,
 		}
 
 		if rawMount.BindOptions != nil {
