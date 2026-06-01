@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
-	"github.com/swarm-deploy/swarm-deploy/internal/differ/diff"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/differ/diff"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
 )
 

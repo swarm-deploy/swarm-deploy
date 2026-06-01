@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	diffmodel "github.com/swarm-deploy/swarm-deploy/internal/differ/diff"
+	diffmodel "github.com/swarm-deploy/swarm-deploy/internal/gitops/differ/diff"
 )
 
 func TestDifferCompareServiceChanges(t *testing.T) {

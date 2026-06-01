@@ -4,10 +4,10 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/differ/srvcomparator"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/differ/srvcomparator"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
-	"github.com/swarm-deploy/swarm-deploy/internal/differ/diff"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/differ/diff"
 )
 
 // ComposeFile contains old/new compose snapshots for one stack.

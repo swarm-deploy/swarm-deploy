@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
-	"github.com/swarm-deploy/swarm-deploy/internal/differ/diff"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/differ/diff"
 )
 
 func TestServiceEnvComparatorCompareEnv(t *testing.T) {

@@ -2,7 +2,7 @@ package srvcomparator
 
 import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
-	"github.com/swarm-deploy/swarm-deploy/internal/differ/diff"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/differ/diff"
 )
 
 type EnvComparator struct{}
