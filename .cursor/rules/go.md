@@ -21,6 +21,7 @@ apply: by file patterns
 - For asserts use library `github.com/stretchr/testify/assert`. Example: `assert.Equal(t, 123, 123, "they should be equal")`
 - For stoppable asserts use library `github.com/stretchr/testify/require`. Example: `require.Equal(t, 123, 123, "they should be equal")`
 - For mocking use `go.uber.org/mock/gomock`
+- Use table-driven pattern
 
 # Configuration / Environment
 - Environment variables are described in the `Config` structure
