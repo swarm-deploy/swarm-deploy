@@ -63,7 +63,3 @@ func (m *VolumesMapper) mapVolumes(rawMounts []mount.Mount) compose.ServiceVolum
 
 	return mapped
 }
-
-func ptr[t any](v t) *t {
-	return &v
-}
