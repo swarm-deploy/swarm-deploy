@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted } from "vue";
 
+import type { StackStatus } from "../api/types";
 import { useOverviewStore } from "../stores/overview";
 import { formatDate, shortCommitHash } from "../utils/format";
 
@@ -11,8 +12,29 @@ let refreshTimer: ReturnType<typeof setInterval> | undefined;
 const syncInfo = computed(() => overviewStore.syncInfo);
 const syncRevision = computed(() => String(syncInfo.value?.git_revision ?? "").trim());
 
-function isStatusClass(status: string, expected: string): boolean {
-  return status.toLowerCase() === expected;
+function normalizeStackStatus(status?: StackStatus | null): StackStatus {
+  return {
+    synced: Number(status?.synced ?? 0),
+    out_of_synced: Number(status?.out_of_synced ?? 0),
+  };
+}
+
+function stackStatusClass(status?: StackStatus | null): string {
+  const normalizedStatus = normalizeStackStatus(status);
+  if (normalizedStatus.out_of_synced > 0) {
+    return "failed";
+  }
+  if (normalizedStatus.synced > 0) {
+    return "success";
+  }
+
+  return "unknown";
+}
+
+function stackStatusLabel(status?: StackStatus | null): string {
+  const normalizedStatus = normalizeStackStatus(status);
+
+  return `synced ${normalizedStatus.synced} | out of sync ${normalizedStatus.out_of_synced}`;
 }
 
 async function openCommitDetails(commitHash: string | undefined) {
@@ -88,15 +110,8 @@ onUnmounted(() => {
     <div v-else class="stack-grid">
       <article v-for="stack in overviewStore.stacks" :key="stack.name" class="stack-card">
         <h3 class="stack-title">{{ stack.name }}</h3>
-        <span
-          class="status stack-card-status"
-          :class="{
-            success: isStatusClass(stack.last_status || 'unknown', 'success'),
-            failed: isStatusClass(stack.last_status || 'unknown', 'failed'),
-            unknown: !isStatusClass(stack.last_status || 'unknown', 'success') && !isStatusClass(stack.last_status || 'unknown', 'failed'),
-          }"
-        >
-          {{ (stack.last_status || "unknown").toLowerCase() }}
+        <span class="status stack-card-status" :class="stackStatusClass(stack.status)">
+          {{ stackStatusLabel(stack.status) }}
         </span>
         <p class="meta">compose: {{ stack.compose_file }}</p>
         <p class="meta">last deploy: {{ formatDate(stack.last_deploy_at) }}</p>

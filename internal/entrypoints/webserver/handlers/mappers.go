@@ -41,15 +41,23 @@ func (h *handler) listStacks() []generated.StackView {
 }
 
 func toGeneratedStack(stackCfg config.StackSpec, stack model.Stack, exists bool) generated.StackView {
-	lastStatus := "unknown"
+	status := generated.StackStatus{}
 	if exists {
-		lastStatus = stack.LastStatus
+		stackStatus := stack.Status
+		if stackStatus.Synced == 0 && stackStatus.OutOfSynced == 0 && len(stack.Services) > 0 {
+			stackStatus = model.NewStackStatus(stack.Services)
+		}
+
+		status = generated.StackStatus{
+			Synced:      int64(stackStatus.Synced),
+			OutOfSynced: int64(stackStatus.OutOfSynced),
+		}
 	}
 
 	mapped := generated.StackView{
 		Name:        stackCfg.Name,
 		ComposeFile: stackCfg.ComposeFile,
-		LastStatus:  lastStatus,
+		Status:      status,
 		LastError:   toOptString(stack.LastError),
 		LastCommit:  toOptString(stack.LastCommit),
 		LastDeployAt: toOptDateTime(

@@ -682,16 +682,28 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ServiceDeploymentResponse'
+    StackStatus:
+      type: object
+      required: [synced, out_of_synced]
+      properties:
+        synced:
+          type: integer
+          format: int64
+          minimum: 0
+        out_of_synced:
+          type: integer
+          format: int64
+          minimum: 0
     StackView:
       type: object
-      required: [name, compose_file, last_status]
+      required: [name, compose_file, status]
       properties:
         name:
           type: string
         compose_file:
           type: string
-        last_status:
-          type: string
+        status:
+          $ref: '#/components/schemas/StackStatus'
         last_error:
           type: string
         last_commit:

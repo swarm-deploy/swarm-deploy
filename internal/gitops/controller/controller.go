@@ -332,9 +332,9 @@ func (c *Controller) syncStack(
 	servicesState := map[string]model.Service{}
 	for _, service := range reconcileResult.Services {
 		servicesState[service.Name] = model.Service{
-			Image:        service.Image,
-			LastStatus:   "success",
-			LastDeployAt: now,
+			Image:      service.Image,
+			SyncStatus: model.SyncStatusSynced,
+			SyncAt:     now,
 		}
 		c.metrics.Deploys.RecordDeploy(stackCfg.Name, service.Name, "success")
 	}
@@ -343,7 +343,7 @@ func (c *Controller) syncStack(
 		s.Stacks[stackCfg.Name] = model.Stack{
 			SourceDigest: reconcileResult.SourceDigest,
 			LastCommit:   commit,
-			LastStatus:   "success",
+			Status:       model.NewStackStatus(servicesState),
 			LastError:    "",
 			LastDeployAt: now,
 			Services:     servicesState,
@@ -374,9 +374,9 @@ func (c *Controller) recordStackFailure(stackName, commit string, services []com
 	servicesState := map[string]model.Service{}
 	for _, service := range services {
 		servicesState[service.Name] = model.Service{
-			Image:        service.Image,
-			LastStatus:   "failed",
-			LastDeployAt: now,
+			Image:      service.Image,
+			SyncStatus: model.SyncStatusOutOfSync,
+			SyncAt:     now,
 		}
 		c.metrics.Deploys.RecordDeploy(stackName, service.Name, "failed")
 	}
@@ -388,7 +388,7 @@ func (c *Controller) recordStackFailure(stackName, commit string, services []com
 		s.Stacks[stackName] = model.Stack{
 			SourceDigest: "",
 			LastCommit:   commit,
-			LastStatus:   "failed",
+			Status:       model.NewStackStatus(servicesState),
 			LastError:    reason.Error(),
 			LastDeployAt: now,
 			Services:     servicesState,

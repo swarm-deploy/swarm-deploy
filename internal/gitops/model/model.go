@@ -5,10 +5,10 @@ import "time"
 type Service struct {
 	// Image is the deployed image reference for the service.
 	Image string `json:"image"`
-	// LastStatus is the latest deployment status for the service.
-	LastStatus string `json:"last_status"`
-	// LastDeployAt is the timestamp of the latest service deployment attempt.
-	LastDeployAt time.Time `json:"last_deploy_at"`
+	// SyncStatus is the latest deployment status for the service.
+	SyncStatus SyncStatus `json:"sync_status"`
+	// SyncAt is the timestamp of the latest service deployment attempt.
+	SyncAt time.Time `json:"last_sync_at"`
 }
 
 type Stack struct {
@@ -16,8 +16,8 @@ type Stack struct {
 	SourceDigest string `json:"source_digest"`
 	// LastCommit is the git commit hash that triggered the latest stack deployment.
 	LastCommit string `json:"last_commit"`
-	// LastStatus is the latest deployment status for the stack.
-	LastStatus string `json:"last_status"`
+	// Status contains aggregated deployment counters for stack services.
+	Status StackStatus `json:"status"`
 	// LastError contains the latest deployment error message for the stack.
 	LastError string `json:"last_error"`
 	// LastDeployAt is the timestamp of the latest stack deployment attempt.

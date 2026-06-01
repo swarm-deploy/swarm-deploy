@@ -7,10 +7,15 @@ export interface SyncInfo {
   [key: string]: string | undefined;
 }
 
+export interface StackStatus {
+  synced: number;
+  out_of_synced: number;
+}
+
 export interface StackView {
   name: string;
   compose_file: string;
-  last_status: string;
+  status: StackStatus;
   last_error?: string;
   last_commit?: string;
   last_deploy_at?: string;
@@ -132,7 +137,7 @@ export interface ServiceRealtimeResponse {
   tasks: ServiceRealtimeTask[];
 }
 
-export type ServiceDeploymentStatus = "success" | "failed";
+export type ServiceDeploymentStatus = "Synced" | "OutOfSync";
 
 export interface ServiceDeploymentResponse {
   created_at: string;

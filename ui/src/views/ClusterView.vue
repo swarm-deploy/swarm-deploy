@@ -9,10 +9,10 @@ const nodes = ref<NodeInfo[]>([]);
 const loading = ref(false);
 const loadingError = ref("");
 
-function statusClass(status: string): "success" | "failed" | "unknown" {
+function statusClass(status: string): "Synced" | "OutOfSync" | "unknown" {
   const normalizedStatus = status.trim().toLowerCase();
   if (normalizedStatus === "ready" || normalizedStatus === "active" || normalizedStatus === "up") {
-    return "success";
+    return "Synced";
   }
   if (
     normalizedStatus === "down" ||
@@ -20,7 +20,7 @@ function statusClass(status: string): "success" | "failed" | "unknown" {
     normalizedStatus === "error" ||
     normalizedStatus === "disconnected"
   ) {
-    return "failed";
+    return "OutOfSync";
   }
   return "unknown";
 }

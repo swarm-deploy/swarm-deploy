@@ -5338,6 +5338,119 @@ func (s *StackManifestosResponse) UnmarshalJSON(data []byte) error {
 }
 
 // Encode implements json.Marshaler.
+func (s *StackStatus) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *StackStatus) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("synced")
+		e.Int64(s.Synced)
+	}
+	{
+		e.FieldStart("out_of_synced")
+		e.Int64(s.OutOfSynced)
+	}
+}
+
+var jsonFieldsNameOfStackStatus = [2]string{
+	0: "synced",
+	1: "out_of_synced",
+}
+
+// Decode decodes StackStatus from json.
+func (s *StackStatus) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode StackStatus to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "synced":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Int64()
+				s.Synced = int64(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"synced\"")
+			}
+		case "out_of_synced":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Int64()
+				s.OutOfSynced = int64(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"out_of_synced\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode StackStatus")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000011,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfStackStatus) {
+					name = jsonFieldsNameOfStackStatus[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *StackStatus) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *StackStatus) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
 func (s *StackView) Encode(e *jx.Encoder) {
 	e.ObjStart()
 	s.encodeFields(e)
@@ -5355,8 +5468,8 @@ func (s *StackView) encodeFields(e *jx.Encoder) {
 		e.Str(s.ComposeFile)
 	}
 	{
-		e.FieldStart("last_status")
-		e.Str(s.LastStatus)
+		e.FieldStart("status")
+		s.Status.Encode(e)
 	}
 	{
 		if s.LastError.Set {
@@ -5387,7 +5500,7 @@ func (s *StackView) encodeFields(e *jx.Encoder) {
 var jsonFieldsNameOfStackView = [7]string{
 	0: "name",
 	1: "compose_file",
-	2: "last_status",
+	2: "status",
 	3: "last_error",
 	4: "last_commit",
 	5: "last_deploy_at",
@@ -5427,17 +5540,15 @@ func (s *StackView) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"compose_file\"")
 			}
-		case "last_status":
+		case "status":
 			requiredBitSet[0] |= 1 << 2
 			if err := func() error {
-				v, err := d.Str()
-				s.LastStatus = string(v)
-				if err != nil {
+				if err := s.Status.Decode(d); err != nil {
 					return err
 				}
 				return nil
 			}(); err != nil {
-				return errors.Wrap(err, "decode field \"last_status\"")
+				return errors.Wrap(err, "decode field \"status\"")
 			}
 		case "last_error":
 			if err := func() error {

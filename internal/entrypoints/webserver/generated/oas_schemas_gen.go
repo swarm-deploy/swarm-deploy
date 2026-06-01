@@ -2367,11 +2367,37 @@ func (s *StackManifestosResponse) SetLive(val string) {
 	s.Live = val
 }
 
+// Ref: #/components/schemas/StackStatus
+type StackStatus struct {
+	Synced      int64 `json:"synced"`
+	OutOfSynced int64 `json:"out_of_synced"`
+}
+
+// GetSynced returns the value of Synced.
+func (s *StackStatus) GetSynced() int64 {
+	return s.Synced
+}
+
+// GetOutOfSynced returns the value of OutOfSynced.
+func (s *StackStatus) GetOutOfSynced() int64 {
+	return s.OutOfSynced
+}
+
+// SetSynced sets the value of Synced.
+func (s *StackStatus) SetSynced(val int64) {
+	s.Synced = val
+}
+
+// SetOutOfSynced sets the value of OutOfSynced.
+func (s *StackStatus) SetOutOfSynced(val int64) {
+	s.OutOfSynced = val
+}
+
 // Ref: #/components/schemas/StackView
 type StackView struct {
 	Name         string      `json:"name"`
 	ComposeFile  string      `json:"compose_file"`
-	LastStatus   string      `json:"last_status"`
+	Status       StackStatus `json:"status"`
 	LastError    OptString   `json:"last_error"`
 	LastCommit   OptString   `json:"last_commit"`
 	LastDeployAt OptDateTime `json:"last_deploy_at"`
@@ -2388,9 +2414,9 @@ func (s *StackView) GetComposeFile() string {
 	return s.ComposeFile
 }
 
-// GetLastStatus returns the value of LastStatus.
-func (s *StackView) GetLastStatus() string {
-	return s.LastStatus
+// GetStatus returns the value of Status.
+func (s *StackView) GetStatus() StackStatus {
+	return s.Status
 }
 
 // GetLastError returns the value of LastError.
@@ -2423,9 +2449,9 @@ func (s *StackView) SetComposeFile(val string) {
 	s.ComposeFile = val
 }
 
-// SetLastStatus sets the value of LastStatus.
-func (s *StackView) SetLastStatus(val string) {
-	s.LastStatus = val
+// SetStatus sets the value of Status.
+func (s *StackView) SetStatus(val StackStatus) {
+	s.Status = val
 }
 
 // SetLastError sets the value of LastError.

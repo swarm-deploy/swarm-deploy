@@ -87,13 +87,7 @@ const realtime = computed(() => {
 });
 
 function deploymentStatusClass(status: ServiceDeploymentResponse["status"]): string {
-  if (status === "success") {
-    return "success";
-  }
-  if (status === "failed") {
-    return "failed";
-  }
-  return "unknown";
+  return status;
 }
 
 function deploymentKey(item: ServiceDeploymentResponse, index: number): string {
