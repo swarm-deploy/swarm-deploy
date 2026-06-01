@@ -6,10 +6,12 @@ import (
 )
 
 type ReconciliationRequest struct {
-	Stack      config.StackSpec
-	PrevDigest string
-	HasPrev    bool
-	IsManual   bool
+	// Stack is the desired stack specification to reconcile.
+	Stack config.StackSpec
+	// Commit is the git revision associated with this reconciliation attempt.
+	Commit string
+	// IsManual reports whether reconciliation was triggered manually.
+	IsManual bool
 }
 
 // ReconciliationResponse describes the stack reconciliation outcome.
