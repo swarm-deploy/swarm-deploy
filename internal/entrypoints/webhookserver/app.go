@@ -9,7 +9,7 @@ import (
 
 	"github.com/artarts36/go-entrypoint"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
-	"github.com/swarm-deploy/swarm-deploy/internal/controller"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller"
 )
 
 const readHeaderTimeout = 10 * time.Second

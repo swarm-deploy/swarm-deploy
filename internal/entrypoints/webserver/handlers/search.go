@@ -108,11 +108,7 @@ func searchSecretsByName(secrets []swarm.Secret, query string) []generated.Searc
 }
 
 func (h *handler) searchStacksByName(query string) []generated.SearchResult {
-	if h.control == nil {
-		return nil
-	}
-
-	stacks := h.control.ListStacks()
+	stacks := h.stackProvider.Stacks()
 	results := make([]generated.SearchResult, 0, len(stacks))
 	for _, stack := range stacks {
 		if !strings.Contains(strings.ToLower(stack.Name), query) {

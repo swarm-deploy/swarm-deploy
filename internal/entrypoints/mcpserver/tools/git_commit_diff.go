@@ -8,10 +8,10 @@ import (
 
 	"github.com/artarts36/envmasker"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
-	"github.com/swarm-deploy/swarm-deploy/internal/differ"
-	"github.com/swarm-deploy/swarm-deploy/internal/differ/diff"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
-	"github.com/swarm-deploy/swarm-deploy/internal/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/differ"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/differ/diff"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
 )
 
 // GitCommitDiff resolves semantic compose changes for a git commit.

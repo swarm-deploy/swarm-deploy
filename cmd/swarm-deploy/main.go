@@ -16,10 +16,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/swarm-deploy/swarm-deploy/internal/assistant"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
-	"github.com/swarm-deploy/swarm-deploy/internal/controller"
-	"github.com/swarm-deploy/swarm-deploy/internal/controller/statem"
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
-	"github.com/swarm-deploy/swarm-deploy/internal/differ"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/healthserver"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webhookserver"
@@ -31,12 +28,15 @@ import (
 	eventmetrics "github.com/swarm-deploy/swarm-deploy/internal/event/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/notifiers"
 	notify2 "github.com/swarm-deploy/swarm-deploy/internal/event/notify"
-	gitx "github.com/swarm-deploy/swarm-deploy/internal/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/differ"
+	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
-	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/node"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
+	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/resources/node"
+	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
-	"github.com/swarm-deploy/swarm-deploy/internal/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
@@ -129,13 +129,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	stateFileStore, err := statem.NewFileStore(filepath.Join(cfg.Spec.DataDir, "controller.state.json"))
+	stateFileStore, err := modelstore.NewFileStore(filepath.Join(cfg.Spec.DataDir, "controller.state.json"))
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to build controller file state", slog.Any("err", err))
 		os.Exit(1)
 	}
 
-	stateStore := statem.NewWarmupStore(statem.NewMemoryStore(), stateFileStore)
+	stateStore := modelstore.NewWarmupStore(modelstore.NewMemoryStore(), stateFileStore)
 	stateStore.Warmup()
 
 	control := controller.New(
@@ -166,6 +166,8 @@ func main() {
 
 	webApplication, err := webserver.NewApplication(
 		cfg.Spec.Web.Address,
+		cfg,
+		stateStore,
 		control,
 		gitRepository,
 		swarmService,

@@ -21,6 +21,7 @@ apply: by file patterns
 - For asserts use library `github.com/stretchr/testify/assert`. Example: `assert.Equal(t, 123, 123, "they should be equal")`
 - For stoppable asserts use library `github.com/stretchr/testify/require`. Example: `require.Equal(t, 123, 123, "they should be equal")`
 - For mocking use `go.uber.org/mock/gomock`
+- Use table-driven pattern
 
 # Configuration / Environment
 - Environment variables are described in the `Config` structure
@@ -62,4 +63,6 @@ type GRPCConfig struct {
 ## Structure initialization
 - For DTO use default initialization.
 - For service components use constructor functions like New{StructName} to initialize structs. In structure methods not repeat dependency validation.
-- Do not use `nil-guard`
+- Do not use nil-guard for injected dependencies.
+- All injected dependencies are mandatory unless explicitly marked optional.
+- Never mask wiring errors with fallback behavior.

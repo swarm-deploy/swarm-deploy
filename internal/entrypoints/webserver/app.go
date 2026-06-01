@@ -12,16 +12,17 @@ import (
 	"github.com/artarts36/go-entrypoint"
 	"github.com/swarm-deploy/swarm-deploy/internal/assistant"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
-	"github.com/swarm-deploy/swarm-deploy/internal/controller"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/authenticator"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/handlers"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/middlewares"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
-	gitx "github.com/swarm-deploy/swarm-deploy/internal/git"
-	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/node"
-	"github.com/swarm-deploy/swarm-deploy/internal/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller"
+	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
+	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/resources/node"
+	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"github.com/swarm-deploy/swarm-deploy/ui"
 )
@@ -81,6 +82,8 @@ func buildSPAFallbackHandler(uiFS fs.FS) http.Handler {
 
 func NewApplication(
 	address string,
+	stackProvider config.StackProvider,
+	stateStore modelstore.ReadStore,
 	control *controller.Controller,
 	gitRepository gitx.Repository,
 	swarmService *swarm.Swarm,
@@ -92,6 +95,8 @@ func NewApplication(
 	authCfg config.AuthenticationSpec,
 ) (*Application, error) {
 	h := handlers.New(
+		stackProvider,
+		stateStore,
 		control,
 		gitRepository,
 		swarmService,

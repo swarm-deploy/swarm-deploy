@@ -8,7 +8,7 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	dockernetwork "github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
-	"github.com/swarm-deploy/swarm-deploy/internal/labelsdict"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 )
 
 // NetworkManager reads current Docker networks snapshot.

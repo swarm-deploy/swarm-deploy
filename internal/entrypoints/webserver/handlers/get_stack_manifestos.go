@@ -9,7 +9,7 @@ import (
 	"net/http"
 
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
-	"github.com/swarm-deploy/swarm-deploy/internal/livemanifest"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/livemanifest"
 	"gopkg.in/yaml.v3"
 )
 
@@ -87,12 +87,7 @@ func (h *handler) GetStackManifestos(
 }
 
 func (h *handler) resolveStackComposeFile(stackName string) (string, bool) {
-	if h.control == nil {
-		return "", false
-	}
-
-	stacks := h.control.ListStacks()
-	for _, stack := range stacks {
+	for _, stack := range h.stackProvider.Stacks() {
 		if stack.Name == stackName {
 			return stack.ComposeFile, true
 		}

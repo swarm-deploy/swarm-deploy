@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
-	"github.com/swarm-deploy/swarm-deploy/internal/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 )
 
 // Status is an assistant chat run state.
