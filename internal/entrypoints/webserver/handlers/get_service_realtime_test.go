@@ -12,7 +12,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
-	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/node"
+	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/resources/node"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
