@@ -1,8 +1,6 @@
 package srvmappers
 
 import (
-	"strings"
-
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -28,10 +26,7 @@ func (m *PortsMapper) mapPorts(rawPorts []dockerswarm.PortConfig) compose.Servic
 			Published: int(rawPort.PublishedPort),
 			Target:    int(rawPort.TargetPort),
 			Protocol:  rawPort.Protocol,
-		}
-
-		if rawPort.PublishMode != "" {
-			port.Mode = strings.ToLower(string(rawPort.PublishMode))
+			Mode:      rawPort.PublishMode,
 		}
 
 		ports.Ports = append(ports.Ports, port)

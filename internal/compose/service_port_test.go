@@ -20,6 +20,7 @@ func TestServicePorts_parseStringView(t *testing.T) {
 				Published: 4321,
 				Target:    1234,
 				Protocol:  dockerswarm.PortConfigProtocolTCP,
+				Mode:      dockerswarm.PortConfigPublishModeIngress,
 			},
 		},
 		{
@@ -28,6 +29,7 @@ func TestServicePorts_parseStringView(t *testing.T) {
 				Published: 4321,
 				Target:    1234,
 				Protocol:  dockerswarm.PortConfigProtocolUDP,
+				Mode:      dockerswarm.PortConfigPublishModeIngress,
 			},
 		},
 	}

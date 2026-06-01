@@ -15,12 +15,12 @@ type ServicePorts struct {
 }
 
 type ServicePort struct {
-	Published   int                            `yaml:"published" json:"published"`
-	Target      int                            `yaml:"target" json:"target"`
-	Protocol    dockerswarm.PortConfigProtocol `yaml:"protocol,omitempty" json:"protocol,omitempty"`
-	AppProtocol string                         `yaml:"app_protocol,omitempty" json:"app_protocol,omitempty"`
-	Mode        string                         `yaml:"mode,omitempty" json:"mode,omitempty"`
-	HostIP      string                         `yaml:"host_ip,omitempty" json:"host_ip,omitempty"`
+	Published   int                               `yaml:"published" json:"published"`
+	Target      int                               `yaml:"target" json:"target"`
+	Protocol    dockerswarm.PortConfigProtocol    `yaml:"protocol,omitempty" json:"protocol,omitempty"`
+	AppProtocol string                            `yaml:"app_protocol,omitempty" json:"app_protocol,omitempty"`
+	Mode        dockerswarm.PortConfigPublishMode `yaml:"mode,omitempty" json:"mode,omitempty"`
+	HostIP      string                            `yaml:"host_ip,omitempty" json:"host_ip,omitempty"`
 
 	Extra map[string]interface{} `yaml:",inline"`
 }
@@ -148,5 +148,6 @@ func defaultServicePort(published, target int) ServicePort {
 		Published: published,
 		Target:    target,
 		Protocol:  dockerswarm.PortConfigProtocolTCP,
+		Mode:      dockerswarm.PortConfigPublishModeIngress,
 	}
 }

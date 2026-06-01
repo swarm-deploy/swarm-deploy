@@ -8,6 +8,7 @@ services:
       - published: 1234
         target: 4321
         protocol: tcp
+        mode: host
     networks:
       - infra
     labels:
