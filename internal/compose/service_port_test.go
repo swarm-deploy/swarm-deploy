@@ -3,6 +3,7 @@ package compose
 import (
 	"testing"
 
+	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -18,7 +19,7 @@ func TestServicePorts_parseStringView(t *testing.T) {
 			Expected: &ServicePort{
 				Published: 4321,
 				Target:    1234,
-				Protocol:  PortProtocolTCP,
+				Protocol:  dockerswarm.PortConfigProtocolTCP,
 			},
 		},
 		{
@@ -26,7 +27,7 @@ func TestServicePorts_parseStringView(t *testing.T) {
 			Expected: &ServicePort{
 				Published: 4321,
 				Target:    1234,
-				Protocol:  PortProtocolUDP,
+				Protocol:  dockerswarm.PortConfigProtocolUDP,
 			},
 		},
 	}
@@ -62,7 +63,7 @@ func TestServicePorts_UnmarshalYAML(t *testing.T) {
 					{
 						Target:    80,
 						Published: 80,
-						Protocol:  PortProtocolTCP,
+						Protocol:  dockerswarm.PortConfigProtocolTCP,
 						Mode:      "host",
 					},
 				},

@@ -216,7 +216,7 @@ func TestComputerComputeStackMapsRawServiceSpec(t *testing.T) {
 						{
 							Published: 80,
 							Target:    8080,
-							Protocol:  compose.PortProtocolTCP,
+							Protocol:  dockerswarm.PortConfigProtocolTCP,
 							Mode:      "ingress",
 						},
 					},

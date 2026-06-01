@@ -24,15 +24,10 @@ func (m *PortsMapper) mapPorts(rawPorts []dockerswarm.PortConfig) compose.Servic
 	}
 
 	for _, rawPort := range rawPorts {
-		protocol := compose.PortProtocol(strings.ToLower(string(rawPort.Protocol)))
-		if !protocol.Valid() {
-			protocol = compose.PortProtocolTCP
-		}
-
 		port := compose.ServicePort{
 			Published: int(rawPort.PublishedPort),
 			Target:    int(rawPort.TargetPort),
-			Protocol:  protocol,
+			Protocol:  rawPort.Protocol,
 		}
 
 		if rawPort.PublishMode != "" {
