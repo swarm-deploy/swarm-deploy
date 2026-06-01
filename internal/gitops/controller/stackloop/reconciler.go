@@ -67,12 +67,9 @@ func New(
 // Reconcile applies one stack definition.
 func (r *Reconciler) Reconcile(
 	ctx context.Context,
-	stackCfg config.StackSpec,
-	prevDigest string,
-	hasPrev bool,
-	isManual bool,
+	req ReconciliationRequest,
 ) (Result, error) {
-	composePath := filepath.Join(r.git.WorkingDir(), stackCfg.ComposeFile)
+	composePath := filepath.Join(r.git.WorkingDir(), req.Stack.ComposeFile)
 	stackFile, err := r.composeLoader.Load(composePath)
 	if err != nil {
 		return Result{}, wrapReconcileError("load compose", nil, err)
@@ -83,12 +80,12 @@ func (r *Reconciler) Reconcile(
 	}
 
 	// Skip reconciliation when source compose content is unchanged since last successful apply.
-	if hasPrev && prevDigest == stackFile.Digest {
+	if req.HasPrev && req.PrevDigest == stackFile.Digest {
 		result.SourceDigest = stackFile.Digest
 		result.Skipped = true
 
-		if isManual {
-			prunedServices, pruneErr := r.pruner.Prune(ctx, stackCfg, stackFile.Compose.Services)
+		if req.IsManual {
+			prunedServices, pruneErr := r.pruner.Prune(ctx, req.Stack, stackFile.Compose.Services)
 			if pruneErr != nil {
 				return result, wrapReconcileError("prune orphaned services", result.Services, pruneErr)
 			}
@@ -99,13 +96,13 @@ func (r *Reconciler) Reconcile(
 	}
 
 	deployComposePath := composePath
-	composeChanged, pipeErr := r.pipeline.Run(stackFile, stackCfg.Name)
+	composeChanged, pipeErr := r.pipeline.Run(stackFile, req.Stack.Name)
 	if pipeErr != nil {
 		return Result{}, wrapReconcileError(pipeErr.stepName, nil, pipeErr)
 	}
 
 	if composeChanged {
-		renderedPath, renderedPathErr := r.writeRenderedCompose(stackCfg.Name, stackFile)
+		renderedPath, renderedPathErr := r.writeRenderedCompose(req.Stack.Name, stackFile)
 		if renderedPathErr != nil {
 			return result, wrapReconcileError("write rendered compose", result.Services, renderedPathErr)
 		}
@@ -113,12 +110,12 @@ func (r *Reconciler) Reconcile(
 	}
 
 	// Deployer encapsulates init jobs orchestration and stack deployment.
-	err = r.deployer.DeployStack(ctx, stackCfg.Name, deployComposePath, stackFile.Compose.Services)
+	err = r.deployer.DeployStack(ctx, req.Stack.Name, deployComposePath, stackFile.Compose.Services)
 	if err != nil {
 		return result, wrapReconcileError("deploy", result.Services, err)
 	}
 
-	prunedServices, pruneErr := r.pruner.Prune(ctx, stackCfg, stackFile.Compose.Services)
+	prunedServices, pruneErr := r.pruner.Prune(ctx, req.Stack, stackFile.Compose.Services)
 	if pruneErr != nil {
 		return result, wrapReconcileError("prune orphaned services", result.Services, pruneErr)
 	}

@@ -319,7 +319,12 @@ func (c *Controller) syncStack(
 ) error {
 	currentState := c.stateStore.Get()
 	prev, exists := currentState.Stacks[stackCfg.Name]
-	reconcileResult, err := c.stackReconciler.Reconcile(ctx, stackCfg, prev.SourceDigest, exists, isManual)
+	reconcileResult, err := c.stackReconciler.Reconcile(ctx, stackloop.ReconciliationRequest{
+		Stack:      stackCfg,
+		PrevDigest: prev.SourceDigest,
+		HasPrev:    exists,
+		IsManual:   isManual,
+	})
 	if err != nil {
 		c.recordStackFailure(stackCfg.Name, commit, stackloop.FailedServicesFromError(err), err)
 		return fmt.Errorf("stack %s %w", stackCfg.Name, err)
