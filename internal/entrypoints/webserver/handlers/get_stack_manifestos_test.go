@@ -9,9 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
-	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
-	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -23,7 +21,7 @@ func TestHandlerGetStackManifestos(t *testing.T) {
 	gitRepository := gitx.NewMockRepository(ctrl)
 	serviceInspector := swarm.NewMockServiceManager(ctrl)
 	networkManager := swarm.NewMockNetworkManager(ctrl)
-	control := newControllerWithStacks([]config.StackSpec{
+	cfg := newConfigWithStacks([]config.StackSpec{
 		{
 			Name:        "payments",
 			ComposeFile: "stacks/payments.yaml",
@@ -50,7 +48,7 @@ func TestHandlerGetStackManifestos(t *testing.T) {
 		Return(map[string]swarm.Network{}, nil)
 
 	h := &handler{
-		control:          control,
+		stackProvider:    cfg,
 		git:              gitRepository,
 		serviceInspector: serviceInspector,
 		networks:         networkManager,
@@ -73,7 +71,7 @@ func TestHandlerGetStackManifestos_StackNotFound(t *testing.T) {
 	t.Parallel()
 
 	h := &handler{
-		control: newControllerWithStacks([]config.StackSpec{
+		stackProvider: newConfigWithStacks([]config.StackSpec{
 			{
 				Name:        "payments",
 				ComposeFile: "stacks/payments.yaml",
@@ -97,7 +95,7 @@ func TestHandlerGetStackManifestos_GitReadError(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	gitRepository := gitx.NewMockRepository(ctrl)
-	control := newControllerWithStacks([]config.StackSpec{
+	cfg := newConfigWithStacks([]config.StackSpec{
 		{
 			Name:        "payments",
 			ComposeFile: "stacks/payments.yaml",
@@ -109,8 +107,8 @@ func TestHandlerGetStackManifestos_GitReadError(t *testing.T) {
 		Return(nil, errors.New("read failed"))
 
 	h := &handler{
-		control: control,
-		git:     gitRepository,
+		stackProvider: cfg,
+		git:           gitRepository,
 	}
 
 	_, err := h.GetStackManifestos(context.Background(), generated.GetStackManifestosParams{
@@ -130,7 +128,7 @@ func TestHandlerGetStackManifestos_ListStackServicesError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	gitRepository := gitx.NewMockRepository(ctrl)
 	serviceInspector := swarm.NewMockServiceManager(ctrl)
-	control := newControllerWithStacks([]config.StackSpec{
+	cfg := newConfigWithStacks([]config.StackSpec{
 		{
 			Name:        "payments",
 			ComposeFile: "stacks/payments.yaml",
@@ -146,7 +144,7 @@ func TestHandlerGetStackManifestos_ListStackServicesError(t *testing.T) {
 		Return(nil, errors.New("swarm unavailable"))
 
 	h := &handler{
-		control:          control,
+		stackProvider:    cfg,
 		git:              gitRepository,
 		serviceInspector: serviceInspector,
 	}
@@ -169,7 +167,7 @@ func TestHandlerGetStackManifestos_LiveManifestError(t *testing.T) {
 	gitRepository := gitx.NewMockRepository(ctrl)
 	serviceInspector := swarm.NewMockServiceManager(ctrl)
 	networkManager := swarm.NewMockNetworkManager(ctrl)
-	control := newControllerWithStacks([]config.StackSpec{
+	cfg := newConfigWithStacks([]config.StackSpec{
 		{
 			Name:        "payments",
 			ComposeFile: "stacks/payments.yaml",
@@ -193,7 +191,7 @@ func TestHandlerGetStackManifestos_LiveManifestError(t *testing.T) {
 		Return(nil, errors.New("swarm unavailable"))
 
 	h := &handler{
-		control:          control,
+		stackProvider:    cfg,
 		git:              gitRepository,
 		serviceInspector: serviceInspector,
 		networks:         networkManager,
@@ -210,18 +208,10 @@ func TestHandlerGetStackManifestos_LiveManifestError(t *testing.T) {
 	assert.Equal(t, "unable to get stack live manifest", statusErr.Error())
 }
 
-func newControllerWithStacks(stacks []config.StackSpec) *controller.Controller {
-	return controller.New(
-		&config.Config{
-			Spec: config.Spec{
-				Stacks: stacks,
-			},
+func newConfigWithStacks(stacks []config.StackSpec) *config.Config {
+	return &config.Config{
+		Spec: config.Spec{
+			Stacks: stacks,
 		},
-		nil,
-		&swarm.Swarm{},
-		nil,
-		nil,
-		nil,
-		modelstore.NewMemoryStore(),
-	)
+	}
 }

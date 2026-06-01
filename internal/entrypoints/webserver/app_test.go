@@ -12,7 +12,7 @@ import (
 )
 
 func TestUIRoutes(t *testing.T) {
-	app, err := NewApplication(":0", nil, nil, &swarm.Swarm{}, nil, nil, nil, nil, nil, config.AuthenticationSpec{})
+	app, err := NewApplication(":0", nil, nil, nil, nil, &swarm.Swarm{}, nil, nil, nil, nil, nil, config.AuthenticationSpec{}) //nolint:lll // it's test
 	require.NoError(t, err, "new application")
 
 	testCases := []struct {

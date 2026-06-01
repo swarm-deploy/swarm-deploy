@@ -39,25 +39,6 @@ const (
 	syncRunResultPartialError = "partial_error"
 )
 
-type StackView struct {
-	Name         string        `json:"name"`
-	ComposeFile  string        `json:"compose_file"`
-	LastStatus   string        `json:"last_status"`
-	LastError    string        `json:"last_error,omitempty"`
-	LastCommit   string        `json:"last_commit,omitempty"`
-	LastDeployAt time.Time     `json:"last_deploy_at,omitempty"`
-	SourceDigest string        `json:"source_digest,omitempty"`
-	Services     []ServiceView `json:"services"`
-}
-
-type ServiceView struct {
-	Name         string    `json:"name"`
-	Image        string    `json:"image,omitempty"`
-	ImageVersion string    `json:"image_version,omitempty"`
-	LastStatus   string    `json:"last_status,omitempty"`
-	LastDeployAt time.Time `json:"last_deploy_at,omitempty"`
-}
-
 type Controller struct {
 	cfg      *config.Config
 	git      gitx.Repository

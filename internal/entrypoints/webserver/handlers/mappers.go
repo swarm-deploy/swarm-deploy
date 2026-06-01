@@ -5,10 +5,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
-	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/resources/service/stype"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
@@ -23,21 +24,32 @@ const (
 	dockerLabelPrefix      = "com.docker."
 )
 
-func toGeneratedStacks(stacks []controller.StackView) []generated.StackView {
-	mapped := make([]generated.StackView, 0, len(stacks))
+func (h *handler) listStacks() []generated.StackView {
+	snapshot := model.Runtime{}
+	if h.stateStore != nil {
+		snapshot = h.stateStore.Get()
+	}
 
-	for _, stack := range stacks {
-		mapped = append(mapped, toGeneratedStack(stack))
+	stacks := h.stackProvider.Stacks()
+	mapped := make([]generated.StackView, 0, len(stacks))
+	for _, stackCfg := range stacks {
+		stackSnapshot, exists := snapshot.Stacks[stackCfg.Name]
+		mapped = append(mapped, toGeneratedStack(stackCfg, stackSnapshot, exists))
 	}
 
 	return mapped
 }
 
-func toGeneratedStack(stack controller.StackView) generated.StackView {
+func toGeneratedStack(stackCfg config.StackSpec, stack model.Stack, exists bool) generated.StackView {
+	lastStatus := "unknown"
+	if exists {
+		lastStatus = stack.LastStatus
+	}
+
 	mapped := generated.StackView{
-		Name:        stack.Name,
-		ComposeFile: stack.ComposeFile,
-		LastStatus:  stack.LastStatus,
+		Name:        stackCfg.Name,
+		ComposeFile: stackCfg.ComposeFile,
+		LastStatus:  lastStatus,
 		LastError:   toOptString(stack.LastError),
 		LastCommit:  toOptString(stack.LastCommit),
 		LastDeployAt: toOptDateTime(

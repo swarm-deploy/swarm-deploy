@@ -20,6 +20,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
 	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/resources/node"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -81,6 +82,8 @@ func buildSPAFallbackHandler(uiFS fs.FS) http.Handler {
 
 func NewApplication(
 	address string,
+	stackProvider config.StackProvider,
+	stateStore modelstore.ReadStore,
 	control *controller.Controller,
 	gitRepository gitx.Repository,
 	swarmService *swarm.Swarm,
@@ -92,6 +95,8 @@ func NewApplication(
 	authCfg config.AuthenticationSpec,
 ) (*Application, error) {
 	h := handlers.New(
+		stackProvider,
+		stateStore,
 		control,
 		gitRepository,
 		swarmService,

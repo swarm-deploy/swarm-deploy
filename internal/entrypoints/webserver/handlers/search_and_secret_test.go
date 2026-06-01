@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -104,8 +105,9 @@ func TestHandlerSearch_PriorityAndDedupe(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	secretsReader := swarm.NewMockSecretManager(ctrl)
 	h := &handler{
-		services: servicesStore,
-		secrets:  secretsReader,
+		stackProvider: newConfigWithStacks([]config.StackSpec{}),
+		services:      servicesStore,
+		secrets:       secretsReader,
 	}
 
 	secretsReader.EXPECT().
