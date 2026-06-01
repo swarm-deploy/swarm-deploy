@@ -65,6 +65,7 @@ func (s *WarmupStore) Sync() {
 
 			s.cold.Update(func(runtime *model.Runtime) {
 				*runtime = val
+				last = runtime.Clone()
 			})
 		}
 	}

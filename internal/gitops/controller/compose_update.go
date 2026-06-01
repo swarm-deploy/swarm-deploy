@@ -2,7 +2,7 @@ package controller
 
 import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
-	"github.com/swarm-deploy/swarm-deploy/internal/labelsdict"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 )
 
 func (r *stackReconciler) attachComposePipeline() {
