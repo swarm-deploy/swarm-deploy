@@ -15,18 +15,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
-// Result describes the stack reconciliation outcome.
-type Result struct {
-	// SourceDigest is the digest of the source compose file before in-memory mutations.
-	SourceDigest string
-	// Services lists services defined in the reconciled compose file.
-	Services []compose.Service
-	// PrunedServices lists orphan services removed from the swarm stack.
-	PrunedServices []string
-	// Skipped reports whether deployment was skipped because the compose source digest was unchanged.
-	Skipped bool
-}
-
 type stackDeployer interface {
 	// DeployStack reconciles one stack via docker stack deploy command.
 	DeployStack(ctx context.Context, stackName, composePath string, services []compose.Service) error
@@ -68,14 +56,14 @@ func New(
 func (r *Reconciler) Reconcile(
 	ctx context.Context,
 	req ReconciliationRequest,
-) (Result, error) {
+) (ReconciliationResponse, error) {
 	composePath := filepath.Join(r.git.WorkingDir(), req.Stack.ComposeFile)
 	stackFile, err := r.composeLoader.Load(composePath)
 	if err != nil {
-		return Result{}, wrapReconcileError("load compose", nil, err)
+		return ReconciliationResponse{}, wrapReconcileError("load compose", nil, err)
 	}
 
-	result := Result{
+	result := ReconciliationResponse{
 		Services: stackFile.Compose.Services,
 	}
 
@@ -98,7 +86,7 @@ func (r *Reconciler) Reconcile(
 	deployComposePath := composePath
 	composeChanged, pipeErr := r.pipeline.Run(stackFile, req.Stack.Name)
 	if pipeErr != nil {
-		return Result{}, wrapReconcileError(pipeErr.stepName, nil, pipeErr)
+		return ReconciliationResponse{}, wrapReconcileError(pipeErr.stepName, nil, pipeErr)
 	}
 
 	if composeChanged {
