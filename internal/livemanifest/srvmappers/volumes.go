@@ -1,6 +1,8 @@
 package srvmappers
 
 import (
+	"strconv"
+
 	"github.com/docker/docker/api/types/mount"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -45,6 +47,13 @@ func (m *VolumesMapper) mapVolumes(rawMounts []mount.Mount) compose.ServiceVolum
 			volume.Volume = &compose.ServiceVolumeVolume{
 				Nocopy:  rawMount.VolumeOptions.NoCopy,
 				Subpath: rawMount.VolumeOptions.Subpath,
+			}
+		}
+
+		if rawMount.TmpfsOptions != nil {
+			volume.Tmpfs = &compose.ServiceVolumeTmpfs{
+				Size: strconv.FormatInt(rawMount.TmpfsOptions.SizeBytes, 10),
+				Mode: rawMount.TmpfsOptions.Mode,
 			}
 		}
 

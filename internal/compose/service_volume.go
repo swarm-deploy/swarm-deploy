@@ -2,6 +2,7 @@ package compose
 
 import (
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 
@@ -14,6 +15,7 @@ type ServiceVolumeType string
 const (
 	ServiceVolumeTypeBind   = "bind"
 	ServiceVolumeTypeVolume = "volume"
+	ServiceVolumeTypeTmpfs  = "tmpfs"
 )
 
 type ServiceVolumes struct {
@@ -24,13 +26,15 @@ type ServiceVolumes struct {
 }
 
 type ServiceVolume struct {
-	Type     ServiceVolumeType
-	Source   string
-	Target   string
-	ReadOnly bool
+	Type        ServiceVolumeType
+	Source      string
+	Target      string
+	Consistency mount.Consistency
+	ReadOnly    bool
 
 	Bind   *ServiceVolumeBind   `yaml:"bind,omitempty"`
 	Volume *ServiceVolumeVolume `yaml:"volume,omitempty"`
+	Tmpfs  *ServiceVolumeTmpfs  `yaml:"tmpfs,omitempty"`
 
 	Extra map[string]interface{} `yaml:",inline"`
 
@@ -51,14 +55,23 @@ type ServiceVolumeVolume struct {
 	Extra map[string]interface{} `yaml:",inline"`
 }
 
+type ServiceVolumeTmpfs struct {
+	Mode os.FileMode `yaml:"mode"`
+	Size string      `yaml:"size"`
+
+	Extra map[string]interface{} `yaml:",inline"`
+}
+
 type serviceVolumeSchema struct {
-	Type     ServiceVolumeType `yaml:"type"`
-	Source   string            `yaml:"source"`
-	Target   string            `yaml:"target"`
-	ReadOnly bool              `yaml:"read_only"`
+	Type        ServiceVolumeType `yaml:"type"`
+	Source      string            `yaml:"source"`
+	Target      string            `yaml:"target"`
+	ReadOnly    bool              `yaml:"read_only"`
+	Consistency mount.Consistency `yaml:"consistency,omitempty"`
 
 	Bind   *ServiceVolumeBind   `yaml:"bind,omitempty"`
 	Volume *ServiceVolumeVolume `yaml:"volume,omitempty"`
+	Tmpfs  *ServiceVolumeTmpfs  `yaml:"tmpfs,omitempty"`
 
 	Extra map[string]interface{} `yaml:",inline"`
 }
@@ -96,6 +109,7 @@ func (sv *ServiceVolumes) UnmarshalYAML(root *yaml.Node) error {
 		volume.Source = schema.Source
 		volume.Target = schema.Target
 		volume.ReadOnly = schema.ReadOnly
+		volume.Consistency = schema.Consistency
 		volume.Bind = schema.Bind
 		volume.Volume = schema.Volume
 		volume.Extra = schema.Extra
@@ -113,13 +127,15 @@ func (sv ServiceVolume) MarshalYAML() (interface{}, error) {
 	}
 
 	return &serviceVolumeSchema{
-		Type:     sv.Type,
-		Source:   sv.Source,
-		Target:   sv.Target,
-		ReadOnly: sv.ReadOnly,
-		Bind:     sv.Bind,
-		Volume:   sv.Volume,
-		Extra:    sv.Extra,
+		Type:        sv.Type,
+		Source:      sv.Source,
+		Target:      sv.Target,
+		ReadOnly:    sv.ReadOnly,
+		Consistency: sv.Consistency,
+		Bind:        sv.Bind,
+		Volume:      sv.Volume,
+		Tmpfs:       sv.Tmpfs,
+		Extra:       sv.Extra,
 	}, nil
 }
 
