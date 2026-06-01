@@ -1,4 +1,4 @@
-package controller
+package stackloop
 
 import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"

@@ -1,11 +1,11 @@
-package controller
+package stackloop
 
 import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 )
 
-func (r *stackReconciler) attachComposePipeline() {
+func (r *Reconciler) attachComposePipeline() {
 	composePipelineSteps := []pipelineStep{
 		{
 			name: "add managed label",
@@ -23,7 +23,7 @@ func (r *stackReconciler) attachComposePipeline() {
 	r.pipeline = newPipeline(composePipelineSteps)
 }
 
-func (r *stackReconciler) addManagedLabel(file *compose.File, _ string) (bool, error) {
+func (r *Reconciler) addManagedLabel(file *compose.File, _ string) (bool, error) {
 	changed := false
 
 	for _, service := range file.Compose.Services {
@@ -36,10 +36,11 @@ func (r *stackReconciler) addManagedLabel(file *compose.File, _ string) (bool, e
 	return changed, nil
 }
 
-func (r *stackReconciler) rotateSecrets(file *compose.File, stackName string) (bool, error) {
+func (r *Reconciler) rotateSecrets(file *compose.File, stackName string) (bool, error) {
 	// Rotation mutates secret/config object names in the in-memory compose model.
 	// We keep digest based on original source, but deploy a rendered, rotated file.
-	return r.composeRotator.Rotate(file,
+	return r.composeRotator.Rotate(
+		file,
 		stackName,
 		r.cfg.Spec.SecretRotation.HashLength,
 		r.cfg.Spec.SecretRotation.IncludePath,
