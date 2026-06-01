@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/controller/statem"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller/statem"
 	"github.com/swarm-deploy/swarm-deploy/internal/imageref"
 )
 

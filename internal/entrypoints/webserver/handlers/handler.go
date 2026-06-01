@@ -2,9 +2,9 @@ package handlers
 
 import (
 	"github.com/swarm-deploy/swarm-deploy/internal/assistant"
-	"github.com/swarm-deploy/swarm-deploy/internal/controller"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
 	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/node"
 	"github.com/swarm-deploy/swarm-deploy/internal/service"
