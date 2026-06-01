@@ -8,8 +8,9 @@ import (
 )
 
 const (
-	digestPrefixLen = 12
-	latestVersion   = "latest"
+	digestPrefixLen    = 12
+	latestVersion      = "latest"
+	imageRefSplitParts = 2
 )
 
 // ImageVersion returns a display version for an OCI/Docker image reference (tag or short digest).
@@ -66,4 +67,29 @@ func versionFallback(s string) string {
 		return latestVersion
 	}
 	return candidate
+}
+
+func ImageName(image string) string {
+	trimmedImage := strings.TrimSpace(image)
+	if trimmedImage == "" {
+		return ""
+	}
+
+	trimmedImage = strings.SplitN(trimmedImage, "@", imageRefSplitParts)[0]
+	parsedImage, err := reference.ParseNormalizedNamed(trimmedImage)
+	if err == nil {
+		namePath := reference.Path(parsedImage)
+		if slashIdx := strings.LastIndex(namePath, "/"); slashIdx >= 0 {
+			namePath = namePath[slashIdx+1:]
+		}
+		return strings.ToLower(strings.TrimSpace(namePath))
+	}
+
+	if slashIdx := strings.LastIndex(trimmedImage, "/"); slashIdx >= 0 {
+		trimmedImage = trimmedImage[slashIdx+1:]
+	}
+	if colonIdx := strings.LastIndex(trimmedImage, ":"); colonIdx >= 0 {
+		trimmedImage = trimmedImage[:colonIdx]
+	}
+	return strings.ToLower(strings.TrimSpace(trimmedImage))
 }

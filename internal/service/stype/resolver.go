@@ -3,13 +3,8 @@ package stype
 import (
 	"strings"
 
-	"github.com/distribution/reference"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
-)
-
-const (
-	// LabelService is a service/container label with service type value.
-	imageRefSplitParts = 2
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/utils"
 )
 
 // Type is a service classification.
@@ -52,7 +47,7 @@ func (r *Resolver) Resolve(image string, labels Labels) Type {
 		return resolvedType
 	}
 
-	imageName := imageNameFromReference(image)
+	imageName := utils.ImageName(image)
 	if imageName != "" {
 		if resolvedType, ok := imageTypeDict[imageName]; ok {
 			return resolvedType
@@ -102,29 +97,4 @@ func resolveFromLabels(labels Labels) (Type, bool) {
 	}
 
 	return "", false
-}
-
-func imageNameFromReference(image string) string {
-	trimmedImage := strings.TrimSpace(image)
-	if trimmedImage == "" {
-		return ""
-	}
-
-	trimmedImage = strings.SplitN(trimmedImage, "@", imageRefSplitParts)[0]
-	parsedImage, err := reference.ParseNormalizedNamed(trimmedImage)
-	if err == nil {
-		namePath := reference.Path(parsedImage)
-		if slashIdx := strings.LastIndex(namePath, "/"); slashIdx >= 0 {
-			namePath = namePath[slashIdx+1:]
-		}
-		return strings.ToLower(strings.TrimSpace(namePath))
-	}
-
-	if slashIdx := strings.LastIndex(trimmedImage, "/"); slashIdx >= 0 {
-		trimmedImage = trimmedImage[slashIdx+1:]
-	}
-	if colonIdx := strings.LastIndex(trimmedImage, ":"); colonIdx >= 0 {
-		trimmedImage = trimmedImage[:colonIdx]
-	}
-	return strings.ToLower(strings.TrimSpace(trimmedImage))
 }
