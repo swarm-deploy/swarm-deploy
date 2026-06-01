@@ -19,7 +19,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/middlewares"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
-	gitx "github.com/swarm-deploy/swarm-deploy/internal/git"
+	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
 	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/node"
 	"github.com/swarm-deploy/swarm-deploy/internal/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"

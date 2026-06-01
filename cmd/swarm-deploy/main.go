@@ -31,7 +31,7 @@ import (
 	eventmetrics "github.com/swarm-deploy/swarm-deploy/internal/event/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/notifiers"
 	notify2 "github.com/swarm-deploy/swarm-deploy/internal/event/notify"
-	gitx "github.com/swarm-deploy/swarm-deploy/internal/git"
+	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/node"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"

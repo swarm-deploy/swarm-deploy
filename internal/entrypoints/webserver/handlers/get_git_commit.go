@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
-	gitx "github.com/swarm-deploy/swarm-deploy/internal/git"
+	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
 )
 
 func (h *handler) GetGitCommit(

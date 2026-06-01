@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
-	git "github.com/swarm-deploy/swarm-deploy/internal/git"
+	git "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
 )
 
 func TestReloadStacksUsesRepositoryDirFirst(t *testing.T) {
