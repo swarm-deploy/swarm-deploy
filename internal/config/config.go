@@ -222,8 +222,11 @@ func (c *Config) applyDefaults(configDir string) error {
 }
 
 func (c *Config) applyGitAndSyncDefaults() {
-	if c.Spec.Git.Branch == "" {
-		c.Spec.Git.Branch = "main"
+	if c.Spec.Git.Pull.Branch == "" {
+		c.Spec.Git.Pull.Branch = "main"
+	}
+	if c.Spec.Git.Push.Branch == "" {
+		c.Spec.Git.Push.Branch = c.Spec.Git.Pull.Branch
 	}
 	if c.Spec.Sync.Mode == "" {
 		c.Spec.Sync.Mode = SyncModeHybrid
@@ -562,8 +565,11 @@ func (c *Config) validate() error {
 func (c *Config) validateRequired() []error {
 	var errs []error
 
-	if c.Spec.Git.Repository == "" {
-		errs = append(errs, errors.New("git.repository is required"))
+	if c.Spec.Git.Pull.Repository == "" {
+		errs = append(errs, errors.New("git.pull.repository is required"))
+	}
+	if c.Spec.Git.Push.Repository == "" {
+		errs = append(errs, errors.New("git.push.repository is required"))
 	}
 	if c.Spec.StacksSource.File == "" {
 		errs = append(errs, errors.New("stacks.file is required"))
@@ -661,15 +667,21 @@ func (c *Config) validateSync() []error {
 func (c *Config) validateGitAuth() []error {
 	var errs []error
 
-	authType := c.Spec.Git.Auth.Type
-	if !authType.IsSupported() {
-		errs = append(errs, fmt.Errorf("git.auth.type must be one of none|http|ssh, got %q", c.Spec.Git.Auth.Type))
-	}
+	errs = append(errs, validateGitAuthType("git.pull.auth", c.Spec.Git.Pull.Auth)...)
+	errs = append(errs, validateGitAuthType("git.push.auth", c.Spec.Git.Push.Auth)...)
 
-	if authType == GitAuthTypeHTTP {
-		username := strings.TrimSpace(c.Spec.Git.Auth.HTTP.Username)
-		password := strings.TrimSpace(string(c.Spec.Git.Auth.HTTP.Password.Content))
-		token := strings.TrimSpace(string(c.Spec.Git.Auth.HTTP.Token.Content))
+	return errs
+}
+
+func validateGitAuthType(path string, auth GitAuthSpec) []error {
+	errs := make([]error, 0)
+
+	authType := auth.Type
+	switch authType {
+	case GitAuthTypeHTTP:
+		username := strings.TrimSpace(auth.HTTP.Username)
+		password := strings.TrimSpace(string(auth.HTTP.Password.Content))
+		token := strings.TrimSpace(string(auth.HTTP.Token.Content))
 
 		if token != "" && password != "" {
 			errs = append(errs, errors.New("git.auth.http.tokenPath and git.auth.http.passwordPath are mutually exclusive"))
@@ -680,6 +692,10 @@ func (c *Config) validateGitAuth() []error {
 				errors.New("git.auth.http requires username+passwordPath or tokenPath"),
 			)
 		}
+	case "", GitAuthTypeNone, GitAuthTypeSSH:
+		return nil
+	default:
+		return []error{fmt.Errorf("%s.type must be one of none|http|ssh, got %q", path, auth.Type)}
 	}
 
 	return errs

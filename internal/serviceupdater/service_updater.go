@@ -1,0 +1,507 @@
+package serviceupdater
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"sync"
+
+	"github.com/distribution/reference"
+
+	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	gitx "github.com/swarm-deploy/swarm-deploy/internal/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
+	"github.com/swarm-deploy/swarm-deploy/internal/registry"
+)
+
+const (
+	defaultCommitAuthorEmail = "swarm-deploy@localhost"
+	defaultUserName          = "unknown-user"
+)
+
+var gitBranchUnsafePartRegex = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
+
+// ImageVersionResolver resolves image versions in container registry.
+type ImageVersionResolver interface {
+	// ResolveActualVersion resolves an image tag in registry and returns normalized metadata.
+	ResolveActualVersion(ctx context.Context, image string) (registry.ImageVersion, error)
+}
+
+// StacksProvider returns a current stack list.
+type StacksProvider func() []config.StackSpec
+
+// UpdateImageVersionInput contains update parameters.
+type UpdateImageVersionInput struct {
+	// StackName is a target stack name.
+	StackName string
+	// ServiceName is a target service name inside stack compose.
+	ServiceName string
+	// ImageVersion is a target image tag.
+	ImageVersion string
+	// Reason is a user prompt that requested the image update.
+	Reason string
+	// UserName is an authenticated user name from security context.
+	UserName string
+}
+
+// UpdateImageVersionResult describes update execution result.
+type UpdateImageVersionResult struct {
+	// StackName is a target stack name.
+	StackName string `json:"stack"`
+	// ServiceName is a target service name.
+	ServiceName string `json:"service"`
+	// OldImage is a previous service image reference.
+	OldImage string `json:"oldImage"`
+	// NewImage is an updated service image reference.
+	NewImage string `json:"newImage"`
+	// BranchName is a created branch name.
+	BranchName string `json:"branch"`
+	// BranchURL is a URL to created branch.
+	BranchURL string `json:"branchUrl"`
+	// CommitHash is a pushed commit hash.
+	CommitHash string `json:"commit"`
+	// MergeRequestURL is an optional merge request URL.
+	MergeRequestURL string `json:"mergeRequestUrl,omitempty"`
+
+	Warnings []string `json:"warnings"`
+}
+
+// ServiceUpdater updates service image version in push repository and creates merge request.
+type ServiceUpdater struct {
+	stacksProvider    StacksProvider
+	repository        gitx.Repository
+	imageResolver     ImageVersionResolver
+	pushRepositoryURL string
+	pushBaseBranch    string
+	pushAPIToken      string
+
+	mergeRequestProviders []githosting.Provider
+	composeLoader         *compose.FileLoader
+
+	steps []serviceUpdateStep
+
+	mu sync.Mutex
+}
+
+type serviceUpdateStep struct {
+	Name              string
+	Action            func(ctx context.Context, session *updateImageVersionSession) error
+	ContinueWhenError bool
+}
+
+// NewServiceUpdater creates service updater component.
+func NewServiceUpdater(
+	stacksProvider StacksProvider,
+	repository gitx.Repository,
+	imageResolver ImageVersionResolver,
+	pushRepositoryURL string,
+	pushBaseBranch string,
+	pushAPIToken string,
+	mergeRequestProviders []githosting.Provider,
+) *ServiceUpdater {
+	su := &ServiceUpdater{
+		stacksProvider:        stacksProvider,
+		repository:            repository,
+		imageResolver:         imageResolver,
+		pushRepositoryURL:     pushRepositoryURL,
+		pushBaseBranch:        pushBaseBranch,
+		pushAPIToken:          pushAPIToken,
+		mergeRequestProviders: mergeRequestProviders,
+		composeLoader:         compose.NewFileLoader(),
+	}
+
+	su.steps = []serviceUpdateStep{
+		{
+			Name:   "0. validate stack and service",
+			Action: su.step0ValidateStackAndService,
+		},
+		{
+			Name:   "1. validate image exists",
+			Action: su.step1ValidateImageExists,
+		},
+		{
+			Name:   "2. create branch",
+			Action: su.step2CreateBranch,
+		},
+		{
+			Name:   "3. update version in compose file",
+			Action: su.step3UpdateComposeImageVersion,
+		},
+		{
+			Name:   "4. commit changes",
+			Action: su.step4CommitChanges,
+		},
+		{
+			Name:   "5. push changes",
+			Action: su.step5PushChanges,
+		},
+	}
+
+	if pushAPIToken != "" {
+		su.steps = append(su.steps, serviceUpdateStep{
+			Name:              "6. create merge request",
+			Action:            su.step6CreateMergeRequest,
+			ContinueWhenError: true,
+		})
+	}
+
+	return su
+}
+
+// UpdateImageVersion validates image and updates compose file in push repository.
+func (s *ServiceUpdater) UpdateImageVersion(
+	ctx context.Context,
+	rawInput UpdateImageVersionInput,
+) (UpdateImageVersionResult, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	input, err := normalizeInput(rawInput)
+	if err != nil {
+		return UpdateImageVersionResult{}, err
+	}
+
+	session := &updateImageVersionSession{
+		input: input,
+	}
+
+	for _, step := range s.steps {
+		slog.InfoContext(ctx, "[service-updater] running step", slog.String("step.name", step.Name))
+
+		stepErr := step.Action(ctx, session)
+		if stepErr != nil {
+			slog.ErrorContext(ctx, "[service-updater] step failed",
+				slog.String("step.name", step.Name),
+				slog.Any("err", stepErr),
+			)
+
+			if step.ContinueWhenError {
+				continue
+			}
+
+			return UpdateImageVersionResult{}, stepErr
+		}
+	}
+
+	return UpdateImageVersionResult{
+		StackName:       input.StackName,
+		ServiceName:     input.ServiceName,
+		OldImage:        session.currentImage,
+		NewImage:        session.newImage,
+		BranchName:      session.branchName,
+		BranchURL:       session.branchURL,
+		CommitHash:      session.commitHash,
+		MergeRequestURL: session.mergeRequestURL,
+	}, nil
+}
+
+func (s *ServiceUpdater) step0ValidateStackAndService(
+	_ context.Context,
+	session *updateImageVersionSession,
+) error {
+	stackSpec, err := s.resolveStack(session.input.StackName)
+	if err != nil {
+		return err
+	}
+
+	composeFile, err := s.composeLoader.Load(filepath.Join(s.repository.WorkingDir(), stackSpec.ComposeFile))
+	if err != nil {
+		return fmt.Errorf("parse compose for stack %q: %w", stackSpec.Name, err)
+	}
+
+	currentImage, err := resolveServiceImage(composeFile, session.input.ServiceName)
+	if err != nil {
+		return fmt.Errorf("resolve service %q in stack %q: %w", session.input.ServiceName, stackSpec.Name, err)
+	}
+
+	newImage, err := buildImageWithVersion(currentImage, session.input.ImageVersion)
+	if err != nil {
+		return fmt.Errorf("build new image reference: %w", err)
+	}
+
+	if newImage == currentImage {
+		return fmt.Errorf(
+			"service %q in stack %q already uses image version %q",
+			session.input.ServiceName,
+			stackSpec.Name,
+			session.input.ImageVersion,
+		)
+	}
+
+	session.composePath = stackSpec.ComposeFile
+	session.composeFile = composeFile
+	session.currentImage = currentImage
+	session.newImage = newImage
+
+	return nil
+}
+
+func (s *ServiceUpdater) step1ValidateImageExists(
+	ctx context.Context,
+	session *updateImageVersionSession,
+) error {
+	_, err := s.imageResolver.ResolveActualVersion(ctx, session.newImage)
+	if err != nil {
+		return fmt.Errorf("resolve image %q in registry: %w", session.newImage, err)
+	}
+
+	return nil
+}
+
+func (s *ServiceUpdater) step2CreateBranch(
+	ctx context.Context,
+	session *updateImageVersionSession,
+) error {
+	branchName, err := buildBranchName(session.input.ServiceName, session.input.ImageVersion)
+	if err != nil {
+		return err
+	}
+
+	branch, err := s.repository.Branch(ctx, branchName)
+	if err != nil {
+		return fmt.Errorf("create branch %q: %w", branchName, err)
+	}
+
+	session.branch = branch
+	session.branchName = branchName
+
+	branchURL, err := buildBranchURL(s.pushRepositoryURL, session.branchName)
+	if err != nil {
+		return fmt.Errorf("build branch url: %w", err)
+	}
+
+	session.branchURL = branchURL
+
+	return nil
+}
+
+func (s *ServiceUpdater) step3UpdateComposeImageVersion(
+	ctx context.Context,
+	session *updateImageVersionSession,
+) error {
+	err := setServiceImage(session.composeFile, session.input.ServiceName, session.newImage)
+	if err != nil {
+		return fmt.Errorf("set service image in compose: %w", err)
+	}
+
+	payload, err := session.composeFile.MarshalYAML()
+	if err != nil {
+		return fmt.Errorf("marshal compose yaml: %w", err)
+	}
+
+	err = session.branch.AddFile(ctx, session.composePath, payload)
+	if err != nil {
+		return fmt.Errorf("write compose file %q: %w", session.composePath, err)
+	}
+
+	return nil
+}
+
+func (s *ServiceUpdater) step4CommitChanges(
+	ctx context.Context,
+	session *updateImageVersionSession,
+) error {
+	commitHash, err := session.branch.Commit(
+		ctx,
+		buildMergeRequestTitle(session.input.ServiceName, session.input.ImageVersion),
+		gitx.CommitAuthor{
+			Name:  session.input.UserName,
+			Email: defaultCommitAuthorEmail,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("commit compose update: %w", err)
+	}
+
+	session.commitHash = commitHash
+	return nil
+}
+
+func (s *ServiceUpdater) step5PushChanges(
+	ctx context.Context,
+	session *updateImageVersionSession,
+) error {
+	if err := session.branch.Push(ctx, session.branchName); err != nil {
+		return fmt.Errorf("push branch %q: %w", session.branchName, err)
+	}
+
+	return nil
+}
+
+func (s *ServiceUpdater) step6CreateMergeRequest(
+	ctx context.Context,
+	session *updateImageVersionSession,
+) error {
+	provider := s.resolveMergeRequestProvider()
+	if provider == nil {
+		return nil
+	}
+
+	mergeRequestURL, err := provider.CreateMergeRequest(ctx, githosting.CreateMergeRequestRequest{
+		RepositoryURL: s.pushRepositoryURL,
+		BaseBranch:    s.pushBaseBranch,
+		HeadBranch:    session.branchName,
+		Title:         buildMergeRequestTitle(session.input.ServiceName, session.input.ImageVersion),
+		Body:          fmt.Sprintf("%s by %s", session.input.Reason, session.input.UserName),
+		Token:         s.pushAPIToken,
+	})
+	if err != nil {
+		return fmt.Errorf("create merge request: %w", err)
+	}
+
+	session.mergeRequestURL = mergeRequestURL
+	return nil
+}
+
+func (s *ServiceUpdater) resolveMergeRequestProvider() githosting.Provider {
+	for _, provider := range s.mergeRequestProviders {
+		if provider.Supports(s.pushRepositoryURL) {
+			return provider
+		}
+	}
+
+	return nil
+}
+
+func normalizeInput(rawInput UpdateImageVersionInput) (UpdateImageVersionInput, error) {
+	input := UpdateImageVersionInput{
+		StackName:    strings.TrimSpace(rawInput.StackName),
+		ServiceName:  strings.TrimSpace(rawInput.ServiceName),
+		ImageVersion: strings.TrimSpace(rawInput.ImageVersion),
+		Reason:       strings.TrimSpace(rawInput.Reason),
+		UserName:     strings.TrimSpace(rawInput.UserName),
+	}
+
+	if input.StackName == "" {
+		return UpdateImageVersionInput{}, errors.New("stack is required")
+	}
+	if input.ServiceName == "" {
+		return UpdateImageVersionInput{}, errors.New("service is required")
+	}
+	if input.ImageVersion == "" {
+		return UpdateImageVersionInput{}, errors.New("imageVersion is required")
+	}
+	if input.Reason == "" {
+		return UpdateImageVersionInput{}, errors.New("reason is required")
+	}
+	if input.UserName == "" {
+		input.UserName = defaultUserName
+	}
+
+	return input, nil
+}
+
+func (s *ServiceUpdater) resolveStack(stackName string) (config.StackSpec, error) {
+	stacks := s.stacksProvider()
+	if len(stacks) == 0 {
+		return config.StackSpec{}, errors.New("stacks provider returned empty stack list")
+	}
+
+	for i, stack := range stacks {
+		stack.Name = strings.TrimSpace(stack.Name)
+		stack.ComposeFile = strings.TrimSpace(stack.ComposeFile)
+		if stack.Name == "" {
+			return config.StackSpec{}, fmt.Errorf("stacks[%d].name is required", i)
+		}
+		if stack.ComposeFile == "" {
+			return config.StackSpec{}, fmt.Errorf("stacks[%d].composeFile is required", i)
+		}
+		if stack.Name == stackName {
+			return stack, nil
+		}
+	}
+
+	return config.StackSpec{}, fmt.Errorf("stack %q not found", stackName)
+}
+
+func resolveServiceImage(file *compose.File, serviceName string) (string, error) {
+	for _, service := range file.Compose.Services {
+		if service.Name != serviceName {
+			continue
+		}
+		if strings.TrimSpace(service.Image) == "" {
+			return "", fmt.Errorf("service %q does not have image field", serviceName)
+		}
+
+		return strings.TrimSpace(service.Image), nil
+	}
+
+	return "", fmt.Errorf("service %q not found", serviceName)
+}
+
+func buildImageWithVersion(image string, version string) (string, error) {
+	named, err := reference.ParseNormalizedNamed(strings.TrimSpace(image))
+	if err != nil {
+		return "", fmt.Errorf("parse image reference %q: %w", image, err)
+	}
+
+	tagged, err := reference.WithTag(reference.TrimNamed(named), strings.TrimSpace(version))
+	if err != nil {
+		return "", fmt.Errorf("set image version %q: %w", version, err)
+	}
+
+	return reference.FamiliarString(tagged), nil
+}
+
+func setServiceImage(file *compose.File, serviceName string, image string) error {
+	var service *compose.Service
+
+	for _, srv := range file.Compose.Services {
+		if srv.Name == serviceName {
+			service = &srv
+			break
+		}
+	}
+
+	if service == nil {
+		return fmt.Errorf("service %q not found", serviceName)
+	}
+
+	service.Image = image
+
+	return nil
+}
+
+func buildBranchName(serviceName string, imageVersion string) (string, error) {
+	serviceNamePart := sanitizeBranchPart(serviceName)
+	if serviceNamePart == "" {
+		return "", fmt.Errorf("service %q can not be converted to git branch name", serviceName)
+	}
+
+	versionPart := sanitizeBranchPart(imageVersion)
+	if versionPart == "" {
+		return "", fmt.Errorf("imageVersion %q can not be converted to git branch name", imageVersion)
+	}
+
+	return fmt.Sprintf("%s-up-image-%s", serviceNamePart, versionPart), nil
+}
+
+func sanitizeBranchPart(raw string) string {
+	sanitized := gitBranchUnsafePartRegex.ReplaceAllString(strings.TrimSpace(raw), "-")
+	return strings.Trim(sanitized, "-")
+}
+
+func buildMergeRequestTitle(serviceName string, imageVersion string) string {
+	return fmt.Sprintf("chore(%s): up image to %s", serviceName, imageVersion)
+}
+
+type updateImageVersionSession struct {
+	input UpdateImageVersionInput
+
+	composePath string
+	composeFile *compose.File
+
+	currentImage string
+	newImage     string
+
+	branch          gitx.Repository
+	branchName      string
+	branchURL       string
+	commitHash      string
+	mergeRequestURL string
+}

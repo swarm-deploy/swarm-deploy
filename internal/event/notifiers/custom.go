@@ -71,7 +71,8 @@ func (n *CustomWebhookNotifier) Notify(ctx context.Context, event Message) error
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode/httpStatusClassDivisor != httpStatusClassSuccess {
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent &&
+		resp.StatusCode != http.StatusCreated {
 		return fmt.Errorf("unexpected status: %s", resp.Status)
 	}
 	return nil

@@ -9,6 +9,7 @@ import (
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	"github.com/swarm-deploy/swarm-deploy/internal/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/serviceupdater"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
@@ -140,4 +141,25 @@ func (f *fakeCommitDiffer) Compare(composeFiles []differ.ComposeFile) (diff.Diff
 
 func defaultCommitTime() time.Time {
 	return time.Date(2026, time.March, 27, 0, 0, 0, 0, time.UTC)
+}
+
+type fakeServiceUpdater struct {
+	result serviceupdater.UpdateImageVersionResult
+	err    error
+	called int
+	input  serviceupdater.UpdateImageVersionInput
+}
+
+func (f *fakeServiceUpdater) UpdateImageVersion(
+	_ context.Context,
+	input serviceupdater.UpdateImageVersionInput,
+) (serviceupdater.UpdateImageVersionResult, error) {
+	f.called++
+	f.input = input
+
+	if f.err != nil {
+		return serviceupdater.UpdateImageVersionResult{}, f.err
+	}
+
+	return f.result, nil
 }

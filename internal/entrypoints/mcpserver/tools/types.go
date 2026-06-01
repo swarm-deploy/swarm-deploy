@@ -10,6 +10,7 @@ import (
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	"github.com/swarm-deploy/swarm-deploy/internal/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/serviceupdater"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
@@ -67,4 +68,13 @@ type GitRepository interface {
 type CommitDiffer interface {
 	// Compare returns changed services in old/new compose snapshots.
 	Compare(composeFiles []differ.ComposeFile) (diff.Diff, error)
+}
+
+// ServiceUpdater updates service image version and pushes changes to git repository.
+type ServiceUpdater interface {
+	// UpdateImageVersion validates and applies service image version update in push repository.
+	UpdateImageVersion(
+		ctx context.Context,
+		input serviceupdater.UpdateImageVersionInput,
+	) (serviceupdater.UpdateImageVersionResult, error)
 }
