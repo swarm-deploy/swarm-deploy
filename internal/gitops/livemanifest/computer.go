@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/artarts36/gds"
-	"github.com/swarm-deploy/swarm-deploy/internal/livemanifest/srvmappers"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/livemanifest/srvmappers"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
