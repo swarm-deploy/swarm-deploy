@@ -85,20 +85,13 @@ func (r *Reconciler) Reconcile(
 		return result, nil
 	}
 
-	pipeErr := r.pipeline.Run(&pipelinePayload{
+	pipeErr := r.pipeline.Run(ctx, &pipelinePayload{
 		Stack:   req.Stack,
 		Desired: desiredState,
 	})
 	if pipeErr != nil {
-		r.recordFailure(req.Stack.Name, req.Commit, nil, pipeErr)
+		r.recordFailure(req.Stack.Name, req.Commit, result.Services, pipeErr)
 		return ReconciliationResponse{}, wrapReconcileError(pipeErr.stepName, nil, pipeErr)
-	}
-
-	// Deployer encapsulates init jobs orchestration and stack deployment.
-	err = r.deployer.DeployStack(ctx, req.Stack.Name, desiredState.Path, desiredState.Compose.Services)
-	if err != nil {
-		r.recordFailure(req.Stack.Name, req.Commit, result.Services, err)
-		return result, wrapReconcileError("deploy", result.Services, err)
 	}
 
 	prunedServices, pruneErr := r.pruner.Prune(ctx, req.Stack, desiredState.Compose.Services)

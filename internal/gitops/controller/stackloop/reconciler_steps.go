@@ -1,6 +1,7 @@
 package stackloop
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,10 +32,15 @@ func (r *Reconciler) attachComposePipeline() {
 		run: r.writeRenderedCompose,
 	})
 
+	pipe.Add(pipelineStep{
+		name: "deploy stack",
+		run:  r.deployStack,
+	})
+
 	r.pipeline = pipe
 }
 
-func (r *Reconciler) addManagedLabel(payload *pipelinePayload) error {
+func (r *Reconciler) addManagedLabel(_ context.Context, payload *pipelinePayload) error {
 	changed := false
 
 	for _, service := range payload.Desired.Compose.Services {
@@ -51,7 +57,7 @@ func (r *Reconciler) addManagedLabel(payload *pipelinePayload) error {
 	return nil
 }
 
-func (r *Reconciler) rotateSecrets(payload *pipelinePayload) error {
+func (r *Reconciler) rotateSecrets(_ context.Context, payload *pipelinePayload) error {
 	// Rotation mutates secret/config object names in the in-memory compose model.
 	// We keep digest based on original source, but deploy a rendered, rotated file.
 	changed, err := r.composeRotator.Rotate(
@@ -71,7 +77,7 @@ func (r *Reconciler) rotateSecrets(payload *pipelinePayload) error {
 	return nil
 }
 
-func (r *Reconciler) writeRenderedCompose(payload *pipelinePayload) error {
+func (r *Reconciler) writeRenderedCompose(_ context.Context, payload *pipelinePayload) error {
 	renderedDir := filepath.Join(r.cfg.Spec.DataDir, "rendered")
 	// Persist rendered files under data dir so deploy step can use a stable path.
 	if err := os.MkdirAll(renderedDir, 0o755); err != nil {
@@ -92,4 +98,8 @@ func (r *Reconciler) writeRenderedCompose(payload *pipelinePayload) error {
 	payload.Desired.Path = target
 
 	return nil
+}
+
+func (r *Reconciler) deployStack(ctx context.Context, payload *pipelinePayload) error {
+	return r.deployer.DeployStack(ctx, payload.Stack.Name, payload.Desired.Path, payload.Desired.Compose.Services)
 }

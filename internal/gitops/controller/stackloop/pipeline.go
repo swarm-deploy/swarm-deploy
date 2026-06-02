@@ -1,6 +1,8 @@
 package stackloop
 
 import (
+	"context"
+
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 )
@@ -19,7 +21,7 @@ type pipeline struct {
 type pipelineStep struct {
 	name string
 	when func(payload *pipelinePayload) bool
-	run  func(payload *pipelinePayload) error
+	run  func(ctx context.Context, payload *pipelinePayload) error
 }
 
 func newPipeline() *pipeline {
@@ -38,13 +40,13 @@ func (p *pipeline) Add(step pipelineStep) {
 	p.pipeline = append(p.pipeline, step)
 }
 
-func (p *pipeline) Run(payload *pipelinePayload) *pipelineError {
+func (p *pipeline) Run(ctx context.Context, payload *pipelinePayload) *pipelineError {
 	for _, step := range p.pipeline {
 		if !step.when(payload) {
 			continue
 		}
 
-		err := step.run(payload)
+		err := step.run(ctx, payload)
 		if err != nil {
 			return &pipelineError{
 				stepName: step.name,
