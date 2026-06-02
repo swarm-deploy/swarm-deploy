@@ -85,7 +85,7 @@ func (r *Reconciler) Reconcile(
 		return result, nil
 	}
 
-	_, pipeErr := r.pipeline.Run(&pipelinePayload{
+	pipeErr := r.pipeline.Run(&pipelinePayload{
 		Stack:   req.Stack,
 		Desired: desiredState,
 	})

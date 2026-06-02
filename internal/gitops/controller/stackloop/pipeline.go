@@ -19,7 +19,7 @@ type pipeline struct {
 type pipelineStep struct {
 	name string
 	when func(payload *pipelinePayload) bool
-	run  func(payload *pipelinePayload) (bool, error)
+	run  func(payload *pipelinePayload) error
 }
 
 func newPipeline() *pipeline {
@@ -38,26 +38,20 @@ func (p *pipeline) Add(step pipelineStep) {
 	p.pipeline = append(p.pipeline, step)
 }
 
-func (p *pipeline) Run(payload *pipelinePayload) (bool, *pipelineError) {
-	changed := false
-
+func (p *pipeline) Run(payload *pipelinePayload) *pipelineError {
 	for _, step := range p.pipeline {
 		if !step.when(payload) {
 			continue
 		}
 
-		hasChanges, err := step.run(payload)
+		err := step.run(payload)
 		if err != nil {
-			return false, &pipelineError{
+			return &pipelineError{
 				stepName: step.name,
 				err:      err,
 			}
 		}
-
-		if hasChanges {
-			changed = true
-		}
 	}
 
-	return changed, nil
+	return nil
 }

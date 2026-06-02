@@ -34,7 +34,7 @@ func (r *Reconciler) attachComposePipeline() {
 	r.pipeline = pipe
 }
 
-func (r *Reconciler) addManagedLabel(payload *pipelinePayload) (bool, error) {
+func (r *Reconciler) addManagedLabel(payload *pipelinePayload) error {
 	changed := false
 
 	for _, service := range payload.Desired.Compose.Services {
@@ -48,10 +48,10 @@ func (r *Reconciler) addManagedLabel(payload *pipelinePayload) (bool, error) {
 		payload.DesiredMutated = true
 	}
 
-	return changed, nil
+	return nil
 }
 
-func (r *Reconciler) rotateSecrets(payload *pipelinePayload) (bool, error) {
+func (r *Reconciler) rotateSecrets(payload *pipelinePayload) error {
 	// Rotation mutates secret/config object names in the in-memory compose model.
 	// We keep digest based on original source, but deploy a rendered, rotated file.
 	changed, err := r.composeRotator.Rotate(
@@ -61,35 +61,35 @@ func (r *Reconciler) rotateSecrets(payload *pipelinePayload) (bool, error) {
 		r.cfg.Spec.SecretRotation.IncludePath,
 	)
 	if err != nil {
-		return false, err
+		return err
 	}
 
 	if changed {
 		payload.DesiredMutated = true
 	}
 
-	return changed, nil
+	return nil
 }
 
-func (r *Reconciler) writeRenderedCompose(payload *pipelinePayload) (bool, error) {
+func (r *Reconciler) writeRenderedCompose(payload *pipelinePayload) error {
 	renderedDir := filepath.Join(r.cfg.Spec.DataDir, "rendered")
 	// Persist rendered files under data dir so deploy step can use a stable path.
 	if err := os.MkdirAll(renderedDir, 0o755); err != nil {
-		return false, fmt.Errorf("create rendered dir: %w", err)
+		return fmt.Errorf("create rendered dir: %w", err)
 	}
 
 	content, err := payload.Desired.MarshalYAML()
 	if err != nil {
-		return false, fmt.Errorf("failed to marshal desired compose yaml: %w", err)
+		return fmt.Errorf("failed to marshal desired compose yaml: %w", err)
 	}
 
 	target := filepath.Join(renderedDir, payload.Stack.Name+".yaml")
 	err = os.WriteFile(target, content, 0o600)
 	if err != nil {
-		return false, fmt.Errorf("write rendered compose %s: %w", target, err)
+		return fmt.Errorf("write rendered compose %s: %w", target, err)
 	}
 
 	payload.Desired.Path = target
 
-	return true, nil
+	return nil
 }
