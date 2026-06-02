@@ -13,7 +13,9 @@ import (
 )
 
 type pipelinePayload struct {
-	Stack config.StackSpec
+	Stack        config.StackSpec
+	IsNewDigest  bool
+	IsManualSync bool
 
 	Desired        *compose.File
 	DesiredMutated bool
@@ -24,13 +26,19 @@ func (r *Reconciler) attachComposePipeline() {
 
 	pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "add managed label",
-		Run:  r.addManagedLabel,
+		When: func(payload *pipelinePayload) bool {
+			return payload.IsNewDigest
+		},
+		Run: r.addManagedLabel,
 	})
 
 	if r.cfg.Spec.SecretRotation.Enabled {
 		pipeline.Add(pipe.Step[*pipelinePayload]{
 			Name: "rotate secrets/configs",
-			Run:  r.rotateSecrets,
+			When: func(payload *pipelinePayload) bool {
+				return payload.IsNewDigest
+			},
+			Run: r.rotateSecrets,
 		})
 	}
 

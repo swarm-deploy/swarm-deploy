@@ -85,8 +85,10 @@ func (r *Reconciler) Reconcile(
 	}
 
 	pipeErr := r.pipeline.Run(ctx, &pipelinePayload{
-		Stack:   req.Stack,
-		Desired: desiredState,
+		Stack:        req.Stack,
+		IsNewDigest:  !hasPrev || prev.SourceDigest != desiredState.Digest,
+		IsManualSync: req.IsManual,
+		Desired:      desiredState,
 	})
 	if pipeErr != nil {
 		r.recordFailure(req.Stack.Name, req.Commit, result.Services, pipeErr)
