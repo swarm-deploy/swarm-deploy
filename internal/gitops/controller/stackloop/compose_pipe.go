@@ -2,7 +2,13 @@ package stackloop
 
 import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 )
+
+type pipelinePayload struct {
+	Stack   config.StackSpec
+	Desired *compose.File
+}
 
 type pipeline struct {
 	pipeline []pipelineStep
@@ -10,7 +16,7 @@ type pipeline struct {
 
 type pipelineStep struct {
 	name string
-	run  func(file *compose.File, stackName string) (bool, error)
+	run  func(payload *pipelinePayload) (bool, error)
 }
 
 func newPipeline(steps []pipelineStep) *pipeline {
@@ -19,11 +25,11 @@ func newPipeline(steps []pipelineStep) *pipeline {
 	}
 }
 
-func (p *pipeline) Run(file *compose.File, stackName string) (bool, *pipelineError) {
+func (p *pipeline) Run(payload *pipelinePayload) (bool, *pipelineError) {
 	changed := false
 
 	for _, step := range p.pipeline {
-		hasChanges, err := step.run(file, stackName)
+		hasChanges, err := step.run(payload)
 		if err != nil {
 			return false, &pipelineError{
 				stepName: step.name,

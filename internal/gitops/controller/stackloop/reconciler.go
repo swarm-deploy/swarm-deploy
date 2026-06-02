@@ -59,24 +59,24 @@ func (r *Reconciler) Reconcile(
 	req ReconciliationRequest,
 ) (ReconciliationResponse, error) {
 	composePath := filepath.Join(r.git.WorkingDir(), req.Stack.ComposeFile)
-	stackFile, err := r.composeLoader.Load(composePath)
+	desiredState, err := r.composeLoader.Load(composePath)
 	if err != nil {
 		r.recordFailure(req.Stack.Name, req.Commit, nil, err)
 		return ReconciliationResponse{}, wrapReconcileError("load compose", nil, err)
 	}
 
 	result := ReconciliationResponse{
-		Services: stackFile.Compose.Services,
+		Services: desiredState.Compose.Services,
 	}
 	prev, hasPrev := r.currentStackState(req.Stack.Name)
 
 	// Skip reconciliation when source compose content is unchanged since last successful apply.
-	if hasPrev && prev.SourceDigest == stackFile.Digest {
-		result.SourceDigest = stackFile.Digest
+	if hasPrev && prev.SourceDigest == desiredState.Digest {
+		result.SourceDigest = desiredState.Digest
 		result.Skipped = true
 
 		if req.IsManual {
-			prunedServices, pruneErr := r.pruner.Prune(ctx, req.Stack, stackFile.Compose.Services)
+			prunedServices, pruneErr := r.pruner.Prune(ctx, req.Stack, desiredState.Compose.Services)
 			if pruneErr != nil {
 				r.recordFailure(req.Stack.Name, req.Commit, result.Services, pruneErr)
 				return result, wrapReconcileError("prune orphaned services", result.Services, pruneErr)
@@ -88,14 +88,17 @@ func (r *Reconciler) Reconcile(
 	}
 
 	deployComposePath := composePath
-	composeChanged, pipeErr := r.pipeline.Run(stackFile, req.Stack.Name)
+	composeChanged, pipeErr := r.pipeline.Run(&pipelinePayload{
+		Stack:   req.Stack,
+		Desired: desiredState,
+	})
 	if pipeErr != nil {
 		r.recordFailure(req.Stack.Name, req.Commit, nil, pipeErr)
 		return ReconciliationResponse{}, wrapReconcileError(pipeErr.stepName, nil, pipeErr)
 	}
 
 	if composeChanged {
-		renderedPath, renderedPathErr := r.writeRenderedCompose(req.Stack.Name, stackFile)
+		renderedPath, renderedPathErr := r.writeRenderedCompose(req.Stack.Name, desiredState)
 		if renderedPathErr != nil {
 			r.recordFailure(req.Stack.Name, req.Commit, result.Services, renderedPathErr)
 			return result, wrapReconcileError("write rendered compose", result.Services, renderedPathErr)
@@ -104,19 +107,19 @@ func (r *Reconciler) Reconcile(
 	}
 
 	// Deployer encapsulates init jobs orchestration and stack deployment.
-	err = r.deployer.DeployStack(ctx, req.Stack.Name, deployComposePath, stackFile.Compose.Services)
+	err = r.deployer.DeployStack(ctx, req.Stack.Name, deployComposePath, desiredState.Compose.Services)
 	if err != nil {
 		r.recordFailure(req.Stack.Name, req.Commit, result.Services, err)
 		return result, wrapReconcileError("deploy", result.Services, err)
 	}
 
-	prunedServices, pruneErr := r.pruner.Prune(ctx, req.Stack, stackFile.Compose.Services)
+	prunedServices, pruneErr := r.pruner.Prune(ctx, req.Stack, desiredState.Compose.Services)
 	if pruneErr != nil {
 		r.recordFailure(req.Stack.Name, req.Commit, result.Services, pruneErr)
 		return result, wrapReconcileError("prune orphaned services", result.Services, pruneErr)
 	}
 	result.PrunedServices = prunedServices
-	result.SourceDigest = stackFile.Digest
+	result.SourceDigest = desiredState.Digest
 	r.recordSuccess(req.Stack.Name, req.Commit, result.SourceDigest, result.Services)
 	return result, nil
 }
