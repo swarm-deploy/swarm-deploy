@@ -6,8 +6,10 @@ import (
 )
 
 type pipelinePayload struct {
-	Stack   config.StackSpec
-	Desired *compose.File
+	Stack config.StackSpec
+
+	Desired        *compose.File
+	DesiredMutated bool
 }
 
 type pipeline struct {

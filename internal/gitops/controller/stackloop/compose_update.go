@@ -32,16 +32,29 @@ func (r *Reconciler) addManagedLabel(payload *pipelinePayload) (bool, error) {
 		}
 	}
 
+	if changed {
+		payload.DesiredMutated = true
+	}
+
 	return changed, nil
 }
 
 func (r *Reconciler) rotateSecrets(payload *pipelinePayload) (bool, error) {
 	// Rotation mutates secret/config object names in the in-memory compose model.
 	// We keep digest based on original source, but deploy a rendered, rotated file.
-	return r.composeRotator.Rotate(
+	changed, err := r.composeRotator.Rotate(
 		payload.Desired,
 		payload.Stack.Name,
 		r.cfg.Spec.SecretRotation.HashLength,
 		r.cfg.Spec.SecretRotation.IncludePath,
 	)
+	if err != nil {
+		return false, err
+	}
+
+	if changed {
+		payload.DesiredMutated = true
+	}
+
+	return changed, nil
 }
