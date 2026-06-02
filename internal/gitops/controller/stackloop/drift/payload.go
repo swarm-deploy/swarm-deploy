@@ -13,7 +13,7 @@ type AnalyzeRequest struct {
 }
 
 type AnalyzeResponse struct {
-	Drifts []ServiceDrift
+	Drifts map[string]ServiceDrift
 }
 
 type ServiceDrift struct {

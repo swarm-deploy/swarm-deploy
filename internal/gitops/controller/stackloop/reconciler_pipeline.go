@@ -25,7 +25,7 @@ type pipelinePayload struct {
 
 	LiveServices   []swarm.StackService
 	PrunedServices []string
-	Drift          []drift.ServiceDrift
+	Drift          map[string]drift.ServiceDrift
 }
 
 func (r *Reconciler) attachPipeline() {

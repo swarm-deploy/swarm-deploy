@@ -17,17 +17,17 @@ func (a *Analyzer) Analyze(req AnalyzeRequest) (AnalyzeResponse, error) {
 	}
 
 	resp := &AnalyzeResponse{
-		Drifts: make([]ServiceDrift, 0),
+		Drifts: make(map[string]ServiceDrift),
 	}
 
 	for _, desiredService := range req.Desired.Compose.Services {
 		_, serviceExists := liveServiceMap[desiredService.Name]
 		if !serviceExists {
-			resp.Drifts = append(resp.Drifts, ServiceDrift{
+			resp.Drifts[desiredService.Name] = ServiceDrift{
 				ServiceName:   desiredService.Name,
 				Reason:        "Service Missed",
 				ServiceMissed: true,
-			})
+			}
 			continue
 		}
 	}

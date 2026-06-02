@@ -7,6 +7,9 @@ type Service struct {
 	Image string `json:"image"`
 	// SyncStatus is the latest deployment status for the service.
 	SyncStatus SyncStatus `json:"sync_status"`
+
+	SyncError string `json:"sync_error"`
+
 	// SyncAt is the timestamp of the latest service deployment attempt.
 	SyncAt time.Time `json:"last_sync_at"`
 }

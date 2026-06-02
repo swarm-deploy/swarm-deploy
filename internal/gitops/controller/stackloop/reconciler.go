@@ -94,7 +94,7 @@ func (r *Reconciler) Reconcile(
 
 	result.SourceDigest = desiredState.Digest
 
-	r.recordSuccess(req.Stack.Name, req.Commit, result.SourceDigest, result.Services)
+	r.recordState(req.Stack.Name, req.Commit, result.SourceDigest, pl, result.Services)
 	return result, nil
 }
 
@@ -104,20 +104,28 @@ func (r *Reconciler) currentStackState(stackName string) (model.Stack, bool) {
 	return stackState, exists
 }
 
-func (r *Reconciler) recordSuccess(
+func (r *Reconciler) recordState(
 	stackName string,
 	commit string,
 	sourceDigest string,
+	payload *pipelinePayload,
 	services []compose.Service,
 ) {
 	now := time.Now()
 	servicesState := make(map[string]model.Service, len(services))
 	for _, service := range services {
-		servicesState[service.Name] = model.Service{
+		state := model.Service{
 			Image:      service.Image,
 			SyncStatus: model.SyncStatusSynced,
 			SyncAt:     now,
 		}
+
+		if serviceDrift, serviceDrifted := payload.Drift[service.Name]; serviceDrifted {
+			state.SyncStatus = model.SyncStatusOutOfSync
+			state.SyncError = serviceDrift.Reason
+		}
+
+		servicesState[service.Name] = state
 	}
 
 	r.stateStore.Update(func(state *model.Runtime) {
