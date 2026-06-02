@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -14,16 +16,19 @@ import (
 // ServicePruner removes managed services missing from desired stack state.
 type ServicePruner struct {
 	services swarm.ServiceManager
+	event    dispatcher.Dispatcher
 	syncCfg  config.SyncPolicySpec
 }
 
 // NewServicePruner builds a service pruner.
 func NewServicePruner(
 	serviceManager swarm.ServiceManager,
+	eventDispatcher dispatcher.Dispatcher,
 	syncCfg config.SyncPolicySpec,
 ) *ServicePruner {
 	return &ServicePruner{
 		services: serviceManager,
+		event:    eventDispatcher,
 		syncCfg:  syncCfg,
 	}
 }
@@ -69,6 +74,11 @@ func (p *ServicePruner) Prune(
 			slog.String("stack", req.Stack.Name),
 			slog.String("service", stackService.Name),
 		)
+		p.event.Dispatch(ctx, &events.ServicePruned{
+			StackName:   req.Stack.Name,
+			ServiceName: stackService.Name,
+			Commit:      req.Commit,
+		})
 		prunedServices = append(prunedServices, stackService.Name)
 	}
 

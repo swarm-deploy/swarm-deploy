@@ -17,6 +17,7 @@ import (
 
 type pipelinePayload struct {
 	Stack        config.StackSpec
+	Commit       string
 	IsNewDigest  bool
 	IsManualSync bool
 
@@ -165,6 +166,7 @@ func (r *Reconciler) loadLiveState(ctx context.Context, payload *pipelinePayload
 func (r *Reconciler) pruneOrphanedServices(ctx context.Context, payload *pipelinePayload) error {
 	prunedServices, err := r.pruner.Prune(ctx, pruner.PruneServicesRequest{
 		Stack:   payload.Stack,
+		Commit:  payload.Commit,
 		Desired: payload.Desired.Compose.Services,
 		Live:    payload.LiveServices,
 	})

@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
@@ -83,6 +82,8 @@ func New(
 			git,
 			deployer,
 			swarmService,
+			eventDispatcher,
+			metricGroup.Deploys,
 			stateStore,
 		),
 		triggerCh: make(chan triggerTask, 1),
@@ -318,67 +319,13 @@ func (c *Controller) syncStack(
 	commit string,
 	isManual bool,
 ) error {
-	reconcileResult, err := c.stackReconciler.Reconcile(ctx, stackloop.ReconciliationRequest{
+	err := c.stackReconciler.Reconcile(ctx, stackloop.ReconciliationRequest{
 		Stack:    stackCfg,
 		Commit:   commit,
 		IsManual: isManual,
 	})
 	if err != nil {
-		c.recordStackFailure(stackCfg.Name, commit, stackloop.FailedServicesFromError(err), err)
 		return fmt.Errorf("stack %s %w", stackCfg.Name, err)
 	}
-	if reconcileResult.Skipped {
-		c.dispatchPrunedEvents(ctx, stackCfg.Name, commit, reconcileResult.PrunedServices)
-		return nil
-	}
-
-	for _, service := range reconcileResult.Services {
-		c.metrics.Deploys.RecordDeploy(stackCfg.Name, service.Name, "success")
-	}
-
-	c.event.Dispatch(ctx, &events.DeploySuccess{
-		StackName: stackCfg.Name,
-		Commit:    commit,
-		Services:  reconcileResult.Services,
-	})
-	c.dispatchPrunedEvents(ctx, stackCfg.Name, commit, reconcileResult.PrunedServices)
 	return nil
-}
-
-func (c *Controller) dispatchPrunedEvents(ctx context.Context, stackName string, commit string, serviceNames []string) {
-	for _, serviceName := range serviceNames {
-		c.event.Dispatch(ctx, &events.ServicePruned{
-			StackName:   stackName,
-			ServiceName: serviceName,
-			Commit:      commit,
-		})
-	}
-}
-
-func (c *Controller) recordStackFailure(stackName, commit string, services []compose.Service, reason error) {
-	for _, service := range services {
-		c.metrics.Deploys.RecordDeploy(stackName, service.Name, "failed")
-	}
-	if len(services) == 0 {
-		c.metrics.Deploys.RecordDeploy(stackName, "unknown", "failed")
-	}
-
-	logs := []string{}
-
-	var logsErr containsLogsError
-	if errors.As(reason, &logsErr) {
-		logs = logsErr.Logs()
-	}
-
-	c.event.Dispatch(context.Background(), &events.DeployFailed{
-		StackName: stackName,
-		Commit:    commit,
-		Services:  services,
-		Error:     reason,
-		Logs:      logs,
-	})
-}
-
-type containsLogsError interface {
-	Logs() []string
 }

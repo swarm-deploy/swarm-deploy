@@ -8,6 +8,7 @@ import (
 
 type PruneServicesRequest struct {
 	Stack   config.StackSpec
+	Commit  string
 	Desired []compose.Service
 	Live    []swarm.StackService
 }

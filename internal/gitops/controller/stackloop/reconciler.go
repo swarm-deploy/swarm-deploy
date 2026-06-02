@@ -2,17 +2,21 @@ package stackloop
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
+	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller/stackloop/drift"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller/stackloop/pruner"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/pipe"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -22,6 +26,8 @@ type Reconciler struct {
 	cfg            *config.Config
 	git            gitx.Repository
 	deployer       deployer.StackDeployer
+	event          dispatcher.Dispatcher
+	deployMetrics  metrics.Deploys
 	stateStore     modelstore.Store
 	pruner         *pruner.ServicePruner
 	composeLoader  *compose.FileLoader
@@ -37,16 +43,20 @@ func New(
 	gitSync gitx.Repository,
 	stackDeployer deployer.StackDeployer,
 	swarmService *swarm.Swarm,
+	eventDispatcher dispatcher.Dispatcher,
+	deployMetrics metrics.Deploys,
 	stateStore modelstore.Store,
 ) *Reconciler {
 	reconciler := &Reconciler{
 		cfg:            cfg,
 		git:            gitSync,
 		deployer:       stackDeployer,
+		event:          eventDispatcher,
+		deployMetrics:  deployMetrics,
 		stateStore:     stateStore,
 		composeLoader:  compose.NewFileLoader(),
 		composeRotator: NewRotator(),
-		pruner:         pruner.NewServicePruner(swarmService.Services, cfg.Spec.Sync.Policy),
+		pruner:         pruner.NewServicePruner(swarmService.Services, eventDispatcher, cfg.Spec.Sync.Policy),
 		driftAnalyzer:  drift.NewAnalyzer(),
 		serviceManager: swarmService.Services,
 	}
@@ -60,27 +70,22 @@ func New(
 func (r *Reconciler) Reconcile(
 	ctx context.Context,
 	req ReconciliationRequest,
-) (ReconciliationResponse, error) {
+) error {
 	composePath := filepath.Join(r.git.WorkingDir(), req.Stack.ComposeFile)
 	desiredState, err := r.composeLoader.Load(composePath)
 	if err != nil {
 		r.recordFailure(req.Stack.Name, req.Commit, nil, err)
-		return ReconciliationResponse{}, wrapReconcileError("load compose", nil, err)
+		r.recordStackFailure(req.Stack.Name, req.Commit, nil, err)
+		return wrapReconcileError("load compose", nil, err)
 	}
 
-	result := ReconciliationResponse{
-		Services: desiredState.Compose.Services,
-	}
+	services := desiredState.Compose.Services
 	prev, hasPrev := r.currentStackState(req.Stack.Name)
-
-	// Skip reconciliation when source compose content is unchanged since last successful apply.
-	if hasPrev && prev.SourceDigest == desiredState.Digest {
-		result.SourceDigest = desiredState.Digest
-		result.Skipped = true
-	}
+	skipped := hasPrev && prev.SourceDigest == desiredState.Digest
 
 	pl := &pipelinePayload{
 		Stack:        req.Stack,
+		Commit:       req.Commit,
 		IsNewDigest:  !hasPrev || prev.SourceDigest != desiredState.Digest,
 		IsManualSync: req.IsManual,
 		Desired:      desiredState,
@@ -88,14 +93,14 @@ func (r *Reconciler) Reconcile(
 
 	pipeErr := r.pipeline.Run(ctx, pl)
 	if pipeErr != nil {
-		r.recordFailure(req.Stack.Name, req.Commit, result.Services, pipeErr)
-		return ReconciliationResponse{}, wrapReconcileError(pipeErr.StepName, nil, pipeErr)
+		r.recordFailure(req.Stack.Name, req.Commit, services, pipeErr)
+		r.recordStackFailure(req.Stack.Name, req.Commit, services, pipeErr)
+		return wrapReconcileError(pipeErr.StepName, services, pipeErr)
 	}
 
-	result.SourceDigest = desiredState.Digest
-
-	r.recordState(req.Stack.Name, req.Commit, result.SourceDigest, pl, result.Services)
-	return result, nil
+	r.recordSuccess(ctx, req.Stack.Name, req.Commit, services, skipped)
+	r.recordState(req.Stack.Name, req.Commit, desiredState.Digest, pl, services)
+	return nil
 }
 
 func (r *Reconciler) currentStackState(stackName string) (model.Stack, bool) {
@@ -166,4 +171,57 @@ func (r *Reconciler) recordFailure(
 			Services:     servicesState,
 		}
 	})
+}
+
+func (r *Reconciler) recordSuccess(
+	ctx context.Context,
+	stackName string,
+	commit string,
+	services []compose.Service,
+	skipped bool,
+) {
+	if !skipped {
+		for _, service := range services {
+			r.deployMetrics.RecordDeploy(stackName, service.Name, "success")
+		}
+
+		r.event.Dispatch(ctx, &events.DeploySuccess{
+			StackName: stackName,
+			Commit:    commit,
+			Services:  services,
+		})
+	}
+}
+
+func (r *Reconciler) recordStackFailure(
+	stackName string,
+	commit string,
+	services []compose.Service,
+	reason error,
+) {
+	for _, service := range services {
+		r.deployMetrics.RecordDeploy(stackName, service.Name, "failed")
+	}
+	if len(services) == 0 {
+		r.deployMetrics.RecordDeploy(stackName, "unknown", "failed")
+	}
+
+	logs := []string{}
+
+	var logsErr containsLogsError
+	if errors.As(reason, &logsErr) {
+		logs = logsErr.Logs()
+	}
+
+	r.event.Dispatch(context.Background(), &events.DeployFailed{
+		StackName: stackName,
+		Commit:    commit,
+		Services:  services,
+		Error:     reason,
+		Logs:      logs,
+	})
+}
+
+type containsLogsError interface {
+	Logs() []string
 }
