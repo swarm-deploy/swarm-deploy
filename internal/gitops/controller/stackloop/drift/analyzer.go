@@ -16,7 +16,7 @@ func (a *Analyzer) Analyze(req AnalyzeRequest) (AnalyzeResponse, error) {
 		liveServiceMap[service.Name] = service
 	}
 
-	resp := &AnalyzeResponse{
+	resp := AnalyzeResponse{
 		Drifts: make(map[string]ServiceDrift),
 	}
 
@@ -32,5 +32,5 @@ func (a *Analyzer) Analyze(req AnalyzeRequest) (AnalyzeResponse, error) {
 		}
 	}
 
-	return *resp, nil
+	return resp, nil
 }
