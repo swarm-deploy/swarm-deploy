@@ -6,38 +6,48 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/pipe"
 )
 
-func (r *Reconciler) attachComposePipeline() {
-	pipe := newPipeline()
+type pipelinePayload struct {
+	Stack config.StackSpec
 
-	pipe.Add(pipelineStep{
-		name: "add managed label",
-		run:  r.addManagedLabel,
+	Desired        *compose.File
+	DesiredMutated bool
+}
+
+func (r *Reconciler) attachComposePipeline() {
+	pipeline := pipe.NewPipeline[*pipelinePayload]()
+
+	pipeline.Add(pipe.Step[*pipelinePayload]{
+		Name: "add managed label",
+		Run:  r.addManagedLabel,
 	})
 
 	if r.cfg.Spec.SecretRotation.Enabled {
-		pipe.Add(pipelineStep{
-			name: "rotate secrets/configs",
-			run:  r.rotateSecrets,
+		pipeline.Add(pipe.Step[*pipelinePayload]{
+			Name: "rotate secrets/configs",
+			Run:  r.rotateSecrets,
 		})
 	}
 
-	pipe.Add(pipelineStep{
-		name: "write rendered compose",
-		when: func(payload *pipelinePayload) bool {
+	pipeline.Add(pipe.Step[*pipelinePayload]{
+		Name: "write rendered compose",
+		When: func(payload *pipelinePayload) bool {
 			return payload.DesiredMutated
 		},
-		run: r.writeRenderedCompose,
+		Run: r.writeRenderedCompose,
 	})
 
-	pipe.Add(pipelineStep{
-		name: "deploy stack",
-		run:  r.deployStack,
+	pipeline.Add(pipe.Step[*pipelinePayload]{
+		Name: "deploy stack",
+		Run:  r.deployStack,
 	})
 
-	r.pipeline = pipe
+	r.pipeline = pipeline
 }
 
 func (r *Reconciler) addManagedLabel(_ context.Context, payload *pipelinePayload) error {

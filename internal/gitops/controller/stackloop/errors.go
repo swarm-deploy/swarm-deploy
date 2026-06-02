@@ -13,19 +13,6 @@ type reconcileError struct {
 	err      error
 }
 
-type pipelineError struct {
-	stepName string
-	err      error
-}
-
-func (e *pipelineError) Error() string {
-	return fmt.Sprintf("%s: %s", e.stepName, e.err.Error())
-}
-
-func (e *pipelineError) Unwrap() error {
-	return e.err
-}
-
 func (e *reconcileError) Error() string {
 	return fmt.Sprintf("%s: %v", e.op, e.err)
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/pipe"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
@@ -25,7 +26,7 @@ type Reconciler struct {
 	pruner         *ServicePruner
 	composeLoader  *compose.FileLoader
 	composeRotator *Rotator
-	pipeline       *pipeline
+	pipeline       *pipe.Pipeline[*pipelinePayload]
 }
 
 // New builds a stack reconciler loop.
@@ -91,7 +92,7 @@ func (r *Reconciler) Reconcile(
 	})
 	if pipeErr != nil {
 		r.recordFailure(req.Stack.Name, req.Commit, result.Services, pipeErr)
-		return ReconciliationResponse{}, wrapReconcileError(pipeErr.stepName, nil, pipeErr)
+		return ReconciliationResponse{}, wrapReconcileError(pipeErr.StepName, nil, pipeErr)
 	}
 
 	prunedServices, pruneErr := r.pruner.Prune(ctx, req.Stack, desiredState.Compose.Services)
