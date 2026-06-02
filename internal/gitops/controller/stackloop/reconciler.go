@@ -45,7 +45,7 @@ func New(
 		pruner:         NewServicePruner(swarmService.Services, cfg.Spec.Sync.Policy),
 	}
 
-	reconciler.attachComposePipeline()
+	reconciler.attachPipeline()
 
 	return reconciler
 }

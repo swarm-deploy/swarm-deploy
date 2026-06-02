@@ -48,7 +48,7 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 		composeLoader:  compose.NewFileLoader(),
 		composeRotator: NewRotator(),
 	}
-	reconciler.attachComposePipeline()
+	reconciler.attachPipeline()
 
 	result, err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
 		Stack: config.StackSpec{
@@ -102,7 +102,7 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 		composeLoader:  compose.NewFileLoader(),
 		composeRotator: NewRotator(),
 	}
-	reconciler.attachComposePipeline()
+	reconciler.attachPipeline()
 
 	_, err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
 		Stack: config.StackSpec{
@@ -161,7 +161,7 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 		composeLoader:  loader,
 		composeRotator: NewRotator(),
 	}
-	reconciler.attachComposePipeline()
+	reconciler.attachPipeline()
 
 	result, reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
 		Stack: config.StackSpec{

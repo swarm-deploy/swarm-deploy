@@ -23,7 +23,7 @@ type pipelinePayload struct {
 	PrunedServices []string
 }
 
-func (r *Reconciler) attachComposePipeline() {
+func (r *Reconciler) attachPipeline() {
 	pipeline := pipe.NewPipeline[*pipelinePayload]()
 
 	pipeline.Add(pipe.Step[*pipelinePayload]{
