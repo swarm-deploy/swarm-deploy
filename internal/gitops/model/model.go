@@ -78,3 +78,16 @@ func (r *Runtime) Clone() Runtime {
 
 	return cloned
 }
+
+func (s *Stack) ServiceSyncStatus(serviceName string) SyncStatus {
+	if s == nil {
+		return SyncStatusUnspecified
+	}
+
+	srv, ok := s.Services[serviceName]
+	if !ok {
+		return SyncStatusUnspecified
+	}
+
+	return srv.SyncStatus
+}

@@ -81,7 +81,6 @@ func (r *Reconciler) Reconcile(
 
 	services := desiredState.Compose.Services
 	prev, hasPrev := r.currentStackState(req.Stack.Name)
-	skipped := hasPrev && prev.SourceDigest == desiredState.Digest
 
 	pl := &pipelinePayload{
 		Stack:        req.Stack,
@@ -98,8 +97,8 @@ func (r *Reconciler) Reconcile(
 		return wrapReconcileError(pipeErr.StepName, services, pipeErr)
 	}
 
-	r.recordSuccess(ctx, req.Stack.Name, req.Commit, services, skipped)
-	r.recordState(req.Stack.Name, req.Commit, desiredState.Digest, pl, services)
+	r.processResult(ctx, req, desiredState, pl)
+
 	return nil
 }
 
@@ -109,16 +108,18 @@ func (r *Reconciler) currentStackState(stackName string) (model.Stack, bool) {
 	return stackState, exists
 }
 
-func (r *Reconciler) recordState(
-	stackName string,
-	commit string,
-	sourceDigest string,
+func (r *Reconciler) processResult(
+	ctx context.Context,
+	req ReconciliationRequest,
+	desired *compose.File,
 	payload *pipelinePayload,
-	services []compose.Service,
 ) {
 	now := time.Now()
-	servicesState := make(map[string]model.Service, len(services))
-	for _, service := range services {
+
+	syncedServices := make([]compose.Service, 0, len(desired.Compose.Services))
+
+	serviceStates := make(map[string]model.Service, len(desired.Compose.Services))
+	for _, service := range desired.Compose.Services {
 		state := model.Service{
 			Image:      service.Image,
 			SyncStatus: model.SyncStatusSynced,
@@ -128,20 +129,42 @@ func (r *Reconciler) recordState(
 		if serviceDrift, serviceDrifted := payload.Drift[service.Name]; serviceDrifted {
 			state.SyncStatus = model.SyncStatusOutOfSync
 			state.SyncError = serviceDrift.Reason
+		} else {
+			syncedServices = append(syncedServices, service)
 		}
 
-		servicesState[service.Name] = state
+		serviceStates[service.Name] = state
 	}
 
 	r.stateStore.Update(func(state *model.Runtime) {
-		state.Stacks[stackName] = model.Stack{
-			SourceDigest: sourceDigest,
-			LastCommit:   commit,
-			Status:       model.NewStackStatus(servicesState),
+		state.Stacks[req.Stack.Name] = model.Stack{
+			SourceDigest: desired.Digest,
+			LastCommit:   req.Commit,
+			Status:       model.NewStackStatus(serviceStates),
 			LastError:    "",
 			LastDeployAt: now,
-			Services:     servicesState,
+			Services:     serviceStates,
 		}
+	})
+
+	if !payload.IsNewDigest {
+		return
+	}
+
+	for serviceName, service := range serviceStates {
+		status := "success"
+
+		if service.SyncStatus == model.SyncStatusSynced {
+			status = "failed"
+		}
+
+		r.deployMetrics.RecordDeploy(req.Stack.Name, serviceName, status)
+	}
+
+	r.event.Dispatch(ctx, &events.DeploySuccess{
+		StackName: req.Stack.Name,
+		Commit:    req.Commit,
+		Services:  syncedServices,
 	})
 }
 
@@ -171,26 +194,6 @@ func (r *Reconciler) recordFailure(
 			Services:     servicesState,
 		}
 	})
-}
-
-func (r *Reconciler) recordSuccess(
-	ctx context.Context,
-	stackName string,
-	commit string,
-	services []compose.Service,
-	skipped bool,
-) {
-	if !skipped {
-		for _, service := range services {
-			r.deployMetrics.RecordDeploy(stackName, service.Name, "success")
-		}
-
-		r.event.Dispatch(ctx, &events.DeploySuccess{
-			StackName: stackName,
-			Commit:    commit,
-			Services:  services,
-		})
-	}
 }
 
 func (r *Reconciler) recordStackFailure(
