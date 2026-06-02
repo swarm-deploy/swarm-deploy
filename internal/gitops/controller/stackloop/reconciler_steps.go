@@ -19,6 +19,8 @@ type pipelinePayload struct {
 
 	Desired        *compose.File
 	DesiredMutated bool
+
+	PrunedServices []string
 }
 
 func (r *Reconciler) attachComposePipeline() {
@@ -52,7 +54,18 @@ func (r *Reconciler) attachComposePipeline() {
 
 	pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "deploy stack",
-		Run:  r.deployStack,
+		When: func(payload *pipelinePayload) bool {
+			return payload.IsNewDigest || payload.DesiredMutated
+		},
+		Run: r.deployStack,
+	})
+
+	pipeline.Add(pipe.Step[*pipelinePayload]{
+		Name: "prune orphaned services",
+		When: func(payload *pipelinePayload) bool {
+			return payload.IsNewDigest || payload.IsManualSync
+		},
+		Run: r.pruneOrphanedServices,
 	})
 
 	r.pipeline = pipeline
@@ -120,4 +133,15 @@ func (r *Reconciler) writeRenderedCompose(_ context.Context, payload *pipelinePa
 
 func (r *Reconciler) deployStack(ctx context.Context, payload *pipelinePayload) error {
 	return r.deployer.DeployStack(ctx, payload.Stack.Name, payload.Desired.Path, payload.Desired.Compose.Services)
+}
+
+func (r *Reconciler) pruneOrphanedServices(ctx context.Context, payload *pipelinePayload) error {
+	prunedServices, err := r.pruner.Prune(ctx, payload.Stack, payload.Desired.Compose.Services)
+	if err != nil {
+		return err
+	}
+
+	payload.PrunedServices = prunedServices
+
+	return nil
 }

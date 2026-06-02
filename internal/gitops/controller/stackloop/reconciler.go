@@ -71,37 +71,23 @@ func (r *Reconciler) Reconcile(
 	if hasPrev && prev.SourceDigest == desiredState.Digest {
 		result.SourceDigest = desiredState.Digest
 		result.Skipped = true
-
-		if req.IsManual {
-			prunedServices, pruneErr := r.pruner.Prune(ctx, req.Stack, desiredState.Compose.Services)
-			if pruneErr != nil {
-				r.recordFailure(req.Stack.Name, req.Commit, result.Services, pruneErr)
-				return result, wrapReconcileError("prune orphaned services", result.Services, pruneErr)
-			}
-			result.PrunedServices = prunedServices
-		}
-
-		return result, nil
 	}
 
-	pipeErr := r.pipeline.Run(ctx, &pipelinePayload{
+	pl := &pipelinePayload{
 		Stack:        req.Stack,
 		IsNewDigest:  !hasPrev || prev.SourceDigest != desiredState.Digest,
 		IsManualSync: req.IsManual,
 		Desired:      desiredState,
-	})
+	}
+
+	pipeErr := r.pipeline.Run(ctx, pl)
 	if pipeErr != nil {
 		r.recordFailure(req.Stack.Name, req.Commit, result.Services, pipeErr)
 		return ReconciliationResponse{}, wrapReconcileError(pipeErr.StepName, nil, pipeErr)
 	}
 
-	prunedServices, pruneErr := r.pruner.Prune(ctx, req.Stack, desiredState.Compose.Services)
-	if pruneErr != nil {
-		r.recordFailure(req.Stack.Name, req.Commit, result.Services, pruneErr)
-		return result, wrapReconcileError("prune orphaned services", result.Services, pruneErr)
-	}
-	result.PrunedServices = prunedServices
 	result.SourceDigest = desiredState.Digest
+
 	r.recordSuccess(req.Stack.Name, req.Commit, result.SourceDigest, result.Services)
 	return result, nil
 }
