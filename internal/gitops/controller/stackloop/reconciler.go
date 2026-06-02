@@ -8,6 +8,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller/stackloop/drift"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
@@ -25,6 +26,7 @@ type Reconciler struct {
 	composeLoader  *compose.FileLoader
 	composeRotator *Rotator
 	pipeline       *pipe.Pipeline[*pipelinePayload]
+	driftAnalyzer  *drift.Analyzer
 }
 
 // New builds a stack reconciler loop.
@@ -43,6 +45,7 @@ func New(
 		composeLoader:  compose.NewFileLoader(),
 		composeRotator: NewRotator(),
 		pruner:         NewServicePruner(swarmService.Services, cfg.Spec.Sync.Policy),
+		driftAnalyzer:  drift.NewAnalyzer(),
 	}
 
 	reconciler.attachPipeline()

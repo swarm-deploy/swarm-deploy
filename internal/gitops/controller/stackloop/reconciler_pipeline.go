@@ -8,8 +8,10 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller/stackloop/drift"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/pipe"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 type pipelinePayload struct {
@@ -21,12 +23,13 @@ type pipelinePayload struct {
 	DesiredMutated bool
 
 	PrunedServices []string
+	Drift          []drift.ServiceDrift
 }
 
 func (r *Reconciler) attachPipeline() {
-	pipeline := pipe.NewPipeline[*pipelinePayload]()
+	r.pipeline = pipe.NewPipeline[*pipelinePayload]()
 
-	pipeline.Add(pipe.Step[*pipelinePayload]{
+	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "add managed label",
 		When: func(payload *pipelinePayload) bool {
 			return payload.IsNewDigest
@@ -35,7 +38,7 @@ func (r *Reconciler) attachPipeline() {
 	})
 
 	if r.cfg.Spec.SecretRotation.Enabled {
-		pipeline.Add(pipe.Step[*pipelinePayload]{
+		r.pipeline.Add(pipe.Step[*pipelinePayload]{
 			Name: "rotate secrets/configs",
 			When: func(payload *pipelinePayload) bool {
 				return payload.IsNewDigest
@@ -44,7 +47,7 @@ func (r *Reconciler) attachPipeline() {
 		})
 	}
 
-	pipeline.Add(pipe.Step[*pipelinePayload]{
+	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "write rendered compose",
 		When: func(payload *pipelinePayload) bool {
 			return payload.DesiredMutated
@@ -52,7 +55,7 @@ func (r *Reconciler) attachPipeline() {
 		Run: r.writeRenderedCompose,
 	})
 
-	pipeline.Add(pipe.Step[*pipelinePayload]{
+	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "deploy stack",
 		When: func(payload *pipelinePayload) bool {
 			return payload.IsNewDigest || payload.DesiredMutated
@@ -60,7 +63,7 @@ func (r *Reconciler) attachPipeline() {
 		Run: r.deployStack,
 	})
 
-	pipeline.Add(pipe.Step[*pipelinePayload]{
+	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "prune orphaned services",
 		When: func(payload *pipelinePayload) bool {
 			return payload.IsNewDigest || payload.IsManualSync
@@ -68,7 +71,13 @@ func (r *Reconciler) attachPipeline() {
 		Run: r.pruneOrphanedServices,
 	})
 
-	r.pipeline = pipeline
+	r.pipeline.Add(pipe.Step[*pipelinePayload]{
+		Name: "analyze drift",
+		When: func(payload *pipelinePayload) bool {
+			return payload.IsNewDigest || payload.DesiredMutated
+		},
+		Run: r.analyzeDrift,
+	})
 }
 
 func (r *Reconciler) addManagedLabel(_ context.Context, payload *pipelinePayload) error {
@@ -144,4 +153,16 @@ func (r *Reconciler) pruneOrphanedServices(ctx context.Context, payload *pipelin
 	payload.PrunedServices = prunedServices
 
 	return nil
+}
+
+func (r *Reconciler) analyzeDrift(_ context.Context, payload *pipelinePayload) error {
+	driftResp, err := r.driftAnalyzer.Analyze(drift.AnalyzeRequest{
+		Stack:   payload.Stack,
+		Desired: *payload.Desired,
+		Live:    make([]*swarm.StackService, 0),
+	})
+
+	payload.Drift = driftResp.Drifts
+
+	return err
 }
