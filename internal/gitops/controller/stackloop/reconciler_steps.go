@@ -9,21 +9,21 @@ import (
 )
 
 func (r *Reconciler) attachComposePipeline() {
-	steps := []pipelineStep{
-		{
-			name: "add managed label",
-			run:  r.addManagedLabel,
-		},
-	}
+	pipe := newPipeline()
+
+	pipe.Add(pipelineStep{
+		name: "add managed label",
+		run:  r.addManagedLabel,
+	})
 
 	if r.cfg.Spec.SecretRotation.Enabled {
-		steps = append(steps, pipelineStep{
+		pipe.Add(pipelineStep{
 			name: "rotate secrets/configs",
 			run:  r.rotateSecrets,
 		})
 	}
 
-	steps = append(steps, pipelineStep{
+	pipe.Add(pipelineStep{
 		name: "write rendered compose",
 		when: func(payload *pipelinePayload) bool {
 			return payload.DesiredMutated
@@ -31,7 +31,7 @@ func (r *Reconciler) attachComposePipeline() {
 		run: r.writeRenderedCompose,
 	})
 
-	r.pipeline = newPipeline(steps)
+	r.pipeline = pipe
 }
 
 func (r *Reconciler) addManagedLabel(payload *pipelinePayload) (bool, error) {

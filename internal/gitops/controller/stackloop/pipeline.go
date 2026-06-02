@@ -22,17 +22,27 @@ type pipelineStep struct {
 	run  func(payload *pipelinePayload) (bool, error)
 }
 
-func newPipeline(steps []pipelineStep) *pipeline {
+func newPipeline() *pipeline {
 	return &pipeline{
-		pipeline: steps,
+		pipeline: make([]pipelineStep, 0),
 	}
+}
+
+func (p *pipeline) Add(step pipelineStep) {
+	if step.when == nil {
+		step.when = func(*pipelinePayload) bool {
+			return true
+		}
+	}
+
+	p.pipeline = append(p.pipeline, step)
 }
 
 func (p *pipeline) Run(payload *pipelinePayload) (bool, *pipelineError) {
 	changed := false
 
 	for _, step := range p.pipeline {
-		if step.when != nil && !step.when(payload) {
+		if !step.when(payload) {
 			continue
 		}
 
