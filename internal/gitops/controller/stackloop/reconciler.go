@@ -3,7 +3,6 @@ package stackloop
 import (
 	"context"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -12,7 +11,6 @@ import (
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/pipe"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -166,8 +164,4 @@ func (r *Reconciler) recordFailure(
 			Services:     servicesState,
 		}
 	})
-}
-
-func isManagedService(labels map[string]string) bool {
-	return strings.TrimSpace(labels[labelsdict.ServiceManagedLabelKey]) == labelsdict.ServiceManagedLabelValue
 }

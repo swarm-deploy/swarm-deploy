@@ -50,7 +50,7 @@ func (p *ServicePruner) Prune(
 		if _, exists := desiredServiceNames[stackService.Name]; exists {
 			continue
 		}
-		if !isManagedService(stackService.Labels) {
+		if !labelsdict.ServiceManaged(stackService.Labels) {
 			continue
 		}
 
