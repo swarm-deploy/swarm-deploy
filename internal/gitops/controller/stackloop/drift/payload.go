@@ -9,7 +9,7 @@ import (
 type AnalyzeRequest struct {
 	Stack   config.StackSpec
 	Desired compose.File
-	Live    []*swarm.StackService
+	Live    []swarm.StackService
 }
 
 type AnalyzeResponse struct {

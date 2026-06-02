@@ -20,7 +20,6 @@ type removeExpectation struct {
 }
 
 func TestServicePrunerPrune(t *testing.T) {
-	errListFailed := errors.New("list failed")
 	errRemoveFailed := errors.New("remove failed")
 
 	tests := []struct {
@@ -29,7 +28,6 @@ func TestServicePrunerPrune(t *testing.T) {
 		stackCfg       config.StackSpec
 		desired        []compose.Service
 		stackServices  []swarm.StackService
-		listErr        error
 		removeCalls    []removeExpectation
 		expectedPruned []string
 		expectedErr    error
@@ -135,13 +133,12 @@ func TestServicePrunerPrune(t *testing.T) {
 			expectedPruned: []string{},
 		},
 		{
-			name:    "returns list error",
+			name:    "returns no pruned services when live state empty",
 			syncCfg: config.SyncPolicySpec{Prune: true},
 			stackCfg: config.StackSpec{
 				Name: "app",
 			},
-			listErr:     errListFailed,
-			expectedErr: errListFailed,
+			expectedPruned: []string{},
 		},
 		{
 			name:    "returns remove error",
@@ -172,10 +169,6 @@ func TestServicePrunerPrune(t *testing.T) {
 			serviceManager := swarm.NewMockServiceManager(ctrl)
 			pruner := NewServicePruner(serviceManager, tt.syncCfg)
 
-			serviceManager.EXPECT().
-				ListStackServices(gomock.Any(), tt.stackCfg.Name).
-				Return(tt.stackServices, tt.listErr)
-
 			for _, call := range tt.removeCalls {
 				serviceManager.EXPECT().Remove(gomock.Any(), call.serviceID).Return(call.err)
 			}
@@ -183,8 +176,9 @@ func TestServicePrunerPrune(t *testing.T) {
 			prunedServices, err := pruner.Prune(
 				context.Background(),
 				PruneServicesRequest{
-					tt.stackCfg,
-					tt.desired,
+					Stack:   tt.stackCfg,
+					Desired: tt.desired,
+					Live:    tt.stackServices,
 				},
 			)
 

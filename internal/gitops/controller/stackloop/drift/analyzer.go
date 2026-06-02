@@ -11,7 +11,7 @@ func NewAnalyzer() *Analyzer {
 }
 
 func (a *Analyzer) Analyze(req AnalyzeRequest) (AnalyzeResponse, error) {
-	liveServiceMap := make(map[string]*swarm.StackService)
+	liveServiceMap := make(map[string]swarm.StackService)
 	for _, service := range req.Live {
 		liveServiceMap[service.Name] = service
 	}
@@ -22,7 +22,7 @@ func (a *Analyzer) Analyze(req AnalyzeRequest) (AnalyzeResponse, error) {
 
 	for _, desiredService := range req.Desired.Compose.Services {
 		_, serviceExists := liveServiceMap[desiredService.Name]
-		if serviceExists {
+		if !serviceExists {
 			resp.Drifts = append(resp.Drifts, ServiceDrift{
 				ServiceName:   desiredService.Name,
 				Reason:        "Service Missed",
@@ -32,5 +32,5 @@ func (a *Analyzer) Analyze(req AnalyzeRequest) (AnalyzeResponse, error) {
 		}
 	}
 
-	return AnalyzeResponse{}, nil
+	return *resp, nil
 }

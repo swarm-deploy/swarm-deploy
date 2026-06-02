@@ -48,6 +48,7 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 		pruner:         pruner.NewServicePruner(serviceManager, config.SyncPolicySpec{}),
 		composeLoader:  compose.NewFileLoader(),
 		composeRotator: NewRotator(),
+		serviceManager: serviceManager,
 	}
 	reconciler.attachPipeline()
 
@@ -130,6 +131,7 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	repository := gitx.NewMockRepository(ctrl)
+	serviceManager := swarm.NewMockServiceManager(ctrl)
 	stackDeployer := deployer.NewMockStackDeployer(ctrl)
 	stateStore := modelstore.NewMemoryStore()
 	repoDir := t.TempDir()
@@ -148,6 +150,7 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 	})
 
 	repository.EXPECT().WorkingDir().Return(repoDir)
+	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
 
 	reconciler := &Reconciler{
 		cfg: &config.Config{
@@ -158,9 +161,10 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 		git:            repository,
 		deployer:       stackDeployer,
 		stateStore:     stateStore,
-		pruner:         pruner.NewServicePruner(swarm.NewMockServiceManager(ctrl), config.SyncPolicySpec{}),
+		pruner:         pruner.NewServicePruner(serviceManager, config.SyncPolicySpec{}),
 		composeLoader:  loader,
 		composeRotator: NewRotator(),
+		serviceManager: serviceManager,
 	}
 	reconciler.attachPipeline()
 

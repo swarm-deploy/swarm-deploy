@@ -33,18 +33,13 @@ func (p *ServicePruner) Prune(
 	ctx context.Context,
 	req PruneServicesRequest,
 ) ([]string, error) {
-	stackServices, err := p.services.ListStackServices(ctx, req.Stack.Name)
-	if err != nil {
-		return nil, err
-	}
-
 	desiredServiceNames := make(map[string]struct{}, len(req.Desired))
 	for _, service := range req.Desired {
 		desiredServiceNames[service.Name] = struct{}{}
 	}
 
 	prunedServices := make([]string, 0)
-	for _, stackService := range stackServices {
+	for _, stackService := range req.Live {
 		if _, exists := desiredServiceNames[stackService.Name]; exists {
 			continue
 		}

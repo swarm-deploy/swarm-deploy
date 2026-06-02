@@ -23,6 +23,7 @@ type pipelinePayload struct {
 	Desired        *compose.File
 	DesiredMutated bool
 
+	LiveServices   []swarm.StackService
 	PrunedServices []string
 	Drift          []drift.ServiceDrift
 }
@@ -65,6 +66,11 @@ func (r *Reconciler) attachPipeline() {
 	})
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
+		Name: "load live state",
+		Run:  r.loadLiveState,
+	})
+
+	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "prune orphaned services",
 		When: func(payload *pipelinePayload) bool {
 			return payload.IsNewDigest || payload.IsManualSync
@@ -75,7 +81,7 @@ func (r *Reconciler) attachPipeline() {
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "analyze drift",
 		When: func(payload *pipelinePayload) bool {
-			return payload.IsNewDigest || payload.DesiredMutated
+			return !payload.IsNewDigest || payload.IsManualSync
 		},
 		Run: r.analyzeDrift,
 	})
@@ -145,10 +151,22 @@ func (r *Reconciler) deployStack(ctx context.Context, payload *pipelinePayload) 
 	return r.deployer.DeployStack(ctx, payload.Stack.Name, payload.Desired.Path, payload.Desired.Compose.Services)
 }
 
+func (r *Reconciler) loadLiveState(ctx context.Context, payload *pipelinePayload) error {
+	liveServices, err := r.serviceManager.ListStackServices(ctx, payload.Stack.Name)
+	if err != nil {
+		return err
+	}
+
+	payload.LiveServices = liveServices
+
+	return nil
+}
+
 func (r *Reconciler) pruneOrphanedServices(ctx context.Context, payload *pipelinePayload) error {
 	prunedServices, err := r.pruner.Prune(ctx, pruner.PruneServicesRequest{
 		Stack:   payload.Stack,
 		Desired: payload.Desired.Compose.Services,
+		Live:    payload.LiveServices,
 	})
 	if err != nil {
 		return err
@@ -163,7 +181,7 @@ func (r *Reconciler) analyzeDrift(_ context.Context, payload *pipelinePayload) e
 	driftResp, err := r.driftAnalyzer.Analyze(drift.AnalyzeRequest{
 		Stack:   payload.Stack,
 		Desired: *payload.Desired,
-		Live:    make([]*swarm.StackService, 0),
+		Live:    payload.LiveServices,
 	})
 
 	payload.Drift = driftResp.Drifts

@@ -28,6 +28,7 @@ type Reconciler struct {
 	composeRotator *Rotator
 	pipeline       *pipe.Pipeline[*pipelinePayload]
 	driftAnalyzer  *drift.Analyzer
+	serviceManager swarm.ServiceManager
 }
 
 // New builds a stack reconciler loop.
@@ -47,6 +48,7 @@ func New(
 		composeRotator: NewRotator(),
 		pruner:         pruner.NewServicePruner(swarmService.Services, cfg.Spec.Sync.Policy),
 		driftAnalyzer:  drift.NewAnalyzer(),
+		serviceManager: swarmService.Services,
 	}
 
 	reconciler.attachPipeline()
