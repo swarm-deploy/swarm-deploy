@@ -20,6 +20,7 @@ const (
 	TypeNameDeployFailed                     TypeName = "deployFailed"
 	TypeNameSendNotificationFailed           TypeName = "sendNotificationFailed"
 	TypeNameSyncManualStarted                TypeName = "syncManualStarted"
+	TypeNameServiceMissed                    TypeName = "serviceMissed"
 	TypeNameServiceReplicasIncreased         TypeName = "serviceReplicasIncreased"
 	TypeNameServiceReplicasDecreased         TypeName = "serviceReplicasDecreased"
 	TypeNameServiceRestarted                 TypeName = "serviceRestarted"
@@ -88,6 +89,12 @@ var (
 		category: CategorySync,
 		window:   defaultSyncDedupWindow,
 	}
+	TypeServiceMissed = Type{
+		name:     TypeNameServiceMissed,
+		severity: SeverityWarn,
+		category: CategorySync,
+		window:   serviceDedupWindow,
+	}
 	TypeServiceReplicasIncreased = Type{
 		name:     TypeNameServiceReplicasIncreased,
 		severity: SeverityInfo,
@@ -130,6 +137,7 @@ var (
 		TypeDeployFailed,
 		TypeSendNotificationFailed,
 		TypeSyncManualStarted,
+		TypeServiceMissed,
 		TypeServiceReplicasIncreased,
 		TypeServiceReplicasDecreased,
 		TypeServiceRestarted,
@@ -195,6 +203,8 @@ func (n TypeName) Valid() bool {
 		return true
 	case TypeNameSyncManualStarted:
 		return true
+	case TypeNameServiceMissed:
+		return true
 	case TypeNameServiceReplicasIncreased:
 		return true
 	case TypeNameServiceReplicasDecreased:
@@ -223,6 +233,8 @@ func ParseType(name string) (Type, bool) {
 		return TypeSendNotificationFailed, true
 	case TypeNameSyncManualStarted:
 		return TypeSyncManualStarted, true
+	case TypeNameServiceMissed:
+		return TypeServiceMissed, true
 	case TypeNameServiceReplicasIncreased:
 		return TypeServiceReplicasIncreased, true
 	case TypeNameServiceReplicasDecreased:

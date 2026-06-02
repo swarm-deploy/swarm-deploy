@@ -97,7 +97,7 @@ func (r *Reconciler) Reconcile(
 		return wrapReconcileError(pipeErr.StepName, services, pipeErr)
 	}
 
-	r.processResult(ctx, req, desiredState, pl)
+	r.processResult(ctx, req, prev, desiredState, pl)
 
 	return nil
 }
@@ -110,6 +110,7 @@ func (r *Reconciler) currentStackState(stackName string) (model.Stack, bool) {
 func (r *Reconciler) processResult(
 	ctx context.Context,
 	req ReconciliationRequest,
+	prevState model.Stack,
 	desired *compose.File,
 	payload *pipelinePayload,
 ) {
@@ -145,6 +146,18 @@ func (r *Reconciler) processResult(
 			Services:     serviceStates,
 		}
 	})
+
+	for _, serviceDrift := range payload.Drift {
+		if !serviceDrift.ServiceMissed || prevState.ServiceSyncStatus(serviceDrift.ServiceName) == model.SyncStatusOutOfSync {
+			continue
+		}
+
+		r.event.Dispatch(ctx, &events.ServiceMissed{
+			StackName:   req.Stack.Name,
+			ServiceName: serviceDrift.ServiceName,
+			Commit:      req.Commit,
+		})
+	}
 
 	if !payload.IsNewDigest {
 		return
