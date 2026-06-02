@@ -104,8 +104,7 @@ func (r *Reconciler) Reconcile(
 
 func (r *Reconciler) currentStackState(stackName string) (model.Stack, bool) {
 	currentState := r.stateStore.Get()
-	stackState, exists := currentState.Stacks[stackName]
-	return stackState, exists
+	return currentState.Stack(stackName)
 }
 
 func (r *Reconciler) processResult(

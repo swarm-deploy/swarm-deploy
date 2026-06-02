@@ -1,6 +1,8 @@
 package model
 
-import "time"
+import (
+	"time"
+)
 
 type Service struct {
 	// Image is the deployed image reference for the service.
@@ -77,6 +79,11 @@ func (r *Runtime) Clone() Runtime {
 	}
 
 	return cloned
+}
+
+func (r *Runtime) Stack(stackName string) (Stack, bool) {
+	stackState, exists := r.Stacks[stackName]
+	return stackState, exists
 }
 
 func (s *Stack) ServiceSyncStatus(serviceName string) SyncStatus {
