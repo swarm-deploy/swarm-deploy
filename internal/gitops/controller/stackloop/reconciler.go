@@ -2,8 +2,6 @@ package stackloop
 
 import (
 	"context"
-	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -87,8 +85,7 @@ func (r *Reconciler) Reconcile(
 		return result, nil
 	}
 
-	deployComposePath := composePath
-	composeChanged, pipeErr := r.pipeline.Run(&pipelinePayload{
+	_, pipeErr := r.pipeline.Run(&pipelinePayload{
 		Stack:   req.Stack,
 		Desired: desiredState,
 	})
@@ -97,17 +94,8 @@ func (r *Reconciler) Reconcile(
 		return ReconciliationResponse{}, wrapReconcileError(pipeErr.stepName, nil, pipeErr)
 	}
 
-	if composeChanged {
-		renderedPath, renderedPathErr := r.writeRenderedCompose(req.Stack.Name, desiredState)
-		if renderedPathErr != nil {
-			r.recordFailure(req.Stack.Name, req.Commit, result.Services, renderedPathErr)
-			return result, wrapReconcileError("write rendered compose", result.Services, renderedPathErr)
-		}
-		deployComposePath = renderedPath
-	}
-
 	// Deployer encapsulates init jobs orchestration and stack deployment.
-	err = r.deployer.DeployStack(ctx, req.Stack.Name, deployComposePath, desiredState.Compose.Services)
+	err = r.deployer.DeployStack(ctx, req.Stack.Name, desiredState.Path, desiredState.Compose.Services)
 	if err != nil {
 		r.recordFailure(req.Stack.Name, req.Commit, result.Services, err)
 		return result, wrapReconcileError("deploy", result.Services, err)
@@ -188,25 +176,4 @@ func (r *Reconciler) recordFailure(
 
 func isManagedService(labels map[string]string) bool {
 	return strings.TrimSpace(labels[labelsdict.ServiceManagedLabelKey]) == labelsdict.ServiceManagedLabelValue
-}
-
-func (r *Reconciler) writeRenderedCompose(stackName string, stackFile *compose.File) (string, error) {
-	renderedDir := filepath.Join(r.cfg.Spec.DataDir, "rendered")
-	// Persist rendered files under data dir so deploy step can use a stable path.
-	if err := os.MkdirAll(renderedDir, 0o755); err != nil {
-		return "", fmt.Errorf("create rendered dir: %w", err)
-	}
-
-	payload, err := stackFile.MarshalYAML()
-	if err != nil {
-		return "", err
-	}
-
-	target := filepath.Join(renderedDir, stackName+".yaml")
-	err = os.WriteFile(target, payload, 0o600)
-	if err != nil {
-		return "", fmt.Errorf("write rendered compose %s: %w", target, err)
-	}
-
-	return target, nil
 }

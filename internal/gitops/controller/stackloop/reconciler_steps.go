@@ -1,11 +1,15 @@
 package stackloop
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
+
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 )
 
 func (r *Reconciler) attachComposePipeline() {
-	composePipelineSteps := []pipelineStep{
+	steps := []pipelineStep{
 		{
 			name: "add managed label",
 			run:  r.addManagedLabel,
@@ -13,13 +17,21 @@ func (r *Reconciler) attachComposePipeline() {
 	}
 
 	if r.cfg.Spec.SecretRotation.Enabled {
-		composePipelineSteps = append(composePipelineSteps, pipelineStep{
+		steps = append(steps, pipelineStep{
 			name: "rotate secrets/configs",
 			run:  r.rotateSecrets,
 		})
 	}
 
-	r.pipeline = newPipeline(composePipelineSteps)
+	steps = append(steps, pipelineStep{
+		name: "write rendered compose",
+		when: func(payload *pipelinePayload) bool {
+			return payload.DesiredMutated
+		},
+		run: r.writeRenderedCompose,
+	})
+
+	r.pipeline = newPipeline(steps)
 }
 
 func (r *Reconciler) addManagedLabel(payload *pipelinePayload) (bool, error) {
@@ -57,4 +69,27 @@ func (r *Reconciler) rotateSecrets(payload *pipelinePayload) (bool, error) {
 	}
 
 	return changed, nil
+}
+
+func (r *Reconciler) writeRenderedCompose(payload *pipelinePayload) (bool, error) {
+	renderedDir := filepath.Join(r.cfg.Spec.DataDir, "rendered")
+	// Persist rendered files under data dir so deploy step can use a stable path.
+	if err := os.MkdirAll(renderedDir, 0o755); err != nil {
+		return false, fmt.Errorf("create rendered dir: %w", err)
+	}
+
+	content, err := payload.Desired.MarshalYAML()
+	if err != nil {
+		return false, fmt.Errorf("failed to marshal desired compose yaml: %w", err)
+	}
+
+	target := filepath.Join(renderedDir, payload.Stack.Name+".yaml")
+	err = os.WriteFile(target, content, 0o600)
+	if err != nil {
+		return false, fmt.Errorf("write rendered compose %s: %w", target, err)
+	}
+
+	payload.Desired.Path = target
+
+	return true, nil
 }

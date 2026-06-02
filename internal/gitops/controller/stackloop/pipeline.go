@@ -18,6 +18,7 @@ type pipeline struct {
 
 type pipelineStep struct {
 	name string
+	when func(payload *pipelinePayload) bool
 	run  func(payload *pipelinePayload) (bool, error)
 }
 
@@ -31,6 +32,10 @@ func (p *pipeline) Run(payload *pipelinePayload) (bool, *pipelineError) {
 	changed := false
 
 	for _, step := range p.pipeline {
+		if step.when != nil && !step.when(payload) {
+			continue
+		}
+
 		hasChanges, err := step.run(payload)
 		if err != nil {
 			return false, &pipelineError{
