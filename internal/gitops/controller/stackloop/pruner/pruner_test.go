@@ -182,8 +182,10 @@ func TestServicePrunerPrune(t *testing.T) {
 
 			prunedServices, err := pruner.Prune(
 				context.Background(),
-				tt.stackCfg,
-				tt.desired,
+				PruneServicesRequest{
+					tt.stackCfg,
+					tt.desired,
+				},
 			)
 
 			if tt.expectedErr != nil {

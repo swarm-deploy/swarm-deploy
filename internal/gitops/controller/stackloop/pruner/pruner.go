@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -32,16 +31,15 @@ func NewServicePruner(
 // Prune deletes managed orphan services according to sync policy.
 func (p *ServicePruner) Prune(
 	ctx context.Context,
-	stackCfg config.StackSpec,
-	desiredServices []compose.Service,
+	req PruneServicesRequest,
 ) ([]string, error) {
-	stackServices, err := p.services.ListStackServices(ctx, stackCfg.Name)
+	stackServices, err := p.services.ListStackServices(ctx, req.Stack.Name)
 	if err != nil {
 		return nil, err
 	}
 
-	desiredServiceNames := make(map[string]struct{}, len(desiredServices))
-	for _, service := range desiredServices {
+	desiredServiceNames := make(map[string]struct{}, len(req.Desired))
+	for _, service := range req.Desired {
 		desiredServiceNames[service.Name] = struct{}{}
 	}
 
@@ -56,7 +54,7 @@ func (p *ServicePruner) Prune(
 
 		pruneEnabled := p.resolvePolicy(
 			stackService.Labels,
-			stackCfg,
+			req.Stack,
 		)
 		if !pruneEnabled {
 			continue
@@ -73,7 +71,7 @@ func (p *ServicePruner) Prune(
 		slog.InfoContext(
 			ctx,
 			"[service-pruner] service pruned",
-			slog.String("stack", stackCfg.Name),
+			slog.String("stack", req.Stack.Name),
 			slog.String("service", stackService.Name),
 		)
 		prunedServices = append(prunedServices, stackService.Name)
