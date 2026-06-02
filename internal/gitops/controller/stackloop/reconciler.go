@@ -9,6 +9,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller/stackloop/drift"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller/stackloop/pruner"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
@@ -22,7 +23,7 @@ type Reconciler struct {
 	git            gitx.Repository
 	deployer       deployer.StackDeployer
 	stateStore     modelstore.Store
-	pruner         *ServicePruner
+	pruner         *pruner.ServicePruner
 	composeLoader  *compose.FileLoader
 	composeRotator *Rotator
 	pipeline       *pipe.Pipeline[*pipelinePayload]
@@ -44,7 +45,7 @@ func New(
 		stateStore:     stateStore,
 		composeLoader:  compose.NewFileLoader(),
 		composeRotator: NewRotator(),
-		pruner:         NewServicePruner(swarmService.Services, cfg.Spec.Sync.Policy),
+		pruner:         pruner.NewServicePruner(swarmService.Services, cfg.Spec.Sync.Policy),
 		driftAnalyzer:  drift.NewAnalyzer(),
 	}
 

@@ -1,4 +1,4 @@
-package stackloop
+package pruner
 
 import (
 	"context"

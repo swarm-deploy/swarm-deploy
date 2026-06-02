@@ -12,6 +12,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller/stackloop/pruner"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
@@ -44,7 +45,7 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 		git:            repository,
 		deployer:       stackDeployer,
 		stateStore:     stateStore,
-		pruner:         NewServicePruner(serviceManager, config.SyncPolicySpec{}),
+		pruner:         pruner.NewServicePruner(serviceManager, config.SyncPolicySpec{}),
 		composeLoader:  compose.NewFileLoader(),
 		composeRotator: NewRotator(),
 	}
@@ -98,7 +99,7 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 		git:            repository,
 		deployer:       stackDeployer,
 		stateStore:     stateStore,
-		pruner:         NewServicePruner(serviceManager, config.SyncPolicySpec{}),
+		pruner:         pruner.NewServicePruner(serviceManager, config.SyncPolicySpec{}),
 		composeLoader:  compose.NewFileLoader(),
 		composeRotator: NewRotator(),
 	}
@@ -157,7 +158,7 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 		git:            repository,
 		deployer:       stackDeployer,
 		stateStore:     stateStore,
-		pruner:         NewServicePruner(swarm.NewMockServiceManager(ctrl), config.SyncPolicySpec{}),
+		pruner:         pruner.NewServicePruner(swarm.NewMockServiceManager(ctrl), config.SyncPolicySpec{}),
 		composeLoader:  loader,
 		composeRotator: NewRotator(),
 	}
