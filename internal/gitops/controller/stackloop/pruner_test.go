@@ -1,4 +1,4 @@
-package controller
+package stackloop
 
 import (
 	"context"

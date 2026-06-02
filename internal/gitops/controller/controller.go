@@ -12,6 +12,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller/stackloop"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
@@ -48,7 +49,7 @@ type Controller struct {
 
 	stateStore        modelstore.Store
 	networkReconciler *networkReconciler
-	stackReconciler   *stackReconciler
+	stackReconciler   *stackloop.Reconciler
 
 	triggerCh chan triggerTask
 }
@@ -77,11 +78,12 @@ func New(
 		networkReconciler: newNetworkReconciler(
 			swarmService.Networks,
 		),
-		stackReconciler: newStackReconciler(
+		stackReconciler: stackloop.New(
 			cfg,
 			git,
 			deployer,
 			swarmService,
+			stateStore,
 		),
 		triggerCh: make(chan triggerTask, 1),
 	}
@@ -316,11 +318,13 @@ func (c *Controller) syncStack(
 	commit string,
 	isManual bool,
 ) error {
-	currentState := c.stateStore.Get()
-	prev, exists := currentState.Stacks[stackCfg.Name]
-	reconcileResult, err := c.stackReconciler.Reconcile(ctx, stackCfg, prev.SourceDigest, exists, isManual)
+	reconcileResult, err := c.stackReconciler.Reconcile(ctx, stackloop.ReconciliationRequest{
+		Stack:    stackCfg,
+		Commit:   commit,
+		IsManual: isManual,
+	})
 	if err != nil {
-		c.recordStackFailure(stackCfg.Name, commit, failedServicesFromReconcileError(err), err)
+		c.recordStackFailure(stackCfg.Name, commit, stackloop.FailedServicesFromError(err), err)
 		return fmt.Errorf("stack %s %w", stackCfg.Name, err)
 	}
 	if reconcileResult.Skipped {
@@ -328,27 +332,9 @@ func (c *Controller) syncStack(
 		return nil
 	}
 
-	now := time.Now()
-	servicesState := map[string]model.Service{}
 	for _, service := range reconcileResult.Services {
-		servicesState[service.Name] = model.Service{
-			Image:      service.Image,
-			SyncStatus: model.SyncStatusSynced,
-			SyncAt:     now,
-		}
 		c.metrics.Deploys.RecordDeploy(stackCfg.Name, service.Name, "success")
 	}
-
-	c.updateState(func(s *model.Runtime) {
-		s.Stacks[stackCfg.Name] = model.Stack{
-			SourceDigest: reconcileResult.SourceDigest,
-			LastCommit:   commit,
-			Status:       model.NewStackStatus(servicesState),
-			LastError:    "",
-			LastDeployAt: now,
-			Services:     servicesState,
-		}
-	})
 
 	c.event.Dispatch(ctx, &events.DeploySuccess{
 		StackName: stackCfg.Name,
@@ -370,30 +356,12 @@ func (c *Controller) dispatchPrunedEvents(ctx context.Context, stackName string,
 }
 
 func (c *Controller) recordStackFailure(stackName, commit string, services []compose.Service, reason error) {
-	now := time.Now()
-	servicesState := map[string]model.Service{}
 	for _, service := range services {
-		servicesState[service.Name] = model.Service{
-			Image:      service.Image,
-			SyncStatus: model.SyncStatusOutOfSync,
-			SyncAt:     now,
-		}
 		c.metrics.Deploys.RecordDeploy(stackName, service.Name, "failed")
 	}
-	if len(servicesState) == 0 {
+	if len(services) == 0 {
 		c.metrics.Deploys.RecordDeploy(stackName, "unknown", "failed")
 	}
-
-	c.updateState(func(s *model.Runtime) {
-		s.Stacks[stackName] = model.Stack{
-			SourceDigest: "",
-			LastCommit:   commit,
-			Status:       model.NewStackStatus(servicesState),
-			LastError:    reason.Error(),
-			LastDeployAt: now,
-			Services:     servicesState,
-		}
-	})
 
 	logs := []string{}
 

@@ -1,4 +1,4 @@
-package controller
+package stackloop
 
 import (
 	"crypto/sha256"
@@ -10,13 +10,16 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 )
 
+// Rotator rewrites config and secret names based on file contents.
 type Rotator struct {
 }
 
+// NewRotator builds a compose object rotator.
 func NewRotator() *Rotator {
 	return &Rotator{}
 }
 
+// Rotate mutates shared object names in-place when rotation is enabled.
 func (f *Rotator) Rotate(
 	file *compose.File,
 	stackName string,

@@ -1,4 +1,4 @@
-package controller
+package stackloop
 
 import (
 	"context"
@@ -12,11 +12,13 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
+// ServicePruner removes managed services missing from desired stack state.
 type ServicePruner struct {
 	services swarm.ServiceManager
 	syncCfg  config.SyncPolicySpec
 }
 
+// NewServicePruner builds a service pruner.
 func NewServicePruner(
 	serviceManager swarm.ServiceManager,
 	syncCfg config.SyncPolicySpec,
@@ -27,6 +29,7 @@ func NewServicePruner(
 	}
 }
 
+// Prune deletes managed orphan services according to sync policy.
 func (p *ServicePruner) Prune(
 	ctx context.Context,
 	stackCfg config.StackSpec,
@@ -47,7 +50,7 @@ func (p *ServicePruner) Prune(
 		if _, exists := desiredServiceNames[stackService.Name]; exists {
 			continue
 		}
-		if !isManagedService(stackService.Labels) {
+		if !labelsdict.ServiceManaged(stackService.Labels) {
 			continue
 		}
 
