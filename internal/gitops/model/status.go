@@ -3,8 +3,9 @@ package model
 type SyncStatus string
 
 const (
-	SyncStatusSynced    = "Synced"
-	SyncStatusOutOfSync = "OutOfSync"
+	SyncStatusSynced      = "Synced"
+	SyncStatusOutOfSync   = "OutOfSync"
+	SyncStatusUnspecified = ""
 )
 
 // StackStatus contains aggregated deployment counters for a stack.

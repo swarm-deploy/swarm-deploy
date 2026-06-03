@@ -70,6 +70,21 @@ func (mr *MockRepositoryMockRecorder) List(ctx, limit any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockRepository)(nil).List), ctx, limit)
 }
 
+// Diff mocks base method.
+func (m *MockRepository) Diff(ctx context.Context, oldRevision, newRevision string) ([]CommitFileDiff, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Diff", ctx, oldRevision, newRevision)
+	ret0, _ := ret[0].([]CommitFileDiff)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Diff indicates an expected call of Diff.
+func (mr *MockRepositoryMockRecorder) Diff(ctx, oldRevision, newRevision any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Diff", reflect.TypeOf((*MockRepository)(nil).Diff), ctx, oldRevision, newRevision)
+}
+
 // Pull mocks base method.
 func (m *MockRepository) Pull(ctx context.Context) (PullResult, error) {
 	m.ctrl.T.Helper()

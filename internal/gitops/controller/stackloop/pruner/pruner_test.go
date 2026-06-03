@@ -1,4 +1,4 @@
-package stackloop
+package pruner
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
@@ -20,7 +21,6 @@ type removeExpectation struct {
 }
 
 func TestServicePrunerPrune(t *testing.T) {
-	errListFailed := errors.New("list failed")
 	errRemoveFailed := errors.New("remove failed")
 
 	tests := []struct {
@@ -29,7 +29,6 @@ func TestServicePrunerPrune(t *testing.T) {
 		stackCfg       config.StackSpec
 		desired        []compose.Service
 		stackServices  []swarm.StackService
-		listErr        error
 		removeCalls    []removeExpectation
 		expectedPruned []string
 		expectedErr    error
@@ -135,13 +134,12 @@ func TestServicePrunerPrune(t *testing.T) {
 			expectedPruned: []string{},
 		},
 		{
-			name:    "returns list error",
+			name:    "returns no pruned services when live state empty",
 			syncCfg: config.SyncPolicySpec{Prune: true},
 			stackCfg: config.StackSpec{
 				Name: "app",
 			},
-			listErr:     errListFailed,
-			expectedErr: errListFailed,
+			expectedPruned: []string{},
 		},
 		{
 			name:    "returns remove error",
@@ -170,11 +168,8 @@ func TestServicePrunerPrune(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			serviceManager := swarm.NewMockServiceManager(ctrl)
-			pruner := NewServicePruner(serviceManager, tt.syncCfg)
-
-			serviceManager.EXPECT().
-				ListStackServices(gomock.Any(), tt.stackCfg.Name).
-				Return(tt.stackServices, tt.listErr)
+			eventDispatcher := &dispatcher.NopDispatcher{}
+			pruner := NewServicePruner(serviceManager, eventDispatcher, tt.syncCfg)
 
 			for _, call := range tt.removeCalls {
 				serviceManager.EXPECT().Remove(gomock.Any(), call.serviceID).Return(call.err)
@@ -182,8 +177,12 @@ func TestServicePrunerPrune(t *testing.T) {
 
 			prunedServices, err := pruner.Prune(
 				context.Background(),
-				tt.stackCfg,
-				tt.desired,
+				PruneServicesRequest{
+					Stack:   tt.stackCfg,
+					Commit:  "commit-1",
+					Desired: tt.desired,
+					Live:    tt.stackServices,
+				},
 			)
 
 			if tt.expectedErr != nil {

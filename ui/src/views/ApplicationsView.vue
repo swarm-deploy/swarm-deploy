@@ -72,6 +72,10 @@ function syncStatusLabel(status: ServiceSyncStatus | string | undefined): string
 
   return "unknown";
 }
+
+function syncErrorText(syncError: string | undefined): string {
+  return String(syncError || "").trim();
+}
 </script>
 
 <template>
@@ -130,9 +134,18 @@ function syncStatusLabel(status: ServiceSyncStatus | string | undefined): string
                   <strong class="stack-service-name">{{ service.name || "unknown" }}</strong>
                 </td>
                 <td class="services-cell-sync-status">
-                  <span class="status" :class="syncStatusClass(service.sync_status)">
-                    {{ syncStatusLabel(service.sync_status) }}
-                  </span>
+                  <div class="stack-service-sync-status">
+                    <span class="status" :class="syncStatusClass(service.sync_status)">
+                      {{ syncStatusLabel(service.sync_status) }}
+                    </span>
+                    <p
+                      v-if="syncErrorText(service.sync_error)"
+                      class="stack-service-sync-error"
+                      :title="syncErrorText(service.sync_error)"
+                    >
+                      {{ syncErrorText(service.sync_error) }}
+                    </p>
+                  </div>
                 </td>
                 <td class="services-cell-type">{{ service.type_title || service.type }}</td>
                 <td class="services-cell-version" :title="service.image">{{ service.image_version || "—" }}</td>

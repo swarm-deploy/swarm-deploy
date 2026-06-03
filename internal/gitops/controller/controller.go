@@ -5,9 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
+	"strings"
 	"time"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
@@ -83,6 +84,8 @@ func New(
 			git,
 			deployer,
 			swarmService,
+			eventDispatcher,
+			metricGroup.Deploys,
 			stateStore,
 		),
 		triggerCh: make(chan triggerTask, 1),
@@ -257,21 +260,23 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 		slog.Int("count", len(c.cfg.Spec.Stacks)),
 	)
 
-	if !syncResult.Updated && task.reason != TriggerManual {
-		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultNoChange, time.Since(startedAt))
-		currTime := time.Now()
-		c.updateState(func(s *model.Runtime) {
-			s.LastSyncAt = currTime
-			s.LastSyncReason = string(task.reason)
-			s.LastSyncResult = syncRunResultNoChange
-			s.LastSyncError = ""
-			s.GitRevision = syncResult.NewRevision
-		})
-		return
+	stacksToSync := c.cfg.Spec.Stacks
+	if syncResult.Updated {
+		fileDiffs, diffErr := c.git.Diff(ctx, syncResult.OldRevision, syncResult.NewRevision)
+		if diffErr != nil {
+			slog.ErrorContext(ctx, "git diff failed, continue with default stack order",
+				slog.String("reason", string(task.reason)),
+				slog.String("old_revision", syncResult.OldRevision),
+				slog.String("new_revision", syncResult.NewRevision),
+				slog.Any("err", diffErr),
+			)
+		} else {
+			stacksToSync = prioritizeStacksByFileDiffs(c.cfg.Spec.Stacks, fileDiffs)
+		}
 	}
 
 	var deployErrs []error
-	for _, stackCfg := range c.cfg.Spec.Stacks {
+	for _, stackCfg := range stacksToSync {
 		err = c.syncStack(ctx, stackCfg, syncResult.NewRevision, task.reason == TriggerManual)
 		if err != nil {
 			deployErrs = append(deployErrs, err)
@@ -318,67 +323,77 @@ func (c *Controller) syncStack(
 	commit string,
 	isManual bool,
 ) error {
-	reconcileResult, err := c.stackReconciler.Reconcile(ctx, stackloop.ReconciliationRequest{
+	err := c.stackReconciler.Reconcile(ctx, stackloop.ReconciliationRequest{
 		Stack:    stackCfg,
 		Commit:   commit,
 		IsManual: isManual,
 	})
 	if err != nil {
-		c.recordStackFailure(stackCfg.Name, commit, stackloop.FailedServicesFromError(err), err)
 		return fmt.Errorf("stack %s %w", stackCfg.Name, err)
 	}
-	if reconcileResult.Skipped {
-		c.dispatchPrunedEvents(ctx, stackCfg.Name, commit, reconcileResult.PrunedServices)
-		return nil
-	}
-
-	for _, service := range reconcileResult.Services {
-		c.metrics.Deploys.RecordDeploy(stackCfg.Name, service.Name, "success")
-	}
-
-	c.event.Dispatch(ctx, &events.DeploySuccess{
-		StackName: stackCfg.Name,
-		Commit:    commit,
-		Services:  reconcileResult.Services,
-	})
-	c.dispatchPrunedEvents(ctx, stackCfg.Name, commit, reconcileResult.PrunedServices)
 	return nil
 }
 
-func (c *Controller) dispatchPrunedEvents(ctx context.Context, stackName string, commit string, serviceNames []string) {
-	for _, serviceName := range serviceNames {
-		c.event.Dispatch(ctx, &events.ServicePruned{
-			StackName:   stackName,
-			ServiceName: serviceName,
-			Commit:      commit,
-		})
-	}
-}
-
-func (c *Controller) recordStackFailure(stackName, commit string, services []compose.Service, reason error) {
-	for _, service := range services {
-		c.metrics.Deploys.RecordDeploy(stackName, service.Name, "failed")
-	}
-	if len(services) == 0 {
-		c.metrics.Deploys.RecordDeploy(stackName, "unknown", "failed")
+func prioritizeStacksByFileDiffs(stacks []config.StackSpec, fileDiffs []gitx.CommitFileDiff) []config.StackSpec {
+	if len(stacks) == 0 {
+		return nil
 	}
 
-	logs := []string{}
-
-	var logsErr containsLogsError
-	if errors.As(reason, &logsErr) {
-		logs = logsErr.Logs()
+	normalizePath := func(path string) string {
+		return strings.TrimPrefix(strings.TrimSpace(path), "./")
 	}
 
-	c.event.Dispatch(context.Background(), &events.DeployFailed{
-		StackName: stackName,
-		Commit:    commit,
-		Services:  services,
-		Error:     reason,
-		Logs:      logs,
+	stackNameByComposePath := make(map[string]string, len(stacks))
+	for _, stack := range stacks {
+		composePath := normalizePath(stack.ComposeFile)
+		if composePath == "" {
+			continue
+		}
+
+		if _, exists := stackNameByComposePath[composePath]; !exists {
+			stackNameByComposePath[composePath] = stack.Name
+		}
+	}
+
+	changedStacksOrder := make(map[string]int, len(stacks))
+	for diffIndex, fileDiff := range fileDiffs {
+		changedPath := normalizePath(fileDiff.NewPath)
+		if changedPath == "" {
+			changedPath = normalizePath(fileDiff.OldPath)
+		}
+		if changedPath == "" {
+			continue
+		}
+
+		stackName, exists := stackNameByComposePath[changedPath]
+		if !exists {
+			continue
+		}
+		changedStacksOrder[stackName] = diffIndex
+	}
+
+	if len(changedStacksOrder) == 0 {
+		return stacks
+	}
+
+	orderedStacks := make([]config.StackSpec, len(stacks))
+	copy(orderedStacks, stacks)
+
+	sort.SliceStable(orderedStacks, func(i, j int) bool {
+		leftOrder, leftChanged := changedStacksOrder[orderedStacks[i].Name]
+		rightOrder, rightChanged := changedStacksOrder[orderedStacks[j].Name]
+
+		switch {
+		case leftChanged && rightChanged:
+			return leftOrder < rightOrder
+		case leftChanged:
+			return true
+		case rightChanged:
+			return false
+		default:
+			return false
+		}
 	})
-}
 
-type containsLogsError interface {
-	Logs() []string
+	return orderedStacks
 }

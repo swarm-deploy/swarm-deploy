@@ -1,4 +1,4 @@
-package stackloop
+package pruner
 
 import (
 	"context"
@@ -6,8 +6,9 @@ import (
 	"log/slog"
 	"strings"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -15,16 +16,19 @@ import (
 // ServicePruner removes managed services missing from desired stack state.
 type ServicePruner struct {
 	services swarm.ServiceManager
+	event    dispatcher.Dispatcher
 	syncCfg  config.SyncPolicySpec
 }
 
 // NewServicePruner builds a service pruner.
 func NewServicePruner(
 	serviceManager swarm.ServiceManager,
+	eventDispatcher dispatcher.Dispatcher,
 	syncCfg config.SyncPolicySpec,
 ) *ServicePruner {
 	return &ServicePruner{
 		services: serviceManager,
+		event:    eventDispatcher,
 		syncCfg:  syncCfg,
 	}
 }
@@ -32,21 +36,15 @@ func NewServicePruner(
 // Prune deletes managed orphan services according to sync policy.
 func (p *ServicePruner) Prune(
 	ctx context.Context,
-	stackCfg config.StackSpec,
-	desiredServices []compose.Service,
+	req PruneServicesRequest,
 ) ([]string, error) {
-	stackServices, err := p.services.ListStackServices(ctx, stackCfg.Name)
-	if err != nil {
-		return nil, err
-	}
-
-	desiredServiceNames := make(map[string]struct{}, len(desiredServices))
-	for _, service := range desiredServices {
+	desiredServiceNames := make(map[string]struct{}, len(req.Desired))
+	for _, service := range req.Desired {
 		desiredServiceNames[service.Name] = struct{}{}
 	}
 
 	prunedServices := make([]string, 0)
-	for _, stackService := range stackServices {
+	for _, stackService := range req.Live {
 		if _, exists := desiredServiceNames[stackService.Name]; exists {
 			continue
 		}
@@ -56,7 +54,7 @@ func (p *ServicePruner) Prune(
 
 		pruneEnabled := p.resolvePolicy(
 			stackService.Labels,
-			stackCfg,
+			req.Stack,
 		)
 		if !pruneEnabled {
 			continue
@@ -73,9 +71,14 @@ func (p *ServicePruner) Prune(
 		slog.InfoContext(
 			ctx,
 			"[service-pruner] service pruned",
-			slog.String("stack", stackCfg.Name),
+			slog.String("stack", req.Stack.Name),
 			slog.String("service", stackService.Name),
 		)
+		p.event.Dispatch(ctx, &events.ServicePruned{
+			StackName:   req.Stack.Name,
+			ServiceName: stackService.Name,
+			Commit:      req.Commit,
+		})
 		prunedServices = append(prunedServices, stackService.Name)
 	}
 

@@ -149,6 +149,47 @@ func (r *GoGitRepository) List(ctx context.Context, limit int) ([]CommitMeta, er
 	return commits, nil
 }
 
+func (r *GoGitRepository) Diff(ctx context.Context, oldRevision string, newRevision string) ([]CommitFileDiff, error) {
+	if oldRevision == "" {
+		return nil, errors.New("old revision is required")
+	}
+
+	if newRevision == "" {
+		return nil, errors.New("new revision is required")
+	}
+
+	if oldRevision == newRevision {
+		return nil, nil
+	}
+
+	oldCommit, err := r.repository.CommitObject(plumbing.NewHash(oldRevision))
+	if err != nil {
+		return nil, fmt.Errorf("find old revision %q: %w", oldRevision, err)
+	}
+
+	newCommit, err := r.repository.CommitObject(plumbing.NewHash(newRevision))
+	if err != nil {
+		return nil, fmt.Errorf("find new revision %q: %w", newRevision, err)
+	}
+
+	oldTree, err := oldCommit.Tree()
+	if err != nil {
+		return nil, fmt.Errorf("resolve old revision tree: %w", err)
+	}
+
+	newTree, err := newCommit.Tree()
+	if err != nil {
+		return nil, fmt.Errorf("resolve new revision tree: %w", err)
+	}
+
+	fileDiffs, err := buildFileDiffsBetweenTrees(ctx, oldTree, newTree)
+	if err != nil {
+		return nil, fmt.Errorf("build diff between revisions %q..%q: %w", oldRevision, newRevision, err)
+	}
+
+	return fileDiffs, nil
+}
+
 func (r *GoGitRepository) Show(ctx context.Context, commitHash string) (Commit, error) {
 	trimmedHash := strings.TrimSpace(commitHash)
 	if trimmedHash == "" {
@@ -193,7 +234,15 @@ func buildCommitFileDiffs(ctx context.Context, commit *object.Commit) ([]CommitF
 		}
 	}
 
-	changes, err := object.DiffTreeWithOptions(ctx, parentTree, commitTree, object.DefaultDiffTreeOptions)
+	return buildFileDiffsBetweenTrees(ctx, parentTree, commitTree)
+}
+
+func buildFileDiffsBetweenTrees(
+	ctx context.Context,
+	oldTree *object.Tree,
+	newTree *object.Tree,
+) ([]CommitFileDiff, error) {
+	changes, err := object.DiffTreeWithOptions(ctx, oldTree, newTree, object.DefaultDiffTreeOptions)
 	if err != nil {
 		return nil, fmt.Errorf("diff trees: %w", err)
 	}

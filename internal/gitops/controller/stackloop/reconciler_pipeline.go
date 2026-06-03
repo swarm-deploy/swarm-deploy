@@ -8,25 +8,31 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller/stackloop/drift"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller/stackloop/pruner"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/pipe"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 type pipelinePayload struct {
 	Stack        config.StackSpec
+	Commit       string
 	IsNewDigest  bool
 	IsManualSync bool
 
 	Desired        *compose.File
 	DesiredMutated bool
 
+	LiveServices   []swarm.StackService
 	PrunedServices []string
+	Drift          map[string]drift.ServiceDrift
 }
 
 func (r *Reconciler) attachPipeline() {
-	pipeline := pipe.NewPipeline[*pipelinePayload]()
+	r.pipeline = pipe.NewPipeline[*pipelinePayload]()
 
-	pipeline.Add(pipe.Step[*pipelinePayload]{
+	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "add managed label",
 		When: func(payload *pipelinePayload) bool {
 			return payload.IsNewDigest
@@ -35,7 +41,7 @@ func (r *Reconciler) attachPipeline() {
 	})
 
 	if r.cfg.Spec.SecretRotation.Enabled {
-		pipeline.Add(pipe.Step[*pipelinePayload]{
+		r.pipeline.Add(pipe.Step[*pipelinePayload]{
 			Name: "rotate secrets/configs",
 			When: func(payload *pipelinePayload) bool {
 				return payload.IsNewDigest
@@ -44,7 +50,7 @@ func (r *Reconciler) attachPipeline() {
 		})
 	}
 
-	pipeline.Add(pipe.Step[*pipelinePayload]{
+	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "write rendered compose",
 		When: func(payload *pipelinePayload) bool {
 			return payload.DesiredMutated
@@ -52,7 +58,7 @@ func (r *Reconciler) attachPipeline() {
 		Run: r.writeRenderedCompose,
 	})
 
-	pipeline.Add(pipe.Step[*pipelinePayload]{
+	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "deploy stack",
 		When: func(payload *pipelinePayload) bool {
 			return payload.IsNewDigest || payload.DesiredMutated
@@ -60,7 +66,12 @@ func (r *Reconciler) attachPipeline() {
 		Run: r.deployStack,
 	})
 
-	pipeline.Add(pipe.Step[*pipelinePayload]{
+	r.pipeline.Add(pipe.Step[*pipelinePayload]{
+		Name: "load live state",
+		Run:  r.loadLiveState,
+	})
+
+	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "prune orphaned services",
 		When: func(payload *pipelinePayload) bool {
 			return payload.IsNewDigest || payload.IsManualSync
@@ -68,7 +79,13 @@ func (r *Reconciler) attachPipeline() {
 		Run: r.pruneOrphanedServices,
 	})
 
-	r.pipeline = pipeline
+	r.pipeline.Add(pipe.Step[*pipelinePayload]{
+		Name: "analyze drift",
+		When: func(payload *pipelinePayload) bool {
+			return !payload.IsNewDigest || payload.IsManualSync
+		},
+		Run: r.analyzeDrift,
+	})
 }
 
 func (r *Reconciler) addManagedLabel(_ context.Context, payload *pipelinePayload) error {
@@ -135,8 +152,24 @@ func (r *Reconciler) deployStack(ctx context.Context, payload *pipelinePayload) 
 	return r.deployer.DeployStack(ctx, payload.Stack.Name, payload.Desired.Path, payload.Desired.Compose.Services)
 }
 
+func (r *Reconciler) loadLiveState(ctx context.Context, payload *pipelinePayload) error {
+	liveServices, err := r.serviceManager.ListStackServices(ctx, payload.Stack.Name)
+	if err != nil {
+		return err
+	}
+
+	payload.LiveServices = liveServices
+
+	return nil
+}
+
 func (r *Reconciler) pruneOrphanedServices(ctx context.Context, payload *pipelinePayload) error {
-	prunedServices, err := r.pruner.Prune(ctx, payload.Stack, payload.Desired.Compose.Services)
+	prunedServices, err := r.pruner.Prune(ctx, pruner.PruneServicesRequest{
+		Stack:   payload.Stack,
+		Commit:  payload.Commit,
+		Desired: payload.Desired.Compose.Services,
+		Live:    payload.LiveServices,
+	})
 	if err != nil {
 		return err
 	}
@@ -144,4 +177,16 @@ func (r *Reconciler) pruneOrphanedServices(ctx context.Context, payload *pipelin
 	payload.PrunedServices = prunedServices
 
 	return nil
+}
+
+func (r *Reconciler) analyzeDrift(_ context.Context, payload *pipelinePayload) error {
+	driftResp, err := r.driftAnalyzer.Analyze(drift.AnalyzeRequest{
+		Stack:   payload.Stack,
+		Desired: *payload.Desired,
+		Live:    payload.LiveServices,
+	})
+
+	payload.Drift = driftResp.Drifts
+
+	return err
 }

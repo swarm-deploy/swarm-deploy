@@ -1,3 +1,4 @@
+//go:generate mockgen -source=$GOFILE -destination=mocks.go -package=dispatcher
 package dispatcher
 
 import (

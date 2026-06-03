@@ -601,6 +601,7 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
               <li id="eventsItemDeploySuccess"><code>deploySuccess</code>: успешный деплой стэка.</li>
               <li id="eventsItemDeployFailed"><code>deployFailed</code>: ошибка деплоя стэка.</li>
               <li id="eventsItemSyncManualStarted"><code>syncManualStarted</code>: пользователь запустил ручной sync.</li>
+              <li id="eventsItemServiceMissed"><code>serviceMissed</code>: ожидаемый сервис отсутствует в live-состоянии swarm.</li>
               <li id="eventsItemUserAuthenticated"><code>userAuthenticated</code>: пользователь успешно прошел web-аутентификацию.</li>
               <li id="eventsItemSendNotificationFailed"><code>sendNotificationFailed</code>: не удалось отправить нотификацию.</li>
               <li id="eventsItemAssistantPromptInjectionDetected"><code>assistantPromptInjectionDetected</code>: детектирована prompt injection атака.</li>
@@ -710,6 +711,10 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
                 <label>
                   <input type="checkbox" name="events" value="syncManualStarted" />
                   syncManualStarted
+                </label>
+                <label>
+                  <input type="checkbox" name="events" value="serviceMissed" />
+                  serviceMissed
                 </label>
                 <label>
                   <input type="checkbox" name="events" value="userAuthenticated" />
@@ -829,6 +834,8 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
           eventsItemDeployFailed: "<code>deployFailed</code>: ошибка деплоя стэка.",
           eventsItemSyncManualStarted:
             "<code>syncManualStarted</code>: пользователь запустил ручной sync.",
+          eventsItemServiceMissed:
+            "<code>serviceMissed</code>: ожидаемый сервис отсутствует в live-состоянии swarm.",
           eventsItemUserAuthenticated:
             "<code>userAuthenticated</code>: пользователь успешно прошел web-аутентификацию.",
           eventsItemSendNotificationFailed:
@@ -890,6 +897,12 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
               "error: {{.event.error}}",
             ],
             syncManualStarted: ["ручной sync запущен"],
+            serviceMissed: [
+              "сервис отсутствует в swarm",
+              "stack: {{.event.stack_name}}",
+              "service: {{.event.service_name}}",
+              "commit: {{.event.commit}}",
+            ],
             userAuthenticated: ["пользователь авторизован", "username: {{.event.username}}"],
             sendNotificationFailed: [
               "ошибка отправки нотификации",
@@ -969,6 +982,8 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
           eventsItemDeployFailed: "<code>deployFailed</code>: stack deployment failed.",
           eventsItemSyncManualStarted:
             "<code>syncManualStarted</code>: a user started manual sync.",
+          eventsItemServiceMissed:
+            "<code>serviceMissed</code>: a desired service is absent from live swarm state.",
           eventsItemUserAuthenticated:
             "<code>userAuthenticated</code>: a user successfully passed web authentication.",
           eventsItemSendNotificationFailed:
@@ -1030,6 +1045,12 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
               "error: {{.event.error}}",
             ],
             syncManualStarted: ["manual sync started"],
+            serviceMissed: [
+              "service is missing in swarm",
+              "stack: {{.event.stack_name}}",
+              "service: {{.event.service_name}}",
+              "commit: {{.event.commit}}",
+            ],
             userAuthenticated: ["user authenticated", "username: {{.event.username}}"],
             sendNotificationFailed: [
               "notification failed",
@@ -1164,6 +1185,7 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
         setHTML("eventsItemDeploySuccess", "eventsItemDeploySuccess");
         setHTML("eventsItemDeployFailed", "eventsItemDeployFailed");
         setHTML("eventsItemSyncManualStarted", "eventsItemSyncManualStarted");
+        setHTML("eventsItemServiceMissed", "eventsItemServiceMissed");
         setHTML("eventsItemUserAuthenticated", "eventsItemUserAuthenticated");
         setHTML("eventsItemSendNotificationFailed", "eventsItemSendNotificationFailed");
         setHTML(

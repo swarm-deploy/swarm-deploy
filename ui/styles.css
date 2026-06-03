@@ -480,6 +480,7 @@ button:hover,
 
 .services-stack-table .services-cell-sync-status {
   min-width: 0;
+  white-space: normal;
 }
 
 .services-stack-table .stack-service-name {
@@ -491,6 +492,21 @@ button:hover,
 
 .stack-service-name {
   font-weight: 600;
+}
+
+.stack-service-sync-status {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.stack-service-sync-error {
+  margin: 0;
+  color: var(--error);
+  font-size: 0.78rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .stack-service-actions-cell {
