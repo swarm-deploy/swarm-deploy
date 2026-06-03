@@ -300,6 +300,67 @@ func TestGoGitRepositoryShowFailsOnUnknownCommit(t *testing.T) {
 	assert.Contains(t, err.Error(), "find commit", "unexpected error")
 }
 
+func TestGoGitRepositoryDiffReturnsFileDiffsBetweenRevisions(t *testing.T) {
+	sourceRepositoryPath, sourceHead := initSourceRepository(t)
+	sourceRepository, err := gogit.PlainOpen(sourceRepositoryPath)
+	require.NoError(t, err, "open source repository")
+
+	worktree, err := sourceRepository.Worktree()
+	require.NoError(t, err, "open source repository worktree")
+
+	err = os.WriteFile(filepath.Join(sourceRepositoryPath, "README.md"), []byte("hello world"), 0o600)
+	require.NoError(t, err, "rewrite readme")
+	err = os.WriteFile(filepath.Join(sourceRepositoryPath, "docker-compose.yaml"),
+		[]byte("services:\n  api:\n    image: nginx:1.0\n"), 0o600)
+	require.NoError(t, err, "write compose file")
+
+	_, err = worktree.Add("README.md")
+	require.NoError(t, err, "git add readme")
+	_, err = worktree.Add("docker-compose.yaml")
+	require.NoError(t, err, "git add compose")
+
+	commitHash, err := worktree.Commit("second commit", &gogit.CommitOptions{
+		Author: &object.Signature{
+			Name:  "alice",
+			Email: "alice@example.com",
+			When:  time.Date(2026, time.March, 27, 1, 2, 3, 0, time.UTC),
+		},
+	})
+	require.NoError(t, err, "commit changes")
+
+	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+		Repository: sourceRepositoryPath,
+		Branch:     sourceHead.Name().Short(),
+	}, sourceRepositoryPath)
+	require.NoError(t, err, "create go-git repository")
+
+	fileDiffs, err := repository.Diff(t.Context(), sourceHead.Hash().String(), commitHash.String())
+	require.NoError(t, err, "diff revisions")
+	require.Len(t, fileDiffs, 2, "expected diff by two files")
+
+	diffsByPath := map[string]CommitFileDiff{}
+	for _, fileDiff := range fileDiffs {
+		path := fileDiff.NewPath
+		if path == "" {
+			path = fileDiff.OldPath
+		}
+		diffsByPath[path] = fileDiff
+	}
+
+	require.Contains(t, diffsByPath, "README.md", "readme diff must exist")
+	assert.Equal(t, "hello", diffsByPath["README.md"].OldContent, "unexpected old readme content")
+	assert.Equal(t, "hello world", diffsByPath["README.md"].NewContent, "unexpected new readme content")
+
+	require.Contains(t, diffsByPath, "docker-compose.yaml", "compose diff must exist")
+	assert.Empty(t, diffsByPath["docker-compose.yaml"].OldContent, "new compose file must not have old content")
+	assert.Equal(
+		t,
+		"services:\n  api:\n    image: nginx:1.0\n",
+		diffsByPath["docker-compose.yaml"].NewContent,
+		"unexpected new compose content",
+	)
+}
+
 func TestGoGitRepositoryListReturnsLatestCommits(t *testing.T) {
 	sourceRepositoryPath, sourceHead := initSourceRepository(t)
 	sourceRepository, err := gogit.PlainOpen(sourceRepositoryPath)

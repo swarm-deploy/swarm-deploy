@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
@@ -258,21 +260,23 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 		slog.Int("count", len(c.cfg.Spec.Stacks)),
 	)
 
-	if !syncResult.Updated && task.reason != TriggerManual {
-		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultNoChange, time.Since(startedAt))
-		currTime := time.Now()
-		c.updateState(func(s *model.Runtime) {
-			s.LastSyncAt = currTime
-			s.LastSyncReason = string(task.reason)
-			s.LastSyncResult = syncRunResultNoChange
-			s.LastSyncError = ""
-			s.GitRevision = syncResult.NewRevision
-		})
-		return
+	stacksToSync := c.cfg.Spec.Stacks
+	if syncResult.Updated {
+		fileDiffs, diffErr := c.git.Diff(ctx, syncResult.OldRevision, syncResult.NewRevision)
+		if diffErr != nil {
+			slog.ErrorContext(ctx, "git diff failed, continue with default stack order",
+				slog.String("reason", string(task.reason)),
+				slog.String("old_revision", syncResult.OldRevision),
+				slog.String("new_revision", syncResult.NewRevision),
+				slog.Any("err", diffErr),
+			)
+		} else {
+			stacksToSync = prioritizeStacksByFileDiffs(c.cfg.Spec.Stacks, fileDiffs)
+		}
 	}
 
 	var deployErrs []error
-	for _, stackCfg := range c.cfg.Spec.Stacks {
+	for _, stackCfg := range stacksToSync {
 		err = c.syncStack(ctx, stackCfg, syncResult.NewRevision, task.reason == TriggerManual)
 		if err != nil {
 			deployErrs = append(deployErrs, err)
@@ -328,4 +332,68 @@ func (c *Controller) syncStack(
 		return fmt.Errorf("stack %s %w", stackCfg.Name, err)
 	}
 	return nil
+}
+
+func prioritizeStacksByFileDiffs(stacks []config.StackSpec, fileDiffs []gitx.CommitFileDiff) []config.StackSpec {
+	if len(stacks) == 0 {
+		return nil
+	}
+
+	normalizePath := func(path string) string {
+		return strings.TrimPrefix(strings.TrimSpace(path), "./")
+	}
+
+	stackNameByComposePath := make(map[string]string, len(stacks))
+	for _, stack := range stacks {
+		composePath := normalizePath(stack.ComposeFile)
+		if composePath == "" {
+			continue
+		}
+
+		if _, exists := stackNameByComposePath[composePath]; !exists {
+			stackNameByComposePath[composePath] = stack.Name
+		}
+	}
+
+	changedStacksOrder := make(map[string]int, len(stacks))
+	for diffIndex, fileDiff := range fileDiffs {
+		changedPath := normalizePath(fileDiff.NewPath)
+		if changedPath == "" {
+			changedPath = normalizePath(fileDiff.OldPath)
+		}
+		if changedPath == "" {
+			continue
+		}
+
+		stackName, exists := stackNameByComposePath[changedPath]
+		if !exists {
+			continue
+		}
+		changedStacksOrder[stackName] = diffIndex
+	}
+
+	if len(changedStacksOrder) == 0 {
+		return stacks
+	}
+
+	orderedStacks := make([]config.StackSpec, len(stacks))
+	copy(orderedStacks, stacks)
+
+	sort.SliceStable(orderedStacks, func(i, j int) bool {
+		leftOrder, leftChanged := changedStacksOrder[orderedStacks[i].Name]
+		rightOrder, rightChanged := changedStacksOrder[orderedStacks[j].Name]
+
+		switch {
+		case leftChanged && rightChanged:
+			return leftOrder < rightOrder
+		case leftChanged:
+			return true
+		case rightChanged:
+			return false
+		default:
+			return false
+		}
+	})
+
+	return orderedStacks
 }

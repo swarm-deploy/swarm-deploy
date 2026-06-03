@@ -19,6 +19,8 @@ type Repository interface {
 	Head(ctx context.Context) (string, error)
 	// List returns latest commits from HEAD up to the provided limit.
 	List(ctx context.Context, limit int) ([]CommitMeta, error)
+	// Diff returns per-file diff data between two revisions.
+	Diff(ctx context.Context, oldRevision string, newRevision string) ([]CommitFileDiff, error)
 	// Show returns commit metadata and per-file diff for a given revision.
 	Show(ctx context.Context, commitHash string) (Commit, error)
 }
