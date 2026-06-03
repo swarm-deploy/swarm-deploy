@@ -3752,6 +3752,12 @@ func (s *ServiceInfo) encodeFields(e *jx.Encoder) {
 		s.SyncStatus.Encode(e)
 	}
 	{
+		if s.SyncError.Set {
+			e.FieldStart("sync_error")
+			s.SyncError.Encode(e)
+		}
+	}
+	{
 		if s.Description.Set {
 			e.FieldStart("description")
 			s.Description.Encode(e)
@@ -3791,17 +3797,18 @@ func (s *ServiceInfo) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfServiceInfo = [10]string{
-	0: "name",
-	1: "stack",
-	2: "sync_status",
-	3: "description",
-	4: "type",
-	5: "type_title",
-	6: "image",
-	7: "image_version",
-	8: "repository_url",
-	9: "web_routes",
+var jsonFieldsNameOfServiceInfo = [11]string{
+	0:  "name",
+	1:  "stack",
+	2:  "sync_status",
+	3:  "sync_error",
+	4:  "description",
+	5:  "type",
+	6:  "type_title",
+	7:  "image",
+	8:  "image_version",
+	9:  "repository_url",
+	10: "web_routes",
 }
 
 // Decode decodes ServiceInfo from json.
@@ -3847,6 +3854,16 @@ func (s *ServiceInfo) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"sync_status\"")
 			}
+		case "sync_error":
+			if err := func() error {
+				s.SyncError.Reset()
+				if err := s.SyncError.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"sync_error\"")
+			}
 		case "description":
 			if err := func() error {
 				s.Description.Reset()
@@ -3858,7 +3875,7 @@ func (s *ServiceInfo) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"description\"")
 			}
 		case "type":
-			requiredBitSet[0] |= 1 << 4
+			requiredBitSet[0] |= 1 << 5
 			if err := func() error {
 				if err := s.Type.Decode(d); err != nil {
 					return err
@@ -3868,7 +3885,7 @@ func (s *ServiceInfo) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"type\"")
 			}
 		case "type_title":
-			requiredBitSet[0] |= 1 << 5
+			requiredBitSet[0] |= 1 << 6
 			if err := func() error {
 				v, err := d.Str()
 				s.TypeTitle = string(v)
@@ -3880,7 +3897,7 @@ func (s *ServiceInfo) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"type_title\"")
 			}
 		case "image":
-			requiredBitSet[0] |= 1 << 6
+			requiredBitSet[0] |= 1 << 7
 			if err := func() error {
 				v, err := d.Str()
 				s.Image = string(v)
@@ -3892,7 +3909,7 @@ func (s *ServiceInfo) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"image\"")
 			}
 		case "image_version":
-			requiredBitSet[0] |= 1 << 7
+			requiredBitSet[1] |= 1 << 0
 			if err := func() error {
 				v, err := d.Str()
 				s.ImageVersion = string(v)
@@ -3940,8 +3957,8 @@ func (s *ServiceInfo) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [2]uint8{
-		0b11110111,
-		0b00000000,
+		0b11100111,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

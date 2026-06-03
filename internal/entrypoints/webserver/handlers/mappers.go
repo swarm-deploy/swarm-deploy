@@ -328,6 +328,7 @@ func toGeneratedServiceInfo(serviceInfo service.Info, runtime model.Runtime) gen
 		Name:          serviceInfo.Name,
 		Stack:         serviceInfo.Stack,
 		SyncStatus:    toGeneratedServiceSyncStatus(serviceInfo, runtime),
+		SyncError:     toGeneratedServiceSyncError(serviceInfo, runtime),
 		Type:          toGeneratedServiceType(serviceInfo.Type),
 		TypeTitle:     serviceType.Title(serviceInfo.Type),
 		Image:         serviceInfo.Image,
@@ -357,6 +358,25 @@ func toGeneratedServiceSyncStatus(serviceInfo service.Info, runtime model.Runtim
 	default:
 		return generated.ServiceSyncStatusUnknown
 	}
+}
+
+func toGeneratedServiceSyncError(serviceInfo service.Info, runtime model.Runtime) generated.OptString {
+	stackState, exists := runtime.Stacks[serviceInfo.Stack]
+	if !exists {
+		return generated.OptString{}
+	}
+
+	serviceState, exists := stackState.Services[serviceInfo.Name]
+	if !exists {
+		return generated.OptString{}
+	}
+
+	syncError := strings.TrimSpace(serviceState.SyncError)
+	if syncError == "" {
+		return generated.OptString{}
+	}
+
+	return generated.NewOptString(syncError)
 }
 
 func toGeneratedWebRoutes(routes []webroute.Route) []generated.WebRoute {

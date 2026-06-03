@@ -80,6 +80,7 @@ func TestToGeneratedServiceInfo(t *testing.T) {
 		serviceInfo    service.Info
 		runtime        model.Runtime
 		expectedStatus string
+		expectedError  string
 	}{
 		{
 			name: "returns synced status from runtime state",
@@ -99,6 +100,7 @@ func TestToGeneratedServiceInfo(t *testing.T) {
 				},
 			},
 			expectedStatus: "Synced",
+			expectedError:  "",
 		},
 		{
 			name: "returns out-of-sync status from runtime state",
@@ -112,12 +114,14 @@ func TestToGeneratedServiceInfo(t *testing.T) {
 						Services: map[string]model.Service{
 							"api": {
 								SyncStatus: model.SyncStatusOutOfSync,
+								SyncError:  "Service image differs",
 							},
 						},
 					},
 				},
 			},
 			expectedStatus: "OutOfSync",
+			expectedError:  "Service image differs",
 		},
 		{
 			name: "returns unknown when runtime state is missing",
@@ -127,6 +131,7 @@ func TestToGeneratedServiceInfo(t *testing.T) {
 			},
 			runtime:        model.Runtime{},
 			expectedStatus: "unknown",
+			expectedError:  "",
 		},
 	}
 
@@ -137,6 +142,7 @@ func TestToGeneratedServiceInfo(t *testing.T) {
 			serviceRow := toGeneratedServiceInfo(testCase.serviceInfo, testCase.runtime)
 
 			assert.Equal(t, testCase.expectedStatus, string(serviceRow.SyncStatus), "unexpected sync status")
+			assert.Equal(t, testCase.expectedError, serviceRow.SyncError.Value, "unexpected sync error")
 		})
 	}
 }

@@ -1802,6 +1802,7 @@ type ServiceInfo struct {
 	Name        string            `json:"name"`
 	Stack       string            `json:"stack"`
 	SyncStatus  ServiceSyncStatus `json:"sync_status"`
+	SyncError   OptString         `json:"sync_error"`
 	Description OptString         `json:"description"`
 	Type        ServiceInfoType   `json:"type"`
 	// Human-readable title for the service type enum.
@@ -1826,6 +1827,11 @@ func (s *ServiceInfo) GetStack() string {
 // GetSyncStatus returns the value of SyncStatus.
 func (s *ServiceInfo) GetSyncStatus() ServiceSyncStatus {
 	return s.SyncStatus
+}
+
+// GetSyncError returns the value of SyncError.
+func (s *ServiceInfo) GetSyncError() OptString {
+	return s.SyncError
 }
 
 // GetDescription returns the value of Description.
@@ -1876,6 +1882,11 @@ func (s *ServiceInfo) SetStack(val string) {
 // SetSyncStatus sets the value of SyncStatus.
 func (s *ServiceInfo) SetSyncStatus(val ServiceSyncStatus) {
 	s.SyncStatus = val
+}
+
+// SetSyncError sets the value of SyncError.
+func (s *ServiceInfo) SetSyncError(val OptString) {
+	s.SyncError = val
 }
 
 // SetDescription sets the value of Description.

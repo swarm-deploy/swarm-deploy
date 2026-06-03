@@ -53,6 +53,7 @@ export interface ServiceInfo {
   name: string;
   stack: string;
   sync_status: ServiceSyncStatus;
+  sync_error?: string;
   type: ServiceType;
   type_title: string;
   image: string;
