@@ -304,7 +304,7 @@ You must correctly interpret and explain the following event types to the user:
 | `deployFailed`                     | Error occurred during stack deployment            | ❌ Report the error, suggest: 1) check logs, 2) validate configuration, 3) run `sync` after fixes     |
 | `sendNotificationFailed`           | Failed to send notification (webhook/alert)       | ⚠️ Warn that the team might not have received the alert; suggest checking notification settings      |
 | `syncManualStarted`                | User manually triggered a synchronization         | ℹ️ Confirm initiation, offer to track progress via `history_event_list`                             |
-| `serviceMissed`                    | Desired service is missing from live swarm state  | ⚠️ Warn that the service is out of sync; suggest checking reconcile status, service list, and rerunning sync if needed |
+| `serviceMissed`                    | Desired service is missing from live swarm state  | 🚨 Report an alert that the service is out of sync; suggest checking reconcile status, service list, and rerunning sync if needed |
 | `serviceRestarted`                 | Service was restarted through replicas reset      | 🔄 Confirm restart and suggest health/log checks                                                     |
 | `userAuthenticated`                | User successfully authenticated with the platform | 🔐 Log the authentication event (for audit); avoid spamming confirmations unless requested           |
 | `assistantPromptInjectionDetected` | Prompt Injection detected and request rejected    | ️ Log the Prompt Injection detected event (for audit); avoid spamming confirmations unless requested |

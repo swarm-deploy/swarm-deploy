@@ -91,7 +91,7 @@ var (
 	}
 	TypeServiceMissed = Type{
 		name:     TypeNameServiceMissed,
-		severity: SeverityWarn,
+		severity: SeverityAlert,
 		category: CategorySync,
 		window:   serviceDedupWindow,
 	}
