@@ -15,15 +15,17 @@ type GithubProvider struct {
 func NewGithubProvider(token string) (provider *GithubProvider, err error) {
 	provider = &GithubProvider{}
 
-	var client *github.Client
-
 	if token == "" {
-		client, err = github.NewClient()
+		provider.client, err = github.NewClient()
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		provider.client, err = github.NewClient(github.WithAuthToken(token))
 		if err != nil {
 			return nil, err
 		}
 	}
-	provider.client = client
 
 	return provider, nil
 }

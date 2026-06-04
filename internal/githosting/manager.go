@@ -37,6 +37,12 @@ func (m *ProviderManager) Get(uri string) (*ReferencedProvider, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse uri: %w", err)
 	}
+	if repoURI.Host == "" && repoURI.Scheme == "" {
+		repoURI, err = url.Parse("https://" + strings.Trim(strings.TrimSpace(uri), "/"))
+		if err != nil {
+			return nil, fmt.Errorf("parse uri without scheme: %w", err)
+		}
+	}
 
 	var (
 		repoRef  RepositoryReference
@@ -59,8 +65,9 @@ func (m *ProviderManager) Get(uri string) (*ReferencedProvider, error) {
 }
 
 func (m *ProviderManager) resolveGithubRepositoryReference(repoURI *url.URL) (RepositoryReference, error) {
-	parts := strings.SplitN(repoURI.Path, "/", githubPathParts)
-	if len(parts) != githubPathParts {
+	trimmedPath := strings.Trim(strings.TrimSpace(repoURI.Path), "/")
+	parts := strings.Split(trimmedPath, "/")
+	if len(parts) < githubPathParts || parts[0] == "" || parts[1] == "" {
 		return RepositoryReference{}, errors.New("url not has repo name")
 	}
 
