@@ -8,6 +8,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 )
 
+const maxExternalRepositoryReleaseBodyLength = 8 * 1024
+
 // GetExternalRepositoryLatestRelease returns latest release for external repository.
 type GetExternalRepositoryLatestRelease struct {
 	providers GitHostingProviderManager
@@ -71,6 +73,7 @@ func (g *GetExternalRepositoryLatestRelease) Execute(
 	if err != nil {
 		return routing.Response{}, err
 	}
+	body, bodyTruncated := truncateExternalRepositoryReleaseBody(release.Body)
 
 	payload := struct {
 		// Repository is a requested repository URL.
@@ -85,19 +88,32 @@ func (g *GetExternalRepositoryLatestRelease) Execute(
 		// Body is a release body text.
 		Body string `json:"body,omitempty"`
 
+		// BodyTruncated indicates whether body was truncated for safety.
+		BodyTruncated bool `json:"body_truncated"`
+
 		// URL is a release page URL.
 		URL string `json:"url,omitempty"`
 
 		// PublishedAt is a release publication timestamp in RFC3339.
 		PublishedAt string `json:"published_at"`
 	}{
-		Repository:  repository,
-		Tag:         release.Tag,
-		Commit:      release.Commit,
-		Body:        release.Body,
-		URL:         release.URL,
-		PublishedAt: release.PublishedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
+		Repository:    repository,
+		Tag:           release.Tag,
+		Commit:        release.Commit,
+		Body:          body,
+		BodyTruncated: bodyTruncated,
+		URL:           release.URL,
+		PublishedAt:   release.PublishedAt.UTC().Format("2006-01-02T15:04:05Z07:00"),
 	}
 
 	return routing.Response{Payload: payload}, nil
+}
+
+func truncateExternalRepositoryReleaseBody(body string) (string, bool) {
+	runes := []rune(body)
+	if len(runes) <= maxExternalRepositoryReleaseBodyLength {
+		return body, false
+	}
+
+	return string(runes[:maxExternalRepositoryReleaseBodyLength]), true
 }

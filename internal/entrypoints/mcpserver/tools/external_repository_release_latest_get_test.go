@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -49,12 +50,13 @@ func TestGetExternalRepositoryLatestReleaseExecute(t *testing.T) {
 	require.NoError(t, err, "execute external_repository_release_latest_get")
 
 	var payload struct {
-		Repository  string `json:"repository"`
-		Tag         string `json:"tag"`
-		Commit      string `json:"commit"`
-		Body        string `json:"body"`
-		URL         string `json:"url"`
-		PublishedAt string `json:"published_at"`
+		Repository    string `json:"repository"`
+		Tag           string `json:"tag"`
+		Commit        string `json:"commit"`
+		Body          string `json:"body"`
+		BodyTruncated bool   `json:"body_truncated"`
+		URL           string `json:"url"`
+		PublishedAt   string `json:"published_at"`
 	}
 	encoded, err := json.Marshal(response.Payload)
 	require.NoError(t, err, "encode response payload")
@@ -64,8 +66,56 @@ func TestGetExternalRepositoryLatestReleaseExecute(t *testing.T) {
 	assert.Equal(t, "v1.2.3", payload.Tag, "unexpected tag")
 	assert.Equal(t, "abc123", payload.Commit, "unexpected commit")
 	assert.Equal(t, "release notes", payload.Body, "unexpected body")
+	assert.False(t, payload.BodyTruncated, "body should not be truncated")
 	assert.Equal(t, "https://github.com/acme/platform/releases/tag/v1.2.3", payload.URL, "unexpected URL")
 	assert.Equal(t, "2026-06-04T06:30:00Z", payload.PublishedAt, "unexpected published_at")
+}
+
+func TestGetExternalRepositoryLatestReleaseExecuteTruncatesBody(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	releaseTime := time.Date(2026, time.June, 4, 9, 30, 0, 0, time.UTC)
+	longBody := strings.Repeat("a", maxExternalRepositoryReleaseBodyLength+32)
+	provider := githosting.NewMockProvider(ctrl)
+	manager := NewMockGitHostingProviderManager(ctrl)
+	manager.EXPECT().
+		Get("https://github.com/acme/platform").
+		Return(githosting.NewReferencedProvider(provider, githosting.RepositoryReference{
+			Owner: "acme",
+			Name:  "platform",
+		}), nil)
+	provider.EXPECT().
+		GetLatestRelease(gomock.Any(), githosting.RepositoryReference{
+			Owner: "acme",
+			Name:  "platform",
+		}).
+		Return(&githosting.Release{
+			Tag:         "v1.2.3",
+			Commit:      "abc123",
+			Body:        longBody,
+			URL:         "https://github.com/acme/platform/releases/tag/v1.2.3",
+			PublishedAt: releaseTime,
+		}, nil)
+
+	tool := NewGetExternalRepositoryLatestRelease(manager)
+	response, err := tool.Execute(context.Background(), routing.Request{
+		Payload: getExternalRepositoryLatestReleaseRequest{
+			Repository: "https://github.com/acme/platform",
+		},
+	})
+	require.NoError(t, err, "execute external_repository_release_latest_get with long body")
+
+	var payload struct {
+		Body          string `json:"body"`
+		BodyTruncated bool   `json:"body_truncated"`
+	}
+	encoded, err := json.Marshal(response.Payload)
+	require.NoError(t, err, "encode response payload")
+	require.NoError(t, json.Unmarshal(encoded, &payload), "decode response payload")
+
+	assert.Len(t, []rune(payload.Body), maxExternalRepositoryReleaseBodyLength, "unexpected body length")
+	assert.True(t, payload.BodyTruncated, "body should be marked as truncated")
 }
 
 func TestGetExternalRepositoryLatestReleaseExecuteFails(t *testing.T) {
