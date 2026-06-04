@@ -87,21 +87,6 @@ func (mr *MockServiceManagerMockRecorder) GetStatus(ctx, serviceRef any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetStatus", reflect.TypeOf((*MockServiceManager)(nil).GetStatus), ctx, serviceRef)
 }
 
-// Labels mocks base method.
-func (m *MockServiceManager) Labels(ctx context.Context, serviceRef ServiceReference) (ServiceLabels, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Labels", ctx, serviceRef)
-	ret0, _ := ret[0].(ServiceLabels)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// Labels indicates an expected call of Labels.
-func (mr *MockServiceManagerMockRecorder) Labels(ctx, serviceRef any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Labels", reflect.TypeOf((*MockServiceManager)(nil).Labels), ctx, serviceRef)
-}
-
 // ListStackServices mocks base method.
 func (m *MockServiceManager) ListStackServices(ctx context.Context, stackName string) ([]StackService, error) {
 	m.ctrl.T.Helper()
@@ -188,6 +173,45 @@ func (m *MockServiceManager) Scale(ctx context.Context, serviceRef ServiceRefere
 func (mr *MockServiceManagerMockRecorder) Scale(ctx, serviceRef, replicas any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Scale", reflect.TypeOf((*MockServiceManager)(nil).Scale), ctx, serviceRef, replicas)
+}
+
+// MockImageManager is a mock of ImageManager interface.
+type MockImageManager struct {
+	ctrl     *gomock.Controller
+	recorder *MockImageManagerMockRecorder
+	isgomock struct{}
+}
+
+// MockImageManagerMockRecorder is the mock recorder for MockImageManager.
+type MockImageManagerMockRecorder struct {
+	mock *MockImageManager
+}
+
+// NewMockImageManager creates a new mock instance.
+func NewMockImageManager(ctrl *gomock.Controller) *MockImageManager {
+	mock := &MockImageManager{ctrl: ctrl}
+	mock.recorder = &MockImageManagerMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockImageManager) EXPECT() *MockImageManagerMockRecorder {
+	return m.recorder
+}
+
+// Get mocks base method.
+func (m *MockImageManager) Get(ctx context.Context, imageRef string) (Image, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Get", ctx, imageRef)
+	ret0, _ := ret[0].(Image)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Get indicates an expected call of Get.
+func (mr *MockImageManagerMockRecorder) Get(ctx, imageRef any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockImageManager)(nil).Get), ctx, imageRef)
 }
 
 // MockSecretManager is a mock of SecretManager interface.

@@ -9,17 +9,16 @@ import (
 	"sort"
 	"strings"
 	"sync"
-
-	"github.com/swarm-deploy/webroute"
 )
 
 const fileModePrivate = 0o600
 
 // Store persists service metadata in a JSON file.
 type Store struct {
-	mu   sync.RWMutex
-	path string
-	rows []Info
+	mu             sync.RWMutex
+	path           string
+	rows           []Info
+	byServiceNames map[string]int
 }
 
 // NewStore creates service store and loads saved rows from disk.
@@ -45,6 +44,19 @@ func (s *Store) List() []Info {
 	return out
 }
 
+// Get returns saved service metadata by stack and service names.
+func (s *Store) Get(stackName string, serviceName string) (Info, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	rowIndex, ok := s.byServiceNames[serviceKey(stackName, serviceName)]
+	if !ok {
+		return Info{}, false
+	}
+
+	return s.rows[rowIndex], true
+}
+
 // ReplaceStack replaces stack services with a new snapshot and saves it to disk.
 func (s *Store) ReplaceStack(stackName string, services []Info) error {
 	s.mu.Lock()
@@ -58,16 +70,16 @@ func (s *Store) ReplaceStack(stackName string, services []Info) error {
 		updated = append(updated, current)
 	}
 	for _, service := range services {
-		normalized := normalizeInfo(service)
-		if normalized.Name == "" {
+		if service.Name == "" {
 			continue
 		}
-		normalized.Stack = stackName
-		updated = append(updated, normalized)
+		service.Stack = stackName
+		updated = append(updated, service)
 	}
 
 	sortInfos(updated)
 	s.rows = updated
+	s.reindexLocked()
 
 	return s.flushLocked()
 }
@@ -96,14 +108,14 @@ func (s *Store) load() error {
 
 	s.rows = make([]Info, 0, len(rows))
 	for _, row := range rows {
-		normalized := normalizeInfo(row)
-		if normalized.Name == "" || normalized.Stack == "" {
+		if row.Name == "" || row.Stack == "" {
 			continue
 		}
-		s.rows = append(s.rows, normalized)
+		s.rows = append(s.rows, row)
 	}
 
 	sortInfos(s.rows)
+	s.reindexLocked()
 	return nil
 }
 
@@ -124,49 +136,15 @@ func (s *Store) flushLocked() error {
 	return nil
 }
 
-func normalizeInfo(info Info) Info {
-	info.Name = strings.TrimSpace(info.Name)
-	info.Stack = strings.TrimSpace(info.Stack)
-	info.Description = strings.TrimSpace(info.Description)
-	info.Image = strings.TrimSpace(info.Image)
-	info.RepositoryURL = strings.TrimSpace(info.RepositoryURL)
-	info.WebRoutes = normalizeWebRoutes(info.WebRoutes)
-
-	return info
+func (s *Store) reindexLocked() {
+	s.byServiceNames = make(map[string]int, len(s.rows))
+	for rowIndex, row := range s.rows {
+		s.byServiceNames[serviceKey(row.Stack, row.Name)] = rowIndex
+	}
 }
 
-func normalizeWebRoutes(routes []webroute.Route) []webroute.Route {
-	if len(routes) == 0 {
-		return nil
-	}
-
-	normalized := make([]webroute.Route, 0, len(routes))
-	for _, route := range routes {
-		normalizedRoute := webroute.Route{
-			Domain:  strings.TrimSpace(route.Domain),
-			Address: strings.TrimSpace(route.Address),
-			Port:    strings.TrimSpace(route.Port),
-		}
-		if normalizedRoute.Domain == "" && normalizedRoute.Address == "" && normalizedRoute.Port == "" {
-			continue
-		}
-		normalized = append(normalized, normalizedRoute)
-	}
-	if len(normalized) == 0 {
-		return nil
-	}
-
-	sort.Slice(normalized, func(i, j int) bool {
-		if normalized[i].Domain != normalized[j].Domain {
-			return normalized[i].Domain < normalized[j].Domain
-		}
-		if normalized[i].Address != normalized[j].Address {
-			return normalized[i].Address < normalized[j].Address
-		}
-		return normalized[i].Port < normalized[j].Port
-	})
-
-	return normalized
+func serviceKey(stackName string, serviceName string) string {
+	return strings.TrimSpace(stackName) + "-" + strings.TrimSpace(serviceName)
 }
 
 func sortInfos(rows []Info) {

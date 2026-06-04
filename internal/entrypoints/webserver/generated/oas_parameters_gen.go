@@ -145,13 +145,13 @@ func decodeGetSecretByNameParams(args [1]string, argsEscaped bool, r *http.Reque
 	return params, nil
 }
 
-// GetServiceRealtimeParams is parameters of getServiceRealtime operation.
-type GetServiceRealtimeParams struct {
+// GetServiceParams is parameters of getService operation.
+type GetServiceParams struct {
 	Stack   string
 	Service string
 }
 
-func unpackGetServiceRealtimeParams(packed middleware.Parameters) (params GetServiceRealtimeParams) {
+func unpackGetServiceParams(packed middleware.Parameters) (params GetServiceParams) {
 	{
 		key := middleware.ParameterKey{
 			Name: "stack",
@@ -169,7 +169,7 @@ func unpackGetServiceRealtimeParams(packed middleware.Parameters) (params GetSer
 	return params
 }
 
-func decodeGetServiceRealtimeParams(args [2]string, argsEscaped bool, r *http.Request) (params GetServiceRealtimeParams, _ error) {
+func decodeGetServiceParams(args [2]string, argsEscaped bool, r *http.Request) (params GetServiceParams, _ error) {
 	// Decode path: stack.
 	if err := func() error {
 		param := args[0]
@@ -263,13 +263,13 @@ func decodeGetServiceRealtimeParams(args [2]string, argsEscaped bool, r *http.Re
 	return params, nil
 }
 
-// GetServiceStatusParams is parameters of getServiceStatus operation.
-type GetServiceStatusParams struct {
+// GetServiceRealtimeParams is parameters of getServiceRealtime operation.
+type GetServiceRealtimeParams struct {
 	Stack   string
 	Service string
 }
 
-func unpackGetServiceStatusParams(packed middleware.Parameters) (params GetServiceStatusParams) {
+func unpackGetServiceRealtimeParams(packed middleware.Parameters) (params GetServiceRealtimeParams) {
 	{
 		key := middleware.ParameterKey{
 			Name: "stack",
@@ -287,7 +287,7 @@ func unpackGetServiceStatusParams(packed middleware.Parameters) (params GetServi
 	return params
 }
 
-func decodeGetServiceStatusParams(args [2]string, argsEscaped bool, r *http.Request) (params GetServiceStatusParams, _ error) {
+func decodeGetServiceRealtimeParams(args [2]string, argsEscaped bool, r *http.Request) (params GetServiceRealtimeParams, _ error) {
 	// Decode path: stack.
 	if err := func() error {
 		param := args[0]

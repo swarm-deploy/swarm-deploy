@@ -32,7 +32,7 @@ export function fetchEvents(): Promise<EventHistoryResponse> {
 export function fetchServiceStatus(stackName: string, serviceName: string): Promise<ServiceStatusResponse> {
   const encodedStack = encodeURIComponent(stackName);
   const encodedService = encodeURIComponent(serviceName);
-  return apiRequest<ServiceStatusResponse>(`/api/v1/stacks/${encodedStack}/services/${encodedService}/status`);
+  return apiRequest<ServiceStatusResponse>(`/api/v1/stacks/${encodedStack}/services/${encodedService}`);
 }
 
 export function fetchServiceDeployments(

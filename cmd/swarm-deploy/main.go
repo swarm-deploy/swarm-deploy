@@ -122,6 +122,7 @@ func main() {
 	eventDispatcher, eventHistory, serviceStore, err := buildEventDispatcher(
 		cfg,
 		swarmService.Services,
+		swarmService.Images,
 		metricsGroup.Events,
 	)
 	if err != nil {
@@ -306,7 +307,8 @@ func buildAssistantService(
 
 func buildEventDispatcher(
 	cfg *config.Config,
-	serviceLabelsInspector service.LabelsInspector,
+	serviceStatusInspector swarm.ServiceManager,
+	imageInspector swarm.ImageManager,
 	eventMetrics metrics.Events,
 ) (dispatcher.Dispatcher, *history.Store, *service.Store, error) {
 	historyStore, err := history.NewStore(
@@ -339,7 +341,7 @@ func buildEventDispatcher(
 
 	eventDispatcher.Subscribe(
 		events.TypeDeploySuccess,
-		service.NewSubscriber(serviceStore, serviceLabelsInspector, service.NewMetadataExtractor()),
+		service.NewSubscriber(serviceStore, serviceStatusInspector, imageInspector, service.NewMetadataExtractor()),
 	)
 	subscribersCount++
 

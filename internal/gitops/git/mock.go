@@ -40,6 +40,21 @@ func (m *MockRepository) EXPECT() *MockRepositoryMockRecorder {
 	return m.recorder
 }
 
+// Diff mocks base method.
+func (m *MockRepository) Diff(ctx context.Context, oldRevision, newRevision string) ([]CommitFileDiff, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Diff", ctx, oldRevision, newRevision)
+	ret0, _ := ret[0].([]CommitFileDiff)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Diff indicates an expected call of Diff.
+func (mr *MockRepositoryMockRecorder) Diff(ctx, oldRevision, newRevision any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Diff", reflect.TypeOf((*MockRepository)(nil).Diff), ctx, oldRevision, newRevision)
+}
+
 // Head mocks base method.
 func (m *MockRepository) Head(ctx context.Context) (string, error) {
 	m.ctrl.T.Helper()
@@ -68,21 +83,6 @@ func (m *MockRepository) List(ctx context.Context, limit int) ([]CommitMeta, err
 func (mr *MockRepositoryMockRecorder) List(ctx, limit any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockRepository)(nil).List), ctx, limit)
-}
-
-// Diff mocks base method.
-func (m *MockRepository) Diff(ctx context.Context, oldRevision, newRevision string) ([]CommitFileDiff, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Diff", ctx, oldRevision, newRevision)
-	ret0, _ := ret[0].([]CommitFileDiff)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// Diff indicates an expected call of Diff.
-func (mr *MockRepositoryMockRecorder) Diff(ctx, oldRevision, newRevision any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Diff", reflect.TypeOf((*MockRepository)(nil).Diff), ctx, oldRevision, newRevision)
 }
 
 // Pull mocks base method.

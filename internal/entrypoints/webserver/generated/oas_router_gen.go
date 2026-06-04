@@ -457,7 +457,22 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 								elem = elem[idx:]
 
 								if len(elem) == 0 {
-									break
+									switch r.Method {
+									case "GET":
+										s.handleGetServiceRequest([2]string{
+											args[0],
+											args[1],
+										}, elemIsEscaped, w, r)
+									default:
+										s.notAllowed(w, r, notAllowedParams{
+											allowedMethods: "GET",
+											allowedHeaders: nil,
+											acceptPost:     "",
+											acceptPatch:    "",
+										})
+									}
+
+									return
 								}
 								switch elem[0] {
 								case '/': // Prefix: "/"
@@ -513,34 +528,6 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 											switch r.Method {
 											case "GET":
 												s.handleGetServiceRealtimeRequest([2]string{
-													args[0],
-													args[1],
-												}, elemIsEscaped, w, r)
-											default:
-												s.notAllowed(w, r, notAllowedParams{
-													allowedMethods: "GET",
-													allowedHeaders: nil,
-													acceptPost:     "",
-													acceptPatch:    "",
-												})
-											}
-
-											return
-										}
-
-									case 's': // Prefix: "status"
-
-										if l := len("status"); len(elem) >= l && elem[0:l] == "status" {
-											elem = elem[l:]
-										} else {
-											break
-										}
-
-										if len(elem) == 0 {
-											// Leaf node.
-											switch r.Method {
-											case "GET":
-												s.handleGetServiceStatusRequest([2]string{
 													args[0],
 													args[1],
 												}, elemIsEscaped, w, r)
@@ -1102,7 +1089,19 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 								elem = elem[idx:]
 
 								if len(elem) == 0 {
-									break
+									switch method {
+									case "GET":
+										r.name = GetServiceOperation
+										r.summary = ""
+										r.operationID = "getService"
+										r.operationGroup = ""
+										r.pathPattern = "/api/v1/stacks/{stack}/services/{service}"
+										r.args = args
+										r.count = 2
+										return r, true
+									default:
+										return
+									}
 								}
 								switch elem[0] {
 								case '/': // Prefix: "/"
@@ -1159,31 +1158,6 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 												r.operationID = "getServiceRealtime"
 												r.operationGroup = ""
 												r.pathPattern = "/api/v1/stacks/{stack}/services/{service}/realtime"
-												r.args = args
-												r.count = 2
-												return r, true
-											default:
-												return
-											}
-										}
-
-									case 's': // Prefix: "status"
-
-										if l := len("status"); len(elem) >= l && elem[0:l] == "status" {
-											elem = elem[l:]
-										} else {
-											break
-										}
-
-										if len(elem) == 0 {
-											// Leaf node.
-											switch method {
-											case "GET":
-												r.name = GetServiceStatusOperation
-												r.summary = ""
-												r.operationID = "getServiceStatus"
-												r.operationGroup = ""
-												r.pathPattern = "/api/v1/stacks/{stack}/services/{service}/status"
 												r.args = args
 												r.count = 2
 												return r, true

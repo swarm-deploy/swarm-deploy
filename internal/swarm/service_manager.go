@@ -7,7 +7,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"log/slog"
 	"sort"
 	"strconv"
 	"strings"
@@ -181,11 +180,19 @@ func (m *serviceManager) GetStatus(ctx context.Context, serviceRef ServiceRefere
 		return ServiceStatus{}, err
 	}
 
-	return ServiceStatus{
+	status := ServiceStatus{
 		Stack:   serviceRef.StackName(),
 		Service: serviceRef.ServiceName(),
 		Spec:    toServiceSpec(service.Spec),
-	}, nil
+	}
+
+	containerSpec := service.Spec.TaskTemplate.ContainerSpec
+	if containerSpec != nil {
+		status.ContainerLabels = cloneStringMap(containerSpec.Labels)
+		status.ContainerEnv = cloneStringSlice(containerSpec.Env)
+	}
+
+	return status, nil
 }
 
 // ListTasks returns service tasks for realtime container status rendering.
@@ -234,51 +241,6 @@ func (m *serviceManager) Get(ctx context.Context, serviceRef ServiceReference) (
 		PreviousSpec: toPreviousServiceSpec(service.PreviousSpec),
 		UpdateStatus: toServiceUpdateStatus(service.UpdateStatus),
 	}, nil
-}
-
-// Labels returns service, container and image labels for a stack service.
-func (m *serviceManager) Labels(ctx context.Context, serviceRef ServiceReference) (ServiceLabels, error) {
-	service, _, err := m.inspect(ctx, serviceRef)
-	if err != nil {
-		return ServiceLabels{}, err
-	}
-
-	labels := ServiceLabels{
-		Service: cloneStringMap(service.Spec.Labels),
-	}
-
-	containerSpec := service.Spec.TaskTemplate.ContainerSpec
-	if containerSpec != nil {
-		labels.Container = cloneStringMap(containerSpec.Labels)
-		labels.ContainerEnv = cloneStringSlice(containerSpec.Env)
-	}
-
-	imageRef := ""
-	if containerSpec != nil {
-		imageRef = containerSpec.Image
-	}
-
-	slog.DebugContext(ctx, "[swarm] inspecting image", slog.String("image_ref", imageRef))
-
-	image, err := m.dockerClient.ImageInspect(ctx, imageRef)
-	if err != nil {
-		if isNotFoundErr(err) {
-			slog.DebugContext(ctx, "[swarm] image not found", slog.String("image_ref", imageRef))
-
-			return labels, nil
-		}
-		return labels, fmt.Errorf("inspect image %s: %w", imageRef, err)
-	}
-
-	slog.DebugContext(ctx, "[swarm] image inspected",
-		slog.String("image_ref", imageRef),
-		slog.Any("image", image),
-	)
-
-	if image.Config != nil {
-		labels.Image = cloneStringMap(image.Config.Labels)
-	}
-	return labels, nil
 }
 
 // Logs returns recent logs for a stack service.

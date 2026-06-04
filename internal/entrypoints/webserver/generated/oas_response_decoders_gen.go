@@ -204,7 +204,7 @@ func decodeGetSecretByNameResponse(resp *http.Response) (res *SecretDetailsRespo
 	return res, validate.UnexpectedStatusCodeWithResponse(resp)
 }
 
-func decodeGetServiceRealtimeResponse(resp *http.Response) (res *ServiceRealtimeResponse, _ error) {
+func decodeGetServiceResponse(resp *http.Response) (res *ServiceStatusResponse, _ error) {
 	switch resp.StatusCode {
 	case 200:
 		// Code 200.
@@ -220,7 +220,7 @@ func decodeGetServiceRealtimeResponse(resp *http.Response) (res *ServiceRealtime
 			}
 			d := jx.DecodeBytes(buf)
 
-			var response ServiceRealtimeResponse
+			var response ServiceStatusResponse
 			if err := func() error {
 				if err := response.Decode(d); err != nil {
 					return err
@@ -254,7 +254,7 @@ func decodeGetServiceRealtimeResponse(resp *http.Response) (res *ServiceRealtime
 	return res, validate.UnexpectedStatusCodeWithResponse(resp)
 }
 
-func decodeGetServiceStatusResponse(resp *http.Response) (res *ServiceStatusResponse, _ error) {
+func decodeGetServiceRealtimeResponse(resp *http.Response) (res *ServiceRealtimeResponse, _ error) {
 	switch resp.StatusCode {
 	case 200:
 		// Code 200.
@@ -270,7 +270,7 @@ func decodeGetServiceStatusResponse(resp *http.Response) (res *ServiceStatusResp
 			}
 			d := jx.DecodeBytes(buf)
 
-			var response ServiceStatusResponse
+			var response ServiceRealtimeResponse
 			if err := func() error {
 				if err := response.Decode(d); err != nil {
 					return err

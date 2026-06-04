@@ -19,6 +19,10 @@ type ServiceStatus struct {
 	Service string
 	// Spec contains current compact service spec snapshot.
 	Spec ServiceSpec
+	// ContainerLabels contains task container labels from service spec.
+	ContainerLabels map[string]string
+	// ContainerEnv contains task container environment variables from service spec.
+	ContainerEnv []string
 }
 
 // ServiceTask contains compact realtime task data for service container status.
@@ -107,18 +111,6 @@ type Service struct {
 	PreviousSpec *ServiceSpec `json:"previous_spec,omitempty"`
 	// UpdateStatus contains current rolling update status when available.
 	UpdateStatus *ServiceUpdateStatus `json:"update_status,omitempty"`
-}
-
-// ServiceLabels contains labels from service, container and image inspect.
-type ServiceLabels struct {
-	// Service contains Docker service-level labels from annotations.
-	Service map[string]string
-	// Container contains container labels from task template.
-	Container map[string]string
-	// ContainerEnv contains environment variables from task container spec.
-	ContainerEnv []string
-	// Image contains OCI labels from image config.
-	Image map[string]string
 }
 
 // ServiceLogsOptions configures stack service logs query.

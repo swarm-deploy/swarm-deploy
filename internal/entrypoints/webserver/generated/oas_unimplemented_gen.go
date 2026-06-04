@@ -41,17 +41,17 @@ func (UnimplementedHandler) GetSecretByName(ctx context.Context, params GetSecre
 	return r, ht.ErrNotImplemented
 }
 
+// GetService implements getService operation.
+//
+// GET /api/v1/stacks/{stack}/services/{service}
+func (UnimplementedHandler) GetService(ctx context.Context, params GetServiceParams) (r *ServiceStatusResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetServiceRealtime implements getServiceRealtime operation.
 //
 // GET /api/v1/stacks/{stack}/services/{service}/realtime
 func (UnimplementedHandler) GetServiceRealtime(ctx context.Context, params GetServiceRealtimeParams) (r *ServiceRealtimeResponse, _ error) {
-	return r, ht.ErrNotImplemented
-}
-
-// GetServiceStatus implements getServiceStatus operation.
-//
-// GET /api/v1/stacks/{stack}/services/{service}/status
-func (UnimplementedHandler) GetServiceStatus(ctx context.Context, params GetServiceStatusParams) (r *ServiceStatusResponse, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

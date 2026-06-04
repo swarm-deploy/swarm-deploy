@@ -67,7 +67,7 @@ func encodeGetSecretByNameResponse(response *SecretDetailsResponse, w http.Respo
 	return nil
 }
 
-func encodeGetServiceRealtimeResponse(response *ServiceRealtimeResponse, w http.ResponseWriter, span trace.Span) error {
+func encodeGetServiceResponse(response *ServiceStatusResponse, w http.ResponseWriter, span trace.Span) error {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(200)
 	span.SetStatus(codes.Ok, http.StatusText(200))
@@ -81,7 +81,7 @@ func encodeGetServiceRealtimeResponse(response *ServiceRealtimeResponse, w http.
 	return nil
 }
 
-func encodeGetServiceStatusResponse(response *ServiceStatusResponse, w http.ResponseWriter, span trace.Span) error {
+func encodeGetServiceRealtimeResponse(response *ServiceRealtimeResponse, w http.ResponseWriter, span trace.Span) error {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(200)
 	span.SetStatus(codes.Ok, http.StatusText(200))

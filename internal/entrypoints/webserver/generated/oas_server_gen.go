@@ -24,14 +24,14 @@ type Handler interface {
 	//
 	// GET /api/v1/secrets/{name}
 	GetSecretByName(ctx context.Context, params GetSecretByNameParams) (*SecretDetailsResponse, error)
+	// GetService implements getService operation.
+	//
+	// GET /api/v1/stacks/{stack}/services/{service}
+	GetService(ctx context.Context, params GetServiceParams) (*ServiceStatusResponse, error)
 	// GetServiceRealtime implements getServiceRealtime operation.
 	//
 	// GET /api/v1/stacks/{stack}/services/{service}/realtime
 	GetServiceRealtime(ctx context.Context, params GetServiceRealtimeParams) (*ServiceRealtimeResponse, error)
-	// GetServiceStatus implements getServiceStatus operation.
-	//
-	// GET /api/v1/stacks/{stack}/services/{service}/status
-	GetServiceStatus(ctx context.Context, params GetServiceStatusParams) (*ServiceStatusResponse, error)
 	// GetStackManifestos implements getStackManifestos operation.
 	//
 	// GET /api/v1/stacks/{stack}/manifestos

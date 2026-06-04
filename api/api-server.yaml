@@ -157,9 +157,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SecretDetailsResponse'
-  /api/v1/stacks/{stack}/services/{service}/status:
+  /api/v1/stacks/{stack}/services/{service}:
     get:
-      operationId: getServiceStatus
+      operationId: getService
       parameters:
         - in: path
           name: stack

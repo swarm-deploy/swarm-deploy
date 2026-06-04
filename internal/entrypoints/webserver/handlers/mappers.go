@@ -85,14 +85,17 @@ func toOptDateTime(value time.Time) generated.OptDateTime {
 	return generated.NewOptDateTime(value)
 }
 
-func toGeneratedServiceStatus(status swarm.ServiceStatus) *generated.ServiceStatusResponse {
-	resp := &generated.ServiceStatusResponse{
-		Stack:   status.Stack,
-		Service: status.Service,
-		Spec:    toGeneratedServiceSpec(status.Spec),
+func toGeneratedServiceStatusFromInfo(serviceInfo service.Info) *generated.ServiceStatusResponse {
+	spec := serviceInfo.Spec
+	if spec.Image == "" {
+		spec.Image = serviceInfo.Image
 	}
 
-	return resp
+	return &generated.ServiceStatusResponse{
+		Stack:   serviceInfo.Stack,
+		Service: serviceInfo.Name,
+		Spec:    toGeneratedServiceSpec(spec),
+	}
 }
 
 func toGeneratedServiceRealtimeTasks(

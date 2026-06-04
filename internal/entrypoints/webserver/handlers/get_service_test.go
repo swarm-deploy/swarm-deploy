@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"net/http"
 	"path/filepath"
 	"testing"
 
@@ -11,31 +12,53 @@ import (
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
+	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
 
-func TestHandlerGetServiceStatus(t *testing.T) {
+func TestHandlerGetService(t *testing.T) {
 	t.Parallel()
 
-	ctrl := gomock.NewController(t)
-	serviceInspector := swarm.NewMockServiceManager(ctrl)
+	store, err := service.NewStore(filepath.Join(t.TempDir(), "services.json"))
+	require.NoError(t, err)
+	require.NoError(t, store.ReplaceStack("payments", []service.Info{
+		{
+			Name:  "api",
+			Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
+			Spec: swarm.ServiceSpec{
+				Image:             "ghcr.io/swarm-deploy/payments-api:v1.2.3",
+				Mode:              "replicated",
+				Replicas:          2,
+				RequestedRAMBytes: 268435456,
+				RequestedCPUNano:  500000000,
+				LimitRAMBytes:     536870912,
+				LimitCPUNano:      1000000000,
+				Labels: map[string]string{
+					"com.docker.stack.namespace": "payments",
+					"app.env":                    "prod",
+				},
+				Secrets: []swarm.ServiceSecret{
+					{
+						SecretName: "payments_db_password",
+						Target:     "/run/secrets/payments_db_password",
+					},
+				},
+				Network: []swarm.ServiceNetwork{
+					{
+						Target:  "payments_default",
+						Aliases: []string{"api"},
+					},
+				},
+			},
+		},
+	}))
+
 	h := &handler{
-		serviceInspector: serviceInspector,
+		services: store,
 	}
 
-	serviceInspector.EXPECT().
-		GetStatus(gomock.Any(), swarm.NewServiceReference("payments", "api")).
-		Return(swarm.ServiceStatus{
-			Stack:   "payments",
-			Service: "api",
-			Spec: swarm.ServiceSpec{
-				Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
-				Mode:  "replicated",
-			},
-		}, nil)
-
-	resp, err := h.GetServiceStatus(context.Background(), generated.GetServiceStatusParams{
+	resp, err := h.GetService(context.Background(), generated.GetServiceParams{
 		Stack:   "payments",
 		Service: "api",
 	})
@@ -46,56 +69,48 @@ func TestHandlerGetServiceStatus(t *testing.T) {
 	assert.Equal(t, "api", resp.Service)
 	assert.Equal(t, "ghcr.io/swarm-deploy/payments-api:v1.2.3", resp.Spec.Image)
 	assert.Equal(t, "replicated", resp.Spec.Mode)
-	assert.False(t, resp.Spec.Labels.IsSet())
-}
-
-func TestHandlerGetServiceStatus_MapsGroupedLabels(t *testing.T) {
-	t.Parallel()
-
-	ctrl := gomock.NewController(t)
-	serviceInspector := swarm.NewMockServiceManager(ctrl)
-	h := &handler{
-		serviceInspector: serviceInspector,
-	}
-
-	serviceInspector.EXPECT().
-		GetStatus(gomock.Any(), swarm.NewServiceReference("payments", "api")).
-		Return(swarm.ServiceStatus{
-			Stack:   "payments",
-			Service: "api",
-			Spec: swarm.ServiceSpec{
-				Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
-				Mode:  "replicated",
-				Labels: map[string]string{
-					"com.docker.stack.namespace": "payments",
-					"com.docker.service.name":    "payments_api",
-					"app.env":                    "prod",
-				},
-			},
-		}, nil)
-
-	resp, err := h.GetServiceStatus(context.Background(), generated.GetServiceStatusParams{
-		Stack:   "payments",
-		Service: "api",
-	})
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-
+	assert.Equal(t, int64(2), resp.Spec.Replicas)
+	assert.EqualValues(t, 268435456, resp.Spec.RequestedRAMBytes)
+	assert.EqualValues(t, 500000000, resp.Spec.RequestedCPUNano)
+	assert.EqualValues(t, 536870912, resp.Spec.LimitRAMBytes)
+	assert.EqualValues(t, 1000000000, resp.Spec.LimitCPUNano)
 	labels, ok := resp.Spec.Labels.Get()
 	require.True(t, ok)
-
 	dockerLabels, ok := labels.Docker.Get()
 	require.True(t, ok)
 	assert.Equal(t, generated.ServiceSpecLabelGroupResponse{
 		"com.docker.stack.namespace": "payments",
-		"com.docker.service.name":    "payments_api",
 	}, dockerLabels)
-
 	customLabels, ok := labels.Custom.Get()
 	require.True(t, ok)
 	assert.Equal(t, generated.ServiceSpecLabelGroupResponse{
 		"app.env": "prod",
 	}, customLabels)
+	require.Len(t, resp.Spec.Secrets, 1)
+	assert.Equal(t, "payments_db_password", resp.Spec.Secrets[0].SecretName)
+	require.Len(t, resp.Spec.Network, 1)
+	assert.Equal(t, "payments_default", resp.Spec.Network[0].Target)
+}
+
+func TestHandlerGetService_NotFound(t *testing.T) {
+	t.Parallel()
+
+	store, err := service.NewStore(filepath.Join(t.TempDir(), "services.json"))
+	require.NoError(t, err)
+
+	h := &handler{
+		services: store,
+	}
+
+	_, err = h.GetService(context.Background(), generated.GetServiceParams{
+		Stack:   "payments",
+		Service: "api",
+	})
+	require.Error(t, err)
+
+	var statusErr *statusError
+	require.True(t, errors.As(err, &statusErr))
+	assert.Equal(t, http.StatusNotFound, statusErr.code)
 }
 
 func TestHandlerListServiceDeployments_MapsFromHistory(t *testing.T) {

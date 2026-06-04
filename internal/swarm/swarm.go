@@ -5,6 +5,8 @@ import "github.com/docker/docker/client"
 type Swarm struct {
 	// Services manages Docker swarm services.
 	Services ServiceManager
+	// Images manages Docker images.
+	Images ImageManager
 	// Secrets manages Docker swarm secrets.
 	Secrets SecretManager
 	// Configs manages Docker swarm configs.
@@ -22,6 +24,7 @@ type Swarm struct {
 func NewSwarm(dockerClient *client.Client, command string) *Swarm {
 	return &Swarm{
 		Services:     newServiceManager(dockerClient),
+		Images:       newImageManager(dockerClient),
 		Secrets:      newSecretManager(dockerClient),
 		Configs:      newConfigManager(dockerClient),
 		Nodes:        newNodeManager(dockerClient),

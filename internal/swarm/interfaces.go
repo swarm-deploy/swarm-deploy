@@ -33,11 +33,13 @@ type ServiceManager interface {
 	// Get returns full compact service projection for a stack service.
 	Get(ctx context.Context, serviceRef ServiceReference) (Service, error)
 
-	// Labels returns service, container and image labels for a stack service.
-	Labels(ctx context.Context, serviceRef ServiceReference) (ServiceLabels, error)
-
 	// Logs returns recent logs for a stack service.
 	Logs(ctx context.Context, serviceRef ServiceReference, options ServiceLogsOptions) ([]string, error)
+}
+
+type ImageManager interface {
+	// Get returns compact image metadata by image reference.
+	Get(ctx context.Context, imageRef string) (Image, error)
 }
 
 type SecretManager interface {

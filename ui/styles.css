@@ -500,6 +500,10 @@ button:hover,
   min-width: 0;
 }
 
+.stack-service-sync-status > .status {
+  justify-self: start;
+}
+
 .stack-service-sync-error {
   margin: 0;
   color: var(--error);
