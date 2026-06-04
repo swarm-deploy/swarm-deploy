@@ -166,7 +166,7 @@ func (r *Reconciler) processResult(
 	for serviceName, service := range serviceStates {
 		status := "success"
 
-		if service.SyncStatus == model.SyncStatusSynced {
+		if service.SyncStatus == model.SyncStatusOutOfSync {
 			status = "failed"
 		}
 
