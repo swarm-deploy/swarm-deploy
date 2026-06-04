@@ -11,27 +11,34 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
+	"go.uber.org/mock/gomock"
 )
 
 func TestGetExternalRepositoryLatestReleaseExecute(t *testing.T) {
 	t.Parallel()
 
+	ctrl := gomock.NewController(t)
 	releaseTime := time.Date(2026, time.June, 4, 9, 30, 0, 0, time.FixedZone("UTC+03", 3*60*60))
-	releaseProvider := &fakeGitHostingProvider{
-		release: &githosting.Release{
+	provider := githosting.NewMockProvider(ctrl)
+	manager := NewMockGitHostingProviderManager(ctrl)
+	manager.EXPECT().
+		Get("https://github.com/acme/platform").
+		Return(githosting.NewReferencedProvider(provider, githosting.RepositoryReference{
+			Owner: "acme",
+			Name:  "platform",
+		}), nil)
+	provider.EXPECT().
+		GetLatestRelease(gomock.Any(), githosting.RepositoryReference{
+			Owner: "acme",
+			Name:  "platform",
+		}).
+		Return(&githosting.Release{
 			Tag:         "v1.2.3",
 			Commit:      "abc123",
 			Body:        "release notes",
 			URL:         "https://github.com/acme/platform/releases/tag/v1.2.3",
 			PublishedAt: releaseTime,
-		},
-	}
-	manager := &fakeGitHostingProviderManager{
-		referencedProvider: githosting.NewReferencedProvider(releaseProvider, githosting.RepositoryReference{
-			Owner: "acme",
-			Name:  "platform",
-		}),
-	}
+		}, nil)
 
 	tool := NewGetExternalRepositoryLatestRelease(manager)
 	response, err := tool.Execute(context.Background(), routing.Request{
@@ -40,11 +47,6 @@ func TestGetExternalRepositoryLatestReleaseExecute(t *testing.T) {
 		},
 	})
 	require.NoError(t, err, "execute external_repository_release_latest_get")
-	assert.Equal(t, 1, manager.called, "manager must be called once")
-	assert.Equal(t, "https://github.com/acme/platform", manager.uri, "unexpected repository URI")
-	assert.Equal(t, 1, releaseProvider.called, "release provider must be called once")
-	assert.Equal(t, "acme", releaseProvider.repo.Owner, "unexpected owner")
-	assert.Equal(t, "platform", releaseProvider.repo.Name, "unexpected repository name")
 
 	var payload struct {
 		Repository  string `json:"repository"`
@@ -71,42 +73,59 @@ func TestGetExternalRepositoryLatestReleaseExecuteFails(t *testing.T) {
 
 	testCases := []struct {
 		name         string
-		tool         *GetExternalRepositoryLatestRelease
 		request      routing.Request
+		buildTool    func(*gomock.Controller) *GetExternalRepositoryLatestRelease
 		expectedText string
 	}{
 		{
 			name: "missing repository",
-			tool: NewGetExternalRepositoryLatestRelease(&fakeGitHostingProviderManager{}),
 			request: routing.Request{
 				Payload: getExternalRepositoryLatestReleaseRequest{},
+			},
+			buildTool: func(ctrl *gomock.Controller) *GetExternalRepositoryLatestRelease {
+				return NewGetExternalRepositoryLatestRelease(NewMockGitHostingProviderManager(ctrl))
 			},
 			expectedText: "repository is required",
 		},
 		{
 			name: "provider manager error",
-			tool: NewGetExternalRepositoryLatestRelease(&fakeGitHostingProviderManager{
-				err: errors.New("unsupported hosting"),
-			}),
 			request: routing.Request{
 				Payload: getExternalRepositoryLatestReleaseRequest{
 					Repository: "https://gitlab.example.com/acme/platform",
 				},
 			},
+			buildTool: func(ctrl *gomock.Controller) *GetExternalRepositoryLatestRelease {
+				manager := NewMockGitHostingProviderManager(ctrl)
+				manager.EXPECT().
+					Get("https://gitlab.example.com/acme/platform").
+					Return(nil, errors.New("unsupported hosting"))
+				return NewGetExternalRepositoryLatestRelease(manager)
+			},
 			expectedText: "unsupported hosting",
 		},
 		{
 			name: "provider error",
-			tool: NewGetExternalRepositoryLatestRelease(&fakeGitHostingProviderManager{
-				referencedProvider: githosting.NewReferencedProvider(
-					&fakeGitHostingProvider{err: errors.New("release not found")},
-					githosting.RepositoryReference{Owner: "acme", Name: "platform"},
-				),
-			}),
 			request: routing.Request{
 				Payload: getExternalRepositoryLatestReleaseRequest{
 					Repository: "https://github.com/acme/platform",
 				},
+			},
+			buildTool: func(ctrl *gomock.Controller) *GetExternalRepositoryLatestRelease {
+				provider := githosting.NewMockProvider(ctrl)
+				manager := NewMockGitHostingProviderManager(ctrl)
+				manager.EXPECT().
+					Get("https://github.com/acme/platform").
+					Return(githosting.NewReferencedProvider(provider, githosting.RepositoryReference{
+						Owner: "acme",
+						Name:  "platform",
+					}), nil)
+				provider.EXPECT().
+					GetLatestRelease(gomock.Any(), githosting.RepositoryReference{
+						Owner: "acme",
+						Name:  "platform",
+					}).
+					Return(nil, errors.New("release not found"))
+				return NewGetExternalRepositoryLatestRelease(manager)
 			},
 			expectedText: "release not found",
 		},
@@ -116,7 +135,9 @@ func TestGetExternalRepositoryLatestReleaseExecuteFails(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := testCase.tool.Execute(context.Background(), testCase.request)
+			ctrl := gomock.NewController(t)
+			tool := testCase.buildTool(ctrl)
+			_, err := tool.Execute(context.Background(), testCase.request)
 			require.Error(t, err, "expected tool execution error")
 			assert.Contains(t, err.Error(), testCase.expectedText, "unexpected error")
 		})

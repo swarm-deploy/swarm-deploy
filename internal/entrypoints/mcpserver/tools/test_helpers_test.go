@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/differ"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/differ/diff"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
@@ -141,43 +140,4 @@ func (f *fakeCommitDiffer) Compare(composeFiles []differ.ComposeFile) (diff.Diff
 
 func defaultCommitTime() time.Time {
 	return time.Date(2026, time.March, 27, 0, 0, 0, 0, time.UTC)
-}
-
-type fakeGitHostingProviderManager struct {
-	referencedProvider *githosting.ReferencedProvider
-	err                error
-	called             int
-	uri                string
-}
-
-func (f *fakeGitHostingProviderManager) Get(uri string) (*githosting.ReferencedProvider, error) {
-	f.called++
-	f.uri = uri
-
-	if f.err != nil {
-		return nil, f.err
-	}
-
-	return f.referencedProvider, nil
-}
-
-type fakeGitHostingProvider struct {
-	release *githosting.Release
-	err     error
-	called  int
-	repo    githosting.RepositoryReference
-}
-
-func (f *fakeGitHostingProvider) GetLatestRelease(
-	_ context.Context,
-	repo githosting.RepositoryReference,
-) (*githosting.Release, error) {
-	f.called++
-	f.repo = repo
-
-	if f.err != nil {
-		return nil, f.err
-	}
-
-	return f.release, nil
 }
