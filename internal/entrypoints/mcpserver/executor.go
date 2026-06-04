@@ -14,6 +14,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	mcpTools "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/tools"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -36,6 +37,7 @@ func NewExecutor(
 	serviceStore mcpTools.ServicesReader,
 	imageVersionResolver mcpTools.ImageVersionResolver,
 	gitRepository mcpTools.GitRepository,
+	hostingProviders *githosting.ProviderManager,
 	stacks []config.StackSpec,
 	commitDiffer mcpTools.CommitDiffer,
 	control mcpTools.SyncTrigger,
@@ -58,6 +60,7 @@ func NewExecutor(
 		mcpTools.NewGetActualImageVersion(imageVersionResolver),
 		mcpTools.NewListGitCommits(gitRepository),
 		mcpTools.NewGitCommitDiff(gitRepository, stacks, commitDiffer),
+		mcpTools.NewGetExternalRepositoryLatestRelease(hostingProviders),
 		mcpTools.NewDate(),
 		mcpTools.NewSelfMetricsList(prometheus.DefaultGatherer, selfMetricsNamePrefix),
 		mcpTools.NewReportPromptInjection(eventDispatcher),

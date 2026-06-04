@@ -5,6 +5,7 @@ import (
 	"net"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
+	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/differ"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/differ/diff"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
@@ -67,4 +68,10 @@ type GitRepository interface {
 type CommitDiffer interface {
 	// Compare returns changed services in old/new compose snapshots.
 	Compare(composeFiles []differ.ComposeFile) (diff.Diff, error)
+}
+
+// GitHostingProviderManager resolves repository URLs to hosting-specific providers.
+type GitHostingProviderManager interface {
+	// Get resolves repository URL to a referenced provider.
+	Get(uri string) (*githosting.ReferencedProvider, error)
 }

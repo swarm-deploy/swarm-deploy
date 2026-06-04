@@ -29,6 +29,7 @@ const (
 	graphNodePrepare          = "prepare_messages"
 	graphNodeGenerateAnswer   = "generate_answer"
 	graphNodeExecuteMCP       = "execute_mcp"
+	graphNodeGuardMCPResults  = "guard_mcp_results"
 )
 
 var helloMessages = map[string]struct{}{
@@ -49,6 +50,18 @@ var (
 	errPromptInjection = errors.New("request rejected by prompt injection guard")
 )
 
+type promptInjectionError struct {
+	prompt string
+}
+
+func (e *promptInjectionError) Error() string {
+	return errPromptInjection.Error()
+}
+
+func (e *promptInjectionError) Unwrap() error {
+	return errPromptInjection
+}
+
 type graph struct {
 	config         Config
 	guard          *guard.InjectionChecker
@@ -65,8 +78,15 @@ type graphExecutionState struct {
 	relevantServices []service.Info
 	modelMessages    []modelMessage
 	pendingToolCalls []modelToolCall
+	lastToolResults  []toolExecutionResult
 	toolIterations   int
 	answer           string
+	rejectedPrompt   string
+}
+
+type toolExecutionResult struct {
+	toolName string
+	content  string
 }
 
 func newGraph(
@@ -99,6 +119,12 @@ func (g *graph) run(ctx context.Context, history []conversation.Turn, userMessag
 	}
 
 	if _, invokeErr := runnable.Invoke(ctx, nil); invokeErr != nil {
+		if errors.Is(invokeErr, errPromptInjection) {
+			return "", &promptInjectionError{
+				prompt: strings.TrimSpace(executionState.rejectedPrompt),
+			}
+		}
+
 		return "", invokeErr
 	}
 
@@ -115,6 +141,7 @@ func (g *graph) compile(executionState *graphExecutionState) (*langgraph.Runnabl
 	messageGraph.AddNode(graphNodePrepare, g.prepareNode(executionState))
 	messageGraph.AddNode(graphNodeGenerateAnswer, g.generateAnswerNode(executionState))
 	messageGraph.AddNode(graphNodeExecuteMCP, g.executeMCPNode(executionState))
+	messageGraph.AddNode(graphNodeGuardMCPResults, g.guardMCPResultsNode(executionState))
 
 	messageGraph.AddConditionalEdges(
 		graphNodeGuard,
@@ -167,7 +194,8 @@ func (g *graph) compile(executionState *graphExecutionState) (*langgraph.Runnabl
 			graphNodeExecuteMCP: graphNodeExecuteMCP,
 		},
 	)
-	messageGraph.AddEdge(graphNodeExecuteMCP, graphNodeGenerateAnswer)
+	messageGraph.AddEdge(graphNodeExecuteMCP, graphNodeGuardMCPResults)
+	messageGraph.AddEdge(graphNodeGuardMCPResults, graphNodeGenerateAnswer)
 	messageGraph.SetEntryPoint(graphNodeGuard)
 
 	return messageGraph.Compile()
@@ -178,7 +206,10 @@ func (g *graph) guardNode(
 ) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
 	return func(_ context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
 		if hasInjections := g.guard.Check(executionState.userMessage); hasInjections {
-			return messages, errPromptInjection
+			executionState.rejectedPrompt = executionState.userMessage
+			return messages, &promptInjectionError{
+				prompt: strings.TrimSpace(executionState.rejectedPrompt),
+			}
 		}
 
 		return messages, nil
@@ -303,6 +334,7 @@ func (g *graph) executeMCPNode(
 	executionState *graphExecutionState,
 ) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
 	return func(ctx context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
+		executionState.lastToolResults = executionState.lastToolResults[:0]
 		for _, modelToolCall := range executionState.pendingToolCalls {
 			slog.InfoContext(ctx, "[graph] running mcp tool", slog.String("tool.name", modelToolCall.Name))
 
@@ -325,9 +357,35 @@ func (g *graph) executeMCPNode(
 				ToolCallID: modelToolCall.ID,
 				Content:    strings.TrimSpace(toolResultMessage),
 			})
+			executionState.lastToolResults = append(executionState.lastToolResults, toolExecutionResult{
+				toolName: modelToolCall.Name,
+				content:  strings.TrimSpace(toolResultMessage),
+			})
 		}
 
 		executionState.pendingToolCalls = nil
+		return messages, nil
+	}
+}
+
+func (g *graph) guardMCPResultsNode(
+	executionState *graphExecutionState,
+) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
+	return func(_ context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
+		for _, toolResult := range executionState.lastToolResults {
+			if !g.guard.Check(toolResult.content) {
+				continue
+			}
+
+			executionState.rejectedPrompt = fmt.Sprintf(
+				"tool %q result contained prompt injection markers",
+				toolResult.toolName,
+			)
+			return messages, &promptInjectionError{
+				prompt: strings.TrimSpace(executionState.rejectedPrompt),
+			}
+		}
+
 		return messages, nil
 	}
 }

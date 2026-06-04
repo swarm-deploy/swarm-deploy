@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
 	"gopkg.in/yaml.v3"
 
 	"github.com/artarts36/specw"
@@ -83,6 +84,8 @@ type Spec struct {
 		// Level for write logs. Default: INFO
 		Level specw.SlogLevel `yaml:"level,omitempty"`
 	} `yaml:"log"`
+
+	Hostings githosting.Config `yaml:"hostings"`
 }
 
 type EventHistorySpec struct {

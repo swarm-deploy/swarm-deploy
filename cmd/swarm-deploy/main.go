@@ -28,6 +28,7 @@ import (
 	eventmetrics "github.com/swarm-deploy/swarm-deploy/internal/event/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/notifiers"
 	notify2 "github.com/swarm-deploy/swarm-deploy/internal/event/notify"
+	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/differ"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
@@ -275,6 +276,10 @@ func buildAssistantService(
 	}
 
 	commitDiffer := differ.New()
+	hostingProviders, err := githosting.NewProviderManager(cfg.Spec.Hostings)
+	if err != nil {
+		return nil, fmt.Errorf("build hosting providers: %w", err)
+	}
 
 	toolExecutor := mcpserver.NewExecutor(
 		eventHistory,
@@ -283,6 +288,7 @@ func buildAssistantService(
 		serviceStore,
 		imageVersionResolver,
 		gitRepository,
+		hostingProviders,
 		cfg.Spec.Stacks,
 		commitDiffer,
 		control,

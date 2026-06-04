@@ -20,8 +20,13 @@ apply: by file patterns
 # Go Testing
 - For asserts use library `github.com/stretchr/testify/assert`. Example: `assert.Equal(t, 123, 123, "they should be equal")`
 - For stoppable asserts use library `github.com/stretchr/testify/require`. Example: `require.Equal(t, 123, 123, "they should be equal")`
-- For mocking use `go.uber.org/mock/gomock`
 - Use table-driven pattern
+
+## Mocking
+- Do not write handwritten fakes, stubs, or mocks when the task requires mocking dependencies.
+- For mocks always use `go.uber.org/mock/gomock` and generated mocks.
+- Place generated mocks next to the package that owns the mocked interface.
+- Do not introduce ad-hoc test helper types that imitate production interfaces unless explicitly requested.
 
 # Configuration / Environment
 - Environment variables are described in the `Config` structure
