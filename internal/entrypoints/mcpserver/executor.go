@@ -51,6 +51,7 @@ func NewExecutor(
 		mcpTools.NewDockerNetworkList(swarmService.Networks),
 		mcpTools.NewDockerPluginList(swarmService.Plugins),
 		mcpTools.NewDockerSecretList(swarmService.Secrets),
+		mcpTools.NewGetServiceHealth(swarmService.Services),
 		mcpTools.NewGetServiceLogs(swarmService.Services),
 		mcpTools.NewGetServiceSpec(swarmService.Services),
 		mcpTools.NewDNSNameResolve(),
