@@ -1,6 +1,11 @@
 package githosting
 
-import "context"
+import (
+	"context"
+	"errors"
+)
+
+var ErrProviderNotSupported = errors.New("provider not supported")
 
 type Provider interface {
 	// GetLatestRelease returns latest from the remote repository.
