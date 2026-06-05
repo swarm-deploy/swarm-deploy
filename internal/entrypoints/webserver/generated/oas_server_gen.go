@@ -20,6 +20,10 @@ type Handler interface {
 	//
 	// GET /api/v1/git/commits/{commit}
 	GetGitCommit(ctx context.Context, params GetGitCommitParams) (*GitCommitDetailsResponse, error)
+	// GetGraph implements getGraph operation.
+	//
+	// GET /api/v1/graph
+	GetGraph(ctx context.Context) (*GraphResponse, error)
 	// GetSecretByName implements getSecretByName operation.
 	//
 	// GET /api/v1/secrets/{name}

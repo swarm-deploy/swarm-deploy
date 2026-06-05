@@ -111,6 +111,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ServicesResponse'
+  /api/v1/graph:
+    get:
+      operationId: getGraph
+      responses:
+        '200':
+          description: Service dependency graph built from collected service metadata.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GraphResponse'
   /api/v1/nodes:
     get:
       operationId: listNodes
@@ -330,6 +340,33 @@ components:
         details:
           type: object
           additionalProperties:
+            type: string
+    GraphResponse:
+      type: object
+      required: [nodes]
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: '#/components/schemas/GraphNode'
+    GraphNodeKind:
+      type: string
+      enum: [application, monitoring, delivery, reverseProxy, database, secretManager, deploymentManagementSystem]
+    GraphNode:
+      type: object
+      required: [name, kind]
+      properties:
+        name:
+          type: string
+        kind:
+          $ref: '#/components/schemas/GraphNodeKind'
+        endpoints:
+          type: array
+          items:
+            type: string
+        depends:
+          type: array
+          items:
             type: string
     ServicesResponse:
       type: object

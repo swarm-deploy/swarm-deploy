@@ -456,6 +456,146 @@ func (s *GitCommitDetailsResponse) SetChangedFiles(val []string) {
 	s.ChangedFiles = val
 }
 
+// Ref: #/components/schemas/GraphNode
+type GraphNode struct {
+	Name      string        `json:"name"`
+	Kind      GraphNodeKind `json:"kind"`
+	Endpoints []string      `json:"endpoints"`
+	Depends   []string      `json:"depends"`
+}
+
+// GetName returns the value of Name.
+func (s *GraphNode) GetName() string {
+	return s.Name
+}
+
+// GetKind returns the value of Kind.
+func (s *GraphNode) GetKind() GraphNodeKind {
+	return s.Kind
+}
+
+// GetEndpoints returns the value of Endpoints.
+func (s *GraphNode) GetEndpoints() []string {
+	return s.Endpoints
+}
+
+// GetDepends returns the value of Depends.
+func (s *GraphNode) GetDepends() []string {
+	return s.Depends
+}
+
+// SetName sets the value of Name.
+func (s *GraphNode) SetName(val string) {
+	s.Name = val
+}
+
+// SetKind sets the value of Kind.
+func (s *GraphNode) SetKind(val GraphNodeKind) {
+	s.Kind = val
+}
+
+// SetEndpoints sets the value of Endpoints.
+func (s *GraphNode) SetEndpoints(val []string) {
+	s.Endpoints = val
+}
+
+// SetDepends sets the value of Depends.
+func (s *GraphNode) SetDepends(val []string) {
+	s.Depends = val
+}
+
+// Ref: #/components/schemas/GraphNodeKind
+type GraphNodeKind string
+
+const (
+	GraphNodeKindApplication                GraphNodeKind = "application"
+	GraphNodeKindMonitoring                 GraphNodeKind = "monitoring"
+	GraphNodeKindDelivery                   GraphNodeKind = "delivery"
+	GraphNodeKindReverseProxy               GraphNodeKind = "reverseProxy"
+	GraphNodeKindDatabase                   GraphNodeKind = "database"
+	GraphNodeKindSecretManager              GraphNodeKind = "secretManager"
+	GraphNodeKindDeploymentManagementSystem GraphNodeKind = "deploymentManagementSystem"
+)
+
+// AllValues returns all GraphNodeKind values.
+func (GraphNodeKind) AllValues() []GraphNodeKind {
+	return []GraphNodeKind{
+		GraphNodeKindApplication,
+		GraphNodeKindMonitoring,
+		GraphNodeKindDelivery,
+		GraphNodeKindReverseProxy,
+		GraphNodeKindDatabase,
+		GraphNodeKindSecretManager,
+		GraphNodeKindDeploymentManagementSystem,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s GraphNodeKind) MarshalText() ([]byte, error) {
+	switch s {
+	case GraphNodeKindApplication:
+		return []byte(s), nil
+	case GraphNodeKindMonitoring:
+		return []byte(s), nil
+	case GraphNodeKindDelivery:
+		return []byte(s), nil
+	case GraphNodeKindReverseProxy:
+		return []byte(s), nil
+	case GraphNodeKindDatabase:
+		return []byte(s), nil
+	case GraphNodeKindSecretManager:
+		return []byte(s), nil
+	case GraphNodeKindDeploymentManagementSystem:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *GraphNodeKind) UnmarshalText(data []byte) error {
+	switch GraphNodeKind(data) {
+	case GraphNodeKindApplication:
+		*s = GraphNodeKindApplication
+		return nil
+	case GraphNodeKindMonitoring:
+		*s = GraphNodeKindMonitoring
+		return nil
+	case GraphNodeKindDelivery:
+		*s = GraphNodeKindDelivery
+		return nil
+	case GraphNodeKindReverseProxy:
+		*s = GraphNodeKindReverseProxy
+		return nil
+	case GraphNodeKindDatabase:
+		*s = GraphNodeKindDatabase
+		return nil
+	case GraphNodeKindSecretManager:
+		*s = GraphNodeKindSecretManager
+		return nil
+	case GraphNodeKindDeploymentManagementSystem:
+		*s = GraphNodeKindDeploymentManagementSystem
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/GraphResponse
+type GraphResponse struct {
+	Nodes []GraphNode `json:"nodes"`
+}
+
+// GetNodes returns the value of Nodes.
+func (s *GraphResponse) GetNodes() []GraphNode {
+	return s.Nodes
+}
+
+// SetNodes sets the value of Nodes.
+func (s *GraphResponse) SetNodes(val []GraphNode) {
+	s.Nodes = val
+}
+
 // Ref: #/components/schemas/NetworkInfo
 type NetworkInfo struct {
 	ID         string                `json:"id"`

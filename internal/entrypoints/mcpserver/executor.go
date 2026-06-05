@@ -55,6 +55,7 @@ func NewExecutor(
 		mcpTools.NewGetServiceSpec(swarmService.Services),
 		mcpTools.NewDNSNameResolve(),
 		mcpTools.NewPingWebRoutes(serviceStore),
+		mcpTools.NewGetDependencyGraph(serviceStore),
 		mcpTools.NewSetServiceReplicas(swarmService.Services, eventDispatcher),
 		mcpTools.NewRestartService(swarmService.Services, eventDispatcher),
 		mcpTools.NewGetActualImageVersion(imageVersionResolver),

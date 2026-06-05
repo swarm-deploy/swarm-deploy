@@ -117,40 +117,79 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 
-			case 'g': // Prefix: "git/commits/"
+			case 'g': // Prefix: "g"
 
-				if l := len("git/commits/"); len(elem) >= l && elem[0:l] == "git/commits/" {
+				if l := len("g"); len(elem) >= l && elem[0:l] == "g" {
 					elem = elem[l:]
 				} else {
 					break
 				}
 
-				// Param: "commit"
-				// Leaf parameter, slashes are prohibited
-				idx := strings.IndexByte(elem, '/')
-				if idx >= 0 {
+				if len(elem) == 0 {
 					break
 				}
-				args[0] = elem
-				elem = ""
+				switch elem[0] {
+				case 'i': // Prefix: "it/commits/"
 
-				if len(elem) == 0 {
-					// Leaf node.
-					switch r.Method {
-					case "GET":
-						s.handleGetGitCommitRequest([1]string{
-							args[0],
-						}, elemIsEscaped, w, r)
-					default:
-						s.notAllowed(w, r, notAllowedParams{
-							allowedMethods: "GET",
-							allowedHeaders: nil,
-							acceptPost:     "",
-							acceptPatch:    "",
-						})
+					if l := len("it/commits/"); len(elem) >= l && elem[0:l] == "it/commits/" {
+						elem = elem[l:]
+					} else {
+						break
 					}
 
-					return
+					// Param: "commit"
+					// Leaf parameter, slashes are prohibited
+					idx := strings.IndexByte(elem, '/')
+					if idx >= 0 {
+						break
+					}
+					args[0] = elem
+					elem = ""
+
+					if len(elem) == 0 {
+						// Leaf node.
+						switch r.Method {
+						case "GET":
+							s.handleGetGitCommitRequest([1]string{
+								args[0],
+							}, elemIsEscaped, w, r)
+						default:
+							s.notAllowed(w, r, notAllowedParams{
+								allowedMethods: "GET",
+								allowedHeaders: nil,
+								acceptPost:     "",
+								acceptPatch:    "",
+							})
+						}
+
+						return
+					}
+
+				case 'r': // Prefix: "raph"
+
+					if l := len("raph"); len(elem) >= l && elem[0:l] == "raph" {
+						elem = elem[l:]
+					} else {
+						break
+					}
+
+					if len(elem) == 0 {
+						// Leaf node.
+						switch r.Method {
+						case "GET":
+							s.handleGetGraphRequest([0]string{}, elemIsEscaped, w, r)
+						default:
+							s.notAllowed(w, r, notAllowedParams{
+								allowedMethods: "GET",
+								allowedHeaders: nil,
+								acceptPost:     "",
+								acceptPatch:    "",
+							})
+						}
+
+						return
+					}
+
 				}
 
 			case 'n': // Prefix: "n"
@@ -755,38 +794,77 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 					}
 				}
 
-			case 'g': // Prefix: "git/commits/"
+			case 'g': // Prefix: "g"
 
-				if l := len("git/commits/"); len(elem) >= l && elem[0:l] == "git/commits/" {
+				if l := len("g"); len(elem) >= l && elem[0:l] == "g" {
 					elem = elem[l:]
 				} else {
 					break
 				}
 
-				// Param: "commit"
-				// Leaf parameter, slashes are prohibited
-				idx := strings.IndexByte(elem, '/')
-				if idx >= 0 {
+				if len(elem) == 0 {
 					break
 				}
-				args[0] = elem
-				elem = ""
+				switch elem[0] {
+				case 'i': // Prefix: "it/commits/"
 
-				if len(elem) == 0 {
-					// Leaf node.
-					switch method {
-					case "GET":
-						r.name = GetGitCommitOperation
-						r.summary = ""
-						r.operationID = "getGitCommit"
-						r.operationGroup = ""
-						r.pathPattern = "/api/v1/git/commits/{commit}"
-						r.args = args
-						r.count = 1
-						return r, true
-					default:
-						return
+					if l := len("it/commits/"); len(elem) >= l && elem[0:l] == "it/commits/" {
+						elem = elem[l:]
+					} else {
+						break
 					}
+
+					// Param: "commit"
+					// Leaf parameter, slashes are prohibited
+					idx := strings.IndexByte(elem, '/')
+					if idx >= 0 {
+						break
+					}
+					args[0] = elem
+					elem = ""
+
+					if len(elem) == 0 {
+						// Leaf node.
+						switch method {
+						case "GET":
+							r.name = GetGitCommitOperation
+							r.summary = ""
+							r.operationID = "getGitCommit"
+							r.operationGroup = ""
+							r.pathPattern = "/api/v1/git/commits/{commit}"
+							r.args = args
+							r.count = 1
+							return r, true
+						default:
+							return
+						}
+					}
+
+				case 'r': // Prefix: "raph"
+
+					if l := len("raph"); len(elem) >= l && elem[0:l] == "raph" {
+						elem = elem[l:]
+					} else {
+						break
+					}
+
+					if len(elem) == 0 {
+						// Leaf node.
+						switch method {
+						case "GET":
+							r.name = GetGraphOperation
+							r.summary = ""
+							r.operationID = "getGraph"
+							r.operationGroup = ""
+							r.pathPattern = "/api/v1/graph"
+							r.args = args
+							r.count = 0
+							return r, true
+						default:
+							return
+						}
+					}
+
 				}
 
 			case 'n': // Prefix: "n"

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -96,18 +97,37 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Event) error {
 			labels.Image = imageMeta.Labels
 		}
 
+		var environment map[string]string
+		if len(containerEnv) > 0 {
+			parsedEnvironment, environmentErr := compose.NewEnvironment(containerEnv)
+			if environmentErr != nil {
+				slog.WarnContext(
+					ctx,
+					"[service] failed to parse service environment",
+					slog.String("stack", deploySuccess.StackName),
+					slog.String("service", deployedService.Name),
+					slog.Any("err", environmentErr),
+				)
+			} else {
+				environment = parsedEnvironment.Map
+			}
+		}
+
 		resolved := s.metadata.Resolve(deployedService.Image, labels)
 		repositoryURL := ResolveRepositoryURL(labels)
-		services = append(services, Info{
+		serviceInfo := Info{
 			Name:          deployedService.Name,
 			Stack:         deploySuccess.StackName,
 			Description:   resolved.Description,
 			Type:          resolved.Type,
 			Image:         deployedService.Image,
+			Environment:   environment,
 			Spec:          spec,
 			RepositoryURL: repositoryURL,
-			WebRoutes:     s.webRouteResolver.Resolve(containerEnv),
-		})
+			WebRoutes:     s.webRouteResolver.Resolve(environment),
+		}
+
+		services = append(services, serviceInfo)
 	}
 
 	if err := s.store.ReplaceStack(deploySuccess.StackName, services); err != nil {

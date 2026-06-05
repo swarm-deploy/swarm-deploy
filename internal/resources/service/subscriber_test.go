@@ -18,6 +18,7 @@ func TestSubscriberHandle(t *testing.T) {
 
 	type expectation struct {
 		image         string
+		environment   map[string]string
 		spec          swarm.ServiceSpec
 		repositoryURL string
 		description   string
@@ -83,6 +84,9 @@ func TestSubscriberHandle(t *testing.T) {
 			},
 			expected: expectation{
 				image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
+				environment: map[string]string{
+					"UNRELATED": "value",
+				},
 				spec: swarm.ServiceSpec{
 					Image:             "ghcr.io/swarm-deploy/payments-api:v1.2.3",
 					Mode:              "replicated",
@@ -132,7 +136,8 @@ func TestSubscriberHandle(t *testing.T) {
 					}, nil)
 			},
 			expected: expectation{
-				image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
+				image:       "ghcr.io/swarm-deploy/payments-api:v1.2.3",
+				environment: nil,
 				spec: swarm.ServiceSpec{
 					Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
 				},
@@ -170,6 +175,7 @@ func TestSubscriberHandle(t *testing.T) {
 			info, ok := store.Get("payments", "api")
 			require.True(t, ok)
 			assert.Equal(t, testCase.expected.image, info.Image)
+			assert.Equal(t, testCase.expected.environment, info.Environment)
 			assert.Equal(t, testCase.expected.spec, info.Spec)
 			assert.Equal(t, testCase.expected.repositoryURL, info.RepositoryURL)
 			assert.Equal(t, testCase.expected.description, info.Description)

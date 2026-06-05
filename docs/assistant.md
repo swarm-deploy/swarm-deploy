@@ -58,6 +58,7 @@ The endpoint supports start and poll with the same route.
 - `service_replicas_set` - updates desired replicas count for a specific stack service
 - `service_restart_trigger` - restarts service by scaling replicas to `0` and restoring previous count
 - `service_webroute_ping` - checks web routes for a specific service from `service.store` and returns HTTP results for each route
+- `dependency_graph_get` - returns service dependency graph with nodes, endpoints, and direct dependencies inferred from service environment variables
 - `registry_image_version_get` - resolves актуальный тег и digest Docker-образа в registry (Docker Hub и совместимые)
   - registry is selected automatically by tool logic
 - `git_commit_list` - returns latest git commits from repository history (`limit` optional, default 10)

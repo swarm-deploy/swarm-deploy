@@ -10,6 +10,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
+	resourcegraph "github.com/swarm-deploy/swarm-deploy/internal/resources/graph"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/resources/service/stype"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
@@ -315,6 +316,62 @@ func toGeneratedEventCategory(category events.Category) generated.EventCategory 
 		fallthrough
 	default:
 		return generated.EventCategorySync
+	}
+}
+
+func toGeneratedGraph(graph resourcegraph.Graph) *generated.GraphResponse {
+	return &generated.GraphResponse{
+		Nodes: toGeneratedGraphNodes(graph.Nodes),
+	}
+}
+
+func toGeneratedGraphNodes(nodes []resourcegraph.Node) []generated.GraphNode {
+	if len(nodes) == 0 {
+		return []generated.GraphNode{}
+	}
+
+	mapped := make([]generated.GraphNode, 0, len(nodes))
+	for _, node := range nodes {
+		mapped = append(mapped, toGeneratedGraphNode(node))
+	}
+
+	return mapped
+}
+
+func toGeneratedGraphNode(node resourcegraph.Node) generated.GraphNode {
+	mapped := generated.GraphNode{
+		Name: node.Name,
+		Kind: toGeneratedGraphNodeKind(node.Kind),
+	}
+
+	if len(node.Endpoints) > 0 {
+		mapped.Endpoints = append(mapped.Endpoints, node.Endpoints...)
+	}
+	if len(node.Depends) > 0 {
+		mapped.Depends = append(mapped.Depends, node.Depends...)
+	}
+
+	return mapped
+}
+
+func toGeneratedGraphNodeKind(kind resourcegraph.Kind) generated.GraphNodeKind {
+	switch kind {
+	case resourcegraph.KindApplication:
+		return generated.GraphNodeKindApplication
+	case resourcegraph.KindMonitoring:
+		return generated.GraphNodeKindMonitoring
+	case resourcegraph.KindDelivery:
+		return generated.GraphNodeKindDelivery
+	case resourcegraph.KindReverseProxy:
+		return generated.GraphNodeKindReverseProxy
+	case resourcegraph.KindDatabase:
+		return generated.GraphNodeKindDatabase
+	case resourcegraph.KindSecretManager:
+		return generated.GraphNodeKindSecretManager
+	case resourcegraph.KindDeploymentManagementSystem:
+		return generated.GraphNodeKindDeploymentManagementSystem
+	default:
+		return generated.GraphNodeKindApplication
 	}
 }
 

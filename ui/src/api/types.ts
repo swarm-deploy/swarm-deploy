@@ -40,7 +40,14 @@ export interface GitCommitDetailsResponse {
   changed_files: string[];
 }
 
-export type ServiceType = "application" | "monitoring" | "delivery" | "reverseProxy" | "database";
+export type ServiceType =
+  | "application"
+  | "monitoring"
+  | "delivery"
+  | "reverseProxy"
+  | "database"
+  | "secretManager"
+  | "deploymentManagementSystem";
 export type ServiceSyncStatus = "Synced" | "OutOfSync" | "unknown";
 
 export interface WebRoute {
@@ -65,6 +72,19 @@ export interface ServiceInfo {
 
 export interface ServicesResponse {
   services: ServiceInfo[];
+}
+
+export type GraphNodeKind = ServiceType;
+
+export interface GraphNode {
+  name: string;
+  kind: GraphNodeKind;
+  endpoints: string[];
+  depends: string[];
+}
+
+export interface GraphResponse {
+  nodes: GraphNode[];
 }
 
 export interface QueueResponse {

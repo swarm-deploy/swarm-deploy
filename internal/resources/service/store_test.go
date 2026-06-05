@@ -20,6 +20,9 @@ func TestStoreGet(t *testing.T) {
 			Name:        " api ",
 			Image:       "ghcr.io/swarm-deploy/payments-api:v1.2.3",
 			Description: " Payments API ",
+			Environment: map[string]string{
+				"APP_ENV": "prod",
+			},
 		},
 	}))
 	require.NoError(t, store.ReplaceStack("infra", []Info{
@@ -36,6 +39,7 @@ func TestStoreGet(t *testing.T) {
 	assert.Equal(t, "ghcr.io/swarm-deploy/payments-api:v1.2.3", info.Image)
 	assert.Equal(t, "", info.Spec.Image)
 	assert.Equal(t, " Payments API ", info.Description)
+	assert.Equal(t, map[string]string{"APP_ENV": "prod"}, info.Environment)
 }
 
 func TestStoreGetReturnsFalseWhenServiceNotFound(t *testing.T) {
@@ -59,6 +63,9 @@ func TestStoreGetRestoresIndexOnReload(t *testing.T) {
 		{
 			Name:  "api",
 			Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
+			Environment: map[string]string{
+				"APP_ENV": "prod",
+			},
 		},
 	}))
 
@@ -68,4 +75,5 @@ func TestStoreGetRestoresIndexOnReload(t *testing.T) {
 	info, ok := reloaded.Get("payments", "api")
 	require.True(t, ok)
 	assert.Equal(t, "ghcr.io/swarm-deploy/payments-api:v1.2.3", info.Image)
+	assert.Equal(t, map[string]string{"APP_ENV": "prod"}, info.Environment)
 }
