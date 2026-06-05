@@ -39,9 +39,10 @@ func (b *Builder) Build(services []service.Info) Graph {
 	nodes := make([]Node, 0, len(services))
 	for _, svc := range services {
 		nodes = append(nodes, Node{
-			Name:    b.serviceNodeName(svc),
-			Kind:    KindService,
-			Depends: b.resolveDependencies(svc, serviceByFullName, serviceByStackAndName),
+			Name:      b.serviceNodeName(svc),
+			Kind:      KindService,
+			Endpoints: b.resolveEndpoints(svc),
+			Depends:   b.resolveDependencies(svc, serviceByFullName, serviceByStackAndName),
 		})
 	}
 
@@ -91,9 +92,11 @@ func (b *Builder) resolveDependencies(
 
 	dependencies := make([]Node, 0, len(dependencyNames))
 	for dependencyName := range dependencyNames {
+		dependency := serviceByFullName[dependencyName]
 		dependencies = append(dependencies, Node{
-			Name: dependencyName,
-			Kind: KindService,
+			Name:      dependencyName,
+			Kind:      KindService,
+			Endpoints: b.resolveEndpoints(dependency),
 		})
 	}
 
@@ -102,6 +105,25 @@ func (b *Builder) resolveDependencies(
 	})
 
 	return dependencies
+}
+
+func (b *Builder) resolveEndpoints(svc service.Info) []string {
+	if len(svc.WebRoutes) == 0 {
+		return nil
+	}
+
+	endpoints := make([]string, 0, len(svc.WebRoutes))
+	for _, route := range svc.WebRoutes {
+		address := strings.TrimSpace(route.Address)
+		port := strings.TrimSpace(route.Port)
+		endpoints = append(endpoints, port+":"+address)
+	}
+
+	if len(endpoints) == 0 {
+		return nil
+	}
+
+	return endpoints
 }
 
 func (b *Builder) isDependencyEnvName(name string) bool {

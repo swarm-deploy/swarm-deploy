@@ -5,13 +5,14 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
+	"github.com/swarm-deploy/webroute"
 )
 
 func TestBuilderBuild(t *testing.T) {
 	tests := []struct {
 		name     string
 		services []service.Info
-		expected map[string][]string
+		expected map[string]graphNodeSnapshot
 	}{
 		{
 			name: "builds dependencies from supported env suffixes",
@@ -19,6 +20,10 @@ func TestBuilderBuild(t *testing.T) {
 				{
 					Stack: "prod",
 					Name:  "api",
+					WebRoutes: []webroute.Route{
+						{Port: "443", Address: "api.example.com"},
+						{Port: "8443", Address: "api.example.com/internal"},
+					},
 					Environment: map[string]string{
 						"DB_HOST":          "db",
 						"REDIS_ADDR":       "redis:6379",
@@ -35,14 +40,17 @@ func TestBuilderBuild(t *testing.T) {
 				{Stack: "prod", Name: "auth"},
 				{Stack: "prod", Name: "worker"},
 			},
-			expected: map[string][]string{
-				"prod_api":      {"prod_auth", "prod_db", "prod_payments", "prod_redis", "prod_search"},
-				"prod_auth":     nil,
-				"prod_db":       nil,
-				"prod_payments": nil,
-				"prod_redis":    nil,
-				"prod_search":   nil,
-				"prod_worker":   nil,
+			expected: map[string]graphNodeSnapshot{
+				"prod_api": {
+					Endpoints: []string{"443:api.example.com", "8443:api.example.com/internal"},
+					Depends:   []string{"prod_auth", "prod_db", "prod_payments", "prod_redis", "prod_search"},
+				},
+				"prod_auth":     {},
+				"prod_db":       {},
+				"prod_payments": {},
+				"prod_redis":    {},
+				"prod_search":   {},
+				"prod_worker":   {},
 			},
 		},
 		{
@@ -56,15 +64,33 @@ func TestBuilderBuild(t *testing.T) {
 						"WORKER_ADDR": "green_worker:9000",
 					},
 				},
-				{Stack: "blue", Name: "api"},
+				{
+					Stack: "blue",
+					Name:  "api",
+					WebRoutes: []webroute.Route{
+						{Port: "443", Address: "blue-api.example.com"},
+					},
+				},
 				{Stack: "green", Name: "api"},
-				{Stack: "green", Name: "worker"},
+				{
+					Stack: "green",
+					Name:  "worker",
+					WebRoutes: []webroute.Route{
+						{Port: "8443", Address: "green-worker.example.com"},
+					},
+				},
 			},
-			expected: map[string][]string{
-				"blue_api":     nil,
-				"blue_gateway": {"blue_api", "green_worker"},
-				"green_api":    nil,
-				"green_worker": nil,
+			expected: map[string]graphNodeSnapshot{
+				"blue_api": {
+					Endpoints: []string{"443:blue-api.example.com"},
+				},
+				"blue_gateway": {
+					Depends: []string{"blue_api", "green_worker"},
+				},
+				"green_api": {},
+				"green_worker": {
+					Endpoints: []string{"8443:green-worker.example.com"},
+				},
 			},
 		},
 		{
@@ -81,11 +107,21 @@ func TestBuilderBuild(t *testing.T) {
 						"UNKNOWN_HOST":   "missing",
 					},
 				},
-				{Stack: "prod", Name: "redis"},
+				{
+					Stack: "prod",
+					Name:  "redis",
+					WebRoutes: []webroute.Route{
+						{Port: "6379", Address: "redis-admin.example.com"},
+					},
+				},
 			},
-			expected: map[string][]string{
-				"prod_api":   {"prod_redis"},
-				"prod_redis": nil,
+			expected: map[string]graphNodeSnapshot{
+				"prod_api": {
+					Depends: []string{"prod_redis"},
+				},
+				"prod_redis": {
+					Endpoints: []string{"6379:redis-admin.example.com"},
+				},
 			},
 		},
 	}
@@ -101,20 +137,26 @@ func TestBuilderBuild(t *testing.T) {
 	}
 }
 
-func graphDependenciesByNodeName(graph Graph) map[string][]string {
-	nodes := make(map[string][]string, len(graph.Nodes))
+type graphNodeSnapshot struct {
+	Endpoints []string
+	Depends   []string
+}
+
+func graphDependenciesByNodeName(graph Graph) map[string]graphNodeSnapshot {
+	nodes := make(map[string]graphNodeSnapshot, len(graph.Nodes))
 	for _, node := range graph.Nodes {
-		if len(node.Depends) == 0 {
-			nodes[node.Name] = nil
-			continue
+		var dependencies []string
+		if len(node.Depends) > 0 {
+			dependencies = make([]string, 0, len(node.Depends))
+			for _, dependency := range node.Depends {
+				dependencies = append(dependencies, dependency.Name)
+			}
 		}
 
-		dependencies := make([]string, 0, len(node.Depends))
-		for _, dependency := range node.Depends {
-			dependencies = append(dependencies, dependency.Name)
+		nodes[node.Name] = graphNodeSnapshot{
+			Endpoints: node.Endpoints,
+			Depends:   dependencies,
 		}
-
-		nodes[node.Name] = dependencies
 	}
 
 	return nodes
