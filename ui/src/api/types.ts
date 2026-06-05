@@ -80,7 +80,7 @@ export interface GraphNode {
   name: string;
   kind: GraphNodeKind;
   endpoints: string[];
-  depends: GraphNode[];
+  depends: string[];
 }
 
 export interface GraphResponse {

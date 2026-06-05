@@ -367,7 +367,7 @@ components:
         depends:
           type: array
           items:
-            $ref: '#/components/schemas/GraphNode'
+            type: string
     ServicesResponse:
       type: object
       required: [services]

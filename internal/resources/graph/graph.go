@@ -34,6 +34,6 @@ type Node struct {
 	Kind Kind `json:"kind"`
 	// Endpoints contains public endpoints resolved for the node.
 	Endpoints []string `json:"endpoints"`
-	// Depends contains direct dependency nodes.
-	Depends []Node `json:"depends"`
+	// Depends contains direct dependency node names.
+	Depends []string `json:"depends"`
 }

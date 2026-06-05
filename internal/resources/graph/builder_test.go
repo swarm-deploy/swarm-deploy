@@ -192,17 +192,9 @@ type graphNodeSnapshot struct {
 func graphDependenciesByNodeName(graph Graph) map[string]graphNodeSnapshot {
 	nodes := make(map[string]graphNodeSnapshot, len(graph.Nodes))
 	for _, node := range graph.Nodes {
-		var dependencies []string
-		if len(node.Depends) > 0 {
-			dependencies = make([]string, 0, len(node.Depends))
-			for _, dependency := range node.Depends {
-				dependencies = append(dependencies, dependency.Name)
-			}
-		}
-
 		nodes[node.Name] = graphNodeSnapshot{
 			Endpoints: node.Endpoints,
-			Depends:   dependencies,
+			Depends:   node.Depends,
 		}
 	}
 

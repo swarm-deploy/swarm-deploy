@@ -40,6 +40,8 @@ type GraphLayer = "reverseProxy" | "application" | "other";
 
 const loading = ref(false);
 const loadingError = ref("");
+const exportError = ref("");
+const exportingImage = ref(false);
 const graph = ref<GraphResponse | null>(null);
 const positions = ref<Record<string, Point>>({});
 const dragState = ref<DragState | null>(null);
@@ -51,9 +53,11 @@ const rowGap = 32;
 const canvasPadding = 48;
 const baseNodeHeight = 98;
 const endpointLineHeight = 20;
+const nodeNameLineHeight = 20;
 const defaultCanvasWidth = 1040;
 const defaultCanvasHeight = 640;
 const stageInset = 16;
+const nodeHorizontalPadding = 24;
 
 const normalizedGraph = computed(() => normalizeGraph(graph.value));
 
@@ -126,6 +130,7 @@ const activeDraggedNodeName = computed(() => dragState.value?.nodeName ?? "");
 async function loadGraph() {
   loading.value = true;
   loadingError.value = "";
+  exportError.value = "";
 
   try {
     graph.value = await fetchGraph();
@@ -143,6 +148,46 @@ async function loadGraph() {
 
 function resetLayout() {
   positions.value = buildLayout(normalizedGraph.value.nodes, normalizedGraph.value.edges);
+}
+
+async function downloadGraphImage() {
+  if (!hasGraph.value || exportingImage.value) {
+    return;
+  }
+
+  exportingImage.value = true;
+  exportError.value = "";
+
+  try {
+    const svgMarkup = buildExportSvg(renderedNodes.value, renderedEdges.value, canvasWidth.value, canvasHeight.value);
+    const svgBlob = new Blob([svgMarkup], { type: "image/svg+xml;charset=utf-8" });
+    const svgUrl = URL.createObjectURL(svgBlob);
+
+    try {
+      const image = await loadImage(svgUrl);
+      const scale = Math.max(2, Math.ceil(window.devicePixelRatio || 1));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.ceil(canvasWidth.value * scale);
+      canvas.height = Math.ceil(canvasHeight.value * scale);
+
+      const context = canvas.getContext("2d");
+      if (!context) {
+        throw new Error("Canvas context is unavailable");
+      }
+
+      context.scale(scale, scale);
+      context.drawImage(image, 0, 0, canvasWidth.value, canvasHeight.value);
+
+      const pngBlob = await canvasToBlob(canvas);
+      triggerBlobDownload(pngBlob, buildDownloadFileName());
+    } finally {
+      URL.revokeObjectURL(svgUrl);
+    }
+  } catch (error) {
+    exportError.value = error instanceof Error ? error.message : "Failed to export dependency graph";
+  } finally {
+    exportingImage.value = false;
+  }
 }
 
 function onNodePointerDown(event: PointerEvent, nodeName: string) {
@@ -219,8 +264,9 @@ function clamp(value: number, min: number, max: number): number {
 
 function getNodeHeight(node: NormalizedNode): number {
   const endpointRows = Math.max(node.endpoints.length, 1);
+  const extraNameLines = Math.max(getNodeNameLines(node.name).length - 1, 0);
 
-  return baseNodeHeight + endpointRows * endpointLineHeight;
+  return baseNodeHeight + endpointRows * endpointLineHeight + extraNameLines * nodeNameLineHeight;
 }
 
 function normalizeGraph(response: GraphResponse | null): { nodes: NormalizedNode[]; edges: GraphEdge[] } {
@@ -234,12 +280,13 @@ function normalizeGraph(response: GraphResponse | null): { nodes: NormalizedNode
   }
 
   for (const node of sourceNodes) {
-    for (const dependency of Array.isArray(node.depends) ? node.depends : []) {
-      if (!nodesByName.has(dependency.name)) {
-        nodesByName.set(dependency.name, normalizeNode(dependency));
+    for (const dependencyName of Array.isArray(node.depends) ? node.depends : []) {
+      const normalizedDependencyName = String(dependencyName || "").trim();
+      if (normalizedDependencyName.length === 0) {
+        continue;
       }
 
-      const key = `${node.name}->${dependency.name}`;
+      const key = `${node.name}->${normalizedDependencyName}`;
       if (edgeKeys.has(key)) {
         continue;
       }
@@ -247,7 +294,7 @@ function normalizeGraph(response: GraphResponse | null): { nodes: NormalizedNode
       edges.push({
         key,
         from: node.name,
-        to: dependency.name,
+        to: normalizedDependencyName,
       });
       edgeKeys.add(key);
     }
@@ -266,7 +313,7 @@ function normalizeNode(node: GraphNode): NormalizedNode {
     endpoints: Array.isArray(node.endpoints) ? [...node.endpoints] : [],
     depends: Array.isArray(node.depends)
       ? node.depends
-          .map((dependency) => String(dependency.name || "").trim())
+          .map((dependency) => String(dependency || "").trim())
           .filter((dependencyName) => dependencyName.length > 0)
       : [],
   };
@@ -324,6 +371,190 @@ function formatNodeKind(kind: string): string {
     .join(" ");
 }
 
+function buildExportSvg(
+  nodes: PositionedNode[],
+  edges: Array<GraphEdge & { path: string }>,
+  width: number,
+  height: number,
+): string {
+  const edgeMarkup = edges
+    .map(
+      (edge) =>
+        `<path d="${escapeXml(edge.path)}" class="graph-export-edge-path" marker-end="url(#graph-export-edge-arrow)" />`,
+    )
+    .join("");
+
+  const nodeMarkup = nodes
+    .map((node) => {
+      const kindY = 28;
+      const nameY = 56;
+      const nameLines = getNodeNameLines(node.name);
+      const endpointsY = 84 + (nameLines.length - 1) * nodeNameLineHeight;
+      const endpointsMarkup =
+        node.endpoints.length > 0
+          ? node.endpoints
+              .map((endpoint, index) => {
+                const y = endpointsY + index * endpointLineHeight;
+
+                return [
+                  `<circle cx="18" cy="${y - 4}" r="2.5" class="graph-export-endpoint-dot" />`,
+                  `<text x="28" y="${y}" class="graph-export-endpoint-text">${escapeXml(endpoint)}</text>`,
+                ].join("");
+              })
+              .join("")
+          : `<text x="14" y="${endpointsY}" class="graph-export-empty-text">No public endpoints</text>`;
+
+      return [
+        `<g transform="translate(${node.x} ${node.y})">`,
+        `<rect width="${node.width}" height="${node.height}" rx="14" ry="14" class="graph-export-node-card" />`,
+        `<text x="14" y="${kindY}" class="graph-export-node-kind">${escapeXml(formatNodeKind(node.kind))}</text>`,
+        nameLines
+          .map(
+            (line, index) =>
+              `<text x="14" y="${nameY + index * nodeNameLineHeight}" class="graph-export-node-name">${escapeXml(line)}</text>`,
+          )
+          .join(""),
+        endpointsMarkup,
+        `</g>`,
+      ].join("");
+    })
+    .join("");
+
+  return [
+    `<?xml version="1.0" encoding="UTF-8"?>`,
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`,
+    `<defs>`,
+    `<pattern id="graph-export-grid" width="32" height="32" patternUnits="userSpaceOnUse">`,
+    `<path d="M 32 0 L 0 0 0 32" fill="none" stroke="rgba(161, 192, 204, 0.08)" stroke-width="1" />`,
+    `</pattern>`,
+    `<marker id="graph-export-edge-arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">`,
+    `<path d="M 0 0 L 10 5 L 0 10 z" class="graph-export-edge-arrow" />`,
+    `</marker>`,
+    `<style>`,
+    `text { font-family: "Space Grotesk", "Segoe UI", sans-serif; }`,
+    `.graph-export-stage { fill: rgba(8, 21, 32, 0.55); }`,
+    `.graph-export-grid { fill: url(#graph-export-grid); }`,
+    `.graph-export-edge-path { fill: none; stroke: rgba(247, 178, 103, 0.72); stroke-width: 2; }`,
+    `.graph-export-edge-arrow { fill: rgba(247, 178, 103, 0.82); }`,
+    `.graph-export-node-card { fill: rgba(7, 17, 27, 0.96); stroke: rgba(130, 196, 214, 0.32); stroke-width: 1; }`,
+    `.graph-export-node-kind { fill: #a1c0cc; font-size: 12px; letter-spacing: 0.8px; text-transform: uppercase; }`,
+    `.graph-export-node-name { fill: #e3f4fb; font-size: 16px; font-weight: 700; }`,
+    `.graph-export-endpoint-dot { fill: #a1c0cc; }`,
+    `.graph-export-endpoint-text, .graph-export-empty-text { fill: #a1c0cc; font-size: 13px; }`,
+    `</style>`,
+    `</defs>`,
+    `<rect width="${width}" height="${height}" rx="12" ry="12" class="graph-export-stage" />`,
+    `<rect width="${width}" height="${height}" rx="12" ry="12" class="graph-export-grid" />`,
+    edgeMarkup,
+    nodeMarkup,
+    `</svg>`,
+  ].join("");
+}
+
+function escapeXml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;");
+}
+
+function loadImage(url: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Failed to render graph image"));
+    image.src = url;
+  });
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob((blob) => {
+      if (!blob) {
+        reject(new Error("Failed to build PNG image"));
+        return;
+      }
+
+      resolve(blob);
+    }, "image/png");
+  });
+}
+
+function triggerBlobDownload(blob: Blob, fileName: string) {
+  const link = document.createElement("a");
+  const url = URL.createObjectURL(blob);
+
+  try {
+    link.href = url;
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click();
+  } finally {
+    link.remove();
+    URL.revokeObjectURL(url);
+  }
+}
+
+function buildDownloadFileName(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  const hours = String(now.getHours()).padStart(2, "0");
+  const minutes = String(now.getMinutes()).padStart(2, "0");
+
+  return `dependency-graph-${year}-${month}-${day}-${hours}${minutes}.png`;
+}
+
+function getNodeNameLines(name: string): string[] {
+  return wrapText(name, nodeWidth - nodeHorizontalPadding, '700 16px "Space Grotesk", "Segoe UI", sans-serif');
+}
+
+function wrapText(text: string, maxWidth: number, font: string): string[] {
+  const normalizedText = text.trim();
+  if (normalizedText.length === 0) {
+    return [""];
+  }
+
+  const lines: string[] = [];
+  let currentLine = "";
+
+  for (const character of Array.from(normalizedText)) {
+    const nextLine = `${currentLine}${character}`;
+    if (currentLine.length > 0 && measureTextWidth(nextLine, font) > maxWidth) {
+      lines.push(currentLine);
+      currentLine = character;
+      continue;
+    }
+
+    currentLine = nextLine;
+  }
+
+  if (currentLine.length > 0) {
+    lines.push(currentLine);
+  }
+
+  return lines;
+}
+
+function measureTextWidth(text: string, font: string): number {
+  if (typeof document === "undefined") {
+    return text.length * 9;
+  }
+
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  if (!context) {
+    return text.length * 9;
+  }
+
+  context.font = font;
+
+  return context.measureText(text).width;
+}
+
 onMounted(() => {
   window.addEventListener("pointermove", handleWindowPointerMove);
   window.addEventListener("pointerup", handleWindowPointerUp);
@@ -348,6 +579,14 @@ onBeforeUnmount(() => {
         <button type="button" class="button-ghost graph-action-button" :disabled="!hasGraph" @click="resetLayout">
           Reset layout
         </button>
+        <button
+          type="button"
+          class="button-ghost graph-action-button"
+          :disabled="!hasGraph || exportingImage"
+          @click="downloadGraphImage"
+        >
+          {{ exportingImage ? "Downloading..." : "Download PNG" }}
+        </button>
         <button type="button" class="graph-action-button" :disabled="loading" @click="loadGraph">
           {{ loading ? "Loading..." : "Reload" }}
         </button>
@@ -364,6 +603,7 @@ onBeforeUnmount(() => {
         <span>edges</span>
       </div>
       <p v-if="loadingError" class="meta graph-inline-state">Failed to load graph: {{ loadingError }}</p>
+      <p v-else-if="exportError" class="meta graph-inline-state">Failed to export graph: {{ exportError }}</p>
       <p v-else class="meta graph-inline-state">Dependencies are inferred from service environment variables and web routes.</p>
     </section>
 

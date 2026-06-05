@@ -461,7 +461,7 @@ type GraphNode struct {
 	Name      string        `json:"name"`
 	Kind      GraphNodeKind `json:"kind"`
 	Endpoints []string      `json:"endpoints"`
-	Depends   []GraphNode   `json:"depends"`
+	Depends   []string      `json:"depends"`
 }
 
 // GetName returns the value of Name.
@@ -480,7 +480,7 @@ func (s *GraphNode) GetEndpoints() []string {
 }
 
 // GetDepends returns the value of Depends.
-func (s *GraphNode) GetDepends() []GraphNode {
+func (s *GraphNode) GetDepends() []string {
 	return s.Depends
 }
 
@@ -500,7 +500,7 @@ func (s *GraphNode) SetEndpoints(val []string) {
 }
 
 // SetDepends sets the value of Depends.
-func (s *GraphNode) SetDepends(val []GraphNode) {
+func (s *GraphNode) SetDepends(val []string) {
 	s.Depends = val
 }
 

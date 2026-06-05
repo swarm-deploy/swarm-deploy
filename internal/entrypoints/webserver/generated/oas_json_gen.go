@@ -1079,7 +1079,7 @@ func (s *GraphNode) encodeFields(e *jx.Encoder) {
 			e.FieldStart("depends")
 			e.ArrStart()
 			for _, elem := range s.Depends {
-				elem.Encode(e)
+				e.Str(elem)
 			}
 			e.ArrEnd()
 		}
@@ -1145,10 +1145,12 @@ func (s *GraphNode) Decode(d *jx.Decoder) error {
 			}
 		case "depends":
 			if err := func() error {
-				s.Depends = make([]GraphNode, 0)
+				s.Depends = make([]string, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
-					var elem GraphNode
-					if err := elem.Decode(d); err != nil {
+					var elem string
+					v, err := d.Str()
+					elem = string(v)
+					if err != nil {
 						return err
 					}
 					s.Depends = append(s.Depends, elem)

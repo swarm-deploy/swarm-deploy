@@ -340,17 +340,15 @@ func toGeneratedGraphNodes(nodes []resourcegraph.Node) []generated.GraphNode {
 
 func toGeneratedGraphNode(node resourcegraph.Node) generated.GraphNode {
 	mapped := generated.GraphNode{
-		Name:      node.Name,
-		Kind:      toGeneratedGraphNodeKind(node.Kind),
-		Endpoints: []string{},
-		Depends:   []generated.GraphNode{},
+		Name: node.Name,
+		Kind: toGeneratedGraphNodeKind(node.Kind),
 	}
 
 	if len(node.Endpoints) > 0 {
 		mapped.Endpoints = append(mapped.Endpoints, node.Endpoints...)
 	}
 	if len(node.Depends) > 0 {
-		mapped.Depends = toGeneratedGraphNodes(node.Depends)
+		mapped.Depends = append(mapped.Depends, node.Depends...)
 	}
 
 	return mapped

@@ -28,12 +28,10 @@ func NewBuilder() *Builder {
 
 // Build constructs a graph with direct service dependencies resolved from environment variables.
 func (b *Builder) Build(services []service.Info) Graph {
-	serviceByNodeName := make(map[string]service.Info, len(services))
 	serviceByName := make(map[string][]service.Info, len(services))
 
 	for _, svc := range services {
 		nodeName := b.serviceNodeName(svc)
-		serviceByNodeName[nodeName] = svc
 		serviceByName[svc.Name] = append(serviceByName[svc.Name], svc)
 		if nodeName != svc.Name {
 			serviceByName[nodeName] = append(serviceByName[nodeName], svc)
@@ -46,7 +44,7 @@ func (b *Builder) Build(services []service.Info) Graph {
 			Name:      b.serviceNodeName(svc),
 			Kind:      kindFromServiceType(svc.Type),
 			Endpoints: b.resolveEndpoints(svc),
-			Depends:   b.resolveDependencies(svc, serviceByNodeName, serviceByName),
+			Depends:   b.resolveDependencies(svc, serviceByName),
 		})
 	}
 
@@ -59,9 +57,8 @@ func (b *Builder) Build(services []service.Info) Graph {
 
 func (b *Builder) resolveDependencies(
 	source service.Info,
-	serviceByNodeName map[string]service.Info,
 	serviceByName map[string][]service.Info,
-) []Node {
+) []string {
 	if len(source.Environment) == 0 {
 		return nil
 	}
@@ -94,18 +91,13 @@ func (b *Builder) resolveDependencies(
 		return nil
 	}
 
-	dependencies := make([]Node, 0, len(dependencyNames))
+	dependencies := make([]string, 0, len(dependencyNames))
 	for dependencyName := range dependencyNames {
-		dependency := serviceByNodeName[dependencyName]
-		dependencies = append(dependencies, Node{
-			Name:      dependencyName,
-			Kind:      kindFromServiceType(dependency.Type),
-			Endpoints: b.resolveEndpoints(dependency),
-		})
+		dependencies = append(dependencies, dependencyName)
 	}
 
 	sort.Slice(dependencies, func(i, j int) bool {
-		return dependencies[i].Name < dependencies[j].Name
+		return dependencies[i] < dependencies[j]
 	})
 
 	return dependencies
@@ -219,7 +211,7 @@ func (b *Builder) dependencyHostAliases(host string) []string {
 		return nil
 	}
 
-	aliases := make([]string, 0, 6)
+	aliases := make([]string, 0)
 	seen := map[string]struct{}{}
 	add := func(alias string) {
 		alias = strings.TrimSpace(alias)
@@ -240,7 +232,7 @@ func (b *Builder) dependencyHostAliases(host string) []string {
 	add(withoutTasksPrefix)
 
 	parts := strings.Split(withoutTasksPrefix, ".")
-	if len(parts) >= 2 {
+	if len(parts) >= 2 { //nolint:mnd // nn
 		add(b.stackServiceKey(parts[1], parts[0]))
 		add(b.stackServiceKey(parts[0], parts[1]))
 		add(parts[0])

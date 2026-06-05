@@ -111,14 +111,6 @@ type graphResponseNodeSnapshot struct {
 func graphResponseNodesByName(nodes []generated.GraphNode) map[string]graphResponseNodeSnapshot {
 	snapshots := make(map[string]graphResponseNodeSnapshot, len(nodes))
 	for _, node := range nodes {
-		var dependencies []string
-		if len(node.Depends) > 0 {
-			dependencies = make([]string, 0, len(node.Depends))
-			for _, dependency := range node.Depends {
-				dependencies = append(dependencies, dependency.Name)
-			}
-		}
-
 		var endpoints []string
 		if len(node.Endpoints) > 0 {
 			endpoints = append(endpoints, node.Endpoints...)
@@ -127,7 +119,7 @@ func graphResponseNodesByName(nodes []generated.GraphNode) map[string]graphRespo
 		snapshots[node.Name] = graphResponseNodeSnapshot{
 			Kind:      node.Kind,
 			Endpoints: endpoints,
-			Depends:   dependencies,
+			Depends:   node.Depends,
 		}
 	}
 
