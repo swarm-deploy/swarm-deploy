@@ -120,7 +120,7 @@ func (b *Builder) resolveEndpoints(svc service.Info) []string {
 	for _, route := range svc.WebRoutes {
 		address := strings.TrimSpace(route.Address)
 		port := strings.TrimSpace(route.Port)
-		endpoints = append(endpoints, port+":"+address)
+		endpoints = append(endpoints, address+":"+port)
 	}
 
 	if len(endpoints) == 0 {

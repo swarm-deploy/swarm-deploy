@@ -53,7 +53,7 @@ func TestHandlerGetGraph(t *testing.T) {
 			expected: map[string]graphResponseNodeSnapshot{
 				"payments_api": {
 					Kind:      generated.GraphNodeKindApplication,
-					Endpoints: []string{"443:api.example.com"},
+					Endpoints: []string{"api.example.com:443"},
 					Depends:   []string{"payments_db", "payments_redis"},
 				},
 				"payments_db": {
@@ -61,7 +61,7 @@ func TestHandlerGetGraph(t *testing.T) {
 				},
 				"payments_redis": {
 					Kind:      generated.GraphNodeKindMonitoring,
-					Endpoints: []string{"6379:redis.internal"},
+					Endpoints: []string{"redis.internal:6379"},
 				},
 			},
 		},

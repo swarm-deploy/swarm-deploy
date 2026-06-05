@@ -42,7 +42,7 @@ func TestBuilderBuild(t *testing.T) {
 			},
 			expected: map[string]graphNodeSnapshot{
 				"prod_api": {
-					Endpoints: []string{"443:api.example.com", "8443:api.example.com/internal"},
+					Endpoints: []string{"api.example.com:443", "api.example.com/internal:8443"},
 					Depends:   []string{"prod_auth", "prod_db", "prod_payments", "prod_redis", "prod_search"},
 				},
 				"prod_auth":     {},
@@ -82,14 +82,14 @@ func TestBuilderBuild(t *testing.T) {
 			},
 			expected: map[string]graphNodeSnapshot{
 				"blue_api": {
-					Endpoints: []string{"443:blue-api.example.com"},
+					Endpoints: []string{"blue-api.example.com:443"},
 				},
 				"blue_gateway": {
 					Depends: []string{"blue_api", "green_worker"},
 				},
 				"green_api": {},
 				"green_worker": {
-					Endpoints: []string{"8443:green-worker.example.com"},
+					Endpoints: []string{"green-worker.example.com:8443"},
 				},
 			},
 		},
@@ -120,7 +120,7 @@ func TestBuilderBuild(t *testing.T) {
 					Depends: []string{"prod_redis"},
 				},
 				"prod_redis": {
-					Endpoints: []string{"6379:redis-admin.example.com"},
+					Endpoints: []string{"redis-admin.example.com:6379"},
 				},
 			},
 		},

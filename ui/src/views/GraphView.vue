@@ -315,6 +315,15 @@ function resolveLayer(kind: string): GraphLayer {
   }
 }
 
+function formatNodeKind(kind: string): string {
+  return kind
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .split(" ")
+    .filter((word) => word.length > 0)
+    .map((word) => word[0].toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
 onMounted(() => {
   window.addEventListener("pointermove", handleWindowPointerMove);
   window.addEventListener("pointerup", handleWindowPointerUp);
@@ -419,7 +428,7 @@ onBeforeUnmount(() => {
             @pointerdown="onNodePointerDown($event, node.name)"
           >
             <header class="graph-node-header">
-              <span class="graph-node-kind">{{ node.kind }}</span>
+              <span class="graph-node-kind">{{ formatNodeKind(node.kind) }}</span>
             </header>
 
             <h3 class="graph-node-name">{{ node.name }}</h3>
