@@ -10,8 +10,20 @@ type Graph struct {
 type Kind string
 
 const (
-	// KindService marks service node kind.
-	KindService = "service"
+	// KindApplication marks application service nodes.
+	KindApplication Kind = "application"
+	// KindMonitoring marks monitoring service nodes.
+	KindMonitoring Kind = "monitoring"
+	// KindDelivery marks delivery service nodes.
+	KindDelivery Kind = "delivery"
+	// KindReverseProxy marks reverse proxy service nodes.
+	KindReverseProxy Kind = "reverseProxy"
+	// KindDeploymentManagementSystem marks deployment management service nodes.
+	KindDeploymentManagementSystem Kind = "deploymentManagementSystem"
+	// KindDatabase marks database service nodes.
+	KindDatabase Kind = "database"
+	// KindSecretManager marks secret manager service nodes.
+	KindSecretManager Kind = "secretManager"
 )
 
 // Node is a single graph node.

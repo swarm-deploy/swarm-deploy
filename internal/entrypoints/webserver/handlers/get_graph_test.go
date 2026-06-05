@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
+	serviceType "github.com/swarm-deploy/swarm-deploy/internal/resources/service/stype"
 	"github.com/swarm-deploy/webroute"
 )
 
@@ -27,6 +28,7 @@ func TestHandlerGetGraph(t *testing.T) {
 				"payments": {
 					{
 						Name: "api",
+						Type: serviceType.Application,
 						WebRoutes: []webroute.Route{
 							{Port: "443", Address: "api.example.com"},
 						},
@@ -37,9 +39,11 @@ func TestHandlerGetGraph(t *testing.T) {
 					},
 					{
 						Name: "db",
+						Type: serviceType.Database,
 					},
 					{
 						Name: "redis",
+						Type: serviceType.Monitoring,
 						WebRoutes: []webroute.Route{
 							{Port: "6379", Address: "redis.internal"},
 						},
@@ -48,15 +52,15 @@ func TestHandlerGetGraph(t *testing.T) {
 			},
 			expected: map[string]graphResponseNodeSnapshot{
 				"payments_api": {
-					Kind:      generated.GraphNodeKindService,
+					Kind:      generated.GraphNodeKindApplication,
 					Endpoints: []string{"443:api.example.com"},
 					Depends:   []string{"payments_db", "payments_redis"},
 				},
 				"payments_db": {
-					Kind: generated.GraphNodeKindService,
+					Kind: generated.GraphNodeKindDatabase,
 				},
 				"payments_redis": {
-					Kind:      generated.GraphNodeKindService,
+					Kind:      generated.GraphNodeKindMonitoring,
 					Endpoints: []string{"6379:redis.internal"},
 				},
 			},

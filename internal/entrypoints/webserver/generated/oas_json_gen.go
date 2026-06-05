@@ -1232,8 +1232,20 @@ func (s *GraphNodeKind) Decode(d *jx.Decoder) error {
 	}
 	// Try to use constant string.
 	switch GraphNodeKind(v) {
-	case GraphNodeKindService:
-		*s = GraphNodeKindService
+	case GraphNodeKindApplication:
+		*s = GraphNodeKindApplication
+	case GraphNodeKindMonitoring:
+		*s = GraphNodeKindMonitoring
+	case GraphNodeKindDelivery:
+		*s = GraphNodeKindDelivery
+	case GraphNodeKindReverseProxy:
+		*s = GraphNodeKindReverseProxy
+	case GraphNodeKindDatabase:
+		*s = GraphNodeKindDatabase
+	case GraphNodeKindSecretManager:
+		*s = GraphNodeKindSecretManager
+	case GraphNodeKindDeploymentManagementSystem:
+		*s = GraphNodeKindDeploymentManagementSystem
 	default:
 		*s = GraphNodeKind(v)
 	}

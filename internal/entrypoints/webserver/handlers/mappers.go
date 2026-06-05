@@ -358,10 +358,22 @@ func toGeneratedGraphNode(node resourcegraph.Node) generated.GraphNode {
 
 func toGeneratedGraphNodeKind(kind resourcegraph.Kind) generated.GraphNodeKind {
 	switch kind {
-	case resourcegraph.KindService:
-		fallthrough
+	case resourcegraph.KindApplication:
+		return generated.GraphNodeKindApplication
+	case resourcegraph.KindMonitoring:
+		return generated.GraphNodeKindMonitoring
+	case resourcegraph.KindDelivery:
+		return generated.GraphNodeKindDelivery
+	case resourcegraph.KindReverseProxy:
+		return generated.GraphNodeKindReverseProxy
+	case resourcegraph.KindDatabase:
+		return generated.GraphNodeKindDatabase
+	case resourcegraph.KindSecretManager:
+		return generated.GraphNodeKindSecretManager
+	case resourcegraph.KindDeploymentManagementSystem:
+		return generated.GraphNodeKindDeploymentManagementSystem
 	default:
-		return generated.GraphNodeKindService
+		return generated.GraphNodeKindApplication
 	}
 }
 

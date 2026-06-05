@@ -36,6 +36,8 @@ interface PositionedNode extends NormalizedNode {
   height: number;
 }
 
+type GraphLayer = "reverseProxy" | "application" | "other";
+
 const loading = ref(false);
 const loadingError = ref("");
 const graph = ref<GraphResponse | null>(null);
@@ -260,7 +262,7 @@ function normalizeGraph(response: GraphResponse | null): { nodes: NormalizedNode
 function normalizeNode(node: GraphNode): NormalizedNode {
   return {
     name: String(node.name || "").trim(),
-    kind: String(node.kind || "service").trim() || "service",
+    kind: String(node.kind || "application").trim() || "application",
     endpoints: Array.isArray(node.endpoints) ? [...node.endpoints] : [],
     depends: Array.isArray(node.depends)
       ? node.depends
@@ -270,73 +272,27 @@ function normalizeNode(node: GraphNode): NormalizedNode {
   };
 }
 
-function buildLayout(nodes: NormalizedNode[], edges: GraphEdge[]): Record<string, Point> {
-  const outgoing = new Map<string, string[]>();
-  const incomingCount = new Map<string, number>();
-
+function buildLayout(nodes: NormalizedNode[], _edges: GraphEdge[]): Record<string, Point> {
+  const nodesByLayer = new Map<GraphLayer, NormalizedNode[]>();
   for (const node of nodes) {
-    outgoing.set(node.name, []);
-    incomingCount.set(node.name, 0);
-  }
-
-  for (const edge of edges) {
-    outgoing.get(edge.from)?.push(edge.to);
-    incomingCount.set(edge.to, (incomingCount.get(edge.to) ?? 0) + 1);
-  }
-
-  const memoizedDepth = new Map<string, number>();
-  const visiting = new Set<string>();
-
-  function resolveDepth(nodeName: string): number {
-    const savedDepth = memoizedDepth.get(nodeName);
-    if (typeof savedDepth === "number") {
-      return savedDepth;
+    const layer = resolveLayer(node.kind);
+    if (!nodesByLayer.has(layer)) {
+      nodesByLayer.set(layer, []);
     }
-
-    if (visiting.has(nodeName)) {
-      return 0;
-    }
-
-    visiting.add(nodeName);
-
-    let depth = 0;
-    for (const dependencyName of outgoing.get(nodeName) ?? []) {
-      depth = Math.max(depth, resolveDepth(dependencyName) + 1);
-    }
-
-    visiting.delete(nodeName);
-    memoizedDepth.set(nodeName, depth);
-
-    return depth;
-  }
-
-  let maxDepth = 0;
-  for (const node of nodes) {
-    maxDepth = Math.max(maxDepth, resolveDepth(node.name));
-  }
-
-  const nodesByLevel = new Map<number, NormalizedNode[]>();
-  for (const node of nodes) {
-    const depth = memoizedDepth.get(node.name) ?? 0;
-    const hasIncoming = (incomingCount.get(node.name) ?? 0) > 0;
-    const level = depth === 0 && !hasIncoming ? 0 : maxDepth - depth;
-
-    if (!nodesByLevel.has(level)) {
-      nodesByLevel.set(level, []);
-    }
-    nodesByLevel.get(level)?.push(node);
+    nodesByLayer.get(layer)?.push(node);
   }
 
   const nextPositions: Record<string, Point> = {};
-  const levels = Array.from(nodesByLevel.keys()).sort((left, right) => left - right);
+  const layerOrder: GraphLayer[] = ["reverseProxy", "application", "other"];
+  const layers = layerOrder.filter((layer) => nodesByLayer.has(layer));
 
-  for (const level of levels) {
-    const levelNodes = [...(nodesByLevel.get(level) ?? [])].sort((left, right) => left.name.localeCompare(right.name));
+  for (const [index, layer] of layers.entries()) {
+    const layerNodes = [...(nodesByLayer.get(layer) ?? [])].sort((left, right) => left.name.localeCompare(right.name));
 
     let currentY = canvasPadding;
-    const currentX = canvasPadding + level * (nodeWidth + columnGap);
+    const currentX = canvasPadding + index * (nodeWidth + columnGap);
 
-    for (const node of levelNodes) {
+    for (const node of layerNodes) {
       nextPositions[node.name] = {
         x: currentX,
         y: currentY,
@@ -346,6 +302,17 @@ function buildLayout(nodes: NormalizedNode[], edges: GraphEdge[]): Record<string
   }
 
   return nextPositions;
+}
+
+function resolveLayer(kind: string): GraphLayer {
+  switch (kind) {
+    case "reverseProxy":
+      return "reverseProxy";
+    case "application":
+      return "application";
+    default:
+      return "other";
+  }
 }
 
 onMounted(() => {

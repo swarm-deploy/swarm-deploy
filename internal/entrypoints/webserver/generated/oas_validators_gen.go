@@ -290,7 +290,19 @@ func (s *GraphNode) Validate() error {
 
 func (s GraphNodeKind) Validate() error {
 	switch s {
-	case "service":
+	case "application":
+		return nil
+	case "monitoring":
+		return nil
+	case "delivery":
+		return nil
+	case "reverseProxy":
+		return nil
+	case "database":
+		return nil
+	case "secretManager":
+		return nil
+	case "deploymentManagementSystem":
 		return nil
 	default:
 		return errors.Errorf("invalid value: %v", s)

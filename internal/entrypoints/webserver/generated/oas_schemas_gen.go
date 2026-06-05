@@ -508,20 +508,44 @@ func (s *GraphNode) SetDepends(val []GraphNode) {
 type GraphNodeKind string
 
 const (
-	GraphNodeKindService GraphNodeKind = "service"
+	GraphNodeKindApplication                GraphNodeKind = "application"
+	GraphNodeKindMonitoring                 GraphNodeKind = "monitoring"
+	GraphNodeKindDelivery                   GraphNodeKind = "delivery"
+	GraphNodeKindReverseProxy               GraphNodeKind = "reverseProxy"
+	GraphNodeKindDatabase                   GraphNodeKind = "database"
+	GraphNodeKindSecretManager              GraphNodeKind = "secretManager"
+	GraphNodeKindDeploymentManagementSystem GraphNodeKind = "deploymentManagementSystem"
 )
 
 // AllValues returns all GraphNodeKind values.
 func (GraphNodeKind) AllValues() []GraphNodeKind {
 	return []GraphNodeKind{
-		GraphNodeKindService,
+		GraphNodeKindApplication,
+		GraphNodeKindMonitoring,
+		GraphNodeKindDelivery,
+		GraphNodeKindReverseProxy,
+		GraphNodeKindDatabase,
+		GraphNodeKindSecretManager,
+		GraphNodeKindDeploymentManagementSystem,
 	}
 }
 
 // MarshalText implements encoding.TextMarshaler.
 func (s GraphNodeKind) MarshalText() ([]byte, error) {
 	switch s {
-	case GraphNodeKindService:
+	case GraphNodeKindApplication:
+		return []byte(s), nil
+	case GraphNodeKindMonitoring:
+		return []byte(s), nil
+	case GraphNodeKindDelivery:
+		return []byte(s), nil
+	case GraphNodeKindReverseProxy:
+		return []byte(s), nil
+	case GraphNodeKindDatabase:
+		return []byte(s), nil
+	case GraphNodeKindSecretManager:
+		return []byte(s), nil
+	case GraphNodeKindDeploymentManagementSystem:
 		return []byte(s), nil
 	default:
 		return nil, errors.Errorf("invalid value: %q", s)
@@ -531,8 +555,26 @@ func (s GraphNodeKind) MarshalText() ([]byte, error) {
 // UnmarshalText implements encoding.TextUnmarshaler.
 func (s *GraphNodeKind) UnmarshalText(data []byte) error {
 	switch GraphNodeKind(data) {
-	case GraphNodeKindService:
-		*s = GraphNodeKindService
+	case GraphNodeKindApplication:
+		*s = GraphNodeKindApplication
+		return nil
+	case GraphNodeKindMonitoring:
+		*s = GraphNodeKindMonitoring
+		return nil
+	case GraphNodeKindDelivery:
+		*s = GraphNodeKindDelivery
+		return nil
+	case GraphNodeKindReverseProxy:
+		*s = GraphNodeKindReverseProxy
+		return nil
+	case GraphNodeKindDatabase:
+		*s = GraphNodeKindDatabase
+		return nil
+	case GraphNodeKindSecretManager:
+		*s = GraphNodeKindSecretManager
+		return nil
+	case GraphNodeKindDeploymentManagementSystem:
+		*s = GraphNodeKindDeploymentManagementSystem
 		return nil
 	default:
 		return errors.Errorf("invalid value: %q", data)

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
+	serviceType "github.com/swarm-deploy/swarm-deploy/internal/resources/service/stype"
 )
 
 var dependencyEnvSuffixes = []string{
@@ -43,7 +44,7 @@ func (b *Builder) Build(services []service.Info) Graph {
 	for _, svc := range services {
 		nodes = append(nodes, Node{
 			Name:      b.serviceNodeName(svc),
-			Kind:      KindService,
+			Kind:      kindFromServiceType(svc.Type),
 			Endpoints: b.resolveEndpoints(svc),
 			Depends:   b.resolveDependencies(svc, serviceByNodeName, serviceByName),
 		})
@@ -98,7 +99,7 @@ func (b *Builder) resolveDependencies(
 		dependency := serviceByNodeName[dependencyName]
 		dependencies = append(dependencies, Node{
 			Name:      dependencyName,
-			Kind:      KindService,
+			Kind:      kindFromServiceType(dependency.Type),
 			Endpoints: b.resolveEndpoints(dependency),
 		})
 	}
@@ -262,4 +263,25 @@ func (b *Builder) stackServiceKey(stackName string, serviceName string) string {
 	}
 
 	return stackName + "_" + serviceName
+}
+
+func kindFromServiceType(typ serviceType.Type) Kind {
+	switch typ {
+	case serviceType.Application:
+		return KindApplication
+	case serviceType.Monitoring:
+		return KindMonitoring
+	case serviceType.Delivery:
+		return KindDelivery
+	case serviceType.ReverseProxy:
+		return KindReverseProxy
+	case serviceType.DeploymentManagementSystem:
+		return KindDeploymentManagementSystem
+	case serviceType.Database:
+		return KindDatabase
+	case serviceType.SecretManager:
+		return KindSecretManager
+	default:
+		return KindApplication
+	}
 }
