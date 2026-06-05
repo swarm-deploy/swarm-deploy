@@ -456,6 +456,104 @@ func (s *GitCommitDetailsResponse) SetChangedFiles(val []string) {
 	s.ChangedFiles = val
 }
 
+// Ref: #/components/schemas/GraphNode
+type GraphNode struct {
+	Name      string        `json:"name"`
+	Kind      GraphNodeKind `json:"kind"`
+	Endpoints []string      `json:"endpoints"`
+	Depends   []GraphNode   `json:"depends"`
+}
+
+// GetName returns the value of Name.
+func (s *GraphNode) GetName() string {
+	return s.Name
+}
+
+// GetKind returns the value of Kind.
+func (s *GraphNode) GetKind() GraphNodeKind {
+	return s.Kind
+}
+
+// GetEndpoints returns the value of Endpoints.
+func (s *GraphNode) GetEndpoints() []string {
+	return s.Endpoints
+}
+
+// GetDepends returns the value of Depends.
+func (s *GraphNode) GetDepends() []GraphNode {
+	return s.Depends
+}
+
+// SetName sets the value of Name.
+func (s *GraphNode) SetName(val string) {
+	s.Name = val
+}
+
+// SetKind sets the value of Kind.
+func (s *GraphNode) SetKind(val GraphNodeKind) {
+	s.Kind = val
+}
+
+// SetEndpoints sets the value of Endpoints.
+func (s *GraphNode) SetEndpoints(val []string) {
+	s.Endpoints = val
+}
+
+// SetDepends sets the value of Depends.
+func (s *GraphNode) SetDepends(val []GraphNode) {
+	s.Depends = val
+}
+
+// Ref: #/components/schemas/GraphNodeKind
+type GraphNodeKind string
+
+const (
+	GraphNodeKindService GraphNodeKind = "service"
+)
+
+// AllValues returns all GraphNodeKind values.
+func (GraphNodeKind) AllValues() []GraphNodeKind {
+	return []GraphNodeKind{
+		GraphNodeKindService,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s GraphNodeKind) MarshalText() ([]byte, error) {
+	switch s {
+	case GraphNodeKindService:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *GraphNodeKind) UnmarshalText(data []byte) error {
+	switch GraphNodeKind(data) {
+	case GraphNodeKindService:
+		*s = GraphNodeKindService
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/GraphResponse
+type GraphResponse struct {
+	Nodes []GraphNode `json:"nodes"`
+}
+
+// GetNodes returns the value of Nodes.
+func (s *GraphResponse) GetNodes() []GraphNode {
+	return s.Nodes
+}
+
+// SetNodes sets the value of Nodes.
+func (s *GraphResponse) SetNodes(val []GraphNode) {
+	s.Nodes = val
+}
+
 // Ref: #/components/schemas/NetworkInfo
 type NetworkInfo struct {
 	ID         string                `json:"id"`

@@ -34,6 +34,13 @@ func (UnimplementedHandler) GetGitCommit(ctx context.Context, params GetGitCommi
 	return r, ht.ErrNotImplemented
 }
 
+// GetGraph implements getGraph operation.
+//
+// GET /api/v1/graph
+func (UnimplementedHandler) GetGraph(ctx context.Context) (r *GraphResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetSecretByName implements getSecretByName operation.
 //
 // GET /api/v1/secrets/{name}

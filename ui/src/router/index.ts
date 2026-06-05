@@ -2,6 +2,7 @@ import { createRouter, createWebHistory } from "vue-router";
 
 import ServicesView from "../views/ApplicationsView.vue";
 import ClusterView from "../views/ClusterView.vue";
+import GraphView from "../views/GraphView.vue";
 import NetworksView from "../views/NetworksView.vue";
 import OverviewView from "../views/OverviewView.vue";
 import SecretsView from "../views/SecretsView.vue";
@@ -23,6 +24,11 @@ export const router = createRouter({
       path: "/services",
       name: "services",
       component: ServicesView,
+    },
+    {
+      path: "/graph",
+      name: "graph",
+      component: GraphView,
     },
     {
       path: "/services/:stack/:service",

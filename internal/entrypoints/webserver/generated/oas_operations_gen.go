@@ -9,6 +9,7 @@ const (
 	AssistantChatOperation          OperationName = "AssistantChat"
 	GetCurrentUserOperation         OperationName = "GetCurrentUser"
 	GetGitCommitOperation           OperationName = "GetGitCommit"
+	GetGraphOperation               OperationName = "GetGraph"
 	GetSecretByNameOperation        OperationName = "GetSecretByName"
 	GetServiceOperation             OperationName = "GetService"
 	GetServiceRealtimeOperation     OperationName = "GetServiceRealtime"

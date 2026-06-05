@@ -67,6 +67,19 @@ export interface ServicesResponse {
   services: ServiceInfo[];
 }
 
+export type GraphNodeKind = "service";
+
+export interface GraphNode {
+  name: string;
+  kind: GraphNodeKind;
+  endpoints: string[];
+  depends: GraphNode[];
+}
+
+export interface GraphResponse {
+  nodes: GraphNode[];
+}
+
 export interface QueueResponse {
   queued: boolean;
 }
