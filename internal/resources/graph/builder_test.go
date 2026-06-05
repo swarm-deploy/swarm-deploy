@@ -124,6 +124,53 @@ func TestBuilderBuild(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "resolves dependencies from another stack by unique service name and dotted host",
+			services: []service.Info{
+				{
+					Stack: "app",
+					Name:  "api",
+					Environment: map[string]string{
+						"QDRANT_ADDR":   "qdrant:6333",
+						"WORKER_URL":    "http://jobs.worker:8080/run",
+						"SEARCH_HOST":   "tasks.search",
+						"IGNORED_OTHER": "db",
+					},
+				},
+				{Stack: "vector", Name: "qdrant"},
+				{Stack: "jobs", Name: "worker"},
+				{Stack: "search", Name: "search"},
+				{Stack: "app", Name: "db"},
+			},
+			expected: map[string]graphNodeSnapshot{
+				"app_api": {
+					Depends: []string{"jobs_worker", "search_search", "vector_qdrant"},
+				},
+				"app_db":        {},
+				"jobs_worker":   {},
+				"search_search": {},
+				"vector_qdrant": {},
+			},
+		},
+		{
+			name: "ignores ambiguous plain service names from another stack",
+			services: []service.Info{
+				{
+					Stack: "app",
+					Name:  "api",
+					Environment: map[string]string{
+						"CACHE_HOST": "redis",
+					},
+				},
+				{Stack: "blue", Name: "redis"},
+				{Stack: "green", Name: "redis"},
+			},
+			expected: map[string]graphNodeSnapshot{
+				"app_api":     {},
+				"blue_redis":  {},
+				"green_redis": {},
+			},
+		},
 	}
 
 	builder := NewBuilder()

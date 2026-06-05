@@ -27,13 +27,16 @@ func NewBuilder() *Builder {
 
 // Build constructs a graph with direct service dependencies resolved from environment variables.
 func (b *Builder) Build(services []service.Info) Graph {
-	serviceByFullName := make(map[string]service.Info, len(services))
-	serviceByStackAndName := make(map[string]service.Info, len(services))
+	serviceByNodeName := make(map[string]service.Info, len(services))
+	serviceByName := make(map[string][]service.Info, len(services))
 
 	for _, svc := range services {
 		nodeName := b.serviceNodeName(svc)
-		serviceByFullName[nodeName] = svc
-		serviceByStackAndName[b.stackServiceKey(svc.Stack, svc.Name)] = svc
+		serviceByNodeName[nodeName] = svc
+		serviceByName[svc.Name] = append(serviceByName[svc.Name], svc)
+		if nodeName != svc.Name {
+			serviceByName[nodeName] = append(serviceByName[nodeName], svc)
+		}
 	}
 
 	nodes := make([]Node, 0, len(services))
@@ -42,7 +45,7 @@ func (b *Builder) Build(services []service.Info) Graph {
 			Name:      b.serviceNodeName(svc),
 			Kind:      KindService,
 			Endpoints: b.resolveEndpoints(svc),
-			Depends:   b.resolveDependencies(svc, serviceByFullName, serviceByStackAndName),
+			Depends:   b.resolveDependencies(svc, serviceByNodeName, serviceByName),
 		})
 	}
 
@@ -55,8 +58,8 @@ func (b *Builder) Build(services []service.Info) Graph {
 
 func (b *Builder) resolveDependencies(
 	source service.Info,
-	serviceByFullName map[string]service.Info,
-	serviceByStackAndName map[string]service.Info,
+	serviceByNodeName map[string]service.Info,
+	serviceByName map[string][]service.Info,
 ) []Node {
 	if len(source.Environment) == 0 {
 		return nil
@@ -73,7 +76,7 @@ func (b *Builder) resolveDependencies(
 			continue
 		}
 
-		dependency, ok := b.resolveDependency(source, host, serviceByFullName, serviceByStackAndName)
+		dependency, ok := b.resolveDependency(source, host, serviceByName)
 		if !ok {
 			continue
 		}
@@ -92,7 +95,7 @@ func (b *Builder) resolveDependencies(
 
 	dependencies := make([]Node, 0, len(dependencyNames))
 	for dependencyName := range dependencyNames {
-		dependency := serviceByFullName[dependencyName]
+		dependency := serviceByNodeName[dependencyName]
 		dependencies = append(dependencies, Node{
 			Name:      dependencyName,
 			Kind:      KindService,
@@ -181,15 +184,68 @@ func (b *Builder) trimAddressDecorators(value string) string {
 func (b *Builder) resolveDependency(
 	source service.Info,
 	host string,
-	serviceByFullName map[string]service.Info,
-	serviceByStackAndName map[string]service.Info,
+	serviceByName map[string][]service.Info,
 ) (service.Info, bool) {
-	if dependency, ok := serviceByStackAndName[b.stackServiceKey(source.Stack, host)]; ok {
-		return dependency, true
+	for _, candidate := range b.dependencyHostAliases(host) {
+		if dependency, ok := b.findServiceInStack(serviceByName[candidate], source.Stack); ok {
+			return dependency, true
+		}
 	}
 
-	dependency, ok := serviceByFullName[host]
-	return dependency, ok
+	for _, candidate := range b.dependencyHostAliases(host) {
+		dependencies := serviceByName[candidate]
+		if len(dependencies) == 1 {
+			return dependencies[0], true
+		}
+	}
+
+	return service.Info{}, false
+}
+
+func (b *Builder) findServiceInStack(services []service.Info, stackName string) (service.Info, bool) {
+	for _, svc := range services {
+		if svc.Stack == stackName {
+			return svc, true
+		}
+	}
+
+	return service.Info{}, false
+}
+
+func (b *Builder) dependencyHostAliases(host string) []string {
+	trimmedHost := strings.TrimSpace(host)
+	if trimmedHost == "" {
+		return nil
+	}
+
+	aliases := make([]string, 0, 6)
+	seen := map[string]struct{}{}
+	add := func(alias string) {
+		alias = strings.TrimSpace(alias)
+		if alias == "" {
+			return
+		}
+		if _, exists := seen[alias]; exists {
+			return
+		}
+
+		seen[alias] = struct{}{}
+		aliases = append(aliases, alias)
+	}
+
+	add(trimmedHost)
+
+	withoutTasksPrefix := strings.TrimPrefix(trimmedHost, "tasks.")
+	add(withoutTasksPrefix)
+
+	parts := strings.Split(withoutTasksPrefix, ".")
+	if len(parts) >= 2 {
+		add(b.stackServiceKey(parts[1], parts[0]))
+		add(b.stackServiceKey(parts[0], parts[1]))
+		add(parts[0])
+	}
+
+	return aliases
 }
 
 func (b *Builder) serviceNodeName(svc service.Info) string {
