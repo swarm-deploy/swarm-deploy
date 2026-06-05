@@ -3,7 +3,7 @@ package git
 import (
 	"errors"
 
-	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v6/plumbing"
 )
 
 // IsCommitNotFound reports whether commit hash does not exist in repository.

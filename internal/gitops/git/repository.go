@@ -10,22 +10,43 @@ import (
 	"sort"
 	"strings"
 
-	gogit "github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/object"
-	"github.com/go-git/go-git/v5/plumbing/transport"
-	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
-	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
+	gogit "github.com/go-git/go-git/v6"
+	"github.com/go-git/go-git/v6/plumbing"
+	gitclient "github.com/go-git/go-git/v6/plumbing/client"
+	"github.com/go-git/go-git/v6/plumbing/object"
+	githttp "github.com/go-git/go-git/v6/plumbing/transport/http"
+	gitssh "github.com/go-git/go-git/v6/plumbing/transport/ssh"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
 
+type authMethod struct {
+	http *githttp.BasicAuth
+	ssh  *gitssh.PublicKeys
+}
+
+func (a *authMethod) clientOptions() []gitclient.Option {
+	if a == nil {
+		return nil
+	}
+
+	if a.http != nil {
+		return []gitclient.Option{gitclient.WithHTTPAuth(a.http)}
+	}
+
+	if a.ssh != nil {
+		return []gitclient.Option{gitclient.WithSSHAuth(a.ssh)}
+	}
+
+	return nil
+}
+
 type GoGitRepository struct {
 	path string
 
 	branch string
-	auth   transport.AuthMethod
+	auth   *authMethod
 
 	repository *gogit.Repository
 }
@@ -77,7 +98,7 @@ func (r *GoGitRepository) Pull(ctx context.Context) (PullResult, error) {
 		RemoteName:    "origin",
 		SingleBranch:  true,
 		ReferenceName: plumbing.NewBranchReferenceName(r.branch),
-		Auth:          r.auth,
+		ClientOptions: r.auth.clientOptions(),
 		Force:         true,
 	})
 	if err != nil && !errors.Is(err, gogit.NoErrAlreadyUpToDate) {
@@ -326,7 +347,7 @@ func openRepository(
 	path string,
 	url string,
 	branch string,
-	auth transport.AuthMethod,
+	auth *authMethod,
 ) (*gogit.Repository, error) {
 	repo, err := gogit.PlainOpen(path)
 	if err == nil {
@@ -340,9 +361,10 @@ func openRepository(
 		return nil, fmt.Errorf("create repository dir: %w", err)
 	}
 
-	repo, err = gogit.PlainCloneContext(ctx, path, false, &gogit.CloneOptions{
+	repo, err = gogit.PlainCloneContext(ctx, path, &gogit.CloneOptions{
 		URL:           url,
-		Auth:          auth,
+		ClientOptions: auth.clientOptions(),
+		Bare:          false,
 		SingleBranch:  true,
 		ReferenceName: plumbing.NewBranchReferenceName(branch),
 	})
@@ -353,7 +375,7 @@ func openRepository(
 	return repo, nil
 }
 
-func resolveAuthMethod(auth config.GitAuthSpec) (transport.AuthMethod, error) {
+func resolveAuthMethod(auth config.GitAuthSpec) (*authMethod, error) {
 	switch auth.Type {
 	case "", config.GitAuthTypeNone:
 		//nolint:nilnil // nil auth method explicitly means anonymous access for go-git.
@@ -364,9 +386,11 @@ func resolveAuthMethod(auth config.GitAuthSpec) (transport.AuthMethod, error) {
 		if username == "" || password == "" {
 			return nil, errors.New("http auth requires username+passwordPath or tokenPath")
 		}
-		return &githttp.BasicAuth{
-			Username: username,
-			Password: password,
+		return &authMethod{
+			http: &githttp.BasicAuth{
+				Username: username,
+				Password: password,
+			},
 		}, nil
 	case config.GitAuthTypeSSH:
 		return buildSSHAuthMethod(auth.SSH)
@@ -375,7 +399,7 @@ func resolveAuthMethod(auth config.GitAuthSpec) (transport.AuthMethod, error) {
 	}
 }
 
-func buildSSHAuthMethod(auth config.GitSSHAuthSpec) (transport.AuthMethod, error) {
+func buildSSHAuthMethod(auth config.GitSSHAuthSpec) (*authMethod, error) {
 	user := auth.User
 	if user == "" {
 		user = "git"
@@ -400,7 +424,7 @@ func buildSSHAuthMethod(auth config.GitSSHAuthSpec) (transport.AuthMethod, error
 			//nolint:gosec // This mode is explicitly requested by configuration for legacy/private infrastructures.
 			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		}
-		return pk, nil
+		return &authMethod{ssh: pk}, nil
 	}
 
 	if auth.KnownHostsPath != "" {
@@ -413,5 +437,5 @@ func buildSSHAuthMethod(auth config.GitSSHAuthSpec) (transport.AuthMethod, error
 		}
 	}
 
-	return pk, nil
+	return &authMethod{ssh: pk}, nil
 }

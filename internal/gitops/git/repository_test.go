@@ -11,11 +11,12 @@ import (
 	"time"
 
 	"github.com/artarts36/specw"
-	gogit "github.com/go-git/go-git/v5"
-	"github.com/go-git/go-git/v5/plumbing"
-	"github.com/go-git/go-git/v5/plumbing/object"
-	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
-	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
+	gogit "github.com/go-git/go-git/v6"
+	gitconfig "github.com/go-git/go-git/v6/config"
+	"github.com/go-git/go-git/v6/plumbing"
+	"github.com/go-git/go-git/v6/plumbing/object"
+	githttp "github.com/go-git/go-git/v6/plumbing/transport/http"
+	gitssh "github.com/go-git/go-git/v6/plumbing/transport/ssh"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
@@ -48,8 +49,9 @@ func TestResolveAuthMethodHTTPWithUsernameAndPassword(t *testing.T) {
 	})
 	require.NoError(t, err, "resolve http auth")
 
-	basicAuth, ok := authMethod.(*githttp.BasicAuth)
-	require.True(t, ok, "auth method should be *http.BasicAuth")
+	require.NotNil(t, authMethod, "auth method should be resolved")
+	basicAuth := authMethod.http
+	require.IsType(t, &githttp.BasicAuth{}, basicAuth, "auth method should use *http.BasicAuth")
 	assert.Equal(t, "robot", basicAuth.Username, "unexpected http username")
 	assert.Equal(t, "secret", basicAuth.Password, "unexpected http password")
 }
@@ -65,8 +67,9 @@ func TestResolveAuthMethodHTTPWithToken(t *testing.T) {
 	})
 	require.NoError(t, err, "resolve http auth with token")
 
-	basicAuth, ok := authMethod.(*githttp.BasicAuth)
-	require.True(t, ok, "auth method should be *http.BasicAuth")
+	require.NotNil(t, authMethod, "auth method should be resolved")
+	basicAuth := authMethod.http
+	require.IsType(t, &githttp.BasicAuth{}, basicAuth, "auth method should use *http.BasicAuth")
 	assert.Equal(t, "oauth2", basicAuth.Username, "token auth should use oauth2 username")
 	assert.Equal(t, "token-value", basicAuth.Password, "token auth should use token as password")
 }
@@ -125,8 +128,9 @@ func TestResolveAuthMethodSSHWithInsecureIgnoreHostKey(t *testing.T) {
 	})
 	require.NoError(t, err, "resolve ssh auth with insecure host key")
 
-	publicKeys, ok := authMethod.(*gitssh.PublicKeys)
-	require.True(t, ok, "auth method should be *ssh.PublicKeys")
+	require.NotNil(t, authMethod, "auth method should be resolved")
+	publicKeys := authMethod.ssh
+	require.IsType(t, &gitssh.PublicKeys{}, publicKeys, "auth method should use *ssh.PublicKeys")
 	assert.Equal(t, "deploy", publicKeys.User, "unexpected ssh user")
 	assert.NotNil(t, publicKeys.HostKeyCallback, "host key callback should be set")
 }
@@ -157,8 +161,9 @@ func TestResolveAuthMethodSSHUsesDefaultUser(t *testing.T) {
 	})
 	require.NoError(t, err, "resolve ssh auth with default user")
 
-	publicKeys, ok := authMethod.(*gitssh.PublicKeys)
-	require.True(t, ok, "auth method should be *ssh.PublicKeys")
+	require.NotNil(t, authMethod, "auth method should be resolved")
+	publicKeys := authMethod.ssh
+	require.IsType(t, &gitssh.PublicKeys{}, publicKeys, "auth method should use *ssh.PublicKeys")
 	assert.Equal(t, "git", publicKeys.User, "default ssh user should be git")
 }
 
@@ -438,6 +443,7 @@ func initSourceRepository(t *testing.T) (string, *plumbing.Reference) {
 	sourceRepositoryPath := filepath.Join(t.TempDir(), "source")
 	sourceRepository, err := gogit.PlainInit(sourceRepositoryPath, false)
 	require.NoError(t, err, "init source repository")
+	disableCommitSigning(t, sourceRepository)
 
 	filePath := filepath.Join(sourceRepositoryPath, "README.md")
 	err = os.WriteFile(filePath, []byte("hello"), 0o600)
@@ -462,4 +468,16 @@ func initSourceRepository(t *testing.T) (string, *plumbing.Reference) {
 	require.NoError(t, err, "resolve source repository head")
 
 	return sourceRepositoryPath, head
+}
+
+func disableCommitSigning(t *testing.T, repository *gogit.Repository) {
+	t.Helper()
+
+	cfg, err := repository.Config()
+	require.NoError(t, err, "read repository config")
+
+	cfg.Commit.GpgSign = gitconfig.NewOptBool(false)
+
+	err = repository.SetConfig(cfg)
+	require.NoError(t, err, "disable commit signing in repository config")
 }
