@@ -27,3 +27,7 @@ type Info struct {
 	// WebRoutes is a list of public web routes resolved from service environment.
 	WebRoutes []webroute.Route `json:"web_routes,omitempty"`
 }
+
+func (i *Info) GetName() string {
+	return i.Name
+}
