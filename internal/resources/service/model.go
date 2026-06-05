@@ -18,6 +18,8 @@ type Info struct {
 	Type serviceType.Type `json:"type"`
 	// Image is a service container image reference.
 	Image string `json:"image"`
+	// Environment is a resolved container environment snapshot.
+	Environment map[string]string `json:"environment,omitempty"`
 	// Spec is a compact persisted service spec snapshot.
 	Spec swarm.ServiceSpec `json:"spec"`
 	// RepositoryURL is a source repository URL resolved from service labels.
