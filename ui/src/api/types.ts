@@ -47,6 +47,7 @@ export type ServiceType =
   | "reverseProxy"
   | "database"
   | "secretManager"
+  | "cronManager"
   | "deploymentManagementSystem";
 export type ServiceSyncStatus = "Synced" | "OutOfSync" | "unknown";
 

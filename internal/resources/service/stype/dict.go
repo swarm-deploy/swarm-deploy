@@ -31,6 +31,9 @@ var imageTypeDict = map[string]Type{
 	"envoy":        ReverseProxy,
 	"caddy":        ReverseProxy,
 	"port-forward": ReverseProxy,
+
 	"registry":     Delivery,
 	"distribution": Delivery,
+
+	"swarm-cronjob": CronManager,
 }

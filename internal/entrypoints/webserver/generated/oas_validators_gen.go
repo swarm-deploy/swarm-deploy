@@ -277,6 +277,8 @@ func (s GraphNodeKind) Validate() error {
 		return nil
 	case "secretManager":
 		return nil
+	case "cronManager":
+		return nil
 	case "deploymentManagementSystem":
 		return nil
 	default:
@@ -770,6 +772,8 @@ func (s ServiceInfoType) Validate() error {
 	case "database":
 		return nil
 	case "secretManager":
+		return nil
+	case "cronManager":
 		return nil
 	case "deploymentManagementSystem":
 		return nil

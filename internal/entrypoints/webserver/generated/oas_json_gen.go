@@ -1246,6 +1246,8 @@ func (s *GraphNodeKind) Decode(d *jx.Decoder) error {
 		*s = GraphNodeKindDatabase
 	case GraphNodeKindSecretManager:
 		*s = GraphNodeKindSecretManager
+	case GraphNodeKindCronManager:
+		*s = GraphNodeKindCronManager
 	case GraphNodeKindDeploymentManagementSystem:
 		*s = GraphNodeKindDeploymentManagementSystem
 	default:
@@ -4359,6 +4361,8 @@ func (s *ServiceInfoType) Decode(d *jx.Decoder) error {
 		*s = ServiceInfoTypeDatabase
 	case ServiceInfoTypeSecretManager:
 		*s = ServiceInfoTypeSecretManager
+	case ServiceInfoTypeCronManager:
+		*s = ServiceInfoTypeCronManager
 	case ServiceInfoTypeDeploymentManagementSystem:
 		*s = ServiceInfoTypeDeploymentManagementSystem
 	default:

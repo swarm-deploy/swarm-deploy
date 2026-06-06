@@ -368,6 +368,8 @@ func toGeneratedGraphNodeKind(kind resourcegraph.Kind) generated.GraphNodeKind {
 		return generated.GraphNodeKindDatabase
 	case resourcegraph.KindSecretManager:
 		return generated.GraphNodeKindSecretManager
+	case resourcegraph.KindCronManager:
+		return generated.GraphNodeKindCronManager
 	case resourcegraph.KindDeploymentManagementSystem:
 		return generated.GraphNodeKindDeploymentManagementSystem
 	default:
@@ -571,6 +573,8 @@ func toGeneratedServiceType(typ serviceType.Type) generated.ServiceInfoType {
 		return generated.ServiceInfoTypeDatabase
 	case serviceType.SecretManager:
 		return generated.ServiceInfoTypeSecretManager
+	case serviceType.CronManager:
+		return generated.ServiceInfoTypeCronManager
 	case serviceType.DeploymentManagementSystem:
 		return generated.ServiceInfoTypeDeploymentManagementSystem
 	default:

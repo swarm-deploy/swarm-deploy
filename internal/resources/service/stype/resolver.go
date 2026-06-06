@@ -21,8 +21,11 @@ const (
 	ReverseProxy               Type = "reverseProxy"
 	DeploymentManagementSystem Type = "deploymentManagementSystem"
 	// Database is a service type for data stores.
-	Database      Type = "database"
+	Database Type = "database"
+	// SecretManager is a service type for secret storage and distribution components.
 	SecretManager Type = "secretManager"
+	// CronManager is a service type for cron schedulers and cronjob controllers.
+	CronManager Type = "cronManager"
 )
 
 // Labels groups metadata labels for type resolving.
@@ -60,19 +63,21 @@ func (r *Resolver) Resolve(image string, labels Labels) Type {
 // NormalizeTypeName validates and normalizes service type.
 func NormalizeTypeName(raw string) (Type, bool) {
 	switch normalized := strings.ToLower(strings.TrimSpace(raw)); normalized {
-	case string(Application):
+	case "application":
 		return Application, true
-	case string(Monitoring):
+	case "monitoring":
 		return Monitoring, true
-	case string(Delivery):
+	case "delivery":
 		return Delivery, true
 	case "reverseproxy", "reverse_proxy", "reverse-proxy":
 		return ReverseProxy, true
-	case string(Database):
+	case "database":
 		return Database, true
-	case string(SecretManager):
+	case "secretmanager", "secret_manager", "secret-manager":
 		return SecretManager, true
-	case string(DeploymentManagementSystem):
+	case "cronmanager", "cron_manager", "cron-manager":
+		return CronManager, true
+	case "deploymentmanagementsystem", "deployment_management_system", "deployment-management-system":
 		return DeploymentManagementSystem, true
 	default:
 		return "", false

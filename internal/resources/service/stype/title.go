@@ -15,6 +15,8 @@ func Title(typ Type) string {
 		return "Database"
 	case SecretManager:
 		return "Secret Manager"
+	case CronManager:
+		return "Cron Manager"
 	case DeploymentManagementSystem:
 		return "Deployment Management System"
 	default:

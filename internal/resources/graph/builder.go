@@ -273,6 +273,8 @@ func kindFromServiceType(typ serviceType.Type) Kind {
 		return KindDatabase
 	case serviceType.SecretManager:
 		return KindSecretManager
+	case serviceType.CronManager:
+		return KindCronManager
 	default:
 		return KindApplication
 	}

@@ -48,6 +48,10 @@ func TestHandlerGetGraph(t *testing.T) {
 							{Port: "6379", Address: "redis.internal"},
 						},
 					},
+					{
+						Name: "cron",
+						Type: serviceType.CronManager,
+					},
 				},
 			},
 			expected: map[string]graphResponseNodeSnapshot{
@@ -62,6 +66,9 @@ func TestHandlerGetGraph(t *testing.T) {
 				"payments_redis": {
 					Kind:      generated.GraphNodeKindMonitoring,
 					Endpoints: []string{"redis.internal:6379"},
+				},
+				"payments_cron": {
+					Kind: generated.GraphNodeKindCronManager,
 				},
 			},
 		},

@@ -24,6 +24,8 @@ const (
 	KindDatabase Kind = "database"
 	// KindSecretManager marks secret manager service nodes.
 	KindSecretManager Kind = "secretManager"
+	// KindCronManager marks cron manager service nodes.
+	KindCronManager Kind = "cronManager"
 )
 
 // Node is a single graph node.

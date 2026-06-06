@@ -56,6 +56,22 @@ func TestMetadataExtractorResolveTypePriority(t *testing.T) {
 			expected: serviceType.ReverseProxy,
 		},
 		{
+			name:     "cron manager dictionary value used from image name",
+			image:    "crazymax/swarm-cronjob:latest",
+			labels:   Labels{},
+			expected: serviceType.CronManager,
+		},
+		{
+			name:  "normalizes camel case service type labels",
+			image: "registry.example.com/team/custom-worker:1",
+			labels: Labels{
+				Service: map[string]string{
+					labelsdict.ServiceType: "cronManager",
+				},
+			},
+			expected: serviceType.CronManager,
+		},
+		{
 			name:     "defaults to application when no strategy matches",
 			image:    "registry.example.com/team/custom-worker:1",
 			labels:   Labels{},

@@ -5,8 +5,10 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
+	serviceType "github.com/swarm-deploy/swarm-deploy/internal/resources/service/stype"
 )
 
 func TestToGeneratedStack(t *testing.T) {
@@ -81,12 +83,15 @@ func TestToGeneratedServiceInfo(t *testing.T) {
 		runtime        model.Runtime
 		expectedStatus string
 		expectedError  string
+		expectedType   generated.ServiceInfoType
+		expectedTitle  string
 	}{
 		{
 			name: "returns synced status from runtime state",
 			serviceInfo: service.Info{
 				Name:  "api",
 				Stack: "payments",
+				Type:  serviceType.Application,
 			},
 			runtime: model.Runtime{
 				Stacks: map[string]model.Stack{
@@ -101,12 +106,15 @@ func TestToGeneratedServiceInfo(t *testing.T) {
 			},
 			expectedStatus: "Synced",
 			expectedError:  "",
+			expectedType:   generated.ServiceInfoTypeApplication,
+			expectedTitle:  "Application",
 		},
 		{
 			name: "returns out-of-sync status from runtime state",
 			serviceInfo: service.Info{
 				Name:  "api",
 				Stack: "payments",
+				Type:  serviceType.CronManager,
 			},
 			runtime: model.Runtime{
 				Stacks: map[string]model.Stack{
@@ -122,16 +130,21 @@ func TestToGeneratedServiceInfo(t *testing.T) {
 			},
 			expectedStatus: "OutOfSync",
 			expectedError:  "Service image differs",
+			expectedType:   generated.ServiceInfoTypeCronManager,
+			expectedTitle:  "Cron Manager",
 		},
 		{
 			name: "returns unknown when runtime state is missing",
 			serviceInfo: service.Info{
 				Name:  "api",
 				Stack: "payments",
+				Type:  serviceType.SecretManager,
 			},
 			runtime:        model.Runtime{},
 			expectedStatus: "unknown",
 			expectedError:  "",
+			expectedType:   generated.ServiceInfoTypeSecretManager,
+			expectedTitle:  "Secret Manager",
 		},
 	}
 
@@ -143,6 +156,8 @@ func TestToGeneratedServiceInfo(t *testing.T) {
 
 			assert.Equal(t, testCase.expectedStatus, string(serviceRow.SyncStatus), "unexpected sync status")
 			assert.Equal(t, testCase.expectedError, serviceRow.SyncError.Value, "unexpected sync error")
+			assert.Equal(t, testCase.expectedType, serviceRow.Type, "unexpected service type")
+			assert.Equal(t, testCase.expectedTitle, serviceRow.TypeTitle, "unexpected service type title")
 		})
 	}
 }

@@ -514,6 +514,7 @@ const (
 	GraphNodeKindReverseProxy               GraphNodeKind = "reverseProxy"
 	GraphNodeKindDatabase                   GraphNodeKind = "database"
 	GraphNodeKindSecretManager              GraphNodeKind = "secretManager"
+	GraphNodeKindCronManager                GraphNodeKind = "cronManager"
 	GraphNodeKindDeploymentManagementSystem GraphNodeKind = "deploymentManagementSystem"
 )
 
@@ -526,6 +527,7 @@ func (GraphNodeKind) AllValues() []GraphNodeKind {
 		GraphNodeKindReverseProxy,
 		GraphNodeKindDatabase,
 		GraphNodeKindSecretManager,
+		GraphNodeKindCronManager,
 		GraphNodeKindDeploymentManagementSystem,
 	}
 }
@@ -544,6 +546,8 @@ func (s GraphNodeKind) MarshalText() ([]byte, error) {
 	case GraphNodeKindDatabase:
 		return []byte(s), nil
 	case GraphNodeKindSecretManager:
+		return []byte(s), nil
+	case GraphNodeKindCronManager:
 		return []byte(s), nil
 	case GraphNodeKindDeploymentManagementSystem:
 		return []byte(s), nil
@@ -572,6 +576,9 @@ func (s *GraphNodeKind) UnmarshalText(data []byte) error {
 		return nil
 	case GraphNodeKindSecretManager:
 		*s = GraphNodeKindSecretManager
+		return nil
+	case GraphNodeKindCronManager:
+		*s = GraphNodeKindCronManager
 		return nil
 	case GraphNodeKindDeploymentManagementSystem:
 		*s = GraphNodeKindDeploymentManagementSystem
@@ -2073,6 +2080,7 @@ const (
 	ServiceInfoTypeReverseProxy               ServiceInfoType = "reverseProxy"
 	ServiceInfoTypeDatabase                   ServiceInfoType = "database"
 	ServiceInfoTypeSecretManager              ServiceInfoType = "secretManager"
+	ServiceInfoTypeCronManager                ServiceInfoType = "cronManager"
 	ServiceInfoTypeDeploymentManagementSystem ServiceInfoType = "deploymentManagementSystem"
 )
 
@@ -2085,6 +2093,7 @@ func (ServiceInfoType) AllValues() []ServiceInfoType {
 		ServiceInfoTypeReverseProxy,
 		ServiceInfoTypeDatabase,
 		ServiceInfoTypeSecretManager,
+		ServiceInfoTypeCronManager,
 		ServiceInfoTypeDeploymentManagementSystem,
 	}
 }
@@ -2103,6 +2112,8 @@ func (s ServiceInfoType) MarshalText() ([]byte, error) {
 	case ServiceInfoTypeDatabase:
 		return []byte(s), nil
 	case ServiceInfoTypeSecretManager:
+		return []byte(s), nil
+	case ServiceInfoTypeCronManager:
 		return []byte(s), nil
 	case ServiceInfoTypeDeploymentManagementSystem:
 		return []byte(s), nil
@@ -2131,6 +2142,9 @@ func (s *ServiceInfoType) UnmarshalText(data []byte) error {
 		return nil
 	case ServiceInfoTypeSecretManager:
 		*s = ServiceInfoTypeSecretManager
+		return nil
+	case ServiceInfoTypeCronManager:
+		*s = ServiceInfoTypeCronManager
 		return nil
 	case ServiceInfoTypeDeploymentManagementSystem:
 		*s = ServiceInfoTypeDeploymentManagementSystem
