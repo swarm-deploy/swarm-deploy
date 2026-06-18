@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"time"
 
+	pipe "github.com/artarts36/gopipe"
+
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
@@ -17,7 +19,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/pipe"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
@@ -90,8 +91,10 @@ func (r *Reconciler) Reconcile(
 		Desired:      desiredState,
 	}
 
-	pipeErr := r.pipeline.Run(ctx, pl)
-	if pipeErr != nil {
+	err = r.pipeline.Run(ctx, pl)
+	if err != nil {
+		pipeErr, _ := errors.AsType[*pipe.StepError](err)
+
 		r.recordFailure(req.Stack.Name, req.Commit, services, pipeErr)
 		r.recordStackFailure(req.Stack.Name, req.Commit, services, pipeErr)
 		return wrapReconcileError(pipeErr.StepName, services, pipeErr)

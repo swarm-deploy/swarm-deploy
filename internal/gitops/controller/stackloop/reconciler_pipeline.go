@@ -6,12 +6,13 @@ import (
 	"os"
 	"path/filepath"
 
+	pipe "github.com/artarts36/gopipe"
+
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller/stackloop/drift"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller/stackloop/pruner"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/pipe"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
@@ -34,35 +35,35 @@ func (r *Reconciler) attachPipeline() {
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "add managed label",
-		When: func(payload *pipelinePayload) bool {
+		When: pipe.When(func(payload *pipelinePayload) bool {
 			return payload.IsNewDigest
-		},
+		}),
 		Run: r.addManagedLabel,
 	})
 
 	if r.cfg.Spec.SecretRotation.Enabled {
 		r.pipeline.Add(pipe.Step[*pipelinePayload]{
 			Name: "rotate secrets/configs",
-			When: func(payload *pipelinePayload) bool {
+			When: pipe.When(func(payload *pipelinePayload) bool {
 				return payload.IsNewDigest
-			},
+			}),
 			Run: r.rotateSecrets,
 		})
 	}
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "write rendered compose",
-		When: func(payload *pipelinePayload) bool {
+		When: pipe.When(func(payload *pipelinePayload) bool {
 			return payload.DesiredMutated
-		},
+		}),
 		Run: r.writeRenderedCompose,
 	})
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "deploy stack",
-		When: func(payload *pipelinePayload) bool {
+		When: pipe.When(func(payload *pipelinePayload) bool {
 			return payload.IsNewDigest || payload.DesiredMutated
-		},
+		}),
 		Run: r.deployStack,
 	})
 
@@ -73,17 +74,17 @@ func (r *Reconciler) attachPipeline() {
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "prune orphaned services",
-		When: func(payload *pipelinePayload) bool {
+		When: pipe.When(func(payload *pipelinePayload) bool {
 			return payload.IsNewDigest || payload.IsManualSync
-		},
+		}),
 		Run: r.pruneOrphanedServices,
 	})
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "analyze drift",
-		When: func(payload *pipelinePayload) bool {
+		When: pipe.When(func(payload *pipelinePayload) bool {
 			return !payload.IsNewDigest || payload.IsManualSync
-		},
+		}),
 		Run: r.analyzeDrift,
 	})
 }

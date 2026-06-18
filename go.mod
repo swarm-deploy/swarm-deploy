@@ -7,6 +7,7 @@ require (
 	github.com/artarts36/envmasker v0.0.0-20260424231721-45f9d0bb307b
 	github.com/artarts36/gds v0.2.5
 	github.com/artarts36/go-entrypoint v0.2.1
+	github.com/artarts36/gopipe v0.1.1
 	github.com/artarts36/specw v0.1.8-0.20260526200511-8bb157c70b9d
 	github.com/avast/retry-go/v5 v5.0.0
 	github.com/cappuccinotm/slogx v1.4.2
