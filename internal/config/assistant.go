@@ -2,12 +2,58 @@ package config
 
 import "github.com/artarts36/specw"
 
+// AssistantToolName defines supported assistant MCP tool names.
+type AssistantToolName string
+
+const (
+	// AssistantToolDeploySyncTrigger triggers synchronization.
+	AssistantToolDeploySyncTrigger AssistantToolName = "deploy_sync_trigger"
+	// AssistantToolHistoryEventList lists deployment/sync history events.
+	AssistantToolHistoryEventList AssistantToolName = "history_event_list"
+	// AssistantToolSwarmNodeList lists Docker Swarm nodes.
+	AssistantToolSwarmNodeList AssistantToolName = "swarm_node_list"
+	// AssistantToolDockerNetworkList lists Docker networks.
+	AssistantToolDockerNetworkList AssistantToolName = "docker_network_list"
+	// AssistantToolServiceWebRoutePing probes HTTP routes for services.
+	AssistantToolServiceWebRoutePing AssistantToolName = "service_webroute_ping"
+	// AssistantToolRegistryImageVersionGet resolves latest registry image version.
+	AssistantToolRegistryImageVersionGet AssistantToolName = "registry_image_version_get"
+	// AssistantToolDate returns current date/time for model reasoning.
+	AssistantToolDate AssistantToolName = "date"
+	// AssistantToolGitCommitList lists git commits.
+	AssistantToolGitCommitList AssistantToolName = "git_commit_list"
+	// AssistantToolGitCommitDiff shows git commit diff details.
+	AssistantToolGitCommitDiff AssistantToolName = "git_commit_diff"
+	// AssistantToolPromptInjectionReport reports prompt-injection attempts.
+	AssistantToolPromptInjectionReport AssistantToolName = "assistant_prompt_injection_report"
+)
+
+// IsSupported reports whether assistant tool name is one of supported enum values.
+func (t AssistantToolName) IsSupported() bool {
+	switch t {
+	case "",
+		AssistantToolDeploySyncTrigger,
+		AssistantToolHistoryEventList,
+		AssistantToolSwarmNodeList,
+		AssistantToolDockerNetworkList,
+		AssistantToolServiceWebRoutePing,
+		AssistantToolRegistryImageVersionGet,
+		AssistantToolDate,
+		AssistantToolGitCommitList,
+		AssistantToolGitCommitDiff,
+		AssistantToolPromptInjectionReport:
+		return true
+	default:
+		return false
+	}
+}
+
 // AssistantSpec configures AI assistant behavior.
 type AssistantSpec struct {
 	// Enabled toggles assistant API and UI visibility.
 	Enabled bool `yaml:"enabled"`
 	// Tools contains a list of allowed tool names. Empty means all built-in tools.
-	Tools []string `yaml:"tools"`
+	Tools []AssistantToolName `yaml:"tools"`
 	// SystemPrompt is an extra system instruction appended to built-in safety prompt.
 	SystemPrompt string `yaml:"systemPrompt"`
 	// Model contains LLM provider configuration.
