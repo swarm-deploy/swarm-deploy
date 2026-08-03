@@ -321,7 +321,7 @@ components:
       enum: [info, warn, error, alert]
     EventCategory:
       type: string
-      enum: [sync, security]
+      enum: [sync, security, swarm]
     EventHistoryItem:
       type: object
       required: [type, severity, category, created_at, message]

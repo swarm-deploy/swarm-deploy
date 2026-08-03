@@ -418,7 +418,7 @@
           <ul class="feature-list">
             <li id="step1Feature1">Поддерживает <code>pull</code>, <code>webhook</code> и <code>hybrid</code> режимы синхронизации.</li>
             <li id="step1Feature2">Работает с <code>none/http/ssh</code> аутентификацией Git.</li>
-            <li id="step1Feature3">Позволяет отправлять нотификации по событиям деплоя и безопасности.</li>
+            <li id="step1Feature3">Позволяет отправлять нотификации по событиям деплоя, swarm и безопасности.</li>
           </ul>
           <p id="step1Desc2">Далее соберем минимально рабочий, валидный <code>swarm-deploy.yaml</code>.</p>
         </section>
@@ -601,6 +601,8 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
               <li id="eventsItemDeploySuccess"><code>deploySuccess</code>: успешный деплой стэка.</li>
               <li id="eventsItemDeployFailed"><code>deployFailed</code>: ошибка деплоя стэка.</li>
               <li id="eventsItemSyncManualStarted"><code>syncManualStarted</code>: пользователь запустил ручной sync.</li>
+              <li id="eventsItemNodeConnected"><code>nodeConnected</code>: swarm-нода перешла в статус ready.</li>
+              <li id="eventsItemNodeDisconnected"><code>nodeDisconnected</code>: swarm-нода вышла из статуса ready.</li>
               <li id="eventsItemServiceMissed"><code>serviceMissed</code>: ожидаемый сервис отсутствует в live-состоянии swarm.</li>
               <li id="eventsItemUserAuthenticated"><code>userAuthenticated</code>: пользователь успешно прошел web-аутентификацию.</li>
               <li id="eventsItemSendNotificationFailed"><code>sendNotificationFailed</code>: не удалось отправить нотификацию.</li>
@@ -713,6 +715,14 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
                   syncManualStarted
                 </label>
                 <label>
+                  <input type="checkbox" name="events" value="nodeConnected" />
+                  nodeConnected
+                </label>
+                <label>
+                  <input type="checkbox" name="events" value="nodeDisconnected" />
+                  nodeDisconnected
+                </label>
+                <label>
                   <input type="checkbox" name="events" value="serviceMissed" />
                   serviceMissed
                 </label>
@@ -787,7 +797,7 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
           step1Feature1:
             "Поддерживает <code>pull</code>, <code>webhook</code> и <code>hybrid</code> режимы синхронизации.",
           step1Feature2: "Работает с <code>none/http/ssh</code> аутентификацией Git.",
-          step1Feature3: "Позволяет отправлять нотификации по событиям деплоя и безопасности.",
+          step1Feature3: "Позволяет отправлять нотификации по событиям деплоя, swarm и безопасности.",
           step1Desc2: "Далее соберем минимально рабочий, валидный <code>swarm-deploy.yaml</code>.",
           step2Title: "Git",
           step2Desc: "Укажите репозиторий и способ доступа к нему.",
@@ -834,6 +844,10 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
           eventsItemDeployFailed: "<code>deployFailed</code>: ошибка деплоя стэка.",
           eventsItemSyncManualStarted:
             "<code>syncManualStarted</code>: пользователь запустил ручной sync.",
+          eventsItemNodeConnected:
+            "<code>nodeConnected</code>: swarm-нода перешла в статус ready.",
+          eventsItemNodeDisconnected:
+            "<code>nodeDisconnected</code>: swarm-нода вышла из статуса ready.",
           eventsItemServiceMissed:
             "<code>serviceMissed</code>: ожидаемый сервис отсутствует в live-состоянии swarm.",
           eventsItemUserAuthenticated:
@@ -897,6 +911,18 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
               "error: {{.event.error}}",
             ],
             syncManualStarted: ["ручной sync запущен"],
+            nodeConnected: [
+              "swarm-нода подключена",
+              "node: {{.event.node_name}}",
+              "node_id: {{.event.node_id}}",
+              "status: {{.event.status}}",
+            ],
+            nodeDisconnected: [
+              "swarm-нода отключена",
+              "node: {{.event.node_name}}",
+              "node_id: {{.event.node_id}}",
+              "status: {{.event.status}}",
+            ],
             serviceMissed: [
               "сервис отсутствует в swarm",
               "stack: {{.event.stack_name}}",
@@ -935,7 +961,7 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
           step1Feature1:
             "Supports <code>pull</code>, <code>webhook</code>, and <code>hybrid</code> sync modes.",
           step1Feature2: "Works with <code>none/http/ssh</code> Git authentication.",
-          step1Feature3: "Can send notifications for deploy and security events.",
+          step1Feature3: "Can send notifications for deploy, swarm, and security events.",
           step1Desc2: "Next, we will assemble a minimal valid <code>swarm-deploy.yaml</code>.",
           step2Title: "Git",
           step2Desc: "Provide repository details and the access method.",
@@ -982,6 +1008,10 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
           eventsItemDeployFailed: "<code>deployFailed</code>: stack deployment failed.",
           eventsItemSyncManualStarted:
             "<code>syncManualStarted</code>: a user started manual sync.",
+          eventsItemNodeConnected:
+            "<code>nodeConnected</code>: a swarm node became ready.",
+          eventsItemNodeDisconnected:
+            "<code>nodeDisconnected</code>: a swarm node left ready state.",
           eventsItemServiceMissed:
             "<code>serviceMissed</code>: a desired service is absent from live swarm state.",
           eventsItemUserAuthenticated:
@@ -1045,6 +1075,18 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
               "error: {{.event.error}}",
             ],
             syncManualStarted: ["manual sync started"],
+            nodeConnected: [
+              "swarm node connected",
+              "node: {{.event.node_name}}",
+              "node_id: {{.event.node_id}}",
+              "status: {{.event.status}}",
+            ],
+            nodeDisconnected: [
+              "swarm node disconnected",
+              "node: {{.event.node_name}}",
+              "node_id: {{.event.node_id}}",
+              "status: {{.event.status}}",
+            ],
             serviceMissed: [
               "service is missing in swarm",
               "stack: {{.event.stack_name}}",
@@ -1185,6 +1227,8 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
         setHTML("eventsItemDeploySuccess", "eventsItemDeploySuccess");
         setHTML("eventsItemDeployFailed", "eventsItemDeployFailed");
         setHTML("eventsItemSyncManualStarted", "eventsItemSyncManualStarted");
+        setHTML("eventsItemNodeConnected", "eventsItemNodeConnected");
+        setHTML("eventsItemNodeDisconnected", "eventsItemNodeDisconnected");
         setHTML("eventsItemServiceMissed", "eventsItemServiceMissed");
         setHTML("eventsItemUserAuthenticated", "eventsItemUserAuthenticated");
         setHTML("eventsItemSendNotificationFailed", "eventsItemSendNotificationFailed");

@@ -68,3 +68,29 @@ func TestHandlerListEventsUsesOrWithinSeverityFilter(t *testing.T) {
 	assert.Equal(t, "syncManualStarted", resp.Events[0].Type)
 	assert.Equal(t, "sendNotificationFailed", resp.Events[1].Type)
 }
+
+func TestHandlerListEventsFiltersBySwarmCategory(t *testing.T) {
+	t.Parallel()
+
+	store, err := history.NewStore(filepath.Join(t.TempDir(), "events.json"), 50)
+	require.NoError(t, err, "new history store")
+	require.NoError(t, store.Handle(context.Background(), &events.SyncManualStarted{}))
+	require.NoError(
+		t,
+		store.Handle(context.Background(), &events.NodeDisconnected{
+			NodeID:   "node-1",
+			NodeName: "worker-1",
+			Status:   "disconnected",
+		}),
+	)
+
+	h := &handler{history: store}
+	resp, err := h.ListEvents(context.Background(), generated.ListEventsParams{
+		Categories: []generated.EventCategory{generated.EventCategorySwarm},
+	})
+	require.NoError(t, err, "list events")
+	require.Len(t, resp.Events, 1, "expected swarm events only")
+	assert.Equal(t, "nodeDisconnected", resp.Events[0].Type)
+	assert.Equal(t, generated.EventSeverityAlert, resp.Events[0].Severity)
+	assert.Equal(t, generated.EventCategorySwarm, resp.Events[0].Category)
+}

@@ -209,6 +209,7 @@ type EventCategory string
 const (
 	EventCategorySync     EventCategory = "sync"
 	EventCategorySecurity EventCategory = "security"
+	EventCategorySwarm    EventCategory = "swarm"
 )
 
 // AllValues returns all EventCategory values.
@@ -216,6 +217,7 @@ func (EventCategory) AllValues() []EventCategory {
 	return []EventCategory{
 		EventCategorySync,
 		EventCategorySecurity,
+		EventCategorySwarm,
 	}
 }
 
@@ -225,6 +227,8 @@ func (s EventCategory) MarshalText() ([]byte, error) {
 	case EventCategorySync:
 		return []byte(s), nil
 	case EventCategorySecurity:
+		return []byte(s), nil
+	case EventCategorySwarm:
 		return []byte(s), nil
 	default:
 		return nil, errors.Errorf("invalid value: %q", s)
@@ -239,6 +243,9 @@ func (s *EventCategory) UnmarshalText(data []byte) error {
 		return nil
 	case EventCategorySecurity:
 		*s = EventCategorySecurity
+		return nil
+	case EventCategorySwarm:
+		*s = EventCategorySwarm
 		return nil
 	default:
 		return errors.Errorf("invalid value: %q", data)

@@ -312,6 +312,8 @@ func toGeneratedEventCategory(category events.Category) generated.EventCategory 
 	switch category {
 	case events.CategorySecurity:
 		return generated.EventCategorySecurity
+	case events.CategorySwarm:
+		return generated.EventCategorySwarm
 	case events.CategorySync:
 		fallthrough
 	default:

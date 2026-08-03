@@ -97,7 +97,7 @@ export interface CurrentUserResponse {
 }
 
 export type EventSeverity = "info" | "warn" | "error" | "alert";
-export type EventCategory = "sync" | "security";
+export type EventCategory = "sync" | "security" | "swarm";
 
 export interface EventHistoryItem {
   type: string;

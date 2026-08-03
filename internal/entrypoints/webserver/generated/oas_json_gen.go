@@ -468,6 +468,8 @@ func (s *EventCategory) Decode(d *jx.Decoder) error {
 		*s = EventCategorySync
 	case EventCategorySecurity:
 		*s = EventCategorySecurity
+	case EventCategorySwarm:
+		*s = EventCategorySwarm
 	default:
 		*s = EventCategory(v)
 	}

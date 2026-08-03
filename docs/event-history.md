@@ -7,6 +7,8 @@
 | `servicePruned`                    | `info`   | `sync`     | Orphaned managed service was removed | `stack_name`, `service_name`, `commit`                       |
 | `sendNotificationFailed`           | `error`  | `sync`     | Notification delivery failure       | `destination`, `channel`, `event_type`, `error` (if present) |
 | `syncManualStarted`                | `info`   | `sync`     | Manual sync run started             | `triggered_by` (if present)                                  |
+| `nodeConnected`                    | `info`   | `swarm`    | Swarm node became ready             | `node_id`, `node_name` (if present), `status`                 |
+| `nodeDisconnected`                 | `alert`  | `swarm`    | Swarm node left ready state         | `node_id`, `node_name` (if present), `status`                 |
 | `serviceMissed`                    | `alert`  | `sync`     | Desired service is absent in swarm state | `stack_name`, `service_name`, `commit`                  |
 | `serviceReplicasIncreased`         | `info`   | `sync`     | Service replicas count increased    | `stack`, `service`, `previous_replicas`, `current_replicas`, `username` (if present) |
 | `serviceReplicasDecreased`         | `info`   | `sync`     | Service replicas count decreased    | `stack`, `service`, `previous_replicas`, `current_replicas`, `username` (if present) |
@@ -19,7 +21,7 @@ All runtime events are persisted to disk in `.swarm-deploy/event-history.json` a
 - `GET /api/v1/events` - returns latest stored events
   - optional query filters:
     - `severities` - list of severities (`info`, `warn`, `error`, `alert`)
-    - `categories` - list of categories (`sync`, `security`)
+    - `categories` - list of categories (`sync`, `security`, `swarm`)
 
 History size is bounded by `eventHistory.capacity` in config. When limit is reached, the oldest event is removed.
 

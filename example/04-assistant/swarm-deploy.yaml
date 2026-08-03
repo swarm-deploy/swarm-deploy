@@ -67,7 +67,7 @@ eventHistory:
 # Notification channels grouped by event type.
 notifications:
   on:
-    # Event type examples: deploySuccess | deployFailed | servicePruned | syncManualStarted | serviceRestarted | userAuthenticated
+    # Event type examples: deploySuccess | deployFailed | servicePruned | syncManualStarted | nodeConnected | nodeDisconnected | serviceRestarted | userAuthenticated
     deploySuccess:
       telegram:
         - name: ops-success

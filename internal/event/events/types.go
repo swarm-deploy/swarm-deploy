@@ -20,6 +20,8 @@ const (
 	TypeNameDeployFailed                     TypeName = "deployFailed"
 	TypeNameSendNotificationFailed           TypeName = "sendNotificationFailed"
 	TypeNameSyncManualStarted                TypeName = "syncManualStarted"
+	TypeNameNodeConnected                    TypeName = "nodeConnected"
+	TypeNameNodeDisconnected                 TypeName = "nodeDisconnected"
 	TypeNameServiceMissed                    TypeName = "serviceMissed"
 	TypeNameServiceReplicasIncreased         TypeName = "serviceReplicasIncreased"
 	TypeNameServiceReplicasDecreased         TypeName = "serviceReplicasDecreased"
@@ -39,10 +41,12 @@ const (
 const (
 	CategorySync     Category = "sync"
 	CategorySecurity Category = "security"
+	CategorySwarm    Category = "swarm"
 )
 
 const (
 	defaultSyncDedupWindow   = 5 * time.Second
+	nodeDedupWindow          = 15 * time.Second
 	serviceDedupWindow       = 15 * time.Second
 	securityAlertDedupWindow = 30 * time.Second
 )
@@ -88,6 +92,18 @@ var (
 		severity: SeverityInfo,
 		category: CategorySync,
 		window:   defaultSyncDedupWindow,
+	}
+	TypeNodeConnected = Type{
+		name:     TypeNameNodeConnected,
+		severity: SeverityInfo,
+		category: CategorySwarm,
+		window:   nodeDedupWindow,
+	}
+	TypeNodeDisconnected = Type{
+		name:     TypeNameNodeDisconnected,
+		severity: SeverityAlert,
+		category: CategorySwarm,
+		window:   nodeDedupWindow,
 	}
 	TypeServiceMissed = Type{
 		name:     TypeNameServiceMissed,
@@ -137,6 +153,8 @@ var (
 		TypeDeployFailed,
 		TypeSendNotificationFailed,
 		TypeSyncManualStarted,
+		TypeNodeConnected,
+		TypeNodeDisconnected,
 		TypeServiceMissed,
 		TypeServiceReplicasIncreased,
 		TypeServiceReplicasDecreased,
@@ -203,6 +221,10 @@ func (n TypeName) Valid() bool {
 		return true
 	case TypeNameSyncManualStarted:
 		return true
+	case TypeNameNodeConnected:
+		return true
+	case TypeNameNodeDisconnected:
+		return true
 	case TypeNameServiceMissed:
 		return true
 	case TypeNameServiceReplicasIncreased:
@@ -233,6 +255,10 @@ func ParseType(name string) (Type, bool) {
 		return TypeSendNotificationFailed, true
 	case TypeNameSyncManualStarted:
 		return TypeSyncManualStarted, true
+	case TypeNameNodeConnected:
+		return TypeNodeConnected, true
+	case TypeNameNodeDisconnected:
+		return TypeNodeDisconnected, true
 	case TypeNameServiceMissed:
 		return TypeServiceMissed, true
 	case TypeNameServiceReplicasIncreased:
@@ -275,6 +301,8 @@ func ParseCategory(raw string) (Category, bool) {
 		return CategorySync, true
 	case CategorySecurity:
 		return CategorySecurity, true
+	case CategorySwarm:
+		return CategorySwarm, true
 	default:
 		return "", false
 	}

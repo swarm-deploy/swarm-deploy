@@ -123,6 +123,8 @@ func (s EventCategory) Validate() error {
 		return nil
 	case "security":
 		return nil
+	case "swarm":
+		return nil
 	default:
 		return errors.Errorf("invalid value: %v", s)
 	}

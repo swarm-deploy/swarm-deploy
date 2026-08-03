@@ -118,7 +118,6 @@ func main() {
 		slog.ErrorContext(ctx, "failed to init node store", slog.Any("err", err))
 		os.Exit(1)
 	}
-	nodeCollector := swarmnode.NewNodeCollector(swarmService.Nodes, nodeStore)
 
 	eventDispatcher, eventHistory, serviceStore, err := buildEventDispatcher(
 		cfg,
@@ -130,6 +129,7 @@ func main() {
 		slog.ErrorContext(ctx, "failed to build event dispatcher", slog.Any("err", err))
 		os.Exit(1)
 	}
+	nodeCollector := swarmnode.NewNodeCollector(swarmService.Nodes, nodeStore, eventDispatcher)
 
 	stateFileStore, err := modelstore.NewFileStore(filepath.Join(cfg.Spec.DataDir, "controller.state.json"))
 	if err != nil {
