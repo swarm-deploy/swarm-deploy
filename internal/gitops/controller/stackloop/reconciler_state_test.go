@@ -195,6 +195,103 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 	assert.Equal(t, stackFile.Digest, stackState.SourceDigest, "expected persisted digest to remain unchanged")
 }
 
+func TestReconcileWritesRenderedComposeWithObjectFilesResolvedFromSourceCompose(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repository := gitx.NewMockRepository(ctrl)
+	serviceManager := swarm.NewMockServiceManager(ctrl)
+	stackDeployer := deployer.NewMockStackDeployer(ctrl)
+	stateStore := modelstore.NewMemoryStore()
+	repoDir := t.TempDir()
+	eventDispatcher := &dispatcher.NopDispatcher{}
+	renderedPath := filepath.Join(repoDir, ".data", "rendered", "app.yaml")
+
+	require.NoError(t, os.MkdirAll(filepath.Join(repoDir, "deploy"), 0o755), "create compose dir")
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "deploy", "docker-compose.yaml"), []byte(`
+services:
+  api:
+    image: nginx:latest
+    configs:
+      - source: app-config
+    secrets:
+      - source: app-secret
+configs:
+  app-config:
+    file: ./config/app.yaml
+  abs-config:
+    file: /etc/swarm-deploy/config.yaml
+secrets:
+  app-secret:
+    file: secrets/password.txt
+  abs-secret:
+    file: /run/source-secret
+`), 0o600), "write compose")
+
+	repository.EXPECT().WorkingDir().Return(repoDir)
+	stackDeployer.EXPECT().
+		DeployStack(gomock.Any(), "app", renderedPath, gomock.Any()).
+		Return(nil)
+	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
+
+	reconciler := &Reconciler{
+		cfg: &config.Config{
+			Spec: config.Spec{
+				DataDir: filepath.Join(repoDir, ".data"),
+			},
+		},
+		git:            repository,
+		deployer:       stackDeployer,
+		event:          eventDispatcher,
+		deployMetrics:  &metrics.NopDeploys{},
+		stateStore:     stateStore,
+		pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
+		composeLoader:  compose.NewFileLoader(),
+		composeRotator: NewRotator(),
+		serviceManager: serviceManager,
+	}
+	reconciler.attachPipeline()
+
+	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
+		Stack: config.StackSpec{
+			Name:        "app",
+			ComposeFile: "deploy/docker-compose.yaml",
+		},
+		Commit: "commit-4",
+	})
+
+	require.NoError(t, reconcileErr, "reconcile")
+
+	renderedRaw, err := os.ReadFile(renderedPath)
+	require.NoError(t, err, "read rendered compose")
+
+	renderedCompose, err := compose.Parse(renderedRaw)
+	require.NoError(t, err, "parse rendered compose")
+
+	assert.Equal(
+		t,
+		filepath.Join(repoDir, "deploy", "config", "app.yaml"),
+		renderedCompose.Configs["app-config"].File,
+		"relative config file should be resolved from source compose dir",
+	)
+	assert.Equal(
+		t,
+		"/etc/swarm-deploy/config.yaml",
+		renderedCompose.Configs["abs-config"].File,
+		"absolute config file should be preserved",
+	)
+	assert.Equal(
+		t,
+		filepath.Join(repoDir, "deploy", "secrets", "password.txt"),
+		renderedCompose.Secrets["app-secret"].File,
+		"relative secret file should be resolved from source compose dir",
+	)
+	assert.Equal(
+		t,
+		"/run/source-secret",
+		renderedCompose.Secrets["abs-secret"].File,
+		"absolute secret file should be preserved",
+	)
+}
+
 func TestReconcilePrunesServicesForSkippedManualSync(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	repository := gitx.NewMockRepository(ctrl)

@@ -133,6 +133,8 @@ func (r *Reconciler) writeRenderedCompose(_ context.Context, payload *pipelinePa
 		return fmt.Errorf("create rendered dir: %w", err)
 	}
 
+	normalizeRenderedObjectFilePaths(payload.Desired)
+
 	content, err := payload.Desired.MarshalYAML()
 	if err != nil {
 		return fmt.Errorf("failed to marshal desired compose yaml: %w", err)
@@ -151,6 +153,23 @@ func (r *Reconciler) writeRenderedCompose(_ context.Context, payload *pipelinePa
 
 func (r *Reconciler) deployStack(ctx context.Context, payload *pipelinePayload) error {
 	return r.deployer.DeployStack(ctx, payload.Stack.Name, payload.Desired.Path, payload.Desired.Compose.Services)
+}
+
+func normalizeRenderedObjectFilePaths(file *compose.File) {
+	baseDir := filepath.Dir(file.Path)
+
+	normalizeSharedObjectFilePaths(baseDir, file.Compose.Configs)
+	normalizeSharedObjectFilePaths(baseDir, file.Compose.Secrets)
+}
+
+func normalizeSharedObjectFilePaths(baseDir string, objects compose.SharedObjects) {
+	for _, object := range objects {
+		if object.External || object.File == "" || filepath.IsAbs(object.File) {
+			continue
+		}
+
+		object.File = filepath.Clean(filepath.Join(baseDir, object.File))
+	}
 }
 
 func (r *Reconciler) loadLiveState(ctx context.Context, payload *pipelinePayload) error {
