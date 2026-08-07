@@ -28,5 +28,5 @@ type BasicAuthenticationSpec struct {
 
 type AuthProxyAuthenticationSpec struct {
 	// LoginHeader is the request header containing the authenticated user login.
-	LoginHeader string `yaml:"login_header"`
+	LoginHeader string `yaml:"loginHeader"`
 }
