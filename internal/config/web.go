@@ -17,9 +17,18 @@ type SecuritySpec struct {
 type AuthenticationSpec struct {
 	// Basic contains HTTP Basic authentication settings.
 	Basic BasicAuthenticationSpec `yaml:"basic"`
+	// AuthProxy contains authentication settings for a trusted reverse proxy.
+	AuthProxy AuthProxyAuthenticationSpec `yaml:"authProxy"`
 }
 
 type BasicAuthenticationSpec struct {
 	// HTPasswdFile is a path to htpasswd file with user credentials.
 	HTPasswdFile specw.File `yaml:"htpasswdFile"`
+}
+
+type AuthProxyAuthenticationSpec struct {
+	// Enabled enables authentication using a login header set by a trusted reverse proxy.
+	Enabled bool `yaml:"enabled"`
+	// LoginHeader is the request header containing the authenticated user login.
+	LoginHeader string `yaml:"login_header"`
 }
