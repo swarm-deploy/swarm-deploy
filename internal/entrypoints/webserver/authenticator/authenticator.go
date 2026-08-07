@@ -16,6 +16,14 @@ type Authenticator interface {
 }
 
 func Create(cfg config.AuthenticationSpec) (Authenticator, error) {
+	if cfg.AuthProxy.Enabled {
+		authenticator, err := newAuthProxyAuthenticator(cfg.AuthProxy.LoginHeader)
+		if err != nil {
+			return nil, fmt.Errorf("create auth proxy authenticator: %w", err)
+		}
+		return authenticator, nil
+	}
+
 	switch cfg.Strategy() {
 	case config.AuthenticationStrategyNone:
 		//nolint:nilnil // authentication not required
