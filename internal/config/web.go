@@ -27,8 +27,6 @@ type BasicAuthenticationSpec struct {
 }
 
 type AuthProxyAuthenticationSpec struct {
-	// Enabled enables authentication using a login header set by a trusted reverse proxy.
-	Enabled bool `yaml:"enabled"`
 	// LoginHeader is the request header containing the authenticated user login.
 	LoginHeader string `yaml:"login_header"`
 }
