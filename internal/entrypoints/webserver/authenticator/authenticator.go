@@ -16,25 +16,25 @@ type Authenticator interface {
 }
 
 func Create(cfg config.AuthenticationSpec) (Authenticator, error) {
-	if cfg.AuthProxy.Enabled {
+	strategy := cfg.Strategy()
+
+	switch {
+	case cfg.AuthProxy.Enabled:
 		authenticator, err := newAuthProxyAuthenticator(cfg.AuthProxy.LoginHeader)
 		if err != nil {
 			return nil, fmt.Errorf("create auth proxy authenticator: %w", err)
 		}
 		return authenticator, nil
-	}
-
-	switch cfg.Strategy() {
-	case config.AuthenticationStrategyNone:
+	case strategy == config.AuthenticationStrategyNone:
 		//nolint:nilnil // authentication not required
 		return nil, nil
-	case config.AuthenticationStrategyBasic:
+	case strategy == config.AuthenticationStrategyBasic:
 		authenticator, err := newBasicAuthenticator(cfg.Basic.HTPasswdFile)
 		if err != nil {
 			return nil, fmt.Errorf("create basic authenticator: %w", err)
 		}
 		return authenticator, nil
 	default:
-		return nil, fmt.Errorf("unsupported authenticator %q", cfg.Strategy())
+		return nil, fmt.Errorf("unsupported authenticator %q", strategy)
 	}
 }
