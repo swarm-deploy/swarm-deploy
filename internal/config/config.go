@@ -24,6 +24,8 @@ const (
 	AuthenticationStrategyNone = "none"
 	// AuthenticationStrategyBasic enables HTTP Basic authentication.
 	AuthenticationStrategyBasic = "basic"
+	// AuthenticationStrategyAuthProxy enables authentication through a trusted reverse proxy.
+	AuthenticationStrategyAuthProxy = "auth_proxy"
 
 	defaultWebAddress         = ":8080"
 	defaultWebhookAddress     = ":8082"
@@ -126,7 +128,7 @@ type StacksSourceSpec struct {
 }
 
 type NetworksSourceSpec struct {
-	// File is a path to YAML file with network definitions relative to repository root.
+	// File is a path to network definitions file inside git repository.
 	File string `yaml:"file"`
 }
 
@@ -780,6 +782,9 @@ func (a AssistantOpenAISpec) ResolveMaxTokens() (int, error) {
 
 // Strategy resolves configured web authentication strategy.
 func (a AuthenticationSpec) Strategy() string {
+	if strings.TrimSpace(a.AuthProxy.LoginHeader) != "" {
+		return AuthenticationStrategyAuthProxy
+	}
 	if strings.TrimSpace(a.Basic.HTPasswdFile.Path) != "" {
 		return AuthenticationStrategyBasic
 	}
