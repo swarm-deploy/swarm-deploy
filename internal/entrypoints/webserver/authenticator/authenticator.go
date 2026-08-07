@@ -26,6 +26,12 @@ func Create(cfg config.AuthenticationSpec) (Authenticator, error) {
 			return nil, fmt.Errorf("create basic authenticator: %w", err)
 		}
 		return authenticator, nil
+	case config.AuthenticationStrategyAuthProxy:
+		authenticator, err := newAuthProxyAuthenticator(cfg.AuthProxy.LoginHeader)
+		if err != nil {
+			return nil, fmt.Errorf("create auth proxy authenticator: %w", err)
+		}
+		return authenticator, nil
 	default:
 		return nil, fmt.Errorf("unsupported authenticator %q", cfg.Strategy())
 	}
