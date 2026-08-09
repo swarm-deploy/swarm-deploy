@@ -31,6 +31,7 @@ var imageTypeDict = map[string]Type{
 	"envoy":        ReverseProxy,
 	"caddy":        ReverseProxy,
 	"port-forward": ReverseProxy,
+	"pomerium":     ReverseProxy,
 
 	"registry":     Delivery,
 	"distribution": Delivery,
