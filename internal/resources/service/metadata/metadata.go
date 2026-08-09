@@ -2,10 +2,12 @@ package metadata
 
 import (
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/resources/service/stype"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/knownapp"
 )
 
 // Metadata is resolved service metadata.
 type Metadata struct {
+	KnownApp knownapp.Name `json:"known_app"`
 	// Description is a human-readable service description.
 	Description string `json:"description"`
 	// Type is a normalized service classification.
@@ -39,6 +41,7 @@ func NewExtractor() *Extractor {
 			NewDescriptionResolver(),
 			NewRepositoryResolver(),
 			NewLinksResolver(),
+			NewKnownAppResolver(),
 		},
 	}
 }

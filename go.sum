@@ -197,6 +197,8 @@ github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
 github.com/swarm-deploy/webroute v0.1.0 h1:gTG6Kj1tG6gE9SQz+xfmaikqjKLjbljm5iBSyLCCUoI=
 github.com/swarm-deploy/webroute v0.1.0/go.mod h1:MHxZbSaDUxQvjPVKABYSKG+mMyknbQIkJKubt9BrzXA=
+github.com/swarm-deploy/webroute v0.1.1-0.20260809173440-99103223635c h1:3epEb8S5MPkTiSbZ1F4WoVkqLvFDqMfp4clTZJslNuI=
+github.com/swarm-deploy/webroute v0.1.1-0.20260809173440-99103223635c/go.mod h1:MHxZbSaDUxQvjPVKABYSKG+mMyknbQIkJKubt9BrzXA=
 github.com/tg123/go-htpasswd v1.2.4 h1:HgH8KKCjdmo7jjXWN9k1nefPBd7Be3tFCTjc2jPraPU=
 github.com/tg123/go-htpasswd v1.2.4/go.mod h1:EKThQok9xHkun6NBMynNv6Jmu24A33XdZzzl4Q7H1+0=
 github.com/tidwall/gjson v1.14.2/go.mod h1:/wbyibRr2FHMks5tjHJ5F8dMZh3AcwJEMf5vlfC0lxk=

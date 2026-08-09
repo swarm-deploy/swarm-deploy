@@ -26,7 +26,7 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
 	github.com/stretchr/testify v1.11.1
-	github.com/swarm-deploy/webroute v0.1.0
+	github.com/swarm-deploy/webroute v0.1.1-0.20260809173440-99103223635c
 	github.com/tg123/go-htpasswd v1.2.4
 	github.com/tmc/langchaingo v0.1.7
 	github.com/tmc/langgraphgo v0.0.0-20240324234251-3b0caeaffd16
