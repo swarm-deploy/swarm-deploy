@@ -13,6 +13,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -26,6 +27,9 @@ func TestHandlerGetService(t *testing.T) {
 		{
 			Name:  "api",
 			Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
+			Metadata: metadata.Metadata{Links: []metadata.Link{
+				{Type: "Grafana", URL: "https://grafana.example.com/d/payments"}},
+			},
 			Spec: swarm.ServiceSpec{
 				Image:             "ghcr.io/swarm-deploy/payments-api:v1.2.3",
 				Mode:              "replicated",
@@ -35,8 +39,10 @@ func TestHandlerGetService(t *testing.T) {
 				LimitRAMBytes:     536870912,
 				LimitCPUNano:      1000000000,
 				Labels: map[string]string{
-					"com.docker.stack.namespace": "payments",
-					"app.env":                    "prod",
+					"com.docker.stack.namespace":      "payments",
+					"org.swarm-deploy.service.type":   "application",
+					"org.swarm-deploy.service.public": "true",
+					"app.env":                         "prod",
 				},
 				Secrets: []swarm.ServiceSecret{
 					{
@@ -69,6 +75,8 @@ func TestHandlerGetService(t *testing.T) {
 	assert.Equal(t, "api", resp.Service)
 	assert.Equal(t, "ghcr.io/swarm-deploy/payments-api:v1.2.3", resp.Spec.Image)
 	assert.Equal(t, "replicated", resp.Spec.Mode)
+	require.Len(t, resp.Links, 1)
+	assert.Equal(t, generated.ServiceLink{Type: "Grafana", URL: "https://grafana.example.com/d/payments"}, resp.Links[0])
 	assert.Equal(t, int64(2), resp.Spec.Replicas)
 	assert.EqualValues(t, 268435456, resp.Spec.RequestedRAMBytes)
 	assert.EqualValues(t, 500000000, resp.Spec.RequestedCPUNano)
@@ -81,6 +89,12 @@ func TestHandlerGetService(t *testing.T) {
 	assert.Equal(t, generated.ServiceSpecLabelGroupResponse{
 		"com.docker.stack.namespace": "payments",
 	}, dockerLabels)
+	swarmDeployLabels, ok := labels.SwarmDeploy.Get()
+	require.True(t, ok)
+	assert.Equal(t, generated.ServiceSpecLabelGroupResponse{
+		"org.swarm-deploy.service.type":   "application",
+		"org.swarm-deploy.service.public": "true",
+	}, swarmDeployLabels)
 	customLabels, ok := labels.Custom.Get()
 	require.True(t, ok)
 	assert.Equal(t, generated.ServiceSpecLabelGroupResponse{

@@ -125,6 +125,7 @@ export interface ServiceSpecNetworkResponse {
 
 export interface ServiceSpecLabelsResponse {
   docker?: Record<string, string>;
+  swarm_deploy?: Record<string, string>;
   custom?: Record<string, string>;
 }
 
@@ -141,10 +142,16 @@ export interface ServiceSpecResponse {
   network?: ServiceSpecNetworkResponse[];
 }
 
+export interface ServiceLink {
+  type: string;
+  url: string;
+}
+
 export interface ServiceStatusResponse {
   stack: string;
   service: string;
   spec: ServiceSpecResponse;
+  links: ServiceLink[];
 }
 
 export interface ServiceRealtimeTask {

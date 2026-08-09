@@ -8,7 +8,10 @@ const (
 
 	ServiceSyncPolicyPruneLabelKey = "org.swarm-deploy.service.sync.policy.prune"
 
-	ServiceType = "org.swarm-deploy.service.type"
+	ServiceType        = "org.swarm-deploy.service.type"
+	ServiceDescription = "org.swarm-deploy.service.description"
+
+	GrafanaURL = "org.swarm-deploy.grafana.url"
 )
 
 func ServiceManaged(labels map[string]string) bool {

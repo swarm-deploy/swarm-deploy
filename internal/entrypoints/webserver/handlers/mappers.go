@@ -12,6 +12,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
 	resourcegraph "github.com/swarm-deploy/swarm-deploy/internal/resources/graph"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/resources/service/stype"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/utils"
@@ -23,6 +24,7 @@ const (
 	externalPathLabel      = "external_path"
 	externalVersionIDLabel = "external_version_id"
 	dockerLabelPrefix      = "com.docker."
+	swarmDeployLabelPrefix = "org.swarm-deploy"
 )
 
 func (h *handler) listStacks() []generated.StackView {
@@ -96,7 +98,20 @@ func toGeneratedServiceStatusFromInfo(serviceInfo service.Info) *generated.Servi
 		Stack:   serviceInfo.Stack,
 		Service: serviceInfo.Name,
 		Spec:    toGeneratedServiceSpec(spec),
+		Links:   toGeneratedServiceLinks(serviceInfo.Links),
 	}
+}
+
+func toGeneratedServiceLinks(links []metadata.Link) []generated.ServiceLink {
+	mapped := make([]generated.ServiceLink, 0, len(links))
+	for _, link := range links {
+		mapped = append(mapped, generated.ServiceLink{
+			Type: link.Type,
+			URL:  link.URL,
+		})
+	}
+
+	return mapped
 }
 
 func toGeneratedServiceRealtimeTasks(
@@ -204,13 +219,18 @@ func toGeneratedServiceSpec(spec swarm.ServiceSpec) generated.ServiceSpecRespons
 		Network:           toGeneratedServiceSpecNetworks(spec.Network),
 	}
 
-	if len(spec.Labels) > 0 {
+	if len(spec.Labels) > 0 { //nolint:nestif // nn
 		dockerLabels := make(generated.ServiceSpecLabelGroupResponse)
+		swarmDeployLabels := make(generated.ServiceSpecLabelGroupResponse)
 		customLabels := make(generated.ServiceSpecLabelGroupResponse)
 
 		for key, value := range spec.Labels {
 			if strings.HasPrefix(key, dockerLabelPrefix) {
 				dockerLabels[key] = value
+				continue
+			}
+			if strings.HasPrefix(key, swarmDeployLabelPrefix) {
+				swarmDeployLabels[key] = value
 				continue
 			}
 
@@ -221,10 +241,13 @@ func toGeneratedServiceSpec(spec swarm.ServiceSpec) generated.ServiceSpecRespons
 		if len(dockerLabels) > 0 {
 			groupedLabels.Docker = generated.NewOptServiceSpecLabelGroupResponse(dockerLabels)
 		}
+		if len(swarmDeployLabels) > 0 {
+			groupedLabels.SwarmDeploy = generated.NewOptServiceSpecLabelGroupResponse(swarmDeployLabels)
+		}
 		if len(customLabels) > 0 {
 			groupedLabels.Custom = generated.NewOptServiceSpecLabelGroupResponse(customLabels)
 		}
-		if groupedLabels.Docker.IsSet() || groupedLabels.Custom.IsSet() {
+		if groupedLabels.Docker.IsSet() || groupedLabels.SwarmDeploy.IsSet() || groupedLabels.Custom.IsSet() {
 			mapped.Labels = generated.NewOptServiceSpecLabelsResponse(groupedLabels)
 		}
 	}

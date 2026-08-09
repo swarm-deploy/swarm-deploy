@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -157,7 +158,7 @@ func TestSubscriberHandle(t *testing.T) {
 			store, err := NewStore(filepath.Join(t.TempDir(), "services.json"))
 			require.NoError(t, err)
 
-			sub := NewSubscriber(store, inspector, images, NewMetadataExtractor())
+			sub := NewSubscriber(store, inspector, images, metadata.NewExtractor())
 			serviceRef := swarm.NewServiceReference("payments", "api")
 			testCase.setupMocks(inspector, images, serviceRef)
 

@@ -420,6 +420,14 @@ components:
           type: string
         port:
           type: string
+    ServiceLink:
+      type: object
+      required: [type, url]
+      properties:
+        type:
+          type: string
+        url:
+          type: string
     NodesResponse:
       type: object
       required: [nodes]
@@ -592,7 +600,7 @@ components:
           format: date-time
     ServiceStatusResponse:
       type: object
-      required: [stack, service, spec]
+      required: [stack, service, spec, links]
       properties:
         stack:
           type: string
@@ -600,6 +608,10 @@ components:
           type: string
         spec:
           $ref: '#/components/schemas/ServiceSpecResponse'
+        links:
+          type: array
+          items:
+            $ref: '#/components/schemas/ServiceLink'
     ServiceSpecResponse:
       type: object
       required: [image, mode, replicas, requested_ram_bytes, requested_cpu_nano, limit_ram_bytes, limit_cpu_nano]
@@ -642,6 +654,8 @@ components:
       type: object
       properties:
         docker:
+          $ref: '#/components/schemas/ServiceSpecLabelGroupResponse'
+        swarm_deploy:
           $ref: '#/components/schemas/ServiceSpecLabelGroupResponse'
         custom:
           $ref: '#/components/schemas/ServiceSpecLabelGroupResponse'

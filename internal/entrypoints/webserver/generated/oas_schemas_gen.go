@@ -2161,6 +2161,32 @@ func (s *ServiceInfoType) UnmarshalText(data []byte) error {
 	}
 }
 
+// Ref: #/components/schemas/ServiceLink
+type ServiceLink struct {
+	Type string `json:"type"`
+	URL  string `json:"url"`
+}
+
+// GetType returns the value of Type.
+func (s *ServiceLink) GetType() string {
+	return s.Type
+}
+
+// GetURL returns the value of URL.
+func (s *ServiceLink) GetURL() string {
+	return s.URL
+}
+
+// SetType sets the value of Type.
+func (s *ServiceLink) SetType(val string) {
+	s.Type = val
+}
+
+// SetURL sets the value of URL.
+func (s *ServiceLink) SetURL(val string) {
+	s.URL = val
+}
+
 // Ref: #/components/schemas/ServiceRealtimeResponse
 type ServiceRealtimeResponse struct {
 	Tasks []ServiceRealtimeTask `json:"tasks"`
@@ -2271,13 +2297,19 @@ func (s *ServiceSpecLabelGroupResponse) init() ServiceSpecLabelGroupResponse {
 
 // Ref: #/components/schemas/ServiceSpecLabelsResponse
 type ServiceSpecLabelsResponse struct {
-	Docker OptServiceSpecLabelGroupResponse `json:"docker"`
-	Custom OptServiceSpecLabelGroupResponse `json:"custom"`
+	Docker      OptServiceSpecLabelGroupResponse `json:"docker"`
+	SwarmDeploy OptServiceSpecLabelGroupResponse `json:"swarm_deploy"`
+	Custom      OptServiceSpecLabelGroupResponse `json:"custom"`
 }
 
 // GetDocker returns the value of Docker.
 func (s *ServiceSpecLabelsResponse) GetDocker() OptServiceSpecLabelGroupResponse {
 	return s.Docker
+}
+
+// GetSwarmDeploy returns the value of SwarmDeploy.
+func (s *ServiceSpecLabelsResponse) GetSwarmDeploy() OptServiceSpecLabelGroupResponse {
+	return s.SwarmDeploy
 }
 
 // GetCustom returns the value of Custom.
@@ -2288,6 +2320,11 @@ func (s *ServiceSpecLabelsResponse) GetCustom() OptServiceSpecLabelGroupResponse
 // SetDocker sets the value of Docker.
 func (s *ServiceSpecLabelsResponse) SetDocker(val OptServiceSpecLabelGroupResponse) {
 	s.Docker = val
+}
+
+// SetSwarmDeploy sets the value of SwarmDeploy.
+func (s *ServiceSpecLabelsResponse) SetSwarmDeploy(val OptServiceSpecLabelGroupResponse) {
+	s.SwarmDeploy = val
 }
 
 // SetCustom sets the value of Custom.
@@ -2477,6 +2514,7 @@ type ServiceStatusResponse struct {
 	Stack   string              `json:"stack"`
 	Service string              `json:"service"`
 	Spec    ServiceSpecResponse `json:"spec"`
+	Links   []ServiceLink       `json:"links"`
 }
 
 // GetStack returns the value of Stack.
@@ -2494,6 +2532,11 @@ func (s *ServiceStatusResponse) GetSpec() ServiceSpecResponse {
 	return s.Spec
 }
 
+// GetLinks returns the value of Links.
+func (s *ServiceStatusResponse) GetLinks() []ServiceLink {
+	return s.Links
+}
+
 // SetStack sets the value of Stack.
 func (s *ServiceStatusResponse) SetStack(val string) {
 	s.Stack = val
@@ -2507,6 +2550,11 @@ func (s *ServiceStatusResponse) SetService(val string) {
 // SetSpec sets the value of Spec.
 func (s *ServiceStatusResponse) SetSpec(val ServiceSpecResponse) {
 	s.Spec = val
+}
+
+// SetLinks sets the value of Links.
+func (s *ServiceStatusResponse) SetLinks(val []ServiceLink) {
+	s.Links = val
 }
 
 // Ref: #/components/schemas/ServiceSyncStatus

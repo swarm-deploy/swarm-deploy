@@ -4388,6 +4388,119 @@ func (s *ServiceInfoType) UnmarshalJSON(data []byte) error {
 }
 
 // Encode implements json.Marshaler.
+func (s *ServiceLink) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *ServiceLink) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("type")
+		e.Str(s.Type)
+	}
+	{
+		e.FieldStart("url")
+		e.Str(s.URL)
+	}
+}
+
+var jsonFieldsNameOfServiceLink = [2]string{
+	0: "type",
+	1: "url",
+}
+
+// Decode decodes ServiceLink from json.
+func (s *ServiceLink) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode ServiceLink to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "type":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.Type = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"type\"")
+			}
+		case "url":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.URL = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"url\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode ServiceLink")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000011,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfServiceLink) {
+					name = jsonFieldsNameOfServiceLink[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *ServiceLink) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *ServiceLink) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
 func (s *ServiceRealtimeResponse) Encode(e *jx.Encoder) {
 	e.ObjStart()
 	s.encodeFields(e)
@@ -4763,6 +4876,12 @@ func (s *ServiceSpecLabelsResponse) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.SwarmDeploy.Set {
+			e.FieldStart("swarm_deploy")
+			s.SwarmDeploy.Encode(e)
+		}
+	}
+	{
 		if s.Custom.Set {
 			e.FieldStart("custom")
 			s.Custom.Encode(e)
@@ -4770,9 +4889,10 @@ func (s *ServiceSpecLabelsResponse) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfServiceSpecLabelsResponse = [2]string{
+var jsonFieldsNameOfServiceSpecLabelsResponse = [3]string{
 	0: "docker",
-	1: "custom",
+	1: "swarm_deploy",
+	2: "custom",
 }
 
 // Decode decodes ServiceSpecLabelsResponse from json.
@@ -4792,6 +4912,16 @@ func (s *ServiceSpecLabelsResponse) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"docker\"")
+			}
+		case "swarm_deploy":
+			if err := func() error {
+				s.SwarmDeploy.Reset()
+				if err := s.SwarmDeploy.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"swarm_deploy\"")
 			}
 		case "custom":
 			if err := func() error {
@@ -5376,12 +5506,21 @@ func (s *ServiceStatusResponse) encodeFields(e *jx.Encoder) {
 		e.FieldStart("spec")
 		s.Spec.Encode(e)
 	}
+	{
+		e.FieldStart("links")
+		e.ArrStart()
+		for _, elem := range s.Links {
+			elem.Encode(e)
+		}
+		e.ArrEnd()
+	}
 }
 
-var jsonFieldsNameOfServiceStatusResponse = [3]string{
+var jsonFieldsNameOfServiceStatusResponse = [4]string{
 	0: "stack",
 	1: "service",
 	2: "spec",
+	3: "links",
 }
 
 // Decode decodes ServiceStatusResponse from json.
@@ -5427,6 +5566,24 @@ func (s *ServiceStatusResponse) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"spec\"")
 			}
+		case "links":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				s.Links = make([]ServiceLink, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem ServiceLink
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.Links = append(s.Links, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"links\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -5437,7 +5594,7 @@ func (s *ServiceStatusResponse) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00000111,
+		0b00001111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

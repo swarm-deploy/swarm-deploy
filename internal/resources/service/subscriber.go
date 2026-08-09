@@ -8,6 +8,7 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
@@ -16,7 +17,7 @@ type Subscriber struct {
 	store            *Store
 	inspector        swarm.ServiceManager
 	images           swarm.ImageManager
-	metadata         *MetadataExtractor
+	metadata         *metadata.Extractor
 	webRouteResolver *WebRouteResolver
 }
 
@@ -25,7 +26,7 @@ func NewSubscriber(
 	store *Store,
 	inspector swarm.ServiceManager,
 	images swarm.ImageManager,
-	metadata *MetadataExtractor,
+	metadata *metadata.Extractor,
 ) *Subscriber {
 	return &Subscriber{
 		store:            store,
@@ -63,7 +64,7 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Event) error {
 		spec := swarm.ServiceSpec{
 			Image: deployedService.Image,
 		}
-		labels := Labels{}
+		labels := metadata.Labels{}
 		containerEnv := []string(nil)
 		status, statusErr := s.inspector.GetStatus(ctx, serviceRef)
 		if statusErr != nil {
@@ -113,18 +114,14 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Event) error {
 			}
 		}
 
-		resolved := s.metadata.Resolve(deployedService.Image, labels)
-		repositoryURL := ResolveRepositoryURL(labels)
 		serviceInfo := Info{
-			Name:          deployedService.Name,
-			Stack:         deploySuccess.StackName,
-			Description:   resolved.Description,
-			Type:          resolved.Type,
-			Image:         deployedService.Image,
-			Environment:   environment,
-			Spec:          spec,
-			RepositoryURL: repositoryURL,
-			WebRoutes:     s.webRouteResolver.Resolve(environment),
+			Metadata:    s.metadata.Extract(deployedService.Image, labels),
+			Name:        deployedService.Name,
+			Stack:       deploySuccess.StackName,
+			Image:       deployedService.Image,
+			Environment: environment,
+			Spec:        spec,
+			WebRoutes:   s.webRouteResolver.Resolve(environment),
 		}
 
 		services = append(services, serviceInfo)

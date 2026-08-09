@@ -1,13 +1,14 @@
-package description
+package metadata
 
 import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 )
 
 func TestResolverResolvePriority(t *testing.T) {
-	resolver := NewResolver()
+	resolver := NewDescriptionResolver()
 
 	cases := []struct {
 		name        string
@@ -18,14 +19,14 @@ func TestResolverResolvePriority(t *testing.T) {
 			name: "service label has top priority",
 			labels: Labels{
 				Service: map[string]string{
-					LabelService: "Service description",
+					labelsdict.ServiceDescription: "Service description",
 				},
 				Container: map[string]string{
-					LabelService: "Container description",
+					labelsdict.ServiceDescription: "Container description",
 				},
 				Image: map[string]string{
-					LabelImageTitle:       "Image title",
-					LabelImageDescription: "Image description",
+					labelsdict.OCIImageTitle:       "Image title",
+					labelsdict.OCIImageDescription: "Image description",
 				},
 			},
 			description: "Service description",
@@ -34,11 +35,11 @@ func TestResolverResolvePriority(t *testing.T) {
 			name: "container label is used when service label is absent",
 			labels: Labels{
 				Container: map[string]string{
-					LabelService: "Container description",
+					labelsdict.ServiceDescription: "Container description",
 				},
 				Image: map[string]string{
-					LabelImageTitle:       "Image title",
-					LabelImageDescription: "Image description",
+					labelsdict.OCIImageTitle:       "Image title",
+					labelsdict.OCIImageDescription: "Image description",
 				},
 			},
 			description: "Container description",
@@ -47,13 +48,13 @@ func TestResolverResolvePriority(t *testing.T) {
 			name: "service image title is used before container and image labels",
 			labels: Labels{
 				Service: map[string]string{
-					LabelImageTitle: "Service image title",
+					labelsdict.OCIImageTitle: "Service image title",
 				},
 				Container: map[string]string{
-					LabelImageTitle: "Container image title",
+					labelsdict.OCIImageTitle: "Container image title",
 				},
 				Image: map[string]string{
-					LabelImageTitle: "Image title",
+					labelsdict.OCIImageTitle: "Image title",
 				},
 			},
 			description: "Service image title",
@@ -62,10 +63,10 @@ func TestResolverResolvePriority(t *testing.T) {
 			name: "container image description is used when title is absent",
 			labels: Labels{
 				Container: map[string]string{
-					LabelImageDescription: "Container image description",
+					labelsdict.OCIImageDescription: "Container image description",
 				},
 				Image: map[string]string{
-					LabelImageDescription: "Image description",
+					labelsdict.OCIImageDescription: "Image description",
 				},
 			},
 			description: "Container image description",
@@ -74,8 +75,8 @@ func TestResolverResolvePriority(t *testing.T) {
 			name: "image description is used before image title",
 			labels: Labels{
 				Image: map[string]string{
-					LabelImageTitle:       "Image title",
-					LabelImageDescription: "Image description",
+					labelsdict.OCIImageTitle:       "Image title",
+					labelsdict.OCIImageDescription: "Image description",
 				},
 			},
 			description: "Image description",
@@ -84,7 +85,7 @@ func TestResolverResolvePriority(t *testing.T) {
 			name: "image description is used when title is absent",
 			labels: Labels{
 				Image: map[string]string{
-					LabelImageDescription: "Image description",
+					labelsdict.OCIImageDescription: "Image description",
 				},
 			},
 			description: "Image description",
@@ -98,7 +99,7 @@ func TestResolverResolvePriority(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.description, resolver.Resolve(tc.labels), "unexpected description")
+			assert.Equal(t, tc.description, resolver.resolveDescription(tc.labels), "unexpected description")
 		})
 	}
 }

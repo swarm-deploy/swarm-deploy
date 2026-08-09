@@ -27,6 +27,7 @@ const realtimeTasks = ref<ServiceRealtimeTask[]>([]);
 const realtimeLoading = ref(false);
 const realtimeError = ref("");
 const showDockerLabels = ref(false);
+const showSwarmDeployLabels = ref(false);
 const secretDetailsStore = useSecretDetailsStore();
 const overviewStore = useOverviewStore();
 
@@ -44,6 +45,7 @@ function sortedLabelEntries(labels: Record<string, string> | undefined): Array<[
 }
 const customServiceLabels = computed(() => sortedLabelEntries(serviceSpec.value?.labels?.custom));
 const dockerServiceLabels = computed(() => sortedLabelEntries(serviceSpec.value?.labels?.docker));
+const swarmDeployServiceLabels = computed(() => sortedLabelEntries(serviceSpec.value?.labels?.swarm_deploy));
 const serviceSecrets = computed(() => {
   const secrets = serviceSpec.value?.secrets;
   return Array.isArray(secrets) ? secrets : [];
@@ -51,6 +53,10 @@ const serviceSecrets = computed(() => {
 const serviceRoutes = computed(() => {
   const routes = serviceInfo.value?.web_routes;
   return Array.isArray(routes) ? routes : [];
+});
+const serviceLinks = computed(() => {
+  const links = serviceStatus.value?.links;
+  return Array.isArray(links) ? links : [];
 });
 const serviceNetworkNames = computed(() => {
   const networks = serviceSpec.value?.network;
@@ -136,6 +142,10 @@ function openSecretDetails(secretName: string): void {
 
 function toggleDockerLabels(): void {
   showDockerLabels.value = !showDockerLabels.value;
+}
+
+function toggleSwarmDeployLabels(): void {
+  showSwarmDeployLabels.value = !showSwarmDeployLabels.value;
 }
 
 async function loadServiceDetails() {
@@ -235,6 +245,7 @@ watch(
   [stackName, serviceName],
   () => {
     showDockerLabels.value = false;
+    showSwarmDeployLabels.value = false;
     void loadServiceDetails();
     void loadServiceDeployments();
     void loadServiceRealtime();
@@ -336,9 +347,35 @@ watch(
                   </ul>
                   <ul
                     v-if="showDockerLabels"
-                    class="event-details service-details-docker-tags"
+                    class="event-details service-details-hidden-tags"
                   >
                     <li v-for="[key, value] in dockerServiceLabels" :key="key" class="event-detail">
+                      <span class="event-detail-key">{{ key }}</span>
+                      <code class="event-detail-value">{{ value }}</code>
+                    </li>
+                  </ul>
+                </td>
+              </tr>
+              <tr v-if="swarmDeployServiceLabels.length > 0">
+                <th scope="row">SwarmDeploy Labels</th>
+                <td>
+                  <ul class="event-details">
+                    <li class="event-detail">
+                      <button
+                        type="button"
+                        class="service-secret-badge status unknown"
+                        :aria-expanded="showSwarmDeployLabels ? 'true' : 'false'"
+                        @click="toggleSwarmDeployLabels"
+                      >
+                        {{ showSwarmDeployLabels ? "Hide" : "Show" }}
+                      </button>
+                    </li>
+                  </ul>
+                  <ul
+                    v-if="showSwarmDeployLabels"
+                    class="event-details service-details-hidden-tags"
+                  >
+                    <li v-for="[key, value] in swarmDeployServiceLabels" :key="key" class="event-detail">
                       <span class="event-detail-key">{{ key }}</span>
                       <code class="event-detail-value">{{ value }}</code>
                     </li>
@@ -423,6 +460,37 @@ watch(
       </div>
 
       <div class="service-details-side">
+        <article v-if="serviceLinks.length > 0" class="stack-card service-links-card">
+          <h3 class="stack-title">Links</h3>
+          <ul class="service-links-list">
+            <li v-for="link in serviceLinks" :key="`${link.type}-${link.url}`">
+              <a
+                :href="link.url"
+                class="service-link"
+                target="_blank"
+                rel="noopener noreferrer"
+                :title="link.url"
+              >
+                <span class="service-link-icon" aria-hidden="true">
+                  <svg viewBox="0 0 16 16" focusable="false">
+                    <path
+                      d="M6.4 4.2a.75.75 0 0 1 0 1.06L3.66 8a2.05 2.05 0 0 0 2.9 2.9l2.1-2.1a.75.75 0 0 1 1.06 1.06l-2.1 2.1a3.55 3.55 0 1 1-5.02-5.02l2.74-2.74a.75.75 0 0 1 1.06 0Zm3.04.9-2.1 2.1a.75.75 0 1 0 1.06 1.06l2.1-2.1a2.05 2.05 0 1 1 2.9 2.9l-2.74 2.74a.75.75 0 1 0 1.06 1.06l2.74-2.74A3.55 3.55 0 1 0 9.44 5.1Z"
+                      fill="currentColor"
+                    />
+                  </svg>
+                </span>
+                <span class="service-link-label">{{ link.type }}</span>
+                <svg class="service-link-open-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                  <path
+                    d="M9.25 2.75A.75.75 0 0 1 10 2h3.25a.75.75 0 0 1 .75.75V6a.75.75 0 0 1-1.5 0V4.56L8.03 9.03a.75.75 0 0 1-1.06-1.06l4.47-4.47H10a.75.75 0 0 1-.75-.75ZM3.5 4A1.5 1.5 0 0 0 2 5.5v7A1.5 1.5 0 0 0 3.5 14h7a1.5 1.5 0 0 0 1.5-1.5V9.75a.75.75 0 0 0-1.5 0v2.75h-7v-7h2.75a.75.75 0 0 0 0-1.5H3.5Z"
+                    fill="currentColor"
+                  />
+                </svg>
+              </a>
+            </li>
+          </ul>
+        </article>
+
         <article class="stack-card service-resources-card">
           <h3 class="stack-title">Resources</h3>
           <table class="service-status-summary-table" aria-label="Service resources">

@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
 	"github.com/swarm-deploy/webroute"
 )
 
@@ -43,10 +44,10 @@ func (*subscriberObserverCapture) RecordRetrieveFallback(string) {}
 func TestIndexSubscriberBuildsIndexOnDeploySuccess(t *testing.T) {
 	services := []service.Info{
 		{
-			Name:  "api",
-			Stack: "app",
-			Type:  "application",
-			Image: "example/api:v1",
+			Name:     "api",
+			Stack:    "app",
+			Metadata: metadata.Metadata{Type: "application"},
+			Image:    "example/api:v1",
 			WebRoutes: []webroute.Route{
 				{
 					Domain:  "api.example.com",
@@ -55,7 +56,12 @@ func TestIndexSubscriberBuildsIndexOnDeploySuccess(t *testing.T) {
 				},
 			},
 		},
-		{Name: "db", Stack: "app", Type: "database", Image: "postgres:16"},
+		{
+			Name:     "db",
+			Stack:    "app",
+			Metadata: metadata.Metadata{Type: "database"},
+			Image:    "postgres:16",
+		},
 	}
 	store := &fakeServiceStore{services: services}
 	embedder := &countingEmbedder{

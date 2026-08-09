@@ -9,6 +9,11 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
+	serviceType "github.com/swarm-deploy/swarm-deploy/internal/resources/service/stype"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"github.com/swarm-deploy/webroute"
 )
 
 const fileModePrivate = 0o600
@@ -101,17 +106,18 @@ func (s *Store) load() error {
 		return nil
 	}
 
-	var rows []Info
+	var rows []storeInfo
 	if unmarshalErr := json.Unmarshal(payload, &rows); unmarshalErr != nil {
 		return fmt.Errorf("decode services file: %w", unmarshalErr)
 	}
 
 	s.rows = make([]Info, 0, len(rows))
 	for _, row := range rows {
-		if row.Name == "" || row.Stack == "" {
+		info := row.toInfo()
+		if info.Name == "" || info.Stack == "" {
 			continue
 		}
-		s.rows = append(s.rows, row)
+		s.rows = append(s.rows, info)
 	}
 
 	sortInfos(s.rows)
@@ -120,7 +126,7 @@ func (s *Store) load() error {
 }
 
 func (s *Store) flushLocked() error {
-	payload, err := json.Marshal(s.rows)
+	payload, err := json.Marshal(storeInfosFromServiceInfos(s.rows))
 	if err != nil {
 		return fmt.Errorf("encode services file: %w", err)
 	}
@@ -155,4 +161,64 @@ func sortInfos(rows []Info) {
 
 		return rows[i].Name < rows[j].Name
 	})
+}
+
+type storeInfo struct {
+	// Description is a human-readable service description.
+	Description string `json:"description"`
+	// Type is a service classification.
+	Type serviceType.Type `json:"type"`
+	// RepositoryURL is a source repository URL resolved from service labels.
+	RepositoryURL string `json:"repository_url"`
+	// Links is a list of additional service-related links resolved from service labels.
+	Links []metadata.Link `json:"links"`
+	// Name is a service name inside stack.
+	Name string `json:"name"`
+	// Stack is a docker stack name.
+	Stack string `json:"stack"`
+	// Image is a service container image reference.
+	Image string `json:"image"`
+	// Environment is a resolved container environment snapshot.
+	Environment map[string]string `json:"environment,omitempty"`
+	// Spec is a compact persisted service spec snapshot.
+	Spec swarm.ServiceSpec `json:"spec"`
+	// WebRoutes is a list of public web routes resolved from service environment.
+	WebRoutes []webroute.Route `json:"web_routes,omitempty"`
+}
+
+func (i storeInfo) toInfo() Info {
+	return Info{
+		Metadata: metadata.Metadata{
+			Description:   i.Description,
+			Type:          i.Type,
+			RepositoryURL: i.RepositoryURL,
+			Links:         i.Links,
+		},
+		Name:        i.Name,
+		Stack:       i.Stack,
+		Image:       i.Image,
+		Environment: i.Environment,
+		Spec:        i.Spec,
+		WebRoutes:   i.WebRoutes,
+	}
+}
+
+func storeInfosFromServiceInfos(infos []Info) []storeInfo {
+	rows := make([]storeInfo, 0, len(infos))
+	for _, info := range infos {
+		rows = append(rows, storeInfo{
+			Description:   info.Description,
+			Type:          info.Type,
+			RepositoryURL: info.RepositoryURL,
+			Links:         info.Links,
+			Name:          info.Name,
+			Stack:         info.Stack,
+			Image:         info.Image,
+			Environment:   info.Environment,
+			Spec:          info.Spec,
+			WebRoutes:     info.WebRoutes,
+		})
+	}
+
+	return rows
 }

@@ -10,6 +10,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	resourcegraph "github.com/swarm-deploy/swarm-deploy/internal/resources/graph"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/resources/service/stype"
 	"github.com/swarm-deploy/webroute"
 )
@@ -26,9 +27,9 @@ func TestGetDependencyGraphExecute(t *testing.T) {
 			name: "builds dependency graph from stored services",
 			services: []service.Info{
 				{
-					Name:  "api",
-					Stack: "payments",
-					Type:  serviceType.Application,
+					Name:     "api",
+					Stack:    "payments",
+					Metadata: metadata.Metadata{Type: serviceType.Application},
 					WebRoutes: []webroute.Route{
 						{Port: "443", Address: "api.example.com"},
 					},
@@ -38,14 +39,14 @@ func TestGetDependencyGraphExecute(t *testing.T) {
 					},
 				},
 				{
-					Name:  "db",
-					Stack: "payments",
-					Type:  serviceType.Database,
+					Name:     "db",
+					Stack:    "payments",
+					Metadata: metadata.Metadata{Type: serviceType.Database},
 				},
 				{
-					Name:  "redis",
-					Stack: "payments",
-					Type:  serviceType.Monitoring,
+					Name:     "redis",
+					Stack:    "payments",
+					Metadata: metadata.Metadata{Type: serviceType.Monitoring},
 					WebRoutes: []webroute.Route{
 						{Port: "6379", Address: "redis.internal"},
 					},
