@@ -6,15 +6,11 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 )
 
-type repositoryLabelSource struct {
-	key string
-}
-
-var repositoryLabelSources = []repositoryLabelSource{
-	{key: labelsdict.GitLabRepository},
-	{key: labelsdict.GitHubRepository},
-	{key: labelsdict.BitbucketRepository},
-	{key: labelsdict.OCIImageSource},
+var repositoryLabelSources = []string{
+	labelsdict.GitLabRepository,
+	labelsdict.GitHubRepository,
+	labelsdict.BitbucketRepository,
+	labelsdict.OCIImageSource,
 }
 
 // resolveRepositoryURL resolves repository URL from labels by priority.
@@ -31,7 +27,7 @@ func (r *Extractor) resolveRepositoryURL(labels Labels) string {
 				continue
 			}
 
-			rawValue, ok := scope[source.key]
+			rawValue, ok := scope[source]
 			if !ok {
 				continue
 			}
