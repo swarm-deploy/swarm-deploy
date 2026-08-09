@@ -37,6 +37,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/resources/node"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -347,7 +348,7 @@ func buildEventDispatcher(
 
 	eventDispatcher.Subscribe(
 		events.TypeDeploySuccess,
-		service.NewSubscriber(serviceStore, serviceStatusInspector, imageInspector, service.NewMetadataExtractor()),
+		service.NewSubscriber(serviceStore, serviceStatusInspector, imageInspector, metadata.NewExtractor()),
 	)
 	subscribersCount++
 

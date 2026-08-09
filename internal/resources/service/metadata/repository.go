@@ -1,14 +1,9 @@
-package service
+package metadata
 
 import (
 	"strings"
-)
 
-const (
-	labelGitLabRepository    = "org.swarm_deploy.gitlab_repository"
-	labelGitHubRepository    = "org.swarm_deploy.github_repository"
-	labelBitbucketRepository = "org.swarm_deploy.bitbucket_repository"
-	labelOCIImageSource      = "org.opencontainers.image.source"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 )
 
 type repositoryLabelSource struct {
@@ -16,14 +11,14 @@ type repositoryLabelSource struct {
 }
 
 var repositoryLabelSources = []repositoryLabelSource{
-	{key: labelGitLabRepository},
-	{key: labelGitHubRepository},
-	{key: labelBitbucketRepository},
-	{key: labelOCIImageSource},
+	{key: labelsdict.GitLabRepository},
+	{key: labelsdict.GitHubRepository},
+	{key: labelsdict.BitbucketRepository},
+	{key: labelsdict.OCIImageSource},
 }
 
-// ResolveRepositoryURL resolves repository URL from labels by priority.
-func ResolveRepositoryURL(labels Labels) string {
+// resolveRepositoryURL resolves repository URL from labels by priority.
+func (r *Extractor) resolveRepositoryURL(labels Labels) string {
 	labelScopes := []map[string]string{
 		labels.Service,
 		labels.Container,

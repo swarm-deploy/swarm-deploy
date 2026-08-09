@@ -1,4 +1,4 @@
-package service
+package metadata
 
 import (
 	"testing"
@@ -9,7 +9,7 @@ import (
 )
 
 func TestMetadataExtractorResolveTypePriority(t *testing.T) {
-	resolver := NewMetadataExtractor()
+	resolver := NewExtractor()
 
 	cases := []struct {
 		name     string
@@ -81,7 +81,7 @@ func TestMetadataExtractorResolveTypePriority(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			metadata := resolver.Resolve(tc.image, tc.labels)
+			metadata := resolver.Extract(tc.image, tc.labels)
 			assert.Equal(t, tc.expected, metadata.Type, "unexpected type")
 		})
 	}
