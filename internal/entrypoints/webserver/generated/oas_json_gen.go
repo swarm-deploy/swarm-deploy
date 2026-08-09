@@ -4876,6 +4876,12 @@ func (s *ServiceSpecLabelsResponse) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.SwarmDeploy.Set {
+			e.FieldStart("swarm_deploy")
+			s.SwarmDeploy.Encode(e)
+		}
+	}
+	{
 		if s.Custom.Set {
 			e.FieldStart("custom")
 			s.Custom.Encode(e)
@@ -4883,9 +4889,10 @@ func (s *ServiceSpecLabelsResponse) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfServiceSpecLabelsResponse = [2]string{
+var jsonFieldsNameOfServiceSpecLabelsResponse = [3]string{
 	0: "docker",
-	1: "custom",
+	1: "swarm_deploy",
+	2: "custom",
 }
 
 // Decode decodes ServiceSpecLabelsResponse from json.
@@ -4905,6 +4912,16 @@ func (s *ServiceSpecLabelsResponse) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"docker\"")
+			}
+		case "swarm_deploy":
+			if err := func() error {
+				s.SwarmDeploy.Reset()
+				if err := s.SwarmDeploy.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"swarm_deploy\"")
 			}
 		case "custom":
 			if err := func() error {

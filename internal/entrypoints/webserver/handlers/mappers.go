@@ -24,6 +24,7 @@ const (
 	externalPathLabel      = "external_path"
 	externalVersionIDLabel = "external_version_id"
 	dockerLabelPrefix      = "com.docker."
+	swarmDeployLabelPrefix = "org.swarm-deploy"
 )
 
 func (h *handler) listStacks() []generated.StackView {
@@ -220,11 +221,16 @@ func toGeneratedServiceSpec(spec swarm.ServiceSpec) generated.ServiceSpecRespons
 
 	if len(spec.Labels) > 0 {
 		dockerLabels := make(generated.ServiceSpecLabelGroupResponse)
+		swarmDeployLabels := make(generated.ServiceSpecLabelGroupResponse)
 		customLabels := make(generated.ServiceSpecLabelGroupResponse)
 
 		for key, value := range spec.Labels {
 			if strings.HasPrefix(key, dockerLabelPrefix) {
 				dockerLabels[key] = value
+				continue
+			}
+			if strings.HasPrefix(key, swarmDeployLabelPrefix) {
+				swarmDeployLabels[key] = value
 				continue
 			}
 
@@ -235,10 +241,13 @@ func toGeneratedServiceSpec(spec swarm.ServiceSpec) generated.ServiceSpecRespons
 		if len(dockerLabels) > 0 {
 			groupedLabels.Docker = generated.NewOptServiceSpecLabelGroupResponse(dockerLabels)
 		}
+		if len(swarmDeployLabels) > 0 {
+			groupedLabels.SwarmDeploy = generated.NewOptServiceSpecLabelGroupResponse(swarmDeployLabels)
+		}
 		if len(customLabels) > 0 {
 			groupedLabels.Custom = generated.NewOptServiceSpecLabelGroupResponse(customLabels)
 		}
-		if groupedLabels.Docker.IsSet() || groupedLabels.Custom.IsSet() {
+		if groupedLabels.Docker.IsSet() || groupedLabels.SwarmDeploy.IsSet() || groupedLabels.Custom.IsSet() {
 			mapped.Labels = generated.NewOptServiceSpecLabelsResponse(groupedLabels)
 		}
 	}

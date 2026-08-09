@@ -2297,13 +2297,19 @@ func (s *ServiceSpecLabelGroupResponse) init() ServiceSpecLabelGroupResponse {
 
 // Ref: #/components/schemas/ServiceSpecLabelsResponse
 type ServiceSpecLabelsResponse struct {
-	Docker OptServiceSpecLabelGroupResponse `json:"docker"`
-	Custom OptServiceSpecLabelGroupResponse `json:"custom"`
+	Docker      OptServiceSpecLabelGroupResponse `json:"docker"`
+	SwarmDeploy OptServiceSpecLabelGroupResponse `json:"swarm_deploy"`
+	Custom      OptServiceSpecLabelGroupResponse `json:"custom"`
 }
 
 // GetDocker returns the value of Docker.
 func (s *ServiceSpecLabelsResponse) GetDocker() OptServiceSpecLabelGroupResponse {
 	return s.Docker
+}
+
+// GetSwarmDeploy returns the value of SwarmDeploy.
+func (s *ServiceSpecLabelsResponse) GetSwarmDeploy() OptServiceSpecLabelGroupResponse {
+	return s.SwarmDeploy
 }
 
 // GetCustom returns the value of Custom.
@@ -2314,6 +2320,11 @@ func (s *ServiceSpecLabelsResponse) GetCustom() OptServiceSpecLabelGroupResponse
 // SetDocker sets the value of Docker.
 func (s *ServiceSpecLabelsResponse) SetDocker(val OptServiceSpecLabelGroupResponse) {
 	s.Docker = val
+}
+
+// SetSwarmDeploy sets the value of SwarmDeploy.
+func (s *ServiceSpecLabelsResponse) SetSwarmDeploy(val OptServiceSpecLabelGroupResponse) {
+	s.SwarmDeploy = val
 }
 
 // SetCustom sets the value of Custom.

@@ -125,6 +125,7 @@ export interface ServiceSpecNetworkResponse {
 
 export interface ServiceSpecLabelsResponse {
   docker?: Record<string, string>;
+  swarm_deploy?: Record<string, string>;
   custom?: Record<string, string>;
 }
 

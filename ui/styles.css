@@ -303,19 +303,84 @@ button:hover,
   padding-left: 0;
 }
 
-.service-details-docker-tags {
+.service-details-hidden-tags {
   margin-top: 6px;
 }
 
 .service-links-list {
   margin: 0;
-  padding-left: 18px;
+  padding: 0;
+  list-style: none;
   display: grid;
-  gap: 6px;
+  gap: 8px;
 }
 
 .service-links-list li {
+  min-width: 0;
+}
+
+.service-link {
+  min-height: 40px;
+  border: 1px solid rgba(161, 192, 204, 0.22);
+  border-radius: 8px;
+  background: rgba(9, 18, 28, 0.52);
+  color: var(--text);
+  text-decoration: none;
+  padding: 8px 10px;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) 16px;
+  gap: 8px;
+  align-items: center;
+  transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease;
+}
+
+.service-link:hover,
+.service-link:focus-visible {
+  border-color: rgba(143, 198, 255, 0.55);
+  background: rgba(143, 198, 255, 0.08);
+  color: #8fc6ff;
+}
+
+.service-link:focus-visible {
+  outline: 2px solid rgba(143, 198, 255, 0.35);
+  outline-offset: 2px;
+}
+
+.service-link-icon {
+  width: 22px;
+  height: 22px;
+  border: 1px solid rgba(161, 192, 204, 0.24);
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+
+.service-link:hover .service-link-icon,
+.service-link:focus-visible .service-link-icon {
+  color: #8fc6ff;
+  border-color: rgba(143, 198, 255, 0.42);
+}
+
+.service-link-icon svg,
+.service-link-open-icon {
+  width: 14px;
+  height: 14px;
+}
+
+.service-link-label {
+  font-weight: 600;
+  line-height: 1.25;
   overflow-wrap: anywhere;
+}
+
+.service-link-open-icon {
+  color: var(--muted);
+}
+
+.service-link:hover .service-link-open-icon,
+.service-link:focus-visible .service-link-open-icon {
+  color: #8fc6ff;
 }
 
 .service-deployments-list {

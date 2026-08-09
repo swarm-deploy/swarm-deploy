@@ -37,8 +37,10 @@ func TestHandlerGetService(t *testing.T) {
 				LimitRAMBytes:     536870912,
 				LimitCPUNano:      1000000000,
 				Labels: map[string]string{
-					"com.docker.stack.namespace": "payments",
-					"app.env":                    "prod",
+					"com.docker.stack.namespace":      "payments",
+					"org.swarm-deploy.service.type":   "application",
+					"org.swarm-deploy.service.public": "true",
+					"app.env":                         "prod",
 				},
 				Secrets: []swarm.ServiceSecret{
 					{
@@ -85,6 +87,12 @@ func TestHandlerGetService(t *testing.T) {
 	assert.Equal(t, generated.ServiceSpecLabelGroupResponse{
 		"com.docker.stack.namespace": "payments",
 	}, dockerLabels)
+	swarmDeployLabels, ok := labels.SwarmDeploy.Get()
+	require.True(t, ok)
+	assert.Equal(t, generated.ServiceSpecLabelGroupResponse{
+		"org.swarm-deploy.service.type":   "application",
+		"org.swarm-deploy.service.public": "true",
+	}, swarmDeployLabels)
 	customLabels, ok := labels.Custom.Get()
 	require.True(t, ok)
 	assert.Equal(t, generated.ServiceSpecLabelGroupResponse{
