@@ -12,6 +12,7 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/resources/service/stype"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/knownapp"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"github.com/swarm-deploy/webroute"
 )
@@ -164,6 +165,8 @@ func sortInfos(rows []Info) {
 }
 
 type storeInfo struct {
+	// KnownApp is a recognized application identifier.
+	KnownApp knownapp.Name `json:"known_app"`
 	// Description is a human-readable service description.
 	Description string `json:"description"`
 	// Type is a service classification.
@@ -189,6 +192,7 @@ type storeInfo struct {
 func (i storeInfo) toInfo() Info {
 	return Info{
 		Metadata: metadata.Metadata{
+			KnownApp:      i.KnownApp,
 			Description:   i.Description,
 			Type:          i.Type,
 			RepositoryURL: i.RepositoryURL,
@@ -207,6 +211,7 @@ func storeInfosFromServiceInfos(infos []Info) []storeInfo {
 	rows := make([]storeInfo, 0, len(infos))
 	for _, info := range infos {
 		rows = append(rows, storeInfo{
+			KnownApp:      info.KnownApp,
 			Description:   info.Description,
 			Type:          info.Type,
 			RepositoryURL: info.RepositoryURL,

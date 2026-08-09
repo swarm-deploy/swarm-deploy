@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/knownapp"
 	"github.com/swarm-deploy/webroute"
 )
 
@@ -169,6 +171,64 @@ func TestBuilderBuild(t *testing.T) {
 				"app_api":     {},
 				"blue_redis":  {},
 				"green_redis": {},
+			},
+		},
+		{
+			name: "builds nginx proxy dependencies from nginx web route providers",
+			services: []service.Info{
+				{
+					Stack:    "infra",
+					Name:     "gateway",
+					Metadata: metadata.Metadata{KnownApp: knownapp.NginxProxy},
+				},
+				{
+					Stack: "prod",
+					Name:  "api",
+					WebRoutes: []webroute.Route{
+						{Provider: webroute.ProviderNameNginxProxy, Port: "8080", Address: "api.example.com"},
+						{Provider: webroute.ProviderNameNginxProxy, Port: "8081", Address: "api.example.com/internal"},
+					},
+				},
+				{
+					Stack: "prod",
+					Name:  "admin",
+					WebRoutes: []webroute.Route{
+						{Provider: webroute.ProviderNameNginxProxy, Port: "8080", Address: "admin.example.com"},
+					},
+				},
+				{
+					Stack: "prod",
+					Name:  "worker",
+					WebRoutes: []webroute.Route{
+						{Provider: webroute.ProviderName("traefik"), Port: "8080", Address: "worker.example.com"},
+					},
+				},
+				{
+					Stack: "prod",
+					Name:  "plain",
+					WebRoutes: []webroute.Route{
+						{Port: "8080", Address: "plain.example.com"},
+					},
+				},
+				{Stack: "prod", Name: "nginx-proxy"},
+			},
+			expected: map[string]graphNodeSnapshot{
+				"infra_gateway": {
+					Depends: []string{"prod_admin", "prod_api"},
+				},
+				"prod_admin": {
+					Endpoints: []string{"admin.example.com:8080"},
+				},
+				"prod_api": {
+					Endpoints: []string{"api.example.com:8080", "api.example.com/internal:8081"},
+				},
+				"prod_nginx-proxy": {},
+				"prod_plain": {
+					Endpoints: []string{"plain.example.com:8080"},
+				},
+				"prod_worker": {
+					Endpoints: []string{"worker.example.com:8080"},
+				},
 			},
 		},
 	}
