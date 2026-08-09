@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/knownapp"
 )
 
 func TestStoreGet(t *testing.T) {
@@ -66,6 +67,9 @@ func TestStoreGetRestoresIndexOnReload(t *testing.T) {
 		{
 			Name:  "api",
 			Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
+			Metadata: metadata.Metadata{
+				KnownApp: knownapp.NginxProxy,
+			},
 			Environment: map[string]string{
 				"APP_ENV": "prod",
 			},
@@ -78,5 +82,6 @@ func TestStoreGetRestoresIndexOnReload(t *testing.T) {
 	info, ok := reloaded.Get("payments", "api")
 	require.True(t, ok)
 	assert.Equal(t, "ghcr.io/swarm-deploy/payments-api:v1.2.3", info.Image)
+	assert.Equal(t, knownapp.NginxProxy, info.KnownApp)
 	assert.Equal(t, map[string]string{"APP_ENV": "prod"}, info.Environment)
 }

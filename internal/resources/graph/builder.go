@@ -8,6 +8,8 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/resources/service/stype"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/knownapp"
+	"github.com/swarm-deploy/webroute"
 )
 
 var dependencyEnvSuffixes = []string{
@@ -40,11 +42,16 @@ func (b *Builder) Build(services []service.Info) Graph {
 
 	nodes := make([]Node, 0, len(services))
 	for _, svc := range services {
+		depends := b.resolveDependencies(svc, serviceByName)
+		if b.isNginxProxy(svc) {
+			depends = b.mergeDependencies(depends, b.resolveNginxProxyDependencies(svc, services))
+		}
+
 		nodes = append(nodes, Node{
 			Name:      b.serviceNodeName(svc),
 			Kind:      kindFromServiceType(svc.Type),
 			Endpoints: b.resolveEndpoints(svc),
-			Depends:   b.resolveDependencies(svc, serviceByName),
+			Depends:   depends,
 		})
 	}
 
@@ -87,6 +94,59 @@ func (b *Builder) resolveDependencies(
 		dependencyNames[dependencyName] = struct{}{}
 	}
 
+	return b.sortedDependencyNames(dependencyNames)
+}
+
+func (b *Builder) resolveNginxProxyDependencies(source service.Info, services []service.Info) []string {
+	dependencyNames := make(map[string]struct{})
+	sourceName := b.serviceNodeName(source)
+
+	for _, svc := range services {
+		dependencyName := b.serviceNodeName(svc)
+		if dependencyName == sourceName || !b.hasWebRouteProvider(svc, webroute.ProviderNameNginxProxy) {
+			continue
+		}
+
+		dependencyNames[dependencyName] = struct{}{}
+	}
+
+	return b.sortedDependencyNames(dependencyNames)
+}
+
+func (b *Builder) hasWebRouteProvider(svc service.Info, provider webroute.ProviderName) bool {
+	for _, route := range svc.WebRoutes {
+		if route.Provider == provider {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (b *Builder) isNginxProxy(svc service.Info) bool {
+	return svc.KnownApp == knownapp.NginxProxy
+}
+
+func (b *Builder) mergeDependencies(left []string, right []string) []string {
+	if len(left) == 0 {
+		return right
+	}
+	if len(right) == 0 {
+		return left
+	}
+
+	dependencyNames := make(map[string]struct{}, len(left)+len(right))
+	for _, dependencyName := range left {
+		dependencyNames[dependencyName] = struct{}{}
+	}
+	for _, dependencyName := range right {
+		dependencyNames[dependencyName] = struct{}{}
+	}
+
+	return b.sortedDependencyNames(dependencyNames)
+}
+
+func (b *Builder) sortedDependencyNames(dependencyNames map[string]struct{}) []string {
 	if len(dependencyNames) == 0 {
 		return nil
 	}
