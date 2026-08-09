@@ -141,10 +141,16 @@ export interface ServiceSpecResponse {
   network?: ServiceSpecNetworkResponse[];
 }
 
+export interface ServiceLink {
+  type: string;
+  url: string;
+}
+
 export interface ServiceStatusResponse {
   stack: string;
   service: string;
   spec: ServiceSpecResponse;
+  links: ServiceLink[];
 }
 
 export interface ServiceRealtimeTask {

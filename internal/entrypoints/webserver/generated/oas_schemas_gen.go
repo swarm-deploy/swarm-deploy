@@ -2161,6 +2161,32 @@ func (s *ServiceInfoType) UnmarshalText(data []byte) error {
 	}
 }
 
+// Ref: #/components/schemas/ServiceLink
+type ServiceLink struct {
+	Type string `json:"type"`
+	URL  string `json:"url"`
+}
+
+// GetType returns the value of Type.
+func (s *ServiceLink) GetType() string {
+	return s.Type
+}
+
+// GetURL returns the value of URL.
+func (s *ServiceLink) GetURL() string {
+	return s.URL
+}
+
+// SetType sets the value of Type.
+func (s *ServiceLink) SetType(val string) {
+	s.Type = val
+}
+
+// SetURL sets the value of URL.
+func (s *ServiceLink) SetURL(val string) {
+	s.URL = val
+}
+
 // Ref: #/components/schemas/ServiceRealtimeResponse
 type ServiceRealtimeResponse struct {
 	Tasks []ServiceRealtimeTask `json:"tasks"`
@@ -2477,6 +2503,7 @@ type ServiceStatusResponse struct {
 	Stack   string              `json:"stack"`
 	Service string              `json:"service"`
 	Spec    ServiceSpecResponse `json:"spec"`
+	Links   []ServiceLink       `json:"links"`
 }
 
 // GetStack returns the value of Stack.
@@ -2494,6 +2521,11 @@ func (s *ServiceStatusResponse) GetSpec() ServiceSpecResponse {
 	return s.Spec
 }
 
+// GetLinks returns the value of Links.
+func (s *ServiceStatusResponse) GetLinks() []ServiceLink {
+	return s.Links
+}
+
 // SetStack sets the value of Stack.
 func (s *ServiceStatusResponse) SetStack(val string) {
 	s.Stack = val
@@ -2507,6 +2539,11 @@ func (s *ServiceStatusResponse) SetService(val string) {
 // SetSpec sets the value of Spec.
 func (s *ServiceStatusResponse) SetSpec(val ServiceSpecResponse) {
 	s.Spec = val
+}
+
+// SetLinks sets the value of Links.
+func (s *ServiceStatusResponse) SetLinks(val []ServiceLink) {
+	s.Links = val
 }
 
 // Ref: #/components/schemas/ServiceSyncStatus

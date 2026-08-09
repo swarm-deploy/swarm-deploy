@@ -52,6 +52,10 @@ const serviceRoutes = computed(() => {
   const routes = serviceInfo.value?.web_routes;
   return Array.isArray(routes) ? routes : [];
 });
+const serviceLinks = computed(() => {
+  const links = serviceStatus.value?.links;
+  return Array.isArray(links) ? links : [];
+});
 const serviceNetworkNames = computed(() => {
   const networks = serviceSpec.value?.network;
   if (!Array.isArray(networks)) {
@@ -423,6 +427,22 @@ watch(
       </div>
 
       <div class="service-details-side">
+        <article v-if="serviceLinks.length > 0" class="stack-card service-links-card">
+          <h3 class="stack-title">Links</h3>
+          <ul class="service-links-list">
+            <li v-for="link in serviceLinks" :key="`${link.type}-${link.url}`">
+              <a
+                :href="link.url"
+                class="assistant-md-link"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {{ link.type }}
+              </a>
+            </li>
+          </ul>
+        </article>
+
         <article class="stack-card service-resources-card">
           <h3 class="stack-title">Resources</h3>
           <table class="service-status-summary-table" aria-label="Service resources">

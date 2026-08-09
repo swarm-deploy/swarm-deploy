@@ -13,6 +13,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -24,8 +25,9 @@ func TestHandlerGetService(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, store.ReplaceStack("payments", []service.Info{
 		{
-			Name:  "api",
-			Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
+			Name:     "api",
+			Image:    "ghcr.io/swarm-deploy/payments-api:v1.2.3",
+			Metadata: metadata.Metadata{Links: []metadata.Link{{Type: "Grafana", URL: "https://grafana.example.com/d/payments"}}},
 			Spec: swarm.ServiceSpec{
 				Image:             "ghcr.io/swarm-deploy/payments-api:v1.2.3",
 				Mode:              "replicated",
@@ -69,6 +71,8 @@ func TestHandlerGetService(t *testing.T) {
 	assert.Equal(t, "api", resp.Service)
 	assert.Equal(t, "ghcr.io/swarm-deploy/payments-api:v1.2.3", resp.Spec.Image)
 	assert.Equal(t, "replicated", resp.Spec.Mode)
+	require.Len(t, resp.Links, 1)
+	assert.Equal(t, generated.ServiceLink{Type: "Grafana", URL: "https://grafana.example.com/d/payments"}, resp.Links[0])
 	assert.Equal(t, int64(2), resp.Spec.Replicas)
 	assert.EqualValues(t, 268435456, resp.Spec.RequestedRAMBytes)
 	assert.EqualValues(t, 500000000, resp.Spec.RequestedCPUNano)

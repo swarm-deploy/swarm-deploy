@@ -12,6 +12,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
 	resourcegraph "github.com/swarm-deploy/swarm-deploy/internal/resources/graph"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/resources/service/stype"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/utils"
@@ -96,7 +97,20 @@ func toGeneratedServiceStatusFromInfo(serviceInfo service.Info) *generated.Servi
 		Stack:   serviceInfo.Stack,
 		Service: serviceInfo.Name,
 		Spec:    toGeneratedServiceSpec(spec),
+		Links:   toGeneratedServiceLinks(serviceInfo.Links),
 	}
+}
+
+func toGeneratedServiceLinks(links []metadata.Link) []generated.ServiceLink {
+	mapped := make([]generated.ServiceLink, 0, len(links))
+	for _, link := range links {
+		mapped = append(mapped, generated.ServiceLink{
+			Type: link.Type,
+			URL:  link.URL,
+		})
+	}
+
+	return mapped
 }
 
 func toGeneratedServiceRealtimeTasks(

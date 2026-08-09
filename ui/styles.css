@@ -307,6 +307,17 @@ button:hover,
   margin-top: 6px;
 }
 
+.service-links-list {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 6px;
+}
+
+.service-links-list li {
+  overflow-wrap: anywhere;
+}
+
 .service-deployments-list {
   margin: 0;
   padding: 0;
