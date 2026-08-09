@@ -1,7 +1,6 @@
 package metadata
 
 import (
-	serviceDescription "github.com/swarm-deploy/swarm-deploy/internal/resources/service/description"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/resources/service/stype"
 )
 
@@ -16,8 +15,7 @@ type Metadata struct {
 
 // Extractor resolves service metadata using labels and image dictionary.
 type Extractor struct {
-	descriptionResolve *serviceDescription.Resolver
-	typeResolve        *serviceType.Resolver
+	typeResolve *serviceType.Resolver
 
 	resolvers []LabelResolver
 }
@@ -25,9 +23,9 @@ type Extractor struct {
 // NewExtractor creates metadata extractor with custom image dictionary.
 func NewExtractor() *Extractor {
 	return &Extractor{
-		descriptionResolve: serviceDescription.NewResolver(),
-		typeResolve:        serviceType.NewResolver(),
+		typeResolve: serviceType.NewResolver(),
 		resolvers: []LabelResolver{
+			NewDescriptionResolver(),
 			NewRepositoryResolver(),
 		},
 	}
@@ -36,8 +34,7 @@ func NewExtractor() *Extractor {
 // Extract resolves service description and type from labels and image name.
 func (r *Extractor) Extract(image string, labels Labels) Metadata {
 	meta := &Metadata{
-		Description: r.resolveDescription(labels),
-		Type:        r.resolveType(image, labels),
+		Type: r.resolveType(image, labels),
 	}
 
 	for _, resolver := range r.resolvers {
@@ -57,12 +54,4 @@ func (r *Extractor) resolveType(image string, labels Labels) serviceType.Type {
 		return serviceType.Application
 	}
 	return resolvedType
-}
-
-func (r *Extractor) resolveDescription(labels Labels) string {
-	return r.descriptionResolve.Resolve(serviceDescription.Labels{
-		Service:   labels.Service,
-		Container: labels.Container,
-		Image:     labels.Image,
-	})
 }

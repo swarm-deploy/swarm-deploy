@@ -8,7 +8,7 @@ import (
 )
 
 func TestResolveRepositoryURL(t *testing.T) {
-	extractor := NewExtractor()
+	extractor := NewRepositoryResolver()
 
 	t.Run("uses label priority order", func(t *testing.T) {
 		labels := Labels{
@@ -18,7 +18,7 @@ func TestResolveRepositoryURL(t *testing.T) {
 			},
 		}
 
-		resolved := extractor.resolveRepositoryURL(labels)
+		resolved := extractor.resolveURL(labels)
 
 		assert.Equal(t, "org/example-gitlab", resolved, "unexpected repository URL")
 	})
@@ -36,7 +36,7 @@ func TestResolveRepositoryURL(t *testing.T) {
 			},
 		}
 
-		resolved := extractor.resolveRepositoryURL(labels)
+		resolved := extractor.resolveURL(labels)
 
 		assert.Equal(t, "service/repo", resolved, "unexpected repository URL")
 	})
@@ -48,7 +48,7 @@ func TestResolveRepositoryURL(t *testing.T) {
 			},
 		}
 
-		resolved := extractor.resolveRepositoryURL(labels)
+		resolved := extractor.resolveURL(labels)
 
 		assert.Equal(t, "bitbucket.org/team/repo", resolved, "unexpected repository URL")
 	})
@@ -60,7 +60,7 @@ func TestResolveRepositoryURL(t *testing.T) {
 			},
 		}
 
-		resolved := extractor.resolveRepositoryURL(labels)
+		resolved := extractor.resolveURL(labels)
 
 		assert.Equal(t, "github.com/swarmdeployorg/swarm-deploy", resolved, "unexpected repository URL")
 	})
@@ -72,7 +72,7 @@ func TestResolveRepositoryURL(t *testing.T) {
 			},
 		}
 
-		resolved := extractor.resolveRepositoryURL(labels)
+		resolved := extractor.resolveURL(labels)
 
 		assert.Equal(t, "", resolved, "unexpected repository URL")
 	})
@@ -84,13 +84,13 @@ func TestResolveRepositoryURL(t *testing.T) {
 			},
 		}
 
-		resolved := extractor.resolveRepositoryURL(labels)
+		resolved := extractor.resolveURL(labels)
 
 		assert.Equal(t, "", resolved, "unexpected repository URL")
 	})
 
 	t.Run("returns empty when no labels found", func(t *testing.T) {
-		resolved := extractor.resolveRepositoryURL(Labels{})
+		resolved := extractor.resolveURL(Labels{})
 
 		assert.Equal(t, "", resolved, "unexpected repository URL")
 	})

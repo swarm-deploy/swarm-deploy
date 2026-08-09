@@ -1,4 +1,4 @@
-package description
+package metadata
 
 import (
 	"testing"
@@ -8,7 +8,7 @@ import (
 )
 
 func TestResolverResolvePriority(t *testing.T) {
-	resolver := NewResolver()
+	resolver := NewDescriptionResolver()
 
 	cases := []struct {
 		name        string
@@ -99,7 +99,7 @@ func TestResolverResolvePriority(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(t, tc.description, resolver.Resolve(tc.labels), "unexpected description")
+			assert.Equal(t, tc.description, resolver.resolveDescription(tc.labels), "unexpected description")
 		})
 	}
 }
