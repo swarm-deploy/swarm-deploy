@@ -219,7 +219,7 @@ func toGeneratedServiceSpec(spec swarm.ServiceSpec) generated.ServiceSpecRespons
 		Network:           toGeneratedServiceSpecNetworks(spec.Network),
 	}
 
-	if len(spec.Labels) > 0 {
+	if len(spec.Labels) > 0 { //nolint:nestif // nn
 		dockerLabels := make(generated.ServiceSpecLabelGroupResponse)
 		swarmDeployLabels := make(generated.ServiceSpecLabelGroupResponse)
 		customLabels := make(generated.ServiceSpecLabelGroupResponse)

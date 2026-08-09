@@ -25,9 +25,11 @@ func TestHandlerGetService(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, store.ReplaceStack("payments", []service.Info{
 		{
-			Name:     "api",
-			Image:    "ghcr.io/swarm-deploy/payments-api:v1.2.3",
-			Metadata: metadata.Metadata{Links: []metadata.Link{{Type: "Grafana", URL: "https://grafana.example.com/d/payments"}}},
+			Name:  "api",
+			Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
+			Metadata: metadata.Metadata{Links: []metadata.Link{
+				{Type: "Grafana", URL: "https://grafana.example.com/d/payments"}},
+			},
 			Spec: swarm.ServiceSpec{
 				Image:             "ghcr.io/swarm-deploy/payments-api:v1.2.3",
 				Mode:              "replicated",
