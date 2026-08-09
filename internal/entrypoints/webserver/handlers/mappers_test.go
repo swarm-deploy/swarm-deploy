@@ -8,6 +8,7 @@ import (
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/resources/service/stype"
 )
 
@@ -89,9 +90,9 @@ func TestToGeneratedServiceInfo(t *testing.T) {
 		{
 			name: "returns synced status from runtime state",
 			serviceInfo: service.Info{
-				Name:  "api",
-				Stack: "payments",
-				Type:  serviceType.Application,
+				Name:     "api",
+				Stack:    "payments",
+				Metadata: metadata.Metadata{Type: serviceType.Application},
 			},
 			runtime: model.Runtime{
 				Stacks: map[string]model.Stack{
@@ -112,9 +113,9 @@ func TestToGeneratedServiceInfo(t *testing.T) {
 		{
 			name: "returns out-of-sync status from runtime state",
 			serviceInfo: service.Info{
-				Name:  "api",
-				Stack: "payments",
-				Type:  serviceType.CronManager,
+				Name:     "api",
+				Stack:    "payments",
+				Metadata: metadata.Metadata{Type: serviceType.CronManager},
 			},
 			runtime: model.Runtime{
 				Stacks: map[string]model.Stack{
@@ -136,9 +137,9 @@ func TestToGeneratedServiceInfo(t *testing.T) {
 		{
 			name: "returns unknown when runtime state is missing",
 			serviceInfo: service.Info{
-				Name:  "api",
-				Stack: "payments",
-				Type:  serviceType.SecretManager,
+				Name:     "api",
+				Stack:    "payments",
+				Metadata: metadata.Metadata{Type: serviceType.SecretManager},
 			},
 			runtime:        model.Runtime{},
 			expectedStatus: "unknown",

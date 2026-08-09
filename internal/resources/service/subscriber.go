@@ -114,17 +114,14 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Event) error {
 			}
 		}
 
-		meta := s.metadata.Extract(deployedService.Image, labels)
 		serviceInfo := Info{
-			Name:          deployedService.Name,
-			Stack:         deploySuccess.StackName,
-			Description:   meta.Description,
-			Type:          meta.Type,
-			Image:         deployedService.Image,
-			Environment:   environment,
-			Spec:          spec,
-			RepositoryURL: meta.RepositoryURL,
-			WebRoutes:     s.webRouteResolver.Resolve(environment),
+			Metadata:    s.metadata.Extract(deployedService.Image, labels),
+			Name:        deployedService.Name,
+			Stack:       deploySuccess.StackName,
+			Image:       deployedService.Image,
+			Environment: environment,
+			Spec:        spec,
+			WebRoutes:   s.webRouteResolver.Resolve(environment),
 		}
 
 		services = append(services, serviceInfo)

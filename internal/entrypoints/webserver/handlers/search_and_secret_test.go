@@ -11,6 +11,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"github.com/swarm-deploy/webroute"
 	"go.uber.org/mock/gomock"
@@ -87,15 +88,15 @@ func TestHandlerSearch_PriorityAndDedupe(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, servicesStore.ReplaceStack("payments", []service.Info{
 		{
-			Name: "api-app",
-			Type: "application",
+			Name:     "api-app",
+			Metadata: metadata.Metadata{Type: "application"},
 			WebRoutes: []webroute.Route{
 				{Domain: "api-app.example.com", Address: "10.10.0.5", Port: "443"},
 			},
 		},
 		{
-			Name: "billing",
-			Type: "application",
+			Name:     "billing",
+			Metadata: metadata.Metadata{Type: "application"},
 			WebRoutes: []webroute.Route{
 				{Domain: "billing.example.com", Address: "10.10.0.7", Port: "443"},
 			},

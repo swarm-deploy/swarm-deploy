@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/resources/service/stype"
 	"github.com/swarm-deploy/webroute"
 )
@@ -27,8 +28,8 @@ func TestHandlerGetGraph(t *testing.T) {
 			stacks: map[string][]service.Info{
 				"payments": {
 					{
-						Name: "api",
-						Type: serviceType.Application,
+						Name:     "api",
+						Metadata: metadata.Metadata{Type: serviceType.Application},
 						WebRoutes: []webroute.Route{
 							{Port: "443", Address: "api.example.com"},
 						},
@@ -38,19 +39,19 @@ func TestHandlerGetGraph(t *testing.T) {
 						},
 					},
 					{
-						Name: "db",
-						Type: serviceType.Database,
+						Name:     "db",
+						Metadata: metadata.Metadata{Type: serviceType.Database},
 					},
 					{
-						Name: "redis",
-						Type: serviceType.Monitoring,
+						Name:     "redis",
+						Metadata: metadata.Metadata{Type: serviceType.Monitoring},
 						WebRoutes: []webroute.Route{
 							{Port: "6379", Address: "redis.internal"},
 						},
 					},
 					{
-						Name: "cron",
-						Type: serviceType.CronManager,
+						Name:     "cron",
+						Metadata: metadata.Metadata{Type: serviceType.CronManager},
 					},
 				},
 			},

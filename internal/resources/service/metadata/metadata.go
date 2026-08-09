@@ -7,10 +7,21 @@ import (
 // Metadata is resolved service metadata.
 type Metadata struct {
 	// Description is a human-readable service description.
-	Description string
+	Description string `json:"description"`
 	// Type is a normalized service classification.
-	Type          serviceType.Type
-	RepositoryURL string
+	Type serviceType.Type `json:"type"`
+	// RepositoryURL is a source repository URL resolved from service labels.
+	RepositoryURL string `json:"repository_url"`
+	// Links is a list of additional service-related links resolved from service labels.
+	Links []Link `json:"links"`
+}
+
+// Link is an additional service-related URL.
+type Link struct {
+	// Type is a human-readable link type.
+	Type string `json:"type"`
+	// URL is a link target.
+	URL string `json:"url"`
 }
 
 // Extractor resolves service metadata using labels and image dictionary.
@@ -27,6 +38,7 @@ func NewExtractor() *Extractor {
 		resolvers: []LabelResolver{
 			NewDescriptionResolver(),
 			NewRepositoryResolver(),
+			NewLinksResolver(),
 		},
 	}
 }

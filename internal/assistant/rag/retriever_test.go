@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
 	"github.com/swarm-deploy/webroute"
 )
 
@@ -65,9 +66,24 @@ func runPlan(t *testing.T, retriever *Retriever, query string) []service.Info {
 
 func TestRetrieverRanksByEmbeddingSimilarity(t *testing.T) {
 	services := []service.Info{
-		{Name: "api", Stack: "app", Type: "application", Image: "example/api:v1"},
-		{Name: "db", Stack: "app", Type: "database", Image: "postgres:16"},
-		{Name: "worker", Stack: "jobs", Type: "application", Image: "example/worker:v1"},
+		{
+			Name:     "api",
+			Stack:    "app",
+			Metadata: metadata.Metadata{Type: "application"},
+			Image:    "example/api:v1",
+		},
+		{
+			Name:     "db",
+			Stack:    "app",
+			Metadata: metadata.Metadata{Type: "database"},
+			Image:    "postgres:16",
+		},
+		{
+			Name:     "worker",
+			Stack:    "jobs",
+			Metadata: metadata.Metadata{Type: "application"},
+			Image:    "example/worker:v1",
+		},
 	}
 
 	index := NewIndex()
@@ -98,8 +114,16 @@ func TestRetrieverRanksByEmbeddingSimilarity(t *testing.T) {
 
 func TestRetrieverFallsBackToLexicalSearchWhenQueryEmbeddingFails(t *testing.T) {
 	services := []service.Info{
-		{Name: "api", Stack: "app", Description: "Public API for users"},
-		{Name: "queue", Stack: "infra", Description: "Background jobs queue"},
+		{
+			Name:     "api",
+			Stack:    "app",
+			Metadata: metadata.Metadata{Description: "Public API for users"},
+		},
+		{
+			Name:     "queue",
+			Stack:    "infra",
+			Metadata: metadata.Metadata{Description: "Background jobs queue"},
+		},
 	}
 
 	index := NewIndex()

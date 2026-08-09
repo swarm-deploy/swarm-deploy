@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
 )
 
 func TestStoreGet(t *testing.T) {
@@ -17,9 +18,11 @@ func TestStoreGet(t *testing.T) {
 
 	require.NoError(t, store.ReplaceStack("payments", []Info{
 		{
-			Name:        " api ",
-			Image:       "ghcr.io/swarm-deploy/payments-api:v1.2.3",
-			Description: " Payments API ",
+			Name:  " api ",
+			Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
+			Metadata: metadata.Metadata{
+				Description: " Payments API ",
+			},
 			Environment: map[string]string{
 				"APP_ENV": "prod",
 			},
