@@ -1,14 +1,9 @@
 package description
 
-import "strings"
+import (
+	"strings"
 
-const (
-	// LabelService is a service/container label with human-readable description.
-	LabelService = "org.swarm-deploy.service.description"
-	// LabelImageTitle is OCI image label with short title.
-	LabelImageTitle = "org.opencontainers.image.title"
-	// LabelImageDescription is OCI image label with extended description.
-	LabelImageDescription = "org.opencontainers.image.description"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 )
 
 // Labels groups metadata labels from different inspection scopes.
@@ -43,14 +38,14 @@ func (*Resolver) Resolve(labels Labels) string {
 			labels.Image,
 		},
 		[]string{
-			LabelService,
-			LabelService,
-			LabelImageDescription,
-			LabelImageDescription,
-			LabelImageDescription,
-			LabelImageTitle,
-			LabelImageTitle,
-			LabelImageTitle,
+			labelsdict.ServiceDescription,
+			labelsdict.ServiceDescription,
+			labelsdict.OCIImageDescription,
+			labelsdict.OCIImageDescription,
+			labelsdict.OCIImageDescription,
+			labelsdict.OCIImageTitle,
+			labelsdict.OCIImageTitle,
+			labelsdict.OCIImageTitle,
 		},
 	)
 }

@@ -5,5 +5,7 @@ const (
 	GitHubRepository    = "org.swarm_deploy.github_repository"
 	BitbucketRepository = "org.swarm_deploy.bitbucket_repository"
 
-	OCIImageSource = "org.opencontainers.image.source"
+	OCIImageSource      = "org.opencontainers.image.source"
+	OCIImageTitle       = "org.opencontainers.image.title"
+	OCIImageDescription = "org.opencontainers.image.description"
 )
