@@ -1,12 +1,6 @@
 package metadata
 
-import (
-	"strings"
-
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
-)
-
-const traefikOpenAPIPathSuffix = ".loadbalancer.apiportal.path"
+import "github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 
 type LinksResolver struct {
 	sources map[string]string
@@ -37,17 +31,6 @@ func (r *LinksResolver) resolveLinks(labels map[string]string) []Link {
 
 		links = append(links, Link{
 			Type: title,
-			URL:  val,
-		})
-	}
-
-	for key, val := range labels {
-		if val == "" || !strings.HasPrefix(key, "traefik.http.services.") || !strings.HasSuffix(key, traefikOpenAPIPathSuffix) {
-			continue
-		}
-
-		links = append(links, Link{
-			Type: "OpenAPI",
 			URL:  val,
 		})
 	}
