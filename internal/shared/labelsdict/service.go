@@ -12,6 +12,7 @@ const (
 	ServiceDescription = "org.swarm-deploy.service.description"
 
 	GrafanaURL = "org.swarm-deploy.grafana.url"
+	OpenAPIURL = "org.swarm-deploy.service.openapi.url"
 )
 
 func ServiceManaged(labels map[string]string) bool {
