@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -53,6 +54,103 @@ func TestLoader_Load(t *testing.T) {
 			}
 
 			assert.Equal(t, string(fileRaw), result.String())
+		})
+	}
+}
+
+func TestFileLoaderDigestChangesWhenSharedObjectFileContentChanges(t *testing.T) {
+	tests := []struct {
+		name           string
+		composePayload func(objectFile string) string
+		objectFile     func(dir string) string
+		objectPath     func(dir string) string
+	}{
+		{
+			name: "config file",
+			composePayload: func(objectFile string) string {
+				return fmt.Sprintf(`
+services:
+  api:
+    image: nginx:latest
+    configs:
+      - source: app-config
+configs:
+  app-config:
+    file: %s
+`, objectFile)
+			},
+			objectFile: func(string) string {
+				return "./config/app.yaml"
+			},
+			objectPath: func(dir string) string {
+				return filepath.Join(dir, "config", "app.yaml")
+			},
+		},
+		{
+			name: "secret file",
+			composePayload: func(objectFile string) string {
+				return fmt.Sprintf(`
+services:
+  api:
+    image: nginx:latest
+    secrets:
+      - source: app-secret
+secrets:
+  app-secret:
+    file: %s
+`, objectFile)
+			},
+			objectFile: func(string) string {
+				return "./secrets/password.txt"
+			},
+			objectPath: func(dir string) string {
+				return filepath.Join(dir, "secrets", "password.txt")
+			},
+		},
+		{
+			name: "absolute config file",
+			composePayload: func(objectFile string) string {
+				return fmt.Sprintf(`
+services:
+  api:
+    image: nginx:latest
+    configs:
+      - source: app-config
+configs:
+  app-config:
+    file: %s
+`, objectFile)
+			},
+			objectFile: func(dir string) string {
+				return filepath.Join(dir, "absolute", "config.yaml")
+			},
+			objectPath: func(dir string) string {
+				return filepath.Join(dir, "absolute", "config.yaml")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			composePath := filepath.Join(dir, "compose.yaml")
+			objectFile := tt.objectFile(dir)
+			objectPath := tt.objectPath(dir)
+
+			require.NoError(t, os.MkdirAll(filepath.Dir(objectPath), 0o755), "create object dir")
+			require.NoError(t, os.WriteFile(composePath, []byte(tt.composePayload(objectFile)), 0o600), "write compose")
+			require.NoError(t, os.WriteFile(objectPath, []byte("version: old\n"), 0o600), "write old object")
+
+			loader := NewFileLoader()
+			oldFile, err := loader.Load(composePath)
+			require.NoError(t, err, "load compose with old object")
+
+			require.NoError(t, os.WriteFile(objectPath, []byte("version: new\n"), 0o600), "write new object")
+
+			newFile, err := loader.Load(composePath)
+			require.NoError(t, err, "load compose with new object")
+
+			assert.NotEqual(t, oldFile.Digest, newFile.Digest, "digest must include shared object file content")
 		})
 	}
 }

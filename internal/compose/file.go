@@ -92,12 +92,16 @@ func (l *FileLoader) computeDigest(file File, raw []byte) (string, error) {
 				continue
 			}
 
-			if object.File != "" {
+			if object.File == "" {
 				continue
 			}
 
-			absPath := filepath.Join(baseDir, object.File)
-			content, err := os.ReadFile(absPath)
+			absPath := object.File
+			if !filepath.IsAbs(absPath) {
+				absPath = filepath.Join(baseDir, object.File)
+			}
+
+			content, err := l.fileReader(absPath)
 			if err != nil {
 				return fmt.Errorf("read %s file %s for digest: %w", objectType, absPath, err)
 			}

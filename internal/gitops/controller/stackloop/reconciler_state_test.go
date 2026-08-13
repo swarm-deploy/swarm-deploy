@@ -3,6 +3,7 @@ package stackloop
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -195,6 +196,109 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 	assert.Equal(t, stackFile.Digest, stackState.SourceDigest, "expected persisted digest to remain unchanged")
 }
 
+func TestReconcileDeploysRotatedConfigWhenConfigFileContentChanges(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repository := gitx.NewMockRepository(ctrl)
+	serviceManager := swarm.NewMockServiceManager(ctrl)
+	stackDeployer := deployer.NewMockStackDeployer(ctrl)
+	stateStore := modelstore.NewMemoryStore()
+	repoDir := t.TempDir()
+	configPath := filepath.Join(repoDir, "config", "app.yaml")
+	composePath := filepath.Join(repoDir, "app.yaml")
+	renderedPath := filepath.Join(repoDir, ".data", "rendered", "app.yaml")
+	eventDispatcher := &dispatcher.NopDispatcher{}
+	deployMetrics := &metrics.NopDeploys{}
+
+	require.NoError(t, os.MkdirAll(filepath.Dir(configPath), 0o755), "create config dir")
+	require.NoError(t, os.WriteFile(composePath, []byte(`
+services:
+  api:
+    image: nginx:latest
+    configs:
+      - source: app-config
+        target: /etc/app/config.yaml
+configs:
+  app-config:
+    file: ./config/app.yaml
+`), 0o600), "write compose")
+	require.NoError(t, os.WriteFile(configPath, []byte("version: old\n"), 0o600), "write old config")
+
+	loader := compose.NewFileLoader()
+	oldStackFile, err := loader.Load(composePath)
+	require.NoError(t, err, "load compose with old config")
+
+	stateStore.Update(func(state *model.Runtime) {
+		state.Stacks["app"] = model.Stack{
+			SourceDigest: oldStackFile.Digest,
+			LastCommit:   "previous-commit",
+		}
+	})
+
+	require.NoError(t, os.WriteFile(configPath, []byte("version: new\n"), 0o600), "write new config")
+
+	newStackFile, err := loader.Load(composePath)
+	require.NoError(t, err, "load compose with new config")
+	require.NotEqual(t, oldStackFile.Digest, newStackFile.Digest, "expected config content to change digest")
+
+	repository.EXPECT().WorkingDir().Return(repoDir)
+	stackDeployer.EXPECT().
+		DeployStack(gomock.Any(), "app", renderedPath, gomock.Any()).
+		Return(nil)
+	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
+
+	reconciler := &Reconciler{
+		cfg: &config.Config{
+			Spec: config.Spec{
+				DataDir: filepath.Join(repoDir, ".data"),
+				SecretRotation: config.SecretRotationSpec{
+					Enabled:    true,
+					HashLength: 8,
+				},
+			},
+		},
+		git:            repository,
+		deployer:       stackDeployer,
+		event:          eventDispatcher,
+		deployMetrics:  deployMetrics,
+		stateStore:     stateStore,
+		pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
+		composeLoader:  loader,
+		composeRotator: NewRotator(),
+		serviceManager: serviceManager,
+	}
+	reconciler.attachPipeline()
+
+	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
+		Stack: config.StackSpec{
+			Name:        "app",
+			ComposeFile: "app.yaml",
+		},
+		Commit: "commit-4",
+	})
+
+	require.NoError(t, reconcileErr, "reconcile")
+
+	renderedRaw, err := os.ReadFile(renderedPath)
+	require.NoError(t, err, "read rendered compose")
+
+	renderedCompose, err := compose.Parse(renderedRaw)
+	require.NoError(t, err, "parse rendered compose")
+
+	expectedConfigName := NewRotator().buildRotatedObjectName(
+		"app",
+		"app-config",
+		"./config/app.yaml",
+		[]byte("version: new\n"),
+		8,
+		false,
+	)
+	assert.Equal(t, expectedConfigName, renderedCompose.Configs["app-config"].Name, "rotated config name should use new file content")
+
+	stackState, exists := stateStore.Get().Stacks["app"]
+	require.True(t, exists, "expected stack state")
+	assert.Equal(t, newStackFile.Digest, stackState.SourceDigest, "expected persisted digest from new config content")
+}
+
 func TestReconcileWritesRenderedComposeWithObjectFilesResolvedFromSourceCompose(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	repository := gitx.NewMockRepository(ctrl)
@@ -204,9 +308,11 @@ func TestReconcileWritesRenderedComposeWithObjectFilesResolvedFromSourceCompose(
 	repoDir := t.TempDir()
 	eventDispatcher := &dispatcher.NopDispatcher{}
 	renderedPath := filepath.Join(repoDir, ".data", "rendered", "app.yaml")
+	absConfigPath := filepath.Join(repoDir, "absolute", "config.yaml")
+	absSecretPath := filepath.Join(repoDir, "absolute", "source-secret")
 
 	require.NoError(t, os.MkdirAll(filepath.Join(repoDir, "deploy"), 0o755), "create compose dir")
-	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "deploy", "docker-compose.yaml"), []byte(`
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "deploy", "docker-compose.yaml"), []byte(fmt.Sprintf(`
 services:
   api:
     image: nginx:latest
@@ -218,13 +324,20 @@ configs:
   app-config:
     file: ./config/app.yaml
   abs-config:
-    file: /etc/swarm-deploy/config.yaml
+    file: %s
 secrets:
   app-secret:
     file: secrets/password.txt
   abs-secret:
-    file: /run/source-secret
-`), 0o600), "write compose")
+    file: %s
+`, absConfigPath, absSecretPath)), 0o600), "write compose")
+	require.NoError(t, os.MkdirAll(filepath.Join(repoDir, "deploy", "config"), 0o755), "create config dir")
+	require.NoError(t, os.MkdirAll(filepath.Join(repoDir, "deploy", "secrets"), 0o755), "create secrets dir")
+	require.NoError(t, os.MkdirAll(filepath.Dir(absConfigPath), 0o755), "create absolute object dir")
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "deploy", "config", "app.yaml"), []byte("version: current\n"), 0o600), "write config")
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "deploy", "secrets", "password.txt"), []byte("password\n"), 0o600), "write secret")
+	require.NoError(t, os.WriteFile(absConfigPath, []byte("absolute config\n"), 0o600), "write absolute config")
+	require.NoError(t, os.WriteFile(absSecretPath, []byte("absolute secret\n"), 0o600), "write absolute secret")
 
 	repository.EXPECT().WorkingDir().Return(repoDir)
 	stackDeployer.EXPECT().
@@ -274,7 +387,7 @@ secrets:
 	)
 	assert.Equal(
 		t,
-		"/etc/swarm-deploy/config.yaml",
+		absConfigPath,
 		renderedCompose.Configs["abs-config"].File,
 		"absolute config file should be preserved",
 	)
@@ -286,7 +399,7 @@ secrets:
 	)
 	assert.Equal(
 		t,
-		"/run/source-secret",
+		absSecretPath,
 		renderedCompose.Secrets["abs-secret"].File,
 		"absolute secret file should be preserved",
 	)

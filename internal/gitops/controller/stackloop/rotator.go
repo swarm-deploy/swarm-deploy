@@ -74,7 +74,7 @@ func (f *Rotator) applyObjectTypeRotation(
 			continue
 		}
 
-		fileBytes, err := os.ReadFile(filepath.Join(baseDir, object.File))
+		fileBytes, err := os.ReadFile(resolveObjectFilePath(baseDir, object.File))
 		if err != nil {
 			return false, fmt.Errorf("read %s for rotation: %w", object.File, err)
 		}
@@ -89,6 +89,14 @@ func (f *Rotator) applyObjectTypeRotation(
 	}
 
 	return changed, nil
+}
+
+func resolveObjectFilePath(baseDir string, filePath string) string {
+	if filepath.IsAbs(filePath) {
+		return filePath
+	}
+
+	return filepath.Join(baseDir, filePath)
 }
 
 func (*Rotator) buildRotatedObjectName(
