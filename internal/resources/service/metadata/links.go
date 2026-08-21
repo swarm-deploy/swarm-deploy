@@ -10,6 +10,7 @@ func NewLinksResolver() *LinksResolver {
 	return &LinksResolver{
 		sources: map[string]string{
 			labelsdict.GrafanaURL: "Grafana",
+			labelsdict.OpenAPIURL: "OpenAPI",
 		},
 	}
 }
