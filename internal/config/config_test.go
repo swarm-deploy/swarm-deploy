@@ -573,6 +573,81 @@ assistant:
 	require.NoError(t, err, "assistant config must be ignored when disabled")
 }
 
+func TestLoadFailsOnUnsupportedAssistantTool(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	tokenPath := filepath.Join(dir, "assistant_token")
+	require.NoError(t, os.WriteFile(tokenPath, []byte("token-value"), 0o600), "write assistant token")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(fmt.Sprintf(`
+git:
+  repository: https://example.com/repo.git
+stacks:
+  file: ./stacks.yaml
+assistant:
+  enabled: true
+  tools: ["custom_tool"]
+  model:
+    name: gpt-4o-mini
+    openai:
+      apiTokenPath: %s
+`, tokenPath))
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	_, err := Load(configPath)
+	require.Error(t, err, "expected error")
+	assert.Contains(t, err.Error(), `assistant.tools[0] has unsupported tool "custom_tool"`, "unexpected error")
+}
+
+func TestLoadFailsOnAssistantToolWithWhitespaces(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	tokenPath := filepath.Join(dir, "assistant_token")
+	require.NoError(t, os.WriteFile(tokenPath, []byte("token-value"), 0o600), "write assistant token")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(fmt.Sprintf(`
+git:
+  repository: https://example.com/repo.git
+stacks:
+  file: ./stacks.yaml
+assistant:
+  enabled: true
+  tools: [" deploy_sync_trigger "]
+  model:
+    name: gpt-4o-mini
+    openai:
+      apiTokenPath: %s
+`, tokenPath))
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	_, err := Load(configPath)
+	require.Error(t, err, "expected error")
+	assert.Contains(
+		t,
+		err.Error(),
+		`assistant.tools[0] has unsupported tool " deploy_sync_trigger "`,
+		"unexpected error",
+	)
+}
+
 func TestLoadAppliesDefaultAssistantConversationInMemoryTTL(t *testing.T) {
 	dir := t.TempDir()
 
