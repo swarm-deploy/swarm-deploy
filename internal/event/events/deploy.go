@@ -7,6 +7,35 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 )
 
+// DeployDenied is emitted when an image policy prevents a service deployment.
+type DeployDenied struct {
+	// StackName is the stack that contains the denied service.
+	StackName string
+	// ServiceName is the service that was denied.
+	ServiceName string
+	// Image is the denied image reference.
+	Image string
+	// Policy is the violated policy name.
+	Policy string
+}
+
+func (d *DeployDenied) Type() Type {
+	return TypeDeployDenied
+}
+
+func (d *DeployDenied) Message() string {
+	return fmt.Sprintf("Deploy denied for service %s/%s", d.StackName, d.ServiceName)
+}
+
+func (d *DeployDenied) Details() map[string]string {
+	return map[string]string{
+		"stack_name":   d.StackName,
+		"service_name": d.ServiceName,
+		"image":        d.Image,
+		"policy":       d.Policy,
+	}
+}
+
 type DeploySuccess struct {
 	StackName string
 	Commit    string

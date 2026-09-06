@@ -3,6 +3,7 @@ package stackloop
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"time"
 
@@ -81,6 +82,10 @@ func (r *Reconciler) Reconcile(
 	}
 
 	services := desiredState.Compose.Services
+	if err := r.checkImagePolicy(ctx, req.Stack.Name, services); err != nil {
+		r.recordFailure(req.Stack.Name, req.Commit, services, err)
+		return wrapReconcileError("check image policy", services, err)
+	}
 	prev, hasPrev := r.currentStackState(req.Stack.Name)
 
 	pl := &pipelinePayload{
@@ -103,6 +108,33 @@ func (r *Reconciler) Reconcile(
 	r.processResult(ctx, req, prev, desiredState, pl)
 
 	return nil
+}
+
+func (r *Reconciler) checkImagePolicy(
+	ctx context.Context,
+	stackName string,
+	services []compose.Service,
+) error {
+	var denied int
+	for _, service := range services {
+		violated := r.cfg.Spec.Policies.Image.CheckImage(service.Image)
+		if violated == "" {
+			continue
+		}
+
+		denied++
+		r.event.Dispatch(ctx, &events.DeployDenied{
+			StackName:   stackName,
+			ServiceName: service.Name,
+			Image:       service.Image,
+			Policy:      violated,
+		})
+	}
+	if denied == 0 {
+		return nil
+	}
+
+	return fmt.Errorf("%d service(s) denied by image policy", denied)
 }
 
 func (r *Reconciler) currentStackState(stackName string) (model.Stack, bool) {

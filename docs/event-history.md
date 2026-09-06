@@ -4,6 +4,7 @@
 |------------------------------------|----------|------------|-------------------------------------|--------------------------------------------------------------|
 | `deploySuccess`                    | `info`   | `sync`     | Successful stack deployment         | `stack`, `commit`                                            |
 | `deployFailed`                     | `alert`  | `sync`     | Failed stack deployment             | `stack`, `commit`, `error` (if present)                      |
+| `deployDenied`                     | `alert`  | `sync`     | Image policy blocked service deployment | `stack_name`, `service_name`, `image`, `policy`             |
 | `servicePruned`                    | `info`   | `sync`     | Orphaned managed service was removed | `stack_name`, `service_name`, `commit`                       |
 | `sendNotificationFailed`           | `error`  | `sync`     | Notification delivery failure       | `destination`, `channel`, `event_type`, `error` (if present) |
 | `syncManualStarted`                | `info`   | `sync`     | Manual sync run started             | `triggered_by` (if present)                                  |

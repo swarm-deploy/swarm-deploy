@@ -19,6 +19,14 @@ sync:
     # Removes orphaned managed services that are no longer defined in compose.
     prune: true
 
+# Deployment policies.
+policies:
+  image:
+    tag:
+      required: false
+      no_latest: false
+      only_sha: false
+
 # Stacks source settings.
 stacks:
   # Path to stacks definition file in git repository (relative to repo root).
@@ -37,7 +45,7 @@ eventHistory:
 # Notification channels grouped by event type.
 notifications:
   on:
-    # Event type: deploySuccess | deployFailed | servicePruned | syncManualStarted | nodeConnected | nodeDisconnected | userAuthenticated
+    # Event type: deploySuccess | deployFailed | deployDenied | servicePruned | syncManualStarted | nodeConnected | nodeDisconnected | userAuthenticated
     deploySuccess:
       telegram:
         - name: ops-success
