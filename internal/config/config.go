@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
+	"github.com/swarm-deploy/swarm-deploy/internal/policy"
 	"gopkg.in/yaml.v3"
 
 	"github.com/artarts36/specw"
@@ -57,6 +58,8 @@ type Spec struct {
 	Git GitSpec `yaml:"git"`
 	// Sync contains pull/webhook synchronization settings.
 	Sync SyncSpec `yaml:"sync"`
+	// Policies contains deployment restriction settings.
+	Policies PoliciesSpec `yaml:"policies"`
 	// StacksSource contains path to stack definitions file inside git repository.
 	StacksSource StacksSourceSpec `yaml:"stacks"`
 	// Stacks is a parsed list of stack specifications loaded from stacks.file.
@@ -88,6 +91,12 @@ type Spec struct {
 	} `yaml:"log"`
 
 	Hostings githosting.Config `yaml:"hostings"`
+}
+
+// PoliciesSpec contains deployment restriction settings.
+type PoliciesSpec struct {
+	// Image contains image reference restrictions.
+	Image policy.ImagePolicySpec `yaml:"image"`
 }
 
 type EventHistorySpec struct {

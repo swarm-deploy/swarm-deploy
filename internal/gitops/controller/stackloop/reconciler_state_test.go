@@ -21,6 +21,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	"github.com/swarm-deploy/swarm-deploy/internal/policy"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
@@ -584,6 +585,35 @@ func TestReconcileServiceMissedEventOnDrift(t *testing.T) {
 			assert.Equal(t, tt.expectedSyncError, serviceState.SyncError, "unexpected sync error")
 		})
 	}
+}
+
+func TestCheckImagePolicyDispatchesDeployDenied(t *testing.T) {
+	eventDispatcher := &captureEventDispatcher{}
+	reconciler := &Reconciler{
+		cfg: &config.Config{
+			Spec: config.Spec{
+				Policies: config.PoliciesSpec{
+					Image: policy.ImagePolicySpec{
+						Tag: policy.ImageTagPolicySpec{NoLatest: true},
+					},
+				},
+			},
+		},
+		event: eventDispatcher,
+	}
+
+	err := reconciler.checkImagePolicy(context.Background(), "app", []compose.Service{
+		{Name: "api", Image: "nginx:latest"},
+	})
+
+	require.Error(t, err)
+	require.Len(t, eventDispatcher.events, 1)
+	denied, ok := eventDispatcher.events[0].(*events.DeployDenied)
+	require.True(t, ok)
+	assert.Equal(t, "app", denied.StackName)
+	assert.Equal(t, "api", denied.ServiceName)
+	assert.Equal(t, "nginx:latest", denied.Image)
+	assert.Equal(t, "image.tag.no_latest", denied.Policy)
 }
 
 type captureEventDispatcher struct {

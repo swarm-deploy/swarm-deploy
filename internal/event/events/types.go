@@ -18,6 +18,7 @@ type Category string
 const (
 	TypeNameDeploySuccess                    TypeName = "deploySuccess"
 	TypeNameDeployFailed                     TypeName = "deployFailed"
+	TypeNameDeployDenied                     TypeName = "deployDenied"
 	TypeNameSendNotificationFailed           TypeName = "sendNotificationFailed"
 	TypeNameSyncManualStarted                TypeName = "syncManualStarted"
 	TypeNameNodeConnected                    TypeName = "nodeConnected"
@@ -77,6 +78,12 @@ var (
 	}
 	TypeDeployFailed = Type{
 		name:     TypeNameDeployFailed,
+		severity: SeverityAlert,
+		category: CategorySync,
+		window:   1 * time.Minute,
+	}
+	TypeDeployDenied = Type{
+		name:     TypeNameDeployDenied,
 		severity: SeverityAlert,
 		category: CategorySync,
 		window:   1 * time.Minute,
@@ -151,6 +158,7 @@ var (
 	Types = []Type{
 		TypeDeploySuccess,
 		TypeDeployFailed,
+		TypeDeployDenied,
 		TypeSendNotificationFailed,
 		TypeSyncManualStarted,
 		TypeNodeConnected,
@@ -217,6 +225,8 @@ func (n TypeName) Valid() bool {
 		return true
 	case TypeNameDeployFailed:
 		return true
+	case TypeNameDeployDenied:
+		return true
 	case TypeNameSendNotificationFailed:
 		return true
 	case TypeNameSyncManualStarted:
@@ -251,6 +261,8 @@ func ParseType(name string) (Type, bool) {
 		return TypeDeploySuccess, true
 	case TypeNameDeployFailed:
 		return TypeDeployFailed, true
+	case TypeNameDeployDenied:
+		return TypeDeployDenied, true
 	case TypeNameSendNotificationFailed:
 		return TypeSendNotificationFailed, true
 	case TypeNameSyncManualStarted:

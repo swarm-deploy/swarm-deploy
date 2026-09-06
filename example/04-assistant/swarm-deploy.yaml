@@ -19,6 +19,14 @@ sync:
     # Removes orphaned managed services that are no longer defined in compose.
     prune: true
 
+# Deployment policies.
+policies:
+  image:
+    tag:
+      required: false
+      no_latest: false
+      only_sha: false
+
 # AI assistant settings.
 assistant:
   # Enable assistant API and UI.
