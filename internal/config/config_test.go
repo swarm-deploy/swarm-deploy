@@ -155,6 +155,35 @@ networks:
 	assert.Empty(t, cfg.Spec.Networks, "networks must be loaded later from git repository during sync")
 }
 
+func TestLoadWithContainersDownward(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(`
+git:
+  repository: https://example.com/repo.git
+sync:
+  mode: pull
+stacks:
+  file: ./stacks.yaml
+containers:
+  downward: {}
+`)
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err, "load config")
+	require.NotNil(t, cfg.Spec.Containers.Downward, "expected downward config to be enabled")
+}
+
 func TestLoadWebAddressUsedForSingleServer(t *testing.T) {
 	dir := t.TempDir()
 

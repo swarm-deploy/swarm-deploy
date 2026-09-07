@@ -1,6 +1,6 @@
 module github.com/swarm-deploy/swarm-deploy
 
-go 1.26.2
+go 1.26.3
 
 require (
 	github.com/DrSmithFr/go-console v1.4.4
@@ -25,7 +25,8 @@ require (
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
-	github.com/stretchr/testify v1.11.1
+	github.com/stretchr/testify v1.12.1
+	github.com/swarm-deploy/downward/go v0.0.0-20260907200912-8e94e5d2ba71
 	github.com/swarm-deploy/webroute v0.1.1
 	github.com/tg123/go-htpasswd v1.2.4
 	github.com/tmc/langchaingo v0.1.7
@@ -50,7 +51,6 @@ require (
 	github.com/cloudflare/circl v1.6.1 // indirect
 	github.com/containerd/errdefs/pkg v0.3.0 // indirect
 	github.com/cyphar/filepath-securejoin v0.4.1 // indirect
-	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/docker/go-connections v0.6.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
@@ -81,7 +81,6 @@ require (
 	github.com/pjbgf/sha1cd v0.3.2 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pkoukk/tiktoken-go v0.1.6 // indirect
-	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/prometheus/common v0.66.1 // indirect
 	github.com/prometheus/procfs v0.16.1 // indirect
 	github.com/segmentio/asm v1.2.1 // indirect
@@ -99,6 +98,7 @@ require (
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.1 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
+	go.yaml.in/yaml/v3 v3.0.5 // indirect
 	golang.org/x/exp v0.0.0-20240719175910-8a7402abbf56 // indirect
 	golang.org/x/image v0.32.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect

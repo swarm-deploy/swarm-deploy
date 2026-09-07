@@ -75,6 +75,8 @@ type Spec struct {
 	Swarm SwarmSpec `yaml:"swarm"`
 	// SecretRotation controls secret/config name rotation strategy.
 	SecretRotation SecretRotationSpec `yaml:"secretRotation"`
+	// Containers contains container-specific runtime settings.
+	Containers ContainersSpec `yaml:"containers"`
 	// EventHistory controls persisted event history settings.
 	EventHistory EventHistorySpec `yaml:"eventHistory"`
 	// Assistant contains AI assistant settings.
@@ -198,6 +200,11 @@ type SecretRotationSpec struct {
 	HashLength int `yaml:"hashLength"`
 	// IncludePath adds source path into hash input.
 	IncludePath bool `yaml:"includePath"`
+}
+
+type ContainersSpec struct {
+	// Downward enables downward environment variable injection into services.
+	Downward *struct{} `yaml:"downward"`
 }
 
 func (c *Config) UnmarshalYAML(node *yaml.Node) error {

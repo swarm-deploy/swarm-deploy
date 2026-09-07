@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	pipe "github.com/artarts36/gopipe"
+	downward "github.com/swarm-deploy/downward/go"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
@@ -22,16 +23,46 @@ type pipelinePayload struct {
 	IsNewDigest  bool
 	IsManualSync bool
 
-	Desired        *compose.File
-	DesiredMutated bool
+	Desired               *compose.File
+	DesiredMutated        bool
+	RenderedComposeNeeded bool
 
 	LiveServices   []swarm.StackService
 	PrunedServices []string
 	Drift          map[string]drift.ServiceDrift
 }
 
+var downwardEnvironment = map[string]string{
+	downward.EnvStackName:   "",
+	downward.EnvServiceID:   "{{.Service.ID}}",
+	downward.EnvServiceName: "{{.Service.Name}}",
+	downward.EnvTaskID:      "{{.Task.ID}}",
+	downward.EnvTaskName:    "{{.Task.Name}}",
+	downward.EnvTaskSlot:    "{{.Task.Slot}}",
+	downward.EnvNodeID:      "{{.Node.ID}}",
+	downward.EnvNodeName:    "{{.Node.Hostname}}",
+}
+
+var downwardEnvironmentKeys = []string{
+	downward.EnvStackName,
+	downward.EnvServiceID,
+	downward.EnvServiceName,
+	downward.EnvTaskID,
+	downward.EnvTaskName,
+	downward.EnvTaskSlot,
+	downward.EnvNodeID,
+	downward.EnvNodeName,
+}
+
 func (r *Reconciler) attachPipeline() {
 	r.pipeline = pipe.NewPipeline[*pipelinePayload]()
+
+	if r.cfg.Spec.Containers.Downward != nil {
+		r.pipeline.Add(pipe.Step[*pipelinePayload]{
+			Name: "add downward",
+			Run:  r.addDownward,
+		})
+	}
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "add managed label",
@@ -54,7 +85,7 @@ func (r *Reconciler) attachPipeline() {
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "write rendered compose",
 		When: pipe.When(func(payload *pipelinePayload) bool {
-			return payload.DesiredMutated
+			return payload.RenderedComposeNeeded && (payload.IsNewDigest || payload.DesiredMutated)
 		}),
 		Run: r.writeRenderedCompose,
 	})
@@ -101,6 +132,7 @@ func (r *Reconciler) addManagedLabel(_ context.Context, payload *pipelinePayload
 
 	if changed {
 		payload.DesiredMutated = true
+		payload.RenderedComposeNeeded = true
 	}
 
 	return nil
@@ -121,9 +153,61 @@ func (r *Reconciler) rotateSecrets(_ context.Context, payload *pipelinePayload) 
 
 	if changed {
 		payload.DesiredMutated = true
+		payload.RenderedComposeNeeded = true
 	}
 
 	return nil
+}
+
+func (r *Reconciler) addDownward(_ context.Context, payload *pipelinePayload) error {
+	changed := false
+
+	for index, service := range payload.Desired.Compose.Services {
+		if serviceHasDownwardEnvironment(service.Environment) {
+			continue
+		}
+
+		if service.Environment.Map == nil {
+			service.Environment.Map = make(map[string]string, len(downwardEnvironment))
+		}
+
+		serviceChanged := false
+		for key, value := range downwardEnvironment {
+			if key == downward.EnvStackName {
+				value = payload.Stack.Name
+			}
+
+			if service.Environment.Has(key) {
+				continue
+			}
+
+			service.Environment.Map[key] = value
+			serviceChanged = true
+		}
+
+		if !serviceChanged {
+			continue
+		}
+
+		payload.Desired.Compose.Services[index] = service
+		changed = true
+	}
+
+	if changed {
+		payload.RenderedComposeNeeded = true
+	}
+
+	return nil
+}
+
+func serviceHasDownwardEnvironment(environment compose.Environment) bool {
+	for _, key := range downwardEnvironmentKeys {
+		if environment.Has(key) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (r *Reconciler) writeRenderedCompose(_ context.Context, payload *pipelinePayload) error {
