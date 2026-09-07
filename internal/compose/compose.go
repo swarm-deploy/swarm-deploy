@@ -6,12 +6,19 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type ContainersSpec struct {
+	// Downward injects Swarm downward API values into each service environment.
+	Downward *struct{} `yaml:"downward,omitempty" json:"downward,omitempty"`
+}
+
 type Compose struct {
-	Services Services           `yaml:"services" json:"services"`
-	Networks map[string]Network `yaml:"networks,omitempty" json:"networks"`
-	Configs  SharedObjects      `yaml:"configs,omitempty" json:"configs"`
-	Secrets  SharedObjects      `yaml:"secrets,omitempty" json:"secrets"`
-	Volumes  Volumes            `yaml:"volumes,omitempty" json:"volumes"`
+	// Containers configures special container-level behavior.
+	Containers ContainersSpec     `yaml:"containers,omitempty" json:"containers,omitempty"`
+	Services   Services           `yaml:"services" json:"services"`
+	Networks   map[string]Network `yaml:"networks,omitempty" json:"networks"`
+	Configs    SharedObjects      `yaml:"configs,omitempty" json:"configs"`
+	Secrets    SharedObjects      `yaml:"secrets,omitempty" json:"secrets"`
+	Volumes    Volumes            `yaml:"volumes,omitempty" json:"volumes"`
 
 	Extra map[string]interface{} `yaml:",inline"`
 }

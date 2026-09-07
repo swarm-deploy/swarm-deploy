@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	pipe "github.com/artarts36/gopipe"
+	downward "github.com/swarm-deploy/downward/go"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
@@ -50,6 +51,14 @@ func (r *Reconciler) attachPipeline() {
 			Run: r.rotateSecrets,
 		})
 	}
+
+	r.pipeline.Add(pipe.Step[*pipelinePayload]{
+		Name: "inject downward env",
+		When: pipe.When(func(payload *pipelinePayload) bool {
+			return payload.Desired != nil && payload.Desired.Compose.Containers.Downward != nil
+		}),
+		Run: r.addDownward,
+	})
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "write rendered compose",
@@ -124,6 +133,74 @@ func (r *Reconciler) rotateSecrets(_ context.Context, payload *pipelinePayload) 
 	}
 
 	return nil
+}
+
+func (r *Reconciler) addDownward(_ context.Context, payload *pipelinePayload) error {
+	for i := range payload.Desired.Compose.Services {
+		service := &payload.Desired.Compose.Services[i]
+		if hasDownwardEnv(service.Environment) {
+			continue
+		}
+
+		service.Environment.Map = ensureEnvironmentMap(service.Environment.Map)
+		for key, value := range downwardEnvContract(payload.Stack.Name) {
+			if _, exists := service.Environment.Map[key]; exists {
+				continue
+			}
+			service.Environment.Map[key] = value
+			service.Environment.Keys = append(service.Environment.Keys, key)
+		}
+	}
+
+	return nil
+}
+
+func hasDownwardEnv(env compose.Environment) bool {
+	for _, key := range env.Keys {
+		if isDownwardEnvKey(key) {
+			return true
+		}
+	}
+
+	for key := range env.Map {
+		if isDownwardEnvKey(key) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func ensureEnvironmentMap(values map[string]string) map[string]string {
+	if values != nil {
+		return values
+	}
+
+	return map[string]string{}
+}
+
+func downwardEnvContract(stackName string) map[string]string {
+	return map[string]string{
+		downward.EnvStackName:   stackName,
+		downward.EnvServiceID:   "{{.Service.ID}}",
+		downward.EnvServiceName: "{{.Service.Name}}",
+		downward.EnvTaskID:      "{{.Task.ID}}",
+		downward.EnvTaskName:    "{{.Task.Name}}",
+		downward.EnvTaskSlot:    "{{.Task.Slot}}",
+		downward.EnvNodeID:      "{{.Node.ID}}",
+		downward.EnvNodeName:    "{{.Node.Hostname}}",
+	}
+}
+
+func isDownwardEnvKey(key string) bool {
+	switch key {
+	case downward.EnvStackName, downward.EnvServiceID, downward.EnvServiceName,
+		downward.EnvTaskID, downward.EnvTaskName, downward.EnvTaskSlot,
+		downward.EnvNodeID, downward.EnvNodeName:
+		return true
+	default:
+		return false
+	}
 }
 
 func (r *Reconciler) writeRenderedCompose(_ context.Context, payload *pipelinePayload) error {

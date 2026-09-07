@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	downward "github.com/swarm-deploy/downward/go"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
@@ -25,6 +26,64 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
+
+func TestAddDownwardInjectsServiceEnvironment(t *testing.T) {
+	payload := &pipelinePayload{
+		Stack: config.StackSpec{Name: "app"},
+		Desired: &compose.File{
+			Compose: compose.Compose{
+				Containers: compose.ContainersSpec{Downward: &struct{}{}},
+				Services: compose.Services{{
+					Name:  "api",
+					Image: "nginx:latest",
+				}},
+			},
+		},
+	}
+
+	reconciler := &Reconciler{}
+	require.NoError(t, reconciler.addDownward(context.Background(), payload))
+
+	env := payload.Desired.Compose.Services[0].Environment.Map
+	assert.Equal(t, "app", env[downward.EnvStackName])
+	assert.Equal(t, "{{.Service.ID}}", env[downward.EnvServiceID])
+	assert.Equal(t, "{{.Service.Name}}", env[downward.EnvServiceName])
+	assert.Equal(t, "{{.Task.ID}}", env[downward.EnvTaskID])
+	assert.Equal(t, "{{.Task.Name}}", env[downward.EnvTaskName])
+	assert.Equal(t, "{{.Task.Slot}}", env[downward.EnvTaskSlot])
+	assert.Equal(t, "{{.Node.ID}}", env[downward.EnvNodeID])
+	assert.Equal(t, "{{.Node.Hostname}}", env[downward.EnvNodeName])
+}
+
+func TestAddDownwardSkipsServicesWithExistingDownwardEnv(t *testing.T) {
+	payload := &pipelinePayload{
+		Stack: config.StackSpec{Name: "app"},
+		Desired: &compose.File{
+			Compose: compose.Compose{
+				Containers: compose.ContainersSpec{Downward: &struct{}{}},
+				Services: compose.Services{{
+					Name:  "api",
+					Image: "nginx:latest",
+					Environment: compose.Environment{
+						Map: map[string]string{
+							downward.EnvServiceName: "{{.Service.Name}}",
+						},
+						Keys: []string{downward.EnvServiceName},
+					},
+				}},
+			},
+		},
+	}
+
+	reconciler := &Reconciler{}
+	require.NoError(t, reconciler.addDownward(context.Background(), payload))
+
+	env := payload.Desired.Compose.Services[0].Environment.Map
+	assert.Len(t, env, 1)
+	assert.Equal(t, "{{.Service.Name}}", env[downward.EnvServiceName])
+	_, hasStackName := env[downward.EnvStackName]
+	assert.False(t, hasStackName)
+}
 
 func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 	ctrl := gomock.NewController(t)
