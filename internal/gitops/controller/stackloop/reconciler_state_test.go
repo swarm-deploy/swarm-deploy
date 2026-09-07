@@ -574,7 +574,7 @@ func TestAddDownwardSkipsServiceWithExistingDownwardVariable(t *testing.T) {
 	err := reconciler.addDownward(context.Background(), payload)
 
 	require.NoError(t, err, "add downward")
-	assert.False(t, payload.RenderedComposeNeeded, "expected no rendered compose write request")
+	assert.False(t, payload.DesiredMutated, "expected no desired mutation")
 	assert.Equal(t, map[string]string{
 		downward.EnvServiceName: "custom-service",
 	}, payload.Desired.Compose.Services[0].Environment.Map, "expected service environment to stay unchanged")
