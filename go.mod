@@ -1,6 +1,6 @@
 module github.com/swarm-deploy/swarm-deploy
 
-go 1.26.2
+go 1.26.3
 
 require (
 	github.com/DrSmithFr/go-console v1.4.4
@@ -25,7 +25,7 @@ require (
 	github.com/opencontainers/image-spec v1.1.1
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
-	github.com/stretchr/testify v1.11.1
+	github.com/stretchr/testify v1.12.1
 	github.com/swarm-deploy/webroute v0.1.1
 	github.com/tg123/go-htpasswd v1.2.4
 	github.com/tmc/langchaingo v0.1.7
@@ -88,6 +88,8 @@ require (
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/skeema/knownhosts v1.3.1 // indirect
+	github.com/swarm-deploy/downward v0.0.0-20260907200912-8e94e5d2ba71 // indirect
+	github.com/swarm-deploy/downward/go v0.0.0-20260907200912-8e94e5d2ba71 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect

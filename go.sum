@@ -195,6 +195,12 @@ github.com/stretchr/testify v1.2.2/go.mod h1:a8OnRcib4nhh0OaRAV+Yts87kKdq0PP7pXf
 github.com/stretchr/testify v1.4.0/go.mod h1:j7eGeouHqKxXV5pUuKE4zz7dFj8WfuZ+81PSLYec5m4=
 github.com/stretchr/testify v1.11.1 h1:7s2iGBzp5EwR7/aIZr8ao5+dra3wiQyKjjFuvgVKu7U=
 github.com/stretchr/testify v1.11.1/go.mod h1:wZwfW3scLgRK+23gO65QZefKpKQRnfz6sD981Nm4B6U=
+github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWDWE=
+github.com/stretchr/testify v1.12.1/go.mod h1:MDEgiDPPsNp5cuIrHPPCyornHKgEVbtFUmoNlxoYthg=
+github.com/swarm-deploy/downward v0.0.0-20260907200912-8e94e5d2ba71 h1:NuhT1RF3hoqE/EkvV1Fx23VJ7GJPjlcXruvWm+2JHjk=
+github.com/swarm-deploy/downward v0.0.0-20260907200912-8e94e5d2ba71/go.mod h1:rft8Ni7qkJyTcmA7R9PTDnk+0VNSOLlo81mwqzoixlI=
+github.com/swarm-deploy/downward/go v0.0.0-20260907200912-8e94e5d2ba71 h1:LGysEtl7aE1DpeIXmoIPgzCDD1vEzybtPwrqben9FCs=
+github.com/swarm-deploy/downward/go v0.0.0-20260907200912-8e94e5d2ba71/go.mod h1:2TQ5jLI7wvmekxdbes6mm3O1ECa3CIuCjw3zp+Is+tI=
 github.com/swarm-deploy/webroute v0.1.0 h1:gTG6Kj1tG6gE9SQz+xfmaikqjKLjbljm5iBSyLCCUoI=
 github.com/swarm-deploy/webroute v0.1.0/go.mod h1:MHxZbSaDUxQvjPVKABYSKG+mMyknbQIkJKubt9BrzXA=
 github.com/swarm-deploy/webroute v0.1.1-0.20260809173440-99103223635c h1:3epEb8S5MPkTiSbZ1F4WoVkqLvFDqMfp4clTZJslNuI=
