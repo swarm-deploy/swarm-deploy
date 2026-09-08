@@ -107,7 +107,6 @@ func (r *Reconciler) addManagedLabel(_ context.Context, payload *pipelinePayload
 	}
 	if changed {
 		payload.DesiredMutated = true
-		payload.DesiredMutated = true
 	}
 
 	return nil
