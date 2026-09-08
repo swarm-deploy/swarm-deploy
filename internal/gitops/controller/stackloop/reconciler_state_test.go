@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	downward "github.com/swarm-deploy/downward/go"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
@@ -403,6 +404,180 @@ secrets:
 		renderedCompose.Secrets["abs-secret"].File,
 		"absolute secret file should be preserved",
 	)
+}
+
+func TestReconcileWritesRenderedComposeForDownwardEnabledStack(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repository := gitx.NewMockRepository(ctrl)
+	serviceManager := swarm.NewMockServiceManager(ctrl)
+	stackDeployer := deployer.NewMockStackDeployer(ctrl)
+	stateStore := modelstore.NewMemoryStore()
+	repoDir := t.TempDir()
+	renderedPath := filepath.Join(repoDir, ".data", "rendered", "app.yaml")
+
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "app.yaml"), []byte(fmt.Sprintf(`
+services:
+  api:
+    image: nginx:latest
+    deploy:
+      labels:
+        %s: %q
+`, labelsdict.ServiceManagedLabelKey, labelsdict.ServiceManagedLabelValue)), 0o600), "write compose")
+
+	repository.EXPECT().WorkingDir().Return(repoDir)
+	stackDeployer.EXPECT().
+		DeployStack(gomock.Any(), "app", renderedPath, gomock.Any()).
+		Return(nil)
+	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
+
+	reconciler := &Reconciler{
+		cfg: &config.Config{
+			Spec: config.Spec{
+				DataDir: filepath.Join(repoDir, ".data"),
+				Containers: config.ContainersSpec{
+					Downward: &struct{}{},
+				},
+			},
+		},
+		git:            repository,
+		deployer:       stackDeployer,
+		event:          &dispatcher.NopDispatcher{},
+		deployMetrics:  &metrics.NopDeploys{},
+		stateStore:     stateStore,
+		pruner:         pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),
+		composeLoader:  compose.NewFileLoader(),
+		composeRotator: NewRotator(),
+		serviceManager: serviceManager,
+	}
+	reconciler.attachPipeline()
+
+	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
+		Stack: config.StackSpec{
+			Name:        "app",
+			ComposeFile: "app.yaml",
+		},
+		Commit: "commit-downward-1",
+	})
+
+	require.NoError(t, reconcileErr, "reconcile")
+
+	renderedRaw, err := os.ReadFile(renderedPath)
+	require.NoError(t, err, "read rendered compose")
+
+	renderedCompose, err := compose.Parse(renderedRaw)
+	require.NoError(t, err, "parse rendered compose")
+	require.Len(t, renderedCompose.Services, 1, "expected one service")
+
+	service := renderedCompose.Services[0]
+	assert.Equal(t, "app", service.Environment.Map[downward.EnvStackName], "unexpected stack env")
+	assert.Equal(t, "{{.Service.ID}}", service.Environment.Map[downward.EnvServiceID], "unexpected service id env")
+	assert.Equal(t, "{{.Service.Name}}", service.Environment.Map[downward.EnvServiceName], "unexpected service name env")
+	assert.Equal(t, "{{.Task.ID}}", service.Environment.Map[downward.EnvTaskID], "unexpected task id env")
+	assert.Equal(t, "{{.Task.Name}}", service.Environment.Map[downward.EnvTaskName], "unexpected task name env")
+	assert.Equal(t, "{{.Task.Slot}}", service.Environment.Map[downward.EnvTaskSlot], "unexpected task slot env")
+	assert.Equal(t, "{{.Node.ID}}", service.Environment.Map[downward.EnvNodeID], "unexpected node id env")
+	assert.Equal(t, "{{.Node.Hostname}}", service.Environment.Map[downward.EnvNodeName], "unexpected node name env")
+}
+
+func TestReconcileDoesNotRedeployForDownwardOnUnchangedDigest(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repository := gitx.NewMockRepository(ctrl)
+	serviceManager := swarm.NewMockServiceManager(ctrl)
+	stackDeployer := deployer.NewMockStackDeployer(ctrl)
+	stateStore := modelstore.NewMemoryStore()
+	repoDir := t.TempDir()
+	renderedPath := filepath.Join(repoDir, ".data", "rendered", "app.yaml")
+
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "app.yaml"), []byte(fmt.Sprintf(`
+services:
+  api:
+    image: nginx:latest
+    deploy:
+      labels:
+        %s: %q
+`, labelsdict.ServiceManagedLabelKey, labelsdict.ServiceManagedLabelValue)), 0o600), "write compose")
+
+	repository.EXPECT().WorkingDir().Return(repoDir).Times(2)
+	stackDeployer.EXPECT().
+		DeployStack(gomock.Any(), "app", renderedPath, gomock.Any()).
+		Return(nil).
+		Times(1)
+	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
+	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{
+		{Name: "api"},
+	}, nil)
+
+	reconciler := &Reconciler{
+		cfg: &config.Config{
+			Spec: config.Spec{
+				DataDir: filepath.Join(repoDir, ".data"),
+				Containers: config.ContainersSpec{
+					Downward: &struct{}{},
+				},
+			},
+		},
+		git:            repository,
+		deployer:       stackDeployer,
+		event:          &dispatcher.NopDispatcher{},
+		deployMetrics:  &metrics.NopDeploys{},
+		stateStore:     stateStore,
+		pruner:         pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),
+		composeLoader:  compose.NewFileLoader(),
+		composeRotator: NewRotator(),
+		driftAnalyzer:  drift.NewAnalyzer(),
+		serviceManager: serviceManager,
+	}
+	reconciler.attachPipeline()
+
+	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
+		Stack: config.StackSpec{
+			Name:        "app",
+			ComposeFile: "app.yaml",
+		},
+		Commit: "commit-downward-2",
+	})
+	require.NoError(t, reconcileErr, "first reconcile")
+
+	reconcileErr = reconciler.Reconcile(context.Background(), ReconciliationRequest{
+		Stack: config.StackSpec{
+			Name:        "app",
+			ComposeFile: "app.yaml",
+		},
+		Commit: "commit-downward-3",
+	})
+	require.NoError(t, reconcileErr, "second reconcile")
+}
+
+func TestAddDownwardSkipsServiceWithExistingDownwardVariable(t *testing.T) {
+	reconciler := &Reconciler{}
+	payload := &pipelinePayload{
+		Stack: config.StackSpec{
+			Name: "app",
+		},
+		Desired: &compose.File{
+			Compose: compose.Compose{
+				Services: compose.Services{
+					{
+						Name:  "api",
+						Image: "nginx:latest",
+						Environment: compose.Environment{
+							Map: map[string]string{
+								downward.EnvServiceName: "custom-service",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	err := reconciler.addDownward(context.Background(), payload)
+
+	require.NoError(t, err, "add downward")
+	assert.False(t, payload.DesiredMutated, "expected no desired mutation")
+	assert.Equal(t, map[string]string{
+		downward.EnvServiceName: "custom-service",
+	}, payload.Desired.Compose.Services[0].Environment.Map, "expected service environment to stay unchanged")
 }
 
 func TestReconcilePrunesServicesForSkippedManualSync(t *testing.T) {

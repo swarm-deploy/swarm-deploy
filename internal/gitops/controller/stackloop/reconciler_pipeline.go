@@ -33,6 +33,13 @@ type pipelinePayload struct {
 func (r *Reconciler) attachPipeline() {
 	r.pipeline = pipe.NewPipeline[*pipelinePayload]()
 
+	if r.cfg.Spec.Containers.Downward != nil {
+		r.pipeline.Add(pipe.Step[*pipelinePayload]{
+			Name: "add downward",
+			Run:  r.addDownward,
+		})
+	}
+
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "add managed label",
 		When: pipe.When(func(payload *pipelinePayload) bool {
@@ -98,7 +105,6 @@ func (r *Reconciler) addManagedLabel(_ context.Context, payload *pipelinePayload
 			changed = true
 		}
 	}
-
 	if changed {
 		payload.DesiredMutated = true
 	}

@@ -111,6 +111,11 @@ secretRotation:
   # Include source file path in hash.
   includePath: true
 
+# Container runtime settings.
+containers:
+  # Inject Swarm downward environment variables into services.
+  downward: {}
+
 # Docker stack deploy execution settings.
 swarm:
   # Docker CLI command.
