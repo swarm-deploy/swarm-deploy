@@ -12,7 +12,7 @@ COPY ui/index.html ui/styles.css ui/vite.config.ts ui/tsconfig.json ./
 COPY ui/src ./src
 RUN npm run build
 
-FROM golang:1.26.2-alpine AS builder
+FROM golang:1.26.3-alpine AS builder
 
 WORKDIR /src
 
