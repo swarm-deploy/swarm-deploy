@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/artarts36/go-entrypoint"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"github.com/swarm-deploy/swarm-deploy/internal/assistant"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/authenticator"
@@ -132,10 +133,13 @@ func NewApplication(
 	return &Application{
 		server: &http.Server{
 			Addr: address,
-			Handler: middlewares.Recovery(middlewares.NewLog(
-				middlewares.Authorize(rootHandler, auth, eventDispatcher),
-				apiHandler.FindRoute,
-			)),
+			Handler: otelhttp.NewHandler(
+				middlewares.Recovery(middlewares.NewLog(
+					middlewares.Authorize(rootHandler, auth, eventDispatcher),
+					apiHandler.FindRoute,
+				)),
+				"web.request",
+			),
 			ReadHeaderTimeout: readHeaderTimeout,
 		},
 	}, nil
