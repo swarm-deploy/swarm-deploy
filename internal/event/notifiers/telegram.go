@@ -69,7 +69,7 @@ func NewTelegramNotifier(name, token, chatID string, options TelegramOptions) (N
 	return NewTraceableNotifier(tgNotifier, tp, []attribute.KeyValue{
 		{
 			Key:   "notifier.telegram.api_base_url",
-			Value: attribute.StringValue(options.APIBaseURL),
+			Value: attribute.StringValue(tgNotifier.apiBaseURL),
 		},
 	}), nil
 }
