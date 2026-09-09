@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/artarts36/specw"
@@ -91,15 +92,7 @@ func TestConfigValidateTracing(t *testing.T) {
 			}
 
 			require.NotEmpty(t, errs)
-			assert.Contains(t, errorsText(errs), tt.wantErr)
+			assert.Contains(t, errors.Join(errs...).Error(), tt.wantErr)
 		})
 	}
-}
-
-func errorsText(errs []error) string {
-	var out string
-	for _, err := range errs {
-		out += err.Error() + "\n"
-	}
-	return out
 }
