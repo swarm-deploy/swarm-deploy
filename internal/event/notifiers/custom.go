@@ -8,6 +8,9 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 const (
@@ -24,7 +27,23 @@ type CustomWebhookNotifier struct {
 	client  *http.Client
 }
 
-func NewCustomWebhookNotifier(name, url, method string, headers map[string]string) *CustomWebhookNotifier {
+func NewCustomWebhookNotifier(name, url, method string, headers map[string]string) Notifier {
+	customNotifier := newCustomWebhookNotifier(name, url, method, headers)
+
+	tp := otel.GetTracerProvider()
+	if tp == nil {
+		return customNotifier
+	}
+
+	return NewTraceableNotifier(customNotifier, tp, []attribute.KeyValue{
+		{
+			Key:   "notifier.custom.url",
+			Value: attribute.StringValue(url),
+		},
+	})
+}
+
+func newCustomWebhookNotifier(name, url, method string, headers map[string]string) *CustomWebhookNotifier {
 	if method == "" {
 		method = http.MethodPost
 	}

@@ -24,7 +24,7 @@ func TestMaskTelegramSendError(t *testing.T) {
 
 func TestTelegramNotifyMasksTokenInSendError(t *testing.T) {
 	token := "12345:ABCDEF"
-	notifier, err := NewTelegramNotifier(
+	notifier, err := newTelegramNotifier(
 		"ops",
 		token,
 		"-1001234567890",
@@ -52,7 +52,7 @@ func TestTelegramNotifyMasksTokenInSendError(t *testing.T) {
 }
 
 func TestTelegramNotifyRetriesUntilSuccess(t *testing.T) {
-	notifier, err := NewTelegramNotifier(
+	notifier, err := newTelegramNotifier(
 		"ops",
 		"12345:ABCDEF",
 		"-1001234567890",
@@ -90,7 +90,7 @@ func TestTelegramNotifyRetriesUntilSuccess(t *testing.T) {
 }
 
 func TestTelegramNotifyStopsAfterConfiguredRetries(t *testing.T) {
-	notifier, err := NewTelegramNotifier(
+	notifier, err := newTelegramNotifier(
 		"ops",
 		"12345:ABCDEF",
 		"-1001234567890",
@@ -121,7 +121,7 @@ func TestTelegramNotifyStopsAfterConfiguredRetries(t *testing.T) {
 }
 
 func TestTelegramNotifyUsesDefaultRetries(t *testing.T) {
-	notifier, err := NewTelegramNotifier(
+	notifier, err := newTelegramNotifier(
 		"ops",
 		"12345:ABCDEF",
 		"-1001234567890",
