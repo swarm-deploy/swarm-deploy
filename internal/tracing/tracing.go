@@ -61,7 +61,7 @@ func buildExporter(ctx context.Context, cfg *config.TracingSpec) (sdktrace.SpanE
 		headers["Authorization"] = "Bearer " + bearer
 	}
 
-	endpoint := cfg.Exporter.ResolveEndpoint()
+	endpoint := strings.TrimSpace(cfg.Exporter.Endpoint.Value)
 
 	switch cfg.Transport {
 	case config.TracingTransportHTTP:
