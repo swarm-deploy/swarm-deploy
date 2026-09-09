@@ -26,7 +26,7 @@ type TracingExporterSpec struct {
 	// Endpoint is the OTLP exporter endpoint.
 	Endpoint specw.Env[string] `yaml:"endpoint"`
 	// Headers contains custom OTLP exporter headers. Authorization is reserved for Authentication.
-	Headers map[string]string `yaml:"headers"`
+	Headers map[string]specw.Env[string] `yaml:"headers"`
 	// Authentication contains exporter authentication settings.
 	Authentication TracingAuthenticationSpec `yaml:"authentication"`
 }
@@ -35,6 +35,8 @@ type TracingExporterSpec struct {
 type TracingAuthenticationSpec struct {
 	// Bearer is a path to a file containing the bearer token.
 	Bearer specw.File `yaml:"bearerPath"`
+	// XAPIKey is a path to a file containing the x-api-key token.
+	XAPIKey specw.File `yaml:"xApiKeyPath"`
 }
 
 func (c *Config) validateTracing() []error {
@@ -70,6 +72,11 @@ func (c *Config) validateTracing() []error {
 	bearer := c.Spec.Tracing.Exporter.Authentication.Bearer
 	if bearer.Path != "" && strings.TrimSpace(string(bearer.Content)) == "" {
 		errs = append(errs, errors.New("tracing.exporter.authentication.bearerPath contains empty token"))
+	}
+
+	xAPIKey := c.Spec.Tracing.Exporter.Authentication.XAPIKey
+	if xAPIKey.Path != "" && strings.TrimSpace(string(xAPIKey.Content)) == "" {
+		errs = append(errs, errors.New("tracing.exporter.authentication.xApiKeyPath contains empty token"))
 	}
 
 	return errs

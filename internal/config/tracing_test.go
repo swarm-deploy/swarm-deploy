@@ -20,6 +20,16 @@ func TestTracingExporterSpecEndpointFromEnv(t *testing.T) {
 	assert.Equal(t, "http://otel-collector:4318/v1/traces", spec.Endpoint.Value)
 }
 
+func TestTracingExporterSpecHeadersFromEnv(t *testing.T) {
+	t.Setenv("OTEL_TENANT", "platform")
+
+	var spec TracingExporterSpec
+	err := yaml.Unmarshal([]byte("headers:\n  x-tenant: $OTEL_TENANT\n"), &spec)
+	require.NoError(t, err)
+
+	assert.Equal(t, "platform", spec.Headers["x-tenant"].Value)
+}
+
 func TestConfigValidateTracing(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -64,7 +74,7 @@ func TestConfigValidateTracing(t *testing.T) {
 				Transport: TracingTransportHTTP,
 				Exporter: TracingExporterSpec{
 					Endpoint: specw.Env[string]{Value: "http://otel-collector:4318/v1/traces"},
-					Headers: map[string]string{" Authorization ": "Bearer forbidden"},
+					Headers: map[string]specw.Env[string]{" Authorization ": {Value: "Bearer forbidden"}},
 				},
 			},
 			wantErr: "tracing.exporter.headers must not contain authorization",
@@ -81,6 +91,19 @@ func TestConfigValidateTracing(t *testing.T) {
 				},
 			},
 			wantErr: "tracing.exporter.authentication.bearerPath contains empty token",
+		},
+		{
+			name: "empty x api key",
+			tracing: &TracingSpec{
+				Transport: TracingTransportHTTP,
+				Exporter: TracingExporterSpec{
+					Endpoint: specw.Env[string]{Value: "http://otel-collector:4318/v1/traces"},
+					Authentication: TracingAuthenticationSpec{
+						XAPIKey: specw.File{Path: "/run/secrets/otel-api-key"},
+					},
+				},
+			},
+			wantErr: "tracing.exporter.authentication.xApiKeyPath contains empty token",
 		},
 	}
 

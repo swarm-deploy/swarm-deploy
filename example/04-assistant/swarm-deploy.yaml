@@ -121,14 +121,16 @@ containers:
 #   # OTLP transport: http | grpc.
 #   transport: http
 #   exporter:
-#     # Environment variables are expanded at startup.
 #     endpoint: $OTEL_EXPORTER_OTLP_ENDPOINT
-#     # Custom OTLP headers. Authorization must be configured via authentication.bearerPath.
+#     # Header values can reference environment variables.
+#     # Authorization must be configured via authentication.bearerPath.
 #     headers:
-#       x-tenant: platform
+#       x-tenant: $OTEL_TENANT
 #     authentication:
 #       # Optional path to a file containing bearer token.
 #       bearerPath: /run/secrets/otel-collector
+#       # Optional path to a file containing x-api-key.
+#       xApiKeyPath: /run/secrets/otel-api-key
 
 # Docker stack deploy execution settings.
 swarm:

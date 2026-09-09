@@ -51,14 +51,19 @@ func Init(ctx context.Context, cfg *config.TracingSpec) (*sdktrace.TracerProvide
 }
 
 func buildExporter(ctx context.Context, cfg *config.TracingSpec) (sdktrace.SpanExporter, error) {
-	headers := make(map[string]string, len(cfg.Exporter.Headers)+1)
+	headers := make(map[string]string, len(cfg.Exporter.Headers)+2)
 	for key, value := range cfg.Exporter.Headers {
-		headers[key] = value
+		headers[key] = value.Value
 	}
 
 	bearer := strings.TrimSpace(string(cfg.Exporter.Authentication.Bearer.Content))
 	if bearer != "" {
 		headers["Authorization"] = "Bearer " + bearer
+	}
+
+	xAPIKey := strings.TrimSpace(string(cfg.Exporter.Authentication.XAPIKey.Content))
+	if xAPIKey != "" {
+		headers["x-api-key"] = xAPIKey
 	}
 
 	endpoint := strings.TrimSpace(cfg.Exporter.Endpoint.Value)
