@@ -7,7 +7,7 @@ require (
 	github.com/artarts36/envmasker v0.0.0-20260424231721-45f9d0bb307b
 	github.com/artarts36/gds v0.2.5
 	github.com/artarts36/go-entrypoint v0.2.1
-	github.com/artarts36/gopipe v0.1.1
+	github.com/artarts36/gopipe v0.1.4-0.20260909110416-a18bfa50c4d5
 	github.com/artarts36/specw v0.1.8-0.20260526200511-8bb157c70b9d
 	github.com/avast/retry-go/v5 v5.0.0
 	github.com/cappuccinotm/slogx v1.4.2
@@ -26,14 +26,18 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
 	github.com/stretchr/testify v1.12.1
-	github.com/swarm-deploy/downward/go v0.1.0
+	github.com/swarm-deploy/downward-otel/go v0.0.0-20260909095045-48e42bafc48c
+	github.com/swarm-deploy/downward/go v0.1.1
 	github.com/swarm-deploy/webroute v0.1.1
 	github.com/tg123/go-htpasswd v1.2.4
 	github.com/tmc/langchaingo v0.1.7
 	github.com/tmc/langgraphgo v0.0.0-20240324234251-3b0caeaffd16
-	go.opentelemetry.io/otel v1.42.0
-	go.opentelemetry.io/otel/metric v1.42.0
-	go.opentelemetry.io/otel/trace v1.42.0
+	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.71.0
+	go.opentelemetry.io/otel v1.46.0
+	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.46.0
+	go.opentelemetry.io/otel/metric v1.46.0
+	go.opentelemetry.io/otel/sdk v1.46.0
+	go.opentelemetry.io/otel/trace v1.46.0
 	go.uber.org/mock v0.6.0
 	golang.org/x/crypto v0.48.0
 	golang.org/x/net v0.51.0
@@ -62,7 +66,7 @@ require (
 	github.com/go-faster/yaml v0.4.6 // indirect
 	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
 	github.com/go-git/go-billy/v5 v5.8.0 // indirect
-	github.com/go-logr/logr v1.4.3 // indirect
+	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/golang/groupcache v0.0.0-20241129210726-2c02b8208cf8 // indirect
@@ -86,15 +90,13 @@ require (
 	github.com/segmentio/asm v1.2.1 // indirect
 	github.com/sergi/go-diff v1.3.2-0.20230802210424-5b0b94c5c0d3 // indirect
 	github.com/shopspring/decimal v1.4.0 // indirect
-	github.com/skeema/knownhosts v1.3.1 // indirect
+	github.com/skeema/knownhosts v0.3.1 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/tidwall/sjson v1.2.5 // indirect
 	github.com/xanzy/ssh-agent v0.3.3 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
-	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.67.0 // indirect
-	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.42.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.1 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
