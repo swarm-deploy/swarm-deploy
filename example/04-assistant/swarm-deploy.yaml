@@ -123,10 +123,10 @@ containers:
 #   exporter:
 #     # Environment variables are expanded at startup.
 #     endpoint: $OTEL_EXPORTER_OTLP_ENDPOINT
-#     # Custom OTLP headers. Authorization must be configured via authentcation.bearerPath.
+#     # Custom OTLP headers. Authorization must be configured via authentication.bearerPath.
 #     headers:
 #       x-tenant: platform
-#     authentcation:
+#     authentication:
 #       # Optional path to a file containing bearer token.
 #       bearerPath: /run/secrets/otel-collector
 
