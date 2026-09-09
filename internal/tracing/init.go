@@ -41,6 +41,8 @@ func Init(ctx context.Context, cfg *config.TracingSpec) (*sdktrace.TracerProvide
 		sdktrace.WithResource(res),
 	)
 
+	tracingEnabled = true
+
 	otel.SetTracerProvider(provider)
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
 		propagation.TraceContext{},

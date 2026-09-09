@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"go.opentelemetry.io/otel"
+	"github.com/swarm-deploy/swarm-deploy/internal/tracing"
 	"go.opentelemetry.io/otel/attribute"
 )
 
@@ -30,8 +30,8 @@ type CustomWebhookNotifier struct {
 func NewCustomWebhookNotifier(name, url, method string, headers map[string]string) Notifier {
 	customNotifier := newCustomWebhookNotifier(name, url, method, headers)
 
-	tp := otel.GetTracerProvider()
-	if tp == nil {
+	tp, tracingEnabled := tracing.GetTracerProvider()
+	if !tracingEnabled {
 		return customNotifier
 	}
 

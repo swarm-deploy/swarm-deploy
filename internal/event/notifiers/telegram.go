@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/avast/retry-go/v5"
-	"go.opentelemetry.io/otel"
+	"github.com/swarm-deploy/swarm-deploy/internal/tracing"
 	"go.opentelemetry.io/otel/attribute"
 	"golang.org/x/net/proxy"
 )
@@ -61,8 +61,8 @@ func NewTelegramNotifier(name, token, chatID string, options TelegramOptions) (N
 		return nil, err
 	}
 
-	tp := otel.GetTracerProvider()
-	if tp == nil {
+	tp, tracingEnabled := tracing.GetTracerProvider()
+	if !tracingEnabled {
 		return tgNotifier, nil
 	}
 
