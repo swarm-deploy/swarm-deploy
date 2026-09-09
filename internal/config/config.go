@@ -77,6 +77,8 @@ type Spec struct {
 	SecretRotation SecretRotationSpec `yaml:"secretRotation"`
 	// Containers contains container-specific runtime settings.
 	Containers ContainersSpec `yaml:"containers"`
+	// Tracing contains OpenTelemetry tracing settings. Nil disables tracing.
+	Tracing *TracingSpec `yaml:"tracing"`
 	// EventHistory controls persisted event history settings.
 	EventHistory EventHistorySpec `yaml:"eventHistory"`
 	// Assistant contains AI assistant settings.
@@ -154,7 +156,7 @@ type StackSyncPolicySpec struct {
 }
 
 type NetworkSpec struct {
-	// Name is a Docker network name.
+	// Name is a Docker Swarm stack name.
 	Name string `yaml:"name"`
 	// Driver is a Docker network driver (for example: overlay, bridge).
 	Driver string `yaml:"driver"`
@@ -301,7 +303,7 @@ func (c *Config) applyAssistantDefaults() {
 
 	inMemoryStorageCfg := &c.Spec.Assistant.Conversation.Storage.InMemory
 	if inMemoryStorageCfg.TTL.Value <= 0 {
-		inMemoryStorageCfg.TTL.Value = defaultAssistantConversationInMemoryTTL
+		c.Spec.Assistant.Conversation.Storage.InMemory.TTL.Value = defaultAssistantConversationInMemoryTTL
 	}
 }
 
@@ -567,6 +569,7 @@ func (c *Config) validate() error {
 	errs = append(errs, c.validateSecurity()...)
 	errs = append(errs, c.Spec.Notifications.validate()...)
 	errs = append(errs, c.validateAssistant()...)
+	errs = append(errs, c.validateTracing()...)
 
 	return errors.Join(errs...)
 }
