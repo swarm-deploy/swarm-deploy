@@ -69,6 +69,38 @@ func TestConfigValidateTracing(t *testing.T) {
 			wantErr: "tracing.exporter.endpoint is required",
 		},
 		{
+			name: "endpoint without scheme",
+			tracing: &TracingSpec{
+				Transport: TracingTransportGRPC,
+				Exporter: TracingExporterSpec{Endpoint: specw.Env[string]{Value: "otel-collector:4317"}},
+			},
+			wantErr: "tracing.exporter.endpoint must include http:// or https:// scheme",
+		},
+		{
+			name: "unsupported endpoint scheme",
+			tracing: &TracingSpec{
+				Transport: TracingTransportGRPC,
+				Exporter: TracingExporterSpec{Endpoint: specw.Env[string]{Value: "grpc://otel-collector:4317"}},
+			},
+			wantErr: "tracing.exporter.endpoint scheme must be http or https",
+		},
+		{
+			name: "endpoint without host",
+			tracing: &TracingSpec{
+				Transport: TracingTransportHTTP,
+				Exporter: TracingExporterSpec{Endpoint: specw.Env[string]{Value: "http:///v1/traces"}},
+			},
+			wantErr: "tracing.exporter.endpoint must contain host",
+		},
+		{
+			name: "invalid endpoint",
+			tracing: &TracingSpec{
+				Transport: TracingTransportHTTP,
+				Exporter: TracingExporterSpec{Endpoint: specw.Env[string]{Value: "http://[::1"}},
+			},
+			wantErr: "tracing.exporter.endpoint is invalid",
+		},
+		{
 			name: "authorization header",
 			tracing: &TracingSpec{
 				Transport: TracingTransportHTTP,

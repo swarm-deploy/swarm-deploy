@@ -3,6 +3,7 @@ package config
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/artarts36/specw"
@@ -59,8 +60,8 @@ func (c *Config) validateTracing() []error {
 		)
 	}
 
-	if strings.TrimSpace(c.Spec.Tracing.Exporter.Endpoint.Value) == "" {
-		errs = append(errs, errors.New("tracing.exporter.endpoint is required"))
+	if err := validateTracingEndpoint(c.Spec.Tracing.Exporter.Endpoint.Value); err != nil {
+		errs = append(errs, err)
 	}
 
 	for key := range c.Spec.Tracing.Exporter.Headers {
@@ -80,4 +81,30 @@ func (c *Config) validateTracing() []error {
 	}
 
 	return errs
+}
+
+func validateTracingEndpoint(endpoint string) error {
+	endpoint = strings.TrimSpace(endpoint)
+	if endpoint == "" {
+		return errors.New("tracing.exporter.endpoint is required")
+	}
+
+	if !strings.Contains(endpoint, "://") {
+		return errors.New("tracing.exporter.endpoint must include http:// or https:// scheme")
+	}
+
+	parsedEndpoint, err := url.Parse(endpoint)
+	if err != nil {
+		return fmt.Errorf("tracing.exporter.endpoint is invalid: %w", err)
+	}
+
+	if parsedEndpoint.Scheme != "http" && parsedEndpoint.Scheme != "https" {
+		return errors.New("tracing.exporter.endpoint scheme must be http or https")
+	}
+
+	if parsedEndpoint.Host == "" {
+		return errors.New("tracing.exporter.endpoint must contain host")
+	}
+
+	return nil
 }
