@@ -3,9 +3,12 @@ package tracing
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	downwardotel "github.com/swarm-deploy/downward-otel/go"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/sdk/resource"
@@ -13,10 +16,14 @@ import (
 )
 
 // Init initializes the global OpenTelemetry tracer provider.
-func Init(ctx context.Context) (*sdktrace.TracerProvider, error) {
-	exporter, err := otlptracehttp.New(ctx)
+func Init(ctx context.Context, cfg *config.TracingSpec) (*sdktrace.TracerProvider, error) {
+	if cfg == nil {
+		return nil, nil
+	}
+
+	exporter, err := buildExporter(ctx, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("build OTLP trace exporter: %w", err)
+		return nil, err
 	}
 
 	res, err := resource.New(
@@ -41,4 +48,43 @@ func Init(ctx context.Context) (*sdktrace.TracerProvider, error) {
 	))
 
 	return provider, nil
+}
+
+func buildExporter(ctx context.Context, cfg *config.TracingSpec) (sdktrace.SpanExporter, error) {
+	headers := make(map[string]string, len(cfg.Exporter.Headers)+1)
+	for key, value := range cfg.Exporter.Headers {
+		headers[key] = value
+	}
+
+	bearer := strings.TrimSpace(string(cfg.Exporter.Authentication.Bearer.Content))
+	if bearer != "" {
+		headers["Authorization"] = "Bearer " + bearer
+	}
+
+	endpoint := cfg.Exporter.ResolveEndpoint()
+
+	switch cfg.Transport {
+	case config.TracingTransportHTTP:
+		exporter, err := otlptracehttp.New(
+			ctx,
+			otlptracehttp.WithEndpointURL(endpoint),
+			otlptracehttp.WithHeaders(headers),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("build OTLP/HTTP trace exporter: %w", err)
+		}
+		return exporter, nil
+	case config.TracingTransportGRPC:
+		exporter, err := otlptracegrpc.New(
+			ctx,
+			otlptracegrpc.WithEndpointURL(endpoint),
+			otlptracegrpc.WithHeaders(headers),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("build OTLP/gRPC trace exporter: %w", err)
+		}
+		return exporter, nil
+	default:
+		return nil, fmt.Errorf("unsupported tracing transport %q", cfg.Transport)
+	}
 }
