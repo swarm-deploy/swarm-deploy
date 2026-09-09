@@ -80,7 +80,7 @@ func TestConfigValidateTracing(t *testing.T) {
 					},
 				},
 			},
-			wantErr: "tracing.exporter.authentcation.bearerPath contains empty token",
+			wantErr: "tracing.exporter.authentication.bearerPath contains empty token",
 		},
 	}
 
