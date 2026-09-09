@@ -22,6 +22,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type TriggerReason string
@@ -55,6 +56,8 @@ type Controller struct {
 	stackReconciler   *stackloop.Reconciler
 
 	triggerCh chan triggerTask
+
+	tracer trace.Tracer
 }
 
 type triggerTask struct {
@@ -91,6 +94,7 @@ func New(
 			stateStore,
 		),
 		triggerCh: make(chan triggerTask, 1),
+		tracer:    otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/gitops/controller"),
 	}
 }
 
@@ -162,7 +166,7 @@ func (c *Controller) trigger(task triggerTask) bool {
 }
 
 func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:funlen // not need
-	ctx, span := otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/gitops/controller").Start(ctx, "gitops.sync")
+	ctx, span := c.tracer.Start(ctx, "controller.Sync")
 	span.SetAttributes(attribute.String("sync.trigger", string(task.reason)))
 	defer span.End()
 
