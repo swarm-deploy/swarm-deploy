@@ -72,19 +72,21 @@ func main() {
 		security.LogUser(),
 	)))
 
-	tracerProvider, err := tracing.Init(ctx)
+	tracerProvider, err := tracing.Init(ctx, cfg.Spec.Tracing)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to init tracing", slog.Any("err", err))
 		os.Exit(1)
 	}
-	defer func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-		defer cancel()
+	if tracerProvider != nil {
+		defer func() {
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+			defer cancel()
 
-		if shutdownErr := tracerProvider.Shutdown(shutdownCtx); shutdownErr != nil {
-			slog.ErrorContext(shutdownCtx, "failed to shutdown tracing", slog.Any("err", shutdownErr))
-		}
-	}()
+			if shutdownErr := tracerProvider.Shutdown(shutdownCtx); shutdownErr != nil {
+				slog.ErrorContext(shutdownCtx, "failed to shutdown tracing", slog.Any("err", shutdownErr))
+			}
+		}()
+	}
 
 	err = os.MkdirAll(cfg.Spec.DataDir, 0o755)
 	if err != nil {
