@@ -116,6 +116,20 @@ containers:
   # Inject Swarm downward environment variables into services.
   downward: {}
 
+# OpenTelemetry tracing. Uncomment to enable.
+# tracing:
+#   # OTLP transport: http | grpc.
+#   transport: http
+#   exporter:
+#     # Environment variables are expanded at startup.
+#     endpoint: $OTEL_EXPORTER_OTLP_ENDPOINT
+#     # Custom OTLP headers. Authorization must be configured via authentcation.bearerPath.
+#     headers:
+#       x-tenant: platform
+#     authentcation:
+#       # Optional path to a file containing bearer token.
+#       bearerPath: /run/secrets/otel-collector
+
 # Docker stack deploy execution settings.
 swarm:
   # Docker CLI command.
