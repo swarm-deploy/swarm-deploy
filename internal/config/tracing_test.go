@@ -36,9 +36,7 @@ func TestConfigValidateTracing(t *testing.T) {
 		tracing *TracingSpec
 		wantErr string
 	}{
-		{
-			name: "disabled",
-		},
+		{name: "disabled"},
 		{
 			name: "http",
 			tracing: &TracingSpec{
@@ -63,9 +61,7 @@ func TestConfigValidateTracing(t *testing.T) {
 		},
 		{
 			name: "empty endpoint",
-			tracing: &TracingSpec{
-				Transport: TracingTransportHTTP,
-			},
+			tracing: &TracingSpec{Transport: TracingTransportHTTP},
 			wantErr: "tracing.exporter.endpoint is required",
 		},
 		{
@@ -117,12 +113,35 @@ func TestConfigValidateTracing(t *testing.T) {
 				Transport: TracingTransportHTTP,
 				Exporter: TracingExporterSpec{
 					Endpoint: specw.Env[string]{Value: "http://otel-collector:4318/v1/traces"},
-					Authentication: TracingAuthenticationSpec{
-						Bearer: specw.File{Path: "/run/secrets/otel-collector"},
-					},
+					Authentication: TracingAuthenticationSpec{Bearer: specw.File{Path: "/run/secrets/otel-bearer"}},
 				},
 			},
 			wantErr: "tracing.exporter.authentication.bearerPath contains empty token",
+		},
+		{
+			name: "empty api key",
+			tracing: &TracingSpec{
+				Transport: TracingTransportHTTP,
+				Exporter: TracingExporterSpec{
+					Endpoint: specw.Env[string]{Value: "http://otel-collector:4318/v1/traces"},
+					Authentication: TracingAuthenticationSpec{APIKey: specw.File{Path: "/run/secrets/otel-api-key"}},
+				},
+			},
+			wantErr: "tracing.exporter.authentication.apiKeyPath contains empty token",
+		},
+		{
+			name: "bearer and api key",
+			tracing: &TracingSpec{
+				Transport: TracingTransportHTTP,
+				Exporter: TracingExporterSpec{
+					Endpoint: specw.Env[string]{Value: "http://otel-collector:4318/v1/traces"},
+					Authentication: TracingAuthenticationSpec{
+						Bearer: specw.File{Path: "/run/secrets/otel-bearer", Content: []byte("token")},
+						APIKey: specw.File{Path: "/run/secrets/otel-api-key", Content: []byte("key")},
+					},
+				},
+			},
+			wantErr: "tracing.exporter.authentication.bearerPath and apiKeyPath cannot be used together",
 		},
 		{
 			name: "empty x api key",
@@ -130,9 +149,7 @@ func TestConfigValidateTracing(t *testing.T) {
 				Transport: TracingTransportHTTP,
 				Exporter: TracingExporterSpec{
 					Endpoint: specw.Env[string]{Value: "http://otel-collector:4318/v1/traces"},
-					Authentication: TracingAuthenticationSpec{
-						XAPIKey: specw.File{Path: "/run/secrets/otel-api-key"},
-					},
+					Authentication: TracingAuthenticationSpec{XAPIKey: specw.File{Path: "/run/secrets/otel-x-api-key"}},
 				},
 			},
 			wantErr: "tracing.exporter.authentication.xApiKeyPath contains empty token",

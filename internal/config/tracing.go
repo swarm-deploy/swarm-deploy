@@ -36,6 +36,8 @@ type TracingExporterSpec struct {
 type TracingAuthenticationSpec struct {
 	// Bearer is a path to a file containing the bearer token.
 	Bearer specw.File `yaml:"bearerPath"`
+	// APIKey is a path to a file containing the API key used in Authorization header.
+	APIKey specw.File `yaml:"apiKeyPath"`
 	// XAPIKey is a path to a file containing the x-api-key token.
 	XAPIKey specw.File `yaml:"xApiKeyPath"`
 }
@@ -70,13 +72,20 @@ func (c *Config) validateTracing() []error {
 		}
 	}
 
-	bearer := c.Spec.Tracing.Exporter.Authentication.Bearer
-	if bearer.Path != "" && strings.TrimSpace(string(bearer.Content)) == "" {
+	auth := c.Spec.Tracing.Exporter.Authentication
+	if auth.Bearer.Path != "" && strings.TrimSpace(string(auth.Bearer.Content)) == "" {
 		errs = append(errs, errors.New("tracing.exporter.authentication.bearerPath contains empty token"))
 	}
 
-	xAPIKey := c.Spec.Tracing.Exporter.Authentication.XAPIKey
-	if xAPIKey.Path != "" && strings.TrimSpace(string(xAPIKey.Content)) == "" {
+	if auth.APIKey.Path != "" && strings.TrimSpace(string(auth.APIKey.Content)) == "" {
+		errs = append(errs, errors.New("tracing.exporter.authentication.apiKeyPath contains empty token"))
+	}
+
+	if auth.Bearer.Path != "" && auth.APIKey.Path != "" {
+		errs = append(errs, errors.New("tracing.exporter.authentication.bearerPath and apiKeyPath cannot be used together"))
+	}
+
+	if auth.XAPIKey.Path != "" && strings.TrimSpace(string(auth.XAPIKey.Content)) == "" {
 		errs = append(errs, errors.New("tracing.exporter.authentication.xApiKeyPath contains empty token"))
 	}
 

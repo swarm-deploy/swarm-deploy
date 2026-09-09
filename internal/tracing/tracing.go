@@ -56,12 +56,19 @@ func buildExporter(ctx context.Context, cfg *config.TracingSpec) (sdktrace.SpanE
 		headers[key] = value.Value
 	}
 
-	bearer := strings.TrimSpace(string(cfg.Exporter.Authentication.Bearer.Content))
+	auth := cfg.Exporter.Authentication
+
+	bearer := strings.TrimSpace(string(auth.Bearer.Content))
 	if bearer != "" {
 		headers["Authorization"] = "Bearer " + bearer
 	}
 
-	xAPIKey := strings.TrimSpace(string(cfg.Exporter.Authentication.XAPIKey.Content))
+	apiKey := strings.TrimSpace(string(auth.APIKey.Content))
+	if apiKey != "" {
+		headers["Authorization"] = "Api-Key " + apiKey
+	}
+
+	xAPIKey := strings.TrimSpace(string(auth.XAPIKey.Content))
 	if xAPIKey != "" {
 		headers["x-api-key"] = xAPIKey
 	}
