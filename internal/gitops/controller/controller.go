@@ -20,6 +20,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 )
 
 type TriggerReason string
@@ -160,6 +162,10 @@ func (c *Controller) trigger(task triggerTask) bool {
 }
 
 func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:funlen // not need
+	ctx, span := otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/gitops/controller").Start(ctx, "gitops.sync")
+	span.SetAttributes(attribute.String("sync.trigger", string(task.reason)))
+	defer span.End()
+
 	startedAt := time.Now()
 
 	slog.InfoContext(ctx, "[controller] run sync", slog.String("reason", string(task.reason)))
