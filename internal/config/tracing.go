@@ -3,7 +3,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/artarts36/specw"
@@ -24,8 +23,8 @@ type TracingSpec struct {
 
 // TracingExporterSpec contains OTLP exporter connection settings.
 type TracingExporterSpec struct {
-	// Endpoint is the OTLP exporter endpoint. Environment variables are expanded before use.
-	Endpoint string `yaml:"endpoint"`
+	// Endpoint is the OTLP exporter endpoint.
+	Endpoint specw.Env[string] `yaml:"endpoint"`
 	// Headers contains custom OTLP exporter headers. Authorization is reserved for Authentication.
 	Headers map[string]string `yaml:"headers"`
 	// Authentication contains exporter authentication settings.
@@ -36,11 +35,6 @@ type TracingExporterSpec struct {
 type TracingAuthenticationSpec struct {
 	// Bearer is a path to a file containing the bearer token.
 	Bearer specw.File `yaml:"bearerPath"`
-}
-
-// ResolveEndpoint expands environment variables in the configured exporter endpoint.
-func (e TracingExporterSpec) ResolveEndpoint() string {
-	return strings.TrimSpace(os.ExpandEnv(strings.TrimSpace(e.Endpoint)))
 }
 
 func (c *Config) validateTracing() []error {
@@ -63,7 +57,7 @@ func (c *Config) validateTracing() []error {
 		)
 	}
 
-	if c.Spec.Tracing.Exporter.ResolveEndpoint() == "" {
+	if strings.TrimSpace(c.Spec.Tracing.Exporter.Endpoint.Value) == "" {
 		errs = append(errs, errors.New("tracing.exporter.endpoint is required"))
 	}
 
