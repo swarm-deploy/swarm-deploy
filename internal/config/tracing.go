@@ -28,7 +28,7 @@ type TracingExporterSpec struct {
 	// Headers contains custom OTLP exporter headers. Authorization is reserved for Authentication.
 	Headers map[string]string `yaml:"headers"`
 	// Authentication contains exporter authentication settings.
-	Authentication TracingAuthenticationSpec `yaml:"authentcation"`
+	Authentication TracingAuthenticationSpec `yaml:"authentication"`
 }
 
 // TracingAuthenticationSpec contains OTLP exporter authentication settings.
@@ -69,7 +69,7 @@ func (c *Config) validateTracing() []error {
 
 	bearer := c.Spec.Tracing.Exporter.Authentication.Bearer
 	if bearer.Path != "" && strings.TrimSpace(string(bearer.Content)) == "" {
-		errs = append(errs, errors.New("tracing.exporter.authentcation.bearerPath contains empty token"))
+		errs = append(errs, errors.New("tracing.exporter.authentication.bearerPath contains empty token"))
 	}
 
 	return errs
