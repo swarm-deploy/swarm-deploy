@@ -7,14 +7,17 @@ import (
 	"github.com/artarts36/specw"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
 
-func TestTracingExporterSpecResolveEndpoint(t *testing.T) {
+func TestTracingExporterSpecEndpointFromEnv(t *testing.T) {
 	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4318/v1/traces")
 
-	spec := TracingExporterSpec{Endpoint: "$OTEL_EXPORTER_OTLP_ENDPOINT"}
+	var spec TracingExporterSpec
+	err := yaml.Unmarshal([]byte("endpoint: $OTEL_EXPORTER_OTLP_ENDPOINT\n"), &spec)
+	require.NoError(t, err)
 
-	assert.Equal(t, "http://otel-collector:4318/v1/traces", spec.ResolveEndpoint())
+	assert.Equal(t, "http://otel-collector:4318/v1/traces", spec.Endpoint.Value)
 }
 
 func TestConfigValidateTracing(t *testing.T) {
@@ -30,21 +33,21 @@ func TestConfigValidateTracing(t *testing.T) {
 			name: "http",
 			tracing: &TracingSpec{
 				Transport: TracingTransportHTTP,
-				Exporter: TracingExporterSpec{Endpoint: "http://otel-collector:4318/v1/traces"},
+				Exporter: TracingExporterSpec{Endpoint: specw.Env[string]{Value: "http://otel-collector:4318/v1/traces"}},
 			},
 		},
 		{
 			name: "grpc",
 			tracing: &TracingSpec{
 				Transport: TracingTransportGRPC,
-				Exporter: TracingExporterSpec{Endpoint: "http://otel-collector:4317"},
+				Exporter: TracingExporterSpec{Endpoint: specw.Env[string]{Value: "http://otel-collector:4317"}},
 			},
 		},
 		{
 			name: "unsupported transport",
 			tracing: &TracingSpec{
 				Transport: "udp",
-				Exporter: TracingExporterSpec{Endpoint: "http://otel-collector:4318"},
+				Exporter: TracingExporterSpec{Endpoint: specw.Env[string]{Value: "http://otel-collector:4318"}},
 			},
 			wantErr: "tracing.transport must be one of",
 		},
@@ -60,7 +63,7 @@ func TestConfigValidateTracing(t *testing.T) {
 			tracing: &TracingSpec{
 				Transport: TracingTransportHTTP,
 				Exporter: TracingExporterSpec{
-					Endpoint: "http://otel-collector:4318/v1/traces",
+					Endpoint: specw.Env[string]{Value: "http://otel-collector:4318/v1/traces"},
 					Headers: map[string]string{" Authorization ": "Bearer forbidden"},
 				},
 			},
@@ -71,7 +74,7 @@ func TestConfigValidateTracing(t *testing.T) {
 			tracing: &TracingSpec{
 				Transport: TracingTransportHTTP,
 				Exporter: TracingExporterSpec{
-					Endpoint: "http://otel-collector:4318/v1/traces",
+					Endpoint: specw.Env[string]{Value: "http://otel-collector:4318/v1/traces"},
 					Authentication: TracingAuthenticationSpec{
 						Bearer: specw.File{Path: "/run/secrets/otel-collector"},
 					},
