@@ -45,5 +45,7 @@ func (t *TraceableNotifier) Notify(ctx context.Context, event Message) error {
 		return err
 	}
 
+	span.SetStatus(codes.Ok, "OK")
+
 	return nil
 }
