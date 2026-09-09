@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/artarts36/go-entrypoint"
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"github.com/swarm-deploy/swarm-deploy/internal/assistant"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/authenticator"
@@ -26,6 +25,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"github.com/swarm-deploy/swarm-deploy/ui"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 const readHeaderTimeout = 10 * time.Second
