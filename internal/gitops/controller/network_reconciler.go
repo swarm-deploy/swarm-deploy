@@ -12,6 +12,9 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type networkReconciler struct {
@@ -155,6 +158,11 @@ func (c *Controller) reloadNetworks() (string, error) {
 }
 
 func (c *Controller) syncNetworks(ctx context.Context, commit string) error {
+	ctx, span := c.tracer.Start(ctx, "controller.SyncNetworks", trace.WithAttributes(
+		attribute.KeyValue{Key: "commit.sha", Value: attribute.StringValue(commit)},
+	))
+	defer span.End()
+
 	if len(c.cfg.Spec.Networks) == 0 {
 		c.stateStore.Update(func(s *model.Runtime) {
 			s.Networks = map[string]model.Network{}
@@ -202,5 +210,12 @@ func (c *Controller) syncNetworks(ctx context.Context, commit string) error {
 		s.Networks = nextState
 	})
 
-	return errors.Join(reconcileErrs...)
+	joinedErr := errors.Join(reconcileErrs...)
+
+	if len(reconcileErrs) > 0 {
+		span.RecordError(joinedErr)
+		span.SetStatus(codes.Error, joinedErr.Error())
+	}
+
+	return joinedErr
 }

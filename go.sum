@@ -27,6 +27,8 @@ github.com/artarts36/gopipe v0.1.4-0.20260909110416-a18bfa50c4d5 h1:I2jFohQGmxcs
 github.com/artarts36/gopipe v0.1.4-0.20260909110416-a18bfa50c4d5/go.mod h1:IBIrONHC41E05xNgJdS5yTTNuFQ54C8jk/mOp5d8Pqs=
 github.com/artarts36/gopipe v0.1.4-0.20260909200555-a20b9e2ff56f h1:2mgHe3fsWiM83jSH7tHZT7NRHzc9aoycwyFxGowBD1I=
 github.com/artarts36/gopipe v0.1.4-0.20260909200555-a20b9e2ff56f/go.mod h1:IBIrONHC41E05xNgJdS5yTTNuFQ54C8jk/mOp5d8Pqs=
+github.com/artarts36/gopipe v0.2.0 h1:NqFef+/fVt8q84uFoYw2IjNtKwF/bFX9xlGBN6bgzQo=
+github.com/artarts36/gopipe v0.2.0/go.mod h1:IBIrONHC41E05xNgJdS5yTTNuFQ54C8jk/mOp5d8Pqs=
 github.com/artarts36/specw v0.1.8-0.20260526200511-8bb157c70b9d h1:IRYB0h8Up+4DPo0ck6xf/b0cmsthUNc1iZZFHiv3t5o=
 github.com/artarts36/specw v0.1.8-0.20260526200511-8bb157c70b9d/go.mod h1:6dtnh2tg3D1nUdNEcTQfFTjRMVyreObkgO3JmfEeehg=
 github.com/avast/retry-go/v5 v5.0.0 h1:kf1Qc2UsTZ4qq8elDymqfbISvkyMuhgRxuJqX2NHP7k=
