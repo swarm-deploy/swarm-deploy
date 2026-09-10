@@ -212,9 +212,11 @@ func (c *Controller) syncNetworks(ctx context.Context, commit string) error {
 
 	joinedErr := errors.Join(reconcileErrs...)
 
-	if len(reconcileErrs) > 0 {
+	if joinedErr != nil {
 		span.RecordError(joinedErr)
 		span.SetStatus(codes.Error, joinedErr.Error())
+	} else {
+		span.SetStatus(codes.Ok, "")
 	}
 
 	return joinedErr
