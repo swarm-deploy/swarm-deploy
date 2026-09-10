@@ -2,10 +2,15 @@ package git
 
 import (
 	"context"
+	"net/http"
 
+	"github.com/go-git/go-git/v5/plumbing/transport/client"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+
+	phttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 )
 
 type TraceableRepository struct {
@@ -14,10 +19,21 @@ type TraceableRepository struct {
 }
 
 func NewTraceableRepository(repo Repository, tp trace.TracerProvider) Repository {
+	traceGoGitHTTP()
+
 	return &TraceableRepository{
 		repo:   repo,
 		tracer: tp.Tracer("github.com/swarm-deploy/swarm-deploy/internal/gitops/git"),
 	}
+}
+
+func traceGoGitHTTP() {
+	traceTransport := phttp.NewClient(&http.Client{
+		Transport: otelhttp.NewTransport(http.DefaultTransport),
+	})
+
+	client.InstallProtocol("http", traceTransport)
+	client.InstallProtocol("https", traceTransport)
 }
 
 func (t *TraceableRepository) WorkingDir() string {
