@@ -48,7 +48,7 @@ const (
 type Controller struct {
 	cfg      *config.Config
 	git      gitx.Repository
-	deployer *deployer.Deployer
+	deployer deployer.StackDeployer
 	metrics  *metrics.Group
 	event    dispatcher.Dispatcher
 
@@ -70,7 +70,7 @@ func New(
 	cfg *config.Config,
 	git gitx.Repository,
 	swarmService *swarm.Swarm,
-	deployer *deployer.Deployer,
+	deployer deployer.StackDeployer,
 	metricGroup *metrics.Group,
 	eventDispatcher dispatcher.Dispatcher,
 	stateStore modelstore.Store,

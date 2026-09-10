@@ -18,7 +18,7 @@ import (
 // Init initializes the global OpenTelemetry tracer provider.
 func Init(ctx context.Context, cfg *config.TracingSpec) (*sdktrace.TracerProvider, error) {
 	if cfg == nil {
-		return nil, nil
+		return nil, nil //nolint:nilnil // check outside
 	}
 
 	exporter, err := buildExporter(ctx, cfg)
@@ -53,7 +53,7 @@ func Init(ctx context.Context, cfg *config.TracingSpec) (*sdktrace.TracerProvide
 }
 
 func buildExporter(ctx context.Context, cfg *config.TracingSpec) (sdktrace.SpanExporter, error) {
-	headers := make(map[string]string, len(cfg.Exporter.Headers)+2)
+	headers := make(map[string]string, len(cfg.Exporter.Headers)+2) //nolint:mnd // looks at const
 	for key, value := range cfg.Exporter.Headers {
 		headers[key] = value.Value
 	}

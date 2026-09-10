@@ -77,15 +77,16 @@ func main() {
 		slog.ErrorContext(ctx, "failed to init tracing", slog.Any("err", err))
 		os.Exit(1)
 	}
-	if tracerProvider != nil {
-		defer func() {
+
+	stopTracing := func() {
+		if tracerProvider != nil {
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 			defer cancel()
 
 			if shutdownErr := tracerProvider.Shutdown(shutdownCtx); shutdownErr != nil {
 				slog.ErrorContext(shutdownCtx, "failed to shutdown tracing", slog.Any("err", shutdownErr))
 			}
-		}()
+		}
 	}
 
 	err = os.MkdirAll(cfg.Spec.DataDir, 0o755)
@@ -259,8 +260,11 @@ func main() {
 	err = runner.Run()
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to run", slog.Any("err", err))
+		stopTracing()
 		os.Exit(1)
 	}
+
+	stopTracing()
 }
 
 func buildAssistantService(

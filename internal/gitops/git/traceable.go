@@ -85,13 +85,17 @@ func (t *TraceableRepository) List(ctx context.Context, limit int) ([]CommitMeta
 		return nil, err
 	}
 
-	span.SetAttributes(attribute.Int("count", len(commits)))
+	span.SetAttributes(attribute.Int("commits.count", len(commits)))
 	span.SetStatus(codes.Ok, "")
 
 	return commits, nil
 }
 
-func (t *TraceableRepository) Diff(ctx context.Context, oldRevision string, newRevision string) ([]CommitFileDiff, error) {
+func (t *TraceableRepository) Diff(
+	ctx context.Context,
+	oldRevision string,
+	newRevision string,
+) ([]CommitFileDiff, error) {
 	ctx, span := t.tracer.Start(ctx, "repo.Diff", trace.WithAttributes(
 		attribute.String("old_revision", oldRevision),
 		attribute.String("new_revision", newRevision),
@@ -120,7 +124,7 @@ func (t *TraceableRepository) Show(ctx context.Context, commitHash string) (Comm
 		return Commit{}, err
 	}
 
-	span.SetAttributes(attribute.Int("file_diff_count", len(commit.Files)))
+	span.SetAttributes(attribute.Int("files.count", len(commit.Files)))
 	span.SetStatus(codes.Ok, "")
 
 	return commit, nil

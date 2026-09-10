@@ -11,6 +11,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.opentelemetry.io/otel"
 	"go.uber.org/mock/gomock"
 )
 
@@ -158,6 +159,7 @@ func TestControllerSyncNetworksStoresState(t *testing.T) {
 		},
 		networkReconciler: newNetworkReconciler(manager),
 		stateStore:        store,
+		tracer:            otel.Tracer("test"),
 	}
 
 	err := c.syncNetworks(context.Background(), "commit-1")
@@ -199,6 +201,7 @@ func TestControllerSyncNetworksStoresFailedState(t *testing.T) {
 		},
 		networkReconciler: newNetworkReconciler(manager),
 		stateStore:        store,
+		tracer:            otel.Tracer("test"),
 	}
 
 	err := c.syncNetworks(context.Background(), "commit-2")
@@ -230,6 +233,7 @@ func TestControllerSyncNetworksClearsStateWhenNetworksListIsEmpty(t *testing.T) 
 		},
 		networkReconciler: newNetworkReconciler(swarm.NewMockNetworkManager(gomock.NewController(t))),
 		stateStore:        store,
+		tracer:            otel.Tracer("test"),
 	}
 
 	err := c.syncNetworks(context.Background(), "commit-3")
@@ -266,6 +270,7 @@ func TestControllerSyncNetworksSkipsReconcileWhenStateAlreadySyncedForCommit(t *
 		},
 		networkReconciler: newNetworkReconciler(manager),
 		stateStore:        store,
+		tracer:            otel.Tracer("test"),
 	}
 
 	err := c.syncNetworks(context.Background(), "commit-4")
