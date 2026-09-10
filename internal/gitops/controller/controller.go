@@ -22,6 +22,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -53,7 +54,7 @@ type Controller struct {
 
 	stateStore        modelstore.Store
 	networkReconciler *networkReconciler
-	stackReconciler   *stackloop.Reconciler
+	stackReconciler   stackloop.StackReconciler
 
 	triggerCh chan triggerTask
 
@@ -84,7 +85,7 @@ func New(
 		networkReconciler: newNetworkReconciler(
 			swarmService.Networks,
 		),
-		stackReconciler: stackloop.New(
+		stackReconciler: stackloop.NewStackReconciler(
 			cfg,
 			git,
 			deployer,
@@ -286,8 +287,12 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 	}
 
 	var deployErrs []error
+
+	stackCtx, stackSpan := c.tracer.Start(ctx, "controller.syncStacks")
+	defer stackSpan.End()
+
 	for _, stackCfg := range stacksToSync {
-		err = c.syncStack(ctx, stackCfg, syncResult.NewRevision, task.reason == TriggerManual)
+		err = c.syncStack(stackCtx, stackCfg, syncResult.NewRevision, task.reason == TriggerManual)
 		if err != nil {
 			deployErrs = append(deployErrs, err)
 			slog.ErrorContext(ctx, "sync failed for stack",
@@ -308,6 +313,11 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 			slog.String("commit", syncResult.NewRevision),
 			slog.Any("err", combinedErr),
 		)
+
+		stackSpan.RecordError(combinedErr)
+		stackSpan.SetStatus(codes.Error, combinedErr.Error())
+	} else {
+		stackSpan.SetStatus(codes.Ok, "")
 	}
 
 	c.metrics.Sync.RecordSyncRun(string(task.reason), result, time.Since(startedAt))
