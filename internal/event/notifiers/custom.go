@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/tracing"
-	"go.opentelemetry.io/otel/attribute"
 )
 
 const (

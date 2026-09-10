@@ -1,6 +1,10 @@
 package dispatcher
 
-import "github.com/swarm-deploy/swarm-deploy/internal/event/events"
+import (
+	"context"
+
+	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
+)
 
 const queueSize = 200
 
@@ -10,12 +14,14 @@ type queueTask struct {
 }
 
 type queue struct {
-	queue chan *queueTask
+	queue  chan *queueTask
+	sender EventSender
 }
 
 func newQueue() *queue {
 	q := &queue{
-		queue: make(chan *queueTask, queueSize),
+		queue:  make(chan *queueTask, queueSize),
+		sender: createEventSender(),
 	}
 
 	go func() {
@@ -34,7 +40,9 @@ func (q *queue) Close() {
 }
 
 func (q *queue) runWorker() {
+	ctx := context.Background()
+
 	for task := range q.queue {
-		handleSubscriber(task.Subscriber, task.Event)
+		_ = q.sender(ctx, task.Event, task.Subscriber)
 	}
 }
