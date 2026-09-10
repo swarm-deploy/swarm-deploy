@@ -25,7 +25,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"github.com/swarm-deploy/swarm-deploy/ui"
-	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
 
 const readHeaderTimeout = 10 * time.Second
@@ -133,13 +132,10 @@ func NewApplication(
 	return &Application{
 		server: &http.Server{
 			Addr: address,
-			Handler: otelhttp.NewHandler(
-				middlewares.Recovery(middlewares.NewLog(
-					middlewares.Authorize(rootHandler, auth, eventDispatcher),
-					apiHandler.FindRoute,
-				)),
-				"web.request",
-			),
+			Handler: middlewares.Recovery(middlewares.NewLog(
+				middlewares.Authorize(rootHandler, auth, eventDispatcher),
+				apiHandler.FindRoute,
+			)),
 			ReadHeaderTimeout: readHeaderTimeout,
 		},
 	}, nil
