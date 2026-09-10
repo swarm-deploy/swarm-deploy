@@ -20,7 +20,7 @@ func NewTraceableNotifier(notifier Notifier, tp trace.TracerProvider, attrs []at
 	return &TraceableNotifier{
 		notifier: notifier,
 		tracer: tp.Tracer(
-			"github.com/swarm-deploy/swarm-deploy/internal/event/notifier",
+			"github.com/swarm-deploy/swarm-deploy/internal/event/notifiers",
 			trace.WithInstrumentationAttributes(attrs...),
 		),
 	}
