@@ -17,6 +17,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.opentelemetry.io/otel"
 	"go.uber.org/mock/gomock"
 )
 
@@ -41,8 +42,9 @@ func TestReloadStacksUsesRepositoryDirFirst(t *testing.T) {
 	repository := git.NewRepository(config.GitSpec{}, filepath.Join(dataDir, "repo"))
 
 	c := &Controller{
-		cfg: cfg,
-		git: repository,
+		cfg:    cfg,
+		git:    repository,
+		tracer: otel.Tracer("test"),
 	}
 
 	loadedFrom, err := c.reloadStacks()
@@ -81,8 +83,9 @@ func TestReloadNetworksUsesRepositoryDirFirst(t *testing.T) {
 	repository := git.NewRepository(config.GitSpec{}, filepath.Join(dataDir, "repo"))
 
 	c := &Controller{
-		cfg: cfg,
-		git: repository,
+		cfg:    cfg,
+		git:    repository,
+		tracer: otel.Tracer("test"),
 	}
 
 	loadedFrom, err := c.reloadNetworks()
@@ -159,6 +162,7 @@ func TestControllerSyncOnceReconcilesStacksWhenGitRevisionUnchanged(t *testing.T
 			metricGroup.Deploys,
 			store,
 		),
+		tracer: otel.Tracer("test"),
 	}
 
 	controller.syncOnce(context.Background(), triggerTask{
@@ -243,6 +247,7 @@ func TestControllerSyncOncePrioritizesChangedStacks(t *testing.T) {
 			metricGroup.Deploys,
 			store,
 		),
+		tracer: otel.Tracer("test"),
 	}
 
 	controller.syncOnce(context.Background(), triggerTask{
@@ -322,6 +327,7 @@ func TestControllerSyncOnceContinuesWhenGitDiffFails(t *testing.T) {
 			metricGroup.Deploys,
 			store,
 		),
+		tracer: otel.Tracer("test"),
 	}
 
 	controller.syncOnce(context.Background(), triggerTask{

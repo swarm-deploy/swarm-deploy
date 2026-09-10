@@ -4,6 +4,15 @@ services:
   swarm-deploy:
     image: swarmdeployorg/swarm-deploy:0.1.0
     command: ["-config", "/etc/swarm-deploy/swarm-deploy.yaml"]
+    environment:
+      SWARM_STACK_NAME: swarm-deploy
+      SWARM_SERVICE_ID: "{{.Service.ID}}"
+      SWARM_SERVICE_NAME: "{{.Service.Name}}"
+      SWARM_TASK_ID: "{{.Task.ID}}"
+      SWARM_TASK_NAME: "{{.Task.Name}}"
+      SWARM_TASK_SLOT: "{{.Task.Slot}}"
+      SWARM_NODE_ID: "{{.Node.ID}}"
+      SWARM_NODE_NAME: "{{.Node.Hostname}}"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - swarm-deploy-data:/etc/swarm-deploy/.swarm-deploy

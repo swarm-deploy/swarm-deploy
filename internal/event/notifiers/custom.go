@@ -8,6 +8,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/swarm-deploy/swarm-deploy/internal/tracing"
 )
 
 const (
@@ -24,7 +26,18 @@ type CustomWebhookNotifier struct {
 	client  *http.Client
 }
 
-func NewCustomWebhookNotifier(name, url, method string, headers map[string]string) *CustomWebhookNotifier {
+func NewCustomWebhookNotifier(name, url, method string, headers map[string]string) Notifier {
+	customNotifier := newCustomWebhookNotifier(name, url, method, headers)
+
+	tp, tracingEnabled := tracing.GetTracerProvider()
+	if !tracingEnabled {
+		return customNotifier
+	}
+
+	return NewTraceableNotifier(customNotifier, tp, nil)
+}
+
+func newCustomWebhookNotifier(name, url, method string, headers map[string]string) *CustomWebhookNotifier {
 	if method == "" {
 		method = http.MethodPost
 	}

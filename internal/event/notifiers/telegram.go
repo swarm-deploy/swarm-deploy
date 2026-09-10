@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/avast/retry-go/v5"
+	"github.com/swarm-deploy/swarm-deploy/internal/tracing"
+	"go.opentelemetry.io/otel/attribute"
 	"golang.org/x/net/proxy"
 )
 
@@ -53,7 +55,26 @@ type TelegramNotifier struct {
 
 const defaultTelegramRetries = 3
 
-func NewTelegramNotifier(name, token, chatID string, options TelegramOptions) (*TelegramNotifier, error) {
+func NewTelegramNotifier(name, token, chatID string, options TelegramOptions) (Notifier, error) {
+	tgNotifier, err := newTelegramNotifier(name, token, chatID, options)
+	if err != nil {
+		return nil, err
+	}
+
+	tp, tracingEnabled := tracing.GetTracerProvider()
+	if !tracingEnabled {
+		return tgNotifier, nil
+	}
+
+	return NewTraceableNotifier(tgNotifier, tp, []attribute.KeyValue{
+		{
+			Key:   "notifier.telegram.api_base_url",
+			Value: attribute.StringValue(tgNotifier.apiBaseURL),
+		},
+	}), nil
+}
+
+func newTelegramNotifier(name, token, chatID string, options TelegramOptions) (*TelegramNotifier, error) {
 	templateText := strings.TrimSpace(options.Message)
 	if templateText == "" {
 		templateText = defaultTelegramMessageTemplate

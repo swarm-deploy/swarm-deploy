@@ -31,7 +31,9 @@ type pipelinePayload struct {
 }
 
 func (r *Reconciler) attachPipeline() {
-	r.pipeline = pipe.NewPipeline[*pipelinePayload]()
+	r.pipeline = pipe.NewPipelineWithConfig[*pipelinePayload](pipe.Config{
+		PipelineName: "sync stack",
+	})
 
 	if r.cfg.Spec.Containers.Downward != nil {
 		r.pipeline.Add(pipe.Step[*pipelinePayload]{
