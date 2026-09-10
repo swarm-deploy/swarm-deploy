@@ -1,6 +1,10 @@
 package swarm
 
-import "github.com/docker/docker/client"
+import (
+	"github.com/docker/docker/client"
+	"github.com/swarm-deploy/swarm-deploy/internal/tracing"
+	"go.opentelemetry.io/otel/trace"
+)
 
 type Swarm struct {
 	// Services manages Docker swarm services.
@@ -22,6 +26,19 @@ type Swarm struct {
 }
 
 func NewSwarm(dockerClient *client.Client, command string) *Swarm {
+	swarm := newSwarm(dockerClient, command)
+
+	tp, tracingEnabled := tracing.GetTracerProvider()
+	if !tracingEnabled {
+		return swarm
+	}
+
+	traceSwarm(tp, swarm)
+
+	return swarm
+}
+
+func newSwarm(dockerClient *client.Client, command string) *Swarm {
 	return &Swarm{
 		Services:     newServiceManager(dockerClient),
 		Images:       newImageManager(dockerClient),
@@ -32,4 +49,10 @@ func NewSwarm(dockerClient *client.Client, command string) *Swarm {
 		Plugins:      newPluginManager(dockerClient),
 		BinaryRunner: newBinaryRunner(command),
 	}
+}
+
+func traceSwarm(tp trace.TracerProvider, swarm *Swarm) {
+	tracer := tp.Tracer("github.com/swarm-deploy/internal/swarm")
+
+	swarm.Services = traceServiceManager(tracer, swarm.Services)
 }
