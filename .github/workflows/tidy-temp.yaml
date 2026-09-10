@@ -1,0 +1,33 @@
+name: tidy-temp
+
+on:
+  push:
+    branches:
+      - feat/tracing
+
+permissions:
+  contents: write
+
+jobs:
+  tidy:
+    if: ${{ !contains(github.event.head_commit.message, '[skip tidy]') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Update gopipe
+        run: go get github.com/artarts36/gopipe@v0.2.1
+      - name: Tidy modules
+        run: go mod tidy
+      - name: Commit module files
+        run: |
+          if git diff --quiet -- go.mod go.sum; then
+            exit 0
+          fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add go.mod go.sum
+          git commit -m 'chore: tidy modules [skip tidy]'
+          git push
