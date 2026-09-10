@@ -7,19 +7,19 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 )
 
-func NewLazyProxy(spec config.GitSpec, path string) *LazyProxy {
-	return &LazyProxy{
-		spec: spec,
-		path: path,
-	}
-}
-
 type LazyProxy struct {
 	spec config.GitSpec
 	path string
 
 	mu         sync.Mutex
 	repository *GoGitRepository
+}
+
+func NewLazyProxy(spec config.GitSpec, path string) *LazyProxy {
+	return &LazyProxy{
+		spec: spec,
+		path: path,
+	}
 }
 
 func (p *LazyProxy) WorkingDir() string {

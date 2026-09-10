@@ -17,6 +17,7 @@ import (
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
 	gitssh "github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/tracing"
 	"golang.org/x/crypto/ssh"
 	"golang.org/x/crypto/ssh/knownhosts"
 )
@@ -31,7 +32,14 @@ type GoGitRepository struct {
 }
 
 func NewRepository(spec config.GitSpec, path string) Repository {
-	return NewLazyProxy(spec, path)
+	lp := NewLazyProxy(spec, path)
+
+	tp, tracingEnabled := tracing.GetTracerProvider()
+	if !tracingEnabled {
+		return lp
+	}
+
+	return NewTraceableRepository(lp, tp)
 }
 
 func NewGoGitRepository(ctx context.Context, spec config.GitSpec, path string) (*GoGitRepository, error) {
