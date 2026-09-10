@@ -12,7 +12,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
-	"go.opentelemetry.io/otel/attribute"
+	"github.com/swarm-deploy/swarm-deploy/internal/tracing"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -159,7 +159,7 @@ func (c *Controller) reloadNetworks() (string, error) {
 
 func (c *Controller) syncNetworks(ctx context.Context, commit string) error {
 	ctx, span := c.tracer.Start(ctx, "controller.SyncNetworks", trace.WithAttributes(
-		attribute.KeyValue{Key: "commit.sha", Value: attribute.StringValue(commit)},
+		tracing.SyncCommitSha.String(commit),
 	))
 	defer span.End()
 

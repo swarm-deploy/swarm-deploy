@@ -8,6 +8,7 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"github.com/swarm-deploy/swarm-deploy/internal/tracing"
 )
 
 const deployArgsExtraCount = 3
@@ -52,8 +53,8 @@ func NewDeployer(
 	dockerClient *client.Client,
 	swarmService *swarm.Swarm,
 	initJobMetrics InitJobMetrics,
-) *Deployer {
-	return &Deployer{
+) StackDeployer {
+	deployer := &Deployer{
 		stackDeployArgs: stackDeployArgs,
 		runner:          runner,
 		initJobRunner: NewInitJobRunner(
@@ -64,6 +65,13 @@ func NewDeployer(
 			initJobMetrics,
 		),
 	}
+
+	tp, tracingEnabled := tracing.GetTracerProvider()
+	if !tracingEnabled {
+		return deployer
+	}
+
+	return newTraceableDeployer(tp, deployer)
 }
 
 func (d *Deployer) DeployStack(ctx context.Context, stackName, composePath string, services []compose.Service) error {
