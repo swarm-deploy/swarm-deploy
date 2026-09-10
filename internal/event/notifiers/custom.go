@@ -35,12 +35,7 @@ func NewCustomWebhookNotifier(name, url, method string, headers map[string]strin
 		return customNotifier
 	}
 
-	return NewTraceableNotifier(customNotifier, tp, []attribute.KeyValue{
-		{
-			Key:   "notifier.custom.url",
-			Value: attribute.StringValue(url),
-		},
-	})
+	return NewTraceableNotifier(customNotifier, tp, nil)
 }
 
 func newCustomWebhookNotifier(name, url, method string, headers map[string]string) *CustomWebhookNotifier {
