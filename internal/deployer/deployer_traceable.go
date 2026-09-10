@@ -14,9 +14,8 @@ type TraceableDeployer struct {
 	deployer StackDeployer
 }
 
-func newTraceableDeployer(tp trace.TracerProvider, deployer StackDeployer) StackDeployer {
 	return &TraceableDeployer{
-		tracer:   tp.Tracer("github.com/swarm-deploy/swarm-deploy/deployer"),
+		tracer:   tp.Tracer("github.com/swarm-deploy/swarm-deploy/internal/deployer"),
 		deployer: deployer,
 	}
 }
