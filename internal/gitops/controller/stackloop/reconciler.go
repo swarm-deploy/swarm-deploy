@@ -7,7 +7,6 @@ import (
 	"time"
 
 	pipe "github.com/artarts36/gopipe"
-
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
@@ -19,6 +18,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
@@ -47,6 +47,7 @@ func New(
 	eventDispatcher dispatcher.Dispatcher,
 	deployMetrics metrics.Deploys,
 	stateStore modelstore.Store,
+	fileSystem fs.FileSystem,
 ) *Reconciler {
 	reconciler := &Reconciler{
 		cfg:            cfg,
@@ -55,7 +56,7 @@ func New(
 		event:          eventDispatcher,
 		deployMetrics:  deployMetrics,
 		stateStore:     stateStore,
-		composeLoader:  compose.NewFileLoader(),
+		composeLoader:  compose.NewFileLoaderWithReader(fileSystem.ReadFile),
 		composeRotator: NewRotator(),
 		pruner:         pruner.NewServicePruner(swarmService.Services, eventDispatcher, cfg.Spec.Sync.Policy),
 		driftAnalyzer:  drift.NewAnalyzer(),
@@ -73,7 +74,7 @@ func (r *Reconciler) Reconcile(
 	req ReconciliationRequest,
 ) error {
 	composePath := filepath.Join(r.git.WorkingDir(), req.Stack.ComposeFile)
-	desiredState, err := r.composeLoader.Load(composePath)
+	desiredState, err := r.composeLoader.Load(ctx, composePath)
 	if err != nil {
 		r.recordFailure(req.Stack.Name, req.Commit, nil, err)
 		r.recordStackFailure(req.Stack.Name, req.Commit, nil, err)

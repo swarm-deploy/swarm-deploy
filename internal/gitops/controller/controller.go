@@ -19,6 +19,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -74,6 +75,7 @@ func New(
 	metricGroup *metrics.Group,
 	eventDispatcher dispatcher.Dispatcher,
 	stateStore modelstore.Store,
+	filesystem fs.FileSystem,
 ) *Controller {
 	return &Controller{
 		cfg:        cfg,
@@ -93,6 +95,7 @@ func New(
 			eventDispatcher,
 			metricGroup.Deploys,
 			stateStore,
+			filesystem,
 		),
 		triggerCh: make(chan triggerTask, 1),
 		tracer:    otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/gitops/controller"),

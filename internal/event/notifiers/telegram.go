@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/avast/retry-go/v5"
-	"github.com/swarm-deploy/swarm-deploy/internal/tracing"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"go.opentelemetry.io/otel/attribute"
 	"golang.org/x/net/proxy"
 )

@@ -19,6 +19,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/healthserver"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver"
+	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/sd"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webhookserver"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
@@ -39,8 +40,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
-	"github.com/swarm-deploy/swarm-deploy/internal/tracing"
 )
 
 const shutdownTimeout = 30 * time.Second
@@ -72,7 +73,7 @@ func main() {
 		security.LogUser(),
 	)))
 
-	tracerProvider, err := tracing.Init(ctx, cfg.Spec.Tracing)
+	tracerProvider, err := sd.InitTracerProvider(ctx, cfg.Spec.Tracing)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to init tracing", slog.Any("err", err))
 		os.Exit(1)
@@ -138,11 +139,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	filesystem := fs.TraceOS()
+
 	eventDispatcher, eventHistory, serviceStore, err := buildEventDispatcher(
 		cfg,
 		swarmService.Services,
 		swarmService.Images,
 		metricsGroup.Events,
+		filesystem,
 	)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to build event dispatcher", slog.Any("err", err))
@@ -167,6 +171,7 @@ func main() {
 		metricsGroup,
 		eventDispatcher,
 		stateStore,
+		filesystem,
 	)
 
 	assistantService, err := buildAssistantService(
@@ -287,11 +292,6 @@ func buildAssistantService(
 		return nil, fmt.Errorf("resolve assistant temperature: %w", err)
 	}
 
-	maxTokens, err := cfg.Spec.Assistant.Model.OpenAI.ResolveMaxTokens()
-	if err != nil {
-		return nil, fmt.Errorf("resolve assistant maxTokens: %w", err)
-	}
-
 	imageVersionResolver, err := registry.NewImageVersionResolver()
 	if err != nil {
 		return nil, fmt.Errorf("build image version resolver: %w", err)
@@ -326,7 +326,7 @@ func buildAssistantService(
 		APIToken:                string(cfg.Spec.Assistant.Model.OpenAI.APIToken.Content),
 		OrganizationID:          cfg.Spec.Assistant.Model.OpenAI.OrganizationID,
 		Temperature:             temperature,
-		MaxTokens:               maxTokens,
+		MaxTokens:               cfg.Spec.Assistant.Model.OpenAI.MaxTokens,
 		SystemPrompt:            cfg.Spec.Assistant.SystemPrompt,
 		AllowedTools:            cfg.Spec.Assistant.Tools,
 		ConversationInMemoryTTL: cfg.Spec.Assistant.Conversation.Storage.InMemory.TTL.Value,
@@ -338,10 +338,12 @@ func buildEventDispatcher(
 	serviceStatusInspector swarm.ServiceManager,
 	imageInspector swarm.ImageManager,
 	eventMetrics metrics.Events,
+	filesystem fs.FileSystem,
 ) (dispatcher.Dispatcher, *history.Store, *service.Store, error) {
 	historyStore, err := history.NewStore(
 		filepath.Join(cfg.Spec.DataDir, "event-history.json"),
 		cfg.Spec.EventHistory.Capacity,
+		filesystem,
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("build history store: %w", err)

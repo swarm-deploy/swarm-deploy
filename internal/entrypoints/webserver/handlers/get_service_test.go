@@ -14,6 +14,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -130,7 +131,7 @@ func TestHandlerGetService_NotFound(t *testing.T) {
 func TestHandlerListServiceDeployments_MapsFromHistory(t *testing.T) {
 	t.Parallel()
 
-	store, err := history.NewStore(filepath.Join(t.TempDir(), "history.json"), 50)
+	store, err := history.NewStore(filepath.Join(t.TempDir(), "history.json"), 50, fs.NewLocalFileSystem())
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -221,7 +222,7 @@ func TestHandlerListServiceDeployments_NoHistoryReturnsEmpty(t *testing.T) {
 func TestHandlerListServiceDeployments_RespectsLimitParam(t *testing.T) {
 	t.Parallel()
 
-	store, err := history.NewStore(filepath.Join(t.TempDir(), "history.json"), 50)
+	store, err := history.NewStore(filepath.Join(t.TempDir(), "history.json"), 50, fs.NewLocalFileSystem())
 	require.NoError(t, err)
 
 	ctx := context.Background()

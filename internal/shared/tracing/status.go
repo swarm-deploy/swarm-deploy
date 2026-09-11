@@ -7,5 +7,5 @@ import (
 
 func FailSpan(span trace.Span, err error) {
 	span.RecordError(err)
-	span.SetStatus(codes.Ok, err.Error())
+	span.SetStatus(codes.Error, err.Error())
 }

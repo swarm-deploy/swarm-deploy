@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -41,7 +42,7 @@ func Lint(script *go_console.Script) go_console.ExitCode {
 	composeLoader := compose.NewFileLoader()
 
 	for _, composeFile := range composeFiles {
-		file, cerr := composeLoader.Load(composeFile)
+		file, cerr := composeLoader.Load(context.Background(), composeFile)
 		if cerr != nil {
 			script.PrintError(fmt.Sprintf("Compose file %s is invalid: %v", composeFile, cerr))
 			return go_console.ExitError

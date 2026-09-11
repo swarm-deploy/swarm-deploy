@@ -2,10 +2,16 @@ package git
 
 import (
 	"context"
+	"net/http"
 
+	"github.com/go-git/go-git/v5/plumbing/transport/client"
+	phttp "github.com/go-git/go-git/v5/plumbing/transport/http"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 )
 
 type TraceableRepository struct {
@@ -14,10 +20,21 @@ type TraceableRepository struct {
 }
 
 func NewTraceableRepository(repo Repository, tp trace.TracerProvider) Repository {
+	traceGoGitHTTP()
+
 	return &TraceableRepository{
 		repo:   repo,
 		tracer: tp.Tracer("github.com/swarm-deploy/swarm-deploy/internal/gitops/git"),
 	}
+}
+
+func traceGoGitHTTP() {
+	traceTransport := phttp.NewClient(&http.Client{
+		Transport: otelhttp.NewTransport(http.DefaultTransport),
+	})
+
+	client.InstallProtocol("http", traceTransport)
+	client.InstallProtocol("https", traceTransport)
 }
 
 func (t *TraceableRepository) WorkingDir() string {
@@ -30,7 +47,7 @@ func (t *TraceableRepository) ReadFile(ctx context.Context, path string) ([]byte
 
 	content, err := t.repo.ReadFile(ctx, path)
 	if err != nil {
-		t.recordError(span, err)
+		tracing.FailSpan(span, err)
 		return nil, err
 	}
 
@@ -45,7 +62,7 @@ func (t *TraceableRepository) Pull(ctx context.Context) (PullResult, error) {
 
 	result, err := t.repo.Pull(ctx)
 	if err != nil {
-		t.recordError(span, err)
+		tracing.FailSpan(span, err)
 		return result, err
 	}
 
@@ -65,7 +82,7 @@ func (t *TraceableRepository) Head(ctx context.Context) (string, error) {
 
 	head, err := t.repo.Head(ctx)
 	if err != nil {
-		t.recordError(span, err)
+		tracing.FailSpan(span, err)
 		return "", err
 	}
 
@@ -81,7 +98,7 @@ func (t *TraceableRepository) List(ctx context.Context, limit int) ([]CommitMeta
 
 	commits, err := t.repo.List(ctx, limit)
 	if err != nil {
-		t.recordError(span, err)
+		tracing.FailSpan(span, err)
 		return nil, err
 	}
 
@@ -104,7 +121,7 @@ func (t *TraceableRepository) Diff(
 
 	fileDiffs, err := t.repo.Diff(ctx, oldRevision, newRevision)
 	if err != nil {
-		t.recordError(span, err)
+		tracing.FailSpan(span, err)
 		return nil, err
 	}
 
@@ -120,7 +137,7 @@ func (t *TraceableRepository) Show(ctx context.Context, commitHash string) (Comm
 
 	commit, err := t.repo.Show(ctx, commitHash)
 	if err != nil {
-		t.recordError(span, err)
+		tracing.FailSpan(span, err)
 		return Commit{}, err
 	}
 
@@ -128,9 +145,4 @@ func (t *TraceableRepository) Show(ctx context.Context, commitHash string) (Comm
 	span.SetStatus(codes.Ok, "")
 
 	return commit, nil
-}
-
-func (t *TraceableRepository) recordError(span trace.Span, err error) {
-	span.RecordError(err)
-	span.SetStatus(codes.Error, err.Error())
 }

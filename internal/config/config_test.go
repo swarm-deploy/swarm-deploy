@@ -531,7 +531,7 @@ assistant:
 	assert.Contains(t, err.Error(), "assistant.model.openai.temperature", "unexpected error")
 }
 
-func TestLoadFailsWhenAssistantMaxTokensIsNotPositive(t *testing.T) {
+func TestLoadFailsWhenAssistantMaxTokensIsNegative(t *testing.T) {
 	dir := t.TempDir()
 
 	stacksPath := filepath.Join(dir, "stacks.yaml")
@@ -557,7 +557,7 @@ assistant:
     name: gpt-4o-mini
     openai:
       apiTokenPath: %s
-      maxTokens: "0"
+      maxTokens: -1
 `, tokenPath))
 	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
 
@@ -594,7 +594,7 @@ assistant:
     openai:
       apiTokenPath: %s
       temperature: "not-a-number"
-      maxTokens: "-1"
+      maxTokens: -1
 `, tokenPath))
 	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
 
