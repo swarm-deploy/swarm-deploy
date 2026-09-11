@@ -7,6 +7,7 @@ import (
 	"time"
 
 	pipe "github.com/artarts36/gopipe"
+	"github.com/swarm-deploy/swarm-deploy/internal/tracing"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
@@ -55,7 +56,7 @@ func New(
 		event:          eventDispatcher,
 		deployMetrics:  deployMetrics,
 		stateStore:     stateStore,
-		composeLoader:  compose.NewFileLoader(),
+		composeLoader:  compose.NewFileLoaderWithReader(tracing.ReadFile()),
 		composeRotator: NewRotator(),
 		pruner:         pruner.NewServicePruner(swarmService.Services, eventDispatcher, cfg.Spec.Sync.Policy),
 		driftAnalyzer:  drift.NewAnalyzer(),

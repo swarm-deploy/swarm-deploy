@@ -22,8 +22,12 @@ type FileLoader struct {
 }
 
 func NewFileLoader() *FileLoader {
+	return NewFileLoaderWithReader(readFile)
+}
+
+func NewFileLoaderWithReader(reader func(ctx context.Context, path string) ([]byte, error)) *FileLoader {
 	return &FileLoader{
-		fileReader: readFile,
+		fileReader: reader,
 	}
 }
 
