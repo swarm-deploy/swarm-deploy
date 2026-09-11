@@ -152,7 +152,7 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 	require.NoError(t, writeComposeFile(repoDir), "write compose")
 
 	loader := compose.NewFileLoader()
-	stackFile, err := loader.Load(filepath.Join(repoDir, "app.yaml"))
+	stackFile, err := loader.Load(context.Background(), filepath.Join(repoDir, "app.yaml"))
 	require.NoError(t, err, "load compose for digest")
 
 	stateStore.Update(func(state *model.Runtime) {
@@ -225,7 +225,7 @@ configs:
 	require.NoError(t, os.WriteFile(configPath, []byte("version: old\n"), 0o600), "write old config")
 
 	loader := compose.NewFileLoader()
-	oldStackFile, err := loader.Load(composePath)
+	oldStackFile, err := loader.Load(context.Background(), composePath)
 	require.NoError(t, err, "load compose with old config")
 
 	stateStore.Update(func(state *model.Runtime) {
@@ -237,7 +237,7 @@ configs:
 
 	require.NoError(t, os.WriteFile(configPath, []byte("version: new\n"), 0o600), "write new config")
 
-	newStackFile, err := loader.Load(composePath)
+	newStackFile, err := loader.Load(context.Background(), composePath)
 	require.NoError(t, err, "load compose with new config")
 	require.NotEqual(t, oldStackFile.Digest, newStackFile.Digest, "expected config content to change digest")
 
@@ -593,7 +593,7 @@ func TestReconcilePrunesServicesForSkippedManualSync(t *testing.T) {
 	require.NoError(t, writeComposeFile(repoDir), "write compose")
 
 	loader := compose.NewFileLoader()
-	stackFile, err := loader.Load(filepath.Join(repoDir, "app.yaml"))
+	stackFile, err := loader.Load(context.Background(), filepath.Join(repoDir, "app.yaml"))
 	require.NoError(t, err, "load compose for digest")
 
 	stateStore.Update(func(state *model.Runtime) {
@@ -701,7 +701,7 @@ func TestReconcileServiceMissedEventOnDrift(t *testing.T) {
 			require.NoError(t, writeComposeFile(repoDir), "write compose")
 
 			loader := compose.NewFileLoader()
-			stackFile, err := loader.Load(filepath.Join(repoDir, "app.yaml"))
+			stackFile, err := loader.Load(context.Background(), filepath.Join(repoDir, "app.yaml"))
 			require.NoError(t, err, "load compose for digest")
 
 			stateStore.Update(func(state *model.Runtime) {

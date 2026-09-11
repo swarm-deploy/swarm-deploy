@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -17,13 +18,30 @@ type File struct {
 }
 
 type FileLoader struct {
-	fileReader func(path string) ([]byte, error)
+	fileReader func(ctx context.Context, path string) ([]byte, error)
 }
 
 func NewFileLoader() *FileLoader {
 	return &FileLoader{
-		fileReader: os.ReadFile,
+		fileReader: readFile,
 	}
+}
+
+func readFile(ctx context.Context, path string) ([]byte, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	return content, nil
 }
 
 func (f *File) MarshalYAML() ([]byte, error) {
@@ -34,8 +52,8 @@ func (f *File) MarshalYAML() ([]byte, error) {
 	return payload, nil
 }
 
-func (l *FileLoader) Load(path string) (*File, error) {
-	raw, err := l.fileReader(path)
+func (l *FileLoader) Load(ctx context.Context, path string) (*File, error) {
+	raw, err := l.fileReader(ctx, path)
 	if err != nil {
 		return nil, fmt.Errorf("read compose file %s: %w", path, err)
 	}
@@ -55,7 +73,7 @@ func (l *FileLoader) Load(path string) (*File, error) {
 		Compose: schema,
 	}
 
-	digest, err := l.computeDigest(*file, raw)
+	digest, err := l.computeDigest(ctx, *file, raw)
 	if err != nil {
 		return nil, fmt.Errorf("compute digest: %w", err)
 	}
@@ -81,7 +99,7 @@ func (*FileLoader) linkServices(compose *Compose) error {
 	return nil
 }
 
-func (l *FileLoader) computeDigest(file File, raw []byte) (string, error) {
+func (l *FileLoader) computeDigest(ctx context.Context, file File, raw []byte) (string, error) {
 	baseDir := filepath.Dir(file.Path)
 	hasher := sha256.New()
 	hasher.Write(raw)
@@ -101,7 +119,7 @@ func (l *FileLoader) computeDigest(file File, raw []byte) (string, error) {
 				absPath = filepath.Join(baseDir, object.File)
 			}
 
-			content, err := l.fileReader(absPath)
+			content, err := l.fileReader(ctx, absPath)
 			if err != nil {
 				return fmt.Errorf("read %s file %s for digest: %w", objectType, absPath, err)
 			}

@@ -2,6 +2,7 @@ package compose
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -33,13 +34,13 @@ func TestLoader_Load(t *testing.T) {
 
 			fileRaw := []byte{}
 
-			loader.fileReader = func(string) ([]byte, error) {
+			loader.fileReader = func(context.Context, string) ([]byte, error) {
 				var err error
 				fileRaw, err = os.ReadFile(fmt.Sprintf("./tests/loader/%d.input.yaml", i))
 				return fileRaw, err
 			}
 
-			file, err := loader.Load(fmt.Sprintf("./tests/loader/%d.input.yaml", i))
+			file, err := loader.Load(context.Background(), fmt.Sprintf("./tests/loader/%d.input.yaml", i))
 			require.NoError(t, err)
 
 			result := bytes.NewBuffer(nil)
@@ -56,6 +57,16 @@ func TestLoader_Load(t *testing.T) {
 			assert.Equal(t, string(fileRaw), result.String())
 		})
 	}
+}
+
+func TestFileLoaderLoadFailsOnCanceledContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	file, err := NewFileLoader().Load(ctx, "compose.yaml")
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Nil(t, file)
 }
 
 func TestFileLoaderDigestChangesWhenSharedObjectFileContentChanges(t *testing.T) {
@@ -142,12 +153,12 @@ configs:
 			require.NoError(t, os.WriteFile(objectPath, []byte("version: old\n"), 0o600), "write old object")
 
 			loader := NewFileLoader()
-			oldFile, err := loader.Load(composePath)
+			oldFile, err := loader.Load(context.Background(), composePath)
 			require.NoError(t, err, "load compose with old object")
 
 			require.NoError(t, os.WriteFile(objectPath, []byte("version: new\n"), 0o600), "write new object")
 
-			newFile, err := loader.Load(composePath)
+			newFile, err := loader.Load(context.Background(), composePath)
 			require.NoError(t, err, "load compose with new object")
 
 			assert.NotEqual(t, oldFile.Digest, newFile.Digest, "digest must include shared object file content")

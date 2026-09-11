@@ -73,7 +73,7 @@ func (r *Reconciler) Reconcile(
 	req ReconciliationRequest,
 ) error {
 	composePath := filepath.Join(r.git.WorkingDir(), req.Stack.ComposeFile)
-	desiredState, err := r.composeLoader.Load(composePath)
+	desiredState, err := r.composeLoader.Load(ctx, composePath)
 	if err != nil {
 		r.recordFailure(req.Stack.Name, req.Commit, nil, err)
 		r.recordStackFailure(req.Stack.Name, req.Commit, nil, err)
