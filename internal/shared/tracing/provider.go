@@ -10,3 +10,7 @@ var tracingEnabled = false
 func GetTracerProvider() (trace.TracerProvider, bool) {
 	return otel.GetTracerProvider(), tracingEnabled
 }
+
+func Enable() {
+	tracingEnabled = true
+}

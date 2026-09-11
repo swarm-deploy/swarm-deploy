@@ -1,4 +1,4 @@
-package tracing
+package sd
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 
 	downwardotel "github.com/swarm-deploy/downward-otel/go"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp"
@@ -16,7 +17,7 @@ import (
 )
 
 // Init initializes the global OpenTelemetry tracer provider.
-func Init(ctx context.Context, cfg *config.TracingSpec) (*sdktrace.TracerProvider, error) {
+func InitTracerProvider(ctx context.Context, cfg *config.TracingSpec) (*sdktrace.TracerProvider, error) {
 	if cfg == nil {
 		return nil, nil //nolint:nilnil // check outside
 	}
@@ -41,7 +42,7 @@ func Init(ctx context.Context, cfg *config.TracingSpec) (*sdktrace.TracerProvide
 		sdktrace.WithResource(res),
 	)
 
-	tracingEnabled = true
+	tracing.Enable()
 
 	otel.SetTracerProvider(provider)
 	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(

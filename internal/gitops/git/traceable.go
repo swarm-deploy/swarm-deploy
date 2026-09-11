@@ -11,7 +11,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/tracing"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 )
 
 type TraceableRepository struct {

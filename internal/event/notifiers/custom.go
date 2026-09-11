@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/tracing"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 )
 
 const (

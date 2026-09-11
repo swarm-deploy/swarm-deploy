@@ -9,8 +9,8 @@ import (
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
-	"github.com/swarm-deploy/swarm-deploy/internal/tracing"
 )
 
 type StackReconciler interface {

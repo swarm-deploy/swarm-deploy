@@ -8,7 +8,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/tracing"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 )
 
 func ReadFile() func(ctx context.Context, path string) ([]byte, error) {
@@ -19,7 +19,7 @@ func ReadFile() func(ctx context.Context, path string) ([]byte, error) {
 		}
 	}
 
-	tracer := tp.Tracer("github.com/swarm-deploy/swarm-deploy/internal/tracing")
+	tracer := tp.Tracer("github.com/swarm-deploy/swarm-deploy/internal/shared/tracing")
 
 	return func(ctx context.Context, path string) ([]byte, error) {
 		ctx, span := tracer.Start(ctx, "os.ReadFile", trace.WithAttributes(

@@ -19,6 +19,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/healthserver"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver"
+	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/sd"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webhookserver"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
@@ -40,7 +41,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
-	"github.com/swarm-deploy/swarm-deploy/internal/tracing"
 )
 
 const shutdownTimeout = 30 * time.Second
@@ -72,7 +72,7 @@ func main() {
 		security.LogUser(),
 	)))
 
-	tracerProvider, err := tracing.Init(ctx, cfg.Spec.Tracing)
+	tracerProvider, err := sd.InitTracerProvider(ctx, cfg.Spec.Tracing)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to init tracing", slog.Any("err", err))
 		os.Exit(1)

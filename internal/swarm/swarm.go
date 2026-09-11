@@ -2,8 +2,9 @@ package swarm
 
 import (
 	"github.com/docker/docker/client"
-	"github.com/swarm-deploy/swarm-deploy/internal/tracing"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 )
 
 type Swarm struct {
