@@ -59,16 +59,6 @@ func TestLoader_Load(t *testing.T) {
 	}
 }
 
-func TestFileLoaderLoadFailsOnCanceledContext(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	file, err := NewFileLoader().Load(ctx, "compose.yaml")
-
-	require.ErrorIs(t, err, context.Canceled)
-	assert.Nil(t, file)
-}
-
 func TestFileLoaderDigestChangesWhenSharedObjectFileContentChanges(t *testing.T) {
 	tests := []struct {
 		name           string

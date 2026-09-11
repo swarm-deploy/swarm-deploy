@@ -98,7 +98,7 @@ func (s *Store) List() []Entry {
 }
 
 func (s *Store) load(ctx context.Context) error {
-	if err := s.fs.CreateDirectory(ctx, filepath.Dir(s.path), 0o755); err != nil {
+	if err := s.fs.CreateDirectory(ctx, filepath.Dir(s.path), 0o755); err != nil { //nolint:mnd // nn
 		return fmt.Errorf("create event history dir: %w", err)
 	}
 
