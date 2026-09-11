@@ -11,12 +11,13 @@ import (
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 )
 
 func TestHandlerListEventsFiltersBySeverityAndCategory(t *testing.T) {
 	t.Parallel()
 
-	store, err := history.NewStore(filepath.Join(t.TempDir(), "events.json"), 50)
+	store, err := history.NewStore(filepath.Join(t.TempDir(), "events.json"), 50, fs.NewLocalFileSystem())
 	require.NoError(t, err, "new history store")
 	require.NoError(t, store.Handle(context.Background(), &events.DeploySuccess{StackName: "api", Commit: "abc"}))
 	require.NoError(t, store.Handle(context.Background(), &events.UserAuthenticated{Username: "alice"}))
@@ -45,7 +46,7 @@ func TestHandlerListEventsFiltersBySeverityAndCategory(t *testing.T) {
 func TestHandlerListEventsUsesOrWithinSeverityFilter(t *testing.T) {
 	t.Parallel()
 
-	store, err := history.NewStore(filepath.Join(t.TempDir(), "events.json"), 50)
+	store, err := history.NewStore(filepath.Join(t.TempDir(), "events.json"), 50, fs.NewLocalFileSystem())
 	require.NoError(t, err, "new history store")
 	require.NoError(t, store.Handle(context.Background(), &events.SyncManualStarted{}))
 	require.NoError(
@@ -72,7 +73,7 @@ func TestHandlerListEventsUsesOrWithinSeverityFilter(t *testing.T) {
 func TestHandlerListEventsFiltersBySwarmCategory(t *testing.T) {
 	t.Parallel()
 
-	store, err := history.NewStore(filepath.Join(t.TempDir(), "events.json"), 50)
+	store, err := history.NewStore(filepath.Join(t.TempDir(), "events.json"), 50, fs.NewLocalFileSystem())
 	require.NoError(t, err, "new history store")
 	require.NoError(t, store.Handle(context.Background(), &events.SyncManualStarted{}))
 	require.NoError(

@@ -139,11 +139,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	filesystem := fs.TraceOS()
+
 	eventDispatcher, eventHistory, serviceStore, err := buildEventDispatcher(
 		cfg,
 		swarmService.Services,
 		swarmService.Images,
 		metricsGroup.Events,
+		filesystem,
 	)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to build event dispatcher", slog.Any("err", err))
@@ -159,8 +162,6 @@ func main() {
 
 	stateStore := modelstore.NewWarmupStore(modelstore.NewMemoryStore(), stateFileStore)
 	stateStore.Warmup()
-
-	filesystem := fs.TraceOS()
 
 	control := controller.New(
 		cfg,
@@ -337,10 +338,12 @@ func buildEventDispatcher(
 	serviceStatusInspector swarm.ServiceManager,
 	imageInspector swarm.ImageManager,
 	eventMetrics metrics.Events,
+	filesystem fs.FileSystem,
 ) (dispatcher.Dispatcher, *history.Store, *service.Store, error) {
 	historyStore, err := history.NewStore(
 		filepath.Join(cfg.Spec.DataDir, "event-history.json"),
 		cfg.Spec.EventHistory.Capacity,
+		filesystem,
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("build history store: %w", err)

@@ -10,12 +10,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 )
 
 func TestStoreHandlePersistsAndRotates(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "event-history.json")
 
-	store, err := NewStore(path, 2)
+	store, err := NewStore(path, 2, fs.NewLocalFileSystem())
 	require.NoError(t, err, "new store")
 
 	store.now = func() time.Time { return time.Date(2026, 3, 22, 10, 0, 0, 0, time.UTC) }
@@ -47,7 +48,7 @@ func TestStoreHandlePersistsAndRotates(t *testing.T) {
 	assert.Equal(t, "api", items[1].Details["stack"], "expected stack")
 	assert.Equal(t, "def", items[1].Details["commit"], "expected commit")
 
-	reloaded, err := NewStore(path, 2)
+	reloaded, err := NewStore(path, 2, fs.NewLocalFileSystem())
 	require.NoError(t, err, "reload store")
 	reloadedItems := reloaded.List()
 	require.Len(t, reloadedItems, 2, "expected persisted rotated history size")
@@ -57,7 +58,7 @@ func TestStoreHandlePersistsAndRotates(t *testing.T) {
 func TestStoreHandleUserAuthenticated(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "event-history.json")
 
-	store, err := NewStore(path, 10)
+	store, err := NewStore(path, 10, fs.NewLocalFileSystem())
 	require.NoError(t, err, "new store")
 
 	store.now = func() time.Time { return time.Date(2026, 3, 22, 10, 3, 0, 0, time.UTC) }
@@ -78,7 +79,7 @@ func TestStoreHandleUserAuthenticated(t *testing.T) {
 func TestStoreHandleSendNotificationFailed(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "event-history.json")
 
-	store, err := NewStore(path, 10)
+	store, err := NewStore(path, 10, fs.NewLocalFileSystem())
 	require.NoError(t, err, "new store")
 
 	store.now = func() time.Time { return time.Date(2026, 3, 22, 10, 4, 0, 0, time.UTC) }

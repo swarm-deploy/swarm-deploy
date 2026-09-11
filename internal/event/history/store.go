@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 )
 
 const fileModePrivate = 0o600
@@ -36,12 +37,13 @@ type Store struct {
 	mu       sync.RWMutex
 	path     string
 	capacity int
+	fs       fs.FileSystem
 	now      func() time.Time
 	entries  []Entry
 }
 
 // NewStore creates history store and loads current state from disk.
-func NewStore(path string, capacity int) (*Store, error) {
+func NewStore(path string, capacity int, filesystem fs.FileSystem) (*Store, error) {
 	if capacity <= 0 {
 		return nil, fmt.Errorf("event history capacity must be > 0, got %d", capacity)
 	}
@@ -49,10 +51,11 @@ func NewStore(path string, capacity int) (*Store, error) {
 	s := &Store{
 		path:     path,
 		capacity: capacity,
+		fs:       filesystem,
 		now:      time.Now,
 	}
 
-	if err := s.load(); err != nil {
+	if err := s.load(context.Background()); err != nil {
 		return nil, err
 	}
 
@@ -68,7 +71,7 @@ func (s *Store) Slow() bool {
 }
 
 // Handle appends event to history and persists updated file.
-func (s *Store) Handle(_ context.Context, event events.Event) error {
+func (s *Store) Handle(ctx context.Context, event events.Event) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -77,7 +80,7 @@ func (s *Store) Handle(_ context.Context, event events.Event) error {
 		s.entries = s.entries[len(s.entries)-s.capacity:]
 	}
 
-	return s.flushLocked()
+	return s.flushLocked(ctx)
 }
 
 // List returns a copy of current event history.
@@ -94,12 +97,12 @@ func (s *Store) List() []Entry {
 	return out
 }
 
-func (s *Store) load() error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+func (s *Store) load(ctx context.Context) error {
+	if err := s.fs.CreateDirectory(ctx, filepath.Dir(s.path), 0o755); err != nil {
 		return fmt.Errorf("create event history dir: %w", err)
 	}
 
-	payload, err := os.ReadFile(s.path)
+	payload, err := s.fs.ReadFile(ctx, s.path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
@@ -117,7 +120,7 @@ func (s *Store) load() error {
 
 	if len(s.entries) > s.capacity {
 		s.entries = s.entries[len(s.entries)-s.capacity:]
-		flushErr := s.flushLocked()
+		flushErr := s.flushLocked(ctx)
 		if flushErr != nil {
 			return flushErr
 		}
@@ -126,18 +129,18 @@ func (s *Store) load() error {
 	return nil
 }
 
-func (s *Store) flushLocked() error {
+func (s *Store) flushLocked(ctx context.Context) error {
 	payload, err := json.Marshal(s.entries)
 	if err != nil {
 		return fmt.Errorf("encode event history: %w", err)
 	}
 
 	tmpPath := fmt.Sprintf("%s.tmp", s.path)
-	writeErr := os.WriteFile(tmpPath, payload, fileModePrivate)
+	writeErr := s.fs.WriteFile(ctx, tmpPath, payload, fileModePrivate)
 	if writeErr != nil {
 		return fmt.Errorf("write event history temp file: %w", writeErr)
 	}
-	renameErr := os.Rename(tmpPath, s.path)
+	renameErr := s.fs.Rename(ctx, tmpPath, s.path)
 	if renameErr != nil {
 		return fmt.Errorf("replace event history file: %w", renameErr)
 	}
