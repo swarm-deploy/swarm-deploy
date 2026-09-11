@@ -31,17 +31,9 @@ func NewFileLoaderWithReader(reader func(ctx context.Context, path string) ([]by
 	}
 }
 
-func readFile(ctx context.Context, path string) ([]byte, error) {
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-
+func readFile(_ context.Context, path string) ([]byte, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
-	}
-
-	if err = ctx.Err(); err != nil {
 		return nil, err
 	}
 
