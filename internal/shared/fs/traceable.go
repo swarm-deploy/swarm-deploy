@@ -2,6 +2,7 @@ package fs
 
 import (
 	"context"
+	"os"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -47,4 +48,62 @@ func (s *TraceableFileSystem) ReadFile(ctx context.Context, path string) ([]byte
 	span.SetStatus(codes.Ok, "")
 
 	return content, nil
+}
+
+func (s *TraceableFileSystem) WriteFile(ctx context.Context, path string, payload []byte, mode os.FileMode) error {
+	ctx, span := s.tracer.Start(ctx, "fs.WriteFile", trace.WithAttributes(
+		attribute.String("file.path", path),
+		attribute.String("file.mode", mode.String()),
+		attribute.Int("file.size", len(payload)),
+	))
+	defer span.End()
+
+	err := s.fs.WriteFile(ctx, path, payload, mode)
+	if err != nil {
+		tracing.FailSpan(span, err)
+
+		return err
+	}
+
+	span.SetStatus(codes.Ok, "")
+
+	return nil
+}
+
+func (s *TraceableFileSystem) CreateDirectory(ctx context.Context, path string, perm os.FileMode) error {
+	ctx, span := s.tracer.Start(ctx, "fs.CreateDirectory", trace.WithAttributes(
+		attribute.String("file.path", path),
+		attribute.String("file.mode", perm.String()),
+	))
+	defer span.End()
+
+	err := s.fs.CreateDirectory(ctx, path, perm)
+	if err != nil {
+		tracing.FailSpan(span, err)
+
+		return err
+	}
+
+	span.SetStatus(codes.Ok, "")
+
+	return nil
+}
+
+func (s *TraceableFileSystem) Rename(ctx context.Context, oldPath string, newPath string) error {
+	ctx, span := s.tracer.Start(ctx, "fs.Rename", trace.WithAttributes(
+		attribute.String("file.old_path", oldPath),
+		attribute.String("file.new_path", newPath),
+	))
+	defer span.End()
+
+	err := s.fs.Rename(ctx, oldPath, newPath)
+	if err != nil {
+		tracing.FailSpan(span, err)
+
+		return err
+	}
+
+	span.SetStatus(codes.Ok, "")
+
+	return nil
 }
