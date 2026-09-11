@@ -40,6 +40,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
@@ -159,6 +160,8 @@ func main() {
 	stateStore := modelstore.NewWarmupStore(modelstore.NewMemoryStore(), stateFileStore)
 	stateStore.Warmup()
 
+	filesystem := fs.TraceOS()
+
 	control := controller.New(
 		cfg,
 		gitRepository,
@@ -167,6 +170,7 @@ func main() {
 		metricsGroup,
 		eventDispatcher,
 		stateStore,
+		filesystem,
 	)
 
 	assistantService, err := buildAssistantService(

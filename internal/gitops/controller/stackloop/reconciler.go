@@ -18,7 +18,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/traceos"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
@@ -47,6 +47,7 @@ func New(
 	eventDispatcher dispatcher.Dispatcher,
 	deployMetrics metrics.Deploys,
 	stateStore modelstore.Store,
+	fileSystem fs.FileSystem,
 ) *Reconciler {
 	reconciler := &Reconciler{
 		cfg:            cfg,
@@ -55,7 +56,7 @@ func New(
 		event:          eventDispatcher,
 		deployMetrics:  deployMetrics,
 		stateStore:     stateStore,
-		composeLoader:  compose.NewFileLoaderWithReader(traceos.ReadFile()),
+		composeLoader:  compose.NewFileLoaderWithReader(fileSystem.ReadFile),
 		composeRotator: NewRotator(),
 		pruner:         pruner.NewServicePruner(swarmService.Services, eventDispatcher, cfg.Spec.Sync.Policy),
 		driftAnalyzer:  drift.NewAnalyzer(),

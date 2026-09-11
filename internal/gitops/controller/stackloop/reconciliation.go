@@ -9,6 +9,7 @@ import (
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -34,6 +35,7 @@ func NewStackReconciler(
 	eventDispatcher dispatcher.Dispatcher,
 	deployMetrics metrics.Deploys,
 	stateStore modelstore.Store,
+	filesystem fs.FileSystem,
 ) StackReconciler {
 	reconciler := New(
 		cfg,
@@ -43,6 +45,7 @@ func NewStackReconciler(
 		eventDispatcher,
 		deployMetrics,
 		stateStore,
+		filesystem,
 	)
 
 	tp, tracingEnabled := tracing.GetTracerProvider()

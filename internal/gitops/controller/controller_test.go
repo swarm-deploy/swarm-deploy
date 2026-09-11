@@ -16,6 +16,7 @@ import (
 	git "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/mock/gomock"
@@ -161,6 +162,7 @@ func TestControllerSyncOnceReconcilesStacksWhenGitRevisionUnchanged(t *testing.T
 			eventDispatcher,
 			metricGroup.Deploys,
 			store,
+			fs.NopFileSystem{},
 		),
 		tracer: otel.Tracer("test"),
 	}
@@ -246,6 +248,7 @@ func TestControllerSyncOncePrioritizesChangedStacks(t *testing.T) {
 			eventDispatcher,
 			metricGroup.Deploys,
 			store,
+			fs.NopFileSystem{},
 		),
 		tracer: otel.Tracer("test"),
 	}
@@ -326,6 +329,7 @@ func TestControllerSyncOnceContinuesWhenGitDiffFails(t *testing.T) {
 			eventDispatcher,
 			metricGroup.Deploys,
 			store,
+			fs.NopFileSystem{},
 		),
 		tracer: otel.Tracer("test"),
 	}
