@@ -37,7 +37,7 @@ const (
 
 	defaultAssistantOpenAIBaseURL           = "https://api.openai.com/v1"
 	defaultAssistantTemperature             = "0.2"
-	defaultAssistantMaxTokens               = "800"
+	defaultAssistantMaxTokens               = 800
 	defaultAssistantConversationInMemoryTTL = 1 * time.Hour
 	defaultManagedNetworkDriver             = "overlay"
 
@@ -296,8 +296,7 @@ func (c *Config) applyAssistantDefaults() {
 		openaiCfg.Temperature = defaultAssistantTemperature
 	}
 
-	openaiCfg.MaxTokens = strings.TrimSpace(openaiCfg.MaxTokens)
-	if openaiCfg.MaxTokens == "" {
+	if openaiCfg.MaxTokens == 0 {
 		openaiCfg.MaxTokens = defaultAssistantMaxTokens
 	}
 
@@ -746,10 +745,7 @@ func (c *Config) validateAssistant() []error {
 		errs = append(errs, errors.New("assistant.model.openai.temperature must be between 0 and 2"))
 	}
 
-	maxTokens, err := c.Spec.Assistant.Model.OpenAI.ResolveMaxTokens()
-	if err != nil {
-		errs = append(errs, fmt.Errorf("assistant.model.openai.maxTokens %w", err))
-	} else if maxTokens <= 0 {
+	if c.Spec.Assistant.Model.OpenAI.MaxTokens <= 0 {
 		errs = append(errs, errors.New("assistant.model.openai.maxTokens must be > 0"))
 	}
 
@@ -771,20 +767,6 @@ func (a AssistantOpenAISpec) ResolveTemperature() (float64, error) {
 	value, err := strconv.ParseFloat(temperature, 64)
 	if err != nil {
 		return 0, fmt.Errorf("parse %q: %w", temperature, err)
-	}
-
-	return value, nil
-}
-
-func (a AssistantOpenAISpec) ResolveMaxTokens() (int, error) {
-	maxTokens := strings.TrimSpace(a.MaxTokens)
-	if maxTokens == "" {
-		return 0, errors.New("is empty")
-	}
-
-	value, err := strconv.Atoi(maxTokens)
-	if err != nil {
-		return 0, fmt.Errorf("parse %q: %w", maxTokens, err)
 	}
 
 	return value, nil

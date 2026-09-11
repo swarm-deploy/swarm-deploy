@@ -287,11 +287,6 @@ func buildAssistantService(
 		return nil, fmt.Errorf("resolve assistant temperature: %w", err)
 	}
 
-	maxTokens, err := cfg.Spec.Assistant.Model.OpenAI.ResolveMaxTokens()
-	if err != nil {
-		return nil, fmt.Errorf("resolve assistant maxTokens: %w", err)
-	}
-
 	imageVersionResolver, err := registry.NewImageVersionResolver()
 	if err != nil {
 		return nil, fmt.Errorf("build image version resolver: %w", err)
@@ -326,7 +321,7 @@ func buildAssistantService(
 		APIToken:                string(cfg.Spec.Assistant.Model.OpenAI.APIToken.Content),
 		OrganizationID:          cfg.Spec.Assistant.Model.OpenAI.OrganizationID,
 		Temperature:             temperature,
-		MaxTokens:               maxTokens,
+		MaxTokens:               cfg.Spec.Assistant.Model.OpenAI.MaxTokens,
 		SystemPrompt:            cfg.Spec.Assistant.SystemPrompt,
 		AllowedTools:            cfg.Spec.Assistant.Tools,
 		ConversationInMemoryTTL: cfg.Spec.Assistant.Conversation.Storage.InMemory.TTL.Value,

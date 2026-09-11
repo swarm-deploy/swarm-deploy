@@ -37,7 +37,7 @@ type AssistantOpenAISpec struct {
 	// Temperature is a model temperature value in [0, 2].
 	Temperature string `yaml:"temperature"`
 	// MaxTokens is a max generated token count.
-	MaxTokens string `yaml:"maxTokens"`
+	MaxTokens int `yaml:"maxTokens"`
 }
 
 // AssistantConversationSpec contains conversation settings.
