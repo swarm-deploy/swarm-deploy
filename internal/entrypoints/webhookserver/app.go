@@ -70,7 +70,7 @@ func (a *Application) handleGitWebhook(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(io.Discard, r.Body)
 	_ = r.Body.Close()
 
-	queued := a.control.Webhook()
+	queued := a.control.Webhook(r.Context())
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"queued": queued,
 	})

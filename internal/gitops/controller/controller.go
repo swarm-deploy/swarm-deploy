@@ -65,6 +65,7 @@ type Controller struct {
 type triggerTask struct {
 	triggeredBy string
 	reason      TriggerReason
+	spanContext trace.SpanContext
 }
 
 func New(
@@ -151,12 +152,14 @@ func (c *Controller) Manual(ctx context.Context) bool {
 	return c.trigger(triggerTask{
 		triggeredBy: user.Name,
 		reason:      TriggerManual,
+		spanContext: trace.SpanContextFromContext(ctx),
 	})
 }
 
-func (c *Controller) Webhook() bool {
+func (c *Controller) Webhook(ctx context.Context) bool {
 	return c.trigger(triggerTask{
-		reason: TriggerWebhook,
+		reason:      TriggerWebhook,
+		spanContext: trace.SpanContextFromContext(ctx),
 	})
 }
 
@@ -170,6 +173,8 @@ func (c *Controller) trigger(task triggerTask) bool {
 }
 
 func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:funlen // not need
+	ctx = trace.ContextWithSpanContext(ctx, task.spanContext)
+
 	ctx, span := c.tracer.Start(ctx, "controller.Sync")
 	span.SetAttributes(attribute.String("sync.trigger", string(task.reason)))
 	defer span.End()
