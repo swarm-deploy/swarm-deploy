@@ -45,7 +45,7 @@ func traceEventSender(tp trace.TracerProvider, sender EventSender) EventSender {
 	return func(ctx context.Context, msg message) error {
 		ctx = trace.ContextWithSpanContext(ctx, msg.SpanContext)
 
-		ctx, span := tracer.Start(ctx, "dispatcher.Send", trace.WithAttributes(
+		ctx, span := tracer.Start(ctx, "event.Send", trace.WithAttributes(
 			attribute.String("event.name", string(msg.Event.Type().Name())),
 			attribute.String("subscriber.name", msg.Subscriber.Name()),
 		))
