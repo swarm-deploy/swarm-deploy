@@ -31,7 +31,7 @@ type Reconciler struct {
 	deployMetrics  metrics.Deploys
 	stateStore     modelstore.Store
 	pruner         *pruner.ServicePruner
-	composeLoader  *compose.FileLoader
+	composeLoader  compose.FileLoader
 	composeRotator *Rotator
 	pipeline       *pipe.Pipeline[*pipelinePayload]
 	driftAnalyzer  *drift.Analyzer

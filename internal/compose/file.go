@@ -9,27 +9,47 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"gopkg.in/yaml.v3"
 )
 
+// File is a parsed compose file with source metadata.
 type File struct {
-	Path    string  `json:"path"`
+	// Path is the source compose file path.
+	Path string `json:"path"`
+	// Compose is the parsed compose specification.
 	Compose Compose `json:"compose"`
-	Digest  string  `json:"digest"`
+	// Digest is the content hash including referenced config and secret files.
+	Digest string `json:"digest"`
 }
 
-type FileLoader struct {
+// FileLoader loads compose files.
+type FileLoader interface {
+	// Load reads, decodes, normalizes, and digests a compose file.
+	Load(ctx context.Context, path string) (*File, error)
+}
+
+type fileLoader struct {
 	fileReader func(ctx context.Context, path string) ([]byte, error)
 }
 
-func NewFileLoader() *FileLoader {
+// NewFileLoader builds a compose file loader backed by the local filesystem.
+func NewFileLoader() FileLoader {
 	return NewFileLoaderWithReader(readFile)
 }
 
-func NewFileLoaderWithReader(reader func(ctx context.Context, path string) ([]byte, error)) *FileLoader {
-	return &FileLoader{
+// NewFileLoaderWithReader builds a compose file loader backed by the provided file reader.
+func NewFileLoaderWithReader(reader func(ctx context.Context, path string) ([]byte, error)) FileLoader {
+	loader := &fileLoader{
 		fileReader: reader,
 	}
+
+	tp, tracingEnabled := tracing.GetTracerProvider()
+	if !tracingEnabled {
+		return loader
+	}
+
+	return NewTraceableFileLoader(tp, loader)
 }
 
 func readFile(_ context.Context, path string) ([]byte, error) {
@@ -49,7 +69,7 @@ func (f *File) MarshalYAML() ([]byte, error) {
 	return payload, nil
 }
 
-func (l *FileLoader) Load(ctx context.Context, path string) (*File, error) {
+func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 	raw, err := l.fileReader(ctx, path)
 	if err != nil {
 		return nil, fmt.Errorf("read compose file %s: %w", path, err)
@@ -80,7 +100,7 @@ func (l *FileLoader) Load(ctx context.Context, path string) (*File, error) {
 	return file, nil
 }
 
-func (*FileLoader) linkServices(compose *Compose) error {
+func (*fileLoader) linkServices(compose *Compose) error {
 	for ind, service := range compose.Services {
 		resolveNetworkAliases(service.Networks, compose.Networks)
 
@@ -96,7 +116,7 @@ func (*FileLoader) linkServices(compose *Compose) error {
 	return nil
 }
 
-func (l *FileLoader) computeDigest(ctx context.Context, file File, raw []byte) (string, error) {
+func (l *fileLoader) computeDigest(ctx context.Context, file File, raw []byte) (string, error) {
 	baseDir := filepath.Dir(file.Path)
 	hasher := sha256.New()
 	hasher.Write(raw)

@@ -30,15 +30,13 @@ func TestLoader_Load(t *testing.T) {
 
 	for i, test := range cases {
 		t.Run(test.Title, func(t *testing.T) {
-			loader := NewFileLoader()
-
 			fileRaw := []byte{}
 
-			loader.fileReader = func(context.Context, string) ([]byte, error) {
+			loader := NewFileLoaderWithReader(func(context.Context, string) ([]byte, error) {
 				var err error
 				fileRaw, err = os.ReadFile(fmt.Sprintf("./tests/loader/%d.input.yaml", i))
 				return fileRaw, err
-			}
+			})
 
 			file, err := loader.Load(context.Background(), fmt.Sprintf("./tests/loader/%d.input.yaml", i))
 			require.NoError(t, err)
