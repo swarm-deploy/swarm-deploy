@@ -357,8 +357,8 @@ func buildEventDispatcher(
 	var eventDispatcher dispatcher.Dispatcher = dispatcher.NewQueueDispatcher()
 
 	if cfg.Spec.Web.Security.Authentication.Strategy() != config.AuthenticationStrategyNone {
-		eventDispatcher = dispatcher.NewPropagatableDispatcher(
-			dispatcher.WrapPropagators(security.PropagateEvent()),
+		eventDispatcher = dispatcher.NewEnrichableDispatcher(
+			dispatcher.WrapEnrichers(security.EnrichEvent()),
 			eventDispatcher,
 		)
 	}
