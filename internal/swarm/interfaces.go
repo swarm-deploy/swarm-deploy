@@ -51,13 +51,16 @@ type SecretManager interface {
 }
 
 type NetworkManager interface {
+	// Get returns Docker network by name or identifier.
 	Get(ctx context.Context, name string) (Network, error)
 
 	// List returns current Docker networks snapshot.
 	List(ctx context.Context) ([]Network, error)
 
+	// Map returns Docker networks indexed by network identifier.
 	Map(ctx context.Context, ids []string) (map[string]Network, error)
 
+	// Create creates Docker network and returns its identifier.
 	Create(ctx context.Context, req CreateNetworkRequest) (string, error)
 }
 

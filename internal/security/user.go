@@ -38,7 +38,7 @@ func LogUser() slogx.Middleware {
 	}
 }
 
-func PropagateEvent() dispatcher.Propagator {
+func EnrichEvent() dispatcher.Enricher {
 	return func(ctx context.Context, event events.Event) events.Event {
 		eventAwareUser, ok := event.(events.AwareUser)
 		if ok {
