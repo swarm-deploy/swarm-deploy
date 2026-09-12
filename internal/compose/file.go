@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"gopkg.in/yaml.v3"
 )
 
@@ -48,7 +49,11 @@ func (f *File) MarshalYAML() ([]byte, error) {
 	return payload, nil
 }
 
-func (l *FileLoader) Load(ctx context.Context, path string) (*File, error) {
+func NestedPathInsideVolume(repoDir string, composeDir string) fs.PathInterpreter {
+	return fs.PrefixPath(repoDir, composeDir)
+}
+
+func (l *FileLoader) Load(ctx context.Context, path string, nestedPathInterpreter fs.PathInterpreter) (*File, error) {
 	raw, err := l.fileReader(ctx, path)
 	if err != nil {
 		return nil, fmt.Errorf("read compose file %s: %w", path, err)
@@ -60,7 +65,7 @@ func (l *FileLoader) Load(ctx context.Context, path string) (*File, error) {
 		return nil, fmt.Errorf("decode compose schema: %w", err)
 	}
 
-	if err = l.linkServices(&schema); err != nil {
+	if err = l.linkServices(nestedPathInterpreter, &schema); err != nil {
 		return nil, fmt.Errorf("link services: %w", err)
 	}
 
@@ -79,7 +84,7 @@ func (l *FileLoader) Load(ctx context.Context, path string) (*File, error) {
 	return file, nil
 }
 
-func (*FileLoader) linkServices(compose *Compose) error {
+func (l *FileLoader) linkServices(nestedPath fs.PathInterpreter, compose *Compose) error {
 	for ind, service := range compose.Services {
 		resolveNetworkAliases(service.Networks, compose.Networks)
 
@@ -89,10 +94,18 @@ func (*FileLoader) linkServices(compose *Compose) error {
 		}
 		service.InitJobs = initJobs
 
+		l.linkEnvFiles(nestedPath, &service)
+
 		compose.Services[ind] = service
 	}
 
 	return nil
+}
+
+func (*FileLoader) linkEnvFiles(nestedPath fs.PathInterpreter, srv *Service) {
+	for i, file := range srv.EnvFiles {
+		srv.EnvFiles[i] = nestedPath(file)
+	}
 }
 
 func (l *FileLoader) computeDigest(ctx context.Context, file File, raw []byte) (string, error) {

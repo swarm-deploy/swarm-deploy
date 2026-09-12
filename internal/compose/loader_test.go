@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"gopkg.in/yaml.v3"
 )
 
@@ -40,7 +41,7 @@ func TestLoader_Load(t *testing.T) {
 				return fileRaw, err
 			}
 
-			file, err := loader.Load(context.Background(), fmt.Sprintf("./tests/loader/%d.input.yaml", i))
+			file, err := loader.Load(context.Background(), fmt.Sprintf("./tests/loader/%d.input.yaml", i), fs.PathAsIs())
 			require.NoError(t, err)
 
 			result := bytes.NewBuffer(nil)
@@ -143,12 +144,12 @@ configs:
 			require.NoError(t, os.WriteFile(objectPath, []byte("version: old\n"), 0o600), "write old object")
 
 			loader := NewFileLoader()
-			oldFile, err := loader.Load(context.Background(), composePath)
+			oldFile, err := loader.Load(context.Background(), composePath, fs.PathAsIs())
 			require.NoError(t, err, "load compose with old object")
 
 			require.NoError(t, os.WriteFile(objectPath, []byte("version: new\n"), 0o600), "write new object")
 
-			newFile, err := loader.Load(context.Background(), composePath)
+			newFile, err := loader.Load(context.Background(), composePath, fs.PathAsIs())
 			require.NoError(t, err, "load compose with new object")
 
 			assert.NotEqual(t, oldFile.Digest, newFile.Digest, "digest must include shared object file content")

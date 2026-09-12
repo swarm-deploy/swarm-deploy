@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	go_console "github.com/DrSmithFr/go-console"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
@@ -42,7 +43,7 @@ func Lint(script *go_console.Script) go_console.ExitCode {
 	composeLoader := compose.NewFileLoader()
 
 	for _, composeFile := range composeFiles {
-		file, cerr := composeLoader.Load(context.Background(), composeFile)
+		file, cerr := composeLoader.Load(context.Background(), composeFile, fs.PathAsIs())
 		if cerr != nil {
 			script.PrintError(fmt.Sprintf("Compose file %s is invalid: %v", composeFile, cerr))
 			return go_console.ExitError
