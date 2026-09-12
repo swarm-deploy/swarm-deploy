@@ -4,23 +4,30 @@ import (
 	"context"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const queueSize = 200
 
-type queueTask struct {
-	Event      events.Event
-	Subscriber Subscriber
+type message struct {
+	Event       events.Event
+	Subscriber  Subscriber
+	SpanContext trace.SpanContext
+}
+
+type scheduledMessage struct {
+	Event       events.Event
+	SpanContext trace.SpanContext
 }
 
 type queue struct {
-	queue  chan *queueTask
+	queue  chan *message
 	sender EventSender
 }
 
 func newQueue() *queue {
 	q := &queue{
-		queue:  make(chan *queueTask, queueSize),
+		queue:  make(chan *message, queueSize),
 		sender: createEventSender(),
 	}
 
@@ -31,7 +38,7 @@ func newQueue() *queue {
 	return q
 }
 
-func (q *queue) Dispatch(task *queueTask) {
+func (q *queue) Dispatch(task *message) {
 	q.queue <- task
 }
 
@@ -43,6 +50,6 @@ func (q *queue) runWorker() {
 	ctx := context.Background()
 
 	for task := range q.queue {
-		_ = q.sender(ctx, task.Event, task.Subscriber)
+		_ = q.sender(ctx, *task)
 	}
 }

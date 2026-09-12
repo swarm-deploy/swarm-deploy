@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -23,7 +24,7 @@ type QueueDispatcher struct {
 
 	now func() time.Time
 
-	queue     chan events.Event
+	queue     chan scheduledMessage
 	fastQueue *queue
 	slowQueue *queue
 	handled   map[string]time.Time
@@ -39,7 +40,7 @@ const workersCount = 1
 func NewQueueDispatcher() *QueueDispatcher {
 	d := &QueueDispatcher{
 		now:         time.Now,
-		queue:       make(chan events.Event, defaultEventsQueueLen),
+		queue:       make(chan scheduledMessage, defaultEventsQueueLen),
 		subscribers: map[events.Type][]Subscriber{},
 		fastQueue:   newQueue(),
 		slowQueue:   newQueue(),
@@ -65,7 +66,10 @@ func (d *QueueDispatcher) Dispatch(ctx context.Context, event events.Event) {
 		slog.String("event.type", event.Type().String()),
 	)
 
-	d.queue <- event
+	d.queue <- scheduledMessage{
+		Event:       event,
+		SpanContext: trace.SpanContextFromContext(ctx),
+	}
 }
 
 func (d *QueueDispatcher) skipDispatching(now time.Time, event events.Event) bool {
@@ -100,16 +104,16 @@ func (d *QueueDispatcher) runQueueWorker() {
 
 	for event := range d.queue {
 		now := d.now()
-		if d.skipDispatching(now, event) {
+		if d.skipDispatching(now, event.Event) {
 			slog.DebugContext(context.Background(), "[event] event skipped by deduplication window",
-				slog.String("event.type", event.Type().String()),
+				slog.String("event.type", event.Event.Type().String()),
 			)
 
 			continue
 		}
 
 		d.mu.RLock()
-		subscribers := append([]Subscriber{}, d.subscribers[event.Type()]...)
+		subscribers := append([]Subscriber{}, d.subscribers[event.Event.Type()]...)
 		d.mu.RUnlock()
 
 		for _, subscriber := range subscribers {
@@ -119,9 +123,10 @@ func (d *QueueDispatcher) runQueueWorker() {
 				targetQueue = d.slowQueue
 			}
 
-			targetQueue.Dispatch(&queueTask{
-				Event:      event,
-				Subscriber: subscriber,
+			targetQueue.Dispatch(&message{
+				Event:       event.Event,
+				Subscriber:  subscriber,
+				SpanContext: event.SpanContext,
 			})
 		}
 	}
