@@ -141,7 +141,7 @@ func (r *Reconciler) writeRenderedCompose(_ context.Context, payload *pipelinePa
 		return fmt.Errorf("create rendered dir: %w", err)
 	}
 
-	normalizeRenderedObjectFilePaths(payload.Desired)
+	r.normalizeRenderedObjectFilePaths(payload.Desired)
 
 	content, err := payload.Desired.MarshalYAML()
 	if err != nil {
@@ -163,11 +163,35 @@ func (r *Reconciler) deployStack(ctx context.Context, payload *pipelinePayload) 
 	return r.deployer.DeployStack(ctx, payload.Stack.Name, payload.Desired.Path, payload.Desired.Compose.Services)
 }
 
-func normalizeRenderedObjectFilePaths(file *compose.File) {
+func (r *Reconciler) normalizeRenderedObjectFilePaths(file *compose.File) {
 	baseDir := filepath.Dir(file.Path)
 
 	normalizeSharedObjectFilePaths(baseDir, file.Compose.Configs)
 	normalizeSharedObjectFilePaths(baseDir, file.Compose.Secrets)
+
+	repoDir := r.git.WorkingDir()
+
+	for i, service := range file.Compose.Services {
+		file.Compose.Services[i].EnvFiles = normalizeEnvFiles(repoDir, baseDir, service.EnvFiles)
+	}
+}
+
+func normalizeEnvFiles(repoDir, baseDir string, envFiles []string) []string {
+	result := make([]string, len(envFiles))
+
+	for i, file := range envFiles {
+		if isRelativeFromRepoRoot(file) {
+			result[i] = filepath.Join(repoDir, file)
+		} else {
+			result[i] = filepath.Join(baseDir, file)
+		}
+	}
+
+	return result
+}
+
+func isRelativeFromRepoRoot(path string) bool {
+	return filepath.IsAbs(path)
 }
 
 func normalizeSharedObjectFilePaths(baseDir string, objects compose.SharedObjects) {

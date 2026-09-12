@@ -37,9 +37,10 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 	eventDispatcher := &dispatcher.NopDispatcher{}
 	deployMetrics := &metrics.NopDeploys{}
 
+	repository.EXPECT().WorkingDir().Return(repoDir).Times(2)
+
 	require.NoError(t, writeComposeFile(repoDir), "write compose")
 
-	repository.EXPECT().WorkingDir().Return(repoDir)
 	stackDeployer.EXPECT().
 		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, ".data", "rendered", "app.yaml"), gomock.Any()).
 		Return(nil)
@@ -94,9 +95,10 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 	errDeployFailed := errors.New("deploy failed")
 	eventDispatcher := &dispatcher.NopDispatcher{}
 
+	repository.EXPECT().WorkingDir().Return(repoDir).Times(2)
+
 	require.NoError(t, writeComposeFile(repoDir), "write compose")
 
-	repository.EXPECT().WorkingDir().Return(repoDir)
 	stackDeployer.EXPECT().
 		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, ".data", "rendered", "app.yaml"), gomock.Any()).
 		Return(errDeployFailed)
@@ -149,6 +151,8 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 	eventDispatcher := &dispatcher.NopDispatcher{}
 	deployMetrics := &metrics.NopDeploys{}
 
+	repository.EXPECT().WorkingDir().Return(repoDir)
+
 	require.NoError(t, writeComposeFile(repoDir), "write compose")
 
 	loader := compose.NewFileLoader()
@@ -162,7 +166,6 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 		}
 	})
 
-	repository.EXPECT().WorkingDir().Return(repoDir)
 	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
 
 	reconciler := &Reconciler{
@@ -241,7 +244,7 @@ configs:
 	require.NoError(t, err, "load compose with new config")
 	require.NotEqual(t, oldStackFile.Digest, newStackFile.Digest, "expected config content to change digest")
 
-	repository.EXPECT().WorkingDir().Return(repoDir)
+	repository.EXPECT().WorkingDir().Return(repoDir).Times(2)
 	stackDeployer.EXPECT().
 		DeployStack(gomock.Any(), "app", renderedPath, gomock.Any()).
 		Return(nil)
@@ -340,7 +343,7 @@ secrets:
 	require.NoError(t, os.WriteFile(absConfigPath, []byte("absolute config\n"), 0o600), "write absolute config")
 	require.NoError(t, os.WriteFile(absSecretPath, []byte("absolute secret\n"), 0o600), "write absolute secret")
 
-	repository.EXPECT().WorkingDir().Return(repoDir)
+	repository.EXPECT().WorkingDir().Return(repoDir).Times(2)
 	stackDeployer.EXPECT().
 		DeployStack(gomock.Any(), "app", renderedPath, gomock.Any()).
 		Return(nil)
@@ -424,7 +427,7 @@ services:
         %s: %q
 `, labelsdict.ServiceManagedLabelKey, labelsdict.ServiceManagedLabelValue)), 0o600), "write compose")
 
-	repository.EXPECT().WorkingDir().Return(repoDir)
+	repository.EXPECT().WorkingDir().Return(repoDir).Times(2)
 	stackDeployer.EXPECT().
 		DeployStack(gomock.Any(), "app", renderedPath, gomock.Any()).
 		Return(nil)
@@ -497,7 +500,7 @@ services:
         %s: %q
 `, labelsdict.ServiceManagedLabelKey, labelsdict.ServiceManagedLabelValue)), 0o600), "write compose")
 
-	repository.EXPECT().WorkingDir().Return(repoDir).Times(2)
+	repository.EXPECT().WorkingDir().Return(repoDir).Times(3)
 	stackDeployer.EXPECT().
 		DeployStack(gomock.Any(), "app", renderedPath, gomock.Any()).
 		Return(nil).
