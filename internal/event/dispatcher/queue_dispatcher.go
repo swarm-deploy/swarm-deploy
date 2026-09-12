@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -33,6 +35,8 @@ type QueueDispatcher struct {
 	handledM sync.Mutex
 	closed   bool
 	wg       sync.WaitGroup
+
+	tracer trace.Tracer
 }
 
 const workersCount = 1
@@ -42,9 +46,10 @@ func NewQueueDispatcher() *QueueDispatcher {
 		now:         time.Now,
 		queue:       make(chan scheduledMessage, defaultEventsQueueLen),
 		subscribers: map[events.Type][]Subscriber{},
-		fastQueue:   newQueue(),
-		slowQueue:   newQueue(),
+		fastQueue:   newQueue("fast"),
+		slowQueue:   newQueue("slow"),
 		handled:     map[string]time.Time{},
+		tracer:      otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"),
 	}
 
 	d.wg.Add(workersCount)
@@ -54,10 +59,17 @@ func NewQueueDispatcher() *QueueDispatcher {
 }
 
 func (d *QueueDispatcher) Dispatch(ctx context.Context, event events.Event) {
+	ctx, span := d.tracer.Start(ctx, "event.Dispatch", trace.WithAttributes(
+		tracing.EventName.String(string(event.Type().Name())),
+	))
+	defer span.End()
+
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	if d.closed {
 		slog.InfoContext(ctx, "[event] event not dispatched, channel closed", slog.Any("event", event))
+
+		tracing.FailSpan(span, errors.New("event dispatcher is closed"))
 
 		return
 	}
@@ -70,6 +82,8 @@ func (d *QueueDispatcher) Dispatch(ctx context.Context, event events.Event) {
 		Event:       event,
 		SpanContext: trace.SpanContextFromContext(ctx),
 	}
+
+	span.AddEvent("Event scheduled")
 }
 
 func (d *QueueDispatcher) skipDispatching(now time.Time, event events.Event) bool {
@@ -102,34 +116,61 @@ func (d *QueueDispatcher) Subscribe(eventType events.Type, subscriber Subscriber
 func (d *QueueDispatcher) runQueueWorker() {
 	defer d.wg.Done()
 
-	for event := range d.queue {
+	process := func(msg scheduledMessage) {
+		ctx, span := d.tracer.Start(
+			trace.ContextWithSpanContext(context.Background(), msg.SpanContext),
+			"event.Process",
+			trace.WithAttributes(
+				tracing.EventName.String(msg.Event.Type().String()),
+			),
+		)
+		defer span.End()
+
 		now := d.now()
-		if d.skipDispatching(now, event.Event) {
+		if d.skipDispatching(now, msg.Event) {
 			slog.DebugContext(context.Background(), "[event] event skipped by deduplication window",
-				slog.String("event.type", event.Event.Type().String()),
+				slog.String("event.type", msg.Event.Type().String()),
 			)
 
-			continue
+			span.AddEvent("event skipped by deduplication window")
+
+			return
 		}
 
 		d.mu.RLock()
-		subscribers := append([]Subscriber{}, d.subscribers[event.Event.Type()]...)
+		subscribers := append([]Subscriber{}, d.subscribers[msg.Event.Type()]...)
 		d.mu.RUnlock()
 
 		for _, subscriber := range subscribers {
-			targetQueue := d.fastQueue
-
-			if subscriber.Slow() {
-				targetQueue = d.slowQueue
-			}
-
-			targetQueue.Dispatch(&message{
-				Event:       event.Event,
-				Subscriber:  subscriber,
-				SpanContext: event.SpanContext,
-			})
+			d.forwardToQueue(ctx, msg, subscriber)
 		}
 	}
+
+	for event := range d.queue {
+		process(event)
+	}
+}
+
+func (d *QueueDispatcher) forwardToQueue(ctx context.Context, msg scheduledMessage, subscriber Subscriber) {
+	ctx, span := d.tracer.Start(ctx, "event.ForwardToQueue", trace.WithAttributes(
+		tracing.EventName.String(string(msg.Event.Type().Name())),
+	))
+	defer span.End()
+
+	targetQueue := d.fastQueue
+	if subscriber.Slow() {
+		targetQueue = d.slowQueue
+	}
+
+	span.SetAttributes(tracing.EventQueueName.String(targetQueue.Name()))
+
+	targetQueue.Dispatch(&message{
+		Event:       msg.Event,
+		Subscriber:  subscriber,
+		SpanContext: trace.SpanContextFromContext(ctx),
+	})
+
+	span.AddEvent("Event forwarded")
 }
 
 func (d *QueueDispatcher) cleanHandledLocked(now time.Time) {

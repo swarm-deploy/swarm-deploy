@@ -21,12 +21,14 @@ type scheduledMessage struct {
 }
 
 type queue struct {
+	name   string
 	queue  chan *message
 	sender EventSender
 }
 
-func newQueue() *queue {
+func newQueue(name string) *queue {
 	q := &queue{
+		name:   name,
 		queue:  make(chan *message, queueSize),
 		sender: createEventSender(),
 	}
@@ -36,6 +38,10 @@ func newQueue() *queue {
 	}()
 
 	return q
+}
+
+func (q *queue) Name() string {
+	return q.name
 }
 
 func (q *queue) Dispatch(task *message) {

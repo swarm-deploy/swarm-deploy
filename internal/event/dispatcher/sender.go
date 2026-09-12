@@ -6,7 +6,6 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/event/logx"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -46,8 +45,8 @@ func traceEventSender(tp trace.TracerProvider, sender EventSender) EventSender {
 		ctx = trace.ContextWithSpanContext(ctx, msg.SpanContext)
 
 		ctx, span := tracer.Start(ctx, "event.Send", trace.WithAttributes(
-			attribute.String("event.name", string(msg.Event.Type().Name())),
-			attribute.String("subscriber.name", msg.Subscriber.Name()),
+			tracing.EventName.String(string(msg.Event.Type().Name())),
+			tracing.EventSubscriberName.String(msg.Subscriber.Name()),
 		))
 		defer span.End()
 
