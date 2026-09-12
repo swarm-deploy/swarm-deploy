@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 
 	pipe "github.com/artarts36/gopipe"
-
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller/stackloop/drift"

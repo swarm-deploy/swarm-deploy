@@ -155,3 +155,68 @@ configs:
 		})
 	}
 }
+
+func TestFileLoaderDigestStableWithMultipleSharedObjects(t *testing.T) {
+	tests := []struct {
+		name           string
+		composePayload string
+		files          map[string]string
+	}{
+		{
+			name: "configs",
+			composePayload: `
+services:
+  api:
+    image: nginx:latest
+configs:
+  first:
+    file: ./first.yaml
+  second:
+    file: ./second.yaml
+`,
+			files: map[string]string{
+				"first.yaml":  "first\n",
+				"second.yaml": "second\n",
+			},
+		},
+		{
+			name: "secrets",
+			composePayload: `
+services:
+  api:
+    image: nginx:latest
+secrets:
+  first:
+    file: ./first.txt
+  second:
+    file: ./second.txt
+`,
+			files: map[string]string{
+				"first.txt":  "first\n",
+				"second.txt": "second\n",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			composePath := filepath.Join(dir, "compose.yaml")
+
+			require.NoError(t, os.WriteFile(composePath, []byte(tt.composePayload), 0o600), "write compose")
+			for name, content := range tt.files {
+				require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600), "write shared object")
+			}
+
+			loader := NewFileLoader()
+			firstFile, err := loader.Load(context.Background(), composePath)
+			require.NoError(t, err, "load first compose")
+
+			for i := 0; i < 100; i++ {
+				file, loadErr := loader.Load(context.Background(), composePath)
+				require.NoError(t, loadErr, "load compose")
+				assert.Equal(t, firstFile.Digest, file.Digest, "digest must be deterministic")
+			}
+		})
+	}
+}

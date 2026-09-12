@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"gopkg.in/yaml.v3"
 )
@@ -101,7 +102,14 @@ func (l *FileLoader) computeDigest(ctx context.Context, file File, raw []byte) (
 	hasher.Write(raw)
 
 	compute := func(objects SharedObjects, objectType string) error {
-		for _, object := range objects {
+		objectAliases := make([]string, 0, len(objects))
+		for alias := range objects {
+			objectAliases = append(objectAliases, alias)
+		}
+		sort.Strings(objectAliases)
+
+		for _, alias := range objectAliases {
+			object := objects[alias]
 			if object.External {
 				continue
 			}
@@ -121,6 +129,7 @@ func (l *FileLoader) computeDigest(ctx context.Context, file File, raw []byte) (
 			}
 
 			hasher.Write([]byte(objectType))
+			hasher.Write([]byte(alias))
 			hasher.Write([]byte(object.Name))
 			hasher.Write([]byte(object.File))
 			hasher.Write(content)
