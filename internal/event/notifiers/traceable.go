@@ -2,7 +2,10 @@ package notifiers
 
 import (
 	"context"
+	"net/http"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -24,6 +27,21 @@ func NewTraceableNotifier(notifier Notifier, tp trace.TracerProvider, attrs []at
 			trace.WithInstrumentationAttributes(attrs...),
 		),
 	}
+}
+
+func traceTransport(transport http.RoundTripper, path string) http.RoundTripper {
+	if !tracing.Enabled() {
+		return transport
+	}
+
+	opts := []otelhttp.Option{}
+	if path != "" {
+		opts = append(opts, otelhttp.WithSpanNameFormatter(func(operation string, r *http.Request) string {
+			return "HTTP " + r.Method + " " + path
+		}))
+	}
+
+	return otelhttp.NewTransport(transport, opts...)
 }
 
 func (t *TraceableNotifier) Name() string {

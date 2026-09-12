@@ -234,6 +234,6 @@ func buildTelegramHTTPClient(socks5Address string) (*http.Client, error) {
 
 	return &http.Client{
 		Timeout:   defaultNotifyHTTPTimeout,
-		Transport: transport,
+		Transport: traceTransport(transport, "/sendMessage"),
 	}, nil
 }

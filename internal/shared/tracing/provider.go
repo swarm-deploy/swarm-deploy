@@ -14,3 +14,7 @@ func GetTracerProvider() (trace.TracerProvider, bool) {
 func Enable() {
 	tracingEnabled = true
 }
+
+func Enabled() bool {
+	return tracingEnabled
+}

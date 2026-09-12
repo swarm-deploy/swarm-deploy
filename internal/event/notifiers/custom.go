@@ -46,7 +46,10 @@ func newCustomWebhookNotifier(name, url, method string, headers map[string]strin
 		url:     url,
 		method:  strings.ToUpper(method),
 		headers: headers,
-		client:  &http.Client{Timeout: defaultNotifyHTTPTimeout},
+		client: &http.Client{
+			Timeout:   defaultNotifyHTTPTimeout,
+			Transport: traceTransport(http.DefaultTransport, ""),
+		},
 	}
 }
 
