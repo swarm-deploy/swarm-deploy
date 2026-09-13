@@ -44,7 +44,7 @@ swarm-deploy is a Swarm-native GitOps controller inspired by Argo CD. It keeps s
 
 ### Runtime Automation
 
-- **Init Deploy Jobs** run before `docker stack deploy`, with service networks, secrets, configs, environment, commands, and timeouts. See [Init Deploy Jobs](./docs/init-deploy-jobs.md).
+- **Init Deploy Jobs** for one-off tasks that must complete before an application rollout, such as database migrations, schema/bootstrap preparation, or other pre-deploy checks and setup steps. See [Init Deploy Jobs](./docs/init-deploy-jobs.md).
 - **Downward environment injection** for Swarm metadata such as stack, service, task, slot, and node identity.
 - **Config and secret rotation** based on source content changes.
 - CLI configuration validation. See [CLI](./docs/cli.md).
