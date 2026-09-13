@@ -53,7 +53,7 @@ swarm-deploy is a Swarm-native GitOps controller inspired by Argo CD. It keeps s
 - Audit events for deployments, pruning, missing services, replica changes, service restarts, node connectivity, authentication, notification failures, and assistant security events.
 - **Notifications by event type** through Telegram and custom HTTP hooks. See [notifications](./docs/notifications.md).
 - **Prometheus metrics** and a dedicated health endpoint.
-- **OpenTelemetry tracing** with OTLP over HTTP or gRPC, optional headers, bearer/API-key authentication, and tracing across GitOps reconciliation, Git access, Compose loading, filesystem operations, Swarm calls, network reconciliation, events, notifications, and web requests.
+- [**OpenTelemetry tracing**](./docs/tracing.md) across GitOps reconciliation, Git access, Compose loading, filesystem operations, Swarm calls, network reconciliation, events, notifications, and web requests.
 
 ### Security & Access
 
@@ -142,6 +142,7 @@ For a fuller setup with notifications, secret rotation, Downward metadata, traci
 - [Authentication](./docs/authentication.md)
 - [Managed Docker Networks](./docs/networks.md)
 - [Downward Metadata](./docs/downward.md)
+- [OpenTelemetry Tracing](./docs/tracing.md)
 - [Prune policy](./docs/prune.md)
 - [Drift detection](./docs/drift.md)
 - [Service catalog](./docs/services.md)
