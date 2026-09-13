@@ -2,6 +2,13 @@
 
 swarm-deploy can export distributed traces using OpenTelemetry Protocol (OTLP). Tracing is optional and is enabled when the `tracing` section is present in `swarm-deploy.yaml`.
 
+## Overview
+
+- Transports: [OTLP over HTTP](#otlp-over-http) and [OTLP over gRPC](#otlp-over-grpc).
+- Exporter authentication: [Bearer token](#bearer-token), [`Authorization: Api-Key`](#api-key), and [`x-api-key`](#x-api-key).
+- [Environment variables](#environment-variables) can be used for the endpoint and custom headers.
+- [Resource attributes](#resource-attributes) include standard OpenTelemetry metadata and Swarm metadata from `downward-otel`.
+
 ## Enable tracing
 
 ### OTLP over HTTP
