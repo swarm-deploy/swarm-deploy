@@ -55,7 +55,6 @@ swarm-deploy is a Swarm-native GitOps controller inspired by Argo CD. It keeps s
 - **Notifications by event type** through Telegram and custom HTTP hooks. See [notifications](./docs/notifications.md).
 - **Prometheus metrics** and a dedicated health endpoint.
 - **OpenTelemetry tracing** with OTLP over HTTP or gRPC, optional headers, bearer/API-key authentication, and tracing across GitOps reconciliation, Git access, Compose loading, filesystem operations, Swarm calls, network reconciliation, events, notifications, and web requests.
-- Structured application logs.
 
 ### Security & Access
 
