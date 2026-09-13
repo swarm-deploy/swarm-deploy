@@ -31,7 +31,6 @@ swarm-deploy is a Swarm-native GitOps controller inspired by Argo CD. It keeps s
 - **Realtime task view** with task ID, node, state, timestamps, and task errors.
 - **Deployment history** per service with image version, commit, status, and timestamps.
 - **Dependency graph** with service endpoints and inferred dependencies, including known reverse-proxy relationships.
-- Dependency graph export to **PNG**.
 
 ### Cluster & Operations
 
