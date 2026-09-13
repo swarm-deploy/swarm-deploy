@@ -192,14 +192,10 @@ github.com/stretchr/testify v1.2.2/go.mod h1:a8OnRcib4nhh0OaRAV+Yts87kKdq0PP7pXf
 github.com/stretchr/testify v1.4.0/go.mod h1:j7eGeouHqKxXV5pUuKE4zz7dFj8WfuZ+81PSLYec5m4=
 github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWDWE=
 github.com/stretchr/testify v1.12.1/go.mod h1:MDEgiDPPsNp5cuIrHPPCyornHKgEVbtFUmoNlxoYthg=
-github.com/swarm-deploy/downward-otel/go v0.0.0-20260909095045-48e42bafc48c h1:zjvqfn3FAPmFcu+bp7Taw9EzWTBbe7XebSvxj8v3sp4=
-github.com/swarm-deploy/downward-otel/go v0.0.0-20260909095045-48e42bafc48c/go.mod h1:1Sv6iK4ZSY3zEd3L72LYBHzWRRHyFCDJubxVAmS0Giw=
 github.com/swarm-deploy/downward-otel/go v0.1.0 h1:BJovrDJ+QKj3wPSp9YODcCjtGhVh7yyiBrQzx6yNiA8=
 github.com/swarm-deploy/downward-otel/go v0.1.0/go.mod h1:1Sv6iK4ZSY3zEd3L72LYBHzWRRHyFCDJubxVAmS0Giw=
 github.com/swarm-deploy/downward/go v0.1.1 h1:ye4yAN39VPBvhgi88W+s758CEVIk3fpytAvwLDalRu0=
 github.com/swarm-deploy/downward/go v0.1.1/go.mod h1:thC14ycMfpd2iPMAzP3+L5XSXushakDa9Gc8fIwKMHY=
-github.com/swarm-deploy/webroute v0.1.1 h1:S9sIpKoqjBroVuNeSjHC/O4FEk5BKluWzSEDBxRSuU0=
-github.com/swarm-deploy/webroute v0.1.1/go.mod h1:MHxZbSaDUxQvjPVKABYSKG+mMyknbQIkJKubt9BrzXA=
 github.com/tg123/go-htpasswd v1.2.4 h1:HgH8KKCjdmo7jjXWN9k1nefPBd7Be3tFCTjc2jPraPU=
 github.com/tg123/go-htpasswd v1.2.4/go.mod h1:EKThQok9xHkun6NBMynNv6Jmu24A33XdZzzl4Q7H1+0=
 github.com/tidwall/gjson v1.14.2/go.mod h1:/wbyibRr2FHMks5tjHJ5F8dMZh3AcwJEMf5vlfC0lxk=

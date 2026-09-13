@@ -24,14 +24,18 @@ func TestPingWebRoutesExecute(t *testing.T) {
 				Name:  "api",
 				WebRoutes: []webroute.Route{
 					{
-						Domain:  "api.example.com",
-						Address: address + "/ok",
-						Port:    "8080",
+						From: webroute.Address{
+							Domain:  "api.example.com",
+							Address: address + "/ok",
+							Port:    "8080",
+						},
 					},
 					{
-						Domain:  "api.example.com",
-						Address: address + "/missing",
-						Port:    "8080",
+						From: webroute.Address{
+							Domain:  "api.example.com",
+							Address: address + "/missing",
+							Port:    "8080",
+						},
 					},
 				},
 			},
@@ -134,9 +138,11 @@ func TestPingWebRoutesExecuteWithStack(t *testing.T) {
 				Name:  "api",
 				WebRoutes: []webroute.Route{
 					{
-						Domain:  "api.example.com",
-						Address: "core.example.com/ok",
-						Port:    "8080",
+						From: webroute.Address{
+							Domain:  "api.example.com",
+							Address: "core.example.com/ok",
+							Port:    "8080",
+						},
 					},
 				},
 			},
@@ -145,9 +151,11 @@ func TestPingWebRoutesExecuteWithStack(t *testing.T) {
 				Name:  "api",
 				WebRoutes: []webroute.Route{
 					{
-						Domain:  "api-edge.example.com",
-						Address: "edge.example.com/ok",
-						Port:    "8080",
+						From: webroute.Address{
+							Domain:  "api-edge.example.com",
+							Address: "edge.example.com/ok",
+							Port:    "8080",
+						},
 					},
 				},
 			},

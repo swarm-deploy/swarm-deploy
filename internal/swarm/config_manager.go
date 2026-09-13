@@ -65,5 +65,6 @@ func (*ConfigManager) mapConfig(config dockerswarm.Config) Config {
 		CreatedAt: config.CreatedAt,
 		UpdatedAt: config.UpdatedAt,
 		Labels:    config.Spec.Labels,
+		Data:      cloneByteSlice(config.Spec.Data),
 	}
 }

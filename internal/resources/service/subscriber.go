@@ -10,6 +10,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"github.com/swarm-deploy/webroute"
 )
 
 // Subscriber persists service metadata on deploySuccess events.
@@ -17,8 +18,14 @@ type Subscriber struct {
 	store            *Store
 	inspector        swarm.ServiceManager
 	images           swarm.ImageManager
+	configs          configReader
 	metadata         *metadata.Extractor
 	webRouteResolver *WebRouteResolver
+}
+
+type configReader interface {
+	// Get returns Docker config payload by name or ID.
+	Get(ctx context.Context, configName string) (swarm.Config, error)
 }
 
 // NewSubscriber creates a service metadata event subscriber.
@@ -26,12 +33,14 @@ func NewSubscriber(
 	store *Store,
 	inspector swarm.ServiceManager,
 	images swarm.ImageManager,
+	configs configReader,
 	metadata *metadata.Extractor,
 ) *Subscriber {
 	return &Subscriber{
 		store:            store,
 		inspector:        inspector,
 		images:           images,
+		configs:          configs,
 		metadata:         metadata,
 		webRouteResolver: NewWebRouteResolver(),
 	}
@@ -66,6 +75,7 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Event) error {
 		}
 		labels := metadata.Labels{}
 		containerEnv := []string(nil)
+		containerConfigs := []webroute.ServiceConfig(nil)
 		status, statusErr := s.inspector.GetStatus(ctx, serviceRef)
 		if statusErr != nil {
 			slog.WarnContext(
@@ -80,6 +90,7 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Event) error {
 			labels.Service = status.Spec.Labels
 			labels.Container = status.ContainerLabels
 			containerEnv = status.ContainerEnv
+			containerConfigs = s.loadWebRouteConfigs(ctx, deploySuccess.StackName, deployedService.Name, status.ContainerConfigs)
 		}
 
 		imageMeta, imageErr := s.images.Get(ctx, spec.Image)
@@ -121,7 +132,7 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Event) error {
 			Image:       deployedService.Image,
 			Environment: environment,
 			Spec:        spec,
-			WebRoutes:   s.webRouteResolver.Resolve(environment),
+			WebRoutes:   s.webRouteResolver.Resolve(ctx, environment, containerConfigs),
 		}
 
 		services = append(services, serviceInfo)
@@ -132,4 +143,82 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Event) error {
 	}
 
 	return nil
+}
+
+func (s *Subscriber) loadWebRouteConfigs(
+	ctx context.Context,
+	stackName string,
+	serviceName string,
+	configs []swarm.ServiceConfig,
+) []webroute.ServiceConfig {
+	if len(configs) == 0 {
+		return nil
+	}
+
+	out := make([]webroute.ServiceConfig, 0, len(configs))
+	for _, cfg := range configs {
+		routeConfig, ok := s.loadWebRouteConfig(ctx, stackName, serviceName, cfg)
+		if !ok {
+			continue
+		}
+
+		out = append(out, routeConfig)
+	}
+
+	return out
+}
+
+func (s *Subscriber) loadWebRouteConfig(
+	ctx context.Context,
+	stackName string,
+	serviceName string,
+	ref swarm.ServiceConfig,
+) (webroute.ServiceConfig, bool) {
+	if ref.Target == "" {
+		return nil, false
+	}
+	if len(ref.Data) > 0 {
+		return newWebRouteConfig(ref.Target, ref.Data), true
+	}
+
+	configName := ref.ConfigName
+	if configName == "" {
+		configName = ref.ConfigID
+	}
+	if configName == "" {
+		return nil, false
+	}
+
+	cfg, err := s.configs.Get(ctx, configName)
+	if err != nil {
+		slog.InfoContext(ctx, "[service] failed to load service config for web route resolution",
+			slog.String("stack", stackName),
+			slog.String("service", serviceName),
+			slog.String("config", configName),
+			slog.Any("err", err),
+		)
+
+		return nil, false
+	}
+	if len(cfg.Data) == 0 {
+		return nil, false
+	}
+
+	return newWebRouteConfig(ref.Target, cfg.Data), true
+}
+
+func toWebRouteConfigs(configs []swarm.ServiceConfig) []webroute.ServiceConfig {
+	if len(configs) == 0 {
+		return nil
+	}
+
+	out := make([]webroute.ServiceConfig, 0, len(configs))
+	for _, cfg := range configs {
+		if cfg.Target == "" || len(cfg.Data) == 0 {
+			continue
+		}
+
+		out = append(out, newWebRouteConfig(cfg.Target, cfg.Data))
+	}
+	return out
 }

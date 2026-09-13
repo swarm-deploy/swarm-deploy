@@ -474,9 +474,9 @@ func toGeneratedWebRoutes(routes []webroute.Route) []generated.WebRoute {
 	mapped := make([]generated.WebRoute, 0, len(routes))
 	for _, route := range routes {
 		mapped = append(mapped, generated.WebRoute{
-			Domain:  route.Domain,
-			Address: route.Address,
-			Port:    route.Port,
+			Domain:  route.From.Domain,
+			Address: route.From.Address,
+			Port:    route.From.Port,
 		})
 	}
 

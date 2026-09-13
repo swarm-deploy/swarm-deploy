@@ -145,6 +145,7 @@ func main() {
 		cfg,
 		swarmService.Services,
 		swarmService.Images,
+		swarmService.Configs,
 		metricsGroup.Events,
 		filesystem,
 	)
@@ -337,6 +338,7 @@ func buildEventDispatcher(
 	cfg *config.Config,
 	serviceStatusInspector swarm.ServiceManager,
 	imageInspector swarm.ImageManager,
+	configInspector *swarm.ConfigManager,
 	eventMetrics metrics.Events,
 	filesystem fs.FileSystem,
 ) (dispatcher.Dispatcher, *history.Store, *service.Store, error) {
@@ -371,7 +373,7 @@ func buildEventDispatcher(
 
 	eventDispatcher.Subscribe(
 		events.TypeDeploySuccess,
-		service.NewSubscriber(serviceStore, serviceStatusInspector, imageInspector, metadata.NewExtractor()),
+		service.NewSubscriber(serviceStore, serviceStatusInspector, imageInspector, configInspector, metadata.NewExtractor()),
 	)
 	subscribersCount++
 

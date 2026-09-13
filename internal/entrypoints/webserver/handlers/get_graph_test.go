@@ -31,7 +31,7 @@ func TestHandlerGetGraph(t *testing.T) {
 						Name:     "api",
 						Metadata: metadata.Metadata{Type: serviceType.Application},
 						WebRoutes: []webroute.Route{
-							{Port: "443", Address: "api.example.com"},
+							{From: webroute.Address{Port: "443", Address: "api.example.com"}},
 						},
 						Environment: map[string]string{
 							"DB_HOST":   "db",
@@ -46,7 +46,7 @@ func TestHandlerGetGraph(t *testing.T) {
 						Name:     "redis",
 						Metadata: metadata.Metadata{Type: serviceType.Monitoring},
 						WebRoutes: []webroute.Route{
-							{Port: "6379", Address: "redis.internal"},
+							{From: webroute.Address{Port: "6379", Address: "redis.internal"}},
 						},
 					},
 					{

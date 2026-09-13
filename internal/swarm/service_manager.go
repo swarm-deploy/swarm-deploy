@@ -190,6 +190,7 @@ func (m *serviceManager) GetStatus(ctx context.Context, serviceRef ServiceRefere
 	if containerSpec != nil {
 		status.ContainerLabels = cloneStringMap(containerSpec.Labels)
 		status.ContainerEnv = cloneStringSlice(containerSpec.Env)
+		status.ContainerConfigs = status.Spec.Configs
 	}
 
 	return status, nil
@@ -385,6 +386,7 @@ func toServiceSpec(spec dockerswarm.ServiceSpec) ServiceSpec {
 	if containerSpec != nil {
 		mapped.Image = containerSpec.Image
 		mapped.Secrets = toServiceSecrets(containerSpec)
+		mapped.Configs = toServiceConfigRefs(containerSpec.Configs)
 	}
 
 	if resources := spec.TaskTemplate.Resources; resources != nil && resources.Reservations != nil {
@@ -489,6 +491,37 @@ func toServiceSecrets(containerSpec *dockerswarm.ContainerSpec) []ServiceSecret 
 	return mapped
 }
 
+func toServiceConfigRefs(rawRefs []*dockerswarm.ConfigReference) []ServiceConfig {
+	if len(rawRefs) == 0 {
+		return nil
+	}
+
+	mapped := make([]ServiceConfig, 0, len(rawRefs))
+	for _, rawRef := range rawRefs {
+		if rawRef == nil {
+			continue
+		}
+
+		target := ""
+		if rawRef.File != nil {
+			target = rawRef.File.Name
+		}
+
+		configName := rawRef.ConfigName
+		if configName == "" {
+			configName = rawRef.ConfigID
+		}
+
+		mapped = append(mapped, ServiceConfig{
+			ConfigID:   rawRef.ConfigID,
+			ConfigName: configName,
+			Target:     target,
+		})
+	}
+
+	return mapped
+}
+
 func toServiceNetworks(networks []dockerswarm.NetworkAttachmentConfig) []ServiceNetwork {
 	if len(networks) == 0 {
 		return nil
@@ -525,6 +558,16 @@ func cloneStringSlice(in []string) []string {
 	out := make([]string, len(in))
 	copy(out, in)
 
+	return out
+}
+
+func cloneByteSlice(in []byte) []byte {
+	if len(in) == 0 {
+		return nil
+	}
+
+	out := make([]byte, len(in))
+	copy(out, in)
 	return out
 }
 

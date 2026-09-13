@@ -128,7 +128,11 @@ func (h *handler) searchStacksByName(query string) []generated.SearchResult {
 
 func containsWebRoute(routes []webroute.Route, query string) bool {
 	for _, route := range routes {
-		value := strings.ToLower(strings.Join([]string{route.Domain, route.Address, route.Port}, " "))
+		parts := []string{route.From.Domain, route.From.Address, route.From.Port}
+		if route.To != nil {
+			parts = append(parts, route.To.Domain, route.To.Address, route.To.Port)
+		}
+		value := strings.ToLower(strings.Join(parts, " "))
 		if strings.Contains(value, query) {
 			return true
 		}

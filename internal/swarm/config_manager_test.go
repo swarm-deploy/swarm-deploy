@@ -19,6 +19,7 @@ func TestConfigManagerMapConfigMapsFields(t *testing.T) {
 			UpdatedAt: updatedAt,
 		},
 		Spec: dockerswarm.ConfigSpec{
+			Data: []byte("routes: []"),
 			Annotations: dockerswarm.Annotations{
 				Name: "app-config",
 				Labels: map[string]string{
@@ -35,4 +36,8 @@ func TestConfigManagerMapConfigMapsFields(t *testing.T) {
 	assert.Equal(t, createdAt, mapped.CreatedAt, "unexpected created at")
 	assert.Equal(t, updatedAt, mapped.UpdatedAt, "unexpected updated at")
 	assert.Equal(t, map[string]string{"com.example.env": "prod"}, mapped.Labels, "unexpected labels")
+	assert.Equal(t, []byte("routes: []"), mapped.Data, "unexpected data")
+
+	config.Spec.Data[0] = 'R'
+	assert.Equal(t, []byte("routes: []"), mapped.Data, "config data must be cloned")
 }

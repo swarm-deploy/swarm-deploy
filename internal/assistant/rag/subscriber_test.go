@@ -50,9 +50,11 @@ func TestIndexSubscriberBuildsIndexOnDeploySuccess(t *testing.T) {
 			Image:    "example/api:v1",
 			WebRoutes: []webroute.Route{
 				{
-					Domain:  "api.example.com",
-					Address: "api.example.com/v1",
-					Port:    "8080",
+					From: webroute.Address{
+						Domain:  "api.example.com",
+						Address: "api.example.com/v1",
+						Port:    "8080",
+					},
 				},
 			},
 		},
