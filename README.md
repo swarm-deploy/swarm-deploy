@@ -19,7 +19,7 @@ swarm-deploy is a Swarm-native GitOps controller inspired by Argo CD. It keeps s
 - **Desired vs. live manifests** for each stack, so the Git definition can be compared with the current Swarm state.
 - **Drift detection** for desired services missing from the live cluster, with `OutOfSync` status and audit events.
 - **Pruning** of orphaned managed services removed from Compose, with policy overrides at global, stack, and service level. See [prune policy](./docs/prune.md).
-- **Managed Docker networks** reconciled from `networks.file`.
+- [**Managed Docker networks**](./docs/networks.md) kept in Git and reconciled before stack deployment.
 - **Secret/config rollout rotation** using content-based names, so services receive new Docker objects when source files change. See [secret rotation](./docs/secrets-rotation.md).
 
 ### Service Catalog
@@ -140,6 +140,7 @@ For a fuller setup with notifications, secret rotation, Downward metadata, traci
 ## Documentation
 
 - [Authentication](./docs/authentication.md)
+- [Managed Docker Networks](./docs/networks.md)
 - [Prune policy](./docs/prune.md)
 - [Drift detection](./docs/drift.md)
 - [Service catalog](./docs/services.md)
