@@ -88,9 +88,7 @@ The UI and REST API are served by the same web server. The UI includes:
 - desired/live stack manifests,
 - service catalog and service details,
 - service dependency graph,
-- cluster nodes,
-- Docker networks,
-- Docker secrets,
+- cluster resources: nodes, networks, and secrets,
 - event and deployment information,
 - optional AI assistant.
 
