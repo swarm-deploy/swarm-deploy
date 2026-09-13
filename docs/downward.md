@@ -31,3 +31,16 @@ The `{{...}}` values are Docker Swarm template expressions. Docker resolves them
 swarm-deploy does not overwrite Downward variables declared by the service. If a service already defines any of the variables listed above, automatic Downward injection is skipped for that service.
 
 Applications can read these variables directly or use the [`swarm-deploy/downward`](https://github.com/swarm-deploy/downward) helpers.
+
+## OpenTelemetry for Go
+
+Go applications using OpenTelemetry can also use [`swarm-deploy/downward-otel`](https://github.com/swarm-deploy/downward-otel). It provides an OpenTelemetry `ResourceDetector` that reads Downward metadata and maps it to standard OpenTelemetry resource attributes while preserving the Swarm-specific values under `docker.swarm.*`.
+
+```go
+res, err := resource.New(
+    ctx,
+    resource.WithDetectors(downwardotel.NewDetector()),
+)
+```
+
+This lets traces and other telemetry carry Swarm service, task, and node identity without adding application-specific environment parsing.
