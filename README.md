@@ -58,8 +58,8 @@ swarm-deploy is a Swarm-native GitOps controller inspired by Argo CD. It keeps s
 
 ### Security & Access
 
-- HTTP Basic authentication for the UI and API using an `htpasswd` file.
-- **Trusted reverse-proxy authentication** using a configurable login header, suitable for forward-auth/SSO proxies.
+- [**HTTP Basic authentication**](./docs/authentication.md#http-basic-authentication) for the UI and API using an `htpasswd` file.
+- [**Trusted reverse-proxy authentication**](./docs/authentication.md#trusted-reverse-proxy-authentication) using a configurable login header, suitable for forward-auth/SSO proxies.
 - Authentication events are written to the audit history.
 - Sensitive integration credentials can be loaded from files/Docker Secrets instead of being stored directly in YAML.
 
@@ -142,6 +142,7 @@ For a fuller setup with notifications, secret rotation, Downward metadata, traci
 
 ## Documentation
 
+- [Authentication](./docs/authentication.md)
 - [Prune policy](./docs/prune.md)
 - [Drift detection](./docs/drift.md)
 - [Service catalog](./docs/services.md)
