@@ -21,7 +21,6 @@ swarm-deploy is a Swarm-native GitOps controller inspired by Argo CD. It keeps s
 - **Pruning** of orphaned managed services removed from Compose, with policy overrides at global, stack, and service level. See [prune policy](./docs/prune.md).
 - **Managed Docker networks** reconciled from `networks.file`.
 - **Secret/config rollout rotation** using content-based names, so services receive new Docker objects when source files change. See [secret rotation](./docs/secrets-rotation.md).
-- Swarm-oriented Compose parsing for services, networks, volumes, configs, secrets, env files, ports, healthchecks, logging, and deploy settings.
 
 ### Service Catalog
 
