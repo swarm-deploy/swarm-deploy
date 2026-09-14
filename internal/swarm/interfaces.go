@@ -50,6 +50,14 @@ type SecretManager interface {
 	ResolveReference(ctx context.Context, source, target string) (*dockerswarm.SecretReference, error)
 }
 
+type ConfigManager interface {
+	// Get returns Docker config metadata by name or ID.
+	Get(ctx context.Context, configName string) (Config, error)
+
+	// ResolveReference resolves Docker config reference by source and target.
+	ResolveReference(ctx context.Context, source, target string) (*dockerswarm.ConfigReference, error)
+}
+
 type NetworkManager interface {
 	// Get returns Docker network by name or identifier.
 	Get(ctx context.Context, name string) (Network, error)

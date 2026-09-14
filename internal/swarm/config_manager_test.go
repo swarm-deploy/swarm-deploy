@@ -29,7 +29,7 @@ func TestConfigManagerMapConfigMapsFields(t *testing.T) {
 		},
 	}
 
-	mapped := (&ConfigManager{}).mapConfig(config)
+	mapped := (&configManager{}).mapConfig(config)
 
 	assert.Equal(t, "config-id", mapped.ID, "unexpected config id")
 	assert.Equal(t, "app-config", mapped.Name, "unexpected config name")

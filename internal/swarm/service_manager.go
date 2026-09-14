@@ -189,7 +189,7 @@ func (m *serviceManager) GetStatus(ctx context.Context, serviceRef ServiceRefere
 	containerSpec := service.Spec.TaskTemplate.ContainerSpec
 	if containerSpec != nil {
 		status.ContainerLabels = cloneStringMap(containerSpec.Labels)
-		status.ContainerEnv = cloneStringSlice(containerSpec.Env)
+		status.ContainerEnv = containerSpec.Env
 		status.ContainerConfigs = status.Spec.Configs
 	}
 
@@ -531,7 +531,7 @@ func toServiceNetworks(networks []dockerswarm.NetworkAttachmentConfig) []Service
 	for _, network := range networks {
 		mapped = append(mapped, ServiceNetwork{
 			Target:  network.Target,
-			Aliases: cloneStringSlice(network.Aliases),
+			Aliases: network.Aliases,
 		})
 	}
 
@@ -547,27 +547,6 @@ func cloneStringMap(in map[string]string) map[string]string {
 	for key, value := range in {
 		out[key] = value
 	}
-	return out
-}
-
-func cloneStringSlice(in []string) []string {
-	if len(in) == 0 {
-		return nil
-	}
-
-	out := make([]string, len(in))
-	copy(out, in)
-
-	return out
-}
-
-func cloneByteSlice(in []byte) []byte {
-	if len(in) == 0 {
-		return nil
-	}
-
-	out := make([]byte, len(in))
-	copy(out, in)
 	return out
 }
 
