@@ -90,7 +90,13 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Event) error {
 			labels.Service = status.Spec.Labels
 			labels.Container = status.ContainerLabels
 			containerEnv = status.ContainerEnv
-			containerConfigs = s.loadWebRouteConfigs(ctx, deploySuccess.StackName, deployedService.Name, status.ContainerConfigs)
+			containerConfigs = s.loadWebRouteConfigs(
+				ctx,
+				deploySuccess.StackName,
+				deployedService.Name,
+				status.ContainerConfigs,
+				deploySuccess.RepositoryConfigContents,
+			)
 		}
 
 		imageMeta, imageErr := s.images.Get(ctx, spec.Image)
@@ -150,6 +156,7 @@ func (s *Subscriber) loadWebRouteConfigs(
 	stackName string,
 	serviceName string,
 	configs []swarm.ServiceConfig,
+	repositoryConfigs map[string][]byte,
 ) []webroute.ServiceConfig {
 	if len(configs) == 0 {
 		return nil
@@ -157,7 +164,7 @@ func (s *Subscriber) loadWebRouteConfigs(
 
 	out := make([]webroute.ServiceConfig, 0, len(configs))
 	for _, cfg := range configs {
-		routeConfig, ok := s.loadWebRouteConfig(ctx, stackName, serviceName, cfg)
+		routeConfig, ok := s.loadWebRouteConfig(ctx, stackName, serviceName, cfg, repositoryConfigs)
 		if !ok {
 			continue
 		}
@@ -173,6 +180,7 @@ func (s *Subscriber) loadWebRouteConfig(
 	stackName string,
 	serviceName string,
 	ref swarm.ServiceConfig,
+	repositoryConfigs map[string][]byte,
 ) (webroute.ServiceConfig, bool) {
 	if ref.Target == "" {
 		return nil, false
@@ -187,6 +195,10 @@ func (s *Subscriber) loadWebRouteConfig(
 	}
 	if configName == "" {
 		return nil, false
+	}
+
+	if data, ok := repositoryConfigs[configName]; ok {
+		return newWebRouteConfig(ref.Target, data), true
 	}
 
 	cfg, err := s.configs.Get(ctx, configName)
