@@ -40,8 +40,6 @@ func NewSubscriber(
 	inspector swarm.ServiceManager,
 	images swarm.ImageManager,
 	configs configReader,
-	cfg *config.Config,
-	fileSystem fs.FileSystem,
 	metadata *metadata.Extractor,
 ) *Subscriber {
 	return &Subscriber{
@@ -49,12 +47,29 @@ func NewSubscriber(
 		inspector:        inspector,
 		images:           images,
 		configs:          configs,
-		cfg:              cfg,
-		fileSystem:       fileSystem,
-		composeLoader:    compose.NewFileLoaderWithReader(fileSystem.ReadFile),
 		metadata:         metadata,
 		webRouteResolver: NewWebRouteResolver(),
 	}
+}
+
+// NewSubscriberWithRepository creates a service metadata subscriber with repository-backed config resolution.
+func NewSubscriberWithRepository(
+	store *Store,
+	inspector swarm.ServiceManager,
+	images swarm.ImageManager,
+	configs configReader,
+	cfg *config.Config,
+	fileSystem fs.FileSystem,
+	metadata *metadata.Extractor,
+) *Subscriber {
+	subscriber := NewSubscriber(store, inspector, images, configs, metadata)
+	subscriber.cfg = cfg
+	subscriber.fileSystem = fileSystem
+	if fileSystem != nil {
+		subscriber.composeLoader = compose.NewFileLoaderWithReader(fileSystem.ReadFile)
+	}
+
+	return subscriber
 }
 
 func (s *Subscriber) Name() string {
