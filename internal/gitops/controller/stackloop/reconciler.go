@@ -3,6 +3,7 @@ package stackloop
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"path/filepath"
 	"time"
 
@@ -30,6 +31,7 @@ type Reconciler struct {
 	event          dispatcher.Dispatcher
 	deployMetrics  metrics.Deploys
 	stateStore     modelstore.Store
+	fileSystem     fs.FileSystem
 	pruner         *pruner.ServicePruner
 	composeLoader  compose.FileLoader
 	composeRotator *Rotator
@@ -56,6 +58,7 @@ func New(
 		event:          eventDispatcher,
 		deployMetrics:  deployMetrics,
 		stateStore:     stateStore,
+		fileSystem:     fileSystem,
 		composeLoader:  compose.NewFileLoaderWithReader(fileSystem.ReadFile),
 		composeRotator: NewRotator(),
 		pruner:         pruner.NewServicePruner(swarmService.Services, eventDispatcher, cfg.Spec.Sync.Policy),
@@ -178,10 +181,55 @@ func (r *Reconciler) processResult(
 	}
 
 	r.event.Dispatch(ctx, &events.DeploySuccess{
-		StackName: req.Stack.Name,
-		Commit:    req.Commit,
-		Services:  syncedServices,
+		StackName:                req.Stack.Name,
+		Commit:                   req.Commit,
+		Services:                 syncedServices,
+		RepositoryConfigContents: r.loadRepositoryConfigContents(ctx, req.Stack.Name, desired),
 	})
+}
+
+func (r *Reconciler) loadRepositoryConfigContents(
+	ctx context.Context,
+	stackName string,
+	desired *compose.File,
+) map[string][]byte {
+	if r.fileSystem == nil || desired == nil {
+		return nil
+	}
+
+	baseDir := filepath.Dir(desired.Path)
+	contents := make(map[string][]byte)
+
+	for alias, config := range desired.Compose.Configs {
+		if config == nil || config.External || config.File == "" {
+			continue
+		}
+
+		path := config.File
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(baseDir, path)
+		}
+
+		data, err := r.fileSystem.ReadFile(ctx, path)
+		if err != nil {
+			slog.WarnContext(ctx, "[service] failed to load repository config for web route resolution",
+				slog.String("stack", stackName),
+				slog.String("config", alias),
+				slog.String("path", path),
+				slog.Any("err", err),
+			)
+			continue
+		}
+
+		configName := config.Name
+		if configName == "" {
+			configName = stackName + "_" + alias
+		}
+
+		contents[configName] = data
+	}
+
+	return contents
 }
 
 func (r *Reconciler) recordFailure(
