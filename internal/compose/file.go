@@ -81,7 +81,7 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 		return nil, fmt.Errorf("decode compose schema: %w", err)
 	}
 
-	if err = l.linkServices(&schema); err != nil {
+	if err = l.linkServices(&schema, filepath.Dir(path)); err != nil {
 		return nil, fmt.Errorf("link services: %w", err)
 	}
 
@@ -100,9 +100,22 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 	return file, nil
 }
 
-func (*fileLoader) linkServices(compose *Compose) error {
+func (*fileLoader) linkServices(compose *Compose, baseDir string) error {
 	for ind, service := range compose.Services {
 		resolveNetworkAliases(service.Networks, compose.Networks)
+
+		for configIndex := range service.Configs {
+			ref := &service.Configs[configIndex]
+			shared, ok := compose.Configs[ref.Source]
+			if !ok || shared == nil || shared.External || shared.File == "" {
+				continue
+			}
+
+			ref.File = shared.File
+			if !filepath.IsAbs(ref.File) {
+				ref.File = filepath.Join(baseDir, ref.File)
+			}
+		}
 
 		initJobs, err := normalizeInitJobs(service.InitJobs, compose.Networks)
 		if err != nil {
