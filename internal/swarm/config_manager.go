@@ -8,19 +8,17 @@ import (
 	"github.com/docker/docker/client"
 )
 
-// ConfigManager reads Docker configs metadata.
-type ConfigManager struct {
+type configManager struct {
 	dockerClient *client.Client
 }
 
-func newConfigManager(dockerClient *client.Client) *ConfigManager {
-	return &ConfigManager{
+func newConfigManager(dockerClient *client.Client) ConfigManager {
+	return &configManager{
 		dockerClient: dockerClient,
 	}
 }
 
-// Get returns Docker config metadata by name or ID.
-func (m *ConfigManager) Get(ctx context.Context, configName string) (Config, error) {
+func (m *configManager) Get(ctx context.Context, configName string) (Config, error) {
 	config, _, err := m.dockerClient.ConfigInspectWithRaw(ctx, configName)
 	if err != nil {
 		return Config{}, fmt.Errorf("inspect config %s: %w", configName, err)
@@ -29,8 +27,7 @@ func (m *ConfigManager) Get(ctx context.Context, configName string) (Config, err
 	return m.mapConfig(config), nil
 }
 
-// ResolveReference resolves Docker config reference by source and stack-aware candidates.
-func (m *ConfigManager) ResolveReference(
+func (m *configManager) ResolveReference(
 	ctx context.Context,
 	source,
 	target string,
@@ -58,12 +55,13 @@ func (m *ConfigManager) ResolveReference(
 	return ref, nil
 }
 
-func (*ConfigManager) mapConfig(config dockerswarm.Config) Config {
+func (*configManager) mapConfig(config dockerswarm.Config) Config {
 	return Config{
 		ID:        config.ID,
 		Name:      config.Spec.Name,
 		CreatedAt: config.CreatedAt,
 		UpdatedAt: config.UpdatedAt,
 		Labels:    config.Spec.Labels,
+		Data:      config.Spec.Data,
 	}
 }

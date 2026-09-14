@@ -61,6 +61,27 @@ func TestBuildDockerServiceLogsOptionsWithBounds(t *testing.T) {
 	assert.True(t, options.Timestamps, "timestamps must be enabled")
 }
 
+func TestToServiceConfigRefsMapsReferencesWithoutPayload(t *testing.T) {
+	refs := toServiceConfigRefs([]*dockerswarm.ConfigReference{
+		{
+			ConfigID:   "cfg-id",
+			ConfigName: "prod_pomerium_config",
+			File: &dockerswarm.ConfigReferenceFileTarget{
+				Name: "/etc/pomerium/config.yaml",
+			},
+		},
+	})
+
+	assert.Equal(t, []ServiceConfig{
+		{
+			ConfigID:   "cfg-id",
+			ConfigName: "prod_pomerium_config",
+			Target:     "/etc/pomerium/config.yaml",
+		},
+	}, refs)
+	assert.Empty(t, refs[0].Data, "service status must not load config payload")
+}
+
 func TestResolveServiceDeployModeReplicated(t *testing.T) {
 	replicas := uint64(4)
 

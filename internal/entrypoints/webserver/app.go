@@ -23,6 +23,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
 	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/resources/node"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"github.com/swarm-deploy/swarm-deploy/ui"
 )
@@ -123,19 +124,27 @@ func NewApplication(
 	})
 	mux.Handle("/", uiHandler)
 
-	rootHandler := http.Handler(mux)
+	handler := http.Handler(mux)
 	auth, err := authenticator.Create(authCfg)
 	if err != nil {
 		return nil, fmt.Errorf("build authenticator: %w", err)
 	}
 
+	handler = middlewares.NewLog(
+		middlewares.Authorize(handler, auth, eventDispatcher),
+		apiHandler.FindRoute,
+	)
+
+	if tracing.Enabled() {
+		handler = middlewares.Trace(handler)
+	}
+
+	handler = middlewares.Recovery(handler)
+
 	return &Application{
 		server: &http.Server{
-			Addr: address,
-			Handler: middlewares.Recovery(middlewares.NewLog(
-				middlewares.Authorize(rootHandler, auth, eventDispatcher),
-				apiHandler.FindRoute,
-			)),
+			Addr:              address,
+			Handler:           handler,
 			ReadHeaderTimeout: readHeaderTimeout,
 		},
 	}, nil

@@ -89,12 +89,12 @@ func (p *PingWebRoutes) Execute(ctx context.Context, request routing.Request) (r
 
 	results := make([]webRoutePingResult, 0)
 	for _, route := range serviceRow.WebRoutes {
-		pingResult := p.pingRoute(ctx, route.Address)
+		pingResult := p.pingRoute(ctx, route.From.Address)
 		pingResult.Stack = serviceRow.Stack
 		pingResult.Service = serviceRow.Name
-		pingResult.Domain = route.Domain
-		pingResult.Address = route.Address
-		pingResult.Port = route.Port
+		pingResult.Domain = route.From.Domain
+		pingResult.Address = route.From.Address
+		pingResult.Port = route.From.Port
 		results = append(results, pingResult)
 	}
 

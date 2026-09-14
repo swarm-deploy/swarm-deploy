@@ -9,7 +9,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/resources/service/stype"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/knownapp"
-	"github.com/swarm-deploy/webroute"
+	webroute "github.com/swarm-deploy/webroute/api"
 )
 
 var dependencyEnvSuffixes = []string{
@@ -28,29 +28,36 @@ func NewBuilder() *Builder {
 	return &Builder{}
 }
 
-// Build constructs a graph with direct service dependencies resolved from environment variables.
+// Build constructs a graph with direct service dependencies resolved from
+// environment variables and web route upstreams.
 func (b *Builder) Build(services []service.Info) Graph {
 	serviceByName := make(map[string][]service.Info, len(services))
+	webRoutesByIndex := make(map[int][]webroute.WebRoute, len(services))
 
-	for _, svc := range services {
+	for idx, svc := range services {
 		nodeName := b.serviceNodeName(svc)
 		serviceByName[svc.Name] = append(serviceByName[svc.Name], svc)
 		if nodeName != svc.Name {
 			serviceByName[nodeName] = append(serviceByName[nodeName], svc)
 		}
+		webRoutesByIndex[idx] = svc.WebRoutes
 	}
 
 	nodes := make([]Node, 0, len(services))
-	for _, svc := range services {
-		depends := b.resolveDependencies(svc, serviceByName)
+	for idx, svc := range services {
+		webRoutes := webRoutesByIndex[idx]
+		depends := b.mergeDependencies(
+			b.resolveDependencies(svc, serviceByName),
+			b.resolveWebRouteDependencies(svc, webRoutes, serviceByName),
+		)
 		if b.isNginxProxy(svc) {
-			depends = b.mergeDependencies(depends, b.resolveNginxProxyDependencies(svc, services))
+			depends = b.mergeDependencies(depends, b.resolveNginxProxyDependencies(svc, services, webRoutesByIndex))
 		}
 
 		nodes = append(nodes, Node{
 			Name:      b.serviceNodeName(svc),
 			Kind:      kindFromServiceType(svc.Type),
-			Endpoints: b.resolveEndpoints(svc),
+			Endpoints: b.resolveEndpoints(webRoutes),
 			Depends:   depends,
 		})
 	}
@@ -97,13 +104,36 @@ func (b *Builder) resolveDependencies(
 	return b.sortedDependencyNames(dependencyNames)
 }
 
-func (b *Builder) resolveNginxProxyDependencies(source service.Info, services []service.Info) []string {
-	dependencyNames := make(map[string]struct{})
-	sourceName := b.serviceNodeName(source)
+func (b *Builder) resolveWebRouteDependencies(
+	source service.Info,
+	webRoutes []webroute.WebRoute,
+	serviceByName map[string][]service.Info,
+) []string {
+	if len(webRoutes) == 0 {
+		return nil
+	}
 
-	for _, svc := range services {
-		dependencyName := b.serviceNodeName(svc)
-		if dependencyName == sourceName || !b.hasWebRouteProvider(svc, webroute.ProviderNameNginxProxy) {
+	dependencyNames := make(map[string]struct{})
+	for _, route := range webRoutes {
+		if route.To == nil {
+			continue
+		}
+
+		host := b.extractDependencyHost(route.To.Address)
+		if host == "" {
+			host = route.To.Domain
+		}
+		if host == "" {
+			continue
+		}
+
+		dependency, ok := b.resolveDependency(source, host, serviceByName)
+		if !ok {
+			continue
+		}
+
+		dependencyName := b.serviceNodeName(dependency)
+		if dependencyName == b.serviceNodeName(source) {
 			continue
 		}
 
@@ -113,8 +143,28 @@ func (b *Builder) resolveNginxProxyDependencies(source service.Info, services []
 	return b.sortedDependencyNames(dependencyNames)
 }
 
-func (b *Builder) hasWebRouteProvider(svc service.Info, provider webroute.ProviderName) bool {
-	for _, route := range svc.WebRoutes {
+func (b *Builder) resolveNginxProxyDependencies(
+	source service.Info,
+	services []service.Info,
+	webRoutesByIndex map[int][]webroute.WebRoute,
+) []string {
+	dependencyNames := make(map[string]struct{})
+	sourceName := b.serviceNodeName(source)
+
+	for idx, svc := range services {
+		dependencyName := b.serviceNodeName(svc)
+		if dependencyName == sourceName || !b.hasWebRouteProvider(webRoutesByIndex[idx], webroute.ProviderNameNginxProxy) {
+			continue
+		}
+
+		dependencyNames[dependencyName] = struct{}{}
+	}
+
+	return b.sortedDependencyNames(dependencyNames)
+}
+
+func (b *Builder) hasWebRouteProvider(routes []webroute.WebRoute, provider webroute.ProviderName) bool {
+	for _, route := range routes {
 		if route.Provider == provider {
 			return true
 		}
@@ -163,16 +213,19 @@ func (b *Builder) sortedDependencyNames(dependencyNames map[string]struct{}) []s
 	return dependencies
 }
 
-func (b *Builder) resolveEndpoints(svc service.Info) []string {
-	if len(svc.WebRoutes) == 0 {
+func (b *Builder) resolveEndpoints(webRoutes []webroute.WebRoute) []string {
+	if len(webRoutes) == 0 {
 		return nil
 	}
 
-	endpoints := make([]string, 0, len(svc.WebRoutes))
-	for _, route := range svc.WebRoutes {
-		address := strings.TrimSpace(route.Address)
-		port := strings.TrimSpace(route.Port)
-		endpoints = append(endpoints, address+":"+port)
+	endpoints := make([]string, 0, len(webRoutes))
+	for _, route := range webRoutes {
+		endpoint := formatWebRouteEndpoint(route.From)
+		if endpoint == "" {
+			continue
+		}
+
+		endpoints = append(endpoints, endpoint)
 	}
 
 	if len(endpoints) == 0 {
@@ -180,6 +233,32 @@ func (b *Builder) resolveEndpoints(svc service.Info) []string {
 	}
 
 	return endpoints
+}
+
+func formatWebRouteEndpoint(address webroute.Address) string {
+	endpoint := strings.TrimSpace(address.Address)
+	if endpoint == "" {
+		endpoint = strings.TrimSpace(address.Domain)
+	}
+	if endpoint == "" {
+		return ""
+	}
+
+	port := strings.TrimSpace(address.Port)
+	if port == "" || addressHasPort(endpoint) {
+		return endpoint
+	}
+
+	return endpoint + ":" + port
+}
+
+func addressHasPort(address string) bool {
+	host := address
+	if idx := strings.IndexAny(host, "/?"); idx >= 0 {
+		host = host[:idx]
+	}
+
+	return strings.Contains(host, ":")
 }
 
 func (b *Builder) isDependencyEnvName(name string) bool {

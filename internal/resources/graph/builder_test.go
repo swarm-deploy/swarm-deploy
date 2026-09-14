@@ -7,7 +7,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/knownapp"
-	"github.com/swarm-deploy/webroute"
+	webroute "github.com/swarm-deploy/webroute/api"
 )
 
 func TestBuilderBuild(t *testing.T) {
@@ -22,9 +22,9 @@ func TestBuilderBuild(t *testing.T) {
 				{
 					Stack: "prod",
 					Name:  "api",
-					WebRoutes: []webroute.Route{
-						{Port: "443", Address: "api.example.com"},
-						{Port: "8443", Address: "api.example.com/internal"},
+					WebRoutes: []webroute.WebRoute{
+						{From: webroute.Address{Port: "443", Address: "api.example.com"}},
+						{From: webroute.Address{Port: "8443", Address: "api.example.com/internal"}},
 					},
 					Environment: map[string]string{
 						"DB_HOST":          "db",
@@ -69,16 +69,16 @@ func TestBuilderBuild(t *testing.T) {
 				{
 					Stack: "blue",
 					Name:  "api",
-					WebRoutes: []webroute.Route{
-						{Port: "443", Address: "blue-api.example.com"},
+					WebRoutes: []webroute.WebRoute{
+						{From: webroute.Address{Port: "443", Address: "blue-api.example.com"}},
 					},
 				},
 				{Stack: "green", Name: "api"},
 				{
 					Stack: "green",
 					Name:  "worker",
-					WebRoutes: []webroute.Route{
-						{Port: "8443", Address: "green-worker.example.com"},
+					WebRoutes: []webroute.WebRoute{
+						{From: webroute.Address{Port: "8443", Address: "green-worker.example.com"}},
 					},
 				},
 			},
@@ -112,8 +112,8 @@ func TestBuilderBuild(t *testing.T) {
 				{
 					Stack: "prod",
 					Name:  "redis",
-					WebRoutes: []webroute.Route{
-						{Port: "6379", Address: "redis-admin.example.com"},
+					WebRoutes: []webroute.WebRoute{
+						{From: webroute.Address{Port: "6379", Address: "redis-admin.example.com"}},
 					},
 				},
 			},
@@ -184,30 +184,30 @@ func TestBuilderBuild(t *testing.T) {
 				{
 					Stack: "prod",
 					Name:  "api",
-					WebRoutes: []webroute.Route{
-						{Provider: webroute.ProviderNameNginxProxy, Port: "8080", Address: "api.example.com"},
-						{Provider: webroute.ProviderNameNginxProxy, Port: "8081", Address: "api.example.com/internal"},
+					WebRoutes: []webroute.WebRoute{
+						{Provider: webroute.ProviderNameNginxProxy, From: webroute.Address{Port: "8080", Address: "api.example.com"}},
+						{Provider: webroute.ProviderNameNginxProxy, From: webroute.Address{Port: "8081", Address: "api.example.com/internal"}},
 					},
 				},
 				{
 					Stack: "prod",
 					Name:  "admin",
-					WebRoutes: []webroute.Route{
-						{Provider: webroute.ProviderNameNginxProxy, Port: "8080", Address: "admin.example.com"},
+					WebRoutes: []webroute.WebRoute{
+						{Provider: webroute.ProviderNameNginxProxy, From: webroute.Address{Port: "8080", Address: "admin.example.com"}},
 					},
 				},
 				{
 					Stack: "prod",
 					Name:  "worker",
-					WebRoutes: []webroute.Route{
-						{Provider: webroute.ProviderName("traefik"), Port: "8080", Address: "worker.example.com"},
+					WebRoutes: []webroute.WebRoute{
+						{Provider: webroute.ProviderName("traefik"), From: webroute.Address{Port: "8080", Address: "worker.example.com"}},
 					},
 				},
 				{
 					Stack: "prod",
 					Name:  "plain",
-					WebRoutes: []webroute.Route{
-						{Port: "8080", Address: "plain.example.com"},
+					WebRoutes: []webroute.WebRoute{
+						{From: webroute.Address{Port: "8080", Address: "plain.example.com"}},
 					},
 				},
 				{Stack: "prod", Name: "nginx-proxy"},
@@ -228,6 +228,53 @@ func TestBuilderBuild(t *testing.T) {
 				},
 				"prod_worker": {
 					Endpoints: []string{"worker.example.com:8080"},
+				},
+			},
+		},
+
+		{
+			name: "builds pomerium dependencies from route to and endpoint from route from",
+			services: []service.Info{
+				{
+					Stack: "prod",
+					Name:  "pomerium",
+					WebRoutes: []webroute.WebRoute{
+						{
+							Provider: webroute.ProviderNamePomerium,
+							From: webroute.Address{
+								Domain:  "api.example.com",
+								Address: "api.example.com",
+							},
+							To: &webroute.Address{
+								Domain:  "api",
+								Address: "api:8080",
+								Port:    "8080",
+							},
+						},
+						{
+							Provider: webroute.ProviderNamePomerium,
+							From: webroute.Address{
+								Domain:  "admin.example.com",
+								Address: "admin.example.com:8443",
+								Port:    "8443",
+							},
+							To: &webroute.Address{
+								Domain:  "admin",
+								Address: "admin:9000",
+								Port:    "9000",
+							},
+						},
+					},
+				},
+				{Stack: "prod", Name: "api"},
+				{Stack: "prod", Name: "admin"},
+			},
+			expected: map[string]graphNodeSnapshot{
+				"prod_admin": {},
+				"prod_api":   {},
+				"prod_pomerium": {
+					Endpoints: []string{"api.example.com", "admin.example.com:8443"},
+					Depends:   []string{"prod_admin", "prod_api"},
 				},
 			},
 		},

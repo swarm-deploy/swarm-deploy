@@ -13,7 +13,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
-	"github.com/swarm-deploy/webroute"
+	webroute "github.com/swarm-deploy/webroute/api"
 	"go.uber.org/mock/gomock"
 )
 
@@ -90,15 +90,15 @@ func TestHandlerSearch_PriorityAndDedupe(t *testing.T) {
 		{
 			Name:     "api-app",
 			Metadata: metadata.Metadata{Type: "application"},
-			WebRoutes: []webroute.Route{
-				{Domain: "api-app.example.com", Address: "10.10.0.5", Port: "443"},
+			WebRoutes: []webroute.WebRoute{
+				{From: webroute.Address{Domain: "api-app.example.com", Address: "10.10.0.5", Port: "443"}},
 			},
 		},
 		{
 			Name:     "billing",
 			Metadata: metadata.Metadata{Type: "application"},
-			WebRoutes: []webroute.Route{
-				{Domain: "billing.example.com", Address: "10.10.0.7", Port: "443"},
+			WebRoutes: []webroute.WebRoute{
+				{From: webroute.Address{Domain: "billing.example.com", Address: "10.10.0.7", Port: "443"}},
 			},
 		},
 	}))

@@ -143,8 +143,7 @@ func main() {
 
 	eventDispatcher, eventHistory, serviceStore, err := buildEventDispatcher(
 		cfg,
-		swarmService.Services,
-		swarmService.Images,
+		swarmService,
 		metricsGroup.Events,
 		filesystem,
 	)
@@ -335,8 +334,7 @@ func buildAssistantService(
 
 func buildEventDispatcher(
 	cfg *config.Config,
-	serviceStatusInspector swarm.ServiceManager,
-	imageInspector swarm.ImageManager,
+	swarmSvc *swarm.Swarm,
 	eventMetrics metrics.Events,
 	filesystem fs.FileSystem,
 ) (dispatcher.Dispatcher, *history.Store, *service.Store, error) {
@@ -349,7 +347,7 @@ func buildEventDispatcher(
 		return nil, nil, nil, fmt.Errorf("build history store: %w", err)
 	}
 
-	serviceStore, err := service.NewStore(filepath.Join(cfg.Spec.DataDir, "services.json"))
+	srvStore, err := service.NewStore(filepath.Join(cfg.Spec.DataDir, "services.json"))
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("build service store: %w", err)
 	}
@@ -371,7 +369,7 @@ func buildEventDispatcher(
 
 	eventDispatcher.Subscribe(
 		events.TypeDeploySuccess,
-		service.NewSubscriber(serviceStore, serviceStatusInspector, imageInspector, metadata.NewExtractor()),
+		service.NewSubscriber(srvStore, swarmSvc.Services, swarmSvc.Images, swarmSvc.Configs, metadata.NewExtractor()),
 	)
 	subscribersCount++
 
@@ -418,7 +416,7 @@ func buildEventDispatcher(
 		slog.Int("subscribers", subscribersCount),
 	)
 
-	return eventDispatcher, historyStore, serviceStore, nil
+	return eventDispatcher, historyStore, srvStore, nil
 }
 
 func subscribeOnAllEvents(dispatcher dispatcher.Dispatcher, subscriber dispatcher.Subscriber) {

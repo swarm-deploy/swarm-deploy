@@ -268,6 +268,60 @@ func (mr *MockSecretManagerMockRecorder) ResolveReference(ctx, source, target an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolveReference", reflect.TypeOf((*MockSecretManager)(nil).ResolveReference), ctx, source, target)
 }
 
+// MockConfigManager is a mock of ConfigManager interface.
+type MockConfigManager struct {
+	ctrl     *gomock.Controller
+	recorder *MockConfigManagerMockRecorder
+	isgomock struct{}
+}
+
+// MockConfigManagerMockRecorder is the mock recorder for MockConfigManager.
+type MockConfigManagerMockRecorder struct {
+	mock *MockConfigManager
+}
+
+// NewMockConfigManager creates a new mock instance.
+func NewMockConfigManager(ctrl *gomock.Controller) *MockConfigManager {
+	mock := &MockConfigManager{ctrl: ctrl}
+	mock.recorder = &MockConfigManagerMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MockConfigManager) EXPECT() *MockConfigManagerMockRecorder {
+	return m.recorder
+}
+
+// Get mocks base method.
+func (m *MockConfigManager) Get(ctx context.Context, configName string) (Config, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Get", ctx, configName)
+	ret0, _ := ret[0].(Config)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Get indicates an expected call of Get.
+func (mr *MockConfigManagerMockRecorder) Get(ctx, configName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockConfigManager)(nil).Get), ctx, configName)
+}
+
+// ResolveReference mocks base method.
+func (m *MockConfigManager) ResolveReference(ctx context.Context, source, target string) (*swarm.ConfigReference, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ResolveReference", ctx, source, target)
+	ret0, _ := ret[0].(*swarm.ConfigReference)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ResolveReference indicates an expected call of ResolveReference.
+func (mr *MockConfigManagerMockRecorder) ResolveReference(ctx, source, target any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolveReference", reflect.TypeOf((*MockConfigManager)(nil).ResolveReference), ctx, source, target)
+}
+
 // MockNetworkManager is a mock of NetworkManager interface.
 type MockNetworkManager struct {
 	ctrl     *gomock.Controller

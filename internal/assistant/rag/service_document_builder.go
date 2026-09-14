@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
-	"github.com/swarm-deploy/webroute"
+	webroute "github.com/swarm-deploy/webroute/api"
 )
 
 // ServiceDocumentBuilder builds RAG document text from service metadata.
@@ -34,7 +34,7 @@ func (*ServiceDocumentBuilder) Build(serviceInfo service.Info) string {
 	return strings.TrimSpace(document)
 }
 
-func webRoutesToDocumentPart(routes []webroute.Route) string {
+func webRoutesToDocumentPart(routes []webroute.WebRoute) string {
 	if len(routes) == 0 {
 		return ""
 	}
@@ -43,8 +43,24 @@ func webRoutesToDocumentPart(routes []webroute.Route) string {
 	for _, route := range routes {
 		parts = append(
 			parts,
-			fmt.Sprintf("web_route_domain=%s web_route_address=%s web_route_port=%s", route.Domain, route.Address, route.Port),
+			fmt.Sprintf(
+				"web_route_domain=%s web_route_address=%s web_route_port=%s",
+				route.From.Domain,
+				route.From.Address,
+				route.From.Port,
+			),
 		)
+		if route.To != nil {
+			parts = append(
+				parts,
+				fmt.Sprintf(
+					"web_route_to_domain=%s web_route_to_address=%s web_route_to_port=%s",
+					route.To.Domain,
+					route.To.Address,
+					route.To.Port,
+				),
+			)
+		}
 	}
 
 	return strings.Join(parts, " ")

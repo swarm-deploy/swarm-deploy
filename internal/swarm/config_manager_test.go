@@ -19,6 +19,7 @@ func TestConfigManagerMapConfigMapsFields(t *testing.T) {
 			UpdatedAt: updatedAt,
 		},
 		Spec: dockerswarm.ConfigSpec{
+			Data: []byte("routes: []"),
 			Annotations: dockerswarm.Annotations{
 				Name: "app-config",
 				Labels: map[string]string{
@@ -28,11 +29,13 @@ func TestConfigManagerMapConfigMapsFields(t *testing.T) {
 		},
 	}
 
-	mapped := (&ConfigManager{}).mapConfig(config)
+	mapped := (&configManager{}).mapConfig(config)
 
 	assert.Equal(t, "config-id", mapped.ID, "unexpected config id")
 	assert.Equal(t, "app-config", mapped.Name, "unexpected config name")
 	assert.Equal(t, createdAt, mapped.CreatedAt, "unexpected created at")
 	assert.Equal(t, updatedAt, mapped.UpdatedAt, "unexpected updated at")
 	assert.Equal(t, map[string]string{"com.example.env": "prod"}, mapped.Labels, "unexpected labels")
-}
+	assert.Equal(t, []byte("routes: []"), mapped.Data, "unexpected data")
+
+	config.Spec.Data[0] = 'R'}

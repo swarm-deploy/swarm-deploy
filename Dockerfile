@@ -52,4 +52,3 @@ LABEL org.swarm-deploy.service.type="DeploymentManagementSystem"
 
 ENTRYPOINT ["/usr/local/bin/swarm-deploy"]
 CMD ["-config", "/etc/swarm-deploy/swarm-deploy.yaml"]
-

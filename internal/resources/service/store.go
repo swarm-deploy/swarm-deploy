@@ -14,7 +14,7 @@ import (
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/resources/service/stype"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/knownapp"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
-	"github.com/swarm-deploy/webroute"
+	webroute "github.com/swarm-deploy/webroute/api"
 )
 
 const fileModePrivate = 0o600
@@ -186,7 +186,7 @@ type storeInfo struct {
 	// Spec is a compact persisted service spec snapshot.
 	Spec swarm.ServiceSpec `json:"spec"`
 	// WebRoutes is a list of public web routes resolved from service environment.
-	WebRoutes []webroute.Route `json:"web_routes,omitempty"`
+	WebRoutes []webroute.WebRoute `json:"web_routes,omitempty"`
 }
 
 func (i storeInfo) toInfo() Info {

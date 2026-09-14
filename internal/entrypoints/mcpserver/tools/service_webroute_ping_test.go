@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
-	"github.com/swarm-deploy/webroute"
+	webroute "github.com/swarm-deploy/webroute/api"
 )
 
 func TestPingWebRoutesExecute(t *testing.T) {
@@ -22,16 +22,20 @@ func TestPingWebRoutesExecute(t *testing.T) {
 			{
 				Stack: "core",
 				Name:  "api",
-				WebRoutes: []webroute.Route{
+				WebRoutes: []webroute.WebRoute{
 					{
-						Domain:  "api.example.com",
-						Address: address + "/ok",
-						Port:    "8080",
+						From: webroute.Address{
+							Domain:  "api.example.com",
+							Address: address + "/ok",
+							Port:    "8080",
+						},
 					},
 					{
-						Domain:  "api.example.com",
-						Address: address + "/missing",
-						Port:    "8080",
+						From: webroute.Address{
+							Domain:  "api.example.com",
+							Address: address + "/missing",
+							Port:    "8080",
+						},
 					},
 				},
 			},
@@ -132,22 +136,26 @@ func TestPingWebRoutesExecuteWithStack(t *testing.T) {
 			{
 				Stack: "core",
 				Name:  "api",
-				WebRoutes: []webroute.Route{
+				WebRoutes: []webroute.WebRoute{
 					{
-						Domain:  "api.example.com",
-						Address: "core.example.com/ok",
-						Port:    "8080",
+						From: webroute.Address{
+							Domain:  "api.example.com",
+							Address: "core.example.com/ok",
+							Port:    "8080",
+						},
 					},
 				},
 			},
 			{
 				Stack: "edge",
 				Name:  "api",
-				WebRoutes: []webroute.Route{
+				WebRoutes: []webroute.WebRoute{
 					{
-						Domain:  "api-edge.example.com",
-						Address: "edge.example.com/ok",
-						Port:    "8080",
+						From: webroute.Address{
+							Domain:  "api-edge.example.com",
+							Address: "edge.example.com/ok",
+							Port:    "8080",
+						},
 					},
 				},
 			},

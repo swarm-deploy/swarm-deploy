@@ -23,6 +23,8 @@ type ServiceStatus struct {
 	ContainerLabels map[string]string
 	// ContainerEnv contains task container environment variables from service spec.
 	ContainerEnv []string
+	// ContainerConfigs contains task container configs from service spec.
+	ContainerConfigs []ServiceConfig
 }
 
 // ServiceTask contains compact realtime task data for service container status.
@@ -63,6 +65,8 @@ type ServiceSpec struct {
 	Secrets []ServiceSecret `json:"secrets,omitempty"`
 	// Network contains compact network attachments from service spec.
 	Network []ServiceNetwork `json:"network,omitempty"`
+	// Configs contains compact config references from service spec.
+	Configs []ServiceConfig `json:"configs,omitempty"`
 }
 
 // ServiceSecret is a compact service secret reference.

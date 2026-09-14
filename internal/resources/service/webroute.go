@@ -1,9 +1,13 @@
 package service
 
 import (
+	"bytes"
+	"context"
+	"io"
 	"log/slog"
 
-	"github.com/swarm-deploy/webroute"
+	webroutecore "github.com/swarm-deploy/webroute"
+	webroute "github.com/swarm-deploy/webroute/api"
 )
 
 type WebRouteResolver struct {
@@ -12,11 +16,12 @@ type WebRouteResolver struct {
 
 type webroutableService struct {
 	environment map[string]string
+	configs     []webroute.ServiceConfig
 }
 
 func NewWebRouteResolver() *WebRouteResolver {
 	return &WebRouteResolver{
-		providers: webroute.Providers(),
+		providers: webroutecore.Providers(),
 	}
 }
 
@@ -24,25 +29,41 @@ func (s *webroutableService) Environment() (map[string]string, error) {
 	return s.environment, nil
 }
 
-// Resolve resolves all routes from container environment.
-func (r *WebRouteResolver) Resolve(environment map[string]string) []webroute.Route {
-	if len(environment) == 0 {
+func (s *webroutableService) Configs() []webroute.ServiceConfig {
+	configs := make([]webroute.ServiceConfig, 0, len(s.configs))
+	configs = append(configs, s.configs...)
+
+	return configs
+}
+
+// Resolve resolves all routes from container environment and configs.
+func (r *WebRouteResolver) Resolve(
+	ctx context.Context,
+	environment map[string]string,
+	configs []webroute.ServiceConfig,
+) []webroute.WebRoute {
+	if len(environment) == 0 && len(configs) == 0 {
 		return nil
 	}
 
-	out := make([]webroute.Route, 0)
+	out := make([]webroute.WebRoute, 0)
 	seen := map[string]struct{}{}
+	service := &webroutableService{
+		environment: environment,
+		configs:     configs,
+	}
 
 	for _, provider := range r.providers {
-		prRoutes, rerr := provider.Resolve(&webroutableService{
-			environment: environment,
-		})
+		prRoutes, rerr := provider.Resolve(ctx, service)
 		if rerr != nil {
-			slog.Info("[service] failed to resolve web routes", slog.Any("err", rerr))
+			slog.InfoContext(ctx, "[service] failed to resolve web routes", slog.Any("err", rerr))
 		}
 
 		for _, route := range prRoutes {
-			key := route.Domain + "-" + route.Address + "-" + route.Port
+			key := string(route.Provider) + "-" + route.From.Domain + "-" + route.From.Address + "-" + route.From.Port
+			if route.To != nil {
+				key += "-" + route.To.Domain + "-" + route.To.Address + "-" + route.To.Port
+			}
 			if _, ok := seen[key]; ok {
 				continue
 			}
@@ -52,4 +73,25 @@ func (r *WebRouteResolver) Resolve(environment map[string]string) []webroute.Rou
 	}
 
 	return out
+}
+
+type webrouteConfig struct {
+	path string
+	data []byte
+}
+
+func newWebRouteConfig(path string, data []byte) webrouteConfig {
+	return webrouteConfig{
+		path: path,
+		data: data,
+	}
+}
+
+func (c webrouteConfig) Path() string {
+	return c.path
+}
+
+func (c webrouteConfig) Read(_ context.Context, out io.Writer) error {
+	_, err := io.Copy(out, bytes.NewReader(c.data))
+	return err
 }

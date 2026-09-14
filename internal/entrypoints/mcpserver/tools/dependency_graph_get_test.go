@@ -12,7 +12,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/resources/service/stype"
-	"github.com/swarm-deploy/webroute"
+	webroute "github.com/swarm-deploy/webroute/api"
 )
 
 func TestGetDependencyGraphExecute(t *testing.T) {
@@ -30,8 +30,8 @@ func TestGetDependencyGraphExecute(t *testing.T) {
 					Name:     "api",
 					Stack:    "payments",
 					Metadata: metadata.Metadata{Type: serviceType.Application},
-					WebRoutes: []webroute.Route{
-						{Port: "443", Address: "api.example.com"},
+					WebRoutes: []webroute.WebRoute{
+						{From: webroute.Address{Port: "443", Address: "api.example.com"}},
 					},
 					Environment: map[string]string{
 						"DB_HOST":   "db",
@@ -47,8 +47,8 @@ func TestGetDependencyGraphExecute(t *testing.T) {
 					Name:     "redis",
 					Stack:    "payments",
 					Metadata: metadata.Metadata{Type: serviceType.Monitoring},
-					WebRoutes: []webroute.Route{
-						{Port: "6379", Address: "redis.internal"},
+					WebRoutes: []webroute.WebRoute{
+						{From: webroute.Address{Port: "6379", Address: "redis.internal"}},
 					},
 				},
 			},

@@ -11,6 +11,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	webroute "github.com/swarm-deploy/webroute/api"
 	"go.uber.org/mock/gomock"
 )
 
@@ -158,7 +159,7 @@ func TestSubscriberHandle(t *testing.T) {
 			store, err := NewStore(filepath.Join(t.TempDir(), "services.json"))
 			require.NoError(t, err)
 
-			sub := NewSubscriber(store, inspector, images, metadata.NewExtractor())
+			sub := NewSubscriber(store, inspector, images, &fakeSubscriberConfigReader{}, metadata.NewExtractor())
 			serviceRef := swarm.NewServiceReference("payments", "api")
 			testCase.setupMocks(inspector, images, serviceRef)
 
@@ -182,4 +183,93 @@ func TestSubscriberHandle(t *testing.T) {
 			assert.Equal(t, testCase.expected.description, info.Description)
 		})
 	}
+}
+
+func TestSubscriberHandleLoadsWebRouteConfigs(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	inspector := swarm.NewMockServiceManager(ctrl)
+	images := swarm.NewMockImageManager(ctrl)
+	configs := &fakeSubscriberConfigReader{
+		configs: map[string]swarm.Config{
+			"prod_pomerium_config": {
+				Data: []byte(`
+routes:
+  - from: https://api.example.com
+    to: http://api:8080
+`),
+			},
+		},
+	}
+	store, err := NewStore(filepath.Join(t.TempDir(), "services.json"))
+	require.NoError(t, err)
+
+	serviceRef := swarm.NewServiceReference("prod", "pomerium")
+	inspector.EXPECT().
+		GetStatus(gomock.Any(), serviceRef).
+		Return(swarm.ServiceStatus{
+			Stack:   "prod",
+			Service: "pomerium",
+			Spec: swarm.ServiceSpec{
+				Image: "ghcr.io/swarm-deploy/pomerium:v1",
+				Configs: []swarm.ServiceConfig{
+					{
+						ConfigName: "prod_pomerium_config",
+						Target:     "/etc/pomerium/config.yaml",
+					},
+				},
+			},
+			ContainerConfigs: []swarm.ServiceConfig{
+				{
+					ConfigName: "prod_pomerium_config",
+					Target:     "/etc/pomerium/config.yaml",
+				},
+			},
+		}, nil)
+	images.EXPECT().
+		Get(gomock.Any(), "ghcr.io/swarm-deploy/pomerium:v1").
+		Return(swarm.Image{Ref: "ghcr.io/swarm-deploy/pomerium:v1"}, swarm.ErrImageNotFound)
+
+	sub := NewSubscriber(store, inspector, images, configs, metadata.NewExtractor())
+
+	err = sub.Handle(context.Background(), &events.DeploySuccess{
+		StackName: "prod",
+		Services: []compose.Service{
+			{
+				Name:  "pomerium",
+				Image: "ghcr.io/swarm-deploy/pomerium:v1",
+			},
+		},
+	})
+	require.NoError(t, err)
+
+	info, ok := store.Get("prod", "pomerium")
+	require.True(t, ok)
+	assert.Equal(t, []webroute.WebRoute{
+		{
+			Provider: webroute.ProviderNamePomerium,
+			From: webroute.Address{
+				Domain:  "api.example.com",
+				Address: "api.example.com",
+			},
+			To: &webroute.Address{
+				Domain:  "api",
+				Address: "api:8080",
+				Port:    "8080",
+			},
+		},
+	}, info.WebRoutes)
+	assert.Equal(t, []string{"prod_pomerium_config"}, configs.calls)
+}
+
+type fakeSubscriberConfigReader struct {
+	configs map[string]swarm.Config
+	calls   []string
+}
+
+func (r *fakeSubscriberConfigReader) Get(_ context.Context, configName string) (swarm.Config, error) {
+	r.calls = append(r.calls, configName)
+
+	return r.configs[configName], nil
 }

@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
-	"github.com/swarm-deploy/webroute"
+	webroute "github.com/swarm-deploy/webroute/api"
 )
 
 const (
@@ -254,20 +254,27 @@ func sameServices(left, right []service.Info) bool {
 	return true
 }
 
-func sameWebRoutes(left, right []webroute.Route) bool {
+func sameWebRoutes(left, right []webroute.WebRoute) bool {
 	if len(left) != len(right) {
 		return false
 	}
 
 	for idx := range left {
-		if left[idx].Domain != right[idx].Domain ||
-			left[idx].Address != right[idx].Address ||
-			left[idx].Port != right[idx].Port {
+		if left[idx].Provider != right[idx].Provider || left[idx].From != right[idx].From ||
+			!sameOptionalAddress(left[idx].To, right[idx].To) {
 			return false
 		}
 	}
 
 	return true
+}
+
+func sameOptionalAddress(left, right *webroute.Address) bool {
+	if left == nil || right == nil {
+		return left == right
+	}
+
+	return *left == *right
 }
 
 func (r *Retriever) recordFallback(reason string) {

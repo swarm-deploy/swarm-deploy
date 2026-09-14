@@ -15,7 +15,7 @@ type Swarm struct {
 	// Secrets manages Docker swarm secrets.
 	Secrets SecretManager
 	// Configs manages Docker swarm configs.
-	Configs *ConfigManager
+	Configs ConfigManager
 	// Nodes manages Docker swarm nodes.
 	Nodes NodeManager
 	// Networks manages Docker networks.
@@ -56,5 +56,6 @@ func traceSwarm(tp trace.TracerProvider, swarm *Swarm) {
 	tracer := tp.Tracer("github.com/swarm-deploy/internal/swarm")
 
 	swarm.Services = traceServiceManager(tracer, swarm.Services)
+	swarm.Configs = traceConfigManager(tracer, swarm.Configs)
 	swarm.Networks = traceNetworkManager(tracer, swarm.Networks)
 }

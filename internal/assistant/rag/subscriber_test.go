@@ -11,7 +11,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
-	"github.com/swarm-deploy/webroute"
+	webroute "github.com/swarm-deploy/webroute/api"
 )
 
 type countingEmbedder struct {
@@ -48,11 +48,13 @@ func TestIndexSubscriberBuildsIndexOnDeploySuccess(t *testing.T) {
 			Stack:    "app",
 			Metadata: metadata.Metadata{Type: "application"},
 			Image:    "example/api:v1",
-			WebRoutes: []webroute.Route{
+			WebRoutes: []webroute.WebRoute{
 				{
-					Domain:  "api.example.com",
-					Address: "api.example.com/v1",
-					Port:    "8080",
+					From: webroute.Address{
+						Domain:  "api.example.com",
+						Address: "api.example.com/v1",
+						Port:    "8080",
+					},
 				},
 			},
 		},
