@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
@@ -54,6 +55,7 @@ func NewSubscriberWithRepository(
 	inspector swarm.ServiceManager,
 	images swarm.ImageManager,
 	configs configReader,
+	_ *config.Config,
 	fileSystem fs.FileSystem,
 	metadata *metadata.Extractor,
 ) *Subscriber {
