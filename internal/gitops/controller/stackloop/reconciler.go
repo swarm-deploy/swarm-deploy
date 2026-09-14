@@ -204,10 +204,10 @@ func (r *Reconciler) recordFailure(
 		state.Stacks[stackName] = model.Stack{
 			SourceDigest: "",
 			LastCommit:   commit,
-			Status:       model.NewStackStatus(serviceStates),
+			Status:       model.NewStackStatus(servicesState),
 			LastError:    reason.Error(),
 			LastDeployAt: now,
-			Services:     serviceStates,
+			Services:     servicesState,
 		}
 	})
 }
