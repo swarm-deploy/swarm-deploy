@@ -92,6 +92,7 @@ func (c *Collector) watchOnce(ctx context.Context) error {
 			slog.DebugContext(ctx, "[nodes] docker node event received",
 				slog.String("action", string(event.Action)),
 				slog.String("node_id", event.Actor.ID),
+				slog.Any("node_attributes", event.Actor.Attributes),
 			)
 
 			previousNodes := c.store.List()

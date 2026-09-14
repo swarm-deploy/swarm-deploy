@@ -194,7 +194,7 @@ func (l *fileLoader) computeEnvFilesDigest(
 
 			hasher.Write([]byte("env_file"))
 			hasher.Write([]byte(service.Name))
-			hasher.Write([]byte(fmt.Sprintf("%d", i)))
+			fmt.Fprintf(hasher, "%d", i)
 			hasher.Write([]byte(envFile))
 			hasher.Write(content)
 		}
