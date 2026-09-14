@@ -120,6 +120,11 @@ containers:
 # tracing:
 #   # OTLP transport: http | grpc.
 #   transport: http
+#   sampler:
+#     # Sampling strategy: always_on | always_off | traceidratio | parentbased_traceidratio.
+#     strategy: ${OTEL_TRACES_SAMPLER}
+#     # Sampling ratio for traceidratio strategies. Must be between 0 and 1.
+#     ratio: ${OTEL_TRACES_SAMPLER_ARG}
 #   exporter:
 #     endpoint: $OTEL_EXPORTER_OTLP_ENDPOINT
 #     # Header values can reference environment variables.

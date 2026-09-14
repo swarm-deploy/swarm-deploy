@@ -37,10 +37,15 @@ func InitTracerProvider(ctx context.Context, cfg *config.TracingSpec) (*sdktrace
 		return nil, fmt.Errorf("build OpenTelemetry resource: %w", err)
 	}
 
-	provider := sdktrace.NewTracerProvider(
+	providerOptions := []sdktrace.TracerProviderOption{
 		sdktrace.WithBatcher(exporter),
 		sdktrace.WithResource(res),
-	)
+	}
+	if sampler := buildSampler(cfg.Sampler); sampler != nil {
+		providerOptions = append(providerOptions, sdktrace.WithSampler(sampler))
+	}
+
+	provider := sdktrace.NewTracerProvider(providerOptions...)
 
 	tracing.Enable()
 
@@ -51,6 +56,23 @@ func InitTracerProvider(ctx context.Context, cfg *config.TracingSpec) (*sdktrace
 	))
 
 	return provider, nil
+}
+
+func buildSampler(cfg config.TracingSamplerSpec) sdktrace.Sampler {
+	switch strings.TrimSpace(cfg.Strategy.Value) {
+	case "":
+		return nil
+	case config.TracingSamplerAlwaysOn:
+		return sdktrace.AlwaysSample()
+	case config.TracingSamplerAlwaysOff:
+		return sdktrace.NeverSample()
+	case config.TracingSamplerTraceIDRatio:
+		return sdktrace.TraceIDRatioBased(cfg.Ratio.Value)
+	case config.TracingSamplerParentBasedTraceIDRatio:
+		return sdktrace.ParentBased(sdktrace.TraceIDRatioBased(cfg.Ratio.Value))
+	default:
+		return nil
+	}
 }
 
 func buildExporter(ctx context.Context, cfg *config.TracingSpec) (sdktrace.SpanExporter, error) {
