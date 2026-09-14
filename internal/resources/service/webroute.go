@@ -6,7 +6,8 @@ import (
 	"io"
 	"log/slog"
 
-	"github.com/swarm-deploy/webroute"
+	webroutecore "github.com/swarm-deploy/webroute"
+	webroute "github.com/swarm-deploy/webroute/api"
 )
 
 type WebRouteResolver struct {
@@ -20,7 +21,7 @@ type webroutableService struct {
 
 func NewWebRouteResolver() *WebRouteResolver {
 	return &WebRouteResolver{
-		providers: webroute.Providers(),
+		providers: webroutecore.Providers(),
 	}
 }
 
@@ -38,12 +39,12 @@ func (s *webroutableService) Configs() []webroute.ServiceConfig {
 }
 
 // Resolve resolves all routes from container environment and configs.
-func (r *WebRouteResolver) Resolve(ctx context.Context, environment map[string]string, configs []webroute.ServiceConfig) []webroute.Route {
+func (r *WebRouteResolver) Resolve(ctx context.Context, environment map[string]string, configs []webroute.ServiceConfig) []webroute.WebRoute {
 	if len(environment) == 0 && len(configs) == 0 {
 		return nil
 	}
 
-	out := make([]webroute.Route, 0)
+	out := make([]webroute.WebRoute, 0)
 	seen := map[string]struct{}{}
 	service := &webroutableService{
 		environment: environment,

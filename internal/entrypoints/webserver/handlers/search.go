@@ -8,7 +8,7 @@ import (
 
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
-	"github.com/swarm-deploy/webroute"
+	webroute "github.com/swarm-deploy/webroute/api"
 )
 
 func (h *handler) Search(
@@ -126,7 +126,7 @@ func (h *handler) searchStacksByName(query string) []generated.SearchResult {
 	return results
 }
 
-func containsWebRoute(routes []webroute.Route, query string) bool {
+func containsWebRoute(routes []webroute.WebRoute, query string) bool {
 	for _, route := range routes {
 		parts := []string{route.From.Domain, route.From.Address, route.From.Port}
 		if route.To != nil {

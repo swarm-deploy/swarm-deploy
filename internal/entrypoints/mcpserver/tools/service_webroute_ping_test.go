@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
-	"github.com/swarm-deploy/webroute"
+	webroute "github.com/swarm-deploy/webroute/api"
 )
 
 func TestPingWebRoutesExecute(t *testing.T) {
@@ -22,7 +22,7 @@ func TestPingWebRoutesExecute(t *testing.T) {
 			{
 				Stack: "core",
 				Name:  "api",
-				WebRoutes: []webroute.Route{
+				WebRoutes: []webroute.WebRoute{
 					{
 						From: webroute.Address{
 							Domain:  "api.example.com",
@@ -136,7 +136,7 @@ func TestPingWebRoutesExecuteWithStack(t *testing.T) {
 			{
 				Stack: "core",
 				Name:  "api",
-				WebRoutes: []webroute.Route{
+				WebRoutes: []webroute.WebRoute{
 					{
 						From: webroute.Address{
 							Domain:  "api.example.com",
@@ -149,7 +149,7 @@ func TestPingWebRoutesExecuteWithStack(t *testing.T) {
 			{
 				Stack: "edge",
 				Name:  "api",
-				WebRoutes: []webroute.Route{
+				WebRoutes: []webroute.WebRoute{
 					{
 						From: webroute.Address{
 							Domain:  "api-edge.example.com",

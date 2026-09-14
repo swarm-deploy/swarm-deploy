@@ -3,7 +3,7 @@ package service
 import (
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
-	"github.com/swarm-deploy/webroute"
+	webroute "github.com/swarm-deploy/webroute/api"
 )
 
 // Info is a persisted service metadata record.
@@ -22,7 +22,7 @@ type Info struct {
 	// Spec is a compact persisted service spec snapshot.
 	Spec swarm.ServiceSpec `json:"spec"`
 	// WebRoutes is a list of public web routes resolved from service environment.
-	WebRoutes []webroute.Route `json:"web_routes,omitempty"`
+	WebRoutes []webroute.WebRoute `json:"web_routes,omitempty"`
 }
 
 func (i *Info) GetName() string {

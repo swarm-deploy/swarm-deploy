@@ -28,7 +28,7 @@ require (
 	github.com/stretchr/testify v1.12.1
 	github.com/swarm-deploy/downward-otel/go v0.1.0
 	github.com/swarm-deploy/downward/go v0.1.1
-	github.com/swarm-deploy/webroute v0.1.1
+	github.com/swarm-deploy/webroute v0.2.0
 	github.com/tg123/go-htpasswd v1.2.4
 	github.com/tmc/langchaingo v0.1.7
 	github.com/tmc/langgraphgo v0.0.0-20240324234251-3b0caeaffd16
@@ -123,5 +123,3 @@ require (
 
 // Fork with conditional edges: github.com/NirAlon/langgraphgo/tree/feature/add-conditional-edges (b8adbfaa3d82d87e1d1474d985788c91562d8694).
 replace github.com/tmc/langgraphgo => github.com/NirAlon/langgraphgo v0.0.0-20260311231625-b8adbfaa3d82
-
-replace github.com/swarm-deploy/webroute => ./webroute

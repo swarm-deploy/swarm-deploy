@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
-	"github.com/swarm-deploy/webroute"
+	webroute "github.com/swarm-deploy/webroute/api"
 )
 
 const (
@@ -254,7 +254,7 @@ func sameServices(left, right []service.Info) bool {
 	return true
 }
 
-func sameWebRoutes(left, right []webroute.Route) bool {
+func sameWebRoutes(left, right []webroute.WebRoute) bool {
 	if len(left) != len(right) {
 		return false
 	}

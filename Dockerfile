@@ -17,7 +17,6 @@ FROM golang:1.26.3-alpine AS builder
 WORKDIR /src
 
 COPY go.mod go.sum ./
-COPY webroute/go.mod webroute/go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod \
     go mod download
 
@@ -53,4 +52,3 @@ LABEL org.swarm-deploy.service.type="DeploymentManagementSystem"
 
 ENTRYPOINT ["/usr/local/bin/swarm-deploy"]
 CMD ["-config", "/etc/swarm-deploy/swarm-deploy.yaml"]
-

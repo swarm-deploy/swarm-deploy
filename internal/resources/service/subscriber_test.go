@@ -11,7 +11,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
-	"github.com/swarm-deploy/webroute"
+	webroute "github.com/swarm-deploy/webroute/api"
 	"go.uber.org/mock/gomock"
 )
 
@@ -246,7 +246,7 @@ routes:
 
 	info, ok := store.Get("prod", "pomerium")
 	require.True(t, ok)
-	assert.Equal(t, []webroute.Route{
+	assert.Equal(t, []webroute.WebRoute{
 		{
 			Provider: webroute.ProviderNamePomerium,
 			From: webroute.Address{

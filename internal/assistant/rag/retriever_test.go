@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
-	"github.com/swarm-deploy/webroute"
+	webroute "github.com/swarm-deploy/webroute/api"
 )
 
 type fakeServiceStore struct {
@@ -153,7 +153,7 @@ func TestRetrieverLexicalMatchesWebRouteFields(t *testing.T) {
 		{
 			Name:  "api",
 			Stack: "app",
-			WebRoutes: []webroute.Route{
+			WebRoutes: []webroute.WebRoute{
 				{
 					From: webroute.Address{
 						Domain:  "api.example.com",

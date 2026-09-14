@@ -9,7 +9,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/resources/service/stype"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/knownapp"
-	"github.com/swarm-deploy/webroute"
+	webroute "github.com/swarm-deploy/webroute/api"
 )
 
 var dependencyEnvSuffixes = []string{
@@ -31,7 +31,7 @@ func NewBuilder() *Builder {
 // Build constructs a graph with direct service dependencies resolved from environment variables and web route upstreams.
 func (b *Builder) Build(services []service.Info) Graph {
 	serviceByName := make(map[string][]service.Info, len(services))
-	webRoutesByIndex := make(map[int][]webroute.Route, len(services))
+	webRoutesByIndex := make(map[int][]webroute.WebRoute, len(services))
 
 	for idx, svc := range services {
 		nodeName := b.serviceNodeName(svc)
@@ -105,7 +105,7 @@ func (b *Builder) resolveDependencies(
 
 func (b *Builder) resolveWebRouteDependencies(
 	source service.Info,
-	webRoutes []webroute.Route,
+	webRoutes []webroute.WebRoute,
 	serviceByName map[string][]service.Info,
 ) []string {
 	if len(webRoutes) == 0 {
@@ -145,7 +145,7 @@ func (b *Builder) resolveWebRouteDependencies(
 func (b *Builder) resolveNginxProxyDependencies(
 	source service.Info,
 	services []service.Info,
-	webRoutesByIndex map[int][]webroute.Route,
+	webRoutesByIndex map[int][]webroute.WebRoute,
 ) []string {
 	dependencyNames := make(map[string]struct{})
 	sourceName := b.serviceNodeName(source)
@@ -162,7 +162,7 @@ func (b *Builder) resolveNginxProxyDependencies(
 	return b.sortedDependencyNames(dependencyNames)
 }
 
-func (b *Builder) hasWebRouteProvider(routes []webroute.Route, provider webroute.ProviderName) bool {
+func (b *Builder) hasWebRouteProvider(routes []webroute.WebRoute, provider webroute.ProviderName) bool {
 	for _, route := range routes {
 		if route.Provider == provider {
 			return true
@@ -212,7 +212,7 @@ func (b *Builder) sortedDependencyNames(dependencyNames map[string]struct{}) []s
 	return dependencies
 }
 
-func (b *Builder) resolveEndpoints(webRoutes []webroute.Route) []string {
+func (b *Builder) resolveEndpoints(webRoutes []webroute.WebRoute) []string {
 	if len(webRoutes) == 0 {
 		return nil
 	}

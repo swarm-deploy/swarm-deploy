@@ -17,7 +17,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/utils"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
-	"github.com/swarm-deploy/webroute"
+	webroute "github.com/swarm-deploy/webroute/api"
 )
 
 const (
@@ -466,7 +466,7 @@ func toGeneratedServiceSyncError(serviceInfo service.Info, runtime model.Runtime
 	return generated.NewOptString(syncError)
 }
 
-func toGeneratedWebRoutes(routes []webroute.Route) []generated.WebRoute {
+func toGeneratedWebRoutes(routes []webroute.WebRoute) []generated.WebRoute {
 	if len(routes) == 0 {
 		return nil
 	}
