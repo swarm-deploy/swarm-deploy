@@ -43,12 +43,22 @@ func webRoutesToDocumentPart(routes []webroute.WebRoute) string {
 	for _, route := range routes {
 		parts = append(
 			parts,
-			fmt.Sprintf("web_route_domain=%s web_route_address=%s web_route_port=%s", route.From.Domain, route.From.Address, route.From.Port),
+			fmt.Sprintf(
+				"web_route_domain=%s web_route_address=%s web_route_port=%s",
+				route.From.Domain,
+				route.From.Address,
+				route.From.Port,
+			),
 		)
 		if route.To != nil {
 			parts = append(
 				parts,
-				fmt.Sprintf("web_route_to_domain=%s web_route_to_address=%s web_route_to_port=%s", route.To.Domain, route.To.Address, route.To.Port),
+				fmt.Sprintf(
+					"web_route_to_domain=%s web_route_to_address=%s web_route_to_port=%s",
+					route.To.Domain,
+					route.To.Address,
+					route.To.Port,
+				),
 			)
 		}
 	}

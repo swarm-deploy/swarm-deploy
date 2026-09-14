@@ -28,7 +28,8 @@ func NewBuilder() *Builder {
 	return &Builder{}
 }
 
-// Build constructs a graph with direct service dependencies resolved from environment variables and web route upstreams.
+// Build constructs a graph with direct service dependencies resolved from
+// environment variables and web route upstreams.
 func (b *Builder) Build(services []service.Info) Graph {
 	serviceByName := make(map[string][]service.Info, len(services))
 	webRoutesByIndex := make(map[int][]webroute.WebRoute, len(services))

@@ -31,15 +31,17 @@ func (s *webroutableService) Environment() (map[string]string, error) {
 
 func (s *webroutableService) Configs() []webroute.ServiceConfig {
 	configs := make([]webroute.ServiceConfig, 0, len(s.configs))
-	for idx := range s.configs {
-		configs = append(configs, s.configs[idx])
-	}
+	configs = append(configs, s.configs...)
 
 	return configs
 }
 
 // Resolve resolves all routes from container environment and configs.
-func (r *WebRouteResolver) Resolve(ctx context.Context, environment map[string]string, configs []webroute.ServiceConfig) []webroute.WebRoute {
+func (r *WebRouteResolver) Resolve(
+	ctx context.Context,
+	environment map[string]string,
+	configs []webroute.ServiceConfig,
+) []webroute.WebRoute {
 	if len(environment) == 0 && len(configs) == 0 {
 		return nil
 	}

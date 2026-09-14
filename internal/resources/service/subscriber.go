@@ -206,19 +206,3 @@ func (s *Subscriber) loadWebRouteConfig(
 
 	return newWebRouteConfig(ref.Target, cfg.Data), true
 }
-
-func toWebRouteConfigs(configs []swarm.ServiceConfig) []webroute.ServiceConfig {
-	if len(configs) == 0 {
-		return nil
-	}
-
-	out := make([]webroute.ServiceConfig, 0, len(configs))
-	for _, cfg := range configs {
-		if cfg.Target == "" || len(cfg.Data) == 0 {
-			continue
-		}
-
-		out = append(out, newWebRouteConfig(cfg.Target, cfg.Data))
-	}
-	return out
-}
