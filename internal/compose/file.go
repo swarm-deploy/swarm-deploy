@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"hash"
 	"os"
 	"path/filepath"
 	"sort"
@@ -19,7 +20,7 @@ type File struct {
 	Path string `json:"path"`
 	// Compose is the parsed compose specification.
 	Compose Compose `json:"compose"`
-	// Digest is the content hash including referenced config and secret files.
+	// Digest is the content hash including referenced config, secret, and env files.
 	Digest string `json:"digest"`
 }
 
@@ -166,5 +167,38 @@ func (l *fileLoader) computeDigest(ctx context.Context, file File, raw []byte) (
 		return "", fmt.Errorf("compute for secrets: %w", err)
 	}
 
+	if err := l.computeEnvFilesDigest(ctx, hasher, baseDir, file.Compose.Services); err != nil {
+		return "", fmt.Errorf("compute for env files: %w", err)
+	}
+
 	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+func (l *fileLoader) computeEnvFilesDigest(
+	ctx context.Context,
+	hasher hash.Hash,
+	baseDir string,
+	services Services,
+) error {
+	for _, service := range services {
+		for i, envFile := range service.EnvFiles {
+			absPath := envFile
+			if !filepath.IsAbs(absPath) {
+				absPath = filepath.Join(baseDir, envFile)
+			}
+
+			content, err := l.fileReader(ctx, absPath)
+			if err != nil {
+				return fmt.Errorf("read env_file %s for service %q digest: %w", absPath, service.Name, err)
+			}
+
+			hasher.Write([]byte("env_file"))
+			hasher.Write([]byte(service.Name))
+			hasher.Write([]byte(fmt.Sprintf("%d", i)))
+			hasher.Write([]byte(envFile))
+			hasher.Write(content)
+		}
+	}
+
+	return nil
 }

@@ -14,7 +14,7 @@ swarm-deploy is a Swarm-native GitOps controller inspired by Argo CD. It keeps s
 
 - **Git as the desired state** for stack definitions, Compose manifests, referenced configs/secrets, and managed Docker networks.
 - **Reconciliation can be triggered by polling, webhooks, or both**.
-- **Diff-based deployments**: a stack is deployed only when its effective desired-state digest changes, including referenced config and secret files.
+- **Diff-based deployments**: a stack is deployed only when its effective desired-state digest changes, including referenced config, secret, and env files.
 - **Stack sync status** in the UI, including last sync result, Git revision, deployment status, and errors.
 - **Desired vs. live manifests** for each stack, so the Git definition can be compared with the current Swarm state.
 - **Drift detection** for desired services missing from the live cluster, with `OutOfSync` status and audit events.

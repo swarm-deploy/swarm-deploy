@@ -154,6 +154,76 @@ configs:
 	}
 }
 
+func TestFileLoaderDigestChangesWhenEnvFileContentChanges(t *testing.T) {
+	tests := []struct {
+		name           string
+		composePayload func(envFile string) string
+		envFile        func(dir string) string
+		envPath        func(dir string) string
+	}{
+		{
+			name: "relative env file",
+			composePayload: func(envFile string) string {
+				return fmt.Sprintf(`
+services:
+  api:
+    image: nginx:latest
+    env_file:
+      - %s
+`, envFile)
+			},
+			envFile: func(string) string {
+				return "./env/api.env"
+			},
+			envPath: func(dir string) string {
+				return filepath.Join(dir, "env", "api.env")
+			},
+		},
+		{
+			name: "absolute env file",
+			composePayload: func(envFile string) string {
+				return fmt.Sprintf(`
+services:
+  api:
+    image: nginx:latest
+    env_file:
+      - %s
+`, envFile)
+			},
+			envFile: func(dir string) string {
+				return filepath.Join(dir, "absolute", "api.env")
+			},
+			envPath: func(dir string) string {
+				return filepath.Join(dir, "absolute", "api.env")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			composePath := filepath.Join(dir, "compose.yaml")
+			envFile := tt.envFile(dir)
+			envPath := tt.envPath(dir)
+
+			require.NoError(t, os.MkdirAll(filepath.Dir(envPath), 0o755), "create env file dir")
+			require.NoError(t, os.WriteFile(composePath, []byte(tt.composePayload(envFile)), 0o600), "write compose")
+			require.NoError(t, os.WriteFile(envPath, []byte("VERSION=old\n"), 0o600), "write old env file")
+
+			loader := NewFileLoader()
+			oldFile, err := loader.Load(context.Background(), composePath)
+			require.NoError(t, err, "load compose with old env file")
+
+			require.NoError(t, os.WriteFile(envPath, []byte("VERSION=new\n"), 0o600), "write new env file")
+
+			newFile, err := loader.Load(context.Background(), composePath)
+			require.NoError(t, err, "load compose with new env file")
+
+			assert.NotEqual(t, oldFile.Digest, newFile.Digest, "digest must include env_file content")
+		})
+	}
+}
+
 func TestFileLoaderDigestStableWithMultipleSharedObjects(t *testing.T) {
 	tests := []struct {
 		name           string
