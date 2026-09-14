@@ -369,7 +369,7 @@ func buildEventDispatcher(
 
 	eventDispatcher.Subscribe(
 		events.TypeDeploySuccess,
-		service.NewSubscriber(
+		service.NewSubscriberWithRepository(
 			srvStore,
 			swarmSvc.Services,
 			swarmSvc.Images,
