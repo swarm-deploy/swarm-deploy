@@ -369,7 +369,15 @@ func buildEventDispatcher(
 
 	eventDispatcher.Subscribe(
 		events.TypeDeploySuccess,
-		service.NewSubscriber(srvStore, swarmSvc.Services, swarmSvc.Images, swarmSvc.Configs, metadata.NewExtractor()),
+		service.NewSubscriberWithRepository(
+			srvStore,
+			swarmSvc.Services,
+			swarmSvc.Images,
+			swarmSvc.Configs,
+			cfg,
+			filesystem,
+			metadata.NewExtractor(),
+		),
 	)
 	subscribersCount++
 

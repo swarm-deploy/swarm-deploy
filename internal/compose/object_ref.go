@@ -14,6 +14,9 @@ type ObjectRef struct {
 	Gid    string       `yaml:"gid,omitempty" json:"gid,omitempty"`
 	Uid    string       `yaml:"uid,omitempty" json:"uid,omitempty"`
 
+	// File is a resolved repository-backed source path. It is runtime metadata and is not serialized.
+	File string `yaml:"-" json:"-"`
+
 	Extra map[string]interface{} `yaml:",inline"`
 
 	isString bool
