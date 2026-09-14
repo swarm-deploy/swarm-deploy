@@ -196,6 +196,7 @@ func matchDesiredConfigRef(
 				return &refs[i]
 			}
 		}
+	}
 
 	if index >= 0 && index < len(refs) {
 		return &refs[index]
