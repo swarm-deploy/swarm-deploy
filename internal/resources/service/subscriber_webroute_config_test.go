@@ -28,15 +28,10 @@ func TestSubscriberLoadWebRouteConfigPrefersRepositoryContent(t *testing.T) {
 		configs:    reader,
 		fileSystem: fs.NewLocalFileSystem(),
 	}
-	desired := &compose.File{
-		Path: filepath.Join(dir, "compose.yaml"),
-		Compose: compose.Compose{
-			Configs: compose.SharedObjects{
-				"pomerium_config": {File: "./pomerium.yaml"},
-			},
-		},
+	desiredRef := &compose.ObjectRef{
+		Source: "pomerium_config",
+		File:   configPath,
 	}
-	desiredRef := &compose.ObjectRef{Source: "pomerium_config"}
 
 	config, ok := sub.loadWebRouteConfig(
 		context.Background(),
@@ -47,7 +42,6 @@ func TestSubscriberLoadWebRouteConfigPrefersRepositoryContent(t *testing.T) {
 			Target:     "/etc/pomerium/config.yaml",
 		},
 		desiredRef,
-		desired,
 	)
 	require.True(t, ok)
 	require.NotNil(t, config)
@@ -74,7 +68,6 @@ func TestSubscriberLoadWebRouteConfigFallsBackToDocker(t *testing.T) {
 			ConfigName: "prod_pomerium_config",
 			Target:     "/etc/pomerium/config.yaml",
 		},
-		nil,
 		nil,
 	)
 	require.True(t, ok)
