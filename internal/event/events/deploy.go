@@ -8,10 +8,9 @@ import (
 )
 
 type DeploySuccess struct {
-	StackName                string
-	Commit                   string
-	Services                 []compose.Service
-	RepositoryConfigContents map[string][]byte
+	StackName string
+	Commit    string
+	Services  []compose.Service
 }
 
 type DeployFailed struct {
