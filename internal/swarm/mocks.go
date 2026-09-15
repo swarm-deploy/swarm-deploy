@@ -175,6 +175,22 @@ func (mr *MockServiceManagerMockRecorder) Scale(ctx, serviceRef, replicas any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Scale", reflect.TypeOf((*MockServiceManager)(nil).Scale), ctx, serviceRef, replicas)
 }
 
+// TaskLogs mocks base method.
+func (m *MockServiceManager) TaskLogs(ctx context.Context, taskID string, options TaskLogsOptions) (<-chan LogEntry, <-chan error, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TaskLogs", ctx, taskID, options)
+	ret0, _ := ret[0].(<-chan LogEntry)
+	ret1, _ := ret[1].(<-chan error)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// TaskLogs indicates an expected call of TaskLogs.
+func (mr *MockServiceManagerMockRecorder) TaskLogs(ctx, taskID, options any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TaskLogs", reflect.TypeOf((*MockServiceManager)(nil).TaskLogs), ctx, taskID, options)
+}
+
 // MockImageManager is a mock of ImageManager interface.
 type MockImageManager struct {
 	ctrl     *gomock.Controller

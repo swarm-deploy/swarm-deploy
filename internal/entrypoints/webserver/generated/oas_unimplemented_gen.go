@@ -4,6 +4,7 @@ package api
 
 import (
 	"context"
+	"net/http"
 
 	ht "github.com/ogen-go/ogen/http"
 )
@@ -12,6 +13,7 @@ import (
 type UnimplementedHandler struct{}
 
 var _ Handler = UnimplementedHandler{}
+var _ RawHandler = UnimplementedHandler{}
 
 // AssistantChat implements assistantChat operation.
 //
@@ -67,6 +69,13 @@ func (UnimplementedHandler) GetServiceRealtime(ctx context.Context, params GetSe
 // GET /api/v1/stacks/{stack}/manifestos
 func (UnimplementedHandler) GetStackManifestos(ctx context.Context, params GetStackManifestosParams) (r *StackManifestosResponse, _ error) {
 	return r, ht.ErrNotImplemented
+}
+
+// GetTaskLogs implements getTaskLogs operation.
+//
+// GET /api/tasks/{taskID}/logs
+func (UnimplementedHandler) GetTaskLogs(ctx context.Context, params GetTaskLogsParams, w http.ResponseWriter) error {
+	return ht.ErrNotImplemented
 }
 
 // ListEvents implements listEvents operation.

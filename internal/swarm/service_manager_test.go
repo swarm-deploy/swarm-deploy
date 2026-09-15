@@ -1,6 +1,8 @@
 package swarm
 
 import (
+	"bytes"
+	"context"
 	"encoding/binary"
 	"testing"
 	"time"
@@ -59,6 +61,72 @@ func TestBuildDockerServiceLogsOptionsWithBounds(t *testing.T) {
 	assert.True(t, options.ShowStdout, "stdout must be enabled")
 	assert.True(t, options.ShowStderr, "stderr must be enabled")
 	assert.True(t, options.Timestamps, "timestamps must be enabled")
+}
+
+func TestBuildDockerTaskLogsOptionsDefaults(t *testing.T) {
+	options := buildDockerTaskLogsOptions(TaskLogsOptions{})
+
+	assert.Equal(t, container.LogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Timestamps: true,
+		Follow:     false,
+		Tail:       "200",
+	}, options, "unexpected default task logs options")
+}
+
+func TestBuildDockerTaskLogsOptionsWithFollowAndTail(t *testing.T) {
+	options := buildDockerTaskLogsOptions(TaskLogsOptions{
+		Follow: true,
+		Limit:  25,
+	})
+
+	assert.Equal(t, "25", options.Tail, "unexpected tail")
+	assert.True(t, options.Follow, "follow must be enabled")
+	assert.True(t, options.ShowStdout, "stdout must be enabled")
+	assert.True(t, options.ShowStderr, "stderr must be enabled")
+	assert.True(t, options.Timestamps, "timestamps must be enabled")
+}
+
+func TestReadDockerLogEntriesDemultiplexesStreamAndTimestamp(t *testing.T) {
+	raw := append(
+		encodeDockerLogFrame(1, []byte("2026-09-15T18:20:11.123Z server started\n")),
+		encodeDockerLogFrame(2, []byte("2026-09-15T18:20:12.456Z failed request\n"))...,
+	)
+	entries := make(chan LogEntry, 2)
+
+	err := readDockerLogEntries(context.Background(), bytes.NewReader(raw), entries)
+	close(entries)
+	require.NoError(t, err, "read docker log entries")
+
+	got := make([]LogEntry, 0, 2)
+	for entry := range entries {
+		got = append(got, entry)
+	}
+
+	require.Len(t, got, 2)
+	assert.Equal(t, defaultLogStream, got[0].Stream)
+	assert.Equal(t, "server started", got[0].Message)
+	assert.Equal(t, time.Date(2026, time.September, 15, 18, 20, 11, 123000000, time.UTC), got[0].Timestamp)
+	assert.Equal(t, stderrLogStream, got[1].Stream)
+	assert.Equal(t, "failed request", got[1].Message)
+}
+
+func TestReadDockerLogEntriesKeepsShortPlainText(t *testing.T) {
+	entries := make(chan LogEntry, 1)
+
+	err := readDockerLogEntries(context.Background(), bytes.NewReader([]byte("ready\n")), entries)
+	close(entries)
+	require.NoError(t, err, "read docker log entries")
+
+	got := make([]LogEntry, 0, 1)
+	for entry := range entries {
+		got = append(got, entry)
+	}
+
+	require.Len(t, got, 1)
+	assert.Equal(t, defaultLogStream, got[0].Stream)
+	assert.Equal(t, "ready", got[0].Message)
 }
 
 func TestToServiceConfigRefsMapsReferencesWithoutPayload(t *testing.T) {

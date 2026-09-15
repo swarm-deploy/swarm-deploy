@@ -123,6 +123,13 @@ func encodeGetStackManifestosResponse(response *StackManifestosResponse, w http.
 	return nil
 }
 
+func encodeGetTaskLogsResponse(response GetTaskLogsRes, w http.ResponseWriter, span trace.Span) error {
+	switch response := response.(type) {
+	default:
+		return errors.Errorf("unexpected response type: %T", response)
+	}
+}
+
 func encodeListEventsResponse(response *EventHistoryResponse, w http.ResponseWriter, span trace.Span) error {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(200)

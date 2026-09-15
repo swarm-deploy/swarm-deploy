@@ -38,6 +38,15 @@ func (w *lRespWriter) WriteHeader(statusCode int) {
 	w.ResponseWriter.WriteHeader(statusCode)
 }
 
+func (w *lRespWriter) Flush() {
+	flusher, ok := w.ResponseWriter.(http.Flusher)
+	if !ok {
+		return
+	}
+
+	flusher.Flush()
+}
+
 func (l *Log) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	reqID := req.Header.Get("x-request-id")
 	if reqID == "" {

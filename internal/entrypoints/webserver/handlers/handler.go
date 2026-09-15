@@ -29,6 +29,7 @@ type handler struct {
 }
 
 var _ generated.Handler = (*handler)(nil)
+var _ generated.RawHandler = (*handler)(nil)
 
 func New(
 	stackProvider config.StackProvider,
@@ -40,7 +41,7 @@ func New(
 	services *service.Store,
 	nodes *swarmnode.Store,
 	assistantService assistant.Assistant,
-) generated.Handler {
+) *handler {
 	return &handler{
 		stackProvider:    stackProvider,
 		stateStore:       stateStore,

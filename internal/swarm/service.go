@@ -127,6 +127,24 @@ type ServiceLogsOptions struct {
 	Until *time.Time
 }
 
+// TaskLogsOptions configures task logs stream query.
+type TaskLogsOptions struct {
+	// Follow keeps the task logs stream open for new log lines.
+	Follow bool
+	// Limit is max number of latest lines to return before following.
+	Limit int
+}
+
+// LogEntry contains one normalized Docker log line.
+type LogEntry struct {
+	// Timestamp is a Docker log timestamp parsed from the log line.
+	Timestamp time.Time
+	// Stream is stdout or stderr.
+	Stream string
+	// Message is log line payload without Docker timestamp.
+	Message string
+}
+
 // StackService is a compact snapshot of a service belonging to a stack.
 type StackService struct {
 	// ID is a Docker service identifier.

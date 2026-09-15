@@ -395,6 +395,27 @@ func decodeGetStackManifestosResponse(resp *http.Response) (res *StackManifestos
 	return res, validate.UnexpectedStatusCodeWithResponse(resp)
 }
 
+func decodeGetTaskLogsResponse(resp *http.Response) (res GetTaskLogsRes, _ error) {
+	switch resp.StatusCode {
+	case 200:
+		// Code 200.
+		ct, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+		if err != nil {
+			return res, errors.Wrap(err, "parse media type")
+		}
+		switch {
+		case ct == "text/event-stream":
+			// Raw response - return the http.Response directly
+			return &GetTaskLogsOKRawTextEventStream{
+				Response: resp,
+			}, nil
+		default:
+			return res, validate.InvalidContentType(ct)
+		}
+	}
+	return res, validate.UnexpectedStatusCodeWithResponse(resp)
+}
+
 func decodeListEventsResponse(resp *http.Response) (res *EventHistoryResponse, _ error) {
 	switch resp.StatusCode {
 	case 200:

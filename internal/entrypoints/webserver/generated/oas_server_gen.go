@@ -4,6 +4,7 @@ package api
 
 import (
 	"context"
+	"net/http"
 )
 
 // Handler handles operations described by OpenAPI v3 specification.
@@ -78,21 +79,31 @@ type Handler interface {
 	TriggerSync(ctx context.Context) (*QueueResponse, error)
 }
 
+// RawHandler handles raw response operations described by OpenAPI v3 specification.
+type RawHandler interface {
+	// GetTaskLogs implements getTaskLogs operation.
+	//
+	// GET /api/tasks/{taskID}/logs
+	GetTaskLogs(ctx context.Context, params GetTaskLogsParams, w http.ResponseWriter) error
+}
+
 // Server implements http server based on OpenAPI v3 specification and
 // calls Handler to handle requests.
 type Server struct {
-	h Handler
+	h  Handler
+	rh RawHandler
 	baseServer
 }
 
 // NewServer creates new Server.
-func NewServer(h Handler, opts ...ServerOption) (*Server, error) {
+func NewServer(h Handler, rh RawHandler, opts ...ServerOption) (*Server, error) {
 	s, err := newServerConfig(opts...).baseServer()
 	if err != nil {
 		return nil, err
 	}
 	return &Server{
 		h:          h,
+		rh:         rh,
 		baseServer: s,
 	}, nil
 }

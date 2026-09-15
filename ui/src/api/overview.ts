@@ -54,6 +54,15 @@ export function fetchServiceRealtime(stackName: string, serviceName: string): Pr
   return apiRequest<ServiceRealtimeResponse>(`/api/v1/stacks/${encodedStack}/services/${encodedService}/realtime`);
 }
 
+export function openTaskLogsStream(taskID: string, options?: { follow?: boolean; tail?: number }): EventSource {
+  const encodedTaskID = encodeURIComponent(taskID);
+  const params = new URLSearchParams();
+  params.set("follow", String(options?.follow ?? true));
+  params.set("tail", String(options?.tail ?? 200));
+
+  return new EventSource(`/api/tasks/${encodedTaskID}/logs?${params.toString()}`);
+}
+
 export function fetchStackManifestos(stackName: string): Promise<StackManifestosResponse> {
   const encodedStack = encodeURIComponent(stackName);
   return apiRequest<StackManifestosResponse>(`/api/v1/stacks/${encodedStack}/manifestos`);

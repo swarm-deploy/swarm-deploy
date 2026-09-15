@@ -1253,10 +1253,17 @@ button:hover,
 
 .service-realtime-table th:nth-child(6),
 .service-realtime-table td:nth-child(6) {
-  width: 40%;
+  width: 34%;
 }
 
-.service-realtime-copy-cell {
+.service-realtime-table th:nth-child(7),
+.service-realtime-table td:nth-child(7) {
+  width: 56px;
+  text-align: center;
+}
+
+.service-realtime-copy-cell,
+.service-realtime-logs-cell {
   white-space: nowrap;
 }
 
@@ -1286,6 +1293,75 @@ button:hover,
 .service-copy-task-id-button svg {
   width: 14px;
   height: 14px;
+}
+
+.service-task-logs-button {
+  color: var(--accent-strong);
+}
+
+.task-logs-modal-card {
+  width: min(1100px, 96vw);
+}
+
+.task-logs-error {
+  color: var(--error);
+}
+
+.task-logs-viewer {
+  min-height: 320px;
+  max-height: 58vh;
+  overflow: auto;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 8px;
+  background: rgba(9, 9, 11, 0.78);
+  padding: 10px;
+}
+
+.task-logs-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 2px;
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.task-log-line {
+  display: grid;
+  grid-template-columns: minmax(190px, max-content) 62px minmax(0, 1fr);
+  gap: 8px;
+  align-items: start;
+  min-width: 0;
+}
+
+.task-log-time {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.task-log-stream {
+  justify-self: start;
+  min-width: 52px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 999px;
+  padding: 0 6px;
+  color: var(--muted);
+  text-align: center;
+  font-size: 0.74rem;
+}
+
+.task-log-stream-stderr {
+  color: var(--error);
+  border-color: rgba(248, 113, 113, 0.38);
+}
+
+.task-log-message {
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .service-status-link-panel {
@@ -1396,6 +1472,11 @@ button:hover,
 
   .assistant-chat-form input {
     font-size: 16px;
+  }
+
+  .task-log-line {
+    grid-template-columns: 1fr;
+    gap: 3px;
   }
 }
 

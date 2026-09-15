@@ -168,6 +168,12 @@ export interface ServiceRealtimeResponse {
   tasks: ServiceRealtimeTask[];
 }
 
+export interface TaskLogEvent {
+  timestamp: string;
+  stream: "stdout" | "stderr" | string;
+  message: string;
+}
+
 export type ServiceDeploymentStatus = "Synced" | "OutOfSync";
 
 export interface ServiceDeploymentResponse {

@@ -107,7 +107,7 @@ func NewApplication(
 		assistantService,
 	)
 
-	apiHandler, err := generated.NewServer(h, generated.WithErrorHandler(handlers.HandleHTTPError))
+	apiHandler, err := generated.NewServer(h, h, generated.WithErrorHandler(handlers.HandleHTTPError))
 	if err != nil {
 		return nil, fmt.Errorf("build ogen api server: %w", err)
 	}

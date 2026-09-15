@@ -1,14 +1,15 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
-import { fetchServiceDeployments, fetchServiceRealtime, fetchServiceStatus } from "../api/overview";
+import { fetchServiceDeployments, fetchServiceRealtime, fetchServiceStatus, openTaskLogsStream } from "../api/overview";
 import { fetchServices } from "../api/services";
 import type {
   ServiceDeploymentResponse,
   ServiceInfo,
   ServiceRealtimeTask,
   ServiceStatusResponse,
+  TaskLogEvent,
 } from "../api/types";
 import { useOverviewStore } from "../stores/overview";
 import { useSecretDetailsStore } from "../stores/secretDetails";
@@ -26,10 +27,20 @@ const deploymentsError = ref("");
 const realtimeTasks = ref<ServiceRealtimeTask[]>([]);
 const realtimeLoading = ref(false);
 const realtimeError = ref("");
+const logsModalOpen = ref(false);
+const logsTaskID = ref("");
+const logs = ref<TaskLogEvent[]>([]);
+const logsLoading = ref(false);
+const logsError = ref("");
+const logsEnded = ref(false);
+const logsViewer = ref<HTMLElement | null>(null);
+const logsAutoScroll = ref(true);
 const showDockerLabels = ref(false);
 const showSwarmDeployLabels = ref(false);
 const secretDetailsStore = useSecretDetailsStore();
 const overviewStore = useOverviewStore();
+
+let logsStream: EventSource | null = null;
 
 const stackName = computed(() => String(route.params.stack ?? "").trim());
 const serviceName = computed(() => String(route.params.service ?? "").trim());
@@ -148,6 +159,111 @@ function toggleSwarmDeployLabels(): void {
   showSwarmDeployLabels.value = !showSwarmDeployLabels.value;
 }
 
+function closeTaskLogsStream(): void {
+  if (!logsStream) {
+    return;
+  }
+
+  logsStream.close();
+  logsStream = null;
+}
+
+function closeTaskLogsModal(): void {
+  closeTaskLogsStream();
+  logsModalOpen.value = false;
+  logsLoading.value = false;
+}
+
+function isLogsViewerAtBottom(): boolean {
+  const viewer = logsViewer.value;
+  if (!viewer) {
+    return true;
+  }
+
+  return viewer.scrollHeight - viewer.scrollTop - viewer.clientHeight <= 8;
+}
+
+function scrollLogsToBottom(): void {
+  const viewer = logsViewer.value;
+  if (!viewer) {
+    return;
+  }
+
+  viewer.scrollTop = viewer.scrollHeight;
+}
+
+function handleLogsScroll(): void {
+  logsAutoScroll.value = isLogsViewerAtBottom();
+}
+
+function appendTaskLog(entry: TaskLogEvent): void {
+  const shouldScroll = logsAutoScroll.value && isLogsViewerAtBottom();
+  logs.value.push(entry);
+
+  if (shouldScroll) {
+    void nextTick(scrollLogsToBottom);
+  }
+}
+
+function openTaskLogs(taskID: string): void {
+  const id = String(taskID || "").trim();
+  if (!id) {
+    return;
+  }
+
+  closeTaskLogsStream();
+  logsModalOpen.value = true;
+  logsTaskID.value = id;
+  logs.value = [];
+  logsError.value = "";
+  logsEnded.value = false;
+  logsLoading.value = true;
+  logsAutoScroll.value = true;
+
+  void nextTick(scrollLogsToBottom);
+
+  const stream = openTaskLogsStream(id, { follow: true, tail: 200 });
+  logsStream = stream;
+
+  stream.addEventListener("log", (event) => {
+    logsLoading.value = false;
+    try {
+      const payload = JSON.parse(event.data) as TaskLogEvent;
+      appendTaskLog({
+        timestamp: String(payload.timestamp || ""),
+        stream: String(payload.stream || "stdout"),
+        message: String(payload.message || ""),
+      });
+    } catch {
+      appendTaskLog({
+        timestamp: "",
+        stream: "stdout",
+        message: event.data,
+      });
+    }
+  });
+
+  stream.addEventListener("eof", () => {
+    logsLoading.value = false;
+    logsEnded.value = true;
+    closeTaskLogsStream();
+  });
+
+  stream.onerror = () => {
+    logsLoading.value = false;
+    if (!logsEnded.value) {
+      logsError.value = "Log stream interrupted";
+    }
+    closeTaskLogsStream();
+  };
+}
+
+function handleEscape(event: KeyboardEvent): void {
+  if (event.key === "Escape" && logsModalOpen.value) {
+    closeTaskLogsModal();
+  }
+}
+
 async function loadServiceDetails() {
   if (!stackName.value || !serviceName.value) {
     loadingError.value = "Invalid service route parameters";
@@ -244,6 +360,7 @@ async function loadServiceDeployments() {
 watch(
   [stackName, serviceName],
   () => {
+    closeTaskLogsModal();
     showDockerLabels.value = false;
     showSwarmDeployLabels.value = false;
     void loadServiceDetails();
@@ -252,6 +369,15 @@ watch(
   },
   { immediate: true },
 );
+
+onMounted(() => {
+  document.addEventListener("keydown", handleEscape);
+});
+
+onUnmounted(() => {
+  closeTaskLogsStream();
+  document.removeEventListener("keydown", handleEscape);
+});
 </script>
 
 <template>
@@ -423,7 +549,15 @@ watch(
           <p v-else-if="realtime.length === 0" class="meta">No tasks yet.</p>
           <table v-else class="service-status-summary-table service-realtime-table" aria-label="Service realtime">
             <thead>
-              <tr><th>ID</th><th>Node Name</th><th>Current State</th><th>Created At</th><th>Updated At</th><th>Error</th></tr>
+              <tr>
+                <th>ID</th>
+                <th>Node Name</th>
+                <th>Current State</th>
+                <th>Created At</th>
+                <th>Updated At</th>
+                <th>Error</th>
+                <th>Logs</th>
+              </tr>
             </thead>
             <tbody>
               <tr v-for="task in realtime" :key="task.id">
@@ -453,6 +587,23 @@ watch(
                 <td>{{ formatDate(task.created_at) }}</td>
                 <td>{{ formatDate(task.updated_at) }}</td>
                 <td>{{ task.error || 'n/a' }}</td>
+                <td class="service-realtime-logs-cell">
+                  <button
+                    type="button"
+                    class="service-copy-task-id-button service-task-logs-button"
+                    :disabled="!task.id"
+                    :aria-label="`Open logs for task ${task.id}`"
+                    title="Open task logs"
+                    @click="openTaskLogs(task.id)"
+                  >
+                    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                      <path
+                        d="M3 2.5A1.5 1.5 0 0 1 4.5 1h5.8c.4 0 .78.16 1.06.44l1.2 1.2c.28.28.44.66.44 1.06v9.8A1.5 1.5 0 0 1 11.5 15h-7A1.5 1.5 0 0 1 3 13.5v-11Zm1.5-.5a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5h7a.5.5 0 0 0 .5-.5V4H10.5A1.5 1.5 0 0 1 9 2.5V2H4.5ZM10 2.2v.3a.5.5 0 0 0 .5.5h1.3L10 2.2ZM5.5 6a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5Zm0 2.25a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5Zm0 2.25A.5.5 0 0 1 6 10h2.5a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5Z"
+                        fill="currentColor"
+                      />
+                    </svg>
+                  </button>
+                </td>
               </tr>
             </tbody>
           </table>
@@ -542,6 +693,32 @@ watch(
             </li>
           </ul>
         </article>
+      </div>
+    </div>
+
+    <div class="modal" :class="{ hidden: !logsModalOpen }" aria-hidden="true">
+      <div class="modal-overlay" @click="closeTaskLogsModal" />
+      <div class="modal-card task-logs-modal-card" role="dialog" aria-modal="true" aria-labelledby="task-logs-title">
+        <div class="modal-header">
+          <h2 id="task-logs-title">Task logs</h2>
+          <button class="modal-close" type="button" aria-label="Close modal" @click="closeTaskLogsModal">x</button>
+        </div>
+        <div class="modal-body">
+          <p class="meta">task: <code>{{ logsTaskID || "n/a" }}</code></p>
+          <p v-if="logsLoading && logs.length === 0" class="meta">Loading logs...</p>
+          <p v-if="logsError" class="meta task-logs-error">{{ logsError }}</p>
+          <div ref="logsViewer" class="task-logs-viewer" aria-live="polite" @scroll="handleLogsScroll">
+            <p v-if="logs.length === 0 && !logsLoading" class="meta">No log lines.</p>
+            <ol v-else class="task-logs-list">
+              <li v-for="(entry, index) in logs" :key="`${entry.timestamp}-${index}`" class="task-log-line">
+                <time class="task-log-time">{{ entry.timestamp || "no timestamp" }}</time>
+                <span class="task-log-stream" :class="`task-log-stream-${entry.stream}`">{{ entry.stream }}</span>
+                <code class="task-log-message">{{ entry.message }}</code>
+              </li>
+            </ol>
+          </div>
+          <p v-if="logsEnded" class="meta">End of logs.</p>
+        </div>
       </div>
     </div>
   </section>

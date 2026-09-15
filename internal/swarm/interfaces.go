@@ -35,6 +35,9 @@ type ServiceManager interface {
 
 	// Logs returns recent logs for a stack service.
 	Logs(ctx context.Context, serviceRef ServiceReference, options ServiceLogsOptions) ([]string, error)
+
+	// TaskLogs streams normalized logs for a Docker Swarm task.
+	TaskLogs(ctx context.Context, taskID string, options TaskLogsOptions) (<-chan LogEntry, <-chan error, error)
 }
 
 type ImageManager interface {

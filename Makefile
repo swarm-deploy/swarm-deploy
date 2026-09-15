@@ -7,7 +7,7 @@ lint:
 
 .PHONY: gen
 gen:
-	ogen --target ./internal/entrypoints/webserver/generated --clean ./api/api-server.yaml
+	go run -mod=mod github.com/ogen-go/ogen/cmd/ogen@v1.20.1 --target ./internal/entrypoints/webserver/generated --clean ./api/api-server.yaml
 	go generate ./...
 
 .PHONY: test

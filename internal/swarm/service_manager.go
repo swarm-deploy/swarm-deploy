@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"sort"
@@ -291,6 +292,37 @@ func (m *serviceManager) Logs(
 	return logs, nil
 }
 
+// TaskLogs streams normalized logs for a Docker Swarm task.
+func (m *serviceManager) TaskLogs(
+	ctx context.Context,
+	taskID string,
+	options TaskLogsOptions,
+) (<-chan LogEntry, <-chan error, error) {
+	reader, err := m.dockerClient.TaskLogs(ctx, taskID, buildDockerTaskLogsOptions(options))
+	if err != nil {
+		if isNotFoundErr(err) {
+			return nil, nil, ErrServiceNotFound
+		}
+
+		return nil, nil, fmt.Errorf("read logs for task %s: %w", taskID, err)
+	}
+
+	entries := make(chan LogEntry)
+	errs := make(chan error, 1)
+
+	go func() {
+		defer close(entries)
+		defer close(errs)
+		defer reader.Close()
+
+		if readErr := readDockerLogEntries(ctx, reader, entries); readErr != nil {
+			errs <- fmt.Errorf("read task %s logs stream: %w", taskID, readErr)
+		}
+	}()
+
+	return entries, errs, nil
+}
+
 func buildDockerServiceLogsOptions(options ServiceLogsOptions) container.LogsOptions {
 	limit := options.Limit
 	if limit <= 0 {
@@ -312,6 +344,21 @@ func buildDockerServiceLogsOptions(options ServiceLogsOptions) container.LogsOpt
 	}
 
 	return logsOptions
+}
+
+func buildDockerTaskLogsOptions(options TaskLogsOptions) container.LogsOptions {
+	limit := options.Limit
+	if limit <= 0 {
+		limit = defaultServiceLogsLimit
+	}
+
+	return container.LogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Timestamps: true,
+		Follow:     options.Follow,
+		Tail:       strconv.Itoa(limit),
+	}
 }
 
 func demultiplexDockerLogStream(raw []byte) []byte {
@@ -370,6 +417,222 @@ func demultiplexDockerLogStream(raw []byte) []byte {
 	}
 
 	return decoded.Bytes()
+}
+
+func readDockerLogEntries(ctx context.Context, reader io.Reader, entries chan<- LogEntry) error {
+	bufReader := bufio.NewReader(reader)
+	plainReader, err := readDockerLogFrames(ctx, bufReader, entries)
+	if err != nil {
+		return err
+	}
+	if plainReader == nil {
+		return nil
+	}
+
+	return scanDockerLogLines(ctx, plainReader, defaultLogStream, entries)
+}
+
+const (
+	defaultLogStream = "stdout"
+	stderrLogStream  = "stderr"
+
+	dockerStdoutStreamID byte = 1
+	dockerStderrStreamID byte = 2
+)
+
+func readDockerLogFrames(
+	ctx context.Context,
+	reader *bufio.Reader,
+	entries chan<- LogEntry,
+) (io.Reader, error) {
+	buffers := map[string]*bytes.Buffer{
+		defaultLogStream: {},
+		stderrLogStream:  {},
+	}
+	parsedFrames := false
+
+	for {
+		header := make([]byte, dockerLogFrameHeaderSize)
+		n, err := io.ReadFull(reader, header)
+		if err != nil {
+			return handleDockerLogHeaderReadError(ctx, header[:n], err, parsedFrames, buffers, entries)
+		}
+
+		if !isDockerLogFrameHeader(header) {
+			return io.MultiReader(bytes.NewReader(header), reader), nil
+		}
+
+		frameSize := int(binary.BigEndian.Uint32(header[4:dockerLogFrameHeaderSize]))
+		payload := make([]byte, frameSize)
+		if _, err = io.ReadFull(reader, payload); err != nil {
+			return nil, err
+		}
+
+		stream := dockerLogStreamName(header[0])
+		if err = appendDockerLogPayload(ctx, buffers[stream], stream, payload, entries); err != nil {
+			return nil, err
+		}
+		parsedFrames = true
+	}
+}
+
+func handleDockerLogHeaderReadError(
+	ctx context.Context,
+	headerPart []byte,
+	err error,
+	parsedFrames bool,
+	buffers map[string]*bytes.Buffer,
+	entries chan<- LogEntry,
+) (io.Reader, error) {
+	if errors.Is(err, io.EOF) {
+		return nil, flushDockerLogLineBuffers(ctx, buffers, entries)
+	}
+	if !errors.Is(err, io.ErrUnexpectedEOF) {
+		return nil, err
+	}
+	if !parsedFrames && len(headerPart) > 0 {
+		return bytes.NewReader(headerPart), nil
+	}
+	if len(headerPart) == 0 {
+		return nil, flushDockerLogLineBuffers(ctx, buffers, entries)
+	}
+
+	if appendErr := appendDockerLogPayload(
+		ctx,
+		buffers[defaultLogStream],
+		defaultLogStream,
+		headerPart,
+		entries,
+	); appendErr != nil {
+		return nil, appendErr
+	}
+
+	return nil, flushDockerLogLineBuffers(ctx, buffers, entries)
+}
+
+func isDockerLogFrameHeader(header []byte) bool {
+	if len(header) != dockerLogFrameHeaderSize {
+		return false
+	}
+
+	if header[1] != 0 || header[2] != 0 || header[3] != 0 {
+		return false
+	}
+
+	return header[0] == dockerStdoutStreamID || header[0] == dockerStderrStreamID
+}
+
+func dockerLogStreamName(stream byte) string {
+	if stream == dockerStderrStreamID {
+		return stderrLogStream
+	}
+
+	return defaultLogStream
+}
+
+func appendDockerLogPayload(
+	ctx context.Context,
+	buffer *bytes.Buffer,
+	stream string,
+	payload []byte,
+	entries chan<- LogEntry,
+) error {
+	buffer.Write(payload)
+
+	for {
+		line, err := buffer.ReadString('\n')
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				buffer.WriteString(line)
+				return nil
+			}
+
+			return err
+		}
+
+		if err = sendDockerLogLine(ctx, stream, line, entries); err != nil {
+			return err
+		}
+	}
+}
+
+func flushDockerLogLineBuffers(
+	ctx context.Context,
+	buffers map[string]*bytes.Buffer,
+	entries chan<- LogEntry,
+) error {
+	for stream, buffer := range buffers {
+		if buffer.Len() == 0 {
+			continue
+		}
+
+		if err := sendDockerLogLine(ctx, stream, buffer.String(), entries); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func scanDockerLogLines(ctx context.Context, reader io.Reader, stream string, entries chan<- LogEntry) error {
+	scanner := bufio.NewScanner(reader)
+	scanner.Buffer(
+		make([]byte, 0, serviceLogsScannerInitialBufSize),
+		serviceLogsScannerMaxTokenBufSize,
+	)
+	for scanner.Scan() {
+		if err := sendDockerLogLine(ctx, stream, scanner.Text(), entries); err != nil {
+			return err
+		}
+	}
+	if scanErr := scanner.Err(); scanErr != nil {
+		return scanErr
+	}
+
+	return nil
+}
+
+func sendDockerLogLine(ctx context.Context, stream string, rawLine string, entries chan<- LogEntry) error {
+	entry, ok := parseDockerLogEntry(stream, rawLine)
+	if !ok {
+		return nil
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case entries <- entry:
+		return nil
+	}
+}
+
+func parseDockerLogEntry(stream string, rawLine string) (LogEntry, bool) {
+	line := strings.TrimRight(rawLine, "\r\n")
+	if strings.TrimSpace(line) == "" {
+		return LogEntry{}, false
+	}
+
+	timestampRaw, message, ok := strings.Cut(line, " ")
+	if !ok {
+		return LogEntry{
+			Stream:  stream,
+			Message: strings.TrimSpace(line),
+		}, true
+	}
+
+	timestamp, err := time.Parse(time.RFC3339Nano, timestampRaw)
+	if err != nil {
+		return LogEntry{
+			Stream:  stream,
+			Message: strings.TrimSpace(line),
+		}, true
+	}
+
+	return LogEntry{
+		Timestamp: timestamp.UTC(),
+		Stream:    stream,
+		Message:   strings.TrimRight(message, "\r"),
+	}, true
 }
 
 func toServiceSpec(spec dockerswarm.ServiceSpec) ServiceSpec {
