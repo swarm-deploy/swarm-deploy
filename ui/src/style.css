@@ -192,19 +192,6 @@ body {
   transition: color 120ms ease, background-color 120ms ease;
 }
 
-.sidebar-link-button {
-  width: 100%;
-  text-align: left;
-  color: var(--muted);
-  background: transparent;
-  box-shadow: none;
-}
-
-.sidebar-link-button:hover {
-  transform: none;
-  filter: none;
-}
-
 .sidebar-link:hover {
   color: var(--text);
   background: rgba(63, 63, 70, 0.56);
@@ -322,8 +309,7 @@ body {
     padding-bottom: 2px;
   }
 
-  .sidebar-link,
-  .sidebar-link-button {
+  .sidebar-link {
     white-space: nowrap;
     flex: 0 0 auto;
   }

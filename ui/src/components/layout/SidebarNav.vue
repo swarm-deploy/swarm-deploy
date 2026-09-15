@@ -1,17 +1,11 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 
-defineProps<{
-  assistantEnabled: boolean;
-  assistantOpen: boolean;
-}>();
-
-const emit = defineEmits<{
-  openEvents: [];
-  toggleAssistant: [];
-}>();
-
 const route = useRoute();
+
+const appVersion = computed(() => formatVersion(__SWARM_DEPLOY_VERSION__));
+const buildTimeTitle = computed(() => formatBuildTime(__SWARM_DEPLOY_BUILD_TIME__));
 
 const links = [
   { to: "/overview", label: "Overview" },
@@ -29,6 +23,26 @@ function isActive(path: string): boolean {
 
   return route.path === path;
 }
+
+function formatVersion(value: string): string {
+  const version = value.trim() || "dev";
+
+  return version.startsWith("v") ? version : `v${version}`;
+}
+
+function formatBuildTime(value: string): string {
+  const buildTime = value.trim();
+  if (!buildTime) {
+    return "Build time unavailable";
+  }
+
+  const date = new Date(buildTime);
+  if (Number.isNaN(date.getTime())) {
+    return buildTime;
+  }
+
+  return date.toLocaleString();
+}
 </script>
 
 <template>
@@ -37,7 +51,7 @@ function isActive(path: string): boolean {
       <span class="sidebar-brand-mark">SD</span>
       <span>
         <span class="sidebar-brand-name">Swarm Deploy</span>
-        <span class="sidebar-brand-meta">Docker Swarm CD</span>
+        <span class="sidebar-brand-meta" :title="buildTimeTitle">{{ appVersion }}</span>
       </span>
     </RouterLink>
 
@@ -51,18 +65,6 @@ function isActive(path: string): boolean {
       >
         {{ link.label }}
       </RouterLink>
-      <button type="button" class="sidebar-link sidebar-link-button" @click="emit('openEvents')">
-        Events
-      </button>
-      <button
-        type="button"
-        class="sidebar-link sidebar-link-button"
-        :class="{ active: assistantOpen }"
-        :disabled="!assistantEnabled"
-        @click="emit('toggleAssistant')"
-      >
-        Assistant
-      </button>
     </nav>
   </aside>
 </template>

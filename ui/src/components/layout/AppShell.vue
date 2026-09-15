@@ -53,17 +53,15 @@ onMounted(() => {
 <template>
   <div class="app-root">
     <div class="layout-shell">
-      <SidebarNav
-        :assistant-enabled="assistantStore.enabled"
-        :assistant-open="uiStore.assistantDrawerOpen"
-        @open-events="handleNotifications"
-        @toggle-assistant="handleAssistantToggle"
-      />
+      <SidebarNav />
       <main class="shell-main">
         <TopBar
           :sync-disabled="syncDisabled"
           :sync-pending="overviewStore.syncPending"
+          :assistant-enabled="assistantStore.enabled"
           @sync-now="handleSyncNow"
+          @open-notifications="handleNotifications"
+          @toggle-assistant="handleAssistantToggle"
         />
         <div class="shell-view">
           <RouterView />
