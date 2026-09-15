@@ -673,6 +673,7 @@ func decodeGetTaskLogsParams(args [1]string, argsEscaped bool, r *http.Request) 
 type ListEventsParams struct {
 	Severities []EventSeverity `json:",omitempty"`
 	Categories []EventCategory `json:",omitempty"`
+	Types      []string        `json:",omitempty"`
 }
 
 func unpackListEventsParams(packed middleware.Parameters) (params ListEventsParams) {
@@ -692,6 +693,15 @@ func unpackListEventsParams(packed middleware.Parameters) (params ListEventsPara
 		}
 		if v, ok := packed[key]; ok {
 			params.Categories = v.([]EventCategory)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "types",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Types = v.([]string)
 		}
 	}
 	return params
@@ -825,6 +835,49 @@ func decodeListEventsParams(args [0]string, argsEscaped bool, r *http.Request) (
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "categories",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: types.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "types",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				return d.DecodeArray(func(d uri.Decoder) error {
+					var paramsDotTypesVal string
+					if err := func() error {
+						val, err := d.DecodeValue()
+						if err != nil {
+							return err
+						}
+
+						c, err := conv.ToString(val)
+						if err != nil {
+							return err
+						}
+
+						paramsDotTypesVal = c
+						return nil
+					}(); err != nil {
+						return err
+					}
+					params.Types = append(params.Types, paramsDotTypesVal)
+					return nil
+				})
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "types",
 			In:   "query",
 			Err:  err,
 		}

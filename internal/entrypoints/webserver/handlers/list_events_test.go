@@ -95,3 +95,22 @@ func TestHandlerListEventsFiltersBySwarmCategory(t *testing.T) {
 	assert.Equal(t, generated.EventSeverityAlert, resp.Events[0].Severity)
 	assert.Equal(t, generated.EventCategorySwarm, resp.Events[0].Category)
 }
+
+func TestHandlerListEventsFiltersByType(t *testing.T) {
+	t.Parallel()
+
+	store, err := history.NewStore(filepath.Join(t.TempDir(), "events.json"), 50, fs.NewLocalFileSystem())
+	require.NoError(t, err, "new history store")
+	require.NoError(t, store.Handle(context.Background(), &events.DeploySuccess{StackName: "api", Commit: "abc"}))
+	require.NoError(t, store.Handle(context.Background(), &events.DeployFailed{StackName: "api", Commit: "def"}))
+	require.NoError(t, store.Handle(context.Background(), &events.UserAuthenticated{Username: "alice"}))
+
+	h := &handler{history: store}
+	resp, err := h.ListEvents(context.Background(), generated.ListEventsParams{
+		Types: []string{string(events.TypeNameDeployFailed)},
+	})
+	require.NoError(t, err, "list events")
+	require.Len(t, resp.Events, 1, "expected type-filtered response")
+	assert.Equal(t, "deployFailed", resp.Events[0].Type)
+	assert.Equal(t, generated.EventSeverityAlert, resp.Events[0].Severity)
+}

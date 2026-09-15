@@ -1375,6 +1375,10 @@ func (s *Server) handleListEventsRequest(args [0]string, argsEscaped bool, w htt
 					Name: "categories",
 					In:   "query",
 				}: params.Categories,
+				{
+					Name: "types",
+					In:   "query",
+				}: params.Types,
 			},
 			Raw: r,
 		}

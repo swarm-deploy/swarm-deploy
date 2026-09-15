@@ -94,6 +94,13 @@ paths:
             type: array
             items:
               $ref: '#/components/schemas/EventCategory'
+        - in: query
+          name: types
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
       responses:
         '200':
           description: Latest events from local history

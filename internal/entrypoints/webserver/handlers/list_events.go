@@ -30,8 +30,13 @@ func (h *handler) ListEvents(
 		categories = append(categories, parsed)
 	}
 
+	types := make([]events.TypeName, 0, len(params.Types))
+	for _, eventType := range params.Types {
+		types = append(types, events.TypeName(eventType))
+	}
+
 	entries := h.history.List()
-	entries = history.FilterEntries(entries, severities, categories)
+	entries = history.FilterEntries(entries, severities, categories, types)
 	items := toGeneratedEvents(entries)
 
 	return &generated.EventHistoryResponse{

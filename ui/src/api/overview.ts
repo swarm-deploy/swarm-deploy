@@ -10,6 +10,12 @@ import type {
   StacksResponse,
 } from "./types";
 
+export interface FetchEventsOptions {
+  severities?: string[];
+  categories?: string[];
+  types?: string[];
+}
+
 export function fetchStacks(): Promise<StacksResponse> {
   return apiRequest<StacksResponse>("/api/v1/stacks");
 }
@@ -25,8 +31,20 @@ export function triggerSync(): Promise<QueueResponse> {
   });
 }
 
-export function fetchEvents(): Promise<EventHistoryResponse> {
-  return apiRequest<EventHistoryResponse>("/api/v1/events");
+export function fetchEvents(options: FetchEventsOptions = {}): Promise<EventHistoryResponse> {
+  const params = new URLSearchParams();
+  for (const severity of options.severities ?? []) {
+    params.append("severities", severity);
+  }
+  for (const category of options.categories ?? []) {
+    params.append("categories", category);
+  }
+  for (const type of options.types ?? []) {
+    params.append("types", type);
+  }
+
+  const query = params.toString();
+  return apiRequest<EventHistoryResponse>(`/api/v1/events${query ? `?${query}` : ""}`);
 }
 
 export function fetchServiceStatus(stackName: string, serviceName: string): Promise<ServiceStatusResponse> {

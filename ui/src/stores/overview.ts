@@ -1,7 +1,6 @@
 import { defineStore } from "pinia";
 
 import {
-  fetchEvents,
   fetchGitCommit,
   fetchServiceDeployments,
   fetchServiceStatus,
@@ -11,7 +10,6 @@ import {
 } from "../api/overview";
 import { fetchServices } from "../api/services";
 import type {
-  EventHistoryItem,
   GitCommitDetailsResponse,
   ServiceInfo,
   ServiceStatusResponse,
@@ -26,10 +24,6 @@ interface OverviewState {
   loading: boolean;
   loadingError: string;
   syncPending: boolean;
-  events: EventHistoryItem[];
-  eventsLoading: boolean;
-  eventsError: string;
-  eventsModalOpen: boolean;
   serviceStatusData: ServiceStatusResponse | null;
   serviceStatusLoading: boolean;
   serviceStatusError: string;
@@ -58,10 +52,6 @@ export const useOverviewStore = defineStore("overview", {
     loading: false,
     loadingError: "",
     syncPending: false,
-    events: [],
-    eventsLoading: false,
-    eventsError: "",
-    eventsModalOpen: false,
     serviceStatusData: null,
     serviceStatusLoading: false,
     serviceStatusError: "",
@@ -129,23 +119,6 @@ export const useOverviewStore = defineStore("overview", {
       } finally {
         this.syncPending = false;
       }
-    },
-    async openEventsModal() {
-      this.eventsModalOpen = true;
-      this.eventsLoading = true;
-      this.eventsError = "";
-
-      try {
-        const response = await fetchEvents();
-        this.events = Array.isArray(response.events) ? response.events : [];
-      } catch (error) {
-        this.eventsError = error instanceof Error ? error.message : "Failed to load event history";
-      } finally {
-        this.eventsLoading = false;
-      }
-    },
-    closeEventsModal() {
-      this.eventsModalOpen = false;
     },
     async openServiceStatusModal(stackName: string, serviceName: string) {
       this.serviceStatusModalOpen = true;

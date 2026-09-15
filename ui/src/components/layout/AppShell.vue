@@ -9,7 +9,6 @@ import { useUIStore } from "../../stores/ui";
 import AssistantDrawer from "../assistant/AssistantDrawer.vue";
 import SidebarNav from "./SidebarNav.vue";
 import TopBar from "./TopBar.vue";
-import EventHistoryModal from "../overview/EventHistoryModal.vue";
 import ServiceStatusModal from "../overview/ServiceStatusModal.vue";
 import CommitDetailsModal from "../overview/CommitDetailsModal.vue";
 import StackManifestModal from "../overview/StackManifestModal.vue";
@@ -31,10 +30,6 @@ async function handleSyncNow() {
   }
 
   await overviewStore.triggerManualSync();
-}
-
-async function handleNotifications() {
-  await overviewStore.openEventsModal();
 }
 
 function handleAssistantToggle() {
@@ -60,7 +55,6 @@ onMounted(() => {
           :sync-pending="overviewStore.syncPending"
           :assistant-enabled="assistantStore.enabled"
           @sync-now="handleSyncNow"
-          @open-notifications="handleNotifications"
           @toggle-assistant="handleAssistantToggle"
         />
         <div class="shell-view">
@@ -68,7 +62,6 @@ onMounted(() => {
         </div>
       </main>
     </div>
-    <EventHistoryModal />
     <ServiceStatusModal />
     <CommitDetailsModal />
     <StackManifestModal />
