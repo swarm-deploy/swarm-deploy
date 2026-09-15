@@ -2,6 +2,9 @@
 
 FROM node:22-alpine AS ui-builder
 
+ARG APP_VERSION=dev
+ARG BUILD_TIME
+
 WORKDIR /ui
 
 COPY ui/package.json ui/package-lock.json ./
@@ -10,7 +13,7 @@ RUN --mount=type=cache,target=/root/.npm \
 
 COPY ui/index.html ui/styles.css ui/vite.config.ts ui/tsconfig.json ./
 COPY ui/src ./src
-RUN npm run build
+RUN APP_VERSION="${APP_VERSION}" BUILD_TIME="${BUILD_TIME}" npm run build
 
 FROM golang:1.26.3-alpine AS builder
 
@@ -32,6 +35,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     go build -trimpath -ldflags="-s -w" -o /out/swarm-deploy ./cmd/swarm-deploy
 
 FROM alpine:3.21.7
+
+ARG APP_VERSION="dev"
+ARG BUILD_TIME
 
 RUN apk add --no-cache ca-certificates docker-cli tzdata
 

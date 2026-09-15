@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { RouterLink } from "vue-router";
 
 import { fetchSearch } from "../../api/search";
 import type { SearchResult } from "../../api/types";
@@ -12,8 +11,6 @@ defineProps<{
   syncDisabled: boolean;
   syncPending: boolean;
   assistantEnabled: boolean;
-  assistantOpen: boolean;
-  notificationsDisabled: boolean;
 }>();
 
 const emit = defineEmits<{
@@ -163,11 +160,6 @@ onUnmounted(() => {
 
 <template>
   <header class="topbar-shell">
-    <div class="topbar-brand">
-      <p class="eyebrow">GitOps for Docker Swarm</p>
-      <RouterLink to="/overview" class="brand-link">Swarm Deploy</RouterLink>
-    </div>
-
     <div ref="searchRootRef" class="topbar-search">
       <input
         v-model="searchQuery"
@@ -214,9 +206,9 @@ onUnmounted(() => {
       <button type="button" :disabled="syncDisabled || syncPending" @click="emit('syncNow')">
         {{ syncPending ? "Syncing..." : "Sync now" }}
       </button>
-      <button type="button" :disabled="notificationsDisabled" @click="emit('openNotifications')">Events</button>
-      <button type="button" :disabled="!assistantEnabled" @click="emit('toggleAssistant')">
-        {{ assistantOpen ? "Assistant Open" : "Assistant" }}
+      <button type="button" class="button-ghost" @click="emit('openNotifications')">Events</button>
+      <button type="button" class="button-ghost" :disabled="!assistantEnabled" @click="emit('toggleAssistant')">
+        Assistant
       </button>
       <button type="button" class="button-ghost">{{ currentUserLabel }}</button>
     </div>

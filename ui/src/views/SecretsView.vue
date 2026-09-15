@@ -79,17 +79,16 @@ function formatDate(value: string): string {
   <section class="services-page">
     <header class="services-header">
       <h2>Secrets</h2>
+      <div class="services-header-actions">
+        <input
+          v-model="searchQuery"
+          type="search"
+          class="secrets-search-input"
+          placeholder="Search by name, version, external path..."
+          aria-label="Search secrets"
+        />
+      </div>
     </header>
-
-    <section class="secrets-toolbar">
-      <input
-        v-model="searchQuery"
-        type="search"
-        class="secrets-search-input"
-        placeholder="Search by name, version, external path..."
-        aria-label="Search secrets"
-      />
-    </section>
 
     <div v-if="loading && secrets.length === 0" class="services-empty">
       <p class="meta">Loading...</p>

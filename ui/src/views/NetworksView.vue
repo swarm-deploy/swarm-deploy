@@ -73,17 +73,16 @@ onMounted(() => {
   <section class="services-page">
     <header class="services-header">
       <h2>Networks</h2>
+      <div class="services-header-actions">
+        <input
+          v-model="searchQuery"
+          type="search"
+          class="secrets-search-input"
+          placeholder="Search by name, stack, scope, driver, labels..."
+          aria-label="Search networks"
+        />
+      </div>
     </header>
-
-    <section class="secrets-toolbar">
-      <input
-        v-model="searchQuery"
-        type="search"
-        class="secrets-search-input"
-        placeholder="Search by name, stack, scope, driver, labels..."
-        aria-label="Search networks"
-      />
-    </section>
 
     <div v-if="loading && networks.length === 0" class="services-empty">
       <p class="meta">Loading...</p>
