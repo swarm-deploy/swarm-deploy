@@ -425,22 +425,22 @@ function buildExportSvg(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`,
     `<defs>`,
     `<pattern id="graph-export-grid" width="32" height="32" patternUnits="userSpaceOnUse">`,
-    `<path d="M 32 0 L 0 0 0 32" fill="none" stroke="rgba(161, 192, 204, 0.08)" stroke-width="1" />`,
+    `<path d="M 32 0 L 0 0 0 32" fill="none" stroke="rgba(148, 163, 184, 0.08)" stroke-width="1" />`,
     `</pattern>`,
     `<marker id="graph-export-edge-arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">`,
     `<path d="M 0 0 L 10 5 L 0 10 z" class="graph-export-edge-arrow" />`,
     `</marker>`,
     `<style>`,
     `text { font-family: "Space Grotesk", "Segoe UI", sans-serif; }`,
-    `.graph-export-stage { fill: rgba(8, 21, 32, 0.55); }`,
+    `.graph-export-stage { fill: rgba(18, 18, 20, 0.9); }`,
     `.graph-export-grid { fill: url(#graph-export-grid); }`,
-    `.graph-export-edge-path { fill: none; stroke: rgba(247, 178, 103, 0.72); stroke-width: 2; }`,
-    `.graph-export-edge-arrow { fill: rgba(247, 178, 103, 0.82); }`,
-    `.graph-export-node-card { fill: rgba(7, 17, 27, 0.96); stroke: rgba(130, 196, 214, 0.32); stroke-width: 1; }`,
-    `.graph-export-node-kind { fill: #a1c0cc; font-size: 12px; letter-spacing: 0.8px; text-transform: uppercase; }`,
-    `.graph-export-node-name { fill: #e3f4fb; font-size: 16px; font-weight: 700; }`,
-    `.graph-export-endpoint-dot { fill: #a1c0cc; }`,
-    `.graph-export-endpoint-text, .graph-export-empty-text { fill: #a1c0cc; font-size: 13px; }`,
+    `.graph-export-edge-path { fill: none; stroke: rgba(96, 165, 250, 0.72); stroke-width: 2; }`,
+    `.graph-export-edge-arrow { fill: rgba(96, 165, 250, 0.82); }`,
+    `.graph-export-node-card { fill: rgba(39, 39, 43, 0.96); stroke: rgba(148, 163, 184, 0.22); stroke-width: 1; }`,
+    `.graph-export-node-kind { fill: #a1a1aa; font-size: 12px; letter-spacing: 0.8px; text-transform: uppercase; }`,
+    `.graph-export-node-name { fill: #f4f4f5; font-size: 16px; font-weight: 700; }`,
+    `.graph-export-endpoint-dot { fill: #a1a1aa; }`,
+    `.graph-export-endpoint-text, .graph-export-empty-text { fill: #a1a1aa; font-size: 13px; }`,
     `</style>`,
     `</defs>`,
     `<rect width="${width}" height="${height}" rx="12" ry="12" class="graph-export-stage" />`,
@@ -724,9 +724,9 @@ onBeforeUnmount(() => {
 
 .graph-summary-chip {
   min-width: 88px;
-  border: 1px solid rgba(161, 192, 204, 0.24);
-  border-radius: 12px;
-  background: rgba(9, 18, 28, 0.78);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  border-radius: 8px;
+  background: rgba(39, 39, 42, 0.62);
   padding: 8px 10px;
   display: grid;
   gap: 2px;
@@ -759,11 +759,11 @@ onBeforeUnmount(() => {
 
 .graph-stage {
   position: relative;
-  border-radius: 12px;
+  border-radius: 8px;
   background:
-    linear-gradient(rgba(161, 192, 204, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(161, 192, 204, 0.04) 1px, transparent 1px),
-    rgba(8, 21, 32, 0.55);
+    linear-gradient(rgba(148, 163, 184, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.04) 1px, transparent 1px),
+    rgba(18, 18, 20, 0.76);
   background-size: 32px 32px;
   overflow: hidden;
 }
@@ -775,22 +775,21 @@ onBeforeUnmount(() => {
 
 .graph-edge-path {
   fill: none;
-  stroke: rgba(247, 178, 103, 0.72);
+  stroke: rgba(96, 165, 250, 0.72);
   stroke-width: 2;
 }
 
 .graph-edge-arrow {
-  fill: rgba(247, 178, 103, 0.82);
+  fill: rgba(96, 165, 250, 0.82);
 }
 
 .graph-node-card {
   position: absolute;
   top: 0;
   left: 0;
-  border: 1px solid rgba(130, 196, 214, 0.32);
-  border-radius: 14px;
-  background: rgba(7, 17, 27, 0.96);
-  backdrop-filter: blur(8px);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 8px;
+  background: rgba(39, 39, 43, 0.96);
   padding: 12px;
   display: grid;
   gap: 10px;
@@ -802,7 +801,7 @@ onBeforeUnmount(() => {
 
 .graph-node-card.dragging {
   cursor: grabbing;
-  border-color: rgba(247, 178, 103, 0.72);
+  border-color: rgba(96, 165, 250, 0.66);
   box-shadow: 0 20px 44px rgba(0, 0, 0, 0.3);
 }
 

@@ -24,7 +24,6 @@ const uiStore = useUIStore();
 const isOverviewRoute = computed(() => route.path === "/overview");
 
 const syncDisabled = computed(() => !isOverviewRoute.value);
-const notificationsDisabled = computed(() => false);
 
 async function handleSyncNow() {
   if (!isOverviewRoute.value) {
@@ -53,26 +52,23 @@ onMounted(() => {
 
 <template>
   <div class="app-root">
-    <div class="bg-shape shape-1" />
-    <div class="bg-shape shape-2" />
     <div class="layout-shell">
-      <TopBar
-        :sync-disabled="syncDisabled"
-        :sync-pending="overviewStore.syncPending"
+      <SidebarNav
         :assistant-enabled="assistantStore.enabled"
         :assistant-open="uiStore.assistantDrawerOpen"
-        :notifications-disabled="notificationsDisabled"
-        @sync-now="handleSyncNow"
-        @open-notifications="handleNotifications"
+        @open-events="handleNotifications"
         @toggle-assistant="handleAssistantToggle"
       />
-
-      <div class="shell-content">
-        <SidebarNav />
-        <main class="shell-main">
+      <main class="shell-main">
+        <TopBar
+          :sync-disabled="syncDisabled"
+          :sync-pending="overviewStore.syncPending"
+          @sync-now="handleSyncNow"
+        />
+        <div class="shell-view">
           <RouterView />
-        </main>
-      </div>
+        </div>
+      </main>
     </div>
     <EventHistoryModal />
     <ServiceStatusModal />
