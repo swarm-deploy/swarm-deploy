@@ -13,6 +13,15 @@ import (
 	"github.com/ogen-go/ogen/validate"
 )
 
+func decodeAddNodeLabelResponse(resp *http.Response) (res *AddNodeLabelNoContent, _ error) {
+	switch resp.StatusCode {
+	case 204:
+		// Code 204.
+		return &AddNodeLabelNoContent{}, nil
+	}
+	return res, validate.UnexpectedStatusCodeWithResponse(resp)
+}
+
 func decodeAssistantChatResponse(resp *http.Response) (res *AssistantChatResponse, _ error) {
 	switch resp.StatusCode {
 	case 200:
@@ -59,6 +68,15 @@ func decodeAssistantChatResponse(resp *http.Response) (res *AssistantChatRespons
 		default:
 			return res, validate.InvalidContentType(ct)
 		}
+	}
+	return res, validate.UnexpectedStatusCodeWithResponse(resp)
+}
+
+func decodeDeleteNodeLabelResponse(resp *http.Response) (res *DeleteNodeLabelNoContent, _ error) {
+	switch resp.StatusCode {
+	case 204:
+		// Code 204.
+		return &DeleteNodeLabelNoContent{}, nil
 	}
 	return res, validate.UnexpectedStatusCodeWithResponse(resp)
 }
@@ -853,6 +871,15 @@ func decodeTriggerSyncResponse(resp *http.Response) (res *QueueResponse, _ error
 		default:
 			return res, validate.InvalidContentType(ct)
 		}
+	}
+	return res, validate.UnexpectedStatusCodeWithResponse(resp)
+}
+
+func decodeUpdateNodeLabelResponse(resp *http.Response) (res *UpdateNodeLabelNoContent, _ error) {
+	switch resp.StatusCode {
+	case 204:
+		// Code 204.
+		return &UpdateNodeLabelNoContent{}, nil
 	}
 	return res, validate.UnexpectedStatusCodeWithResponse(resp)
 }

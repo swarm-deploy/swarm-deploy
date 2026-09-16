@@ -15,11 +15,25 @@ type UnimplementedHandler struct{}
 var _ Handler = UnimplementedHandler{}
 var _ RawHandler = UnimplementedHandler{}
 
+// AddNodeLabel implements addNodeLabel operation.
+//
+// POST /api/v1/nodes/{id}/labels
+func (UnimplementedHandler) AddNodeLabel(ctx context.Context, req *NodeLabelCreateRequest, params AddNodeLabelParams) error {
+	return ht.ErrNotImplemented
+}
+
 // AssistantChat implements assistantChat operation.
 //
 // POST /api/v1/assistant/chat
 func (UnimplementedHandler) AssistantChat(ctx context.Context, req *AssistantChatRequest) (r *AssistantChatResponse, _ error) {
 	return r, ht.ErrNotImplemented
+}
+
+// DeleteNodeLabel implements deleteNodeLabel operation.
+//
+// DELETE /api/v1/nodes/{id}/labels/{key}
+func (UnimplementedHandler) DeleteNodeLabel(ctx context.Context, params DeleteNodeLabelParams) error {
+	return ht.ErrNotImplemented
 }
 
 // GetCurrentUser implements getCurrentUser operation.
@@ -139,4 +153,11 @@ func (UnimplementedHandler) Search(ctx context.Context, params SearchParams) (r 
 // POST /api/v1/sync
 func (UnimplementedHandler) TriggerSync(ctx context.Context) (r *QueueResponse, _ error) {
 	return r, ht.ErrNotImplemented
+}
+
+// UpdateNodeLabel implements updateNodeLabel operation.
+//
+// PUT /api/v1/nodes/{id}/labels/{key}
+func (UnimplementedHandler) UpdateNodeLabel(ctx context.Context, req *NodeLabelUpdateRequest, params UpdateNodeLabelParams) error {
+	return ht.ErrNotImplemented
 }

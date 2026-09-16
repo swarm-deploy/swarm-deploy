@@ -10,6 +10,9 @@ import (
 	"github.com/go-faster/errors"
 )
 
+// AddNodeLabelNoContent is response for AddNodeLabel operation.
+type AddNodeLabelNoContent struct{}
+
 // Ref: #/components/schemas/AssistantChatRequest
 type AssistantChatRequest struct {
 	ConversationID OptString `json:"conversation_id"`
@@ -204,6 +207,9 @@ func (s *CurrentUserResponse) GetName() string {
 func (s *CurrentUserResponse) SetName(val string) {
 	s.Name = val
 }
+
+// DeleteNodeLabelNoContent is response for DeleteNodeLabel operation.
+type DeleteNodeLabelNoContent struct{}
 
 // Ref: #/components/schemas/EventCategory
 type EventCategory string
@@ -928,6 +934,47 @@ func (s *NodeInfoLabels) init() NodeInfoLabels {
 		*s = m
 	}
 	return m
+}
+
+// Ref: #/components/schemas/NodeLabelCreateRequest
+type NodeLabelCreateRequest struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// GetKey returns the value of Key.
+func (s *NodeLabelCreateRequest) GetKey() string {
+	return s.Key
+}
+
+// GetValue returns the value of Value.
+func (s *NodeLabelCreateRequest) GetValue() string {
+	return s.Value
+}
+
+// SetKey sets the value of Key.
+func (s *NodeLabelCreateRequest) SetKey(val string) {
+	s.Key = val
+}
+
+// SetValue sets the value of Value.
+func (s *NodeLabelCreateRequest) SetValue(val string) {
+	s.Value = val
+}
+
+// Ref: #/components/schemas/NodeLabelUpdateRequest
+type NodeLabelUpdateRequest struct {
+	Value string `json:"value"`
+}
+
+// GetValue returns the value of Value.
+func (s *NodeLabelUpdateRequest) GetValue() string {
+	return s.Value
+}
+
+// SetValue sets the value of Value.
+func (s *NodeLabelUpdateRequest) SetValue(val string) {
+	s.Value = val
 }
 
 // Ref: #/components/schemas/NodesResponse
@@ -2870,6 +2917,9 @@ func (s *SyncInfo) init() SyncInfo {
 	}
 	return m
 }
+
+// UpdateNodeLabelNoContent is response for UpdateNodeLabel operation.
+type UpdateNodeLabelNoContent struct{}
 
 // Ref: #/components/schemas/WebRoute
 type WebRoute struct {

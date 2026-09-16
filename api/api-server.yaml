@@ -144,6 +144,63 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NodesResponse'
+  /api/v1/nodes/{id}/labels:
+    post:
+      operationId: addNodeLabel
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NodeLabelCreateRequest'
+      responses:
+        '204':
+          description: Node label added.
+  /api/v1/nodes/{id}/labels/{key}:
+    put:
+      operationId: updateNodeLabel
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: key
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NodeLabelUpdateRequest'
+      responses:
+        '204':
+          description: Node label updated.
+    delete:
+      operationId: deleteNodeLabel
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: key
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Node label removed.
   /api/v1/networks:
     get:
       operationId: listNetworks
@@ -520,6 +577,21 @@ components:
           type: object
           additionalProperties:
             type: string
+    NodeLabelCreateRequest:
+      type: object
+      required: [key, value]
+      properties:
+        key:
+          type: string
+          minLength: 1
+        value:
+          type: string
+    NodeLabelUpdateRequest:
+      type: object
+      required: [value]
+      properties:
+        value:
+          type: string
     NetworkInfo:
       type: object
       required: [id, name, scope, driver, internal, attachable, ingress, managed]

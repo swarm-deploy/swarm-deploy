@@ -10,6 +10,7 @@ const overviewStore = useOverviewStore();
 const deploymentEvents = ref<EventHistoryItem[]>([]);
 const alertEvents = ref<EventHistoryItem[]>([]);
 const overviewEventsError = ref("");
+const overviewEventPreviewLimit = 3;
 
 let refreshTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -115,14 +116,18 @@ async function refreshOverview() {
     overviewStore.loadingError = overviewResult.reason instanceof Error ? overviewResult.reason.message : "Failed to load state";
   }
   if (deploymentsResult.status === "fulfilled") {
-    deploymentEvents.value = Array.isArray(deploymentsResult.value.events) ? deploymentsResult.value.events.slice(-5).reverse() : [];
+    deploymentEvents.value = Array.isArray(deploymentsResult.value.events)
+      ? deploymentsResult.value.events.slice(-overviewEventPreviewLimit).reverse()
+      : [];
   } else {
     deploymentEvents.value = [];
     overviewEventsError.value =
       deploymentsResult.reason instanceof Error ? deploymentsResult.reason.message : "Failed to load latest deployments";
   }
   if (alertsResult.status === "fulfilled") {
-    alertEvents.value = Array.isArray(alertsResult.value.events) ? alertsResult.value.events.slice(-5).reverse() : [];
+    alertEvents.value = Array.isArray(alertsResult.value.events)
+      ? alertsResult.value.events.slice(-overviewEventPreviewLimit).reverse()
+      : [];
   } else {
     alertEvents.value = [];
     overviewEventsError.value =

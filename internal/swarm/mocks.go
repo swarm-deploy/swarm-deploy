@@ -446,6 +446,20 @@ func (m *MockNodeManager) EXPECT() *MockNodeManagerMockRecorder {
 	return m.recorder
 }
 
+// DeleteLabel mocks base method.
+func (m *MockNodeManager) DeleteLabel(ctx context.Context, nodeID, key string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteLabel", ctx, nodeID, key)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteLabel indicates an expected call of DeleteLabel.
+func (mr *MockNodeManagerMockRecorder) DeleteLabel(ctx, nodeID, key any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteLabel", reflect.TypeOf((*MockNodeManager)(nil).DeleteLabel), ctx, nodeID, key)
+}
+
 // List mocks base method.
 func (m *MockNodeManager) List(ctx context.Context) ([]Node, error) {
 	m.ctrl.T.Helper()
@@ -459,6 +473,20 @@ func (m *MockNodeManager) List(ctx context.Context) ([]Node, error) {
 func (mr *MockNodeManagerMockRecorder) List(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockNodeManager)(nil).List), ctx)
+}
+
+// SetLabel mocks base method.
+func (m *MockNodeManager) SetLabel(ctx context.Context, req NodeLabelUpdateRequest) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetLabel", ctx, req)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetLabel indicates an expected call of SetLabel.
+func (mr *MockNodeManagerMockRecorder) SetLabel(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetLabel", reflect.TypeOf((*MockNodeManager)(nil).SetLabel), ctx, req)
 }
 
 // Watch mocks base method.

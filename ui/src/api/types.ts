@@ -206,6 +206,15 @@ export interface NodesResponse {
   nodes: NodeInfo[];
 }
 
+export interface NodeLabelCreateRequest {
+  key: string;
+  value: string;
+}
+
+export interface NodeLabelUpdateRequest {
+  value: string;
+}
+
 export interface NetworkInfo {
   id: string;
   name: string;
