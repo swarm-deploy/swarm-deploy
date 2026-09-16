@@ -15,6 +15,7 @@ export interface FetchEventsOptions {
   categories?: string[];
   types?: string[];
   since?: string;
+  limit?: number;
 }
 
 export function fetchStacks(): Promise<StacksResponse> {
@@ -45,6 +46,9 @@ export function fetchEvents(options: FetchEventsOptions = {}): Promise<EventHist
   }
   if (options.since) {
     params.set("since", options.since);
+  }
+  if (typeof options.limit === "number") {
+    params.set("limit", String(options.limit));
   }
 
   const query = params.toString();

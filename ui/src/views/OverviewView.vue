@@ -10,7 +10,7 @@ const overviewStore = useOverviewStore();
 const deploymentEvents = ref<EventHistoryItem[]>([]);
 const alertEvents = ref<EventHistoryItem[]>([]);
 const overviewEventsError = ref("");
-const overviewEventPreviewLimit = 3;
+const overviewEventsLimit = 3;
 
 let refreshTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -108,26 +108,26 @@ async function refreshOverview() {
 
   const [overviewResult, deploymentsResult, alertsResult] = await Promise.allSettled([
     overviewStore.loadOverview(),
-    fetchEvents({ types: ["deploySuccess", "deployFailed"] }),
-    fetchEvents({ severities: ["alert"], since: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString() }),
+    fetchEvents({ types: ["deploySuccess", "deployFailed"], limit: overviewEventsLimit }),
+    fetchEvents({
+      severities: ["alert"],
+      since: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
+      limit: overviewEventsLimit,
+    }),
   ]);
 
   if (overviewResult.status === "rejected") {
     overviewStore.loadingError = overviewResult.reason instanceof Error ? overviewResult.reason.message : "Failed to load state";
   }
   if (deploymentsResult.status === "fulfilled") {
-    deploymentEvents.value = Array.isArray(deploymentsResult.value.events)
-      ? deploymentsResult.value.events.slice(-overviewEventPreviewLimit).reverse()
-      : [];
+    deploymentEvents.value = Array.isArray(deploymentsResult.value.events) ? deploymentsResult.value.events.reverse() : [];
   } else {
     deploymentEvents.value = [];
     overviewEventsError.value =
       deploymentsResult.reason instanceof Error ? deploymentsResult.reason.message : "Failed to load latest deployments";
   }
   if (alertsResult.status === "fulfilled") {
-    alertEvents.value = Array.isArray(alertsResult.value.events)
-      ? alertsResult.value.events.slice(-overviewEventPreviewLimit).reverse()
-      : [];
+    alertEvents.value = Array.isArray(alertsResult.value.events) ? alertsResult.value.events.reverse() : [];
   } else {
     alertEvents.value = [];
     overviewEventsError.value =

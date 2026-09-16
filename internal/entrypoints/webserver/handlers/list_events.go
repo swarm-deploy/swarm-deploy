@@ -43,9 +43,20 @@ func (h *handler) ListEvents(
 
 	entries := h.history.List()
 	entries = history.FilterEntries(entries, severities, categories, types, since)
+	if value, ok := params.Limit.Get(); ok {
+		entries = limitLatestEntries(entries, int(value))
+	}
 	items := toGeneratedEvents(entries)
 
 	return &generated.EventHistoryResponse{
 		Events: items,
 	}, nil
+}
+
+func limitLatestEntries(entries []history.Entry, limit int) []history.Entry {
+	if limit <= 0 || len(entries) <= limit {
+		return entries
+	}
+
+	return entries[len(entries)-limit:]
 }

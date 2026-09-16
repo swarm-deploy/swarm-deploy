@@ -146,3 +146,27 @@ func TestHandlerListEventsFiltersBySince(t *testing.T) {
 	assert.Equal(t, "deployFailed", resp.Events[0].Type)
 	assert.Equal(t, "nodeDisconnected", resp.Events[1].Type)
 }
+
+func TestHandlerListEventsLimitsLatestFilteredEvents(t *testing.T) {
+	t.Parallel()
+
+	store, err := history.NewStore(filepath.Join(t.TempDir(), "events.json"), 50, fs.NewLocalFileSystem())
+	require.NoError(t, err, "new history store")
+	require.NoError(t, store.Handle(context.Background(), &events.DeploySuccess{StackName: "api", Commit: "abc"}))
+	require.NoError(t, store.Handle(context.Background(), &events.UserAuthenticated{Username: "alice"}))
+	require.NoError(t, store.Handle(context.Background(), &events.DeployFailed{StackName: "api", Commit: "def"}))
+	require.NoError(t, store.Handle(context.Background(), &events.DeploySuccess{StackName: "worker", Commit: "ghi"}))
+
+	var limit generated.OptInt32
+	limit.SetTo(2)
+	h := &handler{history: store}
+	resp, err := h.ListEvents(context.Background(), generated.ListEventsParams{
+		Types: []string{string(events.TypeNameDeploySuccess), string(events.TypeNameDeployFailed)},
+		Limit: limit,
+	})
+	require.NoError(t, err, "list events")
+	require.Len(t, resp.Events, 2, "expected latest two deployment events")
+	assert.Equal(t, "deployFailed", resp.Events[0].Type)
+	assert.Equal(t, "deploySuccess", resp.Events[1].Type)
+	assert.Equal(t, "ghi", resp.Events[1].Details.Value["commit"])
+}
