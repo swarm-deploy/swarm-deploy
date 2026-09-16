@@ -6,7 +6,9 @@ package api
 type OperationName = string
 
 const (
+	AddNodeLabelOperation           OperationName = "AddNodeLabel"
 	AssistantChatOperation          OperationName = "AssistantChat"
+	DeleteNodeLabelOperation        OperationName = "DeleteNodeLabel"
 	GetCurrentUserOperation         OperationName = "GetCurrentUser"
 	GetGitCommitOperation           OperationName = "GetGitCommit"
 	GetGraphOperation               OperationName = "GetGraph"
@@ -24,4 +26,5 @@ const (
 	ListStacksOperation             OperationName = "ListStacks"
 	SearchOperation                 OperationName = "Search"
 	TriggerSyncOperation            OperationName = "TriggerSync"
+	UpdateNodeLabelOperation        OperationName = "UpdateNodeLabel"
 )

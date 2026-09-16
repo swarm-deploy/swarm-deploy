@@ -1,7 +1,6 @@
 import { defineStore } from "pinia";
 
 import {
-  fetchEvents,
   fetchGitCommit,
   fetchServiceDeployments,
   fetchServiceStatus,
@@ -26,10 +25,6 @@ interface OverviewState {
   loading: boolean;
   loadingError: string;
   syncPending: boolean;
-  events: EventHistoryItem[];
-  eventsLoading: boolean;
-  eventsError: string;
-  eventsModalOpen: boolean;
   serviceStatusData: ServiceStatusResponse | null;
   serviceStatusLoading: boolean;
   serviceStatusError: string;
@@ -48,6 +43,8 @@ interface OverviewState {
   stackManifestStack: string;
   stackManifestDesired: string;
   stackManifestLive: string;
+  alertDetailsModalOpen: boolean;
+  alertDetailsEvent: EventHistoryItem | null;
 }
 
 export const useOverviewStore = defineStore("overview", {
@@ -58,10 +55,6 @@ export const useOverviewStore = defineStore("overview", {
     loading: false,
     loadingError: "",
     syncPending: false,
-    events: [],
-    eventsLoading: false,
-    eventsError: "",
-    eventsModalOpen: false,
     serviceStatusData: null,
     serviceStatusLoading: false,
     serviceStatusError: "",
@@ -80,6 +73,8 @@ export const useOverviewStore = defineStore("overview", {
     stackManifestStack: "",
     stackManifestDesired: "",
     stackManifestLive: "",
+    alertDetailsModalOpen: false,
+    alertDetailsEvent: null,
   }),
   actions: {
     async loadOverview() {
@@ -129,23 +124,6 @@ export const useOverviewStore = defineStore("overview", {
       } finally {
         this.syncPending = false;
       }
-    },
-    async openEventsModal() {
-      this.eventsModalOpen = true;
-      this.eventsLoading = true;
-      this.eventsError = "";
-
-      try {
-        const response = await fetchEvents();
-        this.events = Array.isArray(response.events) ? response.events : [];
-      } catch (error) {
-        this.eventsError = error instanceof Error ? error.message : "Failed to load event history";
-      } finally {
-        this.eventsLoading = false;
-      }
-    },
-    closeEventsModal() {
-      this.eventsModalOpen = false;
     },
     async openServiceStatusModal(stackName: string, serviceName: string) {
       this.serviceStatusModalOpen = true;
@@ -238,6 +216,14 @@ export const useOverviewStore = defineStore("overview", {
       this.stackManifestStack = "";
       this.stackManifestDesired = "";
       this.stackManifestLive = "";
+    },
+    openAlertDetailsModal(event: EventHistoryItem) {
+      this.alertDetailsEvent = event;
+      this.alertDetailsModalOpen = true;
+    },
+    closeAlertDetailsModal() {
+      this.alertDetailsModalOpen = false;
+      this.alertDetailsEvent = null;
     },
   },
 });

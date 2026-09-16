@@ -15,7 +15,6 @@ defineProps<{
 
 const emit = defineEmits<{
   syncNow: [];
-  openNotifications: [];
   toggleAssistant: [];
 }>();
 
@@ -206,7 +205,6 @@ onUnmounted(() => {
       <button type="button" :disabled="syncDisabled || syncPending" @click="emit('syncNow')">
         {{ syncPending ? "Syncing..." : "Sync now" }}
       </button>
-      <button type="button" class="button-ghost" @click="emit('openNotifications')">Events</button>
       <button type="button" class="button-ghost" :disabled="!assistantEnabled" @click="emit('toggleAssistant')">
         Assistant
       </button>

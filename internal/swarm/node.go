@@ -1,5 +1,13 @@
 package swarm
 
+import "errors"
+
+// ErrNodeNotFound means that node does not exist in docker.
+var ErrNodeNotFound = errors.New("node not found")
+
+// ErrNodeUpdateConflict means node was changed between inspect and update.
+var ErrNodeUpdateConflict = errors.New("node update conflict")
+
 // NodeManagerStatus is a manager role/reachability projection.
 type NodeManagerStatus string
 
@@ -34,4 +42,14 @@ type Node struct {
 	MemoryBytes int64 `json:"memory_bytes"`
 	// Labels contains custom Docker node labels.
 	Labels map[string]string `json:"labels"`
+}
+
+// NodeLabelUpdateRequest describes a Docker node label mutation.
+type NodeLabelUpdateRequest struct {
+	// NodeID is a Docker Swarm node identifier.
+	NodeID string
+	// Key is a Docker node label key.
+	Key string
+	// Value is a Docker node label value.
+	Value string
 }

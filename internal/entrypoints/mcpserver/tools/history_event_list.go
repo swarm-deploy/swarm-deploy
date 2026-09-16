@@ -94,7 +94,7 @@ func (l *ListHistoryEvents) Execute(_ context.Context, request routing.Request) 
 		return routing.Response{}, err
 	}
 
-	entries := history.FilterEntries(l.history.List(), severities, categories)
+	entries := history.FilterEntries(l.history.List(), severities, categories, nil, nil)
 	if len(entries) > limit {
 		entries = entries[len(entries)-limit:]
 	}

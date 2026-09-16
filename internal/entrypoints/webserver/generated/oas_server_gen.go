@@ -9,10 +9,18 @@ import (
 
 // Handler handles operations described by OpenAPI v3 specification.
 type Handler interface {
+	// AddNodeLabel implements addNodeLabel operation.
+	//
+	// POST /api/v1/nodes/{id}/labels
+	AddNodeLabel(ctx context.Context, req *NodeLabelCreateRequest, params AddNodeLabelParams) error
 	// AssistantChat implements assistantChat operation.
 	//
 	// POST /api/v1/assistant/chat
 	AssistantChat(ctx context.Context, req *AssistantChatRequest) (*AssistantChatResponse, error)
+	// DeleteNodeLabel implements deleteNodeLabel operation.
+	//
+	// DELETE /api/v1/nodes/{id}/labels/{key}
+	DeleteNodeLabel(ctx context.Context, params DeleteNodeLabelParams) error
 	// GetCurrentUser implements getCurrentUser operation.
 	//
 	// GET /api/v1/users/me
@@ -77,6 +85,10 @@ type Handler interface {
 	//
 	// POST /api/v1/sync
 	TriggerSync(ctx context.Context) (*QueueResponse, error)
+	// UpdateNodeLabel implements updateNodeLabel operation.
+	//
+	// PUT /api/v1/nodes/{id}/labels/{key}
+	UpdateNodeLabel(ctx context.Context, req *NodeLabelUpdateRequest, params UpdateNodeLabelParams) error
 }
 
 // RawHandler handles raw response operations described by OpenAPI v3 specification.

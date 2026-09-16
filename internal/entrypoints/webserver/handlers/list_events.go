@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"time"
 
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
@@ -30,11 +31,32 @@ func (h *handler) ListEvents(
 		categories = append(categories, parsed)
 	}
 
+	types := make([]events.TypeName, 0, len(params.Types))
+	for _, eventType := range params.Types {
+		types = append(types, events.TypeName(eventType))
+	}
+
+	var since *time.Time
+	if value, ok := params.Since.Get(); ok {
+		since = &value
+	}
+
 	entries := h.history.List()
-	entries = history.FilterEntries(entries, severities, categories)
+	entries = history.FilterEntries(entries, severities, categories, types, since)
+	if value, ok := params.Limit.Get(); ok {
+		entries = limitLatestEntries(entries, int(value))
+	}
 	items := toGeneratedEvents(entries)
 
 	return &generated.EventHistoryResponse{
 		Events: items,
 	}, nil
+}
+
+func limitLatestEntries(entries []history.Entry, limit int) []history.Entry {
+	if limit <= 0 || len(entries) <= limit {
+		return entries
+	}
+
+	return entries[len(entries)-limit:]
 }

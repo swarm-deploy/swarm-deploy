@@ -327,4 +327,21 @@ body {
   .shell-view {
     padding: 20px 16px;
   }
+
+  .overview-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .events-header {
+    align-items: stretch;
+  }
+
+  .events-filter-bar {
+    justify-content: stretch;
+  }
+
+  .events-filter-field,
+  .events-filter-field select {
+    width: 100%;
+  }
 }

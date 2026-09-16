@@ -79,6 +79,12 @@ type NodeManager interface {
 	// List returns current Docker Swarm nodes snapshot.
 	List(ctx context.Context) ([]Node, error)
 
+	// SetLabel sets Docker node label value while preserving the rest of the node spec.
+	SetLabel(ctx context.Context, req NodeLabelUpdateRequest) error
+
+	// DeleteLabel removes Docker node label while preserving the rest of the node spec.
+	DeleteLabel(ctx context.Context, nodeID string, key string) error
+
 	// Watch subscribes to Docker node events stream.
 	Watch(ctx context.Context) (<-chan dockerevents.Message, <-chan error, error)
 }

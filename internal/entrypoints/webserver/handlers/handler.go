@@ -21,6 +21,7 @@ type handler struct {
 	serviceInspector swarm.ServiceManager
 	secrets          swarm.SecretManager
 	networks         swarm.NetworkManager
+	nodeManager      swarm.NodeManager
 	history          *history.Store
 	services         *service.Store
 	nodes            *swarmnode.Store
@@ -49,6 +50,7 @@ func New(
 		serviceInspector: swarmService.Services,
 		secrets:          swarmService.Secrets,
 		networks:         swarmService.Networks,
+		nodeManager:      swarmService.Nodes,
 		history:          history,
 		services:         services,
 		nodes:            nodes,
