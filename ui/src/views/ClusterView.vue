@@ -84,6 +84,10 @@ function nodeRAM(node: NodeInfo): string {
   return node.memory_bytes > 0 ? formatBytes(node.memory_bytes) : "n/a";
 }
 
+function nodeResources(node: NodeInfo): string {
+  return `${nodeCPU(node)} CPU · ${nodeRAM(node)} RAM`;
+}
+
 function nodeEngine(node: NodeInfo): string {
   return node.engine_version ? `Docker ${node.engine_version}` : "Docker n/a";
 }
@@ -256,28 +260,38 @@ onMounted(() => {
           </div>
         </div>
 
-        <div class="node-meta-row">
-          <span>{{ node.addr || "n/a" }}</span>
-          <span>{{ nodeCPU(node) }}</span>
-          <span>{{ nodeRAM(node) }} RAM</span>
-          <span>{{ nodeEngine(node) }}</span>
-        </div>
+        <div class="node-meta-list">
+          <div class="node-meta-row">
+            <span class="node-meta-key">Address</span>
+            <span class="node-meta-value">{{ node.addr || "n/a" }}</span>
+          </div>
 
-        <div class="node-label-row">
-          <span class="node-label-title">Labels</span>
-          <div class="node-label-list">
-            <button
-              v-for="label in labelEntries(node.labels)"
-              :key="label.key"
-              type="button"
-              class="node-label-chip"
-              :title="`Edit ${label.text}`"
-              @click="openEditLabel(node, label)"
-            >
-              {{ label.text }}
-            </button>
-            <span v-if="labelEntries(node.labels).length === 0" class="meta node-label-empty">none</span>
-            <button type="button" class="node-label-add" @click="openAddLabel(node)">+ Add label</button>
+          <div class="node-meta-row">
+            <span class="node-meta-key">Resources</span>
+            <span class="node-meta-value">{{ nodeResources(node) }}</span>
+          </div>
+
+          <div class="node-meta-row">
+            <span class="node-meta-key">Engine</span>
+            <span class="node-meta-value">{{ nodeEngine(node) }}</span>
+          </div>
+
+          <div class="node-meta-row">
+            <span class="node-meta-key">Labels</span>
+            <div class="node-meta-value node-label-list">
+              <button
+                v-for="label in labelEntries(node.labels)"
+                :key="label.key"
+                type="button"
+                class="node-label-chip"
+                :title="`Edit ${label.text}`"
+                @click="openEditLabel(node, label)"
+              >
+                {{ label.text }}
+              </button>
+              <span v-if="labelEntries(node.labels).length === 0" class="meta node-label-empty">none</span>
+              <button type="button" class="node-label-add" @click="openAddLabel(node)">+ Add label</button>
+            </div>
           </div>
         </div>
       </article>

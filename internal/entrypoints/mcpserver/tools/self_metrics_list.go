@@ -94,7 +94,7 @@ func mapMetricSamplePayload(metric *dto.Metric, metricType dto.MetricType) selfM
 		Labels: mapMetricLabels(metric.GetLabel()),
 	}
 
-	switch metricType { //nolint:exhaustive // not need
+	switch metricType {
 	case dto.MetricType_COUNTER:
 		counter := metric.GetCounter()
 		if counter != nil {
@@ -111,6 +111,13 @@ func mapMetricSamplePayload(metric *dto.Metric, metricType dto.MetricType) selfM
 			payload.Value = float64Pointer(untyped.GetValue())
 		}
 	case dto.MetricType_HISTOGRAM:
+		histogram := metric.GetHistogram()
+		if histogram != nil {
+			payload.SampleCount = uint64Pointer(histogram.GetSampleCount())
+			payload.SampleSum = float64Pointer(histogram.GetSampleSum())
+			payload.Buckets = mapMetricBuckets(histogram.GetBucket())
+		}
+	case dto.MetricType_GAUGE_HISTOGRAM:
 		histogram := metric.GetHistogram()
 		if histogram != nil {
 			payload.SampleCount = uint64Pointer(histogram.GetSampleCount())

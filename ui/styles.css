@@ -408,8 +408,8 @@ button:hover,
 }
 
 .node-main-row,
+.node-meta-list,
 .node-meta-row,
-.node-label-row,
 .node-title-group,
 .node-state-group,
 .node-label-list,
@@ -512,30 +512,31 @@ button:hover,
 
 .node-meta-row {
   display: grid;
-  grid-template-columns: minmax(120px, 1.3fr) repeat(3, minmax(100px, 1fr));
+  grid-template-columns: minmax(78px, max-content) minmax(0, 1fr);
   gap: 12px;
-  color: var(--muted);
+  align-items: start;
   font-size: 0.88rem;
 }
 
-.node-meta-row span {
+.node-meta-list {
+  display: grid;
+  gap: 6px;
+}
+
+.node-meta-key {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.node-meta-value {
+  color: rgba(244, 244, 245, 0.82);
   min-width: 0;
+}
+
+.node-meta-value:not(.node-label-list) {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.node-label-row {
-  display: grid;
-  grid-template-columns: 64px minmax(0, 1fr);
-  gap: 10px;
-  align-items: start;
-}
-
-.node-label-title {
-  color: var(--muted);
-  font-size: 0.84rem;
-  padding-top: 4px;
 }
 
 .node-label-list {

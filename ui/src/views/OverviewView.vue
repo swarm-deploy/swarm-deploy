@@ -10,8 +10,8 @@ const overviewStore = useOverviewStore();
 const deploymentEvents = ref<EventHistoryItem[]>([]);
 const alertEvents = ref<EventHistoryItem[]>([]);
 const overviewEventsError = ref("");
-const deploymentEventsLimit = 3;
-const alertEventsLimit = 5;
+const deploymentEventsLimit = 4;
+const alertEventsLimit = 4;
 
 let refreshTimer: ReturnType<typeof setInterval> | undefined;
 

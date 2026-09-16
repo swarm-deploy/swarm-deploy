@@ -24,32 +24,44 @@ func FilterEntries(
 
 	filtered := make([]Entry, 0, len(entries))
 	for _, entry := range entries {
-		if since != nil && entry.CreatedAt.Before(*since) {
-			continue
+		if matchesEntryFilters(entry, severitySet, categorySet, typeSet, since) {
+			filtered = append(filtered, entry)
 		}
-
-		if len(severitySet) > 0 {
-			if _, ok := severitySet[entry.Severity]; !ok {
-				continue
-			}
-		}
-
-		if len(categorySet) > 0 {
-			if _, ok := categorySet[entry.Category]; !ok {
-				continue
-			}
-		}
-
-		if len(typeSet) > 0 {
-			if _, ok := typeSet[entry.Type.Name()]; !ok {
-				continue
-			}
-		}
-
-		filtered = append(filtered, entry)
 	}
 
 	return filtered
+}
+
+func matchesEntryFilters(
+	entry Entry,
+	severitySet map[events.Severity]struct{},
+	categorySet map[events.Category]struct{},
+	typeSet map[events.TypeName]struct{},
+	since *time.Time,
+) bool {
+	if since != nil && entry.CreatedAt.Before(*since) {
+		return false
+	}
+
+	if len(severitySet) > 0 {
+		if _, ok := severitySet[entry.Severity]; !ok {
+			return false
+		}
+	}
+
+	if len(categorySet) > 0 {
+		if _, ok := categorySet[entry.Category]; !ok {
+			return false
+		}
+	}
+
+	if len(typeSet) > 0 {
+		if _, ok := typeSet[entry.Type.Name()]; !ok {
+			return false
+		}
+	}
+
+	return true
 }
 
 func toSeveritySet(values []events.Severity) map[events.Severity]struct{} {
