@@ -1,6 +1,10 @@
 package history
 
-import "github.com/swarm-deploy/swarm-deploy/internal/event/events"
+import (
+	"time"
+
+	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
+)
 
 // FilterEntries filters history entries by optional severity/category/type lists.
 // Within each filter list values are matched as OR, between filter lists as AND.
@@ -9,16 +13,21 @@ func FilterEntries(
 	severities []events.Severity,
 	categories []events.Category,
 	types []events.TypeName,
+	since *time.Time,
 ) []Entry {
 	severitySet := toSeveritySet(severities)
 	categorySet := toCategorySet(categories)
 	typeSet := toTypeSet(types)
-	if len(severitySet) == 0 && len(categorySet) == 0 && len(typeSet) == 0 {
+	if len(severitySet) == 0 && len(categorySet) == 0 && len(typeSet) == 0 && since == nil {
 		return append([]Entry(nil), entries...)
 	}
 
 	filtered := make([]Entry, 0, len(entries))
 	for _, entry := range entries {
+		if since != nil && entry.CreatedAt.Before(*since) {
+			continue
+		}
+
 		if len(severitySet) > 0 {
 			if _, ok := severitySet[entry.Severity]; !ok {
 				continue

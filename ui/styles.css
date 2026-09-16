@@ -246,6 +246,10 @@ button:hover,
   font-size: 1.05rem;
 }
 
+.overview-alerts {
+  align-self: start;
+}
+
 .overview-deployment-list,
 .overview-alert-list {
   display: grid;
@@ -284,8 +288,41 @@ button:hover,
   font-size: 0.84rem;
 }
 
-.overview-alert-details {
-  margin-top: 6px;
+.overview-alert-time {
+  color: var(--muted);
+  font-size: 0.82rem;
+  margin-left: auto;
+}
+
+.overview-alerts .event-item-header {
+  flex-wrap: wrap;
+}
+
+.overview-alert-message {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.overview-alert-context {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overview-alerts-link {
+  color: var(--accent);
+  font-size: 0.88rem;
+  font-weight: 700;
+  text-decoration: none;
+  width: fit-content;
+}
+
+.overview-alerts-link:hover,
+.overview-alerts-link:focus-visible {
+  color: var(--accent-strong);
+  text-decoration: underline;
 }
 
 .services-page {

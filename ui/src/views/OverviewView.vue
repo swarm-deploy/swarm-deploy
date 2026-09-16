@@ -80,8 +80,8 @@ function detailValue(item: EventHistoryItem, keys: string[]): string {
   return "";
 }
 
-function sortedEventDetails(item: EventHistoryItem): [string, string][] {
-  return Object.entries(item.details ?? {}).sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey));
+function alertContext(item: EventHistoryItem): string {
+  return detailValue(item, ["stack", "stack_name", "service", "service_name", "node", "node_name", "destination", "channel"]);
 }
 
 async function openCommitDetails(commitHash: string | undefined) {
@@ -108,7 +108,7 @@ async function refreshOverview() {
   const [overviewResult, deploymentsResult, alertsResult] = await Promise.allSettled([
     overviewStore.loadOverview(),
     fetchEvents({ types: ["deploySuccess", "deployFailed"] }),
-    fetchEvents({ severities: ["warn", "error", "alert"] }),
+    fetchEvents({ severities: ["alert"], since: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString() }),
   ]);
 
   if (overviewResult.status === "rejected") {
@@ -212,16 +212,13 @@ onUnmounted(() => {
               {{ normalizedSeverity(event) }}
             </span>
             <strong>{{ event.type || "unknown" }}</strong>
+            <span class="overview-alert-time">{{ formatDate(event.created_at) }}</span>
           </p>
-          <p class="meta">{{ event.message || "No message" }}</p>
-          <ul v-if="sortedEventDetails(event).length > 0" class="event-details overview-alert-details">
-            <li v-for="[key, value] in sortedEventDetails(event).slice(0, 3)" :key="key" class="event-detail">
-              <span class="event-detail-key">{{ key }}</span>
-              <code class="event-detail-value">{{ value }}</code>
-            </li>
-          </ul>
+          <p class="meta overview-alert-message">{{ event.message || "No message" }}</p>
+          <p v-if="alertContext(event)" class="meta overview-alert-context">{{ alertContext(event) }}</p>
         </article>
       </div>
+      <RouterLink to="/events?severity=alert" class="overview-alerts-link">View all alerts</RouterLink>
     </article>
   </section>
 

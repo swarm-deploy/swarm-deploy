@@ -14,6 +14,7 @@ export interface FetchEventsOptions {
   severities?: string[];
   categories?: string[];
   types?: string[];
+  since?: string;
 }
 
 export function fetchStacks(): Promise<StacksResponse> {
@@ -41,6 +42,9 @@ export function fetchEvents(options: FetchEventsOptions = {}): Promise<EventHist
   }
   for (const type of options.types ?? []) {
     params.append("types", type);
+  }
+  if (options.since) {
+    params.set("since", options.since);
   }
 
   const query = params.toString();

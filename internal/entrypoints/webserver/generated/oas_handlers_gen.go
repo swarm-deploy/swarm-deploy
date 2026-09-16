@@ -1379,6 +1379,10 @@ func (s *Server) handleListEventsRequest(args [0]string, argsEscaped bool, w htt
 					Name: "types",
 					In:   "query",
 				}: params.Types,
+				{
+					Name: "since",
+					In:   "query",
+				}: params.Since,
 			},
 			Raw: r,
 		}

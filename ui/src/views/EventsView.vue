@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 
 import { fetchEvents } from "../api/overview";
 import type { EventHistoryItem, EventSeverity } from "../api/types";
@@ -22,16 +23,23 @@ const eventTypeOptions = [
 ];
 const severityOptions: EventSeverity[] = ["info", "warn", "error", "alert"];
 
+const route = useRoute();
+const router = useRouter();
 const loading = ref(false);
 const loadingError = ref("");
 const events = ref<EventHistoryItem[]>([]);
 const selectedType = ref("");
-const selectedSeverity = ref("");
+const selectedSeverity = ref(normalizeSeverityQuery(route.query.severity));
 const expandedKey = ref("");
 
 let requestID = 0;
 
 const visibleEvents = computed(() => events.value.slice().reverse());
+
+function normalizeSeverityQuery(value: unknown): EventSeverity | "" {
+  const severity = Array.isArray(value) ? value[0] : value;
+  return severityOptions.includes(severity as EventSeverity) ? (severity as EventSeverity) : "";
+}
 
 function eventKey(event: EventHistoryItem): string {
   return `${event.type}-${event.created_at}-${event.message}`;
@@ -86,6 +94,26 @@ async function loadEvents() {
     }
   }
 }
+
+watch(selectedSeverity, async (severity) => {
+  const nextQuery = { ...route.query };
+  if (severity) {
+    nextQuery.severity = severity;
+  } else {
+    delete nextQuery.severity;
+  }
+
+  if (normalizeSeverityQuery(route.query.severity) !== severity) {
+    await router.replace({ query: nextQuery });
+  }
+});
+
+watch(
+  () => route.query.severity,
+  (severity) => {
+    selectedSeverity.value = normalizeSeverityQuery(severity);
+  },
+);
 
 watch([selectedType, selectedSeverity], () => {
   expandedKey.value = "";
