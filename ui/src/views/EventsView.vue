@@ -20,7 +20,7 @@ const eventTypeOptions = [
   "servicePruned",
   "userAuthenticated",
   "assistantPromptInjectionDetected",
-];
+] as const;
 const severityOptions: EventSeverity[] = ["info", "warn", "error", "alert"];
 
 const route = useRoute();
@@ -28,7 +28,8 @@ const router = useRouter();
 const loading = ref(false);
 const loadingError = ref("");
 const events = ref<EventHistoryItem[]>([]);
-const selectedType = ref("");
+const selectedTypes = ref<string[]>(normalizeTypesQuery(route.query.types));
+const selectedType = ref(selectedTypes.value.length === 1 ? selectedTypes.value[0] : "");
 const selectedSeverity = ref(normalizeSeverityQuery(route.query.severity));
 const expandedKey = ref("");
 
@@ -39,6 +40,11 @@ const visibleEvents = computed(() => events.value.slice().reverse());
 function normalizeSeverityQuery(value: unknown): EventSeverity | "" {
   const severity = Array.isArray(value) ? value[0] : value;
   return severityOptions.includes(severity as EventSeverity) ? (severity as EventSeverity) : "";
+}
+
+function normalizeTypesQuery(value: unknown): string[] {
+  const rawTypes = Array.isArray(value) ? value : value ? [value] : [];
+  return rawTypes.filter((type): type is string => eventTypeOptions.includes(type as (typeof eventTypeOptions)[number]));
 }
 
 function eventKey(event: EventHistoryItem): string {
@@ -73,7 +79,7 @@ async function loadEvents() {
 
   try {
     const response = await fetchEvents({
-      types: selectedType.value ? [selectedType.value] : [],
+      types: selectedTypes.value,
       severities: selectedSeverity.value ? [selectedSeverity.value] : [],
     });
     if (currentRequestID !== requestID) {
@@ -95,6 +101,24 @@ async function loadEvents() {
   }
 }
 
+watch(selectedType, async (type) => {
+  const nextQuery = { ...route.query };
+  if (type) {
+    nextQuery.types = type;
+  } else {
+    delete nextQuery.types;
+  }
+
+  const currentTypes = normalizeTypesQuery(route.query.types);
+  if (!type && currentTypes.length > 1) {
+    return;
+  }
+
+  if (currentTypes.length !== (type ? 1 : 0) || currentTypes[0] !== type) {
+    await router.replace({ query: nextQuery });
+  }
+});
+
 watch(selectedSeverity, async (severity) => {
   const nextQuery = { ...route.query };
   if (severity) {
@@ -115,7 +139,15 @@ watch(
   },
 );
 
-watch([selectedType, selectedSeverity], () => {
+watch(
+  () => route.query.types,
+  (types) => {
+    selectedTypes.value = normalizeTypesQuery(types);
+    selectedType.value = selectedTypes.value.length === 1 ? selectedTypes.value[0] : "";
+  },
+);
+
+watch([selectedTypes, selectedSeverity], () => {
   expandedKey.value = "";
   void loadEvents();
 });

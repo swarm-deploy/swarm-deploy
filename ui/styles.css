@@ -216,22 +216,73 @@ button:hover,
   font-size: 1.05rem;
 }
 
-.overview-alerts {
-  align-self: start;
+.overview-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.overview-card-action {
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 8px;
+  color: var(--text);
+  background: rgba(148, 163, 184, 0.08);
+  padding: 6px 10px;
+  font-size: 0.84rem;
+  font-weight: 700;
+  line-height: 1.2;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: border-color 120ms ease, background-color 120ms ease, transform 120ms ease;
+}
+
+.overview-card-action:hover,
+.overview-card-action:focus-visible {
+  border-color: rgba(148, 163, 184, 0.4);
+  background: rgba(148, 163, 184, 0.13);
+  text-decoration: none;
+  transform: translateY(-1px);
 }
 
 .overview-deployment-list,
 .overview-alert-list {
   display: grid;
-  gap: 8px;
+  gap: 4px;
+}
+
+.overview-alerts-has-items {
+  border-left-color: rgba(248, 113, 113, 0.76);
 }
 
 .overview-deployment-item,
 .overview-alert-item {
   border-top: 1px solid rgba(148, 163, 184, 0.13);
-  padding-top: 8px;
+  padding-top: 6px;
   display: grid;
-  gap: 6px;
+  gap: 4px;
+}
+
+.overview-alert-item {
+  width: 100%;
+  border-right: 0;
+  border-bottom: 0;
+  border-left: 0;
+  border-radius: 6px;
+  color: inherit;
+  background: transparent;
+  padding: 6px 0 0;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.overview-alert-item:hover,
+.overview-alert-item:focus-visible {
+  border-top-color: rgba(248, 113, 113, 0.26);
+  background: rgba(248, 113, 113, 0.06);
+  filter: none;
+  transform: none;
 }
 
 .overview-deployment-item:first-child,
@@ -240,59 +291,87 @@ button:hover,
   padding-top: 0;
 }
 
-.overview-deployment-main,
-.overview-deployment-meta {
-  display: flex;
+.overview-deployment-row {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content max-content max-content;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 10px;
   min-width: 0;
-}
-
-.overview-deployment-main strong {
-  overflow-wrap: anywhere;
-}
-
-.overview-deployment-meta {
   color: var(--muted);
-  font-size: 0.84rem;
+  font-size: 0.86rem;
 }
 
-.overview-alert-time {
+.overview-alert-row {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
   color: var(--muted);
-  font-size: 0.82rem;
-  margin-left: auto;
+  font-size: 0.86rem;
 }
 
-.overview-alerts .event-item-header {
-  flex-wrap: wrap;
-}
-
-.overview-alert-message {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-
-.overview-alert-context {
+.overview-deployment-stack {
+  color: var(--text);
+  font-weight: 500;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.overview-alerts-link {
-  color: var(--accent);
-  font-size: 0.88rem;
+.overview-deployment-result {
   font-weight: 700;
-  text-decoration: none;
-  width: fit-content;
 }
 
-.overview-alerts-link:hover,
-.overview-alerts-link:focus-visible {
-  color: var(--accent-strong);
+.overview-deployment-result.success {
+  color: var(--success);
+}
+
+.overview-deployment-result.failed {
+  color: var(--error);
+}
+
+.overview-deployment-revision {
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  color: var(--muted);
+  background: transparent;
+  padding: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.84rem;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: left;
+}
+
+.overview-deployment-revision:hover,
+.overview-deployment-revision:focus-visible {
+  color: var(--text);
+  filter: none;
+  transform: none;
   text-decoration: underline;
+}
+
+.overview-alert-message {
+  margin: 0;
+  color: var(--text);
+  font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overview-alert-time {
+  color: var(--muted);
+}
+
+.alert-details-list {
+  margin-top: 0;
 }
 
 .services-page {

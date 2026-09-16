@@ -10,7 +10,8 @@ const overviewStore = useOverviewStore();
 const deploymentEvents = ref<EventHistoryItem[]>([]);
 const alertEvents = ref<EventHistoryItem[]>([]);
 const overviewEventsError = ref("");
-const overviewEventsLimit = 3;
+const deploymentEventsLimit = 3;
+const alertEventsLimit = 5;
 
 let refreshTimer: ReturnType<typeof setInterval> | undefined;
 
@@ -42,18 +43,6 @@ function stackStatusLabel(status?: StackStatus | null): string {
   return `synced ${normalizedStatus.synced} | out of sync ${normalizedStatus.out_of_synced}`;
 }
 
-function normalizedSeverity(item: EventHistoryItem): "info" | "warn" | "error" | "alert" {
-  switch (item.severity) {
-    case "warn":
-    case "error":
-    case "alert":
-      return item.severity;
-    case "info":
-    default:
-      return "info";
-  }
-}
-
 function deploymentResult(item: EventHistoryItem): string {
   if (item.type === "deploySuccess") {
     return "success";
@@ -81,8 +70,20 @@ function detailValue(item: EventHistoryItem, keys: string[]): string {
   return "";
 }
 
-function alertContext(item: EventHistoryItem): string {
-  return detailValue(item, ["stack", "stack_name", "service", "service_name", "node", "node_name", "destination", "channel"]);
+function formatDateMinute(raw: string | undefined): string {
+  if (!raw) {
+    return "n/a";
+  }
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.valueOf())) {
+    return raw;
+  }
+
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${pad(parsed.getDate())}.${pad(parsed.getMonth() + 1)}.${parsed.getFullYear()} ${pad(parsed.getHours())}:${pad(
+    parsed.getMinutes(),
+  )}`;
 }
 
 async function openCommitDetails(commitHash: string | undefined) {
@@ -103,16 +104,20 @@ async function openStackManifest(stackName: string) {
   await overviewStore.openStackManifestModal(stack);
 }
 
+function openAlertDetails(event: EventHistoryItem) {
+  overviewStore.openAlertDetailsModal(event);
+}
+
 async function refreshOverview() {
   overviewEventsError.value = "";
 
   const [overviewResult, deploymentsResult, alertsResult] = await Promise.allSettled([
     overviewStore.loadOverview(),
-    fetchEvents({ types: ["deploySuccess", "deployFailed"], limit: overviewEventsLimit }),
+    fetchEvents({ types: ["deploySuccess", "deployFailed"], limit: deploymentEventsLimit }),
     fetchEvents({
       severities: ["alert"],
       since: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
-      limit: overviewEventsLimit,
+      limit: alertEventsLimit,
     }),
   ]);
 
@@ -173,57 +178,65 @@ onUnmounted(() => {
 
   <section class="overview-summary-grid" aria-label="Overview highlights">
     <article class="stack-card overview-latest-deployments">
-      <h2 class="overview-panel-title">Latest Deployments</h2>
+      <header class="overview-card-header">
+        <h2 class="overview-panel-title">Latest Deployments</h2>
+        <RouterLink
+          :to="{ path: '/events', query: { types: ['deploySuccess', 'deployFailed'] } }"
+          class="overview-card-action"
+        >
+          View All
+        </RouterLink>
+      </header>
       <p v-if="overviewEventsError && deploymentEvents.length === 0" class="meta">
         Failed to load latest deployments: {{ overviewEventsError }}
       </p>
       <p v-else-if="deploymentEvents.length === 0" class="meta">No deployments recorded yet.</p>
       <div v-else class="overview-deployment-list">
         <article
-          v-for="event in deploymentEvents"
+          v-for="event in deploymentEvents.slice(0, deploymentEventsLimit)"
           :key="`${event.type}-${event.created_at}-${event.message}`"
           class="overview-deployment-item"
         >
-          <div class="overview-deployment-main">
-            <strong>{{ detailValue(event, ["stack", "stack_name"]) || "unknown stack" }}</strong>
-            <span class="status" :class="deploymentResultClass(event)">{{ deploymentResult(event) }}</span>
-          </div>
-          <div class="overview-deployment-meta">
-            <span>{{ formatDate(event.created_at) }}</span>
+          <p class="overview-deployment-row">
+            <span class="overview-deployment-stack">{{ detailValue(event, ["stack", "stack_name"]) || "unknown stack" }}</span>
+            <span class="overview-deployment-result" :class="deploymentResultClass(event)">
+              {{ deploymentResult(event) }}
+            </span>
+            <span>{{ formatDateMinute(event.created_at) }}</span>
             <button
               v-if="detailValue(event, ['commit', 'revision'])"
               type="button"
-              class="stack-commit-badge status unknown"
+              class="overview-deployment-revision"
               @click="openCommitDetails(detailValue(event, ['commit', 'revision']))"
             >
               {{ shortCommitHash(detailValue(event, ["commit", "revision"])) }}
             </button>
-            <span v-if="detailValue(event, ['trigger', 'triggered_by'])">
-              trigger: {{ detailValue(event, ["trigger", "triggered_by"]) }}
-            </span>
-          </div>
+          </p>
         </article>
       </div>
     </article>
 
-    <article class="stack-card overview-alerts">
-      <h2 class="overview-panel-title">Alerts</h2>
+    <article class="stack-card overview-alerts" :class="{ 'overview-alerts-has-items': alertEvents.length > 0 }">
+      <header class="overview-card-header">
+        <h2 class="overview-panel-title">Alerts</h2>
+        <RouterLink to="/events?severity=alert" class="overview-card-action">View All</RouterLink>
+      </header>
       <p v-if="overviewEventsError && alertEvents.length === 0" class="meta">Failed to load alerts: {{ overviewEventsError }}</p>
-      <p v-else-if="alertEvents.length === 0" class="meta">No important events recorded.</p>
+      <p v-else-if="alertEvents.length === 0" class="meta">No alerts in the last 12 hours.</p>
       <div v-else class="overview-alert-list">
-        <article v-for="event in alertEvents" :key="`${event.type}-${event.created_at}-${event.message}`" class="overview-alert-item">
-          <p class="event-item-header">
-            <span class="event-severity" :class="`event-severity-${normalizedSeverity(event)}`">
-              {{ normalizedSeverity(event) }}
-            </span>
-            <strong>{{ event.type || "unknown" }}</strong>
-            <span class="overview-alert-time">{{ formatDate(event.created_at) }}</span>
-          </p>
-          <p class="meta overview-alert-message">{{ event.message || "No message" }}</p>
-          <p v-if="alertContext(event)" class="meta overview-alert-context">{{ alertContext(event) }}</p>
-        </article>
+        <button
+          v-for="event in alertEvents"
+          :key="`${event.type}-${event.created_at}-${event.message}`"
+          type="button"
+          class="overview-alert-item"
+          @click="openAlertDetails(event)"
+        >
+          <span class="overview-alert-row">
+            <span class="overview-alert-message">{{ event.message || "No message" }}</span>
+            <span class="overview-alert-time">{{ formatDateMinute(event.created_at) }}</span>
+          </span>
+        </button>
       </div>
-      <RouterLink to="/events?severity=alert" class="overview-alerts-link">View all alerts</RouterLink>
     </article>
   </section>
 
