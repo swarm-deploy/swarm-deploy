@@ -14,13 +14,18 @@ func NewResourcesUnspecifiedAnalyzer() *ResourcesUnspecifiedAnalyzer {
 	return &ResourcesUnspecifiedAnalyzer{}
 }
 
-func (a *ResourcesUnspecifiedAnalyzer) Analyze(_ context.Context, stack compose.File) []model.Recommendation {
+func (a *ResourcesUnspecifiedAnalyzer) Analyze(_ context.Context, stack model.Stack) []model.Recommendation {
 	recs := make([]model.Recommendation, 0)
 
-	for _, service := range stack.Compose.Services {
+	for _, service := range stack.Definition.Compose.Services {
 		rec := a.analyze(service)
 		if rec == nil {
 			continue
+		}
+
+		rec.Subject = model.Subject{
+			Stack:   stack.Name,
+			Service: service.Name,
 		}
 
 		recs = append(recs, *rec)

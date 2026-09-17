@@ -18,10 +18,12 @@ type Recommendation struct {
 	Severity Severity `json:"severity"`
 	Type     Type     `json:"type"`
 
-	Subject struct {
-		Stack   string `json:"stack"`
-		Service string `yaml:"service"`
-	} `json:"subject"`
+	Subject Subject `json:"subject"`
 
 	Recommendation string `json:"recommendation"`
+}
+
+type Subject struct {
+	Stack   string `json:"stack"`
+	Service string `json:"service"`
 }

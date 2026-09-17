@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/recommendations/analyzer"
+	"github.com/swarm-deploy/swarm-deploy/internal/recommendations/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/recommendations/modelstore"
 )
 
@@ -24,13 +24,10 @@ func NewRecommender(
 	}
 }
 
-func (r *Recommender) Recommend(ctx context.Context, stackName string, stack compose.File) error {
+func (r *Recommender) Recommend(ctx context.Context, stack model.Stack) error {
 	recs := r.analyzers.Analyze(ctx, stack)
-	if len(recs) == 0 {
-		return nil
-	}
 
-	err := r.store.UpdateStack(ctx, stackName, recs)
+	err := r.store.UpdateStack(ctx, stack.Name, recs)
 	if err != nil {
 		return fmt.Errorf("update stack recommendations: %w", err)
 	}

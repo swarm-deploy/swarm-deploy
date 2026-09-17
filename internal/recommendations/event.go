@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/recommendations/model"
 )
 
 type RecommenderEventSubscriber struct {
@@ -28,5 +29,8 @@ func (r *RecommenderEventSubscriber) Handle(ctx context.Context, event events.Ev
 		return nil
 	}
 
-	return r.recommender.Recommend(ctx, deployEvent.StackName, deployEvent.StackDefinition)
+	return r.recommender.Recommend(ctx, model.Stack{
+		Name:       deployEvent.StackName,
+		Definition: deployEvent.StackDefinition,
+	})
 }

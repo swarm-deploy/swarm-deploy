@@ -3,12 +3,11 @@ package analyzer
 import (
 	"context"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/recommendations/model"
 )
 
 type StackAnalyzer interface {
-	Analyze(ctx context.Context, stack compose.File) []model.Recommendation
+	Analyze(ctx context.Context, stack model.Stack) []model.Recommendation
 }
 
 type compositeAnalyzer struct {
@@ -21,7 +20,7 @@ func Composite(analyzers ...StackAnalyzer) StackAnalyzer {
 	}
 }
 
-func (a *compositeAnalyzer) Analyze(ctx context.Context, stack compose.File) []model.Recommendation {
+func (a *compositeAnalyzer) Analyze(ctx context.Context, stack model.Stack) []model.Recommendation {
 	recs := make([]model.Recommendation, 0)
 
 	for _, analyzer := range a.analyzers {
