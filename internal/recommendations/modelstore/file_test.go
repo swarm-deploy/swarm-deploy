@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -88,6 +89,45 @@ func TestFileStoreUpdateStackReplacesStackRecommendationsAndRebuildsIndexes(t *t
 	require.Len(t, decoded.List, 2, "expected old api recommendation removed")
 	assert.Equal(t, []int{0}, decoded.Stacks["worker"], "expected worker index rebuilt")
 	assert.Equal(t, []int{1}, decoded.Stacks["api"], "expected api index rebuilt")
+	assert.Equal(t, []int{0}, decoded.IDs[decoded.List[0].ID()], "expected worker id index rebuilt")
+	assert.Equal(t, []int{1}, decoded.IDs[decoded.List[1].ID()], "expected api id index rebuilt")
+}
+
+func TestFileStoreUpdateStackKeepsExistingRecommendationWithSameID(t *testing.T) {
+	ctx := context.Background()
+	path := filepath.Join(t.TempDir(), "recommendations.json")
+	store, err := NewFileStore(ctx, path, fs.NewLocalFileSystem())
+	require.NoError(t, err, "new store")
+
+	createdAt := time.Date(2026, time.September, 18, 10, 0, 0, 0, time.UTC)
+	require.NoError(t, store.UpdateStack(ctx, "api", []model.Recommendation{
+		{
+			Severity:       model.SeverityMedium,
+			Type:           model.TypeServiceResourcesUnspecified,
+			Subject:        model.Subject{Service: "web"},
+			Commit:         "old-commit",
+			Recommendation: "old recommendation",
+			CreatedAt:      createdAt,
+		},
+	}), "update api recommendations")
+
+	require.NoError(t, store.UpdateStack(ctx, "api", []model.Recommendation{
+		{
+			Severity:       model.SeverityMedium,
+			Type:           model.TypeServiceResourcesUnspecified,
+			Subject:        model.Subject{Service: "web"},
+			Commit:         "new-commit",
+			Recommendation: "new recommendation",
+			CreatedAt:      createdAt.Add(time.Hour),
+		},
+	}), "update api recommendations with duplicate id")
+
+	recommendations, err := store.List(ctx, ListFilter{Stack: "api"})
+	require.NoError(t, err, "list api recommendations")
+	require.Len(t, recommendations, 1, "expected deduplicated recommendation")
+	assert.Equal(t, "old recommendation", recommendations[0].Recommendation, "expected old recommendation to survive")
+	assert.Equal(t, "old-commit", recommendations[0].Commit, "expected old commit to survive")
+	assert.Equal(t, createdAt, recommendations[0].CreatedAt, "expected old creation time to survive")
 }
 
 func TestFileStoreListLimitsRecommendations(t *testing.T) {

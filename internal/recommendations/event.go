@@ -32,5 +32,6 @@ func (r *RecommenderEventSubscriber) Handle(ctx context.Context, event events.Ev
 	return r.recommender.Recommend(ctx, model.Stack{
 		Name:       deployEvent.StackName,
 		Definition: deployEvent.StackDefinition,
+		Commit:     deployEvent.Commit,
 	})
 }

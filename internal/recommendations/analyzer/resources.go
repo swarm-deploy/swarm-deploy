@@ -2,16 +2,20 @@ package analyzer
 
 import (
 	"context"
+	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/recommendations/model"
 )
 
 type ResourcesUnspecifiedAnalyzer struct {
+	now func() time.Time
 }
 
 func NewResourcesUnspecifiedAnalyzer() *ResourcesUnspecifiedAnalyzer {
-	return &ResourcesUnspecifiedAnalyzer{}
+	return &ResourcesUnspecifiedAnalyzer{
+		now: time.Now,
+	}
 }
 
 func (a *ResourcesUnspecifiedAnalyzer) Analyze(_ context.Context, stack model.Stack) []model.Recommendation {
@@ -27,7 +31,8 @@ func (a *ResourcesUnspecifiedAnalyzer) Analyze(_ context.Context, stack model.St
 			Stack:   stack.Name,
 			Service: service.Name,
 		}
-
+		rec.CreatedAt = a.now()
+		rec.Source = model.SourceFromStack(stack)
 		recs = append(recs, *rec)
 	}
 
@@ -39,7 +44,7 @@ func (a *ResourcesUnspecifiedAnalyzer) analyze(srv compose.Service) *model.Recom
 		return &model.Recommendation{
 			Severity:       model.SeverityMedium,
 			Type:           model.TypeServiceResourcesUnspecified,
-			Recommendation: "Specify resources for the service in deploy.resources",
+			Recommendation: "Specify deploy.resources for the service",
 		}
 	}
 
@@ -47,7 +52,7 @@ func (a *ResourcesUnspecifiedAnalyzer) analyze(srv compose.Service) *model.Recom
 		return &model.Recommendation{
 			Severity:       model.SeverityMedium,
 			Type:           model.TypeServiceResourcesLimitsUnspecified,
-			Recommendation: "Specify limits for the service in deploy.resources.limits",
+			Recommendation: "Specify deploy.resources.limits for the service",
 		}
 	}
 

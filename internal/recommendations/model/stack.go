@@ -8,4 +8,6 @@ type Stack struct {
 	Name string
 	// Definition is a stack compose definition.
 	Definition compose.File
+
+	Commit string
 }

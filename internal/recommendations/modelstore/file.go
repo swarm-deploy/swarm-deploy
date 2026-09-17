@@ -26,6 +26,7 @@ type FileStore struct {
 type file struct {
 	List   []model.Recommendation `json:"list"`
 	Stacks map[string][]int       `json:"stacks"` // map[stack_name][]index - index from List
+	IDs    map[string][]int       `json:"ids"`    // map[recommendation_id][]index - index from List
 }
 
 // NewFileStore creates a file-backed recommendation store and loads current state from disk.
@@ -36,6 +37,7 @@ func NewFileStore(ctx context.Context, path string, filesystem fs.FileSystem) (*
 		data: file{
 			List:   []model.Recommendation{},
 			Stacks: map[string][]int{},
+			IDs:    map[string][]int{},
 		},
 	}
 
@@ -88,7 +90,9 @@ func (f *FileStore) UpdateStack(ctx context.Context, stack string, recommendatio
 	data := file{
 		List:   make([]model.Recommendation, 0, len(f.data.List)+len(recommendations)),
 		Stacks: map[string][]int{},
+		IDs:    map[string][]int{},
 	}
+	previousByID := f.recommendationsByIDLocked()
 
 	for existingStack, indexes := range f.data.Stacks {
 		if existingStack == stack {
@@ -100,15 +104,17 @@ func (f *FileStore) UpdateStack(ctx context.Context, stack string, recommendatio
 				continue
 			}
 
-			data.Stacks[existingStack] = append(data.Stacks[existingStack], len(data.List))
-			data.List = append(data.List, f.data.List[index])
+			appendRecommendation(&data, f.data.List[index])
 		}
 	}
 
 	for _, recommendation := range recommendations {
 		recommendation.Subject.Stack = stack
-		data.Stacks[stack] = append(data.Stacks[stack], len(data.List))
-		data.List = append(data.List, recommendation)
+		if existingRecommendation, ok := previousByID[recommendation.ID()]; ok {
+			recommendation = existingRecommendation
+		}
+
+		appendRecommendation(&data, recommendation)
 	}
 
 	f.data = data
@@ -119,6 +125,44 @@ func (f *FileStore) UpdateStack(ctx context.Context, stack string, recommendatio
 	}
 
 	return nil
+}
+
+func appendRecommendation(data *file, recommendation model.Recommendation) {
+	id := recommendation.ID()
+	if _, exists := data.IDs[id]; exists {
+		return
+	}
+
+	index := len(data.List)
+	data.List = append(data.List, recommendation)
+	data.Stacks[recommendation.Subject.Stack] = append(data.Stacks[recommendation.Subject.Stack], index)
+	data.IDs[id] = append(data.IDs[id], index)
+}
+
+func (f *FileStore) recommendationsByIDLocked() map[string]model.Recommendation {
+	recommendations := make(map[string]model.Recommendation, len(f.data.IDs))
+
+	for id, indexes := range f.data.IDs {
+		for _, index := range indexes {
+			if index < 0 || index >= len(f.data.List) {
+				continue
+			}
+
+			recommendations[id] = f.data.List[index]
+			break
+		}
+	}
+
+	for _, recommendation := range f.data.List {
+		id := recommendation.ID()
+		if _, exists := recommendations[id]; exists {
+			continue
+		}
+
+		recommendations[id] = recommendation
+	}
+
+	return recommendations
 }
 
 func (f *FileStore) load(ctx context.Context) error {
@@ -148,6 +192,9 @@ func (f *FileStore) load(ctx context.Context) error {
 	}
 	if decoded.Stacks == nil {
 		decoded.Stacks = map[string][]int{}
+	}
+	if decoded.IDs == nil {
+		decoded.IDs = map[string][]int{}
 	}
 
 	f.data = decoded
