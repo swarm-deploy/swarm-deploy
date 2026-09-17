@@ -105,7 +105,7 @@ func TestFileStoreUpdateStackKeepsExistingRecommendationWithSameID(t *testing.T)
 			Severity:       model.SeverityMedium,
 			Type:           model.TypeServiceResourcesUnspecified,
 			Subject:        model.Subject{Service: "web"},
-			Commit:         "old-commit",
+			Source:         model.Source{Commit: "old-commit"},
 			Recommendation: "old recommendation",
 			CreatedAt:      createdAt,
 		},
@@ -116,7 +116,7 @@ func TestFileStoreUpdateStackKeepsExistingRecommendationWithSameID(t *testing.T)
 			Severity:       model.SeverityMedium,
 			Type:           model.TypeServiceResourcesUnspecified,
 			Subject:        model.Subject{Service: "web"},
-			Commit:         "new-commit",
+			Source:         model.Source{Commit: "new-commit"},
 			Recommendation: "new recommendation",
 			CreatedAt:      createdAt.Add(time.Hour),
 		},
@@ -126,7 +126,7 @@ func TestFileStoreUpdateStackKeepsExistingRecommendationWithSameID(t *testing.T)
 	require.NoError(t, err, "list api recommendations")
 	require.Len(t, recommendations, 1, "expected deduplicated recommendation")
 	assert.Equal(t, "old recommendation", recommendations[0].Recommendation, "expected old recommendation to survive")
-	assert.Equal(t, "old-commit", recommendations[0].Commit, "expected old commit to survive")
+	assert.Equal(t, "old-commit", recommendations[0].Source.Commit, "expected old commit to survive")
 	assert.Equal(t, createdAt, recommendations[0].CreatedAt, "expected old creation time to survive")
 }
 

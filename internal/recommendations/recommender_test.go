@@ -22,7 +22,7 @@ func TestRecommenderClearsStackRecommendationsWhenAnalyzerReturnsEmptyList(t *te
 	)
 	require.NoError(t, err, "new recommendation store")
 
-	recommender := NewRecommender(&analyzer.ResourcesUnspecifiedAnalyzer{}, store)
+	recommender := NewRecommender(analyzer.NewResourcesUnspecifiedAnalyzer(), store)
 
 	require.NoError(t, recommender.Recommend(ctx, model.Stack{
 		Name: "api",

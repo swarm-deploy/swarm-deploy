@@ -29,7 +29,10 @@ func InitService(ctx context.Context, path string, filesystem fs.FileSystem) (*S
 	}
 
 	recommender := NewRecommender(
-		analyzer.Composite(analyzer.NewResourcesUnspecifiedAnalyzer()),
+		analyzer.Composite(
+			analyzer.NewResourcesUnspecifiedAnalyzer(),
+			analyzer.NewImageAnalyzer(),
+		),
 		store,
 	)
 

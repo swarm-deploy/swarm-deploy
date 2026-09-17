@@ -16,13 +16,15 @@ const (
 
 	TypeServiceResourcesUnspecified       Type = "service.resources.unspecified"
 	TypeServiceResourcesLimitsUnspecified Type = "service.resources.limits.unspecified"
+	TypeServiceImageLatest                Type = "service.image.latest"
+	TypeServiceImageDigestUnspecified     Type = "service.image.digest.unspecified"
 )
 
 type Recommendation struct {
 	Severity Severity `json:"severity"`
 	Type     Type     `json:"type"`
 	Source   Source   `json:"source"`
-	Subject  Subject `json:"subject"`
+	Subject  Subject  `json:"subject"`
 
 	Recommendation string `json:"recommendation"`
 
@@ -35,20 +37,19 @@ type Subject struct {
 }
 
 type Source struct {
-	File string `json:"file"`
+	File   string `json:"file"`
 	Digest string `json:"digest"`
 	Commit string `json:"commit"`
 }
 
 func SourceFromStack(stack Stack) Source {
 	return Source{
-		File: stack.Definition.Path,
+		File:   stack.Definition.Path,
 		Digest: stack.Definition.Digest,
 		Commit: stack.Commit,
 	}
 }
 
 func (r *Recommendation) ID() string {
-	return r.Subject.Stack + "-" + r.Subject.Service + "-" + string(r.Type) + string(r.Severity)
+	return r.Subject.Stack + "-" + r.Subject.Service + "-" + r.Source.File + string(r.Type)
 }
-
