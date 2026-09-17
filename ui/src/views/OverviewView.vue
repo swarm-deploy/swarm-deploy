@@ -290,7 +290,7 @@ onUnmounted(() => {
       <div v-else class="overview-recommendation-list">
         <article
           v-for="recommendation in overviewRecommendations"
-          :key="`${recommendation.severity}-${recommendation.subject.stack}-${recommendation.subject.service}-${recommendation.recommendation}`"
+          :key="`${recommendation.severity}-${recommendation.subject.stack}-${recommendation.subject.service}-${recommendation.title}`"
           class="overview-recommendation-item"
         >
           <span
@@ -299,7 +299,7 @@ onUnmounted(() => {
             :title="recommendation.severity"
             aria-hidden="true"
           ></span>
-          <span class="overview-recommendation-text">{{ recommendation.recommendation }}</span>
+          <span class="overview-recommendation-text">{{ recommendation.title }}</span>
         </article>
       </div>
     </article>

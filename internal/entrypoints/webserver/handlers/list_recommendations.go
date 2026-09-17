@@ -32,11 +32,18 @@ func toGeneratedRecommendations(recommendations []model.Recommendation) []genera
 		items = append(items, generated.Recommendation{
 			Severity: string(recommendation.Severity),
 			Type:     string(recommendation.Type),
+			Source: generated.RecommendationSource{
+				File:   recommendation.Source.File,
+				Digest: recommendation.Source.Digest,
+				Commit: recommendation.Source.Commit,
+			},
 			Subject: generated.RecommendationSubject{
 				Stack:   recommendation.Subject.Stack,
 				Service: recommendation.Subject.Service,
 			},
+			Title:          recommendation.Title,
 			Recommendation: recommendation.Recommendation,
+			CreatedAt:      recommendation.CreatedAt,
 		})
 	}
 

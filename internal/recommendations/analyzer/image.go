@@ -56,6 +56,7 @@ func (a *ImageAnalyzer) analyze(srv compose.Service) *model.Recommendation {
 		return &model.Recommendation{
 			Severity: model.SeverityHigh,
 			Type:     model.TypeServiceImageLatest,
+			Title:    "Image with latest tag",
 			Recommendation: "Replace the mutable latest image tag with a specific version or digest " +
 				"for reproducible deployments",
 		}
@@ -64,6 +65,7 @@ func (a *ImageAnalyzer) analyze(srv compose.Service) *model.Recommendation {
 	return &model.Recommendation{
 		Severity: model.SeverityMedium,
 		Type:     model.TypeServiceImageDigestUnspecified,
+		Title:    "Image with unspecified digest",
 		Recommendation: "Pin the service image with @sha256:... because image tags are mutable " +
 			"and can change between deployments",
 	}

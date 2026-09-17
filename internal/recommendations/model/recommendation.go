@@ -26,6 +26,7 @@ type Recommendation struct {
 	Source   Source   `json:"source"`
 	Subject  Subject  `json:"subject"`
 
+	Title          string `json:"title"`
 	Recommendation string `json:"recommendation"`
 
 	CreatedAt time.Time `json:"created_at"`

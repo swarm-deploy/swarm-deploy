@@ -473,18 +473,35 @@ components:
           type: string
         service:
           type: string
+    RecommendationSource:
+      type: object
+      required: [file, digest, commit]
+      properties:
+        file:
+          type: string
+        digest:
+          type: string
+        commit:
+          type: string
     Recommendation:
       type: object
-      required: [severity, type, subject, recommendation]
+      required: [severity, type, source, subject, title, recommendation, created_at]
       properties:
         severity:
           type: string
         type:
           type: string
+        source:
+          $ref: '#/components/schemas/RecommendationSource'
         subject:
           $ref: '#/components/schemas/RecommendationSubject'
+        title:
+          type: string
         recommendation:
           type: string
+        created_at:
+          type: string
+          format: date-time
     EventHistoryItem:
       type: object
       required: [type, severity, category, created_at, message]

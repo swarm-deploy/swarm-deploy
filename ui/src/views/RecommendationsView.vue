@@ -37,7 +37,7 @@ const visibleRecommendations = computed(() =>
 );
 
 function recommendationKey(recommendation: Recommendation): string {
-  return `${recommendation.severity}-${recommendation.subject.stack}-${recommendation.subject.service}-${recommendation.recommendation}`;
+  return `${recommendation.severity}-${recommendation.subject.stack}-${recommendation.subject.service}-${recommendation.title}`;
 }
 
 function severityClass(severity: RecommendationSeverity): string {
@@ -132,7 +132,7 @@ onMounted(() => {
                 {{ recommendation.severity }}
               </span>
             </td>
-            <td>{{ recommendation.recommendation || "No recommendation text" }}</td>
+            <td>{{ recommendation.recommendation || "No recommendation" }}</td>
             <td>{{ recommendation.subject.service || "unknown service" }}</td>
             <td>{{ recommendation.subject.stack || "unknown stack" }}</td>
           </tr>

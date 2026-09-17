@@ -44,6 +44,7 @@ func (a *ResourcesUnspecifiedAnalyzer) analyze(srv compose.Service) *model.Recom
 		return &model.Recommendation{
 			Severity:       model.SeverityMedium,
 			Type:           model.TypeServiceResourcesUnspecified,
+			Title:          "Service with unspecified resources",
 			Recommendation: "Specify deploy.resources for the service",
 		}
 	}
@@ -52,6 +53,7 @@ func (a *ResourcesUnspecifiedAnalyzer) analyze(srv compose.Service) *model.Recom
 		return &model.Recommendation{
 			Severity:       model.SeverityMedium,
 			Type:           model.TypeServiceResourcesLimitsUnspecified,
+			Title:          "Service with unspecified limits of resources",
 			Recommendation: "Specify deploy.resources.limits for the service",
 		}
 	}
