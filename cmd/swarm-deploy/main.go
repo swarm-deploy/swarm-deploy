@@ -19,6 +19,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/healthserver"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver"
+	mcpTools "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/tools"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/sd"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webhookserver"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver"
@@ -190,6 +191,7 @@ func main() {
 		nodeStore,
 		swarmService,
 		gitRepository,
+		recommendationsService.Store,
 		control,
 		eventDispatcher,
 		metricsGroup,
@@ -291,6 +293,7 @@ func buildAssistantService(
 	nodeStore *swarmnode.Store,
 	swarmService *swarm.Swarm,
 	gitRepository gitx.Repository,
+	recommendations mcpTools.RecommendationsReader,
 	control *controller.Controller,
 	eventDispatcher dispatcher.Dispatcher,
 	metrics *metrics.Group,
@@ -320,6 +323,7 @@ func buildAssistantService(
 		nodeStore,
 		swarmService,
 		serviceStore,
+		recommendations,
 		imageVersionResolver,
 		gitRepository,
 		hostingProviders,

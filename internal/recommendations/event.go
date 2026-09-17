@@ -24,14 +24,33 @@ func (r *RecommenderEventSubscriber) Slow() bool {
 }
 
 func (r *RecommenderEventSubscriber) Handle(ctx context.Context, event events.Event) error {
-	deployEvent, isDeployEvent := event.(*events.DeploySuccess)
-	if !isDeployEvent {
+	stack, stackValid := r.stack(event)
+	if !stackValid {
 		return nil
 	}
 
 	return r.recommender.Recommend(ctx, model.Stack{
-		Name:       deployEvent.StackName,
-		Definition: deployEvent.StackDefinition,
-		Commit:     deployEvent.Commit,
+		Name:       stack.Name,
+		Definition: stack.Definition,
+		Commit:     stack.Commit,
 	})
+}
+
+func (r *RecommenderEventSubscriber) stack(event events.Event) (model.Stack, bool) {
+	var meta events.DeployEvent
+
+	switch e := event.(type) {
+	case *events.DeploySuccess:
+		meta = e.DeployEvent
+	case *events.DeployFailed:
+		meta = e.DeployEvent
+	default:
+		return model.Stack{}, false
+	}
+
+	return model.Stack{
+		Name:       meta.StackName,
+		Definition: meta.StackDefinition,
+		Commit:     meta.Commit,
+	}, true
 }
