@@ -23,13 +23,9 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/sd"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webhookserver"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/logx"
-	eventmetrics "github.com/swarm-deploy/swarm-deploy/internal/event/metrics"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/notifiers"
-	notify2 "github.com/swarm-deploy/swarm-deploy/internal/event/notify"
 	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/differ"
@@ -123,15 +119,15 @@ func main() {
 		os.Exit(1)
 	}
 
-	swarmService := swarm.NewSwarm(dockerClient, cfg.Spec.Swarm.Command)
+	swarmSvc := swarm.NewSwarm(dockerClient, cfg.Spec.Swarm.Command)
 
 	deployerSvc := deployer.NewDeployer(
 		cfg.Spec.Swarm.StackDeployArgs,
 		cfg.Spec.Swarm.InitJobPollEvery.Value,
 		cfg.Spec.Swarm.InitJobMaxDuration.Value,
-		swarmService.BinaryRunner,
+		swarmSvc.BinaryRunner,
 		dockerClient,
-		swarmService,
+		swarmSvc,
 		metricsGroup.Deploys,
 	)
 
@@ -143,17 +139,24 @@ func main() {
 
 	filesystem := fs.TraceOS()
 
-	eventDispatcher, eventHistory, serviceStore, err := buildEventDispatcher(
-		cfg,
-		swarmService,
-		metricsGroup.Events,
-		filesystem,
-	)
+	eventService, err := event.InitService(cfg, metricsGroup.Events, filesystem)
 	if err != nil {
-		slog.ErrorContext(ctx, "failed to build event dispatcher", slog.Any("err", err))
+		slog.ErrorContext(ctx, "failed to init event service", slog.Any("err", err))
 		os.Exit(1)
 	}
-	nodeCollector := swarmnode.NewNodeCollector(swarmService.Nodes, nodeStore, eventDispatcher)
+
+	srvStore, err := service.NewStore(filepath.Join(cfg.Spec.DataDir, "services.json"))
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to init service store", slog.Any("err", err))
+		os.Exit(1)
+	}
+
+	eventService.Dispatcher.Subscribe(
+		events.TypeDeploySuccess,
+		service.NewSubscriber(srvStore, swarmSvc.Services, swarmSvc.Images, swarmSvc.Configs, metadata.NewExtractor()),
+	)
+
+	nodeCollector := swarmnode.NewNodeCollector(swarmSvc.Nodes, nodeStore, eventService.Dispatcher)
 
 	stateFileStore, err := modelstore.NewFileStore(ctx,
 		filepath.Join(cfg.Spec.DataDir, "controller.state.json"),
@@ -179,32 +182,31 @@ func main() {
 	control := controller.New(
 		cfg,
 		gitRepository,
-		swarmService,
+		swarmSvc,
 		deployerSvc,
 		metricsGroup,
-		eventDispatcher,
+		eventService.Dispatcher,
 		stateStore,
 		filesystem,
 	)
 
 	assistantService, err := buildAssistantService(
 		cfg,
-		serviceStore,
-		eventHistory,
+		srvStore,
 		nodeStore,
-		swarmService,
+		swarmSvc,
 		gitRepository,
 		recommendationsService.Store,
 		control,
-		eventDispatcher,
 		metricsGroup,
+		eventService,
 	)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to build assistant service", slog.Any("err", err))
 		os.Exit(1)
 	}
 
-	recommendationsService.RegisterEventSubscribers(eventDispatcher)
+	recommendationsService.RegisterEventSubscribers(eventService.Dispatcher)
 
 	webApplication, err := webserver.NewApplication(
 		cfg.Spec.Web.Address,
@@ -212,13 +214,13 @@ func main() {
 		stateStore,
 		control,
 		gitRepository,
-		swarmService,
-		eventHistory,
-		serviceStore,
+		swarmSvc,
+		eventService.History,
+		srvStore,
 		nodeStore,
 		recommendationsService.Store,
 		assistantService,
-		eventDispatcher,
+		eventService.Dispatcher,
 		cfg.Spec.Web.Security.Authentication,
 	)
 	if err != nil {
@@ -292,14 +294,13 @@ func main() {
 func buildAssistantService(
 	cfg *config.Config,
 	serviceStore *service.Store,
-	eventHistory *history.Store,
 	nodeStore *swarmnode.Store,
 	swarmService *swarm.Swarm,
 	gitRepository gitx.Repository,
 	recommendations mcpTools.RecommendationsReader,
 	control *controller.Controller,
-	eventDispatcher dispatcher.Dispatcher,
 	metrics *metrics.Group,
+	eventService *event.Service,
 ) (assistant.Assistant, error) {
 	if !cfg.Spec.Assistant.Enabled {
 		return &assistant.DisabledAssistant{}, nil
@@ -322,7 +323,7 @@ func buildAssistantService(
 	}
 
 	toolExecutor := mcpserver.NewExecutor(
-		eventHistory,
+		eventService.History,
 		nodeStore,
 		swarmService,
 		serviceStore,
@@ -333,7 +334,7 @@ func buildAssistantService(
 		cfg.Spec.Stacks,
 		commitDiffer,
 		control,
-		eventDispatcher,
+		eventService.Dispatcher,
 		metrics.MCP,
 	)
 
@@ -349,102 +350,5 @@ func buildAssistantService(
 		SystemPrompt:            cfg.Spec.Assistant.SystemPrompt,
 		AllowedTools:            cfg.Spec.Assistant.Tools,
 		ConversationInMemoryTTL: cfg.Spec.Assistant.Conversation.Storage.InMemory.TTL.Value,
-	}, serviceStore, toolExecutor, eventDispatcher, metrics.Assistant)
-}
-
-func buildEventDispatcher(
-	cfg *config.Config,
-	swarmSvc *swarm.Swarm,
-	eventMetrics metrics.Events,
-	filesystem fs.FileSystem,
-) (dispatcher.Dispatcher, *history.Store, *service.Store, error) {
-	historyStore, err := history.NewStore(
-		filepath.Join(cfg.Spec.DataDir, "event-history.json"),
-		cfg.Spec.EventHistory.Capacity,
-		filesystem,
-	)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("build history store: %w", err)
-	}
-
-	srvStore, err := service.NewStore(filepath.Join(cfg.Spec.DataDir, "services.json"))
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("build service store: %w", err)
-	}
-
-	var eventDispatcher dispatcher.Dispatcher = dispatcher.NewQueueDispatcher()
-
-	if cfg.Spec.Web.Security.Authentication.Strategy() != config.AuthenticationStrategyNone {
-		eventDispatcher = dispatcher.NewEnrichableDispatcher(
-			dispatcher.WrapEnrichers(security.EnrichEvent()),
-			eventDispatcher,
-		)
-	}
-
-	subscribeOnAllEvents(eventDispatcher, historyStore)
-	subscribeOnAllEvents(eventDispatcher, eventmetrics.NewSubscriber(eventMetrics))
-
-	dispatcherLink := &dispatcherProxy{Dispatcher: eventDispatcher}
-	subscribersCount := 0
-
-	eventDispatcher.Subscribe(
-		events.TypeDeploySuccess,
-		service.NewSubscriber(srvStore, swarmSvc.Services, swarmSvc.Images, swarmSvc.Configs, metadata.NewExtractor()),
-	)
-	subscribersCount++
-
-	for eventTypeName, channels := range cfg.Spec.Notifications.On {
-		eventType, ok := events.ParseType(string(eventTypeName))
-		if !ok {
-			return nil, nil, nil, fmt.Errorf("unknown notifications.on event type %q", eventTypeName)
-		}
-
-		for _, tg := range channels.Telegram {
-			tgNotifier, notifierErr := notifiers.NewTelegramNotifier(
-				tg.Name,
-				string(tg.BotToken.Content),
-				tg.ChatID,
-				notifiers.TelegramOptions{
-					ChatThreadID:  tg.ChatThreadID,
-					Message:       tg.Message,
-					Retries:       cfg.Spec.Notifications.Messengers.Telegram.Retries,
-					SOCKS5Address: cfg.Spec.Notifications.Messengers.Telegram.Proxy.SOCKS5.Address.Value,
-				},
-			)
-			if notifierErr != nil {
-				return nil, nil, nil, fmt.Errorf("build telegram notifier %q: %w", tg.Name, notifierErr)
-			}
-
-			eventDispatcher.Subscribe(eventType, notify2.NewSubscriber(tgNotifier, dispatcherLink))
-			subscribersCount++
-		}
-
-		for _, custom := range channels.Custom {
-			notifier := notifiers.NewCustomWebhookNotifier(custom.Name, custom.URL.Value.String(), custom.Method, custom.Header)
-
-			eventDispatcher.Subscribe(eventType, notify2.NewSubscriber(notifier, dispatcherLink))
-			subscribersCount++
-		}
-	}
-
-	if len(cfg.Spec.Notifications.On) == 0 {
-		slog.Info("notification subscribers not found")
-	}
-
-	slog.Info(
-		"found event subscribers",
-		slog.Int("subscribers", subscribersCount),
-	)
-
-	return eventDispatcher, historyStore, srvStore, nil
-}
-
-func subscribeOnAllEvents(dispatcher dispatcher.Dispatcher, subscriber dispatcher.Subscriber) {
-	for _, typ := range events.Types {
-		dispatcher.Subscribe(typ, subscriber)
-	}
-}
-
-type dispatcherProxy struct {
-	dispatcher.Dispatcher
+	}, serviceStore, toolExecutor, eventService.Dispatcher, metrics.Assistant)
 }
