@@ -27,6 +27,6 @@ func (r *RecommenderEventSubscriber) Handle(ctx context.Context, event events.Ev
 	if !isDeployEvent {
 		return nil
 	}
-	
-	return r.recommender.Recommend(ctx, deployEvent.Services)
+
+	return r.recommender.Recommend(ctx, deployEvent.StackName, deployEvent.StackDefinition)
 }

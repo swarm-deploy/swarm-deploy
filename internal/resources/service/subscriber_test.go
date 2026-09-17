@@ -165,10 +165,14 @@ func TestSubscriberHandle(t *testing.T) {
 
 			err = sub.Handle(context.Background(), &events.DeploySuccess{
 				StackName: "payments",
-				Services: []compose.Service{
-					{
-						Name:  "api",
-						Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
+				StackDefinition: compose.File{
+					Compose: compose.Compose{
+						Services: []compose.Service{
+							{
+								Name:  "api",
+								Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
+							},
+						},
 					},
 				},
 			})
@@ -235,10 +239,14 @@ routes:
 
 	err = sub.Handle(context.Background(), &events.DeploySuccess{
 		StackName: "prod",
-		Services: []compose.Service{
-			{
-				Name:  "pomerium",
-				Image: "ghcr.io/swarm-deploy/pomerium:v1",
+		StackDefinition: compose.File{
+			Compose: compose.Compose{
+				Services: []compose.Service{
+					{
+						Name:  "pomerium",
+						Image: "ghcr.io/swarm-deploy/pomerium:v1",
+					},
+				},
 			},
 		},
 	})

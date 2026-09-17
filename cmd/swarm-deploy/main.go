@@ -35,6 +35,7 @@ import (
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	"github.com/swarm-deploy/swarm-deploy/internal/recommendations"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/resources/node"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
@@ -159,6 +160,15 @@ func main() {
 		os.Exit(1)
 	}
 
+	recommendationsService, err := recommendations.InitService(ctx,
+		filepath.Join(cfg.Spec.DataDir, "recommendations.state.json"),
+		filesystem,
+	)
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to init recommendations service", slog.Any("err", err))
+		os.Exit(1)
+	}
+
 	stateStore := modelstore.NewWarmupStore(modelstore.NewMemoryStore(), stateFileStore)
 	stateStore.Warmup()
 
@@ -188,6 +198,8 @@ func main() {
 		slog.ErrorContext(ctx, "failed to build assistant service", slog.Any("err", err))
 		os.Exit(1)
 	}
+
+	recommendationsService.RegisterEventSubscribers(eventDispatcher)
 
 	webApplication, err := webserver.NewApplication(
 		cfg.Spec.Web.Address,

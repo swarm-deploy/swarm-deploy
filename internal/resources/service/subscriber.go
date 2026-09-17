@@ -61,8 +61,8 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Event) error {
 		return nil
 	}
 
-	services := make([]Info, 0, len(deploySuccess.Services))
-	for _, deployedService := range deploySuccess.Services {
+	services := make([]Info, 0, len(deploySuccess.StackDefinition.Compose.Services))
+	for _, deployedService := range deploySuccess.StackDefinition.Compose.Services {
 		serviceRef := swarm.NewServiceReference(deploySuccess.StackName, deployedService.Name)
 
 		slog.DebugContext(ctx, "[service-store] inspecting service labels",

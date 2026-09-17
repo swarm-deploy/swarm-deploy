@@ -15,7 +15,7 @@ type compositeAnalyzer struct {
 	analyzers []StackAnalyzer
 }
 
-func Composite(analyzers []StackAnalyzer) StackAnalyzer {
+func Composite(analyzers ...StackAnalyzer) StackAnalyzer {
 	return &compositeAnalyzer{
 		analyzers: analyzers,
 	}

@@ -8,17 +8,17 @@ import (
 )
 
 type DeploySuccess struct {
-	StackName string
-	Commit    string
-	Services  []compose.Service
+	StackName       string
+	Commit          string
+	StackDefinition compose.File
 }
 
 type DeployFailed struct {
-	StackName string
-	Commit    string
-	Services  []compose.Service
-	Error     error
-	Logs      []string
+	StackName       string
+	Commit          string
+	StackDefinition compose.File
+	Error           error
+	Logs            []string
 }
 
 func (d *DeploySuccess) Type() Type {

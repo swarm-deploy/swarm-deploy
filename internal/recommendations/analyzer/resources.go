@@ -10,6 +10,10 @@ import (
 type ResourcesUnspecifiedAnalyzer struct {
 }
 
+func NewResourcesUnspecifiedAnalyzer() *ResourcesUnspecifiedAnalyzer {
+	return &ResourcesUnspecifiedAnalyzer{}
+}
+
 func (a *ResourcesUnspecifiedAnalyzer) Analyze(_ context.Context, stack compose.File) []model.Recommendation {
 	recs := make([]model.Recommendation, 0)
 
@@ -28,15 +32,17 @@ func (a *ResourcesUnspecifiedAnalyzer) Analyze(_ context.Context, stack compose.
 func (a *ResourcesUnspecifiedAnalyzer) analyze(srv compose.Service) *model.Recommendation {
 	if srv.Deploy.Resources == nil {
 		return &model.Recommendation{
-			Severity: model.SeverityMedium,
-			Type:     model.TypeServiceResourcesUnspecified,
+			Severity:       model.SeverityMedium,
+			Type:           model.TypeServiceResourcesUnspecified,
+			Recommendation: "Specify resources for the service in deploy.resources",
 		}
 	}
 
 	if srv.Deploy.Resources.Limits == nil {
 		return &model.Recommendation{
-			Severity: model.SeverityMedium,
-			Type:     model.TypeServiceResourcesLimitsUnspecified,
+			Severity:       model.SeverityMedium,
+			Type:           model.TypeServiceResourcesLimitsUnspecified,
+			Recommendation: "Specify limits for the service in deploy.resources.limits",
 		}
 	}
 

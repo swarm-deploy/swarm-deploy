@@ -23,5 +23,5 @@ type Recommendation struct {
 		Service string `yaml:"service"`
 	} `json:"subject"`
 
-	Message string `json:"message"`
+	Recommendation string `json:"recommendation"`
 }
