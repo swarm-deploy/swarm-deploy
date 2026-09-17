@@ -1,6 +1,7 @@
 package modelstore
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 )
 
 const fileModePrivate = 0o600
@@ -18,20 +20,22 @@ const fileModePrivate = 0o600
 type FileStore struct {
 	mu    sync.RWMutex
 	path  string
+	fs    fs.FileSystem
 	state model.Runtime
 }
 
 // NewFileStore creates a file-backed runtime state store and loads current state from disk.
-func NewFileStore(path string) (*FileStore, error) {
+func NewFileStore(ctx context.Context, path string, filesystem fs.FileSystem) (*FileStore, error) {
 	s := &FileStore{
 		path: path,
+		fs:   filesystem,
 		state: model.Runtime{
 			Stacks:   map[string]model.Stack{},
 			Networks: map[string]model.Network{},
 		},
 	}
 
-	if err := s.load(); err != nil {
+	if err := s.load(ctx); err != nil {
 		return nil, err
 	}
 
@@ -67,12 +71,12 @@ func (s *FileStore) Update(fn func(*model.Runtime)) {
 
 func (s *FileStore) Stop() {}
 
-func (s *FileStore) load() error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+func (s *FileStore) load(ctx context.Context) error {
+	if err := s.fs.CreateDirectory(ctx, filepath.Dir(s.path), 0o755); err != nil {
 		return fmt.Errorf("create runtime state dir: %w", err)
 	}
 
-	payload, err := os.ReadFile(s.path)
+	payload, err := s.fs.ReadFile(ctx, s.path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
@@ -107,7 +111,7 @@ func (s *FileStore) flush() error {
 		return fmt.Errorf("encode runtime state file: %w", err)
 	}
 
-	if writeErr := os.WriteFile(s.path, payload, fileModePrivate); writeErr != nil {
+	if writeErr := s.fs.WriteFile(context.Background(), s.path, payload, fileModePrivate); writeErr != nil {
 		return fmt.Errorf("write runtime state temp file: %w", writeErr)
 	}
 

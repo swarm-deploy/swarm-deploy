@@ -155,7 +155,10 @@ func main() {
 	}
 	nodeCollector := swarmnode.NewNodeCollector(swarmService.Nodes, nodeStore, eventDispatcher)
 
-	stateFileStore, err := modelstore.NewFileStore(filepath.Join(cfg.Spec.DataDir, "controller.state.json"))
+	stateFileStore, err := modelstore.NewFileStore(ctx,
+		filepath.Join(cfg.Spec.DataDir, "controller.state.json"),
+		filesystem,
+	)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to build controller file state", slog.Any("err", err))
 		os.Exit(1)
