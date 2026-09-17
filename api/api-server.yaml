@@ -122,6 +122,30 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EventHistoryResponse'
+  /api/v1/recommendations:
+    get:
+      operationId: listRecommendations
+      parameters:
+        - in: query
+          name: stack
+          required: false
+          schema:
+            type: string
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: Stored recommendations from the recommendations subsystem.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RecommendationsResponse'
   /api/v1/services:
     get:
       operationId: listServices
@@ -433,6 +457,34 @@ components:
     EventCategory:
       type: string
       enum: [sync, security, swarm]
+    RecommendationsResponse:
+      type: object
+      required: [recommendations]
+      properties:
+        recommendations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Recommendation'
+    RecommendationSubject:
+      type: object
+      required: [stack, service]
+      properties:
+        stack:
+          type: string
+        service:
+          type: string
+    Recommendation:
+      type: object
+      required: [severity, type, subject, recommendation]
+      properties:
+        severity:
+          type: string
+        type:
+          type: string
+        subject:
+          $ref: '#/components/schemas/RecommendationSubject'
+        recommendation:
+          type: string
     EventHistoryItem:
       type: object
       required: [type, severity, category, created_at, message]

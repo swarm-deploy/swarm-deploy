@@ -1,22 +1,41 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 
-import { fetchEvents } from "../api/overview";
-import type { EventHistoryItem, StackStatus } from "../api/types";
+import { fetchEvents, fetchRecommendations } from "../api/overview";
+import type { EventHistoryItem, Recommendation, RecommendationSeverity, StackStatus } from "../api/types";
 import { useOverviewStore } from "../stores/overview";
 import { formatDate, shortCommitHash } from "../utils/format";
 
 const overviewStore = useOverviewStore();
 const deploymentEvents = ref<EventHistoryItem[]>([]);
 const alertEvents = ref<EventHistoryItem[]>([]);
+const recommendations = ref<Recommendation[]>([]);
 const overviewEventsError = ref("");
+const overviewRecommendationsError = ref("");
 const deploymentEventsLimit = 4;
 const alertEventsLimit = 4;
+const recommendationsLimit = 4;
+const recommendationSeverityRank: Record<RecommendationSeverity, number> = {
+  high: 0,
+  medium: 1,
+  low: 2,
+};
 
 let refreshTimer: ReturnType<typeof setInterval> | undefined;
 
 const syncInfo = computed(() => overviewStore.syncInfo);
 const syncRevision = computed(() => String(syncInfo.value?.git_revision ?? "").trim());
+const sortedRecommendations = computed(() =>
+  recommendations.value
+    .slice()
+    .sort(
+      (left, right) =>
+        recommendationSeverityRank[left.severity] - recommendationSeverityRank[right.severity] ||
+        left.subject.stack.localeCompare(right.subject.stack) ||
+        left.subject.service.localeCompare(right.subject.service),
+    ),
+);
+const overviewRecommendations = computed(() => sortedRecommendations.value.slice(0, recommendationsLimit));
 
 function normalizeStackStatus(status?: StackStatus | null): StackStatus {
   return {
@@ -86,6 +105,10 @@ function formatDateMinute(raw: string | undefined): string {
   )}`;
 }
 
+function recommendationSeverityClass(severity: RecommendationSeverity): string {
+  return `overview-recommendation-severity-${severity}`;
+}
+
 async function openCommitDetails(commitHash: string | undefined) {
   const hash = String(commitHash || "").trim();
   if (!hash) {
@@ -110,8 +133,9 @@ function openAlertDetails(event: EventHistoryItem) {
 
 async function refreshOverview() {
   overviewEventsError.value = "";
+  overviewRecommendationsError.value = "";
 
-  const [overviewResult, deploymentsResult, alertsResult] = await Promise.allSettled([
+  const [overviewResult, deploymentsResult, alertsResult, recommendationsResult] = await Promise.allSettled([
     overviewStore.loadOverview(),
     fetchEvents({ types: ["deploySuccess", "deployFailed"], limit: deploymentEventsLimit }),
     fetchEvents({
@@ -119,6 +143,7 @@ async function refreshOverview() {
       since: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
       limit: alertEventsLimit,
     }),
+    fetchRecommendations({ limit: recommendationsLimit }),
   ]);
 
   if (overviewResult.status === "rejected") {
@@ -138,6 +163,17 @@ async function refreshOverview() {
     overviewEventsError.value =
       overviewEventsError.value ||
       (alertsResult.reason instanceof Error ? alertsResult.reason.message : "Failed to load alerts");
+  }
+  if (recommendationsResult.status === "fulfilled") {
+    recommendations.value = Array.isArray(recommendationsResult.value.recommendations)
+      ? recommendationsResult.value.recommendations
+      : [];
+  } else {
+    recommendations.value = [];
+    overviewRecommendationsError.value =
+      recommendationsResult.reason instanceof Error
+        ? recommendationsResult.reason.message
+        : "Failed to load recommendations";
   }
 }
 
@@ -236,6 +272,35 @@ onUnmounted(() => {
             <span class="overview-alert-time">{{ formatDateMinute(event.created_at) }}</span>
           </span>
         </button>
+      </div>
+    </article>
+
+    <article
+      class="stack-card overview-recommendations"
+      :class="{ 'overview-recommendations-has-items': overviewRecommendations.length > 0 }"
+    >
+      <header class="overview-card-header">
+        <h2 class="overview-panel-title">Recommendations</h2>
+        <RouterLink to="/recommendations" class="overview-card-action">View All</RouterLink>
+      </header>
+      <p v-if="overviewRecommendationsError && overviewRecommendations.length === 0" class="meta">
+        Failed to load recommendations: {{ overviewRecommendationsError }}
+      </p>
+      <p v-else-if="overviewRecommendations.length === 0" class="meta">No recommendations right now.</p>
+      <div v-else class="overview-recommendation-list">
+        <article
+          v-for="recommendation in overviewRecommendations"
+          :key="`${recommendation.severity}-${recommendation.subject.stack}-${recommendation.subject.service}-${recommendation.recommendation}`"
+          class="overview-recommendation-item"
+        >
+          <span
+            class="overview-recommendation-severity-dot"
+            :class="recommendationSeverityClass(recommendation.severity)"
+            :title="recommendation.severity"
+            aria-hidden="true"
+          ></span>
+          <span class="overview-recommendation-text">{{ recommendation.recommendation }}</span>
+        </article>
       </div>
     </article>
   </section>

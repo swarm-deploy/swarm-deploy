@@ -1196,6 +1196,146 @@ func decodeListEventsParams(args [0]string, argsEscaped bool, r *http.Request) (
 	return params, nil
 }
 
+// ListRecommendationsParams is parameters of listRecommendations operation.
+type ListRecommendationsParams struct {
+	Stack OptString `json:",omitempty,omitzero"`
+	Limit OptInt32  `json:",omitempty,omitzero"`
+}
+
+func unpackListRecommendationsParams(packed middleware.Parameters) (params ListRecommendationsParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "stack",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Stack = v.(OptString)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "limit",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Limit = v.(OptInt32)
+		}
+	}
+	return params
+}
+
+func decodeListRecommendationsParams(args [0]string, argsEscaped bool, r *http.Request) (params ListRecommendationsParams, _ error) {
+	q := uri.NewQueryDecoder(r.URL.Query())
+	// Decode query: stack.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "stack",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotStackVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotStackVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.Stack.SetTo(paramsDotStackVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "stack",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: limit.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "limit",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotLimitVal int32
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToInt32(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotLimitVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.Limit.SetTo(paramsDotLimitVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if value, ok := params.Limit.Get(); ok {
+					if err := func() error {
+						if err := (validate.Int{
+							MinSet:        true,
+							Min:           1,
+							MaxSet:        true,
+							Max:           100,
+							MinExclusive:  false,
+							MaxExclusive:  false,
+							MultipleOfSet: false,
+							MultipleOf:    0,
+							Pattern:       nil,
+						}).Validate(int64(value)); err != nil {
+							return errors.Wrap(err, "int")
+						}
+						return nil
+					}(); err != nil {
+						return err
+					}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "limit",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
 // ListServiceDeploymentsParams is parameters of listServiceDeployments operation.
 type ListServiceDeploymentsParams struct {
 	Stack   string

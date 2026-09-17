@@ -1,5 +1,7 @@
 package model
 
+import "time"
+
 type (
 	Severity string
 	Type     string
@@ -17,13 +19,20 @@ const (
 type Recommendation struct {
 	Severity Severity `json:"severity"`
 	Type     Type     `json:"type"`
-
-	Subject Subject `json:"subject"`
+	Commit   string `json:"commit"`
+	Subject  Subject `json:"subject"`
 
 	Recommendation string `json:"recommendation"`
+
+	CreatedAt time.Time `json:"created_at"`
 }
 
 type Subject struct {
 	Stack   string `json:"stack"`
 	Service string `json:"service"`
 }
+
+func (r *Recommendation) ID() string {
+	return r.Subject.Stack + "-" + r.Subject.Service + "-" + string(r.Type) + string(r.Severity)
+}
+

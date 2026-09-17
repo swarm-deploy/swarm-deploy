@@ -211,6 +211,7 @@ func main() {
 		eventHistory,
 		serviceStore,
 		nodeStore,
+		recommendationsService.Store,
 		assistantService,
 		eventDispatcher,
 		cfg.Spec.Web.Security.Authentication,

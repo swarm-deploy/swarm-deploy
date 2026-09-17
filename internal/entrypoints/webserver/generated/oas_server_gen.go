@@ -61,6 +61,10 @@ type Handler interface {
 	//
 	// GET /api/v1/nodes
 	ListNodes(ctx context.Context) (*NodesResponse, error)
+	// ListRecommendations implements listRecommendations operation.
+	//
+	// GET /api/v1/recommendations
+	ListRecommendations(ctx context.Context, params ListRecommendationsParams) (*RecommendationsResponse, error)
 	// ListSecrets implements listSecrets operation.
 	//
 	// GET /api/v1/secrets

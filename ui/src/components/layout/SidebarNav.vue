@@ -15,6 +15,7 @@ const links = [
   { to: "/cluster", label: "Cluster" },
   { to: "/networks", label: "Networks" },
   { to: "/secrets", label: "Secrets" },
+  { to: "/recommendations", label: "Recommendations" },
 ];
 
 function isActive(path: string): boolean {

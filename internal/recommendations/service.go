@@ -12,7 +12,13 @@ import (
 )
 
 type Service struct {
-	Recommender      *Recommender
+	// Store persists and lists generated recommendations.
+	Store modelstore.Store
+
+	// Recommender analyzes stack state and updates stored recommendations.
+	Recommender *Recommender
+
+	// DeploySubscriber updates recommendations after deploy events.
 	DeploySubscriber *RecommenderEventSubscriber
 }
 
@@ -28,6 +34,7 @@ func InitService(ctx context.Context, path string, filesystem fs.FileSystem) (*S
 	)
 
 	return &Service{
+		Store:            store,
 		Recommender:      recommender,
 		DeploySubscriber: NewRecommenderEventSubscriber(recommender),
 	}, nil

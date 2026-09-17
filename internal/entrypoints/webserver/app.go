@@ -21,6 +21,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
+	recommendationstore "github.com/swarm-deploy/swarm-deploy/internal/recommendations/modelstore"
 	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/resources/node"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
@@ -91,6 +92,7 @@ func NewApplication(
 	eventHistory *history.Store,
 	serviceStore *service.Store,
 	nodeStore *swarmnode.Store,
+	recommendations recommendationstore.Store,
 	assistantService assistant.Assistant,
 	eventDispatcher dispatcher.Dispatcher,
 	authCfg config.AuthenticationSpec,
@@ -104,6 +106,7 @@ func NewApplication(
 		eventHistory,
 		serviceStore,
 		nodeStore,
+		recommendations,
 		assistantService,
 	)
 

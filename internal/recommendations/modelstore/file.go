@@ -53,7 +53,7 @@ func (f *FileStore) List(_ context.Context, filter ListFilter) ([]model.Recommen
 	defer f.mu.RUnlock()
 
 	if filter.Stack == "" {
-		return f.data.List, nil
+		return limitRecommendations(f.data.List, filter.Limit), nil
 	}
 
 	indexes := f.data.Stacks[filter.Stack]
@@ -64,9 +64,20 @@ func (f *FileStore) List(_ context.Context, filter ListFilter) ([]model.Recommen
 		}
 
 		recommendations = append(recommendations, f.data.List[index])
+		if filter.Limit > 0 && len(recommendations) >= filter.Limit {
+			break
+		}
 	}
 
 	return recommendations, nil
+}
+
+func limitRecommendations(recommendations []model.Recommendation, limit int) []model.Recommendation {
+	if limit <= 0 || len(recommendations) <= limit {
+		return recommendations
+	}
+
+	return recommendations[:limit]
 }
 
 // UpdateStack replaces recommendations for stack and persists updated state.

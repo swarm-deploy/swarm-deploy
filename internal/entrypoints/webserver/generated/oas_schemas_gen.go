@@ -1559,6 +1559,95 @@ func (s *QueueResponse) SetQueued(val bool) {
 	s.Queued = val
 }
 
+// Ref: #/components/schemas/Recommendation
+type Recommendation struct {
+	Severity       string                `json:"severity"`
+	Type           string                `json:"type"`
+	Subject        RecommendationSubject `json:"subject"`
+	Recommendation string                `json:"recommendation"`
+}
+
+// GetSeverity returns the value of Severity.
+func (s *Recommendation) GetSeverity() string {
+	return s.Severity
+}
+
+// GetType returns the value of Type.
+func (s *Recommendation) GetType() string {
+	return s.Type
+}
+
+// GetSubject returns the value of Subject.
+func (s *Recommendation) GetSubject() RecommendationSubject {
+	return s.Subject
+}
+
+// GetRecommendation returns the value of Recommendation.
+func (s *Recommendation) GetRecommendation() string {
+	return s.Recommendation
+}
+
+// SetSeverity sets the value of Severity.
+func (s *Recommendation) SetSeverity(val string) {
+	s.Severity = val
+}
+
+// SetType sets the value of Type.
+func (s *Recommendation) SetType(val string) {
+	s.Type = val
+}
+
+// SetSubject sets the value of Subject.
+func (s *Recommendation) SetSubject(val RecommendationSubject) {
+	s.Subject = val
+}
+
+// SetRecommendation sets the value of Recommendation.
+func (s *Recommendation) SetRecommendation(val string) {
+	s.Recommendation = val
+}
+
+// Ref: #/components/schemas/RecommendationSubject
+type RecommendationSubject struct {
+	Stack   string `json:"stack"`
+	Service string `json:"service"`
+}
+
+// GetStack returns the value of Stack.
+func (s *RecommendationSubject) GetStack() string {
+	return s.Stack
+}
+
+// GetService returns the value of Service.
+func (s *RecommendationSubject) GetService() string {
+	return s.Service
+}
+
+// SetStack sets the value of Stack.
+func (s *RecommendationSubject) SetStack(val string) {
+	s.Stack = val
+}
+
+// SetService sets the value of Service.
+func (s *RecommendationSubject) SetService(val string) {
+	s.Service = val
+}
+
+// Ref: #/components/schemas/RecommendationsResponse
+type RecommendationsResponse struct {
+	Recommendations []Recommendation `json:"recommendations"`
+}
+
+// GetRecommendations returns the value of Recommendations.
+func (s *RecommendationsResponse) GetRecommendations() []Recommendation {
+	return s.Recommendations
+}
+
+// SetRecommendations sets the value of Recommendations.
+func (s *RecommendationsResponse) SetRecommendations(val []Recommendation) {
+	s.Recommendations = val
+}
+
 // Ref: #/components/schemas/SearchResponse
 type SearchResponse struct {
 	Results []SearchResult `json:"results"`

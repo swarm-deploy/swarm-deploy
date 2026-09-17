@@ -418,6 +418,31 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 					}
 
+				case 'r': // Prefix: "recommendations"
+
+					if l := len("recommendations"); len(elem) >= l && elem[0:l] == "recommendations" {
+						elem = elem[l:]
+					} else {
+						break
+					}
+
+					if len(elem) == 0 {
+						// Leaf node.
+						switch r.Method {
+						case "GET":
+							s.handleListRecommendationsRequest([0]string{}, elemIsEscaped, w, r)
+						default:
+							s.notAllowed(w, r, notAllowedParams{
+								allowedMethods: "GET",
+								allowedHeaders: nil,
+								acceptPost:     "",
+								acceptPatch:    "",
+							})
+						}
+
+						return
+					}
+
 				case 's': // Prefix: "s"
 
 					if l := len("s"); len(elem) >= l && elem[0:l] == "s" {
@@ -1246,6 +1271,31 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 
 						}
 
+					}
+
+				case 'r': // Prefix: "recommendations"
+
+					if l := len("recommendations"); len(elem) >= l && elem[0:l] == "recommendations" {
+						elem = elem[l:]
+					} else {
+						break
+					}
+
+					if len(elem) == 0 {
+						// Leaf node.
+						switch method {
+						case "GET":
+							r.name = ListRecommendationsOperation
+							r.summary = ""
+							r.operationID = "listRecommendations"
+							r.operationGroup = ""
+							r.pathPattern = "/api/v1/recommendations"
+							r.args = args
+							r.count = 0
+							return r, true
+						default:
+							return
+						}
 					}
 
 				case 's': // Prefix: "s"

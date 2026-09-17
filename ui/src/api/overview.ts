@@ -3,6 +3,7 @@ import type {
   EventHistoryResponse,
   GitCommitDetailsResponse,
   QueueResponse,
+  RecommendationsResponse,
   ServiceDeploymentsResponse,
   ServiceRealtimeResponse,
   ServiceStatusResponse,
@@ -53,6 +54,19 @@ export function fetchEvents(options: FetchEventsOptions = {}): Promise<EventHist
 
   const query = params.toString();
   return apiRequest<EventHistoryResponse>(`/api/v1/events${query ? `?${query}` : ""}`);
+}
+
+export function fetchRecommendations(options: { stack?: string; limit?: number } = {}): Promise<RecommendationsResponse> {
+  const params = new URLSearchParams();
+  if (options.stack) {
+    params.set("stack", options.stack);
+  }
+  if (typeof options.limit === "number") {
+    params.set("limit", String(options.limit));
+  }
+
+  const query = params.toString();
+  return apiRequest<RecommendationsResponse>(`/api/v1/recommendations${query ? `?${query}` : ""}`);
 }
 
 export function fetchServiceStatus(stackName: string, serviceName: string): Promise<ServiceStatusResponse> {
