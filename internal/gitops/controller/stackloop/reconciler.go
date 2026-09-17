@@ -176,6 +176,7 @@ func (r *Reconciler) processResult(
 	r.event.Dispatch(ctx, &events.DeploySuccess{
 		StackName:       req.Stack.Name,
 		Commit:          req.Commit,
+		Services:        desired.Compose.Services,
 		StackDefinition: *desired,
 	})
 }
@@ -231,6 +232,7 @@ func (r *Reconciler) recordStackFailure(
 	r.event.Dispatch(context.Background(), &events.DeployFailed{
 		StackName:       stackName,
 		Commit:          commit,
+		Services:        stackDefinition.Compose.Services,
 		StackDefinition: stackDefinition,
 		Error:           reason,
 		Logs:            logs,
