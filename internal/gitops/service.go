@@ -13,7 +13,7 @@ import (
 
 type Service struct {
 	Controller *controller.Controller
-	Store      modelstore.Store
+	Store      *modelstore.WarmupStore
 
 	cfg        *config.Config
 	filesystem fs.FileSystem

@@ -10,6 +10,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	webroute "github.com/swarm-deploy/webroute/api"
 	"go.uber.org/mock/gomock"
@@ -156,7 +157,7 @@ func TestSubscriberHandle(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			inspector := swarm.NewMockServiceManager(ctrl)
 			images := swarm.NewMockImageManager(ctrl)
-			store, err := NewStore(filepath.Join(t.TempDir(), "services.json"))
+			store, err := NewStore(context.Background(), filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
 			require.NoError(t, err)
 
 			sub := NewSubscriber(store, inspector, images, &fakeSubscriberConfigReader{}, metadata.NewExtractor())
@@ -208,7 +209,7 @@ routes:
 			},
 		},
 	}
-	store, err := NewStore(filepath.Join(t.TempDir(), "services.json"))
+	store, err := NewStore(context.Background(), filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
 	require.NoError(t, err)
 
 	serviceRef := swarm.NewServiceReference("prod", "pomerium")

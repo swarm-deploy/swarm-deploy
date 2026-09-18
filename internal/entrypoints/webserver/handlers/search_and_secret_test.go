@@ -12,6 +12,7 @@ import (
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	webroute "github.com/swarm-deploy/webroute/api"
 	"go.uber.org/mock/gomock"
@@ -84,9 +85,10 @@ func TestHandlerGetSecretByName_NotFound(t *testing.T) {
 func TestHandlerSearch_PriorityAndDedupe(t *testing.T) {
 	t.Parallel()
 
-	servicesStore, err := service.NewStore(t.TempDir() + "/services.json")
+	ctx := context.Background()
+	servicesStore, err := service.NewStore(ctx, t.TempDir()+"/services.json", fs.NewLocalFileSystem())
 	require.NoError(t, err)
-	require.NoError(t, servicesStore.ReplaceStack("payments", []service.Info{
+	require.NoError(t, servicesStore.ReplaceStack(ctx, "payments", []service.Info{
 		{
 			Name:     "api-app",
 			Metadata: metadata.Metadata{Type: "application"},

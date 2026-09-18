@@ -138,7 +138,7 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Event) error {
 		services = append(services, serviceInfo)
 	}
 
-	if err := s.store.ReplaceStack(deploySuccess.StackName, services); err != nil {
+	if err := s.store.ReplaceStack(ctx, deploySuccess.StackName, services); err != nil {
 		return fmt.Errorf("persist services for stack %s: %w", deploySuccess.StackName, err)
 	}
 

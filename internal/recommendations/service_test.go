@@ -2,13 +2,13 @@ package recommendations
 
 import (
 	"context"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/recommendations/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/recommendations/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
@@ -16,7 +16,7 @@ import (
 
 func TestInitServiceRegistersBuiltInAnalyzers(t *testing.T) {
 	ctx := context.Background()
-	service, err := InitService(ctx, filepath.Join(t.TempDir(), "recommendations.json"), fs.NewLocalFileSystem())
+	service, err := InitService(ctx, &config.Config{Spec: config.Spec{DataDir: t.TempDir()}}, fs.NewLocalFileSystem())
 	require.NoError(t, err)
 
 	stack := model.Stack{

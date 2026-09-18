@@ -11,6 +11,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/node"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
@@ -19,7 +20,7 @@ type Service struct {
 	NodeCollector *node.Collector
 	ServiceStore  *service.Store
 
-	cfg *config.Config
+	cfg      *config.Config
 	swarmSvc *swarm.Swarm
 }
 
@@ -28,12 +29,13 @@ func InitService(
 	cfg *config.Config,
 	swarmSvc *swarm.Swarm,
 	eventDispatcher dispatcher.Dispatcher,
+	filesystem fs.FileSystem,
 ) (*Service, error) {
 	srv := &Service{
 		cfg: cfg,
 	}
 
-	if err := srv.initStores(ctx); err != nil {
+	if err := srv.initStores(ctx, filesystem); err != nil {
 		return nil, fmt.Errorf("init stores: %w", err)
 	}
 
@@ -53,7 +55,7 @@ func (s *Service) RegisterEventSubscribers(eventDispatcher dispatcher.Dispatcher
 	)
 }
 
-func (s *Service) initStores(ctx context.Context) error {
+func (s *Service) initStores(ctx context.Context, filesystem fs.FileSystem) error {
 	nodeStore, err := node.NewNodeStore(filepath.Join(s.cfg.Spec.DataDir, "nodes.json"))
 	if err != nil {
 		return fmt.Errorf("init node store: %w", err)
@@ -61,7 +63,7 @@ func (s *Service) initStores(ctx context.Context) error {
 
 	s.NodeStore = nodeStore
 
-	srvStore, err := service.NewStore(filepath.Join(s.cfg.Spec.DataDir, "services.json"))
+	srvStore, err := service.NewStore(ctx, filepath.Join(s.cfg.Spec.DataDir, "services.json"), filesystem)
 	if err != nil {
 		return fmt.Errorf("init service store: %w", err)
 	}

@@ -30,7 +30,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/differ"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
-	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/recommendations"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
@@ -40,6 +39,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 const shutdownTimeout = 30 * time.Second
@@ -75,17 +75,6 @@ func main() {
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to init tracing", slog.Any("err", err))
 		os.Exit(1)
-	}
-
-	stopTracing := func() {
-		if tracerProvider != nil {
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-			defer cancel()
-
-			if shutdownErr := tracerProvider.Shutdown(shutdownCtx); shutdownErr != nil {
-				slog.ErrorContext(shutdownCtx, "failed to shutdown tracing", slog.Any("err", shutdownErr))
-			}
-		}
 	}
 
 	err = os.MkdirAll(cfg.Spec.DataDir, 0o755)
@@ -139,7 +128,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	resourcesService, err := resources.InitService(ctx, cfg, swarmSvc, eventService.Dispatcher)
+	resourcesService, err := resources.InitService(ctx, cfg, swarmSvc, eventService.Dispatcher, filesystem)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to init resources service", slog.Any("err", err))
 		os.Exit(1)
@@ -218,7 +207,7 @@ func main() {
 		{
 			Name: "state-store",
 			Run: func(ctx context.Context) error {
-				gitopsService.Store.(*modelstore.WarmupStore).Sync(ctx)
+				gitopsService.Store.Sync(ctx)
 				return nil
 			},
 			Stop: func(ctx context.Context) error {
@@ -267,11 +256,24 @@ func main() {
 	err = runner.Run()
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to run", slog.Any("err", err))
-		stopTracing()
+		shutdownTracing(tracerProvider)
 		os.Exit(1)
 	}
 
-	stopTracing()
+	shutdownTracing(tracerProvider)
+}
+
+func shutdownTracing(tracerProvider *sdktrace.TracerProvider) {
+	if tracerProvider == nil {
+		return
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
+
+	if err := tracerProvider.Shutdown(shutdownCtx); err != nil {
+		slog.ErrorContext(shutdownCtx, "failed to shutdown tracing", slog.Any("err", err))
+	}
 }
 
 func buildAssistantService(
