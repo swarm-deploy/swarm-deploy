@@ -51,16 +51,17 @@ func (s *FileStore) Get() model.Runtime {
 }
 
 // Update applies state mutation and persists updated runtime state to disk.
-func (s *FileStore) Update(fn func(*model.Runtime)) {
+func (s *FileStore) Update(ctx context.Context, fn func(*model.Runtime)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	slog.Info("[file-state-store] updating", slog.Any("state", s.state))
+	slog.InfoContext(ctx, "[file-state-store] updating", slog.Any("state", s.state))
 
 	fn(&s.state)
 
-	if err := s.flush(); err != nil {
-		slog.Error(
+	if err := s.flush(ctx); err != nil {
+		slog.ErrorContext(
+			ctx,
 			"[file-state-store] failed to persist runtime state",
 			slog.String("path", s.path),
 			slog.Any("err", err),
@@ -72,7 +73,7 @@ func (s *FileStore) Update(fn func(*model.Runtime)) {
 func (s *FileStore) Stop() {}
 
 func (s *FileStore) load(ctx context.Context) error {
-	if err := s.fs.CreateDirectory(ctx, filepath.Dir(s.path), 0o755); err != nil {
+	if err := s.fs.CreateDirectory(ctx, filepath.Dir(s.path), 0o755); err != nil { //nolint:mnd,lll // default directory permissions
 		return fmt.Errorf("create runtime state dir: %w", err)
 	}
 
@@ -103,15 +104,15 @@ func (s *FileStore) load(ctx context.Context) error {
 	return nil
 }
 
-func (s *FileStore) flush() error {
-	slog.Info("[file-state-store] flushing", slog.Any("state", s.state), slog.String("path", s.path))
+func (s *FileStore) flush(ctx context.Context) error {
+	slog.InfoContext(ctx, "[file-state-store] flushing", slog.Any("state", s.state), slog.String("path", s.path))
 
 	payload, err := json.Marshal(s.state)
 	if err != nil {
 		return fmt.Errorf("encode runtime state file: %w", err)
 	}
 
-	if writeErr := s.fs.WriteFile(context.Background(), s.path, payload, fileModePrivate); writeErr != nil {
+	if writeErr := s.fs.WriteFile(ctx, s.path, payload, fileModePrivate); writeErr != nil {
 		return fmt.Errorf("write runtime state temp file: %w", writeErr)
 	}
 

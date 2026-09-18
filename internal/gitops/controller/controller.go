@@ -197,7 +197,7 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 		)
 		c.metrics.Git.RecordGitUpdate(c.cfg.Spec.Git.Repository, "error")
 		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
-		c.updateState(func(s *model.Runtime) {
+		c.updateState(ctx, func(s *model.Runtime) {
 			s.LastSyncAt = time.Now()
 			s.LastSyncReason = string(task.reason)
 			s.LastSyncResult = syncRunResultError
@@ -222,7 +222,7 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 			slog.Any("err", reloadNetworksErr),
 		)
 		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
-		c.stateStore.Update(func(s *model.Runtime) {
+		c.stateStore.Update(ctx, func(s *model.Runtime) {
 			s.LastSyncAt = time.Now()
 			s.LastSyncReason = string(task.reason)
 			s.LastSyncResult = syncRunResultError
@@ -246,7 +246,7 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 			slog.Any("err", reconcileNetworksErr),
 		)
 		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
-		c.stateStore.Update(func(s *model.Runtime) {
+		c.stateStore.Update(ctx, func(s *model.Runtime) {
 			s.LastSyncAt = time.Now()
 			s.LastSyncReason = string(task.reason)
 			s.LastSyncResult = syncRunResultError
@@ -264,7 +264,7 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 			slog.Any("err", reloadErr),
 		)
 		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
-		c.updateState(func(s *model.Runtime) {
+		c.updateState(ctx, func(s *model.Runtime) {
 			s.LastSyncAt = time.Now()
 			s.LastSyncReason = string(task.reason)
 			s.LastSyncResult = syncRunResultError
@@ -329,7 +329,7 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 	}
 
 	c.metrics.Sync.RecordSyncRun(string(task.reason), result, time.Since(startedAt))
-	c.updateState(func(s *model.Runtime) {
+	c.updateState(ctx, func(s *model.Runtime) {
 		s.LastSyncAt = time.Now()
 		s.LastSyncReason = string(task.reason)
 		s.LastSyncResult = result

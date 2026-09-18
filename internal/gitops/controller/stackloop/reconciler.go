@@ -76,7 +76,7 @@ func (r *Reconciler) Reconcile(
 	composePath := filepath.Join(r.git.WorkingDir(), req.Stack.ComposeFile)
 	desiredState, err := r.composeLoader.Load(ctx, composePath)
 	if err != nil {
-		r.recordFailure(req.Stack.Name, req.Commit, nil, err)
+		r.recordFailure(ctx, req.Stack.Name, req.Commit, nil, err)
 		r.recordStackFailure(ctx, req.Stack.Name, req.Commit, compose.File{}, err)
 		return wrapReconcileError("load compose", nil, err)
 	}
@@ -96,7 +96,7 @@ func (r *Reconciler) Reconcile(
 	if err != nil {
 		pipeErr, _ := errors.AsType[*pipe.StepError](err)
 
-		r.recordFailure(req.Stack.Name, req.Commit, services, pipeErr)
+		r.recordFailure(ctx, req.Stack.Name, req.Commit, services, pipeErr)
 		r.recordStackFailure(ctx, req.Stack.Name, req.Commit, *desiredState, pipeErr)
 		return wrapReconcileError(pipeErr.StepName, services, pipeErr)
 	}
@@ -136,7 +136,7 @@ func (r *Reconciler) processResult(
 		serviceStates[service.Name] = state
 	}
 
-	r.stateStore.Update(func(state *model.Runtime) {
+	r.stateStore.Update(ctx, func(state *model.Runtime) {
 		state.Stacks[req.Stack.Name] = model.Stack{
 			SourceDigest: desired.Digest,
 			LastCommit:   req.Commit,
@@ -184,6 +184,7 @@ func (r *Reconciler) processResult(
 }
 
 func (r *Reconciler) recordFailure(
+	ctx context.Context,
 	stackName string,
 	commit string,
 	services []compose.Service,
@@ -199,7 +200,7 @@ func (r *Reconciler) recordFailure(
 		}
 	}
 
-	r.stateStore.Update(func(state *model.Runtime) {
+	r.stateStore.Update(ctx, func(state *model.Runtime) {
 		state.Stacks[stackName] = model.Stack{
 			SourceDigest: "",
 			LastCommit:   commit,

@@ -18,6 +18,11 @@ const (
 	TypeServiceResourcesLimitsUnspecified Type = "service.resources.limits.unspecified"
 	TypeServiceImageLatest                Type = "service.image.latest"
 	TypeServiceImageDigestUnspecified     Type = "service.image.digest.unspecified"
+	TypeServiceRestartPolicyUnspecified   Type = "service.restart-policy.unspecified"
+	TypeServiceDockerSocketMount          Type = "service.docker-socket.mount"
+	TypeServiceCapabilitiesAll            Type = "service.capabilities.all"
+	TypeServiceCapabilitiesPrivileged     Type = "service.capabilities.privileged"
+	TypeServiceCapabilitiesSensitive      Type = "service.capabilities.sensitive"
 )
 
 type Recommendation struct {

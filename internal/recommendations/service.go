@@ -32,6 +32,9 @@ func InitService(ctx context.Context, path string, filesystem fs.FileSystem) (*S
 		analyzer.Composite(
 			analyzer.NewResourcesUnspecifiedAnalyzer(),
 			analyzer.NewImageAnalyzer(),
+			analyzer.NewRestartPolicyUnspecifiedAnalyzer(),
+			analyzer.NewDockerSocketMountAnalyzer(),
+			analyzer.NewServiceCapabilitiesAnalyzer(),
 		),
 		store,
 	)

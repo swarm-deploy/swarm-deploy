@@ -218,7 +218,7 @@ func TestControllerSyncNetworksStoresFailedState(t *testing.T) {
 
 func TestControllerSyncNetworksClearsStateWhenNetworksListIsEmpty(t *testing.T) {
 	store := modelstore.NewMemoryStore()
-	store.Update(func(s *model.Runtime) {
+	store.Update(context.Background(), func(s *model.Runtime) {
 		s.Networks["legacy"] = model.Network{
 			Driver:     "overlay",
 			LastStatus: "success",
@@ -245,7 +245,7 @@ func TestControllerSyncNetworksClearsStateWhenNetworksListIsEmpty(t *testing.T) 
 
 func TestControllerSyncNetworksSkipsReconcileWhenStateAlreadySyncedForCommit(t *testing.T) {
 	store := modelstore.NewMemoryStore()
-	store.Update(func(s *model.Runtime) {
+	store.Update(context.Background(), func(s *model.Runtime) {
 		s.Networks["app_backend"] = model.Network{
 			Driver:     "overlay",
 			LastCommit: "commit-4",

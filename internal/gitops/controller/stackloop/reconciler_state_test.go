@@ -159,7 +159,7 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 	stackFile, err := loader.Load(context.Background(), filepath.Join(repoDir, "app.yaml"))
 	require.NoError(t, err, "load compose for digest")
 
-	stateStore.Update(func(state *model.Runtime) {
+	stateStore.Update(context.Background(), func(state *model.Runtime) {
 		state.Stacks["app"] = model.Stack{
 			SourceDigest: stackFile.Digest,
 			LastCommit:   "previous-commit",
@@ -231,7 +231,7 @@ configs:
 	oldStackFile, err := loader.Load(context.Background(), composePath)
 	require.NoError(t, err, "load compose with old config")
 
-	stateStore.Update(func(state *model.Runtime) {
+	stateStore.Update(context.Background(), func(state *model.Runtime) {
 		state.Stacks["app"] = model.Stack{
 			SourceDigest: oldStackFile.Digest,
 			LastCommit:   "previous-commit",
@@ -599,7 +599,7 @@ func TestReconcilePrunesServicesForSkippedManualSync(t *testing.T) {
 	stackFile, err := loader.Load(context.Background(), filepath.Join(repoDir, "app.yaml"))
 	require.NoError(t, err, "load compose for digest")
 
-	stateStore.Update(func(state *model.Runtime) {
+	stateStore.Update(context.Background(), func(state *model.Runtime) {
 		state.Stacks["app"] = model.Stack{
 			SourceDigest: stackFile.Digest,
 			LastCommit:   "previous-commit",
@@ -707,7 +707,7 @@ func TestReconcileServiceMissedEventOnDrift(t *testing.T) {
 			stackFile, err := loader.Load(context.Background(), filepath.Join(repoDir, "app.yaml"))
 			require.NoError(t, err, "load compose for digest")
 
-			stateStore.Update(func(state *model.Runtime) {
+			stateStore.Update(context.Background(), func(state *model.Runtime) {
 				state.Stacks["app"] = model.Stack{
 					SourceDigest: stackFile.Digest,
 					LastCommit:   "previous-commit",

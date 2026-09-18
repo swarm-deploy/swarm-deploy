@@ -25,7 +25,7 @@ func InitService(
 	filesystem fs.FileSystem,
 ) (*Service, error) {
 	srv := &Service{
-		cfg: cfg,
+		cfg:        cfg,
 		filesystem: filesystem,
 	}
 
@@ -46,7 +46,7 @@ func (s *Service) initStore(ctx context.Context) error {
 	}
 
 	warmupStore := modelstore.NewWarmupStore(modelstore.NewMemoryStore(), fileStore)
-	warmupStore.Warmup()
+	warmupStore.Warmup(ctx)
 
 	s.Store = warmupStore
 

@@ -177,7 +177,7 @@ func main() {
 	}
 
 	stateStore := modelstore.NewWarmupStore(modelstore.NewMemoryStore(), stateFileStore)
-	stateStore.Warmup()
+	stateStore.Warmup(ctx)
 
 	control := controller.New(
 		cfg,
@@ -235,7 +235,7 @@ func main() {
 		{
 			Name: "state-store",
 			Run: func(ctx context.Context) error {
-				stateStore.Sync()
+				stateStore.Sync(ctx)
 				return nil
 			},
 			Stop: func(ctx context.Context) error {
