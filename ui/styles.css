@@ -981,6 +981,10 @@ button:hover,
   overflow-wrap: anywhere;
 }
 
+.recommendation-mobile-severity-dot {
+  display: none;
+}
+
 .stack-dropdown-list {
   display: grid;
   gap: 8px;
@@ -1989,6 +1993,35 @@ button:hover,
 
   .services-header-actions {
     max-width: none;
+  }
+
+  .recommendations-table th:nth-child(1),
+  .recommendations-table td:nth-child(1) {
+    display: none;
+  }
+
+  .recommendations-table th:nth-child(2),
+  .recommendations-table td:nth-child(2) {
+    width: 66%;
+  }
+
+  .recommendations-table th:nth-child(3),
+  .recommendations-table td:nth-child(3),
+  .recommendations-table th:nth-child(4),
+  .recommendations-table td:nth-child(4) {
+    width: 17%;
+  }
+
+  .recommendation-cell-content {
+    display: grid;
+    grid-template-columns: 8px minmax(0, 1fr);
+    align-items: start;
+    gap: 8px;
+  }
+
+  .recommendation-mobile-severity-dot {
+    display: block;
+    margin-top: 0.35em;
   }
 
   .event-detail {

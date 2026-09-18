@@ -44,6 +44,10 @@ function severityClass(severity: RecommendationSeverity): string {
   return `recommendation-severity-${severity}`;
 }
 
+function severityDotClass(severity: RecommendationSeverity): string {
+  return `overview-recommendation-severity-${severity}`;
+}
+
 async function loadRecommendations() {
   loading.value = true;
   loadingError.value = "";
@@ -132,7 +136,17 @@ onMounted(() => {
                 {{ recommendation.severity }}
               </span>
             </td>
-            <td>{{ recommendation.recommendation || "No recommendation" }}</td>
+            <td>
+              <span class="recommendation-cell-content">
+                <span
+                  class="overview-recommendation-severity-dot recommendation-mobile-severity-dot"
+                  :class="severityDotClass(recommendation.severity)"
+                  :title="recommendation.severity"
+                  aria-hidden="true"
+                ></span>
+                <span>{{ recommendation.recommendation || "No recommendation" }}</span>
+              </span>
+            </td>
             <td>{{ recommendation.subject.service || "unknown service" }}</td>
             <td>{{ recommendation.subject.stack || "unknown stack" }}</td>
           </tr>
