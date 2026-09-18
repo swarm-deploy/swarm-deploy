@@ -15,7 +15,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
-type Service struct {
+type Module struct {
 	NodeStore     *node.Store
 	NodeCollector *node.Collector
 	ServiceStore  *service.Store
@@ -30,8 +30,8 @@ func InitService(
 	swarmSvc *swarm.Swarm,
 	eventDispatcher dispatcher.Dispatcher,
 	filesystem fs.FileSystem,
-) (*Service, error) {
-	srv := &Service{
+) (*Module, error) {
+	srv := &Module{
 		cfg: cfg,
 	}
 
@@ -44,7 +44,7 @@ func InitService(
 	return srv, nil
 }
 
-func (s *Service) RegisterEventSubscribers(eventDispatcher dispatcher.Dispatcher) {
+func (s *Module) RegisterEventSubscribers(eventDispatcher dispatcher.Dispatcher) {
 	eventDispatcher.Subscribe(events.TypeDeploySuccess,
 		service.NewSubscriber(s.ServiceStore,
 			s.swarmSvc.Services,
@@ -55,7 +55,7 @@ func (s *Service) RegisterEventSubscribers(eventDispatcher dispatcher.Dispatcher
 	)
 }
 
-func (s *Service) initStores(ctx context.Context, filesystem fs.FileSystem) error {
+func (s *Module) initStores(ctx context.Context, filesystem fs.FileSystem) error {
 	nodeStore, err := node.NewNodeStore(filepath.Join(s.cfg.Spec.DataDir, "nodes.json"))
 	if err != nil {
 		return fmt.Errorf("init node store: %w", err)

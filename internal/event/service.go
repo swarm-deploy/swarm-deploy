@@ -24,7 +24,12 @@ type Service struct {
 	cfg *config.Config
 }
 
-func InitService(cfg *config.Config, eventMetrics metrics.Events, filesystem fs.FileSystem) (*Service, error) {
+type Container interface {
+	GetFileSystem() fs.FileSystem
+	GetMetrics() *metrics.Group
+}
+
+func InitService(cfg *config.Config, cnt Container) (*Service, error) {
 	srv := &Service{
 		cfg: cfg,
 	}
@@ -32,7 +37,7 @@ func InitService(cfg *config.Config, eventMetrics metrics.Events, filesystem fs.
 	historyStore, err := history.NewStore(
 		filepath.Join(cfg.Spec.DataDir, "event-history.json"),
 		cfg.Spec.EventHistory.Capacity,
-		filesystem,
+		cnt.GetFileSystem(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("init history store: %w", err)
@@ -49,7 +54,7 @@ func InitService(cfg *config.Config, eventMetrics metrics.Events, filesystem fs.
 	}
 
 	srv.subscribeOnAllEvents(historyStore)
-	srv.subscribeOnAllEvents(eventmetrics.NewSubscriber(eventMetrics))
+	srv.subscribeOnAllEvents(eventmetrics.NewSubscriber(cnt.GetMetrics().Events))
 
 	slog.Info("[event-dispatcher] init notification subscribers")
 	if err = srv.initNotificationSubscribers(); err != nil {

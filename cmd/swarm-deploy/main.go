@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"time"
 
 	entrypoint "github.com/artarts36/go-entrypoint"
@@ -86,8 +85,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	gitRepository := gitx.NewRepository(cfg.Spec.Git, filepath.Join(cfg.Spec.DataDir, "repo"))
-
 	metricsGroup := metrics.NewGroup(metrics.CreateGroupParams{
 		Namespace: "swarm_deploy",
 		Assistant: cfg.Spec.Assistant.Enabled,
@@ -99,6 +96,11 @@ func main() {
 	}
 
 	metricsGroup.BuildInfo.Set(Version, BuildDate)
+
+	cnt := &container{
+		FileSystem: fs.TraceOS(),
+		Metrics:    metricsGroup,
+	}
 
 	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
@@ -118,15 +120,13 @@ func main() {
 		metricsGroup.Deploys,
 	)
 
-	filesystem := fs.TraceOS()
-
-	eventService, err := event.InitService(cfg, metricsGroup.Events, filesystem)
+	eventService, err := event.InitService(cfg, cnt)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to init event service", slog.Any("err", err))
 		os.Exit(1)
 	}
 
-	resourcesService, err := resources.InitService(ctx, cfg, swarmSvc, eventService.Dispatcher, filesystem)
+	resourcesService, err := resources.InitService(ctx, cfg, swarmSvc, eventService.Dispatcher, cnt.GetFileSystem())
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to init resources service", slog.Any("err", err))
 		os.Exit(1)
@@ -134,38 +134,38 @@ func main() {
 
 	resourcesService.RegisterEventSubscribers(eventService.Dispatcher)
 
-	recommendationsService, err := recommendations.InitService(ctx,
+	recommendationsModule, err := recommendations.InitModule(ctx,
 		cfg,
-		filesystem,
+		cnt,
 	)
 	if err != nil {
-		slog.ErrorContext(ctx, "failed to init recommendations service", slog.Any("err", err))
+		slog.ErrorContext(ctx, "failed to init recommendations module", slog.Any("err", err))
 		os.Exit(1)
 	}
 
-	gitopsService, err := gitops.InitService(ctx, cfg, filesystem)
+	gitopsModule, err := gitops.InitService(ctx, cfg, cnt)
 	if err != nil {
-		slog.ErrorContext(ctx, "failed to init gitops service", slog.Any("err", err))
+		slog.ErrorContext(ctx, "failed to init gitops module", slog.Any("err", err))
 		os.Exit(1)
 	}
 
 	control := controller.New(
 		cfg,
-		gitRepository,
+		gitopsModule.GitRepository,
 		swarmSvc,
 		deployerSvc,
 		metricsGroup,
 		eventService.Dispatcher,
-		gitopsService.Store,
-		filesystem,
+		gitopsModule.Store,
+		cnt.GetFileSystem(),
 	)
 
 	assistantService, err := buildAssistantService(
 		cfg,
 		resourcesService,
 		swarmSvc,
-		gitRepository,
-		recommendationsService.Store,
+		gitopsModule.GitRepository,
+		recommendationsModule.Store,
 		control,
 		metricsGroup,
 		eventService,
@@ -175,19 +175,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	recommendationsService.RegisterEventSubscribers(eventService.Dispatcher)
+	recommendationsModule.RegisterEventSubscribers(eventService.Dispatcher)
 
 	webApplication, err := webserver.NewApplication(
 		cfg.Spec.Web.Address,
 		cfg,
-		gitopsService.Store,
+		gitopsModule.Store,
 		control,
-		gitRepository,
+		gitopsModule.GitRepository,
 		swarmSvc,
 		eventService.History,
 		resourcesService.ServiceStore,
 		resourcesService.NodeStore,
-		recommendationsService.Store,
+		recommendationsModule.Store,
 		assistantService,
 		eventService.Dispatcher,
 		cfg.Spec.Web.Security.Authentication,
@@ -204,11 +204,11 @@ func main() {
 		{
 			Name: "state-store",
 			Run: func(ctx context.Context) error {
-				gitopsService.Store.Sync(ctx)
+				gitopsModule.Store.Sync(ctx)
 				return nil
 			},
 			Stop: func(ctx context.Context) error {
-				gitopsService.Store.Stop()
+				gitopsModule.Store.Stop()
 				return nil
 			},
 		},
@@ -275,7 +275,7 @@ func shutdownTracing(tracerProvider *sdktrace.TracerProvider) {
 
 func buildAssistantService(
 	cfg *config.Config,
-	resourcesService *resources.Service,
+	resourcesModule *resources.Module,
 	swarmService *swarm.Swarm,
 	gitRepository gitx.Repository,
 	recommendations mcpTools.RecommendationsReader,
@@ -305,9 +305,9 @@ func buildAssistantService(
 
 	toolExecutor := mcpserver.NewExecutor(
 		eventService.History,
-		resourcesService.NodeStore,
+		resourcesModule.NodeStore,
 		swarmService,
-		resourcesService.ServiceStore,
+		resourcesModule.ServiceStore,
 		recommendations,
 		imageVersionResolver,
 		gitRepository,
@@ -331,5 +331,18 @@ func buildAssistantService(
 		SystemPrompt:            cfg.Spec.Assistant.SystemPrompt,
 		AllowedTools:            cfg.Spec.Assistant.Tools,
 		ConversationInMemoryTTL: cfg.Spec.Assistant.Conversation.Storage.InMemory.TTL.Value,
-	}, resourcesService.ServiceStore, toolExecutor, eventService.Dispatcher, metrics.Assistant)
+	}, resourcesModule.ServiceStore, toolExecutor, eventService.Dispatcher, metrics.Assistant)
+}
+
+type container struct {
+	FileSystem fs.FileSystem
+	Metrics    *metrics.Group
+}
+
+func (c *container) GetFileSystem() fs.FileSystem {
+	return c.FileSystem
+}
+
+func (c *container) GetMetrics() *metrics.Group {
+	return c.Metrics
 }

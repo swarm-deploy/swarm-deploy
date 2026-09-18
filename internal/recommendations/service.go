@@ -13,7 +13,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 )
 
-type Service struct {
+type Module struct {
 	// Store persists and lists generated recommendations.
 	Store modelstore.Store
 
@@ -24,8 +24,15 @@ type Service struct {
 	DeploySubscriber *RecommenderEventSubscriber
 }
 
-func InitService(ctx context.Context, cfg *config.Config, filesystem fs.FileSystem) (*Service, error) {
-	store, err := modelstore.NewFileStore(ctx, filepath.Join(cfg.Spec.DataDir, "recommendations.state.json"), filesystem)
+type Container interface {
+	GetFileSystem() fs.FileSystem
+}
+
+func InitModule(ctx context.Context, cfg *config.Config, cnt Container) (*Module, error) {
+	store, err := modelstore.NewFileStore(ctx,
+		filepath.Join(cfg.Spec.DataDir, "recommendations.state.json"),
+		cnt.GetFileSystem(),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("init file store: %w", err)
 	}
@@ -41,14 +48,14 @@ func InitService(ctx context.Context, cfg *config.Config, filesystem fs.FileSyst
 		store,
 	)
 
-	return &Service{
+	return &Module{
 		Store:            store,
 		Recommender:      recommender,
 		DeploySubscriber: NewRecommenderEventSubscriber(recommender),
 	}, nil
 }
 
-func (r *Service) RegisterEventSubscribers(eventDispatcher dispatcher.Dispatcher) {
+func (r *Module) RegisterEventSubscribers(eventDispatcher dispatcher.Dispatcher) {
 	eventDispatcher.Subscribe(events.TypeDeploySuccess, r.DeploySubscriber)
 	eventDispatcher.Subscribe(events.TypeDeployFailed, r.DeploySubscriber)
 }

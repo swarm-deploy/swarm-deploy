@@ -16,7 +16,7 @@ import (
 
 func TestInitServiceRegistersBuiltInAnalyzers(t *testing.T) {
 	ctx := context.Background()
-	service, err := InitService(ctx, &config.Config{Spec: config.Spec{DataDir: t.TempDir()}}, fs.NewLocalFileSystem())
+	service, err := InitModule(ctx, &config.Config{Spec: config.Spec{DataDir: t.TempDir()}}, fs.NewLocalFileSystem())
 	require.NoError(t, err)
 
 	stack := model.Stack{
