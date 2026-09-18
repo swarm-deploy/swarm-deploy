@@ -1992,6 +1992,8 @@ button:hover,
   }
 
   .services-header-actions {
+    flex: 0 1 auto;
+    width: 100%;
     max-width: none;
   }
 
