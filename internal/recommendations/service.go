@@ -3,7 +3,9 @@ package recommendations
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/recommendations/analyzer"
@@ -22,8 +24,8 @@ type Service struct {
 	DeploySubscriber *RecommenderEventSubscriber
 }
 
-func InitService(ctx context.Context, path string, filesystem fs.FileSystem) (*Service, error) {
-	store, err := modelstore.NewFileStore(ctx, path, filesystem)
+func InitService(ctx context.Context, cfg *config.Config, filesystem fs.FileSystem) (*Service, error) {
+	store, err := modelstore.NewFileStore(ctx, filepath.Join(cfg.Spec.DataDir, "recommendations.state.json"), filesystem)
 	if err != nil {
 		return nil, fmt.Errorf("init file store: %w", err)
 	}

@@ -24,9 +24,9 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webhookserver"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver"
 	"github.com/swarm-deploy/swarm-deploy/internal/event"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/logx"
 	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/differ"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
@@ -34,9 +34,9 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/recommendations"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
+	"github.com/swarm-deploy/swarm-deploy/internal/resources"
 	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/resources/node"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
-	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -131,12 +131,6 @@ func main() {
 		metricsGroup.Deploys,
 	)
 
-	nodeStore, err := swarmnode.NewNodeStore(filepath.Join(cfg.Spec.DataDir, "nodes.json"))
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to init node store", slog.Any("err", err))
-		os.Exit(1)
-	}
-
 	filesystem := fs.TraceOS()
 
 	eventService, err := event.InitService(cfg, metricsGroup.Events, filesystem)
@@ -145,30 +139,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	srvStore, err := service.NewStore(filepath.Join(cfg.Spec.DataDir, "services.json"))
+	resourcesService, err := resources.InitService(ctx, cfg, swarmSvc, eventService.Dispatcher)
 	if err != nil {
-		slog.ErrorContext(ctx, "failed to init service store", slog.Any("err", err))
+		slog.ErrorContext(ctx, "failed to init resources service", slog.Any("err", err))
 		os.Exit(1)
 	}
 
-	eventService.Dispatcher.Subscribe(
-		events.TypeDeploySuccess,
-		service.NewSubscriber(srvStore, swarmSvc.Services, swarmSvc.Images, swarmSvc.Configs, metadata.NewExtractor()),
-	)
-
-	nodeCollector := swarmnode.NewNodeCollector(swarmSvc.Nodes, nodeStore, eventService.Dispatcher)
-
-	stateFileStore, err := modelstore.NewFileStore(ctx,
-		filepath.Join(cfg.Spec.DataDir, "controller.state.json"),
-		filesystem,
-	)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to build controller file state", slog.Any("err", err))
-		os.Exit(1)
-	}
+	resourcesService.RegisterEventSubscribers(eventService.Dispatcher)
 
 	recommendationsService, err := recommendations.InitService(ctx,
-		filepath.Join(cfg.Spec.DataDir, "recommendations.state.json"),
+		cfg,
 		filesystem,
 	)
 	if err != nil {
@@ -176,8 +156,11 @@ func main() {
 		os.Exit(1)
 	}
 
-	stateStore := modelstore.NewWarmupStore(modelstore.NewMemoryStore(), stateFileStore)
-	stateStore.Warmup(ctx)
+	gitopsService, err := gitops.InitService(ctx, cfg, filesystem)
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to init gitops service", slog.Any("err", err))
+		os.Exit(1)
+	}
 
 	control := controller.New(
 		cfg,
@@ -186,14 +169,14 @@ func main() {
 		deployerSvc,
 		metricsGroup,
 		eventService.Dispatcher,
-		stateStore,
+		gitopsService.Store,
 		filesystem,
 	)
 
 	assistantService, err := buildAssistantService(
 		cfg,
-		srvStore,
-		nodeStore,
+		resourcesService.ServiceStore,
+		resourcesService.NodeStore,
 		swarmSvc,
 		gitRepository,
 		recommendationsService.Store,
@@ -211,13 +194,13 @@ func main() {
 	webApplication, err := webserver.NewApplication(
 		cfg.Spec.Web.Address,
 		cfg,
-		stateStore,
+		gitopsService.Store,
 		control,
 		gitRepository,
 		swarmSvc,
 		eventService.History,
-		srvStore,
-		nodeStore,
+		resourcesService.ServiceStore,
+		resourcesService.NodeStore,
 		recommendationsService.Store,
 		assistantService,
 		eventService.Dispatcher,
@@ -235,11 +218,11 @@ func main() {
 		{
 			Name: "state-store",
 			Run: func(ctx context.Context) error {
-				stateStore.Sync(ctx)
+				gitopsService.Store.(*modelstore.WarmupStore).Sync(ctx)
 				return nil
 			},
 			Stop: func(ctx context.Context) error {
-				stateStore.Stop()
+				gitopsService.Store.Stop()
 				return nil
 			},
 		},
@@ -248,7 +231,7 @@ func main() {
 		{
 			Name: "nodes-collector",
 			Run: func(ctx context.Context) error {
-				return nodeCollector.Run(ctx)
+				return resourcesService.NodeCollector.Run(ctx)
 			},
 		},
 		{
