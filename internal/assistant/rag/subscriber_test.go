@@ -75,8 +75,10 @@ func TestIndexSubscriberBuildsIndexOnDeploySuccess(t *testing.T) {
 	subscriber := NewIndexSubscriber(store, embedder, "model", index, observer)
 
 	err := subscriber.Handle(context.Background(), &events.DeploySuccess{
-		StackName: "app",
-		Commit:    "abc",
+		DeployEvent: events.DeployEvent{
+			StackName: "app",
+			Commit:    "abc",
+		},
 	})
 	require.NoError(t, err, "handle deploySuccess")
 	assert.Equal(t, []string{"success"}, observer.rebuildStatuses, "expected rebuild metric")

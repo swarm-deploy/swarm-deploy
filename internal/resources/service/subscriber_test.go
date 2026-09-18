@@ -164,13 +164,15 @@ func TestSubscriberHandle(t *testing.T) {
 			testCase.setupMocks(inspector, images, serviceRef)
 
 			err = sub.Handle(context.Background(), &events.DeploySuccess{
-				StackName: "payments",
-				StackDefinition: compose.File{
-					Compose: compose.Compose{
-						Services: []compose.Service{
-							{
-								Name:  "api",
-								Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
+				DeployEvent: events.DeployEvent{
+					StackName: "payments",
+					StackDefinition: compose.File{
+						Compose: compose.Compose{
+							Services: []compose.Service{
+								{
+									Name:  "api",
+									Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
+								},
 							},
 						},
 					},
@@ -238,13 +240,15 @@ routes:
 	sub := NewSubscriber(store, inspector, images, configs, metadata.NewExtractor())
 
 	err = sub.Handle(context.Background(), &events.DeploySuccess{
-		StackName: "prod",
-		StackDefinition: compose.File{
-			Compose: compose.Compose{
-				Services: []compose.Service{
-					{
-						Name:  "pomerium",
-						Image: "ghcr.io/swarm-deploy/pomerium:v1",
+		DeployEvent: events.DeployEvent{
+			StackName: "prod",
+			StackDefinition: compose.File{
+				Compose: compose.Compose{
+					Services: []compose.Service{
+						{
+							Name:  "pomerium",
+							Image: "ghcr.io/swarm-deploy/pomerium:v1",
+						},
 					},
 				},
 			},

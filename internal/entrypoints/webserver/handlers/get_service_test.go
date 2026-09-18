@@ -136,20 +136,26 @@ func TestHandlerListServiceDeployments_MapsFromHistory(t *testing.T) {
 
 	ctx := context.Background()
 	require.NoError(t, store.Handle(ctx, &events.DeploySuccess{
-		StackName: "payments",
-		Commit:    "commit-success",
+		DeployEvent: events.DeployEvent{
+			StackName: "payments",
+			Commit:    "commit-success",
+		},
 	}))
 	require.NoError(t, store.Handle(ctx, &events.SyncManualStarted{
 		TriggeredBy: "admin",
 	}))
 	require.NoError(t, store.Handle(ctx, &events.DeployFailed{
-		StackName: "payments",
-		Commit:    "commit-failed",
-		Error:     errors.New("boom"),
+		DeployEvent: events.DeployEvent{
+			StackName: "payments",
+			Commit:    "commit-failed",
+		},
+		Error: errors.New("boom"),
 	}))
 	require.NoError(t, store.Handle(ctx, &events.DeploySuccess{
-		StackName: "infra",
-		Commit:    "other-stack",
+		DeployEvent: events.DeployEvent{
+			StackName: "infra",
+			Commit:    "other-stack",
+		},
 	}))
 
 	ctrl := gomock.NewController(t)
@@ -227,13 +233,17 @@ func TestHandlerListServiceDeployments_RespectsLimitParam(t *testing.T) {
 
 	ctx := context.Background()
 	require.NoError(t, store.Handle(ctx, &events.DeploySuccess{
-		StackName: "payments",
-		Commit:    "commit-1",
+		DeployEvent: events.DeployEvent{
+			StackName: "payments",
+			Commit:    "commit-1",
+		},
 	}))
 	require.NoError(t, store.Handle(ctx, &events.DeployFailed{
-		StackName: "payments",
-		Commit:    "commit-2",
-		Error:     errors.New("boom"),
+		DeployEvent: events.DeployEvent{
+			StackName: "payments",
+			Commit:    "commit-2",
+		},
+		Error: errors.New("boom"),
 	}))
 
 	ctrl := gomock.NewController(t)

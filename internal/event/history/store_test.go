@@ -25,14 +25,19 @@ func TestStoreHandlePersistsAndRotates(t *testing.T) {
 	store.now = func() time.Time { return time.Date(2026, 3, 22, 10, 1, 0, 0, time.UTC) }
 	require.NoError(
 		t,
-		store.Handle(context.Background(), &events.DeploySuccess{StackName: "api", Commit: "abc"}),
+		store.Handle(context.Background(), &events.DeploySuccess{
+			DeployEvent: events.DeployEvent{StackName: "api", Commit: "abc"},
+		}),
 		"save second event",
 	)
 
 	store.now = func() time.Time { return time.Date(2026, 3, 22, 10, 2, 0, 0, time.UTC) }
 	require.NoError(
 		t,
-		store.Handle(context.Background(), &events.DeployFailed{StackName: "api", Commit: "def", Error: errors.New("boom")}),
+		store.Handle(context.Background(), &events.DeployFailed{
+			DeployEvent: events.DeployEvent{StackName: "api", Commit: "def"},
+			Error:       errors.New("boom"),
+		}),
 		"save third event",
 	)
 

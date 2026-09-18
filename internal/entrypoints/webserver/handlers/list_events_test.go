@@ -22,7 +22,9 @@ func TestHandlerListEventsFiltersBySeverityAndCategory(t *testing.T) {
 
 	store, err := history.NewStore(filepath.Join(t.TempDir(), "events.json"), 50, fs.NewLocalFileSystem())
 	require.NoError(t, err, "new history store")
-	require.NoError(t, store.Handle(context.Background(), &events.DeploySuccess{StackName: "api", Commit: "abc"}))
+	require.NoError(t, store.Handle(context.Background(), &events.DeploySuccess{
+		DeployEvent: events.DeployEvent{StackName: "api", Commit: "abc"},
+	}))
 	require.NoError(t, store.Handle(context.Background(), &events.UserAuthenticated{Username: "alice"}))
 	require.NoError(
 		t,
@@ -104,8 +106,12 @@ func TestHandlerListEventsFiltersByType(t *testing.T) {
 
 	store, err := history.NewStore(filepath.Join(t.TempDir(), "events.json"), 50, fs.NewLocalFileSystem())
 	require.NoError(t, err, "new history store")
-	require.NoError(t, store.Handle(context.Background(), &events.DeploySuccess{StackName: "api", Commit: "abc"}))
-	require.NoError(t, store.Handle(context.Background(), &events.DeployFailed{StackName: "api", Commit: "def"}))
+	require.NoError(t, store.Handle(context.Background(), &events.DeploySuccess{
+		DeployEvent: events.DeployEvent{StackName: "api", Commit: "abc"},
+	}))
+	require.NoError(t, store.Handle(context.Background(), &events.DeployFailed{
+		DeployEvent: events.DeployEvent{StackName: "api", Commit: "def"},
+	}))
 	require.NoError(t, store.Handle(context.Background(), &events.UserAuthenticated{Username: "alice"}))
 
 	h := &handler{history: store}
@@ -152,10 +158,16 @@ func TestHandlerListEventsLimitsLatestFilteredEvents(t *testing.T) {
 
 	store, err := history.NewStore(filepath.Join(t.TempDir(), "events.json"), 50, fs.NewLocalFileSystem())
 	require.NoError(t, err, "new history store")
-	require.NoError(t, store.Handle(context.Background(), &events.DeploySuccess{StackName: "api", Commit: "abc"}))
+	require.NoError(t, store.Handle(context.Background(), &events.DeploySuccess{
+		DeployEvent: events.DeployEvent{StackName: "api", Commit: "abc"},
+	}))
 	require.NoError(t, store.Handle(context.Background(), &events.UserAuthenticated{Username: "alice"}))
-	require.NoError(t, store.Handle(context.Background(), &events.DeployFailed{StackName: "api", Commit: "def"}))
-	require.NoError(t, store.Handle(context.Background(), &events.DeploySuccess{StackName: "worker", Commit: "ghi"}))
+	require.NoError(t, store.Handle(context.Background(), &events.DeployFailed{
+		DeployEvent: events.DeployEvent{StackName: "api", Commit: "def"},
+	}))
+	require.NoError(t, store.Handle(context.Background(), &events.DeploySuccess{
+		DeployEvent: events.DeployEvent{StackName: "worker", Commit: "ghi"},
+	}))
 
 	var limit generated.OptInt32
 	limit.SetTo(2)
