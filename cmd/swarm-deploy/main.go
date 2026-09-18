@@ -34,8 +34,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/recommendations"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources"
-	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/resources/node"
-	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -164,8 +162,7 @@ func main() {
 
 	assistantService, err := buildAssistantService(
 		cfg,
-		resourcesService.ServiceStore,
-		resourcesService.NodeStore,
+		resourcesService,
 		swarmSvc,
 		gitRepository,
 		recommendationsService.Store,
@@ -278,8 +275,7 @@ func shutdownTracing(tracerProvider *sdktrace.TracerProvider) {
 
 func buildAssistantService(
 	cfg *config.Config,
-	serviceStore *service.Store,
-	nodeStore *swarmnode.Store,
+	resourcesService *resources.Service,
 	swarmService *swarm.Swarm,
 	gitRepository gitx.Repository,
 	recommendations mcpTools.RecommendationsReader,
@@ -309,9 +305,9 @@ func buildAssistantService(
 
 	toolExecutor := mcpserver.NewExecutor(
 		eventService.History,
-		nodeStore,
+		resourcesService.NodeStore,
 		swarmService,
-		serviceStore,
+		resourcesService.ServiceStore,
 		recommendations,
 		imageVersionResolver,
 		gitRepository,
@@ -335,5 +331,5 @@ func buildAssistantService(
 		SystemPrompt:            cfg.Spec.Assistant.SystemPrompt,
 		AllowedTools:            cfg.Spec.Assistant.Tools,
 		ConversationInMemoryTTL: cfg.Spec.Assistant.Conversation.Storage.InMemory.TTL.Value,
-	}, serviceStore, toolExecutor, eventService.Dispatcher, metrics.Assistant)
+	}, resourcesService.ServiceStore, toolExecutor, eventService.Dispatcher, metrics.Assistant)
 }
