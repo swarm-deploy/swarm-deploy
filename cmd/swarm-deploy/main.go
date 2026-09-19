@@ -296,6 +296,11 @@ func buildAssistantService(
 		cnt.Metrics.MCP,
 	)
 
+	allowedTools := make([]string, len(cfg.Spec.Assistant.Tools))
+	for i, toolName := range cfg.Spec.Assistant.Tools {
+		allowedTools[i] = string(toolName)
+	}
+
 	return assistant.NewService(assistant.Config{
 		Enabled:                 cfg.Spec.Assistant.Enabled,
 		ModelName:               cfg.Spec.Assistant.Model.Name,
@@ -306,7 +311,7 @@ func buildAssistantService(
 		Temperature:             temperature,
 		MaxTokens:               cfg.Spec.Assistant.Model.OpenAI.MaxTokens,
 		SystemPrompt:            cfg.Spec.Assistant.SystemPrompt,
-		AllowedTools:            cfg.Spec.Assistant.Tools,
+		AllowedTools:            allowedTools,
 		ConversationInMemoryTTL: cfg.Spec.Assistant.Conversation.Storage.InMemory.TTL.Value,
 	}, cnt.Resources.ServiceStore, toolExecutor, cnt.Event.Dispatcher, cnt.Metrics.Assistant)
 }
