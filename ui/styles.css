@@ -884,10 +884,6 @@ button:hover,
   padding: 9px 12px;
 }
 
-.events-table-wrap {
-  padding-top: 10px;
-}
-
 .events-table {
   table-layout: fixed;
 }
@@ -912,14 +908,6 @@ button:hover,
   width: 40%;
 }
 
-.events-table-row {
-  cursor: pointer;
-}
-
-.events-table-row:hover td {
-  background: rgba(96, 165, 250, 0.07);
-}
-
 .events-details-row td {
   background: rgba(9, 9, 11, 0.36);
 }
@@ -940,10 +928,56 @@ button:hover,
 
 .secrets-table-wrap {
   overflow-x: auto;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: var(--card);
-  padding: 4px 10px 10px;
+}
+
+.secrets-table {
+  min-width: 720px;
+  table-layout: fixed;
+}
+
+.container-status-table.secrets-table th,
+.container-status-table.secrets-table td {
+  border-top: 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.13);
+  vertical-align: middle;
+}
+
+.container-status-table.secrets-table th {
+  padding: 9px 10px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  background: transparent;
+}
+
+.container-status-table.secrets-table td {
+  padding: 13px 10px;
+}
+
+.secrets-table th:first-child,
+.secrets-table td:first-child {
+  padding-left: 16px;
+}
+
+.secrets-table th:last-child,
+.secrets-table td:last-child {
+  padding-right: 16px;
+}
+
+.secrets-table-row {
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.secrets-table-row:hover,
+.secrets-table-row:focus-visible {
+  background: rgba(148, 163, 184, 0.06);
+}
+
+.secrets-table-row:focus-visible {
+  outline: 1px solid rgba(96, 165, 250, 0.45);
+  outline-offset: -1px;
 }
 
 .services-empty {

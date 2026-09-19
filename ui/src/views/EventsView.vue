@@ -192,7 +192,7 @@ onMounted(() => {
     </div>
 
     <div v-else class="secrets-table-wrap events-table-wrap">
-      <table class="container-status-table events-table">
+      <table class="container-status-table secrets-table events-table">
         <thead>
           <tr>
             <th>Time</th>
@@ -203,7 +203,16 @@ onMounted(() => {
         </thead>
         <tbody>
           <template v-for="event in visibleEvents" :key="eventKey(event)">
-            <tr class="events-table-row" @click="toggleDetails(event)">
+            <tr
+              class="events-table-row secrets-table-row"
+              tabindex="0"
+              role="button"
+              :aria-expanded="expandedKey === eventKey(event)"
+              :aria-label="`Toggle details for ${event.type || 'event'}`"
+              @click="toggleDetails(event)"
+              @keydown.enter="toggleDetails(event)"
+              @keydown.space.prevent="toggleDetails(event)"
+            >
               <td>{{ formatDate(event.created_at) }}</td>
               <td>
                 <span class="event-severity" :class="`event-severity-${normalizedSeverity(event)}`">

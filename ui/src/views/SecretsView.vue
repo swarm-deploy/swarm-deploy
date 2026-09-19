@@ -107,36 +107,31 @@ function formatDate(value: string): string {
     </div>
 
     <div v-else class="secrets-table-wrap">
-      <table class="container-status-table">
+      <table class="container-status-table secrets-table">
         <thead>
           <tr>
             <th>Name</th>
-            <th>Version ID</th>
             <th>Date Added</th>
             <th>External Path</th>
             <th>External Version ID</th>
-            <th />
           </tr>
         </thead>
         <tbody>
-          <tr v-for="secret in filteredSecrets" :key="secret.id">
+          <tr
+            v-for="secret in filteredSecrets"
+            :key="secret.id"
+            class="secrets-table-row"
+            tabindex="0"
+            role="button"
+            :aria-label="`Open details for ${secret.name}`"
+            @click="openSecretDetails(secret.name)"
+            @keydown.enter="openSecretDetails(secret.name)"
+            @keydown.space.prevent="openSecretDetails(secret.name)"
+          >
             <td>{{ secret.name || "n/a" }}</td>
-            <td>
-              <code>{{ secret.version_id }}</code>
-            </td>
             <td>{{ formatDate(secret.created_at) }}</td>
             <td>{{ secret.external?.path || "n/a" }}</td>
             <td>{{ secret.external?.version_id || "n/a" }}</td>
-            <td>
-              <button
-                type="button"
-                class="service-status-btn"
-                :disabled="!secret.name"
-                @click="secret.name && openSecretDetails(secret.name)"
-              >
-                Details
-              </button>
-            </td>
           </tr>
         </tbody>
       </table>
