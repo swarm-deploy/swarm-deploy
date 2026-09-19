@@ -6,7 +6,7 @@ require (
 	github.com/DrSmithFr/go-console v1.4.4
 	github.com/artarts36/envmasker v0.0.0-20260424231721-45f9d0bb307b
 	github.com/artarts36/gds v0.2.5
-	github.com/artarts36/go-entrypoint v0.2.1
+	github.com/artarts36/go-entrypoint v0.3.1
 	github.com/artarts36/gopipe v0.2.1
 	github.com/artarts36/specw v0.1.8-0.20260526200511-8bb157c70b9d
 	github.com/avast/retry-go/v5 v5.0.0
@@ -40,7 +40,6 @@ require (
 	go.opentelemetry.io/otel/sdk v1.46.0
 	go.opentelemetry.io/otel/trace v1.46.0
 	go.uber.org/mock v0.6.0
-	go.uber.org/multierr v1.11.0
 	golang.org/x/crypto v0.55.0
 	golang.org/x/net v0.58.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -103,6 +102,7 @@ require (
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.46.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.11.0 // indirect
+	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.1 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	go.yaml.in/yaml/v3 v3.0.5 // indirect

@@ -35,6 +35,8 @@ type QueueDispatcher struct {
 	handledM sync.Mutex
 	closed   bool
 	wg       sync.WaitGroup
+	done     chan struct{}
+	shutdown sync.Once
 
 	tracer trace.Tracer
 }
@@ -49,6 +51,7 @@ func NewQueueDispatcher() *QueueDispatcher {
 		fastQueue:   newQueue("fast"),
 		slowQueue:   newQueue("slow"),
 		handled:     map[string]time.Time{},
+		done:        make(chan struct{}),
 		tracer:      otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"),
 	}
 
@@ -56,6 +59,20 @@ func NewQueueDispatcher() *QueueDispatcher {
 	go d.runQueueWorker()
 
 	return d
+}
+
+// Shutdown stops accepting events and waits until all queued events have been handled.
+func (d *QueueDispatcher) Shutdown(ctx context.Context) error {
+	d.shutdown.Do(func() {
+		go d.drain()
+	})
+
+	select {
+	case <-d.done:
+		return nil
+	case <-ctx.Done():
+		return errors.Join(errors.New("shutdown dispatcher"), ctx.Err())
+	}
 }
 
 func (d *QueueDispatcher) Dispatch(ctx context.Context, event events.Event) {
@@ -207,30 +224,18 @@ func deduplicateKey(event events.Event) string {
 	return fmt.Sprintf("%s:%x", event.Type().String(), hash.Sum64())
 }
 
-func (d *QueueDispatcher) Shutdown(ctx context.Context) error {
+func (d *QueueDispatcher) drain() {
 	d.mu.Lock()
-	if d.closed {
-		d.mu.Unlock()
-		return errors.New("dispatcher already shut down")
-	}
 	d.closed = true
 	close(d.queue)
+	d.mu.Unlock()
+
+	d.wg.Wait()
 
 	d.slowQueue.Close()
 	d.fastQueue.Close()
+	d.slowQueue.Wait()
+	d.fastQueue.Wait()
 
-	d.mu.Unlock()
-
-	waitDone := make(chan struct{})
-	go func() {
-		d.wg.Wait()
-		close(waitDone)
-	}()
-
-	select {
-	case <-waitDone:
-		return nil
-	case <-ctx.Done():
-		return errors.Join(errors.New("shutdown dispatcher"), ctx.Err())
-	}
+	close(d.done)
 }

@@ -6,7 +6,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/artarts36/specw"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
@@ -21,6 +23,83 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.uber.org/mock/gomock"
 )
+
+func TestControllerGracefulShutdown(t *testing.T) {
+	testCases := []struct {
+		name string
+		mode string
+	}{
+		{
+			name: "pull mode",
+			mode: config.SyncModePull,
+		},
+		{
+			name: "hybrid mode",
+			mode: config.SyncModeHybrid,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			started := make(chan context.Context, 1)
+			release := make(chan struct{})
+
+			repository := git.NewMockRepository(ctrl)
+			repository.EXPECT().Pull(gomock.Any()).DoAndReturn(func(ctx context.Context) (git.PullResult, error) {
+				started <- ctx
+				<-release
+				return git.PullResult{}, errors.New("pull failed")
+			}).Times(1)
+
+			eventDispatcher := dispatcher.NewMockDispatcher(ctrl)
+
+			metricGroup := metrics.NewGroup(metrics.CreateGroupParams{
+				Namespace: "test_controller_graceful_shutdown",
+			})
+			controller := &Controller{
+				cfg: &config.Config{Spec: config.Spec{
+					Git: config.GitSpec{Repository: "repo"},
+					Sync: config.SyncSpec{
+						Mode:         testCase.mode,
+						PollInterval: specw.Duration{Value: 5 * time.Millisecond},
+					},
+				}},
+				git:        repository,
+				metrics:    metricGroup,
+				event:      eventDispatcher,
+				stateStore: modelstore.NewMemoryStore(),
+				triggerCh:  make(chan triggerTask, 1),
+				tracer:     otel.Tracer("test"),
+			}
+
+			runCtx, cancelRun := context.WithCancel(context.Background())
+			defer cancelRun()
+			runResult := make(chan error, 1)
+			go func() {
+				runResult <- controller.Run(runCtx)
+			}()
+
+			reconciliationCtx := <-started
+			cancelRun()
+
+			require.Eventually(t, controller.shuttingDown.Load, time.Second, time.Millisecond,
+				"controller should enter shutdown state")
+			assert.False(t, controller.Manual(context.Background()), "manual sync must be rejected during shutdown")
+			assert.NoError(t, reconciliationCtx.Err(), "active reconciliation context must remain usable")
+
+			select {
+			case err := <-runResult:
+				require.FailNow(t, "controller stopped before reconciliation completed", "error: %v", err)
+			case <-time.After(20 * time.Millisecond):
+			}
+
+			close(release)
+
+			require.NoError(t, <-runResult, "run controller")
+		})
+	}
+}
 
 func TestReloadStacksUsesRepositoryDirFirst(t *testing.T) {
 	rootDir := t.TempDir()

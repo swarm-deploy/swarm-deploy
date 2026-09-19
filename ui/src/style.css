@@ -145,7 +145,7 @@ body {
 .sidebar-brand-block {
   height: var(--shell-header-height);
   margin-inline: -16px;
-  padding-inline: 28px;
+  padding: 0 28px 0 17px;
   border-bottom: 1px solid var(--line);
   display: flex;
   flex-direction: column;
@@ -226,7 +226,7 @@ body {
   min-height: 42px;
   border: 0;
   border-radius: 0;
-  padding: 10px 28px;
+  padding: 10px 28px 10px 17px;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -372,6 +372,14 @@ body {
     height: auto;
     margin-inline: -14px;
     padding: 0 14px 12px;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
+  .sidebar-brand-meta {
+    margin-top: 0;
   }
 
   .sidebar-navigation {

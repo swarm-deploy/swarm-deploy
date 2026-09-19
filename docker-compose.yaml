@@ -15,7 +15,10 @@ services:
       - "8080:8080"
       - "8082:8082"
       - "8083:8083"
-    restart: unless-stopped
+    stop_grace_period: 30s
+    deploy:
+      update_config:
+        order: start-first
     secrets:
       - source: deploy_key
         target: deploy_key

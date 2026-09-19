@@ -137,6 +137,24 @@ stacks:
 
 For a fuller setup with notifications, secret rotation, Downward metadata, tracing, and runtime options, see [`example/01-basic/swarm-deploy.yaml`](./example/01-basic/swarm-deploy.yaml).
 
+### Recommended Swarm update configuration
+
+Run the swarm-deploy service with `start-first` updates and a 30-second stop grace period:
+
+```yaml
+services:
+  swarm-deploy:
+    stop_grace_period: 30s
+    deploy:
+      update_config:
+        order: start-first
+```
+
+With `start-first`, Swarm starts the new task before stopping the current one. During graceful shutdown,
+the current swarm-deploy instance stops starting new reconciliations while an already running reconciliation
+gets time to finish status updates, event delivery, and post-deploy processing. This is especially important
+when swarm-deploy manages its own service, and it also makes ordinary swarm-deploy updates safer.
+
 ## Documentation
 
 - [Authentication](./docs/authentication.md)

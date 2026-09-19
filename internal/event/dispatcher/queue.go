@@ -2,6 +2,7 @@ package dispatcher
 
 import (
 	"context"
+	"sync"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 	"go.opentelemetry.io/otel/trace"
@@ -24,6 +25,7 @@ type queue struct {
 	name   string
 	queue  chan *message
 	sender EventSender
+	wg     sync.WaitGroup
 }
 
 func newQueue(name string) *queue {
@@ -33,9 +35,8 @@ func newQueue(name string) *queue {
 		sender: createEventSender(),
 	}
 
-	go func() {
-		q.runWorker()
-	}()
+	q.wg.Add(1)
+	go q.runWorker()
 
 	return q
 }
@@ -52,7 +53,13 @@ func (q *queue) Close() {
 	close(q.queue)
 }
 
+func (q *queue) Wait() {
+	q.wg.Wait()
+}
+
 func (q *queue) runWorker() {
+	defer q.wg.Done()
+
 	ctx := context.Background()
 
 	for task := range q.queue {

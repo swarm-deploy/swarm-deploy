@@ -12,11 +12,7 @@ import (
 )
 
 func TestQueueDispatcher_DeduplicatesByWindow(t *testing.T) {
-	dispatcher := NewQueueDispatcher()
-	t.Cleanup(func() {
-		err := dispatcher.Shutdown(context.Background())
-		require.NoError(t, err, "shutdown dispatcher")
-	})
+	dispatcher := newTestQueueDispatcher(t)
 
 	var nowMu sync.Mutex
 	now := time.Date(2026, time.April, 25, 10, 0, 0, 0, time.UTC)
@@ -39,11 +35,7 @@ func TestQueueDispatcher_DeduplicatesByWindow(t *testing.T) {
 }
 
 func TestQueueDispatcher_AllowsDispatchAfterWindow(t *testing.T) {
-	dispatcher := NewQueueDispatcher()
-	t.Cleanup(func() {
-		err := dispatcher.Shutdown(context.Background())
-		require.NoError(t, err, "shutdown dispatcher")
-	})
+	dispatcher := newTestQueueDispatcher(t)
 
 	var nowMu sync.Mutex
 	now := time.Date(2026, time.April, 25, 10, 0, 0, 0, time.UTC)
@@ -74,11 +66,7 @@ func TestQueueDispatcher_AllowsDispatchAfterWindow(t *testing.T) {
 }
 
 func TestQueueDispatcher_DifferentDetailsNotDeduplicated(t *testing.T) {
-	dispatcher := NewQueueDispatcher()
-	t.Cleanup(func() {
-		err := dispatcher.Shutdown(context.Background())
-		require.NoError(t, err, "shutdown dispatcher")
-	})
+	dispatcher := newTestQueueDispatcher(t)
 
 	sub := newCollectSubscriber()
 	dispatcher.Subscribe(events.TypeUserAuthenticated, sub)
@@ -90,6 +78,56 @@ func TestQueueDispatcher_DifferentDetailsNotDeduplicated(t *testing.T) {
 		return sub.Len() == 2
 	}, time.Second, 10*time.Millisecond, "expected both events with different details to be dispatched")
 	assert.Equal(t, []string{"alice", "bob"}, sub.Usernames(), "expected original event order")
+}
+
+func TestQueueDispatcher_DrainsOnShutdown(t *testing.T) {
+	testCases := []struct {
+		name      string
+		usernames []string
+	}{
+		{
+			name:      "single event",
+			usernames: []string{"alice"},
+		},
+		{
+			name:      "multiple events",
+			usernames: []string{"alice", "bob", "charlie"},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			dispatcher := NewQueueDispatcher()
+			sub := newCollectSubscriber()
+			dispatcher.Subscribe(events.TypeUserAuthenticated, sub)
+
+			for _, username := range testCase.usernames {
+				dispatcher.Dispatch(context.Background(), &events.UserAuthenticated{Username: username})
+			}
+
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), time.Second)
+			require.NoError(t, dispatcher.Shutdown(shutdownCtx), "shutdown dispatcher")
+			shutdownCancel()
+
+			assert.Equal(t, testCase.usernames, sub.Usernames(), "all queued events must be handled before shutdown")
+
+			dispatcher.Dispatch(context.Background(), &events.UserAuthenticated{Username: "ignored"})
+			assert.Equal(t, testCase.usernames, sub.Usernames(), "events dispatched after shutdown must be ignored")
+		})
+	}
+}
+
+func newTestQueueDispatcher(t *testing.T) *QueueDispatcher {
+	t.Helper()
+
+	dispatcher := NewQueueDispatcher()
+	t.Cleanup(func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), time.Second)
+		defer shutdownCancel()
+		require.NoError(t, dispatcher.Shutdown(shutdownCtx), "shutdown dispatcher")
+	})
+
+	return dispatcher
 }
 
 type collectSubscriber struct {

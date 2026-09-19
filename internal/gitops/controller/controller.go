@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
@@ -37,8 +39,6 @@ const (
 )
 
 const (
-	eventShutdownTimeout = 5 * time.Second
-
 	syncRunResultError        = "error"
 	syncRunResultNoChange     = "no_change"
 	syncRunResultUpdated      = "updated"
@@ -58,6 +58,10 @@ type Controller struct {
 	stackReconciler   stackloop.StackReconciler
 
 	triggerCh chan triggerTask
+
+	shuttingDown atomic.Bool
+	tickerMu     sync.Mutex
+	ticker       *time.Ticker
 
 	tracer trace.Tracer
 }
@@ -104,10 +108,21 @@ func New(
 }
 
 func (c *Controller) Run(ctx context.Context) error {
+	runDone := make(chan struct{})
+	defer close(runDone)
+	go func() {
+		select {
+		case <-ctx.Done():
+			c.requestShutdown()
+		case <-runDone:
+		}
+	}()
+
 	var ticker *time.Ticker
 	if c.cfg.Spec.Sync.Mode == config.SyncModePull || c.cfg.Spec.Sync.Mode == config.SyncModeHybrid {
 		ticker = time.NewTicker(c.cfg.Spec.Sync.PollInterval.Value)
-		defer ticker.Stop()
+		c.setTicker(ticker)
+		defer c.clearTicker(ticker)
 	}
 
 	slog.InfoContext(ctx, "[controller] trigger startup sync")
@@ -116,26 +131,64 @@ func (c *Controller) Run(ctx context.Context) error {
 		reason: TriggerStartup,
 	})
 
+	reconciliationCtx := context.WithoutCancel(ctx)
+
 	for {
+		if c.shuttingDown.Load() {
+			return nil
+		}
+
 		select {
 		case <-ctx.Done():
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), eventShutdownTimeout)
-			if err := c.event.Shutdown(shutdownCtx); err != nil {
-				slog.ErrorContext(
-					context.Background(),
-					"[controller] failed to shutdown event dispatcher",
-					slog.Any("err", err),
-				)
-			}
-			cancel()
+			c.requestShutdown()
 			return nil
 		case task := <-c.triggerCh:
-			c.syncOnce(ctx, task)
+			if c.shuttingDown.Load() {
+				continue
+			}
+			c.syncOnce(reconciliationCtx, task)
 		case <-tickerC(ticker):
+			if c.shuttingDown.Load() {
+				continue
+			}
 			c.trigger(triggerTask{
 				reason: TriggerPoll,
 			})
 		}
+	}
+}
+
+func (c *Controller) requestShutdown() {
+	c.shuttingDown.Store(true)
+	c.stopTicker()
+}
+
+func (c *Controller) setTicker(ticker *time.Ticker) {
+	c.tickerMu.Lock()
+	defer c.tickerMu.Unlock()
+
+	c.ticker = ticker
+	if c.shuttingDown.Load() {
+		c.ticker.Stop()
+	}
+}
+
+func (c *Controller) clearTicker(ticker *time.Ticker) {
+	c.tickerMu.Lock()
+	defer c.tickerMu.Unlock()
+
+	ticker.Stop()
+	if c.ticker == ticker {
+		c.ticker = nil
+	}
+}
+
+func (c *Controller) stopTicker() {
+	c.tickerMu.Lock()
+	defer c.tickerMu.Unlock()
+
+	if c.ticker != nil {
+		c.ticker.Stop()
 	}
 }
 
@@ -164,6 +217,10 @@ func (c *Controller) Webhook(ctx context.Context) bool {
 }
 
 func (c *Controller) trigger(task triggerTask) bool {
+	if c.shuttingDown.Load() {
+		return false
+	}
+
 	select {
 	case c.triggerCh <- task:
 		return true

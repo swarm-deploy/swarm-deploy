@@ -38,10 +38,6 @@ func (d *EnrichableDispatcher) Subscribe(eventType events.Type, subscriber Subsc
 	d.dispatcher.Subscribe(eventType, subscriber)
 }
 
-func (d *EnrichableDispatcher) Shutdown(ctx context.Context) error {
-	return d.dispatcher.Shutdown(ctx)
-}
-
 func (p *composeEnricher) enrich(ctx context.Context, event events.Event) events.Event {
 	for _, propagator := range p.propagators {
 		event = propagator(ctx, event)

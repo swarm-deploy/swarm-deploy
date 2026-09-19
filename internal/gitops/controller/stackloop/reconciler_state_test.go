@@ -774,10 +774,6 @@ func (d *captureEventDispatcher) Dispatch(_ context.Context, event events.Event)
 	d.events = append(d.events, event)
 }
 
-func (d *captureEventDispatcher) Shutdown(_ context.Context) error {
-	return nil
-}
-
 func writeComposeFile(repoDir string) error {
 	content := []byte("services:\n  api:\n    image: nginx:latest\n")
 	return os.WriteFile(filepath.Join(repoDir, "app.yaml"), content, 0o600)

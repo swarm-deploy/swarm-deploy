@@ -1,6 +1,7 @@
 package event
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"path/filepath"
@@ -21,7 +22,8 @@ type Module struct {
 	Dispatcher dispatcher.Dispatcher
 	History    *history.Store
 
-	cfg *config.Config
+	cfg             *config.Config
+	queueDispatcher *dispatcher.QueueDispatcher
 }
 
 type Container interface {
@@ -44,7 +46,9 @@ func InitModule(cfg *config.Config, cnt Container) (*Module, error) {
 	}
 
 	srv.History = historyStore
-	srv.Dispatcher = dispatcher.NewQueueDispatcher()
+	queueDispatcher := dispatcher.NewQueueDispatcher()
+	srv.Dispatcher = queueDispatcher
+	srv.queueDispatcher = queueDispatcher
 
 	if cfg.Spec.Web.Security.Authentication.Strategy() != config.AuthenticationStrategyNone {
 		srv.Dispatcher = dispatcher.NewEnrichableDispatcher(
@@ -62,6 +66,11 @@ func InitModule(cfg *config.Config, cnt Container) (*Module, error) {
 	}
 
 	return srv, nil
+}
+
+// Shutdown stops the event dispatcher after all queued events have been handled.
+func (s *Module) Shutdown(ctx context.Context) error {
+	return s.queueDispatcher.Shutdown(ctx)
 }
 
 func (s *Module) initNotificationSubscribers() error {

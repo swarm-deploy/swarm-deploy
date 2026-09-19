@@ -29,10 +29,6 @@ func (d *testDispatcher) Dispatch(_ context.Context, event events.Event) {
 
 func (*testDispatcher) Subscribe(events.Type, dispatcher.Subscriber) {}
 
-func (*testDispatcher) Shutdown(context.Context) error {
-	return nil
-}
-
 func (n *testNotifier) Name() string {
 	return n.name
 }

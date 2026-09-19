@@ -187,17 +187,34 @@ func main() {
 	webhookApplication := webhookserver.NewApplication(cfg.Spec.Sync.Webhook.Address, cfg, cnt.GitOps.Controller)
 
 	healthServer := healthserver.NewApplication(cfg.Spec.HealthServer)
+	syncControllerDone := make(chan struct{})
 
 	entrypoints := []entrypoint.Entrypoint{
 		{
-			Name: "state-store",
+			Name: "sync-controller",
 			Run: func(ctx context.Context) error {
-				cnt.GitOps.Store.Sync(ctx)
-				return nil
-			},
-			Stop: func(ctx context.Context) error {
+				defer close(syncControllerDone)
+
+				storeDone := make(chan struct{})
+				go func() {
+					defer close(storeDone)
+					cnt.GitOps.Store.Sync(context.WithoutCancel(ctx))
+				}()
+
+				runErr := cnt.GitOps.Controller.Run(ctx)
 				cnt.GitOps.Store.Stop()
-				return nil
+				<-storeDone
+
+				return runErr
+			},
+		},
+		{
+			Name: "event-dispatcher",
+			Run: func(ctx context.Context) error {
+				<-ctx.Done()
+				<-syncControllerDone
+
+				return cnt.Event.Shutdown(context.WithoutCancel(ctx))
 			},
 		},
 		webApplication.Entrypoint(),
@@ -208,22 +225,13 @@ func main() {
 				return cnt.Resources.NodeCollector.Run(ctx)
 			},
 		},
-		{
-			Name: "sync-controller",
-			Run: func(ctx context.Context) error {
-				return cnt.GitOps.Controller.Run(ctx)
-			},
-		},
 	}
 
 	if webhookApplication.Enabled() {
 		entrypoints = append(entrypoints, webhookApplication.Entrypoint())
 	}
 
-	runner := entrypoint.NewRunner(
-		entrypoints,
-		entrypoint.WithShutdownTimeout(shutdownTimeout),
-	)
+	runner := entrypoint.NewRunner(entrypoints)
 
 	slog.InfoContext(ctx, "starting swarm deploy",
 		slog.String("web.address", cfg.Spec.Web.Address),
