@@ -3,24 +3,24 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 
 import { fetchSearch } from "../../api/search";
 import type { SearchResult } from "../../api/types";
-import { useCurrentUserStore } from "../../stores/currentUser";
 import { useOverviewStore } from "../../stores/overview";
 import { useSecretDetailsStore } from "../../stores/secretDetails";
 
 defineProps<{
   syncDisabled: boolean;
   syncPending: boolean;
+  assistantEnabled: boolean;
 }>();
 
 const emit = defineEmits<{
   syncNow: [];
+  toggleAssistant: [];
 }>();
 
 const MIN_QUERY_LENGTH = 2;
 const SEARCH_DEBOUNCE_MS = 300;
 
 const overviewStore = useOverviewStore();
-const currentUserStore = useCurrentUserStore();
 const secretDetailsStore = useSecretDetailsStore();
 
 const searchRootRef = ref<HTMLElement | null>(null);
@@ -45,8 +45,6 @@ const secretResults = computed(() => visibleResults.value.filter((item) => item.
 const showNoResults = computed(
   () => searchOpen.value && !searchLoading.value && !searchError.value && visibleResults.value.length === 0,
 );
-const currentUserLabel = computed(() => currentUserStore.displayName.trim() || "User");
-
 function resetSearchState() {
   searchResults.value = [];
   searchLoading.value = false;
@@ -203,7 +201,9 @@ onUnmounted(() => {
       <button type="button" :disabled="syncDisabled || syncPending" @click="emit('syncNow')">
         {{ syncPending ? "Syncing..." : "Sync now" }}
       </button>
-      <button type="button" class="button-ghost">{{ currentUserLabel }}</button>
+      <button type="button" class="button-ghost" :disabled="!assistantEnabled" @click="emit('toggleAssistant')">
+        Assistant
+      </button>
     </div>
   </header>
 </template>

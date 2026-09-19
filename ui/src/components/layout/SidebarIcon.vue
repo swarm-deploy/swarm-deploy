@@ -46,9 +46,9 @@ defineProps<{
       <rect x="3.5" y="5.5" width="17" height="15" rx="2" />
       <path d="m8 15 2.2 2 5-5" />
     </template>
-    <template v-else-if="name === 'assistant'">
-      <path d="M12 3.5a7.5 7.5 0 0 0-4.3 13.7L6.5 21l3.7-1.7A7.5 7.5 0 1 0 12 3.5Z" />
-      <path d="M8.5 12h.01M12 12h.01M15.5 12h.01" />
+    <template v-else-if="name === 'user'">
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4.5 21a7.5 7.5 0 0 1 15 0" />
     </template>
   </svg>
 </template>

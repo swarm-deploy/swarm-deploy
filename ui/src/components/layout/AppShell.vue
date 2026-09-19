@@ -22,6 +22,7 @@ const currentUserStore = useCurrentUserStore();
 const uiStore = useUIStore();
 
 const isOverviewRoute = computed(() => route.path === "/overview");
+const currentUserLabel = computed(() => currentUserStore.displayName.trim() || "User");
 
 const syncDisabled = computed(() => !isOverviewRoute.value);
 
@@ -49,12 +50,14 @@ onMounted(() => {
 <template>
   <div class="app-root">
     <div class="layout-shell">
-      <SidebarNav :assistant-enabled="assistantStore.enabled" @toggle-assistant="handleAssistantToggle" />
+      <SidebarNav :current-user-label="currentUserLabel" />
       <main class="shell-main">
         <TopBar
           :sync-disabled="syncDisabled"
           :sync-pending="overviewStore.syncPending"
+          :assistant-enabled="assistantStore.enabled"
           @sync-now="handleSyncNow"
+          @toggle-assistant="handleAssistantToggle"
         />
         <div class="shell-view">
           <RouterView />

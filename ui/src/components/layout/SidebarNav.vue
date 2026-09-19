@@ -4,9 +4,7 @@ import { RouterLink, useRoute } from "vue-router";
 
 import SidebarIcon from "./SidebarIcon.vue";
 
-defineProps<{ assistantEnabled: boolean }>();
-
-const emit = defineEmits<{ toggleAssistant: [] }>();
+defineProps<{ currentUserLabel: string }>();
 
 const route = useRoute();
 
@@ -102,15 +100,10 @@ function formatBuildTime(value: string): string {
           <SidebarIcon :name="link.icon" />
           <span>{{ link.label }}</span>
         </RouterLink>
-        <button
-          type="button"
-          class="sidebar-link sidebar-action"
-          :disabled="!assistantEnabled"
-          @click="emit('toggleAssistant')"
-        >
-          <SidebarIcon name="assistant" />
-          <span>AI Assistant</span>
-        </button>
+        <div class="sidebar-link sidebar-user">
+          <SidebarIcon name="user" />
+          <span>{{ currentUserLabel }}</span>
+        </div>
       </nav>
     </div>
   </aside>

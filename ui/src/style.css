@@ -248,12 +248,9 @@ body {
   background: rgba(59, 130, 246, 0.18);
 }
 
-.sidebar-action:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
-}
-
-.sidebar-action:disabled:hover {
+.sidebar-user,
+.sidebar-user:hover {
+  cursor: default;
   color: var(--muted);
   background: transparent;
 }
