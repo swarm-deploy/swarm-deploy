@@ -50,5 +50,13 @@ defineProps<{
       <circle cx="12" cy="8" r="4" />
       <path d="M4.5 21a7.5 7.5 0 0 1 15 0" />
     </template>
+    <template v-else-if="name === 'panel-close'">
+      <rect x="3.5" y="4" width="17" height="16" rx="2" />
+      <path d="M9 4v16m6.5-11.5L12 12l3.5 3.5" />
+    </template>
+    <template v-else-if="name === 'panel-open'">
+      <rect x="3.5" y="4" width="17" height="16" rx="2" />
+      <path d="M9 4v16m3-11.5 3.5 3.5-3.5 3.5" />
+    </template>
   </svg>
 </template>

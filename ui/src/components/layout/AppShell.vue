@@ -49,8 +49,12 @@ onMounted(() => {
 
 <template>
   <div class="app-root">
-    <div class="layout-shell">
-      <SidebarNav :current-user-label="currentUserLabel" />
+    <div class="layout-shell" :class="{ 'sidebar-collapsed': uiStore.sidebarCollapsed }">
+      <SidebarNav
+        :current-user-label="currentUserLabel"
+        :collapsed="uiStore.sidebarCollapsed"
+        @toggle="uiStore.toggleSidebar"
+      />
       <main class="shell-main">
         <TopBar
           :sync-disabled="syncDisabled"
