@@ -21,6 +21,7 @@ body {
   position: relative;
   z-index: 2;
   --shell-sidebar-width: 248px;
+  --shell-header-height: 73px;
   width: 100%;
   min-height: 100vh;
   display: grid;
@@ -31,6 +32,7 @@ body {
   position: sticky;
   top: 0;
   z-index: 6;
+  height: var(--shell-header-height);
   border-bottom: 1px solid var(--line);
   background: rgba(18, 18, 20, 0.92);
   backdrop-filter: blur(12px);
@@ -134,82 +136,136 @@ body {
   height: 100vh;
   border-right: 1px solid var(--line);
   background: #141416;
-  padding: 18px 14px;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  gap: 22px;
+  padding: 0 16px 18px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.sidebar-brand-block {
+  height: var(--shell-header-height);
+  margin-inline: -16px;
+  padding-inline: 28px;
+  border-bottom: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  flex: 0 0 auto;
 }
 
 .sidebar-brand {
-  display: grid;
-  grid-template-columns: 38px minmax(0, 1fr);
-  gap: 10px;
+  display: inline-flex;
   align-items: center;
   color: var(--text);
   text-decoration: none;
 }
 
-.sidebar-brand-mark {
-  width: 38px;
-  height: 38px;
-  border-radius: 8px;
-  display: grid;
-  place-items: center;
-  color: #f8fafc;
-  background: var(--accent);
-  font-size: 0.8rem;
-  font-weight: 800;
-}
-
-.sidebar-brand-name,
-.sidebar-brand-meta {
-  display: block;
-}
-
 .sidebar-brand-name {
   font-size: 1rem;
-  font-weight: 800;
+  font-weight: 700;
+  letter-spacing: -0.015em;
 }
 
 .sidebar-brand-meta {
-  margin-top: 2px;
+  margin-top: 5px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   color: var(--muted);
   font-size: 0.74rem;
+}
+
+.sidebar-github-link {
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  color: var(--muted);
+  opacity: 0.78;
+  transition: color 120ms ease, opacity 120ms ease;
+}
+
+.sidebar-github-link:hover,
+.sidebar-github-link:focus-visible {
+  color: var(--text);
+  opacity: 1;
+}
+
+.sidebar-github-link svg {
+  width: 100%;
+  height: 100%;
+}
+
+.sidebar-navigation {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-inline: -16px;
+  padding-top: 18px;
 }
 
 .sidebar-nav {
   display: grid;
   align-content: start;
-  gap: 4px;
+  gap: 6px;
+}
+
+.sidebar-nav-secondary {
+  margin-top: auto;
+  padding-top: 28px;
 }
 
 .sidebar-link {
-  border: 1px solid transparent;
-  border-radius: 8px;
-  padding: 10px 12px;
+  width: 100%;
+  min-height: 42px;
+  border: 0;
+  border-radius: 0;
+  padding: 10px 28px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   color: var(--muted);
+  background: transparent;
+  font: inherit;
+  font-size: 0.92rem;
+  font-weight: 400;
+  line-height: 1.2;
+  text-align: left;
   text-decoration: none;
+  cursor: pointer;
   transition: color 120ms ease, background-color 120ms ease;
 }
 
 .sidebar-link:hover {
   color: var(--text);
-  background: rgba(63, 63, 70, 0.56);
+  background: rgba(148, 163, 184, 0.08);
+  filter: none;
+  transform: none;
 }
 
 .sidebar-link.active {
   color: var(--text);
-  background: rgba(59, 130, 246, 0.16);
+  background: rgba(59, 130, 246, 0.18);
 }
 
-.sidebar-link:disabled {
+.sidebar-action:disabled {
   cursor: not-allowed;
-  opacity: 0.55;
+  opacity: 0.45;
 }
 
-.sidebar-link:disabled:hover {
+.sidebar-action:disabled:hover {
   color: var(--muted);
   background: transparent;
+}
+
+.sidebar-icon {
+  width: 19px;
+  height: 19px;
+  flex: 0 0 19px;
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .shell-main {
@@ -299,22 +355,44 @@ body {
     height: auto;
     border-right: none;
     border-bottom: 1px solid var(--line);
-    padding: 12px 14px;
+    padding: 12px 14px 10px;
+  }
+
+  .sidebar-brand-block {
+    height: auto;
+    margin-inline: -14px;
+    padding: 0 14px 12px;
+  }
+
+  .sidebar-navigation {
+    flex-direction: row;
+    gap: 6px;
+    margin-inline: -14px;
+    overflow-x: auto;
+    padding-top: 10px;
+    scrollbar-width: thin;
   }
 
   .sidebar-nav {
     display: flex;
     gap: 6px;
-    overflow-x: auto;
-    padding-bottom: 2px;
+  }
+
+  .sidebar-nav-secondary {
+    margin-top: 0;
+    padding-top: 0;
   }
 
   .sidebar-link {
+    width: auto;
+    min-height: 38px;
+    padding: 9px 14px;
     white-space: nowrap;
     flex: 0 0 auto;
   }
 
   .topbar-shell {
+    height: auto;
     grid-template-columns: 1fr;
     padding: 14px 18px;
   }

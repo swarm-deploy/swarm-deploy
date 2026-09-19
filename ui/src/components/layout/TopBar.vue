@@ -10,12 +10,10 @@ import { useSecretDetailsStore } from "../../stores/secretDetails";
 defineProps<{
   syncDisabled: boolean;
   syncPending: boolean;
-  assistantEnabled: boolean;
 }>();
 
 const emit = defineEmits<{
   syncNow: [];
-  toggleAssistant: [];
 }>();
 
 const MIN_QUERY_LENGTH = 2;
@@ -204,9 +202,6 @@ onUnmounted(() => {
     <div class="topbar-actions">
       <button type="button" :disabled="syncDisabled || syncPending" @click="emit('syncNow')">
         {{ syncPending ? "Syncing..." : "Sync now" }}
-      </button>
-      <button type="button" class="button-ghost" :disabled="!assistantEnabled" @click="emit('toggleAssistant')">
-        Assistant
       </button>
       <button type="button" class="button-ghost">{{ currentUserLabel }}</button>
     </div>
