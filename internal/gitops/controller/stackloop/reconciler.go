@@ -76,8 +76,8 @@ func (r *Reconciler) Reconcile(
 	composePath := filepath.Join(r.git.WorkingDir(), req.Stack.ComposeFile)
 	desiredState, err := r.composeLoader.Load(ctx, composePath)
 	if err != nil {
-		r.recordFailure(req.Stack.Name, req.Commit, nil, err)
-		r.recordStackFailure(req.Stack.Name, req.Commit, nil, err)
+		r.recordFailure(ctx, req.Stack.Name, req.Commit, nil, err)
+		r.recordStackFailure(ctx, req.Stack.Name, req.Commit, compose.File{}, err)
 		return wrapReconcileError("load compose", nil, err)
 	}
 
@@ -96,8 +96,8 @@ func (r *Reconciler) Reconcile(
 	if err != nil {
 		pipeErr, _ := errors.AsType[*pipe.StepError](err)
 
-		r.recordFailure(req.Stack.Name, req.Commit, services, pipeErr)
-		r.recordStackFailure(req.Stack.Name, req.Commit, services, pipeErr)
+		r.recordFailure(ctx, req.Stack.Name, req.Commit, services, pipeErr)
+		r.recordStackFailure(ctx, req.Stack.Name, req.Commit, *desiredState, pipeErr)
 		return wrapReconcileError(pipeErr.StepName, services, pipeErr)
 	}
 
@@ -120,8 +120,6 @@ func (r *Reconciler) processResult(
 ) {
 	now := time.Now()
 
-	syncedServices := make([]compose.Service, 0, len(desired.Compose.Services))
-
 	serviceStates := make(map[string]model.Service, len(desired.Compose.Services))
 	for _, service := range desired.Compose.Services {
 		state := model.Service{
@@ -133,14 +131,12 @@ func (r *Reconciler) processResult(
 		if serviceDrift, serviceDrifted := payload.Drift[service.Name]; serviceDrifted {
 			state.SyncStatus = model.SyncStatusOutOfSync
 			state.SyncError = serviceDrift.Reason
-		} else {
-			syncedServices = append(syncedServices, service)
 		}
 
 		serviceStates[service.Name] = state
 	}
 
-	r.stateStore.Update(func(state *model.Runtime) {
+	r.stateStore.Update(ctx, func(state *model.Runtime) {
 		state.Stacks[req.Stack.Name] = model.Stack{
 			SourceDigest: desired.Digest,
 			LastCommit:   req.Commit,
@@ -178,13 +174,17 @@ func (r *Reconciler) processResult(
 	}
 
 	r.event.Dispatch(ctx, &events.DeploySuccess{
-		StackName: req.Stack.Name,
-		Commit:    req.Commit,
-		Services:  syncedServices,
+		DeployEvent: events.DeployEvent{
+			StackName:       req.Stack.Name,
+			Commit:          req.Commit,
+			Services:        desired.Compose.Services,
+			StackDefinition: *desired,
+		},
 	})
 }
 
 func (r *Reconciler) recordFailure(
+	ctx context.Context,
 	stackName string,
 	commit string,
 	services []compose.Service,
@@ -200,7 +200,7 @@ func (r *Reconciler) recordFailure(
 		}
 	}
 
-	r.stateStore.Update(func(state *model.Runtime) {
+	r.stateStore.Update(ctx, func(state *model.Runtime) {
 		state.Stacks[stackName] = model.Stack{
 			SourceDigest: "",
 			LastCommit:   commit,
@@ -213,15 +213,16 @@ func (r *Reconciler) recordFailure(
 }
 
 func (r *Reconciler) recordStackFailure(
+	ctx context.Context,
 	stackName string,
 	commit string,
-	services []compose.Service,
+	stackDefinition compose.File,
 	reason error,
 ) {
-	for _, service := range services {
+	for _, service := range stackDefinition.Compose.Services {
 		r.deployMetrics.RecordDeploy(stackName, service.Name, "failed")
 	}
-	if len(services) == 0 {
+	if len(stackDefinition.Compose.Services) == 0 {
 		r.deployMetrics.RecordDeploy(stackName, "unknown", "failed")
 	}
 
@@ -232,12 +233,15 @@ func (r *Reconciler) recordStackFailure(
 		logs = logsErr.Logs()
 	}
 
-	r.event.Dispatch(context.Background(), &events.DeployFailed{
-		StackName: stackName,
-		Commit:    commit,
-		Services:  services,
-		Error:     reason,
-		Logs:      logs,
+	r.event.Dispatch(ctx, &events.DeployFailed{
+		DeployEvent: events.DeployEvent{
+			StackName:       stackName,
+			Commit:          commit,
+			Services:        stackDefinition.Compose.Services,
+			StackDefinition: stackDefinition,
+		},
+		Error: reason,
+		Logs:  logs,
 	})
 }
 

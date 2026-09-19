@@ -1,6 +1,7 @@
 package modelstore
 
 import (
+	"context"
 	"sync"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
@@ -29,7 +30,7 @@ func (s *MemoryStore) Get() model.Runtime {
 
 func (s *MemoryStore) Stop() {}
 
-func (s *MemoryStore) Update(fn func(*model.Runtime)) {
+func (s *MemoryStore) Update(_ context.Context, fn func(*model.Runtime)) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

@@ -16,13 +16,10 @@ import (
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/handlers"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/middlewares"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
-	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller"
-	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
-	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
-	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/resources/node"
-	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/event"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops"
+	recommendationstore "github.com/swarm-deploy/swarm-deploy/internal/recommendations/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/resources"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"github.com/swarm-deploy/swarm-deploy/ui"
@@ -84,26 +81,24 @@ func buildSPAFallbackHandler(uiFS fs.FS) http.Handler {
 func NewApplication(
 	address string,
 	stackProvider config.StackProvider,
-	stateStore modelstore.ReadStore,
-	control *controller.Controller,
-	gitRepository gitx.Repository,
+	gitopsModule *gitops.Module,
 	swarmService *swarm.Swarm,
-	eventHistory *history.Store,
-	serviceStore *service.Store,
-	nodeStore *swarmnode.Store,
+	eventModule *event.Module,
+	resourcesModule *resources.Module,
+	recommendations recommendationstore.Store,
 	assistantService assistant.Assistant,
-	eventDispatcher dispatcher.Dispatcher,
 	authCfg config.AuthenticationSpec,
 ) (*Application, error) {
 	h := handlers.New(
 		stackProvider,
-		stateStore,
-		control,
-		gitRepository,
+		gitopsModule.Store,
+		gitopsModule.Controller,
+		gitopsModule.GitRepository,
 		swarmService,
-		eventHistory,
-		serviceStore,
-		nodeStore,
+		eventModule.History,
+		resourcesModule.ServiceStore,
+		resourcesModule.NodeStore,
+		recommendations,
 		assistantService,
 	)
 
@@ -131,7 +126,7 @@ func NewApplication(
 	}
 
 	handler = middlewares.NewLog(
-		middlewares.Authorize(handler, auth, eventDispatcher),
+		middlewares.Authorize(handler, auth, eventModule.Dispatcher),
 		apiHandler.FindRoute,
 	)
 

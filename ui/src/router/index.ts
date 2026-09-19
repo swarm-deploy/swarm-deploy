@@ -6,6 +6,7 @@ import EventsView from "../views/EventsView.vue";
 import GraphView from "../views/GraphView.vue";
 import NetworksView from "../views/NetworksView.vue";
 import OverviewView from "../views/OverviewView.vue";
+import RecommendationsView from "../views/RecommendationsView.vue";
 import SecretsView from "../views/SecretsView.vue";
 import ServiceView from "../views/ServiceView.vue";
 
@@ -35,6 +36,11 @@ export const router = createRouter({
       path: "/events",
       name: "events",
       component: EventsView,
+    },
+    {
+      path: "/recommendations",
+      name: "recommendations",
+      component: RecommendationsView,
     },
     {
       path: "/services/:stack/:service",

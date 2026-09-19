@@ -207,7 +207,7 @@ button:hover,
 
 .overview-summary-grid {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 1fr) minmax(300px, 1.2fr);
   gap: 14px;
 }
 
@@ -246,7 +246,8 @@ button:hover,
 }
 
 .overview-deployment-list,
-.overview-alert-list {
+.overview-alert-list,
+.overview-recommendation-list {
   display: grid;
   gap: 4px;
 }
@@ -255,8 +256,13 @@ button:hover,
   border-left-color: rgba(248, 113, 113, 0.76);
 }
 
+.overview-recommendations-has-items {
+  border-left-color: rgba(250, 204, 21, 0.72);
+}
+
 .overview-deployment-item,
-.overview-alert-item {
+.overview-alert-item,
+.overview-recommendation-item {
   border-top: 1px solid rgba(148, 163, 184, 0.13);
   padding-top: 6px;
   display: grid;
@@ -286,9 +292,19 @@ button:hover,
 }
 
 .overview-deployment-item:first-child,
-.overview-alert-item:first-child {
+.overview-alert-item:first-child,
+.overview-recommendation-item:first-child {
   border-top: none;
   padding-top: 0;
+}
+
+.overview-recommendation-item {
+  grid-template-columns: 10px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
 }
 
 .overview-deployment-row {
@@ -368,6 +384,33 @@ button:hover,
 
 .overview-alert-time {
   color: var(--muted);
+}
+
+.overview-recommendation-text {
+  color: var(--text);
+  font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.overview-recommendation-severity-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+.overview-recommendation-severity-high {
+  background: var(--error);
+}
+
+.overview-recommendation-severity-medium {
+  background: var(--warning);
+}
+
+.overview-recommendation-severity-low {
+  background: var(--muted);
 }
 
 .alert-details-list {
@@ -907,6 +950,39 @@ button:hover,
   border: 1px dashed rgba(148, 163, 184, 0.22);
   border-radius: 8px;
   padding: 12px;
+}
+
+.recommendations-table-wrap {
+  padding-top: 10px;
+}
+
+.recommendations-table {
+  table-layout: fixed;
+}
+
+.recommendations-table th:nth-child(1),
+.recommendations-table td:nth-child(1) {
+  width: 14%;
+}
+
+.recommendations-table th:nth-child(2),
+.recommendations-table td:nth-child(2) {
+  width: 52%;
+}
+
+.recommendations-table th:nth-child(3),
+.recommendations-table td:nth-child(3),
+.recommendations-table th:nth-child(4),
+.recommendations-table td:nth-child(4) {
+  width: 17%;
+}
+
+.recommendations-table td {
+  overflow-wrap: anywhere;
+}
+
+.recommendation-mobile-severity-dot {
+  display: none;
 }
 
 .stack-dropdown-list {
@@ -1588,6 +1664,32 @@ button:hover,
   background: rgba(176, 64, 64, 0.94);
 }
 
+.recommendation-severity {
+  display: inline-block;
+  min-width: 58px;
+  text-align: center;
+  text-transform: uppercase;
+  font-size: 0.72rem;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.recommendation-severity-high {
+  color: #fff;
+  background: rgba(176, 64, 64, 0.94);
+}
+
+.recommendation-severity-medium {
+  color: #111827;
+  background: rgba(250, 204, 21, 0.92);
+}
+
+.recommendation-severity-low {
+  color: #111827;
+  background: rgba(148, 163, 184, 0.92);
+}
+
 .event-details {
   margin: 8px 0 0;
   padding: 0;
@@ -1890,7 +1992,38 @@ button:hover,
   }
 
   .services-header-actions {
+    flex: 0 1 auto;
+    width: 100%;
     max-width: none;
+  }
+
+  .recommendations-table th:nth-child(1),
+  .recommendations-table td:nth-child(1) {
+    display: none;
+  }
+
+  .recommendations-table th:nth-child(2),
+  .recommendations-table td:nth-child(2) {
+    width: 66%;
+  }
+
+  .recommendations-table th:nth-child(3),
+  .recommendations-table td:nth-child(3),
+  .recommendations-table th:nth-child(4),
+  .recommendations-table td:nth-child(4) {
+    width: 17%;
+  }
+
+  .recommendation-cell-content {
+    display: grid;
+    grid-template-columns: 8px minmax(0, 1fr);
+    align-items: start;
+    gap: 8px;
+  }
+
+  .recommendation-mobile-severity-dot {
+    display: block;
+    margin-top: 0.35em;
   }
 
   .event-detail {

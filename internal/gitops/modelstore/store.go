@@ -1,13 +1,18 @@
 package modelstore
 
-import "github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
+import (
+	"context"
+
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
+)
 
 type Store interface {
 	ReadStore
 
 	// Update applies mutation to runtime state.
-	Update(fn func(*model.Runtime))
+	Update(ctx context.Context, fn func(*model.Runtime))
 
+	// Stop stops the store.
 	Stop()
 }
 

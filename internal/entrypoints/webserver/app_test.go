@@ -8,11 +8,24 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/event"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops"
+	"github.com/swarm-deploy/swarm-deploy/internal/resources"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 func TestUIRoutes(t *testing.T) {
-	app, err := NewApplication(":0", nil, nil, nil, nil, &swarm.Swarm{}, nil, nil, nil, nil, nil, config.AuthenticationSpec{}) //nolint:lll // it's test
+	app, err := NewApplication(
+		":0",
+		nil,
+		&gitops.Module{},
+		&swarm.Swarm{},
+		&event.Module{},
+		&resources.Module{},
+		nil,
+		nil,
+		config.AuthenticationSpec{},
+	)
 	require.NoError(t, err, "new application")
 
 	testCases := []struct {

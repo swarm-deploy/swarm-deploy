@@ -7,18 +7,22 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 )
 
+type DeployEvent struct {
+	StackName       string
+	Commit          string
+	Services        []compose.Service
+	StackDefinition compose.File
+}
+
 type DeploySuccess struct {
-	StackName string
-	Commit    string
-	Services  []compose.Service
+	DeployEvent
 }
 
 type DeployFailed struct {
-	StackName string
-	Commit    string
-	Services  []compose.Service
-	Error     error
-	Logs      []string
+	DeployEvent
+
+	Error error
+	Logs  []string
 }
 
 func (d *DeploySuccess) Type() Type {

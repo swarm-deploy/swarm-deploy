@@ -49,14 +49,13 @@ func NewDeployer(
 	stackDeployArgs []string,
 	initJobPoll time.Duration,
 	initJobTimeout time.Duration,
-	runner Runner,
 	dockerClient *client.Client,
 	swarmService *swarm.Swarm,
 	initJobMetrics InitJobMetrics,
 ) StackDeployer {
 	deployer := &Deployer{
 		stackDeployArgs: stackDeployArgs,
-		runner:          runner,
+		runner:          swarmService.BinaryRunner,
 		initJobRunner: NewInitJobRunner(
 			dockerClient,
 			swarmService,

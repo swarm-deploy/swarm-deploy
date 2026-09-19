@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,28 +13,34 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/resources/service/stype"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/knownapp"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	webroute "github.com/swarm-deploy/webroute/api"
 )
 
-const fileModePrivate = 0o600
+const (
+	fileModePrivate = 0o600
+	directoryMode   = 0o755
+)
 
 // Store persists service metadata in a JSON file.
 type Store struct {
 	mu             sync.RWMutex
 	path           string
+	fs             fs.FileSystem
 	rows           []Info
 	byServiceNames map[string]int
 }
 
 // NewStore creates service store and loads saved rows from disk.
-func NewStore(path string) (*Store, error) {
+func NewStore(ctx context.Context, path string, filesystem fs.FileSystem) (*Store, error) {
 	s := &Store{
 		path: path,
+		fs:   filesystem,
 	}
 
-	if err := s.load(); err != nil {
+	if err := s.load(ctx); err != nil {
 		return nil, err
 	}
 
@@ -64,7 +71,7 @@ func (s *Store) Get(stackName string, serviceName string) (Info, bool) {
 }
 
 // ReplaceStack replaces stack services with a new snapshot and saves it to disk.
-func (s *Store) ReplaceStack(stackName string, services []Info) error {
+func (s *Store) ReplaceStack(ctx context.Context, stackName string, services []Info) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -87,15 +94,15 @@ func (s *Store) ReplaceStack(stackName string, services []Info) error {
 	s.rows = updated
 	s.reindexLocked()
 
-	return s.flushLocked()
+	return s.flushLocked(ctx)
 }
 
-func (s *Store) load() error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+func (s *Store) load(ctx context.Context) error {
+	if err := s.fs.CreateDirectory(ctx, filepath.Dir(s.path), directoryMode); err != nil {
 		return fmt.Errorf("create services dir: %w", err)
 	}
 
-	payload, err := os.ReadFile(s.path)
+	payload, err := s.fs.ReadFile(ctx, s.path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
@@ -126,17 +133,17 @@ func (s *Store) load() error {
 	return nil
 }
 
-func (s *Store) flushLocked() error {
+func (s *Store) flushLocked(ctx context.Context) error {
 	payload, err := json.Marshal(storeInfosFromServiceInfos(s.rows))
 	if err != nil {
 		return fmt.Errorf("encode services file: %w", err)
 	}
 
 	tmpPath := fmt.Sprintf("%s.tmp", s.path)
-	if writeErr := os.WriteFile(tmpPath, payload, fileModePrivate); writeErr != nil {
+	if writeErr := s.fs.WriteFile(ctx, tmpPath, payload, fileModePrivate); writeErr != nil {
 		return fmt.Errorf("write services temp file: %w", writeErr)
 	}
-	if renameErr := os.Rename(tmpPath, s.path); renameErr != nil {
+	if renameErr := s.fs.Rename(ctx, tmpPath, s.path); renameErr != nil {
 		return fmt.Errorf("replace services file: %w", renameErr)
 	}
 

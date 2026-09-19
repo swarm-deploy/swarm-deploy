@@ -1,6 +1,7 @@
 package modelstore
 
 import (
+	"context"
 	"log/slog"
 	"time"
 
@@ -35,27 +36,27 @@ func (s *WarmupStore) Stop() {
 	s.cold.Stop()
 }
 
-func (s *WarmupStore) Update(fn func(*model.Runtime)) {
-	s.hot.Update(fn)
+func (s *WarmupStore) Update(ctx context.Context, fn func(*model.Runtime)) {
+	s.hot.Update(ctx, fn)
 }
 
-func (s *WarmupStore) Warmup() {
+func (s *WarmupStore) Warmup(ctx context.Context) {
 	val := s.cold.Get()
 
-	s.hot.Update(func(runtime *model.Runtime) {
+	s.hot.Update(ctx, func(runtime *model.Runtime) {
 		*runtime = val
 	})
 }
 
 const syncInterval = 2 * time.Second
 
-func (s *WarmupStore) Sync() {
+func (s *WarmupStore) Sync(ctx context.Context) {
 	last := s.cold.Get()
 
 	for {
 		select {
 		case <-s.stop:
-			slog.Info("[state-warmup-store] sync stopped")
+			slog.InfoContext(ctx, "[state-warmup-store] sync stopped")
 			return
 		case <-time.Tick(syncInterval):
 			val := s.hot.Get()
@@ -63,7 +64,7 @@ func (s *WarmupStore) Sync() {
 				continue
 			}
 
-			s.cold.Update(func(runtime *model.Runtime) {
+			s.cold.Update(ctx, func(runtime *model.Runtime) {
 				*runtime = val
 				last = runtime.Clone()
 			})

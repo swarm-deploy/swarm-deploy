@@ -113,6 +113,13 @@ func (UnimplementedHandler) ListNodes(ctx context.Context) (r *NodesResponse, _ 
 	return r, ht.ErrNotImplemented
 }
 
+// ListRecommendations implements listRecommendations operation.
+//
+// GET /api/v1/recommendations
+func (UnimplementedHandler) ListRecommendations(ctx context.Context, params ListRecommendationsParams) (r *RecommendationsResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListSecrets implements listSecrets operation.
 //
 // GET /api/v1/secrets

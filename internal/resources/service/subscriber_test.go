@@ -10,6 +10,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	webroute "github.com/swarm-deploy/webroute/api"
 	"go.uber.org/mock/gomock"
@@ -156,7 +157,7 @@ func TestSubscriberHandle(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			inspector := swarm.NewMockServiceManager(ctrl)
 			images := swarm.NewMockImageManager(ctrl)
-			store, err := NewStore(filepath.Join(t.TempDir(), "services.json"))
+			store, err := NewStore(context.Background(), filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
 			require.NoError(t, err)
 
 			sub := NewSubscriber(store, inspector, images, &fakeSubscriberConfigReader{}, metadata.NewExtractor())
@@ -164,11 +165,17 @@ func TestSubscriberHandle(t *testing.T) {
 			testCase.setupMocks(inspector, images, serviceRef)
 
 			err = sub.Handle(context.Background(), &events.DeploySuccess{
-				StackName: "payments",
-				Services: []compose.Service{
-					{
-						Name:  "api",
-						Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
+				DeployEvent: events.DeployEvent{
+					StackName: "payments",
+					StackDefinition: compose.File{
+						Compose: compose.Compose{
+							Services: []compose.Service{
+								{
+									Name:  "api",
+									Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
+								},
+							},
+						},
 					},
 				},
 			})
@@ -202,7 +209,7 @@ routes:
 			},
 		},
 	}
-	store, err := NewStore(filepath.Join(t.TempDir(), "services.json"))
+	store, err := NewStore(context.Background(), filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
 	require.NoError(t, err)
 
 	serviceRef := swarm.NewServiceReference("prod", "pomerium")
@@ -234,11 +241,17 @@ routes:
 	sub := NewSubscriber(store, inspector, images, configs, metadata.NewExtractor())
 
 	err = sub.Handle(context.Background(), &events.DeploySuccess{
-		StackName: "prod",
-		Services: []compose.Service{
-			{
-				Name:  "pomerium",
-				Image: "ghcr.io/swarm-deploy/pomerium:v1",
+		DeployEvent: events.DeployEvent{
+			StackName: "prod",
+			StackDefinition: compose.File{
+				Compose: compose.Compose{
+					Services: []compose.Service{
+						{
+							Name:  "pomerium",
+							Image: "ghcr.io/swarm-deploy/pomerium:v1",
+						},
+					},
+				},
 			},
 		},
 	})

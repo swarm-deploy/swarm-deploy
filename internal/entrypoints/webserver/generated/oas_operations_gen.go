@@ -20,6 +20,7 @@ const (
 	ListEventsOperation             OperationName = "ListEvents"
 	ListNetworksOperation           OperationName = "ListNetworks"
 	ListNodesOperation              OperationName = "ListNodes"
+	ListRecommendationsOperation    OperationName = "ListRecommendations"
 	ListSecretsOperation            OperationName = "ListSecrets"
 	ListServiceDeploymentsOperation OperationName = "ListServiceDeployments"
 	ListServicesOperation           OperationName = "ListServices"

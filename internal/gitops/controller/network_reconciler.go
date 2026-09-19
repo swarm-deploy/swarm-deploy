@@ -164,7 +164,7 @@ func (c *Controller) syncNetworks(ctx context.Context, commit string) error {
 	defer span.End()
 
 	if len(c.cfg.Spec.Networks) == 0 {
-		c.stateStore.Update(func(s *model.Runtime) {
+		c.stateStore.Update(ctx, func(s *model.Runtime) {
 			s.Networks = map[string]model.Network{}
 		})
 		return nil
@@ -206,7 +206,7 @@ func (c *Controller) syncNetworks(ctx context.Context, commit string) error {
 		nextState[networkCfg.Name] = networkState
 	}
 
-	c.stateStore.Update(func(s *model.Runtime) {
+	c.stateStore.Update(ctx, func(s *model.Runtime) {
 		s.Networks = nextState
 	})
 

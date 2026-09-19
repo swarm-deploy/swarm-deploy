@@ -9,9 +9,14 @@ import (
 type Services []Service
 
 type Service struct {
-	Name        string           `yaml:"-" json:"name"`
-	Image       string           `yaml:"image" json:"image"`
-	Command     Command          `yaml:"command,omitempty" json:"command,omitempty"`
+	Name    string  `yaml:"-" json:"name"`
+	Image   string  `yaml:"image" json:"image"`
+	Command Command `yaml:"command,omitempty" json:"command,omitempty"`
+	// CapAdd lists Linux capabilities added to the service containers.
+	CapAdd []string `yaml:"cap_add,omitempty" json:"cap_add,omitempty"`
+	// CapDrop lists Linux capabilities removed from the service containers.
+	CapDrop []string `yaml:"cap_drop,omitempty" json:"cap_drop,omitempty"`
+
 	Healthcheck *ServiceHealth   `yaml:"healthcheck,omitempty" json:"healthcheck,omitempty"`
 	Ports       ServicePorts     `yaml:"ports,omitempty" json:"ports,omitempty"`
 	Networks    *ServiceNetworks `yaml:"networks,omitempty" json:"networks,omitempty"`

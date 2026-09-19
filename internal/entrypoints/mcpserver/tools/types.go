@@ -9,6 +9,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/differ"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/differ/diff"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/recommendations/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/recommendations/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -42,6 +44,12 @@ type PluginReader interface {
 type ServicesReader interface {
 	// List returns current services metadata snapshot.
 	List() []service.Info
+}
+
+// RecommendationsReader reads stored recommendations.
+type RecommendationsReader interface {
+	// List returns recommendations matching filter.
+	List(ctx context.Context, filter modelstore.ListFilter) ([]model.Recommendation, error)
 }
 
 // DNSResolver resolves DNS names to IP addresses.

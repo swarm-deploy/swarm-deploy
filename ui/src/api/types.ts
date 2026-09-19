@@ -112,6 +112,38 @@ export interface EventHistoryResponse {
   events: EventHistoryItem[];
 }
 
+export type RecommendationSeverity = "high" | "medium" | "low";
+export type RecommendationType =
+  | "service.resources.unspecified"
+  | "service.resources.limits.unspecified"
+  | "service.image.latest"
+  | "service.image.digest.unspecified";
+
+export interface RecommendationSubject {
+  stack: string;
+  service: string;
+}
+
+export interface RecommendationSource {
+  file: string;
+  digest: string;
+  commit: string;
+}
+
+export interface Recommendation {
+  severity: RecommendationSeverity;
+  type: RecommendationType;
+  source: RecommendationSource;
+  subject: RecommendationSubject;
+  title: string;
+  recommendation: string;
+  created_at: string;
+}
+
+export interface RecommendationsResponse {
+  recommendations: Recommendation[];
+}
+
 export interface ServiceSpecSecretResponse {
   secret_id?: string;
   secret_name: string;
