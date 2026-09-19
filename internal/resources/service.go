@@ -24,22 +24,26 @@ type Module struct {
 	swarmSvc *swarm.Swarm
 }
 
+type Container interface {
+	GetSwarm() *swarm.Swarm
+	GetEventDispatcher() dispatcher.Dispatcher
+	GetFileSystem() fs.FileSystem
+}
+
 func InitService(
 	ctx context.Context,
 	cfg *config.Config,
-	swarmSvc *swarm.Swarm,
-	eventDispatcher dispatcher.Dispatcher,
-	filesystem fs.FileSystem,
+	cnt Container,
 ) (*Module, error) {
 	srv := &Module{
 		cfg: cfg,
 	}
 
-	if err := srv.initStores(ctx, filesystem); err != nil {
+	if err := srv.initStores(ctx, cnt.GetFileSystem()); err != nil {
 		return nil, fmt.Errorf("init stores: %w", err)
 	}
 
-	srv.NodeCollector = node.NewNodeCollector(swarmSvc.Nodes, srv.NodeStore, eventDispatcher)
+	srv.NodeCollector = node.NewNodeCollector(cnt.GetSwarm().Nodes, srv.NodeStore, cnt.GetEventDispatcher())
 
 	return srv, nil
 }

@@ -18,9 +18,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/middlewares"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
-	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller"
-	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
-	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops"
 	recommendationstore "github.com/swarm-deploy/swarm-deploy/internal/recommendations/modelstore"
 	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/resources/node"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
@@ -85,9 +83,7 @@ func buildSPAFallbackHandler(uiFS fs.FS) http.Handler {
 func NewApplication(
 	address string,
 	stackProvider config.StackProvider,
-	stateStore modelstore.ReadStore,
-	control *controller.Controller,
-	gitRepository gitx.Repository,
+	gitopsModule *gitops.Module,
 	swarmService *swarm.Swarm,
 	eventHistory *history.Store,
 	serviceStore *service.Store,
@@ -99,9 +95,9 @@ func NewApplication(
 ) (*Application, error) {
 	h := handlers.New(
 		stackProvider,
-		stateStore,
-		control,
-		gitRepository,
+		gitopsModule.Store,
+		gitopsModule.Controller,
+		gitopsModule.GitRepository,
 		swarmService,
 		eventHistory,
 		serviceStore,

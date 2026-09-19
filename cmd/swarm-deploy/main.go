@@ -23,6 +23,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webhookserver"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver"
 	"github.com/swarm-deploy/swarm-deploy/internal/event"
+	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/logx"
 	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops"
@@ -102,31 +103,29 @@ func main() {
 		Metrics:    metricsGroup,
 	}
 
-	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to init docker client", slog.Any("err", err))
-		os.Exit(1)
-	}
-
-	swarmSvc := swarm.NewSwarm(dockerClient, cfg.Spec.Swarm.Command)
-
-	deployerSvc := deployer.NewDeployer(
-		cfg.Spec.Swarm.StackDeployArgs,
-		cfg.Spec.Swarm.InitJobPollEvery.Value,
-		cfg.Spec.Swarm.InitJobMaxDuration.Value,
-		swarmSvc.BinaryRunner,
-		dockerClient,
-		swarmSvc,
-		metricsGroup.Deploys,
-	)
-
 	eventService, err := event.InitService(cfg, cnt)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to init event service", slog.Any("err", err))
 		os.Exit(1)
 	}
 
-	resourcesService, err := resources.InitService(ctx, cfg, swarmSvc, eventService.Dispatcher, cnt.GetFileSystem())
+	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to init docker client", slog.Any("err", err))
+		os.Exit(1)
+	}
+
+	cnt.Swarm = swarm.NewSwarm(dockerClient, cfg.Spec.Swarm.Command)
+	cnt.Deployer = deployer.NewDeployer(
+		cfg.Spec.Swarm.StackDeployArgs,
+		cfg.Spec.Swarm.InitJobPollEvery.Value,
+		cfg.Spec.Swarm.InitJobMaxDuration.Value,
+		dockerClient,
+		cnt.GetSwarm(),
+		metricsGroup.Deploys,
+	)
+
+	resourcesService, err := resources.InitService(ctx, cfg, cnt)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to init resources service", slog.Any("err", err))
 		os.Exit(1)
@@ -143,30 +142,19 @@ func main() {
 		os.Exit(1)
 	}
 
-	gitopsModule, err := gitops.InitService(ctx, cfg, cnt)
+	gitopsModule, err := gitops.InitModule(ctx, cfg, cnt)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to init gitops module", slog.Any("err", err))
 		os.Exit(1)
 	}
 
-	control := controller.New(
-		cfg,
-		gitopsModule.GitRepository,
-		swarmSvc,
-		deployerSvc,
-		metricsGroup,
-		eventService.Dispatcher,
-		gitopsModule.Store,
-		cnt.GetFileSystem(),
-	)
-
 	assistantService, err := buildAssistantService(
 		cfg,
 		resourcesService,
-		swarmSvc,
+		cnt.GetSwarm(),
 		gitopsModule.GitRepository,
 		recommendationsModule.Store,
-		control,
+		gitopsModule.Controller,
 		metricsGroup,
 		eventService,
 	)
@@ -180,10 +168,8 @@ func main() {
 	webApplication, err := webserver.NewApplication(
 		cfg.Spec.Web.Address,
 		cfg,
-		gitopsModule.Store,
-		control,
-		gitopsModule.GitRepository,
-		swarmSvc,
+		gitopsModule,
+		cnt.Swarm,
 		eventService.History,
 		resourcesService.ServiceStore,
 		resourcesService.NodeStore,
@@ -196,7 +182,7 @@ func main() {
 		slog.ErrorContext(ctx, "failed to init web server", slog.Any("err", err))
 		os.Exit(1)
 	}
-	webhookApplication := webhookserver.NewApplication(cfg.Spec.Sync.Webhook.Address, cfg, control)
+	webhookApplication := webhookserver.NewApplication(cfg.Spec.Sync.Webhook.Address, cfg, gitopsModule.Controller)
 
 	healthServer := healthserver.NewApplication(cfg.Spec.HealthServer)
 
@@ -223,7 +209,7 @@ func main() {
 		{
 			Name: "sync-controller",
 			Run: func(ctx context.Context) error {
-				return control.Run(ctx)
+				return gitopsModule.Controller.Run(ctx)
 			},
 		},
 	}
@@ -335,8 +321,11 @@ func buildAssistantService(
 }
 
 type container struct {
-	FileSystem fs.FileSystem
-	Metrics    *metrics.Group
+	FileSystem      fs.FileSystem
+	Metrics         *metrics.Group
+	Swarm           *swarm.Swarm
+	EventDispatcher dispatcher.Dispatcher
+	Deployer        deployer.StackDeployer
 }
 
 func (c *container) GetFileSystem() fs.FileSystem {
@@ -345,4 +334,16 @@ func (c *container) GetFileSystem() fs.FileSystem {
 
 func (c *container) GetMetrics() *metrics.Group {
 	return c.Metrics
+}
+
+func (c *container) GetSwarm() *swarm.Swarm {
+	return c.Swarm
+}
+
+func (c *container) GetEventDispatcher() dispatcher.Dispatcher {
+	return c.EventDispatcher
+}
+
+func (c *container) GetDeployer() deployer.StackDeployer {
+	return c.Deployer
 }

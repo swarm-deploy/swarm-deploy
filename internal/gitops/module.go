@@ -6,12 +6,18 @@ import (
 	"path/filepath"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
+	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 type Module struct {
+	Controller    *controller.Controller
 	Store         *modelstore.WarmupStore
 	GitRepository git.Repository
 
@@ -21,9 +27,13 @@ type Module struct {
 
 type Container interface {
 	GetFileSystem() fs.FileSystem
+	GetSwarm() *swarm.Swarm
+	GetDeployer() deployer.StackDeployer
+	GetMetrics() *metrics.Group
+	GetEventDispatcher() dispatcher.Dispatcher
 }
 
-func InitService(
+func InitModule(
 	ctx context.Context,
 	cfg *config.Config,
 	cnt Container,
@@ -37,6 +47,17 @@ func InitService(
 	if err := srv.initStore(ctx); err != nil {
 		return nil, fmt.Errorf("init store: %w", err)
 	}
+
+	srv.Controller = controller.New(
+		cfg,
+		srv.GitRepository,
+		cnt.GetSwarm(),
+		cnt.GetDeployer(),
+		cnt.GetMetrics(),
+		cnt.GetEventDispatcher(),
+		srv.Store,
+		cnt.GetFileSystem(),
+	)
 
 	return srv, nil
 }
