@@ -163,24 +163,30 @@ body {
 .sidebar-brand-name {
   font-size: 1rem;
   font-weight: 700;
+  line-height: 1.25;
   letter-spacing: -0.015em;
 }
 
 .sidebar-brand-meta {
-  margin-top: 5px;
+  margin-top: 4px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 5px;
   color: var(--muted);
-  font-size: 0.74rem;
+  font-size: 0.7rem;
+  line-height: 1;
+}
+
+.sidebar-brand-meta > span {
+  opacity: 0.68;
 }
 
 .sidebar-github-link {
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   display: inline-flex;
   color: var(--muted);
-  opacity: 0.78;
+  opacity: 0.65;
   transition: color 120ms ease, opacity 120ms ease;
 }
 
@@ -236,16 +242,16 @@ body {
   transition: color 120ms ease, background-color 120ms ease;
 }
 
-.sidebar-link:hover {
+.sidebar-link:not(.active):not(.sidebar-user):hover {
   color: var(--text);
-  background: rgba(148, 163, 184, 0.08);
+  background: rgba(148, 163, 184, 0.06);
   filter: none;
   transform: none;
 }
 
 .sidebar-link.active {
   color: var(--text);
-  background: rgba(59, 130, 246, 0.18);
+  background: rgba(59, 130, 246, 0.13);
 }
 
 .sidebar-user,
@@ -259,10 +265,17 @@ body {
   width: 19px;
   height: 19px;
   flex: 0 0 19px;
+  display: block;
   stroke: currentColor;
   stroke-width: 1.7;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.sidebar-link:not(.sidebar-user) .sidebar-icon {
+  width: 18px;
+  height: 18px;
+  flex-basis: 18px;
 }
 
 .shell-main {
