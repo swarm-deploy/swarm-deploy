@@ -34,8 +34,7 @@ body {
   z-index: 6;
   height: var(--shell-header-height);
   border-bottom: 1px solid var(--line);
-  background: rgba(18, 18, 20, 0.92);
-  backdrop-filter: blur(12px);
+  background: var(--shell-chrome-bg);
   padding: 16px 28px;
   display: grid;
   grid-template-columns: minmax(240px, 560px) auto;
@@ -135,7 +134,7 @@ body {
   align-self: start;
   height: 100vh;
   border-right: 1px solid var(--line);
-  background: #141416;
+  background: var(--sidebar-bg);
   padding: 0 16px 18px;
   display: flex;
   flex-direction: column;
@@ -283,6 +282,7 @@ body {
   grid-template-rows: auto minmax(0, 1fr);
   align-content: start;
   min-width: 0;
+  background: var(--workspace-bg);
 }
 
 .shell-view {
@@ -365,6 +365,7 @@ body {
     height: auto;
     border-right: none;
     border-bottom: 1px solid var(--line);
+    background: var(--shell-chrome-bg);
     padding: 12px 14px 10px;
   }
 

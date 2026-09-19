@@ -1,6 +1,9 @@
 :root {
-  --bg-start: #101011;
-  --bg-end: #19191c;
+  --workspace-bg: #18181b;
+  --shell-chrome-bg: #141416;
+  --sidebar-bg:
+    radial-gradient(circle at top left, rgba(59, 130, 246, 0.09), transparent 42%),
+    linear-gradient(180deg, #12151b 0%, #101115 100%);
   --card: rgba(31, 31, 35, 0.82);
   --card-strong: rgba(39, 39, 43, 0.94);
   --line: rgba(148, 163, 184, 0.16);
@@ -21,7 +24,7 @@ body {
   margin: 0;
   font-family: "Space Grotesk", "Segoe UI", sans-serif;
   color: var(--text);
-  background: linear-gradient(180deg, var(--bg-start), var(--bg-end));
+  background: var(--workspace-bg);
   min-height: 100vh;
 }
 
