@@ -7,8 +7,9 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops/differ"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
@@ -20,6 +21,7 @@ type Module struct {
 	Controller    *controller.Controller
 	Store         *modelstore.WarmupStore
 	GitRepository git.Repository
+	Differ        *differ.Differ
 
 	cfg        *config.Config
 	filesystem fs.FileSystem
@@ -30,7 +32,7 @@ type Container interface {
 	GetSwarm() *swarm.Swarm
 	GetDeployer() deployer.StackDeployer
 	GetMetrics() *metrics.Group
-	GetEventDispatcher() dispatcher.Dispatcher
+	GetEventModule() *event.Module
 }
 
 func InitModule(
@@ -42,6 +44,7 @@ func InitModule(
 		cfg:           cfg,
 		filesystem:    cnt.GetFileSystem(),
 		GitRepository: git.NewRepository(cfg.Spec.Git, filepath.Join(cfg.Spec.DataDir, "repo")),
+		Differ:        differ.New(),
 	}
 
 	if err := srv.initStore(ctx); err != nil {
@@ -54,7 +57,7 @@ func InitModule(
 		cnt.GetSwarm(),
 		cnt.GetDeployer(),
 		cnt.GetMetrics(),
-		cnt.GetEventDispatcher(),
+		cnt.GetEventModule().Dispatcher,
 		srv.Store,
 		cnt.GetFileSystem(),
 	)

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/recommendations/analyzer"
@@ -26,6 +27,7 @@ type Module struct {
 
 type Container interface {
 	GetFileSystem() fs.FileSystem
+	GetEventModule() *event.Module
 }
 
 func InitModule(ctx context.Context, cfg *config.Config, cnt Container) (*Module, error) {
@@ -48,14 +50,18 @@ func InitModule(ctx context.Context, cfg *config.Config, cnt Container) (*Module
 		store,
 	)
 
-	return &Module{
+	m := &Module{
 		Store:            store,
 		Recommender:      recommender,
 		DeploySubscriber: NewRecommenderEventSubscriber(recommender),
-	}, nil
+	}
+
+	m.registerEventSubscribers(cnt.GetEventModule().Dispatcher)
+
+	return m, nil
 }
 
-func (r *Module) RegisterEventSubscribers(eventDispatcher dispatcher.Dispatcher) {
+func (r *Module) registerEventSubscribers(eventDispatcher dispatcher.Dispatcher) {
 	eventDispatcher.Subscribe(events.TypeDeploySuccess, r.DeploySubscriber)
 	eventDispatcher.Subscribe(events.TypeDeployFailed, r.DeploySubscriber)
 }

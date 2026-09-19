@@ -18,7 +18,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/healthserver"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver"
-	mcpTools "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/tools"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/sd"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webhookserver"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver"
@@ -27,9 +26,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/event/logx"
 	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
 	"github.com/swarm-deploy/swarm-deploy/internal/gitops"
-	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller"
-	"github.com/swarm-deploy/swarm-deploy/internal/gitops/differ"
-	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/recommendations"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
@@ -46,6 +42,41 @@ var (
 	Version   = "0.1.0"
 	BuildDate = "2026-05-26 23:51:00"
 )
+
+var modules = []module{
+	{
+		Name: "event",
+		Initialize: func(_ context.Context, cfg *config.Config, cnt *container) error {
+			mod, err := event.InitModule(cfg, cnt)
+			cnt.Event = mod
+			return err
+		},
+	},
+	{
+		Name: "resources",
+		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
+			mod, err := resources.InitModule(ctx, cfg, cnt)
+			cnt.Resources = mod
+			return err
+		},
+	},
+	{
+		Name: "recommendations",
+		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
+			mod, err := recommendations.InitModule(ctx, cfg, cnt)
+			cnt.Recommendations = mod
+			return err
+		},
+	},
+	{
+		Name: "gitops",
+		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
+			mod, err := gitops.InitModule(ctx, cfg, cnt)
+			cnt.GitOps = mod
+			return err
+		},
+	},
+}
 
 //nolint:funlen//not need
 func main() {
@@ -103,12 +134,6 @@ func main() {
 		Metrics:    metricsGroup,
 	}
 
-	eventService, err := event.InitService(cfg, cnt)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to init event service", slog.Any("err", err))
-		os.Exit(1)
-	}
-
 	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to init docker client", slog.Any("err", err))
@@ -125,64 +150,41 @@ func main() {
 		metricsGroup.Deploys,
 	)
 
-	resourcesService, err := resources.InitService(ctx, cfg, cnt)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to init resources service", slog.Any("err", err))
-		os.Exit(1)
-	}
-
-	resourcesService.RegisterEventSubscribers(eventService.Dispatcher)
-
-	recommendationsModule, err := recommendations.InitModule(ctx,
-		cfg,
-		cnt,
-	)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to init recommendations module", slog.Any("err", err))
-		os.Exit(1)
-	}
-
-	gitopsModule, err := gitops.InitModule(ctx, cfg, cnt)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to init gitops module", slog.Any("err", err))
-		os.Exit(1)
+	for _, mod := range modules {
+		err = mod.Initialize(ctx, cfg, cnt)
+		if err != nil {
+			slog.ErrorContext(ctx, "failed to init module", slog.Any("err", err),
+				slog.String("module", mod.Name),
+			)
+			os.Exit(1)
+		}
 	}
 
 	assistantService, err := buildAssistantService(
 		cfg,
-		resourcesService,
-		cnt.GetSwarm(),
-		gitopsModule.GitRepository,
-		recommendationsModule.Store,
-		gitopsModule.Controller,
-		metricsGroup,
-		eventService,
+		cnt,
 	)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to build assistant service", slog.Any("err", err))
 		os.Exit(1)
 	}
 
-	recommendationsModule.RegisterEventSubscribers(eventService.Dispatcher)
-
 	webApplication, err := webserver.NewApplication(
 		cfg.Spec.Web.Address,
 		cfg,
-		gitopsModule,
+		cnt.GitOps,
 		cnt.Swarm,
-		eventService.History,
-		resourcesService.ServiceStore,
-		resourcesService.NodeStore,
-		recommendationsModule.Store,
+		cnt.Event,
+		cnt.Resources,
+		cnt.Recommendations.Store,
 		assistantService,
-		eventService.Dispatcher,
 		cfg.Spec.Web.Security.Authentication,
 	)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to init web server", slog.Any("err", err))
 		os.Exit(1)
 	}
-	webhookApplication := webhookserver.NewApplication(cfg.Spec.Sync.Webhook.Address, cfg, gitopsModule.Controller)
+	webhookApplication := webhookserver.NewApplication(cfg.Spec.Sync.Webhook.Address, cfg, cnt.GitOps.Controller)
 
 	healthServer := healthserver.NewApplication(cfg.Spec.HealthServer)
 
@@ -190,11 +192,11 @@ func main() {
 		{
 			Name: "state-store",
 			Run: func(ctx context.Context) error {
-				gitopsModule.Store.Sync(ctx)
+				cnt.GitOps.Store.Sync(ctx)
 				return nil
 			},
 			Stop: func(ctx context.Context) error {
-				gitopsModule.Store.Stop()
+				cnt.GitOps.Store.Stop()
 				return nil
 			},
 		},
@@ -203,13 +205,13 @@ func main() {
 		{
 			Name: "nodes-collector",
 			Run: func(ctx context.Context) error {
-				return resourcesService.NodeCollector.Run(ctx)
+				return cnt.Resources.NodeCollector.Run(ctx)
 			},
 		},
 		{
 			Name: "sync-controller",
 			Run: func(ctx context.Context) error {
-				return gitopsModule.Controller.Run(ctx)
+				return cnt.GitOps.Controller.Run(ctx)
 			},
 		},
 	}
@@ -261,13 +263,7 @@ func shutdownTracing(tracerProvider *sdktrace.TracerProvider) {
 
 func buildAssistantService(
 	cfg *config.Config,
-	resourcesModule *resources.Module,
-	swarmService *swarm.Swarm,
-	gitRepository gitx.Repository,
-	recommendations mcpTools.RecommendationsReader,
-	control *controller.Controller,
-	metrics *metrics.Group,
-	eventService *event.Service,
+	cnt *container,
 ) (assistant.Assistant, error) {
 	if !cfg.Spec.Assistant.Enabled {
 		return &assistant.DisabledAssistant{}, nil
@@ -283,26 +279,21 @@ func buildAssistantService(
 		return nil, fmt.Errorf("build image version resolver: %w", err)
 	}
 
-	commitDiffer := differ.New()
 	hostingProviders, err := githosting.NewProviderManager(cfg.Spec.Hostings)
 	if err != nil {
 		return nil, fmt.Errorf("build hosting providers: %w", err)
 	}
 
 	toolExecutor := mcpserver.NewExecutor(
-		eventService.History,
-		resourcesModule.NodeStore,
-		swarmService,
-		resourcesModule.ServiceStore,
-		recommendations,
+		cnt.Resources,
+		cnt.GitOps,
+		cnt.Event,
+		cnt.Swarm,
+		cnt.Recommendations.Store,
 		imageVersionResolver,
-		gitRepository,
 		hostingProviders,
 		cfg.Spec.Stacks,
-		commitDiffer,
-		control,
-		eventService.Dispatcher,
-		metrics.MCP,
+		cnt.Metrics.MCP,
 	)
 
 	return assistant.NewService(assistant.Config{
@@ -317,7 +308,12 @@ func buildAssistantService(
 		SystemPrompt:            cfg.Spec.Assistant.SystemPrompt,
 		AllowedTools:            cfg.Spec.Assistant.Tools,
 		ConversationInMemoryTTL: cfg.Spec.Assistant.Conversation.Storage.InMemory.TTL.Value,
-	}, resourcesModule.ServiceStore, toolExecutor, eventService.Dispatcher, metrics.Assistant)
+	}, cnt.Resources.ServiceStore, toolExecutor, cnt.Event.Dispatcher, cnt.Metrics.Assistant)
+}
+
+type module struct {
+	Name       string
+	Initialize func(ctx context.Context, cfg *config.Config, cnt *container) error
 }
 
 type container struct {
@@ -326,6 +322,11 @@ type container struct {
 	Swarm           *swarm.Swarm
 	EventDispatcher dispatcher.Dispatcher
 	Deployer        deployer.StackDeployer
+
+	Event           *event.Module
+	Resources       *resources.Module
+	GitOps          *gitops.Module
+	Recommendations *recommendations.Module
 }
 
 func (c *container) GetFileSystem() fs.FileSystem {
@@ -340,8 +341,8 @@ func (c *container) GetSwarm() *swarm.Swarm {
 	return c.Swarm
 }
 
-func (c *container) GetEventDispatcher() dispatcher.Dispatcher {
-	return c.EventDispatcher
+func (c *container) GetEventModule() *event.Module {
+	return c.Event
 }
 
 func (c *container) GetDeployer() deployer.StackDeployer {

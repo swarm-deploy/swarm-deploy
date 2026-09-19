@@ -13,9 +13,11 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	mcpTools "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/tools"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
+	"github.com/swarm-deploy/swarm-deploy/internal/gitops"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	"github.com/swarm-deploy/swarm-deploy/internal/resources"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
@@ -31,42 +33,38 @@ type Executor struct {
 
 // NewExecutor creates an MCP tool executor from service components.
 func NewExecutor(
-	historyStore mcpTools.HistoryReader,
-	nodesStore mcpTools.NodesReader,
+	resourcesModule *resources.Module,
+	gitopsModule *gitops.Module,
+	eventModule *event.Module,
 	swarmService *swarm.Swarm,
-	serviceStore mcpTools.ServicesReader,
 	recommendations mcpTools.RecommendationsReader,
 	imageVersionResolver mcpTools.ImageVersionResolver,
-	gitRepository mcpTools.GitRepository,
 	hostingProviders *githosting.ProviderManager,
 	stacks []config.StackSpec,
-	commitDiffer mcpTools.CommitDiffer,
-	control mcpTools.SyncTrigger,
-	eventDispatcher dispatcher.Dispatcher,
 	mcpMetrics metrics.MCP,
 ) *Executor {
 	toolComponents := []routing.Tool{
-		mcpTools.NewListHistoryEvents(historyStore),
-		mcpTools.NewSync(control),
-		mcpTools.NewListNodes(nodesStore),
+		mcpTools.NewListHistoryEvents(eventModule.History),
+		mcpTools.NewSync(gitopsModule.Controller),
+		mcpTools.NewListNodes(resourcesModule.NodeStore),
 		mcpTools.NewDockerNetworkList(swarmService.Networks),
 		mcpTools.NewDockerPluginList(swarmService.Plugins),
 		mcpTools.NewDockerSecretList(swarmService.Secrets),
 		mcpTools.NewGetServiceLogs(swarmService.Services),
 		mcpTools.NewGetServiceSpec(swarmService.Services),
 		mcpTools.NewDNSNameResolve(),
-		mcpTools.NewPingWebRoutes(serviceStore),
-		mcpTools.NewGetDependencyGraph(serviceStore),
+		mcpTools.NewPingWebRoutes(resourcesModule.ServiceStore),
+		mcpTools.NewGetDependencyGraph(resourcesModule.ServiceStore),
 		mcpTools.NewRecommendationList(recommendations),
-		mcpTools.NewSetServiceReplicas(swarmService.Services, eventDispatcher),
-		mcpTools.NewRestartService(swarmService.Services, eventDispatcher),
+		mcpTools.NewSetServiceReplicas(swarmService.Services, eventModule.Dispatcher),
+		mcpTools.NewRestartService(swarmService.Services, eventModule.Dispatcher),
 		mcpTools.NewGetActualImageVersion(imageVersionResolver),
-		mcpTools.NewListGitCommits(gitRepository),
-		mcpTools.NewGitCommitDiff(gitRepository, stacks, commitDiffer),
+		mcpTools.NewListGitCommits(gitopsModule.GitRepository),
+		mcpTools.NewGitCommitDiff(gitopsModule.GitRepository, stacks, gitopsModule.Differ),
 		mcpTools.NewGetExternalRepositoryLatestRelease(hostingProviders),
 		mcpTools.NewDate(),
 		mcpTools.NewSelfMetricsList(prometheus.DefaultGatherer, selfMetricsNamePrefix),
-		mcpTools.NewReportPromptInjection(eventDispatcher),
+		mcpTools.NewReportPromptInjection(eventModule.Dispatcher),
 	}
 
 	tools := make(map[string]routing.Tool, len(toolComponents))

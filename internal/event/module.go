@@ -17,7 +17,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 )
 
-type Service struct {
+type Module struct {
 	Dispatcher dispatcher.Dispatcher
 	History    *history.Store
 
@@ -29,8 +29,8 @@ type Container interface {
 	GetMetrics() *metrics.Group
 }
 
-func InitService(cfg *config.Config, cnt Container) (*Service, error) {
-	srv := &Service{
+func InitModule(cfg *config.Config, cnt Container) (*Module, error) {
+	srv := &Module{
 		cfg: cfg,
 	}
 
@@ -64,7 +64,7 @@ func InitService(cfg *config.Config, cnt Container) (*Service, error) {
 	return srv, nil
 }
 
-func (s *Service) initNotificationSubscribers() error {
+func (s *Module) initNotificationSubscribers() error {
 	subscribersCount := 0
 
 	for eventTypeName, channels := range s.cfg.Spec.Notifications.On {
@@ -113,7 +113,7 @@ func (s *Service) initNotificationSubscribers() error {
 	return nil
 }
 
-func (s *Service) subscribeOnAllEvents(subscriber dispatcher.Subscriber) {
+func (s *Module) subscribeOnAllEvents(subscriber dispatcher.Subscriber) {
 	for _, typ := range events.Types {
 		s.Dispatcher.Subscribe(typ, subscriber)
 	}

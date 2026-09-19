@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/node"
 	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
@@ -20,17 +20,16 @@ type Module struct {
 	NodeCollector *node.Collector
 	ServiceStore  *service.Store
 
-	cfg      *config.Config
-	swarmSvc *swarm.Swarm
+	cfg *config.Config
 }
 
 type Container interface {
 	GetSwarm() *swarm.Swarm
-	GetEventDispatcher() dispatcher.Dispatcher
+	GetEventModule() *event.Module
 	GetFileSystem() fs.FileSystem
 }
 
-func InitService(
+func InitModule(
 	ctx context.Context,
 	cfg *config.Config,
 	cnt Container,
@@ -43,17 +42,19 @@ func InitService(
 		return nil, fmt.Errorf("init stores: %w", err)
 	}
 
-	srv.NodeCollector = node.NewNodeCollector(cnt.GetSwarm().Nodes, srv.NodeStore, cnt.GetEventDispatcher())
+	srv.NodeCollector = node.NewNodeCollector(cnt.GetSwarm().Nodes, srv.NodeStore, cnt.GetEventModule().Dispatcher)
+
+	srv.registerEventSubscribers(cnt)
 
 	return srv, nil
 }
 
-func (s *Module) RegisterEventSubscribers(eventDispatcher dispatcher.Dispatcher) {
-	eventDispatcher.Subscribe(events.TypeDeploySuccess,
+func (s *Module) registerEventSubscribers(cnt Container) {
+	cnt.GetEventModule().Dispatcher.Subscribe(events.TypeDeploySuccess,
 		service.NewSubscriber(s.ServiceStore,
-			s.swarmSvc.Services,
-			s.swarmSvc.Images,
-			s.swarmSvc.Configs,
+			cnt.GetSwarm().Services,
+			cnt.GetSwarm().Images,
+			cnt.GetSwarm().Configs,
 			metadata.NewExtractor(),
 		),
 	)
