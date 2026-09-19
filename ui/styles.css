@@ -219,30 +219,35 @@ button:hover,
 .overview-card-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
 }
 
 .overview-card-action {
-  border: 1px solid rgba(148, 163, 184, 0.24);
-  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  height: 32px;
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 6px;
   color: var(--text);
-  background: rgba(148, 163, 184, 0.08);
-  padding: 6px 10px;
-  font-size: 0.84rem;
-  font-weight: 700;
-  line-height: 1.2;
+  background: transparent;
+  padding: 0 9px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1;
   text-decoration: none;
   white-space: nowrap;
-  transition: border-color 120ms ease, background-color 120ms ease, transform 120ms ease;
+  transition: border-color 120ms ease, background-color 120ms ease;
 }
 
 .overview-card-action:hover,
 .overview-card-action:focus-visible {
   border-color: rgba(148, 163, 184, 0.4);
-  background: rgba(148, 163, 184, 0.13);
+  background: rgba(148, 163, 184, 0.08);
   text-decoration: none;
-  transform: translateY(-1px);
 }
 
 .overview-deployment-list,

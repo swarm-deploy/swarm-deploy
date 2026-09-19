@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 
 import { fetchEvents, fetchRecommendations } from "../api/overview";
 import type { EventHistoryItem, Recommendation, RecommendationSeverity, StackStatus } from "../api/types";
+import OverviewCardAction from "../components/overview/OverviewCardAction.vue";
 import { useOverviewStore } from "../stores/overview";
 import { formatDate, shortCommitHash } from "../utils/format";
 
@@ -216,12 +217,7 @@ onUnmounted(() => {
     <article class="stack-card overview-latest-deployments">
       <header class="overview-card-header">
         <h2 class="overview-panel-title">Latest Deployments</h2>
-        <RouterLink
-          :to="{ path: '/events', query: { types: ['deploySuccess', 'deployFailed'] } }"
-          class="overview-card-action"
-        >
-          View All
-        </RouterLink>
+        <OverviewCardAction :to="{ path: '/events', query: { types: ['deploySuccess', 'deployFailed'] } }" />
       </header>
       <p v-if="overviewEventsError && deploymentEvents.length === 0" class="meta">
         Failed to load latest deployments: {{ overviewEventsError }}
@@ -255,7 +251,7 @@ onUnmounted(() => {
     <article class="stack-card overview-alerts" :class="{ 'overview-alerts-has-items': alertEvents.length > 0 }">
       <header class="overview-card-header">
         <h2 class="overview-panel-title">Alerts</h2>
-        <RouterLink to="/events?severity=alert" class="overview-card-action">View All</RouterLink>
+        <OverviewCardAction to="/events?severity=alert" />
       </header>
       <p v-if="overviewEventsError && alertEvents.length === 0" class="meta">Failed to load alerts: {{ overviewEventsError }}</p>
       <p v-else-if="alertEvents.length === 0" class="meta">No alerts in the last 12 hours.</p>
@@ -281,7 +277,7 @@ onUnmounted(() => {
     >
       <header class="overview-card-header">
         <h2 class="overview-panel-title">Recommendations</h2>
-        <RouterLink to="/recommendations" class="overview-card-action">View All</RouterLink>
+        <OverviewCardAction to="/recommendations" />
       </header>
       <p v-if="overviewRecommendationsError && overviewRecommendations.length === 0" class="meta">
         Failed to load recommendations: {{ overviewRecommendationsError }}
