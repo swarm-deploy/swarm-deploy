@@ -884,10 +884,6 @@ button:hover,
   padding: 9px 12px;
 }
 
-.events-table {
-  table-layout: fixed;
-}
-
 .events-table th:nth-child(1),
 .events-table td:nth-child(1) {
   width: 24%;
@@ -926,23 +922,28 @@ button:hover,
   padding: 10px 14px;
 }
 
-.secrets-table-wrap {
+.app-table-wrap {
   overflow-x: auto;
 }
 
-.secrets-table {
-  min-width: 720px;
+.app-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+.app-table--fixed {
   table-layout: fixed;
 }
 
-.container-status-table.secrets-table th,
-.container-status-table.secrets-table td {
-  border-top: 0;
+.app-table th,
+.app-table td {
   border-bottom: 1px solid rgba(148, 163, 184, 0.13);
   vertical-align: middle;
+  text-align: left;
 }
 
-.container-status-table.secrets-table th {
+.app-table th {
   padding: 9px 10px;
   color: var(--muted);
   font-size: 0.76rem;
@@ -951,47 +952,72 @@ button:hover,
   background: transparent;
 }
 
-.container-status-table.secrets-table td {
+.app-table td {
   padding: 13px 10px;
 }
 
-.secrets-table th:first-child,
-.secrets-table td:first-child {
+.app-table th:first-child,
+.app-table td:first-child {
   padding-left: 16px;
 }
 
-.secrets-table th:last-child,
-.secrets-table td:last-child {
+.app-table th:last-child,
+.app-table td:last-child {
   padding-right: 16px;
 }
 
-.secrets-table-row {
+.app-table-row--clickable {
   cursor: pointer;
   transition: background-color 120ms ease;
 }
 
-.secrets-table-row:hover,
-.secrets-table-row:focus-visible {
+.app-table-row--clickable:hover,
+.app-table-row--clickable:focus-visible {
   background: rgba(148, 163, 184, 0.06);
 }
 
-.secrets-table-row:focus-visible {
+.app-table-row--clickable:focus-visible {
   outline: 1px solid rgba(96, 165, 250, 0.45);
   outline-offset: -1px;
 }
 
+.app-table-cell--center {
+  text-align: center !important;
+}
+
+.app-table-cell--right {
+  text-align: right !important;
+}
+
+.app-table-cell--narrow,
+.app-table-cell--actions {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.app-table-cell--actions {
+  text-align: right !important;
+}
+
+.app-table-empty-cell {
+  color: var(--muted);
+  font-size: 0.88rem;
+  text-align: center !important;
+}
+
+.app-table-empty,
 .services-empty {
   border: 1px dashed rgba(148, 163, 184, 0.22);
   border-radius: 8px;
   padding: 12px;
 }
 
-.recommendations-table-wrap {
-  padding-top: 10px;
+.app-table-empty .meta {
+  margin: 0;
 }
 
-.recommendations-table {
-  table-layout: fixed;
+.recommendations-table-wrap {
+  padding-top: 10px;
 }
 
 .recommendations-table th:nth-child(1),
@@ -1025,14 +1051,14 @@ button:hover,
 }
 
 .stack-dropdown {
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: var(--card);
+  border-bottom: 1px solid rgba(148, 163, 184, 0.13);
+  border-radius: 0;
+  background: transparent;
   overflow: hidden;
 }
 
 .stack-dropdown[open] {
-  border-color: rgba(96, 165, 250, 0.24);
+  border-color: rgba(148, 163, 184, 0.13);
 }
 
 .stack-summary {
@@ -1083,25 +1109,10 @@ button:hover,
 
 .stack-services-table-wrap {
   margin: 0;
-  padding: 0 12px 10px;
-  overflow-x: auto;
-}
-
-.stack-service-empty-cell {
-  color: var(--muted);
-  font-size: 0.88rem;
+  padding: 0;
 }
 
 /* Fixed column widths so tables align across stacks (same % of full content width). */
-.services-stack-table {
-  table-layout: fixed;
-}
-
-.services-stack-table th,
-.services-stack-table td {
-  vertical-align: middle;
-}
-
 .services-stack-table .services-col-name {
   width: 30%;
 }
@@ -1586,32 +1597,10 @@ button:hover,
 
 .assistant-md-table-wrap {
   margin: 0 0 8px;
-  overflow-x: auto;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  border-radius: 8px;
 }
 
 .assistant-md-table {
-  width: 100%;
   min-width: 420px;
-  border-collapse: collapse;
-}
-
-.assistant-md-table th,
-.assistant-md-table td {
-  padding: 8px 10px;
-  border-bottom: 1px solid rgba(148, 163, 184, 0.13);
-}
-
-.assistant-md-table th {
-  text-align: left;
-  color: var(--muted);
-  background: rgba(148, 163, 184, 0.08);
-  font-weight: 600;
-}
-
-.assistant-md-table tbody tr:last-child td {
-  border-bottom: none;
 }
 
 .assistant-chat-form {
@@ -1778,35 +1767,25 @@ button:hover,
   margin: 0;
 }
 
-.service-status-summary-table {
-  width: 100%;
-  border-collapse: collapse;
+.app-table--summary {
   font-size: 0.9rem;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  border-radius: 10px;
-  overflow: hidden;
 }
 
-.service-status-summary-table th,
-.service-status-summary-table td {
-  padding: 8px 10px;
-  border-top: 1px solid rgba(148, 163, 184, 0.13);
-  text-align: left;
+.app-table--summary tbody th,
+.app-table--summary tbody td {
   vertical-align: top;
 }
 
-.service-status-summary-table tr:first-child th,
-.service-status-summary-table tr:first-child td {
-  border-top: none;
-}
-
-.service-status-summary-table th {
+.app-table--summary tbody th {
   width: 38%;
+  padding: 13px 10px;
   color: var(--muted);
   font-weight: 600;
+  font-size: inherit;
+  letter-spacing: normal;
 }
 
-.service-status-summary-table td {
+.app-table--summary td {
   overflow-wrap: anywhere;
   word-break: break-word;
 }
@@ -1964,31 +1943,6 @@ button:hover,
 
 .service-status-open-details-btn {
   width: 100%;
-}
-
-.container-status-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.85rem;
-}
-
-.container-status-table th,
-.container-status-table td {
-  border-top: 1px solid rgba(148, 163, 184, 0.13);
-  text-align: left;
-  padding: 8px 6px;
-  vertical-align: top;
-}
-
-/* Services table: row height follows Details button; keep text vertically centered. */
-.container-status-table.services-stack-table th,
-.container-status-table.services-stack-table td {
-  vertical-align: middle;
-}
-
-.container-status-table.services-stack-table th:last-child,
-.container-status-table.services-stack-table td.stack-service-actions-cell {
-  padding-right: 0;
 }
 
 @keyframes reveal {

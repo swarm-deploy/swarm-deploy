@@ -3,6 +3,8 @@ import { computed, onMounted, ref, watch } from "vue";
 
 import { fetchRecommendations } from "../api/overview";
 import type { Recommendation, RecommendationSeverity } from "../api/types";
+import AppTable from "../components/common/AppTable.vue";
+import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 
 const severityOptions: RecommendationSeverity[] = ["high", "medium", "low"];
 const severityRank: Record<RecommendationSeverity, number> = {
@@ -107,29 +109,24 @@ onMounted(() => {
       </div>
     </header>
 
-    <div v-if="loading && recommendations.length === 0" class="services-empty">
-      <p class="meta">Loading recommendations...</p>
-    </div>
+    <AppTableEmpty v-if="loading && recommendations.length === 0" message="Loading recommendations..." />
 
-    <div v-else-if="loadingError" class="services-empty">
-      <p class="meta">Failed to load recommendations: {{ loadingError }}</p>
-    </div>
+    <AppTableEmpty v-else-if="loadingError">Failed to load recommendations: {{ loadingError }}</AppTableEmpty>
 
-    <div v-else-if="visibleRecommendations.length === 0" class="services-empty recommendations-empty">
-      <p class="meta">No recommendations match the selected filters.</p>
-    </div>
+    <AppTableEmpty
+      v-else-if="visibleRecommendations.length === 0"
+      message="No recommendations match the selected filters."
+    />
 
-    <div v-else class="secrets-table-wrap recommendations-table-wrap">
-      <table class="container-status-table recommendations-table">
-        <thead>
+    <AppTable v-else fixed table-class="recommendations-table" wrap-class="recommendations-table-wrap">
+      <template #head>
           <tr>
             <th>Severity</th>
             <th>Recommendation</th>
             <th>Service</th>
             <th>Stack</th>
           </tr>
-        </thead>
-        <tbody>
+      </template>
           <tr v-for="recommendation in visibleRecommendations" :key="recommendationKey(recommendation)">
             <td>
               <span class="recommendation-severity" :class="severityClass(recommendation.severity)">
@@ -150,8 +147,6 @@ onMounted(() => {
             <td>{{ recommendation.subject.service || "unknown service" }}</td>
             <td>{{ recommendation.subject.stack || "unknown stack" }}</td>
           </tr>
-        </tbody>
-      </table>
-    </div>
+    </AppTable>
   </section>
 </template>

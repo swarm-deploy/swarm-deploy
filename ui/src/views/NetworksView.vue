@@ -3,6 +3,8 @@ import { computed, onMounted, ref } from "vue";
 
 import { fetchNetworks } from "../api/cluster";
 import type { NetworkInfo } from "../api/types";
+import AppTable from "../components/common/AppTable.vue";
+import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 
 const loading = ref(false);
 const loadingError = ref("");
@@ -84,25 +86,16 @@ onMounted(() => {
       </div>
     </header>
 
-    <div v-if="loading && networks.length === 0" class="services-empty">
-      <p class="meta">Loading...</p>
-    </div>
+    <AppTableEmpty v-if="loading && networks.length === 0" message="Loading..." />
 
-    <div v-else-if="loadingError" class="services-empty">
-      <p class="meta">Failed to load networks: {{ loadingError }}</p>
-    </div>
+    <AppTableEmpty v-else-if="loadingError">Failed to load networks: {{ loadingError }}</AppTableEmpty>
 
-    <div v-else-if="networks.length === 0" class="services-empty">
-      <p class="meta">No networks found.</p>
-    </div>
+    <AppTableEmpty v-else-if="networks.length === 0" message="No networks found." />
 
-    <div v-else-if="filteredNetworks.length === 0" class="services-empty">
-      <p class="meta">No networks match your search.</p>
-    </div>
+    <AppTableEmpty v-else-if="filteredNetworks.length === 0" message="No networks match your search." />
 
-    <div v-else class="secrets-table-wrap">
-      <table class="container-status-table">
-        <thead>
+    <AppTable v-else min-width="960px">
+      <template #head>
           <tr>
             <th>Name</th>
             <th>Stack</th>
@@ -114,8 +107,7 @@ onMounted(() => {
             <th>Labels</th>
             <th>Options</th>
           </tr>
-        </thead>
-        <tbody>
+      </template>
           <tr v-for="network in filteredNetworks" :key="network.id">
             <td>{{ network.name || "n/a" }}</td>
             <td>{{ network.stack_name || "n/a" }}</td>
@@ -127,8 +119,6 @@ onMounted(() => {
             <td>{{ mapText(network.labels) }}</td>
             <td>{{ mapText(network.options) }}</td>
           </tr>
-        </tbody>
-      </table>
-    </div>
+    </AppTable>
   </section>
 </template>

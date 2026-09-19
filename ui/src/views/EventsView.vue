@@ -4,6 +4,8 @@ import { useRoute, useRouter } from "vue-router";
 
 import { fetchEvents } from "../api/overview";
 import type { EventHistoryItem, EventSeverity } from "../api/types";
+import AppTable from "../components/common/AppTable.vue";
+import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import { formatDate } from "../utils/format";
 
 const eventTypeOptions = [
@@ -179,32 +181,24 @@ onMounted(() => {
       </div>
     </header>
 
-    <div v-if="loading && events.length === 0" class="services-empty">
-      <p class="meta">Loading events...</p>
-    </div>
+    <AppTableEmpty v-if="loading && events.length === 0" message="Loading events..." />
 
-    <div v-else-if="loadingError" class="services-empty">
-      <p class="meta">Failed to load events: {{ loadingError }}</p>
-    </div>
+    <AppTableEmpty v-else-if="loadingError">Failed to load events: {{ loadingError }}</AppTableEmpty>
 
-    <div v-else-if="visibleEvents.length === 0" class="services-empty">
-      <p class="meta">No events match the selected filters.</p>
-    </div>
+    <AppTableEmpty v-else-if="visibleEvents.length === 0" message="No events match the selected filters." />
 
-    <div v-else class="secrets-table-wrap events-table-wrap">
-      <table class="container-status-table secrets-table events-table">
-        <thead>
+    <AppTable v-else fixed min-width="720px" table-class="events-table">
+      <template #head>
           <tr>
             <th>Time</th>
             <th>Severity</th>
             <th>Type</th>
             <th>Message</th>
           </tr>
-        </thead>
-        <tbody>
+      </template>
           <template v-for="event in visibleEvents" :key="eventKey(event)">
             <tr
-              class="events-table-row secrets-table-row"
+              class="app-table-row--clickable"
               tabindex="0"
               role="button"
               :aria-expanded="expandedKey === eventKey(event)"
@@ -234,8 +228,6 @@ onMounted(() => {
               </td>
             </tr>
           </template>
-        </tbody>
-      </table>
-    </div>
+    </AppTable>
   </section>
 </template>

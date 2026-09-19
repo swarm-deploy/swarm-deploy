@@ -3,6 +3,8 @@ import { computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 
 import type { ServiceSyncStatus } from "../api/types";
+import AppTable from "../components/common/AppTable.vue";
+import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import { useOverviewStore } from "../stores/overview";
 
 const overviewStore = useOverviewStore();
@@ -84,20 +86,16 @@ function syncErrorText(syncError: string | undefined): string {
       <h2>Services</h2>
     </header>
 
-    <div
+    <AppTableEmpty
       v-if="overviewStore.loading && overviewStore.stacks.length === 0 && overviewStore.services.length === 0"
-      class="services-empty"
-    >
-      <p class="meta">Loading...</p>
-    </div>
+      message="Loading..."
+    />
 
-    <div v-else-if="overviewStore.loadingError && servicesByStack.length === 0" class="services-empty">
-      <p class="meta">Failed to load services: {{ overviewStore.loadingError }}</p>
-    </div>
+    <AppTableEmpty v-else-if="overviewStore.loadingError && servicesByStack.length === 0">
+      Failed to load services: {{ overviewStore.loadingError }}
+    </AppTableEmpty>
 
-    <div v-else-if="servicesByStack.length === 0" class="services-empty">
-      <p class="meta">No services captured yet.</p>
-    </div>
+    <AppTableEmpty v-else-if="servicesByStack.length === 0" message="No services captured yet." />
 
     <div v-else class="stack-dropdown-list">
       <details v-for="group in servicesByStack" :key="group.stackName" class="stack-dropdown" open>
@@ -107,8 +105,8 @@ function syncErrorText(syncError: string | undefined): string {
           <span class="stack-summary-chevron" aria-hidden="true">▾</span>
         </summary>
 
-        <div class="stack-services-table-wrap">
-          <table class="container-status-table services-stack-table">
+        <AppTable fixed table-class="services-stack-table" min-width="720px" wrap-class="stack-services-table-wrap">
+          <template #colgroup>
             <colgroup>
               <col class="services-col-name" />
               <col class="services-col-sync-status" />
@@ -116,7 +114,8 @@ function syncErrorText(syncError: string | undefined): string {
               <col class="services-col-version" />
               <col class="services-col-actions" />
             </colgroup>
-            <thead>
+          </template>
+          <template #head>
               <tr>
                 <th>Name</th>
                 <th>Sync Status</th>
@@ -124,10 +123,9 @@ function syncErrorText(syncError: string | undefined): string {
                 <th>Version</th>
                 <th />
               </tr>
-            </thead>
-            <tbody>
+          </template>
               <tr v-if="group.services.length === 0">
-                <td colspan="5" class="stack-service-empty-cell">No services captured yet.</td>
+                <td colspan="5" class="app-table-empty-cell">No services captured yet.</td>
               </tr>
               <tr v-for="service in group.services" :key="`${group.stackName}-${service.name}`">
                 <td class="services-cell-name" :title="service.name || undefined">
@@ -149,15 +147,13 @@ function syncErrorText(syncError: string | undefined): string {
                 </td>
                 <td class="services-cell-type">{{ service.type_title || service.type }}</td>
                 <td class="services-cell-version" :title="service.image">{{ service.image_version || "—" }}</td>
-                <td class="stack-service-actions-cell">
+                <td class="app-table-cell--actions stack-service-actions-cell">
                   <button type="button" class="service-status-btn" @click="openServiceDetails(group.stackName, service.name)">
                     Details
                   </button>
                 </td>
               </tr>
-            </tbody>
-          </table>
-        </div>
+        </AppTable>
       </details>
     </div>
   </section>

@@ -3,6 +3,8 @@ import { computed, onMounted, ref } from "vue";
 
 import { fetchSecrets } from "../api/secrets";
 import type { SecretInfo } from "../api/types";
+import AppTable from "../components/common/AppTable.vue";
+import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import { useSecretDetailsStore } from "../stores/secretDetails";
 
 const loading = ref(false);
@@ -90,37 +92,27 @@ function formatDate(value: string): string {
       </div>
     </header>
 
-    <div v-if="loading && secrets.length === 0" class="services-empty">
-      <p class="meta">Loading...</p>
-    </div>
+    <AppTableEmpty v-if="loading && secrets.length === 0" message="Loading..." />
 
-    <div v-else-if="loadingError" class="services-empty">
-      <p class="meta">Failed to load secrets: {{ loadingError }}</p>
-    </div>
+    <AppTableEmpty v-else-if="loadingError">Failed to load secrets: {{ loadingError }}</AppTableEmpty>
 
-    <div v-else-if="secrets.length === 0" class="services-empty">
-      <p class="meta">No secrets found.</p>
-    </div>
+    <AppTableEmpty v-else-if="secrets.length === 0" message="No secrets found." />
 
-    <div v-else-if="filteredSecrets.length === 0" class="services-empty">
-      <p class="meta">No secrets match your search.</p>
-    </div>
+    <AppTableEmpty v-else-if="filteredSecrets.length === 0" message="No secrets match your search." />
 
-    <div v-else class="secrets-table-wrap">
-      <table class="container-status-table secrets-table">
-        <thead>
+    <AppTable v-else fixed min-width="720px">
+      <template #head>
           <tr>
             <th>Name</th>
             <th>Date Added</th>
             <th>External Path</th>
             <th>External Version ID</th>
           </tr>
-        </thead>
-        <tbody>
+      </template>
           <tr
             v-for="secret in filteredSecrets"
             :key="secret.id"
-            class="secrets-table-row"
+            class="app-table-row--clickable"
             tabindex="0"
             role="button"
             :aria-label="`Open details for ${secret.name}`"
@@ -133,8 +125,6 @@ function formatDate(value: string): string {
             <td>{{ secret.external?.path || "n/a" }}</td>
             <td>{{ secret.external?.version_id || "n/a" }}</td>
           </tr>
-        </tbody>
-      </table>
-    </div>
+    </AppTable>
   </section>
 </template>

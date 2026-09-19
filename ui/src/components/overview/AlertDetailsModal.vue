@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted } from "vue";
 
+import AppTable from "../common/AppTable.vue";
 import { useOverviewStore } from "../../stores/overview";
 import { formatDate } from "../../utils/format";
 
@@ -42,8 +43,7 @@ onUnmounted(() => {
       </div>
 
       <div class="modal-body">
-        <table class="service-status-summary-table" aria-label="Alert details">
-          <tbody>
+        <AppTable summary aria-label="Alert details">
             <tr>
               <th scope="row">Message</th>
               <td>{{ alertEvent?.message || "No message" }}</td>
@@ -60,8 +60,7 @@ onUnmounted(() => {
               <th scope="row">Timestamp</th>
               <td>{{ formatDate(alertEvent?.created_at) }}</td>
             </tr>
-          </tbody>
-        </table>
+        </AppTable>
 
         <ul v-if="detailEntries.length > 0" class="event-details alert-details-list">
           <li v-for="[key, value] in detailEntries" :key="key" class="event-detail">

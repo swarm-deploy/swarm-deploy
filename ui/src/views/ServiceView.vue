@@ -11,6 +11,8 @@ import type {
   ServiceStatusResponse,
   TaskLogEvent,
 } from "../api/types";
+import AppTable from "../components/common/AppTable.vue";
+import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import { useOverviewStore } from "../stores/overview";
 import { useSecretDetailsStore } from "../stores/secretDetails";
 import { formatBytes, formatDate, formatNanoCPU, shortCommitHash } from "../utils/format";
@@ -386,20 +388,17 @@ onUnmounted(() => {
       <h2>{{ serviceTitle }}</h2>
     </header>
 
-    <div v-if="loading && !serviceStatus" class="services-empty">
-      <p class="meta">Loading service details...</p>
-    </div>
+    <AppTableEmpty v-if="loading && !serviceStatus" message="Loading service details..." />
 
-    <div v-else-if="!serviceStatus" class="services-empty">
-      <p class="meta">Failed to load service details: {{ loadingError || "unknown error" }}</p>
-    </div>
+    <AppTableEmpty v-else-if="!serviceStatus">
+      Failed to load service details: {{ loadingError || "unknown error" }}
+    </AppTableEmpty>
 
     <div v-else class="service-details-layout">
       <div class="service-details-main">
         <article class="stack-card service-details-card">
           <h3 class="stack-title">Service</h3>
-          <table class="service-status-summary-table" aria-label="Service details">
-            <tbody>
+          <AppTable summary aria-label="Service details">
               <tr>
                 <th scope="row">Name</th>
                 <td>{{ serviceInfo?.name || serviceName }}</td>
@@ -537,18 +536,17 @@ onUnmounted(() => {
                   <span v-else>n/a</span>
                 </td>
               </tr>
-            </tbody>
-          </table>
+          </AppTable>
           <p v-if="loadingError" class="meta">Warning: {{ loadingError }}</p>
         </article>
 
         <article class="stack-card service-realtime-card">
           <h3 class="stack-title">Realtime</h3>
-          <p v-if="realtimeLoading" class="meta">Loading realtime...</p>
-          <p v-else-if="realtimeError" class="meta">Failed to load realtime: {{ realtimeError }}</p>
-          <p v-else-if="realtime.length === 0" class="meta">No tasks yet.</p>
-          <table v-else class="service-status-summary-table service-realtime-table" aria-label="Service realtime">
-            <thead>
+          <AppTableEmpty v-if="realtimeLoading" message="Loading realtime..." />
+          <AppTableEmpty v-else-if="realtimeError">Failed to load realtime: {{ realtimeError }}</AppTableEmpty>
+          <AppTableEmpty v-else-if="realtime.length === 0" message="No tasks yet." />
+          <AppTable v-else fixed min-width="820px" table-class="service-realtime-table" aria-label="Service realtime">
+            <template #head>
               <tr>
                 <th>ID</th>
                 <th>Node Name</th>
@@ -558,10 +556,9 @@ onUnmounted(() => {
                 <th>Error</th>
                 <th>Logs</th>
               </tr>
-            </thead>
-            <tbody>
+            </template>
               <tr v-for="task in realtime" :key="task.id">
-                <td class="service-realtime-copy-cell">
+                <td class="app-table-cell--center app-table-cell--narrow service-realtime-copy-cell">
                   <button
                     type="button"
                     class="service-copy-task-id-button"
@@ -587,7 +584,7 @@ onUnmounted(() => {
                 <td>{{ formatDate(task.created_at) }}</td>
                 <td>{{ formatDate(task.updated_at) }}</td>
                 <td>{{ task.error || 'n/a' }}</td>
-                <td class="service-realtime-logs-cell">
+                <td class="app-table-cell--center app-table-cell--narrow service-realtime-logs-cell">
                   <button
                     type="button"
                     class="service-copy-task-id-button service-task-logs-button"
@@ -605,8 +602,7 @@ onUnmounted(() => {
                   </button>
                 </td>
               </tr>
-            </tbody>
-          </table>
+          </AppTable>
         </article>
       </div>
 
@@ -644,8 +640,7 @@ onUnmounted(() => {
 
         <article class="stack-card service-resources-card">
           <h3 class="stack-title">Resources</h3>
-          <table class="service-status-summary-table" aria-label="Service resources">
-            <tbody>
+          <AppTable summary aria-label="Service resources">
               <tr>
                 <th scope="row">Deploy mode</th>
                 <td>{{ serviceSpec?.mode || "n/a" }}</td>
@@ -658,8 +653,7 @@ onUnmounted(() => {
                 <th scope="row">Requested / limited CPU</th>
                 <td>{{ serviceSpec?.requested_cpu_nano ? formatNanoCPU(serviceSpec?.requested_cpu_nano) : 0 }} / {{ serviceSpec?.limit_cpu_nano? formatNanoCPU(serviceSpec?.limit_cpu_nano) : '∞' }}</td>
               </tr>
-            </tbody>
-          </table>
+          </AppTable>
         </article>
 
 
