@@ -7,6 +7,7 @@ import (
 
 	downwardotel "github.com/swarm-deploy/downward-otel/go"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/buildinfo"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -16,8 +17,16 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
-// Init initializes the global OpenTelemetry tracer provider.
-func InitTracerProvider(ctx context.Context, cfg *config.TracingSpec) (*sdktrace.TracerProvider, error) {
+type BuildInfo struct {
+	Version string
+}
+
+// InitTracerProvider initializes the global OpenTelemetry tracer provider.
+func InitTracerProvider(
+	ctx context.Context,
+	cfg *config.TracingSpec,
+	info buildinfo.Info,
+) (*sdktrace.TracerProvider, error) {
 	if cfg == nil {
 		return nil, nil //nolint:nilnil // check outside
 	}
@@ -32,6 +41,10 @@ func InitTracerProvider(ctx context.Context, cfg *config.TracingSpec) (*sdktrace
 		resource.WithDetectors(downwardotel.NewDetector()),
 		resource.WithFromEnv(),
 		resource.WithTelemetrySDK(),
+		resource.WithAttributes(
+			tracing.ServiceVersion.String(info.Version),
+			tracing.ServiceBuildTime.String(info.Date),
+		),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("build OpenTelemetry resource: %w", err)

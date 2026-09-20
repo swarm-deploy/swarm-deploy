@@ -31,6 +31,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/buildinfo"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -100,7 +101,10 @@ func main() {
 		security.LogUser(),
 	)))
 
-	tracerProvider, err := sd.InitTracerProvider(ctx, cfg.Spec.Tracing)
+	tracerProvider, err := sd.InitTracerProvider(ctx, cfg.Spec.Tracing, buildinfo.Info{
+		Version: Version,
+		Date:    BuildDate,
+	})
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to init tracing", slog.Any("err", err))
 		os.Exit(1)
