@@ -25,4 +25,12 @@ var (
 
 	ServiceVersion   = attribute.Key("service.version")
 	ServiceBuildTime = attribute.Key("service.build.time")
+
+	GenAIToolName           = attribute.Key("gen_ai.tool.name")
+	GenAIToolCallArguments  = attribute.Key("gen_ai.tool.call.arguments")
+	GenAIToolCallResult     = attribute.Key("gen_ai.tool.call.result")
+	GenAIConversationID     = attribute.Key("gen_ai.conversation.id")
+	GenAIRequestModel       = attribute.Key("gen_ai.request.model")
+	GenAIUsageInputTokens   = attribute.Key("gen_ai.usage.input_tokens")
+	GenAIUsageOutputTokens  = attribute.Key("gen_ai.usage.output_tokens")
 )
