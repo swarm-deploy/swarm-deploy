@@ -4,11 +4,11 @@ import (
 	"context"
 	"time"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/gitops/differ"
-	"github.com/swarm-deploy/swarm-deploy/internal/gitops/differ/diff"
-	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/differ"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/differ/diff"
+	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
-	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 

@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
-	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
+	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 )
 
 func TestListGitCommitsExecute(t *testing.T) {

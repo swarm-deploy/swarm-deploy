@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 )
 
 // IndexSubscriber updates embeddings index on deploy success events.

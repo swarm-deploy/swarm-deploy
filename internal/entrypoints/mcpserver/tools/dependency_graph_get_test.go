@@ -8,10 +8,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
-	resourcegraph "github.com/swarm-deploy/swarm-deploy/internal/resources/graph"
-	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
-	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
-	serviceType "github.com/swarm-deploy/swarm-deploy/internal/resources/service/stype"
+	resourcegraph "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/graph"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	serviceType "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/stype"
 	webroute "github.com/swarm-deploy/webroute/api"
 )
 

@@ -4,7 +4,7 @@ import (
 	"context"
 
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
-	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 )
 
 func (h *handler) ListServices(_ context.Context) (*generated.ServicesResponse, error) {

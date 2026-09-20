@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
 )
 
 type snapshot struct {

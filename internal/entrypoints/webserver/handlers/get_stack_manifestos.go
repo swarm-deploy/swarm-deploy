@@ -9,7 +9,7 @@ import (
 	"net/http"
 
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
-	"github.com/swarm-deploy/swarm-deploy/internal/gitops/livemanifest"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/livemanifest"
 	"gopkg.in/yaml.v3"
 )
 

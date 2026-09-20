@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
-	"github.com/swarm-deploy/swarm-deploy/internal/recommendations/model"
-	"github.com/swarm-deploy/swarm-deploy/internal/recommendations/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 )
 

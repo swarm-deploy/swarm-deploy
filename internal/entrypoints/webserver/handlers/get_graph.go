@@ -4,7 +4,7 @@ import (
 	"context"
 
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
-	resourcegraph "github.com/swarm-deploy/swarm-deploy/internal/resources/graph"
+	resourcegraph "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/graph"
 )
 
 func (h *handler) GetGraph(_ context.Context) (*generated.GraphResponse, error) {
