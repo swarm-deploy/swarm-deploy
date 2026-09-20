@@ -38,4 +38,5 @@ func TestConfigManagerMapConfigMapsFields(t *testing.T) {
 	assert.Equal(t, map[string]string{"com.example.env": "prod"}, mapped.Labels, "unexpected labels")
 	assert.Equal(t, []byte("routes: []"), mapped.Data, "unexpected data")
 
-	config.Spec.Data[0] = 'R'}
+	config.Spec.Data[0] = 'R'
+}

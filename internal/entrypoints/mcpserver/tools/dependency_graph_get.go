@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
-	resourcegraph "github.com/swarm-deploy/swarm-deploy/internal/resources/graph"
+	resourcegraph "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/graph"
 )
 
 // GetDependencyGraph returns service dependency graph built from service metadata.

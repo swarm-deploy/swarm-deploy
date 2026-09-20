@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
 	webroute "github.com/swarm-deploy/webroute/api"
 )
 

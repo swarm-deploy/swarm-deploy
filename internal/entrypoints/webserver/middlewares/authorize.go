@@ -5,8 +5,8 @@ import (
 	"net/http"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/authenticator"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
 )
 

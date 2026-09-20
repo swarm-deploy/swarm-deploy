@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
-	"github.com/swarm-deploy/swarm-deploy/internal/gitops/differ/diff"
-	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/differ/diff"
+	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 )
 
 func TestGitCommitDiffExecute(t *testing.T) {

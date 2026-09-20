@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
-	"github.com/swarm-deploy/swarm-deploy/internal/recommendations/model"
-	"github.com/swarm-deploy/swarm-deploy/internal/recommendations/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/modelstore"
 )
 
 func (h *handler) ListRecommendations(
