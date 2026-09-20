@@ -4,7 +4,14 @@ import { RouterLink, useRoute } from "vue-router";
 
 import SidebarIcon from "./SidebarIcon.vue";
 
-defineProps<{ currentUserLabel: string }>();
+defineProps<{
+  currentUserLabel: string;
+  collapsed: boolean;
+}>();
+
+const emit = defineEmits<{
+  toggle: [];
+}>();
 
 const route = useRoute();
 
@@ -53,12 +60,13 @@ function formatBuildTime(value: string): string {
 </script>
 
 <template>
-  <aside class="sidebar">
+  <aside class="sidebar" :class="{ collapsed }">
     <div class="sidebar-brand-block">
       <RouterLink to="/overview" class="sidebar-brand" aria-label="swarm-deploy overview">
-        <span class="sidebar-brand-name">Swarm Deploy</span>
+        <span class="sidebar-brand-mark" aria-hidden="true">SD</span>
+        <span class="sidebar-label sidebar-brand-name">Swarm Deploy</span>
       </RouterLink>
-      <div class="sidebar-brand-meta">
+      <div class="sidebar-brand-meta sidebar-label">
         <span :title="buildTimeTitle">{{ appVersion }}</span>
         <a
           class="sidebar-github-link"
@@ -83,9 +91,11 @@ function formatBuildTime(value: string): string {
           :to="link.to"
           class="sidebar-link"
           :class="{ active: isActive(link.to) }"
+          :aria-label="collapsed ? link.label : undefined"
+          :data-tooltip="link.label"
         >
           <SidebarIcon :name="link.icon" />
-          <span>{{ link.label }}</span>
+          <span class="sidebar-label">{{ link.label }}</span>
         </RouterLink>
       </nav>
 
@@ -96,15 +106,31 @@ function formatBuildTime(value: string): string {
           :to="link.to"
           class="sidebar-link"
           :class="{ active: isActive(link.to) }"
+          :aria-label="collapsed ? link.label : undefined"
+          :data-tooltip="link.label"
         >
           <SidebarIcon :name="link.icon" />
-          <span>{{ link.label }}</span>
+          <span class="sidebar-label">{{ link.label }}</span>
         </RouterLink>
-        <div class="sidebar-link sidebar-user">
+        <div class="sidebar-link sidebar-user" :data-tooltip="currentUserLabel">
           <SidebarIcon name="user" />
-          <span>{{ currentUserLabel }}</span>
+          <span class="sidebar-label">{{ currentUserLabel }}</span>
         </div>
       </nav>
+    </div>
+
+    <div class="sidebar-footer">
+      <button
+        type="button"
+        class="sidebar-link sidebar-toggle"
+        :aria-label="collapsed ? 'Expand sidebar' : 'Collapse sidebar'"
+        :aria-expanded="!collapsed"
+        :data-tooltip="collapsed ? 'Expand sidebar' : undefined"
+        @click="emit('toggle')"
+      >
+        <SidebarIcon :name="collapsed ? 'panel-open' : 'panel-close'" />
+        <span class="sidebar-label">Collapse sidebar</span>
+      </button>
     </div>
   </aside>
 </template>

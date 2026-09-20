@@ -100,7 +100,14 @@ function syncErrorText(syncError: string | undefined): string {
     <div v-else class="stack-dropdown-list">
       <details v-for="group in servicesByStack" :key="group.stackName" class="stack-dropdown" open>
         <summary class="stack-summary">
-          <span class="stack-summary-title">{{ group.stackName }}</span>
+          <span class="stack-summary-heading">
+            <svg class="stack-summary-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z" />
+              <path d="m22 12.5-9.17 4.17a2 2 0 0 1-1.66 0L2 12.5" />
+              <path d="m22 17.5-9.17 4.17a2 2 0 0 1-1.66 0L2 17.5" />
+            </svg>
+            <span class="stack-summary-title">{{ group.stackName }}</span>
+          </span>
           <span class="stack-summary-meta">{{ group.services.length }} services</span>
           <span class="stack-summary-chevron" aria-hidden="true">▾</span>
         </summary>
@@ -112,7 +119,6 @@ function syncErrorText(syncError: string | undefined): string {
               <col class="services-col-sync-status" />
               <col class="services-col-type" />
               <col class="services-col-version" />
-              <col class="services-col-actions" />
             </colgroup>
           </template>
           <template #head>
@@ -121,13 +127,22 @@ function syncErrorText(syncError: string | undefined): string {
                 <th>Sync Status</th>
                 <th>Type</th>
                 <th>Version</th>
-                <th />
               </tr>
           </template>
               <tr v-if="group.services.length === 0">
-                <td colspan="5" class="app-table-empty-cell">No services captured yet.</td>
+                <td colspan="4" class="app-table-empty-cell">No services captured yet.</td>
               </tr>
-              <tr v-for="service in group.services" :key="`${group.stackName}-${service.name}`">
+              <tr
+                v-for="service in group.services"
+                :key="`${group.stackName}-${service.name}`"
+                class="app-table-row--clickable"
+                tabindex="0"
+                role="button"
+                :aria-label="`Open details for ${service.name || 'service'}`"
+                @click="openServiceDetails(group.stackName, service.name)"
+                @keydown.enter="openServiceDetails(group.stackName, service.name)"
+                @keydown.space.prevent="openServiceDetails(group.stackName, service.name)"
+              >
                 <td class="services-cell-name" :title="service.name || undefined">
                   <strong class="stack-service-name">{{ service.name || "unknown" }}</strong>
                 </td>
@@ -147,11 +162,6 @@ function syncErrorText(syncError: string | undefined): string {
                 </td>
                 <td class="services-cell-type">{{ service.type_title || service.type }}</td>
                 <td class="services-cell-version" :title="service.image">{{ service.image_version || "—" }}</td>
-                <td class="app-table-cell--actions stack-service-actions-cell">
-                  <button type="button" class="service-status-btn" @click="openServiceDetails(group.stackName, service.name)">
-                    Details
-                  </button>
-                </td>
               </tr>
         </AppTable>
       </details>
