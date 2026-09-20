@@ -3,8 +3,9 @@ import { computed, onMounted, onUnmounted, ref } from "vue";
 
 import { fetchEvents, fetchRecommendations } from "../api/overview";
 import type { EventHistoryItem, Recommendation, RecommendationSeverity } from "../api/types";
-import OverviewCardAction from "../components/overview/OverviewCardAction.vue";
 import StackCard from "../components/overview/StackCard.vue";
+import SummaryPanel from "../components/overview/SummaryPanel.vue";
+import SummaryRow from "../components/overview/SummaryRow.vue";
 import { useOverviewStore } from "../stores/overview";
 import { formatDate, shortCommitHash } from "../utils/format";
 
@@ -78,7 +79,7 @@ function detailValue(item: EventHistoryItem, keys: string[]): string {
   return "";
 }
 
-function formatDateMinute(raw: string | undefined): string {
+function formatTime(raw: string | undefined): string {
   if (!raw) {
     return "n/a";
   }
@@ -89,9 +90,39 @@ function formatDateMinute(raw: string | undefined): string {
   }
 
   const pad = (value: number) => String(value).padStart(2, "0");
-  return `${pad(parsed.getDate())}.${pad(parsed.getMonth() + 1)}.${parsed.getFullYear()} ${pad(parsed.getHours())}:${pad(
-    parsed.getMinutes(),
-  )}`;
+  return `${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
+}
+
+function formatRelativeTime(raw: string | undefined): string {
+  if (!raw) {
+    return "time unknown";
+  }
+
+  const timestamp = new Date(raw).valueOf();
+  if (Number.isNaN(timestamp)) {
+    return raw;
+  }
+
+  const elapsedMinutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60000));
+  if (elapsedMinutes < 1) {
+    return "just now";
+  }
+  if (elapsedMinutes < 60) {
+    return `${elapsedMinutes} min ago`;
+  }
+
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  return elapsedHours === 1 ? "1 hour ago" : `${elapsedHours} hours ago`;
+}
+
+function eventSubject(item: EventHistoryItem): string {
+  const stack = detailValue(item, ["stack", "stack_name"]);
+  const service = detailValue(item, ["service", "service_name"]);
+  return [stack, service].filter(Boolean).join(" / ") || "Swarm Deploy";
+}
+
+function recommendationSubject(recommendation: Recommendation): string {
+  return [recommendation.subject.stack, recommendation.subject.service].filter(Boolean).join(" / ") || "Swarm Deploy";
 }
 
 function recommendationSeverityClass(severity: RecommendationSeverity): string {
@@ -202,91 +233,100 @@ onUnmounted(() => {
   </section>
 
   <section class="overview-summary-grid" aria-label="Overview highlights">
-    <article class="stack-card overview-latest-deployments">
-      <header class="overview-card-header">
-        <h2 class="overview-panel-title">Latest Deployments</h2>
-        <OverviewCardAction :to="{ path: '/events', query: { types: ['deploySuccess', 'deployFailed'] } }" />
-      </header>
+    <SummaryPanel
+      title="Latest Deployments"
+      icon="deployments"
+      :to="{ path: '/events', query: { types: ['deploySuccess', 'deployFailed'] } }"
+    >
       <p v-if="overviewEventsError && deploymentEvents.length === 0" class="meta">
         Failed to load latest deployments: {{ overviewEventsError }}
       </p>
-      <p v-else-if="deploymentEvents.length === 0" class="meta">No deployments recorded yet.</p>
+      <div v-else-if="deploymentEvents.length === 0" class="overview-summary-empty">
+        <span class="overview-summary-empty-icon" aria-hidden="true">↓</span>
+        <strong>No deployments yet</strong>
+        <span>Recent deployments will appear here</span>
+      </div>
       <div v-else class="overview-deployment-list">
-        <article
+        <SummaryRow
           v-for="event in deploymentEvents.slice(0, deploymentEventsLimit)"
           :key="`${event.type}-${event.created_at}-${event.message}`"
-          class="overview-deployment-item"
+          :interactive="Boolean(detailValue(event, ['commit', 'revision']))"
+          :aria-label="`Open deployment commit ${detailValue(event, ['commit', 'revision'])}`"
+          @activate="openCommitDetails(detailValue(event, ['commit', 'revision']))"
         >
-          <p class="overview-deployment-row">
-            <span class="overview-deployment-stack">{{ detailValue(event, ["stack", "stack_name"]) || "unknown stack" }}</span>
-            <span class="overview-deployment-result" :class="deploymentResultClass(event)">
+          <span class="overview-deployment-stack">{{ detailValue(event, ["stack", "stack_name"]) || "unknown stack" }}</span>
+          <span class="overview-deployment-result" :class="deploymentResultClass(event)">
+            <span class="overview-deployment-result-icon" aria-hidden="true">
+              {{ event.type === "deploySuccess" ? "✓" : "!" }}
+            </span>
+            <span>
               {{ deploymentResult(event) }}
             </span>
-            <span>{{ formatDateMinute(event.created_at) }}</span>
-            <button
-              v-if="detailValue(event, ['commit', 'revision'])"
-              type="button"
-              class="overview-deployment-revision"
-              @click="openCommitDetails(detailValue(event, ['commit', 'revision']))"
-            >
-              {{ shortCommitHash(detailValue(event, ["commit", "revision"])) }}
-            </button>
-          </p>
-        </article>
+          </span>
+          <time class="overview-deployment-time" :datetime="event.created_at">{{ formatTime(event.created_at) }}</time>
+          <span v-if="detailValue(event, ['commit', 'revision'])" class="overview-commit-badge overview-summary-sha-badge">
+            {{ shortCommitHash(detailValue(event, ["commit", "revision"])) }}
+          </span>
+          <span v-else class="overview-summary-value-empty">n/a</span>
+        </SummaryRow>
       </div>
-    </article>
+    </SummaryPanel>
 
-    <article class="stack-card overview-alerts" :class="{ 'overview-alerts-has-items': alertEvents.length > 0 }">
-      <header class="overview-card-header">
-        <h2 class="overview-panel-title">Alerts</h2>
-        <OverviewCardAction to="/events?severity=alert" />
-      </header>
+    <SummaryPanel title="Alerts" icon="alerts" to="/events?severity=alert">
       <p v-if="overviewEventsError && alertEvents.length === 0" class="meta">Failed to load alerts: {{ overviewEventsError }}</p>
-      <p v-else-if="alertEvents.length === 0" class="meta">No alerts in the last 12 hours.</p>
+      <div v-else-if="alertEvents.length === 0" class="overview-summary-empty">
+        <span class="overview-summary-empty-icon overview-summary-empty-icon--healthy" aria-hidden="true">✓</span>
+        <strong>No active alerts</strong>
+        <span>Everything looks healthy</span>
+      </div>
       <div v-else class="overview-alert-list">
-        <button
+        <SummaryRow
           v-for="event in alertEvents"
           :key="`${event.type}-${event.created_at}-${event.message}`"
-          type="button"
-          class="overview-alert-item"
-          @click="openAlertDetails(event)"
+          interactive
+          :aria-label="`Open alert: ${event.message || 'No message'}`"
+          @activate="openAlertDetails(event)"
         >
-          <span class="overview-alert-row">
+          <span class="overview-summary-severity overview-summary-severity--alert" aria-hidden="true"></span>
+          <span class="overview-summary-row-copy">
             <span class="overview-alert-message">{{ event.message || "No message" }}</span>
-            <span class="overview-alert-time">{{ formatDateMinute(event.created_at) }}</span>
+            <span class="overview-summary-secondary">
+              {{ eventSubject(event) }} · {{ formatRelativeTime(event.created_at) }}
+            </span>
           </span>
-        </button>
+        </SummaryRow>
       </div>
-    </article>
+    </SummaryPanel>
 
-    <article
-      class="stack-card overview-recommendations"
-      :class="{ 'overview-recommendations-has-items': overviewRecommendations.length > 0 }"
-    >
-      <header class="overview-card-header">
-        <h2 class="overview-panel-title">Recommendations</h2>
-        <OverviewCardAction to="/recommendations" />
-      </header>
+    <SummaryPanel title="Recommendations" icon="recommendations" to="/recommendations">
       <p v-if="overviewRecommendationsError && overviewRecommendations.length === 0" class="meta">
         Failed to load recommendations: {{ overviewRecommendationsError }}
       </p>
-      <p v-else-if="overviewRecommendations.length === 0" class="meta">No recommendations right now.</p>
+      <div v-else-if="overviewRecommendations.length === 0" class="overview-summary-empty">
+        <span class="overview-summary-empty-icon overview-summary-empty-icon--healthy" aria-hidden="true">✓</span>
+        <strong>No recommendations</strong>
+        <span>Your configuration looks good</span>
+      </div>
       <div v-else class="overview-recommendation-list">
-        <article
+        <SummaryRow
           v-for="recommendation in overviewRecommendations"
           :key="`${recommendation.severity}-${recommendation.subject.stack}-${recommendation.subject.service}-${recommendation.title}`"
-          class="overview-recommendation-item"
+          to="/recommendations"
+          :aria-label="`View recommendation: ${recommendation.title}`"
         >
           <span
-            class="overview-recommendation-severity-dot"
+            class="overview-summary-severity"
             :class="recommendationSeverityClass(recommendation.severity)"
             :title="recommendation.severity"
             aria-hidden="true"
           ></span>
-          <span class="overview-recommendation-text">{{ recommendation.title }}</span>
-        </article>
+          <span class="overview-summary-row-copy">
+            <span class="overview-recommendation-text">{{ recommendation.title }}</span>
+            <span class="overview-summary-secondary">{{ recommendationSubject(recommendation) }}</span>
+          </span>
+        </SummaryRow>
       </div>
-    </article>
+    </SummaryPanel>
   </section>
 
   <section>
