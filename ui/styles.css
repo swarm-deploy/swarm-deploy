@@ -1086,6 +1086,24 @@ button:hover,
   content: "";
 }
 
+.stack-summary-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.stack-summary-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  color: var(--muted);
+  stroke: currentColor;
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .stack-summary-title {
   font-weight: 600;
   min-width: 0;

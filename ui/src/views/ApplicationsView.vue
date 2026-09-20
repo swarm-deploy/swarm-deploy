@@ -100,7 +100,14 @@ function syncErrorText(syncError: string | undefined): string {
     <div v-else class="stack-dropdown-list">
       <details v-for="group in servicesByStack" :key="group.stackName" class="stack-dropdown" open>
         <summary class="stack-summary">
-          <span class="stack-summary-title">{{ group.stackName }}</span>
+          <span class="stack-summary-heading">
+            <svg class="stack-summary-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z" />
+              <path d="m22 12.5-9.17 4.17a2 2 0 0 1-1.66 0L2 12.5" />
+              <path d="m22 17.5-9.17 4.17a2 2 0 0 1-1.66 0L2 17.5" />
+            </svg>
+            <span class="stack-summary-title">{{ group.stackName }}</span>
+          </span>
           <span class="stack-summary-meta">{{ group.services.length }} services</span>
           <span class="stack-summary-chevron" aria-hidden="true">▾</span>
         </summary>
