@@ -105,8 +105,9 @@ button:hover,
 
 .stack-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 14px;
+  align-items: stretch;
 }
 
 .service-grid {
@@ -206,6 +207,209 @@ button:hover,
 
 .stack-manifest-open-button {
   flex-shrink: 0;
+}
+
+.overview-stack-card {
+  min-width: 0;
+  min-height: 208px;
+  padding: 16px 16px 14px 18px;
+  gap: 16px;
+  border-color: rgba(148, 163, 184, 0.12);
+  border-left-width: 3px;
+  transition: border-color 140ms ease, box-shadow 140ms ease, transform 140ms ease;
+}
+
+.overview-stack-card:hover {
+  border-top-color: rgba(148, 163, 184, 0.24);
+  border-right-color: rgba(148, 163, 184, 0.24);
+  border-bottom-color: rgba(148, 163, 184, 0.24);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16);
+  transform: translateY(-1px);
+}
+
+.overview-stack-card--synced {
+  border-left-color: rgba(74, 222, 128, 0.78);
+}
+
+.overview-stack-card--out-of-sync {
+  border-left-color: rgba(250, 204, 21, 0.82);
+}
+
+.overview-stack-card--unknown {
+  border-left-color: rgba(161, 161, 170, 0.58);
+}
+
+.overview-stack-card-header {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.overview-stack-card-title {
+  min-width: 0;
+  margin: 0;
+  font-size: 1.08rem;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+
+.overview-stack-card-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.overview-stack-status-badge,
+.overview-stack-services-badge {
+  min-height: 25px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid;
+  border-radius: 999px;
+  padding: 3px 9px;
+  font-size: 0.76rem;
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.overview-stack-status-badge {
+  gap: 5px;
+}
+
+.overview-stack-status-icon {
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.overview-stack-status-badge--synced {
+  color: var(--success);
+  border-color: rgba(74, 222, 128, 0.3);
+  background: rgba(74, 222, 128, 0.08);
+}
+
+.overview-stack-status-badge--out-of-sync {
+  color: var(--warning);
+  border-color: rgba(250, 204, 21, 0.3);
+  background: rgba(250, 204, 21, 0.08);
+}
+
+.overview-stack-status-badge--unknown {
+  color: var(--muted);
+  border-color: rgba(161, 161, 170, 0.24);
+  background: rgba(161, 161, 170, 0.06);
+}
+
+.overview-stack-services-badge {
+  color: var(--muted);
+  border-color: rgba(148, 163, 184, 0.18);
+  background: rgba(148, 163, 184, 0.06);
+  font-weight: 500;
+}
+
+.overview-stack-card-metadata {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+}
+
+.overview-stack-card-metadata > div {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+}
+
+.overview-stack-card-metadata dt,
+.overview-stack-card-metadata dd {
+  min-width: 0;
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.overview-stack-card-metadata dt,
+.overview-stack-metadata-empty {
+  color: var(--muted);
+}
+
+.overview-stack-card-metadata dd {
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.overview-stack-commit-badge {
+  min-height: 25px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 6px;
+  background: rgba(9, 9, 11, 0.4);
+  color: var(--muted);
+  padding: 3px 8px;
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.76rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.overview-stack-commit-badge:hover,
+.overview-stack-commit-badge:focus-visible {
+  border-color: rgba(96, 165, 250, 0.48);
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--text);
+  filter: none;
+  transform: none;
+}
+
+.overview-stack-card-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 2px;
+}
+
+.overview-stack-card-action,
+.overview-stack-card-action:hover,
+.overview-stack-card-action:focus-visible,
+.overview-stack-card-action:active {
+  min-width: 0;
+  min-height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 7px;
+  background: rgba(39, 39, 42, 0.7);
+  color: var(--text);
+  padding: 7px 10px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  text-decoration: none;
+  filter: none;
+  transform: none;
+  transition: border-color 120ms ease, background-color 120ms ease, color 120ms ease;
+}
+
+.overview-stack-card-action:hover,
+.overview-stack-card-action:focus-visible {
+  border-color: rgba(96, 165, 250, 0.52);
+  background: rgba(59, 130, 246, 0.14);
+}
+
+.overview-stack-card-action:active {
+  border-color: rgba(96, 165, 250, 0.68);
+  background: rgba(59, 130, 246, 0.22);
+}
+
+.overview-stack-card-action:focus-visible,
+.overview-stack-commit-badge:focus-visible {
+  outline: 2px solid rgba(96, 165, 250, 0.85);
+  outline-offset: 2px;
 }
 
 .overview-summary-grid {
@@ -444,6 +648,7 @@ button:hover,
 
 .node-list {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
 }
 
@@ -1964,6 +2169,22 @@ button:hover,
   }
 }
 
+@media (max-width: 1200px) {
+  .stack-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 700px) {
+  .stack-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .node-list {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 @media (max-width: 650px) {
   .layout {
     padding-top: 20px;
@@ -1980,6 +2201,10 @@ button:hover,
   .topbar {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .overview-stack-card {
+    min-height: auto;
   }
 
   .services-header {

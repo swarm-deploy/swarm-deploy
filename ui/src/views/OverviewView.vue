@@ -2,8 +2,9 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 
 import { fetchEvents, fetchRecommendations } from "../api/overview";
-import type { EventHistoryItem, Recommendation, RecommendationSeverity, StackStatus } from "../api/types";
+import type { EventHistoryItem, Recommendation, RecommendationSeverity } from "../api/types";
 import OverviewCardAction from "../components/overview/OverviewCardAction.vue";
+import StackCard from "../components/overview/StackCard.vue";
 import { useOverviewStore } from "../stores/overview";
 import { formatDate, shortCommitHash } from "../utils/format";
 
@@ -37,30 +38,17 @@ const sortedRecommendations = computed(() =>
     ),
 );
 const overviewRecommendations = computed(() => sortedRecommendations.value.slice(0, recommendationsLimit));
-
-function normalizeStackStatus(status?: StackStatus | null): StackStatus {
-  return {
-    synced: Number(status?.synced ?? 0),
-    out_of_synced: Number(status?.out_of_synced ?? 0),
-  };
-}
-
-function stackStatusClass(status?: StackStatus | null): string {
-  const normalizedStatus = normalizeStackStatus(status);
-  if (normalizedStatus.out_of_synced > 0) {
-    return "failed";
-  }
-  if (normalizedStatus.synced > 0) {
-    return "success";
+const serviceCountsByStack = computed(() => {
+  const counts = new Map<string, number>();
+  for (const service of overviewStore.services) {
+    counts.set(service.stack, (counts.get(service.stack) ?? 0) + 1);
   }
 
-  return "unknown";
-}
+  return counts;
+});
 
-function stackStatusLabel(status?: StackStatus | null): string {
-  const normalizedStatus = normalizeStackStatus(status);
-
-  return `synced ${normalizedStatus.synced} | out of sync ${normalizedStatus.out_of_synced}`;
+function serviceCount(stackName: string): number {
+  return serviceCountsByStack.value.get(stackName) ?? 0;
 }
 
 function deploymentResult(item: EventHistoryItem): string {
@@ -315,55 +303,14 @@ onUnmounted(() => {
     </div>
 
     <div v-else class="stack-grid">
-      <article v-for="stack in overviewStore.stacks" :key="stack.name" class="stack-card">
-        <h3 class="stack-title">{{ stack.name }}</h3>
-        <span class="status stack-card-status" :class="stackStatusClass(stack.status)">
-          {{ stackStatusLabel(stack.status) }}
-        </span>
-        <p class="meta">compose: {{ stack.compose_file }}</p>
-        <p class="meta">last deploy: {{ formatDate(stack.last_deploy_at) }}</p>
-        <p class="meta">
-          commit:
-          <button
-            v-if="stack.last_commit"
-            type="button"
-            class="stack-commit-badge status unknown"
-            @click="openCommitDetails(stack.last_commit)"
-          >
-            {{ shortCommitHash(stack.last_commit) }}
-          </button>
-          <span v-else> n/a</span>
-        </p>
-        <p v-if="stack.last_error" class="meta">error: {{ stack.last_error }}</p>
-        <div class="stack-card-actions">
-          <button
-            type="button"
-            class="service-copy-task-id-button stack-manifest-open-button"
-            aria-label="Show stack manifest"
-            title="Show stack manifest"
-            @click="openStackManifest(stack.name)"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <g transform="translate(0 -1028.4)">
-                <path
-                  d="m5 1030.4c-1.1046 0-2 0.9-2 2v8 4 6c0 1.1 0.8954 2 2 2h14c1.105 0 2-0.9 2-2v-6-4-4l-6-6h-10z"
-                  fill="#95a5a6"
-                />
-                <path
-                  d="m5 1029.4c-1.1046 0-2 0.9-2 2v8 4 6c0 1.1 0.8954 2 2 2h14c1.105 0 2-0.9 2-2v-6-4-4l-6-6h-10z"
-                  fill="#bdc3c7"
-                />
-                <path d="m21 1035.4-6-6v4c0 1.1 0.895 2 2 2h4z" fill="#95a5a6" />
-                <path
-                  d="m6 8v1h12v-1h-12zm0 3v1h12v-1h-12zm0 3v1h12v-1h-12zm0 3v1h12v-1h-12z"
-                  transform="translate(0 1028.4)"
-                  fill="#95a5a6"
-                />
-              </g>
-            </svg>
-          </button>
-        </div>
-      </article>
+      <StackCard
+        v-for="stack in overviewStore.stacks"
+        :key="stack.name"
+        :stack="stack"
+        :service-count="serviceCount(stack.name)"
+        @compare="openStackManifest"
+        @commit="openCommitDetails"
+      />
     </div>
   </section>
 </template>
