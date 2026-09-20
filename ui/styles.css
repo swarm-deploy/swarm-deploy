@@ -1122,23 +1122,19 @@ button:hover,
 
 /* Fixed column widths so tables align across stacks (same % of full content width). */
 .services-stack-table .services-col-name {
-  width: 30%;
+  width: 34%;
 }
 
 .services-stack-table .services-col-sync-status {
-  width: 17%;
+  width: 19%;
 }
 
 .services-stack-table .services-col-type {
-  width: 15%;
+  width: 17%;
 }
 
 .services-stack-table .services-col-version {
-  width: 26%;
-}
-
-.services-stack-table .services-col-actions {
-  width: 12%;
+  width: 30%;
 }
 
 .services-stack-table .services-cell-name,
@@ -1184,14 +1180,6 @@ button:hover,
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.stack-service-actions-cell {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  white-space: nowrap;
-  vertical-align: middle;
 }
 
 .meta {
@@ -1304,12 +1292,6 @@ button:hover,
   min-width: 0;
   overflow-wrap: anywhere;
   word-break: break-word;
-}
-
-.service-status-btn {
-  padding: 6px 10px;
-  font-size: 0.75rem;
-  flex-shrink: 0;
 }
 
 .service-secret-badge {

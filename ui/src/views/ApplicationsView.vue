@@ -112,7 +112,6 @@ function syncErrorText(syncError: string | undefined): string {
               <col class="services-col-sync-status" />
               <col class="services-col-type" />
               <col class="services-col-version" />
-              <col class="services-col-actions" />
             </colgroup>
           </template>
           <template #head>
@@ -121,13 +120,22 @@ function syncErrorText(syncError: string | undefined): string {
                 <th>Sync Status</th>
                 <th>Type</th>
                 <th>Version</th>
-                <th />
               </tr>
           </template>
               <tr v-if="group.services.length === 0">
-                <td colspan="5" class="app-table-empty-cell">No services captured yet.</td>
+                <td colspan="4" class="app-table-empty-cell">No services captured yet.</td>
               </tr>
-              <tr v-for="service in group.services" :key="`${group.stackName}-${service.name}`">
+              <tr
+                v-for="service in group.services"
+                :key="`${group.stackName}-${service.name}`"
+                class="app-table-row--clickable"
+                tabindex="0"
+                role="button"
+                :aria-label="`Open details for ${service.name || 'service'}`"
+                @click="openServiceDetails(group.stackName, service.name)"
+                @keydown.enter="openServiceDetails(group.stackName, service.name)"
+                @keydown.space.prevent="openServiceDetails(group.stackName, service.name)"
+              >
                 <td class="services-cell-name" :title="service.name || undefined">
                   <strong class="stack-service-name">{{ service.name || "unknown" }}</strong>
                 </td>
@@ -147,11 +155,6 @@ function syncErrorText(syncError: string | undefined): string {
                 </td>
                 <td class="services-cell-type">{{ service.type_title || service.type }}</td>
                 <td class="services-cell-version" :title="service.image">{{ service.image_version || "—" }}</td>
-                <td class="app-table-cell--actions stack-service-actions-cell">
-                  <button type="button" class="service-status-btn" @click="openServiceDetails(group.stackName, service.name)">
-                    Details
-                  </button>
-                </td>
               </tr>
         </AppTable>
       </details>
