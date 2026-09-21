@@ -103,7 +103,7 @@ func (e *Executor) Execute(ctx context.Context, req routing.Request) (string, er
 	ctx, span := e.tracer.Start(ctx, "MCP "+req.ToolName, trace.WithAttributes(
 		tracing.GenAIToolName.String(req.ToolName),
 		tracing.GenAIToolType.String("function"),
-		tracing.GenAIToolCallArguments.String(req.Payload.(string)),
+		tracing.GenAIToolCallArguments.String(req.Payload.(string)), //nolint:errcheck // nn
 	))
 	defer span.End()
 

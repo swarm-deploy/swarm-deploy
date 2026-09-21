@@ -16,7 +16,7 @@ import (
 const defaultOpenAIRequestTimeout = 60 * time.Second
 
 type openAIClient struct {
-	client  openai.Client
+	client openai.Client
 }
 
 func newOpenAIClient(baseURL, token, organizationID string) *openAIClient {
