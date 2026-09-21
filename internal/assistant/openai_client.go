@@ -7,14 +7,15 @@ import (
 	"strings"
 	"time"
 
+	otelopenai "github.com/langwatch/langwatch/sdks/go/instrumentation/openai"
 	openai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 )
 
 const defaultOpenAIRequestTimeout = 60 * time.Second
 
 type openAIClient struct {
-	baseURL string
 	client  openai.Client
 }
 
@@ -33,10 +34,12 @@ func newOpenAIClient(baseURL, token, organizationID string) *openAIClient {
 	if organizationID != "" {
 		options = append(options, option.WithOrganization(organizationID))
 	}
+	if tracing.Enabled() {
+		options = append(options, option.WithMiddleware(otelopenai.Middleware("swarm-deploy")))
+	}
 
 	return &openAIClient{
-		baseURL: baseURL,
-		client:  openai.NewClient(options...),
+		client: openai.NewClient(options...),
 	}
 }
 
