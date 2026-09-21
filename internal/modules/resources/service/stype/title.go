@@ -19,6 +19,8 @@ func Title(typ Type) string {
 		return "Cron Manager"
 	case DeploymentManagementSystem:
 		return "Deployment Management System"
+	case MCP:
+		return "MCP"
 	default:
 		return "Application"
 	}

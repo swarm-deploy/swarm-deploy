@@ -62,6 +62,28 @@ func TestMetadataExtractorResolveTypePriority(t *testing.T) {
 			expected: serviceType.CronManager,
 		},
 		{
+			name:     "postgres MCP dictionary value used from image name",
+			image:    "registry.example.com/team/postgres-mcp:latest",
+			labels:   Labels{},
+			expected: serviceType.MCP,
+		},
+		{
+			name:     "NATS MCP dictionary value used from image name",
+			image:    "registry.example.com/team/mcp-nats:v1.0.0",
+			labels:   Labels{},
+			expected: serviceType.MCP,
+		},
+		{
+			name:  "normalizes MCP service type label",
+			image: "registry.example.com/team/custom-mcp:1",
+			labels: Labels{
+				Service: map[string]string{
+					labelsdict.ServiceType: "MCP",
+				},
+			},
+			expected: serviceType.MCP,
+		},
+		{
 			name:  "normalizes camel case service type labels",
 			image: "registry.example.com/team/custom-worker:1",
 			labels: Labels{

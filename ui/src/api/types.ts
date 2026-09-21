@@ -48,7 +48,8 @@ export type ServiceType =
   | "database"
   | "secretManager"
   | "cronManager"
-  | "deploymentManagementSystem";
+  | "deploymentManagementSystem"
+  | "mcp";
 export type ServiceSyncStatus = "Synced" | "OutOfSync" | "unknown";
 
 export interface WebRoute {

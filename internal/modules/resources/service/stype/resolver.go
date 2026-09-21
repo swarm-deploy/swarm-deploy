@@ -26,6 +26,8 @@ const (
 	SecretManager Type = "secretManager"
 	// CronManager is a service type for cron schedulers and cronjob controllers.
 	CronManager Type = "cronManager"
+	// MCP is a service type for Model Context Protocol servers.
+	MCP Type = "mcp"
 )
 
 // Labels groups metadata labels for type resolving.
@@ -79,6 +81,8 @@ func NormalizeTypeName(raw string) (Type, bool) {
 		return CronManager, true
 	case "deploymentmanagementsystem", "deployment_management_system", "deployment-management-system":
 		return DeploymentManagementSystem, true
+	case "mcp":
+		return MCP, true
 	default:
 		return "", false
 	}

@@ -123,7 +123,7 @@ func toGeneratedServiceRealtimeTasks(
 		item := generated.ServiceRealtimeTask{
 			ID:           task.ID,
 			Node:         task.Node,
-			CurrentState: task.CurrentState,
+			CurrentState: string(task.CurrentState),
 		}
 		if !task.CreatedAt.IsZero() {
 			item.CreatedAt = generated.NewOptDateTime(task.CreatedAt)
@@ -397,6 +397,8 @@ func toGeneratedGraphNodeKind(kind resourcegraph.Kind) generated.GraphNodeKind {
 		return generated.GraphNodeKindCronManager
 	case resourcegraph.KindDeploymentManagementSystem:
 		return generated.GraphNodeKindDeploymentManagementSystem
+	case resourcegraph.KindMCP:
+		return generated.GraphNodeKindMcp
 	default:
 		return generated.GraphNodeKindApplication
 	}
@@ -602,6 +604,8 @@ func toGeneratedServiceType(typ serviceType.Type) generated.ServiceInfoType {
 		return generated.ServiceInfoTypeCronManager
 	case serviceType.DeploymentManagementSystem:
 		return generated.ServiceInfoTypeDeploymentManagementSystem
+	case serviceType.MCP:
+		return generated.ServiceInfoTypeMcp
 	default:
 		return generated.ServiceInfoTypeApplication
 	}

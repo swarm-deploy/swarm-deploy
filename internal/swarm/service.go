@@ -37,8 +37,8 @@ type ServiceTask struct {
 	CreatedAt time.Time
 	// UpdatedAt is task last update timestamp from Docker Swarm.
 	UpdatedAt time.Time
-	// CurrentState is a current task state in docker status format.
-	CurrentState string
+	// CurrentState is the current task state.
+	CurrentState TaskState
 	// Error is a task runtime error.
 	Error string
 }

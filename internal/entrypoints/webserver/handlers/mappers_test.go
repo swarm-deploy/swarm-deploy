@@ -147,6 +147,19 @@ func TestToGeneratedServiceInfo(t *testing.T) {
 			expectedType:   generated.ServiceInfoTypeSecretManager,
 			expectedTitle:  "Secret Manager",
 		},
+		{
+			name: "returns MCP type and title",
+			serviceInfo: service.Info{
+				Name:     "postgres-mcp",
+				Stack:    "platform",
+				Metadata: metadata.Metadata{Type: serviceType.MCP},
+			},
+			runtime:        model.Runtime{},
+			expectedStatus: "unknown",
+			expectedError:  "",
+			expectedType:   generated.ServiceInfoTypeMcp,
+			expectedTitle:  "MCP",
+		},
 	}
 
 	for _, testCase := range testCases {

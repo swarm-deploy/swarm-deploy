@@ -219,7 +219,7 @@ func (m *serviceManager) ListTasks(ctx context.Context, serviceRef ServiceRefere
 			Node:         task.NodeID,
 			CreatedAt:    task.CreatedAt,
 			UpdatedAt:    task.UpdatedAt,
-			CurrentState: string(task.Status.State),
+			CurrentState: TaskState(task.Status.State),
 			Error:        task.Status.Err,
 		})
 	}
