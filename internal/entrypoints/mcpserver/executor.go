@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"reflect"
@@ -18,7 +19,11 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const selfMetricsNamePrefix = "swarm_deploy_"
@@ -29,6 +34,7 @@ type Executor struct {
 	definitions []routing.ToolDefinition
 	requests    map[string]any
 	metrics     metrics.MCP
+	tracer      trace.Tracer
 }
 
 // NewExecutor creates an MCP tool executor from service components.
@@ -83,6 +89,7 @@ func NewExecutor(
 		definitions: definitions,
 		requests:    requests,
 		metrics:     mcpMetrics,
+		tracer:      otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver"),
 	}
 }
 
@@ -93,6 +100,13 @@ func (e *Executor) Definitions() []routing.ToolDefinition {
 
 // Execute runs a tool by name.
 func (e *Executor) Execute(ctx context.Context, req routing.Request) (string, error) {
+	ctx, span := e.tracer.Start(ctx, "MCP "+req.ToolName, trace.WithAttributes(
+		tracing.GenAIToolName.String(req.ToolName),
+		tracing.GenAIToolType.String("function"),
+		tracing.GenAIToolCallArguments.String(req.Payload.(string)), //nolint:errcheck // nn
+	))
+	defer span.End()
+
 	startedAt := time.Now()
 	success := false
 	defer func() {
@@ -101,13 +115,18 @@ func (e *Executor) Execute(ctx context.Context, req routing.Request) (string, er
 
 	tool, ok := e.tools[req.ToolName]
 	if !ok {
+		tracing.FailSpan(span, errors.New("tool not found"))
 		e.metrics.RecordUnknownTool(req.ToolName)
 
 		return "", fmt.Errorf("unknown tool %q", req.ToolName)
 	}
 
+	span.SetAttributes(tracing.GenAIToolDescription.String(tool.Definition().Description))
+
 	decodedPayload, err := decodeToolRequestPayload(req.Payload, e.requests[req.ToolName])
 	if err != nil {
+		tracing.FailSpan(span, fmt.Errorf("failed to decode payload: %w", err))
+
 		return "", fmt.Errorf("decode %q request payload: %w", req.ToolName, err)
 	}
 	req.Payload = decodedPayload
@@ -119,13 +138,20 @@ func (e *Executor) Execute(ctx context.Context, req routing.Request) (string, er
 
 	result, err := tool.Execute(ctx, req)
 	if err != nil {
+		tracing.FailSpan(span, fmt.Errorf("failed to execute tool: %w", err))
+
 		return "", err
 	}
 
 	encoded, err := json.Marshal(result.Payload)
 	if err != nil {
+		tracing.FailSpan(span, fmt.Errorf("failed to encode payload: %w", err))
+
 		return "", fmt.Errorf("encode %q tool response: %w", req.ToolName, err)
 	}
+
+	span.SetAttributes(tracing.GenAIToolCallResult.String(string(encoded)))
+	span.SetStatus(codes.Ok, "success")
 
 	success = true
 	return string(encoded), nil

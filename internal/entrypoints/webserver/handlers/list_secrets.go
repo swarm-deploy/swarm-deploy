@@ -8,16 +8,12 @@ import (
 )
 
 func (h *handler) ListSecrets(ctx context.Context) (*generated.SecretsResponse, error) {
-	items := []generated.SecretInfo{}
-	if h.secrets != nil {
-		secrets, err := h.secrets.List(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("list docker secrets: %w", err)
-		}
-		items = toGeneratedSecrets(secrets)
+	secrets, err := h.secrets.List(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list docker secrets: %w", err)
 	}
 
 	return &generated.SecretsResponse{
-		Secrets: items,
+		Secrets: toGeneratedSecrets(secrets),
 	}, nil
 }
