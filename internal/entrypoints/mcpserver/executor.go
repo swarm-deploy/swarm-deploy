@@ -102,6 +102,7 @@ func (e *Executor) Definitions() []routing.ToolDefinition {
 func (e *Executor) Execute(ctx context.Context, req routing.Request) (string, error) {
 	ctx, span := e.tracer.Start(ctx, "MCP "+req.ToolName, trace.WithAttributes(
 		tracing.GenAIToolName.String(req.ToolName),
+		tracing.GenAIToolType.String("function"),
 		tracing.GenAIToolCallArguments.String(req.Payload.(string)),
 	))
 	defer span.End()
@@ -119,6 +120,8 @@ func (e *Executor) Execute(ctx context.Context, req routing.Request) (string, er
 
 		return "", fmt.Errorf("unknown tool %q", req.ToolName)
 	}
+
+	span.SetAttributes(tracing.GenAIToolDescription.String(tool.Definition().Description))
 
 	decodedPayload, err := decodeToolRequestPayload(req.Payload, e.requests[req.ToolName])
 	if err != nil {
