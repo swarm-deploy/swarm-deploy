@@ -15,6 +15,9 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -38,6 +41,8 @@ type Service struct {
 
 	event        dispatcher.Dispatcher
 	chatObserver metrics.Assistant
+
+	tracer trace.Tracer
 }
 
 // RAGObserver records RAG indexing and retrieval telemetry.
@@ -80,14 +85,22 @@ func NewService(
 		),
 		event:        eventDispatcher,
 		chatObserver: metrics,
+		tracer:       otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/assistant"),
 	}, nil
 }
 
 // Chat handles new assistant requests and polling requests.
 func (s *Service) Chat(ctx context.Context, request ChatRequest) ChatResponse {
+	ctx, span := s.tracer.Start(ctx, "assistant.Chat")
+	defer span.End()
+
 	conversationID := strings.TrimSpace(request.ConversationID)
 	requestID := strings.TrimSpace(request.RequestID)
 	message := strings.TrimSpace(request.Message)
+
+	if conversationID != "" {
+		span.SetAttributes(tracing.GenAIConversationID.String(conversationID))
+	}
 
 	waitTimeout := sanitizeWaitTimeout(request.WaitTimeoutMS)
 
@@ -116,6 +129,7 @@ func (s *Service) Chat(ctx context.Context, request ChatRequest) ChatResponse {
 
 	if conversationID == "" {
 		conversationID = uuid.NewString()
+		span.SetAttributes(tracing.GenAIConversationID.String(conversationID))
 	}
 	if requestID == "" {
 		requestID = uuid.NewString()
