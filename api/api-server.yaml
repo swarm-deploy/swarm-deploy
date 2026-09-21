@@ -531,7 +531,7 @@ components:
             $ref: '#/components/schemas/GraphNode'
     GraphNodeKind:
       type: string
-      enum: [application, monitoring, delivery, reverseProxy, database, secretManager, cronManager, deploymentManagementSystem]
+      enum: [application, monitoring, delivery, reverseProxy, database, secretManager, cronManager, deploymentManagementSystem, mcp]
     GraphNode:
       type: object
       required: [name, kind]
@@ -572,7 +572,7 @@ components:
           type: string
         type:
           type: string
-          enum: [application, monitoring, delivery, reverseProxy, database, secretManager, cronManager, deploymentManagementSystem]
+          enum: [application, monitoring, delivery, reverseProxy, database, secretManager, cronManager, deploymentManagementSystem, mcp]
         type_title:
           type: string
           description: Human-readable title for the service type enum.

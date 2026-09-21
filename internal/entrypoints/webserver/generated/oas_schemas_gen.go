@@ -562,6 +562,7 @@ const (
 	GraphNodeKindSecretManager              GraphNodeKind = "secretManager"
 	GraphNodeKindCronManager                GraphNodeKind = "cronManager"
 	GraphNodeKindDeploymentManagementSystem GraphNodeKind = "deploymentManagementSystem"
+	GraphNodeKindMcp                        GraphNodeKind = "mcp"
 )
 
 // AllValues returns all GraphNodeKind values.
@@ -575,6 +576,7 @@ func (GraphNodeKind) AllValues() []GraphNodeKind {
 		GraphNodeKindSecretManager,
 		GraphNodeKindCronManager,
 		GraphNodeKindDeploymentManagementSystem,
+		GraphNodeKindMcp,
 	}
 }
 
@@ -596,6 +598,8 @@ func (s GraphNodeKind) MarshalText() ([]byte, error) {
 	case GraphNodeKindCronManager:
 		return []byte(s), nil
 	case GraphNodeKindDeploymentManagementSystem:
+		return []byte(s), nil
+	case GraphNodeKindMcp:
 		return []byte(s), nil
 	default:
 		return nil, errors.Errorf("invalid value: %q", s)
@@ -628,6 +632,9 @@ func (s *GraphNodeKind) UnmarshalText(data []byte) error {
 		return nil
 	case GraphNodeKindDeploymentManagementSystem:
 		*s = GraphNodeKindDeploymentManagementSystem
+		return nil
+	case GraphNodeKindMcp:
+		*s = GraphNodeKindMcp
 		return nil
 	default:
 		return errors.Errorf("invalid value: %q", data)
@@ -2374,6 +2381,7 @@ const (
 	ServiceInfoTypeSecretManager              ServiceInfoType = "secretManager"
 	ServiceInfoTypeCronManager                ServiceInfoType = "cronManager"
 	ServiceInfoTypeDeploymentManagementSystem ServiceInfoType = "deploymentManagementSystem"
+	ServiceInfoTypeMcp                        ServiceInfoType = "mcp"
 )
 
 // AllValues returns all ServiceInfoType values.
@@ -2387,6 +2395,7 @@ func (ServiceInfoType) AllValues() []ServiceInfoType {
 		ServiceInfoTypeSecretManager,
 		ServiceInfoTypeCronManager,
 		ServiceInfoTypeDeploymentManagementSystem,
+		ServiceInfoTypeMcp,
 	}
 }
 
@@ -2408,6 +2417,8 @@ func (s ServiceInfoType) MarshalText() ([]byte, error) {
 	case ServiceInfoTypeCronManager:
 		return []byte(s), nil
 	case ServiceInfoTypeDeploymentManagementSystem:
+		return []byte(s), nil
+	case ServiceInfoTypeMcp:
 		return []byte(s), nil
 	default:
 		return nil, errors.Errorf("invalid value: %q", s)
@@ -2440,6 +2451,9 @@ func (s *ServiceInfoType) UnmarshalText(data []byte) error {
 		return nil
 	case ServiceInfoTypeDeploymentManagementSystem:
 		*s = ServiceInfoTypeDeploymentManagementSystem
+		return nil
+	case ServiceInfoTypeMcp:
+		*s = ServiceInfoTypeMcp
 		return nil
 	default:
 		return errors.Errorf("invalid value: %q", data)

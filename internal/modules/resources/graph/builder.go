@@ -414,6 +414,8 @@ func kindFromServiceType(typ serviceType.Type) Kind {
 		return KindSecretManager
 	case serviceType.CronManager:
 		return KindCronManager
+	case serviceType.MCP:
+		return KindMCP
 	default:
 		return KindApplication
 	}

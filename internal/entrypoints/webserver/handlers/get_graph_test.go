@@ -54,6 +54,10 @@ func TestHandlerGetGraph(t *testing.T) {
 						Name:     "cron",
 						Metadata: metadata.Metadata{Type: serviceType.CronManager},
 					},
+					{
+						Name:     "postgres-mcp",
+						Metadata: metadata.Metadata{Type: serviceType.MCP},
+					},
 				},
 			},
 			expected: map[string]graphResponseNodeSnapshot{
@@ -71,6 +75,9 @@ func TestHandlerGetGraph(t *testing.T) {
 				},
 				"payments_cron": {
 					Kind: generated.GraphNodeKindCronManager,
+				},
+				"payments_postgres-mcp": {
+					Kind: generated.GraphNodeKindMcp,
 				},
 			},
 		},

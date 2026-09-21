@@ -26,6 +26,8 @@ const (
 	KindSecretManager Kind = "secretManager"
 	// KindCronManager marks cron manager service nodes.
 	KindCronManager Kind = "cronManager"
+	// KindMCP marks Model Context Protocol server nodes.
+	KindMCP Kind = "mcp"
 )
 
 // Node is a single graph node.

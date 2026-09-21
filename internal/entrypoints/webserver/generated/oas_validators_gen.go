@@ -283,6 +283,8 @@ func (s GraphNodeKind) Validate() error {
 		return nil
 	case "deploymentManagementSystem":
 		return nil
+	case "mcp":
+		return nil
 	default:
 		return errors.Errorf("invalid value: %v", s)
 	}
@@ -836,6 +838,8 @@ func (s ServiceInfoType) Validate() error {
 	case "cronManager":
 		return nil
 	case "deploymentManagementSystem":
+		return nil
+	case "mcp":
 		return nil
 	default:
 		return errors.Errorf("invalid value: %v", s)
