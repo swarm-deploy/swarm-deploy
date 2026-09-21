@@ -123,7 +123,7 @@ func toGeneratedServiceRealtimeTasks(
 		item := generated.ServiceRealtimeTask{
 			ID:           task.ID,
 			Node:         task.Node,
-			CurrentState: task.CurrentState,
+			CurrentState: string(task.CurrentState),
 		}
 		if !task.CreatedAt.IsZero() {
 			item.CreatedAt = generated.NewOptDateTime(task.CreatedAt)
