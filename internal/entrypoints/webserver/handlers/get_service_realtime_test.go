@@ -64,6 +64,13 @@ func TestHandlerGetServiceRealtime_MapsNodeHostnameAndSortsTasksByCreatedAt(t *t
 				UpdatedAt:    time.Now().Add(-13 * time.Hour),
 				CurrentState: swarm.TaskStateFailed,
 			},
+			{
+				ID:           "task-recent-shutdown",
+				Node:         "node-1",
+				CreatedAt:    time.Date(2026, time.May, 29, 13, 0, 0, 0, time.UTC),
+				UpdatedAt:    time.Now(),
+				CurrentState: swarm.TaskStateShutdown,
+			},
 		}, nil)
 
 	resp, err := h.GetServiceRealtime(context.Background(), generated.GetServiceRealtimeParams{
@@ -131,7 +138,7 @@ func TestHandlerGetServiceRealtime_LeavesNodeNameEmptyIfNodeIsUnknown(t *testing
 	assert.Equal(t, "node-1", resp.Tasks[0].Node)
 }
 
-func TestFilterStaleTerminalTasks(t *testing.T) {
+func TestFilterServiceRealtimeTasks(t *testing.T) {
 	t.Parallel()
 
 	now := time.Date(2026, time.September, 21, 12, 0, 0, 0, time.UTC)
@@ -143,9 +150,16 @@ func TestFilterStaleTerminalTasks(t *testing.T) {
 		expected []swarm.ServiceTask
 	}{
 		{
-			name: "removes stale terminal tasks",
+			name: "removes shutdown tasks regardless of update time",
 			tasks: []swarm.ServiceTask{
-				{ID: "shutdown", CurrentState: swarm.TaskStateShutdown, UpdatedAt: cutoff.Add(-time.Second)},
+				{ID: "old", CurrentState: swarm.TaskStateShutdown, UpdatedAt: cutoff.Add(-time.Second)},
+				{ID: "recent", CurrentState: swarm.TaskStateShutdown, UpdatedAt: cutoff.Add(time.Hour)},
+			},
+			expected: []swarm.ServiceTask{},
+		},
+		{
+			name: "removes stale failed and rejected tasks",
+			tasks: []swarm.ServiceTask{
 				{ID: "failed", CurrentState: swarm.TaskStateFailed, UpdatedAt: cutoff.Add(-time.Hour)},
 				{ID: "rejected", CurrentState: swarm.TaskStateRejected, UpdatedAt: cutoff.Add(-24 * time.Hour)},
 			},
@@ -177,7 +191,7 @@ func TestFilterStaleTerminalTasks(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			actual := filterStaleTerminalTasks(tt.tasks, cutoff)
+			actual := filterServiceRealtimeTasks(tt.tasks, cutoff)
 
 			assert.Equal(t, tt.expected, actual)
 		})

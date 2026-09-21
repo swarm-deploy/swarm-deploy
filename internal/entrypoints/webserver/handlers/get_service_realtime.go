@@ -21,7 +21,7 @@ func (h *handler) GetServiceRealtime(
 ) (*generated.ServiceRealtimeResponse, error) {
 	tasks, err := h.serviceInspector.ListTasks(ctx, swarm.NewServiceReference(params.Stack, params.Service))
 	if err == nil {
-		tasks = filterStaleTerminalTasks(tasks, time.Now().Add(-staleTerminalTaskAge))
+		tasks = filterServiceRealtimeTasks(tasks, time.Now().Add(-staleTerminalTaskAge))
 		slices.SortStableFunc(tasks, func(a, b swarm.ServiceTask) int {
 			return b.CreatedAt.Compare(a.CreatedAt)
 		})
@@ -48,10 +48,12 @@ func (h *handler) GetServiceRealtime(
 	return nil, withStatusError(http.StatusInternalServerError, errors.New("unable to get service realtime"))
 }
 
-func filterStaleTerminalTasks(tasks []swarm.ServiceTask, cutoff time.Time) []swarm.ServiceTask {
+func filterServiceRealtimeTasks(tasks []swarm.ServiceTask, cutoff time.Time) []swarm.ServiceTask {
 	return slices.DeleteFunc(tasks, func(task swarm.ServiceTask) bool {
 		switch task.CurrentState { //nolint:exhaustive // other states not interested
-		case swarm.TaskStateShutdown, swarm.TaskStateFailed, swarm.TaskStateRejected:
+		case swarm.TaskStateShutdown:
+			return true
+		case swarm.TaskStateFailed, swarm.TaskStateRejected:
 			return task.UpdatedAt.Before(cutoff)
 		default:
 			return false
