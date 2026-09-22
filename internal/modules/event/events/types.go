@@ -77,15 +77,6 @@ type Envelope struct {
 	Event Event
 }
 
-// Type returns the payload event type.
-func (e Envelope) Type() Type { return e.Event.Type() }
-
-// Message returns the payload human-readable message.
-func (e Envelope) Message() string { return e.Event.Message() }
-
-// Details returns payload-specific details.
-func (e Envelope) Details() map[string]string { return e.Event.Details() }
-
 var (
 	TypeDeploySuccess = Type{
 		name:     TypeNameDeploySuccess,

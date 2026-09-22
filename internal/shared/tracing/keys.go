@@ -19,6 +19,7 @@ var (
 
 	SyncCommitSha = attribute.Key("swarm-deploy.sync.commit_sha")
 
+	EventID             = attribute.Key("swarm-deploy.events.event.id")
 	EventName           = attribute.Key("swarm-deploy.events.event.name")
 	EventSubscriberName = attribute.Key("swarm-deploy.events.subscriber.name")
 	EventQueueName      = attribute.Key("swarm-deploy.events.queue.name")

@@ -158,17 +158,17 @@ func (s *Store) flushLocked(ctx context.Context) error {
 	return nil
 }
 
-func toEntry(now time.Time, event events.Envelope) Entry {
-	eventType := event.Type()
+func toEntry(now time.Time, envelope events.Envelope) Entry {
+	eventType := envelope.Event.Type()
 
 	return Entry{
-		ID:        event.ID,
+		ID:        envelope.ID,
 		Type:      eventType,
 		Severity:  eventType.Severity(),
 		Category:  eventType.Category(),
 		CreatedAt: now,
-		Message:   event.Message(),
-		Details:   cloneDetails(event.Details()),
+		Message:   envelope.Event.Message(),
+		Details:   cloneDetails(envelope.Event.Details()),
 	}
 }
 

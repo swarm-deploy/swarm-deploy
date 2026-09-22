@@ -11,13 +11,13 @@ import (
 const queueSize = 200
 
 type message struct {
-	Event       events.Envelope
+	Envelope    events.Envelope
 	Subscriber  Subscriber
 	SpanContext trace.SpanContext
 }
 
 type scheduledMessage struct {
-	Event       events.Envelope
+	Envelope    events.Envelope
 	SpanContext trace.SpanContext
 }
 

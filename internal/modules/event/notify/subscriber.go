@@ -31,17 +31,17 @@ func (s *Subscriber) Slow() bool {
 	return true
 }
 
-func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
+func (s *Subscriber) Handle(ctx context.Context, envelope events.Envelope) error {
 	err := s.notifier.Notify(ctx, notifiers.Message{
-		Payload: event.Event,
+		Payload: envelope.Event,
 	})
 	if err == nil {
 		return nil
 	}
 
-	if event.Type() != events.TypeSendNotificationFailed {
+	if envelope.Event.Type() != events.TypeSendNotificationFailed {
 		s.dispatcher.Dispatch(ctx, &events.SendNotificationFailed{
-			EventType:   event.Type(),
+			EventType:   envelope.Event.Type(),
 			Destination: s.notifier.Kind(),
 			Channel:     s.notifier.Name(),
 			Error:       err,
