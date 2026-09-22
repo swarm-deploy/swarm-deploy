@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"github.com/swarm-deploy/swarm-deploy/internal/assistant"
+	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	alertstore "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
@@ -31,6 +32,7 @@ type handler struct {
 	alerts           alertstore.Store
 	assistant        assistant.Assistant
 	git              gitx.Repository
+	composeLoader    compose.FileLoader
 }
 
 var _ generated.Handler = (*handler)(nil)
@@ -64,5 +66,6 @@ func New(
 		alerts:           alerts,
 		assistant:        assistantService,
 		git:              gitRepository,
+		composeLoader:    compose.NewFileLoaderWithReader(gitRepository.ReadFile),
 	}
 }

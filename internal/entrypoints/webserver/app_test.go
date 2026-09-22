@@ -10,15 +10,20 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
+	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.uber.org/mock/gomock"
 )
 
 func TestUIRoutes(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	gitRepository := gitx.NewMockRepository(ctrl)
+
 	app, err := NewApplication(
 		":0",
 		nil,
-		&gitops.Module{},
+		&gitops.Module{GitRepository: gitRepository},
 		&swarm.Swarm{},
 		&event.Module{},
 		&resources.Module{},
