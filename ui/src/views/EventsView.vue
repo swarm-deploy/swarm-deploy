@@ -20,6 +20,7 @@ const eventTypeOptions = [
   "serviceReplicasDecreased",
   "serviceRestarted",
   "servicePruned",
+  "networkCreated",
   "userAuthenticated",
   "assistantPromptInjectionDetected",
 ] as const;

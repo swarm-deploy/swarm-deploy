@@ -231,7 +231,7 @@ func TestControllerSyncOnceReconcilesStacksWhenGitRevisionUnchanged(t *testing.T
 		metrics:           metricGroup,
 		event:             eventDispatcher,
 		stateStore:        store,
-		networkReconciler: networkloop.New(nil),
+		networkReconciler: networkloop.New(nil, &dispatcher.NopDispatcher{}),
 		stackReconciler: stackloop.New(
 			cfg,
 			repository,
@@ -317,7 +317,7 @@ func TestControllerSyncOncePrioritizesChangedStacks(t *testing.T) {
 		metrics:           metricGroup,
 		event:             eventDispatcher,
 		stateStore:        store,
-		networkReconciler: networkloop.New(nil),
+		networkReconciler: networkloop.New(nil, &dispatcher.NopDispatcher{}),
 		stackReconciler: stackloop.New(
 			cfg,
 			repository,
@@ -398,7 +398,7 @@ func TestControllerSyncOnceContinuesWhenGitDiffFails(t *testing.T) {
 		metrics:           metricGroup,
 		event:             eventDispatcher,
 		stateStore:        store,
-		networkReconciler: networkloop.New(nil),
+		networkReconciler: networkloop.New(nil, &dispatcher.NopDispatcher{}),
 		stackReconciler: stackloop.New(
 			cfg,
 			repository,

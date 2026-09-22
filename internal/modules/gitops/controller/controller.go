@@ -93,6 +93,7 @@ func New(
 		stateStore: stateStore,
 		networkReconciler: networkloop.New(
 			swarmService.Networks,
+			eventDispatcher,
 		),
 		stackReconciler: stackloop.NewStackReconciler(
 			cfg,

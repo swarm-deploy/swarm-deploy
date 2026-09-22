@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -15,12 +17,14 @@ import (
 // Reconciler applies a desired network state to swarm.
 type Reconciler struct {
 	manager swarm.NetworkManager
+	event   dispatcher.Dispatcher
 }
 
 // New builds a network reconciler.
-func New(manager swarm.NetworkManager) *Reconciler {
+func New(manager swarm.NetworkManager, eventDispatcher dispatcher.Dispatcher) *Reconciler {
 	return &Reconciler{
 		manager: manager,
+		event:   eventDispatcher,
 	}
 }
 
@@ -45,10 +49,16 @@ func (r *Reconciler) Reconcile(ctx context.Context, networkCfg config.NetworkSpe
 		if errors.Is(err, swarm.ErrNetworkNotFound) {
 			slog.InfoContext(ctx, "[network-reconciler] creating network", slog.String("network.name", networkCfg.Name))
 
-			_, createErr := r.manager.Create(ctx, desired)
+			networkID, createErr := r.manager.Create(ctx, desired)
 			if createErr != nil {
 				return false, fmt.Errorf("create network: %w", createErr)
 			}
+
+			r.event.Dispatch(ctx, &events.NetworkCreated{
+				NetworkName: networkCfg.Name,
+				NetworkID:   networkID,
+				Driver:      networkCfg.Driver,
+			})
 			return false, nil
 		}
 

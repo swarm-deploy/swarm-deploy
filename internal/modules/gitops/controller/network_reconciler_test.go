@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/networkloop"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
@@ -38,7 +39,7 @@ func TestControllerSyncNetworksStoresState(t *testing.T) {
 				},
 			},
 		},
-		networkReconciler: networkloop.New(manager),
+		networkReconciler: networkloop.New(manager, &dispatcher.NopDispatcher{}),
 		stateStore:        store,
 		tracer:            otel.Tracer("test"),
 	}
@@ -80,7 +81,7 @@ func TestControllerSyncNetworksStoresFailedState(t *testing.T) {
 				},
 			},
 		},
-		networkReconciler: networkloop.New(manager),
+		networkReconciler: networkloop.New(manager, &dispatcher.NopDispatcher{}),
 		stateStore:        store,
 		tracer:            otel.Tracer("test"),
 	}
@@ -112,9 +113,12 @@ func TestControllerSyncNetworksClearsStateWhenNetworksListIsEmpty(t *testing.T) 
 				Networks: nil,
 			},
 		},
-		networkReconciler: networkloop.New(swarm.NewMockNetworkManager(gomock.NewController(t))),
-		stateStore:        store,
-		tracer:            otel.Tracer("test"),
+		networkReconciler: networkloop.New(
+			swarm.NewMockNetworkManager(gomock.NewController(t)),
+			&dispatcher.NopDispatcher{},
+		),
+		stateStore: store,
+		tracer:     otel.Tracer("test"),
 	}
 
 	err := c.syncNetworks(context.Background(), "commit-3")
@@ -149,7 +153,7 @@ func TestControllerSyncNetworksSkipsReconcileWhenStateAlreadySyncedForCommit(t *
 				},
 			},
 		},
-		networkReconciler: networkloop.New(manager),
+		networkReconciler: networkloop.New(manager, &dispatcher.NopDispatcher{}),
 		stateStore:        store,
 		tracer:            otel.Tracer("test"),
 	}
