@@ -1776,26 +1776,61 @@ a.overview-summary-row:focus-visible {
   overflow: auto;
 }
 
-.manifest-lines {
+.manifest-code {
   margin: 0;
-  padding: 0 0 0 44px;
+  color: var(--text);
   font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 0.84rem;
   line-height: 1.45;
-}
-
-.manifest-line {
-  padding: 0 10px 0 8px;
-}
-
-.manifest-line::marker {
-  color: var(--muted);
-}
-
-.manifest-line code {
-  display: block;
+  tab-size: 2;
   white-space: pre;
-  font-family: inherit;
+}
+
+.manifest-code > div {
+  display: flex;
+  min-width: max-content;
+}
+
+.manifest-code > div > :last-child {
+  flex: 1;
+  padding-right: 10px;
+}
+
+.manifest-code .shj-numbers {
+  margin-right: 12px;
+  padding-right: 10px;
+  border-right: 1px solid rgba(148, 163, 184, 0.18);
+  color: var(--muted);
+  text-align: right;
+  user-select: none;
+  counter-reset: line;
+}
+
+.manifest-code .shj-numbers div::before {
+  display: block;
+  min-width: 2ch;
+  content: counter(line);
+  counter-increment: line;
+}
+
+.manifest-code .shj-syn-cmnt {
+  color: #8b949e;
+  font-style: italic;
+}
+
+.manifest-code .shj-syn-str {
+  color: #a5d6ff;
+}
+
+.manifest-code .shj-syn-num,
+.manifest-code .shj-syn-type,
+.manifest-code .shj-syn-oper,
+.manifest-code .shj-syn-bool {
+  color: #79c0ff;
+}
+
+.manifest-code .shj-syn-var {
+  color: #ff7b72;
 }
 
 .assistant-chat-body {
