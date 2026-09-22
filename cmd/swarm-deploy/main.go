@@ -23,6 +23,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver"
 	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/logx"
@@ -50,6 +51,14 @@ var modules = []module{
 		Initialize: func(_ context.Context, cfg *config.Config, cnt *container) error {
 			mod, err := event.InitModule(cfg, cnt)
 			cnt.Event = mod
+			return err
+		},
+	},
+	{
+		Name: "alert-management",
+		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
+			mod, err := alertmanagement.InitModule(ctx, cfg, cnt)
+			cnt.AlertManagement = mod
 			return err
 		},
 	},
@@ -146,7 +155,6 @@ func main() {
 
 	cnt.Swarm = swarm.NewSwarm(dockerClient, cfg.Spec.Swarm.Command)
 	cnt.Deployer = deployer.NewDeployer(
-		cfg.Spec.Swarm.StackDeployArgs,
 		cfg.Spec.Swarm.InitJobPollEvery.Value,
 		cfg.Spec.Swarm.InitJobMaxDuration.Value,
 		dockerClient,
@@ -181,6 +189,7 @@ func main() {
 		cnt.Event,
 		cnt.Resources,
 		cnt.Recommendations.Store,
+		cnt.AlertManagement.Store,
 		assistantService,
 		cfg.Spec.Web.Security.Authentication,
 	)
@@ -339,6 +348,7 @@ type container struct {
 	Resources       *resources.Module
 	GitOps          *gitops.Module
 	Recommendations *recommendations.Module
+	AlertManagement *alertmanagement.Module
 }
 
 func (c *container) GetFileSystem() fs.FileSystem {

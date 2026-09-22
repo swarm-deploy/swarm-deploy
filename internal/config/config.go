@@ -187,8 +187,6 @@ type EndpointSpec struct {
 type SwarmSpec struct {
 	// Command is executable used to invoke Docker CLI.
 	Command string `yaml:"command"`
-	// StackDeployArgs is argument list for docker stack deploy command.
-	StackDeployArgs []string `yaml:"stackDeployArgs"`
 	// InitJobPollEvery is polling interval for init jobs.
 	InitJobPollEvery specw.Duration `yaml:"initJobPollEvery"`
 	// InitJobMaxDuration is maximum execution time for init jobs.
@@ -309,9 +307,6 @@ func (c *Config) applyAssistantDefaults() {
 func (c *Config) applySwarmDefaults() {
 	if c.Spec.Swarm.Command == "" {
 		c.Spec.Swarm.Command = "docker"
-	}
-	if len(c.Spec.Swarm.StackDeployArgs) == 0 {
-		c.Spec.Swarm.StackDeployArgs = []string{"stack", "deploy", "--with-registry-auth"}
 	}
 	if c.Spec.Swarm.InitJobPollEvery.Value <= 0 {
 		c.Spec.Swarm.InitJobPollEvery.Value = defaultInitJobPollEvery

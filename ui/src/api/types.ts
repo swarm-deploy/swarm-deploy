@@ -101,6 +101,7 @@ export type EventSeverity = "info" | "warn" | "error" | "alert";
 export type EventCategory = "sync" | "security" | "swarm";
 
 export interface EventHistoryItem {
+  id: string;
   type: string;
   severity: EventSeverity;
   category: EventCategory;
@@ -111,6 +112,36 @@ export interface EventHistoryItem {
 
 export interface EventHistoryResponse {
   events: EventHistoryItem[];
+}
+
+export type AlertStatus = "open" | "resolved";
+
+export interface AlertResolution {
+  reason: "recovered";
+  message: string;
+  eventId: string;
+}
+
+export interface Alert {
+  id: string;
+  fingerprint: string;
+  kind: "deploy_failed";
+  resourceType: "stack";
+  resourceId: string;
+  status: AlertStatus;
+  title: string;
+  message: string;
+  occurrences: number;
+  openedAt: string;
+  updatedAt: string;
+  openEventId: string;
+  latestEventId: string;
+  resolvedAt?: string;
+  resolution?: AlertResolution;
+}
+
+export interface AlertsResponse {
+  alerts: Alert[];
 }
 
 export type RecommendationSeverity = "high" | "medium" | "low";

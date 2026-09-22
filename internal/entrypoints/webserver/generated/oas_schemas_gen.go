@@ -13,6 +13,371 @@ import (
 // AddNodeLabelNoContent is response for AddNodeLabel operation.
 type AddNodeLabelNoContent struct{}
 
+// Ref: #/components/schemas/Alert
+type Alert struct {
+	ID            string             `json:"id"`
+	Fingerprint   string             `json:"fingerprint"`
+	Kind          AlertKind          `json:"kind"`
+	ResourceType  AlertResourceType  `json:"resourceType"`
+	ResourceId    string             `json:"resourceId"`
+	Status        AlertStatus        `json:"status"`
+	Title         string             `json:"title"`
+	Message       string             `json:"message"`
+	Occurrences   int64              `json:"occurrences"`
+	OpenedAt      time.Time          `json:"openedAt"`
+	UpdatedAt     time.Time          `json:"updatedAt"`
+	OpenEventId   string             `json:"openEventId"`
+	LatestEventId string             `json:"latestEventId"`
+	ResolvedAt    OptDateTime        `json:"resolvedAt"`
+	Resolution    OptAlertResolution `json:"resolution"`
+}
+
+// GetID returns the value of ID.
+func (s *Alert) GetID() string {
+	return s.ID
+}
+
+// GetFingerprint returns the value of Fingerprint.
+func (s *Alert) GetFingerprint() string {
+	return s.Fingerprint
+}
+
+// GetKind returns the value of Kind.
+func (s *Alert) GetKind() AlertKind {
+	return s.Kind
+}
+
+// GetResourceType returns the value of ResourceType.
+func (s *Alert) GetResourceType() AlertResourceType {
+	return s.ResourceType
+}
+
+// GetResourceId returns the value of ResourceId.
+func (s *Alert) GetResourceId() string {
+	return s.ResourceId
+}
+
+// GetStatus returns the value of Status.
+func (s *Alert) GetStatus() AlertStatus {
+	return s.Status
+}
+
+// GetTitle returns the value of Title.
+func (s *Alert) GetTitle() string {
+	return s.Title
+}
+
+// GetMessage returns the value of Message.
+func (s *Alert) GetMessage() string {
+	return s.Message
+}
+
+// GetOccurrences returns the value of Occurrences.
+func (s *Alert) GetOccurrences() int64 {
+	return s.Occurrences
+}
+
+// GetOpenedAt returns the value of OpenedAt.
+func (s *Alert) GetOpenedAt() time.Time {
+	return s.OpenedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *Alert) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetOpenEventId returns the value of OpenEventId.
+func (s *Alert) GetOpenEventId() string {
+	return s.OpenEventId
+}
+
+// GetLatestEventId returns the value of LatestEventId.
+func (s *Alert) GetLatestEventId() string {
+	return s.LatestEventId
+}
+
+// GetResolvedAt returns the value of ResolvedAt.
+func (s *Alert) GetResolvedAt() OptDateTime {
+	return s.ResolvedAt
+}
+
+// GetResolution returns the value of Resolution.
+func (s *Alert) GetResolution() OptAlertResolution {
+	return s.Resolution
+}
+
+// SetID sets the value of ID.
+func (s *Alert) SetID(val string) {
+	s.ID = val
+}
+
+// SetFingerprint sets the value of Fingerprint.
+func (s *Alert) SetFingerprint(val string) {
+	s.Fingerprint = val
+}
+
+// SetKind sets the value of Kind.
+func (s *Alert) SetKind(val AlertKind) {
+	s.Kind = val
+}
+
+// SetResourceType sets the value of ResourceType.
+func (s *Alert) SetResourceType(val AlertResourceType) {
+	s.ResourceType = val
+}
+
+// SetResourceId sets the value of ResourceId.
+func (s *Alert) SetResourceId(val string) {
+	s.ResourceId = val
+}
+
+// SetStatus sets the value of Status.
+func (s *Alert) SetStatus(val AlertStatus) {
+	s.Status = val
+}
+
+// SetTitle sets the value of Title.
+func (s *Alert) SetTitle(val string) {
+	s.Title = val
+}
+
+// SetMessage sets the value of Message.
+func (s *Alert) SetMessage(val string) {
+	s.Message = val
+}
+
+// SetOccurrences sets the value of Occurrences.
+func (s *Alert) SetOccurrences(val int64) {
+	s.Occurrences = val
+}
+
+// SetOpenedAt sets the value of OpenedAt.
+func (s *Alert) SetOpenedAt(val time.Time) {
+	s.OpenedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *Alert) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetOpenEventId sets the value of OpenEventId.
+func (s *Alert) SetOpenEventId(val string) {
+	s.OpenEventId = val
+}
+
+// SetLatestEventId sets the value of LatestEventId.
+func (s *Alert) SetLatestEventId(val string) {
+	s.LatestEventId = val
+}
+
+// SetResolvedAt sets the value of ResolvedAt.
+func (s *Alert) SetResolvedAt(val OptDateTime) {
+	s.ResolvedAt = val
+}
+
+// SetResolution sets the value of Resolution.
+func (s *Alert) SetResolution(val OptAlertResolution) {
+	s.Resolution = val
+}
+
+type AlertKind string
+
+const (
+	AlertKindDeployFailed AlertKind = "deploy_failed"
+)
+
+// AllValues returns all AlertKind values.
+func (AlertKind) AllValues() []AlertKind {
+	return []AlertKind{
+		AlertKindDeployFailed,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s AlertKind) MarshalText() ([]byte, error) {
+	switch s {
+	case AlertKindDeployFailed:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *AlertKind) UnmarshalText(data []byte) error {
+	switch AlertKind(data) {
+	case AlertKindDeployFailed:
+		*s = AlertKindDeployFailed
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/AlertResolution
+type AlertResolution struct {
+	Reason  AlertResolutionReason `json:"reason"`
+	Message string                `json:"message"`
+	EventId string                `json:"eventId"`
+}
+
+// GetReason returns the value of Reason.
+func (s *AlertResolution) GetReason() AlertResolutionReason {
+	return s.Reason
+}
+
+// GetMessage returns the value of Message.
+func (s *AlertResolution) GetMessage() string {
+	return s.Message
+}
+
+// GetEventId returns the value of EventId.
+func (s *AlertResolution) GetEventId() string {
+	return s.EventId
+}
+
+// SetReason sets the value of Reason.
+func (s *AlertResolution) SetReason(val AlertResolutionReason) {
+	s.Reason = val
+}
+
+// SetMessage sets the value of Message.
+func (s *AlertResolution) SetMessage(val string) {
+	s.Message = val
+}
+
+// SetEventId sets the value of EventId.
+func (s *AlertResolution) SetEventId(val string) {
+	s.EventId = val
+}
+
+type AlertResolutionReason string
+
+const (
+	AlertResolutionReasonRecovered AlertResolutionReason = "recovered"
+)
+
+// AllValues returns all AlertResolutionReason values.
+func (AlertResolutionReason) AllValues() []AlertResolutionReason {
+	return []AlertResolutionReason{
+		AlertResolutionReasonRecovered,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s AlertResolutionReason) MarshalText() ([]byte, error) {
+	switch s {
+	case AlertResolutionReasonRecovered:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *AlertResolutionReason) UnmarshalText(data []byte) error {
+	switch AlertResolutionReason(data) {
+	case AlertResolutionReasonRecovered:
+		*s = AlertResolutionReasonRecovered
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+type AlertResourceType string
+
+const (
+	AlertResourceTypeStack AlertResourceType = "stack"
+)
+
+// AllValues returns all AlertResourceType values.
+func (AlertResourceType) AllValues() []AlertResourceType {
+	return []AlertResourceType{
+		AlertResourceTypeStack,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s AlertResourceType) MarshalText() ([]byte, error) {
+	switch s {
+	case AlertResourceTypeStack:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *AlertResourceType) UnmarshalText(data []byte) error {
+	switch AlertResourceType(data) {
+	case AlertResourceTypeStack:
+		*s = AlertResourceTypeStack
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/AlertStatus
+type AlertStatus string
+
+const (
+	AlertStatusOpen     AlertStatus = "open"
+	AlertStatusResolved AlertStatus = "resolved"
+)
+
+// AllValues returns all AlertStatus values.
+func (AlertStatus) AllValues() []AlertStatus {
+	return []AlertStatus{
+		AlertStatusOpen,
+		AlertStatusResolved,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s AlertStatus) MarshalText() ([]byte, error) {
+	switch s {
+	case AlertStatusOpen:
+		return []byte(s), nil
+	case AlertStatusResolved:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *AlertStatus) UnmarshalText(data []byte) error {
+	switch AlertStatus(data) {
+	case AlertStatusOpen:
+		*s = AlertStatusOpen
+		return nil
+	case AlertStatusResolved:
+		*s = AlertStatusResolved
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/AlertsResponse
+type AlertsResponse struct {
+	Alerts []Alert `json:"alerts"`
+}
+
+// GetAlerts returns the value of Alerts.
+func (s *AlertsResponse) GetAlerts() []Alert {
+	return s.Alerts
+}
+
+// SetAlerts sets the value of Alerts.
+func (s *AlertsResponse) SetAlerts(val []Alert) {
+	s.Alerts = val
+}
+
 // Ref: #/components/schemas/AssistantChatRequest
 type AssistantChatRequest struct {
 	ConversationID OptString `json:"conversation_id"`
@@ -262,12 +627,18 @@ func (s *EventCategory) UnmarshalText(data []byte) error {
 
 // Ref: #/components/schemas/EventHistoryItem
 type EventHistoryItem struct {
+	ID        string                     `json:"id"`
 	Type      string                     `json:"type"`
 	Severity  EventSeverity              `json:"severity"`
 	Category  EventCategory              `json:"category"`
 	CreatedAt time.Time                  `json:"created_at"`
 	Message   string                     `json:"message"`
 	Details   OptEventHistoryItemDetails `json:"details"`
+}
+
+// GetID returns the value of ID.
+func (s *EventHistoryItem) GetID() string {
+	return s.ID
 }
 
 // GetType returns the value of Type.
@@ -298,6 +669,11 @@ func (s *EventHistoryItem) GetMessage() string {
 // GetDetails returns the value of Details.
 func (s *EventHistoryItem) GetDetails() OptEventHistoryItemDetails {
 	return s.Details
+}
+
+// SetID sets the value of ID.
+func (s *EventHistoryItem) SetID(val string) {
+	s.ID = val
 }
 
 // SetType sets the value of Type.
@@ -997,6 +1373,98 @@ func (s *NodesResponse) GetNodes() []NodeInfo {
 // SetNodes sets the value of Nodes.
 func (s *NodesResponse) SetNodes(val []NodeInfo) {
 	s.Nodes = val
+}
+
+// NewOptAlertResolution returns new OptAlertResolution with value set to v.
+func NewOptAlertResolution(v AlertResolution) OptAlertResolution {
+	return OptAlertResolution{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAlertResolution is optional AlertResolution.
+type OptAlertResolution struct {
+	Value AlertResolution
+	Set   bool
+}
+
+// IsSet returns true if OptAlertResolution was set.
+func (o OptAlertResolution) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAlertResolution) Reset() {
+	var v AlertResolution
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAlertResolution) SetTo(v AlertResolution) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAlertResolution) Get() (v AlertResolution, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAlertResolution) Or(d AlertResolution) AlertResolution {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAlertStatus returns new OptAlertStatus with value set to v.
+func NewOptAlertStatus(v AlertStatus) OptAlertStatus {
+	return OptAlertStatus{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAlertStatus is optional AlertStatus.
+type OptAlertStatus struct {
+	Value AlertStatus
+	Set   bool
+}
+
+// IsSet returns true if OptAlertStatus was set.
+func (o OptAlertStatus) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAlertStatus) Reset() {
+	var v AlertStatus
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAlertStatus) SetTo(v AlertStatus) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAlertStatus) Get() (v AlertStatus, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAlertStatus) Or(d AlertStatus) AlertStatus {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
 }
 
 // NewOptBool returns new OptBool with value set to v.

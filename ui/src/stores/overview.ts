@@ -10,7 +10,7 @@ import {
 } from "../api/overview";
 import { fetchServices } from "../api/services";
 import type {
-  EventHistoryItem,
+  Alert,
   GitCommitDetailsResponse,
   ServiceInfo,
   ServiceStatusResponse,
@@ -44,7 +44,7 @@ interface OverviewState {
   stackManifestDesired: string;
   stackManifestLive: string;
   alertDetailsModalOpen: boolean;
-  alertDetailsEvent: EventHistoryItem | null;
+  alertDetailsAlert: Alert | null;
 }
 
 export const useOverviewStore = defineStore("overview", {
@@ -74,7 +74,7 @@ export const useOverviewStore = defineStore("overview", {
     stackManifestDesired: "",
     stackManifestLive: "",
     alertDetailsModalOpen: false,
-    alertDetailsEvent: null,
+    alertDetailsAlert: null,
   }),
   actions: {
     async loadOverview() {
@@ -217,13 +217,13 @@ export const useOverviewStore = defineStore("overview", {
       this.stackManifestDesired = "";
       this.stackManifestLive = "";
     },
-    openAlertDetailsModal(event: EventHistoryItem) {
-      this.alertDetailsEvent = event;
+    openAlertDetailsModal(alert: Alert) {
+      this.alertDetailsAlert = alert;
       this.alertDetailsModalOpen = true;
     },
     closeAlertDetailsModal() {
       this.alertDetailsModalOpen = false;
-      this.alertDetailsEvent = null;
+      this.alertDetailsAlert = null;
     },
   },
 });

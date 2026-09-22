@@ -729,6 +729,24 @@ a.overview-summary-row:focus-visible {
   margin-top: 0;
 }
 
+.alerts-row {
+  cursor: pointer;
+}
+
+.alerts-row:hover,
+.alerts-row:focus-visible {
+  background: rgba(59, 130, 246, 0.08);
+  outline: none;
+}
+
+.alerts-message {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
 .services-page {
   display: grid;
   gap: 12px;

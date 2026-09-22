@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 
-import { fetchEvents, fetchRecommendations } from "../api/overview";
-import type { EventHistoryItem, Recommendation, RecommendationSeverity } from "../api/types";
+import { fetchAlerts, fetchEvents, fetchRecommendations } from "../api/overview";
+import type { Alert, EventHistoryItem, Recommendation, RecommendationSeverity } from "../api/types";
 import StackCard from "../components/overview/StackCard.vue";
 import SummaryPanel from "../components/overview/SummaryPanel.vue";
 import SummaryRow from "../components/overview/SummaryRow.vue";
@@ -11,9 +11,10 @@ import { formatDate, shortCommitHash } from "../utils/format";
 
 const overviewStore = useOverviewStore();
 const deploymentEvents = ref<EventHistoryItem[]>([]);
-const alertEvents = ref<EventHistoryItem[]>([]);
+const alerts = ref<Alert[]>([]);
 const recommendations = ref<Recommendation[]>([]);
 const overviewEventsError = ref("");
+const overviewAlertsError = ref("");
 const overviewRecommendationsError = ref("");
 const deploymentEventsLimit = 4;
 const alertEventsLimit = 4;
@@ -115,12 +116,6 @@ function formatRelativeTime(raw: string | undefined): string {
   return elapsedHours === 1 ? "1 hour ago" : `${elapsedHours} hours ago`;
 }
 
-function eventSubject(item: EventHistoryItem): string {
-  const stack = detailValue(item, ["stack", "stack_name"]);
-  const service = detailValue(item, ["service", "service_name"]);
-  return [stack, service].filter(Boolean).join(" / ") || "Swarm Deploy";
-}
-
 function recommendationSubject(recommendation: Recommendation): string {
   return [recommendation.subject.stack, recommendation.subject.service].filter(Boolean).join(" / ") || "Swarm Deploy";
 }
@@ -147,22 +142,19 @@ async function openStackManifest(stackName: string) {
   await overviewStore.openStackManifestModal(stack);
 }
 
-function openAlertDetails(event: EventHistoryItem) {
-  overviewStore.openAlertDetailsModal(event);
+function openAlertDetails(alert: Alert) {
+  overviewStore.openAlertDetailsModal(alert);
 }
 
 async function refreshOverview() {
   overviewEventsError.value = "";
+  overviewAlertsError.value = "";
   overviewRecommendationsError.value = "";
 
   const [overviewResult, deploymentsResult, alertsResult, recommendationsResult] = await Promise.allSettled([
     overviewStore.loadOverview(),
     fetchEvents({ types: ["deploySuccess", "deployFailed"], limit: deploymentEventsLimit }),
-    fetchEvents({
-      severities: ["alert"],
-      since: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
-      limit: alertEventsLimit,
-    }),
+    fetchAlerts({ status: "open", limit: alertEventsLimit }),
     fetchRecommendations({ limit: recommendationsLimit }),
   ]);
 
@@ -177,12 +169,10 @@ async function refreshOverview() {
       deploymentsResult.reason instanceof Error ? deploymentsResult.reason.message : "Failed to load latest deployments";
   }
   if (alertsResult.status === "fulfilled") {
-    alertEvents.value = Array.isArray(alertsResult.value.events) ? alertsResult.value.events.reverse() : [];
+    alerts.value = Array.isArray(alertsResult.value.alerts) ? alertsResult.value.alerts : [];
   } else {
-    alertEvents.value = [];
-    overviewEventsError.value =
-      overviewEventsError.value ||
-      (alertsResult.reason instanceof Error ? alertsResult.reason.message : "Failed to load alerts");
+    alerts.value = [];
+    overviewAlertsError.value = alertsResult.reason instanceof Error ? alertsResult.reason.message : "Failed to load alerts";
   }
   if (recommendationsResult.status === "fulfilled") {
     recommendations.value = Array.isArray(recommendationsResult.value.recommendations)
@@ -228,7 +218,7 @@ onUnmounted(() => {
         {{ shortCommitHash(syncRevision) }}
       </button>
       <span v-else> n/a</span>
-      <template v-if="syncInfo.last_sync_error"> | error: {{ syncInfo.last_sync_error }}</template>
+      <template v-if="syncInfo.last_sync_error"> | error: {{ syncInfo.last_sync_error.slice(0, 500) }}</template>
     </p>
   </section>
 
@@ -256,9 +246,6 @@ onUnmounted(() => {
         >
           <span class="overview-deployment-stack">{{ detailValue(event, ["stack", "stack_name"]) || "unknown stack" }}</span>
           <span class="overview-deployment-result" :class="deploymentResultClass(event)">
-            <span class="overview-deployment-result-icon" aria-hidden="true">
-              {{ event.type === "deploySuccess" ? "✓" : "!" }}
-            </span>
             <span>
               {{ deploymentResult(event) }}
             </span>
@@ -272,26 +259,26 @@ onUnmounted(() => {
       </div>
     </SummaryPanel>
 
-    <SummaryPanel title="Alerts" icon="alerts" to="/events?severity=alert">
-      <p v-if="overviewEventsError && alertEvents.length === 0" class="meta">Failed to load alerts: {{ overviewEventsError }}</p>
-      <div v-else-if="alertEvents.length === 0" class="overview-summary-empty">
+    <SummaryPanel title="Alerts" icon="alerts" to="/alerts">
+      <p v-if="overviewAlertsError && alerts.length === 0" class="meta">Failed to load alerts: {{ overviewAlertsError }}</p>
+      <div v-else-if="alerts.length === 0" class="overview-summary-empty">
         <span class="overview-summary-empty-icon overview-summary-empty-icon--healthy" aria-hidden="true">✓</span>
         <strong>No active alerts</strong>
         <span>Everything looks healthy</span>
       </div>
       <div v-else class="overview-alert-list">
         <SummaryRow
-          v-for="event in alertEvents"
-          :key="`${event.type}-${event.created_at}-${event.message}`"
+          v-for="alert in alerts"
+          :key="alert.id"
           interactive
-          :aria-label="`Open alert: ${event.message || 'No message'}`"
-          @activate="openAlertDetails(event)"
+          :aria-label="`Open alert: ${alert.title}`"
+          @activate="openAlertDetails(alert)"
         >
           <span class="overview-summary-severity overview-summary-severity--alert" aria-hidden="true"></span>
           <span class="overview-summary-row-copy">
-            <span class="overview-alert-message">{{ event.message || "No message" }}</span>
+            <span class="overview-alert-message">{{ alert.title }}</span>
             <span class="overview-summary-secondary">
-              {{ eventSubject(event) }} · {{ formatRelativeTime(event.created_at) }}
+              {{ alert.resourceId || "unknown stack" }} · {{ formatRelativeTime(alert.updatedAt) }}
             </span>
           </span>
         </SummaryRow>

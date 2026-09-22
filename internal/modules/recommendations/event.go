@@ -23,7 +23,7 @@ func (r *RecommenderEventSubscriber) Slow() bool {
 	return false
 }
 
-func (r *RecommenderEventSubscriber) Handle(ctx context.Context, event events.Event) error {
+func (r *RecommenderEventSubscriber) Handle(ctx context.Context, event events.Envelope) error {
 	stack, stackValid := r.stack(event)
 	if !stackValid {
 		return nil
@@ -36,10 +36,10 @@ func (r *RecommenderEventSubscriber) Handle(ctx context.Context, event events.Ev
 	})
 }
 
-func (r *RecommenderEventSubscriber) stack(event events.Event) (model.Stack, bool) {
+func (r *RecommenderEventSubscriber) stack(event events.Envelope) (model.Stack, bool) {
 	var meta events.DeployEvent
 
-	switch e := event.(type) {
+	switch e := event.Event.(type) {
 	case *events.DeploySuccess:
 		meta = e.DeployEvent
 	case *events.DeployFailed:

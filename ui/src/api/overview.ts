@@ -1,5 +1,7 @@
 import { apiRequest } from "./client";
 import type {
+  AlertsResponse,
+  AlertStatus,
   EventHistoryResponse,
   GitCommitDetailsResponse,
   QueueResponse,
@@ -10,6 +12,19 @@ import type {
   StackManifestosResponse,
   StacksResponse,
 } from "./types";
+
+export function fetchAlerts(options: { status?: AlertStatus; limit?: number } = {}): Promise<AlertsResponse> {
+  const params = new URLSearchParams();
+  if (options.status) {
+    params.set("status", options.status);
+  }
+  if (typeof options.limit === "number") {
+    params.set("limit", String(options.limit));
+  }
+
+  const query = params.toString();
+  return apiRequest<AlertsResponse>(`/api/v1/alerts${query ? `?${query}` : ""}`);
+}
 
 export interface FetchEventsOptions {
   severities?: string[];

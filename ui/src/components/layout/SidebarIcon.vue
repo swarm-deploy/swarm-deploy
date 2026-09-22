@@ -46,6 +46,10 @@ defineProps<{
       <rect x="3.5" y="5.5" width="17" height="15" rx="2" />
       <path d="m8 15 2.2 2 5-5" />
     </template>
+    <template v-else-if="name === 'alerts'">
+      <path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9Z" />
+      <path d="M10 21h4" />
+    </template>
     <template v-else-if="name === 'user'">
       <circle cx="12" cy="8" r="4" />
       <path d="M4.5 21a7.5 7.5 0 0 1 15 0" />

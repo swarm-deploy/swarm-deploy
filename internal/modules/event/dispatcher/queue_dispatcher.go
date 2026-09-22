@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"go.opentelemetry.io/otel"
@@ -76,7 +77,9 @@ func (d *QueueDispatcher) Shutdown(ctx context.Context) error {
 }
 
 func (d *QueueDispatcher) Dispatch(ctx context.Context, event events.Event) {
+	envelope := events.Envelope{ID: uuid.NewString(), Event: event}
 	ctx, span := d.tracer.Start(ctx, "event.Dispatch", trace.WithAttributes(
+		tracing.EventID.String(envelope.ID),
 		tracing.EventName.String(string(event.Type().Name())),
 	))
 	defer span.End()
@@ -84,32 +87,32 @@ func (d *QueueDispatcher) Dispatch(ctx context.Context, event events.Event) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	if d.closed {
-		slog.InfoContext(ctx, "[event] event not dispatched, channel closed", slog.Any("event", event))
+		slog.InfoContext(ctx, "[event] event not dispatched, channel closed", slog.Any("envelope", envelope))
 
 		tracing.FailSpan(span, errors.New("event dispatcher is closed"))
 
 		return
 	}
 
-	slog.InfoContext(ctx, "[event] dispatching event", slog.Any("event", event),
-		slog.String("event.type", event.Type().String()),
+	slog.InfoContext(ctx, "[event] dispatching event", slog.Any("envelope", envelope),
+		slog.String("event.type", envelope.Event.Type().String()),
 	)
 
 	d.queue <- scheduledMessage{
-		Event:       event,
+		Envelope:    envelope,
 		SpanContext: trace.SpanContextFromContext(ctx),
 	}
 
-	span.AddEvent("Event scheduled")
+	span.AddEvent("Envelope scheduled")
 }
 
-func (d *QueueDispatcher) skipDispatching(now time.Time, event events.Event) bool {
-	window := event.Type().Window()
+func (d *QueueDispatcher) skipDispatching(now time.Time, envelope events.Envelope) bool {
+	window := envelope.Event.Type().Window()
 	if window <= 0 {
 		return false
 	}
 
-	key := deduplicateKey(event)
+	key := deduplicateKey(envelope)
 
 	d.handledM.Lock()
 	defer d.handledM.Unlock()
@@ -138,15 +141,15 @@ func (d *QueueDispatcher) runQueueWorker() {
 			trace.ContextWithSpanContext(context.Background(), msg.SpanContext),
 			"event.Process",
 			trace.WithAttributes(
-				tracing.EventName.String(msg.Event.Type().String()),
+				tracing.EventName.String(msg.Envelope.Event.Type().String()),
 			),
 		)
 		defer span.End()
 
 		now := d.now()
-		if d.skipDispatching(now, msg.Event) {
+		if d.skipDispatching(now, msg.Envelope) {
 			slog.DebugContext(context.Background(), "[event] event skipped by deduplication window",
-				slog.String("event.type", msg.Event.Type().String()),
+				slog.String("event.type", msg.Envelope.Event.Type().String()),
 			)
 
 			span.AddEvent("event skipped by deduplication window")
@@ -155,7 +158,7 @@ func (d *QueueDispatcher) runQueueWorker() {
 		}
 
 		d.mu.RLock()
-		subscribers := append([]Subscriber{}, d.subscribers[msg.Event.Type()]...)
+		subscribers := append([]Subscriber{}, d.subscribers[msg.Envelope.Event.Type()]...)
 		d.mu.RUnlock()
 
 		for _, subscriber := range subscribers {
@@ -170,7 +173,7 @@ func (d *QueueDispatcher) runQueueWorker() {
 
 func (d *QueueDispatcher) forwardToQueue(ctx context.Context, msg scheduledMessage, subscriber Subscriber) {
 	ctx, span := d.tracer.Start(ctx, "event.ForwardToQueue", trace.WithAttributes(
-		tracing.EventName.String(string(msg.Event.Type().Name())),
+		tracing.EventName.String(string(msg.Envelope.Event.Type().Name())),
 	))
 	defer span.End()
 
@@ -182,12 +185,12 @@ func (d *QueueDispatcher) forwardToQueue(ctx context.Context, msg scheduledMessa
 	span.SetAttributes(tracing.EventQueueName.String(targetQueue.Name()))
 
 	targetQueue.Dispatch(&message{
-		Event:       msg.Event,
+		Envelope:    msg.Envelope,
 		Subscriber:  subscriber,
 		SpanContext: trace.SpanContextFromContext(ctx),
 	})
 
-	span.AddEvent("Event forwarded")
+	span.AddEvent("Envelope forwarded")
 }
 
 func (d *QueueDispatcher) cleanHandledLocked(now time.Time) {
@@ -200,8 +203,8 @@ func (d *QueueDispatcher) cleanHandledLocked(now time.Time) {
 	}
 }
 
-func deduplicateKey(event events.Event) string {
-	details := event.Details()
+func deduplicateKey(envelope events.Envelope) string {
+	details := envelope.Event.Details()
 	keys := make([]string, 0, len(details))
 
 	for key := range details {
@@ -211,7 +214,7 @@ func deduplicateKey(event events.Event) string {
 	sort.Strings(keys)
 
 	hash := fnv.New64a()
-	_, _ = hash.Write([]byte(event.Type().String()))
+	_, _ = hash.Write([]byte(envelope.Event.Type().String()))
 	_, _ = hash.Write([]byte{0})
 
 	for _, key := range keys {
@@ -221,7 +224,7 @@ func deduplicateKey(event events.Event) string {
 		_, _ = hash.Write([]byte{0})
 	}
 
-	return fmt.Sprintf("%s:%x", event.Type().String(), hash.Sum64())
+	return fmt.Sprintf("%s:%x", envelope.Event.Type().String(), hash.Sum64())
 }
 
 func (d *QueueDispatcher) drain() {

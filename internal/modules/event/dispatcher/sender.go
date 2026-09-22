@@ -13,13 +13,13 @@ type EventSender func(ctx context.Context, msg message) error
 
 func directEventSender() EventSender {
 	return func(ctx context.Context, msg message) error {
-		ctx = logx.ContextWithEventType(ctx, msg.Event.Type())
+		ctx = logx.ContextWithEventType(ctx, msg.Envelope.Event.Type())
 
 		slog.DebugContext(ctx, "[event] running subscriber",
 			slog.String("subscriber.name", msg.Subscriber.Name()),
 		)
 
-		err := msg.Subscriber.Handle(ctx, msg.Event)
+		err := msg.Subscriber.Handle(ctx, msg.Envelope)
 		if err != nil {
 			slog.WarnContext(ctx, "[event] subscriber failed", slog.Any("err", err))
 			return err
@@ -45,7 +45,7 @@ func traceEventSender(tp trace.TracerProvider, sender EventSender) EventSender {
 		ctx = trace.ContextWithSpanContext(ctx, msg.SpanContext)
 
 		ctx, span := tracer.Start(ctx, "event.Send", trace.WithAttributes(
-			tracing.EventName.String(string(msg.Event.Type().Name())),
+			tracing.EventName.String(string(msg.Envelope.Event.Type().Name())),
 			tracing.EventSubscriberName.String(msg.Subscriber.Name()),
 		))
 		defer span.End()

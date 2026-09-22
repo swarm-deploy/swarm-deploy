@@ -164,7 +164,7 @@ func TestSubscriberHandle(t *testing.T) {
 			serviceRef := swarm.NewServiceReference("payments", "api")
 			testCase.setupMocks(inspector, images, serviceRef)
 
-			err = sub.Handle(context.Background(), &events.DeploySuccess{
+			err = sub.Handle(context.Background(), events.Envelope{ID: "deploy", Event: &events.DeploySuccess{
 				DeployEvent: events.DeployEvent{
 					StackName: "payments",
 					StackDefinition: compose.File{
@@ -178,7 +178,7 @@ func TestSubscriberHandle(t *testing.T) {
 						},
 					},
 				},
-			})
+			}})
 			require.NoError(t, err)
 
 			info, ok := store.Get("payments", "api")
@@ -240,7 +240,7 @@ routes:
 
 	sub := NewSubscriber(store, inspector, images, configs, metadata.NewExtractor())
 
-	err = sub.Handle(context.Background(), &events.DeploySuccess{
+	err = sub.Handle(context.Background(), events.Envelope{ID: "deploy", Event: &events.DeploySuccess{
 		DeployEvent: events.DeployEvent{
 			StackName: "prod",
 			StackDefinition: compose.File{
@@ -254,7 +254,7 @@ routes:
 				},
 			},
 		},
-	})
+	}})
 	require.NoError(t, err)
 
 	info, ok := store.Get("prod", "pomerium")

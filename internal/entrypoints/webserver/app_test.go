@@ -24,6 +24,7 @@ func TestUIRoutes(t *testing.T) {
 		&resources.Module{},
 		nil,
 		nil,
+		nil,
 		config.AuthenticationSpec{},
 	)
 	require.NoError(t, err, "new application")

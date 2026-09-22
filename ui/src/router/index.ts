@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory } from "vue-router";
 
 import ServicesView from "../views/ApplicationsView.vue";
+import AlertsView from "../views/AlertsView.vue";
 import ClusterView from "../views/ClusterView.vue";
 import EventsView from "../views/EventsView.vue";
 import GraphView from "../views/GraphView.vue";
@@ -31,6 +32,11 @@ export const router = createRouter({
       path: "/graph",
       name: "graph",
       component: GraphView,
+    },
+    {
+      path: "/alerts",
+      name: "alerts",
+      component: AlertsView,
     },
     {
       path: "/events",

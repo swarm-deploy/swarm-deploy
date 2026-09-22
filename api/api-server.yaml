@@ -122,6 +122,46 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EventHistoryResponse'
+  /api/v1/alerts:
+    get:
+      operationId: listAlerts
+      parameters:
+        - in: query
+          name: status
+          required: false
+          schema:
+            $ref: '#/components/schemas/AlertStatus'
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 1000
+      responses:
+        '200':
+          description: Persisted alerts matching the requested lifecycle state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertsResponse'
+  /api/v1/alerts/{id}:
+    get:
+      operationId: getAlert
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Alert incident details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Alert'
   /api/v1/recommendations:
     get:
       operationId: listRecommendations
@@ -457,6 +497,69 @@ components:
     EventCategory:
       type: string
       enum: [sync, security, swarm]
+    AlertStatus:
+      type: string
+      enum: [open, resolved]
+    AlertResolution:
+      type: object
+      required: [reason, message, eventId]
+      properties:
+        reason:
+          type: string
+          enum: [recovered]
+        message:
+          type: string
+        eventId:
+          type: string
+    Alert:
+      type: object
+      required: [id, fingerprint, kind, resourceType, resourceId, status, title, message, occurrences, openedAt, updatedAt, openEventId, latestEventId]
+      properties:
+        id:
+          type: string
+        fingerprint:
+          type: string
+        kind:
+          type: string
+          enum: [deploy_failed]
+        resourceType:
+          type: string
+          enum: [stack]
+        resourceId:
+          type: string
+        status:
+          $ref: '#/components/schemas/AlertStatus'
+        title:
+          type: string
+        message:
+          type: string
+        occurrences:
+          type: integer
+          format: int64
+          minimum: 1
+        openedAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        openEventId:
+          type: string
+        latestEventId:
+          type: string
+        resolvedAt:
+          type: string
+          format: date-time
+        resolution:
+          $ref: '#/components/schemas/AlertResolution'
+    AlertsResponse:
+      type: object
+      required: [alerts]
+      properties:
+        alerts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Alert'
     RecommendationsResponse:
       type: object
       required: [recommendations]
@@ -504,8 +607,10 @@ components:
           format: date-time
     EventHistoryItem:
       type: object
-      required: [type, severity, category, created_at, message]
+      required: [id, type, severity, category, created_at, message]
       properties:
+        id:
+          type: string
         type:
           type: string
         severity:

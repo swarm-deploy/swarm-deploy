@@ -46,7 +46,6 @@ type InitJobSpec struct {
 }
 
 func NewDeployer(
-	stackDeployArgs []string,
 	initJobPoll time.Duration,
 	initJobTimeout time.Duration,
 	dockerClient *client.Client,
@@ -54,7 +53,7 @@ func NewDeployer(
 	initJobMetrics InitJobMetrics,
 ) StackDeployer {
 	deployer := &Deployer{
-		stackDeployArgs: stackDeployArgs,
+		stackDeployArgs: []string{"stack", "deploy", "--with-registry-auth", "--detach=false", "--quiet"},
 		runner:          swarmService.BinaryRunner,
 		initJobRunner: NewInitJobRunner(
 			dockerClient,
@@ -73,6 +72,8 @@ func NewDeployer(
 	return newTraceableDeployer(tp, deployer)
 }
 
+const binaryTimeout = 1 * time.Minute
+
 func (d *Deployer) DeployStack(ctx context.Context, stackName, composePath string, services []compose.Service) error {
 	if err := d.runInitJobs(ctx, stackName, services); err != nil {
 		return err
@@ -82,9 +83,13 @@ func (d *Deployer) DeployStack(ctx context.Context, stackName, composePath strin
 	args = append(args, d.stackDeployArgs...)
 	args = append(args, "-c", composePath, stackName)
 
+	ctx, cancel := context.WithTimeout(ctx, binaryTimeout)
+	defer cancel()
+
 	if _, err := d.runner.Run(ctx, args...); err != nil {
 		return fmt.Errorf("deploy stack %s: %w", stackName, err)
 	}
+
 	return nil
 }
 

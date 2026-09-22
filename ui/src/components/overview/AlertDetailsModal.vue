@@ -7,12 +7,7 @@ import { formatDate } from "../../utils/format";
 
 const overviewStore = useOverviewStore();
 
-const alertEvent = computed(() => overviewStore.alertDetailsEvent);
-const detailEntries = computed<[string, string][]>(() => {
-  return Object.entries(alertEvent.value?.details ?? {})
-    .map(([key, value]) => [key, String(value)] as [string, string])
-    .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey));
-});
+const alert = computed(() => overviewStore.alertDetailsAlert);
 
 function closeAlertDetailsModal() {
   overviewStore.closeAlertDetailsModal();
@@ -45,30 +40,27 @@ onUnmounted(() => {
       <div class="modal-body">
         <AppTable summary aria-label="Alert details">
             <tr>
+              <th scope="row">Title</th>
+              <td>{{ alert?.title || "Alert" }}</td>
+            </tr>
+            <tr>
+              <th scope="row">Status</th>
+              <td>{{ alert?.status || "n/a" }}</td>
+            </tr>
+            <tr>
+              <th scope="row">Resource</th>
+              <td>{{ alert?.resourceType || "resource" }} / {{ alert?.resourceId || "unknown" }}</td>
+            </tr>
+            <tr>
               <th scope="row">Message</th>
-              <td>{{ alertEvent?.message || "No message" }}</td>
+              <td>{{ alert?.message || "No message" }}</td>
             </tr>
-            <tr>
-              <th scope="row">Severity</th>
-              <td>{{ alertEvent?.severity || "n/a" }}</td>
-            </tr>
-            <tr>
-              <th scope="row">Type</th>
-              <td>{{ alertEvent?.type || "unknown" }}</td>
-            </tr>
-            <tr>
-              <th scope="row">Timestamp</th>
-              <td>{{ formatDate(alertEvent?.created_at) }}</td>
-            </tr>
+            <tr><th scope="row">Occurrences</th><td>{{ alert?.occurrences ?? 0 }}</td></tr>
+            <tr><th scope="row">Opened</th><td>{{ formatDate(alert?.openedAt) }}</td></tr>
+            <tr><th scope="row">Updated</th><td>{{ formatDate(alert?.updatedAt) }}</td></tr>
+            <tr v-if="alert?.resolvedAt"><th scope="row">Resolved</th><td>{{ formatDate(alert.resolvedAt) }}</td></tr>
+            <tr v-if="alert?.resolution"><th scope="row">Resolution</th><td>{{ alert.resolution.reason }} · {{ alert.resolution.message }}</td></tr>
         </AppTable>
-
-        <ul v-if="detailEntries.length > 0" class="event-details alert-details-list">
-          <li v-for="[key, value] in detailEntries" :key="key" class="event-detail">
-            <span class="event-detail-key">{{ key }}</span>
-            <code class="event-detail-value">{{ value }}</code>
-          </li>
-        </ul>
-        <p v-else class="meta">details: n/a</p>
       </div>
     </div>
   </div>

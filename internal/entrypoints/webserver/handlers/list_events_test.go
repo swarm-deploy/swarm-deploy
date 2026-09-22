@@ -22,13 +22,13 @@ func TestHandlerListEventsFiltersBySeverityAndCategory(t *testing.T) {
 
 	store, err := history.NewStore(filepath.Join(t.TempDir(), "events.json"), 50, fs.NewLocalFileSystem())
 	require.NoError(t, err, "new history store")
-	require.NoError(t, store.Handle(context.Background(), &events.DeploySuccess{
+	require.NoError(t, storeEvent(store, context.Background(), &events.DeploySuccess{
 		DeployEvent: events.DeployEvent{StackName: "api", Commit: "abc"},
 	}))
-	require.NoError(t, store.Handle(context.Background(), &events.UserAuthenticated{Username: "alice"}))
+	require.NoError(t, storeEvent(store, context.Background(), &events.UserAuthenticated{Username: "alice"}))
 	require.NoError(
 		t,
-		store.Handle(context.Background(), &events.SendNotificationFailed{
+		storeEvent(store, context.Background(), &events.SendNotificationFailed{
 			EventType:   events.TypeDeploySuccess,
 			Destination: "telegram",
 			Channel:     "ops",
@@ -53,17 +53,17 @@ func TestHandlerListEventsUsesOrWithinSeverityFilter(t *testing.T) {
 
 	store, err := history.NewStore(filepath.Join(t.TempDir(), "events.json"), 50, fs.NewLocalFileSystem())
 	require.NoError(t, err, "new history store")
-	require.NoError(t, store.Handle(context.Background(), &events.SyncManualStarted{}))
+	require.NoError(t, storeEvent(store, context.Background(), &events.SyncManualStarted{}))
 	require.NoError(
 		t,
-		store.Handle(context.Background(), &events.SendNotificationFailed{
+		storeEvent(store, context.Background(), &events.SendNotificationFailed{
 			EventType:   events.TypeDeployFailed,
 			Destination: "custom",
 			Channel:     "audit",
 			Error:       errors.New("down"),
 		}),
 	)
-	require.NoError(t, store.Handle(context.Background(), &events.AssistantPromptInjectionDetected{}))
+	require.NoError(t, storeEvent(store, context.Background(), &events.AssistantPromptInjectionDetected{}))
 
 	h := &handler{history: store}
 	resp, err := h.ListEvents(context.Background(), generated.ListEventsParams{
@@ -80,10 +80,10 @@ func TestHandlerListEventsFiltersBySwarmCategory(t *testing.T) {
 
 	store, err := history.NewStore(filepath.Join(t.TempDir(), "events.json"), 50, fs.NewLocalFileSystem())
 	require.NoError(t, err, "new history store")
-	require.NoError(t, store.Handle(context.Background(), &events.SyncManualStarted{}))
+	require.NoError(t, storeEvent(store, context.Background(), &events.SyncManualStarted{}))
 	require.NoError(
 		t,
-		store.Handle(context.Background(), &events.NodeDisconnected{
+		storeEvent(store, context.Background(), &events.NodeDisconnected{
 			NodeID:   "node-1",
 			NodeName: "worker-1",
 			Status:   "disconnected",
@@ -106,13 +106,13 @@ func TestHandlerListEventsFiltersByType(t *testing.T) {
 
 	store, err := history.NewStore(filepath.Join(t.TempDir(), "events.json"), 50, fs.NewLocalFileSystem())
 	require.NoError(t, err, "new history store")
-	require.NoError(t, store.Handle(context.Background(), &events.DeploySuccess{
+	require.NoError(t, storeEvent(store, context.Background(), &events.DeploySuccess{
 		DeployEvent: events.DeployEvent{StackName: "api", Commit: "abc"},
 	}))
-	require.NoError(t, store.Handle(context.Background(), &events.DeployFailed{
+	require.NoError(t, storeEvent(store, context.Background(), &events.DeployFailed{
 		DeployEvent: events.DeployEvent{StackName: "api", Commit: "def"},
 	}))
-	require.NoError(t, store.Handle(context.Background(), &events.UserAuthenticated{Username: "alice"}))
+	require.NoError(t, storeEvent(store, context.Background(), &events.UserAuthenticated{Username: "alice"}))
 
 	h := &handler{history: store}
 	resp, err := h.ListEvents(context.Background(), generated.ListEventsParams{
@@ -158,14 +158,14 @@ func TestHandlerListEventsLimitsLatestFilteredEvents(t *testing.T) {
 
 	store, err := history.NewStore(filepath.Join(t.TempDir(), "events.json"), 50, fs.NewLocalFileSystem())
 	require.NoError(t, err, "new history store")
-	require.NoError(t, store.Handle(context.Background(), &events.DeploySuccess{
+	require.NoError(t, storeEvent(store, context.Background(), &events.DeploySuccess{
 		DeployEvent: events.DeployEvent{StackName: "api", Commit: "abc"},
 	}))
-	require.NoError(t, store.Handle(context.Background(), &events.UserAuthenticated{Username: "alice"}))
-	require.NoError(t, store.Handle(context.Background(), &events.DeployFailed{
+	require.NoError(t, storeEvent(store, context.Background(), &events.UserAuthenticated{Username: "alice"}))
+	require.NoError(t, storeEvent(store, context.Background(), &events.DeployFailed{
 		DeployEvent: events.DeployEvent{StackName: "api", Commit: "def"},
 	}))
-	require.NoError(t, store.Handle(context.Background(), &events.DeploySuccess{
+	require.NoError(t, storeEvent(store, context.Background(), &events.DeploySuccess{
 		DeployEvent: events.DeployEvent{StackName: "worker", Commit: "ghi"},
 	}))
 
@@ -181,4 +181,8 @@ func TestHandlerListEventsLimitsLatestFilteredEvents(t *testing.T) {
 	assert.Equal(t, "deployFailed", resp.Events[0].Type)
 	assert.Equal(t, "deploySuccess", resp.Events[1].Type)
 	assert.Equal(t, "ghi", resp.Events[1].Details.Value["commit"])
+}
+
+func storeEvent(store *history.Store, ctx context.Context, payload events.Event) error {
+	return store.Handle(ctx, events.Envelope{ID: "test-event", Event: payload})
 }

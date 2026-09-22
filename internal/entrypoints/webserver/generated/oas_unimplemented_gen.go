@@ -36,6 +36,13 @@ func (UnimplementedHandler) DeleteNodeLabel(ctx context.Context, params DeleteNo
 	return ht.ErrNotImplemented
 }
 
+// GetAlert implements getAlert operation.
+//
+// GET /api/v1/alerts/{id}
+func (UnimplementedHandler) GetAlert(ctx context.Context, params GetAlertParams) (r *Alert, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetCurrentUser implements getCurrentUser operation.
 //
 // GET /api/v1/users/me
@@ -90,6 +97,13 @@ func (UnimplementedHandler) GetStackManifestos(ctx context.Context, params GetSt
 // GET /api/tasks/{taskID}/logs
 func (UnimplementedHandler) GetTaskLogs(ctx context.Context, params GetTaskLogsParams, w http.ResponseWriter) error {
 	return ht.ErrNotImplemented
+}
+
+// ListAlerts implements listAlerts operation.
+//
+// GET /api/v1/alerts
+func (UnimplementedHandler) ListAlerts(ctx context.Context, params ListAlertsParams) (r *AlertsResponse, _ error) {
+	return r, ht.ErrNotImplemented
 }
 
 // ListEvents implements listEvents operation.

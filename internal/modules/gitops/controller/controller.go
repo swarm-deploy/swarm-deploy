@@ -22,6 +22,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -127,7 +128,7 @@ func (c *Controller) Run(ctx context.Context) error {
 
 	slog.InfoContext(ctx, "[controller] trigger startup sync")
 
-	c.trigger(triggerTask{
+	c.trigger(ctx, triggerTask{
 		reason: TriggerStartup,
 	})
 
@@ -151,7 +152,7 @@ func (c *Controller) Run(ctx context.Context) error {
 			if c.shuttingDown.Load() {
 				continue
 			}
-			c.trigger(triggerTask{
+			c.trigger(ctx, triggerTask{
 				reason: TriggerPoll,
 			})
 		}
@@ -202,7 +203,7 @@ func tickerC(t *time.Ticker) <-chan time.Time {
 func (c *Controller) Manual(ctx context.Context) bool {
 	user, _ := security.UserFromContext(ctx)
 
-	return c.trigger(triggerTask{
+	return c.trigger(ctx, triggerTask{
 		triggeredBy: user.Name,
 		reason:      TriggerManual,
 		spanContext: trace.SpanContextFromContext(ctx),
@@ -210,21 +211,38 @@ func (c *Controller) Manual(ctx context.Context) bool {
 }
 
 func (c *Controller) Webhook(ctx context.Context) bool {
-	return c.trigger(triggerTask{
+	return c.trigger(ctx, triggerTask{
 		reason:      TriggerWebhook,
 		spanContext: trace.SpanContextFromContext(ctx),
 	})
 }
 
-func (c *Controller) trigger(task triggerTask) bool {
+func (c *Controller) trigger(ctx context.Context, task triggerTask) bool {
+	ctx, span := c.tracer.Start(
+		trace.ContextWithSpanContext(ctx, task.spanContext),
+		"controller.Trigger",
+		trace.WithAttributes(
+			tracing.SyncReason.String(string(task.reason)),
+		),
+	)
+	defer span.End()
+
+	task.spanContext = trace.SpanContextFromContext(ctx)
+
 	if c.shuttingDown.Load() {
+		tracing.FailSpan(span, errors.New("trigger skipped, controller shutting down"))
+
 		return false
 	}
 
 	select {
 	case c.triggerCh <- task:
+		span.AddEvent("sync scheduled")
+
 		return true
 	default:
+		tracing.FailSpan(span, errors.New("trigger skipped, controller is busy"))
+
 		return false
 	}
 }

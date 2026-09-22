@@ -4,6 +4,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/assistant"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
+	alertstore "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
@@ -27,6 +28,7 @@ type handler struct {
 	services         *service.Store
 	nodes            *swarmnode.Store
 	recommendations  recommendationstore.Store
+	alerts           alertstore.Store
 	assistant        assistant.Assistant
 	git              gitx.Repository
 }
@@ -44,6 +46,7 @@ func New(
 	services *service.Store,
 	nodes *swarmnode.Store,
 	recommendations recommendationstore.Store,
+	alerts alertstore.Store,
 	assistantService assistant.Assistant,
 ) *handler {
 	return &handler{
@@ -58,6 +61,7 @@ func New(
 		services:         services,
 		nodes:            nodes,
 		recommendations:  recommendations,
+		alerts:           alerts,
 		assistant:        assistantService,
 		git:              gitRepository,
 	}
