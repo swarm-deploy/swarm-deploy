@@ -198,7 +198,12 @@ onUnmounted(() => {
     </div>
 
     <div class="topbar-actions">
-      <button type="button" :disabled="syncDisabled || syncPending" @click="emit('syncNow')">
+      <button
+        type="button"
+        class="topbar-sync-button"
+        :disabled="syncDisabled || syncPending"
+        @click="emit('syncNow')"
+      >
         {{ syncPending ? "Syncing..." : "Sync now" }}
       </button>
       <button type="button" class="button-ghost" :disabled="!assistantEnabled" @click="emit('toggleAssistant')">

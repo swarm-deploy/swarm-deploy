@@ -127,6 +127,30 @@ body {
   opacity: 0.65;
 }
 
+.topbar-sync-button {
+  border-color: rgba(96, 165, 250, 0.3);
+  border-radius: 6px;
+  background: #24496c;
+  font-weight: 600;
+  box-shadow: none;
+}
+
+.topbar-sync-button:hover:not(:disabled) {
+  background: #2a557d;
+  filter: none;
+}
+
+.topbar-sync-button:focus-visible {
+  outline: 2px solid rgba(147, 197, 253, 0.72);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.topbar-sync-button:disabled:hover {
+  transform: none;
+  filter: none;
+}
+
 .button-ghost {
   border-color: rgba(148, 163, 184, 0.22);
   color: var(--text);
