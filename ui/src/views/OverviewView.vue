@@ -53,19 +53,8 @@ function serviceCount(stackName: string): number {
   return serviceCountsByStack.value.get(stackName) ?? 0;
 }
 
-function deploymentResult(item: EventHistoryItem): string {
-  if (item.type === "deploySuccess") {
-    return "success";
-  }
-  if (item.type === "deployFailed") {
-    return "failed";
-  }
-
-  return item.severity;
-}
-
 function deploymentResultClass(item: EventHistoryItem): string {
-  return item.type === "deploySuccess" ? "success" : "failed";
+  return item.type === "deploySuccess" ? "overview-deployment-result--success" : "overview-deployment-result--failed";
 }
 
 function detailValue(item: EventHistoryItem, keys: string[]): string {
@@ -244,12 +233,13 @@ onUnmounted(() => {
           :aria-label="`Open deployment commit ${detailValue(event, ['commit', 'revision'])}`"
           @activate="openCommitDetails(detailValue(event, ['commit', 'revision']))"
         >
+          <span
+            class="overview-summary-severity overview-deployment-result"
+            :class="deploymentResultClass(event)"
+            :aria-label="event.type === 'deploySuccess' ? 'Deployment succeeded' : 'Deployment failed'"
+            role="img"
+          ></span>
           <span class="overview-deployment-stack">{{ detailValue(event, ["stack", "stack_name"]) || "unknown stack" }}</span>
-          <span class="overview-deployment-result" :class="deploymentResultClass(event)">
-            <span>
-              {{ deploymentResult(event) }}
-            </span>
-          </span>
           <time class="overview-deployment-time" :datetime="event.created_at">{{ formatTime(event.created_at) }}</time>
           <span v-if="detailValue(event, ['commit', 'revision'])" class="overview-commit-badge overview-summary-sha-badge">
             {{ shortCommitHash(detailValue(event, ["commit", "revision"])) }}

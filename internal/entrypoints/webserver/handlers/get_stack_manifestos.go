@@ -7,9 +7,12 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sort"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/livemanifest"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"gopkg.in/yaml.v3"
 )
 
@@ -36,6 +39,18 @@ func (h *handler) GetStackManifestos(
 		return nil, withStatusError(http.StatusInternalServerError, errors.New("unable to get stack desired manifest"))
 	}
 
+	desiredCompose, err := h.composeLoader.Load(ctx, composeFile)
+	if err != nil {
+		slog.ErrorContext(
+			ctx,
+			"[webserver] failed to load desired stack manifest",
+			slog.String("stack", params.Stack),
+			slog.String("compose_file", composeFile),
+			slog.Any("err", err),
+		)
+		return nil, withStatusError(http.StatusInternalServerError, errors.New("unable to get stack desired manifest"))
+	}
+
 	services, err := h.serviceInspector.ListStackServices(ctx, params.Stack)
 	if err != nil {
 		slog.ErrorContext(
@@ -47,6 +62,8 @@ func (h *handler) GetStackManifestos(
 		)
 		return nil, withStatusError(http.StatusInternalServerError, errors.New("unable to list stack services"))
 	}
+
+	sortStackServicesByDesiredState(services, desiredCompose.Compose.Services)
 
 	liveCompose, err := livemanifest.NewComputer(h.serviceInspector, h.networks).ComputeStack(ctx, livemanifest.Stack{
 		Name:     params.Stack,
@@ -84,6 +101,24 @@ func (h *handler) GetStackManifestos(
 		Desired: string(desiredManifest),
 		Live:    liveManifest.String(),
 	}, nil
+}
+
+func sortStackServicesByDesiredState(services []swarm.StackService, desiredServices compose.Services) {
+	desiredOrder := make(map[string]int, len(desiredServices))
+	for index, service := range desiredServices {
+		desiredOrder[service.Name] = index
+	}
+
+	sort.SliceStable(services, func(i, j int) bool {
+		leftOrder, leftFound := desiredOrder[services[i].Name]
+		rightOrder, rightFound := desiredOrder[services[j].Name]
+
+		if leftFound != rightFound {
+			return leftFound
+		}
+
+		return leftFound && leftOrder < rightOrder
+	})
 }
 
 func (h *handler) resolveStackComposeFile(stackName string) (string, bool) {
