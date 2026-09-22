@@ -218,7 +218,7 @@ onUnmounted(() => {
         {{ shortCommitHash(syncRevision) }}
       </button>
       <span v-else> n/a</span>
-      <template v-if="syncInfo.last_sync_error"> | error: {{ syncInfo.last_sync_error }}</template>
+      <template v-if="syncInfo.last_sync_error"> | error: {{ syncInfo.last_sync_error.slice(0, 500) }}</template>
     </p>
   </section>
 
@@ -246,9 +246,6 @@ onUnmounted(() => {
         >
           <span class="overview-deployment-stack">{{ detailValue(event, ["stack", "stack_name"]) || "unknown stack" }}</span>
           <span class="overview-deployment-result" :class="deploymentResultClass(event)">
-            <span class="overview-deployment-result-icon" aria-hidden="true">
-              {{ event.type === "deploySuccess" ? "✓" : "!" }}
-            </span>
             <span>
               {{ deploymentResult(event) }}
             </span>

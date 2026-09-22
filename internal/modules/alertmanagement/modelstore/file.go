@@ -16,7 +16,7 @@ import (
 
 const (
 	// MaxStoredAlerts is the maximum persisted alert count when resolved alerts can be pruned.
-	MaxStoredAlerts = 1000
+	MaxStoredAlerts = 100
 	alertFileMode   = 0o600
 	alertDirMode    = 0o755
 )

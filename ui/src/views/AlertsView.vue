@@ -54,7 +54,7 @@ onMounted(() => void loadAlerts());
     <AppTable v-else fixed table-class="alerts-table" wrap-class="alerts-table-wrap">
       <template #head><tr><th>Alert</th><th>Stack</th><th>Opened</th><th>{{ selectedStatus === "open" ? "Updated" : "Resolved" }}</th><th>Occurrences</th></tr></template>
       <tr v-for="alert in alerts" :key="alert.id" class="alerts-row" tabindex="0" @click="overviewStore.openAlertDetailsModal(alert)" @keydown.enter="overviewStore.openAlertDetailsModal(alert)">
-        <td><strong>{{ alert.title }}</strong><span class="alerts-message">{{ alert.message || "No message" }}</span><span v-if="alert.resolution" class="alerts-message">{{ alert.resolution.reason }} · {{ alert.resolution.message }}</span></td>
+        <td><strong>{{ alert.title }}</strong><span v-if="alert.resolution" class="alerts-message">{{ alert.resolution.reason }} · {{ alert.resolution.message }}</span></td>
         <td>{{ alert.resourceId || "unknown stack" }}</td>
         <td>{{ formatDate(alert.openedAt) }}</td>
         <td>{{ formatDate(selectedStatus === "open" ? alert.updatedAt : alert.resolvedAt) }}</td>

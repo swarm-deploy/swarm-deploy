@@ -50,9 +50,6 @@ const serviceLabel = computed(() => `${props.serviceCount} ${props.serviceCount 
       <h3 class="overview-stack-card-title" :title="stack.name">{{ stack.name }}</h3>
       <div class="overview-stack-card-badges">
         <span class="overview-stack-status-badge" :class="`overview-stack-status-badge--${statusKind}`">
-          <span class="overview-stack-status-icon" aria-hidden="true">
-            {{ statusKind === "synced" ? "✓" : statusKind === "out-of-sync" ? "!" : "?" }}
-          </span>
           {{ statusLabel }}
         </span>
         <span class="overview-stack-services-badge">{{ serviceLabel }}</span>
