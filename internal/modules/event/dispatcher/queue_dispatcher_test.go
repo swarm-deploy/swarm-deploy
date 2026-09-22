@@ -166,7 +166,7 @@ func (s *collectSubscriber) Usernames() []string {
 
 	out := make([]string, 0, len(s.events))
 	for _, event := range s.events {
-		auth, ok := event.Payload.(*events.UserAuthenticated)
+		auth, ok := event.Event.(*events.UserAuthenticated)
 		if !ok {
 			continue
 		}

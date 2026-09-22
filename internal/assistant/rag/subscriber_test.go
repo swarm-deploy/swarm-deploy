@@ -74,7 +74,7 @@ func TestIndexSubscriberBuildsIndexOnDeploySuccess(t *testing.T) {
 	observer := &subscriberObserverCapture{}
 	subscriber := NewIndexSubscriber(store, embedder, "model", index, observer)
 
-	err := subscriber.Handle(context.Background(), events.Envelope{ID: "deploy", Payload: &events.DeploySuccess{
+	err := subscriber.Handle(context.Background(), events.Envelope{ID: "deploy", Event: &events.DeploySuccess{
 		DeployEvent: events.DeployEvent{
 			StackName: "app",
 			Commit:    "abc",

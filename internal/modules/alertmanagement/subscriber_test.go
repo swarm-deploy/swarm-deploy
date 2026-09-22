@@ -30,13 +30,13 @@ func TestSubscriberDeploymentLifecycle(t *testing.T) {
 	subscriber.newID = func() string { sequence++; return fmt.Sprintf("id-%d", sequence) }
 
 	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
-		ID: "success-0", Payload: &events.DeploySuccess{DeployEvent: events.DeployEvent{StackName: "api"}},
+		ID: "success-0", Event: &events.DeploySuccess{DeployEvent: events.DeployEvent{StackName: "api"}},
 	}), "success without alert")
 	alerts, err := store.List(ctx, modelstore.ListFilter{})
 	require.NoError(t, err, "list empty alerts")
 	assert.Empty(t, alerts, "success must be a no-op")
 
-	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "failure-1", Payload: &events.DeployFailed{
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "failure-1", Event: &events.DeployFailed{
 		DeployEvent: events.DeployEvent{StackName: "api"},
 		Error:       errors.New("image missing"),
 	}}), "first failure")
@@ -50,7 +50,7 @@ func TestSubscriberDeploymentLifecycle(t *testing.T) {
 	assert.Equal(t, alerts[0].OpenEventID, alerts[0].LatestEventID, "first event references")
 	assert.Equal(t, "failure-1", alerts[0].OpenEventID, "triggering event id")
 
-	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "failure-2", Payload: &events.DeployFailed{
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "failure-2", Event: &events.DeployFailed{
 		DeployEvent: events.DeployEvent{StackName: "api"},
 		Error:       errors.New("registry unavailable"),
 	}}), "repeated failure")
@@ -63,7 +63,7 @@ func TestSubscriberDeploymentLifecycle(t *testing.T) {
 	assert.NotEqual(t, alerts[0].OpenEventID, alerts[0].LatestEventID, "latest event should advance")
 	assert.Equal(t, "failure-2", alerts[0].LatestEventID, "latest event reference")
 
-	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "success-1", Payload: &events.DeploySuccess{
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "success-1", Event: &events.DeploySuccess{
 		DeployEvent: events.DeployEvent{StackName: "api"},
 	}}), "recovery")
 	resolved, err := store.List(ctx, modelstore.ListFilter{Status: model.AlertStatusResolved})
@@ -73,7 +73,7 @@ func TestSubscriberDeploymentLifecycle(t *testing.T) {
 	assert.Equal(t, "Deployment completed successfully", resolved[0].Resolution.Message, "resolution message")
 	assert.Equal(t, "success-1", resolved[0].Resolution.EventID, "recovery event reference")
 
-	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "failure-3", Payload: &events.DeployFailed{
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "failure-3", Event: &events.DeployFailed{
 		DeployEvent: events.DeployEvent{StackName: "api"}, Error: errors.New("timeout"),
 	}}), "later failure")
 	open, err := store.List(ctx, modelstore.ListFilter{Status: model.AlertStatusOpen})
@@ -103,7 +103,7 @@ func TestSubscriberConcurrentFailuresCreateOneOpenAlert(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			errorsChannel <- subscriber.Handle(ctx, events.Envelope{
-				ID: "failure", Payload: &events.DeployFailed{
+				ID: "failure", Event: &events.DeployFailed{
 					DeployEvent: events.DeployEvent{StackName: "api"}, Error: errors.New("failed"),
 				},
 			})

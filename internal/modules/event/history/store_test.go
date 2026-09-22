@@ -118,5 +118,5 @@ func TestStoreHandleSendNotificationFailed(t *testing.T) {
 }
 
 func testEvent(payload events.Event) events.Envelope {
-	return events.Envelope{ID: "test-event", Payload: payload}
+	return events.Envelope{ID: "test-event", Event: payload}
 }

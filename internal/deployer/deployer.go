@@ -46,7 +46,6 @@ type InitJobSpec struct {
 }
 
 func NewDeployer(
-	stackDeployArgs []string,
 	initJobPoll time.Duration,
 	initJobTimeout time.Duration,
 	dockerClient *client.Client,
@@ -54,7 +53,7 @@ func NewDeployer(
 	initJobMetrics InitJobMetrics,
 ) StackDeployer {
 	deployer := &Deployer{
-		stackDeployArgs: stackDeployArgs,
+		stackDeployArgs: []string{"stack", "deploy", "--with-registry-auth", "--detach=false"},
 		runner:          swarmService.BinaryRunner,
 		initJobRunner: NewInitJobRunner(
 			dockerClient,

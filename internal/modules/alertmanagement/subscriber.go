@@ -38,7 +38,7 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	switch deployment := event.Payload.(type) {
+	switch deployment := event.Event.(type) {
 	case *events.DeployFailed:
 		return s.handleFailed(ctx, event.ID, deployment)
 	case *events.DeploySuccess:

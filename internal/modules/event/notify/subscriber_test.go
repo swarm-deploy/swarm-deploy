@@ -56,7 +56,7 @@ func TestSubscriberHandleDispatchesNotificationFailureEvent(t *testing.T) {
 	sourceEvent := &events.DeploySuccess{
 		DeployEvent: events.DeployEvent{StackName: "api", Commit: "abc"},
 	}
-	err := sub.Handle(context.Background(), events.Envelope{ID: "source", Payload: sourceEvent})
+	err := sub.Handle(context.Background(), events.Envelope{ID: "source", Event: sourceEvent})
 	require.Error(t, err, "expected notify error")
 	assert.ErrorIs(t, err, dispatchErr, "expected original notify error")
 
@@ -79,7 +79,7 @@ func TestSubscriberHandleDoesNotDispatchFailureForFailureEventItself(t *testing.
 
 	sub := NewSubscriber(notifier, dispatcher)
 
-	err := sub.Handle(context.Background(), events.Envelope{ID: "failure", Payload: &events.SendNotificationFailed{
+	err := sub.Handle(context.Background(), events.Envelope{ID: "failure", Event: &events.SendNotificationFailed{
 		EventType:   events.TypeDeployFailed,
 		Destination: "custom",
 		Channel:     "audit",

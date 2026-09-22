@@ -73,18 +73,18 @@ type Event interface {
 type Envelope struct {
 	// ID uniquely identifies this dispatch in event history and downstream modules.
 	ID string
-	// Payload contains the published domain event.
-	Payload Event
+	// Event contains the published domain event.
+	Event Event
 }
 
 // Type returns the payload event type.
-func (e Envelope) Type() Type { return e.Payload.Type() }
+func (e Envelope) Type() Type { return e.Event.Type() }
 
 // Message returns the payload human-readable message.
-func (e Envelope) Message() string { return e.Payload.Message() }
+func (e Envelope) Message() string { return e.Event.Message() }
 
 // Details returns payload-specific details.
-func (e Envelope) Details() map[string]string { return e.Payload.Details() }
+func (e Envelope) Details() map[string]string { return e.Event.Details() }
 
 var (
 	TypeDeploySuccess = Type{

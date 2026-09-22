@@ -164,7 +164,7 @@ func TestSubscriberHandle(t *testing.T) {
 			serviceRef := swarm.NewServiceReference("payments", "api")
 			testCase.setupMocks(inspector, images, serviceRef)
 
-			err = sub.Handle(context.Background(), events.Envelope{ID: "deploy", Payload: &events.DeploySuccess{
+			err = sub.Handle(context.Background(), events.Envelope{ID: "deploy", Event: &events.DeploySuccess{
 				DeployEvent: events.DeployEvent{
 					StackName: "payments",
 					StackDefinition: compose.File{
@@ -240,7 +240,7 @@ routes:
 
 	sub := NewSubscriber(store, inspector, images, configs, metadata.NewExtractor())
 
-	err = sub.Handle(context.Background(), events.Envelope{ID: "deploy", Payload: &events.DeploySuccess{
+	err = sub.Handle(context.Background(), events.Envelope{ID: "deploy", Event: &events.DeploySuccess{
 		DeployEvent: events.DeployEvent{
 			StackName: "prod",
 			StackDefinition: compose.File{

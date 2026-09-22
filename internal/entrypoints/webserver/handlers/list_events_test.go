@@ -184,5 +184,5 @@ func TestHandlerListEventsLimitsLatestFilteredEvents(t *testing.T) {
 }
 
 func storeEvent(store *history.Store, ctx context.Context, payload events.Event) error {
-	return store.Handle(ctx, events.Envelope{ID: "test-event", Payload: payload})
+	return store.Handle(ctx, events.Envelope{ID: "test-event", Event: payload})
 }

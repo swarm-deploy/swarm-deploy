@@ -33,7 +33,7 @@ func (s *Subscriber) Slow() bool {
 
 func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 	err := s.notifier.Notify(ctx, notifiers.Message{
-		Payload: event.Payload,
+		Payload: event.Event,
 	})
 	if err == nil {
 		return nil

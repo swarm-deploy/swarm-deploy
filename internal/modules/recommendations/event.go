@@ -39,7 +39,7 @@ func (r *RecommenderEventSubscriber) Handle(ctx context.Context, event events.En
 func (r *RecommenderEventSubscriber) stack(event events.Envelope) (model.Stack, bool) {
 	var meta events.DeployEvent
 
-	switch e := event.Payload.(type) {
+	switch e := event.Event.(type) {
 	case *events.DeploySuccess:
 		meta = e.DeployEvent
 	case *events.DeployFailed:

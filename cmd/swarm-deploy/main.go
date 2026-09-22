@@ -155,7 +155,6 @@ func main() {
 
 	cnt.Swarm = swarm.NewSwarm(dockerClient, cfg.Spec.Swarm.Command)
 	cnt.Deployer = deployer.NewDeployer(
-		cfg.Spec.Swarm.StackDeployArgs,
 		cfg.Spec.Swarm.InitJobPollEvery.Value,
 		cfg.Spec.Swarm.InitJobMaxDuration.Value,
 		dockerClient,

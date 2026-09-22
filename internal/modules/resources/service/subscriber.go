@@ -56,7 +56,7 @@ func (s *Subscriber) Slow() bool {
 
 // Handle processes deploySuccess events and persists resolved services snapshot.
 func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
-	deploySuccess, ok := event.Payload.(*events.DeploySuccess)
+	deploySuccess, ok := event.Event.(*events.DeploySuccess)
 	if !ok {
 		return nil
 	}
