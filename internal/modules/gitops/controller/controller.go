@@ -16,6 +16,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/networkloop"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
@@ -55,7 +56,7 @@ type Controller struct {
 	event    dispatcher.Dispatcher
 
 	stateStore        modelstore.Store
-	networkReconciler *networkReconciler
+	networkReconciler *networkloop.Reconciler
 	stackReconciler   stackloop.StackReconciler
 
 	triggerCh chan triggerTask
@@ -90,7 +91,7 @@ func New(
 		metrics:    metricGroup,
 		event:      eventDispatcher,
 		stateStore: stateStore,
-		networkReconciler: newNetworkReconciler(
+		networkReconciler: networkloop.New(
 			swarmService.Networks,
 		),
 		stackReconciler: stackloop.NewStackReconciler(
