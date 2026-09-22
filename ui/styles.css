@@ -456,10 +456,8 @@ button:hover,
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 7px;
   color: var(--muted);
-  background: rgba(148, 163, 184, 0.05);
 }
 
 .overview-summary-panel-icon svg {
@@ -564,7 +562,7 @@ a.overview-summary-row:focus-visible {
 }
 
 .overview-deployment-list .overview-summary-row {
-  grid-template-columns: minmax(116px, 1fr) max-content max-content max-content;
+  grid-template-columns: 9px minmax(116px, 1fr) max-content max-content;
   gap: 9px;
   color: var(--muted);
   font-size: 0.79rem;
@@ -586,31 +584,17 @@ a.overview-summary-row:focus-visible {
 }
 
 .overview-deployment-result {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-weight: 650;
-  text-transform: capitalize;
+  justify-self: center;
 }
 
-.overview-deployment-result-icon {
-  width: 15px;
-  height: 15px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid currentColor;
-  border-radius: 999px;
-  font-size: 0.62rem;
-  line-height: 1;
+.overview-summary-severity.overview-deployment-result--success {
+  background: var(--success);
+  box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.1);
 }
 
-.overview-deployment-result.success {
-  color: var(--success);
-}
-
-.overview-deployment-result.failed {
-  color: var(--error);
+.overview-summary-severity.overview-deployment-result--failed {
+  background: var(--error);
+  box-shadow: 0 0 0 3px rgba(248, 113, 113, 0.1);
 }
 
 .overview-deployment-time {
