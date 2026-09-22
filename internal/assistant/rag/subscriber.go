@@ -52,8 +52,8 @@ func (*IndexSubscriber) Slow() bool {
 }
 
 // Handle rebuilds embeddings index after deploySuccess events.
-func (s *IndexSubscriber) Handle(ctx context.Context, event events.Event) error {
-	if _, ok := event.(*events.DeploySuccess); !ok {
+func (s *IndexSubscriber) Handle(ctx context.Context, event events.Envelope) error {
+	if _, ok := event.Payload.(*events.DeploySuccess); !ok {
 		return nil
 	}
 

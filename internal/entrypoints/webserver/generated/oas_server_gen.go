@@ -21,6 +21,10 @@ type Handler interface {
 	//
 	// DELETE /api/v1/nodes/{id}/labels/{key}
 	DeleteNodeLabel(ctx context.Context, params DeleteNodeLabelParams) error
+	// GetAlert implements getAlert operation.
+	//
+	// GET /api/v1/alerts/{id}
+	GetAlert(ctx context.Context, params GetAlertParams) (*Alert, error)
 	// GetCurrentUser implements getCurrentUser operation.
 	//
 	// GET /api/v1/users/me
@@ -49,6 +53,10 @@ type Handler interface {
 	//
 	// GET /api/v1/stacks/{stack}/manifestos
 	GetStackManifestos(ctx context.Context, params GetStackManifestosParams) (*StackManifestosResponse, error)
+	// ListAlerts implements listAlerts operation.
+	//
+	// GET /api/v1/alerts
+	ListAlerts(ctx context.Context, params ListAlertsParams) (*AlertsResponse, error)
 	// ListEvents implements listEvents operation.
 	//
 	// GET /api/v1/events

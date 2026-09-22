@@ -20,24 +20,24 @@ func TestStoreHandlePersistsAndRotates(t *testing.T) {
 	require.NoError(t, err, "new store")
 
 	store.now = func() time.Time { return time.Date(2026, 3, 22, 10, 0, 0, 0, time.UTC) }
-	require.NoError(t, store.Handle(context.Background(), &events.SyncManualStarted{}), "save first event")
+	require.NoError(t, store.Handle(context.Background(), testEvent(&events.SyncManualStarted{})), "save first event")
 
 	store.now = func() time.Time { return time.Date(2026, 3, 22, 10, 1, 0, 0, time.UTC) }
 	require.NoError(
 		t,
-		store.Handle(context.Background(), &events.DeploySuccess{
+		store.Handle(context.Background(), testEvent(&events.DeploySuccess{
 			DeployEvent: events.DeployEvent{StackName: "api", Commit: "abc"},
-		}),
+		})),
 		"save second event",
 	)
 
 	store.now = func() time.Time { return time.Date(2026, 3, 22, 10, 2, 0, 0, time.UTC) }
 	require.NoError(
 		t,
-		store.Handle(context.Background(), &events.DeployFailed{
+		store.Handle(context.Background(), testEvent(&events.DeployFailed{
 			DeployEvent: events.DeployEvent{StackName: "api", Commit: "def"},
 			Error:       errors.New("boom"),
-		}),
+		})),
 		"save third event",
 	)
 
@@ -69,7 +69,7 @@ func TestStoreHandleUserAuthenticated(t *testing.T) {
 	store.now = func() time.Time { return time.Date(2026, 3, 22, 10, 3, 0, 0, time.UTC) }
 	require.NoError(
 		t,
-		store.Handle(context.Background(), &events.UserAuthenticated{Username: "admin"}),
+		store.Handle(context.Background(), testEvent(&events.UserAuthenticated{Username: "admin"})),
 		"save user authenticated event",
 	)
 
@@ -90,12 +90,12 @@ func TestStoreHandleSendNotificationFailed(t *testing.T) {
 	store.now = func() time.Time { return time.Date(2026, 3, 22, 10, 4, 0, 0, time.UTC) }
 	require.NoError(
 		t,
-		store.Handle(context.Background(), &events.SendNotificationFailed{
+		store.Handle(context.Background(), testEvent(&events.SendNotificationFailed{
 			EventType:   events.TypeDeploySuccess,
 			Destination: "telegram",
 			Channel:     "ops",
 			Error:       errors.New("request timeout"),
-		}),
+		})),
 		"save send notification failed event",
 	)
 
@@ -115,4 +115,8 @@ func TestStoreHandleSendNotificationFailed(t *testing.T) {
 		items[0].Message,
 		"expected message",
 	)
+}
+
+func testEvent(payload events.Event) events.Envelope {
+	return events.Envelope{ID: "test-event", Payload: payload}
 }

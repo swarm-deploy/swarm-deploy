@@ -16,6 +16,7 @@ import (
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/handlers"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/middlewares"
+	alertstore "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
 	recommendationstore "github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/modelstore"
@@ -86,6 +87,7 @@ func NewApplication(
 	eventModule *event.Module,
 	resourcesModule *resources.Module,
 	recommendations recommendationstore.Store,
+	alerts alertstore.Store,
 	assistantService assistant.Assistant,
 	authCfg config.AuthenticationSpec,
 ) (*Application, error) {
@@ -99,6 +101,7 @@ func NewApplication(
 		resourcesModule.ServiceStore,
 		resourcesModule.NodeStore,
 		recommendations,
+		alerts,
 		assistantService,
 	)
 

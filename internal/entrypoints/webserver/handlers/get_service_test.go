@@ -136,23 +136,23 @@ func TestHandlerListServiceDeployments_MapsFromHistory(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	require.NoError(t, store.Handle(ctx, &events.DeploySuccess{
+	require.NoError(t, storeEvent(store, ctx, &events.DeploySuccess{
 		DeployEvent: events.DeployEvent{
 			StackName: "payments",
 			Commit:    "commit-success",
 		},
 	}))
-	require.NoError(t, store.Handle(ctx, &events.SyncManualStarted{
+	require.NoError(t, storeEvent(store, ctx, &events.SyncManualStarted{
 		TriggeredBy: "admin",
 	}))
-	require.NoError(t, store.Handle(ctx, &events.DeployFailed{
+	require.NoError(t, storeEvent(store, ctx, &events.DeployFailed{
 		DeployEvent: events.DeployEvent{
 			StackName: "payments",
 			Commit:    "commit-failed",
 		},
 		Error: errors.New("boom"),
 	}))
-	require.NoError(t, store.Handle(ctx, &events.DeploySuccess{
+	require.NoError(t, storeEvent(store, ctx, &events.DeploySuccess{
 		DeployEvent: events.DeployEvent{
 			StackName: "infra",
 			Commit:    "other-stack",
@@ -233,13 +233,13 @@ func TestHandlerListServiceDeployments_RespectsLimitParam(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	require.NoError(t, store.Handle(ctx, &events.DeploySuccess{
+	require.NoError(t, storeEvent(store, ctx, &events.DeploySuccess{
 		DeployEvent: events.DeployEvent{
 			StackName: "payments",
 			Commit:    "commit-1",
 		},
 	}))
-	require.NoError(t, store.Handle(ctx, &events.DeployFailed{
+	require.NoError(t, storeEvent(store, ctx, &events.DeployFailed{
 		DeployEvent: events.DeployEvent{
 			StackName: "payments",
 			Commit:    "commit-2",

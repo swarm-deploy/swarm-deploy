@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"go.opentelemetry.io/otel"
@@ -75,7 +76,8 @@ func (d *QueueDispatcher) Shutdown(ctx context.Context) error {
 	}
 }
 
-func (d *QueueDispatcher) Dispatch(ctx context.Context, event events.Event) {
+func (d *QueueDispatcher) Dispatch(ctx context.Context, payload events.Event) {
+	event := events.Envelope{ID: uuid.NewString(), Payload: payload}
 	ctx, span := d.tracer.Start(ctx, "event.Dispatch", trace.WithAttributes(
 		tracing.EventName.String(string(event.Type().Name())),
 	))
@@ -103,7 +105,7 @@ func (d *QueueDispatcher) Dispatch(ctx context.Context, event events.Event) {
 	span.AddEvent("Event scheduled")
 }
 
-func (d *QueueDispatcher) skipDispatching(now time.Time, event events.Event) bool {
+func (d *QueueDispatcher) skipDispatching(now time.Time, event events.Envelope) bool {
 	window := event.Type().Window()
 	if window <= 0 {
 		return false
@@ -200,7 +202,7 @@ func (d *QueueDispatcher) cleanHandledLocked(now time.Time) {
 	}
 }
 
-func deduplicateKey(event events.Event) string {
+func deduplicateKey(event events.Envelope) string {
 	details := event.Details()
 	keys := make([]string, 0, len(details))
 

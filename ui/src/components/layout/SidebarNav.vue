@@ -26,6 +26,7 @@ const links = [
   { to: "/networks", label: "Networks", icon: "networks" },
   { to: "/secrets", label: "Secrets", icon: "secrets" },
   { to: "/recommendations", label: "Recommendations", icon: "recommendations" },
+  { to: "/alerts", label: "Alerts", icon: "alerts" },
 ];
 
 const secondaryLinks = [{ to: "/events", label: "Events", icon: "events" }];

@@ -26,7 +26,7 @@ func (*Subscriber) Slow() bool {
 	return false
 }
 
-func (s *Subscriber) Handle(_ context.Context, event events.Event) error {
+func (s *Subscriber) Handle(_ context.Context, event events.Envelope) error {
 	s.recorder.IncTotal(event.Type())
 
 	return nil

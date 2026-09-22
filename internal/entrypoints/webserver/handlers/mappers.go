@@ -297,6 +297,7 @@ func toGeneratedEvents(entries []history.Entry) []generated.EventHistoryItem {
 	mapped := make([]generated.EventHistoryItem, 0, len(entries))
 	for _, entry := range entries {
 		item := generated.EventHistoryItem{
+			ID:        entry.ID,
 			Type:      entry.Type.String(),
 			Severity:  toGeneratedEventSeverity(entry.Severity),
 			Category:  toGeneratedEventCategory(entry.Category),

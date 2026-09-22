@@ -59,6 +59,7 @@ type Type struct {
 	window   time.Duration
 }
 
+// Event is domain data published through the event dispatcher.
 type Event interface {
 	// Type returns unique event type identifier.
 	Type() Type
@@ -67,6 +68,23 @@ type Event interface {
 	// Details returns event-specific details for history and notifications.
 	Details() map[string]string
 }
+
+// Envelope is a dispatcher envelope shared by every subscriber.
+type Envelope struct {
+	// ID uniquely identifies this dispatch in event history and downstream modules.
+	ID string
+	// Payload contains the published domain event.
+	Payload Event
+}
+
+// Type returns the payload event type.
+func (e Envelope) Type() Type { return e.Payload.Type() }
+
+// Message returns the payload human-readable message.
+func (e Envelope) Message() string { return e.Payload.Message() }
+
+// Details returns payload-specific details.
+func (e Envelope) Details() map[string]string { return e.Payload.Details() }
 
 var (
 	TypeDeploySuccess = Type{

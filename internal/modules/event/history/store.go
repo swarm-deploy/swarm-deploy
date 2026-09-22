@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 )
@@ -18,6 +19,8 @@ const fileModePrivate = 0o600
 
 // Entry is a persisted event view returned by API.
 type Entry struct {
+	// ID uniquely identifies this event.
+	ID string `json:"id"`
 	// Type is a unique event type.
 	Type events.Type `json:"type"`
 	// Severity is an event priority level.
@@ -71,7 +74,7 @@ func (s *Store) Slow() bool {
 }
 
 // Handle appends event to history and persists updated file.
-func (s *Store) Handle(ctx context.Context, event events.Event) error {
+func (s *Store) Handle(ctx context.Context, event events.Envelope) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -118,12 +121,19 @@ func (s *Store) load(ctx context.Context) error {
 		return fmt.Errorf("decode event history: %w", unmarshalErr)
 	}
 
+	needsFlush := false
+	for index := range s.entries {
+		if s.entries[index].ID == "" {
+			s.entries[index].ID = uuid.NewString()
+			needsFlush = true
+		}
+	}
 	if len(s.entries) > s.capacity {
 		s.entries = s.entries[len(s.entries)-s.capacity:]
-		flushErr := s.flushLocked(ctx)
-		if flushErr != nil {
-			return flushErr
-		}
+		needsFlush = true
+	}
+	if needsFlush {
+		return s.flushLocked(ctx)
 	}
 
 	return nil
@@ -148,10 +158,11 @@ func (s *Store) flushLocked(ctx context.Context) error {
 	return nil
 }
 
-func toEntry(now time.Time, event events.Event) Entry {
+func toEntry(now time.Time, event events.Envelope) Entry {
 	eventType := event.Type()
 
 	return Entry{
+		ID:        event.ID,
 		Type:      eventType,
 		Severity:  eventType.Severity(),
 		Category:  eventType.Category(),

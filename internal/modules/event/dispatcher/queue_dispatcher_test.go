@@ -132,11 +132,11 @@ func newTestQueueDispatcher(t *testing.T) *QueueDispatcher {
 
 type collectSubscriber struct {
 	mu     sync.Mutex
-	events []events.Event
+	events []events.Envelope
 }
 
 func newCollectSubscriber() *collectSubscriber {
-	return &collectSubscriber{events: make([]events.Event, 0, 2)}
+	return &collectSubscriber{events: make([]events.Envelope, 0, 2)}
 }
 
 func (s *collectSubscriber) Name() string {
@@ -147,7 +147,7 @@ func (s *collectSubscriber) Slow() bool {
 	return false
 }
 
-func (s *collectSubscriber) Handle(_ context.Context, event events.Event) error {
+func (s *collectSubscriber) Handle(_ context.Context, event events.Envelope) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.events = append(s.events, event)
@@ -166,7 +166,7 @@ func (s *collectSubscriber) Usernames() []string {
 
 	out := make([]string, 0, len(s.events))
 	for _, event := range s.events {
-		auth, ok := event.(*events.UserAuthenticated)
+		auth, ok := event.Payload.(*events.UserAuthenticated)
 		if !ok {
 			continue
 		}
