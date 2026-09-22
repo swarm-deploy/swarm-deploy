@@ -427,26 +427,39 @@ button:hover,
   min-height: 284px;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
   border: 1px solid rgba(148, 163, 184, 0.13);
   border-radius: 8px;
   background: rgba(31, 31, 35, 0.68);
-  padding: 17px 16px 15px;
   animation: reveal 260ms ease both;
 }
 
 .overview-summary-panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  padding-bottom: 13px;
+  flex: 0 0 auto;
 }
 
-.overview-summary-panel-heading {
-  min-width: 0;
+.overview-summary-panel-header-link {
   display: flex;
   align-items: center;
+  min-width: 0;
   gap: 9px;
+  border-radius: 8px 8px 0 0;
+  background: rgba(63, 63, 70, 0.22);
+  color: var(--text);
+  padding: 17px 16px 13px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 120ms ease;
+}
+
+.overview-summary-panel-header-link:hover {
+  background: rgba(63, 63, 70, 0.38);
+  text-decoration: none;
+}
+
+.overview-summary-panel-header-link:focus-visible {
+  outline: 2px solid rgba(96, 165, 250, 0.85);
+  outline-offset: -2px;
 }
 
 .overview-summary-panel-icon {
@@ -474,6 +487,7 @@ button:hover,
   flex: 1;
   display: flex;
   flex-direction: column;
+  padding: 0 16px 15px;
 }
 
 .overview-panel-title {
@@ -481,33 +495,6 @@ button:hover,
   margin: 0;
   font-size: 0.98rem;
   line-height: 1.25;
-}
-
-.overview-card-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 auto;
-  box-sizing: border-box;
-  height: 32px;
-  border: 1px solid rgba(148, 163, 184, 0.2);
-  border-radius: 6px;
-  color: var(--text);
-  background: transparent;
-  padding: 0 9px;
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 1;
-  text-decoration: none;
-  white-space: nowrap;
-  transition: border-color 120ms ease, background-color 120ms ease;
-}
-
-.overview-card-action:hover,
-.overview-card-action:focus-visible {
-  border-color: rgba(148, 163, 184, 0.4);
-  background: rgba(148, 163, 184, 0.08);
-  text-decoration: none;
 }
 
 .overview-deployment-list,
@@ -2355,7 +2342,15 @@ a.overview-summary-row:focus-visible {
   }
 
   .overview-summary-panel {
-    padding: 15px 13px 12px;
+    padding: 0;
+  }
+
+  .overview-summary-panel-header-link {
+    padding: 15px 13px 13px;
+  }
+
+  .overview-summary-panel-content {
+    padding: 0 13px 12px;
   }
 
   .overview-deployment-list .overview-summary-row {

@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import type { RouteLocationRaw } from "vue-router";
 
-import OverviewCardAction from "./OverviewCardAction.vue";
-
 defineProps<{
   title: string;
   icon: "deployments" | "alerts" | "recommendations";
@@ -13,7 +11,7 @@ defineProps<{
 <template>
   <article class="overview-summary-panel">
     <header class="overview-summary-panel-header">
-      <div class="overview-summary-panel-heading">
+      <RouterLink :to="to" class="overview-summary-panel-header-link">
         <span class="overview-summary-panel-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none">
             <template v-if="icon === 'deployments'">
@@ -31,8 +29,7 @@ defineProps<{
           </svg>
         </span>
         <h2 class="overview-panel-title">{{ title }}</h2>
-      </div>
-      <OverviewCardAction :to="to" />
+      </RouterLink>
     </header>
 
     <div class="overview-summary-panel-content">
