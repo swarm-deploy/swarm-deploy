@@ -136,7 +136,7 @@ func TestEnvFilePopulatorKeepsServiceWithoutEnvFilesUntouched(t *testing.T) {
 	populator := NewEnvFilePopulator(func(context.Context, string) ([]byte, error) {
 		t.Fatal("reader must not be called")
 		return nil, nil
-	}, nil)
+	})
 
 	file := &File{
 		Path: "compose.yaml",
