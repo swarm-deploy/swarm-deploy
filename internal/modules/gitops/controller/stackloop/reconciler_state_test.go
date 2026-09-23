@@ -551,12 +551,13 @@ services:
 	require.NoError(t, reconcileErr, "second reconcile")
 }
 
-func TestAddDownwardSkipsServiceWithExistingDownwardVariable(t *testing.T) {
+func TestAddDownwardPreservesExistingVariableAndAddsMissingOnes(t *testing.T) {
 	reconciler := &Reconciler{}
 	payload := &pipelinePayload{
 		Stack: config.StackSpec{
 			Name: "app",
 		},
+		IsNewDigest: true,
 		Desired: &compose.File{
 			Compose: compose.Compose{
 				Services: compose.Services{
@@ -577,10 +578,12 @@ func TestAddDownwardSkipsServiceWithExistingDownwardVariable(t *testing.T) {
 	err := reconciler.addDownward(context.Background(), payload)
 
 	require.NoError(t, err, "add downward")
-	assert.False(t, payload.DesiredMutated, "expected no desired mutation")
-	assert.Equal(t, map[string]string{
-		downward.EnvServiceName: "custom-service",
-	}, payload.Desired.Compose.Services[0].Environment.Map, "expected service environment to stay unchanged")
+	assert.True(t, payload.DesiredMutated, "expected missing downward variables to mutate desired state")
+
+	environment := payload.Desired.Compose.Services[0].Environment.Map
+	assert.Equal(t, "custom-service", environment[downward.EnvServiceName], "explicit downward value must win")
+	assert.Equal(t, "app", environment[downward.EnvStackName], "expected stack name")
+	assert.Equal(t, "{{.Task.ID}}", environment[downward.EnvTaskID], "expected missing downward variable")
 }
 
 func TestReconcilePrunesServicesForSkippedManualSync(t *testing.T) {
