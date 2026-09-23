@@ -10,6 +10,7 @@ import (
 type DeployEvent struct {
 	StackName       string
 	Commit          string
+	PrevCommit      string
 	Services        []compose.Service
 	StackDefinition compose.File
 }
@@ -35,8 +36,9 @@ func (d *DeploySuccess) Message() string {
 
 func (d *DeploySuccess) Details() map[string]string {
 	return map[string]string{
-		"stack":  d.StackName,
-		"commit": d.Commit,
+		"stack":       d.StackName,
+		"commit":      d.Commit,
+		"prev_commit": d.PrevCommit,
 	}
 }
 
@@ -50,9 +52,10 @@ func (d *DeployFailed) Message() string {
 
 func (d *DeployFailed) Details() map[string]string {
 	details := map[string]string{
-		"stack":  d.StackName,
-		"commit": d.Commit,
-		"logs":   strings.Join(d.Logs, "\n"),
+		"stack":       d.StackName,
+		"commit":      d.Commit,
+		"prev_commit": d.PrevCommit,
+		"logs":        strings.Join(d.Logs, "\n"),
 	}
 	if d.Error != nil {
 		details["error"] = d.Error.Error()

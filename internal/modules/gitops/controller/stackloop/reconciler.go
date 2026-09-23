@@ -77,7 +77,7 @@ func (r *Reconciler) Reconcile(
 	desiredState, err := r.composeLoader.Load(ctx, composePath)
 	if err != nil {
 		r.recordFailure(ctx, req.Stack.Name, req.Commit, nil, err)
-		r.recordStackFailure(ctx, req.Stack.Name, req.Commit, compose.File{}, err)
+		r.recordStackFailure(ctx, req.Stack.Name, model.Stack{}, req.Commit, compose.File{}, err)
 		return wrapReconcileError("load compose", nil, err)
 	}
 
@@ -97,7 +97,7 @@ func (r *Reconciler) Reconcile(
 		pipeErr, _ := errors.AsType[*pipe.StepError](err)
 
 		r.recordFailure(ctx, req.Stack.Name, req.Commit, services, pipeErr)
-		r.recordStackFailure(ctx, req.Stack.Name, req.Commit, *desiredState, pipeErr)
+		r.recordStackFailure(ctx, req.Stack.Name, prev, req.Commit, *desiredState, pipeErr)
 		return wrapReconcileError(pipeErr.StepName, services, pipeErr)
 	}
 
@@ -177,6 +177,7 @@ func (r *Reconciler) processResult(
 		DeployEvent: events.DeployEvent{
 			StackName:       req.Stack.Name,
 			Commit:          req.Commit,
+			PrevCommit:      prevState.LastCommit,
 			Services:        desired.Compose.Services,
 			StackDefinition: *desired,
 		},
@@ -215,6 +216,7 @@ func (r *Reconciler) recordFailure(
 func (r *Reconciler) recordStackFailure(
 	ctx context.Context,
 	stackName string,
+	prevState model.Stack,
 	commit string,
 	stackDefinition compose.File,
 	reason error,
@@ -236,6 +238,7 @@ func (r *Reconciler) recordStackFailure(
 	r.event.Dispatch(ctx, &events.DeployFailed{
 		DeployEvent: events.DeployEvent{
 			StackName:       stackName,
+			PrevCommit:      prevState.LastCommit,
 			Commit:          commit,
 			Services:        stackDefinition.Compose.Services,
 			StackDefinition: stackDefinition,
