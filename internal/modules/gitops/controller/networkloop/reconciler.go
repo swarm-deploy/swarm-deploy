@@ -65,10 +65,10 @@ func (r *Reconciler) Reconcile(ctx context.Context, networkCfg config.NetworkSpe
 		return false, fmt.Errorf("get network: %w", err)
 	}
 
-	if err := ensureManagedNetwork(current); err != nil {
+	if err = ensureManagedNetwork(current); err != nil {
 		return false, err
 	}
-	if err := ensureNetworkMatches(current, desired); err != nil {
+	if err = ensureNetworkMatches(current, desired); err != nil {
 		return false, err
 	}
 
