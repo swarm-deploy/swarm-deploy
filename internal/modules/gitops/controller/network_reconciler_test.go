@@ -7,132 +7,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/networkloop"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/mock/gomock"
 )
-
-func TestNetworkReconcilerReconcileCreatesManagedNetwork(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	manager := swarm.NewMockNetworkManager(ctrl)
-
-	reconciler := newNetworkReconciler(manager)
-	var createReq *swarm.CreateNetworkRequest
-	manager.EXPECT().
-		Get(gomock.Any(), "app_backend").
-		Return(swarm.Network{}, swarm.ErrNetworkNotFound)
-	manager.EXPECT().
-		Create(gomock.Any(), gomock.Any()).
-		DoAndReturn(func(_ context.Context, req swarm.CreateNetworkRequest) (string, error) {
-			createReq = &req
-			return "created-id", nil
-		})
-
-	skipped, err := reconciler.Reconcile(context.Background(), config.NetworkSpec{
-		Name:       "app_backend",
-		Driver:     "overlay",
-		Attachable: true,
-		Labels: map[string]string{
-			"team": "platform",
-		},
-		Options: map[string]string{
-			"encrypted": "true",
-		},
-	})
-
-	require.NoError(t, err, "reconcile network")
-	assert.False(t, skipped, "expected created network")
-	require.NotNil(t, createReq, "expected create request")
-	assert.Equal(t, "app_backend", createReq.Name, "unexpected network name")
-	assert.Equal(t, "overlay", createReq.Driver, "unexpected driver")
-	assert.True(t, createReq.Attachable, "unexpected attachable flag")
-	assert.Equal(
-		t,
-		labelsdict.NetworkManagedValue,
-		createReq.Labels[labelsdict.NetworkManagedKey],
-		"expected managed label",
-	)
-}
-
-func TestNetworkReconcilerReconcileFailsWhenExistingNetworkIsNotManaged(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	manager := swarm.NewMockNetworkManager(ctrl)
-
-	manager.EXPECT().
-		Get(gomock.Any(), "app_backend").
-		Return(swarm.Network{
-			Name:   "app_backend",
-			Driver: "overlay",
-		}, nil)
-
-	reconciler := newNetworkReconciler(manager)
-	_, err := reconciler.Reconcile(context.Background(), config.NetworkSpec{
-		Name:   "app_backend",
-		Driver: "overlay",
-	})
-
-	require.Error(t, err, "expected ownership error")
-	assert.Contains(t, err.Error(), "not managed by swarm-deploy", "unexpected error")
-}
-
-func TestNetworkReconcilerReconcileFailsOnManagedLabelOverride(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	manager := swarm.NewMockNetworkManager(ctrl)
-
-	reconciler := newNetworkReconciler(manager)
-	_, err := reconciler.Reconcile(context.Background(), config.NetworkSpec{
-		Name:   "app_backend",
-		Driver: "overlay",
-		Labels: map[string]string{
-			labelsdict.NetworkManagedKey: "false",
-		},
-	})
-
-	require.Error(t, err, "expected validation error")
-	assert.Contains(t, err.Error(), `label "org.swarm-deploy.network.managed" must be "true"`, "unexpected error")
-}
-
-func TestNetworkReconcilerReconcileSkipsMatchingManagedNetwork(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	manager := swarm.NewMockNetworkManager(ctrl)
-
-	manager.EXPECT().
-		Get(gomock.Any(), "app_backend").
-		Return(swarm.Network{
-			Name:       "app_backend",
-			Driver:     "overlay",
-			Attachable: true,
-			Internal:   true,
-			Labels: map[string]string{
-				labelsdict.NetworkManagedKey: labelsdict.NetworkManagedValue,
-				"team":                       "platform",
-			},
-			Options: map[string]string{
-				"encrypted": "true",
-				"mtu":       "1450",
-			},
-		}, nil)
-
-	reconciler := newNetworkReconciler(manager)
-	skipped, err := reconciler.Reconcile(context.Background(), config.NetworkSpec{
-		Name:       "app_backend",
-		Driver:     "overlay",
-		Attachable: true,
-		Internal:   true,
-		Labels: map[string]string{
-			"team": "platform",
-		},
-		Options: map[string]string{
-			"encrypted": "true",
-		},
-	})
-
-	require.NoError(t, err, "reconcile network")
-	assert.True(t, skipped, "expected skip")
-}
 
 func TestControllerSyncNetworksStoresState(t *testing.T) {
 	ctrl := gomock.NewController(t)
@@ -157,7 +39,7 @@ func TestControllerSyncNetworksStoresState(t *testing.T) {
 				},
 			},
 		},
-		networkReconciler: newNetworkReconciler(manager),
+		networkReconciler: networkloop.New(manager, &dispatcher.NopDispatcher{}),
 		stateStore:        store,
 		tracer:            otel.Tracer("test"),
 	}
@@ -199,7 +81,7 @@ func TestControllerSyncNetworksStoresFailedState(t *testing.T) {
 				},
 			},
 		},
-		networkReconciler: newNetworkReconciler(manager),
+		networkReconciler: networkloop.New(manager, &dispatcher.NopDispatcher{}),
 		stateStore:        store,
 		tracer:            otel.Tracer("test"),
 	}
@@ -231,9 +113,12 @@ func TestControllerSyncNetworksClearsStateWhenNetworksListIsEmpty(t *testing.T) 
 				Networks: nil,
 			},
 		},
-		networkReconciler: newNetworkReconciler(swarm.NewMockNetworkManager(gomock.NewController(t))),
-		stateStore:        store,
-		tracer:            otel.Tracer("test"),
+		networkReconciler: networkloop.New(
+			swarm.NewMockNetworkManager(gomock.NewController(t)),
+			&dispatcher.NopDispatcher{},
+		),
+		stateStore: store,
+		tracer:     otel.Tracer("test"),
 	}
 
 	err := c.syncNetworks(context.Background(), "commit-3")
@@ -268,7 +153,7 @@ func TestControllerSyncNetworksSkipsReconcileWhenStateAlreadySyncedForCommit(t *
 				},
 			},
 		},
-		networkReconciler: newNetworkReconciler(manager),
+		networkReconciler: networkloop.New(manager, &dispatcher.NopDispatcher{}),
 		stateStore:        store,
 		tracer:            otel.Tracer("test"),
 	}

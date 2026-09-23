@@ -2366,11 +2366,29 @@ a.overview-summary-row:focus-visible {
   }
 
   .overview-deployment-list .overview-summary-row {
-    grid-template-columns: minmax(0, 1fr) max-content max-content;
+    grid-template-columns: 9px minmax(0, 1fr) max-content;
+    row-gap: 4px;
+  }
+
+  .overview-deployment-result {
+    grid-column: 1;
+    grid-row: 1;
   }
 
   .overview-deployment-stack {
-    grid-column: 1 / -1;
+    grid-column: 2 / -1;
+    grid-row: 1;
+  }
+
+  .overview-deployment-time {
+    grid-column: 2;
+    grid-row: 2;
+  }
+
+  .overview-summary-sha-badge,
+  .overview-deployment-list .overview-summary-value-empty {
+    grid-column: 3;
+    grid-row: 2;
   }
 
   .services-header {
