@@ -10,14 +10,14 @@ The current pipeline is:
 
 1. Load Compose.
 2. Populate service environment from `env_file`.
-3. Inject Downward metadata when enabled.
+3. [Inject Downward metadata when enabled](./downward.md).
 4. Add the swarm-deploy managed label.
-5. Rotate configs and secrets when enabled.
+5. [Rotate configs and secrets when enabled](./secrets-rotation.md).
 6. Write a rendered Compose file when the desired state was mutated.
 7. Deploy the stack when the source digest changed or the desired state was mutated.
 8. Load live Swarm state.
-9. Prune managed orphaned services when applicable.
-10. Analyze drift.
+9. [Prune managed orphaned services when applicable](./prune.md).
+10. [Analyze drift](./drift.md).
 
 Some steps are conditional. For example, environment population runs only when at least one desired service declares `env_file`.
 

@@ -53,4 +53,3 @@ func (r *Reconciler) addDownward(_ context.Context, payload *pipelinePayload) er
 
 	return nil
 }
-
