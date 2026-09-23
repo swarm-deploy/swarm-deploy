@@ -31,8 +31,9 @@ type Reconciler struct {
 	deployMetrics  metrics.Deploys
 	stateStore     modelstore.Store
 	pruner         *pruner.ServicePruner
-	composeLoader  compose.FileLoader
-	composeRotator *Rotator
+	composeLoader     compose.FileLoader
+	envFilePopulator *compose.EnvFilePopulator
+	composeRotator    *Rotator
 	pipeline       *pipe.Pipeline[*pipelinePayload]
 	driftAnalyzer  *drift.Analyzer
 	serviceManager swarm.ServiceManager
@@ -56,8 +57,9 @@ func New(
 		event:          eventDispatcher,
 		deployMetrics:  deployMetrics,
 		stateStore:     stateStore,
-		composeLoader:  compose.NewFileLoaderWithReader(fileSystem.ReadFile),
-		composeRotator: NewRotator(),
+		composeLoader:     compose.NewFileLoaderWithReader(fileSystem.ReadFile),
+		envFilePopulator: compose.NewEnvFilePopulator(fileSystem.ReadFile),
+		composeRotator:    NewRotator(),
 		pruner:         pruner.NewServicePruner(swarmService.Services, eventDispatcher, cfg.Spec.Sync.Policy),
 		driftAnalyzer:  drift.NewAnalyzer(),
 		serviceManager: swarmService.Services,
