@@ -15,6 +15,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/networkloop"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop"
 	git "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
@@ -230,7 +231,7 @@ func TestControllerSyncOnceReconcilesStacksWhenGitRevisionUnchanged(t *testing.T
 		metrics:           metricGroup,
 		event:             eventDispatcher,
 		stateStore:        store,
-		networkReconciler: newNetworkReconciler(nil),
+		networkReconciler: networkloop.New(nil, &dispatcher.NopDispatcher{}),
 		stackReconciler: stackloop.New(
 			cfg,
 			repository,
@@ -316,7 +317,7 @@ func TestControllerSyncOncePrioritizesChangedStacks(t *testing.T) {
 		metrics:           metricGroup,
 		event:             eventDispatcher,
 		stateStore:        store,
-		networkReconciler: newNetworkReconciler(nil),
+		networkReconciler: networkloop.New(nil, &dispatcher.NopDispatcher{}),
 		stackReconciler: stackloop.New(
 			cfg,
 			repository,
@@ -397,7 +398,7 @@ func TestControllerSyncOnceContinuesWhenGitDiffFails(t *testing.T) {
 		metrics:           metricGroup,
 		event:             eventDispatcher,
 		stateStore:        store,
-		networkReconciler: newNetworkReconciler(nil),
+		networkReconciler: networkloop.New(nil, &dispatcher.NopDispatcher{}),
 		stackReconciler: stackloop.New(
 			cfg,
 			repository,
