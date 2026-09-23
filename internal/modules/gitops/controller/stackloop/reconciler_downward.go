@@ -4,8 +4,6 @@ import (
 	"context"
 
 	downward "github.com/swarm-deploy/downward/go"
-
-	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 )
 
 var downwardEnvironment = map[string]string{
