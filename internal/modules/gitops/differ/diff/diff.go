@@ -1,7 +1,5 @@
 package diff
 
-import "github.com/swarm-deploy/swarm-deploy/internal/compose"
-
 // Diff is a per-service compose changeset.
 type Diff struct {
 	// Services contains changed services.
@@ -62,32 +60,21 @@ type ServiceDiff struct {
 	InitJobs []ServiceDiff `json:"initJobs,omitempty"`
 	// Command contains a service command transition.
 	Command *CommandDiff `json:"command,omitempty"`
-	// Healthcheck contains a service healthcheck transition.
-	Healthcheck *ValueDiff[*compose.ServiceHealth] `json:"healthcheck,omitempty"`
-	// Deploy contains a service deploy transition.
-	Deploy *ValueDiff[compose.ServiceDeploy] `json:"deploy,omitempty"`
-	// CapAdd contains a transition of added Linux capabilities.
-	CapAdd *ValueDiff[[]string] `json:"capAdd,omitempty"`
-	// CapDrop contains a transition of removed Linux capabilities.
-	CapDrop *ValueDiff[[]string] `json:"capDrop,omitempty"`
-	// Labels contains a service labels transition.
-	Labels *ValueDiff[map[string]string] `json:"labels,omitempty"`
-	// Logging contains a service logging transition.
-	Logging *ValueDiff[compose.ServiceLogging] `json:"logging,omitempty"`
+	// Healthcheck contains field-level service healthcheck changes.
+	Healthcheck *HealthcheckDiff `json:"healthcheck,omitempty"`
+	// Deploy contains field-level service deploy changes.
+	Deploy *DeployDiff `json:"deploy,omitempty"`
+	// CapAdd contains capabilities added to or removed from cap_add.
+	CapAdd *StringSetDiff `json:"capAdd,omitempty"`
+	// CapDrop contains capabilities added to or removed from cap_drop.
+	CapDrop *StringSetDiff `json:"capDrop,omitempty"`
+	// Labels contains per-key service label changes.
+	Labels []LabelDiff `json:"labels,omitempty"`
+	// Logging contains field-level service logging changes.
+	Logging *LoggingDiff `json:"logging,omitempty"`
 	// EnvFiles contains a service env_file transition.
-	EnvFiles *ValueDiff[[]string] `json:"envFiles,omitempty"`
+	EnvFiles *StringListDiff `json:"envFiles,omitempty"`
 }
-
-// ValueDiff describes an old/new value transition.
-type ValueDiff[T any] struct {
-	// Old is the value before the change.
-	Old T `json:"old"`
-	// New is the value after the change.
-	New T `json:"new"`
-}
-
-// CommandDiff describes a command transition.
-type CommandDiff = ValueDiff[[]string]
 
 // ImageDiff describes image value transition.
 type ImageDiff struct {
@@ -216,7 +203,7 @@ func (d *ServiceDiff) hasValueChanges() bool {
 		d.Deploy != nil ||
 		d.CapAdd != nil ||
 		d.CapDrop != nil ||
-		d.Labels != nil ||
+		len(d.Labels) > 0 ||
 		d.Logging != nil ||
 		d.EnvFiles != nil
 }
