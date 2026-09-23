@@ -107,3 +107,13 @@ func (s Services) MarshalYAML() (interface{}, error) {
 
 	return &root, nil
 }
+
+func (s *Service) MapInitJobs() map[string]InitJob {
+	jobsByName := make(map[string]InitJob, len(s.InitJobs))
+
+	for _, job := range s.InitJobs {
+		jobsByName[job.Name] = job
+	}
+
+	return jobsByName
+}

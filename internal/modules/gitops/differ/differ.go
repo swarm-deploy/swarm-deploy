@@ -29,16 +29,25 @@ type Differ struct {
 
 // New creates compose differ component.
 func New() *Differ {
-	return &Differ{
-		serviceComparator: srvcomparator.NewComposeComparator(
-			&srvcomparator.EnvComparator{},
-			&srvcomparator.ImageComparator{},
-			&srvcomparator.NetworkComparator{},
-			&srvcomparator.SecretComparator{},
-			&srvcomparator.VolumeComparator{},
-			&srvcomparator.ConfigComparator{},
-			&srvcomparator.PortComparator{},
+	sharedComparators := []srvcomparator.Comparator{
+		&srvcomparator.EnvComparator{},
+		&srvcomparator.ImageComparator{},
+		&srvcomparator.NetworkComparator{},
+		&srvcomparator.SecretComparator{},
+		&srvcomparator.VolumeComparator{},
+		&srvcomparator.ConfigComparator{},
+	}
+
+	serviceComparators := append([]srvcomparator.Comparator{}, sharedComparators...)
+	serviceComparators = append(serviceComparators,
+		&srvcomparator.PortComparator{},
+		srvcomparator.NewInitJobComparator(
+			sharedComparators,
 		),
+	)
+
+	return &Differ{
+		serviceComparator: srvcomparator.NewComposeComparator(serviceComparators...),
 	}
 }
 
@@ -117,8 +126,8 @@ func (d *Differ) compareServices(
 			newService = compose.Service{}
 		}
 
-		serviceDiff, changed := d.compareService(stackName, serviceName, oldService, newService)
-		if !changed {
+		serviceDiff := d.compareService(stackName, serviceName, oldService, newService)
+		if !serviceDiff.HasChanges {
 			continue
 		}
 		serviceDiffs = append(serviceDiffs, serviceDiff)
@@ -141,8 +150,7 @@ func mapServicesByName(composeFile *compose.Compose) map[string]compose.Service 
 }
 
 func (d *Differ) CompareService(stackName string, left compose.Service, right compose.Service) diff.ServiceDiff {
-	sdiff, _ := d.compareService(stackName, left.Name, left, right)
-	return sdiff
+	return d.compareService(stackName, left.Name, left, right)
 }
 
 func (d *Differ) compareService(
@@ -150,7 +158,7 @@ func (d *Differ) compareService(
 	serviceName string,
 	oldService compose.Service,
 	newService compose.Service,
-) (diff.ServiceDiff, bool) {
+) diff.ServiceDiff {
 	serviceDiff := diff.ServiceDiff{
 		ServiceName: serviceName,
 		StackName:   stackName,
@@ -158,15 +166,7 @@ func (d *Differ) compareService(
 
 	d.serviceComparator.Compare(oldService, newService, &serviceDiff)
 
-	changed := serviceDiff.Image != nil ||
-		len(serviceDiff.Environment) > 0 ||
-		len(serviceDiff.Networks) > 0 ||
-		len(serviceDiff.Secrets) > 0 ||
-		len(serviceDiff.Volumes) > 0 ||
-		len(serviceDiff.Configs) > 0 ||
-		len(serviceDiff.Ports) > 0
+	serviceDiff.CalcHasChanges()
 
-	serviceDiff.HasChanges = changed
-
-	return serviceDiff, changed
+	return serviceDiff
 }

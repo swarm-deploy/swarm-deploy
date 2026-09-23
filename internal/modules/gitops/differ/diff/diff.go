@@ -30,6 +30,8 @@ type ServiceDiff struct {
 	Configs []ConfigDiff `json:"configs,omitempty"`
 	// Ports contains changed published service ports.
 	Ports []PortDiff `json:"ports,omitempty"`
+	// InitJobs contains changed init jobs represented as nested service differences.
+	InitJobs []ServiceDiff `json:"initJobs,omitempty"`
 }
 
 // ImageDiff describes image value transition.
@@ -128,4 +130,15 @@ type PortDiff struct {
 	Added bool `json:"added,omitempty"`
 	// Removed reports that the port mapping was removed.
 	Removed bool `json:"removed,omitempty"`
+}
+
+func (d *ServiceDiff) CalcHasChanges() {
+	d.HasChanges = d.Image != nil ||
+		len(d.Environment) > 0 ||
+		len(d.Networks) > 0 ||
+		len(d.Secrets) > 0 ||
+		len(d.Volumes) > 0 ||
+		len(d.Configs) > 0 ||
+		len(d.Ports) > 0 ||
+		len(d.InitJobs) > 0
 }

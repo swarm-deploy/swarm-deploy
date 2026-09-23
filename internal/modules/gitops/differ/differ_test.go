@@ -166,6 +166,73 @@ services:
 	assert.Empty(t, diff.Services, "unchanged compose must not produce service diff")
 }
 
+func TestDifferCompareInitJobChanges(t *testing.T) {
+	testCases := []struct {
+		name        string
+		oldJobImage string
+		newJobImage string
+	}{
+		{
+			name:        "detects changed init job",
+			oldJobImage: "migrate:1",
+			newJobImage: "migrate:2",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			d := New()
+			oldCompose := `
+services:
+  api:
+    image: api:1
+    x-init-deploy-jobs:
+      - name: migrate
+        image: ` + testCase.oldJobImage + `
+`
+			newCompose := `
+services:
+  api:
+    image: api:1
+    x-init-deploy-jobs:
+      - name: migrate
+        image: ` + testCase.newJobImage + `
+`
+
+			actual, err := d.Compare([]ComposeFile{
+				{
+					StackName:      "payments",
+					ComposePath:    "payments/docker-compose.yaml",
+					OldComposeFile: oldCompose,
+					NewComposeFile: newCompose,
+				},
+			})
+			require.NoError(t, err, "compare compose files")
+			require.Len(t, actual.Services, 1, "expected parent service change")
+			assert.Equal(
+				t,
+				[]diffmodel.ServiceDiff{
+					{
+						ServiceName: "migrate",
+						HasChanges:  true,
+						Image: &diffmodel.ImageDiff{
+							Old: testCase.oldJobImage,
+							New: testCase.newJobImage,
+						},
+						Environment: []diffmodel.EnvironmentDiff{},
+						Networks:    []diffmodel.NetworkDiff{},
+						Secrets:     []diffmodel.SecretDiff{},
+						Volumes:     []diffmodel.VolumeDiff{},
+						Configs:     []diffmodel.ConfigDiff{},
+					},
+				},
+				actual.Services[0].InitJobs,
+				"unexpected init job diff",
+			)
+		})
+	}
+}
+
 func TestDifferCompareFailsOnInvalidCompose(t *testing.T) {
 	d := New()
 
