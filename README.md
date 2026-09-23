@@ -13,7 +13,7 @@ swarm-deploy is a Swarm-native GitOps controller inspired by Argo CD. It keeps s
 ### GitOps
 
 - **Git as the desired state** for stack definitions, Compose manifests, referenced configs/secrets, and managed Docker networks.
-- **Reconciliation can be triggered by polling, webhooks, or both**.
+- **Reconciliation can be triggered by polling, webhooks, or both**. See [reconciliation](./docs/reconciler.md).
 - **Diff-based deployments**: a stack is deployed only when its effective desired-state digest changes, including referenced config, secret, and env files.
 - **Stack sync status** in the UI, including last sync result, Git revision, deployment status, and errors.
 - **Desired vs. live manifests** for each stack, so the Git definition can be compared with the current Swarm state.
@@ -41,8 +41,6 @@ swarm-deploy is a Swarm-native GitOps controller inspired by Argo CD. It keeps s
 - Service scaling and restart operations available to the assistant when the corresponding tools are enabled.
 
 ### Runtime Automation
-
-- **Safe `env_file` resolution**: swarm-deploy expands service `env_file` entries into the effective `environment` before deployment. Bare keys such as `TOKEN` (without `=`) are rejected instead of reading from the swarm-deploy process environment. This prevents repository content from referencing controller environment variables by name.
 
 - **Init Deploy Jobs** for one-off tasks that must complete before an application rollout, such as database migrations, schema/bootstrap preparation, or other pre-deploy checks and setup steps. See [Init Deploy Jobs](./docs/init-deploy-jobs.md).
 - [**Downward environment injection**](./docs/downward.md) for Swarm metadata such as stack, service, task, slot, and node identity.
@@ -159,6 +157,7 @@ when swarm-deploy manages its own service, and it also makes ordinary swarm-depl
 
 ## Documentation
 
+- [Reconciliation](./docs/reconciler.md)
 - [Authentication](./docs/authentication.md)
 - [Managed Docker Networks](./docs/networks.md)
 - [Downward Metadata](./docs/downward.md)
