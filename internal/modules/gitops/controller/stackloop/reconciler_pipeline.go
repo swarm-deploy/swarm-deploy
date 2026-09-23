@@ -112,7 +112,7 @@ func (r *Reconciler) populateEnvironment(ctx context.Context, payload *pipelineP
 		return err
 	}
 
-	if changed {
+	if changed && payload.IsNewDigest {
 		payload.DesiredMutated = true
 	}
 
