@@ -34,6 +34,11 @@ func (r *Reconciler) attachPipeline() {
 		PipelineName: "sync stack",
 	})
 
+	r.pipeline.Add(pipe.Step[*pipelinePayload]{
+		Name: "populate environment",
+		Run:  r.populateEnvironment,
+	})
+
 	if r.cfg.Spec.Containers.Downward != nil {
 		r.pipeline.Add(pipe.Step[*pipelinePayload]{
 			Name: "add downward",
@@ -95,6 +100,23 @@ func (r *Reconciler) attachPipeline() {
 		}),
 		Run: r.analyzeDrift,
 	})
+}
+
+func (r *Reconciler) populateEnvironment(ctx context.Context, payload *pipelinePayload) error {
+	if r.envFilePopulator == nil {
+		return nil
+	}
+
+	changed, err := r.envFilePopulator.Populate(ctx, payload.Desired)
+	if err != nil {
+		return err
+	}
+
+	if changed {
+		payload.DesiredMutated = true
+	}
+
+	return nil
 }
 
 func (r *Reconciler) addManagedLabel(_ context.Context, payload *pipelinePayload) error {
