@@ -35,6 +35,9 @@ func New() *Differ {
 			&srvcomparator.ImageComparator{},
 			&srvcomparator.NetworkComparator{},
 			&srvcomparator.SecretComparator{},
+			&srvcomparator.VolumeComparator{},
+			&srvcomparator.ConfigComparator{},
+			&srvcomparator.PortComparator{},
 		),
 	}
 }
@@ -158,7 +161,10 @@ func (d *Differ) compareService(
 	changed := serviceDiff.Image != nil ||
 		len(serviceDiff.Environment) > 0 ||
 		len(serviceDiff.Networks) > 0 ||
-		len(serviceDiff.Secrets) > 0
+		len(serviceDiff.Secrets) > 0 ||
+		len(serviceDiff.Volumes) > 0 ||
+		len(serviceDiff.Configs) > 0 ||
+		len(serviceDiff.Ports) > 0
 
 	serviceDiff.HasChanges = changed
 

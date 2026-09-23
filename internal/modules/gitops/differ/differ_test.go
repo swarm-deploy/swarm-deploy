@@ -24,6 +24,17 @@ services:
       - source: app-secret
         target: /run/secrets/app-secret
       - legacy-secret
+    volumes:
+      - data:/data
+      - ./legacy:/legacy
+    configs:
+      - source: app-config
+        target: /etc/app.yaml
+      - source: legacy-config
+        target: /etc/legacy.yaml
+    ports:
+      - 80:8080
+      - 90:9090
 `
 
 	newCompose := `
@@ -39,6 +50,17 @@ services:
       - source: app-secret
         target: /run/secrets/app-secret-v2
       - current-secret
+    volumes:
+      - data:/data:ro
+      - ./current:/current
+    configs:
+      - source: app-config
+        target: /etc/app-v2.yaml
+      - source: current-config
+        target: /etc/current.yaml
+    ports:
+      - 80:8081
+      - 443:8443
 `
 
 	diff, err := d.Compare([]ComposeFile{
@@ -88,6 +110,39 @@ services:
 		},
 		serviceDiff.Secrets,
 		"unexpected secret diff",
+	)
+	assert.Equal(
+		t,
+		[]diffmodel.VolumeDiff{
+			{Type: "bind", Source: "./current", Target: "/current", Added: true},
+			{Type: "volume", Source: "data", Target: "/data", ReadOnly: true, Added: true},
+			{Type: "volume", Source: "data", Target: "/data", Removed: true},
+			{Type: "bind", Source: "./legacy", Target: "/legacy", Removed: true},
+		},
+		serviceDiff.Volumes,
+		"unexpected volume diff",
+	)
+	assert.Equal(
+		t,
+		[]diffmodel.ConfigDiff{
+			{Name: "app-config", MountFile: "/etc/app-v2.yaml", Added: true},
+			{Name: "app-config", MountFile: "/etc/app.yaml", Removed: true},
+			{Name: "current-config", MountFile: "/etc/current.yaml", Added: true},
+			{Name: "legacy-config", MountFile: "/etc/legacy.yaml", Removed: true},
+		},
+		serviceDiff.Configs,
+		"unexpected config diff",
+	)
+	assert.Equal(
+		t,
+		[]diffmodel.PortDiff{
+			{Published: 80, Target: 8080, Protocol: "tcp", Mode: "ingress", Removed: true},
+			{Published: 80, Target: 8081, Protocol: "tcp", Mode: "ingress", Added: true},
+			{Published: 90, Target: 9090, Protocol: "tcp", Mode: "ingress", Removed: true},
+			{Published: 443, Target: 8443, Protocol: "tcp", Mode: "ingress", Added: true},
+		},
+		serviceDiff.Ports,
+		"unexpected port diff",
 	)
 }
 

@@ -13,6 +13,7 @@ type ServiceDiff struct {
 	// StackName is a stack where service belongs.
 	StackName string `json:"stackName"`
 
+	// HasChanges reports whether the service contains any supported semantic changes.
 	HasChanges bool `json:"hasChanges"`
 
 	// Image contains image change details. Nil when image is unchanged.
@@ -23,6 +24,12 @@ type ServiceDiff struct {
 	Networks []NetworkDiff `json:"networks,omitempty"`
 	// Secrets contains changed service secrets.
 	Secrets []SecretDiff `json:"secrets,omitempty"`
+	// Volumes contains changed service volume mounts.
+	Volumes []VolumeDiff `json:"volumes,omitempty"`
+	// Configs contains changed service config mounts.
+	Configs []ConfigDiff `json:"configs,omitempty"`
+	// Ports contains changed published service ports.
+	Ports []PortDiff `json:"ports,omitempty"`
 }
 
 // ImageDiff describes image value transition.
@@ -64,5 +71,61 @@ type SecretDiff struct {
 	// Added reports that secret mount was added.
 	Added bool `json:"added,omitempty"`
 	// Removed reports that secret mount was removed.
+	Removed bool `json:"removed,omitempty"`
+}
+
+// VolumeDiff describes one changed volume mount.
+type VolumeDiff struct {
+	// Type is the volume mount type.
+	Type string `json:"type,omitempty"`
+	// Source is the volume name or host path.
+	Source string `json:"source,omitempty"`
+	// Target is the mount path in the service container.
+	Target string `json:"target"`
+	// ReadOnly reports whether the mount is read-only.
+	ReadOnly bool `json:"readOnly,omitempty"`
+	// Consistency is the mount consistency requirement.
+	Consistency string `json:"consistency,omitempty"`
+	// Added reports that the volume mount was added.
+	Added bool `json:"added,omitempty"`
+	// Removed reports that the volume mount was removed.
+	Removed bool `json:"removed,omitempty"`
+}
+
+// ConfigDiff describes one changed config mount.
+type ConfigDiff struct {
+	// Name is the config name.
+	Name string `json:"name"`
+	// MountFile is the target mount path in the service container.
+	MountFile string `json:"mountFile,omitempty"`
+	// UID is the numeric user ID that owns the mounted config.
+	UID string `json:"uid,omitempty"`
+	// GID is the numeric group ID that owns the mounted config.
+	GID string `json:"gid,omitempty"`
+	// Mode is the file mode of the mounted config.
+	Mode *uint32 `json:"mode,omitempty"`
+	// Added reports that the config mount was added.
+	Added bool `json:"added,omitempty"`
+	// Removed reports that the config mount was removed.
+	Removed bool `json:"removed,omitempty"`
+}
+
+// PortDiff describes one changed published service port.
+type PortDiff struct {
+	// Published is the port exposed by the swarm service.
+	Published int `json:"published"`
+	// Target is the port exposed by the container.
+	Target int `json:"target"`
+	// Protocol is the transport protocol.
+	Protocol string `json:"protocol"`
+	// AppProtocol is the application protocol hint.
+	AppProtocol string `json:"appProtocol,omitempty"`
+	// Mode is the swarm publish mode.
+	Mode string `json:"mode"`
+	// HostIP is the host address to bind.
+	HostIP string `json:"hostIP,omitempty"`
+	// Added reports that the port mapping was added.
+	Added bool `json:"added,omitempty"`
+	// Removed reports that the port mapping was removed.
 	Removed bool `json:"removed,omitempty"`
 }
