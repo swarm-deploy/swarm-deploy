@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -21,21 +20,12 @@ import (
 // canonical, self-contained desired state.
 type EnvFilePopulator struct {
 	fileReader func(ctx context.Context, path string) ([]byte, error)
-	lookupEnv  func(key string) (string, bool)
 }
 
 // NewEnvFilePopulator builds an env_file populator backed by the provided file reader.
 func NewEnvFilePopulator(reader func(ctx context.Context, path string) ([]byte, error)) *EnvFilePopulator {
-	return newEnvFilePopulator(reader, os.LookupEnv)
-}
-
-func newEnvFilePopulator(
-	reader func(ctx context.Context, path string) ([]byte, error),
-	lookupEnv func(key string) (string, bool),
-) *EnvFilePopulator {
 	return &EnvFilePopulator{
 		fileReader: reader,
-		lookupEnv:  lookupEnv,
 	}
 }
 
@@ -69,7 +59,7 @@ func (p *EnvFilePopulator) Populate(ctx context.Context, file *File) (bool, erro
 				)
 			}
 
-			values, err := parseEnvFile(content, p.lookupEnv)
+			values, err := parseEnvFile(content)
 			if err != nil {
 				return false, fmt.Errorf(
 					"parse env_file %s for service %q: %w",
@@ -80,12 +70,12 @@ func (p *EnvFilePopulator) Populate(ctx context.Context, file *File) (bool, erro
 			}
 
 			for key, value := range values {
-				effective[key] = p.resolveValue(key, value)
+				effective[key] = value
 			}
 		}
 
 		for key, value := range service.Environment.Map {
-			effective[key] = p.resolveValue(key, value)
+			effective[key] = value
 		}
 
 		keys := make([]string, 0, len(effective))
@@ -108,26 +98,13 @@ func (p *EnvFilePopulator) Populate(ctx context.Context, file *File) (bool, erro
 	return changed, nil
 }
 
-func (p *EnvFilePopulator) resolveValue(key, value string) string {
-	if value != "" || p.lookupEnv == nil {
-		return value
-	}
-
-	if resolved, found := p.lookupEnv(key); found {
-		return resolved
-	}
-
-	return value
-}
-
-// parseEnvFile follows the env-file syntax used by Docker stack deploy:
-// comments and empty lines are ignored, leading whitespace is stripped,
-// values are otherwise kept as-is, and a key without "=" is resolved from
-// the process environment when present.
-func parseEnvFile(
-	content []byte,
-	lookupEnv func(key string) (string, bool),
-) (map[string]string, error) {
+// parseEnvFile parses explicit KEY=VALUE pairs from an env file.
+//
+// Values are kept as-is: no interpolation, substitution, quote removal, or
+// escaping is applied. Bare keys without "=" are rejected deliberately so
+// repository content can never read values from the swarm-deploy process
+// environment.
+func parseEnvFile(content []byte) (map[string]string, error) {
 	values := map[string]string{}
 	scanner := bufio.NewScanner(bytes.NewReader(content))
 	utf8BOM := []byte{0xEF, 0xBB, 0xBF}
@@ -155,16 +132,15 @@ func parseEnvFile(
 			return nil, fmt.Errorf("variable %q contains whitespace at line %d", key, lineNumber)
 		}
 
-		if hasValue {
-			values[key] = value
-			continue
+		if !hasValue {
+			return nil, fmt.Errorf(
+				"variable %q at line %d must have an explicit value",
+				key,
+				lineNumber,
+			)
 		}
 
-		if lookupEnv != nil {
-			if value, found := lookupEnv(key); found {
-				values[key] = value
-			}
-		}
+		values[key] = value
 	}
 
 	if err := scanner.Err(); err != nil {
