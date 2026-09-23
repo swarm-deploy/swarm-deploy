@@ -37,7 +37,10 @@ func (c *VolumeComparator) CompareVolumes(leftVolumes, rightVolumes compose.Serv
 	sort.Slice(diffs, func(i, j int) bool {
 		if diffs[i].Target == diffs[j].Target {
 			if diffs[i].Source == diffs[j].Source {
-				return boolScore(diffs[i].Added) > boolScore(diffs[j].Added)
+				if diffs[i].Added != diffs[j].Added {
+					return boolScore(diffs[i].Added) > boolScore(diffs[j].Added)
+				}
+				return stableJSON(diffs[i]) < stableJSON(diffs[j])
 			}
 			return diffs[i].Source < diffs[j].Source
 		}

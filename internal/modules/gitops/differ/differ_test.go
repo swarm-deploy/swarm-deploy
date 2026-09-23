@@ -5,8 +5,99 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	diffmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/differ/diff"
 )
+
+func TestDifferCompareComposeServiceLifecycle(t *testing.T) {
+	d := New()
+	oldCompose := &compose.Compose{Services: compose.Services{
+		{Name: "removed"},
+		{Name: "same", Image: "app:1"},
+	}}
+	newCompose := &compose.Compose{Services: compose.Services{
+		{Name: "added"},
+		{Name: "same", Image: "app:1"},
+	}}
+
+	actual := d.CompareCompose("payments", oldCompose, newCompose)
+
+	assert.Equal(t, []diffmodel.ServiceDiff{
+		{
+			ServiceName: "added", StackName: "payments", Added: true, HasChanges: true,
+			Environment: []diffmodel.EnvironmentDiff{}, Networks: []diffmodel.NetworkDiff{},
+			Secrets: []diffmodel.SecretDiff{}, Volumes: []diffmodel.VolumeDiff{},
+			Configs: []diffmodel.ConfigDiff{}, Ports: []diffmodel.PortDiff{}, InitJobs: []diffmodel.ServiceDiff{},
+		},
+		{
+			ServiceName: "removed", StackName: "payments", Removed: true, HasChanges: true,
+			Environment: []diffmodel.EnvironmentDiff{}, Networks: []diffmodel.NetworkDiff{},
+			Secrets: []diffmodel.SecretDiff{}, Volumes: []diffmodel.VolumeDiff{},
+			Configs: []diffmodel.ConfigDiff{}, Ports: []diffmodel.PortDiff{}, InitJobs: []diffmodel.ServiceDiff{},
+		},
+	}, actual.Services, "unexpected service lifecycle diff")
+}
+
+func TestDifferCompareComposeTopLevelResources(t *testing.T) {
+	internal := true
+	d := New()
+	oldCompose := &compose.Compose{
+		Networks: map[string]compose.Network{
+			"changed":   {External: false},
+			"removed":   {},
+			"unchanged": {Internal: &internal},
+		},
+		Configs: compose.SharedObjects{
+			"changed":   {File: "old"},
+			"removed":   {},
+			"unchanged": {File: "same"},
+		},
+		Secrets: compose.SharedObjects{
+			"changed":   {External: false},
+			"removed":   {},
+			"unchanged": {Name: "same"},
+		},
+		Volumes: compose.Volumes{
+			"changed":   {Driver: "old"},
+			"removed":   {},
+			"unchanged": {Name: "same"},
+		},
+	}
+	newCompose := &compose.Compose{
+		Networks: map[string]compose.Network{
+			"added":     {},
+			"changed":   {External: true},
+			"unchanged": {Internal: &internal},
+		},
+		Configs: compose.SharedObjects{
+			"added":     {},
+			"changed":   {File: "new"},
+			"unchanged": {File: "same"},
+		},
+		Secrets: compose.SharedObjects{
+			"added":     {},
+			"changed":   {External: true},
+			"unchanged": {Name: "same"},
+		},
+		Volumes: compose.Volumes{
+			"added":     {},
+			"changed":   {Driver: "new"},
+			"unchanged": {Name: "same"},
+		},
+	}
+	expected := []diffmodel.ResourceDiff{
+		{StackName: "payments", Name: "added", Added: true},
+		{StackName: "payments", Name: "changed", Changed: true},
+		{StackName: "payments", Name: "removed", Removed: true},
+	}
+
+	actual := d.CompareCompose("payments", oldCompose, newCompose)
+
+	assert.Equal(t, expected, actual.Networks, "unexpected top-level network diff")
+	assert.Equal(t, expected, actual.Configs, "unexpected top-level config diff")
+	assert.Equal(t, expected, actual.Secrets, "unexpected top-level secret diff")
+	assert.Equal(t, expected, actual.Volumes, "unexpected top-level volume diff")
+}
 
 func TestDifferCompareServiceChanges(t *testing.T) {
 	d := New()
@@ -231,6 +322,31 @@ services:
 			)
 		})
 	}
+}
+
+func TestDifferCompareInitJobCommandChanges(t *testing.T) {
+	d := New()
+	oldCompose := &compose.Compose{Services: compose.Services{{
+		Name: "api",
+		InitJobs: []compose.InitJob{{
+			Name: "migrate", Image: "migrate:1", Command: []string{"up"},
+		}},
+	}}}
+	newCompose := &compose.Compose{Services: compose.Services{{
+		Name: "api",
+		InitJobs: []compose.InitJob{{
+			Name: "migrate", Image: "migrate:1", Command: []string{"up", "--force"},
+		}},
+	}}}
+
+	actual := d.CompareCompose("payments", oldCompose, newCompose)
+
+	require.Len(t, actual.Services, 1, "expected parent service change")
+	require.Len(t, actual.Services[0].InitJobs, 1, "expected init job change")
+	assert.Equal(t, &diffmodel.CommandDiff{
+		Old: []string{"up"},
+		New: []string{"up", "--force"},
+	}, actual.Services[0].InitJobs[0].Command, "unexpected init job command diff")
 }
 
 func TestDifferCompareFailsOnInvalidCompose(t *testing.T) {

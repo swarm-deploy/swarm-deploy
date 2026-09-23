@@ -34,7 +34,10 @@ func (c *PortComparator) ComparePorts(leftPorts, rightPorts compose.ServicePorts
 	sort.Slice(diffs, func(i, j int) bool {
 		if diffs[i].Published == diffs[j].Published {
 			if diffs[i].Target == diffs[j].Target {
-				return boolScore(diffs[i].Added) > boolScore(diffs[j].Added)
+				if diffs[i].Added != diffs[j].Added {
+					return boolScore(diffs[i].Added) > boolScore(diffs[j].Added)
+				}
+				return stableJSON(diffs[i]) < stableJSON(diffs[j])
 			}
 			return diffs[i].Target < diffs[j].Target
 		}

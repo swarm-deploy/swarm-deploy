@@ -1,9 +1,33 @@
 package diff
 
+import "github.com/swarm-deploy/swarm-deploy/internal/compose"
+
 // Diff is a per-service compose changeset.
 type Diff struct {
 	// Services contains changed services.
 	Services []ServiceDiff `json:"services"`
+	// Networks contains changed top-level network resources.
+	Networks []ResourceDiff `json:"networks,omitempty"`
+	// Configs contains changed top-level config resources.
+	Configs []ResourceDiff `json:"configs,omitempty"`
+	// Secrets contains changed top-level secret resources.
+	Secrets []ResourceDiff `json:"secrets,omitempty"`
+	// Volumes contains changed top-level volume resources.
+	Volumes []ResourceDiff `json:"volumes,omitempty"`
+}
+
+// ResourceDiff describes the lifecycle of a top-level compose resource.
+type ResourceDiff struct {
+	// StackName is a stack where the resource belongs.
+	StackName string `json:"stackName"`
+	// Name is the resource key in the compose file.
+	Name string `json:"name"`
+	// Added reports that the resource was created.
+	Added bool `json:"added,omitempty"`
+	// Removed reports that the resource was removed.
+	Removed bool `json:"removed,omitempty"`
+	// Changed reports that the resource definition changed.
+	Changed bool `json:"changed,omitempty"`
 }
 
 // ServiceDiff describes changed entities for one service.
@@ -12,6 +36,10 @@ type ServiceDiff struct {
 	ServiceName string `json:"serviceName"`
 	// StackName is a stack where service belongs.
 	StackName string `json:"stackName"`
+	// Added reports that the service was created.
+	Added bool `json:"added,omitempty"`
+	// Removed reports that the service was removed.
+	Removed bool `json:"removed,omitempty"`
 
 	// HasChanges reports whether the service contains any supported semantic changes.
 	HasChanges bool `json:"hasChanges"`
@@ -32,7 +60,34 @@ type ServiceDiff struct {
 	Ports []PortDiff `json:"ports,omitempty"`
 	// InitJobs contains changed init jobs represented as nested service differences.
 	InitJobs []ServiceDiff `json:"initJobs,omitempty"`
+	// Command contains a service command transition.
+	Command *CommandDiff `json:"command,omitempty"`
+	// Healthcheck contains a service healthcheck transition.
+	Healthcheck *ValueDiff[*compose.ServiceHealth] `json:"healthcheck,omitempty"`
+	// Deploy contains a service deploy transition.
+	Deploy *ValueDiff[compose.ServiceDeploy] `json:"deploy,omitempty"`
+	// CapAdd contains a transition of added Linux capabilities.
+	CapAdd *ValueDiff[[]string] `json:"capAdd,omitempty"`
+	// CapDrop contains a transition of removed Linux capabilities.
+	CapDrop *ValueDiff[[]string] `json:"capDrop,omitempty"`
+	// Labels contains a service labels transition.
+	Labels *ValueDiff[map[string]string] `json:"labels,omitempty"`
+	// Logging contains a service logging transition.
+	Logging *ValueDiff[compose.ServiceLogging] `json:"logging,omitempty"`
+	// EnvFiles contains a service env_file transition.
+	EnvFiles *ValueDiff[[]string] `json:"envFiles,omitempty"`
 }
+
+// ValueDiff describes an old/new value transition.
+type ValueDiff[T any] struct {
+	// Old is the value before the change.
+	Old T `json:"old"`
+	// New is the value after the change.
+	New T `json:"new"`
+}
+
+// CommandDiff describes a command transition.
+type CommandDiff = ValueDiff[[]string]
 
 // ImageDiff describes image value transition.
 type ImageDiff struct {
@@ -70,6 +125,12 @@ type SecretDiff struct {
 	Name string `json:"name"`
 	// MountFile is a target mount path in service container.
 	MountFile string `json:"mountFile,omitempty"`
+	// UID is the numeric user ID that owns the mounted secret.
+	UID string `json:"uid,omitempty"`
+	// GID is the numeric group ID that owns the mounted secret.
+	GID string `json:"gid,omitempty"`
+	// Mode is the file mode of the mounted secret.
+	Mode *uint32 `json:"mode,omitempty"`
 	// Added reports that secret mount was added.
 	Added bool `json:"added,omitempty"`
 	// Removed reports that secret mount was removed.
@@ -133,7 +194,12 @@ type PortDiff struct {
 }
 
 func (d *ServiceDiff) CalcHasChanges() {
-	d.HasChanges = d.Image != nil ||
+	d.HasChanges = d.hasCollectionChanges() || d.hasValueChanges()
+}
+
+func (d *ServiceDiff) hasCollectionChanges() bool {
+	return d.Added ||
+		d.Removed ||
 		len(d.Environment) > 0 ||
 		len(d.Networks) > 0 ||
 		len(d.Secrets) > 0 ||
@@ -141,4 +207,16 @@ func (d *ServiceDiff) CalcHasChanges() {
 		len(d.Configs) > 0 ||
 		len(d.Ports) > 0 ||
 		len(d.InitJobs) > 0
+}
+
+func (d *ServiceDiff) hasValueChanges() bool {
+	return d.Image != nil ||
+		d.Command != nil ||
+		d.Healthcheck != nil ||
+		d.Deploy != nil ||
+		d.CapAdd != nil ||
+		d.CapDrop != nil ||
+		d.Labels != nil ||
+		d.Logging != nil ||
+		d.EnvFiles != nil
 }

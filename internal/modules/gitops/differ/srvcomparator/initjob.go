@@ -51,7 +51,7 @@ func (i *InitJobComparator) Compare(left, right compose.Service, srvDiff *diff.S
 			rightService = initJobService(rightJob)
 		}
 
-		jobDiff := i.compareServices(leftService, rightService)
+		jobDiff := i.compareServices(leftService, rightService, !leftExists, !rightExists)
 		if jobDiff != nil {
 			jobDiffs = append(jobDiffs, *jobDiff)
 		}
@@ -60,13 +60,18 @@ func (i *InitJobComparator) Compare(left, right compose.Service, srvDiff *diff.S
 	srvDiff.InitJobs = jobDiffs
 }
 
-func (i *InitJobComparator) compareServices(left, right compose.Service) *diff.ServiceDiff {
+func (i *InitJobComparator) compareServices(
+	left compose.Service,
+	right compose.Service,
+	added bool,
+	removed bool,
+) *diff.ServiceDiff {
 	serviceName := right.Name
 	if serviceName == "" {
 		serviceName = left.Name
 	}
 
-	serviceDiff := &diff.ServiceDiff{ServiceName: serviceName}
+	serviceDiff := &diff.ServiceDiff{ServiceName: serviceName, Added: added, Removed: removed}
 	for _, comparator := range i.comparators {
 		comparator.Compare(left, right, serviceDiff)
 	}

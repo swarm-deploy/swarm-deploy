@@ -28,6 +28,7 @@ func TestInitJobComparatorCompare(t *testing.T) {
 			expected: []diff.ServiceDiff{
 				{
 					ServiceName: "add",
+					Added:       true,
 					HasChanges:  true,
 					Image:       &diff.ImageDiff{New: "add:1"},
 				},
@@ -38,6 +39,7 @@ func TestInitJobComparatorCompare(t *testing.T) {
 				},
 				{
 					ServiceName: "remove",
+					Removed:     true,
 					HasChanges:  true,
 					Image:       &diff.ImageDiff{Old: "remove:1"},
 				},

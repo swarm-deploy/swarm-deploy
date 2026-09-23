@@ -1,6 +1,9 @@
 package srvcomparator
 
 import (
+	"slices"
+	"sort"
+
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/differ/diff"
 )
@@ -13,12 +16,13 @@ func (c *EnvComparator) Compare(left, right compose.Service, srvDiff *diff.Servi
 }
 
 func (c *EnvComparator) CompareEnv(left compose.Environment, right compose.Environment) []diff.EnvironmentDiff {
-	variableNames := left.Keys
+	variableNames := slices.Clone(left.Keys)
 	for _, variableName := range right.Keys {
 		if !left.Has(variableName) {
 			variableNames = append(variableNames, variableName)
 		}
 	}
+	sort.Strings(variableNames)
 
 	diffs := make([]diff.EnvironmentDiff, 0, len(variableNames))
 	for _, variableName := range variableNames {

@@ -2,6 +2,7 @@ package differ
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/differ/srvcomparator"
@@ -30,6 +31,7 @@ type Differ struct {
 // New creates compose differ component.
 func New() *Differ {
 	sharedComparators := []srvcomparator.Comparator{
+		&srvcomparator.CommandComparator{},
 		&srvcomparator.EnvComparator{},
 		&srvcomparator.ImageComparator{},
 		&srvcomparator.NetworkComparator{},
@@ -41,6 +43,12 @@ func New() *Differ {
 	serviceComparators := append([]srvcomparator.Comparator{}, sharedComparators...)
 	serviceComparators = append(serviceComparators,
 		&srvcomparator.PortComparator{},
+		&srvcomparator.HealthcheckComparator{},
+		&srvcomparator.DeployComparator{},
+		&srvcomparator.CapabilitiesComparator{},
+		&srvcomparator.LabelsComparator{},
+		&srvcomparator.LoggingComparator{},
+		&srvcomparator.EnvFileComparator{},
 		srvcomparator.NewInitJobComparator(
 			sharedComparators,
 		),
@@ -53,7 +61,7 @@ func New() *Differ {
 
 // Compare compares compose file snapshots and returns per-service changes.
 func (d *Differ) Compare(composeFiles []ComposeFile) (diff.Diff, error) {
-	serviceDiffs := make([]diff.ServiceDiff, 0)
+	result := diff.Diff{}
 	for i, composeFile := range composeFiles {
 		oldCompose, err := parseComposeFile(composeFile.OldComposeFile)
 		if err != nil {
@@ -65,19 +73,46 @@ func (d *Differ) Compare(composeFiles []ComposeFile) (diff.Diff, error) {
 			return diff.Diff{}, fmt.Errorf("parse new compose file[%d] %q: %w", i, composeFile.ComposePath, err)
 		}
 
-		serviceDiffs = append(serviceDiffs, d.compareServices(composeFile.StackName, oldCompose, newCompose)...)
+		composeDiff := d.CompareCompose(composeFile.StackName, oldCompose, newCompose)
+		result.Services = append(result.Services, composeDiff.Services...)
+		result.Networks = append(result.Networks, composeDiff.Networks...)
+		result.Configs = append(result.Configs, composeDiff.Configs...)
+		result.Secrets = append(result.Secrets, composeDiff.Secrets...)
+		result.Volumes = append(result.Volumes, composeDiff.Volumes...)
 	}
 
-	sort.Slice(serviceDiffs, func(i, j int) bool {
-		left := serviceDiffs[i]
-		right := serviceDiffs[j]
+	sort.Slice(result.Services, func(i, j int) bool {
+		left := result.Services[i]
+		right := result.Services[j]
 		if left.StackName == right.StackName {
 			return left.ServiceName < right.ServiceName
 		}
 		return left.StackName < right.StackName
 	})
+	sortResourceDiffs(result.Networks)
+	sortResourceDiffs(result.Configs)
+	sortResourceDiffs(result.Secrets)
+	sortResourceDiffs(result.Volumes)
 
-	return diff.Diff{Services: serviceDiffs}, nil
+	return result, nil
+}
+
+// CompareCompose compares already parsed compose models for one stack.
+func (d *Differ) CompareCompose(stackName string, oldCompose, newCompose *compose.Compose) diff.Diff {
+	if oldCompose == nil {
+		oldCompose = &compose.Compose{}
+	}
+	if newCompose == nil {
+		newCompose = &compose.Compose{}
+	}
+
+	return diff.Diff{
+		Services: d.compareServices(stackName, oldCompose, newCompose),
+		Networks: compareResources(stackName, oldCompose.Networks, newCompose.Networks),
+		Configs:  compareResources(stackName, oldCompose.Configs, newCompose.Configs),
+		Secrets:  compareResources(stackName, oldCompose.Secrets, newCompose.Secrets),
+		Volumes:  compareResources(stackName, oldCompose.Volumes, newCompose.Volumes),
+	}
 }
 
 func parseComposeFile(raw string) (*compose.Compose, error) {
@@ -127,6 +162,9 @@ func (d *Differ) compareServices(
 		}
 
 		serviceDiff := d.compareService(stackName, serviceName, oldService, newService)
+		serviceDiff.Added = !oldExists
+		serviceDiff.Removed = !newExists
+		serviceDiff.CalcHasChanges()
 		if !serviceDiff.HasChanges {
 			continue
 		}
@@ -134,6 +172,50 @@ func (d *Differ) compareServices(
 	}
 
 	return serviceDiffs
+}
+
+func compareResources[T any](stackName string, oldResources, newResources map[string]T) []diff.ResourceDiff {
+	names := make([]string, 0, len(oldResources)+len(newResources))
+	seen := make(map[string]struct{}, len(oldResources)+len(newResources))
+	for name := range oldResources {
+		seen[name] = struct{}{}
+		names = append(names, name)
+	}
+	for name := range newResources {
+		if _, exists := seen[name]; !exists {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+
+	resourceDiffs := make([]diff.ResourceDiff, 0, len(names))
+	for _, name := range names {
+		oldResource, oldExists := oldResources[name]
+		newResource, newExists := newResources[name]
+		resourceDiff := diff.ResourceDiff{StackName: stackName, Name: name}
+		switch {
+		case !oldExists:
+			resourceDiff.Added = true
+		case !newExists:
+			resourceDiff.Removed = true
+		case !reflect.DeepEqual(oldResource, newResource):
+			resourceDiff.Changed = true
+		default:
+			continue
+		}
+		resourceDiffs = append(resourceDiffs, resourceDiff)
+	}
+
+	return resourceDiffs
+}
+
+func sortResourceDiffs(resourceDiffs []diff.ResourceDiff) {
+	sort.Slice(resourceDiffs, func(i, j int) bool {
+		if resourceDiffs[i].StackName == resourceDiffs[j].StackName {
+			return resourceDiffs[i].Name < resourceDiffs[j].Name
+		}
+		return resourceDiffs[i].StackName < resourceDiffs[j].StackName
+	})
 }
 
 func mapServicesByName(composeFile *compose.Compose) map[string]compose.Service {

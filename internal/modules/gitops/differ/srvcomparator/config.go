@@ -34,7 +34,10 @@ func (c *ConfigComparator) CompareConfigs(leftConfigs, rightConfigs []compose.Ob
 	sort.Slice(diffs, func(i, j int) bool {
 		if diffs[i].Name == diffs[j].Name {
 			if diffs[i].MountFile == diffs[j].MountFile {
-				return boolScore(diffs[i].Added) > boolScore(diffs[j].Added)
+				if diffs[i].Added != diffs[j].Added {
+					return boolScore(diffs[i].Added) > boolScore(diffs[j].Added)
+				}
+				return stableJSON(diffs[i]) < stableJSON(diffs[j])
 			}
 			return diffs[i].MountFile < diffs[j].MountFile
 		}

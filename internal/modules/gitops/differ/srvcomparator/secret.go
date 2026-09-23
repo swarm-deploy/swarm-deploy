@@ -17,45 +17,29 @@ func (c *SecretComparator) CompareSecrets(
 	leftSecrets []compose.ObjectRef,
 	rightSecrets []compose.ObjectRef,
 ) []diff.SecretDiff {
-	leftSet := mapSecretRefs(leftSecrets)
-	rightSet := mapSecretRefs(rightSecrets)
-
-	keys := map[string]struct{}{}
-	for key := range leftSet {
-		keys[key] = struct{}{}
+	matchedRight := make([]bool, len(rightSecrets))
+	diffs := make([]diff.SecretDiff, 0, len(leftSecrets)+len(rightSecrets))
+	for _, leftRef := range leftSecrets {
+		match := findConfig(leftRef, rightSecrets, matchedRight)
+		if match >= 0 {
+			matchedRight[match] = true
+			continue
+		}
+		diffs = append(diffs, secretDiff(leftRef, false))
 	}
-	for key := range rightSet {
-		keys[key] = struct{}{}
-	}
-
-	sortedKeys := mapKeys(keys)
-	sort.Strings(sortedKeys)
-
-	diffs := make([]diff.SecretDiff, 0, len(sortedKeys))
-	for _, key := range sortedKeys {
-		leftRef, leftExists := leftSet[key]
-		rightRef, rightExists := rightSet[key]
-
-		switch {
-		case !leftExists && rightExists:
-			diffs = append(diffs, diff.SecretDiff{
-				Name:      rightRef.Source,
-				MountFile: rightRef.Target,
-				Added:     true,
-			})
-		case leftExists && !rightExists:
-			diffs = append(diffs, diff.SecretDiff{
-				Name:      leftRef.Source,
-				MountFile: leftRef.Target,
-				Removed:   true,
-			})
+	for i, rightRef := range rightSecrets {
+		if !matchedRight[i] {
+			diffs = append(diffs, secretDiff(rightRef, true))
 		}
 	}
 
 	sort.Slice(diffs, func(i, j int) bool {
 		if diffs[i].Name == diffs[j].Name {
 			if diffs[i].MountFile == diffs[j].MountFile {
-				return boolScore(diffs[i].Added) > boolScore(diffs[j].Added)
+				if diffs[i].Added != diffs[j].Added {
+					return boolScore(diffs[i].Added) > boolScore(diffs[j].Added)
+				}
+				return stableJSON(diffs[i]) < stableJSON(diffs[j])
 			}
 			return diffs[i].MountFile < diffs[j].MountFile
 		}
@@ -65,12 +49,14 @@ func (c *SecretComparator) CompareSecrets(
 	return diffs
 }
 
-func mapSecretRefs(secrets []compose.ObjectRef) map[string]compose.ObjectRef {
-	set := map[string]compose.ObjectRef{}
-	for _, secret := range secrets {
-		key := secret.Source + ":" + secret.Target
-		set[key] = secret
+func secretDiff(ref compose.ObjectRef, added bool) diff.SecretDiff {
+	return diff.SecretDiff{
+		Name:      ref.Source,
+		MountFile: ref.Target,
+		UID:       ref.Uid,
+		GID:       ref.Gid,
+		Mode:      fileMode(ref),
+		Added:     added,
+		Removed:   !added,
 	}
-
-	return set
 }
