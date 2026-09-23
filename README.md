@@ -42,6 +42,8 @@ swarm-deploy is a Swarm-native GitOps controller inspired by Argo CD. It keeps s
 
 ### Runtime Automation
 
+- **Safe `env_file` resolution**: swarm-deploy expands service `env_file` entries into the effective `environment` before deployment. Bare keys such as `TOKEN` (without `=`) are rejected instead of reading from the swarm-deploy process environment. This prevents repository content from referencing controller environment variables by name.
+
 - **Init Deploy Jobs** for one-off tasks that must complete before an application rollout, such as database migrations, schema/bootstrap preparation, or other pre-deploy checks and setup steps. See [Init Deploy Jobs](./docs/init-deploy-jobs.md).
 - [**Downward environment injection**](./docs/downward.md) for Swarm metadata such as stack, service, task, slot, and node identity.
 - **Config and secret rotation** based on source content changes.
