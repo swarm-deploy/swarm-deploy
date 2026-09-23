@@ -80,12 +80,12 @@ func (p *EnvFilePopulator) Populate(ctx context.Context, file *File) (bool, erro
 			}
 
 			for key, value := range values {
-				effective[key] = value
+				effective[key] = p.resolveValue(key, value)
 			}
 		}
 
 		for key, value := range service.Environment.Map {
-			effective[key] = value
+			effective[key] = p.resolveValue(key, value)
 		}
 
 		keys := make([]string, 0, len(effective))
@@ -106,6 +106,18 @@ func (p *EnvFilePopulator) Populate(ctx context.Context, file *File) (bool, erro
 	}
 
 	return changed, nil
+}
+
+func (p *EnvFilePopulator) resolveValue(key, value string) string {
+	if value != "" || p.lookupEnv == nil {
+		return value
+	}
+
+	if resolved, found := p.lookupEnv(key); found {
+		return resolved
+	}
+
+	return value
 }
 
 // parseEnvFile follows the env-file syntax used by Docker stack deploy:
