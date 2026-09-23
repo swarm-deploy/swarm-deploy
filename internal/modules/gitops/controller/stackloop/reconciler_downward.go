@@ -19,25 +19,10 @@ var downwardEnvironment = map[string]string{
 	downward.EnvNodeName:    "{{.Node.Hostname}}",
 }
 
-var downwardEnvironmentKeys = []string{
-	downward.EnvStackName,
-	downward.EnvServiceID,
-	downward.EnvServiceName,
-	downward.EnvTaskID,
-	downward.EnvTaskName,
-	downward.EnvTaskSlot,
-	downward.EnvNodeID,
-	downward.EnvNodeName,
-}
-
 func (r *Reconciler) addDownward(_ context.Context, payload *pipelinePayload) error {
 	changed := false
 
 	for index, service := range payload.Desired.Compose.Services {
-		if serviceHasDownwardEnvironment(service.Environment) {
-			continue
-		}
-
 		if service.Environment.Map == nil {
 			service.Environment.Map = make(map[string]string, len(downwardEnvironment))
 		}
@@ -71,12 +56,3 @@ func (r *Reconciler) addDownward(_ context.Context, payload *pipelinePayload) er
 	return nil
 }
 
-func serviceHasDownwardEnvironment(environment compose.Environment) bool {
-	for _, key := range downwardEnvironmentKeys {
-		if environment.Has(key) {
-			return true
-		}
-	}
-
-	return false
-}
