@@ -36,7 +36,16 @@ func (r *Reconciler) attachPipeline() {
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "populate environment",
-		Run:  r.populateEnvironment,
+		When: pipe.When(func(payload *pipelinePayload) bool {
+			for _, service := range payload.Desired.Compose.Services {
+				if len(service.EnvFiles) > 0 {
+					return true
+				}
+			}
+
+			return false
+		}),
+		Run: r.populateEnvironment,
 	})
 
 	if r.cfg.Spec.Containers.Downward != nil {
@@ -103,10 +112,6 @@ func (r *Reconciler) attachPipeline() {
 }
 
 func (r *Reconciler) populateEnvironment(ctx context.Context, payload *pipelinePayload) error {
-	if r.envFilePopulator == nil {
-		return nil
-	}
-
 	changed, err := r.envFilePopulator.Populate(ctx, payload.Desired)
 	if err != nil {
 		return err
