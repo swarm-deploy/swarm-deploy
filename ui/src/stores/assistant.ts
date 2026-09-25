@@ -1,7 +1,11 @@
 import { defineStore } from "pinia";
 
-import { sendAssistantChat } from "../api/assistant";
-import type { AssistantChatRequest, AssistantChatResponse } from "../api/types";
+import { getAssistantChat, listAssistantChats, sendAssistantChat } from "../api/assistant";
+import type {
+  AssistantChatRequest,
+  AssistantChatResponse,
+  AssistantChatSummary,
+} from "../api/types";
 import { useUIStore } from "./ui";
 
 function sleep(ms: number): Promise<void> {
@@ -23,6 +27,9 @@ interface AssistantState {
   conversationID: string;
   activeRequestID: string;
   messages: AssistantMessage[];
+  chats: AssistantChatSummary[];
+  historyOpen: boolean;
+  historyLoading: boolean;
 }
 
 export const useAssistantStore = defineStore("assistant", {
@@ -32,6 +39,9 @@ export const useAssistantStore = defineStore("assistant", {
     conversationID: "",
     activeRequestID: "",
     messages: [],
+    chats: [],
+    historyOpen: false,
+    historyLoading: false,
   }),
   actions: {
     setEnabled(enabled: boolean) {
@@ -46,6 +56,49 @@ export const useAssistantStore = defineStore("assistant", {
     },
     async requestAssistant(payload: AssistantChatRequest): Promise<AssistantChatResponse> {
       return sendAssistantChat(payload);
+    },
+    async loadChats() {
+      this.historyLoading = true;
+      try {
+        const response = await listAssistantChats();
+        this.chats = response.chats || [];
+      } finally {
+        this.historyLoading = false;
+      }
+    },
+    async toggleHistory() {
+      if (this.pending) {
+        return;
+      }
+
+      this.historyOpen = !this.historyOpen;
+      if (this.historyOpen) {
+        await this.loadChats();
+      }
+    },
+    newChat() {
+      if (this.pending) {
+        return;
+      }
+
+      this.conversationID = "";
+      this.activeRequestID = "";
+      this.messages = [];
+      this.historyOpen = false;
+    },
+    async openChat(conversationID: string) {
+      if (this.pending) {
+        return;
+      }
+
+      const chat = await getAssistantChat(conversationID);
+      this.conversationID = chat.id;
+      this.activeRequestID = "";
+      this.messages = chat.messages.map((message) => ({
+        role: message.role,
+        text: message.content,
+      }));
+      this.historyOpen = false;
     },
     async runAssistantMessage(message: string) {
       let payload: AssistantChatRequest = {
@@ -73,6 +126,7 @@ export const useAssistantStore = defineStore("assistant", {
         this.activeRequestID = "";
         if (response.status === "completed") {
           this.pushMessage("assistant", response.answer || "Assistant returned empty answer.");
+          await this.loadChats();
           return;
         }
 
