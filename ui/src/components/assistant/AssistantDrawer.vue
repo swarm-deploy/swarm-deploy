@@ -164,7 +164,11 @@ function renderMessageText(role: string, text: string): string {
 </script>
 
 <template>
-  <div class="assistant-drawer-layer" :class="{ open: isOpen }" @keydown.esc="closeDrawer">
+  <div
+    class="assistant-drawer-layer"
+    :class="{ open: isOpen, pinned: uiStore.assistantPinned }"
+    @keydown.esc="closeDrawer"
+  >
     <div class="assistant-drawer-overlay" @click="closeDrawer" />
     <section class="assistant-drawer" aria-label="Assistant Drawer">
       <header class="assistant-drawer-header">
@@ -209,6 +213,20 @@ function renderMessageText(role: string, text: string): string {
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M12 5v14M5 12h14" />
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="assistant-icon-button assistant-pin-button"
+            :class="{ active: uiStore.assistantPinned }"
+            :aria-pressed="uiStore.assistantPinned"
+            :aria-label="uiStore.assistantPinned ? 'Unpin assistant' : 'Pin assistant'"
+            :title="uiStore.assistantPinned ? 'Use overlay mode' : 'Keep assistant open while navigating'"
+            @click="uiStore.toggleAssistantPinned"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M9 3h6l-1 5 3 3v2H7v-2l3-3-1-5Z" />
+              <path d="M12 13v8" />
             </svg>
           </button>
           <button type="button" class="assistant-icon-button" aria-label="Close assistant" title="Close" @click="closeDrawer">
