@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -70,4 +71,26 @@ func TestFileHistoryStorageListUsesLoadedIndex(t *testing.T) {
 	chats := storage.List()
 	require.Len(t, chats, 1, "list must use in-memory index")
 	assert.Equal(t, "chat-1", chats[0].ID, "unexpected chat id")
+}
+
+
+func TestFileHistoryStorageDoesNotRebuildMissingIndex(t *testing.T) {
+	dir := t.TempDir()
+	storage, err := NewFileHistoryStorage(dir)
+	require.NoError(t, err, "create history storage")
+
+	legacyChat := Chat{
+		ID:        "legacy-chat",
+		Title:     "Legacy chat",
+		CreatedAt: time.Date(2026, 9, 26, 10, 0, 0, 0, time.UTC),
+		UpdatedAt: time.Date(2026, 9, 26, 10, 1, 0, 0, time.UTC),
+		Turns:     []Turn{{Role: "user", Content: "hello"}},
+	}
+	payload, err := json.Marshal(legacyChat)
+	require.NoError(t, err, "encode legacy chat")
+	require.NoError(t, os.WriteFile(storage.chatPath(legacyChat.ID), payload, chatFileMode), "write legacy chat file")
+
+	reopened, err := NewFileHistoryStorage(dir)
+	require.NoError(t, err, "reopen history storage without index")
+	assert.Empty(t, reopened.List(), "missing index must not trigger chat file scan")
 }
