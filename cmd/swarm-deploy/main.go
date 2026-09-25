@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"time"
 
 	entrypoint "github.com/artarts36/go-entrypoint"
@@ -329,6 +330,7 @@ func buildAssistantService(
 		SystemPrompt:            cfg.Spec.Assistant.SystemPrompt,
 		AllowedTools:            cfg.Spec.Assistant.Tools,
 		ConversationInMemoryTTL: cfg.Spec.Assistant.Conversation.Storage.InMemory.TTL.Value,
+		ConversationHistoryDir:   filepath.Join(cfg.Spec.DataDir, "assistant", "chats"),
 	}, cnt.Resources.ServiceStore, toolExecutor, cnt.Event.Dispatcher, cnt.Metrics.Assistant)
 }
 
