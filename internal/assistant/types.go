@@ -64,6 +64,40 @@ type ChatResponse struct {
 	PollAfterMS int
 }
 
+// ChatMessage is a user-visible persisted chat message.
+type ChatMessage struct {
+	// Role is a participant role.
+	Role string `json:"role"`
+	// Content is the message text.
+	Content string `json:"content"`
+}
+
+// ChatSummary describes a persisted assistant chat without messages.
+type ChatSummary struct {
+	// ID identifies the chat.
+	ID string `json:"id"`
+	// Title is derived from the first user message.
+	Title string `json:"title"`
+	// CreatedAt is the chat creation timestamp.
+	CreatedAt time.Time `json:"created_at"`
+	// UpdatedAt is the timestamp of the latest message.
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
+// ChatHistory contains a persisted assistant chat and its messages.
+type ChatHistory struct {
+	// ID identifies the chat.
+	ID string `json:"id"`
+	// Title is derived from the first user message.
+	Title string `json:"title"`
+	// CreatedAt is the chat creation timestamp.
+	CreatedAt time.Time `json:"created_at"`
+	// UpdatedAt is the timestamp of the latest message.
+	UpdatedAt time.Time `json:"updated_at"`
+	// Messages contains the full persisted user-visible history.
+	Messages []ChatMessage `json:"messages"`
+}
+
 // Config contains runtime assistant settings.
 type Config struct {
 	// Enabled toggles assistant execution.
@@ -86,8 +120,10 @@ type Config struct {
 	SystemPrompt string
 	// AllowedTools restricts available tool names. Empty means all tools.
 	AllowedTools []string
-	// ConversationInMemoryTTL is a retention time for in-memory conversations.
+	// ConversationInMemoryTTL is a retention time for the in-memory conversation context cache.
 	ConversationInMemoryTTL time.Duration
+	// ConversationHistoryDir is a directory for persisted assistant chat history.
+	ConversationHistoryDir string
 }
 
 // ServiceStore reads current service metadata used by RAG retrieval.
