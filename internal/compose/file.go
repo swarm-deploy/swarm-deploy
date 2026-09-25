@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/dotenv"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"gopkg.in/yaml.v3"
 )
@@ -86,6 +87,10 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 		return nil, fmt.Errorf("link services: %w", err)
 	}
 
+	if err = l.loadEnvFiles(ctx, filepath.Dir(path), schema.Services); err != nil {
+		return nil, fmt.Errorf("load env files: %w", err)
+	}
+
 	file := &File{
 		Path:    path,
 		Compose: schema,
@@ -99,6 +104,31 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 	file.Digest = digest
 
 	return file, nil
+}
+
+func (l *fileLoader) loadEnvFiles(ctx context.Context, baseDir string, services Services) error {
+	for serviceIndex := range services {
+		service := &services[serviceIndex]
+		for envFileIndex := range service.EnvFiles {
+			envFile := &service.EnvFiles[envFileIndex]
+			path := envFile.Path
+			if !filepath.IsAbs(path) {
+				path = filepath.Join(baseDir, path)
+			}
+
+			content, err := l.fileReader(ctx, path)
+			if err != nil {
+				return fmt.Errorf("read env_file %s for service %q: %w", path, service.Name, err)
+			}
+
+			envFile.Variables, err = dotenv.Parse(content)
+			if err != nil {
+				return fmt.Errorf("parse env_file %s for service %q: %w", path, service.Name, err)
+			}
+		}
+	}
+
+	return nil
 }
 
 func (*fileLoader) linkServices(compose *Compose) error {
@@ -167,38 +197,28 @@ func (l *fileLoader) computeDigest(ctx context.Context, file File, raw []byte) (
 		return "", fmt.Errorf("compute for secrets: %w", err)
 	}
 
-	if err := l.computeEnvFilesDigest(ctx, hasher, baseDir, file.Compose.Services); err != nil {
-		return "", fmt.Errorf("compute for env files: %w", err)
-	}
+	computeEnvFilesDigest(hasher, file.Compose.Services)
 
 	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
-func (l *fileLoader) computeEnvFilesDigest(
-	ctx context.Context,
-	hasher hash.Hash,
-	baseDir string,
-	services Services,
-) error {
+func computeEnvFilesDigest(hasher hash.Hash, services Services) {
 	for _, service := range services {
 		for i, envFile := range service.EnvFiles {
-			absPath := envFile
-			if !filepath.IsAbs(absPath) {
-				absPath = filepath.Join(baseDir, envFile)
-			}
-
-			content, err := l.fileReader(ctx, absPath)
-			if err != nil {
-				return fmt.Errorf("read env_file %s for service %q digest: %w", absPath, service.Name, err)
-			}
-
 			hasher.Write([]byte("env_file"))
 			hasher.Write([]byte(service.Name))
 			fmt.Fprintf(hasher, "%d", i)
-			hasher.Write([]byte(envFile))
-			hasher.Write(content)
+			hasher.Write([]byte(envFile.Path))
+
+			keys := make([]string, 0, len(envFile.Variables))
+			for key := range envFile.Variables {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+			for _, key := range keys {
+				hasher.Write([]byte(key))
+				hasher.Write([]byte(envFile.Variables[key]))
+			}
 		}
 	}
-
-	return nil
 }

@@ -34,6 +34,20 @@ func (r *Reconciler) attachPipeline() {
 		PipelineName: "sync stack",
 	})
 
+	r.pipeline.Add(pipe.Step[*pipelinePayload]{
+		Name: "populate environment",
+		When: pipe.When(func(payload *pipelinePayload) bool {
+			for _, service := range payload.Desired.Compose.Services {
+				if len(service.EnvFiles) > 0 {
+					return true
+				}
+			}
+
+			return false
+		}),
+		Run: r.populateEnvironment,
+	})
+
 	if r.cfg.Spec.Containers.Downward != nil {
 		r.pipeline.Add(pipe.Step[*pipelinePayload]{
 			Name: "add downward",
@@ -95,6 +109,16 @@ func (r *Reconciler) attachPipeline() {
 		}),
 		Run: r.analyzeDrift,
 	})
+}
+
+func (r *Reconciler) populateEnvironment(_ context.Context, payload *pipelinePayload) error {
+	changed := r.envFilePopulator.Populate(payload.Desired)
+
+	if changed && payload.IsNewDigest {
+		payload.DesiredMutated = true
+	}
+
+	return nil
 }
 
 func (r *Reconciler) addManagedLabel(_ context.Context, payload *pipelinePayload) error {
@@ -175,14 +199,15 @@ func (r *Reconciler) normalizeRenderedObjectFilePaths(file *compose.File) {
 	}
 }
 
-func normalizeEnvFiles(repoDir, baseDir string, envFiles []string) []string {
-	result := make([]string, len(envFiles))
+func normalizeEnvFiles(repoDir, baseDir string, envFiles []compose.EnvFile) []compose.EnvFile {
+	result := make([]compose.EnvFile, len(envFiles))
 
 	for i, file := range envFiles {
-		if isRelativeFromRepoRoot(file) {
-			result[i] = filepath.Join(repoDir, file)
+		result[i] = file
+		if isRelativeFromRepoRoot(file.Path) {
+			result[i].Path = filepath.Join(repoDir, file.Path)
 		} else {
-			result[i] = filepath.Join(baseDir, file)
+			result[i].Path = filepath.Join(baseDir, file.Path)
 		}
 	}
 

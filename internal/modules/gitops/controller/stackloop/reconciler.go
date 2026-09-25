@@ -24,18 +24,19 @@ import (
 
 // Reconciler applies a desired stack state to swarm.
 type Reconciler struct {
-	cfg            *config.Config
-	git            gitx.Repository
-	deployer       deployer.StackDeployer
-	event          dispatcher.Dispatcher
-	deployMetrics  metrics.Deploys
-	stateStore     modelstore.Store
-	pruner         *pruner.ServicePruner
-	composeLoader  compose.FileLoader
-	composeRotator *Rotator
-	pipeline       *pipe.Pipeline[*pipelinePayload]
-	driftAnalyzer  *drift.Analyzer
-	serviceManager swarm.ServiceManager
+	cfg              *config.Config
+	git              gitx.Repository
+	deployer         deployer.StackDeployer
+	event            dispatcher.Dispatcher
+	deployMetrics    metrics.Deploys
+	stateStore       modelstore.Store
+	pruner           *pruner.ServicePruner
+	composeLoader    compose.FileLoader
+	envFilePopulator *compose.EnvFilePopulator
+	composeRotator   *Rotator
+	pipeline         *pipe.Pipeline[*pipelinePayload]
+	driftAnalyzer    *drift.Analyzer
+	serviceManager   swarm.ServiceManager
 }
 
 // New builds a stack reconciler loop.
@@ -50,17 +51,18 @@ func New(
 	fileSystem fs.FileSystem,
 ) *Reconciler {
 	reconciler := &Reconciler{
-		cfg:            cfg,
-		git:            gitSync,
-		deployer:       stackDeployer,
-		event:          eventDispatcher,
-		deployMetrics:  deployMetrics,
-		stateStore:     stateStore,
-		composeLoader:  compose.NewFileLoaderWithReader(fileSystem.ReadFile),
-		composeRotator: NewRotator(),
-		pruner:         pruner.NewServicePruner(swarmService.Services, eventDispatcher, cfg.Spec.Sync.Policy),
-		driftAnalyzer:  drift.NewAnalyzer(),
-		serviceManager: swarmService.Services,
+		cfg:              cfg,
+		git:              gitSync,
+		deployer:         stackDeployer,
+		event:            eventDispatcher,
+		deployMetrics:    deployMetrics,
+		stateStore:       stateStore,
+		composeLoader:    compose.NewFileLoaderWithReader(fileSystem.ReadFile),
+		envFilePopulator: compose.NewEnvFilePopulator(),
+		composeRotator:   NewRotator(),
+		pruner:           pruner.NewServicePruner(swarmService.Services, eventDispatcher, cfg.Spec.Sync.Policy),
+		driftAnalyzer:    drift.NewAnalyzer(),
+		serviceManager:   swarmService.Services,
 	}
 
 	reconciler.attachPipeline()

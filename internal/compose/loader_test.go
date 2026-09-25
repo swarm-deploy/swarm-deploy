@@ -57,6 +57,64 @@ func TestLoader_Load(t *testing.T) {
 	}
 }
 
+func TestFileLoaderLoadsEnvFiles(t *testing.T) {
+	tests := []struct {
+		name      string
+		content   []byte
+		expected  map[string]string
+		errString string
+	}{
+		{
+			name:    "variables",
+			content: []byte("\xef\xbb\xbf# comment\n  FOO=bar baz  \nEMPTY=\n"),
+			expected: map[string]string{
+				"EMPTY": "",
+				"FOO":   "bar baz  ",
+			},
+		},
+		{
+			name:      "bare variable",
+			content:   []byte("SECRET_TOKEN\n"),
+			errString: "must have an explicit value",
+		},
+		{
+			name:      "invalid key",
+			content:   []byte("BAD KEY=value\n"),
+			errString: "contains whitespace",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			composePath := filepath.Join("repo", "compose.yaml")
+			envPath := filepath.Join("repo", "app.env")
+			loader := NewFileLoaderWithReader(func(_ context.Context, path string) ([]byte, error) {
+				switch path {
+				case composePath:
+					return []byte("services:\n  api:\n    image: nginx\n    env_file:\n      - app.env\n"), nil
+				case envPath:
+					return tt.content, nil
+				default:
+					return nil, fmt.Errorf("unexpected path %s", path)
+				}
+			})
+
+			file, err := loader.Load(context.Background(), composePath)
+			if tt.errString != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errString)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Len(t, file.Compose.Services, 1)
+			require.Len(t, file.Compose.Services[0].EnvFiles, 1)
+			assert.Equal(t, "app.env", file.Compose.Services[0].EnvFiles[0].Path)
+			assert.Equal(t, tt.expected, file.Compose.Services[0].EnvFiles[0].Variables)
+		})
+	}
+}
+
 func TestFileLoaderDigestChangesWhenSharedObjectFileContentChanges(t *testing.T) {
 	tests := []struct {
 		name           string
