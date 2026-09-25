@@ -33,6 +33,7 @@ type Reconciler struct {
 	pruner           *pruner.ServicePruner
 	composeLoader    compose.FileLoader
 	envFilePopulator *compose.EnvFilePopulator
+	fileReader       func(ctx context.Context, path string) ([]byte, error)
 	composeRotator   *Rotator
 	pipeline         *pipe.Pipeline[*pipelinePayload]
 	driftAnalyzer    *drift.Analyzer
@@ -58,7 +59,8 @@ func New(
 		deployMetrics:    deployMetrics,
 		stateStore:       stateStore,
 		composeLoader:    compose.NewFileLoaderWithReader(fileSystem.ReadFile),
-		envFilePopulator: compose.NewEnvFilePopulator(fileSystem.ReadFile),
+		envFilePopulator: compose.NewEnvFilePopulator(),
+		fileReader:       fileSystem.ReadFile,
 		composeRotator:   NewRotator(),
 		pruner:           pruner.NewServicePruner(swarmService.Services, eventDispatcher, cfg.Spec.Sync.Policy),
 		driftAnalyzer:    drift.NewAnalyzer(),
@@ -92,6 +94,7 @@ func (r *Reconciler) Reconcile(
 		IsNewDigest:  !hasPrev || prev.SourceDigest != desiredState.Digest,
 		IsManualSync: req.IsManual,
 		Desired:      desiredState,
+		cachedReader: fs.ReadWithCache(r.fileReader),
 	}
 
 	err = r.pipeline.Run(ctx, pl)

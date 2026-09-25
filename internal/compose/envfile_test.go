@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/dotenv"
 )
 
 func TestEnvFilePopulatorPopulate(t *testing.T) {
@@ -28,7 +29,7 @@ func TestEnvFilePopulatorPopulate(t *testing.T) {
 		return content, nil
 	}
 
-	populator := NewEnvFilePopulator(reader)
+	populator := NewEnvFilePopulator()
 	file := &File{
 		Path: composePath,
 		Compose: Compose{
@@ -47,7 +48,7 @@ func TestEnvFilePopulatorPopulate(t *testing.T) {
 		},
 	}
 
-	changed, err := populator.Populate(ctx, file)
+	changed, err := populator.Populate(ctx, file, reader)
 
 	require.NoError(t, err)
 	assert.True(t, changed)
@@ -83,7 +84,7 @@ func TestEnvFilePopulatorLaterEnvFileWins(t *testing.T) {
 		}
 	}
 
-	populator := NewEnvFilePopulator(reader)
+	populator := NewEnvFilePopulator()
 	file := &File{
 		Path: filepath.Join("repo", "compose.yaml"),
 		Compose: Compose{
@@ -96,7 +97,7 @@ func TestEnvFilePopulatorLaterEnvFileWins(t *testing.T) {
 		},
 	}
 
-	changed, err := populator.Populate(context.Background(), file)
+	changed, err := populator.Populate(context.Background(), file, reader)
 
 	require.NoError(t, err)
 	assert.True(t, changed)
@@ -108,7 +109,7 @@ func TestEnvFilePopulatorExplicitEnvironmentWins(t *testing.T) {
 		return []byte("FOO=from-file\n"), nil
 	}
 
-	populator := NewEnvFilePopulator(reader)
+	populator := NewEnvFilePopulator()
 	file := &File{
 		Path: filepath.Join("repo", "compose.yaml"),
 		Compose: Compose{
@@ -126,17 +127,18 @@ func TestEnvFilePopulatorExplicitEnvironmentWins(t *testing.T) {
 		},
 	}
 
-	_, err := populator.Populate(context.Background(), file)
+	_, err := populator.Populate(context.Background(), file, reader)
 
 	require.NoError(t, err)
 	assert.Equal(t, "explicit", file.Compose.Services[0].Environment.Map["FOO"])
 }
 
 func TestEnvFilePopulatorKeepsServiceWithoutEnvFilesUntouched(t *testing.T) {
-	populator := NewEnvFilePopulator(func(context.Context, string) ([]byte, error) {
+	reader := func(context.Context, string) ([]byte, error) {
 		t.Fatal("reader must not be called")
 		return nil, nil
-	})
+	}
+	populator := NewEnvFilePopulator()
 
 	file := &File{
 		Path: "compose.yaml",
@@ -152,7 +154,7 @@ func TestEnvFilePopulatorKeepsServiceWithoutEnvFilesUntouched(t *testing.T) {
 		},
 	}
 
-	changed, err := populator.Populate(context.Background(), file)
+	changed, err := populator.Populate(context.Background(), file, reader)
 
 	require.NoError(t, err)
 	assert.False(t, changed)
@@ -160,7 +162,7 @@ func TestEnvFilePopulatorKeepsServiceWithoutEnvFilesUntouched(t *testing.T) {
 }
 
 func TestParseEnvFile(t *testing.T) {
-	values, err := parseEnvFile([]byte("\xef\xbb\xbf# comment\n  FOO=bar baz  \nEMPTY=\n"))
+	values, err := dotenv.Parse([]byte("\xef\xbb\xbf# comment\n  FOO=bar baz  \nEMPTY=\n"))
 
 	require.NoError(t, err)
 	assert.Equal(t, map[string]string{
@@ -172,7 +174,7 @@ func TestParseEnvFile(t *testing.T) {
 func TestParseEnvFileRejectsBareVariable(t *testing.T) {
 	t.Setenv("SECRET_TOKEN", "must-not-leak")
 
-	values, err := parseEnvFile([]byte("SECRET_TOKEN\n"))
+	values, err := dotenv.Parse([]byte("SECRET_TOKEN\n"))
 
 	require.Error(t, err)
 	assert.Nil(t, values)
@@ -180,7 +182,7 @@ func TestParseEnvFileRejectsBareVariable(t *testing.T) {
 }
 
 func TestParseEnvFileRejectsInvalidKey(t *testing.T) {
-	_, err := parseEnvFile([]byte("BAD KEY=value\n"))
+	_, err := dotenv.Parse([]byte("BAD KEY=value\n"))
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "contains whitespace")

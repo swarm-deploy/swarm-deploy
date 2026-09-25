@@ -454,7 +454,8 @@ services:
 		stateStore:       stateStore,
 		pruner:           pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),
 		composeLoader:    compose.NewFileLoaderWithReader(readFile),
-		envFilePopulator: compose.NewEnvFilePopulator(readFile),
+		envFilePopulator: compose.NewEnvFilePopulator(),
+		fileReader:       readFile,
 		composeRotator:   NewRotator(),
 		serviceManager:   serviceManager,
 	}

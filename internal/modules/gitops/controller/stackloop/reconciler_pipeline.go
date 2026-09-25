@@ -11,6 +11,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/drift"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/pruner"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -27,6 +28,8 @@ type pipelinePayload struct {
 	LiveServices   []swarm.StackService
 	PrunedServices []string
 	Drift          map[string]drift.ServiceDrift
+
+	cachedReader fs.ReadFunc
 }
 
 func (r *Reconciler) attachPipeline() {
@@ -112,7 +115,7 @@ func (r *Reconciler) attachPipeline() {
 }
 
 func (r *Reconciler) populateEnvironment(ctx context.Context, payload *pipelinePayload) error {
-	changed, err := r.envFilePopulator.Populate(ctx, payload.Desired)
+	changed, err := r.envFilePopulator.Populate(ctx, payload.Desired, payload.cachedReader)
 	if err != nil {
 		return err
 	}
