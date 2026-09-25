@@ -830,3 +830,89 @@ stacks:
 	assert.Equal(t, "oauth2", cfg.Spec.Git.Auth.HTTP.ResolveUsername(), "expected oauth2 fallback for token auth")
 	assert.Equal(t, "token-value", cfg.Spec.Git.Auth.HTTP.ResolvePassword(), "expected token as password")
 }
+
+
+func TestLoadWithSOPSSecretRotation(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	require.NoError(t, os.WriteFile(stacksPath, []byte(`
+stacks:
+  - name: app
+    composeFile: app.yaml
+`), 0o600))
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(`
+git:
+  repository: https://example.com/repo.git
+stacks:
+  file: ./stacks.yaml
+secretRotation:
+  enabled: true
+  sops:
+    enabled: true
+    age:
+      keyFile: /run/secrets/swarm-deploy-sops-age-key
+`), 0o600))
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err)
+	assert.True(t, cfg.Spec.SecretRotation.SOPS.Enabled)
+	assert.Equal(t, "/run/secrets/swarm-deploy-sops-age-key", cfg.Spec.SecretRotation.SOPS.Age.KeyFile)
+}
+
+func TestLoadFailsWhenSOPSEnabledWithoutSecretRotation(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	require.NoError(t, os.WriteFile(stacksPath, []byte(`
+stacks:
+  - name: app
+    composeFile: app.yaml
+`), 0o600))
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(`
+git:
+  repository: https://example.com/repo.git
+stacks:
+  file: ./stacks.yaml
+secretRotation:
+  sops:
+    enabled: true
+    age:
+      keyFile: /run/secrets/swarm-deploy-sops-age-key
+`), 0o600))
+
+	_, err := Load(configPath)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "secretRotation.sops.enabled=true requires secretRotation.enabled=true")
+}
+
+func TestLoadFailsWhenSOPSEnabledWithoutAgeKeyFile(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	require.NoError(t, os.WriteFile(stacksPath, []byte(`
+stacks:
+  - name: app
+    composeFile: app.yaml
+`), 0o600))
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	require.NoError(t, os.WriteFile(configPath, []byte(`
+git:
+  repository: https://example.com/repo.git
+stacks:
+  file: ./stacks.yaml
+secretRotation:
+  enabled: true
+  sops:
+    enabled: true
+`), 0o600))
+
+	_, err := Load(configPath)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "secretRotation.sops.age.keyFile is required")
+}
