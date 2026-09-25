@@ -10,8 +10,10 @@ Assistant is available only when `assistant.enabled: true`.
 ## API
 
 - `POST /api/v1/assistant/chat`
+- `GET /api/v1/assistant/chats`
+- `GET /api/v1/assistant/chats/{conversation_id}`
 
-The endpoint supports start and poll with the same route.
+The chat endpoint supports start and poll with the same route. Chat history endpoints return persisted conversations ordered by latest activity and the full message history for a selected chat.
 
 ### Start request
 
@@ -46,6 +48,10 @@ The endpoint supports start and poll with the same route.
   "poll_after_ms": 1000
 }
 ```
+
+## Chat history
+
+Completed user/assistant turns are persisted under `.swarm-deploy/assistant/chats/` with one JSON file per conversation. The UI creates chats lazily on the first message, derives the title from the first user message, and can reopen older chats. When an older chat is continued after the in-memory cache expired or the process restarted, recent turns are restored from persisted history into the context cache.
 
 ## Built-in tools
 
