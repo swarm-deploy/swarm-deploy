@@ -18,6 +18,7 @@ import (
 const (
 	chatFileMode      = 0o600
 	chatTitleMaxRunes = 60
+	historyIndexFile  = "index.json"
 )
 
 // Chat is a persisted assistant conversation.
@@ -26,29 +27,46 @@ type Chat struct {
 	ID string `json:"id"`
 	// Title is derived from the first user message.
 	Title string `json:"title"`
+	// CreatedAt is the timestamp when the chat was first persisted.
+	CreatedAt time.Time `json:"created_at"`
+	// UpdatedAt is the timestamp of the latest persisted message.
+	UpdatedAt time.Time `json:"updated_at"`
 	// Turns contains the full user-visible conversation history.
 	Turns []Turn `json:"messages"`
+}
+
+// ChatSummary contains metadata required to render the chat list.
+type ChatSummary struct {
+	// ID identifies the conversation.
+	ID string `json:"id"`
+	// Title is derived from the first user message.
+	Title string `json:"title"`
 	// CreatedAt is the timestamp when the chat was first persisted.
 	CreatedAt time.Time `json:"created_at"`
 	// UpdatedAt is the timestamp of the latest persisted message.
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+type historyIndex struct {
+	Chats []ChatSummary `json:"chats"`
+}
+
 // HistoryStorage persists complete assistant chats independently from the in-memory context cache.
 type HistoryStorage interface {
-	// List returns persisted chats ordered by latest update first.
-	List() ([]Chat, error)
+	// List returns persisted chat metadata ordered by latest update first.
+	List() []ChatSummary
 	// Get returns a persisted chat by conversation id.
 	Get(id string) (Chat, bool, error)
 	// Append appends turns to a persisted chat, creating it lazily when needed.
 	Append(id string, turns ...Turn) error
 }
 
-// FileHistoryStorage stores each assistant chat in a separate JSON file.
+// FileHistoryStorage stores each assistant chat in a separate JSON file and keeps list metadata in memory.
 type FileHistoryStorage struct {
-	mu  sync.Mutex
-	dir string
-	now func() time.Time
+	mu        sync.RWMutex
+	dir       string
+	summaries []ChatSummary
+	now       func() time.Time
 }
 
 // NewFileHistoryStorage creates a file-backed assistant chat history store.
@@ -60,45 +78,32 @@ func NewFileHistoryStorage(dir string) (*FileHistoryStorage, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("create assistant chat history directory: %w", err)
 	}
-	return &FileHistoryStorage{dir: dir, now: time.Now}, nil
+
+	store := &FileHistoryStorage{
+		dir:       dir,
+		summaries: []ChatSummary{},
+		now:       time.Now,
+	}
+	if err := store.loadIndex(); err != nil {
+		return nil, err
+	}
+
+	return store, nil
 }
 
-// List returns persisted chats ordered by latest update first.
-func (s *FileHistoryStorage) List() ([]Chat, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+// List returns persisted chat metadata ordered by latest update first.
+func (s *FileHistoryStorage) List() []ChatSummary {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 
-	entries, err := os.ReadDir(s.dir)
-	if err != nil {
-		return nil, fmt.Errorf("read assistant chat history directory: %w", err)
-	}
-
-	chats := make([]Chat, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
-			continue
-		}
-		payload, readErr := os.ReadFile(filepath.Join(s.dir, entry.Name()))
-		if readErr != nil {
-			return nil, fmt.Errorf("read assistant chat history file %s: %w", entry.Name(), readErr)
-		}
-		var chat Chat
-		if decodeErr := json.Unmarshal(payload, &chat); decodeErr != nil {
-			return nil, fmt.Errorf("decode assistant chat history file %s: %w", entry.Name(), decodeErr)
-		}
-		chats = append(chats, chat)
-	}
-
-	sort.SliceStable(chats, func(i, j int) bool {
-		return chats[i].UpdatedAt.After(chats[j].UpdatedAt)
-	})
-	return chats, nil
+	return append([]ChatSummary(nil), s.summaries...)
 }
 
 // Get returns a persisted chat by conversation id.
 func (s *FileHistoryStorage) Get(id string) (Chat, bool, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
 	return s.getLocked(id)
 }
 
@@ -122,11 +127,95 @@ func (s *FileHistoryStorage) Append(id string, turns ...Turn) error {
 
 	now := s.now().UTC()
 	if !exists {
-		chat = Chat{ID: id, Title: buildChatTitle(turns), Turns: []Turn{}, CreatedAt: now}
+		chat = Chat{
+			ID:        id,
+			Title:     buildChatTitle(turns),
+			CreatedAt: now,
+			Turns:     []Turn{},
+		}
 	}
 	chat.Turns = append(chat.Turns, turns...)
 	chat.UpdatedAt = now
-	return s.writeLocked(chat)
+
+	if err = s.writeChatLocked(chat); err != nil {
+		return err
+	}
+
+	s.upsertSummaryLocked(ChatSummary{
+		ID:        chat.ID,
+		Title:     chat.Title,
+		CreatedAt: chat.CreatedAt,
+		UpdatedAt: chat.UpdatedAt,
+	})
+	if err = s.writeIndexLocked(); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (s *FileHistoryStorage) loadIndex() error {
+	payload, err := os.ReadFile(s.indexPath())
+	if err == nil {
+		var index historyIndex
+		if decodeErr := json.Unmarshal(payload, &index); decodeErr != nil {
+			return fmt.Errorf("decode assistant chat history index: %w", decodeErr)
+		}
+		s.summaries = append([]ChatSummary(nil), index.Chats...)
+		return nil
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("read assistant chat history index: %w", err)
+	}
+
+	// A missing index is expected when upgrading from the initial file-per-chat format.
+	// Rebuild it once at startup; normal list requests never scan chat files.
+	if err = s.rebuildIndex(); err != nil {
+		return err
+	}
+	if len(s.summaries) == 0 {
+		return nil
+	}
+
+	return s.writeIndexLocked()
+}
+
+func (s *FileHistoryStorage) rebuildIndex() error {
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		return fmt.Errorf("read assistant chat history directory: %w", err)
+	}
+
+	summaries := make([]ChatSummary, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" || entry.Name() == historyIndexFile {
+			continue
+		}
+
+		payload, readErr := os.ReadFile(filepath.Join(s.dir, entry.Name()))
+		if readErr != nil {
+			return fmt.Errorf("read assistant chat history file %s: %w", entry.Name(), readErr)
+		}
+
+		var chat Chat
+		if decodeErr := json.Unmarshal(payload, &chat); decodeErr != nil {
+			return fmt.Errorf("decode assistant chat history file %s: %w", entry.Name(), decodeErr)
+		}
+
+		summaries = append(summaries, ChatSummary{
+			ID:        chat.ID,
+			Title:     chat.Title,
+			CreatedAt: chat.CreatedAt,
+			UpdatedAt: chat.UpdatedAt,
+		})
+	}
+
+	sort.SliceStable(summaries, func(i, j int) bool {
+		return summaries[i].UpdatedAt.After(summaries[j].UpdatedAt)
+	})
+	s.summaries = summaries
+
+	return nil
 }
 
 func (s *FileHistoryStorage) getLocked(id string) (Chat, bool, error) {
@@ -150,25 +239,61 @@ func (s *FileHistoryStorage) getLocked(id string) (Chat, bool, error) {
 	return chat, true, nil
 }
 
-func (s *FileHistoryStorage) writeLocked(chat Chat) error {
+func (s *FileHistoryStorage) upsertSummaryLocked(summary ChatSummary) {
+	updated := make([]ChatSummary, 0, len(s.summaries)+1)
+	updated = append(updated, summary)
+	for _, existing := range s.summaries {
+		if existing.ID == summary.ID {
+			continue
+		}
+		updated = append(updated, existing)
+	}
+	s.summaries = updated
+}
+
+func (s *FileHistoryStorage) writeChatLocked(chat Chat) error {
 	payload, err := json.Marshal(chat)
 	if err != nil {
 		return fmt.Errorf("encode assistant chat history: %w", err)
 	}
-	path := s.chatPath(chat.ID)
+	if err = writeJSONFileAtomic(s.chatPath(chat.ID), payload); err != nil {
+		return fmt.Errorf("write assistant chat history: %w", err)
+	}
+
+	return nil
+}
+
+func (s *FileHistoryStorage) writeIndexLocked() error {
+	payload, err := json.Marshal(historyIndex{Chats: s.summaries})
+	if err != nil {
+		return fmt.Errorf("encode assistant chat history index: %w", err)
+	}
+	if err = writeJSONFileAtomic(s.indexPath(), payload); err != nil {
+		return fmt.Errorf("write assistant chat history index: %w", err)
+	}
+
+	return nil
+}
+
+func writeJSONFileAtomic(path string, payload []byte) error {
 	tmpPath := path + ".tmp"
-	if err = os.WriteFile(tmpPath, payload, chatFileMode); err != nil {
-		return fmt.Errorf("write assistant chat history temp file: %w", err)
+	if err := os.WriteFile(tmpPath, payload, chatFileMode); err != nil {
+		return err
 	}
-	if err = os.Rename(tmpPath, path); err != nil {
-		return fmt.Errorf("replace assistant chat history file: %w", err)
+	if err := os.Rename(tmpPath, path); err != nil {
+		return err
 	}
+
 	return nil
 }
 
 func (s *FileHistoryStorage) chatPath(id string) string {
 	sum := sha256.Sum256([]byte(id))
 	return filepath.Join(s.dir, hex.EncodeToString(sum[:])+".json")
+}
+
+func (s *FileHistoryStorage) indexPath() string {
+	return filepath.Join(s.dir, historyIndexFile)
 }
 
 func buildChatTitle(turns []Turn) string {
