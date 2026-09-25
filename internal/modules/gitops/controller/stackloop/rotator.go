@@ -38,7 +38,7 @@ func (f *Rotator) Rotate(
 	baseDir := filepath.Dir(file.Path)
 	changed := false
 
-	configsChanged, err := f.applyObjectTypeRotation(
+	configsChanged, _, err := f.applyObjectTypeRotation(
 		file.Compose.Configs,
 		stackName,
 		baseDir,
@@ -53,8 +53,7 @@ func (f *Rotator) Rotate(
 		changed = true
 	}
 
-	materialized := make([]string, 0)
-	secretsChanged, err := f.applyObjectTypeRotation(
+	secretsChanged, materialized, err := f.applyObjectTypeRotation(
 		file.Compose.Secrets,
 		stackName,
 		baseDir,
@@ -94,28 +93,6 @@ func (f *Rotator) Rotate(
 		changed = true
 	}
 
-	for _, object := range file.Compose.Secrets {
-		if object == nil || !strings.HasSuffix(object.File, sopsSecretSuffix) {
-			continue
-		}
-
-		sourcePath := resolveObjectFilePath(baseDir, object.File)
-		data, decryptErr := decryptSOPS(sourcePath, sops.Age.KeyFile)
-		if decryptErr != nil {
-			cleanupMaterializedSecrets(materialized)
-			return false, nil, fmt.Errorf("secrets: decrypt %s: %w", object.File, decryptErr)
-		}
-
-		materializedPath, materializeErr := materializeSecret(data)
-		if materializeErr != nil {
-			cleanupMaterializedSecrets(materialized)
-			return false, nil, fmt.Errorf("secrets: materialize %s: %w", object.File, materializeErr)
-		}
-		materialized = append(materialized, materializedPath)
-		object.File = materializedPath
-		changed = true
-	}
-
 	return changed, materialized, nil
 }
 
@@ -128,40 +105,47 @@ func (f *Rotator) applyObjectTypeRotation(
 	hashLength int,
 	includePath bool,
 	reader objectFileReader,
-) (bool, error) {
+) (bool, []string, error) {
 	changed := false
+	materialized := make([]string, 0)
+
 	for objectName, object := range objects {
-		if object.External {
+		if object.External || object.File == "" {
 			continue
 		}
 
-		if object.File == "" {
-			continue
-		}
-
-		sourcePath := resolveObjectFilePath(baseDir, object.File)
-		var fileBytes []byte
-		var err error
+		originalFile := object.File
+		sourcePath := resolveObjectFilePath(baseDir, originalFile)
+		var (
+			fileBytes        []byte
+			materializedPath string
+			err              error
+		)
 
 		if reader == nil {
 			fileBytes, err = os.ReadFile(sourcePath)
 		} else {
-			fileBytes, _, err = reader(object, sourcePath)
+			fileBytes, materializedPath, err = reader(object, sourcePath)
 		}
 		if err != nil {
-			return false, fmt.Errorf("read %s for rotation: %w", object.File, err)
+			cleanupMaterializedSecrets(materialized)
+			return false, nil, fmt.Errorf("read %s for rotation: %w", originalFile, err)
 		}
 
-		rotatedName := f.buildRotatedObjectName(stackName, objectName, object.File, fileBytes, hashLength, includePath)
-		if object.Name == rotatedName {
-			continue
+		rotatedName := f.buildRotatedObjectName(stackName, objectName, originalFile, fileBytes, hashLength, includePath)
+		if object.Name != rotatedName {
+			object.Name = rotatedName // @todo
+			changed = true
 		}
 
-		object.Name = rotatedName // @todo
-		changed = true
+		if materializedPath != "" {
+			object.File = materializedPath
+			materialized = append(materialized, materializedPath)
+			changed = true
+		}
 	}
 
-	return changed, nil
+	return changed, materialized, nil
 }
 
 func decryptSOPS(path string, ageKeyFile string) ([]byte, error) {
