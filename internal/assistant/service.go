@@ -72,10 +72,11 @@ func NewService(
 
 	var conversationHistory conversation.HistoryStorage
 	if strings.TrimSpace(config.ConversationHistoryDir) != "" {
-		conversationHistory, err = conversation.NewFileHistoryStorage(config.ConversationHistoryDir)
+		history, err := conversation.NewFileHistoryStorage(config.ConversationHistoryDir)
 		if err != nil {
 			return nil, fmt.Errorf("create assistant conversation history: %w", err)
 		}
+		conversationHistory = history
 	}
 
 	return &Service{
