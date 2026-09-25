@@ -28,7 +28,7 @@ swarm-deploy calculates a source digest for each stack. The digest includes:
 - the Compose file content;
 - referenced config file content;
 - referenced secret file content;
-- referenced `env_file` content.
+- normalized key/value variables loaded from referenced `env_file` files.
 
 A change to a referenced file therefore triggers reconciliation even when the Compose YAML itself did not change.
 
