@@ -358,3 +358,23 @@ export interface AssistantChatResponse {
   error_message?: string;
   poll_after_ms?: number;
 }
+
+export interface AssistantChatSummary {
+  id: string;
+  title: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AssistantChatsResponse {
+  chats: AssistantChatSummary[];
+}
+
+export interface AssistantChatMessage {
+  role: "user" | "assistant" | "system";
+  content: string;
+}
+
+export interface AssistantChatHistory extends AssistantChatSummary {
+  messages: AssistantChatMessage[];
+}
