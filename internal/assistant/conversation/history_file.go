@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -164,58 +163,11 @@ func (s *FileHistoryStorage) loadIndex() error {
 		s.summaries = append([]ChatSummary(nil), index.Chats...)
 		return nil
 	}
-	if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("read assistant chat history index: %w", err)
-	}
-
-	// A missing index is expected when upgrading from the initial file-per-chat format.
-	// Rebuild it once at startup; normal list requests never scan chat files.
-	if err = s.rebuildIndex(); err != nil {
-		return err
-	}
-	if len(s.summaries) == 0 {
+	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 
-	return s.writeIndexLocked()
-}
-
-func (s *FileHistoryStorage) rebuildIndex() error {
-	entries, err := os.ReadDir(s.dir)
-	if err != nil {
-		return fmt.Errorf("read assistant chat history directory: %w", err)
-	}
-
-	summaries := make([]ChatSummary, 0, len(entries))
-	for _, entry := range entries {
-		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" || entry.Name() == historyIndexFile {
-			continue
-		}
-
-		payload, readErr := os.ReadFile(filepath.Join(s.dir, entry.Name()))
-		if readErr != nil {
-			return fmt.Errorf("read assistant chat history file %s: %w", entry.Name(), readErr)
-		}
-
-		var chat Chat
-		if decodeErr := json.Unmarshal(payload, &chat); decodeErr != nil {
-			return fmt.Errorf("decode assistant chat history file %s: %w", entry.Name(), decodeErr)
-		}
-
-		summaries = append(summaries, ChatSummary{
-			ID:        chat.ID,
-			Title:     chat.Title,
-			CreatedAt: chat.CreatedAt,
-			UpdatedAt: chat.UpdatedAt,
-		})
-	}
-
-	sort.SliceStable(summaries, func(i, j int) bool {
-		return summaries[i].UpdatedAt.After(summaries[j].UpdatedAt)
-	})
-	s.summaries = summaries
-
-	return nil
+	return fmt.Errorf("read assistant chat history index: %w", err)
 }
 
 func (s *FileHistoryStorage) getLocked(id string) (Chat, bool, error) {
