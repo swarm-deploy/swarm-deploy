@@ -200,6 +200,20 @@ type SecretRotationSpec struct {
 	HashLength int `yaml:"hashLength"`
 	// IncludePath adds source path into hash input.
 	IncludePath bool `yaml:"includePath"`
+	// SOPS contains settings for SOPS-encrypted secret files.
+	SOPS SecretRotationSOPSSpec `yaml:"sops"`
+}
+
+type SecretRotationSOPSSpec struct {
+	// Enabled toggles decryption of secret files whose names end with .sops.
+	Enabled bool `yaml:"enabled"`
+	// Age contains age identity settings used by SOPS.
+	Age SecretRotationSOPSAgeSpec `yaml:"age"`
+}
+
+type SecretRotationSOPSAgeSpec struct {
+	// KeyFile is a path to the age private key file.
+	KeyFile string `yaml:"keyFile"`
 }
 
 type ContainersSpec struct {
@@ -559,6 +573,7 @@ func (c *Config) validate() error {
 	errs = append(errs, c.validateStacks()...)
 	errs = append(errs, c.validateNetworks()...)
 	errs = append(errs, c.validateSync()...)
+	errs = append(errs, c.validateSecretRotation()...)
 	errs = append(errs, c.validateGitAuth()...)
 	errs = append(errs, c.validateSecurity()...)
 	errs = append(errs, c.Spec.Notifications.validate()...)
@@ -663,6 +678,22 @@ func (c *Config) validateSync() []error {
 		errs = append(errs, errors.New("sync.webhook.enabled=true conflicts with sync.mode=pull"))
 	}
 	errs = append(errs, c.validateWebhookSecret()...)
+
+	return errs
+}
+
+func (c *Config) validateSecretRotation() []error {
+	if !c.Spec.SecretRotation.SOPS.Enabled {
+		return nil
+	}
+
+	var errs []error
+	if !c.Spec.SecretRotation.Enabled {
+		errs = append(errs, errors.New("secretRotation.sops.enabled=true requires secretRotation.enabled=true"))
+	}
+	if strings.TrimSpace(c.Spec.SecretRotation.SOPS.Age.KeyFile) == "" {
+		errs = append(errs, errors.New("secretRotation.sops.age.keyFile is required when secretRotation.sops.enabled=true"))
+	}
 
 	return errs
 }
