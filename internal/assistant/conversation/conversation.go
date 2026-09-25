@@ -5,9 +5,9 @@ import "time"
 // Turn describes one message in a conversation.
 type Turn struct {
 	// Role is a participant role ("user", "assistant", or "system").
-	Role string
+	Role string `json:"role"`
 	// Content is a raw message text.
-	Content string
+	Content string `json:"content"`
 }
 
 // Conversation contains conversation messages and metadata.
