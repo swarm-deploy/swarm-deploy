@@ -34,6 +34,35 @@ const currentChatTitle = computed(() => {
   return firstUserMessage.length > 52 ? `${firstUserMessage.slice(0, 52)}…` : firstUserMessage;
 });
 
+const currentChatDateLabel = computed(() => {
+  const persisted = chats.value.find((chat) => chat.id === assistantStore.conversationID);
+  const createdAt = persisted?.created_at ? new Date(persisted.created_at) : new Date();
+
+  if (Number.isNaN(createdAt.getTime())) {
+    return "";
+  }
+
+  const now = new Date();
+  const isToday =
+    createdAt.getFullYear() === now.getFullYear() &&
+    createdAt.getMonth() === now.getMonth() &&
+    createdAt.getDate() === now.getDate();
+
+  if (isToday) {
+    return "Today";
+  }
+
+  const options: Intl.DateTimeFormatOptions = {
+    day: "numeric",
+    month: "long",
+  };
+  if (createdAt.getFullYear() !== now.getFullYear()) {
+    options.year = "numeric";
+  }
+
+  return createdAt.toLocaleDateString(undefined, options);
+});
+
 const groupedChats = computed(() => {
   const groups = [
     { label: "Today", chats: [] as typeof chats.value },
@@ -232,6 +261,7 @@ function renderMessageText(role: string, text: string): string {
         </div>
 
         <div v-else class="assistant-chat-list">
+          <div v-if="currentChatDateLabel" class="assistant-chat-date">{{ currentChatDateLabel }}</div>
           <article
             v-for="(message, index) in messages"
             :key="`${message.role}-${index}`"
