@@ -744,7 +744,7 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 8px 18px;
+  padding: 14px 8px;
   color: var(--accent-strong);
   font-weight: 650;
 }
