@@ -79,6 +79,12 @@ secretRotation:
   hashLength: 10
   # Include source file path in hash.
   includePath: true
+  # SOPS-encrypted secret files (*.sops).
+  sops:
+    enabled: false
+    age:
+      # Path to an age private key available to the swarm-deploy process.
+      keyFile: /run/secrets/swarm-deploy-sops-age-key
 
 # Container runtime settings.
 containers:
