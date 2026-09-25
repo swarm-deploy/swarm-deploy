@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	pipe "github.com/artarts36/gopipe"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -33,6 +34,11 @@ type pipelinePayload struct {
 func (r *Reconciler) attachPipeline() {
 	r.pipeline = pipe.NewPipelineWithConfig[*pipelinePayload](pipe.Config{
 		PipelineName: "sync stack",
+	})
+
+	r.pipeline.Add(pipe.Step[*pipelinePayload]{
+		Name: "validate secrets",
+		Run:  r.validateSecrets,
 	})
 
 	if r.cfg.Spec.Containers.Downward != nil {
@@ -96,6 +102,22 @@ func (r *Reconciler) attachPipeline() {
 		}),
 		Run: r.analyzeDrift,
 	})
+}
+
+func (r *Reconciler) validateSecrets(_ context.Context, payload *pipelinePayload) error {
+	for _, secret := range payload.Desired.Compose.Secrets {
+		if secret == nil || secret.External || secret.File == "" || !strings.HasSuffix(secret.File, sopsSecretSuffix) {
+			continue
+		}
+		if !r.cfg.Spec.SecretRotation.Enabled {
+			return fmt.Errorf("secret file %s uses %s suffix but secret rotation is disabled", secret.File, sopsSecretSuffix)
+		}
+		if !r.cfg.Spec.SecretRotation.SOPS.Enabled {
+			return fmt.Errorf("secret file %s uses %s suffix but SOPS support is disabled", secret.File, sopsSecretSuffix)
+		}
+	}
+
+	return nil
 }
 
 func (r *Reconciler) addManagedLabel(_ context.Context, payload *pipelinePayload) error {
