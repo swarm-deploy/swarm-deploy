@@ -827,6 +827,14 @@ body {
   gap: 18px;
 }
 
+.assistant-chat-date {
+  justify-self: center;
+  margin: 2px 0 6px;
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
 .assistant-chat-message {
   border: 0;
   border-radius: 0;
