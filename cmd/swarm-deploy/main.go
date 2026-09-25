@@ -330,7 +330,7 @@ func buildAssistantService(
 		SystemPrompt:            cfg.Spec.Assistant.SystemPrompt,
 		AllowedTools:            cfg.Spec.Assistant.Tools,
 		ConversationInMemoryTTL: cfg.Spec.Assistant.Conversation.Storage.InMemory.TTL.Value,
-		ConversationHistoryDir:   filepath.Join(cfg.Spec.DataDir, "assistant", "chats"),
+		ConversationHistoryDir:  filepath.Join(cfg.Spec.DataDir, "assistant", "chats"),
 	}, cnt.Resources.ServiceStore, toolExecutor, cnt.Event.Dispatcher, cnt.Metrics.Assistant)
 }
 

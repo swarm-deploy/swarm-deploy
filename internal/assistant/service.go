@@ -95,9 +95,9 @@ func NewService(
 			maxConversationTurns,
 		),
 		conversationHistory: conversationHistory,
-		event:        eventDispatcher,
-		chatObserver: metrics,
-		tracer:       otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/assistant"),
+		event:               eventDispatcher,
+		chatObserver:        metrics,
+		tracer:              otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/assistant"),
 	}, nil
 }
 

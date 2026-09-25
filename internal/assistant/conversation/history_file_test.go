@@ -29,8 +29,7 @@ func TestFileHistoryStoragePersistsAndListsChats(t *testing.T) {
 		Turn{Role: "assistant", Content: "The cluster is healthy."},
 	), "append second chat")
 
-	chats, err := storage.List()
-	require.NoError(t, err, "list chats")
+	chats := storage.List()
 	require.Len(t, chats, 2, "unexpected chat count")
 	assert.Equal(t, "chat-2", chats[0].ID, "latest chat must be first")
 
@@ -58,7 +57,6 @@ func TestFileHistoryStorageKeepsConversationIDOutOfFilePath(t *testing.T) {
 	}
 }
 
-
 func TestFileHistoryStorageListUsesLoadedIndex(t *testing.T) {
 	dir := t.TempDir()
 	storage, err := NewFileHistoryStorage(dir)
@@ -72,7 +70,6 @@ func TestFileHistoryStorageListUsesLoadedIndex(t *testing.T) {
 	require.Len(t, chats, 1, "list must use in-memory index")
 	assert.Equal(t, "chat-1", chats[0].ID, "unexpected chat id")
 }
-
 
 func TestFileHistoryStorageDoesNotRebuildMissingIndex(t *testing.T) {
 	dir := t.TempDir()
