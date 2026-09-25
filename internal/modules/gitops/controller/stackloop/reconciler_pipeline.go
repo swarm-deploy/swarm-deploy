@@ -11,7 +11,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/drift"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/pruner"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -28,8 +27,6 @@ type pipelinePayload struct {
 	LiveServices   []swarm.StackService
 	PrunedServices []string
 	Drift          map[string]drift.ServiceDrift
-
-	cachedReader fs.ReadFunc
 }
 
 func (r *Reconciler) attachPipeline() {
@@ -114,11 +111,8 @@ func (r *Reconciler) attachPipeline() {
 	})
 }
 
-func (r *Reconciler) populateEnvironment(ctx context.Context, payload *pipelinePayload) error {
-	changed, err := r.envFilePopulator.Populate(ctx, payload.Desired, payload.cachedReader)
-	if err != nil {
-		return err
-	}
+func (r *Reconciler) populateEnvironment(_ context.Context, payload *pipelinePayload) error {
+	changed := r.envFilePopulator.Populate(payload.Desired)
 
 	if changed && payload.IsNewDigest {
 		payload.DesiredMutated = true
@@ -205,14 +199,15 @@ func (r *Reconciler) normalizeRenderedObjectFilePaths(file *compose.File) {
 	}
 }
 
-func normalizeEnvFiles(repoDir, baseDir string, envFiles []string) []string {
-	result := make([]string, len(envFiles))
+func normalizeEnvFiles(repoDir, baseDir string, envFiles []compose.EnvFile) []compose.EnvFile {
+	result := make([]compose.EnvFile, len(envFiles))
 
 	for i, file := range envFiles {
-		if isRelativeFromRepoRoot(file) {
-			result[i] = filepath.Join(repoDir, file)
+		result[i] = file
+		if isRelativeFromRepoRoot(file.Path) {
+			result[i].Path = filepath.Join(repoDir, file.Path)
 		} else {
-			result[i] = filepath.Join(baseDir, file)
+			result[i].Path = filepath.Join(baseDir, file.Path)
 		}
 	}
 

@@ -1,33 +1,41 @@
 package compose
 
 import (
-	"context"
-	"errors"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/dotenv"
+	"gopkg.in/yaml.v3"
 )
 
+func TestEnvFileYAML(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+	}{
+		{name: "relative path", path: "config/app.env"},
+		{name: "absolute path", path: "/etc/app.env"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var envFile EnvFile
+			err := yaml.Unmarshal([]byte(tt.path), &envFile)
+			require.NoError(t, err)
+			assert.Equal(t, tt.path, envFile.Path)
+
+			envFile.Variables = map[string]string{"TOKEN": "secret"}
+			encoded, err := yaml.Marshal(envFile)
+			require.NoError(t, err)
+			assert.Equal(t, tt.path+"\n", string(encoded))
+		})
+	}
+}
+
 func TestEnvFilePopulatorPopulate(t *testing.T) {
-	ctx := context.Background()
 	baseDir := filepath.Join("repo", "deploy")
 	composePath := filepath.Join(baseDir, "compose.yaml")
-
-	files := map[string][]byte{
-		filepath.Join(baseDir, "default.env"): []byte("FOO=default\nBAR=default\nEMPTY=\n"),
-		filepath.Join(baseDir, "prod.env"):    []byte("FOO=prod\nBAZ=prod\n"),
-	}
-
-	reader := func(_ context.Context, path string) ([]byte, error) {
-		content, ok := files[path]
-		if !ok {
-			return nil, errors.New("file not found")
-		}
-		return content, nil
-	}
 
 	populator := NewEnvFilePopulator()
 	file := &File{
@@ -35,8 +43,24 @@ func TestEnvFilePopulatorPopulate(t *testing.T) {
 		Compose: Compose{
 			Services: Services{
 				{
-					Name:     "api",
-					EnvFiles: []string{"default.env", "prod.env"},
+					Name: "api",
+					EnvFiles: []EnvFile{
+						{
+							Path: "default.env",
+							Variables: map[string]string{
+								"FOO":   "default",
+								"BAR":   "default",
+								"EMPTY": "",
+							},
+						},
+						{
+							Path: "prod.env",
+							Variables: map[string]string{
+								"FOO": "prod",
+								"BAZ": "prod",
+							},
+						},
+					},
 					Environment: Environment{
 						Map: map[string]string{
 							"FOO":      "explicit",
@@ -48,11 +72,10 @@ func TestEnvFilePopulatorPopulate(t *testing.T) {
 		},
 	}
 
-	changed, err := populator.Populate(ctx, file, reader)
+	changed := populator.Populate(file)
 
-	require.NoError(t, err)
 	assert.True(t, changed)
-	require.Len(t, file.Compose.Services, 1)
+	assert.Len(t, file.Compose.Services, 1)
 
 	service := file.Compose.Services[0]
 	assert.Nil(t, service.EnvFiles)
@@ -73,50 +96,40 @@ func TestEnvFilePopulatorPopulate(t *testing.T) {
 }
 
 func TestEnvFilePopulatorLaterEnvFileWins(t *testing.T) {
-	reader := func(_ context.Context, path string) ([]byte, error) {
-		switch filepath.Base(path) {
-		case "first.env":
-			return []byte("FOO=first\n"), nil
-		case "second.env":
-			return []byte("FOO=second\n"), nil
-		default:
-			return nil, errors.New("unexpected path")
-		}
-	}
-
 	populator := NewEnvFilePopulator()
 	file := &File{
 		Path: filepath.Join("repo", "compose.yaml"),
 		Compose: Compose{
 			Services: Services{
 				{
-					Name:     "api",
-					EnvFiles: []string{"first.env", "second.env"},
+					Name: "api",
+					EnvFiles: []EnvFile{
+						{Path: "first.env", Variables: map[string]string{"FOO": "first"}},
+						{Path: "second.env", Variables: map[string]string{"FOO": "second"}},
+					},
 				},
 			},
 		},
 	}
 
-	changed, err := populator.Populate(context.Background(), file, reader)
+	changed := populator.Populate(file)
 
-	require.NoError(t, err)
 	assert.True(t, changed)
 	assert.Equal(t, "second", file.Compose.Services[0].Environment.Map["FOO"])
 }
 
 func TestEnvFilePopulatorExplicitEnvironmentWins(t *testing.T) {
-	reader := func(context.Context, string) ([]byte, error) {
-		return []byte("FOO=from-file\n"), nil
-	}
-
 	populator := NewEnvFilePopulator()
 	file := &File{
 		Path: filepath.Join("repo", "compose.yaml"),
 		Compose: Compose{
 			Services: Services{
 				{
-					Name:     "api",
-					EnvFiles: []string{"app.env"},
+					Name: "api",
+					EnvFiles: []EnvFile{{
+						Path:      "app.env",
+						Variables: map[string]string{"FOO": "from-file"},
+					}},
 					Environment: Environment{
 						Map: map[string]string{
 							"FOO": "explicit",
@@ -127,17 +140,12 @@ func TestEnvFilePopulatorExplicitEnvironmentWins(t *testing.T) {
 		},
 	}
 
-	_, err := populator.Populate(context.Background(), file, reader)
+	populator.Populate(file)
 
-	require.NoError(t, err)
 	assert.Equal(t, "explicit", file.Compose.Services[0].Environment.Map["FOO"])
 }
 
 func TestEnvFilePopulatorKeepsServiceWithoutEnvFilesUntouched(t *testing.T) {
-	reader := func(context.Context, string) ([]byte, error) {
-		t.Fatal("reader must not be called")
-		return nil, nil
-	}
 	populator := NewEnvFilePopulator()
 
 	file := &File{
@@ -154,36 +162,8 @@ func TestEnvFilePopulatorKeepsServiceWithoutEnvFilesUntouched(t *testing.T) {
 		},
 	}
 
-	changed, err := populator.Populate(context.Background(), file, reader)
+	changed := populator.Populate(file)
 
-	require.NoError(t, err)
 	assert.False(t, changed)
 	assert.Equal(t, map[string]string{"FOO": "bar"}, file.Compose.Services[0].Environment.Map)
-}
-
-func TestParseEnvFile(t *testing.T) {
-	values, err := dotenv.Parse([]byte("\xef\xbb\xbf# comment\n  FOO=bar baz  \nEMPTY=\n"))
-
-	require.NoError(t, err)
-	assert.Equal(t, map[string]string{
-		"EMPTY": "",
-		"FOO":   "bar baz  ",
-	}, values)
-}
-
-func TestParseEnvFileRejectsBareVariable(t *testing.T) {
-	t.Setenv("SECRET_TOKEN", "must-not-leak")
-
-	values, err := dotenv.Parse([]byte("SECRET_TOKEN\n"))
-
-	require.Error(t, err)
-	assert.Nil(t, values)
-	assert.Contains(t, err.Error(), "must have an explicit value")
-}
-
-func TestParseEnvFileRejectsInvalidKey(t *testing.T) {
-	_, err := dotenv.Parse([]byte("BAD KEY=value\n"))
-
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "contains whitespace")
 }

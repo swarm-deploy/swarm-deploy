@@ -23,12 +23,13 @@ type Service struct {
 	Secrets     []ObjectRef      `yaml:"secrets,omitempty" json:"secrets,omitempty"`
 	Configs     []ObjectRef      `yaml:"configs,omitempty" json:"configs,omitempty"`
 	Labels      Labels           `yaml:"labels,omitempty" json:"labels,omitempty"`
-	EnvFiles    []string         `yaml:"env_file,omitempty" json:"env_file,omitempty"`
-	Environment Environment      `yaml:"environment,omitempty" json:"environment,omitempty"`
-	InitJobs    []InitJob        `yaml:"x-init-deploy-jobs,omitempty" json:"init_jobs,omitempty"`
-	Deploy      ServiceDeploy    `yaml:"deploy,omitempty" json:"deploy"`
-	Logging     ServiceLogging   `yaml:"logging,omitempty" json:"logging,omitempty"`
-	Volumes     ServiceVolumes   `yaml:"volumes,omitempty" json:"volumes"`
+	// EnvFiles contains environment files loaded for the service.
+	EnvFiles    []EnvFile      `yaml:"env_file,omitempty" json:"env_file,omitempty"`
+	Environment Environment    `yaml:"environment,omitempty" json:"environment,omitempty"`
+	InitJobs    []InitJob      `yaml:"x-init-deploy-jobs,omitempty" json:"init_jobs,omitempty"`
+	Deploy      ServiceDeploy  `yaml:"deploy,omitempty" json:"deploy"`
+	Logging     ServiceLogging `yaml:"logging,omitempty" json:"logging,omitempty"`
+	Volumes     ServiceVolumes `yaml:"volumes,omitempty" json:"volumes"`
 
 	Extra map[string]interface{} `yaml:",inline"`
 }

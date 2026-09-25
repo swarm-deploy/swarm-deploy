@@ -1,13 +1,28 @@
 package compose
 
 import (
-	"context"
-	"fmt"
-	"path/filepath"
 	"sort"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/dotenv"
+	"gopkg.in/yaml.v3"
 )
+
+// EnvFile is an environment file loaded from a compose service definition.
+type EnvFile struct {
+	// Path is the environment file path from the compose definition.
+	Path string `json:"path"`
+	// Variables contains variables loaded from Path.
+	Variables map[string]string `json:"variables"`
+}
+
+// UnmarshalYAML decodes an environment file path.
+func (f *EnvFile) UnmarshalYAML(node *yaml.Node) error {
+	return node.Decode(&f.Path)
+}
+
+// MarshalYAML encodes an environment file as its compose path.
+func (f EnvFile) MarshalYAML() (interface{}, error) {
+	return f.Path, nil
+}
 
 // EnvFilePopulator resolves service env_file entries into the effective environment.
 //
@@ -26,65 +41,26 @@ func NewEnvFilePopulator() *EnvFilePopulator {
 // Populate resolves env_file values for all services in file.
 //
 // It returns true when at least one service contained env_file entries.
-func (p *EnvFilePopulator) Populate(
-	ctx context.Context,
-	file *File,
-	reader func(ctx context.Context, path string) ([]byte, error),
-) (bool, error) {
-	baseDir := filepath.Dir(file.Path)
+func (p *EnvFilePopulator) Populate(file *File) bool {
 	changed := false
 
 	for index := range file.Compose.Services {
-		populated, err := p.populateService(ctx, baseDir, &file.Compose.Services[index], reader)
-		if err != nil {
-			return false, err
-		}
-
+		populated := p.populateService(&file.Compose.Services[index])
 		changed = changed || populated
 	}
 
-	return changed, nil
+	return changed
 }
 
-func (p *EnvFilePopulator) populateService(
-	ctx context.Context,
-	baseDir string,
-	service *Service,
-	reader func(ctx context.Context, path string) ([]byte, error),
-) (bool, error) {
+func (p *EnvFilePopulator) populateService(service *Service) bool {
 	if len(service.EnvFiles) == 0 {
-		return false, nil
+		return false
 	}
 
 	effective := make(map[string]string)
 
 	for _, envFile := range service.EnvFiles {
-		path := envFile
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(baseDir, envFile)
-		}
-
-		content, err := reader(ctx, path)
-		if err != nil {
-			return false, fmt.Errorf(
-				"read env_file %s for service %q: %w",
-				path,
-				service.Name,
-				err,
-			)
-		}
-
-		values, err := dotenv.Parse(content)
-		if err != nil {
-			return false, fmt.Errorf(
-				"parse env_file %s for service %q: %w",
-				path,
-				service.Name,
-				err,
-			)
-		}
-
-		for key, value := range values {
+		for key, value := range envFile.Variables {
 			effective[key] = value
 		}
 	}
@@ -106,5 +82,5 @@ func (p *EnvFilePopulator) populateService(
 	}
 	service.EnvFiles = nil
 
-	return true, nil
+	return true
 }

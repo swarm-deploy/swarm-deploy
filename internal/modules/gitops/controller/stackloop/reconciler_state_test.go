@@ -455,7 +455,6 @@ services:
 		pruner:           pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),
 		composeLoader:    compose.NewFileLoaderWithReader(readFile),
 		envFilePopulator: compose.NewEnvFilePopulator(),
-		fileReader:       readFile,
 		composeRotator:   NewRotator(),
 		serviceManager:   serviceManager,
 	}
