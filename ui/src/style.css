@@ -964,4 +964,12 @@ body {
   .assistant-chat-title {
     max-width: 220px;
   }
+
+  .assistant-send-button {
+    display: none;
+  }
+
+  .assistant-chat-form textarea {
+    padding-right: 14px;
+  }
 }
