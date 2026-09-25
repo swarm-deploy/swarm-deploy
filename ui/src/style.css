@@ -15,6 +15,7 @@ body {
 .app-root {
   position: relative;
   min-height: 100vh;
+  --assistant-pinned-width: min(560px, 42vw);
 }
 
 .layout-shell {
@@ -26,7 +27,7 @@ body {
   min-height: 100vh;
   display: grid;
   grid-template-columns: var(--shell-sidebar-width) minmax(0, 1fr);
-  transition: grid-template-columns 180ms ease;
+  transition: grid-template-columns 180ms ease, width 180ms ease;
 }
 
 .layout-shell.sidebar-collapsed {
@@ -491,7 +492,31 @@ body {
   transform: translateX(0);
 }
 
+@media (min-width: 901px) {
+  .app-root.assistant-pinned .layout-shell {
+    width: calc(100% - var(--assistant-pinned-width));
+  }
+
+  .assistant-drawer-layer.open.pinned {
+    pointer-events: none;
+  }
+
+  .assistant-drawer-layer.open.pinned .assistant-drawer-overlay {
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .assistant-drawer-layer.open.pinned .assistant-drawer {
+    width: var(--assistant-pinned-width);
+    pointer-events: auto;
+  }
+}
+
 @media (max-width: 900px) {
+  .assistant-pin-button {
+    display: none;
+  }
+
   .layout-shell {
     --shell-sidebar-width: 248px;
     grid-template-columns: 1fr;
@@ -709,6 +734,11 @@ body {
   background: rgba(148, 163, 184, 0.08);
   transform: none;
   filter: none;
+}
+
+.assistant-pin-button.active {
+  color: var(--accent-strong);
+  background: rgba(59, 130, 246, 0.1);
 }
 
 .assistant-icon-button svg,
