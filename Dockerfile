@@ -38,8 +38,12 @@ FROM alpine:3.21.7
 
 ARG APP_VERSION="dev"
 ARG BUILD_TIME
+ARG TARGETARCH
+ARG SOPS_VERSION=3.13.3
 
-RUN apk add --no-cache ca-certificates docker-cli tzdata
+RUN apk add --no-cache ca-certificates docker-cli tzdata \
+    && wget -q "https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.${TARGETARCH}" -O /usr/local/bin/sops \
+    && chmod +x /usr/local/bin/sops
 
 WORKDIR /etc/swarm-deploy
 
