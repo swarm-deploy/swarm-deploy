@@ -51,6 +51,23 @@ func TestFileHistoryStorageKeepsConversationIDOutOfFilePath(t *testing.T) {
 
 	entries, err := os.ReadDir(dir)
 	require.NoError(t, err, "read history directory")
-	require.Len(t, entries, 1, "expected one history file")
-	assert.Equal(t, ".json", filepath.Ext(entries[0].Name()), "history must stay inside storage directory")
+	require.Len(t, entries, 2, "expected chat file and index")
+	for _, entry := range entries {
+		assert.Equal(t, ".json", filepath.Ext(entry.Name()), "history must stay inside storage directory")
+	}
+}
+
+
+func TestFileHistoryStorageListUsesLoadedIndex(t *testing.T) {
+	dir := t.TempDir()
+	storage, err := NewFileHistoryStorage(dir)
+	require.NoError(t, err, "create history storage")
+	require.NoError(t, storage.Append("chat-1", Turn{Role: "user", Content: "hello"}), "append chat")
+
+	chatPath := storage.chatPath("chat-1")
+	require.NoError(t, os.Remove(chatPath), "remove chat payload after index is loaded")
+
+	chats := storage.List()
+	require.Len(t, chats, 1, "list must use in-memory index")
+	assert.Equal(t, "chat-1", chats[0].ID, "unexpected chat id")
 }
