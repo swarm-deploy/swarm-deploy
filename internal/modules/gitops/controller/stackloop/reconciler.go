@@ -91,6 +91,9 @@ func (r *Reconciler) Reconcile(
 		IsManualSync: req.IsManual,
 		Desired:      desiredState,
 	}
+	defer func() {
+		cleanupMaterializedSecrets(pl.TemporaryFiles)
+	}()
 
 	err = r.pipeline.Run(ctx, pl)
 	if err != nil {
