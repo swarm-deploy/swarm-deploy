@@ -11,7 +11,7 @@ type EnvFile struct {
 	// Path is the environment file path from the compose definition.
 	Path string `json:"path"`
 	// Variables contains variables loaded from Path.
-	Variables map[string]string `json:"variables"`
+	Variables map[string]string `json:"-" yaml:"-"`
 }
 
 // UnmarshalYAML decodes an environment file path.
