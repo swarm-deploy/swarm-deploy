@@ -341,10 +341,7 @@ func (s *Service) ListChats(_ context.Context) ([]ChatSummary, error) {
 		return []ChatSummary{}, nil
 	}
 
-	chats, err := s.conversationHistory.List()
-	if err != nil {
-		return nil, err
-	}
+	chats := s.conversationHistory.List()
 
 	result := make([]ChatSummary, 0, len(chats))
 	for _, chat := range chats {
