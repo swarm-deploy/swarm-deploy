@@ -27,6 +27,7 @@ type pipelinePayload struct {
 	LiveServices   []swarm.StackService
 	PrunedServices []string
 	Drift          map[string]drift.ServiceDrift
+	TemporaryFiles []string
 }
 
 func (r *Reconciler) attachPipeline() {
@@ -116,16 +117,18 @@ func (r *Reconciler) addManagedLabel(_ context.Context, payload *pipelinePayload
 func (r *Reconciler) rotateSecrets(_ context.Context, payload *pipelinePayload) error {
 	// Rotation mutates secret/config object names in the in-memory compose model.
 	// We keep digest based on original source, but deploy a rendered, rotated file.
-	changed, err := r.composeRotator.Rotate(
+	changed, temporaryFiles, err := r.composeRotator.Rotate(
 		payload.Desired,
 		payload.Stack.Name,
 		r.cfg.Spec.SecretRotation.HashLength,
 		r.cfg.Spec.SecretRotation.IncludePath,
+		r.cfg.Spec.SecretRotation.SOPS,
 	)
 	if err != nil {
 		return err
 	}
 
+	payload.TemporaryFiles = append(payload.TemporaryFiles, temporaryFiles...)
 	if changed {
 		payload.DesiredMutated = true
 	}
