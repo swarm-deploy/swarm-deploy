@@ -25,6 +25,9 @@ const isOverviewRoute = computed(() => route.path === "/overview");
 const currentUserLabel = computed(() => currentUserStore.displayName.trim() || "User");
 
 const syncDisabled = computed(() => !isOverviewRoute.value);
+const assistantPinnedActive = computed(
+  () => assistantStore.enabled && uiStore.assistantDrawerOpen && uiStore.assistantPinned,
+);
 
 async function handleSyncNow() {
   if (!isOverviewRoute.value) {
@@ -48,7 +51,7 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="app-root">
+  <div class="app-root" :class="{ 'assistant-pinned': assistantPinnedActive }">
     <div class="layout-shell" :class="{ 'sidebar-collapsed': uiStore.sidebarCollapsed }">
       <SidebarNav
         :current-user-label="currentUserLabel"
