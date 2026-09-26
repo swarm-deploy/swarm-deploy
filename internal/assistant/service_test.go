@@ -90,6 +90,9 @@ func TestServiceChatReturnsCompletedResponse(t *testing.T) {
 						},
 					},
 				},
+				"usage": map[string]any{
+					"prompt_tokens": 42, "completion_tokens": 8, "total_tokens": 50,
+				},
 			})
 		default:
 			http.NotFound(w, r)
@@ -168,6 +171,9 @@ func TestServiceChatHandlesToolCalls(t *testing.T) {
 			call := atomic.AddInt64(&chatCall, 1)
 			if call == 1 {
 				_ = json.NewEncoder(w).Encode(map[string]any{
+					"usage": map[string]any{
+						"prompt_tokens": 100, "completion_tokens": 10, "total_tokens": 110,
+					},
 					"choices": []map[string]any{
 						{
 							"message": map[string]any{
@@ -190,6 +196,9 @@ func TestServiceChatHandlesToolCalls(t *testing.T) {
 			}
 
 			_ = json.NewEncoder(w).Encode(map[string]any{
+				"usage": map[string]any{
+					"prompt_tokens": 140, "completion_tokens": 12, "total_tokens": 152,
+				},
 				"choices": []map[string]any{
 					{
 						"message": map[string]any{
