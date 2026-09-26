@@ -157,7 +157,7 @@ Prompt Injection может определить как регулярка, та
 
 В истории событий будут записи с:
 - `Detector` - кто определил инъекцию: регулярка или модель
-- `Prompt` - какой запрос поступил к ассистенту
+- `ChatID` - идентификатор чата, в котором была обнаружена инъекция
 - `Username` - аутентифицированный пользователь, который попытался атаковать ассистента
 
 ![prompt_injection_event_history.png](prompt_injection_event_history.png)
@@ -178,7 +178,7 @@ notifications:
           # Message text template.
           message: |
             ⚠️ Обнаружена попытка Prompt Injection.
-            Chat: {{ .event.ChatID }}
+            Chat ID: {{ .event.ChatID }}
             Детектор: {{ .event.Detector }}
 ```
 
