@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/assistant/guard"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
@@ -22,7 +23,7 @@ func TestPendingOperationFullRestartSkipsMainGenerationAndConfirmationSkipsModel
 		requests++
 		w.Header().Set("Content-Type", "application/json")
 		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
-			"choices": []map[string]any{{"message": map[string]any{"content": `{"route":"services","operation":{"type":"service_restart_trigger","stack":"core","service":"api"}}`}}},
+			"choices": []map[string]any{{"message": map[string]any{"content": `{"route":"services","operation":{"type":"service_restart_trigger","target":"core/api"}}`}}},
 			"usage":   map[string]any{"prompt_tokens": 3, "completion_tokens": 1, "total_tokens": 4},
 		}))
 	}))
@@ -67,25 +68,25 @@ func TestPendingOperationResolution(t *testing.T) {
 	}
 	testCases := []struct {
 		name          string
-		stack         string
-		service       string
+		target        string
 		expectedOK    bool
 		expectedStack string
 		expectedName  string
 		expectedText  string
 	}{
-		{name: "explicit stack and service", stack: "core", service: "api", expectedOK: true, expectedStack: "core", expectedName: "api"},
-		{name: "unique service", service: "worker", expectedOK: true, expectedStack: "core", expectedName: "worker"},
-		{name: "stack with one service", stack: "infra", expectedOK: true, expectedStack: "infra", expectedName: "postgres"},
-		{name: "ambiguous stack", stack: "core", expectedText: "несколько сервисов"},
-		{name: "ambiguous service", service: "postgres", expectedText: "нескольких стеках"},
+		{name: "explicit stack and service", target: "core/api", expectedOK: true, expectedStack: "core", expectedName: "api"},
+		{name: "unique service", target: "worker", expectedOK: true, expectedStack: "core", expectedName: "worker"},
+		{name: "stack with one service", target: "infra", expectedOK: true, expectedStack: "infra", expectedName: "postgres"},
+		{name: "unique partial match", target: "work", expectedOK: true, expectedStack: "core", expectedName: "worker"},
+		{name: "ambiguous stack", target: "core", expectedText: "несколько сервисов"},
+		{name: "ambiguous service", target: "postgres", expectedText: "несколько сервисов"},
 		{name: "missing target", expectedText: "Уточните"},
-		{name: "no match", service: "missing", expectedText: "не найден"},
+		{name: "no match", target: "missing", expectedText: "не найден"},
 	}
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			resolved := resolveService(services, testCase.stack, testCase.service)
+			resolved := resolveServiceTarget(services, testCase.target)
 			assert.Equal(t, testCase.expectedOK, resolved.ok)
 			assert.Equal(t, testCase.expectedStack, resolved.stack)
 			assert.Equal(t, testCase.expectedName, resolved.service)
@@ -203,10 +204,11 @@ func TestPendingOperationSetsReplicas(t *testing.T) {
 	tools := &fakeTools{definitions: assistantTestToolDefinitions(), executeResult: `{"stack":"core","service":"api","replicas":4}`}
 	g := newPendingTestGraph(store, tools)
 
-	answer := g.startPendingOperation("conversation", OperationIntent{
-		Type: OperationServiceReplicasSet, Service: "api", Replicas: &replicas,
+	answer, usage := g.startPendingOperation(context.Background(), "conversation", OperationIntent{
+		Type: OperationServiceReplicasSet, Target: "api", Replicas: &replicas,
 	})
 	assert.Equal(t, "Установить 4 реплик для `api` в стеке `core`?", answer)
+	assert.True(t, usage.IsZero())
 
 	handled, answer, usage, err := g.handlePendingOperation(context.Background(), "conversation", "confirm")
 	require.NoError(t, err)
@@ -219,14 +221,77 @@ func TestPendingOperationSetsReplicas(t *testing.T) {
 func TestPendingOperationCollectsMissingServiceWithoutModels(t *testing.T) {
 	store := &fakeStore{services: []service.Info{{Stack: "core", Name: "api"}, {Stack: "core", Name: "worker"}}}
 	g := newPendingTestGraph(store, &fakeTools{})
-	answer := g.startPendingOperation("conversation", OperationIntent{Type: OperationServiceRestart, Stack: "core"})
+	answer, usage := g.startPendingOperation(context.Background(), "conversation", OperationIntent{Type: OperationServiceRestart, Target: "core"})
 	assert.Contains(t, answer, "несколько сервисов")
+	assert.True(t, usage.IsZero())
 
 	handled, answer, usage, err := g.handlePendingOperation(context.Background(), "conversation", "worker")
 	require.NoError(t, err)
 	assert.True(t, handled)
 	assert.True(t, usage.IsZero())
 	assert.Equal(t, "Перезапустить `worker` в стеке `core`?", answer)
+}
+
+func TestPendingOperationResolvesLiteralStackTarget(t *testing.T) {
+	store := &fakeStore{services: []service.Info{{Stack: "infra-postgres-mcp", Name: "postgres-mcp-core"}}}
+	g := newPendingTestGraph(store, &fakeTools{})
+
+	answer, usage := g.startPendingOperation(context.Background(), "conversation", OperationIntent{
+		Type: OperationServiceRestart, Target: "infra-postgres-mcp",
+	})
+
+	assert.Equal(t, "Перезапустить `postgres-mcp-core` в стеке `infra-postgres-mcp`?", answer)
+	assert.True(t, usage.IsZero(), "deterministic resolution must not call a model")
+	op, ok := g.pending.get("conversation")
+	require.True(t, ok)
+	assert.Equal(t, "infra-postgres-mcp", op.Target)
+	assert.Equal(t, PendingOperationConfirmation, op.Stage)
+}
+
+func TestPendingOperationFindItYourselfUsesOriginalTarget(t *testing.T) {
+	store := &fakeStore{services: []service.Info{{Stack: "infra-postgres-mcp", Name: "postgres-mcp-core"}}}
+	resolver := &recordingCompleter{response: modelResponse{
+		Content: `{"status":"exact","candidate":"infra-postgres-mcp/postgres-mcp-core"}`,
+		Usage:   conversation.TokenUsage{InputTokens: 10, OutputTokens: 3, TotalTokens: 13},
+	}}
+	g := newPendingTestGraph(store, &fakeTools{})
+	g.chat = resolver
+	g.config.ModelName = "test-model"
+	g.pending.set("conversation", PendingOperation{
+		Type: OperationServiceRestart, Stage: PendingOperationCollecting, Target: "postgres infrastructure",
+	})
+
+	handled, answer, usage, err := g.handlePendingOperation(context.Background(), "conversation", "Найди сам")
+	require.NoError(t, err)
+	assert.True(t, handled)
+	assert.Equal(t, "Перезапустить `postgres-mcp-core` в стеке `infra-postgres-mcp`?", answer)
+	assert.Equal(t, int64(13), usage.TotalTokens)
+	require.Len(t, resolver.requests, 1)
+	assert.Len(t, resolver.requests[0].Messages, 2, "resolver must not receive full history")
+	assert.Empty(t, resolver.requests[0].Tools, "resolver must not receive tools")
+}
+
+func TestTargetResolverRejectsCandidateMissingFromStore(t *testing.T) {
+	services := []service.Info{{Stack: "core", Name: "api"}}
+	resolver := &recordingCompleter{response: modelResponse{
+		Content: `{"status":"exact","candidate":"prod/admin"}`,
+	}}
+	g := newPendingTestGraph(&fakeStore{services: services}, &fakeTools{})
+	g.chat = resolver
+
+	resolution, _ := g.resolveOperationTarget(context.Background(), services, "production API")
+	assert.False(t, resolution.ok)
+	assert.Contains(t, resolution.message, "не найден")
+}
+
+type recordingCompleter struct {
+	response modelResponse
+	requests []modelRequest
+}
+
+func (c *recordingCompleter) complete(_ context.Context, request modelRequest) (modelResponse, error) {
+	c.requests = append(c.requests, request)
+	return c.response, nil
 }
 
 func newPendingTestGraph(store *fakeStore, tools *fakeTools) *graph {

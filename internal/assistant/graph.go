@@ -330,7 +330,9 @@ func (g *graph) routeNode(
 		executionState.profile = profile
 		executionState.effectiveToolSet = g.effectiveToolSet(profile)
 		if executionState.operation != nil {
-			executionState.answer = g.startPendingOperation(executionState.conversationID, *executionState.operation)
+			answer, usage := g.startPendingOperation(ctx, executionState.conversationID, *executionState.operation)
+			executionState.answer = answer
+			executionState.usage.Add(usage)
 			executionState.operationHandled = true
 		}
 		return messages, nil

@@ -160,8 +160,8 @@ func isKnownRoute(route Route) bool {
 const routerSystemPrompt = `Classify the user's request for the swarm-deploy assistant and extract supported mutating operations.
 The assistant is exclusively for swarm-deploy and closely related Docker Swarm, deployment, runtime, observability, troubleshooting, and infrastructure operations.
 Return compact JSON only: {"route":"<route>","operation":null}.
-For restart or replica changes, operation is {"type":"service_restart_trigger|service_replicas_set","stack":"candidate or empty","service":"candidate or empty","replicas":number-or-null}.
-Candidate values come only from the current user message. Never infer missing identifiers from history.
+For restart or replica changes, operation is {"type":"service_restart_trigger|service_replicas_set","target":"literal target or empty","replicas":number-or-null}.
+Target is the literal service reference from the current user message. Do not decide whether it is a stack or service, and never infer a missing target from history.
 Routes:
 - general: only greetings, acknowledgements, assistant identity, and short conversational interactions with the assistant itself
 - out_of_scope: questions or requests unrelated to the assistant's operational domain; do not use general for general-knowledge or creative requests
