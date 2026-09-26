@@ -925,6 +925,29 @@ body {
   filter: none;
 }
 
+.assistant-history-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.assistant-history-open {
+  min-width: 0;
+  flex: 1 1 auto;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  padding: 0;
+  font: inherit;
+}
+
+.assistant-history-open:hover {
+  transform: none;
+  filter: none;
+}
+
 .assistant-new-chat-row {
   display: flex;
   align-items: center;
@@ -964,9 +987,96 @@ body {
 }
 
 .assistant-history-item {
-  padding: 10px 8px;
+  padding: 6px 6px 6px 8px;
   border-radius: 6px;
   font-weight: 450;
+}
+
+.assistant-history-open {
+  padding: 4px 0;
+}
+
+.assistant-history-usage {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.assistant-history-stats {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--muted);
+  padding: 0;
+}
+
+.assistant-history-stats:hover,
+.assistant-history-stats.active {
+  background: var(--surface-muted);
+  color: var(--text);
+  transform: none;
+  filter: none;
+}
+
+.assistant-history-stats svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.assistant-history-usage-popover {
+  position: absolute;
+  z-index: 90;
+  top: calc(100% + 6px);
+  right: 0;
+  width: 190px;
+  border: 1px solid var(--border-default);
+  border-radius: 7px;
+  background: var(--surface-elevated);
+  box-shadow: var(--shadow-popover);
+  padding: 10px 12px;
+}
+
+.assistant-history-usage-popover strong {
+  display: block;
+  margin-bottom: 8px;
+  font-size: 0.78rem;
+}
+
+.assistant-history-usage-popover dl {
+  margin: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.assistant-history-usage-popover dl > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.assistant-history-usage-popover dt {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.assistant-history-usage-popover dd {
+  margin: 0;
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.assistant-history-usage-popover dl > div:first-child dd {
+  font-weight: 700;
 }
 
 .assistant-history-item.active {
