@@ -98,7 +98,7 @@ paths:
             minLength: 1
       responses:
         '200':
-          description: Persisted assistant chat history.
+          description: Persisted assistant chat history including messages.
           content:
             application/json:
               schema:
