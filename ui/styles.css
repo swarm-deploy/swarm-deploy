@@ -1128,6 +1128,10 @@ a.overview-summary-row:focus-visible {
   align-items: start;
 }
 
+.service-details-page {
+  container: service-details-page / inline-size;
+}
+
 .service-details-main {
   display: grid;
   gap: 12px;
@@ -1139,10 +1143,33 @@ a.overview-summary-row:focus-visible {
   min-width: 0;
 }
 
+.service-details-card .app-table-wrap,
+.service-details-card .app-table {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.service-details-card .app-table-wrap {
+  overflow-x: hidden;
+}
+
+.service-details-card .app-table td {
+  min-width: 0;
+  max-width: 0;
+}
+
 .service-details-side {
   display: grid;
   gap: 12px;
   align-content: start;
+  min-width: 0;
+}
+
+@container service-details-page (max-width: 1200px) {
+  .service-details-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .service-details-list {
@@ -1173,10 +1200,16 @@ a.overview-summary-row:focus-visible {
   padding-left: 18px;
   display: grid;
   gap: 4px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .service-details-tags li {
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
   overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 .service-secrets-list {

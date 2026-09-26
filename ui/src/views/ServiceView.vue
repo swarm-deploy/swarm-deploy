@@ -383,7 +383,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section class="services-page">
+  <section class="services-page service-details-page">
     <header class="services-header">
       <h2>{{ serviceTitle }}</h2>
     </header>
@@ -398,7 +398,7 @@ onUnmounted(() => {
       <div class="service-details-main">
         <article class="stack-card service-details-card">
           <h3 class="stack-title">Service</h3>
-          <AppTable summary aria-label="Service details">
+          <AppTable summary fixed aria-label="Service details">
               <tr>
                 <th scope="row">Name</th>
                 <td>{{ serviceInfo?.name || serviceName }}</td>
