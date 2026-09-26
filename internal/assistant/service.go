@@ -166,6 +166,7 @@ func (s *Service) runAssistant(
 ) {
 	runCtx, cancel := context.WithTimeout(ctx, runExecutionTimeout)
 	defer cancel()
+	runCtx = WithChatID(runCtx, conversationID)
 
 	history := s.getConversation(conversationID)
 	answer, err := s.graph.run(runCtx, history, message)
