@@ -25,6 +25,10 @@ type Handler interface {
 	//
 	// GET /api/v1/alerts/{id}
 	GetAlert(ctx context.Context, params GetAlertParams) (*Alert, error)
+	// GetAssistantChat implements getAssistantChat operation.
+	//
+	// GET /api/v1/assistant/chats/{conversationID}
+	GetAssistantChat(ctx context.Context, params GetAssistantChatParams) (*AssistantChatHistory, error)
 	// GetCurrentUser implements getCurrentUser operation.
 	//
 	// GET /api/v1/users/me
@@ -57,6 +61,10 @@ type Handler interface {
 	//
 	// GET /api/v1/alerts
 	ListAlerts(ctx context.Context, params ListAlertsParams) (*AlertsResponse, error)
+	// ListAssistantChats implements listAssistantChats operation.
+	//
+	// GET /api/v1/assistant/chats
+	ListAssistantChats(ctx context.Context) (*AssistantChatsResponse, error)
 	// ListEvents implements listEvents operation.
 	//
 	// GET /api/v1/events

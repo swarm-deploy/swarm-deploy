@@ -43,6 +43,13 @@ func (UnimplementedHandler) GetAlert(ctx context.Context, params GetAlertParams)
 	return r, ht.ErrNotImplemented
 }
 
+// GetAssistantChat implements getAssistantChat operation.
+//
+// GET /api/v1/assistant/chats/{conversationID}
+func (UnimplementedHandler) GetAssistantChat(ctx context.Context, params GetAssistantChatParams) (r *AssistantChatHistory, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetCurrentUser implements getCurrentUser operation.
 //
 // GET /api/v1/users/me
@@ -103,6 +110,13 @@ func (UnimplementedHandler) GetTaskLogs(ctx context.Context, params GetTaskLogsP
 //
 // GET /api/v1/alerts
 func (UnimplementedHandler) ListAlerts(ctx context.Context, params ListAlertsParams) (r *AlertsResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListAssistantChats implements listAssistantChats operation.
+//
+// GET /api/v1/assistant/chats
+func (UnimplementedHandler) ListAssistantChats(ctx context.Context) (r *AssistantChatsResponse, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
