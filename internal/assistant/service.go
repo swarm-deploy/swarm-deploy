@@ -171,12 +171,6 @@ func (s *Service) runAssistant(
 	answer, err := s.graph.run(runCtx, history, message)
 	if err != nil {
 		if errors.Is(err, errPromptInjection) {
-			rejectedPrompt := message
-			var promptErr *promptInjectionError
-			if errors.As(err, &promptErr) && strings.TrimSpace(promptErr.prompt) != "" {
-				rejectedPrompt = promptErr.prompt
-			}
-
 			run.finish(
 				StatusRejected,
 				"",
@@ -184,7 +178,7 @@ func (s *Service) runAssistant(
 			)
 
 			s.event.Dispatch(runCtx, &events.AssistantPromptInjectionDetected{
-				Prompt:   strings.TrimSpace(rejectedPrompt),
+				ChatID:   conversationID,
 				Detector: events.AssistantPromptInjectionDetectorRegexp,
 			})
 
