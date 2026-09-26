@@ -377,6 +377,18 @@ function buildExportSvg(
   width: number,
   height: number,
 ): string {
+  const rootStyles = getComputedStyle(document.documentElement);
+  const themeColor = (token: string, fallback: string) => rootStyles.getPropertyValue(token).trim() || fallback;
+  const exportColors = {
+    stage: themeColor("--graph-stage", "#18181b"),
+    grid: themeColor("--graph-grid", "rgba(148, 163, 184, 0.08)"),
+    edge: themeColor("--graph-edge", "#60a5fa"),
+    arrow: themeColor("--graph-arrow", "#60a5fa"),
+    node: themeColor("--graph-node", "#27272b"),
+    border: themeColor("--border-default", "#475569"),
+    text: themeColor("--text", "#f4f4f5"),
+    muted: themeColor("--muted", "#a1a1aa"),
+  };
   const edgeMarkup = edges
     .map(
       (edge) =>
@@ -425,22 +437,22 @@ function buildExportSvg(
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`,
     `<defs>`,
     `<pattern id="graph-export-grid" width="32" height="32" patternUnits="userSpaceOnUse">`,
-    `<path d="M 32 0 L 0 0 0 32" fill="none" stroke="rgba(148, 163, 184, 0.08)" stroke-width="1" />`,
+    `<path d="M 32 0 L 0 0 0 32" fill="none" stroke="${exportColors.grid}" stroke-width="1" />`,
     `</pattern>`,
     `<marker id="graph-export-edge-arrow" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">`,
     `<path d="M 0 0 L 10 5 L 0 10 z" class="graph-export-edge-arrow" />`,
     `</marker>`,
     `<style>`,
     `text { font-family: "Space Grotesk", "Segoe UI", sans-serif; }`,
-    `.graph-export-stage { fill: rgba(18, 18, 20, 0.9); }`,
+    `.graph-export-stage { fill: ${exportColors.stage}; }`,
     `.graph-export-grid { fill: url(#graph-export-grid); }`,
-    `.graph-export-edge-path { fill: none; stroke: rgba(96, 165, 250, 0.72); stroke-width: 2; }`,
-    `.graph-export-edge-arrow { fill: rgba(96, 165, 250, 0.82); }`,
-    `.graph-export-node-card { fill: rgba(39, 39, 43, 0.96); stroke: rgba(148, 163, 184, 0.22); stroke-width: 1; }`,
-    `.graph-export-node-kind { fill: #a1a1aa; font-size: 12px; letter-spacing: 0.8px; text-transform: uppercase; }`,
-    `.graph-export-node-name { fill: #f4f4f5; font-size: 16px; font-weight: 700; }`,
-    `.graph-export-endpoint-dot { fill: #a1a1aa; }`,
-    `.graph-export-endpoint-text, .graph-export-empty-text { fill: #a1a1aa; font-size: 13px; }`,
+    `.graph-export-edge-path { fill: none; stroke: ${exportColors.edge}; stroke-width: 2; }`,
+    `.graph-export-edge-arrow { fill: ${exportColors.arrow}; }`,
+    `.graph-export-node-card { fill: ${exportColors.node}; stroke: ${exportColors.border}; stroke-width: 1; }`,
+    `.graph-export-node-kind { fill: ${exportColors.muted}; font-size: 12px; letter-spacing: 0.8px; text-transform: uppercase; }`,
+    `.graph-export-node-name { fill: ${exportColors.text}; font-size: 16px; font-weight: 700; }`,
+    `.graph-export-endpoint-dot { fill: ${exportColors.muted}; }`,
+    `.graph-export-endpoint-text, .graph-export-empty-text { fill: ${exportColors.muted}; font-size: 13px; }`,
     `</style>`,
     `</defs>`,
     `<rect width="${width}" height="${height}" rx="12" ry="12" class="graph-export-stage" />`,
@@ -724,9 +736,9 @@ onBeforeUnmount(() => {
 
 .graph-summary-chip {
   min-width: 88px;
-  border: 1px solid rgba(148, 163, 184, 0.16);
+  border: 1px solid var(--line);
   border-radius: 8px;
-  background: rgba(39, 39, 42, 0.62);
+  background: var(--surface-card-muted);
   padding: 8px 10px;
   display: grid;
   gap: 2px;
@@ -761,9 +773,9 @@ onBeforeUnmount(() => {
   position: relative;
   border-radius: 8px;
   background:
-    linear-gradient(rgba(148, 163, 184, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(148, 163, 184, 0.04) 1px, transparent 1px),
-    rgba(18, 18, 20, 0.76);
+    linear-gradient(var(--graph-grid) 1px, transparent 1px),
+    linear-gradient(90deg, var(--graph-grid) 1px, transparent 1px),
+    var(--graph-stage);
   background-size: 32px 32px;
   overflow: hidden;
 }
@@ -775,25 +787,25 @@ onBeforeUnmount(() => {
 
 .graph-edge-path {
   fill: none;
-  stroke: rgba(96, 165, 250, 0.72);
+  stroke: var(--graph-edge);
   stroke-width: 2;
 }
 
 .graph-edge-arrow {
-  fill: rgba(96, 165, 250, 0.82);
+  fill: var(--graph-arrow);
 }
 
 .graph-node-card {
   position: absolute;
   top: 0;
   left: 0;
-  border: 1px solid rgba(148, 163, 184, 0.2);
+  border: 1px solid var(--border-strong);
   border-radius: 8px;
-  background: rgba(39, 39, 43, 0.96);
+  background: var(--graph-node);
   padding: 12px;
   display: grid;
   gap: 10px;
-  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.22);
+  box-shadow: var(--graph-shadow);
   cursor: grab;
   touch-action: none;
   user-select: none;
@@ -801,8 +813,8 @@ onBeforeUnmount(() => {
 
 .graph-node-card.dragging {
   cursor: grabbing;
-  border-color: rgba(96, 165, 250, 0.66);
-  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.3);
+  border-color: var(--accent-strong);
+  box-shadow: var(--graph-shadow);
 }
 
 .graph-node-header {

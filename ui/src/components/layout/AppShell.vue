@@ -46,6 +46,7 @@ function handleAssistantToggle() {
 }
 
 onMounted(() => {
+  uiStore.initializeTheme();
   void currentUserStore.loadCurrentUser();
 });
 </script>

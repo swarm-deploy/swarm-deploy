@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 
+import { useUIStore, type ThemeMode } from "../../stores/ui";
 import SidebarIcon from "./SidebarIcon.vue";
 
 defineProps<{
@@ -14,6 +15,14 @@ const emit = defineEmits<{
 }>();
 
 const route = useRoute();
+const uiStore = useUIStore();
+const userMenuRef = ref<HTMLDetailsElement | null>(null);
+
+const themeOptions: Array<{ value: ThemeMode; label: string }> = [
+  { value: "system", label: "System" },
+  { value: "light", label: "Light" },
+  { value: "dark", label: "Dark" },
+];
 
 const appVersion = computed(() => formatVersion(__SWARM_DEPLOY_VERSION__));
 const buildTimeTitle = computed(() => formatBuildTime(__SWARM_DEPLOY_BUILD_TIME__));
@@ -57,6 +66,13 @@ function formatBuildTime(value: string): string {
   }
 
   return date.toLocaleString();
+}
+
+function selectTheme(theme: ThemeMode) {
+  uiStore.setTheme(theme);
+  if (userMenuRef.value) {
+    userMenuRef.value.open = false;
+  }
 }
 </script>
 
@@ -113,10 +129,34 @@ function formatBuildTime(value: string): string {
           <SidebarIcon :name="link.icon" />
           <span class="sidebar-label">{{ link.label }}</span>
         </RouterLink>
-        <div class="sidebar-link sidebar-user" :data-tooltip="currentUserLabel">
-          <SidebarIcon name="user" />
-          <span class="sidebar-label">{{ currentUserLabel }}</span>
-        </div>
+        <details ref="userMenuRef" class="sidebar-user-menu">
+          <summary class="sidebar-link sidebar-user" :data-tooltip="currentUserLabel">
+            <SidebarIcon name="user" />
+            <span class="sidebar-label">{{ currentUserLabel }}</span>
+          </summary>
+          <div class="sidebar-settings-menu" aria-label="User settings">
+            <div class="sidebar-settings-header">
+              <strong>{{ currentUserLabel }}</strong>
+              <span>Appearance</span>
+            </div>
+            <div class="theme-selector" role="radiogroup" aria-label="Theme">
+              <button
+                v-for="option in themeOptions"
+                :key="option.value"
+                type="button"
+                class="theme-option"
+                :class="{ active: uiStore.themeMode === option.value }"
+                role="radio"
+                :aria-label="option.label"
+                :aria-checked="uiStore.themeMode === option.value"
+                @click="selectTheme(option.value)"
+              >
+                <span>{{ option.label }}</span>
+                <span v-if="uiStore.themeMode === option.value" aria-hidden="true">✓</span>
+              </button>
+            </div>
+          </div>
+        </details>
       </nav>
     </div>
 
