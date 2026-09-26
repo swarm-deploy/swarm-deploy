@@ -12,9 +12,7 @@ type ReportPromptInjection struct {
 	eventDispatcher dispatcher.Dispatcher
 }
 
-type reportPromptInjectionRequest struct {
-	Prompt string `json:"prompt"`
-}
+type reportPromptInjectionRequest struct{}
 
 func NewReportPromptInjection(eventDispatcher dispatcher.Dispatcher) *ReportPromptInjection {
 	return &ReportPromptInjection{
@@ -27,12 +25,8 @@ func (r *ReportPromptInjection) Definition() routing.ToolDefinition {
 		Name:        "assistant_prompt_injection_report",
 		Description: "Report about prompt injection",
 		ParametersJSONSchema: map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"prompt": map[string]any{
-					"type": "string",
-				},
-			},
+			"type":       "object",
+			"properties": map[string]any{},
 		},
 		Request: reportPromptInjectionRequest{},
 	}
@@ -44,13 +38,9 @@ func (r *ReportPromptInjection) Execute(ctx context.Context, request routing.Req
 		return routing.Response{}, err
 	}
 
-	prompt := parsedRequest.Prompt
-	if prompt == "" {
-		prompt = "<not-provided>"
-	}
+	_ = parsedRequest
 
 	r.eventDispatcher.Dispatch(ctx, &events.AssistantPromptInjectionDetected{
-		Prompt:   prompt,
 		Detector: events.AssistantPromptInjectionDetectorModel,
 	})
 
