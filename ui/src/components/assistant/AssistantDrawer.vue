@@ -19,6 +19,7 @@ const pending = computed(() => assistantStore.pending);
 const chats = computed(() => assistantStore.chats);
 const historyOpen = computed(() => assistantStore.historyOpen);
 const historyLoading = computed(() => assistantStore.historyLoading);
+const usageOpenChatID = ref("");
 
 const currentChatTitle = computed(() => {
   const persisted = chats.value.find((chat) => chat.id === assistantStore.conversationID);
@@ -124,7 +125,16 @@ function scrollToBottom() {
 }
 
 function closeDrawer() {
+  usageOpenChatID.value = "";
   uiStore.closeAssistantDrawer();
+}
+
+function toggleChatUsage(chatID: string) {
+  usageOpenChatID.value = usageOpenChatID.value === chatID ? "" : chatID;
+}
+
+function formatTokens(value: number | undefined): string {
+  return new Intl.NumberFormat().format(Number(value) || 0);
 }
 
 async function openHistory() {
@@ -257,17 +267,53 @@ function renderMessageText(role: string, text: string): string {
 
         <section v-for="group in groupedChats" v-else :key="group.label" class="assistant-history-group">
           <h3>{{ group.label }}</h3>
-          <button
+          <div
             v-for="chat in group.chats"
             :key="chat.id"
-            type="button"
             class="assistant-history-item"
             :class="{ active: chat.id === assistantStore.conversationID }"
-            :title="chat.title"
-            @click="assistantStore.openChat(chat.id)"
           >
-            <span class="assistant-history-title">{{ chat.title }}</span>
-          </button>
+            <button
+              type="button"
+              class="assistant-history-open"
+              :title="chat.title"
+              @click="assistantStore.openChat(chat.id)"
+            >
+              <span class="assistant-history-title">{{ chat.title }}</span>
+            </button>
+            <div class="assistant-history-usage">
+              <button
+                type="button"
+                class="assistant-history-stats"
+                :class="{ active: usageOpenChatID === chat.id }"
+                :aria-expanded="usageOpenChatID === chat.id"
+                aria-label="Token usage"
+                title="Token usage"
+                @click.stop="toggleChatUsage(chat.id)"
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M4 19V10M10 19V5M16 19v-7M22 19H2" />
+                </svg>
+              </button>
+              <div v-if="usageOpenChatID === chat.id" class="assistant-history-usage-popover">
+                <strong>Token usage</strong>
+                <dl>
+                  <div>
+                    <dt>Total</dt>
+                    <dd>{{ formatTokens(chat.token_usage?.total_tokens) }}</dd>
+                  </div>
+                  <div>
+                    <dt>Input</dt>
+                    <dd>{{ formatTokens(chat.token_usage?.input_tokens) }}</dd>
+                  </div>
+                  <div>
+                    <dt>Output</dt>
+                    <dd>{{ formatTokens(chat.token_usage?.output_tokens) }}</dd>
+                  </div>
+                </dl>
+              </div>
+            </div>
+          </div>
         </section>
       </div>
 
