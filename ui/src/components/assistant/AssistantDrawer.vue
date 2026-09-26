@@ -134,7 +134,11 @@ function toggleChatUsage(chatID: string) {
 }
 
 function formatTokens(value: number | undefined): string {
-  return new Intl.NumberFormat().format(Number(value) || 0);
+  if (value === undefined) {
+    return "—";
+  }
+
+  return new Intl.NumberFormat().format(value);
 }
 
 async function openHistory() {
