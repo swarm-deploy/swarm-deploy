@@ -15,7 +15,7 @@
 | `serviceReplicasDecreased`         | `info`   | `sync`     | Service replicas count decreased    | `stack`, `service`, `previous_replicas`, `current_replicas`, `username` (if present) |
 | `serviceRestarted`                 | `info`   | `sync`     | Service restarted                   | `stack`, `service`, `username` (if present)                  |
 | `userAuthenticated`                | `info`   | `security` | User passed web authentication      | `username`                                                   |
-| `assistantPromptInjectionDetected` | `alert`  | `security` | Assistant prompt injection detected | `detector`, `prompt` (if present), `username` (if present)   |
+| `assistantPromptInjectionDetected` | `alert`  | `security` | Assistant prompt injection detected | `detector`, `chat_id` (if present), `username` (if present) |
 
 All runtime events are persisted to disk in `.swarm-deploy/event-history.json` and can be viewed via API:
 
