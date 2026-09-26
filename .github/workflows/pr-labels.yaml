@@ -24,6 +24,7 @@ jobs:
             module:recommendations
             module:alertmanagement
             module:assistant
+            UI
 
       - name: Require change type label
         uses: mheap/github-action-required-labels@v5
