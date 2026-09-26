@@ -30,6 +30,7 @@
   color: "#5319e7"
   description: Alert management module
 
+
 - name: "module:assistant"
   color: "#5319e7"
   description: Assistant module
