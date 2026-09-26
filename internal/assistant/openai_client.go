@@ -10,6 +10,7 @@ import (
 	otelopenai "github.com/langwatch/langwatch/sdks/go/instrumentation/openai"
 	openai "github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
+	"github.com/swarm-deploy/swarm-deploy/internal/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 )
 
@@ -97,9 +98,19 @@ func (c *openAIClient) complete(ctx context.Context, req modelRequest) (modelRes
 		})
 	}
 
+	usage := conversation.TokenUsage{
+		InputTokens:  response.Usage.PromptTokens,
+		OutputTokens: response.Usage.CompletionTokens,
+		TotalTokens:  response.Usage.TotalTokens,
+	}
+	if usage.TotalTokens == 0 && (usage.InputTokens != 0 || usage.OutputTokens != 0) {
+		usage.TotalTokens = usage.InputTokens + usage.OutputTokens
+	}
+
 	return modelResponse{
 		Content:   strings.TrimSpace(message.Content),
 		ToolCalls: toolCalls,
+		Usage:     usage,
 	}, nil
 }
 

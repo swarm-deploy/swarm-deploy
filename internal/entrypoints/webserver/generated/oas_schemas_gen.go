@@ -378,6 +378,150 @@ func (s *AlertsResponse) SetAlerts(val []Alert) {
 	s.Alerts = val
 }
 
+// Ref: #/components/schemas/AssistantChatHistory
+type AssistantChatHistory struct {
+	ID         string                 `json:"id"`
+	Title      string                 `json:"title"`
+	CreatedAt  time.Time              `json:"created_at"`
+	UpdatedAt  time.Time              `json:"updated_at"`
+	TokenUsage OptAssistantTokenUsage `json:"token_usage"`
+	Messages   []AssistantChatMessage `json:"messages"`
+}
+
+// GetID returns the value of ID.
+func (s *AssistantChatHistory) GetID() string {
+	return s.ID
+}
+
+// GetTitle returns the value of Title.
+func (s *AssistantChatHistory) GetTitle() string {
+	return s.Title
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *AssistantChatHistory) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *AssistantChatHistory) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetTokenUsage returns the value of TokenUsage.
+func (s *AssistantChatHistory) GetTokenUsage() OptAssistantTokenUsage {
+	return s.TokenUsage
+}
+
+// GetMessages returns the value of Messages.
+func (s *AssistantChatHistory) GetMessages() []AssistantChatMessage {
+	return s.Messages
+}
+
+// SetID sets the value of ID.
+func (s *AssistantChatHistory) SetID(val string) {
+	s.ID = val
+}
+
+// SetTitle sets the value of Title.
+func (s *AssistantChatHistory) SetTitle(val string) {
+	s.Title = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *AssistantChatHistory) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *AssistantChatHistory) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetTokenUsage sets the value of TokenUsage.
+func (s *AssistantChatHistory) SetTokenUsage(val OptAssistantTokenUsage) {
+	s.TokenUsage = val
+}
+
+// SetMessages sets the value of Messages.
+func (s *AssistantChatHistory) SetMessages(val []AssistantChatMessage) {
+	s.Messages = val
+}
+
+// Ref: #/components/schemas/AssistantChatMessage
+type AssistantChatMessage struct {
+	Role    AssistantChatMessageRole `json:"role"`
+	Content string                   `json:"content"`
+}
+
+// GetRole returns the value of Role.
+func (s *AssistantChatMessage) GetRole() AssistantChatMessageRole {
+	return s.Role
+}
+
+// GetContent returns the value of Content.
+func (s *AssistantChatMessage) GetContent() string {
+	return s.Content
+}
+
+// SetRole sets the value of Role.
+func (s *AssistantChatMessage) SetRole(val AssistantChatMessageRole) {
+	s.Role = val
+}
+
+// SetContent sets the value of Content.
+func (s *AssistantChatMessage) SetContent(val string) {
+	s.Content = val
+}
+
+type AssistantChatMessageRole string
+
+const (
+	AssistantChatMessageRoleUser      AssistantChatMessageRole = "user"
+	AssistantChatMessageRoleAssistant AssistantChatMessageRole = "assistant"
+	AssistantChatMessageRoleSystem    AssistantChatMessageRole = "system"
+)
+
+// AllValues returns all AssistantChatMessageRole values.
+func (AssistantChatMessageRole) AllValues() []AssistantChatMessageRole {
+	return []AssistantChatMessageRole{
+		AssistantChatMessageRoleUser,
+		AssistantChatMessageRoleAssistant,
+		AssistantChatMessageRoleSystem,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s AssistantChatMessageRole) MarshalText() ([]byte, error) {
+	switch s {
+	case AssistantChatMessageRoleUser:
+		return []byte(s), nil
+	case AssistantChatMessageRoleAssistant:
+		return []byte(s), nil
+	case AssistantChatMessageRoleSystem:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *AssistantChatMessageRole) UnmarshalText(data []byte) error {
+	switch AssistantChatMessageRole(data) {
+	case AssistantChatMessageRoleUser:
+		*s = AssistantChatMessageRoleUser
+		return nil
+	case AssistantChatMessageRoleAssistant:
+		*s = AssistantChatMessageRoleAssistant
+		return nil
+	case AssistantChatMessageRoleSystem:
+		*s = AssistantChatMessageRoleSystem
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
 // Ref: #/components/schemas/AssistantChatRequest
 type AssistantChatRequest struct {
 	ConversationID OptString `json:"conversation_id"`
@@ -556,6 +700,117 @@ func (s *AssistantChatResponseStatus) UnmarshalText(data []byte) error {
 	default:
 		return errors.Errorf("invalid value: %q", data)
 	}
+}
+
+// Ref: #/components/schemas/AssistantChatSummary
+type AssistantChatSummary struct {
+	ID         string                 `json:"id"`
+	Title      string                 `json:"title"`
+	CreatedAt  time.Time              `json:"created_at"`
+	UpdatedAt  time.Time              `json:"updated_at"`
+	TokenUsage OptAssistantTokenUsage `json:"token_usage"`
+}
+
+// GetID returns the value of ID.
+func (s *AssistantChatSummary) GetID() string {
+	return s.ID
+}
+
+// GetTitle returns the value of Title.
+func (s *AssistantChatSummary) GetTitle() string {
+	return s.Title
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *AssistantChatSummary) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *AssistantChatSummary) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetTokenUsage returns the value of TokenUsage.
+func (s *AssistantChatSummary) GetTokenUsage() OptAssistantTokenUsage {
+	return s.TokenUsage
+}
+
+// SetID sets the value of ID.
+func (s *AssistantChatSummary) SetID(val string) {
+	s.ID = val
+}
+
+// SetTitle sets the value of Title.
+func (s *AssistantChatSummary) SetTitle(val string) {
+	s.Title = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *AssistantChatSummary) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *AssistantChatSummary) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetTokenUsage sets the value of TokenUsage.
+func (s *AssistantChatSummary) SetTokenUsage(val OptAssistantTokenUsage) {
+	s.TokenUsage = val
+}
+
+// Ref: #/components/schemas/AssistantChatsResponse
+type AssistantChatsResponse struct {
+	Chats []AssistantChatSummary `json:"chats"`
+}
+
+// GetChats returns the value of Chats.
+func (s *AssistantChatsResponse) GetChats() []AssistantChatSummary {
+	return s.Chats
+}
+
+// SetChats sets the value of Chats.
+func (s *AssistantChatsResponse) SetChats(val []AssistantChatSummary) {
+	s.Chats = val
+}
+
+// Ref: #/components/schemas/AssistantTokenUsage
+type AssistantTokenUsage struct {
+	InputTokens  int64 `json:"input_tokens"`
+	OutputTokens int64 `json:"output_tokens"`
+	TotalTokens  int64 `json:"total_tokens"`
+}
+
+// GetInputTokens returns the value of InputTokens.
+func (s *AssistantTokenUsage) GetInputTokens() int64 {
+	return s.InputTokens
+}
+
+// GetOutputTokens returns the value of OutputTokens.
+func (s *AssistantTokenUsage) GetOutputTokens() int64 {
+	return s.OutputTokens
+}
+
+// GetTotalTokens returns the value of TotalTokens.
+func (s *AssistantTokenUsage) GetTotalTokens() int64 {
+	return s.TotalTokens
+}
+
+// SetInputTokens sets the value of InputTokens.
+func (s *AssistantTokenUsage) SetInputTokens(val int64) {
+	s.InputTokens = val
+}
+
+// SetOutputTokens sets the value of OutputTokens.
+func (s *AssistantTokenUsage) SetOutputTokens(val int64) {
+	s.OutputTokens = val
+}
+
+// SetTotalTokens sets the value of TotalTokens.
+func (s *AssistantTokenUsage) SetTotalTokens(val int64) {
+	s.TotalTokens = val
 }
 
 // Ref: #/components/schemas/CurrentUserResponse
@@ -1461,6 +1716,52 @@ func (o OptAlertStatus) Get() (v AlertStatus, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptAlertStatus) Or(d AlertStatus) AlertStatus {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAssistantTokenUsage returns new OptAssistantTokenUsage with value set to v.
+func NewOptAssistantTokenUsage(v AssistantTokenUsage) OptAssistantTokenUsage {
+	return OptAssistantTokenUsage{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAssistantTokenUsage is optional AssistantTokenUsage.
+type OptAssistantTokenUsage struct {
+	Value AssistantTokenUsage
+	Set   bool
+}
+
+// IsSet returns true if OptAssistantTokenUsage was set.
+func (o OptAssistantTokenUsage) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAssistantTokenUsage) Reset() {
+	var v AssistantTokenUsage
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAssistantTokenUsage) SetTo(v AssistantTokenUsage) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAssistantTokenUsage) Get() (v AssistantTokenUsage, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAssistantTokenUsage) Or(d AssistantTokenUsage) AssistantTokenUsage {
 	if v, ok := o.Get(); ok {
 		return v
 	}

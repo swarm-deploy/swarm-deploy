@@ -81,6 +81,7 @@ type graphExecutionState struct {
 	lastToolResults  []toolExecutionResult
 	toolIterations   int
 	answer           string
+	usage            conversation.TokenUsage
 	rejectedPrompt   string
 }
 
@@ -107,7 +108,11 @@ func newGraph(
 	}
 }
 
-func (g *graph) run(ctx context.Context, history []conversation.Turn, userMessage string) (string, error) {
+func (g *graph) run(
+	ctx context.Context,
+	history []conversation.Turn,
+	userMessage string,
+) (string, conversation.TokenUsage, error) {
 	executionState := &graphExecutionState{
 		history:     history,
 		userMessage: userMessage,
@@ -115,20 +120,20 @@ func (g *graph) run(ctx context.Context, history []conversation.Turn, userMessag
 
 	runnable, err := g.compile(executionState)
 	if err != nil {
-		return "", err
+		return "", executionState.usage, err
 	}
 
 	if _, invokeErr := runnable.Invoke(ctx, nil); invokeErr != nil {
 		if errors.Is(invokeErr, errPromptInjection) {
-			return "", &promptInjectionError{
+			return "", executionState.usage, &promptInjectionError{
 				prompt: strings.TrimSpace(executionState.rejectedPrompt),
 			}
 		}
 
-		return "", invokeErr
+		return "", executionState.usage, invokeErr
 	}
 
-	return executionState.answer, nil
+	return executionState.answer, executionState.usage, nil
 }
 
 func (g *graph) compile(executionState *graphExecutionState) (*langgraph.Runnable, error) {
@@ -311,6 +316,7 @@ func (g *graph) generateAnswerNode(
 		if completionErr != nil {
 			return messages, fmt.Errorf("chat completion: %w", completionErr)
 		}
+		executionState.usage.Add(completion.Usage)
 
 		if len(completion.ToolCalls) == 0 {
 			executionState.answer = strings.TrimSpace(completion.Content)

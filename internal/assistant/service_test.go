@@ -90,6 +90,9 @@ func TestServiceChatReturnsCompletedResponse(t *testing.T) {
 						},
 					},
 				},
+				"usage": map[string]any{
+					"prompt_tokens": 42, "completion_tokens": 8, "total_tokens": 50,
+				},
 			})
 		default:
 			http.NotFound(w, r)
@@ -168,6 +171,9 @@ func TestServiceChatHandlesToolCalls(t *testing.T) {
 			call := atomic.AddInt64(&chatCall, 1)
 			if call == 1 {
 				_ = json.NewEncoder(w).Encode(map[string]any{
+					"usage": map[string]any{
+						"prompt_tokens": 100, "completion_tokens": 10, "total_tokens": 110,
+					},
 					"choices": []map[string]any{
 						{
 							"message": map[string]any{
@@ -190,6 +196,9 @@ func TestServiceChatHandlesToolCalls(t *testing.T) {
 			}
 
 			_ = json.NewEncoder(w).Encode(map[string]any{
+				"usage": map[string]any{
+					"prompt_tokens": 140, "completion_tokens": 12, "total_tokens": 152,
+				},
 				"choices": []map[string]any{
 					{
 						"message": map[string]any{
@@ -214,6 +223,7 @@ func TestServiceChatHandlesToolCalls(t *testing.T) {
 			MaxTokens:               64,
 			SystemPrompt:            "debug helper",
 			ConversationInMemoryTTL: time.Hour,
+			ConversationHistoryDir:  t.TempDir(),
 		},
 		&fakeStore{services: []service.Info{{Name: "api", Stack: "app", Image: "example/api:v1"}}},
 		tools,
@@ -227,6 +237,14 @@ func TestServiceChatHandlesToolCalls(t *testing.T) {
 	})
 	assert.Equal(t, StatusCompleted, response.Status, "expected completed response")
 	assert.Equal(t, "Sync was queued.", response.Answer, "unexpected answer")
+
+	chats, err := serviceInstance.ListChats(context.Background())
+	require.NoError(t, err, "list chats")
+	require.Len(t, chats, 1, "expected persisted chat")
+	require.NotNil(t, chats[0].Usage, "expected token usage")
+	assert.Equal(t, int64(240), chats[0].Usage.InputTokens)
+	assert.Equal(t, int64(22), chats[0].Usage.OutputTokens)
+	assert.Equal(t, int64(262), chats[0].Usage.TotalTokens)
 }
 
 func TestServiceChatSkipsRetrievalForSmallTalk(t *testing.T) {

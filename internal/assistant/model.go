@@ -1,6 +1,9 @@
 package assistant
 
-import "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
+import (
+	"github.com/swarm-deploy/swarm-deploy/internal/assistant/conversation"
+	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
+)
 
 type modelMessage struct {
 	Role       string
@@ -27,4 +30,5 @@ type modelRequest struct {
 type modelResponse struct {
 	Content   string
 	ToolCalls []modelToolCall
+	Usage     conversation.TokenUsage
 }

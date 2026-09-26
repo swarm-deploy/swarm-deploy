@@ -359,11 +359,18 @@ export interface AssistantChatResponse {
   poll_after_ms?: number;
 }
 
+export interface AssistantTokenUsage {
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+}
+
 export interface AssistantChatSummary {
   id: string;
   title: string;
   created_at: string;
   updated_at: string;
+  token_usage?: AssistantTokenUsage;
 }
 
 export interface AssistantChatsResponse {

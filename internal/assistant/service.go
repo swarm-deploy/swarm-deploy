@@ -168,7 +168,7 @@ func (s *Service) runAssistant(
 	defer cancel()
 
 	history := s.getConversation(conversationID)
-	answer, err := s.graph.run(runCtx, history, message)
+	answer, usage, err := s.graph.run(runCtx, history, message)
 	if err != nil {
 		if errors.Is(err, errPromptInjection) {
 			rejectedPrompt := message
@@ -213,7 +213,7 @@ func (s *Service) runAssistant(
 	}
 
 	if s.conversationHistory != nil {
-		if err = s.conversationHistory.Append(conversationID, turns...); err != nil {
+		if err = s.conversationHistory.AppendWithUsage(conversationID, usage, turns...); err != nil {
 			slog.ErrorContext(
 				runCtx,
 				"[assistant] failed to persist conversation history",
@@ -346,7 +346,7 @@ func (s *Service) ListChats(_ context.Context) ([]ChatSummary, error) {
 	result := make([]ChatSummary, 0, len(chats))
 	for _, chat := range chats {
 		result = append(result, ChatSummary{
-			ID: chat.ID, Title: chat.Title, CreatedAt: chat.CreatedAt, UpdatedAt: chat.UpdatedAt,
+			ID: chat.ID, Title: chat.Title, CreatedAt: chat.CreatedAt, UpdatedAt: chat.UpdatedAt, Usage: chat.Usage,
 		})
 	}
 	return result, nil
@@ -369,7 +369,8 @@ func (s *Service) GetChat(_ context.Context, id string) (ChatHistory, bool, erro
 	}
 
 	return ChatHistory{
-		ID: chat.ID, Title: chat.Title, CreatedAt: chat.CreatedAt, UpdatedAt: chat.UpdatedAt, Messages: messages,
+		ID: chat.ID, Title: chat.Title, CreatedAt: chat.CreatedAt, UpdatedAt: chat.UpdatedAt,
+		Usage: chat.Usage, Messages: messages,
 	}, true, nil
 }
 

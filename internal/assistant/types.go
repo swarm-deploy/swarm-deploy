@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
 )
@@ -72,6 +73,9 @@ type ChatMessage struct {
 	Content string `json:"content"`
 }
 
+// TokenUsage contains aggregate model token consumption for a chat.
+type TokenUsage = conversation.TokenUsage
+
 // ChatSummary describes a persisted assistant chat without messages.
 type ChatSummary struct {
 	// ID identifies the chat.
@@ -82,6 +86,8 @@ type ChatSummary struct {
 	CreatedAt time.Time `json:"created_at"`
 	// UpdatedAt is the timestamp of the latest message.
 	UpdatedAt time.Time `json:"updated_at"`
+	// Usage contains aggregate token consumption when reported by the model provider.
+	Usage *TokenUsage `json:"token_usage,omitempty"`
 }
 
 // ChatHistory contains a persisted assistant chat and its messages.
@@ -94,6 +100,8 @@ type ChatHistory struct {
 	CreatedAt time.Time `json:"created_at"`
 	// UpdatedAt is the timestamp of the latest message.
 	UpdatedAt time.Time `json:"updated_at"`
+	// Usage contains aggregate token consumption when reported by the model provider.
+	Usage *TokenUsage `json:"token_usage,omitempty"`
 	// Messages contains the full persisted user-visible history.
 	Messages []ChatMessage `json:"messages"`
 }

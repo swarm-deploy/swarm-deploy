@@ -43,6 +43,10 @@ type Invoker interface {
 	//
 	// GET /api/v1/alerts/{id}
 	GetAlert(ctx context.Context, params GetAlertParams) (*Alert, error)
+	// GetAssistantChat invokes getAssistantChat operation.
+	//
+	// GET /api/v1/assistant/chats/{conversationID}
+	GetAssistantChat(ctx context.Context, params GetAssistantChatParams) (*AssistantChatHistory, error)
 	// GetCurrentUser invokes getCurrentUser operation.
 	//
 	// GET /api/v1/users/me
@@ -79,6 +83,10 @@ type Invoker interface {
 	//
 	// GET /api/v1/alerts
 	ListAlerts(ctx context.Context, params ListAlertsParams) (*AlertsResponse, error)
+	// ListAssistantChats invokes listAssistantChats operation.
+	//
+	// GET /api/v1/assistant/chats
+	ListAssistantChats(ctx context.Context) (*AssistantChatsResponse, error)
 	// ListEvents invokes listEvents operation.
 	//
 	// GET /api/v1/events
@@ -525,6 +533,96 @@ func (c *Client) sendGetAlert(ctx context.Context, params GetAlertParams) (res *
 
 	stage = "DecodeResponse"
 	result, err := decodeGetAlertResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetAssistantChat invokes getAssistantChat operation.
+//
+// GET /api/v1/assistant/chats/{conversationID}
+func (c *Client) GetAssistantChat(ctx context.Context, params GetAssistantChatParams) (*AssistantChatHistory, error) {
+	res, err := c.sendGetAssistantChat(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetAssistantChat(ctx context.Context, params GetAssistantChatParams) (res *AssistantChatHistory, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getAssistantChat"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/api/v1/assistant/chats/{conversationID}"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetAssistantChatOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [2]string
+	pathParts[0] = "/api/v1/assistant/chats/"
+	{
+		// Encode "conversationID" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "conversationID",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.ConversationID))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer body.Close()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetAssistantChatResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -1396,6 +1494,78 @@ func (c *Client) sendListAlerts(ctx context.Context, params ListAlertsParams) (r
 
 	stage = "DecodeResponse"
 	result, err := decodeListAlertsResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// ListAssistantChats invokes listAssistantChats operation.
+//
+// GET /api/v1/assistant/chats
+func (c *Client) ListAssistantChats(ctx context.Context) (*AssistantChatsResponse, error) {
+	res, err := c.sendListAssistantChats(ctx)
+	return res, err
+}
+
+func (c *Client) sendListAssistantChats(ctx context.Context) (res *AssistantChatsResponse, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("listAssistantChats"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/api/v1/assistant/chats"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, ListAssistantChatsOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [1]string
+	pathParts[0] = "/api/v1/assistant/chats"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer body.Close()
+
+	stage = "DecodeResponse"
+	result, err := decodeListAssistantChatsResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
