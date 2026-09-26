@@ -85,25 +85,26 @@ type graph struct {
 }
 
 type graphExecutionState struct {
-	conversationID   string
-	history          []conversation.Turn
-	userMessage      string
-	route            Route
-	profile          CapabilityProfile
-	effectiveToolSet map[string]struct{}
-	retrievalPlan    *rag.RetrievalPlan
-	relevantServices []service.Info
-	modelMessages    []modelMessage
-	pendingToolCalls []modelToolCall
-	lastToolResults  []toolExecutionResult
-	toolIterations   int
-	answer           string
-	usage            conversation.TokenUsage
-	rejectedPrompt   string
-	preparedSizes    preparedRequestSizes
-	terminalTool     string
-	operation        *OperationIntent
-	operationHandled bool
+	conversationID          string
+	history                 []conversation.Turn
+	userMessage             string
+	route                   Route
+	profile                 CapabilityProfile
+	effectiveToolSet        map[string]struct{}
+	retrievalPlan           *rag.RetrievalPlan
+	relevantServices        []service.Info
+	modelMessages           []modelMessage
+	pendingToolCalls        []modelToolCall
+	lastToolResults         []toolExecutionResult
+	toolIterations          int
+	answer                  string
+	usage                   conversation.TokenUsage
+	rejectedPrompt          string
+	preparedSizes           preparedRequestSizes
+	terminalTool            string
+	securityReportAttempted bool
+	operation               *OperationIntent
+	operationHandled        bool
 }
 
 type toolExecutionResult struct {
@@ -312,7 +313,8 @@ func (g *graph) routeNode(
 				if g.observer != nil {
 					g.observer.RecordRouterFallback(reason)
 				}
-				executionState.profile = fallbackCapabilityProfile(g.builtInToolNames())
+				executionState.route = RouteGeneral
+				executionState.profile = fallbackCapabilityProfile()
 				executionState.effectiveToolSet = g.effectiveToolSet(executionState.profile)
 				return messages, nil
 			}
@@ -490,7 +492,22 @@ func (g *graph) executeMCPNode(
 ) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
 	return func(ctx context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
 		executionState.lastToolResults = executionState.lastToolResults[:0]
-		for _, modelToolCall := range executionState.pendingToolCalls {
+		toolCalls := executionState.pendingToolCalls
+		selectedSecurityReport := false
+		for _, toolCall := range toolCalls {
+			if toolCall.Name != assistantPromptInjectionReportTool || executionState.securityReportAttempted {
+				continue
+			}
+
+			toolCalls = []modelToolCall{toolCall}
+			executionState.securityReportAttempted = true
+			selectedSecurityReport = true
+			break
+		}
+		for _, modelToolCall := range toolCalls {
+			if modelToolCall.Name == assistantPromptInjectionReportTool && !selectedSecurityReport {
+				continue
+			}
 			slog.InfoContext(ctx, "[graph] running mcp tool", slog.String("tool.name", modelToolCall.Name))
 
 			toolResultMessage, err := g.executeToolCall(ctx, modelToolCall, executionState.effectiveToolSet)

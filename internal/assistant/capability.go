@@ -2,6 +2,10 @@ package assistant
 
 import "strings"
 
+var assistantSecurityTools = []string{
+	assistantPromptInjectionReportTool,
+}
+
 // CapabilityProfile describes the prompt, tools, and context available to a route.
 type CapabilityProfile struct {
 	// Prompt is route-specific guidance appended to the base system prompt.
@@ -90,17 +94,9 @@ func capabilityProfile(route Route) (CapabilityProfile, bool) {
 	return profile, true
 }
 
-func fallbackCapabilityProfile(definitions []string) CapabilityProfile {
+func fallbackCapabilityProfile() CapabilityProfile {
 	return CapabilityProfile{
-		Prompt: strings.TrimSpace(strings.Join([]string{
-			platformPrompt,
-			servicesPrompt,
-			clusterPrompt,
-			deploymentsPrompt,
-			diagnosticsPrompt,
-			lookupsPrompt,
-		}, "\n\n")),
-		Tools:          append([]string(nil), definitions...),
-		ServiceContext: true,
+		Prompt: strings.TrimSpace(generalPrompt),
+		Tools:  append([]string(nil), assistantSecurityTools...),
 	}
 }

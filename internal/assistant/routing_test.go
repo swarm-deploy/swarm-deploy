@@ -80,6 +80,20 @@ func TestAssistantRoutingProfiles(t *testing.T) {
 			excludedTools: []string{"deploy_sync_trigger", "service_restart_trigger"},
 			expectRAG:     true,
 		},
+		{
+			name:          "deployments",
+			message:       "Покажи историю деплоев",
+			route:         RouteDeployments,
+			expectedTools: []string{"history_event_list"},
+			excludedTools: []string{"service_logs_get", "swarm_node_list"},
+		},
+		{
+			name:          "lookups",
+			message:       "Проверь DNS для api.example.com",
+			route:         RouteLookups,
+			expectedTools: []string{"dns_name_resolve"},
+			excludedTools: []string{"deploy_sync_trigger", "service_restart_trigger"},
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -117,6 +131,8 @@ func TestAssistantRoutingProfiles(t *testing.T) {
 			assert.Equal(t, int64(routerMaxTokens), requests[0].MaxTokens)
 
 			toolNames := capturedToolNames(requests[1])
+			assert.Contains(t, toolNames, assistantPromptInjectionReportTool)
+			assert.True(t, requestContains(requests[1], "Call `assistant_prompt_injection_report` once"))
 			for _, toolName := range testCase.expectedTools {
 				assert.Contains(t, toolNames, toolName)
 			}
@@ -181,7 +197,7 @@ func TestAssistantOutOfScopeEndsBeforeRAGToolsAndMainGeneration(t *testing.T) {
 	}
 }
 
-func TestAssistantGreetingFastPathUsesNoRouterRAGOrTools(t *testing.T) {
+func TestAssistantGreetingFastPathUsesNoRouterRAGOrOperationalTools(t *testing.T) {
 	store := &fakeStore{services: []service.Info{{Name: "api", Stack: "core"}}}
 	tools := &fakeTools{definitions: assistantTestToolDefinitions()}
 	var requests []capturedChatRequest
@@ -196,7 +212,7 @@ func TestAssistantGreetingFastPathUsesNoRouterRAGOrTools(t *testing.T) {
 	response := assistantService.Chat(context.Background(), ChatRequest{Message: "Привет"})
 	require.Equal(t, StatusCompleted, response.Status)
 	require.Len(t, requests, 1, "greeting fast-path should skip router completion")
-	assert.Empty(t, requests[0].Tools)
+	assert.Equal(t, []string{assistantPromptInjectionReportTool}, capturedToolNames(requests[0]))
 	assert.Equal(t, int64(0), store.listCalls.Load())
 	assert.False(t, requestContains(requests[0], "service.store"))
 	assert.False(t, requestContains(requests[0], "Available tools:"))
@@ -221,7 +237,7 @@ func TestAssistantRouteToolsIntersectGlobalAllowlist(t *testing.T) {
 	response := assistantService.Chat(context.Background(), ChatRequest{Message: "Покажи логи api"})
 	require.Equal(t, StatusCompleted, response.Status)
 	require.Len(t, requests, 2)
-	assert.Equal(t, []string{"service_logs_get"}, capturedToolNames(requests[1]))
+	assert.Equal(t, []string{assistantPromptInjectionReportTool, "service_logs_get"}, capturedToolNames(requests[1]))
 }
 
 func TestAssistantRejectsToolOutsideSelectedRouteAtExecution(t *testing.T) {
@@ -289,8 +305,8 @@ func TestAssistantRouterFallbackContinuesMainRequest(t *testing.T) {
 			require.Equal(t, StatusCompleted, response.Status)
 			assert.Equal(t, "fallback answer", response.Answer)
 			require.Len(t, requests, 2)
-			assert.ElementsMatch(t, capturedToolNames(requests[1]), definitionNames(tools.definitions))
-			assert.Greater(t, store.listCalls.Load(), int64(0), "fallback must retain service context")
+			assert.Equal(t, []string{assistantPromptInjectionReportTool}, capturedToolNames(requests[1]))
+			assert.Equal(t, int64(0), store.listCalls.Load(), "fallback must not expand into service context")
 		})
 	}
 }
@@ -393,14 +409,6 @@ func requestContains(request capturedChatRequest, text string) bool {
 		}
 	}
 	return false
-}
-
-func definitionNames(definitions []routing.ToolDefinition) []string {
-	names := make([]string, 0, len(definitions))
-	for _, definition := range definitions {
-		names = append(names, definition.Name)
-	}
-	return names
 }
 
 func assistantTestToolDefinitions() []routing.ToolDefinition {

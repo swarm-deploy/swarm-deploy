@@ -41,24 +41,17 @@ func (g *graph) effectiveToolDefinitions(effectiveToolSet map[string]struct{}) [
 	return filtered
 }
 
-func (g *graph) builtInToolNames() []string {
-	definitions := g.tools.Definitions()
-	names := make([]string, 0, len(definitions))
-	for _, definition := range definitions {
-		names = append(names, definition.Name)
-	}
-
-	return names
-}
-
 func (g *graph) effectiveToolSet(profile CapabilityProfile) map[string]struct{} {
-	toolSet := make(map[string]struct{}, len(profile.Tools))
+	toolSet := make(map[string]struct{}, len(profile.Tools)+len(assistantSecurityTools))
 	for _, toolName := range profile.Tools {
 		if len(g.allowedToolSet) > 0 {
 			if _, ok := g.allowedToolSet[toolName]; !ok {
 				continue
 			}
 		}
+		toolSet[toolName] = struct{}{}
+	}
+	for _, toolName := range assistantSecurityTools {
 		toolSet[toolName] = struct{}{}
 	}
 

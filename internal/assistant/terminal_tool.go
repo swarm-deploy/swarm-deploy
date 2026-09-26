@@ -10,8 +10,10 @@ import (
 )
 
 const (
-	serviceRestartTriggerTool = "service_restart_trigger"
-	serviceReplicasSetTool    = "service_replicas_set"
+	serviceRestartTriggerTool          = "service_restart_trigger"
+	serviceReplicasSetTool             = "service_replicas_set"
+	assistantPromptInjectionReportTool = "assistant_prompt_injection_report"
+	promptInjectionRejectedResponse    = "Request was rejected by prompt injection protection."
 )
 
 // ToolBehavior describes built-in assistant behavior that is not part of the external MCP contract.
@@ -21,8 +23,9 @@ type ToolBehavior struct {
 }
 
 var toolBehaviors = map[string]ToolBehavior{
-	serviceRestartTriggerTool: {Terminal: true},
-	serviceReplicasSetTool:    {Terminal: true},
+	serviceRestartTriggerTool:          {Terminal: true},
+	serviceReplicasSetTool:             {Terminal: true},
+	assistantPromptInjectionReportTool: {Terminal: true},
 }
 
 func isTerminalTool(toolName string) bool {
@@ -36,6 +39,9 @@ func isTerminalToolResultCandidate(results []toolExecutionResult) bool {
 func finalizeTerminalToolResult(toolName, result string) (string, error) {
 	if !isTerminalTool(toolName) {
 		return "", fmt.Errorf("tool %q is not terminal", toolName)
+	}
+	if toolName == assistantPromptInjectionReportTool {
+		return promptInjectionRejectedResponse, nil
 	}
 
 	var actionResult mcpTools.ServiceActionResult
