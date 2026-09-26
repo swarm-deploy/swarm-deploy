@@ -103,8 +103,8 @@
   --surface-muted: rgba(15, 23, 42, 0.055);
   --surface-muted-strong: rgba(15, 23, 42, 0.1);
   --surface-code: #f6f8fa;
-  --surface-panel-header: #f7f8fa;
-  --surface-panel-header-hover: #eef1f4;
+  --surface-panel-header: #e9ecf0;
+  --surface-panel-header-hover: #e1e5ea;
   --surface-card-soft: #ffffff;
   --surface-card-muted: #f8fafc;
   --surface-control: #f7f8fa;
