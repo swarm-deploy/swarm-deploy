@@ -8,7 +8,7 @@ const (
 )
 
 type AssistantPromptInjectionDetected struct {
-	Prompt   string
+	ChatID   string
 	Detector AssistantPromptInjectionDetector
 	Username string
 }
@@ -26,8 +26,8 @@ func (m *AssistantPromptInjectionDetected) Details() map[string]string {
 		"detector": string(m.Detector),
 	}
 
-	if m.Prompt != "" {
-		details["prompt"] = m.Prompt
+	if m.ChatID != "" {
+		details["chat_id"] = m.ChatID
 	}
 
 	if m.Username != "" {
@@ -39,7 +39,7 @@ func (m *AssistantPromptInjectionDetected) Details() map[string]string {
 
 func (m *AssistantPromptInjectionDetected) WithUsername(username string) Event {
 	return &AssistantPromptInjectionDetected{
-		Prompt:   m.Prompt,
+		ChatID:   m.ChatID,
 		Detector: m.Detector,
 		Username: username,
 	}
