@@ -81,7 +81,7 @@ paths:
       operationId: listAssistantChats
       responses:
         '200':
-          description: Persisted assistant chats ordered by latest activity.
+          description: Persisted assistant chat summaries ordered by latest activity.
           content:
             application/json:
               schema:
