@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/assistant"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -40,7 +41,9 @@ func (r *ReportPromptInjection) Execute(ctx context.Context, request routing.Req
 
 	_ = parsedRequest
 
+	chatID, _ := assistant.ChatIDFromContext(ctx)
 	r.eventDispatcher.Dispatch(ctx, &events.AssistantPromptInjectionDetected{
+		ChatID:   chatID,
 		Detector: events.AssistantPromptInjectionDetectorModel,
 	})
 
