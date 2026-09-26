@@ -86,8 +86,10 @@ func NewService(
 			guard.NewInjectionChecker(),
 			retriever,
 			modelClient,
+			newLLMRouter(modelClient, config.ModelName),
 			tools,
 			allowedTools,
+			metrics,
 		),
 		runs: map[string]*chatRun{},
 		conversationStorage: conversation.NewInMemoryStorage(

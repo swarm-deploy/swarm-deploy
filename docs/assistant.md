@@ -7,6 +7,12 @@ The assistant helps with environment debugging using:
 
 Assistant is available only when `assistant.enabled: true`.
 
+## Request routing
+
+Each non-greeting message is classified by a small tool-free LLM request into one of these capability routes: `general`, `platform`, `services`, `cluster`, `deployments`, `diagnostics`, or `lookups`. The router uses the configured assistant model and a few recent conversation turns so short follow-ups retain their original intent. Greetings use a local fast-path and do not call the router.
+
+The selected route controls the additional prompt fragment, available tools, and whether service metadata retrieval runs. Service RAG is enabled only for `services` and `diagnostics`. If routing fails or returns an invalid route, the assistant logs and counts the fallback reason, then continues with the broad compatibility profile.
+
 ## API
 
 - `POST /api/v1/assistant/chat`
@@ -76,8 +82,9 @@ Example use-case:
 
 Tool access is controlled by `assistant.tools`:
 
-- empty list (`[]`) means all built-in tools are available
-- non-empty list works as an allow-list
+- empty list (`[]`) permits all built-in tools, subject to the selected route
+- a non-empty list works as a global allow-list; effective tools are the intersection of it and the route allow-list
+- the effective allow-list is checked both when tools are sent to the model and immediately before execution
 
 ## Configuration
 

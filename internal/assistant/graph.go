@@ -23,6 +23,7 @@ const (
 
 const (
 	graphNodeGuard            = "guard"
+	graphNodeRoute            = "route"
 	graphNodeRetrievePlan     = "retrieve_plan"
 	graphNodeRetrieveLexical  = "retrieve_lexical"
 	graphNodeRetrieveSemantic = "retrieve_semantic"
@@ -54,6 +55,11 @@ type promptInjectionError struct {
 	prompt string
 }
 
+type routerFallbackObserver interface {
+	// RecordRouterFallback tracks why the graph selected its fallback capability profile.
+	RecordRouterFallback(reason string)
+}
+
 func (e *promptInjectionError) Error() string {
 	return errPromptInjection.Error()
 }
@@ -66,14 +72,19 @@ type graph struct {
 	config         Config
 	guard          *guard.InjectionChecker
 	retriever      *rag.Retriever
-	chat           *openAIClient
+	chat           modelCompleter
+	router         Router
 	tools          ToolExecutor
 	allowedToolSet map[string]struct{}
+	observer       routerFallbackObserver
 }
 
 type graphExecutionState struct {
 	history          []conversation.Turn
 	userMessage      string
+	route            Route
+	profile          CapabilityProfile
+	effectiveToolSet map[string]struct{}
 	retrievalPlan    *rag.RetrievalPlan
 	relevantServices []service.Info
 	modelMessages    []modelMessage
@@ -94,17 +105,21 @@ func newGraph(
 	config Config,
 	guard *guard.InjectionChecker,
 	retriever *rag.Retriever,
-	chat *openAIClient,
+	chat modelCompleter,
+	router Router,
 	tools ToolExecutor,
 	allowedToolSet map[string]struct{},
+	observer routerFallbackObserver,
 ) *graph {
 	return &graph{
 		config:         config,
 		guard:          guard,
 		retriever:      retriever,
 		chat:           chat,
+		router:         router,
 		tools:          tools,
 		allowedToolSet: allowedToolSet,
+		observer:       observer,
 	}
 }
 
@@ -140,6 +155,7 @@ func (g *graph) compile(executionState *graphExecutionState) (*langgraph.Runnabl
 	messageGraph := langgraph.NewMessageGraph()
 
 	messageGraph.AddNode(graphNodeGuard, g.guardNode(executionState))
+	messageGraph.AddNode(graphNodeRoute, g.routeNode(executionState))
 	messageGraph.AddNode(graphNodeRetrievePlan, g.retrievePlanNode(executionState))
 	messageGraph.AddNode(graphNodeRetrieveLexical, g.retrieveLexicalNode(executionState))
 	messageGraph.AddNode(graphNodeRetrieveSemantic, g.retrieveSemanticNode(executionState))
@@ -148,14 +164,15 @@ func (g *graph) compile(executionState *graphExecutionState) (*langgraph.Runnabl
 	messageGraph.AddNode(graphNodeExecuteMCP, g.executeMCPNode(executionState))
 	messageGraph.AddNode(graphNodeGuardMCPResults, g.guardMCPResultsNode(executionState))
 
+	messageGraph.AddEdge(graphNodeGuard, graphNodeRoute)
 	messageGraph.AddConditionalEdges(
-		graphNodeGuard,
+		graphNodeRoute,
 		func(_ context.Context, _ []llms.MessageContent) string {
-			if shouldSkipContextRetrieval(executionState.userMessage) {
-				return graphNodePrepare
+			if executionState.profile.ServiceContext {
+				return graphNodeRetrievePlan
 			}
 
-			return graphNodeRetrievePlan
+			return graphNodePrepare
 		},
 		map[string]string{
 			graphNodePrepare:      graphNodePrepare,
@@ -204,6 +221,44 @@ func (g *graph) compile(executionState *graphExecutionState) (*langgraph.Runnabl
 	messageGraph.SetEntryPoint(graphNodeGuard)
 
 	return messageGraph.Compile()
+}
+
+func (g *graph) routeNode(
+	executionState *graphExecutionState,
+) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
+	return func(ctx context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
+		route := RouteGeneral
+		if !isGreeting(executionState.userMessage) {
+			result, err := g.router.Route(ctx, RouteRequest{
+				Message:       executionState.userMessage,
+				RecentHistory: executionState.history,
+			})
+			executionState.usage.Add(result.Usage)
+			if err != nil {
+				reason := routerFallbackReason(err)
+				slog.WarnContext(ctx, "[assistant] router fallback",
+					slog.String("reason", reason),
+					slog.Any("err", err),
+				)
+				if g.observer != nil {
+					g.observer.RecordRouterFallback(reason)
+				}
+				executionState.profile = fallbackCapabilityProfile(g.builtInToolNames())
+				executionState.effectiveToolSet = g.effectiveToolSet(executionState.profile)
+				return messages, nil
+			}
+			route = result.Route
+		}
+
+		profile, ok := capabilityProfile(route)
+		if !ok {
+			return messages, fmt.Errorf("capability profile for route %q is not configured", route)
+		}
+		executionState.route = route
+		executionState.profile = profile
+		executionState.effectiveToolSet = g.effectiveToolSet(profile)
+		return messages, nil
+	}
 }
 
 func (g *graph) guardNode(
@@ -270,14 +325,16 @@ func (g *graph) prepareNode(
 		messages := make([]modelMessage, 0, len(executionState.history)+prepareMessagesExtraCapacity)
 		messages = append(messages, modelMessage{
 			Role:    "system",
-			Content: buildSystemPrompt(g.config.SystemPrompt, g.allowedToolNames()),
+			Content: buildSystemPrompt(g.config.SystemPrompt, executionState.profile.Prompt),
 		})
 
-		if contextMessage := buildServicesContextMessage(executionState.relevantServices); contextMessage != "" {
-			messages = append(messages, modelMessage{
-				Role:    "system",
-				Content: contextMessage,
-			})
+		if executionState.profile.ServiceContext {
+			if contextMessage := buildServicesContextMessage(executionState.relevantServices); contextMessage != "" {
+				messages = append(messages, modelMessage{
+					Role:    "system",
+					Content: contextMessage,
+				})
+			}
 		}
 
 		for _, turn := range executionState.history {
@@ -299,8 +356,6 @@ func (g *graph) prepareNode(
 func (g *graph) generateAnswerNode(
 	executionState *graphExecutionState,
 ) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
-	allowedToolDefinitions := g.allowedToolDefinitions()
-
 	return func(ctx context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
 		if executionState.toolIterations >= maxToolIterations {
 			return messages, fmt.Errorf("tool iteration limit exceeded")
@@ -311,7 +366,7 @@ func (g *graph) generateAnswerNode(
 			Temperature: g.config.Temperature,
 			MaxTokens:   g.config.MaxTokens,
 			Messages:    executionState.modelMessages,
-			Tools:       allowedToolDefinitions,
+			Tools:       g.effectiveToolDefinitions(executionState.effectiveToolSet),
 		})
 		if completionErr != nil {
 			return messages, fmt.Errorf("chat completion: %w", completionErr)
@@ -344,7 +399,7 @@ func (g *graph) executeMCPNode(
 		for _, modelToolCall := range executionState.pendingToolCalls {
 			slog.InfoContext(ctx, "[graph] running mcp tool", slog.String("tool.name", modelToolCall.Name))
 
-			toolResultMessage, err := g.executeToolCall(ctx, modelToolCall)
+			toolResultMessage, err := g.executeToolCall(ctx, modelToolCall, executionState.effectiveToolSet)
 			if err != nil {
 				slog.ErrorContext(ctx, "[graph] failed to run mcp tool",
 					slog.String("tool.name", modelToolCall.Name),
@@ -396,7 +451,7 @@ func (g *graph) guardMCPResultsNode(
 	}
 }
 
-func shouldSkipContextRetrieval(userMessage string) bool {
+func isGreeting(userMessage string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(userMessage))
 	if normalized == "" {
 		return true

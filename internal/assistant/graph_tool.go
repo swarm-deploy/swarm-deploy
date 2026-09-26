@@ -9,9 +9,13 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 )
 
-func (g *graph) executeToolCall(ctx context.Context, modelToolCall modelToolCall) (string, error) {
-	if !g.isToolAllowed(modelToolCall.Name) {
-		return "", errors.New("tool is not allowed by assistant.tools configuration")
+func (g *graph) executeToolCall(
+	ctx context.Context,
+	modelToolCall modelToolCall,
+	effectiveToolSet map[string]struct{},
+) (string, error) {
+	if _, ok := effectiveToolSet[modelToolCall.Name]; !ok {
+		return "", errors.New("tool is not allowed by the selected assistant route")
 	}
 
 	result, runErr := g.tools.Execute(ctx, routing.Request{
@@ -25,15 +29,11 @@ func (g *graph) executeToolCall(ctx context.Context, modelToolCall modelToolCall
 	return result, nil
 }
 
-func (g *graph) allowedToolDefinitions() []routing.ToolDefinition {
+func (g *graph) effectiveToolDefinitions(effectiveToolSet map[string]struct{}) []routing.ToolDefinition {
 	definitions := g.tools.Definitions()
-	if len(g.allowedToolSet) == 0 {
-		return definitions
-	}
-
 	filtered := make([]routing.ToolDefinition, 0, len(definitions))
 	for _, definition := range definitions {
-		if g.isToolAllowed(definition.Name) {
+		if _, ok := effectiveToolSet[definition.Name]; ok {
 			filtered = append(filtered, definition)
 		}
 	}
@@ -41,8 +41,8 @@ func (g *graph) allowedToolDefinitions() []routing.ToolDefinition {
 	return filtered
 }
 
-func (g *graph) allowedToolNames() []string {
-	definitions := g.allowedToolDefinitions()
+func (g *graph) builtInToolNames() []string {
+	definitions := g.tools.Definitions()
 	names := make([]string, 0, len(definitions))
 	for _, definition := range definitions {
 		names = append(names, definition.Name)
@@ -51,13 +51,18 @@ func (g *graph) allowedToolNames() []string {
 	return names
 }
 
-func (g *graph) isToolAllowed(toolName string) bool {
-	if len(g.allowedToolSet) == 0 {
-		return true
+func (g *graph) effectiveToolSet(profile CapabilityProfile) map[string]struct{} {
+	toolSet := make(map[string]struct{}, len(profile.Tools))
+	for _, toolName := range profile.Tools {
+		if len(g.allowedToolSet) > 0 {
+			if _, ok := g.allowedToolSet[toolName]; !ok {
+				continue
+			}
+		}
+		toolSet[toolName] = struct{}{}
 	}
 
-	_, ok := g.allowedToolSet[toolName]
-	return ok
+	return toolSet
 }
 
 func formatMCPToolCallError(toolName string, runErr error) string {

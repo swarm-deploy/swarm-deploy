@@ -34,11 +34,16 @@ func (f *fakeStore) List() []service.Info {
 type fakeTools struct {
 	mu            sync.Mutex
 	calls         []string
+	definitions   []routing.ToolDefinition
 	executeErr    error
 	executeResult string
 }
 
 func (f *fakeTools) Definitions() []routing.ToolDefinition {
+	if f.definitions != nil {
+		return f.definitions
+	}
+
 	return []routing.ToolDefinition{
 		{
 			Name:        "deploy_sync_trigger",
@@ -68,6 +73,7 @@ func (f *fakeTools) Execute(_ context.Context, req routing.Request) (string, err
 
 func TestServiceChatReturnsCompletedResponse(t *testing.T) {
 	const organizationID = "org-test"
+	var chatCall atomic.Int64
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, organizationID, r.Header.Get("OpenAI-Organization"), "expected organization header")
@@ -82,6 +88,15 @@ func TestServiceChatReturnsCompletedResponse(t *testing.T) {
 				},
 			})
 		case "/chat/completions":
+			if chatCall.Add(1) == 1 {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"choices": []map[string]any{{"message": map[string]any{"content": "services"}}},
+					"usage": map[string]any{
+						"prompt_tokens": 5, "completion_tokens": 1, "total_tokens": 6,
+					},
+				})
+				return
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"choices": []map[string]any{
 					{
@@ -172,6 +187,15 @@ func TestServiceChatHandlesToolCalls(t *testing.T) {
 			if call == 1 {
 				_ = json.NewEncoder(w).Encode(map[string]any{
 					"usage": map[string]any{
+						"prompt_tokens": 5, "completion_tokens": 1, "total_tokens": 6,
+					},
+					"choices": []map[string]any{{"message": map[string]any{"content": "deployments"}}},
+				})
+				return
+			}
+			if call == 2 {
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"usage": map[string]any{
 						"prompt_tokens": 100, "completion_tokens": 10, "total_tokens": 110,
 					},
 					"choices": []map[string]any{
@@ -242,9 +266,9 @@ func TestServiceChatHandlesToolCalls(t *testing.T) {
 	require.NoError(t, err, "list chats")
 	require.Len(t, chats, 1, "expected persisted chat")
 	require.NotNil(t, chats[0].Usage, "expected token usage")
-	assert.Equal(t, int64(240), chats[0].Usage.InputTokens)
-	assert.Equal(t, int64(22), chats[0].Usage.OutputTokens)
-	assert.Equal(t, int64(262), chats[0].Usage.TotalTokens)
+	assert.Equal(t, int64(245), chats[0].Usage.InputTokens)
+	assert.Equal(t, int64(23), chats[0].Usage.OutputTokens)
+	assert.Equal(t, int64(268), chats[0].Usage.TotalTokens)
 }
 
 func TestServiceChatSkipsRetrievalForSmallTalk(t *testing.T) {
