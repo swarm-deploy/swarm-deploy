@@ -1,6 +1,6 @@
 - name: bug
   color: "#d73a4a"
-  description: Something is not working
+  description: "Something is not working"
 
 - name: documentation
   color: "#0075ca"
