@@ -223,6 +223,7 @@ func TestServiceChatHandlesToolCalls(t *testing.T) {
 			MaxTokens:               64,
 			SystemPrompt:            "debug helper",
 			ConversationInMemoryTTL: time.Hour,
+			ConversationHistoryDir:  t.TempDir(),
 		},
 		&fakeStore{services: []service.Info{{Name: "api", Stack: "app", Image: "example/api:v1"}}},
 		tools,
@@ -236,6 +237,14 @@ func TestServiceChatHandlesToolCalls(t *testing.T) {
 	})
 	assert.Equal(t, StatusCompleted, response.Status, "expected completed response")
 	assert.Equal(t, "Sync was queued.", response.Answer, "unexpected answer")
+
+	chats, err := serviceInstance.ListChats(context.Background())
+	require.NoError(t, err, "list chats")
+	require.Len(t, chats, 1, "expected persisted chat")
+	require.NotNil(t, chats[0].Usage, "expected token usage")
+	assert.Equal(t, int64(240), chats[0].Usage.InputTokens)
+	assert.Equal(t, int64(22), chats[0].Usage.OutputTokens)
+	assert.Equal(t, int64(262), chats[0].Usage.TotalTokens)
 }
 
 func TestServiceChatSkipsRetrievalForSmallTalk(t *testing.T) {
