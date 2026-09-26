@@ -183,6 +183,20 @@ function handleChatTouchStart(event: TouchEvent) {
   touchStartY = touch.clientY;
 }
 
+function handleChatTouchMove(event: TouchEvent) {
+  if (touchStartX === null || touchStartY === null || event.touches.length !== 1) {
+    return;
+  }
+
+  const touch = event.touches[0];
+  const deltaX = touch.clientX - touchStartX;
+  const deltaY = touch.clientY - touchStartY;
+
+  if (deltaX > 0 && deltaX > Math.abs(deltaY) * swipeDirectionRatio) {
+    event.preventDefault();
+  }
+}
+
 function handleChatTouchEnd(event: TouchEvent) {
   if (touchStartX === null || touchStartY === null || event.changedTouches.length !== 1) {
     resetChatSwipe();
@@ -379,8 +393,9 @@ function renderMessageText(role: string, text: string): string {
         v-else
         ref="bodyRef"
         class="assistant-drawer-body"
-        @touchstart.passive="handleChatTouchStart"
-        @touchend.passive="handleChatTouchEnd"
+        @touchstart="handleChatTouchStart"
+        @touchmove="handleChatTouchMove"
+        @touchend="handleChatTouchEnd"
         @touchcancel="resetChatSwipe"
       >
         <div v-if="messages.length === 0" class="assistant-empty-state">
