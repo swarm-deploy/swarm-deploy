@@ -111,8 +111,6 @@ func NewApplication(
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/v1/assistant/chats", h.AssistantChatsHTTP)
-	mux.HandleFunc("GET /api/v1/assistant/chats/{conversationID}", h.AssistantChatHistoryHTTP)
 	mux.Handle("/api/", apiHandler)
 
 	uiHandler := buildSPAFallbackHandler(ui.FS)
