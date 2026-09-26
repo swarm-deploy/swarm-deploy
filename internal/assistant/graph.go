@@ -89,6 +89,7 @@ type graphExecutionState struct {
 	history                 []conversation.Turn
 	userMessage             string
 	route                   Route
+	capabilities            []Capability
 	profile                 CapabilityProfile
 	effectiveToolSet        map[string]struct{}
 	retrievalPlan           *rag.RetrievalPlan
@@ -319,10 +320,11 @@ func (g *graph) routeNode(
 				return messages, nil
 			}
 			route = result.Route
+			executionState.capabilities = result.Capabilities
 			executionState.operation = result.Operation
 		}
 
-		profile, ok := capabilityProfile(route)
+		profile, ok := composeCapabilityProfile(route, executionState.capabilities)
 		if !ok {
 			return messages, fmt.Errorf("capability profile for route %q is not configured", route)
 		}

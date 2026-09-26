@@ -30,6 +30,12 @@ var diagnosticsPrompt string
 //go:embed prompts/lookups.md
 var lookupsPrompt string
 
+//go:embed prompts/capability_registry_image.md
+var registryImageCapabilityPrompt string
+
+//go:embed prompts/capability_external_release.md
+var externalReleaseCapabilityPrompt string
+
 func buildSystemPrompt(customPrompt, routePrompt string) string {
 	prompt := strings.TrimSpace(basePrompt)
 	if routePrompt = strings.TrimSpace(routePrompt); routePrompt != "" {

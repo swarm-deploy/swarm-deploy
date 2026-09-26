@@ -55,6 +55,8 @@ type OperationIntent struct {
 type RouteDecision struct {
 	// Route is the selected capability route.
 	Route Route `json:"route"`
+	// Capabilities are bounded additions needed alongside the primary route.
+	Capabilities []Capability `json:"capabilities,omitempty"`
 	// Operation is a supported mutating operation, when recognized.
 	Operation *OperationIntent `json:"operation"`
 }

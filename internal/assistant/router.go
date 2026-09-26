@@ -55,6 +55,8 @@ type RouteRequest struct {
 type RouteResult struct {
 	// Route is the selected capability route.
 	Route Route
+	// Capabilities are bounded additions required by the request.
+	Capabilities []Capability
 	// Operation contains a supported mutating operation recognized by the router.
 	Operation *OperationIntent
 	// Usage is token usage reported by the router completion.
@@ -130,7 +132,12 @@ func (r *llmRouter) Route(ctx context.Context, req RouteRequest) (RouteResult, e
 		decision.Operation = nil
 	}
 
-	return RouteResult{Route: route, Operation: decision.Operation, Usage: completion.Usage}, nil
+	return RouteResult{
+		Route:        route,
+		Capabilities: normalizeCapabilities(decision.Capabilities),
+		Operation:    decision.Operation,
+		Usage:        completion.Usage,
+	}, nil
 }
 
 func routerFallbackReason(err error) string {
@@ -159,7 +166,10 @@ func isKnownRoute(route Route) bool {
 
 const routerSystemPrompt = `Classify the user's request for the swarm-deploy assistant and extract supported mutating operations.
 The assistant is exclusively for swarm-deploy and closely related Docker Swarm, deployment, runtime, observability, troubleshooting, and infrastructure operations.
-Return compact JSON only: {"route":"<route>","operation":null}.
+Return compact JSON only: {"route":"<route>","capabilities":[],"operation":null}.
+Keep exactly one primary route. Add only these bounded capabilities when the same request also needs them:
+- registry_image: inspect or compare a deployed/current container image with a registry version; especially add it to diagnostics
+- external_release: inspect the latest upstream release for an external repository; add it when a services or diagnostics request also asks about upstream/latest releases
 For restart or replica changes, operation is {"type":"service_restart_trigger|service_replicas_set","target":"literal target or empty","replicas":number-or-null}.
 Target is the literal service reference from the current user message. Do not decide whether it is a stack or service, and never infer a missing target from history.
 Routes:
@@ -172,7 +182,9 @@ Routes:
 - diagnostics: investigating failures, availability, or runtime problems using multiple data sources
 - lookups: focused registry, external release, DNS, date/time, or application metrics lookup
 Examples:
-"Привет" -> {"route":"general","operation":null}; "Где находится Юпитер?" -> {"route":"out_of_scope","operation":null}
-"Как приготовить борщ?" -> {"route":"out_of_scope","operation":null}; "Почему api падает?" -> {"route":"diagnostics","operation":null}
+"Привет" -> {"route":"general","capabilities":[],"operation":null}; "Где находится Юпитер?" -> {"route":"out_of_scope","capabilities":[],"operation":null}
+"Как приготовить борщ?" -> {"route":"out_of_scope","capabilities":[],"operation":null}; "Почему api падает?" -> {"route":"diagnostics","capabilities":[],"operation":null}
+"Сравни текущий image api с последним upstream release" -> {"route":"services","capabilities":["external_release"],"operation":null}
+"Почему deploy api упал и есть ли более свежий image?" -> {"route":"diagnostics","capabilities":["registry_image"],"operation":null}
 Legacy route examples: "Где находится Юпитер?" -> out_of_scope; "Как приготовить борщ?" -> out_of_scope
 Use recent history only to select the route for ordinary follow-ups. Pending operation confirmation is handled by the backend.`

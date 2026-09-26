@@ -240,6 +240,127 @@ func TestAssistantRouteToolsIntersectGlobalAllowlist(t *testing.T) {
 	assert.Equal(t, []string{assistantPromptInjectionReportTool, "service_logs_get"}, capturedToolNames(requests[1]))
 }
 
+func TestAssistantComposesRouteCapabilities(t *testing.T) {
+	testCases := []struct {
+		name           string
+		message        string
+		routerDecision string
+		allowedTools   []string
+		expectedTools  []string
+		excludedTools  []string
+		expectedPrompt []string
+	}{
+		{
+			name:           "current image versus latest registry version",
+			message:        "Использую ли я последнюю версию сервиса api?",
+			routerDecision: `{"route":"services","capabilities":["registry_image"],"operation":null}`,
+			expectedTools:  []string{"registry_image_version_get"},
+			expectedPrompt: []string{"Read the current image reference from service metadata", "Compare tag and digest"},
+		},
+		{
+			name:           "diagnostics plus registry",
+			message:        "Почему deploy api упал и есть ли более свежий image?",
+			routerDecision: `{"route":"diagnostics","capabilities":["registry_image"],"operation":null}`,
+			expectedTools:  []string{"history_event_list", "service_logs_get", "registry_image_version_get"},
+			expectedPrompt: []string{"identify the affected resource", "Registry image comparison"},
+		},
+		{
+			name:           "service plus external release",
+			message:        "Сравни текущий image api с последним upstream release",
+			routerDecision: `{"route":"services","capabilities":["external_release"],"operation":null}`,
+			expectedTools:  []string{"registry_image_version_get", "external_repository_release_latest_get"},
+			expectedPrompt: []string{"External release comparison"},
+		},
+		{
+			name:           "composition respects global allowlist",
+			message:        "Почему api упал и есть ли более свежий image?",
+			routerDecision: `{"route":"diagnostics","capabilities":["registry_image"],"operation":null}`,
+			allowedTools:   []string{"service_logs_get"},
+			expectedTools:  []string{"service_logs_get"},
+			excludedTools:  []string{"history_event_list", "registry_image_version_get"},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			store := &fakeStore{services: []service.Info{{Name: "api", Stack: "core", Image: "ghcr.io/example/api:v1"}}}
+			tools := &fakeTools{definitions: assistantTestToolDefinitions()}
+			var requests []capturedChatRequest
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				requests = append(requests, decodeCapturedChatRequest(t, req))
+				w.Header().Set("Content-Type", "application/json")
+				if len(requests) == 1 {
+					writeChatResponse(t, w, testCase.routerDecision, nil)
+					return
+				}
+				writeChatResponse(t, w, "done", nil)
+			}))
+			defer server.Close()
+
+			assistantService := newRoutingTestService(t, server.URL, store, tools, testCase.allowedTools)
+			response := assistantService.Chat(context.Background(), ChatRequest{Message: testCase.message})
+			require.Equal(t, StatusCompleted, response.Status)
+			require.Len(t, requests, 2)
+
+			toolNames := capturedToolNames(requests[1])
+			assert.Contains(t, toolNames, assistantPromptInjectionReportTool, "security tool must remain cross-cutting")
+			for _, toolName := range testCase.expectedTools {
+				assert.Contains(t, toolNames, toolName)
+			}
+			for _, toolName := range testCase.excludedTools {
+				assert.NotContains(t, toolNames, toolName)
+			}
+			for _, promptText := range testCase.expectedPrompt {
+				assert.True(t, requestContains(requests[1], promptText), "missing prompt fragment %q", promptText)
+			}
+			assert.True(t, requestContains(requests[1], "Relevant service metadata"))
+		})
+	}
+}
+
+func TestAssistantRestoredBehaviorPrompts(t *testing.T) {
+	testCases := []struct {
+		name     string
+		route    Route
+		expected []string
+	}{
+		{
+			name:  "event interpretation",
+			route: RouteDiagnostics,
+			expected: []string{
+				"`deployFailed`: deployment failed",
+				"`serviceMissed`: an expected service is absent",
+			},
+		},
+		{
+			name:  "web route uses service metadata",
+			route: RouteServices,
+			expected: []string{
+				"do not ask the user for a domain",
+				"Summarize `status`, `status_code`, and `error`",
+			},
+		},
+		{
+			name:  "git diff service source of truth",
+			route: RouteDeployments,
+			expected: []string{
+				"treat `diff.services` as the source of truth",
+				"no service changes were reported",
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			profile, ok := composeCapabilityProfile(testCase.route, nil)
+			require.True(t, ok)
+			for _, expected := range testCase.expected {
+				assert.Contains(t, profile.Prompt, expected)
+			}
+		})
+	}
+}
+
 func TestAssistantRejectsToolOutsideSelectedRouteAtExecution(t *testing.T) {
 	store := &fakeStore{}
 	tools := &fakeTools{definitions: assistantTestToolDefinitions()}
