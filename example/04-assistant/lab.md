@@ -178,7 +178,7 @@ notifications:
           # Message text template.
           message: |
             ⚠️ Обнаружена попытка Prompt Injection.
-            Промпт: {{ .event.Prompt }}
+            Chat: {{ .event.ChatID }}
             Детектор: {{ .event.Detector }}
 ```
 
