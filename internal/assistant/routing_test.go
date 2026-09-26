@@ -43,6 +43,21 @@ func TestAssistantRoutingProfiles(t *testing.T) {
 		expectRAG     bool
 	}{
 		{
+			name:    "general assistant identity",
+			message: "Кто ты?",
+			route:   RouteGeneral,
+		},
+		{
+			name:    "platform rolling update",
+			message: "Что такое rolling update?",
+			route:   RoutePlatform,
+		},
+		{
+			name:    "platform overlay network",
+			message: "Как работает Docker Swarm overlay network?",
+			route:   RoutePlatform,
+		},
+		{
 			name:          "cluster",
 			message:       "Покажи ноды кластера",
 			route:         RouteCluster,
@@ -59,7 +74,7 @@ func TestAssistantRoutingProfiles(t *testing.T) {
 		},
 		{
 			name:          "diagnostics",
-			message:       "Почему api недоступен после deploy?",
+			message:       "Почему сервис api падает?",
 			route:         RouteDiagnostics,
 			expectedTools: []string{"history_event_list", "service_logs_get", "docker_network_list", "dns_name_resolve"},
 			excludedTools: []string{"deploy_sync_trigger", "service_restart_trigger"},
@@ -115,6 +130,53 @@ func TestAssistantRoutingProfiles(t *testing.T) {
 				assert.Equal(t, int64(0), store.listCalls.Load())
 				assert.False(t, requestContains(requests[1], "service.store"))
 			}
+		})
+	}
+}
+
+func TestAssistantOutOfScopeEndsBeforeRAGToolsAndMainGeneration(t *testing.T) {
+	testCases := []struct {
+		name            string
+		message         string
+		expectedAnswer  string
+		expectedExample string
+	}{
+		{
+			name:            "general knowledge",
+			message:         "Где находится Юпитер?",
+			expectedAnswer:  "Я предназначен для работы со swarm-deploy и инфраструктурой Docker Swarm. Могу помочь с сервисами, деплоями, логами, состоянием кластера и диагностикой.",
+			expectedExample: `"Где находится Юпитер?" -> out_of_scope`,
+		},
+		{
+			name:            "cooking",
+			message:         "Как приготовить борщ?",
+			expectedAnswer:  "Я предназначен для работы со swarm-deploy и инфраструктурой Docker Swarm. Могу помочь с сервисами, деплоями, логами, состоянием кластера и диагностикой.",
+			expectedExample: `"Как приготовить борщ?" -> out_of_scope`,
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			store := &fakeStore{services: []service.Info{{Name: "api", Stack: "core"}}}
+			tools := &fakeTools{definitions: assistantTestToolDefinitions()}
+			var requests []capturedChatRequest
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				requests = append(requests, decodeCapturedChatRequest(t, req))
+				w.Header().Set("Content-Type", "application/json")
+				writeChatResponse(t, w, string(RouteOutOfScope), nil)
+			}))
+			defer server.Close()
+
+			assistantService := newRoutingTestService(t, server.URL, store, tools, nil)
+			response := assistantService.Chat(context.Background(), ChatRequest{Message: testCase.message})
+			require.Equal(t, StatusCompleted, response.Status)
+			assert.Equal(t, testCase.expectedAnswer, response.Answer)
+			require.Len(t, requests, 1, "out_of_scope must stop after the router completion")
+			assert.Empty(t, requests[0].Tools, "router must not receive tools")
+			assert.True(t, requestContains(requests[0], "- out_of_scope:"))
+			assert.True(t, requestContains(requests[0], testCase.expectedExample))
+			assert.Equal(t, int64(0), store.listCalls.Load(), "out_of_scope must not run RAG")
+			assert.Empty(t, tools.calls, "out_of_scope must not execute tools")
 		})
 	}
 }

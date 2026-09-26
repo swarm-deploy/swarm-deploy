@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"unicode"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/assistant/guard"
@@ -24,6 +25,7 @@ const (
 const (
 	graphNodeGuard            = "guard"
 	graphNodeRoute            = "route"
+	graphNodeScopeResponse    = "scope_response"
 	graphNodeRetrievePlan     = "retrieve_plan"
 	graphNodeRetrieveLexical  = "retrieve_lexical"
 	graphNodeRetrieveSemantic = "retrieve_semantic"
@@ -160,6 +162,7 @@ func (g *graph) compile(executionState *graphExecutionState) (*langgraph.Runnabl
 
 	messageGraph.AddNode(graphNodeGuard, g.guardNode(executionState))
 	messageGraph.AddNode(graphNodeRoute, g.routeNode(executionState))
+	messageGraph.AddNode(graphNodeScopeResponse, g.scopeResponseNode(executionState))
 	messageGraph.AddNode(graphNodeRetrievePlan, g.retrievePlanNode(executionState))
 	messageGraph.AddNode(graphNodeRetrieveLexical, g.retrieveLexicalNode(executionState))
 	messageGraph.AddNode(graphNodeRetrieveSemantic, g.retrieveSemanticNode(executionState))
@@ -173,6 +176,9 @@ func (g *graph) compile(executionState *graphExecutionState) (*langgraph.Runnabl
 	messageGraph.AddConditionalEdges(
 		graphNodeRoute,
 		func(_ context.Context, _ []llms.MessageContent) string {
+			if executionState.route == RouteOutOfScope {
+				return graphNodeScopeResponse
+			}
 			if executionState.profile.ServiceContext {
 				return graphNodeRetrievePlan
 			}
@@ -180,10 +186,12 @@ func (g *graph) compile(executionState *graphExecutionState) (*langgraph.Runnabl
 			return graphNodePrepare
 		},
 		map[string]string{
-			graphNodePrepare:      graphNodePrepare,
-			graphNodeRetrievePlan: graphNodeRetrievePlan,
+			graphNodeScopeResponse: graphNodeScopeResponse,
+			graphNodePrepare:       graphNodePrepare,
+			graphNodeRetrievePlan:  graphNodeRetrievePlan,
 		},
 	)
+	messageGraph.AddEdge(graphNodeScopeResponse, langgraph.END)
 	messageGraph.AddConditionalEdges(
 		graphNodeRetrievePlan,
 		func(_ context.Context, _ []llms.MessageContent) string {
@@ -253,6 +261,15 @@ func (g *graph) compile(executionState *graphExecutionState) (*langgraph.Runnabl
 	messageGraph.SetEntryPoint(graphNodeGuard)
 
 	return messageGraph.Compile()
+}
+
+func (g *graph) scopeResponseNode(
+	executionState *graphExecutionState,
+) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
+	return func(_ context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
+		executionState.answer = outOfScopeResponse(executionState.userMessage)
+		return messages, nil
+	}
 }
 
 func (g *graph) routeNode(
@@ -538,6 +555,16 @@ func isGreeting(userMessage string) bool {
 
 	_, ok := helloMessages[normalized]
 	return ok
+}
+
+func outOfScopeResponse(userMessage string) string {
+	for _, char := range userMessage {
+		if unicode.In(char, unicode.Cyrillic) {
+			return "Я предназначен для работы со swarm-deploy и инфраструктурой Docker Swarm. Могу помочь с сервисами, деплоями, логами, состоянием кластера и диагностикой."
+		}
+	}
+
+	return "I'm designed for swarm-deploy and Docker Swarm infrastructure. I can help with services, deployments, logs, cluster health, and diagnostics."
 }
 
 func buildServicesContextMessage(services []service.Info) string {

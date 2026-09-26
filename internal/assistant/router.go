@@ -19,8 +19,10 @@ const (
 type Route string
 
 const (
-	// RouteGeneral handles conversation that does not require platform runtime data.
+	// RouteGeneral handles short conversational interaction with the assistant itself.
 	RouteGeneral Route = "general"
+	// RouteOutOfScope handles requests outside swarm-deploy and its operational domain.
+	RouteOutOfScope Route = "out_of_scope"
 	// RoutePlatform handles questions about swarm-deploy itself.
 	RoutePlatform Route = "platform"
 	// RouteServices handles service inspection and service operations.
@@ -139,12 +141,18 @@ func isKnownRoute(route Route) bool {
 }
 
 const routerSystemPrompt = `Classify the user's request for the swarm-deploy assistant.
+The assistant is exclusively for swarm-deploy and closely related Docker Swarm, deployment, runtime, observability, troubleshooting, and infrastructure operations.
 Return exactly one route name and no other text:
-- general: greetings, casual conversation, or requests needing no swarm-deploy knowledge
+- general: only greetings, acknowledgements, assistant identity, and short conversational interactions with the assistant itself
+- out_of_scope: questions or requests unrelated to the assistant's operational domain; do not use general for general-knowledge or creative requests
 - platform: questions about swarm-deploy capabilities or behavior, without runtime inspection
 - services: service catalog, logs, specs, images, replicas, restart, routes, or dependencies
 - cluster: nodes, Docker networks, plugins, or secrets
 - deployments: sync, deployment/event history, recommendations, git history, or commit diffs
 - diagnostics: investigating failures, availability, or runtime problems using multiple data sources
 - lookups: focused registry, external release, DNS, date/time, or application metrics lookup
+Examples:
+"Привет" -> general; "Спасибо" -> general; "Что ты умеешь?" -> general
+"Где находится Юпитер?" -> out_of_scope; "Напиши стих" -> out_of_scope; "Как приготовить борщ?" -> out_of_scope
+"Что такое rolling update?" -> platform; "Покажи сервисы" -> services; "Почему api падает?" -> diagnostics
 Use recent history to preserve the intent of short follow-ups such as confirmations.`

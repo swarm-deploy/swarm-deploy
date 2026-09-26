@@ -16,6 +16,7 @@ var capabilityProfiles = map[Route]CapabilityProfile{
 	RouteGeneral: {
 		Prompt: generalPrompt,
 	},
+	RouteOutOfScope: {},
 	RoutePlatform: {
 		Prompt: platformPrompt,
 	},
