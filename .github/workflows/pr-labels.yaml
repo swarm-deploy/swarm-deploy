@@ -1,0 +1,36 @@
+name: PR labels
+
+on:
+  pull_request:
+    types: [opened, reopened, labeled, unlabeled, synchronize]
+
+jobs:
+  validate:
+    name: validate-labels
+    runs-on: ubuntu-latest
+    permissions:
+      issues: read
+      pull-requests: read
+
+    steps:
+      - name: Require module label
+        uses: mheap/github-action-required-labels@v5
+        with:
+          mode: minimum
+          count: 1
+          labels: |
+            module:gitops
+            module:event
+            module:recommendations
+            module:alertmanagement
+            module:assistant
+
+      - name: Require change type label
+        uses: mheap/github-action-required-labels@v5
+        with:
+          mode: exactly
+          count: 1
+          labels: |
+            enhancement
+            bug
+            documentation
