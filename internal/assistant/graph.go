@@ -80,9 +80,12 @@ type graph struct {
 	tools          ToolExecutor
 	allowedToolSet map[string]struct{}
 	observer       routerFallbackObserver
+	store          ServiceStore
+	pending        *pendingOperationStore
 }
 
 type graphExecutionState struct {
+	conversationID   string
 	history          []conversation.Turn
 	userMessage      string
 	route            Route
@@ -99,6 +102,8 @@ type graphExecutionState struct {
 	rejectedPrompt   string
 	preparedSizes    preparedRequestSizes
 	terminalTool     string
+	operation        *OperationIntent
+	operationHandled bool
 }
 
 type toolExecutionResult struct {
@@ -116,6 +121,7 @@ func newGraph(
 	tools ToolExecutor,
 	allowedToolSet map[string]struct{},
 	observer routerFallbackObserver,
+	store ServiceStore,
 ) *graph {
 	return &graph{
 		config:         config,
@@ -126,17 +132,27 @@ func newGraph(
 		tools:          tools,
 		allowedToolSet: allowedToolSet,
 		observer:       observer,
+		store:          store,
+		pending:        newPendingOperationStore(config.ConversationInMemoryTTL),
 	}
 }
 
 func (g *graph) run(
 	ctx context.Context,
+	conversationID string,
 	history []conversation.Turn,
 	userMessage string,
 ) (string, conversation.TokenUsage, error) {
+	if g.guard.Check(userMessage) {
+		return "", conversation.TokenUsage{}, &promptInjectionError{prompt: strings.TrimSpace(userMessage)}
+	}
+	if handled, answer, usage, err := g.handlePendingOperation(ctx, conversationID, userMessage); handled || err != nil {
+		return answer, usage, err
+	}
 	executionState := &graphExecutionState{
-		history:     history,
-		userMessage: userMessage,
+		conversationID: conversationID,
+		history:        history,
+		userMessage:    userMessage,
 	}
 
 	runnable, err := g.compile(executionState)
@@ -176,6 +192,9 @@ func (g *graph) compile(executionState *graphExecutionState) (*langgraph.Runnabl
 	messageGraph.AddConditionalEdges(
 		graphNodeRoute,
 		func(_ context.Context, _ []llms.MessageContent) string {
+			if executionState.operationHandled {
+				return langgraph.END
+			}
 			if executionState.route == RouteOutOfScope {
 				return graphNodeScopeResponse
 			}
@@ -186,6 +205,7 @@ func (g *graph) compile(executionState *graphExecutionState) (*langgraph.Runnabl
 			return graphNodePrepare
 		},
 		map[string]string{
+			langgraph.END:          langgraph.END,
 			graphNodeScopeResponse: graphNodeScopeResponse,
 			graphNodePrepare:       graphNodePrepare,
 			graphNodeRetrievePlan:  graphNodeRetrievePlan,
@@ -297,6 +317,7 @@ func (g *graph) routeNode(
 				return messages, nil
 			}
 			route = result.Route
+			executionState.operation = result.Operation
 		}
 
 		profile, ok := capabilityProfile(route)
@@ -306,6 +327,10 @@ func (g *graph) routeNode(
 		executionState.route = route
 		executionState.profile = profile
 		executionState.effectiveToolSet = g.effectiveToolSet(profile)
+		if executionState.operation != nil {
+			executionState.answer = g.startPendingOperation(executionState.conversationID, *executionState.operation)
+			executionState.operationHandled = true
+		}
 		return messages, nil
 	}
 }

@@ -2,6 +2,7 @@ package assistant
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,7 +11,7 @@ import (
 )
 
 const (
-	routerMaxTokens     = 16
+	routerMaxTokens     = 128
 	routerHistoryTurns  = 6
 	routerExtraMessages = 2
 )
@@ -54,6 +55,8 @@ type RouteRequest struct {
 type RouteResult struct {
 	// Route is the selected capability route.
 	Route Route
+	// Operation contains a supported mutating operation recognized by the router.
+	Operation *OperationIntent
 	// Usage is token usage reported by the router completion.
 	Usage conversation.TokenUsage
 }
@@ -104,7 +107,17 @@ func (r *llmRouter) Route(ctx context.Context, req RouteRequest) (RouteResult, e
 		return RouteResult{}, fmt.Errorf("router completion: %w", err)
 	}
 
-	rawRoute := strings.ToLower(strings.TrimSpace(completion.Content))
+	rawContent := strings.TrimSpace(completion.Content)
+	var decision RouteDecision
+	if strings.HasPrefix(rawContent, "{") {
+		if err := json.Unmarshal([]byte(rawContent), &decision); err != nil {
+			return RouteResult{Usage: completion.Usage}, fmt.Errorf("%w: %q", errInvalidRouterResponse, completion.Content)
+		}
+	} else {
+		decision.Route = Route(strings.ToLower(rawContent))
+	}
+
+	rawRoute := strings.ToLower(strings.TrimSpace(string(decision.Route)))
 	route := Route(rawRoute)
 	if !isKnownRoute(route) {
 		if rawRoute != "" && !strings.ContainsAny(rawRoute, " \t\r\n") {
@@ -113,7 +126,11 @@ func (r *llmRouter) Route(ctx context.Context, req RouteRequest) (RouteResult, e
 		return RouteResult{Usage: completion.Usage}, fmt.Errorf("%w: %q", errInvalidRouterResponse, completion.Content)
 	}
 
-	return RouteResult{Route: route, Usage: completion.Usage}, nil
+	if decision.Operation != nil && (route != RouteServices || !decision.Operation.Type.supported()) {
+		decision.Operation = nil
+	}
+
+	return RouteResult{Route: route, Operation: decision.Operation, Usage: completion.Usage}, nil
 }
 
 func routerFallbackReason(err error) string {
@@ -140,9 +157,12 @@ func isKnownRoute(route Route) bool {
 	return ok
 }
 
-const routerSystemPrompt = `Classify the user's request for the swarm-deploy assistant.
+const routerSystemPrompt = `Classify the user's request for the swarm-deploy assistant and extract supported mutating operations.
 The assistant is exclusively for swarm-deploy and closely related Docker Swarm, deployment, runtime, observability, troubleshooting, and infrastructure operations.
-Return exactly one route name and no other text:
+Return compact JSON only: {"route":"<route>","operation":null}.
+For restart or replica changes, operation is {"type":"service_restart_trigger|service_replicas_set","stack":"candidate or empty","service":"candidate or empty","replicas":number-or-null}.
+Candidate values come only from the current user message. Never infer missing identifiers from history.
+Routes:
 - general: only greetings, acknowledgements, assistant identity, and short conversational interactions with the assistant itself
 - out_of_scope: questions or requests unrelated to the assistant's operational domain; do not use general for general-knowledge or creative requests
 - platform: questions about swarm-deploy capabilities or behavior, without runtime inspection
@@ -152,7 +172,7 @@ Return exactly one route name and no other text:
 - diagnostics: investigating failures, availability, or runtime problems using multiple data sources
 - lookups: focused registry, external release, DNS, date/time, or application metrics lookup
 Examples:
-"Привет" -> general; "Спасибо" -> general; "Что ты умеешь?" -> general
-"Где находится Юпитер?" -> out_of_scope; "Напиши стих" -> out_of_scope; "Как приготовить борщ?" -> out_of_scope
-"Что такое rolling update?" -> platform; "Покажи сервисы" -> services; "Почему api падает?" -> diagnostics
-Use recent history to preserve the intent of short follow-ups such as confirmations.`
+"Привет" -> {"route":"general","operation":null}; "Где находится Юпитер?" -> {"route":"out_of_scope","operation":null}
+"Как приготовить борщ?" -> {"route":"out_of_scope","operation":null}; "Почему api падает?" -> {"route":"diagnostics","operation":null}
+Legacy route examples: "Где находится Юпитер?" -> out_of_scope; "Как приготовить борщ?" -> out_of_scope
+Use recent history only to select the route for ordinary follow-ups. Pending operation confirmation is handled by the backend.`

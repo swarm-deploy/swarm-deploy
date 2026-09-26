@@ -90,6 +90,7 @@ func NewService(
 			tools,
 			allowedTools,
 			metrics,
+			store,
 		),
 		runs: map[string]*chatRun{},
 		conversationStorage: conversation.NewInMemoryStorage(
@@ -170,7 +171,7 @@ func (s *Service) runAssistant(
 	defer cancel()
 
 	history := s.getConversation(conversationID)
-	answer, usage, err := s.graph.run(runCtx, history, message)
+	answer, usage, err := s.graph.run(runCtx, conversationID, history, message)
 	if err != nil {
 		if errors.Is(err, errPromptInjection) {
 			rejectedPrompt := message
