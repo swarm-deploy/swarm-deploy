@@ -32,13 +32,13 @@ body {
   position: relative;
   min-height: 100vh;
   --assistant-pinned-width: min(560px, 42vw);
+  --shell-header-height: 73px;
 }
 
 .layout-shell {
   position: relative;
   z-index: 2;
   --shell-sidebar-width: 248px;
-  --shell-header-height: 73px;
   width: 100%;
   min-height: 100vh;
   display: grid;
@@ -807,7 +807,7 @@ body {
 }
 
 .assistant-drawer-header {
-  min-height: 64px;
+  height: var(--shell-header-height);
   padding: 0 16px;
   border-bottom: 1px solid var(--line);
 }
