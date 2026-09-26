@@ -42,6 +42,65 @@ func TestFileHistoryStoragePersistsAndListsChats(t *testing.T) {
 	assert.Equal(t, "Why is nginx restarting?", chat.Title, "unexpected persisted title")
 }
 
+func TestFileHistoryStoragePersistsTokenUsage(t *testing.T) {
+	dir := t.TempDir()
+	storage, err := NewFileHistoryStorage(dir)
+	require.NoError(t, err, "create history storage")
+
+	require.NoError(t, storage.AppendWithUsage(
+		"chat-usage",
+		TokenUsage{InputTokens: 100, OutputTokens: 20, TotalTokens: 120},
+		Turn{Role: "user", Content: "hello"},
+		Turn{Role: "assistant", Content: "hi"},
+	), "append chat with usage")
+	require.NoError(t, storage.AppendWithUsage(
+		"chat-usage",
+		TokenUsage{InputTokens: 200, OutputTokens: 30, TotalTokens: 230},
+		Turn{Role: "user", Content: "again"},
+		Turn{Role: "assistant", Content: "hello again"},
+	), "append second usage")
+
+	chat, ok, err := storage.Get("chat-usage")
+	require.NoError(t, err, "get chat")
+	require.True(t, ok, "chat must exist")
+	require.NotNil(t, chat.Usage, "usage must be persisted")
+	assert.Equal(t, TokenUsage{InputTokens: 300, OutputTokens: 50, TotalTokens: 350}, *chat.Usage)
+
+	chats := storage.List()
+	require.Len(t, chats, 1)
+	require.NotNil(t, chats[0].Usage)
+	assert.Equal(t, TokenUsage{InputTokens: 300, OutputTokens: 50, TotalTokens: 350}, *chats[0].Usage)
+
+	reopened, err := NewFileHistoryStorage(dir)
+	require.NoError(t, err, "reopen history storage")
+	chats = reopened.List()
+	require.Len(t, chats, 1)
+	require.NotNil(t, chats[0].Usage)
+	assert.Equal(t, int64(350), chats[0].Usage.TotalTokens)
+}
+
+func TestFileHistoryStorageLoadsLegacyChatWithoutTokenUsage(t *testing.T) {
+	dir := t.TempDir()
+	storage, err := NewFileHistoryStorage(dir)
+	require.NoError(t, err, "create history storage")
+	require.NoError(t, storage.Append("legacy", Turn{Role: "user", Content: "hello"}))
+
+	chatPath := storage.chatPath("legacy")
+	payload, err := os.ReadFile(chatPath)
+	require.NoError(t, err)
+	var raw map[string]any
+	require.NoError(t, json.Unmarshal(payload, &raw))
+	delete(raw, "token_usage")
+	payload, err = json.Marshal(raw)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(chatPath, payload, chatFileMode))
+
+	chat, ok, err := storage.Get("legacy")
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Nil(t, chat.Usage)
+}
+
 func TestFileHistoryStorageKeepsConversationIDOutOfFilePath(t *testing.T) {
 	dir := t.TempDir()
 	storage, err := NewFileHistoryStorage(dir)
