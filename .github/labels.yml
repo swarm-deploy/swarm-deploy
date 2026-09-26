@@ -1,0 +1,35 @@
+- name: bug
+  color: "#d73a4a"
+  description: Something is not working
+
+- name: documentation
+  color: "#0075ca"
+  description: Improvements or additions to documentation
+
+- name: enhancement
+  color: "#a2eeef"
+  description: New feature or improvement
+
+- name: UI
+  color: "#1d76db"
+  description: User interface changes
+
+- name: "module:gitops"
+  color: "#5319e7"
+  description: GitOps module
+
+- name: "module:event"
+  color: "#5319e7"
+  description: Event module
+
+- name: "module:recommendations"
+  color: "#5319e7"
+  description: Recommendations module
+
+- name: "module:alertmanagement"
+  color: "#5319e7"
+  description: Alert management module
+
+- name: "module:assistant"
+  color: "#5319e7"
+  description: Assistant module
