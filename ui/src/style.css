@@ -608,6 +608,14 @@ body {
     width: calc(100% - var(--assistant-pinned-width));
   }
 
+  .app-root.assistant-pinned .modal {
+    right: var(--assistant-pinned-width);
+  }
+
+  .app-root.assistant-pinned .modal-card {
+    max-width: calc(100% - 32px);
+  }
+
   .app-root.assistant-pinned .overview-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
