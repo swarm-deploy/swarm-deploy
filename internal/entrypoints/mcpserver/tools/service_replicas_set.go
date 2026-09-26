@@ -105,11 +105,7 @@ func (s *SetServiceReplicas) Execute(ctx context.Context, request routing.Reques
 		})
 	}
 
-	payload := struct {
-		Stack    string `json:"stack"`
-		Service  string `json:"service"`
-		Replicas uint64 `json:"replicas"`
-	}{
+	payload := ServiceActionResult{
 		Stack:    target.StackName(),
 		Service:  target.ServiceName(),
 		Replicas: replicas,

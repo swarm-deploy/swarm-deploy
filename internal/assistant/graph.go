@@ -31,6 +31,7 @@ const (
 	graphNodeGenerateAnswer   = "generate_answer"
 	graphNodeExecuteMCP       = "execute_mcp"
 	graphNodeGuardMCPResults  = "guard_mcp_results"
+	graphNodeFinalizeTerminal = "finalize_terminal_result"
 )
 
 var helloMessages = map[string]struct{}{
@@ -94,11 +95,14 @@ type graphExecutionState struct {
 	answer           string
 	usage            conversation.TokenUsage
 	rejectedPrompt   string
+	preparedSizes    preparedRequestSizes
+	terminalTool     string
 }
 
 type toolExecutionResult struct {
 	toolName string
 	content  string
+	success  bool
 }
 
 func newGraph(
@@ -163,6 +167,7 @@ func (g *graph) compile(executionState *graphExecutionState) (*langgraph.Runnabl
 	messageGraph.AddNode(graphNodeGenerateAnswer, g.generateAnswerNode(executionState))
 	messageGraph.AddNode(graphNodeExecuteMCP, g.executeMCPNode(executionState))
 	messageGraph.AddNode(graphNodeGuardMCPResults, g.guardMCPResultsNode(executionState))
+	messageGraph.AddNode(graphNodeFinalizeTerminal, g.finalizeTerminalResultNode(executionState))
 
 	messageGraph.AddEdge(graphNodeGuard, graphNodeRoute)
 	messageGraph.AddConditionalEdges(
@@ -217,7 +222,34 @@ func (g *graph) compile(executionState *graphExecutionState) (*langgraph.Runnabl
 		},
 	)
 	messageGraph.AddEdge(graphNodeExecuteMCP, graphNodeGuardMCPResults)
-	messageGraph.AddEdge(graphNodeGuardMCPResults, graphNodeGenerateAnswer)
+	messageGraph.AddConditionalEdges(
+		graphNodeGuardMCPResults,
+		func(_ context.Context, _ []llms.MessageContent) string {
+			if isTerminalToolResultCandidate(executionState.lastToolResults) {
+				return graphNodeFinalizeTerminal
+			}
+
+			return graphNodeGenerateAnswer
+		},
+		map[string]string{
+			graphNodeFinalizeTerminal: graphNodeFinalizeTerminal,
+			graphNodeGenerateAnswer:   graphNodeGenerateAnswer,
+		},
+	)
+	messageGraph.AddConditionalEdges(
+		graphNodeFinalizeTerminal,
+		func(_ context.Context, _ []llms.MessageContent) string {
+			if executionState.terminalTool != "" {
+				return langgraph.END
+			}
+
+			return graphNodeGenerateAnswer
+		},
+		map[string]string{
+			langgraph.END:           langgraph.END,
+			graphNodeGenerateAnswer: graphNodeGenerateAnswer,
+		},
+	)
 	messageGraph.SetEntryPoint(graphNodeGuard)
 
 	return messageGraph.Compile()
@@ -323,13 +355,16 @@ func (g *graph) prepareNode(
 ) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
 	return func(_ context.Context, state []llms.MessageContent) ([]llms.MessageContent, error) {
 		messages := make([]modelMessage, 0, len(executionState.history)+prepareMessagesExtraCapacity)
+		systemPrompt := buildSystemPrompt(g.config.SystemPrompt, executionState.profile.Prompt)
 		messages = append(messages, modelMessage{
 			Role:    "system",
-			Content: buildSystemPrompt(g.config.SystemPrompt, executionState.profile.Prompt),
+			Content: systemPrompt,
 		})
 
+		contextChars := 0
 		if executionState.profile.ServiceContext {
 			if contextMessage := buildServicesContextMessage(executionState.relevantServices); contextMessage != "" {
+				contextChars = textChars(contextMessage)
 				messages = append(messages, modelMessage{
 					Role:    "system",
 					Content: contextMessage,
@@ -337,18 +372,28 @@ func (g *graph) prepareNode(
 			}
 		}
 
+		historyChars := 0
 		for _, turn := range executionState.history {
+			historyChars += textChars(turn.Content)
 			messages = append(messages, modelMessage{
 				Role:    turn.Role,
 				Content: turn.Content,
 			})
 		}
+		userMessage := strings.TrimSpace(executionState.userMessage)
 		messages = append(messages, modelMessage{
 			Role:    "user",
-			Content: strings.TrimSpace(executionState.userMessage),
+			Content: userMessage,
 		})
 
 		executionState.modelMessages = messages
+		executionState.preparedSizes = preparedRequestSizes{
+			systemPromptChars: textChars(systemPrompt),
+			historyChars:      historyChars,
+			contextChars:      contextChars,
+			userMessageChars:  textChars(userMessage),
+			messageCount:      len(messages),
+		}
 		return state, nil
 	}
 }
@@ -361,13 +406,20 @@ func (g *graph) generateAnswerNode(
 			return messages, fmt.Errorf("tool iteration limit exceeded")
 		}
 
-		completion, completionErr := g.chat.complete(ctx, modelRequest{
+		request := modelRequest{
 			Model:       g.config.ModelName,
 			Temperature: g.config.Temperature,
 			MaxTokens:   g.config.MaxTokens,
 			Messages:    executionState.modelMessages,
 			Tools:       g.effectiveToolDefinitions(executionState.effectiveToolSet),
-		})
+		}
+		recordModelRequestDiagnostics(
+			ctx,
+			executionState.route,
+			calculateModelRequestDiagnostics(request, executionState.preparedSizes),
+		)
+
+		completion, completionErr := g.chat.complete(ctx, request)
 		if completionErr != nil {
 			return messages, fmt.Errorf("chat completion: %w", completionErr)
 		}
@@ -400,6 +452,7 @@ func (g *graph) executeMCPNode(
 			slog.InfoContext(ctx, "[graph] running mcp tool", slog.String("tool.name", modelToolCall.Name))
 
 			toolResultMessage, err := g.executeToolCall(ctx, modelToolCall, executionState.effectiveToolSet)
+			success := err == nil
 			if err != nil {
 				slog.ErrorContext(ctx, "[graph] failed to run mcp tool",
 					slog.String("tool.name", modelToolCall.Name),
@@ -421,10 +474,36 @@ func (g *graph) executeMCPNode(
 			executionState.lastToolResults = append(executionState.lastToolResults, toolExecutionResult{
 				toolName: modelToolCall.Name,
 				content:  strings.TrimSpace(toolResultMessage),
+				success:  success,
 			})
 		}
 
 		executionState.pendingToolCalls = nil
+		return messages, nil
+	}
+}
+
+func (g *graph) finalizeTerminalResultNode(
+	executionState *graphExecutionState,
+) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
+	return func(ctx context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
+		if !isTerminalToolResultCandidate(executionState.lastToolResults) {
+			return messages, nil
+		}
+
+		result := executionState.lastToolResults[0]
+		answer, err := finalizeTerminalToolResult(result.toolName, result.content)
+		if err != nil {
+			slog.ErrorContext(ctx, "[assistant] failed to finalize terminal tool result, falling back to generation",
+				slog.String("tool.name", result.toolName),
+				slog.Any("err", err),
+			)
+			return messages, nil
+		}
+
+		executionState.answer = answer
+		executionState.terminalTool = result.toolName
+		recordTerminalTool(ctx, result.toolName)
 		return messages, nil
 	}
 }

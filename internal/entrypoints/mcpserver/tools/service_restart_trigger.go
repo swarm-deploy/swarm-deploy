@@ -77,11 +77,7 @@ func (s *RestartService) Execute(ctx context.Context, request routing.Request) (
 		ServiceName: target.ServiceName(),
 	})
 
-	payload := struct {
-		Stack    string `json:"stack"`
-		Service  string `json:"service"`
-		Replicas uint64 `json:"replicas"`
-	}{
+	payload := ServiceActionResult{
 		Stack:    target.StackName(),
 		Service:  target.ServiceName(),
 		Replicas: replicas,
