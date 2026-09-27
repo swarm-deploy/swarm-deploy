@@ -13,8 +13,10 @@ git:
 sync:
   # Synchronization mode: pull | webhook | hybrid.
   mode: pull
-  # Pull polling interval.
+  # Git polling interval.
   pollInterval: 30s
+  # Reconciliation interval against the current local desired state.
+  interval: 1m
   policy:
     # Removes orphaned managed services that are no longer defined in compose.
     prune: true
