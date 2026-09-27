@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@speed-highlight/core": "^2.1.0",
+    "@vueuse/core": "^15.0.0",
     "pinia": "^3.0.4",
     "vue": "^3.5.33",
     "vue-router": "^5.0.6"
