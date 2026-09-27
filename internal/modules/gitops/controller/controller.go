@@ -154,14 +154,12 @@ func (c *Controller) Run(ctx context.Context) error {
 			if c.shuttingDown.Load() {
 				continue
 			}
-			c.syncOnce(reconciliationCtx, task)
+			c.runTask(reconciliationCtx, task)
 		case <-tickerC(pollTicker):
 			if c.shuttingDown.Load() {
 				continue
 			}
-			c.trigger(ctx, triggerTask{
-				reason: TriggerPoll,
-			})
+			c.pollOnce(reconciliationCtx)
 		case <-reconcileTicker.C:
 			if c.shuttingDown.Load() {
 				continue
@@ -265,9 +263,114 @@ func (c *Controller) trigger(ctx context.Context, task triggerTask) bool {
 	}
 }
 
-func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:funlen // not need
+func (c *Controller) runTask(ctx context.Context, task triggerTask) {
 	ctx = trace.ContextWithSpanContext(ctx, task.spanContext)
 
+	if task.reason == TriggerInterval {
+		c.syncCurrent(ctx, task)
+		return
+	}
+
+	c.syncFromGit(ctx, task)
+}
+
+func (c *Controller) pollOnce(ctx context.Context) {
+	ctx, span := c.tracer.Start(
+		ctx,
+		"controller.Poll",
+		trace.WithAttributes(tracing.SyncReason.String(string(TriggerPoll))),
+	)
+	defer span.End()
+
+	syncResult, err := c.pullLatest(ctx, TriggerPoll)
+	if err != nil {
+		tracing.FailSpan(span, err)
+		return
+	}
+	if !syncResult.Updated {
+		return
+	}
+
+	c.syncOnce(ctx, triggerTask{reason: TriggerPoll}, syncResult)
+}
+
+func (c *Controller) syncFromGit(ctx context.Context, task triggerTask) {
+	startedAt := time.Now()
+
+	if task.reason == TriggerManual {
+		c.event.Dispatch(ctx, &events.SyncManualStarted{
+			TriggeredBy: task.triggeredBy,
+		})
+	}
+
+	syncResult, err := c.pullLatest(ctx, task.reason)
+	if err != nil {
+		c.recordSyncFailure(ctx, task.reason, startedAt, err)
+		return
+	}
+
+	c.syncOnce(ctx, task, syncResult)
+}
+
+func (c *Controller) syncCurrent(ctx context.Context, task triggerTask) {
+	startedAt := time.Now()
+
+	revision, err := c.git.Head(ctx)
+	if err != nil {
+		c.recordSyncFailure(ctx, task.reason, startedAt, err)
+		return
+	}
+
+	c.syncOnce(ctx, task, gitx.PullResult{
+		OldRevision: revision,
+		NewRevision: revision,
+	})
+}
+
+func (c *Controller) pullLatest(ctx context.Context, reason TriggerReason) (gitx.PullResult, error) {
+	syncResult, err := c.git.Pull(ctx)
+	if err != nil {
+		slog.ErrorContext(ctx, "git pull failed",
+			slog.String("reason", string(reason)),
+			slog.String("repository", c.cfg.Spec.Git.Repository),
+			slog.Any("err", err),
+		)
+		c.metrics.Git.RecordGitUpdate(c.cfg.Spec.Git.Repository, "error")
+
+		return gitx.PullResult{}, err
+	}
+
+	slog.InfoContext(ctx, "[controller] git synced", slog.Any("result", syncResult))
+
+	updateResult := syncRunResultNoChange
+	if syncResult.Updated {
+		updateResult = syncRunResultUpdated
+	}
+	c.metrics.Git.RecordGitUpdate(c.cfg.Spec.Git.Repository, updateResult)
+
+	return syncResult, nil
+}
+
+func (c *Controller) recordSyncFailure(
+	ctx context.Context,
+	reason TriggerReason,
+	startedAt time.Time,
+	err error,
+) {
+	c.metrics.Sync.RecordSyncRun(string(reason), syncRunResultError, time.Since(startedAt))
+	c.updateState(ctx, func(s *model.Runtime) {
+		s.LastSyncAt = time.Now()
+		s.LastSyncReason = string(reason)
+		s.LastSyncResult = syncRunResultError
+		s.LastSyncError = err.Error()
+	})
+}
+
+func (c *Controller) syncOnce(
+	ctx context.Context,
+	task triggerTask,
+	syncResult gitx.PullResult,
+) { //nolint:funlen // not need
 	ctx, span := c.tracer.Start(ctx, "controller.Sync")
 	span.SetAttributes(attribute.String("sync.trigger", string(task.reason)))
 	defer span.End()
@@ -275,16 +378,6 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 	startedAt := time.Now()
 
 	slog.InfoContext(ctx, "[controller] run sync", slog.String("reason", string(task.reason)))
-	if task.reason == TriggerManual {
-		c.event.Dispatch(ctx, &events.SyncManualStarted{
-			TriggeredBy: task.triggeredBy,
-		})
-	}
-
-	syncResult, proceed := c.prepareSync(ctx, task, startedAt)
-	if !proceed {
-		return
-	}
 
 	reloadedNetworksFrom, reloadNetworksErr := c.reloadNetworks()
 	if reloadNetworksErr != nil {
@@ -411,62 +504,6 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 		}
 		s.GitRevision = syncResult.NewRevision
 	})
-}
-
-func (c *Controller) prepareSync(
-	ctx context.Context,
-	task triggerTask,
-	startedAt time.Time,
-) (gitx.PullResult, bool) {
-	var (
-		syncResult gitx.PullResult
-		err        error
-	)
-
-	if task.reason == TriggerInterval {
-		syncResult.NewRevision, err = c.git.Head(ctx)
-		syncResult.OldRevision = syncResult.NewRevision
-	} else {
-		syncResult, err = c.git.Pull(ctx)
-	}
-
-	if err != nil {
-		slog.ErrorContext(ctx, "sync failed at git stage",
-			slog.String("reason", string(task.reason)),
-			slog.String("repository", c.cfg.Spec.Git.Repository),
-			slog.Any("err", err),
-		)
-		if task.reason != TriggerInterval {
-			c.metrics.Git.RecordGitUpdate(c.cfg.Spec.Git.Repository, "error")
-		}
-		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
-		c.updateState(ctx, func(s *model.Runtime) {
-			s.LastSyncAt = time.Now()
-			s.LastSyncReason = string(task.reason)
-			s.LastSyncResult = syncRunResultError
-			s.LastSyncError = err.Error()
-		})
-
-		return gitx.PullResult{}, false
-	}
-
-	if task.reason == TriggerInterval {
-		return syncResult, true
-	}
-
-	slog.InfoContext(ctx, "[controller] git synced", slog.Any("result", syncResult))
-
-	updateResult := syncRunResultNoChange
-	if syncResult.Updated {
-		updateResult = syncRunResultUpdated
-	}
-	c.metrics.Git.RecordGitUpdate(c.cfg.Spec.Git.Repository, updateResult)
-
-	if task.reason == TriggerPoll && !syncResult.Updated {
-		return syncResult, false
-	}
-
-	return syncResult, true
 }
 
 func (c *Controller) reloadStacks() (string, error) {
