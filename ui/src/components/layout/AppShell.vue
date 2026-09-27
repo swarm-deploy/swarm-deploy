@@ -46,11 +46,17 @@ async function handleAssistantToggle() {
   const query = { ...route.query };
   if (uiStore.assistantDrawerOpen) {
     delete query.assistant;
-  } else {
-    query.assistant = assistantStore.historyOpen ? "chats" : assistantStore.conversationID || "new";
+    await router.push({ query });
+    return;
   }
 
+  query.assistant = "chats";
   await router.push({ query });
+
+  if (!assistantStore.historyOpen && (assistantStore.conversationID || assistantStore.messages.length > 0)) {
+    query.assistant = assistantStore.conversationID || "new";
+    await router.push({ query });
+  }
 }
 
 onMounted(() => {
