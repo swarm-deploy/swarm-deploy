@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { useSwipe } from "@vueuse/core";
 import { computed, nextTick, ref, watch } from "vue";
 
 import { useAssistantStore } from "../../stores/assistant";
@@ -14,12 +15,6 @@ const inputRef = ref<HTMLTextAreaElement | null>(null);
 const bodyRef = ref<HTMLElement | null>(null);
 
 const mobileSwipeMediaQuery = "(max-width: 640px)";
-const swipeMinDistance = 72;
-const swipeDirectionRatio = 1.5;
-const swipeEdgeExclusion = 32;
-
-let touchStartX: number | null = null;
-let touchStartY: number | null = null;
 
 const isOpen = computed(() => uiStore.assistantDrawerOpen && assistantStore.enabled);
 const messages = computed(() => assistantStore.messages);
@@ -155,71 +150,19 @@ async function openHistory() {
   }
 }
 
-function resetChatSwipe() {
-  touchStartX = null;
-  touchStartY = null;
-}
-
-function isSwipeBlockedTarget(target: EventTarget | null): boolean {
-  return (
-    target instanceof Element &&
-    Boolean(target.closest("a, button, input, textarea, select, pre, code, [contenteditable='true']"))
-  );
-}
-
-function handleChatTouchStart(event: TouchEvent) {
-  if (
-    historyOpen.value ||
-    pending.value ||
-    event.touches.length !== 1 ||
-    !window.matchMedia(mobileSwipeMediaQuery).matches ||
-    isSwipeBlockedTarget(event.target)
-  ) {
-    resetChatSwipe();
-    return;
-  }
-
-  const touch = event.touches[0];
-  if (touch.clientX < swipeEdgeExclusion) {
-    resetChatSwipe();
-    return;
-  }
-
-  touchStartX = touch.clientX;
-  touchStartY = touch.clientY;
-}
-
-function handleChatTouchMove(event: TouchEvent) {
-  if (touchStartX === null || touchStartY === null || event.touches.length !== 1) {
-    return;
-  }
-
-  const touch = event.touches[0];
-  const deltaX = touch.clientX - touchStartX;
-  const deltaY = touch.clientY - touchStartY;
-
-  if (deltaX > 0 && deltaX > Math.abs(deltaY) * swipeDirectionRatio) {
-    event.preventDefault();
-  }
-}
-
-function handleChatTouchEnd(event: TouchEvent) {
-  if (touchStartX === null || touchStartY === null || event.changedTouches.length !== 1) {
-    resetChatSwipe();
-    return;
-  }
-
-  const touch = event.changedTouches[0];
-  const deltaX = touch.clientX - touchStartX;
-  const deltaY = touch.clientY - touchStartY;
-  resetChatSwipe();
-
-  if (deltaX < swipeMinDistance || deltaX < Math.abs(deltaY) * swipeDirectionRatio) {
-    return;
-  }
-
-  void openHistory();
-}
+useSwipe(bodyRef, {
+  threshold: 60,
+  onSwipeEnd: (_event, direction) => {
+    if (
+      direction === "right" &&
+      !historyOpen.value &&
+      !pending.value &&
+      window.matchMedia(mobileSwipeMediaQuery).matches
+    ) {
+      void openHistory();
+    }
+  },
+});
 
 async function submitMessage() {
   const text = messageInput.value.trim();
@@ -399,10 +342,6 @@ function renderMessageText(role: string, text: string): string {
         v-else
         ref="bodyRef"
         class="assistant-drawer-body"
-        @touchstart.passive="handleChatTouchStart"
-        @touchmove="handleChatTouchMove"
-        @touchend.passive="handleChatTouchEnd"
-        @touchcancel="resetChatSwipe"
       >
         <div v-if="messages.length === 0" class="assistant-empty-state">
           <span class="assistant-avatar" aria-hidden="true">AI</span>
