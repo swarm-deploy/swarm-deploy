@@ -107,6 +107,7 @@ git:
 sync:
   mode: pull
   pollInterval: 30s
+  interval: 1m
   policy:
     prune: true
 
