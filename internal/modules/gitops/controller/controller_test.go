@@ -244,7 +244,7 @@ func TestControllerSyncOnceReconcilesStacksOnIntervalWithoutGitPull(t *testing.T
 		tracer: otel.Tracer("test"),
 	}
 
-	controller.syncOnce(context.Background(), triggerTask{
+	controller.syncCurrent(context.Background(), triggerTask{
 		reason: TriggerInterval,
 	})
 
@@ -256,7 +256,7 @@ func TestControllerSyncOnceReconcilesStacksOnIntervalWithoutGitPull(t *testing.T
 	assert.Equal(t, "commit-1", state.GitRevision, "unexpected git revision")
 }
 
-func TestControllerSyncOnceSkipsReconcileWhenPollHasNoChanges(t *testing.T) {
+func TestControllerPollOnceSkipsReconcileWhenGitHasNoChanges(t *testing.T) {
 	ctrl := gomock.NewController(t)
 
 	repository := git.NewMockRepository(ctrl)
@@ -280,9 +280,7 @@ func TestControllerSyncOnceSkipsReconcileWhenPollHasNoChanges(t *testing.T) {
 		tracer:     otel.Tracer("test"),
 	}
 
-	controller.syncOnce(context.Background(), triggerTask{
-		reason: TriggerPoll,
-	})
+	controller.pollOnce(context.Background())
 }
 
 func TestControllerSyncOncePrioritizesChangedStacks(t *testing.T) {
@@ -359,9 +357,7 @@ func TestControllerSyncOncePrioritizesChangedStacks(t *testing.T) {
 		tracer: otel.Tracer("test"),
 	}
 
-	controller.syncOnce(context.Background(), triggerTask{
-		reason: TriggerPoll,
-	})
+	controller.pollOnce(context.Background())
 
 	state := store.Get()
 	assert.Equal(t, syncRunResultSuccess, state.LastSyncResult, "unexpected sync result")
@@ -440,9 +436,7 @@ func TestControllerSyncOnceContinuesWhenGitDiffFails(t *testing.T) {
 		tracer: otel.Tracer("test"),
 	}
 
-	controller.syncOnce(context.Background(), triggerTask{
-		reason: TriggerPoll,
-	})
+	controller.pollOnce(context.Background())
 
 	state := store.Get()
 	assert.Equal(t, syncRunResultSuccess, state.LastSyncResult, "unexpected sync result")
