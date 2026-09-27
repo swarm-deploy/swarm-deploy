@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { useSwipe } from "@vueuse/core";
 import { computed, nextTick, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 
 import { useAssistantStore } from "../../stores/assistant";
 import { useUIStore } from "../../stores/ui";
@@ -9,12 +9,12 @@ import { escapeHtml } from "../../utils/escape";
 
 const uiStore = useUIStore();
 const assistantStore = useAssistantStore();
+const route = useRoute();
+const router = useRouter();
 
 const messageInput = ref("");
 const inputRef = ref<HTMLTextAreaElement | null>(null);
 const bodyRef = ref<HTMLElement | null>(null);
-
-const mobileSwipeMediaQuery = "(max-width: 640px)";
 
 const isOpen = computed(() => uiStore.assistantDrawerOpen && assistantStore.enabled);
 const messages = computed(() => assistantStore.messages);
@@ -127,11 +127,6 @@ function scrollToBottom() {
   });
 }
 
-function closeDrawer() {
-  usageOpenChatID.value = "";
-  uiStore.closeAssistantDrawer();
-}
-
 function toggleChatUsage(chatID: string) {
   usageOpenChatID.value = usageOpenChatID.value === chatID ? "" : chatID;
 }
@@ -144,25 +139,75 @@ function formatTokens(value: number | undefined): string {
   return new Intl.NumberFormat().format(value);
 }
 
-async function openHistory() {
-  if (!historyOpen.value) {
-    await assistantStore.toggleHistory();
+function assistantQuery(value: string | undefined) {
+  const query = { ...route.query };
+  if (value) {
+    query.assistant = value;
+  } else {
+    delete query.assistant;
   }
+  return query;
 }
 
-useSwipe(bodyRef, {
-  threshold: 60,
-  onSwipeEnd: (_event, direction) => {
-    if (
-      direction === "right" &&
-      !historyOpen.value &&
-      !pending.value &&
-      window.matchMedia(mobileSwipeMediaQuery).matches
-    ) {
-      void openHistory();
+async function openHistory() {
+  if (pending.value) {
+    return;
+  }
+
+  await router.push({ query: assistantQuery("chats") });
+}
+
+async function openChat(chatID: string) {
+  if (pending.value) {
+    return;
+  }
+
+  await router.push({ query: assistantQuery(chatID) });
+}
+
+async function newChat() {
+  if (pending.value) {
+    return;
+  }
+
+  await router.push({ query: assistantQuery("new") });
+}
+
+async function closeDrawer() {
+  usageOpenChatID.value = "";
+  await router.push({ query: assistantQuery(undefined) });
+}
+
+watch(
+  () => route.query.assistant,
+  async (assistant) => {
+    const value = typeof assistant === "string" ? assistant : "";
+
+    if (!value) {
+      uiStore.closeAssistantDrawer();
+      return;
+    }
+
+    uiStore.openAssistantDrawer();
+
+    if (value === "chats") {
+      if (!assistantStore.historyOpen) {
+        await assistantStore.toggleHistory();
+      }
+      return;
+    }
+
+    if (value === "new") {
+      assistantStore.newChat();
+      return;
+    }
+
+    if (assistantStore.conversationID !== value || assistantStore.historyOpen) {
+      await assistantStore.openChat(value);
     }
   },
-});
+  { immediate: true },
+);
 
 async function submitMessage() {
   const text = messageInput.value.trim();
@@ -240,7 +285,7 @@ function renderMessageText(role: string, text: string): string {
             aria-label="New chat"
             title="New chat"
             :disabled="pending"
-            @click="assistantStore.newChat"
+            @click="newChat"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M12 5v14M5 12h14" />
@@ -273,7 +318,7 @@ function renderMessageText(role: string, text: string): string {
           type="button"
           class="assistant-new-chat-row"
           :disabled="pending"
-          @click="assistantStore.newChat"
+          @click="newChat"
         >
           <span class="assistant-new-chat-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24">
@@ -298,7 +343,7 @@ function renderMessageText(role: string, text: string): string {
               type="button"
               class="assistant-history-open"
               :title="chat.title"
-              @click="assistantStore.openChat(chat.id)"
+              @click="openChat(chat.id)"
             >
               <span class="assistant-history-title">{{ chat.title }}</span>
             </button>
