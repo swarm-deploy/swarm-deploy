@@ -60,7 +60,7 @@ type Controller struct {
 	networkReconciler *networkloop.Reconciler
 	stackReconciler   stackloop.StackReconciler
 
-	triggerCh chan triggerTask
+	reconcileCh chan reconcileTask
 
 	shuttingDown atomic.Bool
 	tickerMu     sync.Mutex
@@ -69,11 +69,11 @@ type Controller struct {
 	tracer trace.Tracer
 }
 
-type triggerTask struct {
+type reconcileTask struct {
 	triggeredBy string
 	reason      TriggerReason
 	spanContext trace.SpanContext
-	syncResult  *gitx.PullResult
+	gitResult   *gitx.PullResult
 }
 
 func New(
@@ -107,8 +107,8 @@ func New(
 			stateStore,
 			filesystem,
 		),
-		triggerCh: make(chan triggerTask, 1),
-		tracer:    otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller"),
+		reconcileCh: make(chan reconcileTask, 1),
+		tracer:      otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller"),
 	}
 }
 
@@ -136,7 +136,7 @@ func (c *Controller) Run(ctx context.Context) error {
 
 	slog.InfoContext(ctx, "[controller] trigger startup sync")
 
-	c.trigger(ctx, triggerTask{
+	c.scheduleReconcile(ctx, reconcileTask{
 		reason: TriggerStartup,
 	})
 
@@ -151,21 +151,21 @@ func (c *Controller) Run(ctx context.Context) error {
 		case <-ctx.Done():
 			c.requestShutdown()
 			return nil
-		case task := <-c.triggerCh:
+		case task := <-c.reconcileCh:
 			if c.shuttingDown.Load() {
 				continue
 			}
-			c.runTask(reconciliationCtx, task)
+			c.reconcile(reconciliationCtx, task)
 		case <-tickerC(pollTicker):
 			if c.shuttingDown.Load() {
 				continue
 			}
-			c.pollOnce(reconciliationCtx)
+			c.pollGit(reconciliationCtx)
 		case <-reconcileTicker.C:
 			if c.shuttingDown.Load() {
 				continue
 			}
-			c.trigger(ctx, triggerTask{
+			c.scheduleReconcile(ctx, reconcileTask{
 				reason: TriggerInterval,
 			})
 		}
@@ -220,65 +220,34 @@ func tickerC(t *time.Ticker) <-chan time.Time {
 func (c *Controller) Manual(ctx context.Context) bool {
 	user, _ := security.UserFromContext(ctx)
 
-	return c.trigger(ctx, triggerTask{
+	return c.scheduleReconcile(ctx, reconcileTask{
 		triggeredBy: user.Name,
 		reason:      TriggerManual,
 	})
 }
 
 func (c *Controller) Webhook(ctx context.Context) bool {
-	return c.trigger(ctx, triggerTask{
+	return c.scheduleReconcile(ctx, reconcileTask{
 		reason: TriggerWebhook,
 	})
 }
 
-func (c *Controller) trigger(ctx context.Context, task triggerTask) bool {
-	ctx, span := c.tracer.Start(
-		ctx,
-		"controller.Trigger",
-		trace.WithAttributes(
-			tracing.SyncReason.String(string(task.reason)),
-		),
-	)
-	defer span.End()
+func (c *Controller) scheduleReconcile(ctx context.Context, task reconcileTask) bool {
+	if c.shuttingDown.Load() {
+		return false
+	}
 
 	task.spanContext = trace.SpanContextFromContext(ctx)
 
-	if c.shuttingDown.Load() {
-		tracing.FailSpan(span, errors.New("trigger skipped, controller shutting down"))
-
-		return false
-	}
-
 	select {
-	case c.triggerCh <- task:
-		span.AddEvent("sync scheduled")
-
+	case c.reconcileCh <- task:
 		return true
 	default:
-		tracing.FailSpan(span, errors.New("trigger skipped, controller is busy"))
-
 		return false
 	}
 }
 
-func (c *Controller) runTask(ctx context.Context, task triggerTask) {
-	ctx = trace.ContextWithSpanContext(ctx, task.spanContext)
-
-	if task.syncResult != nil {
-		c.syncOnce(ctx, task, *task.syncResult)
-		return
-	}
-
-	if task.reason == TriggerInterval {
-		c.syncCurrent(ctx, task)
-		return
-	}
-
-	c.syncFromGit(ctx, task)
-}
-
-func (c *Controller) pollOnce(ctx context.Context) {
+func (c *Controller) pollGit(ctx context.Context) {
 	ctx, span := c.tracer.Start(
 		ctx,
 		"controller.Poll",
@@ -286,22 +255,23 @@ func (c *Controller) pollOnce(ctx context.Context) {
 	)
 	defer span.End()
 
-	syncResult, err := c.pullLatest(ctx, TriggerPoll)
+	gitResult, err := c.pullGit(ctx, TriggerPoll)
 	if err != nil {
 		tracing.FailSpan(span, err)
 		return
 	}
-	if !syncResult.Updated {
+	if !gitResult.Updated {
 		return
 	}
 
-	c.trigger(ctx, triggerTask{
-		reason:     TriggerPoll,
-		syncResult: &syncResult,
+	c.scheduleReconcile(ctx, reconcileTask{
+		reason:    TriggerPoll,
+		gitResult: &gitResult,
 	})
 }
 
-func (c *Controller) syncFromGit(ctx context.Context, task triggerTask) {
+func (c *Controller) reconcile(ctx context.Context, task reconcileTask) { //nolint:funlen // reconciliation pipeline
+	ctx = trace.ContextWithSpanContext(ctx, task.spanContext)
 	startedAt := time.Now()
 
 	if task.reason == TriggerManual {
@@ -310,79 +280,24 @@ func (c *Controller) syncFromGit(ctx context.Context, task triggerTask) {
 		})
 	}
 
-	syncResult, err := c.pullLatest(ctx, task.reason)
+	gitResult, err := c.resolveGitState(ctx, task)
 	if err != nil {
-		c.recordSyncFailure(ctx, task.reason, startedAt, err)
+		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
+		c.updateState(ctx, func(s *model.Runtime) {
+			s.LastSyncAt = time.Now()
+			s.LastSyncReason = string(task.reason)
+			s.LastSyncResult = syncRunResultError
+			s.LastSyncError = err.Error()
+		})
 		return
 	}
 
-	c.syncOnce(ctx, task, syncResult)
-}
-
-func (c *Controller) syncCurrent(ctx context.Context, task triggerTask) {
-	startedAt := time.Now()
-
-	revision, err := c.git.Head(ctx)
-	if err != nil {
-		c.recordSyncFailure(ctx, task.reason, startedAt, err)
-		return
-	}
-
-	c.syncOnce(ctx, task, gitx.PullResult{
-		OldRevision: revision,
-		NewRevision: revision,
-	})
-}
-
-func (c *Controller) pullLatest(ctx context.Context, reason TriggerReason) (gitx.PullResult, error) {
-	syncResult, err := c.git.Pull(ctx)
-	if err != nil {
-		slog.ErrorContext(ctx, "git pull failed",
-			slog.String("reason", string(reason)),
-			slog.String("repository", c.cfg.Spec.Git.Repository),
-			slog.Any("err", err),
-		)
-		c.metrics.Git.RecordGitUpdate(c.cfg.Spec.Git.Repository, "error")
-
-		return gitx.PullResult{}, err
-	}
-
-	slog.InfoContext(ctx, "[controller] git synced", slog.Any("result", syncResult))
-
-	updateResult := syncRunResultNoChange
-	if syncResult.Updated {
-		updateResult = syncRunResultUpdated
-	}
-	c.metrics.Git.RecordGitUpdate(c.cfg.Spec.Git.Repository, updateResult)
-
-	return syncResult, nil
-}
-
-func (c *Controller) recordSyncFailure(
-	ctx context.Context,
-	reason TriggerReason,
-	startedAt time.Time,
-	err error,
-) {
-	c.metrics.Sync.RecordSyncRun(string(reason), syncRunResultError, time.Since(startedAt))
-	c.updateState(ctx, func(s *model.Runtime) {
-		s.LastSyncAt = time.Now()
-		s.LastSyncReason = string(reason)
-		s.LastSyncResult = syncRunResultError
-		s.LastSyncError = err.Error()
-	})
-}
-
-func (c *Controller) syncOnce(
-	ctx context.Context,
-	task triggerTask,
-	syncResult gitx.PullResult,
-) { //nolint:funlen // not need
-	ctx, span := c.tracer.Start(ctx, "controller.Sync")
-	span.SetAttributes(attribute.String("sync.trigger", string(task.reason)))
+	ctx, span := c.tracer.Start(
+		ctx,
+		"controller.Sync",
+		trace.WithAttributes(attribute.String("sync.trigger", string(task.reason))),
+	)
 	defer span.End()
-
-	startedAt := time.Now()
 
 	slog.InfoContext(ctx, "[controller] run sync", slog.String("reason", string(task.reason)))
 
@@ -399,7 +314,7 @@ func (c *Controller) syncOnce(
 			s.LastSyncReason = string(task.reason)
 			s.LastSyncResult = syncRunResultError
 			s.LastSyncError = reloadNetworksErr.Error()
-			s.GitRevision = syncResult.NewRevision
+			s.GitRevision = gitResult.NewRevision
 		})
 		return
 	}
@@ -410,11 +325,11 @@ func (c *Controller) syncOnce(
 		)
 	}
 
-	reconcileNetworksErr := c.syncNetworks(ctx, syncResult.NewRevision)
+	reconcileNetworksErr := c.syncNetworks(ctx, gitResult.NewRevision)
 	if reconcileNetworksErr != nil {
 		slog.ErrorContext(ctx, "sync failed at networks reconcile stage",
 			slog.String("reason", string(task.reason)),
-			slog.String("commit", syncResult.NewRevision),
+			slog.String("commit", gitResult.NewRevision),
 			slog.Any("err", reconcileNetworksErr),
 		)
 		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
@@ -423,7 +338,7 @@ func (c *Controller) syncOnce(
 			s.LastSyncReason = string(task.reason)
 			s.LastSyncResult = syncRunResultError
 			s.LastSyncError = reconcileNetworksErr.Error()
-			s.GitRevision = syncResult.NewRevision
+			s.GitRevision = gitResult.NewRevision
 		})
 		return
 	}
@@ -441,7 +356,7 @@ func (c *Controller) syncOnce(
 			s.LastSyncReason = string(task.reason)
 			s.LastSyncResult = syncRunResultError
 			s.LastSyncError = reloadErr.Error()
-			s.GitRevision = syncResult.NewRevision
+			s.GitRevision = gitResult.NewRevision
 		})
 		return
 	}
@@ -452,13 +367,13 @@ func (c *Controller) syncOnce(
 	)
 
 	stacksToSync := c.cfg.Spec.Stacks
-	if syncResult.Updated {
-		fileDiffs, diffErr := c.git.Diff(ctx, syncResult.OldRevision, syncResult.NewRevision)
+	if gitResult.Updated {
+		fileDiffs, diffErr := c.git.Diff(ctx, gitResult.OldRevision, gitResult.NewRevision)
 		if diffErr != nil {
 			slog.ErrorContext(ctx, "git diff failed, continue with default stack order",
 				slog.String("reason", string(task.reason)),
-				slog.String("old_revision", syncResult.OldRevision),
-				slog.String("new_revision", syncResult.NewRevision),
+				slog.String("old_revision", gitResult.OldRevision),
+				slog.String("new_revision", gitResult.NewRevision),
 				slog.Any("err", diffErr),
 			)
 		} else {
@@ -472,13 +387,13 @@ func (c *Controller) syncOnce(
 	defer stackSpan.End()
 
 	for _, stackCfg := range stacksToSync {
-		err := c.syncStack(stackCtx, stackCfg, syncResult.NewRevision, task.reason == TriggerManual)
+		err = c.syncStack(stackCtx, stackCfg, gitResult.NewRevision, task.reason == TriggerManual)
 		if err != nil {
 			deployErrs = append(deployErrs, err)
 			slog.ErrorContext(ctx, "sync failed for stack",
 				slog.String("reason", string(task.reason)),
 				slog.String("stack", stackCfg.Name),
-				slog.String("commit", syncResult.NewRevision),
+				slog.String("commit", gitResult.NewRevision),
 				slog.Any("err", err),
 			)
 		}
@@ -490,7 +405,7 @@ func (c *Controller) syncOnce(
 		result = syncRunResultPartialError
 		slog.ErrorContext(ctx, "sync finished with errors",
 			slog.String("reason", string(task.reason)),
-			slog.String("commit", syncResult.NewRevision),
+			slog.String("commit", gitResult.NewRevision),
 			slog.Any("err", combinedErr),
 		)
 
@@ -509,8 +424,52 @@ func (c *Controller) syncOnce(
 		if combinedErr != nil {
 			s.LastSyncError = combinedErr.Error()
 		}
-		s.GitRevision = syncResult.NewRevision
+		s.GitRevision = gitResult.NewRevision
 	})
+}
+
+func (c *Controller) resolveGitState(ctx context.Context, task reconcileTask) (gitx.PullResult, error) {
+	if task.gitResult != nil {
+		return *task.gitResult, nil
+	}
+
+	if task.reason == TriggerInterval {
+		revision, err := c.git.Head(ctx)
+		if err != nil {
+			return gitx.PullResult{}, err
+		}
+
+		return gitx.PullResult{
+			OldRevision: revision,
+			NewRevision: revision,
+		}, nil
+	}
+
+	return c.pullGit(ctx, task.reason)
+}
+
+func (c *Controller) pullGit(ctx context.Context, reason TriggerReason) (gitx.PullResult, error) {
+	gitResult, err := c.git.Pull(ctx)
+	if err != nil {
+		slog.ErrorContext(ctx, "git pull failed",
+			slog.String("reason", string(reason)),
+			slog.String("repository", c.cfg.Spec.Git.Repository),
+			slog.Any("err", err),
+		)
+		c.metrics.Git.RecordGitUpdate(c.cfg.Spec.Git.Repository, "error")
+
+		return gitx.PullResult{}, err
+	}
+
+	slog.InfoContext(ctx, "[controller] git synced", slog.Any("result", gitResult))
+
+	updateResult := syncRunResultNoChange
+	if gitResult.Updated {
+		updateResult = syncRunResultUpdated
+	}
+	c.metrics.Git.RecordGitUpdate(c.cfg.Spec.Git.Repository, updateResult)
+
+	return gitResult, nil
 }
 
 func (c *Controller) reloadStacks() (string, error) {
