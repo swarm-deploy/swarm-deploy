@@ -341,6 +341,7 @@ func TestControllerSyncOncePrioritizesChangedStacks(t *testing.T) {
 		metrics:           metricGroup,
 		event:             eventDispatcher,
 		stateStore:        store,
+		triggerCh:         make(chan triggerTask, 1),
 		networkReconciler: networkloop.New(nil, &dispatcher.NopDispatcher{}),
 		stackReconciler: stackloop.New(
 			cfg,
@@ -358,6 +359,8 @@ func TestControllerSyncOncePrioritizesChangedStacks(t *testing.T) {
 	}
 
 	controller.pollOnce(context.Background())
+	task := <-controller.triggerCh
+	controller.runTask(context.Background(), task)
 
 	state := store.Get()
 	assert.Equal(t, syncRunResultSuccess, state.LastSyncResult, "unexpected sync result")
@@ -420,6 +423,7 @@ func TestControllerSyncOnceContinuesWhenGitDiffFails(t *testing.T) {
 		metrics:           metricGroup,
 		event:             eventDispatcher,
 		stateStore:        store,
+		triggerCh:         make(chan triggerTask, 1),
 		networkReconciler: networkloop.New(nil, &dispatcher.NopDispatcher{}),
 		stackReconciler: stackloop.New(
 			cfg,
@@ -437,6 +441,8 @@ func TestControllerSyncOnceContinuesWhenGitDiffFails(t *testing.T) {
 	}
 
 	controller.pollOnce(context.Background())
+	task := <-controller.triggerCh
+	controller.runTask(context.Background(), task)
 
 	state := store.Get()
 	assert.Equal(t, syncRunResultSuccess, state.LastSyncResult, "unexpected sync result")
