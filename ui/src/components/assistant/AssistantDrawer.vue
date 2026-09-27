@@ -16,6 +16,7 @@ const bodyRef = ref<HTMLElement | null>(null);
 const mobileSwipeMediaQuery = "(max-width: 640px)";
 const swipeMinDistance = 72;
 const swipeDirectionRatio = 1.5;
+const swipeEdgeExclusion = 32;
 
 let touchStartX: number | null = null;
 let touchStartY: number | null = null;
@@ -179,8 +180,27 @@ function handleChatTouchStart(event: TouchEvent) {
   }
 
   const touch = event.touches[0];
+  if (touch.clientX < swipeEdgeExclusion) {
+    resetChatSwipe();
+    return;
+  }
+
   touchStartX = touch.clientX;
   touchStartY = touch.clientY;
+}
+
+function handleChatTouchMove(event: TouchEvent) {
+  if (touchStartX === null || touchStartY === null || event.touches.length !== 1) {
+    return;
+  }
+
+  const touch = event.touches[0];
+  const deltaX = touch.clientX - touchStartX;
+  const deltaY = touch.clientY - touchStartY;
+
+  if (deltaX > 0 && deltaX > Math.abs(deltaY) * swipeDirectionRatio) {
+    event.preventDefault();
+  }
 }
 
 function handleChatTouchEnd(event: TouchEvent) {
@@ -380,6 +400,7 @@ function renderMessageText(role: string, text: string): string {
         ref="bodyRef"
         class="assistant-drawer-body"
         @touchstart.passive="handleChatTouchStart"
+        @touchmove="handleChatTouchMove"
         @touchend.passive="handleChatTouchEnd"
         @touchcancel="resetChatSwipe"
       >
