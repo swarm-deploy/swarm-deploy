@@ -34,10 +34,11 @@ import (
 type TriggerReason string
 
 const (
-	TriggerStartup TriggerReason = "startup"
-	TriggerPoll    TriggerReason = "poll"
-	TriggerWebhook TriggerReason = "webhook"
-	TriggerManual  TriggerReason = "manual"
+	TriggerStartup  TriggerReason = "startup"
+	TriggerPoll     TriggerReason = "poll"
+	TriggerInterval TriggerReason = "interval"
+	TriggerWebhook  TriggerReason = "webhook"
+	TriggerManual   TriggerReason = "manual"
 )
 
 const (
@@ -63,7 +64,7 @@ type Controller struct {
 
 	shuttingDown atomic.Bool
 	tickerMu     sync.Mutex
-	ticker       *time.Ticker
+	tickers      []*time.Ticker
 
 	tracer trace.Tracer
 }
@@ -121,12 +122,16 @@ func (c *Controller) Run(ctx context.Context) error {
 		}
 	}()
 
-	var ticker *time.Ticker
+	var pollTicker *time.Ticker
 	if c.cfg.Spec.Sync.Mode == config.SyncModePull || c.cfg.Spec.Sync.Mode == config.SyncModeHybrid {
-		ticker = time.NewTicker(c.cfg.Spec.Sync.PollInterval.Value)
-		c.setTicker(ticker)
-		defer c.clearTicker(ticker)
+		pollTicker = time.NewTicker(c.cfg.Spec.Sync.PollInterval.Value)
+		c.addTicker(pollTicker)
+		defer c.removeTicker(pollTicker)
 	}
+
+	reconcileTicker := time.NewTicker(c.cfg.Spec.Sync.Interval.Value)
+	c.addTicker(reconcileTicker)
+	defer c.removeTicker(reconcileTicker)
 
 	slog.InfoContext(ctx, "[controller] trigger startup sync")
 
@@ -150,12 +155,19 @@ func (c *Controller) Run(ctx context.Context) error {
 				continue
 			}
 			c.syncOnce(reconciliationCtx, task)
-		case <-tickerC(ticker):
+		case <-tickerC(pollTicker):
 			if c.shuttingDown.Load() {
 				continue
 			}
 			c.trigger(ctx, triggerTask{
 				reason: TriggerPoll,
+			})
+		case <-reconcileTicker.C:
+			if c.shuttingDown.Load() {
+				continue
+			}
+			c.trigger(ctx, triggerTask{
+				reason: TriggerInterval,
 			})
 		}
 	}
@@ -166,23 +178,27 @@ func (c *Controller) requestShutdown() {
 	c.stopTicker()
 }
 
-func (c *Controller) setTicker(ticker *time.Ticker) {
+func (c *Controller) addTicker(ticker *time.Ticker) {
 	c.tickerMu.Lock()
 	defer c.tickerMu.Unlock()
 
-	c.ticker = ticker
+	c.tickers = append(c.tickers, ticker)
 	if c.shuttingDown.Load() {
-		c.ticker.Stop()
+		ticker.Stop()
 	}
 }
 
-func (c *Controller) clearTicker(ticker *time.Ticker) {
+func (c *Controller) removeTicker(ticker *time.Ticker) {
 	c.tickerMu.Lock()
 	defer c.tickerMu.Unlock()
 
 	ticker.Stop()
-	if c.ticker == ticker {
-		c.ticker = nil
+	for i, registeredTicker := range c.tickers {
+		if registeredTicker != ticker {
+			continue
+		}
+		c.tickers = append(c.tickers[:i], c.tickers[i+1:]...)
+		return
 	}
 }
 
@@ -190,8 +206,8 @@ func (c *Controller) stopTicker() {
 	c.tickerMu.Lock()
 	defer c.tickerMu.Unlock()
 
-	if c.ticker != nil {
-		c.ticker.Stop()
+	for _, ticker := range c.tickers {
+		ticker.Stop()
 	}
 }
 
@@ -265,14 +281,24 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 		})
 	}
 
-	syncResult, err := c.git.Pull(ctx)
+	var syncResult gitx.PullResult
+	var err error
+
+	if task.reason == TriggerInterval {
+		syncResult.NewRevision, err = c.git.Head(ctx)
+		syncResult.OldRevision = syncResult.NewRevision
+	} else {
+		syncResult, err = c.git.Pull(ctx)
+	}
 	if err != nil {
 		slog.ErrorContext(ctx, "sync failed at git stage",
 			slog.String("reason", string(task.reason)),
 			slog.String("repository", c.cfg.Spec.Git.Repository),
 			slog.Any("err", err),
 		)
-		c.metrics.Git.RecordGitUpdate(c.cfg.Spec.Git.Repository, "error")
+		if task.reason != TriggerInterval {
+			c.metrics.Git.RecordGitUpdate(c.cfg.Spec.Git.Repository, "error")
+		}
 		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
 		c.updateState(ctx, func(s *model.Runtime) {
 			s.LastSyncAt = time.Now()
@@ -283,13 +309,19 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 		return
 	}
 
-	slog.InfoContext(ctx, "[controller] git synced", slog.Any("result", syncResult))
+	if task.reason != TriggerInterval {
+		slog.InfoContext(ctx, "[controller] git synced", slog.Any("result", syncResult))
 
-	updateResult := syncRunResultNoChange
-	if syncResult.Updated {
-		updateResult = syncRunResultUpdated
+		updateResult := syncRunResultNoChange
+		if syncResult.Updated {
+			updateResult = syncRunResultUpdated
+		}
+		c.metrics.Git.RecordGitUpdate(c.cfg.Spec.Git.Repository, updateResult)
+
+		if task.reason == TriggerPoll && !syncResult.Updated {
+			return
+		}
 	}
-	c.metrics.Git.RecordGitUpdate(c.cfg.Spec.Git.Repository, updateResult)
 
 	reloadedNetworksFrom, reloadNetworksErr := c.reloadNetworks()
 	if reloadNetworksErr != nil {
