@@ -223,20 +223,18 @@ func (c *Controller) Manual(ctx context.Context) bool {
 	return c.trigger(ctx, triggerTask{
 		triggeredBy: user.Name,
 		reason:      TriggerManual,
-		spanContext: trace.SpanContextFromContext(ctx),
 	})
 }
 
 func (c *Controller) Webhook(ctx context.Context) bool {
 	return c.trigger(ctx, triggerTask{
-		reason:      TriggerWebhook,
-		spanContext: trace.SpanContextFromContext(ctx),
+		reason: TriggerWebhook,
 	})
 }
 
 func (c *Controller) trigger(ctx context.Context, task triggerTask) bool {
 	ctx, span := c.tracer.Start(
-		trace.ContextWithSpanContext(ctx, task.spanContext),
+		ctx,
 		"controller.Trigger",
 		trace.WithAttributes(
 			tracing.SyncReason.String(string(task.reason)),
@@ -298,9 +296,8 @@ func (c *Controller) pollOnce(ctx context.Context) {
 	}
 
 	c.trigger(ctx, triggerTask{
-		reason:      TriggerPoll,
-		spanContext: trace.SpanContextFromContext(ctx),
-		syncResult:  &syncResult,
+		reason:     TriggerPoll,
+		syncResult: &syncResult,
 	})
 }
 
