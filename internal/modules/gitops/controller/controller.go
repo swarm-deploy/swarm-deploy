@@ -372,7 +372,7 @@ func (c *Controller) syncOnce(ctx context.Context, task triggerTask) { //nolint:
 	defer stackSpan.End()
 
 	for _, stackCfg := range stacksToSync {
-		err = c.syncStack(stackCtx, stackCfg, syncResult.NewRevision, task.reason == TriggerManual)
+		err := c.syncStack(stackCtx, stackCfg, syncResult.NewRevision, task.reason == TriggerManual)
 		if err != nil {
 			deployErrs = append(deployErrs, err)
 			slog.ErrorContext(ctx, "sync failed for stack",
