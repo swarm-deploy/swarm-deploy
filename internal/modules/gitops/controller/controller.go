@@ -73,6 +73,7 @@ type triggerTask struct {
 	triggeredBy string
 	reason      TriggerReason
 	spanContext trace.SpanContext
+	syncResult  *gitx.PullResult
 }
 
 func New(
@@ -266,6 +267,11 @@ func (c *Controller) trigger(ctx context.Context, task triggerTask) bool {
 func (c *Controller) runTask(ctx context.Context, task triggerTask) {
 	ctx = trace.ContextWithSpanContext(ctx, task.spanContext)
 
+	if task.syncResult != nil {
+		c.syncOnce(ctx, task, *task.syncResult)
+		return
+	}
+
 	if task.reason == TriggerInterval {
 		c.syncCurrent(ctx, task)
 		return
@@ -291,7 +297,11 @@ func (c *Controller) pollOnce(ctx context.Context) {
 		return
 	}
 
-	c.syncOnce(ctx, triggerTask{reason: TriggerPoll}, syncResult)
+	c.trigger(ctx, triggerTask{
+		reason:      TriggerPoll,
+		spanContext: trace.SpanContextFromContext(ctx),
+		syncResult:  &syncResult,
+	})
 }
 
 func (c *Controller) syncFromGit(ctx context.Context, task triggerTask) {
