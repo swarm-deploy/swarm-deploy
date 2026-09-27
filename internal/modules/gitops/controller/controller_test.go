@@ -71,7 +71,7 @@ func TestControllerGracefulShutdown(t *testing.T) {
 				metrics:    metricGroup,
 				event:      eventDispatcher,
 				stateStore: modelstore.NewMemoryStore(),
-				triggerCh:  make(chan triggerTask, 1),
+				reconcileCh:  make(chan reconcileTask, 1),
 				tracer:     otel.Tracer("test"),
 			}
 
@@ -244,7 +244,7 @@ func TestControllerSyncOnceReconcilesStacksOnIntervalWithoutGitPull(t *testing.T
 		tracer: otel.Tracer("test"),
 	}
 
-	controller.syncCurrent(context.Background(), triggerTask{
+	controller.reconcile(context.Background(), reconcileTask{
 		reason: TriggerInterval,
 	})
 
@@ -256,7 +256,7 @@ func TestControllerSyncOnceReconcilesStacksOnIntervalWithoutGitPull(t *testing.T
 	assert.Equal(t, "commit-1", state.GitRevision, "unexpected git revision")
 }
 
-func TestControllerPollOnceSkipsReconcileWhenGitHasNoChanges(t *testing.T) {
+func TestControllerPollGitSkipsReconcileWhenGitHasNoChanges(t *testing.T) {
 	ctrl := gomock.NewController(t)
 
 	repository := git.NewMockRepository(ctrl)
@@ -280,7 +280,7 @@ func TestControllerPollOnceSkipsReconcileWhenGitHasNoChanges(t *testing.T) {
 		tracer:     otel.Tracer("test"),
 	}
 
-	controller.pollOnce(context.Background())
+	controller.pollGit(context.Background())
 }
 
 func TestControllerSyncOncePrioritizesChangedStacks(t *testing.T) {
@@ -341,7 +341,7 @@ func TestControllerSyncOncePrioritizesChangedStacks(t *testing.T) {
 		metrics:           metricGroup,
 		event:             eventDispatcher,
 		stateStore:        store,
-		triggerCh:         make(chan triggerTask, 1),
+		reconcileCh:         make(chan reconcileTask, 1),
 		networkReconciler: networkloop.New(nil, &dispatcher.NopDispatcher{}),
 		stackReconciler: stackloop.New(
 			cfg,
@@ -358,9 +358,9 @@ func TestControllerSyncOncePrioritizesChangedStacks(t *testing.T) {
 		tracer: otel.Tracer("test"),
 	}
 
-	controller.pollOnce(context.Background())
-	task := <-controller.triggerCh
-	controller.runTask(context.Background(), task)
+	controller.pollGit(context.Background())
+	task := <-controller.reconcileCh
+	controller.reconcile(context.Background(), task)
 
 	state := store.Get()
 	assert.Equal(t, syncRunResultSuccess, state.LastSyncResult, "unexpected sync result")
@@ -423,7 +423,7 @@ func TestControllerSyncOnceContinuesWhenGitDiffFails(t *testing.T) {
 		metrics:           metricGroup,
 		event:             eventDispatcher,
 		stateStore:        store,
-		triggerCh:         make(chan triggerTask, 1),
+		reconcileCh:         make(chan reconcileTask, 1),
 		networkReconciler: networkloop.New(nil, &dispatcher.NopDispatcher{}),
 		stackReconciler: stackloop.New(
 			cfg,
@@ -440,9 +440,9 @@ func TestControllerSyncOnceContinuesWhenGitDiffFails(t *testing.T) {
 		tracer: otel.Tracer("test"),
 	}
 
-	controller.pollOnce(context.Background())
-	task := <-controller.triggerCh
-	controller.runTask(context.Background(), task)
+	controller.pollGit(context.Background())
+	task := <-controller.reconcileCh
+	controller.reconcile(context.Background(), task)
 
 	state := store.Get()
 	assert.Equal(t, syncRunResultSuccess, state.LastSyncResult, "unexpected sync result")
