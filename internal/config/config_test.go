@@ -46,6 +46,61 @@ stacks:
 	assert.Equal(t, "worker", cfg.Spec.Stacks[1].Name, "unexpected second stack")
 }
 
+func TestLoadAppliesDefaultSyncInterval(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(`
+git:
+  repository: https://example.com/repo.git
+sync:
+  mode: pull
+stacks:
+  file: ./stacks.yaml
+`)
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err, "load config")
+	assert.Equal(t, time.Minute, cfg.Spec.Sync.Interval.Value, "expected default sync interval")
+}
+
+func TestLoadUsesSyncIntervalFromConfig(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(`
+git:
+  repository: https://example.com/repo.git
+sync:
+  mode: pull
+  interval: 15s
+stacks:
+  file: ./stacks.yaml
+`)
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err, "load config")
+	assert.Equal(t, 15*time.Second, cfg.Spec.Sync.Interval.Value, "expected configured sync interval")
+}
+
 func TestLoadFailsWithoutStacksFile(t *testing.T) {
 	dir := t.TempDir()
 
