@@ -91,6 +91,7 @@ type graphExecutionState struct {
 	userMessage             string
 	route                   Route
 	profile                 RouteProfile
+	capabilities            []Capability
 	effectiveToolSet        map[string]struct{}
 	retrievalPlan           *rag.RetrievalPlan
 	relevantServices        []service.Info
@@ -218,7 +219,7 @@ func (g *graph) addGraphEdges(messageGraph *langgraph.MessageGraph, executionSta
 			if executionState.route == RouteOutOfScope {
 				return graphNodeScopeResponse
 			}
-			if executionState.profile.ServiceContext {
+			if capabilitiesNeedServiceContext(executionState.capabilities) {
 				return graphNodeRetrievePlan
 			}
 
@@ -333,7 +334,8 @@ func (g *graph) routeNode(
 				}
 				executionState.route = RouteGeneral
 				executionState.profile = fallbackRouteProfile()
-				executionState.effectiveToolSet = g.effectiveToolSet(executionState.profile)
+				executionState.capabilities = nil
+				executionState.effectiveToolSet = g.effectiveToolSet(nil)
 				return messages, nil
 			}
 			route = result.Route
@@ -346,7 +348,8 @@ func (g *graph) routeNode(
 		}
 		executionState.route = route
 		executionState.profile = profile
-		executionState.effectiveToolSet = g.effectiveToolSet(profile)
+		executionState.capabilities = append([]Capability(nil), result.Capabilities...)
+		executionState.effectiveToolSet = g.effectiveToolSet(executionState.capabilities)
 		executionState.report("Route: " + string(route))
 		if executionState.operation != nil {
 			answer, usage := g.startPendingOperation(ctx, executionState.conversationID, *executionState.operation)
@@ -430,7 +433,7 @@ func (g *graph) prepareNode(
 		})
 
 		contextChars := 0
-		if executionState.profile.ServiceContext {
+		if capabilitiesNeedServiceContext(executionState.capabilities) {
 			if contextMessage := buildServicesContextMessage(executionState.relevantServices); contextMessage != "" {
 				contextChars = textChars(contextMessage)
 				messages = append(messages, modelMessage{
