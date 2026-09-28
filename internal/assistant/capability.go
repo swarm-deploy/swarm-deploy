@@ -98,6 +98,8 @@ func capabilityProfile(capability Capability) (CapabilityProfile, bool) {
 
 func defaultCapabilitiesForRoute(route Route) []Capability {
 	switch route {
+	case RouteGeneral, RouteOutOfScope, RoutePlatform:
+		return nil
 	case RouteServices:
 		return []Capability{
 			CapabilityServiceContext,
