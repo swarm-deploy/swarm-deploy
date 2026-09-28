@@ -109,7 +109,7 @@ export const useAssistantStore = defineStore("assistant", {
       let payload: AssistantChatRequest = {
         conversation_id: this.conversationID || undefined,
         message,
-        wait_timeout_ms: 12000,
+        wait_timeout_ms: 750,
       };
 
       for (let attempt = 0; attempt < 30; attempt += 1) {
@@ -119,11 +119,11 @@ export const useAssistantStore = defineStore("assistant", {
         this.activity = response.activity || this.activity;
 
         if (response.status === "in_progress") {
-          const delay = Number(response.poll_after_ms) > 0 ? Number(response.poll_after_ms) : 1000;
+          const delay = 100;
           payload = {
             conversation_id: this.conversationID || undefined,
             request_id: this.activeRequestID || undefined,
-            wait_timeout_ms: 12000,
+            wait_timeout_ms: 750,
           };
           await sleep(delay);
           continue;
