@@ -27,7 +27,7 @@ The assistant chat span records request-size diagnostics without recording promp
 
 The chat endpoint supports start and poll with the same route. Chat history endpoints return persisted conversations ordered by latest activity and the full message history for a selected chat.
 
-While a run is in progress, responses may include an `activity` array with safe execution progress such as request routing, context lookup, response generation, and MCP tool execution. Activity intentionally excludes model chain-of-thought, tool arguments, and tool results. Activity is run metadata and is not persisted as chat messages.
+While a run is in progress, responses may include an `activity` array with safe execution progress such as request routing, context lookup, response generation, and MCP tool execution. The UI uses short long-poll requests while a run is active so these updates appear promptly. Activity intentionally excludes model chain-of-thought, tool arguments, and tool results. Activity is run metadata and is not persisted as chat messages.
 
 ### Start request
 
