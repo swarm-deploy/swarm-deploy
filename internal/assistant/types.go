@@ -63,6 +63,8 @@ type ChatResponse struct {
 	ErrorMessage string
 	// PollAfterMS is a suggested delay before next poll request.
 	PollAfterMS int
+	// Activity contains safe user-visible execution progress for the current run.
+	Activity []string
 }
 
 // ChatMessage is a user-visible persisted chat message.
