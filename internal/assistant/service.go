@@ -245,6 +245,12 @@ func (s *Service) awaitRun(ctx context.Context, run *chatRun, waitTimeout time.D
 	select {
 	case <-run.done:
 		return run.snapshot()
+	case <-run.notify:
+		response := run.snapshot()
+		if response.Status == StatusInProgress {
+			response.PollAfterMS = defaultPollAfterMS
+		}
+		return response
 	case <-timer.C:
 		return ChatResponse{
 			Status:         StatusInProgress,
@@ -407,7 +413,8 @@ type chatRun struct {
 	requestID      string
 	conversationID string
 
-	done chan struct{}
+	done   chan struct{}
+	notify chan struct{}
 
 	mu         sync.RWMutex
 	status     Status
@@ -422,6 +429,7 @@ func newChatRun(requestID, conversationID string) *chatRun {
 		requestID:      requestID,
 		conversationID: conversationID,
 		done:           make(chan struct{}),
+		notify:         make(chan struct{}, 1),
 		status:         StatusInProgress,
 	}
 }
@@ -445,6 +453,11 @@ func (r *chatRun) addActivity(message string) {
 	}
 
 	r.activity = append(r.activity, message)
+
+	select {
+	case r.notify <- struct{}{}:
+	default:
+	}
 }
 
 func (r *chatRun) isFinished() bool {
