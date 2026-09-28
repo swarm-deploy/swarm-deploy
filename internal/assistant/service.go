@@ -439,7 +439,6 @@ func (r *chatRun) addActivity(message string) {
 	} else {
 		r.activity = append(r.activity, message)
 	}
-
 }
 
 func (r *chatRun) isFinished() bool {
