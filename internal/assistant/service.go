@@ -215,7 +215,7 @@ func (s *Service) runAssistant(
 
 	turns := []conversation.Turn{
 		{Role: "user", Content: message},
-		{Role: "assistant", Content: answer},
+		{Role: "assistant", Content: answer, Activity: run.activitySnapshot()},
 	}
 
 	if s.conversationHistory != nil {
@@ -365,7 +365,9 @@ func (s *Service) GetChat(_ context.Context, id string) (ChatHistory, bool, erro
 
 	messages := make([]ChatMessage, 0, len(chat.Turns))
 	for _, turn := range chat.Turns {
-		messages = append(messages, ChatMessage{Role: turn.Role, Content: turn.Content})
+		messages = append(messages, ChatMessage{
+			Role: turn.Role, Content: turn.Content, Activity: append([]string(nil), turn.Activity...),
+		})
 	}
 
 	return ChatHistory{
@@ -439,6 +441,13 @@ func (r *chatRun) addActivity(message string) {
 	} else {
 		r.activity = append(r.activity, message)
 	}
+}
+
+func (r *chatRun) activitySnapshot() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return append([]string(nil), r.activity...)
 }
 
 func (r *chatRun) isFinished() bool {
