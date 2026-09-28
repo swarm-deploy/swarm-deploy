@@ -132,16 +132,6 @@ func (s *Alert) SetResourceId(val string) {
 	s.ResourceId = val
 }
 
-// GetActivity returns the value of Activity.
-func (s *AssistantChatResponse) GetActivity() []string {
-	return s.Activity
-}
-
-// SetActivity sets the value of Activity.
-func (s *AssistantChatResponse) SetActivity(val []string) {
-	s.Activity = val
-}
-
 // SetStatus sets the value of Status.
 func (s *Alert) SetStatus(val AlertStatus) {
 	s.Status = val
@@ -480,11 +470,6 @@ func (s *AssistantChatMessage) GetActivity() []string {
 	return s.Activity
 }
 
-// SetActivity sets the value of Activity.
-func (s *AssistantChatMessage) SetActivity(val []string) {
-	s.Activity = val
-}
-
 // SetRole sets the value of Role.
 func (s *AssistantChatMessage) SetRole(val AssistantChatMessageRole) {
 	s.Role = val
@@ -493,6 +478,11 @@ func (s *AssistantChatMessage) SetRole(val AssistantChatMessageRole) {
 // SetContent sets the value of Content.
 func (s *AssistantChatMessage) SetContent(val string) {
 	s.Content = val
+}
+
+// SetActivity sets the value of Activity.
+func (s *AssistantChatMessage) SetActivity(val []string) {
+	s.Activity = val
 }
 
 type AssistantChatMessageRole string
@@ -632,6 +622,11 @@ func (s *AssistantChatResponse) GetPollAfterMs() OptInt32 {
 	return s.PollAfterMs
 }
 
+// GetActivity returns the value of Activity.
+func (s *AssistantChatResponse) GetActivity() []string {
+	return s.Activity
+}
+
 // SetStatus sets the value of Status.
 func (s *AssistantChatResponse) SetStatus(val AssistantChatResponseStatus) {
 	s.Status = val
@@ -660,6 +655,11 @@ func (s *AssistantChatResponse) SetErrorMessage(val OptString) {
 // SetPollAfterMs sets the value of PollAfterMs.
 func (s *AssistantChatResponse) SetPollAfterMs(val OptInt32) {
 	s.PollAfterMs = val
+}
+
+// SetActivity sets the value of Activity.
+func (s *AssistantChatResponse) SetActivity(val []string) {
+	s.Activity = val
 }
 
 type AssistantChatResponseStatus string

@@ -991,11 +991,13 @@ func (s *AssistantChatMessage) Decode(d *jx.Decoder) error {
 			if err := func() error {
 				s.Activity = make([]string, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem string
 					v, err := d.Str()
+					elem = string(v)
 					if err != nil {
 						return err
 					}
-					s.Activity = append(s.Activity, string(v))
+					s.Activity = append(s.Activity, elem)
 					return nil
 				}); err != nil {
 					return err
@@ -1351,14 +1353,22 @@ func (s *AssistantChatResponse) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"poll_after_ms\"")
 			}
 		case "activity":
-			if err := d.Arr(func(d *jx.Decoder) error {
-				v, err := d.Str()
-				if err != nil {
+			if err := func() error {
+				s.Activity = make([]string, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem string
+					v, err := d.Str()
+					elem = string(v)
+					if err != nil {
+						return err
+					}
+					s.Activity = append(s.Activity, elem)
+					return nil
+				}); err != nil {
 					return err
 				}
-				s.Activity = append(s.Activity, string(v))
 				return nil
-			}); err != nil {
+			}(); err != nil {
 				return errors.Wrap(err, "decode field \"activity\"")
 			}
 		default:
