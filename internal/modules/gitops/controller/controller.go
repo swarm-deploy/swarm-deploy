@@ -286,7 +286,9 @@ func (c *Controller) reconcile(
 	task reconcileTask,
 	gitResult *gitx.PullResult,
 ) { //nolint:funlen // reconciliation pipeline
-	ctx = trace.ContextWithSpanContext(ctx, task.spanContext)
+	if task.spanContext.IsValid() {
+		ctx = trace.ContextWithSpanContext(ctx, task.spanContext)
+	}
 	ctx, span := c.tracer.Start(
 		ctx,
 		"controller.Sync",
