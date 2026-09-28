@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -24,7 +25,7 @@ func NewReportPromptInjection(eventDispatcher dispatcher.Dispatcher) *ReportProm
 
 func (r *ReportPromptInjection) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
-		Name:        "assistant_prompt_injection_report",
+		Name:        config.AssistantToolNameAssistantPromptInjectionReport,
 		Description: "Report about prompt injection",
 		ParametersJSONSchema: map[string]any{
 			"type": "object",

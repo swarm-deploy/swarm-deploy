@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -23,7 +24,7 @@ func NewDockerSecretList(secretReader swarm.SecretManager) *DockerSecretList {
 // Definition returns tool metadata visible to the model.
 func (l *DockerSecretList) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
-		Name:        "docker_secret_list",
+		Name:        config.AssistantToolNameDockerSecretList,
 		Description: "Returns current Docker secrets snapshot.",
 		ParametersJSONSchema: map[string]any{
 			"type":       "object",

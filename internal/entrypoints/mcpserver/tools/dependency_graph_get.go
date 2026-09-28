@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	resourcegraph "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/graph"
 )
@@ -22,7 +23,7 @@ func NewGetDependencyGraph(services ServicesReader) *GetDependencyGraph {
 // Definition returns tool metadata visible to the model.
 func (g *GetDependencyGraph) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
-		Name:        "dependency_graph_get",
+		Name:        config.AssistantToolNameDependencyGraphGet,
 		Description: "Returns service dependency graph with nodes, endpoints, and direct dependencies.",
 		ParametersJSONSchema: map[string]any{
 			"type":       "object",

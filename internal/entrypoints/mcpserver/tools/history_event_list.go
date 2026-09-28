@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
@@ -33,7 +34,7 @@ func NewListHistoryEvents(historyStore HistoryReader) *ListHistoryEvents {
 // Definition returns tool metadata visible to the model.
 func (l *ListHistoryEvents) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
-		Name:        "history_event_list",
+		Name:        config.AssistantToolNameHistoryEventList,
 		Description: "Returns latest events from local event history.",
 		ParametersJSONSchema: map[string]any{
 			"type": "object",

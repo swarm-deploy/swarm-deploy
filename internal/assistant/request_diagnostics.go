@@ -99,12 +99,12 @@ func toolDefinitionsChars(definitions []routing.ToolDefinition) int {
 			Description string         `json:"description"`
 			Parameters  map[string]any `json:"parameters"`
 		}{
-			Name:        definition.Name,
+			Name:        string(definition.Name),
 			Description: definition.Description,
 			Parameters:  definition.ParametersJSONSchema,
 		})
 		if err != nil {
-			total += utf8.RuneCountInString(definition.Name)
+			total += utf8.RuneCountInString(string(definition.Name))
 			total += utf8.RuneCountInString(definition.Description)
 			continue
 		}

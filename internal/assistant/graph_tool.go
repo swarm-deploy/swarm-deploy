@@ -33,7 +33,7 @@ func (g *graph) effectiveToolDefinitions(effectiveToolSet map[string]struct{}) [
 	definitions := g.tools.Definitions()
 	filtered := make([]routing.ToolDefinition, 0, len(definitions))
 	for _, definition := range definitions {
-		if _, ok := effectiveToolSet[definition.Name]; ok {
+		if _, ok := effectiveToolSet[string(definition.Name)]; ok {
 			filtered = append(filtered, definition)
 		}
 	}

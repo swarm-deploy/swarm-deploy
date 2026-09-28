@@ -13,6 +13,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
@@ -559,7 +560,7 @@ func assistantTestToolDefinitions() []routing.ToolDefinition {
 	definitions := make([]routing.ToolDefinition, 0, len(names))
 	for _, name := range names {
 		definitions = append(definitions, routing.ToolDefinition{
-			Name:        name,
+			Name:        config.AssistantToolName(name),
 			Description: name,
 			ParametersJSONSchema: map[string]any{
 				"type":       "object",

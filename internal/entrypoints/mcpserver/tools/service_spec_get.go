@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -29,7 +30,7 @@ func NewGetServiceSpec(specInspector swarm.ServiceManager) *GetServiceSpec {
 // Definition returns tool metadata visible to the model.
 func (g *GetServiceSpec) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
-		Name:        "service_spec_get",
+		Name:        config.AssistantToolNameServiceSpecGet,
 		Description: "Returns compact service projection (service metadata, current and previous spec) for a stack service.",
 		ParametersJSONSchema: map[string]any{
 			"type": "object",

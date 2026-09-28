@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 )
 
@@ -31,7 +32,7 @@ func NewListGitCommits(repository GitRepository) *ListGitCommits {
 // Definition returns tool metadata visible to the model.
 func (l *ListGitCommits) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
-		Name:        "git_commit_list",
+		Name:        config.AssistantToolNameGitCommitList,
 		Description: "Returns latest commits from repository history.",
 		ParametersJSONSchema: map[string]any{
 			"type": "object",

@@ -80,8 +80,9 @@ func NewExecutor(
 
 	for _, tool := range toolComponents {
 		definition := tool.Definition()
-		tools[definition.Name] = tool
-		requests[definition.Name] = definition.Request
+		toolName := string(definition.Name)
+		tools[toolName] = tool
+		requests[toolName] = definition.Request
 		definitions = append(definitions, definition)
 	}
 

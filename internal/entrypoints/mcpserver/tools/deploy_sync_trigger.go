@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 )
 
@@ -19,7 +20,7 @@ func NewSync(control SyncTrigger) *Sync {
 // Definition returns tool metadata visible to the model.
 func (s *Sync) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
-		Name:        "deploy_sync_trigger",
+		Name:        config.AssistantToolNameDeploySyncTrigger,
 		Description: "Triggers manual synchronization run.",
 		ParametersJSONSchema: map[string]any{
 			"type":       "object",

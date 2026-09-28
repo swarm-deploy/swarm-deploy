@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 )
 
@@ -31,7 +32,7 @@ func NewGetExternalRepositoryLatestRelease(
 // Definition returns tool metadata visible to the model.
 func (g *GetExternalRepositoryLatestRelease) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
-		Name:        "external_repository_release_latest_get",
+		Name:        config.AssistantToolNameExternalRepositoryReleaseLatestGet,
 		Description: "Returns latest published release for an external git repository URL supported by configured hosting providers.", //nolint:lll // not need
 		ParametersJSONSchema: map[string]any{
 			"type": "object",

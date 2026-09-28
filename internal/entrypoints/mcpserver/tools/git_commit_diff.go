@@ -40,7 +40,7 @@ func NewGitCommitDiff(repository GitRepository, stacks []config.StackSpec, compo
 // Definition returns tool metadata visible to the model.
 func (g *GitCommitDiff) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
-		Name:        "git_commit_diff",
+		Name:        config.AssistantToolNameGitCommitDiff,
 		Description: "Returns semantic changes by stack/service for a specific git commit based on compose file differences.",
 		ParametersJSONSchema: map[string]any{
 			"type": "object",

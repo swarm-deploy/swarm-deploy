@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -21,7 +22,7 @@ func NewListNodes(nodesStore NodesReader) *ListNodes {
 // Definition returns tool metadata visible to the model.
 func (l *ListNodes) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
-		Name:        "swarm_node_list",
+		Name:        config.AssistantToolNameSwarmNodeList,
 		Description: "Returns current Docker Swarm nodes snapshot.",
 		ParametersJSONSchema: map[string]any{
 			"type":       "object",
