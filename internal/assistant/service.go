@@ -23,6 +23,7 @@ import (
 
 const (
 	defaultPollAfterMS   = 1000
+	activityPollAfterMS  = 150
 	defaultWaitTimeoutMS = 12000
 	maxWaitTimeoutMS     = 30000
 	maxConversationTurns = 24
@@ -248,7 +249,7 @@ func (s *Service) awaitRun(ctx context.Context, run *chatRun, waitTimeout time.D
 	case <-run.notify:
 		response := run.snapshot()
 		if response.Status == StatusInProgress {
-			response.PollAfterMS = defaultPollAfterMS
+			response.PollAfterMS = activityPollAfterMS
 		}
 		return response
 	case <-timer.C:
