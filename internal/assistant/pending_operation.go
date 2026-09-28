@@ -55,6 +55,9 @@ type OperationIntent struct {
 type RouteDecision struct {
 	// Route is the selected route.
 	Route Route `json:"route"`
+	// Capabilities are the composable context and tool groups required by this request.
+	// Nil means the router omitted the field and route defaults should be used for compatibility.
+	Capabilities []Capability `json:"capabilities"`
 	// Operation is a supported mutating operation, when recognized.
 	Operation *OperationIntent `json:"operation"`
 }
