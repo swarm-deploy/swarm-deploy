@@ -59,7 +59,7 @@ type promptInjectionError struct {
 }
 
 type routerFallbackObserver interface {
-	// RecordRouterFallback tracks why the graph selected its fallback capability profile.
+	// RecordRouterFallback tracks why the graph selected its fallback route profile.
 	RecordRouterFallback(reason string)
 }
 
@@ -89,8 +89,7 @@ type graphExecutionState struct {
 	history                 []conversation.Turn
 	userMessage             string
 	route                   Route
-	capabilities            []Capability
-	profile                 CapabilityProfile
+	profile                 RouteProfile
 	effectiveToolSet        map[string]struct{}
 	retrievalPlan           *rag.RetrievalPlan
 	relevantServices        []service.Info
@@ -315,18 +314,17 @@ func (g *graph) routeNode(
 					g.observer.RecordRouterFallback(reason)
 				}
 				executionState.route = RouteGeneral
-				executionState.profile = fallbackCapabilityProfile()
+				executionState.profile = fallbackRouteProfile()
 				executionState.effectiveToolSet = g.effectiveToolSet(executionState.profile)
 				return messages, nil
 			}
 			route = result.Route
-			executionState.capabilities = result.Capabilities
 			executionState.operation = result.Operation
 		}
 
-		profile, ok := composeCapabilityProfile(route, executionState.capabilities)
+		profile, ok := routeProfile(route)
 		if !ok {
-			return messages, fmt.Errorf("capability profile for route %q is not configured", route)
+			return messages, fmt.Errorf("profile for route %q is not configured", route)
 		}
 		executionState.route = route
 		executionState.profile = profile

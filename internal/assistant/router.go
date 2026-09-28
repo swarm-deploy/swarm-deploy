@@ -16,7 +16,7 @@ const (
 	routerExtraMessages = 2
 )
 
-// Route identifies a bounded assistant capability group.
+// Route identifies a bounded assistant request domain.
 type Route string
 
 const (
@@ -53,10 +53,8 @@ type RouteRequest struct {
 
 // RouteResult contains the selected route and the model usage incurred while selecting it.
 type RouteResult struct {
-	// Route is the selected capability route.
+	// Route is the selected route.
 	Route Route
-	// Capabilities are bounded additions required by the request.
-	Capabilities []Capability
 	// Operation contains a supported mutating operation recognized by the router.
 	Operation *OperationIntent
 	// Usage is token usage reported by the router completion.
@@ -65,7 +63,7 @@ type RouteResult struct {
 
 // Router classifies assistant requests without receiving tools or retrieved context.
 type Router interface {
-	// Route selects one capability route for the request.
+	// Route selects one route for the request.
 	Route(ctx context.Context, req RouteRequest) (RouteResult, error)
 }
 
@@ -133,10 +131,9 @@ func (r *llmRouter) Route(ctx context.Context, req RouteRequest) (RouteResult, e
 	}
 
 	return RouteResult{
-		Route:        route,
-		Capabilities: normalizeCapabilities(decision.Capabilities),
-		Operation:    decision.Operation,
-		Usage:        completion.Usage,
+		Route:     route,
+		Operation: decision.Operation,
+		Usage:     completion.Usage,
 	}, nil
 }
 
@@ -160,17 +157,14 @@ func recentTurns(history []conversation.Turn, limit int) []conversation.Turn {
 }
 
 func isKnownRoute(route Route) bool {
-	_, ok := capabilityProfiles[route]
+	_, ok := routeProfiles[route]
 	return ok
 }
 
 const routerSystemPrompt = `Classify the user's request for the swarm-deploy assistant and extract supported mutating operations.
 The assistant is exclusively for swarm-deploy and closely related Docker Swarm, deployment, runtime, observability, troubleshooting, and infrastructure operations.
-Return compact JSON only: {"route":"<route>","capabilities":[],"operation":null}.
-Keep exactly one primary route. Add only these bounded capabilities when the same request also needs them:
-- registry_image: inspect or compare a deployed/current container image with a registry version; especially add it to diagnostics
-- external_release: inspect the latest upstream release for an external repository; add it when a services or diagnostics request also asks about upstream/latest releases
-- date_time: resolve the current date, time, weekday, or a relative date such as today, yesterday, the day before yesterday, tomorrow, сегодня, вчера, позавчера, or завтра; compose it with whichever primary route owns the request
+Return compact JSON only: {"route":"<route>","operation":null}.
+Keep exactly one primary route. Registry image, external release, and date/time tools are already available in the routes that need them.
 For restart or replica changes, operation is {"type":"service_restart_trigger|service_replicas_set","target":"literal target or empty","replicas":number-or-null}.
 Target is the literal service reference from the current user message. Do not decide whether it is a stack or service, and never infer a missing target from history.
 Routes:
@@ -183,12 +177,12 @@ Routes:
 - diagnostics: investigating failures, availability, or runtime problems using multiple data sources
 - lookups: focused registry, external release, DNS, date/time, or application metrics lookup
 Examples:
-"Привет" -> {"route":"general","capabilities":[],"operation":null}; "Где находится Юпитер?" -> {"route":"out_of_scope","capabilities":[],"operation":null}
-"Как приготовить борщ?" -> {"route":"out_of_scope","capabilities":[],"operation":null}; "Почему api падает?" -> {"route":"diagnostics","capabilities":[],"operation":null}
-"Сравни текущий image api с последним upstream release" -> {"route":"services","capabilities":["external_release"],"operation":null}
-"Почему deploy api упал и есть ли более свежий image?" -> {"route":"diagnostics","capabilities":["registry_image"],"operation":null}
-"Какой сегодня день?" -> {"route":"lookups","capabilities":["date_time"],"operation":null}
-"Какие деплои были вчера?" -> {"route":"deployments","capabilities":["date_time"],"operation":null}
-"Что происходило сегодня с api?" -> {"route":"diagnostics","capabilities":["date_time"],"operation":null}
+"Привет" -> {"route":"general","operation":null}; "Где находится Юпитер?" -> {"route":"out_of_scope","operation":null}
+"Как приготовить борщ?" -> {"route":"out_of_scope","operation":null}; "Почему api падает?" -> {"route":"diagnostics","operation":null}
+"Сравни текущий image api с последним upstream release" -> {"route":"services","operation":null}
+"Почему deploy api упал и есть ли более свежий image?" -> {"route":"diagnostics","operation":null}
+"Какой сегодня день?" -> {"route":"lookups","operation":null}
+"Какие деплои были вчера?" -> {"route":"deployments","operation":null}
+"Что происходило сегодня с api?" -> {"route":"diagnostics","operation":null}
 Legacy route examples: "Где находится Юпитер?" -> out_of_scope; "Как приготовить борщ?" -> out_of_scope
 Use recent history only to select the route for ordinary follow-ups. Pending operation confirmation is handled by the backend.`

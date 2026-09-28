@@ -53,10 +53,8 @@ type OperationIntent struct {
 
 // RouteDecision is the structured decision returned by the router model.
 type RouteDecision struct {
-	// Route is the selected capability route.
+	// Route is the selected route.
 	Route Route `json:"route"`
-	// Capabilities are bounded additions needed alongside the primary route.
-	Capabilities []Capability `json:"capabilities,omitempty"`
 	// Operation is a supported mutating operation, when recognized.
 	Operation *OperationIntent `json:"operation"`
 }
@@ -247,7 +245,7 @@ func (g *graph) executePendingOperation(ctx context.Context, conversationID stri
 		return "Сервис изменился или больше не существует. Операция отменена.", nil
 	}
 
-	profile, _ := capabilityProfile(RouteServices)
+	profile, _ := routeProfile(RouteServices)
 	effectiveTools := g.effectiveToolSet(profile)
 	if _, ok := effectiveTools[string(op.Type)]; !ok {
 		return "Эта операция запрещена настройкой `assistant.tools`.", nil
