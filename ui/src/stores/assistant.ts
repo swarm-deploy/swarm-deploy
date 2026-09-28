@@ -19,6 +19,7 @@ export type AssistantMessageRole = "user" | "assistant" | "system";
 export interface AssistantMessage {
   role: AssistantMessageRole;
   text: string;
+  activity?: string[];
 }
 
 interface AssistantState {
@@ -26,6 +27,7 @@ interface AssistantState {
   pending: boolean;
   conversationID: string;
   activeRequestID: string;
+  activity: string[];
   messages: AssistantMessage[];
   chats: AssistantChatSummary[];
   historyOpen: boolean;
@@ -38,6 +40,7 @@ export const useAssistantStore = defineStore("assistant", {
     pending: false,
     conversationID: "",
     activeRequestID: "",
+    activity: [],
     messages: [],
     chats: [],
     historyOpen: false,
@@ -51,8 +54,8 @@ export const useAssistantStore = defineStore("assistant", {
         uiStore.closeAssistantDrawer();
       }
     },
-    pushMessage(role: AssistantMessageRole, text: string) {
-      this.messages.push({ role, text });
+    pushMessage(role: AssistantMessageRole, text: string, activity?: string[]) {
+      this.messages.push({ role, text, activity });
     },
     async requestAssistant(payload: AssistantChatRequest): Promise<AssistantChatResponse> {
       return sendAssistantChat(payload);
@@ -83,6 +86,7 @@ export const useAssistantStore = defineStore("assistant", {
 
       this.conversationID = "";
       this.activeRequestID = "";
+      this.activity = [];
       this.messages = [];
       this.historyOpen = false;
     },
@@ -94,9 +98,11 @@ export const useAssistantStore = defineStore("assistant", {
       const chat = await getAssistantChat(conversationID);
       this.conversationID = chat.id;
       this.activeRequestID = "";
+      this.activity = [];
       this.messages = chat.messages.map((message) => ({
         role: message.role,
         text: message.content,
+        activity: message.activity,
       }));
       this.historyOpen = false;
     },
@@ -104,20 +110,21 @@ export const useAssistantStore = defineStore("assistant", {
       let payload: AssistantChatRequest = {
         conversation_id: this.conversationID || undefined,
         message,
-        wait_timeout_ms: 12000,
+        wait_timeout_ms: 750,
       };
 
-      for (let attempt = 0; attempt < 30; attempt += 1) {
+      for (let attempt = 0; attempt < 150; attempt += 1) {
         const response = await this.requestAssistant(payload);
         this.conversationID = response.conversation_id || this.conversationID;
         this.activeRequestID = response.request_id || this.activeRequestID;
+        this.activity = response.activity || this.activity;
 
         if (response.status === "in_progress") {
-          const delay = Number(response.poll_after_ms) > 0 ? Number(response.poll_after_ms) : 1000;
+          const delay = 100;
           payload = {
             conversation_id: this.conversationID || undefined,
             request_id: this.activeRequestID || undefined,
-            wait_timeout_ms: 12000,
+            wait_timeout_ms: 750,
           };
           await sleep(delay);
           continue;
@@ -125,7 +132,12 @@ export const useAssistantStore = defineStore("assistant", {
 
         this.activeRequestID = "";
         if (response.status === "completed") {
-          this.pushMessage("assistant", response.answer || "Assistant returned empty answer.");
+          this.pushMessage(
+            "assistant",
+            response.answer || "Assistant returned empty answer.",
+            this.activity.length > 0 ? [...this.activity] : undefined,
+          );
+          this.activity = [];
           await this.loadChats();
           return;
         }
@@ -135,10 +147,12 @@ export const useAssistantStore = defineStore("assistant", {
         }
 
         this.pushMessage("system", response.error_message || `Assistant status: ${response.status}`);
+        this.activity = [];
         return;
       }
 
       this.activeRequestID = "";
+      this.activity = [];
       this.pushMessage("system", "Assistant request timeout. Try again.");
     },
     async sendMessage(message: string) {
@@ -152,12 +166,14 @@ export const useAssistantStore = defineStore("assistant", {
       }
 
       this.pushMessage("user", normalizedMessage);
+      this.activity = [];
       this.pending = true;
 
       try {
         await this.runAssistantMessage(normalizedMessage);
       } catch (error) {
         this.activeRequestID = "";
+        this.activity = [];
         const messageText = error instanceof Error ? error.message : "Unexpected assistant error";
         this.pushMessage("system", `Assistant failed: ${messageText}`);
       } finally {

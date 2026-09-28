@@ -360,6 +360,7 @@ export interface AssistantChatResponse {
   answer?: string;
   error_message?: string;
   poll_after_ms?: number;
+  activity?: string[];
 }
 
 export interface AssistantTokenUsage {
@@ -383,6 +384,7 @@ export interface AssistantChatsResponse {
 export interface AssistantChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
+  activity?: string[];
 }
 
 export interface AssistantChatHistory extends AssistantChatSummary {

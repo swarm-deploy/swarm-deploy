@@ -63,6 +63,8 @@ type ChatResponse struct {
 	ErrorMessage string
 	// PollAfterMS is a suggested delay before next poll request.
 	PollAfterMS int
+	// Activity contains safe user-visible execution progress for the current run.
+	Activity []string
 }
 
 // ChatMessage is a user-visible persisted chat message.
@@ -71,6 +73,8 @@ type ChatMessage struct {
 	Role string `json:"role"`
 	// Content is the message text.
 	Content string `json:"content"`
+	// Activity contains persisted execution trace metadata for assistant messages.
+	Activity []string `json:"activity,omitempty"`
 }
 
 // TokenUsage contains aggregate model token consumption for a chat.

@@ -30,6 +30,8 @@ const (
 	runExecutionTimeout  = 2 * time.Minute
 )
 
+const maxRunActivity = 32
+
 // Service provides assistant chat workflow with start/poll semantics.
 type Service struct {
 	config Config
@@ -170,8 +172,9 @@ func (s *Service) runAssistant(
 	runCtx, cancel := context.WithTimeout(ctx, runExecutionTimeout)
 	defer cancel()
 
+	run.addActivity("Analyzing request")
 	history := s.getConversation(conversationID)
-	answer, usage, err := s.graph.run(runCtx, conversationID, history, message)
+	answer, usage, err := s.graph.run(runCtx, conversationID, history, message, run.addActivity)
 	if err != nil {
 		if errors.Is(err, errPromptInjection) {
 			rejectedPrompt := message
@@ -212,7 +215,7 @@ func (s *Service) runAssistant(
 
 	turns := []conversation.Turn{
 		{Role: "user", Content: message},
-		{Role: "assistant", Content: answer},
+		{Role: "assistant", Content: answer, Activity: run.activitySnapshot()},
 	}
 
 	if s.conversationHistory != nil {
@@ -244,19 +247,13 @@ func (s *Service) awaitRun(ctx context.Context, run *chatRun, waitTimeout time.D
 	case <-run.done:
 		return run.snapshot()
 	case <-timer.C:
-		return ChatResponse{
-			Status:         StatusInProgress,
-			ConversationID: run.conversationID,
-			RequestID:      run.requestID,
-			PollAfterMS:    defaultPollAfterMS,
-		}
+		response := run.snapshot()
+		response.PollAfterMS = defaultPollAfterMS
+		return response
 	case <-ctx.Done():
-		return ChatResponse{
-			Status:         StatusInProgress,
-			ConversationID: run.conversationID,
-			RequestID:      run.requestID,
-			PollAfterMS:    defaultPollAfterMS,
-		}
+		response := run.snapshot()
+		response.PollAfterMS = defaultPollAfterMS
+		return response
 	}
 }
 
@@ -368,7 +365,9 @@ func (s *Service) GetChat(_ context.Context, id string) (ChatHistory, bool, erro
 
 	messages := make([]ChatMessage, 0, len(chat.Turns))
 	for _, turn := range chat.Turns {
-		messages = append(messages, ChatMessage{Role: turn.Role, Content: turn.Content})
+		messages = append(messages, ChatMessage{
+			Role: turn.Role, Content: turn.Content, Activity: append([]string(nil), turn.Activity...),
+		})
 	}
 
 	return ChatHistory{
@@ -412,6 +411,7 @@ type chatRun struct {
 	answer     string
 	error      string
 	finishedAt time.Time
+	activity   []string
 }
 
 func newChatRun(requestID, conversationID string) *chatRun {
@@ -421,6 +421,33 @@ func newChatRun(requestID, conversationID string) *chatRun {
 		done:           make(chan struct{}),
 		status:         StatusInProgress,
 	}
+}
+
+func (r *chatRun) addActivity(message string) {
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if len(r.activity) > 0 && r.activity[len(r.activity)-1] == message {
+		return
+	}
+	if len(r.activity) >= maxRunActivity {
+		copy(r.activity, r.activity[1:])
+		r.activity[len(r.activity)-1] = message
+	} else {
+		r.activity = append(r.activity, message)
+	}
+}
+
+func (r *chatRun) activitySnapshot() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return append([]string(nil), r.activity...)
 }
 
 func (r *chatRun) isFinished() bool {
@@ -456,5 +483,6 @@ func (r *chatRun) snapshot() ChatResponse {
 		RequestID:      r.requestID,
 		Answer:         r.answer,
 		ErrorMessage:   r.error,
+		Activity:       append([]string(nil), r.activity...),
 	}
 }

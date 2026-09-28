@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/assistant/conversation"
@@ -105,6 +106,7 @@ type graphExecutionState struct {
 	securityReportAttempted bool
 	operation               *OperationIntent
 	operationHandled        bool
+	reportActivity          func(string)
 }
 
 type toolExecutionResult struct {
@@ -143,6 +145,7 @@ func (g *graph) run(
 	conversationID string,
 	history []conversation.Turn,
 	userMessage string,
+	reportActivity func(string),
 ) (string, conversation.TokenUsage, error) {
 	if g.guard.Check(userMessage) {
 		return "", conversation.TokenUsage{}, &promptInjectionError{prompt: strings.TrimSpace(userMessage)}
@@ -154,6 +157,7 @@ func (g *graph) run(
 		conversationID: conversationID,
 		history:        history,
 		userMessage:    userMessage,
+		reportActivity: reportActivity,
 	}
 
 	runnable, err := g.compile(executionState)
@@ -172,6 +176,12 @@ func (g *graph) run(
 	}
 
 	return executionState.answer, executionState.usage, nil
+}
+
+func (s *graphExecutionState) report(message string) {
+	if s.reportActivity != nil {
+		s.reportActivity(message)
+	}
 }
 
 func (g *graph) compile(executionState *graphExecutionState) (*langgraph.Runnable, error) {
@@ -294,6 +304,7 @@ func (g *graph) scopeResponseNode(
 	executionState *graphExecutionState,
 ) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
 	return func(_ context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
+		executionState.report("Preparing response")
 		executionState.answer = outOfScopeResponse(executionState.userMessage)
 		return messages, nil
 	}
@@ -303,6 +314,7 @@ func (g *graph) routeNode(
 	executionState *graphExecutionState,
 ) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
 	return func(ctx context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
+		executionState.report("Routing request")
 		route := RouteGeneral
 		if !isGreeting(executionState.userMessage) {
 			result, err := g.router.Route(ctx, RouteRequest{
@@ -335,6 +347,7 @@ func (g *graph) routeNode(
 		executionState.route = route
 		executionState.profile = profile
 		executionState.effectiveToolSet = g.effectiveToolSet(profile)
+		executionState.report("Route: " + string(route))
 		if executionState.operation != nil {
 			answer, usage := g.startPendingOperation(ctx, executionState.conversationID, *executionState.operation)
 			executionState.answer = answer
@@ -364,6 +377,7 @@ func (g *graph) retrievePlanNode(
 	executionState *graphExecutionState,
 ) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
 	return func(ctx context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
+		executionState.report("Finding relevant service context")
 		plan, err := g.retriever.Plan(ctx, executionState.userMessage)
 		if err != nil {
 			return messages, fmt.Errorf("retrieve plan: %w", err)
@@ -378,6 +392,7 @@ func (g *graph) retrieveLexicalNode(
 	executionState *graphExecutionState,
 ) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
 	return func(_ context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
+		executionState.report("Loading service context")
 		relevantServices, err := g.retriever.RetrieveLexical(executionState.retrievalPlan)
 		if err != nil {
 			return messages, fmt.Errorf("retrieve lexical context: %w", err)
@@ -392,6 +407,7 @@ func (g *graph) retrieveSemanticNode(
 	executionState *graphExecutionState,
 ) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
 	return func(_ context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
+		executionState.report("Loading service context")
 		relevantServices, err := g.retriever.RetrieveSemantic(executionState.retrievalPlan)
 		if err != nil {
 			return messages, fmt.Errorf("retrieve semantic context: %w", err)
@@ -458,6 +474,12 @@ func (g *graph) generateAnswerNode(
 			return messages, fmt.Errorf("tool iteration limit exceeded")
 		}
 
+		if executionState.toolIterations == 0 {
+			executionState.report("Generating response")
+		} else {
+			executionState.report("Reviewing tool results")
+		}
+
 		request := modelRequest{
 			Model:       g.config.ModelName,
 			Temperature: g.config.Temperature,
@@ -517,9 +539,12 @@ func (g *graph) executeMCPNode(
 				continue
 			}
 			slog.InfoContext(ctx, "[graph] running mcp tool", slog.String("tool.name", modelToolCall.Name))
+			executionState.report("Running tool: " + modelToolCall.Name)
+			startedAt := time.Now()
 
 			toolResultMessage, err := g.executeToolCall(ctx, modelToolCall, executionState.effectiveToolSet)
 			success := err == nil
+			reportToolActivity(executionState, modelToolCall.Name, time.Since(startedAt), err)
 			if err != nil {
 				slog.ErrorContext(ctx, "[graph] failed to run mcp tool",
 					slog.String("tool.name", modelToolCall.Name),
@@ -550,10 +575,21 @@ func (g *graph) executeMCPNode(
 	}
 }
 
+func reportToolActivity(executionState *graphExecutionState, toolName string, duration time.Duration, err error) {
+	duration = duration.Round(time.Millisecond)
+	if err != nil {
+		executionState.report(fmt.Sprintf("Tool %s failed after %s", toolName, duration))
+		return
+	}
+
+	executionState.report(fmt.Sprintf("Tool %s completed in %s", toolName, duration))
+}
+
 func (g *graph) finalizeTerminalResultNode(
 	executionState *graphExecutionState,
 ) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
 	return func(ctx context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
+		executionState.report("Preparing response")
 		if !isTerminalToolResultCandidate(executionState.lastToolResults) {
 			return messages, nil
 		}

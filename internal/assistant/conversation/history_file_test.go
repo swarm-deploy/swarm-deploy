@@ -42,6 +42,27 @@ func TestFileHistoryStoragePersistsAndListsChats(t *testing.T) {
 	assert.Equal(t, "Why is nginx restarting?", chat.Title, "unexpected persisted title")
 }
 
+func TestFileHistoryStoragePersistsAssistantActivity(t *testing.T) {
+	dir := t.TempDir()
+	storage, err := NewFileHistoryStorage(dir)
+	require.NoError(t, err, "create history storage")
+
+	activity := []string{"Routing request", "Running tool: service_logs_get"}
+	require.NoError(t, storage.Append(
+		"chat-activity",
+		Turn{Role: "user", Content: "why is api failing?"},
+		Turn{Role: "assistant", Content: "The service is failing health checks.", Activity: activity},
+	), "append chat with activity")
+
+	reopened, err := NewFileHistoryStorage(dir)
+	require.NoError(t, err, "reopen history storage")
+	chat, ok, err := reopened.Get("chat-activity")
+	require.NoError(t, err, "get persisted chat")
+	require.True(t, ok, "chat must exist")
+	require.Len(t, chat.Turns, 2)
+	assert.Equal(t, activity, chat.Turns[1].Activity)
+}
+
 func TestFileHistoryStoragePersistsTokenUsage(t *testing.T) {
 	dir := t.TempDir()
 	storage, err := NewFileHistoryStorage(dir)
@@ -99,6 +120,23 @@ func TestFileHistoryStorageLoadsLegacyChatWithoutTokenUsage(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Nil(t, chat.Usage)
+}
+
+func TestFileHistoryStorageLoadsLegacyChatWithoutActivity(t *testing.T) {
+	dir := t.TempDir()
+	storage, err := NewFileHistoryStorage(dir)
+	require.NoError(t, err, "create history storage")
+	require.NoError(t, storage.Append(
+		"legacy-activity",
+		Turn{Role: "user", Content: "hello"},
+		Turn{Role: "assistant", Content: "hi"},
+	))
+
+	chat, ok, err := storage.Get("legacy-activity")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Len(t, chat.Turns, 2)
+	assert.Nil(t, chat.Turns[1].Activity)
 }
 
 func TestFileHistoryStorageKeepsConversationIDOutOfFilePath(t *testing.T) {

@@ -143,6 +143,8 @@ func TestServiceChatReturnsCompletedResponse(t *testing.T) {
 	assert.Equal(t, "Service looks healthy.", response.Answer, "unexpected answer")
 	assert.NotEmpty(t, response.RequestID, "expected request id")
 	assert.NotEmpty(t, response.ConversationID, "expected conversation id")
+	assert.Contains(t, response.Activity, "Analyzing request")
+	assert.Contains(t, response.Activity, "Generating response")
 }
 
 func TestServiceChatRejectsPromptInjection(t *testing.T) {

@@ -27,6 +27,8 @@ The assistant chat span records request-size diagnostics without recording promp
 
 The chat endpoint supports start and poll with the same route. Chat history endpoints return persisted conversations ordered by latest activity and the full message history for a selected chat.
 
+While a run is in progress, responses may include an `activity` array with safe execution progress such as request routing, context lookup, response generation, and MCP tool execution. The UI uses short long-poll requests while a run is active so these updates appear promptly. Activity intentionally excludes model chain-of-thought, tool arguments, and tool results. Completed assistant turns persist this activity metadata alongside the message, so reopening a chat restores the execution trace. Activity is not included in subsequent model context.
+
 ### Start request
 
 ```json
@@ -56,6 +58,7 @@ The chat endpoint supports start and poll with the same route. Chat history endp
   "conversation_id": "conversation-id",
   "answer": "optional",
   "tool_calls": [],
+  "activity": ["Routing request", "Generating response"],
   "error_message": "optional",
   "poll_after_ms": 1000
 }
@@ -63,7 +66,7 @@ The chat endpoint supports start and poll with the same route. Chat history endp
 
 ## Chat history
 
-Completed user/assistant turns are persisted under `.swarm-deploy/assistant/chats/` with one JSON file per conversation. Chat list metadata is kept in `index.json`, loaded once at startup, and served from memory so listing chats does not scan or decode conversation files. The UI creates chats lazily on the first message, derives the title from the first user message, and can reopen older chats. When an older chat is continued after the in-memory cache expired or the process restarted, recent turns are restored from persisted history into the context cache.
+Completed user/assistant turns are persisted under `.swarm-deploy/assistant/chats/` with one JSON file per conversation. Assistant turns may also contain an optional `activity` array with the safe execution trace shown by the UI. Chat list metadata is kept in `index.json`, loaded once at startup, and served from memory so listing chats does not scan or decode conversation files. The UI creates chats lazily on the first message, derives the title from the first user message, and can reopen older chats. When an older chat is continued after the in-memory cache expired or the process restarted, recent turns are restored from persisted history into the context cache.
 
 ## Built-in tools
 

@@ -450,8 +450,9 @@ func (s *AssistantChatHistory) SetMessages(val []AssistantChatMessage) {
 
 // Ref: #/components/schemas/AssistantChatMessage
 type AssistantChatMessage struct {
-	Role    AssistantChatMessageRole `json:"role"`
-	Content string                   `json:"content"`
+	Role     AssistantChatMessageRole `json:"role"`
+	Content  string                   `json:"content"`
+	Activity []string                 `json:"activity"`
 }
 
 // GetRole returns the value of Role.
@@ -464,6 +465,11 @@ func (s *AssistantChatMessage) GetContent() string {
 	return s.Content
 }
 
+// GetActivity returns the value of Activity.
+func (s *AssistantChatMessage) GetActivity() []string {
+	return s.Activity
+}
+
 // SetRole sets the value of Role.
 func (s *AssistantChatMessage) SetRole(val AssistantChatMessageRole) {
 	s.Role = val
@@ -472,6 +478,11 @@ func (s *AssistantChatMessage) SetRole(val AssistantChatMessageRole) {
 // SetContent sets the value of Content.
 func (s *AssistantChatMessage) SetContent(val string) {
 	s.Content = val
+}
+
+// SetActivity sets the value of Activity.
+func (s *AssistantChatMessage) SetActivity(val []string) {
+	s.Activity = val
 }
 
 type AssistantChatMessageRole string
@@ -578,6 +589,7 @@ type AssistantChatResponse struct {
 	Answer         OptString                   `json:"answer"`
 	ErrorMessage   OptString                   `json:"error_message"`
 	PollAfterMs    OptInt32                    `json:"poll_after_ms"`
+	Activity       []string                    `json:"activity"`
 }
 
 // GetStatus returns the value of Status.
@@ -610,6 +622,11 @@ func (s *AssistantChatResponse) GetPollAfterMs() OptInt32 {
 	return s.PollAfterMs
 }
 
+// GetActivity returns the value of Activity.
+func (s *AssistantChatResponse) GetActivity() []string {
+	return s.Activity
+}
+
 // SetStatus sets the value of Status.
 func (s *AssistantChatResponse) SetStatus(val AssistantChatResponseStatus) {
 	s.Status = val
@@ -638,6 +655,11 @@ func (s *AssistantChatResponse) SetErrorMessage(val OptString) {
 // SetPollAfterMs sets the value of PollAfterMs.
 func (s *AssistantChatResponse) SetPollAfterMs(val OptInt32) {
 	s.PollAfterMs = val
+}
+
+// SetActivity sets the value of Activity.
+func (s *AssistantChatResponse) SetActivity(val []string) {
+	s.Activity = val
 }
 
 type AssistantChatResponseStatus string

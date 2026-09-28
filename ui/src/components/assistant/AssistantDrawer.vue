@@ -19,6 +19,7 @@ const bodyRef = ref<HTMLElement | null>(null);
 const isOpen = computed(() => uiStore.assistantDrawerOpen && assistantStore.enabled);
 const messages = computed(() => assistantStore.messages);
 const pending = computed(() => assistantStore.pending);
+const activity = computed(() => assistantStore.activity);
 const chats = computed(() => assistantStore.chats);
 const historyOpen = computed(() => assistantStore.historyOpen);
 const historyLoading = computed(() => assistantStore.historyLoading);
@@ -403,7 +404,22 @@ function renderMessageText(role: string, text: string): string {
             :class="`assistant-chat-message-${message.role}`"
           >
             <div class="assistant-chat-markdown" v-html="renderMessageText(message.role, message.text)" />
+            <details v-if="message.activity?.length" class="assistant-activity-details">
+              <summary>Activity</summary>
+              <ol>
+                <li v-for="(item, activityIndex) in message.activity" :key="activityIndex + '-' + item">
+                  {{ item }}
+                </li>
+              </ol>
+            </details>
           </article>
+          <div v-if="pending" class="assistant-activity-live" role="status" aria-live="polite">
+            <span class="assistant-activity-spinner" aria-hidden="true" />
+            <div>
+              <strong>Working</strong>
+              <span>{{ activity[activity.length - 1] || "Analyzing request" }}</span>
+            </div>
+          </div>
         </div>
       </div>
 
