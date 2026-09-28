@@ -281,11 +281,11 @@ func (c *Controller) pollGit(ctx context.Context) {
 	c.reconcile(ctx, reconcileTask{reason: TriggerPoll}, &gitResult)
 }
 
-func (c *Controller) reconcile(
+func (c *Controller) reconcile( //nolint:funlen // reconciliation pipeline
 	ctx context.Context,
 	task reconcileTask,
 	gitResult *gitx.PullResult,
-) { //nolint:funlen // reconciliation pipeline
+) {
 	if task.spanContext.IsValid() {
 		ctx = trace.ContextWithSpanContext(ctx, task.spanContext)
 	}
