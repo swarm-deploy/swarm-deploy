@@ -450,10 +450,9 @@ func (r *chatRun) addActivity(message string) {
 	if len(r.activity) >= maxRunActivity {
 		copy(r.activity, r.activity[1:])
 		r.activity[len(r.activity)-1] = message
-		return
+	} else {
+		r.activity = append(r.activity, message)
 	}
-
-	r.activity = append(r.activity, message)
 
 	select {
 	case r.notify <- struct{}{}:
