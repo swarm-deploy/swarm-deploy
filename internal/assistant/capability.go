@@ -14,6 +14,8 @@ const (
 	CapabilityRegistryImage Capability = "registry_image"
 	// CapabilityExternalRelease adds latest-release inspection for an external repository.
 	CapabilityExternalRelease Capability = "external_release"
+	// CapabilityDateTime adds current and relative date/time resolution.
+	CapabilityDateTime Capability = "date_time"
 )
 
 // CapabilityProfile describes the prompt, tools, and context available to a route.
@@ -87,7 +89,6 @@ var capabilityProfiles = map[Route]CapabilityProfile{
 			"registry_image_version_get",
 			"external_repository_release_latest_get",
 			"dns_name_resolve",
-			"date",
 			"self_metrics_list",
 		},
 	},
@@ -103,6 +104,9 @@ var additionalCapabilityProfiles = map[Capability]CapabilityProfile{
 		Prompt:         externalReleaseCapabilityPrompt,
 		Tools:          []string{"external_repository_release_latest_get"},
 		ServiceContext: true,
+	},
+	CapabilityDateTime: {
+		Tools: []string{"date"},
 	},
 }
 

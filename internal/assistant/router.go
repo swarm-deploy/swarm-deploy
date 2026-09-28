@@ -170,6 +170,7 @@ Return compact JSON only: {"route":"<route>","capabilities":[],"operation":null}
 Keep exactly one primary route. Add only these bounded capabilities when the same request also needs them:
 - registry_image: inspect or compare a deployed/current container image with a registry version; especially add it to diagnostics
 - external_release: inspect the latest upstream release for an external repository; add it when a services or diagnostics request also asks about upstream/latest releases
+- date_time: resolve the current date, time, weekday, or a relative date such as today, yesterday, the day before yesterday, tomorrow, сегодня, вчера, позавчера, or завтра; compose it with whichever primary route owns the request
 For restart or replica changes, operation is {"type":"service_restart_trigger|service_replicas_set","target":"literal target or empty","replicas":number-or-null}.
 Target is the literal service reference from the current user message. Do not decide whether it is a stack or service, and never infer a missing target from history.
 Routes:
@@ -186,5 +187,8 @@ Examples:
 "Как приготовить борщ?" -> {"route":"out_of_scope","capabilities":[],"operation":null}; "Почему api падает?" -> {"route":"diagnostics","capabilities":[],"operation":null}
 "Сравни текущий image api с последним upstream release" -> {"route":"services","capabilities":["external_release"],"operation":null}
 "Почему deploy api упал и есть ли более свежий image?" -> {"route":"diagnostics","capabilities":["registry_image"],"operation":null}
+"Какой сегодня день?" -> {"route":"lookups","capabilities":["date_time"],"operation":null}
+"Какие деплои были вчера?" -> {"route":"deployments","capabilities":["date_time"],"operation":null}
+"Что происходило сегодня с api?" -> {"route":"diagnostics","capabilities":["date_time"],"operation":null}
 Legacy route examples: "Где находится Юпитер?" -> out_of_scope; "Как приготовить борщ?" -> out_of_scope
 Use recent history only to select the route for ordinary follow-ups. Pending operation confirmation is handled by the backend.`
