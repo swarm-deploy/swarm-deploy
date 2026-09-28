@@ -45,6 +45,13 @@ type Network struct {
 }
 
 type Runtime struct {
+	// LastPollAt is the timestamp of the latest Git poll attempt.
+	LastPollAt time.Time `json:"last_poll_at"`
+	// LastPollResult stores the outcome of the latest Git poll attempt.
+	LastPollResult string `json:"last_poll_result"`
+	// LastPollError contains the latest Git poll error message.
+	LastPollError string `json:"last_poll_error"`
+
 	// LastSyncAt is the timestamp of the latest Sync attempt.
 	LastSyncAt time.Time `json:"last_sync_at"`
 	// LastSyncReason describes why the latest Sync was triggered.
