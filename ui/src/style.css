@@ -1243,6 +1243,12 @@ body {
   .assistant-drawer {
     width: 100%;
     max-width: 100%;
+    overscroll-behavior-x: none;
+  }
+
+  .assistant-drawer-body {
+    touch-action: pan-y;
+    overscroll-behavior-x: none;
   }
 
   .assistant-chat-title {

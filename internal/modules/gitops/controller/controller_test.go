@@ -64,13 +64,14 @@ func TestControllerGracefulShutdown(t *testing.T) {
 					Sync: config.SyncSpec{
 						Mode:         testCase.mode,
 						PollInterval: specw.Duration{Value: 5 * time.Millisecond},
+						Interval:     specw.Duration{Value: time.Hour},
 					},
 				}},
 				git:        repository,
 				metrics:    metricGroup,
 				event:      eventDispatcher,
 				stateStore: modelstore.NewMemoryStore(),
-				triggerCh:  make(chan triggerTask, 1),
+				reconcileCh:  make(chan reconcileTask, 1),
 				tracer:     otel.Tracer("test"),
 			}
 
@@ -176,7 +177,7 @@ func TestReloadNetworksUsesRepositoryDirFirst(t *testing.T) {
 	assert.Equal(t, "from-repo", c.cfg.Spec.Networks[0].Name, "expected network loaded from repo")
 }
 
-func TestControllerSyncOnceReconcilesStacksWhenGitRevisionUnchanged(t *testing.T) {
+func TestControllerSyncOnceReconcilesStacksOnIntervalWithoutGitPull(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	repoDir := t.TempDir()
 	dataDir := filepath.Join(t.TempDir(), ".swarm-deploy")
@@ -195,11 +196,7 @@ func TestControllerSyncOnceReconcilesStacksWhenGitRevisionUnchanged(t *testing.T
 	)
 
 	repository := git.NewMockRepository(ctrl)
-	repository.EXPECT().Pull(gomock.Any()).Return(git.PullResult{
-		OldRevision: "commit-1",
-		NewRevision: "commit-1",
-		Updated:     false,
-	}, nil)
+	repository.EXPECT().Head(gomock.Any()).Return("commit-1", nil)
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
 
 	serviceManager := swarm.NewMockServiceManager(ctrl)
@@ -247,9 +244,9 @@ func TestControllerSyncOnceReconcilesStacksWhenGitRevisionUnchanged(t *testing.T
 		tracer: otel.Tracer("test"),
 	}
 
-	controller.syncOnce(context.Background(), triggerTask{
-		reason: TriggerPoll,
-	})
+	controller.reconcile(context.Background(), reconcileTask{
+		reason: TriggerInterval,
+	}, nil)
 
 	state := store.Get()
 	stackState, exists := state.Stack("app")
@@ -257,6 +254,66 @@ func TestControllerSyncOnceReconcilesStacksWhenGitRevisionUnchanged(t *testing.T
 	assert.Equal(t, "commit-1", stackState.LastCommit, "unexpected stack commit")
 	assert.Equal(t, syncRunResultSuccess, state.LastSyncResult, "unexpected sync result")
 	assert.Equal(t, "commit-1", state.GitRevision, "unexpected git revision")
+}
+
+func TestControllerPollGitSkipsReconcileWhenGitHasNoChanges(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	repository := git.NewMockRepository(ctrl)
+	repository.EXPECT().Pull(gomock.Any()).Return(git.PullResult{
+		OldRevision: "commit-1",
+		NewRevision: "commit-1",
+		Updated:     false,
+	}, nil)
+
+	metricGroup := metrics.NewGroup(metrics.CreateGroupParams{
+		Namespace: "test_sync_once_poll_no_change",
+	})
+	controller := &Controller{
+		cfg: &config.Config{Spec: config.Spec{
+			Git: config.GitSpec{Repository: "repo"},
+		}},
+		git:        repository,
+		metrics:    metricGroup,
+		event:      &dispatcher.NopDispatcher{},
+		stateStore: modelstore.NewMemoryStore(),
+		tracer:     otel.Tracer("test"),
+	}
+
+	controller.pollGit(context.Background())
+
+	state := controller.stateStore.Get()
+	assert.Equal(t, syncRunResultNoChange, state.LastPollResult, "unexpected poll result")
+	assert.Empty(t, state.LastPollError, "unexpected poll error")
+}
+
+func TestControllerPollGitRecordsErrorState(t *testing.T) {
+	ctrl := gomock.NewController(t)
+
+	repository := git.NewMockRepository(ctrl)
+	repository.EXPECT().Pull(gomock.Any()).Return(git.PullResult{}, errors.New("git unavailable"))
+
+	metricGroup := metrics.NewGroup(metrics.CreateGroupParams{
+		Namespace: "test_poll_error",
+	})
+	store := modelstore.NewMemoryStore()
+	controller := &Controller{
+		cfg: &config.Config{Spec: config.Spec{
+			Git: config.GitSpec{Repository: "repo"},
+		}},
+		git:        repository,
+		metrics:    metricGroup,
+		event:      &dispatcher.NopDispatcher{},
+		stateStore: store,
+		tracer:     otel.Tracer("test"),
+	}
+
+	controller.pollGit(context.Background())
+
+	state := store.Get()
+	assert.Equal(t, syncRunResultError, state.LastPollResult, "unexpected poll result")
+	assert.Equal(t, "git unavailable", state.LastPollError, "unexpected poll error")
+	assert.Empty(t, state.LastSyncResult, "poll error must not overwrite sync state")
 }
 
 func TestControllerSyncOncePrioritizesChangedStacks(t *testing.T) {
@@ -333,9 +390,7 @@ func TestControllerSyncOncePrioritizesChangedStacks(t *testing.T) {
 		tracer: otel.Tracer("test"),
 	}
 
-	controller.syncOnce(context.Background(), triggerTask{
-		reason: TriggerPoll,
-	})
+	controller.pollGit(context.Background())
 
 	state := store.Get()
 	assert.Equal(t, syncRunResultSuccess, state.LastSyncResult, "unexpected sync result")
@@ -414,9 +469,7 @@ func TestControllerSyncOnceContinuesWhenGitDiffFails(t *testing.T) {
 		tracer: otel.Tracer("test"),
 	}
 
-	controller.syncOnce(context.Background(), triggerTask{
-		reason: TriggerPoll,
-	})
+	controller.pollGit(context.Background())
 
 	state := store.Get()
 	assert.Equal(t, syncRunResultSuccess, state.LastSyncResult, "unexpected sync result")

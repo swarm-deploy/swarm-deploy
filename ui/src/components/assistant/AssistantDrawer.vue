@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 
 import { useAssistantStore } from "../../stores/assistant";
 import { useUIStore } from "../../stores/ui";
@@ -8,17 +9,12 @@ import { escapeHtml } from "../../utils/escape";
 
 const uiStore = useUIStore();
 const assistantStore = useAssistantStore();
+const route = useRoute();
+const router = useRouter();
 
 const messageInput = ref("");
 const inputRef = ref<HTMLTextAreaElement | null>(null);
 const bodyRef = ref<HTMLElement | null>(null);
-
-const mobileSwipeMediaQuery = "(max-width: 640px)";
-const swipeMinDistance = 72;
-const swipeDirectionRatio = 1.5;
-
-let touchStartX: number | null = null;
-let touchStartY: number | null = null;
 
 const isOpen = computed(() => uiStore.assistantDrawerOpen && assistantStore.enabled);
 const messages = computed(() => assistantStore.messages);
@@ -131,11 +127,6 @@ function scrollToBottom() {
   });
 }
 
-function closeDrawer() {
-  usageOpenChatID.value = "";
-  uiStore.closeAssistantDrawer();
-}
-
 function toggleChatUsage(chatID: string) {
   usageOpenChatID.value = usageOpenChatID.value === chatID ? "" : chatID;
 }
@@ -148,58 +139,75 @@ function formatTokens(value: number | undefined): string {
   return new Intl.NumberFormat().format(value);
 }
 
+function assistantQuery(value: string | undefined) {
+  const query = { ...route.query };
+  if (value) {
+    query.assistant = value;
+  } else {
+    delete query.assistant;
+  }
+  return query;
+}
+
 async function openHistory() {
-  if (!historyOpen.value) {
-    await assistantStore.toggleHistory();
-  }
-}
-
-function resetChatSwipe() {
-  touchStartX = null;
-  touchStartY = null;
-}
-
-function isSwipeBlockedTarget(target: EventTarget | null): boolean {
-  return (
-    target instanceof Element &&
-    Boolean(target.closest("a, button, input, textarea, select, pre, code, [contenteditable='true']"))
-  );
-}
-
-function handleChatTouchStart(event: TouchEvent) {
-  if (
-    historyOpen.value ||
-    pending.value ||
-    event.touches.length !== 1 ||
-    !window.matchMedia(mobileSwipeMediaQuery).matches ||
-    isSwipeBlockedTarget(event.target)
-  ) {
-    resetChatSwipe();
+  if (pending.value) {
     return;
   }
 
-  const touch = event.touches[0];
-  touchStartX = touch.clientX;
-  touchStartY = touch.clientY;
+  await router.push({ query: assistantQuery("chats") });
 }
 
-function handleChatTouchEnd(event: TouchEvent) {
-  if (touchStartX === null || touchStartY === null || event.changedTouches.length !== 1) {
-    resetChatSwipe();
+async function openChat(chatID: string) {
+  if (pending.value) {
     return;
   }
 
-  const touch = event.changedTouches[0];
-  const deltaX = touch.clientX - touchStartX;
-  const deltaY = touch.clientY - touchStartY;
-  resetChatSwipe();
+  await router.push({ query: assistantQuery(chatID) });
+}
 
-  if (deltaX < swipeMinDistance || deltaX < Math.abs(deltaY) * swipeDirectionRatio) {
+async function newChat() {
+  if (pending.value) {
     return;
   }
 
-  void openHistory();
+  await router.push({ query: assistantQuery("new") });
 }
+
+async function closeDrawer() {
+  usageOpenChatID.value = "";
+  await router.push({ query: assistantQuery(undefined) });
+}
+
+watch(
+  () => route.query.assistant,
+  async (assistant) => {
+    const value = typeof assistant === "string" ? assistant : "";
+
+    if (!value) {
+      uiStore.closeAssistantDrawer();
+      return;
+    }
+
+    uiStore.openAssistantDrawer();
+
+    if (value === "chats") {
+      if (!assistantStore.historyOpen) {
+        await assistantStore.toggleHistory();
+      }
+      return;
+    }
+
+    if (value === "new") {
+      assistantStore.newChat();
+      return;
+    }
+
+    if (assistantStore.conversationID !== value || assistantStore.historyOpen) {
+      await assistantStore.openChat(value);
+    }
+  },
+  { immediate: true },
+);
 
 async function submitMessage() {
   const text = messageInput.value.trim();
@@ -277,7 +285,7 @@ function renderMessageText(role: string, text: string): string {
             aria-label="New chat"
             title="New chat"
             :disabled="pending"
-            @click="assistantStore.newChat"
+            @click="newChat"
           >
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M12 5v14M5 12h14" />
@@ -310,7 +318,7 @@ function renderMessageText(role: string, text: string): string {
           type="button"
           class="assistant-new-chat-row"
           :disabled="pending"
-          @click="assistantStore.newChat"
+          @click="newChat"
         >
           <span class="assistant-new-chat-icon" aria-hidden="true">
             <svg viewBox="0 0 24 24">
@@ -335,7 +343,7 @@ function renderMessageText(role: string, text: string): string {
               type="button"
               class="assistant-history-open"
               :title="chat.title"
-              @click="assistantStore.openChat(chat.id)"
+              @click="openChat(chat.id)"
             >
               <span class="assistant-history-title">{{ chat.title }}</span>
             </button>
@@ -379,9 +387,6 @@ function renderMessageText(role: string, text: string): string {
         v-else
         ref="bodyRef"
         class="assistant-drawer-body"
-        @touchstart.passive="handleChatTouchStart"
-        @touchend.passive="handleChatTouchEnd"
-        @touchcancel="resetChatSwipe"
       >
         <div v-if="messages.length === 0" class="assistant-empty-state">
           <span class="assistant-avatar" aria-hidden="true">AI</span>

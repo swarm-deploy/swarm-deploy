@@ -31,6 +31,7 @@ const (
 	defaultWebhookAddress     = ":8082"
 	defaultEventHistoryCap    = 500
 	defaultSyncPollInterval   = 30 * time.Second
+	defaultSyncInterval       = 1 * time.Minute
 	defaultInitJobPollEvery   = 2 * time.Second
 	defaultInitJobMaxDuration = 10 * time.Minute
 	defaultInitJobsTimeout    = 10 * time.Minute
@@ -104,6 +105,8 @@ type SyncSpec struct {
 	Mode string `yaml:"mode"`
 	// PollInterval is an interval between git pull attempts.
 	PollInterval specw.Duration `yaml:"pollInterval"`
+	// Interval is an interval between reconciliations against the current local desired state.
+	Interval specw.Duration `yaml:"interval"`
 	// Policy contains synchronization behavior flags.
 	Policy SyncPolicySpec `yaml:"policy"`
 	// Webhook contains webhook sync trigger settings.
@@ -242,6 +245,9 @@ func (c *Config) applyGitAndSyncDefaults() {
 	}
 	if c.Spec.Sync.PollInterval.Value <= 0 {
 		c.Spec.Sync.PollInterval.Value = defaultSyncPollInterval
+	}
+	if c.Spec.Sync.Interval.Value <= 0 {
+		c.Spec.Sync.Interval.Value = defaultSyncInterval
 	}
 	if c.Spec.Sync.Webhook.Path == "" {
 		c.Spec.Sync.Webhook.Path = "/api/v1/webhooks/git"

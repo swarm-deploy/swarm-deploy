@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted } from "vue";
-import { RouterView, useRoute } from "vue-router";
+import { RouterView, useRoute, useRouter } from "vue-router";
 
 import { useAssistantStore } from "../../stores/assistant";
 import { useCurrentUserStore } from "../../stores/currentUser";
@@ -16,6 +16,7 @@ import StackManifestModal from "../overview/StackManifestModal.vue";
 import SecretDetailsModal from "../secrets/SecretDetailsModal.vue";
 
 const route = useRoute();
+const router = useRouter();
 const overviewStore = useOverviewStore();
 const assistantStore = useAssistantStore();
 const currentUserStore = useCurrentUserStore();
@@ -37,12 +38,25 @@ async function handleSyncNow() {
   await overviewStore.triggerManualSync();
 }
 
-function handleAssistantToggle() {
+async function handleAssistantToggle() {
   if (!assistantStore.enabled) {
     return;
   }
 
-  uiStore.toggleAssistantDrawer();
+  const query = { ...route.query };
+  if (uiStore.assistantDrawerOpen) {
+    delete query.assistant;
+    await router.push({ query });
+    return;
+  }
+
+  query.assistant = "chats";
+  await router.push({ query });
+
+  if (!assistantStore.historyOpen && (assistantStore.conversationID || assistantStore.messages.length > 0)) {
+    query.assistant = assistantStore.conversationID || "new";
+    await router.push({ query });
+  }
 }
 
 onMounted(() => {
