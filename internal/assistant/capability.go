@@ -6,8 +6,10 @@ type Capability string
 const (
 	// CapabilityServiceContext enables service.store RAG retrieval.
 	CapabilityServiceContext Capability = "service_context"
-	// CapabilityServiceRuntime enables service inspection and service operations.
+	// CapabilityServiceRuntime enables read-only service runtime inspection.
 	CapabilityServiceRuntime Capability = "service_runtime"
+	// CapabilityServiceOperations enables mutating service operations.
+	CapabilityServiceOperations Capability = "service_operations"
 	// CapabilityCluster enables Swarm cluster inspection tools.
 	CapabilityCluster Capability = "cluster"
 	// CapabilityDeploymentHistory enables deployment, event, recommendation, and git history tools.
@@ -38,10 +40,14 @@ var capabilityProfiles = map[Capability]CapabilityProfile{
 		Tools: []string{
 			"service_logs_get",
 			"service_spec_get",
-			"service_replicas_set",
-			"service_restart_trigger",
 			"service_webroute_ping",
 			"dependency_graph_get",
+		},
+	},
+	CapabilityServiceOperations: {
+		Tools: []string{
+			"service_replicas_set",
+			"service_restart_trigger",
 		},
 	},
 	CapabilityCluster: {
@@ -104,6 +110,7 @@ func defaultCapabilitiesForRoute(route Route) []Capability {
 		return []Capability{
 			CapabilityServiceContext,
 			CapabilityServiceRuntime,
+			CapabilityServiceOperations,
 			CapabilityRegistry,
 			CapabilityExternalRelease,
 		}
