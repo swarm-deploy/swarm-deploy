@@ -460,8 +460,9 @@ func (s *AssistantChatHistory) SetMessages(val []AssistantChatMessage) {
 
 // Ref: #/components/schemas/AssistantChatMessage
 type AssistantChatMessage struct {
-	Role    AssistantChatMessageRole `json:"role"`
-	Content string                   `json:"content"`
+	Role     AssistantChatMessageRole `json:"role"`
+	Content  string                   `json:"content"`
+	Activity []string                 `json:"activity"`
 }
 
 // GetRole returns the value of Role.
@@ -472,6 +473,16 @@ func (s *AssistantChatMessage) GetRole() AssistantChatMessageRole {
 // GetContent returns the value of Content.
 func (s *AssistantChatMessage) GetContent() string {
 	return s.Content
+}
+
+// GetActivity returns the value of Activity.
+func (s *AssistantChatMessage) GetActivity() []string {
+	return s.Activity
+}
+
+// SetActivity sets the value of Activity.
+func (s *AssistantChatMessage) SetActivity(val []string) {
+	s.Activity = val
 }
 
 // SetRole sets the value of Role.
