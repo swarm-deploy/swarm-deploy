@@ -103,7 +103,11 @@ func (r *llmRouter) Route(ctx context.Context, req RouteRequest) (RouteResult, e
 	}
 	normalizedCapabilities, ok := normalizeCapabilities(capabilities)
 	if !ok {
-		return RouteResult{Usage: completion.Usage}, fmt.Errorf("%w: unknown capability in %q", errInvalidRouterResponse, completion.Content)
+		return RouteResult{Usage: completion.Usage}, fmt.Errorf(
+			"%w: unknown capability in %q",
+			errInvalidRouterResponse,
+			completion.Content,
+		)
 	}
 
 	if decision.Operation != nil && (route != RouteServices || !decision.Operation.Type.supported()) {
