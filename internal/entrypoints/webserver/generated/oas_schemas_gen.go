@@ -132,6 +132,16 @@ func (s *Alert) SetResourceId(val string) {
 	s.ResourceId = val
 }
 
+// GetActivity returns the value of Activity.
+func (s *AssistantChatResponse) GetActivity() []string {
+	return s.Activity
+}
+
+// SetActivity sets the value of Activity.
+func (s *AssistantChatResponse) SetActivity(val []string) {
+	s.Activity = val
+}
+
 // SetStatus sets the value of Status.
 func (s *Alert) SetStatus(val AlertStatus) {
 	s.Status = val
@@ -578,6 +588,7 @@ type AssistantChatResponse struct {
 	Answer         OptString                   `json:"answer"`
 	ErrorMessage   OptString                   `json:"error_message"`
 	PollAfterMs    OptInt32                    `json:"poll_after_ms"`
+	Activity       []string                    `json:"activity"`
 }
 
 // GetStatus returns the value of Status.
