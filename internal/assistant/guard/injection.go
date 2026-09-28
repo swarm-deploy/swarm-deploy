@@ -5,6 +5,7 @@ import "regexp"
 type InjectionChecker struct {
 }
 
+//nolint:lll // Regular expressions are kept whole so their security-sensitive meaning remains auditable.
 var injectionPatterns = []*regexp.Regexp{
 	regexp.MustCompile(
 		`(?i)\b(?:show|reveal|print|repeat)\s+(?:your\s+)?(?:(?:system|hidden|initial|developer|private)\s+)?(?:prompt|instructions?)\b`,

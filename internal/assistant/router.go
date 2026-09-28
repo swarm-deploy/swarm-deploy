@@ -110,8 +110,12 @@ func (r *llmRouter) Route(ctx context.Context, req RouteRequest) (RouteResult, e
 	rawContent := strings.TrimSpace(completion.Content)
 	var decision RouteDecision
 	if strings.HasPrefix(rawContent, "{") {
-		if err := json.Unmarshal([]byte(rawContent), &decision); err != nil {
-			return RouteResult{Usage: completion.Usage}, fmt.Errorf("%w: %q", errInvalidRouterResponse, completion.Content)
+		if unmarshalErr := json.Unmarshal([]byte(rawContent), &decision); unmarshalErr != nil {
+			return RouteResult{Usage: completion.Usage}, fmt.Errorf(
+				"%w: %q",
+				errInvalidRouterResponse,
+				completion.Content,
+			)
 		}
 	} else {
 		decision.Route = Route(strings.ToLower(rawContent))
@@ -161,6 +165,7 @@ func isKnownRoute(route Route) bool {
 	return ok
 }
 
+//nolint:lll // Keeping prompt instructions on semantic lines makes the model-facing text easier to audit.
 const routerSystemPrompt = `Classify the user's request for the swarm-deploy assistant and extract supported mutating operations.
 The assistant is exclusively for swarm-deploy and closely related Docker Swarm, deployment, runtime, observability, troubleshooting, and infrastructure operations.
 Return compact JSON only: {"route":"<route>","operation":null}.

@@ -126,7 +126,8 @@ func (s *pendingOperationStore) claim(conversationID string, expected PendingOpe
 		delete(s.operations, conversationID)
 		return false
 	}
-	if current.Type != expected.Type || current.Stage != expected.Stage || current.Target != expected.Target || current.Stack != expected.Stack ||
+	if current.Type != expected.Type || current.Stage != expected.Stage ||
+		current.Target != expected.Target || current.Stack != expected.Stack ||
 		current.Service != expected.Service || !current.ExpiresAt.Equal(expected.ExpiresAt) ||
 		!equalOptionalUint64(current.Replicas, expected.Replicas) {
 		return false
@@ -152,7 +153,10 @@ func (g *graph) startPendingOperation(
 	intent OperationIntent,
 ) (string, conversation.TokenUsage) {
 	op := PendingOperation{
-		Type: intent.Type, Stage: PendingOperationCollecting, Target: strings.TrimSpace(intent.Target), Replicas: intent.Replicas,
+		Type:     intent.Type,
+		Stage:    PendingOperationCollecting,
+		Target:   strings.TrimSpace(intent.Target),
+		Replicas: intent.Replicas,
 	}
 	services := g.store.List()
 	resolution, usage := g.resolveOperationTarget(ctx, services, op.Target)
@@ -184,64 +188,104 @@ func (g *graph) handlePendingOperation(
 
 	switch op.Stage {
 	case PendingOperationConfirmation:
-		switch parseConfirmation(message) {
-		case confirmationAffirmative:
-			answer, err := g.executePendingOperation(ctx, conversationID, op)
-			return true, answer, conversation.TokenUsage{}, err
-		case confirmationNegative:
-			g.pending.delete(conversationID)
-			return true, "Операция отменена.", conversation.TokenUsage{}, nil
-		default:
-			if isUnrelatedPendingMessage(message) {
-				g.pending.delete(conversationID)
-				return false, "", conversation.TokenUsage{}, nil
-			}
-			return true, "Ответьте явно: `да` для подтверждения или `нет` для отмены.", conversation.TokenUsage{}, nil
-		}
+		return g.handlePendingConfirmation(ctx, conversationID, message, op)
 	case PendingOperationCollecting:
-		if isUnrelatedPendingMessage(message) {
-			g.pending.delete(conversationID)
-			return false, "", conversation.TokenUsage{}, nil
-		}
-		var usage conversation.TokenUsage
-		if op.Stack == "" || op.Service == "" {
-			target := strings.TrimSpace(message)
-			if isSelfResolveRequest(target) {
-				target = op.Target
-			} else if op.Target == "" {
-				op.Target = target
-			}
-			resolution, resolutionUsage := g.resolveOperationTarget(ctx, g.store.List(), target)
-			usage.Add(resolutionUsage)
-			if !resolution.ok {
-				g.pending.set(conversationID, op)
-				return true, resolution.message, usage, nil
-			}
-			op.Stack, op.Service = resolution.stack, resolution.service
-		}
-		if op.Type == OperationServiceReplicasSet && op.Replicas == nil {
-			replicas, replicasOK := parseReplicas(message)
-			if !replicasOK {
-				g.pending.set(conversationID, op)
-				return true, fmt.Sprintf("Сколько реплик установить для `%s` в стеке `%s`?", op.Service, op.Stack), usage, nil
-			}
-			op.Replicas = &replicas
-		}
-		op.Stage = PendingOperationConfirmation
-		g.pending.set(conversationID, op)
-		return true, confirmationMessage(op), usage, nil
+		return g.handlePendingCollection(ctx, conversationID, message, op)
 	default:
 		g.pending.delete(conversationID)
 		return false, "", conversation.TokenUsage{}, nil
 	}
 }
 
-func (g *graph) executePendingOperation(ctx context.Context, conversationID string, op PendingOperation) (string, error) {
+func (g *graph) handlePendingConfirmation(
+	ctx context.Context,
+	conversationID string,
+	message string,
+	op PendingOperation,
+) (bool, string, conversation.TokenUsage, error) {
+	switch parseConfirmation(message) {
+	case confirmationAffirmative:
+		answer, err := g.executePendingOperation(ctx, conversationID, op)
+		return true, answer, conversation.TokenUsage{}, err
+	case confirmationNegative:
+		g.pending.delete(conversationID)
+		return true, "Операция отменена.", conversation.TokenUsage{}, nil
+	case confirmationUnknown:
+		if isUnrelatedPendingMessage(message) {
+			g.pending.delete(conversationID)
+			return false, "", conversation.TokenUsage{}, nil
+		}
+		return true, "Ответьте явно: `да` для подтверждения или `нет` для отмены.", conversation.TokenUsage{}, nil
+	default:
+		g.pending.delete(conversationID)
+		return false, "", conversation.TokenUsage{}, nil
+	}
+}
+
+func (g *graph) handlePendingCollection(
+	ctx context.Context,
+	conversationID string,
+	message string,
+	op PendingOperation,
+) (bool, string, conversation.TokenUsage, error) {
+	if isUnrelatedPendingMessage(message) {
+		g.pending.delete(conversationID)
+		return false, "", conversation.TokenUsage{}, nil
+	}
+
+	var usage conversation.TokenUsage
+	if op.Stack == "" || op.Service == "" {
+		resolution, resolutionUsage := g.resolvePendingTarget(ctx, message, &op)
+		usage.Add(resolutionUsage)
+		if !resolution.ok {
+			g.pending.set(conversationID, op)
+			return true, resolution.message, usage, nil
+		}
+		op.Stack, op.Service = resolution.stack, resolution.service
+	}
+	if op.Type == OperationServiceReplicasSet && op.Replicas == nil {
+		replicas, replicasOK := parseReplicas(message)
+		if !replicasOK {
+			g.pending.set(conversationID, op)
+			question := fmt.Sprintf(
+				"Сколько реплик установить для `%s` в стеке `%s`?",
+				op.Service,
+				op.Stack,
+			)
+			return true, question, usage, nil
+		}
+		op.Replicas = &replicas
+	}
+	op.Stage = PendingOperationConfirmation
+	g.pending.set(conversationID, op)
+	return true, confirmationMessage(op), usage, nil
+}
+
+func (g *graph) resolvePendingTarget(
+	ctx context.Context,
+	message string,
+	op *PendingOperation,
+) (serviceResolution, conversation.TokenUsage) {
+	target := strings.TrimSpace(message)
+	if isSelfResolveRequest(target) {
+		target = op.Target
+	} else if op.Target == "" {
+		op.Target = target
+	}
+	return g.resolveOperationTarget(ctx, g.store.List(), target)
+}
+
+func (g *graph) executePendingOperation(
+	ctx context.Context,
+	conversationID string,
+	op PendingOperation,
+) (string, error) {
 	if !g.pending.claim(conversationID, op) {
 		return "Операция уже обрабатывается или больше не ожидает подтверждения.", nil
 	}
 	resolution := resolveServiceTarget(g.store.List(), op.Stack+"/"+op.Service)
-	if !resolution.ok || !strings.EqualFold(resolution.stack, op.Stack) || !strings.EqualFold(resolution.service, op.Service) {
+	if !resolution.ok || !strings.EqualFold(resolution.stack, op.Stack) ||
+		!strings.EqualFold(resolution.service, op.Service) {
 		return "Сервис изменился или больше не существует. Операция отменена.", nil
 	}
 
@@ -326,7 +370,9 @@ func resolveServiceTarget(services []service.Info, target string) serviceResolut
 		return ambiguousServiceResolution(matches)
 	}
 
-	return serviceResolution{message: fmt.Sprintf("Сервис для цели `%s` не найден. Уточните стек или имя сервиса.", target)}
+	return serviceResolution{
+		message: fmt.Sprintf("Сервис для цели `%s` не найден. Уточните стек или имя сервиса.", target),
+	}
 }
 
 func matchingServices(services []service.Info, matches func(service.Info) bool) []service.Info {
@@ -424,20 +470,7 @@ func validateTargetResolverDecision(services []service.Info, content string) ser
 			}
 		}
 	case "ambiguous":
-		matches := make([]service.Info, 0, len(decision.Candidates))
-		seen := make(map[string]struct{}, len(decision.Candidates))
-		for _, candidate := range decision.Candidates {
-			for _, item := range services {
-				canonical := serviceTarget(item)
-				if !strings.EqualFold(canonical, strings.TrimSpace(candidate)) {
-					continue
-				}
-				if _, ok := seen[canonical]; !ok {
-					seen[canonical] = struct{}{}
-					matches = append(matches, item)
-				}
-			}
-		}
+		matches := targetResolverMatches(services, decision.Candidates)
 		if len(matches) > 1 {
 			return ambiguousServiceResolution(matches)
 		}
@@ -445,6 +478,25 @@ func validateTargetResolverDecision(services []service.Info, content string) ser
 		return serviceResolution{}
 	}
 	return serviceResolution{}
+}
+
+func targetResolverMatches(services []service.Info, candidates []string) []service.Info {
+	matches := make([]service.Info, 0, len(candidates))
+	seen := make(map[string]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		for _, item := range services {
+			canonical := serviceTarget(item)
+			if !strings.EqualFold(canonical, strings.TrimSpace(candidate)) {
+				continue
+			}
+			if _, ok := seen[canonical]; ok {
+				continue
+			}
+			seen[canonical] = struct{}{}
+			matches = append(matches, item)
+		}
+	}
+	return matches
 }
 
 const targetResolverSystemPrompt = `Resolve one Docker Swarm service target against the provided candidates.
@@ -496,7 +548,11 @@ func parseReplicas(message string) (uint64, bool) {
 
 func isUnrelatedPendingMessage(message string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(message))
-	for _, prefix := range []string{"покажи ", "расскажи ", "почему ", "как ", "что ", "show ", "list ", "why ", "how ", "what "} {
+	prefixes := []string{
+		"покажи ", "расскажи ", "почему ", "как ", "что ",
+		"show ", "list ", "why ", "how ", "what ",
+	}
+	for _, prefix := range prefixes {
 		if strings.HasPrefix(normalized, prefix) {
 			return true
 		}
@@ -506,5 +562,5 @@ func isUnrelatedPendingMessage(message string) bool {
 			return true
 		}
 	}
-	return strings.ContainsFunc(normalized, func(r rune) bool { return unicode.IsPunct(r) }) && len([]rune(normalized)) > 12
+	return strings.ContainsFunc(normalized, unicode.IsPunct) && len([]rune(normalized)) > 12
 }

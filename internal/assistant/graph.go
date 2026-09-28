@@ -176,7 +176,14 @@ func (g *graph) run(
 
 func (g *graph) compile(executionState *graphExecutionState) (*langgraph.Runnable, error) {
 	messageGraph := langgraph.NewMessageGraph()
+	g.addGraphNodes(messageGraph, executionState)
+	g.addGraphEdges(messageGraph, executionState)
+	messageGraph.SetEntryPoint(graphNodeGuard)
 
+	return messageGraph.Compile()
+}
+
+func (g *graph) addGraphNodes(messageGraph *langgraph.MessageGraph, executionState *graphExecutionState) {
 	messageGraph.AddNode(graphNodeGuard, g.guardNode(executionState))
 	messageGraph.AddNode(graphNodeRoute, g.routeNode(executionState))
 	messageGraph.AddNode(graphNodeScopeResponse, g.scopeResponseNode(executionState))
@@ -188,7 +195,9 @@ func (g *graph) compile(executionState *graphExecutionState) (*langgraph.Runnabl
 	messageGraph.AddNode(graphNodeExecuteMCP, g.executeMCPNode(executionState))
 	messageGraph.AddNode(graphNodeGuardMCPResults, g.guardMCPResultsNode(executionState))
 	messageGraph.AddNode(graphNodeFinalizeTerminal, g.finalizeTerminalResultNode(executionState))
+}
 
+func (g *graph) addGraphEdges(messageGraph *langgraph.MessageGraph, executionState *graphExecutionState) {
 	messageGraph.AddEdge(graphNodeGuard, graphNodeRoute)
 	messageGraph.AddConditionalEdges(
 		graphNodeRoute,
@@ -279,9 +288,6 @@ func (g *graph) compile(executionState *graphExecutionState) (*langgraph.Runnabl
 			graphNodeGenerateAnswer: graphNodeGenerateAnswer,
 		},
 	)
-	messageGraph.SetEntryPoint(graphNodeGuard)
-
-	return messageGraph.Compile()
 }
 
 func (g *graph) scopeResponseNode(
@@ -604,11 +610,13 @@ func isGreeting(userMessage string) bool {
 func outOfScopeResponse(userMessage string) string {
 	for _, char := range userMessage {
 		if unicode.In(char, unicode.Cyrillic) {
-			return "Я предназначен для работы со swarm-deploy и инфраструктурой Docker Swarm. Могу помочь с сервисами, деплоями, логами, состоянием кластера и диагностикой."
+			return "Я предназначен для работы со swarm-deploy и инфраструктурой Docker Swarm. " +
+				"Могу помочь с сервисами, деплоями, логами, состоянием кластера и диагностикой."
 		}
 	}
 
-	return "I'm designed for swarm-deploy and Docker Swarm infrastructure. I can help with services, deployments, logs, cluster health, and diagnostics."
+	return "I'm designed for swarm-deploy and Docker Swarm infrastructure. " +
+		"I can help with services, deployments, logs, cluster health, and diagnostics."
 }
 
 func buildServicesContextMessage(services []service.Info) string {
