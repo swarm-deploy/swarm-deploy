@@ -23,14 +23,14 @@ import (
 
 const (
 	defaultPollAfterMS   = 1000
-	activityPollAfterMS  = 150
 	defaultWaitTimeoutMS = 12000
 	maxWaitTimeoutMS     = 30000
 	maxConversationTurns = 24
 	runRetention         = 30 * time.Minute
 	runExecutionTimeout  = 2 * time.Minute
-	maxRunActivity        = 32
 )
+
+const maxRunActivity = 32
 
 // Service provides assistant chat workflow with start/poll semantics.
 type Service struct {
@@ -246,26 +246,14 @@ func (s *Service) awaitRun(ctx context.Context, run *chatRun, waitTimeout time.D
 	select {
 	case <-run.done:
 		return run.snapshot()
-	case <-run.notify:
-		response := run.snapshot()
-		if response.Status == StatusInProgress {
-			response.PollAfterMS = activityPollAfterMS
-		}
-		return response
 	case <-timer.C:
-		return ChatResponse{
-			Status:         StatusInProgress,
-			ConversationID: run.conversationID,
-			RequestID:      run.requestID,
-			PollAfterMS:    defaultPollAfterMS,
-		}
+		response := run.snapshot()
+		response.PollAfterMS = defaultPollAfterMS
+		return response
 	case <-ctx.Done():
-		return ChatResponse{
-			Status:         StatusInProgress,
-			ConversationID: run.conversationID,
-			RequestID:      run.requestID,
-			PollAfterMS:    defaultPollAfterMS,
-		}
+		response := run.snapshot()
+		response.PollAfterMS = defaultPollAfterMS
+		return response
 	}
 }
 
@@ -414,8 +402,7 @@ type chatRun struct {
 	requestID      string
 	conversationID string
 
-	done   chan struct{}
-	notify chan struct{}
+	done chan struct{}
 
 	mu         sync.RWMutex
 	status     Status
@@ -430,7 +417,6 @@ func newChatRun(requestID, conversationID string) *chatRun {
 		requestID:      requestID,
 		conversationID: conversationID,
 		done:           make(chan struct{}),
-		notify:         make(chan struct{}, 1),
 		status:         StatusInProgress,
 	}
 }
@@ -454,10 +440,6 @@ func (r *chatRun) addActivity(message string) {
 		r.activity = append(r.activity, message)
 	}
 
-	select {
-	case r.notify <- struct{}{}:
-	default:
-	}
 }
 
 func (r *chatRun) isFinished() bool {
