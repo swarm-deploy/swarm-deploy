@@ -1,4 +1,7 @@
 export interface SyncInfo {
+  last_poll_at?: string;
+  last_poll_result?: string;
+  last_poll_error?: string;
   last_sync_at?: string;
   last_sync_reason?: string;
   last_sync_result?: string;
