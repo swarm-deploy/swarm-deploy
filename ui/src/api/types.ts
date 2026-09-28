@@ -360,6 +360,7 @@ export interface AssistantChatResponse {
   answer?: string;
   error_message?: string;
   poll_after_ms?: number;
+  activity?: string[];
 }
 
 export interface AssistantTokenUsage {
