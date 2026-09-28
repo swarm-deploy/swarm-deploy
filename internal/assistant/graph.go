@@ -155,8 +155,8 @@ func (g *graph) run(
 	}
 	executionState := &graphExecutionState{
 		conversationID: conversationID,
-		history:         history,
-		userMessage:     userMessage,
+		history:        history,
+		userMessage:    userMessage,
 		reportActivity: reportActivity,
 	}
 
