@@ -557,6 +557,10 @@ components:
           enum: [user, assistant, system]
         content:
           type: string
+        activity:
+          type: array
+          items:
+            type: string
     AssistantChatHistory:
       type: object
       required: [id, title, created_at, updated_at, messages]
