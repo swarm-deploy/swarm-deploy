@@ -1227,15 +1227,26 @@ func (s *AssistantChatResponse) encodeFields(e *jx.Encoder) {
 			s.PollAfterMs.Encode(e)
 		}
 	}
+	{
+		if s.Activity != nil {
+			e.FieldStart("activity")
+			e.ArrStart()
+			for _, elem := range s.Activity {
+				e.Str(elem)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfAssistantChatResponse = [6]string{
+var jsonFieldsNameOfAssistantChatResponse = [7]string{
 	0: "status",
 	1: "request_id",
 	2: "conversation_id",
 	3: "answer",
 	4: "error_message",
 	5: "poll_after_ms",
+	6: "activity",
 }
 
 // Decode decodes AssistantChatResponse from json.
@@ -1310,6 +1321,17 @@ func (s *AssistantChatResponse) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"poll_after_ms\"")
+			}
+		case "activity":
+			if err := d.Arr(func(d *jx.Decoder) error {
+				v, err := d.Str()
+				if err != nil {
+					return err
+				}
+				s.Activity = append(s.Activity, string(v))
+				return nil
+			}); err != nil {
+				return errors.Wrap(err, "decode field \"activity\"")
 			}
 		default:
 			return d.Skip()
