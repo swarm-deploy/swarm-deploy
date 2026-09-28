@@ -102,6 +102,7 @@ export const useAssistantStore = defineStore("assistant", {
       this.messages = chat.messages.map((message) => ({
         role: message.role,
         text: message.content,
+        activity: message.activity,
       }));
       this.historyOpen = false;
     },
