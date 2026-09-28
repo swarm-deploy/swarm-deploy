@@ -8,6 +8,8 @@ type Turn struct {
 	Role string `json:"role"`
 	// Content is a raw message text.
 	Content string `json:"content"`
+	// Activity contains safe execution trace metadata for assistant turns.
+	Activity []string `json:"activity,omitempty"`
 }
 
 // Conversation contains conversation messages and metadata.
