@@ -292,8 +292,7 @@ func (g *graph) executePendingOperation(
 		return "Сервис изменился или больше не существует. Операция отменена.", nil
 	}
 
-	profile, _ := routeProfile(RouteServices)
-	effectiveTools := g.effectiveToolSet(profile)
+	effectiveTools := g.effectiveToolSet([]Capability{CapabilityServiceRuntime})
 	if _, ok := effectiveTools[string(op.Type)]; !ok {
 		return "Эта операция запрещена настройкой `assistant.tools`.", nil
 	}
