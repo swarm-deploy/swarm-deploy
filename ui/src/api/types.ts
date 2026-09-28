@@ -384,6 +384,7 @@ export interface AssistantChatsResponse {
 export interface AssistantChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
+  activity?: string[];
 }
 
 export interface AssistantChatHistory extends AssistantChatSummary {
