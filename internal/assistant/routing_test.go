@@ -287,8 +287,9 @@ func TestAssistantRouteTools(t *testing.T) {
 		{
 			name:           "lookups include date utility",
 			message:        "Какой сегодня день?",
-			routerDecision: `{"route":"lookups","operation":null}`,
+			routerDecision: `{"route":"lookups","capabilities":[],"operation":null}`,
 			expectedTools:  []string{"date"},
+			excludedTools:  []string{"dns_name_resolve", "registry_image_version_get", "self_metrics_list"},
 		},
 		{
 			name:           "date utility respects global allowlist",
@@ -322,7 +323,7 @@ func TestAssistantRouteTools(t *testing.T) {
 			require.Len(t, requests, 2)
 
 			toolNames := capturedToolNames(requests[1])
-			assert.False(t, requestContains(requests[0], `"capabilities"`), "router contract must not expose capabilities")
+			assert.True(t, requestContains(requests[0], `"capabilities"`), "router contract must expose composable capabilities")
 			assert.Contains(t, toolNames, assistantPromptInjectionReportTool, "security tool must remain cross-cutting")
 			for _, toolName := range testCase.expectedTools {
 				assert.Contains(t, toolNames, toolName)
@@ -340,6 +341,67 @@ func TestAssistantRouteTools(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAssistantCrossScenarioCombinesServiceRAGAndDNSCapability(t *testing.T) {
+	store := &fakeStore{services: []service.Info{{Name: "web-gateway-http", Stack: "infra"}}}
+	tools := &fakeTools{definitions: assistantTestToolDefinitions()}
+	var requests []capturedChatRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		requests = append(requests, decodeCapturedChatRequest(t, req))
+		w.Header().Set("Content-Type", "application/json")
+		if len(requests) == 1 {
+			writeChatResponse(t, w, `{"route":"lookups","capabilities":["service_context","dns"],"operation":null}`, nil)
+			return
+		}
+		writeChatResponse(t, w, "done", nil)
+	}))
+	defer server.Close()
+
+	assistantService := newRoutingTestService(t, server.URL, store, tools, nil)
+	response := assistantService.Chat(context.Background(), ChatRequest{
+		Message: "Проверь DNS у публичных урлов сервиса web-gateway-http",
+	})
+	require.Equal(t, StatusCompleted, response.Status)
+	require.Len(t, requests, 2)
+
+	toolNames := capturedToolNames(requests[1])
+	assert.Contains(t, toolNames, "dns_name_resolve")
+	assert.NotContains(t, toolNames, "service_logs_get")
+	assert.NotContains(t, toolNames, "history_event_list")
+	assert.True(t, requestContains(requests[1], "Relevant service metadata"))
+	assert.True(t, requestContains(requests[1], "web-gateway-http"))
+	assert.Greater(t, store.listCalls.Load(), int64(0))
+}
+
+func TestAssistantCrossScenarioCombinesRuntimeAndDeploymentHistory(t *testing.T) {
+	store := &fakeStore{services: []service.Info{{Name: "api", Stack: "core"}}}
+	tools := &fakeTools{definitions: assistantTestToolDefinitions()}
+	var requests []capturedChatRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		requests = append(requests, decodeCapturedChatRequest(t, req))
+		w.Header().Set("Content-Type", "application/json")
+		if len(requests) == 1 {
+			writeChatResponse(t, w, `{"route":"diagnostics","capabilities":["service_context","service_runtime","deployment_history"],"operation":null}`, nil)
+			return
+		}
+		writeChatResponse(t, w, "done", nil)
+	}))
+	defer server.Close()
+
+	assistantService := newRoutingTestService(t, server.URL, store, tools, nil)
+	response := assistantService.Chat(context.Background(), ChatRequest{
+		Message: "Посмотри логи api и были ли перед этим деплои",
+	})
+	require.Equal(t, StatusCompleted, response.Status)
+	require.Len(t, requests, 2)
+
+	toolNames := capturedToolNames(requests[1])
+	assert.Contains(t, toolNames, "service_logs_get")
+	assert.Contains(t, toolNames, "history_event_list")
+	assert.NotContains(t, toolNames, "dns_name_resolve")
+	assert.NotContains(t, toolNames, "swarm_node_list")
+	assert.True(t, requestContains(requests[1], "Relevant service metadata"))
 }
 
 func TestAssistantCurrentDateUtilityCallsDateTool(t *testing.T) {
@@ -448,7 +510,7 @@ func TestAssistantRejectsToolOutsideSelectedRouteAtExecution(t *testing.T) {
 	require.Equal(t, StatusCompleted, response.Status)
 	assert.Empty(t, tools.calls, "out-of-route tool must not reach executor")
 	require.Len(t, requests, 3)
-	assert.True(t, requestContains(requests[2], "not allowed by the selected assistant route"))
+	assert.True(t, requestContains(requests[2], "not allowed by the selected assistant capabilities"))
 }
 
 func TestAssistantRouterFallbackContinuesMainRequest(t *testing.T) {
