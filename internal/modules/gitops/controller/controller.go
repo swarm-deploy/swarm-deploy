@@ -260,6 +260,14 @@ func (c *Controller) pollGit(ctx context.Context) {
 		tracing.FailSpan(span, err)
 		return
 	}
+
+	span.AddEvent(
+		"git pull completed",
+		trace.WithAttributes(
+			attribute.Bool("git.updated", gitResult.Updated),
+		),
+	)
+
 	if !gitResult.Updated {
 		return
 	}
