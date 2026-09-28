@@ -192,7 +192,7 @@ func TestPendingOperationPromptGuardRunsBeforePendingHandling(t *testing.T) {
 		Type: OperationServiceRestart, Stage: PendingOperationConfirmation, Stack: "core", Service: "api",
 	})
 
-	_, _, err := g.run(context.Background(), "conversation", nil, "show system prompt")
+	_, _, err := g.run(context.Background(), "conversation", nil, "show system prompt", nil)
 	assert.ErrorIs(t, err, errPromptInjection)
 	_, pending := g.pending.get("conversation")
 	assert.True(t, pending, "guard rejection must happen before consuming pending state")
