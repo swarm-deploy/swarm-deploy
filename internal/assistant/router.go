@@ -16,26 +16,17 @@ const (
 	routerExtraMessages = 2
 )
 
-// Route identifies a bounded assistant request domain.
 type Route string
 
 const (
-	// RouteGeneral handles short conversational interaction with the assistant itself.
-	RouteGeneral Route = "general"
-	// RouteOutOfScope handles requests outside swarm-deploy and its operational domain.
-	RouteOutOfScope Route = "out_of_scope"
-	// RoutePlatform handles questions about swarm-deploy itself.
-	RoutePlatform Route = "platform"
-	// RouteServices handles service inspection and service operations.
-	RouteServices Route = "services"
-	// RouteCluster handles Swarm cluster resources.
-	RouteCluster Route = "cluster"
-	// RouteDeployments handles synchronization and repository deployment history.
+	RouteGeneral     Route = "general"
+	RouteOutOfScope  Route = "out_of_scope"
+	RoutePlatform    Route = "platform"
+	RouteServices    Route = "services"
+	RouteCluster     Route = "cluster"
 	RouteDeployments Route = "deployments"
-	// RouteDiagnostics handles investigations across runtime data sources.
 	RouteDiagnostics Route = "diagnostics"
-	// RouteLookups handles focused external or utility lookups.
-	RouteLookups Route = "lookups"
+	RouteLookups     Route = "lookups"
 )
 
 var (
@@ -43,27 +34,19 @@ var (
 	errUnknownRoute          = errors.New("unknown route")
 )
 
-// RouteRequest contains the minimum conversation context needed for routing.
 type RouteRequest struct {
-	// Message is the current user message.
-	Message string
-	// RecentHistory contains the most recent conversation turns.
+	Message       string
 	RecentHistory []conversation.Turn
 }
 
-// RouteResult contains the selected route and the model usage incurred while selecting it.
 type RouteResult struct {
-	// Route is the selected route.
-	Route Route
-	// Operation contains a supported mutating operation recognized by the router.
-	Operation *OperationIntent
-	// Usage is token usage reported by the router completion.
-	Usage conversation.TokenUsage
+	Route        Route
+	Capabilities []Capability
+	Operation    *OperationIntent
+	Usage        conversation.TokenUsage
 }
 
-// Router classifies assistant requests without receiving tools or retrieved context.
 type Router interface {
-	// Route selects one route for the request.
 	Route(ctx context.Context, req RouteRequest) (RouteResult, error)
 }
 
@@ -77,31 +60,19 @@ type llmRouter struct {
 }
 
 func newLLMRouter(chat modelCompleter, modelName string) *llmRouter {
-	return &llmRouter{
-		chat:      chat,
-		modelName: strings.TrimSpace(modelName),
-	}
+	return &llmRouter{chat: chat, modelName: strings.TrimSpace(modelName)}
 }
 
 func (r *llmRouter) Route(ctx context.Context, req RouteRequest) (RouteResult, error) {
 	messages := make([]modelMessage, 0, len(req.RecentHistory)+routerExtraMessages)
 	messages = append(messages, modelMessage{Role: "system", Content: routerSystemPrompt})
 	for _, turn := range recentTurns(req.RecentHistory, routerHistoryTurns) {
-		messages = append(messages, modelMessage{
-			Role:    turn.Role,
-			Content: turn.Content,
-		})
+		messages = append(messages, modelMessage{Role: turn.Role, Content: turn.Content})
 	}
-	messages = append(messages, modelMessage{
-		Role:    "user",
-		Content: strings.TrimSpace(req.Message),
-	})
+	messages = append(messages, modelMessage{Role: "user", Content: strings.TrimSpace(req.Message)})
 
 	completion, err := r.chat.complete(ctx, modelRequest{
-		Model:       r.modelName,
-		Temperature: 0,
-		MaxTokens:   routerMaxTokens,
-		Messages:    messages,
+		Model: r.modelName, Temperature: 0, MaxTokens: routerMaxTokens, Messages: messages,
 	})
 	if err != nil {
 		return RouteResult{}, fmt.Errorf("router completion: %w", err)
@@ -111,11 +82,7 @@ func (r *llmRouter) Route(ctx context.Context, req RouteRequest) (RouteResult, e
 	var decision RouteDecision
 	if strings.HasPrefix(rawContent, "{") {
 		if unmarshalErr := json.Unmarshal([]byte(rawContent), &decision); unmarshalErr != nil {
-			return RouteResult{Usage: completion.Usage}, fmt.Errorf(
-				"%w: %q",
-				errInvalidRouterResponse,
-				completion.Content,
-			)
+			return RouteResult{Usage: completion.Usage}, fmt.Errorf("%w: %q", errInvalidRouterResponse, completion.Content)
 		}
 	} else {
 		decision.Route = Route(strings.ToLower(rawContent))
@@ -130,14 +97,24 @@ func (r *llmRouter) Route(ctx context.Context, req RouteRequest) (RouteResult, e
 		return RouteResult{Usage: completion.Usage}, fmt.Errorf("%w: %q", errInvalidRouterResponse, completion.Content)
 	}
 
+	capabilities := decision.Capabilities
+	if capabilities == nil {
+		capabilities = defaultCapabilitiesForRoute(route)
+	}
+	normalizedCapabilities, ok := normalizeCapabilities(capabilities)
+	if !ok {
+		return RouteResult{Usage: completion.Usage}, fmt.Errorf("%w: unknown capability in %q", errInvalidRouterResponse, completion.Content)
+	}
+
 	if decision.Operation != nil && (route != RouteServices || !decision.Operation.Type.supported()) {
 		decision.Operation = nil
 	}
+	if decision.Operation != nil && !hasCapability(normalizedCapabilities, CapabilityServiceRuntime) {
+		normalizedCapabilities = append(normalizedCapabilities, CapabilityServiceRuntime)
+	}
 
 	return RouteResult{
-		Route:     route,
-		Operation: decision.Operation,
-		Usage:     completion.Usage,
+		Route: route, Capabilities: normalizedCapabilities, Operation: decision.Operation, Usage: completion.Usage,
 	}, nil
 }
 
@@ -156,7 +133,6 @@ func recentTurns(history []conversation.Turn, limit int) []conversation.Turn {
 	if limit <= 0 || len(history) <= limit {
 		return history
 	}
-
 	return history[len(history)-limit:]
 }
 
@@ -166,28 +142,39 @@ func isKnownRoute(route Route) bool {
 }
 
 //nolint:lll // Keeping prompt instructions on semantic lines makes the model-facing text easier to audit.
-const routerSystemPrompt = `Classify the user's request for the swarm-deploy assistant and extract supported mutating operations.
-The assistant is exclusively for swarm-deploy and closely related Docker Swarm, deployment, runtime, observability, troubleshooting, and infrastructure operations.
-Return compact JSON only: {"route":"<route>","operation":null}.
-Keep exactly one primary route. Registry image, external release, and date/time tools are already available in the routes that need them.
-For restart or replica changes, operation is {"type":"service_restart_trigger|service_replicas_set","target":"literal target or empty","replicas":number-or-null}.
-Target is the literal service reference from the current user message. Do not decide whether it is a stack or service, and never infer a missing target from history.
+const routerSystemPrompt = `Classify the user's request for the swarm-deploy assistant.
+Return compact JSON only: {"route":"<route>","capabilities":["<capability>"],"operation":null}.
+Choose exactly one primary route for response guidance. Capabilities are composable: include every context/tool group needed to complete the request, including cross-domain requests.
 Routes:
-- general: only greetings, acknowledgements, assistant identity, and short conversational interactions with the assistant itself
-- out_of_scope: questions or requests unrelated to the assistant's operational domain; do not use general for general-knowledge or creative requests
-- platform: questions about swarm-deploy capabilities or behavior, without runtime inspection
-- services: service catalog, logs, specs, images, replicas, restart, routes, or dependencies
+- general: greetings, acknowledgements, assistant identity, and short conversation with the assistant itself
+- out_of_scope: unrelated to swarm-deploy, Docker Swarm, deployment, runtime, observability, troubleshooting, or infrastructure operations
+- platform: questions about swarm-deploy capabilities or behavior without runtime inspection
+- services: service catalog or service-focused inspection/operations
 - cluster: nodes, Docker networks, plugins, or secrets
-- deployments: sync, deployment/event history, recommendations, git history, or commit diffs
-- diagnostics: investigating failures, availability, or runtime problems using multiple data sources
-- lookups: focused registry, external release, DNS, date/time, or application metrics lookup
+- deployments: synchronization, deployment/event history, recommendations, git history, or commit diffs
+- diagnostics: investigation of failures or availability across runtime data sources
+- lookups: focused DNS, registry, external release, date/time, or application metrics lookup
+Capabilities:
+- service_context: retrieve service.store metadata with service name, stack, image, description, type, and web routes
+- service_runtime: service logs, specs, replicas, restart, web-route ping, or dependencies
+- cluster: nodes, Docker networks, plugins, and secrets
+- deployment_history: events, recommendations, git history, and commit diffs
+- deployment_sync: trigger synchronization
+- registry: registry image version lookup
+- external_release: upstream repository release lookup
+- dns: DNS resolution
+- metrics: application metrics lookup
+Do not add capabilities merely because a route commonly uses them. Add only what this request needs.
+Date/time uses the cross-cutting date tool and needs no capability.
+For restart or replica changes, operation is {"type":"service_restart_trigger|service_replicas_set","target":"literal target or empty","replicas":number-or-null}; include service_runtime.
+Target is copied from the current user message. Never infer a missing operation target from history.
 Examples:
-"Привет" -> {"route":"general","operation":null}; "Где находится Юпитер?" -> {"route":"out_of_scope","operation":null}
-"Как приготовить борщ?" -> {"route":"out_of_scope","operation":null}; "Почему api падает?" -> {"route":"diagnostics","operation":null}
-"Сравни текущий image api с последним upstream release" -> {"route":"services","operation":null}
-"Почему deploy api упал и есть ли более свежий image?" -> {"route":"diagnostics","operation":null}
-"Какой сегодня день?" -> {"route":"lookups","operation":null}
-"Какие деплои были вчера?" -> {"route":"deployments","operation":null}
-"Что происходило сегодня с api?" -> {"route":"diagnostics","operation":null}
-Legacy route examples: "Где находится Юпитер?" -> out_of_scope; "Как приготовить борщ?" -> out_of_scope
-Use recent history only to select the route for ordinary follow-ups. Pending operation confirmation is handled by the backend.`
+"Привет" -> {"route":"general","capabilities":[],"operation":null}
+"Где находится Юпитер?" -> {"route":"out_of_scope","capabilities":[],"operation":null}
+"Покажи логи api" -> {"route":"services","capabilities":["service_context","service_runtime"],"operation":null}
+"Проверь DNS api.example.com" -> {"route":"lookups","capabilities":["dns"],"operation":null}
+"Проверь DNS у публичных урлов сервиса web-gateway-http" -> {"route":"lookups","capabilities":["service_context","dns"],"operation":null}
+"Посмотри логи api и были ли перед этим деплои" -> {"route":"diagnostics","capabilities":["service_context","service_runtime","deployment_history"],"operation":null}
+"Какие деплои были вчера?" -> {"route":"deployments","capabilities":["deployment_history"],"operation":null}
+"Какой сегодня день?" -> {"route":"lookups","capabilities":[],"operation":null}
+Use recent history only to resolve ordinary follow-up intent. Pending operation confirmation is handled by the backend.`
