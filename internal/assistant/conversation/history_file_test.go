@@ -122,6 +122,23 @@ func TestFileHistoryStorageLoadsLegacyChatWithoutTokenUsage(t *testing.T) {
 	assert.Nil(t, chat.Usage)
 }
 
+func TestFileHistoryStorageLoadsLegacyChatWithoutActivity(t *testing.T) {
+	dir := t.TempDir()
+	storage, err := NewFileHistoryStorage(dir)
+	require.NoError(t, err, "create history storage")
+	require.NoError(t, storage.Append(
+		"legacy-activity",
+		Turn{Role: "user", Content: "hello"},
+		Turn{Role: "assistant", Content: "hi"},
+	))
+
+	chat, ok, err := storage.Get("legacy-activity")
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.Len(t, chat.Turns, 2)
+	assert.Nil(t, chat.Turns[1].Activity)
+}
+
 func TestFileHistoryStorageKeepsConversationIDOutOfFilePath(t *testing.T) {
 	dir := t.TempDir()
 	storage, err := NewFileHistoryStorage(dir)
