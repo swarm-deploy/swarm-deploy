@@ -73,6 +73,8 @@ type ChatMessage struct {
 	Role string `json:"role"`
 	// Content is the message text.
 	Content string `json:"content"`
+	// Activity contains persisted execution trace metadata for assistant messages.
+	Activity []string `json:"activity,omitempty"`
 }
 
 // TokenUsage contains aggregate model token consumption for a chat.
