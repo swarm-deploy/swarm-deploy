@@ -112,7 +112,7 @@ export const useAssistantStore = defineStore("assistant", {
         wait_timeout_ms: 750,
       };
 
-      for (let attempt = 0; attempt < 30; attempt += 1) {
+      for (let attempt = 0; attempt < 150; attempt += 1) {
         const response = await this.requestAssistant(payload);
         this.conversationID = response.conversation_id || this.conversationID;
         this.activeRequestID = response.request_id || this.activeRequestID;
