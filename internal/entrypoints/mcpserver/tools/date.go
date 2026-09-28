@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 )
 
@@ -28,7 +29,7 @@ func NewDate() *Date {
 // Definition returns tool metadata visible to the model.
 func (d *Date) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
-		Name:        "date",
+		Name:        config.AssistantToolNameDate,
 		Description: "Returns current time in UTC or in requested IANA timezone.",
 		ParametersJSONSchema: map[string]any{
 			"type": "object",

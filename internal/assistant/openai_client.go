@@ -61,7 +61,7 @@ func (c *openAIClient) complete(ctx context.Context, req modelRequest) (modelRes
 			tools = append(tools, openai.ChatCompletionToolUnionParam{
 				OfFunction: &openai.ChatCompletionFunctionToolParam{
 					Function: openai.FunctionDefinitionParam{
-						Name:        strings.TrimSpace(tool.Name),
+						Name:        strings.TrimSpace(string(tool.Name)),
 						Description: openai.String(strings.TrimSpace(tool.Description)),
 						Parameters:  tool.ParametersJSONSchema,
 					},

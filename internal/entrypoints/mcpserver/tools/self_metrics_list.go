@@ -7,6 +7,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 )
 
@@ -27,7 +28,7 @@ func NewSelfMetricsList(gatherer prometheus.Gatherer, metricPrefix string) *Self
 // Definition returns tool metadata visible to the model.
 func (l *SelfMetricsList) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
-		Name:        "self_metrics_list",
+		Name:        config.AssistantToolNameSelfMetricsList,
 		Description: "Returns current swarm-deploy Prometheus metrics snapshot.",
 		ParametersJSONSchema: map[string]any{
 			"type":       "object",

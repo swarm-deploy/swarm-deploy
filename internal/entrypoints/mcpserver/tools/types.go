@@ -16,6 +16,16 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
+// ServiceActionResult describes the resulting state of a service action.
+type ServiceActionResult struct {
+	// Stack is the stack containing the service.
+	Stack string `json:"stack"`
+	// Service is the service name inside the stack.
+	Service string `json:"service"`
+	// Replicas is the resulting replicas count.
+	Replicas uint64 `json:"replicas"`
+}
+
 // HistoryReader reads current event history snapshot.
 type HistoryReader interface {
 	// List returns current event history snapshot.

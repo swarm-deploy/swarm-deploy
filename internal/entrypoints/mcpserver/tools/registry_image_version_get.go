@@ -7,6 +7,7 @@ import (
 
 	"github.com/distribution/reference"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 )
 
@@ -29,7 +30,7 @@ func NewGetActualImageVersion(resolver ImageVersionResolver) *GetActualImageVers
 // Definition returns tool metadata visible to the model.
 func (g *GetActualImageVersion) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
-		Name:        "registry_image_version_get",
+		Name:        config.AssistantToolNameRegistryImageVersionGet,
 		Description: "Resolves an actual image tag and digest in container registry (Docker Hub and registry v2 compatible registries).", //nolint:lll//not need
 		ParametersJSONSchema: map[string]any{
 			"type": "object",

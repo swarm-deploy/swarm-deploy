@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -32,7 +33,7 @@ func NewRestartService(manager swarm.ServiceManager, eventDispatcher dispatcher.
 // Definition returns tool metadata visible to the model.
 func (s *RestartService) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
-		Name:        "service_restart_trigger",
+		Name:        config.AssistantToolNameServiceRestartTrigger,
 		Description: "Restarts a stack service by scaling replicas to zero and restoring previous count.",
 		ParametersJSONSchema: map[string]any{
 			"type": "object",
@@ -77,11 +78,7 @@ func (s *RestartService) Execute(ctx context.Context, request routing.Request) (
 		ServiceName: target.ServiceName(),
 	})
 
-	payload := struct {
-		Stack    string `json:"stack"`
-		Service  string `json:"service"`
-		Replicas uint64 `json:"replicas"`
-	}{
+	payload := ServiceActionResult{
 		Stack:    target.StackName(),
 		Service:  target.ServiceName(),
 		Replicas: replicas,

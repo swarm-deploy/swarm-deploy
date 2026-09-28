@@ -1,11 +1,15 @@
 package routing
 
-import "context"
+import (
+	"context"
+
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
+)
 
 // ToolDefinition describes an executable tool visible to the model.
 type ToolDefinition struct {
 	// Name is a unique tool name.
-	Name string
+	Name config.AssistantToolName
 	// Description is a short usage description.
 	Description string
 	// ParametersJSONSchema is a JSON schema object for tool arguments.

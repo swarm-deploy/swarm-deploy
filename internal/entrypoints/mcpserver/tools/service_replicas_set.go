@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -33,7 +34,7 @@ func NewSetServiceReplicas(manager swarm.ServiceManager, eventDispatcher dispatc
 // Definition returns tool metadata visible to the model.
 func (s *SetServiceReplicas) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
-		Name:        "service_replicas_set",
+		Name:        config.AssistantToolNameServiceReplicasSet,
 		Description: "Updates replicas count for a stack service.",
 		ParametersJSONSchema: map[string]any{
 			"type": "object",
@@ -105,11 +106,7 @@ func (s *SetServiceReplicas) Execute(ctx context.Context, request routing.Reques
 		})
 	}
 
-	payload := struct {
-		Stack    string `json:"stack"`
-		Service  string `json:"service"`
-		Replicas uint64 `json:"replicas"`
-	}{
+	payload := ServiceActionResult{
 		Stack:    target.StackName(),
 		Service:  target.ServiceName(),
 		Replicas: replicas,

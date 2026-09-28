@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
+	"unicode"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/assistant/guard"
@@ -23,6 +24,8 @@ const (
 
 const (
 	graphNodeGuard            = "guard"
+	graphNodeRoute            = "route"
+	graphNodeScopeResponse    = "scope_response"
 	graphNodeRetrievePlan     = "retrieve_plan"
 	graphNodeRetrieveLexical  = "retrieve_lexical"
 	graphNodeRetrieveSemantic = "retrieve_semantic"
@@ -30,6 +33,7 @@ const (
 	graphNodeGenerateAnswer   = "generate_answer"
 	graphNodeExecuteMCP       = "execute_mcp"
 	graphNodeGuardMCPResults  = "guard_mcp_results"
+	graphNodeFinalizeTerminal = "finalize_terminal_result"
 )
 
 var helloMessages = map[string]struct{}{
@@ -54,6 +58,11 @@ type promptInjectionError struct {
 	prompt string
 }
 
+type routerFallbackObserver interface {
+	// RecordRouterFallback tracks why the graph selected its fallback route profile.
+	RecordRouterFallback(reason string)
+}
+
 func (e *promptInjectionError) Error() string {
 	return errPromptInjection.Error()
 }
@@ -66,56 +75,85 @@ type graph struct {
 	config         Config
 	guard          *guard.InjectionChecker
 	retriever      *rag.Retriever
-	chat           *openAIClient
+	chat           modelCompleter
+	router         Router
 	tools          ToolExecutor
 	allowedToolSet map[string]struct{}
+	observer       routerFallbackObserver
+	store          ServiceStore
+	pending        *pendingOperationStore
 }
 
 type graphExecutionState struct {
-	history          []conversation.Turn
-	userMessage      string
-	retrievalPlan    *rag.RetrievalPlan
-	relevantServices []service.Info
-	modelMessages    []modelMessage
-	pendingToolCalls []modelToolCall
-	lastToolResults  []toolExecutionResult
-	toolIterations   int
-	answer           string
-	usage            conversation.TokenUsage
-	rejectedPrompt   string
+	conversationID          string
+	history                 []conversation.Turn
+	userMessage             string
+	route                   Route
+	profile                 RouteProfile
+	effectiveToolSet        map[string]struct{}
+	retrievalPlan           *rag.RetrievalPlan
+	relevantServices        []service.Info
+	modelMessages           []modelMessage
+	pendingToolCalls        []modelToolCall
+	lastToolResults         []toolExecutionResult
+	toolIterations          int
+	answer                  string
+	usage                   conversation.TokenUsage
+	rejectedPrompt          string
+	preparedSizes           preparedRequestSizes
+	terminalTool            string
+	securityReportAttempted bool
+	operation               *OperationIntent
+	operationHandled        bool
 }
 
 type toolExecutionResult struct {
 	toolName string
 	content  string
+	success  bool
 }
 
 func newGraph(
 	config Config,
 	guard *guard.InjectionChecker,
 	retriever *rag.Retriever,
-	chat *openAIClient,
+	chat modelCompleter,
+	router Router,
 	tools ToolExecutor,
 	allowedToolSet map[string]struct{},
+	observer routerFallbackObserver,
+	store ServiceStore,
 ) *graph {
 	return &graph{
 		config:         config,
 		guard:          guard,
 		retriever:      retriever,
 		chat:           chat,
+		router:         router,
 		tools:          tools,
 		allowedToolSet: allowedToolSet,
+		observer:       observer,
+		store:          store,
+		pending:        newPendingOperationStore(config.ConversationInMemoryTTL),
 	}
 }
 
 func (g *graph) run(
 	ctx context.Context,
+	conversationID string,
 	history []conversation.Turn,
 	userMessage string,
 ) (string, conversation.TokenUsage, error) {
+	if g.guard.Check(userMessage) {
+		return "", conversation.TokenUsage{}, &promptInjectionError{prompt: strings.TrimSpace(userMessage)}
+	}
+	if handled, answer, usage, err := g.handlePendingOperation(ctx, conversationID, userMessage); handled || err != nil {
+		return answer, usage, err
+	}
 	executionState := &graphExecutionState{
-		history:     history,
-		userMessage: userMessage,
+		conversationID: conversationID,
+		history:        history,
+		userMessage:    userMessage,
 	}
 
 	runnable, err := g.compile(executionState)
@@ -138,8 +176,17 @@ func (g *graph) run(
 
 func (g *graph) compile(executionState *graphExecutionState) (*langgraph.Runnable, error) {
 	messageGraph := langgraph.NewMessageGraph()
+	g.addGraphNodes(messageGraph, executionState)
+	g.addGraphEdges(messageGraph, executionState)
+	messageGraph.SetEntryPoint(graphNodeGuard)
 
+	return messageGraph.Compile()
+}
+
+func (g *graph) addGraphNodes(messageGraph *langgraph.MessageGraph, executionState *graphExecutionState) {
 	messageGraph.AddNode(graphNodeGuard, g.guardNode(executionState))
+	messageGraph.AddNode(graphNodeRoute, g.routeNode(executionState))
+	messageGraph.AddNode(graphNodeScopeResponse, g.scopeResponseNode(executionState))
 	messageGraph.AddNode(graphNodeRetrievePlan, g.retrievePlanNode(executionState))
 	messageGraph.AddNode(graphNodeRetrieveLexical, g.retrieveLexicalNode(executionState))
 	messageGraph.AddNode(graphNodeRetrieveSemantic, g.retrieveSemanticNode(executionState))
@@ -147,21 +194,34 @@ func (g *graph) compile(executionState *graphExecutionState) (*langgraph.Runnabl
 	messageGraph.AddNode(graphNodeGenerateAnswer, g.generateAnswerNode(executionState))
 	messageGraph.AddNode(graphNodeExecuteMCP, g.executeMCPNode(executionState))
 	messageGraph.AddNode(graphNodeGuardMCPResults, g.guardMCPResultsNode(executionState))
+	messageGraph.AddNode(graphNodeFinalizeTerminal, g.finalizeTerminalResultNode(executionState))
+}
 
+func (g *graph) addGraphEdges(messageGraph *langgraph.MessageGraph, executionState *graphExecutionState) {
+	messageGraph.AddEdge(graphNodeGuard, graphNodeRoute)
 	messageGraph.AddConditionalEdges(
-		graphNodeGuard,
+		graphNodeRoute,
 		func(_ context.Context, _ []llms.MessageContent) string {
-			if shouldSkipContextRetrieval(executionState.userMessage) {
-				return graphNodePrepare
+			if executionState.operationHandled {
+				return langgraph.END
+			}
+			if executionState.route == RouteOutOfScope {
+				return graphNodeScopeResponse
+			}
+			if executionState.profile.ServiceContext {
+				return graphNodeRetrievePlan
 			}
 
-			return graphNodeRetrievePlan
+			return graphNodePrepare
 		},
 		map[string]string{
-			graphNodePrepare:      graphNodePrepare,
-			graphNodeRetrievePlan: graphNodeRetrievePlan,
+			langgraph.END:          langgraph.END,
+			graphNodeScopeResponse: graphNodeScopeResponse,
+			graphNodePrepare:       graphNodePrepare,
+			graphNodeRetrievePlan:  graphNodeRetrievePlan,
 		},
 	)
+	messageGraph.AddEdge(graphNodeScopeResponse, langgraph.END)
 	messageGraph.AddConditionalEdges(
 		graphNodeRetrievePlan,
 		func(_ context.Context, _ []llms.MessageContent) string {
@@ -200,10 +260,89 @@ func (g *graph) compile(executionState *graphExecutionState) (*langgraph.Runnabl
 		},
 	)
 	messageGraph.AddEdge(graphNodeExecuteMCP, graphNodeGuardMCPResults)
-	messageGraph.AddEdge(graphNodeGuardMCPResults, graphNodeGenerateAnswer)
-	messageGraph.SetEntryPoint(graphNodeGuard)
+	messageGraph.AddConditionalEdges(
+		graphNodeGuardMCPResults,
+		func(_ context.Context, _ []llms.MessageContent) string {
+			if isTerminalToolResultCandidate(executionState.lastToolResults) {
+				return graphNodeFinalizeTerminal
+			}
 
-	return messageGraph.Compile()
+			return graphNodeGenerateAnswer
+		},
+		map[string]string{
+			graphNodeFinalizeTerminal: graphNodeFinalizeTerminal,
+			graphNodeGenerateAnswer:   graphNodeGenerateAnswer,
+		},
+	)
+	messageGraph.AddConditionalEdges(
+		graphNodeFinalizeTerminal,
+		func(_ context.Context, _ []llms.MessageContent) string {
+			if executionState.terminalTool != "" {
+				return langgraph.END
+			}
+
+			return graphNodeGenerateAnswer
+		},
+		map[string]string{
+			langgraph.END:           langgraph.END,
+			graphNodeGenerateAnswer: graphNodeGenerateAnswer,
+		},
+	)
+}
+
+func (g *graph) scopeResponseNode(
+	executionState *graphExecutionState,
+) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
+	return func(_ context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
+		executionState.answer = outOfScopeResponse(executionState.userMessage)
+		return messages, nil
+	}
+}
+
+func (g *graph) routeNode(
+	executionState *graphExecutionState,
+) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
+	return func(ctx context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
+		route := RouteGeneral
+		if !isGreeting(executionState.userMessage) {
+			result, err := g.router.Route(ctx, RouteRequest{
+				Message:       executionState.userMessage,
+				RecentHistory: executionState.history,
+			})
+			executionState.usage.Add(result.Usage)
+			if err != nil {
+				reason := routerFallbackReason(err)
+				slog.WarnContext(ctx, "[assistant] router fallback",
+					slog.String("reason", reason),
+					slog.Any("err", err),
+				)
+				if g.observer != nil {
+					g.observer.RecordRouterFallback(reason)
+				}
+				executionState.route = RouteGeneral
+				executionState.profile = fallbackRouteProfile()
+				executionState.effectiveToolSet = g.effectiveToolSet(executionState.profile)
+				return messages, nil
+			}
+			route = result.Route
+			executionState.operation = result.Operation
+		}
+
+		profile, ok := routeProfile(route)
+		if !ok {
+			return messages, fmt.Errorf("profile for route %q is not configured", route)
+		}
+		executionState.route = route
+		executionState.profile = profile
+		executionState.effectiveToolSet = g.effectiveToolSet(profile)
+		if executionState.operation != nil {
+			answer, usage := g.startPendingOperation(ctx, executionState.conversationID, *executionState.operation)
+			executionState.answer = answer
+			executionState.usage.Add(usage)
+			executionState.operationHandled = true
+		}
+		return messages, nil
+	}
 }
 
 func (g *graph) guardNode(
@@ -268,30 +407,45 @@ func (g *graph) prepareNode(
 ) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
 	return func(_ context.Context, state []llms.MessageContent) ([]llms.MessageContent, error) {
 		messages := make([]modelMessage, 0, len(executionState.history)+prepareMessagesExtraCapacity)
+		systemPrompt := buildSystemPrompt(g.config.SystemPrompt, executionState.profile.Prompt)
 		messages = append(messages, modelMessage{
 			Role:    "system",
-			Content: buildSystemPrompt(g.config.SystemPrompt, g.allowedToolNames()),
+			Content: systemPrompt,
 		})
 
-		if contextMessage := buildServicesContextMessage(executionState.relevantServices); contextMessage != "" {
-			messages = append(messages, modelMessage{
-				Role:    "system",
-				Content: contextMessage,
-			})
+		contextChars := 0
+		if executionState.profile.ServiceContext {
+			if contextMessage := buildServicesContextMessage(executionState.relevantServices); contextMessage != "" {
+				contextChars = textChars(contextMessage)
+				messages = append(messages, modelMessage{
+					Role:    "system",
+					Content: contextMessage,
+				})
+			}
 		}
 
+		historyChars := 0
 		for _, turn := range executionState.history {
+			historyChars += textChars(turn.Content)
 			messages = append(messages, modelMessage{
 				Role:    turn.Role,
 				Content: turn.Content,
 			})
 		}
+		userMessage := strings.TrimSpace(executionState.userMessage)
 		messages = append(messages, modelMessage{
 			Role:    "user",
-			Content: strings.TrimSpace(executionState.userMessage),
+			Content: userMessage,
 		})
 
 		executionState.modelMessages = messages
+		executionState.preparedSizes = preparedRequestSizes{
+			systemPromptChars: textChars(systemPrompt),
+			historyChars:      historyChars,
+			contextChars:      contextChars,
+			userMessageChars:  textChars(userMessage),
+			messageCount:      len(messages),
+		}
 		return state, nil
 	}
 }
@@ -299,20 +453,25 @@ func (g *graph) prepareNode(
 func (g *graph) generateAnswerNode(
 	executionState *graphExecutionState,
 ) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
-	allowedToolDefinitions := g.allowedToolDefinitions()
-
 	return func(ctx context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
 		if executionState.toolIterations >= maxToolIterations {
 			return messages, fmt.Errorf("tool iteration limit exceeded")
 		}
 
-		completion, completionErr := g.chat.complete(ctx, modelRequest{
+		request := modelRequest{
 			Model:       g.config.ModelName,
 			Temperature: g.config.Temperature,
 			MaxTokens:   g.config.MaxTokens,
 			Messages:    executionState.modelMessages,
-			Tools:       allowedToolDefinitions,
-		})
+			Tools:       g.effectiveToolDefinitions(executionState.effectiveToolSet),
+		}
+		recordModelRequestDiagnostics(
+			ctx,
+			executionState.route,
+			calculateModelRequestDiagnostics(request, executionState.preparedSizes),
+		)
+
+		completion, completionErr := g.chat.complete(ctx, request)
 		if completionErr != nil {
 			return messages, fmt.Errorf("chat completion: %w", completionErr)
 		}
@@ -341,10 +500,26 @@ func (g *graph) executeMCPNode(
 ) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
 	return func(ctx context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
 		executionState.lastToolResults = executionState.lastToolResults[:0]
-		for _, modelToolCall := range executionState.pendingToolCalls {
+		toolCalls := executionState.pendingToolCalls
+		selectedSecurityReport := false
+		for _, toolCall := range toolCalls {
+			if toolCall.Name != assistantPromptInjectionReportTool || executionState.securityReportAttempted {
+				continue
+			}
+
+			toolCalls = []modelToolCall{toolCall}
+			executionState.securityReportAttempted = true
+			selectedSecurityReport = true
+			break
+		}
+		for _, modelToolCall := range toolCalls {
+			if modelToolCall.Name == assistantPromptInjectionReportTool && !selectedSecurityReport {
+				continue
+			}
 			slog.InfoContext(ctx, "[graph] running mcp tool", slog.String("tool.name", modelToolCall.Name))
 
-			toolResultMessage, err := g.executeToolCall(ctx, modelToolCall)
+			toolResultMessage, err := g.executeToolCall(ctx, modelToolCall, executionState.effectiveToolSet)
+			success := err == nil
 			if err != nil {
 				slog.ErrorContext(ctx, "[graph] failed to run mcp tool",
 					slog.String("tool.name", modelToolCall.Name),
@@ -366,10 +541,36 @@ func (g *graph) executeMCPNode(
 			executionState.lastToolResults = append(executionState.lastToolResults, toolExecutionResult{
 				toolName: modelToolCall.Name,
 				content:  strings.TrimSpace(toolResultMessage),
+				success:  success,
 			})
 		}
 
 		executionState.pendingToolCalls = nil
+		return messages, nil
+	}
+}
+
+func (g *graph) finalizeTerminalResultNode(
+	executionState *graphExecutionState,
+) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
+	return func(ctx context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
+		if !isTerminalToolResultCandidate(executionState.lastToolResults) {
+			return messages, nil
+		}
+
+		result := executionState.lastToolResults[0]
+		answer, err := finalizeTerminalToolResult(result.toolName, result.content)
+		if err != nil {
+			slog.ErrorContext(ctx, "[assistant] failed to finalize terminal tool result, falling back to generation",
+				slog.String("tool.name", result.toolName),
+				slog.Any("err", err),
+			)
+			return messages, nil
+		}
+
+		executionState.answer = answer
+		executionState.terminalTool = result.toolName
+		recordTerminalTool(ctx, result.toolName)
 		return messages, nil
 	}
 }
@@ -396,7 +597,7 @@ func (g *graph) guardMCPResultsNode(
 	}
 }
 
-func shouldSkipContextRetrieval(userMessage string) bool {
+func isGreeting(userMessage string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(userMessage))
 	if normalized == "" {
 		return true
@@ -404,6 +605,18 @@ func shouldSkipContextRetrieval(userMessage string) bool {
 
 	_, ok := helloMessages[normalized]
 	return ok
+}
+
+func outOfScopeResponse(userMessage string) string {
+	for _, char := range userMessage {
+		if unicode.In(char, unicode.Cyrillic) {
+			return "Я предназначен для работы со swarm-deploy и инфраструктурой Docker Swarm. " +
+				"Могу помочь с сервисами, деплоями, логами, состоянием кластера и диагностикой."
+		}
+	}
+
+	return "I'm designed for swarm-deploy and Docker Swarm infrastructure. " +
+		"I can help with services, deployments, logs, cluster health, and diagnostics."
 }
 
 func buildServicesContextMessage(services []service.Info) string {

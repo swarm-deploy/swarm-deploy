@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -23,7 +24,7 @@ func NewDockerNetworkList(networkReader swarm.NetworkManager) *DockerNetworkList
 // Definition returns tool metadata visible to the model.
 func (l *DockerNetworkList) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
-		Name:        "docker_network_list",
+		Name:        config.AssistantToolNameDockerNetworkList,
 		Description: "Returns current Docker networks snapshot.",
 		ParametersJSONSchema: map[string]any{
 			"type":       "object",

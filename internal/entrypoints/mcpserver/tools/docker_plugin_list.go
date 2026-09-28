@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -23,7 +24,7 @@ func NewDockerPluginList(pluginReader PluginReader) *DockerPluginList {
 // Definition returns tool metadata visible to the model.
 func (l *DockerPluginList) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
-		Name:        "docker_plugin_list",
+		Name:        config.AssistantToolNameDockerPluginList,
 		Description: "Returns current Docker plugins snapshot.",
 		ParametersJSONSchema: map[string]any{
 			"type":       "object",

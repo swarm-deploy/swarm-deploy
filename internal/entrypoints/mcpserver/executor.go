@@ -23,6 +23,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/codes"
+	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -79,8 +80,9 @@ func NewExecutor(
 
 	for _, tool := range toolComponents {
 		definition := tool.Definition()
-		tools[definition.Name] = tool
-		requests[definition.Name] = definition.Request
+		toolName := string(definition.Name)
+		tools[toolName] = tool
+		requests[toolName] = definition.Request
 		definitions = append(definitions, definition)
 	}
 
@@ -101,6 +103,7 @@ func (e *Executor) Definitions() []routing.ToolDefinition {
 // Execute runs a tool by name.
 func (e *Executor) Execute(ctx context.Context, req routing.Request) (string, error) {
 	ctx, span := e.tracer.Start(ctx, "MCP "+req.ToolName, trace.WithAttributes(
+		semconv.GenAIOperationNameExecuteTool,
 		tracing.GenAIToolName.String(req.ToolName),
 		tracing.GenAIToolType.String("function"),
 		tracing.GenAIToolCallArguments.String(req.Payload.(string)), //nolint:errcheck // nn

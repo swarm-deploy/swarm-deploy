@@ -6,6 +6,7 @@ import (
 	"net"
 	"strings"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 )
 
@@ -28,7 +29,7 @@ func NewDNSNameResolve() *DNSNameResolve {
 // Definition returns tool metadata visible to the model.
 func (d *DNSNameResolve) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
-		Name:        "dns_name_resolve",
+		Name:        config.AssistantToolNameDNSNameResolve,
 		Description: "Resolves a DNS name and returns resolved IP addresses.",
 		ParametersJSONSchema: map[string]any{
 			"type": "object",

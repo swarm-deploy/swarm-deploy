@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/modelstore"
@@ -30,7 +31,7 @@ func NewRecommendationList(recommendations RecommendationsReader) *Recommendatio
 // Definition returns tool metadata visible to the model.
 func (l *RecommendationList) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
-		Name:        "recommendation_list",
+		Name:        config.AssistantToolNameRecommendationList,
 		Description: "Returns stored deployment recommendations, optionally filtered by stack.",
 		ParametersJSONSchema: map[string]any{
 			"type": "object",

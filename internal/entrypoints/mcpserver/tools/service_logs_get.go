@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -44,7 +45,7 @@ func (g *GetServiceLogs) Definition() routing.ToolDefinition {
 	)
 
 	return routing.ToolDefinition{
-		Name:        "service_logs_get",
+		Name:        config.AssistantToolNameServiceLogsGet,
 		Description: "Returns recent logs from a specific stack service.",
 		ParametersJSONSchema: map[string]any{
 			"type": "object",

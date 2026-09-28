@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
 )
@@ -44,7 +45,7 @@ func NewPingWebRoutes(services ServicesReader) *PingWebRoutes {
 // Definition returns tool metadata visible to the model.
 func (p *PingWebRoutes) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
-		Name:        "service_webroute_ping",
+		Name:        config.AssistantToolNameServiceWebRoutePing,
 		Description: "Checks web routes for a specific service from service.store and returns HTTP results for each route.",
 		ParametersJSONSchema: map[string]any{
 			"type": "object",
