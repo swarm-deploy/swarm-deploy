@@ -317,6 +317,7 @@ func (g *graph) routeNode(
 	return func(ctx context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
 		executionState.report("Routing request")
 		route := RouteGeneral
+		var capabilities []Capability
 		if !isGreeting(executionState.userMessage) {
 			result, err := g.router.Route(ctx, RouteRequest{
 				Message:       executionState.userMessage,
@@ -339,6 +340,7 @@ func (g *graph) routeNode(
 				return messages, nil
 			}
 			route = result.Route
+			capabilities = result.Capabilities
 			executionState.operation = result.Operation
 		}
 
@@ -348,7 +350,7 @@ func (g *graph) routeNode(
 		}
 		executionState.route = route
 		executionState.profile = profile
-		executionState.capabilities = append([]Capability(nil), result.Capabilities...)
+		executionState.capabilities = append([]Capability(nil), capabilities...)
 		executionState.effectiveToolSet = g.effectiveToolSet(executionState.capabilities)
 		executionState.report("Route: " + string(route))
 		if executionState.operation != nil {
