@@ -29,6 +29,7 @@ func toGeneratedAssistantChatResponse(resp assistant.ChatResponse) *generated.As
 		ConversationID: resp.ConversationID,
 		Answer:         toOptString(resp.Answer),
 		ErrorMessage:   toOptString(resp.ErrorMessage),
+		Activity:       append([]string(nil), resp.Activity...),
 	}
 	if resp.PollAfterMS > 0 {
 		pollAfterMS := resp.PollAfterMS
