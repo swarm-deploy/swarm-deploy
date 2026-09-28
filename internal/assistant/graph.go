@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 	"strings"
-	"unicode"
 	"time"
+	"unicode"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/assistant/guard"
@@ -544,12 +544,7 @@ func (g *graph) executeMCPNode(
 
 			toolResultMessage, err := g.executeToolCall(ctx, modelToolCall, executionState.effectiveToolSet)
 			success := err == nil
-			duration := time.Since(startedAt).Round(time.Millisecond)
-			if success {
-				executionState.report(fmt.Sprintf("Tool %s completed in %s", modelToolCall.Name, duration))
-			} else {
-				executionState.report(fmt.Sprintf("Tool %s failed after %s", modelToolCall.Name, duration))
-			}
+			reportToolActivity(executionState, modelToolCall.Name, time.Since(startedAt), err)
 			if err != nil {
 				slog.ErrorContext(ctx, "[graph] failed to run mcp tool",
 					slog.String("tool.name", modelToolCall.Name),
@@ -578,6 +573,16 @@ func (g *graph) executeMCPNode(
 		executionState.pendingToolCalls = nil
 		return messages, nil
 	}
+}
+
+func reportToolActivity(executionState *graphExecutionState, toolName string, duration time.Duration, err error) {
+	duration = duration.Round(time.Millisecond)
+	if err != nil {
+		executionState.report(fmt.Sprintf("Tool %s failed after %s", toolName, duration))
+		return
+	}
+
+	executionState.report(fmt.Sprintf("Tool %s completed in %s", toolName, duration))
 }
 
 func (g *graph) finalizeTerminalResultNode(
