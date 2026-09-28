@@ -15,7 +15,7 @@ func (g *graph) executeToolCall(
 	effectiveToolSet map[string]struct{},
 ) (string, error) {
 	if _, ok := effectiveToolSet[modelToolCall.Name]; !ok {
-		return "", errors.New("tool is not allowed by the selected assistant route")
+		return "", errors.New("tool is not allowed by the selected assistant capabilities")
 	}
 
 	result, runErr := g.tools.Execute(ctx, routing.Request{
@@ -37,19 +37,24 @@ func (g *graph) effectiveToolDefinitions(effectiveToolSet map[string]struct{}) [
 			filtered = append(filtered, definition)
 		}
 	}
-
 	return filtered
 }
 
-func (g *graph) effectiveToolSet(profile RouteProfile) map[string]struct{} {
-	toolSet := make(map[string]struct{}, len(profile.Tools)+len(assistantUtilityTools)+len(assistantSecurityTools))
-	for _, toolName := range profile.Tools {
-		if len(g.allowedToolSet) > 0 {
-			if _, ok := g.allowedToolSet[toolName]; !ok {
-				continue
-			}
+func (g *graph) effectiveToolSet(capabilities []Capability) map[string]struct{} {
+	toolSet := make(map[string]struct{})
+	for _, capability := range capabilities {
+		profile, ok := capabilityProfile(capability)
+		if !ok {
+			continue
 		}
-		toolSet[toolName] = struct{}{}
+		for _, toolName := range profile.Tools {
+			if len(g.allowedToolSet) > 0 {
+				if _, allowed := g.allowedToolSet[toolName]; !allowed {
+					continue
+				}
+			}
+			toolSet[toolName] = struct{}{}
+		}
 	}
 	for _, toolName := range assistantUtilityTools {
 		if len(g.allowedToolSet) > 0 {
@@ -62,8 +67,17 @@ func (g *graph) effectiveToolSet(profile RouteProfile) map[string]struct{} {
 	for _, toolName := range assistantSecurityTools {
 		toolSet[toolName] = struct{}{}
 	}
-
 	return toolSet
+}
+
+func capabilitiesNeedServiceContext(capabilities []Capability) bool {
+	for _, capability := range capabilities {
+		profile, ok := capabilityProfile(capability)
+		if ok && profile.ServiceContext {
+			return true
+		}
+	}
+	return false
 }
 
 func formatMCPToolCallError(toolName string, runErr error) string {
