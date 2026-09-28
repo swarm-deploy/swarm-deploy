@@ -938,11 +938,22 @@ func (s *AssistantChatMessage) encodeFields(e *jx.Encoder) {
 		e.FieldStart("content")
 		e.Str(s.Content)
 	}
+	{
+		if s.Activity != nil {
+			e.FieldStart("activity")
+			e.ArrStart()
+			for _, elem := range s.Activity {
+				e.Str(elem)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfAssistantChatMessage = [2]string{
+var jsonFieldsNameOfAssistantChatMessage = [3]string{
 	0: "role",
 	1: "content",
+	2: "activity",
 }
 
 // Decode decodes AssistantChatMessage from json.
@@ -975,6 +986,23 @@ func (s *AssistantChatMessage) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"content\"")
+			}
+		case "activity":
+			if err := func() error {
+				s.Activity = make([]string, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					v, err := d.Str()
+					if err != nil {
+						return err
+					}
+					s.Activity = append(s.Activity, string(v))
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"activity\"")
 			}
 		default:
 			return d.Skip()
