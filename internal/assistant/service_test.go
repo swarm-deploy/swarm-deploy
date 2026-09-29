@@ -342,24 +342,8 @@ func TestServiceChatSkipsRetrievalForSmallTalk(t *testing.T) {
 	store := &fakeStore{
 		services: []service.Info{{Name: "api", Stack: "app", Image: "example/api:v1"}},
 	}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		switch r.URL.Path {
-		case "/chat/completions":
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"choices": []map[string]any{
-					{
-						"message": map[string]any{
-							"content": "Привет! Чем помочь по Swarm?",
-						},
-					},
-				},
-			})
-		case "/embeddings":
-			t.Fatalf("unexpected embeddings call on small-talk route")
-		default:
-			http.NotFound(w, r)
-		}
+	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		t.Fatalf("unexpected model call on small-talk fast path: %s", r.URL.Path)
 	}))
 	defer server.Close()
 
@@ -385,7 +369,7 @@ func TestServiceChatSkipsRetrievalForSmallTalk(t *testing.T) {
 		Message: "привет",
 	})
 	assert.Equal(t, StatusCompleted, response.Status, "expected completed response")
-	assert.Equal(t, "Привет! Чем помочь по Swarm?", response.Answer, "unexpected answer")
+	assert.Equal(t, "Привет! Чем помочь со swarm-deploy?", response.Answer, "unexpected answer")
 	assert.Equal(t, int64(0), store.listCalls.Load(), "small-talk path should skip retrieve_context node")
 }
 
