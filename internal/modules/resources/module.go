@@ -45,8 +45,19 @@ func InitModule(
 		return nil, fmt.Errorf("init stores: %w", err)
 	}
 
-	srv.NodeCollector = node.NewNodeCollector(cnt.GetSwarm().Nodes, srv.NodeStore, cnt.GetEventModule().Dispatcher)
-	secretDomain, err := secrets.NewDomain(ctx, cfg.Spec.DataDir, cnt.GetFileSystem(), cnt.GetSwarm().Secrets)
+	srv.NodeCollector = node.NewNodeCollector(
+		cnt.GetSwarm().Nodes,
+		srv.NodeStore,
+		cnt.GetEventModule().Dispatcher,
+		cnt.GetSwarm().Events.SubscribeNodes(),
+	)
+	secretDomain, err := secrets.NewDomain(
+		ctx,
+		cfg.Spec.DataDir,
+		cnt.GetFileSystem(),
+		cnt.GetSwarm().Secrets,
+		cnt.GetSwarm().Events.SubscribeSecrets(),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("init secrets domain: %w", err)
 	}
