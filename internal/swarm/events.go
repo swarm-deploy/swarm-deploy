@@ -68,8 +68,8 @@ type dockerEventsClient interface {
 
 func newEvents(dockerClient dockerEventsClient) *Events {
 	return &Events{
-		dockerClient:    dockerClient,
-		reconnectDelay: defaultEventReconnectDelay,
+		dockerClient:	dockerClient,
+		reconnectDelay:	defaultEventReconnectDelay,
 	}
 }
 
