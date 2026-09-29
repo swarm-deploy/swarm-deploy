@@ -13,6 +13,7 @@ import (
 	recommendationstore "github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/modelstore"
 	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/node"
 	secretstore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/secretmanager"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -24,6 +25,7 @@ type handler struct {
 	control          *controller.Controller
 	serviceInspector swarm.ServiceManager
 	secrets          secretstore.Store
+	secretManagers   *secretmanager.Service
 	networks         swarm.NetworkManager
 	nodeManager      swarm.NodeManager
 	history          *history.Store
@@ -49,6 +51,7 @@ func New(
 	services *service.Store,
 	nodes *swarmnode.Store,
 	secrets secretstore.Store,
+	secretManagers *secretmanager.Service,
 	recommendations recommendationstore.Store,
 	alerts alertstore.Store,
 	assistantService assistant.Assistant,
@@ -59,6 +62,7 @@ func New(
 		control:          control,
 		serviceInspector: swarmService.Services,
 		secrets:          secrets,
+		secretManagers:   secretManagers,
 		networks:         swarmService.Networks,
 		nodeManager:      swarmService.Nodes,
 		history:          history,

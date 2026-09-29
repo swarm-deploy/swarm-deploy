@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/secretmanager"
+	resourceservice "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -16,6 +18,8 @@ type Domain struct {
 	Store modelstore.Store
 	// Collector refreshes the snapshot from Docker.
 	Collector *Collector
+	// Managers discovers and controls Secret Manager services.
+	Managers *secretmanager.Service
 }
 
 // NewDomain initializes the secret metadata domain.
@@ -24,6 +28,7 @@ func NewDomain(
 	dataDir string,
 	filesystem fs.FileSystem,
 	secretManager swarm.SecretManager,
+	serviceStore *resourceservice.Store,
 ) (*Domain, error) {
 	store, err := modelstore.NewFileStore(ctx, filepath.Join(dataDir, "secrets.state.json"), filesystem)
 	if err != nil {
@@ -33,5 +38,6 @@ func NewDomain(
 	return &Domain{
 		Store:     store,
 		Collector: NewCollector(secretManager, store),
+		Managers:  secretmanager.NewService(secretmanager.NewResolver(serviceStore)),
 	}, nil
 }

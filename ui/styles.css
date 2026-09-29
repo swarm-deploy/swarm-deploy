@@ -1403,6 +1403,89 @@ a.overview-summary-row:focus-visible {
   padding: 10px 14px;
 }
 
+.secret-manager-list {
+  display: grid;
+  gap: 10px;
+}
+
+.secret-manager-card {
+  min-width: 0;
+  border: 1px solid var(--border-default);
+  border-left: 3px solid var(--success);
+  border-radius: 8px;
+  background: var(--card);
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.secret-manager-card--unavailable {
+  border-left-color: var(--status-warning-bg);
+}
+
+.secret-manager-copy,
+.secret-manager-heading {
+  min-width: 0;
+}
+
+.secret-manager-copy {
+  display: grid;
+  gap: 5px;
+}
+
+.secret-manager-heading {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+
+.secret-manager-heading a {
+  color: var(--accent-strong);
+}
+
+.secret-manager-status {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: var(--status-warning-bg);
+}
+
+.secret-manager-status.available {
+  background: var(--status-success-bg);
+}
+
+.secret-manager-version {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.secret-manager-meta,
+.secret-manager-feedback {
+  color: var(--muted);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.secret-manager-feedback {
+  color: var(--text);
+}
+
+.secret-manager-sync {
+  flex: 0 0 auto;
+  padding: 8px 16px;
+}
+
+.secret-manager-sync:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  transform: none;
+  filter: none;
+}
+
 .app-table-wrap {
   overflow-x: auto;
 }
@@ -2509,6 +2592,15 @@ a.overview-summary-row:focus-visible {
 
   .service-details-item {
     grid-template-columns: 1fr;
+  }
+
+  .secret-manager-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .secret-manager-sync {
+    align-self: flex-end;
   }
 
   .topbar {

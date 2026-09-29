@@ -317,6 +317,34 @@ export interface SecretsResponse {
   secrets: SecretInfo[];
 }
 
+export interface SecretManagerProvider {
+  name: string;
+  link?: string;
+}
+
+export interface SecretManagerInfo {
+  stack: string;
+  service: string;
+  kind: string;
+  controllable: boolean;
+  available: boolean;
+  version?: string;
+  provider?: SecretManagerProvider;
+  last_sync_at?: string;
+  error?: string;
+}
+
+export interface SecretManagersResponse {
+  secret_managers: SecretManagerInfo[];
+}
+
+export interface SecretManagerSyncResponse {
+  created: number;
+  updated: number;
+  removed: number;
+  unchanged: number;
+}
+
 export interface SecretDetailsResponse {
   id: string;
   name: string;

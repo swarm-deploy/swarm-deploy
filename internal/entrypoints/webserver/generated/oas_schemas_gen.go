@@ -2204,6 +2204,52 @@ func (o OptSecretExternalInfo) Or(d SecretExternalInfo) SecretExternalInfo {
 	return d
 }
 
+// NewOptSecretManagerProvider returns new OptSecretManagerProvider with value set to v.
+func NewOptSecretManagerProvider(v SecretManagerProvider) OptSecretManagerProvider {
+	return OptSecretManagerProvider{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptSecretManagerProvider is optional SecretManagerProvider.
+type OptSecretManagerProvider struct {
+	Value SecretManagerProvider
+	Set   bool
+}
+
+// IsSet returns true if OptSecretManagerProvider was set.
+func (o OptSecretManagerProvider) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptSecretManagerProvider) Reset() {
+	var v SecretManagerProvider
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptSecretManagerProvider) SetTo(v SecretManagerProvider) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptSecretManagerProvider) Get() (v SecretManagerProvider, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptSecretManagerProvider) Or(d SecretManagerProvider) SecretManagerProvider {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptServiceSpecLabelGroupResponse returns new OptServiceSpecLabelGroupResponse with value set to v.
 func NewOptServiceSpecLabelGroupResponse(v ServiceSpecLabelGroupResponse) OptServiceSpecLabelGroupResponse {
 	return OptServiceSpecLabelGroupResponse{
@@ -2890,6 +2936,198 @@ func (s *SecretInfo) SetCreatedAt(val time.Time) {
 // SetExternal sets the value of External.
 func (s *SecretInfo) SetExternal(val OptSecretExternalInfo) {
 	s.External = val
+}
+
+// Ref: #/components/schemas/SecretManagerInfo
+type SecretManagerInfo struct {
+	Stack        string                   `json:"stack"`
+	Service      string                   `json:"service"`
+	Kind         string                   `json:"kind"`
+	Controllable bool                     `json:"controllable"`
+	Available    bool                     `json:"available"`
+	Version      OptString                `json:"version"`
+	Provider     OptSecretManagerProvider `json:"provider"`
+	LastSyncAt   OptDateTime              `json:"last_sync_at"`
+	Error        OptString                `json:"error"`
+}
+
+// GetStack returns the value of Stack.
+func (s *SecretManagerInfo) GetStack() string {
+	return s.Stack
+}
+
+// GetService returns the value of Service.
+func (s *SecretManagerInfo) GetService() string {
+	return s.Service
+}
+
+// GetKind returns the value of Kind.
+func (s *SecretManagerInfo) GetKind() string {
+	return s.Kind
+}
+
+// GetControllable returns the value of Controllable.
+func (s *SecretManagerInfo) GetControllable() bool {
+	return s.Controllable
+}
+
+// GetAvailable returns the value of Available.
+func (s *SecretManagerInfo) GetAvailable() bool {
+	return s.Available
+}
+
+// GetVersion returns the value of Version.
+func (s *SecretManagerInfo) GetVersion() OptString {
+	return s.Version
+}
+
+// GetProvider returns the value of Provider.
+func (s *SecretManagerInfo) GetProvider() OptSecretManagerProvider {
+	return s.Provider
+}
+
+// GetLastSyncAt returns the value of LastSyncAt.
+func (s *SecretManagerInfo) GetLastSyncAt() OptDateTime {
+	return s.LastSyncAt
+}
+
+// GetError returns the value of Error.
+func (s *SecretManagerInfo) GetError() OptString {
+	return s.Error
+}
+
+// SetStack sets the value of Stack.
+func (s *SecretManagerInfo) SetStack(val string) {
+	s.Stack = val
+}
+
+// SetService sets the value of Service.
+func (s *SecretManagerInfo) SetService(val string) {
+	s.Service = val
+}
+
+// SetKind sets the value of Kind.
+func (s *SecretManagerInfo) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetControllable sets the value of Controllable.
+func (s *SecretManagerInfo) SetControllable(val bool) {
+	s.Controllable = val
+}
+
+// SetAvailable sets the value of Available.
+func (s *SecretManagerInfo) SetAvailable(val bool) {
+	s.Available = val
+}
+
+// SetVersion sets the value of Version.
+func (s *SecretManagerInfo) SetVersion(val OptString) {
+	s.Version = val
+}
+
+// SetProvider sets the value of Provider.
+func (s *SecretManagerInfo) SetProvider(val OptSecretManagerProvider) {
+	s.Provider = val
+}
+
+// SetLastSyncAt sets the value of LastSyncAt.
+func (s *SecretManagerInfo) SetLastSyncAt(val OptDateTime) {
+	s.LastSyncAt = val
+}
+
+// SetError sets the value of Error.
+func (s *SecretManagerInfo) SetError(val OptString) {
+	s.Error = val
+}
+
+// Ref: #/components/schemas/SecretManagerProvider
+type SecretManagerProvider struct {
+	Name string    `json:"name"`
+	Link OptString `json:"link"`
+}
+
+// GetName returns the value of Name.
+func (s *SecretManagerProvider) GetName() string {
+	return s.Name
+}
+
+// GetLink returns the value of Link.
+func (s *SecretManagerProvider) GetLink() OptString {
+	return s.Link
+}
+
+// SetName sets the value of Name.
+func (s *SecretManagerProvider) SetName(val string) {
+	s.Name = val
+}
+
+// SetLink sets the value of Link.
+func (s *SecretManagerProvider) SetLink(val OptString) {
+	s.Link = val
+}
+
+// Ref: #/components/schemas/SecretManagerSyncResponse
+type SecretManagerSyncResponse struct {
+	Created   int64 `json:"created"`
+	Updated   int64 `json:"updated"`
+	Removed   int64 `json:"removed"`
+	Unchanged int64 `json:"unchanged"`
+}
+
+// GetCreated returns the value of Created.
+func (s *SecretManagerSyncResponse) GetCreated() int64 {
+	return s.Created
+}
+
+// GetUpdated returns the value of Updated.
+func (s *SecretManagerSyncResponse) GetUpdated() int64 {
+	return s.Updated
+}
+
+// GetRemoved returns the value of Removed.
+func (s *SecretManagerSyncResponse) GetRemoved() int64 {
+	return s.Removed
+}
+
+// GetUnchanged returns the value of Unchanged.
+func (s *SecretManagerSyncResponse) GetUnchanged() int64 {
+	return s.Unchanged
+}
+
+// SetCreated sets the value of Created.
+func (s *SecretManagerSyncResponse) SetCreated(val int64) {
+	s.Created = val
+}
+
+// SetUpdated sets the value of Updated.
+func (s *SecretManagerSyncResponse) SetUpdated(val int64) {
+	s.Updated = val
+}
+
+// SetRemoved sets the value of Removed.
+func (s *SecretManagerSyncResponse) SetRemoved(val int64) {
+	s.Removed = val
+}
+
+// SetUnchanged sets the value of Unchanged.
+func (s *SecretManagerSyncResponse) SetUnchanged(val int64) {
+	s.Unchanged = val
+}
+
+// Ref: #/components/schemas/SecretManagersResponse
+type SecretManagersResponse struct {
+	SecretManagers []SecretManagerInfo `json:"secret_managers"`
+}
+
+// GetSecretManagers returns the value of SecretManagers.
+func (s *SecretManagersResponse) GetSecretManagers() []SecretManagerInfo {
+	return s.SecretManagers
+}
+
+// SetSecretManagers sets the value of SecretManagers.
+func (s *SecretManagersResponse) SetSecretManagers(val []SecretManagerInfo) {
+	s.SecretManagers = val
 }
 
 // Ref: #/components/schemas/SecretsResponse

@@ -38,6 +38,7 @@ var imageTypeDict = map[string]Type{
 	"distribution": Delivery,
 
 	"swarm-cronjob": CronManager,
+	"cloud-secrets": SecretManager,
 
 	"postgres-mcp": MCP,
 	"mcp-nats":     MCP,
