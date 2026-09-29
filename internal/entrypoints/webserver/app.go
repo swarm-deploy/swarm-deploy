@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/artarts36/go-entrypoint"
-	"github.com/swarm-deploy/swarm-deploy/internal/assistant"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/authenticator"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"

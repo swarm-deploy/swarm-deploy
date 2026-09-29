@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/assistant"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 )
 

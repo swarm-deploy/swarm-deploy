@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"time"
 
 	entrypoint "github.com/artarts36/go-entrypoint"
@@ -14,15 +13,13 @@ import (
 	"github.com/cappuccinotm/slogx/slogm"
 	"github.com/docker/docker/client"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/swarm-deploy/swarm-deploy/internal/assistant"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/healthserver"
-	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/sd"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webhookserver"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver"
-	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
@@ -31,7 +28,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources"
-	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/buildinfo"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
@@ -84,6 +80,14 @@ var modules = []module{
 		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
 			mod, err := gitops.InitModule(ctx, cfg, cnt)
 			cnt.GitOps = mod
+			return err
+		},
+	},
+	{
+		Name: "assistant",
+		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
+			mod, err := assistant.InitModule(ctx, cfg, cnt)
+			cnt.Assistant = mod
 			return err
 		},
 	},
@@ -173,15 +177,6 @@ func main() {
 		}
 	}
 
-	assistantService, err := buildAssistantService(
-		cfg,
-		cnt,
-	)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to build assistant service", slog.Any("err", err))
-		os.Exit(1)
-	}
-
 	webApplication, err := webserver.NewApplication(
 		cfg.Spec.Web.Address,
 		cfg,
@@ -191,7 +186,7 @@ func main() {
 		cnt.Resources,
 		cnt.Recommendations.Store,
 		cnt.AlertManagement.Store,
-		assistantService,
+		cnt.Assistant.Service,
 		cfg.Spec.Web.Security.Authentication,
 	)
 	if err != nil {
@@ -289,57 +284,6 @@ func shutdownTracing(tracerProvider *sdktrace.TracerProvider) {
 	}
 }
 
-func buildAssistantService(
-	cfg *config.Config,
-	cnt *container,
-) (assistant.Assistant, error) {
-	if !cfg.Spec.Assistant.Enabled {
-		return &assistant.DisabledAssistant{}, nil
-	}
-
-	temperature, err := cfg.Spec.Assistant.Model.OpenAI.ResolveTemperature()
-	if err != nil {
-		return nil, fmt.Errorf("resolve assistant temperature: %w", err)
-	}
-
-	imageVersionResolver, err := registry.NewImageVersionResolver()
-	if err != nil {
-		return nil, fmt.Errorf("build image version resolver: %w", err)
-	}
-
-	hostingProviders, err := githosting.NewProviderManager(cfg.Spec.Hostings)
-	if err != nil {
-		return nil, fmt.Errorf("build hosting providers: %w", err)
-	}
-
-	toolExecutor := mcpserver.NewExecutor(
-		cnt.Resources,
-		cnt.GitOps,
-		cnt.Event,
-		cnt.Swarm,
-		cnt.Recommendations.Store,
-		imageVersionResolver,
-		hostingProviders,
-		cfg.Spec.Stacks,
-		cnt.Metrics.MCP,
-	)
-
-	return assistant.NewService(assistant.Config{
-		Enabled:                 cfg.Spec.Assistant.Enabled,
-		ModelName:               cfg.Spec.Assistant.Model.Name,
-		EmbeddingModelName:      cfg.Spec.Assistant.Model.EmbeddingName,
-		BaseURL:                 cfg.Spec.Assistant.Model.OpenAI.BaseURL,
-		APIToken:                string(cfg.Spec.Assistant.Model.OpenAI.APIToken.Content),
-		OrganizationID:          cfg.Spec.Assistant.Model.OpenAI.OrganizationID,
-		Temperature:             temperature,
-		MaxTokens:               cfg.Spec.Assistant.Model.OpenAI.MaxTokens,
-		SystemPrompt:            cfg.Spec.Assistant.SystemPrompt,
-		AllowedTools:            cfg.Spec.Assistant.Tools,
-		ConversationInMemoryTTL: cfg.Spec.Assistant.Conversation.Storage.InMemory.TTL.Value,
-		ConversationHistoryDir:  filepath.Join(cfg.Spec.DataDir, "assistant", "chats"),
-	}, cnt.Resources.ServiceStore, toolExecutor, cnt.Event.Dispatcher, cnt.Metrics.Assistant)
-}
-
 type module struct {
 	Name       string
 	Initialize func(ctx context.Context, cfg *config.Config, cnt *container) error
@@ -357,6 +301,7 @@ type container struct {
 	GitOps          *gitops.Module
 	Recommendations *recommendations.Module
 	AlertManagement *alertmanagement.Module
+	Assistant       *assistant.Module
 }
 
 func (c *container) GetFileSystem() fs.FileSystem {
@@ -373,6 +318,18 @@ func (c *container) GetSwarm() *swarm.Swarm {
 
 func (c *container) GetEventModule() *event.Module {
 	return c.Event
+}
+
+func (c *container) GetResourcesModule() *resources.Module {
+	return c.Resources
+}
+
+func (c *container) GetGitOpsModule() *gitops.Module {
+	return c.GitOps
+}
+
+func (c *container) GetRecommendationsModule() *recommendations.Module {
+	return c.Recommendations
 }
 
 func (c *container) GetDeployer() deployer.StackDeployer {
