@@ -8,6 +8,8 @@ import (
 )
 
 type Swarm struct {
+	// Events owns the shared Docker events stream.
+	Events *Events
 	// Services manages Docker swarm services.
 	Services ServiceManager
 	// Images manages Docker images.
@@ -41,6 +43,7 @@ func NewSwarm(dockerClient *client.Client, command string) *Swarm {
 
 func newSwarm(dockerClient *client.Client, command string) *Swarm {
 	return &Swarm{
+		Events:       newEvents(dockerClient),
 		Services:     newServiceManager(dockerClient),
 		Images:       newImageManager(dockerClient),
 		Secrets:      newSecretManager(dockerClient),
