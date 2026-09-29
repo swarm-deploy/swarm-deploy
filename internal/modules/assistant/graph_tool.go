@@ -80,9 +80,9 @@ func capabilitiesNeedServiceContext(capabilities []Capability) bool {
 	return false
 }
 
-func formatMCPToolCallError(toolName string, runErr error) string {
+func formatToolCallError(toolName string, runErr error) string {
 	return fmt.Sprintf(
-		"MCP tool call failed: tool %q could not be executed. Error: %s",
+		"tool call failed: tool %q could not be executed. Error: %s",
 		strings.TrimSpace(toolName),
 		strings.TrimSpace(runErr.Error()),
 	)
