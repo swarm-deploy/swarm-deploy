@@ -187,3 +187,63 @@ func TestRetrieverLexicalMatchesWebRouteFields(t *testing.T) {
 	selected := runPlan(t, retriever, "api.example.com")
 	assert.Equal(t, "api", selected[0].Name, "expected service match by web route domain")
 }
+
+
+func TestRetrieverLimitsSemanticResultsAndPrioritizesNamedService(t *testing.T) {
+	services := []service.Info{
+		{Name: "svc-0", Stack: "app"},
+		{Name: "svc-1", Stack: "app"},
+		{Name: "svc-2", Stack: "app"},
+		{Name: "svc-3", Stack: "app"},
+		{Name: "svc-4", Stack: "app"},
+		{Name: "svc-5", Stack: "app"},
+		{Name: "web-gateway-http", Stack: "infra"},
+	}
+	embeddings := [][]float64{
+		{1, 0}, {0.9, 0.1}, {0.8, 0.2}, {0.7, 0.3}, {0.6, 0.4}, {0.5, 0.5}, {0, 1},
+	}
+	index := NewIndex()
+	require.NoError(t, index.Replace(services, embeddings), "seed index")
+
+	retriever := NewRetriever(
+		&fakeServiceStore{services: services},
+		&fakeEmbedder{embedFn: func(_ context.Context, _ string, _ []string) ([][]float64, error) {
+			return [][]float64{{1, 0}}, nil
+		}},
+		"model",
+		index,
+		nil,
+	)
+
+	selected := runPlan(t, retriever, "проверь DNS для сервиса web-gateway-http")
+	require.Len(t, selected, maxRetrievedServices)
+	assert.Equal(t, "web-gateway-http", selected[0].Name)
+}
+
+func TestRetrieverLimitsLexicalFallbackResults(t *testing.T) {
+	services := []service.Info{
+		{Name: "svc-0", Stack: "app"},
+		{Name: "svc-1", Stack: "app"},
+		{Name: "svc-2", Stack: "app"},
+		{Name: "svc-3", Stack: "app"},
+		{Name: "svc-4", Stack: "app"},
+		{Name: "svc-5", Stack: "app"},
+		{Name: "web-gateway-http", Stack: "infra"},
+	}
+	index := NewIndex()
+	require.NoError(t, index.Replace(services, make([][]float64, len(services))), "seed index")
+
+	retriever := NewRetriever(
+		&fakeServiceStore{services: services},
+		&fakeEmbedder{embedFn: func(_ context.Context, _ string, _ []string) ([][]float64, error) {
+			return nil, errors.New("embeddings unavailable")
+		}},
+		"model",
+		index,
+		nil,
+	)
+
+	selected := runPlan(t, retriever, "web-gateway-http")
+	require.Len(t, selected, maxRetrievedServices)
+	assert.Equal(t, "web-gateway-http", selected[0].Name)
+}
