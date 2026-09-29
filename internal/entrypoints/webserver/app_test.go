@@ -1,6 +1,7 @@
 package webserver
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -12,6 +13,9 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources"
+	resourcesecrets "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets"
+	secretstore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -19,6 +23,12 @@ import (
 func TestUIRoutes(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	gitRepository := gitx.NewMockRepository(ctrl)
+	secretsStore, err := secretstore.NewFileStore(
+		context.Background(),
+		t.TempDir()+"/secrets.state.json",
+		fs.NewLocalFileSystem(),
+	)
+	require.NoError(t, err)
 
 	app, err := NewApplication(
 		":0",
@@ -26,7 +36,7 @@ func TestUIRoutes(t *testing.T) {
 		&gitops.Module{GitRepository: gitRepository},
 		&swarm.Swarm{},
 		&event.Module{},
-		&resources.Module{},
+		&resources.Module{Secrets: &resourcesecrets.Domain{Store: secretsStore}},
 		nil,
 		nil,
 		nil,

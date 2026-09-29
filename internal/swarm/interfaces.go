@@ -49,6 +49,9 @@ type SecretManager interface {
 	// List returns current Docker secrets snapshot.
 	List(ctx context.Context) ([]Secret, error)
 
+	// Watch subscribes to Docker secret events stream.
+	Watch(ctx context.Context) (<-chan dockerevents.Message, <-chan error, error)
+
 	// ResolveReference resolves a secret reference by source and target.
 	ResolveReference(ctx context.Context, source, target string) (*dockerswarm.SecretReference, error)
 }

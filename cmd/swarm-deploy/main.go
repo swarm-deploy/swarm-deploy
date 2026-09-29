@@ -239,6 +239,12 @@ func main() {
 				return cnt.Resources.NodeCollector.Run(ctx)
 			},
 		},
+		{
+			Name: "secrets-collector",
+			Run: func(ctx context.Context) error {
+				return cnt.Resources.Secrets.Collector.Run(ctx)
+			},
+		},
 	}
 
 	if webhookApplication.Enabled() {
