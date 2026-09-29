@@ -10,7 +10,7 @@ import (
 func (h *handler) ListSecrets(ctx context.Context) (*generated.SecretsResponse, error) {
 	secrets, err := h.secrets.List(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list docker secrets: %w", err)
+		return nil, fmt.Errorf("list secrets: %w", err)
 	}
 
 	return &generated.SecretsResponse{

@@ -11,6 +11,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	resourcegraph "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/graph"
+	secretmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/stype"
@@ -21,8 +22,6 @@ import (
 )
 
 const (
-	externalPathLabel      = "external_path"
-	externalVersionIDLabel = "external_version_id"
 	dockerLabelPrefix      = "com.docker."
 	swarmDeployLabelPrefix = "org.swarm-deploy"
 )
@@ -545,7 +544,7 @@ func toGeneratedNetworks(networks []swarm.Network) []generated.NetworkInfo {
 	return mapped
 }
 
-func toGeneratedSecrets(secrets []swarm.Secret) []generated.SecretInfo {
+func toGeneratedSecrets(secrets []secretmodel.Secret) []generated.SecretInfo {
 	mapped := make([]generated.SecretInfo, 0, len(secrets))
 	for _, secret := range secrets {
 		item := generated.SecretInfo{
@@ -553,7 +552,7 @@ func toGeneratedSecrets(secrets []swarm.Secret) []generated.SecretInfo {
 			Name:      secret.Name,
 			VersionID: toInt64FromUint64(secret.VersionID),
 			CreatedAt: secret.CreatedAt,
-			External:  toGeneratedSecretExternal(secret.Labels),
+			External:  toGeneratedSecretExternal(secret.ExternalPath, secret.ExternalVersionID),
 		}
 
 		mapped = append(mapped, item)
@@ -562,20 +561,16 @@ func toGeneratedSecrets(secrets []swarm.Secret) []generated.SecretInfo {
 	return mapped
 }
 
-func toGeneratedSecretExternal(labels map[string]string) generated.OptSecretExternalInfo {
-	if len(labels) == 0 {
-		return generated.OptSecretExternalInfo{}
-	}
-
+func toGeneratedSecretExternal(path string, versionID string) generated.OptSecretExternalInfo {
 	external := generated.SecretExternalInfo{}
 	hasExternalData := false
 
-	if path, ok := labels[externalPathLabel]; ok && path != "" {
+	if path != "" {
 		external.Path = generated.NewOptString(path)
 		hasExternalData = true
 	}
 
-	if versionID, ok := labels[externalVersionIDLabel]; ok && versionID != "" {
+	if versionID != "" {
 		external.VersionID = generated.NewOptString(versionID)
 		hasExternalData = true
 	}

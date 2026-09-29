@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 
+	dockerevents "github.com/docker/docker/api/types/events"
+	"github.com/docker/docker/api/types/filters"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
 )
@@ -32,6 +34,13 @@ func (r *secretManager) List(ctx context.Context) ([]Secret, error) {
 	r.sortSecretInfos(mapped)
 
 	return mapped, nil
+}
+
+func (r *secretManager) Watch(ctx context.Context) (<-chan dockerevents.Message, <-chan error, error) {
+	eventsFilter := filters.NewArgs(filters.Arg("type", string(dockerevents.SecretEventType)))
+	messages, errs := r.dockerClient.Events(ctx, dockerevents.ListOptions{Filters: eventsFilter})
+
+	return messages, errs, nil
 }
 
 func (r *secretManager) ResolveReference(

@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
-	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	secretmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/model"
 	webroute "github.com/swarm-deploy/webroute/api"
 )
 
@@ -28,7 +28,7 @@ func (h *handler) Search(
 	if h.secrets != nil {
 		secrets, err := h.secrets.List(ctx)
 		if err != nil {
-			return nil, withStatusError(http.StatusInternalServerError, fmt.Errorf("list docker secrets: %w", err))
+			return nil, withStatusError(http.StatusInternalServerError, fmt.Errorf("list secrets: %w", err))
 		}
 		results = append(results, searchSecretsByName(secrets, query)...)
 	}
@@ -89,7 +89,7 @@ func (h *handler) searchServicesByWebRoute(query string) []generated.SearchResul
 	return results
 }
 
-func searchSecretsByName(secrets []swarm.Secret, query string) []generated.SearchResult {
+func searchSecretsByName(secrets []secretmodel.Secret, query string) []generated.SearchResult {
 	results := make([]generated.SearchResult, 0, len(secrets))
 	for _, secret := range secrets {
 		if !strings.Contains(strings.ToLower(secret.Name), query) {

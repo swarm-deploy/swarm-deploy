@@ -100,6 +100,7 @@ func NewApplication(
 		eventModule.History,
 		resourcesModule.ServiceStore,
 		resourcesModule.NodeStore,
+		resourcesModule.Secrets.Store,
 		recommendations,
 		alerts,
 		assistantService,
