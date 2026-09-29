@@ -14,6 +14,8 @@ import (
 )
 
 const (
+	maxRetrievedServices = 5
+
 	// RetrievalPlanBranchNone means no services are available for retrieval.
 	RetrievalPlanBranchNone = "none"
 	// RetrievalPlanBranchLexical means lexical ranking should be used.
@@ -129,20 +131,25 @@ func (r *Retriever) RetrieveSemantic(plan *RetrievalPlan) ([]service.Info, error
 
 	queryVector := plan.queryVector
 	type scoredService struct {
-		service service.Info
-		score   float64
+		service    service.Info
+		score      float64
+		exactMatch bool
 	}
 
 	scored := make([]scoredService, 0, len(plan.indexed.services))
 	for idx, serviceInfo := range plan.indexed.services {
 		score := cosineSimilarity(queryVector, plan.indexed.embeddings[idx])
 		scored = append(scored, scoredService{
-			service: serviceInfo,
-			score:   score,
+			service:    serviceInfo,
+			score:      score,
+			exactMatch: queryMentionsService(plan.query, serviceInfo),
 		})
 	}
 
 	sort.Slice(scored, func(i, j int) bool {
+		if scored[i].exactMatch != scored[j].exactMatch {
+			return scored[i].exactMatch
+		}
 		if scored[i].score != scored[j].score {
 			return scored[i].score > scored[j].score
 		}
@@ -151,8 +158,9 @@ func (r *Retriever) RetrieveSemantic(plan *RetrievalPlan) ([]service.Info, error
 		}
 		return scored[i].service.Name < scored[j].service.Name
 	})
-	selected := make([]service.Info, 0, len(scored))
-	for _, item := range scored {
+	limit := min(len(scored), maxRetrievedServices)
+	selected := make([]service.Info, 0, limit)
+	for _, item := range scored[:limit] {
 		selected = append(selected, item.service)
 	}
 
@@ -167,13 +175,15 @@ func (r *Retriever) RetrieveLexical(plan *RetrievalPlan) ([]service.Info, error)
 
 	normalizedQuery := strings.ToLower(strings.TrimSpace(plan.query))
 	if normalizedQuery == "" {
-		return plan.services, nil
+		limit := min(len(plan.services), maxRetrievedServices)
+		return append([]service.Info(nil), plan.services[:limit]...), nil
 	}
 
 	terms := strings.Fields(normalizedQuery)
 	type scoredService struct {
-		service service.Info
-		score   int
+		service    service.Info
+		score      int
+		exactMatch bool
 	}
 	scored := make([]scoredService, 0, len(plan.services))
 
@@ -186,12 +196,16 @@ func (r *Retriever) RetrieveLexical(plan *RetrievalPlan) ([]service.Info, error)
 			}
 		}
 		scored = append(scored, scoredService{
-			service: serviceInfo,
-			score:   score,
+			service:    serviceInfo,
+			score:      score,
+			exactMatch: queryMentionsService(plan.query, serviceInfo),
 		})
 	}
 
 	sort.Slice(scored, func(i, j int) bool {
+		if scored[i].exactMatch != scored[j].exactMatch {
+			return scored[i].exactMatch
+		}
 		if scored[i].score != scored[j].score {
 			return scored[i].score > scored[j].score
 		}
@@ -201,12 +215,32 @@ func (r *Retriever) RetrieveLexical(plan *RetrievalPlan) ([]service.Info, error)
 		return scored[i].service.Name < scored[j].service.Name
 	})
 
-	selected := make([]service.Info, 0, len(scored))
-	for _, item := range scored {
+	limit := min(len(scored), maxRetrievedServices)
+	selected := make([]service.Info, 0, limit)
+	for _, item := range scored[:limit] {
 		selected = append(selected, item.service)
 	}
 
 	return selected, nil
+}
+
+func queryMentionsService(query string, serviceInfo service.Info) bool {
+	normalizedQuery := strings.ToLower(strings.TrimSpace(query))
+	if normalizedQuery == "" {
+		return false
+	}
+
+	serviceName := strings.ToLower(strings.TrimSpace(serviceInfo.Name))
+	stackName := strings.ToLower(strings.TrimSpace(serviceInfo.Stack))
+	if serviceName != "" && strings.Contains(normalizedQuery, serviceName) {
+		return true
+	}
+	if stackName != "" && serviceName != "" &&
+		strings.Contains(normalizedQuery, stackName+"/"+serviceName) {
+		return true
+	}
+
+	return false
 }
 
 // cosineSimilarity returns semantic closeness between two embedding vectors.

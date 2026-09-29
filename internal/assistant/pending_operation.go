@@ -55,6 +55,9 @@ type OperationIntent struct {
 type RouteDecision struct {
 	// Route is the selected route.
 	Route Route `json:"route"`
+	// Capabilities are the composable context and tool groups required by this request.
+	// Nil means the router omitted the field and route defaults should be used for compatibility.
+	Capabilities []Capability `json:"capabilities"`
 	// Operation is a supported mutating operation, when recognized.
 	Operation *OperationIntent `json:"operation"`
 }
@@ -289,8 +292,7 @@ func (g *graph) executePendingOperation(
 		return "Сервис изменился или больше не существует. Операция отменена.", nil
 	}
 
-	profile, _ := routeProfile(RouteServices)
-	effectiveTools := g.effectiveToolSet(profile)
+	effectiveTools := g.effectiveToolSet([]Capability{CapabilityServiceOperations})
 	if _, ok := effectiveTools[string(op.Type)]; !ok {
 		return "Эта операция запрещена настройкой `assistant.tools`.", nil
 	}

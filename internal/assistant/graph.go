@@ -20,7 +20,7 @@ import (
 const (
 	maxToolIterations            = 3
 	prepareMessagesExtraCapacity = 4
-	servicesContextMaxRows       = 64
+	servicesContextMaxRows       = 5
 )
 
 const (
@@ -49,6 +49,20 @@ var helloMessages = map[string]struct{}{
 	"здравствуй":  {},
 	"добрый день": {},
 	"спасибо":     {},
+}
+
+var fastConversationResponses = map[string]string{
+	"hello":       "Hello! How can I help with swarm-deploy?",
+	"hi":          "Hi! How can I help with swarm-deploy?",
+	"hey":         "Hey! How can I help with swarm-deploy?",
+	"thanks":      "You're welcome.",
+	"thank you":   "You're welcome.",
+	"привет":      "Привет! Чем помочь со swarm-deploy?",
+	"здарова":     "Привет! Чем помочь со swarm-deploy?",
+	"ку":          "Привет! Чем помочь со swarm-deploy?",
+	"здравствуй":  "Привет! Чем помочь со swarm-deploy?",
+	"добрый день": "Добрый день! Чем помочь со swarm-deploy?",
+	"спасибо":     "Пожалуйста.",
 }
 
 var (
@@ -91,6 +105,7 @@ type graphExecutionState struct {
 	userMessage             string
 	route                   Route
 	profile                 RouteProfile
+	capabilities            []Capability
 	effectiveToolSet        map[string]struct{}
 	retrievalPlan           *rag.RetrievalPlan
 	relevantServices        []service.Info
@@ -152,6 +167,9 @@ func (g *graph) run(
 	}
 	if handled, answer, usage, err := g.handlePendingOperation(ctx, conversationID, userMessage); handled || err != nil {
 		return answer, usage, err
+	}
+	if answer, ok := fastConversationResponse(userMessage); ok {
+		return answer, conversation.TokenUsage{}, nil
 	}
 	executionState := &graphExecutionState{
 		conversationID: conversationID,
@@ -218,7 +236,7 @@ func (g *graph) addGraphEdges(messageGraph *langgraph.MessageGraph, executionSta
 			if executionState.route == RouteOutOfScope {
 				return graphNodeScopeResponse
 			}
-			if executionState.profile.ServiceContext {
+			if capabilitiesNeedServiceContext(executionState.capabilities) {
 				return graphNodeRetrievePlan
 			}
 
@@ -316,6 +334,7 @@ func (g *graph) routeNode(
 	return func(ctx context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
 		executionState.report("Routing request")
 		route := RouteGeneral
+		var capabilities []Capability
 		if !isGreeting(executionState.userMessage) {
 			result, err := g.router.Route(ctx, RouteRequest{
 				Message:       executionState.userMessage,
@@ -333,10 +352,12 @@ func (g *graph) routeNode(
 				}
 				executionState.route = RouteGeneral
 				executionState.profile = fallbackRouteProfile()
-				executionState.effectiveToolSet = g.effectiveToolSet(executionState.profile)
+				executionState.capabilities = nil
+				executionState.effectiveToolSet = g.effectiveToolSet(nil)
 				return messages, nil
 			}
 			route = result.Route
+			capabilities = result.Capabilities
 			executionState.operation = result.Operation
 		}
 
@@ -346,7 +367,8 @@ func (g *graph) routeNode(
 		}
 		executionState.route = route
 		executionState.profile = profile
-		executionState.effectiveToolSet = g.effectiveToolSet(profile)
+		executionState.capabilities = append([]Capability(nil), capabilities...)
+		executionState.effectiveToolSet = g.effectiveToolSet(executionState.capabilities)
 		executionState.report("Route: " + string(route))
 		if executionState.operation != nil {
 			answer, usage := g.startPendingOperation(ctx, executionState.conversationID, *executionState.operation)
@@ -430,7 +452,7 @@ func (g *graph) prepareNode(
 		})
 
 		contextChars := 0
-		if executionState.profile.ServiceContext {
+		if capabilitiesNeedServiceContext(executionState.capabilities) {
 			if contextMessage := buildServicesContextMessage(executionState.relevantServices); contextMessage != "" {
 				contextChars = textChars(contextMessage)
 				messages = append(messages, modelMessage{
@@ -631,6 +653,12 @@ func (g *graph) guardMCPResultsNode(
 
 		return messages, nil
 	}
+}
+
+func fastConversationResponse(userMessage string) (string, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(userMessage))
+	answer, ok := fastConversationResponses[normalized]
+	return answer, ok
 }
 
 func isGreeting(userMessage string) bool {
