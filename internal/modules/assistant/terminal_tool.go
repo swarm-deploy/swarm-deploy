@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	mcpTools "github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools"
 )
 
 const (
@@ -16,7 +16,7 @@ const (
 	promptInjectionRejectedResponse    = "Request was rejected by prompt injection protection."
 )
 
-// ToolBehavior describes built-in assistant behavior that is not part of the external MCP contract.
+// ToolBehavior describes built-in assistant behavior that is not part of the assistant tool contract.
 type ToolBehavior struct {
 	// Terminal indicates that a successful single result can finish without another model completion.
 	Terminal bool
@@ -44,7 +44,7 @@ func finalizeTerminalToolResult(toolName, result string) (string, error) {
 		return promptInjectionRejectedResponse, nil
 	}
 
-	var actionResult mcpTools.ServiceActionResult
+	var actionResult tools.ServiceActionResult
 	if err := json.Unmarshal([]byte(result), &actionResult); err != nil {
 		return "", fmt.Errorf("decode terminal tool result: %w", err)
 	}
