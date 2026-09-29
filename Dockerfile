@@ -12,6 +12,7 @@ RUN --mount=type=cache,target=/root/.npm \
     npm install
 
 COPY ui/index.html ui/styles.css ui/vite.config.ts ui/tsconfig.json ./
+COPY ui/public ./public
 COPY ui/src ./src
 RUN APP_VERSION="${APP_VERSION}" BUILD_TIME="${BUILD_TIME}" npm run build
 
