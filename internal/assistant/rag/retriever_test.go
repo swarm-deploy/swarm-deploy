@@ -231,7 +231,11 @@ func TestRetrieverLimitsLexicalFallbackResults(t *testing.T) {
 		{Name: "web-gateway-http", Stack: "infra"},
 	}
 	index := NewIndex()
-	require.NoError(t, index.Replace(services, make([][]float64, len(services))), "seed index")
+	embeddings := make([][]float64, len(services))
+	for idx := range embeddings {
+		embeddings[idx] = []float64{1, 0}
+	}
+	require.NoError(t, index.Replace(services, embeddings), "seed index")
 
 	retriever := NewRetriever(
 		&fakeServiceStore{services: services},
