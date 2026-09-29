@@ -24,6 +24,7 @@ func NewDomain(
 	dataDir string,
 	filesystem fs.FileSystem,
 	secretManager swarm.SecretManager,
+	subscription swarm.EventSubscription[swarm.SecretEvent],
 ) (*Domain, error) {
 	store, err := modelstore.NewFileStore(ctx, filepath.Join(dataDir, "secrets.state.json"), filesystem)
 	if err != nil {
@@ -32,6 +33,6 @@ func NewDomain(
 
 	return &Domain{
 		Store:     store,
-		Collector: NewCollector(secretManager, store),
+		Collector: NewCollector(secretManager, store, subscription),
 	}, nil
 }
