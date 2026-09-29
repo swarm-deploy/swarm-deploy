@@ -234,6 +234,12 @@ func main() {
 		webApplication.Entrypoint(),
 		healthServer.Entrypoint(),
 		{
+			Name: "swarm-events",
+			Run: func(ctx context.Context) error {
+				return cnt.Swarm.Events.Run(ctx)
+			},
+		},
+		{
 			Name: "nodes-collector",
 			Run: func(ctx context.Context) error {
 				return cnt.Resources.NodeCollector.Run(ctx)
