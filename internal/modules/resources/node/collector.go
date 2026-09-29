@@ -5,58 +5,61 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
-const defaultCollectorReconnectDelay = 5 * time.Second
-
 // Collector collects and persists swarm nodes snapshot.
 type Collector struct {
-	inspector  swarm.NodeManager
-	store      *Store
-	dispatcher dispatcher.Dispatcher
-
-	reconnectDelay time.Duration
+	inspector    swarm.NodeManager
+	store        *Store
+	dispatcher   dispatcher.Dispatcher
+	subscription swarm.EventSubscription[swarm.NodeEvent]
 }
 
 // NewNodeCollector creates node collector.
-func NewNodeCollector(inspector swarm.NodeManager, store *Store, eventDispatcher dispatcher.Dispatcher) *Collector {
+func NewNodeCollector(
+	inspector swarm.NodeManager,
+	store *Store,
+	eventDispatcher dispatcher.Dispatcher,
+	subscription swarm.EventSubscription[swarm.NodeEvent],
+) *Collector {
 	return &Collector{
-		inspector:      inspector,
-		store:          store,
-		dispatcher:     eventDispatcher,
-		reconnectDelay: defaultCollectorReconnectDelay,
+		inspector:    inspector,
+		store:        store,
+		dispatcher:   eventDispatcher,
+		subscription: subscription,
 	}
 }
 
-// Run performs initial refresh and subscribes to docker node events.
+// Run performs initial refresh and subscribes to Docker node events.
 func (c *Collector) Run(ctx context.Context) error {
 	if _, err := c.refresh(ctx); err != nil {
 		slog.WarnContext(ctx, "[nodes] initial refresh failed", slog.Any("err", err))
 	}
 
 	for {
-		err := c.watchOnce(ctx)
-		if err == nil {
-			return nil
-		}
-
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-
-		slog.WarnContext(ctx, "[nodes] watch stream failed", slog.Any("err", err))
-
-		timer := time.NewTimer(c.reconnectDelay)
 		select {
 		case <-ctx.Done():
-			timer.Stop()
 			return nil
-		case <-timer.C:
+		case event, ok := <-c.subscription.Events:
+			if !ok {
+				return errors.New("docker node events channel closed")
+			}
+
+			slog.DebugContext(ctx, "[nodes] docker node event received",
+				slog.String("action", string(event.Action)),
+				slog.String("node_id", event.NodeID),
+				slog.Any("node_attributes", event.Attributes),
+			)
+			c.refreshAndDispatch(ctx, "[nodes] refresh after event failed")
+		case _, ok := <-c.subscription.Resync:
+			if !ok {
+				return errors.New("docker events resync channel closed")
+			}
+			c.refreshAndDispatch(ctx, "[nodes] refresh after stream reconnect failed")
 		}
 	}
 }
@@ -74,45 +77,15 @@ func (c *Collector) refresh(ctx context.Context) ([]swarm.Node, error) {
 	return nodes, nil
 }
 
-func (c *Collector) watchOnce(ctx context.Context) error {
-	eventsCh, errorsCh, err := c.inspector.Watch(ctx)
+func (c *Collector) refreshAndDispatch(ctx context.Context, warning string) {
+	previousNodes := c.store.List()
+	currentNodes, err := c.refresh(ctx)
 	if err != nil {
-		return fmt.Errorf("subscribe docker node events: %w", err)
+		slog.WarnContext(ctx, warning, slog.Any("err", err))
+		return
 	}
 
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case event, ok := <-eventsCh:
-			if !ok {
-				return errors.New("docker node events channel closed")
-			}
-
-			slog.DebugContext(ctx, "[nodes] docker node event received",
-				slog.String("action", string(event.Action)),
-				slog.String("node_id", event.Actor.ID),
-				slog.Any("node_attributes", event.Actor.Attributes),
-			)
-
-			previousNodes := c.store.List()
-			currentNodes, refreshErr := c.refresh(ctx)
-			if refreshErr != nil {
-				slog.WarnContext(ctx, "[nodes] refresh after event failed", slog.Any("err", refreshErr))
-				continue
-			}
-
-			c.dispatchConnectionEvents(ctx, previousNodes, currentNodes)
-		case watchErr, ok := <-errorsCh:
-			if !ok {
-				return errors.New("docker node events errors channel closed")
-			}
-			if watchErr == nil {
-				continue
-			}
-			return fmt.Errorf("watch docker node events: %w", watchErr)
-		}
-	}
+	c.dispatchConnectionEvents(ctx, previousNodes, currentNodes)
 }
 
 func (c *Collector) dispatchConnectionEvents(
