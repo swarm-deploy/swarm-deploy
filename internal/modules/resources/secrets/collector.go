@@ -14,7 +14,6 @@ import (
 
 const (
 	defaultDebounceDelay   = 250 * time.Millisecond
-	defaultReconnectDelay  = 5 * time.Second
 	defaultReconcilePeriod = time.Hour
 
 	externalPathLabel      = "external_path"
@@ -24,21 +23,25 @@ const (
 
 // Collector keeps the persisted secret metadata snapshot synchronized with Docker.
 type Collector struct {
-	manager swarm.SecretManager
-	store   modelstore.Store
+	manager      swarm.SecretManager
+	store        modelstore.Store
+	subscription swarm.EventSubscription[swarm.SecretEvent]
 
 	debounceDelay   time.Duration
-	reconnectDelay  time.Duration
 	reconcilePeriod time.Duration
 }
 
 // NewCollector creates a Docker secret metadata collector.
-func NewCollector(manager swarm.SecretManager, store modelstore.Store) *Collector {
+func NewCollector(
+	manager swarm.SecretManager,
+	store modelstore.Store,
+	subscription swarm.EventSubscription[swarm.SecretEvent],
+) *Collector {
 	return &Collector{
 		manager:         manager,
 		store:           store,
+		subscription:    subscription,
 		debounceDelay:   defaultDebounceDelay,
-		reconnectDelay:  defaultReconnectDelay,
 		reconcilePeriod: defaultReconcilePeriod,
 	}
 }
@@ -52,22 +55,7 @@ func (c *Collector) Run(ctx context.Context) error {
 	reconcileTicker := time.NewTicker(c.reconcilePeriod)
 	defer reconcileTicker.Stop()
 
-	refreshAfterConnect := false
-	for {
-		err := c.watchOnce(ctx, reconcileTicker.C, refreshAfterConnect)
-		if err == nil {
-			return nil
-		}
-		if ctx.Err() != nil {
-			return nil
-		}
-
-		refreshAfterConnect = true
-		slog.WarnContext(ctx, "[secrets] watch stream failed", slog.Any("err", err))
-		if !waitFor(ctx, c.reconnectDelay) {
-			return nil
-		}
-	}
+	return c.watch(ctx, reconcileTicker.C)
 }
 
 func (c *Collector) refresh(ctx context.Context) error {
@@ -88,21 +76,7 @@ func (c *Collector) refresh(ctx context.Context) error {
 	return nil
 }
 
-func (c *Collector) watchOnce(
-	ctx context.Context,
-	reconcile <-chan time.Time,
-	refreshAfterConnect bool,
-) error {
-	eventsCh, errorsCh, err := c.manager.Watch(ctx)
-	if err != nil {
-		return fmt.Errorf("subscribe docker secret events: %w", err)
-	}
-	if refreshAfterConnect {
-		if refreshErr := c.refresh(ctx); refreshErr != nil {
-			slog.WarnContext(ctx, "[secrets] refresh after reconnect failed", slog.Any("err", refreshErr))
-		}
-	}
-
+func (c *Collector) watch(ctx context.Context, reconcile <-chan time.Time) error {
 	debouncer := newRefreshDebouncer(c.debounceDelay)
 	defer debouncer.stop()
 
@@ -110,23 +84,21 @@ func (c *Collector) watchOnce(
 		select {
 		case <-ctx.Done():
 			return nil
-		case _, ok := <-eventsCh:
+		case _, ok := <-c.subscription.Events:
 			if !ok {
 				return errors.New("docker secret events channel closed")
 			}
 			debouncer.trigger()
+		case _, ok := <-c.subscription.Resync:
+			if !ok {
+				return errors.New("docker events resync channel closed")
+			}
+			c.refreshWithWarning(ctx, "[secrets] refresh after stream reconnect failed")
 		case <-debouncer.wait():
 			debouncer.markFired()
 			c.refreshWithWarning(ctx, "[secrets] refresh after event failed")
 		case <-reconcile:
 			c.refreshWithWarning(ctx, "[secrets] periodic refresh failed")
-		case watchErr, ok := <-errorsCh:
-			if !ok {
-				return errors.New("docker secret events errors channel closed")
-			}
-			if watchErr != nil {
-				return fmt.Errorf("watch docker secret events: %w", watchErr)
-			}
 		}
 	}
 }
@@ -164,18 +136,6 @@ func cloneLabels(labels map[string]string) map[string]string {
 	}
 
 	return cloned
-}
-
-func waitFor(ctx context.Context, delay time.Duration) bool {
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-
-	select {
-	case <-ctx.Done():
-		return false
-	case <-timer.C:
-		return true
-	}
 }
 
 type refreshDebouncer struct {
