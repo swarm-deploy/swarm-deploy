@@ -20,7 +20,7 @@ import (
 const (
 	maxToolIterations            = 3
 	prepareMessagesExtraCapacity = 4
-	servicesContextMaxRows       = 64
+	servicesContextMaxRows       = 5
 )
 
 const (
@@ -49,6 +49,20 @@ var helloMessages = map[string]struct{}{
 	"здравствуй":  {},
 	"добрый день": {},
 	"спасибо":     {},
+}
+
+var fastConversationResponses = map[string]string{
+	"hello":       "Hello! How can I help with swarm-deploy?",
+	"hi":          "Hi! How can I help with swarm-deploy?",
+	"hey":         "Hey! How can I help with swarm-deploy?",
+	"thanks":      "You're welcome.",
+	"thank you":   "You're welcome.",
+	"привет":      "Привет! Чем помочь со swarm-deploy?",
+	"здарова":     "Привет! Чем помочь со swarm-deploy?",
+	"ку":          "Привет! Чем помочь со swarm-deploy?",
+	"здравствуй":  "Привет! Чем помочь со swarm-deploy?",
+	"добрый день": "Добрый день! Чем помочь со swarm-deploy?",
+	"спасибо":     "Пожалуйста.",
 }
 
 var (
@@ -153,6 +167,9 @@ func (g *graph) run(
 	}
 	if handled, answer, usage, err := g.handlePendingOperation(ctx, conversationID, userMessage); handled || err != nil {
 		return answer, usage, err
+	}
+	if answer, ok := fastConversationResponse(userMessage); ok {
+		return answer, conversation.TokenUsage{}, nil
 	}
 	executionState := &graphExecutionState{
 		conversationID: conversationID,
@@ -636,6 +653,12 @@ func (g *graph) guardMCPResultsNode(
 
 		return messages, nil
 	}
+}
+
+func fastConversationResponse(userMessage string) (string, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(userMessage))
+	answer, ok := fastConversationResponses[normalized]
+	return answer, ok
 }
 
 func isGreeting(userMessage string) bool {
