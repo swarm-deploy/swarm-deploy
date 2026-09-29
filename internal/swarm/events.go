@@ -12,10 +12,8 @@ import (
 	"github.com/docker/docker/api/types/filters"
 )
 
-const (
-	defaultEventSubscriberBufferSize = 64
-	defaultEventReconnectDelay        = 5 * time.Second
-)
+const defaultEventSubscriberBufferSize = 64
+const defaultEventReconnectDelay = 5 * time.Second
 
 // EventAction is a normalized Docker resource event action.
 type EventAction string
@@ -96,8 +94,11 @@ func (e *Events) Run(ctx context.Context) error {
 	reconnected := false
 	for {
 		err := e.watchOnce(ctx, reconnected)
-		if err == nil || ctx.Err() != nil {
+		if err == nil {
 			return nil
+		}
+		if ctx.Err() != nil {
+			return nil //nolint:nilerr // cancellation is a normal shutdown path
 		}
 
 		reconnected = true
@@ -122,7 +123,7 @@ func (e *Events) watchOnce(ctx context.Context, reconnected bool) error {
 
 	if reconnected {
 		if err := e.resync.publish(ctx, ResyncEvent{Time: time.Now()}); err != nil {
-			return nil
+			return err
 		}
 	}
 
@@ -135,7 +136,7 @@ func (e *Events) watchOnce(ctx context.Context, reconnected bool) error {
 				return errors.New("docker events channel closed")
 			}
 			if err := e.dispatch(ctx, event); err != nil {
-				return nil
+				return err
 			}
 		case streamErr, ok := <-errs:
 			if !ok {
@@ -149,6 +150,7 @@ func (e *Events) watchOnce(ctx context.Context, reconnected bool) error {
 }
 
 func (e *Events) dispatch(ctx context.Context, event dockerevents.Message) error {
+	//nolint:exhaustive // the Docker stream is filtered to the resource types handled below.
 	switch event.Type {
 	case dockerevents.NodeEventType:
 		return e.nodes.publish(ctx, NodeEvent{
