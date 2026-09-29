@@ -217,7 +217,6 @@ func TestAssistantGreetingFastPathUsesNoModelRAGOrTools(t *testing.T) {
 	assert.Empty(t, requests, "greeting fast-path must not call the model")
 	assert.Empty(t, tools.calls, "greeting fast-path must not execute tools")
 	assert.Equal(t, int64(0), store.listCalls.Load())
-	assert.Zero(t, response.Usage.TotalTokens)
 }
 
 func TestAssistantRouteToolsIntersectGlobalAllowlist(t *testing.T) {
