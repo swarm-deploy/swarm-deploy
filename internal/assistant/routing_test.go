@@ -199,25 +199,25 @@ func TestAssistantOutOfScopeEndsBeforeRAGToolsAndMainGeneration(t *testing.T) {
 	}
 }
 
-func TestAssistantGreetingFastPathUsesNoRouterRAGOrOperationalTools(t *testing.T) {
+func TestAssistantGreetingFastPathUsesNoModelRAGOrTools(t *testing.T) {
 	store := &fakeStore{services: []service.Info{{Name: "api", Stack: "core"}}}
 	tools := &fakeTools{definitions: assistantTestToolDefinitions()}
 	var requests []capturedChatRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		requests = append(requests, decodeCapturedChatRequest(t, req))
 		w.Header().Set("Content-Type", "application/json")
-		writeChatResponse(t, w, "Привет!", nil)
+		writeChatResponse(t, w, "unexpected model call", nil)
 	}))
 	defer server.Close()
 
 	assistantService := newRoutingTestService(t, server.URL, store, tools, nil)
 	response := assistantService.Chat(context.Background(), ChatRequest{Message: "Привет"})
 	require.Equal(t, StatusCompleted, response.Status)
-	require.Len(t, requests, 1, "greeting fast-path should skip router completion")
-	assert.Equal(t, []string{assistantPromptInjectionReportTool, "date"}, capturedToolNames(requests[0]))
+	assert.Equal(t, "Привет! Чем помочь со swarm-deploy?", response.Answer)
+	assert.Empty(t, requests, "greeting fast-path must not call the model")
+	assert.Empty(t, tools.calls, "greeting fast-path must not execute tools")
 	assert.Equal(t, int64(0), store.listCalls.Load())
-	assert.False(t, requestContains(requests[0], "service.store"))
-	assert.False(t, requestContains(requests[0], "Available tools:"))
+	assert.Zero(t, response.Usage.TotalTokens)
 }
 
 func TestAssistantRouteToolsIntersectGlobalAllowlist(t *testing.T) {
