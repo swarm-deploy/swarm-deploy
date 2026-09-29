@@ -175,7 +175,8 @@ func (r *Retriever) RetrieveLexical(plan *RetrievalPlan) ([]service.Info, error)
 
 	normalizedQuery := strings.ToLower(strings.TrimSpace(plan.query))
 	if normalizedQuery == "" {
-		return plan.services, nil
+		limit := min(len(plan.services), maxRetrievedServices)
+		return append([]service.Info(nil), plan.services[:limit]...), nil
 	}
 
 	terms := strings.Fields(normalizedQuery)
