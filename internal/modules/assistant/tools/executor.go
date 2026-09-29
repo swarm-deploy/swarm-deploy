@@ -12,9 +12,9 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources"
@@ -37,7 +37,7 @@ type Executor struct {
 	tracer      trace.Tracer
 }
 
-// NewExecutor creates an MCP tool executor from service components.
+// NewExecutor creates an assistant tool executor from service components.
 func NewExecutor(
 	resourcesModule *resources.Module,
 	gitopsModule *gitops.Module,
@@ -101,7 +101,7 @@ func (e *Executor) Definitions() []routing.ToolDefinition {
 
 // Execute runs a tool by name.
 func (e *Executor) Execute(ctx context.Context, req routing.Request) (string, error) {
-	ctx, span := e.tracer.Start(ctx, "MCP "+req.ToolName, trace.WithAttributes(
+	ctx, span := e.tracer.Start(ctx, "tool "+req.ToolName, trace.WithAttributes(
 		semconv.GenAIOperationNameExecuteTool,
 		tracing.GenAIToolName.String(req.ToolName),
 		tracing.GenAIToolType.String("function"),
