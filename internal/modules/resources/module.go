@@ -21,7 +21,7 @@ type Module struct {
 	NodeCollector *node.Collector
 	ServiceStore  *service.Store
 	// Secrets exposes persisted secret metadata and its collector.
-	Secrets       *secrets.Domain
+	Secrets *secrets.Domain
 
 	cfg *config.Config
 }

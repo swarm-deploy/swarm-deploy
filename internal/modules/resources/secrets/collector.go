@@ -103,9 +103,8 @@ func (c *Collector) watchOnce(
 		}
 	}
 
-	var debounceTimer *time.Timer
-	var debounce <-chan time.Time
-	defer func() { stopTimer(debounceTimer) }()
+	debouncer := newRefreshDebouncer(c.debounceDelay)
+	defer debouncer.stop()
 
 	for {
 		select {
@@ -115,27 +114,12 @@ func (c *Collector) watchOnce(
 			if !ok {
 				return errors.New("docker secret events channel closed")
 			}
-			if debounceTimer == nil {
-				debounceTimer = time.NewTimer(c.debounceDelay)
-			} else {
-				if !debounceTimer.Stop() {
-					select {
-					case <-debounceTimer.C:
-					default:
-					}
-				}
-				debounceTimer.Reset(c.debounceDelay)
-			}
-			debounce = debounceTimer.C
-		case <-debounce:
-			debounce = nil
-			if refreshErr := c.refresh(ctx); refreshErr != nil {
-				slog.WarnContext(ctx, "[secrets] refresh after event failed", slog.Any("err", refreshErr))
-			}
+			debouncer.trigger()
+		case <-debouncer.wait():
+			debouncer.markFired()
+			c.refreshWithWarning(ctx, "[secrets] refresh after event failed")
 		case <-reconcile:
-			if refreshErr := c.refresh(ctx); refreshErr != nil {
-				slog.WarnContext(ctx, "[secrets] periodic refresh failed", slog.Any("err", refreshErr))
-			}
+			c.refreshWithWarning(ctx, "[secrets] periodic refresh failed")
 		case watchErr, ok := <-errorsCh:
 			if !ok {
 				return errors.New("docker secret events errors channel closed")
@@ -144,6 +128,12 @@ func (c *Collector) watchOnce(
 				return fmt.Errorf("watch docker secret events: %w", watchErr)
 			}
 		}
+	}
+}
+
+func (c *Collector) refreshWithWarning(ctx context.Context, message string) {
+	if err := c.refresh(ctx); err != nil {
+		slog.WarnContext(ctx, message, slog.Any("err", err))
 	}
 }
 
@@ -188,8 +178,43 @@ func waitFor(ctx context.Context, delay time.Duration) bool {
 	}
 }
 
-func stopTimer(timer *time.Timer) {
-	if timer != nil {
-		timer.Stop()
+type refreshDebouncer struct {
+	delay   time.Duration
+	timer   *time.Timer
+	channel <-chan time.Time
+}
+
+func newRefreshDebouncer(delay time.Duration) *refreshDebouncer {
+	return &refreshDebouncer{delay: delay}
+}
+
+func (d *refreshDebouncer) trigger() {
+	if d.timer == nil {
+		d.timer = time.NewTimer(d.delay)
+		d.channel = d.timer.C
+		return
+	}
+
+	if !d.timer.Stop() {
+		select {
+		case <-d.timer.C:
+		default:
+		}
+	}
+	d.timer.Reset(d.delay)
+	d.channel = d.timer.C
+}
+
+func (d *refreshDebouncer) wait() <-chan time.Time {
+	return d.channel
+}
+
+func (d *refreshDebouncer) markFired() {
+	d.channel = nil
+}
+
+func (d *refreshDebouncer) stop() {
+	if d.timer != nil {
+		d.timer.Stop()
 	}
 }
