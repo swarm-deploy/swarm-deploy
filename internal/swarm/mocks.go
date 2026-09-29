@@ -13,7 +13,6 @@ import (
 	context "context"
 	reflect "reflect"
 
-	events "github.com/docker/docker/api/types/events"
 	swarm "github.com/docker/docker/api/types/swarm"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -269,22 +268,6 @@ func (mr *MockSecretManagerMockRecorder) List(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockSecretManager)(nil).List), ctx)
 }
 
-// Watch mocks base method.
-func (m *MockSecretManager) Watch(ctx context.Context) (<-chan events.Message, <-chan error, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Watch", ctx)
-	ret0, _ := ret[0].(<-chan events.Message)
-	ret1, _ := ret[1].(<-chan error)
-	ret2, _ := ret[2].(error)
-	return ret0, ret1, ret2
-}
-
-// Watch indicates an expected call of Watch.
-func (mr *MockSecretManagerMockRecorder) Watch(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Watch", reflect.TypeOf((*MockSecretManager)(nil).Watch), ctx)
-}
-
 // ResolveReference mocks base method.
 func (m *MockSecretManager) ResolveReference(ctx context.Context, source, target string) (*swarm.SecretReference, error) {
 	m.ctrl.T.Helper()
@@ -503,20 +486,4 @@ func (m *MockNodeManager) SetLabel(ctx context.Context, req NodeLabelUpdateReque
 func (mr *MockNodeManagerMockRecorder) SetLabel(ctx, req any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetLabel", reflect.TypeOf((*MockNodeManager)(nil).SetLabel), ctx, req)
-}
-
-// Watch mocks base method.
-func (m *MockNodeManager) Watch(ctx context.Context) (<-chan events.Message, <-chan error, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Watch", ctx)
-	ret0, _ := ret[0].(<-chan events.Message)
-	ret1, _ := ret[1].(<-chan error)
-	ret2, _ := ret[2].(error)
-	return ret0, ret1, ret2
-}
-
-// Watch indicates an expected call of Watch.
-func (mr *MockNodeManagerMockRecorder) Watch(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Watch", reflect.TypeOf((*MockNodeManager)(nil).Watch), ctx)
 }
