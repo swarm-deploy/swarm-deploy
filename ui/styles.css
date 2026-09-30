@@ -1410,7 +1410,7 @@ a.overview-summary-row:focus-visible {
 
 .secret-manager-card {
   width: 100%;
-  max-width: 960px;
+  max-width: 760px;
   min-width: 0;
   border: 1px solid var(--border-default);
   border-radius: 10px;
@@ -1632,6 +1632,33 @@ a.overview-summary-row:focus-visible {
 
 .secret-manager-message--error {
   color: var(--error);
+}
+
+@media (min-width: 651px) {
+  .secret-manager-card {
+    padding: 11px 12px 10px;
+    gap: 8px;
+  }
+
+  .secret-manager-card-header {
+    grid-template-columns: 28px fit-content(420px) auto;
+    justify-content: start;
+    gap: 8px;
+  }
+
+  .secret-manager-card-footer {
+    justify-content: flex-start;
+    gap: 10px;
+    padding-left: 36px;
+  }
+
+  .secret-manager-metadata {
+    flex: 0 1 auto;
+  }
+
+  .secret-manager-message {
+    margin-left: 36px;
+  }
 }
 
 @keyframes secret-manager-spin {
