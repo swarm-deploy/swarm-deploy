@@ -297,7 +297,7 @@ body {
   flex-direction: column;
 }
 
-.sidebar-overview-mobile {
+.sidebar-link.sidebar-overview-mobile {
   display: none;
 }
 
@@ -738,7 +738,7 @@ body {
     scrollbar-width: thin;
   }
 
-  .sidebar-overview-mobile {
+  .sidebar-link.sidebar-overview-mobile {
     display: flex;
     flex: 0 0 auto;
     z-index: 2;
