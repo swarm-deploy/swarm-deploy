@@ -169,6 +169,7 @@ supported alternatives, and security considerations.
 
 - [Reconciliation](./docs/reconciler.md)
 - [Authentication](./docs/authentication.md)
+- [Docker Registry Authentication](./docs/registry-authentication.md)
 - [Managed Docker Networks](./docs/networks.md)
 - [Downward Metadata](./docs/downward.md)
 - [OpenTelemetry Tracing](./docs/tracing.md)
