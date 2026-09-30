@@ -193,7 +193,7 @@ const syncDisabled = computed(() => (
             <path d="M6.1 9a7 7 0 0 1 11.5-2L20 9M4 15l2.4 2a7 7 0 0 0 11.5-2" />
           </svg>
           <span class="secret-manager-sync-time-desktop">Next sync {{ relativeNextSyncTime }}</span>
-          <span class="secret-manager-sync-time-mobile">{{ relativeNextSyncTime }}</span>
+          <span class="secret-manager-sync-time-mobile">Next {{ relativeNextSyncTime }}</span>
         </span>
       </div>
 
@@ -206,6 +206,11 @@ const syncDisabled = computed(() => (
           rel="noopener noreferrer"
         >
           Manage
+          <svg class="secret-manager-external-link" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+            <path d="M14 5h5v5" />
+            <path d="m19 5-9 9" />
+            <path d="M19 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" />
+          </svg>
         </a>
         <button
           type="button"

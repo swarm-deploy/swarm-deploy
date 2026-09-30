@@ -45,7 +45,7 @@ describe("SecretManagerCard", () => {
     expect(wrapper.get(".secret-manager-sync-time-desktop").text()).toBe("Last synced 2 min ago");
     expect(wrapper.get(".secret-manager-sync-time-mobile").text()).toBe("2 min ago");
     expect(wrapper.get(".secret-manager-next-sync-time .secret-manager-sync-time-desktop").text()).toBe("Next sync in 3 min");
-    expect(wrapper.get(".secret-manager-next-sync-time .secret-manager-sync-time-mobile").text()).toBe("in 3 min");
+    expect(wrapper.get(".secret-manager-next-sync-time .secret-manager-sync-time-mobile").text()).toBe("Next in 3 min");
     expect(wrapper.get(".secret-manager-badge--healthy").text()).toBe("Healthy");
     expect(wrapper.get(".secret-manager-docs").attributes()).toMatchObject({
       href: "https://cloud.ru/docs/secret-manager/",
@@ -57,6 +57,8 @@ describe("SecretManagerCard", () => {
       target: "_blank",
       rel: "noopener noreferrer",
     });
+    expect(wrapper.get(".secret-manager-manage").text()).toBe("Manage");
+    expect(wrapper.find(".secret-manager-manage .secret-manager-external-link").exists()).toBe(true);
     expect(wrapper.text()).not.toContain("Some secrets are managed by");
   });
 
