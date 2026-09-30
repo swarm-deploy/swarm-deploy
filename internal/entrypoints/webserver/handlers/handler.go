@@ -14,6 +14,7 @@ import (
 	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/node"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretmanager"
 	secretstore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretservice"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -25,6 +26,7 @@ type handler struct {
 	control          *controller.Controller
 	serviceInspector swarm.ServiceManager
 	secrets          secretstore.Store
+	secretRelations  *secretservice.Resolver
 	secretManagers   *secretmanager.Domain
 	networks         swarm.NetworkManager
 	nodeManager      swarm.NodeManager
@@ -62,6 +64,7 @@ func New(
 		control:          control,
 		serviceInspector: swarmService.Services,
 		secrets:          secrets,
+		secretRelations:  secretservice.NewResolver(services, secrets),
 		secretManagers:   secretManagers,
 		networks:         swarmService.Networks,
 		nodeManager:      swarmService.Nodes,

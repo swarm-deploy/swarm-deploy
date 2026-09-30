@@ -2204,6 +2204,52 @@ func (o OptSecretExternalInfo) Or(d SecretExternalInfo) SecretExternalInfo {
 	return d
 }
 
+// NewOptSecretInfo returns new OptSecretInfo with value set to v.
+func NewOptSecretInfo(v SecretInfo) OptSecretInfo {
+	return OptSecretInfo{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptSecretInfo is optional SecretInfo.
+type OptSecretInfo struct {
+	Value SecretInfo
+	Set   bool
+}
+
+// IsSet returns true if OptSecretInfo was set.
+func (o OptSecretInfo) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptSecretInfo) Reset() {
+	var v SecretInfo
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptSecretInfo) SetTo(v SecretInfo) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptSecretInfo) Get() (v SecretInfo, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptSecretInfo) Or(d SecretInfo) SecretInfo {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptSecretManagerProvider returns new OptSecretManagerProvider with value set to v.
 func NewOptSecretManagerProvider(v SecretManagerProvider) OptSecretManagerProvider {
 	return OptSecretManagerProvider{
@@ -2806,6 +2852,7 @@ type SecretDetailsResponse struct {
 	Driver    OptString                      `json:"driver"`
 	Labels    OptSecretDetailsResponseLabels `json:"labels"`
 	External  OptSecretExternalInfo          `json:"external"`
+	UsedBy    []SecretServiceUsage           `json:"used_by"`
 }
 
 // GetID returns the value of ID.
@@ -2848,6 +2895,11 @@ func (s *SecretDetailsResponse) GetExternal() OptSecretExternalInfo {
 	return s.External
 }
 
+// GetUsedBy returns the value of UsedBy.
+func (s *SecretDetailsResponse) GetUsedBy() []SecretServiceUsage {
+	return s.UsedBy
+}
+
 // SetID sets the value of ID.
 func (s *SecretDetailsResponse) SetID(val string) {
 	s.ID = val
@@ -2886,6 +2938,11 @@ func (s *SecretDetailsResponse) SetLabels(val OptSecretDetailsResponseLabels) {
 // SetExternal sets the value of External.
 func (s *SecretDetailsResponse) SetExternal(val OptSecretExternalInfo) {
 	s.External = val
+}
+
+// SetUsedBy sets the value of UsedBy.
+func (s *SecretDetailsResponse) SetUsedBy(val []SecretServiceUsage) {
+	s.UsedBy = val
 }
 
 type SecretDetailsResponseLabels map[string]string
@@ -2932,6 +2989,7 @@ type SecretInfo struct {
 	VersionID int64                 `json:"version_id"`
 	CreatedAt time.Time             `json:"created_at"`
 	External  OptSecretExternalInfo `json:"external"`
+	UsedBy    []SecretServiceUsage  `json:"used_by"`
 }
 
 // GetID returns the value of ID.
@@ -2959,6 +3017,11 @@ func (s *SecretInfo) GetExternal() OptSecretExternalInfo {
 	return s.External
 }
 
+// GetUsedBy returns the value of UsedBy.
+func (s *SecretInfo) GetUsedBy() []SecretServiceUsage {
+	return s.UsedBy
+}
+
 // SetID sets the value of ID.
 func (s *SecretInfo) SetID(val string) {
 	s.ID = val
@@ -2982,6 +3045,11 @@ func (s *SecretInfo) SetCreatedAt(val time.Time) {
 // SetExternal sets the value of External.
 func (s *SecretInfo) SetExternal(val OptSecretExternalInfo) {
 	s.External = val
+}
+
+// SetUsedBy sets the value of UsedBy.
+func (s *SecretInfo) SetUsedBy(val []SecretServiceUsage) {
+	s.UsedBy = val
 }
 
 // Ref: #/components/schemas/SecretManagerInfo
@@ -3211,6 +3279,43 @@ func (s *SecretManagersResponse) GetSecretManagers() []SecretManagerInfo {
 // SetSecretManagers sets the value of SecretManagers.
 func (s *SecretManagersResponse) SetSecretManagers(val []SecretManagerInfo) {
 	s.SecretManagers = val
+}
+
+// Ref: #/components/schemas/SecretServiceUsage
+type SecretServiceUsage struct {
+	Stack   string    `json:"stack"`
+	Service string    `json:"service"`
+	Target  OptString `json:"target"`
+}
+
+// GetStack returns the value of Stack.
+func (s *SecretServiceUsage) GetStack() string {
+	return s.Stack
+}
+
+// GetService returns the value of Service.
+func (s *SecretServiceUsage) GetService() string {
+	return s.Service
+}
+
+// GetTarget returns the value of Target.
+func (s *SecretServiceUsage) GetTarget() OptString {
+	return s.Target
+}
+
+// SetStack sets the value of Stack.
+func (s *SecretServiceUsage) SetStack(val string) {
+	s.Stack = val
+}
+
+// SetService sets the value of Service.
+func (s *SecretServiceUsage) SetService(val string) {
+	s.Service = val
+}
+
+// SetTarget sets the value of Target.
+func (s *SecretServiceUsage) SetTarget(val OptString) {
+	s.Target = val
 }
 
 // Ref: #/components/schemas/SecretsResponse
@@ -3885,9 +3990,10 @@ func (s *ServiceSpecResponse) SetNetwork(val []ServiceSpecNetworkResponse) {
 
 // Ref: #/components/schemas/ServiceSpecSecretResponse
 type ServiceSpecSecretResponse struct {
-	SecretID   OptString `json:"secret_id"`
-	SecretName string    `json:"secret_name"`
-	Target     OptString `json:"target"`
+	SecretID   OptString     `json:"secret_id"`
+	SecretName string        `json:"secret_name"`
+	Target     OptString     `json:"target"`
+	Secret     OptSecretInfo `json:"secret"`
 }
 
 // GetSecretID returns the value of SecretID.
@@ -3905,6 +4011,11 @@ func (s *ServiceSpecSecretResponse) GetTarget() OptString {
 	return s.Target
 }
 
+// GetSecret returns the value of Secret.
+func (s *ServiceSpecSecretResponse) GetSecret() OptSecretInfo {
+	return s.Secret
+}
+
 // SetSecretID sets the value of SecretID.
 func (s *ServiceSpecSecretResponse) SetSecretID(val OptString) {
 	s.SecretID = val
@@ -3918,6 +4029,11 @@ func (s *ServiceSpecSecretResponse) SetSecretName(val string) {
 // SetTarget sets the value of Target.
 func (s *ServiceSpecSecretResponse) SetTarget(val OptString) {
 	s.Target = val
+}
+
+// SetSecret sets the value of Secret.
+func (s *ServiceSpecSecretResponse) SetSecret(val OptSecretInfo) {
+	s.Secret = val
 }
 
 // Ref: #/components/schemas/ServiceStatusResponse

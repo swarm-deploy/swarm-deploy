@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted } from "vue";
+import { useRouter } from "vue-router";
 
 import AppTable from "../common/AppTable.vue";
+import type { SecretServiceUsage } from "../../api/types";
 import { useSecretDetailsStore } from "../../stores/secretDetails";
 import { formatDate } from "../../utils/format";
 
 const secretDetailsStore = useSecretDetailsStore();
+const router = useRouter();
 
 const secretLabels = computed(() => {
   const labels = secretDetailsStore.secret?.labels;
@@ -16,8 +19,21 @@ const secretLabels = computed(() => {
   return Object.entries(labels).sort(([left], [right]) => left.localeCompare(right));
 });
 
+const usedByServices = computed(() => {
+  const usedBy = secretDetailsStore.secret?.used_by;
+  return Array.isArray(usedBy) ? usedBy : [];
+});
+
 function closeSecretDetailsModal() {
   secretDetailsStore.closeSecretDetails();
+}
+
+async function openService(usage: SecretServiceUsage) {
+  closeSecretDetailsModal();
+  await router.push({
+    name: "service-details",
+    params: { stack: usage.stack, service: usage.service },
+  });
 }
 
 function handleEscape(event: KeyboardEvent) {
@@ -98,6 +114,19 @@ onUnmounted(() => {
                 </td>
               </tr>
           </AppTable>
+
+          <section class="secret-used-by" aria-labelledby="secret-used-by-title">
+            <h3 id="secret-used-by-title">Used by services</h3>
+            <ul v-if="usedByServices.length > 0" class="secret-used-by-list">
+              <li v-for="usage in usedByServices" :key="`${usage.stack}/${usage.service}/${usage.target || ''}`">
+                <button type="button" class="secret-used-by-service" @click="openService(usage)">
+                  <span>{{ usage.stack }} / {{ usage.service }}</span>
+                  <code v-if="usage.target">{{ usage.target }}</code>
+                </button>
+              </li>
+            </ul>
+            <p v-else class="meta">Not used by any service</p>
+          </section>
         </div>
       </div>
     </div>

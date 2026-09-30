@@ -1033,6 +1033,10 @@ components:
           format: date-time
         external:
           $ref: '#/components/schemas/SecretExternalInfo'
+        used_by:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecretServiceUsage'
     SecretDetailsResponse:
       type: object
       required: [id, name, version_id, created_at, updated_at]
@@ -1059,6 +1063,20 @@ components:
             type: string
         external:
           $ref: '#/components/schemas/SecretExternalInfo'
+        used_by:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecretServiceUsage'
+    SecretServiceUsage:
+      type: object
+      required: [stack, service]
+      properties:
+        stack:
+          type: string
+        service:
+          type: string
+        target:
+          type: string
     SecretExternalInfo:
       type: object
       properties:
@@ -1177,6 +1195,8 @@ components:
           type: string
         target:
           type: string
+        secret:
+          $ref: '#/components/schemas/SecretInfo'
     ServiceSpecNetworkResponse:
       type: object
       required: [target]

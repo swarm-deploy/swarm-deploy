@@ -12,6 +12,8 @@ import (
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
+	secretmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretservice"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
@@ -64,6 +66,9 @@ func TestHandlerGetService(t *testing.T) {
 
 	h := &handler{
 		services: store,
+		secretRelations: secretservice.NewResolver(store, newSecretsStore(t, []secretmodel.Secret{
+			{ID: "secret-id", Name: "payments_db_password", VersionID: 3},
+		})),
 	}
 
 	resp, err := h.GetService(context.Background(), generated.GetServiceParams{
@@ -104,6 +109,11 @@ func TestHandlerGetService(t *testing.T) {
 	}, customLabels)
 	require.Len(t, resp.Spec.Secrets, 1)
 	assert.Equal(t, "payments_db_password", resp.Spec.Secrets[0].SecretName)
+	assert.Equal(t, "/run/secrets/payments_db_password", resp.Spec.Secrets[0].Target.Value)
+	resolvedSecret, ok := resp.Spec.Secrets[0].Secret.Get()
+	require.True(t, ok)
+	assert.Equal(t, "secret-id", resolvedSecret.ID)
+	assert.Equal(t, int64(3), resolvedSecret.VersionID)
 	require.Len(t, resp.Spec.Network, 1)
 	assert.Equal(t, "payments_default", resp.Spec.Network[0].Target)
 }
@@ -115,7 +125,8 @@ func TestHandlerGetService_NotFound(t *testing.T) {
 	require.NoError(t, err)
 
 	h := &handler{
-		services: store,
+		services:        store,
+		secretRelations: secretservice.NewResolver(store, newSecretsStore(t, nil)),
 	}
 
 	_, err = h.GetService(context.Background(), generated.GetServiceParams{

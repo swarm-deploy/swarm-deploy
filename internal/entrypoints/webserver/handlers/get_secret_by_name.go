@@ -31,6 +31,7 @@ func (h *handler) GetSecretByName(
 		CreatedAt: secret.CreatedAt,
 		UpdatedAt: secret.UpdatedAt,
 		External:  toGeneratedSecretExternal(secret.ExternalPath, secret.ExternalVersionID),
+		UsedBy:    toGeneratedSecretServiceUsages(h.secretRelations.ServicesUsingSecret(secret)),
 	}
 	if driver := strings.TrimSpace(secret.Driver); driver != "" {
 		resp.Driver = generated.NewOptString(driver)

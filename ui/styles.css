@@ -1217,6 +1217,45 @@ a.overview-summary-row:focus-visible {
   padding-left: 0;
 }
 
+.secret-used-by h3 {
+  margin: 18px 0 10px;
+  font-size: 0.95rem;
+}
+
+.secret-used-by-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.secret-used-by-service {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-card-muted);
+  color: var(--text);
+  text-align: left;
+}
+
+.secret-used-by-service:hover,
+.secret-used-by-service:focus-visible {
+  border-color: var(--accent-border);
+  background: var(--info-muted);
+  color: var(--accent-strong);
+}
+
+.secret-used-by-service code {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
 .service-details-hidden-tags {
   margin-top: 6px;
 }
