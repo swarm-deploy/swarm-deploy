@@ -148,6 +148,13 @@ func (UnimplementedHandler) ListRecommendations(ctx context.Context, params List
 	return r, ht.ErrNotImplemented
 }
 
+// ListSecretManagers implements listSecretManagers operation.
+//
+// GET /api/v1/secret-managers
+func (UnimplementedHandler) ListSecretManagers(ctx context.Context) (r *SecretManagersResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListSecrets implements listSecrets operation.
 //
 // GET /api/v1/secrets
@@ -180,6 +187,13 @@ func (UnimplementedHandler) ListStacks(ctx context.Context) (r *StacksResponse, 
 //
 // GET /api/v1/search
 func (UnimplementedHandler) Search(ctx context.Context, params SearchParams) (r *SearchResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// SyncSecretManager implements syncSecretManager operation.
+//
+// POST /api/v1/secret-managers/{stack}/{service}/sync
+func (UnimplementedHandler) SyncSecretManager(ctx context.Context, params SyncSecretManagerParams) (r *SecretManagerSyncResponse, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
