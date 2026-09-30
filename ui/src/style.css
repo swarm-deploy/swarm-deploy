@@ -760,9 +760,11 @@ body {
   }
 
   .sidebar-link-overview .sidebar-label {
-    max-width: 0;
-    opacity: 0;
-    pointer-events: none;
+    display: none;
+  }
+
+  .sidebar.collapsed .sidebar-link-overview {
+    gap: 0;
   }
 
   .sidebar.collapsed .sidebar-link {
