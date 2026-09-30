@@ -336,6 +336,37 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/SecretDetailsResponse'
+  /api/v1/secret-managers:
+    get:
+      operationId: listSecretManagers
+      responses:
+        '200':
+          description: Discovered Secret Managers and controller availability.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecretManagersResponse'
+  /api/v1/secret-managers/{stack}/{service}/sync:
+    post:
+      operationId: syncSecretManager
+      parameters:
+        - in: path
+          name: stack
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: service
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Secret Manager synchronization summary.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SecretManagerSyncResponse'
   /api/v1/stacks/{stack}/services/{service}:
     get:
       operationId: getService
@@ -916,6 +947,75 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/SecretInfo'
+    SecretManagersResponse:
+      type: object
+      required: [secret_managers]
+      properties:
+        secret_managers:
+          type: array
+          items:
+            $ref: '#/components/schemas/SecretManagerInfo'
+    SecretManagerInfo:
+      type: object
+      required: [stack, service, kind, controllable, available]
+      properties:
+        stack:
+          type: string
+        service:
+          type: string
+        kind:
+          type: string
+        controllable:
+          type: boolean
+        available:
+          type: boolean
+        version:
+          type: string
+        provider:
+          $ref: '#/components/schemas/SecretManagerProvider'
+        last_sync_at:
+          type: string
+          format: date-time
+        next_sync_at:
+          type: string
+          format: date-time
+        error:
+          type: string
+    SecretManagerProvider:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        links:
+          $ref: '#/components/schemas/SecretManagerProviderLinks'
+    SecretManagerProviderLinks:
+      type: object
+      properties:
+        doc:
+          type: string
+        manager:
+          type: string
+    SecretManagerSyncResponse:
+      type: object
+      required: [created, updated, removed, unchanged]
+      properties:
+        created:
+          type: integer
+          format: int64
+          minimum: 0
+        updated:
+          type: integer
+          format: int64
+          minimum: 0
+        removed:
+          type: integer
+          format: int64
+          minimum: 0
+        unchanged:
+          type: integer
+          format: int64
+          minimum: 0
     SecretInfo:
       type: object
       required: [id, name, version_id, created_at]

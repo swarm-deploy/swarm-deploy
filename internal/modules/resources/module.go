@@ -9,6 +9,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/node"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretmanager"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
@@ -22,6 +23,8 @@ type Module struct {
 	ServiceStore  *service.Store
 	// Secrets exposes persisted secret metadata and its collector.
 	Secrets *secrets.Domain
+	// SecretManagers discovers and controls Secret Manager services.
+	SecretManagers *secretmanager.Domain
 
 	cfg *config.Config
 }
@@ -46,11 +49,17 @@ func InitModule(
 	}
 
 	srv.NodeCollector = node.NewNodeCollector(cnt.GetSwarm().Nodes, srv.NodeStore, cnt.GetEventModule().Dispatcher)
-	secretDomain, err := secrets.NewDomain(ctx, cfg.Spec.DataDir, cnt.GetFileSystem(), cnt.GetSwarm().Secrets)
+	secretDomain, err := secrets.NewDomain(
+		ctx,
+		cfg.Spec.DataDir,
+		cnt.GetFileSystem(),
+		cnt.GetSwarm().Secrets,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("init secrets domain: %w", err)
 	}
 	srv.Secrets = secretDomain
+	srv.SecretManagers = secretmanager.NewDomain(srv.ServiceStore)
 
 	srv.registerEventSubscribers(cnt)
 
