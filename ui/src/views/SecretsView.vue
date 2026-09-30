@@ -5,6 +5,7 @@ import { fetchSecretManagers, fetchSecrets, syncSecretManager } from "../api/sec
 import type { SecretInfo, SecretManagerInfo, SecretManagerSyncResponse } from "../api/types";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
+import SecretManagerCard from "../components/secrets/SecretManagerCard.vue";
 import { useSecretDetailsStore } from "../stores/secretDetails";
 
 const loading = ref(false);
@@ -12,7 +13,7 @@ const loadingError = ref("");
 const secrets = ref<SecretInfo[]>([]);
 const secretManagers = ref<SecretManagerInfo[]>([]);
 const syncingManager = ref("");
-const managerFeedback = ref<Record<string, string>>({});
+const managerFeedback = ref<Record<string, { kind: "success" | "error"; message: string }>>({});
 const searchQuery = ref("");
 const secretDetailsStore = useSecretDetailsStore();
 
@@ -38,6 +39,10 @@ const filteredSecrets = computed(() => {
 const cloudSecretManagers = computed(() =>
   secretManagers.value.filter((manager) => manager.kind === "cloud-secrets"),
 );
+
+const managedSecretCount = computed(() => secrets.value.filter((secret) => (
+  Boolean(secret.external?.path || secret.external?.version_id)
+)).length);
 
 function sortSecrets(items: SecretInfo[]): SecretInfo[] {
   return [...items].sort((left, right) => {
@@ -85,41 +90,6 @@ function managerKey(manager: SecretManagerInfo): string {
   return `${manager.stack}/${manager.service}`;
 }
 
-function safeProviderLink(raw: string | undefined): string {
-  if (!raw) {
-    return "";
-  }
-
-  try {
-    const parsed = new URL(raw);
-    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.toString() : "";
-  } catch {
-    return "";
-  }
-}
-
-function formatRelativeTime(raw: string | undefined): string {
-  if (!raw) {
-    return "Not synced since the last restart";
-  }
-
-  const timestamp = new Date(raw).valueOf();
-  if (Number.isNaN(timestamp)) {
-    return raw;
-  }
-
-  const elapsedMinutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60000));
-  if (elapsedMinutes < 1) {
-    return "Last synced just now";
-  }
-  if (elapsedMinutes < 60) {
-    return `Last synced ${elapsedMinutes} min ago`;
-  }
-
-  const elapsedHours = Math.floor(elapsedMinutes / 60);
-  return `Last synced ${elapsedHours === 1 ? "1 hour" : `${elapsedHours} hours`} ago`;
-}
-
 function syncSummary(result: SecretManagerSyncResponse): string {
   return `Sync complete: ${result.created} created, ${result.updated} updated, ${result.removed} removed, ${result.unchanged} unchanged`;
 }
@@ -127,15 +97,18 @@ function syncSummary(result: SecretManagerSyncResponse): string {
 async function triggerManagerSync(manager: SecretManagerInfo) {
   const key = managerKey(manager);
   syncingManager.value = key;
-  managerFeedback.value[key] = "";
+  delete managerFeedback.value[key];
 
   try {
     const result = await syncSecretManager(manager.stack, manager.service);
-    managerFeedback.value[key] = syncSummary(result);
+    managerFeedback.value[key] = { kind: "success", message: syncSummary(result) };
     await loadSecretManagers();
     window.setTimeout(() => void loadSecrets(), 500);
   } catch (error) {
-    managerFeedback.value[key] = error instanceof Error ? error.message : "Failed to synchronize secrets";
+    managerFeedback.value[key] = {
+      kind: "error",
+      message: error instanceof Error ? error.message : "Failed to synchronize secrets",
+    };
   } finally {
     syncingManager.value = "";
   }
@@ -171,45 +144,16 @@ function formatDate(value: string): string {
     </header>
 
     <div v-if="cloudSecretManagers.length > 0" class="secret-manager-list">
-      <article
+      <SecretManagerCard
         v-for="manager in cloudSecretManagers"
         :key="managerKey(manager)"
-        class="secret-manager-card"
-        :class="{ 'secret-manager-card--unavailable': !manager.available }"
-      >
-        <div class="secret-manager-copy">
-          <div class="secret-manager-heading">
-            <span class="secret-manager-status" :class="{ available: manager.available }" aria-hidden="true"></span>
-            <strong v-if="manager.available && manager.provider?.name">
-              Some secrets are managed by
-              <a
-                v-if="safeProviderLink(manager.provider.link)"
-                :href="safeProviderLink(manager.provider.link)"
-                target="_blank"
-                rel="noopener noreferrer"
-              >{{ manager.provider.name }}</a>
-              <span v-else>{{ manager.provider.name }}</span>
-            </strong>
-            <strong v-else-if="manager.available">cloud-secrets Secret Manager</strong>
-            <strong v-else>cloud-secrets Secret Manager is unavailable</strong>
-            <span v-if="manager.version" class="secret-manager-version">{{ manager.version }}</span>
-          </div>
-          <span class="secret-manager-meta">
-            {{ manager.available ? formatRelativeTime(manager.last_sync_at) : (manager.error || "Controller is unavailable") }}
-          </span>
-          <span v-if="managerFeedback[managerKey(manager)]" class="secret-manager-feedback">
-            {{ managerFeedback[managerKey(manager)] }}
-          </span>
-        </div>
-        <button
-          type="button"
-          class="secret-manager-sync"
-          :disabled="!manager.controllable || !manager.available || syncingManager === managerKey(manager)"
-          @click="triggerManagerSync(manager)"
-        >
-          {{ syncingManager === managerKey(manager) ? "Syncing..." : "Sync" }}
-        </button>
-      </article>
+        :manager="manager"
+        :managed-count="managedSecretCount"
+        :syncing="syncingManager === managerKey(manager)"
+        :sync-error="managerFeedback[managerKey(manager)]?.kind === 'error' ? managerFeedback[managerKey(manager)]?.message : ''"
+        :feedback="managerFeedback[managerKey(manager)]?.kind === 'success' ? managerFeedback[managerKey(manager)]?.message : ''"
+        @sync="triggerManagerSync(manager)"
+      />
     </div>
 
     <AppTableEmpty v-if="loading && secrets.length === 0" message="Loading..." />
