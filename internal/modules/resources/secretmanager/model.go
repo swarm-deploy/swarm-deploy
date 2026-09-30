@@ -30,6 +30,8 @@ type Info struct {
 	Provider Provider
 	// LastSyncAt is the last successful synchronization known by the controller.
 	LastSyncAt *time.Time
+	// NextSyncAt is the next synchronization scheduled by the controller.
+	NextSyncAt *time.Time
 	// Error contains a controller discovery or availability error.
 	Error string
 }

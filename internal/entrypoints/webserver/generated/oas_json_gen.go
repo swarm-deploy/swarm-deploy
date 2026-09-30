@@ -6069,6 +6069,12 @@ func (s *SecretManagerInfo) encodeFields(e *jx.Encoder) {
 		}
 	}
 	{
+		if s.NextSyncAt.Set {
+			e.FieldStart("next_sync_at")
+			s.NextSyncAt.Encode(e, json.EncodeDateTime)
+		}
+	}
+	{
 		if s.Error.Set {
 			e.FieldStart("error")
 			s.Error.Encode(e)
@@ -6076,7 +6082,7 @@ func (s *SecretManagerInfo) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfSecretManagerInfo = [9]string{
+var jsonFieldsNameOfSecretManagerInfo = [10]string{
 	0: "stack",
 	1: "service",
 	2: "kind",
@@ -6085,7 +6091,8 @@ var jsonFieldsNameOfSecretManagerInfo = [9]string{
 	5: "version",
 	6: "provider",
 	7: "last_sync_at",
-	8: "error",
+	8: "next_sync_at",
+	9: "error",
 }
 
 // Decode decodes SecretManagerInfo from json.
@@ -6186,6 +6193,16 @@ func (s *SecretManagerInfo) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"last_sync_at\"")
+			}
+		case "next_sync_at":
+			if err := func() error {
+				s.NextSyncAt.Reset()
+				if err := s.NextSyncAt.Decode(d, json.DecodeDateTime); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"next_sync_at\"")
 			}
 		case "error":
 			if err := func() error {

@@ -32,6 +32,9 @@ func (h *handler) ListSecretManagers(ctx context.Context) (*generated.SecretMana
 		if manager.LastSyncAt != nil {
 			item.LastSyncAt = generated.NewOptDateTime(*manager.LastSyncAt)
 		}
+		if manager.NextSyncAt != nil {
+			item.NextSyncAt = generated.NewOptDateTime(*manager.NextSyncAt)
+		}
 
 		mapped = append(mapped, item)
 	}

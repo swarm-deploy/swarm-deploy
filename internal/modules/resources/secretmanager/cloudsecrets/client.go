@@ -26,6 +26,8 @@ type Info struct {
 	ProviderLink string
 	// LastSyncAt is the last successful synchronization known by this process.
 	LastSyncAt *time.Time
+	// NextSyncAt is the next synchronization scheduled by this process.
+	NextSyncAt *time.Time
 }
 
 // SyncResult summarizes a cloud-secrets synchronization.
@@ -102,6 +104,10 @@ func (c *Client) GetInfo(ctx context.Context) (Info, error) {
 	if timestamp := response.GetLastSyncAt(); timestamp != nil && timestamp.IsValid() {
 		lastSyncAt := timestamp.AsTime()
 		info.LastSyncAt = &lastSyncAt
+	}
+	if timestamp := response.GetNextSyncAt(); timestamp != nil && timestamp.IsValid() {
+		nextSyncAt := timestamp.AsTime()
+		info.NextSyncAt = &nextSyncAt
 	}
 
 	return info, nil

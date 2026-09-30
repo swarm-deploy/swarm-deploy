@@ -331,6 +331,7 @@ export interface SecretManagerInfo {
   version?: string;
   provider?: SecretManagerProvider;
   last_sync_at?: string;
+  next_sync_at?: string;
   error?: string;
 }
 

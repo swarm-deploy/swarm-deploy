@@ -18,6 +18,7 @@ func TestClientGetInfo(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	api := NewMockcontrollerAPI(ctrl)
 	lastSyncAt := time.Date(2026, time.September, 29, 21, 30, 0, 0, time.UTC)
+	nextSyncAt := time.Date(2026, time.September, 29, 21, 35, 0, 0, time.UTC)
 	api.EXPECT().GetInfo(gomock.Any(), &cloudsecretspb.GetInfoRequest{}).Return(&cloudsecretspb.GetInfoResponse{
 		Version: "v0.4.1",
 		Provider: &cloudsecretspb.Provider{
@@ -25,6 +26,7 @@ func TestClientGetInfo(t *testing.T) {
 			Link: "https://vault.example.com",
 		},
 		LastSyncAt: timestamppb.New(lastSyncAt),
+		NextSyncAt: timestamppb.New(nextSyncAt),
 	}, nil)
 
 	info, err := (&Client{api: api}).GetInfo(context.Background())
@@ -35,6 +37,8 @@ func TestClientGetInfo(t *testing.T) {
 	assert.Equal(t, "https://vault.example.com", info.ProviderLink)
 	require.NotNil(t, info.LastSyncAt)
 	assert.Equal(t, lastSyncAt, *info.LastSyncAt)
+	require.NotNil(t, info.NextSyncAt)
+	assert.Equal(t, nextSyncAt, *info.NextSyncAt)
 }
 
 func TestClientSync(t *testing.T) {

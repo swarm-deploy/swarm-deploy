@@ -16,6 +16,7 @@ function manager(overrides: Partial<SecretManagerInfo> = {}): SecretManagerInfo 
       link: "https://console.cloud.ru/secret-manager",
     },
     last_sync_at: "2026-09-30T00:58:00Z",
+    next_sync_at: "2026-09-30T01:03:00Z",
     ...overrides,
   };
 }
@@ -40,6 +41,8 @@ describe("SecretManagerCard", () => {
     expect(wrapper.text()).toContain("12 managed secrets");
     expect(wrapper.get(".secret-manager-sync-time-desktop").text()).toBe("Last synced 2 min ago");
     expect(wrapper.get(".secret-manager-sync-time-mobile").text()).toBe("2 min ago");
+    expect(wrapper.get(".secret-manager-next-sync-time .secret-manager-sync-time-desktop").text()).toBe("Next sync in 3 min");
+    expect(wrapper.get(".secret-manager-next-sync-time .secret-manager-sync-time-mobile").text()).toBe("in 3 min");
     expect(wrapper.get(".secret-manager-badge--healthy").text()).toBe("Healthy");
     expect(wrapper.text()).not.toContain("Some secrets are managed by");
   });
@@ -47,7 +50,7 @@ describe("SecretManagerCard", () => {
   it("omits missing optional metadata without rendering undefined", () => {
     const wrapper = mount(SecretManagerCard, {
       props: {
-        manager: manager({ provider: undefined, last_sync_at: undefined, version: undefined }),
+        manager: manager({ provider: undefined, last_sync_at: undefined, next_sync_at: undefined, version: undefined }),
         managedCount: 0,
       },
     });
@@ -58,6 +61,7 @@ describe("SecretManagerCard", () => {
     expect(wrapper.text()).not.toContain("undefined");
     expect(wrapper.find(".secret-manager-card-title a").exists()).toBe(false);
     expect(wrapper.find(".secret-manager-message").exists()).toBe(false);
+    expect(wrapper.find(".secret-manager-next-sync-time").exists()).toBe(false);
   });
 
   it("renders and disables the Syncing state", () => {

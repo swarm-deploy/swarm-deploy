@@ -2948,6 +2948,7 @@ type SecretManagerInfo struct {
 	Version      OptString                `json:"version"`
 	Provider     OptSecretManagerProvider `json:"provider"`
 	LastSyncAt   OptDateTime              `json:"last_sync_at"`
+	NextSyncAt   OptDateTime              `json:"next_sync_at"`
 	Error        OptString                `json:"error"`
 }
 
@@ -2989,6 +2990,11 @@ func (s *SecretManagerInfo) GetProvider() OptSecretManagerProvider {
 // GetLastSyncAt returns the value of LastSyncAt.
 func (s *SecretManagerInfo) GetLastSyncAt() OptDateTime {
 	return s.LastSyncAt
+}
+
+// GetNextSyncAt returns the value of NextSyncAt.
+func (s *SecretManagerInfo) GetNextSyncAt() OptDateTime {
+	return s.NextSyncAt
 }
 
 // GetError returns the value of Error.
@@ -3034,6 +3040,11 @@ func (s *SecretManagerInfo) SetProvider(val OptSecretManagerProvider) {
 // SetLastSyncAt sets the value of LastSyncAt.
 func (s *SecretManagerInfo) SetLastSyncAt(val OptDateTime) {
 	s.LastSyncAt = val
+}
+
+// SetNextSyncAt sets the value of NextSyncAt.
+func (s *SecretManagerInfo) SetNextSyncAt(val OptDateTime) {
+	s.NextSyncAt = val
 }
 
 // SetError sets the value of Error.

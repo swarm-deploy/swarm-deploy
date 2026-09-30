@@ -75,6 +75,7 @@ func (s *Service) List(ctx context.Context) []Info {
 		manager.Version = info.Version
 		manager.Provider = Provider{Name: info.ProviderName, Link: info.ProviderLink}
 		manager.LastSyncAt = info.LastSyncAt
+		manager.NextSyncAt = info.NextSyncAt
 		managers = append(managers, manager)
 	}
 

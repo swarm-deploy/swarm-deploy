@@ -94,6 +94,33 @@ const desktopSyncTime = computed(() => (
   relativeSyncTime.value === "Never synced" ? relativeSyncTime.value : `Last synced ${relativeSyncTime.value}`
 ));
 
+const relativeNextSyncTime = computed(() => {
+  if (!props.manager.next_sync_at) {
+    return "";
+  }
+
+  const timestamp = new Date(props.manager.next_sync_at).valueOf();
+  if (Number.isNaN(timestamp)) {
+    return "";
+  }
+
+  const remainingMinutes = Math.ceil((timestamp - Date.now()) / 60000);
+  if (remainingMinutes <= 0) {
+    return "due now";
+  }
+  if (remainingMinutes < 60) {
+    return `in ${remainingMinutes} min`;
+  }
+
+  const remainingHours = Math.ceil(remainingMinutes / 60);
+  if (remainingHours < 24) {
+    return `in ${remainingHours} ${remainingHours === 1 ? "hour" : "hours"}`;
+  }
+
+  const remainingDays = Math.ceil(remainingHours / 24);
+  return `in ${remainingDays} ${remainingDays === 1 ? "day" : "days"}`;
+});
+
 const managedSecretsLabel = computed(() => (
   `${props.managedCount} managed ${props.managedCount === 1 ? "secret" : "secrets"}`
 ));
@@ -141,6 +168,16 @@ const syncDisabled = computed(() => (
           </svg>
           <span class="secret-manager-sync-time-desktop">{{ desktopSyncTime }}</span>
           <span class="secret-manager-sync-time-mobile">{{ relativeSyncTime }}</span>
+        </span>
+        <span v-if="relativeNextSyncTime" class="secret-manager-metadata-separator" aria-hidden="true">·</span>
+        <span v-if="relativeNextSyncTime" class="secret-manager-metadata-item secret-manager-next-sync-time">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+            <path d="M20 7v5h-5" />
+            <path d="M4 17v-5h5" />
+            <path d="M6.1 9a7 7 0 0 1 11.5-2L20 9M4 15l2.4 2a7 7 0 0 0 11.5-2" />
+          </svg>
+          <span class="secret-manager-sync-time-desktop">Next sync {{ relativeNextSyncTime }}</span>
+          <span class="secret-manager-sync-time-mobile">{{ relativeNextSyncTime }}</span>
         </span>
       </div>
 
