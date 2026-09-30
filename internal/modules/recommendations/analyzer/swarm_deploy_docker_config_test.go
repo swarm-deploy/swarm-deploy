@@ -129,7 +129,7 @@ secrets:
 				Definition: compose.File{
 					Path:    "compose.yaml",
 					Digest:  "compose-digest",
-					Compose: definition,
+					Compose: *definition,
 				},
 				Commit: "abc123",
 			}
