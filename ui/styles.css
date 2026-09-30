@@ -1410,7 +1410,7 @@ a.overview-summary-row:focus-visible {
 
 .secret-manager-card {
   width: 100%;
-  max-width: 660px;
+  max-width: 100%;
   min-width: 0;
   border: 1px solid var(--border-default);
   border-radius: 10px;
@@ -1636,6 +1636,8 @@ a.overview-summary-row:focus-visible {
 
 @media (min-width: 651px) {
   .secret-manager-card {
+    width: fit-content;
+    justify-self: start;
     padding: 11px 10px 10px;
     gap: 7px;
   }
