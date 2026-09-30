@@ -41,7 +41,7 @@ describe("SecretManagerCard", () => {
 
     expect(wrapper.get(".secret-manager-card-title").text()).toBe("Cloud.ru Secret Manager");
     expect(wrapper.text()).toContain("Provides externally managed secrets");
-    expect(wrapper.text()).toContain("12 managed secrets");
+    expect(wrapper.text()).toContain("12 secrets");
     expect(wrapper.get(".secret-manager-sync-time-desktop").text()).toBe("Last synced 2 min ago");
     expect(wrapper.get(".secret-manager-sync-time-mobile").text()).toBe("2 min ago");
     expect(wrapper.get(".secret-manager-next-sync-time .secret-manager-sync-time-desktop").text()).toBe("Next sync in 3 min");
@@ -72,7 +72,7 @@ describe("SecretManagerCard", () => {
 
     expect(wrapper.get(".secret-manager-card-title").text()).toBe("cloud-secrets Secret Manager");
     expect(wrapper.text()).toContain("Never synced");
-    expect(wrapper.text()).toContain("0 managed secrets");
+    expect(wrapper.text()).toContain("0 secrets");
     expect(wrapper.text()).not.toContain("undefined");
     expect(wrapper.find(".secret-manager-docs").exists()).toBe(false);
     expect(wrapper.find(".secret-manager-manage").exists()).toBe(false);
@@ -155,6 +155,6 @@ describe("SecretManagerCard", () => {
     expect(wrapper.find(".secret-manager-card-footer").exists()).toBe(true);
     expect(wrapper.get(".secret-manager-sync-time-desktop").text()).toBe("Last synced 2 min ago");
     expect(wrapper.get(".secret-manager-sync-time-mobile").text()).toBe("2 min ago");
-    expect(wrapper.text()).toContain("1 managed secret");
+    expect(wrapper.text()).toContain("1 secret");
   });
 });

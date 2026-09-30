@@ -125,7 +125,7 @@ const relativeNextSyncTime = computed(() => {
 });
 
 const managedSecretsLabel = computed(() => (
-  `${props.managedCount} managed ${props.managedCount === 1 ? "secret" : "secrets"}`
+  `${props.managedCount} ${props.managedCount === 1 ? "secret" : "secrets"}`
 ));
 
 const syncDisabled = computed(() => (

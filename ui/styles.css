@@ -1641,8 +1641,7 @@ a.overview-summary-row:focus-visible {
   }
 
   .secret-manager-card-header {
-    grid-template-columns: 28px fit-content(420px) auto;
-    justify-content: start;
+    grid-template-columns: 28px minmax(0, 1fr) auto;
     gap: 8px;
   }
 
