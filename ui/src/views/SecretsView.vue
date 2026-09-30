@@ -132,15 +132,6 @@ function formatDate(value: string): string {
   <section class="services-page">
     <header class="services-header">
       <h2>Secrets</h2>
-      <div class="services-header-actions">
-        <input
-          v-model="searchQuery"
-          type="search"
-          class="secrets-search-input"
-          placeholder="Search by name, version, external path..."
-          aria-label="Search secrets"
-        />
-      </div>
     </header>
 
     <div v-if="cloudSecretManagers.length > 0" class="secret-manager-list">
@@ -153,6 +144,16 @@ function formatDate(value: string): string {
         :sync-error="managerFeedback[managerKey(manager)]?.kind === 'error' ? managerFeedback[managerKey(manager)]?.message : ''"
         :feedback="managerFeedback[managerKey(manager)]?.kind === 'success' ? managerFeedback[managerKey(manager)]?.message : ''"
         @sync="triggerManagerSync(manager)"
+      />
+    </div>
+
+    <div class="services-header-actions">
+      <input
+        v-model="searchQuery"
+        type="search"
+        class="secrets-search-input"
+        placeholder="Search by name, version, external path..."
+        aria-label="Search secrets"
       />
     </div>
 
