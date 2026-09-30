@@ -1409,6 +1409,8 @@ a.overview-summary-row:focus-visible {
 }
 
 .secret-manager-card {
+  width: 100%;
+  max-width: 960px;
   min-width: 0;
   border: 1px solid var(--border-default);
   border-radius: 10px;
