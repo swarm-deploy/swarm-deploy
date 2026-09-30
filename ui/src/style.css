@@ -316,9 +316,8 @@ body {
   display: none;
 }
 
-.sidebar-navigation > .sidebar-user-menu {
-  flex: 0 0 auto;
-  margin-top: 6px;
+.sidebar-user-menu-mobile {
+  display: none;
 }
 
 .sidebar-link {
@@ -766,18 +765,19 @@ body {
     gap: 6px;
   }
 
-  .sidebar-navigation > .sidebar-user-menu {
+  .sidebar-user-menu-mobile {
+    display: block;
     z-index: 2;
     margin-top: 0;
     border-left: 1px solid var(--line);
     background: var(--shell-chrome-bg);
   }
 
-  .sidebar-navigation > .sidebar-user-menu .sidebar-user {
+  .sidebar-user-menu-mobile .sidebar-user {
     gap: 0;
   }
 
-  .sidebar-navigation > .sidebar-user-menu .sidebar-user .sidebar-label {
+  .sidebar-user-menu-mobile .sidebar-user .sidebar-label {
     display: none;
   }
 
