@@ -1646,13 +1646,19 @@ a.overview-summary-row:focus-visible {
   }
 
   .secret-manager-card-footer {
+    flex-direction: column;
+    align-items: stretch;
     justify-content: flex-start;
-    gap: 10px;
+    gap: 6px;
     padding-left: 36px;
   }
 
   .secret-manager-metadata {
     flex: 0 1 auto;
+  }
+
+  .secret-manager-actions {
+    align-self: flex-end;
   }
 
   .secret-manager-message {
