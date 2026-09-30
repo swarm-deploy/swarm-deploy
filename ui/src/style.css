@@ -790,6 +790,7 @@ body {
   }
 
   .topbar-shell {
+    position: static;
     height: auto;
     grid-template-columns: 1fr;
     padding: 14px 18px;
