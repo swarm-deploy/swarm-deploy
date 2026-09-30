@@ -23,19 +23,22 @@ const emit = defineEmits<{
 
 const title = computed(() => props.manager.provider?.name?.trim() || "cloud-secrets Secret Manager");
 
-const providerLink = computed(() => {
-  const raw = props.manager.provider?.link?.trim();
-  if (!raw) {
+function safeExternalLink(raw?: string): string {
+  const value = raw?.trim();
+  if (!value) {
     return "";
   }
 
   try {
-    const parsed = new URL(raw);
+    const parsed = new URL(value);
     return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.toString() : "";
   } catch {
     return "";
   }
-});
+}
+
+const docLink = computed(() => safeExternalLink(props.manager.provider?.links?.doc));
+const managerLink = computed(() => safeExternalLink(props.manager.provider?.links?.manager));
 
 const status = computed<ManagerStatus>(() => {
   if (props.syncing) {
@@ -140,8 +143,21 @@ const syncDisabled = computed(() => (
       </span>
       <div class="secret-manager-card-copy">
         <h3 class="secret-manager-card-title">
-          <a v-if="providerLink" :href="providerLink" target="_blank" rel="noopener noreferrer">{{ title }}</a>
-          <span v-else>{{ title }}</span>
+          <span>{{ title }}</span>
+          <a
+            v-if="docLink"
+            class="secret-manager-docs"
+            :href="docLink"
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label="Open provider documentation"
+            title="Documentation"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+              <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v16H6.5A2.5 2.5 0 0 0 4 21.5Z" />
+              <path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H13v16h4.5a2.5 2.5 0 0 1 2.5 2.5Z" />
+            </svg>
+          </a>
         </h3>
         <p>Provides externally managed secrets</p>
       </div>
@@ -181,21 +197,32 @@ const syncDisabled = computed(() => (
         </span>
       </div>
 
-      <button
-        type="button"
-        class="secret-manager-sync"
-        :disabled="syncDisabled"
-        :aria-label="syncing ? 'Synchronizing secrets' : 'Synchronize secrets'"
-        @click="emit('sync')"
-      >
-        <span v-if="syncing" class="secret-manager-spinner" aria-hidden="true" />
-        <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
-          <path d="M20 7v5h-5" />
-          <path d="M4 17v-5h5" />
-          <path d="M6.1 9a7 7 0 0 1 11.5-2L20 9M4 15l2.4 2a7 7 0 0 0 11.5-2" />
-        </svg>
-        {{ syncing ? "Syncing…" : "Sync" }}
-      </button>
+      <div class="secret-manager-actions">
+        <a
+          v-if="managerLink"
+          class="secret-manager-action secret-manager-manage"
+          :href="managerLink"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Manage
+        </a>
+        <button
+          type="button"
+          class="secret-manager-action secret-manager-sync"
+          :disabled="syncDisabled"
+          :aria-label="syncing ? 'Synchronizing secrets' : 'Synchronize secrets'"
+          @click="emit('sync')"
+        >
+          <span v-if="syncing" class="secret-manager-spinner" aria-hidden="true" />
+          <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+            <path d="M20 7v5h-5" />
+            <path d="M4 17v-5h5" />
+            <path d="M6.1 9a7 7 0 0 1 11.5-2L20 9M4 15l2.4 2a7 7 0 0 0 11.5-2" />
+          </svg>
+          {{ syncing ? "Syncing…" : "Sync" }}
+        </button>
+      </div>
     </footer>
 
     <p v-if="statusMessage" class="secret-manager-message secret-manager-message--error">{{ statusMessage }}</p>

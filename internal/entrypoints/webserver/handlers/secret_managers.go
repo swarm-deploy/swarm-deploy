@@ -23,11 +23,15 @@ func (h *handler) ListSecretManagers(ctx context.Context) (*generated.SecretMana
 			Version:      toOptString(manager.Version),
 			Error:        toOptString(manager.Error),
 		}
-		if manager.Provider.Name != "" || manager.Provider.Link != "" {
-			item.Provider = generated.NewOptSecretManagerProvider(generated.SecretManagerProvider{
-				Name: manager.Provider.Name,
-				Link: toOptString(manager.Provider.Link),
-			})
+		if manager.Provider.Name != "" || manager.Provider.Links.Doc != "" || manager.Provider.Links.Manager != "" {
+			provider := generated.SecretManagerProvider{Name: manager.Provider.Name}
+			if manager.Provider.Links.Doc != "" || manager.Provider.Links.Manager != "" {
+				provider.Links = generated.NewOptSecretManagerProviderLinks(generated.SecretManagerProviderLinks{
+					Doc:     toOptString(manager.Provider.Links.Doc),
+					Manager: toOptString(manager.Provider.Links.Manager),
+				})
+			}
+			item.Provider = generated.NewOptSecretManagerProvider(provider)
 		}
 		if manager.LastSyncAt != nil {
 			item.LastSyncAt = generated.NewOptDateTime(*manager.LastSyncAt)

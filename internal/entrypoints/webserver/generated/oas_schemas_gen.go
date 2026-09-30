@@ -2250,6 +2250,52 @@ func (o OptSecretManagerProvider) Or(d SecretManagerProvider) SecretManagerProvi
 	return d
 }
 
+// NewOptSecretManagerProviderLinks returns new OptSecretManagerProviderLinks with value set to v.
+func NewOptSecretManagerProviderLinks(v SecretManagerProviderLinks) OptSecretManagerProviderLinks {
+	return OptSecretManagerProviderLinks{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptSecretManagerProviderLinks is optional SecretManagerProviderLinks.
+type OptSecretManagerProviderLinks struct {
+	Value SecretManagerProviderLinks
+	Set   bool
+}
+
+// IsSet returns true if OptSecretManagerProviderLinks was set.
+func (o OptSecretManagerProviderLinks) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptSecretManagerProviderLinks) Reset() {
+	var v SecretManagerProviderLinks
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptSecretManagerProviderLinks) SetTo(v SecretManagerProviderLinks) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptSecretManagerProviderLinks) Get() (v SecretManagerProviderLinks, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptSecretManagerProviderLinks) Or(d SecretManagerProviderLinks) SecretManagerProviderLinks {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptServiceSpecLabelGroupResponse returns new OptServiceSpecLabelGroupResponse with value set to v.
 func NewOptServiceSpecLabelGroupResponse(v ServiceSpecLabelGroupResponse) OptServiceSpecLabelGroupResponse {
 	return OptServiceSpecLabelGroupResponse{
@@ -3054,8 +3100,8 @@ func (s *SecretManagerInfo) SetError(val OptString) {
 
 // Ref: #/components/schemas/SecretManagerProvider
 type SecretManagerProvider struct {
-	Name string    `json:"name"`
-	Link OptString `json:"link"`
+	Name  string                        `json:"name"`
+	Links OptSecretManagerProviderLinks `json:"links"`
 }
 
 // GetName returns the value of Name.
@@ -3063,9 +3109,9 @@ func (s *SecretManagerProvider) GetName() string {
 	return s.Name
 }
 
-// GetLink returns the value of Link.
-func (s *SecretManagerProvider) GetLink() OptString {
-	return s.Link
+// GetLinks returns the value of Links.
+func (s *SecretManagerProvider) GetLinks() OptSecretManagerProviderLinks {
+	return s.Links
 }
 
 // SetName sets the value of Name.
@@ -3073,9 +3119,35 @@ func (s *SecretManagerProvider) SetName(val string) {
 	s.Name = val
 }
 
-// SetLink sets the value of Link.
-func (s *SecretManagerProvider) SetLink(val OptString) {
-	s.Link = val
+// SetLinks sets the value of Links.
+func (s *SecretManagerProvider) SetLinks(val OptSecretManagerProviderLinks) {
+	s.Links = val
+}
+
+// Ref: #/components/schemas/SecretManagerProviderLinks
+type SecretManagerProviderLinks struct {
+	Doc     OptString `json:"doc"`
+	Manager OptString `json:"manager"`
+}
+
+// GetDoc returns the value of Doc.
+func (s *SecretManagerProviderLinks) GetDoc() OptString {
+	return s.Doc
+}
+
+// GetManager returns the value of Manager.
+func (s *SecretManagerProviderLinks) GetManager() OptString {
+	return s.Manager
+}
+
+// SetDoc sets the value of Doc.
+func (s *SecretManagerProviderLinks) SetDoc(val OptString) {
+	s.Doc = val
+}
+
+// SetManager sets the value of Manager.
+func (s *SecretManagerProviderLinks) SetManager(val OptString) {
+	s.Manager = val
 }
 
 // Ref: #/components/schemas/SecretManagerSyncResponse

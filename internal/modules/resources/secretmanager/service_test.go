@@ -47,9 +47,12 @@ func TestServiceListReturnsControllerInfo(t *testing.T) {
 	controller.EXPECT().GetInfo(gomock.Any()).Return(cloudsecrets.Info{
 		Version:      "v0.4.1",
 		ProviderName: "HashiCorp Vault",
-		ProviderLink: "https://vault.example.com",
-		LastSyncAt:   &lastSyncAt,
-		NextSyncAt:   &nextSyncAt,
+		ProviderLinks: cloudsecrets.Links{
+			Doc:     "https://developer.hashicorp.com/vault/docs",
+			Manager: "https://vault.example.com",
+		},
+		LastSyncAt: &lastSyncAt,
+		NextSyncAt: &nextSyncAt,
 	}, nil)
 	controller.EXPECT().Close().Return(nil)
 	service.newCloudSecretsController = func(address string) (cloudsecrets.Controller, error) {
@@ -62,7 +65,13 @@ func TestServiceListReturnsControllerInfo(t *testing.T) {
 	require.Len(t, managers, 1)
 	assert.True(t, managers[0].Available)
 	assert.Equal(t, "v0.4.1", managers[0].Version)
-	assert.Equal(t, Provider{Name: "HashiCorp Vault", Link: "https://vault.example.com"}, managers[0].Provider)
+	assert.Equal(t, Provider{
+		Name: "HashiCorp Vault",
+		Links: ProviderLinks{
+			Doc:     "https://developer.hashicorp.com/vault/docs",
+			Manager: "https://vault.example.com",
+		},
+	}, managers[0].Provider)
 	assert.Equal(t, lastSyncAt, *managers[0].LastSyncAt)
 	assert.Equal(t, nextSyncAt, *managers[0].NextSyncAt)
 }

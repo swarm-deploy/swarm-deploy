@@ -22,12 +22,20 @@ type Info struct {
 	Version string
 	// ProviderName is the configured provider display name.
 	ProviderName string
-	// ProviderLink points to the provider management UI when available.
-	ProviderLink string
+	// ProviderLinks contains provider documentation and management links.
+	ProviderLinks Links
 	// LastSyncAt is the last successful synchronization known by this process.
 	LastSyncAt *time.Time
 	// NextSyncAt is the next synchronization scheduled by this process.
 	NextSyncAt *time.Time
+}
+
+// Links contains optional provider destinations.
+type Links struct {
+	// Doc points to the provider documentation.
+	Doc string
+	// Manager points to the provider management UI.
+	Manager string
 }
 
 // SyncResult summarizes a cloud-secrets synchronization.
@@ -99,7 +107,9 @@ func (c *Client) GetInfo(ctx context.Context) (Info, error) {
 	info := Info{Version: response.GetVersion()}
 	if provider := response.GetProvider(); provider != nil {
 		info.ProviderName = provider.GetName()
-		info.ProviderLink = provider.GetLink()
+		if links := provider.GetLinks(); links != nil {
+			info.ProviderLinks = Links{Doc: links.GetDoc(), Manager: links.GetManager()}
+		}
 	}
 	if timestamp := response.GetLastSyncAt(); timestamp != nil && timestamp.IsValid() {
 		lastSyncAt := timestamp.AsTime()

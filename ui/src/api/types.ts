@@ -319,7 +319,12 @@ export interface SecretsResponse {
 
 export interface SecretManagerProvider {
   name: string;
-  link?: string;
+  links?: SecretManagerProviderLinks;
+}
+
+export interface SecretManagerProviderLinks {
+  doc?: string;
+  manager?: string;
 }
 
 export interface SecretManagerInfo {

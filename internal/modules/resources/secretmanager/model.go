@@ -8,8 +8,16 @@ const cloudSecretsKind = "cloud-secrets"
 type Provider struct {
 	// Name is the provider display name.
 	Name string
-	// Link points to the provider management UI when available.
-	Link string
+	// Links contains provider documentation and management destinations.
+	Links ProviderLinks
+}
+
+// ProviderLinks contains optional links exposed by a Secret Manager provider.
+type ProviderLinks struct {
+	// Doc points to the provider documentation.
+	Doc string
+	// Manager points to the provider management UI.
+	Manager string
 }
 
 // Info describes a discovered Secret Manager and its controller status.

@@ -13,7 +13,10 @@ function manager(overrides: Partial<SecretManagerInfo> = {}): SecretManagerInfo 
     available: true,
     provider: {
       name: "Cloud.ru Secret Manager",
-      link: "https://console.cloud.ru/secret-manager",
+      links: {
+        doc: "https://cloud.ru/docs/secret-manager/",
+        manager: "https://console.cloud.ru/spa/secret-manager/list?projectId=project-id",
+      },
     },
     last_sync_at: "2026-09-30T00:58:00Z",
     next_sync_at: "2026-09-30T01:03:00Z",
@@ -44,6 +47,16 @@ describe("SecretManagerCard", () => {
     expect(wrapper.get(".secret-manager-next-sync-time .secret-manager-sync-time-desktop").text()).toBe("Next sync in 3 min");
     expect(wrapper.get(".secret-manager-next-sync-time .secret-manager-sync-time-mobile").text()).toBe("in 3 min");
     expect(wrapper.get(".secret-manager-badge--healthy").text()).toBe("Healthy");
+    expect(wrapper.get(".secret-manager-docs").attributes()).toMatchObject({
+      href: "https://cloud.ru/docs/secret-manager/",
+      target: "_blank",
+      rel: "noopener noreferrer",
+    });
+    expect(wrapper.get(".secret-manager-manage").attributes()).toMatchObject({
+      href: "https://console.cloud.ru/spa/secret-manager/list?projectId=project-id",
+      target: "_blank",
+      rel: "noopener noreferrer",
+    });
     expect(wrapper.text()).not.toContain("Some secrets are managed by");
   });
 
@@ -59,9 +72,38 @@ describe("SecretManagerCard", () => {
     expect(wrapper.text()).toContain("Never synced");
     expect(wrapper.text()).toContain("0 managed secrets");
     expect(wrapper.text()).not.toContain("undefined");
-    expect(wrapper.find(".secret-manager-card-title a").exists()).toBe(false);
+    expect(wrapper.find(".secret-manager-docs").exists()).toBe(false);
+    expect(wrapper.find(".secret-manager-manage").exists()).toBe(false);
     expect(wrapper.find(".secret-manager-message").exists()).toBe(false);
     expect(wrapper.find(".secret-manager-next-sync-time").exists()).toBe(false);
+  });
+
+  it.each([
+    {
+      links: { doc: "https://cloud.ru/docs/secret-manager/" },
+      hasDocs: true,
+      hasManage: false,
+    },
+    {
+      links: { manager: "https://console.cloud.ru/secret-manager" },
+      hasDocs: false,
+      hasManage: true,
+    },
+    {
+      links: undefined,
+      hasDocs: false,
+      hasManage: false,
+    },
+  ])("renders only available provider links", ({ links, hasDocs, hasManage }) => {
+    const wrapper = mount(SecretManagerCard, {
+      props: {
+        manager: manager({ provider: { name: "Cloud.ru Secret Manager", links } }),
+        managedCount: 12,
+      },
+    });
+
+    expect(wrapper.find(".secret-manager-docs").exists()).toBe(hasDocs);
+    expect(wrapper.find(".secret-manager-manage").exists()).toBe(hasManage);
   });
 
   it("renders and disables the Syncing state", () => {

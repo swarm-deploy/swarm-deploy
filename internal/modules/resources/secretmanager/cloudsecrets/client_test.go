@@ -23,7 +23,10 @@ func TestClientGetInfo(t *testing.T) {
 		Version: "v0.4.1",
 		Provider: &cloudsecretspb.Provider{
 			Name: "HashiCorp Vault",
-			Link: "https://vault.example.com",
+			Links: &cloudsecretspb.Links{
+				Doc:     "https://developer.hashicorp.com/vault/docs",
+				Manager: "https://vault.example.com",
+			},
 		},
 		LastSyncAt: timestamppb.New(lastSyncAt),
 		NextSyncAt: timestamppb.New(nextSyncAt),
@@ -34,7 +37,10 @@ func TestClientGetInfo(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "v0.4.1", info.Version)
 	assert.Equal(t, "HashiCorp Vault", info.ProviderName)
-	assert.Equal(t, "https://vault.example.com", info.ProviderLink)
+	assert.Equal(t, Links{
+		Doc:     "https://developer.hashicorp.com/vault/docs",
+		Manager: "https://vault.example.com",
+	}, info.ProviderLinks)
 	require.NotNil(t, info.LastSyncAt)
 	assert.Equal(t, lastSyncAt, *info.LastSyncAt)
 	require.NotNil(t, info.NextSyncAt)

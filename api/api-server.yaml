@@ -987,7 +987,14 @@ components:
       properties:
         name:
           type: string
-        link:
+        links:
+          $ref: '#/components/schemas/SecretManagerProviderLinks'
+    SecretManagerProviderLinks:
+      type: object
+      properties:
+        doc:
+          type: string
+        manager:
           type: string
     SecretManagerSyncResponse:
       type: object
