@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	cloudsecretspb "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretmanager/cloudsecrets/pb"
+	grpcapi "github.com/swarm-deploy/cloud-secrets/pkg/grpc-api"
 	gomock "go.uber.org/mock/gomock"
 	grpc "google.golang.org/grpc"
 )
@@ -111,14 +111,14 @@ func (m *MockcontrollerAPI) EXPECT() *MockcontrollerAPIMockRecorder {
 }
 
 // GetInfo mocks base method.
-func (m *MockcontrollerAPI) GetInfo(ctx context.Context, in *cloudsecretspb.GetInfoRequest, opts ...grpc.CallOption) (*cloudsecretspb.GetInfoResponse, error) {
+func (m *MockcontrollerAPI) GetInfo(ctx context.Context, in *grpcapi.GetInfoRequest, opts ...grpc.CallOption) (*grpcapi.GetInfoResponse, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, in}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "GetInfo", varargs...)
-	ret0, _ := ret[0].(*cloudsecretspb.GetInfoResponse)
+	ret0, _ := ret[0].(*grpcapi.GetInfoResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
@@ -131,14 +131,14 @@ func (mr *MockcontrollerAPIMockRecorder) GetInfo(ctx, in any, opts ...any) *gomo
 }
 
 // Sync mocks base method.
-func (m *MockcontrollerAPI) Sync(ctx context.Context, in *cloudsecretspb.SyncRequest, opts ...grpc.CallOption) (*cloudsecretspb.SyncResponse, error) {
+func (m *MockcontrollerAPI) Sync(ctx context.Context, in *grpcapi.SyncRequest, opts ...grpc.CallOption) (*grpcapi.SyncResponse, error) {
 	m.ctrl.T.Helper()
 	varargs := []any{ctx, in}
 	for _, a := range opts {
 		varargs = append(varargs, a)
 	}
 	ret := m.ctrl.Call(m, "Sync", varargs...)
-	ret0, _ := ret[0].(*cloudsecretspb.SyncResponse)
+	ret0, _ := ret[0].(*grpcapi.SyncResponse)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

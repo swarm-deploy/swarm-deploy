@@ -27,6 +27,7 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/prometheus/client_model v0.6.2
 	github.com/stretchr/testify v1.12.1
+	github.com/swarm-deploy/cloud-secrets/pkg/grpc-api v0.1.0
 	github.com/swarm-deploy/downward-otel/go v0.1.0
 	github.com/swarm-deploy/downward/go v0.1.1
 	github.com/swarm-deploy/webroute v0.2.0

@@ -6,7 +6,7 @@ import (
 	"context"
 	"time"
 
-	cloudsecretspb "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretmanager/cloudsecrets/pb"
+	cloudsecretspb "github.com/swarm-deploy/cloud-secrets/pkg/grpc-api"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
