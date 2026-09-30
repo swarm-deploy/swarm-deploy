@@ -572,7 +572,7 @@ func (g *graph) executeMCPNode(
 					slog.String("tool.name", modelToolCall.Name),
 					slog.Any("err", err),
 				)
-				toolResultMessage = formatMCPToolCallError(modelToolCall.Name, err)
+				toolResultMessage = formatToolCallError(modelToolCall.Name, err)
 			}
 
 			if strings.TrimSpace(toolResultMessage) == "" {
