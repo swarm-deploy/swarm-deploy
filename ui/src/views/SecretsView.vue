@@ -1,15 +1,19 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 
-import { fetchSecrets } from "../api/secrets";
-import type { SecretInfo } from "../api/types";
+import { fetchSecretManagers, fetchSecrets, syncSecretManager } from "../api/secrets";
+import type { SecretInfo, SecretManagerInfo, SecretManagerSyncResponse } from "../api/types";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
+import SecretManagerCard from "../components/secrets/SecretManagerCard.vue";
 import { useSecretDetailsStore } from "../stores/secretDetails";
 
 const loading = ref(false);
 const loadingError = ref("");
 const secrets = ref<SecretInfo[]>([]);
+const secretManagers = ref<SecretManagerInfo[]>([]);
+const syncingManager = ref("");
+const managerFeedback = ref<Record<string, { kind: "success" | "error"; message: string }>>({});
 const searchQuery = ref("");
 const secretDetailsStore = useSecretDetailsStore();
 
@@ -31,6 +35,14 @@ const filteredSecrets = computed(() => {
     return `${name} ${versionID} ${createdAt} ${externalPath} ${externalVersionID}`.toLowerCase().includes(query);
   });
 });
+
+const cloudSecretManagers = computed(() =>
+  secretManagers.value.filter((manager) => manager.kind === "cloud-secrets"),
+);
+
+const managedSecretCount = computed(() => secrets.value.filter((secret) => (
+  Boolean(secret.external?.path || secret.external?.version_id)
+)).length);
 
 function sortSecrets(items: SecretInfo[]): SecretInfo[] {
   return [...items].sort((left, right) => {
@@ -59,9 +71,48 @@ async function loadSecrets() {
   }
 }
 
+async function loadSecretManagers() {
+  try {
+    const response = await fetchSecretManagers();
+    secretManagers.value = Array.isArray(response.secret_managers) ? response.secret_managers : [];
+  } catch {
+    // Secret Manager availability must not prevent the local secrets snapshot from rendering.
+    secretManagers.value = [];
+  }
+}
+
 onMounted(() => {
   void loadSecrets();
+  void loadSecretManagers();
 });
+
+function managerKey(manager: SecretManagerInfo): string {
+  return `${manager.stack}/${manager.service}`;
+}
+
+function syncSummary(result: SecretManagerSyncResponse): string {
+  return `Sync complete: ${result.created} created, ${result.updated} updated, ${result.removed} removed, ${result.unchanged} unchanged`;
+}
+
+async function triggerManagerSync(manager: SecretManagerInfo) {
+  const key = managerKey(manager);
+  syncingManager.value = key;
+  delete managerFeedback.value[key];
+
+  try {
+    const result = await syncSecretManager(manager.stack, manager.service);
+    managerFeedback.value[key] = { kind: "success", message: syncSummary(result) };
+    await loadSecretManagers();
+    window.setTimeout(() => void loadSecrets(), 500);
+  } catch (error) {
+    managerFeedback.value[key] = {
+      kind: "error",
+      message: error instanceof Error ? error.message : "Failed to synchronize secrets",
+    };
+  } finally {
+    syncingManager.value = "";
+  }
+}
 
 async function openSecretDetails(secretName: string) {
   await secretDetailsStore.openSecretDetails(secretName);
@@ -81,16 +132,30 @@ function formatDate(value: string): string {
   <section class="services-page">
     <header class="services-header">
       <h2>Secrets</h2>
-      <div class="services-header-actions">
-        <input
-          v-model="searchQuery"
-          type="search"
-          class="secrets-search-input"
-          placeholder="Search by name, version, external path..."
-          aria-label="Search secrets"
-        />
-      </div>
     </header>
+
+    <div v-if="cloudSecretManagers.length > 0" class="secret-manager-list">
+      <SecretManagerCard
+        v-for="manager in cloudSecretManagers"
+        :key="managerKey(manager)"
+        :manager="manager"
+        :managed-count="managedSecretCount"
+        :syncing="syncingManager === managerKey(manager)"
+        :sync-error="managerFeedback[managerKey(manager)]?.kind === 'error' ? managerFeedback[managerKey(manager)]?.message : ''"
+        :feedback="managerFeedback[managerKey(manager)]?.kind === 'success' ? managerFeedback[managerKey(manager)]?.message : ''"
+        @sync="triggerManagerSync(manager)"
+      />
+    </div>
+
+    <div class="services-header-actions">
+      <input
+        v-model="searchQuery"
+        type="search"
+        class="secrets-search-input"
+        placeholder="Search by name, version, external path..."
+        aria-label="Search secrets"
+      />
+    </div>
 
     <AppTableEmpty v-if="loading && secrets.length === 0" message="Loading..." />
 

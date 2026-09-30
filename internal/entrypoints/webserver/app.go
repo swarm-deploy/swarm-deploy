@@ -101,6 +101,7 @@ func NewApplication(
 		resourcesModule.ServiceStore,
 		resourcesModule.NodeStore,
 		resourcesModule.Secrets.Store,
+		resourcesModule.SecretManagers,
 		recommendations,
 		alerts,
 		assistantService,

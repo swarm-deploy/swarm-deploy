@@ -81,6 +81,10 @@ type Handler interface {
 	//
 	// GET /api/v1/recommendations
 	ListRecommendations(ctx context.Context, params ListRecommendationsParams) (*RecommendationsResponse, error)
+	// ListSecretManagers implements listSecretManagers operation.
+	//
+	// GET /api/v1/secret-managers
+	ListSecretManagers(ctx context.Context) (*SecretManagersResponse, error)
 	// ListSecrets implements listSecrets operation.
 	//
 	// GET /api/v1/secrets
@@ -101,6 +105,10 @@ type Handler interface {
 	//
 	// GET /api/v1/search
 	Search(ctx context.Context, params SearchParams) (*SearchResponse, error)
+	// SyncSecretManager implements syncSecretManager operation.
+	//
+	// POST /api/v1/secret-managers/{stack}/{service}/sync
+	SyncSecretManager(ctx context.Context, params SyncSecretManagerParams) (*SecretManagerSyncResponse, error)
 	// TriggerSync implements triggerSync operation.
 	//
 	// POST /api/v1/sync

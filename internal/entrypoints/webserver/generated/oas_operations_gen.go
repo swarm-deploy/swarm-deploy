@@ -25,11 +25,13 @@ const (
 	ListNetworksOperation           OperationName = "ListNetworks"
 	ListNodesOperation              OperationName = "ListNodes"
 	ListRecommendationsOperation    OperationName = "ListRecommendations"
+	ListSecretManagersOperation     OperationName = "ListSecretManagers"
 	ListSecretsOperation            OperationName = "ListSecrets"
 	ListServiceDeploymentsOperation OperationName = "ListServiceDeployments"
 	ListServicesOperation           OperationName = "ListServices"
 	ListStacksOperation             OperationName = "ListStacks"
 	SearchOperation                 OperationName = "Search"
+	SyncSecretManagerOperation      OperationName = "SyncSecretManager"
 	TriggerSyncOperation            OperationName = "TriggerSync"
 	UpdateNodeLabelOperation        OperationName = "UpdateNodeLabel"
 )
