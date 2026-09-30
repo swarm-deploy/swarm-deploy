@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant"
 )
 
 func (h *handler) ListAssistantChats(ctx context.Context) (*generated.AssistantChatsResponse, error) {
