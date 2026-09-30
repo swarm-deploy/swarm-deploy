@@ -107,7 +107,7 @@ function selectTheme(theme: ThemeMode) {
           :key="link.to"
           :to="link.to"
           class="sidebar-link"
-          :class="{ active: isActive(link.to) }"
+          :class="{ active: isActive(link.to), 'sidebar-link-overview': link.to === '/overview' }"
           :aria-label="collapsed ? link.label : undefined"
           :data-tooltip="link.label"
         >
