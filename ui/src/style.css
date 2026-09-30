@@ -683,22 +683,13 @@ body {
     border-right: none;
     border-bottom: 1px solid var(--line);
     background: var(--shell-chrome-bg);
-    padding: 12px 14px 10px;
+    padding: 0 14px;
     transition: none;
   }
 
-  .sidebar-brand-block {
-    height: auto;
-    margin-inline: -14px;
-    padding: 0 14px 12px;
-    flex-direction: row;
-    align-items: center;
-    justify-content: flex-start;
-    gap: 8px;
-  }
-
+  .sidebar-brand-block,
   .sidebar.collapsed .sidebar-brand-block {
-    padding: 0 14px 12px;
+    display: none;
   }
 
   .sidebar-brand-mark,
@@ -723,7 +714,7 @@ body {
     gap: 6px;
     margin-inline: -14px;
     overflow-x: auto;
-    padding-top: 10px;
+    padding: 10px 0;
     scrollbar-width: thin;
   }
 
@@ -753,6 +744,25 @@ body {
     padding: 9px 14px;
     white-space: nowrap;
     flex: 0 0 auto;
+  }
+
+  .sidebar-link-overview {
+    position: sticky;
+    z-index: 3;
+    left: 0;
+    gap: 0;
+    background: var(--shell-chrome-bg);
+    box-shadow: 1px 0 0 var(--line);
+  }
+
+  .sidebar-link-overview.active {
+    background: var(--accent-muted);
+  }
+
+  .sidebar-link-overview .sidebar-label {
+    max-width: 0;
+    opacity: 0;
+    pointer-events: none;
   }
 
   .sidebar.collapsed .sidebar-link {
