@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/secretmanager/cloudsecrets"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretmanager/cloudsecrets"
 )
 
 var (

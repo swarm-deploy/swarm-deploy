@@ -6,7 +6,7 @@ import (
 	"net/http"
 
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/secretmanager"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretmanager"
 )
 
 // ListSecretManagers returns discovered Secret Managers and controller availability.

@@ -13,7 +13,7 @@ import (
 	context "context"
 	reflect "reflect"
 
-	cloudsecretspb "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/secretmanager/cloudsecrets/pb"
+	cloudsecretspb "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretmanager/cloudsecrets/pb"
 	gomock "go.uber.org/mock/gomock"
 	grpc "google.golang.org/grpc"
 )
