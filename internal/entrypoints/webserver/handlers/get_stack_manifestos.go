@@ -13,7 +13,7 @@ import (
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/livemanifest"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 const yamlOutputIndent = 2

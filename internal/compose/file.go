@@ -12,7 +12,7 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/dotenv"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 // File is a parsed compose file with source metadata.

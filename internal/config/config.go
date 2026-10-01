@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 
 	"github.com/artarts36/specw"
 )
