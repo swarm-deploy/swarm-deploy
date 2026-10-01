@@ -2,76 +2,54 @@ package webhookserver
 
 import (
 	"bytes"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"github.com/artarts36/specw"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webhookserver/authenticator"
 	"golang.org/x/time/rate"
 )
-
-func TestValidateGitHubSignature(t *testing.T) {
-	body := []byte(`{"ref":"refs/heads/main"}`)
-	secret := "webhook-secret"
-
-	mac := hmac.New(sha256.New, []byte(secret))
-	_, err := mac.Write(body)
-	require.NoError(t, err)
-
-	signature := "sha256=" + hex.EncodeToString(mac.Sum(nil))
-
-	assert.True(t, validateGitHubSignature(signature, body, secret))
-	assert.False(t, validateGitHubSignature(signature, []byte(`{"ref":"refs/heads/dev"}`), secret))
-	assert.False(t, validateGitHubSignature("sha1=deadbeef", body, secret))
-	assert.False(t, validateGitHubSignature("sha256=not-hex", body, secret))
-}
 
 func TestAuthenticateWebhookAnyOf(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(nil))
 	req.Header.Set("X-Custom-Secret", "header-secret")
 
-	methods := []config.WebhookAuthSpec{
-		{
-			Type: config.WebhookAuthTypeGitHub,
-			Secret: specw.File{
-				Content: []byte("github-secret"),
-			},
-		},
-		{
-			Type:   config.WebhookAuthTypeHeader,
-			Header: "X-Custom-Secret",
-			Secret: specw.File{
-				Content: []byte("header-secret"),
-			},
+	app := &Application{
+		authenticators: []authenticator.Authenticator{
+			authenticator.NewGitHubAuthenticator([]byte("github-secret")),
+			authenticator.NewHmacAuthenticator("X-Custom-Secret", []byte("header-secret")),
 		},
 	}
 
-	assert.True(t, authenticateWebhook(req, nil, methods))
+	assert.True(t, app.authenticate(&authenticator.Request{Request: req}))
 }
 
 func TestAuthenticateWebhookBearer(t *testing.T) {
-	req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(nil))
-	req.Header.Set("Authorization", "Bearer bearer-secret")
-
-	methods := []config.WebhookAuthSpec{
-		{
-			Type: config.WebhookAuthTypeBearer,
-			Secret: specw.File{
-				Content: []byte("bearer-secret"),
-			},
-		},
+	tests := []struct {
+		name          string
+		authorization string
+		expected      bool
+	}{
+		{name: "valid token", authorization: "Bearer bearer-secret", expected: true},
+		{name: "invalid token", authorization: "Bearer wrong", expected: false},
 	}
 
-	assert.True(t, authenticateWebhook(req, nil, methods))
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(nil))
+			req.Header.Set("Authorization", tt.authorization)
+			app := &Application{
+				authenticators: []authenticator.Authenticator{
+					authenticator.NewBearerAuthenticator([]byte("bearer-secret")),
+				},
+			}
 
-	req.Header.Set("Authorization", "Bearer wrong")
-	assert.False(t, authenticateWebhook(req, nil, methods))
+			assert.Equal(t, tt.expected, app.authenticate(&authenticator.Request{Request: req}))
+		})
+	}
 }
 
 func TestHandleGitWebhookRateLimit(t *testing.T) {
