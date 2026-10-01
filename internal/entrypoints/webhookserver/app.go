@@ -27,8 +27,6 @@ type Application struct {
 }
 
 func NewApplication(address string, cfg *config.Config, control *controller.Controller) *Application {
-	authenticators := make([]authenticator.Authenticator, 0, len(cfg.Spec.Sync.Webhook.Auth))
-
 	app := &Application{
 		mux:     http.NewServeMux(),
 		cfg:     cfg,
@@ -39,20 +37,7 @@ func NewApplication(address string, cfg *config.Config, control *controller.Cont
 		),
 	}
 
-	for _, method := range cfg.Spec.Sync.Webhook.Auth {
-		switch method.Type {
-		case config.WebhookAuthTypeBearer:
-			authenticators = append(authenticators, authenticator.NewBearerAuthenticator(method.Secret.Content))
-		case config.WebhookAuthTypeGitHub:
-			authenticators = append(authenticators, authenticator.NewGitHubAuthenticator(method.Secret.Content))
-		case config.WebhookAuthTypeHeader:
-			authenticators = append(authenticators, authenticator.NewHmacAuthenticator(
-				method.Header,
-				method.Secret.Content,
-			))
-		}
-	}
-	app.authenticator = authenticator.NewComposeAuthenticator(authenticators...)
+	app.authenticator = authenticator.NewAuthenticator(&cfg.Spec.Sync.Webhook)
 
 	app.registerRoutes()
 	app.server = &http.Server{

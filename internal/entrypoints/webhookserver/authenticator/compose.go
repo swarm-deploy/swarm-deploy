@@ -3,10 +3,48 @@ package authenticator
 import (
 	"errors"
 	"log/slog"
+
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 )
 
 type ComposeAuthenticator struct {
 	authenticators []Authenticator
+}
+
+func NewAuthenticator(cfg *config.WebhookSpec) Authenticator {
+	tp, tracingEnabled := tracing.GetTracerProvider()
+
+	authenticators := make([]Authenticator, 0, len(cfg.Auth))
+
+	for _, method := range cfg.Auth {
+		var authenticator Authenticator
+
+		switch method.Type {
+		case config.WebhookAuthTypeBearer:
+			authenticator = NewBearerAuthenticator(method.Secret.Content)
+		case config.WebhookAuthTypeGitHub:
+			authenticator = NewGitHubAuthenticator(method.Secret.Content)
+		case config.WebhookAuthTypeHeader:
+			authenticator = NewHmacAuthenticator(
+				method.Header,
+				method.Secret.Content,
+			)
+		}
+
+		if tracingEnabled {
+			authenticator = newTraceSpanAuthenticator(tp, authenticator, method.Type)
+		}
+
+		authenticators = append(authenticators, authenticator)
+	}
+
+	composeAuth := NewComposeAuthenticator(authenticators...)
+	if tracingEnabled {
+		composeAuth = newTraceStartAuthenticator(tp, composeAuth)
+	}
+
+	return composeAuth
 }
 
 func NewComposeAuthenticator(authenticators ...Authenticator) Authenticator {
