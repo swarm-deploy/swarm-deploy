@@ -78,12 +78,12 @@ func (t *traceSpanAuthenticator) Authenticate(req *Request) error {
 		span.AddEvent(fmt.Sprintf("%q: not passed", t.authenticator), trace.WithAttributes(
 			tracing.WebhookAuthAuthenticatorName(string(t.name)),
 			tracing.WebhookAuthRequestAllowed(false),
-			tracing.WebhookAuthRequestCredentialsProvided(errors.Is(err, ErrValueNotProvided)),
+			tracing.WebhookAuthRequestCredentialsProvided(!errors.Is(err, ErrValueNotProvided)),
 		))
 		return err
 	}
 
-	span.AddEvent(fmt.Sprintf("%q: passed", t.authenticator), trace.WithAttributes(
+	span.AddEvent(fmt.Sprintf("%q: passed", t.name), trace.WithAttributes(
 		tracing.WebhookAuthAuthenticatorName(string(t.name)),
 		tracing.WebhookAuthRequestAllowed(true),
 		tracing.WebhookAuthRequestCredentialsProvided(true),

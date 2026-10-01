@@ -60,13 +60,11 @@ func (c *ComposeAuthenticator) Authenticate(req *Request) error {
 	for _, method := range c.authenticators {
 		err := method.Authenticate(req)
 		if err != nil {
-			if errors.Is(err, ErrValueNotProvided) {
-				continue
+			if !errors.Is(err, ErrValueNotProvided) {
+				slog.WarnContext(req.Request.Context(), "[webhook] failed to authenticate", slog.Any("err", err))
 			}
 
-			slog.WarnContext(req.Request.Context(), "[webhook] failed to authenticate", slog.Any("err", err))
-
-			return err
+			continue
 		}
 
 		return nil
