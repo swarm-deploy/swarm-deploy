@@ -18,10 +18,10 @@ func TestAuthenticateWebhookAnyOf(t *testing.T) {
 	req.Header.Set("X-Custom-Secret", "header-secret")
 
 	app := &Application{
-		authenticators: []authenticator.Authenticator{
+		authenticator: authenticator.NewComposeAuthenticator(
 			authenticator.NewGitHubAuthenticator([]byte("github-secret")),
 			authenticator.NewHmacAuthenticator("X-Custom-Secret", []byte("header-secret")),
-		},
+		),
 	}
 
 	assert.True(t, app.authenticate(&authenticator.Request{Request: req}))
@@ -42,9 +42,9 @@ func TestAuthenticateWebhookBearer(t *testing.T) {
 			req := httptest.NewRequest(http.MethodPost, "/webhook", bytes.NewReader(nil))
 			req.Header.Set("Authorization", tt.authorization)
 			app := &Application{
-				authenticators: []authenticator.Authenticator{
+				authenticator: authenticator.NewComposeAuthenticator(
 					authenticator.NewBearerAuthenticator([]byte("bearer-secret")),
-				},
+				),
 			}
 
 			assert.Equal(t, tt.expected, app.authenticate(&authenticator.Request{Request: req}))

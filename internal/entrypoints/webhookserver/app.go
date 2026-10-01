@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log/slog"
 	"net/http"
 	"time"
 
@@ -24,10 +23,12 @@ type Application struct {
 	control *controller.Controller
 	limiter *rate.Limiter
 
-	authenticators []authenticator.Authenticator
+	authenticator authenticator.Authenticator
 }
 
 func NewApplication(address string, cfg *config.Config, control *controller.Controller) *Application {
+	authenticators := make([]authenticator.Authenticator, 0, len(cfg.Spec.Sync.Webhook.Auth))
+
 	app := &Application{
 		mux:     http.NewServeMux(),
 		cfg:     cfg,
@@ -36,22 +37,22 @@ func NewApplication(address string, cfg *config.Config, control *controller.Cont
 			rate.Limit(cfg.Spec.Sync.Webhook.RateLimit.RequestsPerSecond),
 			cfg.Spec.Sync.Webhook.RateLimit.Burst,
 		),
-		authenticators: make([]authenticator.Authenticator, 0, len(cfg.Spec.Sync.Webhook.Auth)),
 	}
 
 	for _, method := range cfg.Spec.Sync.Webhook.Auth {
 		switch method.Type {
 		case config.WebhookAuthTypeBearer:
-			app.authenticators = append(app.authenticators, authenticator.NewBearerAuthenticator(method.Secret.Content))
+			authenticators = append(authenticators, authenticator.NewBearerAuthenticator(method.Secret.Content))
 		case config.WebhookAuthTypeGitHub:
-			app.authenticators = append(app.authenticators, authenticator.NewGitHubAuthenticator(method.Secret.Content))
+			authenticators = append(authenticators, authenticator.NewGitHubAuthenticator(method.Secret.Content))
 		case config.WebhookAuthTypeHeader:
-			app.authenticators = append(app.authenticators, authenticator.NewHmacAuthenticator(
+			authenticators = append(authenticators, authenticator.NewHmacAuthenticator(
 				method.Header,
 				method.Secret.Content,
 			))
 		}
 	}
+	app.authenticator = authenticator.NewComposeAuthenticator(authenticators...)
 
 	app.registerRoutes()
 	app.server = &http.Server{
@@ -125,22 +126,7 @@ func (a *Application) handleGitWebhook(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a *Application) authenticate(req *authenticator.Request) bool {
-	for _, method := range a.authenticators {
-		err := method.Authenticate(req)
-		if err != nil {
-			if errors.Is(err, authenticator.ErrValueNotProvided) {
-				continue
-			}
-
-			slog.WarnContext(req.Request.Context(), "[webhook] failed to authenticate", slog.Any("err", err))
-
-			return false
-		}
-
-		return true
-	}
-
-	return false
+	return a.authenticator.Authenticate(req) == nil
 }
 
 func readBody(w http.ResponseWriter, r *http.Request, maxBodyBytes int64) ([]byte, error) {
