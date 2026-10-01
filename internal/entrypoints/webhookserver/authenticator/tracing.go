@@ -4,10 +4,11 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/config"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 )
 
 type traceStartAuthenticator struct {
@@ -75,7 +76,7 @@ func (t *traceSpanAuthenticator) Authenticate(req *Request) error {
 
 	err := t.authenticator.Authenticate(req)
 	if err != nil {
-		span.AddEvent(fmt.Sprintf("%q: not passed", t.authenticator), trace.WithAttributes(
+		span.AddEvent(fmt.Sprintf("%q: not passed", t.name), trace.WithAttributes(
 			tracing.WebhookAuthAuthenticatorName(string(t.name)),
 			tracing.WebhookAuthRequestAllowed(false),
 			tracing.WebhookAuthRequestCredentialsProvided(!errors.Is(err, ErrValueNotProvided)),

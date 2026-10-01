@@ -20,7 +20,7 @@ func TestAuthenticateWebhookAnyOf(t *testing.T) {
 	app := &Application{
 		authenticator: authenticator.NewComposeAuthenticator(
 			authenticator.NewGitHubAuthenticator([]byte("github-secret")),
-			authenticator.NewHmacAuthenticator("X-Custom-Secret", []byte("header-secret")),
+			authenticator.NewHeaderAuthenticator("X-Custom-Secret", []byte("header-secret")),
 		),
 	}
 

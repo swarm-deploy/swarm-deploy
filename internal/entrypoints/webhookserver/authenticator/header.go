@@ -5,16 +5,16 @@ import (
 	"errors"
 )
 
-type HmacAuthenticator struct {
+type HeaderAuthenticator struct {
 	header string
 	secret []byte
 }
 
-func NewHmacAuthenticator(header string, secret []byte) *HmacAuthenticator {
-	return &HmacAuthenticator{header: header, secret: secret}
+func NewHeaderAuthenticator(header string, secret []byte) *HeaderAuthenticator {
+	return &HeaderAuthenticator{header: header, secret: secret}
 }
 
-func (b *HmacAuthenticator) Authenticate(req *Request) error {
+func (b *HeaderAuthenticator) Authenticate(req *Request) error {
 	headerValue := req.Request.Header.Get(b.header)
 	if headerValue == "" {
 		return ErrValueNotProvided

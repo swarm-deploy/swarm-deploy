@@ -9,10 +9,11 @@ import (
 	"time"
 
 	"github.com/artarts36/go-entrypoint"
+	"golang.org/x/time/rate"
+
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webhookserver/authenticator"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller"
-	"golang.org/x/time/rate"
 )
 
 const readHeaderTimeout = 10 * time.Second
@@ -55,19 +56,11 @@ func NewApplication(address string, cfg *config.Config, control *controller.Cont
 	return app, nil
 }
 
-func (a *Application) Enabled() bool {
-	return a.cfg.Spec.Sync.Webhook.Enabled
-}
-
 func (a *Application) Entrypoint() entrypoint.Entrypoint {
 	return entrypoint.HTTPServer("WebhookServer", a.server)
 }
 
 func (a *Application) registerRoutes() {
-	if !a.Enabled() {
-		return
-	}
-
 	a.mux.HandleFunc(a.cfg.Spec.Sync.Webhook.Path, a.handleGitWebhook)
 }
 

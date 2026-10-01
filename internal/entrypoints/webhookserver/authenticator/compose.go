@@ -27,7 +27,7 @@ func NewAuthenticator(cfg *config.WebhookSpec) (Authenticator, error) {
 		case config.WebhookAuthTypeGitHub:
 			authenticator = NewGitHubAuthenticator(method.Secret.Content)
 		case config.WebhookAuthTypeHeader:
-			authenticator = NewHmacAuthenticator(
+			authenticator = NewHeaderAuthenticator(
 				method.Header,
 				method.Secret.Content,
 			)
