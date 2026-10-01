@@ -1,18 +1,16 @@
 package webhookserver
 
 import (
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/artarts36/go-entrypoint"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webhookserver/authenticator"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller"
 	"golang.org/x/time/rate"
 )
@@ -25,6 +23,8 @@ type Application struct {
 	cfg     *config.Config
 	control *controller.Controller
 	limiter *rate.Limiter
+
+	authenticators []authenticator.Authenticator
 }
 
 func NewApplication(address string, cfg *config.Config, control *controller.Controller) *Application {
@@ -36,6 +36,21 @@ func NewApplication(address string, cfg *config.Config, control *controller.Cont
 			rate.Limit(cfg.Spec.Sync.Webhook.RateLimit.RequestsPerSecond),
 			cfg.Spec.Sync.Webhook.RateLimit.Burst,
 		),
+		authenticators: make([]authenticator.Authenticator, 0, len(cfg.Spec.Sync.Webhook.Auth)),
+	}
+
+	for _, method := range cfg.Spec.Sync.Webhook.Auth {
+		switch method.Type {
+		case config.WebhookAuthTypeBearer:
+			app.authenticators = append(app.authenticators, authenticator.NewBearerAuthenticator(method.Secret.Content))
+		case config.WebhookAuthTypeGitHub:
+			app.authenticators = append(app.authenticators, authenticator.NewGitHubAuthenticator(method.Secret.Content))
+		case config.WebhookAuthTypeHeader:
+			app.authenticators = append(app.authenticators, authenticator.NewHmacAuthenticator(
+				method.Header,
+				method.Secret.Content,
+			))
+		}
 	}
 
 	app.registerRoutes()
@@ -93,7 +108,10 @@ func (a *Application) handleGitWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if !authenticateWebhook(r, body, a.cfg.Spec.Sync.Webhook.Auth) {
+	if !a.authenticate(&authenticator.Request{
+		Request: r,
+		Body:    body,
+	}) {
 		writeJSON(w, http.StatusUnauthorized, map[string]any{
 			"error": "webhook authentication failed",
 		})
@@ -106,68 +124,29 @@ func (a *Application) handleGitWebhook(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func readBody(w http.ResponseWriter, r *http.Request, maxBodyBytes int64) ([]byte, error) {
-	defer r.Body.Close()
+func (a *Application) authenticate(req *authenticator.Request) bool {
+	for _, method := range a.authenticators {
+		err := method.Authenticate(req)
+		if err != nil {
+			if errors.Is(err, authenticator.ErrValueNotProvided) {
+				continue
+			}
 
-	return io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
-}
+			slog.WarnContext(req.Request.Context(), "[webhook] failed to authenticate", slog.Any("err", err))
 
-func authenticateWebhook(r *http.Request, body []byte, methods []config.WebhookAuthSpec) bool {
-	for _, method := range methods {
-		if authenticateWebhookMethod(r, body, method) {
-			return true
+			return false
 		}
+
+		return true
 	}
 
 	return false
 }
 
-func authenticateWebhookMethod(r *http.Request, body []byte, method config.WebhookAuthSpec) bool {
-	secret := strings.TrimSpace(string(method.Secret.Content))
-	if secret == "" {
-		return false
-	}
+func readBody(w http.ResponseWriter, r *http.Request, maxBodyBytes int64) ([]byte, error) {
+	defer r.Body.Close()
 
-	switch method.Type {
-	case config.WebhookAuthTypeGitHub:
-		return validateGitHubSignature(r.Header.Get("X-Hub-Signature-256"), body, secret)
-	case config.WebhookAuthTypeHeader:
-		return secretEqual(strings.TrimSpace(r.Header.Get(method.Header)), secret)
-	case config.WebhookAuthTypeBearer:
-		return validateBearer(r.Header.Get("Authorization"), secret)
-	default:
-		return false
-	}
-}
-
-func validateGitHubSignature(signature string, body []byte, secret string) bool {
-	algorithm, encodedSignature, ok := strings.Cut(strings.TrimSpace(signature), "=")
-	if !ok || algorithm != "sha256" {
-		return false
-	}
-
-	actualSignature, err := hex.DecodeString(encodedSignature)
-	if err != nil {
-		return false
-	}
-
-	mac := hmac.New(sha256.New, []byte(secret))
-	_, _ = mac.Write(body)
-
-	return hmac.Equal(actualSignature, mac.Sum(nil))
-}
-
-func validateBearer(value, secret string) bool {
-	parts := strings.Fields(value)
-	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
-		return false
-	}
-
-	return secretEqual(parts[1], secret)
-}
-
-func secretEqual(actual, expected string) bool {
-	return hmac.Equal([]byte(actual), []byte(expected))
+	return io.ReadAll(http.MaxBytesReader(w, r.Body, maxBodyBytes))
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
