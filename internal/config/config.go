@@ -614,7 +614,7 @@ func (c *Config) validateSecretRotation() []error {
 		errs = append(errs, errors.New("secretRotation.cleanup.keepLast must be >= 1"))
 	}
 	if cleanup.MinAge.Value < 0 {
-		errs = append(errs, errors.New("secretRotation.cleanup.minAge must be >= 0"))
+		errs = append(errs, errors.New("secretRotation.cleanup.minAge must be > 0"))
 	}
 
 	return errs

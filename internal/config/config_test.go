@@ -153,7 +153,7 @@ func TestLoadValidatesSecretRotationCleanup(t *testing.T) {
   cleanup:
     enabled: true
     minAge: -1s`,
-			errText: "secretRotation.cleanup.minAge must be >= 0",
+			errText: "secretRotation.cleanup.minAge must be > 0",
 		},
 	}
 
