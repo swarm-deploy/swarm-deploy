@@ -27,4 +27,3 @@ func (b *HmacAuthenticator) Authenticate(req *Request) error {
 
 	return nil
 }
-

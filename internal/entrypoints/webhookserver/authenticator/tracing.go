@@ -18,7 +18,7 @@ type traceStartAuthenticator struct {
 type traceSpanAuthenticator struct {
 	tracer        trace.Tracer
 	authenticator Authenticator
-	name 		  config.WebhookAuthType
+	name          config.WebhookAuthType
 }
 
 func newTraceStartAuthenticator(
