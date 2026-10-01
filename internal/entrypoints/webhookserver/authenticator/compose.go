@@ -61,7 +61,10 @@ func (c *ComposeAuthenticator) Authenticate(req *Request) error {
 		err := method.Authenticate(req)
 		if err != nil {
 			if !errors.Is(err, ErrValueNotProvided) {
-				slog.WarnContext(req.Request.Context(), "[webhook] failed to authenticate", slog.Any("err", err))
+				slog.InfoContext(req.Request.Context(),
+					"[webhook] the authenticator did not pass the request",
+					slog.Any("err", err),
+				)
 			}
 
 			continue
@@ -69,6 +72,10 @@ func (c *ComposeAuthenticator) Authenticate(req *Request) error {
 
 		return nil
 	}
+
+	slog.WarnContext(req.Request.Context(),
+		"[webhook] request rejected",
+	)
 
 	return errors.New("not authorized")
 }
