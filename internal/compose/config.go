@@ -11,6 +11,8 @@ type SharedObject struct {
 	Alias string `yaml:"-"`
 
 	Name string `yaml:"name,omitempty" json:"name,omitempty"`
+	// Labels contains Docker labels attached to the config or secret.
+	Labels *Labels `yaml:"labels,omitempty" json:"labels,omitempty"`
 
 	File     string `yaml:"file,omitempty" json:"file,omitempty"`
 	Driver   string `yaml:"drive,omitempty" json:"driver"`
