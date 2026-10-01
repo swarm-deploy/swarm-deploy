@@ -94,3 +94,11 @@ onMounted(() => {
     <AssistantDrawer />
   </div>
 </template>
+
+<style>
+@media (max-width: 900px) {
+  .layout-shell {
+    align-content: start;
+  }
+}
+</style>
