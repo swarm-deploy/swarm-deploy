@@ -192,7 +192,6 @@ func main() {
 		slog.ErrorContext(ctx, "failed to init web server", slog.Any("err", err))
 		os.Exit(1)
 	}
-	webhookApplication := webhookserver.NewApplication(cfg.Spec.Sync.Webhook.Address, cfg, cnt.GitOps.Controller)
 
 	healthServer := healthserver.NewApplication(cfg.Spec.HealthServer)
 	syncControllerDone := make(chan struct{})
@@ -241,7 +240,13 @@ func main() {
 		},
 	}
 
-	if webhookApplication.Enabled() {
+	if cfg.Spec.Sync.Webhook.Enabled {
+		webhookApplication, werr := webhookserver.NewApplication(cfg.Spec.Sync.Webhook.Address, cfg, cnt.GitOps.Controller)
+		if werr != nil {
+			slog.ErrorContext(ctx, "failed to create webhook application", slog.Any("err", werr))
+			os.Exit(1)
+		}
+
 		entrypoints = append(entrypoints, webhookApplication.Entrypoint())
 	}
 
@@ -251,7 +256,7 @@ func main() {
 		slog.String("web.address", cfg.Spec.Web.Address),
 		slog.String("web.security", cfg.Spec.Web.Security.Authentication.Strategy()),
 		slog.String("webhook.address", cfg.Spec.Sync.Webhook.Address),
-		slog.Bool("webhook.enabled", webhookApplication.Enabled()),
+		slog.Bool("webhook.enabled", cfg.Spec.Sync.Webhook.Enabled),
 		slog.String("healthServer.address", cfg.Spec.HealthServer.Address),
 		slog.String("healthz.path", cfg.Spec.HealthServer.Healthz.Path),
 		slog.String("metrics.path", cfg.Spec.HealthServer.Metrics.Path),

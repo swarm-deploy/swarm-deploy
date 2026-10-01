@@ -125,8 +125,12 @@ type WebhookSpec struct {
 	Address string `yaml:"address"`
 	// Path is an HTTP path for webhook endpoint.
 	Path string `yaml:"path"`
-	// Secret is a path to file containing webhook shared secret.
-	Secret specw.File `yaml:"secretPath"`
+	// Auth contains explicitly enabled webhook authentication methods.
+	Auth []WebhookAuthSpec `yaml:"auth"`
+	// RateLimit controls the global webhook request rate.
+	RateLimit WebhookRateLimitSpec `yaml:"rateLimit"`
+	// MaxBodyBytes limits the request body size read by the webhook endpoint.
+	MaxBodyBytes int64 `yaml:"maxBodyBytes"`
 }
 
 type StacksSourceSpec struct {
@@ -222,6 +226,7 @@ func (c *Config) UnmarshalYAML(node *yaml.Node) error {
 func (c *Config) applyDefaults(configDir string) error {
 	c.Spec.DataDir = filepath.Join(configDir, ".swarm-deploy")
 	c.applyGitAndSyncDefaults()
+	c.applyWebhookDefaults()
 	c.applyWebAndHealthDefaults()
 	c.Spec.Notifications.applyDefaults()
 	c.applyAssistantDefaults()
@@ -668,7 +673,7 @@ func (c *Config) validateSync() []error {
 	if c.Spec.Sync.Webhook.Enabled && c.Spec.Sync.Mode == SyncModePull {
 		errs = append(errs, errors.New("sync.webhook.enabled=true conflicts with sync.mode=pull"))
 	}
-	errs = append(errs, c.validateWebhookSecret()...)
+	errs = append(errs, c.validateWebhook()...)
 
 	return errs
 }
@@ -707,18 +712,6 @@ func (c *Config) validateSecurity() []error {
 
 	if strings.TrimSpace(string(c.Spec.Web.Security.Authentication.Basic.HTPasswdFile.Content)) == "" {
 		return []error{errors.New("web.security.authentication.basic.htpasswdFile contains empty credentials")}
-	}
-
-	return nil
-}
-
-func (c *Config) validateWebhookSecret() []error {
-	if !c.Spec.Sync.Webhook.Enabled {
-		return nil
-	}
-
-	if strings.TrimSpace(string(c.Spec.Sync.Webhook.Secret.Content)) == "" {
-		return []error{errors.New("webhook enabled but sync.webhook.secretPath contains empty secret")}
 	}
 
 	return nil

@@ -45,4 +45,8 @@ var (
 	AssistantRequestToolCount         = attribute.Key("swarm-deploy.assistant.request.tool_count")
 	AssistantRoute                    = attribute.Key("swarm-deploy.assistant.route")
 	AssistantTerminalTool             = attribute.Key("swarm-deploy.assistant.terminal_tool")
+
+	WebhookAuthAuthenticatorName          = attribute.Key("swarm-deploy.webhook.auth.authenticator.name").String
+	WebhookAuthRequestAllowed             = attribute.Key("swarm-deploy.webhook.auth.request.allowed").Bool
+	WebhookAuthRequestCredentialsProvided = attribute.Key("swarm-deploy.webhook.auth.request.credentials_provided").Bool
 )
