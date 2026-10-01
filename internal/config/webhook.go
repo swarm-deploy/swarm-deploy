@@ -15,6 +15,7 @@ const (
 
 	defaultWebhookRateLimitRequestsPerSecond = 5
 	defaultWebhookRateLimitBurst             = 10
+	defaultWebhookMaxBodyBytes         int64 = 1 << 20
 )
 
 type WebhookAuthType string
@@ -45,6 +46,9 @@ type WebhookRateLimitSpec struct {
 }
 
 func (c *Config) applyWebhookDefaults() {
+	if c.Spec.Sync.Webhook.MaxBodyBytes == 0 {
+		c.Spec.Sync.Webhook.MaxBodyBytes = defaultWebhookMaxBodyBytes
+	}
 	if c.Spec.Sync.Webhook.RateLimit.RequestsPerSecond == 0 {
 		c.Spec.Sync.Webhook.RateLimit.RequestsPerSecond = defaultWebhookRateLimitRequestsPerSecond
 	}
@@ -82,6 +86,9 @@ func (c *Config) validateWebhook() []error {
 		}
 	}
 
+	if c.Spec.Sync.Webhook.MaxBodyBytes <= 0 {
+		errs = append(errs, errors.New("sync.webhook.maxBodyBytes must be > 0"))
+	}
 	if c.Spec.Sync.Webhook.RateLimit.RequestsPerSecond <= 0 {
 		errs = append(errs, errors.New("sync.webhook.rateLimit.requestsPerSecond must be > 0"))
 	}
