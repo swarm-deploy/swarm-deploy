@@ -2,6 +2,7 @@ package authenticator
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
@@ -12,7 +13,7 @@ type ComposeAuthenticator struct {
 	authenticators []Authenticator
 }
 
-func NewAuthenticator(cfg *config.WebhookSpec) Authenticator {
+func NewAuthenticator(cfg *config.WebhookSpec) (Authenticator, error) {
 	tp, tracingEnabled := tracing.GetTracerProvider()
 
 	authenticators := make([]Authenticator, 0, len(cfg.Auth))
@@ -30,6 +31,8 @@ func NewAuthenticator(cfg *config.WebhookSpec) Authenticator {
 				method.Header,
 				method.Secret.Content,
 			)
+		default:
+			return nil, fmt.Errorf("unknown authentication type %q", method.Type)
 		}
 
 		if tracingEnabled {
@@ -44,7 +47,7 @@ func NewAuthenticator(cfg *config.WebhookSpec) Authenticator {
 		composeAuth = newTraceStartAuthenticator(tp, composeAuth)
 	}
 
-	return composeAuth
+	return composeAuth, nil
 }
 
 func NewComposeAuthenticator(authenticators ...Authenticator) Authenticator {

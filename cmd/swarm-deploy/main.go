@@ -192,7 +192,11 @@ func main() {
 		slog.ErrorContext(ctx, "failed to init web server", slog.Any("err", err))
 		os.Exit(1)
 	}
-	webhookApplication := webhookserver.NewApplication(cfg.Spec.Sync.Webhook.Address, cfg, cnt.GitOps.Controller)
+	webhookApplication, err := webhookserver.NewApplication(cfg.Spec.Sync.Webhook.Address, cfg, cnt.GitOps.Controller)
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to create webhook application", slog.Any("err", err))
+		os.Exit(1)
+	}
 
 	healthServer := healthserver.NewApplication(cfg.Spec.HealthServer)
 	syncControllerDone := make(chan struct{})

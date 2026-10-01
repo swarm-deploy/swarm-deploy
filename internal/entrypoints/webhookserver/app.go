@@ -3,6 +3,7 @@ package webhookserver
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"time"
@@ -26,7 +27,7 @@ type Application struct {
 	authenticator authenticator.Authenticator
 }
 
-func NewApplication(address string, cfg *config.Config, control *controller.Controller) *Application {
+func NewApplication(address string, cfg *config.Config, control *controller.Controller) (*Application, error) {
 	app := &Application{
 		mux:     http.NewServeMux(),
 		cfg:     cfg,
@@ -37,7 +38,12 @@ func NewApplication(address string, cfg *config.Config, control *controller.Cont
 		),
 	}
 
-	app.authenticator = authenticator.NewAuthenticator(&cfg.Spec.Sync.Webhook)
+	var err error
+
+	app.authenticator, err = authenticator.NewAuthenticator(&cfg.Spec.Sync.Webhook)
+	if err != nil {
+		return nil, fmt.Errorf("create authenticator: %w", err)
+	}
 
 	app.registerRoutes()
 	app.server = &http.Server{
@@ -46,7 +52,7 @@ func NewApplication(address string, cfg *config.Config, control *controller.Cont
 		ReadHeaderTimeout: readHeaderTimeout,
 	}
 
-	return app
+	return app, nil
 }
 
 func (a *Application) Enabled() bool {
