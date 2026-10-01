@@ -8,15 +8,13 @@ import (
 	"github.com/artarts36/specw"
 )
 
-const (
-	WebhookAuthTypeGitHub WebhookAuthType = "github"
-	WebhookAuthTypeHeader WebhookAuthType = "header"
-	WebhookAuthTypeBearer WebhookAuthType = "bearer"
+const WebhookAuthTypeGitHub WebhookAuthType = "github"
+const WebhookAuthTypeHeader WebhookAuthType = "header"
+const WebhookAuthTypeBearer WebhookAuthType = "bearer"
 
-	defaultWebhookRateLimitRequestsPerSecond = 5
-	defaultWebhookRateLimitBurst             = 10
-	defaultWebhookMaxBodyBytes         int64 = 1 << 20
-)
+const defaultWebhookRateLimitRequestsPerSecond = 5
+const defaultWebhookRateLimitBurst = 10
+const defaultWebhookMaxBodyBytes int64 = 1 << 20
 
 type WebhookAuthType string
 
