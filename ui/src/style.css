@@ -768,13 +768,17 @@ body {
   .sidebar-user-menu-mobile {
     display: block;
     z-index: 2;
+    flex: 0 0 auto;
     margin-top: 0;
     border-left: 1px solid var(--line);
     background: var(--shell-chrome-bg);
   }
 
   .sidebar-user-menu-mobile .sidebar-user {
+    width: 47px;
+    justify-content: center;
     gap: 0;
+    padding-inline: 14px;
   }
 
   .sidebar-user-menu-mobile .sidebar-user .sidebar-label {
