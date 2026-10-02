@@ -7,13 +7,17 @@ import { formatDate } from "../../utils/format";
 
 const secretDetailsStore = useSecretDetailsStore();
 
+const secretDescription = computed(() => secretDetailsStore.secret?.labels?.description ?? "");
+
 const secretLabels = computed(() => {
   const labels = secretDetailsStore.secret?.labels;
   if (!labels || typeof labels !== "object") {
     return [];
   }
 
-  return Object.entries(labels).sort(([left], [right]) => left.localeCompare(right));
+  return Object.entries(labels)
+    .filter(([key]) => key !== "description")
+    .sort(([left], [right]) => left.localeCompare(right));
 });
 
 function closeSecretDetailsModal() {
@@ -60,6 +64,10 @@ onUnmounted(() => {
               <tr>
                 <th scope="row">Name</th>
                 <td>{{ secretDetailsStore.secret.name }}</td>
+              </tr>
+              <tr>
+                <th scope="row">Description</th>
+                <td>{{ secretDescription || "n/a" }}</td>
               </tr>
               <tr>
                 <th scope="row">Version ID</th>
