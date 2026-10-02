@@ -55,10 +55,24 @@ func TestFileStoreReplacePersistsMetadataAndReloadsIndexes(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, rows[0], secret)
 
+	secretByID, err := reloaded.GetByID(ctx, "secret-b")
+	require.NoError(t, err)
+	assert.Equal(t, rows[0], secretByID)
+
 	secret.Labels["environment"] = "changed"
 	again, err := reloaded.GetByName(ctx, "database-password")
 	require.NoError(t, err)
 	assert.Equal(t, "production", again.Labels["environment"])
+}
+
+func TestFileStoreGetByIDReturnsNotFound(t *testing.T) {
+	t.Parallel()
+
+	store, err := NewFileStore(context.Background(), filepath.Join(t.TempDir(), "secrets.state.json"), fs.NewLocalFileSystem())
+	require.NoError(t, err)
+
+	_, err = store.GetByID(context.Background(), "missing")
+	require.ErrorIs(t, err, ErrSecretNotFound)
 }
 
 func TestFileStoreGetByNameReturnsNotFound(t *testing.T) {

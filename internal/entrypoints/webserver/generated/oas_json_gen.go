@@ -4363,6 +4363,39 @@ func (s *OptSecretExternalInfo) UnmarshalJSON(data []byte) error {
 	return s.Decode(d)
 }
 
+// Encode encodes SecretInfo as json.
+func (o OptSecretInfo) Encode(e *jx.Encoder) {
+	if !o.Set {
+		return
+	}
+	o.Value.Encode(e)
+}
+
+// Decode decodes SecretInfo from json.
+func (o *OptSecretInfo) Decode(d *jx.Decoder) error {
+	if o == nil {
+		return errors.New("invalid: unable to decode OptSecretInfo to nil")
+	}
+	o.Set = true
+	if err := o.Value.Decode(d); err != nil {
+		return err
+	}
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s OptSecretInfo) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *OptSecretInfo) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
 // Encode encodes SecretManagerProvider as json.
 func (o OptSecretManagerProvider) Encode(e *jx.Encoder) {
 	if !o.Set {
@@ -5586,9 +5619,19 @@ func (s *SecretDetailsResponse) encodeFields(e *jx.Encoder) {
 			s.External.Encode(e)
 		}
 	}
+	{
+		if s.UsedBy != nil {
+			e.FieldStart("used_by")
+			e.ArrStart()
+			for _, elem := range s.UsedBy {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfSecretDetailsResponse = [8]string{
+var jsonFieldsNameOfSecretDetailsResponse = [9]string{
 	0: "id",
 	1: "name",
 	2: "version_id",
@@ -5597,6 +5640,7 @@ var jsonFieldsNameOfSecretDetailsResponse = [8]string{
 	5: "driver",
 	6: "labels",
 	7: "external",
+	8: "used_by",
 }
 
 // Decode decodes SecretDetailsResponse from json.
@@ -5604,7 +5648,7 @@ func (s *SecretDetailsResponse) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode SecretDetailsResponse to nil")
 	}
-	var requiredBitSet [1]uint8
+	var requiredBitSet [2]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -5698,6 +5742,23 @@ func (s *SecretDetailsResponse) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"external\"")
 			}
+		case "used_by":
+			if err := func() error {
+				s.UsedBy = make([]SecretServiceUsage, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem SecretServiceUsage
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.UsedBy = append(s.UsedBy, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"used_by\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -5707,8 +5768,9 @@ func (s *SecretDetailsResponse) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [1]uint8{
+	for i, mask := range [2]uint8{
 		0b00011111,
+		0b00000000,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -5921,14 +5983,25 @@ func (s *SecretInfo) encodeFields(e *jx.Encoder) {
 			s.External.Encode(e)
 		}
 	}
+	{
+		if s.UsedBy != nil {
+			e.FieldStart("used_by")
+			e.ArrStart()
+			for _, elem := range s.UsedBy {
+				elem.Encode(e)
+			}
+			e.ArrEnd()
+		}
+	}
 }
 
-var jsonFieldsNameOfSecretInfo = [5]string{
+var jsonFieldsNameOfSecretInfo = [6]string{
 	0: "id",
 	1: "name",
 	2: "version_id",
 	3: "created_at",
 	4: "external",
+	5: "used_by",
 }
 
 // Decode decodes SecretInfo from json.
@@ -5997,6 +6070,23 @@ func (s *SecretInfo) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"external\"")
+			}
+		case "used_by":
+			if err := func() error {
+				s.UsedBy = make([]SecretServiceUsage, 0)
+				if err := d.Arr(func(d *jx.Decoder) error {
+					var elem SecretServiceUsage
+					if err := elem.Decode(d); err != nil {
+						return err
+					}
+					s.UsedBy = append(s.UsedBy, elem)
+					return nil
+				}); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"used_by\"")
 			}
 		default:
 			return d.Skip()
@@ -6746,6 +6836,136 @@ func (s *SecretManagersResponse) MarshalJSON() ([]byte, error) {
 
 // UnmarshalJSON implements stdjson.Unmarshaler.
 func (s *SecretManagersResponse) UnmarshalJSON(data []byte) error {
+	d := jx.DecodeBytes(data)
+	return s.Decode(d)
+}
+
+// Encode implements json.Marshaler.
+func (s *SecretServiceUsage) Encode(e *jx.Encoder) {
+	e.ObjStart()
+	s.encodeFields(e)
+	e.ObjEnd()
+}
+
+// encodeFields encodes fields.
+func (s *SecretServiceUsage) encodeFields(e *jx.Encoder) {
+	{
+		e.FieldStart("stack")
+		e.Str(s.Stack)
+	}
+	{
+		e.FieldStart("service")
+		e.Str(s.Service)
+	}
+	{
+		if s.Target.Set {
+			e.FieldStart("target")
+			s.Target.Encode(e)
+		}
+	}
+}
+
+var jsonFieldsNameOfSecretServiceUsage = [3]string{
+	0: "stack",
+	1: "service",
+	2: "target",
+}
+
+// Decode decodes SecretServiceUsage from json.
+func (s *SecretServiceUsage) Decode(d *jx.Decoder) error {
+	if s == nil {
+		return errors.New("invalid: unable to decode SecretServiceUsage to nil")
+	}
+	var requiredBitSet [1]uint8
+
+	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
+		switch string(k) {
+		case "stack":
+			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.Stack = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"stack\"")
+			}
+		case "service":
+			requiredBitSet[0] |= 1 << 1
+			if err := func() error {
+				v, err := d.Str()
+				s.Service = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"service\"")
+			}
+		case "target":
+			if err := func() error {
+				s.Target.Reset()
+				if err := s.Target.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"target\"")
+			}
+		default:
+			return d.Skip()
+		}
+		return nil
+	}); err != nil {
+		return errors.Wrap(err, "decode SecretServiceUsage")
+	}
+	// Validate required fields.
+	var failures []validate.FieldError
+	for i, mask := range [1]uint8{
+		0b00000011,
+	} {
+		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
+			// Mask only required fields and check equality to mask using XOR.
+			//
+			// If XOR result is not zero, result is not equal to expected, so some fields are missed.
+			// Bits of fields which would be set are actually bits of missed fields.
+			missed := bits.OnesCount8(result)
+			for bitN := 0; bitN < missed; bitN++ {
+				bitIdx := bits.TrailingZeros8(result)
+				fieldIdx := i*8 + bitIdx
+				var name string
+				if fieldIdx < len(jsonFieldsNameOfSecretServiceUsage) {
+					name = jsonFieldsNameOfSecretServiceUsage[fieldIdx]
+				} else {
+					name = strconv.Itoa(fieldIdx)
+				}
+				failures = append(failures, validate.FieldError{
+					Name:  name,
+					Error: validate.ErrFieldRequired,
+				})
+				// Reset bit.
+				result &^= 1 << bitIdx
+			}
+		}
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+
+	return nil
+}
+
+// MarshalJSON implements stdjson.Marshaler.
+func (s *SecretServiceUsage) MarshalJSON() ([]byte, error) {
+	e := jx.Encoder{}
+	s.Encode(&e)
+	return e.Bytes(), nil
+}
+
+// UnmarshalJSON implements stdjson.Unmarshaler.
+func (s *SecretServiceUsage) UnmarshalJSON(data []byte) error {
 	d := jx.DecodeBytes(data)
 	return s.Decode(d)
 }
@@ -8502,12 +8722,19 @@ func (s *ServiceSpecSecretResponse) encodeFields(e *jx.Encoder) {
 			s.Target.Encode(e)
 		}
 	}
+	{
+		if s.Secret.Set {
+			e.FieldStart("secret")
+			s.Secret.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfServiceSpecSecretResponse = [3]string{
+var jsonFieldsNameOfServiceSpecSecretResponse = [4]string{
 	0: "secret_id",
 	1: "secret_name",
 	2: "target",
+	3: "secret",
 }
 
 // Decode decodes ServiceSpecSecretResponse from json.
@@ -8550,6 +8777,16 @@ func (s *ServiceSpecSecretResponse) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"target\"")
+			}
+		case "secret":
+			if err := func() error {
+				s.Secret.Reset()
+				if err := s.Secret.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"secret\"")
 			}
 		default:
 			return d.Skip()

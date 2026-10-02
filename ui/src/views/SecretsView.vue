@@ -31,8 +31,11 @@ const filteredSecrets = computed(() => {
     const createdAt = secret.created_at ?? "";
     const externalPath = secret.external?.path ?? "";
     const externalVersionID = secret.external?.version_id ?? "";
+    const usedBy = (secret.used_by ?? [])
+      .map((usage) => `${usage.stack} ${usage.service} ${usage.target ?? ""}`)
+      .join(" ");
 
-    return `${name} ${versionID} ${createdAt} ${externalPath} ${externalVersionID}`.toLowerCase().includes(query);
+    return `${name} ${versionID} ${createdAt} ${externalPath} ${externalVersionID} ${usedBy}`.toLowerCase().includes(query);
   });
 });
 
@@ -152,7 +155,7 @@ function formatDate(value: string): string {
         v-model="searchQuery"
         type="search"
         class="secrets-search-input"
-        placeholder="Search by name, version, external path..."
+        placeholder="Search by name, service, version, external path..."
         aria-label="Search secrets"
       />
     </div>

@@ -12,9 +12,11 @@ import (
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	secretmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/model"
 	secretstore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretservice"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	webroute "github.com/swarm-deploy/webroute/api"
 )
 
@@ -32,8 +34,16 @@ func TestHandlerGetSecretByName(t *testing.T) {
 			},
 		},
 	})
+	servicesStore := newServiceStore(t)
+	require.NoError(t, servicesStore.ReplaceStack(context.Background(), "payments", []service.Info{{
+		Name: "api",
+		Spec: swarm.ServiceSpec{Secrets: []swarm.ServiceSecret{{
+			SecretID: "secret-id", SecretName: "db-password", Target: "/run/secrets/db-password",
+		}}},
+	}}))
 	h := &handler{
-		secrets: secretsReader,
+		secrets:         secretsReader,
+		secretRelations: secretservice.NewResolver(servicesStore, secretsReader),
 	}
 
 	resp, err := h.GetSecretByName(context.Background(), generated.GetSecretByNameParams{Name: "db-password"})
@@ -49,6 +59,10 @@ func TestHandlerGetSecretByName(t *testing.T) {
 	assert.Equal(t, "v12", resp.External.Value.VersionID.Value)
 	assert.True(t, resp.Labels.IsSet())
 	assert.Equal(t, "production", resp.Labels.Value["scope"])
+	require.Len(t, resp.UsedBy, 1)
+	assert.Equal(t, "payments", resp.UsedBy[0].Stack)
+	assert.Equal(t, "api", resp.UsedBy[0].Service)
+	assert.Equal(t, "/run/secrets/db-password", resp.UsedBy[0].Target.Value)
 }
 
 func TestHandlerGetSecretByName_NotFound(t *testing.T) {
@@ -56,7 +70,8 @@ func TestHandlerGetSecretByName_NotFound(t *testing.T) {
 
 	secretsReader := newSecretsStore(t, []secretmodel.Secret{{Name: "known-secret"}})
 	h := &handler{
-		secrets: secretsReader,
+		secrets:         secretsReader,
+		secretRelations: secretservice.NewResolver(newServiceStore(t), secretsReader),
 	}
 
 	_, err := h.GetSecretByName(context.Background(), generated.GetSecretByNameParams{Name: "unknown-secret"})
@@ -65,6 +80,32 @@ func TestHandlerGetSecretByName_NotFound(t *testing.T) {
 	var sErr *statusError
 	require.True(t, errors.As(err, &sErr))
 	assert.Equal(t, 404, sErr.code)
+}
+
+func TestHandlerListSecretsIncludesServiceUsage(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	secretsReader := newSecretsStore(t, []secretmodel.Secret{{ID: "secret-id", Name: "db-password"}})
+	servicesStore := newServiceStore(t)
+	require.NoError(t, servicesStore.ReplaceStack(ctx, "payments", []service.Info{{
+		Name: "api",
+		Spec: swarm.ServiceSpec{Secrets: []swarm.ServiceSecret{{
+			SecretID: "secret-id", SecretName: "db-password", Target: "/run/secrets/db-password",
+		}}},
+	}}))
+	h := &handler{
+		secrets:         secretsReader,
+		secretRelations: secretservice.NewResolver(servicesStore, secretsReader),
+	}
+
+	resp, err := h.ListSecrets(ctx)
+	require.NoError(t, err)
+	require.Len(t, resp.Secrets, 1)
+	require.Len(t, resp.Secrets[0].UsedBy, 1)
+	assert.Equal(t, "payments", resp.Secrets[0].UsedBy[0].Stack)
+	assert.Equal(t, "api", resp.Secrets[0].UsedBy[0].Service)
+	assert.Equal(t, "/run/secrets/db-password", resp.Secrets[0].UsedBy[0].Target.Value)
 }
 
 func TestHandlerSearch_PriorityAndDedupe(t *testing.T) {
@@ -116,5 +157,13 @@ func newSecretsStore(t *testing.T, secrets []secretmodel.Secret) *secretstore.Fi
 	store, err := secretstore.NewFileStore(ctx, t.TempDir()+"/secrets.state.json", fs.NewLocalFileSystem())
 	require.NoError(t, err)
 	require.NoError(t, store.Replace(ctx, secrets))
+	return store
+}
+
+func newServiceStore(t *testing.T) *service.Store {
+	t.Helper()
+
+	store, err := service.NewStore(context.Background(), t.TempDir()+"/services.json", fs.NewLocalFileSystem())
+	require.NoError(t, err)
 	return store
 }

@@ -29,6 +29,7 @@ type FileStore struct {
 	path   string
 	fs     sharedfs.FileSystem
 	rows   []model.Secret
+	byID   map[string]int
 	byName map[string]int
 }
 
@@ -48,6 +49,19 @@ func (s *FileStore) List(_ context.Context) ([]model.Secret, error) {
 	defer s.mu.RUnlock()
 
 	return cloneSecrets(s.rows), nil
+}
+
+// GetByID returns a defensive copy of a secret found by Docker identifier.
+func (s *FileStore) GetByID(_ context.Context, id string) (model.Secret, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	index, exists := s.byID[id]
+	if !exists {
+		return model.Secret{}, ErrSecretNotFound
+	}
+
+	return cloneSecret(s.rows[index]), nil
 }
 
 // GetByName returns a defensive copy of a secret found by name.
@@ -118,8 +132,10 @@ func (s *FileStore) load(ctx context.Context) error {
 
 func (s *FileStore) setRows(rows []model.Secret) {
 	s.rows = rows
+	s.byID = make(map[string]int, len(rows))
 	s.byName = make(map[string]int, len(rows))
 	for index, secret := range rows {
+		s.byID[secret.ID] = index
 		s.byName[secret.Name] = index
 	}
 }

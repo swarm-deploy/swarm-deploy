@@ -8,7 +8,7 @@ import (
 )
 
 func (h *handler) ListSecrets(ctx context.Context) (*generated.SecretsResponse, error) {
-	secrets, err := h.secrets.List(ctx)
+	secrets, err := h.secretRelations.ListSecretsWithUsage(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list secrets: %w", err)
 	}

@@ -14,6 +14,8 @@ var ErrSecretNotFound = errors.New("secret not found")
 type Store interface {
 	// List returns all secrets sorted by name and identifier.
 	List(ctx context.Context) ([]model.Secret, error)
+	// GetByID returns a secret by its Docker identifier.
+	GetByID(ctx context.Context, id string) (model.Secret, error)
 	// GetByName returns a secret by its Docker name.
 	GetByName(ctx context.Context, name string) (model.Secret, error)
 	// Replace atomically replaces the complete metadata snapshot.
