@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 
-import { fetchSecretManagers, fetchSecrets, syncSecretManager } from "../api/secrets";
+import { fetchSecretByName, fetchSecretManagers, fetchSecrets, syncSecretManager } from "../api/secrets";
 import type { SecretInfo, SecretManagerInfo, SecretManagerSyncResponse } from "../api/types";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
@@ -11,6 +11,8 @@ import { useSecretDetailsStore } from "../stores/secretDetails";
 const loading = ref(false);
 const loadingError = ref("");
 const secrets = ref<SecretInfo[]>([]);
+const secretDescriptions = ref<Record<string, string>>({});
+let descriptionLoadGeneration = 0;
 const secretManagers = ref<SecretManagerInfo[]>([]);
 const syncingManager = ref("");
 const managerFeedback = ref<Record<string, { kind: "success" | "error"; message: string }>>({});
@@ -18,6 +20,10 @@ const searchQuery = ref("");
 const secretDetailsStore = useSecretDetailsStore();
 
 const normalizedQuery = computed(() => searchQuery.value.trim().toLowerCase());
+
+const showDescriptionColumn = computed(() =>
+  Object.values(secretDescriptions.value).some((description) => description !== ""),
+);
 
 const filteredSecrets = computed(() => {
   const query = normalizedQuery.value;
@@ -27,12 +33,15 @@ const filteredSecrets = computed(() => {
 
   return secrets.value.filter((secret) => {
     const name = secret.name ?? "";
+    const description = secretDescriptions.value[secret.name] ?? "";
     const versionID = `${secret.version_id ?? ""}`;
     const createdAt = secret.created_at ?? "";
     const externalPath = secret.external?.path ?? "";
     const externalVersionID = secret.external?.version_id ?? "";
 
-    return `${name} ${versionID} ${createdAt} ${externalPath} ${externalVersionID}`.toLowerCase().includes(query);
+    return `${name} ${description} ${versionID} ${createdAt} ${externalPath} ${externalVersionID}`
+      .toLowerCase()
+      .includes(query);
   });
 });
 
@@ -55,17 +64,38 @@ function sortSecrets(items: SecretInfo[]): SecretInfo[] {
   });
 }
 
+async function loadSecretDescriptions(items: SecretInfo[], generation: number) {
+  const descriptions = await Promise.all(items.map(async (secret) => {
+    try {
+      const details = await fetchSecretByName(secret.name);
+      return [secret.name, details.labels?.description?.trim() ?? ""] as const;
+    } catch {
+      return [secret.name, ""] as const;
+    }
+  }));
+
+  if (generation === descriptionLoadGeneration) {
+    secretDescriptions.value = Object.fromEntries(descriptions);
+  }
+}
+
 async function loadSecrets() {
   loading.value = true;
   loadingError.value = "";
 
   try {
     const response = await fetchSecrets();
-    const nextSecrets = Array.isArray(response.secrets) ? response.secrets : [];
-    secrets.value = sortSecrets(nextSecrets);
+    const nextSecrets = sortSecrets(Array.isArray(response.secrets) ? response.secrets : []);
+    secrets.value = nextSecrets;
+    secretDescriptions.value = {};
+
+    const generation = ++descriptionLoadGeneration;
+    void loadSecretDescriptions(nextSecrets, generation);
   } catch (error) {
     loadingError.value = error instanceof Error ? error.message : "Failed to load secrets";
     secrets.value = [];
+    secretDescriptions.value = {};
+    descriptionLoadGeneration++;
   } finally {
     loading.value = false;
   }
@@ -152,7 +182,7 @@ function formatDate(value: string): string {
         v-model="searchQuery"
         type="search"
         class="secrets-search-input"
-        placeholder="Search by name, version, external path..."
+        placeholder="Search by name, description, version, external path..."
         aria-label="Search secrets"
       />
     </div>
@@ -165,10 +195,11 @@ function formatDate(value: string): string {
 
     <AppTableEmpty v-else-if="filteredSecrets.length === 0" message="No secrets match your search." />
 
-    <AppTable v-else fixed min-width="720px">
+    <AppTable v-else fixed :min-width="showDescriptionColumn ? '900px' : '720px'">
       <template #head>
           <tr>
             <th>Name</th>
+            <th v-if="showDescriptionColumn">Description</th>
             <th>Date Added</th>
             <th>External Path</th>
             <th>External Version ID</th>
@@ -186,6 +217,7 @@ function formatDate(value: string): string {
             @keydown.space.prevent="openSecretDetails(secret.name)"
           >
             <td>{{ secret.name || "n/a" }}</td>
+            <td v-if="showDescriptionColumn">{{ secretDescriptions[secret.name] || "n/a" }}</td>
             <td>{{ formatDate(secret.created_at) }}</td>
             <td>{{ secret.external?.path || "n/a" }}</td>
             <td>{{ secret.external?.version_id || "n/a" }}</td>
