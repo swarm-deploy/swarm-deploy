@@ -85,7 +85,7 @@ function nodeRAM(node: NodeInfo): string {
 }
 
 function nodeResources(node: NodeInfo): string {
-  return `${nodeCPU(node)} CPU · ${nodeRAM(node)} RAM`;
+  return `${nodeCPU(node)} · ${nodeRAM(node)} RAM`;
 }
 
 function nodeEngine(node: NodeInfo): string {

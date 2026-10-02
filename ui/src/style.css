@@ -684,6 +684,7 @@ body {
   .layout-shell {
     --shell-sidebar-width: 248px;
     grid-template-columns: 1fr;
+    align-content: start;
     transition: none;
   }
 
