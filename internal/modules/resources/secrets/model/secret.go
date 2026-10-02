@@ -8,6 +8,8 @@ type Secret struct {
 	ID string `json:"id"`
 	// Name is the Docker secret name.
 	Name string `json:"name"`
+	// Description is copied from the Docker secret "description" label.
+	Description string `json:"description,omitempty"`
 	// VersionID is the Docker metadata version index.
 	VersionID uint64 `json:"version_id"`
 	// CreatedAt is the creation timestamp reported by Docker.
