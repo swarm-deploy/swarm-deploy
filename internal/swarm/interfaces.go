@@ -49,6 +49,12 @@ type SecretManager interface {
 	// List returns current Docker secrets snapshot.
 	List(ctx context.Context) ([]Secret, error)
 
+	// ListStack returns secret metadata for the provided stack using Docker label filters.
+	ListStack(ctx context.Context, stackName string) ([]Secret, error)
+
+	// Remove deletes a Docker secret by identifier.
+	Remove(ctx context.Context, secretID string) error
+
 	// Watch subscribes to Docker secret events stream.
 	Watch(ctx context.Context) (<-chan dockerevents.Message, <-chan error, error)
 
@@ -59,6 +65,12 @@ type SecretManager interface {
 type ConfigManager interface {
 	// Get returns Docker config metadata by name or ID.
 	Get(ctx context.Context, configName string) (Config, error)
+
+	// ListStack returns config metadata for the provided stack using Docker label filters.
+	ListStack(ctx context.Context, stackName string) ([]Config, error)
+
+	// Remove deletes a Docker config by identifier.
+	Remove(ctx context.Context, configID string) error
 
 	// ResolveReference resolves Docker config reference by source and target.
 	ResolveReference(ctx context.Context, source, target string) (*dockerswarm.ConfigReference, error)

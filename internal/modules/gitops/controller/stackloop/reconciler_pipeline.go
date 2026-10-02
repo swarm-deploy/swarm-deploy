@@ -3,6 +3,7 @@ package stackloop
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -25,7 +26,10 @@ type pipelinePayload struct {
 	DesiredMutated bool
 
 	LiveServices   []swarm.StackService
+	LiveConfigs    []swarm.Config
+	LiveSecrets    []swarm.Secret
 	PrunedServices []string
+	CleanupResult  rotatedCleanupResult
 	Drift          map[string]drift.ServiceDrift
 }
 
@@ -101,6 +105,13 @@ func (r *Reconciler) attachPipeline() {
 		}),
 		Run: r.pruneOrphanedServices,
 	})
+
+	if r.cfg.Spec.SecretRotation.Cleanup.Enabled {
+		r.pipeline.Add(pipe.Step[*pipelinePayload]{
+			Name: "clean rotated resources",
+			Run:  r.cleanRotatedResources,
+		})
+	}
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "analyze drift",
@@ -235,6 +246,29 @@ func (r *Reconciler) loadLiveState(ctx context.Context, payload *pipelinePayload
 	}
 
 	payload.LiveServices = liveServices
+	if !r.cfg.Spec.SecretRotation.Cleanup.Enabled {
+		return nil
+	}
+
+	liveConfigs, configsErr := r.configManager.ListStack(ctx, payload.Stack.Name)
+	if configsErr != nil {
+		slog.WarnContext(ctx, "[rotated-resource-cleaner] failed to load configs; config cleanup skipped",
+			slog.String("stack", payload.Stack.Name),
+			slog.Any("error", configsErr),
+		)
+	} else {
+		payload.LiveConfigs = liveConfigs
+	}
+
+	liveSecrets, secretsErr := r.secretManager.ListStack(ctx, payload.Stack.Name)
+	if secretsErr != nil {
+		slog.WarnContext(ctx, "[rotated-resource-cleaner] failed to load secrets; secret cleanup skipped",
+			slog.String("stack", payload.Stack.Name),
+			slog.Any("error", secretsErr),
+		)
+	} else {
+		payload.LiveSecrets = liveSecrets
+	}
 
 	return nil
 }
@@ -251,6 +285,34 @@ func (r *Reconciler) pruneOrphanedServices(ctx context.Context, payload *pipelin
 	}
 
 	payload.PrunedServices = prunedServices
+
+	return nil
+}
+
+func (r *Reconciler) cleanRotatedResources(ctx context.Context, payload *pipelinePayload) error {
+	desiredConfigs, desiredSecrets, err := r.composeRotator.DesiredResourceNames(
+		payload.Desired,
+		payload.Stack.Name,
+		r.cfg.Spec.SecretRotation.HashLength,
+		r.cfg.Spec.SecretRotation.IncludePath,
+	)
+	if err != nil {
+		slog.WarnContext(ctx, "[rotated-resource-cleaner] cleanup skipped: desired state is incomplete",
+			slog.String("stack", payload.Stack.Name),
+			slog.Any("error", err),
+		)
+		return nil
+	}
+
+	payload.CleanupResult = r.resourceCleaner.clean(
+		ctx,
+		payload.Stack.Name,
+		desiredConfigs,
+		desiredSecrets,
+		payload.LiveServices,
+		payload.LiveConfigs,
+		payload.LiveSecrets,
+	)
 
 	return nil
 }
