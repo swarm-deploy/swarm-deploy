@@ -27,6 +27,7 @@ func TestCollectorRefreshNormalizesAndPersistsSecretMetadata(t *testing.T) {
 		{
 			ID: "secret-id", Name: "database-password", VersionID: 7, Driver: "vault",
 			Labels: map[string]string{
+				"description":                  "Primary database credentials",
 				"external_path":                "kv/prod/database",
 				"external_version_id":          "v7",
 				"cloud-secrets.secret.managed": "true",
@@ -39,6 +40,7 @@ func TestCollectorRefreshNormalizesAndPersistsSecretMetadata(t *testing.T) {
 
 	secret, err := store.GetByName(ctx, "database-password")
 	require.NoError(t, err)
+	assert.Equal(t, "Primary database credentials", secret.Description)
 	assert.Equal(t, "kv/prod/database", secret.ExternalPath)
 	assert.Equal(t, "v7", secret.ExternalVersionID)
 	assert.True(t, secret.Managed)
