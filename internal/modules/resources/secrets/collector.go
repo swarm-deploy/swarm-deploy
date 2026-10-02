@@ -17,6 +17,7 @@ const (
 	defaultReconnectDelay  = 5 * time.Second
 	defaultReconcilePeriod = time.Hour
 
+	descriptionLabel       = "description"
 	externalPathLabel      = "external_path"
 	externalVersionIDLabel = "external_version_id"
 	managedLabel           = "cloud-secrets.secret.managed"
@@ -142,6 +143,7 @@ func mapSecret(secret swarm.Secret) model.Secret {
 	return model.Secret{
 		ID:                secret.ID,
 		Name:              secret.Name,
+		Description:       labels[descriptionLabel],
 		VersionID:         secret.VersionID,
 		CreatedAt:         secret.CreatedAt,
 		UpdatedAt:         secret.UpdatedAt,
