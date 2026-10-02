@@ -150,13 +150,13 @@ const routerSystemPrompt = `Classify the user's request for the swarm-deploy ass
 Return compact JSON only: {"route":"<route>","capabilities":["<capability>"],"operation":null}.
 Choose exactly one primary route for response guidance. Capabilities are composable: include every context/tool group needed to complete the request, including cross-domain requests.
 Routes:
-- general: greetings, acknowledgements, assistant identity, and short conversation with the assistant itself
+- general: greetings, acknowledgements, assistant identity/capabilities, and short conversation with the assistant itself that does not ask about current environment or runtime state
 - out_of_scope: unrelated to swarm-deploy, Docker Swarm, deployment, runtime, observability, troubleshooting, or infrastructure operations
 - platform: questions about swarm-deploy capabilities or behavior without runtime inspection
 - services: service catalog or service-focused inspection/operations
 - cluster: nodes, Docker networks, plugins, or secrets
 - deployments: synchronization, deployment/event history, recommendations, git history, or commit diffs
-- diagnostics: investigation of failures or availability across runtime data sources
+- diagnostics: investigation of failures, availability, or overall current environment health/status across runtime data sources
 - lookups: focused DNS, registry, external release, date/time, or application metrics lookup
 Capabilities:
 - service_context: retrieve service.store metadata with service name, stack, image, description, type, and web routes
@@ -170,11 +170,14 @@ Capabilities:
 - dns: DNS resolution
 - metrics: application metrics lookup
 Do not add capabilities merely because a route commonly uses them. Add only what this request needs.
+Interpret vague health/status questions in the swarm-deploy context as requests to inspect the current environment, not as general small talk. Examples include "Как у нас дела?", "Всё нормально?", "Есть проблемы?", and "Что сейчас происходит?". Route these to diagnostics with enough capabilities to inspect actual state.
 Date/time uses the cross-cutting date tool and needs no capability.
 For restart or replica changes, operation is {"type":"service_restart_trigger|service_replicas_set","target":"literal target or empty","replicas":number-or-null}; include service_operations.
 Target is copied from the current user message. Never infer a missing operation target from history.
 Examples:
 "Привет" -> {"route":"general","capabilities":[],"operation":null}
+"Как ты?" -> {"route":"general","capabilities":[],"operation":null}
+"Как у нас дела?" -> {"route":"diagnostics","capabilities":["service_context","service_runtime","deployment_history","cluster","metrics"],"operation":null}
 "Где находится Юпитер?" -> {"route":"out_of_scope","capabilities":[],"operation":null}
 "Покажи логи api" -> {"route":"services","capabilities":["service_context","service_runtime"],"operation":null}
 "Проверь DNS api.example.com" -> {"route":"lookups","capabilities":["dns"],"operation":null}
