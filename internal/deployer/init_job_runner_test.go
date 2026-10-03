@@ -29,7 +29,7 @@ func TestBuildInitServiceSpecMapsEntrypointAndCommand(t *testing.T) {
 	assert.Equal(t, []string{"./bin/migrate up"}, serviceSpec.TaskTemplate.ContainerSpec.Args)
 }
 
-func TestBuildInitServiceSpecPreservesCommandWithoutEntrypoint(t *testing.T) {
+func TestBuildInitServiceSpecMapsCommandToArgsWithoutEntrypoint(t *testing.T) {
 	runner := &InitJobRunner{}
 
 	serviceSpec, err := runner.buildInitServiceSpec(context.Background(), InitJobSpec{
@@ -44,6 +44,6 @@ func TestBuildInitServiceSpecPreservesCommandWithoutEntrypoint(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, serviceSpec.TaskTemplate.ContainerSpec)
 
-	assert.Equal(t, []string{"./bin/migrate", "up"}, serviceSpec.TaskTemplate.ContainerSpec.Command)
-	assert.Empty(t, serviceSpec.TaskTemplate.ContainerSpec.Args)
+	assert.Empty(t, serviceSpec.TaskTemplate.ContainerSpec.Command)
+	assert.Equal(t, []string{"./bin/migrate", "up"}, serviceSpec.TaskTemplate.ContainerSpec.Args)
 }
