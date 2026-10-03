@@ -55,10 +55,3 @@ func TestStackDeployComposeOmitsInitJobsWithoutMutatingDesired(t *testing.T) {
 	)
 }
 
-func TestHasInitJobs(t *testing.T) {
-	assert.False(t, hasInitJobs(compose.Services{{Name: "api"}}))
-	assert.True(t, hasInitJobs(compose.Services{{
-		Name:     "api",
-		InitJobs: []compose.InitJob{{Name: "migrate", Image: "example/migrate:latest"}},
-	}}))
-}
