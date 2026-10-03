@@ -166,7 +166,7 @@ func (r *Reconciler) writeRenderedCompose(_ context.Context, payload *pipelinePa
 
 	r.normalizeRenderedObjectFilePaths(payload.Desired)
 
-	content, err := payload.Desired.MarshalYAML()
+	content, err := payload.Desired.MarshalStackYAML()
 	if err != nil {
 		return fmt.Errorf("failed to marshal desired compose yaml: %w", err)
 	}
