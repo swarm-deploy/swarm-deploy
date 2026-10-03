@@ -1,11 +1,18 @@
 package stackloop
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
+	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
+	"go.uber.org/mock/gomock"
 )
 
 func TestStackDeployComposeOmitsInitJobsWithoutMutatingDesired(t *testing.T) {
@@ -55,3 +62,65 @@ func TestStackDeployComposeOmitsInitJobsWithoutMutatingDesired(t *testing.T) {
 	)
 }
 
+
+func TestDeployStackRendersInitJobsWhenSourceComposeWouldBeUsed(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repository := gitx.NewMockRepository(ctrl)
+	stackDeployer := deployer.NewMockStackDeployer(ctrl)
+
+	dataDir := t.TempDir()
+	sourcePath := filepath.Join(dataDir, "repo", "app.yaml")
+	renderedPath := filepath.Join(dataDir, "rendered", "app.yaml")
+
+	repository.EXPECT().WorkingDir().Return(filepath.Dir(sourcePath))
+	stackDeployer.EXPECT().
+		DeployStack(gomock.Any(), "app", renderedPath, gomock.Any()).
+		Return(nil)
+
+	desired := &compose.File{
+		Path: sourcePath,
+		Compose: compose.Compose{
+			Services: compose.Services{
+				{
+					Name:  "api",
+					Image: "nginx:latest",
+					InitJobs: []compose.InitJob{
+						{
+							Name:       "migrate",
+							Image:      "oryd/kratos:v1.3.1",
+							Entrypoint: []string{"sh", "-ec", "echo \"$DSN\""},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	reconciler := &Reconciler{
+		cfg: &config.Config{
+			Spec: config.Spec{
+				DataDir: dataDir,
+			},
+		},
+		git:      repository,
+		deployer: stackDeployer,
+	}
+
+	payload := &pipelinePayload{
+		Stack: config.StackSpec{
+			Name: "app",
+		},
+		Desired:           desired,
+		DeployComposePath: sourcePath,
+	}
+
+	err := reconciler.deployStack(context.Background(), payload)
+	require.NoError(t, err, "deploy stack")
+
+	renderedRaw, err := os.ReadFile(renderedPath)
+	require.NoError(t, err, "read rendered compose")
+	assert.NotContains(t, string(renderedRaw), "x-init-deploy-jobs")
+	assert.NotContains(t, string(renderedRaw), "$DSN")
+	assert.Equal(t, sourcePath, desired.Path, "desired path must remain unchanged")
+	require.Len(t, desired.Compose.Services[0].InitJobs, 1, "desired state must retain init jobs")
+}
