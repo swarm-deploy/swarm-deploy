@@ -21,8 +21,9 @@ type pipelinePayload struct {
 	IsNewDigest  bool
 	IsManualSync bool
 
-	Desired        *compose.File
-	DesiredMutated bool
+	Desired           *compose.File
+	DesiredMutated    bool
+	DeployComposePath string
 
 	LiveServices   []swarm.StackService
 	PrunedServices []string
@@ -75,10 +76,8 @@ func (r *Reconciler) attachPipeline() {
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "write rendered compose",
-		When: pipe.When(func(payload *pipelinePayload) bool {
-			return payload.DesiredMutated
-		}),
-		Run: r.writeRenderedCompose,
+		When: pipe.When(needsRenderedCompose),
+		Run:  r.writeRenderedCompose,
 	})
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
@@ -164,9 +163,10 @@ func (r *Reconciler) writeRenderedCompose(_ context.Context, payload *pipelinePa
 		return fmt.Errorf("create rendered dir: %w", err)
 	}
 
-	r.normalizeRenderedObjectFilePaths(payload.Desired)
+	rendered := stackDeployCompose(payload.Desired)
+	r.normalizeRenderedObjectFilePaths(rendered)
 
-	content, err := payload.Desired.MarshalYAML()
+	content, err := rendered.MarshalYAML()
 	if err != nil {
 		return fmt.Errorf("failed to marshal desired compose yaml: %w", err)
 	}
@@ -177,13 +177,65 @@ func (r *Reconciler) writeRenderedCompose(_ context.Context, payload *pipelinePa
 		return fmt.Errorf("write rendered compose %s: %w", target, err)
 	}
 
-	payload.Desired.Path = target
+	payload.DeployComposePath = target
 
 	return nil
 }
 
 func (r *Reconciler) deployStack(ctx context.Context, payload *pipelinePayload) error {
-	return r.deployer.DeployStack(ctx, payload.Stack.Name, payload.Desired.Path, payload.Desired.Compose.Services)
+	return r.deployer.DeployStack(
+		ctx,
+		payload.Stack.Name,
+		payload.DeployComposePath,
+		payload.Desired.Compose.Services,
+	)
+}
+
+func needsRenderedCompose(payload *pipelinePayload) bool {
+	if payload.DesiredMutated {
+		return true
+	}
+
+	for _, service := range payload.Desired.Compose.Services {
+		if len(service.InitJobs) > 0 {
+			return true
+		}
+	}
+
+	return false
+}
+
+func stackDeployCompose(desired *compose.File) *compose.File {
+	rendered := *desired
+	rendered.Compose = desired.Compose
+	rendered.Compose.Services = append(compose.Services(nil), desired.Compose.Services...)
+	rendered.Compose.Configs = cloneSharedObjects(desired.Compose.Configs)
+	rendered.Compose.Secrets = cloneSharedObjects(desired.Compose.Secrets)
+
+	for i := range rendered.Compose.Services {
+		rendered.Compose.Services[i].InitJobs = nil
+	}
+
+	return &rendered
+}
+
+func cloneSharedObjects(objects compose.SharedObjects) compose.SharedObjects {
+	if objects == nil {
+		return nil
+	}
+
+	cloned := make(compose.SharedObjects, len(objects))
+	for alias, object := range objects {
+		if object == nil {
+			cloned[alias] = nil
+			continue
+		}
+
+		objectCopy := *object
+		cloned[alias] = &objectCopy
+	}
+
+	return cloned
 }
 
 func (r *Reconciler) normalizeRenderedObjectFilePaths(file *compose.File) {
