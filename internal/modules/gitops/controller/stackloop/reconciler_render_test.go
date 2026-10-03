@@ -1,18 +1,11 @@
 package stackloop
 
 import (
-	"context"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
-	"github.com/swarm-deploy/swarm-deploy/internal/config"
-	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
-	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
-	"go.uber.org/mock/gomock"
 )
 
 func TestStackDeployComposeOmitsInitJobsWithoutMutatingDesired(t *testing.T) {
@@ -61,7 +54,6 @@ func TestStackDeployComposeOmitsInitJobsWithoutMutatingDesired(t *testing.T) {
 		"render normalization must not mutate desired shared objects",
 	)
 }
-
 
 
 func TestNeedsRenderedCompose(t *testing.T) {
