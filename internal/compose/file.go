@@ -64,24 +64,7 @@ func readFile(_ context.Context, path string) ([]byte, error) {
 }
 
 func (f *File) MarshalYAML() ([]byte, error) {
-	return marshalComposeYAML(f.Compose)
-}
-
-// MarshalStackYAML renders a compose file for docker stack deploy.
-// swarm-deploy init jobs are execution-only extensions and must not be passed to Docker Compose.
-func (f *File) MarshalStackYAML() ([]byte, error) {
-	stackCompose := f.Compose
-	stackCompose.Services = append(Services(nil), f.Compose.Services...)
-
-	for i := range stackCompose.Services {
-		stackCompose.Services[i].InitJobs = nil
-	}
-
-	return marshalComposeYAML(stackCompose)
-}
-
-func marshalComposeYAML(compose Compose) ([]byte, error) {
-	payload, err := yaml.Marshal(compose)
+	payload, err := yaml.Marshal(f.Compose)
 	if err != nil {
 		return nil, fmt.Errorf("marshal compose yaml: %w", err)
 	}
