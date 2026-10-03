@@ -4,7 +4,7 @@ Init jobs run before `docker stack deploy`:
 - in service networks,
 - with an attempt to attach service and job secrets/configs.
 
-`entrypoint` overrides the image entrypoint. `command` is passed as arguments to the entrypoint.
+`entrypoint` overrides the image entrypoint. When `entrypoint` is set, `command` is passed as arguments to it. Without `entrypoint`, `command` keeps the existing init-job behavior for backward compatibility.
 
 ```yaml
 services:
