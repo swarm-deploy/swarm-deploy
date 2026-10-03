@@ -191,9 +191,15 @@ func (r *InitJobRunner) buildInitServiceSpec(
 	serviceName string,
 ) (dockerswarm.ServiceSpec, error) {
 	containerSpec := &dockerswarm.ContainerSpec{
-		Image:   spec.Job.Image,
-		Command: spec.Job.Entrypoint,
-		Args:    spec.Job.Command,
+		Image: spec.Job.Image,
+	}
+	if len(spec.Job.Entrypoint) > 0 {
+		containerSpec.Command = spec.Job.Entrypoint
+		containerSpec.Args = spec.Job.Command
+	} else {
+		// Preserve the existing init-job command behavior for configurations
+		// created before explicit entrypoint support was added.
+		containerSpec.Command = spec.Job.Command
 	}
 
 	if len(spec.Job.Environment.Map) > 0 {
