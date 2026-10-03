@@ -63,64 +63,39 @@ func TestStackDeployComposeOmitsInitJobsWithoutMutatingDesired(t *testing.T) {
 }
 
 
-func TestDeployStackRendersInitJobsWhenSourceComposeWouldBeUsed(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	repository := gitx.NewMockRepository(ctrl)
-	stackDeployer := deployer.NewMockStackDeployer(ctrl)
 
-	dataDir := t.TempDir()
-	sourcePath := filepath.Join(dataDir, "repo", "app.yaml")
-	renderedPath := filepath.Join(dataDir, "rendered", "app.yaml")
-
-	repository.EXPECT().WorkingDir().Return(filepath.Dir(sourcePath))
-	stackDeployer.EXPECT().
-		DeployStack(gomock.Any(), "app", renderedPath, gomock.Any()).
-		Return(nil)
-
-	desired := &compose.File{
-		Path: sourcePath,
-		Compose: compose.Compose{
-			Services: compose.Services{
-				{
-					Name:  "api",
-					Image: "nginx:latest",
-					InitJobs: []compose.InitJob{
-						{
-							Name:       "migrate",
-							Image:      "oryd/kratos:v1.3.1",
-							Entrypoint: []string{"sh", "-ec", "echo \"$DSN\""},
-						},
-					},
+func TestNeedsRenderedCompose(t *testing.T) {
+	t.Run("desired mutated", func(t *testing.T) {
+		assert.True(t, needsRenderedCompose(&pipelinePayload{
+			DesiredMutated: true,
+			Desired: &compose.File{
+				Compose: compose.Compose{
+					Services: compose.Services{{Name: "api"}},
 				},
 			},
-		},
-	}
+		}))
+	})
 
-	reconciler := &Reconciler{
-		cfg: &config.Config{
-			Spec: config.Spec{
-				DataDir: dataDir,
+	t.Run("init job", func(t *testing.T) {
+		assert.True(t, needsRenderedCompose(&pipelinePayload{
+			Desired: &compose.File{
+				Compose: compose.Compose{
+					Services: compose.Services{{
+						Name:     "api",
+						InitJobs: []compose.InitJob{{Name: "migrate", Image: "example/migrate:latest"}},
+					}},
+				},
 			},
-		},
-		git:      repository,
-		deployer: stackDeployer,
-	}
+		}))
+	})
 
-	payload := &pipelinePayload{
-		Stack: config.StackSpec{
-			Name: "app",
-		},
-		Desired:           desired,
-		DeployComposePath: sourcePath,
-	}
-
-	err := reconciler.deployStack(context.Background(), payload)
-	require.NoError(t, err, "deploy stack")
-
-	renderedRaw, err := os.ReadFile(renderedPath)
-	require.NoError(t, err, "read rendered compose")
-	assert.NotContains(t, string(renderedRaw), "x-init-deploy-jobs")
-	assert.NotContains(t, string(renderedRaw), "$DSN")
-	assert.Equal(t, sourcePath, desired.Path, "desired path must remain unchanged")
-	require.Len(t, desired.Compose.Services[0].InitJobs, 1, "desired state must retain init jobs")
+	t.Run("plain compose", func(t *testing.T) {
+		assert.False(t, needsRenderedCompose(&pipelinePayload{
+			Desired: &compose.File{
+				Compose: compose.Compose{
+					Services: compose.Services{{Name: "api"}},
+				},
+			},
+		}))
+	})
 }
