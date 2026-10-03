@@ -76,10 +76,8 @@ func (r *Reconciler) attachPipeline() {
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "write rendered compose",
-		When: pipe.When(func(payload *pipelinePayload) bool {
-			return payload.DesiredMutated
-		}),
-		Run: r.writeRenderedCompose,
+		When: pipe.When(needsRenderedCompose),
+		Run:  r.writeRenderedCompose,
 	})
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
@@ -185,12 +183,6 @@ func (r *Reconciler) writeRenderedCompose(_ context.Context, payload *pipelinePa
 }
 
 func (r *Reconciler) deployStack(ctx context.Context, payload *pipelinePayload) error {
-	if payload.DeployComposePath == payload.Desired.Path && hasInitJobs(payload.Desired.Compose.Services) {
-		if err := r.writeRenderedCompose(ctx, payload); err != nil {
-			return err
-		}
-	}
-
 	return r.deployer.DeployStack(
 		ctx,
 		payload.Stack.Name,
@@ -199,8 +191,12 @@ func (r *Reconciler) deployStack(ctx context.Context, payload *pipelinePayload) 
 	)
 }
 
-func hasInitJobs(services compose.Services) bool {
-	for _, service := range services {
+func needsRenderedCompose(payload *pipelinePayload) bool {
+	if payload.DesiredMutated {
+		return true
+	}
+
+	for _, service := range payload.Desired.Compose.Services {
 		if len(service.InitJobs) > 0 {
 			return true
 		}
