@@ -77,8 +77,7 @@ func (r *Reconciler) attachPipeline() {
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "write rendered compose",
 		When: pipe.When(func(payload *pipelinePayload) bool {
-			return payload.DesiredMutated ||
-				(payload.IsNewDigest && hasInitJobs(payload.Desired.Compose.Services))
+			return payload.IsNewDigest || payload.DesiredMutated
 		}),
 		Run: r.writeRenderedCompose,
 	})
@@ -192,16 +191,6 @@ func (r *Reconciler) deployStack(ctx context.Context, payload *pipelinePayload) 
 		payload.DeployComposePath,
 		payload.Desired.Compose.Services,
 	)
-}
-
-func hasInitJobs(services compose.Services) bool {
-	for _, service := range services {
-		if len(service.InitJobs) > 0 {
-			return true
-		}
-	}
-
-	return false
 }
 
 func stackDeployCompose(desired *compose.File) *compose.File {
