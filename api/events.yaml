@@ -1,0 +1,187 @@
+paths:
+  /api/v1/events:
+    get:
+      operationId: listEvents
+      parameters:
+        - in: query
+          name: severities
+          required: false
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/EventSeverity'
+        - in: query
+          name: categories
+          required: false
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/EventCategory'
+        - in: query
+          name: types
+          required: false
+          schema:
+            type: array
+            items:
+              type: string
+        - in: query
+          name: since
+          required: false
+          schema:
+            type: string
+            format: date-time
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: Latest events from local history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventHistoryResponse'
+  /api/v1/alerts:
+    get:
+      operationId: listAlerts
+      parameters:
+        - in: query
+          name: status
+          required: false
+          schema:
+            $ref: '#/components/schemas/AlertStatus'
+        - in: query
+          name: limit
+          required: false
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 1000
+      responses:
+        '200':
+          description: Persisted alerts matching the requested lifecycle state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AlertsResponse'
+  /api/v1/alerts/{id}:
+    get:
+      operationId: getAlert
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Alert incident details.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Alert'
+components:
+  schemas:
+    EventHistoryResponse:
+      type: object
+      required: [events]
+      properties:
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventHistoryItem'
+    EventSeverity:
+      type: string
+      enum: [info, warn, error, alert]
+    EventCategory:
+      type: string
+      enum: [sync, security, swarm]
+    AlertStatus:
+      type: string
+      enum: [open, resolved]
+    AlertResolution:
+      type: object
+      required: [reason, message, eventId]
+      properties:
+        reason:
+          type: string
+          enum: [recovered]
+        message:
+          type: string
+        eventId:
+          type: string
+    Alert:
+      type: object
+      required: [id, fingerprint, kind, resourceType, resourceId, status, title, message, occurrences, openedAt, updatedAt, openEventId, latestEventId]
+      properties:
+        id:
+          type: string
+        fingerprint:
+          type: string
+        kind:
+          type: string
+          enum: [deploy_failed]
+        resourceType:
+          type: string
+          enum: [stack]
+        resourceId:
+          type: string
+        status:
+          $ref: '#/components/schemas/AlertStatus'
+        title:
+          type: string
+        message:
+          type: string
+        occurrences:
+          type: integer
+          format: int64
+          minimum: 1
+        openedAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        openEventId:
+          type: string
+        latestEventId:
+          type: string
+        resolvedAt:
+          type: string
+          format: date-time
+        resolution:
+          $ref: '#/components/schemas/AlertResolution'
+    AlertsResponse:
+      type: object
+      required: [alerts]
+      properties:
+        alerts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Alert'
+    EventHistoryItem:
+      type: object
+      required: [id, type, severity, category, created_at, message]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+        severity:
+          $ref: '#/components/schemas/EventSeverity'
+        category:
+          $ref: '#/components/schemas/EventCategory'
+        created_at:
+          type: string
+          format: date-time
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties:
+            type: string
