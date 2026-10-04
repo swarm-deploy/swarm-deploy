@@ -14,7 +14,7 @@ The current pipeline is:
 4. Add the swarm-deploy managed label.
 5. [Rotate configs and secrets when enabled](./secrets-rotation.md).
 6. Write a rendered Compose file when the desired state was mutated.
-7. Deploy the stack when the source digest changed or the desired state was mutated. When init jobs are declared, their configs and secrets are reconciled before the jobs run; regular services then reuse those resources.
+7. Deploy the stack when the source digest changed or the desired state was mutated. When init jobs are declared, their configs and secrets are reconciled before the jobs run; regular services are then deployed by `docker stack deploy`, which performs its own resource lookup.
 8. Load live Swarm state.
 9. [Prune managed orphaned services when applicable](./prune.md).
 10. [Analyze drift](./drift.md).
