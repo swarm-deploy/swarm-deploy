@@ -9,1321 +9,186 @@ servers:
   - url: http://localhost:8080
 paths:
   /api/v1/stacks:
-    get:
-      operationId: listStacks
-      responses:
-        '200':
-          description: List of tracked stacks
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StacksResponse'
+    $ref: './gitops.yaml#/paths/~1api~1v1~1stacks'
   /api/v1/stacks/{stack}/manifestos:
-    get:
-      operationId: getStackManifestos
-      parameters:
-        - in: path
-          name: stack
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Desired and live manifests for a stack.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/StackManifestosResponse'
+    $ref: './gitops.yaml#/paths/~1api~1v1~1stacks~1{stack}~1manifestos'
   /api/v1/git/commits/{commit}:
-    get:
-      operationId: getGitCommit
-      parameters:
-        - in: path
-          name: commit
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Git commit details by hash.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/GitCommitDetailsResponse'
+    $ref: './gitops.yaml#/paths/~1api~1v1~1git~1commits~1{commit}'
   /api/v1/sync:
-    post:
-      operationId: triggerSync
-      responses:
-        '202':
-          description: Sync trigger accepted
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/QueueResponse'
+    $ref: './gitops.yaml#/paths/~1api~1v1~1sync'
   /api/v1/assistant/chat:
-    post:
-      operationId: assistantChat
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AssistantChatRequest'
-      responses:
-        '200':
-          description: Assistant long-poll response
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AssistantChatResponse'
+    $ref: './assistant.yaml#/paths/~1api~1v1~1assistant~1chat'
   /api/v1/assistant/chats:
-    get:
-      operationId: listAssistantChats
-      responses:
-        '200':
-          description: Persisted assistant chat summaries ordered by latest activity.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AssistantChatsResponse'
+    $ref: './assistant.yaml#/paths/~1api~1v1~1assistant~1chats'
   /api/v1/assistant/chats/{conversationID}:
-    get:
-      operationId: getAssistantChat
-      parameters:
-        - in: path
-          name: conversationID
-          required: true
-          schema:
-            type: string
-            minLength: 1
-      responses:
-        '200':
-          description: Persisted assistant chat history including messages.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AssistantChatHistory'
+    $ref: './assistant.yaml#/paths/~1api~1v1~1assistant~1chats~1{conversationID}'
   /api/v1/events:
-    get:
-      operationId: listEvents
-      parameters:
-        - in: query
-          name: severities
-          required: false
-          schema:
-            type: array
-            items:
-              $ref: '#/components/schemas/EventSeverity'
-        - in: query
-          name: categories
-          required: false
-          schema:
-            type: array
-            items:
-              $ref: '#/components/schemas/EventCategory'
-        - in: query
-          name: types
-          required: false
-          schema:
-            type: array
-            items:
-              type: string
-        - in: query
-          name: since
-          required: false
-          schema:
-            type: string
-            format: date-time
-        - in: query
-          name: limit
-          required: false
-          schema:
-            type: integer
-            format: int32
-            minimum: 1
-            maximum: 100
-      responses:
-        '200':
-          description: Latest events from local history
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/EventHistoryResponse'
+    $ref: './events.yaml#/paths/~1api~1v1~1events'
   /api/v1/alerts:
-    get:
-      operationId: listAlerts
-      parameters:
-        - in: query
-          name: status
-          required: false
-          schema:
-            $ref: '#/components/schemas/AlertStatus'
-        - in: query
-          name: limit
-          required: false
-          schema:
-            type: integer
-            format: int32
-            minimum: 1
-            maximum: 1000
-      responses:
-        '200':
-          description: Persisted alerts matching the requested lifecycle state.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/AlertsResponse'
+    $ref: './events.yaml#/paths/~1api~1v1~1alerts'
   /api/v1/alerts/{id}:
-    get:
-      operationId: getAlert
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Alert incident details.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Alert'
+    $ref: './events.yaml#/paths/~1api~1v1~1alerts~1{id}'
   /api/v1/recommendations:
-    get:
-      operationId: listRecommendations
-      parameters:
-        - in: query
-          name: stack
-          required: false
-          schema:
-            type: string
-        - in: query
-          name: limit
-          required: false
-          schema:
-            type: integer
-            format: int32
-            minimum: 1
-            maximum: 100
-      responses:
-        '200':
-          description: Stored recommendations from the recommendations subsystem.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/RecommendationsResponse'
+    $ref: './recommendations.yaml#/paths/~1api~1v1~1recommendations'
   /api/v1/services:
-    get:
-      operationId: listServices
-      responses:
-        '200':
-          description: Latest service metadata collected after successful deploys
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ServicesResponse'
+    $ref: './resources/services.yaml#/paths/~1api~1v1~1services'
   /api/v1/graph:
-    get:
-      operationId: getGraph
-      responses:
-        '200':
-          description: Service dependency graph built from collected service metadata.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/GraphResponse'
+    $ref: './resources/graph.yaml#/paths/~1api~1v1~1graph'
   /api/v1/nodes:
-    get:
-      operationId: listNodes
-      responses:
-        '200':
-          description: Current Docker Swarm nodes snapshot.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/NodesResponse'
+    $ref: './resources/nodes.yaml#/paths/~1api~1v1~1nodes'
   /api/v1/nodes/{id}/labels:
-    post:
-      operationId: addNodeLabel
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/NodeLabelCreateRequest'
-      responses:
-        '204':
-          description: Node label added.
+    $ref: './resources/nodes.yaml#/paths/~1api~1v1~1nodes~1{id}~1labels'
   /api/v1/nodes/{id}/labels/{key}:
-    put:
-      operationId: updateNodeLabel
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
-        - in: path
-          name: key
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/NodeLabelUpdateRequest'
-      responses:
-        '204':
-          description: Node label updated.
-    delete:
-      operationId: deleteNodeLabel
-      parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: string
-        - in: path
-          name: key
-          required: true
-          schema:
-            type: string
-      responses:
-        '204':
-          description: Node label removed.
+    $ref: './resources/nodes.yaml#/paths/~1api~1v1~1nodes~1{id}~1labels~1{key}'
   /api/v1/networks:
-    get:
-      operationId: listNetworks
-      responses:
-        '200':
-          description: Current Docker networks snapshot.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/NetworksResponse'
+    $ref: './resources/networks.yaml#/paths/~1api~1v1~1networks'
   /api/v1/secrets:
-    get:
-      operationId: listSecrets
-      responses:
-        '200':
-          description: Current Docker Swarm secrets snapshot.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SecretsResponse'
+    $ref: './resources/secrets.yaml#/paths/~1api~1v1~1secrets'
   /api/v1/secrets/{name}:
-    get:
-      operationId: getSecretByName
-      parameters:
-        - in: path
-          name: name
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Detailed secret metadata by name.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SecretDetailsResponse'
+    $ref: './resources/secrets.yaml#/paths/~1api~1v1~1secrets~1{name}'
   /api/v1/secret-managers:
-    get:
-      operationId: listSecretManagers
-      responses:
-        '200':
-          description: Discovered Secret Managers and controller availability.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SecretManagersResponse'
+    $ref: './resources/secret-managers.yaml#/paths/~1api~1v1~1secret-managers'
   /api/v1/secret-managers/{stack}/{service}/sync:
-    post:
-      operationId: syncSecretManager
-      parameters:
-        - in: path
-          name: stack
-          required: true
-          schema:
-            type: string
-        - in: path
-          name: service
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Secret Manager synchronization summary.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SecretManagerSyncResponse'
+    $ref: './resources/secret-managers.yaml#/paths/~1api~1v1~1secret-managers~1{stack}~1{service}~1sync'
   /api/v1/stacks/{stack}/services/{service}:
-    get:
-      operationId: getService
-      parameters:
-        - in: path
-          name: stack
-          required: true
-          schema:
-            type: string
-        - in: path
-          name: service
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Service status and compact runtime spec
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ServiceStatusResponse'
-
+    $ref: './resources/services.yaml#/paths/~1api~1v1~1stacks~1{stack}~1services~1{service}'
   /api/v1/stacks/{stack}/services/{service}/realtime:
-    get:
-      operationId: getServiceRealtime
-      parameters:
-        - in: path
-          name: stack
-          required: true
-          schema:
-            type: string
-        - in: path
-          name: service
-          required: true
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Service realtime tasks status
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ServiceRealtimeResponse'
+    $ref: './resources/services.yaml#/paths/~1api~1v1~1stacks~1{stack}~1services~1{service}~1realtime'
   /api/tasks/{taskID}/logs:
-    get:
-      operationId: getTaskLogs
-      parameters:
-        - in: path
-          name: taskID
-          required: true
-          schema:
-            type: string
-            minLength: 1
-        - in: query
-          name: follow
-          required: false
-          schema:
-            type: boolean
-            default: true
-        - in: query
-          name: tail
-          required: false
-          schema:
-            type: integer
-            format: int32
-            minimum: 1
-            maximum: 1000
-            default: 200
-      responses:
-        '200':
-          description: Task logs stream encoded as Server-Sent Events.
-          content:
-            text/event-stream:
-              x-ogen-raw-response: true
-              schema:
-                type: string
+    $ref: './resources/services.yaml#/paths/~1api~1tasks~1{taskID}~1logs'
   /api/v1/stacks/{stack}/services/{service}/deployments:
-    get:
-      operationId: listServiceDeployments
-      parameters:
-        - in: path
-          name: stack
-          required: true
-          schema:
-            type: string
-        - in: path
-          name: service
-          required: true
-          schema:
-            type: string
-        - in: query
-          name: limit
-          required: false
-          schema:
-            type: integer
-            format: int32
-            minimum: 1
-            maximum: 100
-            default: 5
-      responses:
-        '200':
-          description: Latest deployments for a stack service
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ServiceDeploymentsResponse'
+    $ref: './resources/services.yaml#/paths/~1api~1v1~1stacks~1{stack}~1services~1{service}~1deployments'
   /api/v1/search:
-    get:
-      operationId: search
-      parameters:
-        - in: query
-          name: query
-          required: true
-          schema:
-            type: string
-            minLength: 1
-      responses:
-        '200':
-          description: Search results for services, secrets, and stacks.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/SearchResponse'
+    $ref: './search.yaml#/paths/~1api~1v1~1search'
   /api/v1/users/me:
-    get:
-      operationId: getCurrentUser
-      responses:
-        '200':
-          description: Current authenticated user profile.
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/CurrentUserResponse'
+    $ref: './users.yaml#/paths/~1api~1v1~1users~1me'
 components:
   schemas:
     AssistantChatRequest:
-      type: object
-      properties:
-        conversation_id:
-          type: string
-        request_id:
-          type: string
-        message:
-          type: string
-        wait_timeout_ms:
-          type: integer
-          format: int32
-          minimum: 1
-          maximum: 30000
+      $ref: './assistant.yaml#/components/schemas/AssistantChatRequest'
     AssistantChatResponse:
-      type: object
-      required: [status, request_id, conversation_id]
-      properties:
-        status:
-          type: string
-          enum: [in_progress, completed, failed, rejected, disabled]
-        request_id:
-          type: string
-        conversation_id:
-          type: string
-        answer:
-          type: string
-        error_message:
-          type: string
-        poll_after_ms:
-          type: integer
-          format: int32
-          minimum: 1
-        activity:
-          type: array
-          items:
-            type: string
+      $ref: './assistant.yaml#/components/schemas/AssistantChatResponse'
     AssistantTokenUsage:
-      type: object
-      required: [input_tokens, output_tokens, total_tokens]
-      properties:
-        input_tokens:
-          type: integer
-          format: int64
-          minimum: 0
-        output_tokens:
-          type: integer
-          format: int64
-          minimum: 0
-        total_tokens:
-          type: integer
-          format: int64
-          minimum: 0
+      $ref: './assistant.yaml#/components/schemas/AssistantTokenUsage'
     AssistantChatSummary:
-      type: object
-      required: [id, title, created_at, updated_at]
-      properties:
-        id:
-          type: string
-        title:
-          type: string
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
-        token_usage:
-          $ref: '#/components/schemas/AssistantTokenUsage'
+      $ref: './assistant.yaml#/components/schemas/AssistantChatSummary'
     AssistantChatsResponse:
-      type: object
-      required: [chats]
-      properties:
-        chats:
-          type: array
-          items:
-            $ref: '#/components/schemas/AssistantChatSummary'
+      $ref: './assistant.yaml#/components/schemas/AssistantChatsResponse'
     AssistantChatMessage:
-      type: object
-      required: [role, content]
-      properties:
-        role:
-          type: string
-          enum: [user, assistant, system]
-        content:
-          type: string
-        activity:
-          type: array
-          items:
-            type: string
+      $ref: './assistant.yaml#/components/schemas/AssistantChatMessage'
     AssistantChatHistory:
-      type: object
-      required: [id, title, created_at, updated_at, messages]
-      properties:
-        id:
-          type: string
-        title:
-          type: string
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
-        token_usage:
-          $ref: '#/components/schemas/AssistantTokenUsage'
-        messages:
-          type: array
-          items:
-            $ref: '#/components/schemas/AssistantChatMessage'
+      $ref: './assistant.yaml#/components/schemas/AssistantChatHistory'
     QueueResponse:
-      type: object
-      required: [queued]
-      properties:
-        queued:
-          type: boolean
+      $ref: './gitops.yaml#/components/schemas/QueueResponse'
     EventHistoryResponse:
-      type: object
-      required: [events]
-      properties:
-        events:
-          type: array
-          items:
-            $ref: '#/components/schemas/EventHistoryItem'
+      $ref: './events.yaml#/components/schemas/EventHistoryResponse'
     EventSeverity:
-      type: string
-      enum: [info, warn, error, alert]
+      $ref: './events.yaml#/components/schemas/EventSeverity'
     EventCategory:
-      type: string
-      enum: [sync, security, swarm]
+      $ref: './events.yaml#/components/schemas/EventCategory'
     AlertStatus:
-      type: string
-      enum: [open, resolved]
+      $ref: './events.yaml#/components/schemas/AlertStatus'
     AlertResolution:
-      type: object
-      required: [reason, message, eventId]
-      properties:
-        reason:
-          type: string
-          enum: [recovered]
-        message:
-          type: string
-        eventId:
-          type: string
+      $ref: './events.yaml#/components/schemas/AlertResolution'
     Alert:
-      type: object
-      required: [id, fingerprint, kind, resourceType, resourceId, status, title, message, occurrences, openedAt, updatedAt, openEventId, latestEventId]
-      properties:
-        id:
-          type: string
-        fingerprint:
-          type: string
-        kind:
-          type: string
-          enum: [deploy_failed]
-        resourceType:
-          type: string
-          enum: [stack]
-        resourceId:
-          type: string
-        status:
-          $ref: '#/components/schemas/AlertStatus'
-        title:
-          type: string
-        message:
-          type: string
-        occurrences:
-          type: integer
-          format: int64
-          minimum: 1
-        openedAt:
-          type: string
-          format: date-time
-        updatedAt:
-          type: string
-          format: date-time
-        openEventId:
-          type: string
-        latestEventId:
-          type: string
-        resolvedAt:
-          type: string
-          format: date-time
-        resolution:
-          $ref: '#/components/schemas/AlertResolution'
+      $ref: './events.yaml#/components/schemas/Alert'
     AlertsResponse:
-      type: object
-      required: [alerts]
-      properties:
-        alerts:
-          type: array
-          items:
-            $ref: '#/components/schemas/Alert'
+      $ref: './events.yaml#/components/schemas/AlertsResponse'
     RecommendationsResponse:
-      type: object
-      required: [recommendations]
-      properties:
-        recommendations:
-          type: array
-          items:
-            $ref: '#/components/schemas/Recommendation'
+      $ref: './recommendations.yaml#/components/schemas/RecommendationsResponse'
     RecommendationSubject:
-      type: object
-      required: [stack, service]
-      properties:
-        stack:
-          type: string
-        service:
-          type: string
+      $ref: './recommendations.yaml#/components/schemas/RecommendationSubject'
     RecommendationSource:
-      type: object
-      required: [file, digest, commit]
-      properties:
-        file:
-          type: string
-        digest:
-          type: string
-        commit:
-          type: string
+      $ref: './recommendations.yaml#/components/schemas/RecommendationSource'
     Recommendation:
-      type: object
-      required: [severity, type, source, subject, title, recommendation, created_at]
-      properties:
-        severity:
-          type: string
-        type:
-          type: string
-        source:
-          $ref: '#/components/schemas/RecommendationSource'
-        subject:
-          $ref: '#/components/schemas/RecommendationSubject'
-        title:
-          type: string
-        recommendation:
-          type: string
-        created_at:
-          type: string
-          format: date-time
+      $ref: './recommendations.yaml#/components/schemas/Recommendation'
     EventHistoryItem:
-      type: object
-      required: [id, type, severity, category, created_at, message]
-      properties:
-        id:
-          type: string
-        type:
-          type: string
-        severity:
-          $ref: '#/components/schemas/EventSeverity'
-        category:
-          $ref: '#/components/schemas/EventCategory'
-        created_at:
-          type: string
-          format: date-time
-        message:
-          type: string
-        details:
-          type: object
-          additionalProperties:
-            type: string
+      $ref: './events.yaml#/components/schemas/EventHistoryItem'
     GraphResponse:
-      type: object
-      required: [nodes]
-      properties:
-        nodes:
-          type: array
-          items:
-            $ref: '#/components/schemas/GraphNode'
+      $ref: './resources/graph.yaml#/components/schemas/GraphResponse'
     GraphNodeKind:
-      type: string
-      enum: [application, monitoring, delivery, reverseProxy, database, secretManager, cronManager, deploymentManagementSystem, mcp]
+      $ref: './resources/graph.yaml#/components/schemas/GraphNodeKind'
     GraphNode:
-      type: object
-      required: [name, kind]
-      properties:
-        name:
-          type: string
-        kind:
-          $ref: '#/components/schemas/GraphNodeKind'
-        endpoints:
-          type: array
-          items:
-            type: string
-        depends:
-          type: array
-          items:
-            type: string
+      $ref: './resources/graph.yaml#/components/schemas/GraphNode'
     ServicesResponse:
-      type: object
-      required: [services]
-      properties:
-        services:
-          type: array
-          items:
-            $ref: '#/components/schemas/ServiceInfo'
+      $ref: './resources/services.yaml#/components/schemas/ServicesResponse'
     ServiceInfo:
-      type: object
-      required: [name, stack, sync_status, type, type_title, image, image_version]
-      properties:
-        name:
-          type: string
-        stack:
-          type: string
-        sync_status:
-          $ref: '#/components/schemas/ServiceSyncStatus'
-        sync_error:
-          type: string
-        description:
-          type: string
-        type:
-          type: string
-          enum: [application, monitoring, delivery, reverseProxy, database, secretManager, cronManager, deploymentManagementSystem, mcp]
-        type_title:
-          type: string
-          description: Human-readable title for the service type enum.
-        image:
-          type: string
-        image_version:
-          type: string
-          description: Tag or short digest string derived from the image reference.
-        repository_url:
-          type: string
-        web_routes:
-          type: array
-          items:
-            $ref: '#/components/schemas/WebRoute'
+      $ref: './resources/services.yaml#/components/schemas/ServiceInfo'
     ServiceSyncStatus:
-      type: string
-      enum: [Synced, OutOfSync, unknown]
+      $ref: './resources/services.yaml#/components/schemas/ServiceSyncStatus'
     WebRoute:
-      type: object
-      required: [domain, address, port]
-      properties:
-        domain:
-          type: string
-        address:
-          type: string
-        port:
-          type: string
+      $ref: './resources/services.yaml#/components/schemas/WebRoute'
     ServiceLink:
-      type: object
-      required: [type, url]
-      properties:
-        type:
-          type: string
-        url:
-          type: string
+      $ref: './resources/services.yaml#/components/schemas/ServiceLink'
     NodesResponse:
-      type: object
-      required: [nodes]
-      properties:
-        nodes:
-          type: array
-          items:
-            $ref: '#/components/schemas/NodeInfo'
+      $ref: './resources/nodes.yaml#/components/schemas/NodesResponse'
     NetworksResponse:
-      type: object
-      required: [networks]
-      properties:
-        networks:
-          type: array
-          items:
-            $ref: '#/components/schemas/NetworkInfo'
+      $ref: './resources/networks.yaml#/components/schemas/NetworksResponse'
     NodeInfo:
-      type: object
-      required: [id, hostname, status, availability, manager_status, engine_version, addr, cpu_nano, memory_bytes]
-      properties:
-        id:
-          type: string
-        hostname:
-          type: string
-        status:
-          type: string
-        availability:
-          type: string
-        manager_status:
-          type: string
-        engine_version:
-          type: string
-        addr:
-          type: string
-        cpu_nano:
-          type: integer
-          format: int64
-          minimum: 0
-        memory_bytes:
-          type: integer
-          format: int64
-          minimum: 0
-        labels:
-          type: object
-          additionalProperties:
-            type: string
+      $ref: './resources/nodes.yaml#/components/schemas/NodeInfo'
     NodeLabelCreateRequest:
-      type: object
-      required: [key, value]
-      properties:
-        key:
-          type: string
-          minLength: 1
-        value:
-          type: string
+      $ref: './resources/nodes.yaml#/components/schemas/NodeLabelCreateRequest'
     NodeLabelUpdateRequest:
-      type: object
-      required: [value]
-      properties:
-        value:
-          type: string
+      $ref: './resources/nodes.yaml#/components/schemas/NodeLabelUpdateRequest'
     NetworkInfo:
-      type: object
-      required: [id, name, scope, driver, internal, attachable, ingress, managed]
-      properties:
-        id:
-          type: string
-        name:
-          type: string
-        scope:
-          type: string
-        driver:
-          type: string
-        internal:
-          type: boolean
-        attachable:
-          type: boolean
-        ingress:
-          type: boolean
-        labels:
-          type: object
-          additionalProperties:
-            type: string
-        options:
-          type: object
-          additionalProperties:
-            type: string
-        stack_name:
-          type: string
-        managed:
-          type: boolean
+      $ref: './resources/networks.yaml#/components/schemas/NetworkInfo'
     SecretsResponse:
-      type: object
-      required: [secrets]
-      properties:
-        secrets:
-          type: array
-          items:
-            $ref: '#/components/schemas/SecretInfo'
+      $ref: './resources/secrets.yaml#/components/schemas/SecretsResponse'
     SecretManagersResponse:
-      type: object
-      required: [secret_managers]
-      properties:
-        secret_managers:
-          type: array
-          items:
-            $ref: '#/components/schemas/SecretManagerInfo'
+      $ref: './resources/secret-managers.yaml#/components/schemas/SecretManagersResponse'
     SecretManagerInfo:
-      type: object
-      required: [stack, service, kind, controllable, available]
-      properties:
-        stack:
-          type: string
-        service:
-          type: string
-        kind:
-          type: string
-        controllable:
-          type: boolean
-        available:
-          type: boolean
-        version:
-          type: string
-        provider:
-          $ref: '#/components/schemas/SecretManagerProvider'
-        last_sync_at:
-          type: string
-          format: date-time
-        next_sync_at:
-          type: string
-          format: date-time
-        error:
-          type: string
+      $ref: './resources/secret-managers.yaml#/components/schemas/SecretManagerInfo'
     SecretManagerProvider:
-      type: object
-      required: [name]
-      properties:
-        name:
-          type: string
-        links:
-          $ref: '#/components/schemas/SecretManagerProviderLinks'
+      $ref: './resources/secret-managers.yaml#/components/schemas/SecretManagerProvider'
     SecretManagerProviderLinks:
-      type: object
-      properties:
-        doc:
-          type: string
-        manager:
-          type: string
+      $ref: './resources/secret-managers.yaml#/components/schemas/SecretManagerProviderLinks'
     SecretManagerSyncResponse:
-      type: object
-      required: [created, updated, removed, unchanged]
-      properties:
-        created:
-          type: integer
-          format: int64
-          minimum: 0
-        updated:
-          type: integer
-          format: int64
-          minimum: 0
-        removed:
-          type: integer
-          format: int64
-          minimum: 0
-        unchanged:
-          type: integer
-          format: int64
-          minimum: 0
+      $ref: './resources/secret-managers.yaml#/components/schemas/SecretManagerSyncResponse'
     SecretInfo:
-      type: object
-      required: [id, name, version_id, created_at]
-      properties:
-        id:
-          type: string
-        name:
-          type: string
-        description:
-          type: string
-        version_id:
-          type: integer
-          format: int64
-          minimum: 0
-        created_at:
-          type: string
-          format: date-time
-        external:
-          $ref: '#/components/schemas/SecretExternalInfo'
+      $ref: './resources/secrets.yaml#/components/schemas/SecretInfo'
     SecretDetailsResponse:
-      type: object
-      required: [id, name, version_id, created_at, updated_at]
-      properties:
-        id:
-          type: string
-        name:
-          type: string
-        version_id:
-          type: integer
-          format: int64
-          minimum: 0
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
-        driver:
-          type: string
-        labels:
-          type: object
-          additionalProperties:
-            type: string
-        external:
-          $ref: '#/components/schemas/SecretExternalInfo'
+      $ref: './resources/secrets.yaml#/components/schemas/SecretDetailsResponse'
     SecretExternalInfo:
-      type: object
-      properties:
-        path:
-          type: string
-        version_id:
-          type: string
+      $ref: './resources/secrets.yaml#/components/schemas/SecretExternalInfo'
     SyncInfo:
-      type: object
-      additionalProperties:
-        type: string
+      $ref: './gitops.yaml#/components/schemas/SyncInfo'
     GitCommitDetailsResponse:
-      type: object
-      required: [full_hash, author, message, date, changed_files]
-      properties:
-        full_hash:
-          type: string
-        author:
-          type: string
-        message:
-          type: string
-        date:
-          type: string
-          format: date-time
-        changed_files:
-          type: array
-          items:
-            type: string
+      $ref: './gitops.yaml#/components/schemas/GitCommitDetailsResponse'
     ServiceView:
-      type: object
-      required: [name, image, image_version]
-      properties:
-        name:
-          type: string
-        image:
-          type: string
-        image_version:
-          type: string
-        last_status:
-          type: string
-        last_deploy_at:
-          type: string
-          format: date-time
+      $ref: './resources/services.yaml#/components/schemas/ServiceView'
     ServiceStatusResponse:
-      type: object
-      required: [stack, service, spec, links]
-      properties:
-        stack:
-          type: string
-        service:
-          type: string
-        spec:
-          $ref: '#/components/schemas/ServiceSpecResponse'
-        links:
-          type: array
-          items:
-            $ref: '#/components/schemas/ServiceLink'
+      $ref: './resources/services.yaml#/components/schemas/ServiceStatusResponse'
     ServiceSpecResponse:
-      type: object
-      required: [image, mode, replicas, requested_ram_bytes, requested_cpu_nano, limit_ram_bytes, limit_cpu_nano]
-      properties:
-        image:
-          type: string
-        mode:
-          type: string
-        replicas:
-          type: integer
-          format: int64
-          minimum: 0
-        requested_ram_bytes:
-          type: integer
-          format: int64
-          minimum: 0
-        requested_cpu_nano:
-          type: integer
-          format: int64
-          minimum: 0
-        limit_ram_bytes:
-          type: integer
-          format: int64
-          minimum: 0
-        limit_cpu_nano:
-          type: integer
-          format: int64
-          minimum: 0
-        labels:
-          $ref: '#/components/schemas/ServiceSpecLabelsResponse'
-        secrets:
-          type: array
-          items:
-            $ref: '#/components/schemas/ServiceSpecSecretResponse'
-        network:
-          type: array
-          items:
-            $ref: '#/components/schemas/ServiceSpecNetworkResponse'
+      $ref: './resources/services.yaml#/components/schemas/ServiceSpecResponse'
     ServiceSpecLabelsResponse:
-      type: object
-      properties:
-        docker:
-          $ref: '#/components/schemas/ServiceSpecLabelGroupResponse'
-        swarm_deploy:
-          $ref: '#/components/schemas/ServiceSpecLabelGroupResponse'
-        custom:
-          $ref: '#/components/schemas/ServiceSpecLabelGroupResponse'
+      $ref: './resources/services.yaml#/components/schemas/ServiceSpecLabelsResponse'
     ServiceSpecLabelGroupResponse:
-      type: object
-      additionalProperties:
-        type: string
+      $ref: './resources/services.yaml#/components/schemas/ServiceSpecLabelGroupResponse'
     ServiceSpecSecretResponse:
-      type: object
-      required: [secret_name]
-      properties:
-        secret_id:
-          type: string
-        secret_name:
-          type: string
-        target:
-          type: string
+      $ref: './resources/services.yaml#/components/schemas/ServiceSpecSecretResponse'
     ServiceSpecNetworkResponse:
-      type: object
-      required: [target]
-      properties:
-        target:
-          type: string
-        aliases:
-          type: array
-          items:
-            type: string
-
+      $ref: './resources/services.yaml#/components/schemas/ServiceSpecNetworkResponse'
     ServiceRealtimeTask:
-      type: object
-      required: [id, node, current_state]
-      properties:
-        id:
-          type: string
-        node:
-          type: string
-        node_name:
-          type: string
-        created_at:
-          type: string
-          format: date-time
-        updated_at:
-          type: string
-          format: date-time
-        current_state:
-          type: string
-        error:
-          type: string
+      $ref: './resources/services.yaml#/components/schemas/ServiceRealtimeTask'
     ServiceRealtimeResponse:
-      type: object
-      required: [tasks]
-      properties:
-        tasks:
-          type: array
-          items:
-            $ref: '#/components/schemas/ServiceRealtimeTask'
+      $ref: './resources/services.yaml#/components/schemas/ServiceRealtimeResponse'
     ServiceDeploymentStatus:
-      type: string
-      enum: [success, failed]
+      $ref: './resources/services.yaml#/components/schemas/ServiceDeploymentStatus'
     ServiceDeploymentResponse:
-      type: object
-      required: [created_at, status, image, image_version]
-      properties:
-        created_at:
-          type: string
-          format: date-time
-        status:
-          $ref: '#/components/schemas/ServiceDeploymentStatus'
-        image:
-          type: string
-        image_version:
-          type: string
-        message:
-          type: string
-        commit:
-          type: string
+      $ref: './resources/services.yaml#/components/schemas/ServiceDeploymentResponse'
     ServiceDeploymentsResponse:
-      type: object
-      required: [deployments]
-      properties:
-        deployments:
-          type: array
-          items:
-            $ref: '#/components/schemas/ServiceDeploymentResponse'
+      $ref: './resources/services.yaml#/components/schemas/ServiceDeploymentsResponse'
     StackStatus:
-      type: object
-      required: [synced, out_of_synced]
-      properties:
-        synced:
-          type: integer
-          format: int64
-          minimum: 0
-        out_of_synced:
-          type: integer
-          format: int64
-          minimum: 0
+      $ref: './gitops.yaml#/components/schemas/StackStatus'
     StackView:
-      type: object
-      required: [name, compose_file, status]
-      properties:
-        name:
-          type: string
-        compose_file:
-          type: string
-        status:
-          $ref: '#/components/schemas/StackStatus'
-        last_error:
-          type: string
-        last_commit:
-          type: string
-        last_deploy_at:
-          type: string
-          format: date-time
-        source_digest:
-          type: string
+      $ref: './gitops.yaml#/components/schemas/StackView'
     StacksResponse:
-      type: object
-      required: [stacks, sync]
-      properties:
-        stacks:
-          type: array
-          items:
-            $ref: '#/components/schemas/StackView'
-        sync:
-          $ref: '#/components/schemas/SyncInfo'
+      $ref: './gitops.yaml#/components/schemas/StacksResponse'
     StackManifestosResponse:
-      type: object
-      required: [desired, live]
-      properties:
-        desired:
-          type: string
-        live:
-          type: string
+      $ref: './gitops.yaml#/components/schemas/StackManifestosResponse'
     SearchResponse:
-      type: object
-      required: [results]
-      properties:
-        results:
-          type: array
-          items:
-            $ref: '#/components/schemas/SearchResult'
+      $ref: './search.yaml#/components/schemas/SearchResponse'
     SearchResult:
-      type: object
-      required: [kind, match, label]
-      properties:
-        kind:
-          type: string
-          enum: [service, secret, stack]
-        match:
-          type: string
-          enum: [service_name, service_web_route, secret_name, stack_name]
-        label:
-          type: string
-        stack:
-          type: string
-        service:
-          type: string
-        secret_name:
-          type: string
+      $ref: './search.yaml#/components/schemas/SearchResult'
     CurrentUserResponse:
-      type: object
-      required: [name]
-      properties:
-        name:
-          type: string
+      $ref: './users.yaml#/components/schemas/CurrentUserResponse'
