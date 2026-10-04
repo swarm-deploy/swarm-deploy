@@ -5908,6 +5908,12 @@ func (s *SecretInfo) encodeFields(e *jx.Encoder) {
 		e.Str(s.Name)
 	}
 	{
+		if s.Description.Set {
+			e.FieldStart("description")
+			s.Description.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("version_id")
 		e.Int64(s.VersionID)
 	}
@@ -5923,12 +5929,13 @@ func (s *SecretInfo) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfSecretInfo = [5]string{
+var jsonFieldsNameOfSecretInfo = [6]string{
 	0: "id",
 	1: "name",
-	2: "version_id",
-	3: "created_at",
-	4: "external",
+	2: "description",
+	3: "version_id",
+	4: "created_at",
+	5: "external",
 }
 
 // Decode decodes SecretInfo from json.
@@ -5964,8 +5971,18 @@ func (s *SecretInfo) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"name\"")
 			}
+		case "description":
+			if err := func() error {
+				s.Description.Reset()
+				if err := s.Description.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"description\"")
+			}
 		case "version_id":
-			requiredBitSet[0] |= 1 << 2
+			requiredBitSet[0] |= 1 << 3
 			if err := func() error {
 				v, err := d.Int64()
 				s.VersionID = int64(v)
@@ -5977,7 +5994,7 @@ func (s *SecretInfo) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"version_id\"")
 			}
 		case "created_at":
-			requiredBitSet[0] |= 1 << 3
+			requiredBitSet[0] |= 1 << 4
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.CreatedAt = v
@@ -6008,7 +6025,7 @@ func (s *SecretInfo) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00001111,
+		0b00011011,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

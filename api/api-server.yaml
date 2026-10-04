@@ -1024,6 +1024,8 @@ components:
           type: string
         name:
           type: string
+        description:
+          type: string
         version_id:
           type: integer
           format: int64
