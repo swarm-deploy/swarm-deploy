@@ -22,7 +22,7 @@ import (
 func TestDeployStackReconcilesResourcesBeforeInitJobs(t *testing.T) {
 	tests := []struct {
 		name          string
-		resourcePath  string
+		listPath      string
 		createPath    string
 		resourceID    string
 		resourceName  string
@@ -36,7 +36,7 @@ func TestDeployStackReconcilesResourcesBeforeInitJobs(t *testing.T) {
 	}{
 		{
 			name:         "config",
-			resourcePath: "/configs/demo_app-config",
+			listPath:     "/configs",
 			createPath:   "/configs/create",
 			resourceID:   "config-id",
 			resourceName: "demo_app-config",
@@ -52,7 +52,7 @@ func TestDeployStackReconcilesResourcesBeforeInitJobs(t *testing.T) {
 		},
 		{
 			name:         "secret",
-			resourcePath: "/secrets/demo_db-password",
+			listPath:     "/secrets",
 			createPath:   "/secrets/create",
 			resourceID:   "secret-id",
 			resourceName: "demo_db-password",
@@ -80,8 +80,8 @@ func TestDeployStackReconcilesResourcesBeforeInitJobs(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 				path := dockerAPIPath(req.URL.Path)
 				switch {
-				case req.Method == http.MethodGet && path == tt.resourcePath:
-					http.Error(w, `{"message":"not found"}`, http.StatusNotFound)
+				case req.Method == http.MethodGet && path == tt.listPath:
+					_ = json.NewEncoder(w).Encode([]any{})
 				case req.Method == http.MethodPost && path == tt.createPath:
 					events = append(events, tt.name+"-create")
 					var spec struct {
@@ -119,7 +119,13 @@ func TestDeployStackReconcilesResourcesBeforeInitJobs(t *testing.T) {
 				}},
 			}
 
-			err := deployer.DeployStack(context.Background(), "demo", filepath.Join(dir, "compose.yaml"), desired)
+			err := deployer.DeployStack(
+				context.Background(),
+				"demo",
+				filepath.Join(dir, "compose.yaml"),
+				filepath.Join(dir, "rendered", "compose.yaml"),
+				desired,
+			)
 			require.NoError(t, err, "deploy stack")
 			require.NoError(t, handlerErr, "decode create request")
 			assert.Equal(t, tt.resourceName, createdName)
@@ -136,11 +142,11 @@ func TestResourceReconcilerReusesExistingResource(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		path := dockerAPIPath(req.URL.Path)
 		switch {
-		case req.Method == http.MethodGet && path == "/configs/demo_app-config":
-			_ = json.NewEncoder(w).Encode(dockerswarm.Config{
+		case req.Method == http.MethodGet && path == "/configs":
+			_ = json.NewEncoder(w).Encode([]dockerswarm.Config{{
 				ID:   "existing-id",
 				Spec: dockerswarm.ConfigSpec{Annotations: dockerswarm.Annotations{Name: "demo_app-config"}},
-			})
+			}})
 		case req.Method == http.MethodPost && path == "/configs/create":
 			createCalls++
 			http.Error(w, `{"message":"must not create"}`, http.StatusInternalServerError)
@@ -173,13 +179,13 @@ func TestResourceReconcilerUsesRotatedNameOnce(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		path := dockerAPIPath(req.URL.Path)
 		switch {
-		case req.Method == http.MethodGet && path == "/configs/"+rotatedName && !created:
-			http.Error(w, `{"message":"not found"}`, http.StatusNotFound)
-		case req.Method == http.MethodGet && path == "/configs/"+rotatedName:
-			_ = json.NewEncoder(w).Encode(dockerswarm.Config{
+		case req.Method == http.MethodGet && path == "/configs" && !created:
+			_ = json.NewEncoder(w).Encode([]any{})
+		case req.Method == http.MethodGet && path == "/configs":
+			_ = json.NewEncoder(w).Encode([]dockerswarm.Config{{
 				ID:   "rotated-id",
 				Spec: dockerswarm.ConfigSpec{Annotations: dockerswarm.Annotations{Name: rotatedName}},
-			})
+			}})
 		case req.Method == http.MethodPost && path == "/configs/create":
 			createCalls++
 			created = true
@@ -213,8 +219,8 @@ func TestDeployStackInitJobFailureDoesNotDeleteResources(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		path := dockerAPIPath(req.URL.Path)
 		switch {
-		case req.Method == http.MethodGet && path == "/configs/demo-app-config-new":
-			http.Error(w, `{"message":"not found"}`, http.StatusNotFound)
+		case req.Method == http.MethodGet && path == "/configs":
+			_ = json.NewEncoder(w).Encode([]any{})
 		case req.Method == http.MethodPost && path == "/configs/create":
 			_ = json.NewEncoder(w).Encode(map[string]string{"ID": "new-id"})
 		case req.Method == http.MethodDelete:
@@ -245,10 +251,189 @@ func TestDeployStackInitJobFailureDoesNotDeleteResources(t *testing.T) {
 		}},
 	}
 
-	err := deployer.DeployStack(context.Background(), "demo", filepath.Join(dir, "compose.yaml"), desired)
+	err := deployer.DeployStack(
+		context.Background(),
+		"demo",
+		filepath.Join(dir, "compose.yaml"),
+		filepath.Join(dir, "rendered", "compose.yaml"),
+		desired,
+	)
 	require.ErrorIs(t, err, initErr, "init job failure must be preserved")
 	assert.Zero(t, deleteCalls, "old resources must not be pruned when init job fails")
 	assert.Empty(t, runner.calls, "regular services must not deploy after init job failure")
+}
+
+func TestResourceReconcilerListsMultipleResourcesInBulk(t *testing.T) {
+	configListCalls := 0
+	secretListCalls := 0
+	inspectCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		path := dockerAPIPath(req.URL.Path)
+		switch {
+		case req.Method == http.MethodGet && path == "/configs":
+			configListCalls++
+			_ = json.NewEncoder(w).Encode([]dockerswarm.Config{
+				{ID: "config-a-id", Spec: dockerswarm.ConfigSpec{Annotations: dockerswarm.Annotations{Name: "demo_config-a"}}},
+				{ID: "config-b-id", Spec: dockerswarm.ConfigSpec{Annotations: dockerswarm.Annotations{Name: "demo_config-b"}}},
+			})
+		case req.Method == http.MethodGet && path == "/secrets":
+			secretListCalls++
+			_ = json.NewEncoder(w).Encode([]dockerswarm.Secret{
+				{ID: "secret-a-id", Spec: dockerswarm.SecretSpec{Annotations: dockerswarm.Annotations{Name: "demo_secret-a"}}},
+				{ID: "secret-b-id", Spec: dockerswarm.SecretSpec{Annotations: dockerswarm.Annotations{Name: "demo_secret-b"}}},
+			})
+		case req.Method == http.MethodGet:
+			inspectCalls++
+			http.Error(w, `{"message":"inspect must not be called"}`, http.StatusInternalServerError)
+		default:
+			http.Error(w, `{"message":"unexpected request"}`, http.StatusInternalServerError)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	resolved, err := newResourceReconciler(newDockerTestClient(t, server)).Reconcile(
+		context.Background(),
+		"demo",
+		filepath.Join(t.TempDir(), "compose.yaml"),
+		compose.SharedObjects{
+			"config-b": {Alias: "config-b", File: "unused-b"},
+			"config-a": {Alias: "config-a", File: "unused-a"},
+		},
+		compose.SharedObjects{
+			"secret-b": {Alias: "secret-b", File: "unused-b"},
+			"secret-a": {Alias: "secret-a", File: "unused-a"},
+		},
+	)
+	require.NoError(t, err, "reconcile resources")
+
+	assert.Equal(t, 1, configListCalls, "configs must be loaded in one request")
+	assert.Equal(t, 1, secretListCalls, "secrets must be loaded in one request")
+	assert.Zero(t, inspectCalls, "individual resource inspect must not be used")
+	assert.Equal(t, "config-a-id", resolved.configs["config-a"].ID)
+	assert.Equal(t, "config-b-id", resolved.configs["config-b"].ID)
+	assert.Equal(t, "secret-a-id", resolved.secrets["secret-a"].ID)
+	assert.Equal(t, "secret-b-id", resolved.secrets["secret-b"].ID)
+}
+
+func TestResourceReconcilerPreservesComposeResourceOptions(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "config.txt"), []byte("config-data"), 0o600), "write config")
+
+	var createdConfig dockerswarm.ConfigSpec
+	var createdSecret dockerswarm.SecretSpec
+	var handlerErr error
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		path := dockerAPIPath(req.URL.Path)
+		switch {
+		case req.Method == http.MethodGet && (path == "/configs" || path == "/secrets"):
+			_ = json.NewEncoder(w).Encode([]any{})
+		case req.Method == http.MethodPost && path == "/configs/create":
+			if decodeErr := json.NewDecoder(req.Body).Decode(&createdConfig); handlerErr == nil {
+				handlerErr = decodeErr
+			}
+			_ = json.NewEncoder(w).Encode(map[string]string{"ID": "config-id"})
+		case req.Method == http.MethodPost && path == "/secrets/create":
+			if decodeErr := json.NewDecoder(req.Body).Decode(&createdSecret); handlerErr == nil {
+				handlerErr = decodeErr
+			}
+			_ = json.NewEncoder(w).Encode(map[string]string{"ID": "secret-id"})
+		default:
+			http.Error(w, `{"message":"unexpected request"}`, http.StatusInternalServerError)
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	_, err := newResourceReconciler(newDockerTestClient(t, server)).Reconcile(
+		context.Background(),
+		"demo",
+		filepath.Join(dir, "compose.yaml"),
+		compose.SharedObjects{
+			"app-config": {
+				Alias:          "app-config",
+				File:           "config.txt",
+				Labels:         *compose.NewLabels(map[string]string{"purpose": "init"}),
+				TemplateDriver: "golang",
+			},
+		},
+		compose.SharedObjects{
+			"app-secret": {
+				Alias:          "app-secret",
+				Driver:         "vault",
+				DriverOpts:     map[string]string{"key": "apps/demo"},
+				Labels:         *compose.NewLabels(map[string]string{"sensitivity": "high"}),
+				TemplateDriver: "golang",
+			},
+		},
+	)
+	require.NoError(t, err, "reconcile resources")
+	require.NoError(t, handlerErr, "decode create spec")
+
+	assert.Equal(t, "demo_app-config", createdConfig.Name)
+	assert.Equal(t, []byte("config-data"), createdConfig.Data)
+	assert.Equal(t, map[string]string{"purpose": "init", "com.docker.stack.namespace": "demo"}, createdConfig.Labels)
+	require.NotNil(t, createdConfig.Templating, "config template driver must be preserved")
+	assert.Equal(t, "golang", createdConfig.Templating.Name)
+
+	assert.Equal(t, "demo_app-secret", createdSecret.Name)
+	assert.Empty(t, createdSecret.Data, "driver-backed secrets must not contain file data")
+	assert.Equal(t, map[string]string{"sensitivity": "high", "com.docker.stack.namespace": "demo"}, createdSecret.Labels)
+	require.NotNil(t, createdSecret.Driver, "secret driver must be preserved")
+	assert.Equal(t, "vault", createdSecret.Driver.Name)
+	assert.Equal(t, map[string]string{"key": "apps/demo"}, createdSecret.Driver.Options)
+	require.NotNil(t, createdSecret.Templating, "secret template driver must be preserved")
+	assert.Equal(t, "golang", createdSecret.Templating.Name)
+}
+
+func TestResourceReconcilerDoesNotCreateMissingExternalResource(t *testing.T) {
+	tests := []struct {
+		name       string
+		listPath   string
+		configs    compose.SharedObjects
+		secrets    compose.SharedObjects
+		errorMatch string
+	}{
+		{
+			name:       "config",
+			listPath:   "/configs",
+			configs:    compose.SharedObjects{"external-config": {Alias: "external-config", External: true}},
+			errorMatch: "external config external-config does not exist",
+		},
+		{
+			name:       "secret",
+			listPath:   "/secrets",
+			secrets:    compose.SharedObjects{"external-secret": {Alias: "external-secret", External: true}},
+			errorMatch: "external secret external-secret does not exist",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			createCalls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				path := dockerAPIPath(req.URL.Path)
+				switch {
+				case req.Method == http.MethodGet && path == tt.listPath:
+					_ = json.NewEncoder(w).Encode([]any{})
+				case req.Method == http.MethodPost:
+					createCalls++
+					http.Error(w, `{"message":"external resource must not be created"}`, http.StatusInternalServerError)
+				default:
+					http.Error(w, `{"message":"unexpected request"}`, http.StatusInternalServerError)
+				}
+			}))
+			t.Cleanup(server.Close)
+
+			_, err := newResourceReconciler(newDockerTestClient(t, server)).Reconcile(
+				context.Background(),
+				"demo",
+				filepath.Join(t.TempDir(), "compose.yaml"),
+				tt.configs,
+				tt.secrets,
+			)
+			require.ErrorContains(t, err, tt.errorMatch)
+			assert.Zero(t, createCalls, "external resources must never be created")
+		})
+	}
 }
 
 func TestBuildInitServiceSpecUsesResolvedResourceIDs(t *testing.T) {

@@ -88,11 +88,17 @@ func NewDeployer(
 
 const binaryTimeout = 1 * time.Minute
 
-func (d *Deployer) DeployStack(ctx context.Context, stackName, composePath string, desired compose.Compose) error {
+func (d *Deployer) DeployStack(
+	ctx context.Context,
+	stackName,
+	sourceComposePath,
+	deployComposePath string,
+	desired compose.Compose,
+) error {
 	resolved := resolvedResources{}
 	if hasInitJobs(desired.Services) && (len(desired.Configs) > 0 || len(desired.Secrets) > 0) {
 		var err error
-		resolved, err = d.resources.Reconcile(ctx, stackName, composePath, desired.Configs, desired.Secrets)
+		resolved, err = d.resources.Reconcile(ctx, stackName, sourceComposePath, desired.Configs, desired.Secrets)
 		if err != nil {
 			return fmt.Errorf("reconcile init job configs and secrets: %w", err)
 		}
@@ -104,7 +110,7 @@ func (d *Deployer) DeployStack(ctx context.Context, stackName, composePath strin
 
 	args := make([]string, 0, len(d.stackDeployArgs)+deployArgsExtraCount)
 	args = append(args, d.stackDeployArgs...)
-	args = append(args, "-c", composePath, stackName)
+	args = append(args, "-c", deployComposePath, stackName)
 
 	ctx, cancel := context.WithTimeout(ctx, binaryTimeout)
 	defer cancel()

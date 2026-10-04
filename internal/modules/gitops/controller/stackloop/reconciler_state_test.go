@@ -42,7 +42,7 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 	require.NoError(t, writeComposeFile(repoDir), "write compose")
 
 	stackDeployer.EXPECT().
-		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, ".data", "rendered", "app.yaml"), gomock.Any()).
+		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, "app.yaml"), filepath.Join(repoDir, ".data", "rendered", "app.yaml"), gomock.Any()).
 		Return(nil)
 	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
 
@@ -100,7 +100,7 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 	require.NoError(t, writeComposeFile(repoDir), "write compose")
 
 	stackDeployer.EXPECT().
-		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, ".data", "rendered", "app.yaml"), gomock.Any()).
+		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, "app.yaml"), filepath.Join(repoDir, ".data", "rendered", "app.yaml"), gomock.Any()).
 		Return(errDeployFailed)
 
 	reconciler := &Reconciler{
@@ -246,7 +246,7 @@ configs:
 
 	repository.EXPECT().WorkingDir().Return(repoDir).Times(2)
 	stackDeployer.EXPECT().
-		DeployStack(gomock.Any(), "app", renderedPath, gomock.Any()).
+		DeployStack(gomock.Any(), "app", composePath, renderedPath, gomock.Any()).
 		Return(nil)
 	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
 
@@ -345,7 +345,7 @@ secrets:
 
 	repository.EXPECT().WorkingDir().Return(repoDir).Times(2)
 	stackDeployer.EXPECT().
-		DeployStack(gomock.Any(), "app", renderedPath, gomock.Any()).
+		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, "deploy", "docker-compose.yaml"), renderedPath, gomock.Any()).
 		Return(nil)
 	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
 
@@ -434,7 +434,7 @@ services:
 
 	repository.EXPECT().WorkingDir().Return(repoDir).Times(2)
 	stackDeployer.EXPECT().
-		DeployStack(gomock.Any(), "app", renderedPath, gomock.Any()).
+		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, "deploy", "compose.yaml"), renderedPath, gomock.Any()).
 		Return(nil)
 	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
 
@@ -505,7 +505,7 @@ services:
 
 	repository.EXPECT().WorkingDir().Return(repoDir).Times(2)
 	stackDeployer.EXPECT().
-		DeployStack(gomock.Any(), "app", renderedPath, gomock.Any()).
+		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, "app.yaml"), renderedPath, gomock.Any()).
 		Return(nil)
 	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
 
@@ -578,7 +578,7 @@ services:
 
 	repository.EXPECT().WorkingDir().Return(repoDir).Times(3)
 	stackDeployer.EXPECT().
-		DeployStack(gomock.Any(), "app", renderedPath, gomock.Any()).
+		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, "app.yaml"), renderedPath, gomock.Any()).
 		Return(nil).
 		Times(1)
 	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)

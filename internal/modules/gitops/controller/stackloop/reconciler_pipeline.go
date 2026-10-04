@@ -186,6 +186,7 @@ func (r *Reconciler) deployStack(ctx context.Context, payload *pipelinePayload) 
 	return r.deployer.DeployStack(
 		ctx,
 		payload.Stack.Name,
+		payload.Desired.Path,
 		payload.DeployComposePath,
 		payload.Desired.Compose,
 	)

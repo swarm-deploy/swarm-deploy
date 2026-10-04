@@ -202,7 +202,7 @@ func TestControllerSyncOnceReconcilesStacksOnIntervalWithoutGitPull(t *testing.T
 	serviceManager := swarm.NewMockServiceManager(ctrl)
 	stackDeployer := deployer.NewMockStackDeployer(ctrl)
 	gomock.InOrder(
-		stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any()).Return(nil),
+		stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil),
 		serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil),
 	)
 
@@ -346,9 +346,9 @@ func TestControllerSyncOncePrioritizesChangedStacks(t *testing.T) {
 	serviceManager := swarm.NewMockServiceManager(ctrl)
 	stackDeployer := deployer.NewMockStackDeployer(ctrl)
 	gomock.InOrder(
-		stackDeployer.EXPECT().DeployStack(gomock.Any(), "stack-b", gomock.Any(), gomock.Any()).Return(nil),
+		stackDeployer.EXPECT().DeployStack(gomock.Any(), "stack-b", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil),
 		serviceManager.EXPECT().ListStackServices(gomock.Any(), "stack-b").Return(nil, nil),
-		stackDeployer.EXPECT().DeployStack(gomock.Any(), "stack-a", gomock.Any(), gomock.Any()).Return(nil),
+		stackDeployer.EXPECT().DeployStack(gomock.Any(), "stack-a", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil),
 		serviceManager.EXPECT().ListStackServices(gomock.Any(), "stack-a").Return(nil, nil),
 	)
 
@@ -425,9 +425,9 @@ func TestControllerSyncOnceContinuesWhenGitDiffFails(t *testing.T) {
 	serviceManager := swarm.NewMockServiceManager(ctrl)
 	stackDeployer := deployer.NewMockStackDeployer(ctrl)
 	gomock.InOrder(
-		stackDeployer.EXPECT().DeployStack(gomock.Any(), "stack-a", gomock.Any(), gomock.Any()).Return(nil),
+		stackDeployer.EXPECT().DeployStack(gomock.Any(), "stack-a", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil),
 		serviceManager.EXPECT().ListStackServices(gomock.Any(), "stack-a").Return(nil, nil),
-		stackDeployer.EXPECT().DeployStack(gomock.Any(), "stack-b", gomock.Any(), gomock.Any()).Return(nil),
+		stackDeployer.EXPECT().DeployStack(gomock.Any(), "stack-b", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil),
 		serviceManager.EXPECT().ListStackServices(gomock.Any(), "stack-b").Return(nil, nil),
 	)
 

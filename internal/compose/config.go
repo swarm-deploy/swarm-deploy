@@ -8,14 +8,26 @@ import (
 
 // SharedObject wraps configs and secrets in compose top level.
 type SharedObject struct {
+	// Alias is the logical Compose resource name.
 	Alias string `yaml:"-"`
 
+	// Name overrides the Docker resource name.
 	Name string `yaml:"name,omitempty" json:"name,omitempty"`
 
-	File     string `yaml:"file,omitempty" json:"file,omitempty"`
-	Driver   string `yaml:"drive,omitempty" json:"driver"`
-	External bool   `yaml:"external,omitempty" json:"external"`
+	// File is the source file for a config or secret.
+	File string `yaml:"file,omitempty" json:"file,omitempty"`
+	// Driver is the secret driver name.
+	Driver string `yaml:"driver,omitempty" json:"driver,omitempty"`
+	// DriverOpts contains secret driver-specific options.
+	DriverOpts map[string]string `yaml:"driver_opts,omitempty" json:"driver_opts,omitempty"`
+	// TemplateDriver controls resource data templating.
+	TemplateDriver string `yaml:"template_driver,omitempty" json:"template_driver,omitempty"`
+	// Labels contains metadata added to the Docker resource.
+	Labels Labels `yaml:"labels,omitempty" json:"labels,omitempty"`
+	// External marks a resource managed outside the Compose application.
+	External bool `yaml:"external,omitempty" json:"external"`
 
+	// Extra preserves unsupported Compose extension fields.
 	Extra map[string]interface{} `yaml:",inline"`
 }
 

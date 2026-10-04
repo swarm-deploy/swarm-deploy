@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"sort"
 
-	cerrdefs "github.com/containerd/errdefs"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -30,16 +29,16 @@ func newResourceReconciler(dockerClient *client.Client) *resourceReconciler {
 func (r *resourceReconciler) Reconcile(
 	ctx context.Context,
 	stackName string,
-	composePath string,
+	sourceComposePath string,
 	configs compose.SharedObjects,
 	secrets compose.SharedObjects,
 ) (resolvedResources, error) {
-	resolvedConfigs, err := r.reconcileConfigs(ctx, stackName, composePath, configs)
+	resolvedConfigs, err := r.reconcileConfigs(ctx, stackName, sourceComposePath, configs)
 	if err != nil {
 		return resolvedResources{}, err
 	}
 
-	resolvedSecrets, err := r.reconcileSecrets(ctx, stackName, composePath, secrets)
+	resolvedSecrets, err := r.reconcileSecrets(ctx, stackName, sourceComposePath, secrets)
 	if err != nil {
 		return resolvedResources{}, err
 	}
@@ -53,44 +52,55 @@ func (r *resourceReconciler) Reconcile(
 func (r *resourceReconciler) reconcileConfigs(
 	ctx context.Context,
 	stackName string,
-	composePath string,
+	sourceComposePath string,
 	objects compose.SharedObjects,
 ) (map[string]ResolvedResource, error) {
 	resolved := make(map[string]ResolvedResource, len(objects))
+	if len(objects) == 0 {
+		return resolved, nil
+	}
+
+	existing, listErr := r.dockerClient.ConfigList(ctx, dockerswarm.ConfigListOptions{})
+	if listErr != nil {
+		return nil, fmt.Errorf("list configs: %w", listErr)
+	}
+	existingByName := configsByName(existing)
+
 	for _, alias := range sortedObjectAliases(objects) {
 		object := objects[alias]
 		name := dockerResourceName(stackName, alias, object)
 
-		cfg, _, err := r.dockerClient.ConfigInspectWithRaw(ctx, name)
-		switch {
-		case err == nil:
+		if cfg, ok := existingByName[name]; ok {
 			resolved[alias] = ResolvedResource{ID: cfg.ID, Name: cfg.Spec.Name}
 			continue
-		case !cerrdefs.IsNotFound(err):
-			return nil, fmt.Errorf("inspect config %s: %w", name, err)
-		case object.External:
-			return nil, fmt.Errorf("external config %s does not exist: %w", name, err)
+		}
+		if object.External {
+			return nil, fmt.Errorf("external config %s does not exist", name)
 		}
 
-		data, err := readSharedObject(composePath, object)
+		data, err := readSharedObject(sourceComposePath, object)
 		if err != nil {
 			return nil, fmt.Errorf("read config %s: %w", name, err)
 		}
 
-		created, err := r.dockerClient.ConfigCreate(ctx, dockerswarm.ConfigSpec{
+		spec := dockerswarm.ConfigSpec{
 			Annotations: dockerswarm.Annotations{
-				Name: name,
-				Labels: map[string]string{
-					labelsdict.StackNamespace: stackName,
-				},
+				Name:   name,
+				Labels: resourceLabels(stackName, object.Labels.Map),
 			},
 			Data: data,
-		})
+		}
+		if object.TemplateDriver != "" {
+			spec.Templating = &dockerswarm.Driver{Name: object.TemplateDriver}
+		}
+
+		created, err := r.dockerClient.ConfigCreate(ctx, spec)
 		if err != nil {
 			return nil, fmt.Errorf("create config %s: %w", name, err)
 		}
 
 		resolved[alias] = ResolvedResource{ID: created.ID, Name: name}
+		existingByName[name] = dockerswarm.Config{ID: created.ID, Spec: spec}
 	}
 
 	return resolved, nil
@@ -99,41 +109,53 @@ func (r *resourceReconciler) reconcileConfigs(
 func (r *resourceReconciler) reconcileSecrets(
 	ctx context.Context,
 	stackName string,
-	composePath string,
+	sourceComposePath string,
 	objects compose.SharedObjects,
 ) (map[string]ResolvedResource, error) {
 	resolved := make(map[string]ResolvedResource, len(objects))
+	if len(objects) == 0 {
+		return resolved, nil
+	}
+
+	existing, listErr := r.dockerClient.SecretList(ctx, dockerswarm.SecretListOptions{})
+	if listErr != nil {
+		return nil, fmt.Errorf("list secrets: %w", listErr)
+	}
+	existingByName := secretsByName(existing)
+
 	for _, alias := range sortedObjectAliases(objects) {
 		object := objects[alias]
 		name := dockerResourceName(stackName, alias, object)
 
-		secret, _, err := r.dockerClient.SecretInspectWithRaw(ctx, name)
-		switch {
-		case err == nil:
+		if secret, ok := existingByName[name]; ok {
 			resolved[alias] = ResolvedResource{ID: secret.ID, Name: secret.Spec.Name}
 			continue
-		case !cerrdefs.IsNotFound(err):
-			return nil, fmt.Errorf("inspect secret %s: %w", name, err)
-		case object.External:
-			return nil, fmt.Errorf("external secret %s does not exist: %w", name, err)
+		}
+		if object.External {
+			return nil, fmt.Errorf("external secret %s does not exist", name)
 		}
 
-		data, err := readSharedObject(composePath, object)
-		if err != nil {
-			return nil, fmt.Errorf("read secret %s: %w", name, err)
+		var data []byte
+		if object.Driver == "" {
+			var readErr error
+			data, readErr = readSharedObject(sourceComposePath, object)
+			if readErr != nil {
+				return nil, fmt.Errorf("read secret %s: %w", name, readErr)
+			}
 		}
 
 		spec := dockerswarm.SecretSpec{
 			Annotations: dockerswarm.Annotations{
-				Name: name,
-				Labels: map[string]string{
-					labelsdict.StackNamespace: stackName,
-				},
+				Name:   name,
+				Labels: resourceLabels(stackName, object.Labels.Map),
 			},
 			Data: data,
 		}
 		if object.Driver != "" {
-			spec.Driver = &dockerswarm.Driver{Name: object.Driver}
+			spec.Driver = &dockerswarm.Driver{Name: object.Driver, Options: object.DriverOpts}
+		}
+		if object.TemplateDriver != "" {
+			spec.Templating = &dockerswarm.Driver{Name: object.TemplateDriver}
 		}
 
 		created, err := r.dockerClient.SecretCreate(ctx, spec)
@@ -142,9 +164,35 @@ func (r *resourceReconciler) reconcileSecrets(
 		}
 
 		resolved[alias] = ResolvedResource{ID: created.ID, Name: name}
+		existingByName[name] = dockerswarm.Secret{ID: created.ID, Spec: spec}
 	}
 
 	return resolved, nil
+}
+
+func configsByName(configs []dockerswarm.Config) map[string]dockerswarm.Config {
+	byName := make(map[string]dockerswarm.Config, len(configs))
+	for _, config := range configs {
+		byName[config.Spec.Name] = config
+	}
+	return byName
+}
+
+func secretsByName(secrets []dockerswarm.Secret) map[string]dockerswarm.Secret {
+	byName := make(map[string]dockerswarm.Secret, len(secrets))
+	for _, secret := range secrets {
+		byName[secret.Spec.Name] = secret
+	}
+	return byName
+}
+
+func resourceLabels(stackName string, labels map[string]string) map[string]string {
+	result := make(map[string]string, len(labels)+1)
+	for key, value := range labels {
+		result[key] = value
+	}
+	result[labelsdict.StackNamespace] = stackName
+	return result
 }
 
 func sortedObjectAliases(objects compose.SharedObjects) []string {
@@ -168,17 +216,14 @@ func dockerResourceName(stackName, alias string, object *compose.SharedObject) s
 	return stackName + "_" + alias
 }
 
-func readSharedObject(composePath string, object *compose.SharedObject) ([]byte, error) {
-	if object.Driver != "" {
-		return nil, nil
-	}
+func readSharedObject(sourceComposePath string, object *compose.SharedObject) ([]byte, error) {
 	if object.File == "" {
 		return nil, fmt.Errorf("file is required")
 	}
 
 	path := object.File
 	if !filepath.IsAbs(path) {
-		path = filepath.Join(filepath.Dir(composePath), path)
+		path = filepath.Join(filepath.Dir(sourceComposePath), path)
 	}
 
 	return os.ReadFile(path)
