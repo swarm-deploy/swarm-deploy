@@ -36,6 +36,10 @@ const filteredNetworks = computed(() => {
   });
 });
 
+const hasOptionsColumn = computed(() =>
+  networks.value.some((network) => Object.keys(network.options ?? {}).some((key) => key !== VXLAN_ID_OPTION)),
+);
+
 async function loadNetworks() {
   loading.value = true;
   loadingError.value = "";
@@ -118,26 +122,26 @@ onMounted(() => {
             <th>Name</th>
             <th>Stack</th>
             <th>Driver</th>
+            <th>VXLAN ID</th>
             <th>Attachable</th>
             <th>Internal</th>
             <th>Ingress</th>
             <th>Managed</th>
             <th>Labels</th>
-            <th>VXLAN ID</th>
-            <th>Options</th>
+            <th v-if="hasOptionsColumn">Options</th>
           </tr>
       </template>
           <tr v-for="network in filteredNetworks" :key="network.id">
             <td>{{ network.name || "n/a" }}</td>
             <td>{{ network.stack_name || "n/a" }}</td>
             <td>{{ network.driver || "n/a" }}</td>
+            <td>{{ vxlanIDText(network.options) }}</td>
             <td>{{ boolText(network.attachable) }}</td>
             <td>{{ boolText(network.internal) }}</td>
             <td>{{ boolText(network.ingress) }}</td>
             <td>{{ boolText(network.managed) }}</td>
             <td>{{ mapText(network.labels) }}</td>
-            <td>{{ vxlanIDText(network.options) }}</td>
-            <td>{{ optionsText(network.options) }}</td>
+            <td v-if="hasOptionsColumn">{{ optionsText(network.options) }}</td>
           </tr>
     </AppTable>
   </section>
