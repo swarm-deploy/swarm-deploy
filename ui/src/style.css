@@ -776,13 +776,18 @@ body {
     width: auto;
     min-height: 38px;
     padding: 9px 14px;
+    gap: 0;
     white-space: nowrap;
     flex: 0 0 auto;
   }
 
+  .sidebar-navigation .sidebar-label {
+    display: none;
+  }
+
   .sidebar.collapsed .sidebar-link {
     padding: 9px 14px;
-    gap: 12px;
+    gap: 0;
   }
 
   .sidebar.collapsed .sidebar-link::after,
