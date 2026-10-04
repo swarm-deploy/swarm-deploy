@@ -147,6 +147,17 @@ function deploymentStatusClass(status: ServiceDeploymentResponse["status"]): str
   return status;
 }
 
+function realtimeStateClass(state: string): string {
+  const normalized = String(state || "").trim().toLowerCase();
+  if (normalized === "running" || normalized === "complete" || normalized === "completed") {
+    return "service-realtime-mobile-state--healthy";
+  }
+  if (normalized === "failed" || normalized === "rejected" || normalized === "shutdown") {
+    return "service-realtime-mobile-state--error";
+  }
+  return "service-realtime-mobile-state--unknown";
+}
+
 function deploymentKey(item: ServiceDeploymentResponse, index: number): string {
   return `${item.created_at}-${item.status}-${item.image_version}-${index}`;
 }
@@ -497,7 +508,7 @@ onUnmounted(() => {
                         class="service-label-chip"
                         :title="`${key}=${value}`"
                       >{{ key }}={{ value }}</code>
-                      <span v-if="inlineServiceLabels.length === 0" class="meta">No labels.</span>
+                      <span v-if="serviceLabelCount === 0" class="meta">No labels.</span>
                     </div>
                     <button
                       v-if="serviceLabelCount > 0"
@@ -615,36 +626,23 @@ onUnmounted(() => {
           </AppTable>
           <ul v-if="!realtimeLoading && !realtimeError && realtime.length > 0" class="service-realtime-mobile">
             <li v-for="task in realtime" :key="task.id" class="service-realtime-mobile-item">
-              <dl class="service-realtime-mobile-details">
-                <div>
-                  <dt>Node</dt>
-                  <dd><code>{{ task.node_name || task.node || "n/a" }}</code></dd>
-                </div>
-                <div>
-                  <dt>Current state</dt>
-                  <dd>{{ task.current_state || "n/a" }}</dd>
-                </div>
-                <div>
-                  <dt>Created at</dt>
-                  <dd>{{ formatDate(task.created_at) }}</dd>
-                </div>
-                <div>
-                  <dt>Updated at</dt>
-                  <dd>{{ formatDate(task.updated_at) }}</dd>
-                </div>
-                <div v-if="task.error" class="service-realtime-mobile-error">
-                  <dt>Error</dt>
-                  <dd>{{ task.error }}</dd>
-                </div>
-              </dl>
-              <button
-                type="button"
-                class="service-realtime-mobile-logs"
-                :disabled="!task.id"
-                @click="openTaskLogs(task.id)"
-              >
-                Logs
-              </button>
+              <div class="service-realtime-mobile-head">
+                <span class="service-realtime-mobile-state" :class="realtimeStateClass(task.current_state)">
+                  <span class="service-realtime-mobile-state-dot" aria-hidden="true" />
+                  {{ task.current_state || "n/a" }}
+                </span>
+                <button
+                  type="button"
+                  class="service-realtime-mobile-logs"
+                  :disabled="!task.id"
+                  @click="openTaskLogs(task.id)"
+                >
+                  Logs
+                </button>
+              </div>
+              <code class="service-realtime-mobile-node">{{ task.node_name || task.node || "n/a" }}</code>
+              <span class="service-realtime-mobile-updated">Updated {{ formatDate(task.updated_at) }}</span>
+              <p v-if="task.error" class="service-realtime-mobile-error">{{ task.error }}</p>
             </li>
           </ul>
         </article>

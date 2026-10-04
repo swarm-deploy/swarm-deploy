@@ -116,12 +116,42 @@ describe("ServiceView", () => {
     expect(wrapper.get(".service-labels-modal-card").element.parentElement?.classList.contains("hidden")).toBe(true);
   });
 
+  it("does not show No labels when only system labels are available", async () => {
+    apiMocks.fetchServiceStatus.mockResolvedValue({
+      stack: "infra",
+      service: "api",
+      links: [],
+      spec: {
+        image: "registry.example.com/infra/api:latest",
+        mode: "replicated",
+        replicas: 1,
+        requested_ram_bytes: 0,
+        requested_cpu_nano: 0,
+        limit_ram_bytes: 0,
+        limit_cpu_nano: 0,
+        labels: {
+          docker: { "com.docker.stack.namespace": "infra" },
+          swarm_deploy: { "org.swarm-deploy.service.type": "application" },
+        },
+      },
+    });
+
+    const wrapper = await mountServiceView();
+
+    expect(wrapper.findAll(".service-label-chip")).toHaveLength(0);
+    expect(wrapper.get(".service-labels-show-all").text()).toBe("Show all (2)");
+    expect(wrapper.get(".service-labels-row").text()).not.toContain("No labels.");
+  });
+
   it("renders a compact mobile task view without the copy action", async () => {
     const wrapper = await mountServiceView();
     const mobileTask = wrapper.get(".service-realtime-mobile-item");
 
     expect(mobileTask.text()).toContain("manager-1");
     expect(mobileTask.text()).toContain("running");
+    expect(mobileTask.text()).toContain("Updated");
+    expect(mobileTask.text()).not.toContain("Created");
+    expect(mobileTask.find("dl").exists()).toBe(false);
     expect(mobileTask.get(".service-realtime-mobile-logs").text()).toBe("Logs");
     expect(mobileTask.find(".service-copy-task-id-button").exists()).toBe(false);
     expect(wrapper.find(".service-realtime-desktop .service-copy-task-id-button").exists()).toBe(true);
