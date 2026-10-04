@@ -765,11 +765,25 @@ body {
   .sidebar-settings-menu,
   .sidebar.collapsed .sidebar-settings-menu {
     position: fixed;
-    top: 112px;
-    right: 14px;
+    top: 66px;
+    right: 8px;
     bottom: auto;
     left: auto;
-    width: min(220px, calc(100vw - 28px));
+    width: min(280px, calc(100vw - 16px));
+  }
+
+  .sidebar-settings-header {
+    padding: 8px 10px 10px;
+  }
+
+  .sidebar-settings-header strong {
+    display: block;
+    max-width: 100%;
+  }
+
+  .theme-option {
+    min-height: 40px;
+    padding: 9px 10px;
   }
 
   .sidebar-link {
