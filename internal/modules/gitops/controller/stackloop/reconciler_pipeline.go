@@ -183,7 +183,7 @@ func (r *Reconciler) writeRenderedCompose(_ context.Context, payload *pipelinePa
 }
 
 func (r *Reconciler) deployStack(ctx context.Context, payload *pipelinePayload) error {
-	return r.deployer.DeployStack(ctx, payload.Stack.Name, payload.Desired.Path, payload.Desired.Compose.Services)
+	return r.deployer.DeployStack(ctx, payload.Stack.Name, payload.Desired.Path, payload.Desired.Compose)
 }
 
 func (r *Reconciler) normalizeRenderedObjectFilePaths(file *compose.File) {

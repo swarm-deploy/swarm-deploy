@@ -4,6 +4,8 @@ Init jobs run before `docker stack deploy`:
 - in service networks,
 - with an attempt to attach service and job secrets/configs.
 
+Before init jobs are started, swarm-deploy reconciles all referenced Docker configs and secrets and resolves their Docker IDs. Regular services later reuse the same resolved resources.
+
 ```yaml
 services:
   api:
