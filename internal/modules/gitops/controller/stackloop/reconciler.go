@@ -87,11 +87,12 @@ func (r *Reconciler) Reconcile(
 	prev, hasPrev := r.currentStackState(req.Stack.Name)
 
 	pl := &pipelinePayload{
-		Stack:        req.Stack,
-		Commit:       req.Commit,
-		IsNewDigest:  !hasPrev || prev.SourceDigest != desiredState.Digest,
-		IsManualSync: req.IsManual,
-		Desired:      desiredState,
+		Stack:             req.Stack,
+		Commit:            req.Commit,
+		IsNewDigest:       !hasPrev || prev.SourceDigest != desiredState.Digest,
+		IsManualSync:      req.IsManual,
+		Desired:           desiredState,
+		DeployComposePath: desiredState.Path,
 	}
 
 	err = r.pipeline.Run(ctx, pl)

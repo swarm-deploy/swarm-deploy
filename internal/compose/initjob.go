@@ -9,6 +9,7 @@ import (
 type InitJob struct {
 	Name        string           `yaml:"name" json:"name"`
 	Image       string           `yaml:"image" json:"image"`
+	Entrypoint  []string         `yaml:"entrypoint" json:"entrypoint,omitempty"`
 	Command     []string         `yaml:"command" json:"command"`
 	Environment Environment      `yaml:"environment" json:"environment,omitempty"`
 	Networks    *ServiceNetworks `yaml:"networks" json:"networks,omitempty"`

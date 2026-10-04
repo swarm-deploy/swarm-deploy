@@ -17,7 +17,8 @@ services:
     x-init-deploy-jobs:
       - name: migrate
         image: ghcr.io/company/api:v1.24.0
-        command: ["./bin/migrate", "up"]
+        entrypoint: ["/bin/sh", "-c"]
+        command: ["./bin/migrate up"]
         timeout: 5m
         environment:
           APP_ENV: production

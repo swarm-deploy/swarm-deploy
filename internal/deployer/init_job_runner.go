@@ -194,7 +194,8 @@ func (r *InitJobRunner) buildInitServiceSpec(
 ) (dockerswarm.ServiceSpec, error) {
 	containerSpec := &dockerswarm.ContainerSpec{
 		Image:   spec.Job.Image,
-		Command: spec.Job.Command,
+		Command: spec.Job.Entrypoint,
+		Args:    spec.Job.Command,
 	}
 
 	if len(spec.Job.Environment.Map) > 0 {
