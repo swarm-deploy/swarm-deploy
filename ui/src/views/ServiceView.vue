@@ -37,8 +37,7 @@ const logsError = ref("");
 const logsEnded = ref(false);
 const logsViewer = ref<HTMLElement | null>(null);
 const logsAutoScroll = ref(true);
-const showDockerLabels = ref(false);
-const showSwarmDeployLabels = ref(false);
+const labelsModalOpen = ref(false);
 const secretDetailsStore = useSecretDetailsStore();
 const overviewStore = useOverviewStore();
 
@@ -56,9 +55,36 @@ function sortedLabelEntries(labels: Record<string, string> | undefined): Array<[
 
   return Object.entries(labels).sort(([left], [right]) => left.localeCompare(right));
 }
+function mergeLabelEntries(...groups: Array<Array<[string, string]>>): Array<[string, string]> {
+  return Array.from(new Map(groups.flat()).entries())
+    .sort(([left], [right]) => left.localeCompare(right));
+}
 const customServiceLabels = computed(() => sortedLabelEntries(serviceSpec.value?.labels?.custom));
 const dockerServiceLabels = computed(() => sortedLabelEntries(serviceSpec.value?.labels?.docker));
 const swarmDeployServiceLabels = computed(() => sortedLabelEntries(serviceSpec.value?.labels?.swarm_deploy));
+const inlineServiceLabels = computed(() =>
+  customServiceLabels.value.filter(([key]) => !isDockerLabel(key) && !isSwarmDeployLabel(key) && !isOtherSystemLabel(key)),
+);
+const modalDockerServiceLabels = computed(() => mergeLabelEntries(
+  dockerServiceLabels.value,
+  customServiceLabels.value.filter(([key]) => isDockerLabel(key)),
+));
+const modalSwarmDeployServiceLabels = computed(() => mergeLabelEntries(
+  swarmDeployServiceLabels.value,
+  customServiceLabels.value.filter(([key]) => isSwarmDeployLabel(key)),
+));
+const otherServiceLabels = computed(() =>
+  customServiceLabels.value.filter(([key]) => isOtherSystemLabel(key)),
+);
+const serviceLabelGroups = computed(() => [
+  { name: "Custom", labels: inlineServiceLabels.value },
+  { name: "Docker", labels: modalDockerServiceLabels.value },
+  { name: "Swarm Deploy", labels: modalSwarmDeployServiceLabels.value },
+  { name: "Other", labels: otherServiceLabels.value },
+].filter((group) => group.labels.length > 0));
+const serviceLabelCount = computed(() =>
+  serviceLabelGroups.value.reduce((total, group) => total + group.labels.length, 0),
+);
 const serviceSecrets = computed(() => {
   const secrets = serviceSpec.value?.secrets;
   return Array.isArray(secrets) ? secrets : [];
@@ -104,6 +130,18 @@ const realtime = computed(() => {
   const items = realtimeTasks.value;
   return Array.isArray(items) ? items : [];
 });
+
+function isDockerLabel(key: string): boolean {
+  return key.startsWith("com.docker.");
+}
+
+function isSwarmDeployLabel(key: string): boolean {
+  return key.startsWith("org.swarm-deploy.");
+}
+
+function isOtherSystemLabel(key: string): boolean {
+  return key === "prometheus.port";
+}
 
 function deploymentStatusClass(status: ServiceDeploymentResponse["status"]): string {
   return status;
@@ -153,12 +191,12 @@ function openSecretDetails(secretName: string): void {
   void secretDetailsStore.openSecretDetails(secretName);
 }
 
-function toggleDockerLabels(): void {
-  showDockerLabels.value = !showDockerLabels.value;
+function openLabelsModal(): void {
+  labelsModalOpen.value = true;
 }
 
-function toggleSwarmDeployLabels(): void {
-  showSwarmDeployLabels.value = !showSwarmDeployLabels.value;
+function closeLabelsModal(): void {
+  labelsModalOpen.value = false;
 }
 
 function closeTaskLogsStream(): void {
@@ -261,7 +299,13 @@ function openTaskLogs(taskID: string): void {
 }
 
 function handleEscape(event: KeyboardEvent): void {
-  if (event.key === "Escape" && logsModalOpen.value) {
+  if (event.key !== "Escape") {
+    return;
+  }
+
+  if (labelsModalOpen.value) {
+    closeLabelsModal();
+  } else if (logsModalOpen.value) {
     closeTaskLogsModal();
   }
 }
@@ -363,8 +407,7 @@ watch(
   [stackName, serviceName],
   () => {
     closeTaskLogsModal();
-    showDockerLabels.value = false;
-    showSwarmDeployLabels.value = false;
+    closeLabelsModal();
     void loadServiceDetails();
     void loadServiceDeployments();
     void loadServiceRealtime();
@@ -446,65 +489,25 @@ onUnmounted(() => {
               <tr>
                 <th scope="row">Labels</th>
                 <td>
-                  <ul v-if="customServiceLabels.length > 0" class="event-details">
-                    <li v-for="[key, value] in customServiceLabels" :key="key" class="event-detail">
-                      <span class="event-detail-key">{{ key }}</span>
-                      <code class="event-detail-value">{{ value }}</code>
-                    </li>
-                  </ul>
-                  <span v-else class="meta">No labels.</span>
-                </td>
-              </tr>
-              <tr v-if="dockerServiceLabels.length > 0">
-                <th scope="row">Docker Labels</th>
-                <td>
-                  <ul class="event-details">
-                    <li class="event-detail">
-                      <button
-                        type="button"
-                        class="service-secret-badge status unknown"
-                        :aria-expanded="showDockerLabels ? 'true' : 'false'"
-                        @click="toggleDockerLabels"
-                      >
-                        {{ showDockerLabels ? "Hide" : "Show" }}
-                      </button>
-                    </li>
-                  </ul>
-                  <ul
-                    v-if="showDockerLabels"
-                    class="event-details service-details-hidden-tags"
-                  >
-                    <li v-for="[key, value] in dockerServiceLabels" :key="key" class="event-detail">
-                      <span class="event-detail-key">{{ key }}</span>
-                      <code class="event-detail-value">{{ value }}</code>
-                    </li>
-                  </ul>
-                </td>
-              </tr>
-              <tr v-if="swarmDeployServiceLabels.length > 0">
-                <th scope="row">SwarmDeploy Labels</th>
-                <td>
-                  <ul class="event-details">
-                    <li class="event-detail">
-                      <button
-                        type="button"
-                        class="service-secret-badge status unknown"
-                        :aria-expanded="showSwarmDeployLabels ? 'true' : 'false'"
-                        @click="toggleSwarmDeployLabels"
-                      >
-                        {{ showSwarmDeployLabels ? "Hide" : "Show" }}
-                      </button>
-                    </li>
-                  </ul>
-                  <ul
-                    v-if="showSwarmDeployLabels"
-                    class="event-details service-details-hidden-tags"
-                  >
-                    <li v-for="[key, value] in swarmDeployServiceLabels" :key="key" class="event-detail">
-                      <span class="event-detail-key">{{ key }}</span>
-                      <code class="event-detail-value">{{ value }}</code>
-                    </li>
-                  </ul>
+                  <div class="service-labels-row">
+                    <div class="service-labels-inline">
+                      <code
+                        v-for="[key, value] in inlineServiceLabels"
+                        :key="key"
+                        class="service-label-chip"
+                        :title="`${key}=${value}`"
+                      >{{ key }}={{ value }}</code>
+                      <span v-if="inlineServiceLabels.length === 0" class="meta">No labels.</span>
+                    </div>
+                    <button
+                      v-if="serviceLabelCount > 0"
+                      type="button"
+                      class="service-labels-show-all"
+                      @click="openLabelsModal"
+                    >
+                      Show all ({{ serviceLabelCount }})
+                    </button>
+                  </div>
                 </td>
               </tr>
               <tr>
@@ -545,7 +548,14 @@ onUnmounted(() => {
           <AppTableEmpty v-if="realtimeLoading" message="Loading realtime..." />
           <AppTableEmpty v-else-if="realtimeError">Failed to load realtime: {{ realtimeError }}</AppTableEmpty>
           <AppTableEmpty v-else-if="realtime.length === 0" message="No tasks yet." />
-          <AppTable v-else fixed min-width="820px" table-class="service-realtime-table" aria-label="Service realtime">
+          <AppTable
+            v-else
+            fixed
+            min-width="820px"
+            table-class="service-realtime-table"
+            wrap-class="service-realtime-desktop"
+            aria-label="Service realtime"
+          >
             <template #head>
               <tr>
                 <th>ID</th>
@@ -603,6 +613,40 @@ onUnmounted(() => {
                 </td>
               </tr>
           </AppTable>
+          <ul v-if="!realtimeLoading && !realtimeError && realtime.length > 0" class="service-realtime-mobile">
+            <li v-for="task in realtime" :key="task.id" class="service-realtime-mobile-item">
+              <dl class="service-realtime-mobile-details">
+                <div>
+                  <dt>Node</dt>
+                  <dd><code>{{ task.node_name || task.node || "n/a" }}</code></dd>
+                </div>
+                <div>
+                  <dt>Current state</dt>
+                  <dd>{{ task.current_state || "n/a" }}</dd>
+                </div>
+                <div>
+                  <dt>Created at</dt>
+                  <dd>{{ formatDate(task.created_at) }}</dd>
+                </div>
+                <div>
+                  <dt>Updated at</dt>
+                  <dd>{{ formatDate(task.updated_at) }}</dd>
+                </div>
+                <div v-if="task.error" class="service-realtime-mobile-error">
+                  <dt>Error</dt>
+                  <dd>{{ task.error }}</dd>
+                </div>
+              </dl>
+              <button
+                type="button"
+                class="service-realtime-mobile-logs"
+                :disabled="!task.id"
+                @click="openTaskLogs(task.id)"
+              >
+                Logs
+              </button>
+            </li>
+          </ul>
         </article>
       </div>
 
@@ -687,6 +731,27 @@ onUnmounted(() => {
             </li>
           </ul>
         </article>
+      </div>
+    </div>
+
+    <div class="modal" :class="{ hidden: !labelsModalOpen }" :aria-hidden="!labelsModalOpen">
+      <div class="modal-overlay" @click="closeLabelsModal" />
+      <div class="modal-card service-labels-modal-card" role="dialog" aria-modal="true" aria-labelledby="service-labels-title">
+        <div class="modal-header">
+          <h2 id="service-labels-title">Service labels</h2>
+          <button class="modal-close" type="button" aria-label="Close modal" @click="closeLabelsModal">x</button>
+        </div>
+        <div class="modal-body service-labels-modal-body">
+          <section v-for="group in serviceLabelGroups" :key="group.name" class="service-labels-group">
+            <h3>{{ group.name }}</h3>
+            <dl class="service-labels-list">
+              <div v-for="[key, value] in group.labels" :key="key" class="service-labels-list-item">
+                <dt><code>{{ key }}</code></dt>
+                <dd><code>{{ value }}</code></dd>
+              </div>
+            </dl>
+          </section>
+        </div>
       </div>
     </div>
 
