@@ -118,7 +118,7 @@ function selectTheme(theme: ThemeMode) {
             :to="link.to"
             class="sidebar-link"
             :class="{ active: isActive(link.to), 'sidebar-link-overview': link.to === '/overview' }"
-            :aria-label="collapsed ? link.label : undefined"
+            :aria-label="link.label"
             :data-tooltip="link.label"
           >
             <SidebarIcon :name="link.icon" />
@@ -133,14 +133,14 @@ function selectTheme(theme: ThemeMode) {
             :to="link.to"
             class="sidebar-link"
             :class="{ active: isActive(link.to) }"
-            :aria-label="collapsed ? link.label : undefined"
+            :aria-label="link.label"
             :data-tooltip="link.label"
           >
             <SidebarIcon :name="link.icon" />
             <span class="sidebar-label">{{ link.label }}</span>
           </RouterLink>
           <details ref="userMenuRef" class="sidebar-user-menu">
-            <summary class="sidebar-link sidebar-user" :data-tooltip="currentUserLabel">
+            <summary class="sidebar-link sidebar-user" :data-tooltip="currentUserLabel" :aria-label="currentUserLabel">
               <SidebarIcon name="user" />
               <span class="sidebar-label">{{ currentUserLabel }}</span>
             </summary>
