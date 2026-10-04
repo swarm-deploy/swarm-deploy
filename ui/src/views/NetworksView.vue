@@ -6,6 +6,8 @@ import type { NetworkInfo } from "../api/types";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 
+const VXLAN_ID_OPTION = "com.docker.network.driver.overlay.vxlanid_list";
+
 const loading = ref(false);
 const loadingError = ref("");
 const networks = ref<NetworkInfo[]>([]);
@@ -66,6 +68,22 @@ function mapText(values?: Record<string, string>): string {
     .join(", ");
 }
 
+function vxlanIDText(options?: Record<string, string>): string {
+  return options?.[VXLAN_ID_OPTION] || "n/a";
+}
+
+function optionsText(options?: Record<string, string>): string {
+  const entries = Object.entries(options ?? {}).filter(([key]) => key !== VXLAN_ID_OPTION);
+  if (entries.length === 0) {
+    return "n/a";
+  }
+
+  return entries
+    .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+    .map(([key, value]) => `${key}=${value}`)
+    .join(", ");
+}
+
 onMounted(() => {
   void loadNetworks();
 });
@@ -105,6 +123,7 @@ onMounted(() => {
             <th>Ingress</th>
             <th>Managed</th>
             <th>Labels</th>
+            <th>VXLAN ID</th>
             <th>Options</th>
           </tr>
       </template>
@@ -117,7 +136,8 @@ onMounted(() => {
             <td>{{ boolText(network.ingress) }}</td>
             <td>{{ boolText(network.managed) }}</td>
             <td>{{ mapText(network.labels) }}</td>
-            <td>{{ mapText(network.options) }}</td>
+            <td>{{ vxlanIDText(network.options) }}</td>
+            <td>{{ optionsText(network.options) }}</td>
           </tr>
     </AppTable>
   </section>
