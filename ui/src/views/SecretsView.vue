@@ -17,6 +17,13 @@ const managerFeedback = ref<Record<string, { kind: "success" | "error"; message:
 const searchQuery = ref("");
 const secretDetailsStore = useSecretDetailsStore();
 
+type SortKey = "name" | "description" | "createdAt" | "externalPath" | "externalVersionID";
+type SortDirection = "ascending" | "descending";
+
+const sortKey = ref<SortKey>("name");
+const sortDirection = ref<SortDirection>("ascending");
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
 const normalizedQuery = computed(() => searchQuery.value.trim().toLowerCase());
 
 const showDescriptionColumn = computed(() =>
@@ -43,6 +50,8 @@ const filteredSecrets = computed(() => {
   });
 });
 
+const sortedSecrets = computed(() => [...filteredSecrets.value].sort(compareSecrets));
+
 const cloudSecretManagers = computed(() =>
   secretManagers.value.filter((manager) => manager.kind === "cloud-secrets"),
 );
@@ -51,15 +60,59 @@ const managedSecretCount = computed(() => secrets.value.filter((secret) => (
   Boolean(secret.external?.path || secret.external?.version_id)
 )).length);
 
-function sortSecrets(items: SecretInfo[]): SecretInfo[] {
-  return [...items].sort((left, right) => {
-    const byName = left.name.localeCompare(right.name);
-    if (byName !== 0) {
-      return byName;
+function sortableValue(secret: SecretInfo, key: SortKey): string | number | null {
+  switch (key) {
+    case "name":
+      return secret.name.trim() || null;
+    case "description":
+      return secret.description?.trim() || null;
+    case "createdAt": {
+      const timestamp = Date.parse(secret.created_at);
+      return Number.isNaN(timestamp) ? null : timestamp;
     }
+    case "externalPath":
+      return secret.external?.path?.trim() || null;
+    case "externalVersionID":
+      return secret.external?.version_id?.trim() || null;
+  }
+}
 
-    return left.version_id - right.version_id;
-  });
+function compareNullable(left: string | number | null, right: string | number | null): number {
+  if (left === null) return right === null ? 0 : 1;
+  if (right === null) return -1;
+  if (typeof left === "number" && typeof right === "number") return left - right;
+  return collator.compare(String(left), String(right));
+}
+
+function compareSecrets(left: SecretInfo, right: SecretInfo): number {
+  const leftValue = sortableValue(left, sortKey.value);
+  const rightValue = sortableValue(right, sortKey.value);
+  const comparison = compareNullable(leftValue, rightValue);
+  if (comparison !== 0) {
+    if (leftValue === null || rightValue === null) return comparison;
+    return sortDirection.value === "ascending" ? comparison : -comparison;
+  }
+
+  return collator.compare(left.name, right.name) || left.version_id - right.version_id || collator.compare(left.id, right.id);
+}
+
+function changeSort(key: SortKey): void {
+  if (sortKey.value === key) {
+    sortDirection.value = sortDirection.value === "ascending" ? "descending" : "ascending";
+    return;
+  }
+
+  sortKey.value = key;
+  sortDirection.value = "ascending";
+}
+
+function ariaSort(key: SortKey): SortDirection | "none" {
+  return sortKey.value === key ? sortDirection.value : "none";
+}
+
+function sortIndicator(key: SortKey): string {
+  if (sortKey.value !== key) return "↕";
+  return sortDirection.value === "ascending" ? "↑" : "↓";
 }
 
 async function loadSecrets() {
@@ -68,7 +121,7 @@ async function loadSecrets() {
 
   try {
     const response = await fetchSecrets();
-    secrets.value = sortSecrets(Array.isArray(response.secrets) ? response.secrets : []);
+    secrets.value = Array.isArray(response.secrets) ? response.secrets : [];
   } catch (error) {
     loadingError.value = error instanceof Error ? error.message : "Failed to load secrets";
     secrets.value = [];
@@ -174,15 +227,35 @@ function formatDate(value: string): string {
     <AppTable v-else fixed :min-width="showDescriptionColumn ? '900px' : '720px'">
       <template #head>
           <tr>
-            <th>Name</th>
-            <th v-if="showDescriptionColumn">Description</th>
-            <th>Date Added</th>
-            <th>External Path</th>
-            <th>External Version ID</th>
+            <th :aria-sort="ariaSort('name')">
+              <button class="app-table-sort" type="button" @click="changeSort('name')">
+                Name <span class="app-table-sort-indicator" aria-hidden="true">{{ sortIndicator('name') }}</span>
+              </button>
+            </th>
+            <th v-if="showDescriptionColumn" :aria-sort="ariaSort('description')">
+              <button class="app-table-sort" type="button" @click="changeSort('description')">
+                Description <span class="app-table-sort-indicator" aria-hidden="true">{{ sortIndicator('description') }}</span>
+              </button>
+            </th>
+            <th :aria-sort="ariaSort('createdAt')">
+              <button class="app-table-sort" type="button" @click="changeSort('createdAt')">
+                Date Added <span class="app-table-sort-indicator" aria-hidden="true">{{ sortIndicator('createdAt') }}</span>
+              </button>
+            </th>
+            <th :aria-sort="ariaSort('externalPath')">
+              <button class="app-table-sort" type="button" @click="changeSort('externalPath')">
+                External Path <span class="app-table-sort-indicator" aria-hidden="true">{{ sortIndicator('externalPath') }}</span>
+              </button>
+            </th>
+            <th :aria-sort="ariaSort('externalVersionID')">
+              <button class="app-table-sort" type="button" @click="changeSort('externalVersionID')">
+                External Version ID <span class="app-table-sort-indicator" aria-hidden="true">{{ sortIndicator('externalVersionID') }}</span>
+              </button>
+            </th>
           </tr>
       </template>
           <tr
-            v-for="secret in filteredSecrets"
+            v-for="secret in sortedSecrets"
             :key="secret.id"
             class="app-table-row--clickable"
             tabindex="0"
