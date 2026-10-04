@@ -1183,14 +1183,13 @@ a.overview-summary-row:focus-visible {
   min-width: 0;
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
   gap: 10px;
 }
 
 .service-labels-inline {
   min-width: 0;
   display: flex;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   flex-wrap: wrap;
   gap: 6px;
 }
@@ -1265,15 +1264,10 @@ a.overview-summary-row:focus-visible {
     padding-left: 6px;
   }
 
-  .service-realtime-desktop {
-    display: none;
-  }
-
   .service-realtime-mobile {
     margin: 0;
     padding: 0;
     list-style: none;
-    display: grid;
   }
 
   .service-realtime-mobile-item {
@@ -2853,6 +2847,16 @@ a.overview-summary-row:focus-visible {
 
 .service-realtime-mobile {
   display: none;
+}
+
+@container service-details-page (max-width: 760px) {
+  .service-realtime-desktop {
+    display: none;
+  }
+
+  .service-realtime-mobile {
+    display: grid;
+  }
 }
 
 .service-copy-task-id-button {
