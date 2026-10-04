@@ -548,11 +548,12 @@ func toGeneratedSecrets(secrets []secretmodel.Secret) []generated.SecretInfo {
 	mapped := make([]generated.SecretInfo, 0, len(secrets))
 	for _, secret := range secrets {
 		item := generated.SecretInfo{
-			ID:        secret.ID,
-			Name:      secret.Name,
-			VersionID: toInt64FromUint64(secret.VersionID),
-			CreatedAt: secret.CreatedAt,
-			External:  toGeneratedSecretExternal(secret.ExternalPath, secret.ExternalVersionID),
+			ID:          secret.ID,
+			Name:        secret.Name,
+			Description: toOptString(secret.Description),
+			VersionID:   toInt64FromUint64(secret.VersionID),
+			CreatedAt:   secret.CreatedAt,
+			External:    toGeneratedSecretExternal(secret.ExternalPath, secret.ExternalVersionID),
 		}
 
 		mapped = append(mapped, item)

@@ -308,6 +308,7 @@ export interface SecretExternalInfo {
 export interface SecretInfo {
   id: string;
   name: string;
+  description?: string;
   version_id: number;
   created_at: string;
   external?: SecretExternalInfo;

@@ -2927,11 +2927,12 @@ func (s *SecretExternalInfo) SetVersionID(val OptString) {
 
 // Ref: #/components/schemas/SecretInfo
 type SecretInfo struct {
-	ID        string                `json:"id"`
-	Name      string                `json:"name"`
-	VersionID int64                 `json:"version_id"`
-	CreatedAt time.Time             `json:"created_at"`
-	External  OptSecretExternalInfo `json:"external"`
+	ID          string                `json:"id"`
+	Name        string                `json:"name"`
+	Description OptString             `json:"description"`
+	VersionID   int64                 `json:"version_id"`
+	CreatedAt   time.Time             `json:"created_at"`
+	External    OptSecretExternalInfo `json:"external"`
 }
 
 // GetID returns the value of ID.
@@ -2942,6 +2943,11 @@ func (s *SecretInfo) GetID() string {
 // GetName returns the value of Name.
 func (s *SecretInfo) GetName() string {
 	return s.Name
+}
+
+// GetDescription returns the value of Description.
+func (s *SecretInfo) GetDescription() OptString {
+	return s.Description
 }
 
 // GetVersionID returns the value of VersionID.
@@ -2967,6 +2973,11 @@ func (s *SecretInfo) SetID(val string) {
 // SetName sets the value of Name.
 func (s *SecretInfo) SetName(val string) {
 	s.Name = val
+}
+
+// SetDescription sets the value of Description.
+func (s *SecretInfo) SetDescription(val OptString) {
+	s.Description = val
 }
 
 // SetVersionID sets the value of VersionID.
