@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/docker/docker/api/types/filters"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -60,7 +61,9 @@ func (r *resourceReconciler) reconcileConfigs(
 		return resolved, nil
 	}
 
-	existing, listErr := r.dockerClient.ConfigList(ctx, dockerswarm.ConfigListOptions{})
+	existing, listErr := r.dockerClient.ConfigList(ctx, dockerswarm.ConfigListOptions{
+		Filters: resourceNameFilters(stackName, objects),
+	})
 	if listErr != nil {
 		return nil, fmt.Errorf("list configs: %w", listErr)
 	}
@@ -117,7 +120,9 @@ func (r *resourceReconciler) reconcileSecrets(
 		return resolved, nil
 	}
 
-	existing, listErr := r.dockerClient.SecretList(ctx, dockerswarm.SecretListOptions{})
+	existing, listErr := r.dockerClient.SecretList(ctx, dockerswarm.SecretListOptions{
+		Filters: resourceNameFilters(stackName, objects),
+	})
 	if listErr != nil {
 		return nil, fmt.Errorf("list secrets: %w", listErr)
 	}
@@ -184,6 +189,14 @@ func secretsByName(secrets []dockerswarm.Secret) map[string]dockerswarm.Secret {
 		byName[secret.Spec.Name] = secret
 	}
 	return byName
+}
+
+func resourceNameFilters(stackName string, objects compose.SharedObjects) filters.Args {
+	result := filters.NewArgs()
+	for _, alias := range sortedObjectAliases(objects) {
+		result.Add("name", dockerResourceName(stackName, alias, objects[alias]))
+	}
+	return result
 }
 
 func resourceLabels(stackName string, labels map[string]string) map[string]string {
