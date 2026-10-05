@@ -185,12 +185,12 @@ type storeInfo struct {
 func (i storeInfo) toInfo() Info {
 	return Info{
 		Metadata: metadata.Metadata{
-			KnownApp:            i.KnownApp,
-			Description:         i.Description,
-			Type:                i.Type,
-			RepositoryURL:       i.RepositoryURL,
-			RepositoryProvider:  i.RepositoryProvider,
-			Links:               i.Links,
+			KnownApp:           i.KnownApp,
+			Description:        i.Description,
+			Type:               i.Type,
+			RepositoryURL:      i.RepositoryURL,
+			RepositoryProvider: i.RepositoryProvider,
+			Links:              i.Links,
 		},
 		Name:        i.Name,
 		Stack:       i.Stack,
@@ -205,18 +205,18 @@ func storeInfosFromServiceInfos(infos []Info) []storeInfo {
 	rows := make([]storeInfo, 0, len(infos))
 	for _, info := range infos {
 		rows = append(rows, storeInfo{
-			KnownApp:            info.KnownApp,
-			Description:         info.Description,
-			Type:                info.Type,
-			RepositoryURL:       info.RepositoryURL,
-			RepositoryProvider:  info.RepositoryProvider,
-			Links:               info.Links,
-			Name:                info.Name,
-			Stack:               info.Stack,
-			Image:               info.Image,
-			Environment:         info.Environment,
-			Spec:                info.Spec,
-			WebRoutes:           info.WebRoutes,
+			KnownApp:           info.KnownApp,
+			Description:        info.Description,
+			Type:               info.Type,
+			RepositoryURL:      info.RepositoryURL,
+			RepositoryProvider: info.RepositoryProvider,
+			Links:              info.Links,
+			Name:               info.Name,
+			Stack:              info.Stack,
+			Image:              info.Image,
+			Environment:        info.Environment,
+			Spec:               info.Spec,
+			WebRoutes:          info.WebRoutes,
 		})
 	}
 	return rows
