@@ -43,7 +43,8 @@ func (r *RepositoryResolver) resolve(labels Labels) (string, string) {
 		}
 
 		if rawValue := validRepositoryURL(scope[labelsdict.SourceRepository]); rawValue != "" {
-			return rawValue, strings.TrimSpace(scope[labelsdict.SourceProvider])
+			provider := strings.ToLower(strings.TrimSpace(scope[labelsdict.SourceProvider]))
+			return rawValue, provider
 		}
 	}
 
