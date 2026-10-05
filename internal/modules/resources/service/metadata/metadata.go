@@ -14,6 +14,8 @@ type Metadata struct {
 	Type serviceType.Type `json:"type"`
 	// RepositoryURL is a source repository URL resolved from service labels.
 	RepositoryURL string `json:"repository_url"`
+	// RepositoryProvider identifies the source repository provider when known.
+	RepositoryProvider string `json:"repository_provider,omitempty"`
 	// Links is a list of additional service-related links resolved from service labels.
 	Links []Link `json:"links"`
 }
