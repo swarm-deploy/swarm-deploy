@@ -7,10 +7,83 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 )
 
-func TestResolveRepositoryURL(t *testing.T) {
+func TestResolveRepository(t *testing.T) {
 	extractor := NewRepositoryResolver()
 
-	t.Run("uses label priority order", func(t *testing.T) {
+	t.Run("uses generic repository and provider", func(t *testing.T) {
+		labels := Labels{
+			Service: map[string]string{
+				labelsdict.SourceRepository: "https://github.com/acme/api",
+				labelsdict.SourceProvider:   "github",
+			},
+		}
+
+		url, provider := extractor.resolve(labels)
+
+		assert.Equal(t, "https://github.com/acme/api", url)
+		assert.Equal(t, "github", provider)
+	})
+
+	t.Run("generic labels take precedence over deprecated labels", func(t *testing.T) {
+		labels := Labels{
+			Service: map[string]string{
+				labelsdict.SourceRepository: "https://example.com/acme/api",
+				labelsdict.SourceProvider:   "gitea",
+				labelsdict.GitHubRepository: "https://github.com/acme/api",
+			},
+		}
+
+		url, provider := extractor.resolve(labels)
+
+		assert.Equal(t, "https://example.com/acme/api", url)
+		assert.Equal(t, "gitea", provider)
+	})
+
+	t.Run("uses scope priority for generic labels", func(t *testing.T) {
+		labels := Labels{
+			Service: map[string]string{
+				labelsdict.SourceRepository: "https://service.example/repo",
+				labelsdict.SourceProvider:   "service-provider",
+			},
+			Container: map[string]string{
+				labelsdict.SourceRepository: "https://container.example/repo",
+				labelsdict.SourceProvider:   "container-provider",
+			},
+		}
+
+		url, provider := extractor.resolve(labels)
+
+		assert.Equal(t, "https://service.example/repo", url)
+		assert.Equal(t, "service-provider", provider)
+	})
+
+	t.Run("supports generic repository without provider", func(t *testing.T) {
+		labels := Labels{
+			Service: map[string]string{
+				labelsdict.SourceRepository: "https://example.com/acme/api",
+			},
+		}
+
+		url, provider := extractor.resolve(labels)
+
+		assert.Equal(t, "https://example.com/acme/api", url)
+		assert.Empty(t, provider)
+	})
+
+	t.Run("supports deprecated provider labels and infers provider", func(t *testing.T) {
+		labels := Labels{
+			Service: map[string]string{
+				labelsdict.GitHubRepository: "https://github.com/acme/api",
+			},
+		}
+
+		url, provider := extractor.resolve(labels)
+
+		assert.Equal(t, "https://github.com/acme/api", url)
+		assert.Equal(t, "github", provider)
+	})
+
+	t.Run("keeps legacy label priority", func(t *testing.T) {
 		labels := Labels{
 			Service: map[string]string{
 				labelsdict.GitHubRepository: "org/example-github",
@@ -18,39 +91,10 @@ func TestResolveRepositoryURL(t *testing.T) {
 			},
 		}
 
-		resolved := extractor.resolveURL(labels)
+		url, provider := extractor.resolve(labels)
 
-		assert.Equal(t, "org/example-gitlab", resolved, "unexpected repository URL")
-	})
-
-	t.Run("uses scope priority for same label key", func(t *testing.T) {
-		labels := Labels{
-			Service: map[string]string{
-				labelsdict.GitHubRepository: "service/repo",
-			},
-			Container: map[string]string{
-				labelsdict.GitHubRepository: "container/repo",
-			},
-			Image: map[string]string{
-				labelsdict.GitHubRepository: "image/repo",
-			},
-		}
-
-		resolved := extractor.resolveURL(labels)
-
-		assert.Equal(t, "service/repo", resolved, "unexpected repository URL")
-	})
-
-	t.Run("returns provider value as-is", func(t *testing.T) {
-		labels := Labels{
-			Service: map[string]string{
-				labelsdict.BitbucketRepository: "bitbucket.org/team/repo",
-			},
-		}
-
-		resolved := extractor.resolveURL(labels)
-
-		assert.Equal(t, "bitbucket.org/team/repo", resolved, "unexpected repository URL")
+		assert.Equal(t, "org/example-gitlab", url)
+		assert.Equal(t, "gitlab", provider)
 	})
 
 	t.Run("uses oci source as fallback", func(t *testing.T) {
@@ -60,38 +104,44 @@ func TestResolveRepositoryURL(t *testing.T) {
 			},
 		}
 
-		resolved := extractor.resolveURL(labels)
+		url, provider := extractor.resolve(labels)
 
-		assert.Equal(t, "github.com/swarmdeployorg/swarm-deploy", resolved, "unexpected repository URL")
+		assert.Equal(t, "github.com/swarmdeployorg/swarm-deploy", url)
+		assert.Empty(t, provider)
 	})
 
 	t.Run("ignores git ssh format", func(t *testing.T) {
 		labels := Labels{
-			Image: map[string]string{
-				labelsdict.OCIImageSource: "git@github.com:swarmdeployorg/swarm-deploy.git",
+			Service: map[string]string{
+				labelsdict.SourceRepository: "git@github.com:swarmdeployorg/swarm-deploy.git",
+				labelsdict.SourceProvider:   "github",
 			},
 		}
 
-		resolved := extractor.resolveURL(labels)
+		url, provider := extractor.resolve(labels)
 
-		assert.Equal(t, "", resolved, "unexpected repository URL")
+		assert.Empty(t, url)
+		assert.Empty(t, provider)
 	})
 
 	t.Run("ignores ssh scheme url", func(t *testing.T) {
 		labels := Labels{
-			Image: map[string]string{
-				labelsdict.OCIImageSource: "ssh://git@github.com/swarmdeployorg/swarm-deploy.git",
+			Service: map[string]string{
+				labelsdict.SourceRepository: "ssh://git@github.com/swarmdeployorg/swarm-deploy.git",
+				labelsdict.SourceProvider:   "github",
 			},
 		}
 
-		resolved := extractor.resolveURL(labels)
+		url, provider := extractor.resolve(labels)
 
-		assert.Equal(t, "", resolved, "unexpected repository URL")
+		assert.Empty(t, url)
+		assert.Empty(t, provider)
 	})
 
 	t.Run("returns empty when no labels found", func(t *testing.T) {
-		resolved := extractor.resolveURL(Labels{})
+		url, provider := extractor.resolve(Labels{})
 
-		assert.Equal(t, "", resolved, "unexpected repository URL")
+		assert.Empty(t, url)
+		assert.Empty(t, provider)
 	})
 }
