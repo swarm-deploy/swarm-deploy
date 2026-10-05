@@ -6,53 +6,71 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 )
 
+type repositorySource struct {
+	label    string
+	provider string
+}
+
 type RepositoryResolver struct {
-	sources []string
+	legacySources []repositorySource
 }
 
 func NewRepositoryResolver() *RepositoryResolver {
 	return &RepositoryResolver{
-		sources: []string{
-			labelsdict.GitLabRepository,
-			labelsdict.GitHubRepository,
-			labelsdict.BitbucketRepository,
-			labelsdict.OCIImageSource,
+		legacySources: []repositorySource{
+			{label: labelsdict.GitLabRepository, provider: "gitlab"},
+			{label: labelsdict.GitHubRepository, provider: "github"},
+			{label: labelsdict.BitbucketRepository, provider: "bitbucket"},
+			{label: labelsdict.OCIImageSource},
 		},
 	}
 }
 
 func (r *RepositoryResolver) Resolve(labels Labels, meta *Metadata) {
-	meta.RepositoryURL = r.resolveURL(labels)
+	meta.RepositoryURL, meta.RepositoryProvider = r.resolve(labels)
 }
 
-// resolveURL resolves repository URL from labels by priority.
-func (r *RepositoryResolver) resolveURL(labels Labels) string {
+func (r *RepositoryResolver) resolve(labels Labels) (string, string) {
 	labelScopes := []map[string]string{
 		labels.Service,
 		labels.Container,
 		labels.Image,
 	}
 
-	for _, source := range r.sources {
+	for _, scope := range labelScopes {
+		if len(scope) == 0 {
+			continue
+		}
+
+		if rawValue := validRepositoryURL(scope[labelsdict.SourceRepository]); rawValue != "" {
+			return rawValue, strings.TrimSpace(scope[labelsdict.SourceProvider])
+		}
+	}
+
+	for _, source := range r.legacySources {
 		for _, scope := range labelScopes {
 			if len(scope) == 0 {
 				continue
 			}
 
-			rawValue, ok := scope[source]
-			if !ok {
-				continue
-			}
-
-			lowerValue := strings.ToLower(rawValue)
-			if strings.HasPrefix(lowerValue, "ssh://") || strings.HasPrefix(rawValue, "git@") {
-				continue
-			}
-			if rawValue != "" {
-				return rawValue
+			if rawValue := validRepositoryURL(scope[source.label]); rawValue != "" {
+				return rawValue, source.provider
 			}
 		}
 	}
 
-	return ""
+	return "", ""
+}
+
+func validRepositoryURL(rawValue string) string {
+	if rawValue == "" {
+		return ""
+	}
+
+	lowerValue := strings.ToLower(rawValue)
+	if strings.HasPrefix(lowerValue, "ssh://") || strings.HasPrefix(rawValue, "git@") {
+		return ""
+	}
+
+	return rawValue
 }
