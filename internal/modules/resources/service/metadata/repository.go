@@ -18,9 +18,10 @@ type RepositoryResolver struct {
 func NewRepositoryResolver() *RepositoryResolver {
 	return &RepositoryResolver{
 		legacySources: []repositorySource{
-			{label: labelsdict.GitLabRepository, provider: "gitlab"},       //nolint:staticcheck // deprecated label remains supported for backward compatibility
-			{label: labelsdict.GitHubRepository, provider: "github"},       //nolint:staticcheck // deprecated label remains supported for backward compatibility
-			{label: labelsdict.BitbucketRepository, provider: "bitbucket"}, //nolint:staticcheck // deprecated label remains supported for backward compatibility
+			// Deprecated provider-specific labels remain supported for backward compatibility.
+			{label: labelsdict.GitLabRepository, provider: "gitlab"}, //nolint:staticcheck
+			{label: labelsdict.GitHubRepository, provider: "github"}, //nolint:staticcheck
+			{label: labelsdict.BitbucketRepository, provider: "bitbucket"}, //nolint:staticcheck
 			{label: labelsdict.OCIImageSource},
 		},
 	}
