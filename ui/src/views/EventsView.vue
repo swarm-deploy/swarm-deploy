@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { fetchEvents } from "../api/overview";
@@ -46,6 +46,7 @@ const selectedSeverity = ref(normalizeSeverityQuery(route.query.severity));
 const sortKey = ref<SortKey>(normalizeSortQuery(route.query.sort));
 const sortDirection = ref<SortDirection>(normalizeSortDirectionQuery(route.query.order));
 const expandedKey = ref("");
+const typeFilter = ref<HTMLDetailsElement | null>(null);
 
 let requestID = 0;
 
@@ -156,6 +157,16 @@ function toggleType(type: string): void {
 
 function clearTypes(): void {
   selectedTypes.value = [];
+}
+
+function handleDocumentClick(event: MouseEvent): void {
+  const filter = typeFilter.value;
+  const target = event.target;
+  if (!filter?.open || !(target instanceof Node) || filter.contains(target)) {
+    return;
+  }
+
+  filter.open = false;
 }
 
 function changeSort(key: SortKey): void {
@@ -291,7 +302,12 @@ watch([selectedTypes, selectedSeverity], () => {
 });
 
 onMounted(() => {
+  document.addEventListener("click", handleDocumentClick);
   void loadEvents();
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener("click", handleDocumentClick);
 });
 </script>
 
@@ -302,7 +318,7 @@ onMounted(() => {
       <div class="events-filter-bar">
         <div class="events-filter-field">
           <span>Type</span>
-          <details class="events-type-filter">
+          <details ref="typeFilter" class="events-type-filter">
             <summary aria-label="Filter events by type">
               <span class="events-type-filter-selection">
                 <span
