@@ -331,6 +331,7 @@ func (r *Reconciler) cleanRotatedResources(ctx context.Context, payload *pipelin
 			slog.String("stack", payload.Stack.Name),
 			slog.Any("error", err),
 		)
+		payload.CleanupResult.Skipped++
 		return nil
 	}
 
@@ -341,6 +342,7 @@ func (r *Reconciler) cleanRotatedResources(ctx context.Context, payload *pipelin
 			slog.String("stack", payload.Stack.Name),
 			slog.Any("error", configsErr),
 		)
+		payload.CleanupResult.Skipped++
 	} else {
 		liveConfigs = loadedConfigs
 	}
@@ -352,12 +354,13 @@ func (r *Reconciler) cleanRotatedResources(ctx context.Context, payload *pipelin
 			slog.String("stack", payload.Stack.Name),
 			slog.Any("error", secretsErr),
 		)
+		payload.CleanupResult.Skipped++
 	} else {
 		liveSecrets = loadedSecrets
 	}
 
 	liveServices := liveServicesAfterPrune(payload.LiveServices, payload.PrunedServices)
-	payload.CleanupResult = r.resourceCleaner.clean(
+	cleanerResult := r.resourceCleaner.clean(
 		ctx,
 		payload.Stack.Name,
 		desiredConfigs,
@@ -366,6 +369,9 @@ func (r *Reconciler) cleanRotatedResources(ctx context.Context, payload *pipelin
 		liveConfigs,
 		liveSecrets,
 	)
+	payload.CleanupResult.Removed += cleanerResult.Removed
+	payload.CleanupResult.Failed += cleanerResult.Failed
+	payload.CleanupResult.Skipped += cleanerResult.Skipped
 
 	return nil
 }
