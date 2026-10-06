@@ -2,7 +2,6 @@ package analyzer
 
 import (
 	"context"
-	"strings"
 	"time"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
@@ -52,7 +51,7 @@ func usesStartFirstUpdate(service compose.Service) bool {
 		return false
 	}
 
-	return strings.EqualFold(strings.TrimSpace(service.Deploy.UpdateConfig.Order), "start-first")
+	return service.Deploy.UpdateConfig.Order == compose.ServiceDeployUpdateOrderStartFirst
 }
 
 func usesHostPublishedPort(service compose.Service) bool {
