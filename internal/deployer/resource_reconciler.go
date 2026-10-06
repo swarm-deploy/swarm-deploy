@@ -34,7 +34,7 @@ func (r *resourceReconciler) Reconcile(
 	configs compose.Configs,
 	secrets compose.Secrets,
 ) (resolvedResources, error) {
-	resolvedConfigs, err := r.reconcileConfigs(ctx, stackName, sourceComposePath, configs)
+	resolvedConfigs, err := r.reconcileConfigs(ctx, stackName, configs)
 	if err != nil {
 		return resolvedResources{}, err
 	}
@@ -53,7 +53,6 @@ func (r *resourceReconciler) Reconcile(
 func (r *resourceReconciler) reconcileConfigs(
 	ctx context.Context,
 	stackName string,
-	sourceComposePath string,
 	objects compose.Configs,
 ) (map[string]ResolvedResource, error) {
 	resolved := make(map[string]ResolvedResource, len(objects))
