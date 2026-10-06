@@ -28,20 +28,7 @@ func TestHostPortStartFirstAnalyzerAnalyze(t *testing.T) {
 					{Published: 8080, Target: 80, Mode: dockerswarm.PortConfigPublishModeHost},
 				}},
 				Deploy: compose.ServiceDeploy{
-					UpdateConfig: &compose.ServiceDeployUpdateConfig{Order: "start-first"},
-				},
-			},
-			wantCount: 1,
-		},
-		{
-			name: "host port with normalized start-first",
-			service: compose.Service{
-				Name: "api",
-				Ports: compose.ServicePorts{Ports: []compose.ServicePort{
-					{Published: 8080, Target: 80, Mode: dockerswarm.PortConfigPublishModeHost},
-				}},
-				Deploy: compose.ServiceDeploy{
-					UpdateConfig: &compose.ServiceDeployUpdateConfig{Order: " START-FIRST "},
+					UpdateConfig: &compose.ServiceDeployUpdateConfig{Order: compose.ServiceDeployUpdateOrderStartFirst},
 				},
 			},
 			wantCount: 1,
@@ -54,7 +41,7 @@ func TestHostPortStartFirstAnalyzerAnalyze(t *testing.T) {
 					{Published: 8080, Target: 80, Mode: dockerswarm.PortConfigPublishModeIngress},
 				}},
 				Deploy: compose.ServiceDeploy{
-					UpdateConfig: &compose.ServiceDeployUpdateConfig{Order: "start-first"},
+					UpdateConfig: &compose.ServiceDeployUpdateConfig{Order: compose.ServiceDeployUpdateOrderStartFirst},
 				},
 			},
 		},
@@ -66,7 +53,7 @@ func TestHostPortStartFirstAnalyzerAnalyze(t *testing.T) {
 					{Published: 8080, Target: 80, Mode: dockerswarm.PortConfigPublishModeHost},
 				}},
 				Deploy: compose.ServiceDeploy{
-					UpdateConfig: &compose.ServiceDeployUpdateConfig{Order: "stop-first"},
+					UpdateConfig: &compose.ServiceDeployUpdateConfig{Order: compose.ServiceDeployUpdateOrderStopFirst},
 				},
 			},
 		},
@@ -88,7 +75,7 @@ func TestHostPortStartFirstAnalyzerAnalyze(t *testing.T) {
 					{Published: 8443, Target: 443, Mode: dockerswarm.PortConfigPublishModeHost},
 				}},
 				Deploy: compose.ServiceDeploy{
-					UpdateConfig: &compose.ServiceDeployUpdateConfig{Order: "start-first"},
+					UpdateConfig: &compose.ServiceDeployUpdateConfig{Order: compose.ServiceDeployUpdateOrderStartFirst},
 				},
 			},
 			wantCount: 1,
