@@ -222,8 +222,8 @@ func stackDeployCompose(desired *compose.File) *compose.File {
 	rendered := *desired
 	rendered.Compose = desired.Compose
 	rendered.Compose.Services = append(compose.Services(nil), desired.Compose.Services...)
-	rendered.Compose.Configs = cloneSharedObjects(desired.Compose.Configs)
-	rendered.Compose.Secrets = cloneSharedObjects(desired.Compose.Secrets)
+	rendered.Compose.Configs = cloneObjects(desired.Compose.Configs)
+	rendered.Compose.Secrets = cloneObjects(desired.Compose.Secrets)
 
 	for i := range rendered.Compose.Services {
 		rendered.Compose.Services[i].InitJobs = nil
@@ -232,12 +232,12 @@ func stackDeployCompose(desired *compose.File) *compose.File {
 	return &rendered
 }
 
-func cloneSharedObjects(objects compose.SharedObjects) compose.SharedObjects {
+func cloneObjects[T any, Objects ~map[string]*T](objects Objects) Objects {
 	if objects == nil {
 		return nil
 	}
 
-	cloned := make(compose.SharedObjects, len(objects))
+	cloned := make(Objects, len(objects))
 	for alias, object := range objects {
 		if object == nil {
 			cloned[alias] = nil
@@ -254,8 +254,8 @@ func cloneSharedObjects(objects compose.SharedObjects) compose.SharedObjects {
 func (r *Reconciler) normalizeRenderedObjectFilePaths(file *compose.File) {
 	baseDir := filepath.Dir(file.Path)
 
-	normalizeSharedObjectFilePaths(baseDir, file.Compose.Configs)
-	normalizeSharedObjectFilePaths(baseDir, file.Compose.Secrets)
+	normalizeConfigFilePaths(baseDir, file.Compose.Configs)
+	normalizeSecretFilePaths(baseDir, file.Compose.Secrets)
 
 	repoDir := r.git.WorkingDir()
 
@@ -283,7 +283,17 @@ func isRelativeFromRepoRoot(path string) bool {
 	return filepath.IsAbs(path)
 }
 
-func normalizeSharedObjectFilePaths(baseDir string, objects compose.SharedObjects) {
+func normalizeConfigFilePaths(baseDir string, objects compose.Configs) {
+	for _, object := range objects {
+		if object.External || object.File == "" || filepath.IsAbs(object.File) {
+			continue
+		}
+
+		object.File = filepath.Clean(filepath.Join(baseDir, object.File))
+	}
+}
+
+func normalizeSecretFilePaths(baseDir string, objects compose.Secrets) {
 	for _, object := range objects {
 		if object.External || object.File == "" || filepath.IsAbs(object.File) {
 			continue

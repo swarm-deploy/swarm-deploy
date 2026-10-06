@@ -30,14 +30,7 @@ func (f *Rotator) Rotate(
 	baseDir := filepath.Dir(file.Path)
 	changed := false
 
-	apply := func(objects compose.SharedObjects) error {
-		typeChanged, err := f.applyObjectTypeRotation(
-			objects,
-			stackName,
-			baseDir,
-			hashLength,
-			includePath,
-		)
+	apply := func(typeChanged bool, err error) error {
 		if err != nil {
 			return err
 		}
@@ -47,47 +40,75 @@ func (f *Rotator) Rotate(
 		return nil
 	}
 
-	if err := apply(file.Compose.Configs); err != nil {
+	if err := apply(applyObjectTypeRotation(
+		f,
+		file.Compose.Configs,
+		stackName,
+		baseDir,
+		hashLength,
+		includePath,
+		func(config *compose.Config) (string, bool) { return config.File, config.External },
+		func(config *compose.Config, name, objectName string) {
+			config.Name = name
+			config.Labels.Add(labelsdict.RotatedResourceManagedLabelKey, labelsdict.RotatedResourceManagedLabelValue)
+			config.Labels.Add(labelsdict.RotatedResourceLogicalNameLabelKey, objectName)
+		},
+	)); err != nil {
 		return changed, fmt.Errorf("configs: %w", err)
 	}
 
-	if err := apply(file.Compose.Secrets); err != nil {
+	if err := apply(applyObjectTypeRotation(
+		f,
+		file.Compose.Secrets,
+		stackName,
+		baseDir,
+		hashLength,
+		includePath,
+		func(secret *compose.Secret) (string, bool) { return secret.File, secret.External },
+		func(secret *compose.Secret, name, objectName string) {
+			secret.Name = name
+			secret.Labels.Add(labelsdict.RotatedResourceManagedLabelKey, labelsdict.RotatedResourceManagedLabelValue)
+			secret.Labels.Add(labelsdict.RotatedResourceLogicalNameLabelKey, objectName)
+		},
+	)); err != nil {
 		return changed, fmt.Errorf("secrets: %w", err)
 	}
 
 	return changed, nil
 }
 
-func (f *Rotator) applyObjectTypeRotation(
-	objects compose.SharedObjects,
+func applyObjectTypeRotation[T any, Objects ~map[string]*T](
+	f *Rotator,
+	objects Objects,
 	stackName string,
 	baseDir string,
 	hashLength int,
 	includePath bool,
+	properties func(*T) (file string, external bool),
+	apply func(*T, string, string),
 ) (bool, error) {
 	changed := false
 	for objectName, object := range objects {
-		if object.External {
+		objectFile, external := properties(object)
+		if external {
 			continue
 		}
 
-		if object.File == "" {
+		if objectFile == "" {
 			continue
 		}
 
-		fileBytes, err := os.ReadFile(resolveObjectFilePath(baseDir, object.File))
+		fileBytes, err := os.ReadFile(resolveObjectFilePath(baseDir, objectFile))
 		if err != nil {
-			return false, fmt.Errorf("read %s for rotation: %w", object.File, err)
+			return false, fmt.Errorf("read %s for rotation: %w", objectFile, err)
 		}
 
-		rotatedName := f.buildRotatedObjectName(stackName, objectName, object.File, fileBytes, hashLength, includePath)
-		if object.File == rotatedName {
+		rotatedName := f.buildRotatedObjectName(stackName, objectName, objectFile, fileBytes, hashLength, includePath)
+		if objectFile == rotatedName {
 			continue
 		}
 
-		object.Name = rotatedName // @todo
-		object.Labels.Add(labelsdict.RotatedResourceManagedLabelKey, labelsdict.RotatedResourceManagedLabelValue)
-		object.Labels.Add(labelsdict.RotatedResourceLogicalNameLabelKey, objectName)
+		apply(object, rotatedName, objectName)
 		changed = true
 	}
 
@@ -103,7 +124,7 @@ func (f *Rotator) DesiredResourceNames(
 ) (map[string]string, map[string]string, error) {
 	baseDir := filepath.Dir(file.Path)
 
-	resolve := func(objects compose.SharedObjects) (map[string]string, error) {
+	resolveConfigs := func(objects compose.Configs) (map[string]string, error) {
 		resolved := make(map[string]string)
 		for objectName, object := range objects {
 			if object.External || object.File == "" {
@@ -134,11 +155,42 @@ func (f *Rotator) DesiredResourceNames(
 		return resolved, nil
 	}
 
-	configs, err := resolve(file.Compose.Configs)
+	resolveSecrets := func(objects compose.Secrets) (map[string]string, error) {
+		resolved := make(map[string]string)
+		for objectName, object := range objects {
+			if object.External || object.File == "" {
+				continue
+			}
+			if object.Name != "" &&
+				object.Labels.Map[labelsdict.RotatedResourceManagedLabelKey] == labelsdict.RotatedResourceManagedLabelValue &&
+				object.Labels.Map[labelsdict.RotatedResourceLogicalNameLabelKey] == objectName {
+				resolved[objectName] = object.Name
+				continue
+			}
+
+			fileBytes, err := os.ReadFile(resolveObjectFilePath(baseDir, object.File))
+			if err != nil {
+				return nil, fmt.Errorf("read %s for rotation: %w", object.File, err)
+			}
+
+			resolved[objectName] = f.buildRotatedObjectName(
+				stackName,
+				objectName,
+				object.File,
+				fileBytes,
+				hashLength,
+				includePath,
+			)
+		}
+
+		return resolved, nil
+	}
+
+	configs, err := resolveConfigs(file.Compose.Configs)
 	if err != nil {
 		return nil, nil, fmt.Errorf("configs: %w", err)
 	}
-	secrets, err := resolve(file.Compose.Secrets)
+	secrets, err := resolveSecrets(file.Compose.Secrets)
 	if err != nil {
 		return nil, nil, fmt.Errorf("secrets: %w", err)
 	}

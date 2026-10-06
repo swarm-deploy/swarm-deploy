@@ -35,6 +35,8 @@ configs:
 	require.Len(t, file.Compose.Services[0].Configs, 1)
 
 	assert.Equal(t, configPath, file.Compose.Services[0].Configs[0].File)
+	require.Contains(t, file.Compose.Configs, "pomerium_config")
+	assert.Equal(t, []byte("routes: []\n"), file.Compose.Configs["pomerium_config"].Data)
 }
 
 func TestFileLoaderDoesNotLinkExternalConfigFile(t *testing.T) {
@@ -58,4 +60,5 @@ configs:
 	require.Len(t, file.Compose.Services[0].Configs, 1)
 
 	assert.Empty(t, file.Compose.Services[0].Configs[0].File)
+	assert.Empty(t, file.Compose.Configs["pomerium_config"].Data)
 }

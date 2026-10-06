@@ -165,7 +165,7 @@ func (l *fileLoader) computeDigest(ctx context.Context, file File, raw []byte) (
 	hasher := sha256.New()
 	hasher.Write(raw)
 
-	compute := func(objects SharedObjects, objectType string) error {
+	computeConfigs := func(objects Configs) error {
 		objectAliases := make([]string, 0, len(objects))
 		for alias := range objects {
 			objectAliases = append(objectAliases, alias)
@@ -189,10 +189,11 @@ func (l *fileLoader) computeDigest(ctx context.Context, file File, raw []byte) (
 
 			content, err := l.fileReader(ctx, absPath)
 			if err != nil {
-				return fmt.Errorf("read %s file %s for digest: %w", objectType, absPath, err)
+				return fmt.Errorf("read configs file %s for digest: %w", absPath, err)
 			}
+			object.Data = content
 
-			hasher.Write([]byte(objectType))
+			hasher.Write([]byte("configs"))
 			hasher.Write([]byte(alias))
 			hasher.Write([]byte(object.Name))
 			hasher.Write([]byte(object.File))
@@ -202,11 +203,44 @@ func (l *fileLoader) computeDigest(ctx context.Context, file File, raw []byte) (
 		return nil
 	}
 
-	if err := compute(file.Compose.Configs, "configs"); err != nil {
+	computeSecrets := func(objects Secrets) error {
+		objectAliases := make([]string, 0, len(objects))
+		for alias := range objects {
+			objectAliases = append(objectAliases, alias)
+		}
+		sort.Strings(objectAliases)
+
+		for _, alias := range objectAliases {
+			object := objects[alias]
+			if object.External || object.File == "" {
+				continue
+			}
+
+			absPath := object.File
+			if !filepath.IsAbs(absPath) {
+				absPath = filepath.Join(baseDir, object.File)
+			}
+
+			content, err := l.fileReader(ctx, absPath)
+			if err != nil {
+				return fmt.Errorf("read secrets file %s for digest: %w", absPath, err)
+			}
+
+			hasher.Write([]byte("secrets"))
+			hasher.Write([]byte(alias))
+			hasher.Write([]byte(object.Name))
+			hasher.Write([]byte(object.File))
+			hasher.Write(content)
+		}
+
+		return nil
+	}
+
+	if err := computeConfigs(file.Compose.Configs); err != nil {
 		return "", fmt.Errorf("compute for configs: %w", err)
 	}
 
-	if err := compute(file.Compose.Secrets, "secrets"); err != nil {
+	if err := computeSecrets(file.Compose.Secrets); err != nil {
 		return "", fmt.Errorf("compute for secrets: %w", err)
 	}
 

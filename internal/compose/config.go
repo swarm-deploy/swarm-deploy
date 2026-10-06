@@ -6,14 +6,50 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-// SharedObject wraps configs and secrets in compose top level.
-type SharedObject struct {
+// Config describes a top-level Compose config.
+type Config struct {
 	// Alias is the logical Compose resource name.
 	Alias string `yaml:"-"`
-
 	// Name overrides the Docker resource name.
 	Name string `yaml:"name,omitempty" json:"name,omitempty"`
-	// File is the source file for a config or secret.
+	// File is the source file for the config.
+	File string `yaml:"file,omitempty" json:"file,omitempty"`
+	// Data contains the loaded config file content.
+	Data []byte `yaml:"-" json:"data,omitempty"`
+	// TemplateDriver controls resource data templating.
+	TemplateDriver string `yaml:"template_driver,omitempty" json:"template_driver,omitempty"`
+	// Labels contains metadata added to the Docker resource.
+	Labels Labels `yaml:"labels,omitempty" json:"labels,omitempty"`
+	// External marks a resource managed outside the Compose application.
+	External bool `yaml:"external,omitempty" json:"external"`
+	// Extra preserves unsupported Compose extension fields.
+	Extra map[string]interface{} `yaml:",inline"`
+}
+
+// Configs contains top-level Compose configs keyed by alias.
+type Configs map[string]*Config
+
+// UnmarshalYAML decodes configs and records their Compose aliases.
+func (c *Configs) UnmarshalYAML(node *yaml.Node) error {
+	objects, err := decodeObjectMap[Config](node, "config", func(config *Config, alias string) {
+		config.Alias = alias
+	})
+	if err != nil {
+		return err
+	}
+
+	*c = objects
+
+	return nil
+}
+
+// Secret describes a top-level Compose secret.
+type Secret struct {
+	// Alias is the logical Compose resource name.
+	Alias string `yaml:"-"`
+	// Name overrides the Docker resource name.
+	Name string `yaml:"name,omitempty" json:"name,omitempty"`
+	// File is the source file for the secret.
 	File string `yaml:"file,omitempty" json:"file,omitempty"`
 	// Driver is the secret driver name.
 	Driver string `yaml:"driver,omitempty" json:"driver,omitempty"`
@@ -25,39 +61,47 @@ type SharedObject struct {
 	Labels Labels `yaml:"labels,omitempty" json:"labels,omitempty"`
 	// External marks a resource managed outside the Compose application.
 	External bool `yaml:"external,omitempty" json:"external"`
-
 	// Extra preserves unsupported Compose extension fields.
 	Extra map[string]interface{} `yaml:",inline"`
 }
 
-type SharedObjects map[string]*SharedObject
+// Secrets contains top-level Compose secrets keyed by alias.
+type Secrets map[string]*Secret
 
-func (s *SharedObjects) UnmarshalYAML(n *yaml.Node) error {
-	if n.Kind != yaml.MappingNode {
-		return fmt.Errorf("expected mapping node, got %T", n.Kind)
+// UnmarshalYAML decodes secrets and records their Compose aliases.
+func (s *Secrets) UnmarshalYAML(node *yaml.Node) error {
+	objects, err := decodeObjectMap[Secret](node, "secret", func(secret *Secret, alias string) {
+		secret.Alias = alias
+	})
+	if err != nil {
+		return err
 	}
 
-	*s = map[string]*SharedObject{}
-
-	alias := ""
-
-	for i, cn := range n.Content {
-		if i%2 == 0 {
-			alias = cn.Value
-			continue
-		}
-
-		var cos SharedObject
-
-		err := cn.Decode(&cos)
-		if err != nil {
-			return fmt.Errorf("decode config/secret with key %q: %w", alias, err)
-		}
-
-		cos.Alias = alias
-
-		(*s)[alias] = &cos
-	}
+	*s = objects
 
 	return nil
+}
+
+func decodeObjectMap[T any](
+	node *yaml.Node,
+	objectType string,
+	setAlias func(object *T, alias string),
+) (map[string]*T, error) {
+	if node.Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("expected mapping node, got %T", node.Kind)
+	}
+
+	objects := make(map[string]*T, len(node.Content)/2)
+	for i := 0; i < len(node.Content); i += 2 {
+		alias := node.Content[i].Value
+		object := new(T)
+		if err := node.Content[i+1].Decode(object); err != nil {
+			return nil, fmt.Errorf("decode %s with key %q: %w", objectType, alias, err)
+		}
+
+		setAlias(object, alias)
+		objects[alias] = object
+	}
+
+	return objects, nil
 }
