@@ -4,8 +4,8 @@ import (
 	"context"
 	"math"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/assistant"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant"
 )
 
 func (h *handler) AssistantChat(
@@ -29,6 +29,7 @@ func toGeneratedAssistantChatResponse(resp assistant.ChatResponse) *generated.As
 		ConversationID: resp.ConversationID,
 		Answer:         toOptString(resp.Answer),
 		ErrorMessage:   toOptString(resp.ErrorMessage),
+		Activity:       append([]string(nil), resp.Activity...),
 	}
 	if resp.PollAfterMS > 0 {
 		pollAfterMS := resp.PollAfterMS

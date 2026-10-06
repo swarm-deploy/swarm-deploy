@@ -6,10 +6,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
-	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
-	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
-	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
-	serviceType "github.com/swarm-deploy/swarm-deploy/internal/resources/service/stype"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	serviceType "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/stype"
 )
 
 func TestToGeneratedStack(t *testing.T) {
@@ -146,6 +146,19 @@ func TestToGeneratedServiceInfo(t *testing.T) {
 			expectedError:  "",
 			expectedType:   generated.ServiceInfoTypeSecretManager,
 			expectedTitle:  "Secret Manager",
+		},
+		{
+			name: "returns MCP type and title",
+			serviceInfo: service.Info{
+				Name:     "postgres-mcp",
+				Stack:    "platform",
+				Metadata: metadata.Metadata{Type: serviceType.MCP},
+			},
+			runtime:        model.Runtime{},
+			expectedStatus: "unknown",
+			expectedError:  "",
+			expectedType:   generated.ServiceInfoTypeMcp,
+			expectedTitle:  "MCP",
 		},
 	}
 

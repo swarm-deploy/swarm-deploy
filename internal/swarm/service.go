@@ -37,8 +37,8 @@ type ServiceTask struct {
 	CreatedAt time.Time
 	// UpdatedAt is task last update timestamp from Docker Swarm.
 	UpdatedAt time.Time
-	// CurrentState is a current task state in docker status format.
-	CurrentState string
+	// CurrentState is the current task state.
+	CurrentState TaskState
 	// Error is a task runtime error.
 	Error string
 }
@@ -127,6 +127,24 @@ type ServiceLogsOptions struct {
 	Until *time.Time
 }
 
+// TaskLogsOptions configures task logs stream query.
+type TaskLogsOptions struct {
+	// Follow keeps the task logs stream open for new log lines.
+	Follow bool
+	// Limit is max number of latest lines to return before following.
+	Limit int
+}
+
+// LogEntry contains one normalized Docker log line.
+type LogEntry struct {
+	// Timestamp is a Docker log timestamp parsed from the log line.
+	Timestamp time.Time
+	// Stream is stdout or stderr.
+	Stream string
+	// Message is log line payload without Docker timestamp.
+	Message string
+}
+
 // StackService is a compact snapshot of a service belonging to a stack.
 type StackService struct {
 	// ID is a Docker service identifier.
@@ -143,6 +161,8 @@ type StackService struct {
 	Replicas *uint64
 	// ServiceSpec is raw Docker service specification snapshot.
 	ServiceSpec dockerswarm.ServiceSpec
+	// PreviousSpec is the previous raw Docker service specification used by Swarm rollback.
+	PreviousSpec *dockerswarm.ServiceSpec
 	// Labels contains Docker service annotations labels.
 	Labels map[string]string
 }

@@ -10,6 +10,6 @@ import (
 
 // StackDeployer reconciles one stack via deploy command execution.
 type StackDeployer interface {
-	// DeployStack applies a rendered compose file for the given stack.
-	DeployStack(ctx context.Context, stackName, composePath string, services []compose.Service) error
+	// DeployStack reconciles init-job resources from sourceComposePath and applies deployComposePath.
+	DeployStack(ctx context.Context, stackName, sourceComposePath, deployComposePath string, desired compose.Compose) error
 }

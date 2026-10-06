@@ -177,6 +177,25 @@ func (t traceableServiceManager) Logs(
 	return logs, nil
 }
 
+func (t traceableServiceManager) TaskLogs(
+	ctx context.Context,
+	taskID string,
+	options TaskLogsOptions,
+) (<-chan LogEntry, <-chan error, error) {
+	ctx, span := t.tracer.Start(ctx, "swarm.TaskLogs", trace.WithAttributes(
+		attribute.String("task.id", taskID),
+	))
+
+	entries, errs, err := t.serviceManager.TaskLogs(ctx, taskID, options)
+	if err != nil {
+		tracing.FailSpan(span, err)
+		span.End()
+		return nil, nil, err
+	}
+
+	return entries, errs, nil
+}
+
 func (t traceableServiceManager) startServiceSpan(
 	ctx context.Context,
 	name string,

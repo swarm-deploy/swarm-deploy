@@ -9,9 +9,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
-	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
-	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
-	serviceType "github.com/swarm-deploy/swarm-deploy/internal/resources/service/stype"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	serviceType "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/stype"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	webroute "github.com/swarm-deploy/webroute/api"
 )
 
@@ -53,6 +54,10 @@ func TestHandlerGetGraph(t *testing.T) {
 						Name:     "cron",
 						Metadata: metadata.Metadata{Type: serviceType.CronManager},
 					},
+					{
+						Name:     "postgres-mcp",
+						Metadata: metadata.Metadata{Type: serviceType.MCP},
+					},
 				},
 			},
 			expected: map[string]graphResponseNodeSnapshot{
@@ -71,6 +76,9 @@ func TestHandlerGetGraph(t *testing.T) {
 				"payments_cron": {
 					Kind: generated.GraphNodeKindCronManager,
 				},
+				"payments_postgres-mcp": {
+					Kind: generated.GraphNodeKindMcp,
+				},
 			},
 		},
 		{
@@ -84,7 +92,8 @@ func TestHandlerGetGraph(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			store, err := service.NewStore(filepath.Join(t.TempDir(), "services.json"))
+			ctx := context.Background()
+			store, err := service.NewStore(ctx, filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
 			require.NoError(t, err)
 
 			stackNames := make([]string, 0, len(testCase.stacks))
@@ -94,7 +103,7 @@ func TestHandlerGetGraph(t *testing.T) {
 			sort.Strings(stackNames)
 
 			for _, stackName := range stackNames {
-				require.NoError(t, store.ReplaceStack(stackName, testCase.stacks[stackName]))
+				require.NoError(t, store.ReplaceStack(ctx, stackName, testCase.stacks[stackName]))
 			}
 
 			h := &handler{

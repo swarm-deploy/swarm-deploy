@@ -7,13 +7,14 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
-	"github.com/swarm-deploy/swarm-deploy/internal/gitops/model"
-	resourcegraph "github.com/swarm-deploy/swarm-deploy/internal/resources/graph"
-	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
-	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
-	serviceType "github.com/swarm-deploy/swarm-deploy/internal/resources/service/stype"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
+	resourcegraph "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/graph"
+	secretmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	serviceType "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/stype"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/utils"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -21,8 +22,6 @@ import (
 )
 
 const (
-	externalPathLabel      = "external_path"
-	externalVersionIDLabel = "external_version_id"
 	dockerLabelPrefix      = "com.docker."
 	swarmDeployLabelPrefix = "org.swarm-deploy"
 )
@@ -123,7 +122,7 @@ func toGeneratedServiceRealtimeTasks(
 		item := generated.ServiceRealtimeTask{
 			ID:           task.ID,
 			Node:         task.Node,
-			CurrentState: task.CurrentState,
+			CurrentState: string(task.CurrentState),
 		}
 		if !task.CreatedAt.IsZero() {
 			item.CreatedAt = generated.NewOptDateTime(task.CreatedAt)
@@ -297,6 +296,7 @@ func toGeneratedEvents(entries []history.Entry) []generated.EventHistoryItem {
 	mapped := make([]generated.EventHistoryItem, 0, len(entries))
 	for _, entry := range entries {
 		item := generated.EventHistoryItem{
+			ID:        entry.ID,
 			Type:      entry.Type.String(),
 			Severity:  toGeneratedEventSeverity(entry.Severity),
 			Category:  toGeneratedEventCategory(entry.Category),
@@ -397,6 +397,8 @@ func toGeneratedGraphNodeKind(kind resourcegraph.Kind) generated.GraphNodeKind {
 		return generated.GraphNodeKindCronManager
 	case resourcegraph.KindDeploymentManagementSystem:
 		return generated.GraphNodeKindDeploymentManagementSystem
+	case resourcegraph.KindMCP:
+		return generated.GraphNodeKindMcp
 	default:
 		return generated.GraphNodeKindApplication
 	}
@@ -542,15 +544,16 @@ func toGeneratedNetworks(networks []swarm.Network) []generated.NetworkInfo {
 	return mapped
 }
 
-func toGeneratedSecrets(secrets []swarm.Secret) []generated.SecretInfo {
+func toGeneratedSecrets(secrets []secretmodel.Secret) []generated.SecretInfo {
 	mapped := make([]generated.SecretInfo, 0, len(secrets))
 	for _, secret := range secrets {
 		item := generated.SecretInfo{
-			ID:        secret.ID,
-			Name:      secret.Name,
-			VersionID: toInt64FromUint64(secret.VersionID),
-			CreatedAt: secret.CreatedAt,
-			External:  toGeneratedSecretExternal(secret.Labels),
+			ID:          secret.ID,
+			Name:        secret.Name,
+			Description: toOptString(secret.Description),
+			VersionID:   toInt64FromUint64(secret.VersionID),
+			CreatedAt:   secret.CreatedAt,
+			External:    toGeneratedSecretExternal(secret.ExternalPath, secret.ExternalVersionID),
 		}
 
 		mapped = append(mapped, item)
@@ -559,20 +562,16 @@ func toGeneratedSecrets(secrets []swarm.Secret) []generated.SecretInfo {
 	return mapped
 }
 
-func toGeneratedSecretExternal(labels map[string]string) generated.OptSecretExternalInfo {
-	if len(labels) == 0 {
-		return generated.OptSecretExternalInfo{}
-	}
-
+func toGeneratedSecretExternal(path string, versionID string) generated.OptSecretExternalInfo {
 	external := generated.SecretExternalInfo{}
 	hasExternalData := false
 
-	if path, ok := labels[externalPathLabel]; ok && path != "" {
+	if path != "" {
 		external.Path = generated.NewOptString(path)
 		hasExternalData = true
 	}
 
-	if versionID, ok := labels[externalVersionIDLabel]; ok && versionID != "" {
+	if versionID != "" {
 		external.VersionID = generated.NewOptString(versionID)
 		hasExternalData = true
 	}
@@ -602,6 +601,8 @@ func toGeneratedServiceType(typ serviceType.Type) generated.ServiceInfoType {
 		return generated.ServiceInfoTypeCronManager
 	case serviceType.DeploymentManagementSystem:
 		return generated.ServiceInfoTypeDeploymentManagementSystem
+	case serviceType.MCP:
+		return generated.ServiceInfoTypeMcp
 	default:
 		return generated.ServiceInfoTypeApplication
 	}

@@ -42,6 +42,14 @@ func (t traceableConfigManager) Get(ctx context.Context, configName string) (Con
 	return config, nil
 }
 
+func (t traceableConfigManager) ListStack(ctx context.Context, stackName string) ([]Config, error) {
+	return t.configManager.ListStack(ctx, stackName)
+}
+
+func (t traceableConfigManager) Remove(ctx context.Context, configID string) error {
+	return t.configManager.Remove(ctx, configID)
+}
+
 func (t traceableConfigManager) ResolveReference(
 	ctx context.Context,
 	source,

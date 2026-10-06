@@ -175,6 +175,22 @@ func (mr *MockServiceManagerMockRecorder) Scale(ctx, serviceRef, replicas any) *
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Scale", reflect.TypeOf((*MockServiceManager)(nil).Scale), ctx, serviceRef, replicas)
 }
 
+// TaskLogs mocks base method.
+func (m *MockServiceManager) TaskLogs(ctx context.Context, taskID string, options TaskLogsOptions) (<-chan LogEntry, <-chan error, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "TaskLogs", ctx, taskID, options)
+	ret0, _ := ret[0].(<-chan LogEntry)
+	ret1, _ := ret[1].(<-chan error)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// TaskLogs indicates an expected call of TaskLogs.
+func (mr *MockServiceManagerMockRecorder) TaskLogs(ctx, taskID, options any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "TaskLogs", reflect.TypeOf((*MockServiceManager)(nil).TaskLogs), ctx, taskID, options)
+}
+
 // MockImageManager is a mock of ImageManager interface.
 type MockImageManager struct {
 	ctrl     *gomock.Controller
@@ -253,6 +269,35 @@ func (mr *MockSecretManagerMockRecorder) List(ctx any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockSecretManager)(nil).List), ctx)
 }
 
+// ListStack mocks base method.
+func (m *MockSecretManager) ListStack(ctx context.Context, stackName string) ([]Secret, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListStack", ctx, stackName)
+	ret0, _ := ret[0].([]Secret)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListStack indicates an expected call of ListStack.
+func (mr *MockSecretManagerMockRecorder) ListStack(ctx, stackName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListStack", reflect.TypeOf((*MockSecretManager)(nil).ListStack), ctx, stackName)
+}
+
+// Remove mocks base method.
+func (m *MockSecretManager) Remove(ctx context.Context, secretID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Remove", ctx, secretID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Remove indicates an expected call of Remove.
+func (mr *MockSecretManagerMockRecorder) Remove(ctx, secretID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Remove", reflect.TypeOf((*MockSecretManager)(nil).Remove), ctx, secretID)
+}
+
 // ResolveReference mocks base method.
 func (m *MockSecretManager) ResolveReference(ctx context.Context, source, target string) (*swarm.SecretReference, error) {
 	m.ctrl.T.Helper()
@@ -266,6 +311,22 @@ func (m *MockSecretManager) ResolveReference(ctx context.Context, source, target
 func (mr *MockSecretManagerMockRecorder) ResolveReference(ctx, source, target any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolveReference", reflect.TypeOf((*MockSecretManager)(nil).ResolveReference), ctx, source, target)
+}
+
+// Watch mocks base method.
+func (m *MockSecretManager) Watch(ctx context.Context) (<-chan events.Message, <-chan error, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Watch", ctx)
+	ret0, _ := ret[0].(<-chan events.Message)
+	ret1, _ := ret[1].(<-chan error)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// Watch indicates an expected call of Watch.
+func (mr *MockSecretManagerMockRecorder) Watch(ctx any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Watch", reflect.TypeOf((*MockSecretManager)(nil).Watch), ctx)
 }
 
 // MockConfigManager is a mock of ConfigManager interface.
@@ -305,6 +366,35 @@ func (m *MockConfigManager) Get(ctx context.Context, configName string) (Config,
 func (mr *MockConfigManagerMockRecorder) Get(ctx, configName any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockConfigManager)(nil).Get), ctx, configName)
+}
+
+// ListStack mocks base method.
+func (m *MockConfigManager) ListStack(ctx context.Context, stackName string) ([]Config, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListStack", ctx, stackName)
+	ret0, _ := ret[0].([]Config)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListStack indicates an expected call of ListStack.
+func (mr *MockConfigManagerMockRecorder) ListStack(ctx, stackName any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListStack", reflect.TypeOf((*MockConfigManager)(nil).ListStack), ctx, stackName)
+}
+
+// Remove mocks base method.
+func (m *MockConfigManager) Remove(ctx context.Context, configID string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Remove", ctx, configID)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// Remove indicates an expected call of Remove.
+func (mr *MockConfigManagerMockRecorder) Remove(ctx, configID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Remove", reflect.TypeOf((*MockConfigManager)(nil).Remove), ctx, configID)
 }
 
 // ResolveReference mocks base method.
@@ -430,6 +520,20 @@ func (m *MockNodeManager) EXPECT() *MockNodeManagerMockRecorder {
 	return m.recorder
 }
 
+// DeleteLabel mocks base method.
+func (m *MockNodeManager) DeleteLabel(ctx context.Context, nodeID, key string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteLabel", ctx, nodeID, key)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteLabel indicates an expected call of DeleteLabel.
+func (mr *MockNodeManagerMockRecorder) DeleteLabel(ctx, nodeID, key any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteLabel", reflect.TypeOf((*MockNodeManager)(nil).DeleteLabel), ctx, nodeID, key)
+}
+
 // List mocks base method.
 func (m *MockNodeManager) List(ctx context.Context) ([]Node, error) {
 	m.ctrl.T.Helper()
@@ -443,6 +547,20 @@ func (m *MockNodeManager) List(ctx context.Context) ([]Node, error) {
 func (mr *MockNodeManagerMockRecorder) List(ctx any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockNodeManager)(nil).List), ctx)
+}
+
+// SetLabel mocks base method.
+func (m *MockNodeManager) SetLabel(ctx context.Context, req NodeLabelUpdateRequest) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "SetLabel", ctx, req)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// SetLabel indicates an expected call of SetLabel.
+func (mr *MockNodeManagerMockRecorder) SetLabel(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetLabel", reflect.TypeOf((*MockNodeManager)(nil).SetLabel), ctx, req)
 }
 
 // Watch mocks base method.

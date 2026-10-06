@@ -3,27 +3,33 @@ package compose
 import (
 	"fmt"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 type Services []Service
 
 type Service struct {
-	Name        string           `yaml:"-" json:"name"`
-	Image       string           `yaml:"image" json:"image"`
-	Command     Command          `yaml:"command,omitempty" json:"command,omitempty"`
+	Name    string  `yaml:"-" json:"name"`
+	Image   string  `yaml:"image" json:"image"`
+	Command Command `yaml:"command,omitempty" json:"command,omitempty"`
+	// CapAdd lists Linux capabilities added to the service containers.
+	CapAdd []string `yaml:"cap_add,omitempty" json:"cap_add,omitempty"`
+	// CapDrop lists Linux capabilities removed from the service containers.
+	CapDrop []string `yaml:"cap_drop,omitempty" json:"cap_drop,omitempty"`
+
 	Healthcheck *ServiceHealth   `yaml:"healthcheck,omitempty" json:"healthcheck,omitempty"`
 	Ports       ServicePorts     `yaml:"ports,omitempty" json:"ports,omitempty"`
 	Networks    *ServiceNetworks `yaml:"networks,omitempty" json:"networks,omitempty"`
 	Secrets     []ObjectRef      `yaml:"secrets,omitempty" json:"secrets,omitempty"`
 	Configs     []ObjectRef      `yaml:"configs,omitempty" json:"configs,omitempty"`
 	Labels      Labels           `yaml:"labels,omitempty" json:"labels,omitempty"`
-	EnvFiles    []string         `yaml:"env_file,omitempty" json:"env_file,omitempty"`
-	Environment Environment      `yaml:"environment,omitempty" json:"environment,omitempty"`
-	InitJobs    []InitJob        `yaml:"x-init-deploy-jobs,omitempty" json:"init_jobs,omitempty"`
-	Deploy      ServiceDeploy    `yaml:"deploy,omitempty" json:"deploy"`
-	Logging     ServiceLogging   `yaml:"logging,omitempty" json:"logging,omitempty"`
-	Volumes     ServiceVolumes   `yaml:"volumes,omitempty" json:"volumes"`
+	// EnvFiles contains environment files loaded for the service.
+	EnvFiles    []EnvFile      `yaml:"env_file,omitempty" json:"env_file,omitempty"`
+	Environment Environment    `yaml:"environment,omitempty" json:"environment,omitempty"`
+	InitJobs    []InitJob      `yaml:"x-init-deploy-jobs,omitempty" json:"init_jobs,omitempty"`
+	Deploy      ServiceDeploy  `yaml:"deploy,omitempty" json:"deploy"`
+	Logging     ServiceLogging `yaml:"logging,omitempty" json:"logging,omitempty"`
+	Volumes     ServiceVolumes `yaml:"volumes,omitempty" json:"volumes"`
 
 	Extra map[string]interface{} `yaml:",inline"`
 }

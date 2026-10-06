@@ -1472,6 +1472,7 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
         lines.push("sync:");
         lines.push('  mode: "pull"');
         lines.push('  pollInterval: "30s"');
+        lines.push('  interval: "1m"');
         lines.push("");
         lines.push("stacks:");
         lines.push(`  file: ${yamlString(stacksFile)}`);

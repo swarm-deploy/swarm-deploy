@@ -5,6 +5,7 @@ swarm-deploy can export distributed traces using OpenTelemetry Protocol (OTLP). 
 ## Overview
 
 - Transports: [OTLP over HTTP](#otlp-over-http) and [OTLP over gRPC](#otlp-over-grpc).
+- Sampling: [always on/off](#sampling) and TraceID ratio-based strategies.
 - Exporter authentication: [Bearer token](#bearer-token), [`Authorization: Api-Key`](#api-key), and [`x-api-key`](#x-api-key).
 - [Environment variables](#environment-variables) can be used for the endpoint and custom headers.
 - [Resource attributes](#resource-attributes) include standard OpenTelemetry metadata and Swarm metadata from `downward-otel`.
@@ -33,9 +34,29 @@ tracing:
 
 The exporter endpoint must include an `http://` or `https://` scheme.
 
+## Sampling
+
+Sampling is optional. When `sampler` is omitted, swarm-deploy uses the OpenTelemetry SDK default sampler.
+
+```yaml
+tracing:
+  sampler:
+    strategy: ${OTEL_TRACES_SAMPLER}
+    ratio: ${OTEL_TRACES_SAMPLER_ARG}
+```
+
+Available sampler strategies:
+
+- `always_on`
+- `always_off`
+- `traceidratio`
+- `parentbased_traceidratio`
+
+`ratio` is used by `traceidratio` and `parentbased_traceidratio` and must be between `0` and `1`.
+
 ## Environment variables
 
-The exporter endpoint and custom header values can reference environment variables:
+The exporter endpoint, custom header values, and sampler settings can reference environment variables:
 
 ```yaml
 tracing:

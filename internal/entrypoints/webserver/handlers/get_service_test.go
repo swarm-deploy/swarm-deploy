@@ -10,10 +10,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
-	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
-	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
@@ -22,9 +22,10 @@ import (
 func TestHandlerGetService(t *testing.T) {
 	t.Parallel()
 
-	store, err := service.NewStore(filepath.Join(t.TempDir(), "services.json"))
+	ctx := context.Background()
+	store, err := service.NewStore(ctx, filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
 	require.NoError(t, err)
-	require.NoError(t, store.ReplaceStack("payments", []service.Info{
+	require.NoError(t, store.ReplaceStack(ctx, "payments", []service.Info{
 		{
 			Name:  "api",
 			Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
@@ -110,7 +111,7 @@ func TestHandlerGetService(t *testing.T) {
 func TestHandlerGetService_NotFound(t *testing.T) {
 	t.Parallel()
 
-	store, err := service.NewStore(filepath.Join(t.TempDir(), "services.json"))
+	store, err := service.NewStore(context.Background(), filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
 	require.NoError(t, err)
 
 	h := &handler{
@@ -135,21 +136,27 @@ func TestHandlerListServiceDeployments_MapsFromHistory(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	require.NoError(t, store.Handle(ctx, &events.DeploySuccess{
-		StackName: "payments",
-		Commit:    "commit-success",
+	require.NoError(t, storeEvent(store, ctx, &events.DeploySuccess{
+		DeployEvent: events.DeployEvent{
+			StackName: "payments",
+			Commit:    "commit-success",
+		},
 	}))
-	require.NoError(t, store.Handle(ctx, &events.SyncManualStarted{
+	require.NoError(t, storeEvent(store, ctx, &events.SyncManualStarted{
 		TriggeredBy: "admin",
 	}))
-	require.NoError(t, store.Handle(ctx, &events.DeployFailed{
-		StackName: "payments",
-		Commit:    "commit-failed",
-		Error:     errors.New("boom"),
+	require.NoError(t, storeEvent(store, ctx, &events.DeployFailed{
+		DeployEvent: events.DeployEvent{
+			StackName: "payments",
+			Commit:    "commit-failed",
+		},
+		Error: errors.New("boom"),
 	}))
-	require.NoError(t, store.Handle(ctx, &events.DeploySuccess{
-		StackName: "infra",
-		Commit:    "other-stack",
+	require.NoError(t, storeEvent(store, ctx, &events.DeploySuccess{
+		DeployEvent: events.DeployEvent{
+			StackName: "infra",
+			Commit:    "other-stack",
+		},
 	}))
 
 	ctrl := gomock.NewController(t)
@@ -226,14 +233,18 @@ func TestHandlerListServiceDeployments_RespectsLimitParam(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	require.NoError(t, store.Handle(ctx, &events.DeploySuccess{
-		StackName: "payments",
-		Commit:    "commit-1",
+	require.NoError(t, storeEvent(store, ctx, &events.DeploySuccess{
+		DeployEvent: events.DeployEvent{
+			StackName: "payments",
+			Commit:    "commit-1",
+		},
 	}))
-	require.NoError(t, store.Handle(ctx, &events.DeployFailed{
-		StackName: "payments",
-		Commit:    "commit-2",
-		Error:     errors.New("boom"),
+	require.NoError(t, storeEvent(store, ctx, &events.DeployFailed{
+		DeployEvent: events.DeployEvent{
+			StackName: "payments",
+			Commit:    "commit-2",
+		},
+		Error: errors.New("boom"),
 	}))
 
 	ctrl := gomock.NewController(t)

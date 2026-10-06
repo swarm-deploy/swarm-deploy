@@ -13,8 +13,8 @@ swarm-deploy is a Swarm-native GitOps controller inspired by Argo CD. It keeps s
 ### GitOps
 
 - **Git as the desired state** for stack definitions, Compose manifests, referenced configs/secrets, and managed Docker networks.
-- **Reconciliation can be triggered by polling, webhooks, or both**.
-- **Diff-based deployments**: a stack is deployed only when its effective desired-state digest changes, including referenced config and secret files.
+- **Reconciliation can be triggered by polling, webhooks, or both**. See [reconciliation](./docs/reconciler.md) and [webhooks](./docs/webhooks.md).
+- **Diff-based deployments**: a stack is deployed only when its effective desired-state digest changes, including referenced config, secret, and env files.
 - **Stack sync status** in the UI, including last sync result, Git revision, deployment status, and errors.
 - **Desired vs. live manifests** for each stack, so the Git definition can be compared with the current Swarm state.
 - **Drift detection** for desired services missing from the live cluster, with `OutOfSync` status and audit events.
@@ -107,6 +107,7 @@ git:
 sync:
   mode: pull
   pollInterval: 30s
+  interval: 1m
   policy:
     prune: true
 
@@ -137,8 +138,28 @@ stacks:
 
 For a fuller setup with notifications, secret rotation, Downward metadata, tracing, and runtime options, see [`example/01-basic/swarm-deploy.yaml`](./example/01-basic/swarm-deploy.yaml).
 
+### Recommended Swarm update configuration
+
+Run the swarm-deploy service with `start-first` updates and a 30-second stop grace period:
+
+```yaml
+services:
+  swarm-deploy:
+    stop_grace_period: 30s
+    deploy:
+      update_config:
+        order: start-first
+```
+
+With `start-first`, Swarm starts the new task before stopping the current one. During graceful shutdown,
+the current swarm-deploy instance stops starting new reconciliations while an already running reconciliation
+gets time to finish status updates, event delivery, and post-deploy processing. This is especially important
+when swarm-deploy manages its own service, and it also makes ordinary swarm-deploy updates safer.
+
 ## Documentation
 
+- [Reconciliation](./docs/reconciler.md)
+- [Webhooks](./docs/webhooks.md)
 - [Authentication](./docs/authentication.md)
 - [Managed Docker Networks](./docs/networks.md)
 - [Downward Metadata](./docs/downward.md)

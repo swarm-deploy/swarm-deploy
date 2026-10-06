@@ -35,6 +35,9 @@ type ServiceManager interface {
 
 	// Logs returns recent logs for a stack service.
 	Logs(ctx context.Context, serviceRef ServiceReference, options ServiceLogsOptions) ([]string, error)
+
+	// TaskLogs streams normalized logs for a Docker Swarm task.
+	TaskLogs(ctx context.Context, taskID string, options TaskLogsOptions) (<-chan LogEntry, <-chan error, error)
 }
 
 type ImageManager interface {
@@ -46,6 +49,15 @@ type SecretManager interface {
 	// List returns current Docker secrets snapshot.
 	List(ctx context.Context) ([]Secret, error)
 
+	// ListStack returns secret metadata for the provided stack using Docker label filters.
+	ListStack(ctx context.Context, stackName string) ([]Secret, error)
+
+	// Remove deletes a Docker secret by identifier.
+	Remove(ctx context.Context, secretID string) error
+
+	// Watch subscribes to Docker secret events stream.
+	Watch(ctx context.Context) (<-chan dockerevents.Message, <-chan error, error)
+
 	// ResolveReference resolves a secret reference by source and target.
 	ResolveReference(ctx context.Context, source, target string) (*dockerswarm.SecretReference, error)
 }
@@ -53,6 +65,12 @@ type SecretManager interface {
 type ConfigManager interface {
 	// Get returns Docker config metadata by name or ID.
 	Get(ctx context.Context, configName string) (Config, error)
+
+	// ListStack returns config metadata for the provided stack using Docker label filters.
+	ListStack(ctx context.Context, stackName string) ([]Config, error)
+
+	// Remove deletes a Docker config by identifier.
+	Remove(ctx context.Context, configID string) error
 
 	// ResolveReference resolves Docker config reference by source and target.
 	ResolveReference(ctx context.Context, source, target string) (*dockerswarm.ConfigReference, error)
@@ -75,6 +93,12 @@ type NetworkManager interface {
 type NodeManager interface {
 	// List returns current Docker Swarm nodes snapshot.
 	List(ctx context.Context) ([]Node, error)
+
+	// SetLabel sets Docker node label value while preserving the rest of the node spec.
+	SetLabel(ctx context.Context, req NodeLabelUpdateRequest) error
+
+	// DeleteLabel removes Docker node label while preserving the rest of the node spec.
+	DeleteLabel(ctx context.Context, nodeID string, key string) error
 
 	// Watch subscribes to Docker node events stream.
 	Watch(ctx context.Context) (<-chan dockerevents.Message, <-chan error, error)

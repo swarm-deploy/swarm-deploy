@@ -1,6 +1,7 @@
 package webserver
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -8,11 +9,39 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
+	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources"
+	resourcesecrets "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets"
+	secretstore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.uber.org/mock/gomock"
 )
 
 func TestUIRoutes(t *testing.T) {
-	app, err := NewApplication(":0", nil, nil, nil, nil, &swarm.Swarm{}, nil, nil, nil, nil, nil, config.AuthenticationSpec{}) //nolint:lll // it's test
+	ctrl := gomock.NewController(t)
+	gitRepository := gitx.NewMockRepository(ctrl)
+	secretsStore, err := secretstore.NewFileStore(
+		context.Background(),
+		t.TempDir()+"/secrets.state.json",
+		fs.NewLocalFileSystem(),
+	)
+	require.NoError(t, err)
+
+	app, err := NewApplication(
+		":0",
+		nil,
+		&gitops.Module{GitRepository: gitRepository},
+		&swarm.Swarm{},
+		&event.Module{},
+		&resources.Module{Secrets: &resourcesecrets.Domain{Store: secretsStore}},
+		nil,
+		nil,
+		nil,
+		config.AuthenticationSpec{},
+	)
 	require.NoError(t, err, "new application")
 
 	testCases := []struct {

@@ -4,14 +4,31 @@ package api
 
 import (
 	"context"
+	"net/http"
 )
 
 // Handler handles operations described by OpenAPI v3 specification.
 type Handler interface {
+	// AddNodeLabel implements addNodeLabel operation.
+	//
+	// POST /api/v1/nodes/{id}/labels
+	AddNodeLabel(ctx context.Context, req *NodeLabelCreateRequest, params AddNodeLabelParams) error
 	// AssistantChat implements assistantChat operation.
 	//
 	// POST /api/v1/assistant/chat
 	AssistantChat(ctx context.Context, req *AssistantChatRequest) (*AssistantChatResponse, error)
+	// DeleteNodeLabel implements deleteNodeLabel operation.
+	//
+	// DELETE /api/v1/nodes/{id}/labels/{key}
+	DeleteNodeLabel(ctx context.Context, params DeleteNodeLabelParams) error
+	// GetAlert implements getAlert operation.
+	//
+	// GET /api/v1/alerts/{id}
+	GetAlert(ctx context.Context, params GetAlertParams) (*Alert, error)
+	// GetAssistantChat implements getAssistantChat operation.
+	//
+	// GET /api/v1/assistant/chats/{conversationID}
+	GetAssistantChat(ctx context.Context, params GetAssistantChatParams) (*AssistantChatHistory, error)
 	// GetCurrentUser implements getCurrentUser operation.
 	//
 	// GET /api/v1/users/me
@@ -40,6 +57,14 @@ type Handler interface {
 	//
 	// GET /api/v1/stacks/{stack}/manifestos
 	GetStackManifestos(ctx context.Context, params GetStackManifestosParams) (*StackManifestosResponse, error)
+	// ListAlerts implements listAlerts operation.
+	//
+	// GET /api/v1/alerts
+	ListAlerts(ctx context.Context, params ListAlertsParams) (*AlertsResponse, error)
+	// ListAssistantChats implements listAssistantChats operation.
+	//
+	// GET /api/v1/assistant/chats
+	ListAssistantChats(ctx context.Context) (*AssistantChatsResponse, error)
 	// ListEvents implements listEvents operation.
 	//
 	// GET /api/v1/events
@@ -52,6 +77,14 @@ type Handler interface {
 	//
 	// GET /api/v1/nodes
 	ListNodes(ctx context.Context) (*NodesResponse, error)
+	// ListRecommendations implements listRecommendations operation.
+	//
+	// GET /api/v1/recommendations
+	ListRecommendations(ctx context.Context, params ListRecommendationsParams) (*RecommendationsResponse, error)
+	// ListSecretManagers implements listSecretManagers operation.
+	//
+	// GET /api/v1/secret-managers
+	ListSecretManagers(ctx context.Context) (*SecretManagersResponse, error)
 	// ListSecrets implements listSecrets operation.
 	//
 	// GET /api/v1/secrets
@@ -72,27 +105,45 @@ type Handler interface {
 	//
 	// GET /api/v1/search
 	Search(ctx context.Context, params SearchParams) (*SearchResponse, error)
+	// SyncSecretManager implements syncSecretManager operation.
+	//
+	// POST /api/v1/secret-managers/{stack}/{service}/sync
+	SyncSecretManager(ctx context.Context, params SyncSecretManagerParams) (*SecretManagerSyncResponse, error)
 	// TriggerSync implements triggerSync operation.
 	//
 	// POST /api/v1/sync
 	TriggerSync(ctx context.Context) (*QueueResponse, error)
+	// UpdateNodeLabel implements updateNodeLabel operation.
+	//
+	// PUT /api/v1/nodes/{id}/labels/{key}
+	UpdateNodeLabel(ctx context.Context, req *NodeLabelUpdateRequest, params UpdateNodeLabelParams) error
+}
+
+// RawHandler handles raw response operations described by OpenAPI v3 specification.
+type RawHandler interface {
+	// GetTaskLogs implements getTaskLogs operation.
+	//
+	// GET /api/tasks/{taskID}/logs
+	GetTaskLogs(ctx context.Context, params GetTaskLogsParams, w http.ResponseWriter) error
 }
 
 // Server implements http server based on OpenAPI v3 specification and
 // calls Handler to handle requests.
 type Server struct {
-	h Handler
+	h  Handler
+	rh RawHandler
 	baseServer
 }
 
 // NewServer creates new Server.
-func NewServer(h Handler, opts ...ServerOption) (*Server, error) {
+func NewServer(h Handler, rh RawHandler, opts ...ServerOption) (*Server, error) {
 	s, err := newServerConfig(opts...).baseServer()
 	if err != nil {
 		return nil, err
 	}
 	return &Server{
 		h:          h,
+		rh:         rh,
 		baseServer: s,
 	}, nil
 }

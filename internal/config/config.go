@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 
 	"github.com/artarts36/specw"
 )
@@ -27,13 +27,17 @@ const (
 	// AuthenticationStrategyAuthProxy enables authentication through a trusted reverse proxy.
 	AuthenticationStrategyAuthProxy = "auth_proxy"
 
-	defaultWebAddress         = ":8080"
-	defaultWebhookAddress     = ":8082"
-	defaultEventHistoryCap    = 500
-	defaultSyncPollInterval   = 30 * time.Second
-	defaultInitJobPollEvery   = 2 * time.Second
-	defaultInitJobMaxDuration = 10 * time.Minute
-	defaultInitJobsTimeout    = 10 * time.Minute
+	defaultWebAddress              = ":8080"
+	defaultWebhookAddress          = ":8082"
+	defaultEventHistoryCap         = 500
+	defaultSyncPollInterval        = 30 * time.Second
+	defaultSyncInterval            = 1 * time.Minute
+	defaultInitJobPollEvery        = 2 * time.Second
+	defaultInitJobMaxDuration      = 10 * time.Minute
+	defaultInitJobsTimeout         = 10 * time.Minute
+	defaultRotationKeepLast        = 2
+	defaultRotationMinAge          = time.Hour
+	defaultRotationCleanupInterval = 4 * time.Hour
 
 	defaultAssistantOpenAIBaseURL           = "https://api.openai.com/v1"
 	defaultAssistantTemperature             = "0.2"
@@ -104,6 +108,8 @@ type SyncSpec struct {
 	Mode string `yaml:"mode"`
 	// PollInterval is an interval between git pull attempts.
 	PollInterval specw.Duration `yaml:"pollInterval"`
+	// Interval is an interval between reconciliations against the current local desired state.
+	Interval specw.Duration `yaml:"interval"`
 	// Policy contains synchronization behavior flags.
 	Policy SyncPolicySpec `yaml:"policy"`
 	// Webhook contains webhook sync trigger settings.
@@ -122,8 +128,12 @@ type WebhookSpec struct {
 	Address string `yaml:"address"`
 	// Path is an HTTP path for webhook endpoint.
 	Path string `yaml:"path"`
-	// Secret is a path to file containing webhook shared secret.
-	Secret specw.File `yaml:"secretPath"`
+	// Auth contains explicitly enabled webhook authentication methods.
+	Auth []WebhookAuthSpec `yaml:"auth"`
+	// RateLimit controls the global webhook request rate.
+	RateLimit WebhookRateLimitSpec `yaml:"rateLimit"`
+	// MaxBodyBytes limits the request body size read by the webhook endpoint.
+	MaxBodyBytes int64 `yaml:"maxBodyBytes"`
 }
 
 type StacksSourceSpec struct {
@@ -187,8 +197,6 @@ type EndpointSpec struct {
 type SwarmSpec struct {
 	// Command is executable used to invoke Docker CLI.
 	Command string `yaml:"command"`
-	// StackDeployArgs is argument list for docker stack deploy command.
-	StackDeployArgs []string `yaml:"stackDeployArgs"`
 	// InitJobPollEvery is polling interval for init jobs.
 	InitJobPollEvery specw.Duration `yaml:"initJobPollEvery"`
 	// InitJobMaxDuration is maximum execution time for init jobs.
@@ -202,6 +210,20 @@ type SecretRotationSpec struct {
 	HashLength int `yaml:"hashLength"`
 	// IncludePath adds source path into hash input.
 	IncludePath bool `yaml:"includePath"`
+	// Cleanup controls removal of old managed rotated resources.
+	Cleanup SecretRotationCleanupSpec `yaml:"cleanup"`
+}
+
+// SecretRotationCleanupSpec controls cleanup of old rotated configs and secrets.
+type SecretRotationCleanupSpec struct {
+	// Enabled toggles best-effort cleanup after stack deployment and pruning.
+	Enabled bool `yaml:"enabled"`
+	// Interval throttles periodic cleanup attempts between reconciliations.
+	Interval specw.Duration `yaml:"interval"`
+	// KeepLast preserves this many newest generations for each logical resource.
+	KeepLast int `yaml:"keepLast"`
+	// MinAge prevents cleanup of resources younger than this duration.
+	MinAge specw.Duration `yaml:"minAge"`
 }
 
 type ContainersSpec struct {
@@ -221,6 +243,7 @@ func (c *Config) UnmarshalYAML(node *yaml.Node) error {
 func (c *Config) applyDefaults(configDir string) error {
 	c.Spec.DataDir = filepath.Join(configDir, ".swarm-deploy")
 	c.applyGitAndSyncDefaults()
+	c.applyWebhookDefaults()
 	c.applyWebAndHealthDefaults()
 	c.Spec.Notifications.applyDefaults()
 	c.applyAssistantDefaults()
@@ -244,6 +267,9 @@ func (c *Config) applyGitAndSyncDefaults() {
 	}
 	if c.Spec.Sync.PollInterval.Value <= 0 {
 		c.Spec.Sync.PollInterval.Value = defaultSyncPollInterval
+	}
+	if c.Spec.Sync.Interval.Value <= 0 {
+		c.Spec.Sync.Interval.Value = defaultSyncInterval
 	}
 	if c.Spec.Sync.Webhook.Path == "" {
 		c.Spec.Sync.Webhook.Path = "/api/v1/webhooks/git"
@@ -310,9 +336,6 @@ func (c *Config) applySwarmDefaults() {
 	if c.Spec.Swarm.Command == "" {
 		c.Spec.Swarm.Command = "docker"
 	}
-	if len(c.Spec.Swarm.StackDeployArgs) == 0 {
-		c.Spec.Swarm.StackDeployArgs = []string{"stack", "deploy", "--with-registry-auth"}
-	}
 	if c.Spec.Swarm.InitJobPollEvery.Value <= 0 {
 		c.Spec.Swarm.InitJobPollEvery.Value = defaultInitJobPollEvery
 	}
@@ -327,6 +350,15 @@ func (c *Config) applySwarmDefaults() {
 func (c *Config) applySecretRotationDefaults() {
 	if c.Spec.SecretRotation.HashLength <= 0 {
 		c.Spec.SecretRotation.HashLength = 8
+	}
+	if c.Spec.SecretRotation.Cleanup.Interval.Value == 0 {
+		c.Spec.SecretRotation.Cleanup.Interval.Value = defaultRotationCleanupInterval
+	}
+	if c.Spec.SecretRotation.Cleanup.KeepLast == 0 {
+		c.Spec.SecretRotation.Cleanup.KeepLast = defaultRotationKeepLast
+	}
+	if c.Spec.SecretRotation.Cleanup.MinAge.Value == 0 {
+		c.Spec.SecretRotation.Cleanup.MinAge.Value = defaultRotationMinAge
 	}
 }
 
@@ -564,6 +596,7 @@ func (c *Config) validate() error {
 	errs = append(errs, c.validateStacks()...)
 	errs = append(errs, c.validateNetworks()...)
 	errs = append(errs, c.validateSync()...)
+	errs = append(errs, c.validateSecretRotation()...)
 	errs = append(errs, c.validateGitAuth()...)
 	errs = append(errs, c.validateSecurity()...)
 	errs = append(errs, c.Spec.Notifications.validate()...)
@@ -571,6 +604,29 @@ func (c *Config) validate() error {
 	errs = append(errs, c.validateTracing()...)
 
 	return errors.Join(errs...)
+}
+
+func (c *Config) validateSecretRotation() []error {
+	cleanup := c.Spec.SecretRotation.Cleanup
+	if !cleanup.Enabled {
+		return nil
+	}
+
+	var errs []error
+	if !c.Spec.SecretRotation.Enabled {
+		errs = append(errs, errors.New("secretRotation.cleanup.enabled requires secretRotation.enabled=true"))
+	}
+	if cleanup.Interval.Value < 0 {
+		errs = append(errs, errors.New("secretRotation.cleanup.interval must be > 0"))
+	}
+	if cleanup.KeepLast < 1 {
+		errs = append(errs, errors.New("secretRotation.cleanup.keepLast must be >= 1"))
+	}
+	if cleanup.MinAge.Value < 0 {
+		errs = append(errs, errors.New("secretRotation.cleanup.minAge must be > 0"))
+	}
+
+	return errs
 }
 
 func (c *Config) validateRequired() []error {
@@ -667,7 +723,7 @@ func (c *Config) validateSync() []error {
 	if c.Spec.Sync.Webhook.Enabled && c.Spec.Sync.Mode == SyncModePull {
 		errs = append(errs, errors.New("sync.webhook.enabled=true conflicts with sync.mode=pull"))
 	}
-	errs = append(errs, c.validateWebhookSecret()...)
+	errs = append(errs, c.validateWebhook()...)
 
 	return errs
 }
@@ -706,18 +762,6 @@ func (c *Config) validateSecurity() []error {
 
 	if strings.TrimSpace(string(c.Spec.Web.Security.Authentication.Basic.HTPasswdFile.Content)) == "" {
 		return []error{errors.New("web.security.authentication.basic.htpasswdFile contains empty credentials")}
-	}
-
-	return nil
-}
-
-func (c *Config) validateWebhookSecret() []error {
-	if !c.Spec.Sync.Webhook.Enabled {
-		return nil
-	}
-
-	if strings.TrimSpace(string(c.Spec.Sync.Webhook.Secret.Content)) == "" {
-		return []error{errors.New("webhook enabled but sync.webhook.secretPath contains empty secret")}
 	}
 
 	return nil

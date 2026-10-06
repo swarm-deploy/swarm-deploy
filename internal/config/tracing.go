@@ -12,14 +12,29 @@ import (
 const (
 	TracingTransportHTTP = "http"
 	TracingTransportGRPC = "grpc"
+
+	TracingSamplerAlwaysOn                = "always_on"
+	TracingSamplerAlwaysOff               = "always_off"
+	TracingSamplerTraceIDRatio            = "traceidratio"
+	TracingSamplerParentBasedTraceIDRatio = "parentbased_traceidratio"
 )
 
 // TracingSpec contains OpenTelemetry tracing settings.
 type TracingSpec struct {
 	// Transport is the OTLP transport: http or grpc.
 	Transport string `yaml:"transport"`
+	// Sampler contains trace sampling settings.
+	Sampler TracingSamplerSpec `yaml:"sampler"`
 	// Exporter contains OTLP exporter settings.
 	Exporter TracingExporterSpec `yaml:"exporter"`
+}
+
+// TracingSamplerSpec contains OpenTelemetry sampling settings.
+type TracingSamplerSpec struct {
+	// Strategy is the sampling strategy.
+	Strategy specw.Env[string] `yaml:"strategy"`
+	// Ratio is the sampling ratio for traceidratio strategies.
+	Ratio specw.Env[float64] `yaml:"ratio"`
 }
 
 // TracingExporterSpec contains OTLP exporter connection settings.
@@ -66,6 +81,10 @@ func (c *Config) validateTracing() []error {
 		errs = append(errs, err)
 	}
 
+	if err := validateTracingSampler(c.Spec.Tracing.Sampler); err != nil {
+		errs = append(errs, err)
+	}
+
 	for key := range c.Spec.Tracing.Exporter.Headers {
 		if strings.EqualFold(strings.TrimSpace(key), "authorization") {
 			errs = append(errs, errors.New("tracing.exporter.headers must not contain authorization"))
@@ -90,6 +109,32 @@ func (c *Config) validateTracing() []error {
 	}
 
 	return errs
+}
+
+func validateTracingSampler(sampler TracingSamplerSpec) error {
+	strategy := strings.TrimSpace(sampler.Strategy.Value)
+	if strategy == "" {
+		return nil
+	}
+
+	switch strategy {
+	case TracingSamplerAlwaysOn, TracingSamplerAlwaysOff:
+		return nil
+	case TracingSamplerTraceIDRatio, TracingSamplerParentBasedTraceIDRatio:
+		if sampler.Ratio.Value < 0 || sampler.Ratio.Value > 1 {
+			return errors.New("tracing.sampler.ratio must be between 0 and 1")
+		}
+
+		return nil
+	default:
+		return fmt.Errorf(
+			"tracing.sampler.strategy must be one of %q|%q|%q|%q",
+			TracingSamplerAlwaysOn,
+			TracingSamplerAlwaysOff,
+			TracingSamplerTraceIDRatio,
+			TracingSamplerParentBasedTraceIDRatio,
+		)
+	}
 }
 
 func validateTracingEndpoint(endpoint string) error {

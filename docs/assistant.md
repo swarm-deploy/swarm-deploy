@@ -7,11 +7,27 @@ The assistant helps with environment debugging using:
 
 Assistant is available only when `assistant.enabled: true`.
 
+## Request routing
+
+Each non-greeting message is classified by a small tool-free LLM request into one of these capability routes: `general`, `platform`, `services`, `cluster`, `deployments`, `diagnostics`, or `lookups`. The router uses the configured assistant model and a few recent conversation turns so short follow-ups retain their original intent. Greetings use a local fast-path and do not call the router.
+
+The selected route controls the additional prompt fragment, available tools, and whether service metadata retrieval runs. Service RAG is enabled only for `services` and `diagnostics`. If routing fails or returns an invalid route, the assistant logs and counts the fallback reason, then continues with the broad compatibility profile.
+
+## Terminal service actions
+
+Successful single calls to `service_restart_trigger` and `service_replicas_set` are terminal assistant actions. After the existing tool-result injection guard passes, the assistant formats their typed result directly instead of issuing a second model completion. Tool errors, malformed results, non-terminal tools, and iterations containing multiple calls continue through the regular model tool loop.
+
+The assistant chat span records request-size diagnostics without recording prompt or user content: `swarm-deploy.assistant.request.system_prompt_chars`, `swarm-deploy.assistant.request.history_chars`, `swarm-deploy.assistant.request.context_chars`, `swarm-deploy.assistant.request.user_message_chars`, `swarm-deploy.assistant.request.tools_chars`, `swarm-deploy.assistant.request.message_count`, and `swarm-deploy.assistant.request.tool_count`. It also records `swarm-deploy.assistant.route` and, for a completed terminal action, `swarm-deploy.assistant.terminal_tool`. MCP tool execution spans use the OpenTelemetry GenAI attribute `gen_ai.operation.name=execute_tool`.
+
 ## API
 
 - `POST /api/v1/assistant/chat`
+- `GET /api/v1/assistant/chats`
+- `GET /api/v1/assistant/chats/{conversation_id}`
 
-The endpoint supports start and poll with the same route.
+The chat endpoint supports start and poll with the same route. Chat history endpoints return persisted conversations ordered by latest activity and the full message history for a selected chat.
+
+While a run is in progress, responses may include an `activity` array with safe execution progress such as request routing, context lookup, response generation, and MCP tool execution. The UI uses short long-poll requests while a run is active so these updates appear promptly. Activity intentionally excludes model chain-of-thought, tool arguments, and tool results. Completed assistant turns persist this activity metadata alongside the message, so reopening a chat restores the execution trace. Activity is not included in subsequent model context.
 
 ### Start request
 
@@ -42,10 +58,15 @@ The endpoint supports start and poll with the same route.
   "conversation_id": "conversation-id",
   "answer": "optional",
   "tool_calls": [],
+  "activity": ["Routing request", "Generating response"],
   "error_message": "optional",
   "poll_after_ms": 1000
 }
 ```
+
+## Chat history
+
+Completed user/assistant turns are persisted under `.swarm-deploy/assistant/chats/` with one JSON file per conversation. Assistant turns may also contain an optional `activity` array with the safe execution trace shown by the UI. Chat list metadata is kept in `index.json`, loaded once at startup, and served from memory so listing chats does not scan or decode conversation files. The UI creates chats lazily on the first message, derives the title from the first user message, and can reopen older chats. When an older chat is continued after the in-memory cache expired or the process restarted, recent turns are restored from persisted history into the context cache.
 
 ## Built-in tools
 
@@ -70,8 +91,9 @@ Example use-case:
 
 Tool access is controlled by `assistant.tools`:
 
-- empty list (`[]`) means all built-in tools are available
-- non-empty list works as an allow-list
+- empty list (`[]`) permits all built-in tools, subject to the selected route
+- a non-empty list works as a global allow-list; effective tools are the intersection of it and the route allow-list
+- the effective allow-list is checked both when tools are sent to the model and immediately before execution
 
 ## Configuration
 

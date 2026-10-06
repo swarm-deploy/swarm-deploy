@@ -3,10 +3,8 @@ package main
 import (
 	"context"
 	"flag"
-	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"time"
 
 	entrypoint "github.com/artarts36/go-entrypoint"
@@ -14,34 +12,26 @@ import (
 	"github.com/cappuccinotm/slogx/slogm"
 	"github.com/docker/docker/client"
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/swarm-deploy/swarm-deploy/internal/assistant"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/healthserver"
-	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/mcpserver"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/sd"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webhookserver"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/logx"
-	eventmetrics "github.com/swarm-deploy/swarm-deploy/internal/event/metrics"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/notifiers"
-	notify2 "github.com/swarm-deploy/swarm-deploy/internal/event/notify"
-	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
-	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller"
-	"github.com/swarm-deploy/swarm-deploy/internal/gitops/differ"
-	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
-	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
-	"github.com/swarm-deploy/swarm-deploy/internal/registry"
-	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/resources/node"
-	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
-	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/logx"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/buildinfo"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
 
 const shutdownTimeout = 30 * time.Second
@@ -50,6 +40,57 @@ var (
 	Version   = "0.1.0"
 	BuildDate = "2026-05-26 23:51:00"
 )
+
+var modules = []module{
+	{
+		Name: "event",
+		Initialize: func(_ context.Context, cfg *config.Config, cnt *container) error {
+			mod, err := event.InitModule(cfg, cnt)
+			cnt.Event = mod
+			return err
+		},
+	},
+	{
+		Name: "alert-management",
+		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
+			mod, err := alertmanagement.InitModule(ctx, cfg, cnt)
+			cnt.AlertManagement = mod
+			return err
+		},
+	},
+	{
+		Name: "resources",
+		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
+			mod, err := resources.InitModule(ctx, cfg, cnt)
+			cnt.Resources = mod
+			return err
+		},
+	},
+	{
+		Name: "recommendations",
+		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
+			mod, err := recommendations.InitModule(ctx, cfg, cnt)
+			cnt.Recommendations = mod
+			return err
+		},
+	},
+	{
+		Name: "gitops",
+		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
+			mod, err := gitops.InitModule(ctx, cfg, cnt)
+			cnt.GitOps = mod
+			return err
+		},
+	},
+	{
+		Name: "assistant",
+		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
+			mod, err := assistant.InitModule(ctx, cfg, cnt)
+			cnt.Assistant = mod
+			return err
+		},
+	},
+}
 
 //nolint:funlen//not need
 func main() {
@@ -73,21 +114,13 @@ func main() {
 		security.LogUser(),
 	)))
 
-	tracerProvider, err := sd.InitTracerProvider(ctx, cfg.Spec.Tracing)
+	tracerProvider, err := sd.InitTracerProvider(ctx, cfg.Spec.Tracing, buildinfo.Info{
+		Version: Version,
+		Date:    BuildDate,
+	})
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to init tracing", slog.Any("err", err))
 		os.Exit(1)
-	}
-
-	stopTracing := func() {
-		if tracerProvider != nil {
-			shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-			defer cancel()
-
-			if shutdownErr := tracerProvider.Shutdown(shutdownCtx); shutdownErr != nil {
-				slog.ErrorContext(shutdownCtx, "failed to shutdown tracing", slog.Any("err", shutdownErr))
-			}
-		}
 	}
 
 	err = os.MkdirAll(cfg.Spec.DataDir, 0o755)
@@ -101,8 +134,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	gitRepository := gitx.NewRepository(cfg.Spec.Git, filepath.Join(cfg.Spec.DataDir, "repo"))
-
 	metricsGroup := metrics.NewGroup(metrics.CreateGroupParams{
 		Namespace: "swarm_deploy",
 		Assistant: cfg.Spec.Assistant.Enabled,
@@ -115,112 +146,82 @@ func main() {
 
 	metricsGroup.BuildInfo.Set(Version, BuildDate)
 
+	cnt := &container{
+		FileSystem: fs.TraceOS(),
+		Metrics:    metricsGroup,
+	}
+
 	dockerClient, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to init docker client", slog.Any("err", err))
 		os.Exit(1)
 	}
 
-	swarmService := swarm.NewSwarm(dockerClient, cfg.Spec.Swarm.Command)
-
-	deployerSvc := deployer.NewDeployer(
-		cfg.Spec.Swarm.StackDeployArgs,
+	cnt.Swarm = swarm.NewSwarm(dockerClient, cfg.Spec.Swarm.Command)
+	cnt.Deployer = deployer.NewDeployer(
 		cfg.Spec.Swarm.InitJobPollEvery.Value,
 		cfg.Spec.Swarm.InitJobMaxDuration.Value,
-		swarmService.BinaryRunner,
 		dockerClient,
-		swarmService,
+		cnt.GetSwarm(),
 		metricsGroup.Deploys,
 	)
 
-	nodeStore, err := swarmnode.NewNodeStore(filepath.Join(cfg.Spec.DataDir, "nodes.json"))
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to init node store", slog.Any("err", err))
-		os.Exit(1)
-	}
-
-	filesystem := fs.TraceOS()
-
-	eventDispatcher, eventHistory, serviceStore, err := buildEventDispatcher(
-		cfg,
-		swarmService,
-		metricsGroup.Events,
-		filesystem,
-	)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to build event dispatcher", slog.Any("err", err))
-		os.Exit(1)
-	}
-	nodeCollector := swarmnode.NewNodeCollector(swarmService.Nodes, nodeStore, eventDispatcher)
-
-	stateFileStore, err := modelstore.NewFileStore(filepath.Join(cfg.Spec.DataDir, "controller.state.json"))
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to build controller file state", slog.Any("err", err))
-		os.Exit(1)
-	}
-
-	stateStore := modelstore.NewWarmupStore(modelstore.NewMemoryStore(), stateFileStore)
-	stateStore.Warmup()
-
-	control := controller.New(
-		cfg,
-		gitRepository,
-		swarmService,
-		deployerSvc,
-		metricsGroup,
-		eventDispatcher,
-		stateStore,
-		filesystem,
-	)
-
-	assistantService, err := buildAssistantService(
-		cfg,
-		serviceStore,
-		eventHistory,
-		nodeStore,
-		swarmService,
-		gitRepository,
-		control,
-		eventDispatcher,
-		metricsGroup,
-	)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to build assistant service", slog.Any("err", err))
-		os.Exit(1)
+	for _, mod := range modules {
+		err = mod.Initialize(ctx, cfg, cnt)
+		if err != nil {
+			slog.ErrorContext(ctx, "failed to init module", slog.Any("err", err),
+				slog.String("module", mod.Name),
+			)
+			os.Exit(1)
+		}
 	}
 
 	webApplication, err := webserver.NewApplication(
 		cfg.Spec.Web.Address,
 		cfg,
-		stateStore,
-		control,
-		gitRepository,
-		swarmService,
-		eventHistory,
-		serviceStore,
-		nodeStore,
-		assistantService,
-		eventDispatcher,
+		cnt.GitOps,
+		cnt.Swarm,
+		cnt.Event,
+		cnt.Resources,
+		cnt.Recommendations.Store,
+		cnt.AlertManagement.Store,
+		cnt.Assistant.Service,
 		cfg.Spec.Web.Security.Authentication,
 	)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to init web server", slog.Any("err", err))
 		os.Exit(1)
 	}
-	webhookApplication := webhookserver.NewApplication(cfg.Spec.Sync.Webhook.Address, cfg, control)
 
 	healthServer := healthserver.NewApplication(cfg.Spec.HealthServer)
+	syncControllerDone := make(chan struct{})
 
 	entrypoints := []entrypoint.Entrypoint{
 		{
-			Name: "state-store",
+			Name: "sync-controller",
 			Run: func(ctx context.Context) error {
-				stateStore.Sync()
-				return nil
+				defer close(syncControllerDone)
+
+				storeDone := make(chan struct{})
+				go func() {
+					defer close(storeDone)
+					cnt.GitOps.Store.Sync(context.WithoutCancel(ctx))
+				}()
+
+				runErr := cnt.GitOps.Controller.Run(ctx)
+				cnt.GitOps.Store.Stop()
+				<-storeDone
+
+				return runErr
 			},
-			Stop: func(ctx context.Context) error {
-				stateStore.Stop()
-				return nil
+		},
+		{
+			Name: "event-dispatcher",
+			Run: func(ctx context.Context) error {
+				<-ctx.Done()
+				<-syncControllerDone
+
+				return cnt.Event.Shutdown(context.WithoutCancel(ctx))
 			},
 		},
 		webApplication.Entrypoint(),
@@ -228,31 +229,34 @@ func main() {
 		{
 			Name: "nodes-collector",
 			Run: func(ctx context.Context) error {
-				return nodeCollector.Run(ctx)
+				return cnt.Resources.NodeCollector.Run(ctx)
 			},
 		},
 		{
-			Name: "sync-controller",
+			Name: "secrets-collector",
 			Run: func(ctx context.Context) error {
-				return control.Run(ctx)
+				return cnt.Resources.Secrets.Collector.Run(ctx)
 			},
 		},
 	}
 
-	if webhookApplication.Enabled() {
+	if cfg.Spec.Sync.Webhook.Enabled {
+		webhookApplication, werr := webhookserver.NewApplication(cfg.Spec.Sync.Webhook.Address, cfg, cnt.GitOps.Controller)
+		if werr != nil {
+			slog.ErrorContext(ctx, "failed to create webhook application", slog.Any("err", werr))
+			os.Exit(1)
+		}
+
 		entrypoints = append(entrypoints, webhookApplication.Entrypoint())
 	}
 
-	runner := entrypoint.NewRunner(
-		entrypoints,
-		entrypoint.WithShutdownTimeout(shutdownTimeout),
-	)
+	runner := entrypoint.NewRunner(entrypoints)
 
 	slog.InfoContext(ctx, "starting swarm deploy",
 		slog.String("web.address", cfg.Spec.Web.Address),
 		slog.String("web.security", cfg.Spec.Web.Security.Authentication.Strategy()),
 		slog.String("webhook.address", cfg.Spec.Sync.Webhook.Address),
-		slog.Bool("webhook.enabled", webhookApplication.Enabled()),
+		slog.Bool("webhook.enabled", cfg.Spec.Sync.Webhook.Enabled),
 		slog.String("healthServer.address", cfg.Spec.HealthServer.Address),
 		slog.String("healthz.path", cfg.Spec.HealthServer.Healthz.Path),
 		slog.String("metrics.path", cfg.Spec.HealthServer.Metrics.Path),
@@ -264,175 +268,74 @@ func main() {
 	err = runner.Run()
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to run", slog.Any("err", err))
-		stopTracing()
+		shutdownTracing(tracerProvider)
 		os.Exit(1)
 	}
 
-	stopTracing()
+	shutdownTracing(tracerProvider)
 }
 
-func buildAssistantService(
-	cfg *config.Config,
-	serviceStore *service.Store,
-	eventHistory *history.Store,
-	nodeStore *swarmnode.Store,
-	swarmService *swarm.Swarm,
-	gitRepository gitx.Repository,
-	control *controller.Controller,
-	eventDispatcher dispatcher.Dispatcher,
-	metrics *metrics.Group,
-) (assistant.Assistant, error) {
-	if !cfg.Spec.Assistant.Enabled {
-		return &assistant.DisabledAssistant{}, nil
+func shutdownTracing(tracerProvider *sdktrace.TracerProvider) {
+	if tracerProvider == nil {
+		return
 	}
 
-	temperature, err := cfg.Spec.Assistant.Model.OpenAI.ResolveTemperature()
-	if err != nil {
-		return nil, fmt.Errorf("resolve assistant temperature: %w", err)
-	}
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
+	defer cancel()
 
-	imageVersionResolver, err := registry.NewImageVersionResolver()
-	if err != nil {
-		return nil, fmt.Errorf("build image version resolver: %w", err)
-	}
-
-	commitDiffer := differ.New()
-	hostingProviders, err := githosting.NewProviderManager(cfg.Spec.Hostings)
-	if err != nil {
-		return nil, fmt.Errorf("build hosting providers: %w", err)
-	}
-
-	toolExecutor := mcpserver.NewExecutor(
-		eventHistory,
-		nodeStore,
-		swarmService,
-		serviceStore,
-		imageVersionResolver,
-		gitRepository,
-		hostingProviders,
-		cfg.Spec.Stacks,
-		commitDiffer,
-		control,
-		eventDispatcher,
-		metrics.MCP,
-	)
-
-	return assistant.NewService(assistant.Config{
-		Enabled:                 cfg.Spec.Assistant.Enabled,
-		ModelName:               cfg.Spec.Assistant.Model.Name,
-		EmbeddingModelName:      cfg.Spec.Assistant.Model.EmbeddingName,
-		BaseURL:                 cfg.Spec.Assistant.Model.OpenAI.BaseURL,
-		APIToken:                string(cfg.Spec.Assistant.Model.OpenAI.APIToken.Content),
-		OrganizationID:          cfg.Spec.Assistant.Model.OpenAI.OrganizationID,
-		Temperature:             temperature,
-		MaxTokens:               cfg.Spec.Assistant.Model.OpenAI.MaxTokens,
-		SystemPrompt:            cfg.Spec.Assistant.SystemPrompt,
-		AllowedTools:            cfg.Spec.Assistant.Tools,
-		ConversationInMemoryTTL: cfg.Spec.Assistant.Conversation.Storage.InMemory.TTL.Value,
-	}, serviceStore, toolExecutor, eventDispatcher, metrics.Assistant)
-}
-
-func buildEventDispatcher(
-	cfg *config.Config,
-	swarmSvc *swarm.Swarm,
-	eventMetrics metrics.Events,
-	filesystem fs.FileSystem,
-) (dispatcher.Dispatcher, *history.Store, *service.Store, error) {
-	historyStore, err := history.NewStore(
-		filepath.Join(cfg.Spec.DataDir, "event-history.json"),
-		cfg.Spec.EventHistory.Capacity,
-		filesystem,
-	)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("build history store: %w", err)
-	}
-
-	srvStore, err := service.NewStore(filepath.Join(cfg.Spec.DataDir, "services.json"))
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("build service store: %w", err)
-	}
-
-	var eventDispatcher dispatcher.Dispatcher = dispatcher.NewQueueDispatcher()
-
-	if cfg.Spec.Web.Security.Authentication.Strategy() != config.AuthenticationStrategyNone {
-		eventDispatcher = dispatcher.NewEnrichableDispatcher(
-			dispatcher.WrapEnrichers(security.EnrichEvent()),
-			eventDispatcher,
-		)
-	}
-
-	subscribeOnAllEvents(eventDispatcher, historyStore)
-	subscribeOnAllEvents(eventDispatcher, eventmetrics.NewSubscriber(eventMetrics))
-
-	dispatcherLink := &dispatcherProxy{Dispatcher: eventDispatcher}
-	subscribersCount := 0
-
-	eventDispatcher.Subscribe(
-		events.TypeDeploySuccess,
-		service.NewSubscriberWithRepository(
-			srvStore,
-			swarmSvc.Services,
-			swarmSvc.Images,
-			swarmSvc.Configs,
-			cfg,
-			filesystem,
-			metadata.NewExtractor(),
-		),
-	)
-	subscribersCount++
-
-	for eventTypeName, channels := range cfg.Spec.Notifications.On {
-		eventType, ok := events.ParseType(string(eventTypeName))
-		if !ok {
-			return nil, nil, nil, fmt.Errorf("unknown notifications.on event type %q", eventTypeName)
-		}
-
-		for _, tg := range channels.Telegram {
-			tgNotifier, notifierErr := notifiers.NewTelegramNotifier(
-				tg.Name,
-				string(tg.BotToken.Content),
-				tg.ChatID,
-				notifiers.TelegramOptions{
-					ChatThreadID:  tg.ChatThreadID,
-					Message:       tg.Message,
-					Retries:       cfg.Spec.Notifications.Messengers.Telegram.Retries,
-					SOCKS5Address: cfg.Spec.Notifications.Messengers.Telegram.Proxy.SOCKS5.Address.Value,
-				},
-			)
-			if notifierErr != nil {
-				return nil, nil, nil, fmt.Errorf("build telegram notifier %q: %w", tg.Name, notifierErr)
-			}
-
-			eventDispatcher.Subscribe(eventType, notify2.NewSubscriber(tgNotifier, dispatcherLink))
-			subscribersCount++
-		}
-
-		for _, custom := range channels.Custom {
-			notifier := notifiers.NewCustomWebhookNotifier(custom.Name, custom.URL.Value.String(), custom.Method, custom.Header)
-
-			eventDispatcher.Subscribe(eventType, notify2.NewSubscriber(notifier, dispatcherLink))
-			subscribersCount++
-		}
-	}
-
-	if len(cfg.Spec.Notifications.On) == 0 {
-		slog.Info("notification subscribers not found")
-	}
-
-	slog.Info(
-		"found event subscribers",
-		slog.Int("subscribers", subscribersCount),
-	)
-
-	return eventDispatcher, historyStore, srvStore, nil
-}
-
-func subscribeOnAllEvents(dispatcher dispatcher.Dispatcher, subscriber dispatcher.Subscriber) {
-	for _, typ := range events.Types {
-		dispatcher.Subscribe(typ, subscriber)
+	if err := tracerProvider.Shutdown(shutdownCtx); err != nil {
+		slog.ErrorContext(shutdownCtx, "failed to shutdown tracing", slog.Any("err", err))
 	}
 }
 
-type dispatcherProxy struct {
-	dispatcher.Dispatcher
+type module struct {
+	Name       string
+	Initialize func(ctx context.Context, cfg *config.Config, cnt *container) error
+}
+
+type container struct {
+	FileSystem      fs.FileSystem
+	Metrics         *metrics.Group
+	Swarm           *swarm.Swarm
+	EventDispatcher dispatcher.Dispatcher
+	Deployer        deployer.StackDeployer
+
+	Event           *event.Module
+	Resources       *resources.Module
+	GitOps          *gitops.Module
+	Recommendations *recommendations.Module
+	AlertManagement *alertmanagement.Module
+	Assistant       *assistant.Module
+}
+
+func (c *container) GetFileSystem() fs.FileSystem {
+	return c.FileSystem
+}
+
+func (c *container) GetMetrics() *metrics.Group {
+	return c.Metrics
+}
+
+func (c *container) GetSwarm() *swarm.Swarm {
+	return c.Swarm
+}
+
+func (c *container) GetEventModule() *event.Module {
+	return c.Event
+}
+
+func (c *container) GetResourcesModule() *resources.Module {
+	return c.Resources
+}
+
+func (c *container) GetGitOpsModule() *gitops.Module {
+	return c.GitOps
+}
+
+func (c *container) GetRecommendationsModule() *recommendations.Module {
+	return c.Recommendations
+}
+
+func (c *container) GetDeployer() deployer.StackDeployer {
+	return c.Deployer
 }

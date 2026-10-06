@@ -3,7 +3,7 @@ package compose
 import (
 	"fmt"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 type Volumes map[string]*Volume
@@ -12,7 +12,7 @@ type Volume struct {
 	Alias string `yaml:"-" json:"-"`
 
 	Name     string            `yaml:"name" json:"name"`
-	External string            `yaml:"external,omitempty" json:"external,omitempty"`
+	External bool              `yaml:"external,omitempty" json:"external,omitempty"`
 	Labels   map[string]string `yaml:"labels,omitempty" json:"labels,omitempty"`
 
 	Driver     string            `yaml:"driver,omitempty" json:"driver,omitempty"`

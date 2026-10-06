@@ -1,15 +1,20 @@
 package handlers
 
 import (
-	"github.com/swarm-deploy/swarm-deploy/internal/assistant"
+	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
-	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller"
-	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
-	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
-	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/resources/node"
-	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
+	alertstore "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller"
+	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
+	recommendationstore "github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/modelstore"
+	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/node"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretmanager"
+	secretstore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
@@ -19,16 +24,22 @@ type handler struct {
 	stateStore       modelstore.ReadStore
 	control          *controller.Controller
 	serviceInspector swarm.ServiceManager
-	secrets          swarm.SecretManager
+	secrets          secretstore.Store
+	secretManagers   *secretmanager.Domain
 	networks         swarm.NetworkManager
+	nodeManager      swarm.NodeManager
 	history          *history.Store
 	services         *service.Store
 	nodes            *swarmnode.Store
+	recommendations  recommendationstore.Store
+	alerts           alertstore.Store
 	assistant        assistant.Assistant
 	git              gitx.Repository
+	composeLoader    compose.FileLoader
 }
 
 var _ generated.Handler = (*handler)(nil)
+var _ generated.RawHandler = (*handler)(nil)
 
 func New(
 	stackProvider config.StackProvider,
@@ -39,19 +50,28 @@ func New(
 	history *history.Store,
 	services *service.Store,
 	nodes *swarmnode.Store,
+	secrets secretstore.Store,
+	secretManagers *secretmanager.Domain,
+	recommendations recommendationstore.Store,
+	alerts alertstore.Store,
 	assistantService assistant.Assistant,
-) generated.Handler {
+) *handler {
 	return &handler{
 		stackProvider:    stackProvider,
 		stateStore:       stateStore,
 		control:          control,
 		serviceInspector: swarmService.Services,
-		secrets:          swarmService.Secrets,
+		secrets:          secrets,
+		secretManagers:   secretManagers,
 		networks:         swarmService.Networks,
+		nodeManager:      swarmService.Nodes,
 		history:          history,
 		services:         services,
 		nodes:            nodes,
+		recommendations:  recommendations,
+		alerts:           alerts,
 		assistant:        assistantService,
 		git:              gitRepository,
+		composeLoader:    compose.NewFileLoaderWithReader(gitRepository.ReadFile),
 	}
 }

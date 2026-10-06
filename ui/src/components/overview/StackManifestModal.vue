@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import yaml from "@speed-highlight/core/languages/yaml.js";
+import { tokenizeWith } from "@speed-highlight/core/tokenize";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 
 import { useOverviewStore } from "../../stores/overview";
@@ -17,15 +19,39 @@ const modalTitle = computed(() => {
   return `${stackName} manifest`;
 });
 const desiredManifest = computed(() => overviewStore.stackManifestDesired);
-const desiredManifestLines = computed(() => {
-  const payload = String(desiredManifest.value || "");
-  return payload.split(/\r?\n/);
-});
 const liveManifest = computed(() => overviewStore.stackManifestLive);
-const liveManifestLines = computed(() => {
-  const payload = String(liveManifest.value || "");
-  return payload.split(/\r?\n/);
-});
+const desiredManifestHtml = computed(() => highlightManifest(desiredManifest.value));
+const liveManifestHtml = computed(() => highlightManifest(liveManifest.value));
+const activeManifest = computed(() => (activeTab.value === "desired" ? desiredManifest.value : liveManifest.value));
+const activeManifestHtml = computed(() =>
+  activeTab.value === "desired" ? desiredManifestHtml.value : liveManifestHtml.value,
+);
+const activeManifestLabel = computed(() =>
+  activeTab.value === "desired" ? "Desired manifest yaml" : "Live manifest yaml",
+);
+const activeManifestEmptyMessage = computed(() =>
+  activeTab.value === "desired" ? "Desired manifest is empty." : "Live manifest is empty.",
+);
+
+function escapeHtml(value: string) {
+  return value.replaceAll("&", "&#38;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
+function highlightManifest(manifest: string) {
+  if (!manifest.trim()) {
+    return "";
+  }
+
+  let highlighted = "";
+  tokenizeWith(manifest, yaml, (text, token) => {
+    const escapedText = escapeHtml(text);
+    highlighted += token ? `<span class="shj-syn-${token}">${escapedText}</span>` : escapedText;
+  });
+
+  const lineCount = manifest.split(/\r\n|\r|\n/).length;
+  const lineNumbers = "<div></div>".repeat(lineCount);
+  return `<div><div class="shj-numbers" aria-hidden="true">${lineNumbers}</div><div>${highlighted}</div></div>`;
+}
 
 function setActiveTab(tab: ManifestTab) {
   activeTab.value = tab;
@@ -97,30 +123,14 @@ onUnmounted(() => {
             </button>
           </div>
 
-          <div v-if="activeTab === 'desired'" class="manifest-viewer">
-            <p v-if="desiredManifest.trim().length === 0" class="meta">Desired manifest is empty.</p>
-            <ol v-else class="manifest-lines" aria-label="Desired manifest yaml">
-              <li
-                v-for="(line, lineIndex) in desiredManifestLines"
-                :key="`${lineIndex}-${line}`"
-                class="manifest-line"
-              >
-                <code>{{ line || " " }}</code>
-              </li>
-            </ol>
-          </div>
-
-          <div v-else class="manifest-viewer">
-            <p v-if="liveManifest.trim().length === 0" class="meta">Live manifest is empty.</p>
-            <ol v-else class="manifest-lines" aria-label="Live manifest yaml">
-              <li
-                v-for="(line, lineIndex) in liveManifestLines"
-                :key="`${lineIndex}-${line}`"
-                class="manifest-line"
-              >
-                <code>{{ line || " " }}</code>
-              </li>
-            </ol>
+          <div class="manifest-viewer">
+            <p v-if="activeManifest.trim().length === 0" class="meta">{{ activeManifestEmptyMessage }}</p>
+            <div
+              v-else
+              class="manifest-code shj-lang-yaml shj-block"
+              :aria-label="activeManifestLabel"
+              v-html="activeManifestHtml"
+            />
           </div>
         </template>
       </div>

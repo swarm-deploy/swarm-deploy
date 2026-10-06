@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 func TestLoader_Load(t *testing.T) {
@@ -53,6 +53,64 @@ func TestLoader_Load(t *testing.T) {
 			}
 
 			assert.Equal(t, string(fileRaw), result.String())
+		})
+	}
+}
+
+func TestFileLoaderLoadsEnvFiles(t *testing.T) {
+	tests := []struct {
+		name      string
+		content   []byte
+		expected  map[string]string
+		errString string
+	}{
+		{
+			name:    "variables",
+			content: []byte("\xef\xbb\xbf# comment\n  FOO=bar baz  \nEMPTY=\n"),
+			expected: map[string]string{
+				"EMPTY": "",
+				"FOO":   "bar baz  ",
+			},
+		},
+		{
+			name:      "bare variable",
+			content:   []byte("SECRET_TOKEN\n"),
+			errString: "must have an explicit value",
+		},
+		{
+			name:      "invalid key",
+			content:   []byte("BAD KEY=value\n"),
+			errString: "contains whitespace",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			composePath := filepath.Join("repo", "compose.yaml")
+			envPath := filepath.Join("repo", "app.env")
+			loader := NewFileLoaderWithReader(func(_ context.Context, path string) ([]byte, error) {
+				switch path {
+				case composePath:
+					return []byte("services:\n  api:\n    image: nginx\n    env_file:\n      - app.env\n"), nil
+				case envPath:
+					return tt.content, nil
+				default:
+					return nil, fmt.Errorf("unexpected path %s", path)
+				}
+			})
+
+			file, err := loader.Load(context.Background(), composePath)
+			if tt.errString != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errString)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Len(t, file.Compose.Services, 1)
+			require.Len(t, file.Compose.Services[0].EnvFiles, 1)
+			assert.Equal(t, "app.env", file.Compose.Services[0].EnvFiles[0].Path)
+			assert.Equal(t, tt.expected, file.Compose.Services[0].EnvFiles[0].Variables)
 		})
 	}
 }
@@ -150,6 +208,76 @@ configs:
 			require.NoError(t, err, "load compose with new object")
 
 			assert.NotEqual(t, oldFile.Digest, newFile.Digest, "digest must include shared object file content")
+		})
+	}
+}
+
+func TestFileLoaderDigestChangesWhenEnvFileContentChanges(t *testing.T) {
+	tests := []struct {
+		name           string
+		composePayload func(envFile string) string
+		envFile        func(dir string) string
+		envPath        func(dir string) string
+	}{
+		{
+			name: "relative env file",
+			composePayload: func(envFile string) string {
+				return fmt.Sprintf(`
+services:
+  api:
+    image: nginx:latest
+    env_file:
+      - %s
+`, envFile)
+			},
+			envFile: func(string) string {
+				return "./env/api.env"
+			},
+			envPath: func(dir string) string {
+				return filepath.Join(dir, "env", "api.env")
+			},
+		},
+		{
+			name: "absolute env file",
+			composePayload: func(envFile string) string {
+				return fmt.Sprintf(`
+services:
+  api:
+    image: nginx:latest
+    env_file:
+      - %s
+`, envFile)
+			},
+			envFile: func(dir string) string {
+				return filepath.Join(dir, "absolute", "api.env")
+			},
+			envPath: func(dir string) string {
+				return filepath.Join(dir, "absolute", "api.env")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			composePath := filepath.Join(dir, "compose.yaml")
+			envFile := tt.envFile(dir)
+			envPath := tt.envPath(dir)
+
+			require.NoError(t, os.MkdirAll(filepath.Dir(envPath), 0o755), "create env file dir")
+			require.NoError(t, os.WriteFile(composePath, []byte(tt.composePayload(envFile)), 0o600), "write compose")
+			require.NoError(t, os.WriteFile(envPath, []byte("VERSION=old\n"), 0o600), "write old env file")
+
+			loader := NewFileLoader()
+			oldFile, err := loader.Load(context.Background(), composePath)
+			require.NoError(t, err, "load compose with old env file")
+
+			require.NoError(t, os.WriteFile(envPath, []byte("VERSION=new\n"), 0o600), "write new env file")
+
+			newFile, err := loader.Load(context.Background(), composePath)
+			require.NoError(t, err, "load compose with new env file")
+
+			assert.NotEqual(t, oldFile.Digest, newFile.Digest, "digest must include env_file content")
 		})
 	}
 }
