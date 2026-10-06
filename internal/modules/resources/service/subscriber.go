@@ -12,7 +12,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	webroute "github.com/swarm-deploy/webroute/api"
 )
@@ -23,7 +22,6 @@ type Subscriber struct {
 	inspector        swarm.ServiceManager
 	images           swarm.ImageManager
 	configs          swarm.ConfigManager
-	fileSystem       fs.FileSystem
 	extractor        *metadata.Extractor
 	webRouteResolver *enrichment.WebRouteResolver
 }
@@ -32,7 +30,6 @@ type Subscriber struct {
 func NewSubscriber(
 	store modelstore.Store,
 	swarmService *swarm.Swarm,
-	fileSystem fs.FileSystem,
 	extractor *metadata.Extractor,
 ) *Subscriber {
 	return &Subscriber{
@@ -40,7 +37,6 @@ func NewSubscriber(
 		inspector:        swarmService.Services,
 		images:           swarmService.Images,
 		configs:          swarmService.Configs,
-		fileSystem:       fileSystem,
 		extractor:        extractor,
 		webRouteResolver: enrichment.NewWebRouteResolver(),
 	}
@@ -90,6 +86,7 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 				ctx,
 				deploySuccess.StackName,
 				deployedService,
+				deploySuccess.StackDefinition.Compose.Configs,
 				status.ContainerConfigs,
 			)
 		}
@@ -146,6 +143,7 @@ func (s *Subscriber) loadWebRouteConfigs(
 	ctx context.Context,
 	stackName string,
 	service compose.Service,
+	desiredConfigs compose.Configs,
 	configs []swarm.ServiceConfig,
 ) []webroute.ServiceConfig {
 	if len(configs) == 0 {
@@ -155,7 +153,12 @@ func (s *Subscriber) loadWebRouteConfigs(
 	out := make([]webroute.ServiceConfig, 0, len(configs))
 	for i, cfg := range configs {
 		desiredRef := matchDesiredConfigRef(service.Configs, cfg, i)
-		routeConfig, ok := s.loadWebRouteConfig(ctx, stackName, service.Name, cfg, desiredRef)
+		var desiredConfig *compose.Config
+		if desiredRef != nil {
+			desiredConfig = desiredConfigs[desiredRef.Source]
+		}
+
+		routeConfig, ok := s.loadWebRouteConfig(ctx, stackName, service.Name, cfg, desiredConfig)
 		if !ok {
 			continue
 		}
@@ -191,14 +194,14 @@ func (s *Subscriber) loadWebRouteConfig(
 	stackName string,
 	serviceName string,
 	ref swarm.ServiceConfig,
-	desiredRef *compose.ObjectRef,
+	desiredConfig *compose.Config,
 ) (webroute.ServiceConfig, bool) {
 	if ref.Target == "" {
 		return nil, false
 	}
 
-	if data, ok := s.loadConfigFromFileSystem(ctx, stackName, serviceName, desiredRef); ok {
-		return enrichment.NewWebRouteConfig(ref.Target, data), true
+	if desiredConfig != nil && len(desiredConfig.Data) > 0 {
+		return enrichment.NewWebRouteConfig(ref.Target, desiredConfig.Data), true
 	}
 
 	if len(ref.Data) > 0 {
@@ -229,29 +232,4 @@ func (s *Subscriber) loadWebRouteConfig(
 	}
 
 	return enrichment.NewWebRouteConfig(ref.Target, cfg.Data), true
-}
-
-func (s *Subscriber) loadConfigFromFileSystem(
-	ctx context.Context,
-	stackName string,
-	serviceName string,
-	ref *compose.ObjectRef,
-) ([]byte, bool) {
-	if ref == nil || ref.File == "" {
-		return nil, false
-	}
-
-	data, err := s.fileSystem.ReadFile(ctx, ref.File)
-	if err != nil {
-		slog.InfoContext(ctx, "[service] failed to load repository config for web route resolution",
-			slog.String("stack", stackName),
-			slog.String("service", serviceName),
-			slog.String("config", ref.Source),
-			slog.String("path", ref.File),
-			slog.Any("err", err),
-		)
-		return nil, false
-	}
-
-	return data, true
 }

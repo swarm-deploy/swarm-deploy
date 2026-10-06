@@ -72,7 +72,6 @@ func (s *Module) registerEventSubscribers(cnt Container) {
 	cnt.GetEventModule().Dispatcher.Subscribe(events.TypeDeploySuccess,
 		service.NewSubscriber(s.ServiceStore,
 			cnt.GetSwarm(),
-			cnt.GetFileSystem(),
 			metadata.NewExtractor(),
 		),
 	)

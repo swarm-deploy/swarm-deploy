@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -167,7 +166,7 @@ func TestSubscriberHandle(t *testing.T) {
 				Services: inspector,
 				Images:   images,
 				Configs:  configs,
-			}, fs.NewLocalFileSystem(), metadata.NewExtractor())
+			}, metadata.NewExtractor())
 			serviceRef := swarm.NewServiceReference("payments", "api")
 			testCase.setupMocks(inspector, images, serviceRef)
 
@@ -204,28 +203,29 @@ func TestSubscriberHandleLoadsWebRouteConfigs(t *testing.T) {
 
 	testCases := []struct {
 		name            string
-		fileData        []byte
-		missingFile     bool
+		desiredData     []byte
+		desiredPresent  bool
 		swarmConfigData []byte
 		expectedDomain  string
 	}{
 		{
-			name: "loads config from swarm when repository file is not configured",
+			name: "loads config from swarm when desired config is unavailable",
 			swarmConfigData: []byte("routes:\n" +
 				"  - from: https://api.example.com\n" +
 				"    to: http://api:8080\n"),
 			expectedDomain: "api.example.com",
 		},
 		{
-			name: "loads config from repository file before swarm",
-			fileData: []byte("routes:\n" +
+			name:           "loads config from desired data before swarm",
+			desiredPresent: true,
+			desiredData: []byte("routes:\n" +
 				"  - from: https://file.example.com\n" +
 				"    to: http://api:8080\n"),
 			expectedDomain: "file.example.com",
 		},
 		{
-			name:        "falls back to swarm when repository file cannot be read",
-			missingFile: true,
+			name:           "falls back to swarm when desired data is empty",
+			desiredPresent: true,
 			swarmConfigData: []byte("routes:\n" +
 				"  - from: https://fallback.example.com\n" +
 				"    to: http://api:8080\n"),
@@ -246,15 +246,15 @@ func TestSubscriberHandleLoadsWebRouteConfigs(t *testing.T) {
 			store, err := modelstore.NewFileStore(context.Background(), filepath.Join(tempDir, "services.json"), fileSystem)
 			require.NoError(t, err)
 
-			desiredConfig := compose.ObjectRef{
+			desiredConfigRef := compose.ObjectRef{
 				Source: "pomerium_config",
 				Target: "/etc/pomerium/config.yaml",
 			}
-			if testCase.fileData != nil {
-				desiredConfig.File = filepath.Join(tempDir, "pomerium.yaml")
-				require.NoError(t, os.WriteFile(desiredConfig.File, testCase.fileData, 0o600))
-			} else if testCase.missingFile {
-				desiredConfig.File = filepath.Join(tempDir, "missing-pomerium.yaml")
+			desiredConfigs := compose.Configs(nil)
+			if testCase.desiredPresent {
+				desiredConfigs = compose.Configs{
+					"pomerium_config": {Data: testCase.desiredData},
+				}
 			}
 
 			serviceRef := swarm.NewServiceReference("prod", "pomerium")
@@ -292,18 +292,19 @@ func TestSubscriberHandleLoadsWebRouteConfigs(t *testing.T) {
 				Services: inspector,
 				Images:   images,
 				Configs:  configs,
-			}, fileSystem, metadata.NewExtractor())
+			}, metadata.NewExtractor())
 
 			err = sub.Handle(context.Background(), events.Envelope{ID: "deploy", Event: &events.DeploySuccess{
 				DeployEvent: events.DeployEvent{
 					StackName: "prod",
 					StackDefinition: compose.File{
 						Compose: compose.Compose{
+							Configs: desiredConfigs,
 							Services: []compose.Service{
 								{
 									Name:    "pomerium",
 									Image:   "ghcr.io/swarm-deploy/pomerium:v1",
-									Configs: []compose.ObjectRef{desiredConfig},
+									Configs: []compose.ObjectRef{desiredConfigRef},
 								},
 							},
 						},
