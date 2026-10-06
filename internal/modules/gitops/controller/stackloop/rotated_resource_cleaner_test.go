@@ -196,6 +196,34 @@ func TestRotatedResourceCleanerProtectsPreviousSpecReferences(t *testing.T) {
 	assert.Equal(t, rotatedCleanupResult{Removed: 1}, result, "rollback generation must stay protected")
 }
 
+func TestRotatedResourceCleanerFailsClosedForIncompletePreviousSpecReference(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	secrets := swarm.NewMockSecretManager(ctrl)
+	configs := swarm.NewMockConfigManager(ctrl)
+	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+
+	resources := []swarm.Secret{
+		managedSecret("old", "app-token-old", "token", now.Add(-2*time.Hour)),
+		managedSecret("new", "app-token-new", "token", now.Add(-time.Hour)),
+	}
+	services := []swarm.StackService{{
+		FullName: "app-api",
+		PreviousSpec: &dockerswarm.ServiceSpec{TaskTemplate: dockerswarm.TaskSpec{
+			ContainerSpec: &dockerswarm.ContainerSpec{Secrets: []*dockerswarm.SecretReference{{}}},
+		}},
+	}}
+
+	cleaner := newRotatedResourceCleaner(secrets, configs, config.SecretRotationCleanupSpec{
+		KeepLast: 1,
+		MinAge:   specw.Duration{Value: time.Hour},
+	})
+	cleaner.now = func() time.Time { return now }
+
+	result := cleaner.clean(context.Background(), "app", nil, nil, services, nil, resources)
+
+	assert.Equal(t, rotatedCleanupResult{}, result, "cleanup must fail closed on incomplete rollback reference")
+}
+
 func TestRotatedResourceCleanerUsesLiveConfigIDs(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	secrets := swarm.NewMockSecretManager(ctrl)
