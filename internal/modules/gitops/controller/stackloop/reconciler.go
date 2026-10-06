@@ -42,9 +42,9 @@ type Reconciler struct {
 	configManager    swarm.ConfigManager
 	resourceCleaner  *rotatedResourceCleaner
 
-	cleanupMu      sync.Mutex
-	lastCleanupAt  map[string]time.Time
-	cleanupNow     func() time.Time
+	cleanupMu     sync.Mutex
+	lastCleanupAt map[string]time.Time
+	cleanupNow    func() time.Time
 }
 
 // New builds a stack reconciler loop.
