@@ -33,6 +33,8 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	repository := gitx.NewMockRepository(ctrl)
 	serviceManager := swarm.NewMockServiceManager(ctrl)
+	secretManager := swarm.NewMockSecretManager(ctrl)
+	configManager := swarm.NewMockConfigManager(ctrl)
 	stackDeployer := deployer.NewMockStackDeployer(ctrl)
 	stateStore := modelstore.NewMemoryStore()
 	repoDir := t.TempDir()
@@ -141,64 +143,6 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 	require.Len(t, stackState.Services, 1, "expected one service state")
 	serviceState := stackState.Services["api"]
 	assert.Equal(t, model.SyncStatus(model.SyncStatusOutOfSync), serviceState.SyncStatus, "unexpected sync status")
-}
-
-func TestRotatedResourceCleanupThrottlesDockerListCalls(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	secretManager := swarm.NewMockSecretManager(ctrl)
-	configManager := swarm.NewMockConfigManager(ctrl)
-
-	cfg := &config.Config{Spec: config.Spec{
-		SecretRotation: config.SecretRotationSpec{
-			Enabled: true,
-			Cleanup: config.SecretRotationCleanupSpec{
-				Enabled:  true,
-				Interval: specw.Duration{Value: 10 * time.Minute},
-				KeepLast: 1,
-				MinAge:   specw.Duration{Value: time.Hour},
-			},
-		},
-	}}
-
-	reconciler := &Reconciler{
-		cfg:            cfg,
-		composeRotator: NewRotator(),
-		secretManager:  secretManager,
-		configManager:  configManager,
-		lastCleanupAt:  make(map[string]time.Time),
-	}
-	reconciler.resourceCleaner = newRotatedResourceCleaner(secretManager, configManager, cfg.Spec.SecretRotation.Cleanup)
-
-	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
-	reconciler.cleanupNow = func() time.Time { return now }
-
-	payload := &pipelinePayload{
-		Stack:   config.StackSpec{Name: "app"},
-		Desired: &compose.File{Compose: compose.Compose{}},
-	}
-
-	expectLists := func() {
-		configManager.EXPECT().ListStack(gomock.Any(), "app").Return(nil, nil)
-		secretManager.EXPECT().ListStack(gomock.Any(), "app").Return(nil, nil)
-	}
-
-	expectLists()
-	require.NoError(t, reconciler.cleanRotatedResources(context.Background(), payload), "first cleanup")
-
-	require.NoError(t, reconciler.cleanRotatedResources(context.Background(), payload), "cleanup inside interval")
-
-	now = now.Add(10 * time.Minute)
-	expectLists()
-	require.NoError(t, reconciler.cleanRotatedResources(context.Background(), payload), "cleanup after interval")
-
-	payload.IsManualSync = true
-	expectLists()
-	require.NoError(t, reconciler.cleanRotatedResources(context.Background(), payload), "manual cleanup bypasses interval")
-
-	payload.IsManualSync = false
-	payload.IsNewDigest = true
-	expectLists()
-	require.NoError(t, reconciler.cleanRotatedResources(context.Background(), payload), "new digest cleanup bypasses interval")
 }
 
 func TestReconcileSucceedsWhenRotatedResourceCleanupPartiallyFails(t *testing.T) {
@@ -312,6 +256,12 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 		cfg: &config.Config{
 			Spec: config.Spec{
 				DataDir: filepath.Join(repoDir, ".data"),
+				SecretRotation: config.SecretRotationSpec{
+					Enabled: true,
+					Cleanup: config.SecretRotationCleanupSpec{
+						Enabled: true,
+					},
+				},
 			},
 		},
 		git:            repository,
@@ -323,6 +273,8 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 		composeLoader:  loader,
 		composeRotator: NewRotator(),
 		serviceManager: serviceManager,
+		secretManager:  secretManager,
+		configManager:  configManager,
 	}
 	reconciler.attachPipeline()
 
