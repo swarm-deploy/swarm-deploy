@@ -198,7 +198,7 @@ func (m *DeployMapper) mapDeployUpdateConfig(config *dockerswarm.UpdateConfig) *
 		hasData = true
 	}
 	if config.Order != "" {
-		mapped.Order = config.Order
+		mapped.Order = compose.ServiceDeployUpdateOrder(config.Order)
 		hasData = true
 	}
 
