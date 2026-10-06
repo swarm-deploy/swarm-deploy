@@ -133,6 +133,13 @@ func (c *Controller) Run(ctx context.Context) error {
 	c.addTicker(reconcileTicker)
 	defer c.removeTicker(reconcileTicker)
 
+	var cleanupTicker *time.Ticker
+	if c.cfg.Spec.SecretRotation.Cleanup.Enabled {
+		cleanupTicker = time.NewTicker(c.cfg.Spec.SecretRotation.Cleanup.Interval.Value)
+		c.addTicker(cleanupTicker)
+		defer c.removeTicker(cleanupTicker)
+	}
+
 	slog.InfoContext(ctx, "[controller] trigger startup sync")
 
 	c.scheduleReconcile(ctx, reconcileTask{
@@ -167,6 +174,22 @@ func (c *Controller) Run(ctx context.Context) error {
 			c.scheduleReconcile(ctx, reconcileTask{
 				reason: TriggerInterval,
 			})
+		case <-tickerC(cleanupTicker):
+			if c.shuttingDown.Load() {
+				continue
+			}
+			c.cleanupStacks(reconciliationCtx)
+		}
+	}
+}
+
+func (c *Controller) cleanupStacks(ctx context.Context) {
+	for _, stack := range c.cfg.Spec.Stacks {
+		if err := c.stackReconciler.Cleanup(ctx, stack); err != nil {
+			slog.WarnContext(ctx, "[controller] rotated resource cleanup failed",
+				slog.String("stack", stack.Name),
+				slog.Any("error", err),
+			)
 		}
 	}
 }
