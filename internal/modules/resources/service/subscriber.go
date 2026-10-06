@@ -19,32 +19,25 @@ type Subscriber struct {
 	store            *Store
 	inspector        swarm.ServiceManager
 	images           swarm.ImageManager
-	configs          configReader
+	configs          swarm.ConfigManager
 	fileSystem       fs.FileSystem
 	metadata         *metadata.Extractor
 	webRouteResolver *WebRouteResolver
 }
 
-type configReader interface {
-	// Get returns Docker config payload by name or ID.
-	Get(ctx context.Context, configName string) (swarm.Config, error)
-}
-
 // NewSubscriber creates a service metadata event subscriber.
 func NewSubscriber(
 	store *Store,
-	inspector swarm.ServiceManager,
-	images swarm.ImageManager,
-	configs configReader,
+	swarmService *swarm.Swarm,
 	fileSystem fs.FileSystem,
 	metadata *metadata.Extractor,
 ) *Subscriber {
 	return &Subscriber{
 		store:            store,
-		inspector:        inspector,
-		images:           images,
-		configs:          configs,
-		fileSystem:      fileSystem,
+		inspector:        swarmService.Services,
+		images:           swarmService.Images,
+		configs:          swarmService.Configs,
+		fileSystem:       fileSystem,
 		metadata:         metadata,
 		webRouteResolver: NewWebRouteResolver(),
 	}
@@ -241,7 +234,7 @@ func (s *Subscriber) loadConfigFromFileSystem(
 	serviceName string,
 	ref *compose.ObjectRef,
 ) ([]byte, bool) {
-	if ref == nil || ref.File == ""  {
+	if ref == nil || ref.File == "" {
 		return nil, false
 	}
 

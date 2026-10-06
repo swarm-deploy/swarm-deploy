@@ -69,9 +69,7 @@ func InitModule(
 func (s *Module) registerEventSubscribers(cnt Container) {
 	cnt.GetEventModule().Dispatcher.Subscribe(events.TypeDeploySuccess,
 		service.NewSubscriber(s.ServiceStore,
-			cnt.GetSwarm().Services,
-			cnt.GetSwarm().Images,
-			cnt.GetSwarm().Configs,
+			cnt.GetSwarm(),
 			cnt.GetFileSystem(),
 			metadata.NewExtractor(),
 		),

@@ -157,10 +157,15 @@ func TestSubscriberHandle(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			inspector := swarm.NewMockServiceManager(ctrl)
 			images := swarm.NewMockImageManager(ctrl)
+			configs := swarm.NewMockConfigManager(ctrl)
 			store, err := NewStore(context.Background(), filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
 			require.NoError(t, err)
 
-			sub := NewSubscriber(store, inspector, images, &fakeSubscriberConfigReader{}, fs.NewLocalFileSystem(), metadata.NewExtractor())
+			sub := NewSubscriber(store, &swarm.Swarm{
+				Services: inspector,
+				Images:   images,
+				Configs:  configs,
+			}, fs.NewLocalFileSystem(), metadata.NewExtractor())
 			serviceRef := swarm.NewServiceReference("payments", "api")
 			testCase.setupMocks(inspector, images, serviceRef)
 
@@ -198,17 +203,7 @@ func TestSubscriberHandleLoadsWebRouteConfigs(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	inspector := swarm.NewMockServiceManager(ctrl)
 	images := swarm.NewMockImageManager(ctrl)
-	configs := &fakeSubscriberConfigReader{
-		configs: map[string]swarm.Config{
-			"prod_pomerium_config": {
-				Data: []byte(`
-routes:
-  - from: https://api.example.com
-    to: http://api:8080
-`),
-			},
-		},
-	}
+	configs := swarm.NewMockConfigManager(ctrl)
 	store, err := NewStore(context.Background(), filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
 	require.NoError(t, err)
 
@@ -237,8 +232,19 @@ routes:
 	images.EXPECT().
 		Get(gomock.Any(), "ghcr.io/swarm-deploy/pomerium:v1").
 		Return(swarm.Image{Ref: "ghcr.io/swarm-deploy/pomerium:v1"}, swarm.ErrImageNotFound)
+	configs.EXPECT().
+		Get(gomock.Any(), "prod_pomerium_config").
+		Return(swarm.Config{Data: []byte(`
+routes:
+  - from: https://api.example.com
+    to: http://api:8080
+`)}, nil)
 
-	sub := NewSubscriber(store, inspector, images, configs, fs.NewLocalFileSystem(), metadata.NewExtractor())
+	sub := NewSubscriber(store, &swarm.Swarm{
+		Services: inspector,
+		Images:   images,
+		Configs:  configs,
+	}, fs.NewLocalFileSystem(), metadata.NewExtractor())
 
 	err = sub.Handle(context.Background(), events.Envelope{ID: "deploy", Event: &events.DeploySuccess{
 		DeployEvent: events.DeployEvent{
@@ -273,16 +279,4 @@ routes:
 			},
 		},
 	}, info.WebRoutes)
-	assert.Equal(t, []string{"prod_pomerium_config"}, configs.calls)
-}
-
-type fakeSubscriberConfigReader struct {
-	configs map[string]swarm.Config
-	calls   []string
-}
-
-func (r *fakeSubscriberConfigReader) Get(_ context.Context, configName string) (swarm.Config, error) {
-	r.calls = append(r.calls, configName)
-
-	return r.configs[configName], nil
 }
