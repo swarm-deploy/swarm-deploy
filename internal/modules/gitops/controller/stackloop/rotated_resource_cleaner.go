@@ -24,6 +24,7 @@ type rotatedResourceCleaner struct {
 type rotatedCleanupResult struct {
 	Removed int
 	Failed  int
+	Skipped int
 }
 
 type rotatedResource struct {
@@ -67,11 +68,11 @@ func (c *rotatedResourceCleaner) clean(
 			slog.String("stack", stackName),
 			slog.Any("error", refsErr),
 		)
-		return rotatedCleanupResult{}
+		return rotatedCleanupResult{Skipped: 1}
 	}
 
-	configPlan := c.planType(ctx, stackName, "config", mapConfigResources(configs), desiredConfigs, configRefs)
-	secretPlan := c.planType(ctx, stackName, "secret", mapSecretResources(secrets), desiredSecrets, secretRefs)
+	configPlan, configSkipped := c.planType(ctx, stackName, "config", mapConfigResources(configs), desiredConfigs, configRefs)
+	secretPlan, secretSkipped := c.planType(ctx, stackName, "secret", mapSecretResources(secrets), desiredSecrets, secretRefs)
 
 	removals := make([]rotatedResourceRemoval, 0, len(configPlan)+len(secretPlan))
 	for _, resource := range configPlan {
@@ -92,7 +93,15 @@ func (c *rotatedResourceCleaner) clean(
 		return removals[i].resource.id < removals[j].resource.id
 	})
 
-	return c.execute(ctx, stackName, removals)
+	result := c.execute(ctx, stackName, removals)
+	if configSkipped {
+		result.Skipped++
+	}
+	if secretSkipped {
+		result.Skipped++
+	}
+
+	return result
 }
 
 func (c *rotatedResourceCleaner) execute(
@@ -141,10 +150,10 @@ func (c *rotatedResourceCleaner) planType(
 	resources []rotatedResource,
 	desired map[string]string,
 	referenced map[string]struct{},
-) []rotatedResource {
+) ([]rotatedResource, bool) {
 	plan, err := c.plan(stackName, resources, desired, referenced)
 	if err == nil {
-		return plan
+		return plan, false
 	}
 
 	slog.WarnContext(ctx, "[rotated-resource-cleaner] resource cleanup skipped",
@@ -153,7 +162,7 @@ func (c *rotatedResourceCleaner) planType(
 		slog.Any("error", err),
 	)
 
-	return nil
+	return nil, true
 }
 
 func (c *rotatedResourceCleaner) plan(
