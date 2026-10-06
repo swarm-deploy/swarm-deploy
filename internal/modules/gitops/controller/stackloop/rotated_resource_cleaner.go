@@ -71,8 +71,12 @@ func (c *rotatedResourceCleaner) clean(
 		return rotatedCleanupResult{Skipped: 1}
 	}
 
-	configPlan, configSkipped := c.planType(ctx, stackName, "config", mapConfigResources(configs), desiredConfigs, configRefs)
-	secretPlan, secretSkipped := c.planType(ctx, stackName, "secret", mapSecretResources(secrets), desiredSecrets, secretRefs)
+	configPlan, configSkipped := c.planType(
+		ctx, stackName, "config", mapConfigResources(configs), desiredConfigs, configRefs,
+	)
+	secretPlan, secretSkipped := c.planType(
+		ctx, stackName, "secret", mapSecretResources(secrets), desiredSecrets, secretRefs,
+	)
 
 	removals := make([]rotatedResourceRemoval, 0, len(configPlan)+len(secretPlan))
 	for _, resource := range configPlan {
