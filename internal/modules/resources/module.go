@@ -72,6 +72,7 @@ func (s *Module) registerEventSubscribers(cnt Container) {
 			cnt.GetSwarm().Services,
 			cnt.GetSwarm().Images,
 			cnt.GetSwarm().Configs,
+			cnt.GetFileSystem(),
 			metadata.NewExtractor(),
 		),
 	)

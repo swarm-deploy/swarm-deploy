@@ -7,7 +7,6 @@ import (
 	"log/slog"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
-	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
@@ -37,6 +36,7 @@ func NewSubscriber(
 	inspector swarm.ServiceManager,
 	images swarm.ImageManager,
 	configs configReader,
+	fileSystem fs.FileSystem,
 	metadata *metadata.Extractor,
 ) *Subscriber {
 	return &Subscriber{
@@ -44,25 +44,10 @@ func NewSubscriber(
 		inspector:        inspector,
 		images:           images,
 		configs:          configs,
+		fileSystem:      fileSystem,
 		metadata:         metadata,
 		webRouteResolver: NewWebRouteResolver(),
 	}
-}
-
-// NewSubscriberWithRepository creates a subscriber that can read repository-backed Docker configs.
-func NewSubscriberWithRepository(
-	store *Store,
-	inspector swarm.ServiceManager,
-	images swarm.ImageManager,
-	configs configReader,
-	_ *config.Config,
-	fileSystem fs.FileSystem,
-	metadata *metadata.Extractor,
-) *Subscriber {
-	subscriber := NewSubscriber(store, inspector, images, configs, metadata)
-	subscriber.fileSystem = fileSystem
-
-	return subscriber
 }
 
 func (s *Subscriber) Name() string {
@@ -216,7 +201,7 @@ func (s *Subscriber) loadWebRouteConfig(
 		return nil, false
 	}
 
-	if data, ok := s.loadRepositoryConfig(ctx, stackName, serviceName, desiredRef); ok {
+	if data, ok := s.loadConfigFromFileSystem(ctx, stackName, serviceName, desiredRef); ok {
 		return newWebRouteConfig(ref.Target, data), true
 	}
 
@@ -250,13 +235,13 @@ func (s *Subscriber) loadWebRouteConfig(
 	return newWebRouteConfig(ref.Target, cfg.Data), true
 }
 
-func (s *Subscriber) loadRepositoryConfig(
+func (s *Subscriber) loadConfigFromFileSystem(
 	ctx context.Context,
 	stackName string,
 	serviceName string,
 	ref *compose.ObjectRef,
 ) ([]byte, bool) {
-	if ref == nil || ref.File == "" || s.fileSystem == nil {
+	if ref == nil || ref.File == ""  {
 		return nil, false
 	}
 

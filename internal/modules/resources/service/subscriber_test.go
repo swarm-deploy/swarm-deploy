@@ -160,7 +160,7 @@ func TestSubscriberHandle(t *testing.T) {
 			store, err := NewStore(context.Background(), filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
 			require.NoError(t, err)
 
-			sub := NewSubscriber(store, inspector, images, &fakeSubscriberConfigReader{}, metadata.NewExtractor())
+			sub := NewSubscriber(store, inspector, images, &fakeSubscriberConfigReader{}, fs.NewLocalFileSystem(), metadata.NewExtractor())
 			serviceRef := swarm.NewServiceReference("payments", "api")
 			testCase.setupMocks(inspector, images, serviceRef)
 
@@ -238,7 +238,7 @@ routes:
 		Get(gomock.Any(), "ghcr.io/swarm-deploy/pomerium:v1").
 		Return(swarm.Image{Ref: "ghcr.io/swarm-deploy/pomerium:v1"}, swarm.ErrImageNotFound)
 
-	sub := NewSubscriber(store, inspector, images, configs, metadata.NewExtractor())
+	sub := NewSubscriber(store, inspector, images, configs, fs.NewLocalFileSystem(), metadata.NewExtractor())
 
 	err = sub.Handle(context.Background(), events.Envelope{ID: "deploy", Event: &events.DeploySuccess{
 		DeployEvent: events.DeployEvent{
