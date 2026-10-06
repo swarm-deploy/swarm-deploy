@@ -123,6 +123,7 @@ secretRotation:
 
 	cfg, err := Load(filepath.Join(dir, "swarm-deploy.yaml"))
 	require.NoError(t, err, "load config")
+	assert.Equal(t, 10*time.Minute, cfg.Spec.SecretRotation.Cleanup.Interval.Value, "unexpected cleanup interval default")
 	assert.Equal(t, 2, cfg.Spec.SecretRotation.Cleanup.KeepLast, "unexpected cleanup keepLast default")
 	assert.Equal(t, time.Hour, cfg.Spec.SecretRotation.Cleanup.MinAge.Value, "unexpected cleanup minAge default")
 }
@@ -138,6 +139,14 @@ func TestLoadValidatesSecretRotationCleanup(t *testing.T) {
 			rotation: `cleanup:
     enabled: true`,
 			errText: "secretRotation.cleanup.enabled requires secretRotation.enabled=true",
+		},
+		{
+			name: "rejects negative interval",
+			rotation: `enabled: true
+  cleanup:
+    enabled: true
+    interval: -1s`,
+			errText: "secretRotation.cleanup.interval must be > 0",
 		},
 		{
 			name: "rejects negative keepLast",
