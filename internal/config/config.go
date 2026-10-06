@@ -35,8 +35,9 @@ const (
 	defaultInitJobPollEvery   = 2 * time.Second
 	defaultInitJobMaxDuration = 10 * time.Minute
 	defaultInitJobsTimeout    = 10 * time.Minute
-	defaultRotationKeepLast   = 2
-	defaultRotationMinAge     = time.Hour
+	defaultRotationKeepLast        = 2
+	defaultRotationMinAge          = time.Hour
+	defaultRotationCleanupInterval = 10 * time.Minute
 
 	defaultAssistantOpenAIBaseURL           = "https://api.openai.com/v1"
 	defaultAssistantTemperature             = "0.2"
@@ -217,6 +218,8 @@ type SecretRotationSpec struct {
 type SecretRotationCleanupSpec struct {
 	// Enabled toggles best-effort cleanup after stack deployment and pruning.
 	Enabled bool `yaml:"enabled"`
+	// Interval throttles periodic cleanup attempts between reconciliations.
+	Interval specw.Duration `yaml:"interval"`
 	// KeepLast preserves this many newest generations for each logical resource.
 	KeepLast int `yaml:"keepLast"`
 	// MinAge prevents cleanup of resources younger than this duration.
@@ -347,6 +350,9 @@ func (c *Config) applySwarmDefaults() {
 func (c *Config) applySecretRotationDefaults() {
 	if c.Spec.SecretRotation.HashLength <= 0 {
 		c.Spec.SecretRotation.HashLength = 8
+	}
+	if c.Spec.SecretRotation.Cleanup.Interval.Value == 0 {
+		c.Spec.SecretRotation.Cleanup.Interval.Value = defaultRotationCleanupInterval
 	}
 	if c.Spec.SecretRotation.Cleanup.KeepLast == 0 {
 		c.Spec.SecretRotation.Cleanup.KeepLast = defaultRotationKeepLast
@@ -609,6 +615,9 @@ func (c *Config) validateSecretRotation() []error {
 	var errs []error
 	if !c.Spec.SecretRotation.Enabled {
 		errs = append(errs, errors.New("secretRotation.cleanup.enabled requires secretRotation.enabled=true"))
+	}
+	if cleanup.Interval.Value < 0 {
+		errs = append(errs, errors.New("secretRotation.cleanup.interval must be > 0"))
 	}
 	if cleanup.KeepLast < 1 {
 		errs = append(errs, errors.New("secretRotation.cleanup.keepLast must be >= 1"))
