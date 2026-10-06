@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	resourcegraph "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/graph"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/stype"
 	webroute "github.com/swarm-deploy/webroute/api"
 )
@@ -20,12 +20,12 @@ func TestGetDependencyGraphExecute(t *testing.T) {
 
 	testCases := []struct {
 		name     string
-		services []service.Info
+		services []model.Info
 		expected map[string]graphNodeSnapshot
 	}{
 		{
 			name: "builds dependency graph from stored services",
-			services: []service.Info{
+			services: []model.Info{
 				{
 					Name:     "api",
 					Stack:    "payments",

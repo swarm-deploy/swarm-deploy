@@ -9,8 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/stype"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	webroute "github.com/swarm-deploy/webroute/api"
@@ -21,12 +22,12 @@ func TestHandlerGetGraph(t *testing.T) {
 
 	testCases := []struct {
 		name     string
-		stacks   map[string][]service.Info
+		stacks   map[string][]model.Info
 		expected map[string]graphResponseNodeSnapshot
 	}{
 		{
 			name: "builds graph response from stored services",
-			stacks: map[string][]service.Info{
+			stacks: map[string][]model.Info{
 				"payments": {
 					{
 						Name:     "api",
@@ -83,7 +84,7 @@ func TestHandlerGetGraph(t *testing.T) {
 		},
 		{
 			name:     "returns empty graph for empty store",
-			stacks:   map[string][]service.Info{},
+			stacks:   map[string][]model.Info{},
 			expected: map[string]graphResponseNodeSnapshot{},
 		},
 	}
@@ -93,7 +94,7 @@ func TestHandlerGetGraph(t *testing.T) {
 			t.Parallel()
 
 			ctx := context.Background()
-			store, err := service.NewStore(ctx, filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
+			store, err := modelstore.NewFileStore(ctx, filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
 			require.NoError(t, err)
 
 			stackNames := make([]string, 0, len(testCase.stacks))

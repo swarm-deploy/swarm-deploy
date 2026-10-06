@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	webroute "github.com/swarm-deploy/webroute/api"
 )
 
@@ -17,7 +17,7 @@ func NewServiceDocumentBuilder() *ServiceDocumentBuilder {
 }
 
 // Build transforms service metadata into a searchable text document.
-func (*ServiceDocumentBuilder) Build(serviceInfo service.Info) string {
+func (*ServiceDocumentBuilder) Build(serviceInfo model.Info) string {
 	document := fmt.Sprintf(
 		"stack=%s service=%s type=%s image=%s description=%s",
 		serviceInfo.Stack,

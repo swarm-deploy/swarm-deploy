@@ -1,4 +1,4 @@
-package service
+package modelstore
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/stype"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/knownapp"
@@ -24,52 +25,52 @@ const (
 	directoryMode   = 0o755
 )
 
-// Store persists service metadata in a JSON file.
-type Store struct {
+// FileStore persists service metadata in a JSON file.
+type FileStore struct {
 	mu             sync.RWMutex
 	path           string
 	fs             fs.FileSystem
-	rows           []Info
+	rows           []model.Info
 	byServiceNames map[string]int
 }
 
-// NewStore creates service store and loads saved rows from disk.
-func NewStore(ctx context.Context, path string, filesystem fs.FileSystem) (*Store, error) {
-	s := &Store{
+// NewFileStore creates a service store and loads saved rows from disk.
+func NewFileStore(ctx context.Context, path string, filesystem fs.FileSystem) (*FileStore, error) {
+	store := &FileStore{
 		path: path,
 		fs:   filesystem,
 	}
-	if err := s.load(ctx); err != nil {
+	if err := store.load(ctx); err != nil {
 		return nil, err
 	}
-	return s, nil
+	return store, nil
 }
 
 // List returns a copy of all saved services.
-func (s *Store) List() []Info {
+func (s *FileStore) List() []model.Info {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := make([]Info, len(s.rows))
+	out := make([]model.Info, len(s.rows))
 	copy(out, s.rows)
 	return out
 }
 
 // Get returns saved service metadata by stack and service names.
-func (s *Store) Get(stackName string, serviceName string) (Info, bool) {
+func (s *FileStore) Get(stackName string, serviceName string) (model.Info, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	rowIndex, ok := s.byServiceNames[serviceKey(stackName, serviceName)]
 	if !ok {
-		return Info{}, false
+		return model.Info{}, false
 	}
 	return s.rows[rowIndex], true
 }
 
 // ReplaceStack replaces stack services with a new snapshot and saves it to disk.
-func (s *Store) ReplaceStack(ctx context.Context, stackName string, services []Info) error {
+func (s *FileStore) ReplaceStack(ctx context.Context, stackName string, services []model.Info) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	updated := make([]Info, 0, len(s.rows)+len(services))
+	updated := make([]model.Info, 0, len(s.rows)+len(services))
 	for _, current := range s.rows {
 		if current.Stack == stackName {
 			continue
@@ -89,7 +90,7 @@ func (s *Store) ReplaceStack(ctx context.Context, stackName string, services []I
 	return s.flushLocked(ctx)
 }
 
-func (s *Store) load(ctx context.Context) error {
+func (s *FileStore) load(ctx context.Context) error {
 	if err := s.fs.CreateDirectory(ctx, filepath.Dir(s.path), directoryMode); err != nil {
 		return fmt.Errorf("create services dir: %w", err)
 	}
@@ -107,7 +108,7 @@ func (s *Store) load(ctx context.Context) error {
 	if unmarshalErr := json.Unmarshal(payload, &rows); unmarshalErr != nil {
 		return fmt.Errorf("decode services file: %w", unmarshalErr)
 	}
-	s.rows = make([]Info, 0, len(rows))
+	s.rows = make([]model.Info, 0, len(rows))
 	for _, row := range rows {
 		info := row.toInfo()
 		if info.Name == "" || info.Stack == "" {
@@ -120,7 +121,7 @@ func (s *Store) load(ctx context.Context) error {
 	return nil
 }
 
-func (s *Store) flushLocked(ctx context.Context) error {
+func (s *FileStore) flushLocked(ctx context.Context) error {
 	payload, err := json.Marshal(storeInfosFromServiceInfos(s.rows))
 	if err != nil {
 		return fmt.Errorf("encode services file: %w", err)
@@ -135,7 +136,7 @@ func (s *Store) flushLocked(ctx context.Context) error {
 	return nil
 }
 
-func (s *Store) reindexLocked() {
+func (s *FileStore) reindexLocked() {
 	s.byServiceNames = make(map[string]int, len(s.rows))
 	for rowIndex, row := range s.rows {
 		s.byServiceNames[serviceKey(row.Stack, row.Name)] = rowIndex
@@ -146,7 +147,7 @@ func serviceKey(stackName string, serviceName string) string {
 	return strings.TrimSpace(stackName) + "-" + strings.TrimSpace(serviceName)
 }
 
-func sortInfos(rows []Info) {
+func sortInfos(rows []model.Info) {
 	sort.Slice(rows, func(i, j int) bool {
 		if rows[i].Stack != rows[j].Stack {
 			return rows[i].Stack < rows[j].Stack
@@ -182,8 +183,8 @@ type storeInfo struct {
 	WebRoutes []webroute.WebRoute `json:"web_routes,omitempty"`
 }
 
-func (i storeInfo) toInfo() Info {
-	return Info{
+func (i storeInfo) toInfo() model.Info {
+	return model.Info{
 		Metadata: metadata.Metadata{
 			KnownApp:           i.KnownApp,
 			Description:        i.Description,
@@ -201,7 +202,7 @@ func (i storeInfo) toInfo() Info {
 	}
 }
 
-func storeInfosFromServiceInfos(infos []Info) []storeInfo {
+func storeInfosFromServiceInfos(infos []model.Info) []storeInfo {
 	rows := make([]storeInfo, 0, len(infos))
 	for _, info := range infos {
 		rows = append(rows, storeInfo{

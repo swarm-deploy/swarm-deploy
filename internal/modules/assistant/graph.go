@@ -12,7 +12,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/guard"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/rag"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	"github.com/tmc/langchaingo/llms"
 	langgraph "github.com/tmc/langgraphgo/graph"
 )
@@ -108,7 +108,7 @@ type graphExecutionState struct {
 	capabilities            []Capability
 	effectiveToolSet        map[string]struct{}
 	retrievalPlan           *rag.RetrievalPlan
-	relevantServices        []service.Info
+	relevantServices        []model.Info
 	modelMessages           []modelMessage
 	pendingToolCalls        []modelToolCall
 	lastToolResults         []toolExecutionResult
@@ -683,7 +683,7 @@ func outOfScopeResponse(userMessage string) string {
 		"I can help with services, deployments, logs, cluster health, and diagnostics."
 }
 
-func buildServicesContextMessage(services []service.Info) string {
+func buildServicesContextMessage(services []model.Info) string {
 	if len(services) == 0 {
 		return "No service metadata is available in service.store."
 	}

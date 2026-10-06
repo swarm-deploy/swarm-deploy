@@ -13,6 +13,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -20,7 +21,8 @@ import (
 type Module struct {
 	NodeStore     *node.Store
 	NodeCollector *node.Collector
-	ServiceStore  *service.Store
+	// ServiceStore persists and queries service metadata snapshots.
+	ServiceStore modelstore.Store
 	// Secrets exposes persisted secret metadata and its collector.
 	Secrets *secrets.Domain
 	// SecretManagers discovers and controls Secret Manager services.
@@ -84,7 +86,7 @@ func (s *Module) initStores(ctx context.Context, filesystem fs.FileSystem) error
 
 	s.NodeStore = nodeStore
 
-	srvStore, err := service.NewStore(ctx, filepath.Join(s.cfg.Spec.DataDir, "services.json"), filesystem)
+	srvStore, err := modelstore.NewFileStore(ctx, filepath.Join(s.cfg.Spec.DataDir, "services.json"), filesystem)
 	if err != nil {
 		return fmt.Errorf("init service store: %w", err)
 	}

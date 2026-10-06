@@ -12,8 +12,9 @@ import (
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
@@ -23,9 +24,9 @@ func TestHandlerGetService(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store, err := service.NewStore(ctx, filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
+	store, err := modelstore.NewFileStore(ctx, filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
 	require.NoError(t, err)
-	require.NoError(t, store.ReplaceStack(ctx, "payments", []service.Info{
+	require.NoError(t, store.ReplaceStack(ctx, "payments", []model.Info{
 		{
 			Name:  "api",
 			Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
@@ -111,7 +112,7 @@ func TestHandlerGetService(t *testing.T) {
 func TestHandlerGetService_NotFound(t *testing.T) {
 	t.Parallel()
 
-	store, err := service.NewStore(context.Background(), filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
+	store, err := modelstore.NewFileStore(context.Background(), filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
 	require.NoError(t, err)
 
 	h := &handler{

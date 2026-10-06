@@ -11,7 +11,7 @@ import (
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
+	servicemodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -53,7 +53,7 @@ type PluginReader interface {
 // ServicesReader reads current service metadata snapshot.
 type ServicesReader interface {
 	// List returns current services metadata snapshot.
-	List() []service.Info
+	List() []servicemodel.Info
 }
 
 // RecommendationsReader reads stored recommendations.

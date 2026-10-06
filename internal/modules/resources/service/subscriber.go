@@ -9,6 +9,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	webroute "github.com/swarm-deploy/webroute/api"
@@ -16,7 +18,7 @@ import (
 
 // Subscriber persists service metadata on deploySuccess events.
 type Subscriber struct {
-	store            *Store
+	store            modelstore.Store
 	inspector        swarm.ServiceManager
 	images           swarm.ImageManager
 	configs          swarm.ConfigManager
@@ -27,7 +29,7 @@ type Subscriber struct {
 
 // NewSubscriber creates a service metadata event subscriber.
 func NewSubscriber(
-	store *Store,
+	store modelstore.Store,
 	swarmService *swarm.Swarm,
 	fileSystem fs.FileSystem,
 	metadata *metadata.Extractor,
@@ -58,7 +60,7 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 		return nil
 	}
 
-	services := make([]Info, 0, len(deploySuccess.StackDefinition.Compose.Services))
+	services := make([]model.Info, 0, len(deploySuccess.StackDefinition.Compose.Services))
 	for _, deployedService := range deploySuccess.StackDefinition.Compose.Services {
 		serviceRef := swarm.NewServiceReference(deploySuccess.StackName, deployedService.Name)
 
@@ -119,7 +121,7 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 			}
 		}
 
-		serviceInfo := Info{
+		serviceInfo := model.Info{
 			Metadata:    s.metadata.Extract(deployedService.Image, labels),
 			Name:        deployedService.Name,
 			Stack:       deploySuccess.StackName,

@@ -12,23 +12,23 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	"go.uber.org/mock/gomock"
 )
 
 type fakeStore struct {
-	services  []service.Info
+	services  []model.Info
 	listCalls atomic.Int64
 }
 
-func (f *fakeStore) List() []service.Info {
+func (f *fakeStore) List() []model.Info {
 	f.listCalls.Add(1)
 
-	out := make([]service.Info, len(f.services))
+	out := make([]model.Info, len(f.services))
 	copy(out, f.services)
 	return out
 }
@@ -129,7 +129,7 @@ func TestServiceChatReturnsCompletedResponse(t *testing.T) {
 			SystemPrompt:            "debug helper",
 			ConversationInMemoryTTL: time.Hour,
 		},
-		&fakeStore{services: []service.Info{{Name: "api", Stack: "app", Image: "example/api:v1"}}},
+		&fakeStore{services: []model.Info{{Name: "api", Stack: "app", Image: "example/api:v1"}}},
 		&fakeTools{},
 		&dispatcher.NopDispatcher{},
 		&metrics.NopAssistant{},
@@ -316,7 +316,7 @@ func TestServiceChatHandlesToolCalls(t *testing.T) {
 			ConversationInMemoryTTL: time.Hour,
 			ConversationHistoryDir:  t.TempDir(),
 		},
-		&fakeStore{services: []service.Info{{Name: "api", Stack: "app", Image: "example/api:v1"}}},
+		&fakeStore{services: []model.Info{{Name: "api", Stack: "app", Image: "example/api:v1"}}},
 		tools,
 		&dispatcher.NopDispatcher{},
 		metrics.NopAssistant{},
@@ -340,7 +340,7 @@ func TestServiceChatHandlesToolCalls(t *testing.T) {
 
 func TestServiceChatSkipsRetrievalForSmallTalk(t *testing.T) {
 	store := &fakeStore{
-		services: []service.Info{{Name: "api", Stack: "app", Image: "example/api:v1"}},
+		services: []model.Info{{Name: "api", Stack: "app", Image: "example/api:v1"}},
 	}
 	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		t.Fatalf("unexpected model call on small-talk fast path: %s", r.URL.Path)

@@ -1,4 +1,4 @@
-package service
+package modelstore
 
 import (
 	"context"
@@ -8,19 +8,20 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/knownapp"
 )
 
-func TestStoreGet(t *testing.T) {
+func TestFileStoreGet(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "services.json")
 	ctx := context.Background()
-	store, err := NewStore(ctx, path, fs.NewLocalFileSystem())
+	store, err := NewFileStore(ctx, path, fs.NewLocalFileSystem())
 	require.NoError(t, err)
 
-	require.NoError(t, store.ReplaceStack(ctx, "payments", []Info{
+	require.NoError(t, store.ReplaceStack(ctx, "payments", []model.Info{
 		{
 			Name:  " api ",
 			Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
@@ -32,7 +33,7 @@ func TestStoreGet(t *testing.T) {
 			},
 		},
 	}))
-	require.NoError(t, store.ReplaceStack(ctx, "infra", []Info{
+	require.NoError(t, store.ReplaceStack(ctx, "infra", []model.Info{
 		{
 			Name:  "proxy",
 			Image: "ghcr.io/swarm-deploy/proxy:v4.5.6",
@@ -49,25 +50,25 @@ func TestStoreGet(t *testing.T) {
 	assert.Equal(t, map[string]string{"APP_ENV": "prod"}, info.Environment)
 }
 
-func TestStoreGetReturnsFalseWhenServiceNotFound(t *testing.T) {
+func TestFileStoreGetReturnsFalseWhenServiceNotFound(t *testing.T) {
 	t.Parallel()
 
-	store, err := NewStore(context.Background(), filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
+	store, err := NewFileStore(context.Background(), filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
 	require.NoError(t, err)
 
 	_, ok := store.Get("payments", "api")
 	assert.False(t, ok)
 }
 
-func TestStoreGetRestoresIndexOnReload(t *testing.T) {
+func TestFileStoreGetRestoresIndexOnReload(t *testing.T) {
 	t.Parallel()
 
 	path := filepath.Join(t.TempDir(), "services.json")
 	ctx := context.Background()
-	store, err := NewStore(ctx, path, fs.NewLocalFileSystem())
+	store, err := NewFileStore(ctx, path, fs.NewLocalFileSystem())
 	require.NoError(t, err)
 
-	require.NoError(t, store.ReplaceStack(ctx, "payments", []Info{
+	require.NoError(t, store.ReplaceStack(ctx, "payments", []model.Info{
 		{
 			Name:  "api",
 			Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
@@ -80,7 +81,7 @@ func TestStoreGetRestoresIndexOnReload(t *testing.T) {
 		},
 	}))
 
-	reloaded, err := NewStore(ctx, path, fs.NewLocalFileSystem())
+	reloaded, err := NewFileStore(ctx, path, fs.NewLocalFileSystem())
 	require.NoError(t, err)
 
 	info, ok := reloaded.Get("payments", "api")

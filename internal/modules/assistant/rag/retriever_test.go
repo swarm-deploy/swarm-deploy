@@ -8,17 +8,17 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	webroute "github.com/swarm-deploy/webroute/api"
 )
 
 type fakeServiceStore struct {
-	services []service.Info
+	services []model.Info
 }
 
-func (f *fakeServiceStore) List() []service.Info {
-	out := make([]service.Info, len(f.services))
+func (f *fakeServiceStore) List() []model.Info {
+	out := make([]model.Info, len(f.services))
 	copy(out, f.services)
 	return out
 }
@@ -41,7 +41,7 @@ func (o *observerCapture) RecordRetrieveFallback(reason string) {
 	o.reasons = append(o.reasons, reason)
 }
 
-func runPlan(t *testing.T, retriever *Retriever, query string) []service.Info {
+func runPlan(t *testing.T, retriever *Retriever, query string) []model.Info {
 	t.Helper()
 
 	plan, err := retriever.Plan(context.Background(), query)
@@ -65,7 +65,7 @@ func runPlan(t *testing.T, retriever *Retriever, query string) []service.Info {
 }
 
 func TestRetrieverRanksByEmbeddingSimilarity(t *testing.T) {
-	services := []service.Info{
+	services := []model.Info{
 		{
 			Name:     "api",
 			Stack:    "app",
@@ -113,7 +113,7 @@ func TestRetrieverRanksByEmbeddingSimilarity(t *testing.T) {
 }
 
 func TestRetrieverFallsBackToLexicalSearchWhenQueryEmbeddingFails(t *testing.T) {
-	services := []service.Info{
+	services := []model.Info{
 		{
 			Name:     "api",
 			Stack:    "app",
@@ -149,7 +149,7 @@ func TestRetrieverFallsBackToLexicalSearchWhenQueryEmbeddingFails(t *testing.T) 
 }
 
 func TestRetrieverLexicalMatchesWebRouteFields(t *testing.T) {
-	services := []service.Info{
+	services := []model.Info{
 		{
 			Name:  "api",
 			Stack: "app",
@@ -188,9 +188,8 @@ func TestRetrieverLexicalMatchesWebRouteFields(t *testing.T) {
 	assert.Equal(t, "api", selected[0].Name, "expected service match by web route domain")
 }
 
-
 func TestRetrieverLimitsSemanticResultsAndPrioritizesNamedService(t *testing.T) {
-	services := []service.Info{
+	services := []model.Info{
 		{Name: "svc-0", Stack: "app"},
 		{Name: "svc-1", Stack: "app"},
 		{Name: "svc-2", Stack: "app"},
@@ -221,7 +220,7 @@ func TestRetrieverLimitsSemanticResultsAndPrioritizesNamedService(t *testing.T) 
 }
 
 func TestRetrieverLimitsLexicalFallbackResults(t *testing.T) {
-	services := []service.Info{
+	services := []model.Info{
 		{Name: "svc-0", Stack: "app"},
 		{Name: "svc-1", Stack: "app"},
 		{Name: "svc-2", Stack: "app"},

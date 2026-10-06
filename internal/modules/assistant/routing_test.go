@@ -14,10 +14,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 )
 
 type capturedChatRequest struct {
@@ -99,7 +99,7 @@ func TestAssistantRoutingProfiles(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			store := &fakeStore{services: []service.Info{{Name: "api", Stack: "core"}}}
+			store := &fakeStore{services: []model.Info{{Name: "api", Stack: "core"}}}
 			tools := &fakeTools{definitions: assistantTestToolDefinitions()}
 			var mu sync.Mutex
 			requests := make([]capturedChatRequest, 0, 2)
@@ -175,7 +175,7 @@ func TestAssistantOutOfScopeEndsBeforeRAGToolsAndMainGeneration(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			store := &fakeStore{services: []service.Info{{Name: "api", Stack: "core"}}}
+			store := &fakeStore{services: []model.Info{{Name: "api", Stack: "core"}}}
 			tools := &fakeTools{definitions: assistantTestToolDefinitions()}
 			var requests []capturedChatRequest
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -200,7 +200,7 @@ func TestAssistantOutOfScopeEndsBeforeRAGToolsAndMainGeneration(t *testing.T) {
 }
 
 func TestAssistantGreetingFastPathUsesNoModelRAGOrTools(t *testing.T) {
-	store := &fakeStore{services: []service.Info{{Name: "api", Stack: "core"}}}
+	store := &fakeStore{services: []model.Info{{Name: "api", Stack: "core"}}}
 	tools := &fakeTools{definitions: assistantTestToolDefinitions()}
 	var requests []capturedChatRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -302,7 +302,7 @@ func TestAssistantRouteTools(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			store := &fakeStore{services: []service.Info{{Name: "api", Stack: "core", Image: "ghcr.io/example/api:v1"}}}
+			store := &fakeStore{services: []model.Info{{Name: "api", Stack: "core", Image: "ghcr.io/example/api:v1"}}}
 			tools := &fakeTools{definitions: assistantTestToolDefinitions()}
 			var requests []capturedChatRequest
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -343,7 +343,7 @@ func TestAssistantRouteTools(t *testing.T) {
 }
 
 func TestAssistantCrossScenarioCombinesServiceRAGAndDNSCapability(t *testing.T) {
-	store := &fakeStore{services: []service.Info{{Name: "web-gateway-http", Stack: "infra"}}}
+	store := &fakeStore{services: []model.Info{{Name: "web-gateway-http", Stack: "infra"}}}
 	tools := &fakeTools{definitions: assistantTestToolDefinitions()}
 	var requests []capturedChatRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -374,7 +374,7 @@ func TestAssistantCrossScenarioCombinesServiceRAGAndDNSCapability(t *testing.T) 
 }
 
 func TestAssistantCrossScenarioCombinesRuntimeAndDeploymentHistory(t *testing.T) {
-	store := &fakeStore{services: []service.Info{{Name: "api", Stack: "core"}}}
+	store := &fakeStore{services: []model.Info{{Name: "api", Stack: "core"}}}
 	tools := &fakeTools{definitions: assistantTestToolDefinitions()}
 	var requests []capturedChatRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -525,7 +525,7 @@ func TestAssistantRouterFallbackContinuesMainRequest(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			store := &fakeStore{services: []service.Info{{Name: "api", Stack: "core"}}}
+			store := &fakeStore{services: []model.Info{{Name: "api", Stack: "core"}}}
 			tools := &fakeTools{definitions: assistantTestToolDefinitions()}
 			var requests []capturedChatRequest
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {

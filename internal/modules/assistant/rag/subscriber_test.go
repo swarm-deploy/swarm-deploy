@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	webroute "github.com/swarm-deploy/webroute/api"
 )
 
@@ -42,7 +42,7 @@ func (o *subscriberObserverCapture) RecordIndexRebuild(
 func (*subscriberObserverCapture) RecordRetrieveFallback(string) {}
 
 func TestIndexSubscriberBuildsIndexOnDeploySuccess(t *testing.T) {
-	services := []service.Info{
+	services := []model.Info{
 		{
 			Name:     "api",
 			Stack:    "app",

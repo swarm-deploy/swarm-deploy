@@ -10,11 +10,11 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/guard"
-	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 )
 
 func TestPendingOperationFullRestartSkipsMainGenerationAndConfirmationSkipsModels(t *testing.T) {
@@ -36,7 +36,7 @@ func TestPendingOperationFullRestartSkipsMainGenerationAndConfirmationSkipsModel
 	assistantService, err := NewService(Config{
 		Enabled: true, ModelName: "test-model", BaseURL: server.URL, APIToken: "token", MaxTokens: 64,
 		ConversationInMemoryTTL: time.Hour, ConversationHistoryDir: t.TempDir(),
-	}, &fakeStore{services: []service.Info{{Stack: "core", Name: "api"}}}, tools,
+	}, &fakeStore{services: []model.Info{{Stack: "core", Name: "api"}}}, tools,
 		&dispatcher.NopDispatcher{}, metrics.NopAssistant{})
 	require.NoError(t, err)
 
@@ -60,7 +60,7 @@ func TestPendingOperationFullRestartSkipsMainGenerationAndConfirmationSkipsModel
 }
 
 func TestPendingOperationResolution(t *testing.T) {
-	services := []service.Info{
+	services := []model.Info{
 		{Stack: "core", Name: "api"},
 		{Stack: "core", Name: "worker"},
 		{Stack: "infra", Name: "postgres"},
@@ -141,7 +141,7 @@ func TestPendingOperationDeterministicTurns(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			store := &fakeStore{services: []service.Info{{Stack: "core", Name: "api"}}}
+			store := &fakeStore{services: []model.Info{{Stack: "core", Name: "api"}}}
 			tools := &fakeTools{definitions: assistantTestToolDefinitions(), executeResult: `{"stack":"core","service":"api","replicas":2}`}
 			g := newPendingTestGraph(store, tools)
 			g.pending.set("conversation", PendingOperation{
@@ -168,7 +168,7 @@ func TestPendingOperationDeterministicTurns(t *testing.T) {
 }
 
 func TestPendingOperationExpiredFallsThrough(t *testing.T) {
-	store := &fakeStore{services: []service.Info{{Stack: "core", Name: "api"}}}
+	store := &fakeStore{services: []model.Info{{Stack: "core", Name: "api"}}}
 	g := newPendingTestGraph(store, &fakeTools{})
 	now := time.Date(2026, time.September, 27, 12, 0, 0, 0, time.UTC)
 	g.pending.now = func() time.Time { return now }
@@ -186,7 +186,7 @@ func TestPendingOperationExpiredFallsThrough(t *testing.T) {
 }
 
 func TestPendingOperationPromptGuardRunsBeforePendingHandling(t *testing.T) {
-	store := &fakeStore{services: []service.Info{{Stack: "core", Name: "api"}}}
+	store := &fakeStore{services: []model.Info{{Stack: "core", Name: "api"}}}
 	g := newPendingTestGraph(store, &fakeTools{})
 	g.pending.set("conversation", PendingOperation{
 		Type: OperationServiceRestart, Stage: PendingOperationConfirmation, Stack: "core", Service: "api",
@@ -200,7 +200,7 @@ func TestPendingOperationPromptGuardRunsBeforePendingHandling(t *testing.T) {
 
 func TestPendingOperationSetsReplicas(t *testing.T) {
 	replicas := uint64(4)
-	store := &fakeStore{services: []service.Info{{Stack: "core", Name: "api"}}}
+	store := &fakeStore{services: []model.Info{{Stack: "core", Name: "api"}}}
 	tools := &fakeTools{definitions: assistantTestToolDefinitions(), executeResult: `{"stack":"core","service":"api","replicas":4}`}
 	g := newPendingTestGraph(store, tools)
 
@@ -219,7 +219,7 @@ func TestPendingOperationSetsReplicas(t *testing.T) {
 }
 
 func TestPendingOperationCollectsMissingServiceWithoutModels(t *testing.T) {
-	store := &fakeStore{services: []service.Info{{Stack: "core", Name: "api"}, {Stack: "core", Name: "worker"}}}
+	store := &fakeStore{services: []model.Info{{Stack: "core", Name: "api"}, {Stack: "core", Name: "worker"}}}
 	g := newPendingTestGraph(store, &fakeTools{})
 	answer, usage := g.startPendingOperation(context.Background(), "conversation", OperationIntent{Type: OperationServiceRestart, Target: "core"})
 	assert.Contains(t, answer, "несколько сервисов")
@@ -233,7 +233,7 @@ func TestPendingOperationCollectsMissingServiceWithoutModels(t *testing.T) {
 }
 
 func TestPendingOperationResolvesLiteralStackTarget(t *testing.T) {
-	store := &fakeStore{services: []service.Info{{Stack: "infra-postgres-mcp", Name: "postgres-mcp-core"}}}
+	store := &fakeStore{services: []model.Info{{Stack: "infra-postgres-mcp", Name: "postgres-mcp-core"}}}
 	g := newPendingTestGraph(store, &fakeTools{})
 
 	answer, usage := g.startPendingOperation(context.Background(), "conversation", OperationIntent{
@@ -249,7 +249,7 @@ func TestPendingOperationResolvesLiteralStackTarget(t *testing.T) {
 }
 
 func TestPendingOperationFindItYourselfUsesOriginalTarget(t *testing.T) {
-	store := &fakeStore{services: []service.Info{{Stack: "infra-postgres-mcp", Name: "postgres-mcp-core"}}}
+	store := &fakeStore{services: []model.Info{{Stack: "infra-postgres-mcp", Name: "postgres-mcp-core"}}}
 	resolver := &recordingCompleter{response: modelResponse{
 		Content: `{"status":"exact","candidate":"infra-postgres-mcp/postgres-mcp-core"}`,
 		Usage:   conversation.TokenUsage{InputTokens: 10, OutputTokens: 3, TotalTokens: 13},
@@ -272,7 +272,7 @@ func TestPendingOperationFindItYourselfUsesOriginalTarget(t *testing.T) {
 }
 
 func TestTargetResolverRejectsCandidateMissingFromStore(t *testing.T) {
-	services := []service.Info{{Stack: "core", Name: "api"}}
+	services := []model.Info{{Stack: "core", Name: "api"}}
 	resolver := &recordingCompleter{response: modelResponse{
 		Content: `{"status":"exact","candidate":"prod/admin"}`,
 	}}

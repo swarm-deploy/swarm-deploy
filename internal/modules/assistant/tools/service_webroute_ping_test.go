@@ -11,14 +11,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	webroute "github.com/swarm-deploy/webroute/api"
 )
 
 func TestPingWebRoutesExecute(t *testing.T) {
 	address := "routes.example.com"
 	tool := NewPingWebRoutes(&fakeServiceStore{
-		services: []service.Info{
+		services: []model.Info{
 			{
 				Stack: "core",
 				Name:  "api",
@@ -115,7 +115,7 @@ func TestPingWebRoutesExecuteRequiresService(t *testing.T) {
 
 func TestPingWebRoutesExecuteFailsOnAmbiguousService(t *testing.T) {
 	tool := NewPingWebRoutes(&fakeServiceStore{
-		services: []service.Info{
+		services: []model.Info{
 			{Stack: "core", Name: "api"},
 			{Stack: "edge", Name: "api"},
 		},
@@ -132,7 +132,7 @@ func TestPingWebRoutesExecuteFailsOnAmbiguousService(t *testing.T) {
 
 func TestPingWebRoutesExecuteWithStack(t *testing.T) {
 	tool := NewPingWebRoutes(&fakeServiceStore{
-		services: []service.Info{
+		services: []model.Info{
 			{
 				Stack: "core",
 				Name:  "api",

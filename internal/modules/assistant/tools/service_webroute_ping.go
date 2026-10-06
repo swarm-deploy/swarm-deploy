@@ -10,7 +10,7 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 )
 
 const webRoutePingTimeout = 5 * time.Second
@@ -117,8 +117,8 @@ func parsePingWebRoutesParams(request pingWebRoutesRequest) (string, string, err
 	return serviceName, stackName, nil
 }
 
-func findTargetService(serviceRows []service.Info, serviceName string, stackName string) (service.Info, error) {
-	matches := make([]service.Info, 0)
+func findTargetService(serviceRows []model.Info, serviceName string, stackName string) (model.Info, error) {
+	matches := make([]model.Info, 0)
 	for _, row := range serviceRows {
 		if row.Name != serviceName {
 			continue
@@ -131,10 +131,10 @@ func findTargetService(serviceRows []service.Info, serviceName string, stackName
 
 	if len(matches) == 0 {
 		if stackName != "" {
-			return service.Info{}, fmt.Errorf("service %q in stack %q not found", serviceName, stackName)
+			return model.Info{}, fmt.Errorf("service %q in stack %q not found", serviceName, stackName)
 		}
 
-		return service.Info{}, fmt.Errorf("service %q not found", serviceName)
+		return model.Info{}, fmt.Errorf("service %q not found", serviceName)
 	}
 	if len(matches) > 1 {
 		stackNames := make([]string, 0, len(matches))
@@ -142,7 +142,7 @@ func findTargetService(serviceRows []service.Info, serviceName string, stackName
 			stackNames = append(stackNames, row.Stack)
 		}
 
-		return service.Info{}, fmt.Errorf(
+		return model.Info{}, fmt.Errorf(
 			"service %q found in multiple stacks (%s); provide stack parameter",
 			serviceName,
 			strings.Join(stackNames, ", "),

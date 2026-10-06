@@ -12,8 +12,9 @@ import (
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	secretmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/model"
 	secretstore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	webroute "github.com/swarm-deploy/webroute/api"
 )
@@ -71,9 +72,9 @@ func TestHandlerSearch_PriorityAndDedupe(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	servicesStore, err := service.NewStore(ctx, t.TempDir()+"/services.json", fs.NewLocalFileSystem())
+	servicesStore, err := modelstore.NewFileStore(ctx, t.TempDir()+"/services.json", fs.NewLocalFileSystem())
 	require.NoError(t, err)
-	require.NoError(t, servicesStore.ReplaceStack(ctx, "payments", []service.Info{
+	require.NoError(t, servicesStore.ReplaceStack(ctx, "payments", []model.Info{
 		{
 			Name:     "api-app",
 			Metadata: metadata.Metadata{Type: "application"},

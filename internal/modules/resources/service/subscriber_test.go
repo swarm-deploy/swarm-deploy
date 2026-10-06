@@ -11,6 +11,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	webroute "github.com/swarm-deploy/webroute/api"
@@ -159,7 +160,7 @@ func TestSubscriberHandle(t *testing.T) {
 			inspector := swarm.NewMockServiceManager(ctrl)
 			images := swarm.NewMockImageManager(ctrl)
 			configs := swarm.NewMockConfigManager(ctrl)
-			store, err := NewStore(context.Background(), filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
+			store, err := modelstore.NewFileStore(context.Background(), filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
 			require.NoError(t, err)
 
 			sub := NewSubscriber(store, &swarm.Swarm{
@@ -242,7 +243,7 @@ func TestSubscriberHandleLoadsWebRouteConfigs(t *testing.T) {
 			configs := swarm.NewMockConfigManager(ctrl)
 			fileSystem := fs.NewLocalFileSystem()
 			tempDir := t.TempDir()
-			store, err := NewStore(context.Background(), filepath.Join(tempDir, "services.json"), fileSystem)
+			store, err := modelstore.NewFileStore(context.Background(), filepath.Join(tempDir, "services.json"), fileSystem)
 			require.NoError(t, err)
 
 			desiredConfig := compose.ObjectRef{

@@ -4,8 +4,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/knownapp"
 	webroute "github.com/swarm-deploy/webroute/api"
 )
@@ -13,12 +13,12 @@ import (
 func TestBuilderBuild(t *testing.T) {
 	tests := []struct {
 		name     string
-		services []service.Info
+		services []model.Info
 		expected map[string]graphNodeSnapshot
 	}{
 		{
 			name: "builds dependencies from supported env suffixes",
-			services: []service.Info{
+			services: []model.Info{
 				{
 					Stack: "prod",
 					Name:  "api",
@@ -57,7 +57,7 @@ func TestBuilderBuild(t *testing.T) {
 		},
 		{
 			name: "prefers same stack name and supports full service names",
-			services: []service.Info{
+			services: []model.Info{
 				{
 					Stack: "blue",
 					Name:  "gateway",
@@ -97,7 +97,7 @@ func TestBuilderBuild(t *testing.T) {
 		},
 		{
 			name: "ignores self references unknown services and duplicate dependencies",
-			services: []service.Info{
+			services: []model.Info{
 				{
 					Stack: "prod",
 					Name:  "api",
@@ -128,7 +128,7 @@ func TestBuilderBuild(t *testing.T) {
 		},
 		{
 			name: "resolves dependencies from another stack by unique service name and dotted host",
-			services: []service.Info{
+			services: []model.Info{
 				{
 					Stack: "app",
 					Name:  "api",
@@ -156,7 +156,7 @@ func TestBuilderBuild(t *testing.T) {
 		},
 		{
 			name: "ignores ambiguous plain service names from another stack",
-			services: []service.Info{
+			services: []model.Info{
 				{
 					Stack: "app",
 					Name:  "api",
@@ -175,7 +175,7 @@ func TestBuilderBuild(t *testing.T) {
 		},
 		{
 			name: "builds nginx proxy dependencies from nginx web route providers",
-			services: []service.Info{
+			services: []model.Info{
 				{
 					Stack:    "infra",
 					Name:     "gateway",
@@ -234,7 +234,7 @@ func TestBuilderBuild(t *testing.T) {
 
 		{
 			name: "builds pomerium dependencies from route to and endpoint from route from",
-			services: []service.Info{
+			services: []model.Info{
 				{
 					Stack: "prod",
 					Name:  "pomerium",

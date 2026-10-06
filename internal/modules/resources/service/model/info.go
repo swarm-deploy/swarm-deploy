@@ -1,4 +1,4 @@
-package service
+package model
 
 import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
@@ -25,6 +25,7 @@ type Info struct {
 	WebRoutes []webroute.WebRoute `json:"web_routes,omitempty"`
 }
 
+// GetName returns the service name.
 func (i *Info) GetName() string {
 	return i.Name
 }
