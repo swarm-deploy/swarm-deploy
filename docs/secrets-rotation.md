@@ -14,7 +14,7 @@ secretRotation:
   includePath: true
   cleanup:
     enabled: true
-    interval: 10m
+    interval: 4h
     keepLast: 2
     minAge: 1h
 ```
@@ -25,7 +25,7 @@ Cleanup uses resource `CreatedAt` metadata and config/secret IDs referenced by b
 
 Cleanup is best effort. A failed Docker remove is logged and does not fail reconciliation or prevent cleanup of other resources. There is no cleanup-specific retry or backoff; the next cleanup interval, new digest, or manual sync evaluates the resource again. This also covers the expected race where Docker still reports a resource as in use shortly after a service was pruned.
 
-Defaults are `interval: 10m`, `keepLast: 2`, and `minAge: 1h`. Cleanup requires rotation to be enabled. External resources, external-driver secrets, and resources without the managed rotation label are never removed. If ownership, desired state, or live references cannot be determined safely, cleanup fails closed and reconciliation continues.
+Defaults are `interval: 4h`, `keepLast: 2`, and `minAge: 1h`. Cleanup requires rotation to be enabled. External resources, external-driver secrets, and resources without the managed rotation label are never removed. If ownership, desired state, or live references cannot be determined safely, cleanup fails closed and reconciliation continues.
 
 Limitations:
 - this is not cryptographic key rotation, but rotation of the object **name** to force rollout.
