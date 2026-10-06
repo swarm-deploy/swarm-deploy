@@ -19,7 +19,7 @@ secretRotation:
     minAge: 1h
 ```
 
-Cleanup is stateless and runs after orphaned service pruning. Periodic cleanup is throttled by `interval`; a new desired digest or manual sync triggers cleanup immediately. Config and secret metadata are loaded from Docker only when cleanup actually runs, so regular reconciliations do not issue cleanup-specific `ConfigList`/`SecretList` calls.
+Cleanup is stateless. A dedicated controller ticker runs periodic cleanup every `interval` without running the regular reconciliation pipeline. A new desired digest or manual sync also triggers cleanup immediately after reconciliation. Config and secret metadata are loaded from Docker only when cleanup actually runs, so regular interval reconciliations do not issue cleanup-specific `ConfigList`/`SecretList` calls.
 
 Cleanup uses resource `CreatedAt` metadata and config/secret IDs referenced by both the current service spec and Swarm's previous spec used for rollback. A generation is preserved when it is the current desired resource, is still referenced by a service or rollback spec, is among the newest `keepLast` generations, or is younger than `minAge`.
 
