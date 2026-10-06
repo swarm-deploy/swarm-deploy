@@ -165,88 +165,75 @@ func (l *fileLoader) computeDigest(ctx context.Context, file File, raw []byte) (
 	hasher := sha256.New()
 	hasher.Write(raw)
 
-	computeConfigs := func(objects Configs) error {
-		objectAliases := make([]string, 0, len(objects))
-		for alias := range objects {
-			objectAliases = append(objectAliases, alias)
-		}
-		sort.Strings(objectAliases)
-
-		for _, alias := range objectAliases {
-			object := objects[alias]
-			if object.External {
-				continue
-			}
-
-			if object.File == "" {
-				continue
-			}
-
-			absPath := object.File
-			if !filepath.IsAbs(absPath) {
-				absPath = filepath.Join(baseDir, object.File)
-			}
-
-			content, err := l.fileReader(ctx, absPath)
-			if err != nil {
-				return fmt.Errorf("read configs file %s for digest: %w", absPath, err)
-			}
-			object.Data = content
-
-			hasher.Write([]byte("configs"))
-			hasher.Write([]byte(alias))
-			hasher.Write([]byte(object.Name))
-			hasher.Write([]byte(object.File))
-			hasher.Write(content)
-		}
-
-		return nil
-	}
-
-	computeSecrets := func(objects Secrets) error {
-		objectAliases := make([]string, 0, len(objects))
-		for alias := range objects {
-			objectAliases = append(objectAliases, alias)
-		}
-		sort.Strings(objectAliases)
-
-		for _, alias := range objectAliases {
-			object := objects[alias]
-			if object.External || object.File == "" {
-				continue
-			}
-
-			absPath := object.File
-			if !filepath.IsAbs(absPath) {
-				absPath = filepath.Join(baseDir, object.File)
-			}
-
-			content, err := l.fileReader(ctx, absPath)
-			if err != nil {
-				return fmt.Errorf("read secrets file %s for digest: %w", absPath, err)
-			}
-
-			hasher.Write([]byte("secrets"))
-			hasher.Write([]byte(alias))
-			hasher.Write([]byte(object.Name))
-			hasher.Write([]byte(object.File))
-			hasher.Write(content)
-		}
-
-		return nil
-	}
-
-	if err := computeConfigs(file.Compose.Configs); err != nil {
+	if err := computeObjectFilesDigest(
+		ctx, l.fileReader, hasher, baseDir, "configs", file.Compose.Configs,
+		func(config *Config) (string, string, bool) { return config.Name, config.File, config.External },
+		func(config *Config, content []byte) { config.Data = content },
+	); err != nil {
 		return "", fmt.Errorf("compute for configs: %w", err)
 	}
 
-	if err := computeSecrets(file.Compose.Secrets); err != nil {
+	if err := computeObjectFilesDigest(
+		ctx, l.fileReader, hasher, baseDir, "secrets", file.Compose.Secrets,
+		func(secret *Secret) (string, string, bool) { return secret.Name, secret.File, secret.External },
+		nil,
+	); err != nil {
 		return "", fmt.Errorf("compute for secrets: %w", err)
 	}
 
 	computeEnvFilesDigest(hasher, file.Compose.Services)
 
 	return hex.EncodeToString(hasher.Sum(nil)), nil
+}
+
+func computeObjectFilesDigest[T any, Objects ~map[string]*T](
+	ctx context.Context,
+	fileReader func(context.Context, string) ([]byte, error),
+	hasher hash.Hash,
+	baseDir string,
+	objectType string,
+	objects Objects,
+	properties func(*T) (name string, file string, external bool),
+	setContent func(*T, []byte),
+) error {
+	aliases := make([]string, 0, len(objects))
+	for alias := range objects {
+		aliases = append(aliases, alias)
+	}
+	sort.Strings(aliases)
+
+	for _, alias := range aliases {
+		object := objects[alias]
+		name, file, external := properties(object)
+		if external || file == "" {
+			continue
+		}
+
+		path := resolveResourceFilePath(baseDir, file)
+		content, err := fileReader(ctx, path)
+		if err != nil {
+			return fmt.Errorf("read %s file %s for digest: %w", objectType, path, err)
+		}
+		if setContent != nil {
+			setContent(object, content)
+		}
+
+		hasher.Write([]byte(objectType))
+		hasher.Write([]byte(alias))
+		hasher.Write([]byte(name))
+		hasher.Write([]byte(file))
+		hasher.Write(content)
+	}
+
+	return nil
+}
+
+func resolveResourceFilePath(baseDir string, path string) string {
+	if filepath.IsAbs(path) {
+		return path
+	}
+
+	return filepath.Join(baseDir, path)
 }
 
 func computeEnvFilesDigest(hasher hash.Hash, services Services) {

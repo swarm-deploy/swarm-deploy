@@ -6,6 +6,8 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
+const yamlMappingNodePairSize = 2
+
 // Config describes a top-level Compose config.
 type Config struct {
 	// Alias is the logical Compose resource name.
@@ -91,8 +93,8 @@ func decodeObjectMap[T any](
 		return nil, fmt.Errorf("expected mapping node, got %T", node.Kind)
 	}
 
-	objects := make(map[string]*T, len(node.Content)/2)
-	for i := 0; i < len(node.Content); i += 2 {
+	objects := make(map[string]*T, len(node.Content)/yamlMappingNodePairSize)
+	for i := 0; i < len(node.Content); i += yamlMappingNodePairSize {
 		alias := node.Content[i].Value
 		object := new(T)
 		if err := node.Content[i+1].Decode(object); err != nil {

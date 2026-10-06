@@ -124,78 +124,65 @@ func (f *Rotator) DesiredResourceNames(
 ) (map[string]string, map[string]string, error) {
 	baseDir := filepath.Dir(file.Path)
 
-	resolveConfigs := func(objects compose.Configs) (map[string]string, error) {
-		resolved := make(map[string]string)
-		for objectName, object := range objects {
-			if object.External || object.File == "" {
-				continue
-			}
-			if object.Name != "" &&
-				object.Labels.Map[labelsdict.RotatedResourceManagedLabelKey] == labelsdict.RotatedResourceManagedLabelValue &&
-				object.Labels.Map[labelsdict.RotatedResourceLogicalNameLabelKey] == objectName {
-				resolved[objectName] = object.Name
-				continue
-			}
-
-			fileBytes, err := os.ReadFile(resolveObjectFilePath(baseDir, object.File))
-			if err != nil {
-				return nil, fmt.Errorf("read %s for rotation: %w", object.File, err)
-			}
-
-			resolved[objectName] = f.buildRotatedObjectName(
-				stackName,
-				objectName,
-				object.File,
-				fileBytes,
-				hashLength,
-				includePath,
-			)
-		}
-
-		return resolved, nil
-	}
-
-	resolveSecrets := func(objects compose.Secrets) (map[string]string, error) {
-		resolved := make(map[string]string)
-		for objectName, object := range objects {
-			if object.External || object.File == "" {
-				continue
-			}
-			if object.Name != "" &&
-				object.Labels.Map[labelsdict.RotatedResourceManagedLabelKey] == labelsdict.RotatedResourceManagedLabelValue &&
-				object.Labels.Map[labelsdict.RotatedResourceLogicalNameLabelKey] == objectName {
-				resolved[objectName] = object.Name
-				continue
-			}
-
-			fileBytes, err := os.ReadFile(resolveObjectFilePath(baseDir, object.File))
-			if err != nil {
-				return nil, fmt.Errorf("read %s for rotation: %w", object.File, err)
-			}
-
-			resolved[objectName] = f.buildRotatedObjectName(
-				stackName,
-				objectName,
-				object.File,
-				fileBytes,
-				hashLength,
-				includePath,
-			)
-		}
-
-		return resolved, nil
-	}
-
-	configs, err := resolveConfigs(file.Compose.Configs)
+	configs, err := resolveDesiredResourceNames(
+		f, file.Compose.Configs, stackName, baseDir, hashLength, includePath,
+		func(config *compose.Config) (string, string, bool, compose.Labels) {
+			return config.Name, config.File, config.External, config.Labels
+		},
+	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("configs: %w", err)
 	}
-	secrets, err := resolveSecrets(file.Compose.Secrets)
+	secrets, err := resolveDesiredResourceNames(
+		f, file.Compose.Secrets, stackName, baseDir, hashLength, includePath,
+		func(secret *compose.Secret) (string, string, bool, compose.Labels) {
+			return secret.Name, secret.File, secret.External, secret.Labels
+		},
+	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("secrets: %w", err)
 	}
 
 	return configs, secrets, nil
+}
+
+func resolveDesiredResourceNames[T any, Objects ~map[string]*T](
+	rotator *Rotator,
+	objects Objects,
+	stackName string,
+	baseDir string,
+	hashLength int,
+	includePath bool,
+	properties func(*T) (name string, file string, external bool, labels compose.Labels),
+) (map[string]string, error) {
+	resolved := make(map[string]string)
+	for objectName, object := range objects {
+		name, objectFile, external, labels := properties(object)
+		if external || objectFile == "" {
+			continue
+		}
+		if isManagedRotatedResource(name, objectName, labels) {
+			resolved[objectName] = name
+			continue
+		}
+
+		fileBytes, err := os.ReadFile(resolveObjectFilePath(baseDir, objectFile))
+		if err != nil {
+			return nil, fmt.Errorf("read %s for rotation: %w", objectFile, err)
+		}
+
+		resolved[objectName] = rotator.buildRotatedObjectName(
+			stackName, objectName, objectFile, fileBytes, hashLength, includePath,
+		)
+	}
+
+	return resolved, nil
+}
+
+func isManagedRotatedResource(name string, objectName string, labels compose.Labels) bool {
+	return name != "" &&
+		labels.Map[labelsdict.RotatedResourceManagedLabelKey] == labelsdict.RotatedResourceManagedLabelValue &&
+		labels.Map[labelsdict.RotatedResourceLogicalNameLabelKey] == objectName
 }
 
 func resolveObjectFilePath(baseDir string, filePath string) string {
