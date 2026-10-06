@@ -115,6 +115,8 @@ secretRotation:
   # Best-effort cleanup of old managed generations.
   cleanup:
     enabled: true
+    # Minimum interval between periodic cleanup attempts.
+    interval: 10m
     # Keep at least this many newest generations per logical config/secret.
     keepLast: 2
     # Never remove generations younger than this age.
