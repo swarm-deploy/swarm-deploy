@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"time"
 
 	pipe "github.com/artarts36/gopipe"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -107,7 +106,10 @@ func (r *Reconciler) attachPipeline() {
 	if r.cfg.Spec.SecretRotation.Cleanup.Enabled {
 		r.pipeline.Add(pipe.Step[*pipelinePayload]{
 			Name: "clean rotated resources",
-			Run:  r.cleanRotatedResources,
+			When: pipe.When(func(payload *pipelinePayload) bool {
+				return payload.IsNewDigest || payload.IsManualSync
+			}),
+			Run: r.cleanRotatedResources,
 		})
 	}
 
@@ -318,10 +320,6 @@ func (r *Reconciler) pruneOrphanedServices(ctx context.Context, payload *pipelin
 }
 
 func (r *Reconciler) cleanRotatedResources(ctx context.Context, payload *pipelinePayload) error {
-	if !r.claimRotatedCleanup(payload) {
-		return nil
-	}
-
 	desiredConfigs, desiredSecrets, err := r.composeRotator.DesiredResourceNames(
 		payload.Desired,
 		payload.Stack.Name,
@@ -369,32 +367,6 @@ func (r *Reconciler) cleanRotatedResources(ctx context.Context, payload *pipelin
 	)
 
 	return nil
-}
-
-func (r *Reconciler) claimRotatedCleanup(payload *pipelinePayload) bool {
-	now := time.Now
-	if r.cleanupNow != nil {
-		now = r.cleanupNow
-	}
-	current := now()
-
-	r.cleanupMu.Lock()
-	defer r.cleanupMu.Unlock()
-
-	if r.lastCleanupAt == nil {
-		r.lastCleanupAt = make(map[string]time.Time)
-	}
-
-	last := r.lastCleanupAt[payload.Stack.Name]
-	if !payload.IsNewDigest &&
-		!payload.IsManualSync &&
-		!last.IsZero() &&
-		current.Sub(last) < r.cfg.Spec.SecretRotation.Cleanup.Interval.Value {
-		return false
-	}
-
-	r.lastCleanupAt[payload.Stack.Name] = current
-	return true
 }
 
 func (r *Reconciler) analyzeDrift(_ context.Context, payload *pipelinePayload) error {
