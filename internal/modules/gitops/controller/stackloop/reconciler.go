@@ -99,7 +99,8 @@ func (r *Reconciler) Cleanup(ctx context.Context, stack config.StackSpec) error 
 		Desired:      desired,
 		LiveServices: liveServices,
 	}
-	if err := r.cleanRotatedResources(ctx, payload); err != nil {
+	err = r.cleanRotatedResources(ctx, payload)
+	if err != nil {
 		return err
 	}
 	if payload.CleanupResult.Failed > 0 || payload.CleanupResult.Skipped > 0 {
