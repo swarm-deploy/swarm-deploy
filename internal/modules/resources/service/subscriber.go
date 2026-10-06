@@ -200,7 +200,7 @@ func (s *Subscriber) loadWebRouteConfig(
 		return nil, false
 	}
 
-	if desiredConfig != nil && len(desiredConfig.Data) > 0 {
+	if desiredConfig != nil && desiredConfig.Data != nil {
 		return enrichment.NewWebRouteConfig(ref.Target, desiredConfig.Data), true
 	}
 

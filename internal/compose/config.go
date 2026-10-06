@@ -16,8 +16,8 @@ type Config struct {
 	Name string `yaml:"name,omitempty" json:"name,omitempty"`
 	// File is the source file for the config.
 	File string `yaml:"file,omitempty" json:"file,omitempty"`
-	// Data contains the loaded config file content.
-	Data []byte `yaml:"-" json:"data,omitempty"`
+	// Data contains the loaded config file content. Nil means the config has no local file.
+	Data []byte `yaml:"-" json:"-"`
 	// TemplateDriver controls resource data templating.
 	TemplateDriver string `yaml:"template_driver,omitempty" json:"template_driver,omitempty"`
 	// Labels contains metadata added to the Docker resource.

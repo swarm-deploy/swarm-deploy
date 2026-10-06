@@ -60,5 +60,58 @@ configs:
 	require.Len(t, file.Compose.Services[0].Configs, 1)
 
 	assert.Empty(t, file.Compose.Services[0].Configs[0].File)
-	assert.Empty(t, file.Compose.Configs["pomerium_config"].Data)
+	assert.Nil(t, file.Compose.Configs["pomerium_config"].Data)
+}
+
+func TestFileLoaderDistinguishesEmptyConfigFileFromExternalConfig(t *testing.T) {
+	tests := []struct {
+		name        string
+		config      string
+		expectedNil bool
+	}{
+		{
+			name: "empty file",
+			config: `
+configs:
+  app_config:
+    file: ./empty.yaml
+`,
+		},
+		{
+			name: "external config",
+			config: `
+configs:
+  app_config:
+    external: true
+`,
+			expectedNil: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			composePath := filepath.Join("repo", "compose.yaml")
+			loader := NewFileLoaderWithReader(func(_ context.Context, path string) ([]byte, error) {
+				switch path {
+				case composePath:
+					return []byte(tt.config), nil
+				case filepath.Join("repo", "empty.yaml"):
+					return nil, nil
+				default:
+					return nil, os.ErrNotExist
+				}
+			})
+
+			file, err := loader.Load(context.Background(), composePath)
+			require.NoError(t, err)
+
+			data := file.Compose.Configs["app_config"].Data
+			assert.Empty(t, data)
+			if tt.expectedNil {
+				assert.Nil(t, data)
+			} else {
+				assert.NotNil(t, data)
+			}
+		})
+	}
 }

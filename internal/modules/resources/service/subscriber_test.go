@@ -206,6 +206,7 @@ func TestSubscriberHandleLoadsWebRouteConfigs(t *testing.T) {
 		desiredData     []byte
 		desiredPresent  bool
 		swarmConfigData []byte
+		loadSwarmConfig bool
 		expectedDomain  string
 	}{
 		{
@@ -213,7 +214,8 @@ func TestSubscriberHandleLoadsWebRouteConfigs(t *testing.T) {
 			swarmConfigData: []byte("routes:\n" +
 				"  - from: https://api.example.com\n" +
 				"    to: http://api:8080\n"),
-			expectedDomain: "api.example.com",
+			loadSwarmConfig: true,
+			expectedDomain:  "api.example.com",
 		},
 		{
 			name:           "loads config from desired data before swarm",
@@ -224,12 +226,19 @@ func TestSubscriberHandleLoadsWebRouteConfigs(t *testing.T) {
 			expectedDomain: "file.example.com",
 		},
 		{
-			name:           "falls back to swarm when desired data is empty",
+			name:           "falls back to swarm when desired data is absent",
 			desiredPresent: true,
 			swarmConfigData: []byte("routes:\n" +
 				"  - from: https://fallback.example.com\n" +
 				"    to: http://api:8080\n"),
-			expectedDomain: "fallback.example.com",
+			loadSwarmConfig: true,
+			expectedDomain:  "fallback.example.com",
+		},
+		{
+			name:            "uses empty desired data without falling back to swarm",
+			desiredPresent:  true,
+			desiredData:     []byte{},
+			swarmConfigData: []byte("routes:\n  - from: https://fallback.example.com\n"),
 		},
 	}
 
@@ -282,7 +291,7 @@ func TestSubscriberHandleLoadsWebRouteConfigs(t *testing.T) {
 			images.EXPECT().
 				Get(gomock.Any(), "ghcr.io/swarm-deploy/pomerium:v1").
 				Return(swarm.Image{Ref: "ghcr.io/swarm-deploy/pomerium:v1"}, swarm.ErrImageNotFound)
-			if testCase.swarmConfigData != nil {
+			if testCase.loadSwarmConfig {
 				configs.EXPECT().
 					Get(gomock.Any(), "prod_pomerium_config").
 					Return(swarm.Config{Data: testCase.swarmConfigData}, nil)
@@ -315,6 +324,10 @@ func TestSubscriberHandleLoadsWebRouteConfigs(t *testing.T) {
 
 			info, ok := store.Get("prod", "pomerium")
 			require.True(t, ok)
+			if testCase.expectedDomain == "" {
+				assert.Empty(t, info.WebRoutes)
+				return
+			}
 			assert.Equal(t, []webroute.WebRoute{
 				{
 					Provider: webroute.ProviderNamePomerium,

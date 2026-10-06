@@ -91,19 +91,37 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 		return nil, fmt.Errorf("load env files: %w", err)
 	}
 
+	configFiles, err := loadObjectFiles(
+		ctx, l.fileReader, filepath.Dir(path), "configs", schema.Configs,
+		func(config *Config) (string, bool) { return config.File, config.External },
+		setConfigData,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("load config files: %w", err)
+	}
+
+	secretFiles, err := loadObjectFiles(
+		ctx, l.fileReader, filepath.Dir(path), "secrets", schema.Secrets,
+		func(secret *Secret) (string, bool) { return secret.File, secret.External },
+		nil,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("load secret files: %w", err)
+	}
+
 	file := &File{
 		Path:    path,
 		Compose: schema,
 	}
 
-	digest, err := l.computeDigest(ctx, *file, raw)
-	if err != nil {
-		return nil, fmt.Errorf("compute digest: %w", err)
-	}
-
-	file.Digest = digest
+	file.Digest = computeDigest(*file, raw, configFiles, secretFiles)
 
 	return file, nil
+}
+
+func setConfigData(config *Config, content []byte) {
+	config.Data = make([]byte, len(content))
+	copy(config.Data, content)
 }
 
 func (l *fileLoader) loadEnvFiles(ctx context.Context, baseDir string, services Services) error {
@@ -160,42 +178,42 @@ func (*fileLoader) linkServices(compose *Compose, baseDir string) error {
 	return nil
 }
 
-func (l *fileLoader) computeDigest(ctx context.Context, file File, raw []byte) (string, error) {
-	baseDir := filepath.Dir(file.Path)
+type objectFileContents map[string][]byte
+
+func computeDigest(
+	file File,
+	raw []byte,
+	configFiles objectFileContents,
+	secretFiles objectFileContents,
+) string {
 	hasher := sha256.New()
 	hasher.Write(raw)
 
-	if err := computeObjectFilesDigest(
-		ctx, l.fileReader, hasher, baseDir, "configs", file.Compose.Configs,
+	computeObjectFilesDigest(
+		hasher, "configs", file.Compose.Configs, configFiles,
 		func(config *Config) (string, string, bool) { return config.Name, config.File, config.External },
-		func(config *Config, content []byte) { config.Data = content },
-	); err != nil {
-		return "", fmt.Errorf("compute for configs: %w", err)
-	}
+	)
 
-	if err := computeObjectFilesDigest(
-		ctx, l.fileReader, hasher, baseDir, "secrets", file.Compose.Secrets,
+	computeObjectFilesDigest(
+		hasher, "secrets", file.Compose.Secrets, secretFiles,
 		func(secret *Secret) (string, string, bool) { return secret.Name, secret.File, secret.External },
-		nil,
-	); err != nil {
-		return "", fmt.Errorf("compute for secrets: %w", err)
-	}
+	)
 
 	computeEnvFilesDigest(hasher, file.Compose.Services)
 
-	return hex.EncodeToString(hasher.Sum(nil)), nil
+	return hex.EncodeToString(hasher.Sum(nil))
 }
 
-func computeObjectFilesDigest[T any, Objects ~map[string]*T](
+func loadObjectFiles[T any, Objects ~map[string]*T](
 	ctx context.Context,
 	fileReader func(context.Context, string) ([]byte, error),
-	hasher hash.Hash,
 	baseDir string,
 	objectType string,
 	objects Objects,
-	properties func(*T) (name string, file string, external bool),
+	properties func(*T) (file string, external bool),
 	setContent func(*T, []byte),
-) error {
+) (objectFileContents, error) {
+	contents := make(objectFileContents, len(objects))
 	aliases := make([]string, 0, len(objects))
 	for alias := range objects {
 		aliases = append(aliases, alias)
@@ -204,7 +222,7 @@ func computeObjectFilesDigest[T any, Objects ~map[string]*T](
 
 	for _, alias := range aliases {
 		object := objects[alias]
-		name, file, external := properties(object)
+		file, external := properties(object)
 		if external || file == "" {
 			continue
 		}
@@ -212,20 +230,39 @@ func computeObjectFilesDigest[T any, Objects ~map[string]*T](
 		path := resolveResourceFilePath(baseDir, file)
 		content, err := fileReader(ctx, path)
 		if err != nil {
-			return fmt.Errorf("read %s file %s for digest: %w", objectType, path, err)
+			return nil, fmt.Errorf("read %s file %s: %w", objectType, path, err)
 		}
+		contents[alias] = content
 		if setContent != nil {
 			setContent(object, content)
 		}
+	}
 
+	return contents, nil
+}
+
+func computeObjectFilesDigest[T any, Objects ~map[string]*T](
+	hasher hash.Hash,
+	objectType string,
+	objects Objects,
+	contents objectFileContents,
+	properties func(*T) (name string, file string, external bool),
+) {
+	aliases := make([]string, 0, len(contents))
+	for alias := range contents {
+		aliases = append(aliases, alias)
+	}
+	sort.Strings(aliases)
+
+	for _, alias := range aliases {
+		object := objects[alias]
+		name, file, _ := properties(object)
 		hasher.Write([]byte(objectType))
 		hasher.Write([]byte(alias))
 		hasher.Write([]byte(name))
 		hasher.Write([]byte(file))
-		hasher.Write(content)
+		hasher.Write(contents[alias])
 	}
-
-	return nil
 }
 
 func resolveResourceFilePath(baseDir string, path string) string {
