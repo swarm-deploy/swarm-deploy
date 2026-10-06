@@ -256,7 +256,7 @@ func TestRotatedResourceCleanerFailsClosedForIncompletePreviousSpecReference(t *
 
 	result := cleaner.clean(context.Background(), "app", nil, nil, services, nil, resources)
 
-	assert.Equal(t, rotatedCleanupResult{}, result, "cleanup must fail closed on incomplete rollback reference")
+	assert.Equal(t, rotatedCleanupResult{Skipped: 1}, result, "cleanup must fail closed on incomplete rollback reference")
 }
 
 func TestRotatedResourceCleanerUsesLiveConfigIDs(t *testing.T) {
@@ -325,7 +325,7 @@ func TestRotatedResourceCleanerFailsClosedForIncompleteManagedLabels(t *testing.
 
 	result := cleaner.clean(context.Background(), "app", nil, nil, nil, nil, resources)
 
-	require.Equal(t, rotatedCleanupResult{}, result, "cleanup must fail closed")
+	require.Equal(t, rotatedCleanupResult{Skipped: 1}, result, "cleanup must fail closed")
 }
 
 func managedSecret(id, name, logicalName string, createdAt time.Time) swarm.Secret {
