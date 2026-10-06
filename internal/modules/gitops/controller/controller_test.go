@@ -25,6 +25,45 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+func TestControllerCleanupStacksUsesDedicatedCleanupPath(t *testing.T) {
+	reconciler := &recordingStackReconciler{
+		cleanupErrByStack: map[string]error{
+			"broken": errors.New("cleanup failed"),
+		},
+	}
+	controller := &Controller{
+		cfg: &config.Config{Spec: config.Spec{
+			Stacks: []config.StackSpec{
+				{Name: "app"},
+				{Name: "broken"},
+				{Name: "worker"},
+			},
+		}},
+		stackReconciler: reconciler,
+	}
+
+	controller.cleanupStacks(context.Background())
+
+	assert.Equal(t, []string{"app", "broken", "worker"}, reconciler.cleanedStacks)
+	assert.Zero(t, reconciler.reconcileCalls, "periodic cleanup must not run full reconciliation")
+}
+
+type recordingStackReconciler struct {
+	cleanedStacks      []string
+	cleanupErrByStack  map[string]error
+	reconcileCalls     int
+}
+
+func (r *recordingStackReconciler) Reconcile(context.Context, stackloop.ReconciliationRequest) error {
+	r.reconcileCalls++
+	return nil
+}
+
+func (r *recordingStackReconciler) Cleanup(_ context.Context, stack config.StackSpec) error {
+	r.cleanedStacks = append(r.cleanedStacks, stack.Name)
+	return r.cleanupErrByStack[stack.Name]
+}
+
 func TestControllerGracefulShutdown(t *testing.T) {
 	testCases := []struct {
 		name string

@@ -3,6 +3,7 @@ package stackloop
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 
@@ -27,6 +28,7 @@ type pipelinePayload struct {
 
 	LiveServices   []swarm.StackService
 	PrunedServices []string
+	CleanupResult  rotatedCleanupResult
 	Drift          map[string]drift.ServiceDrift
 }
 
@@ -100,6 +102,16 @@ func (r *Reconciler) attachPipeline() {
 		}),
 		Run: r.pruneOrphanedServices,
 	})
+
+	if r.cfg.Spec.SecretRotation.Cleanup.Enabled {
+		r.pipeline.Add(pipe.Step[*pipelinePayload]{
+			Name: "clean rotated resources",
+			When: pipe.When(func(payload *pipelinePayload) bool {
+				return payload.IsNewDigest || payload.IsManualSync
+			}),
+			Run: r.cleanRotatedResources,
+		})
+	}
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "analyze drift",
@@ -288,7 +300,6 @@ func (r *Reconciler) loadLiveState(ctx context.Context, payload *pipelinePayload
 	}
 
 	payload.LiveServices = liveServices
-
 	return nil
 }
 
@@ -306,6 +317,84 @@ func (r *Reconciler) pruneOrphanedServices(ctx context.Context, payload *pipelin
 	payload.PrunedServices = prunedServices
 
 	return nil
+}
+
+func (r *Reconciler) cleanRotatedResources(ctx context.Context, payload *pipelinePayload) error {
+	desiredConfigs, desiredSecrets, err := r.composeRotator.DesiredResourceNames(
+		payload.Desired,
+		payload.Stack.Name,
+		r.cfg.Spec.SecretRotation.HashLength,
+		r.cfg.Spec.SecretRotation.IncludePath,
+	)
+	if err != nil {
+		slog.WarnContext(ctx, "[rotated-resource-cleaner] cleanup skipped: desired state is incomplete",
+			slog.String("stack", payload.Stack.Name),
+			slog.Any("error", err),
+		)
+		payload.CleanupResult.Skipped++
+		return nil
+	}
+
+	var liveConfigs []swarm.Config
+	loadedConfigs, configsErr := r.configManager.ListStack(ctx, payload.Stack.Name)
+	if configsErr != nil {
+		slog.WarnContext(ctx, "[rotated-resource-cleaner] failed to load configs; config cleanup skipped",
+			slog.String("stack", payload.Stack.Name),
+			slog.Any("error", configsErr),
+		)
+		payload.CleanupResult.Skipped++
+	} else {
+		liveConfigs = loadedConfigs
+	}
+
+	var liveSecrets []swarm.Secret
+	loadedSecrets, secretsErr := r.secretManager.ListStack(ctx, payload.Stack.Name)
+	if secretsErr != nil {
+		slog.WarnContext(ctx, "[rotated-resource-cleaner] failed to load secrets; secret cleanup skipped",
+			slog.String("stack", payload.Stack.Name),
+			slog.Any("error", secretsErr),
+		)
+		payload.CleanupResult.Skipped++
+	} else {
+		liveSecrets = loadedSecrets
+	}
+
+	liveServices := liveServicesAfterPrune(payload.LiveServices, payload.PrunedServices)
+	cleanerResult := r.resourceCleaner.clean(
+		ctx,
+		payload.Stack.Name,
+		desiredConfigs,
+		desiredSecrets,
+		liveServices,
+		liveConfigs,
+		liveSecrets,
+	)
+	payload.CleanupResult.Removed += cleanerResult.Removed
+	payload.CleanupResult.Failed += cleanerResult.Failed
+	payload.CleanupResult.Skipped += cleanerResult.Skipped
+
+	return nil
+}
+
+func liveServicesAfterPrune(services []swarm.StackService, pruned []string) []swarm.StackService {
+	if len(pruned) == 0 {
+		return services
+	}
+
+	prunedNames := make(map[string]struct{}, len(pruned))
+	for _, name := range pruned {
+		prunedNames[name] = struct{}{}
+	}
+
+	filtered := make([]swarm.StackService, 0, len(services))
+	for _, service := range services {
+		if _, wasPruned := prunedNames[service.Name]; wasPruned {
+			continue
+		}
+		filtered = append(filtered, service)
+	}
+
+	return filtered
 }
 
 func (r *Reconciler) analyzeDrift(_ context.Context, payload *pipelinePayload) error {

@@ -87,14 +87,15 @@ func (m *serviceManager) ListStackServices(ctx context.Context, stackName string
 		}
 
 		mapped = append(mapped, StackService{
-			ID:          service.ID,
-			Name:        stackServiceNameFromFullName(stackName, fullName),
-			FullName:    fullName,
-			Image:       image,
-			Mode:        mode,
-			Replicas:    replicasPtr,
-			ServiceSpec: service.Spec,
-			Labels:      cloneStringMap(service.Spec.Labels),
+			ID:           service.ID,
+			Name:         stackServiceNameFromFullName(stackName, fullName),
+			FullName:     fullName,
+			Image:        image,
+			Mode:         mode,
+			Replicas:     replicasPtr,
+			ServiceSpec:  service.Spec,
+			PreviousSpec: service.PreviousSpec,
+			Labels:       cloneStringMap(service.Spec.Labels),
 		})
 	}
 

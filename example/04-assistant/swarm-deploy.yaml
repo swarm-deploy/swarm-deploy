@@ -112,6 +112,15 @@ secretRotation:
   hashLength: 10
   # Include source file path in hash.
   includePath: true
+  # Best-effort cleanup of old managed generations.
+  cleanup:
+    enabled: true
+    # Minimum interval between periodic cleanup attempts.
+    interval: 4h
+    # Keep at least this many newest generations per logical config/secret.
+    keepLast: 2
+    # Never remove generations younger than this age.
+    minAge: 1h
 
 # Container runtime settings.
 containers:

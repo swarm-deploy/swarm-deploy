@@ -16,6 +16,7 @@ import (
 
 type StackReconciler interface {
 	Reconcile(ctx context.Context, req ReconciliationRequest) error
+	Cleanup(ctx context.Context, stack config.StackSpec) error
 }
 
 type ReconciliationRequest struct {

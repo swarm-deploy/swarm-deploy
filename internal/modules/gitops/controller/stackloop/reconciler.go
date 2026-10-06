@@ -3,6 +3,7 @@ package stackloop
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"time"
 
@@ -37,6 +38,9 @@ type Reconciler struct {
 	pipeline         *pipe.Pipeline[*pipelinePayload]
 	driftAnalyzer    *drift.Analyzer
 	serviceManager   swarm.ServiceManager
+	secretManager    swarm.SecretManager
+	configManager    swarm.ConfigManager
+	resourceCleaner  *rotatedResourceCleaner
 }
 
 // New builds a stack reconciler loop.
@@ -63,11 +67,52 @@ func New(
 		pruner:           pruner.NewServicePruner(swarmService.Services, eventDispatcher, cfg.Spec.Sync.Policy),
 		driftAnalyzer:    drift.NewAnalyzer(),
 		serviceManager:   swarmService.Services,
+		secretManager:    swarmService.Secrets,
+		configManager:    swarmService.Configs,
 	}
+	reconciler.resourceCleaner = newRotatedResourceCleaner(
+		reconciler.secretManager,
+		reconciler.configManager,
+		cfg.Spec.SecretRotation.Cleanup,
+	)
 
 	reconciler.attachPipeline()
 
 	return reconciler
+}
+
+// Cleanup runs rotated config/secret cleanup for one stack without performing reconciliation.
+func (r *Reconciler) Cleanup(ctx context.Context, stack config.StackSpec) error {
+	composePath := filepath.Join(r.git.WorkingDir(), stack.ComposeFile)
+	desired, err := r.composeLoader.Load(ctx, composePath)
+	if err != nil {
+		return fmt.Errorf("load compose for cleanup: %w", err)
+	}
+
+	liveServices, err := r.serviceManager.ListStackServices(ctx, stack.Name)
+	if err != nil {
+		return fmt.Errorf("list stack services for cleanup: %w", err)
+	}
+
+	payload := &pipelinePayload{
+		Stack:        stack,
+		Desired:      desired,
+		LiveServices: liveServices,
+	}
+	err = r.cleanRotatedResources(ctx, payload)
+	if err != nil {
+		return err
+	}
+	if payload.CleanupResult.Failed > 0 || payload.CleanupResult.Skipped > 0 {
+		return fmt.Errorf(
+			"rotated resource cleanup incomplete: removed=%d failed=%d skipped=%d",
+			payload.CleanupResult.Removed,
+			payload.CleanupResult.Failed,
+			payload.CleanupResult.Skipped,
+		)
+	}
+
+	return nil
 }
 
 // Reconcile applies one stack definition.

@@ -161,6 +161,8 @@ type StackService struct {
 	Replicas *uint64
 	// ServiceSpec is raw Docker service specification snapshot.
 	ServiceSpec dockerswarm.ServiceSpec
+	// PreviousSpec is the previous raw Docker service specification used by Swarm rollback.
+	PreviousSpec *dockerswarm.ServiceSpec
 	// Labels contains Docker service annotations labels.
 	Labels map[string]string
 }

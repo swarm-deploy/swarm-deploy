@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 )
 
 // Rotator rewrites config and secret names based on file contents.
@@ -85,10 +86,64 @@ func (f *Rotator) applyObjectTypeRotation(
 		}
 
 		object.Name = rotatedName // @todo
+		object.Labels.Add(labelsdict.RotatedResourceManagedLabelKey, labelsdict.RotatedResourceManagedLabelValue)
+		object.Labels.Add(labelsdict.RotatedResourceLogicalNameLabelKey, objectName)
 		changed = true
 	}
 
 	return changed, nil
+}
+
+// DesiredResourceNames resolves current rotated Docker names keyed by logical compose object name.
+func (f *Rotator) DesiredResourceNames(
+	file *compose.File,
+	stackName string,
+	hashLength int,
+	includePath bool,
+) (map[string]string, map[string]string, error) {
+	baseDir := filepath.Dir(file.Path)
+
+	resolve := func(objects compose.SharedObjects) (map[string]string, error) {
+		resolved := make(map[string]string)
+		for objectName, object := range objects {
+			if object.External || object.File == "" {
+				continue
+			}
+			if object.Name != "" &&
+				object.Labels.Map[labelsdict.RotatedResourceManagedLabelKey] == labelsdict.RotatedResourceManagedLabelValue &&
+				object.Labels.Map[labelsdict.RotatedResourceLogicalNameLabelKey] == objectName {
+				resolved[objectName] = object.Name
+				continue
+			}
+
+			fileBytes, err := os.ReadFile(resolveObjectFilePath(baseDir, object.File))
+			if err != nil {
+				return nil, fmt.Errorf("read %s for rotation: %w", object.File, err)
+			}
+
+			resolved[objectName] = f.buildRotatedObjectName(
+				stackName,
+				objectName,
+				object.File,
+				fileBytes,
+				hashLength,
+				includePath,
+			)
+		}
+
+		return resolved, nil
+	}
+
+	configs, err := resolve(file.Compose.Configs)
+	if err != nil {
+		return nil, nil, fmt.Errorf("configs: %w", err)
+	}
+	secrets, err := resolve(file.Compose.Secrets)
+	if err != nil {
+		return nil, nil, fmt.Errorf("secrets: %w", err)
+	}
+
+	return configs, secrets, nil
 }
 
 func resolveObjectFilePath(baseDir string, filePath string) string {
