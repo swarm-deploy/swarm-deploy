@@ -133,12 +133,8 @@ func (c *Controller) Run(ctx context.Context) error {
 	c.addTicker(reconcileTicker)
 	defer c.removeTicker(reconcileTicker)
 
-	var cleanupTicker *time.Ticker
-	if c.cfg.Spec.SecretRotation.Cleanup.Enabled {
-		cleanupTicker = time.NewTicker(c.cfg.Spec.SecretRotation.Cleanup.Interval.Value)
-		c.addTicker(cleanupTicker)
-		defer c.removeTicker(cleanupTicker)
-	}
+	cleanupTicker, stopCleanupTicker := c.newCleanupTicker()
+	defer stopCleanupTicker()
 
 	slog.InfoContext(ctx, "[controller] trigger startup sync")
 
@@ -175,12 +171,30 @@ func (c *Controller) Run(ctx context.Context) error {
 				reason: TriggerInterval,
 			})
 		case <-tickerC(cleanupTicker):
-			if c.shuttingDown.Load() {
-				continue
-			}
-			c.cleanupStacks(reconciliationCtx)
+			c.handleCleanupTick(reconciliationCtx)
 		}
 	}
+}
+
+func (c *Controller) newCleanupTicker() (*time.Ticker, func()) {
+	if !c.cfg.Spec.SecretRotation.Cleanup.Enabled {
+		return nil, func() {}
+	}
+
+	ticker := time.NewTicker(c.cfg.Spec.SecretRotation.Cleanup.Interval.Value)
+	c.addTicker(ticker)
+
+	return ticker, func() {
+		c.removeTicker(ticker)
+	}
+}
+
+func (c *Controller) handleCleanupTick(ctx context.Context) {
+	if c.shuttingDown.Load() {
+		return
+	}
+
+	c.cleanupStacks(ctx)
 }
 
 func (c *Controller) cleanupStacks(ctx context.Context) {
