@@ -13,7 +13,6 @@ type SharedObject struct {
 
 	// Name overrides the Docker resource name.
 	Name string `yaml:"name,omitempty" json:"name,omitempty"`
-
 	// File is the source file for a config or secret.
 	File string `yaml:"file,omitempty" json:"file,omitempty"`
 	// Driver is the secret driver name.

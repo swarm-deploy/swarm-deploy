@@ -37,6 +37,9 @@ type Reconciler struct {
 	pipeline         *pipe.Pipeline[*pipelinePayload]
 	driftAnalyzer    *drift.Analyzer
 	serviceManager   swarm.ServiceManager
+	secretManager    swarm.SecretManager
+	configManager    swarm.ConfigManager
+	resourceCleaner  *rotatedResourceCleaner
 }
 
 // New builds a stack reconciler loop.
@@ -63,7 +66,14 @@ func New(
 		pruner:           pruner.NewServicePruner(swarmService.Services, eventDispatcher, cfg.Spec.Sync.Policy),
 		driftAnalyzer:    drift.NewAnalyzer(),
 		serviceManager:   swarmService.Services,
+		secretManager:    swarmService.Secrets,
+		configManager:    swarmService.Configs,
 	}
+	reconciler.resourceCleaner = newRotatedResourceCleaner(
+		reconciler.secretManager,
+		reconciler.configManager,
+		cfg.Spec.SecretRotation.Cleanup,
+	)
 
 	reconciler.attachPipeline()
 

@@ -7,7 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/artarts36/specw"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	downward "github.com/swarm-deploy/downward/go"
@@ -139,6 +141,86 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 	require.Len(t, stackState.Services, 1, "expected one service state")
 	serviceState := stackState.Services["api"]
 	assert.Equal(t, model.SyncStatus(model.SyncStatusOutOfSync), serviceState.SyncStatus, "unexpected sync status")
+}
+
+func TestReconcileSucceedsWhenRotatedResourceCleanupPartiallyFails(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repository := gitx.NewMockRepository(ctrl)
+	serviceManager := swarm.NewMockServiceManager(ctrl)
+	secretManager := swarm.NewMockSecretManager(ctrl)
+	configManager := swarm.NewMockConfigManager(ctrl)
+	stackDeployer := deployer.NewMockStackDeployer(ctrl)
+	stateStore := modelstore.NewMemoryStore()
+	repoDir := t.TempDir()
+	composePath := filepath.Join(repoDir, "app.yaml")
+	secretPath := filepath.Join(repoDir, "token")
+	now := time.Now()
+	errInUse := errors.New("resource is in use")
+
+	require.NoError(t, os.WriteFile(secretPath, []byte("current-token"), 0o600), "write secret")
+	require.NoError(t, os.WriteFile(composePath, []byte(`
+services:
+  api:
+    image: nginx:latest
+secrets:
+  token:
+    file: ./token
+`), 0o600), "write compose")
+
+	currentName := NewRotator().buildRotatedObjectName("app", "token", "./token", []byte("current-token"), 8, false)
+	liveSecrets := []swarm.Secret{
+		managedSecret("old", "app-token-old", "token", now.Add(-2*time.Hour)),
+		managedSecret("current", currentName, "token", now.Add(-time.Hour)),
+	}
+
+	repository.EXPECT().WorkingDir().Return(repoDir).Times(2)
+	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", composePath, filepath.Join(repoDir, ".data", "rendered", "app.yaml"), gomock.Any()).Return(nil)
+	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
+	configManager.EXPECT().ListStack(gomock.Any(), "app").Return(nil, nil)
+	secretManager.EXPECT().ListStack(gomock.Any(), "app").Return(liveSecrets, nil)
+	secretManager.EXPECT().Remove(gomock.Any(), "old").Return(errInUse)
+
+	cfg := &config.Config{Spec: config.Spec{
+		DataDir: filepath.Join(repoDir, ".data"),
+		SecretRotation: config.SecretRotationSpec{
+			Enabled:    true,
+			HashLength: 8,
+			Cleanup: config.SecretRotationCleanupSpec{
+				Enabled:  true,
+				KeepLast: 1,
+				MinAge:   specw.Duration{Value: time.Hour},
+			},
+		},
+	}}
+	cleaner := newRotatedResourceCleaner(secretManager, configManager, cfg.Spec.SecretRotation.Cleanup)
+	cleaner.now = func() time.Time { return now }
+	reconciler := &Reconciler{
+		cfg:             cfg,
+		git:             repository,
+		deployer:        stackDeployer,
+		event:           &dispatcher.NopDispatcher{},
+		deployMetrics:   &metrics.NopDeploys{},
+		stateStore:      stateStore,
+		pruner:          pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),
+		composeLoader:   compose.NewFileLoader(),
+		composeRotator:  NewRotator(),
+		driftAnalyzer:   drift.NewAnalyzer(),
+		serviceManager:  serviceManager,
+		secretManager:   secretManager,
+		configManager:   configManager,
+		resourceCleaner: cleaner,
+	}
+	reconciler.attachPipeline()
+
+	err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
+		Stack:  config.StackSpec{Name: "app", ComposeFile: "app.yaml"},
+		Commit: "commit-cleanup",
+	})
+
+	require.NoError(t, err, "cleanup failure must not fail reconciliation")
+	stackState, exists := stateStore.Get().Stacks["app"]
+	require.True(t, exists, "expected successful stack state")
+	assert.Empty(t, stackState.LastError, "expected no reconciliation error")
 }
 
 func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
