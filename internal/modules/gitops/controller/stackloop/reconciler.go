@@ -3,8 +3,8 @@ package stackloop
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
-	"sync"
 	"time"
 
 	pipe "github.com/artarts36/gopipe"
@@ -42,9 +42,6 @@ type Reconciler struct {
 	configManager    swarm.ConfigManager
 	resourceCleaner  *rotatedResourceCleaner
 
-	cleanupMu     sync.Mutex
-	lastCleanupAt map[string]time.Time
-	cleanupNow    func() time.Time
 }
 
 // New builds a stack reconciler loop.
@@ -73,8 +70,6 @@ func New(
 		serviceManager:   swarmService.Services,
 		secretManager:    swarmService.Secrets,
 		configManager:    swarmService.Configs,
-		lastCleanupAt:    make(map[string]time.Time),
-		cleanupNow:       time.Now,
 	}
 	reconciler.resourceCleaner = newRotatedResourceCleaner(
 		reconciler.secretManager,
@@ -85,6 +80,27 @@ func New(
 	reconciler.attachPipeline()
 
 	return reconciler
+}
+
+
+// Cleanup runs rotated config/secret cleanup for one stack without performing reconciliation.
+func (r *Reconciler) Cleanup(ctx context.Context, stack config.StackSpec) error {
+	composePath := filepath.Join(r.git.WorkingDir(), stack.ComposeFile)
+	desired, err := r.composeLoader.Load(ctx, composePath)
+	if err != nil {
+		return fmt.Errorf("load compose for cleanup: %w", err)
+	}
+
+	liveServices, err := r.serviceManager.ListStackServices(ctx, stack.Name)
+	if err != nil {
+		return fmt.Errorf("list stack services for cleanup: %w", err)
+	}
+
+	return r.cleanRotatedResources(ctx, &pipelinePayload{
+		Stack:        stack,
+		Desired:      desired,
+		LiveServices: liveServices,
+	})
 }
 
 // Reconcile applies one stack definition.
