@@ -11,7 +11,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/stype"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"

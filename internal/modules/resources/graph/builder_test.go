@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/knownapp"
 	webroute "github.com/swarm-deploy/webroute/api"

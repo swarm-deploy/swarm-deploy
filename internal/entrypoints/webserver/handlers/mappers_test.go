@@ -7,7 +7,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
 	servicemodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/stype"
 )

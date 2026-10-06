@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/stype"

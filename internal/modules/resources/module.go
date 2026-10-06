@@ -12,7 +12,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretmanager"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"

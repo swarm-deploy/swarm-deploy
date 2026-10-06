@@ -12,7 +12,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	resourcegraph "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/graph"
 	secretmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/model"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
 	servicemodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/stype"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"

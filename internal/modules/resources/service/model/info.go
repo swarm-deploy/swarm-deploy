@@ -1,7 +1,7 @@
 package model
 
 import (
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	webroute "github.com/swarm-deploy/webroute/api"
 )

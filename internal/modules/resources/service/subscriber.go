@@ -8,7 +8,8 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
@@ -23,8 +24,8 @@ type Subscriber struct {
 	images           swarm.ImageManager
 	configs          swarm.ConfigManager
 	fileSystem       fs.FileSystem
-	metadata         *metadata.Extractor
-	webRouteResolver *WebRouteResolver
+	extractor        *metadata.Extractor
+	webRouteResolver *enrichment.WebRouteResolver
 }
 
 // NewSubscriber creates a service metadata event subscriber.
@@ -32,7 +33,7 @@ func NewSubscriber(
 	store modelstore.Store,
 	swarmService *swarm.Swarm,
 	fileSystem fs.FileSystem,
-	metadata *metadata.Extractor,
+	extractor *metadata.Extractor,
 ) *Subscriber {
 	return &Subscriber{
 		store:            store,
@@ -40,8 +41,8 @@ func NewSubscriber(
 		images:           swarmService.Images,
 		configs:          swarmService.Configs,
 		fileSystem:       fileSystem,
-		metadata:         metadata,
-		webRouteResolver: NewWebRouteResolver(),
+		extractor:        extractor,
+		webRouteResolver: enrichment.NewWebRouteResolver(),
 	}
 }
 
@@ -122,7 +123,7 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 		}
 
 		serviceInfo := model.Info{
-			Metadata:    s.metadata.Extract(deployedService.Image, labels),
+			Metadata:    s.extractor.Extract(deployedService.Image, labels),
 			Name:        deployedService.Name,
 			Stack:       deploySuccess.StackName,
 			Image:       deployedService.Image,
@@ -197,11 +198,11 @@ func (s *Subscriber) loadWebRouteConfig(
 	}
 
 	if data, ok := s.loadConfigFromFileSystem(ctx, stackName, serviceName, desiredRef); ok {
-		return newWebRouteConfig(ref.Target, data), true
+		return enrichment.NewWebRouteConfig(ref.Target, data), true
 	}
 
 	if len(ref.Data) > 0 {
-		return newWebRouteConfig(ref.Target, ref.Data), true
+		return enrichment.NewWebRouteConfig(ref.Target, ref.Data), true
 	}
 
 	configName := ref.ConfigName
@@ -227,7 +228,7 @@ func (s *Subscriber) loadWebRouteConfig(
 		return nil, false
 	}
 
-	return newWebRouteConfig(ref.Target, cfg.Data), true
+	return enrichment.NewWebRouteConfig(ref.Target, cfg.Data), true
 }
 
 func (s *Subscriber) loadConfigFromFileSystem(

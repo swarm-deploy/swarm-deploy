@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	resourcegraph "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/graph"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/stype"
 	webroute "github.com/swarm-deploy/webroute/api"

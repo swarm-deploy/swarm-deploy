@@ -1,4 +1,4 @@
-package service
+package enrichment
 
 import (
 	"bytes"
@@ -10,6 +10,7 @@ import (
 	webroute "github.com/swarm-deploy/webroute/api"
 )
 
+// WebRouteResolver resolves public routes exposed by a service.
 type WebRouteResolver struct {
 	providers []webroute.Provider
 }
@@ -19,6 +20,7 @@ type webroutableService struct {
 	configs     []webroute.ServiceConfig
 }
 
+// NewWebRouteResolver creates a resolver with all registered web route providers.
 func NewWebRouteResolver() *WebRouteResolver {
 	return &WebRouteResolver{
 		providers: webroutecore.Providers(),
@@ -80,7 +82,8 @@ type webrouteConfig struct {
 	data []byte
 }
 
-func newWebRouteConfig(path string, data []byte) webrouteConfig {
+// NewWebRouteConfig creates an in-memory service config used for route resolution.
+func NewWebRouteConfig(path string, data []byte) webroute.ServiceConfig {
 	return webrouteConfig{
 		path: path,
 		data: data,

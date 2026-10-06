@@ -12,7 +12,7 @@ import (
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"

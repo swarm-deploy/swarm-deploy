@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	servicestore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/stype"
