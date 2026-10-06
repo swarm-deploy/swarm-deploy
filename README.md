@@ -156,11 +156,21 @@ the current swarm-deploy instance stops starting new reconciliations while an al
 gets time to finish status updates, event delivery, and post-deploy processing. This is especially important
 when swarm-deploy manages its own service, and it also makes ordinary swarm-deploy updates safer.
 
+### Docker registry authentication
+
+If managed stacks use images from private registries, make Docker registry credentials available inside the
+swarm-deploy container. The recommended setup is to expose Docker `config.json` as a Docker Secret and set
+`DOCKER_CONFIG=/run/secrets`.
+
+See [Docker registry authentication](./docs/registry-authentication.md) for the recommended Compose configuration,
+supported alternatives, and security considerations.
+
 ## Documentation
 
 - [Reconciliation](./docs/reconciler.md)
 - [Webhooks](./docs/webhooks.md)
 - [Authentication](./docs/authentication.md)
+- [Docker Registry Authentication](./docs/registry-authentication.md)
 - [Managed Docker Networks](./docs/networks.md)
 - [Downward Metadata](./docs/downward.md)
 - [OpenTelemetry Tracing](./docs/tracing.md)
