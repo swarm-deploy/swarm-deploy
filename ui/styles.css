@@ -1554,6 +1554,130 @@ a.overview-summary-row:focus-visible {
   padding: 9px 12px;
 }
 
+.events-type-filter {
+  position: relative;
+  min-width: 260px;
+}
+
+.events-type-filter > summary {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--surface-input);
+  color: var(--text);
+  padding: 6px 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.events-type-filter > summary::-webkit-details-marker {
+  display: none;
+}
+
+.events-type-filter[open] > summary,
+.events-type-filter > summary:focus-visible {
+  border-color: var(--accent-border);
+  outline: 1px solid var(--accent-border);
+  outline-offset: -1px;
+}
+
+.events-type-filter-selection {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  overflow: hidden;
+}
+
+.events-type-chip {
+  max-width: 150px;
+  display: inline-block;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--accent-muted);
+  color: var(--text);
+  padding: 3px 7px;
+  font-size: 0.72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.events-type-chip--placeholder {
+  background: transparent;
+  color: var(--text);
+  padding-left: 0;
+}
+
+.events-type-filter-chevron {
+  flex: 0 0 auto;
+  color: var(--muted);
+  transition: transform 0.15s ease;
+}
+
+.events-type-filter[open] .events-type-filter-chevron {
+  transform: rotate(180deg);
+}
+
+.events-type-filter-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  left: 0;
+  width: max(100%, 280px);
+  max-height: 320px;
+  overflow-y: auto;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--surface-modal);
+  box-shadow: var(--shadow-card);
+  padding: 6px;
+}
+
+.events-type-filter-menu-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px 8px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.events-type-filter-clear {
+  border: 0;
+  background: transparent;
+  color: var(--accent-strong);
+  font: inherit;
+  cursor: pointer;
+}
+
+.events-type-filter-clear:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+.events-type-filter-option {
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 6px;
+  color: var(--text);
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.events-type-filter-option:hover {
+  background: var(--surface-hover);
+}
+
+.events-type-filter-option input {
+  margin: 0;
+}
+
 .events-table th:nth-child(1),
 .events-table td:nth-child(1) {
   width: 24%;
