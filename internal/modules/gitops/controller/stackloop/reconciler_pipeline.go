@@ -356,17 +356,39 @@ func (r *Reconciler) cleanRotatedResources(ctx context.Context, payload *pipelin
 		liveSecrets = loadedSecrets
 	}
 
+	liveServices := liveServicesAfterPrune(payload.LiveServices, payload.PrunedServices)
 	payload.CleanupResult = r.resourceCleaner.clean(
 		ctx,
 		payload.Stack.Name,
 		desiredConfigs,
 		desiredSecrets,
-		payload.LiveServices,
+		liveServices,
 		liveConfigs,
 		liveSecrets,
 	)
 
 	return nil
+}
+
+func liveServicesAfterPrune(services []swarm.StackService, pruned []string) []swarm.StackService {
+	if len(pruned) == 0 {
+		return services
+	}
+
+	prunedNames := make(map[string]struct{}, len(pruned))
+	for _, name := range pruned {
+		prunedNames[name] = struct{}{}
+	}
+
+	filtered := make([]swarm.StackService, 0, len(services))
+	for _, service := range services {
+		if _, wasPruned := prunedNames[service.Name]; wasPruned {
+			continue
+		}
+		filtered = append(filtered, service)
+	}
+
+	return filtered
 }
 
 func (r *Reconciler) analyzeDrift(_ context.Context, payload *pipelinePayload) error {
