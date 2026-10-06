@@ -39,11 +39,9 @@ func NewStore(ctx context.Context, path string, filesystem fs.FileSystem) (*Stor
 		path: path,
 		fs:   filesystem,
 	}
-
 	if err := s.load(ctx); err != nil {
 		return nil, err
 	}
-
 	return s, nil
 }
 
@@ -51,7 +49,6 @@ func NewStore(ctx context.Context, path string, filesystem fs.FileSystem) (*Stor
 func (s *Store) List() []Info {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-
 	out := make([]Info, len(s.rows))
 	copy(out, s.rows)
 	return out
@@ -61,12 +58,10 @@ func (s *Store) List() []Info {
 func (s *Store) Get(stackName string, serviceName string) (Info, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-
 	rowIndex, ok := s.byServiceNames[serviceKey(stackName, serviceName)]
 	if !ok {
 		return Info{}, false
 	}
-
 	return s.rows[rowIndex], true
 }
 
@@ -74,7 +69,6 @@ func (s *Store) Get(stackName string, serviceName string) (Info, bool) {
 func (s *Store) ReplaceStack(ctx context.Context, stackName string, services []Info) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
 	updated := make([]Info, 0, len(s.rows)+len(services))
 	for _, current := range s.rows {
 		if current.Stack == stackName {
@@ -89,11 +83,9 @@ func (s *Store) ReplaceStack(ctx context.Context, stackName string, services []I
 		service.Stack = stackName
 		updated = append(updated, service)
 	}
-
 	sortInfos(updated)
 	s.rows = updated
 	s.reindexLocked()
-
 	return s.flushLocked(ctx)
 }
 
@@ -101,24 +93,20 @@ func (s *Store) load(ctx context.Context) error {
 	if err := s.fs.CreateDirectory(ctx, filepath.Dir(s.path), directoryMode); err != nil {
 		return fmt.Errorf("create services dir: %w", err)
 	}
-
 	payload, err := s.fs.ReadFile(ctx, s.path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
 		}
-
 		return fmt.Errorf("read services file: %w", err)
 	}
 	if len(payload) == 0 {
 		return nil
 	}
-
 	var rows []storeInfo
 	if unmarshalErr := json.Unmarshal(payload, &rows); unmarshalErr != nil {
 		return fmt.Errorf("decode services file: %w", unmarshalErr)
 	}
-
 	s.rows = make([]Info, 0, len(rows))
 	for _, row := range rows {
 		info := row.toInfo()
@@ -127,7 +115,6 @@ func (s *Store) load(ctx context.Context) error {
 		}
 		s.rows = append(s.rows, info)
 	}
-
 	sortInfos(s.rows)
 	s.reindexLocked()
 	return nil
@@ -138,7 +125,6 @@ func (s *Store) flushLocked(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("encode services file: %w", err)
 	}
-
 	tmpPath := fmt.Sprintf("%s.tmp", s.path)
 	if writeErr := s.fs.WriteFile(ctx, tmpPath, payload, fileModePrivate); writeErr != nil {
 		return fmt.Errorf("write services temp file: %w", writeErr)
@@ -146,7 +132,6 @@ func (s *Store) flushLocked(ctx context.Context) error {
 	if renameErr := s.fs.Rename(ctx, tmpPath, s.path); renameErr != nil {
 		return fmt.Errorf("replace services file: %w", renameErr)
 	}
-
 	return nil
 }
 
@@ -166,7 +151,6 @@ func sortInfos(rows []Info) {
 		if rows[i].Stack != rows[j].Stack {
 			return rows[i].Stack < rows[j].Stack
 		}
-
 		return rows[i].Name < rows[j].Name
 	})
 }
@@ -180,6 +164,8 @@ type storeInfo struct {
 	Type serviceType.Type `json:"type"`
 	// RepositoryURL is a source repository URL resolved from service labels.
 	RepositoryURL string `json:"repository_url"`
+	// RepositoryProvider identifies the source repository provider when known.
+	RepositoryProvider string `json:"repository_provider,omitempty"`
 	// Links is a list of additional service-related links resolved from service labels.
 	Links []metadata.Link `json:"links"`
 	// Name is a service name inside stack.
@@ -199,11 +185,12 @@ type storeInfo struct {
 func (i storeInfo) toInfo() Info {
 	return Info{
 		Metadata: metadata.Metadata{
-			KnownApp:      i.KnownApp,
-			Description:   i.Description,
-			Type:          i.Type,
-			RepositoryURL: i.RepositoryURL,
-			Links:         i.Links,
+			KnownApp:           i.KnownApp,
+			Description:        i.Description,
+			Type:               i.Type,
+			RepositoryURL:      i.RepositoryURL,
+			RepositoryProvider: i.RepositoryProvider,
+			Links:              i.Links,
 		},
 		Name:        i.Name,
 		Stack:       i.Stack,
@@ -218,19 +205,19 @@ func storeInfosFromServiceInfos(infos []Info) []storeInfo {
 	rows := make([]storeInfo, 0, len(infos))
 	for _, info := range infos {
 		rows = append(rows, storeInfo{
-			KnownApp:      info.KnownApp,
-			Description:   info.Description,
-			Type:          info.Type,
-			RepositoryURL: info.RepositoryURL,
-			Links:         info.Links,
-			Name:          info.Name,
-			Stack:         info.Stack,
-			Image:         info.Image,
-			Environment:   info.Environment,
-			Spec:          info.Spec,
-			WebRoutes:     info.WebRoutes,
+			KnownApp:           info.KnownApp,
+			Description:        info.Description,
+			Type:               info.Type,
+			RepositoryURL:      info.RepositoryURL,
+			RepositoryProvider: info.RepositoryProvider,
+			Links:              info.Links,
+			Name:               info.Name,
+			Stack:              info.Stack,
+			Image:              info.Image,
+			Environment:        info.Environment,
+			Spec:               info.Spec,
+			WebRoutes:          info.WebRoutes,
 		})
 	}
-
 	return rows
 }
