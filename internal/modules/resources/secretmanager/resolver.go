@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	resourceservice "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
+	servicestore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/stype"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/utils"
 )
@@ -24,11 +24,11 @@ type target struct {
 
 // Resolver discovers Secret Managers from persisted service resources.
 type Resolver struct {
-	services *resourceservice.Store
+	services servicestore.Store
 }
 
 // NewResolver creates a Secret Manager resolver backed by the service resource store.
-func NewResolver(services *resourceservice.Store) *Resolver {
+func NewResolver(services servicestore.Store) *Resolver {
 	return &Resolver{services: services}
 }
 

@@ -18,6 +18,8 @@ var (
 	ResourceNetworkID   = attribute.Key("swarm-deploy.resource.network.id")
 	ResourceConfigName  = attribute.Key("swarm-deploy.resource.config.name")
 	ResourceConfigID    = attribute.Key("swarm-deploy.resource.config.id")
+	ResourceImageRef    = attribute.Key("swarm-deploy.resource.image.ref")
+	ResourceImageID     = attribute.Key("swarm-deploy.resource.image.id")
 
 	SyncCommitSha = attribute.Key("swarm-deploy.sync.commit_sha")
 

@@ -12,8 +12,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	resourcegraph "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/graph"
 	secretmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/model"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
+	servicemodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/stype"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/utils"
@@ -87,7 +87,7 @@ func toOptDateTime(value time.Time) generated.OptDateTime {
 	return generated.NewOptDateTime(value)
 }
 
-func toGeneratedServiceStatusFromInfo(serviceInfo service.Info) *generated.ServiceStatusResponse {
+func toGeneratedServiceStatusFromInfo(serviceInfo servicemodel.Info) *generated.ServiceStatusResponse {
 	spec := serviceInfo.Spec
 	if spec.Image == "" {
 		spec.Image = serviceInfo.Image
@@ -404,7 +404,7 @@ func toGeneratedGraphNodeKind(kind resourcegraph.Kind) generated.GraphNodeKind {
 	}
 }
 
-func toGeneratedServiceInfos(services []service.Info, runtime model.Runtime) []generated.ServiceInfo {
+func toGeneratedServiceInfos(services []servicemodel.Info, runtime model.Runtime) []generated.ServiceInfo {
 	mapped := make([]generated.ServiceInfo, 0, len(services))
 	for _, serviceInfo := range services {
 		mapped = append(mapped, toGeneratedServiceInfo(serviceInfo, runtime))
@@ -412,7 +412,7 @@ func toGeneratedServiceInfos(services []service.Info, runtime model.Runtime) []g
 	return mapped
 }
 
-func toGeneratedServiceInfo(serviceInfo service.Info, runtime model.Runtime) generated.ServiceInfo {
+func toGeneratedServiceInfo(serviceInfo servicemodel.Info, runtime model.Runtime) generated.ServiceInfo {
 	return generated.ServiceInfo{
 		Name:          serviceInfo.Name,
 		Stack:         serviceInfo.Stack,
@@ -428,7 +428,7 @@ func toGeneratedServiceInfo(serviceInfo service.Info, runtime model.Runtime) gen
 	}
 }
 
-func toGeneratedServiceSyncStatus(serviceInfo service.Info, runtime model.Runtime) generated.ServiceSyncStatus {
+func toGeneratedServiceSyncStatus(serviceInfo servicemodel.Info, runtime model.Runtime) generated.ServiceSyncStatus {
 	stackState, exists := runtime.Stacks[serviceInfo.Stack]
 	if !exists {
 		return generated.ServiceSyncStatusUnknown
@@ -449,7 +449,7 @@ func toGeneratedServiceSyncStatus(serviceInfo service.Info, runtime model.Runtim
 	}
 }
 
-func toGeneratedServiceSyncError(serviceInfo service.Info, runtime model.Runtime) generated.OptString {
+func toGeneratedServiceSyncError(serviceInfo servicemodel.Info, runtime model.Runtime) generated.OptString {
 	stackState, exists := runtime.Stacks[serviceInfo.Stack]
 	if !exists {
 		return generated.OptString{}

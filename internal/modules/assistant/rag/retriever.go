@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	webroute "github.com/swarm-deploy/webroute/api"
 )
 
@@ -53,7 +53,7 @@ func NewRetriever(store ServiceStore, embedder Embedder, modelName string, index
 // RetrievalPlan stores data prepared for retrieval branch execution.
 type RetrievalPlan struct {
 	query       string
-	services    []service.Info
+	services    []model.Info
 	indexed     snapshot
 	queryVector []float64
 	branch      string
@@ -124,14 +124,14 @@ func (r *Retriever) Plan(ctx context.Context, query string) (*RetrievalPlan, err
 }
 
 // RetrieveSemantic runs semantic ranking for a semantic plan.
-func (r *Retriever) RetrieveSemantic(plan *RetrievalPlan) ([]service.Info, error) {
+func (r *Retriever) RetrieveSemantic(plan *RetrievalPlan) ([]model.Info, error) {
 	if plan == nil {
 		return nil, errNilRetrievalPlan
 	}
 
 	queryVector := plan.queryVector
 	type scoredService struct {
-		service    service.Info
+		service    model.Info
 		score      float64
 		exactMatch bool
 	}
@@ -159,7 +159,7 @@ func (r *Retriever) RetrieveSemantic(plan *RetrievalPlan) ([]service.Info, error
 		return scored[i].service.Name < scored[j].service.Name
 	})
 	limit := min(len(scored), maxRetrievedServices)
-	selected := make([]service.Info, 0, limit)
+	selected := make([]model.Info, 0, limit)
 	for _, item := range scored[:limit] {
 		selected = append(selected, item.service)
 	}
@@ -168,7 +168,7 @@ func (r *Retriever) RetrieveSemantic(plan *RetrievalPlan) ([]service.Info, error
 }
 
 // RetrieveLexical runs lexical ranking for a lexical plan.
-func (r *Retriever) RetrieveLexical(plan *RetrievalPlan) ([]service.Info, error) {
+func (r *Retriever) RetrieveLexical(plan *RetrievalPlan) ([]model.Info, error) {
 	if plan == nil {
 		return nil, errNilRetrievalPlan
 	}
@@ -176,12 +176,12 @@ func (r *Retriever) RetrieveLexical(plan *RetrievalPlan) ([]service.Info, error)
 	normalizedQuery := strings.ToLower(strings.TrimSpace(plan.query))
 	if normalizedQuery == "" {
 		limit := min(len(plan.services), maxRetrievedServices)
-		return append([]service.Info(nil), plan.services[:limit]...), nil
+		return append([]model.Info(nil), plan.services[:limit]...), nil
 	}
 
 	terms := strings.Fields(normalizedQuery)
 	type scoredService struct {
-		service    service.Info
+		service    model.Info
 		score      int
 		exactMatch bool
 	}
@@ -216,7 +216,7 @@ func (r *Retriever) RetrieveLexical(plan *RetrievalPlan) ([]service.Info, error)
 	})
 
 	limit := min(len(scored), maxRetrievedServices)
-	selected := make([]service.Info, 0, limit)
+	selected := make([]model.Info, 0, limit)
 	for _, item := range scored[:limit] {
 		selected = append(selected, item.service)
 	}
@@ -224,7 +224,7 @@ func (r *Retriever) RetrieveLexical(plan *RetrievalPlan) ([]service.Info, error)
 	return selected, nil
 }
 
-func queryMentionsService(query string, serviceInfo service.Info) bool {
+func queryMentionsService(query string, serviceInfo model.Info) bool {
 	normalizedQuery := strings.ToLower(strings.TrimSpace(query))
 	if normalizedQuery == "" {
 		return false
@@ -269,7 +269,7 @@ func cosineSimilarity(left, right []float64) float64 {
 	return dot / (math.Sqrt(leftNorm) * math.Sqrt(rightNorm))
 }
 
-func sameServices(left, right []service.Info) bool {
+func sameServices(left, right []model.Info) bool {
 	if len(left) != len(right) {
 		return false
 	}

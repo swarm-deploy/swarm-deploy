@@ -7,7 +7,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/differ"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/differ/diff"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -53,11 +53,11 @@ func (f *fakePluginReader) List(_ context.Context) ([]swarm.Plugin, error) {
 }
 
 type fakeServiceStore struct {
-	services []service.Info
+	services []model.Info
 }
 
-func (f *fakeServiceStore) List() []service.Info {
-	out := make([]service.Info, len(f.services))
+func (f *fakeServiceStore) List() []model.Info {
+	out := make([]model.Info, len(f.services))
 	copy(out, f.services)
 
 	return out

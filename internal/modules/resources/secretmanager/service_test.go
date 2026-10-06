@@ -9,8 +9,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretmanager/cloudsecrets"
-	resourceservice "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
+	servicestore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/stype"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"go.uber.org/mock/gomock"
@@ -100,9 +101,9 @@ func newTestService(t *testing.T) *Service {
 	t.Helper()
 
 	ctx := context.Background()
-	store, err := resourceservice.NewStore(ctx, filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
+	store, err := servicestore.NewFileStore(ctx, filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
 	require.NoError(t, err)
-	require.NoError(t, store.ReplaceStack(ctx, "infra", []resourceservice.Info{
+	require.NoError(t, store.ReplaceStack(ctx, "infra", []model.Info{
 		{
 			Metadata: metadata.Metadata{Type: stype.SecretManager},
 			Name:     "cloud-secrets",

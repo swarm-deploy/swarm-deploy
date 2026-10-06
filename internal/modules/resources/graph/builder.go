@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/stype"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/knownapp"
 	webroute "github.com/swarm-deploy/webroute/api"
@@ -30,8 +30,8 @@ func NewBuilder() *Builder {
 
 // Build constructs a graph with direct service dependencies resolved from
 // environment variables and web route upstreams.
-func (b *Builder) Build(services []service.Info) Graph {
-	serviceByName := make(map[string][]service.Info, len(services))
+func (b *Builder) Build(services []model.Info) Graph {
+	serviceByName := make(map[string][]model.Info, len(services))
 	webRoutesByIndex := make(map[int][]webroute.WebRoute, len(services))
 
 	for idx, svc := range services {
@@ -70,8 +70,8 @@ func (b *Builder) Build(services []service.Info) Graph {
 }
 
 func (b *Builder) resolveDependencies(
-	source service.Info,
-	serviceByName map[string][]service.Info,
+	source model.Info,
+	serviceByName map[string][]model.Info,
 ) []string {
 	if len(source.Environment) == 0 {
 		return nil
@@ -105,9 +105,9 @@ func (b *Builder) resolveDependencies(
 }
 
 func (b *Builder) resolveWebRouteDependencies(
-	source service.Info,
+	source model.Info,
 	webRoutes []webroute.WebRoute,
-	serviceByName map[string][]service.Info,
+	serviceByName map[string][]model.Info,
 ) []string {
 	if len(webRoutes) == 0 {
 		return nil
@@ -144,8 +144,8 @@ func (b *Builder) resolveWebRouteDependencies(
 }
 
 func (b *Builder) resolveNginxProxyDependencies(
-	source service.Info,
-	services []service.Info,
+	source model.Info,
+	services []model.Info,
 	webRoutesByIndex map[int][]webroute.WebRoute,
 ) []string {
 	dependencyNames := make(map[string]struct{})
@@ -173,7 +173,7 @@ func (b *Builder) hasWebRouteProvider(routes []webroute.WebRoute, provider webro
 	return false
 }
 
-func (b *Builder) isNginxProxy(svc service.Info) bool {
+func (b *Builder) isNginxProxy(svc model.Info) bool {
 	return svc.KnownApp == knownapp.NginxProxy
 }
 
@@ -314,10 +314,10 @@ func (b *Builder) trimAddressDecorators(value string) string {
 }
 
 func (b *Builder) resolveDependency(
-	source service.Info,
+	source model.Info,
 	host string,
-	serviceByName map[string][]service.Info,
-) (service.Info, bool) {
+	serviceByName map[string][]model.Info,
+) (model.Info, bool) {
 	for _, candidate := range b.dependencyHostAliases(host) {
 		if dependency, ok := b.findServiceInStack(serviceByName[candidate], source.Stack); ok {
 			return dependency, true
@@ -331,17 +331,17 @@ func (b *Builder) resolveDependency(
 		}
 	}
 
-	return service.Info{}, false
+	return model.Info{}, false
 }
 
-func (b *Builder) findServiceInStack(services []service.Info, stackName string) (service.Info, bool) {
+func (b *Builder) findServiceInStack(services []model.Info, stackName string) (model.Info, bool) {
 	for _, svc := range services {
 		if svc.Stack == stackName {
 			return svc, true
 		}
 	}
 
-	return service.Info{}, false
+	return model.Info{}, false
 }
 
 func (b *Builder) dependencyHostAliases(host string) []string {
@@ -380,7 +380,7 @@ func (b *Builder) dependencyHostAliases(host string) []string {
 	return aliases
 }
 
-func (b *Builder) serviceNodeName(svc service.Info) string {
+func (b *Builder) serviceNodeName(svc model.Info) string {
 	if svc.Stack == "" {
 		return svc.Name
 	}

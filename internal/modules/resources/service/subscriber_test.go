@@ -9,7 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	webroute "github.com/swarm-deploy/webroute/api"
@@ -157,10 +158,15 @@ func TestSubscriberHandle(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			inspector := swarm.NewMockServiceManager(ctrl)
 			images := swarm.NewMockImageManager(ctrl)
-			store, err := NewStore(context.Background(), filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
+			configs := swarm.NewMockConfigManager(ctrl)
+			store, err := modelstore.NewFileStore(context.Background(), filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
 			require.NoError(t, err)
 
-			sub := NewSubscriber(store, inspector, images, &fakeSubscriberConfigReader{}, metadata.NewExtractor())
+			sub := NewSubscriber(store, &swarm.Swarm{
+				Services: inspector,
+				Images:   images,
+				Configs:  configs,
+			}, metadata.NewExtractor())
 			serviceRef := swarm.NewServiceReference("payments", "api")
 			testCase.setupMocks(inspector, images, serviceRef)
 
@@ -195,94 +201,147 @@ func TestSubscriberHandle(t *testing.T) {
 func TestSubscriberHandleLoadsWebRouteConfigs(t *testing.T) {
 	t.Parallel()
 
-	ctrl := gomock.NewController(t)
-	inspector := swarm.NewMockServiceManager(ctrl)
-	images := swarm.NewMockImageManager(ctrl)
-	configs := &fakeSubscriberConfigReader{
-		configs: map[string]swarm.Config{
-			"prod_pomerium_config": {
-				Data: []byte(`
-routes:
-  - from: https://api.example.com
-    to: http://api:8080
-`),
-			},
+	testCases := []struct {
+		name            string
+		desiredData     []byte
+		desiredPresent  bool
+		swarmConfigData []byte
+		loadSwarmConfig bool
+		expectedDomain  string
+	}{
+		{
+			name: "loads config from swarm when desired config is unavailable",
+			swarmConfigData: []byte("routes:\n" +
+				"  - from: https://api.example.com\n" +
+				"    to: http://api:8080\n"),
+			loadSwarmConfig: true,
+			expectedDomain:  "api.example.com",
+		},
+		{
+			name:           "loads config from desired data before swarm",
+			desiredPresent: true,
+			desiredData: []byte("routes:\n" +
+				"  - from: https://file.example.com\n" +
+				"    to: http://api:8080\n"),
+			expectedDomain: "file.example.com",
+		},
+		{
+			name:           "falls back to swarm when desired data is absent",
+			desiredPresent: true,
+			swarmConfigData: []byte("routes:\n" +
+				"  - from: https://fallback.example.com\n" +
+				"    to: http://api:8080\n"),
+			loadSwarmConfig: true,
+			expectedDomain:  "fallback.example.com",
+		},
+		{
+			name:            "uses empty desired data without falling back to swarm",
+			desiredPresent:  true,
+			desiredData:     []byte{},
+			swarmConfigData: []byte("routes:\n  - from: https://fallback.example.com\n"),
 		},
 	}
-	store, err := NewStore(context.Background(), filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
-	require.NoError(t, err)
 
-	serviceRef := swarm.NewServiceReference("prod", "pomerium")
-	inspector.EXPECT().
-		GetStatus(gomock.Any(), serviceRef).
-		Return(swarm.ServiceStatus{
-			Stack:   "prod",
-			Service: "pomerium",
-			Spec: swarm.ServiceSpec{
-				Image: "ghcr.io/swarm-deploy/pomerium:v1",
-				Configs: []swarm.ServiceConfig{
-					{
-						ConfigName: "prod_pomerium_config",
-						Target:     "/etc/pomerium/config.yaml",
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctrl := gomock.NewController(t)
+			inspector := swarm.NewMockServiceManager(ctrl)
+			images := swarm.NewMockImageManager(ctrl)
+			configs := swarm.NewMockConfigManager(ctrl)
+			fileSystem := fs.NewLocalFileSystem()
+			tempDir := t.TempDir()
+			store, err := modelstore.NewFileStore(context.Background(), filepath.Join(tempDir, "services.json"), fileSystem)
+			require.NoError(t, err)
+
+			desiredConfigRef := compose.ObjectRef{
+				Source: "pomerium_config",
+				Target: "/etc/pomerium/config.yaml",
+			}
+			desiredConfigs := compose.Configs(nil)
+			if testCase.desiredPresent {
+				desiredConfigs = compose.Configs{
+					"pomerium_config": {Data: testCase.desiredData},
+				}
+			}
+
+			serviceRef := swarm.NewServiceReference("prod", "pomerium")
+			inspector.EXPECT().
+				GetStatus(gomock.Any(), serviceRef).
+				Return(swarm.ServiceStatus{
+					Stack:   "prod",
+					Service: "pomerium",
+					Spec: swarm.ServiceSpec{
+						Image: "ghcr.io/swarm-deploy/pomerium:v1",
+						Configs: []swarm.ServiceConfig{
+							{
+								ConfigName: "prod_pomerium_config",
+								Target:     "/etc/pomerium/config.yaml",
+							},
+						},
 					},
-				},
-			},
-			ContainerConfigs: []swarm.ServiceConfig{
-				{
-					ConfigName: "prod_pomerium_config",
-					Target:     "/etc/pomerium/config.yaml",
-				},
-			},
-		}, nil)
-	images.EXPECT().
-		Get(gomock.Any(), "ghcr.io/swarm-deploy/pomerium:v1").
-		Return(swarm.Image{Ref: "ghcr.io/swarm-deploy/pomerium:v1"}, swarm.ErrImageNotFound)
-
-	sub := NewSubscriber(store, inspector, images, configs, metadata.NewExtractor())
-
-	err = sub.Handle(context.Background(), events.Envelope{ID: "deploy", Event: &events.DeploySuccess{
-		DeployEvent: events.DeployEvent{
-			StackName: "prod",
-			StackDefinition: compose.File{
-				Compose: compose.Compose{
-					Services: []compose.Service{
+					ContainerConfigs: []swarm.ServiceConfig{
 						{
-							Name:  "pomerium",
-							Image: "ghcr.io/swarm-deploy/pomerium:v1",
+							ConfigName: "prod_pomerium_config",
+							Target:     "/etc/pomerium/config.yaml",
+						},
+					},
+				}, nil)
+			images.EXPECT().
+				Get(gomock.Any(), "ghcr.io/swarm-deploy/pomerium:v1").
+				Return(swarm.Image{Ref: "ghcr.io/swarm-deploy/pomerium:v1"}, swarm.ErrImageNotFound)
+			if testCase.loadSwarmConfig {
+				configs.EXPECT().
+					Get(gomock.Any(), "prod_pomerium_config").
+					Return(swarm.Config{Data: testCase.swarmConfigData}, nil)
+			}
+
+			sub := NewSubscriber(store, &swarm.Swarm{
+				Services: inspector,
+				Images:   images,
+				Configs:  configs,
+			}, metadata.NewExtractor())
+
+			err = sub.Handle(context.Background(), events.Envelope{ID: "deploy", Event: &events.DeploySuccess{
+				DeployEvent: events.DeployEvent{
+					StackName: "prod",
+					StackDefinition: compose.File{
+						Compose: compose.Compose{
+							Configs: desiredConfigs,
+							Services: []compose.Service{
+								{
+									Name:    "pomerium",
+									Image:   "ghcr.io/swarm-deploy/pomerium:v1",
+									Configs: []compose.ObjectRef{desiredConfigRef},
+								},
+							},
 						},
 					},
 				},
-			},
-		},
-	}})
-	require.NoError(t, err)
+			}})
+			require.NoError(t, err)
 
-	info, ok := store.Get("prod", "pomerium")
-	require.True(t, ok)
-	assert.Equal(t, []webroute.WebRoute{
-		{
-			Provider: webroute.ProviderNamePomerium,
-			From: webroute.Address{
-				Domain:  "api.example.com",
-				Address: "api.example.com",
-			},
-			To: &webroute.Address{
-				Domain:  "api",
-				Address: "api:8080",
-				Port:    "8080",
-			},
-		},
-	}, info.WebRoutes)
-	assert.Equal(t, []string{"prod_pomerium_config"}, configs.calls)
-}
-
-type fakeSubscriberConfigReader struct {
-	configs map[string]swarm.Config
-	calls   []string
-}
-
-func (r *fakeSubscriberConfigReader) Get(_ context.Context, configName string) (swarm.Config, error) {
-	r.calls = append(r.calls, configName)
-
-	return r.configs[configName], nil
+			info, ok := store.Get("prod", "pomerium")
+			require.True(t, ok)
+			if testCase.expectedDomain == "" {
+				assert.Empty(t, info.WebRoutes)
+				return
+			}
+			assert.Equal(t, []webroute.WebRoute{
+				{
+					Provider: webroute.ProviderNamePomerium,
+					From: webroute.Address{
+						Domain:  testCase.expectedDomain,
+						Address: testCase.expectedDomain,
+					},
+					To: &webroute.Address{
+						Domain:  "api",
+						Address: "api:8080",
+						Port:    "8080",
+					},
+				},
+			}, info.WebRoutes)
+		})
+	}
 }

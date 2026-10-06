@@ -14,7 +14,7 @@ import (
 	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/node"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretmanager"
 	secretstore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
+	servicestore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
@@ -29,7 +29,7 @@ type handler struct {
 	networks         swarm.NetworkManager
 	nodeManager      swarm.NodeManager
 	history          *history.Store
-	services         *service.Store
+	services         servicestore.Store
 	nodes            *swarmnode.Store
 	recommendations  recommendationstore.Store
 	alerts           alertstore.Store
@@ -48,7 +48,7 @@ func New(
 	gitRepository gitx.Repository,
 	swarmService *swarm.Swarm,
 	history *history.Store,
-	services *service.Store,
+	services servicestore.Store,
 	nodes *swarmnode.Store,
 	secrets secretstore.Store,
 	secretManagers *secretmanager.Domain,

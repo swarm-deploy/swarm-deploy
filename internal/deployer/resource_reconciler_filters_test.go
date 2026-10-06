@@ -50,11 +50,11 @@ func TestResourceReconcilerFiltersBulkListsByResourceName(t *testing.T) {
 		context.Background(),
 		"demo",
 		filepath.Join(t.TempDir(), "compose.yaml"),
-		compose.SharedObjects{
+		compose.Configs{
 			"app-config":    {Alias: "app-config", File: "unused"},
 			"shared-config": {Alias: "shared-config", External: true},
 		},
-		compose.SharedObjects{
+		compose.Secrets{
 			"db-password": {Alias: "db-password", File: "unused"},
 			"api-token":   {Alias: "api-token", Name: "demo-api-token-abc123", File: "unused"},
 		},

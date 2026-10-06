@@ -6,7 +6,7 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 )
 
 // Status is an assistant chat run state.
@@ -141,7 +141,7 @@ type Config struct {
 // ServiceStore reads current service metadata used by RAG retrieval.
 type ServiceStore interface {
 	// List returns collected service metadata records.
-	List() []service.Info
+	List() []model.Info
 }
 
 // ToolExecutor executes assistant tools.

@@ -16,7 +16,7 @@ func TestRotatorLabelsManagedResources(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "token"), []byte("secret"), 0o600), "write secret")
 	file := &compose.File{
 		Path: filepath.Join(dir, "compose.yaml"),
-		Compose: compose.Compose{Secrets: compose.SharedObjects{
+		Compose: compose.Compose{Secrets: compose.Secrets{
 			"token":    {File: "./token"},
 			"external": {External: true, Name: "external-token"},
 		}},
@@ -26,7 +26,7 @@ func TestRotatorLabelsManagedResources(t *testing.T) {
 
 	require.NoError(t, err, "rotate secrets")
 	assert.True(t, changed, "expected rotation mutation")
-		assert.Equal(t, labelsdict.RotatedResourceManagedLabelValue,
+	assert.Equal(t, labelsdict.RotatedResourceManagedLabelValue,
 		file.Compose.Secrets["token"].Labels.Map[labelsdict.RotatedResourceManagedLabelKey],
 		"expected managed label")
 	assert.Equal(t, "token",

@@ -11,5 +11,6 @@ type Labels struct {
 }
 
 type LabelResolver interface {
+	// Resolve enriches service metadata from labels.
 	Resolve(labels Labels, meta *Metadata)
 }

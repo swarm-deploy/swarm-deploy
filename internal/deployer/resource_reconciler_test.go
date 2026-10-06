@@ -28,8 +28,8 @@ func TestDeployStackReconcilesResourcesBeforeInitJobs(t *testing.T) {
 		resourceName  string
 		fileName      string
 		fileContent   string
-		configs       compose.SharedObjects
-		secrets       compose.SharedObjects
+		configs       compose.Configs
+		secrets       compose.Secrets
 		serviceConfig []compose.ObjectRef
 		serviceSecret []compose.ObjectRef
 		resolved      func(InitJobSpec) ResolvedResource
@@ -42,8 +42,8 @@ func TestDeployStackReconcilesResourcesBeforeInitJobs(t *testing.T) {
 			resourceName: "demo_app-config",
 			fileName:     "config.yaml",
 			fileContent:  "log_level: info",
-			configs: compose.SharedObjects{
-				"app-config": {Alias: "app-config", File: "config.yaml"},
+			configs: compose.Configs{
+				"app-config": {Alias: "app-config", File: "config.yaml", Data: []byte("log_level: info")},
 			},
 			serviceConfig: []compose.ObjectRef{{Source: "app-config", Target: "/etc/app/config.yaml"}},
 			resolved: func(spec InitJobSpec) ResolvedResource {
@@ -58,7 +58,7 @@ func TestDeployStackReconcilesResourcesBeforeInitJobs(t *testing.T) {
 			resourceName: "demo_db-password",
 			fileName:     "password.txt",
 			fileContent:  "secret-value",
-			secrets: compose.SharedObjects{
+			secrets: compose.Secrets{
 				"db-password": {Alias: "db-password", File: "password.txt"},
 			},
 			serviceSecret: []compose.ObjectRef{{Source: "db-password"}},
@@ -160,7 +160,7 @@ func TestResourceReconcilerReusesExistingResource(t *testing.T) {
 		context.Background(),
 		"demo",
 		filepath.Join(t.TempDir(), "compose.yaml"),
-		compose.SharedObjects{"app-config": {Alias: "app-config", File: "unused.yaml"}},
+		compose.Configs{"app-config": {Alias: "app-config", File: "unused.yaml"}},
 		nil,
 	)
 	require.NoError(t, err, "reconcile resources")
@@ -197,8 +197,8 @@ func TestResourceReconcilerUsesRotatedNameOnce(t *testing.T) {
 	t.Cleanup(server.Close)
 
 	reconciler := newResourceReconciler(newDockerTestClient(t, server))
-	objects := compose.SharedObjects{
-		"app-config": {Alias: "app-config", Name: rotatedName, File: "config.yaml"},
+	objects := compose.Configs{
+		"app-config": {Alias: "app-config", Name: rotatedName, File: "config.yaml", Data: []byte("v2")},
 	}
 
 	first, err := reconciler.Reconcile(context.Background(), "demo", filepath.Join(dir, "compose.yaml"), objects, nil)
@@ -241,8 +241,8 @@ func TestDeployStackInitJobFailureDoesNotDeleteResources(t *testing.T) {
 		initJobRunner:   initJobs,
 	}
 	desired := compose.Compose{
-		Configs: compose.SharedObjects{
-			"app-config": {Alias: "app-config", Name: "demo-app-config-new", File: "config.yaml"},
+		Configs: compose.Configs{
+			"app-config": {Alias: "app-config", Name: "demo-app-config-new", File: "config.yaml", Data: []byte("new")},
 		},
 		Services: []compose.Service{{
 			Name:     "api",
@@ -295,11 +295,11 @@ func TestResourceReconcilerListsMultipleResourcesInBulk(t *testing.T) {
 		context.Background(),
 		"demo",
 		filepath.Join(t.TempDir(), "compose.yaml"),
-		compose.SharedObjects{
+		compose.Configs{
 			"config-b": {Alias: "config-b", File: "unused-b"},
 			"config-a": {Alias: "config-a", File: "unused-a"},
 		},
-		compose.SharedObjects{
+		compose.Secrets{
 			"secret-b": {Alias: "secret-b", File: "unused-b"},
 			"secret-a": {Alias: "secret-a", File: "unused-a"},
 		},
@@ -347,15 +347,16 @@ func TestResourceReconcilerPreservesComposeResourceOptions(t *testing.T) {
 		context.Background(),
 		"demo",
 		filepath.Join(dir, "compose.yaml"),
-		compose.SharedObjects{
+		compose.Configs{
 			"app-config": {
 				Alias:          "app-config",
 				File:           "config.txt",
+				Data:           []byte("config-data"),
 				Labels:         *compose.NewLabels(map[string]string{"purpose": "init"}),
 				TemplateDriver: "golang",
 			},
 		},
-		compose.SharedObjects{
+		compose.Secrets{
 			"app-secret": {
 				Alias:          "app-secret",
 				Driver:         "vault",
@@ -388,20 +389,20 @@ func TestResourceReconcilerDoesNotCreateMissingExternalResource(t *testing.T) {
 	tests := []struct {
 		name       string
 		listPath   string
-		configs    compose.SharedObjects
-		secrets    compose.SharedObjects
+		configs    compose.Configs
+		secrets    compose.Secrets
 		errorMatch string
 	}{
 		{
 			name:       "config",
 			listPath:   "/configs",
-			configs:    compose.SharedObjects{"external-config": {Alias: "external-config", External: true}},
+			configs:    compose.Configs{"external-config": {Alias: "external-config", External: true}},
 			errorMatch: "external config external-config does not exist",
 		},
 		{
 			name:       "secret",
 			listPath:   "/secrets",
-			secrets:    compose.SharedObjects{"external-secret": {Alias: "external-secret", External: true}},
+			secrets:    compose.Secrets{"external-secret": {Alias: "external-secret", External: true}},
 			errorMatch: "external secret external-secret does not exist",
 		},
 	}

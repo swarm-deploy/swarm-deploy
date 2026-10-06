@@ -8,9 +8,9 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-func TestSharedObjectsDecodeComposeResourceOptions(t *testing.T) {
+func TestSecretsDecodeComposeResourceOptions(t *testing.T) {
 	var document struct {
-		Secrets SharedObjects `yaml:"secrets"`
+		Secrets Secrets `yaml:"secrets"`
 	}
 
 	err := yaml.Unmarshal([]byte(`

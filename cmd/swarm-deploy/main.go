@@ -167,6 +167,8 @@ func main() {
 	)
 
 	for _, mod := range modules {
+		slog.InfoContext(ctx, "[main] initializing module", slog.Any("module", mod.Name))
+
 		err = mod.Initialize(ctx, cfg, cnt)
 		if err != nil {
 			slog.ErrorContext(ctx, "failed to init module", slog.Any("err", err),
@@ -174,6 +176,10 @@ func main() {
 			)
 			os.Exit(1)
 		}
+
+		slog.InfoContext(ctx, "[main] module initialized",
+			slog.Any("module", mod.Name),
+		)
 	}
 
 	webApplication, err := webserver.NewApplication(

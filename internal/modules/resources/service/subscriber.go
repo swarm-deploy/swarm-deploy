@@ -8,41 +8,37 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	webroute "github.com/swarm-deploy/webroute/api"
 )
 
 // Subscriber persists service metadata on deploySuccess events.
 type Subscriber struct {
-	store            *Store
+	store            modelstore.Store
 	inspector        swarm.ServiceManager
 	images           swarm.ImageManager
-	configs          configReader
-	metadata         *metadata.Extractor
-	webRouteResolver *WebRouteResolver
-}
-
-type configReader interface {
-	// Get returns Docker config payload by name or ID.
-	Get(ctx context.Context, configName string) (swarm.Config, error)
+	configs          swarm.ConfigManager
+	extractor        *metadata.Extractor
+	webRouteResolver *enrichment.WebRouteResolver
 }
 
 // NewSubscriber creates a service metadata event subscriber.
 func NewSubscriber(
-	store *Store,
-	inspector swarm.ServiceManager,
-	images swarm.ImageManager,
-	configs configReader,
-	metadata *metadata.Extractor,
+	store modelstore.Store,
+	swarmService *swarm.Swarm,
+	extractor *metadata.Extractor,
 ) *Subscriber {
 	return &Subscriber{
 		store:            store,
-		inspector:        inspector,
-		images:           images,
-		configs:          configs,
-		metadata:         metadata,
-		webRouteResolver: NewWebRouteResolver(),
+		inspector:        swarmService.Services,
+		images:           swarmService.Images,
+		configs:          swarmService.Configs,
+		extractor:        extractor,
+		webRouteResolver: enrichment.NewWebRouteResolver(),
 	}
 }
 
@@ -61,7 +57,7 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 		return nil
 	}
 
-	services := make([]Info, 0, len(deploySuccess.StackDefinition.Compose.Services))
+	services := make([]model.Info, 0, len(deploySuccess.StackDefinition.Compose.Services))
 	for _, deployedService := range deploySuccess.StackDefinition.Compose.Services {
 		serviceRef := swarm.NewServiceReference(deploySuccess.StackName, deployedService.Name)
 
@@ -70,17 +66,13 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 			slog.String("service_name", deployedService.Name),
 		)
 
-		spec := swarm.ServiceSpec{
-			Image: deployedService.Image,
-		}
+		spec := swarm.ServiceSpec{Image: deployedService.Image}
 		labels := metadata.Labels{}
 		containerEnv := []string(nil)
 		containerConfigs := []webroute.ServiceConfig(nil)
 		status, statusErr := s.inspector.GetStatus(ctx, serviceRef)
 		if statusErr != nil {
-			slog.WarnContext(
-				ctx,
-				"[service] failed to inspect service status",
+			slog.WarnContext(ctx, "[service] failed to inspect service status",
 				slog.String("stack", deploySuccess.StackName),
 				slog.String("service", deployedService.Name),
 				slog.Any("err", statusErr),
@@ -90,15 +82,19 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 			labels.Service = status.Spec.Labels
 			labels.Container = status.ContainerLabels
 			containerEnv = status.ContainerEnv
-			containerConfigs = s.loadWebRouteConfigs(ctx, deploySuccess.StackName, deployedService.Name, status.ContainerConfigs)
+			containerConfigs = s.loadWebRouteConfigs(
+				ctx,
+				deploySuccess.StackName,
+				deployedService,
+				deploySuccess.StackDefinition.Compose.Configs,
+				status.ContainerConfigs,
+			)
 		}
 
 		imageMeta, imageErr := s.images.Get(ctx, spec.Image)
 		if imageErr != nil {
 			if !errors.Is(imageErr, swarm.ErrImageNotFound) {
-				slog.WarnContext(
-					ctx,
-					"[service] failed to inspect image",
+				slog.WarnContext(ctx, "[service] failed to inspect image",
 					slog.String("stack", deploySuccess.StackName),
 					slog.String("service", deployedService.Name),
 					slog.String("image", spec.Image),
@@ -113,9 +109,7 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 		if len(containerEnv) > 0 {
 			parsedEnvironment, environmentErr := compose.NewEnvironment(containerEnv)
 			if environmentErr != nil {
-				slog.WarnContext(
-					ctx,
-					"[service] failed to parse service environment",
+				slog.WarnContext(ctx, "[service] failed to parse service environment",
 					slog.String("stack", deploySuccess.StackName),
 					slog.String("service", deployedService.Name),
 					slog.Any("err", environmentErr),
@@ -125,8 +119,8 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 			}
 		}
 
-		serviceInfo := Info{
-			Metadata:    s.metadata.Extract(deployedService.Image, labels),
+		serviceInfo := model.Info{
+			Metadata:    s.extractor.Extract(deployedService.Image, labels),
 			Name:        deployedService.Name,
 			Stack:       deploySuccess.StackName,
 			Image:       deployedService.Image,
@@ -148,7 +142,8 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 func (s *Subscriber) loadWebRouteConfigs(
 	ctx context.Context,
 	stackName string,
-	serviceName string,
+	service compose.Service,
+	desiredConfigs compose.Configs,
 	configs []swarm.ServiceConfig,
 ) []webroute.ServiceConfig {
 	if len(configs) == 0 {
@@ -156,8 +151,14 @@ func (s *Subscriber) loadWebRouteConfigs(
 	}
 
 	out := make([]webroute.ServiceConfig, 0, len(configs))
-	for _, cfg := range configs {
-		routeConfig, ok := s.loadWebRouteConfig(ctx, stackName, serviceName, cfg)
+	for i, cfg := range configs {
+		desiredRef := matchDesiredConfigRef(service.Configs, cfg, i)
+		var desiredConfig *compose.Config
+		if desiredRef != nil {
+			desiredConfig = desiredConfigs[desiredRef.Source]
+		}
+
+		routeConfig, ok := s.loadWebRouteConfig(ctx, stackName, service.Name, cfg, desiredConfig)
 		if !ok {
 			continue
 		}
@@ -168,17 +169,43 @@ func (s *Subscriber) loadWebRouteConfigs(
 	return out
 }
 
+func matchDesiredConfigRef(
+	refs []compose.ObjectRef,
+	live swarm.ServiceConfig,
+	index int,
+) *compose.ObjectRef {
+	if live.Target != "" {
+		for i := range refs {
+			if refs[i].Target == live.Target {
+				return &refs[i]
+			}
+		}
+	}
+
+	if index >= 0 && index < len(refs) {
+		return &refs[index]
+	}
+
+	return nil
+}
+
 func (s *Subscriber) loadWebRouteConfig(
 	ctx context.Context,
 	stackName string,
 	serviceName string,
 	ref swarm.ServiceConfig,
+	desiredConfig *compose.Config,
 ) (webroute.ServiceConfig, bool) {
 	if ref.Target == "" {
 		return nil, false
 	}
+
+	if desiredConfig != nil && desiredConfig.Data != nil {
+		return enrichment.NewWebRouteConfig(ref.Target, desiredConfig.Data), true
+	}
+
 	if len(ref.Data) > 0 {
-		return newWebRouteConfig(ref.Target, ref.Data), true
+		return enrichment.NewWebRouteConfig(ref.Target, ref.Data), true
 	}
 
 	configName := ref.ConfigName
@@ -204,5 +231,5 @@ func (s *Subscriber) loadWebRouteConfig(
 		return nil, false
 	}
 
-	return newWebRouteConfig(ref.Target, cfg.Data), true
+	return enrichment.NewWebRouteConfig(ref.Target, cfg.Data), true
 }

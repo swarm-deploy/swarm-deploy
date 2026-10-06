@@ -25,7 +25,7 @@ func TestStackDeployComposeOmitsInitJobsWithoutMutatingDesired(t *testing.T) {
 					},
 				},
 			},
-			Secrets: compose.SharedObjects{
+			Secrets: compose.Secrets{
 				"db-dsn": {
 					Name: "db-dsn",
 					File: "./secrets/db-dsn",
@@ -54,7 +54,6 @@ func TestStackDeployComposeOmitsInitJobsWithoutMutatingDesired(t *testing.T) {
 		"render normalization must not mutate desired shared objects",
 	)
 }
-
 
 func TestNeedsRenderedCompose(t *testing.T) {
 	t.Run("desired mutated", func(t *testing.T) {

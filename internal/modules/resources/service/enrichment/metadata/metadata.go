@@ -7,6 +7,7 @@ import (
 
 // Metadata is resolved service metadata.
 type Metadata struct {
+	// KnownApp is a recognized application identifier.
 	KnownApp knownapp.Name `json:"known_app"`
 	// Description is a human-readable service description.
 	Description string `json:"description"`

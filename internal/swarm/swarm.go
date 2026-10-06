@@ -56,6 +56,7 @@ func traceSwarm(tp trace.TracerProvider, swarm *Swarm) {
 	tracer := tp.Tracer("github.com/swarm-deploy/internal/swarm")
 
 	swarm.Services = traceServiceManager(tracer, swarm.Services)
+	swarm.Images = traceImageManager(tracer, swarm.Images)
 	swarm.Configs = traceConfigManager(tracer, swarm.Configs)
 	swarm.Networks = traceNetworkManager(tracer, swarm.Networks)
 }
