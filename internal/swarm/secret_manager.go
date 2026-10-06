@@ -9,6 +9,7 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 )
 
 type secretManager struct {
@@ -27,7 +28,13 @@ func (r *secretManager) List(ctx context.Context) ([]Secret, error) {
 
 func (r *secretManager) ListStack(ctx context.Context, stackName string) ([]Secret, error) {
 	return r.list(ctx, dockerswarm.SecretListOptions{
-		Filters: filters.NewArgs(filters.Arg("label", stackNamespaceLabelKey+"="+stackName)),
+		Filters: filters.NewArgs(
+			filters.Arg("label", stackNamespaceLabelKey+"="+stackName),
+			filters.Arg(
+				"label",
+				labelsdict.RotatedResourceManagedLabelKey+"="+labelsdict.RotatedResourceManagedLabelValue,
+			),
+		),
 	})
 }
 
