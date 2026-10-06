@@ -128,6 +128,30 @@ func TestRotatedResourceCleanerPolicy(t *testing.T) {
 	}
 }
 
+func TestRotatedResourceCleanerRemovesAllExpiredGenerationsWhenLogicalResourceIsGone(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	secrets := swarm.NewMockSecretManager(ctrl)
+	configs := swarm.NewMockConfigManager(ctrl)
+	now := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
+	resources := []swarm.Secret{
+		managedSecret("old", "app-token-old", "token", now.Add(-3*time.Hour)),
+		managedSecret("new", "app-token-new", "token", now.Add(-2*time.Hour)),
+	}
+
+	first := secrets.EXPECT().Remove(gomock.Any(), "new").Return(nil)
+	secrets.EXPECT().Remove(gomock.Any(), "old").Return(nil).After(first)
+
+	cleaner := newRotatedResourceCleaner(secrets, configs, config.SecretRotationCleanupSpec{
+		KeepLast: 2,
+		MinAge:   specw.Duration{Value: time.Hour},
+	})
+	cleaner.now = func() time.Time { return now }
+
+	result := cleaner.clean(context.Background(), "app", nil, map[string]string{}, nil, nil, resources)
+
+	assert.Equal(t, rotatedCleanupResult{Removed: 2}, result, "removed logical resource must not retain keepLast generations")
+}
+
 func TestRotatedResourceCleanerContinuesAfterRemoveFailureAndRetriesOnNextRun(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	secrets := swarm.NewMockSecretManager(ctrl)
