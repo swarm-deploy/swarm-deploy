@@ -81,7 +81,6 @@ func New(
 	return reconciler
 }
 
-
 // Cleanup runs rotated config/secret cleanup for one stack without performing reconciliation.
 func (r *Reconciler) Cleanup(ctx context.Context, stack config.StackSpec) error {
 	composePath := filepath.Join(r.git.WorkingDir(), stack.ComposeFile)
