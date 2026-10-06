@@ -292,6 +292,18 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 	assert.Equal(t, stackFile.Digest, stackState.SourceDigest, "expected persisted digest to remain unchanged")
 }
 
+func TestLiveServicesAfterPruneDropsPrunedServiceReferences(t *testing.T) {
+	services := []swarm.StackService{
+		{Name: "api", FullName: "app-api"},
+		{Name: "worker", FullName: "app-worker"},
+	}
+
+	filtered := liveServicesAfterPrune(services, []string{"worker"})
+
+	require.Len(t, filtered, 1)
+	assert.Equal(t, "api", filtered[0].Name)
+}
+
 func TestReconcileDeploysRotatedConfigWhenConfigFileContentChanges(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	repository := gitx.NewMockRepository(ctrl)
