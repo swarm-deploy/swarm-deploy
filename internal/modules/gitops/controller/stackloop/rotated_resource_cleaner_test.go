@@ -31,7 +31,8 @@ func TestRotatedResourceCleanerPolicy(t *testing.T) {
 		expectedRemoved []string
 	}{
 		{
-			name: "removes old unused generation",
+			name:    "removes old unused generation",
+			desired: map[string]string{"token": "app-token-new"},
 			resources: []swarm.Secret{
 				managedSecret("old", "app-token-old", "token", old),
 				managedSecret("new", "app-token-new", "token", old.Add(time.Minute)),
@@ -53,7 +54,8 @@ func TestRotatedResourceCleanerPolicy(t *testing.T) {
 			expectedRemoved: []string{"middle"},
 		},
 		{
-			name: "keeps referenced generation",
+			name:    "keeps referenced generation",
+			desired: map[string]string{"token": "app-token-new"},
 			services: []swarm.StackService{{
 				FullName: "app-api",
 				ServiceSpec: dockerswarm.ServiceSpec{TaskTemplate: dockerswarm.TaskSpec{
@@ -68,7 +70,8 @@ func TestRotatedResourceCleanerPolicy(t *testing.T) {
 			minAge:   time.Hour,
 		},
 		{
-			name: "keeps configured newest generations",
+			name:    "keeps configured newest generations",
+			desired: map[string]string{"token": "app-token-new"},
 			resources: []swarm.Secret{
 				managedSecret("old", "app-token-old", "token", old),
 				managedSecret("middle", "app-token-middle", "token", old.Add(time.Minute)),
@@ -79,7 +82,8 @@ func TestRotatedResourceCleanerPolicy(t *testing.T) {
 			expectedRemoved: []string{"old"},
 		},
 		{
-			name: "keeps young generation",
+			name:    "keeps young generation",
+			desired: map[string]string{"token": "app-token-new"},
 			resources: []swarm.Secret{
 				managedSecret("young", "app-token-young", "token", recent),
 				managedSecret("new", "app-token-new", "token", now.Add(-time.Minute)),
@@ -88,7 +92,8 @@ func TestRotatedResourceCleanerPolicy(t *testing.T) {
 			minAge:   time.Hour,
 		},
 		{
-			name: "ignores external and unmanaged resources",
+			name:    "ignores external and unmanaged resources",
+			desired: map[string]string{"token": "app-token-new"},
 			resources: []swarm.Secret{
 				func() swarm.Secret {
 					secret := managedSecret("external", "app-token-external", "token", old)
@@ -175,14 +180,20 @@ func TestRotatedResourceCleanerContinuesAfterRemoveFailureAndRetriesOnNextRun(t 
 	})
 	cleaner.now = func() time.Time { return now }
 
-	first := cleaner.clean(context.Background(), "app", nil, nil, nil, nil, resources)
+	desired := map[string]string{
+		"a": "app-a-new",
+		"b": "app-b-new",
+	}
+	first := cleaner.clean(context.Background(), "app", nil, desired, nil, nil, resources)
 	assert.Equal(t, rotatedCleanupResult{Removed: 1, Failed: 1}, first, "unexpected first cleanup result")
 
 	secondResources := []swarm.Secret{
 		managedSecret("old-a", "app-a-old", "a", now.Add(-3*time.Hour)),
 		managedSecret("new-a", "app-a-new", "a", now.Add(-2*time.Hour)),
 	}
-	second := cleaner.clean(context.Background(), "app", nil, nil, nil, nil, secondResources)
+	second := cleaner.clean(
+		context.Background(), "app", nil, map[string]string{"a": "app-a-new"}, nil, nil, secondResources,
+	)
 	assert.Equal(t, rotatedCleanupResult{Removed: 1}, second, "unexpected retry cleanup result")
 }
 
@@ -279,7 +290,15 @@ func TestRotatedResourceCleanerUsesLiveConfigIDs(t *testing.T) {
 	})
 	cleaner.now = func() time.Time { return now }
 
-	result := cleaner.clean(context.Background(), "app", nil, nil, services, liveConfigs, nil)
+	result := cleaner.clean(
+		context.Background(),
+		"app",
+		map[string]string{"settings": "app-settings-new"},
+		nil,
+		services,
+		liveConfigs,
+		nil,
+	)
 
 	assert.Equal(t, rotatedCleanupResult{Removed: 1}, result, "unexpected config cleanup result")
 }
