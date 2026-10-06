@@ -214,9 +214,10 @@ func (c *rotatedResourceCleaner) expiredGenerations(
 	remove := make([]rotatedResource, 0)
 	now := c.now()
 	for i, resource := range generations {
+		desiredName, existsInDesired := desired[logicalName]
 		_, inUse := referenced[resource.id]
-		protected := i < c.policy.KeepLast ||
-			desired[logicalName] == resource.name ||
+		protected := (existsInDesired && i < c.policy.KeepLast) ||
+			(existsInDesired && desiredName == resource.name) ||
 			inUse ||
 			now.Sub(resource.createdAt) < c.policy.MinAge.Value
 		if !protected {
