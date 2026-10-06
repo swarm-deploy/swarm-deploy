@@ -98,7 +98,7 @@ describe("EventsView", () => {
     await option!.find("input").setValue(true);
     await flushPromises();
 
-    expect(router.currentRoute.value.query.types).toBe("deploySuccess");
+    expect(router.currentRoute.value.query.types).toEqual(["deploySuccess"]);
 
     const secondOption = wrapper
       .findAll(".events-type-filter-option")
