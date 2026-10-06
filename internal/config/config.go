@@ -27,17 +27,17 @@ const (
 	// AuthenticationStrategyAuthProxy enables authentication through a trusted reverse proxy.
 	AuthenticationStrategyAuthProxy = "auth_proxy"
 
-	defaultWebAddress               = ":8080"
-	defaultWebhookAddress           = ":8082"
-	defaultEventHistoryCap          = 500
-	defaultSyncPollInterval         = 30 * time.Second
-	defaultSyncInterval             = 1 * time.Minute
-	defaultInitJobPollEvery         = 2 * time.Second
-	defaultInitJobMaxDuration       = 10 * time.Minute
-	defaultInitJobsTimeout          = 10 * time.Minute
-	defaultRotationKeepLast         = 2
-	defaultRotationMinAge           = time.Hour
-	defaultRotationCleanupInterval  = 4 * time.Hour
+	defaultWebAddress              = ":8080"
+	defaultWebhookAddress          = ":8082"
+	defaultEventHistoryCap         = 500
+	defaultSyncPollInterval        = 30 * time.Second
+	defaultSyncInterval            = 1 * time.Minute
+	defaultInitJobPollEvery        = 2 * time.Second
+	defaultInitJobMaxDuration      = 10 * time.Minute
+	defaultInitJobsTimeout         = 10 * time.Minute
+	defaultRotationKeepLast        = 2
+	defaultRotationMinAge          = time.Hour
+	defaultRotationCleanupInterval = 4 * time.Hour
 
 	defaultAssistantOpenAIBaseURL           = "https://api.openai.com/v1"
 	defaultAssistantTemperature             = "0.2"
