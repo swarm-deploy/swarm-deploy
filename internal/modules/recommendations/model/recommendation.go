@@ -23,6 +23,7 @@ const (
 	TypeServiceCapabilitiesAll            Type = "service.capabilities.all"
 	TypeServiceCapabilitiesPrivileged     Type = "service.capabilities.privileged"
 	TypeServiceCapabilitiesSensitive      Type = "service.capabilities.sensitive"
+	TypeServiceHostPortStartFirst         Type = "service.host-port.start-first"
 )
 
 type Recommendation struct {
