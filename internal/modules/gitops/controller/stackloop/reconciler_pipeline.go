@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	pipe "github.com/artarts36/gopipe"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -27,8 +28,6 @@ type pipelinePayload struct {
 	DeployComposePath string
 
 	LiveServices   []swarm.StackService
-	LiveConfigs    []swarm.Config
-	LiveSecrets    []swarm.Secret
 	PrunedServices []string
 	CleanupResult  rotatedCleanupResult
 	Drift          map[string]drift.ServiceDrift
@@ -299,30 +298,6 @@ func (r *Reconciler) loadLiveState(ctx context.Context, payload *pipelinePayload
 	}
 
 	payload.LiveServices = liveServices
-	if !r.cfg.Spec.SecretRotation.Cleanup.Enabled {
-		return nil
-	}
-
-	liveConfigs, configsErr := r.configManager.ListStack(ctx, payload.Stack.Name)
-	if configsErr != nil {
-		slog.WarnContext(ctx, "[rotated-resource-cleaner] failed to load configs; config cleanup skipped",
-			slog.String("stack", payload.Stack.Name),
-			slog.Any("error", configsErr),
-		)
-	} else {
-		payload.LiveConfigs = liveConfigs
-	}
-
-	liveSecrets, secretsErr := r.secretManager.ListStack(ctx, payload.Stack.Name)
-	if secretsErr != nil {
-		slog.WarnContext(ctx, "[rotated-resource-cleaner] failed to load secrets; secret cleanup skipped",
-			slog.String("stack", payload.Stack.Name),
-			slog.Any("error", secretsErr),
-		)
-	} else {
-		payload.LiveSecrets = liveSecrets
-	}
-
 	return nil
 }
 
@@ -343,6 +318,10 @@ func (r *Reconciler) pruneOrphanedServices(ctx context.Context, payload *pipelin
 }
 
 func (r *Reconciler) cleanRotatedResources(ctx context.Context, payload *pipelinePayload) error {
+	if !r.claimRotatedCleanup(payload) {
+		return nil
+	}
+
 	desiredConfigs, desiredSecrets, err := r.composeRotator.DesiredResourceNames(
 		payload.Desired,
 		payload.Stack.Name,
@@ -357,17 +336,65 @@ func (r *Reconciler) cleanRotatedResources(ctx context.Context, payload *pipelin
 		return nil
 	}
 
+	var liveConfigs []swarm.Config
+	loadedConfigs, configsErr := r.configManager.ListStack(ctx, payload.Stack.Name)
+	if configsErr != nil {
+		slog.WarnContext(ctx, "[rotated-resource-cleaner] failed to load configs; config cleanup skipped",
+			slog.String("stack", payload.Stack.Name),
+			slog.Any("error", configsErr),
+		)
+	} else {
+		liveConfigs = loadedConfigs
+	}
+
+	var liveSecrets []swarm.Secret
+	loadedSecrets, secretsErr := r.secretManager.ListStack(ctx, payload.Stack.Name)
+	if secretsErr != nil {
+		slog.WarnContext(ctx, "[rotated-resource-cleaner] failed to load secrets; secret cleanup skipped",
+			slog.String("stack", payload.Stack.Name),
+			slog.Any("error", secretsErr),
+		)
+	} else {
+		liveSecrets = loadedSecrets
+	}
+
 	payload.CleanupResult = r.resourceCleaner.clean(
 		ctx,
 		payload.Stack.Name,
 		desiredConfigs,
 		desiredSecrets,
 		payload.LiveServices,
-		payload.LiveConfigs,
-		payload.LiveSecrets,
+		liveConfigs,
+		liveSecrets,
 	)
 
 	return nil
+}
+
+func (r *Reconciler) claimRotatedCleanup(payload *pipelinePayload) bool {
+	now := time.Now
+	if r.cleanupNow != nil {
+		now = r.cleanupNow
+	}
+	current := now()
+
+	r.cleanupMu.Lock()
+	defer r.cleanupMu.Unlock()
+
+	if r.lastCleanupAt == nil {
+		r.lastCleanupAt = make(map[string]time.Time)
+	}
+
+	last := r.lastCleanupAt[payload.Stack.Name]
+	if !payload.IsNewDigest &&
+		!payload.IsManualSync &&
+		!last.IsZero() &&
+		current.Sub(last) < r.cfg.Spec.SecretRotation.Cleanup.Interval.Value {
+		return false
+	}
+
+	r.lastCleanupAt[payload.Stack.Name] = current
+	return true
 }
 
 func (r *Reconciler) analyzeDrift(_ context.Context, payload *pipelinePayload) error {
