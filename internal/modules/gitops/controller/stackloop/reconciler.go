@@ -41,7 +41,6 @@ type Reconciler struct {
 	secretManager    swarm.SecretManager
 	configManager    swarm.ConfigManager
 	resourceCleaner  *rotatedResourceCleaner
-
 }
 
 // New builds a stack reconciler loop.
