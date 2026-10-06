@@ -256,42 +256,52 @@ func referencedResourceIDs(services []swarm.StackService) (map[string]struct{}, 
 	secrets := make(map[string]struct{})
 	configs := make(map[string]struct{})
 
-	addRefs := func(serviceName string, spec *dockerswarm.ServiceSpec) error {
-		if spec == nil || spec.TaskTemplate.ContainerSpec == nil {
-			return nil
-		}
-
-		containerSpec := spec.TaskTemplate.ContainerSpec
-		for _, ref := range containerSpec.Secrets {
-			if ref == nil {
-				continue
-			}
-			if ref.SecretID == "" {
-				return fmt.Errorf("service %s has a secret reference without SecretID", serviceName)
-			}
-			secrets[ref.SecretID] = struct{}{}
-		}
-		for _, ref := range containerSpec.Configs {
-			if ref == nil {
-				continue
-			}
-			if ref.ConfigID == "" {
-				return fmt.Errorf("service %s has a config reference without ConfigID", serviceName)
-			}
-			configs[ref.ConfigID] = struct{}{}
-		}
-
-		return nil
-	}
-
 	for _, service := range services {
-		if err := addRefs(service.FullName, &service.ServiceSpec); err != nil {
+		if err := addServiceSpecResourceRefs(service.FullName, &service.ServiceSpec, secrets, configs); err != nil {
 			return nil, nil, err
 		}
-		if err := addRefs(service.FullName+" previous spec", service.PreviousSpec); err != nil {
+		if err := addServiceSpecResourceRefs(
+			service.FullName+" previous spec",
+			service.PreviousSpec,
+			secrets,
+			configs,
+		); err != nil {
 			return nil, nil, err
 		}
 	}
 
 	return secrets, configs, nil
+}
+
+func addServiceSpecResourceRefs(
+	serviceName string,
+	spec *dockerswarm.ServiceSpec,
+	secrets map[string]struct{},
+	configs map[string]struct{},
+) error {
+	if spec == nil || spec.TaskTemplate.ContainerSpec == nil {
+		return nil
+	}
+
+	containerSpec := spec.TaskTemplate.ContainerSpec
+	for _, ref := range containerSpec.Secrets {
+		if ref == nil {
+			continue
+		}
+		if ref.SecretID == "" {
+			return fmt.Errorf("service %s has a secret reference without SecretID", serviceName)
+		}
+		secrets[ref.SecretID] = struct{}{}
+	}
+	for _, ref := range containerSpec.Configs {
+		if ref == nil {
+			continue
+		}
+		if ref.ConfigID == "" {
+			return fmt.Errorf("service %s has a config reference without ConfigID", serviceName)
+		}
+		configs[ref.ConfigID] = struct{}{}
+	}
+
+	return nil
 }
