@@ -109,6 +109,20 @@ describe("EventsView", () => {
     expect(router.currentRoute.value.query.types).toEqual(["deploySuccess", "syncManualStarted"]);
   });
 
+
+  it("closes the type filter when clicking outside", async () => {
+    const { wrapper } = await mountView();
+
+    const filter = wrapper.find("details.events-type-filter").element as HTMLDetailsElement;
+    filter.open = true;
+    expect(filter.open).toBe(true);
+
+    document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await wrapper.vm.$nextTick();
+
+    expect(filter.open).toBe(false);
+  });
+
   it("sorts by time descending by default and toggles time direction", async () => {
     const { wrapper } = await mountView();
 
