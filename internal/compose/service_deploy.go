@@ -22,11 +22,11 @@ const (
 )
 
 type ServiceDeployUpdateConfig struct {
-	Parallelism     *uint64  `yaml:"parallelism,omitempty" json:"parallelism,omitempty"`
-	Delay           string   `yaml:"delay,omitempty" json:"delay,omitempty"`
-	FailureAction   string   `yaml:"failure_action,omitempty" json:"failure_action,omitempty"`
-	Monitor         string   `yaml:"monitor,omitempty" json:"monitor,omitempty"`
-	MaxFailureRatio *float64 `yaml:"max_failure_ratio,omitempty" json:"max_failure_ratio,omitempty"`
+	Parallelism     *uint64                  `yaml:"parallelism,omitempty" json:"parallelism,omitempty"`
+	Delay           string                   `yaml:"delay,omitempty" json:"delay,omitempty"`
+	FailureAction   string                   `yaml:"failure_action,omitempty" json:"failure_action,omitempty"`
+	Monitor         string                   `yaml:"monitor,omitempty" json:"monitor,omitempty"`
+	MaxFailureRatio *float64                 `yaml:"max_failure_ratio,omitempty" json:"max_failure_ratio,omitempty"`
 	Order           ServiceDeployUpdateOrder `yaml:"order,omitempty" json:"order,omitempty"`
 
 	Extra map[string]interface{} `yaml:",inline"`
