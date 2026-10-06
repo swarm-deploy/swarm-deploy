@@ -37,7 +37,7 @@ const (
 	defaultInitJobsTimeout    = 10 * time.Minute
 	defaultRotationKeepLast        = 2
 	defaultRotationMinAge          = time.Hour
-	defaultRotationCleanupInterval = 10 * time.Minute
+	defaultRotationCleanupInterval = 4 * time.Hour
 
 	defaultAssistantOpenAIBaseURL           = "https://api.openai.com/v1"
 	defaultAssistantTemperature             = "0.2"
