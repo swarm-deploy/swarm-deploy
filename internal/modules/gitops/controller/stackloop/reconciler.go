@@ -94,11 +94,24 @@ func (r *Reconciler) Cleanup(ctx context.Context, stack config.StackSpec) error 
 		return fmt.Errorf("list stack services for cleanup: %w", err)
 	}
 
-	return r.cleanRotatedResources(ctx, &pipelinePayload{
+	payload := &pipelinePayload{
 		Stack:        stack,
 		Desired:      desired,
 		LiveServices: liveServices,
-	})
+	}
+	if err := r.cleanRotatedResources(ctx, payload); err != nil {
+		return err
+	}
+	if payload.CleanupResult.Failed > 0 || payload.CleanupResult.Skipped > 0 {
+		return fmt.Errorf(
+			"rotated resource cleanup incomplete: removed=%d failed=%d skipped=%d",
+			payload.CleanupResult.Removed,
+			payload.CleanupResult.Failed,
+			payload.CleanupResult.Skipped,
+		)
+	}
+
+	return nil
 }
 
 // Reconcile applies one stack definition.
