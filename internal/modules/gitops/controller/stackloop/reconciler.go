@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"sync"
 	"time"
 
 	pipe "github.com/artarts36/gopipe"
@@ -40,6 +41,10 @@ type Reconciler struct {
 	secretManager    swarm.SecretManager
 	configManager    swarm.ConfigManager
 	resourceCleaner  *rotatedResourceCleaner
+
+	cleanupMu      sync.Mutex
+	lastCleanupAt  map[string]time.Time
+	cleanupNow     func() time.Time
 }
 
 // New builds a stack reconciler loop.
@@ -68,6 +73,8 @@ func New(
 		serviceManager:   swarmService.Services,
 		secretManager:    swarmService.Secrets,
 		configManager:    swarmService.Configs,
+		lastCleanupAt:    make(map[string]time.Time),
+		cleanupNow:       time.Now,
 	}
 	reconciler.resourceCleaner = newRotatedResourceCleaner(
 		reconciler.secretManager,
