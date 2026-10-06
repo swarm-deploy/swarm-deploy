@@ -123,7 +123,7 @@ secretRotation:
 
 	cfg, err := Load(filepath.Join(dir, "swarm-deploy.yaml"))
 	require.NoError(t, err, "load config")
-	assert.Equal(t, 10*time.Minute, cfg.Spec.SecretRotation.Cleanup.Interval.Value, "unexpected cleanup interval default")
+	assert.Equal(t, 4*time.Hour, cfg.Spec.SecretRotation.Cleanup.Interval.Value, "unexpected cleanup interval default")
 	assert.Equal(t, 2, cfg.Spec.SecretRotation.Cleanup.KeepLast, "unexpected cleanup keepLast default")
 	assert.Equal(t, time.Hour, cfg.Spec.SecretRotation.Cleanup.MinAge.Value, "unexpected cleanup minAge default")
 }
