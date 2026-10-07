@@ -14,10 +14,11 @@
 - `./ui` - Frontend
 - `./internal` - Backend on Golang
 - - `./internal/modules/assistant` - Core logic for AI Assistant
+- - `./internal/modules/event` - Event module
+- - `./internal/modules/notifications` - Notifications module
 - - `./internal/entrypoints/health` - Entrypoint for metrics and healthchecks
 - - `./internal/entrypoints/webserver` - Entrypoint for UI and API Server
 - - `./internal/entrypoints/webhookserver` - Entrypoint for Webhook Server, receive webhooks from another systems, like GitHub, GitLab, etc.
-- - `./internal/entrypoints/mcpserver` - Entrypoint for MCP Server & Tools
 - `./internal/swarm` - Package with working Swarm API
 - `./internal/metrics` - Metrics for Swarm Deploy
 - `./api/api-server.yaml` - OpenAPI contracts for API Server of `webserver`

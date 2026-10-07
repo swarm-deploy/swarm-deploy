@@ -4,11 +4,12 @@ import (
 	"context"
 	"net/http"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 )
 
 type TraceableNotifier struct {

@@ -5,7 +5,7 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/notifiers"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/notifiers"
 )
 
 type Subscriber struct {
