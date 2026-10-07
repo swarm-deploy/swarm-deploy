@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/httpx"
 )
 
 func TestMaskTelegramSendError(t *testing.T) {
@@ -34,11 +35,11 @@ func TestTelegramNotifyMasksTokenInSendError(t *testing.T) {
 	)
 	require.NoError(t, err, "create notifier")
 
-	notifier.client = &http.Client{
+	notifier.client = httpx.NewClient(&http.Client{
 		Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
 			return nil, errors.New("host unreachable")
 		}),
-	}
+	})
 
 	err = notifier.Notify(
 		context.Background(),
@@ -64,7 +65,7 @@ func TestTelegramNotifyRetriesUntilSuccess(t *testing.T) {
 	require.NoError(t, err, "create notifier")
 
 	attempts := 0
-	notifier.client = &http.Client{
+	notifier.client = httpx.NewClient(&http.Client{
 		Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
 			attempts++
 			if attempts < 3 {
@@ -77,7 +78,7 @@ func TestTelegramNotifyRetriesUntilSuccess(t *testing.T) {
 				Body:       io.NopCloser(strings.NewReader(`{"ok":true}`)),
 			}, nil
 		}),
-	}
+	})
 
 	err = notifier.Notify(
 		context.Background(),
@@ -102,12 +103,12 @@ func TestTelegramNotifyStopsAfterConfiguredRetries(t *testing.T) {
 	require.NoError(t, err, "create notifier")
 
 	attempts := 0
-	notifier.client = &http.Client{
+	notifier.client = httpx.NewClient(&http.Client{
 		Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
 			attempts++
 			return nil, errors.New("temporary transport error")
 		}),
-	}
+	})
 
 	err = notifier.Notify(
 		context.Background(),
@@ -132,12 +133,12 @@ func TestTelegramNotifyUsesDefaultRetries(t *testing.T) {
 	require.NoError(t, err, "create notifier")
 
 	attempts := 0
-	notifier.client = &http.Client{
+	notifier.client = httpx.NewClient(&http.Client{
 		Transport: roundTripperFunc(func(*http.Request) (*http.Response, error) {
 			attempts++
 			return nil, errors.New("temporary transport error")
 		}),
-	}
+	})
 
 	err = notifier.Notify(
 		context.Background(),

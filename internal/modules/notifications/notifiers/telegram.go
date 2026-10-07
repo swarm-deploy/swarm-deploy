@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"regexp"
@@ -14,6 +13,7 @@ import (
 	"time"
 
 	"github.com/avast/retry-go/v5"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/httpx"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"go.opentelemetry.io/otel/attribute"
 	"golang.org/x/net/proxy"
@@ -50,7 +50,14 @@ type TelegramNotifier struct {
 	apiBaseURL   string
 	messageTmpl  *template.Template
 	retries      uint
-	client       *http.Client
+	client       *httpx.Client
+}
+
+type telegramResponse struct {
+	// OK reports whether Telegram accepted the request.
+	OK bool `json:"ok"`
+	// Description contains a Telegram API failure description.
+	Description string `json:"description"`
 }
 
 const defaultTelegramRetries = 3
@@ -108,7 +115,7 @@ func newTelegramNotifier(name, token, chatID string, options TelegramOptions) (*
 		apiBaseURL:   strings.TrimRight(apiBaseURL, "/"),
 		messageTmpl:  tmpl,
 		retries:      retries,
-		client:       client,
+		client:       httpx.NewClient(client),
 	}, nil
 }
 
@@ -168,23 +175,17 @@ func (n *TelegramNotifier) sendRequest(ctx context.Context, body []byte) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
+	response := telegramResponse{}
 	//nolint:gosec // Telegram endpoint is configured by operator and required for outbound notifications.
-	resp, err := n.client.Do(req)
+	err = n.client.SendRequest(req, json.Unmarshal, &response)
 	if err != nil {
 		return fmt.Errorf("send request: %s", maskTelegramSendError(err, n.token))
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode == http.StatusOK || resp.StatusCode == http.StatusCreated {
-		return nil
+	if !response.OK {
+		return fmt.Errorf("telegram rejected request: %s", response.Description)
 	}
 
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return fmt.Errorf("read response body: %w", err)
-	}
-
-	return fmt.Errorf("unexpected status: %s, response: %s", resp.Status, string(respBody))
+	return nil
 }
 
 func (n *TelegramNotifier) renderMessage(event Message) (string, error) {
