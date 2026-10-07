@@ -10,19 +10,18 @@ import (
 	"time"
 
 	"github.com/artarts36/go-entrypoint"
-	"github.com/swarm-deploy/swarm-deploy/internal/assistant"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/authenticator"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/handlers"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/middlewares"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/dispatcher"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/history"
-	"github.com/swarm-deploy/swarm-deploy/internal/gitops/controller"
-	gitx "github.com/swarm-deploy/swarm-deploy/internal/gitops/git"
-	"github.com/swarm-deploy/swarm-deploy/internal/gitops/modelstore"
-	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/resources/node"
-	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
+	alertstore "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
+	recommendationstore "github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"github.com/swarm-deploy/swarm-deploy/ui"
 )
@@ -83,30 +82,32 @@ func buildSPAFallbackHandler(uiFS fs.FS) http.Handler {
 func NewApplication(
 	address string,
 	stackProvider config.StackProvider,
-	stateStore modelstore.ReadStore,
-	control *controller.Controller,
-	gitRepository gitx.Repository,
+	gitopsModule *gitops.Module,
 	swarmService *swarm.Swarm,
-	eventHistory *history.Store,
-	serviceStore *service.Store,
-	nodeStore *swarmnode.Store,
+	eventModule *event.Module,
+	resourcesModule *resources.Module,
+	recommendations recommendationstore.Store,
+	alerts alertstore.Store,
 	assistantService assistant.Assistant,
-	eventDispatcher dispatcher.Dispatcher,
 	authCfg config.AuthenticationSpec,
 ) (*Application, error) {
 	h := handlers.New(
 		stackProvider,
-		stateStore,
-		control,
-		gitRepository,
+		gitopsModule.Store,
+		gitopsModule.Controller,
+		gitopsModule.GitRepository,
 		swarmService,
-		eventHistory,
-		serviceStore,
-		nodeStore,
+		eventModule.History,
+		resourcesModule.ServiceStore,
+		resourcesModule.NodeStore,
+		resourcesModule.Secrets.Store,
+		resourcesModule.SecretManagers,
+		recommendations,
+		alerts,
 		assistantService,
 	)
 
-	apiHandler, err := generated.NewServer(h, generated.WithErrorHandler(handlers.HandleHTTPError))
+	apiHandler, err := generated.NewServer(h, h, generated.WithErrorHandler(handlers.HandleHTTPError))
 	if err != nil {
 		return nil, fmt.Errorf("build ogen api server: %w", err)
 	}
@@ -123,19 +124,27 @@ func NewApplication(
 	})
 	mux.Handle("/", uiHandler)
 
-	rootHandler := http.Handler(mux)
+	handler := http.Handler(mux)
 	auth, err := authenticator.Create(authCfg)
 	if err != nil {
 		return nil, fmt.Errorf("build authenticator: %w", err)
 	}
 
+	handler = middlewares.NewLog(
+		middlewares.Authorize(handler, auth, eventModule.Dispatcher),
+		apiHandler.FindRoute,
+	)
+
+	if tracing.Enabled() {
+		handler = middlewares.Trace(handler)
+	}
+
+	handler = middlewares.Recovery(handler)
+
 	return &Application{
 		server: &http.Server{
-			Addr: address,
-			Handler: middlewares.Recovery(middlewares.NewLog(
-				middlewares.Authorize(rootHandler, auth, eventDispatcher),
-				apiHandler.FindRoute,
-			)),
+			Addr:              address,
+			Handler:           handler,
 			ReadHeaderTimeout: readHeaderTimeout,
 		},
 	}, nil

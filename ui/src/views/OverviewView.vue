@@ -1,40 +1,116 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 
-import type { StackStatus } from "../api/types";
+import { fetchAlerts, fetchEvents, fetchRecommendations } from "../api/overview";
+import type { Alert, EventHistoryItem, Recommendation, RecommendationSeverity } from "../api/types";
+import StackCard from "../components/overview/StackCard.vue";
+import SummaryPanel from "../components/overview/SummaryPanel.vue";
+import SummaryRow from "../components/overview/SummaryRow.vue";
 import { useOverviewStore } from "../stores/overview";
 import { formatDate, shortCommitHash } from "../utils/format";
 
 const overviewStore = useOverviewStore();
+const deploymentEvents = ref<EventHistoryItem[]>([]);
+const alerts = ref<Alert[]>([]);
+const recommendations = ref<Recommendation[]>([]);
+const overviewEventsError = ref("");
+const overviewAlertsError = ref("");
+const overviewRecommendationsError = ref("");
+const deploymentEventsLimit = 4;
+const alertEventsLimit = 4;
+const recommendationsLimit = 4;
+const recommendationSeverityRank: Record<RecommendationSeverity, number> = {
+  high: 0,
+  medium: 1,
+  low: 2,
+};
 
 let refreshTimer: ReturnType<typeof setInterval> | undefined;
 
 const syncInfo = computed(() => overviewStore.syncInfo);
 const syncRevision = computed(() => String(syncInfo.value?.git_revision ?? "").trim());
+const sortedRecommendations = computed(() =>
+  recommendations.value
+    .slice()
+    .sort(
+      (left, right) =>
+        recommendationSeverityRank[left.severity] - recommendationSeverityRank[right.severity] ||
+        left.subject.stack.localeCompare(right.subject.stack) ||
+        left.subject.service.localeCompare(right.subject.service),
+    ),
+);
+const overviewRecommendations = computed(() => sortedRecommendations.value.slice(0, recommendationsLimit));
+const serviceCountsByStack = computed(() => {
+  const counts = new Map<string, number>();
+  for (const service of overviewStore.services) {
+    counts.set(service.stack, (counts.get(service.stack) ?? 0) + 1);
+  }
 
-function normalizeStackStatus(status?: StackStatus | null): StackStatus {
-  return {
-    synced: Number(status?.synced ?? 0),
-    out_of_synced: Number(status?.out_of_synced ?? 0),
-  };
+  return counts;
+});
+
+function serviceCount(stackName: string): number {
+  return serviceCountsByStack.value.get(stackName) ?? 0;
 }
 
-function stackStatusClass(status?: StackStatus | null): string {
-  const normalizedStatus = normalizeStackStatus(status);
-  if (normalizedStatus.out_of_synced > 0) {
-    return "failed";
-  }
-  if (normalizedStatus.synced > 0) {
-    return "success";
-  }
-
-  return "unknown";
+function deploymentResultClass(item: EventHistoryItem): string {
+  return item.type === "deploySuccess" ? "overview-deployment-result--success" : "overview-deployment-result--failed";
 }
 
-function stackStatusLabel(status?: StackStatus | null): string {
-  const normalizedStatus = normalizeStackStatus(status);
+function detailValue(item: EventHistoryItem, keys: string[]): string {
+  const details = item.details ?? {};
+  for (const key of keys) {
+    const value = String(details[key] ?? "").trim();
+    if (value) {
+      return value;
+    }
+  }
 
-  return `synced ${normalizedStatus.synced} | out of sync ${normalizedStatus.out_of_synced}`;
+  return "";
+}
+
+function formatTime(raw: string | undefined): string {
+  if (!raw) {
+    return "n/a";
+  }
+
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.valueOf())) {
+    return raw;
+  }
+
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
+}
+
+function formatRelativeTime(raw: string | undefined): string {
+  if (!raw) {
+    return "time unknown";
+  }
+
+  const timestamp = new Date(raw).valueOf();
+  if (Number.isNaN(timestamp)) {
+    return raw;
+  }
+
+  const elapsedMinutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60000));
+  if (elapsedMinutes < 1) {
+    return "just now";
+  }
+  if (elapsedMinutes < 60) {
+    return `${elapsedMinutes} min ago`;
+  }
+
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  return elapsedHours === 1 ? "1 hour ago" : `${elapsedHours} hours ago`;
+}
+
+function recommendationSubject(recommendation: Recommendation): string {
+  return [recommendation.subject.stack, recommendation.subject.service].filter(Boolean).join(" / ") || "Swarm Deploy";
+}
+
+function recommendationSeverityClass(severity: RecommendationSeverity): string {
+  return `overview-recommendation-severity-${severity}`;
 }
 
 async function openCommitDetails(commitHash: string | undefined) {
@@ -55,8 +131,49 @@ async function openStackManifest(stackName: string) {
   await overviewStore.openStackManifestModal(stack);
 }
 
+function openAlertDetails(alert: Alert) {
+  overviewStore.openAlertDetailsModal(alert);
+}
+
 async function refreshOverview() {
-  await overviewStore.loadOverview();
+  overviewEventsError.value = "";
+  overviewAlertsError.value = "";
+  overviewRecommendationsError.value = "";
+
+  const [overviewResult, deploymentsResult, alertsResult, recommendationsResult] = await Promise.allSettled([
+    overviewStore.loadOverview(),
+    fetchEvents({ types: ["deploySuccess", "deployFailed"], limit: deploymentEventsLimit }),
+    fetchAlerts({ status: "open", limit: alertEventsLimit }),
+    fetchRecommendations({ limit: recommendationsLimit }),
+  ]);
+
+  if (overviewResult.status === "rejected") {
+    overviewStore.loadingError = overviewResult.reason instanceof Error ? overviewResult.reason.message : "Failed to load state";
+  }
+  if (deploymentsResult.status === "fulfilled") {
+    deploymentEvents.value = Array.isArray(deploymentsResult.value.events) ? deploymentsResult.value.events.reverse() : [];
+  } else {
+    deploymentEvents.value = [];
+    overviewEventsError.value =
+      deploymentsResult.reason instanceof Error ? deploymentsResult.reason.message : "Failed to load latest deployments";
+  }
+  if (alertsResult.status === "fulfilled") {
+    alerts.value = Array.isArray(alertsResult.value.alerts) ? alertsResult.value.alerts : [];
+  } else {
+    alerts.value = [];
+    overviewAlertsError.value = alertsResult.reason instanceof Error ? alertsResult.reason.message : "Failed to load alerts";
+  }
+  if (recommendationsResult.status === "fulfilled") {
+    recommendations.value = Array.isArray(recommendationsResult.value.recommendations)
+      ? recommendationsResult.value.recommendations
+      : [];
+  } else {
+    recommendations.value = [];
+    overviewRecommendationsError.value =
+      recommendationsResult.reason instanceof Error
+        ? recommendationsResult.reason.message
+        : "Failed to load recommendations";
+  }
 }
 
 onMounted(async () => {
@@ -90,8 +207,103 @@ onUnmounted(() => {
         {{ shortCommitHash(syncRevision) }}
       </button>
       <span v-else> n/a</span>
-      <template v-if="syncInfo.last_sync_error"> | error: {{ syncInfo.last_sync_error }}</template>
+      <template v-if="syncInfo.last_sync_error"> | error: {{ syncInfo.last_sync_error.slice(0, 500) }}</template>
     </p>
+  </section>
+
+  <section class="overview-summary-grid" aria-label="Overview highlights">
+    <SummaryPanel
+      title="Latest Deployments"
+      icon="deployments"
+      :to="{ path: '/events', query: { types: ['deploySuccess', 'deployFailed'] } }"
+    >
+      <p v-if="overviewEventsError && deploymentEvents.length === 0" class="meta">
+        Failed to load latest deployments: {{ overviewEventsError }}
+      </p>
+      <div v-else-if="deploymentEvents.length === 0" class="overview-summary-empty">
+        <span class="overview-summary-empty-icon" aria-hidden="true">↓</span>
+        <strong>No deployments yet</strong>
+        <span>Recent deployments will appear here</span>
+      </div>
+      <div v-else class="overview-deployment-list">
+        <SummaryRow
+          v-for="event in deploymentEvents.slice(0, deploymentEventsLimit)"
+          :key="`${event.type}-${event.created_at}-${event.message}`"
+          :interactive="Boolean(detailValue(event, ['commit', 'revision']))"
+          :aria-label="`Open deployment commit ${detailValue(event, ['commit', 'revision'])}`"
+          @activate="openCommitDetails(detailValue(event, ['commit', 'revision']))"
+        >
+          <span
+            class="overview-summary-severity overview-deployment-result"
+            :class="deploymentResultClass(event)"
+            :aria-label="event.type === 'deploySuccess' ? 'Deployment succeeded' : 'Deployment failed'"
+            role="img"
+          ></span>
+          <span class="overview-deployment-stack">{{ detailValue(event, ["stack", "stack_name"]) || "unknown stack" }}</span>
+          <time class="overview-deployment-time" :datetime="event.created_at">{{ formatTime(event.created_at) }}</time>
+          <span v-if="detailValue(event, ['commit', 'revision'])" class="overview-commit-badge overview-summary-sha-badge">
+            {{ shortCommitHash(detailValue(event, ["commit", "revision"])) }}
+          </span>
+          <span v-else class="overview-summary-value-empty">n/a</span>
+        </SummaryRow>
+      </div>
+    </SummaryPanel>
+
+    <SummaryPanel title="Alerts" icon="alerts" to="/alerts">
+      <p v-if="overviewAlertsError && alerts.length === 0" class="meta">Failed to load alerts: {{ overviewAlertsError }}</p>
+      <div v-else-if="alerts.length === 0" class="overview-summary-empty">
+        <span class="overview-summary-empty-icon overview-summary-empty-icon--healthy" aria-hidden="true">✓</span>
+        <strong>No active alerts</strong>
+        <span>Everything looks healthy</span>
+      </div>
+      <div v-else class="overview-alert-list">
+        <SummaryRow
+          v-for="alert in alerts"
+          :key="alert.id"
+          interactive
+          :aria-label="`Open alert: ${alert.title}`"
+          @activate="openAlertDetails(alert)"
+        >
+          <span class="overview-summary-severity overview-summary-severity--alert" aria-hidden="true"></span>
+          <span class="overview-summary-row-copy">
+            <span class="overview-alert-message">{{ alert.title }}</span>
+            <span class="overview-summary-secondary">
+              {{ alert.resourceId || "unknown stack" }} · {{ formatRelativeTime(alert.updatedAt) }}
+            </span>
+          </span>
+        </SummaryRow>
+      </div>
+    </SummaryPanel>
+
+    <SummaryPanel title="Recommendations" icon="recommendations" to="/recommendations">
+      <p v-if="overviewRecommendationsError && overviewRecommendations.length === 0" class="meta">
+        Failed to load recommendations: {{ overviewRecommendationsError }}
+      </p>
+      <div v-else-if="overviewRecommendations.length === 0" class="overview-summary-empty">
+        <span class="overview-summary-empty-icon overview-summary-empty-icon--healthy" aria-hidden="true">✓</span>
+        <strong>No recommendations</strong>
+        <span>Your configuration looks good</span>
+      </div>
+      <div v-else class="overview-recommendation-list">
+        <SummaryRow
+          v-for="recommendation in overviewRecommendations"
+          :key="`${recommendation.severity}-${recommendation.subject.stack}-${recommendation.subject.service}-${recommendation.title}`"
+          to="/recommendations"
+          :aria-label="`View recommendation: ${recommendation.title}`"
+        >
+          <span
+            class="overview-summary-severity"
+            :class="recommendationSeverityClass(recommendation.severity)"
+            :title="recommendation.severity"
+            aria-hidden="true"
+          ></span>
+          <span class="overview-summary-row-copy">
+            <span class="overview-recommendation-text">{{ recommendation.title }}</span>
+            <span class="overview-summary-secondary">{{ recommendationSubject(recommendation) }}</span>
+          </span>
+        </SummaryRow>
+      </div>
+    </SummaryPanel>
   </section>
 
   <section>
@@ -108,55 +320,14 @@ onUnmounted(() => {
     </div>
 
     <div v-else class="stack-grid">
-      <article v-for="stack in overviewStore.stacks" :key="stack.name" class="stack-card">
-        <h3 class="stack-title">{{ stack.name }}</h3>
-        <span class="status stack-card-status" :class="stackStatusClass(stack.status)">
-          {{ stackStatusLabel(stack.status) }}
-        </span>
-        <p class="meta">compose: {{ stack.compose_file }}</p>
-        <p class="meta">last deploy: {{ formatDate(stack.last_deploy_at) }}</p>
-        <p class="meta">
-          commit:
-          <button
-            v-if="stack.last_commit"
-            type="button"
-            class="stack-commit-badge status unknown"
-            @click="openCommitDetails(stack.last_commit)"
-          >
-            {{ shortCommitHash(stack.last_commit) }}
-          </button>
-          <span v-else> n/a</span>
-        </p>
-        <p v-if="stack.last_error" class="meta">error: {{ stack.last_error }}</p>
-        <div class="stack-card-actions">
-          <button
-            type="button"
-            class="service-copy-task-id-button stack-manifest-open-button"
-            aria-label="Show stack manifest"
-            title="Show stack manifest"
-            @click="openStackManifest(stack.name)"
-          >
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <g transform="translate(0 -1028.4)">
-                <path
-                  d="m5 1030.4c-1.1046 0-2 0.9-2 2v8 4 6c0 1.1 0.8954 2 2 2h14c1.105 0 2-0.9 2-2v-6-4-4l-6-6h-10z"
-                  fill="#95a5a6"
-                />
-                <path
-                  d="m5 1029.4c-1.1046 0-2 0.9-2 2v8 4 6c0 1.1 0.8954 2 2 2h14c1.105 0 2-0.9 2-2v-6-4-4l-6-6h-10z"
-                  fill="#bdc3c7"
-                />
-                <path d="m21 1035.4-6-6v4c0 1.1 0.895 2 2 2h4z" fill="#95a5a6" />
-                <path
-                  d="m6 8v1h12v-1h-12zm0 3v1h12v-1h-12zm0 3v1h12v-1h-12zm0 3v1h12v-1h-12z"
-                  transform="translate(0 1028.4)"
-                  fill="#95a5a6"
-                />
-              </g>
-            </svg>
-          </button>
-        </div>
-      </article>
+      <StackCard
+        v-for="stack in overviewStore.stacks"
+        :key="stack.name"
+        :stack="stack"
+        :service-count="serviceCount(stack.name)"
+        @compare="openStackManifest"
+        @commit="openCommitDetails"
+      />
     </div>
   </section>
 </template>

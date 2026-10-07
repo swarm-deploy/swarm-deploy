@@ -1,18 +1,22 @@
 # syntax=docker/dockerfile:1
 
-FROM node:22-alpine AS ui-builder
+FROM --platform=$BUILDPLATFORM node:22-alpine AS ui-builder
+
+ARG APP_VERSION=dev
+ARG BUILD_TIME
 
 WORKDIR /ui
 
 COPY ui/package.json ui/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
-    npm install
+    npm ci --no-audit --no-fund
 
 COPY ui/index.html ui/styles.css ui/vite.config.ts ui/tsconfig.json ./
+COPY ui/public ./public
 COPY ui/src ./src
-RUN npm run build
+RUN APP_VERSION="${APP_VERSION}" BUILD_TIME="${BUILD_TIME}" npm run build
 
-FROM golang:1.26.2-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26.3-alpine AS builder
 
 WORKDIR /src
 
@@ -33,6 +37,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 
 FROM alpine:3.21.7
 
+ARG APP_VERSION="dev"
+ARG BUILD_TIME
+
 RUN apk add --no-cache ca-certificates docker-cli tzdata
 
 WORKDIR /etc/swarm-deploy
@@ -52,4 +59,3 @@ LABEL org.swarm-deploy.service.type="DeploymentManagementSystem"
 
 ENTRYPOINT ["/usr/local/bin/swarm-deploy"]
 CMD ["-config", "/etc/swarm-deploy/swarm-deploy.yaml"]
-

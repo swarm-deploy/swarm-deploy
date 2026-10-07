@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 type ObjectRef struct {
@@ -13,6 +13,9 @@ type ObjectRef struct {
 	Mode   *os.FileMode `yaml:"mode,omitempty" json:"mode,omitempty"`
 	Gid    string       `yaml:"gid,omitempty" json:"gid,omitempty"`
 	Uid    string       `yaml:"uid,omitempty" json:"uid,omitempty"`
+
+	// File is a resolved repository-backed source path. It is runtime metadata and is not serialized.
+	File string `yaml:"-" json:"-"`
 
 	Extra map[string]interface{} `yaml:",inline"`
 

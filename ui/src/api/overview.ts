@@ -1,14 +1,38 @@
 import { apiRequest } from "./client";
 import type {
+  AlertsResponse,
+  AlertStatus,
   EventHistoryResponse,
   GitCommitDetailsResponse,
   QueueResponse,
+  RecommendationsResponse,
   ServiceDeploymentsResponse,
   ServiceRealtimeResponse,
   ServiceStatusResponse,
   StackManifestosResponse,
   StacksResponse,
 } from "./types";
+
+export function fetchAlerts(options: { status?: AlertStatus; limit?: number } = {}): Promise<AlertsResponse> {
+  const params = new URLSearchParams();
+  if (options.status) {
+    params.set("status", options.status);
+  }
+  if (typeof options.limit === "number") {
+    params.set("limit", String(options.limit));
+  }
+
+  const query = params.toString();
+  return apiRequest<AlertsResponse>(`/api/v1/alerts${query ? `?${query}` : ""}`);
+}
+
+export interface FetchEventsOptions {
+  severities?: string[];
+  categories?: string[];
+  types?: string[];
+  since?: string;
+  limit?: number;
+}
 
 export function fetchStacks(): Promise<StacksResponse> {
   return apiRequest<StacksResponse>("/api/v1/stacks");
@@ -25,8 +49,39 @@ export function triggerSync(): Promise<QueueResponse> {
   });
 }
 
-export function fetchEvents(): Promise<EventHistoryResponse> {
-  return apiRequest<EventHistoryResponse>("/api/v1/events");
+export function fetchEvents(options: FetchEventsOptions = {}): Promise<EventHistoryResponse> {
+  const params = new URLSearchParams();
+  for (const severity of options.severities ?? []) {
+    params.append("severities", severity);
+  }
+  for (const category of options.categories ?? []) {
+    params.append("categories", category);
+  }
+  for (const type of options.types ?? []) {
+    params.append("types", type);
+  }
+  if (options.since) {
+    params.set("since", options.since);
+  }
+  if (typeof options.limit === "number") {
+    params.set("limit", String(options.limit));
+  }
+
+  const query = params.toString();
+  return apiRequest<EventHistoryResponse>(`/api/v1/events${query ? `?${query}` : ""}`);
+}
+
+export function fetchRecommendations(options: { stack?: string; limit?: number } = {}): Promise<RecommendationsResponse> {
+  const params = new URLSearchParams();
+  if (options.stack) {
+    params.set("stack", options.stack);
+  }
+  if (typeof options.limit === "number") {
+    params.set("limit", String(options.limit));
+  }
+
+  const query = params.toString();
+  return apiRequest<RecommendationsResponse>(`/api/v1/recommendations${query ? `?${query}` : ""}`);
 }
 
 export function fetchServiceStatus(stackName: string, serviceName: string): Promise<ServiceStatusResponse> {
@@ -52,6 +107,15 @@ export function fetchServiceRealtime(stackName: string, serviceName: string): Pr
   const encodedStack = encodeURIComponent(stackName);
   const encodedService = encodeURIComponent(serviceName);
   return apiRequest<ServiceRealtimeResponse>(`/api/v1/stacks/${encodedStack}/services/${encodedService}/realtime`);
+}
+
+export function openTaskLogsStream(taskID: string, options?: { follow?: boolean; tail?: number }): EventSource {
+  const encodedTaskID = encodeURIComponent(taskID);
+  const params = new URLSearchParams();
+  params.set("follow", String(options?.follow ?? true));
+  params.set("tail", String(options?.tail ?? 200));
+
+  return new EventSource(`/api/tasks/${encodedTaskID}/logs?${params.toString()}`);
 }
 
 export function fetchStackManifestos(stackName: string): Promise<StackManifestosResponse> {

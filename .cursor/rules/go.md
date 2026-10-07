@@ -71,3 +71,7 @@ type GRPCConfig struct {
 - Do not use nil-guard for injected dependencies.
 - All injected dependencies are mandatory unless explicitly marked optional.
 - Never mask wiring errors with fallback behavior.
+
+## Tracing
+
+- To record an error in a span, use `tracing.FailSpan`

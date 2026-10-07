@@ -13,6 +13,10 @@ services:
       - "8082:8082"
       - "8083:8083"
     restart: unless-stopped
+    stop_grace_period: 30s
+    deploy:
+      update_config:
+        order: start-first
     secrets:
       - git-private-key
       - telegram-bot-token

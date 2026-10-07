@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -24,6 +25,7 @@ const (
 	initJobDeleteRetryAttempts  = uint(5)
 	initJobDeleteRetryDelay     = 1 * time.Second
 	initJobDeleteAttemptTimeout = 10 * time.Second
+	initJobObjectFileMode       = 0o444
 )
 
 type initJobDeleteTask struct {
@@ -192,7 +194,8 @@ func (r *InitJobRunner) buildInitServiceSpec(
 ) (dockerswarm.ServiceSpec, error) {
 	containerSpec := &dockerswarm.ContainerSpec{
 		Image:   spec.Job.Image,
-		Command: spec.Job.Command,
+		Command: spec.Job.Entrypoint,
+		Args:    spec.Job.Command,
 	}
 
 	if len(spec.Job.Environment.Map) > 0 {
@@ -220,9 +223,13 @@ func (r *InitJobRunner) buildInitServiceSpec(
 	secrets := mergeObjectRefs(spec.ServiceSecrets, spec.Job.Secrets)
 	containerSpec.Secrets = make([]*dockerswarm.SecretReference, 0, len(secrets))
 	for _, secret := range secrets {
-		ref, err := r.swarmService.Secrets.ResolveReference(ctx, secret.Source, secret.Target)
-		if err != nil {
-			return dockerswarm.ServiceSpec{}, err
+		ref := resolvedSecretReference(secret, spec.ResolvedSecrets)
+		if ref == nil {
+			var err error
+			ref, err = r.swarmService.Secrets.ResolveReference(ctx, secret.Source, secret.Target)
+			if err != nil {
+				return dockerswarm.ServiceSpec{}, err
+			}
 		}
 		containerSpec.Secrets = append(containerSpec.Secrets, ref)
 	}
@@ -230,9 +237,13 @@ func (r *InitJobRunner) buildInitServiceSpec(
 	configs := mergeObjectRefs(spec.ServiceConfigs, spec.Job.Configs)
 	containerSpec.Configs = make([]*dockerswarm.ConfigReference, 0, len(configs))
 	for _, cfg := range configs {
-		ref, err := r.swarmService.Configs.ResolveReference(ctx, cfg.Source, cfg.Target)
-		if err != nil {
-			return dockerswarm.ServiceSpec{}, err
+		ref := resolvedConfigReference(cfg, spec.ResolvedConfigs)
+		if ref == nil {
+			var err error
+			ref, err = r.swarmService.Configs.ResolveReference(ctx, cfg.Source, cfg.Target)
+			if err != nil {
+				return dockerswarm.ServiceSpec{}, err
+			}
 		}
 		containerSpec.Configs = append(containerSpec.Configs, ref)
 	}
@@ -261,6 +272,80 @@ func (r *InitJobRunner) buildInitServiceSpec(
 			},
 		},
 	}, nil
+}
+
+func resolvedSecretReference(
+	object compose.ObjectRef,
+	resolved map[string]ResolvedResource,
+) *dockerswarm.SecretReference {
+	resource, ok := resolved[object.Source]
+	if !ok {
+		return nil
+	}
+
+	target := object.Target
+	if target == "" {
+		target = "/run/secrets/" + object.Source
+	}
+	uid, gid := objectOwner(object)
+
+	return &dockerswarm.SecretReference{
+		SecretID:   resource.ID,
+		SecretName: resource.Name,
+		File: &dockerswarm.SecretReferenceFileTarget{
+			Name: target,
+			UID:  uid,
+			GID:  gid,
+			Mode: objectMode(object.Mode),
+		},
+	}
+}
+
+func resolvedConfigReference(
+	object compose.ObjectRef,
+	resolved map[string]ResolvedResource,
+) *dockerswarm.ConfigReference {
+	resource, ok := resolved[object.Source]
+	if !ok {
+		return nil
+	}
+
+	ref := &dockerswarm.ConfigReference{
+		ConfigID:   resource.ID,
+		ConfigName: resource.Name,
+	}
+	if object.Target != "" {
+		uid, gid := objectOwner(object)
+		ref.File = &dockerswarm.ConfigReferenceFileTarget{
+			Name: object.Target,
+			UID:  uid,
+			GID:  gid,
+			Mode: objectMode(object.Mode),
+		}
+	}
+
+	return ref
+}
+
+func objectMode(mode *os.FileMode) os.FileMode {
+	if mode == nil {
+		return initJobObjectFileMode
+	}
+
+	return *mode
+}
+
+func objectOwner(object compose.ObjectRef) (string, string) {
+	uid := object.Uid
+	if uid == "" {
+		uid = "0"
+	}
+	gid := object.Gid
+	if gid == "" {
+		gid = "0"
+	}
+
+	return uid, gid
 }
 
 func (r *InitJobRunner) resolveNetworkTarget(ctx context.Context, stackName, network string) string {

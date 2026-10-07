@@ -4,6 +4,7 @@ package api
 
 import (
 	"context"
+	"net/http"
 
 	ht "github.com/ogen-go/ogen/http"
 )
@@ -12,11 +13,40 @@ import (
 type UnimplementedHandler struct{}
 
 var _ Handler = UnimplementedHandler{}
+var _ RawHandler = UnimplementedHandler{}
+
+// AddNodeLabel implements addNodeLabel operation.
+//
+// POST /api/v1/nodes/{id}/labels
+func (UnimplementedHandler) AddNodeLabel(ctx context.Context, req *NodeLabelCreateRequest, params AddNodeLabelParams) error {
+	return ht.ErrNotImplemented
+}
 
 // AssistantChat implements assistantChat operation.
 //
 // POST /api/v1/assistant/chat
 func (UnimplementedHandler) AssistantChat(ctx context.Context, req *AssistantChatRequest) (r *AssistantChatResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// DeleteNodeLabel implements deleteNodeLabel operation.
+//
+// DELETE /api/v1/nodes/{id}/labels/{key}
+func (UnimplementedHandler) DeleteNodeLabel(ctx context.Context, params DeleteNodeLabelParams) error {
+	return ht.ErrNotImplemented
+}
+
+// GetAlert implements getAlert operation.
+//
+// GET /api/v1/alerts/{id}
+func (UnimplementedHandler) GetAlert(ctx context.Context, params GetAlertParams) (r *Alert, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetAssistantChat implements getAssistantChat operation.
+//
+// GET /api/v1/assistant/chats/{conversationID}
+func (UnimplementedHandler) GetAssistantChat(ctx context.Context, params GetAssistantChatParams) (r *AssistantChatHistory, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -69,6 +99,27 @@ func (UnimplementedHandler) GetStackManifestos(ctx context.Context, params GetSt
 	return r, ht.ErrNotImplemented
 }
 
+// GetTaskLogs implements getTaskLogs operation.
+//
+// GET /api/tasks/{taskID}/logs
+func (UnimplementedHandler) GetTaskLogs(ctx context.Context, params GetTaskLogsParams, w http.ResponseWriter) error {
+	return ht.ErrNotImplemented
+}
+
+// ListAlerts implements listAlerts operation.
+//
+// GET /api/v1/alerts
+func (UnimplementedHandler) ListAlerts(ctx context.Context, params ListAlertsParams) (r *AlertsResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListAssistantChats implements listAssistantChats operation.
+//
+// GET /api/v1/assistant/chats
+func (UnimplementedHandler) ListAssistantChats(ctx context.Context) (r *AssistantChatsResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // ListEvents implements listEvents operation.
 //
 // GET /api/v1/events
@@ -87,6 +138,20 @@ func (UnimplementedHandler) ListNetworks(ctx context.Context) (r *NetworksRespon
 //
 // GET /api/v1/nodes
 func (UnimplementedHandler) ListNodes(ctx context.Context) (r *NodesResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListRecommendations implements listRecommendations operation.
+//
+// GET /api/v1/recommendations
+func (UnimplementedHandler) ListRecommendations(ctx context.Context, params ListRecommendationsParams) (r *RecommendationsResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListSecretManagers implements listSecretManagers operation.
+//
+// GET /api/v1/secret-managers
+func (UnimplementedHandler) ListSecretManagers(ctx context.Context) (r *SecretManagersResponse, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -125,9 +190,23 @@ func (UnimplementedHandler) Search(ctx context.Context, params SearchParams) (r 
 	return r, ht.ErrNotImplemented
 }
 
+// SyncSecretManager implements syncSecretManager operation.
+//
+// POST /api/v1/secret-managers/{stack}/{service}/sync
+func (UnimplementedHandler) SyncSecretManager(ctx context.Context, params SyncSecretManagerParams) (r *SecretManagerSyncResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // TriggerSync implements triggerSync operation.
 //
 // POST /api/v1/sync
 func (UnimplementedHandler) TriggerSync(ctx context.Context) (r *QueueResponse, _ error) {
 	return r, ht.ErrNotImplemented
+}
+
+// UpdateNodeLabel implements updateNodeLabel operation.
+//
+// PUT /api/v1/nodes/{id}/labels/{key}
+func (UnimplementedHandler) UpdateNodeLabel(ctx context.Context, req *NodeLabelUpdateRequest, params UpdateNodeLabelParams) error {
+	return ht.ErrNotImplemented
 }

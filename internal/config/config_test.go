@@ -46,6 +46,153 @@ stacks:
 	assert.Equal(t, "worker", cfg.Spec.Stacks[1].Name, "unexpected second stack")
 }
 
+func TestLoadAppliesDefaultSyncInterval(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(`
+git:
+  repository: https://example.com/repo.git
+sync:
+  mode: pull
+stacks:
+  file: ./stacks.yaml
+`)
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err, "load config")
+	assert.Equal(t, time.Minute, cfg.Spec.Sync.Interval.Value, "expected default sync interval")
+}
+
+func TestLoadUsesSyncIntervalFromConfig(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(`
+git:
+  repository: https://example.com/repo.git
+sync:
+  mode: pull
+  interval: 15s
+stacks:
+  file: ./stacks.yaml
+`)
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err, "load config")
+	assert.Equal(t, 15*time.Second, cfg.Spec.Sync.Interval.Value, "expected configured sync interval")
+}
+
+func TestLoadAppliesSecretRotationCleanupDefaults(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "stacks.yaml"), []byte(`
+stacks:
+  - name: app
+    composeFile: app.yaml
+`), 0o600), "write stacks file")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "swarm-deploy.yaml"), []byte(`
+git:
+  repository: https://example.com/repo.git
+sync:
+  mode: pull
+stacks:
+  file: ./stacks.yaml
+secretRotation:
+  enabled: true
+  cleanup:
+    enabled: true
+`), 0o600), "write config file")
+
+	cfg, err := Load(filepath.Join(dir, "swarm-deploy.yaml"))
+	require.NoError(t, err, "load config")
+	assert.Equal(t, 4*time.Hour, cfg.Spec.SecretRotation.Cleanup.Interval.Value, "unexpected cleanup interval default")
+	assert.Equal(t, 2, cfg.Spec.SecretRotation.Cleanup.KeepLast, "unexpected cleanup keepLast default")
+	assert.Equal(t, time.Hour, cfg.Spec.SecretRotation.Cleanup.MinAge.Value, "unexpected cleanup minAge default")
+}
+
+func TestLoadValidatesSecretRotationCleanup(t *testing.T) {
+	tests := []struct {
+		name     string
+		rotation string
+		errText  string
+	}{
+		{
+			name: "requires rotation",
+			rotation: `cleanup:
+    enabled: true`,
+			errText: "secretRotation.cleanup.enabled requires secretRotation.enabled=true",
+		},
+		{
+			name: "rejects negative interval",
+			rotation: `enabled: true
+  cleanup:
+    enabled: true
+    interval: -1s`,
+			errText: "secretRotation.cleanup.interval must be > 0",
+		},
+		{
+			name: "rejects negative keepLast",
+			rotation: `enabled: true
+  cleanup:
+    enabled: true
+    keepLast: -1`,
+			errText: "secretRotation.cleanup.keepLast must be >= 1",
+		},
+		{
+			name: "rejects negative minAge",
+			rotation: `enabled: true
+  cleanup:
+    enabled: true
+    minAge: -1s`,
+			errText: "secretRotation.cleanup.minAge must be > 0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "stacks.yaml"), []byte(`
+stacks:
+  - name: app
+    composeFile: app.yaml
+`), 0o600), "write stacks file")
+			payload := fmt.Sprintf(`
+git:
+  repository: https://example.com/repo.git
+sync:
+  mode: pull
+stacks:
+  file: ./stacks.yaml
+secretRotation:
+  %s
+`, tt.rotation)
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "swarm-deploy.yaml"), []byte(payload), 0o600), "write config file")
+
+			_, err := Load(filepath.Join(dir, "swarm-deploy.yaml"))
+			require.Error(t, err, "expected validation error")
+			assert.Contains(t, err.Error(), tt.errText, "unexpected validation error")
+		})
+	}
+}
+
 func TestLoadFailsWithoutStacksFile(t *testing.T) {
 	dir := t.TempDir()
 
@@ -153,6 +300,35 @@ networks:
 	cfg, err := Load(configPath)
 	require.NoError(t, err, "load config")
 	assert.Empty(t, cfg.Spec.Networks, "networks must be loaded later from git repository during sync")
+}
+
+func TestLoadWithContainersDownward(t *testing.T) {
+	dir := t.TempDir()
+
+	stacksPath := filepath.Join(dir, "stacks.yaml")
+	stacksPayload := []byte(`
+stacks:
+  - name: app
+    composeFile: app/docker-compose.yml
+`)
+	require.NoError(t, os.WriteFile(stacksPath, stacksPayload, 0o600), "write stacks file")
+
+	configPath := filepath.Join(dir, "swarm-deploy.yaml")
+	configPayload := []byte(`
+git:
+  repository: https://example.com/repo.git
+sync:
+  mode: pull
+stacks:
+  file: ./stacks.yaml
+containers:
+  downward: {}
+`)
+	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
+
+	cfg, err := Load(configPath)
+	require.NoError(t, err, "load config")
+	require.NotNil(t, cfg.Spec.Containers.Downward, "expected downward config to be enabled")
 }
 
 func TestLoadWebAddressUsedForSingleServer(t *testing.T) {
@@ -502,7 +678,7 @@ assistant:
 	assert.Contains(t, err.Error(), "assistant.model.openai.temperature", "unexpected error")
 }
 
-func TestLoadFailsWhenAssistantMaxTokensIsNotPositive(t *testing.T) {
+func TestLoadFailsWhenAssistantMaxTokensIsNegative(t *testing.T) {
 	dir := t.TempDir()
 
 	stacksPath := filepath.Join(dir, "stacks.yaml")
@@ -528,7 +704,7 @@ assistant:
     name: gpt-4o-mini
     openai:
       apiTokenPath: %s
-      maxTokens: "0"
+      maxTokens: -1
 `, tokenPath))
 	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
 
@@ -565,7 +741,7 @@ assistant:
     openai:
       apiTokenPath: %s
       temperature: "not-a-number"
-      maxTokens: "-1"
+      maxTokens: -1
 `, tokenPath))
 	require.NoError(t, os.WriteFile(configPath, configPayload, 0o600), "write config file")
 

@@ -3,14 +3,14 @@ package compose
 import (
 	"fmt"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 type Compose struct {
 	Services Services           `yaml:"services" json:"services"`
 	Networks map[string]Network `yaml:"networks,omitempty" json:"networks"`
-	Configs  SharedObjects      `yaml:"configs,omitempty" json:"configs"`
-	Secrets  SharedObjects      `yaml:"secrets,omitempty" json:"secrets"`
+	Configs  Configs            `yaml:"configs,omitempty" json:"configs"`
+	Secrets  Secrets            `yaml:"secrets,omitempty" json:"secrets"`
 	Volumes  Volumes            `yaml:"volumes,omitempty" json:"volumes"`
 
 	Extra map[string]interface{} `yaml:",inline"`

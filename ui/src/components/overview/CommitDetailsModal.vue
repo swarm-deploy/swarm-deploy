@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted } from "vue";
 
+import AppTable from "../common/AppTable.vue";
 import { useAssistantStore } from "../../stores/assistant";
 import { useOverviewStore } from "../../stores/overview";
 import { useUIStore } from "../../stores/ui";
@@ -94,8 +95,7 @@ onUnmounted(() => {
         <p v-else-if="overviewStore.commitDetailsError" class="meta">
           Failed to load commit details: {{ overviewStore.commitDetailsError }}
         </p>
-        <table v-else class="service-status-summary-table" aria-label="Commit details">
-          <tbody>
+        <AppTable v-else summary aria-label="Commit details">
             <tr>
               <th scope="row">Commit Hash</th>
               <td>{{ currentCommitHash || "n/a" }}</td>
@@ -116,8 +116,7 @@ onUnmounted(() => {
               <th scope="row">Changed files</th>
               <td>{{ changedFilesText }}</td>
             </tr>
-          </tbody>
-        </table>
+        </AppTable>
         <div class="services-link-panel service-status-link-panel">
           <button type="button" class="service-status-open-details-btn" :disabled="explainDisabled" @click="explainWithAI">
             Explain with AI

@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted } from "vue";
 import { useRouter } from "vue-router";
 
+import AppTable from "../common/AppTable.vue";
 import { useOverviewStore } from "../../stores/overview";
 import { formatDate } from "../../utils/format";
 
@@ -73,8 +74,7 @@ onUnmounted(() => {
           Failed to load service status: {{ overviewStore.serviceStatusError }}
         </p>
         <div v-else-if="serviceSpec" class="service-metrics">
-          <table class="service-status-summary-table" aria-label="Service summary">
-            <tbody>
+          <AppTable summary aria-label="Service summary">
               <tr>
                 <th scope="row">Stack</th>
                 <td>{{ overviewStore.serviceStatusData?.stack || overviewStore.serviceStatusStack || "n/a" }}</td>
@@ -87,8 +87,7 @@ onUnmounted(() => {
                 <th scope="row">Latest Deployment</th>
                 <td>{{ formatDate(overviewStore.serviceStatusLatestDeploymentAt) }}</td>
               </tr>
-            </tbody>
-          </table>
+          </AppTable>
         </div>
         <div v-if="canOpenDetails" class="services-link-panel service-status-link-panel">
           <button type="button" class="service-status-open-details-btn" @click="openServiceDetails">Open details</button>

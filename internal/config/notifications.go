@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/artarts36/specw"
-	"github.com/swarm-deploy/swarm-deploy/internal/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 )
 
 const defaultNotificationTelegramRetries = 3

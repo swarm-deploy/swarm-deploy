@@ -9,10 +9,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
-	"github.com/swarm-deploy/swarm-deploy/internal/resources/service"
-	"github.com/swarm-deploy/swarm-deploy/internal/resources/service/metadata"
-	serviceType "github.com/swarm-deploy/swarm-deploy/internal/resources/service/stype"
-	"github.com/swarm-deploy/webroute"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
+	serviceType "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/stype"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	webroute "github.com/swarm-deploy/webroute/api"
 )
 
 func TestHandlerGetGraph(t *testing.T) {
@@ -20,18 +22,18 @@ func TestHandlerGetGraph(t *testing.T) {
 
 	testCases := []struct {
 		name     string
-		stacks   map[string][]service.Info
+		stacks   map[string][]model.Info
 		expected map[string]graphResponseNodeSnapshot
 	}{
 		{
 			name: "builds graph response from stored services",
-			stacks: map[string][]service.Info{
+			stacks: map[string][]model.Info{
 				"payments": {
 					{
 						Name:     "api",
 						Metadata: metadata.Metadata{Type: serviceType.Application},
-						WebRoutes: []webroute.Route{
-							{Port: "443", Address: "api.example.com"},
+						WebRoutes: []webroute.WebRoute{
+							{From: webroute.Address{Port: "443", Address: "api.example.com"}},
 						},
 						Environment: map[string]string{
 							"DB_HOST":   "db",
@@ -45,13 +47,17 @@ func TestHandlerGetGraph(t *testing.T) {
 					{
 						Name:     "redis",
 						Metadata: metadata.Metadata{Type: serviceType.Monitoring},
-						WebRoutes: []webroute.Route{
-							{Port: "6379", Address: "redis.internal"},
+						WebRoutes: []webroute.WebRoute{
+							{From: webroute.Address{Port: "6379", Address: "redis.internal"}},
 						},
 					},
 					{
 						Name:     "cron",
 						Metadata: metadata.Metadata{Type: serviceType.CronManager},
+					},
+					{
+						Name:     "postgres-mcp",
+						Metadata: metadata.Metadata{Type: serviceType.MCP},
 					},
 				},
 			},
@@ -71,11 +77,14 @@ func TestHandlerGetGraph(t *testing.T) {
 				"payments_cron": {
 					Kind: generated.GraphNodeKindCronManager,
 				},
+				"payments_postgres-mcp": {
+					Kind: generated.GraphNodeKindMcp,
+				},
 			},
 		},
 		{
 			name:     "returns empty graph for empty store",
-			stacks:   map[string][]service.Info{},
+			stacks:   map[string][]model.Info{},
 			expected: map[string]graphResponseNodeSnapshot{},
 		},
 	}
@@ -84,7 +93,8 @@ func TestHandlerGetGraph(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			store, err := service.NewStore(filepath.Join(t.TempDir(), "services.json"))
+			ctx := context.Background()
+			store, err := modelstore.NewFileStore(ctx, filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
 			require.NoError(t, err)
 
 			stackNames := make([]string, 0, len(testCase.stacks))
@@ -94,7 +104,7 @@ func TestHandlerGetGraph(t *testing.T) {
 			sort.Strings(stackNames)
 
 			for _, stackName := range stackNames {
-				require.NoError(t, store.ReplaceStack(stackName, testCase.stacks[stackName]))
+				require.NoError(t, store.ReplaceStack(ctx, stackName, testCase.stacks[stackName]))
 			}
 
 			h := &handler{

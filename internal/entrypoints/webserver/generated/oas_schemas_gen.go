@@ -3,10 +3,535 @@
 package api
 
 import (
+	"io"
+	"net/http"
 	"time"
 
 	"github.com/go-faster/errors"
 )
+
+// AddNodeLabelNoContent is response for AddNodeLabel operation.
+type AddNodeLabelNoContent struct{}
+
+// Ref: #/components/schemas/Alert
+type Alert struct {
+	ID            string             `json:"id"`
+	Fingerprint   string             `json:"fingerprint"`
+	Kind          AlertKind          `json:"kind"`
+	ResourceType  AlertResourceType  `json:"resourceType"`
+	ResourceId    string             `json:"resourceId"`
+	Status        AlertStatus        `json:"status"`
+	Title         string             `json:"title"`
+	Message       string             `json:"message"`
+	Occurrences   int64              `json:"occurrences"`
+	OpenedAt      time.Time          `json:"openedAt"`
+	UpdatedAt     time.Time          `json:"updatedAt"`
+	OpenEventId   string             `json:"openEventId"`
+	LatestEventId string             `json:"latestEventId"`
+	ResolvedAt    OptDateTime        `json:"resolvedAt"`
+	Resolution    OptAlertResolution `json:"resolution"`
+}
+
+// GetID returns the value of ID.
+func (s *Alert) GetID() string {
+	return s.ID
+}
+
+// GetFingerprint returns the value of Fingerprint.
+func (s *Alert) GetFingerprint() string {
+	return s.Fingerprint
+}
+
+// GetKind returns the value of Kind.
+func (s *Alert) GetKind() AlertKind {
+	return s.Kind
+}
+
+// GetResourceType returns the value of ResourceType.
+func (s *Alert) GetResourceType() AlertResourceType {
+	return s.ResourceType
+}
+
+// GetResourceId returns the value of ResourceId.
+func (s *Alert) GetResourceId() string {
+	return s.ResourceId
+}
+
+// GetStatus returns the value of Status.
+func (s *Alert) GetStatus() AlertStatus {
+	return s.Status
+}
+
+// GetTitle returns the value of Title.
+func (s *Alert) GetTitle() string {
+	return s.Title
+}
+
+// GetMessage returns the value of Message.
+func (s *Alert) GetMessage() string {
+	return s.Message
+}
+
+// GetOccurrences returns the value of Occurrences.
+func (s *Alert) GetOccurrences() int64 {
+	return s.Occurrences
+}
+
+// GetOpenedAt returns the value of OpenedAt.
+func (s *Alert) GetOpenedAt() time.Time {
+	return s.OpenedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *Alert) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetOpenEventId returns the value of OpenEventId.
+func (s *Alert) GetOpenEventId() string {
+	return s.OpenEventId
+}
+
+// GetLatestEventId returns the value of LatestEventId.
+func (s *Alert) GetLatestEventId() string {
+	return s.LatestEventId
+}
+
+// GetResolvedAt returns the value of ResolvedAt.
+func (s *Alert) GetResolvedAt() OptDateTime {
+	return s.ResolvedAt
+}
+
+// GetResolution returns the value of Resolution.
+func (s *Alert) GetResolution() OptAlertResolution {
+	return s.Resolution
+}
+
+// SetID sets the value of ID.
+func (s *Alert) SetID(val string) {
+	s.ID = val
+}
+
+// SetFingerprint sets the value of Fingerprint.
+func (s *Alert) SetFingerprint(val string) {
+	s.Fingerprint = val
+}
+
+// SetKind sets the value of Kind.
+func (s *Alert) SetKind(val AlertKind) {
+	s.Kind = val
+}
+
+// SetResourceType sets the value of ResourceType.
+func (s *Alert) SetResourceType(val AlertResourceType) {
+	s.ResourceType = val
+}
+
+// SetResourceId sets the value of ResourceId.
+func (s *Alert) SetResourceId(val string) {
+	s.ResourceId = val
+}
+
+// SetStatus sets the value of Status.
+func (s *Alert) SetStatus(val AlertStatus) {
+	s.Status = val
+}
+
+// SetTitle sets the value of Title.
+func (s *Alert) SetTitle(val string) {
+	s.Title = val
+}
+
+// SetMessage sets the value of Message.
+func (s *Alert) SetMessage(val string) {
+	s.Message = val
+}
+
+// SetOccurrences sets the value of Occurrences.
+func (s *Alert) SetOccurrences(val int64) {
+	s.Occurrences = val
+}
+
+// SetOpenedAt sets the value of OpenedAt.
+func (s *Alert) SetOpenedAt(val time.Time) {
+	s.OpenedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *Alert) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetOpenEventId sets the value of OpenEventId.
+func (s *Alert) SetOpenEventId(val string) {
+	s.OpenEventId = val
+}
+
+// SetLatestEventId sets the value of LatestEventId.
+func (s *Alert) SetLatestEventId(val string) {
+	s.LatestEventId = val
+}
+
+// SetResolvedAt sets the value of ResolvedAt.
+func (s *Alert) SetResolvedAt(val OptDateTime) {
+	s.ResolvedAt = val
+}
+
+// SetResolution sets the value of Resolution.
+func (s *Alert) SetResolution(val OptAlertResolution) {
+	s.Resolution = val
+}
+
+type AlertKind string
+
+const (
+	AlertKindDeployFailed AlertKind = "deploy_failed"
+)
+
+// AllValues returns all AlertKind values.
+func (AlertKind) AllValues() []AlertKind {
+	return []AlertKind{
+		AlertKindDeployFailed,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s AlertKind) MarshalText() ([]byte, error) {
+	switch s {
+	case AlertKindDeployFailed:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *AlertKind) UnmarshalText(data []byte) error {
+	switch AlertKind(data) {
+	case AlertKindDeployFailed:
+		*s = AlertKindDeployFailed
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/AlertResolution
+type AlertResolution struct {
+	Reason  AlertResolutionReason `json:"reason"`
+	Message string                `json:"message"`
+	EventId string                `json:"eventId"`
+}
+
+// GetReason returns the value of Reason.
+func (s *AlertResolution) GetReason() AlertResolutionReason {
+	return s.Reason
+}
+
+// GetMessage returns the value of Message.
+func (s *AlertResolution) GetMessage() string {
+	return s.Message
+}
+
+// GetEventId returns the value of EventId.
+func (s *AlertResolution) GetEventId() string {
+	return s.EventId
+}
+
+// SetReason sets the value of Reason.
+func (s *AlertResolution) SetReason(val AlertResolutionReason) {
+	s.Reason = val
+}
+
+// SetMessage sets the value of Message.
+func (s *AlertResolution) SetMessage(val string) {
+	s.Message = val
+}
+
+// SetEventId sets the value of EventId.
+func (s *AlertResolution) SetEventId(val string) {
+	s.EventId = val
+}
+
+type AlertResolutionReason string
+
+const (
+	AlertResolutionReasonRecovered AlertResolutionReason = "recovered"
+)
+
+// AllValues returns all AlertResolutionReason values.
+func (AlertResolutionReason) AllValues() []AlertResolutionReason {
+	return []AlertResolutionReason{
+		AlertResolutionReasonRecovered,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s AlertResolutionReason) MarshalText() ([]byte, error) {
+	switch s {
+	case AlertResolutionReasonRecovered:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *AlertResolutionReason) UnmarshalText(data []byte) error {
+	switch AlertResolutionReason(data) {
+	case AlertResolutionReasonRecovered:
+		*s = AlertResolutionReasonRecovered
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+type AlertResourceType string
+
+const (
+	AlertResourceTypeStack AlertResourceType = "stack"
+)
+
+// AllValues returns all AlertResourceType values.
+func (AlertResourceType) AllValues() []AlertResourceType {
+	return []AlertResourceType{
+		AlertResourceTypeStack,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s AlertResourceType) MarshalText() ([]byte, error) {
+	switch s {
+	case AlertResourceTypeStack:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *AlertResourceType) UnmarshalText(data []byte) error {
+	switch AlertResourceType(data) {
+	case AlertResourceTypeStack:
+		*s = AlertResourceTypeStack
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/AlertStatus
+type AlertStatus string
+
+const (
+	AlertStatusOpen     AlertStatus = "open"
+	AlertStatusResolved AlertStatus = "resolved"
+)
+
+// AllValues returns all AlertStatus values.
+func (AlertStatus) AllValues() []AlertStatus {
+	return []AlertStatus{
+		AlertStatusOpen,
+		AlertStatusResolved,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s AlertStatus) MarshalText() ([]byte, error) {
+	switch s {
+	case AlertStatusOpen:
+		return []byte(s), nil
+	case AlertStatusResolved:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *AlertStatus) UnmarshalText(data []byte) error {
+	switch AlertStatus(data) {
+	case AlertStatusOpen:
+		*s = AlertStatusOpen
+		return nil
+	case AlertStatusResolved:
+		*s = AlertStatusResolved
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/AlertsResponse
+type AlertsResponse struct {
+	Alerts []Alert `json:"alerts"`
+}
+
+// GetAlerts returns the value of Alerts.
+func (s *AlertsResponse) GetAlerts() []Alert {
+	return s.Alerts
+}
+
+// SetAlerts sets the value of Alerts.
+func (s *AlertsResponse) SetAlerts(val []Alert) {
+	s.Alerts = val
+}
+
+// Ref: #/components/schemas/AssistantChatHistory
+type AssistantChatHistory struct {
+	ID         string                 `json:"id"`
+	Title      string                 `json:"title"`
+	CreatedAt  time.Time              `json:"created_at"`
+	UpdatedAt  time.Time              `json:"updated_at"`
+	TokenUsage OptAssistantTokenUsage `json:"token_usage"`
+	Messages   []AssistantChatMessage `json:"messages"`
+}
+
+// GetID returns the value of ID.
+func (s *AssistantChatHistory) GetID() string {
+	return s.ID
+}
+
+// GetTitle returns the value of Title.
+func (s *AssistantChatHistory) GetTitle() string {
+	return s.Title
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *AssistantChatHistory) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *AssistantChatHistory) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetTokenUsage returns the value of TokenUsage.
+func (s *AssistantChatHistory) GetTokenUsage() OptAssistantTokenUsage {
+	return s.TokenUsage
+}
+
+// GetMessages returns the value of Messages.
+func (s *AssistantChatHistory) GetMessages() []AssistantChatMessage {
+	return s.Messages
+}
+
+// SetID sets the value of ID.
+func (s *AssistantChatHistory) SetID(val string) {
+	s.ID = val
+}
+
+// SetTitle sets the value of Title.
+func (s *AssistantChatHistory) SetTitle(val string) {
+	s.Title = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *AssistantChatHistory) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *AssistantChatHistory) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetTokenUsage sets the value of TokenUsage.
+func (s *AssistantChatHistory) SetTokenUsage(val OptAssistantTokenUsage) {
+	s.TokenUsage = val
+}
+
+// SetMessages sets the value of Messages.
+func (s *AssistantChatHistory) SetMessages(val []AssistantChatMessage) {
+	s.Messages = val
+}
+
+// Ref: #/components/schemas/AssistantChatMessage
+type AssistantChatMessage struct {
+	Role     AssistantChatMessageRole `json:"role"`
+	Content  string                   `json:"content"`
+	Activity []string                 `json:"activity"`
+}
+
+// GetRole returns the value of Role.
+func (s *AssistantChatMessage) GetRole() AssistantChatMessageRole {
+	return s.Role
+}
+
+// GetContent returns the value of Content.
+func (s *AssistantChatMessage) GetContent() string {
+	return s.Content
+}
+
+// GetActivity returns the value of Activity.
+func (s *AssistantChatMessage) GetActivity() []string {
+	return s.Activity
+}
+
+// SetRole sets the value of Role.
+func (s *AssistantChatMessage) SetRole(val AssistantChatMessageRole) {
+	s.Role = val
+}
+
+// SetContent sets the value of Content.
+func (s *AssistantChatMessage) SetContent(val string) {
+	s.Content = val
+}
+
+// SetActivity sets the value of Activity.
+func (s *AssistantChatMessage) SetActivity(val []string) {
+	s.Activity = val
+}
+
+type AssistantChatMessageRole string
+
+const (
+	AssistantChatMessageRoleUser      AssistantChatMessageRole = "user"
+	AssistantChatMessageRoleAssistant AssistantChatMessageRole = "assistant"
+	AssistantChatMessageRoleSystem    AssistantChatMessageRole = "system"
+)
+
+// AllValues returns all AssistantChatMessageRole values.
+func (AssistantChatMessageRole) AllValues() []AssistantChatMessageRole {
+	return []AssistantChatMessageRole{
+		AssistantChatMessageRoleUser,
+		AssistantChatMessageRoleAssistant,
+		AssistantChatMessageRoleSystem,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s AssistantChatMessageRole) MarshalText() ([]byte, error) {
+	switch s {
+	case AssistantChatMessageRoleUser:
+		return []byte(s), nil
+	case AssistantChatMessageRoleAssistant:
+		return []byte(s), nil
+	case AssistantChatMessageRoleSystem:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *AssistantChatMessageRole) UnmarshalText(data []byte) error {
+	switch AssistantChatMessageRole(data) {
+	case AssistantChatMessageRoleUser:
+		*s = AssistantChatMessageRoleUser
+		return nil
+	case AssistantChatMessageRoleAssistant:
+		*s = AssistantChatMessageRoleAssistant
+		return nil
+	case AssistantChatMessageRoleSystem:
+		*s = AssistantChatMessageRoleSystem
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
 
 // Ref: #/components/schemas/AssistantChatRequest
 type AssistantChatRequest struct {
@@ -64,6 +589,7 @@ type AssistantChatResponse struct {
 	Answer         OptString                   `json:"answer"`
 	ErrorMessage   OptString                   `json:"error_message"`
 	PollAfterMs    OptInt32                    `json:"poll_after_ms"`
+	Activity       []string                    `json:"activity"`
 }
 
 // GetStatus returns the value of Status.
@@ -96,6 +622,11 @@ func (s *AssistantChatResponse) GetPollAfterMs() OptInt32 {
 	return s.PollAfterMs
 }
 
+// GetActivity returns the value of Activity.
+func (s *AssistantChatResponse) GetActivity() []string {
+	return s.Activity
+}
+
 // SetStatus sets the value of Status.
 func (s *AssistantChatResponse) SetStatus(val AssistantChatResponseStatus) {
 	s.Status = val
@@ -124,6 +655,11 @@ func (s *AssistantChatResponse) SetErrorMessage(val OptString) {
 // SetPollAfterMs sets the value of PollAfterMs.
 func (s *AssistantChatResponse) SetPollAfterMs(val OptInt32) {
 	s.PollAfterMs = val
+}
+
+// SetActivity sets the value of Activity.
+func (s *AssistantChatResponse) SetActivity(val []string) {
+	s.Activity = val
 }
 
 type AssistantChatResponseStatus string
@@ -188,6 +724,117 @@ func (s *AssistantChatResponseStatus) UnmarshalText(data []byte) error {
 	}
 }
 
+// Ref: #/components/schemas/AssistantChatSummary
+type AssistantChatSummary struct {
+	ID         string                 `json:"id"`
+	Title      string                 `json:"title"`
+	CreatedAt  time.Time              `json:"created_at"`
+	UpdatedAt  time.Time              `json:"updated_at"`
+	TokenUsage OptAssistantTokenUsage `json:"token_usage"`
+}
+
+// GetID returns the value of ID.
+func (s *AssistantChatSummary) GetID() string {
+	return s.ID
+}
+
+// GetTitle returns the value of Title.
+func (s *AssistantChatSummary) GetTitle() string {
+	return s.Title
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *AssistantChatSummary) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *AssistantChatSummary) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetTokenUsage returns the value of TokenUsage.
+func (s *AssistantChatSummary) GetTokenUsage() OptAssistantTokenUsage {
+	return s.TokenUsage
+}
+
+// SetID sets the value of ID.
+func (s *AssistantChatSummary) SetID(val string) {
+	s.ID = val
+}
+
+// SetTitle sets the value of Title.
+func (s *AssistantChatSummary) SetTitle(val string) {
+	s.Title = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *AssistantChatSummary) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *AssistantChatSummary) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetTokenUsage sets the value of TokenUsage.
+func (s *AssistantChatSummary) SetTokenUsage(val OptAssistantTokenUsage) {
+	s.TokenUsage = val
+}
+
+// Ref: #/components/schemas/AssistantChatsResponse
+type AssistantChatsResponse struct {
+	Chats []AssistantChatSummary `json:"chats"`
+}
+
+// GetChats returns the value of Chats.
+func (s *AssistantChatsResponse) GetChats() []AssistantChatSummary {
+	return s.Chats
+}
+
+// SetChats sets the value of Chats.
+func (s *AssistantChatsResponse) SetChats(val []AssistantChatSummary) {
+	s.Chats = val
+}
+
+// Ref: #/components/schemas/AssistantTokenUsage
+type AssistantTokenUsage struct {
+	InputTokens  int64 `json:"input_tokens"`
+	OutputTokens int64 `json:"output_tokens"`
+	TotalTokens  int64 `json:"total_tokens"`
+}
+
+// GetInputTokens returns the value of InputTokens.
+func (s *AssistantTokenUsage) GetInputTokens() int64 {
+	return s.InputTokens
+}
+
+// GetOutputTokens returns the value of OutputTokens.
+func (s *AssistantTokenUsage) GetOutputTokens() int64 {
+	return s.OutputTokens
+}
+
+// GetTotalTokens returns the value of TotalTokens.
+func (s *AssistantTokenUsage) GetTotalTokens() int64 {
+	return s.TotalTokens
+}
+
+// SetInputTokens sets the value of InputTokens.
+func (s *AssistantTokenUsage) SetInputTokens(val int64) {
+	s.InputTokens = val
+}
+
+// SetOutputTokens sets the value of OutputTokens.
+func (s *AssistantTokenUsage) SetOutputTokens(val int64) {
+	s.OutputTokens = val
+}
+
+// SetTotalTokens sets the value of TotalTokens.
+func (s *AssistantTokenUsage) SetTotalTokens(val int64) {
+	s.TotalTokens = val
+}
+
 // Ref: #/components/schemas/CurrentUserResponse
 type CurrentUserResponse struct {
 	Name string `json:"name"`
@@ -202,6 +849,9 @@ func (s *CurrentUserResponse) GetName() string {
 func (s *CurrentUserResponse) SetName(val string) {
 	s.Name = val
 }
+
+// DeleteNodeLabelNoContent is response for DeleteNodeLabel operation.
+type DeleteNodeLabelNoContent struct{}
 
 // Ref: #/components/schemas/EventCategory
 type EventCategory string
@@ -254,12 +904,18 @@ func (s *EventCategory) UnmarshalText(data []byte) error {
 
 // Ref: #/components/schemas/EventHistoryItem
 type EventHistoryItem struct {
+	ID        string                     `json:"id"`
 	Type      string                     `json:"type"`
 	Severity  EventSeverity              `json:"severity"`
 	Category  EventCategory              `json:"category"`
 	CreatedAt time.Time                  `json:"created_at"`
 	Message   string                     `json:"message"`
 	Details   OptEventHistoryItemDetails `json:"details"`
+}
+
+// GetID returns the value of ID.
+func (s *EventHistoryItem) GetID() string {
+	return s.ID
 }
 
 // GetType returns the value of Type.
@@ -290,6 +946,11 @@ func (s *EventHistoryItem) GetMessage() string {
 // GetDetails returns the value of Details.
 func (s *EventHistoryItem) GetDetails() OptEventHistoryItemDetails {
 	return s.Details
+}
+
+// SetID sets the value of ID.
+func (s *EventHistoryItem) SetID(val string) {
+	s.ID = val
 }
 
 // SetType sets the value of Type.
@@ -403,6 +1064,37 @@ func (s *EventSeverity) UnmarshalText(data []byte) error {
 		return errors.Errorf("invalid value: %q", data)
 	}
 }
+
+type GetTaskLogsOK struct {
+	Data io.Reader
+}
+
+// Read reads data from the Data reader.
+//
+// Kept to satisfy the io.Reader interface.
+func (s GetTaskLogsOK) Read(p []byte) (n int, err error) {
+	if s.Data == nil {
+		return 0, io.EOF
+	}
+	return s.Data.Read(p)
+}
+
+// GetTaskLogsOKRawTextEventStream represents raw HTTP response for GetTaskLogs text/event-stream.
+type GetTaskLogsOKRawTextEventStream struct {
+	Response *http.Response `json:"-"`
+}
+
+// GetResponse returns the value of Response.
+func (s *GetTaskLogsOKRawTextEventStream) GetResponse() *http.Response {
+	return s.Response
+}
+
+// SetResponse sets the value of Response.
+func (s *GetTaskLogsOKRawTextEventStream) SetResponse(val *http.Response) {
+	s.Response = val
+}
+
+func (*GetTaskLogsOKRawTextEventStream) getTaskLogsRes() {}
 
 // Ref: #/components/schemas/GitCommitDetailsResponse
 type GitCommitDetailsResponse struct {
@@ -523,6 +1215,7 @@ const (
 	GraphNodeKindSecretManager              GraphNodeKind = "secretManager"
 	GraphNodeKindCronManager                GraphNodeKind = "cronManager"
 	GraphNodeKindDeploymentManagementSystem GraphNodeKind = "deploymentManagementSystem"
+	GraphNodeKindMcp                        GraphNodeKind = "mcp"
 )
 
 // AllValues returns all GraphNodeKind values.
@@ -536,6 +1229,7 @@ func (GraphNodeKind) AllValues() []GraphNodeKind {
 		GraphNodeKindSecretManager,
 		GraphNodeKindCronManager,
 		GraphNodeKindDeploymentManagementSystem,
+		GraphNodeKindMcp,
 	}
 }
 
@@ -557,6 +1251,8 @@ func (s GraphNodeKind) MarshalText() ([]byte, error) {
 	case GraphNodeKindCronManager:
 		return []byte(s), nil
 	case GraphNodeKindDeploymentManagementSystem:
+		return []byte(s), nil
+	case GraphNodeKindMcp:
 		return []byte(s), nil
 	default:
 		return nil, errors.Errorf("invalid value: %q", s)
@@ -589,6 +1285,9 @@ func (s *GraphNodeKind) UnmarshalText(data []byte) error {
 		return nil
 	case GraphNodeKindDeploymentManagementSystem:
 		*s = GraphNodeKindDeploymentManagementSystem
+		return nil
+	case GraphNodeKindMcp:
+		*s = GraphNodeKindMcp
 		return nil
 	default:
 		return errors.Errorf("invalid value: %q", data)
@@ -897,6 +1596,47 @@ func (s *NodeInfoLabels) init() NodeInfoLabels {
 	return m
 }
 
+// Ref: #/components/schemas/NodeLabelCreateRequest
+type NodeLabelCreateRequest struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
+// GetKey returns the value of Key.
+func (s *NodeLabelCreateRequest) GetKey() string {
+	return s.Key
+}
+
+// GetValue returns the value of Value.
+func (s *NodeLabelCreateRequest) GetValue() string {
+	return s.Value
+}
+
+// SetKey sets the value of Key.
+func (s *NodeLabelCreateRequest) SetKey(val string) {
+	s.Key = val
+}
+
+// SetValue sets the value of Value.
+func (s *NodeLabelCreateRequest) SetValue(val string) {
+	s.Value = val
+}
+
+// Ref: #/components/schemas/NodeLabelUpdateRequest
+type NodeLabelUpdateRequest struct {
+	Value string `json:"value"`
+}
+
+// GetValue returns the value of Value.
+func (s *NodeLabelUpdateRequest) GetValue() string {
+	return s.Value
+}
+
+// SetValue sets the value of Value.
+func (s *NodeLabelUpdateRequest) SetValue(val string) {
+	s.Value = val
+}
+
 // Ref: #/components/schemas/NodesResponse
 type NodesResponse struct {
 	Nodes []NodeInfo `json:"nodes"`
@@ -910,6 +1650,190 @@ func (s *NodesResponse) GetNodes() []NodeInfo {
 // SetNodes sets the value of Nodes.
 func (s *NodesResponse) SetNodes(val []NodeInfo) {
 	s.Nodes = val
+}
+
+// NewOptAlertResolution returns new OptAlertResolution with value set to v.
+func NewOptAlertResolution(v AlertResolution) OptAlertResolution {
+	return OptAlertResolution{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAlertResolution is optional AlertResolution.
+type OptAlertResolution struct {
+	Value AlertResolution
+	Set   bool
+}
+
+// IsSet returns true if OptAlertResolution was set.
+func (o OptAlertResolution) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAlertResolution) Reset() {
+	var v AlertResolution
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAlertResolution) SetTo(v AlertResolution) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAlertResolution) Get() (v AlertResolution, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAlertResolution) Or(d AlertResolution) AlertResolution {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAlertStatus returns new OptAlertStatus with value set to v.
+func NewOptAlertStatus(v AlertStatus) OptAlertStatus {
+	return OptAlertStatus{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAlertStatus is optional AlertStatus.
+type OptAlertStatus struct {
+	Value AlertStatus
+	Set   bool
+}
+
+// IsSet returns true if OptAlertStatus was set.
+func (o OptAlertStatus) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAlertStatus) Reset() {
+	var v AlertStatus
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAlertStatus) SetTo(v AlertStatus) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAlertStatus) Get() (v AlertStatus, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAlertStatus) Or(d AlertStatus) AlertStatus {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptAssistantTokenUsage returns new OptAssistantTokenUsage with value set to v.
+func NewOptAssistantTokenUsage(v AssistantTokenUsage) OptAssistantTokenUsage {
+	return OptAssistantTokenUsage{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptAssistantTokenUsage is optional AssistantTokenUsage.
+type OptAssistantTokenUsage struct {
+	Value AssistantTokenUsage
+	Set   bool
+}
+
+// IsSet returns true if OptAssistantTokenUsage was set.
+func (o OptAssistantTokenUsage) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptAssistantTokenUsage) Reset() {
+	var v AssistantTokenUsage
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptAssistantTokenUsage) SetTo(v AssistantTokenUsage) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptAssistantTokenUsage) Get() (v AssistantTokenUsage, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptAssistantTokenUsage) Or(d AssistantTokenUsage) AssistantTokenUsage {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptBool returns new OptBool with value set to v.
+func NewOptBool(v bool) OptBool {
+	return OptBool{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptBool is optional bool.
+type OptBool struct {
+	Value bool
+	Set   bool
+}
+
+// IsSet returns true if OptBool was set.
+func (o OptBool) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptBool) Reset() {
+	var v bool
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptBool) SetTo(v bool) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptBool) Get() (v bool, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptBool) Or(d bool) bool {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
 }
 
 // NewOptDateTime returns new OptDateTime with value set to v.
@@ -1280,6 +2204,98 @@ func (o OptSecretExternalInfo) Or(d SecretExternalInfo) SecretExternalInfo {
 	return d
 }
 
+// NewOptSecretManagerProvider returns new OptSecretManagerProvider with value set to v.
+func NewOptSecretManagerProvider(v SecretManagerProvider) OptSecretManagerProvider {
+	return OptSecretManagerProvider{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptSecretManagerProvider is optional SecretManagerProvider.
+type OptSecretManagerProvider struct {
+	Value SecretManagerProvider
+	Set   bool
+}
+
+// IsSet returns true if OptSecretManagerProvider was set.
+func (o OptSecretManagerProvider) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptSecretManagerProvider) Reset() {
+	var v SecretManagerProvider
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptSecretManagerProvider) SetTo(v SecretManagerProvider) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptSecretManagerProvider) Get() (v SecretManagerProvider, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptSecretManagerProvider) Or(d SecretManagerProvider) SecretManagerProvider {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptSecretManagerProviderLinks returns new OptSecretManagerProviderLinks with value set to v.
+func NewOptSecretManagerProviderLinks(v SecretManagerProviderLinks) OptSecretManagerProviderLinks {
+	return OptSecretManagerProviderLinks{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptSecretManagerProviderLinks is optional SecretManagerProviderLinks.
+type OptSecretManagerProviderLinks struct {
+	Value SecretManagerProviderLinks
+	Set   bool
+}
+
+// IsSet returns true if OptSecretManagerProviderLinks was set.
+func (o OptSecretManagerProviderLinks) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptSecretManagerProviderLinks) Reset() {
+	var v SecretManagerProviderLinks
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptSecretManagerProviderLinks) SetTo(v SecretManagerProviderLinks) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptSecretManagerProviderLinks) Get() (v SecretManagerProviderLinks, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptSecretManagerProviderLinks) Or(d SecretManagerProviderLinks) SecretManagerProviderLinks {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptServiceSpecLabelGroupResponse returns new OptServiceSpecLabelGroupResponse with value set to v.
 func NewOptServiceSpecLabelGroupResponse(v ServiceSpecLabelGroupResponse) OptServiceSpecLabelGroupResponse {
 	return OptServiceSpecLabelGroupResponse{
@@ -1431,6 +2447,165 @@ func (s *QueueResponse) GetQueued() bool {
 // SetQueued sets the value of Queued.
 func (s *QueueResponse) SetQueued(val bool) {
 	s.Queued = val
+}
+
+// Ref: #/components/schemas/Recommendation
+type Recommendation struct {
+	Severity       string                `json:"severity"`
+	Type           string                `json:"type"`
+	Source         RecommendationSource  `json:"source"`
+	Subject        RecommendationSubject `json:"subject"`
+	Title          string                `json:"title"`
+	Recommendation string                `json:"recommendation"`
+	CreatedAt      time.Time             `json:"created_at"`
+}
+
+// GetSeverity returns the value of Severity.
+func (s *Recommendation) GetSeverity() string {
+	return s.Severity
+}
+
+// GetType returns the value of Type.
+func (s *Recommendation) GetType() string {
+	return s.Type
+}
+
+// GetSource returns the value of Source.
+func (s *Recommendation) GetSource() RecommendationSource {
+	return s.Source
+}
+
+// GetSubject returns the value of Subject.
+func (s *Recommendation) GetSubject() RecommendationSubject {
+	return s.Subject
+}
+
+// GetTitle returns the value of Title.
+func (s *Recommendation) GetTitle() string {
+	return s.Title
+}
+
+// GetRecommendation returns the value of Recommendation.
+func (s *Recommendation) GetRecommendation() string {
+	return s.Recommendation
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *Recommendation) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// SetSeverity sets the value of Severity.
+func (s *Recommendation) SetSeverity(val string) {
+	s.Severity = val
+}
+
+// SetType sets the value of Type.
+func (s *Recommendation) SetType(val string) {
+	s.Type = val
+}
+
+// SetSource sets the value of Source.
+func (s *Recommendation) SetSource(val RecommendationSource) {
+	s.Source = val
+}
+
+// SetSubject sets the value of Subject.
+func (s *Recommendation) SetSubject(val RecommendationSubject) {
+	s.Subject = val
+}
+
+// SetTitle sets the value of Title.
+func (s *Recommendation) SetTitle(val string) {
+	s.Title = val
+}
+
+// SetRecommendation sets the value of Recommendation.
+func (s *Recommendation) SetRecommendation(val string) {
+	s.Recommendation = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *Recommendation) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// Ref: #/components/schemas/RecommendationSource
+type RecommendationSource struct {
+	File   string `json:"file"`
+	Digest string `json:"digest"`
+	Commit string `json:"commit"`
+}
+
+// GetFile returns the value of File.
+func (s *RecommendationSource) GetFile() string {
+	return s.File
+}
+
+// GetDigest returns the value of Digest.
+func (s *RecommendationSource) GetDigest() string {
+	return s.Digest
+}
+
+// GetCommit returns the value of Commit.
+func (s *RecommendationSource) GetCommit() string {
+	return s.Commit
+}
+
+// SetFile sets the value of File.
+func (s *RecommendationSource) SetFile(val string) {
+	s.File = val
+}
+
+// SetDigest sets the value of Digest.
+func (s *RecommendationSource) SetDigest(val string) {
+	s.Digest = val
+}
+
+// SetCommit sets the value of Commit.
+func (s *RecommendationSource) SetCommit(val string) {
+	s.Commit = val
+}
+
+// Ref: #/components/schemas/RecommendationSubject
+type RecommendationSubject struct {
+	Stack   string `json:"stack"`
+	Service string `json:"service"`
+}
+
+// GetStack returns the value of Stack.
+func (s *RecommendationSubject) GetStack() string {
+	return s.Stack
+}
+
+// GetService returns the value of Service.
+func (s *RecommendationSubject) GetService() string {
+	return s.Service
+}
+
+// SetStack sets the value of Stack.
+func (s *RecommendationSubject) SetStack(val string) {
+	s.Stack = val
+}
+
+// SetService sets the value of Service.
+func (s *RecommendationSubject) SetService(val string) {
+	s.Service = val
+}
+
+// Ref: #/components/schemas/RecommendationsResponse
+type RecommendationsResponse struct {
+	Recommendations []Recommendation `json:"recommendations"`
+}
+
+// GetRecommendations returns the value of Recommendations.
+func (s *RecommendationsResponse) GetRecommendations() []Recommendation {
+	return s.Recommendations
+}
+
+// SetRecommendations sets the value of Recommendations.
+func (s *RecommendationsResponse) SetRecommendations(val []Recommendation) {
+	s.Recommendations = val
 }
 
 // Ref: #/components/schemas/SearchResponse
@@ -1752,11 +2927,12 @@ func (s *SecretExternalInfo) SetVersionID(val OptString) {
 
 // Ref: #/components/schemas/SecretInfo
 type SecretInfo struct {
-	ID        string                `json:"id"`
-	Name      string                `json:"name"`
-	VersionID int64                 `json:"version_id"`
-	CreatedAt time.Time             `json:"created_at"`
-	External  OptSecretExternalInfo `json:"external"`
+	ID          string                `json:"id"`
+	Name        string                `json:"name"`
+	Description OptString             `json:"description"`
+	VersionID   int64                 `json:"version_id"`
+	CreatedAt   time.Time             `json:"created_at"`
+	External    OptSecretExternalInfo `json:"external"`
 }
 
 // GetID returns the value of ID.
@@ -1767,6 +2943,11 @@ func (s *SecretInfo) GetID() string {
 // GetName returns the value of Name.
 func (s *SecretInfo) GetName() string {
 	return s.Name
+}
+
+// GetDescription returns the value of Description.
+func (s *SecretInfo) GetDescription() OptString {
+	return s.Description
 }
 
 // GetVersionID returns the value of VersionID.
@@ -1794,6 +2975,11 @@ func (s *SecretInfo) SetName(val string) {
 	s.Name = val
 }
 
+// SetDescription sets the value of Description.
+func (s *SecretInfo) SetDescription(val OptString) {
+	s.Description = val
+}
+
 // SetVersionID sets the value of VersionID.
 func (s *SecretInfo) SetVersionID(val int64) {
 	s.VersionID = val
@@ -1807,6 +2993,235 @@ func (s *SecretInfo) SetCreatedAt(val time.Time) {
 // SetExternal sets the value of External.
 func (s *SecretInfo) SetExternal(val OptSecretExternalInfo) {
 	s.External = val
+}
+
+// Ref: #/components/schemas/SecretManagerInfo
+type SecretManagerInfo struct {
+	Stack        string                   `json:"stack"`
+	Service      string                   `json:"service"`
+	Kind         string                   `json:"kind"`
+	Controllable bool                     `json:"controllable"`
+	Available    bool                     `json:"available"`
+	Version      OptString                `json:"version"`
+	Provider     OptSecretManagerProvider `json:"provider"`
+	LastSyncAt   OptDateTime              `json:"last_sync_at"`
+	NextSyncAt   OptDateTime              `json:"next_sync_at"`
+	Error        OptString                `json:"error"`
+}
+
+// GetStack returns the value of Stack.
+func (s *SecretManagerInfo) GetStack() string {
+	return s.Stack
+}
+
+// GetService returns the value of Service.
+func (s *SecretManagerInfo) GetService() string {
+	return s.Service
+}
+
+// GetKind returns the value of Kind.
+func (s *SecretManagerInfo) GetKind() string {
+	return s.Kind
+}
+
+// GetControllable returns the value of Controllable.
+func (s *SecretManagerInfo) GetControllable() bool {
+	return s.Controllable
+}
+
+// GetAvailable returns the value of Available.
+func (s *SecretManagerInfo) GetAvailable() bool {
+	return s.Available
+}
+
+// GetVersion returns the value of Version.
+func (s *SecretManagerInfo) GetVersion() OptString {
+	return s.Version
+}
+
+// GetProvider returns the value of Provider.
+func (s *SecretManagerInfo) GetProvider() OptSecretManagerProvider {
+	return s.Provider
+}
+
+// GetLastSyncAt returns the value of LastSyncAt.
+func (s *SecretManagerInfo) GetLastSyncAt() OptDateTime {
+	return s.LastSyncAt
+}
+
+// GetNextSyncAt returns the value of NextSyncAt.
+func (s *SecretManagerInfo) GetNextSyncAt() OptDateTime {
+	return s.NextSyncAt
+}
+
+// GetError returns the value of Error.
+func (s *SecretManagerInfo) GetError() OptString {
+	return s.Error
+}
+
+// SetStack sets the value of Stack.
+func (s *SecretManagerInfo) SetStack(val string) {
+	s.Stack = val
+}
+
+// SetService sets the value of Service.
+func (s *SecretManagerInfo) SetService(val string) {
+	s.Service = val
+}
+
+// SetKind sets the value of Kind.
+func (s *SecretManagerInfo) SetKind(val string) {
+	s.Kind = val
+}
+
+// SetControllable sets the value of Controllable.
+func (s *SecretManagerInfo) SetControllable(val bool) {
+	s.Controllable = val
+}
+
+// SetAvailable sets the value of Available.
+func (s *SecretManagerInfo) SetAvailable(val bool) {
+	s.Available = val
+}
+
+// SetVersion sets the value of Version.
+func (s *SecretManagerInfo) SetVersion(val OptString) {
+	s.Version = val
+}
+
+// SetProvider sets the value of Provider.
+func (s *SecretManagerInfo) SetProvider(val OptSecretManagerProvider) {
+	s.Provider = val
+}
+
+// SetLastSyncAt sets the value of LastSyncAt.
+func (s *SecretManagerInfo) SetLastSyncAt(val OptDateTime) {
+	s.LastSyncAt = val
+}
+
+// SetNextSyncAt sets the value of NextSyncAt.
+func (s *SecretManagerInfo) SetNextSyncAt(val OptDateTime) {
+	s.NextSyncAt = val
+}
+
+// SetError sets the value of Error.
+func (s *SecretManagerInfo) SetError(val OptString) {
+	s.Error = val
+}
+
+// Ref: #/components/schemas/SecretManagerProvider
+type SecretManagerProvider struct {
+	Name  string                        `json:"name"`
+	Links OptSecretManagerProviderLinks `json:"links"`
+}
+
+// GetName returns the value of Name.
+func (s *SecretManagerProvider) GetName() string {
+	return s.Name
+}
+
+// GetLinks returns the value of Links.
+func (s *SecretManagerProvider) GetLinks() OptSecretManagerProviderLinks {
+	return s.Links
+}
+
+// SetName sets the value of Name.
+func (s *SecretManagerProvider) SetName(val string) {
+	s.Name = val
+}
+
+// SetLinks sets the value of Links.
+func (s *SecretManagerProvider) SetLinks(val OptSecretManagerProviderLinks) {
+	s.Links = val
+}
+
+// Ref: #/components/schemas/SecretManagerProviderLinks
+type SecretManagerProviderLinks struct {
+	Doc     OptString `json:"doc"`
+	Manager OptString `json:"manager"`
+}
+
+// GetDoc returns the value of Doc.
+func (s *SecretManagerProviderLinks) GetDoc() OptString {
+	return s.Doc
+}
+
+// GetManager returns the value of Manager.
+func (s *SecretManagerProviderLinks) GetManager() OptString {
+	return s.Manager
+}
+
+// SetDoc sets the value of Doc.
+func (s *SecretManagerProviderLinks) SetDoc(val OptString) {
+	s.Doc = val
+}
+
+// SetManager sets the value of Manager.
+func (s *SecretManagerProviderLinks) SetManager(val OptString) {
+	s.Manager = val
+}
+
+// Ref: #/components/schemas/SecretManagerSyncResponse
+type SecretManagerSyncResponse struct {
+	Created   int64 `json:"created"`
+	Updated   int64 `json:"updated"`
+	Removed   int64 `json:"removed"`
+	Unchanged int64 `json:"unchanged"`
+}
+
+// GetCreated returns the value of Created.
+func (s *SecretManagerSyncResponse) GetCreated() int64 {
+	return s.Created
+}
+
+// GetUpdated returns the value of Updated.
+func (s *SecretManagerSyncResponse) GetUpdated() int64 {
+	return s.Updated
+}
+
+// GetRemoved returns the value of Removed.
+func (s *SecretManagerSyncResponse) GetRemoved() int64 {
+	return s.Removed
+}
+
+// GetUnchanged returns the value of Unchanged.
+func (s *SecretManagerSyncResponse) GetUnchanged() int64 {
+	return s.Unchanged
+}
+
+// SetCreated sets the value of Created.
+func (s *SecretManagerSyncResponse) SetCreated(val int64) {
+	s.Created = val
+}
+
+// SetUpdated sets the value of Updated.
+func (s *SecretManagerSyncResponse) SetUpdated(val int64) {
+	s.Updated = val
+}
+
+// SetRemoved sets the value of Removed.
+func (s *SecretManagerSyncResponse) SetRemoved(val int64) {
+	s.Removed = val
+}
+
+// SetUnchanged sets the value of Unchanged.
+func (s *SecretManagerSyncResponse) SetUnchanged(val int64) {
+	s.Unchanged = val
+}
+
+// Ref: #/components/schemas/SecretManagersResponse
+type SecretManagersResponse struct {
+	SecretManagers []SecretManagerInfo `json:"secret_managers"`
+}
+
+// GetSecretManagers returns the value of SecretManagers.
+func (s *SecretManagersResponse) GetSecretManagers() []SecretManagerInfo {
+	return s.SecretManagers
+}
+
+// SetSecretManagers sets the value of SecretManagers.
+func (s *SecretManagersResponse) SetSecretManagers(val []SecretManagerInfo) {
+	s.SecretManagers = val
 }
 
 // Ref: #/components/schemas/SecretsResponse
@@ -2089,6 +3504,7 @@ const (
 	ServiceInfoTypeSecretManager              ServiceInfoType = "secretManager"
 	ServiceInfoTypeCronManager                ServiceInfoType = "cronManager"
 	ServiceInfoTypeDeploymentManagementSystem ServiceInfoType = "deploymentManagementSystem"
+	ServiceInfoTypeMcp                        ServiceInfoType = "mcp"
 )
 
 // AllValues returns all ServiceInfoType values.
@@ -2102,6 +3518,7 @@ func (ServiceInfoType) AllValues() []ServiceInfoType {
 		ServiceInfoTypeSecretManager,
 		ServiceInfoTypeCronManager,
 		ServiceInfoTypeDeploymentManagementSystem,
+		ServiceInfoTypeMcp,
 	}
 }
 
@@ -2123,6 +3540,8 @@ func (s ServiceInfoType) MarshalText() ([]byte, error) {
 	case ServiceInfoTypeCronManager:
 		return []byte(s), nil
 	case ServiceInfoTypeDeploymentManagementSystem:
+		return []byte(s), nil
+	case ServiceInfoTypeMcp:
 		return []byte(s), nil
 	default:
 		return nil, errors.Errorf("invalid value: %q", s)
@@ -2155,6 +3574,9 @@ func (s *ServiceInfoType) UnmarshalText(data []byte) error {
 		return nil
 	case ServiceInfoTypeDeploymentManagementSystem:
 		*s = ServiceInfoTypeDeploymentManagementSystem
+		return nil
+	case ServiceInfoTypeMcp:
+		*s = ServiceInfoTypeMcp
 		return nil
 	default:
 		return errors.Errorf("invalid value: %q", data)
@@ -2791,6 +4213,9 @@ func (s *SyncInfo) init() SyncInfo {
 	}
 	return m
 }
+
+// UpdateNodeLabelNoContent is response for UpdateNodeLabel operation.
+type UpdateNodeLabelNoContent struct{}
 
 // Ref: #/components/schemas/WebRoute
 type WebRoute struct {

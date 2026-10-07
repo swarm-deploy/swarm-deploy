@@ -13,8 +13,10 @@ git:
 sync:
   # Synchronization mode: pull | webhook | hybrid.
   mode: pull
-  # Pull polling interval.
+  # Git polling interval.
   pollInterval: 30s
+  # Reconciliation interval against the current local desired state.
+  interval: 1m
   policy:
     # Removes orphaned managed services that are no longer defined in compose.
     prune: true
@@ -87,6 +89,43 @@ secretRotation:
   hashLength: 10
   # Include source file path in hash.
   includePath: true
+  # Best-effort cleanup of old managed generations.
+  cleanup:
+    enabled: true
+    # Minimum interval between periodic cleanup attempts.
+    interval: 4h
+    # Keep at least this many newest generations per logical config/secret.
+    keepLast: 2
+    # Never remove generations younger than this age.
+    minAge: 1h
+
+# Container runtime settings.
+containers:
+  # Inject Swarm downward environment variables into services.
+  downward: {}
+
+# OpenTelemetry tracing. Uncomment to enable.
+# tracing:
+#   # OTLP transport: http | grpc.
+#   transport: http
+#   sampler:
+#     # Sampling strategy: always_on | always_off | traceidratio | parentbased_traceidratio.
+#     strategy: ${OTEL_TRACES_SAMPLER}
+#     # Sampling ratio for traceidratio strategies. Must be between 0 and 1.
+#     ratio: ${OTEL_TRACES_SAMPLER_ARG}
+#   exporter:
+#     endpoint: $OTEL_EXPORTER_OTLP_ENDPOINT
+#     # Header values can reference environment variables.
+#     # Authorization must be configured via authentication.bearerPath or authentication.apiKeyPath.
+#     headers:
+#       x-tenant: $OTEL_TENANT
+#     authentication:
+#       # Optional path to a file containing bearer token.
+#       bearerPath: /run/secrets/otel-bearer
+#       # Optional path to a file containing API key for Authorization: Api-Key <value>.
+#       apiKeyPath: /run/secrets/otel-api-key
+#       # Optional path to a file containing x-api-key.
+#       xApiKeyPath: /run/secrets/otel-x-api-key
 
 # Docker stack deploy execution settings.
 swarm:
