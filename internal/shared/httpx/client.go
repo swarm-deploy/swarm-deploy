@@ -28,7 +28,7 @@ func (c *Client) SendJSONRequest(req *http.Request, out any) error {
 
 // SendRequest sends req and unmarshals a successful response into out.
 func (c *Client) SendRequest(req *http.Request, unmarshaler Unmarshaler, out any) error {
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(req) //nolint:gosec // Callers construct requests and enforce destination policies.
 	if err != nil {
 		return MatchError(err)
 	}
