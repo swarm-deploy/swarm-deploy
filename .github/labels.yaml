@@ -36,4 +36,4 @@
 
 - name: "module:notifications"
   color: "#5319e7"
-  description: Assistant module
+  description: Notifications module
