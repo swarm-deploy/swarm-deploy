@@ -9,21 +9,20 @@ import (
 	"strings"
 	"time"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/httpx"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 )
 
-const (
-	defaultNotifyHTTPTimeout = 2 * time.Minute
-	httpStatusClassDivisor   = 100
-	httpStatusClassSuccess   = 2
-)
+const defaultNotifyHTTPTimeout = 2 * time.Minute
+
+var discardHTTPResponse = httpx.Unmarshaler(func([]byte, any) error { return nil })
 
 type CustomWebhookNotifier struct {
 	name    string
 	url     string
 	method  string
 	headers map[string]string
-	client  *http.Client
+	client  *httpx.Client
 }
 
 func NewCustomWebhookNotifier(name, url, method string, headers map[string]string) Notifier {
@@ -46,10 +45,10 @@ func newCustomWebhookNotifier(name, url, method string, headers map[string]strin
 		url:     url,
 		method:  strings.ToUpper(method),
 		headers: headers,
-		client: &http.Client{
+		client: httpx.NewClient(&http.Client{
 			Timeout:   defaultNotifyHTTPTimeout,
 			Transport: traceTransport(http.DefaultTransport, ""),
-		},
+		}),
 	}
 }
 
@@ -81,14 +80,10 @@ func (n *CustomWebhookNotifier) Notify(ctx context.Context, event Message) error
 	}
 
 	//nolint:gosec // Destination URL is controlled by operator configuration for webhook notifications.
-	resp, err := n.client.Do(req)
+	err = n.client.SendRequest(req, discardHTTPResponse, nil)
 	if err != nil {
 		return fmt.Errorf("send request: %w", err)
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode/httpStatusClassDivisor != httpStatusClassSuccess {
-		return fmt.Errorf("unexpected status: %s", resp.Status)
-	}
 	return nil
 }
