@@ -442,7 +442,7 @@ func (r *Reconciler) analyzeDrift(ctx context.Context, payload *pipelinePayload)
 			continue
 		}
 
-		if err := r.deployDriftedService(ctx, payload, service); err != nil {
+		if err := r.deployer.DeployService(ctx, payload.Stack.Name, payload.Desired.Path, service); err != nil {
 			if serviceDrift.ServiceMissed {
 				r.event.Dispatch(ctx, &events.ServiceRestoreFailed{
 					StackName:   payload.Stack.Name,
@@ -474,34 +474,4 @@ func selfHealEnabled(labels map[string]string, globalPolicy bool) (bool, error) 
 	default:
 		return false, fmt.Errorf("%s must be a boolean, got %q", selfHealLabel, raw)
 	}
-}
-
-func (r *Reconciler) deployDriftedService(
-	ctx context.Context,
-	payload *pipelinePayload,
-	service compose.Service,
-) error {
-	desired := payload.Desired.Compose
-	desired.Services = compose.Services{service}
-	content, err := (&compose.File{Compose: desired}).MarshalYAML()
-	if err != nil {
-		return fmt.Errorf("marshal compose for service %s: %w", service.Name, err)
-	}
-
-	file, err := os.CreateTemp(filepath.Dir(payload.DeployComposePath), "swarm-deploy-drift-*.yaml")
-	if err != nil {
-		return fmt.Errorf("create compose file for service %s: %w", service.Name, err)
-	}
-	path := file.Name()
-	defer os.Remove(path)
-
-	if _, err := file.Write(content); err != nil {
-		file.Close()
-		return fmt.Errorf("write compose file for service %s: %w", service.Name, err)
-	}
-	if err := file.Close(); err != nil {
-		return fmt.Errorf("close compose file for service %s: %w", service.Name, err)
-	}
-
-	return r.deployer.DeployStack(ctx, payload.Stack.Name, payload.Desired.Path, path, desired)
 }

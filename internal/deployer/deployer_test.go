@@ -198,9 +198,9 @@ volumes:
 `)
 	require.NoError(t, os.WriteFile(sourceComposePath, sourceCompose, 0o600), "write source compose")
 
-	stackFile, err := compose.Load(sourceComposePath)
+	stackFile, err := compose.NewFileLoader().Load(context.Background(), sourceComposePath)
 	require.NoError(t, err, "load source compose")
-	require.Len(t, stackFile.Services, 2, "unexpected parsed services count")
+	require.Len(t, stackFile.Compose.Services, 2, "unexpected parsed services count")
 
 	var renderedPath string
 	runner := &fakeRunner{
@@ -229,7 +229,7 @@ volumes:
 		initJobRunner:   initJobs,
 	}
 
-	err = deployer.DeployService(context.Background(), "demo", sourceComposePath, stackFile.Services[0])
+	err = deployer.DeployService(context.Background(), "demo", sourceComposePath, stackFile.Compose.Services[0])
 	require.NoError(t, err, "deploy service")
 
 	require.Len(t, initJobs.calls, 1, "only target service init jobs must run")

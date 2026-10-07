@@ -12,4 +12,6 @@ import (
 type StackDeployer interface {
 	// DeployStack reconciles init-job resources from sourceComposePath and applies deployComposePath.
 	DeployStack(ctx context.Context, stackName, sourceComposePath, deployComposePath string, desired compose.Compose) error
+	// DeployService deploys one service from the provided Compose file.
+	DeployService(ctx context.Context, stackName, composePath string, service compose.Service) error
 }

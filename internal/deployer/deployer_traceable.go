@@ -45,3 +45,26 @@ func (t TraceableDeployer) DeployStack(
 
 	return nil
 }
+
+func (t TraceableDeployer) DeployService(
+	ctx context.Context,
+	stackName,
+	composePath string,
+	service compose.Service,
+) error {
+	ctx, span := t.tracer.Start(ctx, "deployer.DeployService", trace.WithAttributes(
+		tracing.ResourceStackName.String(stackName),
+		tracing.ResourceComposePath.String(composePath),
+	))
+	defer span.End()
+
+	err := t.deployer.DeployService(ctx, stackName, composePath, service)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		return err
+	}
+
+	span.SetStatus(codes.Ok, "")
+	return nil
+}
