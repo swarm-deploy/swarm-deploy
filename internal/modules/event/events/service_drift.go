@@ -2,14 +2,6 @@ package events
 
 import "fmt"
 
-// ServiceMissed is emitted when a service disappeared from cluster runtime.
-type ServiceMissed struct {
-	// StackName is a stack name where service is expected.
-	StackName string
-	// ServiceName is a service name inside stack.
-	ServiceName string
-}
-
 // ServiceRestored is emitted when a missed service has been restored.
 type ServiceRestored struct {
 	// StackName is a stack name where service was restored.
@@ -32,21 +24,6 @@ type ServiceReplicasDiverged struct {
 	StackName string
 	// ServiceName is a target service name inside stack.
 	ServiceName string
-}
-
-func (s *ServiceMissed) Type() Type {
-	return TypeServiceMissed
-}
-
-func (s *ServiceMissed) Message() string {
-	return fmt.Sprintf("Service %s/%s disappeared from cluster", s.StackName, s.ServiceName)
-}
-
-func (s *ServiceMissed) Details() map[string]string {
-	return map[string]string{
-		"stack_name":   s.StackName,
-		"service_name": s.ServiceName,
-	}
 }
 
 func (s *ServiceRestored) Type() Type {

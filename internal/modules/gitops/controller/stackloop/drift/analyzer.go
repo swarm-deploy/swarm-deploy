@@ -21,7 +21,7 @@ func (a *Analyzer) Analyze(req AnalyzeRequest) (AnalyzeResponse, error) {
 	}
 
 	for _, desiredService := range req.Desired.Compose.Services {
-		_, serviceExists := liveServiceMap[desiredService.Name]
+		liveService, serviceExists := liveServiceMap[desiredService.Name]
 		if !serviceExists {
 			resp.Drifts[desiredService.Name] = ServiceDrift{
 				ServiceName:   desiredService.Name,
@@ -29,6 +29,17 @@ func (a *Analyzer) Analyze(req AnalyzeRequest) (AnalyzeResponse, error) {
 				ServiceMissed: true,
 			}
 			continue
+		}
+
+		if desiredService.Deploy.Replicas == nil || liveService.Replicas == nil ||
+			*desiredService.Deploy.Replicas == *liveService.Replicas {
+			continue
+		}
+
+		resp.Drifts[desiredService.Name] = ServiceDrift{
+			ServiceName:             desiredService.Name,
+			Reason:                  "Service Replicas Diverged",
+			ServiceReplicasDiverged: true,
 		}
 	}
 

@@ -1,6 +1,5 @@
 # Drift detection
 
-<<<<<<< HEAD
 swarm-deploy compares desired service state from Git with live Docker Swarm state during each sync run.
 
 ## Sync status model
@@ -52,9 +51,5 @@ When drift is detected and processed, swarm-deploy emits:
 - `serviceReplicasDiverged`
 
 See [Event History](./event-history.md) for event details.
-=======
-swarm-deploy checks drift on:
-- Service missed from cluster
-  - Service state is marked as out of sync with reason `Service Missed`
-  - Event `serviceMissed` is dispatched with details: `stack_name`, `service_name`, `commit`
->>>>>>> origin/master
+
+For a missed service, the `serviceMissed` event includes `stack_name`, `service_name`, and `commit`.

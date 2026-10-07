@@ -17,9 +17,15 @@ type AnalyzeResponse struct {
 }
 
 type ServiceDrift struct {
+	// ServiceName is the service with detected drift.
 	ServiceName string
 
+	// Reason describes the detected drift.
 	Reason string
 
+	// ServiceMissed is true when the service is absent from the live cluster.
 	ServiceMissed bool
+
+	// ServiceReplicasDiverged is true when live and desired replica counts differ.
+	ServiceReplicasDiverged bool
 }

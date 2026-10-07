@@ -20,16 +20,12 @@ const (
 	TypeNameDeployFailed                     TypeName = "deployFailed"
 	TypeNameSendNotificationFailed           TypeName = "sendNotificationFailed"
 	TypeNameSyncManualStarted                TypeName = "syncManualStarted"
-<<<<<<< HEAD:internal/event/events/types.go
+	TypeNameNodeConnected                    TypeName = "nodeConnected"
+	TypeNameNodeDisconnected                 TypeName = "nodeDisconnected"
 	TypeNameServiceMissed                    TypeName = "serviceMissed"
 	TypeNameServiceRestored                  TypeName = "serviceRestored"
 	TypeNameServiceRestoreFailed             TypeName = "serviceRestoreFailed"
 	TypeNameServiceReplicasDiverged          TypeName = "serviceReplicasDiverged"
-=======
-	TypeNameNodeConnected                    TypeName = "nodeConnected"
-	TypeNameNodeDisconnected                 TypeName = "nodeDisconnected"
-	TypeNameServiceMissed                    TypeName = "serviceMissed"
->>>>>>> origin/master:internal/modules/event/events/types.go
 	TypeNameServiceReplicasIncreased         TypeName = "serviceReplicasIncreased"
 	TypeNameServiceReplicasDecreased         TypeName = "serviceReplicasDecreased"
 	TypeNameServiceRestarted                 TypeName = "serviceRestarted"
@@ -128,11 +124,6 @@ var (
 		category: CategorySync,
 		window:   serviceDedupWindow,
 	}
-	TypeServiceMissed = Type{
-		name:     TypeNameServiceMissed,
-		severity: SeverityAlert,
-		category: CategorySync,
-	}
 	TypeServiceRestored = Type{
 		name:     TypeNameServiceRestored,
 		severity: SeverityInfo,
@@ -196,16 +187,12 @@ var (
 		TypeDeployFailed,
 		TypeSendNotificationFailed,
 		TypeSyncManualStarted,
-<<<<<<< HEAD:internal/event/events/types.go
+		TypeNodeConnected,
+		TypeNodeDisconnected,
 		TypeServiceMissed,
 		TypeServiceRestored,
 		TypeServiceRestoreFailed,
 		TypeServiceReplicasDiverged,
-=======
-		TypeNodeConnected,
-		TypeNodeDisconnected,
-		TypeServiceMissed,
->>>>>>> origin/master:internal/modules/event/events/types.go
 		TypeServiceReplicasIncreased,
 		TypeServiceReplicasDecreased,
 		TypeServiceRestarted,
@@ -272,7 +259,10 @@ func (n TypeName) Valid() bool {
 		return true
 	case TypeNameSyncManualStarted:
 		return true
-<<<<<<< HEAD:internal/event/events/types.go
+	case TypeNameNodeConnected:
+		return true
+	case TypeNameNodeDisconnected:
+		return true
 	case TypeNameServiceMissed:
 		return true
 	case TypeNameServiceRestored:
@@ -281,14 +271,6 @@ func (n TypeName) Valid() bool {
 		return true
 	case TypeNameServiceReplicasDiverged:
 		return true
-=======
-	case TypeNameNodeConnected:
-		return true
-	case TypeNameNodeDisconnected:
-		return true
-	case TypeNameServiceMissed:
-		return true
->>>>>>> origin/master:internal/modules/event/events/types.go
 	case TypeNameServiceReplicasIncreased:
 		return true
 	case TypeNameServiceReplicasDecreased:
@@ -319,7 +301,10 @@ func ParseType(name string) (Type, bool) {
 		return TypeSendNotificationFailed, true
 	case TypeNameSyncManualStarted:
 		return TypeSyncManualStarted, true
-<<<<<<< HEAD:internal/event/events/types.go
+	case TypeNameNodeConnected:
+		return TypeNodeConnected, true
+	case TypeNameNodeDisconnected:
+		return TypeNodeDisconnected, true
 	case TypeNameServiceMissed:
 		return TypeServiceMissed, true
 	case TypeNameServiceRestored:
@@ -328,14 +313,6 @@ func ParseType(name string) (Type, bool) {
 		return TypeServiceRestoreFailed, true
 	case TypeNameServiceReplicasDiverged:
 		return TypeServiceReplicasDiverged, true
-=======
-	case TypeNameNodeConnected:
-		return TypeNodeConnected, true
-	case TypeNameNodeDisconnected:
-		return TypeNodeDisconnected, true
-	case TypeNameServiceMissed:
-		return TypeServiceMissed, true
->>>>>>> origin/master:internal/modules/event/events/types.go
 	case TypeNameServiceReplicasIncreased:
 		return TypeServiceReplicasIncreased, true
 	case TypeNameServiceReplicasDecreased:

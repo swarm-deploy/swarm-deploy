@@ -171,12 +171,9 @@ when swarm-deploy manages its own service, and it also makes ordinary swarm-depl
 - [Notifications](./docs/notifications.md)
 - [Init Deploy Jobs](./docs/init-deploy-jobs.md)
 - [Secrets Rotation](./docs/secrets-rotation.md)
-<<<<<<< HEAD
 - [Drift detection and self-heal policy](./docs/drift.md)
-=======
 - [AI Assistant](./docs/assistant.md)
 - [CLI](./docs/cli.md)
->>>>>>> origin/master
 
 ## Examples
 

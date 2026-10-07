@@ -106,30 +106,21 @@ type EventHistorySpec struct {
 type SyncSpec struct {
 	// Mode is sync mode: pull, webhook, or hybrid.
 	Mode string `yaml:"mode"`
-<<<<<<< HEAD
-	// Interval is an interval between git pull attempts / drift analyze.
-	Interval specw.Duration `yaml:"pollInterval"`
-	// Policy contains synchronization policy settings.
-=======
 	// PollInterval is an interval between git pull attempts.
 	PollInterval specw.Duration `yaml:"pollInterval"`
 	// Interval is an interval between reconciliations against the current local desired state.
 	Interval specw.Duration `yaml:"interval"`
 	// Policy contains synchronization behavior flags.
->>>>>>> origin/master
 	Policy SyncPolicySpec `yaml:"policy"`
 	// Webhook contains webhook sync trigger settings.
 	Webhook WebhookSpec `yaml:"webhook"`
 }
 
 type SyncPolicySpec struct {
-<<<<<<< HEAD
 	// SelfHeal enables automatic remediation for detected drift.
 	SelfHeal bool `yaml:"selfHeal"`
-=======
 	// Prune enables deletion of orphaned managed services.
 	Prune bool `yaml:"prune"`
->>>>>>> origin/master
 }
 
 type WebhookSpec struct {
@@ -276,8 +267,8 @@ func (c *Config) applyGitAndSyncDefaults() {
 	if c.Spec.Sync.Mode == "" {
 		c.Spec.Sync.Mode = SyncModeHybrid
 	}
-	if c.Spec.Sync.Interval.Value <= 0 {
-		c.Spec.Sync.Interval.Value = defaultSyncPollInterval
+	if c.Spec.Sync.PollInterval.Value <= 0 {
+		c.Spec.Sync.PollInterval.Value = defaultSyncPollInterval
 	}
 	if c.Spec.Sync.Interval.Value <= 0 {
 		c.Spec.Sync.Interval.Value = defaultSyncInterval

@@ -3,14 +3,12 @@ package deployer
 import (
 	"context"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/docker/docker/client"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
-	"gopkg.in/yaml.v3"
 )
 
 const deployArgsExtraCount = 3
@@ -110,24 +108,6 @@ func (d *Deployer) DeployStack(
 		return err
 	}
 
-	return d.runStackDeploy(ctx, stackName, composePath)
-}
-
-func (d *Deployer) DeployService(ctx context.Context, stackName, composePath string, service compose.Service) error {
-	if err := d.runInitJobs(ctx, stackName, []compose.Service{service}); err != nil {
-		return err
-	}
-
-	serviceComposePath, cleanup, err := createSingleServiceCompose(composePath, service.Name)
-	if err != nil {
-		return fmt.Errorf("render single service compose for %s/%s: %w", stackName, service.Name, err)
-	}
-	defer cleanup()
-
-	return d.runStackDeploy(ctx, stackName, serviceComposePath)
-}
-
-func (d *Deployer) runStackDeploy(ctx context.Context, stackName, composePath string) error {
 	args := make([]string, 0, len(d.stackDeployArgs)+deployArgsExtraCount)
 	args = append(args, d.stackDeployArgs...)
 	args = append(args, "-c", deployComposePath, stackName)
@@ -142,94 +122,12 @@ func (d *Deployer) runStackDeploy(ctx context.Context, stackName, composePath st
 	return nil
 }
 
-<<<<<<< HEAD
-func createSingleServiceCompose(composePath string, serviceName string) (string, func(), error) {
-	stackFile, err := compose.Load(composePath)
-	if err != nil {
-		return "", nil, err
-	}
-
-	servicesMap, isMap := asMap(stackFile.RawMap["services"])
-	if !isMap {
-		return "", nil, fmt.Errorf("services section is not a map")
-	}
-
-	serviceRaw, hasService := servicesMap[serviceName]
-	if !hasService {
-		return "", nil, fmt.Errorf("service %q not found in compose", serviceName)
-	}
-
-	rendered := map[string]any{
-		"services": map[string]any{
-			serviceName: serviceRaw,
-		},
-	}
-
-	for _, key := range []string{"version", "name", "networks", "secrets", "volumes", "configs"} {
-		if value, ok := stackFile.RawMap[key]; ok {
-			rendered[key] = value
-		}
-	}
-
-	payload, err := yaml.Marshal(rendered)
-	if err != nil {
-		return "", nil, fmt.Errorf("marshal single service compose: %w", err)
-	}
-
-	file, err := os.CreateTemp("", "swarm-deploy-single-service-*.yaml")
-	if err != nil {
-		return "", nil, fmt.Errorf("create temporary compose file: %w", err)
-	}
-
-	targetPath := file.Name()
-	if _, err = file.Write(payload); err != nil {
-		file.Close()
-		_ = os.Remove(targetPath)
-		return "", nil, fmt.Errorf("write temporary compose file: %w", err)
-	}
-	if err = file.Close(); err != nil {
-		_ = os.Remove(targetPath)
-		return "", nil, fmt.Errorf("close temporary compose file: %w", err)
-	}
-
-	cleanup := func() {
-		_ = os.Remove(targetPath)
-	}
-
-	return targetPath, cleanup, nil
-}
-
-func asMap(v any) (map[string]any, bool) {
-	if typed, ok := v.(map[string]any); ok {
-		return typed, true
-	}
-
-	typedAny, ok := v.(map[any]any)
-	if !ok {
-		return nil, false
-	}
-
-	out := make(map[string]any, len(typedAny))
-	for key, value := range typedAny {
-		asString, keyIsString := key.(string)
-		if !keyIsString {
-			continue
-		}
-		out[asString] = value
-	}
-
-	return out, true
-}
-
-func (d *Deployer) runInitJobs(ctx context.Context, stackName string, services []compose.Service) error {
-=======
 func (d *Deployer) runInitJobs(
 	ctx context.Context,
 	stackName string,
 	services []compose.Service,
 	resolved resolvedResources,
 ) error {
->>>>>>> origin/master
 	for _, service := range services {
 		// Jobs are run in declaration order per service to keep behavior deterministic.
 		for _, job := range service.InitJobs {

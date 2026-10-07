@@ -8,16 +8,12 @@
 | `networkCreated`                   | `info`   | `sync`     | Managed network was created          | `network_name`, `network_id`, `driver`                       |
 | `sendNotificationFailed`           | `error`  | `sync`     | Notification delivery failure       | `destination`, `channel`, `event_type`, `error` (if present) |
 | `syncManualStarted`                | `info`   | `sync`     | Manual sync run started             | `triggered_by` (if present)                                  |
-<<<<<<< HEAD
-| `serviceMissed`                    | `alert`  | `sync`     | Service disappeared from cluster    | `stack_name`, `service_name`                                 |
+| `nodeConnected`                    | `info`   | `swarm`    | Swarm node became ready             | `node_id`, `node_name` (if present), `status`                 |
+| `nodeDisconnected`                 | `alert`  | `swarm`    | Swarm node left ready state         | `node_id`, `node_name` (if present), `status`                 |
+| `serviceMissed`                    | `alert`  | `sync`     | Service disappeared from cluster    | `stack_name`, `service_name`, `commit`                       |
 | `serviceRestored`                  | `info`   | `sync`     | Service restored after drift        | `stack_name`, `service_name`                                 |
 | `serviceRestoreFailed`             | `alert`  | `sync`     | Service restore failed after drift  | `stack_name`, `service_name`                                 |
 | `serviceReplicasDiverged`          | `warn`   | `sync`     | Runtime replicas diverged from spec | `stack_name`, `service_name`                                 |
-=======
-| `nodeConnected`                    | `info`   | `swarm`    | Swarm node became ready             | `node_id`, `node_name` (if present), `status`                 |
-| `nodeDisconnected`                 | `alert`  | `swarm`    | Swarm node left ready state         | `node_id`, `node_name` (if present), `status`                 |
-| `serviceMissed`                    | `alert`  | `sync`     | Desired service is absent in swarm state | `stack_name`, `service_name`, `commit`                  |
->>>>>>> origin/master
 | `serviceReplicasIncreased`         | `info`   | `sync`     | Service replicas count increased    | `stack`, `service`, `previous_replicas`, `current_replicas`, `username` (if present) |
 | `serviceReplicasDecreased`         | `info`   | `sync`     | Service replicas count decreased    | `stack`, `service`, `previous_replicas`, `current_replicas`, `username` (if present) |
 | `serviceRestarted`                 | `info`   | `sync`     | Service restarted                   | `stack`, `service`, `username` (if present)                  |

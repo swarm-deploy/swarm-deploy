@@ -177,35 +177,9 @@ func main() {
 			os.Exit(1)
 		}
 
-<<<<<<< HEAD
-	control := controller.New(
-		cfg,
-		gitRepository,
-		deployerSvc,
-		metricsGroup,
-		eventDispatcher,
-		swarmService.Services,
-	)
-
-	assistantService, err := buildAssistantService(
-		cfg,
-		serviceStore,
-		eventHistory,
-		nodeStore,
-		swarmService,
-		gitRepository,
-		control,
-		eventDispatcher,
-		metricsGroup,
-	)
-	if err != nil {
-		slog.ErrorContext(ctx, "failed to build assistant service", slog.Any("err", err))
-		os.Exit(1)
-=======
 		slog.InfoContext(ctx, "[main] module initialized",
 			slog.Any("module", mod.Name),
 		)
->>>>>>> origin/master
 	}
 
 	webApplication, err := webserver.NewApplication(

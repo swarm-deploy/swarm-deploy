@@ -195,16 +195,30 @@ func (r *Reconciler) processResult(
 		}
 	})
 
-	for _, serviceDrift := range payload.Drift {
-		if !serviceDrift.ServiceMissed || prevState.ServiceSyncStatus(serviceDrift.ServiceName) == model.SyncStatusOutOfSync {
-			continue
-		}
+	for serviceName, serviceDrift := range payload.DetectedDrift {
+		wasOutOfSync := prevState.ServiceSyncStatus(serviceName) == model.SyncStatusOutOfSync
 
-		r.event.Dispatch(ctx, &events.ServiceMissed{
-			StackName:   req.Stack.Name,
-			ServiceName: serviceDrift.ServiceName,
-			Commit:      req.Commit,
-		})
+		if serviceDrift.ServiceMissed {
+			if !wasOutOfSync {
+				r.event.Dispatch(ctx, &events.ServiceMissed{
+					StackName:   req.Stack.Name,
+					ServiceName: serviceName,
+					Commit:      req.Commit,
+				})
+			}
+			if _, stillDrifted := payload.Drift[serviceName]; !stillDrifted {
+				r.event.Dispatch(ctx, &events.ServiceRestored{
+					StackName:   req.Stack.Name,
+					ServiceName: serviceName,
+				})
+			}
+		}
+		if !wasOutOfSync && serviceDrift.ServiceReplicasDiverged {
+			r.event.Dispatch(ctx, &events.ServiceReplicasDiverged{
+				StackName:   req.Stack.Name,
+				ServiceName: serviceName,
+			})
+		}
 	}
 
 	if !payload.IsNewDigest {

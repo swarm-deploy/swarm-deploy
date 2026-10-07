@@ -15,18 +15,15 @@ sync:
   mode: pull
   # Git polling interval.
   pollInterval: 30s
-<<<<<<< HEAD
   # Synchronization policy.
   policy:
     # Automatically restore out-of-sync services.
     selfHeal: true
-=======
   # Reconciliation interval against the current local desired state.
   interval: 1m
   policy:
     # Removes orphaned managed services that are no longer defined in compose.
     prune: true
->>>>>>> origin/master
 
 # Stacks source settings.
 stacks:
@@ -46,11 +43,7 @@ eventHistory:
 # Notification channels grouped by event type.
 notifications:
   on:
-<<<<<<< HEAD
-    # Event type examples: deploySuccess | deployFailed | syncManualStarted | serviceMissed | serviceRestored | serviceRestoreFailed | serviceReplicasDiverged | userAuthenticated
-=======
-    # Event type: deploySuccess | deployFailed | servicePruned | syncManualStarted | nodeConnected | nodeDisconnected | userAuthenticated
->>>>>>> origin/master
+    # Event type examples: deploySuccess | deployFailed | servicePruned | syncManualStarted | nodeConnected | nodeDisconnected | serviceMissed | serviceRestored | serviceRestoreFailed | serviceReplicasDiverged | userAuthenticated
     deploySuccess:
       telegram:
         - name: ops-success

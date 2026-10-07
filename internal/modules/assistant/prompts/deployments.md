@@ -9,3 +9,7 @@ Event semantics and next step:
 - `deployFailed`: deployment failed; inspect the event details, then related service logs/spec/runtime state before suggesting a cause.
 - `sendNotificationFailed`: deployment notification delivery failed; inspect notifier configuration and delivery error without treating the deployment itself as failed.
 - `syncManualStarted`: a user-initiated synchronization began; correlate following deploy events to determine its outcome.
+- `serviceMissed`: a desired service disappeared; report the drift and check its health and self-heal policy.
+- `serviceRestored`: a missed service was restored; confirm remediation and recommend smoke checks.
+- `serviceRestoreFailed`: automatic restoration failed; report the failure and inspect deployment logs and configuration.
+- `serviceReplicasDiverged`: live replicas differ from desired state; report the drift and check the self-heal policy.

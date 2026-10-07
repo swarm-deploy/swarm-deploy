@@ -6,10 +6,12 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	pipe "github.com/artarts36/gopipe"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/drift"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/pruner"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
@@ -29,7 +31,9 @@ type pipelinePayload struct {
 	LiveServices   []swarm.StackService
 	PrunedServices []string
 	CleanupResult  rotatedCleanupResult
-	Drift          map[string]drift.ServiceDrift
+	// DetectedDrift retains initial drift even when self-healing succeeds.
+	DetectedDrift map[string]drift.ServiceDrift
+	Drift         map[string]drift.ServiceDrift
 }
 
 func (r *Reconciler) attachPipeline() {
@@ -407,7 +411,7 @@ func liveServicesAfterPrune(services []swarm.StackService, pruned []string) []sw
 	return filtered
 }
 
-func (r *Reconciler) analyzeDrift(_ context.Context, payload *pipelinePayload) error {
+func (r *Reconciler) analyzeDrift(ctx context.Context, payload *pipelinePayload) error {
 	driftResp, err := r.driftAnalyzer.Analyze(drift.AnalyzeRequest{
 		Stack:   payload.Stack,
 		Desired: *payload.Desired,
@@ -415,6 +419,89 @@ func (r *Reconciler) analyzeDrift(_ context.Context, payload *pipelinePayload) e
 	})
 
 	payload.Drift = driftResp.Drifts
+	payload.DetectedDrift = make(map[string]drift.ServiceDrift, len(driftResp.Drifts))
+	for serviceName, serviceDrift := range driftResp.Drifts {
+		payload.DetectedDrift[serviceName] = serviceDrift
+	}
 
-	return err
+	if err != nil {
+		return err
+	}
+
+	for _, service := range payload.Desired.Compose.Services {
+		serviceDrift, hasDrift := payload.Drift[service.Name]
+		if !hasDrift {
+			continue
+		}
+
+		enabled, err := selfHealEnabled(service.Deploy.Labels.Map, r.cfg.Spec.Sync.Policy.SelfHeal)
+		if err != nil {
+			return fmt.Errorf("resolve self-heal policy for service %s: %w", service.Name, err)
+		}
+		if !enabled {
+			continue
+		}
+
+		if err := r.deployDriftedService(ctx, payload, service); err != nil {
+			if serviceDrift.ServiceMissed {
+				r.event.Dispatch(ctx, &events.ServiceRestoreFailed{
+					StackName:   payload.Stack.Name,
+					ServiceName: service.Name,
+				})
+			}
+			continue
+		}
+
+		delete(payload.Drift, service.Name)
+	}
+
+	return nil
+}
+
+const selfHealLabel = "org.swarm-deploy.service.sync.policy.selfHeal"
+
+func selfHealEnabled(labels map[string]string, globalPolicy bool) (bool, error) {
+	raw, exists := labels[selfHealLabel]
+	if !exists {
+		return globalPolicy, nil
+	}
+
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "true", "1", "yes", "y", "on":
+		return true, nil
+	case "false", "0", "no", "n", "off":
+		return false, nil
+	default:
+		return false, fmt.Errorf("%s must be a boolean, got %q", selfHealLabel, raw)
+	}
+}
+
+func (r *Reconciler) deployDriftedService(
+	ctx context.Context,
+	payload *pipelinePayload,
+	service compose.Service,
+) error {
+	desired := payload.Desired.Compose
+	desired.Services = compose.Services{service}
+	content, err := (&compose.File{Compose: desired}).MarshalYAML()
+	if err != nil {
+		return fmt.Errorf("marshal compose for service %s: %w", service.Name, err)
+	}
+
+	file, err := os.CreateTemp(filepath.Dir(payload.DeployComposePath), "swarm-deploy-drift-*.yaml")
+	if err != nil {
+		return fmt.Errorf("create compose file for service %s: %w", service.Name, err)
+	}
+	path := file.Name()
+	defer os.Remove(path)
+
+	if _, err := file.Write(content); err != nil {
+		file.Close()
+		return fmt.Errorf("write compose file for service %s: %w", service.Name, err)
+	}
+	if err := file.Close(); err != nil {
+		return fmt.Errorf("close compose file for service %s: %w", service.Name, err)
+	}
+
+	return r.deployer.DeployStack(ctx, payload.Stack.Name, payload.Desired.Path, path, desired)
 }
