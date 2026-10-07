@@ -38,6 +38,11 @@ func (r *Reconciler) attachPipeline() {
 	})
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
+		Name: "check image policy",
+		Run:  r.checkImagePolicy,
+	})
+
+	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "populate environment",
 		When: pipe.When(func(payload *pipelinePayload) bool {
 			for _, service := range payload.Desired.Compose.Services {

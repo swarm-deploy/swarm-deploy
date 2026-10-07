@@ -963,8 +963,15 @@ func TestCheckImagePolicyDispatchesDeployDenied(t *testing.T) {
 		event: eventDispatcher,
 	}
 
-	err := reconciler.checkImagePolicy(context.Background(), "app", []compose.Service{
-		{Name: "api", Image: "nginx:latest"},
+	err := reconciler.checkImagePolicy(context.Background(), &pipelinePayload{
+		Stack: config.StackSpec{Name: "app"},
+		Desired: &compose.File{
+			Compose: compose.Compose{
+				Services: []compose.Service{
+					{Name: "api", Image: "nginx:latest"},
+				},
+			},
+		},
 	})
 
 	require.Error(t, err)

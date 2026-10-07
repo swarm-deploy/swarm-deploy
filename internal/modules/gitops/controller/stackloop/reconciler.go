@@ -129,11 +129,6 @@ func (r *Reconciler) Reconcile(
 	}
 
 	services := desiredState.Compose.Services
-	err = r.checkImagePolicy(ctx, req.Stack.Name, services)
-	if err != nil {
-		r.recordFailure(ctx, req.Stack.Name, req.Commit, services, err)
-		return wrapReconcileError("check image policy", services, err)
-	}
 	prev, hasPrev := r.currentStackState(req.Stack.Name)
 
 	pl := &pipelinePayload{
@@ -161,11 +156,10 @@ func (r *Reconciler) Reconcile(
 
 func (r *Reconciler) checkImagePolicy(
 	ctx context.Context,
-	stackName string,
-	services []compose.Service,
+	payload *pipelinePayload,
 ) error {
 	var denied int
-	for _, service := range services {
+	for _, service := range payload.Desired.Compose.Services {
 		violated := r.cfg.Spec.Policies.Image.CheckImage(service.Image)
 		if violated == "" {
 			continue
@@ -173,7 +167,7 @@ func (r *Reconciler) checkImagePolicy(
 
 		denied++
 		r.event.Dispatch(ctx, &events.DeployDenied{
-			StackName:   stackName,
+			StackName:   payload.Stack.Name,
 			ServiceName: service.Name,
 			Image:       service.Image,
 			Policy:      violated,
