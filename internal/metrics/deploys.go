@@ -10,6 +10,8 @@ type Deploys interface {
 	RecordDeploy(stack, service, status string)
 }
 
+type NopDeploys struct{}
+
 type prometheusDeploys struct {
 	total       *prometheus.CounterVec
 	initJobRuns *prometheus.CounterVec
@@ -48,4 +50,12 @@ func (d *prometheusDeploys) RecordDeploy(stack, service, status string) {
 
 func (d *prometheusDeploys) collectors() []prometheus.Collector {
 	return []prometheus.Collector{d.total, d.initJobRuns}
+}
+
+func (*NopDeploys) RecordInitJobRun(_, _ string) {}
+
+func (*NopDeploys) RecordDeploy(_, _, _ string) {}
+
+func (d *NopDeploys) collectors() []prometheus.Collector {
+	return make([]prometheus.Collector, 0)
 }

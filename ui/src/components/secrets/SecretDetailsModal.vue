@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted } from "vue";
 
+import AppTable from "../common/AppTable.vue";
 import { useSecretDetailsStore } from "../../stores/secretDetails";
 import { formatDate } from "../../utils/format";
 
 const secretDetailsStore = useSecretDetailsStore();
+
+const secretDescription = computed(() => secretDetailsStore.secret?.labels?.description ?? "");
 
 const secretLabels = computed(() => {
   const labels = secretDetailsStore.secret?.labels;
@@ -12,7 +15,9 @@ const secretLabels = computed(() => {
     return [];
   }
 
-  return Object.entries(labels).sort(([left], [right]) => left.localeCompare(right));
+  return Object.entries(labels)
+    .filter(([key]) => key !== "description")
+    .sort(([left], [right]) => left.localeCompare(right));
 });
 
 function closeSecretDetailsModal() {
@@ -51,8 +56,7 @@ onUnmounted(() => {
           Failed to load secret details: {{ secretDetailsStore.error }}
         </p>
         <div v-else-if="secretDetailsStore.secret" class="service-metrics">
-          <table class="service-status-summary-table" aria-label="Secret summary">
-            <tbody>
+          <AppTable summary aria-label="Secret summary">
               <tr>
                 <th scope="row">ID</th>
                 <td><code>{{ secretDetailsStore.secret.id }}</code></td>
@@ -60,6 +64,10 @@ onUnmounted(() => {
               <tr>
                 <th scope="row">Name</th>
                 <td>{{ secretDetailsStore.secret.name }}</td>
+              </tr>
+              <tr>
+                <th scope="row">Description</th>
+                <td>{{ secretDescription || "n/a" }}</td>
               </tr>
               <tr>
                 <th scope="row">Version ID</th>
@@ -97,8 +105,7 @@ onUnmounted(() => {
                   <span v-else class="meta">No labels.</span>
                 </td>
               </tr>
-            </tbody>
-          </table>
+          </AppTable>
         </div>
       </div>
     </div>

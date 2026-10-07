@@ -5,22 +5,41 @@ import (
 	"fmt"
 	"sort"
 
+	dockerevents "github.com/docker/docker/api/types/events"
+	"github.com/docker/docker/api/types/filters"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 )
 
-type SecretManager struct {
+type secretManager struct {
 	dockerClient *client.Client
 }
 
-func newSecretManager(dockerClient *client.Client) *SecretManager {
-	return &SecretManager{
+func newSecretManager(dockerClient *client.Client) SecretManager {
+	return &secretManager{
 		dockerClient: dockerClient,
 	}
 }
 
-func (r *SecretManager) List(ctx context.Context) ([]Secret, error) {
-	secrets, err := r.dockerClient.SecretList(ctx, dockerswarm.SecretListOptions{})
+func (r *secretManager) List(ctx context.Context) ([]Secret, error) {
+	return r.list(ctx, dockerswarm.SecretListOptions{})
+}
+
+func (r *secretManager) ListStack(ctx context.Context, stackName string) ([]Secret, error) {
+	return r.list(ctx, dockerswarm.SecretListOptions{
+		Filters: filters.NewArgs(
+			filters.Arg("label", stackNamespaceLabelKey+"="+stackName),
+			filters.Arg(
+				"label",
+				labelsdict.RotatedResourceManagedLabelKey+"="+labelsdict.RotatedResourceManagedLabelValue,
+			),
+		),
+	})
+}
+
+func (r *secretManager) list(ctx context.Context, options dockerswarm.SecretListOptions) ([]Secret, error) {
+	secrets, err := r.dockerClient.SecretList(ctx, options)
 	if err != nil {
 		return nil, fmt.Errorf("list docker secrets: %w", err)
 	}
@@ -34,7 +53,22 @@ func (r *SecretManager) List(ctx context.Context) ([]Secret, error) {
 	return mapped, nil
 }
 
-func (r *SecretManager) ResolveReference(
+func (r *secretManager) Remove(ctx context.Context, secretID string) error {
+	if err := r.dockerClient.SecretRemove(ctx, secretID); err != nil {
+		return fmt.Errorf("remove docker secret %s: %w", secretID, err)
+	}
+
+	return nil
+}
+
+func (r *secretManager) Watch(ctx context.Context) (<-chan dockerevents.Message, <-chan error, error) {
+	eventsFilter := filters.NewArgs(filters.Arg("type", string(dockerevents.SecretEventType)))
+	messages, errs := r.dockerClient.Events(ctx, dockerevents.ListOptions{Filters: eventsFilter})
+
+	return messages, errs, nil
+}
+
+func (r *secretManager) ResolveReference(
 	ctx context.Context,
 	source, target string,
 ) (*dockerswarm.SecretReference, error) {
@@ -62,7 +96,7 @@ func (r *SecretManager) ResolveReference(
 	return ref, nil
 }
 
-func (*SecretManager) mapSecretInfo(secret dockerswarm.Secret) Secret {
+func (*secretManager) mapSecretInfo(secret dockerswarm.Secret) Secret {
 	driver := ""
 	if secret.Spec.Driver != nil {
 		driver = secret.Spec.Driver.Name
@@ -79,7 +113,7 @@ func (*SecretManager) mapSecretInfo(secret dockerswarm.Secret) Secret {
 	}
 }
 
-func (*SecretManager) sortSecretInfos(secrets []Secret) {
+func (*secretManager) sortSecretInfos(secrets []Secret) {
 	sort.Slice(secrets, func(i, j int) bool {
 		if secrets[i].Name != secrets[j].Name {
 			return secrets[i].Name < secrets[j].Name

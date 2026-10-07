@@ -1,18 +1,22 @@
 # syntax=docker/dockerfile:1
 
-FROM node:22-alpine AS ui-builder
+FROM --platform=$BUILDPLATFORM node:22-alpine AS ui-builder
+
+ARG APP_VERSION=dev
+ARG BUILD_TIME
 
 WORKDIR /ui
 
 COPY ui/package.json ui/package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm \
-    npm install
+    npm ci --no-audit --no-fund
 
 COPY ui/index.html ui/styles.css ui/vite.config.ts ui/tsconfig.json ./
+COPY ui/public ./public
 COPY ui/src ./src
-RUN npm run build
+RUN APP_VERSION="${APP_VERSION}" BUILD_TIME="${BUILD_TIME}" npm run build
 
-FROM golang:1.25-alpine AS builder
+FROM --platform=$BUILDPLATFORM golang:1.26.3-alpine AS builder
 
 WORKDIR /src
 
@@ -31,7 +35,10 @@ RUN --mount=type=cache,target=/go/pkg/mod \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags="-s -w" -o /out/swarm-deploy ./cmd/swarm-deploy
 
-FROM alpine:3.21
+FROM alpine:3.21.7
+
+ARG APP_VERSION="dev"
+ARG BUILD_TIME
 
 RUN apk add --no-cache ca-certificates docker-cli tzdata
 
@@ -39,6 +46,16 @@ WORKDIR /etc/swarm-deploy
 
 COPY --from=builder /out/swarm-deploy /usr/local/bin/swarm-deploy
 
+LABEL org.opencontainers.image.title="swarm-deploy"
+LABEL org.opencontainers.image.description="GitOps controller for Docker Swarm"
+LABEL org.opencontainers.image.url="https://github.com/swarm-deploy/swarm-deploy"
+LABEL org.opencontainers.image.source="https://github.com/swarm-deploy/swarm-deploy"
+LABEL org.opencontainers.image.vendor="swarm-deploy"
+LABEL org.opencontainers.image.version="$APP_VERSION"
+LABEL org.opencontainers.image.created="$BUILD_TIME"
+LABEL org.opencontainers.image.licenses="Apache 2.0"
+LABEL org.swarm-deploy.sd=true
+LABEL org.swarm-deploy.service.type="DeploymentManagementSystem"
+
 ENTRYPOINT ["/usr/local/bin/swarm-deploy"]
 CMD ["-config", "/etc/swarm-deploy/swarm-deploy.yaml"]
-

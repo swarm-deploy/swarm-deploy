@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted } from "vue";
-import { RouterView, useRoute } from "vue-router";
+import { RouterView, useRoute, useRouter } from "vue-router";
 
 import { useAssistantStore } from "../../stores/assistant";
 import { useCurrentUserStore } from "../../stores/currentUser";
@@ -9,20 +9,26 @@ import { useUIStore } from "../../stores/ui";
 import AssistantDrawer from "../assistant/AssistantDrawer.vue";
 import SidebarNav from "./SidebarNav.vue";
 import TopBar from "./TopBar.vue";
-import EventHistoryModal from "../overview/EventHistoryModal.vue";
 import ServiceStatusModal from "../overview/ServiceStatusModal.vue";
+import AlertDetailsModal from "../overview/AlertDetailsModal.vue";
+import CommitDetailsModal from "../overview/CommitDetailsModal.vue";
+import StackManifestModal from "../overview/StackManifestModal.vue";
 import SecretDetailsModal from "../secrets/SecretDetailsModal.vue";
 
 const route = useRoute();
+const router = useRouter();
 const overviewStore = useOverviewStore();
 const assistantStore = useAssistantStore();
 const currentUserStore = useCurrentUserStore();
 const uiStore = useUIStore();
 
 const isOverviewRoute = computed(() => route.path === "/overview");
+const currentUserLabel = computed(() => currentUserStore.displayName.trim() || "User");
 
 const syncDisabled = computed(() => !isOverviewRoute.value);
-const notificationsDisabled = computed(() => false);
+const assistantPinnedActive = computed(
+  () => assistantStore.enabled && uiStore.assistantDrawerOpen && uiStore.assistantPinned,
+);
 
 async function handleSyncNow() {
   if (!isOverviewRoute.value) {
@@ -32,48 +38,58 @@ async function handleSyncNow() {
   await overviewStore.triggerManualSync();
 }
 
-async function handleNotifications() {
-  await overviewStore.openEventsModal();
-}
-
-function handleAssistantToggle() {
+async function handleAssistantToggle() {
   if (!assistantStore.enabled) {
     return;
   }
 
-  uiStore.toggleAssistantDrawer();
+  const query = { ...route.query };
+  if (uiStore.assistantDrawerOpen) {
+    delete query.assistant;
+    await router.push({ query });
+    return;
+  }
+
+  query.assistant = "chats";
+  await router.push({ query });
+
+  if (!assistantStore.historyOpen && (assistantStore.conversationID || assistantStore.messages.length > 0)) {
+    query.assistant = assistantStore.conversationID || "new";
+    await router.push({ query });
+  }
 }
 
 onMounted(() => {
+  uiStore.initializeTheme();
   void currentUserStore.loadCurrentUser();
 });
 </script>
 
 <template>
-  <div class="app-root">
-    <div class="bg-shape shape-1" />
-    <div class="bg-shape shape-2" />
-    <div class="layout-shell">
-      <TopBar
-        :sync-disabled="syncDisabled"
-        :sync-pending="overviewStore.syncPending"
-        :assistant-enabled="assistantStore.enabled"
-        :assistant-open="uiStore.assistantDrawerOpen"
-        :notifications-disabled="notificationsDisabled"
-        @sync-now="handleSyncNow"
-        @open-notifications="handleNotifications"
-        @toggle-assistant="handleAssistantToggle"
+  <div class="app-root" :class="{ 'assistant-pinned': assistantPinnedActive }">
+    <div class="layout-shell" :class="{ 'sidebar-collapsed': uiStore.sidebarCollapsed }">
+      <SidebarNav
+        :current-user-label="currentUserLabel"
+        :collapsed="uiStore.sidebarCollapsed"
+        @toggle="uiStore.toggleSidebar"
       />
-
-      <div class="shell-content">
-        <SidebarNav />
-        <main class="shell-main">
+      <main class="shell-main">
+        <TopBar
+          :sync-disabled="syncDisabled"
+          :sync-pending="overviewStore.syncPending"
+          :assistant-enabled="assistantStore.enabled"
+          @sync-now="handleSyncNow"
+          @toggle-assistant="handleAssistantToggle"
+        />
+        <div class="shell-view">
           <RouterView />
-        </main>
-      </div>
+        </div>
+      </main>
     </div>
-    <EventHistoryModal />
     <ServiceStatusModal />
+    <AlertDetailsModal />
+    <CommitDetailsModal />
+    <StackManifestModal />
     <SecretDetailsModal />
     <AssistantDrawer />
   </div>

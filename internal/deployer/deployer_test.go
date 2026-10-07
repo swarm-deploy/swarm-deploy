@@ -48,8 +48,10 @@ func TestDeployStackRunsInitJobsBeforeDeploy(t *testing.T) {
 
 	services := []compose.Service{
 		{
-			Name:     "api",
-			Networks: []string{"default"},
+			Name: "api",
+			Networks: compose.NewServiceNetworks(&compose.ServiceNetwork{
+				ResolvedName: "default",
+			}),
 			Secrets: []compose.ObjectRef{
 				{Source: "db-password"},
 			},
@@ -69,7 +71,7 @@ func TestDeployStackRunsInitJobsBeforeDeploy(t *testing.T) {
 		},
 	}
 
-	err := deployer.DeployStack(context.Background(), "demo", "/tmp/demo.yaml", services)
+	err := deployer.DeployStack(context.Background(), "demo", "/tmp/source.yaml", "/tmp/demo.yaml", compose.Compose{Services: services})
 	require.NoError(t, err, "deploy stack")
 
 	assert.Equal(
@@ -131,7 +133,7 @@ func TestDeployStackStopsWhenInitJobFails(t *testing.T) {
 		},
 	}
 
-	err := deployer.DeployStack(context.Background(), "demo", "/tmp/demo.yaml", services)
+	err := deployer.DeployStack(context.Background(), "demo", "/tmp/source.yaml", "/tmp/demo.yaml", compose.Compose{Services: services})
 	require.Error(t, err, "deploy stack must fail when init job fails")
 	assert.ErrorContains(t, err, "service api init job seed", "error must include failed init job details")
 	assert.ErrorIs(t, err, initErr, "error must keep original init failure")
@@ -154,7 +156,7 @@ func TestDeployStackDeploysWithoutInitJobs(t *testing.T) {
 		{Name: "worker"},
 	}
 
-	err := deployer.DeployStack(context.Background(), "demo", "/tmp/demo.yaml", services)
+	err := deployer.DeployStack(context.Background(), "demo", "/tmp/source.yaml", "/tmp/demo.yaml", compose.Compose{Services: services})
 	require.NoError(t, err, "deploy stack")
 
 	require.Empty(t, initJobs.calls, "init jobs should not run when there are no definitions")

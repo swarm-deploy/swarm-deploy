@@ -1,0 +1,20 @@
+package labelsdict
+
+import "strings"
+
+const (
+	ServiceManagedLabelKey   = "org.swarm-deploy.service.managed"
+	ServiceManagedLabelValue = "true"
+
+	ServiceSyncPolicyPruneLabelKey = "org.swarm-deploy.service.sync.policy.prune"
+
+	ServiceType        = "org.swarm-deploy.service.type"
+	ServiceDescription = "org.swarm-deploy.service.description"
+
+	GrafanaURL = "org.swarm-deploy.grafana.url"
+	OpenAPIURL = "org.swarm-deploy.service.openapi.url"
+)
+
+func ServiceManaged(labels map[string]string) bool {
+	return strings.EqualFold(labels[ServiceManagedLabelKey], ServiceManagedLabelValue)
+}

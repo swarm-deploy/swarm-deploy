@@ -1,0 +1,131 @@
+paths:
+  /api/v1/stacks:
+    get:
+      operationId: listStacks
+      responses:
+        '200':
+          description: List of tracked stacks
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StacksResponse'
+  /api/v1/stacks/{stack}/manifestos:
+    get:
+      operationId: getStackManifestos
+      parameters:
+        - in: path
+          name: stack
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Desired and live manifests for a stack.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StackManifestosResponse'
+  /api/v1/git/commits/{commit}:
+    get:
+      operationId: getGitCommit
+      parameters:
+        - in: path
+          name: commit
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Git commit details by hash.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitCommitDetailsResponse'
+  /api/v1/sync:
+    post:
+      operationId: triggerSync
+      responses:
+        '202':
+          description: Sync trigger accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueueResponse'
+components:
+  schemas:
+    QueueResponse:
+      type: object
+      required: [queued]
+      properties:
+        queued:
+          type: boolean
+    SyncInfo:
+      type: object
+      additionalProperties:
+        type: string
+    GitCommitDetailsResponse:
+      type: object
+      required: [full_hash, author, message, date, changed_files]
+      properties:
+        full_hash:
+          type: string
+        author:
+          type: string
+        message:
+          type: string
+        date:
+          type: string
+          format: date-time
+        changed_files:
+          type: array
+          items:
+            type: string
+    StackStatus:
+      type: object
+      required: [synced, out_of_synced]
+      properties:
+        synced:
+          type: integer
+          format: int64
+          minimum: 0
+        out_of_synced:
+          type: integer
+          format: int64
+          minimum: 0
+    StackView:
+      type: object
+      required: [name, compose_file, status]
+      properties:
+        name:
+          type: string
+        compose_file:
+          type: string
+        status:
+          $ref: '#/components/schemas/StackStatus'
+        last_error:
+          type: string
+        last_commit:
+          type: string
+        last_deploy_at:
+          type: string
+          format: date-time
+        source_digest:
+          type: string
+    StacksResponse:
+      type: object
+      required: [stacks, sync]
+      properties:
+        stacks:
+          type: array
+          items:
+            $ref: '#/components/schemas/StackView'
+        sync:
+          $ref: '#/components/schemas/SyncInfo'
+    StackManifestosResponse:
+      type: object
+      required: [desired, live]
+      properties:
+        desired:
+          type: string
+        live:
+          type: string

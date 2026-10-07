@@ -1,7 +1,7 @@
 ---
 name: openapi
 description: Rules for writing code in Go
-globs: ["api/*.yaml"]
+globs: ["api/**/*.yaml"]
 apply: by file patterns
 ---
 

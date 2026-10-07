@@ -1,8 +1,22 @@
 import { defineStore } from "pinia";
 
-import { fetchEvents, fetchServiceDeployments, fetchServiceStatus, fetchStacks, triggerSync } from "../api/overview";
+import {
+  fetchGitCommit,
+  fetchServiceDeployments,
+  fetchServiceStatus,
+  fetchStackManifestos,
+  fetchStacks,
+  triggerSync,
+} from "../api/overview";
 import { fetchServices } from "../api/services";
-import type { EventHistoryItem, ServiceInfo, ServiceStatusResponse, StackView, SyncInfo } from "../api/types";
+import type {
+  Alert,
+  GitCommitDetailsResponse,
+  ServiceInfo,
+  ServiceStatusResponse,
+  StackView,
+  SyncInfo,
+} from "../api/types";
 
 interface OverviewState {
   stacks: StackView[];
@@ -11,10 +25,6 @@ interface OverviewState {
   loading: boolean;
   loadingError: string;
   syncPending: boolean;
-  events: EventHistoryItem[];
-  eventsLoading: boolean;
-  eventsError: string;
-  eventsModalOpen: boolean;
   serviceStatusData: ServiceStatusResponse | null;
   serviceStatusLoading: boolean;
   serviceStatusError: string;
@@ -22,6 +32,19 @@ interface OverviewState {
   serviceStatusStack: string;
   serviceStatusService: string;
   serviceStatusLatestDeploymentAt: string;
+  commitDetailsData: GitCommitDetailsResponse | null;
+  commitDetailsLoading: boolean;
+  commitDetailsError: string;
+  commitDetailsModalOpen: boolean;
+  commitDetailsHash: string;
+  stackManifestModalOpen: boolean;
+  stackManifestLoading: boolean;
+  stackManifestError: string;
+  stackManifestStack: string;
+  stackManifestDesired: string;
+  stackManifestLive: string;
+  alertDetailsModalOpen: boolean;
+  alertDetailsAlert: Alert | null;
 }
 
 export const useOverviewStore = defineStore("overview", {
@@ -32,10 +55,6 @@ export const useOverviewStore = defineStore("overview", {
     loading: false,
     loadingError: "",
     syncPending: false,
-    events: [],
-    eventsLoading: false,
-    eventsError: "",
-    eventsModalOpen: false,
     serviceStatusData: null,
     serviceStatusLoading: false,
     serviceStatusError: "",
@@ -43,6 +62,19 @@ export const useOverviewStore = defineStore("overview", {
     serviceStatusStack: "",
     serviceStatusService: "",
     serviceStatusLatestDeploymentAt: "",
+    commitDetailsData: null,
+    commitDetailsLoading: false,
+    commitDetailsError: "",
+    commitDetailsModalOpen: false,
+    commitDetailsHash: "",
+    stackManifestModalOpen: false,
+    stackManifestLoading: false,
+    stackManifestError: "",
+    stackManifestStack: "",
+    stackManifestDesired: "",
+    stackManifestLive: "",
+    alertDetailsModalOpen: false,
+    alertDetailsAlert: null,
   }),
   actions: {
     async loadOverview() {
@@ -93,23 +125,6 @@ export const useOverviewStore = defineStore("overview", {
         this.syncPending = false;
       }
     },
-    async openEventsModal() {
-      this.eventsModalOpen = true;
-      this.eventsLoading = true;
-      this.eventsError = "";
-
-      try {
-        const response = await fetchEvents();
-        this.events = Array.isArray(response.events) ? response.events : [];
-      } catch (error) {
-        this.eventsError = error instanceof Error ? error.message : "Failed to load event history";
-      } finally {
-        this.eventsLoading = false;
-      }
-    },
-    closeEventsModal() {
-      this.eventsModalOpen = false;
-    },
     async openServiceStatusModal(stackName: string, serviceName: string) {
       this.serviceStatusModalOpen = true;
       this.serviceStatusLoading = true;
@@ -148,6 +163,67 @@ export const useOverviewStore = defineStore("overview", {
       this.serviceStatusStack = "";
       this.serviceStatusService = "";
       this.serviceStatusLatestDeploymentAt = "";
+    },
+    async openCommitDetailsModal(commitHash: string) {
+      this.commitDetailsModalOpen = true;
+      this.commitDetailsLoading = true;
+      this.commitDetailsError = "";
+      this.commitDetailsData = null;
+      this.commitDetailsHash = commitHash;
+
+      try {
+        this.commitDetailsData = await fetchGitCommit(commitHash);
+      } catch (error) {
+        this.commitDetailsError = error instanceof Error ? error.message : "Failed to load commit details";
+      } finally {
+        this.commitDetailsLoading = false;
+      }
+    },
+    closeCommitDetailsModal() {
+      this.commitDetailsModalOpen = false;
+      this.commitDetailsData = null;
+      this.commitDetailsLoading = false;
+      this.commitDetailsError = "";
+      this.commitDetailsHash = "";
+    },
+    async openStackManifestModal(stackName: string) {
+      const stack = String(stackName || "").trim();
+      if (!stack) {
+        return;
+      }
+
+      this.stackManifestModalOpen = true;
+      this.stackManifestLoading = true;
+      this.stackManifestError = "";
+      this.stackManifestStack = stack;
+      this.stackManifestDesired = "";
+      this.stackManifestLive = "";
+
+      try {
+        const manifestos = await fetchStackManifestos(stack);
+        this.stackManifestDesired = String(manifestos.desired ?? "");
+        this.stackManifestLive = String(manifestos.live ?? "");
+      } catch (error) {
+        this.stackManifestError = error instanceof Error ? error.message : "Failed to load stack manifest";
+      } finally {
+        this.stackManifestLoading = false;
+      }
+    },
+    closeStackManifestModal() {
+      this.stackManifestModalOpen = false;
+      this.stackManifestLoading = false;
+      this.stackManifestError = "";
+      this.stackManifestStack = "";
+      this.stackManifestDesired = "";
+      this.stackManifestLive = "";
+    },
+    openAlertDetailsModal(alert: Alert) {
+      this.alertDetailsAlert = alert;
+      this.alertDetailsModalOpen = true;
+    },
+    closeAlertDetailsModal() {
+      this.alertDetailsModalOpen = false;
+      this.alertDetailsAlert = null;
     },
   },
 });

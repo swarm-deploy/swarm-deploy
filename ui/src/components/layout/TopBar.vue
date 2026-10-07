@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
-import { RouterLink } from "vue-router";
 
 import { fetchSearch } from "../../api/search";
 import type { SearchResult } from "../../api/types";
-import { useCurrentUserStore } from "../../stores/currentUser";
 import { useOverviewStore } from "../../stores/overview";
 import { useSecretDetailsStore } from "../../stores/secretDetails";
 
@@ -12,13 +10,10 @@ defineProps<{
   syncDisabled: boolean;
   syncPending: boolean;
   assistantEnabled: boolean;
-  assistantOpen: boolean;
-  notificationsDisabled: boolean;
 }>();
 
 const emit = defineEmits<{
   syncNow: [];
-  openNotifications: [];
   toggleAssistant: [];
 }>();
 
@@ -26,7 +21,6 @@ const MIN_QUERY_LENGTH = 2;
 const SEARCH_DEBOUNCE_MS = 300;
 
 const overviewStore = useOverviewStore();
-const currentUserStore = useCurrentUserStore();
 const secretDetailsStore = useSecretDetailsStore();
 
 const searchRootRef = ref<HTMLElement | null>(null);
@@ -51,8 +45,6 @@ const secretResults = computed(() => visibleResults.value.filter((item) => item.
 const showNoResults = computed(
   () => searchOpen.value && !searchLoading.value && !searchError.value && visibleResults.value.length === 0,
 );
-const currentUserLabel = computed(() => currentUserStore.displayName.trim() || "User");
-
 function resetSearchState() {
   searchResults.value = [];
   searchLoading.value = false;
@@ -163,11 +155,6 @@ onUnmounted(() => {
 
 <template>
   <header class="topbar-shell">
-    <div class="topbar-brand">
-      <p class="eyebrow">GitOps for Docker Swarm</p>
-      <RouterLink to="/overview" class="brand-link">Swarm Deploy</RouterLink>
-    </div>
-
     <div ref="searchRootRef" class="topbar-search">
       <input
         v-model="searchQuery"
@@ -211,14 +198,17 @@ onUnmounted(() => {
     </div>
 
     <div class="topbar-actions">
-      <button type="button" :disabled="syncDisabled || syncPending" @click="emit('syncNow')">
+      <button
+        type="button"
+        class="topbar-sync-button"
+        :disabled="syncDisabled || syncPending"
+        @click="emit('syncNow')"
+      >
         {{ syncPending ? "Syncing..." : "Sync now" }}
       </button>
-      <button type="button" :disabled="notificationsDisabled" @click="emit('openNotifications')">Events</button>
-      <button type="button" :disabled="!assistantEnabled" @click="emit('toggleAssistant')">
-        {{ assistantOpen ? "Assistant Open" : "Assistant" }}
+      <button type="button" class="button-ghost" :disabled="!assistantEnabled" @click="emit('toggleAssistant')">
+        Assistant
       </button>
-      <button type="button" class="button-ghost">{{ currentUserLabel }}</button>
     </div>
   </header>
 </template>
