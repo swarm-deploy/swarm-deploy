@@ -12,8 +12,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
 	eventmetrics "github.com/swarm-deploy/swarm-deploy/internal/modules/event/metrics"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/notifiers"
 	notify2 "github.com/swarm-deploy/swarm-deploy/internal/modules/event/notify"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/notifiers"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 )

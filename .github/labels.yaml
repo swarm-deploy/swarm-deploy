@@ -33,3 +33,7 @@
 - name: "module:assistant"
   color: "#5319e7"
   description: Assistant module
+
+- name: "module:notifications"
+  color: "#5319e7"
+  description: Assistant module
