@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 )
 
 // Error is an error returned by Client.
@@ -37,7 +38,7 @@ func (e *CodeError) Unwrap() error {
 
 // Temporary reports whether the response contains a server-side error.
 func (e *CodeError) Temporary() bool {
-	return e.Code >= 500
+	return e.Code >= http.StatusInternalServerError
 }
 
 func (e *CodeError) isHttpErr() {}
