@@ -24,7 +24,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4 # action page: <https://github.com/actions/setup-go>
         with:
-          go-version: stable
+          go-version: '1.26.3'
 
       - name: Install Go dependencies
         run: go mod download
@@ -46,10 +46,36 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v4 # action page: <https://github.com/actions/setup-go>
         with:
-          go-version: stable
+          go-version: '1.26.3'
 
       - name: Install Go dependencies
         run: go mod download
 
       - name: Run tests
-        run: go test ./...
+        run: go test ./internal/...
+
+  frontend-test:
+    name: frontend-test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build UI
+        run: npm run build

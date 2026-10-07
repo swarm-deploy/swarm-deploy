@@ -1,25 +1,22 @@
 package compose
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
-	"sort"
-	"strconv"
-	"strings"
-	"time"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
-type ObjectRef struct {
-	Source string `json:"source"`
-	Target string `json:"target,omitempty"`
+type Compose struct {
+	Services Services           `yaml:"services" json:"services"`
+	Networks map[string]Network `yaml:"networks,omitempty" json:"networks"`
+	Configs  Configs            `yaml:"configs,omitempty" json:"configs"`
+	Secrets  Secrets            `yaml:"secrets,omitempty" json:"secrets"`
+	Volumes  Volumes            `yaml:"volumes,omitempty" json:"volumes"`
+
+	Extra map[string]interface{} `yaml:",inline"`
 }
 
+<<<<<<< HEAD
 type InitJob struct {
 	Name        string            `json:"name"`
 	Image       string            `json:"image"`
@@ -61,10 +58,16 @@ const serviceSyncPolicySelfHealLabel = "org.swarm-deploy.service.sync.policy.sel
 
 func Load(path string) (*File, error) {
 	raw, err := os.ReadFile(path)
+=======
+func Parse(raw []byte) (*Compose, error) {
+	schema := Compose{}
+	err := yaml.Unmarshal(raw, &schema)
+>>>>>>> origin/master
 	if err != nil {
-		return nil, fmt.Errorf("read compose file %s: %w", path, err)
+		return nil, fmt.Errorf("decode compose schema: %w", err)
 	}
 
+<<<<<<< HEAD
 	return Parse(raw)
 }
 
@@ -723,4 +726,7 @@ func ImageVersion(fullName string) string {
 		return fullName[lastColon+1:]
 	}
 	return "latest"
+=======
+	return &schema, nil
+>>>>>>> origin/master
 }

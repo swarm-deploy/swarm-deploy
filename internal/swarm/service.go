@@ -4,6 +4,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	dockerswarm "github.com/docker/docker/api/types/swarm"
 )
 
 // ErrServiceNotFound means that service does not exist in swarm.
@@ -17,6 +19,28 @@ type ServiceStatus struct {
 	Service string
 	// Spec contains current compact service spec snapshot.
 	Spec ServiceSpec
+	// ContainerLabels contains task container labels from service spec.
+	ContainerLabels map[string]string
+	// ContainerEnv contains task container environment variables from service spec.
+	ContainerEnv []string
+	// ContainerConfigs contains task container configs from service spec.
+	ContainerConfigs []ServiceConfig
+}
+
+// ServiceTask contains compact realtime task data for service container status.
+type ServiceTask struct {
+	// ID is a Docker task identifier.
+	ID string
+	// Node is a task node identifier.
+	Node string
+	// CreatedAt is task creation timestamp from Docker Swarm.
+	CreatedAt time.Time
+	// UpdatedAt is task last update timestamp from Docker Swarm.
+	UpdatedAt time.Time
+	// CurrentState is the current task state.
+	CurrentState TaskState
+	// Error is a task runtime error.
+	Error string
 }
 
 // ServiceSpec is a compact service spec projection.
@@ -41,6 +65,8 @@ type ServiceSpec struct {
 	Secrets []ServiceSecret `json:"secrets,omitempty"`
 	// Network contains compact network attachments from service spec.
 	Network []ServiceNetwork `json:"network,omitempty"`
+	// Configs contains compact config references from service spec.
+	Configs []ServiceConfig `json:"configs,omitempty"`
 }
 
 // ServiceSecret is a compact service secret reference.
@@ -91,18 +117,6 @@ type Service struct {
 	UpdateStatus *ServiceUpdateStatus `json:"update_status,omitempty"`
 }
 
-// ServiceLabels contains labels from service, container and image inspect.
-type ServiceLabels struct {
-	// Service contains Docker service-level labels from annotations.
-	Service map[string]string
-	// Container contains container labels from task template.
-	Container map[string]string
-	// ContainerEnv contains environment variables from task container spec.
-	ContainerEnv []string
-	// Image contains OCI labels from image config.
-	Image map[string]string
-}
-
 // ServiceLogsOptions configures stack service logs query.
 type ServiceLogsOptions struct {
 	// Limit is max number of latest lines to return.
@@ -111,6 +125,46 @@ type ServiceLogsOptions struct {
 	Since *time.Time
 	// Until defines upper bound for log timestamps.
 	Until *time.Time
+}
+
+// TaskLogsOptions configures task logs stream query.
+type TaskLogsOptions struct {
+	// Follow keeps the task logs stream open for new log lines.
+	Follow bool
+	// Limit is max number of latest lines to return before following.
+	Limit int
+}
+
+// LogEntry contains one normalized Docker log line.
+type LogEntry struct {
+	// Timestamp is a Docker log timestamp parsed from the log line.
+	Timestamp time.Time
+	// Stream is stdout or stderr.
+	Stream string
+	// Message is log line payload without Docker timestamp.
+	Message string
+}
+
+// StackService is a compact snapshot of a service belonging to a stack.
+type StackService struct {
+	// ID is a Docker service identifier.
+	ID string
+	// Name is a service name without stack prefix.
+	Name string
+	// FullName is a Docker service name formatted as "<stack>_<service>".
+	FullName string
+	// Image is a container image reference configured for the service.
+	Image string
+	// Mode is a service deploy mode (for example: replicated, global).
+	Mode string
+	// Replicas is desired replicas count for replicated mode.
+	Replicas *uint64
+	// ServiceSpec is raw Docker service specification snapshot.
+	ServiceSpec dockerswarm.ServiceSpec
+	// PreviousSpec is the previous raw Docker service specification used by Swarm rollback.
+	PreviousSpec *dockerswarm.ServiceSpec
+	// Labels contains Docker service annotations labels.
+	Labels map[string]string
 }
 
 type ServiceReference struct {

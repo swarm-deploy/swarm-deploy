@@ -5,8 +5,29 @@ Rotation is done by changing `configs/secrets.*.name` to `stack-object-hash` whe
 Benefits:
 - services are guaranteed to receive a new object version when a file changes.
 
+Rotated resources receive ownership labels in the `org.swarm-deploy.rotation.*` namespace. Cleanup only considers resources carrying these labels and the matching Docker stack namespace. Legacy rotated resources created before these labels were introduced are never adopted or removed automatically.
+
+```yaml
+secretRotation:
+  enabled: true
+  hashLength: 8
+  includePath: true
+  cleanup:
+    enabled: true
+    interval: 4h
+    keepLast: 2
+    minAge: 1h
+```
+
+Cleanup is stateless. A dedicated controller ticker runs periodic cleanup every `interval` without running the regular reconciliation pipeline. A new desired digest or manual sync also triggers cleanup immediately after reconciliation. Config and secret metadata are loaded from Docker only when cleanup actually runs, so regular interval reconciliations do not issue cleanup-specific `ConfigList`/`SecretList` calls.
+
+Cleanup uses resource `CreatedAt` metadata and config/secret IDs referenced by both the current service spec and Swarm's previous spec used for rollback. A generation is preserved when it is the current desired resource, is still referenced by a service or rollback spec, or is younger than `minAge`. While the logical config or secret still exists in desired state, the newest `keepLast` generations are also preserved. If the logical resource is removed from desired state, `keepLast` no longer applies, so unreferenced generations become eligible for cleanup after `minAge`.
+
+Cleanup is best effort. A failed Docker remove is logged and does not fail reconciliation or prevent cleanup of other resources. There is no cleanup-specific retry or backoff; the next cleanup interval, new digest, or manual sync evaluates the resource again. This also covers the expected race where Docker still reports a resource as in use shortly after a service was pruned.
+
+Defaults are `interval: 4h`, `keepLast: 2`, and `minAge: 1h`. Cleanup requires rotation to be enabled. External resources, external-driver secrets, and resources without the managed rotation label are never removed. If ownership, desired state, or live references cannot be determined safely, cleanup fails closed and reconciliation continues.
+
 Limitations:
-- old objects are not removed automatically (a separate cleanup strategy is required),
 - this is not cryptographic key rotation, but rotation of the object **name** to force rollout.
 
 This project implements the same idea (hash-based naming), but with SHA-256.

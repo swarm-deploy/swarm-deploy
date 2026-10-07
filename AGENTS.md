@@ -13,7 +13,7 @@
 ## Project structure
 - `./ui` - Frontend
 - `./internal` - Backend on Golang
-- - `./internal/assistant` - Core logic for AI Assistant
+- - `./internal/modules/assistant` - Core logic for AI Assistant
 - - `./internal/entrypoints/health` - Entrypoint for metrics and healthchecks
 - - `./internal/entrypoints/webserver` - Entrypoint for UI and API Server
 - - `./internal/entrypoints/webhookserver` - Entrypoint for Webhook Server, receive webhooks from another systems, like GitHub, GitLab, etc.

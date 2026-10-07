@@ -15,6 +15,10 @@ func TestNodeManagerMapNodeMapsFields(t *testing.T) {
 			Engine: dockerswarm.EngineDescription{
 				EngineVersion: " 28.3.0 ",
 			},
+			Resources: dockerswarm.Resources{
+				NanoCPUs:    8_000_000_000,
+				MemoryBytes: 34_359_738_368,
+			},
 		},
 		Status: dockerswarm.NodeStatus{
 			State: dockerswarm.NodeStateReady,
@@ -22,13 +26,19 @@ func TestNodeManagerMapNodeMapsFields(t *testing.T) {
 		},
 		Spec: dockerswarm.NodeSpec{
 			Availability: dockerswarm.NodeAvailabilityActive,
+			Annotations: dockerswarm.Annotations{
+				Labels: map[string]string{
+					"role": "manager",
+					"zone": "eu-1",
+				},
+			},
 		},
 		ManagerStatus: &dockerswarm.ManagerStatus{
 			Leader: true,
 		},
 	}
 
-	mapped := (&NodeManager{}).mapNode(node)
+	mapped := (&nodeManager{}).mapNode(node)
 
 	assert.Equal(t, " node-1 ", mapped.ID, "unexpected id")
 	assert.Equal(t, " manager-1 ", mapped.Hostname, "unexpected hostname")
@@ -37,6 +47,9 @@ func TestNodeManagerMapNodeMapsFields(t *testing.T) {
 	assert.Equal(t, NodeManagerStatusLeader, mapped.ManagerStatus, "unexpected managerStatus")
 	assert.Equal(t, " 28.3.0 ", mapped.EngineVersion, "unexpected engine version")
 	assert.Equal(t, " 10.0.0.1 ", mapped.Addr, "unexpected addr")
+	assert.Equal(t, int64(8_000_000_000), mapped.CPUNano, "unexpected cpu")
+	assert.Equal(t, int64(34_359_738_368), mapped.MemoryBytes, "unexpected memory")
+	assert.Equal(t, map[string]string{"role": "manager", "zone": "eu-1"}, mapped.Labels, "unexpected labels")
 }
 
 func TestNodeManagerMapNodeSetsWorkerManagerStatusForWorkers(t *testing.T) {
@@ -44,7 +57,8 @@ func TestNodeManagerMapNodeSetsWorkerManagerStatusForWorkers(t *testing.T) {
 		ID: "node-2",
 	}
 
-	mapped := (&NodeManager{}).mapNode(node)
+	mapped := (&nodeManager{}).mapNode(node)
 
 	assert.Equal(t, NodeManagerStatusWorker, mapped.ManagerStatus, "worker node must have worker managerStatus")
+	assert.Nil(t, mapped.Labels, "worker node without labels must keep labels nil")
 }

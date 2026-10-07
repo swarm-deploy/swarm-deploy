@@ -2,6 +2,9 @@
 import { computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 
+import type { ServiceSyncStatus } from "../api/types";
+import AppTable from "../components/common/AppTable.vue";
+import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import { useOverviewStore } from "../stores/overview";
 
 const overviewStore = useOverviewStore();
@@ -47,6 +50,34 @@ async function openServiceDetails(stackName: string, serviceName: string) {
 onMounted(async () => {
   await overviewStore.loadOverview();
 });
+
+function syncStatusClass(status: ServiceSyncStatus | string | undefined): string {
+  const normalizedStatus = String(status || "").trim().toLowerCase();
+  if (normalizedStatus === "synced") {
+    return "success";
+  }
+  if (normalizedStatus === "outofsync") {
+    return "failed";
+  }
+
+  return "unknown";
+}
+
+function syncStatusLabel(status: ServiceSyncStatus | string | undefined): string {
+  const normalizedStatus = String(status || "").trim().toLowerCase();
+  if (normalizedStatus === "synced") {
+    return "Synced";
+  }
+  if (normalizedStatus === "outofsync") {
+    return "OutOfSync";
+  }
+
+  return "unknown";
+}
+
+function syncErrorText(syncError: string | undefined): string {
+  return String(syncError || "").trim();
+}
 </script>
 
 <template>
@@ -55,64 +86,84 @@ onMounted(async () => {
       <h2>Services</h2>
     </header>
 
-    <div
+    <AppTableEmpty
       v-if="overviewStore.loading && overviewStore.stacks.length === 0 && overviewStore.services.length === 0"
-      class="services-empty"
-    >
-      <p class="meta">Loading...</p>
-    </div>
+      message="Loading..."
+    />
 
-    <div v-else-if="overviewStore.loadingError && servicesByStack.length === 0" class="services-empty">
-      <p class="meta">Failed to load services: {{ overviewStore.loadingError }}</p>
-    </div>
+    <AppTableEmpty v-else-if="overviewStore.loadingError && servicesByStack.length === 0">
+      Failed to load services: {{ overviewStore.loadingError }}
+    </AppTableEmpty>
 
-    <div v-else-if="servicesByStack.length === 0" class="services-empty">
-      <p class="meta">No services captured yet.</p>
-    </div>
+    <AppTableEmpty v-else-if="servicesByStack.length === 0" message="No services captured yet." />
 
     <div v-else class="stack-dropdown-list">
       <details v-for="group in servicesByStack" :key="group.stackName" class="stack-dropdown" open>
         <summary class="stack-summary">
-          <span class="stack-summary-title">{{ group.stackName }}</span>
+          <span class="stack-summary-heading">
+            <svg class="stack-summary-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z" />
+              <path d="m22 12.5-9.17 4.17a2 2 0 0 1-1.66 0L2 12.5" />
+              <path d="m22 17.5-9.17 4.17a2 2 0 0 1-1.66 0L2 17.5" />
+            </svg>
+            <span class="stack-summary-title">{{ group.stackName }}</span>
+          </span>
           <span class="stack-summary-meta">{{ group.services.length }} services</span>
           <span class="stack-summary-chevron" aria-hidden="true">▾</span>
         </summary>
 
-        <div class="stack-services-table-wrap">
-          <table class="container-status-table services-stack-table">
+        <AppTable fixed table-class="services-stack-table" min-width="720px" wrap-class="stack-services-table-wrap">
+          <template #colgroup>
             <colgroup>
               <col class="services-col-name" />
+              <col class="services-col-sync-status" />
               <col class="services-col-type" />
               <col class="services-col-version" />
-              <col class="services-col-actions" />
             </colgroup>
-            <thead>
+          </template>
+          <template #head>
               <tr>
                 <th>Name</th>
+                <th>Sync Status</th>
                 <th>Type</th>
                 <th>Version</th>
-                <th />
               </tr>
-            </thead>
-            <tbody>
+          </template>
               <tr v-if="group.services.length === 0">
-                <td colspan="4" class="stack-service-empty-cell">No services captured yet.</td>
+                <td colspan="4" class="app-table-empty-cell">No services captured yet.</td>
               </tr>
-              <tr v-for="service in group.services" :key="`${group.stackName}-${service.name}`">
+              <tr
+                v-for="service in group.services"
+                :key="`${group.stackName}-${service.name}`"
+                class="app-table-row--clickable"
+                tabindex="0"
+                role="button"
+                :aria-label="`Open details for ${service.name || 'service'}`"
+                @click="openServiceDetails(group.stackName, service.name)"
+                @keydown.enter="openServiceDetails(group.stackName, service.name)"
+                @keydown.space.prevent="openServiceDetails(group.stackName, service.name)"
+              >
                 <td class="services-cell-name" :title="service.name || undefined">
                   <strong class="stack-service-name">{{ service.name || "unknown" }}</strong>
                 </td>
+                <td class="services-cell-sync-status">
+                  <div class="stack-service-sync-status">
+                    <span class="status" :class="syncStatusClass(service.sync_status)">
+                      {{ syncStatusLabel(service.sync_status) }}
+                    </span>
+                    <p
+                      v-if="syncErrorText(service.sync_error)"
+                      class="stack-service-sync-error"
+                      :title="syncErrorText(service.sync_error)"
+                    >
+                      {{ syncErrorText(service.sync_error) }}
+                    </p>
+                  </div>
+                </td>
                 <td class="services-cell-type">{{ service.type_title || service.type }}</td>
                 <td class="services-cell-version" :title="service.image">{{ service.image_version || "—" }}</td>
-                <td class="stack-service-actions-cell">
-                  <button type="button" class="service-status-btn" @click="openServiceDetails(group.stackName, service.name)">
-                    Details
-                  </button>
-                </td>
               </tr>
-            </tbody>
-          </table>
-        </div>
+        </AppTable>
       </details>
     </div>
   </section>

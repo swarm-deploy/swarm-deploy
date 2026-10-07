@@ -5,6 +5,7 @@ import (
 )
 
 type Group struct {
+	BuildInfo BuildInfo
 	Deploys   Deploys
 	Git       Git
 	Sync      Sync
@@ -30,6 +31,9 @@ func NewGroup(params CreateGroupParams) *Group {
 	group := &Group{
 		collectors: make([]prometheus.Collector, 0),
 	}
+
+	group.BuildInfo = newPrometheusBuildInfo(params.Namespace)
+	group.register(group.BuildInfo)
 
 	group.Deploys = newPrometheusDeploys(params.Namespace)
 	group.register(group.Deploys)

@@ -8,47 +8,33 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
-	"github.com/swarm-deploy/swarm-deploy/internal/service"
-	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
-	"github.com/swarm-deploy/webroute"
+	secretmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/model"
+	secretstore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	webroute "github.com/swarm-deploy/webroute/api"
 )
-
-type fakeSecretsReader struct {
-	list []swarm.Secret
-	err  error
-}
-
-func (f fakeSecretsReader) List(_ context.Context) ([]swarm.Secret, error) {
-	if f.err != nil {
-		return nil, f.err
-	}
-
-	return f.list, nil
-}
 
 func TestHandlerGetSecretByName(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now().UTC()
-	h := &handler{
-		secrets: fakeSecretsReader{
-			list: []swarm.Secret{
-				{
-					ID:        "secret-id",
-					Name:      "db-password",
-					VersionID: 7,
-					CreatedAt: now.Add(-time.Hour),
-					UpdatedAt: now,
-					Driver:    "vault",
-					Labels: map[string]string{
-						"external_path":       "kv/prod/db-password",
-						"external_version_id": "v12",
-						"scope":               "production",
-					},
-				},
+	secretsReader := newSecretsStore(t, []secretmodel.Secret{
+		{
+			ID: "secret-id", Name: "db-password", VersionID: 7,
+			CreatedAt: now.Add(-time.Hour), UpdatedAt: now, Driver: "vault",
+			ExternalPath: "kv/prod/db-password", ExternalVersionID: "v12",
+			Labels: map[string]string{
+				"external_path": "kv/prod/db-password", "external_version_id": "v12", "scope": "production",
 			},
 		},
+	})
+	h := &handler{
+		secrets: secretsReader,
 	}
 
 	resp, err := h.GetSecretByName(context.Background(), generated.GetSecretByNameParams{Name: "db-password"})
@@ -69,10 +55,9 @@ func TestHandlerGetSecretByName(t *testing.T) {
 func TestHandlerGetSecretByName_NotFound(t *testing.T) {
 	t.Parallel()
 
+	secretsReader := newSecretsStore(t, []secretmodel.Secret{{Name: "known-secret"}})
 	h := &handler{
-		secrets: fakeSecretsReader{
-			list: []swarm.Secret{{Name: "known-secret"}},
-		},
+		secrets: secretsReader,
 	}
 
 	_, err := h.GetSecretByName(context.Background(), generated.GetSecretByNameParams{Name: "unknown-secret"})
@@ -86,32 +71,31 @@ func TestHandlerGetSecretByName_NotFound(t *testing.T) {
 func TestHandlerSearch_PriorityAndDedupe(t *testing.T) {
 	t.Parallel()
 
-	servicesStore, err := service.NewStore(t.TempDir() + "/services.json")
+	ctx := context.Background()
+	servicesStore, err := modelstore.NewFileStore(ctx, t.TempDir()+"/services.json", fs.NewLocalFileSystem())
 	require.NoError(t, err)
-	require.NoError(t, servicesStore.ReplaceStack("payments", []service.Info{
+	require.NoError(t, servicesStore.ReplaceStack(ctx, "payments", []model.Info{
 		{
-			Name: "api-app",
-			Type: "application",
-			WebRoutes: []webroute.Route{
-				{Domain: "api-app.example.com", Address: "10.10.0.5", Port: "443"},
+			Name:     "api-app",
+			Metadata: metadata.Metadata{Type: "application"},
+			WebRoutes: []webroute.WebRoute{
+				{From: webroute.Address{Domain: "api-app.example.com", Address: "10.10.0.5", Port: "443"}},
 			},
 		},
 		{
-			Name: "billing",
-			Type: "application",
-			WebRoutes: []webroute.Route{
-				{Domain: "billing.example.com", Address: "10.10.0.7", Port: "443"},
+			Name:     "billing",
+			Metadata: metadata.Metadata{Type: "application"},
+			WebRoutes: []webroute.WebRoute{
+				{From: webroute.Address{Domain: "billing.example.com", Address: "10.10.0.7", Port: "443"}},
 			},
 		},
 	}))
 
+	secretsReader := newSecretsStore(t, []secretmodel.Secret{{Name: "api-app-secret"}})
 	h := &handler{
-		services: servicesStore,
-		secrets: fakeSecretsReader{
-			list: []swarm.Secret{
-				{Name: "api-app-secret"},
-			},
-		},
+		stackProvider: newConfigWithStacks([]config.StackSpec{}),
+		services:      servicesStore,
+		secrets:       secretsReader,
 	}
 
 	resp, err := h.Search(context.Background(), generated.SearchParams{Query: "api-app"})
@@ -125,4 +109,13 @@ func TestHandlerSearch_PriorityAndDedupe(t *testing.T) {
 	assert.Equal(t, generated.SearchResultMatchSecretName, resp.Results[1].Match)
 	assert.Equal(t, generated.SearchResultKindSecret, resp.Results[1].Kind)
 	assert.Equal(t, "api-app-secret", resp.Results[1].Label)
+}
+
+func newSecretsStore(t *testing.T, secrets []secretmodel.Secret) *secretstore.FileStore {
+	t.Helper()
+	ctx := context.Background()
+	store, err := secretstore.NewFileStore(ctx, t.TempDir()+"/secrets.state.json", fs.NewLocalFileSystem())
+	require.NoError(t, err)
+	require.NoError(t, store.Replace(ctx, secrets))
+	return store
 }

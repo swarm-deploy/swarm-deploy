@@ -16,4 +16,18 @@ type Config struct {
 	UpdatedAt time.Time `json:"updated_at"`
 	// Labels contains custom Docker config labels.
 	Labels map[string]string `json:"labels"`
+	// Data contains config payload.
+	Data []byte `json:"data,omitempty"`
+}
+
+// ServiceConfig is a config mounted into a service container.
+type ServiceConfig struct {
+	// ConfigID is a Docker config identifier.
+	ConfigID string `json:"config_id,omitempty"`
+	// ConfigName is a Docker config name.
+	ConfigName string `json:"config_name"`
+	// Target is a target file path inside container.
+	Target string `json:"target,omitempty"`
+	// Data contains config payload.
+	Data []byte `json:"data,omitempty"`
 }

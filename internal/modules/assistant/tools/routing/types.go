@@ -1,0 +1,41 @@
+package routing
+
+import (
+	"context"
+
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
+)
+
+// ToolDefinition describes an executable tool visible to the model.
+type ToolDefinition struct {
+	// Name is a unique tool name.
+	Name config.AssistantToolName
+	// Description is a short usage description.
+	Description string
+	// ParametersJSONSchema is a JSON schema object for tool arguments.
+	ParametersJSONSchema map[string]any
+	// Request describes a typed request payload shape used by the tool.
+	Request any
+}
+
+// Request describes an input payload for tool execution.
+type Request struct {
+	ToolName string
+
+	// Payload contains decoded tool arguments.
+	Payload any
+}
+
+// Response describes a tool execution result payload.
+type Response struct {
+	// Payload contains a JSON-serializable response object.
+	Payload any
+}
+
+// Tool describes one callable tool implementation.
+type Tool interface {
+	// Definition returns metadata visible to the model.
+	Definition() ToolDefinition
+	// Execute runs tool logic for the given request payload.
+	Execute(ctx context.Context, request Request) (Response, error)
+}

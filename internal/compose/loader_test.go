@@ -1,0 +1,348 @@
+package compose
+
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.yaml.in/yaml/v3"
+)
+
+func TestLoader_Load(t *testing.T) {
+	cases := []struct {
+		Title string
+	}{
+		{
+			Title: "0. simple, without dependencies, service ports: mappings, labels: mappings",
+		},
+		{
+			Title: "1. with networks, service ports: sequence, labels: sequence, networks: sequence",
+		},
+		{
+			Title: "2. with secrets and configs, volumes: sequence, networks: mapping",
+		},
+	}
+
+	for i, test := range cases {
+		t.Run(test.Title, func(t *testing.T) {
+			fileRaw := []byte{}
+
+			loader := NewFileLoaderWithReader(func(context.Context, string) ([]byte, error) {
+				var err error
+				fileRaw, err = os.ReadFile(fmt.Sprintf("./tests/loader/%d.input.yaml", i))
+				return fileRaw, err
+			})
+
+			file, err := loader.Load(context.Background(), fmt.Sprintf("./tests/loader/%d.input.yaml", i))
+			require.NoError(t, err)
+
+			result := bytes.NewBuffer(nil)
+			encoder := yaml.NewEncoder(result)
+			encoder.SetIndent(2)
+			err = encoder.Encode(file.Compose)
+			require.NoError(t, err)
+
+			if string(fileRaw) != result.String() {
+				err = os.WriteFile(fmt.Sprintf("./tests/loader/%d.actual.yaml", i), result.Bytes(), 0666)
+				require.NoError(t, err)
+			}
+
+			assert.Equal(t, string(fileRaw), result.String())
+		})
+	}
+}
+
+func TestFileLoaderLoadsEnvFiles(t *testing.T) {
+	tests := []struct {
+		name      string
+		content   []byte
+		expected  map[string]string
+		errString string
+	}{
+		{
+			name:    "variables",
+			content: []byte("\xef\xbb\xbf# comment\n  FOO=bar baz  \nEMPTY=\n"),
+			expected: map[string]string{
+				"EMPTY": "",
+				"FOO":   "bar baz  ",
+			},
+		},
+		{
+			name:      "bare variable",
+			content:   []byte("SECRET_TOKEN\n"),
+			errString: "must have an explicit value",
+		},
+		{
+			name:      "invalid key",
+			content:   []byte("BAD KEY=value\n"),
+			errString: "contains whitespace",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			composePath := filepath.Join("repo", "compose.yaml")
+			envPath := filepath.Join("repo", "app.env")
+			loader := NewFileLoaderWithReader(func(_ context.Context, path string) ([]byte, error) {
+				switch path {
+				case composePath:
+					return []byte("services:\n  api:\n    image: nginx\n    env_file:\n      - app.env\n"), nil
+				case envPath:
+					return tt.content, nil
+				default:
+					return nil, fmt.Errorf("unexpected path %s", path)
+				}
+			})
+
+			file, err := loader.Load(context.Background(), composePath)
+			if tt.errString != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errString)
+				return
+			}
+
+			require.NoError(t, err)
+			require.Len(t, file.Compose.Services, 1)
+			require.Len(t, file.Compose.Services[0].EnvFiles, 1)
+			assert.Equal(t, "app.env", file.Compose.Services[0].EnvFiles[0].Path)
+			assert.Equal(t, tt.expected, file.Compose.Services[0].EnvFiles[0].Variables)
+		})
+	}
+}
+
+func TestFileLoaderDigestChangesWhenResourceFileContentChanges(t *testing.T) {
+	tests := []struct {
+		name           string
+		composePayload func(objectFile string) string
+		objectFile     func(dir string) string
+		objectPath     func(dir string) string
+	}{
+		{
+			name: "config file",
+			composePayload: func(objectFile string) string {
+				return fmt.Sprintf(`
+services:
+  api:
+    image: nginx:latest
+    configs:
+      - source: app-config
+configs:
+  app-config:
+    file: %s
+`, objectFile)
+			},
+			objectFile: func(string) string {
+				return "./config/app.yaml"
+			},
+			objectPath: func(dir string) string {
+				return filepath.Join(dir, "config", "app.yaml")
+			},
+		},
+		{
+			name: "secret file",
+			composePayload: func(objectFile string) string {
+				return fmt.Sprintf(`
+services:
+  api:
+    image: nginx:latest
+    secrets:
+      - source: app-secret
+secrets:
+  app-secret:
+    file: %s
+`, objectFile)
+			},
+			objectFile: func(string) string {
+				return "./secrets/password.txt"
+			},
+			objectPath: func(dir string) string {
+				return filepath.Join(dir, "secrets", "password.txt")
+			},
+		},
+		{
+			name: "absolute config file",
+			composePayload: func(objectFile string) string {
+				return fmt.Sprintf(`
+services:
+  api:
+    image: nginx:latest
+    configs:
+      - source: app-config
+configs:
+  app-config:
+    file: %s
+`, objectFile)
+			},
+			objectFile: func(dir string) string {
+				return filepath.Join(dir, "absolute", "config.yaml")
+			},
+			objectPath: func(dir string) string {
+				return filepath.Join(dir, "absolute", "config.yaml")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			composePath := filepath.Join(dir, "compose.yaml")
+			objectFile := tt.objectFile(dir)
+			objectPath := tt.objectPath(dir)
+
+			require.NoError(t, os.MkdirAll(filepath.Dir(objectPath), 0o755), "create object dir")
+			require.NoError(t, os.WriteFile(composePath, []byte(tt.composePayload(objectFile)), 0o600), "write compose")
+			require.NoError(t, os.WriteFile(objectPath, []byte("version: old\n"), 0o600), "write old object")
+
+			loader := NewFileLoader()
+			oldFile, err := loader.Load(context.Background(), composePath)
+			require.NoError(t, err, "load compose with old object")
+
+			require.NoError(t, os.WriteFile(objectPath, []byte("version: new\n"), 0o600), "write new object")
+
+			newFile, err := loader.Load(context.Background(), composePath)
+			require.NoError(t, err, "load compose with new object")
+
+			assert.NotEqual(t, oldFile.Digest, newFile.Digest, "digest must include shared object file content")
+		})
+	}
+}
+
+func TestFileLoaderDigestChangesWhenEnvFileContentChanges(t *testing.T) {
+	tests := []struct {
+		name           string
+		composePayload func(envFile string) string
+		envFile        func(dir string) string
+		envPath        func(dir string) string
+	}{
+		{
+			name: "relative env file",
+			composePayload: func(envFile string) string {
+				return fmt.Sprintf(`
+services:
+  api:
+    image: nginx:latest
+    env_file:
+      - %s
+`, envFile)
+			},
+			envFile: func(string) string {
+				return "./env/api.env"
+			},
+			envPath: func(dir string) string {
+				return filepath.Join(dir, "env", "api.env")
+			},
+		},
+		{
+			name: "absolute env file",
+			composePayload: func(envFile string) string {
+				return fmt.Sprintf(`
+services:
+  api:
+    image: nginx:latest
+    env_file:
+      - %s
+`, envFile)
+			},
+			envFile: func(dir string) string {
+				return filepath.Join(dir, "absolute", "api.env")
+			},
+			envPath: func(dir string) string {
+				return filepath.Join(dir, "absolute", "api.env")
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			composePath := filepath.Join(dir, "compose.yaml")
+			envFile := tt.envFile(dir)
+			envPath := tt.envPath(dir)
+
+			require.NoError(t, os.MkdirAll(filepath.Dir(envPath), 0o755), "create env file dir")
+			require.NoError(t, os.WriteFile(composePath, []byte(tt.composePayload(envFile)), 0o600), "write compose")
+			require.NoError(t, os.WriteFile(envPath, []byte("VERSION=old\n"), 0o600), "write old env file")
+
+			loader := NewFileLoader()
+			oldFile, err := loader.Load(context.Background(), composePath)
+			require.NoError(t, err, "load compose with old env file")
+
+			require.NoError(t, os.WriteFile(envPath, []byte("VERSION=new\n"), 0o600), "write new env file")
+
+			newFile, err := loader.Load(context.Background(), composePath)
+			require.NoError(t, err, "load compose with new env file")
+
+			assert.NotEqual(t, oldFile.Digest, newFile.Digest, "digest must include env_file content")
+		})
+	}
+}
+
+func TestFileLoaderDigestStableWithMultipleResources(t *testing.T) {
+	tests := []struct {
+		name           string
+		composePayload string
+		files          map[string]string
+	}{
+		{
+			name: "configs",
+			composePayload: `
+services:
+  api:
+    image: nginx:latest
+configs:
+  first:
+    file: ./first.yaml
+  second:
+    file: ./second.yaml
+`,
+			files: map[string]string{
+				"first.yaml":  "first\n",
+				"second.yaml": "second\n",
+			},
+		},
+		{
+			name: "secrets",
+			composePayload: `
+services:
+  api:
+    image: nginx:latest
+secrets:
+  first:
+    file: ./first.txt
+  second:
+    file: ./second.txt
+`,
+			files: map[string]string{
+				"first.txt":  "first\n",
+				"second.txt": "second\n",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			composePath := filepath.Join(dir, "compose.yaml")
+
+			require.NoError(t, os.WriteFile(composePath, []byte(tt.composePayload), 0o600), "write compose")
+			for name, content := range tt.files {
+				require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(content), 0o600), "write shared object")
+			}
+
+			loader := NewFileLoader()
+			firstFile, err := loader.Load(context.Background(), composePath)
+			require.NoError(t, err, "load first compose")
+
+			for i := 0; i < 100; i++ {
+				file, loadErr := loader.Load(context.Background(), composePath)
+				require.NoError(t, loadErr, "load compose")
+				assert.Equal(t, firstFile.Digest, file.Digest, "digest must be deterministic")
+			}
+		})
+	}
+}
