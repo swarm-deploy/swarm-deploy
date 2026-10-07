@@ -2,6 +2,7 @@ package httpx
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +18,11 @@ type Client struct {
 // NewClient creates an HTTP client wrapper.
 func NewClient(httpClient *http.Client) *Client {
 	return &Client{httpClient: httpClient}
+}
+
+// SendJSONRequest sends req and unmarshals a successful JSON response into out.
+func (c *Client) SendJSONRequest(req *http.Request, out any) error {
+	return c.SendRequest(req, json.Unmarshal, out)
 }
 
 // SendRequest sends req and unmarshals a successful response into out.

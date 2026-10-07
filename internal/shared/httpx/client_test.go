@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestClientSendRequestResponse(t *testing.T) {
+func TestClientSendJSONRequestResponse(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -68,7 +68,7 @@ func TestClientSendRequestResponse(t *testing.T) {
 			out := struct {
 				Value string `json:"value"`
 			}{}
-			err = NewClient(httpClient).SendRequest(req, json.Unmarshal, &out)
+			err = NewClient(httpClient).SendJSONRequest(req, &out)
 
 			if !tt.wantError {
 				require.NoError(t, err)
