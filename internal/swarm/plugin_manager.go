@@ -8,6 +8,7 @@ import (
 	dockertypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/client"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/httpx"
 )
 
 // PluginManager reads current Docker plugins snapshot.
@@ -25,7 +26,7 @@ func newPluginManager(dockerClient *client.Client) *PluginManager {
 func (m *PluginManager) List(ctx context.Context) ([]Plugin, error) {
 	plugins, err := m.dockerClient.PluginList(ctx, filters.NewArgs())
 	if err != nil {
-		return nil, fmt.Errorf("list docker plugins: %w", err)
+		return nil, fmt.Errorf("list docker plugins: %w", httpx.MatchError(err))
 	}
 
 	mapped := make([]Plugin, 0, len(plugins))

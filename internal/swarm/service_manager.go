@@ -19,6 +19,7 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/httpx"
 )
 
 const (
@@ -67,7 +68,7 @@ func (m *serviceManager) ListStackServices(ctx context.Context, stackName string
 		Filters: filters.NewArgs(filters.Arg("label", stackNamespaceLabelKey+"="+stackName)),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("list services for stack %s: %w", stackName, err)
+		return nil, fmt.Errorf("list services for stack %s: %w", stackName, httpx.MatchError(err))
 	}
 
 	mapped := make([]StackService, 0, len(services))
@@ -114,7 +115,7 @@ func (m *serviceManager) Remove(ctx context.Context, serviceIDOrName string) err
 			return ErrServiceNotFound
 		}
 
-		return fmt.Errorf("remove service %s: %w", serviceIDOrName, err)
+		return fmt.Errorf("remove service %s: %w", serviceIDOrName, httpx.MatchError(err))
 	}
 
 	return nil
@@ -139,7 +140,12 @@ func (m *serviceManager) Scale(
 
 	_, err = m.dockerClient.ServiceUpdate(ctx, service.ID, service.Version, spec, dockerswarm.ServiceUpdateOptions{})
 	if err != nil {
-		return fmt.Errorf("update service %s replicas to %d: %w", fullServiceName, replicas, err)
+		return fmt.Errorf(
+			"update service %s replicas to %d: %w",
+			fullServiceName,
+			replicas,
+			httpx.MatchError(err),
+		)
 	}
 
 	return nil
@@ -210,7 +216,7 @@ func (m *serviceManager) ListTasks(ctx context.Context, serviceRef ServiceRefere
 			return nil, ErrServiceNotFound
 		}
 
-		return nil, fmt.Errorf("list tasks for service %s: %w", fullServiceName, err)
+		return nil, fmt.Errorf("list tasks for service %s: %w", fullServiceName, httpx.MatchError(err))
 	}
 
 	out := make([]ServiceTask, 0, len(tasks))
@@ -260,13 +266,13 @@ func (m *serviceManager) Logs(
 			return nil, ErrServiceNotFound
 		}
 
-		return nil, fmt.Errorf("read logs for service %s: %w", fullServiceName, err)
+		return nil, fmt.Errorf("read logs for service %s: %w", fullServiceName, httpx.MatchError(err))
 	}
 	defer reader.Close()
 
 	rawLogs, err := io.ReadAll(reader)
 	if err != nil {
-		return nil, fmt.Errorf("read logs stream for service %s: %w", fullServiceName, err)
+		return nil, fmt.Errorf("read logs stream for service %s: %w", fullServiceName, httpx.MatchError(err))
 	}
 
 	decodedLogs := demultiplexDockerLogStream(rawLogs)
@@ -287,7 +293,7 @@ func (m *serviceManager) Logs(
 		logs = append(logs, line)
 	}
 	if scanErr := scanner.Err(); scanErr != nil {
-		return nil, fmt.Errorf("scan logs for service %s: %w", fullServiceName, scanErr)
+		return nil, fmt.Errorf("scan logs for service %s: %w", fullServiceName, httpx.MatchError(scanErr))
 	}
 
 	return logs, nil
@@ -305,7 +311,7 @@ func (m *serviceManager) TaskLogs(
 			return nil, nil, ErrServiceNotFound
 		}
 
-		return nil, nil, fmt.Errorf("read logs for task %s: %w", taskID, err)
+		return nil, nil, fmt.Errorf("read logs for task %s: %w", taskID, httpx.MatchError(err))
 	}
 
 	entries := make(chan LogEntry)
@@ -317,7 +323,7 @@ func (m *serviceManager) TaskLogs(
 		defer reader.Close()
 
 		if readErr := readDockerLogEntries(ctx, reader, entries); readErr != nil {
-			errs <- fmt.Errorf("read task %s logs stream: %w", taskID, readErr)
+			errs <- fmt.Errorf("read task %s logs stream: %w", taskID, httpx.MatchError(readErr))
 		}
 	}()
 
@@ -825,7 +831,11 @@ func (m *serviceManager) inspect(
 			return dockerswarm.Service{}, fullServiceName, ErrServiceNotFound
 		}
 
-		return dockerswarm.Service{}, fullServiceName, fmt.Errorf("inspect service %s: %w", fullServiceName, err)
+		return dockerswarm.Service{}, fullServiceName, fmt.Errorf(
+			"inspect service %s: %w",
+			fullServiceName,
+			httpx.MatchError(err),
+		)
 	}
 
 	return service, fullServiceName, nil

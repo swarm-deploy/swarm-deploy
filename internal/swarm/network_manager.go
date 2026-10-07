@@ -8,6 +8,7 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	dockernetwork "github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/httpx"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 )
 
@@ -28,7 +29,7 @@ func (m *networkManager) List(ctx context.Context) ([]Network, error) {
 		Filters: filters.NewArgs(filters.Arg("scope", "swarm")),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("list docker networks: %w", err)
+		return nil, fmt.Errorf("list docker networks: %w", httpx.MatchError(err))
 	}
 
 	mapped := make([]Network, len(networks))
@@ -51,7 +52,7 @@ func (m *networkManager) Map(ctx context.Context, ids []string) (map[string]Netw
 		Filters: filters.NewArgs(filterArgs...),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("list docker networks: %w", err)
+		return nil, fmt.Errorf("list docker networks: %w", httpx.MatchError(err))
 	}
 
 	mapped := make(map[string]Network, len(networks))
@@ -69,7 +70,7 @@ func (m *networkManager) Get(ctx context.Context, name string) (Network, error) 
 			return Network{}, ErrNetworkNotFound
 		}
 
-		return Network{}, fmt.Errorf("inspect network: %w", err)
+		return Network{}, fmt.Errorf("inspect network: %w", httpx.MatchError(err))
 	}
 
 	return m.mapNetwork(network), nil
@@ -84,7 +85,7 @@ func (m *networkManager) Create(ctx context.Context, req CreateNetworkRequest) (
 		Labels:     req.Labels,
 	})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("create docker network %s: %w", req.Name, httpx.MatchError(err))
 	}
 
 	return resp.ID, nil

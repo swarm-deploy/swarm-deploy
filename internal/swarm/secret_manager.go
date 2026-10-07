@@ -9,6 +9,7 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/httpx"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 )
 
@@ -41,7 +42,7 @@ func (r *secretManager) ListStack(ctx context.Context, stackName string) ([]Secr
 func (r *secretManager) list(ctx context.Context, options dockerswarm.SecretListOptions) ([]Secret, error) {
 	secrets, err := r.dockerClient.SecretList(ctx, options)
 	if err != nil {
-		return nil, fmt.Errorf("list docker secrets: %w", err)
+		return nil, fmt.Errorf("list docker secrets: %w", httpx.MatchError(err))
 	}
 
 	mapped := make([]Secret, len(secrets))
@@ -55,7 +56,7 @@ func (r *secretManager) list(ctx context.Context, options dockerswarm.SecretList
 
 func (r *secretManager) Remove(ctx context.Context, secretID string) error {
 	if err := r.dockerClient.SecretRemove(ctx, secretID); err != nil {
-		return fmt.Errorf("remove docker secret %s: %w", secretID, err)
+		return fmt.Errorf("remove docker secret %s: %w", secretID, httpx.MatchError(err))
 	}
 
 	return nil
@@ -65,7 +66,7 @@ func (r *secretManager) Watch(ctx context.Context) (<-chan dockerevents.Message,
 	eventsFilter := filters.NewArgs(filters.Arg("type", string(dockerevents.SecretEventType)))
 	messages, errs := r.dockerClient.Events(ctx, dockerevents.ListOptions{Filters: eventsFilter})
 
-	return messages, errs, nil
+	return messages, matchAPIErrors(errs), nil
 }
 
 func (r *secretManager) ResolveReference(
@@ -74,7 +75,7 @@ func (r *secretManager) ResolveReference(
 ) (*dockerswarm.SecretReference, error) {
 	secret, _, err := r.dockerClient.SecretInspectWithRaw(ctx, source)
 	if err != nil {
-		return nil, fmt.Errorf("inspect secret: %w", err)
+		return nil, fmt.Errorf("inspect secret: %w", httpx.MatchError(err))
 	}
 
 	ref := &dockerswarm.SecretReference{

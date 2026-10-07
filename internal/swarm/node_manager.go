@@ -10,6 +10,7 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/httpx"
 )
 
 // NodeManager manages Docker Swarm nodes.
@@ -27,7 +28,7 @@ func newNodeManager(dockerClient *client.Client) NodeManager {
 func (m *nodeManager) List(ctx context.Context) ([]Node, error) {
 	nodes, err := m.dockerClient.NodeList(ctx, dockerswarm.NodeListOptions{})
 	if err != nil {
-		return nil, fmt.Errorf("list swarm nodes: %w", err)
+		return nil, fmt.Errorf("list swarm nodes: %w", httpx.MatchError(err))
 	}
 
 	mapped := make([]Node, 0, len(nodes))
@@ -62,7 +63,7 @@ func (m *nodeManager) Watch(
 		Filters: eventsFilter,
 	})
 
-	return messages, errs, nil
+	return messages, matchAPIErrors(errs), nil
 }
 
 func (m *nodeManager) updateLabels(ctx context.Context, nodeID string, mutate func(labels map[string]string)) error {
@@ -72,7 +73,7 @@ func (m *nodeManager) updateLabels(ctx context.Context, nodeID string, mutate fu
 			return ErrNodeNotFound
 		}
 
-		return fmt.Errorf("inspect node %s: %w", nodeID, err)
+		return fmt.Errorf("inspect node %s: %w", nodeID, httpx.MatchError(err))
 	}
 
 	spec := node.Spec
@@ -85,7 +86,7 @@ func (m *nodeManager) updateLabels(ctx context.Context, nodeID string, mutate fu
 			return ErrNodeUpdateConflict
 		}
 
-		return fmt.Errorf("update node %s labels: %w", nodeID, err)
+		return fmt.Errorf("update node %s labels: %w", nodeID, httpx.MatchError(err))
 	}
 
 	return nil

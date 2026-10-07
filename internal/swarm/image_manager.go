@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/docker/docker/client"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/httpx"
 )
 
 // imageManager manages Docker image metadata.
@@ -27,7 +28,7 @@ func (m *imageManager) Get(ctx context.Context, imageRef string) (Image, error) 
 			return Image{}, ErrImageNotFound
 		}
 
-		return Image{}, fmt.Errorf("inspect image %s: %w", imageRef, err)
+		return Image{}, fmt.Errorf("inspect image %s: %w", imageRef, httpx.MatchError(err))
 	}
 
 	labels := map[string]string(nil)
