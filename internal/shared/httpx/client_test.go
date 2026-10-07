@@ -93,9 +93,7 @@ func TestClientSendRequestFailure(t *testing.T) {
 	timedOutCtx, cancelTimeout := context.WithDeadline(context.Background(), time.Now().Add(-time.Second))
 	t.Cleanup(cancelTimeout)
 
-	closedServer := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
-	closedServerURL := closedServer.URL
-	closedServer.Close()
+	const requestURL = "http://example.invalid"
 
 	tests := []struct {
 		name       string
@@ -103,16 +101,19 @@ func TestClientSendRequestFailure(t *testing.T) {
 		assertType func(t *testing.T, err error)
 	}{
 		{
-			name: "nil request",
-			buildReq: func(*testing.T) *http.Request {
-				return nil
+			name: "nil request URL",
+			buildReq: func(t *testing.T) *http.Request {
+				req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, requestURL, nil)
+				require.NoError(t, err)
+				req.URL = nil
+				return req
 			},
 			assertType: assertErrorType[*InvalidURLError],
 		},
 		{
 			name: "missing URL scheme",
 			buildReq: func(t *testing.T) *http.Request {
-				req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, closedServerURL, nil)
+				req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, requestURL, nil)
 				require.NoError(t, err)
 				req.URL.Scheme = ""
 				return req
@@ -122,7 +123,7 @@ func TestClientSendRequestFailure(t *testing.T) {
 		{
 			name: "canceled request",
 			buildReq: func(t *testing.T) *http.Request {
-				req, err := http.NewRequestWithContext(canceledCtx, http.MethodGet, closedServerURL, nil)
+				req, err := http.NewRequestWithContext(canceledCtx, http.MethodGet, requestURL, nil)
 				require.NoError(t, err)
 				return req
 			},
@@ -131,20 +132,11 @@ func TestClientSendRequestFailure(t *testing.T) {
 		{
 			name: "timed out request",
 			buildReq: func(t *testing.T) *http.Request {
-				req, err := http.NewRequestWithContext(timedOutCtx, http.MethodGet, closedServerURL, nil)
+				req, err := http.NewRequestWithContext(timedOutCtx, http.MethodGet, requestURL, nil)
 				require.NoError(t, err)
 				return req
 			},
 			assertType: assertErrorType[*TimeoutError],
-		},
-		{
-			name: "transport failure",
-			buildReq: func(t *testing.T) *http.Request {
-				req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, closedServerURL, nil)
-				require.NoError(t, err)
-				return req
-			},
-			assertType: assertErrorType[*TransportError],
 		},
 	}
 
@@ -158,6 +150,14 @@ func TestClientSendRequestFailure(t *testing.T) {
 			tt.assertType(t, err)
 		})
 	}
+}
+
+func TestClassifyRequestErrorTransport(t *testing.T) {
+	t.Parallel()
+
+	err := MatchError(errors.New("transport failure"))
+
+	assertErrorType[*TransportError](t, err)
 }
 
 func TestClientSendRequestUnmarshalFailure(t *testing.T) {
@@ -273,7 +273,7 @@ func TestClassifyRequestErrorDNS(t *testing.T) {
 		Err: underlyingErr,
 	}
 
-	err := classifyRequestError(requestErr)
+	err := MatchError(requestErr)
 
 	var dnsErr *DNSError
 	require.ErrorAs(t, err, &dnsErr)

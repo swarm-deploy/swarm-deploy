@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 )
 
 // Client sends HTTP requests and maps failures to package-specific error types.
@@ -27,13 +28,9 @@ func (c *Client) SendJSONRequest(req *http.Request, out any) error {
 
 // SendRequest sends req and unmarshals a successful response into out.
 func (c *Client) SendRequest(req *http.Request, unmarshaler Unmarshaler, out any) error {
-	if err := validateRequest(req); err != nil {
-		return &InvalidURLError{Err: err}
-	}
-
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return classifyRequestError(err)
+		return MatchError(err)
 	}
 	defer resp.Body.Close()
 
@@ -56,24 +53,7 @@ func (c *Client) SendRequest(req *http.Request, unmarshaler Unmarshaler, out any
 	return nil
 }
 
-func validateRequest(req *http.Request) error {
-	if req == nil {
-		return errors.New("request is nil")
-	}
-	if req.URL == nil {
-		return errors.New("request URL is nil")
-	}
-	if req.URL.Scheme != "http" && req.URL.Scheme != "https" {
-		return fmt.Errorf("unsupported URL scheme %q", req.URL.Scheme)
-	}
-	if req.URL.Host == "" {
-		return errors.New("request URL has no host")
-	}
-
-	return nil
-}
-
-func classifyRequestError(err error) error {
+func MatchError(err error) error {
 	if errors.Is(err, context.Canceled) {
 		return &RequestCanceledError{Err: err}
 	}
@@ -90,6 +70,11 @@ func classifyRequestError(err error) error {
 	var netErr net.Error
 	if errors.As(err, &netErr) && netErr.Timeout() {
 		return &TimeoutError{Err: err}
+	}
+
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return &InvalidURLError{Err: err}
 	}
 
 	return &TransportError{Err: err}
