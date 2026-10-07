@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 )
@@ -18,29 +19,35 @@ func NewClient(httpClient *http.Client) *Client {
 	return &Client{httpClient: httpClient}
 }
 
-// SendRequest sends req and classifies HTTP and transport failures.
-//
-// A response with a status code greater than or equal to 400 is returned
-// together with a CodeError. The caller remains responsible for closing the
-// response body whenever the returned response is non-nil.
-func (c *Client) SendRequest(req *http.Request) (*http.Response, error) {
+// SendRequest sends req and unmarshals a successful response into out.
+func (c *Client) SendRequest(req *http.Request, unmarshaler Unmarshaler, out any) error {
 	if err := validateRequest(req); err != nil {
-		return nil, &InvalidURLError{Err: err}
+		return &InvalidURLError{Err: err}
 	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return resp, classifyRequestError(err)
+		return classifyRequestError(err)
 	}
+	defer resp.Body.Close()
 
 	if resp.StatusCode >= http.StatusBadRequest {
-		return resp, &CodeError{
+		return &CodeError{
 			Code: resp.StatusCode,
 			Err:  fmt.Errorf("unexpected HTTP status: %s", resp.Status),
 		}
 	}
 
-	return resp, nil
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return &TransportError{Err: fmt.Errorf("read HTTP response body: %w", err)}
+	}
+
+	if err = unmarshaler(body, out); err != nil {
+		return fmt.Errorf("unmarshal HTTP response: %w", err)
+	}
+
+	return nil
 }
 
 func validateRequest(req *http.Request) error {

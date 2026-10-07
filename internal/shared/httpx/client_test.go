@@ -2,8 +2,8 @@ package httpx
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
-	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -22,14 +22,17 @@ func TestClientSendRequestResponse(t *testing.T) {
 		name       string
 		statusCode int
 		wantError  bool
+		wantValue  string
 	}{
 		{
 			name:       "successful response",
 			statusCode: http.StatusOK,
+			wantValue:  "ok",
 		},
 		{
 			name:       "redirect response",
 			statusCode: http.StatusTemporaryRedirect,
+			wantValue:  "redirect",
 		},
 		{
 			name:       "client error response",
@@ -48,8 +51,9 @@ func TestClientSendRequestResponse(t *testing.T) {
 			t.Parallel()
 
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(tt.statusCode)
-				_, _ = io.WriteString(w, "response body")
+				_ = json.NewEncoder(w).Encode(map[string]string{"value": tt.wantValue})
 			}))
 			t.Cleanup(server.Close)
 
@@ -61,13 +65,14 @@ func TestClientSendRequestResponse(t *testing.T) {
 			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, nil)
 			require.NoError(t, err)
 
-			resp, err := NewClient(httpClient).SendRequest(req)
-			require.NotNil(t, resp)
-			t.Cleanup(func() { require.NoError(t, resp.Body.Close()) })
-			assert.Equal(t, tt.statusCode, resp.StatusCode)
+			out := struct {
+				Value string `json:"value"`
+			}{}
+			err = NewClient(httpClient).SendRequest(req, json.Unmarshal, &out)
 
 			if !tt.wantError {
 				require.NoError(t, err)
+				assert.Equal(t, tt.wantValue, out.Value)
 				return
 			}
 
@@ -148,10 +153,46 @@ func TestClientSendRequestFailure(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			resp, err := client.SendRequest(tt.buildReq(t))
-			assert.Nil(t, resp)
+			err := client.SendRequest(tt.buildReq(t), json.Unmarshal, &struct{}{})
 			require.Error(t, err)
 			tt.assertType(t, err)
+		})
+	}
+}
+
+func TestClientSendRequestUnmarshalFailure(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		unmarshaler Unmarshaler
+		assertError func(t *testing.T, err error)
+	}{
+		{
+			name:        "invalid response",
+			unmarshaler: json.Unmarshal,
+			assertError: func(t *testing.T, err error) {
+				var syntaxErr *json.SyntaxError
+				require.ErrorAs(t, err, &syntaxErr)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = w.Write([]byte("not-json"))
+			}))
+			t.Cleanup(server.Close)
+
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, server.URL, nil)
+			require.NoError(t, err)
+
+			err = NewClient(server.Client()).SendRequest(req, tt.unmarshaler, &struct{}{})
+			require.Error(t, err)
+			tt.assertError(t, err)
 		})
 	}
 }
