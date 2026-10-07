@@ -7,8 +7,6 @@ import (
 
 // ReadComposeError means a compose file could not be read.
 type ReadComposeError struct {
-	// StackName is the stack name.
-	StackName string
 	// FilePath is the compose file path.
 	FilePath string
 	// Err is the underlying (technical) cause.
@@ -16,7 +14,7 @@ type ReadComposeError struct {
 }
 
 func (e *ReadComposeError) Error() string {
-	return fmt.Sprintf("read compose file %q of stack %q: %v", e.FilePath, e.StackName, e.Err)
+	return fmt.Sprintf("read compose file %q: %v", e.FilePath, e.Err)
 }
 
 // Unwrap returns the cause.
@@ -24,8 +22,6 @@ func (e *ReadComposeError) Unwrap() error { return e.Err }
 
 // ParseComposeError means a compose file could not be parsed.
 type ParseComposeError struct {
-	// StackName is the stack name.
-	StackName string
 	// FilePath is the compose file path.
 	FilePath string
 	// Err is the underlying cause.
@@ -33,11 +29,21 @@ type ParseComposeError struct {
 }
 
 func (e *ParseComposeError) Error() string {
-	return fmt.Sprintf("parse compose file %q of stack %q: %v", e.FilePath, e.StackName, e.Err)
+	return fmt.Sprintf("parse compose file %q: %v", e.FilePath, e.Err)
 }
 
 // Unwrap returns the cause.
 func (e *ParseComposeError) Unwrap() error { return e.Err }
+
+// Validation issue codes.
+const (
+	// IssueCodeRequired means a required field is missing.
+	IssueCodeRequired = "required"
+	// IssueCodeInvalidType means a value has an unexpected YAML type.
+	IssueCodeInvalidType = "invalid_type"
+	// IssueCodeInvalidValue means a value is not acceptable for the compose specification.
+	IssueCodeInvalidValue = "invalid_value"
+)
 
 // ValidationIssue describes a single compose validation problem.
 type ValidationIssue struct {
@@ -57,8 +63,6 @@ type ValidationIssue struct {
 
 // ValidateComposeError means a compose file is invalid.
 type ValidateComposeError struct {
-	// StackName is the stack name.
-	StackName string
 	// FilePath is the compose file path.
 	FilePath string
 	// Issues are found validation issues.
@@ -70,5 +74,5 @@ func (e *ValidateComposeError) Error() string {
 	for _, i := range e.Issues {
 		msgs = append(msgs, fmt.Sprintf("%s %q: %s: %s", i.ResourceType, i.ResourceName, i.Field, i.Message))
 	}
-	return fmt.Sprintf("validate compose file %q of stack %q: %s", e.FilePath, e.StackName, strings.Join(msgs, "; "))
+	return fmt.Sprintf("validate compose file %q: %s", e.FilePath, strings.Join(msgs, "; "))
 }

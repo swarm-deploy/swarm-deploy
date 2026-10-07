@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"os"
 	"path/filepath"
 
@@ -98,7 +99,7 @@ func applyObjectTypeRotation[T any, Objects ~map[string]*T](
 			continue
 		}
 
-		fileBytes, err := os.ReadFile(resolveObjectFilePath(baseDir, objectFile))
+		fileBytes, err := readObjectFile(resolveObjectFilePath(baseDir, objectFile))
 		if err != nil {
 			return false, fmt.Errorf("read %s for rotation: %w", objectFile, err)
 		}
@@ -166,7 +167,7 @@ func resolveDesiredResourceNames[T any, Objects ~map[string]*T](
 			continue
 		}
 
-		fileBytes, err := os.ReadFile(resolveObjectFilePath(baseDir, objectFile))
+		fileBytes, err := readObjectFile(resolveObjectFilePath(baseDir, objectFile))
 		if err != nil {
 			return nil, fmt.Errorf("read %s for rotation: %w", objectFile, err)
 		}
@@ -214,4 +215,13 @@ func (*Rotator) buildRotatedObjectName(
 	}
 
 	return fmt.Sprintf("%s-%s-%s", stackName, objectName, hash)
+}
+
+func readObjectFile(path string) ([]byte, error) {
+	content, err := os.ReadFile(path)
+	if err != nil {
+		return nil, faults.WrapIO(err)
+	}
+
+	return content, nil
 }

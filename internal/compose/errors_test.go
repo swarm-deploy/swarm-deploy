@@ -1,8 +1,10 @@
 package compose
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -11,40 +13,108 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
 
-func TestReadParseComposeError(t *testing.T) {
+func loadFrom(files map[string]string) (*File, error) {
+	loader := NewFileLoaderWithReader(func(_ context.Context, path string) ([]byte, error) {
+		content, ok := files[path]
+		if !ok {
+			return nil, faults.WrapIO(&fs.PathError{Op: "open", Path: path, Err: fs.ErrNotExist})
+		}
+		return []byte(content), nil
+	})
+	return loader.Load(context.Background(), "/stack/compose.yaml")
+}
+
+func TestFileLoaderReadComposeError(t *testing.T) {
 	t.Parallel()
 
-	io := &faults.IOError{Err: errors.New("disk")}
-	cases := []struct {
-		name string
-		err  error
-	}{
-		{"read", &ReadComposeError{StackName: "s", FilePath: "f", Err: io}},
-		{"parse", &ParseComposeError{StackName: "s", FilePath: "f", Err: io}},
+	_, err := loadFrom(nil)
+
+	var readErr *ReadComposeError
+	require.ErrorAs(t, err, &readErr)
+	assert.Equal(t, "/stack/compose.yaml", readErr.FilePath)
+
+	var ioErr *faults.IOError
+	require.ErrorAs(t, err, &ioErr)
+	require.ErrorIs(t, err, fs.ErrNotExist)
+	assert.False(t, ioErr.Temporary())
+}
+
+func TestFileLoaderParseComposeError(t *testing.T) {
+	t.Parallel()
+
+	_, err := loadFrom(map[string]string{"/stack/compose.yaml": "services: [unclosed\n  a: b: c"})
+
+	var parseErr *ParseComposeError
+	require.ErrorAs(t, err, &parseErr)
+	assert.Equal(t, "/stack/compose.yaml", parseErr.FilePath)
+
+	var validateErr *ValidateComposeError
+	assert.False(t, errors.As(err, &validateErr))
+}
+
+func TestFileLoaderValidateComposeErrorInitJob(t *testing.T) {
+	t.Parallel()
+
+	_, err := loadFrom(map[string]string{"/stack/compose.yaml": `
+services:
+  app:
+    image: nginx
+    x-init-deploy-jobs:
+      - command: ["true"]
+`})
+
+	var validateErr *ValidateComposeError
+	require.ErrorAs(t, err, &validateErr)
+	var parseErr *ParseComposeError
+	assert.False(t, errors.As(err, &parseErr))
+	require.NotEmpty(t, validateErr.Issues)
+	issue := validateErr.Issues[0]
+	assert.Equal(t, "service", issue.ResourceType)
+	assert.Equal(t, "app", issue.ResourceName)
+	assert.Equal(t, "init-jobs[0].image", issue.Field)
+	assert.Equal(t, IssueCodeRequired, issue.Code)
+}
+
+func TestFileLoaderValidateComposeErrorWrongType(t *testing.T) {
+	t.Parallel()
+
+	_, err := loadFrom(map[string]string{"/stack/compose.yaml": "services: not-a-map\n"})
+
+	var validateErr *ValidateComposeError
+	require.ErrorAs(t, err, &validateErr)
+	require.NotEmpty(t, validateErr.Issues)
+	assert.NotEmpty(t, validateErr.Issues[0].Message)
+}
+
+func TestFileLoaderKeepsIOErrorForReferencedFiles(t *testing.T) {
+	t.Parallel()
+
+	cases := map[string]string{
+		"env_file": "services:\n  app:\n    image: nginx\n    env_file: [missing.env]\n",
+		"config":   "services:\n  app:\n    image: nginx\nconfigs:\n  c:\n    file: missing.conf\n",
+		"secret":   "services:\n  app:\n    image: nginx\nsecrets:\n  s:\n    file: missing.txt\n",
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
+	for name, content := range cases {
+		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 
-			wrapped := fmt.Errorf("ctx: %w", tc.err)
-			require.ErrorIs(t, wrapped, io)
-			var fe faults.Error
-			require.ErrorAs(t, wrapped, &fe)
-			assert.False(t, fe.Temporary())
-			assert.Contains(t, tc.err.Error(), `"s"`)
+			_, err := loadFrom(map[string]string{"/stack/compose.yaml": content})
+
+			var ioErr *faults.IOError
+			require.ErrorAs(t, err, &ioErr)
+			var readErr *ReadComposeError
+			assert.False(t, errors.As(err, &readErr), "only the main file is ReadComposeError")
 		})
 	}
 }
 
-func TestValidateComposeError(t *testing.T) {
+func TestComposeErrorsWrap(t *testing.T) {
 	t.Parallel()
 
-	err := fmt.Errorf("x: %w", &ValidateComposeError{
-		StackName: "s", FilePath: "f",
-		Issues: []ValidationIssue{{ResourceType: "service", ResourceName: "web", Field: "image", Code: "required", Message: "missing"}},
-	})
-	var ve *ValidateComposeError
-	require.ErrorAs(t, err, &ve)
-	assert.Len(t, ve.Issues, 1)
-	assert.Contains(t, ve.Error(), "web")
+	_, err := loadFrom(nil)
+	wrapped := fmt.Errorf("sync: %w", err)
+
+	var fe faults.Error
+	require.ErrorAs(t, wrapped, &fe)
+	assert.Contains(t, wrapped.Error(), "/stack/compose.yaml")
 }

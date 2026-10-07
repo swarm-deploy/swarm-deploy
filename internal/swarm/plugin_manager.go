@@ -25,7 +25,7 @@ func newPluginManager(dockerClient *client.Client) *PluginManager {
 func (m *PluginManager) List(ctx context.Context) ([]Plugin, error) {
 	plugins, err := m.dockerClient.PluginList(ctx, filters.NewArgs())
 	if err != nil {
-		return nil, fmt.Errorf("list docker plugins: %w", err)
+		return nil, fmt.Errorf("list docker plugins: %w", dockerAPIError(err))
 	}
 
 	mapped := make([]Plugin, 0, len(plugins))

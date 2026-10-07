@@ -67,7 +67,7 @@ func (m *serviceManager) ListStackServices(ctx context.Context, stackName string
 		Filters: filters.NewArgs(filters.Arg("label", stackNamespaceLabelKey+"="+stackName)),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("list services for stack %s: %w", stackName, err)
+		return nil, fmt.Errorf("list services for stack %s: %w", stackName, dockerAPIError(err))
 	}
 
 	mapped := make([]StackService, 0, len(services))
@@ -114,7 +114,7 @@ func (m *serviceManager) Remove(ctx context.Context, serviceIDOrName string) err
 			return ErrServiceNotFound
 		}
 
-		return fmt.Errorf("remove service %s: %w", serviceIDOrName, err)
+		return fmt.Errorf("remove service %s: %w", serviceIDOrName, dockerAPIError(err))
 	}
 
 	return nil
@@ -139,7 +139,7 @@ func (m *serviceManager) Scale(
 
 	_, err = m.dockerClient.ServiceUpdate(ctx, service.ID, service.Version, spec, dockerswarm.ServiceUpdateOptions{})
 	if err != nil {
-		return fmt.Errorf("update service %s replicas to %d: %w", fullServiceName, replicas, err)
+		return fmt.Errorf("update service %s replicas to %d: %w", fullServiceName, replicas, dockerAPIError(err))
 	}
 
 	return nil
@@ -210,7 +210,7 @@ func (m *serviceManager) ListTasks(ctx context.Context, serviceRef ServiceRefere
 			return nil, ErrServiceNotFound
 		}
 
-		return nil, fmt.Errorf("list tasks for service %s: %w", fullServiceName, err)
+		return nil, fmt.Errorf("list tasks for service %s: %w", fullServiceName, dockerAPIError(err))
 	}
 
 	out := make([]ServiceTask, 0, len(tasks))
@@ -260,7 +260,7 @@ func (m *serviceManager) Logs(
 			return nil, ErrServiceNotFound
 		}
 
-		return nil, fmt.Errorf("read logs for service %s: %w", fullServiceName, err)
+		return nil, fmt.Errorf("read logs for service %s: %w", fullServiceName, dockerAPIError(err))
 	}
 	defer reader.Close()
 
@@ -305,7 +305,7 @@ func (m *serviceManager) TaskLogs(
 			return nil, nil, ErrServiceNotFound
 		}
 
-		return nil, nil, fmt.Errorf("read logs for task %s: %w", taskID, err)
+		return nil, nil, fmt.Errorf("read logs for task %s: %w", taskID, dockerAPIError(err))
 	}
 
 	entries := make(chan LogEntry)
@@ -825,7 +825,7 @@ func (m *serviceManager) inspect(
 			return dockerswarm.Service{}, fullServiceName, ErrServiceNotFound
 		}
 
-		return dockerswarm.Service{}, fullServiceName, fmt.Errorf("inspect service %s: %w", fullServiceName, err)
+		return dockerswarm.Service{}, fullServiceName, fmt.Errorf("inspect service %s: %w", fullServiceName, dockerAPIError(err))
 	}
 
 	return service, fullServiceName, nil

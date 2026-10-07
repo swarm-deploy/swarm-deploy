@@ -18,10 +18,16 @@ type InitJob struct {
 	Timeout     specw.Duration   `yaml:"timeout" json:"timeout,omitempty"`
 }
 
-func normalizeInitJobs(jobs []InitJob, networks map[string]Network) ([]InitJob, error) {
+func normalizeInitJobs(jobs []InitJob, networks map[string]Network) ([]InitJob, []ValidationIssue) {
+	var issues []ValidationIssue
 	for i := range jobs {
 		if jobs[i].Image == "" {
-			return nil, fmt.Errorf("init-jobs[%d]: image is required", i)
+			issues = append(issues, ValidationIssue{
+				Field:   fmt.Sprintf("init-jobs[%d].image", i),
+				Code:    IssueCodeRequired,
+				Message: "image is required",
+			})
+			continue
 		}
 
 		resolveNetworkAliases(jobs[i].Networks, networks)
@@ -30,5 +36,5 @@ func normalizeInitJobs(jobs []InitJob, networks map[string]Network) ([]InitJob, 
 		}
 	}
 
-	return jobs, nil
+	return jobs, issues
 }

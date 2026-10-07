@@ -1,7 +1,10 @@
 // Package faults provides common classification of technical failures.
 package faults
 
-import "errors"
+import (
+	"errors"
+	"syscall"
+)
 
 // Error is an error with a technical classification.
 type Error interface {
@@ -17,6 +20,10 @@ type temporary interface {
 
 // causeTemporary reports temporariness of the cause: true if any error in the chain says so.
 func causeTemporary(err error) bool {
+	if errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.ECONNABORTED) || errors.Is(err, syscall.EPIPE) {
+		return true
+	}
+
 	for err != nil {
 		if t, ok := err.(temporary); ok { //nolint:errorlint // chain is walked manually
 			return t.Temporary()

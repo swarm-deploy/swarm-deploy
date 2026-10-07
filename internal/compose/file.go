@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"hash"
 	"os"
 	"path/filepath"
@@ -57,7 +59,7 @@ func NewFileLoaderWithReader(reader func(ctx context.Context, path string) ([]by
 func readFile(_ context.Context, path string) ([]byte, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, faults.WrapIO(err)
 	}
 
 	return content, nil
@@ -74,17 +76,21 @@ func (f *File) MarshalYAML() ([]byte, error) {
 func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 	raw, err := l.fileReader(ctx, path)
 	if err != nil {
-		return nil, fmt.Errorf("read compose file %s: %w", path, err)
+		return nil, &ReadComposeError{FilePath: path, Err: err}
+	}
+
+	var syntax yaml.Node
+	if err = yaml.Unmarshal(raw, &syntax); err != nil {
+		return nil, &ParseComposeError{FilePath: path, Err: err}
 	}
 
 	schema := Compose{}
-	err = yaml.Unmarshal(raw, &schema)
-	if err != nil {
-		return nil, fmt.Errorf("decode compose schema: %w", err)
+	if err = yaml.Unmarshal(raw, &schema); err != nil {
+		return nil, &ValidateComposeError{FilePath: path, Issues: decodeIssues(err)}
 	}
 
-	if err = l.linkServices(&schema, filepath.Dir(path)); err != nil {
-		return nil, fmt.Errorf("link services: %w", err)
+	if issues := l.linkServices(&schema, filepath.Dir(path)); len(issues) > 0 {
+		return nil, &ValidateComposeError{FilePath: path, Issues: issues}
 	}
 
 	if err = l.loadEnvFiles(ctx, filepath.Dir(path), schema.Services); err != nil {
@@ -149,7 +155,31 @@ func (l *fileLoader) loadEnvFiles(ctx context.Context, baseDir string, services 
 	return nil
 }
 
-func (*fileLoader) linkServices(compose *Compose, baseDir string) error {
+// decodeIssues converts a decode error of syntactically valid YAML into validation issues.
+func decodeIssues(err error) []ValidationIssue {
+	var typeErr *yaml.TypeError
+	if errors.As(err, &typeErr) {
+		issues := make([]ValidationIssue, 0, len(typeErr.Errors))
+		for _, msg := range typeErr.Errors {
+			issues = append(issues, ValidationIssue{
+				ResourceType: "compose",
+				Code:         IssueCodeInvalidType,
+				Message:      msg,
+			})
+		}
+		return issues
+	}
+
+	return []ValidationIssue{{
+		ResourceType: "compose",
+		Code:         IssueCodeInvalidValue,
+		Message:      err.Error(),
+	}}
+}
+
+func (*fileLoader) linkServices(compose *Compose, baseDir string) []ValidationIssue {
+	var issues []ValidationIssue
+
 	for ind, service := range compose.Services {
 		resolveNetworkAliases(service.Networks, compose.Networks)
 
@@ -166,16 +196,18 @@ func (*fileLoader) linkServices(compose *Compose, baseDir string) error {
 			}
 		}
 
-		initJobs, err := normalizeInitJobs(service.InitJobs, compose.Networks)
-		if err != nil {
-			return fmt.Errorf("load init jobs for service %q: %w", service.Name, err)
+		initJobs, jobIssues := normalizeInitJobs(service.InitJobs, compose.Networks)
+		for _, issue := range jobIssues {
+			issue.ResourceType = "service"
+			issue.ResourceName = service.Name
+			issues = append(issues, issue)
 		}
 		service.InitJobs = initJobs
 
 		compose.Services[ind] = service
 	}
 
-	return nil
+	return issues
 }
 
 type objectFileContents map[string][]byte
