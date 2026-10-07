@@ -21,14 +21,6 @@ sync:
     # Removes orphaned managed services that are no longer defined in compose.
     prune: true
 
-# Deployment policies.
-policies:
-  image:
-    tag:
-      required: false
-      no_latest: false
-      only_sha: false
-
 # Stacks source settings.
 stacks:
   # Path to stacks definition file in git repository (relative to repo root).
