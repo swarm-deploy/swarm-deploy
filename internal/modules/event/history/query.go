@@ -13,13 +13,13 @@ import (
 
 type SortOrder string
 
-const (
-	maxEventCursorLength = 2048
-	severityScoreAlert = 3
-	severityScoreError = 2
-	severityScoreWarn = 1
-	severityScoreInfo = 0
+const maxEventCursorLength = 2048
+const severityScoreAlert = 3
+const severityScoreError = 2
+const severityScoreWarn = 1
+const severityScoreInfo = 0
 
+const (
 	SortTimeDesc     SortOrder = "time_desc"
 	SortTimeAsc      SortOrder = "time_asc"
 	SortSeverityDesc SortOrder = "severity_desc"
@@ -117,6 +117,8 @@ func entryLess(left, right Entry, order SortOrder) bool {
 			return (severityRank(left.Severity) > severityRank(right.Severity)) == (order == SortSeverityDesc)
 		}
 		return timeLess(left, right, SortTimeDesc)
+	case SortTimeDesc, SortTimeAsc:
+		return timeLess(left, right, order)
 	default:
 		return timeLess(left, right, order)
 	}
