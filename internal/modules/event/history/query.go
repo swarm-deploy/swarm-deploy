@@ -14,6 +14,12 @@ import (
 type SortOrder string
 
 const (
+	maxEventCursorLength = 2048
+	severityScoreAlert = 3
+	severityScoreError = 2
+	severityScoreWarn = 1
+	severityScoreInfo = 0
+
 	SortTimeDesc     SortOrder = "time_desc"
 	SortTimeAsc      SortOrder = "time_asc"
 	SortSeverityDesc SortOrder = "severity_desc"
@@ -88,7 +94,7 @@ func (s *Store) Query(options QueryOptions) (Page, error) {
 
 	page := Page{Entries: make([]Entry, 0, min(options.Limit, len(matched)))}
 	for _, entry := range matched {
-		if cursor != nil && !entryLess(cursor.entry(), *entry, options.Sort) {
+		if options.Cursor != "" && !entryLess(cursor.entry(), *entry, options.Sort) {
 			continue
 		}
 		if len(page.Entries) == options.Limit {
@@ -105,37 +111,39 @@ func (s *Store) Query(options QueryOptions) (Page, error) {
 }
 
 func entryLess(left, right Entry, order SortOrder) bool {
-	if order == SortSeverityDesc || order == SortSeverityAsc {
-		leftRank, rightRank := severityRank(left.Severity), severityRank(right.Severity)
-		if leftRank != rightRank {
-			if order == SortSeverityDesc {
-				return leftRank > rightRank
-			}
-			return leftRank < rightRank
+	switch order {
+	case SortSeverityDesc, SortSeverityAsc:
+		if left.Severity != right.Severity {
+			return (severityRank(left.Severity) > severityRank(right.Severity)) == (order == SortSeverityDesc)
 		}
-		// Preserve the UI's newest-first order within the same severity.
-		if !left.CreatedAt.Equal(right.CreatedAt) {
-			return left.CreatedAt.After(right.CreatedAt)
-		}
-	} else if !left.CreatedAt.Equal(right.CreatedAt) {
-		if order == SortTimeAsc {
-			return left.CreatedAt.Before(right.CreatedAt)
-		}
-		return left.CreatedAt.After(right.CreatedAt)
+		return timeLess(left, right, SortTimeDesc)
+	default:
+		return timeLess(left, right, order)
 	}
-	return left.ID < right.ID
+}
+
+func timeLess(left, right Entry, order SortOrder) bool {
+	if left.CreatedAt.Equal(right.CreatedAt) {
+		return left.ID < right.ID
+	}
+	if order == SortTimeAsc {
+		return left.CreatedAt.Before(right.CreatedAt)
+	}
+	return left.CreatedAt.After(right.CreatedAt)
 }
 
 func severityRank(severity events.Severity) int {
 	switch severity {
 	case events.SeverityAlert:
-		return 3
+		return severityScoreAlert
 	case events.SeverityError:
-		return 2
+		return severityScoreError
 	case events.SeverityWarn:
-		return 1
+		return severityScoreWarn
+	case events.SeverityInfo:
+		return severityScoreInfo
 	default:
-		return 0
+		return severityScoreInfo
 	}
 }
 
@@ -146,25 +154,25 @@ func encodePageCursor(entry Entry, order SortOrder) string {
 	return base64.RawURLEncoding.EncodeToString(data)
 }
 
-func decodePageCursor(raw string, order SortOrder) (*pageCursor, error) {
+func decodePageCursor(raw string, order SortOrder) (pageCursor, error) {
 	if raw == "" {
-		return nil, nil
+		return pageCursor{}, nil
 	}
-	if len(raw) > 2048 {
-		return nil, ErrInvalidCursor
+	if len(raw) > maxEventCursorLength {
+		return pageCursor{}, ErrInvalidCursor
 	}
 	data, err := base64.RawURLEncoding.DecodeString(raw)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidCursor, err)
+		return pageCursor{}, fmt.Errorf("%w: %v", ErrInvalidCursor, err)
 	}
 	var cursor pageCursor
-	if err := json.Unmarshal(data, &cursor); err != nil {
-		return nil, fmt.Errorf("%w: %v", ErrInvalidCursor, err)
+	if unmarshalErr := json.Unmarshal(data, &cursor); unmarshalErr != nil {
+		return pageCursor{}, fmt.Errorf("%w: %v", ErrInvalidCursor, unmarshalErr)
 	}
 	if cursor.ID == "" || cursor.CreatedAt.IsZero() || cursor.Sort != order {
-		return nil, ErrInvalidCursor
+		return pageCursor{}, ErrInvalidCursor
 	}
-	return &cursor, nil
+	return cursor, nil
 }
 
 func (c pageCursor) entry() Entry {
