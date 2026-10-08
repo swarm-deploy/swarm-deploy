@@ -32,6 +32,9 @@ export interface FetchEventsOptions {
   types?: string[];
   since?: string;
   limit?: number;
+  cursor?: string;
+  sort?: "time" | "severity";
+  order?: "asc" | "desc";
 }
 
 export function fetchStacks(): Promise<StacksResponse> {
@@ -65,6 +68,15 @@ export function fetchEvents(options: FetchEventsOptions = {}): Promise<EventHist
   }
   if (typeof options.limit === "number") {
     params.set("limit", String(options.limit));
+  }
+  if (options.cursor) {
+    params.set("cursor", options.cursor);
+  }
+  if (options.sort) {
+    params.set("sort", options.sort);
+  }
+  if (options.order) {
+    params.set("order", options.order);
   }
 
   const query = params.toString();
