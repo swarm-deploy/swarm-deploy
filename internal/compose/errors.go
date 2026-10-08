@@ -82,12 +82,14 @@ func (e *ValidateComposeError) Unwrap() error { return e.Err }
 
 // String formats the issue omitting empty attributes.
 func (i ValidationIssue) String() string {
+	const partsCount = 3
+
 	resource := i.ResourceType
 	if i.ResourceName != "" {
 		resource = fmt.Sprintf("%s %q", resource, i.ResourceName)
 	}
 
-	parts := make([]string, 0, 3)
+	parts := make([]string, 0, partsCount)
 	for _, part := range []string{resource, i.Field, i.Message} {
 		if part != "" {
 			parts = append(parts, part)
