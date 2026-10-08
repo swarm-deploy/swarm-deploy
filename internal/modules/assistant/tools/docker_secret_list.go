@@ -36,7 +36,7 @@ func (l *DockerSecretList) Definition() routing.ToolDefinition {
 
 // Execute runs docker_secret_list tool.
 func (l *DockerSecretList) Execute(ctx context.Context, _ routing.Request) (routing.Response, error) {
-	secrets, err := l.secrets.List(ctx)
+	secrets, err := l.secrets.List(ctx, swarm.ListSecretsFilter{})
 	if err != nil {
 		return routing.Response{}, fmt.Errorf("list secrets: %w", err)
 	}

@@ -12,6 +12,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 )
 
+const stackResourceFilterCount = 2
+
 type configManager struct {
 	dockerClient *client.Client
 }
@@ -31,18 +33,27 @@ func (m *configManager) Get(ctx context.Context, configName string) (Config, err
 	return m.mapConfig(config), nil
 }
 
-func (m *configManager) ListStack(ctx context.Context, stackName string) ([]Config, error) {
-	configs, err := m.dockerClient.ConfigList(ctx, dockerswarm.ConfigListOptions{
-		Filters: filters.NewArgs(
-			filters.Arg("label", stackNamespaceLabelKey+"="+stackName),
+func (m *configManager) List(ctx context.Context, filter ListConfigsFilter) ([]Config, error) {
+	filterArgs := make([]filters.KeyValuePair, 0, len(filter.Names)+stackResourceFilterCount)
+	for _, name := range filter.Names {
+		filterArgs = append(filterArgs, filters.Arg("name", name))
+	}
+	if filter.StackName != "" {
+		filterArgs = append(
+			filterArgs,
+			filters.Arg("label", stackNamespaceLabelKey+"="+filter.StackName),
 			filters.Arg(
 				"label",
 				labelsdict.RotatedResourceManagedLabelKey+"="+labelsdict.RotatedResourceManagedLabelValue,
 			),
-		),
+		)
+	}
+
+	configs, err := m.dockerClient.ConfigList(ctx, dockerswarm.ConfigListOptions{
+		Filters: filters.NewArgs(filterArgs...),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("list docker configs for stack %s: %w", stackName, httpx.MatchError(err))
+		return nil, fmt.Errorf("list docker configs: %w", httpx.MatchError(err))
 	}
 
 	mapped := make([]Config, len(configs))
@@ -58,6 +69,23 @@ func (m *configManager) ListStack(ctx context.Context, stackName string) ([]Conf
 	})
 
 	return mapped, nil
+}
+
+func (m *configManager) Create(ctx context.Context, req CreateConfigRequest) (string, error) {
+	spec := dockerswarm.ConfigSpec{
+		Annotations: dockerswarm.Annotations{Name: req.Name, Labels: req.Labels},
+		Data:        req.Data,
+	}
+	if req.TemplateDriver != "" {
+		spec.Templating = &dockerswarm.Driver{Name: req.TemplateDriver}
+	}
+
+	created, err := m.dockerClient.ConfigCreate(ctx, spec)
+	if err != nil {
+		return "", fmt.Errorf("create docker config %s: %w", req.Name, httpx.MatchError(err))
+	}
+
+	return created.ID, nil
 }
 
 func (m *configManager) Remove(ctx context.Context, configID string) error {
