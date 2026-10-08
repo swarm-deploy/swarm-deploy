@@ -3,7 +3,6 @@ package config
 import (
 	"errors"
 	"fmt"
-	"log/slog"
 	"time"
 
 	"github.com/artarts36/specw"
@@ -18,12 +17,10 @@ const (
 type NotificationSpec struct {
 	// Messengers contains global messenger settings used by notification channels.
 	Messengers NotificationMessengersSpec `yaml:"messengers"`
-	// Events maps event types to notification channels.
-	Events map[events.TypeName]NotificationChannels `yaml:"events"`
+	// On maps event types to notification channels.
+	On map[events.TypeName]NotificationChannels `yaml:"on"`
 	// Alerts describes how alert lifecycle changes are delivered.
 	Alerts NotificationAlertsSpec `yaml:"alerts"`
-	// On is a deprecated alias of Events kept for backward compatibility.
-	On map[events.TypeName]NotificationChannels `yaml:"on"`
 }
 
 // NotificationChannels lists channels notified about one event type.
@@ -42,30 +39,18 @@ const (
 	AlertNotificationModeSend AlertNotificationMode = "send"
 	// AlertNotificationModeEdit edits the "opened" message when an alert is resolved.
 	AlertNotificationModeEdit AlertNotificationMode = "edit"
+	// AlertNotificationModeReply sends the "resolved" message as a reply to the "opened" message.
+	AlertNotificationModeReply AlertNotificationMode = "reply"
 )
 
 // NotificationAlertsSpec configures alert notifications.
 type NotificationAlertsSpec struct {
-	// Mode is send (default) or edit.
+	// Mode is send (default), edit or reply.
 	Mode AlertNotificationMode `yaml:"mode"`
 	// CorrelationTTL is how long a sent message may be edited; defaults to 24h.
 	CorrelationTTL time.Duration `yaml:"correlationTtl"`
 	// Telegram is a list of Telegram channels receiving alert notifications.
 	Telegram []TelegramChannel `yaml:"telegram"`
-}
-
-// EventChannels returns notifications.events merged with the deprecated notifications.on.
-// Entries of notifications.events take precedence over notifications.on for the same event type.
-func (c *NotificationSpec) EventChannels() map[events.TypeName]NotificationChannels {
-	merged := make(map[events.TypeName]NotificationChannels, len(c.Events)+len(c.On))
-	for eventType, channels := range c.On {
-		merged[eventType] = channels
-	}
-	for eventType, channels := range c.Events {
-		merged[eventType] = channels
-	}
-
-	return merged
 }
 
 type NotificationMessengersSpec struct {
@@ -124,22 +109,18 @@ func (c *NotificationSpec) applyDefaults() {
 	if c.Alerts.CorrelationTTL == 0 {
 		c.Alerts.CorrelationTTL = defaultAlertCorrelationTTL
 	}
-	if len(c.On) > 0 {
-		slog.Warn("[config] notifications.on is deprecated, use notifications.events")
-	}
 }
 
 func (c *NotificationSpec) validate() []error {
 	var errs []error
 
 	errs = append(errs, validateEventChannels("notifications.on", c.On)...)
-	errs = append(errs, validateEventChannels("notifications.events", c.Events)...)
 
 	switch c.Alerts.Mode {
-	case AlertNotificationModeSend, AlertNotificationModeEdit:
+	case AlertNotificationModeSend, AlertNotificationModeEdit, AlertNotificationModeReply:
 	default:
-		errs = append(errs, fmt.Errorf("notifications.alerts.mode must be %q or %q",
-			AlertNotificationModeSend, AlertNotificationModeEdit))
+		errs = append(errs, fmt.Errorf("notifications.alerts.mode must be %q, %q or %q",
+			AlertNotificationModeSend, AlertNotificationModeEdit, AlertNotificationModeReply))
 	}
 	if c.Alerts.CorrelationTTL < 0 {
 		errs = append(errs, errors.New("notifications.alerts.correlationTtl must be > 0"))

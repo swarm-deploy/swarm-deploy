@@ -1,4 +1,4 @@
-//go:generate mockgen -source=$GOFILE -destination=mocks_store.go -package=delivery
+//go:generate mockgen -source=$GOFILE -destination=mocks.go -package=delivery
 
 package delivery
 

@@ -76,10 +76,10 @@ func (s *Module) Shutdown(ctx context.Context) error {
 func (s *Module) initNotificationSubscribers() error {
 	subscribersCount := 0
 
-	for eventTypeName, channels := range s.cfg.Spec.Notifications.EventChannels() {
+	for eventTypeName, channels := range s.cfg.Spec.Notifications.On {
 		eventType, ok := events.ParseType(string(eventTypeName))
 		if !ok {
-			return fmt.Errorf("unknown notifications event type %q", eventTypeName)
+			return fmt.Errorf("unknown notifications.on event type %q", eventTypeName)
 		}
 
 		for _, tg := range channels.Telegram {
@@ -110,7 +110,7 @@ func (s *Module) initNotificationSubscribers() error {
 		}
 	}
 
-	if len(s.cfg.Spec.Notifications.EventChannels()) == 0 {
+	if len(s.cfg.Spec.Notifications.On) == 0 {
 		slog.Info("[event-dispatcher] notification subscribers not found")
 	} else {
 		slog.Info(

@@ -3,6 +3,8 @@ package notifications
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"path/filepath"
 
@@ -32,12 +34,17 @@ func InitModule(ctx context.Context, cfg *config.Config, container Container) er
 
 	channels := make([]alerts.Channel, 0, len(spec.Alerts.Telegram))
 	for _, tg := range spec.Alerts.Telegram {
-		transport, err := notifiers.NewTelegramTransport(
+		message := tg.Message
+		if message == "" {
+			message = alerts.DefaultMessageTemplate
+		}
+		notifier, err := notifiers.NewTelegramNotifier(
 			tg.Name,
 			string(tg.BotToken.Content),
 			tg.ChatID,
 			notifiers.TelegramOptions{
 				ChatThreadID:  tg.ChatThreadID,
+				Message:       message,
 				Retries:       spec.Messengers.Telegram.Retries,
 				SOCKS5Address: spec.Messengers.Telegram.Proxy.SOCKS5.Address.Value,
 			},
@@ -45,7 +52,7 @@ func InitModule(ctx context.Context, cfg *config.Config, container Container) er
 		if err != nil {
 			return fmt.Errorf("build alert telegram channel %q: %w", tg.Name, err)
 		}
-		channels = append(channels, alerts.Channel{Transport: transport, Message: tg.Message})
+		channels = append(channels, alerts.Channel{ID: telegramChannelID(tg), Notifier: notifier})
 	}
 
 	store, err := delivery.NewFileStore(
@@ -58,8 +65,14 @@ func InitModule(ctx context.Context, cfg *config.Config, container Container) er
 	}
 
 	container.GetAlertManagementModule().Subscriber.Observe(
-		alerts.NewNotifier(spec.Alerts.Mode, channels, delivery.NewService(store, spec.Alerts.CorrelationTTL)),
+		alerts.NewNotifier(spec.Alerts.Mode, channels, store, spec.Alerts.CorrelationTTL),
 	)
 
 	return nil
+}
+
+// telegramChannelID identifies a Telegram destination by bot, chat and thread; the token is only hashed.
+func telegramChannelID(tg config.TelegramChannel) string {
+	sum := sha256.Sum256([]byte(fmt.Sprintf("%s\x00%s\x00%d", tg.BotToken.Content, tg.ChatID, tg.ChatThreadID)))
+	return "telegram:" + hex.EncodeToString(sum[:8])
 }

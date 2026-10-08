@@ -38,7 +38,7 @@ eventHistory:
 
 # Notification channels grouped by event type.
 notifications:
-  events:
+  on:
     # Event type: deploySuccess | deployFailed | servicePruned | syncManualStarted | nodeConnected | nodeDisconnected | userAuthenticated
     deploySuccess:
       telegram:
@@ -75,8 +75,9 @@ notifications:
 
   # Alert lifecycle notifications (deployment failures that were opened/resolved).
   alerts:
-    # send: separate messages on open and on resolve; edit: edit the "opened" message on resolve.
-    mode: edit
+    # send: separate messages on open and on resolve; edit: edit the "opened" message on resolve;
+    # reply: send the resolution as a reply to the "opened" message.
+    mode: reply
     # How long the sent message can still be edited.
     correlationTtl: 24h
     telegram:

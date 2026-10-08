@@ -2,11 +2,8 @@
 
 Notifications have two independent sources:
 
-- `notifications.events` — a notification per event (a fact that happened). Configured per event type.
+- `notifications.on` — a notification per event (a fact that happened), configured per event type.
 - `notifications.alerts` — notifications about the lifecycle of an alert (problem opened → resolved).
-
-`notifications.on` is a deprecated alias of `notifications.events`; it still works and is merged
-into `events` (an entry in `events` wins over `on` for the same event type).
 
 ## Telegram templates
 
@@ -33,7 +30,7 @@ Example:
 ```yaml
 # Notification settings.
 notifications:
-  events:
+  on:
     deploySuccess:
       telegram:
         - name: ops-success
@@ -93,16 +90,17 @@ notifications:
   alerts:
     # send (default): a message when the alert is opened and a separate message when it is resolved.
     # edit: a message when the alert is opened; it is edited when the alert is resolved.
-    mode: edit
+    # reply: a message when the alert is opened; the resolution is sent as a reply to it.
+    mode: reply
     # How long the "opened" message can be edited (default 24h).
     correlationTtl: 24h
     telegram:
       - name: ops-alerts
         botTokenPath: /run/secrets/telegram_bot_token
         chatId: "-1001234567890"
-        # Optional template with .alert, .resolution and .status.
+        # Optional template with .alert, .resolution and .status ("open" | "resolved").
         message: |
-          {{.alert.Title}}: {{.alert.ResourceID}}
+          {{.alert.Title}}: {{.alert.ResourceID}} ({{.status}})
           {{.alert.Message}}
 ```
 
@@ -113,7 +111,7 @@ Notes:
   3 consecutive failure events; permanent errors open it immediately. A successful deployment resets the wait.
   The wait counter is kept in memory.
 - Alert state is stored independently of notifications: Telegram failures are logged and never affect alerts or GitOps.
-- In `edit` mode, `message_id` of the sent message is stored in `notification-deliveries.state.json`
+- In `edit` and `reply` modes, `message_id` of the sent message is stored in `notification-deliveries.state.json`
   in `dataDir` for `correlationTtl`, so it survives restarts. If the record is missing or expired,
-  or Telegram refuses the edit (message deleted), the resolution is sent as a separate message.
+  or Telegram reports the original message as unavailable (deleted), the resolution is sent as a separate message.
   If an edit fails for a transient reason the error is logged and the record is kept; the notification is not retried automatically.

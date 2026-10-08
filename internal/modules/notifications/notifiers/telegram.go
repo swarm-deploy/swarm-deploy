@@ -77,11 +77,6 @@ func NewTelegramNotifier(name, token, chatID string, options TelegramOptions) (N
 	}), nil
 }
 
-// NewTelegramTransport builds a Telegram channel that can send with receipt and edit messages.
-func NewTelegramTransport(name, token, chatID string, options TelegramOptions) (*TelegramNotifier, error) {
-	return newTelegramNotifier(name, token, chatID, options)
-}
-
 func newTelegramNotifier(name, token, chatID string, options TelegramOptions) (*TelegramNotifier, error) {
 	templateText := strings.TrimSpace(options.Message)
 	if templateText == "" {
@@ -131,55 +126,63 @@ func (*TelegramNotifier) Kind() string {
 	return "telegram"
 }
 
-func (n *TelegramNotifier) Notify(ctx context.Context, event Message) error {
+// Notify renders the message and sends it, edits the message in Message.EditMessageID
+// or replies to the message in Message.ReplyToID.
+func (n *TelegramNotifier) Notify(ctx context.Context, event Message) (delivery.Receipt, error) {
+	if event.EditMessageID != "" && event.ReplyToID != "" {
+		return delivery.Receipt{}, errors.New("edit message id and reply to id are mutually exclusive")
+	}
+
 	message, err := n.renderMessage(event)
 	if err != nil {
-		return err
+		return delivery.Receipt{}, err
 	}
 
 	payload := map[string]any{
 		"chat_id": n.chatID,
 		"text":    message,
 	}
-	if n.chatThreadID > 0 {
-		payload["message_thread_id"] = n.chatThreadID
+	method := "sendMessage"
+
+	switch {
+	case event.EditMessageID != "":
+		messageID, parseErr := strconv.ParseInt(event.EditMessageID, 10, 64)
+		if parseErr != nil {
+			return delivery.Receipt{}, fmt.Errorf("parse edit message id: %w", parseErr)
+		}
+		method = "editMessageText"
+		payload["message_id"] = messageID
+	default:
+		if n.chatThreadID > 0 {
+			payload["message_thread_id"] = n.chatThreadID
+		}
+		if event.ReplyToID != "" {
+			replyToID, parseErr := strconv.ParseInt(event.ReplyToID, 10, 64)
+			if parseErr != nil {
+				return delivery.Receipt{}, fmt.Errorf("parse reply to id: %w", parseErr)
+			}
+			payload["reply_parameters"] = map[string]any{
+				"message_id":                  replyToID,
+				"allow_sending_without_reply": true,
+			}
+		}
 	}
 
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
+		return delivery.Receipt{}, fmt.Errorf("marshal request: %w", err)
 	}
 
-	if _, err = n.call(ctx, "sendMessage", body); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// ID returns the channel identifier used for delivery correlation.
-func (n *TelegramNotifier) ID() string {
-	return n.Name()
-}
-
-// Send sends text and returns a receipt containing the Telegram message_id.
-func (n *TelegramNotifier) Send(ctx context.Context, text string) (delivery.Receipt, error) {
-	payload := map[string]any{
-		"chat_id": n.chatID,
-		"text":    text,
-	}
-	if n.chatThreadID > 0 {
-		payload["message_thread_id"] = n.chatThreadID
-	}
-
-	body, err := json.Marshal(payload)
+	resp, err := n.call(ctx, method, body)
 	if err != nil {
-		return nil, fmt.Errorf("marshal request: %w", err)
+		if event.EditMessageID != "" {
+			return n.editResult(err, event.EditMessageID)
+		}
+		return delivery.Receipt{}, err
 	}
 
-	resp, err := n.call(ctx, "sendMessage", body)
-	if err != nil {
-		return nil, err
+	if event.EditMessageID != "" {
+		return delivery.Receipt{MessageID: event.EditMessageID}, nil
 	}
 
 	var parsed struct {
@@ -187,46 +190,34 @@ func (n *TelegramNotifier) Send(ctx context.Context, text string) (delivery.Rece
 			MessageID int64 `json:"message_id"`
 		} `json:"result"`
 	}
-	if err = json.Unmarshal(resp, &parsed); err != nil || parsed.Result.MessageID == 0 {
-		// The message is delivered; without message_id it just cannot be edited later.
-		return nil, nil //nolint:nilerr // see above
+	if json.Unmarshal(resp, &parsed) != nil || parsed.Result.MessageID == 0 {
+		// The message is delivered; without message_id it just cannot be edited or replied to later.
+		return delivery.Receipt{}, nil
 	}
 
-	return delivery.Receipt{telegramReceiptMessageID: strconv.FormatInt(parsed.Result.MessageID, 10)}, nil
+	return delivery.Receipt{MessageID: strconv.FormatInt(parsed.Result.MessageID, 10)}, nil
 }
 
-// Edit replaces text of a message previously sent by Send.
-func (n *TelegramNotifier) Edit(ctx context.Context, receipt delivery.Receipt, text string) error {
-	messageID, err := strconv.ParseInt(receipt[telegramReceiptMessageID], 10, 64)
-	if err != nil {
-		return fmt.Errorf("%w: bad message_id", delivery.ErrReceiptInvalid)
-	}
-
-	body, err := json.Marshal(map[string]any{
-		"chat_id":    n.chatID,
-		"message_id": messageID,
-		"text":       text,
-	})
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-
-	_, err = n.call(ctx, "editMessageText", body)
+// editResult classifies an editMessageText failure.
+func (n *TelegramNotifier) editResult(err error, messageID string) (delivery.Receipt, error) {
 	var apiErr *telegramAPIError
-	if errors.As(err, &apiErr) {
-		switch {
-		case strings.Contains(apiErr.Body, "message is not modified"):
-			// Repeated edit with the same text.
-			return nil
-		case apiErr.StatusCode == http.StatusBadRequest || apiErr.StatusCode == http.StatusForbidden:
-			return fmt.Errorf("%w: %w", delivery.ErrReceiptInvalid, err)
-		}
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusBadRequest {
+		return delivery.Receipt{}, err
 	}
 
-	return err
+	body := strings.ToLower(apiErr.Body)
+	switch {
+	case strings.Contains(body, "message is not modified"):
+		// Repeated processing with the same text: the message is already up to date.
+		return delivery.Receipt{MessageID: messageID}, nil
+	case strings.Contains(body, "message to edit not found"),
+		strings.Contains(body, "message can't be edited"),
+		strings.Contains(body, "message_id_invalid"):
+		return delivery.Receipt{}, fmt.Errorf("%w: %w", ErrMessageUnavailable, err)
+	default:
+		return delivery.Receipt{}, err
+	}
 }
-
-const telegramReceiptMessageID = "message_id"
 
 // telegramAPIError is a non-successful Telegram Bot API response.
 type telegramAPIError struct {
@@ -292,6 +283,11 @@ func (n *TelegramNotifier) sendRequest(ctx context.Context, method string, body 
 func (n *TelegramNotifier) renderMessage(event Message) (string, error) {
 	data := map[string]any{
 		"event": event.Payload,
+	}
+	if fields, ok := event.Payload.(Fields); ok {
+		for key, value := range fields {
+			data[key] = value
+		}
 	}
 
 	var out bytes.Buffer

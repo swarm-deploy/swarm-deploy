@@ -9,6 +9,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/delivery"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 )
 
@@ -53,18 +54,18 @@ func (t *TraceableNotifier) Kind() string {
 	return t.notifier.Kind()
 }
 
-func (t *TraceableNotifier) Notify(ctx context.Context, event Message) error {
+func (t *TraceableNotifier) Notify(ctx context.Context, event Message) (delivery.Receipt, error) {
 	ctx, span := t.tracer.Start(ctx, "notifier.Notify")
 	defer span.End()
 
-	err := t.notifier.Notify(ctx, event)
+	receipt, err := t.notifier.Notify(ctx, event)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		return err
+		return receipt, err
 	}
 
 	span.SetStatus(codes.Ok, "OK")
 
-	return nil
+	return receipt, nil
 }

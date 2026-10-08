@@ -9,7 +9,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 )
 
 func TestLoadWithStacksFile(t *testing.T) {
@@ -979,24 +978,6 @@ stacks:
 	assert.Equal(t, "token-value", cfg.Spec.Git.Auth.HTTP.ResolvePassword(), "expected token as password")
 }
 
-func TestNotificationEventChannelsMergesDeprecatedOn(t *testing.T) {
-	channels := NotificationChannels{Custom: []CustomChannel{{Name: "a"}}}
-	updated := NotificationChannels{Custom: []CustomChannel{{Name: "b"}}}
-	spec := NotificationSpec{
-		On: map[events.TypeName]NotificationChannels{
-			events.TypeNameDeploySuccess: channels,
-			events.TypeNameDeployFailed:  channels,
-		},
-		Events: map[events.TypeName]NotificationChannels{events.TypeNameDeployFailed: updated},
-	}
-
-	merged := spec.EventChannels()
-
-	assert.Len(t, merged, 2, "union of on and events")
-	assert.Equal(t, "a", merged[events.TypeNameDeploySuccess].Custom[0].Name, "legacy entry is kept")
-	assert.Equal(t, "b", merged[events.TypeNameDeployFailed].Custom[0].Name, "events wins over on")
-}
-
 func TestNotificationAlertsDefaultsAndValidation(t *testing.T) {
 	spec := NotificationSpec{}
 	spec.applyDefaults()
@@ -1008,4 +989,32 @@ func TestNotificationAlertsDefaultsAndValidation(t *testing.T) {
 	spec.Alerts.Telegram = []TelegramChannel{{}}
 	errs := spec.validate()
 	assert.Len(t, errs, 3, "unknown mode, chat id and token")
+}
+
+func TestLoadKeepsNotificationsOnAndAcceptsAlertReplyMode(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "stacks.yaml"), []byte(`
+stacks:
+  - name: app
+    composeFile: app.yaml
+`), 0o600), "write stacks file")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "swarm-deploy.yaml"), []byte(`
+git:
+  repository: https://example.com/repo.git
+stacks:
+  file: ./stacks.yaml
+notifications:
+  on:
+    deployFailed:
+      custom:
+        - name: audit
+          url: https://hooks.example.com/failed
+  alerts:
+    mode: reply
+`), 0o600), "write config file")
+
+	cfg, err := Load(filepath.Join(dir, "swarm-deploy.yaml"))
+	require.NoError(t, err, "load config")
+	assert.Len(t, cfg.Spec.Notifications.On, 1, "notifications.on is still supported")
+	assert.Equal(t, AlertNotificationModeReply, cfg.Spec.Notifications.Alerts.Mode, "reply mode")
 }

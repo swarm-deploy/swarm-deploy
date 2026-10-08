@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/delivery"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/notifiers"
 )
 
@@ -37,9 +38,9 @@ func (n *testNotifier) Kind() string {
 	return n.kind
 }
 
-func (n *testNotifier) Notify(_ context.Context, event notifiers.Message) error {
+func (n *testNotifier) Notify(_ context.Context, event notifiers.Message) (delivery.Receipt, error) {
 	n.lastEvent = event
-	return n.err
+	return delivery.Receipt{}, n.err
 }
 
 func TestSubscriberHandleDispatchesNotificationFailureEvent(t *testing.T) {
