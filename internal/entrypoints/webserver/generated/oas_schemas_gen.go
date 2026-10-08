@@ -997,6 +997,7 @@ func (s *EventHistoryItemDetails) init() EventHistoryItemDetails {
 // Ref: #/components/schemas/EventHistoryResponse
 type EventHistoryResponse struct {
 	Events []EventHistoryItem `json:"events"`
+	NextCursor OptString `json:"nextCursor"`
 }
 
 // GetEvents returns the value of Events.
@@ -1007,6 +1008,16 @@ func (s *EventHistoryResponse) GetEvents() []EventHistoryItem {
 // SetEvents sets the value of Events.
 func (s *EventHistoryResponse) SetEvents(val []EventHistoryItem) {
 	s.Events = val
+}
+
+// GetNextCursor returns the value of NextCursor.
+func (s *EventHistoryResponse) GetNextCursor() OptString {
+	return s.NextCursor
+}
+
+// SetNextCursor sets the value of NextCursor.
+func (s *EventHistoryResponse) SetNextCursor(val OptString) {
+	s.NextCursor = val
 }
 
 // Ref: #/components/schemas/EventSeverity
