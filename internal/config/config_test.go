@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 )
 
 func TestLoadWithStacksFile(t *testing.T) {
@@ -976,4 +977,35 @@ stacks:
 	require.NoError(t, err, "load config")
 	assert.Equal(t, "oauth2", cfg.Spec.Git.Auth.HTTP.ResolveUsername(), "expected oauth2 fallback for token auth")
 	assert.Equal(t, "token-value", cfg.Spec.Git.Auth.HTTP.ResolvePassword(), "expected token as password")
+}
+
+func TestNotificationEventChannelsMergesDeprecatedOn(t *testing.T) {
+	channels := NotificationChannels{Custom: []CustomChannel{{Name: "a"}}}
+	updated := NotificationChannels{Custom: []CustomChannel{{Name: "b"}}}
+	spec := NotificationSpec{
+		On: map[events.TypeName]NotificationChannels{
+			events.TypeNameDeploySuccess: channels,
+			events.TypeNameDeployFailed:  channels,
+		},
+		Events: map[events.TypeName]NotificationChannels{events.TypeNameDeployFailed: updated},
+	}
+
+	merged := spec.EventChannels()
+
+	assert.Len(t, merged, 2, "union of on and events")
+	assert.Equal(t, "a", merged[events.TypeNameDeploySuccess].Custom[0].Name, "legacy entry is kept")
+	assert.Equal(t, "b", merged[events.TypeNameDeployFailed].Custom[0].Name, "events wins over on")
+}
+
+func TestNotificationAlertsDefaultsAndValidation(t *testing.T) {
+	spec := NotificationSpec{}
+	spec.applyDefaults()
+	assert.Equal(t, AlertNotificationModeSend, spec.Alerts.Mode, "default mode")
+	assert.Equal(t, 24*time.Hour, spec.Alerts.CorrelationTTL, "default ttl")
+	assert.Empty(t, spec.validate(), "defaults are valid")
+
+	spec.Alerts.Mode = "bogus"
+	spec.Alerts.Telegram = []TelegramChannel{{}}
+	errs := spec.validate()
+	assert.Len(t, errs, 3, "unknown mode, chat id and token")
 }

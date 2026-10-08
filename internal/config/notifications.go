@@ -1,24 +1,71 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"log/slog"
+	"time"
 
 	"github.com/artarts36/specw"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 )
 
-const defaultNotificationTelegramRetries = 3
+const (
+	defaultNotificationTelegramRetries = 3
+	defaultAlertCorrelationTTL         = 24 * time.Hour
+)
 
 type NotificationSpec struct {
 	// Messengers contains global messenger settings used by notification channels.
 	Messengers NotificationMessengersSpec `yaml:"messengers"`
-	// On maps event types to notification channels.
-	On map[events.TypeName]struct {
-		// Telegram is a list of Telegram notification channels.
-		Telegram []TelegramChannel `yaml:"telegram"`
-		// Custom is a list of custom webhook notification channels.
-		Custom []CustomChannel `yaml:"custom"`
-	} `yaml:"on"`
+	// Events maps event types to notification channels.
+	Events map[events.TypeName]NotificationChannels `yaml:"events"`
+	// Alerts describes how alert lifecycle changes are delivered.
+	Alerts NotificationAlertsSpec `yaml:"alerts"`
+	// On is a deprecated alias of Events kept for backward compatibility.
+	On map[events.TypeName]NotificationChannels `yaml:"on"`
+}
+
+// NotificationChannels lists channels notified about one event type.
+type NotificationChannels struct {
+	// Telegram is a list of Telegram notification channels.
+	Telegram []TelegramChannel `yaml:"telegram"`
+	// Custom is a list of custom webhook notification channels.
+	Custom []CustomChannel `yaml:"custom"`
+}
+
+// AlertNotificationMode selects how alert closing is delivered.
+type AlertNotificationMode string
+
+const (
+	// AlertNotificationModeSend sends a separate message when an alert is opened and when it is resolved.
+	AlertNotificationModeSend AlertNotificationMode = "send"
+	// AlertNotificationModeEdit edits the "opened" message when an alert is resolved.
+	AlertNotificationModeEdit AlertNotificationMode = "edit"
+)
+
+// NotificationAlertsSpec configures alert notifications.
+type NotificationAlertsSpec struct {
+	// Mode is send (default) or edit.
+	Mode AlertNotificationMode `yaml:"mode"`
+	// CorrelationTTL is how long a sent message may be edited; defaults to 24h.
+	CorrelationTTL time.Duration `yaml:"correlationTtl"`
+	// Telegram is a list of Telegram channels receiving alert notifications.
+	Telegram []TelegramChannel `yaml:"telegram"`
+}
+
+// EventChannels returns notifications.events merged with the deprecated notifications.on.
+// Entries of notifications.events take precedence over notifications.on for the same event type.
+func (c *NotificationSpec) EventChannels() map[events.TypeName]NotificationChannels {
+	merged := make(map[events.TypeName]NotificationChannels, len(c.Events)+len(c.On))
+	for eventType, channels := range c.On {
+		merged[eventType] = channels
+	}
+	for eventType, channels := range c.Events {
+		merged[eventType] = channels
+	}
+
+	return merged
 }
 
 type NotificationMessengersSpec struct {
@@ -71,45 +118,73 @@ func (c *NotificationSpec) applyDefaults() {
 	if c.Messengers.Telegram.Retries <= 0 {
 		c.Messengers.Telegram.Retries = defaultNotificationTelegramRetries
 	}
+	if c.Alerts.Mode == "" {
+		c.Alerts.Mode = AlertNotificationModeSend
+	}
+	if c.Alerts.CorrelationTTL == 0 {
+		c.Alerts.CorrelationTTL = defaultAlertCorrelationTTL
+	}
+	if len(c.On) > 0 {
+		slog.Warn("[config] notifications.on is deprecated, use notifications.events")
+	}
 }
 
 func (c *NotificationSpec) validate() []error {
 	var errs []error
 
-	for eventTypeName, channels := range c.On {
+	errs = append(errs, validateEventChannels("notifications.on", c.On)...)
+	errs = append(errs, validateEventChannels("notifications.events", c.Events)...)
+
+	switch c.Alerts.Mode {
+	case AlertNotificationModeSend, AlertNotificationModeEdit:
+	default:
+		errs = append(errs, fmt.Errorf("notifications.alerts.mode must be %q or %q",
+			AlertNotificationModeSend, AlertNotificationModeEdit))
+	}
+	if c.Alerts.CorrelationTTL < 0 {
+		errs = append(errs, errors.New("notifications.alerts.correlationTtl must be > 0"))
+	}
+	for i, tg := range c.Alerts.Telegram {
+		errs = append(errs, validateTelegramChannel(fmt.Sprintf("notifications.alerts.telegram[%d]", i), tg)...)
+	}
+
+	return errs
+}
+
+func validateEventChannels(path string, byEvent map[events.TypeName]NotificationChannels) []error {
+	var errs []error
+
+	for eventTypeName, channels := range byEvent {
 		if !eventTypeName.Valid() {
-			errs = append(errs, fmt.Errorf("notifications.on[%q] has unknown event type", eventTypeName))
+			errs = append(errs, fmt.Errorf("%s[%q] has unknown event type", path, eventTypeName))
 			continue
 		}
 
 		for i, tg := range channels.Telegram {
-			if tg.ChatID == "" {
-				errs = append(errs, fmt.Errorf("notifications.on[%q].telegram[%d].chatId is required", eventTypeName, i))
-			}
-
-			if len(tg.BotToken.Content) == 0 {
-				errs = append(
-					errs,
-					fmt.Errorf("notifications.on[%q].telegram[%d].botTokenPath contains empty token", eventTypeName, i),
-				)
-			}
-
-			if tg.ChatThreadID < 0 {
-				errs = append(
-					errs,
-					fmt.Errorf("notifications.on[%q].telegram[%d].chatThreadId must be >= 0", eventTypeName, i),
-				)
-			}
+			errs = append(errs, validateTelegramChannel(fmt.Sprintf("%s[%q].telegram[%d]", path, eventTypeName, i), tg)...)
 		}
 
 		for i, ch := range channels.Custom {
 			if ch.URL.Value.String() == "" {
-				errs = append(
-					errs,
-					fmt.Errorf("notifications.on[%q].custom[%d].url or urlEnv is required", eventTypeName, i),
-				)
+				errs = append(errs, fmt.Errorf("%s[%q].custom[%d].url or urlEnv is required", path, eventTypeName, i))
 			}
 		}
+	}
+
+	return errs
+}
+
+func validateTelegramChannel(path string, tg TelegramChannel) []error {
+	var errs []error
+
+	if tg.ChatID == "" {
+		errs = append(errs, fmt.Errorf("%s.chatId is required", path))
+	}
+	if len(tg.BotToken.Content) == 0 {
+		errs = append(errs, fmt.Errorf("%s.botTokenPath contains empty token", path))
+	}
+	if tg.ChatThreadID < 0 {
+		errs = append(errs, fmt.Errorf("%s.chatThreadId must be >= 0", path))
 	}
 
 	return errs
