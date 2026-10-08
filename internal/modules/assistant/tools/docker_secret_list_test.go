@@ -19,7 +19,7 @@ func TestDockerSecretListExecute(t *testing.T) {
 	tool := NewDockerSecretList(secretReader)
 
 	secretReader.EXPECT().
-		List(gomock.Any()).
+		List(gomock.Any(), swarm.ListSecretsFilter{}).
 		Return([]swarm.Secret{
 			{
 				ID:     "secret-1",
@@ -53,7 +53,7 @@ func TestDockerSecretListExecuteFailsOnListError(t *testing.T) {
 	tool := NewDockerSecretList(secretReader)
 
 	secretReader.EXPECT().
-		List(gomock.Any()).
+		List(gomock.Any(), swarm.ListSecretsFilter{}).
 		Return(nil, errors.New("docker unavailable"))
 
 	_, err := tool.Execute(context.Background(), routing.Request{})

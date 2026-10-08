@@ -25,6 +25,7 @@ jobs:
             module:alertmanagement
             module:assistant
             module:notifications
+            dockerapi
             UI
 
       - name: Require change type label

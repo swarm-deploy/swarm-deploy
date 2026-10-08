@@ -254,34 +254,34 @@ func (m *MockSecretManager) EXPECT() *MockSecretManagerMockRecorder {
 	return m.recorder
 }
 
-// List mocks base method.
-func (m *MockSecretManager) List(ctx context.Context) ([]Secret, error) {
+// Create mocks base method.
+func (m *MockSecretManager) Create(ctx context.Context, req CreateSecretRequest) (string, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "List", ctx)
+	ret := m.ctrl.Call(m, "Create", ctx, req)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Create indicates an expected call of Create.
+func (mr *MockSecretManagerMockRecorder) Create(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockSecretManager)(nil).Create), ctx, req)
+}
+
+// List mocks base method.
+func (m *MockSecretManager) List(ctx context.Context, filter ListSecretsFilter) ([]Secret, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "List", ctx, filter)
 	ret0, _ := ret[0].([]Secret)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // List indicates an expected call of List.
-func (mr *MockSecretManagerMockRecorder) List(ctx any) *gomock.Call {
+func (mr *MockSecretManagerMockRecorder) List(ctx, filter any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockSecretManager)(nil).List), ctx)
-}
-
-// ListStack mocks base method.
-func (m *MockSecretManager) ListStack(ctx context.Context, stackName string) ([]Secret, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListStack", ctx, stackName)
-	ret0, _ := ret[0].([]Secret)
-	ret1, _ := ret[1].(error)
-	return ret0, ret1
-}
-
-// ListStack indicates an expected call of ListStack.
-func (mr *MockSecretManagerMockRecorder) ListStack(ctx, stackName any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListStack", reflect.TypeOf((*MockSecretManager)(nil).ListStack), ctx, stackName)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockSecretManager)(nil).List), ctx, filter)
 }
 
 // Remove mocks base method.
@@ -353,6 +353,21 @@ func (m *MockConfigManager) EXPECT() *MockConfigManagerMockRecorder {
 	return m.recorder
 }
 
+// Create mocks base method.
+func (m *MockConfigManager) Create(ctx context.Context, req CreateConfigRequest) (string, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Create", ctx, req)
+	ret0, _ := ret[0].(string)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Create indicates an expected call of Create.
+func (mr *MockConfigManagerMockRecorder) Create(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockConfigManager)(nil).Create), ctx, req)
+}
+
 // Get mocks base method.
 func (m *MockConfigManager) Get(ctx context.Context, configName string) (Config, error) {
 	m.ctrl.T.Helper()
@@ -368,19 +383,19 @@ func (mr *MockConfigManagerMockRecorder) Get(ctx, configName any) *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Get", reflect.TypeOf((*MockConfigManager)(nil).Get), ctx, configName)
 }
 
-// ListStack mocks base method.
-func (m *MockConfigManager) ListStack(ctx context.Context, stackName string) ([]Config, error) {
+// List mocks base method.
+func (m *MockConfigManager) List(ctx context.Context, filter ListConfigsFilter) ([]Config, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListStack", ctx, stackName)
+	ret := m.ctrl.Call(m, "List", ctx, filter)
 	ret0, _ := ret[0].([]Config)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// ListStack indicates an expected call of ListStack.
-func (mr *MockConfigManagerMockRecorder) ListStack(ctx, stackName any) *gomock.Call {
+// List indicates an expected call of List.
+func (mr *MockConfigManagerMockRecorder) List(ctx, filter any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListStack", reflect.TypeOf((*MockConfigManager)(nil).ListStack), ctx, stackName)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockConfigManager)(nil).List), ctx, filter)
 }
 
 // Remove mocks base method.

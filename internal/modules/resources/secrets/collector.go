@@ -72,7 +72,7 @@ func (c *Collector) Run(ctx context.Context) error {
 }
 
 func (c *Collector) refresh(ctx context.Context) error {
-	dockerSecrets, err := c.manager.List(ctx)
+	dockerSecrets, err := c.manager.List(ctx, swarm.ListSecretsFilter{})
 	if err != nil {
 		return fmt.Errorf("list docker secrets: %w", err)
 	}

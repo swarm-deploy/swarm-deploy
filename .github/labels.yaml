@@ -37,3 +37,7 @@
 - name: "module:notifications"
   color: "#5319e7"
   description: Notifications module
+
+- name: "dockerapi"
+  color: "#5319e7"
+  description: Changes in Docker API

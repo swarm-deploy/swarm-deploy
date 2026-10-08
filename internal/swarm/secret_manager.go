@@ -9,7 +9,6 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 )
 
 type secretManager struct {
@@ -22,24 +21,10 @@ func newSecretManager(dockerClient *client.Client) SecretManager {
 	}
 }
 
-func (r *secretManager) List(ctx context.Context) ([]Secret, error) {
-	return r.list(ctx, dockerswarm.SecretListOptions{})
-}
-
-func (r *secretManager) ListStack(ctx context.Context, stackName string) ([]Secret, error) {
-	return r.list(ctx, dockerswarm.SecretListOptions{
-		Filters: filters.NewArgs(
-			filters.Arg("label", stackNamespaceLabelKey+"="+stackName),
-			filters.Arg(
-				"label",
-				labelsdict.RotatedResourceManagedLabelKey+"="+labelsdict.RotatedResourceManagedLabelValue,
-			),
-		),
+func (r *secretManager) List(ctx context.Context, filter ListSecretsFilter) ([]Secret, error) {
+	secrets, err := r.dockerClient.SecretList(ctx, dockerswarm.SecretListOptions{
+		Filters: buildSecretListFilters(filter),
 	})
-}
-
-func (r *secretManager) list(ctx context.Context, options dockerswarm.SecretListOptions) ([]Secret, error) {
-	secrets, err := r.dockerClient.SecretList(ctx, options)
 	if err != nil {
 		return nil, fmt.Errorf("list docker secrets: %w", err)
 	}
@@ -51,6 +36,41 @@ func (r *secretManager) list(ctx context.Context, options dockerswarm.SecretList
 	r.sortSecretInfos(mapped)
 
 	return mapped, nil
+}
+
+func buildSecretListFilters(filter ListSecretsFilter) filters.Args {
+	filterArgs := make([]filters.KeyValuePair, 0, len(filter.Names)+len(filter.Labels)+1)
+	for _, name := range filter.Names {
+		filterArgs = append(filterArgs, filters.Arg("name", name))
+	}
+	for key, value := range filter.Labels {
+		filterArgs = append(filterArgs, filters.Arg("label", key+"="+value))
+	}
+	if filter.StackName != "" {
+		filterArgs = append(filterArgs, filters.Arg("label", stackNamespaceLabelKey+"="+filter.StackName))
+	}
+
+	return filters.NewArgs(filterArgs...)
+}
+
+func (r *secretManager) Create(ctx context.Context, req CreateSecretRequest) (string, error) {
+	spec := dockerswarm.SecretSpec{
+		Annotations: dockerswarm.Annotations{Name: req.Name, Labels: req.Labels},
+		Data:        req.Data,
+	}
+	if req.Driver != "" {
+		spec.Driver = &dockerswarm.Driver{Name: req.Driver, Options: req.DriverOptions}
+	}
+	if req.TemplateDriver != "" {
+		spec.Templating = &dockerswarm.Driver{Name: req.TemplateDriver}
+	}
+
+	created, err := r.dockerClient.SecretCreate(ctx, spec)
+	if err != nil {
+		return "", fmt.Errorf("create docker secret %s: %w", req.Name, err)
+	}
+
+	return created.ID, nil
 }
 
 func (r *secretManager) Remove(ctx context.Context, secretID string) error {
