@@ -263,9 +263,13 @@ func (c *Controller) Manual(ctx context.Context) bool {
 }
 
 func (c *Controller) Webhook(ctx context.Context) bool {
-	return c.scheduleReconcile(ctx, reconcileTask{
+	queued := c.scheduleReconcile(ctx, reconcileTask{
 		reason: TriggerWebhook,
 	})
+
+	c.event.Dispatch(ctx, &events.WebhookReceived{Queued: queued})
+
+	return queued
 }
 
 func (c *Controller) scheduleReconcile(ctx context.Context, task reconcileTask) bool {
