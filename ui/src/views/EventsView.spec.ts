@@ -68,7 +68,7 @@ function renderedMessages(wrapper: ReturnType<typeof mount>): string[] {
 describe("EventsView", () => {
   beforeEach(() => {
     vi.mocked(fetchEvents).mockReset();
-    vi.mocked(fetchEvents).mockImplementation(async (options) => {
+    vi.mocked(fetchEvents).mockImplementation(async (options = {}) => {
       const severityRank = { info: 0, warn: 1, error: 2, alert: 3 };
       const sorted = [...events].sort((left, right) => {
         if (options.sort === "severity") {
