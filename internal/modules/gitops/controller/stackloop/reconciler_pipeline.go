@@ -37,6 +37,13 @@ func (r *Reconciler) attachPipeline() {
 		PipelineName: "sync stack",
 	})
 
+	if r.cfg.Spec.Sync.Policy.Image.Enabled() {
+		r.pipeline.Add(pipe.Step[*pipelinePayload]{
+			Name: "check image policy",
+			Run:  r.checkImagePolicy,
+		})
+	}
+
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "populate environment",
 		When: pipe.When(func(payload *pipelinePayload) bool {

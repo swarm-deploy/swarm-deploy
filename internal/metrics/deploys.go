@@ -7,6 +7,7 @@ type Deploys interface {
 
 	// RecordInitJobRun records one init job run by stack and service.
 	RecordInitJobRun(stack, service string)
+	// RecordDeploy records one deployment execution by stack, service, and status.
 	RecordDeploy(stack, service, status string)
 }
 

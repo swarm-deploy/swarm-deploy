@@ -119,6 +119,29 @@ type SyncSpec struct {
 type SyncPolicySpec struct {
 	// Prune enables deletion of orphaned managed services.
 	Prune bool `yaml:"prune"`
+	// Image contains image reference restrictions.
+	Image ImagePolicySpec `yaml:"image"`
+}
+
+// ImagePolicySpec contains image policy restrictions.
+type ImagePolicySpec struct {
+	// Tag contains image tag restrictions.
+	Tag ImageTagPolicySpec `yaml:"tag"`
+}
+
+// Enabled reports whether at least one image policy rule is active.
+func (s ImagePolicySpec) Enabled() bool {
+	return s.Tag.Required || s.Tag.NoLatest || s.Tag.OnlySHA
+}
+
+// ImageTagPolicySpec contains restrictions for image references.
+type ImageTagPolicySpec struct {
+	// Required requires an explicit tag or digest.
+	Required bool `yaml:"required"`
+	// NoLatest rejects the latest tag and untagged image references.
+	NoLatest bool `yaml:"no_latest"`
+	// OnlySHA requires a digest reference.
+	OnlySHA bool `yaml:"only_sha"`
 }
 
 type WebhookSpec struct {

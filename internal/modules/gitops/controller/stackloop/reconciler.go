@@ -19,6 +19,7 @@ import (
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/syncpolicy"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -144,6 +145,12 @@ func (r *Reconciler) Reconcile(
 	if err != nil {
 		pipeErr, _ := errors.AsType[*pipe.StepError](err)
 
+		var deniedErr *deployDeniedError
+		if errors.As(pipeErr, &deniedErr) {
+			r.recordDenial(ctx, req.Stack.Name, req.Commit, services, deniedErr)
+			return wrapReconcileError(pipeErr.StepName, services, pipeErr)
+		}
+
 		r.recordFailure(ctx, req.Stack.Name, req.Commit, services, pipeErr)
 		r.recordStackFailure(ctx, req.Stack.Name, req.Commit, *desiredState, pipeErr)
 		return wrapReconcileError(pipeErr.StepName, services, pipeErr)
@@ -152,6 +159,40 @@ func (r *Reconciler) Reconcile(
 	r.processResult(ctx, req, prev, desiredState, pl)
 
 	return nil
+}
+
+func (r *Reconciler) checkImagePolicy(
+	ctx context.Context,
+	payload *pipelinePayload,
+) error {
+	var denied int
+	for _, service := range payload.Desired.Compose.Services {
+		violated := syncpolicy.CheckImage(r.cfg.Spec.Sync.Policy.Image, service.Image)
+		if violated == "" {
+			continue
+		}
+
+		denied++
+		r.event.Dispatch(ctx, &events.DeployDenied{
+			StackName:   payload.Stack.Name,
+			ServiceName: service.Name,
+			Image:       service.Image,
+			Policy:      violated,
+		})
+	}
+	if denied == 0 {
+		return nil
+	}
+
+	return &deployDeniedError{services: denied}
+}
+
+type deployDeniedError struct {
+	services int
+}
+
+func (e *deployDeniedError) Error() string {
+	return fmt.Sprintf("%d service(s) denied by image policy", e.services)
 }
 
 func (r *Reconciler) currentStackState(stackName string) (model.Stack, bool) {
@@ -255,6 +296,37 @@ func (r *Reconciler) recordFailure(
 			Status:       model.NewStackStatus(servicesState),
 			LastError:    reason.Error(),
 			LastDeployAt: now,
+			Services:     servicesState,
+		}
+	})
+}
+
+func (r *Reconciler) recordDenial(
+	ctx context.Context,
+	stackName string,
+	commit string,
+	services []compose.Service,
+	reason error,
+) {
+	now := time.Now()
+	servicesState := make(map[string]model.Service, len(services))
+	for _, service := range services {
+		servicesState[service.Name] = model.Service{
+			Image:      service.Image,
+			SyncStatus: model.SyncStatusOutOfSync,
+			SyncError:  reason.Error(),
+			SyncAt:     now,
+		}
+	}
+
+	r.stateStore.Update(ctx, func(state *model.Runtime) {
+		previous := state.Stacks[stackName]
+		state.Stacks[stackName] = model.Stack{
+			SourceDigest: previous.SourceDigest,
+			LastCommit:   commit,
+			Status:       model.NewStackStatus(servicesState),
+			LastError:    reason.Error(),
+			LastDeployAt: previous.LastDeployAt,
 			Services:     servicesState,
 		}
 	})

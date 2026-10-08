@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
+	"go.yaml.in/yaml/v3"
 )
 
 func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
@@ -955,6 +957,137 @@ func TestReconcileServiceMissedEventOnDrift(t *testing.T) {
 			assert.Equal(t, tt.expectedSyncError, serviceState.SyncError, "unexpected sync error")
 		})
 	}
+}
+
+func TestCheckImagePolicyDispatchesDeployDenied(t *testing.T) {
+	eventDispatcher := &captureEventDispatcher{}
+	reconciler := &Reconciler{
+		cfg: &config.Config{
+			Spec: config.Spec{
+				Sync: config.SyncSpec{
+					Policy: config.SyncPolicySpec{
+						Image: config.ImagePolicySpec{
+							Tag: config.ImageTagPolicySpec{NoLatest: true},
+						},
+					},
+				},
+			},
+		},
+		event: eventDispatcher,
+	}
+
+	err := reconciler.checkImagePolicy(context.Background(), &pipelinePayload{
+		Stack: config.StackSpec{Name: "app"},
+		Desired: &compose.File{
+			Compose: compose.Compose{
+				Services: []compose.Service{
+					{Name: "api", Image: "nginx:latest"},
+				},
+			},
+		},
+	})
+
+	require.Error(t, err)
+	require.Len(t, eventDispatcher.events, 1)
+	denied, ok := eventDispatcher.events[0].(*events.DeployDenied)
+	require.True(t, ok)
+	assert.Equal(t, "app", denied.StackName)
+	assert.Equal(t, "api", denied.ServiceName)
+	assert.Equal(t, "nginx:latest", denied.Image)
+	assert.Equal(t, "image.tag.no_latest", denied.Policy)
+}
+
+func TestImagePolicyStepIsOptional(t *testing.T) {
+	tests := []struct {
+		name    string
+		yaml    string
+		present bool
+	}{
+		{
+			name: "image policy absent",
+			yaml: "sync:\n  policy:\n    prune: true\n",
+		},
+		{
+			name:    "image policy active",
+			yaml:    "sync:\n  policy:\n    image:\n      tag:\n        no_latest: true\n",
+			present: true,
+		},
+		{
+			name: "image policy empty",
+			yaml: "sync:\n  policy:\n    image: {}\n",
+		},
+		{
+			name: "all image rules disabled",
+			yaml: "sync:\n  policy:\n    image:\n      tag:\n        required: false\n        no_latest: false\n        only_sha: false\n",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var spec config.Spec
+			require.NoError(t, yaml.Unmarshal([]byte(tt.yaml), &spec), "unmarshal config")
+
+			reconciler := &Reconciler{cfg: &config.Config{Spec: spec}}
+			reconciler.attachPipeline()
+
+			steps := reflect.ValueOf(reconciler.pipeline).Elem().FieldByName("pipeline")
+			expectedSteps := 7
+			if tt.present {
+				expectedSteps++
+			}
+			assert.Equal(t, expectedSteps, steps.Len(), "unexpected pipeline step count")
+		})
+	}
+}
+
+func TestReconcilePolicyDenialIsNotDeploymentFailure(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repository := gitx.NewMockRepository(ctrl)
+	stackDeployer := deployer.NewMockStackDeployer(ctrl)
+	stateStore := modelstore.NewMemoryStore()
+	repoDir := t.TempDir()
+	eventDispatcher := &captureEventDispatcher{}
+
+	repository.EXPECT().WorkingDir().Return(repoDir)
+	require.NoError(t, writeComposeFile(repoDir), "write compose")
+
+	reconciler := &Reconciler{
+		cfg: &config.Config{Spec: config.Spec{
+			DataDir: repoDir,
+			Sync: config.SyncSpec{Policy: config.SyncPolicySpec{
+				Image: config.ImagePolicySpec{Tag: config.ImageTagPolicySpec{NoLatest: true}},
+			}},
+		}},
+		git:           repository,
+		deployer:      stackDeployer,
+		event:         eventDispatcher,
+		deployMetrics: &metrics.NopDeploys{},
+		stateStore:    stateStore,
+		composeLoader: compose.NewFileLoader(),
+	}
+	reconciler.attachPipeline()
+
+	err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
+		Stack:  config.StackSpec{Name: "app", ComposeFile: "app.yaml"},
+		Commit: "denied-commit",
+	})
+
+	require.Error(t, err, "expected policy denial")
+	var deniedErr *deployDeniedError
+	assert.ErrorAs(t, err, &deniedErr, "expected typed policy denial")
+	require.Len(t, eventDispatcher.events, 1, "expected only deploy denied event")
+	_, isDenied := eventDispatcher.events[0].(*events.DeployDenied)
+	assert.True(t, isDenied, "expected deploy denied event")
+	for _, event := range eventDispatcher.events {
+		_, isFailed := event.(*events.DeployFailed)
+		assert.False(t, isFailed, "did not expect deploy failed event")
+	}
+
+	stackState, exists := stateStore.Get().Stacks["app"]
+	require.True(t, exists, "expected denied stack state")
+	assert.Equal(t, model.SyncStatus(model.SyncStatusOutOfSync), stackState.Services["api"].SyncStatus, "unexpected service status")
+	assert.Contains(t, stackState.Services["api"].SyncError, "denied by image policy", "unexpected sync error")
+	assert.True(t, stackState.LastDeployAt.IsZero(), "denial must not record a deployment attempt")
 }
 
 type captureEventDispatcher struct {
