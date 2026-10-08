@@ -183,6 +183,62 @@ func TestHandlerListEventsLimitsLatestFilteredEvents(t *testing.T) {
 	assert.Equal(t, "ghi", resp.Events[1].Details.Value["commit"])
 }
 
+
+func TestHandlerListEventsCursorPagination(t *testing.T) {
+	t.Parallel()
+
+	store, err := history.NewStore(filepath.Join(t.TempDir(), "events.json"), 50, fs.NewLocalFileSystem())
+	require.NoError(t, err)
+	for _, stack := range []string{"one", "two", "three", "four"} {
+		require.NoError(t, storeEvent(store, context.Background(), &events.DeploySuccess{
+			DeployEvent: events.DeployEvent{StackName: stack, Commit: stack},
+		}))
+	}
+
+	h := &handler{history: store}
+	params := generated.ListEventsParams{}
+	params.Limit.SetTo(2)
+	params.Sort.SetTo("time")
+	params.Order.SetTo("desc")
+
+	first, err := h.ListEvents(context.Background(), params)
+	require.NoError(t, err)
+	require.Len(t, first.Events, 2)
+	assert.Equal(t, "four", first.Events[0].Details.Value["stack"])
+	assert.Equal(t, "three", first.Events[1].Details.Value["stack"])
+	cursor, ok := first.NextCursor.Get()
+	require.True(t, ok)
+
+	params.Cursor.SetTo(cursor)
+	second, err := h.ListEvents(context.Background(), params)
+	require.NoError(t, err)
+	require.Len(t, second.Events, 2)
+	assert.Equal(t, "two", second.Events[0].Details.Value["stack"])
+	assert.Equal(t, "one", second.Events[1].Details.Value["stack"])
+	assert.False(t, second.NextCursor.IsSet())
+
+	// Unpaginated consumers (Overview) keep the existing oldest-first API order.
+	legacy := generated.ListEventsParams{}
+	legacy.Limit.SetTo(2)
+	response, err := h.ListEvents(context.Background(), legacy)
+	require.NoError(t, err)
+	require.Len(t, response.Events, 2)
+	assert.Equal(t, "three", response.Events[0].Details.Value["stack"])
+	assert.Equal(t, "four", response.Events[1].Details.Value["stack"])
+	assert.False(t, response.NextCursor.IsSet())
+}
+
+func TestHandlerListEventsRejectsInvalidCursor(t *testing.T) {
+	t.Parallel()
+	store, err := history.NewStore(filepath.Join(t.TempDir(), "events.json"), 50, fs.NewLocalFileSystem())
+	require.NoError(t, err)
+	params := generated.ListEventsParams{}
+	params.Sort.SetTo("time")
+	params.Cursor.SetTo("not-a-cursor")
+	_, err = (&handler{history: store}).ListEvents(context.Background(), params)
+	require.Error(t, err)
+}
+
 func storeEvent(store *history.Store, ctx context.Context, payload events.Event) error {
 	return store.Handle(ctx, events.Envelope{ID: "test-event", Event: payload})
 }
