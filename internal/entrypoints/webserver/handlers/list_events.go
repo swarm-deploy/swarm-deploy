@@ -10,6 +10,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
 )
 
+const defaultEventPageSize int32 = 50
+
 func (h *handler) ListEvents(
 	_ context.Context,
 	params generated.ListEventsParams,
@@ -57,7 +59,7 @@ func (h *handler) ListEvents(
 		Categories: categories,
 		Types:      types,
 		Since:      since,
-		Limit:      int(params.Limit.Or(50)),
+		Limit:      int(params.Limit.Or(defaultEventPageSize)),
 		Cursor:     params.Cursor.Or(""),
 		Sort:       history.SortOrder(params.Sort.Or("time") + "_" + params.Order.Or("desc")),
 	})
