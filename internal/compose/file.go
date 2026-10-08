@@ -84,8 +84,8 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 	}
 
 	schema := Compose{}
-	if err = yaml.Unmarshal(raw, &schema); err != nil {
-		return nil, &ValidateComposeError{FilePath: path, Issues: decodeIssues(err)}
+	if err = syntax.Decode(&schema); err != nil {
+		return nil, &ValidateComposeError{FilePath: path, Issues: decodeIssues(err), Err: err}
 	}
 
 	if issues := l.linkServices(&schema, filepath.Dir(path)); len(issues) > 0 {

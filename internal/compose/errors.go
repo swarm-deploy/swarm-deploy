@@ -57,8 +57,6 @@ type ValidationIssue struct {
 	Code string
 	// Message is a human-readable description.
 	Message string
-	// Value is the optional offending value.
-	Value any
 }
 
 // ValidateComposeError means a compose file is invalid.
@@ -67,12 +65,34 @@ type ValidateComposeError struct {
 	FilePath string
 	// Issues are found validation issues.
 	Issues []ValidationIssue
+	// Err is the optional underlying decoding error.
+	Err error
 }
 
 func (e *ValidateComposeError) Error() string {
 	msgs := make([]string, 0, len(e.Issues))
-	for _, i := range e.Issues {
-		msgs = append(msgs, fmt.Sprintf("%s %q: %s: %s", i.ResourceType, i.ResourceName, i.Field, i.Message))
+	for _, issue := range e.Issues {
+		msgs = append(msgs, issue.String())
 	}
 	return fmt.Sprintf("validate compose file %q: %s", e.FilePath, strings.Join(msgs, "; "))
+}
+
+// Unwrap returns the underlying decoding error, if any.
+func (e *ValidateComposeError) Unwrap() error { return e.Err }
+
+// String formats the issue omitting empty attributes.
+func (i ValidationIssue) String() string {
+	resource := i.ResourceType
+	if i.ResourceName != "" {
+		resource = fmt.Sprintf("%s %q", resource, i.ResourceName)
+	}
+
+	parts := make([]string, 0, 3)
+	for _, part := range []string{resource, i.Field, i.Message} {
+		if part != "" {
+			parts = append(parts, part)
+		}
+	}
+
+	return strings.Join(parts, ": ")
 }

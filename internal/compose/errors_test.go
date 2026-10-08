@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.yaml.in/yaml/v3"
 )
 
 func loadFrom(files map[string]string) (*File, error) {
@@ -68,17 +70,26 @@ services:
 	assert.Equal(t, "app", issue.ResourceName)
 	assert.Equal(t, "init-jobs[0].image", issue.Field)
 	assert.Equal(t, IssueCodeRequired, issue.Code)
+	assert.Equal(t,
+		`validate compose file "/stack/compose.yaml": service "app": init-jobs[0].image: image is required`,
+		validateErr.Error(),
+	)
+	assert.NoError(t, validateErr.Err)
 }
 
 func TestFileLoaderValidateComposeErrorWrongType(t *testing.T) {
 	t.Parallel()
 
-	_, err := loadFrom(map[string]string{"/stack/compose.yaml": "services: not-a-map\n"})
+	_, err := loadFrom(map[string]string{"/stack/compose.yaml": "services:\n  app:\n    image: [a, b]\n"})
 
 	var validateErr *ValidateComposeError
 	require.ErrorAs(t, err, &validateErr)
 	require.NotEmpty(t, validateErr.Issues)
 	assert.NotEmpty(t, validateErr.Issues[0].Message)
+
+	var typeErr *yaml.TypeError
+	require.ErrorAs(t, err, &typeErr)
+	assert.True(t, strings.HasPrefix(validateErr.Error(), `validate compose file "/stack/compose.yaml": compose: line`), validateErr.Error())
 }
 
 func TestFileLoaderKeepsIOErrorForReferencedFiles(t *testing.T) {
