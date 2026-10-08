@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"net/http"
 	"time"
 
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
@@ -41,16 +42,33 @@ func (h *handler) ListEvents(
 		since = &value
 	}
 
-	entries := h.history.List()
-	entries = history.FilterEntries(entries, severities, categories, types, since)
-	if value, ok := params.Limit.Get(); ok {
-		entries = limitLatestEntries(entries, int(value))
+	// Preserve the legacy response order for callers which do not opt into
+	// pagination (notably the Overview latest-deployments widget).
+	if !params.Sort.IsSet() && !params.Order.IsSet() && !params.Cursor.IsSet() {
+		entries := history.FilterEntries(h.history.List(), severities, categories, types, since)
+		if value, ok := params.Limit.Get(); ok {
+			entries = limitLatestEntries(entries, int(value))
+		}
+		return &generated.EventHistoryResponse{Events: toGeneratedEvents(entries)}, nil
 	}
-	items := toGeneratedEvents(entries)
 
-	return &generated.EventHistoryResponse{
-		Events: items,
-	}, nil
+	page, err := h.history.Query(history.QueryOptions{
+		Severities: severities,
+		Categories: categories,
+		Types:      types,
+		Since:      since,
+		Limit:      int(params.Limit.Or(50)),
+		Cursor:     params.Cursor.Or(""),
+		Sort:       history.SortOrder(params.Sort.Or("time") + "_" + params.Order.Or("desc")),
+	})
+	if err != nil {
+		return nil, withStatusError(http.StatusBadRequest, err)
+	}
+	response := &generated.EventHistoryResponse{Events: toGeneratedEvents(page.Entries)}
+	if page.NextCursor != "" {
+		response.NextCursor.SetTo(page.NextCursor)
+	}
+	return response, nil
 }
 
 func limitLatestEntries(entries []history.Entry, limit int) []history.Entry {
