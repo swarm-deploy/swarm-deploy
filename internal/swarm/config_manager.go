@@ -8,7 +8,6 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/httpx"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 )
 
@@ -27,7 +26,7 @@ func newConfigManager(dockerClient *client.Client) ConfigManager {
 func (m *configManager) Get(ctx context.Context, configName string) (Config, error) {
 	config, _, err := m.dockerClient.ConfigInspectWithRaw(ctx, configName)
 	if err != nil {
-		return Config{}, fmt.Errorf("inspect config %s: %w", configName, httpx.MatchError(err))
+		return Config{}, fmt.Errorf("inspect config %s: %w", configName, err)
 	}
 
 	return m.mapConfig(config), nil
@@ -53,7 +52,7 @@ func (m *configManager) List(ctx context.Context, filter ListConfigsFilter) ([]C
 		Filters: filters.NewArgs(filterArgs...),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("list docker configs: %w", httpx.MatchError(err))
+		return nil, fmt.Errorf("list docker configs: %w", err)
 	}
 
 	mapped := make([]Config, len(configs))
@@ -82,7 +81,7 @@ func (m *configManager) Create(ctx context.Context, req CreateConfigRequest) (st
 
 	created, err := m.dockerClient.ConfigCreate(ctx, spec)
 	if err != nil {
-		return "", fmt.Errorf("create docker config %s: %w", req.Name, httpx.MatchError(err))
+		return "", fmt.Errorf("create docker config %s: %w", req.Name, err)
 	}
 
 	return created.ID, nil
@@ -90,7 +89,7 @@ func (m *configManager) Create(ctx context.Context, req CreateConfigRequest) (st
 
 func (m *configManager) Remove(ctx context.Context, configID string) error {
 	if err := m.dockerClient.ConfigRemove(ctx, configID); err != nil {
-		return fmt.Errorf("remove docker config %s: %w", configID, httpx.MatchError(err))
+		return fmt.Errorf("remove docker config %s: %w", configID, err)
 	}
 
 	return nil

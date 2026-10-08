@@ -68,7 +68,7 @@ func (r *secretManager) Create(ctx context.Context, req CreateSecretRequest) (st
 
 	created, err := r.dockerClient.SecretCreate(ctx, spec)
 	if err != nil {
-		return "", fmt.Errorf("create docker secret %s: %w", req.Name, httpx.MatchError(err))
+		return "", fmt.Errorf("create docker secret %s: %w", req.Name, err)
 	}
 
 	return created.ID, nil
