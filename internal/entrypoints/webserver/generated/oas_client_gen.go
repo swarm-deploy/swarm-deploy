@@ -1746,56 +1746,57 @@ func (c *Client) sendListEvents(ctx context.Context, params ListEventsParams) (r
 	}
 	{
 		// Encode "cursor" parameter.
-		cfg := uri.QueryParameterEncodingConfig{
-			Name:    "cursor",
-			Style:   uri.QueryStyleForm,
-			Explode: true,
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "cursor",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.Cursor))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
 		}
-
-		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
-			if val, ok := params.Cursor.Get(); ok {
-				return e.EncodeValue(conv.StringToString(val))
-			}
-			return nil
-		}); err != nil {
-			return res, errors.Wrap(err, "encode query")
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
 		}
+		pathParts[1] = encoded
 	}
-
-	// Encode "sort" parameter.
-		cfg := uri.QueryParameterEncodingConfig{
-			Name:    "sort",
-			Style:   uri.QueryStyleForm,
-			Explode: true,
+	{
+		// Encode "sort" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "sort",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.Sort))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
 		}
-
-		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
-			if val, ok := params.Sort.Get(); ok {
-				return e.EncodeValue(conv.StringToString(val))
-			}
-			return nil
-		}); err != nil {
-			return res, errors.Wrap(err, "encode query")
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
 		}
+		pathParts[1] = encoded
 	}
-
-	// Encode "order" parameter.
-		cfg := uri.QueryParameterEncodingConfig{
-			Name:    "order",
-			Style:   uri.QueryStyleForm,
-			Explode: true,
+	{
+		// Encode "order" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "order",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.Order))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
 		}
-
-		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
-			if val, ok := params.Order.Get(); ok {
-				return e.EncodeValue(conv.StringToString(val))
-			}
-			return nil
-		}); err != nil {
-			return res, errors.Wrap(err, "encode query")
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
 		}
-	}
-
+		pathParts[1] = encoded
 	}
 	u.RawQuery = q.Values().Encode()
 
