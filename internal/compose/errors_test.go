@@ -9,15 +9,13 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
 
 func loadFrom(files map[string]string) (*File, error) {
 	loader := NewFileLoaderWithReader(func(_ context.Context, path string) ([]byte, error) {
 		content, ok := files[path]
 		if !ok {
-			return nil, faults.WrapIO(&fs.PathError{Op: "open", Path: path, Err: fs.ErrNotExist})
+			return nil, &fs.PathError{Op: "open", Path: path, Err: fs.ErrNotExist}
 		}
 		return []byte(content), nil
 	})
@@ -33,10 +31,7 @@ func TestFileLoaderReadComposeError(t *testing.T) {
 	require.ErrorAs(t, err, &readErr)
 	assert.Equal(t, "/stack/compose.yaml", readErr.FilePath)
 
-	var ioErr *faults.IOError
-	require.ErrorAs(t, err, &ioErr)
 	require.ErrorIs(t, err, fs.ErrNotExist)
-	assert.False(t, ioErr.Temporary())
 }
 
 func TestFileLoaderParseComposeError(t *testing.T) {
@@ -100,8 +95,7 @@ func TestFileLoaderKeepsIOErrorForReferencedFiles(t *testing.T) {
 
 			_, err := loadFrom(map[string]string{"/stack/compose.yaml": content})
 
-			var ioErr *faults.IOError
-			require.ErrorAs(t, err, &ioErr)
+			require.ErrorIs(t, err, fs.ErrNotExist)
 			var readErr *ReadComposeError
 			assert.False(t, errors.As(err, &readErr), "only the main file is ReadComposeError")
 		})
@@ -114,7 +108,7 @@ func TestComposeErrorsWrap(t *testing.T) {
 	_, err := loadFrom(nil)
 	wrapped := fmt.Errorf("sync: %w", err)
 
-	var fe faults.Error
-	require.ErrorAs(t, wrapped, &fe)
+	var readErr *ReadComposeError
+	require.ErrorAs(t, wrapped, &readErr)
 	assert.Contains(t, wrapped.Error(), "/stack/compose.yaml")
 }

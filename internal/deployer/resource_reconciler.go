@@ -3,7 +3,6 @@ package deployer
 import (
 	"context"
 	"fmt"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"os"
 	"path/filepath"
 	"sort"
@@ -253,10 +252,5 @@ func readSecret(sourceComposePath string, object *compose.Secret) ([]byte, error
 		path = filepath.Join(filepath.Dir(sourceComposePath), path)
 	}
 
-	content, err := os.ReadFile(path)
-	if err != nil {
-		return nil, faults.WrapIO(err)
-	}
-
-	return content, nil
+	return os.ReadFile(path)
 }

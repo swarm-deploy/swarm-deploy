@@ -27,7 +27,7 @@ func (m *imageManager) Get(ctx context.Context, imageRef string) (Image, error) 
 			return Image{}, ErrImageNotFound
 		}
 
-		return Image{}, fmt.Errorf("inspect image %s: %w", imageRef, dockerAPIError(err))
+		return Image{}, fmt.Errorf("inspect image %s: %w", imageRef, err)
 	}
 
 	labels := map[string]string(nil)

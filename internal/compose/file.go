@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"hash"
 	"os"
 	"path/filepath"
@@ -59,7 +58,7 @@ func NewFileLoaderWithReader(reader func(ctx context.Context, path string) ([]by
 func readFile(_ context.Context, path string) ([]byte, error) {
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return nil, faults.WrapIO(err)
+		return nil, err
 	}
 
 	return content, nil

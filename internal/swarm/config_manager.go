@@ -24,7 +24,7 @@ func newConfigManager(dockerClient *client.Client) ConfigManager {
 func (m *configManager) Get(ctx context.Context, configName string) (Config, error) {
 	config, _, err := m.dockerClient.ConfigInspectWithRaw(ctx, configName)
 	if err != nil {
-		return Config{}, fmt.Errorf("inspect config %s: %w", configName, dockerAPIError(err))
+		return Config{}, fmt.Errorf("inspect config %s: %w", configName, err)
 	}
 
 	return m.mapConfig(config), nil
@@ -41,7 +41,7 @@ func (m *configManager) ListStack(ctx context.Context, stackName string) ([]Conf
 		),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("list docker configs for stack %s: %w", stackName, dockerAPIError(err))
+		return nil, fmt.Errorf("list docker configs for stack %s: %w", stackName, err)
 	}
 
 	mapped := make([]Config, len(configs))
@@ -61,7 +61,7 @@ func (m *configManager) ListStack(ctx context.Context, stackName string) ([]Conf
 
 func (m *configManager) Remove(ctx context.Context, configID string) error {
 	if err := m.dockerClient.ConfigRemove(ctx, configID); err != nil {
-		return fmt.Errorf("remove docker config %s: %w", configID, dockerAPIError(err))
+		return fmt.Errorf("remove docker config %s: %w", configID, err)
 	}
 
 	return nil

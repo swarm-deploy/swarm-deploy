@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"io"
 	"os"
 	"path/filepath"
@@ -67,10 +66,9 @@ func (r *GoGitRepository) WorkingDir() string {
 }
 
 func (r *GoGitRepository) ReadFile(_ context.Context, path string) ([]byte, error) {
-	fullPath := filepath.Join(r.path, path)
-	content, err := os.ReadFile(fullPath)
+	content, err := os.ReadFile(filepath.Join(r.path, path))
 	if err != nil {
-		return nil, faults.WrapIO(err)
+		return nil, fmt.Errorf("read repository file %q: %w", path, err)
 	}
 
 	return content, nil

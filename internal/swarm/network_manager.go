@@ -28,7 +28,7 @@ func (m *networkManager) List(ctx context.Context) ([]Network, error) {
 		Filters: filters.NewArgs(filters.Arg("scope", "swarm")),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("list docker networks: %w", dockerAPIError(err))
+		return nil, fmt.Errorf("list docker networks: %w", err)
 	}
 
 	mapped := make([]Network, len(networks))
@@ -51,7 +51,7 @@ func (m *networkManager) Map(ctx context.Context, ids []string) (map[string]Netw
 		Filters: filters.NewArgs(filterArgs...),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("list docker networks: %w", dockerAPIError(err))
+		return nil, fmt.Errorf("list docker networks: %w", err)
 	}
 
 	mapped := make(map[string]Network, len(networks))
@@ -69,7 +69,7 @@ func (m *networkManager) Get(ctx context.Context, name string) (Network, error) 
 			return Network{}, ErrNetworkNotFound
 		}
 
-		return Network{}, fmt.Errorf("inspect network: %w", dockerAPIError(err))
+		return Network{}, fmt.Errorf("inspect network: %w", err)
 	}
 
 	return m.mapNetwork(network), nil
@@ -84,7 +84,7 @@ func (m *networkManager) Create(ctx context.Context, req CreateNetworkRequest) (
 		Labels:     req.Labels,
 	})
 	if err != nil {
-		return "", fmt.Errorf("create network %s: %w", req.Name, dockerAPIError(err))
+		return "", err
 	}
 
 	return resp.ID, nil

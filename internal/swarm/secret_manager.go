@@ -41,7 +41,7 @@ func (r *secretManager) ListStack(ctx context.Context, stackName string) ([]Secr
 func (r *secretManager) list(ctx context.Context, options dockerswarm.SecretListOptions) ([]Secret, error) {
 	secrets, err := r.dockerClient.SecretList(ctx, options)
 	if err != nil {
-		return nil, fmt.Errorf("list docker secrets: %w", dockerAPIError(err))
+		return nil, fmt.Errorf("list docker secrets: %w", err)
 	}
 
 	mapped := make([]Secret, len(secrets))
@@ -55,7 +55,7 @@ func (r *secretManager) list(ctx context.Context, options dockerswarm.SecretList
 
 func (r *secretManager) Remove(ctx context.Context, secretID string) error {
 	if err := r.dockerClient.SecretRemove(ctx, secretID); err != nil {
-		return fmt.Errorf("remove docker secret %s: %w", secretID, dockerAPIError(err))
+		return fmt.Errorf("remove docker secret %s: %w", secretID, err)
 	}
 
 	return nil
@@ -74,7 +74,7 @@ func (r *secretManager) ResolveReference(
 ) (*dockerswarm.SecretReference, error) {
 	secret, _, err := r.dockerClient.SecretInspectWithRaw(ctx, source)
 	if err != nil {
-		return nil, fmt.Errorf("inspect secret: %w", dockerAPIError(err))
+		return nil, fmt.Errorf("inspect secret: %w", err)
 	}
 
 	ref := &dockerswarm.SecretReference{
