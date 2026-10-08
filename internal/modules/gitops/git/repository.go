@@ -66,8 +66,12 @@ func (r *GoGitRepository) WorkingDir() string {
 }
 
 func (r *GoGitRepository) ReadFile(_ context.Context, path string) ([]byte, error) {
-	fullPath := filepath.Join(r.path, path)
-	return os.ReadFile(fullPath)
+	content, err := os.ReadFile(filepath.Join(r.path, path))
+	if err != nil {
+		return nil, fmt.Errorf("read repository file %q: %w", path, err)
+	}
+
+	return content, nil
 }
 
 func (r *GoGitRepository) Pull(ctx context.Context) (PullResult, error) {
