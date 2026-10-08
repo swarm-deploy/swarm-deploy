@@ -167,7 +167,8 @@ describe("EventsView", () => {
     await flushPromises();
 
     expect(renderedMessages(wrapper)).toEqual(["Error", "Older info", "Warning", "Newer info"]);
-    expect(timeButton!.element.closest("th")?.getAttribute("aria-sort")).toBe("ascending");
+    const refreshedTimeButton = wrapper.findAll("thead button").find((button) => button.text().startsWith("Time"));
+    expect(refreshedTimeButton!.element.closest("th")?.getAttribute("aria-sort")).toBe("ascending");
   });
 
   it("sorts severity semantically and uses time descending as the tie-breaker", async () => {
