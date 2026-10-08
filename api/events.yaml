@@ -47,16 +47,15 @@ paths:
         - in: query
           name: sort
           required: false
-          description: Opt into paginated, server-sorted history. Legacy requests preserve their ordering.
+          description: 'Paginated sort field: time or severity. Legacy requests preserve their ordering.'
           schema:
             type: string
-            enum: [time, severity]
         - in: query
           name: order
           required: false
+          description: 'Sort order: asc or desc.'
           schema:
             type: string
-            enum: [asc, desc]
       responses:
         '200':
           description: Latest events from local history
