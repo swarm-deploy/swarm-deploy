@@ -67,7 +67,20 @@ function renderedMessages(wrapper: ReturnType<typeof mount>): string[] {
 
 describe("EventsView", () => {
   beforeEach(() => {
-    vi.mocked(fetchEvents).mockResolvedValue({ events });
+    vi.mocked(fetchEvents).mockReset();
+    vi.mocked(fetchEvents).mockImplementation(async (options) => {
+      const severityRank = { info: 0, warn: 1, error: 2, alert: 3 };
+      const sorted = [...events].sort((left, right) => {
+        if (options.sort === "severity") {
+          const delta = severityRank[left.severity] - severityRank[right.severity];
+          if (delta !== 0) return options.order === "asc" ? delta : -delta;
+          return Date.parse(right.created_at) - Date.parse(left.created_at);
+        }
+        const delta = Date.parse(left.created_at) - Date.parse(right.created_at);
+        return options.order === "asc" ? delta : -delta;
+      });
+      return { events: sorted };
+    });
   });
 
   it("restores multiple event types from the URL and keeps them selected", async () => {
@@ -84,6 +97,9 @@ describe("EventsView", () => {
     expect(fetchEvents).toHaveBeenLastCalledWith({
       types: ["deploySuccess", "syncManualStarted"],
       severities: [],
+      limit: 50,
+      sort: "time",
+      order: "desc",
     });
   });
 
@@ -119,6 +135,9 @@ describe("EventsView", () => {
     expect(fetchEvents).toHaveBeenLastCalledWith({
       types: ["webhookReceived"],
       severities: [],
+      limit: 50,
+      sort: "time",
+      order: "desc",
     });
   });
 
@@ -145,6 +164,7 @@ describe("EventsView", () => {
     expect(timeButton!.element.closest("th")?.getAttribute("aria-sort")).toBe("descending");
 
     await timeButton!.trigger("click");
+    await flushPromises();
 
     expect(renderedMessages(wrapper)).toEqual(["Error", "Older info", "Warning", "Newer info"]);
     expect(timeButton!.element.closest("th")?.getAttribute("aria-sort")).toBe("ascending");
@@ -168,6 +188,38 @@ describe("EventsView", () => {
 
     expect(renderedMessages(wrapper)).toEqual(["Newer info", "Older info", "Warning", "Error"]);
     expect(router.currentRoute.value.query.order).toBe("asc");
+  });
+
+  it("loads subsequent pages with a cursor without replacing earlier rows", async () => {
+    vi.mocked(fetchEvents)
+      .mockResolvedValueOnce({ events: [events[1], events[2]], nextCursor: "page-2" })
+      .mockResolvedValueOnce({ events: [events[0], events[3]] });
+    const { wrapper } = await mountView();
+
+    expect(renderedMessages(wrapper)).toEqual(["Newer info", "Warning"]);
+    expect(wrapper.find(".events-load-more").exists()).toBe(true);
+
+    await wrapper.find(".events-load-more").trigger("click");
+    await flushPromises();
+    expect(fetchEvents).toHaveBeenLastCalledWith({
+      types: [], severities: [], limit: 50, sort: "time", order: "desc", cursor: "page-2",
+    });
+    expect(renderedMessages(wrapper)).toEqual(["Newer info", "Warning", "Older info", "Error"]);
+    expect(wrapper.find(".events-load-more").exists()).toBe(false);
+  });
+
+  it("resets the cursor and loaded rows when the sort changes", async () => {
+    vi.mocked(fetchEvents)
+      .mockResolvedValueOnce({ events: [events[1]], nextCursor: "page-2" })
+      .mockResolvedValueOnce({ events: [events[3], events[0]] });
+    const { wrapper } = await mountView();
+    const timeButton = wrapper.findAll("thead button").find((button) => button.text().startsWith("Time"));
+    await timeButton!.trigger("click");
+    await flushPromises();
+    expect(fetchEvents).toHaveBeenLastCalledWith({
+      types: [], severities: [], limit: 50, sort: "time", order: "asc",
+    });
+    expect(renderedMessages(wrapper)).toEqual(["Error", "Older info"]);
   });
 
   it("restores sorting from the URL", async () => {
