@@ -176,7 +176,12 @@ secrets:
 	repository.EXPECT().WorkingDir().Return(repoDir).Times(2)
 	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", composePath, filepath.Join(repoDir, ".data", "rendered", "app.yaml"), gomock.Any()).Return(nil)
 	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
-	configManager.EXPECT().List(gomock.Any(), swarm.ListConfigsFilter{StackName: "app"}).Return(nil, nil)
+	configManager.EXPECT().List(gomock.Any(), swarm.ListConfigsFilter{
+		StackName: "app",
+		Labels: map[string]string{
+			labelsdict.RotatedResourceManagedLabelKey: labelsdict.RotatedResourceManagedLabelValue,
+		},
+	}).Return(nil, nil)
 	secretManager.EXPECT().List(gomock.Any(), swarm.ListSecretsFilter{StackName: "app"}).Return(liveSecrets, nil)
 	secretManager.EXPECT().Remove(gomock.Any(), "old").Return(errInUse)
 

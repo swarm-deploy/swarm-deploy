@@ -346,7 +346,12 @@ func (r *Reconciler) cleanRotatedResources(ctx context.Context, payload *pipelin
 	}
 
 	var liveConfigs []swarm.Config
-	loadedConfigs, configsErr := r.configManager.List(ctx, swarm.ListConfigsFilter{StackName: payload.Stack.Name})
+	loadedConfigs, configsErr := r.configManager.List(ctx, swarm.ListConfigsFilter{
+		StackName: payload.Stack.Name,
+		Labels: map[string]string{
+			labelsdict.RotatedResourceManagedLabelKey: labelsdict.RotatedResourceManagedLabelValue,
+		},
+	})
 	if configsErr != nil {
 		slog.WarnContext(ctx, "[rotated-resource-cleaner] failed to load configs; config cleanup skipped",
 			slog.String("stack", payload.Stack.Name),

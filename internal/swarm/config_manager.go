@@ -8,7 +8,6 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 )
 
 const stackResourceFilterCount = 2
@@ -33,23 +32,8 @@ func (m *configManager) Get(ctx context.Context, configName string) (Config, err
 }
 
 func (m *configManager) List(ctx context.Context, filter ListConfigsFilter) ([]Config, error) {
-	filterArgs := make([]filters.KeyValuePair, 0, len(filter.Names)+stackResourceFilterCount)
-	for _, name := range filter.Names {
-		filterArgs = append(filterArgs, filters.Arg("name", name))
-	}
-	if filter.StackName != "" {
-		filterArgs = append(
-			filterArgs,
-			filters.Arg("label", stackNamespaceLabelKey+"="+filter.StackName),
-			filters.Arg(
-				"label",
-				labelsdict.RotatedResourceManagedLabelKey+"="+labelsdict.RotatedResourceManagedLabelValue,
-			),
-		)
-	}
-
 	configs, err := m.dockerClient.ConfigList(ctx, dockerswarm.ConfigListOptions{
-		Filters: filters.NewArgs(filterArgs...),
+		Filters: buildConfigListFilters(filter),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list docker configs: %w", err)
@@ -68,6 +52,21 @@ func (m *configManager) List(ctx context.Context, filter ListConfigsFilter) ([]C
 	})
 
 	return mapped, nil
+}
+
+func buildConfigListFilters(filter ListConfigsFilter) filters.Args {
+	filterArgs := make([]filters.KeyValuePair, 0, len(filter.Names)+len(filter.Labels)+1)
+	for _, name := range filter.Names {
+		filterArgs = append(filterArgs, filters.Arg("name", name))
+	}
+	for key, value := range filter.Labels {
+		filterArgs = append(filterArgs, filters.Arg("label", key+"="+value))
+	}
+	if filter.StackName != "" {
+		filterArgs = append(filterArgs, filters.Arg("label", stackNamespaceLabelKey+"="+filter.StackName))
+	}
+
+	return filters.NewArgs(filterArgs...)
 }
 
 func (m *configManager) Create(ctx context.Context, req CreateConfigRequest) (string, error) {

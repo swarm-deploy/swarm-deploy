@@ -20,11 +20,13 @@ type Config struct {
 	Data []byte `json:"data,omitempty"`
 }
 
-// ListConfigsFilter selects Docker configs by name and stack ownership.
+// ListConfigsFilter selects Docker configs by name, label, and stack ownership.
 type ListConfigsFilter struct {
 	// Names contains Docker config names to match.
 	Names []string
-	// StackName selects rotated configs managed for the given stack.
+	// Labels contains Docker labels to match by key and value.
+	Labels map[string]string
+	// StackName selects configs owned by the given stack.
 	StackName string
 }
 
