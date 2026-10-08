@@ -20,6 +20,26 @@ type Config struct {
 	Data []byte `json:"data,omitempty"`
 }
 
+// ListConfigsFilter selects Docker configs by name and stack ownership.
+type ListConfigsFilter struct {
+	// Names contains Docker config names to match.
+	Names []string
+	// StackName selects rotated configs managed for the given stack.
+	StackName string
+}
+
+// CreateConfigRequest describes a Docker config to create.
+type CreateConfigRequest struct {
+	// Name is the Docker config name.
+	Name string
+	// Labels contains custom Docker config labels.
+	Labels map[string]string
+	// Data contains the config payload.
+	Data []byte
+	// TemplateDriver is the config template driver name.
+	TemplateDriver string
+}
+
 // ServiceConfig is a config mounted into a service container.
 type ServiceConfig struct {
 	// ConfigID is a Docker config identifier.

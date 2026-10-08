@@ -22,24 +22,25 @@ func newSecretManager(dockerClient *client.Client) SecretManager {
 	}
 }
 
-func (r *secretManager) List(ctx context.Context) ([]Secret, error) {
-	return r.list(ctx, dockerswarm.SecretListOptions{})
-}
-
-func (r *secretManager) ListStack(ctx context.Context, stackName string) ([]Secret, error) {
-	return r.list(ctx, dockerswarm.SecretListOptions{
-		Filters: filters.NewArgs(
-			filters.Arg("label", stackNamespaceLabelKey+"="+stackName),
+func (r *secretManager) List(ctx context.Context, filter ListSecretsFilter) ([]Secret, error) {
+	filterArgs := make([]filters.KeyValuePair, 0, len(filter.Names)+stackResourceFilterCount)
+	for _, name := range filter.Names {
+		filterArgs = append(filterArgs, filters.Arg("name", name))
+	}
+	if filter.StackName != "" {
+		filterArgs = append(
+			filterArgs,
+			filters.Arg("label", stackNamespaceLabelKey+"="+filter.StackName),
 			filters.Arg(
 				"label",
 				labelsdict.RotatedResourceManagedLabelKey+"="+labelsdict.RotatedResourceManagedLabelValue,
 			),
-		),
-	})
-}
+		)
+	}
 
-func (r *secretManager) list(ctx context.Context, options dockerswarm.SecretListOptions) ([]Secret, error) {
-	secrets, err := r.dockerClient.SecretList(ctx, options)
+	secrets, err := r.dockerClient.SecretList(ctx, dockerswarm.SecretListOptions{
+		Filters: filters.NewArgs(filterArgs...),
+	})
 	if err != nil {
 		return nil, fmt.Errorf("list docker secrets: %w", err)
 	}
@@ -51,6 +52,26 @@ func (r *secretManager) list(ctx context.Context, options dockerswarm.SecretList
 	r.sortSecretInfos(mapped)
 
 	return mapped, nil
+}
+
+func (r *secretManager) Create(ctx context.Context, req CreateSecretRequest) (string, error) {
+	spec := dockerswarm.SecretSpec{
+		Annotations: dockerswarm.Annotations{Name: req.Name, Labels: req.Labels},
+		Data:        req.Data,
+	}
+	if req.Driver != "" {
+		spec.Driver = &dockerswarm.Driver{Name: req.Driver, Options: req.DriverOptions}
+	}
+	if req.TemplateDriver != "" {
+		spec.Templating = &dockerswarm.Driver{Name: req.TemplateDriver}
+	}
+
+	created, err := r.dockerClient.SecretCreate(ctx, spec)
+	if err != nil {
+		return "", fmt.Errorf("create docker secret %s: %w", req.Name, httpx.MatchError(err))
+	}
+
+	return created.ID, nil
 }
 
 func (r *secretManager) Remove(ctx context.Context, secretID string) error {

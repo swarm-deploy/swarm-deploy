@@ -104,7 +104,7 @@ func TestDeployStackReconcilesResourcesBeforeInitJobs(t *testing.T) {
 			deployer := &Deployer{
 				stackDeployArgs: []string{"stack", "deploy"},
 				runner:          runner,
-				resources:       newResourceReconciler(dockerClient),
+				resources:       newResourceReconciler(swarm.NewSwarm(dockerClient, "")),
 				initJobRunner:   initJobs,
 			}
 
@@ -156,7 +156,7 @@ func TestResourceReconcilerReusesExistingResource(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	resolved, err := newResourceReconciler(newDockerTestClient(t, server)).Reconcile(
+	resolved, err := newResourceReconciler(swarm.NewSwarm(newDockerTestClient(t, server), "")).Reconcile(
 		context.Background(),
 		"demo",
 		filepath.Join(t.TempDir(), "compose.yaml"),
@@ -196,7 +196,7 @@ func TestResourceReconcilerUsesRotatedNameOnce(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	reconciler := newResourceReconciler(newDockerTestClient(t, server))
+	reconciler := newResourceReconciler(swarm.NewSwarm(newDockerTestClient(t, server), ""))
 	objects := compose.Configs{
 		"app-config": {Alias: "app-config", Name: rotatedName, File: "config.yaml", Data: []byte("v2")},
 	}
@@ -237,7 +237,7 @@ func TestDeployStackInitJobFailureDoesNotDeleteResources(t *testing.T) {
 	deployer := &Deployer{
 		stackDeployArgs: []string{"stack", "deploy"},
 		runner:          runner,
-		resources:       newResourceReconciler(newDockerTestClient(t, server)),
+		resources:       newResourceReconciler(swarm.NewSwarm(newDockerTestClient(t, server), "")),
 		initJobRunner:   initJobs,
 	}
 	desired := compose.Compose{
@@ -291,7 +291,7 @@ func TestResourceReconcilerListsMultipleResourcesInBulk(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	resolved, err := newResourceReconciler(newDockerTestClient(t, server)).Reconcile(
+	resolved, err := newResourceReconciler(swarm.NewSwarm(newDockerTestClient(t, server), "")).Reconcile(
 		context.Background(),
 		"demo",
 		filepath.Join(t.TempDir(), "compose.yaml"),
@@ -343,7 +343,7 @@ func TestResourceReconcilerPreservesComposeResourceOptions(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	_, err := newResourceReconciler(newDockerTestClient(t, server)).Reconcile(
+	_, err := newResourceReconciler(swarm.NewSwarm(newDockerTestClient(t, server), "")).Reconcile(
 		context.Background(),
 		"demo",
 		filepath.Join(dir, "compose.yaml"),
@@ -424,7 +424,7 @@ func TestResourceReconcilerDoesNotCreateMissingExternalResource(t *testing.T) {
 			}))
 			t.Cleanup(server.Close)
 
-			_, err := newResourceReconciler(newDockerTestClient(t, server)).Reconcile(
+			_, err := newResourceReconciler(swarm.NewSwarm(newDockerTestClient(t, server), "")).Reconcile(
 				context.Background(),
 				"demo",
 				filepath.Join(t.TempDir(), "compose.yaml"),
