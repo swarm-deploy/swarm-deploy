@@ -15,6 +15,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/networkloop"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop"
 	git "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
@@ -24,6 +25,47 @@ import (
 	"go.opentelemetry.io/otel"
 	"go.uber.org/mock/gomock"
 )
+
+func TestControllerWebhookEmitsReceivedEvent(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		shutdown   bool
+		queueFull  bool
+		wantQueued bool
+	}{
+		{name: "queued", wantQueued: true},
+		{name: "queue full", queueFull: true},
+		{name: "shutting down", shutdown: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			eventDispatcher := dispatcher.NewMockDispatcher(ctrl)
+			eventDispatcher.EXPECT().Dispatch(gomock.Any(), gomock.Any()).Do(
+				func(_ context.Context, event events.Event) {
+					received, ok := event.(*events.WebhookReceived)
+					require.True(t, ok, "expected WebhookReceived")
+					assert.Equal(t, tc.wantQueued, received.Queued)
+				},
+			).Times(1)
+
+			controller := &Controller{
+				event:       eventDispatcher,
+				reconcileCh: make(chan reconcileTask, 1),
+			}
+			if tc.queueFull {
+				controller.reconcileCh <- reconcileTask{reason: TriggerInterval}
+			}
+			if tc.shutdown {
+				controller.shuttingDown.Store(true)
+			}
+
+			assert.Equal(t, tc.wantQueued, controller.Webhook(context.Background()))
+			if tc.wantQueued {
+				assert.Equal(t, TriggerWebhook, (<-controller.reconcileCh).reason)
+			}
+		})
+	}
+}
 
 func TestControllerCleanupStacksUsesDedicatedCleanupPath(t *testing.T) {
 	reconciler := &recordingStackReconciler{

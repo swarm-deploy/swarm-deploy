@@ -58,3 +58,7 @@ The default is 1 MiB.
 For GitHub authentication, the body is read only to validate the HMAC signature. swarm-deploy does not parse GitHub event payloads or use `X-GitHub-Event` to decide whether to trigger reconciliation.
 
 After successful authentication, the existing webhook flow schedules a normal webhook reconciliation, including pulling the configured Git repository.
+
+## Event history
+
+Each authenticated webhook publishes a `webhookReceived` event in category `sync` with severity `info`. Its `queued` detail indicates whether reconciliation was scheduled. A webhook may be received but not queued when the reconciliation queue is full or the controller is stopping. Events are not deduplicated, so every authenticated request is recorded. Rejected unauthenticated, rate-limited, invalid-method, and oversized requests do not generate this event. The event does not imply that reconciliation started or deployment succeeded.

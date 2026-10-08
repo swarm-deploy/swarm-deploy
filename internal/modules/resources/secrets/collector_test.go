@@ -23,7 +23,7 @@ func TestCollectorRefreshNormalizesAndPersistsSecretMetadata(t *testing.T) {
 	ctx := context.Background()
 	store := newTestStore(t)
 	manager := swarm.NewMockSecretManager(gomock.NewController(t))
-	manager.EXPECT().List(gomock.Any()).Return([]swarm.Secret{
+	manager.EXPECT().List(gomock.Any(), swarm.ListSecretsFilter{}).Return([]swarm.Secret{
 		{
 			ID: "secret-id", Name: "database-password", VersionID: 7, Driver: "vault",
 			Labels: map[string]string{
@@ -56,7 +56,10 @@ func TestCollectorRunDebouncesEvents(t *testing.T) {
 	errorsCh := make(chan error)
 
 	listCalls := make(chan struct{}, 2)
-	manager.EXPECT().List(gomock.Any()).Times(2).DoAndReturn(func(context.Context) ([]swarm.Secret, error) {
+	manager.EXPECT().List(gomock.Any(), swarm.ListSecretsFilter{}).Times(2).DoAndReturn(func(
+		context.Context,
+		swarm.ListSecretsFilter,
+	) ([]swarm.Secret, error) {
 		listCalls <- struct{}{}
 		return []swarm.Secret{{ID: "secret-id", Name: "database-password"}}, nil
 	})
@@ -93,7 +96,10 @@ func TestCollectorRunRefreshesAfterReconnect(t *testing.T) {
 	secondErrors := make(chan error)
 	listCalls := make(chan struct{}, 2)
 
-	manager.EXPECT().List(gomock.Any()).Times(2).DoAndReturn(func(context.Context) ([]swarm.Secret, error) {
+	manager.EXPECT().List(gomock.Any(), swarm.ListSecretsFilter{}).Times(2).DoAndReturn(func(
+		context.Context,
+		swarm.ListSecretsFilter,
+	) ([]swarm.Secret, error) {
 		listCalls <- struct{}{}
 		return []swarm.Secret{{ID: "secret-id", Name: "database-password"}}, nil
 	})
@@ -127,7 +133,10 @@ func TestCollectorWatchRefreshesOnPeriodicReconciliation(t *testing.T) {
 	reconcile := make(chan time.Time, 1)
 	refreshed := make(chan struct{}, 1)
 	manager.EXPECT().Watch(gomock.Any()).Return(eventsCh, errorsCh, nil)
-	manager.EXPECT().List(gomock.Any()).DoAndReturn(func(context.Context) ([]swarm.Secret, error) {
+	manager.EXPECT().List(gomock.Any(), swarm.ListSecretsFilter{}).DoAndReturn(func(
+		context.Context,
+		swarm.ListSecretsFilter,
+	) ([]swarm.Secret, error) {
 		refreshed <- struct{}{}
 		return []swarm.Secret{{ID: "secret-id", Name: "database-password"}}, nil
 	})
@@ -151,7 +160,7 @@ func TestCollectorInitialRefreshFailureKeepsPersistedSnapshot(t *testing.T) {
 	eventsCh := make(chan dockerevents.Message)
 	errorsCh := make(chan error)
 	watchCalled := make(chan struct{})
-	manager.EXPECT().List(gomock.Any()).Return(nil, errors.New("docker unavailable"))
+	manager.EXPECT().List(gomock.Any(), swarm.ListSecretsFilter{}).Return(nil, errors.New("docker unavailable"))
 	manager.EXPECT().Watch(gomock.Any()).DoAndReturn(
 		func(context.Context) (<-chan dockerevents.Message, <-chan error, error) {
 			close(watchCalled)

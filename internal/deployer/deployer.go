@@ -68,7 +68,7 @@ func NewDeployer(
 	deployer := &Deployer{
 		stackDeployArgs: []string{"stack", "deploy", "--with-registry-auth", "--detach=false", "--quiet"},
 		runner:          swarmService.BinaryRunner,
-		resources:       newResourceReconciler(dockerClient),
+		resources:       newResourceReconciler(swarmService),
 		initJobRunner: NewInitJobRunner(
 			dockerClient,
 			swarmService,

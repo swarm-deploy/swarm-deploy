@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 func TestResourceReconcilerFiltersBulkListsByResourceName(t *testing.T) {
@@ -46,7 +47,7 @@ func TestResourceReconcilerFiltersBulkListsByResourceName(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	_, err := newResourceReconciler(newDockerTestClient(t, server)).Reconcile(
+	_, err := newResourceReconciler(swarm.NewSwarm(newDockerTestClient(t, server), "")).Reconcile(
 		context.Background(),
 		"demo",
 		filepath.Join(t.TempDir(), "compose.yaml"),

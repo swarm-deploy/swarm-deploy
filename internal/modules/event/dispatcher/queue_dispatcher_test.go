@@ -80,6 +80,19 @@ func TestQueueDispatcher_DifferentDetailsNotDeduplicated(t *testing.T) {
 	assert.Equal(t, []string{"alice", "bob"}, sub.Usernames(), "expected original event order")
 }
 
+func TestQueueDispatcher_WebhooksAreNotDeduplicated(t *testing.T) {
+	d := newTestQueueDispatcher(t)
+	sub := newCollectSubscriber()
+	d.Subscribe(events.TypeWebhookReceived, sub)
+
+	d.Dispatch(context.Background(), &events.WebhookReceived{Queued: true})
+	d.Dispatch(context.Background(), &events.WebhookReceived{Queued: true})
+
+	require.Eventually(t, func() bool {
+		return sub.Len() == 2
+	}, time.Second, 10*time.Millisecond, "every received webhook should be delivered")
+}
+
 func TestQueueDispatcher_DrainsOnShutdown(t *testing.T) {
 	testCases := []struct {
 		name      string

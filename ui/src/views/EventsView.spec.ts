@@ -110,6 +110,18 @@ describe("EventsView", () => {
   });
 
 
+  it("offers webhookReceived in the type filter", async () => {
+    const { wrapper } = await mountView();
+    const option = wrapper.findAll(".events-type-filter-option").find((item) => item.text() === "webhookReceived");
+    expect(option).toBeDefined();
+    await option!.find("input").setValue(true);
+    await flushPromises();
+    expect(fetchEvents).toHaveBeenLastCalledWith({
+      types: ["webhookReceived"],
+      severities: [],
+    });
+  });
+
   it("closes the type filter when clicking outside", async () => {
     const { wrapper } = await mountView();
 
