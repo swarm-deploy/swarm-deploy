@@ -115,6 +115,7 @@ export interface EventHistoryItem {
 
 export interface EventHistoryResponse {
   events: EventHistoryItem[];
+  nextCursor?: string;
 }
 
 export type AlertStatus = "open" | "resolved";
