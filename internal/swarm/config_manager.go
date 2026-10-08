@@ -10,8 +10,6 @@ import (
 	"github.com/docker/docker/client"
 )
 
-const stackResourceFilterCount = 2
-
 type configManager struct {
 	dockerClient *client.Client
 }

@@ -363,7 +363,12 @@ func (r *Reconciler) cleanRotatedResources(ctx context.Context, payload *pipelin
 	}
 
 	var liveSecrets []swarm.Secret
-	loadedSecrets, secretsErr := r.secretManager.List(ctx, swarm.ListSecretsFilter{StackName: payload.Stack.Name})
+	loadedSecrets, secretsErr := r.secretManager.List(ctx, swarm.ListSecretsFilter{
+		StackName: payload.Stack.Name,
+		Labels: map[string]string{
+			labelsdict.RotatedResourceManagedLabelKey: labelsdict.RotatedResourceManagedLabelValue,
+		},
+	})
 	if secretsErr != nil {
 		slog.WarnContext(ctx, "[rotated-resource-cleaner] failed to load secrets; secret cleanup skipped",
 			slog.String("stack", payload.Stack.Name),

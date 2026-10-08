@@ -23,11 +23,13 @@ type Secret struct {
 	Labels map[string]string `json:"labels"`
 }
 
-// ListSecretsFilter selects Docker secrets by name and stack ownership.
+// ListSecretsFilter selects Docker secrets by name, label, and stack ownership.
 type ListSecretsFilter struct {
 	// Names contains Docker secret names to match.
 	Names []string
-	// StackName selects rotated secrets managed for the given stack.
+	// Labels contains Docker labels to match by key and value.
+	Labels map[string]string
+	// StackName selects secrets owned by the given stack.
 	StackName string
 }
 

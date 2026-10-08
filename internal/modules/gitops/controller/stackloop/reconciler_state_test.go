@@ -182,7 +182,12 @@ secrets:
 			labelsdict.RotatedResourceManagedLabelKey: labelsdict.RotatedResourceManagedLabelValue,
 		},
 	}).Return(nil, nil)
-	secretManager.EXPECT().List(gomock.Any(), swarm.ListSecretsFilter{StackName: "app"}).Return(liveSecrets, nil)
+	secretManager.EXPECT().List(gomock.Any(), swarm.ListSecretsFilter{
+		StackName: "app",
+		Labels: map[string]string{
+			labelsdict.RotatedResourceManagedLabelKey: labelsdict.RotatedResourceManagedLabelValue,
+		},
+	}).Return(liveSecrets, nil)
 	secretManager.EXPECT().Remove(gomock.Any(), "old").Return(errInUse)
 
 	cfg := &config.Config{Spec: config.Spec{
