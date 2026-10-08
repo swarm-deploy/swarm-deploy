@@ -30,18 +30,13 @@ const severityOptions: EventSeverity[] = ["info", "warn", "error", "alert"];
 type SortKey = "time" | "severity";
 type SortDirection = "asc" | "desc";
 
-const severityRank: Record<EventSeverity, number> = {
-  info: 0,
-  warn: 1,
-  error: 2,
-  alert: 3,
-};
-
 const route = useRoute();
 const router = useRouter();
 const loading = ref(false);
 const loadingError = ref("");
 const events = ref<EventHistoryItem[]>([]);
+const nextCursor = ref("");
+const loadingMore = ref(false);
 const selectedTypes = ref<string[]>(normalizeTypesQuery(route.query.types));
 const selectedSeverity = ref(normalizeSeverityQuery(route.query.severity));
 const sortKey = ref<SortKey>(normalizeSortQuery(route.query.sort));
@@ -71,7 +66,6 @@ const selectedTypeSummary = computed(() => {
   return [`${selectedTypes.value.length} types selected`];
 });
 
-const visibleEvents = computed(() => [...events.value].sort(compareEvents));
 
 function firstQueryValue(value: unknown): unknown {
   return Array.isArray(value) ? value[0] : value;
@@ -99,15 +93,6 @@ function sameStrings(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
-function eventKey(event: EventHistoryItem): string {
-  return `${event.type}-${event.created_at}-${event.message}`;
-}
-
-function eventTimestamp(event: EventHistoryItem): number {
-  const timestamp = Date.parse(event.created_at);
-  return Number.isNaN(timestamp) ? 0 : timestamp;
-}
-
 function normalizedSeverity(item: EventHistoryItem): EventSeverity {
   switch (item.severity) {
     case "warn":
@@ -120,33 +105,12 @@ function normalizedSeverity(item: EventHistoryItem): EventSeverity {
   }
 }
 
-function compareEvents(left: EventHistoryItem, right: EventHistoryItem): number {
-  if (sortKey.value === "severity") {
-    const severityComparison = severityRank[normalizedSeverity(left)] - severityRank[normalizedSeverity(right)];
-    if (severityComparison !== 0) {
-      return sortDirection.value === "asc" ? severityComparison : -severityComparison;
-    }
-
-    const timeComparison = eventTimestamp(right) - eventTimestamp(left);
-    if (timeComparison !== 0) {
-      return timeComparison;
-    }
-  } else {
-    const timeComparison = eventTimestamp(left) - eventTimestamp(right);
-    if (timeComparison !== 0) {
-      return sortDirection.value === "asc" ? timeComparison : -timeComparison;
-    }
-  }
-
-  return eventKey(left).localeCompare(eventKey(right));
-}
-
 function sortedEventDetails(item: EventHistoryItem): [string, string][] {
   return Object.entries(item.details ?? {}).sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey));
 }
 
 function toggleDetails(event: EventHistoryItem): void {
-  const key = eventKey(event);
+  const key = event.id;
   expandedKey.value = expandedKey.value === key ? "" : key;
 }
 
@@ -194,31 +158,73 @@ function sortIndicator(key: SortKey): string {
   return sortDirection.value === "asc" ? "↑" : "↓";
 }
 
+const PAGE_SIZE = 50;
+
+function eventQuery(cursor?: string) {
+  return {
+    types: selectedTypes.value,
+    severities: selectedSeverity.value ? [selectedSeverity.value] : [],
+    limit: PAGE_SIZE,
+    sort: sortKey.value,
+    order: sortDirection.value,
+    ...(cursor ? { cursor } : {}),
+  };
+}
+
 async function loadEvents() {
-  loading.value = true;
-  loadingError.value = "";
   const currentRequestID = ++requestID;
+  loading.value = true;
+  loadingMore.value = false;
+  loadingError.value = "";
+  expandedKey.value = "";
+  nextCursor.value = "";
+  events.value = [];
 
   try {
-    const response = await fetchEvents({
-      types: selectedTypes.value,
-      severities: selectedSeverity.value ? [selectedSeverity.value] : [],
-    });
+    const response = await fetchEvents(eventQuery());
     if (currentRequestID !== requestID) {
       return;
     }
-
     events.value = Array.isArray(response.events) ? response.events : [];
+    nextCursor.value = response.nextCursor ?? "";
   } catch (error) {
     if (currentRequestID !== requestID) {
       return;
     }
-
-    events.value = [];
     loadingError.value = error instanceof Error ? error.message : "Failed to load events";
   } finally {
     if (currentRequestID === requestID) {
       loading.value = false;
+    }
+  }
+}
+
+async function loadMoreEvents() {
+  if (!nextCursor.value || loadingMore.value || loading.value) {
+    return;
+  }
+
+  const currentRequestID = ++requestID;
+  const cursor = nextCursor.value;
+  loadingMore.value = true;
+  loadingError.value = "";
+  try {
+    const response = await fetchEvents(eventQuery(cursor));
+    if (currentRequestID !== requestID) {
+      return;
+    }
+    const existingIDs = new Set(events.value.map((event) => event.id));
+    const newEvents = (response.events ?? []).filter((event) => !existingIDs.has(event.id));
+    events.value = [...events.value, ...newEvents];
+    nextCursor.value = response.nextCursor ?? "";
+  } catch (error) {
+    if (currentRequestID !== requestID) {
+      return;
+    }
+    loadingError.value = error instanceof Error ? error.message : "Failed to load more events";
+  } finally {
+    if (currentRequestID === requestID) {
+      loadingMore.value = false;
     }
   }
 }
@@ -297,7 +303,7 @@ watch(
   },
 );
 
-watch([selectedTypes, selectedSeverity], () => {
+watch([selectedTypes, selectedSeverity, sortKey, sortDirection], () => {
   expandedKey.value = "";
   void loadEvents();
 });
@@ -364,9 +370,9 @@ onBeforeUnmount(() => {
 
     <AppTableEmpty v-if="loading && events.length === 0" message="Loading events..." />
 
-    <AppTableEmpty v-else-if="loadingError">Failed to load events: {{ loadingError }}</AppTableEmpty>
+    <AppTableEmpty v-else-if="loadingError && events.length === 0">Failed to load events: {{ loadingError }}</AppTableEmpty>
 
-    <AppTableEmpty v-else-if="visibleEvents.length === 0" message="No events match the selected filters." />
+    <AppTableEmpty v-else-if="events.length === 0" message="No events match the selected filters." />
 
     <AppTable v-else fixed min-width="720px" table-class="events-table">
       <template #head>
@@ -385,12 +391,12 @@ onBeforeUnmount(() => {
             <th>Message</th>
           </tr>
       </template>
-          <template v-for="event in visibleEvents" :key="eventKey(event)">
+          <template v-for="event in events" :key="event.id">
             <tr
               class="app-table-row--clickable"
               tabindex="0"
               role="button"
-              :aria-expanded="expandedKey === eventKey(event)"
+              :aria-expanded="expandedKey === event.id"
               :aria-label="`Toggle details for ${event.type || 'event'}`"
               @click="toggleDetails(event)"
               @keydown.enter="toggleDetails(event)"
@@ -405,7 +411,7 @@ onBeforeUnmount(() => {
               <td>{{ event.type || "unknown" }}</td>
               <td>{{ event.message || "No message" }}</td>
             </tr>
-            <tr v-if="expandedKey === eventKey(event)" class="events-details-row">
+            <tr v-if="expandedKey === event.id" class="events-details-row">
               <td colspan="4">
                 <ul v-if="sortedEventDetails(event).length > 0" class="event-details">
                   <li v-for="[key, value] in sortedEventDetails(event)" :key="key" class="event-detail">
@@ -418,5 +424,33 @@ onBeforeUnmount(() => {
             </tr>
           </template>
     </AppTable>
+    <div v-if="events.length > 0 && (nextCursor || loadingMore || loadingError)" class="events-pagination">
+      <p v-if="loadingError" class="meta" role="alert">Failed to load more events: {{ loadingError }}</p>
+      <button v-if="nextCursor" class="events-load-more" type="button" :disabled="loadingMore" @click="loadMoreEvents">
+        {{ loadingMore ? "Loading..." : "Load more" }}
+      </button>
+    </div>
   </section>
 </template>
+
+<style scoped>
+.events-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  padding: 1.25rem;
+}
+.events-load-more {
+  cursor: pointer;
+  padding: 0.55rem 1.25rem;
+  border: 1px solid var(--border-color, #43495b);
+  border-radius: 0.5rem;
+  background: var(--surface, transparent);
+  color: inherit;
+}
+.events-load-more:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+</style>

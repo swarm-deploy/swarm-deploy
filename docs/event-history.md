@@ -24,6 +24,20 @@ All runtime events are persisted to disk in `.swarm-deploy/event-history.json` a
   - optional query filters:
     - `severities` - list of severities (`info`, `warn`, `error`, `alert`)
     - `categories` - list of categories (`sync`, `security`, `swarm`)
+    - `types` - list of event types
+    - `since` - inclusive timestamp
+    - `limit` - maximum events to return (1-100)
+    - `sort` - `time` or `severity`; enables paginated sorting
+    - `order` - `asc` or `desc` (default `desc` when paging)
+    - `cursor` - opaque `nextCursor` returned by the previous page
+
+When `sort`, `order`, or `cursor` is supplied, API pagination returns at
+most 50 events by default, ordered by the requested field. If more events
+exist, the response includes `nextCursor`; repeat the request with that cursor
+and the same sort and filters to fetch the next page.
+
+Existing requests without paging parameters keep the legacy oldest-first response
+order (including `limit` requests used by Overview).
 
 History size is bounded by `eventHistory.capacity` in config. When limit is reached, the oldest event is removed.
 

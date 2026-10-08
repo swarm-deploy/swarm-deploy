@@ -2237,6 +2237,18 @@ func (s *Server) handleListEventsRequest(args [0]string, argsEscaped bool, w htt
 					Name: "limit",
 					In:   "query",
 				}: params.Limit,
+				{
+					Name: "cursor",
+					In:   "query",
+				}: params.Cursor,
+				{
+					Name: "sort",
+					In:   "query",
+				}: params.Sort,
+				{
+					Name: "order",
+					In:   "query",
+				}: params.Order,
 			},
 			Raw: r,
 		}

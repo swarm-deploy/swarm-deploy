@@ -38,6 +38,24 @@ paths:
             format: int32
             minimum: 1
             maximum: 100
+        - in: query
+          name: cursor
+          required: false
+          description: Opaque cursor returned by the previous page.
+          schema:
+            type: string
+        - in: query
+          name: sort
+          required: false
+          description: 'Paginated sort field: time or severity. Legacy requests preserve their ordering.'
+          schema:
+            type: string
+        - in: query
+          name: order
+          required: false
+          description: 'Sort order: asc or desc.'
+          schema:
+            type: string
       responses:
         '200':
           description: Latest events from local history
@@ -95,6 +113,9 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/EventHistoryItem'
+        nextCursor:
+          type: string
+          description: Opaque cursor for the following page, omitted when no more events are available.
     EventSeverity:
       type: string
       enum: [info, warn, error, alert]
