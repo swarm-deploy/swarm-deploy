@@ -35,7 +35,13 @@ func InitModule(ctx context.Context, cfg *config.Config, container Container) (*
 	subscriber := NewSQLSubscriber(store)
 	module := &Module{Store: store, Subscriber: subscriber}
 	dispatcher := container.GetEventModule().Dispatcher
-	dispatcher.Subscribe(events.TypeDeployFailed, subscriber)
-	dispatcher.Subscribe(events.TypeDeploySuccess, subscriber)
+	for _, typ := range []events.TypeName{
+		events.TypeNameDeployFailed, events.TypeNameDeploySuccess,
+		events.TypeNameNodeDisconnected, events.TypeNameNodeConnected,
+	} {
+		if err := dispatcher.Subscribe(typ, "alert-management", subscriber); err != nil {
+			return nil, err
+		}
+	}
 	return module, nil
 }

@@ -7,6 +7,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/node"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretmanager"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets"
@@ -48,10 +50,13 @@ func InitModule(
 		cfg: cfg,
 	}
 
-	srv.NodeStore = node.NewSQLStore(cnt.GetStorage())
+	nodeStore := node.NewSQLStore(cnt.GetStorage())
+	srv.NodeStore = nodeStore
 	srv.ServiceStore = modelstore.NewSQLStore(cnt.GetStorage())
 
-	srv.NodeCollector = node.NewNodeCollector(cnt.GetSwarm().Nodes, srv.NodeStore, cnt.GetEventModule().Dispatcher)
+	srv.NodeCollector = node.NewNodeCollector(
+		cnt.GetSwarm().Nodes, nodeStore, cnt.GetEventModule().Dispatcher, cnt.GetStorage(),
+	)
 	secretDomain, err := secrets.NewDomain(
 		cnt.GetStorage(),
 		cnt.GetSwarm().Secrets,
@@ -62,16 +67,16 @@ func InitModule(
 	srv.Secrets = secretDomain
 	srv.SecretManagers = secretmanager.NewDomain(srv.ServiceStore)
 
-	srv.registerEventSubscribers(cnt)
+	if err = srv.registerEventSubscribers(cnt); err != nil {
+		return nil, err
+	}
 
 	return srv, nil
 }
 
-func (s *Module) registerEventSubscribers(cnt Container) {
-	cnt.GetEventModule().Dispatcher.Subscribe(events.TypeDeploySuccess,
-		service.NewSubscriber(s.ServiceStore,
-			cnt.GetSwarm(),
-			metadata.NewExtractor(),
-		),
-	)
+func (s *Module) registerEventSubscribers(cnt Container) error {
+	return cnt.GetEventModule().Dispatcher.Subscribe(events.TypeNameDeploySuccess, "service-metadata",
+		outbox.External(deployment.WithDesired(deployment.NewStore(cnt.GetStorage()),
+			service.NewSubscriber(s.ServiceStore, cnt.GetSwarm(), metadata.NewExtractor(),
+				cnt.GetStorage(), cnt.GetEventModule().Dispatcher))))
 }

@@ -36,7 +36,7 @@ func TestPendingOperationFullRestartSkipsMainGenerationAndConfirmationSkipsModel
 	}
 	assistantService, err := NewService(Config{
 		Enabled: true, ModelName: "test-model", BaseURL: server.URL, APIToken: "token", MaxTokens: 64,
-		ConversationInMemoryTTL: time.Hour, ConversationHistoryDir: t.TempDir(),
+		ConversationInMemoryTTL: time.Hour, ConversationHistory: newSQLHistory(t),
 	}, serviceStore(t, []model.Info{{Stack: "core", Name: "api"}}), tools,
 		&dispatcher.NopDispatcher{}, metrics.NopAssistant{})
 	require.NoError(t, err)

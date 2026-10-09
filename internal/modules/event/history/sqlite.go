@@ -38,12 +38,10 @@ func NewSQLStore(db *storage.Database, capacity int) (*SQLStore, error) {
 // Name identifies the history projection.
 func (s *SQLStore) Name() string { return "event-history" }
 
-// Slow reports that projection performs storage I/O.
-func (s *SQLStore) Slow() bool { return true }
-
 // Handle materializes selected user facts; failure signals remain alert inputs.
 func (s *SQLStore) Handle(ctx context.Context, e events.Envelope) error {
-	if e.Event.Type() == events.TypeDeployFailed || e.Event.Type() == events.TypeNodeDisconnected {
+	switch e.Event.Type() {
+	case events.TypeServiceCatalogUpdated, events.TypeDeployFailed, events.TypeNodeDisconnected:
 		return nil
 	}
 	if e.ID == "" || e.OccurredAt.IsZero() {

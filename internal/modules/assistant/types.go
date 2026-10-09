@@ -134,8 +134,6 @@ type Config struct {
 	AllowedTools []string
 	// ConversationInMemoryTTL is a retention time for the in-memory conversation context cache.
 	ConversationInMemoryTTL time.Duration
-	// ConversationHistoryDir is a directory for persisted assistant chat history.
-	ConversationHistoryDir string
 	// ConversationHistory optionally supplies persistent chat storage; production uses SQLite.
 	ConversationHistory conversation.HistoryStorage
 }

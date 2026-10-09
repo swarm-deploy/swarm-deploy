@@ -7,17 +7,21 @@ import (
 	"log/slog"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	webroute "github.com/swarm-deploy/webroute/api"
 )
 
 // Subscriber persists service metadata on deploySuccess events.
 type Subscriber struct {
+	db               *storage.Database
+	events           dispatcher.Dispatcher
 	store            modelstore.Store
 	inspector        swarm.ServiceManager
 	images           swarm.ImageManager
@@ -31,8 +35,10 @@ func NewSubscriber(
 	store modelstore.Store,
 	swarmService *swarm.Swarm,
 	extractor *metadata.Extractor,
+	db *storage.Database,
+	publisher dispatcher.Dispatcher,
 ) *Subscriber {
-	return &Subscriber{
+	return &Subscriber{db: db, events: publisher,
 		store:            store,
 		inspector:        swarmService.Services,
 		images:           swarmService.Images,
@@ -44,10 +50,6 @@ func NewSubscriber(
 
 func (s *Subscriber) Name() string {
 	return "save-service-metadata"
-}
-
-func (s *Subscriber) Slow() bool {
-	return true
 }
 
 // Handle processes deploySuccess events and persists resolved services snapshot.
@@ -132,11 +134,43 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 		services = append(services, serviceInfo)
 	}
 
-	if err := s.store.ReplaceStack(ctx, deploySuccess.StackName, services); err != nil {
-		return fmt.Errorf("persist services for stack %s: %w", deploySuccess.StackName, err)
-	}
+	return s.persistProjection(ctx, event.ID, deploySuccess, services)
+}
 
-	return nil
+func (s *Subscriber) persistProjection(
+	ctx context.Context, sourceID string, deploySuccess *events.DeploySuccess, services []model.Info,
+) error {
+	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
+		if deploySuccess.DeploymentID != "" {
+			var current bool
+			query := "SELECT EXISTS(SELECT 1 FROM desired_snapshots WHERE stack=? AND deployment_id=?)"
+			readErr := s.db.Get(ctx).QueryRowContext(
+				ctx, query, deploySuccess.StackName, deploySuccess.DeploymentID,
+			).Scan(&current)
+			if readErr != nil {
+				return readErr
+			}
+			if !current {
+				return nil
+			}
+		}
+		result, err := s.db.Get(ctx).ExecContext(ctx,
+			"INSERT INTO service_catalog_receipts(source_event_id) VALUES(?) ON CONFLICT DO NOTHING", sourceID)
+		if err != nil {
+			return err
+		}
+		count, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if count == 0 {
+			return nil
+		}
+		if err = s.store.ReplaceStack(ctx, deploySuccess.StackName, services); err != nil {
+			return fmt.Errorf("persist services for stack %s: %w", deploySuccess.StackName, err)
+		}
+		return s.events.Publish(ctx, &events.ServiceCatalogUpdated{StackName: deploySuccess.StackName})
+	})
 }
 
 func (s *Subscriber) loadWebRouteConfigs(

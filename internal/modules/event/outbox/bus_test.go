@@ -68,6 +68,9 @@ func TestPublisherTransaction(t *testing.T) {
 			assert.Equal(t, !rollback, handled)
 			assert.Zero(t, rows(t, db, "outbox_events"))
 			assert.Zero(t, rows(t, db, "outbox_deliveries"))
+			failed, err := bus.ListFailed(t.Context())
+			require.NoError(t, err)
+			assert.Empty(t, failed)
 		})
 	}
 }
@@ -143,6 +146,11 @@ func TestIndependentDestinationsAndReplay(t *testing.T) {
 			var id, code string
 			require.NoError(t, db.Get(t.Context()).QueryRowContext(t.Context(), "SELECT event_id,last_error FROM outbox_deliveries WHERE status='failed'").Scan(&id, &code))
 			assert.Equal(t, "handler_failed", code)
+			failed, err := bus.ListFailed(t.Context())
+			require.NoError(t, err)
+			require.Len(t, failed, 1)
+			assert.Equal(t, FailedDelivery{EventID: id, SubscriptionID: "b-bad",
+				EventType: string(events.TypeNameNodeJoined), Attempts: 1, LastError: "handler_failed"}, failed[0])
 			if action == "replay" {
 				bad.EXPECT().Handle(gomock.Any(), gomock.Any()).Return(nil)
 				require.NoError(t, bus.Replay(t.Context(), id, "b-bad"))

@@ -1,7 +1,7 @@
 // Package outbox implements durable asynchronous event delivery.
 package outbox
 
-//go:generate go run go.uber.org/mock/mockgen -source=bus.go -destination=mocks_test.go -package=outbox
+//go:generate go run -mod=mod go.uber.org/mock/mockgen -source=bus.go -destination=mocks_test.go -package=outbox
 
 import (
 	"context"
@@ -99,7 +99,11 @@ func (b *Bus) Publish(ctx context.Context, event events.Event) error {
 	if err != nil {
 		return err
 	}
-	id, now := uuid.NewString(), b.now().UnixMilli()
+	eventID, idErr := uuid.NewV7()
+	if idErr != nil {
+		return idErr
+	}
+	id, now := eventID.String(), b.now().UnixMilli()
 	insert := func(ctx context.Context) error {
 		db := b.db.Get(ctx)
 		cause, _ := ctx.Value(causeKey{}).(string)

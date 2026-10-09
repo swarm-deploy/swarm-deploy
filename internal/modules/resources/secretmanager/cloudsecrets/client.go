@@ -1,4 +1,4 @@
-//go:generate mockgen -source=client.go -destination=mock_controller.go -package=cloudsecrets
+//go:generate go run -mod=mod go.uber.org/mock/mockgen -source=client.go -destination=mock_controller.go -package=cloudsecrets
 
 package cloudsecrets
 

@@ -168,7 +168,6 @@ func (n *TelegramNotifier) sendRequest(ctx context.Context, body []byte) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	//nolint:gosec // Telegram endpoint is configured by operator and required for outbound notifications.
 	resp, err := n.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("send request: %s", maskTelegramSendError(err, n.token))

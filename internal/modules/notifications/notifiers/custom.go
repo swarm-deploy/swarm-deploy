@@ -80,7 +80,6 @@ func (n *CustomWebhookNotifier) Notify(ctx context.Context, event Message) error
 		req.Header.Set(key, val)
 	}
 
-	//nolint:gosec // Destination URL is controlled by operator configuration for webhook notifications.
 	resp, err := n.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("send request: %w", err)

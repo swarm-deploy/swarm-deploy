@@ -73,11 +73,14 @@ func (s *RestartService) Execute(ctx context.Context, request routing.Request) (
 		return routing.Response{}, fmt.Errorf("restart service: %w", err)
 	}
 
-	s.eventDispatcher.Dispatch(ctx, &events.ServiceRestarted{
+	err = s.eventDispatcher.Publish(ctx, &events.ServiceRestarted{
 		StackName:   target.StackName(),
 		ServiceName: target.ServiceName(),
 	})
 
+	if err != nil {
+		return routing.Response{}, fmt.Errorf("service restarted but event persistence failed: %w", err)
+	}
 	payload := ServiceActionResult{
 		Stack:    target.StackName(),
 		Service:  target.ServiceName(),

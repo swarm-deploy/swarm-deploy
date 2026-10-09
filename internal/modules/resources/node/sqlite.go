@@ -49,6 +49,9 @@ func (s *SQLStore) ReplaceSnapshot(ctx context.Context, nodes []swarm.Node) erro
 			return err
 		}
 		for _, node := range nodes {
+			if _, err := s.ObserveIdentity(ctx, node.ID); err != nil {
+				return err
+			}
 			payload, err := json.Marshal(node)
 			if err != nil {
 				return err
@@ -60,4 +63,15 @@ func (s *SQLStore) ReplaceSnapshot(ctx context.Context, nodes []swarm.Node) erro
 		}
 		return nil
 	})
+}
+
+// ObserveIdentity remembers IDs across snapshot disappearance and process restarts.
+// It returns true only on the first observation, and joins the snapshot transaction.
+func (s *SQLStore) ObserveIdentity(ctx context.Context, id string) (bool, error) {
+	result, err := s.db.Get(ctx).ExecContext(ctx, "INSERT INTO node_identities VALUES(?) ON CONFLICT DO NOTHING", id)
+	if err != nil {
+		return false, err
+	}
+	count, err := result.RowsAffected()
+	return count == 1, err
 }

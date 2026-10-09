@@ -1,14 +1,6 @@
 package dispatcher
 
-import (
-	"context"
+import "github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-)
-
-type Subscriber interface {
-	// Name return the subscriber name. Useful for logging purposes.
-	Name() string
-	Slow() bool
-	Handle(ctx context.Context, event events.Envelope) error
-}
+// Subscriber is a consumer of the single durable Outbox.
+type Subscriber = outbox.Subscriber

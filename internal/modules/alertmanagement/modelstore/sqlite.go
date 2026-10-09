@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
@@ -130,6 +131,25 @@ func (s *SQLStore) Consume(ctx context.Context, id string, apply func(context.Co
 		}
 		if count == 0 {
 			return nil
+		}
+		return apply(ctx)
+	})
+}
+
+// ConsumeLatest ignores delayed events older than the last applied resource transition.
+func (s *SQLStore) ConsumeLatest(
+	ctx context.Context, id, resource string, at time.Time, apply func(context.Context) error,
+) error {
+	return s.Consume(ctx, id, func(ctx context.Context) error {
+		// Legacy direct consumers did not supply a timestamp; Outbox always does.
+		if !at.IsZero() {
+			accepted, err := storage.AdvanceProjection(ctx, s.db.Get, "alerts", resource, at, id)
+			if err != nil {
+				return err
+			}
+			if !accepted {
+				return nil
+			}
 		}
 		return apply(ctx)
 	})

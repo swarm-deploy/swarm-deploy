@@ -33,7 +33,11 @@ func Authorize(
 
 			slog.InfoContext(req.Context(), "[security] request authorized")
 			if !hasActiveAuthSession(req) {
-				eventDispatcher.Dispatch(req.Context(), &events.UserAuthenticated{Username: user.Name})
+				if err := eventDispatcher.Publish(req.Context(), &events.UserAuthenticated{Username: user.Name}); err != nil {
+					slog.ErrorContext(req.Context(), "persist authentication event", "err", err)
+					http.Error(w, "event persistence unavailable", http.StatusServiceUnavailable)
+					return
+				}
 				setActiveAuthSession(w)
 			}
 

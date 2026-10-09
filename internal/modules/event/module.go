@@ -2,8 +2,10 @@ package event
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
@@ -12,6 +14,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
 	eventmetrics "github.com/swarm-deploy/swarm-deploy/internal/modules/event/metrics"
 	notify2 "github.com/swarm-deploy/swarm-deploy/internal/modules/event/notify"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/notifiers"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
@@ -22,8 +25,9 @@ type Module struct {
 	Dispatcher dispatcher.Dispatcher
 	History    *history.SQLStore
 
-	cfg             *config.Config
-	queueDispatcher *dispatcher.QueueDispatcher
+	// Bus is the only durable delivery worker.
+	Bus *outbox.Bus
+	cfg *config.Config
 }
 
 type Container interface {
@@ -33,7 +37,7 @@ type Container interface {
 	GetMetrics() *metrics.Group
 }
 
-func InitModule(cfg *config.Config, cnt Container) (*Module, error) {
+func InitModule(ctx context.Context, cfg *config.Config, cnt Container) (*Module, error) {
 	srv := &Module{
 		cfg: cfg,
 	}
@@ -44,9 +48,8 @@ func InitModule(cfg *config.Config, cnt Container) (*Module, error) {
 	}
 
 	srv.History = historyStore
-	queueDispatcher := dispatcher.NewQueueDispatcher()
-	srv.Dispatcher = queueDispatcher
-	srv.queueDispatcher = queueDispatcher
+	srv.Bus = outbox.New(cnt.GetStorage())
+	srv.Dispatcher = srv.Bus
 
 	if cfg.Spec.Web.Security.Authentication.Strategy() != config.AuthenticationStrategyNone {
 		srv.Dispatcher = dispatcher.NewEnrichableDispatcher(
@@ -55,23 +58,25 @@ func InitModule(cfg *config.Config, cnt Container) (*Module, error) {
 		)
 	}
 
-	srv.subscribeOnAllEvents(historyStore)
-	srv.subscribeOnAllEvents(eventmetrics.NewSubscriber(cnt.GetMetrics().Events))
+	if err = srv.subscribeOnAllEvents("event-history", historyStore); err != nil {
+		return nil, err
+	}
+	if err = srv.subscribeOnAllEvents("event-metrics", eventmetrics.NewSubscriber(cnt.GetMetrics().Events)); err != nil {
+		return nil, err
+	}
 
-	slog.Info("[event-dispatcher] init notification subscribers")
-	if err = srv.initNotificationSubscribers(); err != nil {
+	slog.InfoContext(ctx, "[event-bus] init notification subscribers")
+	if err = srv.initNotificationSubscribers(ctx); err != nil {
 		return nil, fmt.Errorf("init notification subscribers: %w", err)
 	}
 
 	return srv, nil
 }
 
-// Shutdown stops the event dispatcher after all queued events have been handled.
-func (s *Module) Shutdown(ctx context.Context) error {
-	return s.queueDispatcher.Shutdown(ctx)
-}
+// Run processes durable deliveries until cancellation.
+func (s *Module) Run(ctx context.Context) error { return s.Bus.Run(ctx) }
 
-func (s *Module) initNotificationSubscribers() error {
+func (s *Module) initNotificationSubscribers(ctx context.Context) error {
 	subscribersCount := 0
 
 	for eventTypeName, channels := range s.cfg.Spec.Notifications.On {
@@ -96,23 +101,35 @@ func (s *Module) initNotificationSubscribers() error {
 				return fmt.Errorf("build telegram notifier %q: %w", tg.Name, notifierErr)
 			}
 
-			s.Dispatcher.Subscribe(eventType, notify2.NewSubscriber(tgNotifier, s.Dispatcher))
+			// The public bot ID survives token rotation and distinguishes bots in the same chat.
+			botID, _, _ := strings.Cut(string(tg.BotToken.Content), ":")
+			id := fmt.Sprintf("notification:telegram:%s:%x:%v:%v", tg.Name,
+				sha256.Sum256([]byte(botID)), tg.ChatID, tg.ChatThreadID)
+			err := s.Dispatcher.Subscribe(eventType.Name(), id, outbox.External(notify2.NewSubscriber(tgNotifier)))
+			if err != nil {
+				return err
+			}
 			subscribersCount++
 		}
 
 		for _, custom := range channels.Custom {
 			notifier := notifiers.NewCustomWebhookNotifier(custom.Name, custom.URL.Value.String(), custom.Method, custom.Header)
 
-			s.Dispatcher.Subscribe(eventType, notify2.NewSubscriber(notifier, s.Dispatcher))
+			identity := sha256.Sum256([]byte(custom.Method + " " + custom.URL.Value.String()))
+			id := fmt.Sprintf("notification:custom:%s:%x", custom.Name, identity)
+			if err := s.Dispatcher.Subscribe(eventType.Name(), id,
+				outbox.External(notify2.NewSubscriber(notifier))); err != nil {
+				return err
+			}
 			subscribersCount++
 		}
 	}
 
 	if len(s.cfg.Spec.Notifications.On) == 0 {
-		slog.Info("[event-dispatcher] notification subscribers not found")
+		slog.InfoContext(ctx, "[event-bus] notification subscribers not found")
 	} else {
-		slog.Info(
-			"[event-dispatcher] notification subscribers registered",
+		slog.InfoContext(ctx,
+			"[event-bus] notification subscribers registered",
 			slog.Int("subscribers", subscribersCount),
 		)
 	}
@@ -120,8 +137,11 @@ func (s *Module) initNotificationSubscribers() error {
 	return nil
 }
 
-func (s *Module) subscribeOnAllEvents(subscriber dispatcher.Subscriber) {
+func (s *Module) subscribeOnAllEvents(id string, subscriber dispatcher.Subscriber) error {
 	for _, typ := range events.Types {
-		s.Dispatcher.Subscribe(typ, subscriber)
+		if err := s.Dispatcher.Subscribe(typ.Name(), id, subscriber); err != nil {
+			return err
+		}
 	}
+	return nil
 }

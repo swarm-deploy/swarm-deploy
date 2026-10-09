@@ -13,10 +13,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"go.uber.org/mock/gomock"
 )
 
@@ -168,9 +170,9 @@ func TestServiceChatRejectsPromptInjection(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			eventDispatcher := dispatcher.NewMockDispatcher(ctrl)
-			eventDispatcher.EXPECT().Subscribe(gomock.Any(), gomock.Any())
+			eventDispatcher.EXPECT().Subscribe(gomock.Any(), gomock.Any(), gomock.Any())
 			eventDispatcher.EXPECT().
-				Dispatch(gomock.Any(), gomock.AssignableToTypeOf(&events.AssistantPromptInjectionDetected{})).
+				Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.AssistantPromptInjectionDetected{})).
 				Do(func(_ context.Context, event events.Event) {
 					detected := event.(*events.AssistantPromptInjectionDetected)
 					assert.Equal(t, testCase.message, detected.Prompt)
@@ -319,7 +321,7 @@ func TestServiceChatHandlesToolCalls(t *testing.T) {
 			MaxTokens:               64,
 			SystemPrompt:            "debug helper",
 			ConversationInMemoryTTL: time.Hour,
-			ConversationHistoryDir:  t.TempDir(),
+			ConversationHistory:     newSQLHistory(t),
 		},
 		serviceStore(t, []model.Info{{Name: "api", Stack: "app", Image: "example/api:v1"}}),
 		tools,
@@ -401,4 +403,12 @@ func TestServiceChatFailsOnUnknownPollRequestID(t *testing.T) {
 	})
 	assert.Equal(t, StatusFailed, response.Status, "expected failed status")
 	assert.Contains(t, response.ErrorMessage, "unknown request_id", "unexpected error")
+}
+
+func newSQLHistory(t *testing.T) *conversation.SQLHistoryStorage {
+	t.Helper()
+	db, err := storage.Open(context.Background(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	return conversation.NewSQLHistoryStorage(db)
 }

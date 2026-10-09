@@ -606,7 +606,7 @@ func newRoutingTestService(
 			MaxTokens:               64,
 			AllowedTools:            allowedTools,
 			ConversationInMemoryTTL: time.Hour,
-			ConversationHistoryDir:  t.TempDir(),
+			ConversationHistory:     newSQLHistory(t),
 		},
 		store,
 		tools,

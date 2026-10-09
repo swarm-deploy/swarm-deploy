@@ -7,6 +7,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/analyzer"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
@@ -52,12 +54,21 @@ func InitModule(ctx context.Context, cfg *config.Config, cnt Container) (*Module
 		DeploySubscriber: NewRecommenderEventSubscriber(recommender),
 	}
 
-	m.registerEventSubscribers(cnt.GetEventModule().Dispatcher)
+	subscriber := &orderedSubscriber{
+		db: cnt.GetStorage(), next: deployment.WithDesired(deployment.NewStore(cnt.GetStorage()), m.DeploySubscriber),
+	}
+	if err := m.registerEventSubscribers(cnt.GetEventModule().Dispatcher, subscriber); err != nil {
+		return nil, err
+	}
 
 	return m, nil
 }
 
-func (r *Module) registerEventSubscribers(eventDispatcher dispatcher.Dispatcher) {
-	eventDispatcher.Subscribe(events.TypeDeploySuccess, r.DeploySubscriber)
-	eventDispatcher.Subscribe(events.TypeDeployFailed, r.DeploySubscriber)
+func (r *Module) registerEventSubscribers(eventDispatcher dispatcher.Dispatcher, subscriber outbox.Subscriber) error {
+	for _, typ := range []events.TypeName{events.TypeNameDeploySuccess, events.TypeNameDeployFailed} {
+		if err := eventDispatcher.Subscribe(typ, "recommendations", subscriber); err != nil {
+			return err
+		}
+	}
+	return nil
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/differ"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
@@ -18,6 +19,8 @@ import (
 )
 
 type Module struct {
+	// Deployments queries actual apply attempts, independently of event projections.
+	Deployments   *deployment.Store
 	Controller    *controller.Controller
 	Store         *modelstore.SQLStore
 	GitRepository git.Repository
@@ -50,6 +53,10 @@ func InitModule(
 	}
 
 	srv.Store = modelstore.NewSQLStore(cnt.GetStorage())
+	srv.Deployments = deployment.NewStore(cnt.GetStorage())
+	if err := deployment.NewService(cnt.GetStorage(), cnt.GetEventModule().Dispatcher).InterruptRunning(ctx); err != nil {
+		return nil, err
+	}
 
 	srv.Controller = controller.New(
 		cfg,
@@ -59,7 +66,7 @@ func InitModule(
 		cnt.GetMetrics(),
 		cnt.GetEventModule().Dispatcher,
 		srv.Store,
-		cnt.GetFileSystem(),
+		cnt.GetFileSystem(), cnt.GetStorage(),
 	)
 
 	return srv, nil

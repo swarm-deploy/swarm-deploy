@@ -46,10 +46,13 @@ var (
 var modules = []module{
 	{
 		Name: "event",
-		Initialize: func(_ context.Context, cfg *config.Config, cnt *container) error {
-			mod, err := event.InitModule(cfg, cnt)
+		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
+			mod, err := event.InitModule(ctx, cfg, cnt)
 			cnt.Event = mod
-			return err
+			if err != nil {
+				return err
+			}
+			return prometheus.Register(mod.Bus)
 		},
 	},
 	{
@@ -228,10 +231,10 @@ func main() {
 		{
 			Name: "event-dispatcher",
 			Run: func(ctx context.Context) error {
-				<-ctx.Done()
-				<-syncControllerDone
-
-				return cnt.Event.Shutdown(context.WithoutCancel(ctx))
+				workerCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+				defer cancel()
+				go func() { <-ctx.Done(); <-syncControllerDone; cancel() }()
+				return cnt.Event.Run(workerCtx)
 			},
 		},
 		webApplication.Entrypoint(),

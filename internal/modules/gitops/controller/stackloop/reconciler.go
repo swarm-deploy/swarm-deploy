@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"time"
 
@@ -16,15 +17,19 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/drift"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/pruner"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 // Reconciler applies a desired stack state to swarm.
 type Reconciler struct {
+	db               *storage.Database
+	deployments      *deployment.Service
 	cfg              *config.Config
 	git              gitx.Repository
 	deployer         deployer.StackDeployer
@@ -53,8 +58,9 @@ func New(
 	deployMetrics metrics.Deploys,
 	stateStore modelstore.Store,
 	fileSystem fs.FileSystem,
+	db *storage.Database,
 ) *Reconciler {
-	reconciler := &Reconciler{
+	reconciler := &Reconciler{db: db, deployments: deployment.NewService(db, eventDispatcher),
 		cfg:              cfg,
 		git:              gitSync,
 		deployer:         stackDeployer,
@@ -124,11 +130,10 @@ func (r *Reconciler) Reconcile(
 	desiredState, err := r.composeLoader.Load(ctx, composePath)
 	if err != nil {
 		persistErr := r.recordFailure(ctx, req.Stack.Name, req.Commit, nil, err)
-		r.recordStackFailure(ctx, req.Stack.Name, req.Commit, compose.File{}, err)
+
 		return wrapReconcileError("load compose", nil, errors.Join(err, persistErr))
 	}
 
-	services := desiredState.Compose.Services
 	prev, hasPrev, readErr := r.currentStackState(ctx, req.Stack.Name)
 	if readErr != nil {
 		return readErr
@@ -147,12 +152,19 @@ func (r *Reconciler) Reconcile(
 	if err != nil {
 		pipeErr, _ := errors.AsType[*pipe.StepError](err)
 
-		persistErr := r.recordFailure(ctx, req.Stack.Name, req.Commit, services, pipeErr)
-		r.recordStackFailure(ctx, req.Stack.Name, req.Commit, *desiredState, pipeErr)
-		return wrapReconcileError(pipeErr.StepName, services, errors.Join(pipeErr, persistErr))
+		return r.recordPipelineFailure(ctx, req, prev, pl, pipeErr)
+
 	}
 
-	return r.processResult(ctx, req, prev, desiredState, pl)
+	if err = r.processResult(ctx, req, prev, desiredState, pl); err != nil {
+		return err
+	}
+	if r.cfg.Spec.SecretRotation.Cleanup.Enabled && (pl.Attempt != nil || pl.IsManualSync) {
+		if err = r.cleanRotatedResources(ctx, pl); err != nil {
+			slog.ErrorContext(ctx, "post-apply cleanup failed", "stack", req.Stack.Name, "err", err)
+		}
+	}
+	return nil
 }
 
 func (r *Reconciler) currentStackState(ctx context.Context, stackName string) (model.Stack, bool, error) {
@@ -189,118 +201,97 @@ func (r *Reconciler) processResult(
 		serviceStates[service.Name] = state
 	}
 
-	if err := r.stateStore.Update(ctx, func(state *model.Runtime) {
-		state.Stacks[req.Stack.Name] = model.Stack{
-			SourceDigest: desired.Digest,
-			LastCommit:   req.Commit,
-			Status:       model.NewStackStatus(serviceStates),
-			LastError:    "",
-			LastDeployAt: now,
-			Services:     serviceStates,
+	result := model.Stack{
+		SourceDigest: desired.Digest, LastCommit: req.Commit, Status: model.NewStackStatus(serviceStates),
+		LastDeployAt: prevState.LastDeployAt, Services: serviceStates,
+	}
+	if payload.Attempt != nil {
+		result.LastDeployAt = now
+	}
+	err := r.persistResult(ctx, req, prevState, payload, result)
+	if err != nil {
+		return fmt.Errorf("persist stack result: %w", err)
+	}
+	if payload.Attempt != nil {
+		for name := range serviceStates {
+			r.deployMetrics.RecordDeploy(req.Stack.Name, name, "success")
 		}
-	}); err != nil {
-		return fmt.Errorf("persist stack state: %w", err)
 	}
-
-	for _, serviceDrift := range payload.Drift {
-		if !serviceDrift.ServiceMissed || prevState.ServiceSyncStatus(serviceDrift.ServiceName) == model.SyncStatusOutOfSync {
-			continue
-		}
-
-		r.event.Dispatch(ctx, &events.ServiceMissed{
-			StackName:   req.Stack.Name,
-			ServiceName: serviceDrift.ServiceName,
-			Commit:      req.Commit,
-		})
-	}
-
-	if !payload.IsNewDigest {
-		return nil
-	}
-
-	for serviceName, service := range serviceStates {
-		status := "success"
-
-		if service.SyncStatus == model.SyncStatusOutOfSync {
-			status = "failed"
-		}
-
-		r.deployMetrics.RecordDeploy(req.Stack.Name, serviceName, status)
-	}
-
-	r.event.Dispatch(ctx, &events.DeploySuccess{
-		DeployEvent: events.DeployEvent{
-			StackName:       req.Stack.Name,
-			Commit:          req.Commit,
-			Services:        desired.Compose.Services,
-			StackDefinition: *desired,
-		},
-	})
 	return nil
 }
 
 func (r *Reconciler) recordFailure(
-	ctx context.Context,
-	stackName string,
-	commit string,
-	services []compose.Service,
-	reason error,
+	ctx context.Context, stackName, commit string, services []compose.Service, _ error,
 ) error {
-	now := time.Now()
-	servicesState := make(map[string]model.Service, len(services))
-	for _, service := range services {
-		servicesState[service.Name] = model.Service{
-			Image:      service.Image,
-			SyncStatus: model.SyncStatusOutOfSync,
-			SyncAt:     now,
+	return r.stateStore.Update(ctx, func(runtime *model.Runtime) {
+		state := runtime.Stacks[stackName]
+		state.LastCommit, state.LastError = commit, "preparation_failed"
+		if state.Services == nil {
+			state.Services = map[string]model.Service{}
 		}
-	}
-
-	return r.stateStore.Update(ctx, func(state *model.Runtime) {
-		state.Stacks[stackName] = model.Stack{
-			SourceDigest: "",
-			LastCommit:   commit,
-			Status:       model.NewStackStatus(servicesState),
-			LastError:    reason.Error(),
-			LastDeployAt: now,
-			Services:     servicesState,
+		for _, service := range services {
+			state.Services[service.Name] = model.Service{
+				Image: service.Image, SyncStatus: model.SyncStatusOutOfSync, SyncAt: time.Now(),
+			}
 		}
+		state.Status = model.NewStackStatus(state.Services)
+		runtime.Stacks[stackName] = state
 	})
 }
 
-func (r *Reconciler) recordStackFailure(
-	ctx context.Context,
-	stackName string,
-	commit string,
-	stackDefinition compose.File,
-	reason error,
-) {
-	for _, service := range stackDefinition.Compose.Services {
-		r.deployMetrics.RecordDeploy(stackName, service.Name, "failed")
+func (r *Reconciler) recordPipelineFailure(
+	ctx context.Context, req ReconciliationRequest, prev model.Stack, pl *pipelinePayload, pipeErr *pipe.StepError,
+) error {
+	services := pl.Desired.Compose.Services
+	var persistErr error
+	if pl.Attempt == nil {
+		persistErr = r.recordFailure(ctx, req.Stack.Name, req.Commit, services, pipeErr)
+	} else {
+		failed := prev
+		failed.LastCommit, failed.LastError = req.Commit, "apply_failed"
+		if failed.Services == nil {
+			failed.Services = map[string]model.Service{}
+		}
+		for _, service := range services {
+			failed.Services[service.Name] = model.Service{
+				Image: service.Image, SyncStatus: model.SyncStatusOutOfSync, SyncAt: time.Now(),
+			}
+		}
+		failed.Status = model.NewStackStatus(failed.Services)
+		code := "apply_failed"
+		if pipeErr.StepName == "prune orphaned services" {
+			code = "prune_failed"
+		}
+		persistErr = r.deployments.Fail(ctx, pl.Attempt.ID, failed, code)
+		for _, service := range services {
+			r.deployMetrics.RecordDeploy(req.Stack.Name, service.Name, "failed")
+		}
 	}
-	if len(stackDefinition.Compose.Services) == 0 {
-		r.deployMetrics.RecordDeploy(stackName, "unknown", "failed")
-	}
-
-	logs := []string{}
-
-	var logsErr containsLogsError
-	if errors.As(reason, &logsErr) {
-		logs = logsErr.Logs()
-	}
-
-	r.event.Dispatch(ctx, &events.DeployFailed{
-		DeployEvent: events.DeployEvent{
-			StackName:       stackName,
-			Commit:          commit,
-			Services:        stackDefinition.Compose.Services,
-			StackDefinition: stackDefinition,
-		},
-		Error: reason,
-		Logs:  logs,
-	})
+	return wrapReconcileError(pipeErr.StepName, services, errors.Join(pipeErr, persistErr))
 }
 
-type containsLogsError interface {
-	Logs() []string
+func (r *Reconciler) persistResult(
+	ctx context.Context, req ReconciliationRequest, prevState model.Stack, payload *pipelinePayload, result model.Stack,
+) error {
+	return r.db.WithinTransaction(ctx, func(ctx context.Context) error {
+		if payload.Attempt != nil {
+			if err := r.deployments.Succeed(ctx, payload.Attempt.ID, result); err != nil {
+				return err
+			}
+		} else if err := r.stateStore.Update(ctx, func(state *model.Runtime) {
+			state.Stacks[req.Stack.Name] = result
+		}); err != nil {
+			return err
+		}
+		for _, d := range payload.Drift {
+			if !d.ServiceMissed || prevState.ServiceSyncStatus(d.ServiceName) == model.SyncStatusOutOfSync {
+				continue
+			}
+			event := &events.ServiceMissed{StackName: req.Stack.Name, ServiceName: d.ServiceName, Commit: req.Commit}
+			if err := r.event.Publish(ctx, event); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }

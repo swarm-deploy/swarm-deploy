@@ -30,15 +30,16 @@ func NewSubscriber(store modelstore.Store) *Subscriber {
 // Name returns the subscriber name used in dispatcher logs.
 func (s *Subscriber) Name() string { return "alert-management" }
 
-// Slow reports that persistence should run on the slow event queue.
-func (s *Subscriber) Slow() bool { return true }
-
 // Handle applies supported deployment events to alert state.
 func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	switch deployment := event.Event.(type) {
+	case *events.NodeDisconnected:
+		return s.handleNode(ctx, event.ID, deployment.NodeID, true)
+	case *events.NodeConnected:
+		return s.handleNode(ctx, event.ID, deployment.NodeID, false)
 	case *events.DeployFailed:
 		return s.handleFailed(ctx, event.ID, deployment)
 	case *events.DeploySuccess:

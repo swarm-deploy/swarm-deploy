@@ -3,7 +3,6 @@ package assistant
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"strings"
 	"sync"
@@ -16,6 +15,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/rag"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
@@ -70,16 +70,14 @@ func NewService(
 	retriever := rag.NewRetriever(store, modelClient, embeddingModelName, ragIndex, metrics)
 	ragSubscriber := rag.NewIndexSubscriber(store, modelClient, embeddingModelName, ragIndex, metrics)
 	allowedTools := normalizeAllowedTools(config.AllowedTools)
-	eventDispatcher.Subscribe(events.TypeDeploySuccess, ragSubscriber)
+	err := eventDispatcher.Subscribe(
+		events.TypeNameServiceCatalogUpdated, "assistant-rag-index", outbox.External(ragSubscriber),
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	conversationHistory := config.ConversationHistory
-	if conversationHistory == nil && strings.TrimSpace(config.ConversationHistoryDir) != "" {
-		history, err := conversation.NewFileHistoryStorage(config.ConversationHistoryDir)
-		if err != nil {
-			return nil, fmt.Errorf("create assistant conversation history: %w", err)
-		}
-		conversationHistory = history
-	}
 
 	return &Service{
 		config: config,
@@ -191,17 +189,13 @@ func (s *Service) runAssistant(
 				rejectedPrompt = promptErr.prompt
 			}
 
+			s.publishPromptRejection(runCtx, rejectedPrompt)
+
 			run.finish(
 				StatusRejected,
 				"",
 				"Request was rejected by prompt injection protection. Rephrase your debugging question.",
 			)
-
-			s.event.Dispatch(runCtx, &events.AssistantPromptInjectionDetected{
-				Prompt:   strings.TrimSpace(rejectedPrompt),
-				Detector: events.AssistantPromptInjectionDetectorRegexp,
-			})
-
 			return
 		}
 
@@ -504,5 +498,13 @@ func (r *chatRun) snapshot() ChatResponse {
 		Answer:         r.answer,
 		ErrorMessage:   r.error,
 		Activity:       append([]string(nil), r.activity...),
+	}
+}
+func (s *Service) publishPromptRejection(ctx context.Context, prompt string) {
+	err := s.event.Publish(ctx, &events.AssistantPromptInjectionDetected{
+		Prompt: strings.TrimSpace(prompt), Detector: events.AssistantPromptInjectionDetectorRegexp,
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "persist prompt rejection event", "err", err)
 	}
 }
