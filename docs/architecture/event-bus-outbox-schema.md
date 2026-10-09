@@ -1,8 +1,8 @@
 # Unified Event Bus and SQLite Outbox: contracts and schema
 
-Status: **design proposal**, not yet implemented. Integration branch: `feat/sqlite-outbox-refactor`.
+Status: **infrastructure implemented; application integration pending**. Integration branch: `feat/sqlite-outbox-refactor`.
 
-This expands [SQLite + Deployment architecture](sqlite-outbox-refactor.md). The SQL below is the Outbox subset of the single future `0001_initial` migration.
+This expands [SQLite + Deployment architecture](sqlite-outbox-refactor.md). The SQL below is the Outbox subset of `internal/storage/migrations/0001_initial.sql`.
 
 ## Decision: publication and processing are separate transactions
 
@@ -24,7 +24,22 @@ If Event History materialization is a required user-visible side effect, make it
 
 ## Transaction propagation in Go
 
-Use a context-aware transactor, not explicit `sql.Tx` method parameters or `UnitOfWork` APIs. Evaluate [Thiht/transactor](https://github.com/Thiht/transactor) and [avito-tech/go-transaction-manager](https://github.com/avito-tech/go-transaction-manager) against SQLite; the isolated compatibility spike is in `experiments/sqlite-transactor` and is not yet accepted as proof of compatibility.
+Use a context-aware transactor, not explicit `sql.Tx` method parameters or `UnitOfWork` APIs.
+The executable spike in `experiments/sqlite-transactor` verifies `Thiht/transactor v1.1.0`
+with `modernc.org/sqlite v1.34.5`: rollback, nested savepoints, concurrent writes and
+connection pragmas passed both with `CGO_ENABLED=0` and separately with `-race`.
+The DBGetter returns the library's savepoint wrapper, not a concrete `*sql.Tx`.
+One `storage.Database` owns the transactor/getter. `BEGIN IMMEDIATE` serializes writers;
+WAL permits committed-state readers. Do not share a transaction context between concurrent goroutines.
+
+`outbox.Bus.Subscribe(typeName, stableID, handler)` registers a DB consumer. Network
+consumers use the `outbox.External(handler)` worker adapter. This does not change
+publication or durability: every matching subscriber gets its own delivery record.
+`Run` stops on cancellation; unacknowledged work remains on disk. Missing subscriptions
+or incompatible payloads are parked as failed. `Replay` and `Discard` address a single
+failed delivery. Prometheus collection reports queue depth by status and subscription.
+Raw handler errors are not persisted or logged because they can contain credentials;
+diagnostics expose event/subscription IDs, attempt, error type and a stable failure code.
 
 ```go
 type Publisher interface {

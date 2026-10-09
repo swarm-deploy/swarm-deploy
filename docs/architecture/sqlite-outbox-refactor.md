@@ -11,7 +11,7 @@ This is one platform refactor, not a chain of small, partially compatible releas
 1. Replace **all durable JSON-file repositories** with repositories backed by a single per-instance SQLite database under `dataDir`.
 2. Add a first-class `Deployment` model and successful `DesiredSnapshot` baseline. `Latest deployments` reads deployments, not event history.
 3. Separate public event history, internal runtime signals, alerts, and notification deliveries.
-4. Persist events with at least one matching subscriber in the SQLite outbox, regardless of the subscriber delivery mode; investigate publishers without subscribers as potentially unnecessary. Event History independently selects user-visible events.
+4. Persist events with at least one matching subscriber in the SQLite outbox; all subscribers use the same asynchronous delivery mechanism. Investigate publishers without subscribers as potentially unnecessary. Event History independently selects user-visible events.
 5. Consolidate all schema changes within this branch into **one initial schema migration** before merging into `master`.
 6. Preserve the data deployed on existing clusters with a **one-time, restart-safe JSON import**.
 
@@ -127,7 +127,7 @@ External Docker operations and the database **cannot share a transaction**. The 
 - Model **separate durable delivery state per destination** (e.g. independent stable subscriber IDs) so partial success across Telegram/webhooks is not treated as all-or-nothing.
 - Prevent duplicate scheduling via stable source/event + destination keys, and preserve deduplication semantics without suppressing legitimate new deployment attempts.
 - Network notifications provide **at-least-once**, not exactly-once delivery: a crash after an external send and before DB acknowledgement may repeat a message. `ReplyTo`/threading is message metadata, not a notifier-specific new API and not where send results belong.
-- All Event Bus publications with subscribers enter `outbox_events` temporarily; Transactional-only events are deleted before commit and Durable events after the final acknowledgement. Event History alone controls user visibility.
+- All Event Bus publications with subscribers enter `outbox_events` in T1 and remain after its commit until the last acknowledgement in a separate T3. There are no subscription delivery modes. Event History alone controls user visibility.
 
 ## Events, alerts, and notifications
 
@@ -157,12 +157,20 @@ Import existing JSON on startup before starting collectors/reconcilers/subscribe
 
 ## Engineering sequence (all commits on the integration branch)
 
-1. Shared DB lifecycle + consolidated schema + executable integration tests for transactions, locking, restart behavior and importer.
-2. Migrate existing file-backed repositories and stop wiring JSON stores; extend interfaces where writes currently hide failures.
-3. Introduce Deployments, effective-state semantic diffs and successful DesiredSnapshot.
-4. Separate public Events, Alerts and internal signals; publish atomically with producer state and process in independent subscriber transactions.
-5. Introduce a universal Event Bus outbox worker, per-subscriber delivery records, retries and notification-specific deduplication/thread metadata.
+1. Verify the SQLite/transactor spike; implement shared DB lifecycle and the single initial schema.
+2. Implement the universal Event Bus, safe codec and worker with separate T1/T2/T3 boundaries.
+3. Migrate DB-only subscribers and notification adapters; replace the old dispatcher in application wiring.
+4. Introduce Deployments, effective-state semantic diffs and successful DesiredSnapshot.
+5. Migrate remaining repositories and add the atomic preflighted legacy importer before enabling production DB startup.
 6. Rewire API/Overview/Event & Alerts UI, adjust docs/config, and remove obsolete file-write code.
 7. Verify data import from real-looking fixture sets, crash/restart at every important boundary, migration replay, full CI and Docker build. Consolidate schema to a single initial migration and merge once.
 
 Release gates: no silent data loss; no false deployment success; stable user-visible `deploySuccess`; no plaintext secret leakage through history/outbox; no duplicate logical notification jobs after restart; compatibility with the project's `CGO_ENABLED=0` build.
+
+## Implementation checkpoint
+
+The infrastructure is implemented in `internal/storage`, `internal/modules/event/codec`
+and `internal/modules/event/outbox`. It is **not yet connected to application startup**;
+the existing application still uses JSON stores and QueueDispatcher. This is not a
+release-ready SQLite migration. See [the implementation ledger](sqlite-outbox-progress.md)
+for dependencies and remaining work. Do not run the new worker alongside QueueDispatcher.
