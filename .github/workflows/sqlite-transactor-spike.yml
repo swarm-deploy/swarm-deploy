@@ -1,0 +1,30 @@
+name: SQLite transactor spike
+
+on:
+  push:
+    branches:
+      - feat/sqlite-outbox-refactor
+    paths:
+      - 'experiments/sqlite-transactor/**'
+      - '.github/workflows/sqlite-transactor-spike.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.3'
+      - name: Resolve spike dependencies
+        working-directory: experiments/sqlite-transactor
+        run: go mod tidy
+      - name: Verify pure-Go SQLite transaction behavior
+        working-directory: experiments/sqlite-transactor
+        env:
+          CGO_ENABLED: '0'
+        run: go test -race -v ./...
