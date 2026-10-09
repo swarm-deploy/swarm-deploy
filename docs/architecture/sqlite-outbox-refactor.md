@@ -42,6 +42,38 @@ The assistant's TTL-bound in-memory context cache is **not a file store**; it ma
 - Design schemas from query patterns. Index event list filters/cursors, deployment history by stack/time, unresolved alerts by fingerprint, and pending notifications by due time.
 - Preserve public API response contracts where possible, but remove obsolete *internal* JSON-file repository APIs. Fix silent write failures: for example, `gitops/modelstore.FileStore.Update` currently logs persistence failures without returning an error.
 
+## Transactional events and module isolation
+
+**Architecture decision:** `DeploymentService` must not call `AlertService`, `EventService`, `NotificationService`, or their repositories directly. Preserve modular reactions through typed domain events.
+
+- A shared **synchronous transactional event bus** coordinates local durable projections inside a caller-owned SQLite transaction. It is separate from the existing best-effort asynchronous runtime dispatcher.
+- The deployment module owns its Deployment and successful desired snapshot state. It emits typed domain facts such as `DeploymentSucceeded` and `DeploymentFailed` (internal types; do not expose them automatically as public Event History entries).
+- Dedicated handlers in their respective modules react to these domain facts, sharing the **same transaction**: Event History records public `deploySuccess`, Alert Management resolves/opens an alert, and Notifications enqueues outbox delivery intents for eligible public-event or alert lifecycle notifications.
+- An alert handler may produce `AlertOpened`, `AlertUpdated` or `AlertResolved` domain events. Notification handlers subscribe to alert lifecycle facts, **not** to arbitrary ordering assumptions between sibling handlers of a deployment event.
+- All transactional handlers perform **DB-only operations**; no Docker API, network calls, background goroutines or external notifier calls inside the transaction.
+- Subscriber failures abort the entire transaction and propagate to the caller. The caller must never report local durable success before commit.
+- Register mandatory transactional handlers at composition time, deterministically; allow no silent omission or best-effort behavior for mandatory persistence. Bound or detect recursive event emissions.
+- A `Publish(ctx, tx, event) error` abstraction is one possible API; keep transaction boundaries explicit and do not stash SQL transactions in a context.
+- The outbox worker sends notifications **after commit** and manages retries and acknowledgements separately. Dispatching a runtime-only signal via the original queue does not establish durable persistence guarantees.
+
+Illustrative flow:
+
+```text
+Deployment apply completed
+  -> BEGIN TX
+  -> Deployment=succeeded + DesiredSnapshot
+  -> publish internal DeploymentSucceeded
+       -> Event handler: public deploySuccess persisted
+            -> public-event notification handler: enqueue outbox intents
+       -> Alert handler: resolve matching alert
+            -> publish AlertResolved
+                 -> alert-notification handler: enqueue outbox intents
+  -> COMMIT
+  -> Outbox worker sends externally
+```
+
+Cross-module participation is by subscription to domain facts, not service-to-service orchestration. The implementation must ensure all synchronous projections run before commit, including facts emitted by handlers. Pending design: decide on event processing order (bounded FIFO is an option), failure propagation, and whether mandatory handler registration should be validated at startup.
+
 ## Deployment lifecycle
 
 - Deployment records a **real attempt to apply a changed effective desired state**, not every reconcile. Distinct retries create distinct deployment IDs. Reconciler owns whether a retry happens; a store must not suppress attempts with the same revision/digest.
