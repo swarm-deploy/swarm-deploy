@@ -21,6 +21,7 @@ const (
 	TypeNameSendNotificationFailed           TypeName = "sendNotificationFailed"
 	TypeNameSyncManualStarted                TypeName = "syncManualStarted"
 	TypeNameWebhookReceived                  TypeName = "webhookReceived"
+	TypeNameNodeJoined                       TypeName = "nodeJoined"
 	TypeNameNodeConnected                    TypeName = "nodeConnected"
 	TypeNameNodeDisconnected                 TypeName = "nodeDisconnected"
 	TypeNameServiceMissed                    TypeName = "serviceMissed"
@@ -110,6 +111,11 @@ var (
 		category: CategorySync,
 		// Every authenticated webhook must be recorded without deduplication.
 	}
+	TypeNodeJoined = Type{
+		name:     TypeNameNodeJoined,
+		severity: SeverityInfo,
+		category: CategorySwarm,
+	}
 	TypeNodeConnected = Type{
 		name:     TypeNameNodeConnected,
 		severity: SeverityInfo,
@@ -177,6 +183,7 @@ var (
 		TypeSendNotificationFailed,
 		TypeSyncManualStarted,
 		TypeWebhookReceived,
+		TypeNodeJoined,
 		TypeNodeConnected,
 		TypeNodeDisconnected,
 		TypeServiceMissed,
@@ -248,6 +255,8 @@ func (n TypeName) Valid() bool {
 		return true
 	case TypeNameWebhookReceived:
 		return true
+	case TypeNameNodeJoined:
+		return true
 	case TypeNameNodeConnected:
 		return true
 	case TypeNameNodeDisconnected:
@@ -286,6 +295,8 @@ func ParseType(name string) (Type, bool) {
 		return TypeSyncManualStarted, true
 	case TypeNameWebhookReceived:
 		return TypeWebhookReceived, true
+	case TypeNameNodeJoined:
+		return TypeNodeJoined, true
 	case TypeNameNodeConnected:
 		return TypeNodeConnected, true
 	case TypeNameNodeDisconnected:

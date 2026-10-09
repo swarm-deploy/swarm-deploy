@@ -14,6 +14,7 @@ const eventTypeOptions = [
   "sendNotificationFailed",
   "syncManualStarted",
   "webhookReceived",
+  "nodeJoined",
   "nodeConnected",
   "nodeDisconnected",
   "serviceMissed",

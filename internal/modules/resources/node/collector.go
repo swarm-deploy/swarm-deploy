@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	dockerevents "github.com/docker/docker/api/types/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -21,6 +22,8 @@ type Collector struct {
 	dispatcher dispatcher.Dispatcher
 
 	reconnectDelay time.Duration
+	// synced reports whether the snapshot was refreshed at least once.
+	synced bool
 }
 
 // NewNodeCollector creates node collector.
@@ -33,12 +36,9 @@ func NewNodeCollector(inspector swarm.NodeManager, store *Store, eventDispatcher
 	}
 }
 
-// Run performs initial refresh and subscribes to docker node events.
+// Run subscribes to docker node events; every (re)subscription starts with a snapshot refresh.
+// If the very first subscription fails, the snapshot is still loaded once.
 func (c *Collector) Run(ctx context.Context) error {
-	if _, err := c.refresh(ctx); err != nil {
-		slog.WarnContext(ctx, "[nodes] initial refresh failed", slog.Any("err", err))
-	}
-
 	for {
 		err := c.watchOnce(ctx)
 		if err == nil {
@@ -69,15 +69,31 @@ func (c *Collector) refresh(ctx context.Context) ([]swarm.Node, error) {
 	if err = c.store.Replace(nodes); err != nil {
 		return nil, fmt.Errorf("save nodes snapshot: %w", err)
 	}
+	c.synced = true
 
 	slog.InfoContext(ctx, "[nodes] snapshot refreshed", slog.Int("count", len(nodes)))
 	return nodes, nil
 }
 
-func (c *Collector) watchOnce(ctx context.Context) error {
+func (c *Collector) watchOnce(parent context.Context) error {
+	// Cancel the subscription on every exit path so reconnects never leave orphaned streams.
+	ctx, cancel := context.WithCancel(parent)
+	defer cancel()
+
 	eventsCh, errorsCh, err := c.inspector.Watch(ctx)
 	if err != nil {
+		if !c.synced {
+			if _, refreshErr := c.refresh(ctx); refreshErr != nil {
+				slog.WarnContext(ctx, "[nodes] initial refresh failed", slog.Any("err", refreshErr))
+			}
+		}
+
 		return fmt.Errorf("subscribe docker node events: %w", err)
+	}
+
+	// Events missed while the stream was down are not replayed: only the snapshot is refreshed.
+	if _, err = c.refresh(ctx); err != nil {
+		return fmt.Errorf("refresh nodes after subscribe: %w", err)
 	}
 
 	for {
@@ -89,20 +105,7 @@ func (c *Collector) watchOnce(ctx context.Context) error {
 				return errors.New("docker node events channel closed")
 			}
 
-			slog.DebugContext(ctx, "[nodes] docker node event received",
-				slog.String("action", string(event.Action)),
-				slog.String("node_id", event.Actor.ID),
-				slog.Any("node_attributes", event.Actor.Attributes),
-			)
-
-			previousNodes := c.store.List()
-			currentNodes, refreshErr := c.refresh(ctx)
-			if refreshErr != nil {
-				slog.WarnContext(ctx, "[nodes] refresh after event failed", slog.Any("err", refreshErr))
-				continue
-			}
-
-			c.dispatchConnectionEvents(ctx, previousNodes, currentNodes)
+			c.handleEvent(ctx, event)
 		case watchErr, ok := <-errorsCh:
 			if !ok {
 				return errors.New("docker node events errors channel closed")
@@ -113,6 +116,40 @@ func (c *Collector) watchOnce(ctx context.Context) error {
 			return fmt.Errorf("watch docker node events: %w", watchErr)
 		}
 	}
+}
+
+func (c *Collector) handleEvent(ctx context.Context, event dockerevents.Message) {
+	slog.DebugContext(ctx, "[nodes] docker node event received",
+		slog.String("action", string(event.Action)),
+		slog.String("node_id", event.Actor.ID),
+		slog.Any("node_attributes", event.Actor.Attributes),
+	)
+
+	previousNodes := c.store.List()
+	currentNodes, refreshErr := c.refresh(ctx)
+	if refreshErr != nil {
+		slog.WarnContext(ctx, "[nodes] refresh after event failed", slog.Any("err", refreshErr))
+	}
+
+	if event.Action == dockerevents.ActionCreate {
+		c.dispatchNodeJoined(ctx, event.Actor.ID, currentNodes)
+	}
+
+	if refreshErr != nil {
+		return
+	}
+
+	c.dispatchConnectionEvents(ctx, previousNodes, currentNodes)
+}
+
+func (c *Collector) dispatchNodeJoined(ctx context.Context, nodeID string, currentNodes []swarm.Node) {
+	joined := &events.NodeJoined{NodeID: nodeID}
+	if node, found := nodesByID(currentNodes)[nodeID]; found {
+		joined.NodeName = node.Hostname
+		joined.Role = nodeRole(node)
+	}
+
+	c.dispatcher.Dispatch(ctx, joined)
 }
 
 func (c *Collector) dispatchConnectionEvents(
@@ -126,13 +163,6 @@ func (c *Collector) dispatchConnectionEvents(
 	for _, currentNode := range currentNodes {
 		previousNode, exists := previousByID[currentNode.ID]
 		if !exists {
-			if nodeConnected(currentNode) {
-				c.dispatcher.Dispatch(ctx, &events.NodeConnected{
-					NodeID:   currentNode.ID,
-					NodeName: currentNode.Hostname,
-					Status:   currentNode.Status,
-				})
-			}
 			continue
 		}
 
@@ -181,4 +211,18 @@ func nodesByID(nodes []swarm.Node) map[string]swarm.Node {
 
 func nodeConnected(node swarm.Node) bool {
 	return node.Status == "ready"
+}
+
+func nodeRole(node swarm.Node) string {
+	switch node.ManagerStatus {
+	case swarm.NodeManagerStatusWorker:
+		return "worker"
+	case swarm.NodeManagerStatusLeader,
+		swarm.NodeManagerStatusManager,
+		swarm.NodeManagerStatusReachable,
+		swarm.NodeManagerStatusUnreachable:
+		return "manager"
+	default:
+		return ""
+	}
 }
