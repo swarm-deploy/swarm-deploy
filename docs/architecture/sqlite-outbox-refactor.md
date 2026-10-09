@@ -11,7 +11,7 @@ This is one platform refactor, not a chain of small, partially compatible releas
 1. Replace **all durable JSON-file repositories** with repositories backed by a single per-instance SQLite database under `dataDir`.
 2. Add a first-class `Deployment` model and successful `DesiredSnapshot` baseline. `Latest deployments` reads deployments, not event history.
 3. Separate public event history, internal runtime signals, alerts, and notification deliveries.
-4. Make the transitions that generate durable events and notification requests **transactional** using a DB-backed outbox.
+4. Persist **every event published through the unified Event Bus** in the SQLite outbox, even without durable subscribers; emit it atomically with related business state, and project public Event History independently.
 5. Consolidate all schema changes within this branch into **one initial schema migration** before merging into `master`.
 6. Preserve the data deployed on existing clusters with a **one-time, restart-safe JSON import**.
 
@@ -54,17 +54,17 @@ The Event Bus supports **three delivery guarantees for subscribers**:
 | `AfterCommit` | Best-effort after successful commit | Errors logged/observed, do not undo commit; may be lost on process crash | Telemetry, cache invalidation, optional in-process observers |
 | `Durable` | Persist per-consumer delivery work in the same transaction; process after commit via outbox worker | Retried according to durable delivery policy; at-least-once | Externally delivered notifications and other recoverable asynchronous work |
 
-**One subscription registry and one publication path**, with delivery policy on the subscriber registration. Existing event types may be adapted, but the old independent queue dispatcher must not remain as a second event bus.
+**One subscription registry and one publication path**, with delivery policy on the subscriber registration. **Persistence of the event envelope is unconditional**: every successful publication writes an `outbox_events` record in SQLite, regardless of subscription mode or number of matching subscribers. Existing event types may be adapted, but the old independent queue dispatcher must not remain as a second event bus.
 
 ### Transaction scope and execution rules
 
-- The business owner opens a transaction via `internal/storage`, updates its own models and publishes a domain event through **the same Event Bus bound to the same transaction**. A possible shape: `bus.In(tx).Publish(ctx, event) error`. A `Publish(ctx, event) error` convenience method may create its own transaction for standalone events, but it must **not** be used when an atomic state transition already exists.
+- The business owner opens a transaction via `internal/storage`, updates its own models and publishes a domain event through **the same Event Bus bound to the same transaction**. A possible shape: `bus.In(tx).Publish(ctx, event) error`. Publication first persists the event envelope to `outbox_events` as part of that transaction, even when only `Transactional` or `AfterCommit` subscribers exist, or when there are no subscribers. A `Publish(ctx, event) error` convenience method may create its own transaction for standalone events, but it must **not** be used when an atomic state transition already exists.
 - Event Bus executes all `Transactional` handlers before the transaction can commit. Every DB write by a transactional handler uses the supplied transaction, never an independent connection/transaction. Handler failures propagate to the publisher.
 - Transactional handlers may publish additional events. A **bounded FIFO processing queue within the transaction** drains all resulting events and subscriptions before completion; detect cycles or enforce a reasonable event/handler ceiling. Avoid relying on registration order to express business causality: publish an explicit follow-up event such as `AlertResolved` or `PublicEventRecorded`.
 - Durable subscribers are enqueued *transactionally* using stable event IDs and subscriber/destination keys. The outbox worker performs external I/O **only after commit**; delivery is at-least-once, not exactly-once.
 - AfterCommit subscribers are scheduled only after a successful commit, never on rollback. A transaction completion hook or equivalent is necessary; the runtime queue cannot be used before commit. AfterCommit delivery may be lost on crashes and must not be relied on for durable effects.
 - `Publish` returns errors when mandatory transactional work or outbox persistence fails. No silent failure, no `context.Context` transaction injection, no Docker/network calls or goroutines inside transactional handlers.
-- Domain events are **not automatically user-visible Events**. `DeploymentSucceeded`/`DeploymentFailed` are internal facts; the Event History subscriber decides whether to persist a public `deploySuccess` record. `NodeDisconnected` and `DeployFailed` can trigger Alerts without appearing in public Event History.
+- **Outbox persistence is not Event History visibility.** The Event History module independently decides which emitted domain events are significant to users and projects only those into its own `event_history` table, with appropriate public event type/details. For example `DeploymentSucceeded` produces public `deploySuccess`, while `NodeDisconnected` and `DeploymentFailed` remain outbox events and can trigger Alerts without appearing as user Events.
 - Each event has a stable ID, type and (when useful) correlation/causation metadata. Payloads persisted for durable delivery must be serializable, versionable and secret-safe. Do not treat arbitrary Go errors or live Docker API objects as outbox payloads.
 - Mandatory subscribers must be wired and validated during application composition; independently deployed modules must not silently miss required transactional projections. Durable delivery subscribers require stable registration IDs.
 
@@ -93,26 +93,26 @@ The `Durable` notifications example represents **one outbox-backed delivery path
 
 ## Universal durable subscriptions / outbox
 
-**Decision:** `Durable` is a **generic Event Bus subscription mode** available to any module. The outbox belongs to the Event Bus infrastructure, **not** to Notifications. Notifications is one subscriber, and may register distinct stable subscriptions for configured destinations.
+**Decision:** **all events published through the unified Event Bus are recorded in the outbox, unconditionally.** `Durable` is a generic *subscription processing mode*, not a filter deciding whether to persist an event. The outbox belongs to the Event Bus infrastructure, **not** to Notifications. Notifications is one subscriber, and may register distinct stable subscriptions for configured destinations.
 
 ### Durable event and delivery model
 
-- Keep a durable immutable event envelope with `event_id`, `type`, `schema_version`, `occurred_at`, `correlation_id`/`causation_id` when present, and a **minimal sanitized** serialized payload.
-- Store **one delivery/work record per durable subscriber** (or subscriber+destination), with a database uniqueness constraint on `(event_id, subscription_id)`. This is a transport delivery identity, not business-level notification deduplication.
+- Persist **every published event** (including internal signals, events with no subscribers, and events observed only through `Transactional`/`AfterCommit` handlers) as a durable immutable envelope with `event_id`, `type`, `schema_version`, `occurred_at`, `correlation_id`/`causation_id` when present, and a **minimal sanitized** serialized payload. Events generated by transactional subscribers are likewise persisted in the same transaction. A failed/rolled-back publication does not count as published.
+- Create **delivery/work records only for the matching `Durable` subscribers** (or subscriber+destination), with a database uniqueness constraint on `(event_id, subscription_id)`. **Zero deliveries does not mean zero events.** This is a transport delivery identity, not business-level notification deduplication. Registration changes do not automatically retroactively deliver earlier events; explicit replay can be designed separately.
 - Publish domain changes, run transactional handlers, and create all required durable records **within the original publisher transaction**. Rollback removes the event work as well; after commit, work can be picked up.
 - Each durable subscription has a **stable registration ID**, event type(s), handler and retry policy. If a persisted delivery references a subscriber no longer registered after restart/reconfiguration, do not silently mark it delivered: report/park it for operator intervention.
 - On startup, recover due `pending` work and expired `processing` leases. Workers atomically claim a row with owner/token and lease deadline (safe against duplicate active claims); success marks it `delivered`, failures record attempt count, error and next eligible time.
-- Backoff and bounded retries lead to a visible terminal `failed` state with an explicit replay/requeue path. Define retention/compaction of completed work separately from Event History retention; do not delete pending/failed work through a generic history capacity limit.
+- Backoff and bounded retries lead to a visible terminal `failed` state with an explicit replay/requeue path. Define **outbox event-envelope retention** and completed-delivery compaction independently from Event History retention: a committed event may eventually be pruned from the operational outbox only after safe delivery/retention criteria, not because Event History chose not to display it. Do not delete pending/processing/failed work (or referenced payloads) through a generic history capacity limit.
 - For a DB-only durable handler, commit its database effects and delivery acknowledgement **in the same worker transaction**; use idempotent updates and uniquely keyed records.
 - For an external side effect (Telegram, HTTP webhook, etc.), never hold a SQLite transaction across network I/O. Delivery acknowledgment follows the external operation; crashes can cause duplicates. Expose idempotency keys to destinations when supported.
 - Outbox work is delivered **at least once**; exactly-once behavior is not promised. Independent durable subscriber deliveries are retried independently; a failure of one subscriber does not roll back another worker's acknowledged completion.
 - Registration, persistence and dispatch are generic. Business-specific rendering, alert/notification suppression windows, recipient configuration and reply/thread tracking belong to the subscribing module, not to the Event Bus.
-- `Transactional` and `AfterCommit` subscriptions still use the same Bus and registration system, but **are not automatically persisted** unless they also have explicitly configured `Durable` work.
-- Avoid leaking secrets in the serialized payload; persist only the fields a durable handler truly requires. Treat payload format as a versioned contract because deliveries may survive an application upgrade.
+- `Transactional` and `AfterCommit` subscriptions still use the same Bus and registration system. **Their events are always persisted** in `outbox_events`; only their individual handler execution is not made durable by those modes. `AfterCommit` is best-effort and is not automatically retried from persisted envelopes.
+- Avoid leaking secrets in **any** serialized event payload. Because all events are persisted, every event type must have a safe, versioned storage representation. Persist only required, sanitized fields; never serialize raw Compose secrets, credentials, error internals or Docker object dumps into the outbox.
 
 ### Baseline SQLite tables
 
-Use `outbox_events` for durable payload envelopes and `outbox_deliveries` for per-subscriber work. `outbox_deliveries` should include `event_id`, `subscription_id`, `status`, `attempts`, `available_at`, `lease_until`, `lease_token`, `last_error`, and completion timestamps. Index due work for efficient claims and enforce `UNIQUE(event_id, subscription_id)`.
+Use `outbox_events` as the **unconditional event log for the Event Bus** and `outbox_deliveries` for per-durable-subscriber work. `outbox_deliveries` should include `event_id`, `subscription_id`, `status`, `attempts`, `available_at`, `lease_until`, `lease_token`, `last_error`, and completion timestamps. Index due work for efficient claims and enforce `UNIQUE(event_id, subscription_id)`.
 
 The Notifications module may keep a separate domain table for notification identity/history, suppression, resolved recipient state, reply-to IDs, or templates where needed. It must **not** introduce its own parallel generic outbox engine. The design should allow one durable subscription per configured destination, so an error in one Telegram channel does not resend successful deliveries to other channels.
 
@@ -120,7 +120,8 @@ Example:
 
 ```text
 Event Bus.Publish(PublicEventRecorded) within source transaction
-    ├── [Transactional] durable work records for:
+    ├── persist outbox_events row (always)
+    ├── create durable work records for:
     │       ├── notification:telegram:ops
     │       ├── notification:webhook:audit
     │       └── future:external-integration
@@ -133,13 +134,14 @@ Event Bus.Publish(PublicEventRecorded) within source transaction
 
 ### Tests required
 
-- Rollback produces **no** durable delivery.
+- Rollback produces **no** persisted event and **no** durable delivery.
+- All published events are persisted regardless of subscriber existence/mode, including nested events; subscriberless events have zero deliveries.
 - Restart replays pending and expired-lease deliveries.
 - Duplicate publication with the **same event ID** does not enqueue duplicate work; two distinct deployments have different IDs and are both delivered.
 - One failing subscriber cannot force replay of another subscriber already acknowledged.
 - Post-send/pre-ack crash can cause duplicate external delivery (explicitly documented).
 - Unknown/removed subscriptions and incompatible payload versions are visible and recoverable, not silently discarded.
-- Notification-specific deduplication never mutates or suppresses the canonical Event History record.
+- Notification-specific deduplication never mutates or suppresses the canonical outbox event or Event History record; Event Bus deduplication must never discard real publications.
 
 ## Deployment lifecycle
 
@@ -165,11 +167,11 @@ External Docker operations and the database **cannot share a transaction**. The 
 - Model **separate durable delivery state per destination** (e.g. independent stable subscriber IDs) so partial success across Telegram/webhooks is not treated as all-or-nothing.
 - Prevent duplicate scheduling via stable source/event + destination keys, and preserve deduplication semantics without suppressing legitimate new deployment attempts.
 - Network notifications provide **at-least-once**, not exactly-once delivery: a crash after an external send and before DB acknowledgement may repeat a message. `ReplyTo`/threading is message metadata, not a notifier-specific new API and not where send results belong.
-- Optional runtime observers use the single Event Bus's `AfterCommit` mode; **do not** dump all runtime signals into user Event History.
+- All Event Bus publications (including internal signals) go to `outbox_events`; optional runtime observers use `AfterCommit`. **Event History independently decides which events users see**, rather than mirroring the bus.
 
 ## Events, alerts, and notifications
 
-- Public Events = auditable facts (e.g. `nodeJoined`, `deploySuccess`). `nodeJoined` means a genuinely new swarm node, not an existing node becoming Ready.
+- Public Events = **selected user-significant projections** of published domain facts (e.g. `nodeJoined`, `deploySuccess`) chosen by Event History. Every source event is still in the outbox regardless of projection. `nodeJoined` means a genuinely new swarm node, not an existing node becoming Ready.
 - `NodeDisconnected` and `DeployFailed` are internal signals / alert inputs, not automatically user-visible Event History rows.
 - Alerts maintain their own lifecycle and deduplication identity. Events and Alerts share a UI page, but **remain separate tables**.
 - Notifications are a distinct module/concern. Stable public notification semantics can combine technical failure causes so users do not have to guess which low-level event to subscribe to.
