@@ -17,6 +17,15 @@ import (
 
 const fileModePrivate = 0o600
 
+// ReadRecent adapts the legacy fixture store to context-aware filtered reads.
+func (s *Store) ReadRecent(_ context.Context, options QueryOptions) ([]Entry, error) {
+	entries := FilterEntries(s.List(), options.Severities, options.Categories, options.Types, options.Since)
+	if options.Limit > 0 && len(entries) > options.Limit {
+		entries = entries[len(entries)-options.Limit:]
+	}
+	return entries, nil
+}
+
 // Entry is a persisted event view returned by API.
 type Entry struct {
 	// ID uniquely identifies this event.
@@ -98,6 +107,14 @@ func (s *Store) List() []Entry {
 	}
 
 	return out
+}
+
+// Read implements the context-aware reader for legacy fixture stores.
+func (s *Store) Read(_ context.Context) ([]Entry, error) { return s.List(), nil }
+
+// QueryPage implements the context-aware reader for legacy fixture stores.
+func (s *Store) QueryPage(_ context.Context, options QueryOptions) (Page, error) {
+	return s.Query(options)
 }
 
 func (s *Store) load(ctx context.Context) error {

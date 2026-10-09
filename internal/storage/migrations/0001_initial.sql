@@ -28,3 +28,55 @@ CREATE TABLE outbox_deliveries (
 );
 CREATE INDEX idx_outbox_delivery_due ON outbox_deliveries(status, available_at_ms);
 CREATE INDEX idx_outbox_delivery_expired_lease ON outbox_deliveries(status, lease_until_ms);
+
+CREATE TABLE event_history (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT NOT NULL UNIQUE,
+    source_event_id TEXT UNIQUE,
+    event_type TEXT NOT NULL,
+    severity TEXT NOT NULL,
+    severity_rank INTEGER NOT NULL,
+    category TEXT NOT NULL,
+    created_at_ns INTEGER NOT NULL,
+    payload TEXT NOT NULL CHECK (json_valid(payload))
+);
+CREATE INDEX idx_history_time ON event_history(created_at_ns DESC,id);
+CREATE INDEX idx_history_type_time ON event_history(event_type,created_at_ns DESC,id);
+CREATE INDEX idx_history_category_time ON event_history(category,created_at_ns DESC,id);
+CREATE INDEX idx_history_severity_time ON event_history(severity_rank DESC,created_at_ns DESC,id);
+
+CREATE TABLE alerts (
+    id TEXT PRIMARY KEY,
+    fingerprint TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('open','resolved')),
+    updated_at_ns INTEGER NOT NULL,
+    resolved_at_ns INTEGER,
+    payload TEXT NOT NULL CHECK (json_valid(payload))
+);
+CREATE UNIQUE INDEX idx_alert_open_fingerprint ON alerts(fingerprint) WHERE status='open';
+CREATE INDEX idx_alert_status_updated ON alerts(status,updated_at_ns DESC,id);
+CREATE TABLE alert_events (source_event_id TEXT PRIMARY KEY);
+
+CREATE TABLE legacy_imports (id TEXT PRIMARY KEY, completed_at_ms INTEGER NOT NULL);
+CREATE TABLE gitops_runtime (id INTEGER PRIMARY KEY CHECK (id=1), payload TEXT NOT NULL CHECK (json_valid(payload)));
+CREATE TABLE nodes (id TEXT PRIMARY KEY, hostname TEXT NOT NULL, payload TEXT NOT NULL CHECK (json_valid(payload)));
+CREATE INDEX idx_nodes_hostname ON nodes(hostname,id);
+CREATE TABLE services (
+    stack TEXT NOT NULL, name TEXT NOT NULL, payload TEXT NOT NULL CHECK (json_valid(payload)), PRIMARY KEY(stack,name)
+);
+CREATE TABLE secret_metadata (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, payload TEXT NOT NULL CHECK (json_valid(payload))
+);
+CREATE TABLE recommendations (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
+    stack TEXT NOT NULL, payload TEXT NOT NULL CHECK (json_valid(payload))
+);
+CREATE INDEX idx_recommendation_stack ON recommendations(stack,sequence);
+CREATE TABLE assistant_chats (
+    id TEXT PRIMARY KEY, updated_at_ns INTEGER NOT NULL, payload TEXT NOT NULL CHECK (json_valid(payload))
+);
+CREATE INDEX idx_chat_updated ON assistant_chats(updated_at_ns DESC,id);
+CREATE TABLE assistant_turns (
+    chat_id TEXT NOT NULL REFERENCES assistant_chats(id) ON DELETE CASCADE,
+    sequence INTEGER NOT NULL, payload TEXT NOT NULL CHECK (json_valid(payload)), PRIMARY KEY(chat_id,sequence)
+);
