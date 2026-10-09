@@ -7,7 +7,7 @@ import (
 )
 
 type Command struct {
-	Args []string
+	Args []string `json:"Args"`
 
 	isList bool
 }

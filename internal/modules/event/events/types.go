@@ -16,6 +16,7 @@ type Severity string
 type Category string
 
 const (
+	TypeNameServiceCatalogUpdated            TypeName = "serviceCatalogUpdated"
 	TypeNameDeploySuccess                    TypeName = "deploySuccess"
 	TypeNameDeployFailed                     TypeName = "deployFailed"
 	TypeNameSendNotificationFailed           TypeName = "sendNotificationFailed"
@@ -83,7 +84,8 @@ type Envelope struct {
 }
 
 var (
-	TypeDeploySuccess = Type{
+	TypeServiceCatalogUpdated = Type{name: TypeNameServiceCatalogUpdated, severity: SeverityInfo, category: CategorySync}
+	TypeDeploySuccess         = Type{
 		name:     TypeNameDeploySuccess,
 		severity: SeverityInfo,
 		category: CategorySync,
@@ -180,6 +182,7 @@ var (
 	}
 
 	Types = []Type{
+		TypeServiceCatalogUpdated,
 		TypeDeploySuccess,
 		TypeDeployFailed,
 		TypeSendNotificationFailed,
@@ -247,6 +250,8 @@ func (t *Type) UnmarshalJSON(data []byte) error {
 
 func (n TypeName) Valid() bool {
 	switch n {
+	case TypeNameServiceCatalogUpdated:
+		return true
 	case TypeNameDeploySuccess:
 		return true
 	case TypeNameDeployFailed:
@@ -287,6 +292,8 @@ func (n TypeName) Valid() bool {
 // ParseType resolves event type metadata by event name.
 func ParseType(name string) (Type, bool) {
 	switch TypeName(name) {
+	case TypeNameServiceCatalogUpdated:
+		return TypeServiceCatalogUpdated, true
 	case TypeNameDeploySuccess:
 		return TypeDeploySuccess, true
 	case TypeNameDeployFailed:

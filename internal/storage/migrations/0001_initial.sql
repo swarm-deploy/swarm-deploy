@@ -80,3 +80,40 @@ CREATE TABLE assistant_turns (
     chat_id TEXT NOT NULL REFERENCES assistant_chats(id) ON DELETE CASCADE,
     sequence INTEGER NOT NULL, payload TEXT NOT NULL CHECK (json_valid(payload)), PRIMARY KEY(chat_id,sequence)
 );
+
+CREATE TABLE deployments (
+    id TEXT PRIMARY KEY,
+    stack TEXT NOT NULL,
+    revision TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('running','succeeded','failed','interrupted')),
+    started_at_ns INTEGER NOT NULL,
+    finished_at_ns INTEGER,
+    effective_digest TEXT NOT NULL,
+    desired_payload TEXT NOT NULL CHECK(json_valid(desired_payload)),
+    payload TEXT NOT NULL CHECK(json_valid(payload)),
+    CHECK((status='running' AND finished_at_ns IS NULL) OR (status<>'running' AND finished_at_ns IS NOT NULL))
+);
+CREATE INDEX idx_deployments_stack_time ON deployments(stack,started_at_ns DESC,id);
+CREATE INDEX idx_deployments_time ON deployments(started_at_ns DESC,id);
+CREATE UNIQUE INDEX idx_deployments_running_stack ON deployments(stack) WHERE status='running';
+
+CREATE TABLE desired_snapshots (
+    deployment_id TEXT PRIMARY KEY REFERENCES deployments(id),
+    stack TEXT NOT NULL UNIQUE,
+    effective_digest TEXT NOT NULL,
+    payload TEXT NOT NULL CHECK(json_valid(payload))
+);
+-- External metadata inspection precedes this atomic projection/child-event receipt.
+CREATE TABLE service_catalog_receipts (
+    source_event_id TEXT PRIMARY KEY
+);
+-- Per-resource high-water marks prevent delayed retries from regressing projections.
+CREATE TABLE projection_versions (
+    projection TEXT NOT NULL,
+    resource TEXT NOT NULL,
+    occurred_at_ms INTEGER NOT NULL,
+    source_event_id TEXT NOT NULL,
+    PRIMARY KEY(projection,resource)
+);
+-- A known node reconnecting is never projected as a new node joining.
+CREATE TABLE node_identities (id TEXT PRIMARY KEY);

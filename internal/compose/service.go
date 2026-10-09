@@ -31,7 +31,7 @@ type Service struct {
 	Logging     ServiceLogging `yaml:"logging,omitempty" json:"logging,omitempty"`
 	Volumes     ServiceVolumes `yaml:"volumes,omitempty" json:"volumes"`
 
-	Extra map[string]interface{} `yaml:",inline"`
+	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 }
 
 type ServiceHealth struct {

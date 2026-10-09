@@ -23,6 +23,8 @@ func Encode(event events.Event) ([]byte, error) {
 		return nil, errors.New("cannot encode a nil event")
 	}
 	switch e := event.(type) {
+	case *events.ServiceCatalogUpdated:
+		return json.Marshal(servicePayload{Stack: e.StackName})
 	case *events.DeploySuccess:
 		return encodeDeployment(e.DeployEvent)
 	case *events.DeployFailed:
@@ -72,6 +74,10 @@ func Decode(typ events.TypeName, version int, payload []byte) (events.Event, err
 		return nil, fmt.Errorf("unsupported event schema version %d", version)
 	}
 	switch typ {
+	case events.TypeNameServiceCatalogUpdated:
+		return decodeAs(payload, func(p servicePayload) events.Event {
+			return &events.ServiceCatalogUpdated{StackName: p.Stack}
+		})
 	case events.TypeNameDeploySuccess:
 		return decodeAs(payload, func(p deployPayload) events.Event {
 			return &events.DeploySuccess{DeployEvent: p.deployment()}
@@ -171,6 +177,8 @@ func decode(payload []byte, target any) error {
 }
 
 type deployPayload struct {
+	// DeploymentID references safe input in the deployment repository.
+	DeploymentID string `json:"deployment_id,omitempty"`
 	// Stack identifies the stack.
 	Stack string `json:"stack"`
 	// Commit identifies the source revision.
@@ -180,7 +188,7 @@ type deployPayload struct {
 }
 
 func (p deployPayload) deployment() events.DeployEvent {
-	event := events.DeployEvent{StackName: p.Stack, Commit: p.Commit}
+	event := events.DeployEvent{DeploymentID: p.DeploymentID, StackName: p.Stack, Commit: p.Commit}
 	for _, service := range p.Services {
 		event.Services = append(event.Services, compose.Service{Name: service.Name, Image: service.Image})
 	}
@@ -188,7 +196,7 @@ func (p deployPayload) deployment() events.DeployEvent {
 }
 
 func encodeDeployment(event events.DeployEvent) ([]byte, error) {
-	p := deployPayload{Stack: event.StackName, Commit: event.Commit}
+	p := deployPayload{DeploymentID: event.DeploymentID, Stack: event.StackName, Commit: event.Commit}
 	for _, service := range event.Services {
 		p.Services = append(p.Services, servicePayload{Name: service.Name, Image: service.Image})
 	}

@@ -77,7 +77,8 @@ func completed(ctx context.Context, db *storage.Database) (bool, error) {
 
 func requireEmpty(ctx context.Context, db *storage.Database) error {
 	for _, table := range []string{"gitops_runtime", "event_history", "alerts", "recommendations", "nodes", "services",
-		"secret_metadata", "assistant_chats", "assistant_turns", "outbox_events", "outbox_deliveries", "alert_events"} {
+		"secret_metadata", "assistant_chats", "assistant_turns", "outbox_events", "outbox_deliveries", "alert_events",
+		"deployments", "desired_snapshots", "service_catalog_receipts", "projection_versions", "node_identities"} {
 		var count int
 		if err := db.Get(ctx).QueryRowContext(ctx, "SELECT count(*) FROM "+table).Scan(&count); err != nil {
 			return err

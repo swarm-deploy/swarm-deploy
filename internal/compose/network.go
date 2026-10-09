@@ -5,7 +5,7 @@ type Network struct {
 	External bool   `yaml:"external" json:"external"`
 	Internal *bool  `yaml:"internal,omitempty" json:"internal,omitempty"`
 
-	Extra map[string]interface{} `yaml:",inline"`
+	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 }
 
 func resolveNetworkAliases(networks *ServiceNetworks, namesByAlias map[string]Network) {
