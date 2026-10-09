@@ -7,10 +7,10 @@ This document expands [SQLite + Deployment Architecture](sqlite-outbox-refactor.
 
 ## Non-negotiable invariants
 
-1. **Every published event with at least one registered matching subscriber** enters `outbox_events`, regardless of delivery mode (Transactional, AfterCommit, Durable). Insertion shares the publisher's state transaction. Publication without matching subscribers is a no-op for the Bus; audit these call sites as candidates for removing unnecessary events, but do not confuse an intentionally optional subscription with unused business semantics.
+1. **Every published event with at least one registered matching subscriber** enters `outbox_events`, regardless of delivery mode (Transactional or Durable). Insertion shares the publisher's state transaction. Publication without matching subscribers is a no-op for the Bus; audit these call sites as candidates for removing unnecessary events, but do not confuse an intentionally optional subscription with unused business semantics.
 2. `Event History` alone determines which events are user-significant; it projects those into `event_history` using a **transactional subscription**. Outbox does not decide visibility and is not the user history.
 3. Event envelopes are temporary: **delete immediately when fully processed, with no retention or TTL**. Never delete an event with pending/in-flight/failed required durable deliveries.
-4. One Event Bus and one registry; subscription modes are `Transactional`, `AfterCommit`, `Durable`. No independent legacy QueueDispatcher that bypasses publication.
+4. One Event Bus and one registry; subscription modes are **`Transactional` and `Durable` only**. No separate `AfterCommit` subscription mode or legacy QueueDispatcher.
 5. A `DeploymentService` publishes facts, never directly calls Events, Alerts or Notifications services.
 6. External I/O (Docker / Telegram / HTTP) must never run inside a SQLite business transaction.
 7. Event Bus publication failures are observable; no `void Dispatch` for operations whose persistence must be guaranteed.
@@ -21,11 +21,11 @@ This document expands [SQLite + Deployment Architecture](sqlite-outbox-refactor.
 
 - `Transactional`: handled successfully **before commit** (otherwise rollback).
 - `Durable`: every matching subscriber has acknowledged successful handling.
-- `AfterCommit`: **best-effort handoff** to the volatile executor following a successful commit counts as completion for cleanup purposes; successful callback execution is **not guaranteed**.
+- **No `AfterCommit` mode.** Best-effort instrumentation can be invoked directly after the outermost transaction returns successfully. Anything that genuinely needs eventual processing must use `Durable`.
 - No matching subscribers: no event or delivery rows are written; publication can still return successfully. Track this situation to identify obsolete event types.
 - Terminal `failed` durable work: **not fully processed**; keep it for explicit replay/discard.
 
-A publication with no durable subscribers is still inserted and **committed**. Immediately after commit, schedule cleanup of the envelope (no retention window). A startup cleanup pass catches crashes between commit and cleanup. For `AfterCommit` callbacks this best-effort queue may lose work on crash by design; its failure cannot block post-commit cleanup forever.
+A publication with only Transactional subscribers is inserted into `outbox_events` and processed **inside the publisher's transaction**. Once all transactional handlers and nested events succeed, remove its envelope **before commit in the same transaction** (no retention). Thus no post-commit hook, committed orphan or cleanup race is needed. A publication with Durable subscribers remains queued after commit until their deliveries succeed.
 
 ## Proposed Go API: transaction propagation through context
 
@@ -97,9 +97,9 @@ type TransactionalHandler interface {
 - Every repository and Event Bus writer calls the same `DBGetter(ctx)` before SQL execution, joining this transaction automatically. Without an active transaction, ordinary repository queries use `*sql.DB`.
 - `Bus.Publish(ctx, event)` is **the only publication method**. It uses the active transaction when present; outside one, it wraps the whole publication in a short `WithinTransaction` call to ensure event + durable delivery rows are atomic. The implementation must distinguish active/inactive transaction using its transactor's context-aware facility; do not begin an independent DB transaction inside an active one.
 - Transactional subscribers get the same callback context, including the transaction, and can publish nested events with the **same** `Publish(ctx, event)` API. Nested events are drained using a bounded, synchronous FIFO before the **outermost** commit.
-- Subscriber registration stays on **one Event Bus** and selects one of `Transactional`, `AfterCommit` and `Durable`. Event History can subscribe transactionally to all event types and choose their visibility.
+- Subscriber registration stays on **one Event Bus** and selects `Transactional` or `Durable`. Event History can subscribe transactionally to all event types and choose their visibility.
 - The bus must validate that all synchronous transactional handlers and nested publications have completed without error **before** the outermost transaction returns successfully. Never silently drop a handler error.
-- `AfterCommit` needs a small infrastructure-level commit-hook mechanism, because the library's basic `WithinTransaction` only signals completion when its callback returns. Hooks are registered inside the current transaction's context and fired **only after the outermost successful commit**, not after a savepoint release or before commit. A rollback discards them. Keep this behavior behind `internal/storage`, not a general-purpose application API.
+- **No infrastructure-level commit hooks are required for event delivery.** Durable workers poll for committed work (optional non-authoritative wake-up signals may improve latency). Do not use best-effort in-memory notifications as a correctness dependency.
 - The transactor must be the **single manager instance and context key** for the application DB. Avoid creating a second independent transactor that bypasses the active context.
 - Never start goroutines using a transaction-bearing context, call Docker/network from inside the transaction, or reuse the derived context after the callback returns.
 - Nested transaction behavior must be explicit and tested: joining the existing transaction is preferable when no rollback isolation is required; savepoints are an option only when their semantics are needed. Rejected/failed inner work must not let outer code silently commit a partial `DeploymentSucceeded` projection.
@@ -151,7 +151,7 @@ CREATE INDEX idx_outbox_delivery_expired_lease
 
 No separate `created_at` for every delivery is needed for the initial design; `outbox_events.occurred_at_ms` and `updated_at_ms` provide the necessary operational context. Add an index only when an actual query needs it.
 
-**Why two tables?** An event with only Transactional/AfterCommit subscribers can exist with zero durable deliveries; a successful delivery from subscriber A must not be resent because subscriber B failed. `PRIMARY KEY(event_id, subscription_id)` gives idempotent scheduling **for one published event**, not business notification deduplication. Distinct real events always get distinct IDs even if their content is identical.
+**Why two tables?** An event with only Transactional subscribers has zero durable deliveries and can be deleted inside its originating transaction after synchronous processing; a successful delivery from subscriber A must not be resent because subscriber B failed. `PRIMARY KEY(event_id, subscription_id)` gives idempotent scheduling **for one published event**, not business notification deduplication. Distinct real events always get distinct IDs even if their content is identical.
 
 ## Publication and processing algorithms
 
@@ -160,10 +160,10 @@ No separate `created_at` for every delivery is needed for the initial design; `o
 1. Allocate stable `event_id` and metadata; encode using the type-specific safe codec. The publisher resolves the caller's transaction from context through the configured DB getter; no transaction parameter is passed by the service.
 2. Resolve matching subscribers. With none, do not persist an outbox row (optionally count/trace an unobserved publication). Otherwise insert `outbox_events` **even when no Durable handlers are registered**.
 3. Resolve matching subscriptions from the registry snapshot for this publication.
-4. Insert one `outbox_deliveries` row per matching `Durable` subscription; do not create rows for `Transactional`/`AfterCommit` modes.
+4. Insert one `outbox_deliveries` row per matching `Durable` subscription; do not create rows for `Transactional` mode.
 5. Run every `Transactional` handler using **the same context carrying the underlying database transaction**; repositories and nested publications resolve the active executor from that context, and child publications join a bounded FIFO worklist.
 6. Before returning successfully, drain the FIFO and confirm every required handler succeeded. Any failure aborts the surrounding DB transaction and every event/delivery created within it.
-7. Register post-commit handoff for `AfterCommit` work and immediate cleanup for events that have no durable deliveries via the **outermost transactor commit hook**; **do not** schedule either before commit.
+7. **Before commit**, delete each event envelope without Durable deliveries **after** every transactional handler and child event has completed successfully. Events with Durable deliveries remain persisted for the worker. No commit hook or post-commit callback is needed.
 
 Use the **same context from the transactor callback** when calling the shared Event Bus from services and transactional handlers. The bus joins the active transaction; it never opens a second transaction when one is present.
 
@@ -176,7 +176,7 @@ Use the **same context from the transactor callback** when calling the shared Ev
 5. On failure: clear lease, set `pending` with backoff or terminal `failed`; sanitize `last_error`. Do not emit an unbounded failure-event feedback loop for each retry.
 6. On success: acknowledge the claimed delivery only if the **lease token matches** and status is still `processing`; protect against a stale worker acknowledging an already-reclaimed lease.
 7. In the same acknowledgement transaction, delete the `outbox_events` row **only if there are no deliveries whose status is not `delivered`**. `ON DELETE CASCADE` removes all acknowledged delivery rows. If another subscriber remains pending, preserve both its row and the event.
-8. On startup, immediately clean committed `outbox_events` rows with **zero durable deliveries** (Transactional/AfterCommit subscribers only), and resume pending/expired lease rows. No retention interval or age-based sweep: this is recovery from a crash between commit and immediate cleanup.
+8. On startup, resume pending/expired lease deliveries. Events without Durable deliveries must not commit: in the transactional completion phase they were already deleted. If a legacy/inconsistent orphan nevertheless exists, report and safely clean it after validating the state. No retention interval or age-based sweep.
 
 Example claim SQL (parameters are UTC Unix ms, token, new lease deadline):
 
@@ -226,7 +226,7 @@ WHERE id = ?
   );
 ```
 
-The deletion is **immediate** after the final successful acknowledgement, not based on `occurred_at_ms`. In the absence of durable subscribers, the post-commit cleanup (plus restart fallback) deletes the event. The implementation must not delete an event if a durable subscriber was registered but delivery rows were accidentally omitted: treat subscription registration/persistence as one atomic publication plan.
+The deletion is **immediate** after the final successful acknowledgement, not based on `occurred_at_ms`. In the absence of Durable subscribers, the event is deleted within the original transaction once all Transactional handlers succeed. The implementation must not delete an event if a durable subscriber was registered but delivery rows were accidentally omitted: treat subscription registration/persistence as one atomic publication plan.
 
 ### Handler topology example
 
@@ -237,7 +237,6 @@ DeploymentService updates deployment + desired snapshot
             -> Publish(PublicEventRecorded)
        [Transactional] Alert Management resolves active alert
             -> Publish(AlertResolved)
-       [AfterCommit] Metrics
        [Durable] Notifications for PublicEventRecorded / AlertResolved
             -> generic outbox delivery worker -> Telegram/Webhook
 ```
@@ -250,7 +249,7 @@ No direct service-to-service orchestration. `Event History` determines user sign
 | --- | --- |
 | Before publisher DB commit | No event, no projection, no durable delivery |
 | After publisher commit, before any worker | Persisted event/deliveries replayed |
-| After commit, zero durable subscribers, before cleanup | Transient envelope deleted by immediate startup cleanup |
+| Event with Transactional subscribers only | Event inserted, handlers executed and event deleted before commit; no residual outbox row |
 | Transactional subscriber fails | Entire publisher DB transaction rolls back |
 | Durable DB handler fails before acknowledgement | Retry; all DB effects must be atomic with ack or idempotent |
 | External webhook succeeds, worker dies before ack | May resend on lease expiry (at-least-once) |
@@ -258,14 +257,14 @@ No direct service-to-service orchestration. `Event History` determines user sign
 | Delivery exhausts retries | Event and terminal-failed delivery remain for operator replay/discard |
 | Handler removed/codec unsupported after upgrade | Work remains visible; requires compatibility or operator action |
 | Last durable ack succeeds | Delete event and its completed delivery rows immediately |
-| AfterCommit callback lost on crash | Allowed by explicitly best-effort mode |
+| Crash before outermost commit | Transactional work and its event insert/delete roll back together |
 
 ## Implementation tests
 
 1. DDL creates and rejects invalid states, supports FK cascade and indexed claims.
-2. Zero matching subscribers produce no outbox row. With 1/N matching subscribers, the envelope is persisted even if all matching handlers are Transactional/AfterCommit; an event without Durable deliveries is cleaned immediately after commit.
+2. Zero matching subscribers produce no outbox row. With Transactional-only subscribers, the event enters the outbox and is deleted before commit, after handlers succeed. Durable subscribers persist envelope and delivery rows after commit.
 3. Nested `AlertResolved` events persist and project atomically; handler errors roll back root and child publications.
-4. Commit fails -> no `AfterCommit` handler is dispatched.
+4. Commit fails -> no Durable work is visible to the worker; no post-commit hook is involved.
 5. Recovery of `pending` and expired `processing` leases; stale lease acknowledgements do not succeed.
 6. Two concurrent workers cannot successfully claim/ack the same active lease.
 7. Last successful delivery deletes the event; an outstanding or terminal-failed delivery prevents deletion.
