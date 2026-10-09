@@ -55,6 +55,15 @@ func (s *FileStore) List() []model.Info {
 	return out
 }
 
+// ReadAll supplies context-aware reads for legacy fixture stores.
+func (s *FileStore) ReadAll(_ context.Context) ([]model.Info, error) { return s.List(), nil }
+
+// Find supplies context-aware reads for legacy fixture stores.
+func (s *FileStore) Find(_ context.Context, stack, name string) (model.Info, bool, error) {
+	value, ok := s.Get(stack, name)
+	return value, ok, nil
+}
+
 // Get returns saved service metadata by stack and service names.
 func (s *FileStore) Get(stackName string, serviceName string) (model.Info, bool) {
 	s.mu.RLock()

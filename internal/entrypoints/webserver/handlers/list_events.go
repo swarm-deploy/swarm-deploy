@@ -13,7 +13,7 @@ import (
 const defaultEventPageSize int32 = 50
 
 func (h *handler) ListEvents(
-	_ context.Context,
+	ctx context.Context,
 	params generated.ListEventsParams,
 ) (*generated.EventHistoryResponse, error) {
 	severities := make([]events.Severity, 0, len(params.Severities))
@@ -47,14 +47,17 @@ func (h *handler) ListEvents(
 	// Preserve the legacy response order for callers which do not opt into
 	// pagination (notably the Overview latest-deployments widget).
 	if !params.Sort.IsSet() && !params.Order.IsSet() && !params.Cursor.IsSet() {
-		entries := history.FilterEntries(h.history.List(), severities, categories, types, since)
-		if value, ok := params.Limit.Get(); ok {
-			entries = limitLatestEntries(entries, int(value))
+		entries, err := h.history.ReadRecent(ctx, history.QueryOptions{
+			Severities: severities, Categories: categories, Types: types, Since: since,
+			Limit: int(params.Limit.Or(0)),
+		})
+		if err != nil {
+			return nil, err
 		}
 		return &generated.EventHistoryResponse{Events: toGeneratedEvents(entries)}, nil
 	}
 
-	page, err := h.history.Query(history.QueryOptions{
+	page, err := h.history.QueryPage(ctx, history.QueryOptions{
 		Severities: severities,
 		Categories: categories,
 		Types:      types,
@@ -71,12 +74,4 @@ func (h *handler) ListEvents(
 		response.NextCursor.SetTo(page.NextCursor)
 	}
 	return response, nil
-}
-
-func limitLatestEntries(entries []history.Entry, limit int) []history.Entry {
-	if limit <= 0 || len(entries) <= limit {
-		return entries
-	}
-
-	return entries[len(entries)-limit:]
 }

@@ -51,12 +51,13 @@ func (s *FileStore) Get() model.Runtime {
 }
 
 // Update applies state mutation and persists updated runtime state to disk.
-func (s *FileStore) Update(ctx context.Context, fn func(*model.Runtime)) {
+func (s *FileStore) Update(ctx context.Context, fn func(*model.Runtime)) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	slog.InfoContext(ctx, "[file-state-store] updating", slog.Any("state", s.state))
 
+	previous := s.state.Clone()
 	fn(&s.state)
 
 	if err := s.flush(ctx); err != nil {
@@ -66,9 +67,14 @@ func (s *FileStore) Update(ctx context.Context, fn func(*model.Runtime)) {
 			slog.String("path", s.path),
 			slog.Any("err", err),
 		)
-		return
+		s.state = previous
+		return err
 	}
+	return nil
 }
+
+// Read returns the legacy snapshot through the repository contract.
+func (s *FileStore) Read(_ context.Context) (model.Runtime, error) { return s.Get(), nil }
 
 func (s *FileStore) Stop() {}
 

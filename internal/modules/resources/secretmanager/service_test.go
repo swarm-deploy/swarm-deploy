@@ -29,7 +29,8 @@ func TestServiceListKeepsUnavailableManager(t *testing.T) {
 		return controller, nil
 	}
 
-	managers := service.List(context.Background())
+	managers, err := service.List(context.Background())
+	require.NoError(t, err)
 
 	require.Len(t, managers, 1)
 	assert.True(t, managers[0].Controllable)
@@ -61,7 +62,8 @@ func TestServiceListReturnsControllerInfo(t *testing.T) {
 		return controller, nil
 	}
 
-	managers := service.List(context.Background())
+	managers, err := service.List(context.Background())
+	require.NoError(t, err)
 
 	require.Len(t, managers, 1)
 	assert.True(t, managers[0].Available)

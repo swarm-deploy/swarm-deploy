@@ -2,8 +2,6 @@ package recommendations
 
 import (
 	"context"
-	"fmt"
-	"path/filepath"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
@@ -12,6 +10,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/analyzer"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
 
 type Module struct {
@@ -26,18 +25,14 @@ type Module struct {
 }
 
 type Container interface {
+	// GetStorage returns the shared database.
+	GetStorage() *storage.Database
 	GetFileSystem() fs.FileSystem
 	GetEventModule() *event.Module
 }
 
 func InitModule(ctx context.Context, cfg *config.Config, cnt Container) (*Module, error) {
-	store, err := modelstore.NewFileStore(ctx,
-		filepath.Join(cfg.Spec.DataDir, "recommendations.state.json"),
-		cnt.GetFileSystem(),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("init file store: %w", err)
-	}
+	store := modelstore.NewSQLStore(cnt.GetStorage())
 
 	recommender := NewRecommender(
 		analyzer.Composite(

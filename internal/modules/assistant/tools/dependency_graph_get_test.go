@@ -78,9 +78,7 @@ func TestGetDependencyGraphExecute(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			tool := NewGetDependencyGraph(&fakeServiceStore{
-				services: testCase.services,
-			})
+			tool := NewGetDependencyGraph(serviceStore(t, testCase.services))
 
 			response, err := tool.Execute(context.Background(), routing.Request{})
 			require.NoError(t, err, "execute dependency_graph_get tool")

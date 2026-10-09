@@ -18,7 +18,7 @@ const defaultCollectorReconnectDelay = 5 * time.Second
 // Collector collects and persists swarm nodes snapshot.
 type Collector struct {
 	inspector  swarm.NodeManager
-	store      *Store
+	store      Repository
 	dispatcher dispatcher.Dispatcher
 
 	reconnectDelay time.Duration
@@ -27,7 +27,7 @@ type Collector struct {
 }
 
 // NewNodeCollector creates node collector.
-func NewNodeCollector(inspector swarm.NodeManager, store *Store, eventDispatcher dispatcher.Dispatcher) *Collector {
+func NewNodeCollector(inspector swarm.NodeManager, store Repository, eventDispatcher dispatcher.Dispatcher) *Collector {
 	return &Collector{
 		inspector:      inspector,
 		store:          store,
@@ -66,7 +66,7 @@ func (c *Collector) refresh(ctx context.Context) ([]swarm.Node, error) {
 	if err != nil {
 		return nil, fmt.Errorf("inspect nodes: %w", err)
 	}
-	if err = c.store.Replace(nodes); err != nil {
+	if err = c.store.ReplaceSnapshot(ctx, nodes); err != nil {
 		return nil, fmt.Errorf("save nodes snapshot: %w", err)
 	}
 	c.synced = true
@@ -125,7 +125,11 @@ func (c *Collector) handleEvent(ctx context.Context, event dockerevents.Message)
 		slog.Any("node_attributes", event.Actor.Attributes),
 	)
 
-	previousNodes := c.store.List()
+	previousNodes, readErr := c.store.ReadAll(ctx)
+	if readErr != nil {
+		slog.ErrorContext(ctx, "read previous node snapshot", "err", readErr)
+		return
+	}
 	currentNodes, refreshErr := c.refresh(ctx)
 	if refreshErr != nil {
 		slog.WarnContext(ctx, "[nodes] refresh after event failed", slog.Any("err", refreshErr))

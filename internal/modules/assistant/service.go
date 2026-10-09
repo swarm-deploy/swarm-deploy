@@ -72,8 +72,8 @@ func NewService(
 	allowedTools := normalizeAllowedTools(config.AllowedTools)
 	eventDispatcher.Subscribe(events.TypeDeploySuccess, ragSubscriber)
 
-	var conversationHistory conversation.HistoryStorage
-	if strings.TrimSpace(config.ConversationHistoryDir) != "" {
+	conversationHistory := config.ConversationHistory
+	if conversationHistory == nil && strings.TrimSpace(config.ConversationHistoryDir) != "" {
 		history, err := conversation.NewFileHistoryStorage(config.ConversationHistoryDir)
 		if err != nil {
 			return nil, fmt.Errorf("create assistant conversation history: %w", err)
@@ -152,7 +152,11 @@ func (s *Service) Chat(ctx context.Context, request ChatRequest) ChatResponse {
 		requestID = uuid.NewString()
 	}
 
-	run, created, conversationCreated := s.getOrCreateRun(requestID, conversationID)
+	run, created, conversationCreated, readErr := s.getOrCreateRun(ctx, requestID, conversationID)
+	if readErr != nil {
+		return ChatResponse{Status: StatusFailed, ConversationID: conversationID, RequestID: requestID,
+			ErrorMessage: "Failed to read conversation history"}
+	}
 	if created {
 		if conversationCreated {
 			s.chatObserver.RecordChatCreated()
@@ -173,7 +177,11 @@ func (s *Service) runAssistant(
 	defer cancel()
 
 	run.addActivity("Analyzing request")
-	history := s.getConversation(conversationID)
+	history, err := s.getConversation(runCtx, conversationID)
+	if err != nil {
+		run.finish(StatusFailed, "", "Failed to read conversation history")
+		return
+	}
 	answer, usage, err := s.graph.run(runCtx, conversationID, history, message, run.addActivity)
 	if err != nil {
 		if errors.Is(err, errPromptInjection) {
@@ -219,13 +227,15 @@ func (s *Service) runAssistant(
 	}
 
 	if s.conversationHistory != nil {
-		if err = s.conversationHistory.AppendWithUsage(conversationID, usage, turns...); err != nil {
+		if err = s.conversationHistory.SaveTurns(runCtx, conversationID, usage, turns...); err != nil {
 			slog.ErrorContext(
 				runCtx,
 				"[assistant] failed to persist conversation history",
 				slog.String("conversation_id", conversationID),
 				slog.Any("err", err),
 			)
+			run.finish(StatusFailed, "", "Failed to persist conversation history")
+			return
 		}
 	}
 	s.conversationStorage.Append(conversationID, turns...)
@@ -264,40 +274,47 @@ func (s *Service) getRun(requestID string) *chatRun {
 	return s.runs[requestID]
 }
 
-func (s *Service) getOrCreateRun(requestID, conversationID string) (*chatRun, bool, bool) {
+func (s *Service) getOrCreateRun(ctx context.Context, requestID, conversationID string) (*chatRun, bool, bool, error) {
 	s.runsMu.Lock()
 	defer s.runsMu.Unlock()
 
 	s.pruneRunsLocked()
 
 	if existing := s.runs[requestID]; existing != nil {
-		return existing, false, false
+		return existing, false, false, nil
 	}
 
-	conversationCreated := s.isConversationNewLocked(conversationID)
+	conversationCreated, err := s.isConversationNewLocked(ctx, conversationID)
+	if err != nil {
+		return nil, false, false, err
+	}
 
 	run := newChatRun(requestID, conversationID)
 	s.runs[requestID] = run
-	return run, true, conversationCreated
+	return run, true, conversationCreated, nil
 }
 
-func (s *Service) isConversationNewLocked(conversationID string) bool {
+func (s *Service) isConversationNewLocked(ctx context.Context, conversationID string) (bool, error) {
 	if _, ok := s.conversationStorage.Get(conversationID); ok {
-		return false
+		return false, nil
 	}
 	if s.conversationHistory != nil {
-		if _, ok, err := s.conversationHistory.Get(conversationID); err == nil && ok {
-			return false
+		_, ok, err := s.conversationHistory.ReadChat(ctx, conversationID)
+		if err != nil {
+			return false, err
+		}
+		if ok {
+			return false, nil
 		}
 	}
 
 	for _, run := range s.runs {
 		if run.conversationID == conversationID {
-			return false
+			return false, nil
 		}
 	}
 
-	return true
+	return true, nil
 }
 
 func (s *Service) pruneRunsLocked() {
@@ -312,36 +329,39 @@ func (s *Service) pruneRunsLocked() {
 	}
 }
 
-func (s *Service) getConversation(conversationID string) []conversation.Turn {
+func (s *Service) getConversation(ctx context.Context, conversationID string) ([]conversation.Turn, error) {
 	conversationData, ok := s.conversationStorage.Get(conversationID)
 	if ok {
-		return conversationData.Turns
+		return conversationData.Turns, nil
 	}
 	if s.conversationHistory == nil {
-		return nil
+		return nil, nil
 	}
 
-	persisted, ok, err := s.conversationHistory.Get(conversationID)
+	persisted, ok, err := s.conversationHistory.ReadChat(ctx, conversationID)
 	if err != nil || !ok {
-		return nil
+		return nil, err
 	}
 
 	s.conversationStorage.Append(conversationID, persisted.Turns...)
 	conversationData, ok = s.conversationStorage.Get(conversationID)
 	if !ok {
-		return nil
+		return nil, nil
 	}
 
-	return conversationData.Turns
+	return conversationData.Turns, nil
 }
 
 // ListChats returns persisted chats ordered by latest activity.
-func (s *Service) ListChats(_ context.Context) ([]ChatSummary, error) {
+func (s *Service) ListChats(ctx context.Context) ([]ChatSummary, error) {
 	if s.conversationHistory == nil {
 		return []ChatSummary{}, nil
 	}
 
-	chats := s.conversationHistory.List()
+	chats, err := s.conversationHistory.ReadChats(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	result := make([]ChatSummary, 0, len(chats))
 	for _, chat := range chats {
@@ -353,12 +373,12 @@ func (s *Service) ListChats(_ context.Context) ([]ChatSummary, error) {
 }
 
 // GetChat returns one persisted chat with messages.
-func (s *Service) GetChat(_ context.Context, id string) (ChatHistory, bool, error) {
+func (s *Service) GetChat(ctx context.Context, id string) (ChatHistory, bool, error) {
 	if s.conversationHistory == nil {
 		return ChatHistory{}, false, nil
 	}
 
-	chat, ok, err := s.conversationHistory.Get(id)
+	chat, ok, err := s.conversationHistory.ReadChat(ctx, id)
 	if err != nil || !ok {
 		return ChatHistory{}, ok, err
 	}

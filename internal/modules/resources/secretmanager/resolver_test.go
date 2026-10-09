@@ -70,7 +70,8 @@ func TestResolverUsesPersistedServiceResources(t *testing.T) {
 		},
 	}))
 
-	resolved := NewResolver(store).resolve()
+	resolved, err := NewResolver(store).resolve(context.Background())
+	require.NoError(t, err)
 
 	require.Len(t, resolved, 1)
 	assert.Equal(t, "infra", resolved[0].stack)
@@ -95,7 +96,8 @@ func TestResolverKeepsClassificationSeparateFromControlCapability(t *testing.T) 
 		},
 	}))
 
-	resolved := NewResolver(store).resolve()
+	resolved, err := NewResolver(store).resolve(context.Background())
+	require.NoError(t, err)
 
 	require.Len(t, resolved, 1)
 	assert.False(t, resolved[0].controllable)

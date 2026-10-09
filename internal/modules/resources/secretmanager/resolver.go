@@ -1,6 +1,7 @@
 package secretmanager
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"strconv"
@@ -32,8 +33,11 @@ func NewResolver(services servicestore.Store) *Resolver {
 	return &Resolver{services: services}
 }
 
-func (r *Resolver) resolve() []target {
-	services := r.services.List()
+func (r *Resolver) resolve(ctx context.Context) ([]target, error) {
+	services, err := r.services.ReadAll(ctx)
+	if err != nil {
+		return nil, err
+	}
 	resolved := make([]target, 0)
 	for _, service := range services {
 		if service.Type != stype.SecretManager {
@@ -57,17 +61,21 @@ func (r *Resolver) resolve() []target {
 		resolved = append(resolved, candidate)
 	}
 
-	return resolved
+	return resolved, nil
 }
 
-func (r *Resolver) find(stack string, service string) (target, bool) {
-	for _, candidate := range r.resolve() {
+func (r *Resolver) find(ctx context.Context, stack string, service string) (target, bool, error) {
+	targets, err := r.resolve(ctx)
+	if err != nil {
+		return target{}, false, err
+	}
+	for _, candidate := range targets {
 		if candidate.stack == stack && candidate.service == service {
-			return candidate, true
+			return candidate, true, nil
 		}
 	}
 
-	return target{}, false
+	return target{}, false, nil
 }
 
 func controllerAddress(serviceName string, rawAddress string) (string, error) {

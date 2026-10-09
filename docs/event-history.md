@@ -19,7 +19,20 @@
 | `userAuthenticated`                | `info`   | `security` | User passed web authentication      | `username`                                                   |
 | `assistantPromptInjectionDetected` | `alert`  | `security` | Assistant prompt injection detected | `detector`, `prompt` (if present), `username` (if present)   |
 
-All runtime events are persisted to disk in `.swarm-deploy/event-history.json` and can be viewed via API:
+On the SQLite integration branch, selected user-visible events are stored in
+`event_history` in `<dataDir>/swarm-deploy.sqlite`. New `deployFailed` and
+`nodeDisconnected` records are excluded from history; imported history is preserved
+unchanged. The table above describes available event types, not a promise that every
+signal appears in user history. Deployment failures feed Alert Management; node-alert
+integration is still pending. New SQLite history records use the safe event codec,
+which omits raw prompts, logs and error strings.
+
+The startup importer reads the old `event-history.json` once, together with all other
+legacy stores, and leaves it untouched as a backup. Runtime writes do not update JSON.
+The application still uses QueueDispatcher at this intermediate checkpoint; reliable
+Outbox delivery and the Deployment model are not yet integrated.
+
+History can be viewed via API:
 
 - `GET /api/v1/events` - returns latest stored events
   - optional query filters:
@@ -40,7 +53,10 @@ and the same sort and filters to fetch the next page.
 Existing requests without paging parameters keep the legacy oldest-first response
 order (including `limit` requests used by Overview).
 
-History size is bounded by `eventHistory.capacity` in config. When limit is reached, the oldest event is removed.
+Runtime history size is bounded by `eventHistory.capacity`. New projections remove
+oldest entries by publication sequence. Import preserves all legacy records without
+truncation; normal retention resumes on the next new projection. SQL performs both
+legacy filters and cursor queries; source event IDs prevent duplicate projection.
 
 Config example:
 ```yaml

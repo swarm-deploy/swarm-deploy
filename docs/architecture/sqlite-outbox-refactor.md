@@ -169,8 +169,9 @@ Release gates: no silent data loss; no false deployment success; stable user-vis
 
 ## Implementation checkpoint
 
-The infrastructure is implemented in `internal/storage`, `internal/modules/event/codec`
-and `internal/modules/event/outbox`. It is **not yet connected to application startup**;
-the existing application still uses JSON stores and QueueDispatcher. This is not a
-release-ready SQLite migration. See [the implementation ledger](sqlite-outbox-progress.md)
+SQLite repositories and the all-or-nothing legacy importer are now connected to
+application startup. All listed durable stores use the shared database. The Outbox
+infrastructure in `internal/modules/event/codec` and `internal/modules/event/outbox`
+is still **not connected**: application events still use QueueDispatcher. Deployment
+and snapshot integration is also pending. This is not a release-ready migration. See [the implementation ledger](sqlite-outbox-progress.md)
 for dependencies and remaining work. Do not run the new worker alongside QueueDispatcher.

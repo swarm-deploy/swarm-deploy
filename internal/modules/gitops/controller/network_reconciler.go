@@ -28,13 +28,15 @@ func (c *Controller) syncNetworks(ctx context.Context, commit string) error {
 	defer span.End()
 
 	if len(c.cfg.Spec.Networks) == 0 {
-		c.stateStore.Update(ctx, func(s *model.Runtime) {
+		return c.stateStore.Update(ctx, func(s *model.Runtime) {
 			s.Networks = map[string]model.Network{}
 		})
-		return nil
 	}
 
-	currentState := c.snapshotState()
+	currentState, readErr := c.snapshotState(ctx)
+	if readErr != nil {
+		return readErr
+	}
 	syncedAt := time.Now()
 	nextState := make(map[string]model.Network, len(c.cfg.Spec.Networks))
 	var reconcileErrs []error
@@ -70,11 +72,11 @@ func (c *Controller) syncNetworks(ctx context.Context, commit string) error {
 		nextState[networkCfg.Name] = networkState
 	}
 
-	c.stateStore.Update(ctx, func(s *model.Runtime) {
+	persistErr := c.stateStore.Update(ctx, func(s *model.Runtime) {
 		s.Networks = nextState
 	})
 
-	joinedErr := errors.Join(reconcileErrs...)
+	joinedErr := errors.Join(append(reconcileErrs, persistErr)...)
 
 	if joinedErr != nil {
 		span.RecordError(joinedErr)

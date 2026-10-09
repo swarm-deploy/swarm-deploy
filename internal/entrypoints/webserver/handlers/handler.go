@@ -28,9 +28,9 @@ type handler struct {
 	secretManagers   *secretmanager.Domain
 	networks         swarm.NetworkManager
 	nodeManager      swarm.NodeManager
-	history          *history.Store
+	history          history.Repository
 	services         servicestore.Store
-	nodes            *swarmnode.Store
+	nodes            swarmnode.Repository
 	recommendations  recommendationstore.Store
 	alerts           alertstore.Store
 	assistant        assistant.Assistant
@@ -47,9 +47,9 @@ func New(
 	control *controller.Controller,
 	gitRepository gitx.Repository,
 	swarmService *swarm.Swarm,
-	history *history.Store,
+	history history.Repository,
 	services servicestore.Store,
-	nodes *swarmnode.Store,
+	nodes swarmnode.Repository,
 	secrets secretstore.Store,
 	secretManagers *secretmanager.Domain,
 	recommendations recommendationstore.Store,

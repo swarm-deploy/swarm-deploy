@@ -65,7 +65,7 @@ func TestIndexSubscriberBuildsIndexOnDeploySuccess(t *testing.T) {
 			Image:    "postgres:16",
 		},
 	}
-	store := &fakeServiceStore{services: services}
+	store := serviceStore(t, services)
 	embedder := &countingEmbedder{
 		result: [][]float64{{0.2, 0.1}, {0.8, 0.1}},
 	}

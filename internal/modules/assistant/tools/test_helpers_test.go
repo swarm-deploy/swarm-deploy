@@ -2,6 +2,8 @@ package tools
 
 import (
 	"context"
+	"go.uber.org/mock/gomock"
+	"testing"
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/differ"
@@ -23,15 +25,11 @@ func (f *fakeSyncControl) Manual(_ context.Context) bool {
 	return f.queued
 }
 
-type fakeNodeStore struct {
-	nodes []swarm.Node
-}
-
-func (f *fakeNodeStore) List() []swarm.Node {
-	out := make([]swarm.Node, len(f.nodes))
-	copy(out, f.nodes)
-
-	return out
+func nodeStore(t *testing.T, nodes []swarm.Node) *MockNodesReader {
+	t.Helper()
+	store := NewMockNodesReader(gomock.NewController(t))
+	store.EXPECT().ReadAll(gomock.Any()).Return(nodes, nil).AnyTimes()
+	return store
 }
 
 type fakePluginReader struct {
@@ -52,15 +50,11 @@ func (f *fakePluginReader) List(_ context.Context) ([]swarm.Plugin, error) {
 	return out, nil
 }
 
-type fakeServiceStore struct {
-	services []model.Info
-}
-
-func (f *fakeServiceStore) List() []model.Info {
-	out := make([]model.Info, len(f.services))
-	copy(out, f.services)
-
-	return out
+func serviceStore(t *testing.T, services []model.Info) *MockServicesReader {
+	t.Helper()
+	store := NewMockServicesReader(gomock.NewController(t))
+	store.EXPECT().ReadAll(gomock.Any()).Return(services, nil).AnyTimes()
+	return store
 }
 
 type fakeImageVersionResolver struct {

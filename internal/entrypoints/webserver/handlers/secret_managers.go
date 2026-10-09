@@ -11,7 +11,10 @@ import (
 
 // ListSecretManagers returns discovered Secret Managers and controller availability.
 func (h *handler) ListSecretManagers(ctx context.Context) (*generated.SecretManagersResponse, error) {
-	managers := h.secretManagers.List(ctx)
+	managers, err := h.secretManagers.List(ctx)
+	if err != nil {
+		return nil, err
+	}
 	mapped := make([]generated.SecretManagerInfo, 0, len(managers))
 	for _, manager := range managers {
 		item := generated.SecretManagerInfo{

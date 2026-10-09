@@ -9,10 +9,13 @@ import (
 )
 
 func (h *handler) GetService(
-	_ context.Context,
+	ctx context.Context,
 	params generated.GetServiceParams,
 ) (*generated.ServiceStatusResponse, error) {
-	info, ok := h.services.Get(params.Stack, params.Service)
+	info, ok, err := h.services.Find(ctx, params.Stack, params.Service)
+	if err != nil {
+		return nil, err
+	}
 	if ok {
 		return toGeneratedServiceStatusFromInfo(info), nil
 	}

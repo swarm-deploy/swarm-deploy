@@ -10,13 +10,10 @@ type Store interface {
 	ReadStore
 
 	// Update applies mutation to runtime state.
-	Update(ctx context.Context, fn func(*model.Runtime))
-
-	// Stop stops the store.
-	Stop()
+	Update(ctx context.Context, fn func(*model.Runtime)) error
 }
 
 type ReadStore interface {
 	// Get returns a snapshot copy of current runtime state.
-	Get() model.Runtime
+	Read(ctx context.Context) (model.Runtime, error)
 }

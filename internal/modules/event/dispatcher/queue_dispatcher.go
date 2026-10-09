@@ -77,7 +77,7 @@ func (d *QueueDispatcher) Shutdown(ctx context.Context) error {
 }
 
 func (d *QueueDispatcher) Dispatch(ctx context.Context, event events.Event) {
-	envelope := events.Envelope{ID: uuid.NewString(), Event: event}
+	envelope := events.Envelope{ID: uuid.NewString(), Event: event, OccurredAt: d.now()}
 	ctx, span := d.tracer.Start(ctx, "event.Dispatch", trace.WithAttributes(
 		tracing.EventID.String(envelope.ID),
 		tracing.EventName.String(string(event.Type().Name())),

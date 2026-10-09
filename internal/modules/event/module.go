@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"path/filepath"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
@@ -16,17 +15,20 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/notifiers"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
 
 type Module struct {
 	Dispatcher dispatcher.Dispatcher
-	History    *history.Store
+	History    *history.SQLStore
 
 	cfg             *config.Config
 	queueDispatcher *dispatcher.QueueDispatcher
 }
 
 type Container interface {
+	// GetStorage returns the shared database.
+	GetStorage() *storage.Database
 	GetFileSystem() fs.FileSystem
 	GetMetrics() *metrics.Group
 }
@@ -36,11 +38,7 @@ func InitModule(cfg *config.Config, cnt Container) (*Module, error) {
 		cfg: cfg,
 	}
 
-	historyStore, err := history.NewStore(
-		filepath.Join(cfg.Spec.DataDir, "event-history.json"),
-		cfg.Spec.EventHistory.Capacity,
-		cnt.GetFileSystem(),
-	)
+	historyStore, err := history.NewSQLStore(cnt.GetStorage(), cfg.Spec.EventHistory.Capacity)
 	if err != nil {
 		return nil, fmt.Errorf("init history store: %w", err)
 	}

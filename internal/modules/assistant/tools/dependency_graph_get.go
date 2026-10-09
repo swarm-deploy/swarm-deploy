@@ -34,8 +34,12 @@ func (g *GetDependencyGraph) Definition() routing.ToolDefinition {
 }
 
 // Execute runs dependency_graph_get tool.
-func (g *GetDependencyGraph) Execute(_ context.Context, _ routing.Request) (routing.Response, error) {
-	built := resourcegraph.NewBuilder().Build(g.services.List())
+func (g *GetDependencyGraph) Execute(ctx context.Context, _ routing.Request) (routing.Response, error) {
+	services, err := g.services.ReadAll(ctx)
+	if err != nil {
+		return routing.Response{}, err
+	}
+	built := resourcegraph.NewBuilder().Build(services)
 
 	payload := struct {
 		// Nodes contains graph nodes with dependencies and endpoints.

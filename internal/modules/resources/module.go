@@ -3,7 +3,6 @@ package resources
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
@@ -15,11 +14,12 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 type Module struct {
-	NodeStore     *node.Store
+	NodeStore     node.Repository
 	NodeCollector *node.Collector
 	// ServiceStore persists and queries service metadata snapshots.
 	ServiceStore modelstore.Store
@@ -32,6 +32,8 @@ type Module struct {
 }
 
 type Container interface {
+	// GetStorage returns the shared database.
+	GetStorage() *storage.Database
 	GetSwarm() *swarm.Swarm
 	GetEventModule() *event.Module
 	GetFileSystem() fs.FileSystem
@@ -46,15 +48,12 @@ func InitModule(
 		cfg: cfg,
 	}
 
-	if err := srv.initStores(ctx, cnt.GetFileSystem()); err != nil {
-		return nil, fmt.Errorf("init stores: %w", err)
-	}
+	srv.NodeStore = node.NewSQLStore(cnt.GetStorage())
+	srv.ServiceStore = modelstore.NewSQLStore(cnt.GetStorage())
 
 	srv.NodeCollector = node.NewNodeCollector(cnt.GetSwarm().Nodes, srv.NodeStore, cnt.GetEventModule().Dispatcher)
 	secretDomain, err := secrets.NewDomain(
-		ctx,
-		cfg.Spec.DataDir,
-		cnt.GetFileSystem(),
+		cnt.GetStorage(),
 		cnt.GetSwarm().Secrets,
 	)
 	if err != nil {
@@ -75,22 +74,4 @@ func (s *Module) registerEventSubscribers(cnt Container) {
 			metadata.NewExtractor(),
 		),
 	)
-}
-
-func (s *Module) initStores(ctx context.Context, filesystem fs.FileSystem) error {
-	nodeStore, err := node.NewNodeStore(filepath.Join(s.cfg.Spec.DataDir, "nodes.json"))
-	if err != nil {
-		return fmt.Errorf("init node store: %w", err)
-	}
-
-	s.NodeStore = nodeStore
-
-	srvStore, err := modelstore.NewFileStore(ctx, filepath.Join(s.cfg.Spec.DataDir, "services.json"), filesystem)
-	if err != nil {
-		return fmt.Errorf("init service store: %w", err)
-	}
-
-	s.ServiceStore = srvStore
-
-	return nil
 }

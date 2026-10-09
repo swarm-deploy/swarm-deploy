@@ -26,12 +26,7 @@ const (
 	swarmDeployLabelPrefix = "org.swarm-deploy"
 )
 
-func (h *handler) listStacks() []generated.StackView {
-	snapshot := model.Runtime{}
-	if h.stateStore != nil {
-		snapshot = h.stateStore.Get()
-	}
-
+func (h *handler) listStacks(snapshot model.Runtime) []generated.StackView {
 	stacks := h.stackProvider.Stacks()
 	mapped := make([]generated.StackView, 0, len(stacks))
 	for _, stackCfg := range stacks {

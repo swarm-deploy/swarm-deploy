@@ -58,7 +58,10 @@ func (s *IndexSubscriber) Handle(ctx context.Context, event events.Envelope) err
 	}
 
 	startedAt := time.Now()
-	services := s.store.List()
+	services, readErr := s.store.ReadAll(ctx)
+	if readErr != nil {
+		return readErr
+	}
 	if len(services) == 0 {
 		s.index.Clear()
 		slog.InfoContext(ctx, "[assistant-rag] cleared index after deploySuccess: no services")

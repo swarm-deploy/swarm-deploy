@@ -91,9 +91,9 @@ func TestControllerCleanupStacksUsesDedicatedCleanupPath(t *testing.T) {
 }
 
 type recordingStackReconciler struct {
-	cleanedStacks      []string
-	cleanupErrByStack  map[string]error
-	reconcileCalls     int
+	cleanedStacks     []string
+	cleanupErrByStack map[string]error
+	reconcileCalls    int
 }
 
 func (r *recordingStackReconciler) Reconcile(context.Context, stackloop.ReconciliationRequest) error {
@@ -148,12 +148,12 @@ func TestControllerGracefulShutdown(t *testing.T) {
 						Interval:     specw.Duration{Value: time.Hour},
 					},
 				}},
-				git:        repository,
-				metrics:    metricGroup,
-				event:      eventDispatcher,
-				stateStore: modelstore.NewMemoryStore(),
-				reconcileCh:  make(chan reconcileTask, 1),
-				tracer:     otel.Tracer("test"),
+				git:         repository,
+				metrics:     metricGroup,
+				event:       eventDispatcher,
+				stateStore:  modelstore.NewMemoryStore(),
+				reconcileCh: make(chan reconcileTask, 1),
+				tracer:      otel.Tracer("test"),
 			}
 
 			runCtx, cancelRun := context.WithCancel(context.Background())
@@ -363,7 +363,8 @@ func TestControllerPollGitSkipsReconcileWhenGitHasNoChanges(t *testing.T) {
 
 	controller.pollGit(context.Background())
 
-	state := controller.stateStore.Get()
+	state, err := controller.stateStore.Read(context.Background())
+	require.NoError(t, err)
 	assert.Equal(t, syncRunResultNoChange, state.LastPollResult, "unexpected poll result")
 	assert.Empty(t, state.LastPollError, "unexpected poll error")
 }

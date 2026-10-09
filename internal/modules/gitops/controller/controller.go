@@ -349,7 +349,7 @@ func (c *Controller) reconcile( //nolint:funlen // reconciliation pipeline
 	if err != nil {
 		tracing.FailSpan(span, err)
 		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
-		c.updateState(ctx, func(s *model.Runtime) {
+		_ = c.updateState(ctx, func(s *model.Runtime) {
 			s.LastSyncAt = time.Now()
 			s.LastSyncReason = string(task.reason)
 			s.LastSyncResult = syncRunResultError
@@ -369,7 +369,7 @@ func (c *Controller) reconcile( //nolint:funlen // reconciliation pipeline
 			slog.Any("err", reloadNetworksErr),
 		)
 		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
-		c.stateStore.Update(ctx, func(s *model.Runtime) {
+		_ = c.updateState(ctx, func(s *model.Runtime) {
 			s.LastSyncAt = time.Now()
 			s.LastSyncReason = string(task.reason)
 			s.LastSyncResult = syncRunResultError
@@ -393,7 +393,7 @@ func (c *Controller) reconcile( //nolint:funlen // reconciliation pipeline
 			slog.Any("err", reconcileNetworksErr),
 		)
 		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
-		c.stateStore.Update(ctx, func(s *model.Runtime) {
+		_ = c.updateState(ctx, func(s *model.Runtime) {
 			s.LastSyncAt = time.Now()
 			s.LastSyncReason = string(task.reason)
 			s.LastSyncResult = syncRunResultError
@@ -411,7 +411,7 @@ func (c *Controller) reconcile( //nolint:funlen // reconciliation pipeline
 			slog.Any("err", reloadErr),
 		)
 		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
-		c.updateState(ctx, func(s *model.Runtime) {
+		_ = c.updateState(ctx, func(s *model.Runtime) {
 			s.LastSyncAt = time.Now()
 			s.LastSyncReason = string(task.reason)
 			s.LastSyncResult = syncRunResultError
@@ -475,8 +475,7 @@ func (c *Controller) reconcile( //nolint:funlen // reconciliation pipeline
 		stackSpan.SetStatus(codes.Ok, "")
 	}
 
-	c.metrics.Sync.RecordSyncRun(string(task.reason), result, time.Since(startedAt))
-	c.updateState(ctx, func(s *model.Runtime) {
+	persistErr := c.updateState(ctx, func(s *model.Runtime) {
 		s.LastSyncAt = time.Now()
 		s.LastSyncReason = string(task.reason)
 		s.LastSyncResult = result
@@ -486,6 +485,11 @@ func (c *Controller) reconcile( //nolint:funlen // reconciliation pipeline
 		}
 		s.GitRevision = gitResult.NewRevision
 	})
+	if persistErr != nil {
+		result = syncRunResultError
+		tracing.FailSpan(stackSpan, persistErr)
+	}
+	c.metrics.Sync.RecordSyncRun(string(task.reason), result, time.Since(startedAt))
 }
 
 func (c *Controller) resolveGitState(
@@ -513,7 +517,7 @@ func (c *Controller) resolveGitState(
 }
 
 func (c *Controller) updatePollState(ctx context.Context, result string, err error) {
-	c.updateState(ctx, func(s *model.Runtime) {
+	_ = c.updateState(ctx, func(s *model.Runtime) {
 		s.LastPollAt = time.Now()
 		s.LastPollResult = result
 		s.LastPollError = ""

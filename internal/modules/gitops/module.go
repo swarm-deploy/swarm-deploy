@@ -2,7 +2,6 @@ package gitops
 
 import (
 	"context"
-	"fmt"
 	"path/filepath"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
@@ -14,12 +13,13 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 type Module struct {
 	Controller    *controller.Controller
-	Store         *modelstore.WarmupStore
+	Store         *modelstore.SQLStore
 	GitRepository git.Repository
 	Differ        *differ.Differ
 
@@ -28,6 +28,8 @@ type Module struct {
 }
 
 type Container interface {
+	// GetStorage returns the shared database and transactor.
+	GetStorage() *storage.Database
 	GetFileSystem() fs.FileSystem
 	GetSwarm() *swarm.Swarm
 	GetDeployer() deployer.StackDeployer
@@ -47,9 +49,7 @@ func InitModule(
 		Differ:        differ.New(),
 	}
 
-	if err := srv.initStore(ctx); err != nil {
-		return nil, fmt.Errorf("init store: %w", err)
-	}
+	srv.Store = modelstore.NewSQLStore(cnt.GetStorage())
 
 	srv.Controller = controller.New(
 		cfg,
@@ -63,21 +63,4 @@ func InitModule(
 	)
 
 	return srv, nil
-}
-
-func (s *Module) initStore(ctx context.Context) error {
-	fileStore, err := modelstore.NewFileStore(ctx,
-		filepath.Join(s.cfg.Spec.DataDir, "controller.state.json"),
-		s.filesystem,
-	)
-	if err != nil {
-		return fmt.Errorf("init file store: %w", err)
-	}
-
-	warmupStore := modelstore.NewWarmupStore(modelstore.NewMemoryStore(), fileStore)
-	warmupStore.Warmup(ctx)
-
-	s.Store = warmupStore
-
-	return nil
 }

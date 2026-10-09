@@ -1,6 +1,7 @@
 package node
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,6 +14,15 @@ import (
 )
 
 const storeFileModePrivate = 0o600
+
+// ReadAll supplies context-aware reads for legacy fixture stores.
+func (s *Store) ReadAll(_ context.Context) ([]swarm.Node, error) { return s.List(), nil }
+
+// Lookup supplies context-aware reads for legacy fixture stores.
+func (s *Store) Lookup(_ context.Context) (map[string]swarm.Node, error) { return s.Map(), nil }
+
+// ReplaceSnapshot supplies context-aware writes for legacy fixture stores.
+func (s *Store) ReplaceSnapshot(_ context.Context, nodes []swarm.Node) error { return s.Replace(nodes) }
 
 // Store persists nodes snapshot in a JSON file.
 type Store struct {

@@ -1,6 +1,7 @@
 package conversation
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -82,13 +83,26 @@ type historyIndex struct {
 // HistoryStorage persists complete assistant chats independently from the in-memory context cache.
 type HistoryStorage interface {
 	// List returns persisted chat metadata ordered by latest update first.
-	List() []ChatSummary
+	ReadChats(ctx context.Context) ([]ChatSummary, error)
 	// Get returns a persisted chat by conversation id.
-	Get(id string) (Chat, bool, error)
-	// Append appends turns to a persisted chat, creating it lazily when needed.
-	Append(id string, turns ...Turn) error
+	ReadChat(ctx context.Context, id string) (Chat, bool, error)
 	// AppendWithUsage appends turns and accumulates model token usage atomically.
-	AppendWithUsage(id string, usage TokenUsage, turns ...Turn) error
+	SaveTurns(ctx context.Context, id string, usage TokenUsage, turns ...Turn) error
+}
+
+// ReadChats adapts legacy fixture storage to the repository contract.
+func (s *FileHistoryStorage) ReadChats(_ context.Context) ([]ChatSummary, error) {
+	return s.List(), nil
+}
+
+// ReadChat reads a legacy chat.
+func (s *FileHistoryStorage) ReadChat(_ context.Context, id string) (Chat, bool, error) {
+	return s.Get(id)
+}
+
+// SaveTurns writes a legacy fixture chat.
+func (s *FileHistoryStorage) SaveTurns(_ context.Context, id string, usage TokenUsage, turns ...Turn) error {
+	return s.AppendWithUsage(id, usage, turns...)
 }
 
 // FileHistoryStorage stores each assistant chat in a separate JSON file and keeps list metadata in memory.

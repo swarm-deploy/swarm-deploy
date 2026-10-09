@@ -123,13 +123,16 @@ func (r *Reconciler) Reconcile(
 	composePath := filepath.Join(r.git.WorkingDir(), req.Stack.ComposeFile)
 	desiredState, err := r.composeLoader.Load(ctx, composePath)
 	if err != nil {
-		r.recordFailure(ctx, req.Stack.Name, req.Commit, nil, err)
+		persistErr := r.recordFailure(ctx, req.Stack.Name, req.Commit, nil, err)
 		r.recordStackFailure(ctx, req.Stack.Name, req.Commit, compose.File{}, err)
-		return wrapReconcileError("load compose", nil, err)
+		return wrapReconcileError("load compose", nil, errors.Join(err, persistErr))
 	}
 
 	services := desiredState.Compose.Services
-	prev, hasPrev := r.currentStackState(req.Stack.Name)
+	prev, hasPrev, readErr := r.currentStackState(ctx, req.Stack.Name)
+	if readErr != nil {
+		return readErr
+	}
 
 	pl := &pipelinePayload{
 		Stack:             req.Stack,
@@ -144,19 +147,21 @@ func (r *Reconciler) Reconcile(
 	if err != nil {
 		pipeErr, _ := errors.AsType[*pipe.StepError](err)
 
-		r.recordFailure(ctx, req.Stack.Name, req.Commit, services, pipeErr)
+		persistErr := r.recordFailure(ctx, req.Stack.Name, req.Commit, services, pipeErr)
 		r.recordStackFailure(ctx, req.Stack.Name, req.Commit, *desiredState, pipeErr)
-		return wrapReconcileError(pipeErr.StepName, services, pipeErr)
+		return wrapReconcileError(pipeErr.StepName, services, errors.Join(pipeErr, persistErr))
 	}
 
-	r.processResult(ctx, req, prev, desiredState, pl)
-
-	return nil
+	return r.processResult(ctx, req, prev, desiredState, pl)
 }
 
-func (r *Reconciler) currentStackState(stackName string) (model.Stack, bool) {
-	currentState := r.stateStore.Get()
-	return currentState.Stack(stackName)
+func (r *Reconciler) currentStackState(ctx context.Context, stackName string) (model.Stack, bool, error) {
+	currentState, err := r.stateStore.Read(ctx)
+	if err != nil {
+		return model.Stack{}, false, err
+	}
+	stack, ok := currentState.Stack(stackName)
+	return stack, ok, nil
 }
 
 func (r *Reconciler) processResult(
@@ -165,7 +170,7 @@ func (r *Reconciler) processResult(
 	prevState model.Stack,
 	desired *compose.File,
 	payload *pipelinePayload,
-) {
+) error {
 	now := time.Now()
 
 	serviceStates := make(map[string]model.Service, len(desired.Compose.Services))
@@ -184,7 +189,7 @@ func (r *Reconciler) processResult(
 		serviceStates[service.Name] = state
 	}
 
-	r.stateStore.Update(ctx, func(state *model.Runtime) {
+	if err := r.stateStore.Update(ctx, func(state *model.Runtime) {
 		state.Stacks[req.Stack.Name] = model.Stack{
 			SourceDigest: desired.Digest,
 			LastCommit:   req.Commit,
@@ -193,7 +198,9 @@ func (r *Reconciler) processResult(
 			LastDeployAt: now,
 			Services:     serviceStates,
 		}
-	})
+	}); err != nil {
+		return fmt.Errorf("persist stack state: %w", err)
+	}
 
 	for _, serviceDrift := range payload.Drift {
 		if !serviceDrift.ServiceMissed || prevState.ServiceSyncStatus(serviceDrift.ServiceName) == model.SyncStatusOutOfSync {
@@ -208,7 +215,7 @@ func (r *Reconciler) processResult(
 	}
 
 	if !payload.IsNewDigest {
-		return
+		return nil
 	}
 
 	for serviceName, service := range serviceStates {
@@ -229,6 +236,7 @@ func (r *Reconciler) processResult(
 			StackDefinition: *desired,
 		},
 	})
+	return nil
 }
 
 func (r *Reconciler) recordFailure(
@@ -237,7 +245,7 @@ func (r *Reconciler) recordFailure(
 	commit string,
 	services []compose.Service,
 	reason error,
-) {
+) error {
 	now := time.Now()
 	servicesState := make(map[string]model.Service, len(services))
 	for _, service := range services {
@@ -248,7 +256,7 @@ func (r *Reconciler) recordFailure(
 		}
 	}
 
-	r.stateStore.Update(ctx, func(state *model.Runtime) {
+	return r.stateStore.Update(ctx, func(state *model.Runtime) {
 		state.Stacks[stackName] = model.Stack{
 			SourceDigest: "",
 			LastCommit:   commit,
