@@ -977,3 +977,44 @@ stacks:
 	assert.Equal(t, "oauth2", cfg.Spec.Git.Auth.HTTP.ResolveUsername(), "expected oauth2 fallback for token auth")
 	assert.Equal(t, "token-value", cfg.Spec.Git.Auth.HTTP.ResolvePassword(), "expected token as password")
 }
+
+func TestNotificationAlertsDefaultsAndValidation(t *testing.T) {
+	spec := NotificationSpec{}
+	spec.applyDefaults()
+	assert.Equal(t, AlertNotificationModeSend, spec.Alerts.Mode, "default mode")
+	assert.Equal(t, 24*time.Hour, spec.Alerts.CorrelationTTL, "default ttl")
+	assert.Empty(t, spec.validate(), "defaults are valid")
+
+	spec.Alerts.Mode = "bogus"
+	spec.Alerts.Telegram = []TelegramChannel{{}}
+	errs := spec.validate()
+	assert.Len(t, errs, 3, "unknown mode, chat id and token")
+}
+
+func TestLoadKeepsNotificationsOnAndAcceptsAlertReplyMode(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "stacks.yaml"), []byte(`
+stacks:
+  - name: app
+    composeFile: app.yaml
+`), 0o600), "write stacks file")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "swarm-deploy.yaml"), []byte(`
+git:
+  repository: https://example.com/repo.git
+stacks:
+  file: ./stacks.yaml
+notifications:
+  on:
+    deployFailed:
+      custom:
+        - name: audit
+          url: https://hooks.example.com/failed
+  alerts:
+    mode: reply
+`), 0o600), "write config file")
+
+	cfg, err := Load(filepath.Join(dir, "swarm-deploy.yaml"))
+	require.NoError(t, err, "load config")
+	assert.Len(t, cfg.Spec.Notifications.On, 1, "notifications.on is still supported")
+	assert.Equal(t, AlertNotificationModeReply, cfg.Spec.Notifications.Alerts.Mode, "reply mode")
+}

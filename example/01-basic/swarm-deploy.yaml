@@ -73,6 +73,18 @@ notifications:
           message: |
             sync started manually
 
+  # Alert lifecycle notifications (deployment failures that were opened/resolved).
+  alerts:
+    # send: separate messages on open and on resolve; edit: edit the "opened" message on resolve;
+    # reply: send the resolution as a reply to the "opened" message.
+    mode: reply
+    # How long the sent message can still be edited.
+    correlationTtl: 24h
+    telegram:
+      - name: ops-alerts
+        botTokenPath: /run/secrets/telegram_bot_token
+        chatId: "-1001234567890"
+
 # Secret/config name rotation settings.
 secretRotation:
   # Enable rotation.

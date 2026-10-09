@@ -25,6 +25,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/logx"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
@@ -56,6 +57,12 @@ var modules = []module{
 			mod, err := alertmanagement.InitModule(ctx, cfg, cnt)
 			cnt.AlertManagement = mod
 			return err
+		},
+	},
+	{
+		Name: "notifications",
+		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
+			return notifications.InitModule(ctx, cfg, cnt)
 		},
 	},
 	{
@@ -328,6 +335,10 @@ func (c *container) GetSwarm() *swarm.Swarm {
 
 func (c *container) GetEventModule() *event.Module {
 	return c.Event
+}
+
+func (c *container) GetAlertManagementModule() *alertmanagement.Module {
+	return c.AlertManagement
 }
 
 func (c *container) GetResourcesModule() *resources.Module {
