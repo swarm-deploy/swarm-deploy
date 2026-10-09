@@ -74,6 +74,8 @@ type Event interface {
 
 // Envelope is a dispatcher envelope shared by every subscriber.
 type Envelope struct {
+	// OccurredAt is the publication timestamp, preserved across retries.
+	OccurredAt time.Time
 	// ID uniquely identifies this dispatch in event history and downstream modules.
 	ID string
 	// Event contains the published domain event.

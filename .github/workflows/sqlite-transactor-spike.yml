@@ -7,6 +7,12 @@ on:
     paths:
       - 'experiments/sqlite-transactor/**'
       - '.github/workflows/sqlite-transactor-spike.yml'
+      - 'internal/storage/**'
+      - 'internal/modules/event/codec/**'
+      - 'internal/modules/event/outbox/**'
+      - 'internal/modules/event/events/**'
+      - 'go.mod'
+      - 'go.sum'
   workflow_dispatch:
 
 permissions:
@@ -33,3 +39,19 @@ jobs:
         env:
           CGO_ENABLED: '1'
         run: go test -race -v ./...
+
+  foundation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26.3'
+      - name: Verify SQLite and Outbox without CGO
+        env:
+          CGO_ENABLED: '0'
+        run: go test -count=1 ./internal/storage ./internal/modules/event/codec ./internal/modules/event/outbox
+      - name: Verify concurrent Outbox workers
+        env:
+          CGO_ENABLED: '1'
+        run: go test -race -count=1 ./internal/storage ./internal/modules/event/codec ./internal/modules/event/outbox
