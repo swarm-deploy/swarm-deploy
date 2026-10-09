@@ -27,95 +27,60 @@ This document expands [SQLite + Deployment Architecture](sqlite-outbox-refactor.
 
 A publication with no durable subscribers is still inserted and **committed**. Immediately after commit, schedule cleanup of the envelope (no retention window). A startup cleanup pass catches crashes between commit and cleanup. For `AfterCommit` callbacks this best-effort queue may lose work on crash by design; its failure cannot block post-commit cleanup forever.
 
-## Proposed Go API
+## Proposed Go API: transactional scope, not explicit Tx plumbing
 
-The names and package split are illustrative; the important parts are explicit transaction ownership and one bus.
+**Decision:** do not expose `*sql.Tx`, `storage.Tx` or `PublishTx(ctx, tx, ...)` through domain or Event Bus APIs. An explicit `sql.Tx` is legitimate inside Go's `database/sql` adapter, but forcing application services and every subscriber to transport it is needless coupling.
+
+Instead, use a **Unit of Work callback** that receives a short-lived, transaction-bound set of interfaces. The scope contains repositories and publisher already bound to the **same underlying SQLite transaction**. It cannot be used after the callback returns.
+
+Illustrative application/domain-facing contracts:
 
 ```go
-// internal/storage
-type DBTX interface {
-    ExecContext(context.Context, string, ...any) (sql.Result, error)
-    QueryContext(context.Context, string, ...any) (*sql.Rows, error)
-    QueryRowContext(context.Context, string, ...any) *sql.Row
-}
-
-type Tx interface {
-    DBTX
-    AfterCommit(func()) // best-effort callback; never invoked after rollback
-}
-
-type Manager interface {
-    WithinTx(ctx context.Context, fn func(tx Tx) error) error
-}
-
-// internal/modules/event/events
-type Event interface {
-    Type() TypeName
-}
-
-// The codec is registered per TypeName and schema_version.
-// Encode MUST return a validated/sanitized persistent representation.
-type Codec interface {
-    Encode(Event) (version int, payload json.RawMessage, err error)
-    Decode(eventType TypeName, version int, payload json.RawMessage) (Event, error)
-}
-
-type Envelope struct {
-    ID            string
-    Type          TypeName
-    SchemaVersion int
-    OccurredAt    time.Time
-    CorrelationID string
-    CausationID   string
-    Event         Event
-}
-
 // internal/modules/event/bus
-type Mode string
-
-const (
-    Transactional Mode = "transactional"
-    AfterCommit   Mode = "after_commit"
-    Durable       Mode = "durable"
-)
-
-// The publisher used inside a handler preserves the *same* transaction.
 type Publisher interface {
     Publish(ctx context.Context, event events.Event) (events.Envelope, error)
 }
 
-type TransactionalHandler func(
-    ctx context.Context,
-    tx storage.Tx,
-    envelope events.Envelope,
-    publisher Publisher,
-) error
-
-type Handler func(ctx context.Context, envelope events.Envelope) error
-
 type Bus interface {
-    // Opens/commits an independent storage transaction for stand-alone events.
-    Publish(ctx context.Context, event events.Event) (events.Envelope, error)
+    Publisher // root publication starts its own short transaction
+    // Subscribe(...) registration API with Transactional/AfterCommit/Durable modes.
+}
 
-    // Publishes inside the caller's transaction. No hidden transaction in ctx.
-    PublishTx(
-        ctx context.Context, tx storage.Tx, event events.Event,
-    ) (events.Envelope, error)
+// Owned by the Deployment module: no dependency on SQL or other business modules.
+type DeploymentWork interface {
+    Deployments() DeploymentWriter
+    Events() bus.Publisher
+}
 
-    SubscribeTransactional(eventType events.TypeName, id string, handler TransactionalHandler) error
-    SubscribeAfterCommit(eventType events.TypeName, id string, handler Handler) error
-    SubscribeDurable(eventType events.TypeName, id string, handler Handler) error
+type UnitOfWork interface {
+    Do(ctx context.Context, fn func(DeploymentWork) error) error
+}
+
+// Example inside DeploymentService:
+func (s *Service) Complete(ctx context.Context, result Result) error {
+    return s.work.Do(ctx, func(w DeploymentWork) error {
+        if err := w.Deployments().Complete(ctx, result); err != nil {
+            return err
+        }
+        _, err := w.Events().Publish(ctx, DeploymentSucceeded{
+            DeploymentID: result.ID,
+        })
+        return err
+    })
 }
 ```
 
-- These methods all register subscriptions in **one registry**, not separate buses.
-- `eventType` may support a wildcard `*`; Event History can subscribe transactionally to all events and choose whether to project each.
-- IDs must be stable and unique (e.g. `event-history`, `alert-management`, `notifications.telegram.<channel>`).
-- Register subscriptions and codecs **before** starting the worker and accepting publications. Reject conflicting subscription IDs and unknown/unsupported persistent event representations at startup/publication time.
-- If one event publishes another, enqueue the child event in a bounded **in-transaction FIFO**, persist it and process all its transactional subscribers before `PublishTx` returns. Nested `Publish` enqueues rather than recursively dispatching handlers; it returns an assigned event ID, **not** a guarantee that the child has already been processed.
-- Ensure flushing/propagating all errors before permitting commit. A future design may expose a `Run(ctx, tx, ...) ` scope if this simplifies nested/multiple publications.
-- `AfterCommit` callbacks must use a commit hook or equivalent so they never run on rollback; successful `PublishTx` alone does not mean committed.
-- The current `dispatcher.Subscriber` with `Slow()` and `Dispatch(...)` returning `void` is replaced/adapted; the current `Type.Window()` must not cause a published event to be globally discarded. Deduplication belongs to projection/alert/notification policies.
+- `DeploymentService` sees only its own repository and `Publisher`; never Alerts, Event History, Notifications, `*sql.Tx`, or a universal service locator.
+- Other business operations can expose their own small `Work` interfaces; **do not create one enormous cross-module UnitOfWork interface**.
+- The infrastructure implementing `Do` calls `database/sql.BeginTx`, constructs scoped repositories and a scoped Event Bus publisher bound to that transaction, drains the transactional handler FIFO, then commits. Any failure rolls back. It dispatches `AfterCommit` work only after the commit succeeds.
+- The Event Bus root `Publish(ctx, event)` remains available for standalone signals; **inside a `Do` callback or transactional subscriber always use the scoped publisher**, never the root bus (which would open an independent transaction).
+- No transaction is injected into `context.Context`. Context still carries cancellation/deadlines/tracing and is not an ambient database session.
+- The scope is short-lived and **must not escape** the callback or be invoked from a goroutine. The storage adapter invalidates it after commit/rollback.
+- Module-specific transactional handlers use the same mechanism: at application wiring time, a handler **factory** binds the module's repository and publisher to the current execution scope, creating an ordinary handler with `Handle(ctx, envelope) error`. The factory/adapter may see an internal SQL executor, but handler/business methods do not receive `Tx` parameters.
+- Nested domain events publish through the scoped `Publisher`, enqueue into a bounded in-transaction FIFO, and are persisted/processed with the root event. The unit of work drains the FIFO **before commit**, including every error. `Publish` returns the envelope ID, not a promise that all nested handlers already completed.
+- Subscriptions have stable IDs and a mode: `Transactional`, `AfterCommit` or `Durable`. All published envelopes enter the outbox regardless of the subscription mode. A `Durable` subscriber gets a delivery record; `AfterCommit` is best-effort.
+
+The public Event Bus signature is deliberately small: **`Publish(ctx, event)` everywhere**, with transaction participation decided by the bound publisher instance rather than a `tx` argument.
 
 ## SQLite DDL (outbox subset of `0001_initial`)
 
@@ -165,17 +130,17 @@ No separate `created_at` for every delivery is needed for the initial design; `o
 
 ## Publication and processing algorithms
 
-### PublishTx (inside publisher-owned transaction)
+### Scoped publication (inside the caller's Unit of Work)
 
-1. Allocate stable `event_id` and metadata; encode using the type-specific safe codec.
+1. Allocate stable `event_id` and metadata; encode using the type-specific safe codec. The **scoped publisher** is already bound to the caller's transaction; no transaction parameter is passed by the service.
 2. Insert `outbox_events` **even when no handlers are registered**.
 3. Resolve matching subscriptions from the registry snapshot for this publication.
 4. Insert one `outbox_deliveries` row per matching `Durable` subscription; do not create rows for `Transactional`/`AfterCommit` modes.
-5. Run every `Transactional` handler with **the same `tx`**; child publications join a bounded FIFO worklist and also get persisted.
+5. Run every `Transactional` handler with repositories/publishers **bound to the same underlying database transaction**; child publications join a bounded FIFO worklist and also get persisted.
 6. Before returning successfully, drain the FIFO and confirm every required handler succeeded. Any failure aborts the surrounding DB transaction and every event/delivery created within it.
 7. Register post-commit handoff for `AfterCommit` work and immediate cleanup for events that have no durable deliveries; **do not** schedule either before commit.
 
-Do not call `Publish(ctx,...)` from a transactional handler: that opens an unrelated transaction. Use only the provided `publisher`.
+Do not use the *root* Event Bus from transactional handlers or inside a Unit of Work callback: it opens an unrelated transaction. Use the **scope-bound** publisher, which has the same `Publish(ctx, event)` signature.
 
 ### Durable worker
 
