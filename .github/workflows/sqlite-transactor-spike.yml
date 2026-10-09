@@ -27,4 +27,9 @@ jobs:
         working-directory: experiments/sqlite-transactor
         env:
           CGO_ENABLED: '0'
+        run: go test -v ./...
+      - name: Verify concurrent access with race detector
+        working-directory: experiments/sqlite-transactor
+        env:
+          CGO_ENABLED: '1'
         run: go test -race -v ./...
