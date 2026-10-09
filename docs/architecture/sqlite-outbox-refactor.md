@@ -91,6 +91,56 @@ The `Durable` notifications example represents **one outbox-backed delivery path
 
 **Atomicity caveat:** Docker API operations are not part of the SQLite transaction. If a process crashes after Docker returns success but before the DB transaction commits, no successful deployment or public `deploySuccess` can be asserted. The incomplete deployment is marked `interrupted` on recovery; live convergence verification remains future work.
 
+## Universal durable subscriptions / outbox
+
+**Decision:** `Durable` is a **generic Event Bus subscription mode** available to any module. The outbox belongs to the Event Bus infrastructure, **not** to Notifications. Notifications is one subscriber, and may register distinct stable subscriptions for configured destinations.
+
+### Durable event and delivery model
+
+- Keep a durable immutable event envelope with `event_id`, `type`, `schema_version`, `occurred_at`, `correlation_id`/`causation_id` when present, and a **minimal sanitized** serialized payload.
+- Store **one delivery/work record per durable subscriber** (or subscriber+destination), with a database uniqueness constraint on `(event_id, subscription_id)`. This is a transport delivery identity, not business-level notification deduplication.
+- Publish domain changes, run transactional handlers, and create all required durable records **within the original publisher transaction**. Rollback removes the event work as well; after commit, work can be picked up.
+- Each durable subscription has a **stable registration ID**, event type(s), handler and retry policy. If a persisted delivery references a subscriber no longer registered after restart/reconfiguration, do not silently mark it delivered: report/park it for operator intervention.
+- On startup, recover due `pending` work and expired `processing` leases. Workers atomically claim a row with owner/token and lease deadline (safe against duplicate active claims); success marks it `delivered`, failures record attempt count, error and next eligible time.
+- Backoff and bounded retries lead to a visible terminal `failed` state with an explicit replay/requeue path. Define retention/compaction of completed work separately from Event History retention; do not delete pending/failed work through a generic history capacity limit.
+- For a DB-only durable handler, commit its database effects and delivery acknowledgement **in the same worker transaction**; use idempotent updates and uniquely keyed records.
+- For an external side effect (Telegram, HTTP webhook, etc.), never hold a SQLite transaction across network I/O. Delivery acknowledgment follows the external operation; crashes can cause duplicates. Expose idempotency keys to destinations when supported.
+- Outbox work is delivered **at least once**; exactly-once behavior is not promised. Independent durable subscriber deliveries are retried independently; a failure of one subscriber does not roll back another worker's acknowledged completion.
+- Registration, persistence and dispatch are generic. Business-specific rendering, alert/notification suppression windows, recipient configuration and reply/thread tracking belong to the subscribing module, not to the Event Bus.
+- `Transactional` and `AfterCommit` subscriptions still use the same Bus and registration system, but **are not automatically persisted** unless they also have explicitly configured `Durable` work.
+- Avoid leaking secrets in the serialized payload; persist only the fields a durable handler truly requires. Treat payload format as a versioned contract because deliveries may survive an application upgrade.
+
+### Baseline SQLite tables
+
+Use `outbox_events` for durable payload envelopes and `outbox_deliveries` for per-subscriber work. `outbox_deliveries` should include `event_id`, `subscription_id`, `status`, `attempts`, `available_at`, `lease_until`, `lease_token`, `last_error`, and completion timestamps. Index due work for efficient claims and enforce `UNIQUE(event_id, subscription_id)`.
+
+The Notifications module may keep a separate domain table for notification identity/history, suppression, resolved recipient state, reply-to IDs, or templates where needed. It must **not** introduce its own parallel generic outbox engine. The design should allow one durable subscription per configured destination, so an error in one Telegram channel does not resend successful deliveries to other channels.
+
+Example:
+
+```text
+Event Bus.Publish(PublicEventRecorded) within source transaction
+    ├── [Transactional] durable work records for:
+    │       ├── notification:telegram:ops
+    │       ├── notification:webhook:audit
+    │       └── future:external-integration
+    └── COMMIT
+          └── Generic Outbox Worker
+                ├── ops Telegram handler → delivered / retry
+                ├── audit Webhook handler → delivered / retry
+                └── integration handler → delivered / retry
+```
+
+### Tests required
+
+- Rollback produces **no** durable delivery.
+- Restart replays pending and expired-lease deliveries.
+- Duplicate publication with the **same event ID** does not enqueue duplicate work; two distinct deployments have different IDs and are both delivered.
+- One failing subscriber cannot force replay of another subscriber already acknowledged.
+- Post-send/pre-ack crash can cause duplicate external delivery (explicitly documented).
+- Unknown/removed subscriptions and incompatible payload versions are visible and recoverable, not silently discarded.
+- Notification-specific deduplication never mutates or suppresses the canonical Event History record.
+
 ## Deployment lifecycle
 
 - Deployment records a **real attempt to apply a changed effective desired state**, not every reconcile. Distinct retries create distinct deployment IDs. Reconciler owns whether a retry happens; a store must not suppress attempts with the same revision/digest.
@@ -111,8 +161,8 @@ External Docker operations and the database **cannot share a transaction**. The 
 - On completed apply, use **one DB transaction** to commit all of: `Deployment=succeeded`, successful `DesiredSnapshot`, the `deploySuccess` public event, and the outbox record(s) required for downstream notification processing.
 - Failed/interrupted transitions and their durable side effects must use the same principle.
 - After a crash between Docker API success and the success transaction, the Deployment remains `running` until it is detected as `interrupted`; do not invent success or overwrite the baseline. Actual-state convergence detection is future work.
-- An outbox worker reads due records, attempts delivery, and marks completion/retry in the database. Define bounded retries/backoff, terminal handling, metrics, and startup recovery.
-- Model one notification intent and a **separate delivery state per destination** so partial success across Telegram/webhooks is not treated as all-or-nothing.
+- A generic Event Bus outbox worker reads due subscriber records, attempts delivery, and marks completion/retry in the database. Define bounded retries/backoff, terminal handling, metrics, and startup recovery.
+- Model **separate durable delivery state per destination** (e.g. independent stable subscriber IDs) so partial success across Telegram/webhooks is not treated as all-or-nothing.
 - Prevent duplicate scheduling via stable source/event + destination keys, and preserve deduplication semantics without suppressing legitimate new deployment attempts.
 - Network notifications provide **at-least-once**, not exactly-once delivery: a crash after an external send and before DB acknowledgement may repeat a message. `ReplyTo`/threading is message metadata, not a notifier-specific new API and not where send results belong.
 - Optional runtime observers use the single Event Bus's `AfterCommit` mode; **do not** dump all runtime signals into user Event History.
@@ -132,7 +182,7 @@ Keep a single `0001_initial` schema migration in the integration branch; before 
 
 Plan for these conceptual tables (naming/details can change during implementation):
 
-`schema_migrations`, `legacy_imports`, `gitops_runtime`, `nodes`, `services`, `secret_metadata`, `recommendations`, `assistant_chats`, `assistant_turns`, `deployments`, `desired_snapshots`, `event_history`, `alerts`, `outbox`, `notification_deliveries`.
+`schema_migrations`, `legacy_imports`, `gitops_runtime`, `nodes`, `services`, `secret_metadata`, `recommendations`, `assistant_chats`, `assistant_turns`, `deployments`, `desired_snapshots`, `event_history`, `alerts`, `outbox_events`, `outbox_deliveries`, plus optional notification-domain tables.
 
 Import existing JSON on startup before starting collectors/reconcilers/subscribers. Required properties:
 
@@ -149,7 +199,7 @@ Import existing JSON on startup before starting collectors/reconcilers/subscribe
 2. Migrate existing file-backed repositories and stop wiring JSON stores; extend interfaces where writes currently hide failures.
 3. Introduce Deployments, effective-state semantic diffs and successful DesiredSnapshot.
 4. Separate public Events, Alerts and internal signals; route durable effects through DB transactions.
-5. Introduce outbox processing, per-destination notification states, retries and deduplication/thread metadata.
+5. Introduce a universal Event Bus outbox worker, per-subscriber delivery records, retries and notification-specific deduplication/thread metadata.
 6. Rewire API/Overview/Event & Alerts UI, adjust docs/config, and remove obsolete file-write code.
 7. Verify data import from real-looking fixture sets, crash/restart at every important boundary, migration replay, full CI and Docker build. Consolidate schema to a single initial migration and merge once.
 
