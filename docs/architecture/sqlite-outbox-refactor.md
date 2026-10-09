@@ -42,37 +42,54 @@ The assistant's TTL-bound in-memory context cache is **not a file store**; it ma
 - Design schemas from query patterns. Index event list filters/cursors, deployment history by stack/time, unresolved alerts by fingerprint, and pending notifications by due time.
 - Preserve public API response contracts where possible, but remove obsolete *internal* JSON-file repository APIs. Fix silent write failures: for example, `gitops/modelstore.FileStore.Update` currently logs persistence failures without returning an error.
 
-## Transactional events and module isolation
+## Unified Event Bus and module isolation
 
-**Architecture decision:** `DeploymentService` must not call `AlertService`, `EventService`, `NotificationService`, or their repositories directly. Preserve modular reactions through typed domain events.
+**Architecture decision:** use **one Event Bus**, not two dispatchers. `DeploymentService` must not invoke Alert Management, Event History, or Notifications services/repositories directly. Modules collaborate through typed domain events and subscribed handlers.
 
-- A shared **synchronous transactional event bus** coordinates local durable projections inside a caller-owned SQLite transaction. It is separate from the existing best-effort asynchronous runtime dispatcher.
-- The deployment module owns its Deployment and successful desired snapshot state. It emits typed domain facts such as `DeploymentSucceeded` and `DeploymentFailed` (internal types; do not expose them automatically as public Event History entries).
-- Dedicated handlers in their respective modules react to these domain facts, sharing the **same transaction**: Event History records public `deploySuccess`, Alert Management resolves/opens an alert, and Notifications enqueues outbox delivery intents for eligible public-event or alert lifecycle notifications.
-- An alert handler may produce `AlertOpened`, `AlertUpdated` or `AlertResolved` domain events. Notification handlers subscribe to alert lifecycle facts, **not** to arbitrary ordering assumptions between sibling handlers of a deployment event.
-- All transactional handlers perform **DB-only operations**; no Docker API, network calls, background goroutines or external notifier calls inside the transaction.
-- Subscriber failures abort the entire transaction and propagate to the caller. The caller must never report local durable success before commit.
-- Register mandatory transactional handlers at composition time, deterministically; allow no silent omission or best-effort behavior for mandatory persistence. Bound or detect recursive event emissions.
-- A `Publish(ctx, tx, event) error` abstraction is one possible API; keep transaction boundaries explicit and do not stash SQL transactions in a context.
-- The outbox worker sends notifications **after commit** and manages retries and acknowledgements separately. Dispatching a runtime-only signal via the original queue does not establish durable persistence guarantees.
+The Event Bus supports **three delivery guarantees for subscribers**:
 
-Illustrative flow:
+| Subscription mode | Execution | Failure contract | Usage |
+|---|---|---|---|
+| `Transactional` | Synchronously, in the publisher's SQLite transaction | Handler errors abort the business transaction | Event History projections, Alerts lifecycle, DB-backed notification scheduling |
+| `AfterCommit` | Best-effort after successful commit | Errors logged/observed, do not undo commit; may be lost on process crash | Telemetry, cache invalidation, optional in-process observers |
+| `Durable` | Persist per-consumer delivery work in the same transaction; process after commit via outbox worker | Retried according to durable delivery policy; at-least-once | Externally delivered notifications and other recoverable asynchronous work |
+
+**One subscription registry and one publication path**, with delivery policy on the subscriber registration. Existing event types may be adapted, but the old independent queue dispatcher must not remain as a second event bus.
+
+### Transaction scope and execution rules
+
+- The business owner opens a transaction via `internal/storage`, updates its own models and publishes a domain event through **the same Event Bus bound to the same transaction**. A possible shape: `bus.In(tx).Publish(ctx, event) error`. A `Publish(ctx, event) error` convenience method may create its own transaction for standalone events, but it must **not** be used when an atomic state transition already exists.
+- Event Bus executes all `Transactional` handlers before the transaction can commit. Every DB write by a transactional handler uses the supplied transaction, never an independent connection/transaction. Handler failures propagate to the publisher.
+- Transactional handlers may publish additional events. A **bounded FIFO processing queue within the transaction** drains all resulting events and subscriptions before completion; detect cycles or enforce a reasonable event/handler ceiling. Avoid relying on registration order to express business causality: publish an explicit follow-up event such as `AlertResolved` or `PublicEventRecorded`.
+- Durable subscribers are enqueued *transactionally* using stable event IDs and subscriber/destination keys. The outbox worker performs external I/O **only after commit**; delivery is at-least-once, not exactly-once.
+- AfterCommit subscribers are scheduled only after a successful commit, never on rollback. A transaction completion hook or equivalent is necessary; the runtime queue cannot be used before commit. AfterCommit delivery may be lost on crashes and must not be relied on for durable effects.
+- `Publish` returns errors when mandatory transactional work or outbox persistence fails. No silent failure, no `context.Context` transaction injection, no Docker/network calls or goroutines inside transactional handlers.
+- Domain events are **not automatically user-visible Events**. `DeploymentSucceeded`/`DeploymentFailed` are internal facts; the Event History subscriber decides whether to persist a public `deploySuccess` record. `NodeDisconnected` and `DeployFailed` can trigger Alerts without appearing in public Event History.
+- Each event has a stable ID, type and (when useful) correlation/causation metadata. Payloads persisted for durable delivery must be serializable, versionable and secret-safe. Do not treat arbitrary Go errors or live Docker API objects as outbox payloads.
+- Mandatory subscribers must be wired and validated during application composition; independently deployed modules must not silently miss required transactional projections. Durable delivery subscribers require stable registration IDs.
+
+### Example flow
 
 ```text
-Deployment apply completed
+Deployment apply completed (Docker API outside transaction)
   -> BEGIN TX
-  -> Deployment=succeeded + DesiredSnapshot
-  -> publish internal DeploymentSucceeded
-       -> Event handler: public deploySuccess persisted
-            -> public-event notification handler: enqueue outbox intents
-       -> Alert handler: resolve matching alert
-            -> publish AlertResolved
-                 -> alert-notification handler: enqueue outbox intents
+  -> Deployment=succeeded + successful DesiredSnapshot + GitOps state
+  -> Bus.Publish(DeploymentSucceeded)
+       -> [Transactional] Event History: persist public deploySuccess
+            -> Bus.Publish(PublicEventRecorded)
+       -> [Transactional] Alerts: resolve the matching alert
+            -> Bus.Publish(AlertResolved)
+       -> [Durable] Notifications: enqueue deliveries for
+            PublicEventRecorded and/or AlertResolved as configured
+       -> [AfterCommit] Metrics / optional observers
   -> COMMIT
-  -> Outbox worker sends externally
+  -> Event Bus releases AfterCommit work
+  -> Outbox worker performs durable delivery
 ```
 
-Cross-module participation is by subscription to domain facts, not service-to-service orchestration. The implementation must ensure all synchronous projections run before commit, including facts emitted by handlers. Pending design: decide on event processing order (bounded FIFO is an option), failure propagation, and whether mandatory handler registration should be validated at startup.
+The `Durable` notifications example represents **one outbox-backed delivery path**, not a second notifier event dispatcher. The notification module still owns per-destination delivery state, templating, deduplication/reply metadata and retries. Avoid double-scheduling the same notification through both transactional and durable subscriptions.
+
+**Atomicity caveat:** Docker API operations are not part of the SQLite transaction. If a process crashes after Docker returns success but before the DB transaction commits, no successful deployment or public `deploySuccess` can be asserted. The incomplete deployment is marked `interrupted` on recovery; live convergence verification remains future work.
 
 ## Deployment lifecycle
 
@@ -98,7 +115,7 @@ External Docker operations and the database **cannot share a transaction**. The 
 - Model one notification intent and a **separate delivery state per destination** so partial success across Telegram/webhooks is not treated as all-or-nothing.
 - Prevent duplicate scheduling via stable source/event + destination keys, and preserve deduplication semantics without suppressing legitimate new deployment attempts.
 - Network notifications provide **at-least-once**, not exactly-once delivery: a crash after an external send and before DB acknowledgement may repeat a message. `ReplyTo`/threading is message metadata, not a notifier-specific new API and not where send results belong.
-- Keep internal dispatcher/telemetry non-durable where appropriate; do **not** dump all runtime signals into user Event History.
+- Optional runtime observers use the single Event Bus's `AfterCommit` mode; **do not** dump all runtime signals into user Event History.
 
 ## Events, alerts, and notifications
 
