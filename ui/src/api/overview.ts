@@ -1,6 +1,7 @@
 import { apiRequest } from "./client";
 import type {
   AlertsResponse,
+  DeploymentsResponse,
   AlertStatus,
   EventHistoryResponse,
   GitCommitDetailsResponse,
@@ -133,4 +134,10 @@ export function openTaskLogsStream(taskID: string, options?: { follow?: boolean;
 export function fetchStackManifestos(stackName: string): Promise<StackManifestosResponse> {
   const encodedStack = encodeURIComponent(stackName);
   return apiRequest<StackManifestosResponse>(`/api/v1/stacks/${encodedStack}/manifestos`);
+}
+export function fetchDeployments(options: { stack?: string; limit?: number } = {}): Promise<DeploymentsResponse> {
+  const params = new URLSearchParams();
+  if (options.stack) params.set("stack", options.stack);
+  if (options.limit) params.set("limit", String(options.limit));
+  return apiRequest<DeploymentsResponse>(`/api/v1/deployments?${params}`);
 }

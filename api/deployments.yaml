@@ -1,0 +1,88 @@
+paths:
+  /api/v1/deployments:
+    get:
+      operationId: listDeployments
+      parameters:
+        - in: query
+          name: stack
+          schema:
+            type: string
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 100
+      responses:
+        '200':
+          description: Recent apply attempts, newest first. Success does not imply Swarm convergence.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeploymentsResponse'
+  /api/v1/deployments/{id}:
+    get:
+      operationId: getDeployment
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: One apply attempt and its safe planned changes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deployment'
+components:
+  schemas:
+    DeploymentStatus:
+      type: string
+      enum: [running, succeeded, failed, interrupted]
+    DeploymentChange:
+      type: object
+      required: [path, redacted]
+      properties:
+        path:
+          type: string
+        before:
+          type: string
+        after:
+          type: string
+        redacted:
+          type: boolean
+    Deployment:
+      type: object
+      required: [id, stack, commit, status, started_at, changes]
+      properties:
+        id:
+          type: string
+        stack:
+          type: string
+        commit:
+          type: string
+        status:
+          $ref: '#/components/schemas/DeploymentStatus'
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+        error_code:
+          type: string
+        changes:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeploymentChange'
+    DeploymentsResponse:
+      type: object
+      required: [deployments]
+      properties:
+        deployments:
+          type: array
+          items:
+            $ref: '#/components/schemas/Deployment'

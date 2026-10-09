@@ -33,6 +33,10 @@ type Handler interface {
 	//
 	// GET /api/v1/users/me
 	GetCurrentUser(ctx context.Context) (*CurrentUserResponse, error)
+	// GetDeployment implements getDeployment operation.
+	//
+	// GET /api/v1/deployments/{id}
+	GetDeployment(ctx context.Context, params GetDeploymentParams) (*Deployment, error)
 	// GetGitCommit implements getGitCommit operation.
 	//
 	// GET /api/v1/git/commits/{commit}
@@ -65,6 +69,10 @@ type Handler interface {
 	//
 	// GET /api/v1/assistant/chats
 	ListAssistantChats(ctx context.Context) (*AssistantChatsResponse, error)
+	// ListDeployments implements listDeployments operation.
+	//
+	// GET /api/v1/deployments
+	ListDeployments(ctx context.Context, params ListDeploymentsParams) (*DeploymentsResponse, error)
 	// ListEvents implements listEvents operation.
 	//
 	// GET /api/v1/events

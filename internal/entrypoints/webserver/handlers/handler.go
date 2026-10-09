@@ -8,6 +8,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
 	recommendationstore "github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/modelstore"
@@ -19,6 +20,7 @@ import (
 )
 
 type handler struct {
+	deployments *deployment.Store
 	generated.UnimplementedHandler
 	stackProvider    config.StackProvider
 	stateStore       modelstore.ReadStore
@@ -55,8 +57,9 @@ func New(
 	recommendations recommendationstore.Store,
 	alerts alertstore.Store,
 	assistantService assistant.Assistant,
+	deployments *deployment.Store,
 ) *handler {
-	return &handler{
+	return &handler{deployments: deployments,
 		stackProvider:    stackProvider,
 		stateStore:       stateStore,
 		control:          control,

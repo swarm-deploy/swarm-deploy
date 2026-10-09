@@ -1,9 +1,9 @@
 import { createRouter, createWebHistory } from "vue-router";
 
 import ServicesView from "../views/ApplicationsView.vue";
-import AlertsView from "../views/AlertsView.vue";
+import DeploymentsView from "../views/DeploymentsView.vue";
 import ClusterView from "../views/ClusterView.vue";
-import EventsView from "../views/EventsView.vue";
+import EventsView from "../views/EventsAlertsView.vue";
 import GraphView from "../views/GraphView.vue";
 import NetworksView from "../views/NetworksView.vue";
 import OverviewView from "../views/OverviewView.vue";
@@ -14,6 +14,7 @@ import ServiceView from "../views/ServiceView.vue";
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
+    { path: "/deployments", name: "deployments", component: DeploymentsView },
     {
       path: "/",
       redirect: "/overview",
@@ -36,7 +37,7 @@ export const router = createRouter({
     {
       path: "/alerts",
       name: "alerts",
-      component: AlertsView,
+      redirect: "/events#alerts",
     },
     {
       path: "/events",

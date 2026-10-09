@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from "vue";
 
-import { fetchAlerts, fetchEvents, fetchRecommendations } from "../api/overview";
-import type { Alert, EventHistoryItem, Recommendation, RecommendationSeverity } from "../api/types";
+import { fetchAlerts, fetchDeployments, fetchRecommendations } from "../api/overview";
+import type { Alert, Deployment, Recommendation, RecommendationSeverity } from "../api/types";
 import StackCard from "../components/overview/StackCard.vue";
 import SummaryPanel from "../components/overview/SummaryPanel.vue";
 import SummaryRow from "../components/overview/SummaryRow.vue";
@@ -10,13 +10,13 @@ import { useOverviewStore } from "../stores/overview";
 import { formatDate, shortCommitHash } from "../utils/format";
 
 const overviewStore = useOverviewStore();
-const deploymentEvents = ref<EventHistoryItem[]>([]);
+const deployments = ref<Deployment[]>([]);
 const alerts = ref<Alert[]>([]);
 const recommendations = ref<Recommendation[]>([]);
 const overviewEventsError = ref("");
 const overviewAlertsError = ref("");
 const overviewRecommendationsError = ref("");
-const deploymentEventsLimit = 4;
+const deploymentsLimit = 4;
 const alertEventsLimit = 4;
 const recommendationsLimit = 4;
 const recommendationSeverityRank: Record<RecommendationSeverity, number> = {
@@ -53,20 +53,8 @@ function serviceCount(stackName: string): number {
   return serviceCountsByStack.value.get(stackName) ?? 0;
 }
 
-function deploymentResultClass(item: EventHistoryItem): string {
-  return item.type === "deploySuccess" ? "overview-deployment-result--success" : "overview-deployment-result--failed";
-}
-
-function detailValue(item: EventHistoryItem, keys: string[]): string {
-  const details = item.details ?? {};
-  for (const key of keys) {
-    const value = String(details[key] ?? "").trim();
-    if (value) {
-      return value;
-    }
-  }
-
-  return "";
+function deploymentResultClass(item: Deployment): string {
+  return item.status === "succeeded" ? "overview-deployment-result--success" : item.status === "running" ? "overview-deployment-result--running" : "overview-deployment-result--failed";
 }
 
 function formatTime(raw: string | undefined): string {
@@ -142,7 +130,7 @@ async function refreshOverview() {
 
   const [overviewResult, deploymentsResult, alertsResult, recommendationsResult] = await Promise.allSettled([
     overviewStore.loadOverview(),
-    fetchEvents({ types: ["deploySuccess", "deployFailed"], limit: deploymentEventsLimit }),
+    fetchDeployments({ limit: deploymentsLimit }),
     fetchAlerts({ status: "open", limit: alertEventsLimit }),
     fetchRecommendations({ limit: recommendationsLimit }),
   ]);
@@ -151,9 +139,9 @@ async function refreshOverview() {
     overviewStore.loadingError = overviewResult.reason instanceof Error ? overviewResult.reason.message : "Failed to load state";
   }
   if (deploymentsResult.status === "fulfilled") {
-    deploymentEvents.value = Array.isArray(deploymentsResult.value.events) ? deploymentsResult.value.events.reverse() : [];
+    deployments.value = Array.isArray(deploymentsResult.value.deployments) ? deploymentsResult.value.deployments : [];
   } else {
-    deploymentEvents.value = [];
+    deployments.value = [];
     overviewEventsError.value =
       deploymentsResult.reason instanceof Error ? deploymentsResult.reason.message : "Failed to load latest deployments";
   }
@@ -215,41 +203,42 @@ onUnmounted(() => {
     <SummaryPanel
       title="Latest Deployments"
       icon="deployments"
-      :to="{ path: '/events', query: { types: ['deploySuccess', 'deployFailed'] } }"
+      to="/deployments"
     >
-      <p v-if="overviewEventsError && deploymentEvents.length === 0" class="meta">
+      <p v-if="overviewEventsError && deployments.length === 0" class="meta">
         Failed to load latest deployments: {{ overviewEventsError }}
       </p>
-      <div v-else-if="deploymentEvents.length === 0" class="overview-summary-empty">
+      <div v-else-if="deployments.length === 0" class="overview-summary-empty">
         <span class="overview-summary-empty-icon" aria-hidden="true">↓</span>
         <strong>No deployments yet</strong>
         <span>Recent deployments will appear here</span>
       </div>
       <div v-else class="overview-deployment-list">
         <SummaryRow
-          v-for="event in deploymentEvents.slice(0, deploymentEventsLimit)"
-          :key="`${event.type}-${event.created_at}-${event.message}`"
-          :interactive="Boolean(detailValue(event, ['commit', 'revision']))"
-          :aria-label="`Open deployment commit ${detailValue(event, ['commit', 'revision'])}`"
-          @activate="openCommitDetails(detailValue(event, ['commit', 'revision']))"
+          v-for="event in deployments.slice(0, deploymentsLimit)"
+          :key="event.id"
+          :interactive="Boolean(event.commit)"
+          :aria-label="`Open deployment commit ${event.commit}`"
+          @activate="openCommitDetails(event.commit)"
         >
           <span
             class="overview-summary-severity overview-deployment-result"
             :class="deploymentResultClass(event)"
-            :aria-label="event.type === 'deploySuccess' ? 'Deployment succeeded' : 'Deployment failed'"
+            :aria-label="`Deployment ${event.status}`"
+            :title="event.status"
             role="img"
           ></span>
-          <span class="overview-deployment-stack">{{ detailValue(event, ["stack", "stack_name"]) || "unknown stack" }}</span>
-          <time class="overview-deployment-time" :datetime="event.created_at">{{ formatTime(event.created_at) }}</time>
-          <span v-if="detailValue(event, ['commit', 'revision'])" class="overview-commit-badge overview-summary-sha-badge">
-            {{ shortCommitHash(detailValue(event, ["commit", "revision"])) }}
+          <span class="overview-deployment-stack">{{ event.stack || "unknown stack" }}</span>
+          <time class="overview-deployment-time" :datetime="event.started_at">{{ formatTime(event.started_at) }}</time>
+          <span v-if="event.commit" class="overview-commit-badge overview-summary-sha-badge">
+            {{ shortCommitHash(event.commit) }}
           </span>
           <span v-else class="overview-summary-value-empty">n/a</span>
         </SummaryRow>
       </div>
     </SummaryPanel>
 
-    <SummaryPanel title="Alerts" icon="alerts" to="/alerts">
+    <SummaryPanel title="Alerts" icon="alerts" to="/events#alerts">
       <p v-if="overviewAlertsError && alerts.length === 0" class="meta">Failed to load alerts: {{ overviewAlertsError }}</p>
       <div v-else-if="alerts.length === 0" class="overview-summary-empty">
         <span class="overview-summary-empty-icon overview-summary-empty-icon--healthy" aria-hidden="true">✓</span>

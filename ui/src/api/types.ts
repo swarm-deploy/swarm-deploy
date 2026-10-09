@@ -129,8 +129,8 @@ export interface AlertResolution {
 export interface Alert {
   id: string;
   fingerprint: string;
-  kind: "deploy_failed";
-  resourceType: "stack";
+  kind: "deploy_failed" | "node_disconnected";
+  resourceType: "stack" | "node";
   resourceId: string;
   status: AlertStatus;
   title: string;
@@ -426,3 +426,21 @@ export interface AssistantChatMessage {
 export interface AssistantChatHistory extends AssistantChatSummary {
   messages: AssistantChatMessage[];
 }
+export type DeploymentStatus = "running" | "succeeded" | "failed" | "interrupted";
+export interface DeploymentChange {
+  path: string;
+  before?: string;
+  after?: string;
+  redacted: boolean;
+}
+export interface Deployment {
+  id: string;
+  stack: string;
+  commit: string;
+  status: DeploymentStatus;
+  started_at: string;
+  finished_at?: string;
+  error_code?: string;
+  changes: DeploymentChange[];
+}
+export interface DeploymentsResponse { deployments: Deployment[]; }

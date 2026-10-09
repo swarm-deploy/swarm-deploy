@@ -185,13 +185,15 @@ func (s *Alert) SetResolution(val OptAlertResolution) {
 type AlertKind string
 
 const (
-	AlertKindDeployFailed AlertKind = "deploy_failed"
+	AlertKindDeployFailed     AlertKind = "deploy_failed"
+	AlertKindNodeDisconnected AlertKind = "node_disconnected"
 )
 
 // AllValues returns all AlertKind values.
 func (AlertKind) AllValues() []AlertKind {
 	return []AlertKind{
 		AlertKindDeployFailed,
+		AlertKindNodeDisconnected,
 	}
 }
 
@@ -199,6 +201,8 @@ func (AlertKind) AllValues() []AlertKind {
 func (s AlertKind) MarshalText() ([]byte, error) {
 	switch s {
 	case AlertKindDeployFailed:
+		return []byte(s), nil
+	case AlertKindNodeDisconnected:
 		return []byte(s), nil
 	default:
 		return nil, errors.Errorf("invalid value: %q", s)
@@ -210,6 +214,9 @@ func (s *AlertKind) UnmarshalText(data []byte) error {
 	switch AlertKind(data) {
 	case AlertKindDeployFailed:
 		*s = AlertKindDeployFailed
+		return nil
+	case AlertKindNodeDisconnected:
+		*s = AlertKindNodeDisconnected
 		return nil
 	default:
 		return errors.Errorf("invalid value: %q", data)
@@ -291,12 +298,14 @@ type AlertResourceType string
 
 const (
 	AlertResourceTypeStack AlertResourceType = "stack"
+	AlertResourceTypeNode  AlertResourceType = "node"
 )
 
 // AllValues returns all AlertResourceType values.
 func (AlertResourceType) AllValues() []AlertResourceType {
 	return []AlertResourceType{
 		AlertResourceTypeStack,
+		AlertResourceTypeNode,
 	}
 }
 
@@ -304,6 +313,8 @@ func (AlertResourceType) AllValues() []AlertResourceType {
 func (s AlertResourceType) MarshalText() ([]byte, error) {
 	switch s {
 	case AlertResourceTypeStack:
+		return []byte(s), nil
+	case AlertResourceTypeNode:
 		return []byte(s), nil
 	default:
 		return nil, errors.Errorf("invalid value: %q", s)
@@ -315,6 +326,9 @@ func (s *AlertResourceType) UnmarshalText(data []byte) error {
 	switch AlertResourceType(data) {
 	case AlertResourceTypeStack:
 		*s = AlertResourceTypeStack
+		return nil
+	case AlertResourceTypeNode:
+		*s = AlertResourceTypeNode
 		return nil
 	default:
 		return errors.Errorf("invalid value: %q", data)
@@ -853,6 +867,217 @@ func (s *CurrentUserResponse) SetName(val string) {
 // DeleteNodeLabelNoContent is response for DeleteNodeLabel operation.
 type DeleteNodeLabelNoContent struct{}
 
+// Ref: #/components/schemas/Deployment
+type Deployment struct {
+	ID         string             `json:"id"`
+	Stack      string             `json:"stack"`
+	Commit     string             `json:"commit"`
+	Status     DeploymentStatus   `json:"status"`
+	StartedAt  time.Time          `json:"started_at"`
+	FinishedAt OptDateTime        `json:"finished_at"`
+	ErrorCode  OptString          `json:"error_code"`
+	Changes    []DeploymentChange `json:"changes"`
+}
+
+// GetID returns the value of ID.
+func (s *Deployment) GetID() string {
+	return s.ID
+}
+
+// GetStack returns the value of Stack.
+func (s *Deployment) GetStack() string {
+	return s.Stack
+}
+
+// GetCommit returns the value of Commit.
+func (s *Deployment) GetCommit() string {
+	return s.Commit
+}
+
+// GetStatus returns the value of Status.
+func (s *Deployment) GetStatus() DeploymentStatus {
+	return s.Status
+}
+
+// GetStartedAt returns the value of StartedAt.
+func (s *Deployment) GetStartedAt() time.Time {
+	return s.StartedAt
+}
+
+// GetFinishedAt returns the value of FinishedAt.
+func (s *Deployment) GetFinishedAt() OptDateTime {
+	return s.FinishedAt
+}
+
+// GetErrorCode returns the value of ErrorCode.
+func (s *Deployment) GetErrorCode() OptString {
+	return s.ErrorCode
+}
+
+// GetChanges returns the value of Changes.
+func (s *Deployment) GetChanges() []DeploymentChange {
+	return s.Changes
+}
+
+// SetID sets the value of ID.
+func (s *Deployment) SetID(val string) {
+	s.ID = val
+}
+
+// SetStack sets the value of Stack.
+func (s *Deployment) SetStack(val string) {
+	s.Stack = val
+}
+
+// SetCommit sets the value of Commit.
+func (s *Deployment) SetCommit(val string) {
+	s.Commit = val
+}
+
+// SetStatus sets the value of Status.
+func (s *Deployment) SetStatus(val DeploymentStatus) {
+	s.Status = val
+}
+
+// SetStartedAt sets the value of StartedAt.
+func (s *Deployment) SetStartedAt(val time.Time) {
+	s.StartedAt = val
+}
+
+// SetFinishedAt sets the value of FinishedAt.
+func (s *Deployment) SetFinishedAt(val OptDateTime) {
+	s.FinishedAt = val
+}
+
+// SetErrorCode sets the value of ErrorCode.
+func (s *Deployment) SetErrorCode(val OptString) {
+	s.ErrorCode = val
+}
+
+// SetChanges sets the value of Changes.
+func (s *Deployment) SetChanges(val []DeploymentChange) {
+	s.Changes = val
+}
+
+// Ref: #/components/schemas/DeploymentChange
+type DeploymentChange struct {
+	Path     string    `json:"path"`
+	Before   OptString `json:"before"`
+	After    OptString `json:"after"`
+	Redacted bool      `json:"redacted"`
+}
+
+// GetPath returns the value of Path.
+func (s *DeploymentChange) GetPath() string {
+	return s.Path
+}
+
+// GetBefore returns the value of Before.
+func (s *DeploymentChange) GetBefore() OptString {
+	return s.Before
+}
+
+// GetAfter returns the value of After.
+func (s *DeploymentChange) GetAfter() OptString {
+	return s.After
+}
+
+// GetRedacted returns the value of Redacted.
+func (s *DeploymentChange) GetRedacted() bool {
+	return s.Redacted
+}
+
+// SetPath sets the value of Path.
+func (s *DeploymentChange) SetPath(val string) {
+	s.Path = val
+}
+
+// SetBefore sets the value of Before.
+func (s *DeploymentChange) SetBefore(val OptString) {
+	s.Before = val
+}
+
+// SetAfter sets the value of After.
+func (s *DeploymentChange) SetAfter(val OptString) {
+	s.After = val
+}
+
+// SetRedacted sets the value of Redacted.
+func (s *DeploymentChange) SetRedacted(val bool) {
+	s.Redacted = val
+}
+
+// Ref: #/components/schemas/DeploymentStatus
+type DeploymentStatus string
+
+const (
+	DeploymentStatusRunning     DeploymentStatus = "running"
+	DeploymentStatusSucceeded   DeploymentStatus = "succeeded"
+	DeploymentStatusFailed      DeploymentStatus = "failed"
+	DeploymentStatusInterrupted DeploymentStatus = "interrupted"
+)
+
+// AllValues returns all DeploymentStatus values.
+func (DeploymentStatus) AllValues() []DeploymentStatus {
+	return []DeploymentStatus{
+		DeploymentStatusRunning,
+		DeploymentStatusSucceeded,
+		DeploymentStatusFailed,
+		DeploymentStatusInterrupted,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s DeploymentStatus) MarshalText() ([]byte, error) {
+	switch s {
+	case DeploymentStatusRunning:
+		return []byte(s), nil
+	case DeploymentStatusSucceeded:
+		return []byte(s), nil
+	case DeploymentStatusFailed:
+		return []byte(s), nil
+	case DeploymentStatusInterrupted:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *DeploymentStatus) UnmarshalText(data []byte) error {
+	switch DeploymentStatus(data) {
+	case DeploymentStatusRunning:
+		*s = DeploymentStatusRunning
+		return nil
+	case DeploymentStatusSucceeded:
+		*s = DeploymentStatusSucceeded
+		return nil
+	case DeploymentStatusFailed:
+		*s = DeploymentStatusFailed
+		return nil
+	case DeploymentStatusInterrupted:
+		*s = DeploymentStatusInterrupted
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/DeploymentsResponse
+type DeploymentsResponse struct {
+	Deployments []Deployment `json:"deployments"`
+}
+
+// GetDeployments returns the value of Deployments.
+func (s *DeploymentsResponse) GetDeployments() []Deployment {
+	return s.Deployments
+}
+
+// SetDeployments sets the value of Deployments.
+func (s *DeploymentsResponse) SetDeployments(val []Deployment) {
+	s.Deployments = val
+}
+
 // Ref: #/components/schemas/EventCategory
 type EventCategory string
 
@@ -997,6 +1222,7 @@ func (s *EventHistoryItemDetails) init() EventHistoryItemDetails {
 // Ref: #/components/schemas/EventHistoryResponse
 type EventHistoryResponse struct {
 	Events []EventHistoryItem `json:"events"`
+	// Opaque cursor for the following page, omitted when no more events are available.
 	NextCursor OptString `json:"nextCursor"`
 }
 
@@ -1005,14 +1231,14 @@ func (s *EventHistoryResponse) GetEvents() []EventHistoryItem {
 	return s.Events
 }
 
-// SetEvents sets the value of Events.
-func (s *EventHistoryResponse) SetEvents(val []EventHistoryItem) {
-	s.Events = val
-}
-
 // GetNextCursor returns the value of NextCursor.
 func (s *EventHistoryResponse) GetNextCursor() OptString {
 	return s.NextCursor
+}
+
+// SetEvents sets the value of Events.
+func (s *EventHistoryResponse) SetEvents(val []EventHistoryItem) {
+	s.Events = val
 }
 
 // SetNextCursor sets the value of NextCursor.
