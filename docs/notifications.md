@@ -16,9 +16,9 @@ Available template fields:
 - `.event.commit`
 - `.event.error`
 - `.event.username` (for `userAuthenticated`)
-- `.event.node_id` (for `nodeConnected` / `nodeDisconnected`)
-- `.event.node_name` (for `nodeConnected` / `nodeDisconnected`)
-- `.event.status` (for `nodeConnected` / `nodeDisconnected`)
+- `.event.node_id` (for `nodeJoined` / `nodeConnected` / `nodeDisconnected`)
+- `.event.node_name` (for `nodeJoined` / `nodeConnected` / `nodeDisconnected`)
+- `.event.status` (for `nodeJoined` / `nodeConnected` / `nodeDisconnected`)
 
 Example:
 

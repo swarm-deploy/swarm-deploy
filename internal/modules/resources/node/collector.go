@@ -126,6 +126,11 @@ func (c *Collector) dispatchConnectionEvents(
 	for _, currentNode := range currentNodes {
 		previousNode, exists := previousByID[currentNode.ID]
 		if !exists {
+			c.dispatcher.Dispatch(ctx, &events.NodeJoined{
+				NodeID:   currentNode.ID,
+				NodeName: currentNode.Hostname,
+				Role:     nodeRole(currentNode),
+			})
 			if nodeConnected(currentNode) {
 				c.dispatcher.Dispatch(ctx, &events.NodeConnected{
 					NodeID:   currentNode.ID,
@@ -181,4 +186,15 @@ func nodesByID(nodes []swarm.Node) map[string]swarm.Node {
 
 func nodeConnected(node swarm.Node) bool {
 	return node.Status == "ready"
+}
+
+func nodeRole(node swarm.Node) string {
+	switch node.ManagerStatus {
+	case swarm.NodeManagerStatusWorker:
+		return "worker"
+	case swarm.NodeManagerStatusLeader, swarm.NodeManagerStatusManager:
+		return "manager"
+	default:
+		return ""
+	}
 }
