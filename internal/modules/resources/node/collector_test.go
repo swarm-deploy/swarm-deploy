@@ -260,3 +260,115 @@ func lastNonNil(lists [][]swarm.Node) []swarm.Node {
 
 	return nil
 }
+
+func newCollectorForTest(t *testing.T, stored []swarm.Node) (*Collector, *swarm.MockNodeManager, *dispatcher.MockDispatcher, *Store) {
+	t.Helper()
+
+	ctrl := gomock.NewController(t)
+	inspector := swarm.NewMockNodeManager(ctrl)
+	disp := dispatcher.NewMockDispatcher(ctrl)
+
+	store, err := NewNodeStore(filepath.Join(t.TempDir(), "nodes.json"))
+	require.NoError(t, err)
+	require.NoError(t, store.Replace(stored))
+
+	return NewNodeCollector(inspector, store, disp), inspector, disp, store
+}
+
+func TestCollector_WatchOnce_CancelsSubscription(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(inspector *swarm.MockNodeManager, eventsCh chan dockerevents.Message, errorsCh chan error)
+	}{
+		{
+			name: "failed snapshot refresh",
+			setup: func(inspector *swarm.MockNodeManager, _ chan dockerevents.Message, _ chan error) {
+				inspector.EXPECT().List(gomock.Any()).Return(nil, errors.New("list failed"))
+			},
+		},
+		{
+			name: "stream error",
+			setup: func(inspector *swarm.MockNodeManager, _ chan dockerevents.Message, errorsCh chan error) {
+				inspector.EXPECT().List(gomock.Any()).Return([]swarm.Node{}, nil)
+				errorsCh <- errors.New("stream broke")
+			},
+		},
+		{
+			name: "events channel closed",
+			setup: func(inspector *swarm.MockNodeManager, eventsCh chan dockerevents.Message, _ chan error) {
+				inspector.EXPECT().List(gomock.Any()).Return([]swarm.Node{}, nil)
+				close(eventsCh)
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			collector, inspector, _, _ := newCollectorForTest(t, nil)
+
+			eventsCh := make(chan dockerevents.Message, 1)
+			errorsCh := make(chan error, 1)
+			var watchCtx context.Context
+			inspector.EXPECT().Watch(gomock.Any()).DoAndReturn(
+				func(ctx context.Context) (<-chan dockerevents.Message, <-chan error, error) {
+					watchCtx = ctx
+					return eventsCh, errorsCh, nil
+				})
+			tt.setup(inspector, eventsCh, errorsCh)
+
+			err := collector.watchOnce(context.Background())
+			require.Error(t, err)
+			require.NotNil(t, watchCtx)
+			assert.Error(t, watchCtx.Err(), "subscription context must be cancelled on exit")
+		})
+	}
+}
+
+func TestCollector_WatchOnce_InitialSyncWhenWatchFails(t *testing.T) {
+	collector, inspector, disp, store := newCollectorForTest(t, nil)
+	disp.EXPECT().Dispatch(gomock.Any(), gomock.Any()).Times(0)
+
+	var watchCtx context.Context
+	inspector.EXPECT().Watch(gomock.Any()).DoAndReturn(
+		func(ctx context.Context) (<-chan dockerevents.Message, <-chan error, error) {
+			watchCtx = ctx
+			return nil, nil, errors.New("subscribe failed")
+		}).Times(2)
+	inspector.EXPECT().List(gomock.Any()).Return([]swarm.Node{
+		{ID: "w1", Hostname: "worker-1", Status: "ready"},
+	}, nil).Times(1)
+
+	require.Error(t, collector.watchOnce(context.Background()))
+	assert.Len(t, store.List(), 1, "initial snapshot must be loaded even if Watch fails")
+	assert.Error(t, watchCtx.Err(), "subscription context must be cancelled")
+
+	// Already synced: a repeated Watch failure must not call List again.
+	require.Error(t, collector.watchOnce(context.Background()))
+}
+
+func TestCollector_WatchOnce_ReconnectRefreshesWithoutEvents(t *testing.T) {
+	collector, inspector, disp, store := newCollectorForTest(t, nil)
+	disp.EXPECT().Dispatch(gomock.Any(), gomock.Any()).Times(0)
+
+	first := make(chan dockerevents.Message)
+	close(first)
+	second := make(chan dockerevents.Message)
+	close(second)
+
+	gomock.InOrder(
+		inspector.EXPECT().Watch(gomock.Any()).Return((<-chan dockerevents.Message)(first), (<-chan error)(make(chan error)), nil),
+		inspector.EXPECT().List(gomock.Any()).Return([]swarm.Node{
+			{ID: "w1", Hostname: "worker-1", Status: "ready"},
+		}, nil),
+		inspector.EXPECT().Watch(gomock.Any()).Return((<-chan dockerevents.Message)(second), (<-chan error)(make(chan error)), nil),
+		// While disconnected: w1 went down, w2 appeared. Neither may produce events.
+		inspector.EXPECT().List(gomock.Any()).Return([]swarm.Node{
+			{ID: "w1", Hostname: "worker-1", Status: "down"},
+			{ID: "w2", Hostname: "worker-2", Status: "ready"},
+		}, nil),
+	)
+
+	require.Error(t, collector.watchOnce(context.Background()))
+	require.Error(t, collector.watchOnce(context.Background()))
+	assert.Len(t, store.List(), 2, "snapshot must be refreshed after reconnect")
+}

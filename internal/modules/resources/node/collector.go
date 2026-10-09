@@ -22,6 +22,8 @@ type Collector struct {
 	dispatcher dispatcher.Dispatcher
 
 	reconnectDelay time.Duration
+	// synced reports whether the snapshot was refreshed at least once.
+	synced bool
 }
 
 // NewNodeCollector creates node collector.
@@ -35,6 +37,7 @@ func NewNodeCollector(inspector swarm.NodeManager, store *Store, eventDispatcher
 }
 
 // Run subscribes to docker node events; every (re)subscription starts with a snapshot refresh.
+// If the very first subscription fails, the snapshot is still loaded once.
 func (c *Collector) Run(ctx context.Context) error {
 	for {
 		err := c.watchOnce(ctx)
@@ -66,14 +69,25 @@ func (c *Collector) refresh(ctx context.Context) ([]swarm.Node, error) {
 	if err = c.store.Replace(nodes); err != nil {
 		return nil, fmt.Errorf("save nodes snapshot: %w", err)
 	}
+	c.synced = true
 
 	slog.InfoContext(ctx, "[nodes] snapshot refreshed", slog.Int("count", len(nodes)))
 	return nodes, nil
 }
 
-func (c *Collector) watchOnce(ctx context.Context) error {
+func (c *Collector) watchOnce(parent context.Context) error {
+	// Cancel the subscription on every exit path so reconnects never leave orphaned streams.
+	ctx, cancel := context.WithCancel(parent)
+	defer cancel()
+
 	eventsCh, errorsCh, err := c.inspector.Watch(ctx)
 	if err != nil {
+		if !c.synced {
+			if _, refreshErr := c.refresh(ctx); refreshErr != nil {
+				slog.WarnContext(ctx, "[nodes] initial refresh failed", slog.Any("err", refreshErr))
+			}
+		}
+
 		return fmt.Errorf("subscribe docker node events: %w", err)
 	}
 
