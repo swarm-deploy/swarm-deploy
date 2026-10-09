@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	dockerevents "github.com/docker/docker/api/types/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -80,6 +81,11 @@ func (c *Collector) watchOnce(ctx context.Context) error {
 		return fmt.Errorf("subscribe docker node events: %w", err)
 	}
 
+	// Events missed while the stream was down are not replayed: only the snapshot is refreshed.
+	if _, err = c.refresh(ctx); err != nil {
+		slog.WarnContext(ctx, "[nodes] refresh after subscribe failed", slog.Any("err", err))
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -89,20 +95,7 @@ func (c *Collector) watchOnce(ctx context.Context) error {
 				return errors.New("docker node events channel closed")
 			}
 
-			slog.DebugContext(ctx, "[nodes] docker node event received",
-				slog.String("action", string(event.Action)),
-				slog.String("node_id", event.Actor.ID),
-				slog.Any("node_attributes", event.Actor.Attributes),
-			)
-
-			previousNodes := c.store.List()
-			currentNodes, refreshErr := c.refresh(ctx)
-			if refreshErr != nil {
-				slog.WarnContext(ctx, "[nodes] refresh after event failed", slog.Any("err", refreshErr))
-				continue
-			}
-
-			c.dispatchConnectionEvents(ctx, previousNodes, currentNodes)
+			c.handleEvent(ctx, event)
 		case watchErr, ok := <-errorsCh:
 			if !ok {
 				return errors.New("docker node events errors channel closed")
@@ -113,6 +106,40 @@ func (c *Collector) watchOnce(ctx context.Context) error {
 			return fmt.Errorf("watch docker node events: %w", watchErr)
 		}
 	}
+}
+
+func (c *Collector) handleEvent(ctx context.Context, event dockerevents.Message) {
+	slog.DebugContext(ctx, "[nodes] docker node event received",
+		slog.String("action", string(event.Action)),
+		slog.String("node_id", event.Actor.ID),
+		slog.Any("node_attributes", event.Actor.Attributes),
+	)
+
+	previousNodes := c.store.List()
+	currentNodes, refreshErr := c.refresh(ctx)
+	if refreshErr != nil {
+		slog.WarnContext(ctx, "[nodes] refresh after event failed", slog.Any("err", refreshErr))
+	}
+
+	if event.Action == dockerevents.ActionCreate {
+		c.dispatchNodeJoined(ctx, event.Actor.ID, currentNodes)
+	}
+
+	if refreshErr != nil {
+		return
+	}
+
+	c.dispatchConnectionEvents(ctx, previousNodes, currentNodes)
+}
+
+func (c *Collector) dispatchNodeJoined(ctx context.Context, nodeID string, currentNodes []swarm.Node) {
+	joined := &events.NodeJoined{NodeID: nodeID}
+	if node, found := nodesByID(currentNodes)[nodeID]; found {
+		joined.NodeName = node.Hostname
+		joined.Role = nodeRole(node)
+	}
+
+	c.dispatcher.Dispatch(ctx, joined)
 }
 
 func (c *Collector) dispatchConnectionEvents(
@@ -126,18 +153,6 @@ func (c *Collector) dispatchConnectionEvents(
 	for _, currentNode := range currentNodes {
 		previousNode, exists := previousByID[currentNode.ID]
 		if !exists {
-			c.dispatcher.Dispatch(ctx, &events.NodeJoined{
-				NodeID:   currentNode.ID,
-				NodeName: currentNode.Hostname,
-				Role:     nodeRole(currentNode),
-			})
-			if nodeConnected(currentNode) {
-				c.dispatcher.Dispatch(ctx, &events.NodeConnected{
-					NodeID:   currentNode.ID,
-					NodeName: currentNode.Hostname,
-					Status:   currentNode.Status,
-				})
-			}
 			continue
 		}
 
@@ -192,7 +207,10 @@ func nodeRole(node swarm.Node) string {
 	switch node.ManagerStatus {
 	case swarm.NodeManagerStatusWorker:
 		return "worker"
-	case swarm.NodeManagerStatusLeader, swarm.NodeManagerStatusManager:
+	case swarm.NodeManagerStatusLeader,
+		swarm.NodeManagerStatusManager,
+		swarm.NodeManagerStatusReachable,
+		swarm.NodeManagerStatusUnreachable:
 		return "manager"
 	default:
 		return ""

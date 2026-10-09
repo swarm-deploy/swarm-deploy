@@ -601,6 +601,7 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
               <li id="eventsItemDeploySuccess"><code>deploySuccess</code>: успешный деплой стэка.</li>
               <li id="eventsItemDeployFailed"><code>deployFailed</code>: ошибка деплоя стэка.</li>
               <li id="eventsItemSyncManualStarted"><code>syncManualStarted</code>: пользователь запустил ручной sync.</li>
+              <li id="eventsItemNodeJoined"><code>nodeJoined</code>: новая swarm-нода добавлена в кластер.</li>
               <li id="eventsItemNodeConnected"><code>nodeConnected</code>: swarm-нода перешла в статус ready.</li>
               <li id="eventsItemNodeDisconnected"><code>nodeDisconnected</code>: swarm-нода вышла из статуса ready.</li>
               <li id="eventsItemServiceMissed"><code>serviceMissed</code>: ожидаемый сервис отсутствует в live-состоянии swarm.</li>
@@ -713,6 +714,10 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
                 <label>
                   <input type="checkbox" name="events" value="syncManualStarted" />
                   syncManualStarted
+                </label>
+                <label>
+                  <input type="checkbox" name="events" value="nodeJoined" />
+                  nodeJoined
                 </label>
                 <label>
                   <input type="checkbox" name="events" value="nodeConnected" />
@@ -844,6 +849,8 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
           eventsItemDeployFailed: "<code>deployFailed</code>: ошибка деплоя стэка.",
           eventsItemSyncManualStarted:
             "<code>syncManualStarted</code>: пользователь запустил ручной sync.",
+          eventsItemNodeJoined:
+            "<code>nodeJoined</code>: новая swarm-нода добавлена в кластер.",
           eventsItemNodeConnected:
             "<code>nodeConnected</code>: swarm-нода перешла в статус ready.",
           eventsItemNodeDisconnected:
@@ -911,6 +918,12 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
               "error: {{.event.error}}",
             ],
             syncManualStarted: ["ручной sync запущен"],
+            nodeJoined: [
+              "swarm-нода добавлена в кластер",
+              "node: {{.event.node_name}}",
+              "node_id: {{.event.node_id}}",
+              "role: {{.event.role}}",
+            ],
             nodeConnected: [
               "swarm-нода подключена",
               "node: {{.event.node_name}}",
@@ -1008,6 +1021,8 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
           eventsItemDeployFailed: "<code>deployFailed</code>: stack deployment failed.",
           eventsItemSyncManualStarted:
             "<code>syncManualStarted</code>: a user started manual sync.",
+          eventsItemNodeJoined:
+            "<code>nodeJoined</code>: a new swarm node joined the cluster.",
           eventsItemNodeConnected:
             "<code>nodeConnected</code>: a swarm node became ready.",
           eventsItemNodeDisconnected:
@@ -1075,6 +1090,12 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
               "error: {{.event.error}}",
             ],
             syncManualStarted: ["manual sync started"],
+            nodeJoined: [
+              "swarm node joined the cluster",
+              "node: {{.event.node_name}}",
+              "node_id: {{.event.node_id}}",
+              "role: {{.event.role}}",
+            ],
             nodeConnected: [
               "swarm node connected",
               "node: {{.event.node_name}}",
@@ -1227,6 +1248,7 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
         setHTML("eventsItemDeploySuccess", "eventsItemDeploySuccess");
         setHTML("eventsItemDeployFailed", "eventsItemDeployFailed");
         setHTML("eventsItemSyncManualStarted", "eventsItemSyncManualStarted");
+        setHTML("eventsItemNodeJoined", "eventsItemNodeJoined");
         setHTML("eventsItemNodeConnected", "eventsItemNodeConnected");
         setHTML("eventsItemNodeDisconnected", "eventsItemNodeDisconnected");
         setHTML("eventsItemServiceMissed", "eventsItemServiceMissed");

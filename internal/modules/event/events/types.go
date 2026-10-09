@@ -115,7 +115,6 @@ var (
 		name:     TypeNameNodeJoined,
 		severity: SeverityInfo,
 		category: CategorySwarm,
-		window:   nodeDedupWindow,
 	}
 	TypeNodeConnected = Type{
 		name:     TypeNameNodeConnected,

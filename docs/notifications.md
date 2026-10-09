@@ -18,7 +18,8 @@ Available template fields:
 - `.event.username` (for `userAuthenticated`)
 - `.event.node_id` (for `nodeJoined` / `nodeConnected` / `nodeDisconnected`)
 - `.event.node_name` (for `nodeJoined` / `nodeConnected` / `nodeDisconnected`)
-- `.event.status` (for `nodeJoined` / `nodeConnected` / `nodeDisconnected`)
+- `.event.role` (for `nodeJoined`, when available)
+- `.event.status` (for `nodeConnected` / `nodeDisconnected`)
 
 Example:
 
