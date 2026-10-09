@@ -1,6 +1,6 @@
 # SQLite, transactional outbox, and deployment model refactor
 
-Status: **integration-branch design baseline**  
+Status: **implemented in the integration branch; local verification recorded in the ledger**
 Branch: `feat/sqlite-outbox-refactor`  
 Target: one coordinated merge to `master`, after schema consolidation and full regression testing.
 
@@ -17,9 +17,9 @@ This is one platform refactor, not a chain of small, partially compatible releas
 
 Do not convert ordinary input/artifact files (Git checkout, compose source files, rendered compose required by the current deployer, config files, secrets mounted as files) into DB entities merely because they are files. Only replace application-owned *persistent stores*.
 
-## Existing file-backed stores to migrate
+## Legacy file-backed stores imported at startup
 
-| Module | Current storage | Database responsibility |
+| Module | Legacy storage | Database responsibility |
 |---|---|---|
 | GitOps | `controller.state.json` | current controller/reconciliation runtime state |
 | Event history | `event-history.json` | historical user-visible events, indexed pagination, retention |
@@ -40,7 +40,7 @@ The assistant's TTL-bound in-memory context cache is **not a file store**; it ma
 - The current Docker build sets `CGO_ENABLED=0`; select a SQLite driver compatible with that build or explicitly revise and test the build matrix.
 - Use a single database at `<dataDir>/swarm-deploy.sqlite`. Configure WAL, foreign-key enforcement, busy timeout, and appropriate checkpointing/backup behavior. Document that SQLite database files live on a persistent **local** volume and the app uses one active writer/controller per database. SQLite WAL is not a shared multi-host database.
 - Design schemas from query patterns. Index event list filters/cursors, deployment history by stack/time, unresolved alerts by fingerprint, and pending notifications by due time.
-- Preserve public API response contracts where possible, but remove obsolete *internal* JSON-file repository APIs. Fix silent write failures: for example, `gitops/modelstore.FileStore.Update` currently logs persistence failures without returning an error.
+- Preserve public API response contracts where possible, but remove obsolete *internal* JSON-file repository APIs. Propagate persistence errors: GitOps updates now return errors instead of claiming a successful write. Legacy file implementations remain fixture/compatibility helpers, not runtime storage.
 
 ## Unified Event Bus and module isolation
 
@@ -52,7 +52,7 @@ The assistant's TTL-bound in-memory context cache is **not a file store**; it ma
 - **T3 (handler):** DB-only subscribers (Event History, Alert Management) run in a **new** context-propagated DB transaction, then acknowledge delivery in **that same T3**. Subscriber-side state changes and any newly emitted Outbox events commit together with the ack. External notifications execute outside a DB write transaction, and are subsequently acknowledged in a short transaction.
 - Each delivery is independent. Failed handlers retry/park without rolling back the previously committed publishing transaction or another successful subscriber.
 - Event History decides which published events deserve user-visible history; it does not run within the Deployment publisher's transaction. Projections are **eventually consistent**. For example, `DeploymentSucceeded` can become a public `deploySuccess` after T1 commits; `DeploymentFailed` may update an Alert without becoming a public Event.
-- Nested/follow-up events (`AlertResolved`, `PublicEventRecorded`) are **published from a subscriber's T3**, and picked up in subsequent transactions. Never recursively run their handlers inline.
+- Nested/follow-up events (currently `serviceCatalogUpdated`) are **published from a subscriber's T3**, and picked up in subsequent transactions. Never recursively run their handlers inline.
 - Publications with no matching registered subscribers do not create Outbox records. Consider removing genuinely unused event publishers.
 - Outbox events with matching subscribers are deleted immediately once **every** delivery succeeds; no retention, no deleting pending or terminal-failed work.
 - Transactions are propagated through `context.Context` using a context-aware transactor and DB getter (`*sql.DB` or `*sql.Tx`). No explicit `Tx` parameters or `UnitOfWork`. `Bus.Publish` outside an active transaction wraps its own short enqueue transaction.
@@ -66,16 +66,18 @@ See [Event Bus contracts and SQL schema](event-bus-outbox-schema.md).
 ```text
 Deployment apply completed (Docker API outside DB transaction)
   -> T1: Deployment=succeeded + DesiredSnapshot + GitOps state
-       + outbox event DeploymentSucceeded and deliveries
+       + outbox event deploySuccess and deliveries
   -> COMMIT T1
 
   -> T2: worker claims Event History delivery; COMMIT T2
   -> T3: Event History persists deploySuccess + ack; COMMIT T3
 
   -> T2: worker claims Alert Management delivery; COMMIT T2
-  -> T3: Alert Management resolves alert, emits AlertResolved + ack; COMMIT T3
+  -> T3: Alert Management resolves alert + ack; COMMIT T3
 
-  -> separate worker transactions process AlertResolved and notifications
+  -> independent notification delivery outside a write transaction, then ack
+  -> service catalog consumer commits catalog + serviceCatalogUpdated child
+  -> separate worker delivery refreshes RAG from the committed catalog
 ```
 
 **Consistency boundary:** successful Deployment state and its source Outbox event are atomic; subsequent Event History/Alert state is eventually consistent. Failure of a subscriber must not turn a successful Deployment into a failed one. Docker API operations and SQLite cannot share a transaction; a crash between Docker success and T1 commit leaves Deployment `running` and recovery marks it `interrupted` without inventing success.
@@ -169,9 +171,20 @@ Release gates: no silent data loss; no false deployment success; stable user-vis
 
 ## Implementation checkpoint
 
-SQLite repositories and the all-or-nothing legacy importer are now connected to
-application startup. All listed durable stores use the shared database. The Outbox
-infrastructure in `internal/modules/event/codec` and `internal/modules/event/outbox`
-is still **not connected**: application events still use QueueDispatcher. Deployment
-and snapshot integration is also pending. This is not a release-ready migration. See [the implementation ledger](sqlite-outbox-progress.md)
-for dependencies and remaining work. Do not run the new worker alongside QueueDispatcher.
+All listed runtime repositories use the shared SQLite database. Startup imports legacy
+JSON before module initialization and marks unfinished deployments interrupted before
+the controller runs. QueueDispatcher and its global temporal deduplication are removed.
+One Outbox worker handles all subscriptions.
+
+The stack pipeline prepares effective state before creating a running attempt.
+Completion atomically commits the attempt, successful baseline, runtime state and
+source event; maintenance cleanup runs afterwards. Compose-dependent consumers load
+redacted desired state by deployment ID. Service metadata inspection runs outside a
+write transaction, then commits the catalog and a `serviceCatalogUpdated` child event
+together. RAG consumes that child, not the parent deployment event.
+
+Overview and `/deployments` read the Deployment repository. Events & Alerts share a
+page but remain separate tables and repositories. Operator replay/discard commands
+are supplied by the `sd` binary. See [the implementation ledger](sqlite-outbox-progress.md)
+and [migration/operations notes](../../example/README-sqlite.md). No production rollout,
+remote CI run or merge is implied by local verification.

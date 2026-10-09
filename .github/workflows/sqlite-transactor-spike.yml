@@ -7,10 +7,9 @@ on:
     paths:
       - 'experiments/sqlite-transactor/**'
       - '.github/workflows/sqlite-transactor-spike.yml'
-      - 'internal/storage/**'
-      - 'internal/modules/event/codec/**'
-      - 'internal/modules/event/outbox/**'
-      - 'internal/modules/event/events/**'
+      - 'internal/**'
+      - 'cmd/**'
+      - 'api/**'
       - 'go.mod'
       - 'go.sum'
   workflow_dispatch:
@@ -40,18 +39,22 @@ jobs:
           CGO_ENABLED: '1'
         run: go test -race -v ./...
 
-  foundation:
+  integration:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v6
         with:
           go-version: '1.26.3'
-      - name: Verify SQLite and Outbox without CGO
+      - name: Verify integrated application without CGO
         env:
           CGO_ENABLED: '0'
-        run: go test -count=1 ./internal/storage ./internal/modules/event/codec ./internal/modules/event/outbox
-      - name: Verify concurrent Outbox workers
+        run: go test -count=1 ./...
+      - name: Verify transactions, workers and projections under race detector
         env:
           CGO_ENABLED: '1'
-        run: go test -race -count=1 ./internal/storage ./internal/modules/event/codec ./internal/modules/event/outbox
+        run: >-
+          go test -race -count=1 ./internal/storage ./internal/legacyimport
+          ./internal/modules/event/... ./internal/modules/gitops/...
+          ./internal/modules/resources/... ./internal/modules/alertmanagement/...
+          ./internal/modules/recommendations/... ./internal/modules/assistant/...

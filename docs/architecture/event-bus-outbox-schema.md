@@ -1,6 +1,6 @@
 # Unified Event Bus and SQLite Outbox: contracts and schema
 
-Status: **infrastructure implemented; application integration pending**. Integration branch: `feat/sqlite-outbox-refactor`.
+Status: **implemented and connected to application startup**. Integration branch: `feat/sqlite-outbox-refactor`.
 
 This expands [SQLite + Deployment architecture](sqlite-outbox-refactor.md). The SQL below is the Outbox subset of `internal/storage/migrations/0001_initial.sql`.
 
@@ -38,6 +38,11 @@ publication or durability: every matching subscriber gets its own delivery recor
 `Run` stops on cancellation; unacknowledged work remains on disk. Missing subscriptions
 or incompatible payloads are parked as failed. `Replay` and `Discard` address a single
 failed delivery. Prometheus collection reports queue depth by status and subscription.
+The container includes `sd outbox-list`, `sd outbox-replay` and `sd outbox-discard`
+for operational inspection and explicit failed-delivery actions. IDs and schema
+versions are preserved across restarts. UUIDv7 IDs order publications sharing a
+millisecond; per-resource projection high-water marks prevent delayed alert or
+recommendation retries from regressing newer state.
 Raw handler errors are not persisted or logged because they can contain credentials;
 diagnostics expose event/subscription IDs, attempt, error type and a stable failure code.
 
@@ -61,7 +66,7 @@ func (s *DeploymentService) Complete(ctx context.Context, id string) error {
         if err := s.deployments.Complete(ctx, id); err != nil {
             return err
         }
-        return s.events.Publish(ctx, events.DeploymentSucceeded{DeploymentID: id})
+        return s.events.Publish(ctx, &events.DeploySuccess{DeployEvent: events.DeployEvent{DeploymentID: id}})
     })
 }
 ```
@@ -69,7 +74,7 @@ func (s *DeploymentService) Complete(ctx context.Context, id string) error {
 - The repository and Bus use a common `DBGetter(ctx)` to select `*sql.Tx` when the context carries a transaction or `*sql.DB` otherwise.
 - A root `Bus.Publish(ctx, event)` outside a transaction starts a **short** transaction to insert envelope + deliveries. It **never invokes a handler inline**.
 - Subscriber handlers are invoked only by the worker after T1 committed. DB-only subscribers receive a worker-created transaction-bearing context; their repositories, and any `Publish` calls that emit follow-up events, join **T3**.
-- Nested events (`AlertResolved`, `PublicEventRecorded`, etc.) are **new outbox publications in T3**; their subscribers process them in subsequent worker transactions. No synchronous recursive dispatch or in-transaction FIFO is needed.
+- Nested events (currently `ServiceCatalogUpdated`) are **new outbox publications in T3**; their subscribers process them in subsequent worker transactions. No synchronous recursive dispatch or in-transaction FIFO is needed.
 - An external-I/O subscriber must not run while an open SQLite write transaction is held; it runs with a non-transactional context and its delivery is acknowledged afterwards.
 - Distinguish DB-only and external subscribers at the worker/adapter boundary, **not** through `Transactional` and `Durable` event-subscription modes. A DB-only handler's side effects and its delivery acknowledgement must commit together for crash-safe idempotence.
 - Publish failure and SQL commit errors propagate back to T1's caller. Subscriber errors are handled asynchronously and **cannot** alter T1's outcome.
@@ -181,23 +186,29 @@ Foreign-key cascade removes all delivery records. The delete is **not** a retent
 ```text
 T1: DeploymentService
     UPDATE deployments
-    INSERT outbox_events(DeploymentSucceeded)
+    INSERT outbox_events(deploySuccess)
     INSERT deliveries(event-history, alert-management)
     COMMIT
 
-T2: Worker claims (DeploymentSucceeded, event-history)
+T2: Worker claims (deploySuccess, event-history)
     COMMIT
 
 T3: Event History subscriber
     INSERT event_history(deploySuccess)
-    INSERT outbox_events(PublicEventRecorded) + downstream deliveries, if needed
     ACK delivery(event-history)
     COMMIT
 
 T2/T3: Alert Management separately resolves alert
-    and optionally publishes AlertResolved for Notifications
 
-T2/T3: Notification subscriber eventually sends Telegram
+T2: Worker claims notification delivery
+    Send Telegram outside a write transaction; acknowledge in separate T3
+
+T2: Worker claims service catalog delivery
+    Inspect Docker outside a write transaction
+    Commit catalog + source receipt + serviceCatalogUpdated child atomically
+    Acknowledge parent delivery; replay cannot duplicate the child
+
+T2/T3: RAG child delivery reads committed catalog and refreshes external index
 ```
 
 The publishing transaction and every handler processing transaction are **different**. Event History and Alert Management can process the same source event independently. Avoid assuming a global order between siblings; explicit chained events express causal dependencies.

@@ -1,121 +1,118 @@
 # SQLite integration ledger
 
-Branch: `feat/sqlite-outbox-refactor`. **Incomplete integration; not ready for release.**
+Branch: `feat/sqlite-outbox-refactor`. Runtime integration is implemented.
+Local verification is recorded below; this is not a production rollout or remote CI result.
 
-## Implemented foundation
+## Integration commits
 
-- Corrected executable transactor spike and split pure-Go/race CI jobs.
-- `internal/storage`: one database at `<dataDir>/swarm-deploy.sqlite`, private file,
-  WAL, per-connection foreign keys/busy timeout, immediate write transactions,
-  context DB getter and library savepoints, explicit close, atomic initial migration
-  with checksum validation. Application startup opens this DB before initializing modules.
-- `internal/modules/event/codec`: explicit versioned payloads for current event types.
-  No arbitrary Event/Details serialization, raw Compose/environment, error/log or
-  assistant prompt persistence. Deployment payload currently carries stack, revision
-  and service names/images only. This format must be extended deliberately when
-  introducing domain Deployment events and safe snapshot references.
-- `internal/modules/event/outbox`: publication in the caller's transaction (or its
-  own short transaction), stable registry, atomic claim, token/deadline fencing,
-  independent retry/terminal failure/replay/discard, DB projection+child event+ack
-  in one T3, external handler outside write transaction, immediate final-ack deletion,
-  cancellation/recovery and Prometheus queue-state collector.
-- Infrastructure tests use real SQLite and generated `go.uber.org/mock` subscribers.
+- `5bdac49`: SQLite repositories and atomic legacy import.
+- `1dc9480`: runtime repository wiring and propagated persistence errors.
+- `e61a190`: Deployment attempts, safe desired snapshots and consolidated schema.
+- `28e6837`: single Outbox wiring, producer transactions and independent projections.
+- `31cb336`: Deployments API, Overview and separate Events/Alerts tables on one page.
 
-## SQLite repository integration
+## Implemented
 
-- Runtime wiring now uses SQLite for GitOps state, Event History, Alerts,
-  Recommendations, nodes, service metadata, secret metadata and assistant chats/turns.
-- Repository reads carry context and return errors to API/tool callers. GitOps updates
-  persist synchronously; a failed stack-state write prevents a success event. Assistant
-  reads/writes fail the request instead of claiming a saved chat.
-- History uses SQL filters/cursors with publication-sequence compatibility for older
-  callers. Its safe projection skips new deployFailed/nodeDisconnected signals and
-  enforces source uniqueness. Alert lifecycle changes and consumed-source markers
-  commit together, including duplicate delivery after resolution.
-- `internal/legacyimport` validates all sources before import, imports every repository
-  and a completion marker atomically, and refuses an unmarked nonempty database.
-  IDs, timestamps, sequence, alert lifecycle and chat usage/turns are preserved.
-  Missing history IDs are assigned inside the transaction. Original files are untouched.
-- The old asynchronous GitOps WarmupStore is removed. Legacy file implementations remain
-  only for fixtures/backward-compatibility tests and must be retired before release.
-- This checkpoint still uses QueueDispatcher in production wiring. DB state changes
-  and event publication are **not yet atomic**. Outbox is not started alongside it.
+- One `<dataDir>/swarm-deploy.sqlite`: pure-Go modernc driver, WAL, per-connection
+  foreign keys and busy timeout, FULL synchronization, private database file,
+  context DB getter and Thiht/transactor savepoints, explicit shutdown.
+- One consolidated `internal/storage/migrations/0001_initial.sql` contains all
+  domain and Outbox tables, indexes, uniqueness and foreign-key constraints.
+- All runtime durable repositories use SQLite: GitOps, Event History, Alerts,
+  Recommendations, nodes, service catalog, secret metadata and assistant chats.
+  Repository read/write errors reach callers. JSON implementations retained for
+  legacy fixtures/compatibility tests are not constructed by application wiring.
+- `internal/legacyimport` preflights all legacy sources, then imports them and
+  the completion marker in one transaction. IDs, timestamps, history order,
+  alert lifecycle and chat usage/turns are preserved. Originals remain untouched.
+  Invalid input or an unmarked nonempty database fails startup; no historical
+  Deployment or successful snapshot is fabricated.
+- One durable Event Bus replaces QueueDispatcher, its queues, Slow API and global
+  time-window deduplication. All producers use `Publish(ctx,event) error`.
+  State changes and publication share T1; claim is short T2; DB projections,
+  child publication and acknowledgement share separate T3. External I/O runs
+  outside write transactions.
+- Outbox has independent destination retries, lease/token fencing, restart recovery,
+  retained terminal failures, replay/discard and immediate deletion after the last
+  acknowledgement. No retention, synchronous delivery or commit hooks.
+- Typed versioned codecs persist safe envelopes, not arbitrary Event/Details,
+  Compose, environment, raw errors/logs or assistant prompts. Deployment events
+  contain references to redacted desired state.
+- History deliberately excludes new deployFailed/nodeDisconnected signals.
+  Alerts handle deployment and node failures/recovery. Source uniqueness and
+  per-resource ordering prevent retries from reopening newer resolved state.
+- Telegram and custom destinations have independent stable subscriptions.
+  Notification errors cannot recursively generate notification failures.
+  Existing notifier Notify/Message and template configuration remain.
+- Service metadata loads safe desired state by deployment ID, performs external
+  inspection, then atomically stores catalog + source receipt + child
+  `serviceCatalogUpdated`. RAG consumes that child after the catalog commit.
+  Recommendations use safe desired state and reject obsolete source events.
+- Node snapshots and lifecycle publications commit together. Persisted node
+  identities distinguish genuine nodeJoined from reconnects, including reappearance
+  after a missing snapshot. Refresh reconciles connection transitions without
+  synthesizing joins.
+- `internal/modules/gitops/deployment` owns running/succeeded/failed/interrupted
+  attempts, redacted effective snapshots and field-level semantic differences.
+  Preparation precedes attempt creation. Running is committed before Docker;
+  successful attempt + baseline + GitOps state + source event commit atomically.
+  Failure never advances baseline; startup interrupts unfinished attempts.
+  Post-apply cleanup cannot change an already successful outcome.
+- Compose comparison excludes source formatting, parser env-key ordering and
+  checkout path, while tracking referenced resource content. envmasker and
+  fingerprints hide sensitive changes without a new hashing key.
+- Deployments API and Overview read deployments, not Event History. The deployments
+  page shows planned changes and all four statuses. Events & Alerts is one page
+  with two separate tables; existing /alerts links redirect to its alerts section.
+- The container includes `sd outbox-list`, `outbox-replay` and `outbox-discard`.
+  Inspection returns safe operational metadata, not event payloads.
+- Branch CI now runs the full pure-Go application suite plus integration race tests;
+  the existing transactor spike remains separately covered.
 
-## Audited dependencies and next integration boundary
+## Verification
 
-| Existing API/consumer | Required coordinated replacement |
-| --- | --- |
-| `dispatcher.Dispatch(ctx,event)` returning nothing | `Publish(ctx,event) error`; update every producer to propagate errors |
-| `QueueDispatcher`, `Slow()`, temporal global dedup | One Outbox worker with stable subscriptions; delete old queues/dedup |
-| Event History SQL projection | Connect to Outbox T3; repository and SQL queries are implemented |
-| Alert SQLSubscriber | Connect idempotent lifecycle to worker T3; include node signals |
-| Notification Subscriber | Independent stable destination IDs and external adapters; remove failure-event retry loop |
-| Recommendation Subscriber | Currently reads full `DeployEvent.StackDefinition`; requires safe snapshot/recommendation input |
-| Service metadata Subscriber | Currently reads full Compose, then Docker/images/configs; use safe deployment reference and external adapter |
-| Assistant RAG Subscriber | External embedding call; currently races service metadata because both subscribe to deploySuccess; needs an explicit follow-up event |
-| GitOps context-based SQL Store | Add atomic success transaction with deployment/snapshot/publication |
-| Stack pipeline | Preparation before running row, apply policies/init/deploy/prune, successful T1 before maintenance cleanup |
-| `cmd/swarm-deploy/main.go` | DB/import are connected; replace queue registration/startup/shutdown with Outbox worker |
+Verified locally on the integrated tree:
 
-Do not connect the safe codec to the existing Compose-dependent consumers unchanged:
-that would silently erase recommendation inputs and service metadata. Do not start
-Outbox alongside the old queue. The next implementation step is the snapshot/domain-event contract needed for
-coordinated Outbox and Deployment wiring.
+- `CGO_ENABLED=0 go test ./...`: passed.
+- `CGO_ENABLED=1 go test -race ./internal/storage ./internal/legacyimport ./internal/modules/event/... ./internal/modules/gitops/... ./internal/modules/resources/... ./internal/modules/alertmanagement/... ./internal/modules/recommendations/... ./internal/modules/assistant/...`: passed.
+- `make lint`: passed, 0 issues.
+- `PATH="/Users/avukrainskiy/go/bin:$PATH" GOTOOLCHAIN=go1.26.3 make gen`:
+  passed; ogen and go.uber.org/mock output regenerated.
+- UI `npm test`: 6 files / 28 tests passed; `npm run build`: passed.
+- `docker build -t swarm-deploy:sqlite-outbox-integrated .`: passed, both
+  Linux amd64 binaries built with `CGO_ENABLED=0`.
+  Image: `sha256:e863ce21434fd6eafac3035257a6de08ba7c92fdb8b0431b6196907e54ee5134`.
+- Container smoke checks with `--network none`: controller `-h` and
+  `--entrypoint sd ... --help` passed; all three Outbox commands are listed.
+- `git diff --check`: passed.
+- Earlier executable transactor spike passed both pure-Go and race suites.
 
-## Still required
+These are local checks. Updated GitHub workflows have not been run remotely.
 
-1. Production module wiring and removal of the old dispatcher; producer error handling.
-2. Outbox wiring for SQL projections and independent notification destinations; node alerts.
-3. Deployment/DesiredSnapshot model, semantic diff using envmasker, apply boundaries,
-   crash recovery to interrupted, atomic success/runtime/snapshot/event transaction.
-4. Retire legacy file-write APIs after fixture conversion; extend error-path and repository tests.
-5. Extend the importer empty-database guard when Deployment/Snapshot tables are added.
-   Do not import historical Deployments from Events.
-6. API/Overview/Events & Alerts UI integration and config/example documentation.
-7. Full regression and Docker verification of the integrated application; extend and
-   consolidate all domain tables into the same `0001_initial` migration.
+Tests cover publisher rollback and commit visibility, T3 projection/child/ack
+rollback, independent destinations, replay/discard, final-ack deletion, no-subscriber
+publication, non-deduplicated facts, lease recovery/fencing, importer atomicity and
+untouched backup bytes, redaction, deployment crash recovery and projection failure
+after successful apply. Reconciler tests assert that running exists before Docker
+and Docker does not receive a transaction context.
 
-The migration checksum intentionally refuses a changed schema on an existing DB.
-During branch development use temporary test databases; do not create a production DB
-until the final initial schema and importer are complete. Never delete a user's DB to
-bypass a checksum mismatch.
+## Operational boundaries and remaining risks
 
-## Repository integration verification
+- One active controller and a local persistent volume are required; WAL is not a
+  shared multi-host database. Follow the backup/import procedure before rollout.
+- The initial-schema checksum deliberately rejects databases created with an
+  earlier experimental schema from this branch. Do not delete a user's database
+  or silently bypass the mismatch. Legacy production JSON import is the supported
+  upgrade path; experimental DB conversion needs a separately reviewed plan.
+- External effects are at-least-once. A crash after sending/applying and before
+  acknowledgement can repeat a notification or leave an interrupted deployment.
+  Docker and SQLite cannot be committed atomically.
+- Successful deployment means apply completed, not verified Swarm convergence.
+  Projection lag is expected; failed deliveries need operator attention.
+- No live Swarm rollout, remote CI execution, push or merge to master was performed.
+  A backed-up staging rollout remains an operator release check, not a claim made
+  by local unit/build verification.
 
-- `CGO_ENABLED=0 go test ./...`: passed after repository and startup integration.
-- Race tests passed for legacyimport, storage, event/history, gitops/modelstore,
-  assistant (including SQLite chats), resources and alertmanagement.
-- Import tests cover all legacy stores, restart, exact preservation of backup bytes,
-  source validation, refusal to overwrite unmarked nonempty data and SQL failure
-  after earlier writes. The latter rolls back every row and the completion marker.
-- History SQL pagination matches legacy results for all four sort orders, filters
-  and tied timestamps. Projection rollback, source deduplication, selection and
-  retention are tested. Alert tests include replay after resolution.
-- Runtime and chat tests cover rollback, restart, concurrent updates and injected
-  SQL failures. Chat metadata, usage and ordered turns remain atomic.
-- Linux amd64 `CGO_ENABLED=0 go build` passed; `file` confirmed a static ELF.
-- `docker build -t swarm-deploy:sqlite-stores-check .` passed, including the UI build
-  and pure-Go backend. `docker run --rm --network none swarm-deploy:sqlite-stores-check -h`
-  passed. This is a build/smoke check, not a live Swarm deployment test.
-- Lint across affected application packages reports only the two pre-existing
-  unused `nolint:gosec` directives in notification custom/Telegram implementations.
-- No remote CI run, push or merge to master. See
-  [storage/migration notes](../../example/README-sqlite.md) before running this branch.
-
-## Foundation verification (previous checkpoint)
-
-- `experiments/sqlite-transactor`: `CGO_ENABLED=0 go test -v ./...` and
-  `CGO_ENABLED=1 go test -race -v ./...` passed after correcting the getter test.
-- Repository: `CGO_ENABLED=0 go test ./...` passed, including the final foundation changes.
-- `CGO_ENABLED=1 go test -race -mod=mod ./internal/storage ./internal/modules/event/codec ./internal/modules/event/outbox` passed.
-- Targeted golangci-lint for these three packages: **0 issues**.
-- Full `make lint`: failed on two existing unused `nolint:gosec` directives in
-  `internal/modules/notifications/notifiers/custom.go:83` and `telegram.go:171`.
-  These notifier files were not changed by this checkpoint.
-- `CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -mod=mod -o /private/tmp/swarm-deploy-sqlite-refactor ./cmd/swarm-deploy`
-  passed; `file` confirmed a statically linked Linux ELF. This builds the current
-  entrypoint; Outbox is covered separately by its pure-Go tests until wiring is implemented.
-- Docker build attempted twice; both attempts failed before compiling project code
-  because `https://auth.docker.io/token` returned **504 Gateway Timeout** while
-  resolving the Dockerfile frontend. Container build is **not verified**.
-- GitHub CI jobs were updated but have not been run remotely. No push or merge to master.
+See [architecture](sqlite-outbox-refactor.md),
+[Outbox contracts](event-bus-outbox-schema.md) and
+[migration/operations instructions](../../example/README-sqlite.md).

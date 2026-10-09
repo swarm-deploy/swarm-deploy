@@ -23,14 +23,15 @@ On the SQLite integration branch, selected user-visible events are stored in
 `event_history` in `<dataDir>/swarm-deploy.sqlite`. New `deployFailed` and
 `nodeDisconnected` records are excluded from history; imported history is preserved
 unchanged. The table above describes available event types, not a promise that every
-signal appears in user history. Deployment failures feed Alert Management; node-alert
-integration is still pending. New SQLite history records use the safe event codec,
+signal appears in user history. Deployment failures and node disconnections feed
+Alert Management, and success/reconnection resolves the respective open incident. New SQLite history records use the safe event codec,
 which omits raw prompts, logs and error strings.
 
 The startup importer reads the old `event-history.json` once, together with all other
 legacy stores, and leaves it untouched as a backup. Runtime writes do not update JSON.
-The application still uses QueueDispatcher at this intermediate checkpoint; reliable
-Outbox delivery and the Deployment model are not yet integrated.
+One Outbox worker processes all subscribers after publication commits. Failed
+projections retry independently. The internal `serviceCatalogUpdated` event updates
+RAG after service metadata is committed and is excluded from user history.
 
 History can be viewed via API:
 
@@ -51,7 +52,7 @@ exist, the response includes `nextCursor`; repeat the request with that cursor
 and the same sort and filters to fetch the next page.
 
 Existing requests without paging parameters keep the legacy oldest-first response
-order (including `limit` requests used by Overview).
+order. Overview now reads `/api/v1/deployments` instead of history.
 
 Runtime history size is bounded by `eventHistory.capacity`. New projections remove
 oldest entries by publication sequence. Import preserves all legacy records without
@@ -64,3 +65,8 @@ Config example:
 eventHistory:
   capacity: 500
 ```
+Deployment notifications retain the `deploySuccess`/`deployFailed` names and existing
+template inputs for stack, revision, services and images. Durable payloads intentionally
+omit raw Compose, environment, logs, arbitrary errors and assistant prompts.
+`sendNotificationFailed` remains a compatible type but has no runtime publisher;
+delivery diagnostics live in outbox status/metrics rather than recursive notifications.

@@ -33,7 +33,7 @@ ARG TARGETARCH=amd64
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
     CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
-    go build -trimpath -ldflags="-s -w" -o /out/swarm-deploy ./cmd/swarm-deploy
+    go build -trimpath -ldflags="-s -w" -o /out/ ./cmd/swarm-deploy ./cmd/sd
 
 FROM alpine:3.21.7
 
@@ -45,6 +45,7 @@ RUN apk add --no-cache ca-certificates docker-cli tzdata
 WORKDIR /etc/swarm-deploy
 
 COPY --from=builder /out/swarm-deploy /usr/local/bin/swarm-deploy
+COPY --from=builder /out/sd /usr/local/bin/sd
 
 LABEL org.opencontainers.image.title="swarm-deploy"
 LABEL org.opencontainers.image.description="GitOps controller for Docker Swarm"
