@@ -34,12 +34,8 @@ func NewNodeCollector(inspector swarm.NodeManager, store *Store, eventDispatcher
 	}
 }
 
-// Run performs initial refresh and subscribes to docker node events.
+// Run subscribes to docker node events; every (re)subscription starts with a snapshot refresh.
 func (c *Collector) Run(ctx context.Context) error {
-	if _, err := c.refresh(ctx); err != nil {
-		slog.WarnContext(ctx, "[nodes] initial refresh failed", slog.Any("err", err))
-	}
-
 	for {
 		err := c.watchOnce(ctx)
 		if err == nil {
@@ -83,7 +79,7 @@ func (c *Collector) watchOnce(ctx context.Context) error {
 
 	// Events missed while the stream was down are not replayed: only the snapshot is refreshed.
 	if _, err = c.refresh(ctx); err != nil {
-		slog.WarnContext(ctx, "[nodes] refresh after subscribe failed", slog.Any("err", err))
+		return fmt.Errorf("refresh nodes after subscribe: %w", err)
 	}
 
 	for {

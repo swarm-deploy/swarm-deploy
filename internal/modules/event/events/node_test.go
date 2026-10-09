@@ -15,6 +15,28 @@ func TestNodeEventsDetails(t *testing.T) {
 		expectedDetails map[string]string
 	}{
 		{
+			name: "joined",
+			event: &NodeJoined{
+				NodeID:   "node-4",
+				NodeName: "worker-4",
+				Role:     "worker",
+			},
+			expectedType:    TypeNodeJoined,
+			expectedMessage: "Node worker-4 joined the swarm",
+			expectedDetails: map[string]string{
+				"node_id":   "node-4",
+				"node_name": "worker-4",
+				"role":      "worker",
+			},
+		},
+		{
+			name:            "joined without metadata",
+			event:           &NodeJoined{NodeID: "node-5"},
+			expectedType:    TypeNodeJoined,
+			expectedMessage: "Node node-5 joined the swarm",
+			expectedDetails: map[string]string{"node_id": "node-5"},
+		},
+		{
 			name: "connected",
 			event: &NodeConnected{
 				NodeID:   "node-1",
@@ -74,6 +96,11 @@ func TestNodeEventTypesAreRegistered(t *testing.T) {
 		typeName     TypeName
 		expectedType Type
 	}{
+		{
+			name:         "node joined",
+			typeName:     TypeNameNodeJoined,
+			expectedType: TypeNodeJoined,
+		},
 		{
 			name:         "node connected",
 			typeName:     TypeNameNodeConnected,

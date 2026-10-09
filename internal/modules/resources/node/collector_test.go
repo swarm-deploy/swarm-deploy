@@ -36,9 +36,18 @@ func TestCollector_WatchOnce(t *testing.T) {
 		stored []swarm.Node
 		// subscribeList is a snapshot returned by refresh right after subscribing.
 		subscribeList []swarm.Node
-		steps         []collectorStep
-		want          []events.Event
+		// subscribeErr makes refresh right after subscribing fail.
+		subscribeErr bool
+		steps        []collectorStep
+		want         []events.Event
 	}{
+		{
+			name:          "failed refresh after subscribe returns error and skips events",
+			stored:        []swarm.Node{ready("w1", "worker-1", swarm.NodeManagerStatusWorker)},
+			subscribeErr:  true,
+			subscribeList: nil,
+			want:          nil,
+		},
 		{
 			name:          "node created emits only nodeJoined with enriched metadata",
 			subscribeList: []swarm.Node{ready("m1", "manager", swarm.NodeManagerStatusLeader)},
@@ -194,6 +203,15 @@ func TestCollector_WatchOnce(t *testing.T) {
 			eventsCh := make(chan dockerevents.Message, len(tt.steps))
 			errorsCh := make(chan error)
 			inspector.EXPECT().Watch(gomock.Any()).Return((<-chan dockerevents.Message)(eventsCh), (<-chan error)(errorsCh), nil)
+
+			if tt.subscribeErr {
+				inspector.EXPECT().List(gomock.Any()).Return(nil, errors.New("list failed"))
+				collector := NewNodeCollector(inspector, store, disp)
+				err = collector.watchOnce(context.Background())
+				require.Error(t, err, "failed refresh after subscribe must return error")
+				assert.Len(t, store.List(), len(tt.stored), "snapshot must stay untouched")
+				return
+			}
 
 			lists := [][]swarm.Node{tt.subscribeList}
 			for _, step := range tt.steps {
