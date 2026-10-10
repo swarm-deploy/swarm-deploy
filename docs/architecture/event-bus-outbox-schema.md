@@ -13,7 +13,7 @@ This expands [SQLite + Deployment architecture](sqlite-outbox-refactor.md). The 
 3. **Subscriber processing transaction (T3):** for a **DB-only subscriber**, perform its projection, publish any follow-up events, acknowledge that delivery, and delete fully processed Outbox events **atomically in one transaction distinct from T1**. On a handler error, T3 rolls back; the claimed delivery is then retried/reported by a separate short error-state transaction. For an **external I/O subscriber**, run HTTP/Telegram outside any DB transaction, then acknowledge/fail it in a short separate transaction. External delivery is at-least-once.
 4. **No retention:** when the last delivery has been successfully acknowledged, delete `outbox_events` and its `outbox_deliveries` immediately within the acknowledgement transaction. An event with failed/pending/in-flight deliveries remains.
 5. **No subscribers:** no outbox row is created; review unused event types/publishers rather than silently building an unused event log.
-6. `Event History` independently decides which events matter to users. It is a **normal Outbox subscriber**, not part of the publisher's transaction. It creates an indexed, independently retained user event history. `DeploymentFailed` and `NodeDisconnected` can be consumed by Alert Management but omitted from user Events.
+6. `Event History` independently decides which events matter to users. It is a **normal Outbox subscriber**, not part of the publisher's transaction. It creates an indexed, independently retained user event history. Deployment failure, preparation failure, interruption and node-disconnection facts can be consumed by Alert Management but omitted from user Events.
 7. `DeploymentService` does not invoke Alert Management, Event History or Notifications directly. The Event Bus is a generic durable, asynchronous dispatcher, not a cross-module transaction coordinator.
 
 ### Consequence: eventual consistency across modules
@@ -40,8 +40,8 @@ or incompatible payloads are parked as failed. `Replay` and `Discard` address a 
 failed delivery. Prometheus collection reports queue depth by status and subscription.
 The container includes `sd outbox-list`, `sd outbox-replay` and `sd outbox-discard`
 for operational inspection and explicit failed-delivery actions. IDs and schema
-versions are preserved across restarts. UUIDv7 IDs order publications sharing a
-millisecond; per-resource projection high-water marks prevent delayed alert or
+versions are preserved across restarts. SQLite assigns each publication a monotonic
+sequence independent of delivery time; per-resource projection high-water marks prevent delayed alert or
 recommendation retries from regressing newer state.
 Raw handler errors are not persisted or logged because they can contain credentials;
 diagnostics expose event/subscription IDs, attempt, error type and a stable failure code.
@@ -86,7 +86,8 @@ All timestamps are UTC Unix milliseconds. SQLite requires `PRAGMA foreign_keys=O
 
 ```sql
 CREATE TABLE outbox_events (
-    id             TEXT PRIMARY KEY,
+    sequence       INTEGER PRIMARY KEY AUTOINCREMENT,
+    id             TEXT NOT NULL UNIQUE,
     event_type     TEXT NOT NULL,
     schema_version INTEGER NOT NULL CHECK (schema_version >= 1),
     occurred_at_ms INTEGER NOT NULL,
@@ -128,7 +129,7 @@ CREATE INDEX idx_outbox_delivery_expired_lease
 ### Publishing: T1
 
 1. Resolve matching subscriptions against a stable registry. With zero matches, do not enqueue anything (optional unhandled-publication metric).
-2. Encode/validate the safe versioned payload and allocate a unique event ID.
+2. Encode/validate the safe versioned payload, allocate a unique event ID and let SQLite assign its publication sequence.
 3. Insert into `outbox_events`, then insert **one** `outbox_deliveries` row for **every matching subscriber** with a stable `subscription_id`; no special mode is required.
 4. Return without calling handlers. Event and delivery inserts share the publisher's transaction, selected from context.
 5. Commit T1 atomically with the publisher's own business state.
@@ -227,5 +228,6 @@ The publishing transaction and every handler processing transaction are **differ
 10. Fully processed events are deleted immediately, with no retention; pending and failed deliveries are never swept by age.
 11. Publications with no subscribers do not create outbox records.
 12. No plain secrets, unmasked env or raw compose definitions in persisted event payloads.
+13. Delayed delivery uses the original publication sequence for Event History retention; legacy history occupies the earlier reserved range.
 
 **Important:** this architecture intentionally trades cross-module atomicity for durable asynchronous projections. Never present Event History's eventual projection as the atomic result of deployment completion.

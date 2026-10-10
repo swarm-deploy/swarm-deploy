@@ -4,6 +4,8 @@
 |------------------------------------|----------|------------|-------------------------------------|--------------------------------------------------------------|
 | `deploySuccess`                    | `info`   | `sync`     | Successful stack deployment         | `stack`, `commit`                                            |
 | `deployFailed`                     | `alert`  | `sync`     | Failed stack deployment             | `stack`, `commit`, `error` (if present)                      |
+| `deployPreparationFailed`          | `alert`  | `sync`     | Desired state preparation failed before an attempt | `stack`, `commit`, `error`                       |
+| `deployInterrupted`                | `alert`  | `sync`     | Apply outcome is unknown             | `stack`, `commit`, `error`                                   |
 | `servicePruned`                    | `info`   | `sync`     | Orphaned managed service was removed | `stack_name`, `service_name`, `commit`                       |
 | `networkCreated`                   | `info`   | `sync`     | Managed network was created          | `network_name`, `network_id`, `driver`                       |
 | `sendNotificationFailed`           | `error`  | `sync`     | Notification delivery failure       | `destination`, `channel`, `event_type`, `error` (if present) |
@@ -20,8 +22,8 @@
 | `assistantPromptInjectionDetected` | `alert`  | `security` | Assistant prompt injection detected | `detector`, `prompt` (if present), `username` (if present)   |
 
 On the SQLite integration branch, selected user-visible events are stored in
-`event_history` in `<dataDir>/swarm-deploy.sqlite`. New `deployFailed` and
-`nodeDisconnected` records are excluded from history; imported history is preserved
+`event_history` in `<dataDir>/swarm-deploy.sqlite`. New `deployFailed`,
+`deployPreparationFailed`, `deployInterrupted` and `nodeDisconnected` records are excluded from history; imported history is preserved
 unchanged. The table above describes available event types, not a promise that every
 signal appears in user history. Deployment failures and node disconnections feed
 Alert Management, and success/reconnection resolves the respective open incident. New SQLite history records use the safe event codec,
@@ -65,8 +67,9 @@ Config example:
 eventHistory:
   capacity: 500
 ```
-Deployment notifications retain the `deploySuccess`/`deployFailed` names and existing
-template inputs for stack, revision, services and images. Durable payloads intentionally
+Deployment notifications retain the `deploySuccess`/`deployFailed` configuration names.
+An existing `deployFailed` notification also receives preparation failures and interrupted
+attempts, with safe stack/revision/category data. Durable payloads intentionally
 omit raw Compose, environment, logs, arbitrary errors and assistant prompts.
 `sendNotificationFailed` remains a compatible type but has no runtime publisher;
 delivery diagnostics live in outbox status/metrics rather than recursive notifications.

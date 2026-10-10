@@ -75,3 +75,8 @@ notifications:
             user authenticated
             username: {{.event.username}}
 ```
+
+`deployFailed` is the compatibility subscription for the complete deployment-failure
+lifecycle. It also receives `deployPreparationFailed` when no Deployment exists yet and
+`deployInterrupted` when an apply outcome is unknown. These signals contain only stable
+safe categories; raw loader, environment, script and Docker errors are never persisted.

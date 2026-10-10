@@ -108,13 +108,15 @@ The Outbox is an **operational queue**, not an audit log. It is generic infrastr
 ## Deployment lifecycle
 
 - Deployment records a **real attempt to apply a changed effective desired state**, not every reconcile. Distinct retries create distinct deployment IDs. Reconciler owns whether a retry happens; a store must not suppress attempts with the same revision/digest.
-- Preparation failures prior to an apply attempt do not create a Deployment. Once application has begun, policy rejection is a failed Deployment.
+- Preparation failures prior to an apply attempt do not create a Deployment. Runtime state and a safe `deployPreparationFailed` fact commit atomically so Alerts and Notifications still observe the failure. Once application has begun, policy rejection is a failed Deployment.
 - States: `running`, `succeeded`, `failed`, `interrupted`.
 - Apply boundary includes policies, init jobs, stack deployment, and authorized prune. Maintenance work after successful apply does not retroactively change a completed Deployment.
 - Successful application means the deploy pipeline completed, **not** that the services are healthy or that actual live convergence was verified. Rollout tracking is explicitly deferred.
 - Preserve user-visible `deploySuccess`. Create it at successful completion of a Deployment.
 - Only a successful Deployment advances the per-stack `DesiredSnapshot` baseline. A failed or interrupted attempt must never replace a known-good baseline.
-- Snapshot may contain an effective rendered compose representation suitable for semantic diffs; sensitive values must be redacted or represented safely. Never persist unmasked secret contents in snapshots, diffs, events, outbox payloads, or logs. Avoid introducing a new secret hashing key. Improvements to `envmasker` are a separate track.
+- A matching successful baseline is a no-op only when no failed/interrupted attempt followed it. Returning to the baseline after an attempt that may have changed Swarm creates a new attempt.
+- Snapshot may contain an effective rendered compose representation suitable for semantic diffs; sensitive values must be redacted or represented safely. Commands, entrypoints, healthcheck commands and init-job scripts are opaque persisted values: displays contain only masks while existing unkeyed fingerprints detect changes. Never persist unmasked secret contents in snapshots, diffs, events, outbox payloads, or logs. Avoid introducing a new secret hashing key. Improvements to `envmasker` are a separate track.
+- Effective command identity preserves Compose scalar versus list form because those forms produce different argv; presentation-only YAML formatting remains a no-op.
 - Persist meaningful structured changes (`added`, `removed`, `changed` plus semantic details), rather than presenting only flat change counts. A failed attempt can show **planned** changes without claiming they were applied.
 
 ## Transactional outbox boundaries
@@ -123,7 +125,8 @@ External Docker operations and the database **cannot share a transaction**. The 
 
 - Before an external apply, persist a `running` Deployment.
 - On completed apply, use **one publisher DB transaction** to commit `Deployment=succeeded`, successful `DesiredSnapshot`, GitOps state and a `DeploymentSucceeded` Outbox event plus delivery records. **Do not** also require the Event History projection or Alert resolution in that transaction: they are performed by subscribers later in their own transactions.
-- Failed/interrupted transitions and their durable side effects must use the same principle.
+- Failed/interrupted transitions and their durable side effects must use the same principle. `deployInterrupted` is a separate durable fact for an unknown external outcome; it is not reported as a known failure.
+- If the current process knows the external outcome but completion persistence fails, the reconciler retries that exact success/failed transition before another apply. A running attempt with no known in-process outcome is atomically interrupted before retry policy is evaluated.
 - After a crash between Docker API success and the success transaction, the Deployment remains `running` until it is detected as `interrupted`; do not invent success or overwrite the baseline. Actual-state convergence detection is future work.
 - A generic Event Bus outbox worker reads due subscriber records, attempts delivery, and marks completion/retry in the database. Define bounded retries/backoff, terminal handling, metrics, and startup recovery.
 - Model **separate durable delivery state per destination** (e.g. independent stable subscriber IDs) so partial success across Telegram/webhooks is not treated as all-or-nothing.
@@ -134,10 +137,11 @@ External Docker operations and the database **cannot share a transaction**. The 
 ## Events, alerts, and notifications
 
 - Public Events = **selected user-significant projections** of published domain facts (e.g. `nodeJoined`, `deploySuccess`) chosen by Event History. Every source event is still in the outbox regardless of projection. `nodeJoined` means a genuinely new swarm node, not an existing node becoming Ready.
-- `NodeDisconnected` and `DeployFailed` are internal signals / alert inputs, not automatically user-visible Event History rows.
+- `NodeDisconnected`, `DeployFailed`, `DeployPreparationFailed` and `DeployInterrupted` are internal signals / alert inputs, not automatically user-visible Event History rows.
 - Alerts maintain their own lifecycle and deduplication identity. Events and Alerts share a UI page, but **remain separate tables**.
 - Notifications are a distinct module/concern. Stable public notification semantics can combine technical failure causes so users do not have to guess which low-level event to subscribe to.
 - Existing Event History cursor pagination/filtering must become a database query rather than loading, sorting, and filtering the full history in memory.
+- Event History retention and legacy `ReadRecent` use the Outbox publication sequence, so a delayed retry cannot evict a newer publication. Legacy import reserves the earlier sequence range and preserves file order.
 - Overview `Latest deployments` reads the new deployment repository.
 
 ## Schema and one-time import
@@ -178,7 +182,8 @@ One Outbox worker handles all subscriptions.
 
 The stack pipeline prepares effective state before creating a running attempt.
 Completion atomically commits the attempt, successful baseline, runtime state and
-source event; maintenance cleanup runs afterwards. Compose-dependent consumers load
+source event; a failed completion write is retried before the next apply, and unknown
+running outcomes become durable interrupted facts. Maintenance cleanup runs afterwards. Compose-dependent consumers load
 redacted desired state by deployment ID. Service metadata inspection runs outside a
 write transaction, then commits the catalog and a `serviceCatalogUpdated` child event
 together. RAG consumes that child, not the parent deployment event.

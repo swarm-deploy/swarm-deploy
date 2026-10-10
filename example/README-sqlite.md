@@ -44,7 +44,13 @@ do not delete a real database or edit its checksum to bypass this protection.
 first. `GET /api/v1/deployments/{id}` includes safe planned field-level changes.
 Overview uses this repository, not event history. Failed attempts do not advance
 the successful desired baseline; an interrupted process leaves an interrupted attempt
-after restart. Preparation errors and effective no-op reconciliations create no attempt.
+after restart. A completion write that fails after Docker returns is retried by the next
+reconciliation in the same process. If the outcome is unknown, the running attempt is
+atomically marked interrupted before retry evaluation. Preparation errors and effective
+no-op reconciliations create no attempt, but preparation failures still update runtime
+and publish a secret-safe durable signal for Alerts and Notifications.
+Returning to the last successful desired state after a failed or interrupted attempt
+creates a new apply attempt because Swarm may have been changed by the later attempt.
 The first comparison after JSON import uses the legacy source digest only to decide
 whether there is a new attempt; it does not invent a historical successful snapshot.
 
@@ -52,6 +58,10 @@ Success means that apply/init/prune completed, not that Swarm service health con
 Cleanup errors after success are maintenance diagnostics and cannot reverse success.
 Events/Alerts/notifications appear asynchronously. A projection failure never reverses
 the committed deployment.
+
+Persisted commands, entrypoints, healthchecks and init-job scripts are opaque masked
+values. Their unkeyed fingerprints preserve change detection without retaining plaintext.
+Compose scalar and list command forms remain distinct when their execution semantics differ.
 
 ## Outbox operations
 
