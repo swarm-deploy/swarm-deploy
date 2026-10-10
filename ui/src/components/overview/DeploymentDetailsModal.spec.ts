@@ -79,6 +79,49 @@ describe("Deployment Details modal", () => {
     wrapper.unmount();
   });
 
+  it.each([
+    {
+      status: "running", basis: "none",
+      expected: "Apply attempt is still in progress. This is the recorded target configuration; live convergence has not been verified.",
+    },
+    {
+      status: "running", basis: "successful_baseline",
+      expected: "Apply attempt is still in progress. These desired changes are planned; live convergence has not been verified.",
+    },
+    {
+      status: "succeeded", basis: "none",
+      expected: "Apply pipeline completed. Service health and live convergence have not been verified.",
+    },
+    {
+      status: "succeeded", basis: "successful_baseline",
+      expected: "Apply pipeline completed. Service health and live convergence have not been verified.",
+    },
+    {
+      status: "failed", basis: "none",
+      expected: "Apply attempt failed. This is the recorded target configuration; the actual Swarm state may differ.",
+    },
+    {
+      status: "failed", basis: "successful_baseline",
+      expected: "Apply attempt failed. These desired changes are planned; the actual Swarm state may differ.",
+    },
+    {
+      status: "interrupted", basis: "none",
+      expected: "Apply outcome is unknown. This is the recorded target configuration; the actual Swarm state may differ.",
+    },
+    {
+      status: "interrupted", basis: "successful_baseline",
+      expected: "Apply outcome is unknown. These desired changes are planned; the actual Swarm state may differ.",
+    },
+  ] as const)("describes $status with $basis accurately", ({ status, basis, expected }) => {
+    const store = useOverviewStore();
+    store.deploymentDetailsModalOpen = true;
+    store.deploymentDetailsData = deployment(status, basis);
+    const wrapper = mount(DeploymentDetailsModal);
+
+    expect(wrapper.text()).toContain(expected);
+    wrapper.unmount();
+  });
+
   it("traps keyboard focus, closes on Escape and restores the trigger", async () => {
     const store = useOverviewStore();
     store.deploymentDetailsData = deployment();

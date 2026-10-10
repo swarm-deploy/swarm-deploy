@@ -38,6 +38,9 @@ function changeSummary(d: DeploymentSummary): string {
   const total = (d.summary?.added ?? 0) + (d.summary?.changed ?? 0) + (d.summary?.removed ?? 0);
   return `${total} fields`;
 }
+function actionLabel(d: DeploymentSummary): string {
+  return d.comparison_basis === "none" ? "View snapshot" : "View changes";
+}
 onMounted(() => { void load(0, ""); });
 </script>
 
@@ -59,8 +62,8 @@ onMounted(() => { void load(0, ""); });
           @click.stop="store.openCommitDetailsModal(deployment.commit)">{{ shortCommitHash(deployment.commit) }}</button><span v-else>—</span></td>
         <td>{{ changeSummary(deployment) }} · {{ deployment.resources?.services ?? 0 }} services,
           {{ deployment.resources?.configs ?? 0 }} configs, {{ deployment.resources?.secrets ?? 0 }} secrets
-          <button type="button" :aria-label="`View changes for ${deployment.stack}`"
-            @click="store.openDeploymentDetailsModal(deployment.id)">View changes</button></td>
+          <button type="button" :aria-label="`${actionLabel(deployment)} for ${deployment.stack}`"
+            @click="store.openDeploymentDetailsModal(deployment.id)">{{ actionLabel(deployment) }}</button></td>
       </tr>
     </AppTable>
     <nav class="deployment-pages" aria-label="Deployment pages">

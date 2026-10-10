@@ -38,12 +38,21 @@ const comparison = computed(() => {
   }
 });
 const outcome = computed(() => {
-  if (detail.value?.status === "succeeded") {
-    return "Apply pipeline completed. Service health and live convergence have not been verified.";
+  const target = initialSnapshot.value
+    ? "This is the recorded target configuration"
+    : "These desired changes are planned";
+  switch (detail.value?.status) {
+    case "running":
+      return `Apply attempt is still in progress. ${target}; live convergence has not been verified.`;
+    case "succeeded":
+      return "Apply pipeline completed. Service health and live convergence have not been verified.";
+    case "failed":
+      return `Apply attempt failed. ${target}; the actual Swarm state may differ.`;
+    case "interrupted":
+      return `Apply outcome is unknown. ${target}; the actual Swarm state may differ.`;
+    default:
+      return "";
   }
-  return initialSnapshot.value
-    ? "The apply attempt did not complete successfully; the actual Swarm state may differ."
-    : "These are planned desired changes; the actual Swarm state may differ.";
 });
 const total = computed(() => {
   const s = detail.value?.summary;

@@ -2,7 +2,6 @@
 package deployment
 
 import (
-	"encoding/json"
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -116,41 +115,6 @@ type Change struct {
 	After *string `json:"after,omitempty"`
 	// Redacted indicates that a sensitive value changed without disclosing it.
 	Redacted bool `json:"redacted,omitempty"`
-}
-
-// UnmarshalJSON accepts both the structured DTO and deployment snapshots written by the previous path-based model.
-func (c *Change) UnmarshalJSON(data []byte) error {
-	var stored struct {
-		ResourceType string          `json:"resourceType"`
-		ResourceName string          `json:"resourceName"`
-		Field        string          `json:"field"`
-		Operation    ChangeOperation `json:"operation"`
-		Path         string          `json:"path"`
-		Before       *string         `json:"before"`
-		After        *string         `json:"after"`
-		Redacted     bool            `json:"redacted"`
-	}
-	if err := json.Unmarshal(data, &stored); err != nil {
-		return err
-	}
-	*c = Change{ResourceType: stored.ResourceType, ResourceName: stored.ResourceName, Field: stored.Field,
-		Operation: stored.Operation, Before: stored.Before, After: stored.After, Redacted: stored.Redacted}
-	if c.ResourceType == "" && stored.Path != "" {
-		mapped := publicChange(stored.Path)
-		mapped.Before, mapped.After, mapped.Redacted = stored.Before, stored.After, stored.Redacted
-		*c = mapped
-	}
-	if c.Operation == "" {
-		switch {
-		case c.Before == nil:
-			c.Operation = OperationAdded
-		case c.After == nil:
-			c.Operation = OperationRemoved
-		default:
-			c.Operation = OperationChanged
-		}
-	}
-	return nil
 }
 
 // ChangeSummary contains field-level transition totals.

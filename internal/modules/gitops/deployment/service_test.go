@@ -296,17 +296,6 @@ func TestPublicChangeFieldsHideGoModelRepresentation(t *testing.T) {
 	}
 }
 
-func TestLegacyPathChangeDecodesToStructuredFields(t *testing.T) {
-	var change Change
-	require.NoError(t, json.Unmarshal([]byte(`{
-		"path":"services/api/environment/Map/MODE","before":"production","after":"staging"
-	}`), &change))
-	assert.Equal(t, "service", change.ResourceType)
-	assert.Equal(t, "api", change.ResourceName)
-	assert.Equal(t, "environment.MODE", change.Field)
-	assert.Equal(t, OperationChanged, change.Operation)
-}
-
 func TestOpaqueCommandChangesRemainDetectable(t *testing.T) {
 	tests := []struct {
 		name   string
