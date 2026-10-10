@@ -39,8 +39,9 @@ Local verification is recorded below; this is not a production rollout or remote
 - Typed versioned codecs persist safe envelopes, not arbitrary Event/Details,
   Compose, environment, raw errors/logs or assistant prompts. Deployment events
   contain references to redacted desired state.
-- History deliberately excludes new deployFailed/deployPreparationFailed/
-  deployInterrupted/nodeDisconnected signals. Retention and `ReadRecent` use the
+- History deliberately excludes deployment-failure lifecycle facts and new
+  nodeDisconnected signals. Only `deploySuccess` remains a public deployment event;
+  `deployFailed` is a notification compatibility alias. Retention and `ReadRecent` use the
   original Outbox publication sequence, including a reserved legacy-import prefix,
   so delayed retries cannot replace newer history.
   Alerts handle deployment and node failures/recovery. Source uniqueness and
@@ -60,22 +61,25 @@ Local verification is recorded below; this is not a production rollout or remote
   attempts, redacted effective snapshots and field-level semantic differences.
   Preparation precedes attempt creation. Running is committed before Docker;
   successful attempt + baseline + GitOps state + source event commit atomically.
-  Failure never advances baseline. Reconciliation retries known completion outcomes
+  Failure never advances baseline. Every attempt retains its desired snapshot and comparison
+  basis. Recovery uses the latest uncertain attempt as its diff basis and reports unknown
+  actual state instead of an empty successful-baseline diff. Reconciliation retries known completion outcomes
   after transient persistence errors; unknown running outcomes atomically update
   runtime, mark the attempt interrupted and publish a durable interruption fact.
   Failed/interrupted attempts after a successful baseline force a new reconciliation
   attempt even when desired state returns to that baseline.
-  Post-apply cleanup cannot change an already successful outcome.
+  Apply, verification and pruning outcomes are recorded independently before success is committed.
 - Compose comparison excludes source formatting, parser env-key ordering and
   checkout path, while tracking referenced resource content. Commands, entrypoints,
   healthchecks and init-job scripts persist only masks plus existing unkeyed
   fingerprints. Scalar/list command form remains part of effective identity.
-- Preparation failures update runtime and publish `deployPreparationFailed` in one
+- Preparation failures update runtime and publish an internal lifecycle fact in one
   transaction without creating a Deployment. Alerts correlate repeated preparation,
   apply and interruption failures; success resolves the incident. Existing
   `deployFailed` notification configuration covers the full failure lifecycle.
-- Deployments API and Overview read deployments, not Event History. The deployments
-  page shows planned changes and all four statuses. Events & Alerts is one page
+- Deployments API and Overview read deployments, not Event History. The list endpoint returns
+  cursor-paged summaries; detail returns structured secret-safe changes. The deployments
+  page shows summary counts, comparison confidence and all four statuses. Events & Alerts is one page
   with two separate tables; existing /alerts links redirect to its alerts section.
 - The container includes `sd outbox-list`, `outbox-replay` and `outbox-discard`.
   Inspection returns safe operational metadata, not event payloads.

@@ -2366,6 +2366,10 @@ func (s *Server) handleListDeploymentsRequest(args [0]string, argsEscaped bool, 
 					Name: "limit",
 					In:   "query",
 				}: params.Limit,
+				{
+					Name: "cursor",
+					In:   "query",
+				}: params.Cursor,
 			},
 			Raw: r,
 		}

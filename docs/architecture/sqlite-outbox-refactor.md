@@ -178,7 +178,8 @@ Release gates: no silent data loss; no false deployment success; stable user-vis
 All listed runtime repositories use the shared SQLite database. Startup imports legacy
 JSON before module initialization and marks unfinished deployments interrupted before
 the controller runs. QueueDispatcher and its global temporal deduplication are removed.
-One Outbox worker handles all subscriptions.
+A bounded Outbox worker pool handles subscriptions while preserving publication order
+within each subscription, so external notification latency does not serialize DB projections.
 
 The stack pipeline prepares effective state before creating a running attempt.
 Completion atomically commits the attempt, successful baseline, runtime state and

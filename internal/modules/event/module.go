@@ -80,12 +80,11 @@ func (s *Module) initNotificationSubscribers(ctx context.Context) error {
 	subscribersCount := 0
 
 	for eventTypeName, channels := range s.cfg.Spec.Notifications.On {
-		eventType, ok := events.ParseType(string(eventTypeName))
-		if !ok {
+		if !eventTypeName.Valid() && eventTypeName != events.TypeNameDeployFailed {
 			return fmt.Errorf("unknown notifications.on event type %q", eventTypeName)
 		}
 
-		targetTypes := notificationEventTypes(eventType.Name())
+		targetTypes := notificationEventTypes(eventTypeName)
 		count, err := s.registerTelegramNotifications(targetTypes, channels.Telegram)
 		if err != nil {
 			return err

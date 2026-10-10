@@ -147,6 +147,94 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 	require.Len(t, stackState.Services, 1, "expected one service state")
 	serviceState := stackState.Services["api"]
 	assert.Equal(t, model.SyncStatus(model.SyncStatusOutOfSync), serviceState.SyncStatus, "unexpected sync status")
+	page, listErr := deployment.NewStore(db).List(context.Background(), deployment.ListFilter{})
+	require.NoError(t, listErr)
+	require.Len(t, page.Deployments, 1)
+	attempt, getErr := deployment.NewStore(db).Get(context.Background(), page.Deployments[0].ID)
+	require.NoError(t, getErr)
+	assert.Equal(t, deployment.Failed, attempt.Status)
+	assert.Equal(t, deployment.StageFailed, attempt.ApplyStatus)
+	assert.Equal(t, deployment.StageSkipped, attempt.VerificationStatus)
+	assert.Equal(t, deployment.ActualStateUnknown, attempt.ActualStateStatus)
+}
+
+func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
+	tests := []struct {
+		name                 string
+		setupServices        func(*swarm.MockServiceManager)
+		status               deployment.Status
+		phase                deployment.Phase
+		verification         deployment.StageStatus
+		cleanup              deployment.StageStatus
+		actual               deployment.ActualStateStatus
+		expectedObservedTime bool
+	}{
+		{
+			name: "verification unknown",
+			setupServices: func(manager *swarm.MockServiceManager) {
+				manager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, assert.AnError)
+			},
+			status: deployment.Interrupted, phase: deployment.PhaseVerification,
+			verification: deployment.StageUnknown, cleanup: deployment.StageSkipped,
+			actual: deployment.ActualStateUnknown,
+		},
+		{
+			name: "cleanup failed",
+			setupServices: func(manager *swarm.MockServiceManager) {
+				manager.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{{
+					ID: "old-id", Name: "old", Labels: map[string]string{
+						labelsdict.ServiceManagedLabelKey: labelsdict.ServiceManagedLabelValue,
+					},
+				}}, nil)
+				manager.EXPECT().Remove(gomock.Any(), "old-id").Return(assert.AnError)
+			},
+			status: deployment.Failed, phase: deployment.PhaseCleanup,
+			verification: deployment.StageSucceeded, cleanup: deployment.StageFailed,
+			actual: deployment.ActualStateObserved, expectedObservedTime: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			repository := gitx.NewMockRepository(ctrl)
+			serviceManager := swarm.NewMockServiceManager(ctrl)
+			stackDeployer := deployer.NewMockStackDeployer(ctrl)
+			db, stateStore := newSQLState(t)
+			repoDir := t.TempDir()
+			require.NoError(t, writeComposeFile(repoDir))
+			repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+			stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+			tt.setupServices(serviceManager)
+			cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(repoDir, ".data"),
+				Sync: config.SyncSpec{Policy: config.SyncPolicySpec{Prune: true}}}}
+			eventDispatcher := &dispatcher.NopDispatcher{}
+			reconciler := &Reconciler{
+				cfg: cfg, git: repository, deployer: stackDeployer, event: eventDispatcher,
+				deployMetrics: &metrics.NopDeploys{}, stateStore: stateStore,
+				pruner:        pruner.NewServicePruner(serviceManager, eventDispatcher, cfg.Spec.Sync.Policy),
+				composeLoader: compose.NewFileLoader(), composeRotator: NewRotator(), serviceManager: serviceManager,
+			}
+			reconciler.db = db
+			reconciler.deployments = deployment.NewService(db, eventDispatcher)
+			reconciler.attachPipeline()
+			err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
+				Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "commit",
+			})
+			require.Error(t, err)
+			page, listErr := deployment.NewStore(db).List(context.Background(), deployment.ListFilter{})
+			require.NoError(t, listErr)
+			require.Len(t, page.Deployments, 1)
+			attempt, getErr := deployment.NewStore(db).Get(context.Background(), page.Deployments[0].ID)
+			require.NoError(t, getErr)
+			assert.Equal(t, tt.status, attempt.Status)
+			assert.Equal(t, tt.phase, attempt.Phase)
+			assert.Equal(t, deployment.StageSucceeded, attempt.ApplyStatus)
+			assert.Equal(t, tt.verification, attempt.VerificationStatus)
+			assert.Equal(t, tt.cleanup, attempt.CleanupStatus)
+			assert.Equal(t, tt.actual, attempt.ActualStateStatus)
+			assert.Equal(t, tt.expectedObservedTime, attempt.ObservedAt != nil)
+		})
+	}
 }
 
 func TestReconcileSucceedsWhenRotatedResourceCleanupPartiallyFails(t *testing.T) {

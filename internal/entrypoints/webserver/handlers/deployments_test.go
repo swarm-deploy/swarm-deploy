@@ -32,12 +32,18 @@ func TestDeploymentAPIReadsAttemptsWithoutHistory(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, response.Deployments, 1)
 	assert.Equal(t, generated.DeploymentStatusRunning, response.Deployments[0].Status)
+	listPayload, err := json.Marshal(response)
+	require.NoError(t, err)
+	assert.NotContains(t, string(listPayload), "changes", "list response must remain lightweight")
 	detail, err := h.GetDeployment(ctx, generated.GetDeploymentParams{ID: attempt.ID})
 	require.NoError(t, err)
 	encoded, err := json.Marshal(detail)
 	require.NoError(t, err)
 	for _, secret := range []string{"do-not-expose", "api-command-secret", "health-secret", "init-secret"} {
 		assert.NotContains(t, string(encoded), secret)
+	}
+	for _, internalField := range []string{"\"path\"", "Map", "Args", "Extra"} {
+		assert.NotContains(t, string(encoded), internalField)
 	}
 	_, err = h.GetDeployment(ctx, generated.GetDeploymentParams{ID: "unknown"})
 	require.Error(t, err)

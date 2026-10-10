@@ -21,7 +21,10 @@ describe("Latest deployments", () => {
   it("reads attempts, displays all outcomes and never substitutes event history", async () => {
     vi.mocked(fetchDeployments).mockResolvedValue({ deployments: ["running", "succeeded", "failed", "interrupted"].map((status, i) => ({
       id: String(i), stack: "app", commit: "abc123", status: status as "running" | "succeeded" | "failed" | "interrupted",
-      started_at: "2026-10-10T10:00:00Z", changes: [],
+      phase: "apply", apply_status: "running", verification_status: "pending", cleanup_status: "pending",
+      actual_state_status: "unknown", comparison_basis: "successful_baseline", comparison_status: "known",
+      started_at: "2026-10-10T10:00:00Z", summary: { added: 0, changed: 0, removed: 0, redacted: 0 },
+      resources: { services: 0, configs: 0, secrets: 0 },
     })) });
     const wrapper = mount(OverviewView, { global: { stubs: { RouterLink: { template: "<a><slot /></a>" } } } });
     await flushPromises();

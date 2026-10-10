@@ -56,7 +56,10 @@ type pendingCompletion struct {
 	state        model.Stack
 	status       deployment.Status
 	errorCode    string
+	observedAt   time.Time
 }
+
+const pruneFailureCode = "prune_failed"
 
 // New builds a stack reconciler loop.
 func New(
@@ -234,6 +237,7 @@ func (r *Reconciler) processResult(
 		if payload.Attempt != nil {
 			r.pending[req.Stack.Name] = pendingCompletion{
 				deploymentID: payload.Attempt.ID, state: result, status: deployment.Succeeded,
+				observedAt: payload.ObservedAt,
 			}
 		}
 		return fmt.Errorf("persist stack result: %w", err)
@@ -281,7 +285,15 @@ func (r *Reconciler) recordPipelineFailure(
 		persistErr = r.recordFailure(ctx, req.Stack.Name, req.Commit, services, pipeErr)
 	} else {
 		failed := prev
-		failed.LastCommit, failed.LastError = req.Commit, "apply_failed"
+		code := "apply_failed"
+		status := deployment.Failed
+		switch pipeErr.StepName {
+		case "load live state":
+			code, status = "verification_unknown", deployment.Interrupted
+		case "prune orphaned services":
+			code = pruneFailureCode
+		}
+		failed.LastCommit, failed.LastError = req.Commit, code
 		if failed.Services == nil {
 			failed.Services = map[string]model.Service{}
 		}
@@ -291,14 +303,18 @@ func (r *Reconciler) recordPipelineFailure(
 			}
 		}
 		failed.Status = model.NewStackStatus(failed.Services)
-		code := "apply_failed"
-		if pipeErr.StepName == "prune orphaned services" {
-			code = "prune_failed"
+		switch code {
+		case "verification_unknown":
+			persistErr = r.deployments.InterruptVerification(ctx, pl.Attempt.ID, failed)
+		case pruneFailureCode:
+			persistErr = r.deployments.FailCleanup(ctx, pl.Attempt.ID, failed, code, pl.ObservedAt)
+		default:
+			persistErr = r.deployments.FailApply(ctx, pl.Attempt.ID, failed, code)
 		}
-		persistErr = r.deployments.Fail(ctx, pl.Attempt.ID, failed, code)
 		if persistErr != nil {
 			r.pending[req.Stack.Name] = pendingCompletion{
-				deploymentID: pl.Attempt.ID, state: failed, status: deployment.Failed, errorCode: code,
+				deploymentID: pl.Attempt.ID, state: failed, status: status, errorCode: code,
+				observedAt: pl.ObservedAt,
 			}
 		}
 		for _, service := range services {
@@ -314,10 +330,15 @@ func (r *Reconciler) recoverPending(ctx context.Context, stack string) error {
 		return nil
 	}
 	var err error
-	if pending.status == deployment.Succeeded {
-		err = r.deployments.Succeed(ctx, pending.deploymentID, pending.state)
-	} else {
-		err = r.deployments.Fail(ctx, pending.deploymentID, pending.state, pending.errorCode)
+	switch {
+	case pending.status == deployment.Succeeded:
+		err = r.deployments.SucceedObserved(ctx, pending.deploymentID, pending.state, pending.observedAt)
+	case pending.status == deployment.Interrupted:
+		err = r.deployments.InterruptVerification(ctx, pending.deploymentID, pending.state)
+	case pending.errorCode == pruneFailureCode:
+		err = r.deployments.FailCleanup(ctx, pending.deploymentID, pending.state, pending.errorCode, pending.observedAt)
+	default:
+		err = r.deployments.FailApply(ctx, pending.deploymentID, pending.state, pending.errorCode)
 	}
 	if err != nil {
 		return err
@@ -331,7 +352,7 @@ func (r *Reconciler) persistResult(
 ) error {
 	return r.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		if payload.Attempt != nil {
-			if err := r.deployments.Succeed(ctx, payload.Attempt.ID, result); err != nil {
+			if err := r.deployments.SucceedObserved(ctx, payload.Attempt.ID, result, payload.ObservedAt); err != nil {
 				return err
 			}
 		} else if err := r.stateStore.Update(ctx, func(state *model.Runtime) {

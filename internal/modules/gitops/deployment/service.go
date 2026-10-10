@@ -52,8 +52,17 @@ func (s *Service) StartIfChanged(
 		if decisionErr != nil || !start {
 			return decisionErr
 		}
+		basis, basisKind, comparisonStatus, basisID, basisErr := s.comparisonBasis(ctx, stack, previous, readErr)
+		if basisErr != nil {
+			return basisErr
+		}
+		changes := Compare(basis, desired)
+		summary, resources := summarize(changes)
 		d := Deployment{ID: uuid.NewString(), Stack: stack, Commit: commit, Status: Running,
-			StartedAt: s.now().UTC(), Changes: Compare(previous, desired)}
+			StartedAt: s.now().UTC(), Phase: PhaseApply, ApplyStatus: StageRunning,
+			VerificationStatus: StagePending, CleanupStatus: StagePending, ActualStateStatus: ActualStateUnknown,
+			ComparisonBasis: basisKind, ComparisonStatus: comparisonStatus, BasisDeploymentID: basisID,
+			Summary: summary, Resources: resources, Changes: changes}
 		if insertErr := s.store.insert(ctx, d, desired); insertErr != nil {
 			return insertErr
 		}
@@ -64,6 +73,26 @@ func (s *Service) StartIfChanged(
 		return nil, err
 	}
 	return attempt, nil
+}
+
+func (s *Service) comparisonBasis(
+	ctx context.Context, stack string, baseline Prepared, baselineErr error,
+) (Prepared, ComparisonBasis, ComparisonStatus, string, error) {
+	last, id, found, err := s.store.latestUnsuccessfulBasis(ctx, stack)
+	if err != nil {
+		return Prepared{}, "", "", "", err
+	}
+	if found {
+		return last, BasisLastAttempt, ComparisonUnknown, id, nil
+	}
+	if baselineErr == nil {
+		id, err = s.store.baselineDeploymentID(ctx, stack)
+		return baseline, BasisSuccessfulBaseline, ComparisonKnown, id, err
+	}
+	if errors.Is(baselineErr, ErrNotFound) {
+		return Prepared{}, BasisObservedState, ComparisonUnknown, "", nil
+	}
+	return Prepared{}, "", "", "", baselineErr
 }
 
 func (s *Service) shouldStart(
@@ -94,23 +123,73 @@ func (s *Service) shouldStart(
 // Succeed commits success, the successful baseline, runtime state and source event in T1.
 // A commit failure leaves running; callers must not reinterpret it as an apply failure.
 func (s *Service) Succeed(ctx context.Context, id string, state model.Stack) error {
-	return s.complete(ctx, id, state, Succeeded, "")
+	return s.SucceedObserved(ctx, id, state, s.now().UTC())
+}
+
+// SucceedObserved records a successful apply, verification and cleanup outcome.
+func (s *Service) SucceedObserved(ctx context.Context, id string, state model.Stack, observedAt time.Time) error {
+	return s.complete(ctx, id, state, completion{status: Succeeded, phase: PhaseCompleted,
+		apply: StageSucceeded, verification: StageSucceeded, cleanup: StageSucceeded,
+		actual: ActualStateObserved, observedAt: &observedAt})
 }
 
 // Fail records an apply failure without changing the successful desired baseline.
 // code must be a stable category selected by the caller, not raw error text.
 func (s *Service) Fail(ctx context.Context, id string, state model.Stack, code string) error {
 	switch code {
-	case "policy_rejected", "init_failed", "apply_failed", "prune_failed":
+	case "policy_rejected", "init_failed", "apply_failed":
+		return s.FailApply(ctx, id, state, code)
+	case "prune_failed":
+		return s.FailCleanup(ctx, id, state, code, s.now().UTC())
 	default:
 		return fmt.Errorf("unsupported deployment failure code")
 	}
-	state.LastError = code
-	return s.complete(ctx, id, state, Failed, code)
 }
 
-func (s *Service) complete(ctx context.Context, id string, state model.Stack, status Status, code string) error {
+// FailApply records a known Docker apply failure with unknown actual state.
+func (s *Service) FailApply(ctx context.Context, id string, state model.Stack, code string) error {
+	switch code {
+	case "policy_rejected", "init_failed", "apply_failed":
+	default:
+		return fmt.Errorf("unsupported apply failure code")
+	}
+	return s.complete(ctx, id, state, completion{status: Failed, code: code, phase: PhaseApply,
+		apply: StageFailed, verification: StageSkipped, cleanup: StageSkipped, actual: ActualStateUnknown})
+}
+
+// InterruptVerification records that apply returned but live state could not be observed.
+func (s *Service) InterruptVerification(ctx context.Context, id string, state model.Stack) error {
+	return s.complete(ctx, id, state, completion{status: Interrupted, code: "verification_unknown",
+		phase: PhaseVerification, apply: StageSucceeded, verification: StageUnknown,
+		cleanup: StageSkipped, actual: ActualStateUnknown})
+}
+
+// FailCleanup records a cleanup failure after successful apply and live-state observation.
+func (s *Service) FailCleanup(
+	ctx context.Context, id string, state model.Stack, code string, observedAt time.Time,
+) error {
+	if code != "prune_failed" {
+		return fmt.Errorf("unsupported cleanup failure code")
+	}
+	return s.complete(ctx, id, state, completion{status: Failed, code: code, phase: PhaseCleanup,
+		apply: StageSucceeded, verification: StageSucceeded, cleanup: StageFailed,
+		actual: ActualStateObserved, observedAt: &observedAt})
+}
+
+type completion struct {
+	status       Status
+	code         string
+	phase        Phase
+	apply        StageStatus
+	verification StageStatus
+	cleanup      StageStatus
+	actual       ActualStateStatus
+	observedAt   *time.Time
+}
+
+func (s *Service) complete(ctx context.Context, id string, state model.Stack, outcome completion) error {
 	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
+		state.LastError = outcome.code
 		d, err := s.store.Get(ctx, id)
 		if err != nil {
 			return err
@@ -123,11 +202,14 @@ func (s *Service) complete(ctx context.Context, id string, state model.Stack, st
 			return err
 		}
 		now := s.now().UTC()
-		d.Status, d.FinishedAt, d.ErrorCode = status, &now, code
+		d.Status, d.FinishedAt, d.ErrorCode = outcome.status, &now, outcome.code
+		d.Phase, d.ApplyStatus = outcome.phase, outcome.apply
+		d.VerificationStatus, d.CleanupStatus = outcome.verification, outcome.cleanup
+		d.ActualStateStatus, d.ObservedAt = outcome.actual, outcome.observedAt
 		if err = s.store.finish(ctx, d); err != nil {
 			return err
 		}
-		if status == Succeeded {
+		if outcome.status == Succeeded {
 			if err = s.store.saveBaseline(ctx, id); err != nil {
 				return err
 			}
@@ -137,10 +219,14 @@ func (s *Service) complete(ctx context.Context, id string, state model.Stack, st
 		}
 		meta := events.DeployEvent{DeploymentID: d.ID, StackName: d.Stack, Commit: d.Commit,
 			Services: desired.Compose.Services, StackDefinition: desired}
-		if status == Succeeded {
+		if outcome.status == Succeeded {
 			return s.events.Publish(ctx, &events.DeploySuccess{DeployEvent: meta})
 		}
-		return s.events.Publish(ctx, &events.DeployFailed{DeployEvent: meta, Error: errors.New(code)})
+		if outcome.status == Interrupted {
+			return s.events.Publish(ctx, &events.DeployInterrupted{DeploymentID: d.ID, StackName: d.Stack,
+				Commit: d.Commit, Services: desired.Compose.Services, Reason: outcome.code})
+		}
+		return s.events.Publish(ctx, &events.DeployFailed{DeployEvent: meta, Error: errors.New(outcome.code)})
 	})
 }
 
@@ -182,6 +268,9 @@ func (s *Service) interruptOne(ctx context.Context, d Deployment, now time.Time)
 		return err
 	}
 	d.Status, d.FinishedAt, d.ErrorCode = Interrupted, &now, "process_interrupted"
+	d.Phase, d.ApplyStatus = PhaseApply, StageUnknown
+	d.VerificationStatus, d.CleanupStatus = StageSkipped, StageSkipped
+	d.ActualStateStatus, d.ObservedAt = ActualStateUnknown, nil
 	if err = s.store.finish(ctx, d); err != nil {
 		return err
 	}

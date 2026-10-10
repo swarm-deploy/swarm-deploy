@@ -10,9 +10,15 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/artarts36/envmasker"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+)
+
+const (
+	resourcePathParts = 2
+	contentPathParts  = 3
 )
 
 // Prepare copies the effective Compose in memory and masks it before persistence.
@@ -199,13 +205,23 @@ func Compare(before, after Prepared) []Change {
 	}
 	sort.Strings(ordered)
 	changes := []Change{}
+	positions := map[string]int{}
 	for _, path := range ordered {
 		old, hadOld := before.Fields[path]
 		current, hasCurrent := after.Fields[path]
 		if hadOld == hasCurrent && before.Fingerprints[path] == after.Fingerprints[path] {
 			continue
 		}
-		change := Change{Path: path, Redacted: before.Redacted[path] || after.Redacted[path]}
+		change := publicChange(path)
+		change.Redacted = before.Redacted[path] || after.Redacted[path]
+		switch {
+		case !hadOld:
+			change.Operation = OperationAdded
+		case !hasCurrent:
+			change.Operation = OperationRemoved
+		default:
+			change.Operation = OperationChanged
+		}
 		if change.Redacted {
 			old, current = envmasker.MaskValue, envmasker.MaskValue
 		}
@@ -215,9 +231,117 @@ func Compare(before, after Prepared) []Change {
 		if hasCurrent {
 			change.After = &current
 		}
+		key := change.ResourceType + "\x00" + change.ResourceName + "\x00" + change.Field
+		if position, exists := positions[key]; exists {
+			changes[position] = mergeChange(changes[position], change)
+			continue
+		}
+		positions[key] = len(changes)
 		changes = append(changes, change)
 	}
 	return changes
+}
+
+func publicChange(path string) Change {
+	parts := strings.Split(path, "/")
+	change := Change{ResourceType: "stack", ResourceName: "definition", Field: publicField(parts)}
+	if len(parts) >= resourcePathParts {
+		switch parts[0] {
+		case "services":
+			change.ResourceType, change.ResourceName = "service", parts[1]
+			change.Field = publicField(parts[2:])
+		case "configs":
+			change.ResourceType, change.ResourceName = "config", parts[1]
+			change.Field = publicField(parts[2:])
+		case "secrets":
+			change.ResourceType, change.ResourceName = "secret", parts[1]
+			change.Field = publicField(parts[2:])
+		case "resources":
+			if len(parts) >= contentPathParts && (parts[1] == "configs" || parts[1] == "secrets") {
+				change.ResourceType = strings.TrimSuffix(parts[1], "s")
+				change.ResourceName = parts[2]
+				change.Field = "content"
+			}
+		}
+	}
+	if change.Field == "" {
+		change.Field = "definition"
+	}
+	return change
+}
+
+func publicField(parts []string) string {
+	fields := make([]string, 0, len(parts))
+	for _, part := range parts {
+		switch part {
+		case "Map", "Keys", "Args", "Extra", "IsList", "Ports", "Volumes", "Names", "List", "AliasMap",
+			"Alias", "ResolvedName":
+			continue
+		}
+		if _, err := strconv.Atoi(part); err == nil {
+			continue
+		}
+		fields = append(fields, publicSegment(part))
+	}
+	return strings.Join(fields, ".")
+}
+
+func publicSegment(value string) string {
+	if value == strings.ToUpper(value) {
+		return value
+	}
+	runes := []rune(value)
+	var result strings.Builder
+	for i, current := range runes {
+		if unicode.IsUpper(current) {
+			previousLower := i > 0 && unicode.IsLower(runes[i-1])
+			nextLower := i+1 < len(runes) && unicode.IsLower(runes[i+1])
+			if i > 0 && (previousLower || nextLower) {
+				result.WriteByte('_')
+			}
+			current = unicode.ToLower(current)
+		}
+		result.WriteRune(current)
+	}
+	return result.String()
+}
+
+func mergeChange(existing, next Change) Change {
+	existing.Redacted = existing.Redacted || next.Redacted
+	if existing.Before == nil {
+		existing.Before = next.Before
+	}
+	if next.After != nil {
+		existing.After = next.After
+	}
+	if existing.Operation != next.Operation {
+		existing.Operation = OperationChanged
+	}
+	return existing
+}
+
+func summarize(changes []Change) (ChangeSummary, ResourceSummary) {
+	var summary ChangeSummary
+	resources := map[string]map[string]bool{"service": {}, "config": {}, "secret": {}}
+	for _, change := range changes {
+		switch change.Operation {
+		case OperationAdded:
+			summary.Added++
+		case OperationRemoved:
+			summary.Removed++
+		case OperationChanged:
+			summary.Changed++
+		}
+		if change.Redacted {
+			summary.Redacted++
+		}
+		if names, ok := resources[change.ResourceType]; ok {
+			names[change.ResourceName] = true
+		}
+	}
+	return summary, ResourceSummary{
+		Services: len(resources["service"]), Configs: len(resources["config"]), Secrets: len(resources["secret"]),
+	}
 }
 
 func (p *Prepared) sanitizeList(node []any, path, key string) any {

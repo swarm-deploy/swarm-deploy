@@ -1227,6 +1227,8 @@ func decodeListAlertsParams(args [0]string, argsEscaped bool, r *http.Request) (
 type ListDeploymentsParams struct {
 	Stack OptString `json:",omitempty,omitzero"`
 	Limit OptInt32  `json:",omitempty,omitzero"`
+	// Opaque cursor returned by the previous page.
+	Cursor OptString `json:",omitempty,omitzero"`
 }
 
 func unpackListDeploymentsParams(packed middleware.Parameters) (params ListDeploymentsParams) {
@@ -1246,6 +1248,15 @@ func unpackListDeploymentsParams(packed middleware.Parameters) (params ListDeplo
 		}
 		if v, ok := packed[key]; ok {
 			params.Limit = v.(OptInt32)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "cursor",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Cursor = v.(OptString)
 		}
 	}
 	return params
@@ -1356,6 +1367,47 @@ func decodeListDeploymentsParams(args [0]string, argsEscaped bool, r *http.Reque
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "limit",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: cursor.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "cursor",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotCursorVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotCursorVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.Cursor.SetTo(paramsDotCursorVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "cursor",
 			In:   "query",
 			Err:  err,
 		}

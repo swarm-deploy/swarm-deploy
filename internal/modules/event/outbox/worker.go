@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/Thiht/transactor/stdlib"
@@ -27,11 +28,20 @@ type delivery struct {
 // Run processes committed work until cancellation. Unfinished leases survive
 // shutdown and can be reclaimed after expiry by the next process.
 func (b *Bus) Run(ctx context.Context) error {
+	var workers sync.WaitGroup
+	for range b.workers {
+		workers.Go(func() { b.runWorker(ctx) })
+	}
+	workers.Wait()
+	return nil
+}
+
+func (b *Bus) runWorker(ctx context.Context) {
 	ticker := time.NewTicker(workerPollInterval)
 	defer ticker.Stop()
 	for {
 		if ctx.Err() != nil {
-			return nil
+			return
 		}
 		handled, err := b.ProcessNext(ctx)
 		if err != nil && ctx.Err() == nil {
@@ -42,7 +52,7 @@ func (b *Bus) Run(ctx context.Context) error {
 		}
 		select {
 		case <-ctx.Done():
-			return nil
+			return
 		case <-ticker.C:
 		}
 	}
@@ -92,9 +102,19 @@ func (b *Bus) claim(ctx context.Context) (delivery, error) {
 	now := b.now()
 	err := b.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		return b.db.Get(ctx).QueryRowContext(ctx, `WITH due AS (
-			SELECT event_id, subscription_id FROM outbox_deliveries
-			WHERE (status='pending' AND available_at_ms<=?) OR (status='processing' AND lease_until_ms<=?)
-			ORDER BY available_at_ms,event_id,subscription_id LIMIT 1
+			SELECT candidate.event_id,candidate.subscription_id
+			FROM outbox_deliveries AS candidate
+			JOIN outbox_events AS candidate_event ON candidate_event.id=candidate.event_id
+			WHERE ((candidate.status='pending' AND candidate.available_at_ms<=?)
+				OR (candidate.status='processing' AND candidate.lease_until_ms<=?))
+			AND NOT EXISTS (
+				SELECT 1 FROM outbox_deliveries AS earlier
+				JOIN outbox_events AS earlier_event ON earlier_event.id=earlier.event_id
+				WHERE earlier.subscription_id=candidate.subscription_id
+				AND earlier.status IN ('pending','processing')
+				AND earlier_event.sequence<candidate_event.sequence
+			)
+			ORDER BY candidate.available_at_ms,candidate_event.sequence,candidate.subscription_id LIMIT 1
 		) UPDATE outbox_deliveries SET status='processing',attempts=attempts+1,
 			lease_token=?,lease_until_ms=?,updated_at_ms=?
 		WHERE (event_id,subscription_id) IN (SELECT event_id,subscription_id FROM due)

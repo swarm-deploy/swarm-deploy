@@ -35,7 +35,7 @@ func Encode(event events.Event) ([]byte, error) {
 		}
 		return encodeDeploymentFailure(e.StackName, e.Commit, "", e.ErrorCode, e.Services)
 	case *events.DeployInterrupted:
-		if e.Reason != "process_interrupted" {
+		if e.Reason != "process_interrupted" && e.Reason != "verification_unknown" {
 			return nil, errors.New("unsupported deployment interruption reason")
 		}
 		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.Reason, e.Services)

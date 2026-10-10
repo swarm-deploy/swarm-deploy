@@ -3,7 +3,9 @@ package deployment
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -137,8 +139,62 @@ func TestRollbackToBaselineRetriesAfterUnsuccessfulAttempt(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, rollback)
 			assert.NotEqual(t, second.ID, rollback.ID)
+			assert.Equal(t, BasisLastAttempt, rollback.ComparisonBasis)
+			assert.Equal(t, ComparisonUnknown, rollback.ComparisonStatus)
+			assert.Equal(t, second.ID, rollback.BasisDeploymentID)
+			require.NotEmpty(t, rollback.Changes, "recovery must describe the last attempt to desired transition")
+			image := rollback.Changes[0]
+			assert.Equal(t, "service", image.ResourceType)
+			assert.Equal(t, "api", image.ResourceName)
+			assert.Equal(t, "image", image.Field)
+			assert.Equal(t, OperationChanged, image.Operation)
+			require.NotNil(t, image.Before)
+			require.NotNil(t, image.After)
+			assert.Equal(t, "api:b", *image.Before)
+			assert.Equal(t, "api:a", *image.After)
 		})
 	}
+}
+
+func TestListUsesLightweightCursorSummaries(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.Open(ctx, t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+	service := NewService(db, outbox.New(db))
+	clock := time.Date(2026, time.October, 10, 10, 0, 0, 0, time.UTC)
+	service.now = func() time.Time {
+		clock = clock.Add(time.Second)
+		return clock
+	}
+	for i, image := range []string{"api:1", "api:2", "api:3"} {
+		attempt, startErr := service.StartIfChanged(ctx, "app", string(rune('a'+i)), desired(image), true)
+		require.NoError(t, startErr)
+		require.NoError(t, service.Succeed(ctx, attempt.ID, model.Stack{}))
+	}
+	store := NewStore(db)
+	first, err := store.List(ctx, ListFilter{Limit: 2})
+	require.NoError(t, err)
+	require.Len(t, first.Deployments, 2)
+	require.NotEmpty(t, first.NextCursor)
+	assert.Equal(t, "c", first.Deployments[0].Commit)
+	assert.Equal(t, StageSucceeded, first.Deployments[0].ApplyStatus)
+	assert.Equal(t, ActualStateObserved, first.Deployments[0].ActualStateStatus)
+	assert.NotZero(t, first.Deployments[0].Summary.Changed)
+	second, err := store.List(ctx, ListFilter{Limit: 2, Cursor: first.NextCursor})
+	require.NoError(t, err)
+	require.Len(t, second.Deployments, 1)
+	assert.Empty(t, second.NextCursor)
+	assert.Equal(t, "a", second.Deployments[0].Commit)
+
+	_, err = db.Get(ctx).ExecContext(ctx, "UPDATE deployments SET payload=json_set(payload,'$.changes','not-an-array')")
+	require.NoError(t, err)
+	_, err = store.List(ctx, ListFilter{})
+	require.NoError(t, err, "list must not decode full change payloads")
+	_, err = store.Get(ctx, first.Deployments[0].ID)
+	require.Error(t, err, "detail still validates and decodes its change payload")
+	_, err = store.List(ctx, ListFilter{Cursor: "malformed"})
+	require.ErrorIs(t, err, ErrInvalidCursor)
 }
 
 func TestInterruptedTransitionIsAtomicDurableAndIdempotent(t *testing.T) {
@@ -195,18 +251,18 @@ func TestSnapshotMaskingAndSemanticChanges(t *testing.T) {
 	after, err := Prepare(afterFile)
 	require.NoError(t, err)
 	changes := Compare(before, after)
-	byPath := map[string]Change{}
+	byField := map[string]Change{}
 	for _, change := range changes {
-		byPath[change.Path] = change
+		byField[change.ResourceType+"/"+change.ResourceName+"/"+change.Field] = change
 	}
-	image := byPath["services/api/image"]
+	image := byField["service/api/image"]
 	require.NotNil(t, image.Before)
 	assert.Equal(t, "api:1", *image.Before)
 	assert.Equal(t, "api:2", *image.After)
-	mode := byPath["services/api/environment/Map/MODE"]
+	mode := byField["service/api/environment.MODE"]
 	require.NotNil(t, mode.After)
 	assert.Equal(t, "staging", *mode.After)
-	token := byPath["services/api/environment/Map/API_TOKEN"]
+	token := byField["service/api/environment.API_TOKEN"]
 	require.NotNil(t, token.After)
 	assert.True(t, token.Redacted)
 	assert.Equal(t, "****", *token.After)
@@ -217,6 +273,36 @@ func TestSnapshotMaskingAndSemanticChanges(t *testing.T) {
 	same, err := Prepare(afterFile)
 	require.NoError(t, err)
 	assert.Equal(t, after.Digest, same.Digest)
+}
+
+func TestPublicChangeFieldsHideGoModelRepresentation(t *testing.T) {
+	tests := []struct {
+		name     string
+		path     string
+		expected string
+	}{
+		{name: "environment map", path: "environment/Map/MODE", expected: "environment.MODE"},
+		{name: "command args", path: "command/Args/0", expected: "command"},
+		{name: "inline extra", path: "Extra/entrypoint/Args/0", expected: "entrypoint"},
+		{name: "volume wrappers", path: "volumes/Volumes/0/ReadOnly", expected: "volumes.read_only"},
+		{name: "network wrappers", path: "networks/List/0/IPV4Address", expected: "networks.ipv4_address"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.expected, publicField(strings.Split(tt.path, "/")))
+		})
+	}
+}
+
+func TestLegacyPathChangeDecodesToStructuredFields(t *testing.T) {
+	var change Change
+	require.NoError(t, json.Unmarshal([]byte(`{
+		"path":"services/api/environment/Map/MODE","before":"production","after":"staging"
+	}`), &change))
+	assert.Equal(t, "service", change.ResourceType)
+	assert.Equal(t, "api", change.ResourceName)
+	assert.Equal(t, "environment.MODE", change.Field)
+	assert.Equal(t, OperationChanged, change.Operation)
 }
 
 func TestOpaqueCommandChangesRemainDetectable(t *testing.T) {

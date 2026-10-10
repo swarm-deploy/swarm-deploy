@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	pipe "github.com/artarts36/gopipe"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -30,6 +31,7 @@ type pipelinePayload struct {
 	DeployComposePath string
 
 	LiveServices   []swarm.StackService
+	ObservedAt     time.Time
 	PrunedServices []string
 	CleanupResult  rotatedCleanupResult
 	Drift          map[string]drift.ServiceDrift
@@ -305,6 +307,7 @@ func (r *Reconciler) loadLiveState(ctx context.Context, payload *pipelinePayload
 	}
 
 	payload.LiveServices = liveServices
+	payload.ObservedAt = time.Now().UTC()
 	return nil
 }
 

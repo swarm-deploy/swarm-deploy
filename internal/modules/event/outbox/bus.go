@@ -36,6 +36,7 @@ const (
 	defaultMaxAttempts       = 12
 	databaseOperationTimeout = 5 * time.Second
 	workerPollInterval       = 250 * time.Millisecond
+	defaultWorkerCount       = 4
 	maxRetryBackoff          = 5 * time.Minute
 	maxBackoffExponent       = 9
 )
@@ -49,12 +50,13 @@ type Bus struct {
 	now         func() time.Time
 	lease       time.Duration
 	maxAttempts int
+	workers     int
 }
 
 // New constructs the bus. Register all subscriptions before starting workers.
 func New(db *storage.Database) *Bus {
 	return &Bus{db: db, registry: make(map[events.TypeName]map[string]Subscriber),
-		now: time.Now, lease: defaultLease, maxAttempts: defaultMaxAttempts}
+		now: time.Now, lease: defaultLease, maxAttempts: defaultMaxAttempts, workers: defaultWorkerCount}
 }
 
 // Subscribe registers a stable destination identity for an event type.
@@ -64,7 +66,10 @@ func (b *Bus) Subscribe(typ events.TypeName, id string, handler Subscriber) erro
 	if b.started {
 		return errors.New("subscriptions must be registered before starting workers")
 	}
-	if _, ok := events.ParseType(string(typ)); !ok {
+	_, public := events.ParseType(string(typ))
+	internalLifecycle := typ == events.TypeNameDeployFailed || typ == events.TypeNameDeployPreparationFailed ||
+		typ == events.TypeNameDeployInterrupted
+	if !public && !internalLifecycle {
 		return fmt.Errorf("unknown event type %q", typ)
 	}
 	if id == "" || handler == nil {

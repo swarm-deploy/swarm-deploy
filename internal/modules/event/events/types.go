@@ -16,10 +16,12 @@ type Severity string
 type Category string
 
 const (
-	TypeNameServiceCatalogUpdated            TypeName = "serviceCatalogUpdated"
-	TypeNameDeploySuccess                    TypeName = "deploySuccess"
-	TypeNameDeployFailed                     TypeName = "deployFailed"
-	TypeNameDeployPreparationFailed          TypeName = "deployPreparationFailed"
+	TypeNameServiceCatalogUpdated TypeName = "serviceCatalogUpdated"
+	TypeNameDeploySuccess         TypeName = "deploySuccess"
+	TypeNameDeployFailed          TypeName = "deployFailed"
+	// TypeNameDeployPreparationFailed is an internal durable lifecycle fact, not a configurable event name.
+	TypeNameDeployPreparationFailed TypeName = "deployPreparationFailed"
+	// TypeNameDeployInterrupted is an internal durable lifecycle fact, not a configurable event name.
 	TypeNameDeployInterrupted                TypeName = "deployInterrupted"
 	TypeNameSendNotificationFailed           TypeName = "sendNotificationFailed"
 	TypeNameSyncManualStarted                TypeName = "syncManualStarted"
@@ -194,9 +196,6 @@ var (
 	Types = []Type{
 		TypeServiceCatalogUpdated,
 		TypeDeploySuccess,
-		TypeDeployFailed,
-		TypeDeployPreparationFailed,
-		TypeDeployInterrupted,
 		TypeSendNotificationFailed,
 		TypeSyncManualStarted,
 		TypeWebhookReceived,
@@ -250,7 +249,7 @@ func (t *Type) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	parsed, ok := ParseType(strings.TrimSpace(raw))
+	parsed, ok := parseStoredType(strings.TrimSpace(raw))
 	if !ok {
 		*t = Type{name: TypeName(strings.TrimSpace(raw))}
 		return nil
@@ -260,18 +259,28 @@ func (t *Type) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func parseStoredType(name string) (Type, bool) {
+	typ := TypeName(name)
+	if typ == TypeNameDeployFailed {
+		return TypeDeployFailed, true
+	}
+	if typ == TypeNameDeployPreparationFailed {
+		return TypeDeployPreparationFailed, true
+	}
+	if typ == TypeNameDeployInterrupted {
+		return TypeDeployInterrupted, true
+	}
+	return ParseType(name)
+}
+
 func (n TypeName) Valid() bool {
 	switch n {
 	case TypeNameServiceCatalogUpdated:
 		return true
 	case TypeNameDeploySuccess:
 		return true
-	case TypeNameDeployFailed:
-		return true
-	case TypeNameDeployPreparationFailed:
-		return true
-	case TypeNameDeployInterrupted:
-		return true
+	case TypeNameDeployFailed, TypeNameDeployPreparationFailed, TypeNameDeployInterrupted:
+		return false
 	case TypeNameSendNotificationFailed:
 		return true
 	case TypeNameSyncManualStarted:
@@ -312,12 +321,8 @@ func ParseType(name string) (Type, bool) {
 		return TypeServiceCatalogUpdated, true
 	case TypeNameDeploySuccess:
 		return TypeDeploySuccess, true
-	case TypeNameDeployFailed:
-		return TypeDeployFailed, true
-	case TypeNameDeployPreparationFailed:
-		return TypeDeployPreparationFailed, true
-	case TypeNameDeployInterrupted:
-		return TypeDeployInterrupted, true
+	case TypeNameDeployFailed, TypeNameDeployPreparationFailed, TypeNameDeployInterrupted:
+		return Type{}, false
 	case TypeNameSendNotificationFailed:
 		return TypeSendNotificationFailed, true
 	case TypeNameSyncManualStarted:

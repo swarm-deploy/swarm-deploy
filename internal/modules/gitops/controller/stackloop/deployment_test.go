@@ -47,7 +47,7 @@ func TestReconcileDeploymentBoundaries(t *testing.T) {
 				require.Error(t, r.Reconcile(ctx, req))
 				attempts, err := repo.List(ctx, deployment.ListFilter{})
 				require.NoError(t, err)
-				assert.Empty(t, attempts)
+				assert.Empty(t, attempts.Deployments)
 				return
 			}
 			require.NoError(t, writeComposeFile(dir))
@@ -56,8 +56,8 @@ func TestReconcileDeploymentBoundaries(t *testing.T) {
 					assert.False(t, stdlib.IsWithinTransaction(ctx), "Docker must execute outside a DB write transaction")
 					attempts, err := repo.List(ctx, deployment.ListFilter{})
 					require.NoError(t, err)
-					require.Len(t, attempts, 1)
-					assert.Equal(t, deployment.Running, attempts[0].Status, "running must be committed before apply")
+					require.Len(t, attempts.Deployments, 1)
+					assert.Equal(t, deployment.Running, attempts.Deployments[0].Status, "running must be committed before apply")
 					if scenario == "success commit failure" {
 						_, err = db.Get(ctx).ExecContext(ctx, "CREATE TRIGGER fail_event BEFORE INSERT ON outbox_events BEGIN SELECT RAISE(ABORT,'injected'); END")
 						require.NoError(t, err)
@@ -70,15 +70,15 @@ func TestReconcileDeploymentBoundaries(t *testing.T) {
 				require.Error(t, err)
 				attempts, err := repo.List(ctx, deployment.ListFilter{})
 				require.NoError(t, err)
-				require.Len(t, attempts, 1)
-				assert.Equal(t, deployment.Running, attempts[0].Status)
+				require.Len(t, attempts.Deployments, 1)
+				assert.Equal(t, deployment.Running, attempts.Deployments[0].Status)
 				_, err = repo.Baseline(ctx, "app")
 				require.ErrorIs(t, err, deployment.ErrNotFound)
 				_, err = db.Get(ctx).ExecContext(ctx, "DROP TRIGGER fail_event")
 				require.NoError(t, err)
 				req.Commit = "second"
 				require.NoError(t, r.Reconcile(ctx, req))
-				recovered, err := repo.Get(ctx, attempts[0].ID)
+				recovered, err := repo.Get(ctx, attempts.Deployments[0].ID)
 				require.NoError(t, err)
 				assert.Equal(t, deployment.Succeeded, recovered.Status)
 				baseline, err := repo.Baseline(ctx, "app")
@@ -95,9 +95,9 @@ func TestReconcileDeploymentBoundaries(t *testing.T) {
 			require.NoError(t, r.Reconcile(ctx, req))
 			attempts, err := repo.List(ctx, deployment.ListFilter{})
 			require.NoError(t, err)
-			require.Len(t, attempts, 1)
-			assert.Equal(t, deployment.Succeeded, attempts[0].Status)
-			assert.Equal(t, "first", attempts[0].Commit)
+			require.Len(t, attempts.Deployments, 1)
+			assert.Equal(t, deployment.Succeeded, attempts.Deployments[0].Status)
+			assert.Equal(t, "first", attempts.Deployments[0].Commit)
 		})
 	}
 }
@@ -134,8 +134,8 @@ func TestReconcileRecoversFailedResultPersistenceInSameProcess(t *testing.T) {
 	require.Error(t, r.Reconcile(ctx, req))
 	attempts, err := repo.List(ctx, deployment.ListFilter{})
 	require.NoError(t, err)
-	require.Len(t, attempts, 1)
-	assert.Equal(t, deployment.Running, attempts[0].Status)
+	require.Len(t, attempts.Deployments, 1)
+	assert.Equal(t, deployment.Running, attempts.Deployments[0].Status)
 	_, err = db.Get(ctx).ExecContext(ctx, "DROP TRIGGER fail_event")
 	require.NoError(t, err)
 	docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
@@ -144,10 +144,10 @@ func TestReconcileRecoversFailedResultPersistenceInSameProcess(t *testing.T) {
 	require.NoError(t, r.Reconcile(ctx, req))
 	attempts, err = repo.List(ctx, deployment.ListFilter{})
 	require.NoError(t, err)
-	require.Len(t, attempts, 2)
-	assert.Equal(t, deployment.Succeeded, attempts[0].Status)
-	assert.Equal(t, deployment.Failed, attempts[1].Status)
-	assert.NotEqual(t, attempts[0].ID, attempts[1].ID)
+	require.Len(t, attempts.Deployments, 2)
+	assert.Equal(t, deployment.Succeeded, attempts.Deployments[0].Status)
+	assert.Equal(t, deployment.Failed, attempts.Deployments[1].Status)
+	assert.NotEqual(t, attempts.Deployments[0].ID, attempts.Deployments[1].ID)
 }
 
 func TestPreparationFailureStateAndPublicationAreAtomicAndSecretSafe(t *testing.T) {

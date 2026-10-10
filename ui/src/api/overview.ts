@@ -135,9 +135,10 @@ export function fetchStackManifestos(stackName: string): Promise<StackManifestos
   const encodedStack = encodeURIComponent(stackName);
   return apiRequest<StackManifestosResponse>(`/api/v1/stacks/${encodedStack}/manifestos`);
 }
-export function fetchDeployments(options: { stack?: string; limit?: number } = {}): Promise<DeploymentsResponse> {
+export function fetchDeployments(options: { stack?: string; limit?: number; cursor?: string } = {}): Promise<DeploymentsResponse> {
   const params = new URLSearchParams();
   if (options.stack) params.set("stack", options.stack);
   if (options.limit) params.set("limit", String(options.limit));
+  if (options.cursor) params.set("cursor", options.cursor);
   return apiRequest<DeploymentsResponse>(`/api/v1/deployments?${params}`);
 }

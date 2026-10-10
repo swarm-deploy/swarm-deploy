@@ -14,3 +14,20 @@ func TestDeployFailedNotificationCompatibility(t *testing.T) {
 		events.TypeNameDeployInterrupted,
 	}, notificationEventTypes(events.TypeNameDeployFailed))
 }
+
+func TestDeploymentLifecycleFactsAreNotPublicEventTypes(t *testing.T) {
+	for _, typ := range []events.TypeName{
+		events.TypeNameDeployFailed,
+		events.TypeNameDeployPreparationFailed,
+		events.TypeNameDeployInterrupted,
+	} {
+		t.Run(string(typ), func(t *testing.T) {
+			assert.False(t, typ.Valid())
+			_, public := events.ParseType(string(typ))
+			assert.False(t, public)
+			for _, registered := range events.Types {
+				assert.NotEqual(t, typ, registered.Name())
+			}
+		})
+	}
+}

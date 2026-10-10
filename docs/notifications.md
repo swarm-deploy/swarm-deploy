@@ -77,6 +77,7 @@ notifications:
 ```
 
 `deployFailed` is the compatibility subscription for the complete deployment-failure
-lifecycle. It also receives `deployPreparationFailed` when no Deployment exists yet and
-`deployInterrupted` when an apply outcome is unknown. These signals contain only stable
-safe categories; raw loader, environment, script and Docker errors are never persisted.
+lifecycle. It also receives internal preparation-failure facts when no Deployment exists
+yet and internal interruption facts when an apply outcome is unknown. Those facts do not
+have configurable public event names. They contain only stable safe categories; raw loader,
+environment, script and Docker errors are never persisted.

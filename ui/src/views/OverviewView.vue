@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from "vue";
 
 import { fetchAlerts, fetchDeployments, fetchRecommendations } from "../api/overview";
-import type { Alert, Deployment, Recommendation, RecommendationSeverity } from "../api/types";
+import type { Alert, DeploymentSummary, Recommendation, RecommendationSeverity } from "../api/types";
 import StackCard from "../components/overview/StackCard.vue";
 import SummaryPanel from "../components/overview/SummaryPanel.vue";
 import SummaryRow from "../components/overview/SummaryRow.vue";
@@ -10,7 +10,7 @@ import { useOverviewStore } from "../stores/overview";
 import { formatDate, shortCommitHash } from "../utils/format";
 
 const overviewStore = useOverviewStore();
-const deployments = ref<Deployment[]>([]);
+const deployments = ref<DeploymentSummary[]>([]);
 const alerts = ref<Alert[]>([]);
 const recommendations = ref<Recommendation[]>([]);
 const overviewEventsError = ref("");
@@ -53,7 +53,7 @@ function serviceCount(stackName: string): number {
   return serviceCountsByStack.value.get(stackName) ?? 0;
 }
 
-function deploymentResultClass(item: Deployment): string {
+function deploymentResultClass(item: DeploymentSummary): string {
   return item.status === "succeeded" ? "overview-deployment-result--success" : item.status === "running" ? "overview-deployment-result--running" : "overview-deployment-result--failed";
 }
 

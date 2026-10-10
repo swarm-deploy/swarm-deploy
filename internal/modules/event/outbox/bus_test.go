@@ -295,6 +295,89 @@ func TestWorkerDoesNotDeliverBeforeCommit(t *testing.T) {
 	require.NoError(t, <-workerDone)
 }
 
+func TestWorkerPoolDoesNotLetExternalDeliveryBlockProjection(t *testing.T) {
+	db, bus := setup(t)
+	ctrl := gomock.NewController(t)
+	external := NewMockSubscriber(ctrl)
+	projection := NewMockSubscriber(ctrl)
+	externalStarted := make(chan struct{})
+	releaseExternal := make(chan struct{})
+	projected := make(chan struct{})
+	external.EXPECT().Handle(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, events.Envelope) error {
+		close(externalStarted)
+		<-releaseExternal
+		return nil
+	})
+	projection.EXPECT().Handle(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, _ events.Envelope) error {
+		assert.True(t, stdlib.IsWithinTransaction(ctx))
+		close(projected)
+		return nil
+	})
+	require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, "a-external", External(external)))
+	require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, "z-projection", projection))
+	require.NoError(t, bus.Publish(t.Context(), &events.NodeJoined{}))
+	workerCtx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- bus.Run(workerCtx) }()
+	select {
+	case <-externalStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("external subscriber did not start")
+	}
+	select {
+	case <-projected:
+	case <-time.After(5 * time.Second):
+		t.Fatal("database projection was blocked by external subscriber")
+	}
+	close(releaseExternal)
+	require.Eventually(t, func() bool { return rows(t, db, "outbox_events") == 0 }, 5*time.Second, 10*time.Millisecond)
+	cancel()
+	require.NoError(t, <-done)
+}
+
+func TestWorkerPoolPreservesSubscriptionOrder(t *testing.T) {
+	_, bus := setup(t)
+	handler := NewMockSubscriber(gomock.NewController(t))
+	firstStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	secondStarted := make(chan struct{})
+	gomock.InOrder(
+		handler.EXPECT().Handle(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, events.Envelope) error {
+			close(firstStarted)
+			<-releaseFirst
+			return nil
+		}),
+		handler.EXPECT().Handle(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, events.Envelope) error {
+			close(secondStarted)
+			return nil
+		}),
+	)
+	require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, "ordered", External(handler)))
+	require.NoError(t, bus.Publish(t.Context(), &events.NodeJoined{NodeID: "first"}))
+	require.NoError(t, bus.Publish(t.Context(), &events.NodeJoined{NodeID: "second"}))
+	workerCtx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- bus.Run(workerCtx) }()
+	select {
+	case <-firstStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("first delivery did not start")
+	}
+	select {
+	case <-secondStarted:
+		t.Fatal("second delivery started before the first was acknowledged")
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(releaseFirst)
+	select {
+	case <-secondStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("second delivery did not start after the first was acknowledged")
+	}
+	cancel()
+	require.NoError(t, <-done)
+}
+
 func TestLeaseSurvivesDatabaseRestart(t *testing.T) {
 	dir := t.TempDir()
 	db, err := storage.Open(t.Context(), dir)
