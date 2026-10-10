@@ -95,6 +95,3 @@ func decodePageCursor(raw string, order SortOrder) (pageCursor, error) {
 	return cursor, nil
 }
 
-func (c pageCursor) entry() Entry {
-	return Entry{ID: c.ID, CreatedAt: c.CreatedAt, Severity: c.Severity}
-}

@@ -66,4 +66,3 @@ func (s *SQLStore) ReplaceStack(ctx context.Context, stack string, services []mo
 		return nil
 	})
 }
-

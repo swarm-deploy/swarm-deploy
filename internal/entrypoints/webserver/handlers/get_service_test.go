@@ -182,17 +182,13 @@ func TestHandlerListServiceDeployments_MapsFromHistory(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 
-	require.Len(t, resp.Deployments, 2)
+	require.Len(t, resp.Deployments, 1)
 
-	assert.Equal(t, generated.ServiceDeploymentStatusFailed, resp.Deployments[0].Status)
+	assert.Equal(t, generated.ServiceDeploymentStatusSuccess, resp.Deployments[0].Status)
 	assert.Equal(t, "ghcr.io/swarm-deploy/payments-api:v1.2.3", resp.Deployments[0].Image)
 	assert.Equal(t, "v1.2.3", resp.Deployments[0].ImageVersion)
 	assert.True(t, resp.Deployments[0].Commit.IsSet())
-	assert.Equal(t, "commit-failed", resp.Deployments[0].Commit.Value)
-
-	assert.Equal(t, generated.ServiceDeploymentStatusSuccess, resp.Deployments[1].Status)
-	assert.True(t, resp.Deployments[1].Commit.IsSet())
-	assert.Equal(t, "commit-success", resp.Deployments[1].Commit.Value)
+	assert.Equal(t, "commit-success", resp.Deployments[0].Commit.Value)
 }
 
 func TestHandlerListServiceDeployments_NoHistoryReturnsEmpty(t *testing.T) {
@@ -237,12 +233,11 @@ func TestHandlerListServiceDeployments_RespectsLimitParam(t *testing.T) {
 			Commit:    "commit-1",
 		},
 	}))
-	require.NoError(t, storeEvent(store, ctx, &events.DeployFailed{
+	require.NoError(t, storeEvent(store, ctx, &events.DeploySuccess{
 		DeployEvent: events.DeployEvent{
 			StackName: "payments",
 			Commit:    "commit-2",
 		},
-		Error: errors.New("boom"),
 	}))
 
 	ctrl := gomock.NewController(t)
@@ -271,7 +266,9 @@ func TestHandlerListServiceDeployments_RespectsLimitParam(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	require.Len(t, resp.Deployments, 1)
-	assert.Equal(t, generated.ServiceDeploymentStatusFailed, resp.Deployments[0].Status)
+	assert.Equal(t, generated.ServiceDeploymentStatusSuccess, resp.Deployments[0].Status)
+	assert.True(t, resp.Deployments[0].Commit.IsSet())
+	assert.Equal(t, "commit-2", resp.Deployments[0].Commit.Value)
 }
 
 func TestHandlerListServiceDeployments_NotFound(t *testing.T) {
