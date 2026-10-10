@@ -33,15 +33,19 @@ func (l *ListNodes) Definition() routing.ToolDefinition {
 }
 
 // Execute runs swarm_node_list tool.
-func (l *ListNodes) Execute(_ context.Context, _ routing.Request) (routing.Response, error) {
+func (l *ListNodes) Execute(ctx context.Context, _ routing.Request) (routing.Response, error) {
 	if l.nodes == nil {
 		return routing.Response{}, fmt.Errorf("nodes store is not configured")
 	}
 
+	nodes, err := l.nodes.ReadAll(ctx)
+	if err != nil {
+		return routing.Response{}, err
+	}
 	payload := struct {
 		Nodes []swarm.Node `json:"nodes"`
 	}{
-		Nodes: l.nodes.List(),
+		Nodes: nodes,
 	}
 	return routing.Response{
 		Payload: payload,

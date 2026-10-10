@@ -134,14 +134,14 @@ type Config struct {
 	AllowedTools []string
 	// ConversationInMemoryTTL is a retention time for the in-memory conversation context cache.
 	ConversationInMemoryTTL time.Duration
-	// ConversationHistoryDir is a directory for persisted assistant chat history.
-	ConversationHistoryDir string
+	// ConversationHistory optionally supplies persistent chat storage; production uses SQLite.
+	ConversationHistory conversation.HistoryStorage
 }
 
 // ServiceStore reads current service metadata used by RAG retrieval.
 type ServiceStore interface {
 	// List returns collected service metadata records.
-	List() []model.Info
+	ReadAll(ctx context.Context) ([]model.Info, error)
 }
 
 // ToolExecutor executes assistant tools.

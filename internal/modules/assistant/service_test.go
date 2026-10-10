@@ -13,24 +13,31 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"go.uber.org/mock/gomock"
 )
 
-type fakeStore struct {
-	services  []model.Info
-	listCalls atomic.Int64
+func serviceStore(t *testing.T, services []model.Info) *MockServiceStore {
+	t.Helper()
+	store := NewMockServiceStore(gomock.NewController(t, gomock.WithOverridableExpectations()))
+	store.EXPECT().ReadAll(gomock.Any()).Return(services, nil).AnyTimes()
+	return store
 }
 
-func (f *fakeStore) List() []model.Info {
-	f.listCalls.Add(1)
-
-	out := make([]model.Info, len(f.services))
-	copy(out, f.services)
-	return out
+func observedServiceStore(t *testing.T, services []model.Info) (*MockServiceStore, *atomic.Int64) {
+	t.Helper()
+	store := serviceStore(t, services)
+	calls := &atomic.Int64{}
+	store.EXPECT().ReadAll(gomock.Any()).DoAndReturn(func(context.Context) ([]model.Info, error) {
+		calls.Add(1)
+		return services, nil
+	}).AnyTimes()
+	return store, calls
 }
 
 type fakeTools struct {
@@ -129,7 +136,7 @@ func TestServiceChatReturnsCompletedResponse(t *testing.T) {
 			SystemPrompt:            "debug helper",
 			ConversationInMemoryTTL: time.Hour,
 		},
-		&fakeStore{services: []model.Info{{Name: "api", Stack: "app", Image: "example/api:v1"}}},
+		serviceStore(t, []model.Info{{Name: "api", Stack: "app", Image: "example/api:v1"}}),
 		&fakeTools{},
 		&dispatcher.NopDispatcher{},
 		&metrics.NopAssistant{},
@@ -163,9 +170,9 @@ func TestServiceChatRejectsPromptInjection(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			eventDispatcher := dispatcher.NewMockDispatcher(ctrl)
-			eventDispatcher.EXPECT().Subscribe(gomock.Any(), gomock.Any())
+			eventDispatcher.EXPECT().Subscribe(gomock.Any(), gomock.Any(), gomock.Any())
 			eventDispatcher.EXPECT().
-				Dispatch(gomock.Any(), gomock.AssignableToTypeOf(&events.AssistantPromptInjectionDetected{})).
+				Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.AssistantPromptInjectionDetected{})).
 				Do(func(_ context.Context, event events.Event) {
 					detected := event.(*events.AssistantPromptInjectionDetected)
 					assert.Equal(t, testCase.message, detected.Prompt)
@@ -184,7 +191,7 @@ func TestServiceChatRejectsPromptInjection(t *testing.T) {
 					SystemPrompt:            "debug helper",
 					ConversationInMemoryTTL: time.Hour,
 				},
-				&fakeStore{},
+				serviceStore(t, nil),
 				tools,
 				eventDispatcher,
 				metrics.NopAssistant{},
@@ -225,7 +232,7 @@ func TestServiceChatAllowsOrdinaryImperatives(t *testing.T) {
 			defer server.Close()
 
 			tools := &fakeTools{definitions: assistantTestToolDefinitions()}
-			assistantService := newRoutingTestService(t, server.URL, &fakeStore{}, tools, nil)
+			assistantService := newRoutingTestService(t, server.URL, serviceStore(t, nil), tools, nil)
 			response := assistantService.Chat(context.Background(), ChatRequest{Message: testCase.message})
 
 			require.Equal(t, StatusCompleted, response.Status)
@@ -314,9 +321,9 @@ func TestServiceChatHandlesToolCalls(t *testing.T) {
 			MaxTokens:               64,
 			SystemPrompt:            "debug helper",
 			ConversationInMemoryTTL: time.Hour,
-			ConversationHistoryDir:  t.TempDir(),
+			ConversationHistory:     newSQLHistory(t),
 		},
-		&fakeStore{services: []model.Info{{Name: "api", Stack: "app", Image: "example/api:v1"}}},
+		serviceStore(t, []model.Info{{Name: "api", Stack: "app", Image: "example/api:v1"}}),
 		tools,
 		&dispatcher.NopDispatcher{},
 		metrics.NopAssistant{},
@@ -339,9 +346,8 @@ func TestServiceChatHandlesToolCalls(t *testing.T) {
 }
 
 func TestServiceChatSkipsRetrievalForSmallTalk(t *testing.T) {
-	store := &fakeStore{
-		services: []model.Info{{Name: "api", Stack: "app", Image: "example/api:v1"}},
-	}
+	store := serviceStore(t, []model.Info{{Name: "api", Stack: "app", Image: "example/api:v1"}})
+	store.EXPECT().ReadAll(gomock.Any()).Times(0)
 	server := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		t.Fatalf("unexpected model call on small-talk fast path: %s", r.URL.Path)
 	}))
@@ -370,7 +376,7 @@ func TestServiceChatSkipsRetrievalForSmallTalk(t *testing.T) {
 	})
 	assert.Equal(t, StatusCompleted, response.Status, "expected completed response")
 	assert.Equal(t, "Привет! Чем помочь со swarm-deploy?", response.Answer, "unexpected answer")
-	assert.Equal(t, int64(0), store.listCalls.Load(), "small-talk path should skip retrieve_context node")
+
 }
 
 func TestServiceChatFailsOnUnknownPollRequestID(t *testing.T) {
@@ -385,7 +391,7 @@ func TestServiceChatFailsOnUnknownPollRequestID(t *testing.T) {
 			SystemPrompt:            "debug helper",
 			ConversationInMemoryTTL: time.Hour,
 		},
-		&fakeStore{},
+		serviceStore(t, nil),
 		&fakeTools{},
 		&dispatcher.NopDispatcher{},
 		nil,
@@ -397,4 +403,12 @@ func TestServiceChatFailsOnUnknownPollRequestID(t *testing.T) {
 	})
 	assert.Equal(t, StatusFailed, response.Status, "expected failed status")
 	assert.Contains(t, response.ErrorMessage, "unknown request_id", "unexpected error")
+}
+
+func newSQLHistory(t *testing.T) *conversation.SQLHistoryStorage {
+	t.Helper()
+	db, err := storage.Open(context.Background(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	return conversation.NewSQLHistoryStorage(db)
 }

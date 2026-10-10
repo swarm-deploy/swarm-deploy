@@ -7,8 +7,12 @@ import (
 	resourcegraph "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/graph"
 )
 
-func (h *handler) GetGraph(_ context.Context) (*generated.GraphResponse, error) {
-	built := resourcegraph.NewBuilder().Build(h.services.List())
+func (h *handler) GetGraph(ctx context.Context) (*generated.GraphResponse, error) {
+	services, err := h.services.ReadAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	built := resourcegraph.NewBuilder().Build(services)
 
 	return toGeneratedGraph(built), nil
 }

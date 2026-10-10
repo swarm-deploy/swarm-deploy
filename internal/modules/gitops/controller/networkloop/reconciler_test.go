@@ -7,7 +7,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -17,11 +16,9 @@ import (
 func TestReconcilerReconcileCreatesManagedNetwork(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	manager := swarm.NewMockNetworkManager(ctrl)
-	eventDispatcher := dispatcher.NewMockDispatcher(ctrl)
 
-	reconciler := New(manager, eventDispatcher)
+	reconciler := New(manager)
 	var createReq *swarm.CreateNetworkRequest
-	var createdEvent *events.NetworkCreated
 	manager.EXPECT().
 		Get(gomock.Any(), "app_backend").
 		Return(swarm.Network{}, swarm.ErrNetworkNotFound)
@@ -31,13 +28,8 @@ func TestReconcilerReconcileCreatesManagedNetwork(t *testing.T) {
 			createReq = &req
 			return "created-id", nil
 		})
-	eventDispatcher.EXPECT().
-		Dispatch(gomock.Any(), gomock.AssignableToTypeOf(&events.NetworkCreated{})).
-		Do(func(_ context.Context, event events.Event) {
-			createdEvent = event.(*events.NetworkCreated)
-		})
 
-	skipped, err := reconciler.Reconcile(context.Background(), config.NetworkSpec{
+	skipped, createdEvent, err := reconciler.Reconcile(context.Background(), config.NetworkSpec{
 		Name:       "app_backend",
 		Driver:     "overlay",
 		Attachable: true,
@@ -79,8 +71,8 @@ func TestReconcilerReconcileFailsWhenExistingNetworkIsNotManaged(t *testing.T) {
 			Driver: "overlay",
 		}, nil)
 
-	reconciler := New(manager, &dispatcher.NopDispatcher{})
-	_, err := reconciler.Reconcile(context.Background(), config.NetworkSpec{
+	reconciler := New(manager)
+	_, _, err := reconciler.Reconcile(context.Background(), config.NetworkSpec{
 		Name:   "app_backend",
 		Driver: "overlay",
 	})
@@ -93,8 +85,8 @@ func TestReconcilerReconcileFailsOnManagedLabelOverride(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	manager := swarm.NewMockNetworkManager(ctrl)
 
-	reconciler := New(manager, &dispatcher.NopDispatcher{})
-	_, err := reconciler.Reconcile(context.Background(), config.NetworkSpec{
+	reconciler := New(manager)
+	_, _, err := reconciler.Reconcile(context.Background(), config.NetworkSpec{
 		Name:   "app_backend",
 		Driver: "overlay",
 		Labels: map[string]string{
@@ -127,8 +119,8 @@ func TestReconcilerReconcileSkipsMatchingManagedNetwork(t *testing.T) {
 			},
 		}, nil)
 
-	reconciler := New(manager, &dispatcher.NopDispatcher{})
-	skipped, err := reconciler.Reconcile(context.Background(), config.NetworkSpec{
+	reconciler := New(manager)
+	skipped, _, err := reconciler.Reconcile(context.Background(), config.NetworkSpec{
 		Name:       "app_backend",
 		Driver:     "overlay",
 		Attachable: true,

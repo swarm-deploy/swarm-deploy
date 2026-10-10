@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,7 +14,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -24,8 +23,7 @@ func TestHandlerGetService(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store, err := modelstore.NewFileStore(ctx, filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
-	require.NoError(t, err)
+	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
 	require.NoError(t, store.ReplaceStack(ctx, "payments", []model.Info{
 		{
 			Name:  "api",
@@ -112,14 +110,13 @@ func TestHandlerGetService(t *testing.T) {
 func TestHandlerGetService_NotFound(t *testing.T) {
 	t.Parallel()
 
-	store, err := modelstore.NewFileStore(context.Background(), filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
-	require.NoError(t, err)
+	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
 
 	h := &handler{
 		services: store,
 	}
 
-	_, err = h.GetService(context.Background(), generated.GetServiceParams{
+	_, err := h.GetService(context.Background(), generated.GetServiceParams{
 		Stack:   "payments",
 		Service: "api",
 	})
@@ -133,7 +130,7 @@ func TestHandlerGetService_NotFound(t *testing.T) {
 func TestHandlerListServiceDeployments_MapsFromHistory(t *testing.T) {
 	t.Parallel()
 
-	store, err := history.NewStore(filepath.Join(t.TempDir(), "history.json"), 50, fs.NewLocalFileSystem())
+	store, err := history.NewSQLStore(testutil.OpenSQLite(t), 50)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -185,17 +182,13 @@ func TestHandlerListServiceDeployments_MapsFromHistory(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 
-	require.Len(t, resp.Deployments, 2)
+	require.Len(t, resp.Deployments, 1)
 
-	assert.Equal(t, generated.ServiceDeploymentStatusFailed, resp.Deployments[0].Status)
+	assert.Equal(t, generated.ServiceDeploymentStatusSuccess, resp.Deployments[0].Status)
 	assert.Equal(t, "ghcr.io/swarm-deploy/payments-api:v1.2.3", resp.Deployments[0].Image)
 	assert.Equal(t, "v1.2.3", resp.Deployments[0].ImageVersion)
 	assert.True(t, resp.Deployments[0].Commit.IsSet())
-	assert.Equal(t, "commit-failed", resp.Deployments[0].Commit.Value)
-
-	assert.Equal(t, generated.ServiceDeploymentStatusSuccess, resp.Deployments[1].Status)
-	assert.True(t, resp.Deployments[1].Commit.IsSet())
-	assert.Equal(t, "commit-success", resp.Deployments[1].Commit.Value)
+	assert.Equal(t, "commit-success", resp.Deployments[0].Commit.Value)
 }
 
 func TestHandlerListServiceDeployments_NoHistoryReturnsEmpty(t *testing.T) {
@@ -230,7 +223,7 @@ func TestHandlerListServiceDeployments_NoHistoryReturnsEmpty(t *testing.T) {
 func TestHandlerListServiceDeployments_RespectsLimitParam(t *testing.T) {
 	t.Parallel()
 
-	store, err := history.NewStore(filepath.Join(t.TempDir(), "history.json"), 50, fs.NewLocalFileSystem())
+	store, err := history.NewSQLStore(testutil.OpenSQLite(t), 50)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -240,12 +233,11 @@ func TestHandlerListServiceDeployments_RespectsLimitParam(t *testing.T) {
 			Commit:    "commit-1",
 		},
 	}))
-	require.NoError(t, storeEvent(store, ctx, &events.DeployFailed{
+	require.NoError(t, storeEvent(store, ctx, &events.DeploySuccess{
 		DeployEvent: events.DeployEvent{
 			StackName: "payments",
 			Commit:    "commit-2",
 		},
-		Error: errors.New("boom"),
 	}))
 
 	ctrl := gomock.NewController(t)
@@ -274,7 +266,9 @@ func TestHandlerListServiceDeployments_RespectsLimitParam(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, resp)
 	require.Len(t, resp.Deployments, 1)
-	assert.Equal(t, generated.ServiceDeploymentStatusFailed, resp.Deployments[0].Status)
+	assert.Equal(t, generated.ServiceDeploymentStatusSuccess, resp.Deployments[0].Status)
+	assert.True(t, resp.Deployments[0].Commit.IsSet())
+	assert.Equal(t, "commit-2", resp.Deployments[0].Commit.Value)
 }
 
 func TestHandlerListServiceDeployments_NotFound(t *testing.T) {

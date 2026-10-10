@@ -3,17 +3,18 @@ package assistant
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
@@ -24,6 +25,8 @@ type Module struct {
 
 // Container supplies dependencies required by the assistant module.
 type Container interface {
+	// GetStorage returns the shared database.
+	GetStorage() *storage.Database
 	GetMetrics() *metrics.Group
 	GetSwarm() *swarm.Swarm
 	GetEventModule() *event.Module
@@ -81,7 +84,7 @@ func InitModule(_ context.Context, cfg *config.Config, cnt Container) (*Module, 
 		SystemPrompt:            cfg.Spec.Assistant.SystemPrompt,
 		AllowedTools:            cfg.Spec.Assistant.Tools,
 		ConversationInMemoryTTL: cfg.Spec.Assistant.Conversation.Storage.InMemory.TTL.Value,
-		ConversationHistoryDir:  filepath.Join(cfg.Spec.DataDir, "assistant", "chats"),
+		ConversationHistory:     conversation.NewSQLHistoryStorage(cnt.GetStorage()),
 	}, resourcesModule.ServiceStore, toolExecutor, eventModule.Dispatcher, cnt.GetMetrics().Assistant)
 	if err != nil {
 		return nil, err

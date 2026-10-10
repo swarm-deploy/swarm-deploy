@@ -17,30 +17,28 @@ import (
 
 func TestPingWebRoutesExecute(t *testing.T) {
 	address := "routes.example.com"
-	tool := NewPingWebRoutes(&fakeServiceStore{
-		services: []model.Info{
-			{
-				Stack: "core",
-				Name:  "api",
-				WebRoutes: []webroute.WebRoute{
-					{
-						From: webroute.Address{
-							Domain:  "api.example.com",
-							Address: address + "/ok",
-							Port:    "8080",
-						},
+	tool := NewPingWebRoutes(serviceStore(t, []model.Info{
+		{
+			Stack: "core",
+			Name:  "api",
+			WebRoutes: []webroute.WebRoute{
+				{
+					From: webroute.Address{
+						Domain:  "api.example.com",
+						Address: address + "/ok",
+						Port:    "8080",
 					},
-					{
-						From: webroute.Address{
-							Domain:  "api.example.com",
-							Address: address + "/missing",
-							Port:    "8080",
-						},
+				},
+				{
+					From: webroute.Address{
+						Domain:  "api.example.com",
+						Address: address + "/missing",
+						Port:    "8080",
 					},
 				},
 			},
 		},
-	})
+	}))
 	tool.client = &fakeHTTPDoer{
 		responses: map[string]fakeHTTPDoerResponse{
 			"https://routes.example.com/ok": {
@@ -104,7 +102,7 @@ func TestPingWebRoutesExecuteWithNilServicesStore(t *testing.T) {
 }
 
 func TestPingWebRoutesExecuteRequiresService(t *testing.T) {
-	tool := NewPingWebRoutes(&fakeServiceStore{})
+	tool := NewPingWebRoutes(serviceStore(t, nil))
 
 	_, err := tool.Execute(context.Background(), routing.Request{
 		Payload: pingWebRoutesRequest{},
@@ -114,12 +112,10 @@ func TestPingWebRoutesExecuteRequiresService(t *testing.T) {
 }
 
 func TestPingWebRoutesExecuteFailsOnAmbiguousService(t *testing.T) {
-	tool := NewPingWebRoutes(&fakeServiceStore{
-		services: []model.Info{
-			{Stack: "core", Name: "api"},
-			{Stack: "edge", Name: "api"},
-		},
-	})
+	tool := NewPingWebRoutes(serviceStore(t, []model.Info{
+		{Stack: "core", Name: "api"},
+		{Stack: "edge", Name: "api"},
+	}))
 
 	_, err := tool.Execute(context.Background(), routing.Request{
 		Payload: pingWebRoutesRequest{
@@ -131,36 +127,34 @@ func TestPingWebRoutesExecuteFailsOnAmbiguousService(t *testing.T) {
 }
 
 func TestPingWebRoutesExecuteWithStack(t *testing.T) {
-	tool := NewPingWebRoutes(&fakeServiceStore{
-		services: []model.Info{
-			{
-				Stack: "core",
-				Name:  "api",
-				WebRoutes: []webroute.WebRoute{
-					{
-						From: webroute.Address{
-							Domain:  "api.example.com",
-							Address: "core.example.com/ok",
-							Port:    "8080",
-						},
-					},
-				},
-			},
-			{
-				Stack: "edge",
-				Name:  "api",
-				WebRoutes: []webroute.WebRoute{
-					{
-						From: webroute.Address{
-							Domain:  "api-edge.example.com",
-							Address: "edge.example.com/ok",
-							Port:    "8080",
-						},
+	tool := NewPingWebRoutes(serviceStore(t, []model.Info{
+		{
+			Stack: "core",
+			Name:  "api",
+			WebRoutes: []webroute.WebRoute{
+				{
+					From: webroute.Address{
+						Domain:  "api.example.com",
+						Address: "core.example.com/ok",
+						Port:    "8080",
 					},
 				},
 			},
 		},
-	})
+		{
+			Stack: "edge",
+			Name:  "api",
+			WebRoutes: []webroute.WebRoute{
+				{
+					From: webroute.Address{
+						Domain:  "api-edge.example.com",
+						Address: "edge.example.com/ok",
+						Port:    "8080",
+					},
+				},
+			},
+		},
+	}))
 	tool.client = &fakeHTTPDoer{
 		responses: map[string]fakeHTTPDoerResponse{
 			"https://edge.example.com/ok": {

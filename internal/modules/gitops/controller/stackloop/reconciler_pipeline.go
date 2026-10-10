@@ -6,17 +6,21 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"time"
 
 	pipe "github.com/artarts36/gopipe"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/drift"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/pruner"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 type pipelinePayload struct {
+	// Attempt is persisted before any external apply.
+	Attempt      *deployment.Deployment
 	Stack        config.StackSpec
 	Commit       string
 	IsNewDigest  bool
@@ -27,6 +31,7 @@ type pipelinePayload struct {
 	DeployComposePath string
 
 	LiveServices   []swarm.StackService
+	ObservedAt     time.Time
 	PrunedServices []string
 	CleanupResult  rotatedCleanupResult
 	Drift          map[string]drift.ServiceDrift
@@ -60,19 +65,13 @@ func (r *Reconciler) attachPipeline() {
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "add managed label",
-		When: pipe.When(func(payload *pipelinePayload) bool {
-			return payload.IsNewDigest
-		}),
-		Run: r.addManagedLabel,
+		Run:  r.addManagedLabel,
 	})
 
 	if r.cfg.Spec.SecretRotation.Enabled {
 		r.pipeline.Add(pipe.Step[*pipelinePayload]{
 			Name: "rotate secrets/configs",
-			When: pipe.When(func(payload *pipelinePayload) bool {
-				return payload.IsNewDigest
-			}),
-			Run: r.rotateSecrets,
+			Run:  r.rotateSecrets,
 		})
 	}
 
@@ -83,9 +82,17 @@ func (r *Reconciler) attachPipeline() {
 	})
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
+		Name: "start deployment",
+		Run: func(ctx context.Context, p *pipelinePayload) error {
+			attempt, err := r.deployments.StartIfChanged(ctx, p.Stack.Name, p.Commit, *p.Desired, p.IsNewDigest)
+			p.Attempt = attempt
+			return err
+		},
+	})
+	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "deploy stack",
 		When: pipe.When(func(payload *pipelinePayload) bool {
-			return payload.IsNewDigest || payload.DesiredMutated
+			return payload.Attempt != nil
 		}),
 		Run: r.deployStack,
 	})
@@ -98,25 +105,15 @@ func (r *Reconciler) attachPipeline() {
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "prune orphaned services",
 		When: pipe.When(func(payload *pipelinePayload) bool {
-			return payload.IsNewDigest || payload.IsManualSync
+			return payload.Attempt != nil || payload.IsManualSync
 		}),
 		Run: r.pruneOrphanedServices,
 	})
 
-	if r.cfg.Spec.SecretRotation.Cleanup.Enabled {
-		r.pipeline.Add(pipe.Step[*pipelinePayload]{
-			Name: "clean rotated resources",
-			When: pipe.When(func(payload *pipelinePayload) bool {
-				return payload.IsNewDigest || payload.IsManualSync
-			}),
-			Run: r.cleanRotatedResources,
-		})
-	}
-
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "analyze drift",
 		When: pipe.When(func(payload *pipelinePayload) bool {
-			return !payload.IsNewDigest || payload.IsManualSync
+			return payload.Attempt == nil || payload.IsManualSync
 		}),
 		Run: r.analyzeDrift,
 	})
@@ -125,7 +122,7 @@ func (r *Reconciler) attachPipeline() {
 func (r *Reconciler) populateEnvironment(_ context.Context, payload *pipelinePayload) error {
 	changed := r.envFilePopulator.Populate(payload.Desired)
 
-	if changed && payload.IsNewDigest {
+	if changed {
 		payload.DesiredMutated = true
 	}
 
@@ -310,6 +307,7 @@ func (r *Reconciler) loadLiveState(ctx context.Context, payload *pipelinePayload
 	}
 
 	payload.LiveServices = liveServices
+	payload.ObservedAt = time.Now().UTC()
 	return nil
 }
 

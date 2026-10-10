@@ -11,8 +11,8 @@ import (
 const envPairParts = 2
 
 type Environment struct {
-	Map  map[string]string
-	Keys []string
+	Map  map[string]string `json:"Map"`
+	Keys []string          `json:"Keys"`
 
 	isMap bool
 }

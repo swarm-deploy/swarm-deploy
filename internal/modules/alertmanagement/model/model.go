@@ -5,10 +5,12 @@ import "time"
 type AlertKind string
 
 const AlertKindDeployFailed AlertKind = "deploy_failed"
+const AlertKindNodeDisconnected AlertKind = "node_disconnected"
 
 type ResourceType string
 
 const ResourceTypeStack ResourceType = "stack"
+const ResourceTypeNode ResourceType = "node"
 
 type AlertStatus string
 

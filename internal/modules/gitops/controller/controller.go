@@ -24,6 +24,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -50,6 +51,7 @@ const (
 )
 
 type Controller struct {
+	db       *storage.Database
 	cfg      *config.Config
 	git      gitx.Repository
 	deployer deployer.StackDeployer
@@ -84,8 +86,9 @@ func New(
 	eventDispatcher dispatcher.Dispatcher,
 	stateStore modelstore.Store,
 	filesystem fs.FileSystem,
+	db *storage.Database,
 ) *Controller {
-	return &Controller{
+	return &Controller{db: db,
 		cfg:        cfg,
 		git:        git,
 		deployer:   deployer,
@@ -94,7 +97,6 @@ func New(
 		stateStore: stateStore,
 		networkReconciler: networkloop.New(
 			swarmService.Networks,
-			eventDispatcher,
 		),
 		stackReconciler: stackloop.NewStackReconciler(
 			cfg,
@@ -104,7 +106,7 @@ func New(
 			eventDispatcher,
 			metricGroup.Deploys,
 			stateStore,
-			filesystem,
+			filesystem, db,
 		),
 		reconcileCh: make(chan reconcileTask, 1),
 		tracer:      otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller"),
@@ -262,14 +264,14 @@ func (c *Controller) Manual(ctx context.Context) bool {
 	})
 }
 
-func (c *Controller) Webhook(ctx context.Context) bool {
+func (c *Controller) Webhook(ctx context.Context) (bool, error) {
 	queued := c.scheduleReconcile(ctx, reconcileTask{
 		reason: TriggerWebhook,
 	})
 
-	c.event.Dispatch(ctx, &events.WebhookReceived{Queued: queued})
+	err := c.event.Publish(ctx, &events.WebhookReceived{Queued: queued})
 
-	return queued
+	return queued, err
 }
 
 func (c *Controller) scheduleReconcile(ctx context.Context, task reconcileTask) bool {
@@ -339,17 +341,18 @@ func (c *Controller) reconcile( //nolint:funlen // reconciliation pipeline
 
 	startedAt := time.Now()
 
-	if task.reason == TriggerManual {
-		c.event.Dispatch(ctx, &events.SyncManualStarted{
-			TriggeredBy: task.triggeredBy,
-		})
+	if err := c.publishManualSync(ctx, task); err != nil {
+		tracing.FailSpan(span, err)
+		slog.ErrorContext(ctx, "persist manual sync event", "err", err)
+		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
+		return
 	}
 
 	resolvedGitResult, err := c.resolveGitState(ctx, task.reason, gitResult)
 	if err != nil {
 		tracing.FailSpan(span, err)
 		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
-		c.updateState(ctx, func(s *model.Runtime) {
+		_ = c.updateState(ctx, func(s *model.Runtime) {
 			s.LastSyncAt = time.Now()
 			s.LastSyncReason = string(task.reason)
 			s.LastSyncResult = syncRunResultError
@@ -369,7 +372,7 @@ func (c *Controller) reconcile( //nolint:funlen // reconciliation pipeline
 			slog.Any("err", reloadNetworksErr),
 		)
 		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
-		c.stateStore.Update(ctx, func(s *model.Runtime) {
+		_ = c.updateState(ctx, func(s *model.Runtime) {
 			s.LastSyncAt = time.Now()
 			s.LastSyncReason = string(task.reason)
 			s.LastSyncResult = syncRunResultError
@@ -393,7 +396,7 @@ func (c *Controller) reconcile( //nolint:funlen // reconciliation pipeline
 			slog.Any("err", reconcileNetworksErr),
 		)
 		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
-		c.stateStore.Update(ctx, func(s *model.Runtime) {
+		_ = c.updateState(ctx, func(s *model.Runtime) {
 			s.LastSyncAt = time.Now()
 			s.LastSyncReason = string(task.reason)
 			s.LastSyncResult = syncRunResultError
@@ -411,7 +414,7 @@ func (c *Controller) reconcile( //nolint:funlen // reconciliation pipeline
 			slog.Any("err", reloadErr),
 		)
 		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
-		c.updateState(ctx, func(s *model.Runtime) {
+		_ = c.updateState(ctx, func(s *model.Runtime) {
 			s.LastSyncAt = time.Now()
 			s.LastSyncReason = string(task.reason)
 			s.LastSyncResult = syncRunResultError
@@ -475,8 +478,7 @@ func (c *Controller) reconcile( //nolint:funlen // reconciliation pipeline
 		stackSpan.SetStatus(codes.Ok, "")
 	}
 
-	c.metrics.Sync.RecordSyncRun(string(task.reason), result, time.Since(startedAt))
-	c.updateState(ctx, func(s *model.Runtime) {
+	persistErr := c.updateState(ctx, func(s *model.Runtime) {
 		s.LastSyncAt = time.Now()
 		s.LastSyncReason = string(task.reason)
 		s.LastSyncResult = result
@@ -486,6 +488,11 @@ func (c *Controller) reconcile( //nolint:funlen // reconciliation pipeline
 		}
 		s.GitRevision = gitResult.NewRevision
 	})
+	if persistErr != nil {
+		result = syncRunResultError
+		tracing.FailSpan(stackSpan, persistErr)
+	}
+	c.metrics.Sync.RecordSyncRun(string(task.reason), result, time.Since(startedAt))
 }
 
 func (c *Controller) resolveGitState(
@@ -513,7 +520,7 @@ func (c *Controller) resolveGitState(
 }
 
 func (c *Controller) updatePollState(ctx context.Context, result string, err error) {
-	c.updateState(ctx, func(s *model.Runtime) {
+	_ = c.updateState(ctx, func(s *model.Runtime) {
 		s.LastPollAt = time.Now()
 		s.LastPollResult = result
 		s.LastPollError = ""
@@ -630,4 +637,11 @@ func prioritizeStacksByFileDiffs(stacks []config.StackSpec, fileDiffs []gitx.Com
 	})
 
 	return orderedStacks
+}
+
+func (c *Controller) publishManualSync(ctx context.Context, task reconcileTask) error {
+	if task.reason != TriggerManual {
+		return nil
+	}
+	return c.event.Publish(ctx, &events.SyncManualStarted{TriggeredBy: task.triggeredBy})
 }

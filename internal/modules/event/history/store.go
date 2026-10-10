@@ -1,21 +1,10 @@
 package history
 
 import (
-	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
-	"sync"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 )
-
-const fileModePrivate = 0o600
 
 // Entry is a persisted event view returned by API.
 type Entry struct {
@@ -35,140 +24,11 @@ type Entry struct {
 	Details map[string]string `json:"details,omitempty"`
 }
 
-// Store persists a bounded event list in a json file.
-type Store struct {
-	mu       sync.RWMutex
-	path     string
-	capacity int
-	fs       fs.FileSystem
-	now      func() time.Time
-	entries  []Entry
-}
-
-// NewStore creates history store and loads current state from disk.
-func NewStore(path string, capacity int, filesystem fs.FileSystem) (*Store, error) {
-	if capacity <= 0 {
-		return nil, fmt.Errorf("event history capacity must be > 0, got %d", capacity)
-	}
-
-	s := &Store{
-		path:     path,
-		capacity: capacity,
-		fs:       filesystem,
-		now:      time.Now,
-	}
-
-	if err := s.load(context.Background()); err != nil {
-		return nil, err
-	}
-
-	return s, nil
-}
-
-func (s *Store) Name() string {
-	return "save-event-history"
-}
-
-func (s *Store) Slow() bool {
-	return false
-}
-
-// Handle appends event to history and persists updated file.
-func (s *Store) Handle(ctx context.Context, event events.Envelope) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	s.entries = append(s.entries, toEntry(s.now(), event))
-	if len(s.entries) > s.capacity {
-		s.entries = s.entries[len(s.entries)-s.capacity:]
-	}
-
-	return s.flushLocked(ctx)
-}
-
-// List returns a copy of current event history.
-func (s *Store) List() []Entry {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	out := make([]Entry, len(s.entries))
-	for i, entry := range s.entries {
-		out[i] = entry
-		out[i].Details = cloneDetails(entry.Details)
-	}
-
-	return out
-}
-
-func (s *Store) load(ctx context.Context) error {
-	if err := s.fs.CreateDirectory(ctx, filepath.Dir(s.path), 0o755); err != nil { //nolint:mnd // nn
-		return fmt.Errorf("create event history dir: %w", err)
-	}
-
-	payload, err := s.fs.ReadFile(ctx, s.path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		return fmt.Errorf("read event history file: %w", err)
-	}
-	if len(payload) == 0 {
-		return nil
-	}
-
-	unmarshalErr := json.Unmarshal(payload, &s.entries)
-	if unmarshalErr != nil {
-		return fmt.Errorf("decode event history: %w", unmarshalErr)
-	}
-
-	needsFlush := false
-	for index := range s.entries {
-		if s.entries[index].ID == "" {
-			s.entries[index].ID = uuid.NewString()
-			needsFlush = true
-		}
-	}
-	if len(s.entries) > s.capacity {
-		s.entries = s.entries[len(s.entries)-s.capacity:]
-		needsFlush = true
-	}
-	if needsFlush {
-		return s.flushLocked(ctx)
-	}
-
-	return nil
-}
-
-func (s *Store) flushLocked(ctx context.Context) error {
-	payload, err := json.Marshal(s.entries)
-	if err != nil {
-		return fmt.Errorf("encode event history: %w", err)
-	}
-
-	tmpPath := fmt.Sprintf("%s.tmp", s.path)
-	writeErr := s.fs.WriteFile(ctx, tmpPath, payload, fileModePrivate)
-	if writeErr != nil {
-		return fmt.Errorf("write event history temp file: %w", writeErr)
-	}
-	renameErr := s.fs.Rename(ctx, tmpPath, s.path)
-	if renameErr != nil {
-		return fmt.Errorf("replace event history file: %w", renameErr)
-	}
-
-	return nil
-}
-
 func toEntry(now time.Time, envelope events.Envelope) Entry {
 	eventType := envelope.Event.Type()
-
 	return Entry{
-		ID:        envelope.ID,
-		Type:      eventType,
-		Severity:  eventType.Severity(),
-		Category:  eventType.Category(),
-		CreatedAt: now,
-		Message:   envelope.Event.Message(),
-		Details:   cloneDetails(envelope.Event.Details()),
+		ID: envelope.ID, Type: eventType, Severity: eventType.Severity(), Category: eventType.Category(),
+		CreatedAt: now, Message: envelope.Event.Message(), Details: cloneDetails(envelope.Event.Details()),
 	}
 }
 
@@ -176,11 +36,9 @@ func cloneDetails(in map[string]string) map[string]string {
 	if len(in) == 0 {
 		return nil
 	}
-
 	out := make(map[string]string, len(in))
-	for k, v := range in {
-		out[k] = v
+	for key, value := range in {
+		out[key] = value
 	}
-
 	return out
 }

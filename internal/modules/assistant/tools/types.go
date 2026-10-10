@@ -29,7 +29,7 @@ type ServiceActionResult struct {
 // HistoryReader reads current event history snapshot.
 type HistoryReader interface {
 	// List returns current event history snapshot.
-	List() []history.Entry
+	ReadRecent(ctx context.Context, options history.QueryOptions) ([]history.Entry, error)
 }
 
 // SyncTrigger triggers synchronization run.
@@ -41,7 +41,7 @@ type SyncTrigger interface {
 // NodesReader reads current Swarm nodes snapshot.
 type NodesReader interface {
 	// List returns current nodes snapshot.
-	List() []swarm.Node
+	ReadAll(ctx context.Context) ([]swarm.Node, error)
 }
 
 // PluginReader reads current Docker plugins snapshot.
@@ -53,7 +53,7 @@ type PluginReader interface {
 // ServicesReader reads current service metadata snapshot.
 type ServicesReader interface {
 	// List returns current services metadata snapshot.
-	List() []servicemodel.Info
+	ReadAll(ctx context.Context) ([]servicemodel.Info, error)
 }
 
 // RecommendationsReader reads stored recommendations.

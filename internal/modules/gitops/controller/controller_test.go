@@ -19,8 +19,10 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/networkloop"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop"
 	git "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/mock/gomock"
@@ -40,7 +42,7 @@ func TestControllerWebhookEmitsReceivedEvent(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			eventDispatcher := dispatcher.NewMockDispatcher(ctrl)
-			eventDispatcher.EXPECT().Dispatch(gomock.Any(), gomock.Any()).Do(
+			eventDispatcher.EXPECT().Publish(gomock.Any(), gomock.Any()).Do(
 				func(_ context.Context, event events.Event) {
 					received, ok := event.(*events.WebhookReceived)
 					require.True(t, ok, "expected WebhookReceived")
@@ -59,7 +61,9 @@ func TestControllerWebhookEmitsReceivedEvent(t *testing.T) {
 				controller.shuttingDown.Store(true)
 			}
 
-			assert.Equal(t, tc.wantQueued, controller.Webhook(context.Background()))
+			queued, err := controller.Webhook(context.Background())
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantQueued, queued)
 			if tc.wantQueued {
 				assert.Equal(t, TriggerWebhook, (<-controller.reconcileCh).reason)
 			}
@@ -91,9 +95,9 @@ func TestControllerCleanupStacksUsesDedicatedCleanupPath(t *testing.T) {
 }
 
 type recordingStackReconciler struct {
-	cleanedStacks      []string
-	cleanupErrByStack  map[string]error
-	reconcileCalls     int
+	cleanedStacks     []string
+	cleanupErrByStack map[string]error
+	reconcileCalls    int
 }
 
 func (r *recordingStackReconciler) Reconcile(context.Context, stackloop.ReconciliationRequest) error {
@@ -148,12 +152,12 @@ func TestControllerGracefulShutdown(t *testing.T) {
 						Interval:     specw.Duration{Value: time.Hour},
 					},
 				}},
-				git:        repository,
-				metrics:    metricGroup,
-				event:      eventDispatcher,
-				stateStore: modelstore.NewMemoryStore(),
-				reconcileCh:  make(chan reconcileTask, 1),
-				tracer:     otel.Tracer("test"),
+				git:         repository,
+				metrics:     metricGroup,
+				event:       eventDispatcher,
+				stateStore:  modelstore.NewMemoryStore(),
+				reconcileCh: make(chan reconcileTask, 1),
+				tracer:      otel.Tracer("test"),
 			}
 
 			runCtx, cancelRun := context.WithCancel(context.Background())
@@ -287,7 +291,8 @@ func TestControllerSyncOnceReconcilesStacksOnIntervalWithoutGitPull(t *testing.T
 		serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil),
 	)
 
-	store := modelstore.NewMemoryStore()
+	db, store := newSQLState(t)
+	_ = db
 	cfg := &config.Config{
 		Spec: config.Spec{
 			DataDir: dataDir,
@@ -303,13 +308,13 @@ func TestControllerSyncOnceReconcilesStacksOnIntervalWithoutGitPull(t *testing.T
 	metricGroup := metrics.NewGroup(metrics.CreateGroupParams{
 		Namespace: "test_sync_once_unchanged",
 	})
-	controller := &Controller{
+	controller := &Controller{db: db,
 		cfg:               cfg,
 		git:               repository,
 		metrics:           metricGroup,
 		event:             eventDispatcher,
 		stateStore:        store,
-		networkReconciler: networkloop.New(nil, &dispatcher.NopDispatcher{}),
+		networkReconciler: networkloop.New(nil),
 		stackReconciler: stackloop.New(
 			cfg,
 			repository,
@@ -320,7 +325,7 @@ func TestControllerSyncOnceReconcilesStacksOnIntervalWithoutGitPull(t *testing.T
 			eventDispatcher,
 			metricGroup.Deploys,
 			store,
-			fs.NopFileSystem{},
+			fs.NopFileSystem{}, db,
 		),
 		tracer: otel.Tracer("test"),
 	}
@@ -329,7 +334,7 @@ func TestControllerSyncOnceReconcilesStacksOnIntervalWithoutGitPull(t *testing.T
 		reason: TriggerInterval,
 	}, nil)
 
-	state := store.Get()
+	state := readSQLState(t, store)
 	stackState, exists := state.Stack("app")
 	require.True(t, exists, "expected stack state")
 	assert.Equal(t, "commit-1", stackState.LastCommit, "unexpected stack commit")
@@ -363,7 +368,8 @@ func TestControllerPollGitSkipsReconcileWhenGitHasNoChanges(t *testing.T) {
 
 	controller.pollGit(context.Background())
 
-	state := controller.stateStore.Get()
+	state, err := controller.stateStore.Read(context.Background())
+	require.NoError(t, err)
 	assert.Equal(t, syncRunResultNoChange, state.LastPollResult, "unexpected poll result")
 	assert.Empty(t, state.LastPollError, "unexpected poll error")
 }
@@ -377,8 +383,9 @@ func TestControllerPollGitRecordsErrorState(t *testing.T) {
 	metricGroup := metrics.NewGroup(metrics.CreateGroupParams{
 		Namespace: "test_poll_error",
 	})
-	store := modelstore.NewMemoryStore()
-	controller := &Controller{
+	db, store := newSQLState(t)
+	_ = db
+	controller := &Controller{db: db,
 		cfg: &config.Config{Spec: config.Spec{
 			Git: config.GitSpec{Repository: "repo"},
 		}},
@@ -391,7 +398,7 @@ func TestControllerPollGitRecordsErrorState(t *testing.T) {
 
 	controller.pollGit(context.Background())
 
-	state := store.Get()
+	state := readSQLState(t, store)
 	assert.Equal(t, syncRunResultError, state.LastPollResult, "unexpected poll result")
 	assert.Equal(t, "git unavailable", state.LastPollError, "unexpected poll error")
 	assert.Empty(t, state.LastSyncResult, "poll error must not overwrite sync state")
@@ -433,7 +440,8 @@ func TestControllerSyncOncePrioritizesChangedStacks(t *testing.T) {
 		serviceManager.EXPECT().ListStackServices(gomock.Any(), "stack-a").Return(nil, nil),
 	)
 
-	store := modelstore.NewMemoryStore()
+	db, store := newSQLState(t)
+	_ = db
 	cfg := &config.Config{
 		Spec: config.Spec{
 			DataDir: dataDir,
@@ -449,13 +457,13 @@ func TestControllerSyncOncePrioritizesChangedStacks(t *testing.T) {
 	metricGroup := metrics.NewGroup(metrics.CreateGroupParams{
 		Namespace: "test_sync_once_order",
 	})
-	controller := &Controller{
+	controller := &Controller{db: db,
 		cfg:               cfg,
 		git:               repository,
 		metrics:           metricGroup,
 		event:             eventDispatcher,
 		stateStore:        store,
-		networkReconciler: networkloop.New(nil, &dispatcher.NopDispatcher{}),
+		networkReconciler: networkloop.New(nil),
 		stackReconciler: stackloop.New(
 			cfg,
 			repository,
@@ -466,14 +474,14 @@ func TestControllerSyncOncePrioritizesChangedStacks(t *testing.T) {
 			eventDispatcher,
 			metricGroup.Deploys,
 			store,
-			fs.NopFileSystem{},
+			fs.NopFileSystem{}, db,
 		),
 		tracer: otel.Tracer("test"),
 	}
 
 	controller.pollGit(context.Background())
 
-	state := store.Get()
+	state := readSQLState(t, store)
 	assert.Equal(t, syncRunResultSuccess, state.LastSyncResult, "unexpected sync result")
 	assert.Equal(t, "commit-2", state.GitRevision, "unexpected git revision")
 }
@@ -512,7 +520,8 @@ func TestControllerSyncOnceContinuesWhenGitDiffFails(t *testing.T) {
 		serviceManager.EXPECT().ListStackServices(gomock.Any(), "stack-b").Return(nil, nil),
 	)
 
-	store := modelstore.NewMemoryStore()
+	db, store := newSQLState(t)
+	_ = db
 	cfg := &config.Config{
 		Spec: config.Spec{
 			DataDir: dataDir,
@@ -528,13 +537,13 @@ func TestControllerSyncOnceContinuesWhenGitDiffFails(t *testing.T) {
 	metricGroup := metrics.NewGroup(metrics.CreateGroupParams{
 		Namespace: "test_sync_once_diff_error",
 	})
-	controller := &Controller{
+	controller := &Controller{db: db,
 		cfg:               cfg,
 		git:               repository,
 		metrics:           metricGroup,
 		event:             eventDispatcher,
 		stateStore:        store,
-		networkReconciler: networkloop.New(nil, &dispatcher.NopDispatcher{}),
+		networkReconciler: networkloop.New(nil),
 		stackReconciler: stackloop.New(
 			cfg,
 			repository,
@@ -545,14 +554,14 @@ func TestControllerSyncOnceContinuesWhenGitDiffFails(t *testing.T) {
 			eventDispatcher,
 			metricGroup.Deploys,
 			store,
-			fs.NopFileSystem{},
+			fs.NopFileSystem{}, db,
 		),
 		tracer: otel.Tracer("test"),
 	}
 
 	controller.pollGit(context.Background())
 
-	state := store.Get()
+	state := readSQLState(t, store)
 	assert.Equal(t, syncRunResultSuccess, state.LastSyncResult, "unexpected sync result")
 	assert.Equal(t, "commit-2", state.GitRevision, "unexpected git revision")
 }
@@ -594,4 +603,18 @@ func writeNetworksFile(path string, networkName string) error {
 	}
 	content := []byte("networks:\n  - name: " + networkName + "\n")
 	return os.WriteFile(path, content, 0o600)
+}
+
+func newSQLState(t *testing.T) (*storage.Database, *modelstore.SQLStore) {
+	t.Helper()
+	db, err := storage.Open(context.Background(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	return db, modelstore.NewSQLStore(db)
+}
+func readSQLState(t *testing.T, store *modelstore.SQLStore) model.Runtime {
+	t.Helper()
+	state, err := store.Read(context.Background())
+	require.NoError(t, err)
+	return state
 }

@@ -76,7 +76,7 @@ func (l *ListHistoryEvents) Definition() routing.ToolDefinition {
 }
 
 // Execute runs history_event_list tool.
-func (l *ListHistoryEvents) Execute(_ context.Context, request routing.Request) (routing.Response, error) {
+func (l *ListHistoryEvents) Execute(ctx context.Context, request routing.Request) (routing.Response, error) {
 	parsedRequest, err := convertRequestPayload[listHistoryEventsRequest](request.Payload)
 	if err != nil {
 		return routing.Response{}, err
@@ -95,9 +95,11 @@ func (l *ListHistoryEvents) Execute(_ context.Context, request routing.Request) 
 		return routing.Response{}, err
 	}
 
-	entries := history.FilterEntries(l.history.List(), severities, categories, nil, nil)
-	if len(entries) > limit {
-		entries = entries[len(entries)-limit:]
+	entries, err := l.history.ReadRecent(ctx, history.QueryOptions{
+		Severities: severities, Categories: categories, Limit: limit,
+	})
+	if err != nil {
+		return routing.Response{}, err
 	}
 
 	payload := struct {

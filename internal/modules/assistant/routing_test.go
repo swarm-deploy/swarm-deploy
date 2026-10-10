@@ -99,7 +99,7 @@ func TestAssistantRoutingProfiles(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			store := &fakeStore{services: []model.Info{{Name: "api", Stack: "core"}}}
+			store, listCalls := observedServiceStore(t, []model.Info{{Name: "api", Stack: "core"}})
 			tools := &fakeTools{definitions: assistantTestToolDefinitions()}
 			var mu sync.Mutex
 			requests := make([]capturedChatRequest, 0, 2)
@@ -142,10 +142,10 @@ func TestAssistantRoutingProfiles(t *testing.T) {
 				assert.NotContains(t, toolNames, toolName)
 			}
 			if testCase.expectRAG {
-				assert.Greater(t, store.listCalls.Load(), int64(0))
+				assert.Greater(t, listCalls.Load(), int64(0))
 				assert.True(t, requestContains(requests[1], "Relevant service metadata"))
 			} else {
-				assert.Equal(t, int64(0), store.listCalls.Load())
+				assert.Equal(t, int64(0), listCalls.Load())
 				assert.False(t, requestContains(requests[1], "service.store"))
 			}
 		})
@@ -175,7 +175,7 @@ func TestAssistantOutOfScopeEndsBeforeRAGToolsAndMainGeneration(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			store := &fakeStore{services: []model.Info{{Name: "api", Stack: "core"}}}
+			store, listCalls := observedServiceStore(t, []model.Info{{Name: "api", Stack: "core"}})
 			tools := &fakeTools{definitions: assistantTestToolDefinitions()}
 			var requests []capturedChatRequest
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -193,14 +193,14 @@ func TestAssistantOutOfScopeEndsBeforeRAGToolsAndMainGeneration(t *testing.T) {
 			assert.Empty(t, requests[0].Tools, "router must not receive tools")
 			assert.True(t, requestContains(requests[0], "- out_of_scope:"))
 			assert.True(t, requestContains(requests[0], testCase.expectedExample))
-			assert.Equal(t, int64(0), store.listCalls.Load(), "out_of_scope must not run RAG")
+			assert.Equal(t, int64(0), listCalls.Load(), "out_of_scope must not run RAG")
 			assert.Empty(t, tools.calls, "out_of_scope must not execute tools")
 		})
 	}
 }
 
 func TestAssistantGreetingFastPathUsesNoModelRAGOrTools(t *testing.T) {
-	store := &fakeStore{services: []model.Info{{Name: "api", Stack: "core"}}}
+	store, listCalls := observedServiceStore(t, []model.Info{{Name: "api", Stack: "core"}})
 	tools := &fakeTools{definitions: assistantTestToolDefinitions()}
 	var requests []capturedChatRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -216,11 +216,11 @@ func TestAssistantGreetingFastPathUsesNoModelRAGOrTools(t *testing.T) {
 	assert.Equal(t, "Привет! Чем помочь со swarm-deploy?", response.Answer)
 	assert.Empty(t, requests, "greeting fast-path must not call the model")
 	assert.Empty(t, tools.calls, "greeting fast-path must not execute tools")
-	assert.Equal(t, int64(0), store.listCalls.Load())
+	assert.Equal(t, int64(0), listCalls.Load())
 }
 
 func TestAssistantRouteToolsIntersectGlobalAllowlist(t *testing.T) {
-	store := &fakeStore{}
+	store := serviceStore(t, nil)
 	tools := &fakeTools{definitions: assistantTestToolDefinitions()}
 	var requests []capturedChatRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -302,7 +302,7 @@ func TestAssistantRouteTools(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			store := &fakeStore{services: []model.Info{{Name: "api", Stack: "core", Image: "ghcr.io/example/api:v1"}}}
+			store := serviceStore(t, []model.Info{{Name: "api", Stack: "core", Image: "ghcr.io/example/api:v1"}})
 			tools := &fakeTools{definitions: assistantTestToolDefinitions()}
 			var requests []capturedChatRequest
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -343,7 +343,7 @@ func TestAssistantRouteTools(t *testing.T) {
 }
 
 func TestAssistantCrossScenarioCombinesServiceRAGAndDNSCapability(t *testing.T) {
-	store := &fakeStore{services: []model.Info{{Name: "web-gateway-http", Stack: "infra"}}}
+	store, listCalls := observedServiceStore(t, []model.Info{{Name: "web-gateway-http", Stack: "infra"}})
 	tools := &fakeTools{definitions: assistantTestToolDefinitions()}
 	var requests []capturedChatRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -370,11 +370,11 @@ func TestAssistantCrossScenarioCombinesServiceRAGAndDNSCapability(t *testing.T) 
 	assert.NotContains(t, toolNames, "history_event_list")
 	assert.True(t, requestContains(requests[1], "Relevant service metadata"))
 	assert.True(t, requestContains(requests[1], "web-gateway-http"))
-	assert.Greater(t, store.listCalls.Load(), int64(0))
+	assert.Greater(t, listCalls.Load(), int64(0))
 }
 
 func TestAssistantCrossScenarioCombinesRuntimeAndDeploymentHistory(t *testing.T) {
-	store := &fakeStore{services: []model.Info{{Name: "api", Stack: "core"}}}
+	store := serviceStore(t, []model.Info{{Name: "api", Stack: "core"}})
 	tools := &fakeTools{definitions: assistantTestToolDefinitions()}
 	var requests []capturedChatRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -420,7 +420,7 @@ func TestAssistantCurrentDateUtilityCallsDateTool(t *testing.T) {
 	}))
 	defer server.Close()
 
-	assistantService := newRoutingTestService(t, server.URL, &fakeStore{}, tools, []string{"date"})
+	assistantService := newRoutingTestService(t, server.URL, serviceStore(t, nil), tools, []string{"date"})
 	response := assistantService.Chat(context.Background(), ChatRequest{Message: "Какой сегодня день?"})
 
 	require.Equal(t, StatusCompleted, response.Status)
@@ -484,7 +484,7 @@ func TestAssistantPromptInjectionGuidanceDistinguishesOrdinaryInstructions(t *te
 }
 
 func TestAssistantRejectsToolOutsideSelectedRouteAtExecution(t *testing.T) {
-	store := &fakeStore{}
+	store := serviceStore(t, nil)
 	tools := &fakeTools{definitions: assistantTestToolDefinitions()}
 	var requests []capturedChatRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -525,7 +525,7 @@ func TestAssistantRouterFallbackContinuesMainRequest(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			store := &fakeStore{services: []model.Info{{Name: "api", Stack: "core"}}}
+			store, listCalls := observedServiceStore(t, []model.Info{{Name: "api", Stack: "core"}})
 			tools := &fakeTools{definitions: assistantTestToolDefinitions()}
 			var requests []capturedChatRequest
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -549,13 +549,13 @@ func TestAssistantRouterFallbackContinuesMainRequest(t *testing.T) {
 			assert.Equal(t, "fallback answer", response.Answer)
 			require.Len(t, requests, 2)
 			assert.Equal(t, []string{assistantPromptInjectionReportTool, "date"}, capturedToolNames(requests[1]))
-			assert.Equal(t, int64(0), store.listCalls.Load(), "fallback must not expand into service context")
+			assert.Equal(t, int64(0), listCalls.Load(), "fallback must not expand into service context")
 		})
 	}
 }
 
 func TestAssistantRouterReceivesRecentHistoryForConfirmation(t *testing.T) {
-	store := &fakeStore{}
+	store := serviceStore(t, nil)
 	tools := &fakeTools{definitions: assistantTestToolDefinitions()}
 	var requests []capturedChatRequest
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
@@ -591,7 +591,7 @@ func TestAssistantRouterReceivesRecentHistoryForConfirmation(t *testing.T) {
 func newRoutingTestService(
 	t *testing.T,
 	baseURL string,
-	store *fakeStore,
+	store *MockServiceStore,
 	tools *fakeTools,
 	allowedTools []string,
 ) *Service {
@@ -606,7 +606,7 @@ func newRoutingTestService(
 			MaxTokens:               64,
 			AllowedTools:            allowedTools,
 			ConversationInMemoryTTL: time.Hour,
-			ConversationHistoryDir:  t.TempDir(),
+			ConversationHistory:     newSQLHistory(t),
 		},
 		store,
 		tools,

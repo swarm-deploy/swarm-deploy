@@ -30,17 +30,22 @@ func NewSubscriber(store modelstore.Store) *Subscriber {
 // Name returns the subscriber name used in dispatcher logs.
 func (s *Subscriber) Name() string { return "alert-management" }
 
-// Slow reports that persistence should run on the slow event queue.
-func (s *Subscriber) Slow() bool { return true }
-
 // Handle applies supported deployment events to alert state.
 func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	switch deployment := event.Event.(type) {
+	case *events.NodeDisconnected:
+		return s.handleNode(ctx, event.ID, deployment.NodeID, true)
+	case *events.NodeConnected:
+		return s.handleNode(ctx, event.ID, deployment.NodeID, false)
 	case *events.DeployFailed:
-		return s.handleFailed(ctx, event.ID, deployment)
+		return s.handleFailed(ctx, event.ID, deployment.StackName, "Deployment failed", deploymentFailureMessage(deployment))
+	case *events.DeployPreparationFailed:
+		return s.handleFailed(ctx, event.ID, deployment.StackName, "Deployment failed", deployment.Message())
+	case *events.DeployInterrupted:
+		return s.handleFailed(ctx, event.ID, deployment.StackName, "Deployment outcome unknown", deployment.Message())
 	case *events.DeploySuccess:
 		return s.handleSucceeded(ctx, event.ID, deployment)
 	default:
@@ -48,8 +53,8 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 	}
 }
 
-func (s *Subscriber) handleFailed(ctx context.Context, eventID string, event *events.DeployFailed) error {
-	fingerprint := model.DeployFailedFingerprint(event.StackName)
+func (s *Subscriber) handleFailed(ctx context.Context, eventID, stackName, title, message string) error {
+	fingerprint := model.DeployFailedFingerprint(stackName)
 	now := s.now()
 	if eventID == "" {
 		eventID = s.newID()
@@ -62,7 +67,8 @@ func (s *Subscriber) handleFailed(ctx context.Context, eventID string, event *ev
 		alert.Occurrences++
 		alert.UpdatedAt = now
 		alert.LatestEventID = eventID
-		alert.Message = deploymentFailureMessage(event)
+		alert.Message = message
+		alert.Title = title
 		if err = s.store.Update(ctx, alert); err != nil {
 			return fmt.Errorf("update deployment alert: %w", err)
 		}
@@ -71,8 +77,8 @@ func (s *Subscriber) handleFailed(ctx context.Context, eventID string, event *ev
 
 	alert = model.Alert{
 		ID: s.newID(), Fingerprint: fingerprint, Kind: model.AlertKindDeployFailed,
-		ResourceType: model.ResourceTypeStack, ResourceID: event.StackName,
-		Status: model.AlertStatusOpen, Title: "Deployment failed", Message: deploymentFailureMessage(event),
+		ResourceType: model.ResourceTypeStack, ResourceID: stackName,
+		Status: model.AlertStatusOpen, Title: title, Message: message,
 		Occurrences: 1, OpenedAt: now, UpdatedAt: now, OpenEventID: eventID, LatestEventID: eventID,
 	}
 	err = s.store.Create(ctx, alert)
@@ -82,7 +88,7 @@ func (s *Subscriber) handleFailed(ctx context.Context, eventID string, event *ev
 	if !errors.Is(err, modelstore.ErrOpenAlertExists) {
 		return fmt.Errorf("create deployment alert: %w", err)
 	}
-	return s.updateConcurrentFailure(ctx, fingerprint, eventID, now, alert.Message, err)
+	return s.updateConcurrentFailure(ctx, fingerprint, eventID, now, alert.Title, alert.Message, err)
 }
 
 func (s *Subscriber) updateConcurrentFailure(
@@ -90,6 +96,7 @@ func (s *Subscriber) updateConcurrentFailure(
 	fingerprint string,
 	eventID string,
 	now time.Time,
+	title string,
 	message string,
 	createErr error,
 ) error {
@@ -104,6 +111,7 @@ func (s *Subscriber) updateConcurrentFailure(
 	existing.UpdatedAt = now
 	existing.LatestEventID = eventID
 	existing.Message = message
+	existing.Title = title
 	return s.store.Update(ctx, existing)
 }
 

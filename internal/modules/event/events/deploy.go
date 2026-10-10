@@ -8,6 +8,8 @@ import (
 )
 
 type DeployEvent struct {
+	// DeploymentID references a persisted apply attempt and its safe desired input.
+	DeploymentID    string
 	StackName       string
 	Commit          string
 	Services        []compose.Service

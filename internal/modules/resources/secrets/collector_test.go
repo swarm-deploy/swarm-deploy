@@ -3,7 +3,6 @@ package secrets
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -12,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -185,15 +184,9 @@ func TestCollectorInitialRefreshFailureKeepsPersistedSnapshot(t *testing.T) {
 	assert.Equal(t, "persisted-secret", listed[0].Name)
 }
 
-func newTestStore(t *testing.T) *modelstore.FileStore {
+func newTestStore(t *testing.T) *modelstore.SQLStore {
 	t.Helper()
-	store, err := modelstore.NewFileStore(
-		context.Background(),
-		filepath.Join(t.TempDir(), "secrets.state.json"),
-		fs.NewLocalFileSystem(),
-	)
-	require.NoError(t, err)
-	return store
+	return modelstore.NewSQLStore(testutil.OpenSQLite(t))
 }
 
 func requireSignal(t *testing.T, signals <-chan struct{}) {

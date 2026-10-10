@@ -103,7 +103,11 @@ func (a *Application) handleGitWebhook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	queued := a.control.Webhook(r.Context())
+	queued, err := a.control.Webhook(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "persist webhook event", "queued": queued})
+		return
+	}
 	writeJSON(w, http.StatusAccepted, map[string]any{
 		"queued": queued,
 	})

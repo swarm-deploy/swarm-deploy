@@ -30,12 +30,12 @@ func NewEnrichableDispatcher(propagator Enricher, dispatcher Dispatcher) *Enrich
 	}
 }
 
-func (d *EnrichableDispatcher) Dispatch(ctx context.Context, event events.Event) {
-	d.dispatcher.Dispatch(ctx, d.propagator(ctx, event))
+func (d *EnrichableDispatcher) Publish(ctx context.Context, event events.Event) error {
+	return d.dispatcher.Publish(ctx, d.propagator(ctx, event))
 }
 
-func (d *EnrichableDispatcher) Subscribe(eventType events.Type, subscriber Subscriber) {
-	d.dispatcher.Subscribe(eventType, subscriber)
+func (d *EnrichableDispatcher) Subscribe(eventType events.TypeName, id string, subscriber Subscriber) error {
+	return d.dispatcher.Subscribe(eventType, id, subscriber)
 }
 
 func (p *composeEnricher) enrich(ctx context.Context, event events.Event) events.Event {

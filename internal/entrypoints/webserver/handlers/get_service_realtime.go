@@ -21,13 +21,17 @@ func (h *handler) GetServiceRealtime(
 ) (*generated.ServiceRealtimeResponse, error) {
 	tasks, err := h.serviceInspector.ListTasks(ctx, swarm.NewServiceReference(params.Stack, params.Service))
 	if err == nil {
+		nodes, nodeErr := h.nodes.Lookup(ctx)
+		if nodeErr != nil {
+			return nil, nodeErr
+		}
 		tasks = filterServiceRealtimeTasks(tasks, time.Now().Add(-staleTerminalTaskAge))
 		slices.SortStableFunc(tasks, func(a, b swarm.ServiceTask) int {
 			return b.CreatedAt.Compare(a.CreatedAt)
 		})
 
 		return &generated.ServiceRealtimeResponse{
-			Tasks: toGeneratedServiceRealtimeTasks(tasks, h.nodes.Map()),
+			Tasks: toGeneratedServiceRealtimeTasks(tasks, nodes),
 		}, nil
 	}
 

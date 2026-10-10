@@ -83,7 +83,11 @@ func (p *PingWebRoutes) Execute(ctx context.Context, request routing.Request) (r
 		return routing.Response{}, err
 	}
 
-	serviceRow, err := findTargetService(p.services.List(), serviceName, stackName)
+	services, err := p.services.ReadAll(ctx)
+	if err != nil {
+		return routing.Response{}, err
+	}
+	serviceRow, err := findTargetService(services, serviceName, stackName)
 	if err != nil {
 		return routing.Response{}, err
 	}

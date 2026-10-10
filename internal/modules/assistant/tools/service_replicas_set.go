@@ -91,14 +91,14 @@ func (s *SetServiceReplicas) Execute(ctx context.Context, request routing.Reques
 	}
 
 	if replicas > currentReplicas {
-		s.eventDispatcher.Dispatch(ctx, &events.ServiceReplicasIncreased{
+		err = s.eventDispatcher.Publish(ctx, &events.ServiceReplicasIncreased{
 			StackName:        target.StackName(),
 			ServiceName:      target.ServiceName(),
 			PreviousReplicas: currentReplicas,
 			CurrentReplicas:  replicas,
 		})
 	} else if replicas < currentReplicas {
-		s.eventDispatcher.Dispatch(ctx, &events.ServiceReplicasDecreased{
+		err = s.eventDispatcher.Publish(ctx, &events.ServiceReplicasDecreased{
 			StackName:        target.StackName(),
 			ServiceName:      target.ServiceName(),
 			PreviousReplicas: currentReplicas,
@@ -106,6 +106,9 @@ func (s *SetServiceReplicas) Execute(ctx context.Context, request routing.Reques
 		})
 	}
 
+	if err != nil {
+		return routing.Response{}, fmt.Errorf("replicas changed but event persistence failed: %w", err)
+	}
 	payload := ServiceActionResult{
 		Stack:    target.StackName(),
 		Service:  target.ServiceName(),

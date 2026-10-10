@@ -75,3 +75,9 @@ notifications:
             user authenticated
             username: {{.event.username}}
 ```
+
+`deployFailed` is the compatibility subscription for the complete deployment-failure
+lifecycle. It also receives internal preparation-failure facts when no Deployment exists
+yet and internal interruption facts when an apply outcome is unknown. Those facts do not
+have configurable public event names. They contain only stable safe categories; raw loader,
+environment, script and Docker errors are never persisted.

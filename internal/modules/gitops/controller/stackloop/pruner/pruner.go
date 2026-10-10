@@ -74,11 +74,14 @@ func (p *ServicePruner) Prune(
 			slog.String("stack", req.Stack.Name),
 			slog.String("service", stackService.Name),
 		)
-		p.event.Dispatch(ctx, &events.ServicePruned{
+		publishErr := p.event.Publish(ctx, &events.ServicePruned{
 			StackName:   req.Stack.Name,
 			ServiceName: stackService.Name,
 			Commit:      req.Commit,
 		})
+		if publishErr != nil {
+			return nil, publishErr
+		}
 		prunedServices = append(prunedServices, stackService.Name)
 	}
 

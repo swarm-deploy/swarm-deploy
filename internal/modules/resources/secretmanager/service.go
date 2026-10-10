@@ -32,8 +32,11 @@ func NewService(resolver *Resolver) *Service {
 }
 
 // List returns discovered Secret Managers without failing when a controller is unavailable.
-func (s *Service) List(ctx context.Context) []Info {
-	targets := s.resolver.resolve()
+func (s *Service) List(ctx context.Context) ([]Info, error) {
+	targets, readErr := s.resolver.resolve(ctx)
+	if readErr != nil {
+		return nil, readErr
+	}
 	managers := make([]Info, 0, len(targets))
 	for _, target := range targets {
 		manager := Info{
@@ -85,12 +88,15 @@ func (s *Service) List(ctx context.Context) []Info {
 		managers = append(managers, manager)
 	}
 
-	return managers
+	return managers, nil
 }
 
 // Sync triggers synchronization for a discovered controllable Secret Manager.
 func (s *Service) Sync(ctx context.Context, stack string, service string) (SyncResult, error) {
-	resolvedTarget, ok := s.resolver.find(stack, service)
+	resolvedTarget, ok, resolveErr := s.resolver.find(ctx, stack, service)
+	if resolveErr != nil {
+		return SyncResult{}, resolveErr
+	}
 	if !ok {
 		return SyncResult{}, ErrNotFound
 	}

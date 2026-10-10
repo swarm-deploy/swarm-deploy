@@ -11,7 +11,7 @@ const yamlMappingNodePairSize = 2
 // Config describes a top-level Compose config.
 type Config struct {
 	// Alias is the logical Compose resource name.
-	Alias string `yaml:"-"`
+	Alias string `yaml:"-" json:"Alias"`
 	// Name overrides the Docker resource name.
 	Name string `yaml:"name,omitempty" json:"name,omitempty"`
 	// File is the source file for the config.
@@ -25,7 +25,7 @@ type Config struct {
 	// External marks a resource managed outside the Compose application.
 	External bool `yaml:"external,omitempty" json:"external"`
 	// Extra preserves unsupported Compose extension fields.
-	Extra map[string]interface{} `yaml:",inline"`
+	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 }
 
 // Configs contains top-level Compose configs keyed by alias.
@@ -48,7 +48,7 @@ func (c *Configs) UnmarshalYAML(node *yaml.Node) error {
 // Secret describes a top-level Compose secret.
 type Secret struct {
 	// Alias is the logical Compose resource name.
-	Alias string `yaml:"-"`
+	Alias string `yaml:"-" json:"Alias"`
 	// Name overrides the Docker resource name.
 	Name string `yaml:"name,omitempty" json:"name,omitempty"`
 	// File is the source file for the secret.
@@ -64,7 +64,7 @@ type Secret struct {
 	// External marks a resource managed outside the Compose application.
 	External bool `yaml:"external,omitempty" json:"external"`
 	// Extra preserves unsupported Compose extension fields.
-	Extra map[string]interface{} `yaml:",inline"`
+	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 }
 
 // Secrets contains top-level Compose secrets keyed by alias.

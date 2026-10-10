@@ -1,0 +1,188 @@
+paths:
+  /api/v1/deployments:
+    get:
+      operationId: listDeployments
+      parameters:
+        - in: query
+          name: stack
+          schema:
+            type: string
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 100
+        - in: query
+          name: cursor
+          description: Opaque cursor returned by the previous page.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Lightweight apply-attempt summaries in newest-first order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeploymentsResponse'
+  /api/v1/deployments/{id}:
+    get:
+      operationId: getDeployment
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: One apply attempt and its secret-safe structured changes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deployment'
+components:
+  schemas:
+    DeploymentStatus:
+      type: string
+      enum: [running, succeeded, failed, interrupted]
+    DeploymentPhase:
+      type: string
+      enum: [apply, verification, cleanup, completed]
+    DeploymentStageStatus:
+      type: string
+      enum: [pending, running, succeeded, failed, unknown, skipped]
+    DeploymentActualStateStatus:
+      type: string
+      enum: [observed, unknown]
+    DeploymentComparisonStatus:
+      type: string
+      enum: [known, unknown]
+    DeploymentComparisonBasis:
+      type: string
+      enum: [none, successful_baseline, last_attempt, observed_state]
+    DeploymentChangeOperation:
+      type: string
+      enum: [added, changed, removed]
+    DeploymentChange:
+      type: object
+      required: [resourceType, resourceName, field, operation, redacted]
+      properties:
+        resourceType:
+          type: string
+        resourceName:
+          type: string
+        field:
+          type: string
+        operation:
+          $ref: '#/components/schemas/DeploymentChangeOperation'
+        before:
+          type: string
+        after:
+          type: string
+        redacted:
+          type: boolean
+    DeploymentChangeSummary:
+      type: object
+      required: [added, changed, removed, redacted]
+      properties:
+        added:
+          type: integer
+        changed:
+          type: integer
+        removed:
+          type: integer
+        redacted:
+          type: integer
+    DeploymentResourceSummary:
+      type: object
+      required: [services, configs, secrets]
+      properties:
+        services:
+          type: integer
+        configs:
+          type: integer
+        secrets:
+          type: integer
+    DeploymentSummary:
+      type: object
+      required:
+        - id
+        - stack
+        - commit
+        - status
+        - phase
+        - apply_status
+        - verification_status
+        - cleanup_status
+        - actual_state_status
+        - comparison_basis
+        - comparison_status
+        - started_at
+        - summary
+        - resources
+      properties:
+        id:
+          type: string
+        stack:
+          type: string
+        commit:
+          type: string
+        status:
+          $ref: '#/components/schemas/DeploymentStatus'
+        phase:
+          $ref: '#/components/schemas/DeploymentPhase'
+        reason:
+          type: string
+        apply_status:
+          $ref: '#/components/schemas/DeploymentStageStatus'
+        verification_status:
+          $ref: '#/components/schemas/DeploymentStageStatus'
+        cleanup_status:
+          $ref: '#/components/schemas/DeploymentStageStatus'
+        actual_state_status:
+          $ref: '#/components/schemas/DeploymentActualStateStatus'
+        observed_at:
+          type: string
+          format: date-time
+        comparison_basis:
+          $ref: '#/components/schemas/DeploymentComparisonBasis'
+        comparison_status:
+          $ref: '#/components/schemas/DeploymentComparisonStatus'
+        basis_deployment_id:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+        duration_ms:
+          type: integer
+          format: int64
+          minimum: 0
+        summary:
+          $ref: '#/components/schemas/DeploymentChangeSummary'
+        resources:
+          $ref: '#/components/schemas/DeploymentResourceSummary'
+    Deployment:
+      allOf:
+        - $ref: '#/components/schemas/DeploymentSummary'
+        - type: object
+          required: [changes]
+          properties:
+            changes:
+              type: array
+              items:
+                $ref: '#/components/schemas/DeploymentChange'
+    DeploymentsResponse:
+      type: object
+      required: [deployments]
+      properties:
+        deployments:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeploymentSummary'
+        next_cursor:
+          type: string

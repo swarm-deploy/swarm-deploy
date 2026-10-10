@@ -1,12 +1,8 @@
 package secrets
 
 import (
-	"context"
-	"fmt"
-	"path/filepath"
-
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
@@ -20,15 +16,10 @@ type Domain struct {
 
 // NewDomain initializes the secret metadata domain.
 func NewDomain(
-	ctx context.Context,
-	dataDir string,
-	filesystem fs.FileSystem,
+	db *storage.Database,
 	secretManager swarm.SecretManager,
 ) (*Domain, error) {
-	store, err := modelstore.NewFileStore(ctx, filepath.Join(dataDir, "secrets.state.json"), filesystem)
-	if err != nil {
-		return nil, fmt.Errorf("init secret store: %w", err)
-	}
+	store := modelstore.NewSQLStore(db)
 
 	return &Domain{
 		Store:     store,

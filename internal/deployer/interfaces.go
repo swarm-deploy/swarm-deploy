@@ -1,4 +1,4 @@
-//go:generate mockgen -source=$GOFILE -destination=mock.go -package=deployer
+//go:generate go run -mod=mod go.uber.org/mock/mockgen -source=$GOFILE -destination=mock.go -package=deployer
 
 package deployer
 
