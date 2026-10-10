@@ -168,6 +168,7 @@ func (n *TelegramNotifier) sendRequest(ctx context.Context, body []byte) error {
 	}
 	req.Header.Set("Content-Type", "application/json")
 
+	// #nosec G704 -- Telegram API base URL is explicitly configured by the operator.
 	resp, err := n.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("send request: %s", maskTelegramSendError(err, n.token))

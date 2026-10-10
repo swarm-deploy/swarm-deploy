@@ -80,6 +80,7 @@ func (n *CustomWebhookNotifier) Notify(ctx context.Context, event Message) error
 		req.Header.Set(key, val)
 	}
 
+	// #nosec G704 -- webhook URL is explicitly configured by the operator.
 	resp, err := n.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("send request: %w", err)

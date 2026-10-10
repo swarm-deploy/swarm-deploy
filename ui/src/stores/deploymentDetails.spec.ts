@@ -18,7 +18,7 @@ describe("deployment details loading", () => {
     expect(store.deploymentDetailsLoading).toBe(true);
     const second = store.openDeploymentDetailsModal("second");
     await second;
-    resolveFirst({ id: "first", changes: [] } as Deployment);
+    resolveFirst({ id: "first", changes: [] } as unknown as Deployment);
     await first;
     expect(store.deploymentDetailsData?.id).toBe("second");
     store.closeDeploymentDetailsModal();

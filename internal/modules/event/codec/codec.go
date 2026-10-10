@@ -99,7 +99,7 @@ func Decode(typ events.TypeName, version int, payload []byte) (events.Event, err
 				DeployEvent: events.DeployEvent{
 					DeploymentID: p.DeploymentID, StackName: p.Stack, Commit: p.Commit, Services: p.services(),
 				},
-				Error:       errors.New(safeFailureCode(errors.New(p.Code))),
+				Error: errors.New(safeFailureCode(errors.New(p.Code))),
 			}
 		})
 	case events.TypeNameDeployPreparationFailed:
