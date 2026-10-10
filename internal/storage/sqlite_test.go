@@ -44,18 +44,30 @@ func TestRestartAndRollback(t *testing.T) {
 	require.NoError(t, db.Get(t.Context()).QueryRowContext(t.Context(), "SELECT id FROM outbox_events").Scan(&id))
 	assert.Equal(t, "committed", id)
 	var count int
-	require.NoError(t, db.Get(t.Context()).QueryRowContext(t.Context(), "SELECT count(*) FROM schema_migrations").Scan(&count))
+	require.NoError(t, db.Get(t.Context()).QueryRowContext(
+		t.Context(),
+		"SELECT count(*) FROM goose_db_version WHERE version_id = 1 AND is_applied = 1",
+	).Scan(&count))
 	assert.Equal(t, 1, count)
 }
 
-func TestRejectChangedSchema(t *testing.T) {
+func TestMigrationIsNotAppliedTwice(t *testing.T) {
 	dir := t.TempDir()
 	db, err := Open(t.Context(), dir)
 	require.NoError(t, err)
-	_, err = db.Get(t.Context()).ExecContext(t.Context(), "UPDATE schema_migrations SET checksum='unexpected'")
+	_, err = db.Get(t.Context()).ExecContext(
+		t.Context(),
+		"INSERT INTO nodes(id, hostname, payload) VALUES ('node-1', 'node-1', '{}')",
+	)
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
 	db, err = Open(t.Context(), dir)
-	require.Error(t, err)
-	assert.Nil(t, db)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	var count int
+	require.NoError(t, db.Get(t.Context()).QueryRowContext(
+		t.Context(),
+		"SELECT count(*) FROM nodes WHERE id = 'node-1'",
+	).Scan(&count))
+	assert.Equal(t, 1, count)
 }

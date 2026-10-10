@@ -17,7 +17,7 @@ Local verification is recorded below; this is not a production rollout or remote
 - One `<dataDir>/swarm-deploy.sqlite`: pure-Go modernc driver, WAL, per-connection
   foreign keys and busy timeout, FULL synchronization, private database file,
   context DB getter and Thiht/transactor savepoints, explicit shutdown.
-- One consolidated `internal/storage/migrations/0001_initial.sql` contains all
+- One consolidated `migrations/sqlite/0001_initial.sql`, applied by Goose, contains all
   domain and Outbox tables, indexes, uniqueness and foreign-key constraints.
 - All runtime durable repositories use SQLite: GitOps, Event History, Alerts,
   Recommendations, nodes, service catalog, secret metadata and assistant chats.
@@ -119,10 +119,11 @@ receive a transaction context.
 
 - One active controller and a local persistent volume are required; WAL is not a
   shared multi-host database. Follow the backup/import procedure before rollout.
-- The initial-schema checksum deliberately rejects databases created with an
-  earlier experimental schema from this branch. Do not delete a user's database
-  or silently bypass the mismatch. Legacy production JSON import is the supported
-  upgrade path; experimental DB conversion needs a separately reviewed plan.
+- Goose records applied versions in `goose_db_version`. Databases created by the
+  earlier experimental custom migrator are not converted automatically. Do not
+  delete a user's database or alter migration history to bypass a failure. Legacy
+  production JSON import is the supported upgrade path; experimental DB conversion
+  needs a separately reviewed plan.
 - External effects are at-least-once. A crash after sending/applying and before
   acknowledgement can repeat a notification or leave an interrupted deployment.
   Docker and SQLite cannot be committed atomically.

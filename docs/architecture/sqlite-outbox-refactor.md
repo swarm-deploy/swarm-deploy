@@ -150,7 +150,7 @@ Keep a single `0001_initial` schema migration in the integration branch; before 
 
 Plan for these conceptual tables (naming/details can change during implementation):
 
-`schema_migrations`, `legacy_imports`, `gitops_runtime`, `nodes`, `services`, `secret_metadata`, `recommendations`, `assistant_chats`, `assistant_turns`, `deployments`, `desired_snapshots`, `event_history`, `alerts`, `outbox_events`, `outbox_deliveries`, plus optional notification-domain tables.
+`goose_db_version`, `legacy_imports`, `gitops_runtime`, `nodes`, `services`, `secret_metadata`, `recommendations`, `assistant_chats`, `assistant_turns`, `deployments`, `desired_snapshots`, `event_history`, `alerts`, `outbox_events`, `outbox_deliveries`, plus optional notification-domain tables.
 
 Import existing JSON on startup before starting collectors/reconcilers/subscribers. Required properties:
 

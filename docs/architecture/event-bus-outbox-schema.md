@@ -2,7 +2,7 @@
 
 Status: **implemented and connected to application startup**. Integration branch: `feat/sqlite-outbox-refactor`.
 
-This expands [SQLite + Deployment architecture](sqlite-outbox-refactor.md). The SQL below is the Outbox subset of `internal/storage/migrations/0001_initial.sql`.
+This expands [SQLite + Deployment architecture](sqlite-outbox-refactor.md). The SQL below is the Outbox subset of `migrations/sqlite/0001_initial.sql`.
 
 ## Decision: publication and processing are separate transactions
 

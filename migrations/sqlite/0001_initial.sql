@@ -1,3 +1,4 @@
+-- +goose Up
 -- Single initial migration, extended in this integration branch until release.
 -- Outbox is a queue: the last acknowledgement deletes the event immediately.
 CREATE TABLE outbox_events (
@@ -120,3 +121,23 @@ CREATE TABLE projection_versions (
 );
 -- A known node reconnecting is never projected as a new node joining.
 CREATE TABLE node_identities (id TEXT PRIMARY KEY);
+
+-- +goose Down
+DROP TABLE node_identities;
+DROP TABLE projection_versions;
+DROP TABLE service_catalog_receipts;
+DROP TABLE desired_snapshots;
+DROP TABLE deployments;
+DROP TABLE assistant_turns;
+DROP TABLE assistant_chats;
+DROP TABLE recommendations;
+DROP TABLE secret_metadata;
+DROP TABLE services;
+DROP TABLE nodes;
+DROP TABLE gitops_runtime;
+DROP TABLE legacy_imports;
+DROP TABLE alert_events;
+DROP TABLE alerts;
+DROP TABLE event_history;
+DROP TABLE outbox_deliveries;
+DROP TABLE outbox_events;

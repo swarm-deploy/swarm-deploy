@@ -3,9 +3,7 @@ package storage
 
 import (
 	"context"
-	"crypto/sha256"
 	"database/sql"
-	_ "embed"
 	"fmt"
 	"net/url"
 	"os"
@@ -13,11 +11,10 @@ import (
 
 	"github.com/Thiht/transactor"
 	"github.com/Thiht/transactor/stdlib"
+	"github.com/pressly/goose/v3"
+	sqlitemigrations "github.com/swarm-deploy/swarm-deploy/migrations/sqlite"
 	_ "modernc.org/sqlite"
 )
-
-//go:embed migrations/0001_initial.sql
-var initialSchema string
 
 const maxConnections = 4
 
@@ -58,7 +55,16 @@ func Open(ctx context.Context, dataDir string) (*Database, error) {
 	db.SetMaxIdleConns(maxConnections)
 	tr, get := stdlib.NewTransactor(db, stdlib.NestedTransactionsSavepoints)
 	s := &Database{db: db, Transactor: tr, Get: get}
-	if err = s.migrate(ctx); err != nil {
+	migrations, err := goose.NewProvider(
+		goose.DialectSQLite3,
+		db,
+		sqlitemigrations.Files,
+	)
+	if err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("initialize SQLite migrations: %w", err)
+	}
+	if _, err = migrations.Up(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("initialize SQLite: %w", err)
 	}
@@ -67,37 +73,3 @@ func Open(ctx context.Context, dataDir string) (*Database, error) {
 
 // Close releases connections after application workers have stopped.
 func (s *Database) Close() error { return s.db.Close() }
-
-func (s *Database) migrate(ctx context.Context) error {
-	return s.WithinTransaction(ctx, func(ctx context.Context) error {
-		db := s.Get(ctx)
-		_, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
-			version TEXT PRIMARY KEY, checksum TEXT NOT NULL)`)
-		if err != nil {
-			return err
-		}
-		var count int
-		if err = db.QueryRowContext(ctx, "SELECT count(*) FROM schema_migrations").Scan(&count); err != nil {
-			return err
-		}
-		checksum := fmt.Sprintf("%x", sha256.Sum256([]byte(initialSchema)))
-		if count != 0 {
-			var existing string
-			err = db.QueryRowContext(ctx,
-				"SELECT checksum FROM schema_migrations WHERE version = '0001_initial'",
-			).Scan(&existing)
-			if err != nil {
-				return err
-			}
-			if count != 1 || existing != checksum {
-				return fmt.Errorf("database schema does not match 0001_initial; refusing startup")
-			}
-			return nil
-		}
-		if _, err = db.ExecContext(ctx, initialSchema); err != nil {
-			return err
-		}
-		_, err = db.ExecContext(ctx, "INSERT INTO schema_migrations VALUES ('0001_initial', ?)", checksum)
-		return err
-	})
-}

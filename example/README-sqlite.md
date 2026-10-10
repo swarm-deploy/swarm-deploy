@@ -34,9 +34,9 @@ instance cleanly and back up the whole directory, including SQLite and any
 For rollback, stop the new instance and restore a known complete offline backup;
 starting the old binary against stale JSON would lose changes made after migration.
 
-The integration branch contains one consolidated `0001_initial` migration. A schema checksum
-mismatch deliberately refuses startup. Use disposable copies of data for testing;
-do not delete a real database or edit its checksum to bypass this protection.
+The integration branch contains one consolidated `migrations/sqlite/0001_initial.sql`
+migration. The application applies pending migrations with Goose during startup.
+Use disposable copies of data for testing; do not edit Goose's migration history.
 
 ## Deployments and eventual consistency
 
