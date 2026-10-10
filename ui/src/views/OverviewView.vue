@@ -230,6 +230,7 @@ onUnmounted(() => {
             role="img"
           ></span>
           <span class="overview-deployment-stack">{{ event.stack || "unknown stack" }}</span>
+          <span class="overview-deployment-status">{{ event.status }}</span>
           <time class="overview-deployment-time" :datetime="event.started_at">{{ formatTime(event.started_at) }}</time>
           <span class="overview-summary-secondary">{{ event.summary?.added ?? 0 }} added · {{ event.summary?.changed ?? 0 }} changed · {{ event.summary?.removed ?? 0 }} removed</span>
           </button>
@@ -330,5 +331,6 @@ onUnmounted(() => {
 .overview-deployment-open { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; padding: 0; text-align: left; background: transparent; border: 0; color: inherit; font: inherit; }
 .overview-deployment-open:hover, .overview-deployment-open:focus-visible { color: var(--accent-strong); transform: none; filter: none; }
 .overview-deployment-row .overview-summary-sha-badge { flex: 0 0 auto; }
+.overview-deployment-status { color: var(--muted); font-size: .75rem; text-transform: capitalize; }
 @media (max-width: 640px) { .overview-deployment-open { flex-wrap: wrap; } }
 </style>
