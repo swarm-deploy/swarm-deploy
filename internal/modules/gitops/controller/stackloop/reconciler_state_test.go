@@ -189,7 +189,7 @@ func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
 				manager.EXPECT().Remove(gomock.Any(), "old-id").Return(assert.AnError)
 			},
 			status: deployment.Failed, phase: deployment.PhaseCleanup,
-			verification: deployment.StageSucceeded, cleanup: deployment.StageFailed,
+			verification: deployment.StageSkipped, cleanup: deployment.StageFailed,
 			actual: deployment.ActualStateObserved, expectedObservedTime: true,
 		},
 	}

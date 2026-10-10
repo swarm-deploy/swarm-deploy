@@ -90,7 +90,9 @@ func normalize(value any) {
 		delete(node, "Keys")
 		delete(node, "env_file")
 		// ServiceVolumes.Map and ServiceNetworks.AliasMap duplicate their lists.
-		if _, isVolumeList := node["Volumes"]; isVolumeList { delete(node, "Map") }
+		if _, isVolumeList := node["Volumes"]; isVolumeList {
+			delete(node, "Map")
+		}
 		if _, isNetworkList := node["List"]; isNetworkList {
 			delete(node, "AliasMap")
 			delete(node, "Names")
@@ -99,7 +101,9 @@ func normalize(value any) {
 		for _, listKey := range []string{"Ports", "Volumes", "List", "cap_add", "cap_drop", "secrets", "configs"} {
 			if list, ok := node[listKey].([]any); ok {
 				sort.SliceStable(list, func(i, j int) bool {
-					left, _ := json.Marshal(list[i]); right, _ := json.Marshal(list[j]); return bytes.Compare(left, right) < 0
+					left, _ := json.Marshal(list[i])
+					right, _ := json.Marshal(list[j])
+					return bytes.Compare(left, right) < 0
 				})
 			}
 		}
@@ -286,11 +290,15 @@ func publicField(parts []string) string {
 			continue
 		}
 		if _, err := strconv.Atoi(part); err == nil {
-			if len(fields) > 0 { fields[len(fields)-1] += "[" + part + "]" }
+			if len(fields) > 0 {
+				fields[len(fields)-1] += "[" + part + "]"
+			}
 			continue
 		}
 		if strings.HasPrefix(part, "@") {
-			if len(fields) > 0 { fields[len(fields)-1] += "[" + strings.ReplaceAll(strings.ReplaceAll(part[1:], "~1", "/"), "~0", "~") + "]" }
+			if len(fields) > 0 {
+				fields[len(fields)-1] += "[" + strings.ReplaceAll(strings.ReplaceAll(part[1:], "~1", "/"), "~0", "~") + "]"
+			}
 			continue
 		}
 		fields = append(fields, publicSegment(strings.ReplaceAll(strings.ReplaceAll(part, "~1", "/"), "~0", "~")))
@@ -345,32 +353,51 @@ func summarize(changes []Change) (ChangeSummary, ResourceSummary) {
 func (p *Prepared) sanitizeList(node []any, path, key string) any {
 	used := map[string]int{}
 	for i, child := range node {
-		segment := strconv.Itoa(i)
-		if object, ok := child.(map[string]any); ok {
-			switch {
-			case object["name"] != nil:
-				segment = fmt.Sprint(object["name"])
-			case object["Target"] != nil:
-				segment = "@" + fmt.Sprint(object["Target"])
-			case object["target"] != nil:
-				segment = "@" + fmt.Sprint(object["target"])
-				if object["protocol"] != nil { segment += "/" + fmt.Sprint(object["protocol"]) }
-			case object["Alias"] != nil:
-				segment = "@" + fmt.Sprint(object["Alias"])
-			}
-		}
-		// Duplicate identities remain distinct; no change may be merged with
-		// another element merely because its public field name is the same.
+		segment := listSegment(child, i)
 		count := used[segment]
 		used[segment] = count + 1
-		if count > 0 { segment += fmt.Sprintf("#%d", count) }
-		fieldKey := key
-		if i > 0 {
-			if previous, ok := node[i-1].(string); ok && strings.HasPrefix(previous, "-") {
-				if _, masked := envmasker.Mask(previous, "test-value"); masked { fieldKey = previous }
-			}
+		if count > 0 {
+			segment += fmt.Sprintf("#%d", count)
 		}
+		fieldKey := listFieldKey(node, i, key)
 		node[i] = p.sanitize(child, joinPath(path, segment), fieldKey)
 	}
 	return node
+}
+
+func listSegment(child any, index int) string {
+	object, ok := child.(map[string]any)
+	if !ok {
+		return strconv.Itoa(index)
+	}
+	switch {
+	case object["name"] != nil:
+		return fmt.Sprint(object["name"])
+	case object["Target"] != nil:
+		return "@" + fmt.Sprint(object["Target"])
+	case object["target"] != nil:
+		segment := "@" + fmt.Sprint(object["target"])
+		if object["protocol"] != nil {
+			segment += "/" + fmt.Sprint(object["protocol"])
+		}
+		return segment
+	case object["Alias"] != nil:
+		return "@" + fmt.Sprint(object["Alias"])
+	default:
+		return strconv.Itoa(index)
+	}
+}
+
+func listFieldKey(node []any, index int, fallback string) string {
+	if index == 0 {
+		return fallback
+	}
+	previous, ok := node[index-1].(string)
+	if !ok || !strings.HasPrefix(previous, "-") {
+		return fallback
+	}
+	if _, masked := envmasker.Mask(previous, "test-value"); masked {
+		return previous
+	}
+	return fallback
 }

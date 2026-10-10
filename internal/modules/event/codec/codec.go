@@ -96,8 +96,10 @@ func Decode(typ events.TypeName, version int, payload []byte) (events.Event, err
 	case events.TypeNameDeployFailed:
 		return decodeAs(payload, func(p deploymentFailurePayload) events.Event {
 			return &events.DeployFailed{
-				DeployEvent: events.DeployEvent{DeploymentID: p.DeploymentID, StackName: p.Stack, Commit: p.Commit, Services: p.services()},
-				Error: errors.New(safeFailureCode(errors.New(p.Code))),
+				DeployEvent: events.DeployEvent{
+					DeploymentID: p.DeploymentID, StackName: p.Stack, Commit: p.Commit, Services: p.services(),
+				},
+				Error:       errors.New(safeFailureCode(errors.New(p.Code))),
 			}
 		})
 	case events.TypeNameDeployPreparationFailed:
