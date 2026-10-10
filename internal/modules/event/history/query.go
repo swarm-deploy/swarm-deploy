@@ -94,4 +94,3 @@ func decodePageCursor(raw string, order SortOrder) (pageCursor, error) {
 	}
 	return cursor, nil
 }
-
