@@ -695,10 +695,63 @@ a.overview-summary-row:focus-visible {
 }
 
 .overview-deployment-list .overview-summary-row {
-  grid-template-columns: 9px minmax(116px, 1fr) max-content max-content;
-  gap: 9px;
+  grid-template-columns: minmax(0, 1fr) max-content;
+  gap: 6px;
+  padding: 0;
   color: var(--muted);
   font-size: 0.79rem;
+}
+
+.overview-deployment-open {
+  min-width: 0;
+  min-height: 47px;
+  display: grid;
+  grid-template-columns: 9px minmax(0, 1fr) max-content;
+  grid-template-areas:
+    "result stack time"
+    "result status summary";
+  align-items: center;
+  column-gap: 9px;
+  row-gap: 3px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  padding: 8px 7px;
+  font: inherit;
+  text-align: left;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.overview-deployment-open:hover,
+.overview-deployment-open:focus-visible {
+  background: var(--surface-hover);
+  color: inherit;
+  filter: none;
+  outline: none;
+  transform: none;
+}
+
+.overview-deployment-open:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent-focus);
+}
+
+.overview-deployment-row > .overview-summary-sha-badge,
+.overview-deployment-row > .overview-summary-value-empty {
+  margin-right: 7px;
+}
+
+.overview-deployment-row > .overview-summary-sha-badge:hover,
+.overview-deployment-row > .overview-summary-sha-badge:focus-visible {
+  border-color: var(--border-strong);
+  color: var(--accent-strong);
+  filter: none;
+  transform: none;
+}
+
+.overview-deployment-row > .overview-summary-sha-badge:focus-visible {
+  outline: 2px solid var(--accent-focus);
+  outline-offset: 1px;
 }
 
 .overview-alert-list .overview-summary-row,
@@ -708,6 +761,7 @@ a.overview-summary-row:focus-visible {
 }
 
 .overview-deployment-stack {
+  grid-area: stack;
   color: var(--text);
   font-weight: 500;
   min-width: 0;
@@ -717,12 +771,18 @@ a.overview-summary-row:focus-visible {
 }
 
 .overview-deployment-result {
+  grid-area: result;
   justify-self: center;
 }
 
 .overview-summary-severity.overview-deployment-result--success {
   background: var(--success);
-  box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.1);
+  box-shadow: 0 0 0 3px var(--success-muted);
+}
+
+.overview-summary-severity.overview-deployment-result--running {
+  background: var(--info);
+  box-shadow: 0 0 0 3px var(--info-muted);
 }
 
 .overview-summary-severity.overview-deployment-result--failed {
@@ -730,9 +790,28 @@ a.overview-summary-row:focus-visible {
   box-shadow: 0 0 0 3px var(--error-muted);
 }
 
+.overview-summary-severity.overview-deployment-result--interrupted {
+  background: var(--warning);
+  box-shadow: 0 0 0 3px var(--warning-muted);
+}
+
+.overview-deployment-status {
+  grid-area: status;
+  color: var(--muted);
+  font-size: 0.75rem;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
 .overview-deployment-time {
+  grid-area: time;
   color: var(--muted);
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.overview-deployment-open .overview-summary-secondary {
+  grid-area: summary;
 }
 
 .overview-summary-sha-badge {
@@ -3257,29 +3336,23 @@ a.overview-summary-row:focus-visible {
   }
 
   .overview-deployment-list .overview-summary-row {
+    grid-template-columns: minmax(0, 1fr) max-content;
+    row-gap: 0;
+  }
+
+  .overview-deployment-open {
     grid-template-columns: 9px minmax(0, 1fr) max-content;
+    grid-template-areas:
+      "result stack stack"
+      ". status time"
+      ". summary summary";
     row-gap: 4px;
   }
 
-  .overview-deployment-result {
-    grid-column: 1;
-    grid-row: 1;
-  }
-
-  .overview-deployment-stack {
-    grid-column: 2 / -1;
-    grid-row: 1;
-  }
-
-  .overview-deployment-time {
-    grid-column: 2;
-    grid-row: 2;
-  }
-
-  .overview-summary-sha-badge,
-  .overview-deployment-list .overview-summary-value-empty {
-    grid-column: 3;
-    grid-row: 2;
+  .overview-deployment-row > .overview-summary-sha-badge,
+  .overview-deployment-row > .overview-summary-value-empty {
+    align-self: start;
+    margin-top: 8px;
   }
 
   .services-header {

@@ -54,7 +54,16 @@ function serviceCount(stackName: string): number {
 }
 
 function deploymentResultClass(item: DeploymentSummary): string {
-  return item.status === "succeeded" ? "overview-deployment-result--success" : item.status === "running" ? "overview-deployment-result--running" : "overview-deployment-result--failed";
+  switch (item.status) {
+    case "succeeded":
+      return "overview-deployment-result--success";
+    case "running":
+      return "overview-deployment-result--running";
+    case "interrupted":
+      return "overview-deployment-result--interrupted";
+    default:
+      return "overview-deployment-result--failed";
+  }
 }
 
 function formatTime(raw: string | undefined): string {
@@ -326,11 +335,3 @@ onUnmounted(() => {
   </section>
 </template>
 
-<style scoped>
-.overview-deployment-row { display: flex; align-items: center; gap: 8px; }
-.overview-deployment-open { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; padding: 0; text-align: left; background: transparent; border: 0; color: inherit; font: inherit; }
-.overview-deployment-open:hover, .overview-deployment-open:focus-visible { color: var(--accent-strong); transform: none; filter: none; }
-.overview-deployment-row .overview-summary-sha-badge { flex: 0 0 auto; }
-.overview-deployment-status { color: var(--muted); font-size: .75rem; text-transform: capitalize; }
-@media (max-width: 640px) { .overview-deployment-open { flex-wrap: wrap; } }
-</style>

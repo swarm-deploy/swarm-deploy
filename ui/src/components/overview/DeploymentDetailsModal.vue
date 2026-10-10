@@ -5,8 +5,17 @@ import { useOverviewStore } from "../../stores/overview";
 import { formatDate, shortCommitHash } from "../../utils/format";
 
 const store = useOverviewStore();
+const dialog = ref<HTMLElement | null>(null);
 const closeButton = ref<HTMLButtonElement | null>(null);
 let returnFocus: HTMLElement | null = null;
+const focusableSelector = [
+  "a[href]",
+  "button:not([disabled])",
+  "input:not([disabled])",
+  "select:not([disabled])",
+  "textarea:not([disabled])",
+  "[tabindex]:not([tabindex=\"-1\"])",
+].join(", ");
 const detail = computed(() => store.deploymentDetailsData);
 const groups = computed(() => {
   const result = new Map<string, { type: string; name: string; changes: DeploymentChange[] }>();
@@ -49,6 +58,10 @@ function value(raw: string | null | undefined, redacted: boolean): string {
   if (raw === "") return '"" (empty)';
   return raw;
 }
+function focusableElements(): HTMLElement[] {
+  if (!dialog.value) return [];
+  return [...dialog.value.querySelectorAll<HTMLElement>(focusableSelector)];
+}
 function close() { store.closeDeploymentDetailsModal(); }
 function openCommit() {
   const commit = detail.value?.commit;
@@ -58,7 +71,28 @@ function openCommit() {
   }
 }
 function onKeydown(event: KeyboardEvent) {
-  if (event.key === "Escape" && store.deploymentDetailsModalOpen) close();
+  if (!store.deploymentDetailsModalOpen) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    close();
+    return;
+  }
+  if (event.key !== "Tab") return;
+
+  const focusable = focusableElements();
+  if (focusable.length === 0) {
+    event.preventDefault();
+    dialog.value?.focus();
+    return;
+  }
+
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const activeIndex = focusable.indexOf(document.activeElement as HTMLElement);
+  if (activeIndex === -1 || (event.shiftKey && activeIndex === 0) || (!event.shiftKey && activeIndex === focusable.length - 1)) {
+    event.preventDefault();
+    (event.shiftKey ? last : first).focus();
+  }
 }
 watch(() => store.deploymentDetailsModalOpen, async (open, wasOpen) => {
   if (open && !wasOpen) {
@@ -66,7 +100,7 @@ watch(() => store.deploymentDetailsModalOpen, async (open, wasOpen) => {
     await nextTick();
     closeButton.value?.focus();
   } else if (!open && wasOpen) {
-    returnFocus?.focus();
+    if (returnFocus?.isConnected) returnFocus.focus();
     returnFocus = null;
   }
 });
@@ -75,9 +109,9 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
 </script>
 
 <template>
-  <div v-if="store.deploymentDetailsModalOpen" class="modal" @keydown.esc.stop="close">
+  <div v-if="store.deploymentDetailsModalOpen" class="modal">
     <div class="modal-overlay" @click="close" />
-    <div class="modal-card deployment-modal" role="dialog" aria-modal="true" aria-labelledby="deployment-details-title">
+    <div ref="dialog" class="modal-card deployment-modal" role="dialog" aria-modal="true" aria-labelledby="deployment-details-title" tabindex="-1">
       <div class="modal-header">
         <h2 id="deployment-details-title">Deployment · {{ detail?.stack || "Details" }}</h2>
         <button ref="closeButton" class="modal-close" type="button" aria-label="Close deployment details" @click="close">×</button>
@@ -133,8 +167,10 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
 .deployment-modal { width: min(860px, calc(100vw - 32px)); max-height: min(90vh, 900px); overflow: auto; }
 .deployment-meta { display: flex; gap: 8px 16px; flex-wrap: wrap; align-items: center; font-size: .85rem; }
 .deployment-status { text-transform: capitalize; padding: 3px 8px; border-radius: 6px; background: var(--surface-muted); }
-.deployment-status--succeeded { color: var(--success, #26845a); }
-.deployment-status--failed, .deployment-status--interrupted { color: var(--error, #c24b4b); }
+.deployment-status--succeeded { color: var(--success); background: var(--success-muted); }
+.deployment-status--running { color: var(--info); background: var(--info-muted); }
+.deployment-status--failed { color: var(--error); background: var(--error-muted); }
+.deployment-status--interrupted { color: var(--warning); background: var(--warning-muted); }
 .deployment-note { color: var(--muted); line-height: 1.4; }
 .deployment-resource { border: 1px solid var(--line); border-radius: 8px; margin: 12px 0; padding: 12px; }
 .deployment-resource h4 { margin: 0 0 8px; text-transform: capitalize; }
