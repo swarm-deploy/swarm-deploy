@@ -120,3 +120,24 @@ func TestSubscriberConcurrentFailuresCreateOneOpenAlert(t *testing.T) {
 	require.Len(t, alerts, 1, "only one open incident is allowed")
 	assert.Equal(t, uint64(workers), alerts[0].Occurrences, "all failures should be counted")
 }
+
+func TestInterruptedAlertKeepsUnknownOutcomeAndResolvesOnSuccess(t *testing.T) {
+	ctx := context.Background()
+	store, err := modelstore.NewFileStore(ctx, filepath.Join(t.TempDir(), "alerts.json"), sharedfs.NewLocalFileSystem())
+	require.NoError(t, err)
+	subscriber := NewSubscriber(store)
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "interrupted", Event: &events.DeployInterrupted{
+		StackName: "app", Reason: "process_interrupted",
+	}}))
+	open, err := store.List(ctx, modelstore.ListFilter{Status: model.AlertStatusOpen})
+	require.NoError(t, err)
+	require.Len(t, open, 1)
+	assert.Equal(t, "Deployment outcome unknown", open[0].Title)
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "success", Event: &events.DeploySuccess{
+		DeployEvent: events.DeployEvent{StackName: "app"},
+	}}))
+	resolved, err := store.List(ctx, modelstore.ListFilter{Status: model.AlertStatusResolved})
+	require.NoError(t, err)
+	require.Len(t, resolved, 1)
+	assert.Equal(t, open[0].ID, resolved[0].ID)
+}
