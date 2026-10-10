@@ -5,10 +5,13 @@ import type { Deployment } from "../../api/types";
 import { useOverviewStore } from "../../stores/overview";
 import DeploymentDetailsModal from "./DeploymentDetailsModal.vue";
 
-function deployment(status: Deployment["status"] = "failed"): Deployment {
+function deployment(
+  status: Deployment["status"] = "failed",
+  basis: Deployment["comparison_basis"] = "none",
+): Deployment {
   return {
     id: "one", stack: "app", commit: "abcdef012345", status,
-    started_at: "2026-10-10T10:00:00Z", comparison_basis: "none", comparison_status: "unknown",
+    started_at: "2026-10-10T10:00:00Z", comparison_basis: basis, comparison_status: basis === "none" ? "unknown" : "known",
     summary: { added: 1, changed: 2, removed: 0, redacted: 1 },
     changes: [
       { resourceType: "service", resourceName: "api", field: "image", operation: "changed",
@@ -24,23 +27,42 @@ function deployment(status: Deployment["status"] = "failed"): Deployment {
 describe("Deployment Details modal", () => {
   beforeEach(() => setActivePinia(createPinia()));
 
-  it("shows semantic changes, masked values and distinct missing/empty values", async () => {
+  it("shows the first recorded target without presenting it as an added diff", async () => {
     const store = useOverviewStore();
     store.deploymentDetailsModalOpen = true;
-    store.deploymentDetailsData = deployment();
+    store.deploymentDetailsData = deployment("succeeded");
     const wrapper = mount(DeploymentDetailsModal);
 
-    expect(wrapper.text()).toContain("planned desired changes");
-    expect(wrapper.text()).toContain("no reliable previous state");
-    expect(wrapper.text()).toContain("api:1");
+    expect(wrapper.text()).toContain("Initial Deployment Snapshot");
+    expect(wrapper.text()).toContain("First recorded deployment. No previous desired snapshot is available for comparison.");
+    expect(wrapper.text()).toContain("not proof that these resources were newly created");
+    expect(wrapper.text()).toContain("live convergence have not been verified");
     expect(wrapper.text()).toContain("api:2");
     expect(wrapper.text()).toContain('"" (empty)');
-    expect(wrapper.text()).toContain("—");
     expect(wrapper.text()).toContain("****");
+    expect(wrapper.text()).not.toContain("added");
+    expect(wrapper.text()).not.toContain("api:1");
     expect(wrapper.text()).not.toContain("plaintext-before");
     expect(wrapper.text()).not.toContain("plaintext-after");
+    expect(wrapper.find(".deployment-change").exists()).toBe(false);
+    expect(wrapper.findAll(".deployment-snapshot-field")).toHaveLength(3);
     await wrapper.find('[aria-label="Close deployment details"]').trigger("click");
     expect(store.deploymentDetailsModalOpen).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("keeps the semantic before-to-after diff when a baseline exists", () => {
+    const store = useOverviewStore();
+    store.deploymentDetailsModalOpen = true;
+    store.deploymentDetailsData = deployment("failed", "successful_baseline");
+    const wrapper = mount(DeploymentDetailsModal);
+
+    expect(wrapper.text()).toContain("Desired changes · 3 fields");
+    expect(wrapper.text()).toContain("1 added · 2 changed · 0 removed");
+    expect(wrapper.text()).toContain("api:1");
+    expect(wrapper.text()).toContain("api:2");
+    expect(wrapper.findAll(".deployment-change")).toHaveLength(3);
+    expect(wrapper.find(".deployment-snapshot-field").exists()).toBe(false);
     wrapper.unmount();
   });
 

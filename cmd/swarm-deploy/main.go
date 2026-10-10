@@ -18,7 +18,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/sd"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webhookserver"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver"
-	"github.com/swarm-deploy/swarm-deploy/internal/legacyimport"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant"
@@ -156,12 +155,6 @@ func main() {
 		slog.ErrorContext(ctx, "failed to open database", slog.Any("err", err))
 		os.Exit(1)
 	}
-	if err = legacyimport.Run(ctx, db, cfg.Spec.DataDir); err != nil {
-		slog.ErrorContext(ctx, "legacy import failed; source files are unchanged", slog.Any("err", err))
-		_ = db.Close()
-		os.Exit(1)
-	}
-
 	cnt := &container{
 		Storage:    db,
 		FileSystem: fs.TraceOS(),

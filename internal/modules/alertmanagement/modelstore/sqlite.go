@@ -22,25 +22,15 @@ func NewSQLStore(db *storage.Database) *SQLStore { return &SQLStore{db: db} }
 
 // Create inserts an incident with database-enforced open-fingerprint uniqueness.
 func (s *SQLStore) Create(ctx context.Context, alert model.Alert) error {
-	return s.write(ctx, alert, false, true)
+	return s.write(ctx, alert, false)
 }
 
 // Update replaces an existing incident.
 func (s *SQLStore) Update(ctx context.Context, alert model.Alert) error {
-	return s.write(ctx, alert, true, true)
+	return s.write(ctx, alert, true)
 }
 
-// Import preserves every legacy incident without applying runtime retention.
-func (s *SQLStore) Import(ctx context.Context, alerts []model.Alert) error {
-	for _, alert := range alerts {
-		if err := s.write(ctx, alert, false, false); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (s *SQLStore) write(ctx context.Context, alert model.Alert, update, prune bool) error {
+func (s *SQLStore) write(ctx context.Context, alert model.Alert, update bool) error {
 	payload, err := json.Marshal(alert)
 	if err != nil {
 		return err
@@ -69,9 +59,6 @@ func (s *SQLStore) write(ctx context.Context, alert model.Alert, update, prune b
 		}
 		if count != 1 {
 			return ErrAlertNotFound
-		}
-		if !prune {
-			return nil
 		}
 		_, writeErr = s.db.Get(ctx).ExecContext(ctx, `DELETE FROM alerts WHERE id IN (
 			SELECT id FROM alerts WHERE status='resolved' ORDER BY resolved_at_ns,id

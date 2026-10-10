@@ -11,7 +11,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/analyzer"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
 
@@ -29,7 +28,6 @@ type Module struct {
 type Container interface {
 	// GetStorage returns the shared database.
 	GetStorage() *storage.Database
-	GetFileSystem() fs.FileSystem
 	GetEventModule() *event.Module
 }
 

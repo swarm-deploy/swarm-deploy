@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -14,14 +13,12 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	sharedfs "github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 )
 
 func TestSubscriberDeploymentLifecycle(t *testing.T) {
 	ctx := context.Background()
-	path := filepath.Join(t.TempDir(), "alerts.json")
-	store, err := modelstore.NewFileStore(ctx, path, sharedfs.NewLocalFileSystem())
-	require.NoError(t, err, "create store")
+	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
 
 	subscriber := NewSubscriber(store)
 	now := time.Date(2026, 9, 22, 10, 0, 0, 0, time.UTC)
@@ -82,17 +79,11 @@ func TestSubscriberDeploymentLifecycle(t *testing.T) {
 	assert.NotEqual(t, firstID, open[0].ID, "new incident should have a new id")
 	assert.Equal(t, resolved[0].Fingerprint, open[0].Fingerprint, "problem fingerprint should be stable")
 
-	reloaded, err := modelstore.NewFileStore(ctx, path, sharedfs.NewLocalFileSystem())
-	require.NoError(t, err, "reload persisted alerts")
-	persisted, err := reloaded.List(ctx, modelstore.ListFilter{})
-	require.NoError(t, err, "list reloaded alerts")
-	assert.Len(t, persisted, 2, "alerts should survive restart")
 }
 
 func TestSubscriberConcurrentFailuresCreateOneOpenAlert(t *testing.T) {
 	ctx := context.Background()
-	store, err := modelstore.NewFileStore(ctx, filepath.Join(t.TempDir(), "alerts.json"), sharedfs.NewLocalFileSystem())
-	require.NoError(t, err, "create store")
+	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
 	subscriber := NewSubscriber(store)
 
 	const workers = 20
@@ -123,8 +114,7 @@ func TestSubscriberConcurrentFailuresCreateOneOpenAlert(t *testing.T) {
 
 func TestInterruptedAlertKeepsUnknownOutcomeAndResolvesOnSuccess(t *testing.T) {
 	ctx := context.Background()
-	store, err := modelstore.NewFileStore(ctx, filepath.Join(t.TempDir(), "alerts.json"), sharedfs.NewLocalFileSystem())
-	require.NoError(t, err)
+	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
 	subscriber := NewSubscriber(store)
 	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "interrupted", Event: &events.DeployInterrupted{
 		StackName: "app", Reason: "process_interrupted",

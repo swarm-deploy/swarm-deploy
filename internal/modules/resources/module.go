@@ -15,7 +15,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -38,7 +37,6 @@ type Container interface {
 	GetStorage() *storage.Database
 	GetSwarm() *swarm.Swarm
 	GetEventModule() *event.Module
-	GetFileSystem() fs.FileSystem
 }
 
 func InitModule(

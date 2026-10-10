@@ -9,15 +9,14 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
 
-func TestSQLiteQueryMatchesLegacyPagination(t *testing.T) {
+func TestSQLiteQueryPagination(t *testing.T) {
 	ctx := context.Background()
 	db, err := storage.Open(ctx, t.TempDir())
 	require.NoError(t, err)
-	defer db.Close()
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	repo, err := NewSQLStore(db, 100)
 	require.NoError(t, err)
 	now := time.Date(2025, 1, 1, 0, 0, 0, 123456789, time.UTC)
@@ -27,37 +26,48 @@ func TestSQLiteQueryMatchesLegacyPagination(t *testing.T) {
 		if i%3 == 0 {
 			typ = events.TypeNodeJoined
 		}
-		entries = append(entries, Entry{ID: fmt.Sprintf("id-%02d", i), Type: typ, Severity: []events.Severity{events.SeverityInfo, events.SeverityWarn, events.SeverityError}[i%3], Category: typ.Category(), CreatedAt: now.Add(time.Duration(i/3) * time.Nanosecond)})
+		entries = append(entries, Entry{
+			ID: fmt.Sprintf("id-%02d", i), Type: typ,
+			Severity: []events.Severity{events.SeverityInfo, events.SeverityWarn, events.SeverityError}[i%3],
+			Category: typ.Category(), CreatedAt: now.Add(time.Duration(i/3) * time.Nanosecond),
+		})
 	}
-	require.NoError(t, db.WithinTransaction(ctx, func(ctx context.Context) error { return repo.Import(ctx, entries) }))
-	legacy := &Store{entries: entries}
-	for _, limit := range []int{0, 1, 4, 100} {
-		options := QueryOptions{Limit: limit, Types: []events.TypeName{events.TypeNodeJoined.Name()}, Since: &now}
-		expected, queryErr := legacy.ReadRecent(ctx, options)
-		require.NoError(t, queryErr)
-		actual, queryErr := repo.ReadRecent(ctx, options)
-		require.NoError(t, queryErr)
-		assert.Equal(t, expected, actual)
-	}
-	for _, order := range []SortOrder{SortTimeAsc, SortTimeDesc, SortSeverityAsc, SortSeverityDesc} {
-		for _, filter := range []QueryOptions{{}, {Severities: []events.Severity{events.SeverityInfo, events.SeverityError}}, {Types: []events.TypeName{events.TypeNodeJoined.Name()}, Since: &now}, {Categories: []events.Category{events.TypeDeploySuccess.Category()}}} {
-			t.Run(string(order)+fmt.Sprint(filter), func(t *testing.T) {
-				filter.Sort = order
-				filter.Limit = 4
-				for {
-					expected, queryErr := legacy.Query(filter)
-					require.NoError(t, queryErr)
-					actual, queryErr := repo.QueryPage(ctx, filter)
-					require.NoError(t, queryErr)
-					assert.Equal(t, expected, actual)
-					if actual.NextCursor == "" {
-						break
-					}
-					filter.Cursor = actual.NextCursor
-				}
-			})
+	require.NoError(t, db.WithinTransaction(ctx, func(ctx context.Context) error {
+		for i, entry := range entries {
+			if insertErr := repo.insert(ctx, entry, nil, int64(i+1)); insertErr != nil {
+				return insertErr
+			}
 		}
+		return nil
+	}))
+
+	recent, err := repo.ReadRecent(ctx, QueryOptions{
+		Limit: 4, Types: []events.TypeName{events.TypeNodeJoined.Name()}, Since: &now,
+	})
+	require.NoError(t, err)
+	require.Len(t, recent, 4)
+	assert.Equal(t, []string{"id-18", "id-21", "id-24", "id-27"}, entryIDs(recent))
+
+	filter := QueryOptions{Limit: 4, Sort: SortTimeDesc}
+	first, err := repo.QueryPage(ctx, filter)
+	require.NoError(t, err)
+	require.Len(t, first.Entries, 4)
+	require.NotEmpty(t, first.NextCursor)
+	assert.Equal(t, []string{"id-27", "id-28", "id-29", "id-24"}, entryIDs(first.Entries))
+
+	filter.Cursor = first.NextCursor
+	second, err := repo.QueryPage(ctx, filter)
+	require.NoError(t, err)
+	require.Len(t, second.Entries, 4)
+	assert.NotEqual(t, entryIDs(first.Entries), entryIDs(second.Entries))
+}
+
+func entryIDs(entries []Entry) []string {
+	ids := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		ids = append(ids, entry.ID)
 	}
+	return ids
 }
 
 func TestSQLiteProjectionSelectionIdempotenceAndRollback(t *testing.T) {
@@ -126,32 +136,4 @@ func TestSQLiteRetentionUsesPublicationOrderAcrossDelayedDeliveries(t *testing.T
 	require.NoError(t, err)
 	require.Len(t, page.Entries, 1)
 	assert.Equal(t, "newer", page.Entries[0].ID)
-}
-
-func TestLegacyImportPrecedesNewPublicationSequence(t *testing.T) {
-	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
-	require.NoError(t, err)
-	defer db.Close()
-	repo, err := NewSQLStore(db, 10)
-	require.NoError(t, err)
-	at := time.Now().UTC()
-	legacy := []Entry{
-		{ID: "legacy-1", Type: events.TypeNodeJoined, Severity: events.SeverityInfo, Category: events.CategorySwarm, CreatedAt: at},
-		{ID: "legacy-2", Type: events.TypeNodeJoined, Severity: events.SeverityInfo, Category: events.CategorySwarm, CreatedAt: at},
-	}
-	require.NoError(t, db.WithinTransaction(ctx, func(ctx context.Context) error { return repo.Import(ctx, legacy) }))
-	bus := outbox.New(db)
-	require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, "history", repo))
-	require.NoError(t, bus.Publish(ctx, &events.NodeJoined{NodeID: "current"}))
-	processed, err := bus.ProcessNext(ctx)
-	require.NoError(t, err)
-	assert.True(t, processed)
-	entries, err := repo.Read(ctx)
-	require.NoError(t, err)
-	require.Len(t, entries, 3)
-	assert.Equal(t, "legacy-1", entries[0].ID)
-	assert.Equal(t, "legacy-2", entries[1].ID)
-	assert.NotEqual(t, "legacy-1", entries[2].ID)
-	assert.NotEqual(t, "legacy-2", entries[2].ID)
 }

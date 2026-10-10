@@ -228,6 +228,6 @@ The publishing transaction and every handler processing transaction are **differ
 10. Fully processed events are deleted immediately, with no retention; pending and failed deliveries are never swept by age.
 11. Publications with no subscribers do not create outbox records.
 12. No plain secrets, unmasked env or raw compose definitions in persisted event payloads.
-13. Delayed delivery uses the original publication sequence for Event History retention; legacy history occupies the earlier reserved range.
+13. Delayed delivery uses the original publication sequence for Event History retention.
 
 **Important:** this architecture intentionally trades cross-module atomicity for durable asynchronous projections. Never present Event History's eventual projection as the atomic result of deployment completion.

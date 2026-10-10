@@ -61,7 +61,6 @@ CREATE UNIQUE INDEX idx_alert_open_fingerprint ON alerts(fingerprint) WHERE stat
 CREATE INDEX idx_alert_status_updated ON alerts(status,updated_at_ns DESC,id);
 CREATE TABLE alert_events (source_event_id TEXT PRIMARY KEY);
 
-CREATE TABLE legacy_imports (id TEXT PRIMARY KEY, completed_at_ms INTEGER NOT NULL);
 CREATE TABLE gitops_runtime (id INTEGER PRIMARY KEY CHECK (id=1), payload TEXT NOT NULL CHECK (json_valid(payload)));
 CREATE TABLE nodes (id TEXT PRIMARY KEY, hostname TEXT NOT NULL, payload TEXT NOT NULL CHECK (json_valid(payload)));
 CREATE INDEX idx_nodes_hostname ON nodes(hostname,id);
@@ -135,7 +134,6 @@ DROP TABLE secret_metadata;
 DROP TABLE services;
 DROP TABLE nodes;
 DROP TABLE gitops_runtime;
-DROP TABLE legacy_imports;
 DROP TABLE alert_events;
 DROP TABLE alerts;
 DROP TABLE event_history;

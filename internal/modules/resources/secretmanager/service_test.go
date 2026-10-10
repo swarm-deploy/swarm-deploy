@@ -2,7 +2,6 @@ package secretmanager
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -13,7 +12,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	servicestore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/stype"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 	"go.uber.org/mock/gomock"
 )
 
@@ -103,8 +102,7 @@ func newTestService(t *testing.T) *Service {
 	t.Helper()
 
 	ctx := context.Background()
-	store, err := servicestore.NewFileStore(ctx, filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
-	require.NoError(t, err)
+	store := servicestore.NewSQLStore(testutil.OpenSQLite(t))
 	require.NoError(t, store.ReplaceStack(ctx, "infra", []model.Info{
 		{
 			Metadata: metadata.Metadata{Type: stype.SecretManager},

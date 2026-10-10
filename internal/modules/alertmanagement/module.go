@@ -7,7 +7,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
 
@@ -24,7 +23,6 @@ type Container interface {
 	// GetStorage returns the shared database.
 	GetStorage() *storage.Database
 	// GetFileSystem returns the application filesystem abstraction.
-	GetFileSystem() fs.FileSystem
 	// GetEventModule returns the event dispatcher module.
 	GetEventModule() *event.Module
 }

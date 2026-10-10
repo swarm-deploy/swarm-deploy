@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -11,15 +10,14 @@ import (
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 )
 
 func TestHandlerListRecommendations(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store, err := modelstore.NewFileStore(ctx, filepath.Join(t.TempDir(), "recommendations.json"), fs.NewLocalFileSystem())
-	require.NoError(t, err, "new recommendations store")
+	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
 	createdAt := time.Date(2026, 9, 18, 10, 11, 12, 0, time.UTC)
 
 	require.NoError(t, store.UpdateStack(ctx, "api", []model.Recommendation{

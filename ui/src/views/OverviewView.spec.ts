@@ -23,7 +23,7 @@ describe("Latest deployments", () => {
     vi.mocked(fetchDeployments).mockResolvedValue({ deployments: ["running", "succeeded", "failed", "interrupted"].map((status, i) => ({
       id: String(i), stack: i === 0 ? "a-very-long-stack-name-that-needs-truncation" : "app", commit: "abc123", status: status as "running" | "succeeded" | "failed" | "interrupted",
       phase: "apply", apply_status: "running", verification_status: "pending", cleanup_status: "pending",
-      actual_state_status: "unknown", comparison_basis: "successful_baseline", comparison_status: "known",
+      actual_state_status: "unknown", comparison_basis: i === 0 ? "none" : "successful_baseline", comparison_status: i === 0 ? "unknown" : "known",
       started_at: "2026-10-10T10:00:00Z", summary: { added: 1, changed: 2, removed: 3, redacted: 0 },
       resources: { services: 0, configs: 0, secrets: 0 },
     })) });
@@ -43,7 +43,8 @@ describe("Latest deployments", () => {
     expect(interrupted.classes()).toContain("overview-deployment-result--interrupted");
     expect(interrupted.classes()).not.toContain("overview-deployment-result--failed");
     expect(wrapper.findAll(".overview-deployment-stack")).toHaveLength(4);
-    expect(wrapper.find(".overview-summary-secondary").text()).toBe("1 added · 2 changed · 3 removed");
+    expect(wrapper.find(".overview-summary-secondary").text()).toBe("Initial snapshot");
+    expect(wrapper.findAll(".overview-summary-secondary")[1].text()).toBe("1 added · 2 changed · 3 removed");
     expect(wrapper.find(".overview-deployment-open .overview-summary-sha-badge").exists()).toBe(false);
 
     await wrapper.findAll(".overview-deployment-open")[0].trigger("click");

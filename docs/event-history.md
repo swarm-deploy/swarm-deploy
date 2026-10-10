@@ -28,8 +28,8 @@ not public event names. Deployment failures and node disconnections feed Alert M
 and success/reconnection resolves the respective open incident. New SQLite history records use the safe event codec,
 which omits raw prompts, logs and error strings.
 
-The startup importer reads the old `event-history.json` once, together with all other
-legacy stores, and leaves it untouched as a backup. Runtime writes do not update JSON.
+Startup does not read, import, update or delete `event-history.json`. The file may
+remain as an operator-owned archive, but SQLite is the only active Event History store.
 The Outbox uses a bounded worker pool after publication commits and preserves ordering
 within each subscription. Failed projections retry independently. The internal `serviceCatalogUpdated` event updates
 RAG after service metadata is committed and is excluded from user history.
@@ -52,13 +52,12 @@ most 50 events by default, ordered by the requested field. If more events
 exist, the response includes `nextCursor`; repeat the request with that cursor
 and the same sort and filters to fetch the next page.
 
-Existing requests without paging parameters keep the legacy oldest-first response
+Existing requests without paging parameters keep the oldest-first response
 order. Overview now reads `/api/v1/deployments` instead of history.
 
 Runtime history size is bounded by `eventHistory.capacity`. New projections remove
-oldest entries by publication sequence. Import preserves all legacy records without
-truncation; normal retention resumes on the next new projection. SQL performs both
-legacy filters and cursor queries; source event IDs prevent duplicate projection.
+oldest entries by publication sequence. SQLite filters and cursor queries run directly
+against the projection; source event IDs prevent duplicate projection.
 
 Config example:
 ```yaml

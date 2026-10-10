@@ -53,6 +53,11 @@ function serviceCount(stackName: string): number {
   return serviceCountsByStack.value.get(stackName) ?? 0;
 }
 
+function deploymentSummary(item: DeploymentSummary): string {
+  if (item.comparison_basis === "none") return "Initial snapshot";
+  return `${item.summary?.added ?? 0} added · ${item.summary?.changed ?? 0} changed · ${item.summary?.removed ?? 0} removed`;
+}
+
 function deploymentResultClass(item: DeploymentSummary): string {
   switch (item.status) {
     case "succeeded":
@@ -241,7 +246,7 @@ onUnmounted(() => {
           <span class="overview-deployment-stack">{{ event.stack || "unknown stack" }}</span>
           <span class="overview-deployment-status">{{ event.status }}</span>
           <time class="overview-deployment-time" :datetime="event.started_at">{{ formatTime(event.started_at) }}</time>
-          <span class="overview-summary-secondary">{{ event.summary?.added ?? 0 }} added · {{ event.summary?.changed ?? 0 }} changed · {{ event.summary?.removed ?? 0 }} removed</span>
+          <span class="overview-summary-secondary">{{ deploymentSummary(event) }}</span>
           </button>
           <button v-if="event.commit" type="button" class="overview-commit-badge overview-summary-sha-badge"
             :aria-label="`Open Git commit ${event.commit}`" @click.stop="openCommitDetails(event.commit)">

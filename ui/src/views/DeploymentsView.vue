@@ -33,8 +33,10 @@ async function load(index: number, cursor: string) {
 }
 function next() { if (nextCursor.value) void load(page.value + 1, nextCursor.value); }
 function previous() { if (page.value > 0) void load(page.value - 1, cursors.value[page.value - 1] ?? ""); }
-function totalChanges(d: DeploymentSummary) {
-  return (d.summary?.added ?? 0) + (d.summary?.changed ?? 0) + (d.summary?.removed ?? 0);
+function changeSummary(d: DeploymentSummary): string {
+  if (d.comparison_basis === "none") return "Initial snapshot";
+  const total = (d.summary?.added ?? 0) + (d.summary?.changed ?? 0) + (d.summary?.removed ?? 0);
+  return `${total} fields`;
 }
 onMounted(() => { void load(0, ""); });
 </script>
@@ -55,7 +57,7 @@ onMounted(() => { void load(0, ""); });
         <td>{{ formatDate(deployment.started_at) }}</td>
         <td><button v-if="deployment.commit" type="button" :aria-label="`Open Git commit ${deployment.commit}`"
           @click.stop="store.openCommitDetailsModal(deployment.commit)">{{ shortCommitHash(deployment.commit) }}</button><span v-else>—</span></td>
-        <td>{{ totalChanges(deployment) }} fields · {{ deployment.resources?.services ?? 0 }} services,
+        <td>{{ changeSummary(deployment) }} · {{ deployment.resources?.services ?? 0 }} services,
           {{ deployment.resources?.configs ?? 0 }} configs, {{ deployment.resources?.secrets ?? 0 }} secrets
           <button type="button" :aria-label="`View changes for ${deployment.stack}`"
             @click="store.openDeploymentDetailsModal(deployment.id)">View changes</button></td>

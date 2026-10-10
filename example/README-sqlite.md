@@ -1,93 +1,59 @@
-# SQLite integration branch: storage and migration
+# SQLite storage cutover
 
-The integration branch uses SQLite repositories, a single durable asynchronous
-Outbox and first-class Deployment/DesiredSnapshot records. Review the local
-[verification ledger](../docs/architecture/sqlite-outbox-progress.md) before rollout;
-a successful local build is not a live Swarm rollout test.
+PR #123 makes SQLite the only supported persistent application store. This is an
+intentional breaking change: data from the previous JSON repositories is not migrated.
 
-The existing `dataDir` setting determines the database location:
-`<dataDir>/swarm-deploy.sqlite`. No DSN, database password or additional service is
-required. Use a persistent **local** volume and one active controller instance.
-Do not share a WAL database between hosts or run old and new application versions
-against the same directory.
+At startup, swarm-deploy:
 
-At startup, before collectors or controllers run, the application validates:
+1. creates or opens `<dataDir>/swarm-deploy.sqlite`;
+2. applies embedded Goose migrations;
+3. initializes modules and workers against that database.
 
-- `controller.state.json`, `event-history.json`, `alerts.state.json`;
-- `recommendations.state.json`, `nodes.json`, `services.json`;
-- `secrets.state.json`;
-- `assistant/chats/index.json` and all chat JSON files.
+It does not inspect, parse, import, update or delete old files such as
+`controller.state.json`, `event-history.json`, `alerts.state.json`,
+`recommendations.state.json`, `nodes.json`, `services.json`,
+`secrets.state.json` or `assistant/chats/*.json`. Those files may be retained as
+an operator-owned archive.
 
-All records and the import-completed marker commit in one transaction. Invalid
-JSON, missing indexed chats, duplicate identities or a SQL error abort startup.
-Fix the reported source issue and restart; failed imports leave no partial rows.
-An unmarked nonempty database is rejected rather than overwritten.
+A clean SQLite database therefore starts with empty Events, Alerts,
+Recommendations, Assistant history, resource projections and Deployment history.
+No previous Deployment or successful desired baseline is reconstructed from JSON or
+from the current Docker Swarm state.
 
-Original JSON files are never changed by the importer. Once the marker exists,
-SQLite is authoritative; the old JSON files are not updated and are not reimported.
-Historical Events do not create synthetic Deployments.
+## Schema lifecycle
 
-Before testing this branch on existing data, stop the old instance and take a
-complete offline backup of its data directory. For later backups, stop the new
-instance cleanly and back up the whole directory, including SQLite and any
-`-wal`/`-shm` files. Do not copy only the main database file from a running writer.
-For rollback, stop the new instance and restore a known complete offline backup;
-starting the old binary against stale JSON would lose changes made after migration.
+The integration branch contains one consolidated
+`migrations/sqlite/0001_initial.sql`. Goose applies it on a new database and records
+the version in `goose_db_version`. Restarting with an existing database preserves
+its state and applies only pending future migrations.
 
-The integration branch contains one consolidated `migrations/sqlite/0001_initial.sql`
-migration. The application applies pending migrations with Goose during startup.
-Use disposable copies of data for testing; do not edit Goose's migration history.
+Back up the complete data directory before rollout. Do not delete the SQLite database
+or edit Goose migration history to bypass a startup failure.
+
+## First deployment
+
+The first real apply attempt has `comparison_basis=none` because no successful
+desired snapshot exists. The UI presents this as **Initial Deployment Snapshot** and
+shows the safe recorded target configuration without claiming that every field or
+resource was newly created in Swarm. A successful apply still does not prove service
+health or live convergence.
+
+Later attempts with a trustworthy comparison basis show the normal structured
+`added` / `changed` / `removed` semantic diff.
 
 ## Deployments and eventual consistency
 
-`GET /api/v1/deployments?limit=20&stack=app` returns recent apply attempts, newest
-first. `GET /api/v1/deployments/{id}` includes safe planned field-level changes.
-Overview uses this repository, not event history. Failed attempts do not advance
-the successful desired baseline; an interrupted process leaves an interrupted attempt
-after restart. A completion write that fails after Docker returns is retried by the next
-reconciliation in the same process. If the outcome is unknown, the running attempt is
-atomically marked interrupted before retry evaluation. Preparation errors and effective
-no-op reconciliations create no attempt, but preparation failures still update runtime
-and publish a secret-safe durable signal for Alerts and Notifications.
-Returning to the last successful desired state after a failed or interrupted attempt
-creates a new apply attempt because Swarm may have been changed by the later attempt.
-The first comparison after JSON import uses the legacy source digest only to decide
-whether there is a new attempt; it does not invent a historical successful snapshot.
-
-Success means that apply/init/prune completed, not that Swarm service health converged.
-Cleanup errors after success are maintenance diagnostics and cannot reverse success.
-Events/Alerts/notifications appear asynchronously. A projection failure never reverses
-the committed deployment.
-
-Persisted commands, entrypoints, healthchecks and init-job scripts are opaque masked
-values. Their unkeyed fingerprints preserve change detection without retaining plaintext.
-Compose scalar and list command forms remain distinct when their execution semantics differ.
+Deployment completion and its Outbox publication commit atomically. Event History,
+Alerts, Recommendations and other subscribers process that publication later in
+separate transactions. A successful Deployment means that the apply pipeline
+completed; it does not mean that live Swarm convergence was verified.
 
 ## Outbox operations
 
-The image includes the `sd` administrative CLI. Run it against the same local volume
-and application version. These commands refuse a missing database and never initialize
-one based on an operator typo:
+The `sd` CLI exposes safe operational commands:
 
-```sh
-sd outbox-list /data
-sd outbox-replay /data EVENT_ID SUBSCRIPTION_ID
-sd outbox-discard /data EVENT_ID SUBSCRIPTION_ID
-```
+- `outbox-list <dataDir>`
+- `outbox-replay <dataDir> <eventID> <subscriptionID>`
+- `outbox-discard <dataDir> <eventID> <subscriptionID>`
 
-List output contains only failed delivery metadata and stable error categories, not
-payloads or credentials. Replay retries exactly one failed destination; successful
-siblings stay delivered. Discard permanently waives that failed delivery and, if it
-was the last unfinished delivery, removes its event and all delivery rows immediately.
-There is no outbox retention period. Discard cannot be undone without a backup.
-
-For a running container, use `docker exec CONTAINER sd outbox-list /data` with your
-actual configured data directory. Never run a second controller for the same database.
-Monitor the outbox Prometheus queue metrics and logs containing event/subscription IDs.
-Removing or renaming a notification destination leaves existing work visible as a
-missing subscription, not silently discarded. Restore the matching configuration
-before replay, or explicitly discard obsolete work.
-
-Notifications remain at-least-once: a crash after a remote send and before ack can
-repeat that send. No recursive `sendNotificationFailed` publications are generated;
-that event type remains parseable for existing notification configurations.
+These commands expose identifiers and delivery state, not persisted event payloads.

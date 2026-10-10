@@ -67,18 +67,3 @@ func (s *SQLStore) ReplaceStack(ctx context.Context, stack string, services []mo
 	})
 }
 
-// DecodeLegacy validates the original service representation without writing files.
-func DecodeLegacy(payload []byte) ([]model.Info, error) {
-	var rows []storeInfo
-	if err := json.Unmarshal(payload, &rows); err != nil {
-		return nil, err
-	}
-	result := make([]model.Info, 0, len(rows))
-	for _, row := range rows {
-		if row.Stack == "" || row.Name == "" {
-			return nil, fmt.Errorf("legacy service requires stack and name")
-		}
-		result = append(result, row.toInfo())
-	}
-	return result, nil
-}

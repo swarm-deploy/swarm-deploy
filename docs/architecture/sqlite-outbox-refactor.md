@@ -13,34 +13,33 @@ This is one platform refactor, not a chain of small, partially compatible releas
 3. Separate public event history, internal runtime signals, alerts, and notification deliveries.
 4. Persist events with at least one matching subscriber in the SQLite outbox; all subscribers use the same asynchronous delivery mechanism. Investigate publishers without subscribers as potentially unnecessary. Event History independently selects user-visible events.
 5. Consolidate all schema changes within this branch into **one initial schema migration** before merging into `master`.
-6. Preserve the data deployed on existing clusters with a **one-time, restart-safe JSON import**.
+6. Treat the SQLite cutover as a **breaking storage change**; prior JSON state is not imported.
 
 Do not convert ordinary input/artifact files (Git checkout, compose source files, rendered compose required by the current deployer, config files, secrets mounted as files) into DB entities merely because they are files. Only replace application-owned *persistent stores*.
 
-## Legacy file-backed stores imported at startup
+## Breaking storage cutover
 
-| Module | Legacy storage | Database responsibility |
-|---|---|---|
-| GitOps | `controller.state.json` | current controller/reconciliation runtime state |
-| Event history | `event-history.json` | historical user-visible events, indexed pagination, retention |
-| Alert management | `alerts.state.json` | alert lifecycle and open-fingerprint uniqueness |
-| Recommendations | `recommendations.state.json` | recommendations by stack/ID |
-| Resources / nodes | `nodes.json` | last observed node snapshot |
-| Resources / services | `services.json` | persisted service metadata catalog |
-| Resources / secrets | `secrets.state.json` | secret **metadata**, never secret contents |
-| Assistant history | `assistant/chats/index.json` and per-chat JSON files | persistent chats, turns and token usage |
+SQLite is the only supported persistent application store. Startup opens
+`<dataDir>/swarm-deploy.sqlite`, applies Goose migrations and initializes modules
+without inspecting previous JSON repositories.
 
-The assistant's TTL-bound in-memory context cache is **not a file store**; it may remain in memory. Also audit any additional persistence added to `master` while the integration branch is in progress.
+Existing files such as `controller.state.json`, `event-history.json`,
+`alerts.state.json`, `recommendations.state.json`, `nodes.json`,
+`services.json`, `secrets.state.json` and assistant chat JSON may remain on disk
+as operator-owned archives. The application does not read, import, update or delete
+them. No Deployment, Event History row or successful desired baseline is synthesized
+from those files or from live Docker resources.
 
 ## Architectural boundaries
 
-- Introduce a shared DB lifecycle package, e.g. `internal/storage`: connection, pragmas, schema migrations, transaction handling, import orchestration, shutdown.
+- Introduce a shared DB lifecycle package, e.g. `internal/storage`: connection, pragmas, schema migrations, transaction handling and shutdown.
 - Retain repositories near their owning module; replace `FileStore` with SQLite implementations behind module-defined interfaces. The shared storage package must not know GitOps/Alerts/Assistant business logic.
 - Prefer `database/sql` and a SQL query builder over an ORM; isolate SQLite-only connection setup so PostgreSQL can be considered later. A query builder alone is **not** a promise of zero-work Postgres portability.
 - The current Docker build sets `CGO_ENABLED=0`; select a SQLite driver compatible with that build or explicitly revise and test the build matrix.
 - Use a single database at `<dataDir>/swarm-deploy.sqlite`. Configure WAL, foreign-key enforcement, busy timeout, and appropriate checkpointing/backup behavior. Document that SQLite database files live on a persistent **local** volume and the app uses one active writer/controller per database. SQLite WAL is not a shared multi-host database.
 - Design schemas from query patterns. Index event list filters/cursors, deployment history by stack/time, unresolved alerts by fingerprint, and pending notifications by due time.
-- Preserve public API response contracts where possible, but remove obsolete *internal* JSON-file repository APIs. Propagate persistence errors: GitOps updates now return errors instead of claiming a successful write. Legacy file implementations remain fixture/compatibility helpers, not runtime storage.
+- Preserve public API response contracts where possible and remove obsolete internal
+  JSON-file repository APIs. Repository read/write errors propagate to callers.
 
 ## Unified Event Bus and module isolation
 
@@ -141,25 +140,26 @@ External Docker operations and the database **cannot share a transaction**. The 
 - Alerts maintain their own lifecycle and deduplication identity. Events and Alerts share a UI page, but **remain separate tables**.
 - Notifications are a distinct module/concern. Stable public notification semantics can combine technical failure causes so users do not have to guess which low-level event to subscribe to.
 - Existing Event History cursor pagination/filtering must become a database query rather than loading, sorting, and filtering the full history in memory.
-- Event History retention and legacy `ReadRecent` use the Outbox publication sequence, so a delayed retry cannot evict a newer publication. Legacy import reserves the earlier sequence range and preserves file order.
+- Event History retention and `ReadRecent` use the Outbox publication sequence, so
+  delayed retries cannot evict a newer publication.
 - Overview `Latest deployments` reads the new deployment repository.
 
-## Schema and one-time import
+## Schema and storage cutover
 
-Keep a single `0001_initial` schema migration in the integration branch; before merging, fold any intermediate schema edits into it. New installations create only the final schema.
+Keep a single `0001_initial` schema migration in the integration branch; before
+merging, fold intermediate schema edits into it. New installations create only the
+final schema. Goose remains responsible for this schema and future migrations.
 
-Plan for these conceptual tables (naming/details can change during implementation):
+The initial schema contains `goose_db_version`, `gitops_runtime`, `nodes`,
+`services`, `secret_metadata`, `recommendations`, `assistant_chats`,
+`assistant_turns`, `deployments`, `desired_snapshots`, `event_history`,
+`alerts`, `outbox_events`, `outbox_deliveries` and the supporting projection
+tables. There is no import marker table.
 
-`goose_db_version`, `legacy_imports`, `gitops_runtime`, `nodes`, `services`, `secret_metadata`, `recommendations`, `assistant_chats`, `assistant_turns`, `deployments`, `desired_snapshots`, `event_history`, `alerts`, `outbox_events`, `outbox_deliveries`, plus optional notification-domain tables.
-
-Import existing JSON on startup before starting collectors/reconcilers/subscribers. Required properties:
-
-1. Preflight every file for readability and validity; **do not interpret malformed existing data as an empty store**.
-2. Import all legacy sources and record a completion marker in a **single SQLite transaction**. Failure rolls back and leaves JSON untouched for retry.
-3. Preserve IDs, timestamps, chat usage, alert state/fingerprints, historical event ordering, and current controller data. If a legacy record genuinely has no ID, generate one once, inside the transaction.
-4. Legacy JSON remains an untouched recovery backup. A successful import must not be repeated or interleaved with live mutations after a restart.
-5. If any import validation or DB integrity check fails, fail startup safely instead of silently starting with empty state. Provide rollback instructions.
-6. Do not reconstruct past Deployments from `deploySuccess` event history: there is not enough reliable structured data. Initialize the deployment model cleanly while preserving historic Events. Avoid inventing a successful DesiredSnapshot baseline from unverifiable historical state.
+This cutover intentionally does not offer an automatic or manual JSON converter.
+Back up the data directory before rollout. A fresh SQLite database starts with empty
+history and no successful desired baseline; the first real apply attempt creates the
+first Deployment.
 
 ## Engineering sequence (all commits on the integration branch)
 
@@ -167,9 +167,9 @@ Import existing JSON on startup before starting collectors/reconcilers/subscribe
 2. Implement the universal Event Bus, safe codec and worker with separate T1/T2/T3 boundaries.
 3. Migrate DB-only subscribers and notification adapters; replace the old dispatcher in application wiring.
 4. Introduce Deployments, effective-state semantic diffs and successful DesiredSnapshot.
-5. Migrate remaining repositories and add the atomic preflighted legacy importer before enabling production DB startup.
+5. Migrate remaining repositories and remove the obsolete file-backed persistence implementations.
 6. Rewire API/Overview/Event & Alerts UI, adjust docs/config, and remove obsolete file-write code.
-7. Verify data import from real-looking fixture sets, crash/restart at every important boundary, migration replay, full CI and Docker build. Consolidate schema to a single initial migration and merge once.
+7. Verify clean startup, restart persistence, ignored legacy JSON, crash/restart boundaries, migration replay, full CI and Docker build. Consolidate schema to a single initial migration and merge once.
 
 Release gates: no silent data loss; no false deployment success; stable user-visible `deploySuccess`; no plaintext secret leakage through history/outbox; no duplicate logical notification jobs after restart; compatibility with the project's `CGO_ENABLED=0` build.
 

@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -11,13 +10,12 @@ import (
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	alertmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
-	sharedfs "github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 )
 
 func TestAlertsAPIReadsPersistedAlerts(t *testing.T) {
 	ctx := context.Background()
-	store, err := modelstore.NewFileStore(ctx, filepath.Join(t.TempDir(), "alerts.json"), sharedfs.NewLocalFileSystem())
-	require.NoError(t, err, "create store")
+	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
 	now := time.Date(2026, 9, 22, 10, 0, 0, 0, time.UTC)
 	open := alertmodel.Alert{ID: "open-id", Fingerprint: "open", Status: alertmodel.AlertStatusOpen, Kind: alertmodel.AlertKindDeployFailed, ResourceType: alertmodel.ResourceTypeStack, ResourceID: "api", Title: "Deployment failed", Message: "failed", Occurrences: 1, OpenedAt: now, UpdatedAt: now, OpenEventID: "event", LatestEventID: "event"}
 	resolvedAt := now.Add(time.Minute)

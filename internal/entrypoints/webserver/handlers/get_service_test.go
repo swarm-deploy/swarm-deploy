@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -15,7 +14,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -24,8 +23,7 @@ func TestHandlerGetService(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store, err := modelstore.NewFileStore(ctx, filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
-	require.NoError(t, err)
+	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
 	require.NoError(t, store.ReplaceStack(ctx, "payments", []model.Info{
 		{
 			Name:  "api",
@@ -112,14 +110,13 @@ func TestHandlerGetService(t *testing.T) {
 func TestHandlerGetService_NotFound(t *testing.T) {
 	t.Parallel()
 
-	store, err := modelstore.NewFileStore(context.Background(), filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
-	require.NoError(t, err)
+	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
 
 	h := &handler{
 		services: store,
 	}
 
-	_, err = h.GetService(context.Background(), generated.GetServiceParams{
+	_, err := h.GetService(context.Background(), generated.GetServiceParams{
 		Stack:   "payments",
 		Service: "api",
 	})
@@ -133,7 +130,7 @@ func TestHandlerGetService_NotFound(t *testing.T) {
 func TestHandlerListServiceDeployments_MapsFromHistory(t *testing.T) {
 	t.Parallel()
 
-	store, err := history.NewStore(filepath.Join(t.TempDir(), "history.json"), 50, fs.NewLocalFileSystem())
+	store, err := history.NewSQLStore(testutil.OpenSQLite(t), 50)
 	require.NoError(t, err)
 
 	ctx := context.Background()
@@ -230,7 +227,7 @@ func TestHandlerListServiceDeployments_NoHistoryReturnsEmpty(t *testing.T) {
 func TestHandlerListServiceDeployments_RespectsLimitParam(t *testing.T) {
 	t.Parallel()
 
-	store, err := history.NewStore(filepath.Join(t.TempDir(), "history.json"), 50, fs.NewLocalFileSystem())
+	store, err := history.NewSQLStore(testutil.OpenSQLite(t), 50)
 	require.NoError(t, err)
 
 	ctx := context.Background()

@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"path/filepath"
 	"sort"
 	"testing"
 
@@ -13,7 +12,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/stype"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 	webroute "github.com/swarm-deploy/webroute/api"
 )
 
@@ -94,8 +93,7 @@ func TestHandlerGetGraph(t *testing.T) {
 			t.Parallel()
 
 			ctx := context.Background()
-			store, err := modelstore.NewFileStore(ctx, filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
-			require.NoError(t, err)
+			store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
 
 			stackNames := make([]string, 0, len(testCase.stacks))
 			for stackName := range testCase.stacks {

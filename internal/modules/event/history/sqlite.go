@@ -66,17 +66,6 @@ func (s *SQLStore) Handle(ctx context.Context, e events.Envelope) error {
 	})
 }
 
-// Import preserves historical values and ordering without synthesizing deployments.
-// It must be called within the startup import transaction.
-func (s *SQLStore) Import(ctx context.Context, entries []Entry) error {
-	for i, entry := range entries {
-		if err := s.insert(ctx, entry, nil, int64(i+1)); err != nil {
-			return err
-		}
-	}
-	return s.advancePublicationSequence(ctx, int64(len(entries)))
-}
-
 func (s *SQLStore) insert(ctx context.Context, entry Entry, source any, publicationSequence int64) error {
 	payload, err := json.Marshal(entry)
 	if err != nil {
@@ -90,22 +79,7 @@ func (s *SQLStore) insert(ctx context.Context, entry Entry, source any, publicat
 	return err
 }
 
-func (s *SQLStore) advancePublicationSequence(ctx context.Context, sequence int64) error {
-	result, err := s.db.Get(ctx).ExecContext(ctx,
-		"UPDATE sqlite_sequence SET seq=max(seq,?) WHERE name='outbox_events'", sequence)
-	if err != nil {
-		return err
-	}
-	changed, err := result.RowsAffected()
-	if err != nil || changed > 0 {
-		return err
-	}
-	_, err = s.db.Get(ctx).ExecContext(ctx,
-		"INSERT INTO sqlite_sequence(name,seq) VALUES('outbox_events',?)", sequence)
-	return err
-}
-
-// List returns the retained publication sequence, including original import order.
+// List returns the retained publication sequence, in publication order.
 func (s *SQLStore) Read(ctx context.Context) ([]Entry, error) {
 	return storage.QueryJSON[Entry](ctx, s.db.Get, "SELECT payload FROM event_history ORDER BY publication_sequence")
 }
@@ -146,7 +120,7 @@ func (s *SQLStore) QueryPage(ctx context.Context, options QueryOptions) (Page, e
 	return page, nil
 }
 
-// ReadRecent preserves the legacy sequence order while performing filters in SQLite.
+// ReadRecent preserves publication order while performing filters in SQLite.
 func (s *SQLStore) ReadRecent(ctx context.Context, options QueryOptions) ([]Entry, error) {
 	where, args := historyFilters(options)
 	query := "SELECT publication_sequence,payload FROM event_history WHERE " + strings.Join(where, " AND ")

@@ -3,6 +3,8 @@ package storage
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -70,4 +72,42 @@ func TestMigrationIsNotAppliedTwice(t *testing.T) {
 		"SELECT count(*) FROM nodes WHERE id = 'node-1'",
 	).Scan(&count))
 	assert.Equal(t, 1, count)
+}
+
+func TestOpenIgnoresLegacyJSONFiles(t *testing.T) {
+	dir := t.TempDir()
+	legacyFiles := []string{
+		"controller.state.json", "event-history.json", "nodes.json", "alerts.state.json",
+		"secrets.state.json", "recommendations.state.json", "services.json",
+		filepath.Join("assistant", "chats", "index.json"),
+	}
+	for _, name := range legacyFiles {
+		path := filepath.Join(dir, name)
+		require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+		require.NoError(t, os.WriteFile(path, []byte("{invalid legacy json"), 0o600))
+	}
+
+	db, err := Open(t.Context(), dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	for _, name := range legacyFiles {
+		payload, readErr := os.ReadFile(filepath.Join(dir, name))
+		require.NoError(t, readErr)
+		assert.Equal(t, "{invalid legacy json", string(payload), "legacy files must remain untouched")
+	}
+	var importedRows int
+	require.NoError(t, db.Get(t.Context()).QueryRowContext(t.Context(), `
+		SELECT
+			(SELECT count(*) FROM deployments) +
+			(SELECT count(*) FROM event_history) +
+			(SELECT count(*) FROM alerts) +
+			(SELECT count(*) FROM recommendations)
+	`).Scan(&importedRows))
+	assert.Zero(t, importedRows, "legacy files must not create SQLite records")
+	var legacyTableCount int
+	require.NoError(t, db.Get(t.Context()).QueryRowContext(
+		t.Context(), "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='legacy_imports'",
+	).Scan(&legacyTableCount))
+	assert.Zero(t, legacyTableCount)
 }
