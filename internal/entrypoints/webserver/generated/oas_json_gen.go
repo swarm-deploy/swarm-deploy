@@ -2825,6 +2825,8 @@ func (s *DeploymentComparisonBasis) Decode(d *jx.Decoder) error {
 	}
 	// Try to use constant string.
 	switch DeploymentComparisonBasis(v) {
+	case DeploymentComparisonBasisNone:
+		*s = DeploymentComparisonBasisNone
 	case DeploymentComparisonBasisSuccessfulBaseline:
 		*s = DeploymentComparisonBasisSuccessfulBaseline
 	case DeploymentComparisonBasisLastAttempt:
