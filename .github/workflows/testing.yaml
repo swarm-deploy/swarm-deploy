@@ -51,6 +51,11 @@ jobs:
       - name: Install Go dependencies
         run: go mod download
 
+      - name: Verify generated API
+        run: |
+          go run -mod=mod github.com/ogen-go/ogen/cmd/ogen@v1.20.1 --config ./ogen.yml --target ./internal/entrypoints/webserver/generated --clean ./api/api-server.yaml
+          git diff --exit-code -- internal/entrypoints/webserver/generated
+
       - name: Run tests
         run: go test ./internal/...
 
