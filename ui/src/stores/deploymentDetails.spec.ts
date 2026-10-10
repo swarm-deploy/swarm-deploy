@@ -1,6 +1,7 @@
 import { createPinia, setActivePinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchDeployment } from "../api/overview";
+import type { Deployment } from "../api/types";
 import { useOverviewStore } from "./overview";
 
 vi.mock("../api/overview", () => ({ fetchDeployment: vi.fn() }));
@@ -10,14 +11,14 @@ describe("deployment details loading", () => {
   it("loads details only on open and ignores stale responses after switching or closing", async () => {
     const store = useOverviewStore();
     expect(fetchDeployment).not.toHaveBeenCalled();
-    let resolveFirst!: (value: unknown) => void;
-    vi.mocked(fetchDeployment).mockImplementationOnce(() => new Promise(resolve => { resolveFirst = resolve; }) as ReturnType<typeof fetchDeployment>);
+    let resolveFirst!: (value: Deployment) => void;
+    vi.mocked(fetchDeployment).mockImplementationOnce(() => new Promise<Deployment>(resolve => { resolveFirst = resolve; }));
     vi.mocked(fetchDeployment).mockResolvedValueOnce({ id: "second", changes: [] } as never);
     const first = store.openDeploymentDetailsModal("first");
     expect(store.deploymentDetailsLoading).toBe(true);
     const second = store.openDeploymentDetailsModal("second");
     await second;
-    resolveFirst({ id: "first", changes: [] });
+    resolveFirst({ id: "first", changes: [] } as Deployment);
     await first;
     expect(store.deploymentDetailsData?.id).toBe("second");
     store.closeDeploymentDetailsModal();
