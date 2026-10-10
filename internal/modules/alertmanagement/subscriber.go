@@ -41,7 +41,11 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 	case *events.NodeConnected:
 		return s.handleNode(ctx, event.ID, deployment.NodeID, false)
 	case *events.DeployFailed:
-		return s.handleFailed(ctx, event.ID, deployment)
+		return s.handleFailed(ctx, event.ID, deployment.StackName, deploymentFailureMessage(deployment))
+	case *events.DeployPreparationFailed:
+		return s.handleFailed(ctx, event.ID, deployment.StackName, deployment.Message())
+	case *events.DeployInterrupted:
+		return s.handleFailed(ctx, event.ID, deployment.StackName, deployment.Message())
 	case *events.DeploySuccess:
 		return s.handleSucceeded(ctx, event.ID, deployment)
 	default:
@@ -49,8 +53,8 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 	}
 }
 
-func (s *Subscriber) handleFailed(ctx context.Context, eventID string, event *events.DeployFailed) error {
-	fingerprint := model.DeployFailedFingerprint(event.StackName)
+func (s *Subscriber) handleFailed(ctx context.Context, eventID, stackName, message string) error {
+	fingerprint := model.DeployFailedFingerprint(stackName)
 	now := s.now()
 	if eventID == "" {
 		eventID = s.newID()
@@ -63,7 +67,7 @@ func (s *Subscriber) handleFailed(ctx context.Context, eventID string, event *ev
 		alert.Occurrences++
 		alert.UpdatedAt = now
 		alert.LatestEventID = eventID
-		alert.Message = deploymentFailureMessage(event)
+		alert.Message = message
 		if err = s.store.Update(ctx, alert); err != nil {
 			return fmt.Errorf("update deployment alert: %w", err)
 		}
@@ -72,8 +76,8 @@ func (s *Subscriber) handleFailed(ctx context.Context, eventID string, event *ev
 
 	alert = model.Alert{
 		ID: s.newID(), Fingerprint: fingerprint, Kind: model.AlertKindDeployFailed,
-		ResourceType: model.ResourceTypeStack, ResourceID: event.StackName,
-		Status: model.AlertStatusOpen, Title: "Deployment failed", Message: deploymentFailureMessage(event),
+		ResourceType: model.ResourceTypeStack, ResourceID: stackName,
+		Status: model.AlertStatusOpen, Title: "Deployment failed", Message: message,
 		Occurrences: 1, OpenedAt: now, UpdatedAt: now, OpenEventID: eventID, LatestEventID: eventID,
 	}
 	err = s.store.Create(ctx, alert)

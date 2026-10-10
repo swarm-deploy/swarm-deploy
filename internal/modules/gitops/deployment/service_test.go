@@ -114,15 +114,78 @@ func TestFailedCommitAndCrashKeepSuccessfulBaseline(t *testing.T) {
 	assert.Equal(t, "api:1", baseline.Definition.Compose.Services[0].Image)
 }
 
+func TestRollbackToBaselineRetriesAfterUnsuccessfulAttempt(t *testing.T) {
+	for _, status := range []Status{Failed, Interrupted} {
+		t.Run(string(status), func(t *testing.T) {
+			ctx := context.Background()
+			db, err := storage.Open(ctx, t.TempDir())
+			require.NoError(t, err)
+			defer db.Close()
+			service := NewService(db, outbox.New(db))
+			first, err := service.StartIfChanged(ctx, "app", "a", desired("api:a"), true)
+			require.NoError(t, err)
+			require.NoError(t, service.Succeed(ctx, first.ID, model.Stack{LastCommit: "a"}))
+			second, err := service.StartIfChanged(ctx, "app", "b", desired("api:b"), true)
+			require.NoError(t, err)
+			require.NotNil(t, second)
+			if status == Failed {
+				require.NoError(t, service.Fail(ctx, second.ID, model.Stack{}, "prune_failed"))
+			} else {
+				require.NoError(t, service.InterruptStack(ctx, "app"))
+			}
+			rollback, err := service.StartIfChanged(ctx, "app", "rollback", desired("api:a"), true)
+			require.NoError(t, err)
+			require.NotNil(t, rollback)
+			assert.NotEqual(t, second.ID, rollback.ID)
+		})
+	}
+}
+
+func TestInterruptedTransitionIsAtomicDurableAndIdempotent(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.Open(ctx, t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+	bus := outbox.New(db)
+	handler, err := history.NewSQLStore(db, 10)
+	require.NoError(t, err)
+	require.NoError(t, bus.Subscribe(events.TypeNameDeployInterrupted, "interrupted-test", handler))
+	service := NewService(db, bus)
+	attempt, err := service.StartIfChanged(ctx, "app", "commit", desired("api:1"), true)
+	require.NoError(t, err)
+	require.NoError(t, service.InterruptRunning(ctx))
+	require.NoError(t, service.InterruptRunning(ctx))
+	current, err := NewStore(db).Get(ctx, attempt.ID)
+	require.NoError(t, err)
+	assert.Equal(t, Interrupted, current.Status)
+	runtime, err := modelstore.NewSQLStore(db).Read(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "process_interrupted", runtime.Stacks["app"].LastError)
+	var eventsCount int
+	require.NoError(t, db.Get(ctx).QueryRowContext(ctx,
+		"SELECT count(*) FROM outbox_events WHERE event_type=?", events.TypeNameDeployInterrupted).Scan(&eventsCount))
+	assert.Equal(t, 1, eventsCount)
+	_, err = NewStore(db).Baseline(ctx, "app")
+	assert.ErrorIs(t, err, ErrNotFound)
+}
+
 func TestSnapshotMaskingAndSemanticChanges(t *testing.T) {
 	beforeFile := desired("api:1")
-	beforeFile.Compose.Services[0].Command = compose.NewCommand([]string{"--password", "command-secret"})
+	beforeFile.Compose.Services[0].Command = compose.NewCommand([]string{"sh", "-c", "exec app --password 'review-secret-value'"})
+	beforeFile.Compose.Services[0].Healthcheck = &compose.ServiceHealth{
+		Test: compose.NewCommand([]string{"CMD-SHELL", "curl -u healthcheck-secret localhost"}),
+	}
+	beforeFile.Compose.Services[0].InitJobs = []compose.InitJob{{
+		Name: "migrate", Image: "api:1", Entrypoint: []string{"sh", "-c"}, Command: []string{"migrate --token init-secret"},
+	}}
 	beforeFile.Compose.Configs = compose.Configs{"cfg": {Data: []byte("raw-config-secret"), File: "app.cfg"}}
 	before, err := Prepare(beforeFile)
 	require.NoError(t, err)
 	payload, err := json.Marshal(before)
 	require.NoError(t, err)
-	for _, secret := range []string{"plaintext-secret", "command-secret", "raw-config-secret"} {
+	for _, secret := range []string{
+		"plaintext-secret", "review-secret-value", "healthcheck-secret", "init-secret", "raw-config-secret",
+	} {
 		assert.NotContains(t, string(payload), secret)
 	}
 	assert.Equal(t, "plaintext-secret", beforeFile.Compose.Services[0].Environment.Map["API_TOKEN"], "preparation must not mutate apply input")
@@ -154,4 +217,87 @@ func TestSnapshotMaskingAndSemanticChanges(t *testing.T) {
 	same, err := Prepare(afterFile)
 	require.NoError(t, err)
 	assert.Equal(t, after.Digest, same.Digest)
+}
+
+func TestOpaqueCommandChangesRemainDetectable(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*compose.Service, string)
+	}{
+		{name: "command", mutate: func(service *compose.Service, secret string) {
+			service.Command = compose.NewCommand([]string{"sh", "-c", "app --password " + secret})
+		}},
+		{name: "entrypoint", mutate: func(service *compose.Service, secret string) {
+			service.Extra = map[string]any{"entrypoint": []string{"sh", "-c", "bootstrap --token " + secret}}
+		}},
+		{name: "healthcheck", mutate: func(service *compose.Service, secret string) {
+			service.Healthcheck = &compose.ServiceHealth{Test: compose.NewCommand([]string{"CMD-SHELL", "check --token " + secret})}
+		}},
+		{name: "init job", mutate: func(service *compose.Service, secret string) {
+			service.InitJobs = []compose.InitJob{{Name: "init", Image: "api:1", Entrypoint: []string{"sh", "-c"}, Command: []string{"init --token " + secret}}}
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			beforeFile, afterFile := desired("api:1"), desired("api:1")
+			tt.mutate(&beforeFile.Compose.Services[0], "old-secret")
+			tt.mutate(&afterFile.Compose.Services[0], "new-secret")
+			before, err := Prepare(beforeFile)
+			require.NoError(t, err)
+			after, err := Prepare(afterFile)
+			require.NoError(t, err)
+			assert.NotEqual(t, before.Digest, after.Digest)
+			changes := Compare(before, after)
+			require.NotEmpty(t, changes)
+			encoded, err := json.Marshal(struct {
+				Before  Prepared
+				After   Prepared
+				Changes []Change
+			}{before, after, changes})
+			require.NoError(t, err)
+			assert.NotContains(t, string(encoded), "old-secret")
+			assert.NotContains(t, string(encoded), "new-secret")
+		})
+	}
+}
+
+func TestCommandRepresentationAffectsEffectiveDigest(t *testing.T) {
+	parse := func(t *testing.T, command string) compose.File {
+		t.Helper()
+		parsed, err := compose.Parse([]byte("services:\n  api:\n    image: api:1\n    command: " + command + "\n"))
+		require.NoError(t, err)
+		return compose.File{Compose: *parsed}
+	}
+	scalar, err := Prepare(parse(t, "echo hello"))
+	require.NoError(t, err)
+	list, err := Prepare(parse(t, "[\"echo hello\"]"))
+	require.NoError(t, err)
+	assert.NotEqual(t, scalar.Digest, list.Digest)
+
+	formatted, err := Prepare(parse(t, "'echo hello'"))
+	require.NoError(t, err)
+	assert.Equal(t, scalar.Digest, formatted.Digest)
+}
+
+func TestCommandSemanticsDriveDeploymentAttempts(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.Open(ctx, t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+	service := NewService(db, outbox.New(db))
+	parse := func(command string) compose.File {
+		parsed, parseErr := compose.Parse([]byte("services:\n  api:\n    image: api:1\n    command: " + command + "\n"))
+		require.NoError(t, parseErr)
+		return compose.File{Compose: *parsed}
+	}
+	baseline, err := service.StartIfChanged(ctx, "app", "one", parse("echo hello"), true)
+	require.NoError(t, err)
+	require.NoError(t, service.Succeed(ctx, baseline.ID, model.Stack{}))
+	formatOnly, err := service.StartIfChanged(ctx, "app", "two", parse("'echo hello'"), true)
+	require.NoError(t, err)
+	assert.Nil(t, formatOnly)
+	changed, err := service.StartIfChanged(ctx, "app", "three", parse("[\"echo hello\"]"), true)
+	require.NoError(t, err)
+	require.NotNil(t, changed)
+	assert.NotEqual(t, baseline.ID, changed.ID)
 }

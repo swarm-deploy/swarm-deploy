@@ -67,3 +67,32 @@ func TestNodeAlertRecoveryIgnoresDelayedFailure(t *testing.T) {
 	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
 	assert.EqualValues(t, 1, alerts[0].Occurrences)
 }
+
+func TestPreparationAndInterruptedFailuresShareDeploymentAlertLifecycle(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.Open(ctx, t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+	repo := modelstore.NewSQLStore(db)
+	subscriber := NewSQLSubscriber(repo)
+	at := time.Now().UTC()
+	for _, event := range []events.Envelope{
+		{ID: "prepare-1", OccurredAt: at, Event: &events.DeployPreparationFailed{StackName: "app", ErrorCode: "preparation_failed"}},
+		{ID: "prepare-2", OccurredAt: at.Add(time.Second), Event: &events.DeployPreparationFailed{StackName: "app", ErrorCode: "preparation_failed"}},
+		{ID: "interrupted", OccurredAt: at.Add(2 * time.Second), Event: &events.DeployInterrupted{StackName: "app", Reason: "process_interrupted"}},
+	} {
+		require.NoError(t, subscriber.Handle(ctx, event))
+	}
+	alerts, err := repo.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 1)
+	assert.EqualValues(t, 3, alerts[0].Occurrences)
+	assert.Equal(t, model.AlertStatusOpen, alerts[0].Status)
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+		ID: "success", OccurredAt: at.Add(3 * time.Second),
+		Event: &events.DeploySuccess{DeployEvent: events.DeployEvent{StackName: "app"}},
+	}))
+	alerts, err = repo.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
+}

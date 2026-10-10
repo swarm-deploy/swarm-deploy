@@ -113,8 +113,9 @@ func (b *Bus) process(ctx context.Context, d delivery) error {
 	var version int
 	var payload string
 	var occurred int64
-	err := b.db.Get(ctx).QueryRowContext(ctx, `SELECT event_type,schema_version,payload,occurred_at_ms
-		FROM outbox_events WHERE id=?`, d.eventID).Scan(&typ, &version, &payload, &occurred)
+	var publicationSequence int64
+	err := b.db.Get(ctx).QueryRowContext(ctx, `SELECT event_type,schema_version,payload,occurred_at_ms,sequence
+		FROM outbox_events WHERE id=?`, d.eventID).Scan(&typ, &version, &payload, &occurred, &publicationSequence)
 	if err != nil {
 		return err
 	}
@@ -131,7 +132,10 @@ func (b *Bus) process(ctx context.Context, d delivery) error {
 	ctx = context.WithValue(ctx, causeKey{}, d.eventID)
 	ctx, cancel := context.WithTimeout(ctx, b.lease)
 	defer cancel()
-	envelope := events.Envelope{ID: d.eventID, Event: event, OccurredAt: time.UnixMilli(occurred).UTC()}
+	envelope := events.Envelope{
+		ID: d.eventID, Event: event, OccurredAt: time.UnixMilli(occurred).UTC(),
+		PublicationSequence: publicationSequence,
+	}
 	if external, ok := handler.(externalSubscriber); ok {
 		if err = b.checkLease(ctx, d); err != nil {
 			return err

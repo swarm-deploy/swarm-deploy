@@ -36,7 +36,8 @@ func InitModule(ctx context.Context, cfg *config.Config, container Container) (*
 	module := &Module{Store: store, Subscriber: subscriber}
 	dispatcher := container.GetEventModule().Dispatcher
 	for _, typ := range []events.TypeName{
-		events.TypeNameDeployFailed, events.TypeNameDeploySuccess,
+		events.TypeNameDeployFailed, events.TypeNameDeployPreparationFailed,
+		events.TypeNameDeployInterrupted, events.TypeNameDeploySuccess,
 		events.TypeNameNodeDisconnected, events.TypeNameNodeConnected,
 	} {
 		if err := dispatcher.Subscribe(typ, "alert-management", subscriber); err != nil {

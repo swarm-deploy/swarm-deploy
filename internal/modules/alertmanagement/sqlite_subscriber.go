@@ -27,6 +27,10 @@ func (s *SQLSubscriber) Handle(ctx context.Context, event events.Envelope) error
 		resource = "stack:" + e.StackName
 	case *events.DeployFailed:
 		resource = "stack:" + e.StackName
+	case *events.DeployPreparationFailed:
+		resource = "stack:" + e.StackName
+	case *events.DeployInterrupted:
+		resource = "stack:" + e.StackName
 	case *events.NodeDisconnected:
 		resource = "node:" + e.NodeID
 	case *events.NodeConnected:

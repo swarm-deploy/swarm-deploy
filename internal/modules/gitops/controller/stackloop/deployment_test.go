@@ -2,6 +2,7 @@ package stackloop
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -73,10 +74,16 @@ func TestReconcileDeploymentBoundaries(t *testing.T) {
 				assert.Equal(t, deployment.Running, attempts[0].Status)
 				_, err = repo.Baseline(ctx, "app")
 				require.ErrorIs(t, err, deployment.ErrNotFound)
-				require.NoError(t, deployment.NewService(db, bus).InterruptRunning(ctx))
-				interrupted, err := repo.Get(ctx, attempts[0].ID)
+				_, err = db.Get(ctx).ExecContext(ctx, "DROP TRIGGER fail_event")
 				require.NoError(t, err)
-				assert.Equal(t, deployment.Interrupted, interrupted.Status)
+				req.Commit = "second"
+				require.NoError(t, r.Reconcile(ctx, req))
+				recovered, err := repo.Get(ctx, attempts[0].ID)
+				require.NoError(t, err)
+				assert.Equal(t, deployment.Succeeded, recovered.Status)
+				baseline, err := repo.Baseline(ctx, "app")
+				require.NoError(t, err)
+				assert.Equal(t, "nginx:latest", baseline.Definition.Compose.Services[0].Image)
 				return
 			}
 			require.NoError(t, err)
@@ -93,4 +100,87 @@ func TestReconcileDeploymentBoundaries(t *testing.T) {
 			assert.Equal(t, "first", attempts[0].Commit)
 		})
 	}
+}
+
+func TestReconcileRecoversFailedResultPersistenceInSameProcess(t *testing.T) {
+	ctx := context.Background()
+	db, state := newSQLState(t)
+	bus := outbox.New(db)
+	hist, err := history.NewSQLStore(db, 10)
+	require.NoError(t, err)
+	require.NoError(t, bus.Subscribe(events.TypeNameDeployFailed, "history", hist))
+	require.NoError(t, bus.Subscribe(events.TypeNameDeploySuccess, "history", hist))
+	repo := deployment.NewStore(db)
+	ctrl := gomock.NewController(t)
+	git := gitx.NewMockRepository(ctrl)
+	docker := deployer.NewMockStackDeployer(ctrl)
+	services := swarm.NewMockServiceManager(ctrl)
+	dir := t.TempDir()
+	git.EXPECT().WorkingDir().Return(dir).AnyTimes()
+	require.NoError(t, writeComposeFile(dir))
+	cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(dir, "data")}}
+	r := New(cfg, git, docker, &swarm.Swarm{
+		Services: services, Configs: swarm.NewMockConfigManager(ctrl), Secrets: swarm.NewMockSecretManager(ctrl),
+	}, bus, &metrics.NopDeploys{}, state, fs.NewLocalFileSystem(), db)
+	docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, _ string, _ string, _ string, _ compose.Compose) error {
+			_, err := db.Get(ctx).ExecContext(ctx,
+				"CREATE TRIGGER fail_event BEFORE INSERT ON outbox_events BEGIN SELECT RAISE(ABORT,'injected'); END")
+			require.NoError(t, err)
+			return assert.AnError
+		},
+	)
+	req := ReconciliationRequest{Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "first"}
+	require.Error(t, r.Reconcile(ctx, req))
+	attempts, err := repo.List(ctx, deployment.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, attempts, 1)
+	assert.Equal(t, deployment.Running, attempts[0].Status)
+	_, err = db.Get(ctx).ExecContext(ctx, "DROP TRIGGER fail_event")
+	require.NoError(t, err)
+	docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+	services.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{}, nil).AnyTimes()
+	req.Commit = "second"
+	require.NoError(t, r.Reconcile(ctx, req))
+	attempts, err = repo.List(ctx, deployment.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, attempts, 2)
+	assert.Equal(t, deployment.Succeeded, attempts[0].Status)
+	assert.Equal(t, deployment.Failed, attempts[1].Status)
+	assert.NotEqual(t, attempts[0].ID, attempts[1].ID)
+}
+
+func TestPreparationFailureStateAndPublicationAreAtomicAndSecretSafe(t *testing.T) {
+	ctx := context.Background()
+	db, state := newSQLState(t)
+	bus := outbox.New(db)
+	hist, err := history.NewSQLStore(db, 10)
+	require.NoError(t, err)
+	require.NoError(t, bus.Subscribe(events.TypeNameDeployPreparationFailed, "history", hist))
+	r := &Reconciler{db: db, stateStore: state, event: bus}
+	_, err = db.Get(ctx).ExecContext(ctx,
+		"CREATE TRIGGER fail_preparation_event BEFORE INSERT ON outbox_events BEGIN SELECT RAISE(ABORT,'injected'); END")
+	require.NoError(t, err)
+	require.Error(t, r.recordFailure(ctx, "app", "commit", nil, errors.New("raw-secret-value")))
+	runtime, err := state.Read(ctx)
+	require.NoError(t, err)
+	_, exists := runtime.Stacks["app"]
+	assert.False(t, exists)
+	var count int
+	require.NoError(t, db.Get(ctx).QueryRowContext(ctx, "SELECT count(*) FROM outbox_events").Scan(&count))
+	assert.Zero(t, count)
+	_, err = db.Get(ctx).ExecContext(ctx, "DROP TRIGGER fail_preparation_event")
+	require.NoError(t, err)
+	for range 2 {
+		require.NoError(t, r.recordFailure(ctx, "app", "commit", nil, errors.New("raw-secret-value")))
+	}
+	runtime, err = state.Read(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "preparation_failed", runtime.Stacks["app"].LastError)
+	var payloads string
+	require.NoError(t, db.Get(ctx).QueryRowContext(ctx,
+		"SELECT group_concat(payload) FROM outbox_events").Scan(&payloads))
+	assert.NotContains(t, payloads, "raw-secret-value")
+	require.NoError(t, db.Get(ctx).QueryRowContext(ctx, "SELECT count(*) FROM outbox_events").Scan(&count))
+	assert.Equal(t, 2, count, "repeated failures are distinct domain facts")
 }

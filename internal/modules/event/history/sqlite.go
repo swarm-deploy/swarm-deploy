@@ -41,11 +41,12 @@ func (s *SQLStore) Name() string { return "event-history" }
 // Handle materializes selected user facts; failure signals remain alert inputs.
 func (s *SQLStore) Handle(ctx context.Context, e events.Envelope) error {
 	switch e.Event.Type() {
-	case events.TypeServiceCatalogUpdated, events.TypeDeployFailed, events.TypeNodeDisconnected:
+	case events.TypeServiceCatalogUpdated, events.TypeDeployFailed, events.TypeDeployPreparationFailed,
+		events.TypeDeployInterrupted, events.TypeNodeDisconnected:
 		return nil
 	}
-	if e.ID == "" || e.OccurredAt.IsZero() {
-		return fmt.Errorf("history requires a persisted event ID and publication time")
+	if e.ID == "" || e.OccurredAt.IsZero() || e.PublicationSequence <= 0 {
+		return fmt.Errorf("history requires a persisted event ID, publication time and sequence")
 	}
 	payload, err := codec.Encode(e.Event)
 	if err != nil {
@@ -57,11 +58,11 @@ func (s *SQLStore) Handle(ctx context.Context, e events.Envelope) error {
 	}
 	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		entry := toEntry(e.OccurredAt, e)
-		if insertErr := s.insert(ctx, entry, e.ID); insertErr != nil {
+		if insertErr := s.insert(ctx, entry, e.ID, e.PublicationSequence); insertErr != nil {
 			return insertErr
 		}
-		_, pruneErr := s.db.Get(ctx).ExecContext(ctx, `DELETE FROM event_history WHERE sequence NOT IN (
-			SELECT sequence FROM event_history ORDER BY sequence DESC LIMIT ?)`, s.capacity)
+		_, pruneErr := s.db.Get(ctx).ExecContext(ctx, `DELETE FROM event_history WHERE publication_sequence NOT IN (
+			SELECT publication_sequence FROM event_history ORDER BY publication_sequence DESC LIMIT ?)`, s.capacity)
 		return pruneErr
 	})
 }
@@ -69,30 +70,45 @@ func (s *SQLStore) Handle(ctx context.Context, e events.Envelope) error {
 // Import preserves historical values and ordering without synthesizing deployments.
 // It must be called within the startup import transaction.
 func (s *SQLStore) Import(ctx context.Context, entries []Entry) error {
-	for _, entry := range entries {
-		if err := s.insert(ctx, entry, nil); err != nil {
+	for i, entry := range entries {
+		if err := s.insert(ctx, entry, nil, int64(i+1)); err != nil {
 			return err
 		}
 	}
-	return nil
+	return s.advancePublicationSequence(ctx, int64(len(entries)))
 }
 
-func (s *SQLStore) insert(ctx context.Context, entry Entry, source any) error {
+func (s *SQLStore) insert(ctx context.Context, entry Entry, source any, publicationSequence int64) error {
 	payload, err := json.Marshal(entry)
 	if err != nil {
 		return err
 	}
 	_, err = s.db.Get(ctx).ExecContext(ctx, `INSERT INTO event_history
-		(id,source_event_id,event_type,severity,severity_rank,category,created_at_ns,payload)
-		VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(source_event_id) DO NOTHING`,
-		entry.ID, source, entry.Type.Name(), entry.Severity, severityRank(entry.Severity),
+		(publication_sequence,id,source_event_id,event_type,severity,severity_rank,category,created_at_ns,payload)
+		VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(source_event_id) DO NOTHING`,
+		publicationSequence, entry.ID, source, entry.Type.Name(), entry.Severity, severityRank(entry.Severity),
 		entry.Category, entry.CreatedAt.UnixNano(), string(payload))
+	return err
+}
+
+func (s *SQLStore) advancePublicationSequence(ctx context.Context, sequence int64) error {
+	result, err := s.db.Get(ctx).ExecContext(ctx,
+		"UPDATE sqlite_sequence SET seq=max(seq,?) WHERE name='outbox_events'", sequence)
+	if err != nil {
+		return err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil || changed > 0 {
+		return err
+	}
+	_, err = s.db.Get(ctx).ExecContext(ctx,
+		"INSERT INTO sqlite_sequence(name,seq) VALUES('outbox_events',?)", sequence)
 	return err
 }
 
 // List returns the retained publication sequence, including original import order.
 func (s *SQLStore) Read(ctx context.Context) ([]Entry, error) {
-	return storage.QueryJSON[Entry](ctx, s.db.Get, "SELECT payload FROM event_history ORDER BY sequence")
+	return storage.QueryJSON[Entry](ctx, s.db.Get, "SELECT payload FROM event_history ORDER BY publication_sequence")
 }
 
 // Query applies filtering, ordering and cursor boundaries in SQLite.
@@ -134,13 +150,13 @@ func (s *SQLStore) QueryPage(ctx context.Context, options QueryOptions) (Page, e
 // ReadRecent preserves the legacy sequence order while performing filters in SQLite.
 func (s *SQLStore) ReadRecent(ctx context.Context, options QueryOptions) ([]Entry, error) {
 	where, args := historyFilters(options)
-	query := "SELECT sequence,payload FROM event_history WHERE " + strings.Join(where, " AND ")
+	query := "SELECT publication_sequence,payload FROM event_history WHERE " + strings.Join(where, " AND ")
 	if options.Limit > 0 {
-		query += " ORDER BY sequence DESC LIMIT ?"
+		query += " ORDER BY publication_sequence DESC LIMIT ?"
 		args = append(args, options.Limit)
 	}
 	return storage.QueryJSON[Entry](ctx, s.db.Get,
-		"SELECT payload FROM ("+query+") ORDER BY sequence", args...)
+		"SELECT payload FROM ("+query+") ORDER BY publication_sequence", args...)
 }
 
 func historyFilters(options QueryOptions) ([]string, []any) {

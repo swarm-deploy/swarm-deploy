@@ -19,6 +19,8 @@ const (
 	TypeNameServiceCatalogUpdated            TypeName = "serviceCatalogUpdated"
 	TypeNameDeploySuccess                    TypeName = "deploySuccess"
 	TypeNameDeployFailed                     TypeName = "deployFailed"
+	TypeNameDeployPreparationFailed          TypeName = "deployPreparationFailed"
+	TypeNameDeployInterrupted                TypeName = "deployInterrupted"
 	TypeNameSendNotificationFailed           TypeName = "sendNotificationFailed"
 	TypeNameSyncManualStarted                TypeName = "syncManualStarted"
 	TypeNameWebhookReceived                  TypeName = "webhookReceived"
@@ -75,6 +77,8 @@ type Event interface {
 
 // Envelope is a dispatcher envelope shared by every subscriber.
 type Envelope struct {
+	// PublicationSequence is the durable total order assigned when T1 publishes the event.
+	PublicationSequence int64
 	// OccurredAt is the publication timestamp, preserved across retries.
 	OccurredAt time.Time
 	// ID uniquely identifies this dispatch in event history and downstream modules.
@@ -96,6 +100,12 @@ var (
 		severity: SeverityAlert,
 		category: CategorySync,
 		window:   1 * time.Minute,
+	}
+	TypeDeployPreparationFailed = Type{
+		name: TypeNameDeployPreparationFailed, severity: SeverityAlert, category: CategorySync,
+	}
+	TypeDeployInterrupted = Type{
+		name: TypeNameDeployInterrupted, severity: SeverityAlert, category: CategorySync,
 	}
 	TypeSendNotificationFailed = Type{
 		name:     TypeNameSendNotificationFailed,
@@ -185,6 +195,8 @@ var (
 		TypeServiceCatalogUpdated,
 		TypeDeploySuccess,
 		TypeDeployFailed,
+		TypeDeployPreparationFailed,
+		TypeDeployInterrupted,
 		TypeSendNotificationFailed,
 		TypeSyncManualStarted,
 		TypeWebhookReceived,
@@ -256,6 +268,10 @@ func (n TypeName) Valid() bool {
 		return true
 	case TypeNameDeployFailed:
 		return true
+	case TypeNameDeployPreparationFailed:
+		return true
+	case TypeNameDeployInterrupted:
+		return true
 	case TypeNameSendNotificationFailed:
 		return true
 	case TypeNameSyncManualStarted:
@@ -298,6 +314,10 @@ func ParseType(name string) (Type, bool) {
 		return TypeDeploySuccess, true
 	case TypeNameDeployFailed:
 		return TypeDeployFailed, true
+	case TypeNameDeployPreparationFailed:
+		return TypeDeployPreparationFailed, true
+	case TypeNameDeployInterrupted:
+		return TypeDeployInterrupted, true
 	case TypeNameSendNotificationFailed:
 		return TypeSendNotificationFailed, true
 	case TypeNameSyncManualStarted:

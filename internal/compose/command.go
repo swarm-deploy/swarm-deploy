@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"go.yaml.in/yaml/v3"
@@ -10,6 +11,13 @@ type Command struct {
 	Args []string `json:"Args"`
 
 	isList bool
+}
+
+type commandJSON struct {
+	// Args contains the parsed command values.
+	Args []string `json:"Args"`
+	// IsList preserves exec/list form versus scalar shell form.
+	IsList bool `json:"IsList"`
 }
 
 func NewCommand(args []string) Command {
@@ -44,4 +52,21 @@ func (c Command) MarshalYAML() (interface{}, error) {
 	}
 
 	return c.Args[0], nil
+}
+
+// MarshalJSON preserves the scalar/list distinction because Compose gives
+// those forms different command execution semantics.
+func (c Command) MarshalJSON() ([]byte, error) {
+	return json.Marshal(commandJSON{Args: c.Args, IsList: c.isList})
+}
+
+// UnmarshalJSON restores the execution form in persisted desired snapshots.
+func (c *Command) UnmarshalJSON(data []byte) error {
+	var value commandJSON
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	c.Args = value.Args
+	c.isList = value.IsList
+	return nil
 }

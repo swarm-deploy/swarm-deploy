@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"path/filepath"
+	"sync"
 	"time"
 
 	pipe "github.com/artarts36/gopipe"
@@ -46,6 +47,15 @@ type Reconciler struct {
 	secretManager    swarm.SecretManager
 	configManager    swarm.ConfigManager
 	resourceCleaner  *rotatedResourceCleaner
+	reconcileMu      sync.Mutex
+	pending          map[string]pendingCompletion
+}
+
+type pendingCompletion struct {
+	deploymentID string
+	state        model.Stack
+	status       deployment.Status
+	errorCode    string
 }
 
 // New builds a stack reconciler loop.
@@ -75,6 +85,7 @@ func New(
 		serviceManager:   swarmService.Services,
 		secretManager:    swarmService.Secrets,
 		configManager:    swarmService.Configs,
+		pending:          map[string]pendingCompletion{},
 	}
 	reconciler.resourceCleaner = newRotatedResourceCleaner(
 		reconciler.secretManager,
@@ -126,6 +137,16 @@ func (r *Reconciler) Reconcile(
 	ctx context.Context,
 	req ReconciliationRequest,
 ) error {
+	r.reconcileMu.Lock()
+	defer r.reconcileMu.Unlock()
+
+	if err := r.recoverPending(ctx, req.Stack.Name); err != nil {
+		return fmt.Errorf("recover deployment result: %w", err)
+	}
+	if err := r.deployments.InterruptStack(ctx, req.Stack.Name); err != nil {
+		return fmt.Errorf("interrupt unknown running deployment: %w", err)
+	}
+
 	composePath := filepath.Join(r.git.WorkingDir(), req.Stack.ComposeFile)
 	desiredState, err := r.composeLoader.Load(ctx, composePath)
 	if err != nil {
@@ -210,6 +231,11 @@ func (r *Reconciler) processResult(
 	}
 	err := r.persistResult(ctx, req, prevState, payload, result)
 	if err != nil {
+		if payload.Attempt != nil {
+			r.pending[req.Stack.Name] = pendingCompletion{
+				deploymentID: payload.Attempt.ID, state: result, status: deployment.Succeeded,
+			}
+		}
 		return fmt.Errorf("persist stack result: %w", err)
 	}
 	if payload.Attempt != nil {
@@ -223,19 +249,26 @@ func (r *Reconciler) processResult(
 func (r *Reconciler) recordFailure(
 	ctx context.Context, stackName, commit string, services []compose.Service, _ error,
 ) error {
-	return r.stateStore.Update(ctx, func(runtime *model.Runtime) {
-		state := runtime.Stacks[stackName]
-		state.LastCommit, state.LastError = commit, "preparation_failed"
-		if state.Services == nil {
-			state.Services = map[string]model.Service{}
-		}
-		for _, service := range services {
-			state.Services[service.Name] = model.Service{
-				Image: service.Image, SyncStatus: model.SyncStatusOutOfSync, SyncAt: time.Now(),
+	return r.db.WithinTransaction(ctx, func(ctx context.Context) error {
+		if err := r.stateStore.Update(ctx, func(runtime *model.Runtime) {
+			state := runtime.Stacks[stackName]
+			state.LastCommit, state.LastError = commit, "preparation_failed"
+			if state.Services == nil {
+				state.Services = map[string]model.Service{}
 			}
+			for _, service := range services {
+				state.Services[service.Name] = model.Service{
+					Image: service.Image, SyncStatus: model.SyncStatusOutOfSync, SyncAt: time.Now(),
+				}
+			}
+			state.Status = model.NewStackStatus(state.Services)
+			runtime.Stacks[stackName] = state
+		}); err != nil {
+			return err
 		}
-		state.Status = model.NewStackStatus(state.Services)
-		runtime.Stacks[stackName] = state
+		return r.event.Publish(ctx, &events.DeployPreparationFailed{
+			StackName: stackName, Commit: commit, Services: services, ErrorCode: "preparation_failed",
+		})
 	})
 }
 
@@ -263,11 +296,34 @@ func (r *Reconciler) recordPipelineFailure(
 			code = "prune_failed"
 		}
 		persistErr = r.deployments.Fail(ctx, pl.Attempt.ID, failed, code)
+		if persistErr != nil {
+			r.pending[req.Stack.Name] = pendingCompletion{
+				deploymentID: pl.Attempt.ID, state: failed, status: deployment.Failed, errorCode: code,
+			}
+		}
 		for _, service := range services {
 			r.deployMetrics.RecordDeploy(req.Stack.Name, service.Name, "failed")
 		}
 	}
 	return wrapReconcileError(pipeErr.StepName, services, errors.Join(pipeErr, persistErr))
+}
+
+func (r *Reconciler) recoverPending(ctx context.Context, stack string) error {
+	pending, ok := r.pending[stack]
+	if !ok {
+		return nil
+	}
+	var err error
+	if pending.status == deployment.Succeeded {
+		err = r.deployments.Succeed(ctx, pending.deploymentID, pending.state)
+	} else {
+		err = r.deployments.Fail(ctx, pending.deploymentID, pending.state, pending.errorCode)
+	}
+	if err != nil {
+		return err
+	}
+	delete(r.pending, stack)
+	return nil
 }
 
 func (r *Reconciler) persistResult(

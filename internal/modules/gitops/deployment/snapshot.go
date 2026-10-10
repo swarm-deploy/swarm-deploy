@@ -97,9 +97,16 @@ func (p *Prepared) sanitize(value any, path, key string) any {
 	switch node := value.(type) {
 	case map[string]any:
 		for name, child := range node {
-			// Opaque inline file data and shell scripts are not safe display values.
+			childPath := joinPath(path, name)
+			// Commands, entrypoints, healthchecks and init-job scripts are opaque.
+			// Their syntax is unconstrained, so token-level secret detection cannot
+			// make them safe for persistence or display.
+			if isOpaqueExecutableField(name) {
+				node[name] = p.sanitizeOpaque(child, childPath)
+				continue
+			}
 			// Config file bytes are already excluded by Compose's JSON contract.
-			node[name] = p.sanitize(child, joinPath(path, name), name)
+			node[name] = p.sanitize(child, childPath, name)
 		}
 		return node
 	case []any:
@@ -117,6 +124,42 @@ func (p *Prepared) sanitize(value any, path, key string) any {
 		raw := fmt.Sprint(node)
 		p.record(path, raw, raw, false)
 		return node
+	}
+}
+
+func (p *Prepared) sanitizeOpaque(value any, path string) any {
+	switch node := value.(type) {
+	case map[string]any:
+		for name, child := range node {
+			node[name] = p.sanitizeOpaque(child, joinPath(path, name))
+		}
+		return node
+	case []any:
+		for i, child := range node {
+			node[i] = p.sanitizeOpaque(child, joinPath(path, strconv.Itoa(i)))
+		}
+		return node
+	case string:
+		p.record(path, node, envmasker.MaskValue, node != "")
+		if node == "" {
+			return node
+		}
+		return envmasker.MaskValue
+	case nil:
+		return nil
+	default:
+		raw := fmt.Sprint(node)
+		p.record(path, raw, raw, false)
+		return node
+	}
+}
+
+func isOpaqueExecutableField(key string) bool {
+	switch strings.ToLower(key) {
+	case "command", "entrypoint", "test", "script", "scripts":
+		return true
+	default:
+		return false
 	}
 }
 

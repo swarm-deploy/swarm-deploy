@@ -85,44 +85,17 @@ func (s *Module) initNotificationSubscribers(ctx context.Context) error {
 			return fmt.Errorf("unknown notifications.on event type %q", eventTypeName)
 		}
 
-		for _, tg := range channels.Telegram {
-			tgNotifier, notifierErr := notifiers.NewTelegramNotifier(
-				tg.Name,
-				string(tg.BotToken.Content),
-				tg.ChatID,
-				notifiers.TelegramOptions{
-					ChatThreadID:  tg.ChatThreadID,
-					Message:       tg.Message,
-					Retries:       s.cfg.Spec.Notifications.Messengers.Telegram.Retries,
-					SOCKS5Address: s.cfg.Spec.Notifications.Messengers.Telegram.Proxy.SOCKS5.Address.Value,
-				},
-			)
-			if notifierErr != nil {
-				return fmt.Errorf("build telegram notifier %q: %w", tg.Name, notifierErr)
-			}
-
-			// The public bot ID survives token rotation and distinguishes bots in the same chat.
-			botID, _, _ := strings.Cut(string(tg.BotToken.Content), ":")
-			id := fmt.Sprintf("notification:telegram:%s:%x:%v:%v", tg.Name,
-				sha256.Sum256([]byte(botID)), tg.ChatID, tg.ChatThreadID)
-			err := s.Dispatcher.Subscribe(eventType.Name(), id, outbox.External(notify2.NewSubscriber(tgNotifier)))
-			if err != nil {
-				return err
-			}
-			subscribersCount++
+		targetTypes := notificationEventTypes(eventType.Name())
+		count, err := s.registerTelegramNotifications(targetTypes, channels.Telegram)
+		if err != nil {
+			return err
 		}
-
-		for _, custom := range channels.Custom {
-			notifier := notifiers.NewCustomWebhookNotifier(custom.Name, custom.URL.Value.String(), custom.Method, custom.Header)
-
-			identity := sha256.Sum256([]byte(custom.Method + " " + custom.URL.Value.String()))
-			id := fmt.Sprintf("notification:custom:%s:%x", custom.Name, identity)
-			if err := s.Dispatcher.Subscribe(eventType.Name(), id,
-				outbox.External(notify2.NewSubscriber(notifier))); err != nil {
-				return err
-			}
-			subscribersCount++
+		subscribersCount += count
+		count, err = s.registerCustomNotifications(targetTypes, channels.Custom)
+		if err != nil {
+			return err
 		}
+		subscribersCount += count
 	}
 
 	if len(s.cfg.Spec.Notifications.On) == 0 {
@@ -135,6 +108,68 @@ func (s *Module) initNotificationSubscribers(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (s *Module) registerTelegramNotifications(
+	types []events.TypeName,
+	channels []config.TelegramChannel,
+) (int, error) {
+	count := 0
+	for _, channel := range channels {
+		notifier, err := notifiers.NewTelegramNotifier(
+			channel.Name, string(channel.BotToken.Content), channel.ChatID,
+			notifiers.TelegramOptions{
+				ChatThreadID: channel.ChatThreadID, Message: channel.Message,
+				Retries:       s.cfg.Spec.Notifications.Messengers.Telegram.Retries,
+				SOCKS5Address: s.cfg.Spec.Notifications.Messengers.Telegram.Proxy.SOCKS5.Address.Value,
+			},
+		)
+		if err != nil {
+			return 0, fmt.Errorf("build telegram notifier %q: %w", channel.Name, err)
+		}
+		// The public bot ID survives token rotation and distinguishes bots in the same chat.
+		botID, _, _ := strings.Cut(string(channel.BotToken.Content), ":")
+		id := fmt.Sprintf("notification:telegram:%s:%x:%v:%v", channel.Name,
+			sha256.Sum256([]byte(botID)), channel.ChatID, channel.ChatThreadID)
+		for _, typ := range types {
+			if err = s.Dispatcher.Subscribe(typ, id, outbox.External(notify2.NewSubscriber(notifier))); err != nil {
+				return 0, err
+			}
+			count++
+		}
+	}
+	return count, nil
+}
+
+func (s *Module) registerCustomNotifications(types []events.TypeName, channels []config.CustomChannel) (int, error) {
+	count := 0
+	for _, channel := range channels {
+		notifier := notifiers.NewCustomWebhookNotifier(
+			channel.Name, channel.URL.Value.String(), channel.Method, channel.Header,
+		)
+		identity := sha256.Sum256([]byte(channel.Method + " " + channel.URL.Value.String()))
+		id := fmt.Sprintf("notification:custom:%s:%x", channel.Name, identity)
+		for _, typ := range types {
+			if err := s.Dispatcher.Subscribe(typ, id, outbox.External(notify2.NewSubscriber(notifier))); err != nil {
+				return 0, err
+			}
+			count++
+		}
+	}
+	return count, nil
+}
+
+func notificationEventTypes(configured events.TypeName) []events.TypeName {
+	if configured == events.TypeNameDeployFailed {
+		// Existing deployFailed notification configuration also covers failures
+		// before an attempt and interrupted attempts with an unknown outcome.
+		return []events.TypeName{
+			events.TypeNameDeployFailed,
+			events.TypeNameDeployPreparationFailed,
+			events.TypeNameDeployInterrupted,
+		}
+	}
+	return []events.TypeName{configured}
 }
 
 func (s *Module) subscribeOnAllEvents(id string, subscriber dispatcher.Subscriber) error {

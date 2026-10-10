@@ -19,6 +19,8 @@ func TestSensitiveFieldsAreNeverPersisted(t *testing.T) {
 	for _, event := range []events.Event{
 		&events.DeploySuccess{DeployEvent: events.DeployEvent{Services: []compose.Service{service}}},
 		&events.DeployFailed{DeployEvent: events.DeployEvent{StackName: "stack", Commit: "revision", StackDefinition: compose.File{Path: secret}}, Error: errors.New(secret), Logs: []string{secret}},
+		&events.DeployPreparationFailed{StackName: "stack", Commit: "revision", ErrorCode: "preparation_failed"},
+		&events.DeployInterrupted{DeploymentID: "deployment", StackName: "stack", Commit: "revision", Reason: "process_interrupted"},
 		&events.AssistantPromptInjectionDetected{Prompt: secret},
 		&events.SendNotificationFailed{Error: errors.New(secret)},
 	} {
@@ -34,6 +36,16 @@ func TestSensitiveFieldsAreNeverPersisted(t *testing.T) {
 				assert.NotContains(t, value, secret)
 			}
 		})
+	}
+}
+
+func TestDeploymentLifecycleCodecRejectsUnboundedDiagnostics(t *testing.T) {
+	for _, event := range []events.Event{
+		&events.DeployPreparationFailed{StackName: "stack", ErrorCode: "raw secret"},
+		&events.DeployInterrupted{StackName: "stack", Reason: "raw secret"},
+	} {
+		_, err := Encode(event)
+		require.Error(t, err)
 	}
 }
 

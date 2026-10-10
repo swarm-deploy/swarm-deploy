@@ -29,6 +29,16 @@ func Encode(event events.Event) ([]byte, error) {
 		return encodeDeployment(e.DeployEvent)
 	case *events.DeployFailed:
 		return encodeDeployment(e.DeployEvent)
+	case *events.DeployPreparationFailed:
+		if e.ErrorCode != "preparation_failed" {
+			return nil, errors.New("unsupported deployment preparation failure code")
+		}
+		return encodeDeploymentFailure(e.StackName, e.Commit, "", e.ErrorCode, e.Services)
+	case *events.DeployInterrupted:
+		if e.Reason != "process_interrupted" {
+			return nil, errors.New("unsupported deployment interruption reason")
+		}
+		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.Reason, e.Services)
 	case *events.NodeJoined:
 		return json.Marshal(nodePayload{ID: e.NodeID, Name: e.NodeName, Role: e.Role})
 	case *events.NodeConnected:
@@ -87,6 +97,21 @@ func Decode(typ events.TypeName, version int, payload []byte) (events.Event, err
 			return &events.DeployFailed{
 				DeployEvent: p.deployment(),
 				Error:       errors.New("deployment failed; sensitive diagnostic output omitted"),
+			}
+		})
+	case events.TypeNameDeployPreparationFailed:
+		return decodeAs(payload, func(p deploymentFailurePayload) events.Event {
+			return &events.DeployPreparationFailed{
+				StackName: p.Stack, Commit: p.Commit, Services: p.services(), ErrorCode: p.Code,
+				Error: errors.New("deployment preparation failed; sensitive diagnostic output omitted"),
+			}
+		})
+	case events.TypeNameDeployInterrupted:
+		return decodeAs(payload, func(p deploymentFailurePayload) events.Event {
+			return &events.DeployInterrupted{
+				DeploymentID: p.DeploymentID, StackName: p.Stack, Commit: p.Commit,
+				Services: p.services(), Reason: p.Code,
+				Error: errors.New("deployment interrupted; external apply outcome unknown"),
 			}
 		})
 	case events.TypeNameNodeJoined:
@@ -185,6 +210,41 @@ type deployPayload struct {
 	Commit string `json:"commit"`
 	// Services contains only service names and images.
 	Services []servicePayload `json:"services"`
+}
+
+type deploymentFailurePayload struct {
+	// DeploymentID is absent for preparation failures before an attempt exists.
+	DeploymentID string `json:"deployment_id,omitempty"`
+	// Stack identifies the affected stack.
+	Stack string `json:"stack"`
+	// Commit identifies the source revision.
+	Commit string `json:"commit"`
+	// Code is an allowlisted safe failure category.
+	Code string `json:"code"`
+	// Services contains only service names and images.
+	Services []servicePayload `json:"services"`
+}
+
+func (p deploymentFailurePayload) services() []compose.Service {
+	result := make([]compose.Service, 0, len(p.Services))
+	for _, service := range p.Services {
+		result = append(result, compose.Service{Name: service.Name, Image: service.Image})
+	}
+	return result
+}
+
+func encodeDeploymentFailure(
+	stack, commit, deploymentID, code string,
+	services []compose.Service,
+) ([]byte, error) {
+	payload := deploymentFailurePayload{
+		DeploymentID: deploymentID, Stack: stack, Commit: commit, Code: code,
+		Services: make([]servicePayload, 0, len(services)),
+	}
+	for _, service := range services {
+		payload.Services = append(payload.Services, servicePayload{Name: service.Name, Image: service.Image})
+	}
+	return json.Marshal(payload)
 }
 
 func (p deployPayload) deployment() events.DeployEvent {

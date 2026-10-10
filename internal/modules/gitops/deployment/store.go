@@ -58,6 +58,20 @@ func (s *Store) Baseline(ctx context.Context, stack string) (Prepared, error) {
 	return desired, notFound(err)
 }
 
+func (s *Store) hasUnsuccessfulAfterBaseline(ctx context.Context, stack string) (bool, error) {
+	var retry bool
+	err := s.db.Get(ctx).QueryRowContext(ctx, `SELECT EXISTS(
+		SELECT 1 FROM deployments AS attempt
+		WHERE attempt.stack=? AND attempt.status IN ('failed','interrupted')
+		AND attempt.rowid > (
+			SELECT baseline.rowid FROM deployments AS baseline
+			JOIN desired_snapshots AS snapshot ON snapshot.deployment_id=baseline.id
+			WHERE snapshot.stack=?
+		)
+	)`, stack, stack).Scan(&retry)
+	return retry, err
+}
+
 func notFound(err error) error {
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrNotFound
