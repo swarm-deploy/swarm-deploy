@@ -1316,6 +1316,7 @@ func (s *DeploymentChangeSummary) SetRedacted(val int) {
 type DeploymentComparisonBasis string
 
 const (
+	DeploymentComparisonBasisNone               DeploymentComparisonBasis = "none"
 	DeploymentComparisonBasisSuccessfulBaseline DeploymentComparisonBasis = "successful_baseline"
 	DeploymentComparisonBasisLastAttempt        DeploymentComparisonBasis = "last_attempt"
 	DeploymentComparisonBasisObservedState      DeploymentComparisonBasis = "observed_state"
@@ -1324,6 +1325,7 @@ const (
 // AllValues returns all DeploymentComparisonBasis values.
 func (DeploymentComparisonBasis) AllValues() []DeploymentComparisonBasis {
 	return []DeploymentComparisonBasis{
+		DeploymentComparisonBasisNone,
 		DeploymentComparisonBasisSuccessfulBaseline,
 		DeploymentComparisonBasisLastAttempt,
 		DeploymentComparisonBasisObservedState,
@@ -1333,6 +1335,8 @@ func (DeploymentComparisonBasis) AllValues() []DeploymentComparisonBasis {
 // MarshalText implements encoding.TextMarshaler.
 func (s DeploymentComparisonBasis) MarshalText() ([]byte, error) {
 	switch s {
+	case DeploymentComparisonBasisNone:
+		return []byte(s), nil
 	case DeploymentComparisonBasisSuccessfulBaseline:
 		return []byte(s), nil
 	case DeploymentComparisonBasisLastAttempt:
@@ -1347,6 +1351,9 @@ func (s DeploymentComparisonBasis) MarshalText() ([]byte, error) {
 // UnmarshalText implements encoding.TextUnmarshaler.
 func (s *DeploymentComparisonBasis) UnmarshalText(data []byte) error {
 	switch DeploymentComparisonBasis(data) {
+	case DeploymentComparisonBasisNone:
+		*s = DeploymentComparisonBasisNone
+		return nil
 	case DeploymentComparisonBasisSuccessfulBaseline:
 		*s = DeploymentComparisonBasisSuccessfulBaseline
 		return nil

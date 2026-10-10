@@ -28,7 +28,8 @@ func Encode(event events.Event) ([]byte, error) {
 	case *events.DeploySuccess:
 		return encodeDeployment(e.DeployEvent)
 	case *events.DeployFailed:
-		return encodeDeployment(e.DeployEvent)
+		payload := safeFailureCode(e.Error)
+		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, payload, e.Services)
 	case *events.DeployPreparationFailed:
 		if e.ErrorCode != "preparation_failed" {
 			return nil, errors.New("unsupported deployment preparation failure code")
@@ -93,10 +94,10 @@ func Decode(typ events.TypeName, version int, payload []byte) (events.Event, err
 			return &events.DeploySuccess{DeployEvent: p.deployment()}
 		})
 	case events.TypeNameDeployFailed:
-		return decodeAs(payload, func(p deployPayload) events.Event {
+		return decodeAs(payload, func(p deploymentFailurePayload) events.Event {
 			return &events.DeployFailed{
-				DeployEvent: p.deployment(),
-				Error:       errors.New("deployment failed; sensitive diagnostic output omitted"),
+				DeployEvent: events.DeployEvent{DeploymentID: p.DeploymentID, StackName: p.Stack, Commit: p.Commit, Services: p.services()},
+				Error: errors.New(safeFailureCode(errors.New(p.Code))),
 			}
 		})
 	case events.TypeNameDeployPreparationFailed:
@@ -231,6 +232,16 @@ func (p deploymentFailurePayload) services() []compose.Service {
 		result = append(result, compose.Service{Name: service.Name, Image: service.Image})
 	}
 	return result
+}
+
+func safeFailureCode(err error) string {
+	if err != nil {
+		switch err.Error() {
+		case "policy_rejected", "init_failed", "apply_failed", "prune_failed":
+			return err.Error()
+		}
+	}
+	return "apply_failed"
 }
 
 func encodeDeploymentFailure(

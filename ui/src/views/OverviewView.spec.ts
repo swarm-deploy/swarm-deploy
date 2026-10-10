@@ -6,7 +6,7 @@ import { fetchDeployments, fetchEvents } from "../api/overview";
 const store = vi.hoisted(() => ({
   syncInfo: null, services: [], stacks: [], loading: false, loadingError: "",
   loadOverview: vi.fn().mockResolvedValue(undefined),
-  openCommitDetailsModal: vi.fn(), openStackManifestModal: vi.fn(), openAlertDetailsModal: vi.fn(),
+  openCommitDetailsModal: vi.fn(), openDeploymentDetailsModal: vi.fn(), openStackManifestModal: vi.fn(), openAlertDetailsModal: vi.fn(),
 }));
 vi.mock("../stores/overview", () => ({ useOverviewStore: () => store }));
 vi.mock("../api/overview", () => ({
@@ -34,6 +34,12 @@ describe("Latest deployments", () => {
       expect(wrapper.find(`[aria-label="Deployment ${status}"]`).exists()).toBe(true);
     }
     expect(wrapper.findAll(".overview-deployment-stack")).toHaveLength(4);
+    await wrapper.findAll(".overview-deployment-open")[0].trigger("click");
+    expect(store.openDeploymentDetailsModal).toHaveBeenCalledWith("0");
+    expect(store.openCommitDetailsModal).not.toHaveBeenCalled();
+    await wrapper.findAll(".overview-summary-sha-badge")[0].trigger("click");
+    expect(store.openCommitDetailsModal).toHaveBeenCalledWith("abc123");
+    expect(store.openDeploymentDetailsModal).toHaveBeenCalledTimes(1);
     wrapper.unmount();
   });
 });

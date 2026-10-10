@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 
 import {
   fetchGitCommit,
+  fetchDeployment,
   fetchServiceDeployments,
   fetchServiceStatus,
   fetchStackManifestos,
@@ -11,6 +12,7 @@ import {
 import { fetchServices } from "../api/services";
 import type {
   Alert,
+  Deployment,
   GitCommitDetailsResponse,
   ServiceInfo,
   ServiceStatusResponse,
@@ -43,6 +45,12 @@ interface OverviewState {
   stackManifestStack: string;
   stackManifestDesired: string;
   stackManifestLive: string;
+  deploymentDetailsModalOpen: boolean;
+  deploymentDetailsID: string;
+  deploymentDetailsData: Deployment | null;
+  deploymentDetailsLoading: boolean;
+  deploymentDetailsError: string;
+  deploymentDetailsRequest: number;
   alertDetailsModalOpen: boolean;
   alertDetailsAlert: Alert | null;
 }
@@ -73,6 +81,12 @@ export const useOverviewStore = defineStore("overview", {
     stackManifestStack: "",
     stackManifestDesired: "",
     stackManifestLive: "",
+    deploymentDetailsModalOpen: false,
+    deploymentDetailsID: "",
+    deploymentDetailsData: null,
+    deploymentDetailsLoading: false,
+    deploymentDetailsError: "",
+    deploymentDetailsRequest: 0,
     alertDetailsModalOpen: false,
     alertDetailsAlert: null,
   }),
@@ -216,6 +230,33 @@ export const useOverviewStore = defineStore("overview", {
       this.stackManifestStack = "";
       this.stackManifestDesired = "";
       this.stackManifestLive = "";
+    },
+    async openDeploymentDetailsModal(id: string) {
+      if (!id) return;
+      const request = ++this.deploymentDetailsRequest;
+      this.deploymentDetailsModalOpen = true;
+      this.deploymentDetailsID = id;
+      this.deploymentDetailsData = null;
+      this.deploymentDetailsError = "";
+      this.deploymentDetailsLoading = true;
+      try {
+        const detail = await fetchDeployment(id);
+        if (request === this.deploymentDetailsRequest) this.deploymentDetailsData = detail;
+      } catch (error) {
+        if (request === this.deploymentDetailsRequest) {
+          this.deploymentDetailsError = error instanceof Error ? error.message : "Failed to load deployment";
+        }
+      } finally {
+        if (request === this.deploymentDetailsRequest) this.deploymentDetailsLoading = false;
+      }
+    },
+    closeDeploymentDetailsModal() {
+      ++this.deploymentDetailsRequest;
+      this.deploymentDetailsModalOpen = false;
+      this.deploymentDetailsID = "";
+      this.deploymentDetailsData = null;
+      this.deploymentDetailsLoading = false;
+      this.deploymentDetailsError = "";
     },
     openAlertDetailsModal(alert: Alert) {
       this.alertDetailsAlert = alert;

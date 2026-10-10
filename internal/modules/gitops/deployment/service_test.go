@@ -179,7 +179,9 @@ func TestListUsesLightweightCursorSummaries(t *testing.T) {
 	require.NotEmpty(t, first.NextCursor)
 	assert.Equal(t, "c", first.Deployments[0].Commit)
 	assert.Equal(t, StageSucceeded, first.Deployments[0].ApplyStatus)
-	assert.Equal(t, ActualStateObserved, first.Deployments[0].ActualStateStatus)
+	assert.Equal(t, ActualStateUnknown, first.Deployments[0].ActualStateStatus)
+	assert.Equal(t, StageSkipped, first.Deployments[0].VerificationStatus)
+	assert.Equal(t, ComparisonUnknown, first.Deployments[0].ComparisonStatus)
 	assert.NotZero(t, first.Deployments[0].Summary.Changed)
 	second, err := store.List(ctx, ListFilter{Limit: 2, Cursor: first.NextCursor})
 	require.NoError(t, err)
@@ -282,10 +284,10 @@ func TestPublicChangeFieldsHideGoModelRepresentation(t *testing.T) {
 		expected string
 	}{
 		{name: "environment map", path: "environment/Map/MODE", expected: "environment.MODE"},
-		{name: "command args", path: "command/Args/0", expected: "command"},
-		{name: "inline extra", path: "Extra/entrypoint/Args/0", expected: "entrypoint"},
-		{name: "volume wrappers", path: "volumes/Volumes/0/ReadOnly", expected: "volumes.read_only"},
-		{name: "network wrappers", path: "networks/List/0/IPV4Address", expected: "networks.ipv4_address"},
+		{name: "command args", path: "command/Args/0", expected: "command[0]"},
+		{name: "inline extra", path: "Extra/entrypoint/Args/0", expected: "entrypoint[0]"},
+		{name: "volume wrappers", path: "volumes/Volumes/0/ReadOnly", expected: "volumes[0].read_only"},
+		{name: "network wrappers", path: "networks/List/0/IPV4Address", expected: "networks[0].ipv4_address"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -386,4 +388,67 @@ func TestCommandSemanticsDriveDeploymentAttempts(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, changed)
 	assert.NotEqual(t, baseline.ID, changed.ID)
+}
+
+func TestNoBaselineNeverClaimsObservedState(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.Open(ctx, t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+	service := NewService(db, outbox.New(db))
+	attempt, err := service.StartIfChanged(ctx, "app", "first", desired("api:1"), true)
+	require.NoError(t, err)
+	require.NotNil(t, attempt)
+	assert.Equal(t, BasisNone, attempt.ComparisonBasis)
+	assert.Equal(t, ComparisonUnknown, attempt.ComparisonStatus)
+	require.NoError(t, service.SucceedObserved(ctx, attempt.ID, model.Stack{}, time.Now()))
+	stored, err := NewStore(db).Get(ctx, attempt.ID)
+	require.NoError(t, err)
+	assert.Equal(t, StageSkipped, stored.VerificationStatus)
+	assert.Equal(t, ActualStateObserved, stored.ActualStateStatus)
+	assert.Equal(t, ComparisonUnknown, stored.ComparisonStatus)
+}
+
+func TestIndependentCollectionChangesAndReorder(t *testing.T) {
+	parse := func(ports, volumes string) Prepared {
+		parsed, err := compose.Parse([]byte("services:\n  api:\n    image: api:1\n    ports:\n" + ports + "    volumes:\n" + volumes))
+		require.NoError(t, err)
+		result, err := Prepare(compose.File{Compose: *parsed})
+		require.NoError(t, err)
+		return result
+	}
+	before := parse("      - '8080:80'\n      - '8081:81'\n",
+		"      - 'db:/data'\n      - 'cache:/cache'\n")
+	after := parse("      - '9091:81'\n      - '9090:80'\n",
+		"      - 'cache2:/cache'\n      - 'db2:/data'\n")
+	changes := Compare(before, after)
+	fields := map[string]Change{}
+	for _, c := range changes { fields[c.Field] = c }
+	for field, values := range map[string][2]string{
+		"ports[80/tcp].published": {"8080", "9090"},
+		"ports[81/tcp].published": {"8081", "9091"},
+		"volumes[/data].source": {"db", "db2"},
+		"volumes[/cache].source": {"cache", "cache2"},
+	} {
+		change, ok := fields[field]
+		require.True(t, ok, "missing %s: %#v", field, changes)
+		require.NotNil(t, change.Before)
+		require.NotNil(t, change.After)
+		assert.Equal(t, values[0], *change.Before)
+		assert.Equal(t, values[1], *change.After)
+		assert.Equal(t, OperationChanged, change.Operation)
+	}
+	assert.Equal(t, 4, len(changes), "independent transitions must not merge")
+	assert.Equal(t, before.Digest, parse("      - '8081:81'\n      - '8080:80'\n",
+		"      - 'cache:/cache'\n      - 'db:/data'\n").Digest)
+	added := parse("      - '8080:80'\n      - '8082:82'\n",
+		"      - 'db:/data'\n")
+	transitions := Compare(before, added)
+	var sawAdded, sawRemoved bool
+	for _, c := range transitions {
+		if c.Operation == OperationAdded && strings.Contains(c.Field, "[82/tcp]") { sawAdded = true }
+		if c.Operation == OperationRemoved && strings.Contains(c.Field, "[81/tcp]") { sawRemoved = true }
+	}
+	assert.True(t, sawAdded)
+	assert.True(t, sawRemoved)
 }

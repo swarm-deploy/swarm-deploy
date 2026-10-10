@@ -61,7 +61,7 @@ components:
       enum: [known, unknown]
     DeploymentComparisonBasis:
       type: string
-      enum: [successful_baseline, last_attempt, observed_state]
+      enum: [none, successful_baseline, last_attempt, observed_state]
     DeploymentChangeOperation:
       type: string
       enum: [added, changed, removed]

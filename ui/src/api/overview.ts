@@ -2,6 +2,7 @@ import { apiRequest } from "./client";
 import type {
   AlertsResponse,
   DeploymentsResponse,
+  Deployment,
   AlertStatus,
   EventHistoryResponse,
   GitCommitDetailsResponse,
@@ -135,6 +136,10 @@ export function fetchStackManifestos(stackName: string): Promise<StackManifestos
   const encodedStack = encodeURIComponent(stackName);
   return apiRequest<StackManifestosResponse>(`/api/v1/stacks/${encodedStack}/manifestos`);
 }
+export function fetchDeployment(id: string): Promise<Deployment> {
+  return apiRequest<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}`);
+}
+
 export function fetchDeployments(options: { stack?: string; limit?: number; cursor?: string } = {}): Promise<DeploymentsResponse> {
   const params = new URLSearchParams();
   if (options.stack) params.set("stack", options.stack);

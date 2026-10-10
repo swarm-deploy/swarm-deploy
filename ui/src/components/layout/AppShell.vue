@@ -12,6 +12,7 @@ import TopBar from "./TopBar.vue";
 import ServiceStatusModal from "../overview/ServiceStatusModal.vue";
 import AlertDetailsModal from "../overview/AlertDetailsModal.vue";
 import CommitDetailsModal from "../overview/CommitDetailsModal.vue";
+import DeploymentDetailsModal from "../overview/DeploymentDetailsModal.vue";
 import StackManifestModal from "../overview/StackManifestModal.vue";
 import SecretDetailsModal from "../secrets/SecretDetailsModal.vue";
 
@@ -89,6 +90,7 @@ onMounted(() => {
     <ServiceStatusModal />
     <AlertDetailsModal />
     <CommitDetailsModal />
+    <DeploymentDetailsModal />
     <StackManifestModal />
     <SecretDetailsModal />
     <AssistantDrawer />

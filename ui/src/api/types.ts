@@ -431,7 +431,7 @@ export type DeploymentPhase = "apply" | "verification" | "cleanup" | "completed"
 export type DeploymentStageStatus = "pending" | "running" | "succeeded" | "failed" | "unknown" | "skipped";
 export type DeploymentActualStateStatus = "observed" | "unknown";
 export type DeploymentComparisonStatus = "known" | "unknown";
-export type DeploymentComparisonBasis = "successful_baseline" | "last_attempt" | "observed_state";
+export type DeploymentComparisonBasis = "none" | "successful_baseline" | "last_attempt" | "observed_state";
 export interface DeploymentChange {
   resourceType: string;
   resourceName: string;

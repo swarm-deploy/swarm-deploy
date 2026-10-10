@@ -87,10 +87,10 @@ func (s *Service) comparisonBasis(
 	}
 	if baselineErr == nil {
 		id, err = s.store.baselineDeploymentID(ctx, stack)
-		return baseline, BasisSuccessfulBaseline, ComparisonKnown, id, err
+		return baseline, BasisSuccessfulBaseline, ComparisonUnknown, id, err
 	}
 	if errors.Is(baselineErr, ErrNotFound) {
-		return Prepared{}, BasisObservedState, ComparisonUnknown, "", nil
+		return Prepared{}, BasisNone, ComparisonUnknown, "", nil
 	}
 	return Prepared{}, "", "", "", baselineErr
 }
@@ -123,13 +123,14 @@ func (s *Service) shouldStart(
 // Succeed commits success, the successful baseline, runtime state and source event in T1.
 // A commit failure leaves running; callers must not reinterpret it as an apply failure.
 func (s *Service) Succeed(ctx context.Context, id string, state model.Stack) error {
-	return s.SucceedObserved(ctx, id, state, s.now().UTC())
+	return s.complete(ctx, id, state, completion{status: Succeeded, phase: PhaseCompleted,
+		apply: StageSucceeded, verification: StageSkipped, cleanup: StageSucceeded, actual: ActualStateUnknown})
 }
 
-// SucceedObserved records a successful apply, verification and cleanup outcome.
+// SucceedObserved records a successful apply and a read of live services, not convergence.
 func (s *Service) SucceedObserved(ctx context.Context, id string, state model.Stack, observedAt time.Time) error {
 	return s.complete(ctx, id, state, completion{status: Succeeded, phase: PhaseCompleted,
-		apply: StageSucceeded, verification: StageSucceeded, cleanup: StageSucceeded,
+		apply: StageSucceeded, verification: StageSkipped, cleanup: StageSucceeded,
 		actual: ActualStateObserved, observedAt: &observedAt})
 }
 
@@ -172,7 +173,7 @@ func (s *Service) FailCleanup(
 		return fmt.Errorf("unsupported cleanup failure code")
 	}
 	return s.complete(ctx, id, state, completion{status: Failed, code: code, phase: PhaseCleanup,
-		apply: StageSucceeded, verification: StageSucceeded, cleanup: StageFailed,
+		apply: StageSucceeded, verification: StageSkipped, cleanup: StageFailed,
 		actual: ActualStateObserved, observedAt: &observedAt})
 }
 

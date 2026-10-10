@@ -194,3 +194,20 @@ page but remain separate tables and repositories. Operator replay/discard comman
 are supplied by the `sd` binary. See [the implementation ledger](sqlite-outbox-progress.md)
 and [migration/operations notes](../../example/README-sqlite.md). No production rollout,
 remote CI run or merge is implied by local verification.
+
+
+## Deployment detail presentation and comparison limits
+
+Overview and the paginated Deployments page open the same Deployment Details dialog
+by attempt ID. The list endpoint returns summaries only; detail is loaded on demand.
+Git commit details remain a separate action. Changes are grouped by resource and
+field, with before/after values or masks. Missing values and empty strings are
+distinct. Sensitive executable fields and secret content remain masked.
+
+`comparison_basis=none` means the first desired snapshot has no trustworthy
+previous baseline. `successful_baseline` and `last_attempt` compare desired
+snapshots, not measured live state. ListStackServices records a technical read
+(`actual_state_status=observed`), while `verification_status=skipped` and
+`comparison_status=unknown` remain until real convergence verification is built.
+`succeeded` still means the apply pipeline completed. Failed and interrupted
+attempts display planned desired changes, not asserted applied changes.

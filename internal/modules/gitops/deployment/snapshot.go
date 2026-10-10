@@ -89,6 +89,20 @@ func normalize(value any) {
 		// already been merged into environment and can contain duplicate raw values.
 		delete(node, "Keys")
 		delete(node, "env_file")
+		// ServiceVolumes.Map and ServiceNetworks.AliasMap duplicate their lists.
+		if _, isVolumeList := node["Volumes"]; isVolumeList { delete(node, "Map") }
+		if _, isNetworkList := node["List"]; isNetworkList {
+			delete(node, "AliasMap")
+			delete(node, "Names")
+			delete(node, "Aliases")
+		}
+		for _, listKey := range []string{"Ports", "Volumes", "List", "cap_add", "cap_drop", "secrets", "configs"} {
+			if list, ok := node[listKey].([]any); ok {
+				sort.SliceStable(list, func(i, j int) bool {
+					left, _ := json.Marshal(list[i]); right, _ := json.Marshal(list[j]); return bytes.Compare(left, right) < 0
+				})
+			}
+		}
 		for _, child := range node {
 			normalize(child)
 		}
@@ -205,7 +219,6 @@ func Compare(before, after Prepared) []Change {
 	}
 	sort.Strings(ordered)
 	changes := []Change{}
-	positions := map[string]int{}
 	for _, path := range ordered {
 		old, hadOld := before.Fields[path]
 		current, hasCurrent := after.Fields[path]
@@ -231,12 +244,6 @@ func Compare(before, after Prepared) []Change {
 		if hasCurrent {
 			change.After = &current
 		}
-		key := change.ResourceType + "\x00" + change.ResourceName + "\x00" + change.Field
-		if position, exists := positions[key]; exists {
-			changes[position] = mergeChange(changes[position], change)
-			continue
-		}
-		positions[key] = len(changes)
 		changes = append(changes, change)
 	}
 	return changes
@@ -274,14 +281,19 @@ func publicField(parts []string) string {
 	fields := make([]string, 0, len(parts))
 	for _, part := range parts {
 		switch part {
-		case "Map", "Keys", "Args", "Extra", "IsList", "Ports", "Volumes", "Names", "List", "AliasMap",
+		case "Map", "Keys", "Args", "Extra", "Ports", "Volumes", "Names", "List", "AliasMap",
 			"Alias", "ResolvedName":
 			continue
 		}
 		if _, err := strconv.Atoi(part); err == nil {
+			if len(fields) > 0 { fields[len(fields)-1] += "[" + part + "]" }
 			continue
 		}
-		fields = append(fields, publicSegment(part))
+		if strings.HasPrefix(part, "@") {
+			if len(fields) > 0 { fields[len(fields)-1] += "[" + strings.ReplaceAll(strings.ReplaceAll(part[1:], "~1", "/"), "~0", "~") + "]" }
+			continue
+		}
+		fields = append(fields, publicSegment(strings.ReplaceAll(strings.ReplaceAll(part, "~1", "/"), "~0", "~")))
 	}
 	return strings.Join(fields, ".")
 }
@@ -304,20 +316,6 @@ func publicSegment(value string) string {
 		result.WriteRune(current)
 	}
 	return result.String()
-}
-
-func mergeChange(existing, next Change) Change {
-	existing.Redacted = existing.Redacted || next.Redacted
-	if existing.Before == nil {
-		existing.Before = next.Before
-	}
-	if next.After != nil {
-		existing.After = next.After
-	}
-	if existing.Operation != next.Operation {
-		existing.Operation = OperationChanged
-	}
-	return existing
 }
 
 func summarize(changes []Change) (ChangeSummary, ResourceSummary) {
@@ -345,23 +343,34 @@ func summarize(changes []Change) (ChangeSummary, ResourceSummary) {
 }
 
 func (p *Prepared) sanitizeList(node []any, path, key string) any {
+	used := map[string]int{}
 	for i, child := range node {
 		segment := strconv.Itoa(i)
 		if object, ok := child.(map[string]any); ok {
-			if name, named := object["name"].(string); named && name != "" {
-				segment = name
+			switch {
+			case object["name"] != nil:
+				segment = fmt.Sprint(object["name"])
+			case object["Target"] != nil:
+				segment = "@" + fmt.Sprint(object["Target"])
+			case object["target"] != nil:
+				segment = "@" + fmt.Sprint(object["target"])
+				if object["protocol"] != nil { segment += "/" + fmt.Sprint(object["protocol"]) }
+			case object["Alias"] != nil:
+				segment = "@" + fmt.Sprint(object["Alias"])
 			}
 		}
+		// Duplicate identities remain distinct; no change may be merged with
+		// another element merely because its public field name is the same.
+		count := used[segment]
+		used[segment] = count + 1
+		if count > 0 { segment += fmt.Sprintf("#%d", count) }
 		fieldKey := key
 		if i > 0 {
 			if previous, ok := node[i-1].(string); ok && strings.HasPrefix(previous, "-") {
-				if _, masked := envmasker.Mask(previous, "test-value"); masked {
-					fieldKey = previous
-				}
+				if _, masked := envmasker.Mask(previous, "test-value"); masked { fieldKey = previous }
 			}
 		}
 		node[i] = p.sanitize(child, joinPath(path, segment), fieldKey)
 	}
-
 	return node
 }

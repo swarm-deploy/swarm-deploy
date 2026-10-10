@@ -750,6 +750,8 @@ func (s DeploymentChangeOperation) Validate() error {
 
 func (s DeploymentComparisonBasis) Validate() error {
 	switch s {
+	case "none":
+		return nil
 	case "successful_baseline":
 		return nil
 	case "last_attempt":

@@ -65,3 +65,18 @@ func TestVersionAndPayloadValidation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) { _, err := Decode(tc.typ, tc.version, []byte(tc.payload)); require.Error(t, err) })
 	}
 }
+
+func TestDeploymentFailureCategorySurvivesCodec(t *testing.T) {
+	for _, code := range []string{"policy_rejected", "init_failed", "apply_failed", "prune_failed"} {
+		event := &events.DeployFailed{DeployEvent: events.DeployEvent{StackName: "app"}, Error: errors.New(code)}
+		payload, err := Encode(event)
+		require.NoError(t, err)
+		assert.Contains(t, string(payload), code)
+		decoded, err := Decode(events.TypeNameDeployFailed, Version, payload)
+		require.NoError(t, err)
+		assert.Equal(t, code, decoded.(*events.DeployFailed).Error.Error())
+	}
+	payload, err := Encode(&events.DeployFailed{Error: errors.New("secret diagnostic")})
+	require.NoError(t, err)
+	assert.NotContains(t, string(payload), "secret diagnostic")
+}

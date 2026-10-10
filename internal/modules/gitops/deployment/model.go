@@ -26,9 +26,9 @@ const (
 type ComparisonStatus string
 
 const (
-	// ComparisonKnown means the comparison basis is known to match observed state.
+	// ComparisonKnown is reserved for a verified comparison with live state.
 	ComparisonKnown ComparisonStatus = "known"
-	// ComparisonUnknown means a prior attempt may have partially changed Swarm.
+	// ComparisonUnknown means live convergence has not been verified.
 	ComparisonUnknown ComparisonStatus = "unknown"
 )
 
@@ -36,6 +36,8 @@ const (
 type ComparisonBasis string
 
 const (
+	// BasisNone means no trustworthy previous snapshot exists.
+	BasisNone ComparisonBasis = "none"
 	// BasisSuccessfulBaseline compares with the last successfully committed desired snapshot.
 	BasisSuccessfulBaseline ComparisonBasis = "successful_baseline"
 	// BasisLastAttempt compares with the desired snapshot of the latest uncertain attempt.
@@ -193,7 +195,7 @@ type Deployment struct {
 	Phase Phase `json:"phase"`
 	// ApplyStatus reports Docker apply independently from later stages.
 	ApplyStatus StageStatus `json:"apply_status"`
-	// VerificationStatus reports post-apply live-state observation.
+	// VerificationStatus reports explicit convergence verification (currently skipped).
 	VerificationStatus StageStatus `json:"verification_status"`
 	// CleanupStatus reports post-apply pruning.
 	CleanupStatus StageStatus `json:"cleanup_status"`
@@ -203,7 +205,7 @@ type Deployment struct {
 	ObservedAt *time.Time `json:"observed_at,omitempty"`
 	// ComparisonBasis identifies the snapshot used to calculate Changes.
 	ComparisonBasis ComparisonBasis `json:"comparison_basis"`
-	// ComparisonStatus reports whether that diff describes known actual state.
+	// ComparisonStatus reports whether live state has been verified against desired.
 	ComparisonStatus ComparisonStatus `json:"comparison_status"`
 	// BasisDeploymentID identifies the attempt that supplied the basis snapshot.
 	BasisDeploymentID string `json:"basis_deployment_id,omitempty"`
@@ -235,7 +237,7 @@ type DeploymentSummary struct {
 	Phase Phase
 	// ApplyStatus reports Docker apply independently from later stages.
 	ApplyStatus StageStatus
-	// VerificationStatus reports live-state observation.
+	// VerificationStatus reports explicit convergence verification.
 	VerificationStatus StageStatus
 	// CleanupStatus reports pruning.
 	CleanupStatus StageStatus
@@ -245,7 +247,7 @@ type DeploymentSummary struct {
 	ObservedAt *time.Time
 	// ComparisonBasis identifies the diff basis snapshot.
 	ComparisonBasis ComparisonBasis
-	// ComparisonStatus reports whether actual state is known.
+	// ComparisonStatus reports whether live state has been verified against desired.
 	ComparisonStatus ComparisonStatus
 	// BasisDeploymentID identifies the attempt supplying the basis.
 	BasisDeploymentID string
