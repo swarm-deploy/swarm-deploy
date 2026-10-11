@@ -56,6 +56,28 @@ func TestRestartAndRollback(t *testing.T) {
 	assert.Equal(t, 1, count)
 }
 
+func TestFreshDatabaseHasAlertIndexedSchema(t *testing.T) {
+	db, err := Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	rows, err := db.Get(t.Context()).QueryContext(t.Context(), "PRAGMA table_info(alerts)")
+	require.NoError(t, err)
+	defer rows.Close()
+	notNull := map[string]bool{}
+	for rows.Next() {
+		var cid, required, primaryKey int
+		var name, columnType string
+		var defaultValue any
+		require.NoError(t, rows.Scan(&cid, &name, &columnType, &required, &defaultValue, &primaryKey))
+		notNull[name] = required == 1
+	}
+	require.NoError(t, rows.Err())
+	assert.True(t, notNull["kind"])
+	assert.True(t, notNull["resource_type"])
+	assert.True(t, notNull["resource_id"])
+}
+
 func TestNestedTransactions(t *testing.T) {
 	sentinel := errors.New("rollback requested")
 	for _, tc := range []struct {

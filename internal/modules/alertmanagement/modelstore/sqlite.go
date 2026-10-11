@@ -40,12 +40,16 @@ func (s *SQLStore) write(ctx context.Context, alert model.Alert, update bool) er
 		resolved = alert.ResolvedAt.UnixNano()
 	}
 	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		query := `INSERT INTO alerts(fingerprint,status,updated_at_ns,resolved_at_ns,payload,id) VALUES (?,?,?,?,?,?)`
+		query := `INSERT INTO alerts
+			(fingerprint,kind,resource_type,resource_id,status,updated_at_ns,resolved_at_ns,payload,id)
+			VALUES (?,?,?,?,?,?,?,?,?)`
 		if update {
-			query = `UPDATE alerts SET fingerprint=?,status=?,updated_at_ns=?,resolved_at_ns=?,payload=? WHERE id=?`
+			query = `UPDATE alerts SET fingerprint=?,kind=?,resource_type=?,resource_id=?,status=?,
+				updated_at_ns=?,resolved_at_ns=?,payload=? WHERE id=?`
 		}
 		result, writeErr := s.db.Get(ctx).ExecContext(ctx, query,
-			alert.Fingerprint, alert.Status, alert.UpdatedAt.UnixNano(), resolved, string(payload), alert.ID)
+			alert.Fingerprint, alert.Kind, alert.ResourceType, alert.ResourceID, alert.Status,
+			alert.UpdatedAt.UnixNano(), resolved, string(payload), alert.ID)
 		if writeErr != nil {
 			var constraint *sqlite.Error
 			if errors.As(writeErr, &constraint) && constraint.Code() == sqlitecode.SQLITE_CONSTRAINT_UNIQUE {
@@ -94,15 +98,15 @@ func (s *SQLStore) List(ctx context.Context, filter ListFilter) ([]model.Alert, 
 		args = append(args, filter.Status)
 	}
 	if filter.Kind != "" {
-		query += " AND json_extract(payload,'$.kind')=?"
+		query += " AND kind=?"
 		args = append(args, filter.Kind)
 	}
 	if filter.ResourceType != "" {
-		query += " AND json_extract(payload,'$.resourceType')=?"
+		query += " AND resource_type=?"
 		args = append(args, filter.ResourceType)
 	}
 	if filter.ResourceID != "" {
-		query += " AND json_extract(payload,'$.resourceId')=?"
+		query += " AND resource_id=?"
 		args = append(args, filter.ResourceID)
 	}
 	query += " ORDER BY updated_at_ns DESC,id"
