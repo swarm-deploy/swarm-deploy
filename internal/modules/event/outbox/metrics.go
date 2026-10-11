@@ -18,7 +18,7 @@ func (b *Bus) Describe(ch chan<- *prometheus.Desc) { ch <- deliveriesDesc }
 func (b *Bus) Collect(ch chan<- prometheus.Metric) {
 	ctx, cancel := context.WithTimeout(context.Background(), databaseOperationTimeout)
 	defer cancel()
-	rows, err := b.db.Get(ctx).QueryContext(ctx, `SELECT status,subscription_id,count(*)
+	rows, err := b.db.Query(ctx, `SELECT status,subscription_id,count(*)
 		FROM outbox_deliveries GROUP BY status,subscription_id`)
 	if err != nil {
 		ch <- prometheus.NewInvalidMetric(deliveriesDesc, err)

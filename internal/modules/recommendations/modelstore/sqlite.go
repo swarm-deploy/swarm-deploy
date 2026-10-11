@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/doug-martin/goqu/v9"
+	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
@@ -16,18 +18,36 @@ func NewSQLStore(db *storage.Database) *SQLStore { return &SQLStore{db: db} }
 
 // List filters recommendations in their persisted sequence.
 func (s *SQLStore) List(ctx context.Context, filter ListFilter) ([]model.Recommendation, error) {
-	query := "SELECT payload FROM recommendations WHERE 1=1"
-	args := []any{}
+	dataset := goqu.Dialect("sqlite3").From("recommendations").Prepared(true).Select("payload")
 	if filter.Stack != "" {
-		query += " AND stack=?"
-		args = append(args, filter.Stack)
+		dataset = dataset.Where(goqu.Ex{"stack": filter.Stack})
 	}
-	query += " ORDER BY sequence"
+	dataset = dataset.Order(goqu.I("sequence").Asc())
 	if filter.Limit > 0 {
-		query += " LIMIT ?"
-		args = append(args, filter.Limit)
+		dataset = dataset.Limit(uint(filter.Limit))
 	}
-	return storage.QueryJSON[model.Recommendation](ctx, s.db.Get, query, args...)
+	query, args, err := dataset.ToSQL()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []model.Recommendation{}
+	for rows.Next() {
+		var payload []byte
+		if err = rows.Scan(&payload); err != nil {
+			return nil, err
+		}
+		var recommendation model.Recommendation
+		if err = json.Unmarshal(payload, &recommendation); err != nil {
+			return nil, err
+		}
+		result = append(result, recommendation)
+	}
+	return result, rows.Err()
 }
 
 // UpdateStack atomically replaces a stack's recommendations.
@@ -41,7 +61,7 @@ func (s *SQLStore) UpdateStack(ctx context.Context, stack string, recommendation
 		for _, r := range previous {
 			byID[r.ID()] = r
 		}
-		if _, err = s.db.Get(ctx).ExecContext(ctx, "DELETE FROM recommendations WHERE stack=?", stack); err != nil {
+		if _, err = s.db.Exec(ctx, "DELETE FROM recommendations WHERE stack=?", stack); err != nil {
 			return err
 		}
 		for _, r := range recommendations {
@@ -53,7 +73,7 @@ func (s *SQLStore) UpdateStack(ctx context.Context, stack string, recommendation
 			if encodeErr != nil {
 				return encodeErr
 			}
-			if _, err = s.db.Get(ctx).ExecContext(ctx, `INSERT INTO recommendations(id,stack,payload)
+			if _, err = s.db.Exec(ctx, `INSERT INTO recommendations(id,stack,payload)
 				VALUES (?,?,?) ON CONFLICT(id) DO NOTHING`, r.ID(), stack, string(payload)); err != nil {
 				return err
 			}

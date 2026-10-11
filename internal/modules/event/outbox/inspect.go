@@ -18,7 +18,7 @@ type FailedDelivery struct {
 
 // ListFailed returns retained terminal failures for explicit operator action.
 func (b *Bus) ListFailed(ctx context.Context) ([]FailedDelivery, error) {
-	rows, err := b.db.Get(ctx).QueryContext(ctx, `SELECT d.event_id,d.subscription_id,e.event_type,
+	rows, err := b.db.Query(ctx, `SELECT d.event_id,d.subscription_id,e.event_type,
  d.attempts,coalesce(d.last_error,'')
  FROM outbox_deliveries d JOIN outbox_events e ON e.id=d.event_id WHERE d.status='failed'
  ORDER BY d.updated_at_ms,d.event_id,d.subscription_id`)

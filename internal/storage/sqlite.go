@@ -20,11 +20,10 @@ const maxConnections = 4
 
 // Database owns one pool and one context-aware transaction manager.
 type Database struct {
-	db *sql.DB
+	db  *sql.DB
+	get stdlib.DBGetter
 	// Transactor propagates transaction boundaries through context.
 	transactor.Transactor
-	// Get selects the active transaction or the shared database pool.
-	Get stdlib.DBGetter
 }
 
 // Open initializes the database on a local persistent volume.
@@ -54,7 +53,7 @@ func Open(ctx context.Context, dataDir string) (*Database, error) {
 	db.SetMaxOpenConns(maxConnections)
 	db.SetMaxIdleConns(maxConnections)
 	tr, get := stdlib.NewTransactor(db, stdlib.NestedTransactionsSavepoints)
-	s := &Database{db: db, Transactor: tr, Get: get}
+	s := &Database{db: db, get: get, Transactor: tr}
 	migrations, err := goose.NewProvider(
 		goose.DialectSQLite3,
 		db,
@@ -69,6 +68,21 @@ func Open(ctx context.Context, dataDir string) (*Database, error) {
 		return nil, fmt.Errorf("initialize SQLite: %w", err)
 	}
 	return s, nil
+}
+
+// Query executes a query using the active transaction or the shared database pool.
+func (s *Database) Query(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return s.get(ctx).QueryContext(ctx, query, args...)
+}
+
+// QueryRow executes a single-row query using the active transaction or the shared database pool.
+func (s *Database) QueryRow(ctx context.Context, query string, args ...any) *sql.Row {
+	return s.get(ctx).QueryRowContext(ctx, query, args...)
+}
+
+// Exec executes a statement using the active transaction or the shared database pool.
+func (s *Database) Exec(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	return s.get(ctx).ExecContext(ctx, query, args...)
 }
 
 // Close releases connections after application workers have stopped.

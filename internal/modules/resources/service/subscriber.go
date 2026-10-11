@@ -144,7 +144,7 @@ func (s *Subscriber) persistProjection(
 		if deploySuccess.DeploymentID != "" {
 			var current bool
 			query := "SELECT EXISTS(SELECT 1 FROM desired_snapshots WHERE stack=? AND deployment_id=?)"
-			readErr := s.db.Get(ctx).QueryRowContext(
+			readErr := s.db.QueryRow(
 				ctx, query, deploySuccess.StackName, deploySuccess.DeploymentID,
 			).Scan(&current)
 			if readErr != nil {
@@ -154,7 +154,7 @@ func (s *Subscriber) persistProjection(
 				return nil
 			}
 		}
-		result, err := s.db.Get(ctx).ExecContext(ctx,
+		result, err := s.db.Exec(ctx,
 			"INSERT INTO service_catalog_receipts(source_event_id) VALUES(?) ON CONFLICT DO NOTHING", sourceID)
 		if err != nil {
 			return err

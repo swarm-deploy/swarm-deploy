@@ -2,10 +2,13 @@ package deployment
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
+	"github.com/doug-martin/goqu/v9"
+	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	"github.com/google/uuid"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -127,7 +130,7 @@ func (s *Service) shouldStart(
 		return true, nil
 	}
 	var retry bool
-	err := s.db.Get(ctx).QueryRowContext(ctx, `SELECT EXISTS(
+	err := s.db.QueryRow(ctx, `SELECT EXISTS(
     SELECT 1 FROM deployments WHERE stack=? AND status IN ('failed','interrupted'))`, stack).Scan(&retry)
 	return retry, err
 }
@@ -289,12 +292,7 @@ func (s *Service) InterruptStack(ctx context.Context, stack string) error {
 
 func (s *Service) interrupt(ctx context.Context, stack string) error {
 	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		query, args := "SELECT payload FROM deployments WHERE status='running'", []any{}
-		if stack != "" {
-			query += " AND stack=?"
-			args = append(args, stack)
-		}
-		running, err := storage.QueryJSON[Deployment](ctx, s.db.Get, query, args...)
+		running, err := s.running(ctx, stack)
 		if err != nil {
 			return err
 		}
@@ -306,6 +304,36 @@ func (s *Service) interrupt(ctx context.Context, stack string) error {
 		}
 		return nil
 	})
+}
+
+func (s *Service) running(ctx context.Context, stack string) ([]Deployment, error) {
+	dataset := goqu.Dialect("sqlite3").From("deployments").Prepared(true).
+		Select("payload").Where(goqu.Ex{"status": Running})
+	if stack != "" {
+		dataset = dataset.Where(goqu.Ex{"stack": stack})
+	}
+	query, args, err := dataset.ToSQL()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	running := []Deployment{}
+	for rows.Next() {
+		var payload []byte
+		if err = rows.Scan(&payload); err != nil {
+			return nil, err
+		}
+		var deployment Deployment
+		if err = json.Unmarshal(payload, &deployment); err != nil {
+			return nil, err
+		}
+		running = append(running, deployment)
+	}
+	return running, rows.Err()
 }
 
 func (s *Service) interruptOne(ctx context.Context, d Deployment, now time.Time) error {

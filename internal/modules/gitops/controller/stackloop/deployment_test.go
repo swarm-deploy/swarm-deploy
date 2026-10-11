@@ -60,7 +60,7 @@ func TestReconcileDeploymentBoundaries(t *testing.T) {
 					require.Len(t, attempts.Deployments, 1)
 					assert.Equal(t, deployment.Running, attempts.Deployments[0].Status, "running must be committed before apply")
 					if scenario == "success commit failure" {
-						_, err = db.Get(ctx).ExecContext(ctx, "CREATE TRIGGER fail_event BEFORE INSERT ON outbox_events BEGIN SELECT RAISE(ABORT,'injected'); END")
+						_, err = db.Exec(ctx, "CREATE TRIGGER fail_event BEFORE INSERT ON outbox_events BEGIN SELECT RAISE(ABORT,'injected'); END")
 						require.NoError(t, err)
 					}
 					return nil
@@ -75,7 +75,7 @@ func TestReconcileDeploymentBoundaries(t *testing.T) {
 				assert.Equal(t, deployment.Running, attempts.Deployments[0].Status)
 				_, err = repo.Baseline(ctx, "app")
 				require.ErrorIs(t, err, deployment.ErrNotFound)
-				_, err = db.Get(ctx).ExecContext(ctx, "DROP TRIGGER fail_event")
+				_, err = db.Exec(ctx, "DROP TRIGGER fail_event")
 				require.NoError(t, err)
 				req.Commit = "second"
 				require.NoError(t, r.Reconcile(ctx, req))
@@ -125,7 +125,7 @@ func TestReconcileRecoversFailedResultPersistenceInSameProcess(t *testing.T) {
 	}, bus, &metrics.NopDeploys{}, state, fs.NewLocalFileSystem(), db)
 	docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, _ string, _ string, _ string, _ compose.Compose) error {
-			_, err := db.Get(ctx).ExecContext(ctx,
+			_, err := db.Exec(ctx,
 				"CREATE TRIGGER fail_event BEFORE INSERT ON outbox_events BEGIN SELECT RAISE(ABORT,'injected'); END")
 			require.NoError(t, err)
 			return assert.AnError
@@ -137,7 +137,7 @@ func TestReconcileRecoversFailedResultPersistenceInSameProcess(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, attempts.Deployments, 1)
 	assert.Equal(t, deployment.Running, attempts.Deployments[0].Status)
-	_, err = db.Get(ctx).ExecContext(ctx, "DROP TRIGGER fail_event")
+	_, err = db.Exec(ctx, "DROP TRIGGER fail_event")
 	require.NoError(t, err)
 	docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 	services.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{}, nil).AnyTimes()
@@ -174,7 +174,7 @@ func TestReconcileRecoversInterruptedCompletionConflictAndAppliesCorrectedDesire
 	}, bus, &metrics.NopDeploys{}, state, fs.NewLocalFileSystem(), db)
 	docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, _ string, _ string, _ string, _ compose.Compose) error {
-			_, triggerErr := db.Get(ctx).ExecContext(ctx,
+			_, triggerErr := db.Exec(ctx,
 				"CREATE TRIGGER fail_event BEFORE INSERT ON outbox_events BEGIN SELECT RAISE(ABORT,'injected'); END")
 			require.NoError(t, triggerErr)
 			return errors.New("invalid image digest")
@@ -187,7 +187,7 @@ func TestReconcileRecoversInterruptedCompletionConflictAndAppliesCorrectedDesire
 	require.Len(t, page.Deployments, 1)
 	staleID := page.Deployments[0].ID
 	assert.Equal(t, deployment.Running, page.Deployments[0].Status)
-	_, err = db.Get(ctx).ExecContext(ctx, "DROP TRIGGER fail_event")
+	_, err = db.Exec(ctx, "DROP TRIGGER fail_event")
 	require.NoError(t, err)
 
 	secondInstance := deployment.NewService(db, bus)
@@ -259,11 +259,11 @@ func TestReconcileRecoversSucceededCompletionConflictWithoutContradictoryOutcome
 	require.NoError(t, err)
 	assert.Equal(t, "nginx:2", baseline.Definition.Compose.Services[0].Image)
 	var failedEvents int
-	require.NoError(t, db.Get(ctx).QueryRowContext(ctx,
+	require.NoError(t, db.QueryRow(ctx,
 		"SELECT count(*) FROM outbox_events WHERE event_type=?", events.TypeNameDeployFailed).Scan(&failedEvents))
 	assert.Zero(t, failedEvents, "obsolete recovery must not publish a contradictory failure")
 	var successEvents int
-	require.NoError(t, db.Get(ctx).QueryRowContext(ctx,
+	require.NoError(t, db.QueryRow(ctx,
 		"SELECT count(*) FROM outbox_events WHERE event_type=?", events.TypeNameDeploySuccess).Scan(&successEvents))
 	assert.Equal(t, 2, successEvents, "each real successful attempt must publish exactly once")
 }
@@ -276,7 +276,7 @@ func TestPreparationFailureStateAndPublicationAreAtomicAndSecretSafe(t *testing.
 	require.NoError(t, err)
 	require.NoError(t, bus.Subscribe(events.TypeNameDeployPreparationFailed, "history", hist))
 	r := &Reconciler{db: db, stateStore: state, event: bus}
-	_, err = db.Get(ctx).ExecContext(ctx,
+	_, err = db.Exec(ctx,
 		"CREATE TRIGGER fail_preparation_event BEFORE INSERT ON outbox_events BEGIN SELECT RAISE(ABORT,'injected'); END")
 	require.NoError(t, err)
 	require.Error(t, r.recordFailure(ctx, "app", "commit", nil, errors.New("raw-secret-value")))
@@ -285,9 +285,9 @@ func TestPreparationFailureStateAndPublicationAreAtomicAndSecretSafe(t *testing.
 	_, exists := runtime.Stacks["app"]
 	assert.False(t, exists)
 	var count int
-	require.NoError(t, db.Get(ctx).QueryRowContext(ctx, "SELECT count(*) FROM outbox_events").Scan(&count))
+	require.NoError(t, db.QueryRow(ctx, "SELECT count(*) FROM outbox_events").Scan(&count))
 	assert.Zero(t, count)
-	_, err = db.Get(ctx).ExecContext(ctx, "DROP TRIGGER fail_preparation_event")
+	_, err = db.Exec(ctx, "DROP TRIGGER fail_preparation_event")
 	require.NoError(t, err)
 	for range 2 {
 		require.NoError(t, r.recordFailure(ctx, "app", "commit", nil, errors.New("raw-secret-value")))
@@ -296,9 +296,9 @@ func TestPreparationFailureStateAndPublicationAreAtomicAndSecretSafe(t *testing.
 	require.NoError(t, err)
 	assert.Equal(t, "preparation_failed", runtime.Stacks["app"].LastError)
 	var payloads string
-	require.NoError(t, db.Get(ctx).QueryRowContext(ctx,
+	require.NoError(t, db.QueryRow(ctx,
 		"SELECT group_concat(payload) FROM outbox_events").Scan(&payloads))
 	assert.NotContains(t, payloads, "raw-secret-value")
-	require.NoError(t, db.Get(ctx).QueryRowContext(ctx, "SELECT count(*) FROM outbox_events").Scan(&count))
+	require.NoError(t, db.QueryRow(ctx, "SELECT count(*) FROM outbox_events").Scan(&count))
 	assert.Equal(t, 2, count, "repeated failures are distinct domain facts")
 }

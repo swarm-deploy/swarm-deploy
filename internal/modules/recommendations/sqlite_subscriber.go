@@ -24,7 +24,7 @@ func (s *orderedSubscriber) Handle(ctx context.Context, event events.Envelope) e
 		return nil
 	}
 	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		accepted, err := storage.AdvanceProjection(ctx, s.db.Get, "recommendations", stack, event.OccurredAt, event.ID)
+		accepted, err := storage.AdvanceProjection(ctx, s.db, "recommendations", stack, event.OccurredAt, event.ID)
 		if err != nil {
 			return err
 		}

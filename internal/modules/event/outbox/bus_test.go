@@ -22,7 +22,7 @@ func setup(t *testing.T) (*storage.Database, *Bus) {
 	db, err := storage.Open(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	_, err = db.Get(t.Context()).ExecContext(t.Context(), `CREATE TABLE projection (source_event_id TEXT PRIMARY KEY)`)
+	_, err = db.Exec(t.Context(), `CREATE TABLE projection (source_event_id TEXT PRIMARY KEY)`)
 	require.NoError(t, err)
 	return db, New(db)
 }
@@ -30,7 +30,7 @@ func setup(t *testing.T) (*storage.Database, *Bus) {
 func rows(t *testing.T, db *storage.Database, table string) int {
 	t.Helper()
 	var count int
-	require.NoError(t, db.Get(t.Context()).QueryRowContext(t.Context(), "SELECT count(*) FROM "+table).Scan(&count))
+	require.NoError(t, db.QueryRow(t.Context(), "SELECT count(*) FROM "+table).Scan(&count))
 	return count
 }
 
@@ -45,7 +45,7 @@ func TestPublisherTransaction(t *testing.T) {
 			require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, "history", handler))
 			sentinel := errors.New("publisher rollback")
 			err := db.WithinTransaction(t.Context(), func(ctx context.Context) error {
-				_, err := db.Get(ctx).ExecContext(ctx, "INSERT INTO projection VALUES ('business-state')")
+				_, err := db.Exec(ctx, "INSERT INTO projection VALUES ('business-state')")
 				if err != nil {
 					return err
 				}
@@ -86,7 +86,7 @@ func TestProjectionAndChildPublicationRollbackTogether(t *testing.T) {
 	for _, fail := range []bool{true, false} {
 		parent.EXPECT().Handle(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, e events.Envelope) error {
 			assert.True(t, stdlib.IsWithinTransaction(ctx))
-			_, err := db.Get(ctx).ExecContext(ctx, "INSERT INTO projection VALUES (?) ON CONFLICT DO NOTHING", e.ID)
+			_, err := db.Exec(ctx, "INSERT INTO projection VALUES (?) ON CONFLICT DO NOTHING", e.ID)
 			if err != nil {
 				return err
 			}
@@ -108,7 +108,7 @@ func TestProjectionAndChildPublicationRollbackTogether(t *testing.T) {
 	require.True(t, ok)
 	assert.Zero(t, rows(t, db, "projection"))
 	assert.Equal(t, 1, rows(t, db, "outbox_events"))
-	_, err = db.Get(t.Context()).ExecContext(t.Context(), "UPDATE outbox_deliveries SET available_at_ms=0")
+	_, err = db.Exec(t.Context(), "UPDATE outbox_deliveries SET available_at_ms=0")
 	require.NoError(t, err)
 	ok, err = bus.ProcessNext(t.Context())
 	require.NoError(t, err)
@@ -132,7 +132,7 @@ func TestIndependentDestinationsAndReplay(t *testing.T) {
 				assert.False(t, stdlib.IsWithinTransaction(ctx))
 				// An external consumer can open an independent write transaction.
 				return db.WithinTransaction(ctx, func(ctx context.Context) error {
-					_, err := db.Get(ctx).ExecContext(ctx, "INSERT INTO projection VALUES ('sent')")
+					_, err := db.Exec(ctx, "INSERT INTO projection VALUES ('sent')")
 					return err
 				})
 			})
@@ -146,7 +146,7 @@ func TestIndependentDestinationsAndReplay(t *testing.T) {
 			}
 			assert.Equal(t, 1, rows(t, db, "outbox_events"))
 			var id, code string
-			require.NoError(t, db.Get(t.Context()).QueryRowContext(t.Context(), "SELECT event_id,last_error FROM outbox_deliveries WHERE status='failed'").Scan(&id, &code))
+			require.NoError(t, db.QueryRow(t.Context(), "SELECT event_id,last_error FROM outbox_deliveries WHERE status='failed'").Scan(&id, &code))
 			assert.Equal(t, "handler_failed", code)
 			failed, err := bus.ListFailed(t.Context())
 			require.NoError(t, err)
@@ -180,7 +180,7 @@ func TestLeaseRecoveryAndFencing(t *testing.T) {
 	// A fresh worker simulates process restart; it cannot use an unexpired lease.
 	restarted := New(db)
 	require.NoError(t, restarted.Subscribe(events.TypeNameNodeJoined, "history", handler))
-	_, err = db.Get(t.Context()).ExecContext(t.Context(), "UPDATE outbox_deliveries SET lease_until_ms=0")
+	_, err = db.Exec(t.Context(), "UPDATE outbox_deliveries SET lease_until_ms=0")
 	require.NoError(t, err)
 	second, err := restarted.claim(t.Context())
 	require.NoError(t, err)
@@ -232,7 +232,7 @@ func TestClaimQueryUsesActiveSubscriptionIndex(t *testing.T) {
 				for index := range count {
 					sequence++
 					eventID := fmt.Sprintf("event-%06d", sequence)
-					_, err := db.Get(t.Context()).ExecContext(t.Context(), `INSERT INTO outbox_events
+					_, err := db.Exec(t.Context(), `INSERT INTO outbox_events
 						(id,event_type,schema_version,occurred_at_ms,payload) VALUES (?,?,?,?,?)`,
 						eventID, events.TypeNameNodeJoined, 1, sequence, `{}`)
 					require.NoError(t, err)
@@ -241,7 +241,7 @@ func TestClaimQueryUsesActiveSubscriptionIndex(t *testing.T) {
 						if status == "processing" {
 							leaseUntil, leaseToken = int64(sequence), "lease-token"
 						}
-						_, err = db.Get(t.Context()).ExecContext(t.Context(), `INSERT INTO outbox_deliveries
+						_, err = db.Exec(t.Context(), `INSERT INTO outbox_deliveries
 							(event_id,subscription_id,status,available_at_ms,lease_until_ms,lease_token,updated_at_ms)
 							VALUES (?,?,?,?,?,?,?)`, eventID, fmt.Sprintf("subscriber-%02d", subscriber), status,
 							sequence, leaseUntil, leaseToken, sequence)
@@ -250,9 +250,9 @@ func TestClaimQueryUsesActiveSubscriptionIndex(t *testing.T) {
 					_ = index
 				}
 			}
-			_, err := db.Get(t.Context()).ExecContext(t.Context(), "ANALYZE")
+			_, err := db.Exec(t.Context(), "ANALYZE")
 			require.NoError(t, err)
-			rows, err := db.Get(t.Context()).QueryContext(t.Context(), "EXPLAIN QUERY PLAN "+claimQuery,
+			rows, err := db.Query(t.Context(), "EXPLAIN QUERY PLAN "+claimQuery,
 				int64(1_000_000), int64(1_000_000), "token", int64(2_000_000), int64(1_000_000))
 			require.NoError(t, err)
 			defer rows.Close()
@@ -293,14 +293,14 @@ func TestInvalidDeliveryIsParked(t *testing.T) {
 			if reason == "subscription_missing" {
 				bus = New(db)
 			} else {
-				_, err := db.Get(t.Context()).ExecContext(t.Context(), "UPDATE outbox_events SET schema_version=999")
+				_, err := db.Exec(t.Context(), "UPDATE outbox_events SET schema_version=999")
 				require.NoError(t, err)
 			}
 			handled, err := bus.ProcessNext(t.Context())
 			require.NoError(t, err)
 			require.True(t, handled)
 			var status, code string
-			require.NoError(t, db.Get(t.Context()).QueryRowContext(t.Context(), "SELECT status,last_error FROM outbox_deliveries").Scan(&status, &code))
+			require.NoError(t, db.QueryRow(t.Context(), "SELECT status,last_error FROM outbox_deliveries").Scan(&status, &code))
 			assert.Equal(t, "failed", status)
 			assert.Equal(t, reason, code)
 			assert.Equal(t, 1, rows(t, db, "outbox_events"))
@@ -314,7 +314,7 @@ func TestExpiredLeaseRollsBackProjection(t *testing.T) {
 	bus.now = func() time.Time { return now }
 	handler := NewMockSubscriber(gomock.NewController(t))
 	handler.EXPECT().Handle(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, e events.Envelope) error {
-		_, err := db.Get(ctx).ExecContext(ctx, "INSERT INTO projection VALUES (?)", e.ID)
+		_, err := db.Exec(ctx, "INSERT INTO projection VALUES (?)", e.ID)
 		now = now.Add(bus.lease + time.Second)
 		return err
 	})
@@ -474,7 +474,7 @@ func TestEnqueueFailureRollsBackWholePublication(t *testing.T) {
 	for _, id := range []string{"good", "bad"} {
 		require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, id, handler))
 	}
-	_, err := db.Get(t.Context()).ExecContext(t.Context(), `CREATE TRIGGER reject_delivery
+	_, err := db.Exec(t.Context(), `CREATE TRIGGER reject_delivery
 		BEFORE INSERT ON outbox_deliveries WHEN NEW.subscription_id='bad'
 		BEGIN SELECT RAISE(ABORT, 'delivery rejected'); END`)
 	require.NoError(t, err)

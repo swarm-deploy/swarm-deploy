@@ -89,7 +89,7 @@ func (s *Store) List(ctx context.Context, filter ListFilter) (Page, error) {
 	if err != nil {
 		return Page{}, err
 	}
-	rows, err := s.db.Get(ctx).QueryContext(ctx, query, args...)
+	rows, err := s.db.Query(ctx, query, args...)
 	if err != nil {
 		return Page{}, err
 	}
@@ -179,7 +179,7 @@ func (s *Store) Get(ctx context.Context, id string) (Deployment, error) {
 	var errorCode string
 	var phase Phase
 	var payload string
-	err := s.db.Get(ctx).QueryRowContext(ctx, "SELECT status,error_code,phase,payload FROM deployments WHERE id=?", id).
+	err := s.db.QueryRow(ctx, "SELECT status,error_code,phase,payload FROM deployments WHERE id=?", id).
 		Scan(&persistedStatus, &errorCode, &phase, &payload)
 	if err != nil {
 		return Deployment{}, notFound(err)
@@ -201,25 +201,35 @@ func (s *Store) Get(ctx context.Context, id string) (Deployment, error) {
 
 // Desired loads an attempt's safe definition for independent subscribers.
 func (s *Store) Desired(ctx context.Context, id string) (compose.File, error) {
-	desired, err := storage.GetJSON[Prepared](ctx, s.db.Get, "SELECT desired_payload FROM deployments WHERE id=?", id)
+	desired, err := s.getPrepared(ctx, "SELECT desired_payload FROM deployments WHERE id=?", id)
 	return desired.Definition, notFound(err)
 }
 
 // Baseline returns only the last successfully committed effective desired state.
 func (s *Store) Baseline(ctx context.Context, stack string) (Prepared, error) {
-	desired, err := storage.GetJSON[Prepared](ctx, s.db.Get, "SELECT payload FROM desired_snapshots WHERE stack=?", stack)
+	desired, err := s.getPrepared(ctx, "SELECT payload FROM desired_snapshots WHERE stack=?", stack)
 	return desired, notFound(err)
+}
+
+func (s *Store) getPrepared(ctx context.Context, query string, args ...any) (Prepared, error) {
+	var payload []byte
+	if err := s.db.QueryRow(ctx, query, args...).Scan(&payload); err != nil {
+		return Prepared{}, err
+	}
+	var desired Prepared
+	err := json.Unmarshal(payload, &desired)
+	return desired, err
 }
 
 func (s *Store) baselineDeploymentID(ctx context.Context, stack string) (string, error) {
 	var id string
-	err := s.db.Get(ctx).QueryRowContext(ctx, "SELECT deployment_id FROM desired_snapshots WHERE stack=?", stack).Scan(&id)
+	err := s.db.QueryRow(ctx, "SELECT deployment_id FROM desired_snapshots WHERE stack=?", stack).Scan(&id)
 	return id, notFound(err)
 }
 
 func (s *Store) latestUnsuccessfulBasis(ctx context.Context, stack string) (Prepared, string, bool, error) {
 	var id, payload string
-	err := s.db.Get(ctx).QueryRowContext(ctx, `SELECT attempt.id,attempt.desired_payload
+	err := s.db.QueryRow(ctx, `SELECT attempt.id,attempt.desired_payload
 		FROM deployments AS attempt LEFT JOIN desired_snapshots AS snapshot ON snapshot.stack=attempt.stack
 		LEFT JOIN deployments AS baseline ON baseline.id=snapshot.deployment_id
 		WHERE attempt.stack=? AND attempt.status IN ('failed','interrupted')
@@ -240,7 +250,7 @@ func (s *Store) latestUnsuccessfulBasis(ctx context.Context, stack string) (Prep
 
 func (s *Store) hasUnsuccessfulAfterBaseline(ctx context.Context, stack string) (bool, error) {
 	var retry bool
-	err := s.db.Get(ctx).QueryRowContext(ctx, `SELECT EXISTS(
+	err := s.db.QueryRow(ctx, `SELECT EXISTS(
 		SELECT 1 FROM deployments AS attempt
 		WHERE attempt.stack=? AND attempt.status IN ('failed','interrupted')
 		AND attempt.rowid > (
@@ -268,7 +278,7 @@ func (s *Store) insert(ctx context.Context, d Deployment, desired Prepared) erro
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Get(ctx).ExecContext(ctx, `INSERT INTO deployments
+	_, err = s.db.Exec(ctx, `INSERT INTO deployments
 	(id,stack,revision,status,error_code,phase,started_at_ns,effective_digest,desired_payload,payload)
 	VALUES (?,?,?,?,?,?,?,?,?,?)`, d.ID, d.Stack, d.Commit, d.Status, d.ErrorCode, d.Phase, d.StartedAt.UnixNano(),
 		desired.Digest, string(safe), string(payload))
@@ -283,7 +293,7 @@ func (s *Store) finish(ctx context.Context, d Deployment) error {
 	if err != nil {
 		return err
 	}
-	result, err := s.db.Get(ctx).ExecContext(ctx, `UPDATE deployments
+	result, err := s.db.Exec(ctx, `UPDATE deployments
 	SET status=?,error_code=?,phase=?,finished_at_ns=?,payload=? WHERE id=? AND status='running'`,
 		d.Status, d.ErrorCode, d.Phase, d.FinishedAt.UnixNano(), string(payload), d.ID)
 	if err != nil {
@@ -300,7 +310,7 @@ func (s *Store) finish(ctx context.Context, d Deployment) error {
 }
 
 func (s *Store) saveBaseline(ctx context.Context, id string) error {
-	_, err := s.db.Get(ctx).ExecContext(ctx, `INSERT INTO desired_snapshots
+	_, err := s.db.Exec(ctx, `INSERT INTO desired_snapshots
  (deployment_id,stack,effective_digest,payload)
  SELECT id,stack,effective_digest,desired_payload FROM deployments WHERE id=? AND status='succeeded'
  ON CONFLICT(stack) DO UPDATE SET deployment_id=excluded.deployment_id,

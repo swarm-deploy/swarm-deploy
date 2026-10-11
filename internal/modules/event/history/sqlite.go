@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
+	"github.com/doug-martin/goqu/v9"
+	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
+	"github.com/doug-martin/goqu/v9/exp"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
@@ -60,7 +62,7 @@ func (s *SQLStore) Handle(ctx context.Context, e events.Envelope) error {
 		if insertErr := s.insert(ctx, entry, e.ID, e.PublicationSequence); insertErr != nil {
 			return insertErr
 		}
-		_, pruneErr := s.db.Get(ctx).ExecContext(ctx, `DELETE FROM event_history WHERE publication_sequence NOT IN (
+		_, pruneErr := s.db.Exec(ctx, `DELETE FROM event_history WHERE publication_sequence NOT IN (
 			SELECT publication_sequence FROM event_history ORDER BY publication_sequence DESC LIMIT ?)`, s.capacity)
 		return pruneErr
 	})
@@ -71,7 +73,7 @@ func (s *SQLStore) insert(ctx context.Context, entry Entry, source any, publicat
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Get(ctx).ExecContext(ctx, `INSERT INTO event_history
+	_, err = s.db.Exec(ctx, `INSERT INTO event_history
 		(publication_sequence,id,source_event_id,event_type,severity,severity_rank,category,created_at_ns,payload)
 		VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(source_event_id) DO NOTHING`,
 		publicationSequence, entry.ID, source, entry.Type.Name(), entry.Severity, severityRank(entry.Severity),
@@ -81,7 +83,9 @@ func (s *SQLStore) insert(ctx context.Context, entry Entry, source any, publicat
 
 // List returns the retained publication sequence, in publication order.
 func (s *SQLStore) Read(ctx context.Context) ([]Entry, error) {
-	return storage.QueryJSON[Entry](ctx, s.db.Get, "SELECT payload FROM event_history ORDER BY publication_sequence")
+	dataset := goqu.Dialect("sqlite3").From("event_history").Select("payload").
+		Order(goqu.I("publication_sequence").Asc())
+	return s.queryEntriesDataset(ctx, dataset)
 }
 
 // Query applies filtering, ordering and cursor boundaries in SQLite.
@@ -100,15 +104,13 @@ func (s *SQLStore) QueryPage(ctx context.Context, options QueryOptions) (Page, e
 	if err != nil {
 		return Page{}, err
 	}
-	where, args := historyFilters(options)
+	dataset := goqu.Dialect("sqlite3").From("event_history").Prepared(true).Select("payload").
+		Where(historyFilters(options)...)
 	if options.Cursor != "" {
-		condition, values := historyCursorSQL(cursor)
-		where = append(where, condition)
-		args = append(args, values...)
+		dataset = dataset.Where(historyCursorExpression(cursor))
 	}
-	args = append(args, options.Limit+1)
-	entries, err := storage.QueryJSON[Entry](ctx, s.db.Get,
-		"SELECT payload FROM event_history WHERE "+strings.Join(where, " AND ")+" ORDER BY "+order+" LIMIT ?", args...)
+	dataset = dataset.Order(order...).Limit(uint(options.Limit + 1))
+	entries, err := s.queryEntriesDataset(ctx, dataset)
 	if err != nil {
 		return Page{}, err
 	}
@@ -122,61 +124,89 @@ func (s *SQLStore) QueryPage(ctx context.Context, options QueryOptions) (Page, e
 
 // ReadRecent preserves publication order while performing filters in SQLite.
 func (s *SQLStore) ReadRecent(ctx context.Context, options QueryOptions) ([]Entry, error) {
-	where, args := historyFilters(options)
-	query := "SELECT publication_sequence,payload FROM event_history WHERE " + strings.Join(where, " AND ")
+	dialect := goqu.Dialect("sqlite3")
+	recent := dialect.From("event_history").Prepared(true).Select("publication_sequence", "payload").
+		Where(historyFilters(options)...)
 	if options.Limit > 0 {
-		query += " ORDER BY publication_sequence DESC LIMIT ?"
-		args = append(args, options.Limit)
+		recent = recent.Order(goqu.I("publication_sequence").Desc()).Limit(uint(options.Limit))
 	}
-	return storage.QueryJSON[Entry](ctx, s.db.Get,
-		"SELECT payload FROM ("+query+") ORDER BY publication_sequence", args...)
+	dataset := dialect.From(recent.As("recent")).Prepared(true).Select("payload").
+		Order(goqu.I("publication_sequence").Asc())
+	return s.queryEntriesDataset(ctx, dataset)
 }
 
-func historyFilters(options QueryOptions) ([]string, []any) {
-	where := []string{"1=1"}
-	args := []any{}
-	addHistoryFilter(&where, &args, "severity", options.Severities)
-	addHistoryFilter(&where, &args, "category", options.Categories)
-	addHistoryFilter(&where, &args, "event_type", options.Types)
+func (s *SQLStore) queryEntriesDataset(ctx context.Context, dataset *goqu.SelectDataset) ([]Entry, error) {
+	query, args, err := dataset.ToSQL()
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	entries := []Entry{}
+	for rows.Next() {
+		var payload []byte
+		if err = rows.Scan(&payload); err != nil {
+			return nil, err
+		}
+		var entry Entry
+		if err = json.Unmarshal(payload, &entry); err != nil {
+			return nil, err
+		}
+		entries = append(entries, entry)
+	}
+	return entries, rows.Err()
+}
+
+func historyFilters(options QueryOptions) []exp.Expression {
+	where := []exp.Expression{}
+	addHistoryFilter(&where, "severity", options.Severities)
+	addHistoryFilter(&where, "category", options.Categories)
+	addHistoryFilter(&where, "event_type", options.Types)
 	if options.Since != nil {
-		where = append(where, "created_at_ns>=?")
-		args = append(args, options.Since.UnixNano())
+		where = append(where, goqu.C("created_at_ns").Gte(options.Since.UnixNano()))
 	}
-	return where, args
+	return where
 }
 
-var historyOrders = map[SortOrder]string{
-	SortTimeDesc: "created_at_ns DESC,id ASC", SortTimeAsc: "created_at_ns ASC,id ASC",
-	SortSeverityDesc: "severity_rank DESC,created_at_ns DESC,id ASC",
-	SortSeverityAsc:  "severity_rank ASC,created_at_ns DESC,id ASC",
+var historyOrders = map[SortOrder][]exp.OrderedExpression{
+	SortTimeDesc: {goqu.I("created_at_ns").Desc(), goqu.I("id").Asc()},
+	SortTimeAsc:  {goqu.I("created_at_ns").Asc(), goqu.I("id").Asc()},
+	SortSeverityDesc: {goqu.I("severity_rank").Desc(), goqu.I("created_at_ns").Desc(),
+		goqu.I("id").Asc()},
+	SortSeverityAsc: {goqu.I("severity_rank").Asc(), goqu.I("created_at_ns").Desc(),
+		goqu.I("id").Asc()},
 }
 
-func addHistoryFilter[T ~string](where *[]string, args *[]any, column string, values []T) {
+func addHistoryFilter[T ~string](where *[]exp.Expression, column string, values []T) {
 	if len(values) == 0 {
 		return
 	}
-	marks := make([]string, len(values))
-	for i, value := range values {
-		marks[i] = "?"
-		*args = append(*args, value)
+	items := make([]any, len(values))
+	for i := range values {
+		items[i] = values[i]
 	}
-	*where = append(*where, column+" IN ("+strings.Join(marks, ",")+")")
+	*where = append(*where, goqu.C(column).In(items...))
 }
 
-func historyCursorSQL(c pageCursor) (string, []any) {
-	timeOp := "<"
+func historyCursorExpression(c pageCursor) exp.Expression {
+	timeComparison := goqu.C("created_at_ns").Lt(c.CreatedAt.UnixNano())
 	if c.Sort == SortTimeAsc {
-		timeOp = ">"
+		timeComparison = goqu.C("created_at_ns").Gt(c.CreatedAt.UnixNano())
 	}
-	condition := "(created_at_ns " + timeOp + " ? OR (created_at_ns=? AND id>?))"
-	args := []any{c.CreatedAt.UnixNano(), c.CreatedAt.UnixNano(), c.ID}
+	condition := goqu.Or(timeComparison, goqu.And(
+		goqu.C("created_at_ns").Eq(c.CreatedAt.UnixNano()), goqu.C("id").Gt(c.ID),
+	))
 	if c.Sort == SortSeverityAsc || c.Sort == SortSeverityDesc {
-		op := "<"
+		severityComparison := goqu.C("severity_rank").Lt(severityRank(c.Severity))
 		if c.Sort == SortSeverityAsc {
-			op = ">"
+			severityComparison = goqu.C("severity_rank").Gt(severityRank(c.Severity))
 		}
-		condition = "(severity_rank " + op + " ? OR (severity_rank=? AND " + condition + "))"
-		args = append([]any{severityRank(c.Severity), severityRank(c.Severity)}, args...)
+		condition = goqu.Or(severityComparison, goqu.And(
+			goqu.C("severity_rank").Eq(severityRank(c.Severity)), condition,
+		))
 	}
-	return condition, args
+	return condition
 }

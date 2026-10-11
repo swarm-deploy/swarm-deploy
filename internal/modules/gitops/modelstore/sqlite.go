@@ -18,10 +18,16 @@ func NewSQLStore(db *storage.Database) *SQLStore { return &SQLStore{db: db} }
 
 // Get returns the current state or an explicitly empty initial state.
 func (s *SQLStore) Read(ctx context.Context) (model.Runtime, error) {
-	state, err := storage.GetJSON[model.Runtime](ctx, s.db.Get, "SELECT payload FROM gitops_runtime WHERE id=1")
+	var payload []byte
+	err := s.db.QueryRow(ctx, "SELECT payload FROM gitops_runtime WHERE id=1").Scan(&payload)
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.Runtime{Stacks: map[string]model.Stack{}, Networks: map[string]model.Network{}}, nil
 	}
+	if err != nil {
+		return model.Runtime{}, err
+	}
+	var state model.Runtime
+	err = json.Unmarshal(payload, &state)
 	return state, err
 }
 
@@ -49,7 +55,7 @@ func (s *SQLStore) Save(ctx context.Context, state model.Runtime) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Get(ctx).ExecContext(ctx, `INSERT INTO gitops_runtime VALUES (1,?)
+	_, err = s.db.Exec(ctx, `INSERT INTO gitops_runtime VALUES (1,?)
 		ON CONFLICT(id) DO UPDATE SET payload=excluded.payload`, string(payload))
 	return err
 }

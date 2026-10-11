@@ -25,7 +25,7 @@ func TestRestartAndRollback(t *testing.T) {
 		t.Run(tc.id, func(t *testing.T) {
 			sentinel := errors.New("rollback")
 			err := db.WithinTransaction(t.Context(), func(ctx context.Context) error {
-				_, err := db.Get(ctx).ExecContext(ctx, `INSERT INTO outbox_events(id,event_type,schema_version,occurred_at_ms,payload) VALUES (?,'nodeJoined',1,0,'{}')`, tc.id)
+				_, err := db.Exec(ctx, `INSERT INTO outbox_events(id,event_type,schema_version,occurred_at_ms,payload) VALUES (?,'nodeJoined',1,0,'{}')`, tc.id)
 				if err != nil {
 					return err
 				}
@@ -46,10 +46,10 @@ func TestRestartAndRollback(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	var id string
-	require.NoError(t, db.Get(t.Context()).QueryRowContext(t.Context(), "SELECT id FROM outbox_events").Scan(&id))
+	require.NoError(t, db.QueryRow(t.Context(), "SELECT id FROM outbox_events").Scan(&id))
 	assert.Equal(t, "committed", id)
 	var count int
-	require.NoError(t, db.Get(t.Context()).QueryRowContext(
+	require.NoError(t, db.QueryRow(
 		t.Context(),
 		"SELECT count(*) FROM goose_db_version WHERE version_id = 1 AND is_applied = 1",
 	).Scan(&count))
@@ -61,7 +61,7 @@ func TestFreshDatabaseHasAlertIndexedSchema(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
-	rows, err := db.Get(t.Context()).QueryContext(t.Context(), "PRAGMA table_info(alerts)")
+	rows, err := db.Query(t.Context(), "PRAGMA table_info(alerts)")
 	require.NoError(t, err)
 	defer rows.Close()
 	notNull := map[string]bool{}
@@ -95,17 +95,17 @@ func TestNestedTransactions(t *testing.T) {
 			db, err := Open(t.Context(), t.TempDir())
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, db.Close()) })
-			_, err = db.Get(t.Context()).ExecContext(t.Context(), "CREATE TABLE entries (id TEXT PRIMARY KEY)")
+			_, err = db.Exec(t.Context(), "CREATE TABLE entries (id TEXT PRIMARY KEY)")
 			require.NoError(t, err)
 			err = db.WithinTransaction(t.Context(), func(ctx context.Context) error {
 				assert.True(t, stdlib.IsWithinTransaction(ctx))
-				_, err := db.Get(ctx).ExecContext(ctx, "INSERT INTO entries VALUES ('outer')")
+				_, err := db.Exec(ctx, "INSERT INTO entries VALUES ('outer')")
 				if err != nil {
 					return err
 				}
 				innerErr := db.WithinTransaction(ctx, func(inner context.Context) error {
 					assert.True(t, stdlib.IsWithinTransaction(inner))
-					_, err := db.Get(inner).ExecContext(inner, "INSERT INTO entries VALUES ('inner')")
+					_, err := db.Exec(inner, "INSERT INTO entries VALUES ('inner')")
 					if err != nil {
 						return err
 					}
@@ -116,7 +116,7 @@ func TestNestedTransactions(t *testing.T) {
 			})
 			require.ErrorIs(t, err, tc.outerErr)
 			var count int
-			require.NoError(t, db.Get(t.Context()).QueryRowContext(t.Context(), "SELECT count(*) FROM entries").Scan(&count))
+			require.NoError(t, db.QueryRow(t.Context(), "SELECT count(*) FROM entries").Scan(&count))
 			assert.Equal(t, tc.wantCount, count)
 		})
 	}
@@ -126,14 +126,14 @@ func TestConcurrentTransactions(t *testing.T) {
 	db, err := Open(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	_, err = db.Get(t.Context()).ExecContext(t.Context(), "CREATE TABLE entries (id TEXT PRIMARY KEY)")
+	_, err = db.Exec(t.Context(), "CREATE TABLE entries (id TEXT PRIMARY KEY)")
 	require.NoError(t, err)
 	var wg sync.WaitGroup
 	results := make(chan error, 16)
 	for i := range 16 {
 		wg.Go(func() {
 			results <- db.WithinTransaction(t.Context(), func(ctx context.Context) error {
-				_, err := db.Get(ctx).ExecContext(ctx, "INSERT INTO entries VALUES (?)", fmt.Sprint(i))
+				_, err := db.Exec(ctx, "INSERT INTO entries VALUES (?)", fmt.Sprint(i))
 				return err
 			})
 		})
@@ -144,8 +144,81 @@ func TestConcurrentTransactions(t *testing.T) {
 		require.NoError(t, err)
 	}
 	var count int
-	require.NoError(t, db.Get(t.Context()).QueryRowContext(t.Context(), "SELECT count(*) FROM entries").Scan(&count))
+	require.NoError(t, db.QueryRow(t.Context(), "SELECT count(*) FROM entries").Scan(&count))
 	assert.Equal(t, 16, count)
+}
+
+func TestDatabaseSQLMethodsUseActiveTransaction(t *testing.T) {
+	db, err := Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	_, err = db.Exec(t.Context(), "CREATE TABLE method_entries (id TEXT PRIMARY KEY)")
+	require.NoError(t, err)
+
+	rollback := errors.New("rollback")
+	err = db.WithinTransaction(t.Context(), func(ctx context.Context) error {
+		_, execErr := db.Exec(ctx, "INSERT INTO method_entries VALUES (?)", "transactional")
+		if execErr != nil {
+			return execErr
+		}
+		var id string
+		if scanErr := db.QueryRow(ctx, "SELECT id FROM method_entries WHERE id=?", "transactional").Scan(&id); scanErr != nil {
+			return scanErr
+		}
+		assert.Equal(t, "transactional", id)
+		rows, queryErr := db.Query(ctx, "SELECT id FROM method_entries")
+		if queryErr != nil {
+			return queryErr
+		}
+		defer rows.Close()
+		require.True(t, rows.Next())
+		require.NoError(t, rows.Scan(&id))
+		assert.Equal(t, "transactional", id)
+		return rollback
+	})
+	require.ErrorIs(t, err, rollback)
+
+	var count int
+	require.NoError(t, db.QueryRow(t.Context(), "SELECT count(*) FROM method_entries").Scan(&count))
+	assert.Zero(t, count, "all SQL methods must use the rolled-back transaction")
+}
+
+func TestDatabaseSQLMethodsPropagateErrorsAndCancellation(t *testing.T) {
+	db, err := Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	for _, tc := range []struct {
+		name string
+		run  func(context.Context) error
+	}{
+		{name: "query", run: func(ctx context.Context) error {
+			rows, queryErr := db.Query(ctx, "SELECT 1")
+			if rows != nil {
+				_ = rows.Close()
+			}
+			return queryErr
+		}},
+		{name: "query row", run: func(ctx context.Context) error {
+			var value int
+			return db.QueryRow(ctx, "SELECT 1").Scan(&value)
+		}},
+		{name: "exec", run: func(ctx context.Context) error {
+			_, execErr := db.Exec(ctx, "CREATE TABLE canceled (id INTEGER)")
+			return execErr
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
+			require.ErrorIs(t, tc.run(ctx), context.Canceled)
+		})
+	}
+
+	_, err = db.Exec(t.Context(), "invalid SQL")
+	require.Error(t, err)
+	var value int
+	require.Error(t, db.QueryRow(t.Context(), "SELECT missing FROM nowhere").Scan(&value))
 }
 
 func TestPragmasOnEveryPooledConnection(t *testing.T) {
@@ -173,7 +246,7 @@ func TestMigrationIsNotAppliedTwice(t *testing.T) {
 	dir := t.TempDir()
 	db, err := Open(t.Context(), dir)
 	require.NoError(t, err)
-	_, err = db.Get(t.Context()).ExecContext(
+	_, err = db.Exec(
 		t.Context(),
 		"INSERT INTO nodes(id, hostname, payload) VALUES ('node-1', 'node-1', '{}')",
 	)
@@ -183,7 +256,7 @@ func TestMigrationIsNotAppliedTwice(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	var count int
-	require.NoError(t, db.Get(t.Context()).QueryRowContext(
+	require.NoError(t, db.QueryRow(
 		t.Context(),
 		"SELECT count(*) FROM nodes WHERE id = 'node-1'",
 	).Scan(&count))
@@ -213,7 +286,7 @@ func TestOpenIgnoresLegacyJSONFiles(t *testing.T) {
 		assert.Equal(t, "{invalid legacy json", string(payload), "legacy files must remain untouched")
 	}
 	var importedRows int
-	require.NoError(t, db.Get(t.Context()).QueryRowContext(t.Context(), `
+	require.NoError(t, db.QueryRow(t.Context(), `
 		SELECT
 			(SELECT count(*) FROM deployments) +
 			(SELECT count(*) FROM event_history) +
@@ -222,7 +295,7 @@ func TestOpenIgnoresLegacyJSONFiles(t *testing.T) {
 	`).Scan(&importedRows))
 	assert.Zero(t, importedRows, "legacy files must not create SQLite records")
 	var legacyTableCount int
-	require.NoError(t, db.Get(t.Context()).QueryRowContext(
+	require.NoError(t, db.QueryRow(
 		t.Context(), "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='legacy_imports'",
 	).Scan(&legacyTableCount))
 	assert.Zero(t, legacyTableCount)

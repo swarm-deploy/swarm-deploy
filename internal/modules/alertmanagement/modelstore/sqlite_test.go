@@ -202,7 +202,7 @@ func TestAlertIndexesOrderingCoverage(t *testing.T) {
 
 func explainQueryPlan(t *testing.T, db *storage.Database, query string) string {
 	t.Helper()
-	rows, err := db.Get(t.Context()).QueryContext(t.Context(), "EXPLAIN QUERY PLAN "+query)
+	rows, err := db.Query(t.Context(), "EXPLAIN QUERY PLAN "+query)
 	require.NoError(t, err)
 	defer rows.Close()
 	var plan strings.Builder
@@ -225,7 +225,7 @@ func assertIndexedFields(t *testing.T, db *storage.Database, alert model.Alert) 
 	var deploymentID sql.NullString
 	var openedAt int64
 	var payload string
-	require.NoError(t, db.Get(t.Context()).QueryRowContext(t.Context(),
+	require.NoError(t, db.QueryRow(t.Context(),
 		"SELECT kind,resource_type,resource_id,deployment_id,opened_at_ns,payload FROM alerts WHERE id=?", alert.ID).
 		Scan(&kind, &resourceType, &resourceID, &deploymentID, &openedAt, &payload))
 	assert.Equal(t, alert.Kind, kind)

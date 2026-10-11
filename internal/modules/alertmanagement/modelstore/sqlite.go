@@ -47,7 +47,7 @@ func (s *SQLStore) write(ctx context.Context, alert model.Alert, update bool) er
 	}
 	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		query, args := alertWriteStatement(alert, deploymentID, resolved, string(payload), update)
-		result, writeErr := s.db.Get(ctx).ExecContext(ctx, query, args...)
+		result, writeErr := s.db.Exec(ctx, query, args...)
 		if writeErr != nil {
 			var constraint *sqlite.Error
 			if errors.As(writeErr, &constraint) && constraint.Code() == sqlitecode.SQLITE_CONSTRAINT_UNIQUE {
@@ -62,7 +62,7 @@ func (s *SQLStore) write(ctx context.Context, alert model.Alert, update bool) er
 		if count != 1 {
 			return s.alertWriteMiss(ctx, alert.ID, update)
 		}
-		_, writeErr = s.db.Get(ctx).ExecContext(ctx, `DELETE FROM alerts WHERE id IN (
+		_, writeErr = s.db.Exec(ctx, `DELETE FROM alerts WHERE id IN (
 			SELECT id FROM alerts WHERE status='resolved' ORDER BY resolved_at_ns,id
 			LIMIT max((SELECT count(*) FROM alerts)-?,0))`, MaxStoredAlerts)
 		return writeErr
@@ -90,7 +90,7 @@ func (s *SQLStore) alertWriteMiss(ctx context.Context, id string, update bool) e
 		return ErrAlertNotFound
 	}
 	var openedAt int64
-	err := s.db.Get(ctx).QueryRowContext(ctx, "SELECT opened_at_ns FROM alerts WHERE id=?", id).Scan(&openedAt)
+	err := s.db.QueryRow(ctx, "SELECT opened_at_ns FROM alerts WHERE id=?", id).Scan(&openedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrAlertNotFound
 	}
@@ -111,10 +111,16 @@ func (s *SQLStore) FindOpenByFingerprint(ctx context.Context, fingerprint string
 }
 
 func (s *SQLStore) get(ctx context.Context, query, key string) (model.Alert, error) {
-	alert, err := storage.GetJSON[model.Alert](ctx, s.db.Get, query, key)
+	var payload []byte
+	err := s.db.QueryRow(ctx, query, key).Scan(&payload)
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.Alert{}, ErrAlertNotFound
 	}
+	if err != nil {
+		return model.Alert{}, err
+	}
+	var alert model.Alert
+	err = json.Unmarshal(payload, &alert)
 	return alert, err
 }
 
@@ -144,7 +150,28 @@ func (s *SQLStore) List(ctx context.Context, filter ListFilter) ([]model.Alert, 
 	if err != nil {
 		return nil, err
 	}
-	return storage.QueryJSON[model.Alert](ctx, s.db.Get, query, args...)
+	return s.queryAlerts(ctx, query, args...)
+}
+
+func (s *SQLStore) queryAlerts(ctx context.Context, query string, args ...any) ([]model.Alert, error) {
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	alerts := []model.Alert{}
+	for rows.Next() {
+		var payload []byte
+		if err = rows.Scan(&payload); err != nil {
+			return nil, err
+		}
+		var alert model.Alert
+		if err = json.Unmarshal(payload, &alert); err != nil {
+			return nil, err
+		}
+		alerts = append(alerts, alert)
+	}
+	return alerts, rows.Err()
 }
 
 // Consume executes an idempotent projection and its source marker atomically.
@@ -154,7 +181,7 @@ func (s *SQLStore) Consume(ctx context.Context, id string, apply func(context.Co
 		return fmt.Errorf("alert projection requires source event ID")
 	}
 	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		result, err := s.db.Get(ctx).ExecContext(ctx, "INSERT INTO alert_events VALUES (?) ON CONFLICT DO NOTHING", id)
+		result, err := s.db.Exec(ctx, "INSERT INTO alert_events VALUES (?) ON CONFLICT DO NOTHING", id)
 		if err != nil {
 			return err
 		}
@@ -174,7 +201,7 @@ func (s *SQLStore) ConsumeLatest(
 	ctx context.Context, id, resource string, at time.Time, apply func(context.Context) error,
 ) error {
 	return s.Consume(ctx, id, func(ctx context.Context) error {
-		accepted, err := storage.AdvanceProjection(ctx, s.db.Get, "alerts", resource, at, id)
+		accepted, err := storage.AdvanceProjection(ctx, s.db, "alerts", resource, at, id)
 		if err != nil {
 			return err
 		}
