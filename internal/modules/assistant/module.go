@@ -7,6 +7,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
@@ -33,6 +34,8 @@ type Container interface {
 	GetResourcesModule() *resources.Module
 	GetGitOpsModule() *gitops.Module
 	GetRecommendationsModule() *recommendations.Module
+	// GetAlertManagementModule returns the initialized Alert Management module.
+	GetAlertManagementModule() *alertmanagement.Module
 }
 
 // InitModule initializes the assistant and its built-in tools.
@@ -63,6 +66,7 @@ func InitModule(_ context.Context, cfg *config.Config, cnt Container) (*Module, 
 	toolExecutor := tools.NewExecutor(
 		resourcesModule,
 		gitopsModule,
+		cnt.GetAlertManagementModule(),
 		eventModule,
 		cnt.GetSwarm(),
 		cnt.GetRecommendationsModule().Store,

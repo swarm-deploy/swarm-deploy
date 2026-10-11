@@ -9,7 +9,7 @@ Assistant is available only when `assistant.enabled: true`.
 
 ## Request routing
 
-Each non-greeting message is classified by a small tool-free LLM request into one of these capability routes: `general`, `platform`, `services`, `cluster`, `deployments`, `diagnostics`, or `lookups`. The router uses the configured assistant model and a few recent conversation turns so short follow-ups retain their original intent. Greetings use a local fast-path and do not call the router.
+Each non-greeting message is classified by a small tool-free LLM request into one of these capability routes: `general`, `platform`, `services`, `cluster`, `deployments`, `diagnostics`, or `lookups`. The router composes narrow capabilities, including `deployment_history` for deployment attempts and `alert_management` for operational incidents. The router uses the configured assistant model and a few recent conversation turns so short follow-ups retain their original intent. Greetings use a local fast-path and do not call the router.
 
 The selected route controls the additional prompt fragment, available tools, and whether service metadata retrieval runs. Service RAG is enabled only for `services` and `diagnostics`. If routing fails or returns an invalid route, the assistant logs and counts the fallback reason, then continues with the broad compatibility profile.
 
@@ -71,6 +71,16 @@ Completed user/assistant turns are persisted under `.swarm-deploy/assistant/chat
 ## Built-in tools
 
 - `history_event_list` - returns recent events from event history
+- `alert_list` - returns Alert Management incidents ordered by latest update
+  - `status`: `open` (default), `resolved`, or `all`
+  - optional filters: `kind`, `resource_type`, and `resource_id`
+  - `limit`: default `20`, maximum `100`
+- `alert_get` - returns one safe alert representation by required `id`
+- `deployment_list` - returns lightweight deployment attempts in newest-first order without Compose snapshots or semantic change arrays
+  - optional `stack` and `status` (`running`, `succeeded`, `failed`, or `interrupted`) filters
+  - `limit`: default `20`, maximum `100`
+  - optional `cursor`; the response contains `next_cursor` when another filtered page exists
+- `deployment_get` - returns one deployment attempt by required `id`, including safe diagnostics, lifecycle stages, observation/comparison state, summaries, and redacted semantic changes
 - `deploy_sync_trigger` - triggers manual sync (same as `POST /api/v1/sync`)
 - `swarm_node_list` - returns current Docker Swarm nodes snapshot
 - `docker_network_list` - returns current Docker networks snapshot (`name`, `scope`, `driver`, `internal`, `attachable`, `ingress`, `labels`)
@@ -84,6 +94,14 @@ Completed user/assistant turns are persisted under `.swarm-deploy/assistant/chat
   - registry is selected automatically by tool logic
 - `git_commit_list` - returns latest git commits from repository history (`limit` optional, default 10)
 - `self_metrics_list` - returns structured snapshot of internal Prometheus metrics (`swarm_deploy_*`)
+
+`history_event_list` is the user-facing event timeline and is not the source of truth for every deployment failure. `alert_list`/`alert_get` expose operational incident lifecycle, while `deployment_list`/`deployment_get` expose actual persisted deployment attempts and outcomes. A `succeeded` deployment means the Docker apply attempt succeeded; it does not guarantee healthy services or verified desired/live convergence.
+
+Alerts correlate to attempts through `deployment_id`. The expected lookup is `alert_list` -> `alert_get` -> `deployment_get`, but only when `deployment_id` is non-empty. A preparation failure can create an alert without creating a deployment attempt; the assistant must report that condition instead of inventing an attempt.
+
+The default route capabilities expose deployments and alerts to `deployments` and `diagnostics`; `cluster` receives Alert Management plus cluster inspection. Service-specific deployment-failure questions are routed with service context/runtime plus deployment and alert capabilities.
+
+All four tools are read-only and query the existing repositories directly. They do not expose Outbox payloads, desired Compose YAML, fingerprint maps, or raw database payloads. Deployment details reuse the persisted bounded, masked diagnostic and redacted semantic changes. Alert messages, diagnostics, commit metadata, and diff text are treated as untrusted data, not assistant instructions.
 
 Example use-case:
 - Question: `Я использую актуальную версию этого сервиса?`

@@ -2,6 +2,8 @@
 
 Use retrieved service metadata for service catalog facts. Use the appropriate service tool for live logs, specs, routes, dependencies, images, replicas, or restart. Require stack and service identifiers when the tool needs both. Confirm before scaling or restarting a service.
 
+For service deployment-failure questions, use available Alert Management and deployment capabilities: inspect alerts or attempts, follow a non-empty alert `deployment_id`, then correlate safe diagnostics with runtime evidence. An alert without `deployment_id` may be a preparation failure and must not be treated as a persisted deployment attempt.
+
 For "am I using the latest image" requests:
 1. Read the current image reference from service metadata.
 2. Call `registry_image_version_get` for that current image.

@@ -93,6 +93,18 @@ func (s *SQLStore) List(ctx context.Context, filter ListFilter) ([]model.Alert, 
 		query += " AND status=?"
 		args = append(args, filter.Status)
 	}
+	if filter.Kind != "" {
+		query += " AND json_extract(payload,'$.kind')=?"
+		args = append(args, filter.Kind)
+	}
+	if filter.ResourceType != "" {
+		query += " AND json_extract(payload,'$.resourceType')=?"
+		args = append(args, filter.ResourceType)
+	}
+	if filter.ResourceID != "" {
+		query += " AND json_extract(payload,'$.resourceId')=?"
+		args = append(args, filter.ResourceID)
+	}
 	query += " ORDER BY updated_at_ns DESC,id"
 	if filter.Limit > 0 {
 		query += " LIMIT ?"

@@ -21,6 +21,12 @@ var (
 type ListFilter struct {
 	// Status selects alerts in one lifecycle state; empty returns all alerts.
 	Status model.AlertStatus
+	// Kind selects alerts of one kind; empty returns every kind.
+	Kind model.AlertKind
+	// ResourceType selects alerts for one resource kind; empty returns every kind.
+	ResourceType model.ResourceType
+	// ResourceID selects alerts for one resource identifier; empty returns every resource.
+	ResourceID string
 	// Limit limits the number of returned alerts; zero means unlimited.
 	Limit int
 }

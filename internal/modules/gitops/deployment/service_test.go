@@ -3,6 +3,7 @@ package deployment
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -209,6 +210,41 @@ func TestListUsesLightweightCursorSummaries(t *testing.T) {
 	require.Error(t, err, "detail still validates and decodes its change payload")
 	_, err = store.List(ctx, ListFilter{Cursor: "malformed"})
 	require.ErrorIs(t, err, ErrInvalidCursor)
+}
+
+func TestListFiltersStatusBeforeCursorPagination(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.Open(ctx, t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+	service := NewService(db, outbox.New(db))
+	clock := time.Date(2026, time.October, 11, 10, 0, 0, 0, time.UTC)
+	service.now = func() time.Time {
+		clock = clock.Add(time.Second)
+		return clock
+	}
+	for index, stack := range []string{"app", "other", "app", "app"} {
+		attempt, startErr := service.StartIfChanged(ctx, stack, fmt.Sprintf("commit-%d", index),
+			desired(fmt.Sprintf("api:%d", index)), true)
+		require.NoError(t, startErr)
+		if index == 1 {
+			require.NoError(t, service.Succeed(ctx, attempt.ID, model.Stack{}))
+			continue
+		}
+		require.NoError(t, service.Fail(ctx, attempt.ID, model.Stack{}, "apply_failed"))
+	}
+
+	store := NewStore(db)
+	first, err := store.List(ctx, ListFilter{Stack: "app", Status: Failed, Limit: 2})
+	require.NoError(t, err)
+	require.Len(t, first.Deployments, 2)
+	require.NotEmpty(t, first.NextCursor)
+	assert.Equal(t, []string{"commit-3", "commit-2"}, []string{first.Deployments[0].Commit, first.Deployments[1].Commit})
+	second, err := store.List(ctx, ListFilter{Stack: "app", Status: Failed, Limit: 2, Cursor: first.NextCursor})
+	require.NoError(t, err)
+	require.Len(t, second.Deployments, 1)
+	assert.Equal(t, "commit-0", second.Deployments[0].Commit)
+	assert.Empty(t, second.NextCursor)
 }
 
 func TestInterruptedTransitionIsAtomicDurableAndIdempotent(t *testing.T) {
