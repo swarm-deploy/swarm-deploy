@@ -46,17 +46,8 @@ func (s *SQLStore) write(ctx context.Context, alert model.Alert, update bool) er
 		deploymentID = alert.DeploymentID
 	}
 	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		query := `INSERT INTO alerts
-			(fingerprint,kind,resource_type,resource_id,deployment_id,status,opened_at_ns,updated_at_ns,
-			 resolved_at_ns,payload,id)
-			VALUES (?,?,?,?,?,?,?,?,?,?,?)`
-		if update {
-			query = `UPDATE alerts SET fingerprint=?,kind=?,resource_type=?,resource_id=?,deployment_id=?,status=?,
-				opened_at_ns=?,updated_at_ns=?,resolved_at_ns=?,payload=? WHERE id=?`
-		}
-		result, writeErr := s.db.Get(ctx).ExecContext(ctx, query,
-			alert.Fingerprint, alert.Kind, alert.ResourceType, alert.ResourceID, deploymentID, alert.Status,
-			alert.OpenedAt.UnixNano(), alert.UpdatedAt.UnixNano(), resolved, string(payload), alert.ID)
+		query, args := alertWriteStatement(alert, deploymentID, resolved, string(payload), update)
+		result, writeErr := s.db.Get(ctx).ExecContext(ctx, query, args...)
 		if writeErr != nil {
 			var constraint *sqlite.Error
 			if errors.As(writeErr, &constraint) && constraint.Code() == sqlitecode.SQLITE_CONSTRAINT_UNIQUE {
@@ -69,13 +60,44 @@ func (s *SQLStore) write(ctx context.Context, alert model.Alert, update bool) er
 			return countErr
 		}
 		if count != 1 {
-			return ErrAlertNotFound
+			return s.alertWriteMiss(ctx, alert.ID, update)
 		}
 		_, writeErr = s.db.Get(ctx).ExecContext(ctx, `DELETE FROM alerts WHERE id IN (
 			SELECT id FROM alerts WHERE status='resolved' ORDER BY resolved_at_ns,id
 			LIMIT max((SELECT count(*) FROM alerts)-?,0))`, MaxStoredAlerts)
 		return writeErr
 	})
+}
+
+func alertWriteStatement(
+	alert model.Alert, deploymentID, resolved any, payload string, update bool,
+) (string, []any) {
+	args := []any{alert.Fingerprint, alert.Kind, alert.ResourceType, alert.ResourceID, deploymentID, alert.Status}
+	if update {
+		query := `UPDATE alerts SET fingerprint=?,kind=?,resource_type=?,resource_id=?,deployment_id=?,status=?,
+			updated_at_ns=?,resolved_at_ns=?,payload=? WHERE id=? AND opened_at_ns=?`
+		return query, append(args, alert.UpdatedAt.UnixNano(), resolved, payload, alert.ID, alert.OpenedAt.UnixNano())
+	}
+	query := `INSERT INTO alerts
+		(fingerprint,kind,resource_type,resource_id,deployment_id,status,opened_at_ns,updated_at_ns,
+		 resolved_at_ns,payload,id)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?)`
+	return query, append(args, alert.OpenedAt.UnixNano(), alert.UpdatedAt.UnixNano(), resolved, payload, alert.ID)
+}
+
+func (s *SQLStore) alertWriteMiss(ctx context.Context, id string, update bool) error {
+	if !update {
+		return ErrAlertNotFound
+	}
+	var openedAt int64
+	err := s.db.Get(ctx).QueryRowContext(ctx, "SELECT opened_at_ns FROM alerts WHERE id=?", id).Scan(&openedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrAlertNotFound
+	}
+	if err != nil {
+		return err
+	}
+	return ErrAlertOpenedAtChanged
 }
 
 // Get returns an incident by ID.

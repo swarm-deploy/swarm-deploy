@@ -114,7 +114,6 @@ CREATE TABLE deployments (
 CREATE INDEX idx_deployments_stack_time ON deployments(stack,started_at_ns DESC,id);
 CREATE INDEX idx_deployments_time ON deployments(started_at_ns DESC,id);
 CREATE INDEX idx_deployments_status_time ON deployments(status,started_at_ns DESC,id);
-CREATE INDEX idx_deployments_stack_status_time ON deployments(stack,status,started_at_ns DESC,id);
 CREATE UNIQUE INDEX idx_deployments_running_stack ON deployments(stack) WHERE status='running';
 
 CREATE TABLE desired_snapshots (

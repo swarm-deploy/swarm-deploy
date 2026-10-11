@@ -72,6 +72,7 @@ func TestSubscriberDeploymentLifecycle(t *testing.T) {
 	resolved, err := store.List(ctx, modelstore.ListFilter{Status: model.AlertStatusResolved})
 	require.NoError(t, err, "list resolved alerts")
 	require.Len(t, resolved, 1, "incident should be resolved")
+	assert.Equal(t, openedAt, resolved[0].OpenedAt, "closing an incident must preserve the opening time")
 	assert.Equal(t, model.ResolutionReasonRecovered, resolved[0].Resolution.Reason, "resolution reason")
 	assert.Equal(t, "Deployment completed successfully", resolved[0].Resolution.Message, "resolution message")
 	assert.Equal(t, "success-1", resolved[0].Resolution.EventID, "recovery event reference")

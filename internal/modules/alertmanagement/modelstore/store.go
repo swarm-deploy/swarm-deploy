@@ -13,8 +13,9 @@ const (
 )
 
 var (
-	ErrAlertNotFound   = errors.New("alert not found")
-	ErrOpenAlertExists = errors.New("open alert already exists for fingerprint")
+	ErrAlertNotFound        = errors.New("alert not found")
+	ErrAlertOpenedAtChanged = errors.New("alert opened at cannot be changed")
+	ErrOpenAlertExists      = errors.New("open alert already exists for fingerprint")
 )
 
 // ListFilter selects alerts returned by a store.

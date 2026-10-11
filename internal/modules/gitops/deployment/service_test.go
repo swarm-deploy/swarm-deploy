@@ -322,8 +322,6 @@ func TestDeploymentIndexesSupportListQueries(t *testing.T) {
 	}{
 		{name: "status", query: `SELECT id FROM deployments WHERE status='failed'
 			ORDER BY started_at_ns DESC,id LIMIT 21`, wantIndex: "idx_deployments_status_time"},
-		{name: "stack and status", query: `SELECT id FROM deployments WHERE stack='app' AND status='failed'
-			ORDER BY started_at_ns DESC,id LIMIT 21`, wantIndex: "idx_deployments_stack_status_time"},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
