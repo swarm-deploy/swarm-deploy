@@ -22,8 +22,17 @@ import (
 
 type capturedChatRequest struct {
 	Messages []struct {
-		Role    string `json:"role"`
-		Content string `json:"content"`
+		Role       string `json:"role"`
+		Content    string `json:"content"`
+		Name       string `json:"name"`
+		ToolCallID string `json:"tool_call_id"`
+		ToolCalls  []struct {
+			ID       string `json:"id"`
+			Function struct {
+				Name      string `json:"name"`
+				Arguments string `json:"arguments"`
+			} `json:"function"`
+		} `json:"tool_calls"`
 	} `json:"messages"`
 	Tools []struct {
 		Function struct {
@@ -36,116 +45,121 @@ type capturedChatRequest struct {
 
 func TestAssistantRoutingProfiles(t *testing.T) {
 	testCases := []struct {
-		name          string
-		message       string
-		route         Route
-		expectedTools []string
-		excludedTools []string
-		expectRAG     bool
+		name           string
+		message        string
+		routerDecision string
+		expectedTools  []string
+		excludedTools  []string
+		expectRAG      bool
 	}{
 		{
-			name:    "general assistant identity",
-			message: "Кто ты?",
-			route:   RouteGeneral,
+			name:           "general assistant identity",
+			message:        "Кто ты?",
+			routerDecision: `{"route":"general","capabilities":[],"operation":null}`,
 		},
 		{
-			name:    "platform rolling update",
-			message: "Что такое rolling update?",
-			route:   RoutePlatform,
+			name:           "platform rolling update",
+			message:        "Что такое rolling update?",
+			routerDecision: `{"route":"platform","capabilities":[],"operation":null}`,
 		},
 		{
-			name:    "platform overlay network",
-			message: "Как работает Docker Swarm overlay network?",
-			route:   RoutePlatform,
+			name:           "platform overlay network",
+			message:        "Как работает Docker Swarm overlay network?",
+			routerDecision: `{"route":"platform","capabilities":[],"operation":null}`,
 		},
 		{
-			name:          "cluster",
-			message:       "Покажи ноды кластера",
-			route:         RouteCluster,
-			expectedTools: []string{"swarm_node_list", "alert_list", "alert_get"},
-			excludedTools: []string{"service_logs_get", "deploy_sync_trigger"},
+			name:           "cluster",
+			message:        "Покажи ноды кластера",
+			routerDecision: `{"route":"cluster","capabilities":["cluster"],"operation":null}`,
+			expectedTools:  []string{"swarm_node_list"},
+			excludedTools:  []string{"service_logs_get", "deploy_sync_trigger"},
 		},
 		{
-			name:          "services",
-			message:       "Покажи логи сервиса api",
-			route:         RouteServices,
-			expectedTools: []string{"service_logs_get"},
-			excludedTools: []string{"swarm_node_list", "deploy_sync_trigger"},
-			expectRAG:     true,
+			name:           "services",
+			message:        "Покажи логи сервиса api",
+			routerDecision: `{"route":"services","capabilities":["service_context","service_runtime"],"operation":null}`,
+			expectedTools:  []string{"service_logs_get"},
+			excludedTools:  []string{"swarm_node_list", "deploy_sync_trigger"},
+			expectRAG:      true,
 		},
 		{
-			name:          "diagnostics",
-			message:       "Почему сервис api падает?",
-			route:         RouteDiagnostics,
-			expectedTools: []string{"history_event_list", "deployment_list", "deployment_get", "alert_list", "alert_get", "service_logs_get", "docker_network_list", "dns_name_resolve"},
-			excludedTools: []string{"deploy_sync_trigger", "service_restart_trigger"},
-			expectRAG:     true,
+			name:           "diagnostics",
+			message:        "Почему сервис api падает?",
+			routerDecision: `{"route":"diagnostics","capabilities":["service_context","service_runtime","deployment_history","alert_management","cluster","dns"],"operation":null}`,
+			expectedTools:  []string{"history_event_list", "deployment_list", "deployment_get", "alert_list", "alert_get", "service_logs_get", "docker_network_list", "dns_name_resolve"},
+			excludedTools:  []string{"deploy_sync_trigger", "service_restart_trigger"},
+			expectRAG:      true,
 		},
 		{
-			name:          "deployments",
-			message:       "Покажи историю деплоев",
-			route:         RouteDeployments,
-			expectedTools: []string{"history_event_list", "deployment_list", "deployment_get", "alert_list", "alert_get"},
-			excludedTools: []string{"service_logs_get", "swarm_node_list"},
+			name:           "deployments",
+			message:        "Покажи историю деплоев",
+			routerDecision: `{"route":"deployments","capabilities":["deployment_history","alert_management"],"operation":null}`,
+			expectedTools:  []string{"history_event_list", "deployment_list", "deployment_get", "alert_list", "alert_get"},
+			excludedTools:  []string{"service_logs_get", "swarm_node_list"},
 		},
 		{
-			name:          "lookups",
-			message:       "Проверь DNS для api.example.com",
-			route:         RouteLookups,
-			expectedTools: []string{"dns_name_resolve"},
-			excludedTools: []string{"deploy_sync_trigger", "service_restart_trigger"},
+			name:           "lookups",
+			message:        "Проверь DNS для api.example.com",
+			routerDecision: `{"route":"lookups","capabilities":["dns"],"operation":null}`,
+			expectedTools:  []string{"dns_name_resolve"},
+			excludedTools:  []string{"deploy_sync_trigger", "service_restart_trigger"},
 		},
 		{
-			name:          "active alerts",
-			message:       "Какие сейчас активные алерты?",
-			route:         RouteDiagnostics,
-			expectedTools: []string{"alert_list", "alert_get"},
-			expectRAG:     true,
+			name:           "active alerts",
+			message:        "Какие сейчас активные алерты?",
+			routerDecision: `{"route":"diagnostics","capabilities":["alert_management"],"operation":null}`,
+			expectedTools:  []string{"alert_list", "alert_get"},
+			excludedTools:  []string{"deployment_list", "service_logs_get", "swarm_node_list"},
 		},
 		{
-			name:          "last deployment failure",
-			message:       "Почему упал последний деплой?",
-			route:         RouteDiagnostics,
-			expectedTools: []string{"deployment_list", "deployment_get", "alert_list", "alert_get"},
-			expectRAG:     true,
+			name:           "last deployment failure",
+			message:        "Почему упал последний деплой?",
+			routerDecision: `{"route":"diagnostics","capabilities":["deployment_history","alert_management"],"operation":null}`,
+			expectedTools:  []string{"deployment_list", "deployment_get", "alert_list", "alert_get"},
+			excludedTools:  []string{"service_logs_get", "swarm_node_list"},
 		},
 		{
-			name:          "failed deployments",
-			message:       "Покажи последние неудачные деплойменты.",
-			route:         RouteDeployments,
-			expectedTools: []string{"deployment_list", "deployment_get"},
+			name:           "failed deployments",
+			message:        "Покажи последние неудачные деплойменты.",
+			routerDecision: `{"route":"deployments","capabilities":["deployment_history"],"operation":null}`,
+			expectedTools:  []string{"deployment_list", "deployment_get"},
+			excludedTools:  []string{"alert_list", "service_logs_get"},
 		},
 		{
-			name:          "stack incident",
-			message:       "Что случилось с infra-monitoring?",
-			route:         RouteDiagnostics,
-			expectedTools: []string{"deployment_list", "deployment_get", "alert_list", "alert_get"},
-			expectRAG:     true,
+			name:           "service-specific deployment failure",
+			message:        "Почему упал деплой infra-monitoring?",
+			routerDecision: `{"route":"diagnostics","capabilities":["service_context","deployment_history","alert_management"],"operation":null}`,
+			expectedTools:  []string{"deployment_list", "deployment_get", "alert_list", "alert_get"},
+			excludedTools:  []string{"service_logs_get", "swarm_node_list"},
+			expectRAG:      true,
 		},
 		{
-			name:          "stack deployment history",
-			message:       "Покажи историю деплоев infra-monitoring.",
-			route:         RouteDeployments,
-			expectedTools: []string{"deployment_list", "deployment_get"},
+			name:           "stack deployment history",
+			message:        "Покажи историю деплоев infra-monitoring.",
+			routerDecision: `{"route":"deployments","capabilities":["deployment_history"],"operation":null}`,
+			expectedTools:  []string{"deployment_list", "deployment_get"},
 		},
 		{
-			name:          "cluster incidents",
-			message:       "Какие проблемы сейчас есть в кластере?",
-			route:         RouteCluster,
-			expectedTools: []string{"alert_list", "alert_get", "swarm_node_list"},
+			name:           "cluster incidents",
+			message:        "Какие проблемы сейчас есть в кластере?",
+			routerDecision: `{"route":"cluster","capabilities":["cluster","alert_management"],"operation":null}`,
+			expectedTools:  []string{"alert_list", "alert_get", "swarm_node_list"},
+			excludedTools:  []string{"deployment_get", "service_logs_get"},
 		},
 		{
-			name:          "open alert explanation",
-			message:       "Почему этот алерт всё ещё открыт?",
-			route:         RouteDiagnostics,
-			expectedTools: []string{"alert_list", "alert_get", "deployment_get"},
-			expectRAG:     true,
+			name:           "open alert explanation",
+			message:        "Почему этот алерт всё ещё открыт?",
+			routerDecision: `{"route":"diagnostics","capabilities":["service_context","deployment_history","alert_management"],"operation":null}`,
+			expectedTools:  []string{"alert_list", "alert_get", "deployment_get"},
+			excludedTools:  []string{"service_logs_get", "swarm_node_list"},
+			expectRAG:      true,
 		},
 		{
-			name:          "resolved deployment errors",
-			message:       "Какие ошибки деплоя уже были исправлены?",
-			route:         RouteDeployments,
-			expectedTools: []string{"alert_list", "alert_get", "deployment_list", "deployment_get"},
+			name:           "resolved deployment errors",
+			message:        "Какие ошибки деплоя уже были исправлены?",
+			routerDecision: `{"route":"deployments","capabilities":["deployment_history","alert_management"],"operation":null}`,
+			expectedTools:  []string{"alert_list", "alert_get", "deployment_list", "deployment_get"},
+			excludedTools:  []string{"service_logs_get", "swarm_node_list"},
 		},
 	}
 
@@ -165,7 +179,7 @@ func TestAssistantRoutingProfiles(t *testing.T) {
 
 				w.Header().Set("Content-Type", "application/json")
 				if call == 1 {
-					writeChatResponse(t, w, string(testCase.route), nil)
+					writeChatResponse(t, w, testCase.routerDecision, nil)
 					return
 				}
 				writeChatResponse(t, w, "done", nil)
@@ -279,14 +293,14 @@ func TestAssistantRouteToolsIntersectGlobalAllowlist(t *testing.T) {
 		requests = append(requests, decodeCapturedChatRequest(t, req))
 		w.Header().Set("Content-Type", "application/json")
 		if len(requests) == 1 {
-			writeChatResponse(t, w, string(RouteServices), nil)
+			writeChatResponse(t, w, `{"route":"services","capabilities":["service_context","service_runtime","cluster"],"operation":null}`, nil)
 			return
 		}
 		writeChatResponse(t, w, "done", nil)
 	}))
 	defer server.Close()
 
-	assistantService := newRoutingTestService(t, server.URL, store, tools, []string{"service_logs_get", "swarm_node_list"})
+	assistantService := newRoutingTestService(t, server.URL, store, tools, []string{"service_logs_get"})
 	response := assistantService.Chat(context.Background(), ChatRequest{Message: "Покажи логи api"})
 	require.Equal(t, StatusCompleted, response.Status)
 	require.Len(t, requests, 2)
@@ -644,7 +658,7 @@ func newRoutingTestService(
 	t *testing.T,
 	baseURL string,
 	store *MockServiceStore,
-	tools *fakeTools,
+	tools ToolExecutor,
 	allowedTools []string,
 ) *Service {
 	t.Helper()

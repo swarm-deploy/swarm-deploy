@@ -75,7 +75,8 @@ Completed user/assistant turns are persisted under `.swarm-deploy/assistant/chat
   - `status`: `open` (default), `resolved`, or `all`
   - optional filters: `kind`, `resource_type`, and `resource_id`
   - `limit`: default `20`, maximum `100`
-- `alert_get` - returns one safe alert representation by required `id`
+  - each compact summary contains only selection/correlation fields: `id`, `status`, `kind`, `resource_type`, `resource_id`, `title`, `updated_at`, and optional `deployment_id`/`error_code`
+- `alert_get` - returns one complete safe alert representation by required `id`, including message, failure metadata, deployment correlation, occurrences, lifecycle timestamps, and resolution details
 - `deployment_list` - returns lightweight deployment attempts in newest-first order without Compose snapshots or semantic change arrays
   - optional `stack` and `status` (`running`, `succeeded`, `failed`, or `interrupted`) filters
   - `limit`: default `20`, maximum `100`
@@ -97,7 +98,7 @@ Completed user/assistant turns are persisted under `.swarm-deploy/assistant/chat
 
 `history_event_list` is the user-facing event timeline and is not the source of truth for every deployment failure. `alert_list`/`alert_get` expose operational incident lifecycle, while `deployment_list`/`deployment_get` expose actual persisted deployment attempts and outcomes. A `succeeded` deployment means the Docker apply attempt succeeded; it does not guarantee healthy services or verified desired/live convergence.
 
-Alerts correlate to attempts through `deployment_id`. The expected lookup is `alert_list` -> `alert_get` -> `deployment_get`, but only when `deployment_id` is non-empty. A preparation failure can create an alert without creating a deployment attempt; the assistant must report that condition instead of inventing an attempt.
+Alerts correlate to attempts through `deployment_id`. The preferred minimal lookup is `alert_list` -> `deployment_get` -> final answer because the compact list result already includes `deployment_id`. Use `alert_get` only when its additional incident details are needed. Follow the correlation only when `deployment_id` is non-empty. A preparation failure can create an alert without creating a deployment attempt; the assistant reports that condition instead of inventing an attempt.
 
 The default route capabilities expose deployments and alerts to `deployments` and `diagnostics`; `cluster` receives Alert Management plus cluster inspection. Service-specific deployment-failure questions are routed with service context/runtime plus deployment and alert capabilities.
 
@@ -112,6 +113,8 @@ Tool access is controlled by `assistant.tools`:
 - empty list (`[]`) permits all built-in tools, subject to the selected route
 - a non-empty list works as a global allow-list; effective tools are the intersection of it and the route allow-list
 - the effective allow-list is checked both when tools are sent to the model and immediately before execution
+
+Each assistant run permits at most three tool execution rounds. After the third round, the model receives one tool-free instruction to produce its final answer from the evidence already collected. Any further tool request is not executed, and the run terminates gracefully instead of restarting the tool loop.
 
 ## Configuration
 
