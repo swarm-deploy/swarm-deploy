@@ -1,6 +1,8 @@
 package modelstore
 
 import (
+	"database/sql"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -21,7 +23,7 @@ func TestSQLStoreListAppliesAlertFiltersAndNewestOrdering(t *testing.T) {
 			OpenedAt: base, UpdatedAt: base},
 		{ID: "new-stack", Fingerprint: "new-stack", Kind: model.AlertKindDeployFailed,
 			ResourceType: model.ResourceTypeStack, ResourceID: "web", Status: model.AlertStatusResolved,
-			OpenedAt: base, UpdatedAt: base.Add(2 * time.Minute)},
+			DeploymentID: "deployment-2", OpenedAt: base, UpdatedAt: base.Add(2 * time.Minute)},
 		{ID: "node", Fingerprint: "node", Kind: model.AlertKindNodeDisconnected,
 			ResourceType: model.ResourceTypeNode, ResourceID: "node-1", Status: model.AlertStatusOpen,
 			OpenedAt: base, UpdatedAt: base.Add(time.Minute)},
@@ -40,6 +42,7 @@ func TestSQLStoreListAppliesAlertFiltersAndNewestOrdering(t *testing.T) {
 		{name: "kind", filter: ListFilter{Kind: model.AlertKindDeployFailed}, want: []string{"new-stack", "old-stack"}},
 		{name: "resource type", filter: ListFilter{ResourceType: model.ResourceTypeNode}, want: []string{"node"}},
 		{name: "resource id", filter: ListFilter{ResourceID: "api"}, want: []string{"old-stack"}},
+		{name: "deployment", filter: ListFilter{DeploymentID: "deployment-2"}, want: []string{"new-stack"}},
 		{name: "combined", filter: ListFilter{Status: model.AlertStatusResolved, Kind: model.AlertKindDeployFailed,
 			ResourceType: model.ResourceTypeStack, ResourceID: "web"}, want: []string{"new-stack"}},
 		{name: "limit", filter: ListFilter{Limit: 1}, want: []string{"new-stack"}},
@@ -73,6 +76,7 @@ func TestSQLStorePersistsAndSynchronizesIndexedFields(t *testing.T) {
 	alert.Kind = model.AlertKindNodeDisconnected
 	alert.ResourceType = model.ResourceTypeNode
 	alert.ResourceID = "node-1"
+	alert.DeploymentID = "deployment-1"
 	alert.UpdatedAt = now.Add(time.Minute)
 	require.NoError(t, store.Update(t.Context(), alert))
 	assertIndexedFields(t, db, alert)
@@ -89,6 +93,8 @@ func TestSQLStorePersistsAndSynchronizesIndexedFields(t *testing.T) {
 	assert.Equal(t, alert.Kind, resolved.Kind)
 	assert.Equal(t, alert.ResourceType, resolved.ResourceType)
 	assert.Equal(t, alert.ResourceID, resolved.ResourceID)
+	assert.Equal(t, now, resolved.OpenedAt, "repeated updates must preserve the incident opening time")
+	assert.Equal(t, alert.DeploymentID, resolved.DeploymentID)
 }
 
 func TestAlertIndexesSupportRepresentativeQueries(t *testing.T) {
@@ -98,6 +104,11 @@ func TestAlertIndexesSupportRepresentativeQueries(t *testing.T) {
 		query     string
 		wantIndex string
 	}{
+		{
+			name:      "deployment correlation",
+			query:     `SELECT payload FROM alerts WHERE deployment_id='deployment-1' ORDER BY updated_at_ns DESC,id`,
+			wantIndex: "idx_alert_deployment_updated",
+		},
 		{
 			name:      "open alerts newest first",
 			query:     `SELECT payload FROM alerts WHERE status='open' ORDER BY updated_at_ns DESC,id`,
@@ -144,10 +155,19 @@ func assertIndexedFields(t *testing.T, db *storage.Database, alert model.Alert) 
 	var kind model.AlertKind
 	var resourceType model.ResourceType
 	var resourceID string
+	var deploymentID sql.NullString
+	var openedAt int64
+	var payload string
 	require.NoError(t, db.Get(t.Context()).QueryRowContext(t.Context(),
-		"SELECT kind,resource_type,resource_id FROM alerts WHERE id=?", alert.ID).
-		Scan(&kind, &resourceType, &resourceID))
+		"SELECT kind,resource_type,resource_id,deployment_id,opened_at_ns,payload FROM alerts WHERE id=?", alert.ID).
+		Scan(&kind, &resourceType, &resourceID, &deploymentID, &openedAt, &payload))
 	assert.Equal(t, alert.Kind, kind)
 	assert.Equal(t, alert.ResourceType, resourceType)
 	assert.Equal(t, alert.ResourceID, resourceID)
+	assert.Equal(t, alert.DeploymentID, deploymentID.String)
+	assert.Equal(t, alert.OpenedAt.UnixNano(), openedAt)
+	var persisted model.Alert
+	require.NoError(t, json.Unmarshal([]byte(payload), &persisted))
+	assert.Equal(t, alert.DeploymentID, persisted.DeploymentID)
+	assert.Equal(t, alert.OpenedAt, persisted.OpenedAt)
 }

@@ -3,6 +3,8 @@ package outbox
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -208,6 +210,65 @@ func TestConcurrentClaim(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, success)
+}
+
+func TestClaimQueryUsesActiveSubscriptionIndex(t *testing.T) {
+	testCases := []struct {
+		name        string
+		statuses    map[string]int
+		subscribers int
+	}{
+		{name: "many delivered events", statuses: map[string]int{"delivered": 500, "pending": 5}, subscribers: 3},
+		{name: "many pending deliveries", statuses: map[string]int{"pending": 500}, subscribers: 3},
+		{name: "multiple subscribers", statuses: map[string]int{"pending": 100}, subscribers: 10},
+		{name: "processing deliveries", statuses: map[string]int{"pending": 100, "processing": 100}, subscribers: 4},
+		{name: "accumulated failed deliveries", statuses: map[string]int{"failed": 500, "pending": 5}, subscribers: 3},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			db, _ := setup(t)
+			sequence := 0
+			for status, count := range testCase.statuses {
+				for index := range count {
+					sequence++
+					eventID := fmt.Sprintf("event-%06d", sequence)
+					_, err := db.Get(t.Context()).ExecContext(t.Context(), `INSERT INTO outbox_events
+						(id,event_type,schema_version,occurred_at_ms,payload) VALUES (?,?,?,?,?)`,
+						eventID, events.TypeNameNodeJoined, 1, sequence, `{}`)
+					require.NoError(t, err)
+					for subscriber := range testCase.subscribers {
+						leaseUntil, leaseToken := any(nil), any(nil)
+						if status == "processing" {
+							leaseUntil, leaseToken = int64(sequence), "lease-token"
+						}
+						_, err = db.Get(t.Context()).ExecContext(t.Context(), `INSERT INTO outbox_deliveries
+							(event_id,subscription_id,status,available_at_ms,lease_until_ms,lease_token,updated_at_ms)
+							VALUES (?,?,?,?,?,?,?)`, eventID, fmt.Sprintf("subscriber-%02d", subscriber), status,
+							sequence, leaseUntil, leaseToken, sequence)
+						require.NoError(t, err)
+					}
+					_ = index
+				}
+			}
+			_, err := db.Get(t.Context()).ExecContext(t.Context(), "ANALYZE")
+			require.NoError(t, err)
+			rows, err := db.Get(t.Context()).QueryContext(t.Context(), "EXPLAIN QUERY PLAN "+claimQuery,
+				int64(1_000_000), int64(1_000_000), "token", int64(2_000_000), int64(1_000_000))
+			require.NoError(t, err)
+			defer rows.Close()
+			var plan strings.Builder
+			for rows.Next() {
+				var id, parent, unused int
+				var detail string
+				require.NoError(t, rows.Scan(&id, &parent, &unused, &detail))
+				plan.WriteString(detail)
+				plan.WriteByte('\n')
+			}
+			require.NoError(t, rows.Err())
+			t.Log(plan.String())
+			assert.Contains(t, plan.String(), "idx_outbox_active_subscription")
+		})
+	}
 }
 
 func TestNoSubscribersAndNoGlobalDedup(t *testing.T) {

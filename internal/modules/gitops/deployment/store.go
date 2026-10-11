@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/doug-martin/goqu/v9"
+	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
@@ -35,9 +37,8 @@ func NewStore(db *storage.Database) *Store { return &Store{db: db} }
 
 // List returns a lightweight page without loading desired snapshots or change arrays.
 func (s *Store) List(ctx context.Context, filter ListFilter) (Page, error) {
-	query := `SELECT id,stack,revision,status,json_extract(payload,'$.status'),started_at_ns,finished_at_ns,
-	coalesce(json_extract(payload,'$.error_code'),''),
-	coalesce(json_extract(payload,'$.phase'),''),
+	columns := `id,stack,revision,status,json_extract(payload,'$.status'),started_at_ns,finished_at_ns,
+	error_code,phase,
 	coalesce(json_extract(payload,'$.apply_status'),''),
 	coalesce(json_extract(payload,'$.verification_status'),''),
 	coalesce(json_extract(payload,'$.cleanup_status'),''),
@@ -55,35 +56,39 @@ func (s *Store) List(ctx context.Context, filter ListFilter) (Page, error) {
 	coalesce(json_extract(payload,'$.resources.secrets'),0),
 	coalesce(json_extract(payload,'$.resources.networks'),0),
 	coalesce(json_extract(payload,'$.resources.volumes'),0),
-	coalesce(json_extract(payload,'$.diff_available'),0)
-	FROM deployments`
-	args := []any{}
-	clauses := []string{}
+	coalesce(json_extract(payload,'$.diff_available'),0)`
+	dataset := goqu.Dialect("sqlite3").From("deployments").Prepared(true).Select(goqu.L(columns))
 	if filter.Stack != "" {
-		clauses = append(clauses, "stack=?")
-		args = append(args, filter.Stack)
+		dataset = dataset.Where(goqu.Ex{"stack": filter.Stack})
 	}
 	if filter.Status != "" {
-		clauses = append(clauses, "status=?")
-		args = append(args, filter.Status)
+		dataset = dataset.Where(goqu.Ex{"status": filter.Status})
+	}
+	if filter.ErrorCode != "" {
+		dataset = dataset.Where(goqu.Ex{"error_code": filter.ErrorCode})
+	}
+	if filter.Phase != "" {
+		dataset = dataset.Where(goqu.Ex{"phase": filter.Phase})
 	}
 	if filter.Cursor != "" {
 		started, id, err := decodeCursor(filter.Cursor)
 		if err != nil {
 			return Page{}, err
 		}
-		clauses = append(clauses, "(started_at_ns<? OR (started_at_ns=? AND id>?))")
-		args = append(args, started, started, id)
-	}
-	if len(clauses) > 0 {
-		query += " WHERE " + strings.Join(clauses, " AND ")
+		dataset = dataset.Where(goqu.Or(
+			goqu.C("started_at_ns").Lt(started),
+			goqu.And(goqu.C("started_at_ns").Eq(started), goqu.C("id").Gt(id)),
+		))
 	}
 	limit := filter.Limit
 	if limit < 1 || limit > 100 {
 		limit = 20
 	}
-	query += " ORDER BY started_at_ns DESC,id LIMIT ?"
-	args = append(args, limit+1)
+	dataset = dataset.Order(goqu.I("started_at_ns").Desc(), goqu.I("id").Asc()).Limit(uint(limit + 1))
+	query, args, err := dataset.ToSQL()
+	if err != nil {
+		return Page{}, err
+	}
 	rows, err := s.db.Get(ctx).QueryContext(ctx, query, args...)
 	if err != nil {
 		return Page{}, err
@@ -171,9 +176,11 @@ func decodeCursor(cursor string) (int64, string, error) {
 // Get loads one attempt.
 func (s *Store) Get(ctx context.Context, id string) (Deployment, error) {
 	var persistedStatus Status
+	var errorCode string
+	var phase Phase
 	var payload string
-	err := s.db.Get(ctx).QueryRowContext(ctx, "SELECT status,payload FROM deployments WHERE id=?", id).
-		Scan(&persistedStatus, &payload)
+	err := s.db.Get(ctx).QueryRowContext(ctx, "SELECT status,error_code,phase,payload FROM deployments WHERE id=?", id).
+		Scan(&persistedStatus, &errorCode, &phase, &payload)
 	if err != nil {
 		return Deployment{}, notFound(err)
 	}
@@ -181,9 +188,10 @@ func (s *Store) Get(ctx context.Context, id string) (Deployment, error) {
 	if err = json.Unmarshal([]byte(payload), &result); err != nil {
 		return Deployment{}, err
 	}
-	if result.ID != id || result.Status != persistedStatus {
-		return Deployment{}, fmt.Errorf("%w: deployment %s column status %q payload id/status %q/%q",
-			ErrInconsistentDeployment, id, persistedStatus, result.ID, result.Status)
+	if result.ID != id || result.Status != persistedStatus || result.ErrorCode != errorCode || result.Phase != phase {
+		return Deployment{}, fmt.Errorf(
+			"%w: deployment %s indexed columns disagree with payload", ErrInconsistentDeployment, id,
+		)
 	}
 	if result.Summary == (ChangeSummary{}) && len(result.Changes) > 0 {
 		result.Summary, result.Resources = summarize(result.Changes)
@@ -261,8 +269,8 @@ func (s *Store) insert(ctx context.Context, d Deployment, desired Prepared) erro
 		return err
 	}
 	_, err = s.db.Get(ctx).ExecContext(ctx, `INSERT INTO deployments
- (id,stack,revision,status,started_at_ns,effective_digest,desired_payload,payload)
- VALUES (?,?,?,?,?,?,?,?)`, d.ID, d.Stack, d.Commit, d.Status, d.StartedAt.UnixNano(),
+	(id,stack,revision,status,error_code,phase,started_at_ns,effective_digest,desired_payload,payload)
+	VALUES (?,?,?,?,?,?,?,?,?,?)`, d.ID, d.Stack, d.Commit, d.Status, d.ErrorCode, d.Phase, d.StartedAt.UnixNano(),
 		desired.Digest, string(safe), string(payload))
 	return err
 }
@@ -276,8 +284,8 @@ func (s *Store) finish(ctx context.Context, d Deployment) error {
 		return err
 	}
 	result, err := s.db.Get(ctx).ExecContext(ctx, `UPDATE deployments
- SET status=?,finished_at_ns=?,payload=? WHERE id=? AND status='running'`,
-		d.Status, d.FinishedAt.UnixNano(), string(payload), d.ID)
+	SET status=?,error_code=?,phase=?,finished_at_ns=?,payload=? WHERE id=? AND status='running'`,
+		d.Status, d.ErrorCode, d.Phase, d.FinishedAt.UnixNano(), string(payload), d.ID)
 	if err != nil {
 		return err
 	}

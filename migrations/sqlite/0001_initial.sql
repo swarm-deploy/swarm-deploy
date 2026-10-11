@@ -30,6 +30,9 @@ CREATE TABLE outbox_deliveries (
 );
 CREATE INDEX idx_outbox_delivery_due ON outbox_deliveries(status, available_at_ms);
 CREATE INDEX idx_outbox_delivery_expired_lease ON outbox_deliveries(status, lease_until_ms);
+CREATE INDEX idx_outbox_active_subscription
+    ON outbox_deliveries(subscription_id,event_id)
+    WHERE status IN ('pending','processing');
 
 CREATE TABLE event_history (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -55,7 +58,9 @@ CREATE TABLE alerts (
     kind TEXT NOT NULL CHECK (kind <> ''),
     resource_type TEXT NOT NULL CHECK (resource_type <> ''),
     resource_id TEXT NOT NULL CHECK (resource_id <> ''),
+    deployment_id TEXT,
     status TEXT NOT NULL CHECK (status IN ('open','resolved')),
+    opened_at_ns INTEGER NOT NULL,
     updated_at_ns INTEGER NOT NULL,
     resolved_at_ns INTEGER,
     payload TEXT NOT NULL CHECK (json_valid(payload))
@@ -65,6 +70,8 @@ CREATE INDEX idx_alert_status_updated ON alerts(status,updated_at_ns DESC,id);
 CREATE INDEX idx_alert_kind_status_updated ON alerts(kind,status,updated_at_ns DESC,id);
 CREATE INDEX idx_alert_resource_status_updated
     ON alerts(resource_type,resource_id,status,updated_at_ns DESC,id);
+CREATE INDEX idx_alert_deployment_updated
+    ON alerts(deployment_id,updated_at_ns DESC,id) WHERE deployment_id IS NOT NULL;
 CREATE TABLE alert_events (source_event_id TEXT PRIMARY KEY);
 
 CREATE TABLE gitops_runtime (id INTEGER PRIMARY KEY CHECK (id=1), payload TEXT NOT NULL CHECK (json_valid(payload)));
@@ -95,6 +102,8 @@ CREATE TABLE deployments (
     stack TEXT NOT NULL,
     revision TEXT NOT NULL,
     status TEXT NOT NULL CHECK(status IN ('running','succeeded','failed','interrupted')),
+    error_code TEXT NOT NULL,
+    phase TEXT NOT NULL,
     started_at_ns INTEGER NOT NULL,
     finished_at_ns INTEGER,
     effective_digest TEXT NOT NULL,
@@ -104,6 +113,8 @@ CREATE TABLE deployments (
 );
 CREATE INDEX idx_deployments_stack_time ON deployments(stack,started_at_ns DESC,id);
 CREATE INDEX idx_deployments_time ON deployments(started_at_ns DESC,id);
+CREATE INDEX idx_deployments_status_time ON deployments(status,started_at_ns DESC,id);
+CREATE INDEX idx_deployments_stack_status_time ON deployments(stack,status,started_at_ns DESC,id);
 CREATE UNIQUE INDEX idx_deployments_running_stack ON deployments(stack) WHERE status='running';
 
 CREATE TABLE desired_snapshots (

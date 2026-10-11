@@ -247,6 +247,120 @@ func TestListFiltersStatusBeforeCursorPagination(t *testing.T) {
 	assert.Empty(t, second.NextCursor)
 }
 
+func TestDeploymentColumnsStaySynchronizedAndSupportFailureFilters(t *testing.T) {
+	ctx := t.Context()
+	db, err := storage.Open(ctx, t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	service := NewService(db, outbox.New(db))
+	repo := NewStore(db)
+
+	type completionCase struct {
+		name     string
+		code     string
+		phase    Phase
+		status   Status
+		complete func(string) error
+	}
+	testCases := []completionCase{
+		{name: "successful", phase: PhaseCompleted, status: Succeeded,
+			complete: func(id string) error { return service.Succeed(ctx, id, model.Stack{}) }},
+		{name: "apply error", code: "apply_failed", phase: PhaseApply, status: Failed,
+			complete: func(id string) error { return service.FailApply(ctx, id, model.Stack{}, "apply_failed") }},
+		{name: "verification error", code: "verification_unknown", phase: PhaseVerification, status: Interrupted,
+			complete: func(id string) error { return service.InterruptVerification(ctx, id, model.Stack{}) }},
+		{name: "cleanup error", code: "prune_failed", phase: PhaseCleanup, status: Failed,
+			complete: func(id string) error {
+				return service.FailCleanup(ctx, id, model.Stack{}, "prune_failed", time.Now().UTC())
+			}},
+	}
+	ids := make(map[string]string, len(testCases))
+	for index, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			attempt, startErr := service.StartIfChanged(ctx, testCase.name, fmt.Sprintf("commit-%d", index),
+				desired(fmt.Sprintf("api:%d", index)), true)
+			require.NoError(t, startErr)
+			require.NotNil(t, attempt)
+			assertDeploymentColumns(t, db, attempt.ID, "", PhaseApply)
+			require.NoError(t, testCase.complete(attempt.ID))
+			assertDeploymentColumns(t, db, attempt.ID, testCase.code, testCase.phase)
+			stored, getErr := repo.Get(ctx, attempt.ID)
+			require.NoError(t, getErr)
+			assert.Equal(t, testCase.status, stored.Status)
+			ids[testCase.name] = attempt.ID
+		})
+	}
+
+	filterCases := []struct {
+		name   string
+		filter ListFilter
+		wantID string
+	}{
+		{name: "error code", filter: ListFilter{ErrorCode: "verification_unknown"}, wantID: ids["verification error"]},
+		{name: "phase", filter: ListFilter{Phase: PhaseApply}, wantID: ids["apply error"]},
+		{name: "combined", filter: ListFilter{ErrorCode: "prune_failed", Phase: PhaseCleanup},
+			wantID: ids["cleanup error"]},
+	}
+	for _, filterCase := range filterCases {
+		t.Run("filter "+filterCase.name, func(t *testing.T) {
+			filtered, listErr := repo.List(ctx, filterCase.filter)
+			require.NoError(t, listErr)
+			require.Len(t, filtered.Deployments, 1)
+			assert.Equal(t, filterCase.wantID, filtered.Deployments[0].ID)
+		})
+	}
+}
+
+func TestDeploymentIndexesSupportListQueries(t *testing.T) {
+	db, err := storage.Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	testCases := []struct {
+		name      string
+		query     string
+		wantIndex string
+	}{
+		{name: "status", query: `SELECT id FROM deployments WHERE status='failed'
+			ORDER BY started_at_ns DESC,id LIMIT 21`, wantIndex: "idx_deployments_status_time"},
+		{name: "stack and status", query: `SELECT id FROM deployments WHERE stack='app' AND status='failed'
+			ORDER BY started_at_ns DESC,id LIMIT 21`, wantIndex: "idx_deployments_stack_status_time"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			rows, queryErr := db.Get(t.Context()).QueryContext(t.Context(), "EXPLAIN QUERY PLAN "+testCase.query)
+			require.NoError(t, queryErr)
+			defer rows.Close()
+			var plan strings.Builder
+			for rows.Next() {
+				var id, parent, unused int
+				var detail string
+				require.NoError(t, rows.Scan(&id, &parent, &unused, &detail))
+				plan.WriteString(detail)
+			}
+			require.NoError(t, rows.Err())
+			t.Log(plan.String())
+			assert.Contains(t, plan.String(), testCase.wantIndex)
+			assert.NotContains(t, plan.String(), "USE TEMP B-TREE FOR ORDER BY")
+		})
+	}
+}
+
+func assertDeploymentColumns(t *testing.T, db *storage.Database, id, errorCode string, phase Phase) {
+	t.Helper()
+	var columnError string
+	var columnPhase Phase
+	var payload []byte
+	require.NoError(t, db.Get(t.Context()).QueryRowContext(t.Context(),
+		"SELECT error_code,phase,payload FROM deployments WHERE id=?", id).
+		Scan(&columnError, &columnPhase, &payload))
+	assert.Equal(t, errorCode, columnError)
+	assert.Equal(t, phase, columnPhase)
+	var persisted Deployment
+	require.NoError(t, json.Unmarshal(payload, &persisted))
+	assert.Equal(t, errorCode, persisted.ErrorCode)
+	assert.Equal(t, phase, persisted.Phase)
+}
+
 func TestInterruptedTransitionIsAtomicDurableAndIdempotent(t *testing.T) {
 	ctx := context.Background()
 	db, err := storage.Open(ctx, t.TempDir())
