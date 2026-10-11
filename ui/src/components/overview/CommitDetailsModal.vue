@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 
 import AppTable from "../common/AppTable.vue";
 import { useAssistantStore } from "../../stores/assistant";
@@ -10,6 +10,13 @@ import { formatDate, shortCommitHash } from "../../utils/format";
 const overviewStore = useOverviewStore();
 const assistantStore = useAssistantStore();
 const uiStore = useUIStore();
+const dialog = ref<HTMLElement | null>(null);
+const closeButton = ref<HTMLButtonElement | null>(null);
+let returnFocus: HTMLElement | null = null;
+const focusableSelector = [
+  "a[href]", "button:not([disabled])", "input:not([disabled])", "select:not([disabled])",
+  "textarea:not([disabled])", "[tabindex]:not([tabindex=\"-1\"])",
+].join(", ");
 
 const commitDetails = computed(() => overviewStore.commitDetailsData);
 const currentCommitHash = computed(() => commitDetails.value?.full_hash || overviewStore.commitDetailsHash);
@@ -61,6 +68,7 @@ async function explainWithAI() {
     return;
   }
 
+  returnFocus = null;
   closeCommitDetailsModal();
   uiStore.openAssistantDrawer();
   await assistantStore.sendMessage(`Explain changes in git commit: ${commitHash}`);
@@ -68,26 +76,59 @@ async function explainWithAI() {
 
 function handleEscape(event: KeyboardEvent) {
   if (event.key === "Escape" && overviewStore.commitDetailsModalOpen) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
     closeCommitDetailsModal();
   }
 }
 
+function focusableElements(): HTMLElement[] {
+  return dialog.value ? [...dialog.value.querySelectorAll<HTMLElement>(focusableSelector)] : [];
+}
+
+function handleKeydown(event: KeyboardEvent) {
+  if (!overviewStore.commitDetailsModalOpen) return;
+  if (event.key === "Escape") { handleEscape(event); return; }
+  if (event.key !== "Tab") return;
+  const focusable = focusableElements();
+  if (focusable.length === 0) { event.preventDefault(); dialog.value?.focus(); return; }
+  const first = focusable[0];
+  const last = focusable[focusable.length - 1];
+  const activeIndex = focusable.indexOf(document.activeElement as HTMLElement);
+  if (activeIndex === -1 || (event.shiftKey && activeIndex === 0) || (!event.shiftKey && activeIndex === focusable.length - 1)) {
+    event.preventDefault();
+    (event.shiftKey ? last : first).focus();
+  }
+}
+
+watch(() => overviewStore.commitDetailsModalOpen, async (open, wasOpen) => {
+  if (open && !wasOpen) {
+    returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    await nextTick();
+    closeButton.value?.focus();
+  } else if (!open && wasOpen) {
+    await nextTick();
+    if (returnFocus?.isConnected) returnFocus.focus();
+    returnFocus = null;
+  }
+});
+
 onMounted(() => {
-  document.addEventListener("keydown", handleEscape);
+  document.addEventListener("keydown", handleKeydown, true);
 });
 
 onUnmounted(() => {
-  document.removeEventListener("keydown", handleEscape);
+  document.removeEventListener("keydown", handleKeydown, true);
 });
 </script>
 
 <template>
-  <div class="modal" :class="{ hidden: !overviewStore.commitDetailsModalOpen }" aria-hidden="true">
+  <div v-if="overviewStore.commitDetailsModalOpen" class="modal">
     <div class="modal-overlay" @click="closeCommitDetailsModal" />
-    <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="commit-details-title">
+    <div ref="dialog" class="modal-card" role="dialog" aria-modal="true" aria-labelledby="commit-details-title" tabindex="-1">
       <div class="modal-header">
         <h2 id="commit-details-title">{{ titleText }}</h2>
-        <button class="modal-close" type="button" aria-label="Close modal" @click="closeCommitDetailsModal">x</button>
+        <button ref="closeButton" class="modal-close" type="button" aria-label="Close modal" @click="closeCommitDetailsModal">x</button>
       </div>
 
       <div class="modal-body">

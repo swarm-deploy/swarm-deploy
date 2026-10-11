@@ -1,9 +1,23 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
+import { defineComponent } from "vue";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Deployment } from "../../api/types";
 import { useOverviewStore } from "../../stores/overview";
+import CommitDetailsModal from "./CommitDetailsModal.vue";
 import DeploymentDetailsModal from "./DeploymentDetailsModal.vue";
+
+vi.mock("../../stores/assistant", () => ({
+  useAssistantStore: () => ({ enabled: false, pending: false }),
+}));
+vi.mock("../../stores/ui", () => ({
+  useUIStore: () => ({ openAssistantDrawer: vi.fn() }),
+}));
+
+const ModalHost = defineComponent({
+  components: { CommitDetailsModal, DeploymentDetailsModal },
+  template: "<DeploymentDetailsModal /><CommitDetailsModal />",
+});
 
 function deployment(
   status: Deployment["status"] = "failed",
@@ -51,6 +65,28 @@ describe("Deployment Details modal", () => {
     expect(wrapper.find('[aria-label="Recorded desired configuration YAML"]').html()).toContain("API_TOKEN");
     expect(wrapper.find('[aria-label="Recorded desired configuration YAML"]').html()).toContain("****");
     expect(wrapper.html()).not.toContain("plaintext");
+    wrapper.unmount();
+  });
+
+  it("keeps a very long YAML value inside the configuration viewer while switching tabs", async () => {
+    const store = useOverviewStore();
+    const details = deployment("succeeded");
+    const longValue = `https://registry.example.test/image@sha256:${"a".repeat(4096)}`;
+    details.configuration_yaml = `services:\n  api:\n    image: ${longValue}\n`;
+    store.deploymentDetailsModalOpen = true;
+    store.deploymentDetailsData = details;
+    const wrapper = mount(DeploymentDetailsModal);
+    const modal = wrapper.get(".deployment-modal").element;
+
+    await wrapper.get('[role="tab"]:last-child').trigger("click");
+    const yaml = wrapper.get('[aria-label="Recorded desired configuration YAML"]');
+    expect(yaml.classes()).toEqual(expect.arrayContaining(["deployment-yaml", "manifest-code"]));
+    expect(yaml.text()).toContain(longValue);
+    expect(wrapper.get(".deployment-modal").element).toBe(modal);
+
+    await wrapper.get('[role="tab"]:first-child').trigger("click");
+    expect(wrapper.get('[role="tab"]:first-child').attributes("aria-selected")).toBe("true");
+    expect(wrapper.get(".deployment-modal").element).toBe(modal);
     wrapper.unmount();
   });
 
@@ -120,6 +156,58 @@ describe("Deployment Details modal", () => {
     expect(document.activeElement).toBe(trigger);
     wrapper.unmount();
     trigger.remove();
+  });
+
+  it("keeps deployment state and focus when commit details is the top dialog", async () => {
+    const store = useOverviewStore();
+    store.deploymentDetailsModalOpen = true;
+    store.deploymentDetailsData = deployment("succeeded");
+    vi.spyOn(store, "openCommitDetailsModal").mockImplementation(async (hash) => {
+      store.commitDetailsHash = hash;
+      store.commitDetailsData = {
+        full_hash: hash,
+        author: "Developer",
+        message: "Keep nested dialogs ordered",
+        date: "2026-10-10T10:00:00Z",
+        changed_files: ["compose.yaml"],
+      };
+      store.commitDetailsModalOpen = true;
+    });
+    const wrapper = mount(ModalHost, { attachTo: document.body });
+
+    await wrapper.get('[role="tab"]:last-child').trigger("click");
+    const commitTrigger = wrapper.get(".deployment-commit-link");
+    (commitTrigger.element as HTMLElement).focus();
+    await commitTrigger.trigger("click");
+    await flushPromises();
+
+    const dialogs = wrapper.findAll('[role="dialog"]');
+    expect(dialogs).toHaveLength(2);
+    expect(dialogs[1].attributes("aria-labelledby")).toBe("commit-details-title");
+    expect(wrapper.get(".deployment-modal").element.parentElement?.hasAttribute("inert")).toBe(true);
+    expect(wrapper.get(".deployment-modal").element.parentElement?.getAttribute("aria-hidden")).toBe("true");
+    expect(document.activeElement).toBe(wrapper.get('[aria-label="Close modal"]').element);
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await flushPromises();
+    expect(store.commitDetailsModalOpen).toBe(false);
+    expect(store.deploymentDetailsModalOpen).toBe(true);
+    expect(wrapper.get('[role="tab"]:last-child').attributes("aria-selected")).toBe("true");
+    expect(wrapper.find('[aria-label="Recorded desired configuration YAML"]').exists()).toBe(true);
+    expect(document.activeElement).toBe(commitTrigger.element);
+
+    await commitTrigger.trigger("click");
+    await flushPromises();
+    await wrapper.findAll(".modal-overlay").at(-1)!.trigger("click");
+    await flushPromises();
+    expect(store.commitDetailsModalOpen).toBe(false);
+    expect(store.deploymentDetailsModalOpen).toBe(true);
+    expect(wrapper.get('[role="tab"]:last-child').attributes("aria-selected")).toBe("true");
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await flushPromises();
+    expect(store.deploymentDetailsModalOpen).toBe(false);
+    wrapper.unmount();
   });
 
   it("shows loading and errors without stale details and retries by ID", async () => {

@@ -89,8 +89,8 @@ onMounted(() => {
     </div>
     <ServiceStatusModal />
     <AlertDetailsModal />
-    <CommitDetailsModal />
     <DeploymentDetailsModal />
+    <CommitDetailsModal />
     <StackManifestModal />
     <SecretDetailsModal />
     <AssistantDrawer />

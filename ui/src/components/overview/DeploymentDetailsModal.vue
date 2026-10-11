@@ -157,7 +157,7 @@ async function copyConfiguration() {
   window.setTimeout(() => { copyLabel.value = "Copy YAML"; }, 1200);
 }
 function onKeydown(event: KeyboardEvent) {
-  if (!store.deploymentDetailsModalOpen) return;
+  if (!store.deploymentDetailsModalOpen || store.commitDetailsModalOpen) return;
   if (event.key === "Escape") { event.preventDefault(); close(); return; }
   if (event.key !== "Tab") return;
   const focusable = focusableElements();
@@ -184,7 +184,12 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
 </script>
 
 <template>
-  <div v-if="store.deploymentDetailsModalOpen" class="modal">
+  <div
+    v-if="store.deploymentDetailsModalOpen"
+    class="modal"
+    :aria-hidden="store.commitDetailsModalOpen"
+    :inert="store.commitDetailsModalOpen || undefined"
+  >
     <div class="modal-overlay" @click="close" />
     <div ref="dialog" class="modal-card deployment-modal" role="dialog" aria-modal="true" aria-labelledby="deployment-details-title" tabindex="-1">
       <div class="modal-header deployment-modal-header">
@@ -282,11 +287,12 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
 </template>
 
 <style scoped>
-.deployment-modal { width: min(960px, calc(100vw - 32px)); max-height: min(92vh, 940px); display: flex; flex-direction: column; overflow: hidden; }
+.deployment-modal { width: min(960px, calc(100vw - 32px)); max-width: calc(100vw - 32px); min-width: 0; max-height: min(calc(100dvh - 32px), 940px); margin: max(16px, 4dvh) auto; display: flex; flex-direction: column; overflow: hidden; }
 .deployment-modal-header { flex: 0 0 auto; align-items: flex-start; }
+.deployment-modal-header > div { min-width: 0; }
 .deployment-modal-header h2 { margin: 2px 0 0; overflow-wrap: anywhere; }
 .deployment-modal-eyebrow { color: var(--muted); font-size: .72rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-.deployment-modal-body { min-height: 0; overflow: auto; }
+.deployment-modal-body { min-width: 0; min-height: 0; overflow: auto; }
 .deployment-summary { border: 1px solid var(--line); border-radius: 10px; padding: 14px; background: var(--surface-card-soft); }
 .deployment-summary-heading, .deployment-changes-heading, .deployment-configuration-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .deployment-summary-heading h3, .deployment-changes-heading h3, .deployment-configuration-heading h3 { margin: 0; }
@@ -307,7 +313,7 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
 .deployment-tabs { display: flex; gap: 4px; margin-top: 16px; border-bottom: 1px solid var(--line); }
 .deployment-tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--muted); padding: 9px 12px; }
 .deployment-tabs button.active { border-bottom-color: var(--accent); color: var(--text); }
-.deployment-tab-panel { padding-top: 16px; }
+.deployment-tab-panel { min-width: 0; padding-top: 16px; }
 .deployment-tab-panel > h3 { margin-top: 0; }
 .deployment-counts { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
 .deployment-counts span { border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px; color: var(--muted); }
@@ -335,12 +341,13 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
 .deployment-diff-line code { white-space: pre-wrap; overflow-wrap: anywhere; }
 .deployment-diff-line--before { color: var(--error); background: var(--error-muted); }
 .deployment-diff-line--after { color: var(--success); background: var(--success-muted); }
-.deployment-yaml { max-height: 55vh; overflow: auto; border: 1px solid var(--line); border-radius: 7px; }
+.deployment-configuration-heading > div { min-width: 0; }
+.deployment-yaml { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; max-height: 55vh; overflow: auto; border: 1px solid var(--line); border-radius: 7px; }
 @media (max-width: 640px) {
-  .deployment-modal { width: calc(100vw - 16px); max-height: 96vh; }
+  .deployment-modal { width: calc(100vw - 16px); max-width: calc(100vw - 16px); max-height: calc(100dvh - 16px); margin: 8px auto; }
   .deployment-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .deployment-service-row, .deployment-change { grid-template-columns: minmax(0, 1fr); gap: 5px; }
   .deployment-service-row > :last-child { color: var(--muted); }
-  .deployment-changes-heading, .deployment-configuration-heading { align-items: flex-start; }
+  .deployment-changes-heading, .deployment-configuration-heading { align-items: flex-start; flex-wrap: wrap; }
 }
 </style>
