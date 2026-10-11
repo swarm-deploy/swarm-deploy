@@ -41,6 +41,7 @@ func TestSubscriberDeploymentLifecycle(t *testing.T) {
 	require.NoError(t, err, "list open alerts")
 	require.Len(t, alerts, 1, "one incident should be created")
 	firstID := alerts[0].ID
+	openedAt := alerts[0].OpenedAt
 	assert.Equal(t, model.AlertStatusOpen, alerts[0].Status, "alert should be open")
 	assert.Equal(t, uint64(1), alerts[0].Occurrences, "first occurrence")
 	assert.Equal(t, "image missing", alerts[0].Message, "failure detail")
@@ -59,6 +60,7 @@ func TestSubscriberDeploymentLifecycle(t *testing.T) {
 	require.NoError(t, err, "list updated alert")
 	require.Len(t, alerts, 1, "failure should update the incident")
 	assert.Equal(t, firstID, alerts[0].ID, "incident id should be stable")
+	assert.Equal(t, openedAt, alerts[0].OpenedAt, "repeated failures must preserve the opening time")
 	assert.Equal(t, uint64(2), alerts[0].Occurrences, "occurrences should increment")
 	assert.Equal(t, "registry unavailable", alerts[0].Message, "latest failure should replace the message")
 	assert.NotEqual(t, alerts[0].OpenEventID, alerts[0].LatestEventID, "latest event should advance")
@@ -70,6 +72,7 @@ func TestSubscriberDeploymentLifecycle(t *testing.T) {
 	resolved, err := store.List(ctx, modelstore.ListFilter{Status: model.AlertStatusResolved})
 	require.NoError(t, err, "list resolved alerts")
 	require.Len(t, resolved, 1, "incident should be resolved")
+	assert.Equal(t, openedAt, resolved[0].OpenedAt, "closing an incident must preserve the opening time")
 	assert.Equal(t, model.ResolutionReasonRecovered, resolved[0].Resolution.Reason, "resolution reason")
 	assert.Equal(t, "Deployment completed successfully", resolved[0].Resolution.Message, "resolution message")
 	assert.Equal(t, "success-1", resolved[0].Resolution.EventID, "recovery event reference")

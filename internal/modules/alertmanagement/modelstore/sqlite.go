@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/doug-martin/goqu/v9"
+	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"modernc.org/sqlite"
@@ -39,17 +41,13 @@ func (s *SQLStore) write(ctx context.Context, alert model.Alert, update bool) er
 	if alert.ResolvedAt != nil {
 		resolved = alert.ResolvedAt.UnixNano()
 	}
+	var deploymentID any
+	if alert.DeploymentID != "" {
+		deploymentID = alert.DeploymentID
+	}
 	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		query := `INSERT INTO alerts
-			(fingerprint,kind,resource_type,resource_id,status,updated_at_ns,resolved_at_ns,payload,id)
-			VALUES (?,?,?,?,?,?,?,?,?)`
-		if update {
-			query = `UPDATE alerts SET fingerprint=?,kind=?,resource_type=?,resource_id=?,status=?,
-				updated_at_ns=?,resolved_at_ns=?,payload=? WHERE id=?`
-		}
-		result, writeErr := s.db.Get(ctx).ExecContext(ctx, query,
-			alert.Fingerprint, alert.Kind, alert.ResourceType, alert.ResourceID, alert.Status,
-			alert.UpdatedAt.UnixNano(), resolved, string(payload), alert.ID)
+		query, args := alertWriteStatement(alert, deploymentID, resolved, string(payload), update)
+		result, writeErr := s.db.Get(ctx).ExecContext(ctx, query, args...)
 		if writeErr != nil {
 			var constraint *sqlite.Error
 			if errors.As(writeErr, &constraint) && constraint.Code() == sqlitecode.SQLITE_CONSTRAINT_UNIQUE {
@@ -62,13 +60,44 @@ func (s *SQLStore) write(ctx context.Context, alert model.Alert, update bool) er
 			return countErr
 		}
 		if count != 1 {
-			return ErrAlertNotFound
+			return s.alertWriteMiss(ctx, alert.ID, update)
 		}
 		_, writeErr = s.db.Get(ctx).ExecContext(ctx, `DELETE FROM alerts WHERE id IN (
 			SELECT id FROM alerts WHERE status='resolved' ORDER BY resolved_at_ns,id
 			LIMIT max((SELECT count(*) FROM alerts)-?,0))`, MaxStoredAlerts)
 		return writeErr
 	})
+}
+
+func alertWriteStatement(
+	alert model.Alert, deploymentID, resolved any, payload string, update bool,
+) (string, []any) {
+	args := []any{alert.Fingerprint, alert.Kind, alert.ResourceType, alert.ResourceID, deploymentID, alert.Status}
+	if update {
+		query := `UPDATE alerts SET fingerprint=?,kind=?,resource_type=?,resource_id=?,deployment_id=?,status=?,
+			updated_at_ns=?,resolved_at_ns=?,payload=? WHERE id=? AND opened_at_ns=?`
+		return query, append(args, alert.UpdatedAt.UnixNano(), resolved, payload, alert.ID, alert.OpenedAt.UnixNano())
+	}
+	query := `INSERT INTO alerts
+		(fingerprint,kind,resource_type,resource_id,deployment_id,status,opened_at_ns,updated_at_ns,
+		 resolved_at_ns,payload,id)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?)`
+	return query, append(args, alert.OpenedAt.UnixNano(), alert.UpdatedAt.UnixNano(), resolved, payload, alert.ID)
+}
+
+func (s *SQLStore) alertWriteMiss(ctx context.Context, id string, update bool) error {
+	if !update {
+		return ErrAlertNotFound
+	}
+	var openedAt int64
+	err := s.db.Get(ctx).QueryRowContext(ctx, "SELECT opened_at_ns FROM alerts WHERE id=?", id).Scan(&openedAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrAlertNotFound
+	}
+	if err != nil {
+		return err
+	}
+	return ErrAlertOpenedAtChanged
 }
 
 // Get returns an incident by ID.
@@ -91,28 +120,29 @@ func (s *SQLStore) get(ctx context.Context, query, key string) (model.Alert, err
 
 // List returns incidents ordered by most recent lifecycle update.
 func (s *SQLStore) List(ctx context.Context, filter ListFilter) ([]model.Alert, error) {
-	query := "SELECT payload FROM alerts WHERE 1=1"
-	args := []any{}
+	dataset := goqu.Dialect("sqlite3").From("alerts").Prepared(true).Select("payload")
 	if filter.Status != "" {
-		query += " AND status=?"
-		args = append(args, filter.Status)
+		dataset = dataset.Where(goqu.Ex{"status": filter.Status})
 	}
 	if filter.Kind != "" {
-		query += " AND kind=?"
-		args = append(args, filter.Kind)
+		dataset = dataset.Where(goqu.Ex{"kind": filter.Kind})
 	}
 	if filter.ResourceType != "" {
-		query += " AND resource_type=?"
-		args = append(args, filter.ResourceType)
+		dataset = dataset.Where(goqu.Ex{"resource_type": filter.ResourceType})
 	}
 	if filter.ResourceID != "" {
-		query += " AND resource_id=?"
-		args = append(args, filter.ResourceID)
+		dataset = dataset.Where(goqu.Ex{"resource_id": filter.ResourceID})
 	}
-	query += " ORDER BY updated_at_ns DESC,id"
+	if filter.DeploymentID != "" {
+		dataset = dataset.Where(goqu.Ex{"deployment_id": filter.DeploymentID})
+	}
+	dataset = dataset.Order(goqu.I("updated_at_ns").Desc(), goqu.I("id").Asc())
 	if filter.Limit > 0 {
-		query += " LIMIT ?"
-		args = append(args, filter.Limit)
+		dataset = dataset.Limit(uint(filter.Limit))
+	}
+	query, args, err := dataset.ToSQL()
+	if err != nil {
+		return nil, err
 	}
 	return storage.QueryJSON[model.Alert](ctx, s.db.Get, query, args...)
 }

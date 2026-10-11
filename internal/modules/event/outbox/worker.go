@@ -97,11 +97,7 @@ func (b *Bus) ProcessNext(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-func (b *Bus) claim(ctx context.Context) (delivery, error) {
-	d := delivery{token: uuid.NewString()}
-	now := b.now()
-	err := b.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		return b.db.Get(ctx).QueryRowContext(ctx, `WITH due AS (
+const claimQuery = `WITH due AS (
 			SELECT candidate.event_id,candidate.subscription_id
 			FROM outbox_deliveries AS candidate
 			JOIN outbox_events AS candidate_event ON candidate_event.id=candidate.event_id
@@ -118,7 +114,13 @@ func (b *Bus) claim(ctx context.Context) (delivery, error) {
 		) UPDATE outbox_deliveries SET status='processing',attempts=attempts+1,
 			lease_token=?,lease_until_ms=?,updated_at_ms=?
 		WHERE (event_id,subscription_id) IN (SELECT event_id,subscription_id FROM due)
-		RETURNING event_id,subscription_id,attempts`, now.UnixMilli(), now.UnixMilli(), d.token,
+		RETURNING event_id,subscription_id,attempts`
+
+func (b *Bus) claim(ctx context.Context) (delivery, error) {
+	d := delivery{token: uuid.NewString()}
+	now := b.now()
+	err := b.db.WithinTransaction(ctx, func(ctx context.Context) error {
+		return b.db.Get(ctx).QueryRowContext(ctx, claimQuery, now.UnixMilli(), now.UnixMilli(), d.token,
 			now.Add(b.lease).UnixMilli(), now.UnixMilli()).Scan(&d.eventID, &d.subscriptionID, &d.attempts)
 	})
 	return d, err

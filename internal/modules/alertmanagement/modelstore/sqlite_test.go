@@ -1,6 +1,8 @@
 package modelstore
 
 import (
+	"database/sql"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -21,7 +23,7 @@ func TestSQLStoreListAppliesAlertFiltersAndNewestOrdering(t *testing.T) {
 			OpenedAt: base, UpdatedAt: base},
 		{ID: "new-stack", Fingerprint: "new-stack", Kind: model.AlertKindDeployFailed,
 			ResourceType: model.ResourceTypeStack, ResourceID: "web", Status: model.AlertStatusResolved,
-			OpenedAt: base, UpdatedAt: base.Add(2 * time.Minute)},
+			DeploymentID: "deployment-2", OpenedAt: base, UpdatedAt: base.Add(2 * time.Minute)},
 		{ID: "node", Fingerprint: "node", Kind: model.AlertKindNodeDisconnected,
 			ResourceType: model.ResourceTypeNode, ResourceID: "node-1", Status: model.AlertStatusOpen,
 			OpenedAt: base, UpdatedAt: base.Add(time.Minute)},
@@ -40,6 +42,7 @@ func TestSQLStoreListAppliesAlertFiltersAndNewestOrdering(t *testing.T) {
 		{name: "kind", filter: ListFilter{Kind: model.AlertKindDeployFailed}, want: []string{"new-stack", "old-stack"}},
 		{name: "resource type", filter: ListFilter{ResourceType: model.ResourceTypeNode}, want: []string{"node"}},
 		{name: "resource id", filter: ListFilter{ResourceID: "api"}, want: []string{"old-stack"}},
+		{name: "deployment", filter: ListFilter{DeploymentID: "deployment-2"}, want: []string{"new-stack"}},
 		{name: "combined", filter: ListFilter{Status: model.AlertStatusResolved, Kind: model.AlertKindDeployFailed,
 			ResourceType: model.ResourceTypeStack, ResourceID: "web"}, want: []string{"new-stack"}},
 		{name: "limit", filter: ListFilter{Limit: 1}, want: []string{"new-stack"}},
@@ -73,6 +76,7 @@ func TestSQLStorePersistsAndSynchronizesIndexedFields(t *testing.T) {
 	alert.Kind = model.AlertKindNodeDisconnected
 	alert.ResourceType = model.ResourceTypeNode
 	alert.ResourceID = "node-1"
+	alert.DeploymentID = "deployment-1"
 	alert.UpdatedAt = now.Add(time.Minute)
 	require.NoError(t, store.Update(t.Context(), alert))
 	assertIndexedFields(t, db, alert)
@@ -89,9 +93,41 @@ func TestSQLStorePersistsAndSynchronizesIndexedFields(t *testing.T) {
 	assert.Equal(t, alert.Kind, resolved.Kind)
 	assert.Equal(t, alert.ResourceType, resolved.ResourceType)
 	assert.Equal(t, alert.ResourceID, resolved.ResourceID)
+	assert.Equal(t, now, resolved.OpenedAt, "repeated updates must preserve the incident opening time")
+	assert.Equal(t, alert.DeploymentID, resolved.DeploymentID)
 }
 
-func TestAlertIndexesSupportRepresentativeQueries(t *testing.T) {
+func TestSQLStoreRejectsOpenedAtChangeAtomically(t *testing.T) {
+	db := testutil.OpenSQLite(t)
+	store := NewSQLStore(db)
+	openedAt := time.Date(2026, time.October, 11, 10, 0, 0, 0, time.UTC)
+	alert := model.Alert{
+		ID: "immutable-opened-at", Fingerprint: "deploy_failed:stack:api", Kind: model.AlertKindDeployFailed,
+		ResourceType: model.ResourceTypeStack, ResourceID: "api", Status: model.AlertStatusOpen,
+		Occurrences: 1, OpenedAt: openedAt, UpdatedAt: openedAt,
+	}
+	require.NoError(t, store.Create(t.Context(), alert))
+
+	alert.UpdatedAt = openedAt.Add(time.Minute)
+	alert.Occurrences++
+	require.NoError(t, store.Update(t.Context(), alert), "the original opening time must be accepted")
+	before, err := store.Get(t.Context(), alert.ID)
+	require.NoError(t, err)
+
+	changed := before
+	changed.OpenedAt = openedAt.Add(time.Second)
+	changed.UpdatedAt = openedAt.Add(2 * time.Minute)
+	changed.ResourceID = "changed-resource"
+	changed.DeploymentID = "changed-deployment"
+	require.ErrorIs(t, store.Update(t.Context(), changed), ErrAlertOpenedAtChanged)
+
+	after, err := store.Get(t.Context(), alert.ID)
+	require.NoError(t, err)
+	assert.Equal(t, before, after, "a rejected update must not modify columns or payload")
+	assertIndexedFields(t, db, before)
+}
+
+func TestAlertIndexesSupportFiltering(t *testing.T) {
 	db := testutil.OpenSQLite(t)
 	testCases := []struct {
 		name      string
@@ -99,44 +135,86 @@ func TestAlertIndexesSupportRepresentativeQueries(t *testing.T) {
 		wantIndex string
 	}{
 		{
+			name:      "deployment correlation",
+			query:     `SELECT payload FROM alerts WHERE deployment_id='deployment-1'`,
+			wantIndex: "idx_alert_deployment_updated",
+		},
+		{
 			name:      "open alerts newest first",
-			query:     `SELECT payload FROM alerts WHERE status='open' ORDER BY updated_at_ns DESC,id`,
+			query:     `SELECT payload FROM alerts WHERE status='open'`,
 			wantIndex: "idx_alert_status_updated",
 		},
 		{
 			name:      "kind",
-			query:     `SELECT payload FROM alerts WHERE kind='deploy_failed' ORDER BY updated_at_ns DESC,id`,
+			query:     `SELECT payload FROM alerts WHERE kind='deploy_failed'`,
 			wantIndex: "idx_alert_kind_status_updated",
 		},
 		{
-			name: "resource",
-			query: `SELECT payload FROM alerts WHERE resource_type='stack' AND resource_id='api'
-				ORDER BY updated_at_ns DESC,id`,
+			name:      "resource",
+			query:     `SELECT payload FROM alerts WHERE resource_type='stack' AND resource_id='api'`,
 			wantIndex: "idx_alert_resource_status_updated",
 		},
 		{
 			name: "open resource",
 			query: `SELECT payload FROM alerts WHERE resource_type='stack' AND resource_id='api'
-				AND status='open' ORDER BY updated_at_ns DESC,id`,
+				AND status='open'`,
 			wantIndex: "idx_alert_resource_status_updated",
 		},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			rows, err := db.Get(t.Context()).QueryContext(t.Context(), "EXPLAIN QUERY PLAN "+testCase.query)
-			require.NoError(t, err)
-			defer rows.Close()
-			var plan strings.Builder
-			for rows.Next() {
-				var id, parent, unused int
-				var detail string
-				require.NoError(t, rows.Scan(&id, &parent, &unused, &detail))
-				plan.WriteString(detail)
-			}
-			require.NoError(t, rows.Err())
-			assert.Contains(t, plan.String(), testCase.wantIndex)
+			plan := explainQueryPlan(t, db, testCase.query)
+			assert.Contains(t, plan, testCase.wantIndex)
 		})
 	}
+}
+
+func TestAlertIndexesOrderingCoverage(t *testing.T) {
+	db := testutil.OpenSQLite(t)
+	testCases := []struct {
+		name          string
+		query         string
+		coversSorting bool
+	}{
+		{name: "deployment", query: `SELECT payload FROM alerts WHERE deployment_id='deployment-1'
+			ORDER BY updated_at_ns DESC,id`, coversSorting: true},
+		{name: "status", query: `SELECT payload FROM alerts WHERE status='open'
+			ORDER BY updated_at_ns DESC,id`, coversSorting: true},
+		{name: "kind without status", query: `SELECT payload FROM alerts WHERE kind='deploy_failed'
+			ORDER BY updated_at_ns DESC,id`, coversSorting: false},
+		{name: "resource without status", query: `SELECT payload FROM alerts
+			WHERE resource_type='stack' AND resource_id='api' ORDER BY updated_at_ns DESC,id`, coversSorting: false},
+		{name: "open resource", query: `SELECT payload FROM alerts
+			WHERE resource_type='stack' AND resource_id='api' AND status='open'
+			ORDER BY updated_at_ns DESC,id`, coversSorting: true},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			plan := explainQueryPlan(t, db, testCase.query)
+			if testCase.coversSorting {
+				assert.NotContains(t, plan, "USE TEMP B-TREE FOR ORDER BY")
+				return
+			}
+			assert.Contains(t, plan, "USE TEMP B-TREE FOR ORDER BY")
+		})
+	}
+}
+
+func explainQueryPlan(t *testing.T, db *storage.Database, query string) string {
+	t.Helper()
+	rows, err := db.Get(t.Context()).QueryContext(t.Context(), "EXPLAIN QUERY PLAN "+query)
+	require.NoError(t, err)
+	defer rows.Close()
+	var plan strings.Builder
+	for rows.Next() {
+		var id, parent, unused int
+		var detail string
+		require.NoError(t, rows.Scan(&id, &parent, &unused, &detail))
+		plan.WriteString(detail)
+		plan.WriteByte('\n')
+	}
+	require.NoError(t, rows.Err())
+	return plan.String()
 }
 
 func assertIndexedFields(t *testing.T, db *storage.Database, alert model.Alert) {
@@ -144,10 +222,19 @@ func assertIndexedFields(t *testing.T, db *storage.Database, alert model.Alert) 
 	var kind model.AlertKind
 	var resourceType model.ResourceType
 	var resourceID string
+	var deploymentID sql.NullString
+	var openedAt int64
+	var payload string
 	require.NoError(t, db.Get(t.Context()).QueryRowContext(t.Context(),
-		"SELECT kind,resource_type,resource_id FROM alerts WHERE id=?", alert.ID).
-		Scan(&kind, &resourceType, &resourceID))
+		"SELECT kind,resource_type,resource_id,deployment_id,opened_at_ns,payload FROM alerts WHERE id=?", alert.ID).
+		Scan(&kind, &resourceType, &resourceID, &deploymentID, &openedAt, &payload))
 	assert.Equal(t, alert.Kind, kind)
 	assert.Equal(t, alert.ResourceType, resourceType)
 	assert.Equal(t, alert.ResourceID, resourceID)
+	assert.Equal(t, alert.DeploymentID, deploymentID.String)
+	assert.Equal(t, alert.OpenedAt.UnixNano(), openedAt)
+	var persisted model.Alert
+	require.NoError(t, json.Unmarshal([]byte(payload), &persisted))
+	assert.Equal(t, alert.DeploymentID, persisted.DeploymentID)
+	assert.Equal(t, alert.OpenedAt, persisted.OpenedAt)
 }

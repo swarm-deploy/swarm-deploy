@@ -260,6 +260,10 @@ type ListFilter struct {
 	Stack string
 	// Status restricts results to one deployment outcome; empty means all statuses.
 	Status Status
+	// ErrorCode restricts results to one stable failure category; empty means all categories.
+	ErrorCode string
+	// Phase restricts results to one lifecycle phase; empty means all phases.
+	Phase Phase
 	// Limit bounds returned attempts; values outside 1..100 use 20.
 	Limit int
 	// Cursor continues a previous newest-first page.

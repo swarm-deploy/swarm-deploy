@@ -13,8 +13,9 @@ const (
 )
 
 var (
-	ErrAlertNotFound   = errors.New("alert not found")
-	ErrOpenAlertExists = errors.New("open alert already exists for fingerprint")
+	ErrAlertNotFound        = errors.New("alert not found")
+	ErrAlertOpenedAtChanged = errors.New("alert opened at cannot be changed")
+	ErrOpenAlertExists      = errors.New("open alert already exists for fingerprint")
 )
 
 // ListFilter selects alerts returned by a store.
@@ -27,6 +28,8 @@ type ListFilter struct {
 	ResourceType model.ResourceType
 	// ResourceID selects alerts for one resource identifier; empty returns every resource.
 	ResourceID string
+	// DeploymentID selects alerts correlated with one deployment attempt; empty returns every deployment.
+	DeploymentID string
 	// Limit limits the number of returned alerts; zero means unlimited.
 	Limit int
 }
