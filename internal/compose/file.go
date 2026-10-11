@@ -24,6 +24,8 @@ type File struct {
 	Compose Compose `json:"compose"`
 	// Digest is the content hash including referenced config, secret, and env files.
 	Digest string `json:"digest"`
+	// ResourceDigests fingerprints referenced config/secret file contents without storing them.
+	ResourceDigests map[string]string `json:"resource_digests,omitempty"`
 }
 
 // FileLoader loads compose files.
@@ -115,13 +117,27 @@ func (l *fileLoader) Load(ctx context.Context, path string) (*File, error) {
 	}
 
 	file := &File{
-		Path:    path,
-		Compose: schema,
+		Path:            path,
+		Compose:         schema,
+		ResourceDigests: resourceDigests(configFiles, secretFiles),
 	}
 
 	file.Digest = computeDigest(*file, raw, configFiles, secretFiles)
 
 	return file, nil
+}
+
+func resourceDigests(configs, secrets objectFileContents) map[string]string {
+	result := make(map[string]string, len(configs)+len(secrets))
+	for name, content := range configs {
+		sum := sha256.Sum256(content)
+		result["configs/"+name] = hex.EncodeToString(sum[:])
+	}
+	for name, content := range secrets {
+		sum := sha256.Sum256(content)
+		result["secrets/"+name] = hex.EncodeToString(sum[:])
+	}
+	return result
 }
 
 func setConfigData(config *Config, content []byte) {

@@ -16,8 +16,13 @@ type Severity string
 type Category string
 
 const (
-	TypeNameDeploySuccess                    TypeName = "deploySuccess"
-	TypeNameDeployFailed                     TypeName = "deployFailed"
+	TypeNameServiceCatalogUpdated TypeName = "serviceCatalogUpdated"
+	TypeNameDeploySuccess         TypeName = "deploySuccess"
+	TypeNameDeployFailed          TypeName = "deployFailed"
+	// TypeNameDeployPreparationFailed is an internal durable lifecycle fact, not a configurable event name.
+	TypeNameDeployPreparationFailed TypeName = "deployPreparationFailed"
+	// TypeNameDeployInterrupted is an internal durable lifecycle fact, not a configurable event name.
+	TypeNameDeployInterrupted                TypeName = "deployInterrupted"
 	TypeNameSendNotificationFailed           TypeName = "sendNotificationFailed"
 	TypeNameSyncManualStarted                TypeName = "syncManualStarted"
 	TypeNameWebhookReceived                  TypeName = "webhookReceived"
@@ -74,6 +79,10 @@ type Event interface {
 
 // Envelope is a dispatcher envelope shared by every subscriber.
 type Envelope struct {
+	// PublicationSequence is the durable total order assigned when T1 publishes the event.
+	PublicationSequence int64
+	// OccurredAt is the publication timestamp, preserved across retries.
+	OccurredAt time.Time
 	// ID uniquely identifies this dispatch in event history and downstream modules.
 	ID string
 	// Event contains the published domain event.
@@ -81,7 +90,8 @@ type Envelope struct {
 }
 
 var (
-	TypeDeploySuccess = Type{
+	TypeServiceCatalogUpdated = Type{name: TypeNameServiceCatalogUpdated, severity: SeverityInfo, category: CategorySync}
+	TypeDeploySuccess         = Type{
 		name:     TypeNameDeploySuccess,
 		severity: SeverityInfo,
 		category: CategorySync,
@@ -92,6 +102,12 @@ var (
 		severity: SeverityAlert,
 		category: CategorySync,
 		window:   1 * time.Minute,
+	}
+	TypeDeployPreparationFailed = Type{
+		name: TypeNameDeployPreparationFailed, severity: SeverityAlert, category: CategorySync,
+	}
+	TypeDeployInterrupted = Type{
+		name: TypeNameDeployInterrupted, severity: SeverityAlert, category: CategorySync,
 	}
 	TypeSendNotificationFailed = Type{
 		name:     TypeNameSendNotificationFailed,
@@ -178,8 +194,8 @@ var (
 	}
 
 	Types = []Type{
+		TypeServiceCatalogUpdated,
 		TypeDeploySuccess,
-		TypeDeployFailed,
 		TypeSendNotificationFailed,
 		TypeSyncManualStarted,
 		TypeWebhookReceived,
@@ -233,7 +249,7 @@ func (t *Type) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	parsed, ok := ParseType(strings.TrimSpace(raw))
+	parsed, ok := parseStoredType(strings.TrimSpace(raw))
 	if !ok {
 		*t = Type{name: TypeName(strings.TrimSpace(raw))}
 		return nil
@@ -243,12 +259,28 @@ func (t *Type) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+func parseStoredType(name string) (Type, bool) {
+	typ := TypeName(name)
+	if typ == TypeNameDeployFailed {
+		return TypeDeployFailed, true
+	}
+	if typ == TypeNameDeployPreparationFailed {
+		return TypeDeployPreparationFailed, true
+	}
+	if typ == TypeNameDeployInterrupted {
+		return TypeDeployInterrupted, true
+	}
+	return ParseType(name)
+}
+
 func (n TypeName) Valid() bool {
 	switch n {
+	case TypeNameServiceCatalogUpdated:
+		return true
 	case TypeNameDeploySuccess:
 		return true
-	case TypeNameDeployFailed:
-		return true
+	case TypeNameDeployFailed, TypeNameDeployPreparationFailed, TypeNameDeployInterrupted:
+		return false
 	case TypeNameSendNotificationFailed:
 		return true
 	case TypeNameSyncManualStarted:
@@ -285,10 +317,12 @@ func (n TypeName) Valid() bool {
 // ParseType resolves event type metadata by event name.
 func ParseType(name string) (Type, bool) {
 	switch TypeName(name) {
+	case TypeNameServiceCatalogUpdated:
+		return TypeServiceCatalogUpdated, true
 	case TypeNameDeploySuccess:
 		return TypeDeploySuccess, true
-	case TypeNameDeployFailed:
-		return TypeDeployFailed, true
+	case TypeNameDeployFailed, TypeNameDeployPreparationFailed, TypeNameDeployInterrupted:
+		return Type{}, false
 	case TypeNameSendNotificationFailed:
 		return TypeSendNotificationFailed, true
 	case TypeNameSyncManualStarted:

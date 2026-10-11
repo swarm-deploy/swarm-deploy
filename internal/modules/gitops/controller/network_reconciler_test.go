@@ -10,7 +10,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/networkloop"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/mock/gomock"
@@ -27,8 +26,8 @@ func TestControllerSyncNetworksStoresState(t *testing.T) {
 		Create(gomock.Any(), gomock.Any()).
 		Return("created-id", nil)
 
-	store := modelstore.NewMemoryStore()
-	c := &Controller{
+	db, store := newSQLState(t)
+	c := &Controller{db: db, event: &dispatcher.NopDispatcher{},
 		cfg: &config.Config{
 			Spec: config.Spec{
 				Networks: []config.NetworkSpec{
@@ -39,7 +38,7 @@ func TestControllerSyncNetworksStoresState(t *testing.T) {
 				},
 			},
 		},
-		networkReconciler: networkloop.New(manager, &dispatcher.NopDispatcher{}),
+		networkReconciler: networkloop.New(manager),
 		stateStore:        store,
 		tracer:            otel.Tracer("test"),
 	}
@@ -47,7 +46,7 @@ func TestControllerSyncNetworksStoresState(t *testing.T) {
 	err := c.syncNetworks(context.Background(), "commit-1")
 	require.NoError(t, err, "sync networks")
 
-	state := store.Get()
+	state := readSQLState(t, store)
 	require.Len(t, state.Networks, 1, "expected one stored network")
 
 	networkState := state.Networks["app_backend"]
@@ -69,8 +68,8 @@ func TestControllerSyncNetworksStoresFailedState(t *testing.T) {
 			Driver: "overlay",
 		}, nil)
 
-	store := modelstore.NewMemoryStore()
-	c := &Controller{
+	db, store := newSQLState(t)
+	c := &Controller{db: db, event: &dispatcher.NopDispatcher{},
 		cfg: &config.Config{
 			Spec: config.Spec{
 				Networks: []config.NetworkSpec{
@@ -81,7 +80,7 @@ func TestControllerSyncNetworksStoresFailedState(t *testing.T) {
 				},
 			},
 		},
-		networkReconciler: networkloop.New(manager, &dispatcher.NopDispatcher{}),
+		networkReconciler: networkloop.New(manager),
 		stateStore:        store,
 		tracer:            otel.Tracer("test"),
 	}
@@ -89,7 +88,7 @@ func TestControllerSyncNetworksStoresFailedState(t *testing.T) {
 	err := c.syncNetworks(context.Background(), "commit-2")
 	require.Error(t, err, "expected sync error")
 
-	state := store.Get()
+	state := readSQLState(t, store)
 	require.Len(t, state.Networks, 1, "expected one stored network")
 
 	networkState := state.Networks["app_backend"]
@@ -99,7 +98,7 @@ func TestControllerSyncNetworksStoresFailedState(t *testing.T) {
 }
 
 func TestControllerSyncNetworksClearsStateWhenNetworksListIsEmpty(t *testing.T) {
-	store := modelstore.NewMemoryStore()
+	db, store := newSQLState(t)
 	store.Update(context.Background(), func(s *model.Runtime) {
 		s.Networks["legacy"] = model.Network{
 			Driver:     "overlay",
@@ -107,7 +106,7 @@ func TestControllerSyncNetworksClearsStateWhenNetworksListIsEmpty(t *testing.T) 
 		}
 	})
 
-	c := &Controller{
+	c := &Controller{db: db, event: &dispatcher.NopDispatcher{},
 		cfg: &config.Config{
 			Spec: config.Spec{
 				Networks: nil,
@@ -115,7 +114,6 @@ func TestControllerSyncNetworksClearsStateWhenNetworksListIsEmpty(t *testing.T) 
 		},
 		networkReconciler: networkloop.New(
 			swarm.NewMockNetworkManager(gomock.NewController(t)),
-			&dispatcher.NopDispatcher{},
 		),
 		stateStore: store,
 		tracer:     otel.Tracer("test"),
@@ -124,12 +122,12 @@ func TestControllerSyncNetworksClearsStateWhenNetworksListIsEmpty(t *testing.T) 
 	err := c.syncNetworks(context.Background(), "commit-3")
 	require.NoError(t, err, "sync networks")
 
-	state := store.Get()
+	state := readSQLState(t, store)
 	assert.Empty(t, state.Networks, "expected cleared network state")
 }
 
 func TestControllerSyncNetworksSkipsReconcileWhenStateAlreadySyncedForCommit(t *testing.T) {
-	store := modelstore.NewMemoryStore()
+	db, store := newSQLState(t)
 	store.Update(context.Background(), func(s *model.Runtime) {
 		s.Networks["app_backend"] = model.Network{
 			Driver:     "overlay",
@@ -142,7 +140,7 @@ func TestControllerSyncNetworksSkipsReconcileWhenStateAlreadySyncedForCommit(t *
 	ctrl := gomock.NewController(t)
 	manager := swarm.NewMockNetworkManager(ctrl)
 
-	c := &Controller{
+	c := &Controller{db: db, event: &dispatcher.NopDispatcher{},
 		cfg: &config.Config{
 			Spec: config.Spec{
 				Networks: []config.NetworkSpec{
@@ -153,7 +151,7 @@ func TestControllerSyncNetworksSkipsReconcileWhenStateAlreadySyncedForCommit(t *
 				},
 			},
 		},
-		networkReconciler: networkloop.New(manager, &dispatcher.NopDispatcher{}),
+		networkReconciler: networkloop.New(manager),
 		stateStore:        store,
 		tracer:            otel.Tracer("test"),
 	}
@@ -161,7 +159,7 @@ func TestControllerSyncNetworksSkipsReconcileWhenStateAlreadySyncedForCommit(t *
 	err := c.syncNetworks(context.Background(), "commit-4")
 	require.NoError(t, err, "sync networks")
 
-	state := store.Get()
+	state := readSQLState(t, store)
 	networkState := state.Networks["app_backend"]
 	assert.Equal(t, "success", networkState.LastStatus, "expected previous successful status preserved")
 	assert.Equal(t, "commit-4", networkState.LastCommit, "expected previous commit preserved")

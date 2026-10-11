@@ -52,10 +52,10 @@ onMounted(() => void loadAlerts());
     <AppTableEmpty v-else-if="loadingError">Failed to load alerts: {{ loadingError }}</AppTableEmpty>
     <AppTableEmpty v-else-if="alerts.length === 0" :message="selectedStatus === 'open' ? 'No active alerts' : 'No resolved alerts'" />
     <AppTable v-else fixed table-class="alerts-table" wrap-class="alerts-table-wrap">
-      <template #head><tr><th>Alert</th><th>Stack</th><th>Opened</th><th>{{ selectedStatus === "open" ? "Updated" : "Resolved" }}</th><th>Occurrences</th></tr></template>
+      <template #head><tr><th>Alert</th><th>Resource</th><th>Opened</th><th>{{ selectedStatus === "open" ? "Updated" : "Resolved" }}</th><th>Occurrences</th></tr></template>
       <tr v-for="alert in alerts" :key="alert.id" class="alerts-row" tabindex="0" @click="overviewStore.openAlertDetailsModal(alert)" @keydown.enter="overviewStore.openAlertDetailsModal(alert)">
         <td><strong>{{ alert.title }}</strong><span v-if="alert.resolution" class="alerts-message">{{ alert.resolution.reason }} · {{ alert.resolution.message }}</span></td>
-        <td>{{ alert.resourceId || "unknown stack" }}</td>
+        <td>{{ alert.resourceId || "unknown resource" }}</td>
         <td>{{ formatDate(alert.openedAt) }}</td>
         <td>{{ formatDate(selectedStatus === "open" ? alert.updatedAt : alert.resolvedAt) }}</td>
         <td>{{ alert.occurrences }}</td>

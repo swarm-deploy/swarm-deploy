@@ -104,7 +104,7 @@ func NewApplication(
 		resourcesModule.SecretManagers,
 		recommendations,
 		alerts,
-		assistantService,
+		assistantService, gitopsModule.Deployments,
 	)
 
 	apiHandler, err := generated.NewServer(h, h, generated.WithErrorHandler(handlers.HandleHTTPError))

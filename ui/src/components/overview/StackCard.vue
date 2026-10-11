@@ -42,10 +42,11 @@ const statusLabel = computed(() => {
 });
 
 const serviceLabel = computed(() => `${props.serviceCount} ${props.serviceCount === 1 ? "service" : "services"}`);
+const stackAnchor = computed(() => `stack-${encodeURIComponent(props.stack.name)}`);
 </script>
 
 <template>
-  <article class="stack-card overview-stack-card" :class="`overview-stack-card--${statusKind}`">
+  <article :id="stackAnchor" class="stack-card overview-stack-card" :class="`overview-stack-card--${statusKind}`">
     <header class="overview-stack-card-header">
       <h3 class="overview-stack-card-title" :title="stack.name">{{ stack.name }}</h3>
       <div class="overview-stack-card-badges">

@@ -3,6 +3,7 @@ package rag
 import (
 	"context"
 	"errors"
+	"go.uber.org/mock/gomock"
 	"testing"
 	"time"
 
@@ -13,14 +14,11 @@ import (
 	webroute "github.com/swarm-deploy/webroute/api"
 )
 
-type fakeServiceStore struct {
-	services []model.Info
-}
-
-func (f *fakeServiceStore) List() []model.Info {
-	out := make([]model.Info, len(f.services))
-	copy(out, f.services)
-	return out
+func serviceStore(t *testing.T, services []model.Info) *MockServiceStore {
+	t.Helper()
+	store := NewMockServiceStore(gomock.NewController(t))
+	store.EXPECT().ReadAll(gomock.Any()).Return(services, nil).AnyTimes()
+	return store
 }
 
 type fakeEmbedder struct {
@@ -94,7 +92,7 @@ func TestRetrieverRanksByEmbeddingSimilarity(t *testing.T) {
 	)
 
 	retriever := NewRetriever(
-		&fakeServiceStore{services: services},
+		serviceStore(t, services),
 		&fakeEmbedder{
 			embedFn: func(_ context.Context, _ string, inputs []string) ([][]float64, error) {
 				require.Equal(t, []string{"database service"}, inputs, "expected query-only embedding call")
@@ -131,7 +129,7 @@ func TestRetrieverFallsBackToLexicalSearchWhenQueryEmbeddingFails(t *testing.T) 
 
 	observer := &observerCapture{}
 	retriever := NewRetriever(
-		&fakeServiceStore{services: services},
+		serviceStore(t, services),
 		&fakeEmbedder{
 			embedFn: func(_ context.Context, _ string, _ []string) ([][]float64, error) {
 				return nil, errors.New("embeddings unavailable")
@@ -173,7 +171,7 @@ func TestRetrieverLexicalMatchesWebRouteFields(t *testing.T) {
 	require.NoError(t, index.Replace(services, [][]float64{{0.1, 0.2}, {0.2, 0.1}}), "seed index")
 
 	retriever := NewRetriever(
-		&fakeServiceStore{services: services},
+		serviceStore(t, services),
 		&fakeEmbedder{
 			embedFn: func(_ context.Context, _ string, _ []string) ([][]float64, error) {
 				return nil, errors.New("embeddings unavailable")
@@ -205,7 +203,7 @@ func TestRetrieverLimitsSemanticResultsAndPrioritizesNamedService(t *testing.T) 
 	require.NoError(t, index.Replace(services, embeddings), "seed index")
 
 	retriever := NewRetriever(
-		&fakeServiceStore{services: services},
+		serviceStore(t, services),
 		&fakeEmbedder{embedFn: func(_ context.Context, _ string, _ []string) ([][]float64, error) {
 			return [][]float64{{1, 0}}, nil
 		}},
@@ -237,7 +235,7 @@ func TestRetrieverLimitsLexicalFallbackResults(t *testing.T) {
 	require.NoError(t, index.Replace(services, embeddings), "seed index")
 
 	retriever := NewRetriever(
-		&fakeServiceStore{services: services},
+		serviceStore(t, services),
 		&fakeEmbedder{embedFn: func(_ context.Context, _ string, _ []string) ([][]float64, error) {
 			return nil, errors.New("embeddings unavailable")
 		}},

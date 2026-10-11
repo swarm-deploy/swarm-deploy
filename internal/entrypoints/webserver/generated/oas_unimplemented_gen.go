@@ -57,6 +57,13 @@ func (UnimplementedHandler) GetCurrentUser(ctx context.Context) (r *CurrentUserR
 	return r, ht.ErrNotImplemented
 }
 
+// GetDeployment implements getDeployment operation.
+//
+// GET /api/v1/deployments/{id}
+func (UnimplementedHandler) GetDeployment(ctx context.Context, params GetDeploymentParams) (r *Deployment, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetGitCommit implements getGitCommit operation.
 //
 // GET /api/v1/git/commits/{commit}
@@ -117,6 +124,13 @@ func (UnimplementedHandler) ListAlerts(ctx context.Context, params ListAlertsPar
 //
 // GET /api/v1/assistant/chats
 func (UnimplementedHandler) ListAssistantChats(ctx context.Context) (r *AssistantChatsResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListDeployments implements listDeployments operation.
+//
+// GET /api/v1/deployments
+func (UnimplementedHandler) ListDeployments(ctx context.Context, params ListDeploymentsParams) (r *DeploymentsResponse, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

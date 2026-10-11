@@ -70,7 +70,10 @@ func (p *RetrievalPlan) Branch() string {
 
 // Plan prepares data and selects retrieval branch.
 func (r *Retriever) Plan(ctx context.Context, query string) (*RetrievalPlan, error) {
-	services := r.store.List()
+	services, err := r.store.ReadAll(ctx)
+	if err != nil {
+		return nil, err
+	}
 	if len(services) == 0 {
 		return &RetrievalPlan{
 			query:    query,

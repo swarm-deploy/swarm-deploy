@@ -26,6 +26,7 @@ services:
         mode: 0400
     stop_grace_period: 30s
     deploy:
+      replicas: 1
       update_config:
         order: start-first
       restart_policy:
@@ -33,6 +34,7 @@ services:
       placement:
         constraints:
           - node.role == manager
+          - node.labels.swarm-deploy.data == true
 
 volumes:
   swarm-deploy-data: {}

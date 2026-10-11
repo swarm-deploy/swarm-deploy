@@ -1,4 +1,4 @@
-//go:generate mockgen -source=$GOFILE -destination=mocks.go -package=swarm
+//go:generate go run -mod=mod go.uber.org/mock/mockgen -source=$GOFILE -destination=mocks.go -package=swarm
 package swarm
 
 import (

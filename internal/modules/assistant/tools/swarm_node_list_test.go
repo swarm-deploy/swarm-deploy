@@ -12,21 +12,19 @@ import (
 )
 
 func TestListNodesExecute(t *testing.T) {
-	tool := NewListNodes(&fakeNodeStore{
-		nodes: []swarm.Node{
-			{
-				ID:            "node-1",
-				Hostname:      "manager-1",
-				Status:        "ready",
-				Availability:  "active",
-				ManagerStatus: "leader",
-				EngineVersion: "28.3.0",
-				Addr:          "10.0.0.1",
-				CPUNano:       8_000_000_000,
-				MemoryBytes:   34_359_738_368,
-			},
+	tool := NewListNodes(nodeStore(t, []swarm.Node{
+		{
+			ID:            "node-1",
+			Hostname:      "manager-1",
+			Status:        "ready",
+			Availability:  "active",
+			ManagerStatus: "leader",
+			EngineVersion: "28.3.0",
+			Addr:          "10.0.0.1",
+			CPUNano:       8_000_000_000,
+			MemoryBytes:   34_359_738_368,
 		},
-	})
+	}))
 
 	response, err := tool.Execute(context.Background(), routing.Request{})
 	require.NoError(t, err, "execute swarm_node_list tool")

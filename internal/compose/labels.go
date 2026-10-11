@@ -11,7 +11,7 @@ import (
 const labelPairParts = 2
 
 type Labels struct {
-	Map map[string]string
+	Map map[string]string `json:"Map"`
 
 	isMap bool
 }

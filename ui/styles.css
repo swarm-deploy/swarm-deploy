@@ -695,10 +695,57 @@ a.overview-summary-row:focus-visible {
 }
 
 .overview-deployment-list .overview-summary-row {
+  position: relative;
   grid-template-columns: 9px minmax(116px, 1fr) max-content max-content;
   gap: 9px;
   color: var(--muted);
   font-size: 0.79rem;
+}
+
+.overview-deployment-details {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  padding: 0;
+}
+
+.overview-deployment-details:hover,
+.overview-deployment-details:focus-visible {
+  background: var(--surface-hover);
+  filter: none;
+  outline: none;
+  transform: none;
+}
+
+.overview-deployment-details:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--accent-focus);
+}
+
+.overview-deployment-row > :not(.overview-deployment-details) {
+  position: relative;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.overview-deployment-row > .overview-summary-sha-badge {
+  z-index: 2;
+  pointer-events: auto;
+}
+
+.overview-deployment-row > .overview-summary-sha-badge:hover,
+.overview-deployment-row > .overview-summary-sha-badge:focus-visible {
+  border-color: var(--border-strong);
+  color: var(--accent-strong);
+  filter: none;
+  transform: none;
+}
+
+.overview-deployment-row > .overview-summary-sha-badge:focus-visible {
+  outline: 2px solid var(--accent-focus);
+  outline-offset: 1px;
 }
 
 .overview-alert-list .overview-summary-row,
@@ -725,9 +772,19 @@ a.overview-summary-row:focus-visible {
   box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.1);
 }
 
+.overview-summary-severity.overview-deployment-result--running {
+  background: var(--info);
+  box-shadow: 0 0 0 3px var(--info-muted);
+}
+
 .overview-summary-severity.overview-deployment-result--failed {
   background: var(--error);
   box-shadow: 0 0 0 3px var(--error-muted);
+}
+
+.overview-summary-severity.overview-deployment-result--interrupted {
+  background: var(--warning);
+  box-shadow: 0 0 0 3px var(--warning-muted);
 }
 
 .overview-deployment-time {

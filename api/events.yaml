@@ -146,10 +146,10 @@ components:
           type: string
         kind:
           type: string
-          enum: [deploy_failed]
+          enum: [deploy_failed, node_disconnected]
         resourceType:
           type: string
-          enum: [stack]
+          enum: [stack, node]
         resourceId:
           type: string
         status:
@@ -157,6 +157,14 @@ components:
         title:
           type: string
         message:
+          type: string
+        failureStage:
+          type: string
+        errorCode:
+          type: string
+        deploymentId:
+          type: string
+        commit:
           type: string
         occurrences:
           type: integer

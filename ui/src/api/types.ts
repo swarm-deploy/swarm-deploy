@@ -129,12 +129,16 @@ export interface AlertResolution {
 export interface Alert {
   id: string;
   fingerprint: string;
-  kind: "deploy_failed";
-  resourceType: "stack";
+  kind: "deploy_failed" | "node_disconnected";
+  resourceType: "stack" | "node";
   resourceId: string;
   status: AlertStatus;
   title: string;
   message: string;
+  failureStage?: string;
+  errorCode?: string;
+  deploymentId?: string;
+  commit?: string;
   occurrences: number;
   openedAt: string;
   updatedAt: string;
@@ -425,4 +429,63 @@ export interface AssistantChatMessage {
 
 export interface AssistantChatHistory extends AssistantChatSummary {
   messages: AssistantChatMessage[];
+}
+export type DeploymentStatus = "running" | "succeeded" | "failed" | "interrupted";
+export type DeploymentPhase = "apply" | "verification" | "cleanup" | "completed";
+export type DeploymentStageStatus = "pending" | "running" | "succeeded" | "failed" | "unknown" | "skipped";
+export type DeploymentActualStateStatus = "observed" | "unknown";
+export type DeploymentComparisonStatus = "known" | "unknown";
+export type DeploymentComparisonBasis = "none" | "successful_baseline" | "last_attempt" | "observed_state";
+export interface DeploymentChange {
+  resourceType: string;
+  resourceName: string;
+  field: string;
+  operation: "added" | "changed" | "removed";
+  before?: string;
+  after?: string;
+  redacted: boolean;
+}
+export interface DeploymentChangeSummary {
+  added: number;
+  changed: number;
+  removed: number;
+  redacted: number;
+}
+export interface DeploymentResourceSummary {
+  services: number;
+  configs: number;
+  secrets: number;
+  networks: number;
+  volumes: number;
+}
+export interface DeploymentSummary {
+  id: string;
+  stack: string;
+  commit: string;
+  status: DeploymentStatus;
+  phase: DeploymentPhase;
+  reason?: string;
+  apply_status: DeploymentStageStatus;
+  verification_status: DeploymentStageStatus;
+  cleanup_status: DeploymentStageStatus;
+  actual_state_status: DeploymentActualStateStatus;
+  observed_at?: string;
+  comparison_basis: DeploymentComparisonBasis;
+  comparison_status: DeploymentComparisonStatus;
+  basis_deployment_id?: string;
+  started_at: string;
+  finished_at?: string;
+  duration_ms?: number;
+  summary: DeploymentChangeSummary;
+  resources: DeploymentResourceSummary;
+  diff_available: boolean;
+}
+export interface Deployment extends DeploymentSummary {
+  diagnostic?: string;
+  configuration_yaml?: string;
+  changes: DeploymentChange[];
+}
+export interface DeploymentsResponse {
+  deployments: DeploymentSummary[];
+  next_cursor?: string;
 }

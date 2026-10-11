@@ -17,7 +17,7 @@ type ObjectRef struct {
 	// File is a resolved repository-backed source path. It is runtime metadata and is not serialized.
 	File string `yaml:"-" json:"-"`
 
-	Extra map[string]interface{} `yaml:",inline"`
+	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 
 	isString bool
 }
@@ -29,7 +29,7 @@ type objectRef struct {
 	Gid    string       `yaml:"gid,omitempty" json:"gid,omitempty"`
 	Uid    string       `yaml:"uid,omitempty" json:"uid,omitempty"`
 
-	Extra map[string]interface{} `yaml:",inline"`
+	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 }
 
 func (r *ObjectRef) UnmarshalYAML(n *yaml.Node) error {

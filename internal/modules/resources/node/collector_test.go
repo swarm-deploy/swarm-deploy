@@ -3,7 +3,6 @@ package node
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"testing"
 
 	dockerevents "github.com/docker/docker/api/types/events"
@@ -11,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -92,10 +92,10 @@ func TestCollector_WatchOnce(t *testing.T) {
 			want: []events.Event{&events.NodeJoined{NodeID: "ghost"}},
 		},
 		{
-			name:          "node created dispatches joined even when refresh fails",
+			name:          "failed refresh does not commit an unverified node event",
 			subscribeList: nil,
 			steps:         []collectorStep{{action: dockerevents.ActionCreate, nodeID: "w9", list: nil}},
-			want:          []events.Event{&events.NodeJoined{NodeID: "w9"}},
+			want:          nil,
 		},
 		{
 			name:          "new node appearing without create event is not inferred",
@@ -165,11 +165,14 @@ func TestCollector_WatchOnce(t *testing.T) {
 			want:          nil,
 		},
 		{
-			name:          "reconnection refreshes snapshot without synthetic events",
+			name:          "reconnection reconciles observed disconnects without synthetic joins",
 			stored:        []swarm.Node{ready("w1", "worker-1", swarm.NodeManagerStatusWorker), ready("w2", "worker-2", swarm.NodeManagerStatusWorker)},
 			subscribeList: []swarm.Node{down("w1", "worker-1"), ready("w3", "worker-3", swarm.NodeManagerStatusWorker)},
 			steps:         nil,
-			want:          nil,
+			want: []events.Event{
+				&events.NodeDisconnected{NodeID: "w1", NodeName: "worker-1", Status: "down"},
+				&events.NodeDisconnected{NodeID: "w2", NodeName: "worker-2", Status: "missing"},
+			},
 		},
 		{
 			name:          "repeated event without state change emits nothing",
@@ -196,9 +199,12 @@ func TestCollector_WatchOnce(t *testing.T) {
 			inspector := swarm.NewMockNodeManager(ctrl)
 			disp := dispatcher.NewMockDispatcher(ctrl)
 
-			store, err := NewNodeStore(filepath.Join(t.TempDir(), "nodes.json"))
+			db, err := storage.Open(context.Background(), t.TempDir())
 			require.NoError(t, err)
-			require.NoError(t, store.Replace(tt.stored))
+			t.Cleanup(func() { require.NoError(t, db.Close()) })
+			store := NewSQLStore(db)
+			require.NoError(t, err)
+			require.NoError(t, store.ReplaceSnapshot(context.Background(), tt.stored))
 
 			eventsCh := make(chan dockerevents.Message, len(tt.steps))
 			errorsCh := make(chan error)
@@ -206,10 +212,10 @@ func TestCollector_WatchOnce(t *testing.T) {
 
 			if tt.subscribeErr {
 				inspector.EXPECT().List(gomock.Any()).Return(nil, errors.New("list failed"))
-				collector := NewNodeCollector(inspector, store, disp)
+				collector := NewNodeCollector(inspector, store, disp, db)
 				err = collector.watchOnce(context.Background())
 				require.Error(t, err, "failed refresh after subscribe must return error")
-				assert.Len(t, store.List(), len(tt.stored), "snapshot must stay untouched")
+				assert.Len(t, readNodes(t, store), len(tt.stored), "snapshot must stay untouched")
 				return
 			}
 
@@ -228,7 +234,7 @@ func TestCollector_WatchOnce(t *testing.T) {
 			}).Times(len(lists))
 
 			var got []events.Event
-			disp.EXPECT().Dispatch(gomock.Any(), gomock.Any()).Do(func(_ context.Context, event events.Event) {
+			disp.EXPECT().Publish(gomock.Any(), gomock.Any()).Do(func(_ context.Context, event events.Event) {
 				got = append(got, event)
 			}).AnyTimes()
 
@@ -241,12 +247,12 @@ func TestCollector_WatchOnce(t *testing.T) {
 			}
 			close(eventsCh)
 
-			collector := NewNodeCollector(inspector, store, disp)
+			collector := NewNodeCollector(inspector, store, disp, db)
 			err = collector.watchOnce(context.Background())
 			require.Error(t, err, "closed events channel must end watch")
 
 			assert.Equal(t, tt.want, got)
-			assert.Len(t, store.List(), len(lastNonNil(lists)))
+			assert.Len(t, readNodes(t, store), len(lastNonNil(lists)))
 		})
 	}
 }
@@ -261,18 +267,21 @@ func lastNonNil(lists [][]swarm.Node) []swarm.Node {
 	return nil
 }
 
-func newCollectorForTest(t *testing.T, stored []swarm.Node) (*Collector, *swarm.MockNodeManager, *dispatcher.MockDispatcher, *Store) {
+func newCollectorForTest(t *testing.T, stored []swarm.Node) (*Collector, *swarm.MockNodeManager, *dispatcher.MockDispatcher, *SQLStore) {
 	t.Helper()
 
 	ctrl := gomock.NewController(t)
 	inspector := swarm.NewMockNodeManager(ctrl)
 	disp := dispatcher.NewMockDispatcher(ctrl)
 
-	store, err := NewNodeStore(filepath.Join(t.TempDir(), "nodes.json"))
+	db, err := storage.Open(context.Background(), t.TempDir())
 	require.NoError(t, err)
-	require.NoError(t, store.Replace(stored))
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	store := NewSQLStore(db)
+	require.NoError(t, err)
+	require.NoError(t, store.ReplaceSnapshot(context.Background(), stored))
 
-	return NewNodeCollector(inspector, store, disp), inspector, disp, store
+	return NewNodeCollector(inspector, store, disp, db), inspector, disp, store
 }
 
 func TestCollector_WatchOnce_CancelsSubscription(t *testing.T) {
@@ -326,7 +335,7 @@ func TestCollector_WatchOnce_CancelsSubscription(t *testing.T) {
 
 func TestCollector_WatchOnce_InitialSyncWhenWatchFails(t *testing.T) {
 	collector, inspector, disp, store := newCollectorForTest(t, nil)
-	disp.EXPECT().Dispatch(gomock.Any(), gomock.Any()).Times(0)
+	disp.EXPECT().Publish(gomock.Any(), gomock.Any()).Times(0)
 
 	var watchCtx context.Context
 	inspector.EXPECT().Watch(gomock.Any()).DoAndReturn(
@@ -339,16 +348,16 @@ func TestCollector_WatchOnce_InitialSyncWhenWatchFails(t *testing.T) {
 	}, nil).Times(1)
 
 	require.Error(t, collector.watchOnce(context.Background()))
-	assert.Len(t, store.List(), 1, "initial snapshot must be loaded even if Watch fails")
+	assert.Len(t, readNodes(t, store), 1, "initial snapshot must be loaded even if Watch fails")
 	assert.Error(t, watchCtx.Err(), "subscription context must be cancelled")
 
 	// Already synced: a repeated Watch failure must not call List again.
 	require.Error(t, collector.watchOnce(context.Background()))
 }
 
-func TestCollector_WatchOnce_ReconnectRefreshesWithoutEvents(t *testing.T) {
+func TestCollector_WatchOnce_ReconnectReconcilesTransitions(t *testing.T) {
 	collector, inspector, disp, store := newCollectorForTest(t, nil)
-	disp.EXPECT().Dispatch(gomock.Any(), gomock.Any()).Times(0)
+	disp.EXPECT().Publish(gomock.Any(), &events.NodeDisconnected{NodeID: "w1", NodeName: "worker-1", Status: "down"}).Return(nil)
 
 	first := make(chan dockerevents.Message)
 	close(first)
@@ -361,7 +370,7 @@ func TestCollector_WatchOnce_ReconnectRefreshesWithoutEvents(t *testing.T) {
 			{ID: "w1", Hostname: "worker-1", Status: "ready"},
 		}, nil),
 		inspector.EXPECT().Watch(gomock.Any()).Return((<-chan dockerevents.Message)(second), (<-chan error)(make(chan error)), nil),
-		// While disconnected: w1 went down, w2 appeared. Neither may produce events.
+		// A known node going down is a fact; an unseen node is not a synthetic join.
 		inspector.EXPECT().List(gomock.Any()).Return([]swarm.Node{
 			{ID: "w1", Hostname: "worker-1", Status: "down"},
 			{ID: "w2", Hostname: "worker-2", Status: "ready"},
@@ -370,5 +379,12 @@ func TestCollector_WatchOnce_ReconnectRefreshesWithoutEvents(t *testing.T) {
 
 	require.Error(t, collector.watchOnce(context.Background()))
 	require.Error(t, collector.watchOnce(context.Background()))
-	assert.Len(t, store.List(), 2, "snapshot must be refreshed after reconnect")
+	assert.Len(t, readNodes(t, store), 2, "snapshot must be refreshed after reconnect")
+}
+
+func readNodes(t *testing.T, store *SQLStore) []swarm.Node {
+	t.Helper()
+	nodes, err := store.ReadAll(context.Background())
+	require.NoError(t, err)
+	return nodes
 }

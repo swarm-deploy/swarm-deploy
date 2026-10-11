@@ -30,9 +30,13 @@ func (s *MemoryStore) Get() model.Runtime {
 
 func (s *MemoryStore) Stop() {}
 
-func (s *MemoryStore) Update(_ context.Context, fn func(*model.Runtime)) {
+func (s *MemoryStore) Update(_ context.Context, fn func(*model.Runtime)) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	fn(&s.state)
+	return nil
 }
+
+// Read returns the test/in-memory snapshot through the repository contract.
+func (s *MemoryStore) Read(_ context.Context) (model.Runtime, error) { return s.Get(), nil }

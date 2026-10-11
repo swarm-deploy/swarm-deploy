@@ -17,7 +17,7 @@ import (
 func TestRestartServiceExecute(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	manager := swarm.NewMockServiceManager(ctrl)
-	dispatcher := &fakeEventDispatcher{}
+	dispatcher, captured := capturePublishedEvents(t)
 	tool := NewRestartService(manager, dispatcher)
 
 	serviceRef := swarm.NewServiceReference("core", "api")
@@ -45,8 +45,8 @@ func TestRestartServiceExecute(t *testing.T) {
 	assert.Equal(t, "api", payload.Service, "unexpected service")
 	assert.Equal(t, uint64(3), payload.Replicas, "unexpected replicas")
 
-	require.Len(t, dispatcher.events, 1, "expected single dispatched event")
-	restartEvent, ok := dispatcher.events[0].(*events.ServiceRestarted)
+	require.Len(t, *captured, 1, "expected single dispatched event")
+	restartEvent, ok := (*captured)[0].(*events.ServiceRestarted)
 	require.True(t, ok, "expected service restarted event")
 	assert.Equal(t, "core", restartEvent.StackName, "unexpected event stack")
 	assert.Equal(t, "api", restartEvent.ServiceName, "unexpected event service")
@@ -55,7 +55,7 @@ func TestRestartServiceExecute(t *testing.T) {
 func TestRestartServiceExecuteFailsOnInspect(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	manager := swarm.NewMockServiceManager(ctrl)
-	dispatcher := &fakeEventDispatcher{}
+	dispatcher, captured := capturePublishedEvents(t)
 	tool := NewRestartService(manager, dispatcher)
 
 	serviceRef := swarm.NewServiceReference("core", "api")
@@ -71,13 +71,13 @@ func TestRestartServiceExecuteFailsOnInspect(t *testing.T) {
 	})
 	require.Error(t, err, "expected execute error")
 	assert.Contains(t, err.Error(), "inspect service replicas", "unexpected error")
-	assert.Empty(t, dispatcher.events, "failed inspect must not dispatch events")
+	assert.Empty(t, *captured, "failed inspect must not dispatch events")
 }
 
 func TestRestartServiceExecuteFailsOnRestore(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	manager := swarm.NewMockServiceManager(ctrl)
-	dispatcher := &fakeEventDispatcher{}
+	dispatcher, captured := capturePublishedEvents(t)
 	tool := NewRestartService(manager, dispatcher)
 
 	serviceRef := swarm.NewServiceReference("core", "api")
@@ -93,5 +93,5 @@ func TestRestartServiceExecuteFailsOnRestore(t *testing.T) {
 	})
 	require.Error(t, err, "expected execute error")
 	assert.Contains(t, err.Error(), "restore service replicas", "unexpected error")
-	assert.Empty(t, dispatcher.events, "failed restore must not dispatch events")
+	assert.Empty(t, *captured, "failed restore must not dispatch events")
 }

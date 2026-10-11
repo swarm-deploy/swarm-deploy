@@ -2,16 +2,16 @@ package service
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	webroute "github.com/swarm-deploy/webroute/api"
 	"go.uber.org/mock/gomock"
@@ -159,14 +159,17 @@ func TestSubscriberHandle(t *testing.T) {
 			inspector := swarm.NewMockServiceManager(ctrl)
 			images := swarm.NewMockImageManager(ctrl)
 			configs := swarm.NewMockConfigManager(ctrl)
-			store, err := modelstore.NewFileStore(context.Background(), filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
+			db, err := storage.Open(context.Background(), t.TempDir())
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, db.Close()) })
+			store := modelstore.NewSQLStore(db)
 			require.NoError(t, err)
 
 			sub := NewSubscriber(store, &swarm.Swarm{
 				Services: inspector,
 				Images:   images,
 				Configs:  configs,
-			}, metadata.NewExtractor())
+			}, metadata.NewExtractor(), db, outbox.New(db))
 			serviceRef := swarm.NewServiceReference("payments", "api")
 			testCase.setupMocks(inspector, images, serviceRef)
 
@@ -187,7 +190,8 @@ func TestSubscriberHandle(t *testing.T) {
 			}})
 			require.NoError(t, err)
 
-			info, ok := store.Get("payments", "api")
+			info, ok, readErr := store.Find(context.Background(), "payments", "api")
+			require.NoError(t, readErr)
 			require.True(t, ok)
 			assert.Equal(t, testCase.expected.image, info.Image)
 			assert.Equal(t, testCase.expected.environment, info.Environment)
@@ -250,9 +254,10 @@ func TestSubscriberHandleLoadsWebRouteConfigs(t *testing.T) {
 			inspector := swarm.NewMockServiceManager(ctrl)
 			images := swarm.NewMockImageManager(ctrl)
 			configs := swarm.NewMockConfigManager(ctrl)
-			fileSystem := fs.NewLocalFileSystem()
-			tempDir := t.TempDir()
-			store, err := modelstore.NewFileStore(context.Background(), filepath.Join(tempDir, "services.json"), fileSystem)
+			db, err := storage.Open(context.Background(), t.TempDir())
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, db.Close()) })
+			store := modelstore.NewSQLStore(db)
 			require.NoError(t, err)
 
 			desiredConfigRef := compose.ObjectRef{
@@ -301,7 +306,7 @@ func TestSubscriberHandleLoadsWebRouteConfigs(t *testing.T) {
 				Services: inspector,
 				Images:   images,
 				Configs:  configs,
-			}, metadata.NewExtractor())
+			}, metadata.NewExtractor(), db, outbox.New(db))
 
 			err = sub.Handle(context.Background(), events.Envelope{ID: "deploy", Event: &events.DeploySuccess{
 				DeployEvent: events.DeployEvent{
@@ -322,7 +327,8 @@ func TestSubscriberHandleLoadsWebRouteConfigs(t *testing.T) {
 			}})
 			require.NoError(t, err)
 
-			info, ok := store.Get("prod", "pomerium")
+			info, ok, readErr := store.Find(context.Background(), "prod", "pomerium")
+			require.NoError(t, readErr)
 			require.True(t, ok)
 			if testCase.expectedDomain == "" {
 				assert.Empty(t, info.WebRoutes)

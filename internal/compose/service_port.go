@@ -9,7 +9,7 @@ import (
 )
 
 type ServicePorts struct {
-	Ports []ServicePort
+	Ports []ServicePort `json:"Ports"`
 
 	isMap bool
 }
@@ -22,7 +22,7 @@ type ServicePort struct {
 	Mode        dockerswarm.PortConfigPublishMode `yaml:"mode,omitempty" json:"mode,omitempty"`
 	HostIP      string                            `yaml:"host_ip,omitempty" json:"host_ip,omitempty"`
 
-	Extra map[string]interface{} `yaml:",inline"`
+	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 }
 
 func (sp *ServicePorts) UnmarshalYAML(root *yaml.Node) error { //nolint:gocognit // not need

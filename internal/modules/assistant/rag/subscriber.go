@@ -47,18 +47,17 @@ func (*IndexSubscriber) Name() string {
 	return "assistant-rag-index"
 }
 
-func (*IndexSubscriber) Slow() bool {
-	return true
-}
-
 // Handle rebuilds embeddings index after deploySuccess events.
 func (s *IndexSubscriber) Handle(ctx context.Context, event events.Envelope) error {
-	if _, ok := event.Event.(*events.DeploySuccess); !ok {
+	if _, ok := event.Event.(*events.ServiceCatalogUpdated); !ok {
 		return nil
 	}
 
 	startedAt := time.Now()
-	services := s.store.List()
+	services, readErr := s.store.ReadAll(ctx)
+	if readErr != nil {
+		return readErr
+	}
 	if len(services) == 0 {
 		s.index.Clear()
 		slog.InfoContext(ctx, "[assistant-rag] cleared index after deploySuccess: no services")

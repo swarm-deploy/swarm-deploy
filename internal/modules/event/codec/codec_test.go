@@ -1,0 +1,105 @@
+package codec
+
+import (
+	"errors"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+)
+
+func TestSensitiveFieldsAreNeverPersisted(t *testing.T) {
+	const secret = "super-private-token"
+	service := compose.Service{Name: "api", Image: "nginx:stable",
+		Environment: compose.Environment{Map: map[string]string{"TOKEN": secret}},
+		Extra:       map[string]any{"password": secret},
+	}
+	for _, event := range []events.Event{
+		&events.DeploySuccess{DeployEvent: events.DeployEvent{Services: []compose.Service{service}}},
+		&events.DeployFailed{DeployEvent: events.DeployEvent{StackName: "stack", Commit: "revision", StackDefinition: compose.File{Path: secret}}, Error: errors.New(secret), Logs: []string{secret}},
+		&events.DeployPreparationFailed{StackName: "stack", Commit: "revision", ErrorCode: "preparation_failed"},
+		&events.DeployInterrupted{DeploymentID: "deployment", StackName: "stack", Commit: "revision", Reason: "process_interrupted"},
+		&events.AssistantPromptInjectionDetected{Prompt: secret},
+		&events.SendNotificationFailed{Error: errors.New(secret)},
+	} {
+		t.Run(event.Type().String(), func(t *testing.T) {
+			payload, err := Encode(event)
+			require.NoError(t, err)
+			assert.NotContains(t, string(payload), secret)
+			assert.NotContains(t, string(payload), "StackDefinition")
+			assert.NotContains(t, string(payload), "Environment")
+			decoded, err := Decode(event.Type().Name(), Version, payload)
+			require.NoError(t, err)
+			for _, value := range decoded.Details() {
+				assert.NotContains(t, value, secret)
+			}
+		})
+	}
+}
+
+func TestDeploymentLifecycleCodecRejectsUnboundedDiagnostics(t *testing.T) {
+	for _, event := range []events.Event{
+		&events.DeployPreparationFailed{StackName: "stack", ErrorCode: "raw secret"},
+		&events.DeployInterrupted{StackName: "stack", Reason: "raw secret"},
+	} {
+		_, err := Encode(event)
+		require.Error(t, err)
+	}
+}
+
+func TestVersionAndPayloadValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		typ     events.TypeName
+		version int
+		payload string
+	}{
+		{"future version", events.TypeNameNodeJoined, 2, `{}`},
+		{"unknown type", "unknown", 1, `{}`},
+		{"unknown field", events.TypeNameNodeJoined, 1, `{"password":"secret"}`},
+		{"trailing data", events.TypeNameNodeJoined, 1, `{} {}`},
+		{"null payload", events.TypeNameNodeJoined, 1, `null`},
+	} {
+		t.Run(tc.name, func(t *testing.T) { _, err := Decode(tc.typ, tc.version, []byte(tc.payload)); require.Error(t, err) })
+	}
+}
+
+func TestDeploymentFailureCategorySurvivesCodec(t *testing.T) {
+	for _, code := range []string{"policy_rejected", "init_failed", "apply_failed", "prune_failed"} {
+		event := &events.DeployFailed{DeployEvent: events.DeployEvent{StackName: "app"}, Error: errors.New(code)}
+		payload, err := Encode(event)
+		require.NoError(t, err)
+		assert.Contains(t, string(payload), code)
+		decoded, err := Decode(events.TypeNameDeployFailed, Version, payload)
+		require.NoError(t, err)
+		assert.Equal(t, code, decoded.(*events.DeployFailed).Error.Error())
+	}
+	payload, err := Encode(&events.DeployFailed{Error: errors.New("secret diagnostic")})
+	require.NoError(t, err)
+	assert.NotContains(t, string(payload), "secret diagnostic")
+}
+
+func TestDeploymentFailureDiagnosticIsActionableAndMasked(t *testing.T) {
+	event := &events.DeployFailed{
+		DeployEvent: events.DeployEvent{DeploymentID: "deployment", StackName: "app", Commit: "sha"},
+		ErrorCode:   "apply_failed",
+		Stage:       "apply",
+		Error:       errors.New("update service api: pull https://user:password@registry.example/image token=private-value: image not found"),
+	}
+	payload, err := Encode(event)
+	require.NoError(t, err)
+	assert.NotContains(t, string(payload), "password")
+	assert.NotContains(t, string(payload), "private-value")
+	decoded, err := Decode(events.TypeNameDeployFailed, Version, payload)
+	require.NoError(t, err)
+	failure := decoded.(*events.DeployFailed)
+	assert.Equal(t, "deployment", failure.DeploymentID)
+	assert.Equal(t, "apply", failure.Stage)
+	assert.Equal(t, "apply_failed", failure.ErrorCode)
+	require.Error(t, failure.Error)
+	assert.Contains(t, failure.Error.Error(), "update service api")
+	assert.Contains(t, failure.Error.Error(), "image not found")
+	assert.Contains(t, failure.Error.Error(), "****")
+}

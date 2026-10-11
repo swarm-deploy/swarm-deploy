@@ -140,6 +140,13 @@ For a fuller setup with notifications, secret rotation, Downward metadata, traci
 
 ### Recommended Swarm update configuration
 
+SQLite uses a local persistent volume. Pin the single swarm-deploy replica to one explicitly labelled manager so every
+old/new task in a `start-first` handoff opens the same database and controller lock:
+
+```shell
+docker node update --label-add swarm-deploy.data=true <manager-node>
+```
+
 Run the swarm-deploy service with `start-first` updates and a 30-second stop grace period:
 
 ```yaml
@@ -147,17 +154,30 @@ services:
   swarm-deploy:
     stop_grace_period: 30s
     deploy:
+      replicas: 1
       update_config:
         order: start-first
+      placement:
+        constraints:
+          - node.labels.swarm-deploy.data == true
 ```
 
 With `start-first`, Swarm starts the new task before stopping the current one. During graceful shutdown,
 the current swarm-deploy instance stops starting new reconciliations while an already running reconciliation
 gets time to finish status updates, event delivery, and post-deploy processing. This is especially important
-when swarm-deploy manages its own service, and it also makes ordinary swarm-deploy updates safer.
+when swarm-deploy manages its own service. An advisory controller lock in `dataDir` prevents the new task from
+reconciling or recovering deployments until the old task has completed its handoff. A crashed task releases the lock,
+and the next owner marks any orphaned `running` attempt `interrupted` before reconciling.
+
+Do not run replicas on different nodes with node-local volumes: they have different SQLite databases and cannot share
+the lock. A remote/network filesystem is not a supported substitute for local SQLite WAL. When upgrading from a build
+that predates the controller lock, first capture the deployment diagnostics and SQLite backup described in
+[`docs/operations/sqlite.md`](./docs/operations/sqlite.md), then use a one-time `stop-first` update (or otherwise prove the
+old task has stopped) before returning to `start-first` for later releases.
 
 ## Documentation
 
+- [SQLite operations and backup](./docs/operations/sqlite.md)
 - [Reconciliation](./docs/reconciler.md)
 - [Webhooks](./docs/webhooks.md)
 - [Authentication](./docs/authentication.md)

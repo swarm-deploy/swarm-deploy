@@ -8,6 +8,10 @@ info:
 servers:
   - url: http://localhost:8080
 paths:
+  /api/v1/deployments:
+    $ref: './deployments.yaml#/paths/~1api~1v1~1deployments'
+  /api/v1/deployments/{id}:
+    $ref: './deployments.yaml#/paths/~1api~1v1~1deployments~1{id}'
   /api/v1/stacks:
     $ref: './gitops.yaml#/paths/~1api~1v1~1stacks'
   /api/v1/stacks/{stack}/manifestos:

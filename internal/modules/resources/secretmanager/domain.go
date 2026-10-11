@@ -19,7 +19,7 @@ func NewDomain(services servicestore.Store) *Domain {
 }
 
 // List returns discovered Secret Managers without failing when a controller is unavailable.
-func (d *Domain) List(ctx context.Context) []Info {
+func (d *Domain) List(ctx context.Context) ([]Info, error) {
 	return d.service.List(ctx)
 }
 

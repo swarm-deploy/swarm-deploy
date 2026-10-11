@@ -43,8 +43,12 @@ func (h *handler) ListServiceDeployments(
 			limit = int(value)
 		}
 
+		entries, readErr := h.history.Read(ctx)
+		if readErr != nil {
+			return nil, readErr
+		}
 		items = toGeneratedServiceDeployments(
-			h.history.List(),
+			entries,
 			params.Stack,
 			params.Service,
 			status.Spec.Image,

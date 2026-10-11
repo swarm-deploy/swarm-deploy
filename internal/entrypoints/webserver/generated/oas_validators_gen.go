@@ -97,6 +97,8 @@ func (s AlertKind) Validate() error {
 	switch s {
 	case "deploy_failed":
 		return nil
+	case "node_disconnected":
+		return nil
 	default:
 		return errors.Errorf("invalid value: %v", s)
 	}
@@ -137,6 +139,8 @@ func (s AlertResolutionReason) Validate() error {
 func (s AlertResourceType) Validate() error {
 	switch s {
 	case "stack":
+		return nil
+	case "node":
 		return nil
 	default:
 		return errors.Errorf("invalid value: %v", s)
@@ -532,6 +536,452 @@ func (s *AssistantTokenUsage) Validate() error {
 	}(); err != nil {
 		failures = append(failures, validate.FieldError{
 			Name:  "total_tokens",
+			Error: err,
+		})
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+	return nil
+}
+
+func (s *Deployment) Validate() error {
+	if s == nil {
+		return validate.ErrNilPointer
+	}
+
+	var failures []validate.FieldError
+	if err := func() error {
+		if err := s.Status.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "status",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.Phase.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "phase",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.ApplyStatus.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "apply_status",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.VerificationStatus.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "verification_status",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.CleanupStatus.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "cleanup_status",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.ActualStateStatus.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "actual_state_status",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.ComparisonBasis.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "comparison_basis",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.ComparisonStatus.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "comparison_status",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if value, ok := s.DurationMs.Get(); ok {
+			if err := func() error {
+				if err := (validate.Int{
+					MinSet:        true,
+					Min:           0,
+					MaxSet:        false,
+					Max:           0,
+					MinExclusive:  false,
+					MaxExclusive:  false,
+					MultipleOfSet: false,
+					MultipleOf:    0,
+					Pattern:       nil,
+				}).Validate(int64(value)); err != nil {
+					return errors.Wrap(err, "int")
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "duration_ms",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if s.Changes == nil {
+			return errors.New("nil is invalid value")
+		}
+		var failures []validate.FieldError
+		for i, elem := range s.Changes {
+			if err := func() error {
+				if err := elem.Validate(); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				failures = append(failures, validate.FieldError{
+					Name:  fmt.Sprintf("[%d]", i),
+					Error: err,
+				})
+			}
+		}
+		if len(failures) > 0 {
+			return &validate.Error{Fields: failures}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "changes",
+			Error: err,
+		})
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+	return nil
+}
+
+func (s DeploymentActualStateStatus) Validate() error {
+	switch s {
+	case "observed":
+		return nil
+	case "unknown":
+		return nil
+	default:
+		return errors.Errorf("invalid value: %v", s)
+	}
+}
+
+func (s *DeploymentChange) Validate() error {
+	if s == nil {
+		return validate.ErrNilPointer
+	}
+
+	var failures []validate.FieldError
+	if err := func() error {
+		if err := s.Operation.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "operation",
+			Error: err,
+		})
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+	return nil
+}
+
+func (s DeploymentChangeOperation) Validate() error {
+	switch s {
+	case "added":
+		return nil
+	case "changed":
+		return nil
+	case "removed":
+		return nil
+	default:
+		return errors.Errorf("invalid value: %v", s)
+	}
+}
+
+func (s DeploymentComparisonBasis) Validate() error {
+	switch s {
+	case "none":
+		return nil
+	case "successful_baseline":
+		return nil
+	case "last_attempt":
+		return nil
+	case "observed_state":
+		return nil
+	default:
+		return errors.Errorf("invalid value: %v", s)
+	}
+}
+
+func (s DeploymentComparisonStatus) Validate() error {
+	switch s {
+	case "known":
+		return nil
+	case "unknown":
+		return nil
+	default:
+		return errors.Errorf("invalid value: %v", s)
+	}
+}
+
+func (s DeploymentPhase) Validate() error {
+	switch s {
+	case "apply":
+		return nil
+	case "verification":
+		return nil
+	case "cleanup":
+		return nil
+	case "completed":
+		return nil
+	default:
+		return errors.Errorf("invalid value: %v", s)
+	}
+}
+
+func (s DeploymentStageStatus) Validate() error {
+	switch s {
+	case "pending":
+		return nil
+	case "running":
+		return nil
+	case "succeeded":
+		return nil
+	case "failed":
+		return nil
+	case "unknown":
+		return nil
+	case "skipped":
+		return nil
+	default:
+		return errors.Errorf("invalid value: %v", s)
+	}
+}
+
+func (s DeploymentStatus) Validate() error {
+	switch s {
+	case "running":
+		return nil
+	case "succeeded":
+		return nil
+	case "failed":
+		return nil
+	case "interrupted":
+		return nil
+	default:
+		return errors.Errorf("invalid value: %v", s)
+	}
+}
+
+func (s *DeploymentSummary) Validate() error {
+	if s == nil {
+		return validate.ErrNilPointer
+	}
+
+	var failures []validate.FieldError
+	if err := func() error {
+		if err := s.Status.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "status",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.Phase.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "phase",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.ApplyStatus.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "apply_status",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.VerificationStatus.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "verification_status",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.CleanupStatus.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "cleanup_status",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.ActualStateStatus.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "actual_state_status",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.ComparisonBasis.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "comparison_basis",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if err := s.ComparisonStatus.Validate(); err != nil {
+			return err
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "comparison_status",
+			Error: err,
+		})
+	}
+	if err := func() error {
+		if value, ok := s.DurationMs.Get(); ok {
+			if err := func() error {
+				if err := (validate.Int{
+					MinSet:        true,
+					Min:           0,
+					MaxSet:        false,
+					Max:           0,
+					MinExclusive:  false,
+					MaxExclusive:  false,
+					MultipleOfSet: false,
+					MultipleOf:    0,
+					Pattern:       nil,
+				}).Validate(int64(value)); err != nil {
+					return errors.Wrap(err, "int")
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "duration_ms",
+			Error: err,
+		})
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+	return nil
+}
+
+func (s *DeploymentsResponse) Validate() error {
+	if s == nil {
+		return validate.ErrNilPointer
+	}
+
+	var failures []validate.FieldError
+	if err := func() error {
+		if s.Deployments == nil {
+			return errors.New("nil is invalid value")
+		}
+		var failures []validate.FieldError
+		for i, elem := range s.Deployments {
+			if err := func() error {
+				if err := elem.Validate(); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				failures = append(failures, validate.FieldError{
+					Name:  fmt.Sprintf("[%d]", i),
+					Error: err,
+				})
+			}
+		}
+		if len(failures) > 0 {
+			return &validate.Error{Fields: failures}
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "deployments",
 			Error: err,
 		})
 	}

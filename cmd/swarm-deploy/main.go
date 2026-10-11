@@ -30,6 +30,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/buildinfo"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 )
@@ -44,10 +45,13 @@ var (
 var modules = []module{
 	{
 		Name: "event",
-		Initialize: func(_ context.Context, cfg *config.Config, cnt *container) error {
-			mod, err := event.InitModule(cfg, cnt)
+		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
+			mod, err := event.InitModule(ctx, cfg, cnt)
 			cnt.Event = mod
-			return err
+			if err != nil {
+				return err
+			}
+			return prometheus.Register(mod.Bus)
 		},
 	},
 	{
@@ -146,7 +150,13 @@ func main() {
 
 	metricsGroup.BuildInfo.Set(Version, BuildDate)
 
+	db, err := storage.Open(ctx, cfg.Spec.DataDir)
+	if err != nil {
+		slog.ErrorContext(ctx, "failed to open database", slog.Any("err", err))
+		os.Exit(1)
+	}
 	cnt := &container{
+		Storage:    db,
 		FileSystem: fs.TraceOS(),
 		Metrics:    metricsGroup,
 	}
@@ -208,26 +218,16 @@ func main() {
 			Run: func(ctx context.Context) error {
 				defer close(syncControllerDone)
 
-				storeDone := make(chan struct{})
-				go func() {
-					defer close(storeDone)
-					cnt.GitOps.Store.Sync(context.WithoutCancel(ctx))
-				}()
-
-				runErr := cnt.GitOps.Controller.Run(ctx)
-				cnt.GitOps.Store.Stop()
-				<-storeDone
-
-				return runErr
+				return cnt.GitOps.Controller.Run(ctx)
 			},
 		},
 		{
 			Name: "event-dispatcher",
 			Run: func(ctx context.Context) error {
-				<-ctx.Done()
-				<-syncControllerDone
-
-				return cnt.Event.Shutdown(context.WithoutCancel(ctx))
+				workerCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+				defer cancel()
+				go func() { <-ctx.Done(); <-syncControllerDone; cancel() }()
+				return cnt.Event.Run(workerCtx)
 			},
 		},
 		webApplication.Entrypoint(),
@@ -272,6 +272,12 @@ func main() {
 		slog.Bool("assistant.enabled", cfg.Spec.Assistant.Enabled),
 	)
 	err = runner.Run()
+	if closeErr := db.Close(); closeErr != nil {
+		slog.ErrorContext(ctx, "failed to close database", slog.Any("err", closeErr))
+		if err == nil {
+			err = closeErr
+		}
+	}
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to run", slog.Any("err", err))
 		shutdownTracing(tracerProvider)
@@ -300,6 +306,8 @@ type module struct {
 }
 
 type container struct {
+	// Storage owns the shared database and transactor.
+	Storage         *storage.Database
 	FileSystem      fs.FileSystem
 	Metrics         *metrics.Group
 	Swarm           *swarm.Swarm
@@ -313,6 +321,9 @@ type container struct {
 	AlertManagement *alertmanagement.Module
 	Assistant       *assistant.Module
 }
+
+// GetStorage returns the shared application database.
+func (c *container) GetStorage() *storage.Database { return c.Storage }
 
 func (c *container) GetFileSystem() fs.FileSystem {
 	return c.FileSystem

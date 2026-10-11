@@ -13,7 +13,7 @@ type Compose struct {
 	Secrets  Secrets            `yaml:"secrets,omitempty" json:"secrets"`
 	Volumes  Volumes            `yaml:"volumes,omitempty" json:"volumes"`
 
-	Extra map[string]interface{} `yaml:",inline"`
+	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 }
 
 func Parse(raw []byte) (*Compose, error) {

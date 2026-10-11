@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
 
 type reconcileError struct {
@@ -14,7 +15,7 @@ type reconcileError struct {
 }
 
 func (e *reconcileError) Error() string {
-	return fmt.Sprintf("%s: %v", e.op, e.err)
+	return fmt.Sprintf("%s: %s", e.op, faults.SafeDiagnostic(e.err))
 }
 
 func (e *reconcileError) Unwrap() error {

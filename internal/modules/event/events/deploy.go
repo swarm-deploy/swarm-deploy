@@ -8,6 +8,8 @@ import (
 )
 
 type DeployEvent struct {
+	// DeploymentID references a persisted apply attempt and its safe desired input.
+	DeploymentID    string
 	StackName       string
 	Commit          string
 	Services        []compose.Service
@@ -21,7 +23,12 @@ type DeploySuccess struct {
 type DeployFailed struct {
 	DeployEvent
 
+	// Error contains a secret-masked human-readable diagnostic after durable decoding.
 	Error error
+	// ErrorCode is the stable technical failure category.
+	ErrorCode string
+	// Stage identifies the pipeline stage that failed.
+	Stage string
 	Logs  []string
 }
 
@@ -50,9 +57,12 @@ func (d *DeployFailed) Message() string {
 
 func (d *DeployFailed) Details() map[string]string {
 	details := map[string]string{
-		"stack":  d.StackName,
-		"commit": d.Commit,
-		"logs":   strings.Join(d.Logs, "\n"),
+		"stack":         d.StackName,
+		"commit":        d.Commit,
+		"deployment_id": d.DeploymentID,
+		"error_code":    d.ErrorCode,
+		"stage":         d.Stage,
+		"logs":          strings.Join(d.Logs, "\n"),
 	}
 	if d.Error != nil {
 		details["error"] = d.Error.Error()

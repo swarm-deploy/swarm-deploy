@@ -10,7 +10,7 @@ import (
 // ServiceStore provides access to current service metadata.
 type ServiceStore interface {
 	// List returns service metadata rows.
-	List() []model.Info
+	ReadAll(context.Context) ([]model.Info, error)
 }
 
 // Embedder produces vector embeddings for text inputs.

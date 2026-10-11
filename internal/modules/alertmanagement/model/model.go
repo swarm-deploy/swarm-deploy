@@ -5,10 +5,12 @@ import "time"
 type AlertKind string
 
 const AlertKindDeployFailed AlertKind = "deploy_failed"
+const AlertKindNodeDisconnected AlertKind = "node_disconnected"
 
 type ResourceType string
 
 const ResourceTypeStack ResourceType = "stack"
+const ResourceTypeNode ResourceType = "node"
 
 type AlertStatus string
 
@@ -49,6 +51,14 @@ type Alert struct {
 	Title string `json:"title"`
 	// Message contains the latest useful problem detail.
 	Message string `json:"message"`
+	// FailureStage identifies the pipeline stage involved, when known.
+	FailureStage string `json:"failureStage,omitempty"`
+	// ErrorCode is stable technical metadata for the failure.
+	ErrorCode string `json:"errorCode,omitempty"`
+	// DeploymentID links to the related attempt when one was created.
+	DeploymentID string `json:"deploymentId,omitempty"`
+	// Commit identifies the source revision involved in the failure.
+	Commit string `json:"commit,omitempty"`
 	// Occurrences counts correlated failure events.
 	Occurrences uint64 `json:"occurrences"`
 	// OpenedAt is when this incident started.

@@ -18,9 +18,12 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/networkloop"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	git "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/mock/gomock"
@@ -40,7 +43,7 @@ func TestControllerWebhookEmitsReceivedEvent(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			eventDispatcher := dispatcher.NewMockDispatcher(ctrl)
-			eventDispatcher.EXPECT().Dispatch(gomock.Any(), gomock.Any()).Do(
+			eventDispatcher.EXPECT().Publish(gomock.Any(), gomock.Any()).Do(
 				func(_ context.Context, event events.Event) {
 					received, ok := event.(*events.WebhookReceived)
 					require.True(t, ok, "expected WebhookReceived")
@@ -59,7 +62,9 @@ func TestControllerWebhookEmitsReceivedEvent(t *testing.T) {
 				controller.shuttingDown.Store(true)
 			}
 
-			assert.Equal(t, tc.wantQueued, controller.Webhook(context.Background()))
+			queued, err := controller.Webhook(context.Background())
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantQueued, queued)
 			if tc.wantQueued {
 				assert.Equal(t, TriggerWebhook, (<-controller.reconcileCh).reason)
 			}
@@ -90,10 +95,30 @@ func TestControllerCleanupStacksUsesDedicatedCleanupPath(t *testing.T) {
 	assert.Zero(t, reconciler.reconcileCalls, "periodic cleanup must not run full reconciliation")
 }
 
+func TestSyncStacksContinuesAfterOneStackRecoveryFails(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	reconciler := stackloop.NewMockStackReconciler(ctrl)
+	broken := config.StackSpec{Name: "broken"}
+	healthy := config.StackSpec{Name: "healthy"}
+	recoveryErr := errors.New("recover deployment result: transient sqlite failure")
+	reconciler.EXPECT().Reconcile(gomock.Any(), stackloop.ReconciliationRequest{
+		Stack: broken, Commit: "revision",
+	}).Return(recoveryErr)
+	reconciler.EXPECT().Reconcile(gomock.Any(), stackloop.ReconciliationRequest{
+		Stack: healthy, Commit: "revision",
+	}).Return(nil)
+	controller := &Controller{stackReconciler: reconciler}
+
+	errs := controller.syncStacks(t.Context(), []config.StackSpec{broken, healthy}, "revision", TriggerInterval)
+
+	require.Len(t, errs, 1)
+	assert.ErrorIs(t, errs[0], recoveryErr)
+}
+
 type recordingStackReconciler struct {
-	cleanedStacks      []string
-	cleanupErrByStack  map[string]error
-	reconcileCalls     int
+	cleanedStacks     []string
+	cleanupErrByStack map[string]error
+	reconcileCalls    int
 }
 
 func (r *recordingStackReconciler) Reconcile(context.Context, stackloop.ReconciliationRequest) error {
@@ -148,12 +173,12 @@ func TestControllerGracefulShutdown(t *testing.T) {
 						Interval:     specw.Duration{Value: time.Hour},
 					},
 				}},
-				git:        repository,
-				metrics:    metricGroup,
-				event:      eventDispatcher,
-				stateStore: modelstore.NewMemoryStore(),
-				reconcileCh:  make(chan reconcileTask, 1),
-				tracer:     otel.Tracer("test"),
+				git:         repository,
+				metrics:     metricGroup,
+				event:       eventDispatcher,
+				stateStore:  modelstore.NewMemoryStore(),
+				reconcileCh: make(chan reconcileTask, 1),
+				tracer:      otel.Tracer("test"),
 			}
 
 			runCtx, cancelRun := context.WithCancel(context.Background())
@@ -182,6 +207,126 @@ func TestControllerGracefulShutdown(t *testing.T) {
 			require.NoError(t, <-runResult, "run controller")
 		})
 	}
+}
+
+func TestControllersSharingSQLiteDoNotReconcileConcurrently(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	db, err := storage.Open(ctx, dataDir)
+	require.NoError(t, err)
+	defer db.Close()
+	ctrl := gomock.NewController(t)
+	firstRepository := git.NewMockRepository(ctrl)
+	secondRepository := git.NewMockRepository(ctrl)
+	firstStarted := make(chan struct{})
+	secondStarted := make(chan struct{})
+	releaseFirst := make(chan struct{})
+	firstRepository.EXPECT().Pull(gomock.Any()).DoAndReturn(func(context.Context) (git.PullResult, error) {
+		close(firstStarted)
+		<-releaseFirst
+		return git.PullResult{}, errors.New("first stopped")
+	})
+	secondRepository.EXPECT().Pull(gomock.Any()).DoAndReturn(func(context.Context) (git.PullResult, error) {
+		close(secondStarted)
+		return git.PullResult{}, errors.New("second stopped")
+	})
+	events := &dispatcher.NopDispatcher{}
+	newController := func(repository git.Repository) *Controller {
+		return &Controller{
+			cfg: &config.Config{Spec: config.Spec{
+				DataDir: dataDir,
+				Sync:    config.SyncSpec{Interval: specw.Duration{Value: time.Hour}},
+			}},
+			git:          repository,
+			metrics:      metrics.NewGroup(metrics.CreateGroupParams{Namespace: "test_controller_ownership"}),
+			event:        events,
+			stateStore:   modelstore.NewSQLStore(db),
+			reconcileCh:  make(chan reconcileTask, 1),
+			ownership:    newControllerOwnership(dataDir),
+			recovery:     deployment.NewService(db, events),
+			shutdownWait: 100 * time.Millisecond,
+			tracer:       otel.Tracer("test"),
+		}
+	}
+	first, second := newController(firstRepository), newController(secondRepository)
+	first.ownership.retryInterval = time.Millisecond
+	second.ownership.retryInterval = time.Millisecond
+	firstCtx, cancelFirst := context.WithCancel(ctx)
+	secondCtx, cancelSecond := context.WithCancel(ctx)
+	defer cancelFirst()
+	defer cancelSecond()
+	firstDone := make(chan error, 1)
+	secondDone := make(chan error, 1)
+	go func() { firstDone <- first.Run(firstCtx) }()
+	select {
+	case <-firstStarted:
+	case <-time.After(time.Second):
+		require.FailNow(t, "first controller did not start reconciliation")
+	}
+	go func() { secondDone <- second.Run(secondCtx) }()
+	select {
+	case <-secondStarted:
+		require.FailNow(t, "second controller reconciled while first held ownership")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	cancelFirst()
+	close(releaseFirst)
+	require.NoError(t, <-firstDone)
+	select {
+	case <-secondStarted:
+	case <-time.After(time.Second):
+		require.FailNow(t, "second controller did not reconcile after clean handoff")
+	}
+	cancelSecond()
+	require.NoError(t, <-secondDone)
+}
+
+func TestControllerCancelsReconciliationAfterShutdownGracePeriod(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	started := make(chan struct{})
+	canceled := make(chan error, 1)
+	repository := git.NewMockRepository(ctrl)
+	repository.EXPECT().Pull(gomock.Any()).DoAndReturn(func(ctx context.Context) (git.PullResult, error) {
+		close(started)
+		<-ctx.Done()
+		canceled <- ctx.Err()
+		return git.PullResult{}, ctx.Err()
+	})
+	controller := &Controller{
+		cfg: &config.Config{Spec: config.Spec{
+			Git:  config.GitSpec{Repository: "repo"},
+			Sync: config.SyncSpec{Interval: specw.Duration{Value: time.Hour}},
+		}},
+		git:          repository,
+		metrics:      metrics.NewGroup(metrics.CreateGroupParams{Namespace: "test_controller_shutdown_timeout"}),
+		event:        &dispatcher.NopDispatcher{},
+		stateStore:   modelstore.NewMemoryStore(),
+		reconcileCh:  make(chan reconcileTask, 1),
+		shutdownWait: 20 * time.Millisecond,
+		tracer:       otel.Tracer("test"),
+	}
+	runCtx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- controller.Run(runCtx) }()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		require.FailNow(t, "reconciliation did not start")
+	}
+	cancel()
+	select {
+	case <-canceled:
+		require.FailNow(t, "reconciliation was canceled before its grace period")
+	case <-time.After(5 * time.Millisecond):
+	}
+	select {
+	case err := <-canceled:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(time.Second):
+		require.FailNow(t, "reconciliation context was not canceled after its grace period")
+	}
+	require.NoError(t, <-done)
 }
 
 func TestReloadStacksUsesRepositoryDirFirst(t *testing.T) {
@@ -287,7 +432,8 @@ func TestControllerSyncOnceReconcilesStacksOnIntervalWithoutGitPull(t *testing.T
 		serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil),
 	)
 
-	store := modelstore.NewMemoryStore()
+	db, store := newSQLState(t)
+	_ = db
 	cfg := &config.Config{
 		Spec: config.Spec{
 			DataDir: dataDir,
@@ -303,13 +449,13 @@ func TestControllerSyncOnceReconcilesStacksOnIntervalWithoutGitPull(t *testing.T
 	metricGroup := metrics.NewGroup(metrics.CreateGroupParams{
 		Namespace: "test_sync_once_unchanged",
 	})
-	controller := &Controller{
+	controller := &Controller{db: db,
 		cfg:               cfg,
 		git:               repository,
 		metrics:           metricGroup,
 		event:             eventDispatcher,
 		stateStore:        store,
-		networkReconciler: networkloop.New(nil, &dispatcher.NopDispatcher{}),
+		networkReconciler: networkloop.New(nil),
 		stackReconciler: stackloop.New(
 			cfg,
 			repository,
@@ -320,7 +466,7 @@ func TestControllerSyncOnceReconcilesStacksOnIntervalWithoutGitPull(t *testing.T
 			eventDispatcher,
 			metricGroup.Deploys,
 			store,
-			fs.NopFileSystem{},
+			fs.NopFileSystem{}, db,
 		),
 		tracer: otel.Tracer("test"),
 	}
@@ -329,7 +475,7 @@ func TestControllerSyncOnceReconcilesStacksOnIntervalWithoutGitPull(t *testing.T
 		reason: TriggerInterval,
 	}, nil)
 
-	state := store.Get()
+	state := readSQLState(t, store)
 	stackState, exists := state.Stack("app")
 	require.True(t, exists, "expected stack state")
 	assert.Equal(t, "commit-1", stackState.LastCommit, "unexpected stack commit")
@@ -363,7 +509,8 @@ func TestControllerPollGitSkipsReconcileWhenGitHasNoChanges(t *testing.T) {
 
 	controller.pollGit(context.Background())
 
-	state := controller.stateStore.Get()
+	state, err := controller.stateStore.Read(context.Background())
+	require.NoError(t, err)
 	assert.Equal(t, syncRunResultNoChange, state.LastPollResult, "unexpected poll result")
 	assert.Empty(t, state.LastPollError, "unexpected poll error")
 }
@@ -377,8 +524,9 @@ func TestControllerPollGitRecordsErrorState(t *testing.T) {
 	metricGroup := metrics.NewGroup(metrics.CreateGroupParams{
 		Namespace: "test_poll_error",
 	})
-	store := modelstore.NewMemoryStore()
-	controller := &Controller{
+	db, store := newSQLState(t)
+	_ = db
+	controller := &Controller{db: db,
 		cfg: &config.Config{Spec: config.Spec{
 			Git: config.GitSpec{Repository: "repo"},
 		}},
@@ -391,7 +539,7 @@ func TestControllerPollGitRecordsErrorState(t *testing.T) {
 
 	controller.pollGit(context.Background())
 
-	state := store.Get()
+	state := readSQLState(t, store)
 	assert.Equal(t, syncRunResultError, state.LastPollResult, "unexpected poll result")
 	assert.Equal(t, "git unavailable", state.LastPollError, "unexpected poll error")
 	assert.Empty(t, state.LastSyncResult, "poll error must not overwrite sync state")
@@ -433,7 +581,8 @@ func TestControllerSyncOncePrioritizesChangedStacks(t *testing.T) {
 		serviceManager.EXPECT().ListStackServices(gomock.Any(), "stack-a").Return(nil, nil),
 	)
 
-	store := modelstore.NewMemoryStore()
+	db, store := newSQLState(t)
+	_ = db
 	cfg := &config.Config{
 		Spec: config.Spec{
 			DataDir: dataDir,
@@ -449,13 +598,13 @@ func TestControllerSyncOncePrioritizesChangedStacks(t *testing.T) {
 	metricGroup := metrics.NewGroup(metrics.CreateGroupParams{
 		Namespace: "test_sync_once_order",
 	})
-	controller := &Controller{
+	controller := &Controller{db: db,
 		cfg:               cfg,
 		git:               repository,
 		metrics:           metricGroup,
 		event:             eventDispatcher,
 		stateStore:        store,
-		networkReconciler: networkloop.New(nil, &dispatcher.NopDispatcher{}),
+		networkReconciler: networkloop.New(nil),
 		stackReconciler: stackloop.New(
 			cfg,
 			repository,
@@ -466,14 +615,14 @@ func TestControllerSyncOncePrioritizesChangedStacks(t *testing.T) {
 			eventDispatcher,
 			metricGroup.Deploys,
 			store,
-			fs.NopFileSystem{},
+			fs.NopFileSystem{}, db,
 		),
 		tracer: otel.Tracer("test"),
 	}
 
 	controller.pollGit(context.Background())
 
-	state := store.Get()
+	state := readSQLState(t, store)
 	assert.Equal(t, syncRunResultSuccess, state.LastSyncResult, "unexpected sync result")
 	assert.Equal(t, "commit-2", state.GitRevision, "unexpected git revision")
 }
@@ -512,7 +661,8 @@ func TestControllerSyncOnceContinuesWhenGitDiffFails(t *testing.T) {
 		serviceManager.EXPECT().ListStackServices(gomock.Any(), "stack-b").Return(nil, nil),
 	)
 
-	store := modelstore.NewMemoryStore()
+	db, store := newSQLState(t)
+	_ = db
 	cfg := &config.Config{
 		Spec: config.Spec{
 			DataDir: dataDir,
@@ -528,13 +678,13 @@ func TestControllerSyncOnceContinuesWhenGitDiffFails(t *testing.T) {
 	metricGroup := metrics.NewGroup(metrics.CreateGroupParams{
 		Namespace: "test_sync_once_diff_error",
 	})
-	controller := &Controller{
+	controller := &Controller{db: db,
 		cfg:               cfg,
 		git:               repository,
 		metrics:           metricGroup,
 		event:             eventDispatcher,
 		stateStore:        store,
-		networkReconciler: networkloop.New(nil, &dispatcher.NopDispatcher{}),
+		networkReconciler: networkloop.New(nil),
 		stackReconciler: stackloop.New(
 			cfg,
 			repository,
@@ -545,14 +695,14 @@ func TestControllerSyncOnceContinuesWhenGitDiffFails(t *testing.T) {
 			eventDispatcher,
 			metricGroup.Deploys,
 			store,
-			fs.NopFileSystem{},
+			fs.NopFileSystem{}, db,
 		),
 		tracer: otel.Tracer("test"),
 	}
 
 	controller.pollGit(context.Background())
 
-	state := store.Get()
+	state := readSQLState(t, store)
 	assert.Equal(t, syncRunResultSuccess, state.LastSyncResult, "unexpected sync result")
 	assert.Equal(t, "commit-2", state.GitRevision, "unexpected git revision")
 }
@@ -594,4 +744,18 @@ func writeNetworksFile(path string, networkName string) error {
 	}
 	content := []byte("networks:\n  - name: " + networkName + "\n")
 	return os.WriteFile(path, content, 0o600)
+}
+
+func newSQLState(t *testing.T) (*storage.Database, *modelstore.SQLStore) {
+	t.Helper()
+	db, err := storage.Open(context.Background(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	return db, modelstore.NewSQLStore(db)
+}
+func readSQLState(t *testing.T, store *modelstore.SQLStore) model.Runtime {
+	t.Helper()
+	state, err := store.Read(context.Background())
+	require.NoError(t, err)
+	return state
 }

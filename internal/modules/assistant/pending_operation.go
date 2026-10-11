@@ -161,7 +161,10 @@ func (g *graph) startPendingOperation(
 		Target:   strings.TrimSpace(intent.Target),
 		Replicas: intent.Replicas,
 	}
-	services := g.store.List()
+	services, err := g.store.ReadAll(ctx)
+	if err != nil {
+		return "Не удалось прочитать каталог сервисов. Повторите запрос.", conversation.TokenUsage{}
+	}
 	resolution, usage := g.resolveOperationTarget(ctx, services, op.Target)
 	if resolution.ok {
 		op.Stack, op.Service = resolution.stack, resolution.service
@@ -275,7 +278,13 @@ func (g *graph) resolvePendingTarget(
 	} else if op.Target == "" {
 		op.Target = target
 	}
-	return g.resolveOperationTarget(ctx, g.store.List(), target)
+	services, err := g.store.ReadAll(ctx)
+	if err != nil {
+		return serviceResolution{
+			message: "Не удалось прочитать каталог сервисов. Повторите запрос.",
+		}, conversation.TokenUsage{}
+	}
+	return g.resolveOperationTarget(ctx, services, target)
 }
 
 func (g *graph) executePendingOperation(
@@ -286,7 +295,11 @@ func (g *graph) executePendingOperation(
 	if !g.pending.claim(conversationID, op) {
 		return "Операция уже обрабатывается или больше не ожидает подтверждения.", nil
 	}
-	resolution := resolveServiceTarget(g.store.List(), op.Stack+"/"+op.Service)
+	services, err := g.store.ReadAll(ctx)
+	if err != nil {
+		return "", err
+	}
+	resolution := resolveServiceTarget(services, op.Stack+"/"+op.Service)
 	if !resolution.ok || !strings.EqualFold(resolution.stack, op.Stack) ||
 		!strings.EqualFold(resolution.service, op.Service) {
 		return "Сервис изменился или больше не существует. Операция отменена.", nil

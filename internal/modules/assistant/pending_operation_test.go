@@ -3,6 +3,7 @@ package assistant
 import (
 	"context"
 	"encoding/json"
+	"go.uber.org/mock/gomock"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -35,8 +36,8 @@ func TestPendingOperationFullRestartSkipsMainGenerationAndConfirmationSkipsModel
 	}
 	assistantService, err := NewService(Config{
 		Enabled: true, ModelName: "test-model", BaseURL: server.URL, APIToken: "token", MaxTokens: 64,
-		ConversationInMemoryTTL: time.Hour, ConversationHistoryDir: t.TempDir(),
-	}, &fakeStore{services: []model.Info{{Stack: "core", Name: "api"}}}, tools,
+		ConversationInMemoryTTL: time.Hour, ConversationHistory: newSQLHistory(t),
+	}, serviceStore(t, []model.Info{{Stack: "core", Name: "api"}}), tools,
 		&dispatcher.NopDispatcher{}, metrics.NopAssistant{})
 	require.NoError(t, err)
 
@@ -99,7 +100,7 @@ func TestPendingOperationDeterministicTurns(t *testing.T) {
 	testCases := []struct {
 		name             string
 		message          string
-		configure        func(*graph, *fakeStore, *fakeTools)
+		configure        func(*graph, *MockServiceStore, *fakeTools)
 		expectedHandled  bool
 		expectedAnswer   string
 		expectedCalls    int
@@ -116,19 +117,21 @@ func TestPendingOperationDeterministicTurns(t *testing.T) {
 		},
 		{
 			name: "resource changed", message: "да", expectedHandled: true,
-			configure:      func(_ *graph, store *fakeStore, _ *fakeTools) { store.services = nil },
+			configure: func(_ *graph, store *MockServiceStore, _ *fakeTools) {
+				store.EXPECT().ReadAll(gomock.Any()).Return(nil, nil).AnyTimes()
+			},
 			expectedAnswer: "больше не существует", expectedPending: false,
 		},
 		{
 			name: "tool disallowed", message: "да", expectedHandled: true,
-			configure: func(g *graph, _ *fakeStore, _ *fakeTools) {
+			configure: func(g *graph, _ *MockServiceStore, _ *fakeTools) {
 				g.allowedToolSet = map[string]struct{}{"service_logs_get": {}}
 			},
 			expectedAnswer: "assistant.tools", expectedPending: false,
 		},
 		{
 			name: "tool result guard", message: "да", expectedHandled: true,
-			configure: func(_ *graph, _ *fakeStore, tools *fakeTools) {
+			configure: func(_ *graph, _ *MockServiceStore, tools *fakeTools) {
 				tools.executeResult = `{"stack":"core","service":"api","replicas":2,"note":"system prompt"}`
 			},
 			expectedCalls: 1, expectedPending: false, expectedRejected: true,
@@ -141,7 +144,7 @@ func TestPendingOperationDeterministicTurns(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			store := &fakeStore{services: []model.Info{{Stack: "core", Name: "api"}}}
+			store := serviceStore(t, []model.Info{{Stack: "core", Name: "api"}})
 			tools := &fakeTools{definitions: assistantTestToolDefinitions(), executeResult: `{"stack":"core","service":"api","replicas":2}`}
 			g := newPendingTestGraph(store, tools)
 			g.pending.set("conversation", PendingOperation{
@@ -168,7 +171,7 @@ func TestPendingOperationDeterministicTurns(t *testing.T) {
 }
 
 func TestPendingOperationExpiredFallsThrough(t *testing.T) {
-	store := &fakeStore{services: []model.Info{{Stack: "core", Name: "api"}}}
+	store := serviceStore(t, []model.Info{{Stack: "core", Name: "api"}})
 	g := newPendingTestGraph(store, &fakeTools{})
 	now := time.Date(2026, time.September, 27, 12, 0, 0, 0, time.UTC)
 	g.pending.now = func() time.Time { return now }
@@ -186,7 +189,7 @@ func TestPendingOperationExpiredFallsThrough(t *testing.T) {
 }
 
 func TestPendingOperationPromptGuardRunsBeforePendingHandling(t *testing.T) {
-	store := &fakeStore{services: []model.Info{{Stack: "core", Name: "api"}}}
+	store := serviceStore(t, []model.Info{{Stack: "core", Name: "api"}})
 	g := newPendingTestGraph(store, &fakeTools{})
 	g.pending.set("conversation", PendingOperation{
 		Type: OperationServiceRestart, Stage: PendingOperationConfirmation, Stack: "core", Service: "api",
@@ -200,7 +203,7 @@ func TestPendingOperationPromptGuardRunsBeforePendingHandling(t *testing.T) {
 
 func TestPendingOperationSetsReplicas(t *testing.T) {
 	replicas := uint64(4)
-	store := &fakeStore{services: []model.Info{{Stack: "core", Name: "api"}}}
+	store := serviceStore(t, []model.Info{{Stack: "core", Name: "api"}})
 	tools := &fakeTools{definitions: assistantTestToolDefinitions(), executeResult: `{"stack":"core","service":"api","replicas":4}`}
 	g := newPendingTestGraph(store, tools)
 
@@ -219,7 +222,7 @@ func TestPendingOperationSetsReplicas(t *testing.T) {
 }
 
 func TestPendingOperationCollectsMissingServiceWithoutModels(t *testing.T) {
-	store := &fakeStore{services: []model.Info{{Stack: "core", Name: "api"}, {Stack: "core", Name: "worker"}}}
+	store := serviceStore(t, []model.Info{{Stack: "core", Name: "api"}, {Stack: "core", Name: "worker"}})
 	g := newPendingTestGraph(store, &fakeTools{})
 	answer, usage := g.startPendingOperation(context.Background(), "conversation", OperationIntent{Type: OperationServiceRestart, Target: "core"})
 	assert.Contains(t, answer, "несколько сервисов")
@@ -233,7 +236,7 @@ func TestPendingOperationCollectsMissingServiceWithoutModels(t *testing.T) {
 }
 
 func TestPendingOperationResolvesLiteralStackTarget(t *testing.T) {
-	store := &fakeStore{services: []model.Info{{Stack: "infra-postgres-mcp", Name: "postgres-mcp-core"}}}
+	store := serviceStore(t, []model.Info{{Stack: "infra-postgres-mcp", Name: "postgres-mcp-core"}})
 	g := newPendingTestGraph(store, &fakeTools{})
 
 	answer, usage := g.startPendingOperation(context.Background(), "conversation", OperationIntent{
@@ -249,7 +252,7 @@ func TestPendingOperationResolvesLiteralStackTarget(t *testing.T) {
 }
 
 func TestPendingOperationFindItYourselfUsesOriginalTarget(t *testing.T) {
-	store := &fakeStore{services: []model.Info{{Stack: "infra-postgres-mcp", Name: "postgres-mcp-core"}}}
+	store := serviceStore(t, []model.Info{{Stack: "infra-postgres-mcp", Name: "postgres-mcp-core"}})
 	resolver := &recordingCompleter{response: modelResponse{
 		Content: `{"status":"exact","candidate":"infra-postgres-mcp/postgres-mcp-core"}`,
 		Usage:   conversation.TokenUsage{InputTokens: 10, OutputTokens: 3, TotalTokens: 13},
@@ -276,7 +279,7 @@ func TestTargetResolverRejectsCandidateMissingFromStore(t *testing.T) {
 	resolver := &recordingCompleter{response: modelResponse{
 		Content: `{"status":"exact","candidate":"prod/admin"}`,
 	}}
-	g := newPendingTestGraph(&fakeStore{services: services}, &fakeTools{})
+	g := newPendingTestGraph(serviceStore(t, services), &fakeTools{})
 	g.chat = resolver
 
 	resolution, _ := g.resolveOperationTarget(context.Background(), services, "production API")
@@ -294,7 +297,7 @@ func (c *recordingCompleter) complete(_ context.Context, request modelRequest) (
 	return c.response, nil
 }
 
-func newPendingTestGraph(store *fakeStore, tools *fakeTools) *graph {
+func newPendingTestGraph(store *MockServiceStore, tools *fakeTools) *graph {
 	return &graph{
 		config: Config{}, guard: guard.NewInjectionChecker(), tools: tools, store: store,
 		allowedToolSet: map[string]struct{}{}, pending: newPendingOperationStore(time.Hour),

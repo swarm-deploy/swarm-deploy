@@ -50,11 +50,14 @@ func (r *ReportPromptInjection) Execute(ctx context.Context, request routing.Req
 		prompt = "<not-provided>"
 	}
 
-	r.eventDispatcher.Dispatch(ctx, &events.AssistantPromptInjectionDetected{
+	err = r.eventDispatcher.Publish(ctx, &events.AssistantPromptInjectionDetected{
 		Prompt:   prompt,
 		Detector: events.AssistantPromptInjectionDetectorModel,
 	})
 
+	if err != nil {
+		return routing.Response{}, err
+	}
 	return routing.Response{
 		Payload: map[string]any{},
 	}, nil

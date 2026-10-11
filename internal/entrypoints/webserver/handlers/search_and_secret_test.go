@@ -15,7 +15,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 	webroute "github.com/swarm-deploy/webroute/api"
 )
 
@@ -72,8 +72,7 @@ func TestHandlerSearch_PriorityAndDedupe(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	servicesStore, err := modelstore.NewFileStore(ctx, t.TempDir()+"/services.json", fs.NewLocalFileSystem())
-	require.NoError(t, err)
+	servicesStore := modelstore.NewSQLStore(testutil.OpenSQLite(t))
 	require.NoError(t, servicesStore.ReplaceStack(ctx, "payments", []model.Info{
 		{
 			Name:     "api-app",
@@ -111,11 +110,9 @@ func TestHandlerSearch_PriorityAndDedupe(t *testing.T) {
 	assert.Equal(t, "api-app-secret", resp.Results[1].Label)
 }
 
-func newSecretsStore(t *testing.T, secrets []secretmodel.Secret) *secretstore.FileStore {
+func newSecretsStore(t *testing.T, secrets []secretmodel.Secret) *secretstore.SQLStore {
 	t.Helper()
-	ctx := context.Background()
-	store, err := secretstore.NewFileStore(ctx, t.TempDir()+"/secrets.state.json", fs.NewLocalFileSystem())
-	require.NoError(t, err)
-	require.NoError(t, store.Replace(ctx, secrets))
+	store := secretstore.NewSQLStore(testutil.OpenSQLite(t))
+	require.NoError(t, store.Replace(t.Context(), secrets))
 	return store
 }

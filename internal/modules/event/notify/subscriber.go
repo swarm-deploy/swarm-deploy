@@ -3,23 +3,19 @@ package notify
 import (
 	"context"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/notifiers"
 )
 
 type Subscriber struct {
-	notifier   notifiers.Notifier
-	dispatcher dispatcher.Dispatcher
+	notifier notifiers.Notifier
 }
 
 func NewSubscriber(
 	notifier notifiers.Notifier,
-	dispatcher dispatcher.Dispatcher,
 ) *Subscriber {
 	return &Subscriber{
-		notifier:   notifier,
-		dispatcher: dispatcher,
+		notifier: notifier,
 	}
 }
 
@@ -27,26 +23,8 @@ func (s *Subscriber) Name() string {
 	return s.notifier.Name()
 }
 
-func (s *Subscriber) Slow() bool {
-	return true
-}
-
 func (s *Subscriber) Handle(ctx context.Context, envelope events.Envelope) error {
-	err := s.notifier.Notify(ctx, notifiers.Message{
+	return s.notifier.Notify(ctx, notifiers.Message{
 		Payload: envelope.Event,
 	})
-	if err == nil {
-		return nil
-	}
-
-	if envelope.Event.Type() != events.TypeSendNotificationFailed {
-		s.dispatcher.Dispatch(ctx, &events.SendNotificationFailed{
-			EventType:   envelope.Event.Type(),
-			Destination: s.notifier.Kind(),
-			Channel:     s.notifier.Name(),
-			Error:       err,
-		})
-	}
-
-	return err
 }

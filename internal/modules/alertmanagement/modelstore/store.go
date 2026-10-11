@@ -7,6 +7,11 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 )
 
+const (
+	// MaxStoredAlerts is the maximum persisted alert count when resolved alerts can be pruned.
+	MaxStoredAlerts = 100
+)
+
 var (
 	ErrAlertNotFound   = errors.New("alert not found")
 	ErrOpenAlertExists = errors.New("open alert already exists for fingerprint")

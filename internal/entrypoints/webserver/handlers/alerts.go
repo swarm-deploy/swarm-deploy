@@ -54,6 +54,18 @@ func toGeneratedAlert(alert alertmodel.Alert) generated.Alert {
 		Occurrences: generatedOccurrences(alert.Occurrences), OpenedAt: alert.OpenedAt, UpdatedAt: alert.UpdatedAt,
 		OpenEventId: alert.OpenEventID, LatestEventId: alert.LatestEventID,
 	}
+	if alert.FailureStage != "" {
+		result.FailureStage = generated.NewOptString(alert.FailureStage)
+	}
+	if alert.ErrorCode != "" {
+		result.ErrorCode = generated.NewOptString(alert.ErrorCode)
+	}
+	if alert.DeploymentID != "" {
+		result.DeploymentId = generated.NewOptString(alert.DeploymentID)
+	}
+	if alert.Commit != "" {
+		result.Commit = generated.NewOptString(alert.Commit)
+	}
 	if alert.ResolvedAt != nil {
 		result.ResolvedAt = generated.NewOptDateTime(*alert.ResolvedAt)
 	}

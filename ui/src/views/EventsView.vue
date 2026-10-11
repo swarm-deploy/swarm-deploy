@@ -10,7 +10,6 @@ import { formatDate } from "../utils/format";
 
 const eventTypeOptions = [
   "deploySuccess",
-  "deployFailed",
   "sendNotificationFailed",
   "syncManualStarted",
   "webhookReceived",
