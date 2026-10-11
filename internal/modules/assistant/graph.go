@@ -12,6 +12,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/guard"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/rag"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	"github.com/tmc/langchaingo/llms"
 	langgraph "github.com/tmc/langgraphgo/graph"
@@ -21,6 +22,11 @@ const (
 	maxToolIterations            = 3
 	prepareMessagesExtraCapacity = 4
 	servicesContextMaxRows       = 5
+	toolLimitFinalAnswer         = "The maximum number of tool execution rounds has been reached. " +
+		"Produce the final answer now using only the information already collected. " +
+		"Do not request or suggest another tool call. Clearly state when the available evidence is insufficient."
+	toolLimitFallbackAnswer = "I reached the tool execution limit before the model produced a final answer. " +
+		"The available tool results were preserved, but I cannot safely infer any missing details."
 )
 
 const (
@@ -492,22 +498,29 @@ func (g *graph) generateAnswerNode(
 	executionState *graphExecutionState,
 ) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
 	return func(ctx context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
-		if executionState.toolIterations >= maxToolIterations {
-			return messages, fmt.Errorf("tool iteration limit exceeded")
-		}
-
 		if executionState.toolIterations == 0 {
 			executionState.report("Generating response")
 		} else {
 			executionState.report("Reviewing tool results")
 		}
 
+		requestMessages := executionState.modelMessages
+		toolLimitReached := executionState.toolIterations >= maxToolIterations
+		var requestTools []routing.ToolDefinition
+		if toolLimitReached {
+			requestMessages = append(append([]modelMessage(nil), requestMessages...), modelMessage{
+				Role:    "system",
+				Content: toolLimitFinalAnswer,
+			})
+		} else {
+			requestTools = g.effectiveToolDefinitions(executionState.effectiveToolSet)
+		}
 		request := modelRequest{
 			Model:       g.config.ModelName,
 			Temperature: g.config.Temperature,
 			MaxTokens:   g.config.MaxTokens,
-			Messages:    executionState.modelMessages,
-			Tools:       g.effectiveToolDefinitions(executionState.effectiveToolSet),
+			Messages:    requestMessages,
+			Tools:       requestTools,
 		}
 		recordModelRequestDiagnostics(
 			ctx,
@@ -521,8 +534,11 @@ func (g *graph) generateAnswerNode(
 		}
 		executionState.usage.Add(completion.Usage)
 
-		if len(completion.ToolCalls) == 0 {
+		if len(completion.ToolCalls) == 0 || toolLimitReached {
 			executionState.answer = strings.TrimSpace(completion.Content)
+			if executionState.answer == "" && toolLimitReached {
+				executionState.answer = toolLimitFallbackAnswer
+			}
 			executionState.pendingToolCalls = nil
 			return messages, nil
 		}
@@ -533,7 +549,6 @@ func (g *graph) generateAnswerNode(
 			ToolCalls: completion.ToolCalls,
 		})
 		executionState.pendingToolCalls = completion.ToolCalls
-		executionState.toolIterations++
 
 		return messages, nil
 	}
@@ -544,6 +559,11 @@ func (g *graph) executeMCPNode(
 ) func(context.Context, []llms.MessageContent) ([]llms.MessageContent, error) {
 	return func(ctx context.Context, messages []llms.MessageContent) ([]llms.MessageContent, error) {
 		executionState.lastToolResults = executionState.lastToolResults[:0]
+		if executionState.toolIterations >= maxToolIterations {
+			executionState.pendingToolCalls = nil
+			return messages, nil
+		}
+		executionState.toolIterations++
 		toolCalls := executionState.pendingToolCalls
 		selectedSecurityReport := false
 		for _, toolCall := range toolCalls {

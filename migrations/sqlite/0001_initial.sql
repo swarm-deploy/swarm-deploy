@@ -52,6 +52,9 @@ CREATE INDEX idx_history_severity_time ON event_history(severity_rank DESC,creat
 CREATE TABLE alerts (
     id TEXT PRIMARY KEY,
     fingerprint TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind <> ''),
+    resource_type TEXT NOT NULL CHECK (resource_type <> ''),
+    resource_id TEXT NOT NULL CHECK (resource_id <> ''),
     status TEXT NOT NULL CHECK (status IN ('open','resolved')),
     updated_at_ns INTEGER NOT NULL,
     resolved_at_ns INTEGER,
@@ -59,6 +62,9 @@ CREATE TABLE alerts (
 );
 CREATE UNIQUE INDEX idx_alert_open_fingerprint ON alerts(fingerprint) WHERE status='open';
 CREATE INDEX idx_alert_status_updated ON alerts(status,updated_at_ns DESC,id);
+CREATE INDEX idx_alert_kind_status_updated ON alerts(kind,status,updated_at_ns DESC,id);
+CREATE INDEX idx_alert_resource_status_updated
+    ON alerts(resource_type,resource_id,status,updated_at_ns DESC,id);
 CREATE TABLE alert_events (source_event_id TEXT PRIMARY KEY);
 
 CREATE TABLE gitops_runtime (id INTEGER PRIMARY KEY CHECK (id=1), payload TEXT NOT NULL CHECK (json_valid(payload)));

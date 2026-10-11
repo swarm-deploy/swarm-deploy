@@ -14,6 +14,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
@@ -41,6 +42,7 @@ type Executor struct {
 func NewExecutor(
 	resourcesModule *resources.Module,
 	gitopsModule *gitops.Module,
+	alertModule *alertmanagement.Module,
 	eventModule *event.Module,
 	swarmService *swarm.Swarm,
 	recommendations RecommendationsReader,
@@ -51,6 +53,10 @@ func NewExecutor(
 ) *Executor {
 	toolComponents := []routing.Tool{
 		NewListHistoryEvents(eventModule.History),
+		NewAlertList(alertModule.Store),
+		NewAlertGet(alertModule.Store),
+		NewDeploymentList(gitopsModule.Deployments),
+		NewDeploymentGet(gitopsModule.Deployments),
 		NewSync(gitopsModule.Controller),
 		NewListNodes(resourcesModule.NodeStore),
 		NewDockerNetworkList(swarmService.Networks),

@@ -353,6 +353,11 @@ func (c *container) GetRecommendationsModule() *recommendations.Module {
 	return c.Recommendations
 }
 
+// GetAlertManagementModule returns the initialized Alert Management module.
+func (c *container) GetAlertManagementModule() *alertmanagement.Module {
+	return c.AlertManagement
+}
+
 func (c *container) GetDeployer() deployer.StackDeployer {
 	return c.Deployer
 }

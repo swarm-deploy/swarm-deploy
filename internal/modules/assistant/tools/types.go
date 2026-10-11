@@ -5,7 +5,10 @@ import (
 	"net"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
+	alertmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
+	alertstore "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/differ"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/differ/diff"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
@@ -30,6 +33,22 @@ type ServiceActionResult struct {
 type HistoryReader interface {
 	// List returns current event history snapshot.
 	ReadRecent(ctx context.Context, options history.QueryOptions) ([]history.Entry, error)
+}
+
+// AlertReader reads persisted user-facing alert incidents.
+type AlertReader interface {
+	// List returns alerts matching the repository-level filter.
+	List(ctx context.Context, filter alertstore.ListFilter) ([]alertmodel.Alert, error)
+	// Get returns one alert incident by ID.
+	Get(ctx context.Context, id string) (alertmodel.Alert, error)
+}
+
+// DeploymentReader reads persisted deployment attempts and safe diagnostics.
+type DeploymentReader interface {
+	// List returns a lightweight cursor page matching the repository-level filter.
+	List(ctx context.Context, filter deployment.ListFilter) (deployment.Page, error)
+	// Get returns one deployment attempt by ID.
+	Get(ctx context.Context, id string) (deployment.Deployment, error)
 }
 
 // SyncTrigger triggers synchronization run.

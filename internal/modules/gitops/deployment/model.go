@@ -258,6 +258,8 @@ type Prepared struct {
 type ListFilter struct {
 	// Stack restricts results to a stack; empty means all stacks.
 	Stack string
+	// Status restricts results to one deployment outcome; empty means all statuses.
+	Status Status
 	// Limit bounds returned attempts; values outside 1..100 use 20.
 	Limit int
 	// Cursor continues a previous newest-first page.

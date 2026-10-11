@@ -7,6 +7,10 @@ type AssistantToolName string
 
 const (
 	AssistantToolNameHistoryEventList                   AssistantToolName = "history_event_list"
+	AssistantToolNameAlertList                          AssistantToolName = "alert_list"
+	AssistantToolNameAlertGet                           AssistantToolName = "alert_get"
+	AssistantToolNameDeploymentList                     AssistantToolName = "deployment_list"
+	AssistantToolNameDeploymentGet                      AssistantToolName = "deployment_get"
 	AssistantToolNameDeploySyncTrigger                  AssistantToolName = "deploy_sync_trigger"
 	AssistantToolNameSwarmNodeList                      AssistantToolName = "swarm_node_list"
 	AssistantToolNameDockerNetworkList                  AssistantToolName = "docker_network_list"

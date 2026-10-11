@@ -63,6 +63,10 @@ func (s *Store) List(ctx context.Context, filter ListFilter) (Page, error) {
 		clauses = append(clauses, "stack=?")
 		args = append(args, filter.Stack)
 	}
+	if filter.Status != "" {
+		clauses = append(clauses, "status=?")
+		args = append(args, filter.Status)
+	}
 	if filter.Cursor != "" {
 		started, id, err := decodeCursor(filter.Cursor)
 		if err != nil {
