@@ -158,6 +158,14 @@ components:
           type: string
         message:
           type: string
+        failureStage:
+          type: string
+        errorCode:
+          type: string
+        deploymentId:
+          type: string
+        commit:
+          type: string
         occurrences:
           type: integer
           format: int64

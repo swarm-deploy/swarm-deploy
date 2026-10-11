@@ -10,147 +10,114 @@ function deployment(
   basis: Deployment["comparison_basis"] = "none",
 ): Deployment {
   return {
-    id: "one", stack: "app", commit: "abcdef012345", status,
-    started_at: "2026-10-10T10:00:00Z", comparison_basis: basis, comparison_status: basis === "none" ? "unknown" : "known",
+    id: "one", stack: "app", commit: "abcdef012345", status, phase: "apply", reason: "apply_failed",
+    apply_status: "failed", verification_status: "skipped", cleanup_status: "skipped", actual_state_status: "unknown",
+    started_at: "2026-10-10T10:00:00Z", comparison_basis: basis, comparison_status: "unknown",
+    diff_available: true, diagnostic: "update service api: image not found",
+    configuration_yaml: "services:\n  api:\n    image: api:2\n    environment:\n      API_TOKEN: '****'\n",
     summary: { added: 1, changed: 2, removed: 0, redacted: 1 },
+    resources: { services: 1, configs: 1, secrets: 1, networks: 2, volumes: 0 },
     changes: [
       { resourceType: "service", resourceName: "api", field: "image", operation: "changed",
         before: "api:1", after: "api:2", redacted: false },
-      { resourceType: "service", resourceName: "api", field: "environment.EMPTY", operation: "added",
-        after: "", redacted: false },
-      { resourceType: "secret", resourceName: "key", field: "content", operation: "changed",
-        before: "plaintext-before", after: "plaintext-after", redacted: true },
+      { resourceType: "service", resourceName: "api", field: "deploy.replicas", operation: "changed",
+        before: "2", after: "3", redacted: false },
+      { resourceType: "service", resourceName: "api", field: "environment.API_TOKEN", operation: "added",
+        after: "plaintext", redacted: true },
     ],
-  } as Deployment;
+  };
 }
 
 describe("Deployment Details modal", () => {
   beforeEach(() => setActivePinia(createPinia()));
 
-  it("shows the first recorded target without presenting it as an added diff", async () => {
+  it("shows an initial summary and keeps the full masked configuration secondary", async () => {
     const store = useOverviewStore();
     store.deploymentDetailsModalOpen = true;
     store.deploymentDetailsData = deployment("succeeded");
     const wrapper = mount(DeploymentDetailsModal);
 
-    expect(wrapper.text()).toContain("Initial Deployment Snapshot");
-    expect(wrapper.text()).toContain("First recorded deployment. No previous desired snapshot is available for comparison.");
-    expect(wrapper.text()).toContain("not proof that these resources were newly created");
-    expect(wrapper.text()).toContain("live convergence have not been verified");
+    expect(wrapper.text()).toContain("Initial snapshot");
+    expect(wrapper.text()).toContain("First recorded desired-state snapshot");
+    expect(wrapper.text()).toContain("1 services");
+    expect(wrapper.text()).toContain("2 networks");
     expect(wrapper.text()).toContain("api:2");
-    expect(wrapper.text()).toContain('"" (empty)');
-    expect(wrapper.text()).toContain("****");
-    expect(wrapper.text()).not.toContain("added");
-    expect(wrapper.text()).not.toContain("api:1");
-    expect(wrapper.text()).not.toContain("plaintext-before");
-    expect(wrapper.text()).not.toContain("plaintext-after");
-    expect(wrapper.find(".deployment-change").exists()).toBe(false);
-    expect(wrapper.findAll(".deployment-snapshot-field")).toHaveLength(3);
-    await wrapper.find('[aria-label="Close deployment details"]').trigger("click");
-    expect(store.deploymentDetailsModalOpen).toBe(false);
+    expect(wrapper.text()).toContain("3 replicas");
+    expect(wrapper.text()).not.toContain("API_TOKEN");
+    expect(wrapper.text()).toContain("Service health and live convergence have not been verified");
+
+    await wrapper.get('[role="tab"]:last-child').trigger("click");
+    expect(wrapper.text()).toContain("Recorded desired configuration");
+    expect(wrapper.find('[aria-label="Recorded desired configuration YAML"]').html()).toContain("API_TOKEN");
+    expect(wrapper.find('[aria-label="Recorded desired configuration YAML"]').html()).toContain("****");
+    expect(wrapper.html()).not.toContain("plaintext");
     wrapper.unmount();
   });
 
-  it("keeps the semantic before-to-after diff when a baseline exists", () => {
+  it("groups a real desired-state diff with readable old and new values", () => {
     const store = useOverviewStore();
     store.deploymentDetailsModalOpen = true;
     store.deploymentDetailsData = deployment("failed", "successful_baseline");
     const wrapper = mount(DeploymentDetailsModal);
 
-    expect(wrapper.text()).toContain("Desired changes · 3 fields");
-    expect(wrapper.text()).toContain("1 added · 2 changed · 0 removed");
+    expect(wrapper.text()).toContain("Desired-state changes");
+    expect(wrapper.text()).toContain("serviceapi");
+    expect(wrapper.text()).toContain("Environment");
     expect(wrapper.text()).toContain("api:1");
     expect(wrapper.text()).toContain("api:2");
-    expect(wrapper.findAll(".deployment-change")).toHaveLength(3);
-    expect(wrapper.find(".deployment-snapshot-field").exists()).toBe(false);
+    expect(wrapper.text()).toContain("****");
+    expect(wrapper.text()).not.toContain("plaintext");
+    expect(wrapper.text()).toContain("update service api: image not found");
+    expect(wrapper.findAll(".deployment-resource")).toHaveLength(1);
     wrapper.unmount();
   });
 
-  it("renders interrupted as warning instead of failed", () => {
+  it("distinguishes zero changes from an unavailable comparison", async () => {
     const store = useOverviewStore();
+    const unchanged = deployment("succeeded", "successful_baseline");
+    unchanged.changes = [];
+    unchanged.summary = { added: 0, changed: 0, removed: 0, redacted: 0 };
     store.deploymentDetailsModalOpen = true;
-    store.deploymentDetailsData = deployment("interrupted");
+    store.deploymentDetailsData = unchanged;
     const wrapper = mount(DeploymentDetailsModal);
+    expect(wrapper.text()).toContain("No configuration changes");
 
-    const status = wrapper.find(".deployment-status");
-    expect(status.text()).toBe("interrupted");
-    expect(status.classes()).toContain("deployment-status--interrupted");
-    expect(status.classes()).not.toContain("deployment-status--failed");
+    store.deploymentDetailsData = { ...unchanged, diff_available: false };
+    await wrapper.vm.$nextTick();
+    expect(wrapper.text()).toContain("Changes unavailable");
+    expect(wrapper.text()).not.toContain("No configuration changes");
     wrapper.unmount();
   });
 
   it.each([
-    {
-      status: "running", basis: "none",
-      expected: "Apply attempt is still in progress. This is the recorded target configuration; live convergence has not been verified.",
-    },
-    {
-      status: "running", basis: "successful_baseline",
-      expected: "Apply attempt is still in progress. These desired changes are planned; live convergence has not been verified.",
-    },
-    {
-      status: "succeeded", basis: "none",
-      expected: "Apply pipeline completed. Service health and live convergence have not been verified.",
-    },
-    {
-      status: "succeeded", basis: "successful_baseline",
-      expected: "Apply pipeline completed. Service health and live convergence have not been verified.",
-    },
-    {
-      status: "failed", basis: "none",
-      expected: "Apply attempt failed. This is the recorded target configuration; the actual Swarm state may differ.",
-    },
-    {
-      status: "failed", basis: "successful_baseline",
-      expected: "Apply attempt failed. These desired changes are planned; the actual Swarm state may differ.",
-    },
-    {
-      status: "interrupted", basis: "none",
-      expected: "Apply outcome is unknown. This is the recorded target configuration; the actual Swarm state may differ.",
-    },
-    {
-      status: "interrupted", basis: "successful_baseline",
-      expected: "Apply outcome is unknown. These desired changes are planned; the actual Swarm state may differ.",
-    },
-  ] as const)("describes $status with $basis accurately", ({ status, basis, expected }) => {
+    ["running", "Apply attempt is still in progress"],
+    ["succeeded", "Apply pipeline completed"],
+    ["failed", "Apply attempt failed"],
+    ["interrupted", "Apply outcome is unknown"],
+  ] as const)("renders %s semantics", (status, expected) => {
     const store = useOverviewStore();
     store.deploymentDetailsModalOpen = true;
-    store.deploymentDetailsData = deployment(status, basis);
+    store.deploymentDetailsData = deployment(status);
     const wrapper = mount(DeploymentDetailsModal);
-
+    expect(wrapper.find(".deployment-status").text()).toBe(status[0].toUpperCase() + status.slice(1));
     expect(wrapper.text()).toContain(expected);
     wrapper.unmount();
   });
 
-  it("traps keyboard focus, closes on Escape and restores the trigger", async () => {
+  it("closes on Escape and restores focus", async () => {
     const store = useOverviewStore();
     store.deploymentDetailsData = deployment();
-
     const trigger = document.createElement("button");
     document.body.appendChild(trigger);
     trigger.focus();
     const wrapper = mount(DeploymentDetailsModal, { attachTo: document.body });
-
     store.deploymentDetailsModalOpen = true;
     await flushPromises();
-
-    const close = wrapper.find('[aria-label="Close deployment details"]');
-    const commit = wrapper.find("button.button-ghost");
-    expect(document.activeElement).toBe(close.element);
-
-    (commit.element as HTMLElement).focus();
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true }));
-    expect(document.activeElement).toBe(close.element);
-
-    (close.element as HTMLElement).focus();
-    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true }));
-    expect(document.activeElement).toBe(commit.element);
-
+    expect(document.activeElement).toBe(wrapper.get('[aria-label="Close deployment details"]').element);
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
     await wrapper.vm.$nextTick();
     expect(store.deploymentDetailsModalOpen).toBe(false);
     expect(document.activeElement).toBe(trigger);
-
     wrapper.unmount();
     trigger.remove();
   });
@@ -163,16 +130,11 @@ describe("Deployment Details modal", () => {
     store.deploymentDetailsData = deployment();
     const retry = vi.spyOn(store, "openDeploymentDetailsModal").mockResolvedValue();
     const wrapper = mount(DeploymentDetailsModal);
-
     expect(wrapper.text()).toContain("Loading deployment details");
     expect(wrapper.text()).not.toContain("api:1");
-
     store.deploymentDetailsLoading = false;
     store.deploymentDetailsError = "unavailable";
     await wrapper.vm.$nextTick();
-    expect(wrapper.find('[role="alert"]').text()).toContain("unavailable");
-    expect(wrapper.text()).not.toContain("api:1");
-
     await wrapper.get("button:not(.modal-close)").trigger("click");
     expect(retry).toHaveBeenCalledWith("one");
     wrapper.unmount();

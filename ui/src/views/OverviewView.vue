@@ -53,9 +53,11 @@ function serviceCount(stackName: string): number {
   return serviceCountsByStack.value.get(stackName) ?? 0;
 }
 
-function deploymentSummary(item: DeploymentSummary): string {
+function deploymentChangeState(item: DeploymentSummary): string {
   if (item.comparison_basis === "none") return "Initial snapshot";
-  return `${item.summary?.added ?? 0} added · ${item.summary?.changed ?? 0} changed · ${item.summary?.removed ?? 0} removed`;
+  if (!item.diff_available) return "Changes unavailable";
+  const total = item.summary.added + item.summary.changed + item.summary.removed;
+  return total === 0 ? "No configuration changes" : `${total} desired-state field changes`;
 }
 
 function deploymentResultClass(item: DeploymentSummary): string {
@@ -233,21 +235,19 @@ onUnmounted(() => {
           :key="event.id"
           class="overview-summary-row overview-deployment-row"
         >
-          <button type="button" class="overview-deployment-open"
-            :aria-label="`Open deployment details for ${event.stack || 'unknown stack'}`"
-            @click="overviewStore.openDeploymentDetailsModal(event.id)">
+          <button type="button" class="overview-deployment-details"
+            :aria-label="`Open ${event.status} deployment details for ${event.stack || 'unknown stack'}. ${deploymentChangeState(event)}`"
+            :title="deploymentChangeState(event)"
+            @click="overviewStore.openDeploymentDetailsModal(event.id)" />
           <span
             class="overview-summary-severity overview-deployment-result"
             :class="deploymentResultClass(event)"
-            :aria-label="`Deployment ${event.status}`"
-            :title="event.status"
+            :aria-label="`Deployment ${event.status}. ${deploymentChangeState(event)}`"
+            :title="`${event.status} · ${deploymentChangeState(event)}`"
             role="img"
           ></span>
           <span class="overview-deployment-stack">{{ event.stack || "unknown stack" }}</span>
-          <span class="overview-deployment-status">{{ event.status }}</span>
           <time class="overview-deployment-time" :datetime="event.started_at">{{ formatTime(event.started_at) }}</time>
-          <span class="overview-summary-secondary">{{ deploymentSummary(event) }}</span>
-          </button>
           <button v-if="event.commit" type="button" class="overview-commit-badge overview-summary-sha-badge"
             :aria-label="`Open Git commit ${event.commit}`" @click.stop="openCommitDetails(event.commit)">
             {{ shortCommitHash(event.commit) }}
@@ -339,4 +339,3 @@ onUnmounted(() => {
     </div>
   </section>
 </template>
-

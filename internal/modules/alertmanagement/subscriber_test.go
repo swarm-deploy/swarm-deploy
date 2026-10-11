@@ -34,8 +34,8 @@ func TestSubscriberDeploymentLifecycle(t *testing.T) {
 	assert.Empty(t, alerts, "success must be a no-op")
 
 	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "failure-1", Event: &events.DeployFailed{
-		DeployEvent: events.DeployEvent{StackName: "api"},
-		Error:       errors.New("image missing"),
+		DeployEvent: events.DeployEvent{DeploymentID: "deployment-1", StackName: "api", Commit: "sha"},
+		Error:       errors.New("image missing"), ErrorCode: "apply_failed", Stage: "apply",
 	}}), "first failure")
 	alerts, err = store.List(ctx, modelstore.ListFilter{})
 	require.NoError(t, err, "list open alerts")
@@ -44,6 +44,10 @@ func TestSubscriberDeploymentLifecycle(t *testing.T) {
 	assert.Equal(t, model.AlertStatusOpen, alerts[0].Status, "alert should be open")
 	assert.Equal(t, uint64(1), alerts[0].Occurrences, "first occurrence")
 	assert.Equal(t, "image missing", alerts[0].Message, "failure detail")
+	assert.Equal(t, "apply", alerts[0].FailureStage)
+	assert.Equal(t, "apply_failed", alerts[0].ErrorCode)
+	assert.Equal(t, "deployment-1", alerts[0].DeploymentID)
+	assert.Equal(t, "sha", alerts[0].Commit)
 	assert.Equal(t, alerts[0].OpenEventID, alerts[0].LatestEventID, "first event references")
 	assert.Equal(t, "failure-1", alerts[0].OpenEventID, "triggering event id")
 
@@ -79,6 +83,42 @@ func TestSubscriberDeploymentLifecycle(t *testing.T) {
 	assert.NotEqual(t, firstID, open[0].ID, "new incident should have a new id")
 	assert.Equal(t, resolved[0].Fingerprint, open[0].Fingerprint, "problem fingerprint should be stable")
 
+}
+
+func TestSubscriberMasksDiagnosticsAndPreservesUsefulDetailOnGenericRepeat(t *testing.T) {
+	ctx := context.Background()
+	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
+	subscriber := NewSubscriber(store)
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "detailed", Event: &events.DeployFailed{
+		DeployEvent: events.DeployEvent{DeploymentID: "one", StackName: "api"},
+		Error:       errors.New("update service api: token=private-value image not found"), ErrorCode: "apply_failed", Stage: "apply",
+	}}))
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "generic", Event: &events.DeployFailed{
+		DeployEvent: events.DeployEvent{DeploymentID: "two", StackName: "api"},
+		Error:       errors.New("apply_failed"), ErrorCode: "apply_failed", Stage: "apply",
+	}}))
+	alerts, err := store.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 1)
+	assert.EqualValues(t, 2, alerts[0].Occurrences)
+	assert.Contains(t, alerts[0].Message, "image not found")
+	assert.Contains(t, alerts[0].Message, "token=****")
+	assert.NotContains(t, alerts[0].Message, "private-value")
+	assert.Equal(t, "two", alerts[0].DeploymentID, "latest correlation should still advance")
+}
+
+func TestSubscriberGenericPreparationFailureUsesHonestFallback(t *testing.T) {
+	ctx := context.Background()
+	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
+	subscriber := NewSubscriber(store)
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "prepare", Event: &events.DeployPreparationFailed{
+		StackName: "api", ErrorCode: "preparation_failed", Stage: "validation",
+	}}))
+	alerts, err := store.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 1)
+	assert.Equal(t, "Deployment failed during validation. No detailed diagnostic was recorded.", alerts[0].Message)
+	assert.Empty(t, alerts[0].DeploymentID)
 }
 
 func TestSubscriberConcurrentFailuresCreateOneOpenAlert(t *testing.T) {

@@ -135,6 +135,10 @@ export interface Alert {
   status: AlertStatus;
   title: string;
   message: string;
+  failureStage?: string;
+  errorCode?: string;
+  deploymentId?: string;
+  commit?: string;
   occurrences: number;
   openedAt: string;
   updatedAt: string;
@@ -451,6 +455,8 @@ export interface DeploymentResourceSummary {
   services: number;
   configs: number;
   secrets: number;
+  networks: number;
+  volumes: number;
 }
 export interface DeploymentSummary {
   id: string;
@@ -472,8 +478,11 @@ export interface DeploymentSummary {
   duration_ms?: number;
   summary: DeploymentChangeSummary;
   resources: DeploymentResourceSummary;
+  diff_available: boolean;
 }
 export interface Deployment extends DeploymentSummary {
+  diagnostic?: string;
+  configuration_yaml?: string;
   changes: DeploymentChange[];
 }
 export interface DeploymentsResponse {

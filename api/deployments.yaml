@@ -97,13 +97,17 @@ components:
           type: integer
     DeploymentResourceSummary:
       type: object
-      required: [services, configs, secrets]
+      required: [services, configs, secrets, networks, volumes]
       properties:
         services:
           type: integer
         configs:
           type: integer
         secrets:
+          type: integer
+        networks:
+          type: integer
+        volumes:
           type: integer
     DeploymentSummary:
       type: object
@@ -122,6 +126,7 @@ components:
         - started_at
         - summary
         - resources
+        - diff_available
       properties:
         id:
           type: string
@@ -166,12 +171,20 @@ components:
           $ref: '#/components/schemas/DeploymentChangeSummary'
         resources:
           $ref: '#/components/schemas/DeploymentResourceSummary'
+        diff_available:
+          type: boolean
     Deployment:
       allOf:
         - $ref: '#/components/schemas/DeploymentSummary'
         - type: object
           required: [changes]
           properties:
+            diagnostic:
+              type: string
+              description: Bounded secret-masked failure detail, when recorded.
+            configuration_yaml:
+              type: string
+              description: Secret-masked recorded desired configuration rendered as YAML.
             changes:
               type: array
               items:

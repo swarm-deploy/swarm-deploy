@@ -55,6 +55,30 @@ func (s *Alert) encodeFields(e *jx.Encoder) {
 		e.Str(s.Message)
 	}
 	{
+		if s.FailureStage.Set {
+			e.FieldStart("failureStage")
+			s.FailureStage.Encode(e)
+		}
+	}
+	{
+		if s.ErrorCode.Set {
+			e.FieldStart("errorCode")
+			s.ErrorCode.Encode(e)
+		}
+	}
+	{
+		if s.DeploymentId.Set {
+			e.FieldStart("deploymentId")
+			s.DeploymentId.Encode(e)
+		}
+	}
+	{
+		if s.Commit.Set {
+			e.FieldStart("commit")
+			s.Commit.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("occurrences")
 		e.Int64(s.Occurrences)
 	}
@@ -88,7 +112,7 @@ func (s *Alert) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfAlert = [15]string{
+var jsonFieldsNameOfAlert = [19]string{
 	0:  "id",
 	1:  "fingerprint",
 	2:  "kind",
@@ -97,13 +121,17 @@ var jsonFieldsNameOfAlert = [15]string{
 	5:  "status",
 	6:  "title",
 	7:  "message",
-	8:  "occurrences",
-	9:  "openedAt",
-	10: "updatedAt",
-	11: "openEventId",
-	12: "latestEventId",
-	13: "resolvedAt",
-	14: "resolution",
+	8:  "failureStage",
+	9:  "errorCode",
+	10: "deploymentId",
+	11: "commit",
+	12: "occurrences",
+	13: "openedAt",
+	14: "updatedAt",
+	15: "openEventId",
+	16: "latestEventId",
+	17: "resolvedAt",
+	18: "resolution",
 }
 
 // Decode decodes Alert from json.
@@ -111,7 +139,7 @@ func (s *Alert) Decode(d *jx.Decoder) error {
 	if s == nil {
 		return errors.New("invalid: unable to decode Alert to nil")
 	}
-	var requiredBitSet [2]uint8
+	var requiredBitSet [3]uint8
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
@@ -205,8 +233,48 @@ func (s *Alert) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"message\"")
 			}
+		case "failureStage":
+			if err := func() error {
+				s.FailureStage.Reset()
+				if err := s.FailureStage.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"failureStage\"")
+			}
+		case "errorCode":
+			if err := func() error {
+				s.ErrorCode.Reset()
+				if err := s.ErrorCode.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"errorCode\"")
+			}
+		case "deploymentId":
+			if err := func() error {
+				s.DeploymentId.Reset()
+				if err := s.DeploymentId.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"deploymentId\"")
+			}
+		case "commit":
+			if err := func() error {
+				s.Commit.Reset()
+				if err := s.Commit.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"commit\"")
+			}
 		case "occurrences":
-			requiredBitSet[1] |= 1 << 0
+			requiredBitSet[1] |= 1 << 4
 			if err := func() error {
 				v, err := d.Int64()
 				s.Occurrences = int64(v)
@@ -218,7 +286,7 @@ func (s *Alert) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"occurrences\"")
 			}
 		case "openedAt":
-			requiredBitSet[1] |= 1 << 1
+			requiredBitSet[1] |= 1 << 5
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.OpenedAt = v
@@ -230,7 +298,7 @@ func (s *Alert) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"openedAt\"")
 			}
 		case "updatedAt":
-			requiredBitSet[1] |= 1 << 2
+			requiredBitSet[1] |= 1 << 6
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.UpdatedAt = v
@@ -242,7 +310,7 @@ func (s *Alert) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"updatedAt\"")
 			}
 		case "openEventId":
-			requiredBitSet[1] |= 1 << 3
+			requiredBitSet[1] |= 1 << 7
 			if err := func() error {
 				v, err := d.Str()
 				s.OpenEventId = string(v)
@@ -254,7 +322,7 @@ func (s *Alert) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"openEventId\"")
 			}
 		case "latestEventId":
-			requiredBitSet[1] |= 1 << 4
+			requiredBitSet[2] |= 1 << 0
 			if err := func() error {
 				v, err := d.Str()
 				s.LatestEventId = string(v)
@@ -294,9 +362,10 @@ func (s *Alert) Decode(d *jx.Decoder) error {
 	}
 	// Validate required fields.
 	var failures []validate.FieldError
-	for i, mask := range [2]uint8{
+	for i, mask := range [3]uint8{
 		0b11111111,
-		0b00011111,
+		0b11110000,
+		0b00000001,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -2069,6 +2138,22 @@ func (s *Deployment) encodeFields(e *jx.Encoder) {
 		s.Resources.Encode(e)
 	}
 	{
+		e.FieldStart("diff_available")
+		e.Bool(s.DiffAvailable)
+	}
+	{
+		if s.Diagnostic.Set {
+			e.FieldStart("diagnostic")
+			s.Diagnostic.Encode(e)
+		}
+	}
+	{
+		if s.ConfigurationYaml.Set {
+			e.FieldStart("configuration_yaml")
+			s.ConfigurationYaml.Encode(e)
+		}
+	}
+	{
 		e.FieldStart("changes")
 		e.ArrStart()
 		for _, elem := range s.Changes {
@@ -2078,7 +2163,7 @@ func (s *Deployment) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfDeployment = [20]string{
+var jsonFieldsNameOfDeployment = [23]string{
 	0:  "id",
 	1:  "stack",
 	2:  "commit",
@@ -2098,7 +2183,10 @@ var jsonFieldsNameOfDeployment = [20]string{
 	16: "duration_ms",
 	17: "summary",
 	18: "resources",
-	19: "changes",
+	19: "diff_available",
+	20: "diagnostic",
+	21: "configuration_yaml",
+	22: "changes",
 }
 
 // Decode decodes Deployment from json.
@@ -2308,8 +2396,40 @@ func (s *Deployment) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"resources\"")
 			}
-		case "changes":
+		case "diff_available":
 			requiredBitSet[2] |= 1 << 3
+			if err := func() error {
+				v, err := d.Bool()
+				s.DiffAvailable = bool(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"diff_available\"")
+			}
+		case "diagnostic":
+			if err := func() error {
+				s.Diagnostic.Reset()
+				if err := s.Diagnostic.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"diagnostic\"")
+			}
+		case "configuration_yaml":
+			if err := func() error {
+				s.ConfigurationYaml.Reset()
+				if err := s.ConfigurationYaml.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"configuration_yaml\"")
+			}
+		case "changes":
+			requiredBitSet[2] |= 1 << 6
 			if err := func() error {
 				s.Changes = make([]DeploymentChange, 0)
 				if err := d.Arr(func(d *jx.Decoder) error {
@@ -2338,7 +2458,7 @@ func (s *Deployment) Decode(d *jx.Decoder) error {
 	for i, mask := range [3]uint8{
 		0b11011111,
 		0b01011011,
-		0b00001110,
+		0b01001110,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -2958,12 +3078,22 @@ func (s *DeploymentResourceSummary) encodeFields(e *jx.Encoder) {
 		e.FieldStart("secrets")
 		e.Int(s.Secrets)
 	}
+	{
+		e.FieldStart("networks")
+		e.Int(s.Networks)
+	}
+	{
+		e.FieldStart("volumes")
+		e.Int(s.Volumes)
+	}
 }
 
-var jsonFieldsNameOfDeploymentResourceSummary = [3]string{
+var jsonFieldsNameOfDeploymentResourceSummary = [5]string{
 	0: "services",
 	1: "configs",
 	2: "secrets",
+	3: "networks",
+	4: "volumes",
 }
 
 // Decode decodes DeploymentResourceSummary from json.
@@ -3011,6 +3141,30 @@ func (s *DeploymentResourceSummary) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"secrets\"")
 			}
+		case "networks":
+			requiredBitSet[0] |= 1 << 3
+			if err := func() error {
+				v, err := d.Int()
+				s.Networks = int(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"networks\"")
+			}
+		case "volumes":
+			requiredBitSet[0] |= 1 << 4
+			if err := func() error {
+				v, err := d.Int()
+				s.Volumes = int(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"volumes\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -3021,7 +3175,7 @@ func (s *DeploymentResourceSummary) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00000111,
+		0b00011111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -3254,9 +3408,13 @@ func (s *DeploymentSummary) encodeFields(e *jx.Encoder) {
 		e.FieldStart("resources")
 		s.Resources.Encode(e)
 	}
+	{
+		e.FieldStart("diff_available")
+		e.Bool(s.DiffAvailable)
+	}
 }
 
-var jsonFieldsNameOfDeploymentSummary = [19]string{
+var jsonFieldsNameOfDeploymentSummary = [20]string{
 	0:  "id",
 	1:  "stack",
 	2:  "commit",
@@ -3276,6 +3434,7 @@ var jsonFieldsNameOfDeploymentSummary = [19]string{
 	16: "duration_ms",
 	17: "summary",
 	18: "resources",
+	19: "diff_available",
 }
 
 // Decode decodes DeploymentSummary from json.
@@ -3485,6 +3644,18 @@ func (s *DeploymentSummary) Decode(d *jx.Decoder) error {
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"resources\"")
 			}
+		case "diff_available":
+			requiredBitSet[2] |= 1 << 3
+			if err := func() error {
+				v, err := d.Bool()
+				s.DiffAvailable = bool(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"diff_available\"")
+			}
 		default:
 			return d.Skip()
 		}
@@ -3497,7 +3668,7 @@ func (s *DeploymentSummary) Decode(d *jx.Decoder) error {
 	for i, mask := range [3]uint8{
 		0b11011111,
 		0b01011011,
-		0b00000110,
+		0b00001110,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.

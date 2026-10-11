@@ -122,6 +122,12 @@ func (p *Prepared) sanitize(value any, path, key string) any {
 	case map[string]any:
 		for name, child := range node {
 			childPath := joinPath(path, name)
+			// Alias values identify map/list entries and are already represented in
+			// semantic paths. Keeping them in the safe definition preserves faithful
+			// YAML while omitting a duplicate display field.
+			if name == "Alias" {
+				continue
+			}
 			// Commands, entrypoints, healthchecks and init-job scripts are opaque.
 			// Their syntax is unconstrained, so token-level secret detection cannot
 			// make them safe for persistence or display.
@@ -267,6 +273,12 @@ func publicChange(path string) Change {
 		case "secrets":
 			change.ResourceType, change.ResourceName = "secret", parts[1]
 			change.Field = publicField(parts[2:])
+		case "networks":
+			change.ResourceType, change.ResourceName = "network", parts[1]
+			change.Field = publicField(parts[2:])
+		case "volumes":
+			change.ResourceType, change.ResourceName = "volume", parts[1]
+			change.Field = publicField(parts[2:])
 		case "resources":
 			if len(parts) >= contentPathParts && (parts[1] == "configs" || parts[1] == "secrets") {
 				change.ResourceType = strings.TrimSuffix(parts[1], "s")
@@ -285,8 +297,7 @@ func publicField(parts []string) string {
 	fields := make([]string, 0, len(parts))
 	for _, part := range parts {
 		switch part {
-		case "Map", "Keys", "Args", "Extra", "Ports", "Volumes", "Names", "List", "AliasMap",
-			"Alias", "ResolvedName":
+		case "Map", "Keys", "Args", "Extra", "Ports", "Volumes", "Names", "List", "AliasMap", "Alias":
 			continue
 		}
 		if _, err := strconv.Atoi(part); err == nil {
@@ -328,7 +339,9 @@ func publicSegment(value string) string {
 
 func summarize(changes []Change) (ChangeSummary, ResourceSummary) {
 	var summary ChangeSummary
-	resources := map[string]map[string]bool{"service": {}, "config": {}, "secret": {}}
+	resources := map[string]map[string]bool{
+		"service": {}, "config": {}, "secret": {}, "network": {}, "volume": {},
+	}
 	for _, change := range changes {
 		switch change.Operation {
 		case OperationAdded:
@@ -347,6 +360,7 @@ func summarize(changes []Change) (ChangeSummary, ResourceSummary) {
 	}
 	return summary, ResourceSummary{
 		Services: len(resources["service"]), Configs: len(resources["config"]), Secrets: len(resources["secret"]),
+		Networks: len(resources["network"]), Volumes: len(resources["volume"]),
 	}
 }
 

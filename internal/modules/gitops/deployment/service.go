@@ -11,6 +11,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
 
@@ -62,7 +63,7 @@ func (s *Service) StartIfChanged(
 			StartedAt: s.now().UTC(), Phase: PhaseApply, ApplyStatus: StageRunning,
 			VerificationStatus: StagePending, CleanupStatus: StagePending, ActualStateStatus: ActualStateUnknown,
 			ComparisonBasis: basisKind, ComparisonStatus: comparisonStatus, BasisDeploymentID: basisID,
-			Summary: summary, Resources: resources, Changes: changes}
+			Summary: summary, Resources: resources, Changes: changes, DiffAvailable: true}
 		if insertErr := s.store.insert(ctx, d, desired); insertErr != nil {
 			return insertErr
 		}
@@ -149,19 +150,33 @@ func (s *Service) Fail(ctx context.Context, id string, state model.Stack, code s
 
 // FailApply records a known Docker apply failure with unknown actual state.
 func (s *Service) FailApply(ctx context.Context, id string, state model.Stack, code string) error {
+	return s.FailApplyWithError(ctx, id, state, code, nil)
+}
+
+// FailApplyWithError records a known Docker apply failure and a safe diagnostic.
+func (s *Service) FailApplyWithError(
+	ctx context.Context, id string, state model.Stack, code string, cause error,
+) error {
 	switch code {
 	case "policy_rejected", "init_failed", "apply_failed":
 	default:
 		return fmt.Errorf("unsupported apply failure code")
 	}
-	return s.complete(ctx, id, state, completion{status: Failed, code: code, phase: PhaseApply,
+	return s.complete(ctx, id, state, completion{status: Failed, code: code,
+		diagnostic: faults.SafeDiagnostic(cause), phase: PhaseApply,
 		apply: StageFailed, verification: StageSkipped, cleanup: StageSkipped, actual: ActualStateUnknown})
 }
 
 // InterruptVerification records that apply returned but live state could not be observed.
 func (s *Service) InterruptVerification(ctx context.Context, id string, state model.Stack) error {
+	return s.InterruptVerificationWithError(ctx, id, state, nil)
+}
+
+// InterruptVerificationWithError records an unknown live-state outcome and safe diagnostic.
+func (s *Service) InterruptVerificationWithError(ctx context.Context, id string, state model.Stack, cause error) error {
 	return s.complete(ctx, id, state, completion{status: Interrupted, code: "verification_unknown",
-		phase: PhaseVerification, apply: StageSucceeded, verification: StageUnknown,
+		diagnostic: faults.SafeDiagnostic(cause),
+		phase:      PhaseVerification, apply: StageSucceeded, verification: StageUnknown,
 		cleanup: StageSkipped, actual: ActualStateUnknown})
 }
 
@@ -169,10 +184,18 @@ func (s *Service) InterruptVerification(ctx context.Context, id string, state mo
 func (s *Service) FailCleanup(
 	ctx context.Context, id string, state model.Stack, code string, observedAt time.Time,
 ) error {
+	return s.FailCleanupWithError(ctx, id, state, code, observedAt, nil)
+}
+
+// FailCleanupWithError records cleanup failure and safe diagnostic context.
+func (s *Service) FailCleanupWithError(
+	ctx context.Context, id string, state model.Stack, code string, observedAt time.Time, cause error,
+) error {
 	if code != "prune_failed" {
 		return fmt.Errorf("unsupported cleanup failure code")
 	}
-	return s.complete(ctx, id, state, completion{status: Failed, code: code, phase: PhaseCleanup,
+	return s.complete(ctx, id, state, completion{status: Failed, code: code,
+		diagnostic: faults.SafeDiagnostic(cause), phase: PhaseCleanup,
 		apply: StageSucceeded, verification: StageSkipped, cleanup: StageFailed,
 		actual: ActualStateObserved, observedAt: &observedAt})
 }
@@ -180,6 +203,7 @@ func (s *Service) FailCleanup(
 type completion struct {
 	status       Status
 	code         string
+	diagnostic   string
 	phase        Phase
 	apply        StageStatus
 	verification StageStatus
@@ -204,6 +228,7 @@ func (s *Service) complete(ctx context.Context, id string, state model.Stack, ou
 		}
 		now := s.now().UTC()
 		d.Status, d.FinishedAt, d.ErrorCode = outcome.status, &now, outcome.code
+		d.ErrorDiagnostic = outcome.diagnostic
 		d.Phase, d.ApplyStatus = outcome.phase, outcome.apply
 		d.VerificationStatus, d.CleanupStatus = outcome.verification, outcome.cleanup
 		d.ActualStateStatus, d.ObservedAt = outcome.actual, outcome.observedAt
@@ -225,10 +250,19 @@ func (s *Service) complete(ctx context.Context, id string, state model.Stack, ou
 		}
 		if outcome.status == Interrupted {
 			return s.events.Publish(ctx, &events.DeployInterrupted{DeploymentID: d.ID, StackName: d.Stack,
-				Commit: d.Commit, Services: desired.Compose.Services, Reason: outcome.code})
+				Commit: d.Commit, Services: desired.Compose.Services, Reason: outcome.code,
+				Stage: string(outcome.phase), Error: diagnosticError(outcome.diagnostic)})
 		}
-		return s.events.Publish(ctx, &events.DeployFailed{DeployEvent: meta, Error: errors.New(outcome.code)})
+		return s.events.Publish(ctx, &events.DeployFailed{DeployEvent: meta, Error: diagnosticError(outcome.diagnostic),
+			ErrorCode: outcome.code, Stage: string(outcome.phase)})
 	})
+}
+
+func diagnosticError(diagnostic string) error {
+	if diagnostic == "" {
+		return nil
+	}
+	return errors.New(diagnostic)
 }
 
 // InterruptRunning recovers incomplete attempts at startup without inventing success.

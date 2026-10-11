@@ -137,6 +137,10 @@ type ResourceSummary struct {
 	Configs int `json:"configs"`
 	// Secrets is the number of affected secrets.
 	Secrets int `json:"secrets"`
+	// Networks is the number of affected networks.
+	Networks int `json:"networks"`
+	// Volumes is the number of affected volumes.
+	Volumes int `json:"volumes"`
 }
 
 // Deployment is one actual attempt to apply changed effective desired state.
@@ -155,6 +159,8 @@ type Deployment struct {
 	FinishedAt *time.Time `json:"finished_at,omitempty"`
 	// ErrorCode is a safe diagnostic category, never raw errors or logs.
 	ErrorCode string `json:"error_code,omitempty"`
+	// ErrorDiagnostic is bounded and secret-masked before persistence.
+	ErrorDiagnostic string `json:"error_diagnostic,omitempty"`
 	// Phase identifies the stage responsible for the current outcome.
 	Phase Phase `json:"phase"`
 	// ApplyStatus reports Docker apply independently from later stages.
@@ -179,6 +185,8 @@ type Deployment struct {
 	Resources ResourceSummary `json:"resources"`
 	// Changes are relative to ComparisonBasis, not necessarily actual Swarm state.
 	Changes []Change `json:"changes"`
+	// DiffAvailable distinguishes a verified zero diff from missing comparison data.
+	DiffAvailable bool `json:"diff_available"`
 }
 
 // DeploymentSummary is the lightweight list representation of an attempt.
@@ -219,6 +227,8 @@ type DeploymentSummary struct {
 	Summary ChangeSummary
 	// Resources contains distinct affected resource totals.
 	Resources ResourceSummary
+	// DiffAvailable distinguishes a verified zero diff from unavailable comparison data.
+	DiffAvailable bool
 }
 
 // Page is a stable cursor page of lightweight deployment summaries.

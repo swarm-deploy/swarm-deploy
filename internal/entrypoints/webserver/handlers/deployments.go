@@ -45,6 +45,18 @@ func (h *handler) GetDeployment(
 		return nil, err
 	}
 	result := toGeneratedDeployment(item)
+	desired, err := h.deployments.Desired(ctx, params.ID)
+	if err != nil {
+		return nil, err
+	}
+	configuration, err := desired.MarshalYAML()
+	if err != nil {
+		return nil, err
+	}
+	result.ConfigurationYaml = generated.NewOptString(string(configuration))
+	if item.ErrorDiagnostic != "" {
+		result.Diagnostic = generated.NewOptString(item.ErrorDiagnostic)
+	}
 	return &result, nil
 }
 
@@ -66,7 +78,9 @@ func toGeneratedDeploymentSummary(item deployment.DeploymentSummary) generated.D
 		},
 		Resources: generated.DeploymentResourceSummary{
 			Services: item.Resources.Services, Configs: item.Resources.Configs, Secrets: item.Resources.Secrets,
+			Networks: item.Resources.Networks, Volumes: item.Resources.Volumes,
 		},
+		DiffAvailable: item.DiffAvailable,
 	}
 	setGeneratedDeploymentSummaryOptional(&result, item.ErrorCode, item.BasisDeploymentID,
 		item.StartedAt, item.FinishedAt, item.ObservedAt)
@@ -91,8 +105,10 @@ func toGeneratedDeployment(item deployment.Deployment) generated.Deployment {
 		},
 		Resources: generated.DeploymentResourceSummary{
 			Services: item.Resources.Services, Configs: item.Resources.Configs, Secrets: item.Resources.Secrets,
+			Networks: item.Resources.Networks, Volumes: item.Resources.Volumes,
 		},
-		Changes: make([]generated.DeploymentChange, 0, len(item.Changes)),
+		DiffAvailable: item.DiffAvailable,
+		Changes:       make([]generated.DeploymentChange, 0, len(item.Changes)),
 	}
 	if item.ErrorCode != "" {
 		result.Reason = generated.NewOptString(item.ErrorCode)

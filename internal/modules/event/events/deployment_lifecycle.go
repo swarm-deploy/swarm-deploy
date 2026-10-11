@@ -14,10 +14,12 @@ type DeployPreparationFailed struct {
 	Commit string
 	// Services contains the same notification-safe service summary as deployFailed.
 	Services []compose.Service
-	// Error is populated with a generic safe diagnostic after durable decoding.
+	// Error contains a secret-masked human-readable diagnostic after durable decoding.
 	Error error
 	// ErrorCode is a stable safe category and never contains raw error text.
 	ErrorCode string
+	// Stage identifies the preparation stage that failed.
+	Stage string
 }
 
 // Type returns the durable preparation-failure event type.
@@ -30,7 +32,11 @@ func (e *DeployPreparationFailed) Message() string {
 
 // Details returns only stable categories and identifiers.
 func (e *DeployPreparationFailed) Details() map[string]string {
-	return map[string]string{"stack": e.StackName, "commit": e.Commit, "error": e.ErrorCode}
+	details := map[string]string{"stack": e.StackName, "commit": e.Commit, "error": e.ErrorCode, "stage": e.Stage}
+	if e.Error != nil {
+		details["diagnostic"] = e.Error.Error()
+	}
+	return details
 }
 
 // DeployInterrupted reports an apply whose external outcome is unknown.
@@ -47,6 +53,8 @@ type DeployInterrupted struct {
 	Error error
 	// Reason is a stable safe category for the unknown outcome.
 	Reason string
+	// Stage identifies the pipeline stage whose outcome is unknown.
+	Stage string
 }
 
 // Type returns the durable interrupted-attempt event type.
@@ -59,5 +67,5 @@ func (e *DeployInterrupted) Message() string {
 
 // Details returns only stable categories and identifiers.
 func (e *DeployInterrupted) Details() map[string]string {
-	return map[string]string{"stack": e.StackName, "commit": e.Commit, "error": e.Reason}
+	return map[string]string{"stack": e.StackName, "commit": e.Commit, "error": e.Reason, "stage": e.Stage}
 }

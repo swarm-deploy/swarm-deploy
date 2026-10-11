@@ -12,6 +12,7 @@ describe("Deployments page", () => {
   it("opens details separately from commit and follows the cursor", async () => {
     const initial = { id: "d1", stack: "app", status: "succeeded", commit: "abcdef012345",
       started_at: "2026-10-10T10:00:00Z", comparison_basis: "none",
+      diff_available: true,
       summary: { added: 1, changed: 0, removed: 0, redacted: 0 },
       resources: { services: 1, configs: 0, secrets: 0 } };
     const compared = { ...initial, id: "d2", stack: "infra", comparison_basis: "successful_baseline",
@@ -24,10 +25,10 @@ describe("Deployments page", () => {
     expect(wrapper.text()).toContain("Initial snapshot · 1 services, 0 configs, 0 secrets");
     expect(wrapper.text()).toContain("2 fields · 1 services, 0 configs, 0 secrets");
     expect(wrapper.find('[aria-label="View snapshot for app"]').text()).toBe("View snapshot");
-    expect(wrapper.find('[aria-label="View changes for infra"]').text()).toBe("View changes");
+    expect(wrapper.find('[aria-label="View details for infra"]').text()).toBe("View details");
     await wrapper.find('[aria-label="View snapshot for app"]').trigger("click");
     expect(store.openDeploymentDetailsModal).toHaveBeenCalledWith("d1");
-    await wrapper.find('[aria-label="View changes for infra"]').trigger("click");
+    await wrapper.find('[aria-label="View details for infra"]').trigger("click");
     expect(store.openDeploymentDetailsModal).toHaveBeenCalledWith("d2");
     await wrapper.find('[aria-label="Open deployment details for app"]').trigger("click");
     expect(store.openDeploymentDetailsModal).toHaveBeenLastCalledWith("d1");

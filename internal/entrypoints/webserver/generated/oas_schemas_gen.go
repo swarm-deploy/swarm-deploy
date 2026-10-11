@@ -23,6 +23,10 @@ type Alert struct {
 	Status        AlertStatus        `json:"status"`
 	Title         string             `json:"title"`
 	Message       string             `json:"message"`
+	FailureStage  OptString          `json:"failureStage"`
+	ErrorCode     OptString          `json:"errorCode"`
+	DeploymentId  OptString          `json:"deploymentId"`
+	Commit        OptString          `json:"commit"`
 	Occurrences   int64              `json:"occurrences"`
 	OpenedAt      time.Time          `json:"openedAt"`
 	UpdatedAt     time.Time          `json:"updatedAt"`
@@ -70,6 +74,26 @@ func (s *Alert) GetTitle() string {
 // GetMessage returns the value of Message.
 func (s *Alert) GetMessage() string {
 	return s.Message
+}
+
+// GetFailureStage returns the value of FailureStage.
+func (s *Alert) GetFailureStage() OptString {
+	return s.FailureStage
+}
+
+// GetErrorCode returns the value of ErrorCode.
+func (s *Alert) GetErrorCode() OptString {
+	return s.ErrorCode
+}
+
+// GetDeploymentId returns the value of DeploymentId.
+func (s *Alert) GetDeploymentId() OptString {
+	return s.DeploymentId
+}
+
+// GetCommit returns the value of Commit.
+func (s *Alert) GetCommit() OptString {
+	return s.Commit
 }
 
 // GetOccurrences returns the value of Occurrences.
@@ -145,6 +169,26 @@ func (s *Alert) SetTitle(val string) {
 // SetMessage sets the value of Message.
 func (s *Alert) SetMessage(val string) {
 	s.Message = val
+}
+
+// SetFailureStage sets the value of FailureStage.
+func (s *Alert) SetFailureStage(val OptString) {
+	s.FailureStage = val
+}
+
+// SetErrorCode sets the value of ErrorCode.
+func (s *Alert) SetErrorCode(val OptString) {
+	s.ErrorCode = val
+}
+
+// SetDeploymentId sets the value of DeploymentId.
+func (s *Alert) SetDeploymentId(val OptString) {
+	s.DeploymentId = val
+}
+
+// SetCommit sets the value of Commit.
+func (s *Alert) SetCommit(val OptString) {
+	s.Commit = val
 }
 
 // SetOccurrences sets the value of Occurrences.
@@ -889,7 +933,12 @@ type Deployment struct {
 	DurationMs         OptInt64                    `json:"duration_ms"`
 	Summary            DeploymentChangeSummary     `json:"summary"`
 	Resources          DeploymentResourceSummary   `json:"resources"`
-	Changes            []DeploymentChange          `json:"changes"`
+	DiffAvailable      bool                        `json:"diff_available"`
+	// Bounded secret-masked failure detail, when recorded.
+	Diagnostic OptString `json:"diagnostic"`
+	// Secret-masked recorded desired configuration rendered as YAML.
+	ConfigurationYaml OptString          `json:"configuration_yaml"`
+	Changes           []DeploymentChange `json:"changes"`
 }
 
 // GetID returns the value of ID.
@@ -985,6 +1034,21 @@ func (s *Deployment) GetSummary() DeploymentChangeSummary {
 // GetResources returns the value of Resources.
 func (s *Deployment) GetResources() DeploymentResourceSummary {
 	return s.Resources
+}
+
+// GetDiffAvailable returns the value of DiffAvailable.
+func (s *Deployment) GetDiffAvailable() bool {
+	return s.DiffAvailable
+}
+
+// GetDiagnostic returns the value of Diagnostic.
+func (s *Deployment) GetDiagnostic() OptString {
+	return s.Diagnostic
+}
+
+// GetConfigurationYaml returns the value of ConfigurationYaml.
+func (s *Deployment) GetConfigurationYaml() OptString {
+	return s.ConfigurationYaml
 }
 
 // GetChanges returns the value of Changes.
@@ -1085,6 +1149,21 @@ func (s *Deployment) SetSummary(val DeploymentChangeSummary) {
 // SetResources sets the value of Resources.
 func (s *Deployment) SetResources(val DeploymentResourceSummary) {
 	s.Resources = val
+}
+
+// SetDiffAvailable sets the value of DiffAvailable.
+func (s *Deployment) SetDiffAvailable(val bool) {
+	s.DiffAvailable = val
+}
+
+// SetDiagnostic sets the value of Diagnostic.
+func (s *Deployment) SetDiagnostic(val OptString) {
+	s.Diagnostic = val
+}
+
+// SetConfigurationYaml sets the value of ConfigurationYaml.
+func (s *Deployment) SetConfigurationYaml(val OptString) {
+	s.ConfigurationYaml = val
 }
 
 // SetChanges sets the value of Changes.
@@ -1471,6 +1550,8 @@ type DeploymentResourceSummary struct {
 	Services int `json:"services"`
 	Configs  int `json:"configs"`
 	Secrets  int `json:"secrets"`
+	Networks int `json:"networks"`
+	Volumes  int `json:"volumes"`
 }
 
 // GetServices returns the value of Services.
@@ -1488,6 +1569,16 @@ func (s *DeploymentResourceSummary) GetSecrets() int {
 	return s.Secrets
 }
 
+// GetNetworks returns the value of Networks.
+func (s *DeploymentResourceSummary) GetNetworks() int {
+	return s.Networks
+}
+
+// GetVolumes returns the value of Volumes.
+func (s *DeploymentResourceSummary) GetVolumes() int {
+	return s.Volumes
+}
+
 // SetServices sets the value of Services.
 func (s *DeploymentResourceSummary) SetServices(val int) {
 	s.Services = val
@@ -1501,6 +1592,16 @@ func (s *DeploymentResourceSummary) SetConfigs(val int) {
 // SetSecrets sets the value of Secrets.
 func (s *DeploymentResourceSummary) SetSecrets(val int) {
 	s.Secrets = val
+}
+
+// SetNetworks sets the value of Networks.
+func (s *DeploymentResourceSummary) SetNetworks(val int) {
+	s.Networks = val
+}
+
+// SetVolumes sets the value of Volumes.
+func (s *DeploymentResourceSummary) SetVolumes(val int) {
+	s.Volumes = val
 }
 
 // Ref: #/components/schemas/DeploymentStageStatus
@@ -1650,6 +1751,7 @@ type DeploymentSummary struct {
 	DurationMs         OptInt64                    `json:"duration_ms"`
 	Summary            DeploymentChangeSummary     `json:"summary"`
 	Resources          DeploymentResourceSummary   `json:"resources"`
+	DiffAvailable      bool                        `json:"diff_available"`
 }
 
 // GetID returns the value of ID.
@@ -1747,6 +1849,11 @@ func (s *DeploymentSummary) GetResources() DeploymentResourceSummary {
 	return s.Resources
 }
 
+// GetDiffAvailable returns the value of DiffAvailable.
+func (s *DeploymentSummary) GetDiffAvailable() bool {
+	return s.DiffAvailable
+}
+
 // SetID sets the value of ID.
 func (s *DeploymentSummary) SetID(val string) {
 	s.ID = val
@@ -1840,6 +1947,11 @@ func (s *DeploymentSummary) SetSummary(val DeploymentChangeSummary) {
 // SetResources sets the value of Resources.
 func (s *DeploymentSummary) SetResources(val DeploymentResourceSummary) {
 	s.Resources = val
+}
+
+// SetDiffAvailable sets the value of DiffAvailable.
+func (s *DeploymentSummary) SetDiffAvailable(val bool) {
+	s.DiffAvailable = val
 }
 
 // Ref: #/components/schemas/DeploymentsResponse

@@ -17,7 +17,7 @@ func TestAlertsAPIReadsPersistedAlerts(t *testing.T) {
 	ctx := context.Background()
 	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
 	now := time.Date(2026, 9, 22, 10, 0, 0, 0, time.UTC)
-	open := alertmodel.Alert{ID: "open-id", Fingerprint: "open", Status: alertmodel.AlertStatusOpen, Kind: alertmodel.AlertKindDeployFailed, ResourceType: alertmodel.ResourceTypeStack, ResourceID: "api", Title: "Deployment failed", Message: "failed", Occurrences: 1, OpenedAt: now, UpdatedAt: now, OpenEventID: "event", LatestEventID: "event"}
+	open := alertmodel.Alert{ID: "open-id", Fingerprint: "open", Status: alertmodel.AlertStatusOpen, Kind: alertmodel.AlertKindDeployFailed, ResourceType: alertmodel.ResourceTypeStack, ResourceID: "api", Title: "Deployment failed", Message: "image missing", FailureStage: "apply", ErrorCode: "apply_failed", DeploymentID: "deployment", Commit: "sha", Occurrences: 1, OpenedAt: now, UpdatedAt: now, OpenEventID: "event", LatestEventID: "event"}
 	resolvedAt := now.Add(time.Minute)
 	resolved := open
 	resolved.ID = "resolved-id"
@@ -33,6 +33,9 @@ func TestAlertsAPIReadsPersistedAlerts(t *testing.T) {
 	require.NoError(t, err, "list open alerts")
 	require.Len(t, response.Alerts, 1, "status filter")
 	assert.Equal(t, "open-id", response.Alerts[0].ID, "persisted alert should be returned")
+	assert.Equal(t, "apply", response.Alerts[0].FailureStage.Value)
+	assert.Equal(t, "apply_failed", response.Alerts[0].ErrorCode.Value)
+	assert.Equal(t, "deployment", response.Alerts[0].DeploymentId.Value)
 
 	details, err := h.GetAlert(ctx, generated.GetAlertParams{ID: "resolved-id"})
 	require.NoError(t, err, "get alert details")

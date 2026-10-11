@@ -22,6 +22,7 @@ import (
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -56,6 +57,7 @@ type pendingCompletion struct {
 	state        model.Stack
 	status       deployment.Status
 	errorCode    string
+	diagnostic   string
 	observedAt   time.Time
 }
 
@@ -251,8 +253,9 @@ func (r *Reconciler) processResult(
 }
 
 func (r *Reconciler) recordFailure(
-	ctx context.Context, stackName, commit string, services []compose.Service, _ error,
+	ctx context.Context, stackName, commit string, services []compose.Service, cause error,
 ) error {
+	diagnostic := faults.SafeDiagnostic(cause)
 	return r.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		if err := r.stateStore.Update(ctx, func(runtime *model.Runtime) {
 			state := runtime.Stacks[stackName]
@@ -272,6 +275,7 @@ func (r *Reconciler) recordFailure(
 		}
 		return r.event.Publish(ctx, &events.DeployPreparationFailed{
 			StackName: stackName, Commit: commit, Services: services, ErrorCode: "preparation_failed",
+			Stage: preparationFailureStage(cause), Error: diagnosticError(diagnostic),
 		})
 	})
 }
@@ -305,16 +309,16 @@ func (r *Reconciler) recordPipelineFailure(
 		failed.Status = model.NewStackStatus(failed.Services)
 		switch code {
 		case "verification_unknown":
-			persistErr = r.deployments.InterruptVerification(ctx, pl.Attempt.ID, failed)
+			persistErr = r.deployments.InterruptVerificationWithError(ctx, pl.Attempt.ID, failed, pipeErr)
 		case pruneFailureCode:
-			persistErr = r.deployments.FailCleanup(ctx, pl.Attempt.ID, failed, code, pl.ObservedAt)
+			persistErr = r.deployments.FailCleanupWithError(ctx, pl.Attempt.ID, failed, code, pl.ObservedAt, pipeErr)
 		default:
-			persistErr = r.deployments.FailApply(ctx, pl.Attempt.ID, failed, code)
+			persistErr = r.deployments.FailApplyWithError(ctx, pl.Attempt.ID, failed, code, pipeErr)
 		}
 		if persistErr != nil {
 			r.pending[req.Stack.Name] = pendingCompletion{
 				deploymentID: pl.Attempt.ID, state: failed, status: status, errorCode: code,
-				observedAt: pl.ObservedAt,
+				diagnostic: faults.SafeDiagnostic(pipeErr), observedAt: pl.ObservedAt,
 			}
 		}
 		for _, service := range services {
@@ -334,17 +338,40 @@ func (r *Reconciler) recoverPending(ctx context.Context, stack string) error {
 	case pending.status == deployment.Succeeded:
 		err = r.deployments.SucceedObserved(ctx, pending.deploymentID, pending.state, pending.observedAt)
 	case pending.status == deployment.Interrupted:
-		err = r.deployments.InterruptVerification(ctx, pending.deploymentID, pending.state)
+		err = r.deployments.InterruptVerificationWithError(ctx, pending.deploymentID, pending.state,
+			diagnosticError(pending.diagnostic))
 	case pending.errorCode == pruneFailureCode:
-		err = r.deployments.FailCleanup(ctx, pending.deploymentID, pending.state, pending.errorCode, pending.observedAt)
+		err = r.deployments.FailCleanupWithError(ctx, pending.deploymentID, pending.state, pending.errorCode,
+			pending.observedAt, diagnosticError(pending.diagnostic))
 	default:
-		err = r.deployments.FailApply(ctx, pending.deploymentID, pending.state, pending.errorCode)
+		err = r.deployments.FailApplyWithError(ctx, pending.deploymentID, pending.state, pending.errorCode,
+			diagnosticError(pending.diagnostic))
 	}
 	if err != nil {
 		return err
 	}
 	delete(r.pending, stack)
 	return nil
+}
+
+func preparationFailureStage(err error) string {
+	var readErr *compose.ReadComposeError
+	if errors.As(err, &readErr) {
+		return "source fetching"
+	}
+	var parseErr *compose.ParseComposeError
+	var validationErr *compose.ValidateComposeError
+	if errors.As(err, &parseErr) || errors.As(err, &validationErr) {
+		return "validation"
+	}
+	return "preparation"
+}
+
+func diagnosticError(diagnostic string) error {
+	if diagnostic == "" {
+		return nil
+	}
+	return errors.New(diagnostic)
 }
 
 func (r *Reconciler) persistResult(

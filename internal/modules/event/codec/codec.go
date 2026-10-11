@@ -11,6 +11,7 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
 
 // Version identifies this durable payload schema.
@@ -28,18 +29,24 @@ func Encode(event events.Event) ([]byte, error) {
 	case *events.DeploySuccess:
 		return encodeDeployment(e.DeployEvent)
 	case *events.DeployFailed:
-		payload := safeFailureCode(e.Error)
-		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, payload, e.Services)
+		code := e.ErrorCode
+		if code == "" {
+			code = safeFailureCode(e.Error)
+		}
+		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, code, e.Stage,
+			faults.SafeDiagnostic(e.Error), e.Services)
 	case *events.DeployPreparationFailed:
 		if e.ErrorCode != "preparation_failed" {
 			return nil, errors.New("unsupported deployment preparation failure code")
 		}
-		return encodeDeploymentFailure(e.StackName, e.Commit, "", e.ErrorCode, e.Services)
+		return encodeDeploymentFailure(e.StackName, e.Commit, "", e.ErrorCode, e.Stage,
+			faults.SafeDiagnostic(e.Error), e.Services)
 	case *events.DeployInterrupted:
 		if e.Reason != "process_interrupted" && e.Reason != "verification_unknown" {
 			return nil, errors.New("unsupported deployment interruption reason")
 		}
-		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.Reason, e.Services)
+		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.Reason, e.Stage,
+			faults.SafeDiagnostic(e.Error), e.Services)
 	case *events.NodeJoined:
 		return json.Marshal(nodePayload{ID: e.NodeID, Name: e.NodeName, Role: e.Role})
 	case *events.NodeConnected:
@@ -84,7 +91,10 @@ func Decode(typ events.TypeName, version int, payload []byte) (events.Event, err
 	if version != Version {
 		return nil, fmt.Errorf("unsupported event schema version %d", version)
 	}
-	switch typ {
+	if isDeploymentFailureType(typ) {
+		return decodeDeploymentFailure(typ, payload)
+	}
+	switch typ { //nolint:exhaustive // Failure events are decoded by decodeDeploymentFailure above.
 	case events.TypeNameServiceCatalogUpdated:
 		return decodeAs(payload, func(p servicePayload) events.Event {
 			return &events.ServiceCatalogUpdated{StackName: p.Stack}
@@ -92,30 +102,6 @@ func Decode(typ events.TypeName, version int, payload []byte) (events.Event, err
 	case events.TypeNameDeploySuccess:
 		return decodeAs(payload, func(p deployPayload) events.Event {
 			return &events.DeploySuccess{DeployEvent: p.deployment()}
-		})
-	case events.TypeNameDeployFailed:
-		return decodeAs(payload, func(p deploymentFailurePayload) events.Event {
-			return &events.DeployFailed{
-				DeployEvent: events.DeployEvent{
-					DeploymentID: p.DeploymentID, StackName: p.Stack, Commit: p.Commit, Services: p.services(),
-				},
-				Error: errors.New(safeFailureCode(errors.New(p.Code))),
-			}
-		})
-	case events.TypeNameDeployPreparationFailed:
-		return decodeAs(payload, func(p deploymentFailurePayload) events.Event {
-			return &events.DeployPreparationFailed{
-				StackName: p.Stack, Commit: p.Commit, Services: p.services(), ErrorCode: p.Code,
-				Error: errors.New("deployment preparation failed; sensitive diagnostic output omitted"),
-			}
-		})
-	case events.TypeNameDeployInterrupted:
-		return decodeAs(payload, func(p deploymentFailurePayload) events.Event {
-			return &events.DeployInterrupted{
-				DeploymentID: p.DeploymentID, StackName: p.Stack, Commit: p.Commit,
-				Services: p.services(), Reason: p.Code,
-				Error: errors.New("deployment interrupted; external apply outcome unknown"),
-			}
 		})
 	case events.TypeNameNodeJoined:
 		return decodeAs(payload, func(p nodePayload) events.Event {
@@ -180,6 +166,47 @@ func Decode(typ events.TypeName, version int, payload []byte) (events.Event, err
 	}
 }
 
+func isDeploymentFailureType(typ events.TypeName) bool {
+	return typ == events.TypeNameDeployFailed ||
+		typ == events.TypeNameDeployPreparationFailed ||
+		typ == events.TypeNameDeployInterrupted
+}
+
+func decodeDeploymentFailure(typ events.TypeName, payload []byte) (events.Event, error) {
+	return decodeAs(payload, func(p deploymentFailurePayload) events.Event {
+		diagnostic := diagnosticError(p.Diagnostic)
+		switch typ { //nolint:exhaustive // isDeploymentFailureType restricts this helper to these event types.
+		case events.TypeNameDeployFailed:
+			return &events.DeployFailed{
+				DeployEvent: events.DeployEvent{
+					DeploymentID: p.DeploymentID, StackName: p.Stack, Commit: p.Commit, Services: p.services(),
+				},
+				Error: diagnostic, ErrorCode: safeFailureCode(errors.New(p.Code)), Stage: p.Stage,
+			}
+		case events.TypeNameDeployPreparationFailed:
+			return &events.DeployPreparationFailed{
+				StackName: p.Stack, Commit: p.Commit, Services: p.services(), ErrorCode: p.Code,
+				Error: diagnostic, Stage: p.Stage,
+			}
+		default:
+			if diagnostic == nil {
+				diagnostic = errors.New("deployment interrupted; external apply outcome unknown")
+			}
+			return &events.DeployInterrupted{
+				DeploymentID: p.DeploymentID, StackName: p.Stack, Commit: p.Commit,
+				Services: p.services(), Reason: p.Code, Error: diagnostic, Stage: p.Stage,
+			}
+		}
+	})
+}
+
+func diagnosticError(diagnostic string) error {
+	if diagnostic == "" {
+		return nil
+	}
+	return errors.New(diagnostic)
+}
+
 func decodeAs[T any](payload []byte, event func(T) events.Event) (events.Event, error) {
 	var value T
 	if err := decode(payload, &value); err != nil {
@@ -224,6 +251,10 @@ type deploymentFailurePayload struct {
 	Commit string `json:"commit"`
 	// Code is an allowlisted safe failure category.
 	Code string `json:"code"`
+	// Stage identifies the failing pipeline stage.
+	Stage string `json:"stage,omitempty"`
+	// Diagnostic contains bounded secret-masked technical context.
+	Diagnostic string `json:"diagnostic,omitempty"`
 	// Services contains only service names and images.
 	Services []servicePayload `json:"services"`
 }
@@ -247,12 +278,13 @@ func safeFailureCode(err error) string {
 }
 
 func encodeDeploymentFailure(
-	stack, commit, deploymentID, code string,
+	stack, commit, deploymentID, code, stage, diagnostic string,
 	services []compose.Service,
 ) ([]byte, error) {
 	payload := deploymentFailurePayload{
-		DeploymentID: deploymentID, Stack: stack, Commit: commit, Code: code,
-		Services: make([]servicePayload, 0, len(services)),
+		DeploymentID: deploymentID, Stack: stack, Commit: commit, Code: code, Stage: stage,
+		Diagnostic: diagnostic,
+		Services:   make([]servicePayload, 0, len(services)),
 	}
 	for _, service := range services {
 		payload.Services = append(payload.Services, servicePayload{Name: service.Name, Image: service.Image})

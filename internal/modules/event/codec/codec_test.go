@@ -80,3 +80,26 @@ func TestDeploymentFailureCategorySurvivesCodec(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, string(payload), "secret diagnostic")
 }
+
+func TestDeploymentFailureDiagnosticIsActionableAndMasked(t *testing.T) {
+	event := &events.DeployFailed{
+		DeployEvent: events.DeployEvent{DeploymentID: "deployment", StackName: "app", Commit: "sha"},
+		ErrorCode:   "apply_failed",
+		Stage:       "apply",
+		Error:       errors.New("update service api: pull https://user:password@registry.example/image token=private-value: image not found"),
+	}
+	payload, err := Encode(event)
+	require.NoError(t, err)
+	assert.NotContains(t, string(payload), "password")
+	assert.NotContains(t, string(payload), "private-value")
+	decoded, err := Decode(events.TypeNameDeployFailed, Version, payload)
+	require.NoError(t, err)
+	failure := decoded.(*events.DeployFailed)
+	assert.Equal(t, "deployment", failure.DeploymentID)
+	assert.Equal(t, "apply", failure.Stage)
+	assert.Equal(t, "apply_failed", failure.ErrorCode)
+	require.Error(t, failure.Error)
+	assert.Contains(t, failure.Error.Error(), "update service api")
+	assert.Contains(t, failure.Error.Error(), "image not found")
+	assert.Contains(t, failure.Error.Error(), "****")
+}

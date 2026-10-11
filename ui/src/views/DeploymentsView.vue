@@ -35,11 +35,12 @@ function next() { if (nextCursor.value) void load(page.value + 1, nextCursor.val
 function previous() { if (page.value > 0) void load(page.value - 1, cursors.value[page.value - 1] ?? ""); }
 function changeSummary(d: DeploymentSummary): string {
   if (d.comparison_basis === "none") return "Initial snapshot";
+  if (!d.diff_available) return "Changes unavailable";
   const total = (d.summary?.added ?? 0) + (d.summary?.changed ?? 0) + (d.summary?.removed ?? 0);
-  return `${total} fields`;
+  return total === 0 ? "No configuration changes" : `${total} fields`;
 }
 function actionLabel(d: DeploymentSummary): string {
-  return d.comparison_basis === "none" ? "View snapshot" : "View changes";
+  return d.comparison_basis === "none" ? "View snapshot" : "View details";
 }
 onMounted(() => { void load(0, ""); });
 </script>

@@ -14,6 +14,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/drift"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/pruner"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -40,6 +41,7 @@ type pipelinePayload struct {
 func (r *Reconciler) attachPipeline() {
 	r.pipeline = pipe.NewPipelineWithConfig[*pipelinePayload](pipe.Config{
 		PipelineName: "sync stack",
+		Logger:       faults.NewSafeLogger(slog.Default()),
 	})
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{

@@ -12,6 +12,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
 
 // Subscriber translates deployment events into alert lifecycle changes.
@@ -41,11 +42,20 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 	case *events.NodeConnected:
 		return s.handleNode(ctx, event.ID, deployment.NodeID, false)
 	case *events.DeployFailed:
-		return s.handleFailed(ctx, event.ID, deployment.StackName, "Deployment failed", deploymentFailureMessage(deployment))
+		return s.handleFailed(ctx, event.ID, deployment.StackName, "Deployment failed", deployFailureDetails(deployment))
 	case *events.DeployPreparationFailed:
-		return s.handleFailed(ctx, event.ID, deployment.StackName, "Deployment failed", deployment.Message())
+		return s.handleFailed(ctx, event.ID, deployment.StackName, "Deployment failed", failureDetails{
+			message:       safeFailureMessage(deployment.Error, deployment.ErrorCode, deployment.Stage),
+			hasDiagnostic: hasUsefulDiagnostic(deployment.Error, deployment.ErrorCode),
+			stage:         deployment.Stage, code: deployment.ErrorCode, commit: deployment.Commit,
+		})
 	case *events.DeployInterrupted:
-		return s.handleFailed(ctx, event.ID, deployment.StackName, "Deployment outcome unknown", deployment.Message())
+		return s.handleFailed(ctx, event.ID, deployment.StackName, "Deployment outcome unknown", failureDetails{
+			message:       safeFailureMessage(deployment.Error, deployment.Reason, deployment.Stage),
+			hasDiagnostic: hasUsefulDiagnostic(deployment.Error, deployment.Reason),
+			stage:         deployment.Stage, code: deployment.Reason, deploymentID: deployment.DeploymentID,
+			commit: deployment.Commit,
+		})
 	case *events.DeploySuccess:
 		return s.handleSucceeded(ctx, event.ID, deployment)
 	default:
@@ -53,7 +63,18 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 	}
 }
 
-func (s *Subscriber) handleFailed(ctx context.Context, eventID, stackName, title, message string) error {
+type failureDetails struct {
+	message       string
+	hasDiagnostic bool
+	stage         string
+	code          string
+	deploymentID  string
+	commit        string
+}
+
+func (s *Subscriber) handleFailed(
+	ctx context.Context, eventID, stackName, title string, details failureDetails,
+) error {
 	fingerprint := model.DeployFailedFingerprint(stackName)
 	now := s.now()
 	if eventID == "" {
@@ -67,8 +88,12 @@ func (s *Subscriber) handleFailed(ctx context.Context, eventID, stackName, title
 		alert.Occurrences++
 		alert.UpdatedAt = now
 		alert.LatestEventID = eventID
-		alert.Message = message
+		if details.hasDiagnostic || alert.Message == "" {
+			alert.Message = details.message
+		}
 		alert.Title = title
+		alert.FailureStage, alert.ErrorCode = details.stage, details.code
+		alert.DeploymentID, alert.Commit = details.deploymentID, details.commit
 		if err = s.store.Update(ctx, alert); err != nil {
 			return fmt.Errorf("update deployment alert: %w", err)
 		}
@@ -78,7 +103,9 @@ func (s *Subscriber) handleFailed(ctx context.Context, eventID, stackName, title
 	alert = model.Alert{
 		ID: s.newID(), Fingerprint: fingerprint, Kind: model.AlertKindDeployFailed,
 		ResourceType: model.ResourceTypeStack, ResourceID: stackName,
-		Status: model.AlertStatusOpen, Title: title, Message: message,
+		Status: model.AlertStatusOpen, Title: title, Message: details.message,
+		FailureStage: details.stage, ErrorCode: details.code,
+		DeploymentID: details.deploymentID, Commit: details.commit,
 		Occurrences: 1, OpenedAt: now, UpdatedAt: now, OpenEventID: eventID, LatestEventID: eventID,
 	}
 	err = s.store.Create(ctx, alert)
@@ -88,7 +115,7 @@ func (s *Subscriber) handleFailed(ctx context.Context, eventID, stackName, title
 	if !errors.Is(err, modelstore.ErrOpenAlertExists) {
 		return fmt.Errorf("create deployment alert: %w", err)
 	}
-	return s.updateConcurrentFailure(ctx, fingerprint, eventID, now, alert.Title, alert.Message, err)
+	return s.updateConcurrentFailure(ctx, fingerprint, eventID, now, alert, details.hasDiagnostic, err)
 }
 
 func (s *Subscriber) updateConcurrentFailure(
@@ -96,8 +123,8 @@ func (s *Subscriber) updateConcurrentFailure(
 	fingerprint string,
 	eventID string,
 	now time.Time,
-	title string,
-	message string,
+	incoming model.Alert,
+	hasDiagnostic bool,
 	createErr error,
 ) error {
 	existing, err := s.store.FindOpenByFingerprint(ctx, fingerprint)
@@ -110,8 +137,12 @@ func (s *Subscriber) updateConcurrentFailure(
 	existing.Occurrences++
 	existing.UpdatedAt = now
 	existing.LatestEventID = eventID
-	existing.Message = message
-	existing.Title = title
+	if hasDiagnostic || existing.Message == "" {
+		existing.Message = incoming.Message
+	}
+	existing.Title = incoming.Title
+	existing.FailureStage, existing.ErrorCode = incoming.FailureStage, incoming.ErrorCode
+	existing.DeploymentID, existing.Commit = incoming.DeploymentID, incoming.Commit
 	return s.store.Update(ctx, existing)
 }
 
@@ -145,12 +176,31 @@ func eventReferenceID(eventID string, fallback func() string) string {
 	return fallback()
 }
 
-func deploymentFailureMessage(event *events.DeployFailed) string {
-	if event.Error != nil && strings.TrimSpace(event.Error.Error()) != "" {
-		return event.Error.Error()
+func deployFailureDetails(event *events.DeployFailed) failureDetails {
+	diagnostic := event.Error
+	if diagnostic == nil {
+		if logs := strings.TrimSpace(strings.Join(event.Logs, "\n")); logs != "" {
+			diagnostic = errors.New(logs)
+		}
 	}
-	if logs := strings.TrimSpace(strings.Join(event.Logs, "\n")); logs != "" {
-		return logs
+	return failureDetails{
+		message:       safeFailureMessage(diagnostic, event.ErrorCode, event.Stage),
+		hasDiagnostic: hasUsefulDiagnostic(diagnostic, event.ErrorCode),
+		stage:         event.Stage, code: event.ErrorCode, deploymentID: event.DeploymentID, commit: event.Commit,
 	}
-	return event.Message()
+}
+
+func hasUsefulDiagnostic(err error, code string) bool {
+	diagnostic := faults.SafeDiagnostic(err)
+	return diagnostic != "" && diagnostic != code
+}
+
+func safeFailureMessage(err error, code, stage string) string {
+	if diagnostic := faults.SafeDiagnostic(err); diagnostic != "" && diagnostic != code {
+		return diagnostic
+	}
+	if stage == "" {
+		stage = "an unknown stage"
+	}
+	return fmt.Sprintf("Deployment failed during %s. No detailed diagnostic was recorded.", stage)
 }

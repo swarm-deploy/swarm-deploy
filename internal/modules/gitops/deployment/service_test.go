@@ -296,6 +296,30 @@ func TestPublicChangeFieldsHideGoModelRepresentation(t *testing.T) {
 	}
 }
 
+func TestServiceNetworkFieldsDoNotCollide(t *testing.T) {
+	beforeFile := desired("api:1")
+	beforeFile.Compose.Services[0].Networks = compose.NewServiceNetworks(&compose.ServiceNetwork{
+		Alias: "infra", ResolvedName: "infra", IPV4Address: "10.0.0.2",
+	})
+	afterFile := desired("api:1")
+	afterFile.Compose.Services[0].Networks = compose.NewServiceNetworks(&compose.ServiceNetwork{
+		Alias: "infra", ResolvedName: "wmb-infra", IPV4Address: "10.0.0.3",
+	})
+	before, err := Prepare(beforeFile)
+	require.NoError(t, err)
+	after, err := Prepare(afterFile)
+	require.NoError(t, err)
+	changes := Compare(before, after)
+	fields := map[string]bool{}
+	for _, change := range changes {
+		key := change.ResourceType + "/" + change.ResourceName + "/" + change.Field
+		assert.False(t, fields[key], "duplicate public change key %s", key)
+		fields[key] = true
+	}
+	assert.True(t, fields["service/api/networks[infra].resolved_name"])
+	assert.True(t, fields["service/api/networks[infra].ipv4_address"])
+}
+
 func TestOpaqueCommandChangesRemainDetectable(t *testing.T) {
 	tests := []struct {
 		name   string
@@ -412,12 +436,14 @@ func TestIndependentCollectionChangesAndReorder(t *testing.T) {
 		"      - 'cache2:/cache'\n      - 'db2:/data'\n")
 	changes := Compare(before, after)
 	fields := map[string]Change{}
-	for _, c := range changes { fields[c.Field] = c }
+	for _, c := range changes {
+		fields[c.Field] = c
+	}
 	for field, values := range map[string][2]string{
 		"ports[80/tcp].published": {"8080", "9090"},
 		"ports[81/tcp].published": {"8081", "9091"},
-		"volumes[/data].source": {"db", "db2"},
-		"volumes[/cache].source": {"cache", "cache2"},
+		"volumes[/data].source":   {"db", "db2"},
+		"volumes[/cache].source":  {"cache", "cache2"},
 	} {
 		change, ok := fields[field]
 		require.True(t, ok, "missing %s: %#v", field, changes)
@@ -435,8 +461,12 @@ func TestIndependentCollectionChangesAndReorder(t *testing.T) {
 	transitions := Compare(before, added)
 	var sawAdded, sawRemoved bool
 	for _, c := range transitions {
-		if c.Operation == OperationAdded && strings.Contains(c.Field, "[82/tcp]") { sawAdded = true }
-		if c.Operation == OperationRemoved && strings.Contains(c.Field, "[81/tcp]") { sawRemoved = true }
+		if c.Operation == OperationAdded && strings.Contains(c.Field, "[82/tcp]") {
+			sawAdded = true
+		}
+		if c.Operation == OperationRemoved && strings.Contains(c.Field, "[81/tcp]") {
+			sawRemoved = true
+		}
 	}
 	assert.True(t, sawAdded)
 	assert.True(t, sawRemoved)

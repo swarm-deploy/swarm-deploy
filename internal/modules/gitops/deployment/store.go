@@ -49,7 +49,10 @@ func (s *Store) List(ctx context.Context, filter ListFilter) (Page, error) {
 	coalesce(json_extract(payload,'$.summary.redacted'),0),
 	coalesce(json_extract(payload,'$.resources.services'),0),
 	coalesce(json_extract(payload,'$.resources.configs'),0),
-	coalesce(json_extract(payload,'$.resources.secrets'),0)
+	coalesce(json_extract(payload,'$.resources.secrets'),0),
+	coalesce(json_extract(payload,'$.resources.networks'),0),
+	coalesce(json_extract(payload,'$.resources.volumes'),0),
+	coalesce(json_extract(payload,'$.diff_available'),0)
 	FROM deployments`
 	args := []any{}
 	clauses := []string{}
@@ -113,7 +116,8 @@ func scanSummary(row summaryScanner) (DeploymentSummary, error) {
 		&item.ErrorCode, &item.Phase, &item.ApplyStatus, &item.VerificationStatus, &item.CleanupStatus,
 		&item.ActualStateStatus, &observed, &item.ComparisonBasis, &item.ComparisonStatus,
 		&item.BasisDeploymentID, &item.Summary.Added, &item.Summary.Changed, &item.Summary.Removed,
-		&item.Summary.Redacted, &item.Resources.Services, &item.Resources.Configs, &item.Resources.Secrets)
+		&item.Summary.Redacted, &item.Resources.Services, &item.Resources.Configs, &item.Resources.Secrets,
+		&item.Resources.Networks, &item.Resources.Volumes, &item.DiffAvailable)
 	if err != nil {
 		return DeploymentSummary{}, err
 	}
