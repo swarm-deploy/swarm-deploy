@@ -14,6 +14,12 @@ const nextCursor = ref("");
 const cursors = ref<string[]>([""]);
 const page = ref(0);
 let request = 0;
+
+function startedAtTimestamp(deployment: DeploymentSummary): number {
+  const timestamp = Date.parse(deployment.started_at);
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
 async function load(index: number, cursor: string) {
   const current = ++request;
   loading.value = true;
@@ -21,7 +27,9 @@ async function load(index: number, cursor: string) {
   try {
     const result = await fetchDeployments({ limit: 20, cursor: cursor || undefined });
     if (current !== request) return;
-    deployments.value = Array.isArray(result.deployments) ? result.deployments : [];
+    deployments.value = Array.isArray(result.deployments)
+      ? [...result.deployments].sort((left, right) => startedAtTimestamp(right) - startedAtTimestamp(left))
+      : [];
     nextCursor.value = result.next_cursor ?? "";
     page.value = index;
     cursors.value[index] = cursor;
@@ -33,14 +41,34 @@ async function load(index: number, cursor: string) {
 }
 function next() { if (nextCursor.value) void load(page.value + 1, nextCursor.value); }
 function previous() { if (page.value > 0) void load(page.value - 1, cursors.value[page.value - 1] ?? ""); }
-function changeSummary(d: DeploymentSummary): string {
-  if (d.comparison_basis === "none") return "Initial snapshot";
-  if (!d.diff_available) return "Changes unavailable";
-  const total = (d.summary?.added ?? 0) + (d.summary?.changed ?? 0) + (d.summary?.removed ?? 0);
-  return total === 0 ? "No configuration changes" : `${total} fields`;
+
+function statusClass(status: unknown): string {
+  switch (status) {
+    case "succeeded": return "success";
+    case "failed": return "failed";
+    case "running": return "deployment-status-badge--running";
+    default: return "unknown";
+  }
 }
-function actionLabel(d: DeploymentSummary): string {
-  return d.comparison_basis === "none" ? "View snapshot" : "View details";
+
+function statusLabel(status: unknown): string {
+  const value = typeof status === "string" ? status.trim() : "";
+  if (!value) return "Unknown";
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+function openDeployment(deploymentID: string): void {
+  store.openDeploymentDetailsModal(deploymentID);
+}
+
+function openDeploymentFromKeyboard(event: KeyboardEvent, deploymentID: string): void {
+  if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+  event.preventDefault();
+  openDeployment(deploymentID);
+}
+
+function openCommit(commit: string): void {
+  void store.openCommitDetailsModal(commit);
 }
 onMounted(() => { void load(0, ""); });
 </script>
@@ -52,19 +80,37 @@ onMounted(() => { void load(0, ""); });
     <p v-if="loading" role="status">Loading deployments...</p>
     <p v-else-if="error" role="alert">{{ error }} <button type="button" @click="load(page, cursors[page] ?? '')">Retry</button></p>
     <p v-else-if="!deployments.length">No deployments on this page.</p>
-    <AppTable v-else table-class="deployments-table">
-      <template #head><tr><th>Stack</th><th>Status</th><th>Started</th><th>Commit</th><th>Desired changes</th></tr></template>
-      <tr v-for="deployment in deployments" :key="deployment.id">
-        <td><button type="button" :aria-label="`Open deployment details for ${deployment.stack}`"
-          @click="store.openDeploymentDetailsModal(deployment.id)">{{ deployment.stack }}</button></td>
-        <td>{{ deployment.status }}</td>
-        <td>{{ formatDate(deployment.started_at) }}</td>
-        <td><button v-if="deployment.commit" type="button" :aria-label="`Open Git commit ${deployment.commit}`"
-          @click.stop="store.openCommitDetailsModal(deployment.commit)">{{ shortCommitHash(deployment.commit) }}</button><span v-else>—</span></td>
-        <td>{{ changeSummary(deployment) }} · {{ deployment.resources?.services ?? 0 }} services,
-          {{ deployment.resources?.configs ?? 0 }} configs, {{ deployment.resources?.secrets ?? 0 }} secrets
-          <button type="button" :aria-label="`${actionLabel(deployment)} for ${deployment.stack}`"
-            @click="store.openDeploymentDetailsModal(deployment.id)">{{ actionLabel(deployment) }}</button></td>
+    <AppTable v-else fixed min-width="620px" table-class="deployments-table" wrap-class="deployments-table-wrap">
+      <template #head><tr><th>Stack</th><th>Status</th><th>Started</th><th>Commit</th></tr></template>
+      <tr
+        v-for="deployment in deployments"
+        :key="deployment.id"
+        class="app-table-row--clickable deployment-row"
+        tabindex="0"
+        :aria-label="`Open deployment details for ${deployment.stack}`"
+        @click="openDeployment(deployment.id)"
+        @keydown="openDeploymentFromKeyboard($event, deployment.id)"
+      >
+        <td class="deployment-stack" :title="deployment.stack">{{ deployment.stack }}</td>
+        <td>
+          <span class="status deployment-status-badge" :class="statusClass(deployment.status)">
+            {{ statusLabel(deployment.status) }}
+          </span>
+        </td>
+        <td class="deployment-started"><time :datetime="deployment.started_at">{{ formatDate(deployment.started_at) }}</time></td>
+        <td>
+          <a
+            v-if="deployment.commit"
+            class="deployment-commit-link"
+            href="#"
+            :aria-label="`Open Git commit ${deployment.commit}`"
+            :title="deployment.commit"
+            @click.prevent.stop="openCommit(deployment.commit)"
+            @keydown.enter.stop
+            @keydown.space.prevent.stop="openCommit(deployment.commit)"
+          >{{ shortCommitHash(deployment.commit) }}</a>
+          <span v-else>—</span>
+        </td>
       </tr>
     </AppTable>
     <nav class="deployment-pages" aria-label="Deployment pages">
@@ -77,4 +123,54 @@ onMounted(() => { void load(0, ""); });
 
 <style scoped>
 .deployment-pages { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+
+:deep(.deployments-table th:nth-child(1)),
+:deep(.deployments-table td:nth-child(1)) { width: 42%; }
+:deep(.deployments-table th:nth-child(2)),
+:deep(.deployments-table td:nth-child(2)) { width: 18%; }
+:deep(.deployments-table th:nth-child(3)),
+:deep(.deployments-table td:nth-child(3)) { width: 26%; }
+:deep(.deployments-table th:nth-child(4)),
+:deep(.deployments-table td:nth-child(4)) { width: 14%; }
+
+.deployment-stack {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.deployment-started,
+.deployment-status-badge,
+.deployment-commit-link { white-space: nowrap; }
+
+.deployment-status-badge {
+  display: inline-flex;
+  align-items: center;
+  background: var(--surface-muted);
+  line-height: 1.2;
+}
+
+.deployment-status-badge.success { background: var(--success-muted); }
+.deployment-status-badge.failed { background: var(--error-muted); }
+.deployment-status-badge--running {
+  color: var(--info);
+  border-color: var(--accent-border);
+  background: var(--info-muted);
+}
+
+.deployment-commit-link {
+  display: inline-block;
+  border-radius: 3px;
+  color: var(--accent-strong);
+  padding: 2px 3px;
+  font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.8rem;
+  text-decoration: none;
+}
+
+.deployment-commit-link:hover { text-decoration: underline; }
+.deployment-commit-link:focus-visible {
+  outline: 2px solid var(--accent-focus);
+  outline-offset: 2px;
+}
 </style>

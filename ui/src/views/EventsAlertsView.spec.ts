@@ -22,6 +22,7 @@ describe("Events & Alerts", () => {
     const wrapper = mount(EventsAlertsView, { global: { plugins: [router] } });
     await flushPromises();
     expect(wrapper.findAll("table")).toHaveLength(2);
+    expect(wrapper.findAll("h2").map((heading) => heading.text())).toEqual(["Alerts", "Events"]);
     expect(wrapper.find(".events-table").text()).toContain("Worker joined");
     expect(wrapper.find(".events-table").text()).not.toContain("Node disconnected");
     expect(wrapper.find(".alerts-table").text()).toContain("Node disconnected");

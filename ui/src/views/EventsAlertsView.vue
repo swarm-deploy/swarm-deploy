@@ -5,6 +5,6 @@ import AlertsView from "./AlertsView.vue";
 
 <template>
   <h1>Events &amp; Alerts</h1>
-  <EventsView />
   <div id="alerts"><AlertsView /></div>
+  <EventsView />
 </template>
