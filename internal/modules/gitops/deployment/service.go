@@ -48,10 +48,10 @@ func (s *Service) Inspect(ctx context.Context, id string) (Deployment, error) {
 }
 
 // StartIfChanged commits running before the caller begins external apply.
-// legacyChanged is used only when no verifiable successful baseline exists.
+// sourceChanged is used only when no verifiable successful baseline exists.
 // A nil attempt means no effective change and therefore no deployment was created.
 func (s *Service) StartIfChanged(
-	ctx context.Context, stack, commit string, file compose.File, legacyChanged bool,
+	ctx context.Context, stack, commit string, file compose.File, sourceChanged bool,
 ) (*Deployment, error) {
 	desired, err := Prepare(file)
 	if err != nil {
@@ -60,7 +60,7 @@ func (s *Service) StartIfChanged(
 	var attempt *Deployment
 	err = s.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		previous, readErr := s.store.Baseline(ctx, stack)
-		start, decisionErr := s.shouldStart(ctx, stack, previous, desired, readErr, legacyChanged)
+		start, decisionErr := s.shouldStart(ctx, stack, previous, desired, readErr, sourceChanged)
 		if decisionErr != nil || !start {
 			return decisionErr
 		}
@@ -112,7 +112,7 @@ func (s *Service) shouldStart(
 	stack string,
 	baseline, desired Prepared,
 	baselineErr error,
-	legacyChanged bool,
+	sourceChanged bool,
 ) (bool, error) {
 	if baselineErr != nil && !errors.Is(baselineErr, ErrNotFound) {
 		return false, baselineErr
@@ -123,7 +123,7 @@ func (s *Service) shouldStart(
 		}
 		return s.store.hasUnsuccessfulAfterBaseline(ctx, stack)
 	}
-	if legacyChanged {
+	if sourceChanged {
 		return true, nil
 	}
 	var retry bool

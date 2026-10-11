@@ -1,6 +1,6 @@
 # SQLite storage cutover
 
-PR #123 makes SQLite the only supported persistent application store. This is an
+SQLite is the only supported persistent application store. This is an
 intentional breaking change: data from the previous JSON repositories is not migrated.
 
 At startup, swarm-deploy:
@@ -22,8 +22,7 @@ from the current Docker Swarm state.
 
 ## Schema lifecycle
 
-The integration branch contains one consolidated
-`migrations/sqlite/0001_initial.sql`. Goose applies it on a new database and records
+The initial schema is in `migrations/sqlite/0001_initial.sql`. Goose applies it on a new database and records
 the version in `goose_db_version`. Restarting with an existing database preserves
 its state and applies only pending future migrations.
 
@@ -72,11 +71,11 @@ SQLite WAL on a multi-host/network filesystem and replicas with separate local v
 first upgrade from a version without this lock, capture the evidence and backup above, then use a one-time `stop-first`
 update or otherwise prove the old task has stopped; later upgrades can use `start-first` safely.
 
-After rollout, no SQL repair is required. The fixed controller should make the preexisting `running` row terminal as
-`interrupted` only if it is actually orphaned, leave already-terminal rows unchanged, clear any obsolete in-process
-completion conflict, and create a new deployment ID when the effective desired state requires another apply. Verify
-that the new attempt records its real outcome, the successful baseline advances only on success, terminal events are
-not duplicated, and the controller sync result no longer repeats `deployment is not running`.
+On restart, the lock owner marks genuinely orphaned `running` deployments
+`interrupted` before reconciliation. Already-terminal rows remain unchanged. A
+retry receives a new deployment ID; only a successful attempt advances the desired
+baseline. If recovery fails, preserve the database and diagnostic evidence rather
+than editing deployment or Goose rows by hand.
 
 ## First deployment
 

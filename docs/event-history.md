@@ -18,7 +18,7 @@
 | `userAuthenticated`                | `info`   | `security` | User passed web authentication      | `username`                                                   |
 | `assistantPromptInjectionDetected` | `alert`  | `security` | Assistant prompt injection detected | `detector`, `prompt` (if present), `username` (if present)   |
 
-On the SQLite integration branch, selected user-visible events are stored in
+Selected user-visible events are stored in
 `event_history` in `<dataDir>/swarm-deploy.sqlite`. Deployment failure facts and new
 `nodeDisconnected` records are excluded from history; imported history is preserved
 unchanged. The table above describes public event types, not a promise that every

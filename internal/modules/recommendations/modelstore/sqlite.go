@@ -14,21 +14,6 @@ type SQLStore struct{ db *storage.Database }
 // NewSQLStore creates a recommendation repository.
 func NewSQLStore(db *storage.Database) *SQLStore { return &SQLStore{db: db} }
 
-// Import preserves legacy recommendation order and occurrence timestamps.
-func (s *SQLStore) Import(ctx context.Context, recommendations []model.Recommendation) error {
-	for _, r := range recommendations {
-		payload, err := json.Marshal(r)
-		if err != nil {
-			return err
-		}
-		if _, err = s.db.Get(ctx).ExecContext(ctx, "INSERT INTO recommendations(id,stack,payload) VALUES (?,?,?)",
-			r.ID(), r.Subject.Stack, string(payload)); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // List filters recommendations in their persisted sequence.
 func (s *SQLStore) List(ctx context.Context, filter ListFilter) ([]model.Recommendation, error) {
 	query := "SELECT payload FROM recommendations WHERE 1=1"

@@ -1,5 +1,5 @@
 -- +goose Up
--- Single initial migration, extended in this integration branch until release.
+-- Initial SQLite schema.
 -- Outbox is a queue: the last acknowledgement deletes the event immediately.
 CREATE TABLE outbox_events (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,

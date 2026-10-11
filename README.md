@@ -172,11 +172,12 @@ and the next owner marks any orphaned `running` attempt `interrupted` before rec
 Do not run replicas on different nodes with node-local volumes: they have different SQLite databases and cannot share
 the lock. A remote/network filesystem is not a supported substitute for local SQLite WAL. When upgrading from a build
 that predates the controller lock, first capture the deployment diagnostics and SQLite backup described in
-[`example/README-sqlite.md`](./example/README-sqlite.md), then use a one-time `stop-first` update (or otherwise prove the
+[`docs/operations/sqlite.md`](./docs/operations/sqlite.md), then use a one-time `stop-first` update (or otherwise prove the
 old task has stopped) before returning to `start-first` for later releases.
 
 ## Documentation
 
+- [SQLite operations and backup](./docs/operations/sqlite.md)
 - [Reconciliation](./docs/reconciler.md)
 - [Webhooks](./docs/webhooks.md)
 - [Authentication](./docs/authentication.md)

@@ -128,15 +128,12 @@ func (s *SQLStore) ConsumeLatest(
 	ctx context.Context, id, resource string, at time.Time, apply func(context.Context) error,
 ) error {
 	return s.Consume(ctx, id, func(ctx context.Context) error {
-		// Legacy direct consumers did not supply a timestamp; Outbox always does.
-		if !at.IsZero() {
-			accepted, err := storage.AdvanceProjection(ctx, s.db.Get, "alerts", resource, at, id)
-			if err != nil {
-				return err
-			}
-			if !accepted {
-				return nil
-			}
+		accepted, err := storage.AdvanceProjection(ctx, s.db.Get, "alerts", resource, at, id)
+		if err != nil {
+			return err
+		}
+		if !accepted {
+			return nil
 		}
 		return apply(ctx)
 	})
