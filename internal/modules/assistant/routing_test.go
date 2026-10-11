@@ -503,11 +503,21 @@ func TestAssistantRestoredBehaviorPrompts(t *testing.T) {
 		expected []string
 	}{
 		{
-			name:  "event interpretation",
+			name:  "diagnostic source separation",
 			route: RouteDiagnostics,
 			expected: []string{
-				"`deployFailed`: deployment failed",
-				"`serviceMissed`: an expected service is absent",
+				"`deployFailed` is an internal event",
+				"`nodeDisconnected` is an internal signal",
+				"`serviceMissed` and `serviceRestarted`",
+			},
+		},
+		{
+			name:  "deployment source separation",
+			route: RouteDeployments,
+			expected: []string{
+				"Internal `deployFailed` facts are not user-facing Event History entries",
+				"`syncManualStarted` indicates a sync request",
+				"`sendNotificationFailed` signal",
 			},
 		},
 		{
