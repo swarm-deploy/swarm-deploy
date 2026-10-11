@@ -54,9 +54,6 @@ func InitModule(
 
 	srv.Store = modelstore.NewSQLStore(cnt.GetStorage())
 	srv.Deployments = deployment.NewStore(cnt.GetStorage())
-	if err := deployment.NewService(cnt.GetStorage(), cnt.GetEventModule().Dispatcher).InterruptRunning(ctx); err != nil {
-		return nil, err
-	}
 
 	srv.Controller = controller.New(
 		cfg,

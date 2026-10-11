@@ -36,6 +36,17 @@ func NewService(db *storage.Database, publisher Publisher) *Service {
 	return &Service{db: db, store: NewStore(db), runtime: modelstore.NewSQLStore(db), events: publisher, now: time.Now}
 }
 
+// Inspect reads one deployment in a consistent transaction for lifecycle conflict resolution.
+func (s *Service) Inspect(ctx context.Context, id string) (Deployment, error) {
+	var result Deployment
+	err := s.db.WithinTransaction(ctx, func(ctx context.Context) error {
+		var err error
+		result, err = s.store.Get(ctx, id)
+		return err
+	})
+	return result, err
+}
+
 // StartIfChanged commits running before the caller begins external apply.
 // legacyChanged is used only when no verifiable successful baseline exists.
 // A nil attempt means no effective change and therefore no deployment was created.

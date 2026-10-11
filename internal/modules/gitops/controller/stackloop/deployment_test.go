@@ -19,6 +19,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
@@ -148,6 +149,123 @@ func TestReconcileRecoversFailedResultPersistenceInSameProcess(t *testing.T) {
 	assert.Equal(t, deployment.Succeeded, attempts.Deployments[0].Status)
 	assert.Equal(t, deployment.Failed, attempts.Deployments[1].Status)
 	assert.NotEqual(t, attempts.Deployments[0].ID, attempts.Deployments[1].ID)
+}
+
+func TestReconcileRecoversInterruptedCompletionConflictAndAppliesCorrectedDesiredState(t *testing.T) {
+	ctx := context.Background()
+	db, state := newSQLState(t)
+	bus := outbox.New(db)
+	hist, err := history.NewSQLStore(db, 10)
+	require.NoError(t, err)
+	require.NoError(t, bus.Subscribe(events.TypeNameDeployFailed, "failed-history", hist))
+	require.NoError(t, bus.Subscribe(events.TypeNameDeployInterrupted, "interrupted-history", hist))
+	require.NoError(t, bus.Subscribe(events.TypeNameDeploySuccess, "success-history", hist))
+	repo := deployment.NewStore(db)
+	ctrl := gomock.NewController(t)
+	git := gitx.NewMockRepository(ctrl)
+	docker := deployer.NewMockStackDeployer(ctrl)
+	services := swarm.NewMockServiceManager(ctrl)
+	dir := t.TempDir()
+	git.EXPECT().WorkingDir().Return(dir).AnyTimes()
+	require.NoError(t, writeComposeFile(dir))
+	cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(dir, "data")}}
+	r := New(cfg, git, docker, &swarm.Swarm{
+		Services: services, Configs: swarm.NewMockConfigManager(ctrl), Secrets: swarm.NewMockSecretManager(ctrl),
+	}, bus, &metrics.NopDeploys{}, state, fs.NewLocalFileSystem(), db)
+	docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, _ string, _ string, _ string, _ compose.Compose) error {
+			_, triggerErr := db.Get(ctx).ExecContext(ctx,
+				"CREATE TRIGGER fail_event BEFORE INSERT ON outbox_events BEGIN SELECT RAISE(ABORT,'injected'); END")
+			require.NoError(t, triggerErr)
+			return errors.New("invalid image digest")
+		},
+	)
+	req := ReconciliationRequest{Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "broken"}
+	require.Error(t, r.Reconcile(ctx, req))
+	page, err := repo.List(ctx, deployment.ListFilter{Stack: "app"})
+	require.NoError(t, err)
+	require.Len(t, page.Deployments, 1)
+	staleID := page.Deployments[0].ID
+	assert.Equal(t, deployment.Running, page.Deployments[0].Status)
+	_, err = db.Get(ctx).ExecContext(ctx, "DROP TRIGGER fail_event")
+	require.NoError(t, err)
+
+	secondInstance := deployment.NewService(db, bus)
+	require.NoError(t, secondInstance.InterruptRunning(ctx))
+	interrupted, err := repo.Get(ctx, staleID)
+	require.NoError(t, err)
+	assert.Equal(t, deployment.Interrupted, interrupted.Status)
+
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.yaml"),
+		[]byte("services:\n  api:\n    image: nginx@sha256:corrected\n"), 0o600))
+	docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+	services.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{}, nil)
+	req.Commit = "corrected"
+	require.NoError(t, r.Reconcile(ctx, req))
+
+	page, err = repo.List(ctx, deployment.ListFilter{Stack: "app"})
+	require.NoError(t, err)
+	require.Len(t, page.Deployments, 2)
+	assert.Equal(t, deployment.Succeeded, page.Deployments[0].Status)
+	assert.Equal(t, "corrected", page.Deployments[0].Commit)
+	assert.NotEqual(t, staleID, page.Deployments[0].ID)
+	assert.Equal(t, deployment.Interrupted, page.Deployments[1].Status)
+}
+
+func TestReconcileRecoversSucceededCompletionConflictWithoutContradictoryOutcome(t *testing.T) {
+	ctx := context.Background()
+	db, state := newSQLState(t)
+	bus := outbox.New(db)
+	hist, err := history.NewSQLStore(db, 10)
+	require.NoError(t, err)
+	require.NoError(t, bus.Subscribe(events.TypeNameDeployFailed, "failed-history", hist))
+	require.NoError(t, bus.Subscribe(events.TypeNameDeploySuccess, "success-history", hist))
+	service := deployment.NewService(db, bus)
+	first, err := service.StartIfChanged(ctx, "app", "first", compose.File{
+		Compose: compose.Compose{Services: compose.Services{{Name: "api", Image: "nginx:1"}}},
+	}, true)
+	require.NoError(t, err)
+	require.NoError(t, service.Succeed(ctx, first.ID, model.Stack{LastCommit: "first"}))
+
+	ctrl := gomock.NewController(t)
+	git := gitx.NewMockRepository(ctrl)
+	docker := deployer.NewMockStackDeployer(ctrl)
+	services := swarm.NewMockServiceManager(ctrl)
+	dir := t.TempDir()
+	git.EXPECT().WorkingDir().Return(dir).AnyTimes()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.yaml"),
+		[]byte("services:\n  api:\n    image: nginx:2\n"), 0o600))
+	cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(dir, "data")}}
+	r := New(cfg, git, docker, &swarm.Swarm{
+		Services: services, Configs: swarm.NewMockConfigManager(ctrl), Secrets: swarm.NewMockSecretManager(ctrl),
+	}, bus, &metrics.NopDeploys{}, state, fs.NewLocalFileSystem(), db)
+	r.pending["app"] = pendingCompletion{
+		deploymentID: first.ID,
+		state:        model.Stack{LastCommit: "contradictory"},
+		status:       deployment.Failed,
+		errorCode:    "apply_failed",
+		diagnostic:   "obsolete failure",
+	}
+	docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+	services.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{}, nil)
+	require.NoError(t, r.Reconcile(ctx, ReconciliationRequest{
+		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "second",
+	}))
+
+	storedFirst, err := deployment.NewStore(db).Get(ctx, first.ID)
+	require.NoError(t, err)
+	assert.Equal(t, deployment.Succeeded, storedFirst.Status)
+	baseline, err := deployment.NewStore(db).Baseline(ctx, "app")
+	require.NoError(t, err)
+	assert.Equal(t, "nginx:2", baseline.Definition.Compose.Services[0].Image)
+	var failedEvents int
+	require.NoError(t, db.Get(ctx).QueryRowContext(ctx,
+		"SELECT count(*) FROM outbox_events WHERE event_type=?", events.TypeNameDeployFailed).Scan(&failedEvents))
+	assert.Zero(t, failedEvents, "obsolete recovery must not publish a contradictory failure")
+	var successEvents int
+	require.NoError(t, db.Get(ctx).QueryRowContext(ctx,
+		"SELECT count(*) FROM outbox_events WHERE event_type=?", events.TypeNameDeploySuccess).Scan(&successEvents))
+	assert.Equal(t, 2, successEvents, "each real successful attempt must publish exactly once")
 }
 
 func TestPreparationFailureStateAndPublicationAreAtomicAndSecretSafe(t *testing.T) {

@@ -30,6 +30,54 @@ its state and applies only pending future migrations.
 Back up the complete data directory before rollout. Do not delete the SQLite database
 or edit Goose migration history to bypass a startup failure.
 
+## Consistent backup and incident evidence
+
+Do not copy only `swarm-deploy.sqlite` while the application is running: committed data may still be in
+`swarm-deploy.sqlite-wal`. Prefer SQLite's online backup API, for example from a host with `sqlite3`:
+
+```shell
+sqlite3 /path/to/data/swarm-deploy.sqlite ".backup '/safe/path/swarm-deploy-before-upgrade.sqlite'"
+sqlite3 /safe/path/swarm-deploy-before-upgrade.sqlite "PRAGMA integrity_check;"
+```
+
+If an online backup is unavailable, stop the process cleanly and copy the database together with any `-wal` and `-shm`
+files as one set before it is restarted. Retain the original files unchanged. Run diagnostic queries against the backup,
+or open the live database using `mode=ro` and immediately enable `PRAGMA query_only=ON`.
+
+Before restarting a controller with a stuck deployment, capture the following read-only evidence because the pending
+completion itself is process memory and disappears with the process:
+
+- current and previous Swarm task/container IDs, node IDs, start times, desired/current states, and application logs;
+- `/api/v1/deployments` plus `/api/v1/deployments/{id}` for every relevant attempt ID;
+- the controller runtime sync reason, revision, result, and full recovery error;
+- `deployments` rows including both the indexed `status` and `json_extract(payload,'$.status')`, timestamps, revision,
+  error code, and deployment ID;
+- `desired_snapshots`, matching `outbox_events`/`outbox_deliveries`, and the current Git revision/digest;
+- the consistent SQLite backup and its integrity-check result.
+
+Do not infer that the attempt displayed in the UI is the same ID as a completion retained in memory. Correlate IDs,
+revision, timestamps, logs, and both persisted status representations.
+
+## Controller ownership and recovery
+
+The deployment controller holds `swarm-deploy-controller.lock` beside the SQLite database for its entire active
+lifetime. A second `start-first` task may serve health/UI traffic, but it cannot reconcile, apply, or interrupt a
+deployment until it owns that lock. Clean shutdown keeps the lock while an in-flight reconciliation gets a bounded
+grace period. Process exit closes the descriptor automatically; the next owner then atomically marks genuine orphaned
+`running` attempts `interrupted` exactly once before its startup reconciliation.
+
+This mechanism requires one replica pinned to one manager and the same node-local `dataDir` volume for overlapping
+old/new tasks. Label exactly one manager (for example `swarm-deploy.data=true`) and constrain the service to that label.
+SQLite WAL on a multi-host/network filesystem and replicas with separate local volumes are unsupported. During the
+first upgrade from a version without this lock, capture the evidence and backup above, then use a one-time `stop-first`
+update or otherwise prove the old task has stopped; later upgrades can use `start-first` safely.
+
+After rollout, no SQL repair is required. The fixed controller should make the preexisting `running` row terminal as
+`interrupted` only if it is actually orphaned, leave already-terminal rows unchanged, clear any obsolete in-process
+completion conflict, and create a new deployment ID when the effective desired state requires another apply. Verify
+that the new attempt records its real outcome, the successful baseline advances only on success, terminal events are
+not duplicated, and the controller sync result no longer repeats `deployment is not running`.
+
 ## First deployment
 
 The first real apply attempt has `comparison_basis=none` because no successful

@@ -18,6 +18,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/networkloop"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
@@ -42,6 +43,8 @@ const (
 	TriggerManual   TriggerReason = "manual"
 )
 
+const gracefulReconciliationShutdownTimeout = 25 * time.Second
+
 const (
 	syncRunResultError        = "error"
 	syncRunResultNoChange     = "no_change"
@@ -65,8 +68,12 @@ type Controller struct {
 	reconcileCh chan reconcileTask
 
 	shuttingDown atomic.Bool
+	active       atomic.Bool
 	tickerMu     sync.Mutex
 	tickers      []*time.Ticker
+	ownership    *controllerOwnership
+	recovery     *deployment.Service
+	shutdownWait time.Duration
 
 	tracer trace.Tracer
 }
@@ -108,22 +115,88 @@ func New(
 			stateStore,
 			filesystem, db,
 		),
-		reconcileCh: make(chan reconcileTask, 1),
-		tracer:      otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller"),
+		reconcileCh:  make(chan reconcileTask, 1),
+		ownership:    newControllerOwnership(cfg.Spec.DataDir),
+		recovery:     deployment.NewService(db, eventDispatcher),
+		shutdownWait: gracefulReconciliationShutdownTimeout,
+		tracer:       otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller"),
 	}
 }
 
 func (c *Controller) Run(ctx context.Context) error {
 	runDone := make(chan struct{})
 	defer close(runDone)
+	reconciliationCtx, cancelReconciliation := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancelReconciliation()
+	shutdownWait := c.shutdownWait
+	if shutdownWait <= 0 {
+		shutdownWait = gracefulReconciliationShutdownTimeout
+	}
+	c.watchShutdown(ctx, runDone, cancelReconciliation, shutdownWait)
+
+	var handle *ownershipHandle
+	if c.ownership != nil {
+		var err error
+		handle, err = c.acquireOwnership(ctx)
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil
+			}
+			return fmt.Errorf("acquire controller ownership: %w", err)
+		}
+	}
+	if handle != nil {
+		defer c.releaseOwnership(ctx, handle)
+	}
+	if c.recovery != nil {
+		if err := c.recovery.InterruptRunning(ctx); err != nil {
+			return fmt.Errorf("recover orphaned deployments: %w", err)
+		}
+	}
+	c.active.Store(true)
+	defer c.active.Store(false)
+
+	return c.runActive(ctx, reconciliationCtx)
+}
+
+func (c *Controller) watchShutdown(
+	ctx context.Context, runDone <-chan struct{}, cancelReconciliation context.CancelFunc, shutdownWait time.Duration,
+) {
 	go func() {
 		select {
 		case <-ctx.Done():
 			c.requestShutdown()
+			timer := time.NewTimer(shutdownWait)
+			defer timer.Stop()
+			select {
+			case <-timer.C:
+				cancelReconciliation()
+			case <-runDone:
+			}
 		case <-runDone:
 		}
 	}()
+}
 
+func (c *Controller) acquireOwnership(ctx context.Context) (*ownershipHandle, error) {
+	slog.InfoContext(ctx, "controller waiting for deployment ownership",
+		slog.String("lock_file", c.ownership.path))
+	handle, err := c.ownership.acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	slog.InfoContext(ctx, "controller acquired deployment ownership",
+		slog.String("lock_file", c.ownership.path))
+	return handle, nil
+}
+
+func (c *Controller) releaseOwnership(ctx context.Context, handle *ownershipHandle) {
+	if err := handle.release(); err != nil {
+		slog.ErrorContext(context.WithoutCancel(ctx), "release controller ownership", "err", err)
+	}
+}
+
+func (c *Controller) runActive(ctx, reconciliationCtx context.Context) error {
 	var pollTicker *time.Ticker
 	if c.cfg.Spec.Sync.Mode == config.SyncModePull || c.cfg.Spec.Sync.Mode == config.SyncModeHybrid {
 		pollTicker = time.NewTicker(c.cfg.Spec.Sync.PollInterval.Value)
@@ -143,8 +216,6 @@ func (c *Controller) Run(ctx context.Context) error {
 	c.scheduleReconcile(ctx, reconcileTask{
 		reason: TriggerStartup,
 	})
-
-	reconciliationCtx := context.WithoutCancel(ctx)
 
 	for {
 		if c.shuttingDown.Load() {
@@ -275,7 +346,7 @@ func (c *Controller) Webhook(ctx context.Context) (bool, error) {
 }
 
 func (c *Controller) scheduleReconcile(ctx context.Context, task reconcileTask) bool {
-	if c.shuttingDown.Load() {
+	if c.shuttingDown.Load() || (c.ownership != nil && !c.active.Load()) {
 		return false
 	}
 
@@ -444,23 +515,9 @@ func (c *Controller) reconcile( //nolint:funlen // reconciliation pipeline
 		}
 	}
 
-	var deployErrs []error
-
 	stackCtx, stackSpan := c.tracer.Start(ctx, "controller.syncStacks")
 	defer stackSpan.End()
-
-	for _, stackCfg := range stacksToSync {
-		err = c.syncStack(stackCtx, stackCfg, gitResult.NewRevision, task.reason == TriggerManual)
-		if err != nil {
-			deployErrs = append(deployErrs, err)
-			slog.ErrorContext(ctx, "sync failed for stack",
-				slog.String("reason", string(task.reason)),
-				slog.String("stack", stackCfg.Name),
-				slog.String("commit", gitResult.NewRevision),
-				slog.Any("err", err),
-			)
-		}
-	}
+	deployErrs := c.syncStacks(stackCtx, stacksToSync, gitResult.NewRevision, task.reason)
 
 	result := syncRunResultSuccess
 	combinedErr := errors.Join(deployErrs...)
@@ -493,6 +550,26 @@ func (c *Controller) reconcile( //nolint:funlen // reconciliation pipeline
 		tracing.FailSpan(stackSpan, persistErr)
 	}
 	c.metrics.Sync.RecordSyncRun(string(task.reason), result, time.Since(startedAt))
+}
+
+func (c *Controller) syncStacks(
+	ctx context.Context, stacks []config.StackSpec, commit string, reason TriggerReason,
+) []error {
+	var deployErrs []error
+	for _, stackCfg := range stacks {
+		err := c.syncStack(ctx, stackCfg, commit, reason == TriggerManual)
+		if err == nil {
+			continue
+		}
+		deployErrs = append(deployErrs, err)
+		slog.ErrorContext(ctx, "sync failed for stack",
+			slog.String("reason", string(reason)),
+			slog.String("stack", stackCfg.Name),
+			slog.String("commit", commit),
+			slog.Any("err", err),
+		)
+	}
+	return deployErrs
 }
 
 func (c *Controller) resolveGitState(

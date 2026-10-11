@@ -59,4 +59,11 @@ func TestDeploymentAPIReadsAttemptsWithoutHistory(t *testing.T) {
 	}
 	_, err = h.GetDeployment(ctx, generated.GetDeploymentParams{ID: "unknown"})
 	require.Error(t, err)
+	_, err = db.Get(ctx).ExecContext(ctx,
+		"UPDATE deployments SET payload=json_set(payload,'$.status','succeeded') WHERE id=?", attempt.ID)
+	require.NoError(t, err)
+	_, err = h.ListDeployments(ctx, generated.ListDeploymentsParams{Stack: generated.NewOptString("app")})
+	require.ErrorIs(t, err, deployment.ErrInconsistentDeployment)
+	_, err = h.GetDeployment(ctx, generated.GetDeploymentParams{ID: attempt.ID})
+	require.ErrorIs(t, err, deployment.ErrInconsistentDeployment)
 }

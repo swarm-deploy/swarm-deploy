@@ -21,6 +21,9 @@ var ErrNotFound = errors.New("deployment not found")
 // ErrNotRunning prevents overwriting a terminal deployment outcome.
 var ErrNotRunning = errors.New("deployment is not running")
 
+// ErrInconsistentDeployment means indexed deployment columns disagree with the persisted payload.
+var ErrInconsistentDeployment = errors.New("deployment row and payload are inconsistent")
+
 // ErrInvalidCursor means a list cursor is malformed or unsupported.
 var ErrInvalidCursor = errors.New("invalid deployment cursor")
 
@@ -32,7 +35,7 @@ func NewStore(db *storage.Database) *Store { return &Store{db: db} }
 
 // List returns a lightweight page without loading desired snapshots or change arrays.
 func (s *Store) List(ctx context.Context, filter ListFilter) (Page, error) {
-	query := `SELECT id,stack,revision,status,started_at_ns,finished_at_ns,
+	query := `SELECT id,stack,revision,status,json_extract(payload,'$.status'),started_at_ns,finished_at_ns,
 	coalesce(json_extract(payload,'$.error_code'),''),
 	coalesce(json_extract(payload,'$.phase'),''),
 	coalesce(json_extract(payload,'$.apply_status'),''),
@@ -109,10 +112,11 @@ type summaryScanner interface {
 
 func scanSummary(row summaryScanner) (DeploymentSummary, error) {
 	var item DeploymentSummary
+	var payloadStatus Status
 	var started int64
 	var finished sql.NullInt64
 	var observed sql.NullString
-	err := row.Scan(&item.ID, &item.Stack, &item.Commit, &item.Status, &started, &finished,
+	err := row.Scan(&item.ID, &item.Stack, &item.Commit, &item.Status, &payloadStatus, &started, &finished,
 		&item.ErrorCode, &item.Phase, &item.ApplyStatus, &item.VerificationStatus, &item.CleanupStatus,
 		&item.ActualStateStatus, &observed, &item.ComparisonBasis, &item.ComparisonStatus,
 		&item.BasisDeploymentID, &item.Summary.Added, &item.Summary.Changed, &item.Summary.Removed,
@@ -120,6 +124,10 @@ func scanSummary(row summaryScanner) (DeploymentSummary, error) {
 		&item.Resources.Networks, &item.Resources.Volumes, &item.DiffAvailable)
 	if err != nil {
 		return DeploymentSummary{}, err
+	}
+	if payloadStatus != item.Status {
+		return DeploymentSummary{}, fmt.Errorf("%w: deployment %s column status %q payload status %q",
+			ErrInconsistentDeployment, item.ID, item.Status, payloadStatus)
 	}
 	item.StartedAt = time.Unix(0, started).UTC()
 	if finished.Valid {
@@ -158,11 +166,25 @@ func decodeCursor(cursor string) (int64, string, error) {
 
 // Get loads one attempt.
 func (s *Store) Get(ctx context.Context, id string) (Deployment, error) {
-	result, err := storage.GetJSON[Deployment](ctx, s.db.Get, "SELECT payload FROM deployments WHERE id=?", id)
-	if err == nil && result.Summary == (ChangeSummary{}) && len(result.Changes) > 0 {
+	var persistedStatus Status
+	var payload string
+	err := s.db.Get(ctx).QueryRowContext(ctx, "SELECT status,payload FROM deployments WHERE id=?", id).
+		Scan(&persistedStatus, &payload)
+	if err != nil {
+		return Deployment{}, notFound(err)
+	}
+	var result Deployment
+	if err = json.Unmarshal([]byte(payload), &result); err != nil {
+		return Deployment{}, err
+	}
+	if result.ID != id || result.Status != persistedStatus {
+		return Deployment{}, fmt.Errorf("%w: deployment %s column status %q payload id/status %q/%q",
+			ErrInconsistentDeployment, id, persistedStatus, result.ID, result.Status)
+	}
+	if result.Summary == (ChangeSummary{}) && len(result.Changes) > 0 {
 		result.Summary, result.Resources = summarize(result.Changes)
 	}
-	return result, notFound(err)
+	return result, nil
 }
 
 // Desired loads an attempt's safe definition for independent subscribers.

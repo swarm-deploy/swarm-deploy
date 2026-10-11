@@ -148,9 +148,6 @@ func (r *Reconciler) Reconcile(
 	if err := r.recoverPending(ctx, req.Stack.Name); err != nil {
 		return fmt.Errorf("recover deployment result: %w", err)
 	}
-	if err := r.deployments.InterruptStack(ctx, req.Stack.Name); err != nil {
-		return fmt.Errorf("interrupt unknown running deployment: %w", err)
-	}
 
 	composePath := filepath.Join(r.git.WorkingDir(), req.Stack.ComposeFile)
 	desiredState, err := r.composeLoader.Load(ctx, composePath)
@@ -347,11 +344,44 @@ func (r *Reconciler) recoverPending(ctx context.Context, stack string) error {
 		err = r.deployments.FailApplyWithError(ctx, pending.deploymentID, pending.state, pending.errorCode,
 			diagnosticError(pending.diagnostic))
 	}
-	if err != nil {
+	if err == nil {
+		delete(r.pending, stack)
+		return nil
+	}
+	if !errors.Is(err, deployment.ErrNotRunning) {
 		return err
 	}
-	delete(r.pending, stack)
-	return nil
+	return r.resolveCompletionConflict(ctx, stack, pending, err)
+}
+
+func (r *Reconciler) resolveCompletionConflict(
+	ctx context.Context, stack string, pending pendingCompletion, completionErr error,
+) error {
+	actual, err := r.deployments.Inspect(ctx, pending.deploymentID)
+	if err != nil {
+		return fmt.Errorf("inspect deployment completion conflict: %w", err)
+	}
+	if actual.Stack != stack {
+		return fmt.Errorf("deployment completion conflict stack mismatch: expected %s, actual %s",
+			stack, actual.Stack)
+	}
+	switch actual.Status {
+	case deployment.Succeeded, deployment.Failed, deployment.Interrupted:
+		slog.WarnContext(ctx, "deployment completion lifecycle conflict",
+			slog.String("deployment_id", pending.deploymentID),
+			slog.String("stack", stack),
+			slog.String("expected_status", string(pending.status)),
+			slog.String("actual_status", string(actual.Status)),
+		)
+		delete(r.pending, stack)
+		return nil
+	case deployment.Running:
+		return fmt.Errorf("completion returned not running but deployment %s is running: %w",
+			pending.deploymentID, completionErr)
+	default:
+		return fmt.Errorf("deployment %s has invalid status %q: %w",
+			pending.deploymentID, actual.Status, deployment.ErrInconsistentDeployment)
+	}
 }
 
 func preparationFailureStage(err error) string {

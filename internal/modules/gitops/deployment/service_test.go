@@ -98,11 +98,23 @@ func TestFailedCommitAndCrashKeepSuccessfulBaseline(t *testing.T) {
 	db, err = storage.Open(ctx, dir)
 	require.NoError(t, err)
 	defer db.Close()
-	service = NewService(db, outbox.New(db))
+	_, err = db.Get(ctx).ExecContext(ctx, "DROP TRIGGER reject_publication")
+	require.NoError(t, err)
+	bus = outbox.New(db)
+	h, err = history.NewSQLStore(db, 50)
+	require.NoError(t, err)
+	require.NoError(t, bus.Subscribe(events.TypeNameDeployInterrupted, "interrupted-history", h))
+	service = NewService(db, bus)
+	require.NoError(t, service.InterruptRunning(ctx))
 	require.NoError(t, service.InterruptRunning(ctx))
 	current, err := NewStore(db).Get(ctx, second.ID)
 	require.NoError(t, err)
 	assert.Equal(t, Interrupted, current.Status)
+	var interruptedEvents int
+	require.NoError(t, db.Get(ctx).QueryRowContext(ctx,
+		"SELECT count(*) FROM outbox_events WHERE event_type=?", events.TypeNameDeployInterrupted).
+		Scan(&interruptedEvents))
+	assert.Equal(t, 1, interruptedEvents, "orphan recovery must publish exactly one interruption")
 	baseline, err = NewStore(db).Baseline(ctx, "app")
 	require.NoError(t, err)
 	assert.Equal(t, "api:1", baseline.Definition.Compose.Services[0].Image)
@@ -110,10 +122,10 @@ func TestFailedCommitAndCrashKeepSuccessfulBaseline(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, retry)
 	assert.NotEqual(t, second.ID, retry.ID)
-	require.NoError(t, service.Fail(ctx, retry.ID, model.Stack{}, "policy_rejected"))
+	require.NoError(t, service.Succeed(ctx, retry.ID, model.Stack{LastCommit: "second", SourceDigest: "second"}))
 	baseline, err = NewStore(db).Baseline(ctx, "app")
 	require.NoError(t, err)
-	assert.Equal(t, "api:1", baseline.Definition.Compose.Services[0].Image)
+	assert.Equal(t, "api:2", baseline.Definition.Compose.Services[0].Image)
 }
 
 func TestRollbackToBaselineRetriesAfterUnsuccessfulAttempt(t *testing.T) {
@@ -225,6 +237,24 @@ func TestInterruptedTransitionIsAtomicDurableAndIdempotent(t *testing.T) {
 	assert.Equal(t, 1, eventsCount)
 	_, err = NewStore(db).Baseline(ctx, "app")
 	assert.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestStoreRejectsColumnAndPayloadStatusMismatch(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.Open(ctx, t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+	service := NewService(db, outbox.New(db))
+	attempt, err := service.StartIfChanged(ctx, "app", "commit", desired("api:1"), true)
+	require.NoError(t, err)
+	_, err = db.Get(ctx).ExecContext(ctx,
+		"UPDATE deployments SET payload=json_set(payload,'$.status','failed') WHERE id=?", attempt.ID)
+	require.NoError(t, err)
+	store := NewStore(db)
+	_, err = store.Get(ctx, attempt.ID)
+	require.ErrorIs(t, err, ErrInconsistentDeployment)
+	_, err = store.List(ctx, ListFilter{Stack: "app"})
+	require.ErrorIs(t, err, ErrInconsistentDeployment)
 }
 
 func TestSnapshotMaskingAndSemanticChanges(t *testing.T) {
