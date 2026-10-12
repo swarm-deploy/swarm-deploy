@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	deploymentnotifications "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment/notifications"
+	eventnotifications "github.com/swarm-deploy/swarm-deploy/internal/modules/event/notifications"
 	notificationtemplate "github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/template"
 )
 
@@ -22,12 +22,12 @@ func TestDeploymentNotificationPayload(t *testing.T) {
 	}})
 	require.NoError(t, err)
 
-	actual, ok := payload.(deploymentnotifications.Payload)
+	actual, ok := payload.(eventnotifications.DeploymentPayload)
 	require.True(t, ok)
 	assert.Equal(t, "event-1", actual.ID)
-	assert.Equal(t, deploymentnotifications.StatusFailed, actual.Status)
+	assert.Equal(t, eventnotifications.StatusFailed, actual.Status)
 	assert.Equal(t, "payments", actual.StackName)
-	assert.Equal(t, []deploymentnotifications.Service{{Name: "api", Image: "registry.example.com/api:v3"}}, actual.Services)
+	assert.Equal(t, []eventnotifications.DeploymentService{{Name: "api", Image: "registry.example.com/api:v3"}}, actual.Services)
 	assert.Equal(t, "apply rejected", actual.Error)
 	assert.Equal(t, occurredAt.UTC(), actual.OccurredAt)
 }
