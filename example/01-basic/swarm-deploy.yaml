@@ -36,44 +36,34 @@ eventHistory:
   # Maximum number of events stored on disk.
   capacity: 500
 
-# Notification channels grouped by event type.
+# Notification transport and explicit event subscriptions.
 notifications:
-  on:
-    # Event type: deploySuccess | deployFailed | servicePruned | syncManualStarted | nodeJoined | nodeConnected | nodeDisconnected | userAuthenticated
+  messengers:
+    telegram:
+      botTokenPath: /run/secrets/telegram_bot_token
+      chats:
+        default:
+          id: "-1001234567890"
+          threadId: 42
+        deployments:
+          id: "-1001234567890"
+          threadId: 155
+  events:
     deploySuccess:
       telegram:
-        - name: ops-success
-          botTokenPath: /run/secrets/telegram_bot_token
-          chatId: "-1001234567890"
+        - chats: deployments
+          message: |
+            💚 deploy {{ .Status }}
+            stack: {{ .StackName }}
       custom:
         - name: success-webhook
           url: https://hooks.example.com/deploy-success
           method: POST
           header:
             Content-Type: application/json
-
-    deployFailed:
-      telegram:
-        - name: ops-failed
-          botTokenPath: /run/secrets/telegram_bot_token
-          chatId: "-1001234567890"
-          message: |
-            deploy {{ .Status }}
-            stack_name: {{ .StackName }}
-            {{- range .Services }}
-            service: {{ .Name }}
-            image: {{ .Image }}
-            {{- end }}
-            {{- if .Error }}
-            error: {{ .Error }}
-            {{- end }}
-
     syncManualStarted:
       telegram:
-        - name: ops-manual-sync
-          botTokenPath: /run/secrets/telegram_bot_token
-          chatId: "-1001234567890"
-          message: |
+        - message: |
             sync started manually
 
 # Secret/config name rotation settings.
