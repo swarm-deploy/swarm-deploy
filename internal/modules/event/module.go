@@ -79,9 +79,9 @@ func (s *Module) Run(ctx context.Context) error { return s.Bus.Run(ctx) }
 func (s *Module) initNotificationSubscribers(ctx context.Context) error {
 	subscribersCount := 0
 
-	for eventTypeName, channels := range s.cfg.Spec.Notifications.On {
-		if !eventTypeName.Valid() && eventTypeName != events.TypeNameDeployFailed {
-			return fmt.Errorf("unknown notifications.on event type %q", eventTypeName)
+	for eventTypeName, channels := range s.cfg.Spec.Notifications.Events {
+		if !eventTypeName.Valid() {
+			return fmt.Errorf("unknown notifications.events event type %q", eventTypeName)
 		}
 
 		targetTypes := notificationEventTypes(eventTypeName)
@@ -114,35 +114,40 @@ func (s *Module) initNotificationSubscribers(ctx context.Context) error {
 }
 
 func (s *Module) registerTelegramNotifications(
-	types []events.TypeName,
-	channels []config.TelegramChannel,
-	defaultTemplate string,
+    types []events.TypeName,
+    channels []config.TelegramChannel,
+    defaultTemplate string,
 ) (int, error) {
-	count := 0
-	for _, channel := range channels {
-		notifier, err := notifiers.NewTelegramNotifier(
-			channel.Name, string(channel.BotToken.Content), channel.ChatID,
-			notifiers.TelegramOptions{
-				ChatThreadID: channel.ChatThreadID, Message: channel.Message, DefaultMessage: defaultTemplate,
-				Retries:       s.cfg.Spec.Notifications.Messengers.Telegram.Retries,
-				SOCKS5Address: s.cfg.Spec.Notifications.Messengers.Telegram.Proxy.SOCKS5.Address.Value,
-			},
-		)
-		if err != nil {
-			return 0, fmt.Errorf("build telegram notifier %q: %w", channel.Name, err)
-		}
-		// The public bot ID survives token rotation and distinguishes bots in the same chat.
-		botID, _, _ := strings.Cut(string(channel.BotToken.Content), ":")
-		id := fmt.Sprintf("notification:telegram:%s:%x:%v:%v", channel.Name,
-			sha256.Sum256([]byte(botID)), channel.ChatID, channel.ChatThreadID)
-		for _, typ := range types {
-			if err = s.Dispatcher.Subscribe(typ, id, outbox.External(notify2.NewSubscriber(notifier))); err != nil {
-				return 0, err
-			}
-			count++
-		}
-	}
-	return count, nil
+    count := 0
+    telegram := s.cfg.Spec.Notifications.Messengers.Telegram
+    botID, _, _ := strings.Cut(string(telegram.BotToken.Content), ":")
+    for _, channel := range channels {
+        for _, chatName := range channel.ChatNames() {
+            chat := telegram.Chats[chatName]
+            notifier, err := notifiers.NewTelegramNotifier(
+                chatName, string(telegram.BotToken.Content), chat.ID,
+                notifiers.TelegramOptions{
+                    ChatThreadID: chat.ThreadID, Message: channel.Message, DefaultMessage: defaultTemplate,
+                    Retries: telegram.Retries, SOCKS5Address: telegram.Proxy.SOCKS5.Address.Value,
+                },
+            )
+            if err != nil {
+                return 0, fmt.Errorf("build telegram notifier %q: %w", chatName, err)
+            }
+            // Route identity must remain unique for independently delivered rules.
+            // The destination identity is stable across chat alias changes.
+            id := fmt.Sprintf("notification:telegram:%x:%s:%d:%x",
+                sha256.Sum256([]byte(botID)), chat.ID, chat.ThreadID,
+                sha256.Sum256([]byte(channel.Message+"\x00"+defaultTemplate)))
+            for _, typ := range types {
+                if err = s.Dispatcher.Subscribe(typ, id, outbox.External(notify2.NewSubscriber(notifier))); err != nil {
+                    return 0, err
+                }
+                count++
+            }
+        }
+    }
+    return count, nil
 }
 
 func (s *Module) registerCustomNotifications(types []events.TypeName, channels []config.CustomChannel) (int, error) {
