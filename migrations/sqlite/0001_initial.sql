@@ -80,6 +80,9 @@ CREATE INDEX idx_nodes_hostname ON nodes(hostname,id);
 CREATE TABLE services (
     stack TEXT NOT NULL, name TEXT NOT NULL, payload TEXT NOT NULL CHECK (json_valid(payload)), PRIMARY KEY(stack,name)
 );
+CREATE TABLE service_catalog_receipts (
+    source_event_id TEXT NOT NULL PRIMARY KEY
+);
 -- id, name and timestamps live only in columns; payload holds version, driver and source Docker labels.
 -- description, managed, external_path and external_version_id are derived from labels on read.
 CREATE TABLE secret_metadata (
@@ -167,6 +170,7 @@ DROP TABLE assistant_turns;
 DROP TABLE assistant_chats;
 DROP TABLE recommendations;
 DROP TABLE secret_metadata;
+DROP TABLE service_catalog_receipts;
 DROP TABLE services;
 DROP TABLE nodes;
 DROP TABLE gitops_runtime;

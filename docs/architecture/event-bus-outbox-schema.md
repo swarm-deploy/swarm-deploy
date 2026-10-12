@@ -44,9 +44,10 @@ diagnostics expose event/subscription IDs, attempt, error type and a stable fail
 - The repository and Bus use a common `DBGetter(ctx)` to select `*sql.Tx` when the context carries a transaction or `*sql.DB` otherwise.
 - A root `Bus.Publish(ctx, event)` outside a transaction starts a **short** transaction to insert envelope + deliveries. It **never invokes a handler inline**.
 - Subscriber handlers are invoked only by the worker after T1 committed. DB-only subscribers receive a worker-created transaction-bearing context; their repositories, and any `Publish` calls that emit follow-up events, join **T3**.
-- Nested events (currently `ServiceCatalogUpdated`) are **new outbox publications in T3**; their subscribers process them in subsequent worker transactions. No synchronous recursive dispatch or in-transaction FIFO is needed.
+- Nested events are new outbox publications committed with the handler's database work; their subscribers process them in subsequent worker transactions. No synchronous recursive dispatch or in-transaction FIFO is needed.
 - An external-I/O subscriber must not run while an open SQLite write transaction is held; it runs with a non-transactional context and its delivery is acknowledged afterwards.
-- DB-only handlers' side effects and delivery acknowledgements commit together for crash-safe idempotence. External handlers run outside the write transaction.
+- DB-only handlers' side effects and delivery acknowledgements commit together for crash-safe idempotence. External handlers run separately from their ACK and therefore require their own idempotency mechanism when they commit database side effects.
+- Service Catalog is external because it inspects Docker. After inspection it atomically inserts `service_catalog_receipts`, replaces the catalog and publishes `ServiceCatalogUpdated`; a repeated source event skips both persistence and child publication.
 - Publish failure and SQL commit errors propagate back to T1's caller. Subscriber errors are handled asynchronously and **cannot** alter T1's outcome.
 - Safe, versioned codecs exclude arbitrary `compose.File`, secrets, Go `error`, and raw Docker objects from SQLite. Global temporal deduplication does not suppress authentic events.
 
@@ -175,8 +176,9 @@ T2: Worker claims notification delivery
 
 T2: Worker claims service catalog delivery
     Inspect Docker outside a write transaction
-    Commit catalog + serviceCatalogUpdated child + parent ACK atomically
-    A rollback retries the complete T3 without a separate receipt table
+    Commit source receipt + catalog + serviceCatalogUpdated child atomically
+    ACK the parent delivery separately
+    A retry after commit but before ACK is suppressed by the source receipt
 
 T2/T3: RAG child delivery reads committed catalog and refreshes external index
 ```
