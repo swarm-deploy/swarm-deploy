@@ -49,13 +49,13 @@ completion itself is process memory and disappears with the process:
 - current and previous Swarm task/container IDs, node IDs, start times, desired/current states, and application logs;
 - `/api/v1/deployments` plus `/api/v1/deployments/{id}` for every relevant attempt ID;
 - the controller runtime sync reason, revision, result, and full recovery error;
-- `deployments` rows including both the indexed `status` and `json_extract(payload,'$.status')`, timestamps, revision,
-  error code, and deployment ID;
+- `deployments` rows including SQL status, phase, timestamps, commit, error code, deployment ID, and the
+  `details_payload` needed to diagnose the attempt;
 - `desired_snapshots`, matching `outbox_events`/`outbox_deliveries`, and the current Git revision/digest;
 - the consistent SQLite backup and its integrity-check result.
 
 Do not infer that the attempt displayed in the UI is the same ID as a completion retained in memory. Correlate IDs,
-revision, timestamps, logs, and both persisted status representations.
+commit, timestamps, logs, and persisted status.
 
 ## Controller ownership and recovery
 

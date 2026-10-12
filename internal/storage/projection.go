@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
@@ -13,12 +14,16 @@ import (
 func AdvanceProjection(
 	ctx context.Context, db *Database, projection, resource string, at time.Time, id string,
 ) (bool, error) {
+	if at.IsZero() {
+		return false, fmt.Errorf("projection occurrence time is required")
+	}
+	at = at.UTC()
 	accepted := false
 	err := db.WithinTransaction(ctx, func(ctx context.Context) error {
 		record := goqu.Record{
 			"projection":      projection,
 			"resource":        resource,
-			"occurred_at_ms":  at.UnixMilli(),
+			"occurred_at":     at,
 			"source_event_id": id,
 		}
 		query, args, buildErr := goqu.Dialect("sqlite3").Insert("projection_versions").Prepared(true).
@@ -41,10 +46,10 @@ func AdvanceProjection(
 			return nil
 		}
 		query, args, buildErr = goqu.Dialect("sqlite3").Update("projection_versions").Prepared(true).
-			Set(goqu.Record{"occurred_at_ms": at.UnixMilli(), "source_event_id": id}).
+			Set(goqu.Record{"occurred_at": at, "source_event_id": id}).
 			Where(
 				goqu.Ex{"projection": projection, "resource": resource},
-				goqu.L("(?,?) > (occurred_at_ms,source_event_id)", at.UnixMilli(), id),
+				goqu.L("(?,?) > (occurred_at,source_event_id)", at, id),
 			).
 			ToSQL()
 		if buildErr != nil {

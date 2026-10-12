@@ -2,7 +2,7 @@ package modelstore
 
 import (
 	"context"
-	"time"
+	"fmt"
 
 	"github.com/doug-martin/goqu/v9"
 	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
@@ -26,24 +26,15 @@ func keyOf(r model.Recommendation) recommendationKey {
 // NewSQLStore creates a recommendation repository.
 func NewSQLStore(db *storage.Database) *SQLStore { return &SQLStore{db: db} }
 
-// recommendationRow mirrors the List projection for sqlx scanning.
-type recommendationRow struct {
-	Severity       string `db:"severity"`
-	Type           string `db:"type"`
-	Stack          string `db:"stack"`
-	Service        string `db:"service"`
-	SourceFile     string `db:"source_file"`
-	SourceDigest   string `db:"source_digest"`
-	SourceCommit   string `db:"source_commit"`
-	Title          string `db:"title"`
-	Recommendation string `db:"recommendation"`
-	CreatedAt      string `db:"created_at"`
-}
-
 // List filters recommendations in their persisted sequence.
 func (s *SQLStore) List(ctx context.Context, filter ListFilter) ([]model.Recommendation, error) {
 	dataset := goqu.Dialect("sqlite3").From("recommendations").Prepared(true).Select(
-		"severity", "type", "stack", "service", "source_file", "source_digest", "source_commit",
+		"severity", "type",
+		goqu.I("stack").As(goqu.C("subject.stack")),
+		goqu.I("service").As(goqu.C("subject.service")),
+		goqu.I("source_file").As(goqu.C("source.file")),
+		goqu.I("source_digest").As(goqu.C("source.digest")),
+		goqu.I("source_commit").As(goqu.C("source.commit")),
 		"title", "recommendation", "created_at",
 	)
 	if filter.Stack != "" {
@@ -57,24 +48,9 @@ func (s *SQLStore) List(ctx context.Context, filter ListFilter) ([]model.Recomme
 	if err != nil {
 		return nil, err
 	}
-	var rows []recommendationRow
-	if err = s.db.Select(ctx, &rows, query, args...); err != nil {
+	result := []model.Recommendation{}
+	if err = s.db.Select(ctx, &result, query, args...); err != nil {
 		return nil, err
-	}
-	result := make([]model.Recommendation, 0, len(rows))
-	for _, row := range rows {
-		r := model.Recommendation{
-			Severity:       model.Severity(row.Severity),
-			Type:           model.Type(row.Type),
-			Title:          row.Title,
-			Recommendation: row.Recommendation,
-		}
-		r.Subject.Stack, r.Subject.Service = row.Stack, row.Service
-		r.Source.File, r.Source.Digest, r.Source.Commit = row.SourceFile, row.SourceDigest, row.SourceCommit
-		if r.CreatedAt, err = time.Parse(time.RFC3339Nano, row.CreatedAt); err != nil {
-			return nil, err
-		}
-		result = append(result, r)
 	}
 	return result, nil
 }
@@ -100,8 +76,9 @@ func (s *SQLStore) UpdateStack(ctx context.Context, stack string, recommendation
 		}
 		for _, r := range recommendations {
 			r.Subject.Stack = stack
-			if existing, ok := byKey[keyOf(r)]; ok {
-				r = existing
+			r, err = recommendationForStorage(r, byKey)
+			if err != nil {
+				return err
 			}
 			// A single composite UNIQUE(stack,service,source_file,type) constraint is the
 			// only non-rowid conflict source here, so an untargeted DO NOTHING is safe.
@@ -111,7 +88,7 @@ func (s *SQLStore) UpdateStack(ctx context.Context, stack string, recommendation
 					"service": r.Subject.Service, "source_file": r.Source.File,
 					"source_digest": r.Source.Digest, "source_commit": r.Source.Commit,
 					"title": r.Title, "recommendation": r.Recommendation,
-					"created_at": r.CreatedAt.Format(time.RFC3339Nano),
+					"created_at": r.CreatedAt.UTC(),
 				}).
 				OnConflict(goqu.DoNothing()).ToSQL()
 			if insertErr != nil {
@@ -123,4 +100,16 @@ func (s *SQLStore) UpdateStack(ctx context.Context, stack string, recommendation
 		}
 		return nil
 	})
+}
+
+func recommendationForStorage(
+	r model.Recommendation, previous map[recommendationKey]model.Recommendation,
+) (model.Recommendation, error) {
+	if existing, ok := previous[keyOf(r)]; ok {
+		r.CreatedAt = existing.CreatedAt
+	}
+	if r.CreatedAt.IsZero() {
+		return model.Recommendation{}, fmt.Errorf("recommendation creation time is required")
+	}
+	return r, nil
 }

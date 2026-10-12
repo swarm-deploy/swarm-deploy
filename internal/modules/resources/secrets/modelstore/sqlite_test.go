@@ -44,21 +44,25 @@ func TestSecretsRoundTripAndPhysicalPayload(t *testing.T) {
 	assert.ErrorIs(t, err, ErrSecretNotFound)
 
 	var row struct {
-		ID      string `db:"id"`
-		Name    string `db:"name"`
-		Payload string `db:"payload"`
+		ID        string    `db:"id"`
+		Name      string    `db:"name"`
+		CreatedAt time.Time `db:"created_at"`
+		UpdatedAt time.Time `db:"updated_at"`
+		Payload   string    `db:"payload"`
 	}
-	require.NoError(t, db.Get(t.Context(), &row, "SELECT id,name,payload FROM secret_metadata WHERE name='b'"))
+	require.NoError(t, db.Get(t.Context(), &row,
+		"SELECT id,name,created_at,updated_at,payload FROM secret_metadata WHERE name='b'"))
 	assert.Equal(t, "id-b", row.ID)
 	assert.Equal(t, "b", row.Name)
+	assert.Equal(t, ts, row.CreatedAt.UTC())
+	assert.Equal(t, ts, row.UpdatedAt.UTC())
 	for _, key := range []string{"id", "name", "description", "managed", "external_path", "external_version_id"} {
 		var count int
 		require.NoError(t, db.Get(t.Context(), &count,
 			"SELECT json_type(payload,'$.'||?) IS NOT NULL FROM secret_metadata WHERE name='b'", key))
 		assert.Zero(t, count, "payload must not contain %q", key)
 	}
-	assert.JSONEq(t, `{"version_id":7,"created_at":"2026-01-02T03:04:05Z","updated_at":"2026-01-02T03:04:05Z",
-		"driver":"drv","labels":{"description":"desc","external_path":"kv/b","external_version_id":"3",
+	assert.JSONEq(t, `{"version_id":7,"driver":"drv","labels":{"description":"desc","external_path":"kv/b","external_version_id":"3",
 		"cloud-secrets.secret.managed":"true"}}`, row.Payload)
 
 	var payload string
@@ -68,13 +72,17 @@ func TestSecretsRoundTripAndPhysicalPayload(t *testing.T) {
 
 func TestSecretsReplaceEmptyAndRollback(t *testing.T) {
 	store, db := newStore(t)
+	now := time.Now().UTC()
 	list, err := store.List(t.Context())
 	require.NoError(t, err)
 	assert.Empty(t, list)
 
-	require.NoError(t, store.Replace(t.Context(), []model.Secret{{ID: "1", Name: "x"}}))
+	require.NoError(t, store.Replace(t.Context(), []model.Secret{{ID: "1", Name: "x", CreatedAt: now, UpdatedAt: now}}))
 	// duplicate names violate UNIQUE and must roll the whole replacement back.
-	err = store.Replace(t.Context(), []model.Secret{{ID: "2", Name: "y"}, {ID: "3", Name: "y"}})
+	err = store.Replace(t.Context(), []model.Secret{
+		{ID: "2", Name: "y", CreatedAt: now, UpdatedAt: now},
+		{ID: "3", Name: "y", CreatedAt: now, UpdatedAt: now},
+	})
 	require.Error(t, err)
 	var name string
 	require.NoError(t, db.Get(t.Context(), &name, "SELECT name FROM secret_metadata"))
@@ -87,17 +95,18 @@ func TestSecretsReplaceEmptyAndRollback(t *testing.T) {
 }
 
 func TestSecretsReplaceRejectsFieldsNotBackedByLabels(t *testing.T) {
+	now := time.Now().UTC()
 	for name, secret := range map[string]model.Secret{
-		"description":         {ID: "1", Name: "x", Description: "d"},
-		"external_path":       {ID: "1", Name: "x", ExternalPath: "p"},
-		"external_version_id": {ID: "1", Name: "x", ExternalVersionID: "v"},
-		"managed":             {ID: "1", Name: "x", Managed: true},
+		"description":         {ID: "1", Name: "x", Description: "d", CreatedAt: now, UpdatedAt: now},
+		"external_path":       {ID: "1", Name: "x", ExternalPath: "p", CreatedAt: now, UpdatedAt: now},
+		"external_version_id": {ID: "1", Name: "x", ExternalVersionID: "v", CreatedAt: now, UpdatedAt: now},
+		"managed":             {ID: "1", Name: "x", Managed: true, CreatedAt: now, UpdatedAt: now},
 		"label mismatch": {ID: "1", Name: "x", Description: "d",
-			Labels: map[string]string{model.DescriptionLabel: "other"}},
+			CreatedAt: now, UpdatedAt: now, Labels: map[string]string{model.DescriptionLabel: "other"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			store, db := newStore(t)
-			keep := model.Secret{ID: "0", Name: "keep"}
+			keep := model.Secret{ID: "0", Name: "keep", CreatedAt: now, UpdatedAt: now}
 			require.NoError(t, store.Replace(t.Context(), []model.Secret{keep}))
 			require.Error(t, store.Replace(t.Context(), []model.Secret{secret}))
 			var count int

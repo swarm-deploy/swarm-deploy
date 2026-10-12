@@ -52,7 +52,7 @@ diagnostics expose event/subscription IDs, attempt, error type and a stable fail
 
 ## SQLite DDL: Outbox subset of `0001_initial`
 
-All timestamps are UTC Unix milliseconds. SQLite requires `PRAGMA foreign_keys=ON` for every connection; use WAL, busy timeout, and a pure-Go compatible driver (`CGO_ENABLED=0` build).
+All SQL timestamps are declared as `TIMESTAMP`, stored as UTC Unix nanoseconds in SQLite `INTEGER` values, and converted by the driver. SQLite requires `PRAGMA foreign_keys=ON` for every connection; use WAL, busy timeout, and a pure-Go compatible driver (`CGO_ENABLED=0` build).
 
 ```sql
 CREATE TABLE outbox_events (
@@ -60,8 +60,7 @@ CREATE TABLE outbox_events (
     id             TEXT NOT NULL UNIQUE,
     event_type     TEXT NOT NULL,
     schema_version INTEGER NOT NULL CHECK (schema_version >= 1),
-    occurred_at_ms INTEGER NOT NULL,
-    correlation_id TEXT,
+    occurred_at    TIMESTAMP NOT NULL CHECK (typeof(occurred_at) = 'integer'),
     causation_id   TEXT,
     payload        TEXT NOT NULL CHECK (json_valid(payload))
 );
@@ -73,23 +72,23 @@ CREATE TABLE outbox_deliveries (
     status          TEXT NOT NULL DEFAULT 'pending'
                     CHECK (status IN ('pending', 'processing', 'delivered', 'failed')),
     attempts        INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
-    available_at_ms INTEGER NOT NULL,
-    lease_until_ms  INTEGER,
+    available_at    TIMESTAMP NOT NULL CHECK (typeof(available_at) = 'integer'),
+    lease_until     TIMESTAMP CHECK (lease_until IS NULL OR typeof(lease_until) = 'integer'),
     lease_token     TEXT,
     last_error      TEXT,
-    updated_at_ms   INTEGER NOT NULL,
+    updated_at      TIMESTAMP NOT NULL CHECK (typeof(updated_at) = 'integer'),
     PRIMARY KEY (event_id, subscription_id),
     CHECK (
-        (status = 'processing' AND lease_until_ms IS NOT NULL AND lease_token IS NOT NULL)
+        (status = 'processing' AND lease_until IS NOT NULL AND lease_token IS NOT NULL)
         OR
-        (status <> 'processing' AND lease_until_ms IS NULL AND lease_token IS NULL)
+        (status <> 'processing' AND lease_until IS NULL AND lease_token IS NULL)
     )
 );
 
 CREATE INDEX idx_outbox_delivery_due
-    ON outbox_deliveries(status, available_at_ms);
+    ON outbox_deliveries(status, available_at);
 CREATE INDEX idx_outbox_delivery_expired_lease
-    ON outbox_deliveries(status, lease_until_ms);
+    ON outbox_deliveries(status, lease_until);
 ```
 
 **Why two tables?** One envelope can fan out to several subscribers with different progress. A successfully handled Event History delivery must not be retried solely because a Telegram destination is temporarily unavailable.
@@ -121,17 +120,17 @@ WITH due AS (
     SELECT event_id, subscription_id
     FROM outbox_deliveries
     WHERE
-        (status = 'pending' AND available_at_ms <= ?)
-        OR (status = 'processing' AND lease_until_ms <= ?)
-    ORDER BY available_at_ms, event_id, subscription_id
+        (status = 'pending' AND available_at <= ?)
+        OR (status = 'processing' AND lease_until <= ?)
+    ORDER BY available_at, event_id, subscription_id
     LIMIT 1
 )
 UPDATE outbox_deliveries
 SET status = 'processing',
     attempts = attempts + 1,
     lease_token = ?,
-    lease_until_ms = ?,
-    updated_at_ms = ?
+    lease_until = ?,
+    updated_at = ?
 WHERE (event_id, subscription_id) IN
       (SELECT event_id, subscription_id FROM due)
 RETURNING event_id, subscription_id, attempts, lease_token;
@@ -176,8 +175,8 @@ T2: Worker claims notification delivery
 
 T2: Worker claims service catalog delivery
     Inspect Docker outside a write transaction
-    Commit catalog + source receipt + serviceCatalogUpdated child atomically
-    Acknowledge parent delivery; replay cannot duplicate the child
+    Commit catalog + serviceCatalogUpdated child + parent ACK atomically
+    A rollback retries the complete T3 without a separate receipt table
 
 T2/T3: RAG child delivery reads committed catalog and refreshes external index
 ```

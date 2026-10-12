@@ -136,11 +136,11 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 		services = append(services, serviceInfo)
 	}
 
-	return s.persistProjection(ctx, event.ID, deploySuccess, services)
+	return s.persistProjection(ctx, deploySuccess, services)
 }
 
 func (s *Subscriber) persistProjection(
-	ctx context.Context, sourceID string, deploySuccess *events.DeploySuccess, services []model.Info,
+	ctx context.Context, deploySuccess *events.DeploySuccess, services []model.Info,
 ) error {
 	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		current, err := s.currentDeployment(ctx, deploySuccess)
@@ -148,24 +148,6 @@ func (s *Subscriber) persistProjection(
 			return err
 		}
 		if !current {
-			return nil
-		}
-		query, args, err := goqu.Dialect("sqlite3").Insert("service_catalog_receipts").Prepared(true).
-			Rows(goqu.Record{"source_event_id": sourceID}).
-			OnConflict(goqu.DoNothing()).
-			ToSQL()
-		if err != nil {
-			return err
-		}
-		result, err := s.db.Exec(ctx, query, args...)
-		if err != nil {
-			return err
-		}
-		count, err := result.RowsAffected()
-		if err != nil {
-			return err
-		}
-		if count == 0 {
 			return nil
 		}
 		if err = s.store.ReplaceStack(ctx, deploySuccess.StackName, services); err != nil {

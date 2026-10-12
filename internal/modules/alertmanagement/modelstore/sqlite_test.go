@@ -177,16 +177,16 @@ func TestAlertIndexesOrderingCoverage(t *testing.T) {
 		coversSorting bool
 	}{
 		{name: "deployment", query: `SELECT payload FROM alerts WHERE deployment_id='deployment-1'
-			ORDER BY updated_at_ns DESC,id`, coversSorting: true},
+			ORDER BY updated_at DESC,id`, coversSorting: true},
 		{name: "status", query: `SELECT payload FROM alerts WHERE status='open'
-			ORDER BY updated_at_ns DESC,id`, coversSorting: true},
+			ORDER BY updated_at DESC,id`, coversSorting: true},
 		{name: "kind without status", query: `SELECT payload FROM alerts WHERE kind='deploy_failed'
-			ORDER BY updated_at_ns DESC,id`, coversSorting: false},
+			ORDER BY updated_at DESC,id`, coversSorting: false},
 		{name: "resource without status", query: `SELECT payload FROM alerts
-			WHERE resource_type='stack' AND resource_id='api' ORDER BY updated_at_ns DESC,id`, coversSorting: false},
+			WHERE resource_type='stack' AND resource_id='api' ORDER BY updated_at DESC,id`, coversSorting: false},
 		{name: "open resource", query: `SELECT payload FROM alerts
 			WHERE resource_type='stack' AND resource_id='api' AND status='open'
-			ORDER BY updated_at_ns DESC,id`, coversSorting: true},
+			ORDER BY updated_at DESC,id`, coversSorting: true},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -224,16 +224,16 @@ func assertIndexedFields(t *testing.T, db *storage.Database, alert model.Alert) 
 		ResourceType model.ResourceType `db:"resource_type"`
 		ResourceID   string             `db:"resource_id"`
 		DeploymentID sql.NullString     `db:"deployment_id"`
-		OpenedAt     int64              `db:"opened_at_ns"`
+		OpenedAt     time.Time          `db:"opened_at"`
 		Payload      string             `db:"payload"`
 	}
 	require.NoError(t, db.Get(t.Context(), &row,
-		"SELECT kind,resource_type,resource_id,deployment_id,opened_at_ns,payload FROM alerts WHERE id=?", alert.ID))
+		"SELECT kind,resource_type,resource_id,deployment_id,opened_at,payload FROM alerts WHERE id=?", alert.ID))
 	assert.Equal(t, alert.Kind, row.Kind)
 	assert.Equal(t, alert.ResourceType, row.ResourceType)
 	assert.Equal(t, alert.ResourceID, row.ResourceID)
 	assert.Equal(t, alert.DeploymentID, row.DeploymentID.String)
-	assert.Equal(t, alert.OpenedAt.UnixNano(), row.OpenedAt)
+	assert.Equal(t, alert.OpenedAt.UTC(), row.OpenedAt.UTC())
 	var persisted map[string]any
 	require.NoError(t, json.Unmarshal([]byte(row.Payload), &persisted))
 	for _, field := range []string{"id", "fingerprint", "kind", "resourceType", "resourceId",
@@ -259,10 +259,10 @@ func TestAlertStorageColumnPayloadSeparationAndNullableFields(t *testing.T) {
 	var rawRow struct {
 		Raw          string         `db:"payload"`
 		DeploymentID sql.NullString `db:"deployment_id"`
-		ResolvedAt   sql.NullInt64  `db:"resolved_at_ns"`
+		ResolvedAt   sql.NullTime   `db:"resolved_at"`
 	}
 	require.NoError(t, db.Get(t.Context(), &rawRow,
-		"SELECT payload,deployment_id,resolved_at_ns FROM alerts WHERE id=?", alert.ID))
+		"SELECT payload,deployment_id,resolved_at FROM alerts WHERE id=?", alert.ID))
 	assert.False(t, rawRow.DeploymentID.Valid)
 	assert.False(t, rawRow.ResolvedAt.Valid)
 	assert.JSONEq(t, `{"title":"Failed","message":"Docker API rejected the update",

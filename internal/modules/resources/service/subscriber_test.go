@@ -10,12 +10,51 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	webroute "github.com/swarm-deploy/webroute/api"
 	"go.uber.org/mock/gomock"
 )
+
+type noOpSubscriber struct{}
+
+func (noOpSubscriber) Handle(context.Context, events.Envelope) error { return nil }
+
+func TestSubscriberProjectionAndChildEventAreAtomic(t *testing.T) {
+	db, err := storage.Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	store := modelstore.NewSQLStore(db)
+	bus := outbox.New(db)
+	require.NoError(t, bus.Subscribe(events.TypeNameServiceCatalogUpdated, "test", noOpSubscriber{}))
+	subscriber := &Subscriber{db: db, store: store, events: bus}
+	require.NoError(t, store.ReplaceStack(t.Context(), "app", []model.Info{{Name: "old", Stack: "app"}}))
+
+	_, err = db.Exec(t.Context(), `CREATE TRIGGER reject_catalog_event BEFORE INSERT ON outbox_events
+		WHEN NEW.event_type='serviceCatalogUpdated'
+		BEGIN SELECT RAISE(ABORT,'injected child publication failure'); END`)
+	require.NoError(t, err)
+	event := &events.DeploySuccess{DeployEvent: events.DeployEvent{StackName: "app"}}
+	services := []model.Info{{Name: "new", Stack: "app", Image: "new:1"}}
+	require.Error(t, subscriber.persistProjection(t.Context(), event, services))
+	_, oldExists, err := store.Find(t.Context(), "app", "old")
+	require.NoError(t, err)
+	assert.True(t, oldExists, "catalog replacement must roll back with child publication")
+
+	_, err = db.Exec(t.Context(), "DROP TRIGGER reject_catalog_event")
+	require.NoError(t, err)
+	require.NoError(t, subscriber.persistProjection(t.Context(), event, services))
+	stored, exists, err := store.Find(t.Context(), "app", "new")
+	require.NoError(t, err)
+	require.True(t, exists)
+	assert.Equal(t, "new:1", stored.Image)
+	var childEvents int
+	require.NoError(t, db.Get(t.Context(), &childEvents,
+		"SELECT count(*) FROM outbox_events WHERE event_type='serviceCatalogUpdated'"))
+	assert.Equal(t, 1, childEvents)
+}
 
 func TestSubscriberHandle(t *testing.T) {
 	t.Parallel()

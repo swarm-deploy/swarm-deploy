@@ -9,10 +9,132 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func TestTimestampRoundTrip(t *testing.T) {
+	db, err := Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	_, err = db.Exec(t.Context(), `CREATE TABLE timestamp_round_trip (
+		id TEXT NOT NULL PRIMARY KEY,
+		required_at TIMESTAMP NOT NULL CHECK (typeof(required_at) = 'integer'),
+		optional_at TIMESTAMP CHECK (optional_at IS NULL OR typeof(optional_at) = 'integer')
+	)`)
+	require.NoError(t, err)
+
+	source := time.Date(2026, 4, 5, 6, 7, 8, 123456789, time.FixedZone("test", 3*60*60))
+	valid := sql.NullTime{Time: source, Valid: true}
+	_, err = db.Exec(t.Context(),
+		"INSERT INTO timestamp_round_trip(id,required_at,optional_at) VALUES (?,?,?)",
+		"valid", source, valid,
+	)
+	require.NoError(t, err)
+	_, err = db.Exec(t.Context(),
+		"INSERT INTO timestamp_round_trip(id,required_at,optional_at) VALUES (?,?,?)",
+		"null", source.Add(time.Nanosecond), sql.NullTime{},
+	)
+	require.NoError(t, err)
+
+	var row struct {
+		Required time.Time    `db:"required_at"`
+		Optional sql.NullTime `db:"optional_at"`
+	}
+	require.NoError(t, db.Get(t.Context(), &row,
+		"SELECT required_at,optional_at FROM timestamp_round_trip WHERE id='valid'"))
+	assert.Equal(t, source.UTC(), row.Required)
+	assert.Equal(t, time.UTC, row.Required.Location())
+	require.True(t, row.Optional.Valid)
+	assert.Equal(t, source.UTC(), row.Optional.Time)
+	assert.Equal(t, source.Nanosecond(), row.Required.Nanosecond())
+
+	require.NoError(t, db.Get(t.Context(), &row,
+		"SELECT required_at,optional_at FROM timestamp_round_trip WHERE id='null'"))
+	assert.False(t, row.Optional.Valid)
+
+	var storageTypes struct {
+		Required string         `db:"required_type"`
+		Optional sql.NullString `db:"optional_type"`
+	}
+	require.NoError(t, db.Get(t.Context(), &storageTypes,
+		`SELECT typeof(required_at) AS required_type, typeof(optional_at) AS optional_type
+		 FROM timestamp_round_trip WHERE id='valid'`))
+	assert.Equal(t, "integer", storageTypes.Required)
+	require.True(t, storageTypes.Optional.Valid)
+	assert.Equal(t, "integer", storageTypes.Optional.String)
+
+	var ids []string
+	require.NoError(t, db.Select(t.Context(), &ids,
+		"SELECT id FROM timestamp_round_trip ORDER BY required_at ASC"))
+	assert.Equal(t, []string{"valid", "null"}, ids)
+	var newer int
+	require.NoError(t, db.Get(t.Context(), &newer,
+		"SELECT count(*) FROM timestamp_round_trip WHERE required_at > ?", source))
+	assert.Equal(t, 1, newer)
+
+	txTime := source.Add(2 * time.Nanosecond)
+	require.NoError(t, db.WithinTransaction(t.Context(), func(ctx context.Context) error {
+		if _, execErr := db.Exec(ctx,
+			"INSERT INTO timestamp_round_trip(id,required_at,optional_at) VALUES (?,?,NULL)",
+			"transactional", txTime,
+		); execErr != nil {
+			return execErr
+		}
+		var got time.Time
+		if getErr := db.Get(ctx, &got,
+			"SELECT required_at FROM timestamp_round_trip WHERE id='transactional'",
+		); getErr != nil {
+			return getErr
+		}
+		assert.Equal(t, txTime.UTC(), got)
+		return nil
+	}))
+}
+
+func TestFreshDatabaseEnforcesForeignKeysAndChecks(t *testing.T) {
+	db, err := Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	now := time.Date(2026, 4, 5, 6, 7, 8, 9, time.UTC)
+
+	_, err = db.Exec(t.Context(), `INSERT INTO assistant_chats
+		(id,title,created_at,updated_at,input_tokens,output_tokens,total_tokens)
+		VALUES (?,?,?,?,NULL,NULL,NULL)`, "chat", "Chat", now, now)
+	require.NoError(t, err)
+	_, err = db.Exec(t.Context(),
+		"INSERT INTO assistant_turns(chat_id,sequence,payload) VALUES (?,?,?)", "chat", 0, `{}`)
+	require.NoError(t, err)
+	_, err = db.Exec(t.Context(), "UPDATE assistant_chats SET input_tokens=0 WHERE id='chat'")
+	require.Error(t, err, "usage counters must be either all NULL or all present")
+	_, err = db.Exec(t.Context(), "DELETE FROM assistant_chats WHERE id='chat'")
+	require.NoError(t, err)
+	var turns int
+	require.NoError(t, db.Get(t.Context(), &turns, "SELECT count(*) FROM assistant_turns"))
+	assert.Zero(t, turns, "chat deletion must cascade to turns")
+
+	_, err = db.Exec(t.Context(), `INSERT INTO deployments
+		(id,stack,"commit",status,error_code,phase,started_at,finished_at,
+		 desired_payload,details_payload,changes_payload)
+		VALUES (?,?,?,?,?,?,?,NULL,'{}','{}','[]')`,
+		"invalid-status", "app", "commit", "unknown", "", "apply", now)
+	require.Error(t, err)
+	_, err = db.Exec(t.Context(), `INSERT INTO deployments
+		(id,stack,"commit",status,error_code,phase,started_at,finished_at,
+		 desired_payload,details_payload,changes_payload)
+		VALUES (?,?,?,?,?,?,?,NULL,'{}','{}','[]')`,
+		"invalid-terminal-time", "app", "commit", "succeeded", "", "completed", now)
+	require.Error(t, err)
+	_, err = db.Exec(t.Context(),
+		"INSERT INTO desired_snapshots(stack,deployment_id) VALUES (?,?)", "app", "missing")
+	require.Error(t, err, "snapshot must reference an existing deployment")
+	_, err = db.Exec(t.Context(), `INSERT INTO outbox_events
+		(id,event_type,schema_version,occurred_at,payload) VALUES (?,?,?,?,?)`,
+		"text-time", "nodeJoined", 1, "2026-04-05T06:07:08Z", `{}`)
+	require.Error(t, err, "SQL timestamps must be stored as INTEGER")
+}
 
 func TestRestartAndRollback(t *testing.T) {
 	dir := t.TempDir()
@@ -25,7 +147,7 @@ func TestRestartAndRollback(t *testing.T) {
 		t.Run(tc.id, func(t *testing.T) {
 			sentinel := errors.New("rollback")
 			err := db.WithinTransaction(t.Context(), func(ctx context.Context) error {
-				_, err := db.Exec(ctx, `INSERT INTO outbox_events(id,event_type,schema_version,occurred_at_ms,payload) VALUES (?,'nodeJoined',1,0,'{}')`, tc.id)
+				_, err := db.Exec(ctx, `INSERT INTO outbox_events(id,event_type,schema_version,occurred_at,payload) VALUES (?,'nodeJoined',1,0,'{}')`, tc.id)
 				if err != nil {
 					return err
 				}

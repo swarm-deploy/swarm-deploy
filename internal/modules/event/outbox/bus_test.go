@@ -101,7 +101,7 @@ func TestProjectionAndChildPublicationRollbackTogether(t *testing.T) {
 	require.True(t, ok)
 	assert.Zero(t, rows(t, db, "projection"))
 	assert.Equal(t, 1, rows(t, db, "outbox_events"))
-	_, err = db.Exec(t.Context(), "UPDATE outbox_deliveries SET available_at_ms=0")
+	_, err = db.Exec(t.Context(), "UPDATE outbox_deliveries SET available_at=0")
 	require.NoError(t, err)
 	ok, err = bus.ProcessNext(t.Context())
 	require.NoError(t, err)
@@ -176,7 +176,7 @@ func TestLeaseRecoveryAndFencing(t *testing.T) {
 	// A fresh worker simulates process restart; it cannot use an unexpired lease.
 	restarted := New(db)
 	require.NoError(t, restarted.Subscribe(events.TypeNameNodeJoined, "history", handler))
-	_, err = db.Exec(t.Context(), "UPDATE outbox_deliveries SET lease_until_ms=0")
+	_, err = db.Exec(t.Context(), "UPDATE outbox_deliveries SET lease_until=0")
 	require.NoError(t, err)
 	second, err := restarted.claim(t.Context())
 	require.NoError(t, err)
@@ -229,7 +229,7 @@ func TestClaimQueryUsesActiveSubscriptionIndex(t *testing.T) {
 					sequence++
 					eventID := fmt.Sprintf("event-%06d", sequence)
 					_, err := db.Exec(t.Context(), `INSERT INTO outbox_events
-						(id,event_type,schema_version,occurred_at_ms,payload) VALUES (?,?,?,?,?)`,
+						(id,event_type,schema_version,occurred_at,payload) VALUES (?,?,?,?,?)`,
 						eventID, events.TypeNameNodeJoined, 1, sequence, `{}`)
 					require.NoError(t, err)
 					for subscriber := range testCase.subscribers {
@@ -238,7 +238,7 @@ func TestClaimQueryUsesActiveSubscriptionIndex(t *testing.T) {
 							leaseUntil, leaseToken = int64(sequence), "lease-token"
 						}
 						_, err = db.Exec(t.Context(), `INSERT INTO outbox_deliveries
-							(event_id,subscription_id,status,available_at_ms,lease_until_ms,lease_token,updated_at_ms)
+							(event_id,subscription_id,status,available_at,lease_until,lease_token,updated_at)
 							VALUES (?,?,?,?,?,?,?)`, eventID, fmt.Sprintf("subscriber-%02d", subscriber), status,
 							sequence, leaseUntil, leaseToken, sequence)
 						require.NoError(t, err)
@@ -248,9 +248,8 @@ func TestClaimQueryUsesActiveSubscriptionIndex(t *testing.T) {
 			}
 			_, err := db.Exec(t.Context(), "ANALYZE")
 			require.NoError(t, err)
-			query, args, err := claimStatement(
-				int64(1_000_000), int64(1_000_000), "token", int64(2_000_000), int64(1_000_000),
-			)
+			now := time.Unix(0, 1_000_000).UTC()
+			query, args, err := claimStatement(now, now, "token", time.Unix(0, 2_000_000).UTC(), now)
 			require.NoError(t, err)
 			var rows []struct {
 				ID     int    `db:"id"`

@@ -18,7 +18,7 @@ import (
 
 var alertColumns = []any{
 	"id", "fingerprint", "kind", "resource_type", "resource_id", "deployment_id", "status",
-	"opened_at_ns", "updated_at_ns", "resolved_at_ns", "payload",
+	"opened_at", "updated_at", "resolved_at", "payload",
 }
 
 var dialect = goqu.Dialect("sqlite3")
@@ -44,13 +44,13 @@ func (s *SQLStore) write(ctx context.Context, alert model.Alert, update bool) er
 	if err != nil {
 		return err
 	}
-	var resolved any
-	if alert.ResolvedAt != nil {
-		resolved = alert.ResolvedAt.UnixNano()
+	resolved, err := alertResolvedAt(alert)
+	if err != nil {
+		return err
 	}
-	var deploymentID any
+	deploymentID := sql.NullString{}
 	if alert.DeploymentID != "" {
-		deploymentID = alert.DeploymentID
+		deploymentID = sql.NullString{String: alert.DeploymentID, Valid: true}
 	}
 	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		query, args, buildErr := alertWriteStatement(alert, deploymentID, resolved, string(payload), update)
@@ -75,10 +75,10 @@ func (s *SQLStore) write(ctx context.Context, alert model.Alert, update bool) er
 		alertsCount := dialect.From("alerts").Prepared(true).Select(goqu.COUNT("*"))
 		rankedResolved := dialect.From("alerts").Prepared(true).Select(
 			"id",
-			goqu.L("row_number() OVER (ORDER BY resolved_at_ns,id)").As("prune_rank"),
+			goqu.L("row_number() OVER (ORDER BY resolved_at,id)").As("prune_rank"),
 		).
 			Where(goqu.Ex{"status": "resolved"}).
-			Order(goqu.I("resolved_at_ns").Asc(), goqu.I("id").Asc())
+			Order(goqu.I("resolved_at").Asc(), goqu.I("id").Asc())
 		pruned := dialect.From(rankedResolved.As("resolved")).Prepared(true).
 			Select("id").
 			Where(goqu.C("prune_rank").Lte(goqu.L("max((?)-?,0)", alertsCount, MaxStoredAlerts)))
@@ -93,23 +93,36 @@ func (s *SQLStore) write(ctx context.Context, alert model.Alert, update bool) er
 	})
 }
 
+func alertResolvedAt(alert model.Alert) (sql.NullTime, error) {
+	if alert.OpenedAt.IsZero() || alert.UpdatedAt.IsZero() {
+		return sql.NullTime{}, fmt.Errorf("alert timestamps are required")
+	}
+	if alert.ResolvedAt == nil {
+		return sql.NullTime{}, nil
+	}
+	if alert.ResolvedAt.IsZero() {
+		return sql.NullTime{}, fmt.Errorf("resolved alert timestamp is required")
+	}
+	return sql.NullTime{Time: alert.ResolvedAt.UTC(), Valid: true}, nil
+}
+
 func alertWriteStatement(
-	alert model.Alert, deploymentID, resolved any, payload string, update bool,
+	alert model.Alert, deploymentID sql.NullString, resolved sql.NullTime, payload string, update bool,
 ) (string, []any, error) {
 	if update {
 		record := goqu.Record{
 			"fingerprint": alert.Fingerprint, "kind": alert.Kind, "resource_type": alert.ResourceType,
 			"resource_id": alert.ResourceID, "deployment_id": deploymentID, "status": alert.Status,
-			"updated_at_ns": alert.UpdatedAt.UnixNano(), "resolved_at_ns": resolved, "payload": payload,
+			"updated_at": alert.UpdatedAt.UTC(), "resolved_at": resolved, "payload": payload,
 		}
 		return dialect.Update("alerts").Prepared(true).Set(record).
-			Where(goqu.Ex{"id": alert.ID, "opened_at_ns": alert.OpenedAt.UnixNano()}).ToSQL()
+			Where(goqu.Ex{"id": alert.ID, "opened_at": alert.OpenedAt.UTC()}).ToSQL()
 	}
 	record := goqu.Record{
 		"id": alert.ID, "fingerprint": alert.Fingerprint, "kind": alert.Kind, "resource_type": alert.ResourceType,
 		"resource_id": alert.ResourceID, "deployment_id": deploymentID, "status": alert.Status,
-		"opened_at_ns": alert.OpenedAt.UnixNano(), "updated_at_ns": alert.UpdatedAt.UnixNano(),
-		"resolved_at_ns": resolved, "payload": payload,
+		"opened_at": alert.OpenedAt.UTC(), "updated_at": alert.UpdatedAt.UTC(),
+		"resolved_at": resolved, "payload": payload,
 	}
 	return dialect.Insert("alerts").Prepared(true).Rows(record).ToSQL()
 }
@@ -118,9 +131,9 @@ func (s *SQLStore) alertWriteMiss(ctx context.Context, id string, update bool) e
 	if !update {
 		return ErrAlertNotFound
 	}
-	var openedAt int64
+	var openedAt time.Time
 	query, args, err := dialect.From("alerts").Prepared(true).
-		Select("opened_at_ns").Where(goqu.Ex{"id": id}).ToSQL()
+		Select("opened_at").Where(goqu.Ex{"id": id}).ToSQL()
 	if err != nil {
 		return err
 	}
@@ -184,7 +197,7 @@ func (s *SQLStore) List(ctx context.Context, filter ListFilter) ([]model.Alert, 
 	if filter.DeploymentID != "" {
 		dataset = dataset.Where(goqu.Ex{"deployment_id": filter.DeploymentID})
 	}
-	dataset = dataset.Order(goqu.I("updated_at_ns").Desc(), goqu.I("id").Asc())
+	dataset = dataset.Order(goqu.I("updated_at").Desc(), goqu.I("id").Asc())
 	if filter.Limit > 0 {
 		dataset = dataset.Limit(uint(filter.Limit))
 	}
@@ -207,40 +220,14 @@ func (s *SQLStore) List(ctx context.Context, filter ListFilter) ([]model.Alert, 
 	return alerts, nil
 }
 
-// Consume executes an idempotent projection and its source marker atomically.
-// When called by Outbox, its savepoint joins the worker's T3 acknowledgement.
-func (s *SQLStore) Consume(ctx context.Context, id string, apply func(context.Context) error) error {
-	if id == "" {
-		return fmt.Errorf("alert projection requires source event ID")
-	}
-	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		query, args, err := dialect.Insert("alert_events").Prepared(true).
-			Rows(goqu.Record{"source_event_id": id}).
-			OnConflict(goqu.DoNothing()).
-			ToSQL()
-		if err != nil {
-			return err
-		}
-		result, err := s.db.Exec(ctx, query, args...)
-		if err != nil {
-			return err
-		}
-		count, err := result.RowsAffected()
-		if err != nil {
-			return err
-		}
-		if count == 0 {
-			return nil
-		}
-		return apply(ctx)
-	})
-}
-
 // ConsumeLatest ignores delayed events older than the last applied resource transition.
 func (s *SQLStore) ConsumeLatest(
 	ctx context.Context, id, resource string, at time.Time, apply func(context.Context) error,
 ) error {
-	return s.Consume(ctx, id, func(ctx context.Context) error {
+	if id == "" || at.IsZero() {
+		return fmt.Errorf("alert projection requires source event ID and timestamp")
+	}
+	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		accepted, err := storage.AdvanceProjection(ctx, s.db, "alerts", resource, at, id)
 		if err != nil {
 			return err

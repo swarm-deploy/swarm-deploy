@@ -23,17 +23,17 @@ type SQLStore struct{ db *storage.Database }
 // or attributes derived from labels (description, managed, external_path, external_version_id).
 type secretPayload struct {
 	VersionID uint64            `json:"version_id"`
-	CreatedAt time.Time         `json:"created_at"`
-	UpdatedAt time.Time         `json:"updated_at"`
 	Driver    string            `json:"driver,omitempty"`
 	Labels    map[string]string `json:"labels,omitempty"`
 }
 
 // secretRow is the raw columns of a secret_metadata row for sqlx scanning.
 type secretRow struct {
-	ID      string `db:"id"`
-	Name    string `db:"name"`
-	Payload []byte `db:"payload"`
+	ID        string    `db:"id"`
+	Name      string    `db:"name"`
+	CreatedAt time.Time `db:"created_at"`
+	UpdatedAt time.Time `db:"updated_at"`
+	Payload   []byte    `db:"payload"`
 }
 
 // NewSQLStore creates a metadata repository.
@@ -42,7 +42,7 @@ func NewSQLStore(db *storage.Database) *SQLStore { return &SQLStore{db: db} }
 // List returns metadata in stable name/ID order.
 func (s *SQLStore) List(ctx context.Context) ([]model.Secret, error) {
 	query, _, err := dialect.From("secret_metadata").Prepared(true).
-		Select("id", "name", "payload").
+		Select("id", "name", "created_at", "updated_at", "payload").
 		Order(goqu.I("name").Asc(), goqu.I("id").Asc()).ToSQL()
 	if err != nil {
 		return nil, err
@@ -53,7 +53,7 @@ func (s *SQLStore) List(ctx context.Context) ([]model.Secret, error) {
 	}
 	result := make([]model.Secret, 0, len(rows))
 	for _, row := range rows {
-		secret, buildErr := buildSecret(row.ID, row.Name, row.Payload)
+		secret, buildErr := buildSecret(row)
 		if buildErr != nil {
 			return nil, buildErr
 		}
@@ -65,7 +65,7 @@ func (s *SQLStore) List(ctx context.Context) ([]model.Secret, error) {
 // GetByName returns metadata for one Docker secret.
 func (s *SQLStore) GetByName(ctx context.Context, name string) (model.Secret, error) {
 	query, args, err := dialect.From("secret_metadata").Prepared(true).
-		Select("id", "name", "payload").Where(goqu.Ex{"name": name}).ToSQL()
+		Select("id", "name", "created_at", "updated_at", "payload").Where(goqu.Ex{"name": name}).ToSQL()
 	if err != nil {
 		return model.Secret{}, err
 	}
@@ -77,7 +77,7 @@ func (s *SQLStore) GetByName(ctx context.Context, name string) (model.Secret, er
 	if err != nil {
 		return model.Secret{}, err
 	}
-	return buildSecret(row.ID, row.Name, row.Payload)
+	return buildSecret(row)
 }
 
 // Replace atomically replaces the observed snapshot.
@@ -91,21 +91,15 @@ func (s *SQLStore) Replace(ctx context.Context, secrets []model.Secret) error {
 			return err
 		}
 		for _, secret := range secrets {
-			if err = checkDerivedFields(secret); err != nil {
-				return err
-			}
-			payload, marshalErr := json.Marshal(secretPayload{
-				VersionID: secret.VersionID,
-				CreatedAt: secret.CreatedAt,
-				UpdatedAt: secret.UpdatedAt,
-				Driver:    secret.Driver,
-				Labels:    secret.Labels,
-			})
-			if marshalErr != nil {
-				return marshalErr
+			payload, payloadErr := secretPayloadForStorage(secret)
+			if payloadErr != nil {
+				return payloadErr
 			}
 			insertQuery, insertArgs, insertErr := dialect.Insert("secret_metadata").Prepared(true).
-				Rows(goqu.Record{"id": secret.ID, "name": secret.Name, "payload": string(payload)}).ToSQL()
+				Rows(goqu.Record{
+					"id": secret.ID, "name": secret.Name, "created_at": secret.CreatedAt.UTC(),
+					"updated_at": secret.UpdatedAt.UTC(), "payload": string(payload),
+				}).ToSQL()
 			if insertErr != nil {
 				return insertErr
 			}
@@ -114,6 +108,20 @@ func (s *SQLStore) Replace(ctx context.Context, secrets []model.Secret) error {
 			}
 		}
 		return nil
+	})
+}
+
+func secretPayloadForStorage(secret model.Secret) ([]byte, error) {
+	if secret.CreatedAt.IsZero() || secret.UpdatedAt.IsZero() {
+		return nil, fmt.Errorf("secret %q: timestamps are required", secret.Name)
+	}
+	if err := checkDerivedFields(secret); err != nil {
+		return nil, err
+	}
+	return json.Marshal(secretPayload{
+		VersionID: secret.VersionID,
+		Driver:    secret.Driver,
+		Labels:    secret.Labels,
 	})
 }
 
@@ -136,18 +144,18 @@ func checkDerivedFields(secret model.Secret) error {
 	return nil
 }
 
-func buildSecret(id, name string, raw []byte) (model.Secret, error) {
+func buildSecret(row secretRow) (model.Secret, error) {
 	var payload secretPayload
-	if err := json.Unmarshal(raw, &payload); err != nil {
+	if err := json.Unmarshal(row.Payload, &payload); err != nil {
 		return model.Secret{}, err
 	}
 	return model.Secret{
-		ID:                id,
-		Name:              name,
+		ID:                row.ID,
+		Name:              row.Name,
 		Description:       payload.Labels[model.DescriptionLabel],
 		VersionID:         payload.VersionID,
-		CreatedAt:         payload.CreatedAt,
-		UpdatedAt:         payload.UpdatedAt,
+		CreatedAt:         row.CreatedAt.UTC(),
+		UpdatedAt:         row.UpdatedAt.UTC(),
 		Driver:            payload.Driver,
 		ExternalPath:      payload.Labels[model.ExternalPathLabel],
 		ExternalVersionID: payload.Labels[model.ExternalVersionIDLabel],

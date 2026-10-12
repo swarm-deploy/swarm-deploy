@@ -55,7 +55,7 @@ func TestSuccessfulDeploymentIsIndependentOfHistoryFailure(t *testing.T) {
 	assert.Equal(t, Succeeded, current.Status)
 	_, err = db.Exec(ctx, "DROP TRIGGER reject_history")
 	require.NoError(t, err)
-	_, err = db.Exec(ctx, "UPDATE outbox_deliveries SET available_at_ms=0")
+	_, err = db.Exec(ctx, "UPDATE outbox_deliveries SET available_at=0")
 	require.NoError(t, err)
 	_, err = bus.ProcessNext(ctx)
 	require.NoError(t, err)
@@ -201,7 +201,7 @@ func TestListUsesLightweightCursorSummaries(t *testing.T) {
 	assert.Empty(t, second.NextCursor)
 	assert.Equal(t, "a", second.Deployments[0].Commit)
 
-	_, err = db.Exec(ctx, "UPDATE deployments SET payload=json_set(payload,'$.changes','not-an-array')")
+	_, err = db.Exec(ctx, "UPDATE deployments SET changes_payload=json_array('not-an-object')")
 	require.NoError(t, err)
 	_, err = store.List(ctx, ListFilter{})
 	require.NoError(t, err, "list must not decode full change payloads")
@@ -320,7 +320,7 @@ func TestDeploymentIndexesSupportListQueries(t *testing.T) {
 		wantIndex string
 	}{
 		{name: "status", query: `SELECT id FROM deployments WHERE status='failed'
-			ORDER BY started_at_ns DESC,id LIMIT 21`, wantIndex: "idx_deployments_status_time"},
+			ORDER BY started_at DESC,id LIMIT 21`, wantIndex: "idx_deployments_status_time"},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -344,23 +344,20 @@ func TestDeploymentIndexesSupportListQueries(t *testing.T) {
 
 func assertDeploymentColumns(t *testing.T, db *storage.Database, id, errorCode string, phase Phase) {
 	t.Helper()
-	var columnError string
-	var columnPhase Phase
-	var payload []byte
 	var row struct {
 		ErrorCode string `db:"error_code"`
 		Phase     Phase  `db:"phase"`
-		Payload   []byte `db:"payload"`
+		Details   []byte `db:"details_payload"`
 	}
 	require.NoError(t, db.Get(t.Context(), &row,
-		"SELECT error_code,phase,payload FROM deployments WHERE id=?", id))
-	columnError, columnPhase, payload = row.ErrorCode, row.Phase, row.Payload
-	assert.Equal(t, errorCode, columnError)
-	assert.Equal(t, phase, columnPhase)
-	var persisted Deployment
-	require.NoError(t, json.Unmarshal(payload, &persisted))
-	assert.Equal(t, errorCode, persisted.ErrorCode)
-	assert.Equal(t, phase, persisted.Phase)
+		"SELECT error_code,phase,details_payload FROM deployments WHERE id=?", id))
+	assert.Equal(t, errorCode, row.ErrorCode)
+	assert.Equal(t, phase, row.Phase)
+	var details map[string]any
+	require.NoError(t, json.Unmarshal(row.Details, &details))
+	for _, key := range []string{"id", "stack", "commit", "status", "error_code", "phase", "started_at", "finished_at"} {
+		assert.NotContains(t, details, key)
+	}
 }
 
 func TestInterruptedTransitionIsAtomicDurableAndIdempotent(t *testing.T) {
@@ -391,7 +388,7 @@ func TestInterruptedTransitionIsAtomicDurableAndIdempotent(t *testing.T) {
 	assert.ErrorIs(t, err, ErrNotFound)
 }
 
-func TestStoreRejectsColumnAndPayloadStatusMismatch(t *testing.T) {
+func TestDeploymentPayloadsDoNotDuplicateSQLColumns(t *testing.T) {
 	ctx := context.Background()
 	db, err := storage.Open(ctx, t.TempDir())
 	require.NoError(t, err)
@@ -399,14 +396,11 @@ func TestStoreRejectsColumnAndPayloadStatusMismatch(t *testing.T) {
 	service := NewService(db, outbox.New(db))
 	attempt, err := service.StartIfChanged(ctx, "app", "commit", desired("api:1"), true)
 	require.NoError(t, err)
-	_, err = db.Exec(ctx,
-		"UPDATE deployments SET payload=json_set(payload,'$.status','failed') WHERE id=?", attempt.ID)
-	require.NoError(t, err)
 	store := NewStore(db)
-	_, err = store.Get(ctx, attempt.ID)
-	require.ErrorIs(t, err, ErrInconsistentDeployment)
-	_, err = store.List(ctx, ListFilter{Stack: "app"})
-	require.ErrorIs(t, err, ErrInconsistentDeployment)
+	stored, err := store.Get(ctx, attempt.ID)
+	require.NoError(t, err)
+	assert.Equal(t, *attempt, stored)
+	assertDeploymentColumns(t, db, attempt.ID, "", PhaseApply)
 }
 
 func TestSnapshotMaskingAndSemanticChanges(t *testing.T) {

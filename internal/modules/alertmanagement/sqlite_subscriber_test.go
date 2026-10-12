@@ -20,7 +20,9 @@ func TestSQLSubscriberIdempotenceAndRollback(t *testing.T) {
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
 	subscriber := NewSQLSubscriber(repo)
-	event := events.Envelope{ID: "failed-1", Event: &events.DeployFailed{DeployEvent: events.DeployEvent{StackName: "app"}, Error: assert.AnError}}
+	at := time.Now().UTC()
+	event := events.Envelope{ID: "failed-1", OccurredAt: at,
+		Event: &events.DeployFailed{DeployEvent: events.DeployEvent{StackName: "app"}, Error: assert.AnError}}
 	require.ErrorIs(t, db.WithinTransaction(ctx, func(ctx context.Context) error {
 		require.NoError(t, subscriber.Handle(ctx, event))
 		return assert.AnError
@@ -33,11 +35,13 @@ func TestSQLSubscriberIdempotenceAndRollback(t *testing.T) {
 	require.Len(t, alerts, 1)
 	assert.EqualValues(t, 1, alerts[0].Occurrences)
 	event.ID = "failed-2"
+	event.OccurredAt = at.Add(time.Second)
 	require.NoError(t, subscriber.Handle(ctx, event))
 	alerts, err = repo.List(ctx, modelstore.ListFilter{})
 	require.NoError(t, err)
 	assert.EqualValues(t, 2, alerts[0].Occurrences)
-	recovered := events.Envelope{ID: "recovered", Event: &events.DeploySuccess{DeployEvent: events.DeployEvent{StackName: "app"}}}
+	recovered := events.Envelope{ID: "recovered", OccurredAt: at.Add(2 * time.Second),
+		Event: &events.DeploySuccess{DeployEvent: events.DeployEvent{StackName: "app"}}}
 	require.NoError(t, subscriber.Handle(ctx, recovered))
 	// A late duplicate of an old failure must not reopen the resolved incident.
 	require.NoError(t, subscriber.Handle(ctx, event))

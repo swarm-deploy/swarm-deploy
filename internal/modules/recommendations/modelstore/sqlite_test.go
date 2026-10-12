@@ -51,16 +51,16 @@ func TestRecommendationsRelationalStorage(t *testing.T) {
 	assert.Equal(t, []model.Recommendation{a}, limited)
 
 	var row struct {
-		Severity  string `db:"severity"`
-		Type      string `db:"type"`
-		Stack     string `db:"stack"`
-		Service   string `db:"service"`
-		File      string `db:"source_file"`
-		Digest    string `db:"source_digest"`
-		Commit    string `db:"source_commit"`
-		Title     string `db:"title"`
-		Text      string `db:"recommendation"`
-		CreatedAt string `db:"created_at"`
+		Severity  string    `db:"severity"`
+		Type      string    `db:"type"`
+		Stack     string    `db:"stack"`
+		Service   string    `db:"service"`
+		File      string    `db:"source_file"`
+		Digest    string    `db:"source_digest"`
+		Commit    string    `db:"source_commit"`
+		Title     string    `db:"title"`
+		Text      string    `db:"recommendation"`
+		CreatedAt time.Time `db:"created_at"`
 	}
 	require.NoError(t, db.Get(t.Context(), &row, `SELECT severity,type,stack,service,source_file,source_digest,
 		source_commit,title,recommendation,created_at FROM recommendations WHERE service='web'`))
@@ -71,7 +71,7 @@ func TestRecommendationsRelationalStorage(t *testing.T) {
 	assert.Equal(t, "c1", row.Commit)
 	assert.Equal(t, "t-web", row.Title)
 	assert.Equal(t, "r-web", row.Text)
-	assert.Equal(t, t0.Format(time.RFC3339Nano), row.CreatedAt)
+	assert.Equal(t, t0, row.CreatedAt.UTC())
 
 	var payloadColumns int
 	require.NoError(t, db.Get(t.Context(), &payloadColumns,
@@ -80,6 +80,11 @@ func TestRecommendationsRelationalStorage(t *testing.T) {
 
 	// update: keep first-seen time for known IDs, drop vanished, add new; other stacks untouched.
 	aLater := rec("app", "web", "service.image.latest", t1)
+	aLater.Severity = model.SeverityMedium
+	aLater.Source.Digest = "new-digest"
+	aLater.Source.Commit = "new-commit"
+	aLater.Title = "new title"
+	aLater.Recommendation = "new recommendation"
 	d := rec("app", "cache", "service.image.latest", t1)
 	require.NoError(t, store.UpdateStack(t.Context(), "app", []model.Recommendation{d, aLater, aLater}))
 	app, err = store.List(t.Context(), ListFilter{Stack: "app"})
@@ -88,6 +93,11 @@ func TestRecommendationsRelationalStorage(t *testing.T) {
 	assert.Equal(t, "cache", app[0].Subject.Service)
 	assert.Equal(t, "web", app[1].Subject.Service)
 	assert.True(t, app[1].CreatedAt.Equal(t0), "original appearance time preserved")
+	assert.Equal(t, model.SeverityMedium, app[1].Severity)
+	assert.Equal(t, "new-digest", app[1].Source.Digest)
+	assert.Equal(t, "new-commit", app[1].Source.Commit)
+	assert.Equal(t, "new title", app[1].Title)
+	assert.Equal(t, "new recommendation", app[1].Recommendation)
 
 	require.NoError(t, store.UpdateStack(t.Context(), "app", nil))
 	all, err = store.List(t.Context(), ListFilter{})
@@ -140,4 +150,23 @@ func TestRecommendationsUpdateStackCompositeKeyCollision(t *testing.T) {
 	got, err := store.List(t.Context(), ListFilter{Stack: "app"})
 	require.NoError(t, err)
 	assert.Equal(t, []model.Recommendation{b, a}, got, "both identities and first-seen timestamps must survive")
+}
+
+func TestRecommendationsListUsesStackIndex(t *testing.T) {
+	db, err := storage.Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	var plan []struct {
+		ID      int    `db:"id"`
+		Parent  int    `db:"parent"`
+		NotUsed int    `db:"notused"`
+		Detail  string `db:"detail"`
+	}
+	require.NoError(t, db.Select(t.Context(), &plan,
+		`EXPLAIN QUERY PLAN SELECT severity,type,stack,service,source_file,source_digest,
+		 source_commit,title,recommendation,created_at FROM recommendations
+		 WHERE stack=? ORDER BY sequence ASC`, "app"))
+	require.NotEmpty(t, plan)
+	assert.Contains(t, plan[0].Detail, "idx_recommendation_stack")
 }

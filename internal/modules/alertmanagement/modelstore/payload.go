@@ -44,9 +44,9 @@ type alertRow struct {
 	ResourceID   string             `db:"resource_id"`
 	DeploymentID sql.NullString     `db:"deployment_id"`
 	Status       model.AlertStatus  `db:"status"`
-	OpenedAt     int64              `db:"opened_at_ns"`
-	UpdatedAt    int64              `db:"updated_at_ns"`
-	ResolvedAt   sql.NullInt64      `db:"resolved_at_ns"`
+	OpenedAt     time.Time          `db:"opened_at"`
+	UpdatedAt    time.Time          `db:"updated_at"`
+	ResolvedAt   sql.NullTime       `db:"resolved_at"`
 	Payload      []byte             `db:"payload"`
 }
 
@@ -63,8 +63,8 @@ func (r alertRow) toAlert() (model.Alert, error) {
 		ResourceID:    r.ResourceID,
 		DeploymentID:  r.DeploymentID.String,
 		Status:        r.Status,
-		OpenedAt:      time.Unix(0, r.OpenedAt).UTC(),
-		UpdatedAt:     time.Unix(0, r.UpdatedAt).UTC(),
+		OpenedAt:      r.OpenedAt.UTC(),
+		UpdatedAt:     r.UpdatedAt.UTC(),
 		Title:         payload.Title,
 		Message:       payload.Message,
 		FailureStage:  payload.FailureStage,
@@ -76,7 +76,7 @@ func (r alertRow) toAlert() (model.Alert, error) {
 		Resolution:    payload.Resolution,
 	}
 	if r.ResolvedAt.Valid {
-		at := time.Unix(0, r.ResolvedAt.Int64).UTC()
+		at := r.ResolvedAt.Time.UTC()
 		alert.ResolvedAt = &at
 	}
 	return alert, nil
