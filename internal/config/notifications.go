@@ -1,14 +1,14 @@
 package config
 
 import (
-    "fmt"
-    "strings"
+	"fmt"
+	"strings"
 
-    "github.com/artarts36/specw"
-    "github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-    eventnotify "github.com/swarm-deploy/swarm-deploy/internal/modules/event/notify"
-    notificationtemplate "github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/template"
-    "go.yaml.in/yaml/v3"
+	"github.com/artarts36/specw"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	eventnotify "github.com/swarm-deploy/swarm-deploy/internal/modules/event/notify"
+	notificationtemplate "github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/template"
+	"go.yaml.in/yaml/v3"
 )
 
 const defaultNotificationTelegramRetries = 3
@@ -16,51 +16,51 @@ const defaultNotificationTelegramRetries = 3
 // NotificationSpec defines explicit event subscriptions and messenger destinations.
 // Alert lifecycle routing is introduced separately.
 type NotificationSpec struct {
-    Messengers NotificationMessengersSpec                  `yaml:"messengers"`
-    Events     map[events.TypeName]NotificationEventRoutes `yaml:"events"`
+	Messengers	NotificationMessengersSpec `yaml:"messengers"`
+	Events	map[events.TypeName]NotificationEventRoutes `yaml:"events"`
 }
 
 // UnmarshalYAML rejects the removed "on" key instead of silently disabling old rules.
 func (c *NotificationSpec) UnmarshalYAML(node *yaml.Node) error {
-    if node.Kind != yaml.MappingNode {
-        return fmt.Errorf("notifications must be a mapping")
-    }
-    for i := 0; i+1 < len(node.Content); i += 2 {
-        if node.Content[i].Value == "on" {
-            return fmt.Errorf("notifications.on is no longer supported; use notifications.events")
-        }
-    }
-    type raw NotificationSpec
-    return node.Decode((*raw)(c))
+	if node.Kind != yaml.MappingNode {
+		return fmt.Errorf("notifications must be a mapping")
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == "on" {
+			return fmt.Errorf("notifications.on is no longer supported; use notifications.events")
+		}
+	}
+	type raw NotificationSpec
+	return node.Decode((*raw)(c))
 }
 
 type NotificationEventRoutes struct {
-    Telegram []TelegramChannel `yaml:"telegram"`
-    Custom   []CustomChannel   `yaml:"custom"`
+	Telegram []TelegramChannel `yaml:"telegram"`
+	Custom	[]CustomChannel   `yaml:"custom"`
 }
 
 type NotificationMessengersSpec struct {
-    Telegram NotificationTelegramSpec `yaml:"telegram"`
+	Telegram NotificationTelegramSpec `yaml:"telegram"`
 }
 
 type NotificationTelegramSpec struct {
-    BotToken specw.File                      `yaml:"botTokenPath"`
-    Chats    map[string]NotificationChatSpec `yaml:"chats"`
-    Retries  uint                            `yaml:"retries"`
-    Proxy    NotificationTelegramProxySpec   `yaml:"proxy"`
+	BotToken specw.File                      `yaml:"botTokenPath"`
+	Chats	map[string]NotificationChatSpec `yaml:"chats"`
+	Retries	uint                            `yaml:"retries"`
+	Proxy	NotificationTelegramProxySpec   `yaml:"proxy"`
 }
 
 type NotificationChatSpec struct {
-    ID       string `yaml:"id"`
-    ThreadID int64  `yaml:"threadId"`
+	ID	string `yaml:"id"`
+	ThreadID int64  `yaml:"threadId"`
 }
 
 type NotificationTelegramProxySpec struct {
-    SOCKS5 NotificationTelegramSOCKS5Spec `yaml:"socks5"`
+	SOCKS5 NotificationTelegramSOCKS5Spec `yaml:"socks5"`
 }
 
 type NotificationTelegramSOCKS5Spec struct {
-    Address specw.Env[string] `yaml:"address"`
+	Address specw.Env[string] `yaml:"address"`
 }
 
 // NotificationChatNames accepts either a single chat name or a list of names.
@@ -68,50 +68,50 @@ type NotificationTelegramSOCKS5Spec struct {
 type NotificationChatNames []string
 
 func (names *NotificationChatNames) UnmarshalYAML(node *yaml.Node) error {
-    switch node.Kind {
-    case yaml.ScalarNode:
-        if node.Tag != "!!str" {
-            return fmt.Errorf("chats must be a string or an array of strings")
-        }
-        *names = NotificationChatNames{node.Value}
-        return nil
-    case yaml.SequenceNode:
-        var values []string
-        if err := node.Decode(&values); err != nil {
-            return fmt.Errorf("decode chats: %w", err)
-        }
-        *names = NotificationChatNames(values)
-        return nil
-    case yaml.DocumentNode, yaml.MappingNode, yaml.AliasNode:
-        return fmt.Errorf("chats must be a string or an array of strings")
-    default:
-        return fmt.Errorf("chats must be a string or an array of strings")
-    }
+	switch node.Kind {
+	case yaml.ScalarNode:
+		if node.Tag != "!!str" {
+			return fmt.Errorf("chats must be a string or an array of strings")
+		}
+		*names = NotificationChatNames{node.Value}
+		return nil
+	case yaml.SequenceNode:
+		var values []string
+		if err := node.Decode(&values); err != nil {
+			return fmt.Errorf("decode chats: %w", err)
+		}
+		*names = NotificationChatNames(values)
+		return nil
+	case yaml.DocumentNode, yaml.MappingNode, yaml.AliasNode:
+		return fmt.Errorf("chats must be a string or an array of strings")
+	default:
+		return fmt.Errorf("chats must be a string or an array of strings")
+	}
 }
 
 type TelegramChannel struct {
-    Chats   NotificationChatNames `yaml:"chats"`
-    Message string                `yaml:"message"`
+	Chats	NotificationChatNames `yaml:"chats"`
+	Message string                `yaml:"message"`
 }
 
 func (c TelegramChannel) ChatNames() []string {
-    if c.Chats == nil {
-        return []string{"default"}
-    }
-    return []string(c.Chats)
+	if c.Chats == nil {
+		return []string{"default"}
+	}
+	return []string(c.Chats)
 }
 
 type CustomChannel struct {
-    Name   string                   `yaml:"name"`
-    URL    specw.Env[specw.URL]     `yaml:"url"`
-    Method string                   `yaml:"method"`
-    Header map[string]string        `yaml:"header"`
+	Name	string                   `yaml:"name"`
+	URL	specw.Env[specw.URL]     `yaml:"url"`
+	Method string                   `yaml:"method"`
+	Header map[string]string        `yaml:"header"`
 }
 
 func (c *NotificationSpec) applyDefaults() {
-    if c.Messengers.Telegram.Retries == 0 {
-        c.Messengers.Telegram.Retries = defaultNotificationTelegramRetries
-    }
+	if c.Messengers.Telegram.Retries == 0 {
+		c.Messengers.Telegram.Retries = defaultNotificationTelegramRetries
+	}
 }
 
 func (c *NotificationSpec) validate() []error {
