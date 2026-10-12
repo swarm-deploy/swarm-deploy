@@ -62,10 +62,11 @@ func (s *SQLStore) Handle(ctx context.Context, e events.Envelope) error {
 		if insertErr := s.insert(ctx, entry, e.ID, e.PublicationSequence); insertErr != nil {
 			return insertErr
 		}
+		limit := uint(s.capacity) // #nosec G115 -- NewSQLStore accepts only positive int capacities.
 		retained := goqu.Dialect("sqlite3").From("event_history").Prepared(true).
 			Select("publication_sequence").
 			Order(goqu.I("publication_sequence").Desc()).
-			Limit(uint(s.capacity))
+			Limit(limit)
 		query, args, buildErr := goqu.Dialect("sqlite3").Delete("event_history").Prepared(true).
 			Where(goqu.C("publication_sequence").NotIn(retained)).
 			ToSQL()

@@ -143,22 +143,12 @@ func (s *Subscriber) persistProjection(
 	ctx context.Context, sourceID string, deploySuccess *events.DeploySuccess, services []model.Info,
 ) error {
 	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		if deploySuccess.DeploymentID != "" {
-			var current bool
-			exists := goqu.Dialect("sqlite3").From("desired_snapshots").Prepared(true).Select(goqu.L("1")).
-				Where(goqu.Ex{"stack": deploySuccess.StackName, "deployment_id": deploySuccess.DeploymentID})
-			query, args, buildErr := goqu.Dialect("sqlite3").From().Prepared(true).
-				Select(goqu.L("EXISTS ?", exists)).ToSQL()
-			if buildErr != nil {
-				return buildErr
-			}
-			readErr := s.db.Get(ctx, &current, query, args...)
-			if readErr != nil {
-				return readErr
-			}
-			if !current {
-				return nil
-			}
+		current, err := s.currentDeployment(ctx, deploySuccess)
+		if err != nil {
+			return err
+		}
+		if !current {
+			return nil
 		}
 		query, args, err := goqu.Dialect("sqlite3").Insert("service_catalog_receipts").Prepared(true).
 			Rows(goqu.Record{"source_event_id": sourceID}).
@@ -183,6 +173,22 @@ func (s *Subscriber) persistProjection(
 		}
 		return s.events.Publish(ctx, &events.ServiceCatalogUpdated{StackName: deploySuccess.StackName})
 	})
+}
+
+func (s *Subscriber) currentDeployment(ctx context.Context, deploySuccess *events.DeploySuccess) (bool, error) {
+	if deploySuccess.DeploymentID == "" {
+		return true, nil
+	}
+	var current bool
+	exists := goqu.Dialect("sqlite3").From("desired_snapshots").Prepared(true).Select(goqu.L("1")).
+		Where(goqu.Ex{"stack": deploySuccess.StackName, "deployment_id": deploySuccess.DeploymentID})
+	query, args, err := goqu.Dialect("sqlite3").From().Prepared(true).
+		Select(goqu.L("EXISTS ?", exists)).ToSQL()
+	if err != nil {
+		return false, err
+	}
+	err = s.db.Get(ctx, &current, query, args...)
+	return current, err
 }
 
 func (s *Subscriber) loadWebRouteConfigs(
