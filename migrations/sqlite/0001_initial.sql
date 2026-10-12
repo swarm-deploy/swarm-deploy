@@ -52,6 +52,8 @@ CREATE INDEX idx_history_type_time ON event_history(event_type,created_at_ns DES
 CREATE INDEX idx_history_category_time ON event_history(category,created_at_ns DESC,id);
 CREATE INDEX idx_history_severity_time ON event_history(severity_rank DESC,created_at_ns DESC,id);
 
+-- Indexed alert identity and lifecycle fields are stored only in columns.
+-- payload contains title, message, failure details, occurrence count, event IDs and resolution.
 CREATE TABLE alerts (
     id TEXT PRIMARY KEY,
     fingerprint TEXT NOT NULL,
