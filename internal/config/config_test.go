@@ -543,7 +543,7 @@ networks:
 	)
 }
 
-func TestLoadFailsOnCustomNotificationWithoutURLInNotificationsOn(t *testing.T) {
+func TestLoadFailsOnCustomNotificationWithoutURLInNotificationsEvents(t *testing.T) {
 	dir := t.TempDir()
 
 	stacksPath := filepath.Join(dir, "stacks.yaml")
@@ -561,7 +561,7 @@ git:
 stacks:
   file: ./stacks.yaml
 notifications:
-  on:
+  events:
     deploySuccess:
       custom:
         - name: audit
@@ -573,7 +573,7 @@ notifications:
 	assert.Contains(
 		t,
 		err.Error(),
-		`notifications.on["deploySuccess"].custom[0].url or urlEnv is required`,
+		`notifications.events["deploySuccess"].custom[0].url or urlEnv is required`,
 		"unexpected error",
 	)
 }
@@ -596,7 +596,7 @@ git:
 stacks:
   file: ./stacks.yaml
 notifications:
-  on:
+  events:
     unknownEvent:
       custom:
         - name: audit
@@ -606,7 +606,7 @@ notifications:
 
 	_, err := Load(configPath)
 	require.Error(t, err, "expected error")
-	assert.Contains(t, err.Error(), `notifications.on["unknownEvent"] has unknown event type`, "unexpected error")
+	assert.Contains(t, err.Error(), `notifications.events["unknownEvent"] has unknown or non-public event type`, "unexpected error")
 }
 
 func TestLoadValidatesNotificationTemplates(t *testing.T) {
@@ -638,13 +638,16 @@ git:
 stacks:
   file: ./stacks.yaml
 notifications:
-  on:
-    deployFailed:
+  messengers:
+    telegram:
+      botTokenPath: %s
+      chats:
+        default:
+          id: "-1001234567890"
+  events:
+    deploySuccess:
       telegram:
-        - name: ops
-          botTokenPath: %s
-          chatId: "-1001234567890"
-          message: %q
+        - message: %q
 `, filepath.Join(dir, "telegram-token"), test.message)
 			configPath := filepath.Join(dir, "swarm-deploy.yaml")
 			require.NoError(t, os.WriteFile(configPath, []byte(configPayload), 0o600))
@@ -655,7 +658,7 @@ notifications:
 				return
 			}
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), `notifications.on["deployFailed"].telegram[0].message: invalid template`)
+			assert.Contains(t, err.Error(), `notifications.events["deploySuccess"].telegram[0].message: invalid template`)
 			assert.Contains(t, err.Error(), test.wantError)
 		})
 	}

@@ -8,123 +8,218 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	eventnotify "github.com/swarm-deploy/swarm-deploy/internal/modules/event/notify"
 	notificationtemplate "github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/template"
+	"go.yaml.in/yaml/v3"
 )
 
 const defaultNotificationTelegramRetries = 3
 
+// NotificationSpec defines explicit event subscriptions and messenger destinations.
+// Alert lifecycle routing is introduced separately.
 type NotificationSpec struct {
-	// Messengers contains global messenger settings used by notification channels.
-	Messengers NotificationMessengersSpec `yaml:"messengers"`
-	// On maps event types to notification channels.
-	On map[events.TypeName]struct {
-		// Telegram is a list of Telegram notification channels.
-		Telegram []TelegramChannel `yaml:"telegram"`
-		// Custom is a list of custom webhook notification channels.
-		Custom []CustomChannel `yaml:"custom"`
-	} `yaml:"on"`
+	Messengers NotificationMessengersSpec                  `yaml:"messengers"`
+	Events     map[events.TypeName]NotificationEventRoutes `yaml:"events"`
+}
+
+// UnmarshalYAML rejects the removed "on" key instead of silently disabling old rules.
+func (c *NotificationSpec) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind != yaml.MappingNode {
+		return fmt.Errorf("notifications must be a mapping")
+	}
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		if node.Content[i].Value == "on" {
+			return fmt.Errorf("notifications.on is no longer supported; use notifications.events")
+		}
+	}
+	type raw NotificationSpec
+	return node.Decode((*raw)(c))
+}
+
+type NotificationEventRoutes struct {
+	Telegram []TelegramChannel `yaml:"telegram"`
+	Custom   []CustomChannel   `yaml:"custom"`
 }
 
 type NotificationMessengersSpec struct {
-	// Telegram contains global Telegram settings used by Telegram channels.
 	Telegram NotificationTelegramSpec `yaml:"telegram"`
 }
 
 type NotificationTelegramSpec struct {
-	// Retries is a number of attempts to deliver Telegram notification.
-	Retries uint `yaml:"retries"`
-	// Proxy contains global proxy settings for Telegram notifications.
-	Proxy NotificationTelegramProxySpec `yaml:"proxy"`
+	BotToken specw.File                      `yaml:"botTokenPath"`
+	Chats    map[string]NotificationChatSpec `yaml:"chats"`
+	Retries  uint                            `yaml:"retries"`
+	Proxy    NotificationTelegramProxySpec   `yaml:"proxy"`
+}
+
+type NotificationChatSpec struct {
+	ID       string `yaml:"id"`
+	ThreadID int64  `yaml:"threadId"`
 }
 
 type NotificationTelegramProxySpec struct {
-	// SOCKS5 contains SOCKS5 proxy settings.
 	SOCKS5 NotificationTelegramSOCKS5Spec `yaml:"socks5"`
 }
 
 type NotificationTelegramSOCKS5Spec struct {
-	// Address is a SOCKS5 endpoint in host:port format.
 	Address specw.Env[string] `yaml:"address"`
 }
 
+// NotificationChatNames accepts either a single chat name or a list of names.
+// Unspecified values select "default"; explicitly empty lists are invalid.
+type NotificationChatNames []string
+
+func (names *NotificationChatNames) UnmarshalYAML(node *yaml.Node) error {
+	switch node.Kind {
+	case yaml.ScalarNode:
+		if node.Tag != "!!str" {
+			return fmt.Errorf("chats must be a string or an array of strings")
+		}
+		*names = NotificationChatNames{node.Value}
+		return nil
+	case yaml.SequenceNode:
+		var values []string
+		if err := node.Decode(&values); err != nil {
+			return fmt.Errorf("decode chats: %w", err)
+		}
+		*names = NotificationChatNames(values)
+		return nil
+	case yaml.DocumentNode, yaml.MappingNode, yaml.AliasNode:
+		return fmt.Errorf("chats must be a string or an array of strings")
+	default:
+		return fmt.Errorf("chats must be a string or an array of strings")
+	}
+}
+
 type TelegramChannel struct {
-	// Name is a logical channel name used in logs/diagnostics.
-	Name string `yaml:"name"`
-	// BotToken is a path to file containing Telegram bot token.
-	BotToken specw.File `yaml:"botTokenPath,omitempty"`
-	// ChatID is a target Telegram chat identifier.
-	ChatID string `yaml:"chatId"`
-	// ChatThreadID is an optional topic/thread id inside target chat.
-	ChatThreadID int64 `yaml:"chatThreadId"`
-	// Message is a text/template used for notification rendering.
-	Message string `yaml:"message"`
+	Chats   NotificationChatNames `yaml:"chats"`
+	Message string                `yaml:"message"`
+}
+
+func (c TelegramChannel) ChatNames() []string {
+	if c.Chats == nil {
+		return []string{"default"}
+	}
+	return []string(c.Chats)
 }
 
 type CustomChannel struct {
-	// Name is a logical channel name used in logs/diagnostics.
-	Name string `yaml:"name"`
-	// URL is a webhook endpoint URL.
-	URL specw.Env[specw.URL] `yaml:"url"`
-	// Method is an HTTP method for webhook delivery.
-	Method string `yaml:"method"`
-	// Header contains additional HTTP headers for webhook delivery.
-	Header map[string]string `yaml:"header"`
+	Name   string               `yaml:"name"`
+	URL    specw.Env[specw.URL] `yaml:"url"`
+	Method string               `yaml:"method"`
+	Header map[string]string    `yaml:"header"`
 }
 
 func (c *NotificationSpec) applyDefaults() {
-	if c.Messengers.Telegram.Retries <= 0 {
+	if c.Messengers.Telegram.Retries == 0 {
 		c.Messengers.Telegram.Retries = defaultNotificationTelegramRetries
 	}
 }
 
 func (c *NotificationSpec) validate() []error {
 	var errs []error
-
-	for eventTypeName, channels := range c.On {
-		if !eventTypeName.Valid() && eventTypeName != events.TypeNameDeployFailed {
-			errs = append(errs, fmt.Errorf("notifications.on[%q] has unknown event type", eventTypeName))
+	errs = append(errs, c.validateTelegramMessenger()...)
+	for eventTypeName, routes := range c.Events {
+		if !eventTypeName.Valid() {
+			errs = append(errs, fmt.Errorf(
+				"notifications.events[%q] has unknown or non-public event type", eventTypeName,
+			))
 			continue
 		}
-
-		for i, tg := range channels.Telegram {
-			path := fmt.Sprintf("notifications.on[%q].telegram[%d]", eventTypeName, i)
-			errs = append(errs, validateTelegramChannel(eventTypeName, path, tg)...)
-		}
-
-		for i, ch := range channels.Custom {
-			if ch.URL.Value.String() == "" {
-				errs = append(
-					errs,
-					fmt.Errorf("notifications.on[%q].custom[%d].url or urlEnv is required", eventTypeName, i),
-				)
-			}
-		}
+		errs = append(errs, c.validateTelegramEventRoutes(eventTypeName, routes.Telegram)...)
+		errs = append(errs, validateCustomEventRoutes(eventTypeName, routes.Custom)...)
 	}
-
 	return errs
 }
 
-func validateTelegramChannel(eventType events.TypeName, path string, channel TelegramChannel) []error {
+func (c *NotificationSpec) validateTelegramMessenger() []error {
 	var errs []error
-	if channel.ChatID == "" {
-		errs = append(errs, fmt.Errorf("%s.chatId is required", path))
+	telegram := c.Messengers.Telegram
+	for name, chat := range telegram.Chats {
+		path := fmt.Sprintf("notifications.messengers.telegram.chats[%q]", name)
+		if strings.TrimSpace(name) == "" {
+			errs = append(errs, fmt.Errorf("telegram chat name cannot be empty"))
+		}
+		if strings.TrimSpace(chat.ID) == "" {
+			errs = append(errs, fmt.Errorf("%s.id is required", path))
+		}
+		if chat.ThreadID < 0 {
+			errs = append(errs, fmt.Errorf("%s.threadId must be >= 0", path))
+		}
 	}
-	if len(channel.BotToken.Content) == 0 {
-		errs = append(errs, fmt.Errorf("%s.botTokenPath contains empty token", path))
+	if len(telegram.Chats) > 0 && len(telegram.BotToken.Content) == 0 {
+		errs = append(errs, fmt.Errorf(
+			"notifications.messengers.telegram.botTokenPath contains empty token",
+		))
 	}
-	if channel.ChatThreadID < 0 {
-		errs = append(errs, fmt.Errorf("%s.chatThreadId must be >= 0", path))
-	}
-	if strings.TrimSpace(channel.Message) == "" {
-		return errs
-	}
+	return errs
+}
 
-	payloads, ok := eventnotify.ReferencePayloads(eventType)
+func (c *NotificationSpec) validateTelegramEventRoutes(
+	eventTypeName events.TypeName,
+	rules []TelegramChannel,
+) []error {
+	var errs []error
+	for i, rule := range rules {
+		path := fmt.Sprintf("notifications.events[%q].telegram[%d]", eventTypeName, i)
+		if len(c.Messengers.Telegram.BotToken.Content) == 0 {
+			errs = append(errs, fmt.Errorf(
+				"%s: notifications.messengers.telegram.botTokenPath is required", path,
+			))
+		}
+		errs = append(errs, c.validateChatNames(path, rule.Chats)...)
+		errs = append(errs, validateTelegramEventTemplate(eventTypeName, path, rule.Message)...)
+	}
+	return errs
+}
+
+func (c *NotificationSpec) validateChatNames(path string, names NotificationChatNames) []error {
+	if names != nil && len(names) == 0 {
+		return []error{fmt.Errorf("%s.chats must not be empty", path)}
+	}
+	if names == nil {
+		names = NotificationChatNames{"default"}
+	}
+	var errs []error
+	seen := make(map[string]bool, len(names))
+	for _, name := range names {
+		switch {
+		case strings.TrimSpace(name) == "":
+			errs = append(errs, fmt.Errorf("%s.chats contains an empty name", path))
+		case seen[name]:
+			errs = append(errs, fmt.Errorf("%s.chats contains duplicate %q", path, name))
+		default:
+			if _, ok := c.Messengers.Telegram.Chats[name]; !ok {
+				errs = append(errs, fmt.Errorf("%s.chats references unknown chat %q", path, name))
+			}
+		}
+		seen[name] = true
+	}
+	return errs
+}
+
+func validateTelegramEventTemplate(eventTypeName events.TypeName, path, message string) []error {
+	if strings.TrimSpace(message) == "" {
+		return nil
+	}
+	payloads, ok := eventnotify.ReferencePayloads(eventTypeName)
 	if !ok {
-		return append(errs, fmt.Errorf("%s.message: notification payload is not defined", path))
+		return []error{fmt.Errorf("%s.message: notification payload is not defined", path)}
 	}
 	for _, payload := range payloads {
-		if err := notificationtemplate.Validate(channel.Message, payload); err != nil {
-			return append(errs, fmt.Errorf("%s.message: invalid template: %w", path, err))
+		if err := notificationtemplate.Validate(message, payload); err != nil {
+			return []error{fmt.Errorf("%s.message: invalid template: %w", path, err)}
+		}
+	}
+	return nil
+}
+
+func validateCustomEventRoutes(eventTypeName events.TypeName, channels []CustomChannel) []error {
+	var errs []error
+	for i, channel := range channels {
+		if channel.URL.Value.String() == "" {
+			errs = append(errs, fmt.Errorf(
+				"notifications.events[%q].custom[%d].url or urlEnv is required",
+				eventTypeName, i,
+			))
 		}
 	}
 	return errs

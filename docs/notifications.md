@@ -1,9 +1,12 @@
 # Notifications
 
-Notification channels are configured under `notifications.on` by event type. Telegram
-channels accept a `message` written with the standard Go `text/template` syntax. If
-`message` is omitted, Swarm Deploy uses the standard template owned by the module that
-produces the notification.
+Event notifications are opt-in under `notifications.events`. Telegram bot credentials,
+proxy and named chat destinations are configured once in `notifications.messengers.telegram`.
+Each Telegram rule accepts `chats` as a single name or array of names; omitting it
+selects `default`. An unknown, empty or repeated destination is a configuration error.
+The `message` field uses Go `text/template`; omitting it selects the standard template.
+Alert lifecycle notifications are not configured by this first-stage change.
+The removed `notifications.on` key is rejected; no compatibility alias is provided.
 
 ## Template API
 
@@ -58,7 +61,7 @@ configuration before modules are initialized. The error includes the event type 
 path, for example:
 
 ```text
-notifications.on["deployFailed"].telegram[0].message: invalid template: execute template: template: notification:1:3: executing "notification" at <.Stack>: can't evaluate field Stack in type notifications.Payload
+notifications.events["deployFailed"].telegram[0].message: invalid template: execute template: template: notification:1:3: executing "notification" at <.Stack>: can't evaluate field Stack in type notifications.Payload
 ```
 
 The current application loads configuration only at startup; there is no hot-reload path.
@@ -76,37 +79,25 @@ semantics.
 notifications:
   messengers:
     telegram:
+      botTokenPath: /run/secrets/telegram_bot_token
       retries: 3
-  on:
+      chats:
+        default:
+          id: "-1001234567890"
+          threadId: 42
+        deployments:
+          id: "-1001234567890"
+          threadId: 155
+  events:
     deploySuccess:
       telegram:
-        - name: ops-success
-          botTokenPath: /run/secrets/telegram_bot_token
-          chatId: "-1001234567890"
-          chatThreadId: 42
+        - chats: deployments
           message: |
             💚 deploy {{ .Status }}
             stack: {{ .StackName }}
             at: {{ date "2006-01-02 15:04" .OccurredAt }} UTC
-            {{ range .Services -}}
-            service: {{ .Name }}
-            image: {{ .Image }}
-            {{ end }}
-
-    deployFailed:
+    nodeJoined:
       telegram:
-        - name: ops-failed
-          botTokenPath: /run/secrets/telegram_bot_token
-          chatId: "-1001234567890"
-          message: |
-            🔻 deploy {{ .Status }}
-            stack: {{ .StackName }}
-            {{ if .Error }}error: {{ .Error }}{{ end }}
-
-    userAuthenticated:
-      telegram:
-        - name: ops-auth
-          botTokenPath: /run/secrets/telegram_bot_token
-          chatId: "-1001234567890"
-          message: 'user authenticated: {{ .Username }}'
+        - chats: [default, deployments]
+          message: "node joined: {{ .NodeName }}"
 ```
