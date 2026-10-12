@@ -82,6 +82,8 @@ func (names *NotificationChatNames) UnmarshalYAML(node *yaml.Node) error {
         }
         *names = NotificationChatNames(values)
         return nil
+    case yaml.DocumentNode, yaml.MappingNode, yaml.AliasNode:
+        return fmt.Errorf("chats must be a string or an array of strings")
     default:
         return fmt.Errorf("chats must be a string or an array of strings")
     }
@@ -113,69 +115,112 @@ func (c *NotificationSpec) applyDefaults() {
 }
 
 func (c *NotificationSpec) validate() []error {
-    var errs []error
-    telegram := c.Messengers.Telegram
+	var errs []error
+	errs = append(errs, c.validateTelegramMessenger()...)
+	for eventTypeName, routes := range c.Events {
+		if !eventTypeName.Valid() {
+			errs = append(errs, fmt.Errorf(
+				"notifications.events[%q] has unknown or non-public event type", eventTypeName,
+			))
+			continue
+		}
+		errs = append(errs, c.validateTelegramEventRoutes(eventTypeName, routes.Telegram)...)
+		errs = append(errs, validateCustomEventRoutes(eventTypeName, routes.Custom)...)
+	}
+	return errs
+}
 
-    for name, chat := range telegram.Chats {
-        path := fmt.Sprintf("notifications.messengers.telegram.chats[%q]", name)
-        if strings.TrimSpace(name) == "" {
-            errs = append(errs, fmt.Errorf("telegram chat name cannot be empty"))
-        }
-        if strings.TrimSpace(chat.ID) == "" {
-            errs = append(errs, fmt.Errorf("%s.id is required", path))
-        }
-        if chat.ThreadID < 0 {
-            errs = append(errs, fmt.Errorf("%s.threadId must be >= 0", path))
-        }
-    }
-    if len(telegram.Chats) > 0 && len(telegram.BotToken.Content) == 0 {
-        errs = append(errs, fmt.Errorf("notifications.messengers.telegram.botTokenPath contains empty token"))
-    }
+func (c *NotificationSpec) validateTelegramMessenger() []error {
+	var errs []error
+	telegram := c.Messengers.Telegram
+	for name, chat := range telegram.Chats {
+		path := fmt.Sprintf("notifications.messengers.telegram.chats[%q]", name)
+		if strings.TrimSpace(name) == "" {
+			errs = append(errs, fmt.Errorf("telegram chat name cannot be empty"))
+		}
+		if strings.TrimSpace(chat.ID) == "" {
+			errs = append(errs, fmt.Errorf("%s.id is required", path))
+		}
+		if chat.ThreadID < 0 {
+			errs = append(errs, fmt.Errorf("%s.threadId must be >= 0", path))
+		}
+	}
+	if len(telegram.Chats) > 0 && len(telegram.BotToken.Content) == 0 {
+		errs = append(errs, fmt.Errorf(
+			"notifications.messengers.telegram.botTokenPath contains empty token",
+		))
+	}
+	return errs
+}
 
-    for eventTypeName, routes := range c.Events {
-        if !eventTypeName.Valid() {
-            errs = append(errs, fmt.Errorf("notifications.events[%q] has unknown or non-public event type", eventTypeName))
-            continue
-        }
-        for i, rule := range routes.Telegram {
-            path := fmt.Sprintf("notifications.events[%q].telegram[%d]", eventTypeName, i)
-            if len(telegram.BotToken.Content) == 0 {
-                errs = append(errs, fmt.Errorf("%s: notifications.messengers.telegram.botTokenPath is required", path))
-            }
-            if rule.Chats != nil && len(rule.Chats) == 0 {
-                errs = append(errs, fmt.Errorf("%s.chats must not be empty", path))
-            }
-            seen := make(map[string]bool)
-            for _, name := range rule.ChatNames() {
-                if strings.TrimSpace(name) == "" {
-                    errs = append(errs, fmt.Errorf("%s.chats contains an empty name", path))
-                } else if seen[name] {
-                    errs = append(errs, fmt.Errorf("%s.chats contains duplicate %q", path, name))
-                } else if _, ok := telegram.Chats[name]; !ok {
-                    errs = append(errs, fmt.Errorf("%s.chats references unknown chat %q", path, name))
-                }
-                seen[name] = true
-            }
-            if strings.TrimSpace(rule.Message) == "" {
-                continue
-            }
-            payloads, ok := eventnotify.ReferencePayloads(eventTypeName)
-            if !ok {
-                errs = append(errs, fmt.Errorf("%s.message: notification payload is not defined", path))
-                continue
-            }
-            for _, payload := range payloads {
-                if err := notificationtemplate.Validate(rule.Message, payload); err != nil {
-                    errs = append(errs, fmt.Errorf("%s.message: invalid template: %w", path, err))
-                    break
-                }
-            }
-        }
-        for i, ch := range routes.Custom {
-            if ch.URL.Value.String() == "" {
-                errs = append(errs, fmt.Errorf("notifications.events[%q].custom[%d].url or urlEnv is required", eventTypeName, i))
-            }
-        }
-    }
-    return errs
+func (c *NotificationSpec) validateTelegramEventRoutes(
+	eventTypeName events.TypeName,
+	rules []TelegramChannel,
+) []error {
+	var errs []error
+	for i, rule := range rules {
+		path := fmt.Sprintf("notifications.events[%q].telegram[%d]", eventTypeName, i)
+		if len(c.Messengers.Telegram.BotToken.Content) == 0 {
+			errs = append(errs, fmt.Errorf(
+				"%s: notifications.messengers.telegram.botTokenPath is required", path,
+			))
+		}
+		errs = append(errs, c.validateChatNames(path, rule.Chats)...)
+		errs = append(errs, validateTelegramEventTemplate(eventTypeName, path, rule.Message)...)
+	}
+	return errs
+}
+
+func (c *NotificationSpec) validateChatNames(path string, names NotificationChatNames) []error {
+	if names != nil && len(names) == 0 {
+		return []error{fmt.Errorf("%s.chats must not be empty", path)}
+	}
+	if names == nil {
+		names = NotificationChatNames{"default"}
+	}
+	var errs []error
+	seen := make(map[string]bool, len(names))
+	for _, name := range names {
+		switch {
+		case strings.TrimSpace(name) == "":
+			errs = append(errs, fmt.Errorf("%s.chats contains an empty name", path))
+		case seen[name]:
+			errs = append(errs, fmt.Errorf("%s.chats contains duplicate %q", path, name))
+		default:
+			if _, ok := c.Messengers.Telegram.Chats[name]; !ok {
+				errs = append(errs, fmt.Errorf("%s.chats references unknown chat %q", path, name))
+			}
+		}
+		seen[name] = true
+	}
+	return errs
+}
+
+func validateTelegramEventTemplate(eventTypeName events.TypeName, path, message string) []error {
+	if strings.TrimSpace(message) == "" {
+		return nil
+	}
+	payloads, ok := eventnotify.ReferencePayloads(eventTypeName)
+	if !ok {
+		return []error{fmt.Errorf("%s.message: notification payload is not defined", path)}
+	}
+	for _, payload := range payloads {
+		if err := notificationtemplate.Validate(message, payload); err != nil {
+			return []error{fmt.Errorf("%s.message: invalid template: %w", path, err)}
+		}
+	}
+	return nil
+}
+
+func validateCustomEventRoutes(eventTypeName events.TypeName, channels []CustomChannel) []error {
+	var errs []error
+	for i, channel := range channels {
+		if channel.URL.Value.String() == "" {
+			errs = append(errs, fmt.Errorf(
+				"notifications.events[%q].custom[%d].url or urlEnv is required",
+				eventTypeName, i,
+			))
+		}
+	}
+	return errs
 }
