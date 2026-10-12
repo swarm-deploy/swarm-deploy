@@ -29,7 +29,8 @@ func (s *Subscriber) Handle(ctx context.Context, envelope events.Envelope) error
 	if err != nil {
 		return fmt.Errorf("build notification payload: %w", err)
 	}
-	return s.notifier.Notify(ctx, notifiers.Message{
+	_, err = s.notifier.Notify(ctx, notifiers.Message{
 		Payload: payload,
 	})
+	return err
 }

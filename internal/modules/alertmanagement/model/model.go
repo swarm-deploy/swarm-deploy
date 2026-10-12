@@ -22,6 +22,7 @@ const (
 type ResolutionReason string
 
 const ResolutionReasonRecovered ResolutionReason = "recovered"
+const ResolutionReasonRemovedFromConfig ResolutionReason = "removed_from_configuration"
 
 // AlertResolution describes how an alert incident ended.
 type AlertResolution struct {

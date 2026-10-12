@@ -3,6 +3,7 @@ package alertmanagement
 import (
 	"context"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 )
@@ -15,8 +16,11 @@ type SQLSubscriber struct {
 }
 
 // NewSQLSubscriber constructs the durable alert projection.
-func NewSQLSubscriber(store *modelstore.SQLStore) *SQLSubscriber {
-	return &SQLSubscriber{Subscriber: NewSubscriber(store), store: store}
+func NewSQLSubscriber(store *modelstore.SQLStore, publisher interface {
+	Publish(context.Context, events.Event) error
+},
+	recipients func(model.AlertKind) []events.AlertRecipient) *SQLSubscriber {
+	return &SQLSubscriber{Subscriber: NewSubscriber(store, publisher, recipients), store: store}
 }
 
 // Handle applies each source publication once, even across retry and restart.
@@ -35,6 +39,10 @@ func (s *SQLSubscriber) Handle(ctx context.Context, event events.Envelope) error
 		resource = "node:" + e.NodeID
 	case *events.NodeConnected:
 		resource = "node:" + e.NodeID
+	case *events.StacksConfigured:
+		return s.store.ConsumeLatest(ctx, event.ID, "stack-configuration", event.OccurredAt, func(ctx context.Context) error {
+			return s.Subscriber.Handle(ctx, event)
+		})
 	default:
 		return nil
 	}

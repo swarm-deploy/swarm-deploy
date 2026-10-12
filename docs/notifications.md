@@ -1,12 +1,58 @@
 # Notifications
 
-Event notifications are opt-in under `notifications.events`. Telegram bot credentials,
+Event notifications are opt-in under `notifications.events`. Alert notifications are
+automatic when Telegram and its `default` chat are configured. Telegram bot credentials,
 proxy and named chat destinations are configured once in `notifications.messengers.telegram`.
 Each Telegram rule accepts `chats` as a single name or array of names; omitting it
 selects `default`. An unknown, empty or repeated destination is a configuration error.
 The `message` field uses Go `text/template`; omitting it selects the standard template.
-Alert lifecycle notifications are not configured by this first-stage change.
 The removed `notifications.on` key is rejected; no compatibility alias is provided.
+
+## Alert lifecycle
+
+Alert Management currently creates `deploy_failed` and `node_disconnected` alerts.
+Use those exact keys under `notifications.alerts`; `default` is the fallback rule.
+A kind rule replaces `alerts.default`, and an omitted `alerts.default` selects built-in
+opened and resolved messages in Telegram chat `default`. Configuring Telegram requires
+that chat. Without Telegram, alerts continue to be stored and shown in the UI.
+
+An alert sends one new message when opened. Repeated detections update its alert record
+without sending another message. Resolution replies to or edits that initial message;
+`reply` is the default action. A new opening after resolution has a new alert ID and a
+new initial message. A stack removed from the loaded configuration resolves an open
+`deploy_failed` alert with reason `removed_from_configuration`.
+
+Each alert rule may route to one chat (`chats: deployments`) or several
+(`chats: [default, infrastructure]`). An omitted `chats` selects `default`.
+Empty lists, unknown names and repeated names are errors. The initial physical chat ID
+and topic are persisted, so resolution uses the original destination even if an alias
+changes or is removed at the next restart. If the original bot credentials are no
+longer available, its Outbox delivery records an error for inspection and replay.
+
+Alert templates use the shared Go template renderer. The typed fields at the root are
+`ID`, `Kind`, `Title`, `Message`, `ResourceType`, `ResourceID`, `OpenedAt`,
+`ResolvedAt` (`*time.Time`), `Resolution` and `ResolutionReason`.
+For example, `{{ .ResourceID }}` is valid; `.alert.Title` and `.event.StackName` are not.
+Custom opened and resolved templates are validated when configuration loads, with the
+exact path such as `notifications.alerts["deploy_failed"].telegram[0].resolved.message`
+in an error.
+
+The internal `AlertOpened` and `AlertResolved` transitions join the SQLite transaction
+that changes the alert, but are not written to Event History. Telegram calls run later
+through the existing Outbox, independently for each physical recipient. Retries,
+leases, replay and acknowledgement are shared with event notifications. Opened delivery
+precedes resolved delivery for each recipient. A temporary Telegram error is retried;
+an invalid original message reference falls back to a regular resolution message.
+Without an original message ID, resolution also sends a regular message.
+
+SQLite migration `0002_notification_messages.sql` adds one `notification_messages`
+row per alert ID, messenger, bot identity, chat ID and thread ID. It stores the initial
+message ID and send time, the processed resolution time and action, and a reply message
+ID when applicable. Resolved links are removed only after their lifecycle events have
+left the Outbox; open links have no TTL. There is no second delivery queue. Successful
+database recording prevents repeat sends on replay, but a crash after Telegram accepts
+a call and before its receipt is stored can duplicate a message. Telegram delivery is
+therefore at least once, not exactly once.
 
 ## Template API
 
@@ -100,4 +146,20 @@ notifications:
       telegram:
         - chats: [default, deployments]
           message: "node joined: {{ .NodeName }}"
+  alerts:
+    default:
+      telegram:
+        - opened:
+            message: "🚨 {{ .Title }}: {{ .Message }}"
+          resolved:
+            action: reply
+            message: "✅ {{ .Title }}: {{ .Resolution }}"
+    deploy_failed:
+      telegram:
+        - chats: deployments
+          opened:
+            message: "🔴 Deployment failed: {{ .ResourceID }}"
+          resolved:
+            action: edit
+            message: "✅ Deployment recovered: {{ .ResourceID }}"
 ```

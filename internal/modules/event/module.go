@@ -15,6 +15,7 @@ import (
 	eventmetrics "github.com/swarm-deploy/swarm-deploy/internal/modules/event/metrics"
 	notify2 "github.com/swarm-deploy/swarm-deploy/internal/modules/event/notify"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
+	alertnotifications "github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/alerts"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/notifiers"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
@@ -28,6 +29,7 @@ type Module struct {
 	// Bus is the only durable delivery worker.
 	Bus *outbox.Bus
 	cfg *config.Config
+	db  *storage.Database
 }
 
 type Container interface {
@@ -40,6 +42,7 @@ type Container interface {
 func InitModule(ctx context.Context, cfg *config.Config, cnt Container) (*Module, error) {
 	srv := &Module{
 		cfg: cfg,
+		db:  cnt.GetStorage(),
 	}
 
 	historyStore, err := history.NewSQLStore(cnt.GetStorage(), cfg.Spec.EventHistory.Capacity)
@@ -68,6 +71,9 @@ func InitModule(ctx context.Context, cfg *config.Config, cnt Container) (*Module
 	slog.InfoContext(ctx, "[event-bus] init notification subscribers")
 	if err = srv.initNotificationSubscribers(ctx); err != nil {
 		return nil, fmt.Errorf("init notification subscribers: %w", err)
+	}
+	if err = alertnotifications.Register(ctx, srv.Dispatcher, srv.db, cfg.Spec.Notifications); err != nil {
+		return nil, fmt.Errorf("init alert notifications: %w", err)
 	}
 
 	return srv, nil

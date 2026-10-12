@@ -69,11 +69,12 @@ func (mr *MockNotifierMockRecorder) Name() *gomock.Call {
 }
 
 // Notify mocks base method.
-func (m *MockNotifier) Notify(ctx context.Context, event Message) error {
+func (m *MockNotifier) Notify(ctx context.Context, event Message) (Receipt, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Notify", ctx, event)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(Receipt)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // Notify indicates an expected call of Notify.

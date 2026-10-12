@@ -53,18 +53,18 @@ func (t *TraceableNotifier) Kind() string {
 	return t.notifier.Kind()
 }
 
-func (t *TraceableNotifier) Notify(ctx context.Context, event Message) error {
+func (t *TraceableNotifier) Notify(ctx context.Context, event Message) (Receipt, error) {
 	ctx, span := t.tracer.Start(ctx, "notifier.Notify")
 	defer span.End()
 
-	err := t.notifier.Notify(ctx, event)
+	receipt, err := t.notifier.Notify(ctx, event)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())
-		return err
+		return Receipt{}, err
 	}
 
 	span.SetStatus(codes.Ok, "OK")
 
-	return nil
+	return receipt, nil
 }
