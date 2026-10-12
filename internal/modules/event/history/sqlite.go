@@ -83,26 +83,13 @@ func (s *SQLStore) insert(ctx context.Context, entry Entry, source any, publicat
 	if err != nil {
 		return err
 	}
-	query, args, err := goqu.Dialect("sqlite3").Insert("event_history").Prepared(true).
-		Rows(goqu.Record{
-			"publication_sequence": publicationSequence,
-			"id":                   entry.ID,
-			"source_event_id":      source,
-			"event_type":           entry.Type.Name(),
-			"severity":             entry.Severity,
-			"severity_rank":        severityRank(entry.Severity),
-			"category":             entry.Category,
-			"created_at_ns":        entry.CreatedAt.UnixNano(),
-			"payload":              string(payload),
-		}).
-		OnConflict(goqu.DoUpdate("source_event_id", goqu.Record{
-			"source_event_id": goqu.I("excluded.source_event_id"),
-		})).
-		ToSQL()
-	if err != nil {
-		return err
-	}
-	_, err = s.db.Exec(ctx, query, args...)
+	// goqu's SQLite DoNothing cannot target only source_event_id; event_history
+	// has other unique columns whose conflicts must still fail.
+	_, err = s.db.Exec(ctx, `INSERT INTO event_history
+		(publication_sequence,id,source_event_id,event_type,severity,severity_rank,category,created_at_ns,payload)
+		VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(source_event_id) DO NOTHING`,
+		publicationSequence, entry.ID, source, entry.Type.Name(), entry.Severity, severityRank(entry.Severity),
+		entry.Category, entry.CreatedAt.UnixNano(), string(payload))
 	return err
 }
 

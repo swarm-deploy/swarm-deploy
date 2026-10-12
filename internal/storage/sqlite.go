@@ -20,11 +20,9 @@ const maxConnections = 4
 
 // Database owns one pool and one context-aware transaction manager.
 type Database struct {
-	db  *sqlx.DB
-	get txsqlx.DBGetter
-	// Transactor propagates transaction boundaries through context and keeps
-	// nested transactions isolated using SQLite savepoints.
-	*txsqlx.Transactor
+	db         *sqlx.DB
+	get        txsqlx.DBGetter
+	transactor *txsqlx.Transactor
 }
 
 // Open initializes the database on a local persistent volume.
@@ -54,7 +52,7 @@ func Open(ctx context.Context, dataDir string) (*Database, error) {
 	db.SetMaxOpenConns(maxConnections)
 	db.SetMaxIdleConns(maxConnections)
 	tr, get := txsqlx.NewTransactor(db, txsqlx.NestedTransactionsSavepoints)
-	s := &Database{db: db, get: get, Transactor: tr}
+	s := &Database{db: db, get: get, transactor: tr}
 	migrations, err := goose.NewProvider(
 		goose.DialectSQLite3,
 		db.DB,
@@ -69,6 +67,15 @@ func Open(ctx context.Context, dataDir string) (*Database, error) {
 		return nil, fmt.Errorf("initialize SQLite: %w", err)
 	}
 	return s, nil
+}
+
+// WithinTransaction runs fn inside the active transaction carried by ctx, or
+// opens a new transaction when ctx is not transactional.
+func (s *Database) WithinTransaction(ctx context.Context, fn func(context.Context) error) error {
+	if s.transactor.IsWithinTransaction(ctx) {
+		return fn(ctx)
+	}
+	return s.transactor.WithinTransaction(ctx, fn)
 }
 
 // Get executes a query expected to return at most one row and scans it into dest

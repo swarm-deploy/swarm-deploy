@@ -83,15 +83,17 @@ func TestFreshDatabaseHasAlertIndexedSchema(t *testing.T) {
 func TestNestedTransactions(t *testing.T) {
 	sentinel := errors.New("rollback requested")
 	for _, tc := range []struct {
-		name      string
-		innerErr  error
-		outerErr  error
-		wantCount int
+		name        string
+		innerErr    error
+		outerErr    error
+		returnInner bool
+		wantCount   int
 	}{
-		{"commit", nil, nil, 2},
-		{"inner rollback keeps outer", sentinel, nil, 1},
-		{"outer rollback includes inner commit", nil, sentinel, 0},
-		{"both roll back", sentinel, sentinel, 0},
+		{name: "commit", wantCount: 2},
+		{name: "inner error joins outer when not returned", innerErr: sentinel, wantCount: 2},
+		{name: "returned inner error rolls back outer", innerErr: sentinel, returnInner: true, wantCount: 0},
+		{name: "outer rollback includes inner commit", outerErr: sentinel, wantCount: 0},
+		{name: "both roll back", innerErr: sentinel, outerErr: sentinel, wantCount: 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db, err := Open(t.Context(), t.TempDir())
@@ -100,13 +102,11 @@ func TestNestedTransactions(t *testing.T) {
 			_, err = db.Exec(t.Context(), "CREATE TABLE entries (id TEXT PRIMARY KEY)")
 			require.NoError(t, err)
 			err = db.WithinTransaction(t.Context(), func(ctx context.Context) error {
-				assert.True(t, db.IsWithinTransaction(ctx))
 				_, err := db.Exec(ctx, "INSERT INTO entries VALUES ('outer')")
 				if err != nil {
 					return err
 				}
 				innerErr := db.WithinTransaction(ctx, func(inner context.Context) error {
-					assert.True(t, db.IsWithinTransaction(inner))
 					_, err := db.Exec(inner, "INSERT INTO entries VALUES ('inner')")
 					if err != nil {
 						return err
@@ -114,9 +114,16 @@ func TestNestedTransactions(t *testing.T) {
 					return tc.innerErr
 				})
 				require.ErrorIs(t, innerErr, tc.innerErr)
+				if tc.returnInner {
+					return innerErr
+				}
 				return tc.outerErr
 			})
-			require.ErrorIs(t, err, tc.outerErr)
+			if tc.returnInner {
+				require.ErrorIs(t, err, tc.innerErr)
+			} else {
+				require.ErrorIs(t, err, tc.outerErr)
+			}
 			var count int
 			require.NoError(t, db.Get(t.Context(), &count, "SELECT count(*) FROM entries"))
 			assert.Equal(t, tc.wantCount, count)

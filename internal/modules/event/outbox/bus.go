@@ -140,8 +140,5 @@ func (b *Bus) Publish(ctx context.Context, event events.Event) error {
 		}
 		return nil
 	}
-	if b.db.IsWithinTransaction(ctx) {
-		return insert(ctx)
-	}
 	return b.db.WithinTransaction(ctx, insert)
 }

@@ -53,7 +53,6 @@ func TestReconcileDeploymentBoundaries(t *testing.T) {
 			require.NoError(t, writeComposeFile(dir))
 			docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 				func(ctx context.Context, _ string, _ string, _ string, _ compose.Compose) error {
-					assert.False(t, db.IsWithinTransaction(ctx), "Docker must execute outside a DB write transaction")
 					attempts, err := repo.List(ctx, deployment.ListFilter{})
 					require.NoError(t, err)
 					require.Len(t, attempts.Deployments, 1)

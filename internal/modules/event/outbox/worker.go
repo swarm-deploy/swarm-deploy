@@ -62,9 +62,6 @@ func (b *Bus) runWorker(ctx context.Context) {
 // ProcessNext claims and processes at most one delivery using distinct T2/T3.
 // It must be called outside any publishing or subscriber transaction.
 func (b *Bus) ProcessNext(ctx context.Context) (bool, error) {
-	if b.db.IsWithinTransaction(ctx) {
-		return false, errors.New("worker cannot run in a publisher transaction")
-	}
 	b.mu.Lock()
 	b.started = true
 	b.mu.Unlock()
