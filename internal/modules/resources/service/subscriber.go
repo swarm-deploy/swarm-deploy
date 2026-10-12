@@ -142,6 +142,9 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 func (s *Subscriber) persistProjection(
 	ctx context.Context, sourceID string, deploySuccess *events.DeploySuccess, services []model.Info,
 ) error {
+	if sourceID == "" {
+		return fmt.Errorf("service catalog projection requires source event ID")
+	}
 	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		current, err := s.currentDeployment(ctx, deploySuccess)
 		if err != nil {
@@ -161,11 +164,11 @@ func (s *Subscriber) persistProjection(
 		if err != nil {
 			return err
 		}
-		count, err := result.RowsAffected()
+		inserted, err := result.RowsAffected()
 		if err != nil {
 			return err
 		}
-		if count == 0 {
+		if inserted == 0 {
 			return nil
 		}
 		if err = s.store.ReplaceStack(ctx, deploySuccess.StackName, services); err != nil {

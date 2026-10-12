@@ -52,7 +52,7 @@ require (
 	golang.org/x/time v0.15.0
 	google.golang.org/grpc v1.83.1
 	google.golang.org/protobuf v1.36.12
-	modernc.org/sqlite v1.37.0
+	modernc.org/sqlite v1.55.0
 )
 
 require (
@@ -95,7 +95,7 @@ require (
 	github.com/moby/term v0.5.2 // indirect
 	github.com/morikuni/aec v1.1.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect
-	github.com/ncruces/go-strftime v0.1.9 // indirect
+	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/pjbgf/sha1cd v0.3.2 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pkoukk/tiktoken-go v0.1.6 // indirect
@@ -128,9 +128,9 @@ require (
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	gotest.tools/v3 v3.5.2 // indirect
-	modernc.org/libc v1.65.0 // indirect
+	modernc.org/libc v1.74.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
-	modernc.org/memory v1.10.0 // indirect
+	modernc.org/memory v1.11.0 // indirect
 )
 
 // Fork with conditional edges: github.com/NirAlon/langgraphgo/tree/feature/add-conditional-edges (b8adbfaa3d82d87e1d1474d985788c91562d8694).

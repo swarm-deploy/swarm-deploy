@@ -112,6 +112,14 @@ func TestHandlerSearch_PriorityAndDedupe(t *testing.T) {
 
 func newSecretsStore(t *testing.T, secrets []secretmodel.Secret) *secretstore.SQLStore {
 	t.Helper()
+	for i := range secrets {
+		if secrets[i].CreatedAt.IsZero() {
+			secrets[i].CreatedAt = time.Now().UTC()
+		}
+		if secrets[i].UpdatedAt.IsZero() {
+			secrets[i].UpdatedAt = secrets[i].CreatedAt
+		}
+	}
 	store := secretstore.NewSQLStore(testutil.OpenSQLite(t))
 	require.NoError(t, store.Replace(t.Context(), secrets))
 	return store

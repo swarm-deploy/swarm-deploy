@@ -31,7 +31,7 @@ func (b *Bus) ListFailed(ctx context.Context) ([]FailedDelivery, error) {
 			goqu.I("d.attempts"), goqu.COALESCE(goqu.I("d.last_error"), "").As("last_error"),
 		).
 		Where(goqu.I("d.status").Eq("failed")).
-		Order(goqu.I("d.updated_at_ms").Asc(), goqu.I("d.event_id").Asc(), goqu.I("d.subscription_id").Asc()).
+		Order(goqu.I("d.updated_at").Asc(), goqu.I("d.event_id").Asc(), goqu.I("d.subscription_id").Asc()).
 		ToSQL()
 	if err != nil {
 		return nil, err

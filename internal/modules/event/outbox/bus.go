@@ -109,13 +109,16 @@ func (b *Bus) Publish(ctx context.Context, event events.Event) error {
 	if idErr != nil {
 		return idErr
 	}
-	id, now := eventID.String(), b.now().UnixMilli()
+	id, now := eventID.String(), b.now().UTC()
+	if now.IsZero() {
+		return errors.New("outbox publication time is required")
+	}
 	insert := func(ctx context.Context) error {
 		cause, _ := ctx.Value(causeKey{}).(string)
 		query, args, buildErr := goqu.Dialect("sqlite3").Insert("outbox_events").Prepared(true).
 			Rows(goqu.Record{
 				"id": id, "event_type": event.Type().Name(), "schema_version": codec.Version,
-				"occurred_at_ms": now, "causation_id": cause, "payload": string(payload),
+				"occurred_at": now, "causation_id": cause, "payload": string(payload),
 			}).ToSQL()
 		if buildErr != nil {
 			return buildErr
@@ -128,7 +131,7 @@ func (b *Bus) Publish(ctx context.Context, event events.Event) error {
 			query, args, buildErr = goqu.Dialect("sqlite3").Insert("outbox_deliveries").Prepared(true).
 				Rows(goqu.Record{
 					"event_id": id, "subscription_id": subscriber,
-					"available_at_ms": now, "updated_at_ms": now,
+					"available_at": now, "updated_at": now,
 				}).ToSQL()
 			if buildErr != nil {
 				return buildErr

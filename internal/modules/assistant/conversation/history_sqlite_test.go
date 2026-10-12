@@ -2,13 +2,50 @@ package conversation
 
 import (
 	"context"
+	"database/sql"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
+
+func TestSQLChatUsageDistinguishesMissingAndZero(t *testing.T) {
+	db, err := storage.Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	repo := NewSQLHistoryStorage(db)
+	now := time.Date(2026, 4, 5, 6, 7, 8, 9, time.UTC)
+
+	require.NoError(t, repo.Save(t.Context(), Chat{
+		ID: "missing", Title: "Missing", CreatedAt: now, UpdatedAt: now,
+	}))
+	require.NoError(t, repo.Save(t.Context(), Chat{
+		ID: "zero", Title: "Zero", CreatedAt: now, UpdatedAt: now, Usage: &TokenUsage{},
+	}))
+
+	missing, exists, err := repo.ReadChat(t.Context(), "missing")
+	require.NoError(t, err)
+	require.True(t, exists)
+	assert.Nil(t, missing.Usage)
+	zero, exists, err := repo.ReadChat(t.Context(), "zero")
+	require.NoError(t, err)
+	require.True(t, exists)
+	assert.Equal(t, &TokenUsage{}, zero.Usage)
+
+	var rows []struct {
+		ID    string        `db:"id"`
+		Input sql.NullInt64 `db:"input_tokens"`
+	}
+	require.NoError(t, db.Select(t.Context(), &rows,
+		"SELECT id,input_tokens FROM assistant_chats ORDER BY id"))
+	require.Len(t, rows, 2)
+	assert.False(t, rows[0].Input.Valid)
+	assert.True(t, rows[1].Input.Valid)
+	assert.Zero(t, rows[1].Input.Int64)
+}
 
 func TestSQLChatTransactionsAndRestart(t *testing.T) {
 	ctx := context.Background()

@@ -2,7 +2,6 @@ package deployment
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -313,8 +312,10 @@ func (s *Service) interrupt(ctx context.Context, stack string) error {
 }
 
 func (s *Service) running(ctx context.Context, stack string) ([]Deployment, error) {
+	columns := append([]any{}, summaryColumns...)
+	columns = append(columns, "changes_payload")
 	dataset := goqu.Dialect("sqlite3").From("deployments").Prepared(true).
-		Select("payload").Where(goqu.Ex{"status": Running})
+		Select(columns...).Where(goqu.Ex{"status": Running})
 	if stack != "" {
 		dataset = dataset.Where(goqu.Ex{"stack": stack})
 	}
@@ -322,15 +323,15 @@ func (s *Service) running(ctx context.Context, stack string) ([]Deployment, erro
 	if err != nil {
 		return nil, err
 	}
-	var payloads [][]byte
-	if err = s.db.Select(ctx, &payloads, query, args...); err != nil {
+	var rows []deploymentRow
+	if err = s.db.Select(ctx, &rows, query, args...); err != nil {
 		return nil, err
 	}
-	running := make([]Deployment, 0, len(payloads))
-	for _, payload := range payloads {
-		var deployment Deployment
-		if err = json.Unmarshal(payload, &deployment); err != nil {
-			return nil, err
+	running := make([]Deployment, 0, len(rows))
+	for _, row := range rows {
+		deployment, convertErr := row.deployment()
+		if convertErr != nil {
+			return nil, convertErr
 		}
 		running = append(running, deployment)
 	}

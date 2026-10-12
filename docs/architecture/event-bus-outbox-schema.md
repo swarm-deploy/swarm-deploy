@@ -44,15 +44,16 @@ diagnostics expose event/subscription IDs, attempt, error type and a stable fail
 - The repository and Bus use a common `DBGetter(ctx)` to select `*sql.Tx` when the context carries a transaction or `*sql.DB` otherwise.
 - A root `Bus.Publish(ctx, event)` outside a transaction starts a **short** transaction to insert envelope + deliveries. It **never invokes a handler inline**.
 - Subscriber handlers are invoked only by the worker after T1 committed. DB-only subscribers receive a worker-created transaction-bearing context; their repositories, and any `Publish` calls that emit follow-up events, join **T3**.
-- Nested events (currently `ServiceCatalogUpdated`) are **new outbox publications in T3**; their subscribers process them in subsequent worker transactions. No synchronous recursive dispatch or in-transaction FIFO is needed.
+- Nested events are new outbox publications committed with the handler's database work; their subscribers process them in subsequent worker transactions. No synchronous recursive dispatch or in-transaction FIFO is needed.
 - An external-I/O subscriber must not run while an open SQLite write transaction is held; it runs with a non-transactional context and its delivery is acknowledged afterwards.
-- DB-only handlers' side effects and delivery acknowledgements commit together for crash-safe idempotence. External handlers run outside the write transaction.
+- DB-only handlers' side effects and delivery acknowledgements commit together for crash-safe idempotence. External handlers run separately from their ACK and therefore require their own idempotency mechanism when they commit database side effects.
+- Service Catalog is external because it inspects Docker. After inspection it atomically inserts `service_catalog_receipts`, replaces the catalog and publishes `ServiceCatalogUpdated`; a repeated source event skips both persistence and child publication.
 - Publish failure and SQL commit errors propagate back to T1's caller. Subscriber errors are handled asynchronously and **cannot** alter T1's outcome.
 - Safe, versioned codecs exclude arbitrary `compose.File`, secrets, Go `error`, and raw Docker objects from SQLite. Global temporal deduplication does not suppress authentic events.
 
 ## SQLite DDL: Outbox subset of `0001_initial`
 
-All timestamps are UTC Unix milliseconds. SQLite requires `PRAGMA foreign_keys=ON` for every connection; use WAL, busy timeout, and a pure-Go compatible driver (`CGO_ENABLED=0` build).
+All SQL timestamps are declared as `TIMESTAMP`, stored as UTC Unix nanoseconds in SQLite `INTEGER` values, and converted by the driver. SQLite requires `PRAGMA foreign_keys=ON` for every connection; use WAL, busy timeout, and a pure-Go compatible driver (`CGO_ENABLED=0` build).
 
 ```sql
 CREATE TABLE outbox_events (
@@ -60,8 +61,7 @@ CREATE TABLE outbox_events (
     id             TEXT NOT NULL UNIQUE,
     event_type     TEXT NOT NULL,
     schema_version INTEGER NOT NULL CHECK (schema_version >= 1),
-    occurred_at_ms INTEGER NOT NULL,
-    correlation_id TEXT,
+    occurred_at    TIMESTAMP NOT NULL CHECK (typeof(occurred_at) = 'integer'),
     causation_id   TEXT,
     payload        TEXT NOT NULL CHECK (json_valid(payload))
 );
@@ -73,23 +73,23 @@ CREATE TABLE outbox_deliveries (
     status          TEXT NOT NULL DEFAULT 'pending'
                     CHECK (status IN ('pending', 'processing', 'delivered', 'failed')),
     attempts        INTEGER NOT NULL DEFAULT 0 CHECK (attempts >= 0),
-    available_at_ms INTEGER NOT NULL,
-    lease_until_ms  INTEGER,
+    available_at    TIMESTAMP NOT NULL CHECK (typeof(available_at) = 'integer'),
+    lease_until     TIMESTAMP CHECK (lease_until IS NULL OR typeof(lease_until) = 'integer'),
     lease_token     TEXT,
     last_error      TEXT,
-    updated_at_ms   INTEGER NOT NULL,
+    updated_at      TIMESTAMP NOT NULL CHECK (typeof(updated_at) = 'integer'),
     PRIMARY KEY (event_id, subscription_id),
     CHECK (
-        (status = 'processing' AND lease_until_ms IS NOT NULL AND lease_token IS NOT NULL)
+        (status = 'processing' AND lease_until IS NOT NULL AND lease_token IS NOT NULL)
         OR
-        (status <> 'processing' AND lease_until_ms IS NULL AND lease_token IS NULL)
+        (status <> 'processing' AND lease_until IS NULL AND lease_token IS NULL)
     )
 );
 
 CREATE INDEX idx_outbox_delivery_due
-    ON outbox_deliveries(status, available_at_ms);
+    ON outbox_deliveries(status, available_at);
 CREATE INDEX idx_outbox_delivery_expired_lease
-    ON outbox_deliveries(status, lease_until_ms);
+    ON outbox_deliveries(status, lease_until);
 ```
 
 **Why two tables?** One envelope can fan out to several subscribers with different progress. A successfully handled Event History delivery must not be retried solely because a Telegram destination is temporarily unavailable.
@@ -121,17 +121,17 @@ WITH due AS (
     SELECT event_id, subscription_id
     FROM outbox_deliveries
     WHERE
-        (status = 'pending' AND available_at_ms <= ?)
-        OR (status = 'processing' AND lease_until_ms <= ?)
-    ORDER BY available_at_ms, event_id, subscription_id
+        (status = 'pending' AND available_at <= ?)
+        OR (status = 'processing' AND lease_until <= ?)
+    ORDER BY available_at, event_id, subscription_id
     LIMIT 1
 )
 UPDATE outbox_deliveries
 SET status = 'processing',
     attempts = attempts + 1,
     lease_token = ?,
-    lease_until_ms = ?,
-    updated_at_ms = ?
+    lease_until = ?,
+    updated_at = ?
 WHERE (event_id, subscription_id) IN
       (SELECT event_id, subscription_id FROM due)
 RETURNING event_id, subscription_id, attempts, lease_token;
@@ -176,8 +176,9 @@ T2: Worker claims notification delivery
 
 T2: Worker claims service catalog delivery
     Inspect Docker outside a write transaction
-    Commit catalog + source receipt + serviceCatalogUpdated child atomically
-    Acknowledge parent delivery; replay cannot duplicate the child
+    Commit source receipt + catalog + serviceCatalogUpdated child atomically
+    ACK the parent delivery separately
+    A retry after commit but before ACK is suppressed by the source receipt
 
 T2/T3: RAG child delivery reads committed catalog and refreshes external index
 ```

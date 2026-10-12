@@ -11,8 +11,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 	"go.uber.org/mock/gomock"
 )
 
@@ -25,6 +25,7 @@ func TestCollectorRefreshNormalizesAndPersistsSecretMetadata(t *testing.T) {
 	manager.EXPECT().List(gomock.Any(), swarm.ListSecretsFilter{}).Return([]swarm.Secret{
 		{
 			ID: "secret-id", Name: "database-password", VersionID: 7, Driver: "vault",
+			CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC(),
 			Labels: map[string]string{
 				"description":                  "Primary database credentials",
 				"external_path":                "kv/prod/database",
@@ -60,7 +61,8 @@ func TestCollectorRunDebouncesEvents(t *testing.T) {
 		swarm.ListSecretsFilter,
 	) ([]swarm.Secret, error) {
 		listCalls <- struct{}{}
-		return []swarm.Secret{{ID: "secret-id", Name: "database-password"}}, nil
+		now := time.Now().UTC()
+		return []swarm.Secret{{ID: "secret-id", Name: "database-password", CreatedAt: now, UpdatedAt: now}}, nil
 	})
 	manager.EXPECT().Watch(gomock.Any()).Return(eventsCh, errorsCh, nil)
 
@@ -100,7 +102,8 @@ func TestCollectorRunRefreshesAfterReconnect(t *testing.T) {
 		swarm.ListSecretsFilter,
 	) ([]swarm.Secret, error) {
 		listCalls <- struct{}{}
-		return []swarm.Secret{{ID: "secret-id", Name: "database-password"}}, nil
+		now := time.Now().UTC()
+		return []swarm.Secret{{ID: "secret-id", Name: "database-password", CreatedAt: now, UpdatedAt: now}}, nil
 	})
 	gomock.InOrder(
 		manager.EXPECT().Watch(gomock.Any()).Return(firstEvents, firstErrors, nil),
@@ -137,7 +140,8 @@ func TestCollectorWatchRefreshesOnPeriodicReconciliation(t *testing.T) {
 		swarm.ListSecretsFilter,
 	) ([]swarm.Secret, error) {
 		refreshed <- struct{}{}
-		return []swarm.Secret{{ID: "secret-id", Name: "database-password"}}, nil
+		now := time.Now().UTC()
+		return []swarm.Secret{{ID: "secret-id", Name: "database-password", CreatedAt: now, UpdatedAt: now}}, nil
 	})
 
 	collector := NewCollector(manager, store)
@@ -154,7 +158,10 @@ func TestCollectorInitialRefreshFailureKeepsPersistedSnapshot(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	store := newTestStore(t)
-	require.NoError(t, store.Replace(ctx, []model.Secret{{ID: "persisted-id", Name: "persisted-secret"}}))
+	now := time.Now().UTC()
+	require.NoError(t, store.Replace(ctx, []model.Secret{{
+		ID: "persisted-id", Name: "persisted-secret", CreatedAt: now, UpdatedAt: now,
+	}}))
 	manager := swarm.NewMockSecretManager(gomock.NewController(t))
 	eventsCh := make(chan dockerevents.Message)
 	errorsCh := make(chan error)

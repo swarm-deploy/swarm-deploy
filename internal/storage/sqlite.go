@@ -44,7 +44,7 @@ func Open(ctx context.Context, dataDir string) (*Database, error) {
 	u := url.URL{Scheme: "file", Path: path}
 	// DSN pragmas run on EVERY connection, including replacements in the pool.
 	u.RawQuery = "_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)" +
-		"&_pragma=synchronous(FULL)&_txlock=immediate"
+		"&_pragma=synchronous(FULL)&_txlock=immediate&_time_integer_format=unix_nano&_inttotime=1"
 	db, err := sqlx.Open("sqlite", u.String())
 	if err != nil {
 		return nil, fmt.Errorf("open SQLite: %w", err)

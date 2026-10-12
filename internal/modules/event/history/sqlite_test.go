@@ -34,7 +34,7 @@ func TestSQLiteQueryPagination(t *testing.T) {
 	}
 	require.NoError(t, db.WithinTransaction(ctx, func(ctx context.Context) error {
 		for i, entry := range entries {
-			if insertErr := repo.insert(ctx, entry, nil, int64(i+1)); insertErr != nil {
+			if insertErr := repo.insert(ctx, entry, int64(i+1)); insertErr != nil {
 				return insertErr
 			}
 		}
@@ -136,4 +136,59 @@ func TestSQLiteRetentionUsesPublicationOrderAcrossDelayedDeliveries(t *testing.T
 	require.NoError(t, err)
 	require.Len(t, page.Entries, 1)
 	assert.Equal(t, "newer", page.Entries[0].ID)
+}
+
+func TestSQLiteStoresNormalizedHistoryAndTargetsIDConflict(t *testing.T) {
+	db, err := storage.Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	repo, err := NewSQLStore(db, 10)
+	require.NoError(t, err)
+	at := time.Date(2026, 4, 5, 6, 7, 8, 123456789, time.UTC)
+	entry := Entry{
+		ID: "event", Type: events.TypeNodeJoined, Severity: events.SeverityInfo,
+		Category: events.TypeNodeJoined.Category(), CreatedAt: at,
+		Message: "joined", Details: map[string]string{"node_id": "node-1"},
+	}
+	require.NoError(t, repo.insert(t.Context(), entry, 11))
+	require.NoError(t, repo.insert(t.Context(), entry, 12), "same ID must be idempotent")
+
+	var stored struct {
+		CreatedType string `db:"created_type"`
+		Details     string `db:"details"`
+	}
+	require.NoError(t, db.Get(t.Context(), &stored,
+		`SELECT typeof(created_at) AS created_type,details FROM event_history WHERE id='event'`))
+	assert.Equal(t, "integer", stored.CreatedType)
+	assert.JSONEq(t, `{"node_id":"node-1"}`, stored.Details)
+
+	var removedColumns int
+	require.NoError(t, db.Get(t.Context(), &removedColumns,
+		`SELECT count(*) FROM pragma_table_info('event_history')
+		 WHERE name IN ('sequence','source_event_id','payload')`))
+	assert.Zero(t, removedColumns)
+
+	conflicting := entry
+	conflicting.ID = "different-event"
+	require.Error(t, repo.insert(t.Context(), conflicting, 11),
+		"publication sequence conflicts must not be hidden by idempotency")
+}
+
+func TestSQLiteQueryPageUsesHistoryIndex(t *testing.T) {
+	db, err := storage.Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	var plan []struct {
+		ID      int    `db:"id"`
+		Parent  int    `db:"parent"`
+		NotUsed int    `db:"notused"`
+		Detail  string `db:"detail"`
+	}
+	require.NoError(t, db.Select(t.Context(), &plan,
+		`EXPLAIN QUERY PLAN SELECT id,event_type,severity,category,created_at,message,details
+		 FROM event_history WHERE event_type=? ORDER BY created_at DESC,id LIMIT 20`,
+		events.TypeNodeJoined.Name()))
+	require.NotEmpty(t, plan)
+	assert.Contains(t, plan[0].Detail, "idx_history_type_time")
 }

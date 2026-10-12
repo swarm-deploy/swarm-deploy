@@ -25,11 +25,19 @@ func NewSQLHistoryStorage(db *storage.Database) *SQLHistoryStorage { return &SQL
 // List returns metadata without loading conversation turns.
 func (s *SQLHistoryStorage) ReadChats(ctx context.Context) ([]ChatSummary, error) {
 	query, _, err := dialect.From("assistant_chats").Prepared(true).
-		Select("payload").Order(goqu.I("updated_at_ns").Desc(), goqu.I("id").Asc()).ToSQL()
+		Select(chatColumns...).Order(goqu.I("updated_at").Desc(), goqu.I("id").Asc()).ToSQL()
 	if err != nil {
 		return nil, err
 	}
-	return s.queryChatSummaries(ctx, query)
+	var rows []chatRow
+	if err = s.db.Select(ctx, &rows, query); err != nil {
+		return nil, err
+	}
+	result := make([]ChatSummary, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, row.summary())
+	}
+	return result, nil
 }
 
 // Get reads metadata and turns from a consistent transaction snapshot.
@@ -38,22 +46,19 @@ func (s *SQLHistoryStorage) ReadChat(ctx context.Context, id string) (Chat, bool
 	found := false
 	err := s.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		query, args, buildErr := dialect.From("assistant_chats").Prepared(true).
-			Select("payload").Where(goqu.Ex{"id": id}).ToSQL()
+			Select(chatColumns...).Where(goqu.Ex{"id": id}).ToSQL()
 		if buildErr != nil {
 			return buildErr
 		}
-		var payload []byte
-		err := s.db.Get(ctx, &payload, query, args...)
+		var row chatRow
+		err := s.db.Get(ctx, &row, query, args...)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil
 		}
 		if err != nil {
 			return err
 		}
-		var meta ChatSummary
-		if err = json.Unmarshal(payload, &meta); err != nil {
-			return err
-		}
+		meta := row.summary()
 		turnsQuery, turnsArgs, buildErr := dialect.From("assistant_turns").Prepared(true).
 			Select("payload").Where(goqu.Ex{"chat_id": id}).Order(goqu.I("sequence").Asc()).ToSQL()
 		if buildErr != nil {
@@ -130,17 +135,20 @@ func (s *SQLHistoryStorage) Save(ctx context.Context, chat Chat) error {
 }
 
 func (s *SQLHistoryStorage) saveChatSummary(ctx context.Context, chat Chat) error {
-	meta := ChatSummary{ID: chat.ID, Title: chat.Title, CreatedAt: chat.CreatedAt,
-		UpdatedAt: chat.UpdatedAt, Usage: chat.Usage}
-	payload, err := json.Marshal(meta)
-	if err != nil {
-		return err
+	if chat.CreatedAt.IsZero() || chat.UpdatedAt.IsZero() {
+		return fmt.Errorf("assistant chat timestamps are required")
 	}
+	input, output, total := usageColumns(chat.Usage)
 	query, args, err := dialect.Insert("assistant_chats").Prepared(true).
-		Rows(goqu.Record{"id": chat.ID, "updated_at_ns": chat.UpdatedAt.UnixNano(), "payload": string(payload)}).
+		Rows(goqu.Record{
+			"id": chat.ID, "title": chat.Title, "created_at": chat.CreatedAt.UTC(),
+			"updated_at": chat.UpdatedAt.UTC(), "input_tokens": input,
+			"output_tokens": output, "total_tokens": total,
+		}).
 		OnConflict(goqu.DoUpdate("id", goqu.Record{
-			"updated_at_ns": goqu.L("excluded.updated_at_ns"),
-			"payload":       goqu.L("excluded.payload"),
+			"title": goqu.I("excluded.title"), "created_at": goqu.I("excluded.created_at"),
+			"updated_at": goqu.I("excluded.updated_at"), "input_tokens": goqu.I("excluded.input_tokens"),
+			"output_tokens": goqu.I("excluded.output_tokens"), "total_tokens": goqu.I("excluded.total_tokens"),
 		})).ToSQL()
 	if err != nil {
 		return err
@@ -163,24 +171,6 @@ func (s *SQLHistoryStorage) saveTurn(ctx context.Context, chatID string, sequenc
 	return err
 }
 
-func (s *SQLHistoryStorage) queryChatSummaries(
-	ctx context.Context, query string, args ...any,
-) ([]ChatSummary, error) {
-	var payloads [][]byte
-	if err := s.db.Select(ctx, &payloads, query, args...); err != nil {
-		return nil, err
-	}
-	result := make([]ChatSummary, 0, len(payloads))
-	for _, payload := range payloads {
-		var value ChatSummary
-		if err := json.Unmarshal(payload, &value); err != nil {
-			return nil, err
-		}
-		result = append(result, value)
-	}
-	return result, nil
-}
-
 func (s *SQLHistoryStorage) queryTurns(ctx context.Context, query string, args ...any) ([]Turn, error) {
 	var payloads [][]byte
 	if err := s.db.Select(ctx, &payloads, query, args...); err != nil {
@@ -195,4 +185,37 @@ func (s *SQLHistoryStorage) queryTurns(ctx context.Context, query string, args .
 		result = append(result, value)
 	}
 	return result, nil
+}
+
+var chatColumns = []any{
+	"id", "title", "created_at", "updated_at", "input_tokens", "output_tokens", "total_tokens",
+}
+
+type chatRow struct {
+	ID           string        `db:"id"`
+	Title        string        `db:"title"`
+	CreatedAt    time.Time     `db:"created_at"`
+	UpdatedAt    time.Time     `db:"updated_at"`
+	InputTokens  sql.NullInt64 `db:"input_tokens"`
+	OutputTokens sql.NullInt64 `db:"output_tokens"`
+	TotalTokens  sql.NullInt64 `db:"total_tokens"`
+}
+
+func (r chatRow) summary() ChatSummary {
+	result := ChatSummary{
+		ID: r.ID, Title: r.Title, CreatedAt: r.CreatedAt.UTC(), UpdatedAt: r.UpdatedAt.UTC(),
+	}
+	if r.InputTokens.Valid || r.OutputTokens.Valid || r.TotalTokens.Valid {
+		result.Usage = &TokenUsage{
+			InputTokens: r.InputTokens.Int64, OutputTokens: r.OutputTokens.Int64, TotalTokens: r.TotalTokens.Int64,
+		}
+	}
+	return result
+}
+
+func usageColumns(usage *TokenUsage) (any, any, any) {
+	if usage == nil {
+		return nil, nil, nil
+	}
+	return usage.InputTokens, usage.OutputTokens, usage.TotalTokens
 }
