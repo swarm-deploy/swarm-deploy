@@ -13,6 +13,16 @@ import (
 // SQLStore persists recommendations while preserving existing occurrence timestamps.
 type SQLStore struct{ db *storage.Database }
 
+// recommendationKey mirrors UNIQUE(stack, service, source_file, type) of the recommendations table.
+type recommendationKey struct {
+	stack, service, sourceFile string
+	typ                        model.Type
+}
+
+func keyOf(r model.Recommendation) recommendationKey {
+	return recommendationKey{r.Subject.Stack, r.Subject.Service, r.Source.File, r.Type}
+}
+
 // NewSQLStore creates a recommendation repository.
 func NewSQLStore(db *storage.Database) *SQLStore { return &SQLStore{db: db} }
 
@@ -66,16 +76,16 @@ func (s *SQLStore) UpdateStack(ctx context.Context, stack string, recommendation
 		if err != nil {
 			return err
 		}
-		byID := map[string]model.Recommendation{}
+		byKey := map[recommendationKey]model.Recommendation{}
 		for _, r := range previous {
-			byID[r.ID()] = r
+			byKey[keyOf(r)] = r
 		}
 		if _, err = s.db.Exec(ctx, "DELETE FROM recommendations WHERE stack=?", stack); err != nil {
 			return err
 		}
 		for _, r := range recommendations {
 			r.Subject.Stack = stack
-			if existing, ok := byID[r.ID()]; ok {
+			if existing, ok := byKey[keyOf(r)]; ok {
 				r = existing
 			}
 			if _, err = s.db.Exec(ctx, `INSERT INTO recommendations(
