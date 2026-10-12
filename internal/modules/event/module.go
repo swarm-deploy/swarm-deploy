@@ -101,7 +101,7 @@ func (s *Module) initNotificationSubscribers(ctx context.Context) error {
 		subscribersCount += count
 	}
 
-	if len(s.cfg.Spec.Notifications.On) == 0 {
+	if len(s.cfg.Spec.Notifications.Events) == 0 {
 		slog.InfoContext(ctx, "[event-bus] notification subscribers not found")
 	} else {
 		slog.InfoContext(ctx,
