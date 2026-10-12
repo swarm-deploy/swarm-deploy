@@ -136,9 +136,8 @@ func (s *Module) registerTelegramNotifications(
             }
             // Route identity must remain unique for independently delivered rules.
             // The destination identity is stable across chat alias changes.
-            id := fmt.Sprintf("notification:telegram:%x:%s:%d:%x",
-                sha256.Sum256([]byte(botID)), chat.ID, chat.ThreadID,
-                sha256.Sum256([]byte(channel.Message+"\x00"+defaultTemplate)))
+            id := fmt.Sprintf("notification:telegram:%x:%s:%d:%d",
+                sha256.Sum256([]byte(botID)), chat.ID, chat.ThreadID, ruleIndex)
             for _, typ := range types {
                 if err = s.Dispatcher.Subscribe(typ, id, outbox.External(notify2.NewSubscriber(notifier))); err != nil {
                     return 0, err
