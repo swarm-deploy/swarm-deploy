@@ -16,8 +16,8 @@ const defaultNotificationTelegramRetries = 3
 // NotificationSpec defines explicit event subscriptions and messenger destinations.
 // Alert lifecycle routing is introduced separately.
 type NotificationSpec struct {
-	Messengers	NotificationMessengersSpec `yaml:"messengers"`
-	Events	map[events.TypeName]NotificationEventRoutes `yaml:"events"`
+	Messengers NotificationMessengersSpec                  `yaml:"messengers"`
+	Events     map[events.TypeName]NotificationEventRoutes `yaml:"events"`
 }
 
 // UnmarshalYAML rejects the removed "on" key instead of silently disabling old rules.
@@ -36,7 +36,7 @@ func (c *NotificationSpec) UnmarshalYAML(node *yaml.Node) error {
 
 type NotificationEventRoutes struct {
 	Telegram []TelegramChannel `yaml:"telegram"`
-	Custom	[]CustomChannel   `yaml:"custom"`
+	Custom   []CustomChannel   `yaml:"custom"`
 }
 
 type NotificationMessengersSpec struct {
@@ -45,13 +45,13 @@ type NotificationMessengersSpec struct {
 
 type NotificationTelegramSpec struct {
 	BotToken specw.File                      `yaml:"botTokenPath"`
-	Chats	map[string]NotificationChatSpec `yaml:"chats"`
-	Retries	uint                            `yaml:"retries"`
-	Proxy	NotificationTelegramProxySpec   `yaml:"proxy"`
+	Chats    map[string]NotificationChatSpec `yaml:"chats"`
+	Retries  uint                            `yaml:"retries"`
+	Proxy    NotificationTelegramProxySpec   `yaml:"proxy"`
 }
 
 type NotificationChatSpec struct {
-	ID	string `yaml:"id"`
+	ID       string `yaml:"id"`
 	ThreadID int64  `yaml:"threadId"`
 }
 
@@ -90,7 +90,7 @@ func (names *NotificationChatNames) UnmarshalYAML(node *yaml.Node) error {
 }
 
 type TelegramChannel struct {
-	Chats	NotificationChatNames `yaml:"chats"`
+	Chats   NotificationChatNames `yaml:"chats"`
 	Message string                `yaml:"message"`
 }
 
@@ -102,10 +102,10 @@ func (c TelegramChannel) ChatNames() []string {
 }
 
 type CustomChannel struct {
-	Name	string                   `yaml:"name"`
-	URL	specw.Env[specw.URL]     `yaml:"url"`
-	Method string                   `yaml:"method"`
-	Header map[string]string        `yaml:"header"`
+	Name   string               `yaml:"name"`
+	URL    specw.Env[specw.URL] `yaml:"url"`
+	Method string               `yaml:"method"`
+	Header map[string]string    `yaml:"header"`
 }
 
 func (c *NotificationSpec) applyDefaults() {
