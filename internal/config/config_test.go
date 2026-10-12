@@ -609,6 +609,58 @@ notifications:
 	assert.Contains(t, err.Error(), `notifications.on["unknownEvent"] has unknown event type`, "unexpected error")
 }
 
+func TestLoadValidatesNotificationTemplates(t *testing.T) {
+	tests := []struct {
+		name      string
+		message   string
+		wantError string
+	}{
+		{name: "valid", message: `{{ .Status }} {{ .StackName }} {{ date "2006-01-02" .OccurredAt }}`},
+		{name: "condition and nullable value", message: `{{ if .Error }}{{ .Error }}{{ else }}ok{{ end }}`},
+		{name: "syntax error", message: `{{ if }}`, wantError: "parse template"},
+		{name: "unknown field", message: `{{ .Stack }}`, wantError: `can't evaluate field Stack`},
+		{name: "unknown nested field", message: `{{ (index .Services 0).Digest }}`, wantError: "can't evaluate field Digest"},
+		{name: "unknown function", message: `{{ timestamp .OccurredAt }}`, wantError: `function "timestamp" not defined`},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "stacks.yaml"), []byte(`
+stacks:
+  - name: app
+    composeFile: app.yaml
+`), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "telegram-token"), []byte("12345:ABCDEF"), 0o600))
+			configPayload := fmt.Sprintf(`
+git:
+  repository: https://example.com/repo.git
+stacks:
+  file: ./stacks.yaml
+notifications:
+  on:
+    deployFailed:
+      telegram:
+        - name: ops
+          botTokenPath: %s
+          chatId: "-1001234567890"
+          message: %q
+`, filepath.Join(dir, "telegram-token"), test.message)
+			configPath := filepath.Join(dir, "swarm-deploy.yaml")
+			require.NoError(t, os.WriteFile(configPath, []byte(configPayload), 0o600))
+
+			_, err := Load(configPath)
+			if test.wantError == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), `notifications.on["deployFailed"].telegram[0].message: invalid template`)
+			assert.Contains(t, err.Error(), test.wantError)
+		})
+	}
+}
+
 func TestLoadFailsWhenAssistantEnabledWithoutTokenPath(t *testing.T) {
 	dir := t.TempDir()
 

@@ -2,9 +2,12 @@ package config
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/artarts36/specw"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	eventnotify "github.com/swarm-deploy/swarm-deploy/internal/modules/event/notify"
+	notificationtemplate "github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/template"
 )
 
 const defaultNotificationTelegramRetries = 3
@@ -83,23 +86,8 @@ func (c *NotificationSpec) validate() []error {
 		}
 
 		for i, tg := range channels.Telegram {
-			if tg.ChatID == "" {
-				errs = append(errs, fmt.Errorf("notifications.on[%q].telegram[%d].chatId is required", eventTypeName, i))
-			}
-
-			if len(tg.BotToken.Content) == 0 {
-				errs = append(
-					errs,
-					fmt.Errorf("notifications.on[%q].telegram[%d].botTokenPath contains empty token", eventTypeName, i),
-				)
-			}
-
-			if tg.ChatThreadID < 0 {
-				errs = append(
-					errs,
-					fmt.Errorf("notifications.on[%q].telegram[%d].chatThreadId must be >= 0", eventTypeName, i),
-				)
-			}
+			path := fmt.Sprintf("notifications.on[%q].telegram[%d]", eventTypeName, i)
+			errs = append(errs, validateTelegramChannel(eventTypeName, path, tg)...)
 		}
 
 		for i, ch := range channels.Custom {
@@ -112,5 +100,32 @@ func (c *NotificationSpec) validate() []error {
 		}
 	}
 
+	return errs
+}
+
+func validateTelegramChannel(eventType events.TypeName, path string, channel TelegramChannel) []error {
+	var errs []error
+	if channel.ChatID == "" {
+		errs = append(errs, fmt.Errorf("%s.chatId is required", path))
+	}
+	if len(channel.BotToken.Content) == 0 {
+		errs = append(errs, fmt.Errorf("%s.botTokenPath contains empty token", path))
+	}
+	if channel.ChatThreadID < 0 {
+		errs = append(errs, fmt.Errorf("%s.chatThreadId must be >= 0", path))
+	}
+	if strings.TrimSpace(channel.Message) == "" {
+		return errs
+	}
+
+	payloads, ok := eventnotify.ReferencePayloads(eventType)
+	if !ok {
+		return append(errs, fmt.Errorf("%s.message: notification payload is not defined", path))
+	}
+	for _, payload := range payloads {
+		if err := notificationtemplate.Validate(channel.Message, payload); err != nil {
+			return append(errs, fmt.Errorf("%s.message: invalid template: %w", path, err))
+		}
+	}
 	return errs
 }

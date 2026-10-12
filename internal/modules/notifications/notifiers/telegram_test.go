@@ -29,7 +29,7 @@ func TestTelegramNotifyMasksTokenInSendError(t *testing.T) {
 		token,
 		"-1001234567890",
 		TelegramOptions{
-			Message: "{{.event.message}}",
+			Message: "{{.message}}",
 		},
 	)
 	require.NoError(t, err, "create notifier")
@@ -57,7 +57,7 @@ func TestTelegramNotifyRetriesUntilSuccess(t *testing.T) {
 		"12345:ABCDEF",
 		"-1001234567890",
 		TelegramOptions{
-			Message: "{{.event.message}}",
+			Message: "{{.message}}",
 			Retries: 3,
 		},
 	)
@@ -95,7 +95,7 @@ func TestTelegramNotifyStopsAfterConfiguredRetries(t *testing.T) {
 		"12345:ABCDEF",
 		"-1001234567890",
 		TelegramOptions{
-			Message: "{{.event.message}}",
+			Message: "{{.message}}",
 			Retries: 3,
 		},
 	)
@@ -126,7 +126,7 @@ func TestTelegramNotifyUsesDefaultRetries(t *testing.T) {
 		"12345:ABCDEF",
 		"-1001234567890",
 		TelegramOptions{
-			Message: "{{.event.message}}",
+			Message: "{{.message}}",
 		},
 	)
 	require.NoError(t, err, "create notifier")
@@ -147,6 +147,34 @@ func TestTelegramNotifyUsesDefaultRetries(t *testing.T) {
 	)
 	require.Error(t, err, "notify must fail")
 	assert.Equal(t, defaultTelegramRetries, attempts, "expected default notify attempts")
+}
+
+func TestTelegramNotifyReturnsRuntimeTemplateError(t *testing.T) {
+	notifier, err := newTelegramNotifier(
+		"ops",
+		"12345:ABCDEF",
+		"-1001234567890",
+		TelegramOptions{Message: "{{ .Name }}"},
+	)
+	require.NoError(t, err, "create notifier")
+
+	err = notifier.Notify(context.Background(), Message{Payload: map[string]any{"message": "test"}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `map has no entry for key "Name"`)
+}
+
+func TestTelegramUsesSourceDefaultTemplate(t *testing.T) {
+	notifier, err := newTelegramNotifier(
+		"ops",
+		"12345:ABCDEF",
+		"-1001234567890",
+		TelegramOptions{DefaultMessage: "{{ .message }}"},
+	)
+	require.NoError(t, err, "create notifier")
+
+	actual, err := notifier.renderMessage(Message{Payload: map[string]any{"message": "source default"}})
+	require.NoError(t, err)
+	assert.Equal(t, "source default", actual)
 }
 
 type roundTripperFunc func(*http.Request) (*http.Response, error)

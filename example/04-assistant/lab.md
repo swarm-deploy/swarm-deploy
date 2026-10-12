@@ -180,8 +180,7 @@ notifications:
           # Message text template.
           message: |
             ⚠️ Обнаружена попытка Prompt Injection.
-            Промпт: {{ .event.Prompt }}
-            Детектор: {{ .event.Detector }}
+            Детектор: {{ .Detector }}
 ```
 
 И получать вот такие сообщения:

@@ -85,7 +85,11 @@ func (s *Module) initNotificationSubscribers(ctx context.Context) error {
 		}
 
 		targetTypes := notificationEventTypes(eventTypeName)
-		count, err := s.registerTelegramNotifications(targetTypes, channels.Telegram)
+		defaultTemplate, ok := notify2.StandardTemplate(eventTypeName)
+		if !ok {
+			return fmt.Errorf("notification template is not defined for event type %q", eventTypeName)
+		}
+		count, err := s.registerTelegramNotifications(targetTypes, channels.Telegram, defaultTemplate)
 		if err != nil {
 			return err
 		}
@@ -112,13 +116,14 @@ func (s *Module) initNotificationSubscribers(ctx context.Context) error {
 func (s *Module) registerTelegramNotifications(
 	types []events.TypeName,
 	channels []config.TelegramChannel,
+	defaultTemplate string,
 ) (int, error) {
 	count := 0
 	for _, channel := range channels {
 		notifier, err := notifiers.NewTelegramNotifier(
 			channel.Name, string(channel.BotToken.Content), channel.ChatID,
 			notifiers.TelegramOptions{
-				ChatThreadID: channel.ChatThreadID, Message: channel.Message,
+				ChatThreadID: channel.ChatThreadID, Message: channel.Message, DefaultMessage: defaultTemplate,
 				Retries:       s.cfg.Spec.Notifications.Messengers.Telegram.Retries,
 				SOCKS5Address: s.cfg.Spec.Notifications.Messengers.Telegram.Proxy.SOCKS5.Address.Value,
 			},
