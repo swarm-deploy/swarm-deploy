@@ -16,11 +16,6 @@ const (
 	defaultDebounceDelay   = 250 * time.Millisecond
 	defaultReconnectDelay  = 5 * time.Second
 	defaultReconcilePeriod = time.Hour
-
-	descriptionLabel       = "description"
-	externalPathLabel      = "external_path"
-	externalVersionIDLabel = "external_version_id"
-	managedLabel           = "cloud-secrets.secret.managed"
 )
 
 // Collector keeps the persisted secret metadata snapshot synchronized with Docker.
@@ -143,14 +138,14 @@ func mapSecret(secret swarm.Secret) model.Secret {
 	return model.Secret{
 		ID:                secret.ID,
 		Name:              secret.Name,
-		Description:       labels[descriptionLabel],
+		Description:       labels[model.DescriptionLabel],
 		VersionID:         secret.VersionID,
 		CreatedAt:         secret.CreatedAt,
 		UpdatedAt:         secret.UpdatedAt,
 		Driver:            secret.Driver,
-		ExternalPath:      labels[externalPathLabel],
-		ExternalVersionID: labels[externalVersionIDLabel],
-		Managed:           labels[managedLabel] == "true",
+		ExternalPath:      labels[model.ExternalPathLabel],
+		ExternalVersionID: labels[model.ExternalVersionIDLabel],
+		Managed:           labels[model.ManagedLabel] == "true",
 		Labels:            labels,
 	}
 }

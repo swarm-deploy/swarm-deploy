@@ -21,27 +21,53 @@ type Repository interface {
 	ReplaceSnapshot(context.Context, []swarm.Node) error
 }
 
+// nodePayload is the JSON part of a nodes row. It never repeats id or hostname.
+type nodePayload struct {
+	Status        string                  `json:"status"`
+	Availability  string                  `json:"availability"`
+	ManagerStatus swarm.NodeManagerStatus `json:"manager_status"`
+	EngineVersion string                  `json:"engine_version"`
+	Addr          string                  `json:"addr"`
+	CPUNano       int64                   `json:"cpu_nano"`
+	MemoryBytes   int64                   `json:"memory_bytes"`
+	Labels        map[string]string       `json:"labels"`
+}
+
 // NewSQLStore creates a node repository.
 func NewSQLStore(db *storage.Database) *SQLStore { return &SQLStore{db: db} }
 
 // List returns the snapshot in hostname/ID order.
 func (s *SQLStore) ReadAll(ctx context.Context) ([]swarm.Node, error) {
-	rows, err := s.db.Query(ctx, "SELECT payload FROM nodes ORDER BY hostname,id")
+	rows, err := s.db.Query(ctx, "SELECT id,hostname,payload FROM nodes ORDER BY hostname,id")
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	result := []swarm.Node{}
 	for rows.Next() {
-		var payload []byte
-		if err = rows.Scan(&payload); err != nil {
+		var (
+			id, hostname string
+			raw          []byte
+			payload      nodePayload
+		)
+		if err = rows.Scan(&id, &hostname, &raw); err != nil {
 			return nil, err
 		}
-		var node swarm.Node
-		if err = json.Unmarshal(payload, &node); err != nil {
+		if err = json.Unmarshal(raw, &payload); err != nil {
 			return nil, err
 		}
-		result = append(result, node)
+		result = append(result, swarm.Node{
+			ID:            id,
+			Hostname:      hostname,
+			Status:        payload.Status,
+			Availability:  payload.Availability,
+			ManagerStatus: payload.ManagerStatus,
+			EngineVersion: payload.EngineVersion,
+			Addr:          payload.Addr,
+			CPUNano:       payload.CPUNano,
+			MemoryBytes:   payload.MemoryBytes,
+			Labels:        payload.Labels,
+		})
 	}
 	return result, rows.Err()
 }
@@ -69,12 +95,21 @@ func (s *SQLStore) ReplaceSnapshot(ctx context.Context, nodes []swarm.Node) erro
 			if _, err := s.ObserveIdentity(ctx, node.ID); err != nil {
 				return err
 			}
-			payload, err := json.Marshal(node)
+			payload, err := json.Marshal(nodePayload{
+				Status:        node.Status,
+				Availability:  node.Availability,
+				ManagerStatus: node.ManagerStatus,
+				EngineVersion: node.EngineVersion,
+				Addr:          node.Addr,
+				CPUNano:       node.CPUNano,
+				MemoryBytes:   node.MemoryBytes,
+				Labels:        node.Labels,
+			})
 			if err != nil {
 				return err
 			}
 			if _, err = s.db.Exec(ctx,
-				"INSERT INTO nodes VALUES (?,?,?)", node.ID, node.Hostname, string(payload)); err != nil {
+				"INSERT INTO nodes(id,hostname,payload) VALUES (?,?,?)", node.ID, node.Hostname, string(payload)); err != nil {
 				return err
 			}
 		}

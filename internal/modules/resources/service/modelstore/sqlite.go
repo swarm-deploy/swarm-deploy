@@ -19,22 +19,25 @@ func NewSQLStore(db *storage.Database) *SQLStore { return &SQLStore{db: db} }
 
 // List returns the service catalog in stack/name order.
 func (s *SQLStore) ReadAll(ctx context.Context) ([]model.Info, error) {
-	rows, err := s.db.Query(ctx, "SELECT payload FROM services ORDER BY stack,name")
+	rows, err := s.db.Query(ctx, "SELECT stack,name,payload FROM services ORDER BY stack,name")
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	result := []model.Info{}
 	for rows.Next() {
-		var payload []byte
-		if err = rows.Scan(&payload); err != nil {
+		var (
+			stack, name string
+			payload     []byte
+		)
+		if err = rows.Scan(&stack, &name, &payload); err != nil {
 			return nil, err
 		}
 		var row storeInfo
 		if err = json.Unmarshal(payload, &row); err != nil {
 			return nil, err
 		}
-		result = append(result, row.toInfo())
+		result = append(result, row.toInfo(stack, name))
 	}
 	return result, rows.Err()
 }
@@ -53,7 +56,7 @@ func (s *SQLStore) Find(ctx context.Context, stack, name string) (model.Info, bo
 	if err = json.Unmarshal(payload, &row); err != nil {
 		return model.Info{}, false, err
 	}
-	return row.toInfo(), true, nil
+	return row.toInfo(stack, name), true, nil
 }
 
 // ReplaceStack atomically replaces one stack's service metadata.
@@ -62,17 +65,16 @@ func (s *SQLStore) ReplaceStack(ctx context.Context, stack string, services []mo
 		if _, err := s.db.Exec(ctx, "DELETE FROM services WHERE stack=?", stack); err != nil {
 			return err
 		}
-		for _, row := range storeInfosFromServiceInfos(services) {
-			if row.Name == "" {
+		for _, info := range services {
+			if info.Name == "" {
 				return fmt.Errorf("service name is required")
 			}
-			row.Stack = stack
-			payload, err := json.Marshal(row)
+			payload, err := json.Marshal(storeInfoFromServiceInfo(info))
 			if err != nil {
 				return err
 			}
 			if _, err = s.db.Exec(ctx,
-				"INSERT INTO services VALUES (?,?,?)", stack, row.Name, string(payload)); err != nil {
+				"INSERT INTO services(stack,name,payload) VALUES (?,?,?)", stack, info.Name, string(payload)); err != nil {
 				return err
 			}
 		}
