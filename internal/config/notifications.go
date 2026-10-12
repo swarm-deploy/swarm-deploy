@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/artarts36/specw"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	eventnotify "github.com/swarm-deploy/swarm-deploy/internal/modules/event/notify"
 	notificationtemplate "github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/template"
 	"go.yaml.in/yaml/v3"
