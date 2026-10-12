@@ -87,10 +87,9 @@ CREATE TABLE services (
 CREATE TABLE secret_metadata (
     id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, payload TEXT NOT NULL CHECK (json_valid(payload))
 );
--- Fully relational; sequence preserves the order of first appearance.
+-- Fully relational; identity is (stack, service, source_file, type), sequence preserves order of first appearance.
 CREATE TABLE recommendations (
     sequence INTEGER PRIMARY KEY AUTOINCREMENT,
-    id TEXT NOT NULL UNIQUE,
     severity TEXT NOT NULL,
     type TEXT NOT NULL,
     stack TEXT NOT NULL,
@@ -100,7 +99,8 @@ CREATE TABLE recommendations (
     source_commit TEXT NOT NULL,
     title TEXT NOT NULL,
     recommendation TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    UNIQUE (stack, service, source_file, type)
 );
 CREATE INDEX idx_recommendation_stack ON recommendations(stack,sequence);
 CREATE TABLE assistant_chats (

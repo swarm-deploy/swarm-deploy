@@ -51,13 +51,12 @@ func TestRecommendationsRelationalStorage(t *testing.T) {
 	assert.Equal(t, []model.Recommendation{a}, limited)
 
 	var row struct {
-		id, severity, typ, stack, service, file, digest, commit, title, text, createdAt string
+		severity, typ, stack, service, file, digest, commit, title, text, createdAt string
 	}
-	require.NoError(t, db.QueryRow(t.Context(), `SELECT id,severity,type,stack,service,source_file,source_digest,
+	require.NoError(t, db.QueryRow(t.Context(), `SELECT severity,type,stack,service,source_file,source_digest,
 		source_commit,title,recommendation,created_at FROM recommendations WHERE service='web'`).Scan(
-		&row.id, &row.severity, &row.typ, &row.stack, &row.service, &row.file, &row.digest,
+		&row.severity, &row.typ, &row.stack, &row.service, &row.file, &row.digest,
 		&row.commit, &row.title, &row.text, &row.createdAt))
-	assert.Equal(t, a.ID(), row.id)
 	assert.Equal(t, "high", row.severity)
 	assert.Equal(t, "app", row.stack)
 	assert.Equal(t, "stack.yaml", row.file)

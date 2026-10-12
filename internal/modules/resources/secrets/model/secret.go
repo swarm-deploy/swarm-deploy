@@ -36,6 +36,7 @@ type Secret struct {
 	ExternalVersionID string `json:"external_version_id,omitempty"`
 	// Managed is true when cloud-secrets manages the secret.
 	Managed bool `json:"managed"`
-	// Labels contains Docker secret metadata retained for API compatibility.
+	// Labels is the single source of truth for Description, Managed, ExternalPath and
+	// ExternalVersionID: persistence stores only Labels and derives these fields on read.
 	Labels map[string]string `json:"labels,omitempty"`
 }

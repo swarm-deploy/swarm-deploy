@@ -82,3 +82,25 @@ func TestSecretsReplaceEmptyAndRollback(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, list)
 }
+
+func TestSecretsReplaceRejectsFieldsNotBackedByLabels(t *testing.T) {
+	for name, secret := range map[string]model.Secret{
+		"description":         {ID: "1", Name: "x", Description: "d"},
+		"external_path":       {ID: "1", Name: "x", ExternalPath: "p"},
+		"external_version_id": {ID: "1", Name: "x", ExternalVersionID: "v"},
+		"managed":             {ID: "1", Name: "x", Managed: true},
+		"label mismatch": {ID: "1", Name: "x", Description: "d",
+			Labels: map[string]string{model.DescriptionLabel: "other"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			store, db := newStore(t)
+			keep := model.Secret{ID: "0", Name: "keep"}
+			require.NoError(t, store.Replace(t.Context(), []model.Secret{keep}))
+			require.Error(t, store.Replace(t.Context(), []model.Secret{secret}))
+			var count int
+			require.NoError(t, db.QueryRow(t.Context(),
+				"SELECT count(*) FROM secret_metadata WHERE name='keep'").Scan(&count))
+			assert.Equal(t, 1, count, "failed Replace must roll back")
+		})
+	}
+}

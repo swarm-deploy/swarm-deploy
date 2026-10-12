@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/model"
@@ -76,6 +77,9 @@ func (s *SQLStore) Replace(ctx context.Context, secrets []model.Secret) error {
 			return err
 		}
 		for _, secret := range secrets {
+			if err := checkDerivedFields(secret); err != nil {
+				return err
+			}
 			payload, err := json.Marshal(secretPayload{
 				VersionID: secret.VersionID,
 				CreatedAt: secret.CreatedAt,
@@ -94,6 +98,25 @@ func (s *SQLStore) Replace(ctx context.Context, secrets []model.Secret) error {
 		}
 		return nil
 	})
+}
+
+// checkDerivedFields rejects secrets whose label-derived fields disagree with Labels,
+// because only Labels are persisted and such values would be silently lost.
+func checkDerivedFields(secret model.Secret) error {
+	derived := map[string][2]string{
+		"description":         {secret.Description, secret.Labels[model.DescriptionLabel]},
+		"external_path":       {secret.ExternalPath, secret.Labels[model.ExternalPathLabel]},
+		"external_version_id": {secret.ExternalVersionID, secret.Labels[model.ExternalVersionIDLabel]},
+	}
+	for field, values := range derived {
+		if values[0] != values[1] {
+			return fmt.Errorf("secret %q: %s %q is not backed by labels", secret.Name, field, values[0])
+		}
+	}
+	if secret.Managed != (secret.Labels[model.ManagedLabel] == "true") {
+		return fmt.Errorf("secret %q: managed=%t is not backed by labels", secret.Name, secret.Managed)
+	}
+	return nil
 }
 
 func buildSecret(id, name string, raw []byte) (model.Secret, error) {

@@ -79,10 +79,11 @@ func (s *SQLStore) UpdateStack(ctx context.Context, stack string, recommendation
 				r = existing
 			}
 			if _, err = s.db.Exec(ctx, `INSERT INTO recommendations(
-					id,severity,type,stack,service,source_file,source_digest,source_commit,
+					severity,type,stack,service,source_file,source_digest,source_commit,
 					title,recommendation,created_at)
-				VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`,
-				r.ID(), string(r.Severity), string(r.Type), stack, r.Subject.Service,
+				VALUES (?,?,?,?,?,?,?,?,?,?)
+				ON CONFLICT(stack,service,source_file,type) DO NOTHING`,
+				string(r.Severity), string(r.Type), stack, r.Subject.Service,
 				r.Source.File, r.Source.Digest, r.Source.Commit,
 				r.Title, r.Recommendation, r.CreatedAt.Format(time.RFC3339Nano)); err != nil {
 				return err
