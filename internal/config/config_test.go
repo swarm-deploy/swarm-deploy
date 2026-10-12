@@ -606,7 +606,7 @@ notifications:
 
 	_, err := Load(configPath)
 	require.Error(t, err, "expected error")
-	assert.Contains(t, err.Error(), `notifications.events["unknownEvent"] has unknown event type`, "unexpected error")
+	assert.Contains(t, err.Error(), `notifications.events["unknownEvent"] has unknown or non-public event type`, "unexpected error")
 }
 
 func TestLoadValidatesNotificationTemplates(t *testing.T) {
