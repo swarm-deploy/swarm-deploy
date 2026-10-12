@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Thiht/transactor/stdlib"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -85,7 +84,7 @@ func TestProjectionAndChildPublicationRollbackTogether(t *testing.T) {
 	require.NoError(t, bus.Subscribe(events.TypeNameNetworkCreated, "child", child))
 	for _, fail := range []bool{true, false} {
 		parent.EXPECT().Handle(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, e events.Envelope) error {
-			assert.True(t, stdlib.IsWithinTransaction(ctx))
+			assert.True(t, db.IsWithinTransaction(ctx))
 			_, err := db.Exec(ctx, "INSERT INTO projection VALUES (?) ON CONFLICT DO NOTHING", e.ID)
 			if err != nil {
 				return err
@@ -98,7 +97,7 @@ func TestProjectionAndChildPublicationRollbackTogether(t *testing.T) {
 		})
 	}
 	child.EXPECT().Handle(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, _ events.Envelope) error {
-		assert.True(t, stdlib.IsWithinTransaction(ctx))
+		assert.True(t, db.IsWithinTransaction(ctx))
 		assert.Equal(t, 1, rows(t, db, "projection"))
 		return nil
 	})
@@ -129,7 +128,7 @@ func TestIndependentDestinationsAndReplay(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			good, bad := NewMockSubscriber(ctrl), NewMockSubscriber(ctrl)
 			good.EXPECT().Handle(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, _ events.Envelope) error {
-				assert.False(t, stdlib.IsWithinTransaction(ctx))
+				assert.False(t, db.IsWithinTransaction(ctx))
 				// An external consumer can open an independent write transaction.
 				return db.WithinTransaction(ctx, func(ctx context.Context) error {
 					_, err := db.Exec(ctx, "INSERT INTO projection VALUES ('sent')")
@@ -370,7 +369,7 @@ func TestWorkerPoolDoesNotLetExternalDeliveryBlockProjection(t *testing.T) {
 		return nil
 	})
 	projection.EXPECT().Handle(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, _ events.Envelope) error {
-		assert.True(t, stdlib.IsWithinTransaction(ctx))
+		assert.True(t, db.IsWithinTransaction(ctx))
 		close(projected)
 		return nil
 	})

@@ -10,7 +10,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Thiht/transactor/stdlib"
 	"github.com/google/uuid"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -126,7 +125,7 @@ func (b *Bus) Publish(ctx context.Context, event events.Event) error {
 		}
 		return nil
 	}
-	if stdlib.IsWithinTransaction(ctx) {
+	if b.db.IsWithinTransaction(ctx) {
 		return insert(ctx)
 	}
 	return b.db.WithinTransaction(ctx, insert)

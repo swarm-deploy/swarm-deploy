@@ -35,44 +35,49 @@ func payloadFromAlert(alert model.Alert) alertPayload {
 	}
 }
 
-// alertScanner supports both sql.Row and sql.Rows without coupling the read model to a query.
-type alertScanner interface {
-	Scan(...any) error
+// alertRow mirrors one row of the alerts table for sqlx struct scanning.
+type alertRow struct {
+	ID           string             `db:"id"`
+	Fingerprint  string             `db:"fingerprint"`
+	Kind         model.AlertKind    `db:"kind"`
+	ResourceType model.ResourceType `db:"resource_type"`
+	ResourceID   string             `db:"resource_id"`
+	DeploymentID sql.NullString     `db:"deployment_id"`
+	Status       model.AlertStatus  `db:"status"`
+	OpenedAt     int64              `db:"opened_at_ns"`
+	UpdatedAt    int64              `db:"updated_at_ns"`
+	ResolvedAt   sql.NullInt64      `db:"resolved_at_ns"`
+	Payload      []byte             `db:"payload"`
 }
 
-func scanAlert(row alertScanner) (model.Alert, error) {
-	var (
-		alert        model.Alert
-		deploymentID sql.NullString
-		openedAt     int64
-		updatedAt    int64
-		resolvedAt   sql.NullInt64
-		raw          []byte
-		payload      alertPayload
-	)
-	if err := row.Scan(&alert.ID, &alert.Fingerprint, &alert.Kind,
-		&alert.ResourceType, &alert.ResourceID, &deploymentID, &alert.Status,
-		&openedAt, &updatedAt, &resolvedAt, &raw); err != nil {
+func (r alertRow) toAlert() (model.Alert, error) {
+	var payload alertPayload
+	if err := json.Unmarshal(r.Payload, &payload); err != nil {
 		return model.Alert{}, err
 	}
-	if err := json.Unmarshal(raw, &payload); err != nil {
-		return model.Alert{}, err
+	alert := model.Alert{
+		ID:            r.ID,
+		Fingerprint:   r.Fingerprint,
+		Kind:          r.Kind,
+		ResourceType:  r.ResourceType,
+		ResourceID:    r.ResourceID,
+		DeploymentID:  r.DeploymentID.String,
+		Status:        r.Status,
+		OpenedAt:      time.Unix(0, r.OpenedAt).UTC(),
+		UpdatedAt:     time.Unix(0, r.UpdatedAt).UTC(),
+		Title:         payload.Title,
+		Message:       payload.Message,
+		FailureStage:  payload.FailureStage,
+		ErrorCode:     payload.ErrorCode,
+		Commit:        payload.Commit,
+		Occurrences:   payload.Occurrences,
+		OpenEventID:   payload.OpenEventID,
+		LatestEventID: payload.LatestEventID,
+		Resolution:    payload.Resolution,
 	}
-	alert.DeploymentID = deploymentID.String
-	alert.OpenedAt = time.Unix(0, openedAt).UTC()
-	alert.UpdatedAt = time.Unix(0, updatedAt).UTC()
-	if resolvedAt.Valid {
-		at := time.Unix(0, resolvedAt.Int64).UTC()
+	if r.ResolvedAt.Valid {
+		at := time.Unix(0, r.ResolvedAt.Int64).UTC()
 		alert.ResolvedAt = &at
 	}
-	alert.Title = payload.Title
-	alert.Message = payload.Message
-	alert.FailureStage = payload.FailureStage
-	alert.ErrorCode = payload.ErrorCode
-	alert.Commit = payload.Commit
-	alert.Occurrences = payload.Occurrences
-	alert.OpenEventID = payload.OpenEventID
-	alert.LatestEventID = payload.LatestEventID
-	alert.Resolution = payload.Resolution
 	return alert, nil
 }

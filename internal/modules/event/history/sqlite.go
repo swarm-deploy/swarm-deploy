@@ -73,6 +73,9 @@ func (s *SQLStore) insert(ctx context.Context, entry Entry, source any, publicat
 	if err != nil {
 		return err
 	}
+	// goqu's OnConflict(DoNothing()) cannot target a specific unique constraint on SQLite,
+	// and event_history has three independent UNIQUE columns: only source_event_id conflicts
+	// must be ignored here, so this statement stays a literal SQL query.
 	_, err = s.db.Exec(ctx, `INSERT INTO event_history
 		(publication_sequence,id,source_event_id,event_type,severity,severity_rank,category,created_at_ns,payload)
 		VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(source_event_id) DO NOTHING`,
@@ -83,7 +86,7 @@ func (s *SQLStore) insert(ctx context.Context, entry Entry, source any, publicat
 
 // List returns the retained publication sequence, in publication order.
 func (s *SQLStore) Read(ctx context.Context) ([]Entry, error) {
-	dataset := goqu.Dialect("sqlite3").From("event_history").Select("payload").
+	dataset := goqu.Dialect("sqlite3").From("event_history").Prepared(true).Select("payload").
 		Order(goqu.I("publication_sequence").Asc())
 	return s.queryEntriesDataset(ctx, dataset)
 }
@@ -140,24 +143,19 @@ func (s *SQLStore) queryEntriesDataset(ctx context.Context, dataset *goqu.Select
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.Query(ctx, query, args...)
-	if err != nil {
+	var payloads [][]byte
+	if err = s.db.Select(ctx, &payloads, query, args...); err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	entries := []Entry{}
-	for rows.Next() {
-		var payload []byte
-		if err = rows.Scan(&payload); err != nil {
-			return nil, err
-		}
+	entries := make([]Entry, 0, len(payloads))
+	for _, payload := range payloads {
 		var entry Entry
 		if err = json.Unmarshal(payload, &entry); err != nil {
 			return nil, err
 		}
 		entries = append(entries, entry)
 	}
-	return entries, rows.Err()
+	return entries, nil
 }
 
 func historyFilters(options QueryOptions) []exp.Expression {

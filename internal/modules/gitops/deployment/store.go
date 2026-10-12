@@ -29,35 +29,45 @@ var ErrInconsistentDeployment = errors.New("deployment row and payload are incon
 // ErrInvalidCursor means a list cursor is malformed or unsupported.
 var ErrInvalidCursor = errors.New("invalid deployment cursor")
 
+var dialect = goqu.Dialect("sqlite3")
+
 // Store provides context-aware deployment and snapshot queries.
 type Store struct{ db *storage.Database }
 
 // NewStore creates a deployment repository on the application database.
 func NewStore(db *storage.Database) *Store { return &Store{db: db} }
 
+// summaryColumns builds the projection used by List, aliasing JSON-extracted
+// fields so sqlx can scan them directly into summaryRow by `db` tag.
+func summaryColumns() []any {
+	return []any{
+		"id", "stack", "revision", "status",
+		goqu.L("json_extract(payload,'$.status')").As("payload_status"),
+		"started_at_ns", "finished_at_ns", "error_code", "phase",
+		goqu.L("coalesce(json_extract(payload,'$.apply_status'),'')").As("apply_status"),
+		goqu.L("coalesce(json_extract(payload,'$.verification_status'),'')").As("verification_status"),
+		goqu.L("coalesce(json_extract(payload,'$.cleanup_status'),'')").As("cleanup_status"),
+		goqu.L("coalesce(json_extract(payload,'$.actual_state_status'),'unknown')").As("actual_state_status"),
+		goqu.L("json_extract(payload,'$.observed_at')").As("observed_at"),
+		goqu.L("coalesce(json_extract(payload,'$.comparison_basis'),'successful_baseline')").As("comparison_basis"),
+		goqu.L("coalesce(json_extract(payload,'$.comparison_status'),'unknown')").As("comparison_status"),
+		goqu.L("coalesce(json_extract(payload,'$.basis_deployment_id'),'')").As("basis_deployment_id"),
+		goqu.L("coalesce(json_extract(payload,'$.summary.added'),0)").As("summary_added"),
+		goqu.L("coalesce(json_extract(payload,'$.summary.changed'),0)").As("summary_changed"),
+		goqu.L("coalesce(json_extract(payload,'$.summary.removed'),0)").As("summary_removed"),
+		goqu.L("coalesce(json_extract(payload,'$.summary.redacted'),0)").As("summary_redacted"),
+		goqu.L("coalesce(json_extract(payload,'$.resources.services'),0)").As("resources_services"),
+		goqu.L("coalesce(json_extract(payload,'$.resources.configs'),0)").As("resources_configs"),
+		goqu.L("coalesce(json_extract(payload,'$.resources.secrets'),0)").As("resources_secrets"),
+		goqu.L("coalesce(json_extract(payload,'$.resources.networks'),0)").As("resources_networks"),
+		goqu.L("coalesce(json_extract(payload,'$.resources.volumes'),0)").As("resources_volumes"),
+		goqu.L("coalesce(json_extract(payload,'$.diff_available'),0)").As("diff_available"),
+	}
+}
+
 // List returns a lightweight page without loading desired snapshots or change arrays.
 func (s *Store) List(ctx context.Context, filter ListFilter) (Page, error) {
-	columns := `id,stack,revision,status,json_extract(payload,'$.status'),started_at_ns,finished_at_ns,
-	error_code,phase,
-	coalesce(json_extract(payload,'$.apply_status'),''),
-	coalesce(json_extract(payload,'$.verification_status'),''),
-	coalesce(json_extract(payload,'$.cleanup_status'),''),
-	coalesce(json_extract(payload,'$.actual_state_status'),'unknown'),
-	json_extract(payload,'$.observed_at'),
-	coalesce(json_extract(payload,'$.comparison_basis'),'successful_baseline'),
-	coalesce(json_extract(payload,'$.comparison_status'),'unknown'),
-	coalesce(json_extract(payload,'$.basis_deployment_id'),''),
-	coalesce(json_extract(payload,'$.summary.added'),0),
-	coalesce(json_extract(payload,'$.summary.changed'),0),
-	coalesce(json_extract(payload,'$.summary.removed'),0),
-	coalesce(json_extract(payload,'$.summary.redacted'),0),
-	coalesce(json_extract(payload,'$.resources.services'),0),
-	coalesce(json_extract(payload,'$.resources.configs'),0),
-	coalesce(json_extract(payload,'$.resources.secrets'),0),
-	coalesce(json_extract(payload,'$.resources.networks'),0),
-	coalesce(json_extract(payload,'$.resources.volumes'),0),
-	coalesce(json_extract(payload,'$.diff_available'),0)`
-	dataset := goqu.Dialect("sqlite3").From("deployments").Prepared(true).Select(goqu.L(columns))
+	dataset := dialect.From("deployments").Prepared(true).Select(summaryColumns()...)
 	if filter.Stack != "" {
 		dataset = dataset.Where(goqu.Ex{"stack": filter.Stack})
 	}
@@ -89,21 +99,17 @@ func (s *Store) List(ctx context.Context, filter ListFilter) (Page, error) {
 	if err != nil {
 		return Page{}, err
 	}
-	rows, err := s.db.Query(ctx, query, args...)
-	if err != nil {
+	var rows []summaryRow
+	if err = s.db.Select(ctx, &rows, query, args...); err != nil {
 		return Page{}, err
 	}
-	defer rows.Close()
-	items := make([]DeploymentSummary, 0, limit+1)
-	for rows.Next() {
-		item, scanErr := scanSummary(rows)
-		if scanErr != nil {
-			return Page{}, scanErr
+	items := make([]DeploymentSummary, 0, len(rows))
+	for _, row := range rows {
+		item, convertErr := row.toSummary()
+		if convertErr != nil {
+			return Page{}, convertErr
 		}
 		items = append(items, item)
-	}
-	if err = rows.Err(); err != nil {
-		return Page{}, err
 	}
 	page := Page{Deployments: items}
 	if len(items) > limit {
@@ -114,37 +120,79 @@ func (s *Store) List(ctx context.Context, filter ListFilter) (Page, error) {
 	return page, nil
 }
 
-type summaryScanner interface {
-	// Scan reads one lightweight summary row.
-	Scan(...any) error
+// summaryRow mirrors the aliased projection built by summaryColumns so sqlx
+// can populate it directly via `db` tags.
+type summaryRow struct {
+	ID                 string            `db:"id"`
+	Stack              string            `db:"stack"`
+	Commit             string            `db:"revision"`
+	Status             Status            `db:"status"`
+	PayloadStatus      Status            `db:"payload_status"`
+	StartedAtNS        int64             `db:"started_at_ns"`
+	FinishedAtNS       sql.NullInt64     `db:"finished_at_ns"`
+	ErrorCode          string            `db:"error_code"`
+	Phase              Phase             `db:"phase"`
+	ApplyStatus        StageStatus       `db:"apply_status"`
+	VerificationStatus StageStatus       `db:"verification_status"`
+	CleanupStatus      StageStatus       `db:"cleanup_status"`
+	ActualStateStatus  ActualStateStatus `db:"actual_state_status"`
+	ObservedAt         sql.NullString    `db:"observed_at"`
+	ComparisonBasis    ComparisonBasis   `db:"comparison_basis"`
+	ComparisonStatus   ComparisonStatus  `db:"comparison_status"`
+	BasisDeploymentID  string            `db:"basis_deployment_id"`
+	SummaryAdded       int               `db:"summary_added"`
+	SummaryChanged     int               `db:"summary_changed"`
+	SummaryRemoved     int               `db:"summary_removed"`
+	SummaryRedacted    int               `db:"summary_redacted"`
+	ResourcesServices  int               `db:"resources_services"`
+	ResourcesConfigs   int               `db:"resources_configs"`
+	ResourcesSecrets   int               `db:"resources_secrets"`
+	ResourcesNetworks  int               `db:"resources_networks"`
+	ResourcesVolumes   int               `db:"resources_volumes"`
+	DiffAvailable      bool              `db:"diff_available"`
 }
 
-func scanSummary(row summaryScanner) (DeploymentSummary, error) {
-	var item DeploymentSummary
-	var payloadStatus Status
-	var started int64
-	var finished sql.NullInt64
-	var observed sql.NullString
-	err := row.Scan(&item.ID, &item.Stack, &item.Commit, &item.Status, &payloadStatus, &started, &finished,
-		&item.ErrorCode, &item.Phase, &item.ApplyStatus, &item.VerificationStatus, &item.CleanupStatus,
-		&item.ActualStateStatus, &observed, &item.ComparisonBasis, &item.ComparisonStatus,
-		&item.BasisDeploymentID, &item.Summary.Added, &item.Summary.Changed, &item.Summary.Removed,
-		&item.Summary.Redacted, &item.Resources.Services, &item.Resources.Configs, &item.Resources.Secrets,
-		&item.Resources.Networks, &item.Resources.Volumes, &item.DiffAvailable)
-	if err != nil {
-		return DeploymentSummary{}, err
-	}
-	if payloadStatus != item.Status {
+func (row summaryRow) toSummary() (DeploymentSummary, error) {
+	if row.PayloadStatus != row.Status {
 		return DeploymentSummary{}, fmt.Errorf("%w: deployment %s column status %q payload status %q",
-			ErrInconsistentDeployment, item.ID, item.Status, payloadStatus)
+			ErrInconsistentDeployment, row.ID, row.Status, row.PayloadStatus)
 	}
-	item.StartedAt = time.Unix(0, started).UTC()
-	if finished.Valid {
-		value := time.Unix(0, finished.Int64).UTC()
+	item := DeploymentSummary{
+		ID:                 row.ID,
+		Stack:              row.Stack,
+		Commit:             row.Commit,
+		Status:             row.Status,
+		StartedAt:          time.Unix(0, row.StartedAtNS).UTC(),
+		ErrorCode:          row.ErrorCode,
+		Phase:              row.Phase,
+		ApplyStatus:        row.ApplyStatus,
+		VerificationStatus: row.VerificationStatus,
+		CleanupStatus:      row.CleanupStatus,
+		ActualStateStatus:  row.ActualStateStatus,
+		ComparisonBasis:    row.ComparisonBasis,
+		ComparisonStatus:   row.ComparisonStatus,
+		BasisDeploymentID:  row.BasisDeploymentID,
+		Summary: ChangeSummary{
+			Added:    row.SummaryAdded,
+			Changed:  row.SummaryChanged,
+			Removed:  row.SummaryRemoved,
+			Redacted: row.SummaryRedacted,
+		},
+		Resources: ResourceSummary{
+			Services: row.ResourcesServices,
+			Configs:  row.ResourcesConfigs,
+			Secrets:  row.ResourcesSecrets,
+			Networks: row.ResourcesNetworks,
+			Volumes:  row.ResourcesVolumes,
+		},
+		DiffAvailable: row.DiffAvailable,
+	}
+	if row.FinishedAtNS.Valid {
+		value := time.Unix(0, row.FinishedAtNS.Int64).UTC()
 		item.FinishedAt = &value
 	}
-	if observed.Valid {
-		value, parseErr := time.Parse(time.RFC3339Nano, observed.String)
+	if row.ObservedAt.Valid {
+		value, parseErr := time.Parse(time.RFC3339Nano, row.ObservedAt.String)
 		if parseErr != nil {
 			return DeploymentSummary{}, parseErr
 		}
@@ -175,20 +223,26 @@ func decodeCursor(cursor string) (int64, string, error) {
 
 // Get loads one attempt.
 func (s *Store) Get(ctx context.Context, id string) (Deployment, error) {
-	var persistedStatus Status
-	var errorCode string
-	var phase Phase
-	var payload string
-	err := s.db.QueryRow(ctx, "SELECT status,error_code,phase,payload FROM deployments WHERE id=?", id).
-		Scan(&persistedStatus, &errorCode, &phase, &payload)
+	var row struct {
+		Status    Status `db:"status"`
+		ErrorCode string `db:"error_code"`
+		Phase     Phase  `db:"phase"`
+		Payload   string `db:"payload"`
+	}
+	query, args, err := dialect.From("deployments").Prepared(true).
+		Select("status", "error_code", "phase", "payload").
+		Where(goqu.Ex{"id": id}).ToSQL()
 	if err != nil {
+		return Deployment{}, err
+	}
+	if err = s.db.Get(ctx, &row, query, args...); err != nil {
 		return Deployment{}, notFound(err)
 	}
 	var result Deployment
-	if err = json.Unmarshal([]byte(payload), &result); err != nil {
+	if err = json.Unmarshal([]byte(row.Payload), &result); err != nil {
 		return Deployment{}, err
 	}
-	if result.ID != id || result.Status != persistedStatus || result.ErrorCode != errorCode || result.Phase != phase {
+	if result.ID != id || result.Status != row.Status || result.ErrorCode != row.ErrorCode || result.Phase != row.Phase {
 		return Deployment{}, fmt.Errorf(
 			"%w: deployment %s indexed columns disagree with payload", ErrInconsistentDeployment, id,
 		)
@@ -201,19 +255,29 @@ func (s *Store) Get(ctx context.Context, id string) (Deployment, error) {
 
 // Desired loads an attempt's safe definition for independent subscribers.
 func (s *Store) Desired(ctx context.Context, id string) (compose.File, error) {
-	desired, err := s.getPrepared(ctx, "SELECT desired_payload FROM deployments WHERE id=?", id)
+	query, args, err := dialect.From("deployments").Prepared(true).
+		Select("desired_payload").Where(goqu.Ex{"id": id}).ToSQL()
+	if err != nil {
+		return compose.File{}, err
+	}
+	desired, err := s.getPrepared(ctx, query, args...)
 	return desired.Definition, notFound(err)
 }
 
 // Baseline returns only the last successfully committed effective desired state.
 func (s *Store) Baseline(ctx context.Context, stack string) (Prepared, error) {
-	desired, err := s.getPrepared(ctx, "SELECT payload FROM desired_snapshots WHERE stack=?", stack)
+	query, args, err := dialect.From("desired_snapshots").Prepared(true).
+		Select("payload").Where(goqu.Ex{"stack": stack}).ToSQL()
+	if err != nil {
+		return Prepared{}, err
+	}
+	desired, err := s.getPrepared(ctx, query, args...)
 	return desired, notFound(err)
 }
 
 func (s *Store) getPrepared(ctx context.Context, query string, args ...any) (Prepared, error) {
 	var payload []byte
-	if err := s.db.QueryRow(ctx, query, args...).Scan(&payload); err != nil {
+	if err := s.db.Get(ctx, &payload, query, args...); err != nil {
 		return Prepared{}, err
 	}
 	var desired Prepared
@@ -223,18 +287,26 @@ func (s *Store) getPrepared(ctx context.Context, query string, args ...any) (Pre
 
 func (s *Store) baselineDeploymentID(ctx context.Context, stack string) (string, error) {
 	var id string
-	err := s.db.QueryRow(ctx, "SELECT deployment_id FROM desired_snapshots WHERE stack=?", stack).Scan(&id)
+	query, args, err := dialect.From("desired_snapshots").Prepared(true).
+		Select("deployment_id").Where(goqu.Ex{"stack": stack}).ToSQL()
+	if err != nil {
+		return "", err
+	}
+	err = s.db.Get(ctx, &id, query, args...)
 	return id, notFound(err)
 }
 
 func (s *Store) latestUnsuccessfulBasis(ctx context.Context, stack string) (Prepared, string, bool, error) {
-	var id, payload string
-	err := s.db.QueryRow(ctx, `SELECT attempt.id,attempt.desired_payload
+	var row struct {
+		ID      string `db:"id"`
+		Payload string `db:"desired_payload"`
+	}
+	err := s.db.Get(ctx, &row, `SELECT attempt.id,attempt.desired_payload
 		FROM deployments AS attempt LEFT JOIN desired_snapshots AS snapshot ON snapshot.stack=attempt.stack
 		LEFT JOIN deployments AS baseline ON baseline.id=snapshot.deployment_id
 		WHERE attempt.stack=? AND attempt.status IN ('failed','interrupted')
 		AND (baseline.id IS NULL OR attempt.rowid>baseline.rowid)
-		ORDER BY attempt.rowid DESC LIMIT 1`, stack).Scan(&id, &payload)
+		ORDER BY attempt.rowid DESC LIMIT 1`, stack)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Prepared{}, "", false, nil
 	}
@@ -242,15 +314,15 @@ func (s *Store) latestUnsuccessfulBasis(ctx context.Context, stack string) (Prep
 		return Prepared{}, "", false, err
 	}
 	var prepared Prepared
-	if err = json.Unmarshal([]byte(payload), &prepared); err != nil {
+	if err = json.Unmarshal([]byte(row.Payload), &prepared); err != nil {
 		return Prepared{}, "", false, err
 	}
-	return prepared, id, true, nil
+	return prepared, row.ID, true, nil
 }
 
 func (s *Store) hasUnsuccessfulAfterBaseline(ctx context.Context, stack string) (bool, error) {
 	var retry bool
-	err := s.db.QueryRow(ctx, `SELECT EXISTS(
+	err := s.db.Get(ctx, &retry, `SELECT EXISTS(
 		SELECT 1 FROM deployments AS attempt
 		WHERE attempt.stack=? AND attempt.status IN ('failed','interrupted')
 		AND attempt.rowid > (
@@ -258,7 +330,7 @@ func (s *Store) hasUnsuccessfulAfterBaseline(ctx context.Context, stack string) 
 			JOIN desired_snapshots AS snapshot ON snapshot.deployment_id=baseline.id
 			WHERE snapshot.stack=?
 		)
-	)`, stack, stack).Scan(&retry)
+	)`, stack, stack)
 	return retry, err
 }
 
@@ -278,10 +350,22 @@ func (s *Store) insert(ctx context.Context, d Deployment, desired Prepared) erro
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(ctx, `INSERT INTO deployments
-	(id,stack,revision,status,error_code,phase,started_at_ns,effective_digest,desired_payload,payload)
-	VALUES (?,?,?,?,?,?,?,?,?,?)`, d.ID, d.Stack, d.Commit, d.Status, d.ErrorCode, d.Phase, d.StartedAt.UnixNano(),
-		desired.Digest, string(safe), string(payload))
+	query, args, err := dialect.Insert("deployments").Prepared(true).Rows(goqu.Record{
+		"id":               d.ID,
+		"stack":            d.Stack,
+		"revision":         d.Commit,
+		"status":           d.Status,
+		"error_code":       d.ErrorCode,
+		"phase":            d.Phase,
+		"started_at_ns":    d.StartedAt.UnixNano(),
+		"effective_digest": desired.Digest,
+		"desired_payload":  string(safe),
+		"payload":          string(payload),
+	}).ToSQL()
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(ctx, query, args...)
 	return err
 }
 
@@ -293,9 +377,17 @@ func (s *Store) finish(ctx context.Context, d Deployment) error {
 	if err != nil {
 		return err
 	}
-	result, err := s.db.Exec(ctx, `UPDATE deployments
-	SET status=?,error_code=?,phase=?,finished_at_ns=?,payload=? WHERE id=? AND status='running'`,
-		d.Status, d.ErrorCode, d.Phase, d.FinishedAt.UnixNano(), string(payload), d.ID)
+	query, args, err := dialect.Update("deployments").Prepared(true).Set(goqu.Record{
+		"status":         d.Status,
+		"error_code":     d.ErrorCode,
+		"phase":          d.Phase,
+		"finished_at_ns": d.FinishedAt.UnixNano(),
+		"payload":        string(payload),
+	}).Where(goqu.Ex{"id": d.ID, "status": "running"}).ToSQL()
+	if err != nil {
+		return err
+	}
+	result, err := s.db.Exec(ctx, query, args...)
 	if err != nil {
 		return err
 	}
@@ -310,6 +402,8 @@ func (s *Store) finish(ctx context.Context, d Deployment) error {
 }
 
 func (s *Store) saveBaseline(ctx context.Context, id string) error {
+	// Kept as raw SQL: goqu cannot express INSERT ... SELECT combined with an
+	// ON CONFLICT DO UPDATE clause that references `excluded` columns.
 	_, err := s.db.Exec(ctx, `INSERT INTO desired_snapshots
  (deployment_id,stack,effective_digest,payload)
  SELECT id,stack,effective_digest,desired_payload FROM deployments WHERE id=? AND status='succeeded'

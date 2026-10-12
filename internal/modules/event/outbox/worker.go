@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Thiht/transactor/stdlib"
 	"github.com/google/uuid"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -61,7 +60,7 @@ func (b *Bus) runWorker(ctx context.Context) {
 // ProcessNext claims and processes at most one delivery using distinct T2/T3.
 // It must be called outside any publishing or subscriber transaction.
 func (b *Bus) ProcessNext(ctx context.Context) (bool, error) {
-	if stdlib.IsWithinTransaction(ctx) {
+	if b.db.IsWithinTransaction(ctx) {
 		return false, errors.New("worker cannot run in a publisher transaction")
 	}
 	b.mu.Lock()
@@ -120,8 +119,17 @@ func (b *Bus) claim(ctx context.Context) (delivery, error) {
 	d := delivery{token: uuid.NewString()}
 	now := b.now()
 	err := b.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		return b.db.QueryRow(ctx, claimQuery, now.UnixMilli(), now.UnixMilli(), d.token,
-			now.Add(b.lease).UnixMilli(), now.UnixMilli()).Scan(&d.eventID, &d.subscriptionID, &d.attempts)
+		var claimed struct {
+			EventID        string `db:"event_id"`
+			SubscriptionID string `db:"subscription_id"`
+			Attempts       int    `db:"attempts"`
+		}
+		if err := b.db.Get(ctx, &claimed, claimQuery, now.UnixMilli(), now.UnixMilli(), d.token,
+			now.Add(b.lease).UnixMilli(), now.UnixMilli()); err != nil {
+			return err
+		}
+		d.eventID, d.subscriptionID, d.attempts = claimed.EventID, claimed.SubscriptionID, claimed.Attempts
+		return nil
 	})
 	return d, err
 }
@@ -131,16 +139,20 @@ type invalidDeliveryError struct{ code string }
 func (e *invalidDeliveryError) Error() string { return e.code }
 
 func (b *Bus) process(ctx context.Context, d delivery) error {
-	var typ events.TypeName
-	var version int
-	var payload string
-	var occurred int64
-	var publicationSequence int64
-	err := b.db.QueryRow(ctx, `SELECT event_type,schema_version,payload,occurred_at_ms,sequence
-		FROM outbox_events WHERE id=?`, d.eventID).Scan(&typ, &version, &payload, &occurred, &publicationSequence)
+	var row struct {
+		EventType           events.TypeName `db:"event_type"`
+		SchemaVersion       int             `db:"schema_version"`
+		Payload             string          `db:"payload"`
+		OccurredAtMs        int64           `db:"occurred_at_ms"`
+		PublicationSequence int64           `db:"sequence"`
+	}
+	err := b.db.Get(ctx, &row, `SELECT event_type,schema_version,payload,occurred_at_ms,sequence
+		FROM outbox_events WHERE id=?`, d.eventID)
 	if err != nil {
 		return err
 	}
+	typ, version, payload, occurred, publicationSequence := row.EventType, row.SchemaVersion, row.Payload,
+		row.OccurredAtMs, row.PublicationSequence
 	event, err := codec.Decode(typ, version, []byte(payload))
 	if err != nil {
 		return &invalidDeliveryError{code: "unsupported_or_invalid_payload"}
@@ -189,9 +201,9 @@ func invoke(ctx context.Context, handler Subscriber, envelope events.Envelope) (
 
 func (b *Bus) checkLease(ctx context.Context, d delivery) error {
 	var count int
-	err := b.db.QueryRow(ctx, `SELECT count(*) FROM outbox_deliveries
+	err := b.db.Get(ctx, &count, `SELECT count(*) FROM outbox_deliveries
 		WHERE event_id=? AND subscription_id=? AND status='processing' AND lease_token=? AND lease_until_ms>?`,
-		d.eventID, d.subscriptionID, d.token, b.now().UnixMilli()).Scan(&count)
+		d.eventID, d.subscriptionID, d.token, b.now().UnixMilli())
 	if err != nil {
 		return err
 	}
