@@ -72,9 +72,23 @@ func (s *SQLStore) write(ctx context.Context, alert model.Alert, update bool) er
 		if count != 1 {
 			return s.alertWriteMiss(ctx, alert.ID, update)
 		}
-		_, writeErr = s.db.Exec(ctx, `DELETE FROM alerts WHERE id IN (
-			SELECT id FROM alerts WHERE status='resolved' ORDER BY resolved_at_ns,id
-			LIMIT max((SELECT count(*) FROM alerts)-?,0))`, MaxStoredAlerts)
+		alertsCount := dialect.From("alerts").Prepared(true).Select(goqu.COUNT("*"))
+		rankedResolved := dialect.From("alerts").Prepared(true).Select(
+			"id",
+			goqu.L("row_number() OVER (ORDER BY resolved_at_ns,id)").As("prune_rank"),
+		).
+			Where(goqu.Ex{"status": "resolved"}).
+			Order(goqu.I("resolved_at_ns").Asc(), goqu.I("id").Asc())
+		pruned := dialect.From(rankedResolved.As("resolved")).Prepared(true).
+			Select("id").
+			Where(goqu.C("prune_rank").Lte(goqu.L("max((?)-?,0)", alertsCount, MaxStoredAlerts)))
+		query, args, buildErr = dialect.Delete("alerts").Prepared(true).
+			Where(goqu.C("id").In(pruned)).
+			ToSQL()
+		if buildErr != nil {
+			return buildErr
+		}
+		_, writeErr = s.db.Exec(ctx, query, args...)
 		return writeErr
 	})
 }
@@ -105,7 +119,12 @@ func (s *SQLStore) alertWriteMiss(ctx context.Context, id string, update bool) e
 		return ErrAlertNotFound
 	}
 	var openedAt int64
-	err := s.db.Get(ctx, &openedAt, "SELECT opened_at_ns FROM alerts WHERE id=?", id)
+	query, args, err := dialect.From("alerts").Prepared(true).
+		Select("opened_at_ns").Where(goqu.Ex{"id": id}).ToSQL()
+	if err != nil {
+		return err
+	}
+	err = s.db.Get(ctx, &openedAt, query, args...)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrAlertNotFound
 	}
@@ -195,7 +214,14 @@ func (s *SQLStore) Consume(ctx context.Context, id string, apply func(context.Co
 		return fmt.Errorf("alert projection requires source event ID")
 	}
 	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		result, err := s.db.Exec(ctx, "INSERT INTO alert_events VALUES (?) ON CONFLICT DO NOTHING", id)
+		query, args, err := dialect.Insert("alert_events").Prepared(true).
+			Rows(goqu.Record{"source_event_id": id}).
+			OnConflict(goqu.DoNothing()).
+			ToSQL()
+		if err != nil {
+			return err
+		}
+		result, err := s.db.Exec(ctx, query, args...)
 		if err != nil {
 			return err
 		}

@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log/slog"
 
+	"github.com/doug-martin/goqu/v9"
+	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -143,8 +145,14 @@ func (s *Subscriber) persistProjection(
 	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		if deploySuccess.DeploymentID != "" {
 			var current bool
-			query := "SELECT EXISTS(SELECT 1 FROM desired_snapshots WHERE stack=? AND deployment_id=?)"
-			readErr := s.db.Get(ctx, &current, query, deploySuccess.StackName, deploySuccess.DeploymentID)
+			exists := goqu.Dialect("sqlite3").From("desired_snapshots").Prepared(true).Select(goqu.L("1")).
+				Where(goqu.Ex{"stack": deploySuccess.StackName, "deployment_id": deploySuccess.DeploymentID})
+			query, args, buildErr := goqu.Dialect("sqlite3").From().Prepared(true).
+				Select(goqu.L("EXISTS ?", exists)).ToSQL()
+			if buildErr != nil {
+				return buildErr
+			}
+			readErr := s.db.Get(ctx, &current, query, args...)
 			if readErr != nil {
 				return readErr
 			}
@@ -152,8 +160,14 @@ func (s *Subscriber) persistProjection(
 				return nil
 			}
 		}
-		result, err := s.db.Exec(ctx,
-			"INSERT INTO service_catalog_receipts(source_event_id) VALUES(?) ON CONFLICT DO NOTHING", sourceID)
+		query, args, err := goqu.Dialect("sqlite3").Insert("service_catalog_receipts").Prepared(true).
+			Rows(goqu.Record{"source_event_id": sourceID}).
+			OnConflict(goqu.DoNothing()).
+			ToSQL()
+		if err != nil {
+			return err
+		}
+		result, err := s.db.Exec(ctx, query, args...)
 		if err != nil {
 			return err
 		}

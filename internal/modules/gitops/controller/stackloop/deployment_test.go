@@ -258,12 +258,12 @@ func TestReconcileRecoversSucceededCompletionConflictWithoutContradictoryOutcome
 	require.NoError(t, err)
 	assert.Equal(t, "nginx:2", baseline.Definition.Compose.Services[0].Image)
 	var failedEvents int
-	require.NoError(t, db.QueryRow(ctx,
-		"SELECT count(*) FROM outbox_events WHERE event_type=?", events.TypeNameDeployFailed).Scan(&failedEvents))
+	require.NoError(t, db.Get(ctx, &failedEvents,
+		"SELECT count(*) FROM outbox_events WHERE event_type=?", events.TypeNameDeployFailed))
 	assert.Zero(t, failedEvents, "obsolete recovery must not publish a contradictory failure")
 	var successEvents int
-	require.NoError(t, db.QueryRow(ctx,
-		"SELECT count(*) FROM outbox_events WHERE event_type=?", events.TypeNameDeploySuccess).Scan(&successEvents))
+	require.NoError(t, db.Get(ctx, &successEvents,
+		"SELECT count(*) FROM outbox_events WHERE event_type=?", events.TypeNameDeploySuccess))
 	assert.Equal(t, 2, successEvents, "each real successful attempt must publish exactly once")
 }
 
@@ -284,7 +284,7 @@ func TestPreparationFailureStateAndPublicationAreAtomicAndSecretSafe(t *testing.
 	_, exists := runtime.Stacks["app"]
 	assert.False(t, exists)
 	var count int
-	require.NoError(t, db.QueryRow(ctx, "SELECT count(*) FROM outbox_events").Scan(&count))
+	require.NoError(t, db.Get(ctx, &count, "SELECT count(*) FROM outbox_events"))
 	assert.Zero(t, count)
 	_, err = db.Exec(ctx, "DROP TRIGGER fail_preparation_event")
 	require.NoError(t, err)
@@ -295,9 +295,8 @@ func TestPreparationFailureStateAndPublicationAreAtomicAndSecretSafe(t *testing.
 	require.NoError(t, err)
 	assert.Equal(t, "preparation_failed", runtime.Stacks["app"].LastError)
 	var payloads string
-	require.NoError(t, db.QueryRow(ctx,
-		"SELECT group_concat(payload) FROM outbox_events").Scan(&payloads))
+	require.NoError(t, db.Get(ctx, &payloads, "SELECT group_concat(payload) FROM outbox_events"))
 	assert.NotContains(t, payloads, "raw-secret-value")
-	require.NoError(t, db.QueryRow(ctx, "SELECT count(*) FROM outbox_events").Scan(&count))
+	require.NoError(t, db.Get(ctx, &count, "SELECT count(*) FROM outbox_events"))
 	assert.Equal(t, 2, count, "repeated failures are distinct domain facts")
 }

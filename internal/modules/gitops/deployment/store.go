@@ -301,12 +301,28 @@ func (s *Store) latestUnsuccessfulBasis(ctx context.Context, stack string) (Prep
 		ID      string `db:"id"`
 		Payload string `db:"desired_payload"`
 	}
-	err := s.db.Get(ctx, &row, `SELECT attempt.id,attempt.desired_payload
-		FROM deployments AS attempt LEFT JOIN desired_snapshots AS snapshot ON snapshot.stack=attempt.stack
-		LEFT JOIN deployments AS baseline ON baseline.id=snapshot.deployment_id
-		WHERE attempt.stack=? AND attempt.status IN ('failed','interrupted')
-		AND (baseline.id IS NULL OR attempt.rowid>baseline.rowid)
-		ORDER BY attempt.rowid DESC LIMIT 1`, stack)
+	attempt := goqu.T("deployments").As("attempt")
+	snapshot := goqu.T("desired_snapshots").As("snapshot")
+	baseline := goqu.T("deployments").As("baseline")
+	query, args, err := dialect.From(attempt).Prepared(true).
+		LeftJoin(snapshot, goqu.On(goqu.I("snapshot.stack").Eq(goqu.I("attempt.stack")))).
+		LeftJoin(baseline, goqu.On(goqu.I("baseline.id").Eq(goqu.I("snapshot.deployment_id")))).
+		Select(goqu.I("attempt.id"), goqu.I("attempt.desired_payload")).
+		Where(
+			goqu.I("attempt.stack").Eq(stack),
+			goqu.I("attempt.status").In("failed", "interrupted"),
+			goqu.Or(
+				goqu.I("baseline.id").IsNull(),
+				goqu.I("attempt.rowid").Gt(goqu.I("baseline.rowid")),
+			),
+		).
+		Order(goqu.I("attempt.rowid").Desc()).
+		Limit(1).
+		ToSQL()
+	if err != nil {
+		return Prepared{}, "", false, err
+	}
+	err = s.db.Get(ctx, &row, query, args...)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Prepared{}, "", false, nil
 	}
@@ -322,15 +338,23 @@ func (s *Store) latestUnsuccessfulBasis(ctx context.Context, stack string) (Prep
 
 func (s *Store) hasUnsuccessfulAfterBaseline(ctx context.Context, stack string) (bool, error) {
 	var retry bool
-	err := s.db.Get(ctx, &retry, `SELECT EXISTS(
-		SELECT 1 FROM deployments AS attempt
-		WHERE attempt.stack=? AND attempt.status IN ('failed','interrupted')
-		AND attempt.rowid > (
-			SELECT baseline.rowid FROM deployments AS baseline
-			JOIN desired_snapshots AS snapshot ON snapshot.deployment_id=baseline.id
-			WHERE snapshot.stack=?
+	baselineRowID := dialect.From(goqu.T("deployments").As("baseline")).Prepared(true).
+		Join(goqu.T("desired_snapshots").As("snapshot"),
+			goqu.On(goqu.I("snapshot.deployment_id").Eq(goqu.I("baseline.id")))).
+		Select(goqu.I("baseline.rowid")).
+		Where(goqu.Ex{"snapshot.stack": stack})
+	exists := dialect.From(goqu.T("deployments").As("attempt")).Prepared(true).
+		Select(goqu.L("1")).
+		Where(
+			goqu.I("attempt.stack").Eq(stack),
+			goqu.I("attempt.status").In("failed", "interrupted"),
+			goqu.I("attempt.rowid").Gt(baselineRowID),
 		)
-	)`, stack, stack)
+	query, args, err := dialect.From().Prepared(true).Select(goqu.L("EXISTS ?", exists)).ToSQL()
+	if err != nil {
+		return false, err
+	}
+	err = s.db.Get(ctx, &retry, query, args...)
 	return retry, err
 }
 
@@ -402,12 +426,21 @@ func (s *Store) finish(ctx context.Context, d Deployment) error {
 }
 
 func (s *Store) saveBaseline(ctx context.Context, id string) error {
-	// Kept as raw SQL: goqu cannot express INSERT ... SELECT combined with an
-	// ON CONFLICT DO UPDATE clause that references `excluded` columns.
-	_, err := s.db.Exec(ctx, `INSERT INTO desired_snapshots
- (deployment_id,stack,effective_digest,payload)
- SELECT id,stack,effective_digest,desired_payload FROM deployments WHERE id=? AND status='succeeded'
- ON CONFLICT(stack) DO UPDATE SET deployment_id=excluded.deployment_id,
- effective_digest=excluded.effective_digest,payload=excluded.payload`, id)
+	source := dialect.From("deployments").Prepared(true).
+		Select("id", "stack", "effective_digest", "desired_payload").
+		Where(goqu.Ex{"id": id, "status": "succeeded"})
+	query, args, err := dialect.Insert("desired_snapshots").Prepared(true).
+		Cols("deployment_id", "stack", "effective_digest", "payload").
+		FromQuery(source).
+		OnConflict(goqu.DoUpdate("stack", goqu.Record{
+			"deployment_id":    goqu.I("excluded.deployment_id"),
+			"effective_digest": goqu.I("excluded.effective_digest"),
+			"payload":          goqu.I("excluded.payload"),
+		})).
+		ToSQL()
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(ctx, query, args...)
 	return err
 }

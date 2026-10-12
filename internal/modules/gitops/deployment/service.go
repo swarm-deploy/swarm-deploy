@@ -130,8 +130,14 @@ func (s *Service) shouldStart(
 		return true, nil
 	}
 	var retry bool
-	err := s.db.Get(ctx, &retry, `SELECT EXISTS(
-    SELECT 1 FROM deployments WHERE stack=? AND status IN ('failed','interrupted'))`, stack)
+	exists := goqu.Dialect("sqlite3").From("deployments").Prepared(true).Select(goqu.L("1")).
+		Where(goqu.Ex{"stack": stack}, goqu.C("status").In("failed", "interrupted"))
+	query, args, err := goqu.Dialect("sqlite3").From().Prepared(true).
+		Select(goqu.L("EXISTS ?", exists)).ToSQL()
+	if err != nil {
+		return false, err
+	}
+	err = s.db.Get(ctx, &retry, query, args...)
 	return retry, err
 }
 

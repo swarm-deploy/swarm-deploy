@@ -71,16 +71,6 @@ func Open(ctx context.Context, dataDir string) (*Database, error) {
 	return s, nil
 }
 
-// Query executes a query using the active transaction or the shared database pool.
-func (s *Database) Query(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
-	return s.get(ctx).QueryContext(ctx, query, args...)
-}
-
-// QueryRow executes a single-row query using the active transaction or the shared database pool.
-func (s *Database) QueryRow(ctx context.Context, query string, args ...any) *sql.Row {
-	return s.get(ctx).QueryRowContext(ctx, query, args...)
-}
-
 // Get executes a query expected to return at most one row and scans it into dest
 // using the active transaction or the shared database pool. dest is typically a
 // pointer to a struct with `db` tags, or a pointer to a single scalar value.

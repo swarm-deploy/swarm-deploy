@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -29,7 +28,7 @@ func setup(t *testing.T) (*storage.Database, *Bus) {
 func rows(t *testing.T, db *storage.Database, table string) int {
 	t.Helper()
 	var count int
-	require.NoError(t, db.QueryRow(t.Context(), "SELECT count(*) FROM "+table).Scan(&count))
+	require.NoError(t, db.Get(t.Context(), &count, "SELECT count(*) FROM "+table))
 	return count
 }
 
@@ -144,21 +143,25 @@ func TestIndependentDestinationsAndReplay(t *testing.T) {
 				require.NoError(t, err)
 			}
 			assert.Equal(t, 1, rows(t, db, "outbox_events"))
-			var id, code string
-			require.NoError(t, db.QueryRow(t.Context(), "SELECT event_id,last_error FROM outbox_deliveries WHERE status='failed'").Scan(&id, &code))
-			assert.Equal(t, "handler_failed", code)
+			var failedRow struct {
+				ID   string `db:"event_id"`
+				Code string `db:"last_error"`
+			}
+			require.NoError(t, db.Get(t.Context(), &failedRow,
+				"SELECT event_id,last_error FROM outbox_deliveries WHERE status='failed'"))
+			assert.Equal(t, "handler_failed", failedRow.Code)
 			failed, err := bus.ListFailed(t.Context())
 			require.NoError(t, err)
 			require.Len(t, failed, 1)
-			assert.Equal(t, FailedDelivery{EventID: id, SubscriptionID: "b-bad",
+			assert.Equal(t, FailedDelivery{EventID: failedRow.ID, SubscriptionID: "b-bad",
 				EventType: string(events.TypeNameNodeJoined), Attempts: 1, LastError: "handler_failed"}, failed[0])
 			if action == "replay" {
 				bad.EXPECT().Handle(gomock.Any(), gomock.Any()).Return(nil)
-				require.NoError(t, bus.Replay(t.Context(), id, "b-bad"))
+				require.NoError(t, bus.Replay(t.Context(), failedRow.ID, "b-bad"))
 				_, err := bus.ProcessNext(t.Context())
 				require.NoError(t, err)
 			} else {
-				require.NoError(t, bus.Discard(t.Context(), id, "b-bad"))
+				require.NoError(t, bus.Discard(t.Context(), failedRow.ID, "b-bad"))
 			}
 			assert.Zero(t, rows(t, db, "outbox_events"))
 			assert.Zero(t, rows(t, db, "outbox_deliveries"))
@@ -251,21 +254,23 @@ func TestClaimQueryUsesActiveSubscriptionIndex(t *testing.T) {
 			}
 			_, err := db.Exec(t.Context(), "ANALYZE")
 			require.NoError(t, err)
-			rows, err := db.Query(t.Context(), "EXPLAIN QUERY PLAN "+claimQuery,
-				int64(1_000_000), int64(1_000_000), "token", int64(2_000_000), int64(1_000_000))
+			query, args, err := claimStatement(
+				int64(1_000_000), int64(1_000_000), "token", int64(2_000_000), int64(1_000_000),
+			)
 			require.NoError(t, err)
-			defer rows.Close()
-			var plan strings.Builder
-			for rows.Next() {
-				var id, parent, unused int
-				var detail string
-				require.NoError(t, rows.Scan(&id, &parent, &unused, &detail))
-				plan.WriteString(detail)
-				plan.WriteByte('\n')
+			var rows []struct {
+				ID     int    `db:"id"`
+				Parent int    `db:"parent"`
+				Unused int    `db:"notused"`
+				Detail string `db:"detail"`
 			}
-			require.NoError(t, rows.Err())
-			t.Log(plan.String())
-			assert.Contains(t, plan.String(), "idx_outbox_active_subscription")
+			require.NoError(t, db.Select(t.Context(), &rows, "EXPLAIN QUERY PLAN "+query, args...))
+			var plan string
+			for _, row := range rows {
+				plan += row.Detail + "\n"
+			}
+			t.Log(plan)
+			assert.Contains(t, plan, "idx_outbox_active_subscription")
 		})
 	}
 }
@@ -298,10 +303,13 @@ func TestInvalidDeliveryIsParked(t *testing.T) {
 			handled, err := bus.ProcessNext(t.Context())
 			require.NoError(t, err)
 			require.True(t, handled)
-			var status, code string
-			require.NoError(t, db.QueryRow(t.Context(), "SELECT status,last_error FROM outbox_deliveries").Scan(&status, &code))
-			assert.Equal(t, "failed", status)
-			assert.Equal(t, reason, code)
+			var row struct {
+				Status string `db:"status"`
+				Code   string `db:"last_error"`
+			}
+			require.NoError(t, db.Get(t.Context(), &row, "SELECT status,last_error FROM outbox_deliveries"))
+			assert.Equal(t, "failed", row.Status)
+			assert.Equal(t, reason, row.Code)
 			assert.Equal(t, 1, rows(t, db, "outbox_events"))
 		})
 	}
