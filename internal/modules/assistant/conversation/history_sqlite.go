@@ -9,8 +9,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/doug-martin/goqu/v9"
+	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
+
+var dialect = goqu.Dialect("sqlite3")
 
 // SQLHistoryStorage stores chat metadata and ordered turns in a shared database.
 type SQLHistoryStorage struct{ db *storage.Database }
@@ -20,8 +24,12 @@ func NewSQLHistoryStorage(db *storage.Database) *SQLHistoryStorage { return &SQL
 
 // List returns metadata without loading conversation turns.
 func (s *SQLHistoryStorage) ReadChats(ctx context.Context) ([]ChatSummary, error) {
-	return s.queryChatSummaries(ctx,
-		"SELECT payload FROM assistant_chats ORDER BY updated_at_ns DESC,id")
+	query, _, err := dialect.From("assistant_chats").Prepared(true).
+		Select("payload").Order(goqu.I("updated_at_ns").Desc(), goqu.I("id").Asc()).ToSQL()
+	if err != nil {
+		return nil, err
+	}
+	return s.queryChatSummaries(ctx, query)
 }
 
 // Get reads metadata and turns from a consistent transaction snapshot.
@@ -29,8 +37,13 @@ func (s *SQLHistoryStorage) ReadChat(ctx context.Context, id string) (Chat, bool
 	var chat Chat
 	found := false
 	err := s.db.WithinTransaction(ctx, func(ctx context.Context) error {
+		query, args, buildErr := dialect.From("assistant_chats").Prepared(true).
+			Select("payload").Where(goqu.Ex{"id": id}).ToSQL()
+		if buildErr != nil {
+			return buildErr
+		}
 		var payload []byte
-		err := s.db.QueryRow(ctx, "SELECT payload FROM assistant_chats WHERE id=?", id).Scan(&payload)
+		err := s.db.Get(ctx, &payload, query, args...)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil
 		}
@@ -41,8 +54,12 @@ func (s *SQLHistoryStorage) ReadChat(ctx context.Context, id string) (Chat, bool
 		if err = json.Unmarshal(payload, &meta); err != nil {
 			return err
 		}
-		turns, err := s.queryTurns(ctx,
-			"SELECT payload FROM assistant_turns WHERE chat_id=? ORDER BY sequence", id)
+		turnsQuery, turnsArgs, buildErr := dialect.From("assistant_turns").Prepared(true).
+			Select("payload").Where(goqu.Ex{"chat_id": id}).Order(goqu.I("sequence").Asc()).ToSQL()
+		if buildErr != nil {
+			return buildErr
+		}
+		turns, err := s.queryTurns(ctx, turnsQuery, turnsArgs...)
 		if err != nil {
 			return err
 		}
@@ -92,27 +109,19 @@ func (s *SQLHistoryStorage) Append(ctx context.Context, id string, turns ...Turn
 // Save atomically persists an entire chat, preserving timestamps during import.
 func (s *SQLHistoryStorage) Save(ctx context.Context, chat Chat) error {
 	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		meta := ChatSummary{ID: chat.ID, Title: chat.Title, CreatedAt: chat.CreatedAt,
-			UpdatedAt: chat.UpdatedAt, Usage: chat.Usage}
-		payload, err := json.Marshal(meta)
+		if err := s.saveChatSummary(ctx, chat); err != nil {
+			return err
+		}
+		deleteQuery, deleteArgs, err := dialect.Delete("assistant_turns").Prepared(true).
+			Where(goqu.Ex{"chat_id": chat.ID}).ToSQL()
 		if err != nil {
 			return err
 		}
-		if _, err = s.db.Exec(ctx, `INSERT INTO assistant_chats VALUES (?,?,?)
-			ON CONFLICT(id) DO UPDATE SET updated_at_ns=excluded.updated_at_ns,payload=excluded.payload`,
-			chat.ID, chat.UpdatedAt.UnixNano(), string(payload)); err != nil {
-			return err
-		}
-		if _, err = s.db.Exec(ctx, "DELETE FROM assistant_turns WHERE chat_id=?", chat.ID); err != nil {
+		if _, err = s.db.Exec(ctx, deleteQuery, deleteArgs...); err != nil {
 			return err
 		}
 		for i, turn := range chat.Turns {
-			payload, err = json.Marshal(turn)
-			if err != nil {
-				return err
-			}
-			if _, err = s.db.Exec(ctx,
-				"INSERT INTO assistant_turns VALUES (?,?,?)", chat.ID, i, string(payload)); err != nil {
+			if err = s.saveTurn(ctx, chat.ID, i, turn); err != nil {
 				return err
 			}
 		}
@@ -120,46 +129,70 @@ func (s *SQLHistoryStorage) Save(ctx context.Context, chat Chat) error {
 	})
 }
 
+func (s *SQLHistoryStorage) saveChatSummary(ctx context.Context, chat Chat) error {
+	meta := ChatSummary{ID: chat.ID, Title: chat.Title, CreatedAt: chat.CreatedAt,
+		UpdatedAt: chat.UpdatedAt, Usage: chat.Usage}
+	payload, err := json.Marshal(meta)
+	if err != nil {
+		return err
+	}
+	query, args, err := dialect.Insert("assistant_chats").Prepared(true).
+		Rows(goqu.Record{"id": chat.ID, "updated_at_ns": chat.UpdatedAt.UnixNano(), "payload": string(payload)}).
+		OnConflict(goqu.DoUpdate("id", goqu.Record{
+			"updated_at_ns": goqu.L("excluded.updated_at_ns"),
+			"payload":       goqu.L("excluded.payload"),
+		})).ToSQL()
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(ctx, query, args...)
+	return err
+}
+
+func (s *SQLHistoryStorage) saveTurn(ctx context.Context, chatID string, sequence int, turn Turn) error {
+	payload, err := json.Marshal(turn)
+	if err != nil {
+		return err
+	}
+	query, args, err := dialect.Insert("assistant_turns").Prepared(true).
+		Rows(goqu.Record{"chat_id": chatID, "sequence": sequence, "payload": string(payload)}).ToSQL()
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(ctx, query, args...)
+	return err
+}
+
 func (s *SQLHistoryStorage) queryChatSummaries(
 	ctx context.Context, query string, args ...any,
 ) ([]ChatSummary, error) {
-	rows, err := s.db.Query(ctx, query, args...)
-	if err != nil {
+	var payloads [][]byte
+	if err := s.db.Select(ctx, &payloads, query, args...); err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	result := []ChatSummary{}
-	for rows.Next() {
-		var payload []byte
-		if err = rows.Scan(&payload); err != nil {
-			return nil, err
-		}
+	result := make([]ChatSummary, 0, len(payloads))
+	for _, payload := range payloads {
 		var value ChatSummary
-		if err = json.Unmarshal(payload, &value); err != nil {
+		if err := json.Unmarshal(payload, &value); err != nil {
 			return nil, err
 		}
 		result = append(result, value)
 	}
-	return result, rows.Err()
+	return result, nil
 }
 
 func (s *SQLHistoryStorage) queryTurns(ctx context.Context, query string, args ...any) ([]Turn, error) {
-	rows, err := s.db.Query(ctx, query, args...)
-	if err != nil {
+	var payloads [][]byte
+	if err := s.db.Select(ctx, &payloads, query, args...); err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	result := []Turn{}
-	for rows.Next() {
-		var payload []byte
-		if err = rows.Scan(&payload); err != nil {
-			return nil, err
-		}
+	result := make([]Turn, 0, len(payloads))
+	for _, payload := range payloads {
 		var value Turn
-		if err = json.Unmarshal(payload, &value); err != nil {
+		if err := json.Unmarshal(payload, &value); err != nil {
 			return nil, err
 		}
 		result = append(result, value)
 	}
-	return result, rows.Err()
+	return result, nil
 }

@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -218,6 +219,85 @@ func TestDatabaseSQLMethodsPropagateErrorsAndCancellation(t *testing.T) {
 	require.Error(t, err)
 	var value int
 	require.Error(t, db.QueryRow(t.Context(), "SELECT missing FROM nowhere").Scan(&value))
+}
+
+func TestGetAndSelect(t *testing.T) {
+	db, err := Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	_, err = db.Exec(t.Context(), "CREATE TABLE widgets (id TEXT PRIMARY KEY, label TEXT NOT NULL)")
+	require.NoError(t, err)
+	_, err = db.Exec(t.Context(), "INSERT INTO widgets VALUES ('a','Alpha'),('b','Beta')")
+	require.NoError(t, err)
+
+	type widget struct {
+		ID    string `db:"id"`
+		Label string `db:"label"`
+	}
+
+	t.Run("get scalar", func(t *testing.T) {
+		var count int
+		require.NoError(t, db.Get(t.Context(), &count, "SELECT count(*) FROM widgets"))
+		assert.Equal(t, 2, count)
+	})
+
+	t.Run("get struct", func(t *testing.T) {
+		var w widget
+		require.NoError(t, db.Get(t.Context(), &w, "SELECT id,label FROM widgets WHERE id=?", "a"))
+		assert.Equal(t, widget{ID: "a", Label: "Alpha"}, w)
+	})
+
+	t.Run("get no rows", func(t *testing.T) {
+		var w widget
+		err := db.Get(t.Context(), &w, "SELECT id,label FROM widgets WHERE id=?", "missing")
+		require.ErrorIs(t, err, sql.ErrNoRows)
+	})
+
+	t.Run("select structs", func(t *testing.T) {
+		var widgets []widget
+		require.NoError(t, db.Select(t.Context(), &widgets, "SELECT id,label FROM widgets ORDER BY id"))
+		assert.Equal(t, []widget{{ID: "a", Label: "Alpha"}, {ID: "b", Label: "Beta"}}, widgets)
+	})
+
+	t.Run("select scalars", func(t *testing.T) {
+		var labels []string
+		require.NoError(t, db.Select(t.Context(), &labels, "SELECT label FROM widgets ORDER BY id"))
+		assert.Equal(t, []string{"Alpha", "Beta"}, labels)
+	})
+
+	t.Run("use active transaction and roll back", func(t *testing.T) {
+		rollback := errors.New("rollback")
+		err := db.WithinTransaction(t.Context(), func(ctx context.Context) error {
+			_, execErr := db.Exec(ctx, "INSERT INTO widgets VALUES ('c','Gamma')")
+			if execErr != nil {
+				return execErr
+			}
+			var w widget
+			if getErr := db.Get(ctx, &w, "SELECT id,label FROM widgets WHERE id=?", "c"); getErr != nil {
+				return getErr
+			}
+			assert.Equal(t, widget{ID: "c", Label: "Gamma"}, w)
+			var all []widget
+			if selErr := db.Select(ctx, &all, "SELECT id,label FROM widgets ORDER BY id"); selErr != nil {
+				return selErr
+			}
+			assert.Len(t, all, 3)
+			return rollback
+		})
+		require.ErrorIs(t, err, rollback)
+		var count int
+		require.NoError(t, db.Get(t.Context(), &count, "SELECT count(*) FROM widgets"))
+		assert.Equal(t, 2, count, "Get/Select must use the rolled-back transaction")
+	})
+
+	t.Run("propagate cancellation", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		var w widget
+		require.ErrorIs(t, db.Get(ctx, &w, "SELECT id,label FROM widgets WHERE id=?", "a"), context.Canceled)
+		var widgets []widget
+		require.ErrorIs(t, db.Select(ctx, &widgets, "SELECT id,label FROM widgets"), context.Canceled)
+	})
 }
 
 func TestPragmasOnEveryPooledConnection(t *testing.T) {

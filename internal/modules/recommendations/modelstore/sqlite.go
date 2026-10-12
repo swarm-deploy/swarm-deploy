@@ -26,6 +26,20 @@ func keyOf(r model.Recommendation) recommendationKey {
 // NewSQLStore creates a recommendation repository.
 func NewSQLStore(db *storage.Database) *SQLStore { return &SQLStore{db: db} }
 
+// recommendationRow mirrors the List projection for sqlx scanning.
+type recommendationRow struct {
+	Severity       string `db:"severity"`
+	Type           string `db:"type"`
+	Stack          string `db:"stack"`
+	Service        string `db:"service"`
+	SourceFile     string `db:"source_file"`
+	SourceDigest   string `db:"source_digest"`
+	SourceCommit   string `db:"source_commit"`
+	Title          string `db:"title"`
+	Recommendation string `db:"recommendation"`
+	CreatedAt      string `db:"created_at"`
+}
+
 // List filters recommendations in their persisted sequence.
 func (s *SQLStore) List(ctx context.Context, filter ListFilter) ([]model.Recommendation, error) {
 	dataset := goqu.Dialect("sqlite3").From("recommendations").Prepared(true).Select(
@@ -43,30 +57,26 @@ func (s *SQLStore) List(ctx context.Context, filter ListFilter) ([]model.Recomme
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.Query(ctx, query, args...)
-	if err != nil {
+	var rows []recommendationRow
+	if err = s.db.Select(ctx, &rows, query, args...); err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	result := []model.Recommendation{}
-	for rows.Next() {
-		var (
-			r         model.Recommendation
-			createdAt string
-		)
-		if err = rows.Scan(
-			&r.Severity, &r.Type, &r.Subject.Stack, &r.Subject.Service,
-			&r.Source.File, &r.Source.Digest, &r.Source.Commit,
-			&r.Title, &r.Recommendation, &createdAt,
-		); err != nil {
-			return nil, err
+	result := make([]model.Recommendation, 0, len(rows))
+	for _, row := range rows {
+		r := model.Recommendation{
+			Severity:       model.Severity(row.Severity),
+			Type:           model.Type(row.Type),
+			Title:          row.Title,
+			Recommendation: row.Recommendation,
 		}
-		if r.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt); err != nil {
+		r.Subject.Stack, r.Subject.Service = row.Stack, row.Service
+		r.Source.File, r.Source.Digest, r.Source.Commit = row.SourceFile, row.SourceDigest, row.SourceCommit
+		if r.CreatedAt, err = time.Parse(time.RFC3339Nano, row.CreatedAt); err != nil {
 			return nil, err
 		}
 		result = append(result, r)
 	}
-	return result, rows.Err()
+	return result, nil
 }
 
 // UpdateStack atomically replaces a stack's recommendations.
@@ -80,7 +90,12 @@ func (s *SQLStore) UpdateStack(ctx context.Context, stack string, recommendation
 		for _, r := range previous {
 			byKey[keyOf(r)] = r
 		}
-		if _, err = s.db.Exec(ctx, "DELETE FROM recommendations WHERE stack=?", stack); err != nil {
+		deleteQuery, deleteArgs, err := goqu.Dialect("sqlite3").Delete("recommendations").Prepared(true).
+			Where(goqu.Ex{"stack": stack}).ToSQL()
+		if err != nil {
+			return err
+		}
+		if _, err = s.db.Exec(ctx, deleteQuery, deleteArgs...); err != nil {
 			return err
 		}
 		for _, r := range recommendations {
@@ -88,14 +103,21 @@ func (s *SQLStore) UpdateStack(ctx context.Context, stack string, recommendation
 			if existing, ok := byKey[keyOf(r)]; ok {
 				r = existing
 			}
-			if _, err = s.db.Exec(ctx, `INSERT INTO recommendations(
-					severity,type,stack,service,source_file,source_digest,source_commit,
-					title,recommendation,created_at)
-				VALUES (?,?,?,?,?,?,?,?,?,?)
-				ON CONFLICT(stack,service,source_file,type) DO NOTHING`,
-				string(r.Severity), string(r.Type), stack, r.Subject.Service,
-				r.Source.File, r.Source.Digest, r.Source.Commit,
-				r.Title, r.Recommendation, r.CreatedAt.Format(time.RFC3339Nano)); err != nil {
+			// A single composite UNIQUE(stack,service,source_file,type) constraint is the
+			// only non-rowid conflict source here, so an untargeted DO NOTHING is safe.
+			insertQuery, insertArgs, insertErr := goqu.Dialect("sqlite3").Insert("recommendations").Prepared(true).
+				Rows(goqu.Record{
+					"severity": string(r.Severity), "type": string(r.Type), "stack": stack,
+					"service": r.Subject.Service, "source_file": r.Source.File,
+					"source_digest": r.Source.Digest, "source_commit": r.Source.Commit,
+					"title": r.Title, "recommendation": r.Recommendation,
+					"created_at": r.CreatedAt.Format(time.RFC3339Nano),
+				}).
+				OnConflict(goqu.DoNothing()).ToSQL()
+			if insertErr != nil {
+				return insertErr
+			}
+			if _, err = s.db.Exec(ctx, insertQuery, insertArgs...); err != nil {
 				return err
 			}
 		}

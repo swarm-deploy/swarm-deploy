@@ -144,9 +144,7 @@ func (s *Subscriber) persistProjection(
 		if deploySuccess.DeploymentID != "" {
 			var current bool
 			query := "SELECT EXISTS(SELECT 1 FROM desired_snapshots WHERE stack=? AND deployment_id=?)"
-			readErr := s.db.QueryRow(
-				ctx, query, deploySuccess.StackName, deploySuccess.DeploymentID,
-			).Scan(&current)
+			readErr := s.db.Get(ctx, &current, query, deploySuccess.StackName, deploySuccess.DeploymentID)
 			if readErr != nil {
 				return readErr
 			}
