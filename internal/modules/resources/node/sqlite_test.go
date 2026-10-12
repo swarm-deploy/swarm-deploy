@@ -34,30 +34,35 @@ func TestNodeStorePhysicalContentAndRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, full, lookup["n2"])
 
-	var id, hostname string
-	var hasID, hasHostname int
-	require.NoError(t, db.QueryRow(t.Context(), `SELECT id,hostname,json_type(payload,'$.id') IS NOT NULL,
-		json_type(payload,'$.hostname') IS NOT NULL FROM nodes WHERE id='n2'`).
-		Scan(&id, &hostname, &hasID, &hasHostname))
-	assert.Equal(t, "n2", id)
-	assert.Equal(t, "alpha", hostname)
-	assert.Zero(t, hasID)
-	assert.Zero(t, hasHostname)
+	var row struct {
+		ID          string `db:"id"`
+		Hostname    string `db:"hostname"`
+		HasID       int    `db:"has_id"`
+		HasHostname int    `db:"has_hostname"`
+	}
+	require.NoError(t, db.Get(t.Context(), &row, `SELECT id,hostname,
+		json_type(payload,'$.id') IS NOT NULL AS has_id,
+		json_type(payload,'$.hostname') IS NOT NULL AS has_hostname
+		FROM nodes WHERE id='n2'`))
+	assert.Equal(t, "n2", row.ID)
+	assert.Equal(t, "alpha", row.Hostname)
+	assert.Zero(t, row.HasID)
+	assert.Zero(t, row.HasHostname)
 
 	var payload string
-	require.NoError(t, db.QueryRow(t.Context(), "SELECT payload FROM nodes WHERE id='n2'").Scan(&payload))
+	require.NoError(t, db.Get(t.Context(), &payload, "SELECT payload FROM nodes WHERE id='n2'"))
 	assert.JSONEq(t, `{"status":"ready","availability":"active","manager_status":"worker","engine_version":"28",
 		"addr":"10.0.0.2","cpu_nano":4,"memory_bytes":8,"labels":{"zone":"a"}}`, payload)
 
 	var identities int
-	require.NoError(t, db.QueryRow(t.Context(), "SELECT count(*) FROM node_identities").Scan(&identities))
+	require.NoError(t, db.Get(t.Context(), &identities, "SELECT count(*) FROM node_identities"))
 	assert.Equal(t, 2, identities)
 
 	require.NoError(t, store.ReplaceSnapshot(t.Context(), nil))
 	nodes, err = store.ReadAll(t.Context())
 	require.NoError(t, err)
 	assert.Empty(t, nodes)
-	require.NoError(t, db.QueryRow(t.Context(), "SELECT count(*) FROM node_identities").Scan(&identities))
+	require.NoError(t, db.Get(t.Context(), &identities, "SELECT count(*) FROM node_identities"))
 	assert.Equal(t, 2, identities, "identities survive snapshot replacement")
 }
 

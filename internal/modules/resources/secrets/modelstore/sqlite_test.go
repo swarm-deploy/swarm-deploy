@@ -43,23 +43,26 @@ func TestSecretsRoundTripAndPhysicalPayload(t *testing.T) {
 	_, err = store.GetByName(t.Context(), "missing")
 	assert.ErrorIs(t, err, ErrSecretNotFound)
 
-	var id, name, payload string
-	require.NoError(t, db.QueryRow(t.Context(),
-		"SELECT id,name,payload FROM secret_metadata WHERE name='b'").Scan(&id, &name, &payload))
-	assert.Equal(t, "id-b", id)
-	assert.Equal(t, "b", name)
+	var row struct {
+		ID      string `db:"id"`
+		Name    string `db:"name"`
+		Payload string `db:"payload"`
+	}
+	require.NoError(t, db.Get(t.Context(), &row, "SELECT id,name,payload FROM secret_metadata WHERE name='b'"))
+	assert.Equal(t, "id-b", row.ID)
+	assert.Equal(t, "b", row.Name)
 	for _, key := range []string{"id", "name", "description", "managed", "external_path", "external_version_id"} {
 		var count int
-		require.NoError(t, db.QueryRow(t.Context(),
-			"SELECT json_type(payload,'$.'||?) IS NOT NULL FROM secret_metadata WHERE name='b'", key).Scan(&count))
+		require.NoError(t, db.Get(t.Context(), &count,
+			"SELECT json_type(payload,'$.'||?) IS NOT NULL FROM secret_metadata WHERE name='b'", key))
 		assert.Zero(t, count, "payload must not contain %q", key)
 	}
 	assert.JSONEq(t, `{"version_id":7,"created_at":"2026-01-02T03:04:05Z","updated_at":"2026-01-02T03:04:05Z",
 		"driver":"drv","labels":{"description":"desc","external_path":"kv/b","external_version_id":"3",
-		"cloud-secrets.secret.managed":"true"}}`, payload)
+		"cloud-secrets.secret.managed":"true"}}`, row.Payload)
 
-	require.NoError(t, db.QueryRow(t.Context(),
-		"SELECT payload FROM secret_metadata WHERE name='a'").Scan(&payload))
+	var payload string
+	require.NoError(t, db.Get(t.Context(), &payload, "SELECT payload FROM secret_metadata WHERE name='a'"))
 	assert.NotContains(t, payload, "labels")
 }
 
@@ -74,7 +77,7 @@ func TestSecretsReplaceEmptyAndRollback(t *testing.T) {
 	err = store.Replace(t.Context(), []model.Secret{{ID: "2", Name: "y"}, {ID: "3", Name: "y"}})
 	require.Error(t, err)
 	var name string
-	require.NoError(t, db.QueryRow(t.Context(), "SELECT name FROM secret_metadata").Scan(&name))
+	require.NoError(t, db.Get(t.Context(), &name, "SELECT name FROM secret_metadata"))
 	assert.Equal(t, "x", name)
 
 	require.NoError(t, store.Replace(t.Context(), nil))
@@ -98,8 +101,8 @@ func TestSecretsReplaceRejectsFieldsNotBackedByLabels(t *testing.T) {
 			require.NoError(t, store.Replace(t.Context(), []model.Secret{keep}))
 			require.Error(t, store.Replace(t.Context(), []model.Secret{secret}))
 			var count int
-			require.NoError(t, db.QueryRow(t.Context(),
-				"SELECT count(*) FROM secret_metadata WHERE name='keep'").Scan(&count))
+			require.NoError(t, db.Get(t.Context(), &count,
+				"SELECT count(*) FROM secret_metadata WHERE name='keep'"))
 			assert.Equal(t, 1, count, "failed Replace must roll back")
 		})
 	}

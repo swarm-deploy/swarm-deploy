@@ -16,8 +16,12 @@ import (
 	sqlitecode "modernc.org/sqlite/lib"
 )
 
-const alertColumns = "id,fingerprint,kind,resource_type,resource_id,deployment_id,status," +
-	"opened_at_ns,updated_at_ns,resolved_at_ns,payload"
+var alertColumns = []any{
+	"id", "fingerprint", "kind", "resource_type", "resource_id", "deployment_id", "status",
+	"opened_at_ns", "updated_at_ns", "resolved_at_ns", "payload",
+}
+
+var dialect = goqu.Dialect("sqlite3")
 
 // SQLStore persists alert lifecycle independently of the delivery queue.
 type SQLStore struct{ db *storage.Database }
@@ -49,7 +53,10 @@ func (s *SQLStore) write(ctx context.Context, alert model.Alert, update bool) er
 		deploymentID = alert.DeploymentID
 	}
 	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		query, args := alertWriteStatement(alert, deploymentID, resolved, string(payload), update)
+		query, args, buildErr := alertWriteStatement(alert, deploymentID, resolved, string(payload), update)
+		if buildErr != nil {
+			return buildErr
+		}
 		result, writeErr := s.db.Exec(ctx, query, args...)
 		if writeErr != nil {
 			var constraint *sqlite.Error
@@ -65,27 +72,46 @@ func (s *SQLStore) write(ctx context.Context, alert model.Alert, update bool) er
 		if count != 1 {
 			return s.alertWriteMiss(ctx, alert.ID, update)
 		}
-		_, writeErr = s.db.Exec(ctx, `DELETE FROM alerts WHERE id IN (
-			SELECT id FROM alerts WHERE status='resolved' ORDER BY resolved_at_ns,id
-			LIMIT max((SELECT count(*) FROM alerts)-?,0))`, MaxStoredAlerts)
+		alertsCount := dialect.From("alerts").Prepared(true).Select(goqu.COUNT("*"))
+		rankedResolved := dialect.From("alerts").Prepared(true).Select(
+			"id",
+			goqu.L("row_number() OVER (ORDER BY resolved_at_ns,id)").As("prune_rank"),
+		).
+			Where(goqu.Ex{"status": "resolved"}).
+			Order(goqu.I("resolved_at_ns").Asc(), goqu.I("id").Asc())
+		pruned := dialect.From(rankedResolved.As("resolved")).Prepared(true).
+			Select("id").
+			Where(goqu.C("prune_rank").Lte(goqu.L("max((?)-?,0)", alertsCount, MaxStoredAlerts)))
+		query, args, buildErr = dialect.Delete("alerts").Prepared(true).
+			Where(goqu.C("id").In(pruned)).
+			ToSQL()
+		if buildErr != nil {
+			return buildErr
+		}
+		_, writeErr = s.db.Exec(ctx, query, args...)
 		return writeErr
 	})
 }
 
 func alertWriteStatement(
 	alert model.Alert, deploymentID, resolved any, payload string, update bool,
-) (string, []any) {
-	args := []any{alert.Fingerprint, alert.Kind, alert.ResourceType, alert.ResourceID, deploymentID, alert.Status}
+) (string, []any, error) {
 	if update {
-		query := `UPDATE alerts SET fingerprint=?,kind=?,resource_type=?,resource_id=?,deployment_id=?,status=?,
-			updated_at_ns=?,resolved_at_ns=?,payload=? WHERE id=? AND opened_at_ns=?`
-		return query, append(args, alert.UpdatedAt.UnixNano(), resolved, payload, alert.ID, alert.OpenedAt.UnixNano())
+		record := goqu.Record{
+			"fingerprint": alert.Fingerprint, "kind": alert.Kind, "resource_type": alert.ResourceType,
+			"resource_id": alert.ResourceID, "deployment_id": deploymentID, "status": alert.Status,
+			"updated_at_ns": alert.UpdatedAt.UnixNano(), "resolved_at_ns": resolved, "payload": payload,
+		}
+		return dialect.Update("alerts").Prepared(true).Set(record).
+			Where(goqu.Ex{"id": alert.ID, "opened_at_ns": alert.OpenedAt.UnixNano()}).ToSQL()
 	}
-	query := `INSERT INTO alerts
-		(fingerprint,kind,resource_type,resource_id,deployment_id,status,opened_at_ns,updated_at_ns,
-		 resolved_at_ns,payload,id)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?)`
-	return query, append(args, alert.OpenedAt.UnixNano(), alert.UpdatedAt.UnixNano(), resolved, payload, alert.ID)
+	record := goqu.Record{
+		"id": alert.ID, "fingerprint": alert.Fingerprint, "kind": alert.Kind, "resource_type": alert.ResourceType,
+		"resource_id": alert.ResourceID, "deployment_id": deploymentID, "status": alert.Status,
+		"opened_at_ns": alert.OpenedAt.UnixNano(), "updated_at_ns": alert.UpdatedAt.UnixNano(),
+		"resolved_at_ns": resolved, "payload": payload,
+	}
+	return dialect.Insert("alerts").Prepared(true).Rows(record).ToSQL()
 }
 
 func (s *SQLStore) alertWriteMiss(ctx context.Context, id string, update bool) error {
@@ -93,7 +119,12 @@ func (s *SQLStore) alertWriteMiss(ctx context.Context, id string, update bool) e
 		return ErrAlertNotFound
 	}
 	var openedAt int64
-	err := s.db.QueryRow(ctx, "SELECT opened_at_ns FROM alerts WHERE id=?", id).Scan(&openedAt)
+	query, args, err := dialect.From("alerts").Prepared(true).
+		Select("opened_at_ns").Where(goqu.Ex{"id": id}).ToSQL()
+	if err != nil {
+		return err
+	}
+	err = s.db.Get(ctx, &openedAt, query, args...)
 	if errors.Is(err, sql.ErrNoRows) {
 		return ErrAlertNotFound
 	}
@@ -105,25 +136,39 @@ func (s *SQLStore) alertWriteMiss(ctx context.Context, id string, update bool) e
 
 // Get returns an incident by ID.
 func (s *SQLStore) Get(ctx context.Context, id string) (model.Alert, error) {
-	return s.get(ctx, "SELECT "+alertColumns+" FROM alerts WHERE id=?", id)
+	query, args, err := dialect.From("alerts").Prepared(true).Select(alertColumns...).
+		Where(goqu.Ex{"id": id}).ToSQL()
+	if err != nil {
+		return model.Alert{}, err
+	}
+	return s.get(ctx, query, args...)
 }
 
 // FindOpenByFingerprint resolves the active incident for a resource.
 func (s *SQLStore) FindOpenByFingerprint(ctx context.Context, fingerprint string) (model.Alert, error) {
-	return s.get(ctx, "SELECT "+alertColumns+" FROM alerts WHERE fingerprint=? AND status='open'", fingerprint)
+	query, args, err := dialect.From("alerts").Prepared(true).Select(alertColumns...).
+		Where(goqu.Ex{"fingerprint": fingerprint, "status": "open"}).ToSQL()
+	if err != nil {
+		return model.Alert{}, err
+	}
+	return s.get(ctx, query, args...)
 }
 
-func (s *SQLStore) get(ctx context.Context, query, key string) (model.Alert, error) {
-	alert, err := scanAlert(s.db.QueryRow(ctx, query, key))
+func (s *SQLStore) get(ctx context.Context, query string, args ...any) (model.Alert, error) {
+	var row alertRow
+	err := s.db.Get(ctx, &row, query, args...)
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.Alert{}, ErrAlertNotFound
 	}
-	return alert, err
+	if err != nil {
+		return model.Alert{}, err
+	}
+	return row.toAlert()
 }
 
 // List returns incidents ordered by most recent lifecycle update.
 func (s *SQLStore) List(ctx context.Context, filter ListFilter) ([]model.Alert, error) {
-	dataset := goqu.Dialect("sqlite3").From("alerts").Prepared(true).Select(goqu.L(alertColumns))
+	dataset := dialect.From("alerts").Prepared(true).Select(alertColumns...)
 	if filter.Status != "" {
 		dataset = dataset.Where(goqu.Ex{"status": filter.Status})
 	}
@@ -147,24 +192,19 @@ func (s *SQLStore) List(ctx context.Context, filter ListFilter) ([]model.Alert, 
 	if err != nil {
 		return nil, err
 	}
-	return s.queryAlerts(ctx, query, args...)
-}
-
-func (s *SQLStore) queryAlerts(ctx context.Context, query string, args ...any) ([]model.Alert, error) {
-	rows, err := s.db.Query(ctx, query, args...)
-	if err != nil {
+	var rows []alertRow
+	if err = s.db.Select(ctx, &rows, query, args...); err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	alerts := []model.Alert{}
-	for rows.Next() {
-		alert, scanErr := scanAlert(rows)
-		if scanErr != nil {
-			return nil, scanErr
+	alerts := make([]model.Alert, 0, len(rows))
+	for _, row := range rows {
+		alert, convertErr := row.toAlert()
+		if convertErr != nil {
+			return nil, convertErr
 		}
 		alerts = append(alerts, alert)
 	}
-	return alerts, rows.Err()
+	return alerts, nil
 }
 
 // Consume executes an idempotent projection and its source marker atomically.
@@ -174,7 +214,14 @@ func (s *SQLStore) Consume(ctx context.Context, id string, apply func(context.Co
 		return fmt.Errorf("alert projection requires source event ID")
 	}
 	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		result, err := s.db.Exec(ctx, "INSERT INTO alert_events VALUES (?) ON CONFLICT DO NOTHING", id)
+		query, args, err := dialect.Insert("alert_events").Prepared(true).
+			Rows(goqu.Record{"source_event_id": id}).
+			OnConflict(goqu.DoNothing()).
+			ToSQL()
+		if err != nil {
+			return err
+		}
+		result, err := s.db.Exec(ctx, query, args...)
 		if err != nil {
 			return err
 		}

@@ -10,7 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Thiht/transactor/stdlib"
+	"github.com/doug-martin/goqu/v9"
+	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	"github.com/google/uuid"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -111,23 +112,33 @@ func (b *Bus) Publish(ctx context.Context, event events.Event) error {
 	id, now := eventID.String(), b.now().UnixMilli()
 	insert := func(ctx context.Context) error {
 		cause, _ := ctx.Value(causeKey{}).(string)
-		_, insertErr := b.db.Exec(ctx, `INSERT INTO outbox_events
-			(id,event_type,schema_version,occurred_at_ms,causation_id,payload) VALUES (?,?,?,?,?,?)`,
-			id, event.Type().Name(), codec.Version, now, cause, string(payload))
+		query, args, buildErr := goqu.Dialect("sqlite3").Insert("outbox_events").Prepared(true).
+			Rows(goqu.Record{
+				"id": id, "event_type": event.Type().Name(), "schema_version": codec.Version,
+				"occurred_at_ms": now, "causation_id": cause, "payload": string(payload),
+			}).ToSQL()
+		if buildErr != nil {
+			return buildErr
+		}
+		_, insertErr := b.db.Exec(ctx, query, args...)
 		if insertErr != nil {
 			return fmt.Errorf("insert outbox event: %w", insertErr)
 		}
 		for _, subscriber := range ids {
-			_, insertErr = b.db.Exec(ctx, `INSERT INTO outbox_deliveries
-				(event_id,subscription_id,available_at_ms,updated_at_ms) VALUES (?,?,?,?)`, id, subscriber, now, now)
+			query, args, buildErr = goqu.Dialect("sqlite3").Insert("outbox_deliveries").Prepared(true).
+				Rows(goqu.Record{
+					"event_id": id, "subscription_id": subscriber,
+					"available_at_ms": now, "updated_at_ms": now,
+				}).ToSQL()
+			if buildErr != nil {
+				return buildErr
+			}
+			_, insertErr = b.db.Exec(ctx, query, args...)
 			if insertErr != nil {
 				return fmt.Errorf("insert outbox delivery: %w", insertErr)
 			}
 		}
 		return nil
-	}
-	if stdlib.IsWithinTransaction(ctx) {
-		return insert(ctx)
 	}
 	return b.db.WithinTransaction(ctx, insert)
 }

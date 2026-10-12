@@ -8,9 +8,13 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/doug-martin/goqu/v9"
+	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
+
+var dialect = goqu.Dialect("sqlite3")
 
 // SQLStore stores Docker secret metadata, never secret contents.
 type SQLStore struct{ db *storage.Database }
@@ -25,74 +29,87 @@ type secretPayload struct {
 	Labels    map[string]string `json:"labels,omitempty"`
 }
 
+// secretRow is the raw columns of a secret_metadata row for sqlx scanning.
+type secretRow struct {
+	ID      string `db:"id"`
+	Name    string `db:"name"`
+	Payload []byte `db:"payload"`
+}
+
 // NewSQLStore creates a metadata repository.
 func NewSQLStore(db *storage.Database) *SQLStore { return &SQLStore{db: db} }
 
 // List returns metadata in stable name/ID order.
 func (s *SQLStore) List(ctx context.Context) ([]model.Secret, error) {
-	rows, err := s.db.Query(ctx, "SELECT id,name,payload FROM secret_metadata ORDER BY name,id")
+	query, _, err := dialect.From("secret_metadata").Prepared(true).
+		Select("id", "name", "payload").
+		Order(goqu.I("name").Asc(), goqu.I("id").Asc()).ToSQL()
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	result := []model.Secret{}
-	for rows.Next() {
-		var (
-			id, name string
-			payload  []byte
-		)
-		if err = rows.Scan(&id, &name, &payload); err != nil {
-			return nil, err
-		}
-		secret, buildErr := buildSecret(id, name, payload)
+	var rows []secretRow
+	if err = s.db.Select(ctx, &rows, query); err != nil {
+		return nil, err
+	}
+	result := make([]model.Secret, 0, len(rows))
+	for _, row := range rows {
+		secret, buildErr := buildSecret(row.ID, row.Name, row.Payload)
 		if buildErr != nil {
 			return nil, buildErr
 		}
 		result = append(result, secret)
 	}
-	return result, rows.Err()
+	return result, nil
 }
 
 // GetByName returns metadata for one Docker secret.
 func (s *SQLStore) GetByName(ctx context.Context, name string) (model.Secret, error) {
-	var (
-		id      string
-		payload []byte
-	)
-	err := s.db.QueryRow(ctx, "SELECT id,name,payload FROM secret_metadata WHERE name=?", name).
-		Scan(&id, &name, &payload)
+	query, args, err := dialect.From("secret_metadata").Prepared(true).
+		Select("id", "name", "payload").Where(goqu.Ex{"name": name}).ToSQL()
+	if err != nil {
+		return model.Secret{}, err
+	}
+	var row secretRow
+	err = s.db.Get(ctx, &row, query, args...)
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.Secret{}, ErrSecretNotFound
 	}
 	if err != nil {
 		return model.Secret{}, err
 	}
-	return buildSecret(id, name, payload)
+	return buildSecret(row.ID, row.Name, row.Payload)
 }
 
 // Replace atomically replaces the observed snapshot.
 func (s *SQLStore) Replace(ctx context.Context, secrets []model.Secret) error {
 	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		if _, err := s.db.Exec(ctx, "DELETE FROM secret_metadata"); err != nil {
+		deleteQuery, _, err := dialect.Delete("secret_metadata").Prepared(true).ToSQL()
+		if err != nil {
+			return err
+		}
+		if _, err = s.db.Exec(ctx, deleteQuery); err != nil {
 			return err
 		}
 		for _, secret := range secrets {
-			if err := checkDerivedFields(secret); err != nil {
+			if err = checkDerivedFields(secret); err != nil {
 				return err
 			}
-			payload, err := json.Marshal(secretPayload{
+			payload, marshalErr := json.Marshal(secretPayload{
 				VersionID: secret.VersionID,
 				CreatedAt: secret.CreatedAt,
 				UpdatedAt: secret.UpdatedAt,
 				Driver:    secret.Driver,
 				Labels:    secret.Labels,
 			})
-			if err != nil {
-				return err
+			if marshalErr != nil {
+				return marshalErr
 			}
-			if _, err = s.db.Exec(ctx,
-				"INSERT INTO secret_metadata(id,name,payload) VALUES (?,?,?)",
-				secret.ID, secret.Name, string(payload)); err != nil {
+			insertQuery, insertArgs, insertErr := dialect.Insert("secret_metadata").Prepared(true).
+				Rows(goqu.Record{"id": secret.ID, "name": secret.Name, "payload": string(payload)}).ToSQL()
+			if insertErr != nil {
+				return insertErr
+			}
+			if _, err = s.db.Exec(ctx, insertQuery, insertArgs...); err != nil {
 				return err
 			}
 		}

@@ -3,6 +3,9 @@ package storage
 import (
 	"context"
 	"time"
+
+	"github.com/doug-martin/goqu/v9"
+	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 )
 
 // AdvanceProjection accepts a strictly newer source in the caller's projection transaction.
@@ -10,15 +13,50 @@ import (
 func AdvanceProjection(
 	ctx context.Context, db *Database, projection, resource string, at time.Time, id string,
 ) (bool, error) {
-	result, err := db.Exec(ctx, `INSERT INTO projection_versions VALUES(?,?,?,?)
- ON CONFLICT(projection,resource) DO UPDATE SET
- occurred_at_ms=excluded.occurred_at_ms,source_event_id=excluded.source_event_id
- WHERE (excluded.occurred_at_ms,excluded.source_event_id)>
- (projection_versions.occurred_at_ms,projection_versions.source_event_id)`,
-		projection, resource, at.UnixMilli(), id)
-	if err != nil {
-		return false, err
-	}
-	count, err := result.RowsAffected()
-	return count == 1, err
+	accepted := false
+	err := db.WithinTransaction(ctx, func(ctx context.Context) error {
+		record := goqu.Record{
+			"projection":      projection,
+			"resource":        resource,
+			"occurred_at_ms":  at.UnixMilli(),
+			"source_event_id": id,
+		}
+		query, args, buildErr := goqu.Dialect("sqlite3").Insert("projection_versions").Prepared(true).
+			Rows(record).
+			OnConflict(goqu.DoNothing()).
+			ToSQL()
+		if buildErr != nil {
+			return buildErr
+		}
+		result, execErr := db.Exec(ctx, query, args...)
+		if execErr != nil {
+			return execErr
+		}
+		count, countErr := result.RowsAffected()
+		if countErr != nil {
+			return countErr
+		}
+		if count == 1 {
+			accepted = true
+			return nil
+		}
+		query, args, buildErr = goqu.Dialect("sqlite3").Update("projection_versions").Prepared(true).
+			Set(goqu.Record{"occurred_at_ms": at.UnixMilli(), "source_event_id": id}).
+			Where(
+				goqu.Ex{"projection": projection, "resource": resource},
+				goqu.L("(?,?) > (occurred_at_ms,source_event_id)", at.UnixMilli(), id),
+			).
+			ToSQL()
+		if buildErr != nil {
+			return buildErr
+		}
+		result, execErr = db.Exec(ctx, query, args...)
+		if execErr != nil {
+			return execErr
+		}
+		count, countErr = result.RowsAffected()
+		accepted = count == 1
+		return countErr
+	})
+	return accepted, err
 }

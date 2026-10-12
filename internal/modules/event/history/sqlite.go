@@ -62,8 +62,18 @@ func (s *SQLStore) Handle(ctx context.Context, e events.Envelope) error {
 		if insertErr := s.insert(ctx, entry, e.ID, e.PublicationSequence); insertErr != nil {
 			return insertErr
 		}
-		_, pruneErr := s.db.Exec(ctx, `DELETE FROM event_history WHERE publication_sequence NOT IN (
-			SELECT publication_sequence FROM event_history ORDER BY publication_sequence DESC LIMIT ?)`, s.capacity)
+		limit := uint(s.capacity) // #nosec G115 -- NewSQLStore accepts only positive int capacities.
+		retained := goqu.Dialect("sqlite3").From("event_history").Prepared(true).
+			Select("publication_sequence").
+			Order(goqu.I("publication_sequence").Desc()).
+			Limit(limit)
+		query, args, buildErr := goqu.Dialect("sqlite3").Delete("event_history").Prepared(true).
+			Where(goqu.C("publication_sequence").NotIn(retained)).
+			ToSQL()
+		if buildErr != nil {
+			return buildErr
+		}
+		_, pruneErr := s.db.Exec(ctx, query, args...)
 		return pruneErr
 	})
 }
@@ -73,6 +83,8 @@ func (s *SQLStore) insert(ctx context.Context, entry Entry, source any, publicat
 	if err != nil {
 		return err
 	}
+	// goqu's SQLite DoNothing cannot target only source_event_id; event_history
+	// has other unique columns whose conflicts must still fail.
 	_, err = s.db.Exec(ctx, `INSERT INTO event_history
 		(publication_sequence,id,source_event_id,event_type,severity,severity_rank,category,created_at_ns,payload)
 		VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(source_event_id) DO NOTHING`,
@@ -83,7 +95,7 @@ func (s *SQLStore) insert(ctx context.Context, entry Entry, source any, publicat
 
 // List returns the retained publication sequence, in publication order.
 func (s *SQLStore) Read(ctx context.Context) ([]Entry, error) {
-	dataset := goqu.Dialect("sqlite3").From("event_history").Select("payload").
+	dataset := goqu.Dialect("sqlite3").From("event_history").Prepared(true).Select("payload").
 		Order(goqu.I("publication_sequence").Asc())
 	return s.queryEntriesDataset(ctx, dataset)
 }
@@ -140,24 +152,19 @@ func (s *SQLStore) queryEntriesDataset(ctx context.Context, dataset *goqu.Select
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.Query(ctx, query, args...)
-	if err != nil {
+	var payloads [][]byte
+	if err = s.db.Select(ctx, &payloads, query, args...); err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	entries := []Entry{}
-	for rows.Next() {
-		var payload []byte
-		if err = rows.Scan(&payload); err != nil {
-			return nil, err
-		}
+	entries := make([]Entry, 0, len(payloads))
+	for _, payload := range payloads {
 		var entry Entry
 		if err = json.Unmarshal(payload, &entry); err != nil {
 			return nil, err
 		}
 		entries = append(entries, entry)
 	}
-	return entries, rows.Err()
+	return entries, nil
 }
 
 func historyFilters(options QueryOptions) []exp.Expression {

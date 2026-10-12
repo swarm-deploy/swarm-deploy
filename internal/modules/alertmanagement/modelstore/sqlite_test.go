@@ -202,39 +202,40 @@ func TestAlertIndexesOrderingCoverage(t *testing.T) {
 
 func explainQueryPlan(t *testing.T, db *storage.Database, query string) string {
 	t.Helper()
-	rows, err := db.Query(t.Context(), "EXPLAIN QUERY PLAN "+query)
-	require.NoError(t, err)
-	defer rows.Close()
+	var rows []struct {
+		ID     int    `db:"id"`
+		Parent int    `db:"parent"`
+		Unused int    `db:"notused"`
+		Detail string `db:"detail"`
+	}
+	require.NoError(t, db.Select(t.Context(), &rows, "EXPLAIN QUERY PLAN "+query))
 	var plan strings.Builder
-	for rows.Next() {
-		var id, parent, unused int
-		var detail string
-		require.NoError(t, rows.Scan(&id, &parent, &unused, &detail))
-		plan.WriteString(detail)
+	for _, row := range rows {
+		plan.WriteString(row.Detail)
 		plan.WriteByte('\n')
 	}
-	require.NoError(t, rows.Err())
 	return plan.String()
 }
 
 func assertIndexedFields(t *testing.T, db *storage.Database, alert model.Alert) {
 	t.Helper()
-	var kind model.AlertKind
-	var resourceType model.ResourceType
-	var resourceID string
-	var deploymentID sql.NullString
-	var openedAt int64
-	var payload string
-	require.NoError(t, db.QueryRow(t.Context(),
-		"SELECT kind,resource_type,resource_id,deployment_id,opened_at_ns,payload FROM alerts WHERE id=?", alert.ID).
-		Scan(&kind, &resourceType, &resourceID, &deploymentID, &openedAt, &payload))
-	assert.Equal(t, alert.Kind, kind)
-	assert.Equal(t, alert.ResourceType, resourceType)
-	assert.Equal(t, alert.ResourceID, resourceID)
-	assert.Equal(t, alert.DeploymentID, deploymentID.String)
-	assert.Equal(t, alert.OpenedAt.UnixNano(), openedAt)
+	var row struct {
+		Kind         model.AlertKind    `db:"kind"`
+		ResourceType model.ResourceType `db:"resource_type"`
+		ResourceID   string             `db:"resource_id"`
+		DeploymentID sql.NullString     `db:"deployment_id"`
+		OpenedAt     int64              `db:"opened_at_ns"`
+		Payload      string             `db:"payload"`
+	}
+	require.NoError(t, db.Get(t.Context(), &row,
+		"SELECT kind,resource_type,resource_id,deployment_id,opened_at_ns,payload FROM alerts WHERE id=?", alert.ID))
+	assert.Equal(t, alert.Kind, row.Kind)
+	assert.Equal(t, alert.ResourceType, row.ResourceType)
+	assert.Equal(t, alert.ResourceID, row.ResourceID)
+	assert.Equal(t, alert.DeploymentID, row.DeploymentID.String)
+	assert.Equal(t, alert.OpenedAt.UnixNano(), row.OpenedAt)
 	var persisted map[string]any
-	require.NoError(t, json.Unmarshal([]byte(payload), &persisted))
+	require.NoError(t, json.Unmarshal([]byte(row.Payload), &persisted))
 	for _, field := range []string{"id", "fingerprint", "kind", "resourceType", "resourceId",
 		"deploymentId", "status", "openedAt", "updatedAt", "resolvedAt"} {
 		assert.NotContains(t, persisted, field, "SQL column %q must not repeat in JSON", field)
@@ -255,16 +256,17 @@ func TestAlertStorageColumnPayloadSeparationAndNullableFields(t *testing.T) {
 		OpenedAt: now, UpdatedAt: now,
 	}
 	require.NoError(t, store.Create(t.Context(), alert))
-	var raw string
-	var deploymentID sql.NullString
-	var resolvedAt sql.NullInt64
-	require.NoError(t, db.QueryRow(t.Context(),
-		"SELECT payload,deployment_id,resolved_at_ns FROM alerts WHERE id=?", alert.ID).
-		Scan(&raw, &deploymentID, &resolvedAt))
-	assert.False(t, deploymentID.Valid)
-	assert.False(t, resolvedAt.Valid)
+	var rawRow struct {
+		Raw          string         `db:"payload"`
+		DeploymentID sql.NullString `db:"deployment_id"`
+		ResolvedAt   sql.NullInt64  `db:"resolved_at_ns"`
+	}
+	require.NoError(t, db.Get(t.Context(), &rawRow,
+		"SELECT payload,deployment_id,resolved_at_ns FROM alerts WHERE id=?", alert.ID))
+	assert.False(t, rawRow.DeploymentID.Valid)
+	assert.False(t, rawRow.ResolvedAt.Valid)
 	assert.JSONEq(t, `{"title":"Failed","message":"Docker API rejected the update",
-		"occurrences":1,"openEventId":"","latestEventId":""}`, raw)
+		"occurrences":1,"openEventId":"","latestEventId":""}`, rawRow.Raw)
 	got, err := store.Get(t.Context(), alert.ID)
 	require.NoError(t, err)
 	assert.Equal(t, alert, got)

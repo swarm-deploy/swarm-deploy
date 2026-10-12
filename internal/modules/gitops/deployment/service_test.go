@@ -63,7 +63,7 @@ func TestSuccessfulDeploymentIsIndependentOfHistoryFailure(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
 	var pending int
-	require.NoError(t, db.QueryRow(ctx, "SELECT count(*) FROM outbox_events").Scan(&pending))
+	require.NoError(t, db.Get(ctx, &pending, "SELECT count(*) FROM outbox_events"))
 	assert.Zero(t, pending)
 	require.ErrorIs(t, service.Fail(ctx, attempt.ID, model.Stack{}, "apply_failed"), ErrNotRunning)
 	same, err := service.StartIfChanged(ctx, "app", "next-commit", desired("api:1"), true)
@@ -112,9 +112,8 @@ func TestFailedCommitAndCrashKeepSuccessfulBaseline(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, Interrupted, current.Status)
 	var interruptedEvents int
-	require.NoError(t, db.QueryRow(ctx,
-		"SELECT count(*) FROM outbox_events WHERE event_type=?", events.TypeNameDeployInterrupted).
-		Scan(&interruptedEvents))
+	require.NoError(t, db.Get(ctx, &interruptedEvents,
+		"SELECT count(*) FROM outbox_events WHERE event_type=?", events.TypeNameDeployInterrupted))
 	assert.Equal(t, 1, interruptedEvents, "orphan recovery must publish exactly one interruption")
 	baseline, err = NewStore(db).Baseline(ctx, "app")
 	require.NoError(t, err)
@@ -325,17 +324,17 @@ func TestDeploymentIndexesSupportListQueries(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			rows, queryErr := db.Query(t.Context(), "EXPLAIN QUERY PLAN "+testCase.query)
-			require.NoError(t, queryErr)
-			defer rows.Close()
-			var plan strings.Builder
-			for rows.Next() {
-				var id, parent, unused int
-				var detail string
-				require.NoError(t, rows.Scan(&id, &parent, &unused, &detail))
-				plan.WriteString(detail)
+			var rows []struct {
+				ID     int    `db:"id"`
+				Parent int    `db:"parent"`
+				Unused int    `db:"notused"`
+				Detail string `db:"detail"`
 			}
-			require.NoError(t, rows.Err())
+			require.NoError(t, db.Select(t.Context(), &rows, "EXPLAIN QUERY PLAN "+testCase.query))
+			var plan strings.Builder
+			for _, row := range rows {
+				plan.WriteString(row.Detail)
+			}
 			t.Log(plan.String())
 			assert.Contains(t, plan.String(), testCase.wantIndex)
 			assert.NotContains(t, plan.String(), "USE TEMP B-TREE FOR ORDER BY")
@@ -348,9 +347,14 @@ func assertDeploymentColumns(t *testing.T, db *storage.Database, id, errorCode s
 	var columnError string
 	var columnPhase Phase
 	var payload []byte
-	require.NoError(t, db.QueryRow(t.Context(),
-		"SELECT error_code,phase,payload FROM deployments WHERE id=?", id).
-		Scan(&columnError, &columnPhase, &payload))
+	var row struct {
+		ErrorCode string `db:"error_code"`
+		Phase     Phase  `db:"phase"`
+		Payload   []byte `db:"payload"`
+	}
+	require.NoError(t, db.Get(t.Context(), &row,
+		"SELECT error_code,phase,payload FROM deployments WHERE id=?", id))
+	columnError, columnPhase, payload = row.ErrorCode, row.Phase, row.Payload
 	assert.Equal(t, errorCode, columnError)
 	assert.Equal(t, phase, columnPhase)
 	var persisted Deployment
@@ -380,8 +384,8 @@ func TestInterruptedTransitionIsAtomicDurableAndIdempotent(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "process_interrupted", runtime.Stacks["app"].LastError)
 	var eventsCount int
-	require.NoError(t, db.QueryRow(ctx,
-		"SELECT count(*) FROM outbox_events WHERE event_type=?", events.TypeNameDeployInterrupted).Scan(&eventsCount))
+	require.NoError(t, db.Get(ctx, &eventsCount,
+		"SELECT count(*) FROM outbox_events WHERE event_type=?", events.TypeNameDeployInterrupted))
 	assert.Equal(t, 1, eventsCount)
 	_, err = NewStore(db).Baseline(ctx, "app")
 	assert.ErrorIs(t, err, ErrNotFound)

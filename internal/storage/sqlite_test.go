@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -9,7 +10,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Thiht/transactor/stdlib"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -46,13 +46,14 @@ func TestRestartAndRollback(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	var id string
-	require.NoError(t, db.QueryRow(t.Context(), "SELECT id FROM outbox_events").Scan(&id))
+	require.NoError(t, db.Get(t.Context(), &id, "SELECT id FROM outbox_events"))
 	assert.Equal(t, "committed", id)
 	var count int
-	require.NoError(t, db.QueryRow(
+	require.NoError(t, db.Get(
 		t.Context(),
+		&count,
 		"SELECT count(*) FROM goose_db_version WHERE version_id = 1 AND is_applied = 1",
-	).Scan(&count))
+	))
 	assert.Equal(t, 1, count)
 }
 
@@ -61,18 +62,19 @@ func TestFreshDatabaseHasAlertIndexedSchema(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
-	rows, err := db.Query(t.Context(), "PRAGMA table_info(alerts)")
-	require.NoError(t, err)
-	defer rows.Close()
-	notNull := map[string]bool{}
-	for rows.Next() {
-		var cid, required, primaryKey int
-		var name, columnType string
-		var defaultValue any
-		require.NoError(t, rows.Scan(&cid, &name, &columnType, &required, &defaultValue, &primaryKey))
-		notNull[name] = required == 1
+	var columns []struct {
+		CID          int            `db:"cid"`
+		Name         string         `db:"name"`
+		Type         string         `db:"type"`
+		Required     int            `db:"notnull"`
+		DefaultValue sql.NullString `db:"dflt_value"`
+		PrimaryKey   int            `db:"pk"`
 	}
-	require.NoError(t, rows.Err())
+	require.NoError(t, db.Select(t.Context(), &columns, "PRAGMA table_info(alerts)"))
+	notNull := map[string]bool{}
+	for _, column := range columns {
+		notNull[column.Name] = column.Required == 1
+	}
 	assert.True(t, notNull["kind"])
 	assert.True(t, notNull["resource_type"])
 	assert.True(t, notNull["resource_id"])
@@ -81,15 +83,17 @@ func TestFreshDatabaseHasAlertIndexedSchema(t *testing.T) {
 func TestNestedTransactions(t *testing.T) {
 	sentinel := errors.New("rollback requested")
 	for _, tc := range []struct {
-		name      string
-		innerErr  error
-		outerErr  error
-		wantCount int
+		name        string
+		innerErr    error
+		outerErr    error
+		returnInner bool
+		wantCount   int
 	}{
-		{"commit", nil, nil, 2},
-		{"inner rollback keeps outer", sentinel, nil, 1},
-		{"outer rollback includes inner commit", nil, sentinel, 0},
-		{"both roll back", sentinel, sentinel, 0},
+		{name: "commit", wantCount: 2},
+		{name: "inner error joins outer when not returned", innerErr: sentinel, wantCount: 2},
+		{name: "returned inner error rolls back outer", innerErr: sentinel, returnInner: true, wantCount: 0},
+		{name: "outer rollback includes inner commit", outerErr: sentinel, wantCount: 0},
+		{name: "both roll back", innerErr: sentinel, outerErr: sentinel, wantCount: 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db, err := Open(t.Context(), t.TempDir())
@@ -98,13 +102,11 @@ func TestNestedTransactions(t *testing.T) {
 			_, err = db.Exec(t.Context(), "CREATE TABLE entries (id TEXT PRIMARY KEY)")
 			require.NoError(t, err)
 			err = db.WithinTransaction(t.Context(), func(ctx context.Context) error {
-				assert.True(t, stdlib.IsWithinTransaction(ctx))
 				_, err := db.Exec(ctx, "INSERT INTO entries VALUES ('outer')")
 				if err != nil {
 					return err
 				}
 				innerErr := db.WithinTransaction(ctx, func(inner context.Context) error {
-					assert.True(t, stdlib.IsWithinTransaction(inner))
 					_, err := db.Exec(inner, "INSERT INTO entries VALUES ('inner')")
 					if err != nil {
 						return err
@@ -112,11 +114,18 @@ func TestNestedTransactions(t *testing.T) {
 					return tc.innerErr
 				})
 				require.ErrorIs(t, innerErr, tc.innerErr)
+				if tc.returnInner {
+					return innerErr
+				}
 				return tc.outerErr
 			})
-			require.ErrorIs(t, err, tc.outerErr)
+			if tc.returnInner {
+				require.ErrorIs(t, err, tc.innerErr)
+			} else {
+				require.ErrorIs(t, err, tc.outerErr)
+			}
 			var count int
-			require.NoError(t, db.QueryRow(t.Context(), "SELECT count(*) FROM entries").Scan(&count))
+			require.NoError(t, db.Get(t.Context(), &count, "SELECT count(*) FROM entries"))
 			assert.Equal(t, tc.wantCount, count)
 		})
 	}
@@ -144,7 +153,7 @@ func TestConcurrentTransactions(t *testing.T) {
 		require.NoError(t, err)
 	}
 	var count int
-	require.NoError(t, db.QueryRow(t.Context(), "SELECT count(*) FROM entries").Scan(&count))
+	require.NoError(t, db.Get(t.Context(), &count, "SELECT count(*) FROM entries"))
 	assert.Equal(t, 16, count)
 }
 
@@ -162,28 +171,25 @@ func TestDatabaseSQLMethodsUseActiveTransaction(t *testing.T) {
 			return execErr
 		}
 		var id string
-		if scanErr := db.QueryRow(ctx, "SELECT id FROM method_entries WHERE id=?", "transactional").Scan(&id); scanErr != nil {
+		if scanErr := db.Get(ctx, &id, "SELECT id FROM method_entries WHERE id=?", "transactional"); scanErr != nil {
 			return scanErr
 		}
 		assert.Equal(t, "transactional", id)
-		rows, queryErr := db.Query(ctx, "SELECT id FROM method_entries")
-		if queryErr != nil {
+		var ids []string
+		if queryErr := db.Select(ctx, &ids, "SELECT id FROM method_entries"); queryErr != nil {
 			return queryErr
 		}
-		defer rows.Close()
-		require.True(t, rows.Next())
-		require.NoError(t, rows.Scan(&id))
-		assert.Equal(t, "transactional", id)
+		require.Equal(t, []string{"transactional"}, ids)
 		return rollback
 	})
 	require.ErrorIs(t, err, rollback)
 
 	var count int
-	require.NoError(t, db.QueryRow(t.Context(), "SELECT count(*) FROM method_entries").Scan(&count))
+	require.NoError(t, db.Get(t.Context(), &count, "SELECT count(*) FROM method_entries"))
 	assert.Zero(t, count, "all SQL methods must use the rolled-back transaction")
 }
 
-func TestDatabaseSQLMethodsPropagateErrorsAndCancellation(t *testing.T) {
+func TestDatabaseMethodsPropagateErrorsAndCancellation(t *testing.T) {
 	db, err := Open(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
@@ -192,16 +198,13 @@ func TestDatabaseSQLMethodsPropagateErrorsAndCancellation(t *testing.T) {
 		name string
 		run  func(context.Context) error
 	}{
-		{name: "query", run: func(ctx context.Context) error {
-			rows, queryErr := db.Query(ctx, "SELECT 1")
-			if rows != nil {
-				_ = rows.Close()
-			}
-			return queryErr
+		{name: "select", run: func(ctx context.Context) error {
+			var values []int
+			return db.Select(ctx, &values, "SELECT 1")
 		}},
-		{name: "query row", run: func(ctx context.Context) error {
+		{name: "get", run: func(ctx context.Context) error {
 			var value int
-			return db.QueryRow(ctx, "SELECT 1").Scan(&value)
+			return db.Get(ctx, &value, "SELECT 1")
 		}},
 		{name: "exec", run: func(ctx context.Context) error {
 			_, execErr := db.Exec(ctx, "CREATE TABLE canceled (id INTEGER)")
@@ -218,7 +221,86 @@ func TestDatabaseSQLMethodsPropagateErrorsAndCancellation(t *testing.T) {
 	_, err = db.Exec(t.Context(), "invalid SQL")
 	require.Error(t, err)
 	var value int
-	require.Error(t, db.QueryRow(t.Context(), "SELECT missing FROM nowhere").Scan(&value))
+	require.Error(t, db.Get(t.Context(), &value, "SELECT missing FROM nowhere"))
+}
+
+func TestGetAndSelect(t *testing.T) {
+	db, err := Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	_, err = db.Exec(t.Context(), "CREATE TABLE widgets (id TEXT PRIMARY KEY, label TEXT NOT NULL)")
+	require.NoError(t, err)
+	_, err = db.Exec(t.Context(), "INSERT INTO widgets VALUES ('a','Alpha'),('b','Beta')")
+	require.NoError(t, err)
+
+	type widget struct {
+		ID    string `db:"id"`
+		Label string `db:"label"`
+	}
+
+	t.Run("get scalar", func(t *testing.T) {
+		var count int
+		require.NoError(t, db.Get(t.Context(), &count, "SELECT count(*) FROM widgets"))
+		assert.Equal(t, 2, count)
+	})
+
+	t.Run("get struct", func(t *testing.T) {
+		var w widget
+		require.NoError(t, db.Get(t.Context(), &w, "SELECT id,label FROM widgets WHERE id=?", "a"))
+		assert.Equal(t, widget{ID: "a", Label: "Alpha"}, w)
+	})
+
+	t.Run("get no rows", func(t *testing.T) {
+		var w widget
+		err := db.Get(t.Context(), &w, "SELECT id,label FROM widgets WHERE id=?", "missing")
+		require.ErrorIs(t, err, sql.ErrNoRows)
+	})
+
+	t.Run("select structs", func(t *testing.T) {
+		var widgets []widget
+		require.NoError(t, db.Select(t.Context(), &widgets, "SELECT id,label FROM widgets ORDER BY id"))
+		assert.Equal(t, []widget{{ID: "a", Label: "Alpha"}, {ID: "b", Label: "Beta"}}, widgets)
+	})
+
+	t.Run("select scalars", func(t *testing.T) {
+		var labels []string
+		require.NoError(t, db.Select(t.Context(), &labels, "SELECT label FROM widgets ORDER BY id"))
+		assert.Equal(t, []string{"Alpha", "Beta"}, labels)
+	})
+
+	t.Run("use active transaction and roll back", func(t *testing.T) {
+		rollback := errors.New("rollback")
+		err := db.WithinTransaction(t.Context(), func(ctx context.Context) error {
+			_, execErr := db.Exec(ctx, "INSERT INTO widgets VALUES ('c','Gamma')")
+			if execErr != nil {
+				return execErr
+			}
+			var w widget
+			if getErr := db.Get(ctx, &w, "SELECT id,label FROM widgets WHERE id=?", "c"); getErr != nil {
+				return getErr
+			}
+			assert.Equal(t, widget{ID: "c", Label: "Gamma"}, w)
+			var all []widget
+			if selErr := db.Select(ctx, &all, "SELECT id,label FROM widgets ORDER BY id"); selErr != nil {
+				return selErr
+			}
+			assert.Len(t, all, 3)
+			return rollback
+		})
+		require.ErrorIs(t, err, rollback)
+		var count int
+		require.NoError(t, db.Get(t.Context(), &count, "SELECT count(*) FROM widgets"))
+		assert.Equal(t, 2, count, "Get/Select must use the rolled-back transaction")
+	})
+
+	t.Run("propagate cancellation", func(t *testing.T) {
+		ctx, cancel := context.WithCancel(t.Context())
+		cancel()
+		var w widget
+		require.ErrorIs(t, db.Get(ctx, &w, "SELECT id,label FROM widgets WHERE id=?", "a"), context.Canceled)
+		var widgets []widget
+		require.ErrorIs(t, db.Select(ctx, &widgets, "SELECT id,label FROM widgets"), context.Canceled)
+	})
 }
 
 func TestPragmasOnEveryPooledConnection(t *testing.T) {
@@ -256,10 +338,11 @@ func TestMigrationIsNotAppliedTwice(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	var count int
-	require.NoError(t, db.QueryRow(
+	require.NoError(t, db.Get(
 		t.Context(),
+		&count,
 		"SELECT count(*) FROM nodes WHERE id = 'node-1'",
-	).Scan(&count))
+	))
 	assert.Equal(t, 1, count)
 }
 
@@ -286,17 +369,17 @@ func TestOpenIgnoresLegacyJSONFiles(t *testing.T) {
 		assert.Equal(t, "{invalid legacy json", string(payload), "legacy files must remain untouched")
 	}
 	var importedRows int
-	require.NoError(t, db.QueryRow(t.Context(), `
+	require.NoError(t, db.Get(t.Context(), &importedRows, `
 		SELECT
 			(SELECT count(*) FROM deployments) +
 			(SELECT count(*) FROM event_history) +
 			(SELECT count(*) FROM alerts) +
 			(SELECT count(*) FROM recommendations)
-	`).Scan(&importedRows))
+	`))
 	assert.Zero(t, importedRows, "legacy files must not create SQLite records")
 	var legacyTableCount int
-	require.NoError(t, db.QueryRow(
-		t.Context(), "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='legacy_imports'",
-	).Scan(&legacyTableCount))
+	require.NoError(t, db.Get(
+		t.Context(), &legacyTableCount, "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='legacy_imports'",
+	))
 	assert.Zero(t, legacyTableCount)
 }

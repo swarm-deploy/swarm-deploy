@@ -51,24 +51,31 @@ func TestRecommendationsRelationalStorage(t *testing.T) {
 	assert.Equal(t, []model.Recommendation{a}, limited)
 
 	var row struct {
-		severity, typ, stack, service, file, digest, commit, title, text, createdAt string
+		Severity  string `db:"severity"`
+		Type      string `db:"type"`
+		Stack     string `db:"stack"`
+		Service   string `db:"service"`
+		File      string `db:"source_file"`
+		Digest    string `db:"source_digest"`
+		Commit    string `db:"source_commit"`
+		Title     string `db:"title"`
+		Text      string `db:"recommendation"`
+		CreatedAt string `db:"created_at"`
 	}
-	require.NoError(t, db.QueryRow(t.Context(), `SELECT severity,type,stack,service,source_file,source_digest,
-		source_commit,title,recommendation,created_at FROM recommendations WHERE service='web'`).Scan(
-		&row.severity, &row.typ, &row.stack, &row.service, &row.file, &row.digest,
-		&row.commit, &row.title, &row.text, &row.createdAt))
-	assert.Equal(t, "high", row.severity)
-	assert.Equal(t, "app", row.stack)
-	assert.Equal(t, "stack.yaml", row.file)
-	assert.Equal(t, "dg", row.digest)
-	assert.Equal(t, "c1", row.commit)
-	assert.Equal(t, "t-web", row.title)
-	assert.Equal(t, "r-web", row.text)
-	assert.Equal(t, t0.Format(time.RFC3339Nano), row.createdAt)
+	require.NoError(t, db.Get(t.Context(), &row, `SELECT severity,type,stack,service,source_file,source_digest,
+		source_commit,title,recommendation,created_at FROM recommendations WHERE service='web'`))
+	assert.Equal(t, "high", row.Severity)
+	assert.Equal(t, "app", row.Stack)
+	assert.Equal(t, "stack.yaml", row.File)
+	assert.Equal(t, "dg", row.Digest)
+	assert.Equal(t, "c1", row.Commit)
+	assert.Equal(t, "t-web", row.Title)
+	assert.Equal(t, "r-web", row.Text)
+	assert.Equal(t, t0.Format(time.RFC3339Nano), row.CreatedAt)
 
 	var payloadColumns int
-	require.NoError(t, db.QueryRow(t.Context(),
-		"SELECT count(*) FROM pragma_table_info('recommendations') WHERE name='payload'").Scan(&payloadColumns))
+	require.NoError(t, db.Get(t.Context(), &payloadColumns,
+		"SELECT count(*) FROM pragma_table_info('recommendations') WHERE name='payload'"))
 	assert.Zero(t, payloadColumns)
 
 	// update: keep first-seen time for known IDs, drop vanished, add new; other stacks untouched.

@@ -4,7 +4,7 @@ go 1.26.3
 
 require (
 	github.com/DrSmithFr/go-console v1.4.4
-	github.com/Thiht/transactor v1.1.0
+	github.com/Thiht/transactor/sqlx v0.0.0-20261005223553-4be91b9cb3f4
 	github.com/artarts36/envmasker v0.0.0-20260424231721-45f9d0bb307b
 	github.com/artarts36/go-entrypoint v0.3.1
 	github.com/artarts36/gopipe v0.2.1
@@ -20,6 +20,7 @@ require (
 	github.com/go-git/go-git/v5 v5.17.0
 	github.com/google/go-github/v88 v88.0.0
 	github.com/google/uuid v1.6.0
+	github.com/jmoiron/sqlx v1.4.0
 	github.com/langwatch/langwatch/sdks/go/instrumentation/openai v1.0.0
 	github.com/ogen-go/ogen v1.20.1
 	github.com/openai/openai-go/v3 v3.50.0

@@ -45,15 +45,20 @@ func TestServiceStorePhysicalContentAndRoundTrip(t *testing.T) {
 	require.True(t, found)
 	assert.Equal(t, full, got)
 
-	var stack, name string
-	var hasStack, hasName int
-	require.NoError(t, db.QueryRow(t.Context(), `SELECT stack,name,json_type(payload,'$.stack') IS NOT NULL,
-		json_type(payload,'$.name') IS NOT NULL FROM services WHERE stack='app' AND name='web'`).
-		Scan(&stack, &name, &hasStack, &hasName))
-	assert.Equal(t, "app", stack)
-	assert.Equal(t, "web", name)
-	assert.Zero(t, hasStack)
-	assert.Zero(t, hasName)
+	var row struct {
+		Stack    string `db:"stack"`
+		Name     string `db:"name"`
+		HasStack int    `db:"has_stack"`
+		HasName  int    `db:"has_name"`
+	}
+	require.NoError(t, db.Get(t.Context(), &row, `SELECT stack,name,
+		json_type(payload,'$.stack') IS NOT NULL AS has_stack,
+		json_type(payload,'$.name') IS NOT NULL AS has_name
+		FROM services WHERE stack='app' AND name='web'`))
+	assert.Equal(t, "app", row.Stack)
+	assert.Equal(t, "web", row.Name)
+	assert.Zero(t, row.HasStack)
+	assert.Zero(t, row.HasName)
 
 	// replacing one stack leaves others intact and empty replacement removes the stack.
 	require.NoError(t, store.ReplaceStack(t.Context(), "app", nil))

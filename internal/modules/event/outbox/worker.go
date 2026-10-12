@@ -9,7 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Thiht/transactor/stdlib"
+	"github.com/doug-martin/goqu/v9"
+	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	"github.com/google/uuid"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -61,9 +62,6 @@ func (b *Bus) runWorker(ctx context.Context) {
 // ProcessNext claims and processes at most one delivery using distinct T2/T3.
 // It must be called outside any publishing or subscriber transaction.
 func (b *Bus) ProcessNext(ctx context.Context) (bool, error) {
-	if stdlib.IsWithinTransaction(ctx) {
-		return false, errors.New("worker cannot run in a publisher transaction")
-	}
 	b.mu.Lock()
 	b.started = true
 	b.mu.Unlock()
@@ -97,33 +95,89 @@ func (b *Bus) ProcessNext(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-const claimQuery = `WITH due AS (
-			SELECT candidate.event_id,candidate.subscription_id
-			FROM outbox_deliveries AS candidate
-			JOIN outbox_events AS candidate_event ON candidate_event.id=candidate.event_id
-			WHERE ((candidate.status='pending' AND candidate.available_at_ms<=?)
-				OR (candidate.status='processing' AND candidate.lease_until_ms<=?))
-			AND NOT EXISTS (
-				SELECT 1 FROM outbox_deliveries AS earlier
-				JOIN outbox_events AS earlier_event ON earlier_event.id=earlier.event_id
-				WHERE earlier.subscription_id=candidate.subscription_id
-				AND earlier.status IN ('pending','processing')
-				AND earlier_event.sequence<candidate_event.sequence
-			)
-			ORDER BY candidate.available_at_ms,candidate_event.sequence,candidate.subscription_id LIMIT 1
-		) UPDATE outbox_deliveries SET status='processing',attempts=attempts+1,
-			lease_token=?,lease_until_ms=?,updated_at_ms=?
-		WHERE (event_id,subscription_id) IN (SELECT event_id,subscription_id FROM due)
-		RETURNING event_id,subscription_id,attempts`
-
 func (b *Bus) claim(ctx context.Context) (delivery, error) {
 	d := delivery{token: uuid.NewString()}
 	now := b.now()
 	err := b.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		return b.db.QueryRow(ctx, claimQuery, now.UnixMilli(), now.UnixMilli(), d.token,
-			now.Add(b.lease).UnixMilli(), now.UnixMilli()).Scan(&d.eventID, &d.subscriptionID, &d.attempts)
+		var claimed struct {
+			EventID        string `db:"event_id"`
+			SubscriptionID string `db:"subscription_id"`
+			Attempts       int    `db:"attempts"`
+		}
+		query, args, buildErr := claimStatement(
+			now.UnixMilli(), now.UnixMilli(), d.token, now.Add(b.lease).UnixMilli(), now.UnixMilli(),
+		)
+		if buildErr != nil {
+			return buildErr
+		}
+		result, err := b.db.Exec(ctx, query, args...)
+		if err != nil {
+			return err
+		}
+		count, err := result.RowsAffected()
+		if err != nil {
+			return err
+		}
+		if count == 0 {
+			return sql.ErrNoRows
+		}
+		query, args, buildErr = goqu.Dialect("sqlite3").From("outbox_deliveries").Prepared(true).
+			Select("event_id", "subscription_id", "attempts").
+			Where(goqu.Ex{"lease_token": d.token}).
+			ToSQL()
+		if buildErr != nil {
+			return buildErr
+		}
+		if err = b.db.Get(ctx, &claimed, query, args...); err != nil {
+			return err
+		}
+		d.eventID, d.subscriptionID, d.attempts = claimed.EventID, claimed.SubscriptionID, claimed.Attempts
+		return nil
 	})
 	return d, err
+}
+
+func claimStatement(nowMs, expiredMs int64, token string, leaseUntilMs, updatedAtMs int64) (string, []any, error) {
+	dialect := goqu.Dialect("sqlite3")
+	candidate := goqu.T("outbox_deliveries").As("candidate")
+	candidateEvent := goqu.T("outbox_events").As("candidate_event")
+	earlierEvent := goqu.T("outbox_events").As("earlier_event")
+	earlierPending := dialect.From(goqu.L("outbox_deliveries AS earlier INDEXED BY idx_outbox_active_subscription")).
+		Prepared(true).
+		Join(earlierEvent, goqu.On(goqu.I("earlier_event.id").Eq(goqu.I("earlier.event_id")))).
+		Select(goqu.L("1")).
+		Where(
+			goqu.I("earlier.subscription_id").Eq(goqu.I("candidate.subscription_id")),
+			goqu.L("earlier.status IN ('pending','processing')"),
+			goqu.I("earlier_event.sequence").Lt(goqu.I("candidate_event.sequence")),
+		)
+	due := dialect.From(candidate).Prepared(true).
+		Join(candidateEvent, goqu.On(goqu.I("candidate_event.id").Eq(goqu.I("candidate.event_id")))).
+		Select(goqu.I("candidate.event_id"), goqu.I("candidate.subscription_id")).
+		Where(
+			goqu.Or(
+				goqu.And(goqu.I("candidate.status").Eq("pending"), goqu.I("candidate.available_at_ms").Lte(nowMs)),
+				goqu.And(goqu.I("candidate.status").Eq("processing"), goqu.I("candidate.lease_until_ms").Lte(expiredMs)),
+			),
+			goqu.L("NOT EXISTS ?", earlierPending),
+		).
+		Order(
+			goqu.I("candidate.available_at_ms").Asc(),
+			goqu.I("candidate_event.sequence").Asc(),
+			goqu.I("candidate.subscription_id").Asc(),
+		).
+		Limit(1)
+	return dialect.Update("outbox_deliveries").Prepared(true).
+		With("due", due).
+		Set(goqu.Record{
+			"status":         "processing",
+			"attempts":       goqu.L("attempts+1"),
+			"lease_token":    token,
+			"lease_until_ms": leaseUntilMs,
+			"updated_at_ms":  updatedAtMs,
+		}).
+		Where(goqu.L("(event_id,subscription_id) IN ?", dialect.From("due").Select("event_id", "subscription_id"))).
+		ToSQL()
 }
 
 type invalidDeliveryError struct{ code string }
@@ -131,16 +185,25 @@ type invalidDeliveryError struct{ code string }
 func (e *invalidDeliveryError) Error() string { return e.code }
 
 func (b *Bus) process(ctx context.Context, d delivery) error {
-	var typ events.TypeName
-	var version int
-	var payload string
-	var occurred int64
-	var publicationSequence int64
-	err := b.db.QueryRow(ctx, `SELECT event_type,schema_version,payload,occurred_at_ms,sequence
-		FROM outbox_events WHERE id=?`, d.eventID).Scan(&typ, &version, &payload, &occurred, &publicationSequence)
+	var row struct {
+		EventType           events.TypeName `db:"event_type"`
+		SchemaVersion       int             `db:"schema_version"`
+		Payload             string          `db:"payload"`
+		OccurredAtMs        int64           `db:"occurred_at_ms"`
+		PublicationSequence int64           `db:"sequence"`
+	}
+	query, args, err := goqu.Dialect("sqlite3").From("outbox_events").Prepared(true).
+		Select("event_type", "schema_version", "payload", "occurred_at_ms", "sequence").
+		Where(goqu.Ex{"id": d.eventID}).ToSQL()
 	if err != nil {
 		return err
 	}
+	err = b.db.Get(ctx, &row, query, args...)
+	if err != nil {
+		return err
+	}
+	typ, version, payload, occurred, publicationSequence := row.EventType, row.SchemaVersion, row.Payload,
+		row.OccurredAtMs, row.PublicationSequence
 	event, err := codec.Decode(typ, version, []byte(payload))
 	if err != nil {
 		return &invalidDeliveryError{code: "unsupported_or_invalid_payload"}
@@ -189,9 +252,17 @@ func invoke(ctx context.Context, handler Subscriber, envelope events.Envelope) (
 
 func (b *Bus) checkLease(ctx context.Context, d delivery) error {
 	var count int
-	err := b.db.QueryRow(ctx, `SELECT count(*) FROM outbox_deliveries
-		WHERE event_id=? AND subscription_id=? AND status='processing' AND lease_token=? AND lease_until_ms>?`,
-		d.eventID, d.subscriptionID, d.token, b.now().UnixMilli()).Scan(&count)
+	query, args, err := goqu.Dialect("sqlite3").From("outbox_deliveries").Prepared(true).
+		Select(goqu.COUNT("*")).
+		Where(goqu.Ex{
+			"event_id": d.eventID, "subscription_id": d.subscriptionID,
+			"status": "processing", "lease_token": d.token,
+		}, goqu.C("lease_until_ms").Gt(b.now().UnixMilli())).
+		ToSQL()
+	if err != nil {
+		return err
+	}
+	err = b.db.Get(ctx, &count, query, args...)
 	if err != nil {
 		return err
 	}
@@ -202,10 +273,20 @@ func (b *Bus) checkLease(ctx context.Context, d delivery) error {
 }
 
 func (b *Bus) ack(ctx context.Context, d delivery) error {
-	result, err := b.db.Exec(ctx, `UPDATE outbox_deliveries
-		SET status='delivered',lease_token=NULL,lease_until_ms=NULL,last_error=NULL,updated_at_ms=?
-		WHERE event_id=? AND subscription_id=? AND status='processing' AND lease_token=? AND lease_until_ms>?`,
-		b.now().UnixMilli(), d.eventID, d.subscriptionID, d.token, b.now().UnixMilli())
+	query, args, err := goqu.Dialect("sqlite3").Update("outbox_deliveries").Prepared(true).
+		Set(goqu.Record{
+			"status": "delivered", "lease_token": nil, "lease_until_ms": nil,
+			"last_error": nil, "updated_at_ms": b.now().UnixMilli(),
+		}).
+		Where(goqu.Ex{
+			"event_id": d.eventID, "subscription_id": d.subscriptionID,
+			"status": "processing", "lease_token": d.token,
+		}, goqu.C("lease_until_ms").Gt(b.now().UnixMilli())).
+		ToSQL()
+	if err != nil {
+		return err
+	}
+	result, err := b.db.Exec(ctx, query, args...)
 	if err != nil {
 		return err
 	}
@@ -227,8 +308,17 @@ func requireChanged(result sql.Result) error {
 }
 
 func (b *Bus) deleteCompleted(ctx context.Context, eventID string) error {
-	_, err := b.db.Exec(ctx, `DELETE FROM outbox_events WHERE id=? AND NOT EXISTS (
-		SELECT 1 FROM outbox_deliveries WHERE event_id=outbox_events.id AND status<>'delivered')`, eventID)
+	pending := goqu.Dialect("sqlite3").From("outbox_deliveries").Prepared(true).Select(goqu.L("1")).
+		Where(
+			goqu.I("outbox_deliveries.event_id").Eq(goqu.I("outbox_events.id")),
+			goqu.I("outbox_deliveries.status").Neq("delivered"),
+		)
+	query, args, err := goqu.Dialect("sqlite3").Delete("outbox_events").Prepared(true).
+		Where(goqu.Ex{"id": eventID}, goqu.L("NOT EXISTS ?", pending)).ToSQL()
+	if err != nil {
+		return err
+	}
+	_, err = b.db.Exec(ctx, query, args...)
 	return err
 }
 
@@ -239,10 +329,19 @@ func (b *Bus) fail(ctx context.Context, d delivery, code string, terminal bool) 
 	}
 	backoff := min(time.Second*time.Duration(1<<min(d.attempts, maxBackoffExponent)), maxRetryBackoff)
 	return b.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		result, err := b.db.Exec(ctx, `UPDATE outbox_deliveries
-			SET status=?,lease_token=NULL,lease_until_ms=NULL,last_error=?,available_at_ms=?,updated_at_ms=?
-			WHERE event_id=? AND subscription_id=? AND status='processing' AND lease_token=?`,
-			status, code, b.now().Add(backoff).UnixMilli(), b.now().UnixMilli(), d.eventID, d.subscriptionID, d.token)
+		query, args, err := goqu.Dialect("sqlite3").Update("outbox_deliveries").Prepared(true).
+			Set(goqu.Record{
+				"status": status, "lease_token": nil, "lease_until_ms": nil, "last_error": code,
+				"available_at_ms": b.now().Add(backoff).UnixMilli(), "updated_at_ms": b.now().UnixMilli(),
+			}).
+			Where(goqu.Ex{
+				"event_id": d.eventID, "subscription_id": d.subscriptionID,
+				"status": "processing", "lease_token": d.token,
+			}).ToSQL()
+		if err != nil {
+			return err
+		}
+		result, err := b.db.Exec(ctx, query, args...)
 		if err != nil {
 			return err
 		}
@@ -252,10 +351,17 @@ func (b *Bus) fail(ctx context.Context, d delivery, code string, terminal bool) 
 
 // Replay reschedules exactly one terminal failure, preserving delivered siblings.
 func (b *Bus) Replay(ctx context.Context, eventID, subscriptionID string) error {
-	result, err := b.db.Exec(ctx, `UPDATE outbox_deliveries
-		SET status='pending',attempts=0,last_error=NULL,available_at_ms=?,updated_at_ms=?
-		WHERE event_id=? AND subscription_id=? AND status='failed'`,
-		b.now().UnixMilli(), b.now().UnixMilli(), eventID, subscriptionID)
+	query, args, err := goqu.Dialect("sqlite3").Update("outbox_deliveries").Prepared(true).
+		Set(goqu.Record{
+			"status": "pending", "attempts": 0, "last_error": nil,
+			"available_at_ms": b.now().UnixMilli(), "updated_at_ms": b.now().UnixMilli(),
+		}).
+		Where(goqu.Ex{"event_id": eventID, "subscription_id": subscriptionID, "status": "failed"}).
+		ToSQL()
+	if err != nil {
+		return err
+	}
+	result, err := b.db.Exec(ctx, query, args...)
 	if err != nil {
 		return err
 	}
@@ -265,8 +371,14 @@ func (b *Bus) Replay(ctx context.Context, eventID, subscriptionID string) error 
 // Discard explicitly waives one terminal failure and deletes completed work.
 func (b *Bus) Discard(ctx context.Context, eventID, subscriptionID string) error {
 	return b.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		result, err := b.db.Exec(ctx, `UPDATE outbox_deliveries SET status='delivered',updated_at_ms=?
-			WHERE event_id=? AND subscription_id=? AND status='failed'`, b.now().UnixMilli(), eventID, subscriptionID)
+		query, args, err := goqu.Dialect("sqlite3").Update("outbox_deliveries").Prepared(true).
+			Set(goqu.Record{"status": "delivered", "updated_at_ms": b.now().UnixMilli()}).
+			Where(goqu.Ex{"event_id": eventID, "subscription_id": subscriptionID, "status": "failed"}).
+			ToSQL()
+		if err != nil {
+			return err
+		}
+		result, err := b.db.Exec(ctx, query, args...)
 		if err != nil {
 			return err
 		}

@@ -130,8 +130,14 @@ func (s *Service) shouldStart(
 		return true, nil
 	}
 	var retry bool
-	err := s.db.QueryRow(ctx, `SELECT EXISTS(
-    SELECT 1 FROM deployments WHERE stack=? AND status IN ('failed','interrupted'))`, stack).Scan(&retry)
+	exists := goqu.Dialect("sqlite3").From("deployments").Prepared(true).Select(goqu.L("1")).
+		Where(goqu.Ex{"stack": stack}, goqu.C("status").In("failed", "interrupted"))
+	query, args, err := goqu.Dialect("sqlite3").From().Prepared(true).
+		Select(goqu.L("EXISTS ?", exists)).ToSQL()
+	if err != nil {
+		return false, err
+	}
+	err = s.db.Get(ctx, &retry, query, args...)
 	return retry, err
 }
 
@@ -316,24 +322,19 @@ func (s *Service) running(ctx context.Context, stack string) ([]Deployment, erro
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.db.Query(ctx, query, args...)
-	if err != nil {
+	var payloads [][]byte
+	if err = s.db.Select(ctx, &payloads, query, args...); err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	running := []Deployment{}
-	for rows.Next() {
-		var payload []byte
-		if err = rows.Scan(&payload); err != nil {
-			return nil, err
-		}
+	running := make([]Deployment, 0, len(payloads))
+	for _, payload := range payloads {
 		var deployment Deployment
 		if err = json.Unmarshal(payload, &deployment); err != nil {
 			return nil, err
 		}
 		running = append(running, deployment)
 	}
-	return running, rows.Err()
+	return running, nil
 }
 
 func (s *Service) interruptOne(ctx context.Context, d Deployment, now time.Time) error {
