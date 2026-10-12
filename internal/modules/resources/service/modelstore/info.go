@@ -9,6 +9,7 @@ import (
 	webroute "github.com/swarm-deploy/webroute/api"
 )
 
+// storeInfo is the JSON part of a services row. Stack and name live only in columns.
 type storeInfo struct {
 	// KnownApp is a recognized application identifier.
 	KnownApp knownapp.Name `json:"known_app"`
@@ -22,10 +23,6 @@ type storeInfo struct {
 	RepositoryProvider string `json:"repository_provider,omitempty"`
 	// Links is a list of additional service-related links resolved from service labels.
 	Links []metadata.Link `json:"links"`
-	// Name is a service name inside stack.
-	Name string `json:"name"`
-	// Stack is a docker stack name.
-	Stack string `json:"stack"`
 	// Image is a service container image reference.
 	Image string `json:"image"`
 	// Environment is a resolved container environment snapshot.
@@ -36,7 +33,7 @@ type storeInfo struct {
 	WebRoutes []webroute.WebRoute `json:"web_routes,omitempty"`
 }
 
-func (i storeInfo) toInfo() model.Info {
+func (i storeInfo) toInfo(stack, name string) model.Info {
 	return model.Info{
 		Metadata: metadata.Metadata{
 			KnownApp:           i.KnownApp,
@@ -46,8 +43,8 @@ func (i storeInfo) toInfo() model.Info {
 			RepositoryProvider: i.RepositoryProvider,
 			Links:              i.Links,
 		},
-		Name:        i.Name,
-		Stack:       i.Stack,
+		Name:        name,
+		Stack:       stack,
 		Image:       i.Image,
 		Environment: i.Environment,
 		Spec:        i.Spec,
@@ -55,23 +52,17 @@ func (i storeInfo) toInfo() model.Info {
 	}
 }
 
-func storeInfosFromServiceInfos(infos []model.Info) []storeInfo {
-	rows := make([]storeInfo, 0, len(infos))
-	for _, info := range infos {
-		rows = append(rows, storeInfo{
-			KnownApp:           info.KnownApp,
-			Description:        info.Description,
-			Type:               info.Type,
-			RepositoryURL:      info.RepositoryURL,
-			RepositoryProvider: info.RepositoryProvider,
-			Links:              info.Links,
-			Name:               info.Name,
-			Stack:              info.Stack,
-			Image:              info.Image,
-			Environment:        info.Environment,
-			Spec:               info.Spec,
-			WebRoutes:          info.WebRoutes,
-		})
+func storeInfoFromServiceInfo(info model.Info) storeInfo {
+	return storeInfo{
+		KnownApp:           info.KnownApp,
+		Description:        info.Description,
+		Type:               info.Type,
+		RepositoryURL:      info.RepositoryURL,
+		RepositoryProvider: info.RepositoryProvider,
+		Links:              info.Links,
+		Image:              info.Image,
+		Environment:        info.Environment,
+		Spec:               info.Spec,
+		WebRoutes:          info.WebRoutes,
 	}
-	return rows
 }

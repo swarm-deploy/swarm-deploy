@@ -2,6 +2,18 @@ package model
 
 import "time"
 
+// Docker secret labels from which Secret attributes are derived.
+const (
+	// DescriptionLabel is the label holding the secret description.
+	DescriptionLabel = "description"
+	// ExternalPathLabel is the label holding the external secret manager path.
+	ExternalPathLabel = "external_path"
+	// ExternalVersionIDLabel is the label holding the external secret version.
+	ExternalVersionIDLabel = "external_version_id"
+	// ManagedLabel is the label marking secrets managed by cloud-secrets.
+	ManagedLabel = "cloud-secrets.secret.managed"
+)
+
 // Secret contains persisted Docker secret metadata without its payload.
 type Secret struct {
 	// ID is the Docker secret identifier.

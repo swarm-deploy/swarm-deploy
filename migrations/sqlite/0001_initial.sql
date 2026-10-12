@@ -75,17 +75,32 @@ CREATE INDEX idx_alert_deployment_updated
 CREATE TABLE alert_events (source_event_id TEXT PRIMARY KEY);
 
 CREATE TABLE gitops_runtime (id INTEGER PRIMARY KEY CHECK (id=1), payload TEXT NOT NULL CHECK (json_valid(payload)));
+-- id and hostname live only in columns; payload holds the remaining node attributes.
 CREATE TABLE nodes (id TEXT PRIMARY KEY, hostname TEXT NOT NULL, payload TEXT NOT NULL CHECK (json_valid(payload)));
 CREATE INDEX idx_nodes_hostname ON nodes(hostname,id);
+-- stack and name live only in columns; payload holds metadata, image, environment, spec and web_routes.
 CREATE TABLE services (
     stack TEXT NOT NULL, name TEXT NOT NULL, payload TEXT NOT NULL CHECK (json_valid(payload)), PRIMARY KEY(stack,name)
 );
+-- id and name live only in columns; payload holds version, timestamps, driver and the source Docker labels.
+-- description, managed, external_path and external_version_id are derived from labels on read.
 CREATE TABLE secret_metadata (
     id TEXT PRIMARY KEY, name TEXT NOT NULL UNIQUE, payload TEXT NOT NULL CHECK (json_valid(payload))
 );
+-- Fully relational; sequence preserves the order of first appearance.
 CREATE TABLE recommendations (
-    sequence INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
-    stack TEXT NOT NULL, payload TEXT NOT NULL CHECK (json_valid(payload))
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT NOT NULL UNIQUE,
+    severity TEXT NOT NULL,
+    type TEXT NOT NULL,
+    stack TEXT NOT NULL,
+    service TEXT NOT NULL,
+    source_file TEXT NOT NULL,
+    source_digest TEXT NOT NULL,
+    source_commit TEXT NOT NULL,
+    title TEXT NOT NULL,
+    recommendation TEXT NOT NULL,
+    created_at TEXT NOT NULL
 );
 CREATE INDEX idx_recommendation_stack ON recommendations(stack,sequence);
 CREATE TABLE assistant_chats (

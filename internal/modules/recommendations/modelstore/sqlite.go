@@ -2,7 +2,7 @@ package modelstore
 
 import (
 	"context"
-	"encoding/json"
+	"time"
 
 	"github.com/doug-martin/goqu/v9"
 	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
@@ -18,7 +18,10 @@ func NewSQLStore(db *storage.Database) *SQLStore { return &SQLStore{db: db} }
 
 // List filters recommendations in their persisted sequence.
 func (s *SQLStore) List(ctx context.Context, filter ListFilter) ([]model.Recommendation, error) {
-	dataset := goqu.Dialect("sqlite3").From("recommendations").Prepared(true).Select("payload")
+	dataset := goqu.Dialect("sqlite3").From("recommendations").Prepared(true).Select(
+		"severity", "type", "stack", "service", "source_file", "source_digest", "source_commit",
+		"title", "recommendation", "created_at",
+	)
 	if filter.Stack != "" {
 		dataset = dataset.Where(goqu.Ex{"stack": filter.Stack})
 	}
@@ -37,15 +40,21 @@ func (s *SQLStore) List(ctx context.Context, filter ListFilter) ([]model.Recomme
 	defer rows.Close()
 	result := []model.Recommendation{}
 	for rows.Next() {
-		var payload []byte
-		if err = rows.Scan(&payload); err != nil {
+		var (
+			r         model.Recommendation
+			createdAt string
+		)
+		if err = rows.Scan(
+			&r.Severity, &r.Type, &r.Subject.Stack, &r.Subject.Service,
+			&r.Source.File, &r.Source.Digest, &r.Source.Commit,
+			&r.Title, &r.Recommendation, &createdAt,
+		); err != nil {
 			return nil, err
 		}
-		var recommendation model.Recommendation
-		if err = json.Unmarshal(payload, &recommendation); err != nil {
+		if r.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt); err != nil {
 			return nil, err
 		}
-		result = append(result, recommendation)
+		result = append(result, r)
 	}
 	return result, rows.Err()
 }
@@ -69,12 +78,13 @@ func (s *SQLStore) UpdateStack(ctx context.Context, stack string, recommendation
 			if existing, ok := byID[r.ID()]; ok {
 				r = existing
 			}
-			payload, encodeErr := json.Marshal(r)
-			if encodeErr != nil {
-				return encodeErr
-			}
-			if _, err = s.db.Exec(ctx, `INSERT INTO recommendations(id,stack,payload)
-				VALUES (?,?,?) ON CONFLICT(id) DO NOTHING`, r.ID(), stack, string(payload)); err != nil {
+			if _, err = s.db.Exec(ctx, `INSERT INTO recommendations(
+					id,severity,type,stack,service,source_file,source_digest,source_commit,
+					title,recommendation,created_at)
+				VALUES (?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING`,
+				r.ID(), string(r.Severity), string(r.Type), stack, r.Subject.Service,
+				r.Source.File, r.Source.Digest, r.Source.Commit,
+				r.Title, r.Recommendation, r.CreatedAt.Format(time.RFC3339Nano)); err != nil {
 				return err
 			}
 		}
