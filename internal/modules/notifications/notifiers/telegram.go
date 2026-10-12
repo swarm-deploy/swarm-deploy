@@ -10,22 +10,14 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
-	"text/template"
 	"time"
 
 	"github.com/avast/retry-go/v5"
+	notificationtemplate "github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/template"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"go.opentelemetry.io/otel/attribute"
 	"golang.org/x/net/proxy"
 )
-
-const defaultTelegramMessageTemplate = `deploy {{.status}}
-stack_name: {{.stack_name}}
-service: {{.service}}
-image.full_name: {{.image.full_name}}
-image.version: {{.image.version}}{{if .commit}}
-commit: {{.commit}}{{end}}{{if .error}}
-error: {{.error}}{{end}}`
 
 var telegramBotSendMessagePathPattern = regexp.MustCompile(`/bot[^/\s]+/sendMessage`)
 
@@ -34,6 +26,8 @@ type TelegramOptions struct {
 	ChatThreadID int64
 	// Message is a Go template used for notification body.
 	Message string
+	// DefaultMessage is the source-owned template used when Message is empty.
+	DefaultMessage string
 	// APIBaseURL is a base URL for Telegram Bot API.
 	APIBaseURL string
 	// Retries is a number of send attempts for Telegram notification.
@@ -48,7 +42,7 @@ type TelegramNotifier struct {
 	chatID       string
 	chatThreadID int64
 	apiBaseURL   string
-	messageTmpl  *template.Template
+	messageTmpl  *notificationtemplate.Renderer
 	retries      uint
 	client       *http.Client
 }
@@ -77,12 +71,15 @@ func NewTelegramNotifier(name, token, chatID string, options TelegramOptions) (N
 func newTelegramNotifier(name, token, chatID string, options TelegramOptions) (*TelegramNotifier, error) {
 	templateText := strings.TrimSpace(options.Message)
 	if templateText == "" {
-		templateText = defaultTelegramMessageTemplate
+		templateText = strings.TrimSpace(options.DefaultMessage)
+	}
+	if templateText == "" {
+		return nil, fmt.Errorf("message template is required")
 	}
 
-	tmpl, err := template.New("telegram-message").Parse(templateText)
+	tmpl, err := notificationtemplate.New(templateText)
 	if err != nil {
-		return nil, fmt.Errorf("parse telegram message template: %w", err)
+		return nil, fmt.Errorf("build telegram message template: %w", err)
 	}
 
 	apiBaseURL := options.APIBaseURL
@@ -188,16 +185,11 @@ func (n *TelegramNotifier) sendRequest(ctx context.Context, body []byte) error {
 }
 
 func (n *TelegramNotifier) renderMessage(event Message) (string, error) {
-	data := map[string]any{
-		"event": event.Payload,
-	}
-
-	var out bytes.Buffer
-	if err := n.messageTmpl.Execute(&out, data); err != nil {
+	message, err := n.messageTmpl.Render(event.Payload)
+	if err != nil {
 		return "", fmt.Errorf("render telegram message template: %w", err)
 	}
-
-	return out.String(), nil
+	return message, nil
 }
 
 func maskTelegramSendError(err error, token string) string {

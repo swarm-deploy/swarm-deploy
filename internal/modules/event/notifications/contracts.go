@@ -1,0 +1,255 @@
+package notifications
+
+import "time"
+
+const (
+	// StatusSuccess identifies a completed deployment.
+	StatusSuccess = "success"
+	// StatusFailed identifies a failed deployment attempt.
+	StatusFailed = "failed"
+	// StatusPreparationFailed identifies a failure before an attempt was created.
+	StatusPreparationFailed = "preparation_failed"
+	// StatusInterrupted identifies an attempt with an unknown external outcome.
+	StatusInterrupted = "interrupted"
+)
+
+// DeploymentService is the notification-safe deployment service summary.
+type DeploymentService struct {
+	// Name is the Compose service name.
+	Name string `json:"name"`
+	// Image is the configured image reference.
+	Image string `json:"image"`
+}
+
+// DeploymentPayload is the stable public data contract for deployment templates.
+type DeploymentPayload struct {
+	// ID identifies the source event delivery.
+	ID string `json:"id"`
+	// DeploymentID identifies the persisted deployment attempt when one exists.
+	DeploymentID string `json:"deployment_id"`
+	// Type is the configured notification event type.
+	Type string `json:"type"`
+	// Status is success, failed, preparation_failed, or interrupted.
+	Status string `json:"status"`
+	// StackName identifies the deployed stack.
+	StackName string `json:"stack_name"`
+	// Services contains notification-safe service names and images.
+	Services []DeploymentService `json:"services"`
+	// Commit identifies the source revision.
+	Commit string `json:"commit"`
+	// Error is a safe human-readable failure diagnostic.
+	Error string `json:"error"`
+	// ErrorCode is the stable failure category.
+	ErrorCode string `json:"error_code"`
+	// Stage identifies the deployment stage responsible for a failure.
+	Stage string `json:"stage"`
+	// OccurredAt is the event publication time in UTC.
+	OccurredAt time.Time `json:"occurred_at"`
+}
+
+// NodePayload is the stable public data contract for node notification templates.
+type NodePayload struct {
+	// ID identifies the source event delivery.
+	ID string `json:"id"`
+	// Type is the configured notification event type.
+	Type string `json:"type"`
+	// NodeID is the Docker Swarm node identifier.
+	NodeID string `json:"node_id"`
+	// NodeName is the Docker Swarm node hostname.
+	NodeName string `json:"node_name"`
+	// Role is the node role when available.
+	Role string `json:"role"`
+	// Status is the observed node status when available.
+	Status string `json:"status"`
+	// Message is the human-readable event summary.
+	Message string `json:"message"`
+	// OccurredAt is the event publication time in UTC.
+	OccurredAt time.Time `json:"occurred_at"`
+}
+
+// ServicePayload is the stable public data contract for service notification templates.
+type ServicePayload struct {
+	// ID identifies the source event delivery.
+	ID string `json:"id"`
+	// Type is the configured notification event type.
+	Type string `json:"type"`
+	// StackName identifies the stack containing the service.
+	StackName string `json:"stack_name"`
+	// ServiceName identifies the service without a stack prefix.
+	ServiceName string `json:"service_name"`
+	// Commit identifies the source revision when available.
+	Commit string `json:"commit"`
+	// Username identifies the user who initiated the action when available.
+	Username string `json:"username"`
+	// PreviousReplicas is the former desired replica count.
+	PreviousReplicas uint64 `json:"previous_replicas"`
+	// CurrentReplicas is the new desired replica count.
+	CurrentReplicas uint64 `json:"current_replicas"`
+	// Message is the human-readable event summary.
+	Message string `json:"message"`
+	// OccurredAt is the event publication time in UTC.
+	OccurredAt time.Time `json:"occurred_at"`
+}
+
+// ReconciliationPayload is the stable public data contract for reconciliation notification templates.
+type ReconciliationPayload struct {
+	// ID identifies the source event delivery.
+	ID string `json:"id"`
+	// Type is the configured notification event type.
+	Type string `json:"type"`
+	// StackName identifies an affected stack when available.
+	StackName string `json:"stack_name"`
+	// TriggeredBy identifies the user who started a manual sync.
+	TriggeredBy string `json:"triggered_by"`
+	// Queued reports whether a webhook scheduled reconciliation.
+	Queued bool `json:"queued"`
+	// NetworkName identifies a created network.
+	NetworkName string `json:"network_name"`
+	// NetworkID identifies a created Docker Swarm network.
+	NetworkID string `json:"network_id"`
+	// Driver is the created network driver.
+	Driver string `json:"driver"`
+	// Message is the human-readable event summary.
+	Message string `json:"message"`
+	// OccurredAt is the event publication time in UTC.
+	OccurredAt time.Time `json:"occurred_at"`
+}
+
+// SecurityPayload is the stable public data contract for security notification templates.
+type SecurityPayload struct {
+	// ID identifies the source event delivery.
+	ID string `json:"id"`
+	// Type is the configured notification event type.
+	Type string `json:"type"`
+	// Username identifies the authenticated user when available.
+	Username string `json:"username"`
+	// Message is the human-readable event summary.
+	Message string `json:"message"`
+	// OccurredAt is the event publication time in UTC.
+	OccurredAt time.Time `json:"occurred_at"`
+}
+
+// AssistantPayload is the stable public data contract for assistant notification templates.
+type AssistantPayload struct {
+	// ID identifies the source event delivery.
+	ID string `json:"id"`
+	// Type is the configured notification event type.
+	Type string `json:"type"`
+	// Detector identifies the prompt-injection detector.
+	Detector string `json:"detector"`
+	// Username identifies the user when available.
+	Username string `json:"username"`
+	// Message is the human-readable event summary.
+	Message string `json:"message"`
+	// OccurredAt is the event publication time in UTC.
+	OccurredAt time.Time `json:"occurred_at"`
+}
+
+// DeploymentSuccessReferencePayload returns representative data used to validate success templates.
+func DeploymentSuccessReferencePayload() DeploymentPayload {
+	return DeploymentPayload{
+		ID: "event-deploy-success", DeploymentID: "deployment-42", Type: "deploySuccess", Status: StatusSuccess,
+		StackName: "payments", Commit: "a1b2c3d4", OccurredAt: referenceTime(),
+		Services: []DeploymentService{{Name: "api", Image: "registry.example.com/payments/api:v2.4.1"}},
+	}
+}
+
+// DeploymentFailureReferencePayloads returns representative data for every deployment failure state.
+func DeploymentFailureReferencePayloads() []DeploymentPayload {
+	base := DeploymentPayload{
+		ID: "event-deploy-failed", DeploymentID: "deployment-43", Type: "deployFailed", Status: StatusFailed,
+		StackName: "payments", Commit: "d4c3b2a1", Error: "service update rejected",
+		ErrorCode: "apply_failed", Stage: "apply", OccurredAt: referenceTime(),
+		Services: []DeploymentService{{Name: "worker", Image: "registry.example.com/payments/worker:v2.4.2"}},
+	}
+	preparation := base
+	preparation.ID, preparation.DeploymentID = "event-preparation-failed", ""
+	preparation.Status, preparation.ErrorCode, preparation.Stage = StatusPreparationFailed, "preparation_failed", "load"
+	interrupted := base
+	interrupted.ID = "event-deploy-interrupted"
+	interrupted.Status, interrupted.ErrorCode, interrupted.Stage = StatusInterrupted, "process_interrupted", "apply"
+
+	return []DeploymentPayload{base, preparation, interrupted}
+}
+
+// NodeJoinedReferencePayload returns representative node-joined data.
+func NodeJoinedReferencePayload() NodePayload {
+	return NodePayload{ID: "event-node-joined", Type: "nodeJoined", NodeID: "node-1", NodeName: "worker-1",
+		Role: "worker", Message: "Node worker-1 joined the swarm", OccurredAt: referenceTime()}
+}
+
+// NodeConnectedReferencePayload returns representative node-connected data.
+func NodeConnectedReferencePayload() NodePayload {
+	return NodePayload{ID: "event-node-connected", Type: "nodeConnected", NodeID: "node-1", NodeName: "worker-1",
+		Status: "ready", Message: "Node worker-1 connected", OccurredAt: referenceTime()}
+}
+
+// NodeDisconnectedReferencePayload returns representative node-disconnected data.
+func NodeDisconnectedReferencePayload() NodePayload {
+	return NodePayload{ID: "event-node-disconnected", Type: "nodeDisconnected", NodeID: "node-1", NodeName: "worker-1",
+		Status: "down", Message: "Node worker-1 disconnected", OccurredAt: referenceTime()}
+}
+
+// ServiceReferencePayload returns representative data for a service event type.
+func ServiceReferencePayload(eventType string) ServicePayload {
+	const (
+		referencePreviousReplicas = 2
+		referenceCurrentReplicas  = 3
+	)
+
+	payload := ServicePayload{ID: "event-service", Type: eventType, StackName: "payments", ServiceName: "api",
+		Commit: "a1b2c3d4", Username: "operator", PreviousReplicas: referencePreviousReplicas,
+		CurrentReplicas: referenceCurrentReplicas, OccurredAt: referenceTime()}
+	switch eventType {
+	case "serviceMissed":
+		payload.Message = "Service payments/api missed"
+	case "servicePruned":
+		payload.Message = "Service payments/api pruned"
+	case "serviceReplicasIncreased":
+		payload.Message = "Service payments/api replicas increased from 2 to 3"
+	case "serviceReplicasDecreased":
+		payload.PreviousReplicas, payload.CurrentReplicas = referenceCurrentReplicas, referencePreviousReplicas
+		payload.Message = "Service payments/api replicas decreased from 3 to 2"
+	case "serviceRestarted":
+		payload.Message = "Service payments/api restarted"
+	default:
+		payload.Message = "Service event"
+	}
+	return payload
+}
+
+// ReconciliationReferencePayload returns representative data for a reconciliation event type.
+func ReconciliationReferencePayload(eventType string) ReconciliationPayload {
+	payload := ReconciliationPayload{ID: "event-reconciliation", Type: eventType, StackName: "payments",
+		TriggeredBy: "operator", Queued: true, NetworkName: "payments", NetworkID: "network-42", Driver: "overlay",
+		OccurredAt: referenceTime()}
+	switch eventType {
+	case "serviceCatalogUpdated":
+		payload.Message = "Service catalog updated"
+	case "syncManualStarted":
+		payload.Message = "Manual sync started"
+	case "webhookReceived":
+		payload.Message = "Webhook received"
+	case "networkCreated":
+		payload.Message = "Network payments created"
+	default:
+		payload.Message = "Reconciliation event"
+	}
+	return payload
+}
+
+// SecurityReferencePayload returns representative authenticated-user data.
+func SecurityReferencePayload() SecurityPayload {
+	return SecurityPayload{ID: "event-user-authenticated", Type: "userAuthenticated", Username: "operator",
+		Message: "User operator authenticated", OccurredAt: referenceTime()}
+}
+
+// AssistantReferencePayload returns representative prompt-injection data.
+func AssistantReferencePayload() AssistantPayload {
+	return AssistantPayload{ID: "event-prompt-injection", Type: "assistantPromptInjectionDetected", Detector: "regexp",
+		Username: "operator", Message: "Detected prompt injection", OccurredAt: referenceTime()}
+}
+
+func referenceTime() time.Time {
+	return time.Date(2026, time.October, 13, 9, 30, 0, 0, time.UTC)
+}

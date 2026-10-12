@@ -88,11 +88,14 @@ notifications:
           botTokenPath: /run/secrets/telegram_bot_token
           chatId: "-1001234567890"
           message: |
-            deploy {{.status}}
-            stack_name: {{.stack_name}}
-            service: {{.service}}
-            {{- if .error }}
-            error: {{.error}}
+            deploy {{ .Status }}
+            stack_name: {{ .StackName }}
+            {{- range .Services }}
+            service: {{ .Name }}
+            image: {{ .Image }}
+            {{- end }}
+            {{- if .Error }}
+            error: {{ .Error }}
             {{- end }}
 
     syncManualStarted:

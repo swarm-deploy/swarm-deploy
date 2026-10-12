@@ -1,0 +1,12 @@
+deploy {{ .Status }}
+stack_name: {{ .StackName }}
+{{- range .Services }}
+service: {{ .Name }}
+image: {{ .Image }}
+{{- end }}
+{{- if .Commit }}
+commit: {{ .Commit }}
+{{- end }}
+{{- if .Error }}
+error: {{ .Error }}
+{{- end }}
