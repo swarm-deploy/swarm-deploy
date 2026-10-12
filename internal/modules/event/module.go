@@ -121,7 +121,7 @@ func (s *Module) registerTelegramNotifications(
     count := 0
     telegram := s.cfg.Spec.Notifications.Messengers.Telegram
     botID, _, _ := strings.Cut(string(telegram.BotToken.Content), ":")
-    for _, channel := range channels {
+    for ruleIndex, channel := range channels {
         for _, chatName := range channel.ChatNames() {
             chat := telegram.Chats[chatName]
             notifier, err := notifiers.NewTelegramNotifier(
