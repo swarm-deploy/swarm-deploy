@@ -233,8 +233,52 @@ func assertIndexedFields(t *testing.T, db *storage.Database, alert model.Alert) 
 	assert.Equal(t, alert.ResourceID, resourceID)
 	assert.Equal(t, alert.DeploymentID, deploymentID.String)
 	assert.Equal(t, alert.OpenedAt.UnixNano(), openedAt)
-	var persisted model.Alert
+	var persisted map[string]any
 	require.NoError(t, json.Unmarshal([]byte(payload), &persisted))
-	assert.Equal(t, alert.DeploymentID, persisted.DeploymentID)
-	assert.Equal(t, alert.OpenedAt, persisted.OpenedAt)
+	for _, field := range []string{"id", "fingerprint", "kind", "resourceType", "resourceId",
+		"deploymentId", "status", "openedAt", "updatedAt", "resolvedAt"} {
+		assert.NotContains(t, persisted, field, "SQL column %q must not repeat in JSON", field)
+	}
+	stored, err := NewSQLStore(db).Get(t.Context(), alert.ID)
+	require.NoError(t, err)
+	assert.Equal(t, alert, stored)
+}
+
+func TestAlertStorageColumnPayloadSeparationAndNullableFields(t *testing.T) {
+	db := testutil.OpenSQLite(t)
+	store := NewSQLStore(db)
+	now := time.Date(2026, 10, 12, 11, 12, 13, 123, time.UTC)
+	alert := model.Alert{
+		ID: "alert-one", Fingerprint: "fp", Kind: model.AlertKindDeployFailed,
+		ResourceType: model.ResourceTypeStack, ResourceID: "app", Status: model.AlertStatusOpen,
+		Title: "Failed", Message: "Docker API rejected the update", Occurrences: 1,
+		OpenedAt: now, UpdatedAt: now,
+	}
+	require.NoError(t, store.Create(t.Context(), alert))
+	var raw string
+	var deploymentID sql.NullString
+	var resolvedAt sql.NullInt64
+	require.NoError(t, db.QueryRow(t.Context(),
+		"SELECT payload,deployment_id,resolved_at_ns FROM alerts WHERE id=?", alert.ID).
+		Scan(&raw, &deploymentID, &resolvedAt))
+	assert.False(t, deploymentID.Valid)
+	assert.False(t, resolvedAt.Valid)
+	assert.JSONEq(t, `{"title":"Failed","message":"Docker API rejected the update",
+		"occurrences":1,"openEventId":"","latestEventId":""}`, raw)
+	got, err := store.Get(t.Context(), alert.ID)
+	require.NoError(t, err)
+	assert.Equal(t, alert, got)
+
+	resolved := now.Add(time.Minute)
+	alert.Status = model.AlertStatusResolved
+	alert.UpdatedAt = resolved
+	alert.ResolvedAt = &resolved
+	alert.DeploymentID = "deploy-one"
+	alert.Resolution = &model.AlertResolution{Reason: model.ResolutionReasonRecovered,
+		Message: "Recovered", EventID: "event-one"}
+	require.NoError(t, store.Update(t.Context(), alert))
+	got, err = store.Get(t.Context(), alert.ID)
+	require.NoError(t, err)
+	assert.Equal(t, alert, got)
+	assertIndexedFields(t, db, alert)
 }

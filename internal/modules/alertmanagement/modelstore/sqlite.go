@@ -16,6 +16,9 @@ import (
 	sqlitecode "modernc.org/sqlite/lib"
 )
 
+const alertColumns = "id,fingerprint,kind,resource_type,resource_id,deployment_id,status," +
+	"opened_at_ns,updated_at_ns,resolved_at_ns,payload"
+
 // SQLStore persists alert lifecycle independently of the delivery queue.
 type SQLStore struct{ db *storage.Database }
 
@@ -33,7 +36,7 @@ func (s *SQLStore) Update(ctx context.Context, alert model.Alert) error {
 }
 
 func (s *SQLStore) write(ctx context.Context, alert model.Alert, update bool) error {
-	payload, err := json.Marshal(alert)
+	payload, err := json.Marshal(payloadFromAlert(alert))
 	if err != nil {
 		return err
 	}
@@ -102,31 +105,25 @@ func (s *SQLStore) alertWriteMiss(ctx context.Context, id string, update bool) e
 
 // Get returns an incident by ID.
 func (s *SQLStore) Get(ctx context.Context, id string) (model.Alert, error) {
-	return s.get(ctx, "SELECT payload FROM alerts WHERE id=?", id)
+	return s.get(ctx, "SELECT "+alertColumns+" FROM alerts WHERE id=?", id)
 }
 
 // FindOpenByFingerprint resolves the active incident for a resource.
 func (s *SQLStore) FindOpenByFingerprint(ctx context.Context, fingerprint string) (model.Alert, error) {
-	return s.get(ctx, "SELECT payload FROM alerts WHERE fingerprint=? AND status='open'", fingerprint)
+	return s.get(ctx, "SELECT "+alertColumns+" FROM alerts WHERE fingerprint=? AND status='open'", fingerprint)
 }
 
 func (s *SQLStore) get(ctx context.Context, query, key string) (model.Alert, error) {
-	var payload []byte
-	err := s.db.QueryRow(ctx, query, key).Scan(&payload)
+	alert, err := scanAlert(s.db.QueryRow(ctx, query, key))
 	if errors.Is(err, sql.ErrNoRows) {
 		return model.Alert{}, ErrAlertNotFound
 	}
-	if err != nil {
-		return model.Alert{}, err
-	}
-	var alert model.Alert
-	err = json.Unmarshal(payload, &alert)
 	return alert, err
 }
 
 // List returns incidents ordered by most recent lifecycle update.
 func (s *SQLStore) List(ctx context.Context, filter ListFilter) ([]model.Alert, error) {
-	dataset := goqu.Dialect("sqlite3").From("alerts").Prepared(true).Select("payload")
+	dataset := goqu.Dialect("sqlite3").From("alerts").Prepared(true).Select(goqu.L(alertColumns))
 	if filter.Status != "" {
 		dataset = dataset.Where(goqu.Ex{"status": filter.Status})
 	}
@@ -161,13 +158,9 @@ func (s *SQLStore) queryAlerts(ctx context.Context, query string, args ...any) (
 	defer rows.Close()
 	alerts := []model.Alert{}
 	for rows.Next() {
-		var payload []byte
-		if err = rows.Scan(&payload); err != nil {
-			return nil, err
-		}
-		var alert model.Alert
-		if err = json.Unmarshal(payload, &alert); err != nil {
-			return nil, err
+		alert, scanErr := scanAlert(rows)
+		if scanErr != nil {
+			return nil, scanErr
 		}
 		alerts = append(alerts, alert)
 	}
