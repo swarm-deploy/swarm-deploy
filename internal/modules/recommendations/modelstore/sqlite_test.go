@@ -107,3 +107,30 @@ func TestRecommendationsUpdateStackRollsBack(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []model.Recommendation{a}, got)
 }
+
+func TestRecommendationsUpdateStackCompositeKeyCollision(t *testing.T) {
+	db, err := storage.Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	store := NewSQLStore(db)
+
+	// These recommendations have different composite keys but collide under the old
+	// string ID: "app-api-one-two.yamlservice.image.latest".
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	a := rec("app", "api-one", "service.image.latest", t0)
+	a.Source.File = "two.yaml"
+	b := rec("app", "api", "service.image.latest", t0.Add(time.Hour))
+	b.Source.File = "one-two.yaml"
+
+	require.NoError(t, store.UpdateStack(t.Context(), "app", []model.Recommendation{a, b}))
+
+	aLater := a
+	aLater.CreatedAt = t0.Add(2 * time.Hour)
+	bLater := b
+	bLater.CreatedAt = t0.Add(2 * time.Hour)
+	require.NoError(t, store.UpdateStack(t.Context(), "app", []model.Recommendation{bLater, aLater}))
+
+	got, err := store.List(t.Context(), ListFilter{Stack: "app"})
+	require.NoError(t, err)
+	assert.Equal(t, []model.Recommendation{b, a}, got, "both identities and first-seen timestamps must survive")
+}
