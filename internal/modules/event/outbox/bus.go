@@ -110,16 +110,15 @@ func (b *Bus) Publish(ctx context.Context, event events.Event) error {
 	}
 	id, now := eventID.String(), b.now().UnixMilli()
 	insert := func(ctx context.Context) error {
-		db := b.db.Get(ctx)
 		cause, _ := ctx.Value(causeKey{}).(string)
-		_, insertErr := db.ExecContext(ctx, `INSERT INTO outbox_events
+		_, insertErr := b.db.Exec(ctx, `INSERT INTO outbox_events
 			(id,event_type,schema_version,occurred_at_ms,causation_id,payload) VALUES (?,?,?,?,?,?)`,
 			id, event.Type().Name(), codec.Version, now, cause, string(payload))
 		if insertErr != nil {
 			return fmt.Errorf("insert outbox event: %w", insertErr)
 		}
 		for _, subscriber := range ids {
-			_, insertErr = db.ExecContext(ctx, `INSERT INTO outbox_deliveries
+			_, insertErr = b.db.Exec(ctx, `INSERT INTO outbox_deliveries
 				(event_id,subscription_id,available_at_ms,updated_at_ms) VALUES (?,?,?,?)`, id, subscriber, now, now)
 			if insertErr != nil {
 				return fmt.Errorf("insert outbox delivery: %w", insertErr)

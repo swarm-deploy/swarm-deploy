@@ -42,7 +42,7 @@ func TestSQLChatTransactionsAndRestart(t *testing.T) {
 	require.Len(t, summaries, 1)
 	assert.Equal(t, chat.Title, summaries[0].Title)
 	// Failure after metadata was updated must also restore metadata and original turns.
-	_, err = db.Get(ctx).ExecContext(ctx, "CREATE TRIGGER reject_turn BEFORE INSERT ON assistant_turns BEGIN SELECT RAISE(ABORT, 'injected turn failure'); END")
+	_, err = db.Exec(ctx, "CREATE TRIGGER reject_turn BEFORE INSERT ON assistant_turns BEGIN SELECT RAISE(ABORT, 'injected turn failure'); END")
 	require.NoError(t, err)
 	require.Error(t, repo.SaveTurns(ctx, "chat", TokenUsage{TotalTokens: 100}, Turn{Role: "assistant", Content: "lost"}))
 	unchanged, exists, err := repo.ReadChat(ctx, "chat")

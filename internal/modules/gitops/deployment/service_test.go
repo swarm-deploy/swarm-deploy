@@ -46,16 +46,16 @@ func TestSuccessfulDeploymentIsIndependentOfHistoryFailure(t *testing.T) {
 	entries, err := projection.Read(ctx)
 	require.NoError(t, err)
 	assert.Empty(t, entries, "publish must not invoke history")
-	_, err = db.Get(ctx).ExecContext(ctx, "CREATE TRIGGER reject_history BEFORE INSERT ON event_history BEGIN SELECT RAISE(ABORT, 'projection failed'); END")
+	_, err = db.Exec(ctx, "CREATE TRIGGER reject_history BEFORE INSERT ON event_history BEGIN SELECT RAISE(ABORT, 'projection failed'); END")
 	require.NoError(t, err)
 	_, err = bus.ProcessNext(ctx)
 	require.NoError(t, err)
 	current, err = repo.Get(ctx, attempt.ID)
 	require.NoError(t, err)
 	assert.Equal(t, Succeeded, current.Status)
-	_, err = db.Get(ctx).ExecContext(ctx, "DROP TRIGGER reject_history")
+	_, err = db.Exec(ctx, "DROP TRIGGER reject_history")
 	require.NoError(t, err)
-	_, err = db.Get(ctx).ExecContext(ctx, "UPDATE outbox_deliveries SET available_at_ms=0")
+	_, err = db.Exec(ctx, "UPDATE outbox_deliveries SET available_at_ms=0")
 	require.NoError(t, err)
 	_, err = bus.ProcessNext(ctx)
 	require.NoError(t, err)
@@ -63,7 +63,7 @@ func TestSuccessfulDeploymentIsIndependentOfHistoryFailure(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, entries, 1)
 	var pending int
-	require.NoError(t, db.Get(ctx).QueryRowContext(ctx, "SELECT count(*) FROM outbox_events").Scan(&pending))
+	require.NoError(t, db.QueryRow(ctx, "SELECT count(*) FROM outbox_events").Scan(&pending))
 	assert.Zero(t, pending)
 	require.ErrorIs(t, service.Fail(ctx, attempt.ID, model.Stack{}, "apply_failed"), ErrNotRunning)
 	same, err := service.StartIfChanged(ctx, "app", "next-commit", desired("api:1"), true)
@@ -86,7 +86,7 @@ func TestFailedCommitAndCrashKeepSuccessfulBaseline(t *testing.T) {
 	require.NoError(t, service.Succeed(ctx, first.ID, model.Stack{LastCommit: "first", SourceDigest: "first"}))
 	second, err := service.StartIfChanged(ctx, "app", "second", desired("api:2"), true)
 	require.NoError(t, err)
-	_, err = db.Get(ctx).ExecContext(ctx, "CREATE TRIGGER reject_publication BEFORE INSERT ON outbox_events BEGIN SELECT RAISE(ABORT, 'publish failed'); END")
+	_, err = db.Exec(ctx, "CREATE TRIGGER reject_publication BEFORE INSERT ON outbox_events BEGIN SELECT RAISE(ABORT, 'publish failed'); END")
 	require.NoError(t, err)
 	require.Error(t, service.Succeed(ctx, second.ID, model.Stack{LastCommit: "second", SourceDigest: "second"}))
 	baseline, err := NewStore(db).Baseline(ctx, "app")
@@ -99,7 +99,7 @@ func TestFailedCommitAndCrashKeepSuccessfulBaseline(t *testing.T) {
 	db, err = storage.Open(ctx, dir)
 	require.NoError(t, err)
 	defer db.Close()
-	_, err = db.Get(ctx).ExecContext(ctx, "DROP TRIGGER reject_publication")
+	_, err = db.Exec(ctx, "DROP TRIGGER reject_publication")
 	require.NoError(t, err)
 	bus = outbox.New(db)
 	h, err = history.NewSQLStore(db, 50)
@@ -112,7 +112,7 @@ func TestFailedCommitAndCrashKeepSuccessfulBaseline(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, Interrupted, current.Status)
 	var interruptedEvents int
-	require.NoError(t, db.Get(ctx).QueryRowContext(ctx,
+	require.NoError(t, db.QueryRow(ctx,
 		"SELECT count(*) FROM outbox_events WHERE event_type=?", events.TypeNameDeployInterrupted).
 		Scan(&interruptedEvents))
 	assert.Equal(t, 1, interruptedEvents, "orphan recovery must publish exactly one interruption")
@@ -202,7 +202,7 @@ func TestListUsesLightweightCursorSummaries(t *testing.T) {
 	assert.Empty(t, second.NextCursor)
 	assert.Equal(t, "a", second.Deployments[0].Commit)
 
-	_, err = db.Get(ctx).ExecContext(ctx, "UPDATE deployments SET payload=json_set(payload,'$.changes','not-an-array')")
+	_, err = db.Exec(ctx, "UPDATE deployments SET payload=json_set(payload,'$.changes','not-an-array')")
 	require.NoError(t, err)
 	_, err = store.List(ctx, ListFilter{})
 	require.NoError(t, err, "list must not decode full change payloads")
@@ -325,7 +325,7 @@ func TestDeploymentIndexesSupportListQueries(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			rows, queryErr := db.Get(t.Context()).QueryContext(t.Context(), "EXPLAIN QUERY PLAN "+testCase.query)
+			rows, queryErr := db.Query(t.Context(), "EXPLAIN QUERY PLAN "+testCase.query)
 			require.NoError(t, queryErr)
 			defer rows.Close()
 			var plan strings.Builder
@@ -348,7 +348,7 @@ func assertDeploymentColumns(t *testing.T, db *storage.Database, id, errorCode s
 	var columnError string
 	var columnPhase Phase
 	var payload []byte
-	require.NoError(t, db.Get(t.Context()).QueryRowContext(t.Context(),
+	require.NoError(t, db.QueryRow(t.Context(),
 		"SELECT error_code,phase,payload FROM deployments WHERE id=?", id).
 		Scan(&columnError, &columnPhase, &payload))
 	assert.Equal(t, errorCode, columnError)
@@ -380,7 +380,7 @@ func TestInterruptedTransitionIsAtomicDurableAndIdempotent(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "process_interrupted", runtime.Stacks["app"].LastError)
 	var eventsCount int
-	require.NoError(t, db.Get(ctx).QueryRowContext(ctx,
+	require.NoError(t, db.QueryRow(ctx,
 		"SELECT count(*) FROM outbox_events WHERE event_type=?", events.TypeNameDeployInterrupted).Scan(&eventsCount))
 	assert.Equal(t, 1, eventsCount)
 	_, err = NewStore(db).Baseline(ctx, "app")
@@ -395,7 +395,7 @@ func TestStoreRejectsColumnAndPayloadStatusMismatch(t *testing.T) {
 	service := NewService(db, outbox.New(db))
 	attempt, err := service.StartIfChanged(ctx, "app", "commit", desired("api:1"), true)
 	require.NoError(t, err)
-	_, err = db.Get(ctx).ExecContext(ctx,
+	_, err = db.Exec(ctx,
 		"UPDATE deployments SET payload=json_set(payload,'$.status','failed') WHERE id=?", attempt.ID)
 	require.NoError(t, err)
 	store := NewStore(db)

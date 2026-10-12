@@ -120,7 +120,7 @@ func (b *Bus) claim(ctx context.Context) (delivery, error) {
 	d := delivery{token: uuid.NewString()}
 	now := b.now()
 	err := b.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		return b.db.Get(ctx).QueryRowContext(ctx, claimQuery, now.UnixMilli(), now.UnixMilli(), d.token,
+		return b.db.QueryRow(ctx, claimQuery, now.UnixMilli(), now.UnixMilli(), d.token,
 			now.Add(b.lease).UnixMilli(), now.UnixMilli()).Scan(&d.eventID, &d.subscriptionID, &d.attempts)
 	})
 	return d, err
@@ -136,7 +136,7 @@ func (b *Bus) process(ctx context.Context, d delivery) error {
 	var payload string
 	var occurred int64
 	var publicationSequence int64
-	err := b.db.Get(ctx).QueryRowContext(ctx, `SELECT event_type,schema_version,payload,occurred_at_ms,sequence
+	err := b.db.QueryRow(ctx, `SELECT event_type,schema_version,payload,occurred_at_ms,sequence
 		FROM outbox_events WHERE id=?`, d.eventID).Scan(&typ, &version, &payload, &occurred, &publicationSequence)
 	if err != nil {
 		return err
@@ -189,7 +189,7 @@ func invoke(ctx context.Context, handler Subscriber, envelope events.Envelope) (
 
 func (b *Bus) checkLease(ctx context.Context, d delivery) error {
 	var count int
-	err := b.db.Get(ctx).QueryRowContext(ctx, `SELECT count(*) FROM outbox_deliveries
+	err := b.db.QueryRow(ctx, `SELECT count(*) FROM outbox_deliveries
 		WHERE event_id=? AND subscription_id=? AND status='processing' AND lease_token=? AND lease_until_ms>?`,
 		d.eventID, d.subscriptionID, d.token, b.now().UnixMilli()).Scan(&count)
 	if err != nil {
@@ -202,7 +202,7 @@ func (b *Bus) checkLease(ctx context.Context, d delivery) error {
 }
 
 func (b *Bus) ack(ctx context.Context, d delivery) error {
-	result, err := b.db.Get(ctx).ExecContext(ctx, `UPDATE outbox_deliveries
+	result, err := b.db.Exec(ctx, `UPDATE outbox_deliveries
 		SET status='delivered',lease_token=NULL,lease_until_ms=NULL,last_error=NULL,updated_at_ms=?
 		WHERE event_id=? AND subscription_id=? AND status='processing' AND lease_token=? AND lease_until_ms>?`,
 		b.now().UnixMilli(), d.eventID, d.subscriptionID, d.token, b.now().UnixMilli())
@@ -227,7 +227,7 @@ func requireChanged(result sql.Result) error {
 }
 
 func (b *Bus) deleteCompleted(ctx context.Context, eventID string) error {
-	_, err := b.db.Get(ctx).ExecContext(ctx, `DELETE FROM outbox_events WHERE id=? AND NOT EXISTS (
+	_, err := b.db.Exec(ctx, `DELETE FROM outbox_events WHERE id=? AND NOT EXISTS (
 		SELECT 1 FROM outbox_deliveries WHERE event_id=outbox_events.id AND status<>'delivered')`, eventID)
 	return err
 }
@@ -239,7 +239,7 @@ func (b *Bus) fail(ctx context.Context, d delivery, code string, terminal bool) 
 	}
 	backoff := min(time.Second*time.Duration(1<<min(d.attempts, maxBackoffExponent)), maxRetryBackoff)
 	return b.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		result, err := b.db.Get(ctx).ExecContext(ctx, `UPDATE outbox_deliveries
+		result, err := b.db.Exec(ctx, `UPDATE outbox_deliveries
 			SET status=?,lease_token=NULL,lease_until_ms=NULL,last_error=?,available_at_ms=?,updated_at_ms=?
 			WHERE event_id=? AND subscription_id=? AND status='processing' AND lease_token=?`,
 			status, code, b.now().Add(backoff).UnixMilli(), b.now().UnixMilli(), d.eventID, d.subscriptionID, d.token)
@@ -252,7 +252,7 @@ func (b *Bus) fail(ctx context.Context, d delivery, code string, terminal bool) 
 
 // Replay reschedules exactly one terminal failure, preserving delivered siblings.
 func (b *Bus) Replay(ctx context.Context, eventID, subscriptionID string) error {
-	result, err := b.db.Get(ctx).ExecContext(ctx, `UPDATE outbox_deliveries
+	result, err := b.db.Exec(ctx, `UPDATE outbox_deliveries
 		SET status='pending',attempts=0,last_error=NULL,available_at_ms=?,updated_at_ms=?
 		WHERE event_id=? AND subscription_id=? AND status='failed'`,
 		b.now().UnixMilli(), b.now().UnixMilli(), eventID, subscriptionID)
@@ -265,7 +265,7 @@ func (b *Bus) Replay(ctx context.Context, eventID, subscriptionID string) error 
 // Discard explicitly waives one terminal failure and deletes completed work.
 func (b *Bus) Discard(ctx context.Context, eventID, subscriptionID string) error {
 	return b.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		result, err := b.db.Get(ctx).ExecContext(ctx, `UPDATE outbox_deliveries SET status='delivered',updated_at_ms=?
+		result, err := b.db.Exec(ctx, `UPDATE outbox_deliveries SET status='delivered',updated_at_ms=?
 			WHERE event_id=? AND subscription_id=? AND status='failed'`, b.now().UnixMilli(), eventID, subscriptionID)
 		if err != nil {
 			return err

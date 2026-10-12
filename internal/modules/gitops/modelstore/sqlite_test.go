@@ -50,7 +50,7 @@ func TestSQLRuntimeConcurrentUpdatesAndWriteErrors(t *testing.T) {
 	state, err := repo.Read(ctx)
 	require.NoError(t, err)
 	assert.Len(t, state.GitRevision, 12)
-	_, err = db.Get(ctx).ExecContext(ctx, "CREATE TRIGGER reject_runtime BEFORE UPDATE ON gitops_runtime BEGIN SELECT RAISE(ABORT, 'injected write error'); END")
+	_, err = db.Exec(ctx, "CREATE TRIGGER reject_runtime BEFORE UPDATE ON gitops_runtime BEGIN SELECT RAISE(ABORT, 'injected write error'); END")
 	require.NoError(t, err)
 	require.Error(t, repo.Update(ctx, func(s *model.Runtime) { s.GitRevision = "lost" }))
 	state, err = repo.Read(ctx)

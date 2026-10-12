@@ -20,7 +20,7 @@ func NewSQLHistoryStorage(db *storage.Database) *SQLHistoryStorage { return &SQL
 
 // List returns metadata without loading conversation turns.
 func (s *SQLHistoryStorage) ReadChats(ctx context.Context) ([]ChatSummary, error) {
-	return storage.QueryJSON[ChatSummary](ctx, s.db.Get,
+	return s.queryChatSummaries(ctx,
 		"SELECT payload FROM assistant_chats ORDER BY updated_at_ns DESC,id")
 }
 
@@ -29,14 +29,19 @@ func (s *SQLHistoryStorage) ReadChat(ctx context.Context, id string) (Chat, bool
 	var chat Chat
 	found := false
 	err := s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		meta, err := storage.GetJSON[ChatSummary](ctx, s.db.Get, "SELECT payload FROM assistant_chats WHERE id=?", id)
+		var payload []byte
+		err := s.db.QueryRow(ctx, "SELECT payload FROM assistant_chats WHERE id=?", id).Scan(&payload)
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil
 		}
 		if err != nil {
 			return err
 		}
-		turns, err := storage.QueryJSON[Turn](ctx, s.db.Get,
+		var meta ChatSummary
+		if err = json.Unmarshal(payload, &meta); err != nil {
+			return err
+		}
+		turns, err := s.queryTurns(ctx,
 			"SELECT payload FROM assistant_turns WHERE chat_id=? ORDER BY sequence", id)
 		if err != nil {
 			return err
@@ -93,12 +98,12 @@ func (s *SQLHistoryStorage) Save(ctx context.Context, chat Chat) error {
 		if err != nil {
 			return err
 		}
-		if _, err = s.db.Get(ctx).ExecContext(ctx, `INSERT INTO assistant_chats VALUES (?,?,?)
+		if _, err = s.db.Exec(ctx, `INSERT INTO assistant_chats VALUES (?,?,?)
 			ON CONFLICT(id) DO UPDATE SET updated_at_ns=excluded.updated_at_ns,payload=excluded.payload`,
 			chat.ID, chat.UpdatedAt.UnixNano(), string(payload)); err != nil {
 			return err
 		}
-		if _, err = s.db.Get(ctx).ExecContext(ctx, "DELETE FROM assistant_turns WHERE chat_id=?", chat.ID); err != nil {
+		if _, err = s.db.Exec(ctx, "DELETE FROM assistant_turns WHERE chat_id=?", chat.ID); err != nil {
 			return err
 		}
 		for i, turn := range chat.Turns {
@@ -106,11 +111,55 @@ func (s *SQLHistoryStorage) Save(ctx context.Context, chat Chat) error {
 			if err != nil {
 				return err
 			}
-			if _, err = s.db.Get(ctx).ExecContext(ctx,
+			if _, err = s.db.Exec(ctx,
 				"INSERT INTO assistant_turns VALUES (?,?,?)", chat.ID, i, string(payload)); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
+}
+
+func (s *SQLHistoryStorage) queryChatSummaries(
+	ctx context.Context, query string, args ...any,
+) ([]ChatSummary, error) {
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []ChatSummary{}
+	for rows.Next() {
+		var payload []byte
+		if err = rows.Scan(&payload); err != nil {
+			return nil, err
+		}
+		var value ChatSummary
+		if err = json.Unmarshal(payload, &value); err != nil {
+			return nil, err
+		}
+		result = append(result, value)
+	}
+	return result, rows.Err()
+}
+
+func (s *SQLHistoryStorage) queryTurns(ctx context.Context, query string, args ...any) ([]Turn, error) {
+	rows, err := s.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []Turn{}
+	for rows.Next() {
+		var payload []byte
+		if err = rows.Scan(&payload); err != nil {
+			return nil, err
+		}
+		var value Turn
+		if err = json.Unmarshal(payload, &value); err != nil {
+			return nil, err
+		}
+		result = append(result, value)
+	}
+	return result, rows.Err()
 }

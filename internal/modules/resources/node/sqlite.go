@@ -26,7 +26,24 @@ func NewSQLStore(db *storage.Database) *SQLStore { return &SQLStore{db: db} }
 
 // List returns the snapshot in hostname/ID order.
 func (s *SQLStore) ReadAll(ctx context.Context) ([]swarm.Node, error) {
-	return storage.QueryJSON[swarm.Node](ctx, s.db.Get, "SELECT payload FROM nodes ORDER BY hostname,id")
+	rows, err := s.db.Query(ctx, "SELECT payload FROM nodes ORDER BY hostname,id")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := []swarm.Node{}
+	for rows.Next() {
+		var payload []byte
+		if err = rows.Scan(&payload); err != nil {
+			return nil, err
+		}
+		var node swarm.Node
+		if err = json.Unmarshal(payload, &node); err != nil {
+			return nil, err
+		}
+		result = append(result, node)
+	}
+	return result, rows.Err()
 }
 
 // Map returns an independent node lookup.
@@ -45,7 +62,7 @@ func (s *SQLStore) Lookup(ctx context.Context) (map[string]swarm.Node, error) {
 // Replace atomically replaces the observed snapshot.
 func (s *SQLStore) ReplaceSnapshot(ctx context.Context, nodes []swarm.Node) error {
 	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		if _, err := s.db.Get(ctx).ExecContext(ctx, "DELETE FROM nodes"); err != nil {
+		if _, err := s.db.Exec(ctx, "DELETE FROM nodes"); err != nil {
 			return err
 		}
 		for _, node := range nodes {
@@ -56,7 +73,7 @@ func (s *SQLStore) ReplaceSnapshot(ctx context.Context, nodes []swarm.Node) erro
 			if err != nil {
 				return err
 			}
-			if _, err = s.db.Get(ctx).ExecContext(ctx,
+			if _, err = s.db.Exec(ctx,
 				"INSERT INTO nodes VALUES (?,?,?)", node.ID, node.Hostname, string(payload)); err != nil {
 				return err
 			}
@@ -68,7 +85,7 @@ func (s *SQLStore) ReplaceSnapshot(ctx context.Context, nodes []swarm.Node) erro
 // ObserveIdentity remembers IDs across snapshot disappearance and process restarts.
 // It returns true only on the first observation, and joins the snapshot transaction.
 func (s *SQLStore) ObserveIdentity(ctx context.Context, id string) (bool, error) {
-	result, err := s.db.Get(ctx).ExecContext(ctx, "INSERT INTO node_identities VALUES(?) ON CONFLICT DO NOTHING", id)
+	result, err := s.db.Exec(ctx, "INSERT INTO node_identities VALUES(?) ON CONFLICT DO NOTHING", id)
 	if err != nil {
 		return false, err
 	}
