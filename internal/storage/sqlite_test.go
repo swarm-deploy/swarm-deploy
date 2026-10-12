@@ -9,7 +9,6 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Thiht/transactor/stdlib"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -98,13 +97,13 @@ func TestNestedTransactions(t *testing.T) {
 			_, err = db.Exec(t.Context(), "CREATE TABLE entries (id TEXT PRIMARY KEY)")
 			require.NoError(t, err)
 			err = db.WithinTransaction(t.Context(), func(ctx context.Context) error {
-				assert.True(t, stdlib.IsWithinTransaction(ctx))
+				assert.True(t, db.IsWithinTransaction(ctx))
 				_, err := db.Exec(ctx, "INSERT INTO entries VALUES ('outer')")
 				if err != nil {
 					return err
 				}
 				innerErr := db.WithinTransaction(ctx, func(inner context.Context) error {
-					assert.True(t, stdlib.IsWithinTransaction(inner))
+					assert.True(t, db.IsWithinTransaction(inner))
 					_, err := db.Exec(inner, "INSERT INTO entries VALUES ('inner')")
 					if err != nil {
 						return err

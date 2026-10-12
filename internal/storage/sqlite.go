@@ -9,8 +9,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/Thiht/transactor"
-	"github.com/Thiht/transactor/stdlib"
+	txsqlx "github.com/Thiht/transactor/sqlx"
+	"github.com/jmoiron/sqlx"
 	"github.com/pressly/goose/v3"
 	sqlitemigrations "github.com/swarm-deploy/swarm-deploy/migrations/sqlite"
 	_ "modernc.org/sqlite"
@@ -20,10 +20,11 @@ const maxConnections = 4
 
 // Database owns one pool and one context-aware transaction manager.
 type Database struct {
-	db  *sql.DB
-	get stdlib.DBGetter
-	// Transactor propagates transaction boundaries through context.
-	transactor.Transactor
+	db  *sqlx.DB
+	get txsqlx.DBGetter
+	// Transactor propagates transaction boundaries through context and keeps
+	// nested transactions isolated using SQLite savepoints.
+	*txsqlx.Transactor
 }
 
 // Open initializes the database on a local persistent volume.
@@ -46,17 +47,17 @@ func Open(ctx context.Context, dataDir string) (*Database, error) {
 	// DSN pragmas run on EVERY connection, including replacements in the pool.
 	u.RawQuery = "_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)" +
 		"&_pragma=synchronous(FULL)&_txlock=immediate"
-	db, err := sql.Open("sqlite", u.String())
+	db, err := sqlx.Open("sqlite", u.String())
 	if err != nil {
 		return nil, fmt.Errorf("open SQLite: %w", err)
 	}
 	db.SetMaxOpenConns(maxConnections)
 	db.SetMaxIdleConns(maxConnections)
-	tr, get := stdlib.NewTransactor(db, stdlib.NestedTransactionsSavepoints)
+	tr, get := txsqlx.NewTransactor(db, txsqlx.NestedTransactionsSavepoints)
 	s := &Database{db: db, get: get, Transactor: tr}
 	migrations, err := goose.NewProvider(
 		goose.DialectSQLite3,
-		db,
+		db.DB,
 		sqlitemigrations.Files,
 	)
 	if err != nil {
@@ -78,6 +79,20 @@ func (s *Database) Query(ctx context.Context, query string, args ...any) (*sql.R
 // QueryRow executes a single-row query using the active transaction or the shared database pool.
 func (s *Database) QueryRow(ctx context.Context, query string, args ...any) *sql.Row {
 	return s.get(ctx).QueryRowContext(ctx, query, args...)
+}
+
+// Get executes a query expected to return at most one row and scans it into dest
+// using the active transaction or the shared database pool. dest is typically a
+// pointer to a struct with `db` tags, or a pointer to a single scalar value.
+func (s *Database) Get(ctx context.Context, dest any, query string, args ...any) error {
+	return s.get(ctx).GetContext(ctx, dest, query, args...)
+}
+
+// Select executes a query and scans all rows into dest using the active transaction
+// or the shared database pool. dest must be a pointer to a slice, whose element type
+// is typically a struct with `db` tags, or a single scalar value.
+func (s *Database) Select(ctx context.Context, dest any, query string, args ...any) error {
+	return s.get(ctx).SelectContext(ctx, dest, query, args...)
 }
 
 // Exec executes a statement using the active transaction or the shared database pool.

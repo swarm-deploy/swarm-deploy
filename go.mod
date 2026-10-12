@@ -59,6 +59,7 @@ require (
 	github.com/GehirnInc/crypt v0.0.0-20230320061759-8cc1b52080c5 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.1.6 // indirect
+	github.com/Thiht/transactor/sqlx v0.0.0-20261005223553-4be91b9cb3f4 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/buildkite/interpolate v0.1.5 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
@@ -84,6 +85,7 @@ require (
 	github.com/google/go-querystring v1.2.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.30.0 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
+	github.com/jmoiron/sqlx v1.4.0 // indirect
 	github.com/kevinburke/ssh_config v1.2.0 // indirect
 	github.com/langwatch/langwatch/sdks/go v1.0.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
