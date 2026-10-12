@@ -16,7 +16,8 @@ import (
 	sqlitecode "modernc.org/sqlite/lib"
 )
 
-const alertColumns = "id,fingerprint,kind,resource_type,resource_id,deployment_id,status,opened_at_ns,updated_at_ns,resolved_at_ns,payload"
+const alertColumns = "id,fingerprint,kind,resource_type,resource_id,deployment_id,status," +
+	"opened_at_ns,updated_at_ns,resolved_at_ns,payload"
 
 // SQLStore persists alert lifecycle independently of the delivery queue.
 type SQLStore struct{ db *storage.Database }
