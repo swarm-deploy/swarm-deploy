@@ -79,6 +79,13 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 }
 
 func (s *Subscriber) handleConfigurationChanged(ctx context.Context, eventID string) error {
+	// A retained Outbox event may be delivered before Git is checked out on restart.
+	// Returning an error leaves the delivery retryable instead of resolving all
+	// stack alerts against the temporarily empty startup configuration.
+	if readiness, ok := s.stacks.(interface{ Ready() bool }); ok && !readiness.Ready() {
+		return errors.New("desired configuration has not completed its initial reload")
+	}
+
 	desired := make(map[string]struct{})
 	for _, stack := range s.stacks.Stacks() {
 		desired[stack.Name] = struct{}{}
