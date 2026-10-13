@@ -128,7 +128,9 @@ onUnmounted(() => {
     <div ref="dialog" class="modal-card" role="dialog" aria-modal="true" aria-labelledby="commit-details-title" tabindex="-1">
       <div class="modal-header">
         <h2 id="commit-details-title">{{ titleText }}</h2>
-        <button ref="closeButton" class="modal-close" type="button" aria-label="Close modal" @click="closeCommitDetailsModal">x</button>
+        <button ref="closeButton" class="modal-close" type="button" aria-label="Close modal" @click="closeCommitDetailsModal">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
+        </button>
       </div>
 
       <div class="modal-body">

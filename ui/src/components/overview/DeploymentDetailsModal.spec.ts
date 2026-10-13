@@ -53,10 +53,13 @@ describe("Deployment Details modal", () => {
 
     expect(wrapper.text()).toContain("Initial snapshot");
     expect(wrapper.text()).toContain("First recorded desired-state snapshot");
-    expect(wrapper.text()).toContain("1 services");
-    expect(wrapper.text()).toContain("2 networks");
+    expect(wrapper.findAll(".deployment-counts strong").map((item) => item.text())).toEqual([
+      "1 service", "2 networks", "1 secret", "1 config",
+    ]);
     expect(wrapper.text()).toContain("api:2");
-    expect(wrapper.text()).toContain("3 replicas");
+    expect(wrapper.findAll(".deployment-resource-section")).toHaveLength(4);
+    expect(wrapper.findAll(".deployment-service-table th").map((item) => item.text())).toEqual(["Name", "Image", "Replicas"]);
+    expect(wrapper.find(".deployment-service-table tbody td:last-child").text()).toBe("3");
     expect(wrapper.text()).not.toContain("API_TOKEN");
     expect(wrapper.text()).toContain("Service health and live convergence have not been verified");
 
@@ -108,6 +111,29 @@ describe("Deployment Details modal", () => {
     wrapper.unmount();
   });
 
+  it("stacks long diff values and pluralizes the field counter", async () => {
+    const store = useOverviewStore();
+    const details = deployment("succeeded", "successful_baseline");
+    const longImage = `registry.example.test/platform/api@sha256:${"a".repeat(64)}`;
+    details.changes![0].after = longImage;
+    store.deploymentDetailsModalOpen = true;
+    store.deploymentDetailsData = details;
+    const wrapper = mount(DeploymentDetailsModal);
+
+    expect(wrapper.findAll(".deployment-change")[0].classes()).toContain("deployment-change--long");
+    expect(wrapper.findAll(".deployment-change")[1].classes()).not.toContain("deployment-change--long");
+    expect(wrapper.text()).toContain("3 fields");
+    expect(wrapper.text()).toContain(longImage);
+
+    details.changes = [details.changes![0]];
+    details.summary = { added: 0, changed: 1, removed: 0, redacted: 0 };
+    store.deploymentDetailsData = { ...details };
+    await wrapper.vm.$nextTick();
+    expect(wrapper.text()).toContain("1 field");
+    expect(wrapper.text()).not.toContain("1 fields");
+    wrapper.unmount();
+  });
+
   it("distinguishes zero changes from an unavailable comparison", async () => {
     const store = useOverviewStore();
     const unchanged = deployment("succeeded", "successful_baseline");
@@ -136,6 +162,7 @@ describe("Deployment Details modal", () => {
     store.deploymentDetailsData = deployment(status);
     const wrapper = mount(DeploymentDetailsModal);
     expect(wrapper.find(".deployment-status").text()).toBe(status[0].toUpperCase() + status.slice(1));
+    expect(wrapper.find(".deployment-outcome").classes()).toContain(`deployment-outcome--${status}`);
     expect(wrapper.text()).toContain(expected);
     wrapper.unmount();
   });
