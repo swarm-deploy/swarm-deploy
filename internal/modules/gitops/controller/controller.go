@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -151,6 +153,7 @@ func (c *Controller) Run(ctx context.Context) error {
 	}
 	if handle != nil {
 		defer c.releaseOwnership(ctx, handle)
+		c.cleanupRenderedComposeFiles(ctx)
 	}
 	if c.recovery != nil {
 		if err := c.recovery.InterruptRunning(ctx); err != nil {
@@ -161,6 +164,13 @@ func (c *Controller) Run(ctx context.Context) error {
 	defer c.active.Store(false)
 
 	return c.runActive(ctx, reconciliationCtx)
+}
+
+func (c *Controller) cleanupRenderedComposeFiles(ctx context.Context) {
+	renderedDir := filepath.Join(c.cfg.Spec.DataDir, "rendered")
+	if err := os.RemoveAll(renderedDir); err != nil {
+		slog.WarnContext(ctx, "failed to clean up rendered compose files", "path", renderedDir, "err", err)
+	}
 }
 
 func (c *Controller) watchShutdown(

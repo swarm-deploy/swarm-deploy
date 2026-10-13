@@ -216,6 +216,9 @@ func TestControllerGracefulShutdown(t *testing.T) {
 func TestControllersSharingSQLiteDoNotReconcileConcurrently(t *testing.T) {
 	ctx := context.Background()
 	dataDir := t.TempDir()
+	staleRenderedPath := filepath.Join(dataDir, "rendered", "removed-stack.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(staleRenderedPath), 0o755), "create rendered dir")
+	require.NoError(t, os.WriteFile(staleRenderedPath, []byte("sensitive"), 0o600), "write stale rendered compose")
 	db, err := storage.Open(ctx, dataDir)
 	require.NoError(t, err)
 	defer db.Close()
@@ -267,6 +270,7 @@ func TestControllersSharingSQLiteDoNotReconcileConcurrently(t *testing.T) {
 	case <-time.After(time.Second):
 		require.FailNow(t, "first controller did not start reconciliation")
 	}
+	assert.NoFileExists(t, staleRenderedPath, "stale rendered compose must be removed before reconciliation")
 	go func() { secondDone <- second.Run(secondCtx) }()
 	select {
 	case <-secondStarted:
@@ -284,6 +288,37 @@ func TestControllersSharingSQLiteDoNotReconcileConcurrently(t *testing.T) {
 	}
 	cancelSecond()
 	require.NoError(t, <-secondDone)
+}
+
+func TestNewControllerDoesNotRemoveRenderedComposeOwnedByActiveController(t *testing.T) {
+	dataDir := t.TempDir()
+	owner := newControllerOwnership(dataDir)
+	handle, err := owner.acquire(t.Context())
+	require.NoError(t, err, "acquire first controller ownership")
+	t.Cleanup(func() { require.NoError(t, handle.release(), "release first controller ownership") })
+
+	renderedPath := filepath.Join(dataDir, "rendered", "app.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(renderedPath), 0o755), "create rendered dir")
+	require.NoError(t, os.WriteFile(renderedPath, []byte("active deployment"), 0o600),
+		"write active controller rendered compose")
+
+	db, stateStore := newSQLState(t)
+	metricGroup := metrics.NewGroup(metrics.CreateGroupParams{Namespace: "test_controller_start_first"})
+	_ = New(
+		&config.Config{Spec: config.Spec{DataDir: dataDir}},
+		nil,
+		nil,
+		&swarm.Swarm{},
+		nil,
+		metricGroup,
+		&dispatcher.NopDispatcher{},
+		stateStore,
+		fs.NewLocalFileSystem(),
+		db,
+	)
+
+	assert.FileExists(t, renderedPath,
+		"constructing a waiting controller must not remove the active controller rendered compose")
 }
 
 func TestControllerCancelsReconciliationAfterShutdownGracePeriod(t *testing.T) {

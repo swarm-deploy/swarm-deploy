@@ -170,13 +170,13 @@ func (r *Reconciler) Reconcile(
 		Desired:           desiredState,
 		DeployComposePath: desiredState.Path,
 	}
+	defer r.cleanupRenderedComposeFile(ctx, pl)
 
 	err = r.pipeline.Run(ctx, pl)
 	if err != nil {
 		pipeErr, _ := errors.AsType[*pipe.StepError](err)
 
 		return r.recordPipelineFailure(ctx, req, prev, pl, pipeErr)
-
 	}
 
 	if err = r.processResult(ctx, req, prev, desiredState, pl); err != nil {
