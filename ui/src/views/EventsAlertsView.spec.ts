@@ -80,6 +80,7 @@ describe("Events & Alerts", () => {
     expect(fetchAlerts).toHaveBeenCalledWith({ status: "open" });
     expect(wrapper.find(".alerts-table").text()).toContain("Node disconnected");
     expect(wrapper.find(".alerts-table").text()).not.toContain("Node reconnected");
+    expect((wrapper.find(".alerts-table").element as HTMLTableElement).style.minWidth).toBe("800px");
     expect(wrapper.findAll("h2")).toHaveLength(0);
   });
 
