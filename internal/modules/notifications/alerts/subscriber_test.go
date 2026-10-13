@@ -296,3 +296,75 @@ func TestAlertResolutionUsesOriginalPhysicalChatAfterRouteChange(t *testing.T) {
 		Alert: alert, Recipients: []events.AlertRecipient{recipient},
 	}}), "credentials unavailable")
 }
+
+
+func TestResolvedAlertDoesNotSendOpeningOnManualReplay(t *testing.T) {
+	db, err := storage.Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+
+	spec := alertSpec()
+	recipient := spec.AlertRecipients("node_disconnected")[0]
+	var sends int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		sends++
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":42}}`))
+	}))
+	defer server.Close()
+
+	bus := outbox.New(db)
+	subscriber := &Subscriber{
+		store: NewStore(db), spec: spec, recipient: recipient, now: time.Now, apiBaseURL: server.URL,
+	}
+	id := SubscriptionID(recipient)
+	require.NoError(t, bus.Subscribe(events.TypeNameAlertOpened, id, outbox.External(subscriber)))
+	require.NoError(t, bus.Subscribe(events.TypeNameAlertResolved, id, outbox.External(subscriber)))
+
+	alert := events.AlertSnapshot{
+		ID: "resolved-before-replay", Kind: "node_disconnected",
+		Title: "Node disconnected", OpenedAt: time.Now().UTC(),
+	}
+	require.NoError(t, bus.Publish(t.Context(), &events.AlertOpened{
+		Alert: alert, Recipients: []events.AlertRecipient{recipient},
+	}))
+
+	var openingID string
+	require.NoError(t, db.Get(t.Context(), &openingID, `SELECT e.id FROM outbox_events e
+		JOIN outbox_deliveries d ON d.event_id = e.id
+		WHERE e.event_type = 'alertOpened' AND d.subscription_id = ?`, id))
+	// Simulate an opening delivery exhausted before it could send.
+	_, err = db.Exec(t.Context(), `UPDATE outbox_deliveries SET status='failed'
+		WHERE event_id=? AND subscription_id=?`, openingID, id)
+	require.NoError(t, err)
+
+	resolved := time.Now().UTC()
+	alert.ResolvedAt = &resolved
+	alert.Resolution = "Node reconnected"
+	require.NoError(t, bus.Publish(t.Context(), &events.AlertResolved{
+		Alert: alert, Recipients: []events.AlertRecipient{recipient},
+	}))
+	drain(t, bus)
+	require.Equal(t, 1, sends, "resolution without a delivered opening must send once")
+
+	store := NewStore(db)
+	link, err := store.Get(t.Context(), alert.ID, recipient)
+	require.NoError(t, err)
+	require.True(t, link.ResolvedAt.Valid)
+	require.False(t, link.OpenedAt.Valid)
+	require.Equal(t, "send", link.ResolvedAction.String)
+
+	require.NoError(t, bus.Replay(t.Context(), openingID, id))
+	drain(t, bus)
+	assert.Equal(t, 1, sends, "replayed opening must not send after resolved notification")
+	link, err = store.Get(t.Context(), alert.ID, recipient)
+	require.NoError(t, err)
+	assert.False(t, link.OpenedAt.Valid)
+	assert.True(t, link.ResolvedAt.Valid)
+
+	// The SQL guard must also reject a late receipt even without the subscriber check.
+	require.NoError(t, store.MarkOpened(t.Context(), alert.ID, recipient,
+		notifiers.Receipt{MessageID: 999, Action: notifiers.ActionSend}, time.Now()))
+	link, err = store.Get(t.Context(), alert.ID, recipient)
+	require.NoError(t, err)
+	assert.False(t, link.OpenedAt.Valid)
+}
