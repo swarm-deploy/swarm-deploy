@@ -8,7 +8,16 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
+
+type classifiedError struct {
+	message   string
+	temporary bool
+}
+
+func (e classifiedError) Error() string   { return e.message }
+func (e classifiedError) Temporary() bool { return e.temporary }
 
 func TestSensitiveFieldsAreNeverPersisted(t *testing.T) {
 	const secret = "super-private-token"
@@ -112,4 +121,72 @@ func TestDeploymentFailureDiagnosticIsActionableAndMasked(t *testing.T) {
 	assert.Contains(t, failure.Error.Error(), "update service api")
 	assert.Contains(t, failure.Error.Error(), "image not found")
 	assert.Contains(t, failure.Error.Error(), "****")
+}
+
+func TestDeploymentFailureTemporaryClassificationSurvivesCodec(t *testing.T) {
+	tests := []struct {
+		name  string
+		event events.Event
+	}{
+		{
+			name: "deploy failed temporary",
+			event: &events.DeployFailed{
+				DeployEvent: events.DeployEvent{StackName: "app"},
+				Error:       classifiedError{message: "registry unavailable", temporary: true},
+			},
+		},
+		{
+			name: "preparation failed permanent",
+			event: &events.DeployPreparationFailed{
+				StackName: "app", ErrorCode: "preparation_failed",
+				Error: classifiedError{message: "invalid compose", temporary: false},
+			},
+		},
+		{
+			name: "deploy interrupted temporary",
+			event: &events.DeployInterrupted{
+				StackName: "app", Reason: "verification_unknown",
+				Error: classifiedError{message: "Docker API unavailable", temporary: true},
+			},
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			payload, err := Encode(testCase.event)
+			require.NoError(t, err)
+			assert.NotContains(t, string(payload), "classifiedError")
+
+			decoded, err := Decode(testCase.event.Type().Name(), Version, payload)
+			require.NoError(t, err)
+			var classified faults.Error
+			require.ErrorAs(t, deploymentFailureError(decoded), &classified)
+			assert.Equal(t, deploymentFailureError(testCase.event).(faults.Error).Temporary(), classified.Temporary())
+			assert.Equal(t, faults.SafeDiagnostic(deploymentFailureError(testCase.event)), classified.Error())
+		})
+	}
+}
+
+func TestDeploymentFailureCodecTreatsLegacyUnclassifiedErrorAsPermanent(t *testing.T) {
+	decoded, err := Decode(events.TypeNameDeployFailed, Version,
+		[]byte(`{"stack":"app","commit":"sha","code":"apply_failed","diagnostic":"failed","services":[]}`))
+	require.NoError(t, err)
+
+	err = deploymentFailureError(decoded)
+	require.Error(t, err)
+	var classified faults.Error
+	assert.False(t, errors.As(err, &classified), "legacy diagnostics must remain unclassified")
+}
+
+func deploymentFailureError(event events.Event) error {
+	switch failure := event.(type) {
+	case *events.DeployFailed:
+		return failure.Error
+	case *events.DeployPreparationFailed:
+		return failure.Error
+	case *events.DeployInterrupted:
+		return failure.Error
+	default:
+		return nil
+	}
 }
