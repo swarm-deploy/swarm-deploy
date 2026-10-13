@@ -374,9 +374,6 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
           </template>
         </main>
       </div>
-      <footer v-if="detail && !store.deploymentDetailsLoading && !store.deploymentDetailsError" class="deployment-modal-footer">
-        <button type="button" class="button-ghost" @click="close">Close</button>
-      </footer>
     </div>
   </div>
 </template>
@@ -389,7 +386,7 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
   max-height: min(85dvh, calc(100dvh - 64px));
   margin: max(32px, 7.5dvh) auto;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
   border-color: var(--border-default);
   border-radius: 18px;
@@ -538,8 +535,6 @@ details[open] > summary .deployment-chevron { transform: rotate(90deg); }
 .deployment-diff-line--after { color: var(--success); background: var(--success-muted); }
 .deployment-configuration-heading > div { min-width: 0; }
 .deployment-yaml { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; max-height: 55vh; overflow: auto; border: 1px solid var(--border-default); border-radius: 8px; background: var(--surface-code); }
-.deployment-modal-footer { min-height: 60px; display: flex; align-items: center; justify-content: flex-end; border-top: 1px solid var(--line); padding: 10px 24px; }
-.deployment-modal-footer button { padding: 8px 20px; }
 @media (max-width: 1100px) {
   .deployment-metadata { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 18px; }
   .deployment-metadata-item:nth-child(4) { padding-left: 0; border-left: 0; }
@@ -566,7 +561,6 @@ details[open] > summary .deployment-chevron { transform: rotate(90deg); }
   .deployment-service-table-wrap, .deployment-resource-list, .deployment-resource-empty, .deployment-change-section { margin-left: 0; }
   .deployment-change { grid-template-columns: minmax(0, 1fr); gap: 5px; }
   .deployment-changes-heading, .deployment-configuration-heading { align-items: flex-start; flex-wrap: wrap; }
-  .deployment-modal-footer { min-height: 58px; padding: 9px 16px; }
 }
 @media (max-width: 420px) {
   .deployment-metadata { grid-template-columns: minmax(0, 1fr); }
