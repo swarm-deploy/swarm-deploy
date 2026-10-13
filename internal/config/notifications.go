@@ -1,10 +1,13 @@
 package config
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/artarts36/specw"
+	alertmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	eventnotify "github.com/swarm-deploy/swarm-deploy/internal/modules/event/notify"
 	notificationtemplate "github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/template"
@@ -13,11 +16,109 @@ import (
 
 const defaultNotificationTelegramRetries = 3
 
-// NotificationSpec defines explicit event subscriptions and messenger destinations.
-// Alert lifecycle routing is introduced separately.
+// NotificationSpec defines event subscriptions, alert routes and messenger destinations.
 type NotificationSpec struct {
 	Messengers NotificationMessengersSpec                  `yaml:"messengers"`
 	Events     map[events.TypeName]NotificationEventRoutes `yaml:"events"`
+	Alerts     map[string]NotificationAlertRoutes          `yaml:"alerts"`
+}
+
+// NotificationAlertRoutes configures lifecycle messages for one alert kind or default.
+type NotificationAlertRoutes struct {
+	// Telegram contains one or more independently delivered Telegram routes.
+	Telegram []TelegramAlertChannel `yaml:"telegram"`
+}
+
+// TelegramAlertChannel defines one lifecycle route to named chats.
+type TelegramAlertChannel struct {
+	// Chats selects named Telegram destinations, defaulting to "default".
+	Chats NotificationChatNames `yaml:"chats"`
+	// Opened describes the initial message.
+	Opened AlertMessageSpec `yaml:"opened"`
+	// Resolved describes the resolution message and operation.
+	Resolved AlertMessageSpec `yaml:"resolved"`
+}
+
+// AlertMessageSpec configures one lifecycle phase.
+type AlertMessageSpec struct {
+	// Action is "reply" or "edit" for resolved; omitted means reply.
+	Action string `yaml:"action"`
+	// Message is a template rendered against the public alert payload.
+	Message string `yaml:"message"`
+}
+
+const (
+	defaultAlertOpenedTemplate   = "🚨 {{ .Title }}\n{{ .Message }}"
+	defaultAlertResolvedTemplate = "✅ Resolved: {{ .Title }}\n{{ .Resolution }}"
+)
+
+// AlertTelegramRoutes returns the replacing kind route, configured default or built-in route.
+func (c NotificationSpec) AlertTelegramRoutes(kind string) []TelegramAlertChannel {
+	if route, ok := c.Alerts[kind]; ok {
+		return route.Telegram
+	}
+	if route, ok := c.Alerts["default"]; ok {
+		return route.Telegram
+	}
+	return []TelegramAlertChannel{{
+		Opened:   AlertMessageSpec{Message: defaultAlertOpenedTemplate},
+		Resolved: AlertMessageSpec{Action: "reply", Message: defaultAlertResolvedTemplate},
+	}}
+}
+
+// AlertRecipients captures the configured physical Telegram destinations for an opening alert.
+func (c NotificationSpec) AlertRecipients(kind string) []events.AlertRecipient {
+	identity := c.TelegramBotIdentity()
+	if identity == "" {
+		return nil
+	}
+	var recipients []events.AlertRecipient
+	seen := make(map[events.AlertRecipient]bool)
+	for _, route := range c.AlertTelegramRoutes(kind) {
+		for _, name := range (TelegramChannel{Chats: route.Chats}).ChatNames() {
+			chat := c.Messengers.Telegram.Chats[name]
+			recipient := events.AlertRecipient{BotIdentity: identity, ChatID: chat.ID, ThreadID: chat.ThreadID}
+			if !seen[recipient] {
+				recipients = append(recipients, recipient)
+				seen[recipient] = true
+			}
+		}
+	}
+	return recipients
+}
+
+// TelegramBotIdentity returns a stable non-secret identity for the configured bot.
+func (c NotificationSpec) TelegramBotIdentity() string {
+	token := string(c.Messengers.Telegram.BotToken.Content)
+	if token == "" {
+		return ""
+	}
+	botID, _, _ := strings.Cut(token, ":")
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(botID)))
+}
+
+// AlertOpenedTemplate returns the effective initial message template.
+func (c TelegramAlertChannel) AlertOpenedTemplate() string {
+	if strings.TrimSpace(c.Opened.Message) != "" {
+		return c.Opened.Message
+	}
+	return defaultAlertOpenedTemplate
+}
+
+// AlertResolvedTemplate returns the effective resolution message template.
+func (c TelegramAlertChannel) AlertResolvedTemplate() string {
+	if strings.TrimSpace(c.Resolved.Message) != "" {
+		return c.Resolved.Message
+	}
+	return defaultAlertResolvedTemplate
+}
+
+// AlertResolvedAction returns the configured operation, defaulting to reply.
+func (c TelegramAlertChannel) AlertResolvedAction() string {
+	if c.Resolved.Action == "" {
+		return "reply"
+	}
+	return c.Resolved.Action
 }
 
 // UnmarshalYAML rejects the removed "on" key instead of silently disabling old rules.
@@ -117,6 +218,8 @@ func (c *NotificationSpec) applyDefaults() {
 func (c *NotificationSpec) validate() []error {
 	var errs []error
 	errs = append(errs, c.validateTelegramMessenger()...)
+	err := c.validateAlertRoutes()
+	errs = append(errs, err...)
 	for eventTypeName, routes := range c.Events {
 		if !eventTypeName.Valid() {
 			errs = append(errs, fmt.Errorf(
@@ -149,6 +252,91 @@ func (c *NotificationSpec) validateTelegramMessenger() []error {
 		errs = append(errs, fmt.Errorf(
 			"notifications.messengers.telegram.botTokenPath contains empty token",
 		))
+	}
+	if len(telegram.BotToken.Content) > 0 {
+		if _, ok := telegram.Chats["default"]; !ok {
+			errs = append(errs, fmt.Errorf(
+				"notifications.messengers.telegram.chats[\"default\"] is required for alert fallback",
+			))
+		}
+	}
+	return errs
+}
+
+func (c *NotificationSpec) validateAlertRoutes() []error {
+	var errs []error
+	for kind, routes := range c.Alerts {
+		if kind != "default" && kind != string(alertmodel.AlertKindDeployFailed) &&
+			kind != string(alertmodel.AlertKindNodeDisconnected) {
+			errs = append(errs, fmt.Errorf("notifications.alerts[%q]: unknown alert kind", kind))
+			continue
+		}
+		path := fmt.Sprintf("notifications.alerts[%q].telegram", kind)
+		if len(routes.Telegram) == 0 {
+			errs = append(errs, fmt.Errorf("%s must contain at least one route", path))
+		}
+		for i, route := range routes.Telegram {
+			routePath := fmt.Sprintf("%s[%d]", path, i)
+			errs = append(errs, c.validateAlertChannel(routePath, route)...)
+		}
+		errs = append(errs, c.validateAlertDestinations(path, routes.Telegram)...)
+	}
+	return errs
+}
+
+func (c *NotificationSpec) validateAlertDestinations(path string, routes []TelegramAlertChannel) []error {
+	var errs []error
+	seen := make(map[events.AlertRecipient]string)
+	identity := c.TelegramBotIdentity()
+	for i, route := range routes {
+		routePath := fmt.Sprintf("%s[%d]", path, i)
+		for _, name := range (TelegramChannel{Chats: route.Chats}).ChatNames() {
+			chat, ok := c.Messengers.Telegram.Chats[name]
+			if !ok {
+				continue
+			}
+			recipient := events.AlertRecipient{
+				BotIdentity: identity,
+				ChatID:      chat.ID,
+				ThreadID:    chat.ThreadID,
+			}
+			if firstPath, duplicate := seen[recipient]; duplicate {
+				errs = append(errs, fmt.Errorf(
+					"%s.chats resolves to a duplicate Telegram destination already selected by %s.chats",
+					routePath, firstPath,
+				))
+				continue
+			}
+			seen[recipient] = routePath
+		}
+	}
+	return errs
+}
+
+func (c *NotificationSpec) validateAlertChannel(path string, route TelegramAlertChannel) []error {
+	var errs []error
+	if len(c.Messengers.Telegram.BotToken.Content) == 0 {
+		errs = append(errs, fmt.Errorf("%s: notifications.messengers.telegram.botTokenPath is required", path))
+	}
+	errs = append(errs, c.validateChatNames(path, route.Chats)...)
+	if route.Opened.Action != "" {
+		errs = append(errs, fmt.Errorf("%s.opened.action is not supported", path))
+	}
+	if action := route.AlertResolvedAction(); action != "reply" && action != "edit" {
+		errs = append(errs, fmt.Errorf("%s.resolved.action must be reply or edit", path))
+	}
+	payload := events.AlertSnapshot{
+		Title: "Alert", Message: "details", ResourceID: "resource", OpenedAt: time.Now().UTC(),
+	}
+	if err := notificationtemplate.Validate(route.AlertOpenedTemplate(), payload); err != nil {
+		errs = append(errs, fmt.Errorf("%s.opened.message: invalid template: %w", path, err))
+	}
+	resolvedAt := time.Now().UTC()
+	payload.ResolvedAt = &resolvedAt
+	payload.Resolution = "Recovered"
+	payload.ResolutionReason = "recovered"
+	if err := notificationtemplate.Validate(route.AlertResolvedTemplate(), payload); err != nil {
+		errs = append(errs, fmt.Errorf("%s.resolved.message: invalid template: %w", path, err))
 	}
 	return errs
 }

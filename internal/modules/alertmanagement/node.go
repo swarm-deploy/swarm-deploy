@@ -19,12 +19,16 @@ func (s *Subscriber) handleNode(ctx context.Context, eventID, nodeID string, dis
 		if !disconnected {
 			return nil
 		}
-		return s.store.Create(ctx, model.Alert{
+		alert = model.Alert{
 			ID: s.newID(), Fingerprint: fingerprint, Kind: model.AlertKindNodeDisconnected,
 			ResourceType: model.ResourceTypeNode, ResourceID: nodeID, Status: model.AlertStatusOpen,
 			Title: "Node disconnected", Message: "Swarm node is not ready", Occurrences: 1,
 			OpenedAt: now, UpdatedAt: now, OpenEventID: eventID, LatestEventID: eventID,
-		})
+		}
+		if err = s.store.Create(ctx, alert); err != nil {
+			return err
+		}
+		return s.publishOpened(ctx, alert)
 	}
 	alert.UpdatedAt = now
 	if disconnected {
@@ -37,5 +41,11 @@ func (s *Subscriber) handleNode(ctx context.Context, eventID, nodeID string, dis
 			Reason: model.ResolutionReasonRecovered, Message: "Swarm node reconnected", EventID: eventID,
 		}
 	}
-	return s.store.Update(ctx, alert)
+	if err = s.store.Update(ctx, alert); err != nil {
+		return err
+	}
+	if !disconnected {
+		return s.publishResolved(ctx, alert)
+	}
+	return nil
 }

@@ -18,6 +18,8 @@ type Category string
 const (
 	TypeNameServiceCatalogUpdated TypeName = "serviceCatalogUpdated"
 	TypeNameDeploySuccess         TypeName = "deploySuccess"
+	TypeNameAlertOpened           TypeName = "alertOpened"
+	TypeNameAlertResolved         TypeName = "alertResolved"
 	TypeNameDeployFailed          TypeName = "deployFailed"
 	// TypeNameDeployPreparationFailed is an internal durable lifecycle fact, not a configurable event name.
 	TypeNameDeployPreparationFailed TypeName = "deployPreparationFailed"
@@ -97,7 +99,9 @@ var (
 		category: CategorySync,
 		window:   1 * time.Minute,
 	}
-	TypeDeployFailed = Type{
+	TypeAlertOpened   = Type{name: TypeNameAlertOpened, severity: SeverityAlert, category: CategorySync}
+	TypeAlertResolved = Type{name: TypeNameAlertResolved, severity: SeverityInfo, category: CategorySync}
+	TypeDeployFailed  = Type{
 		name:     TypeNameDeployFailed,
 		severity: SeverityAlert,
 		category: CategorySync,
@@ -261,6 +265,12 @@ func (t *Type) UnmarshalJSON(data []byte) error {
 
 func parseStoredType(name string) (Type, bool) {
 	typ := TypeName(name)
+	switch typ { //nolint:exhaustive // Other event types are resolved by ParseType below.
+	case TypeNameAlertOpened:
+		return TypeAlertOpened, true
+	case TypeNameAlertResolved:
+		return TypeAlertResolved, true
+	}
 	if typ == TypeNameDeployFailed {
 		return TypeDeployFailed, true
 	}
@@ -279,7 +289,8 @@ func (n TypeName) Valid() bool {
 		return true
 	case TypeNameDeploySuccess:
 		return true
-	case TypeNameDeployFailed, TypeNameDeployPreparationFailed, TypeNameDeployInterrupted:
+	case TypeNameDeployFailed, TypeNameDeployPreparationFailed, TypeNameDeployInterrupted,
+		TypeNameAlertOpened, TypeNameAlertResolved:
 		return false
 	case TypeNameSendNotificationFailed:
 		return true
@@ -317,6 +328,8 @@ func (n TypeName) Valid() bool {
 // ParseType resolves event type metadata by event name.
 func ParseType(name string) (Type, bool) {
 	switch TypeName(name) {
+	case TypeNameAlertOpened, TypeNameAlertResolved:
+		return Type{}, false
 	case TypeNameServiceCatalogUpdated:
 		return TypeServiceCatalogUpdated, true
 	case TypeNameDeploySuccess:

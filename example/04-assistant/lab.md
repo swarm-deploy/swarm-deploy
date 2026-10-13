@@ -167,17 +167,17 @@ Prompt Injection может определить как регулярка, та
 Также можно настроить алертинг в Telegram, добавив конфиг:
 ```yaml
 notifications:
-  on:
+  messengers:
+    telegram:
+      botTokenPath: /run/secrets/swarm-deploy-notifications-telegram-token
+      chats:
+        default:
+          id: "<chat-id>"
+          threadId: 155
+  events:
     assistantPromptInjectionDetected:
       telegram:
-        - name: ops-prompt-injection
-          # Path to file with bot token.
-          botTokenPath: /run/secrets/swarm-deploy-notifications-telegram-token
-          # Chat/channel ID.
-          chatId: "<chat-id>"
-          # Thread (topic) ID inside chat.
-          chatThreadId: 155
-          # Message text template.
+        - chats: default
           message: |
             ⚠️ Обнаружена попытка Prompt Injection.
             Детектор: {{ .Detector }}

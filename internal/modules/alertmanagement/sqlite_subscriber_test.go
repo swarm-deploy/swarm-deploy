@@ -9,9 +9,14 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
+
+func newTestSQLSubscriber(store *modelstore.SQLStore) *SQLSubscriber {
+	return NewSQLSubscriber(store, &dispatcher.NopDispatcher{}, func(model.AlertKind) []events.AlertRecipient { return nil })
+}
 
 func TestSQLSubscriberIdempotenceAndRollback(t *testing.T) {
 	ctx := context.Background()
@@ -19,7 +24,7 @@ func TestSQLSubscriberIdempotenceAndRollback(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
-	subscriber := NewSQLSubscriber(repo)
+	subscriber := newTestSQLSubscriber(repo)
 	at := time.Now().UTC()
 	event := events.Envelope{ID: "failed-1", OccurredAt: at,
 		Event: &events.DeployFailed{DeployEvent: events.DeployEvent{StackName: "app"}, Error: assert.AnError}}
@@ -56,7 +61,7 @@ func TestNodeAlertRecoveryIgnoresDelayedFailure(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
-	subscriber := NewSQLSubscriber(repo)
+	subscriber := newTestSQLSubscriber(repo)
 	at := time.Now()
 	disconnected := events.Envelope{ID: "001", OccurredAt: at, Event: &events.NodeDisconnected{NodeID: "worker"}}
 	recovered := events.Envelope{ID: "003", OccurredAt: at.Add(time.Second), Event: &events.NodeConnected{NodeID: "worker"}}
@@ -78,7 +83,7 @@ func TestPreparationAndInterruptedFailuresShareDeploymentAlertLifecycle(t *testi
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
-	subscriber := NewSQLSubscriber(repo)
+	subscriber := newTestSQLSubscriber(repo)
 	at := time.Now().UTC()
 	for _, event := range []events.Envelope{
 		{ID: "prepare-1", OccurredAt: at, Event: &events.DeployPreparationFailed{StackName: "app", ErrorCode: "preparation_failed"}},

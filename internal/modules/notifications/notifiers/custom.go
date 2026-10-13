@@ -64,15 +64,15 @@ func (*CustomWebhookNotifier) Kind() string {
 	return "custom"
 }
 
-func (n *CustomWebhookNotifier) Notify(ctx context.Context, event Message) error {
+func (n *CustomWebhookNotifier) Notify(ctx context.Context, event Message) (Receipt, error) {
 	body, err := json.Marshal(event)
 	if err != nil {
-		return fmt.Errorf("marshal payload: %w", err)
+		return Receipt{}, fmt.Errorf("marshal payload: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, n.method, n.url, bytes.NewReader(body))
 	if err != nil {
-		return fmt.Errorf("build request: %w", err)
+		return Receipt{}, fmt.Errorf("build request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -83,12 +83,12 @@ func (n *CustomWebhookNotifier) Notify(ctx context.Context, event Message) error
 	// #nosec G704 -- webhook URL is explicitly configured by the operator.
 	resp, err := n.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("send request: %w", err)
+		return Receipt{}, fmt.Errorf("send request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode/httpStatusClassDivisor != httpStatusClassSuccess {
-		return fmt.Errorf("unexpected status: %s", resp.Status)
+		return Receipt{}, fmt.Errorf("unexpected status: %s", resp.Status)
 	}
-	return nil
+	return Receipt{}, nil
 }

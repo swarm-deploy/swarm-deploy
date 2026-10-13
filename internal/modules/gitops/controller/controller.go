@@ -499,7 +499,6 @@ func (c *Controller) reconcile( //nolint:funlen // reconciliation pipeline
 		slog.String("path", reloadedFrom),
 		slog.Int("count", len(c.cfg.Spec.Stacks)),
 	)
-
 	stacksToSync := c.cfg.Spec.Stacks
 	if gitResult.Updated {
 		fileDiffs, diffErr := c.git.Diff(ctx, gitResult.OldRevision, gitResult.NewRevision)

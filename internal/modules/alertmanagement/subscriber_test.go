@@ -12,15 +12,20 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 )
+
+func newTestSubscriber(store modelstore.Store) *Subscriber {
+	return NewSubscriber(store, &dispatcher.NopDispatcher{}, func(model.AlertKind) []events.AlertRecipient { return nil })
+}
 
 func TestSubscriberDeploymentLifecycle(t *testing.T) {
 	ctx := context.Background()
 	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
 
-	subscriber := NewSubscriber(store)
+	subscriber := newTestSubscriber(store)
 	now := time.Date(2026, 9, 22, 10, 0, 0, 0, time.UTC)
 	sequence := 0
 	subscriber.now = func() time.Time { now = now.Add(time.Minute); return now }
@@ -91,7 +96,7 @@ func TestSubscriberDeploymentLifecycle(t *testing.T) {
 func TestSubscriberMasksDiagnosticsAndPreservesUsefulDetailOnGenericRepeat(t *testing.T) {
 	ctx := context.Background()
 	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
-	subscriber := NewSubscriber(store)
+	subscriber := newTestSubscriber(store)
 	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "detailed", Event: &events.DeployFailed{
 		DeployEvent: events.DeployEvent{DeploymentID: "one", StackName: "api"},
 		Error:       errors.New("update service api: token=private-value image not found"), ErrorCode: "apply_failed", Stage: "apply",
@@ -113,7 +118,7 @@ func TestSubscriberMasksDiagnosticsAndPreservesUsefulDetailOnGenericRepeat(t *te
 func TestSubscriberGenericPreparationFailureUsesHonestFallback(t *testing.T) {
 	ctx := context.Background()
 	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
-	subscriber := NewSubscriber(store)
+	subscriber := newTestSubscriber(store)
 	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "prepare", Event: &events.DeployPreparationFailed{
 		StackName: "api", ErrorCode: "preparation_failed", Stage: "validation",
 	}}))
@@ -127,7 +132,7 @@ func TestSubscriberGenericPreparationFailureUsesHonestFallback(t *testing.T) {
 func TestSubscriberConcurrentFailuresCreateOneOpenAlert(t *testing.T) {
 	ctx := context.Background()
 	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
-	subscriber := NewSubscriber(store)
+	subscriber := newTestSubscriber(store)
 
 	const workers = 20
 	var wg sync.WaitGroup
@@ -158,7 +163,8 @@ func TestSubscriberConcurrentFailuresCreateOneOpenAlert(t *testing.T) {
 func TestInterruptedAlertKeepsUnknownOutcomeAndResolvesOnSuccess(t *testing.T) {
 	ctx := context.Background()
 	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
-	subscriber := NewSubscriber(store)
+	subscriber := newTestSubscriber(store)
+
 	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "interrupted", Event: &events.DeployInterrupted{
 		StackName: "app", Reason: "process_interrupted",
 	}}))

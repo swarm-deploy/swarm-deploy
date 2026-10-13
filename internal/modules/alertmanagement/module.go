@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -30,9 +31,11 @@ type Container interface {
 // InitModule initializes persistent alert state and event subscriptions.
 func InitModule(ctx context.Context, cfg *config.Config, container Container) (*Module, error) {
 	store := modelstore.NewSQLStore(container.GetStorage())
-	subscriber := NewSQLSubscriber(store)
-	module := &Module{Store: store, Subscriber: subscriber}
 	dispatcher := container.GetEventModule().Dispatcher
+	subscriber := NewSQLSubscriber(store, dispatcher, func(kind model.AlertKind) []events.AlertRecipient {
+		return cfg.Spec.Notifications.AlertRecipients(string(kind))
+	})
+	module := &Module{Store: store, Subscriber: subscriber}
 	for _, typ := range []events.TypeName{
 		events.TypeNameDeployFailed, events.TypeNameDeployPreparationFailed,
 		events.TypeNameDeployInterrupted, events.TypeNameDeploySuccess,

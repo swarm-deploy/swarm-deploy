@@ -69,7 +69,8 @@ func (b *Bus) Subscribe(typ events.TypeName, id string, handler Subscriber) erro
 	}
 	_, public := events.ParseType(string(typ))
 	internalLifecycle := typ == events.TypeNameDeployFailed || typ == events.TypeNameDeployPreparationFailed ||
-		typ == events.TypeNameDeployInterrupted
+		typ == events.TypeNameDeployInterrupted || typ == events.TypeNameAlertOpened ||
+		typ == events.TypeNameAlertResolved
 	if !public && !internalLifecycle {
 		return fmt.Errorf("unknown event type %q", typ)
 	}

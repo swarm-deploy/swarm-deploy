@@ -19,9 +19,14 @@ const Version = 1
 
 // Encode copies approved fields only. It never marshals Event, Details, errors,
 // logs, prompts, environment or Compose definitions.
+//
+//nolint:funlen // Keep the durable event allowlist together so its accepted fields are auditable.
 func Encode(event events.Event) ([]byte, error) {
 	if event == nil || (reflect.ValueOf(event).Kind() == reflect.Pointer && reflect.ValueOf(event).IsNil()) {
 		return nil, errors.New("cannot encode a nil event")
+	}
+	if payload, internal, err := encodeInternal(event); internal {
+		return payload, err
 	}
 	switch e := event.(type) {
 	case *events.ServiceCatalogUpdated:
@@ -95,6 +100,14 @@ func Decode(typ events.TypeName, version int, payload []byte) (events.Event, err
 		return decodeDeploymentFailure(typ, payload)
 	}
 	switch typ { //nolint:exhaustive // Failure events are decoded by decodeDeploymentFailure above.
+	case events.TypeNameAlertOpened:
+		return decodeAs(payload, func(p alertOpenedPayload) events.Event {
+			return &events.AlertOpened{Alert: p.Alert.snapshot(), Recipients: p.Recipients}
+		})
+	case events.TypeNameAlertResolved:
+		return decodeAs(payload, func(p alertResolvedPayload) events.Event {
+			return &events.AlertResolved{Alert: p.Alert.snapshot(), Recipients: p.Recipients}
+		})
 	case events.TypeNameServiceCatalogUpdated:
 		return decodeAs(payload, func(p servicePayload) events.Event {
 			return &events.ServiceCatalogUpdated{StackName: p.Stack}

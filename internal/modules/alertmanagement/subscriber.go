@@ -17,15 +17,22 @@ import (
 
 // Subscriber translates deployment events into alert lifecycle changes.
 type Subscriber struct {
-	mu    sync.Mutex
-	store modelstore.Store
-	now   func() time.Time
-	newID func() string
+	mu        sync.Mutex
+	store     modelstore.Store
+	publisher interface {
+		Publish(context.Context, events.Event) error
+	}
+	recipients func(model.AlertKind) []events.AlertRecipient
+	now        func() time.Time
+	newID      func() string
 }
 
 // NewSubscriber creates a deployment alert subscriber.
-func NewSubscriber(store modelstore.Store) *Subscriber {
-	return &Subscriber{store: store, now: time.Now, newID: uuid.NewString}
+func NewSubscriber(store modelstore.Store, publisher interface {
+	Publish(context.Context, events.Event) error
+},
+	recipients func(model.AlertKind) []events.AlertRecipient) *Subscriber {
+	return &Subscriber{store: store, publisher: publisher, recipients: recipients, now: time.Now, newID: uuid.NewString}
 }
 
 // Name returns the subscriber name used in dispatcher logs.
@@ -110,7 +117,7 @@ func (s *Subscriber) handleFailed(
 	}
 	err = s.store.Create(ctx, alert)
 	if err == nil {
-		return nil
+		return s.publishOpened(ctx, alert)
 	}
 	if !errors.Is(err, modelstore.ErrOpenAlertExists) {
 		return fmt.Errorf("create deployment alert: %w", err)
@@ -166,7 +173,28 @@ func (s *Subscriber) handleSucceeded(ctx context.Context, eventID string, event 
 	if err = s.store.Update(ctx, alert); err != nil {
 		return fmt.Errorf("resolve deployment alert: %w", err)
 	}
-	return nil
+	return s.publishResolved(ctx, alert)
+}
+
+func (s *Subscriber) publishOpened(ctx context.Context, alert model.Alert) error {
+	return s.publisher.Publish(ctx, &events.AlertOpened{Alert: alertSnapshot(alert), Recipients: s.recipients(alert.Kind)})
+}
+
+func (s *Subscriber) publishResolved(ctx context.Context, alert model.Alert) error {
+	return s.publisher.Publish(ctx, &events.AlertResolved{
+		Alert: alertSnapshot(alert), Recipients: s.recipients(alert.Kind),
+	})
+}
+
+func alertSnapshot(alert model.Alert) events.AlertSnapshot {
+	snapshot := events.AlertSnapshot{ID: alert.ID, Kind: string(alert.Kind), Title: alert.Title,
+		Message: alert.Message, ResourceType: string(alert.ResourceType), ResourceID: alert.ResourceID,
+		OpenedAt: alert.OpenedAt, ResolvedAt: alert.ResolvedAt}
+	if alert.Resolution != nil {
+		snapshot.Resolution = alert.Resolution.Message
+		snapshot.ResolutionReason = string(alert.Resolution.Reason)
+	}
+	return snapshot
 }
 
 func eventReferenceID(eventID string, fallback func() string) string {

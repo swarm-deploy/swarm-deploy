@@ -36,7 +36,7 @@ eventHistory:
   # Maximum number of events stored on disk.
   capacity: 500
 
-# Notification transport and explicit event subscriptions.
+# Notification transport, automatic alert delivery and explicit event subscriptions.
 notifications:
   messengers:
     telegram:
@@ -65,6 +65,15 @@ notifications:
       telegram:
         - message: |
             sync started manually
+  alerts:
+    deploy_failed:
+      telegram:
+        - chats: deployments
+          opened:
+            message: "🔴 Deployment failed: {{ .ResourceID }}"
+          resolved:
+            action: edit
+            message: "✅ Deployment recovered: {{ .ResourceID }}"
 
 # Secret/config name rotation settings.
 secretRotation:
