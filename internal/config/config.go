@@ -535,27 +535,42 @@ func loadStacksFromFile(stacksPath string) ([]StackSpec, error) {
 	}
 
 	type stacksContainer struct {
-		Stacks []StackSpec `yaml:"stacks"`
+		Stacks *[]StackSpec `yaml:"stacks"`
 	}
 
-	var container stacksContainer
-	err = yaml.Unmarshal(data, &container)
-	if err != nil {
+	var document yaml.Node
+	if err = yaml.Unmarshal(data, &document); err != nil {
 		return nil, fmt.Errorf("decode stacks file %s: %w", stacksPath, err)
 	}
-	if len(container.Stacks) > 0 {
-		return container.Stacks, nil
+	if len(document.Content) == 0 {
+		return nil, fmt.Errorf("stacks file %s does not contain stacks", stacksPath)
+	}
+
+	root := document.Content[0]
+	if root.Kind == yaml.MappingNode {
+		var container stacksContainer
+		if err = root.Decode(&container); err != nil {
+			return nil, fmt.Errorf("decode stacks file %s: %w", stacksPath, err)
+		}
+		if container.Stacks == nil {
+			return nil, fmt.Errorf("stacks file %s does not contain stacks", stacksPath)
+		}
+		if len(*container.Stacks) == 0 {
+			return nil, nil
+		}
+		return *container.Stacks, nil
+	}
+	if root.Kind != yaml.SequenceNode {
+		return nil, fmt.Errorf("stacks file %s must contain a stacks mapping or list", stacksPath)
 	}
 
 	var list []StackSpec
-	err = yaml.Unmarshal(data, &list)
-	if err != nil {
+	if err = root.Decode(&list); err != nil {
 		return nil, fmt.Errorf("decode stacks list %s: %w", stacksPath, err)
 	}
 	if len(list) == 0 {
-		return nil, fmt.Errorf("stacks file %s does not contain any stacks", stacksPath)
+		return nil, nil
 	}
-
 	return list, nil
 }
 
@@ -565,43 +580,55 @@ func loadNetworksFromFile(networksPath string) ([]NetworkSpec, error) {
 		return nil, fmt.Errorf("read networks file %s: %w", networksPath, err)
 	}
 
-	type networksContainer struct {
-		Networks []NetworkSpec `yaml:"networks"`
-	}
-
-	var container networksContainer
-	err = yaml.Unmarshal(data, &container)
-	if err != nil {
+	var document yaml.Node
+	if err = yaml.Unmarshal(data, &document); err != nil {
 		return nil, fmt.Errorf("decode networks file %s: %w", networksPath, err)
 	}
-	for i := range container.Networks {
-		container.Networks[i].Name = strings.TrimSpace(container.Networks[i].Name)
-		container.Networks[i].Driver = strings.TrimSpace(container.Networks[i].Driver)
-		if container.Networks[i].Driver == "" {
-			container.Networks[i].Driver = defaultManagedNetworkDriver
-		}
-	}
-	if len(container.Networks) > 0 {
-		return container.Networks, nil
+	if len(document.Content) == 0 {
+		return nil, fmt.Errorf("networks file %s does not contain networks", networksPath)
 	}
 
-	var list []NetworkSpec
-	err = yaml.Unmarshal(data, &list)
+	root := document.Content[0]
+	networks, err := decodeNetworks(root, networksPath)
 	if err != nil {
+		return nil, err
+	}
+	if len(networks) == 0 {
+		return nil, nil
+	}
+
+	for i := range networks {
+		networks[i].Name = strings.TrimSpace(networks[i].Name)
+		networks[i].Driver = strings.TrimSpace(networks[i].Driver)
+		if networks[i].Driver == "" {
+			networks[i].Driver = defaultManagedNetworkDriver
+		}
+	}
+	return networks, nil
+}
+
+func decodeNetworks(root *yaml.Node, networksPath string) ([]NetworkSpec, error) {
+	if root.Kind == yaml.MappingNode {
+		var container struct {
+			Networks *[]NetworkSpec `yaml:"networks"`
+		}
+		if err := root.Decode(&container); err != nil {
+			return nil, fmt.Errorf("decode networks file %s: %w", networksPath, err)
+		}
+		if container.Networks == nil {
+			return nil, fmt.Errorf("networks file %s does not contain networks", networksPath)
+		}
+		return *container.Networks, nil
+	}
+	if root.Kind != yaml.SequenceNode {
+		return nil, fmt.Errorf("networks file %s must contain a networks mapping or list", networksPath)
+	}
+
+	var networks []NetworkSpec
+	if err := root.Decode(&networks); err != nil {
 		return nil, fmt.Errorf("decode networks list %s: %w", networksPath, err)
 	}
-	for i := range list {
-		list[i].Name = strings.TrimSpace(list[i].Name)
-		list[i].Driver = strings.TrimSpace(list[i].Driver)
-		if list[i].Driver == "" {
-			list[i].Driver = defaultManagedNetworkDriver
-		}
-	}
-	if len(list) == 0 {
-		return nil, fmt.Errorf("networks file %s does not contain any networks", networksPath)
-	}
-
-	return list, nil
+	return networks, nil
 }
 
 func (c *Config) validate() error {

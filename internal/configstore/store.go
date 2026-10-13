@@ -3,6 +3,7 @@ package configstore
 import (
 	"context"
 	"log/slog"
+	"sync/atomic"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
@@ -11,8 +12,9 @@ import (
 
 // ConfigStore reloads the shared configuration and signals effective changes.
 type ConfigStore struct {
-	cfg    *config.Config
-	events dispatcher.Dispatcher
+	cfg               *config.Config
+	events            dispatcher.Dispatcher
+	initialReloadDone atomic.Bool
 }
 
 // New creates a configuration store.
@@ -20,11 +22,16 @@ func New(cfg *config.Config, eventsDispatcher dispatcher.Dispatcher) *ConfigStor
 	return &ConfigStore{cfg: cfg, events: eventsDispatcher}
 }
 
-// Reload reloads configuration and publishes a signal when its effective state changed.
+// Reload reloads configuration and publishes a signal after the first successful
+// reload and whenever the effective state changes afterward.
 func (s *ConfigStore) Reload(ctx context.Context, baseDirs ...string) error {
 	changed, err := s.cfg.Reload(baseDirs...)
-	if err != nil || !changed {
+	if err != nil {
 		return err
+	}
+	firstSuccessfulReload := s.initialReloadDone.CompareAndSwap(false, true)
+	if !changed && !firstSuccessfulReload {
+		return nil
 	}
 	if err = s.events.Publish(ctx, &events.ConfigurationChanged{}); err != nil {
 		slog.ErrorContext(ctx, "publish configuration changed event", slog.Any("err", err))

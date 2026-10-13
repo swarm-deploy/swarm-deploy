@@ -63,6 +63,61 @@ networks:
 	assert.Equal(t, "backend", networks[0].Name)
 }
 
+func TestReloadAcceptsExplicitlyEmptyDesiredLists(t *testing.T) {
+	dir := t.TempDir()
+	writeDesiredFiles(t, dir, "app", "backend")
+	cfg := newReloadConfig()
+
+	changed, err := cfg.Reload(dir)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "stacks.yaml"), []byte("stacks: []\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "networks.yaml"), []byte("networks: []\n"), 0o600))
+
+	changed, err = cfg.Reload(dir)
+	require.NoError(t, err)
+	assert.True(t, changed)
+	assert.Empty(t, cfg.Stacks())
+	assert.Empty(t, cfg.Networks())
+
+	changed, err = cfg.Reload(dir)
+	require.NoError(t, err)
+	assert.False(t, changed)
+}
+
+func TestDesiredLoadersRejectMissingAndMalformedLists(t *testing.T) {
+	tests := []struct {
+		name     string
+		contents string
+		load     func(string) error
+	}{
+		{
+			name: "missing stacks key", contents: "services: []\n",
+			load: func(path string) error { _, err := loadStacksFromFile(path); return err },
+		},
+		{
+			name: "malformed stacks value", contents: "stacks: {}\n",
+			load: func(path string) error { _, err := loadStacksFromFile(path); return err },
+		},
+		{
+			name: "missing networks key", contents: "volumes: []\n",
+			load: func(path string) error { _, err := loadNetworksFromFile(path); return err },
+		},
+		{
+			name: "invalid networks yaml", contents: "networks: [\n",
+			load: func(path string) error { _, err := loadNetworksFromFile(path); return err },
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "desired.yaml")
+			require.NoError(t, os.WriteFile(path, []byte(test.contents), 0o600))
+			require.Error(t, test.load(path))
+		})
+	}
+}
+
 func TestReloadConcurrentReadsAreRaceFree(t *testing.T) {
 	firstDir := t.TempDir()
 	secondDir := t.TempDir()
