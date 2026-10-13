@@ -206,9 +206,6 @@ func decodeDeploymentFailure(typ events.TypeName, payload []byte) (events.Event,
 				Error: diagnostic, Stage: p.Stage,
 			}
 		default:
-			if diagnostic == nil {
-				diagnostic = errors.New("deployment interrupted; external apply outcome unknown")
-			}
 			return &events.DeployInterrupted{
 				DeploymentID: p.DeploymentID, StackName: p.Stack, Commit: p.Commit,
 				Services: p.services(), Reason: p.Code, Error: diagnostic, Stage: p.Stage,
@@ -226,23 +223,16 @@ func (e classifiedDiagnosticError) Error() string { return e.diagnostic }
 
 func (e classifiedDiagnosticError) Temporary() bool { return e.temporary }
 
-func diagnosticError(diagnostic string, temporary *bool) error {
-	if temporary != nil {
-		return classifiedDiagnosticError{diagnostic: diagnostic, temporary: *temporary}
-	}
-	if diagnostic == "" {
-		return nil
-	}
-	return errors.New(diagnostic)
+func diagnosticError(diagnostic string, temporary bool) error {
+	return classifiedDiagnosticError{diagnostic: diagnostic, temporary: temporary}
 }
 
-func temporaryClassification(err error) *bool {
+func temporaryClassification(err error) bool {
 	var classified faults.Error
 	if !errors.As(err, &classified) {
-		return nil
+		return false
 	}
-	temporary := classified.Temporary()
-	return &temporary
+	return classified.Temporary()
 }
 
 func decodeAs[T any](payload []byte, event func(T) events.Event) (events.Event, error) {
@@ -294,7 +284,7 @@ type deploymentFailurePayload struct {
 	// Diagnostic contains bounded secret-masked technical context.
 	Diagnostic string `json:"diagnostic,omitempty"`
 	// Temporary preserves an explicit technical classification without persisting the error structure.
-	Temporary *bool `json:"temporary,omitempty"`
+	Temporary bool `json:"temporary"`
 	// Services contains only service names and images.
 	Services []servicePayload `json:"services"`
 }
@@ -318,7 +308,7 @@ func safeFailureCode(err error) string {
 }
 
 func encodeDeploymentFailure(
-	stack, commit, deploymentID, code, stage, diagnostic string, temporary *bool,
+	stack, commit, deploymentID, code, stage, diagnostic string, temporary bool,
 	services []compose.Service,
 ) ([]byte, error) {
 	payload := deploymentFailurePayload{
