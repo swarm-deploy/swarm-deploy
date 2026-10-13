@@ -7,17 +7,18 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 )
 
-func TestDeployFailedNotificationRoutesLifecycleFailureFacts(t *testing.T) {
+func TestSyncFailedNotificationRoutesLifecycleFailureFacts(t *testing.T) {
 	assert.Equal(t, []events.TypeName{
 		events.TypeNameDeployFailed,
 		events.TypeNameDeployPreparationFailed,
 		events.TypeNameDeployInterrupted,
-	}, notificationEventTypes(events.TypeNameDeployFailed))
+	}, notificationEventTypes(events.TypeNameSyncFailed))
 }
 
 func TestDeploymentLifecycleFactsAreNotPublicEventTypes(t *testing.T) {
 	for _, typ := range []events.TypeName{
 		events.TypeNameConfigurationChanged,
+		events.TypeNameDeployFailed,
 		events.TypeNameDeployPreparationFailed,
 		events.TypeNameDeployInterrupted,
 	} {

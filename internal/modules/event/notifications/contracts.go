@@ -157,7 +157,7 @@ func DeploymentSuccessReferencePayload() DeploymentPayload {
 // DeploymentFailureReferencePayloads returns representative data for every deployment failure state.
 func DeploymentFailureReferencePayloads() []DeploymentPayload {
 	base := DeploymentPayload{
-		ID: "event-deploy-failed", DeploymentID: "deployment-43", Type: "DeployFailed", Status: StatusFailed,
+		ID: "event-deploy-failed", DeploymentID: "deployment-43", Type: "SyncFailed", Status: StatusFailed,
 		StackName: "payments", Commit: "d4c3b2a1", Error: "service update rejected",
 		ErrorCode: "apply_failed", Stage: "apply", OccurredAt: referenceTime(),
 		Services: []DeploymentService{{Name: "worker", Image: "registry.example.com/payments/worker:v2.4.2"}},

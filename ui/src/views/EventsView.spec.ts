@@ -37,11 +37,16 @@ const events: EventHistoryItem[] = [
   },
   {
     id: "error",
-    type: "DeployFailed",
+    type: "SyncFailed",
     severity: "error",
     category: "sync",
     created_at: "2026-10-06T15:00:00Z",
     message: "Error",
+    details: {
+      stack: "payments",
+      status: "failed",
+      error_code: "apply_failed",
+    },
   },
 ];
 
@@ -143,13 +148,40 @@ describe("EventsView", () => {
     });
   });
 
+  it("filters SyncFailed events and displays synchronization details", async () => {
+    vi.mocked(fetchEvents).mockResolvedValue({ events: [events[3]] });
+    const { wrapper } = await mountView();
+    const option = wrapper
+      .findAll(".events-type-filter-option")
+      .find((item) => item.find(".events-type-filter-option-name").text() === "SyncFailed");
+
+    expect(option).toBeDefined();
+    expect(option!.find(".events-type-filter-option-description").text()).toContain("synchronization failed");
+    await option!.find("input").setValue(true);
+    await flushPromises();
+    expect(fetchEvents).toHaveBeenLastCalledWith({
+      types: ["SyncFailed"],
+      severities: [],
+      limit: 50,
+      sort: "time",
+      order: "desc",
+    });
+
+    await wrapper.find("tbody tr.app-table-row--clickable").trigger("click");
+    const details = wrapper.find(".event-details").text();
+    expect(details).toContain("payments");
+    expect(details).toContain("failed");
+    expect(details).toContain("apply_failed");
+  });
+
   it("shows concise descriptions for all event type filter options", async () => {
     const { wrapper } = await mountView();
     const options = wrapper.findAll(".events-type-filter-option");
 
-    expect(options).toHaveLength(15);
+    expect(options).toHaveLength(16);
     expect(options.map((option) => option.find(".events-type-filter-option-name").text())).toEqual([
       "DeploySuccess",
+      "SyncFailed",
       "SendNotificationFailed",
       "SyncManualStarted",
       "WebhookReceived",

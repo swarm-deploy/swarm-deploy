@@ -87,12 +87,15 @@ func TestNotificationRejectsOldOnKey(t *testing.T) {
 	require.ErrorContains(t, err, "notifications.on is no longer supported")
 }
 
-func TestNotificationEventsAcceptDeployFailed(t *testing.T) {
+func TestNotificationEventsUseSyncFailedInsteadOfDeployFailed(t *testing.T) {
 	cfg := NotificationSpec{
 		Events: map[events.TypeName]NotificationEventRoutes{
 			events.TypeNameDeployFailed: {},
+			events.TypeNameSyncFailed:   {},
 		},
 	}
 
-	assert.NotContains(t, joinNotificationErrors(cfg.validate()), "DeployFailed")
+	errs := joinNotificationErrors(cfg.validate())
+	assert.Contains(t, errs, "DeployFailed")
+	assert.NotContains(t, errs, "SyncFailed")
 }
