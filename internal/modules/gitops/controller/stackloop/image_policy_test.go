@@ -31,6 +31,7 @@ import (
 
 func TestImagePolicyViolation(t *testing.T) {
 	digest := "nginx@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	latestDigest := "nginx:latest@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	tests := []struct {
 		name   string
 		policy config.ImagePolicySpec
@@ -46,6 +47,8 @@ func TestImagePolicyViolation(t *testing.T) {
 		{name: "no latest allows digest", policy: imagePolicy(false, true, false), image: digest},
 		{name: "no latest rejects explicit latest", policy: imagePolicy(false, true, false), image: "nginx:latest",
 			want: imageViolationLatest},
+		{name: "no latest rejects explicit latest with digest", policy: imagePolicy(false, true, false),
+			image: latestDigest, want: imageViolationLatest},
 		{name: "no latest rejects implicit latest", policy: imagePolicy(false, true, false), image: "nginx",
 			want: imageViolationLatest},
 		{name: "only sha rejects tag", policy: imagePolicy(false, false, true), image: "nginx:1.27",
@@ -61,39 +64,104 @@ func TestImagePolicyViolation(t *testing.T) {
 	}
 }
 
+func TestCheckImagePolicyValidatesInitJobs(t *testing.T) {
+	digest := "example/api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	jobDigest := "example/migrate@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	tests := []struct {
+		name   string
+		policy config.ImagePolicySpec
+		image  string
+		code   string
+	}{
+		{name: "required", policy: imagePolicy(true, false, false), image: "example/migrate",
+			code: imageViolationRequired},
+		{name: "no latest", policy: imagePolicy(false, true, false), image: "example/migrate:latest",
+			code: imageViolationLatest},
+		{name: "only sha", policy: imagePolicy(false, false, true), image: "example/migrate:1.2.3",
+			code: imageViolationOnlySHA},
+		{name: "no latest allows digest only", policy: imagePolicy(false, true, false), image: jobDigest},
+		{name: "disabled", image: "%%%"},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			reconciler := &Reconciler{cfg: &config.Config{Spec: config.Spec{Sync: config.SyncSpec{
+				Policy: config.SyncPolicySpec{Image: testCase.policy},
+			}}}}
+			err := reconciler.checkImagePolicy(t.Context(), &pipelinePayload{Desired: &compose.File{
+				Path: "/repo/app.yaml",
+				Compose: compose.Compose{Services: compose.Services{{
+					Name: "api", Image: digest,
+					InitJobs: []compose.InitJob{{Name: "migrate", Image: testCase.image}},
+				}}},
+			}})
+			if testCase.code == "" {
+				require.NoError(t, err)
+				return
+			}
+
+			var validationErr *compose.ValidateComposeError
+			require.ErrorAs(t, err, &validationErr)
+			require.Len(t, validationErr.Issues, 1)
+			assert.Equal(t, "service", validationErr.Issues[0].ResourceType)
+			assert.Equal(t, "api", validationErr.Issues[0].ResourceName)
+			assert.Equal(t, `x-init-deploy-jobs["migrate"].image`, validationErr.Issues[0].Field)
+			assert.Equal(t, testCase.code, validationErr.Issues[0].Code)
+			assert.Contains(t, validationErr.Issues[0].Message, `init job "migrate"`)
+			assert.Contains(t, validationErr.Issues[0].Message, testCase.image)
+		})
+	}
+}
+
 func imagePolicy(required, noLatest, onlySHA bool) config.ImagePolicySpec {
 	return config.ImagePolicySpec{Tag: config.ImageTagPolicySpec{
 		Required: required, NoLatest: noLatest, OnlySHA: onlySHA,
 	}}
 }
 
-func TestCheckImagePolicyReturnsStructuredIssuesForEveryService(t *testing.T) {
+func TestCheckImagePolicyReturnsAllStructuredIssues(t *testing.T) {
 	reconciler := &Reconciler{cfg: &config.Config{Spec: config.Spec{Sync: config.SyncSpec{
 		Policy: config.SyncPolicySpec{Image: imagePolicy(false, true, false)},
 	}}}}
 	err := reconciler.checkImagePolicy(t.Context(), &pipelinePayload{Desired: &compose.File{
 		Path: "/repo/app.yaml",
 		Compose: compose.Compose{Services: compose.Services{
-			{Name: "api", Image: "nginx:latest"},
-			{Name: "worker", Image: "registry.example/worker"},
-			{Name: "valid", Image: "registry.example/valid:1.2.3"},
+			{Name: "api", Image: "nginx:latest", InitJobs: []compose.InitJob{
+				{Name: "migrate", Image: "example/migrate:latest"},
+			}},
+			{Name: "worker", Image: "registry.example/worker", InitJobs: []compose.InitJob{
+				{Name: "seed", Image: "example/seed"},
+			}},
+			{Name: "valid", Image: "registry.example/valid:1.2.3", InitJobs: []compose.InitJob{
+				{Name: "prepare", Image: "example/prepare:1.2.3"},
+			}},
 		}},
 	}})
 
 	var validationErr *compose.ValidateComposeError
 	require.ErrorAs(t, err, &validationErr)
 	assert.Equal(t, "/repo/app.yaml", validationErr.FilePath)
-	require.Len(t, validationErr.Issues, 2)
+	require.Len(t, validationErr.Issues, 4)
 	assert.Equal(t, compose.ValidationIssue{
 		ResourceType: "service", ResourceName: "api", Field: "image", Code: imageViolationLatest,
 		Message: `image "nginx:latest" must not use the latest tag`,
 	}, validationErr.Issues[0])
 	assert.Equal(t, compose.ValidationIssue{
+		ResourceType: "service", ResourceName: "api", Field: `x-init-deploy-jobs["migrate"].image`,
+		Code:    imageViolationLatest,
+		Message: `init job "migrate": image "example/migrate:latest" must not use the latest tag`,
+	}, validationErr.Issues[1])
+	assert.Equal(t, compose.ValidationIssue{
 		ResourceType: "service", ResourceName: "worker", Field: "image", Code: imageViolationLatest,
 		Message: `image "registry.example/worker" must not use the latest tag`,
-	}, validationErr.Issues[1])
+	}, validationErr.Issues[2])
+	assert.Equal(t, compose.ValidationIssue{
+		ResourceType: "service", ResourceName: "worker", Field: `x-init-deploy-jobs["seed"].image`,
+		Code:    imageViolationLatest,
+		Message: `init job "seed": image "example/seed" must not use the latest tag`,
+	}, validationErr.Issues[3])
 	assert.Contains(t, validationErr.Error(), `service "api": image:`)
-	assert.Contains(t, validationErr.Error(), `service "worker": image:`)
+	assert.Contains(t, validationErr.Error(), `service "api": x-init-deploy-jobs["migrate"].image:`)
+	assert.Contains(t, validationErr.Error(), `service "worker": x-init-deploy-jobs["seed"].image:`)
 }
 
 func TestImagePolicyViolationLifecycle(t *testing.T) {
@@ -220,7 +288,13 @@ func TestImagePolicyDisabledPreservesDeployment(t *testing.T) {
 	serviceManager := swarm.NewMockServiceManager(ctrl)
 	repoDir := t.TempDir()
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
-	require.NoError(t, writeComposeFile(repoDir))
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "app.yaml"), []byte(`services:
+  api:
+    image: nginx:latest
+    x-init-deploy-jobs:
+      - name: migrate
+        image: example/migrate:latest
+`), 0o600))
 	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{}, nil)
 

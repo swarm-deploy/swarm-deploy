@@ -20,14 +20,24 @@ const (
 func (r *Reconciler) checkImagePolicy(_ context.Context, payload *pipelinePayload) error {
 	issues := make([]compose.ValidationIssue, 0)
 	for _, service := range payload.Desired.Compose.Services {
-		code := imagePolicyViolation(r.cfg.Spec.Sync.Policy.Image, service.Image)
-		if code == "" {
-			continue
+		if code := imagePolicyViolation(r.cfg.Spec.Sync.Policy.Image, service.Image); code != "" {
+			issues = append(issues, compose.ValidationIssue{
+				ResourceType: "service", ResourceName: service.Name, Field: "image", Code: code,
+				Message: imagePolicyViolationMessage(code, service.Image),
+			})
 		}
-		issues = append(issues, compose.ValidationIssue{
-			ResourceType: "service", ResourceName: service.Name, Field: "image", Code: code,
-			Message: imagePolicyViolationMessage(code, service.Image),
-		})
+		for _, job := range service.InitJobs {
+			code := imagePolicyViolation(r.cfg.Spec.Sync.Policy.Image, job.Image)
+			if code == "" {
+				continue
+			}
+			issues = append(issues, compose.ValidationIssue{
+				ResourceType: "service", ResourceName: service.Name,
+				Field:   fmt.Sprintf("x-init-deploy-jobs[%q].image", job.Name),
+				Code:    code,
+				Message: fmt.Sprintf("init job %q: %s", job.Name, imagePolicyViolationMessage(code, job.Image)),
+			})
+		}
 	}
 	if len(issues) == 0 {
 		return nil
@@ -54,7 +64,7 @@ func imagePolicyViolation(policy config.ImagePolicySpec, image string) string {
 		return imageViolationOnlySHA
 	case policy.Tag.Required && !hasTag && !hasDigest:
 		return imageViolationRequired
-	case policy.Tag.NoLatest && !hasDigest && (!hasTag || tag == "latest"):
+	case policy.Tag.NoLatest && ((hasTag && tag == "latest") || (!hasTag && !hasDigest)):
 		return imageViolationLatest
 	default:
 		return ""
