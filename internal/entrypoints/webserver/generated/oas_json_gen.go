@@ -597,6 +597,8 @@ func (s *AlertResolutionReason) Decode(d *jx.Decoder) error {
 	switch AlertResolutionReason(v) {
 	case AlertResolutionReasonRecovered:
 		*s = AlertResolutionReasonRecovered
+	case AlertResolutionReasonResourceRemoved:
+		*s = AlertResolutionReasonResourceRemoved
 	default:
 		*s = AlertResolutionReason(v)
 	}

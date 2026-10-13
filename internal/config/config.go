@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
@@ -52,6 +54,10 @@ const (
 type Config struct {
 	// Spec is the runtime configuration loaded from YAML.
 	Spec Spec `yaml:"-"`
+
+	mu       sync.RWMutex
+	stacks   []StackSpec
+	networks []NetworkSpec
 }
 
 type Spec struct {
@@ -63,12 +69,8 @@ type Spec struct {
 	Sync SyncSpec `yaml:"sync"`
 	// StacksSource contains path to stack definitions file inside git repository.
 	StacksSource StacksSourceSpec `yaml:"stacks"`
-	// Stacks is a parsed list of stack specifications loaded from stacks.file.
-	Stacks []StackSpec `yaml:"-"`
 	// NetworksSource contains path to network definitions file inside git repository.
 	NetworksSource NetworksSourceSpec `yaml:"networks"`
-	// Networks is a parsed list of network specifications loaded from networks.file.
-	Networks []NetworkSpec `yaml:"-"`
 	// Notifications contains notification channel configuration.
 	Notifications NotificationSpec `yaml:"notifications"`
 	// Web contains public HTTP server settings.
@@ -368,71 +370,84 @@ func (c *Config) applyEventHistoryDefaults() {
 	}
 }
 
-func (c *Config) loadStacks(configDir string) error {
-	_, err := c.ReloadStacks(filepath.Join(c.Spec.DataDir, "repo"), configDir)
-	if err == nil {
-		return nil
+func (c *Config) loadInitialDesired(configDir string) error {
+	baseDirs := []string{filepath.Join(c.Spec.DataDir, "repo"), configDir}
+	stacks, err := c.loadStacks(baseDirs...)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
+	if err != nil {
+		stacks = nil
 	}
-	return err
+
+	networks, err := c.loadNetworks(baseDirs...)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err != nil {
+		networks = nil
+	}
+
+	c.mu.Lock()
+	c.stacks = cloneStacks(stacks)
+	c.networks = cloneNetworks(networks)
+	c.mu.Unlock()
+	return nil
 }
 
-func (c *Config) loadNetworks(configDir string) error {
-	if strings.TrimSpace(c.Spec.NetworksSource.File) == "" {
-		c.Spec.Networks = nil
-		return nil
+// Reload loads and validates all reloadable configuration, then atomically
+// replaces the accepted state when its effective value changed.
+func (c *Config) Reload(baseDirs ...string) (bool, error) {
+	stacks, err := c.loadStacks(baseDirs...)
+	if err != nil {
+		return false, err
+	}
+	networks, err := c.loadNetworks(baseDirs...)
+	if err != nil {
+		return false, err
 	}
 
-	_, err := c.ReloadNetworks(filepath.Join(c.Spec.DataDir, "repo"), configDir)
-	if err == nil {
-		return nil
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if reflect.DeepEqual(c.stacks, stacks) && reflect.DeepEqual(c.networks, networks) {
+		return false, nil
 	}
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	return err
+	c.stacks = cloneStacks(stacks)
+	c.networks = cloneNetworks(networks)
+	return true, nil
 }
 
-// ReloadStacks reloads stack definitions from the first existing base directory.
-// If stacks.file is absolute, the absolute path is used directly.
-func (c *Config) ReloadStacks(baseDirs ...string) (string, error) {
+func (c *Config) loadStacks(baseDirs ...string) ([]StackSpec, error) {
 	stacksPath, err := c.resolveStacksPath(baseDirs...)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-
 	stacks, err := loadStacksFromFile(stacksPath)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if errs := validateStacksList(stacks); len(errs) > 0 {
-		return "", errors.Join(errs...)
+		return nil, errors.Join(errs...)
 	}
-
-	c.Spec.Stacks = stacks
-	return stacksPath, nil
+	return stacks, nil
 }
 
-// ReloadNetworks reloads network definitions from the first existing base directory.
-// If networks.file is absolute, the absolute path is used directly.
-func (c *Config) ReloadNetworks(baseDirs ...string) (string, error) {
+func (c *Config) loadNetworks(baseDirs ...string) ([]NetworkSpec, error) {
+	if strings.TrimSpace(c.Spec.NetworksSource.File) == "" {
+		return nil, nil
+	}
 	networksPath, err := c.resolveNetworksPath(baseDirs...)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-
 	networks, err := loadNetworksFromFile(networksPath)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if errs := validateNetworksList(networks); len(errs) > 0 {
-		return "", errors.Join(errs...)
+		return nil, errors.Join(errs...)
 	}
-
-	c.Spec.Networks = networks
-	return networksPath, nil
+	return networks, nil
 }
 
 func (c *Config) resolveStacksPath(baseDirs ...string) (string, error) {
@@ -520,27 +535,42 @@ func loadStacksFromFile(stacksPath string) ([]StackSpec, error) {
 	}
 
 	type stacksContainer struct {
-		Stacks []StackSpec `yaml:"stacks"`
+		Stacks *[]StackSpec `yaml:"stacks"`
 	}
 
-	var container stacksContainer
-	err = yaml.Unmarshal(data, &container)
-	if err != nil {
+	var document yaml.Node
+	if err = yaml.Unmarshal(data, &document); err != nil {
 		return nil, fmt.Errorf("decode stacks file %s: %w", stacksPath, err)
 	}
-	if len(container.Stacks) > 0 {
-		return container.Stacks, nil
+	if len(document.Content) == 0 {
+		return nil, fmt.Errorf("stacks file %s does not contain stacks", stacksPath)
+	}
+
+	root := document.Content[0]
+	if root.Kind == yaml.MappingNode {
+		var container stacksContainer
+		if err = root.Decode(&container); err != nil {
+			return nil, fmt.Errorf("decode stacks file %s: %w", stacksPath, err)
+		}
+		if container.Stacks == nil {
+			return nil, fmt.Errorf("stacks file %s does not contain stacks", stacksPath)
+		}
+		if len(*container.Stacks) == 0 {
+			return nil, nil
+		}
+		return *container.Stacks, nil
+	}
+	if root.Kind != yaml.SequenceNode {
+		return nil, fmt.Errorf("stacks file %s must contain a stacks mapping or list", stacksPath)
 	}
 
 	var list []StackSpec
-	err = yaml.Unmarshal(data, &list)
-	if err != nil {
+	if err = root.Decode(&list); err != nil {
 		return nil, fmt.Errorf("decode stacks list %s: %w", stacksPath, err)
 	}
 	if len(list) == 0 {
-		return nil, fmt.Errorf("stacks file %s does not contain any stacks", stacksPath)
+		return nil, nil
 	}
-
 	return list, nil
 }
 
@@ -550,43 +580,55 @@ func loadNetworksFromFile(networksPath string) ([]NetworkSpec, error) {
 		return nil, fmt.Errorf("read networks file %s: %w", networksPath, err)
 	}
 
-	type networksContainer struct {
-		Networks []NetworkSpec `yaml:"networks"`
-	}
-
-	var container networksContainer
-	err = yaml.Unmarshal(data, &container)
-	if err != nil {
+	var document yaml.Node
+	if err = yaml.Unmarshal(data, &document); err != nil {
 		return nil, fmt.Errorf("decode networks file %s: %w", networksPath, err)
 	}
-	for i := range container.Networks {
-		container.Networks[i].Name = strings.TrimSpace(container.Networks[i].Name)
-		container.Networks[i].Driver = strings.TrimSpace(container.Networks[i].Driver)
-		if container.Networks[i].Driver == "" {
-			container.Networks[i].Driver = defaultManagedNetworkDriver
-		}
-	}
-	if len(container.Networks) > 0 {
-		return container.Networks, nil
+	if len(document.Content) == 0 {
+		return nil, fmt.Errorf("networks file %s does not contain networks", networksPath)
 	}
 
-	var list []NetworkSpec
-	err = yaml.Unmarshal(data, &list)
+	root := document.Content[0]
+	networks, err := decodeNetworks(root, networksPath)
 	if err != nil {
+		return nil, err
+	}
+	if len(networks) == 0 {
+		return nil, nil
+	}
+
+	for i := range networks {
+		networks[i].Name = strings.TrimSpace(networks[i].Name)
+		networks[i].Driver = strings.TrimSpace(networks[i].Driver)
+		if networks[i].Driver == "" {
+			networks[i].Driver = defaultManagedNetworkDriver
+		}
+	}
+	return networks, nil
+}
+
+func decodeNetworks(root *yaml.Node, networksPath string) ([]NetworkSpec, error) {
+	if root.Kind == yaml.MappingNode {
+		var container struct {
+			Networks *[]NetworkSpec `yaml:"networks"`
+		}
+		if err := root.Decode(&container); err != nil {
+			return nil, fmt.Errorf("decode networks file %s: %w", networksPath, err)
+		}
+		if container.Networks == nil {
+			return nil, fmt.Errorf("networks file %s does not contain networks", networksPath)
+		}
+		return *container.Networks, nil
+	}
+	if root.Kind != yaml.SequenceNode {
+		return nil, fmt.Errorf("networks file %s must contain a networks mapping or list", networksPath)
+	}
+
+	var networks []NetworkSpec
+	if err := root.Decode(&networks); err != nil {
 		return nil, fmt.Errorf("decode networks list %s: %w", networksPath, err)
 	}
-	for i := range list {
-		list[i].Name = strings.TrimSpace(list[i].Name)
-		list[i].Driver = strings.TrimSpace(list[i].Driver)
-		if list[i].Driver == "" {
-			list[i].Driver = defaultManagedNetworkDriver
-		}
-	}
-	if len(list) == 0 {
-		return nil, fmt.Errorf("networks file %s does not contain any networks", networksPath)
-	}
-
-	return list, nil
+	return networks, nil
 }
 
 func (c *Config) validate() error {
@@ -643,19 +685,21 @@ func (c *Config) validateRequired() []error {
 }
 
 func (c *Config) validateStacks() []error {
-	if len(c.Spec.Stacks) == 0 {
+	stacks := c.Stacks()
+	if len(stacks) == 0 {
 		return nil
 	}
 
-	return validateStacksList(c.Spec.Stacks)
+	return validateStacksList(stacks)
 }
 
 func (c *Config) validateNetworks() []error {
-	if len(c.Spec.Networks) == 0 {
+	networks := c.Networks()
+	if len(networks) == 0 {
 		return nil
 	}
 
-	return validateNetworksList(c.Spec.Networks)
+	return validateNetworksList(networks)
 }
 
 func validateStacksList(stacks []StackSpec) []error {

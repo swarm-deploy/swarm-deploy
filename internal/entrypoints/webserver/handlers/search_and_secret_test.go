@@ -92,7 +92,7 @@ func TestHandlerSearch_PriorityAndDedupe(t *testing.T) {
 
 	secretsReader := newSecretsStore(t, []secretmodel.Secret{{Name: "api-app-secret"}})
 	h := &handler{
-		stackProvider: newConfigWithStacks([]config.StackSpec{}),
+		stackProvider: newConfigWithStacks(t, []config.StackSpec{}),
 		services:      servicesStore,
 		secrets:       secretsReader,
 	}

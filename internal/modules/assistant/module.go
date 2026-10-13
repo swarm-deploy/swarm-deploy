@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/configstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement"
@@ -31,6 +32,8 @@ type Container interface {
 	GetMetrics() *metrics.Group
 	GetSwarm() *swarm.Swarm
 	GetEventModule() *event.Module
+	// GetConfigStore returns the shared runtime configuration store.
+	GetConfigStore() *configstore.ConfigStore
 	GetResourcesModule() *resources.Module
 	GetGitOpsModule() *gitops.Module
 	GetRecommendationsModule() *recommendations.Module
@@ -72,7 +75,7 @@ func InitModule(_ context.Context, cfg *config.Config, cnt Container) (*Module, 
 		cnt.GetRecommendationsModule().Store,
 		imageVersionResolver,
 		hostingProviders,
-		cfg.Spec.Stacks,
+		cnt.GetConfigStore().Stacks(),
 		cnt.GetMetrics().MCP,
 	)
 

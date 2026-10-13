@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -19,6 +20,7 @@ import (
 type Subscriber struct {
 	mu        sync.Mutex
 	store     modelstore.Store
+	stacks    config.StackProvider
 	publisher interface {
 		Publish(context.Context, events.Event) error
 	}
@@ -31,8 +33,12 @@ type Subscriber struct {
 func NewSubscriber(store modelstore.Store, publisher interface {
 	Publish(context.Context, events.Event) error
 },
-	recipients func(model.AlertKind) []events.AlertRecipient) *Subscriber {
-	return &Subscriber{store: store, publisher: publisher, recipients: recipients, now: time.Now, newID: uuid.NewString}
+	recipients func(model.AlertKind) []events.AlertRecipient,
+	stacks config.StackProvider,
+) *Subscriber {
+	return &Subscriber{
+		store: store, stacks: stacks, publisher: publisher, recipients: recipients, now: time.Now, newID: uuid.NewString,
+	}
 }
 
 // Name returns the subscriber name used in dispatcher logs.
@@ -44,6 +50,8 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 	defer s.mu.Unlock()
 
 	switch deployment := event.Event.(type) {
+	case *events.ConfigurationChanged:
+		return s.handleConfigurationChanged(ctx, event.ID)
 	case *events.NodeDisconnected:
 		return s.handleNode(ctx, event.ID, deployment.NodeID, true)
 	case *events.NodeConnected:
@@ -68,6 +76,47 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 	default:
 		return nil
 	}
+}
+
+func (s *Subscriber) handleConfigurationChanged(ctx context.Context, eventID string) error {
+	// A retained Outbox event may be delivered before Git is checked out on restart.
+	// Returning an error leaves the delivery retryable instead of resolving all
+	// stack alerts against the temporarily empty startup configuration.
+	if readiness, ok := s.stacks.(interface{ Ready() bool }); ok && !readiness.Ready() {
+		return errors.New("desired configuration has not completed its initial reload")
+	}
+
+	desired := make(map[string]struct{})
+	for _, stack := range s.stacks.Stacks() {
+		desired[stack.Name] = struct{}{}
+	}
+	alerts, err := s.store.List(ctx, modelstore.ListFilter{
+		Status:       model.AlertStatusOpen,
+		ResourceType: model.ResourceTypeStack,
+	})
+	if err != nil {
+		return fmt.Errorf("list open stack alerts for configuration reconciliation: %w", err)
+	}
+	now := s.now()
+	for _, alert := range alerts {
+		if _, exists := desired[alert.ResourceID]; exists {
+			continue
+		}
+		alert.Status = model.AlertStatusResolved
+		alert.UpdatedAt = now
+		alert.ResolvedAt = &now
+		alert.Resolution = &model.AlertResolution{
+			Reason: model.ResolutionReasonResourceRemoved, Message: "Stack removed from desired configuration",
+			EventID: eventReferenceID(eventID, s.newID),
+		}
+		if err = s.store.Update(ctx, alert); err != nil {
+			return fmt.Errorf("resolve alert for removed stack %q: %w", alert.ResourceID, err)
+		}
+		if err = s.publishResolved(ctx, alert); err != nil {
+			return fmt.Errorf("publish resolved alert for removed stack %q: %w", alert.ResourceID, err)
+		}
+	}
+	return nil
 }
 
 type failureDetails struct {

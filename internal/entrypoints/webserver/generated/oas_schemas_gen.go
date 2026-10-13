@@ -307,13 +307,15 @@ func (s *AlertResolution) SetEventId(val string) {
 type AlertResolutionReason string
 
 const (
-	AlertResolutionReasonRecovered AlertResolutionReason = "recovered"
+	AlertResolutionReasonRecovered       AlertResolutionReason = "recovered"
+	AlertResolutionReasonResourceRemoved AlertResolutionReason = "resource_removed"
 )
 
 // AllValues returns all AlertResolutionReason values.
 func (AlertResolutionReason) AllValues() []AlertResolutionReason {
 	return []AlertResolutionReason{
 		AlertResolutionReasonRecovered,
+		AlertResolutionReasonResourceRemoved,
 	}
 }
 
@@ -321,6 +323,8 @@ func (AlertResolutionReason) AllValues() []AlertResolutionReason {
 func (s AlertResolutionReason) MarshalText() ([]byte, error) {
 	switch s {
 	case AlertResolutionReasonRecovered:
+		return []byte(s), nil
+	case AlertResolutionReasonResourceRemoved:
 		return []byte(s), nil
 	default:
 		return nil, errors.Errorf("invalid value: %q", s)
@@ -332,6 +336,9 @@ func (s *AlertResolutionReason) UnmarshalText(data []byte) error {
 	switch AlertResolutionReason(data) {
 	case AlertResolutionReasonRecovered:
 		*s = AlertResolutionReasonRecovered
+		return nil
+	case AlertResolutionReasonResourceRemoved:
+		*s = AlertResolutionReasonResourceRemoved
 		return nil
 	default:
 		return errors.Errorf("invalid value: %q", data)

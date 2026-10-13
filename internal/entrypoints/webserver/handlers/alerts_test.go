@@ -24,7 +24,7 @@ func TestAlertsAPIReadsPersistedAlerts(t *testing.T) {
 	resolved.Fingerprint = "resolved"
 	resolved.Status = alertmodel.AlertStatusResolved
 	resolved.ResolvedAt = &resolvedAt
-	resolved.Resolution = &alertmodel.AlertResolution{Reason: alertmodel.ResolutionReasonRecovered, Message: "Deployment completed successfully", EventID: "recovery"}
+	resolved.Resolution = &alertmodel.AlertResolution{Reason: alertmodel.ResolutionReasonResourceRemoved, Message: "Stack removed from desired configuration", EventID: "configuration"}
 	require.NoError(t, store.Create(ctx, open), "persist open alert")
 	require.NoError(t, store.Create(ctx, resolved), "persist resolved alert")
 	h := &handler{alerts: store}
@@ -41,4 +41,5 @@ func TestAlertsAPIReadsPersistedAlerts(t *testing.T) {
 	require.NoError(t, err, "get alert details")
 	assert.Equal(t, "resolved-id", details.ID, "requested alert")
 	assert.True(t, details.Resolution.IsSet(), "resolution should be mapped")
+	assert.Equal(t, generated.AlertResolutionReasonResourceRemoved, details.Resolution.Value.Reason)
 }

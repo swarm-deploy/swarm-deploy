@@ -131,7 +131,7 @@ components:
       properties:
         reason:
           type: string
-          enum: [recovered]
+          enum: [recovered, resource_removed]
         message:
           type: string
         eventId:

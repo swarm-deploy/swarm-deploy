@@ -21,6 +21,8 @@ const (
 	TypeNameAlertOpened           TypeName = "alertOpened"
 	TypeNameAlertResolved         TypeName = "alertResolved"
 	TypeNameDeployFailed          TypeName = "deployFailed"
+	// TypeNameConfigurationChanged is an internal accepted-configuration signal.
+	TypeNameConfigurationChanged TypeName = "configurationChanged"
 	// TypeNameDeployPreparationFailed is an internal durable lifecycle fact, not a configurable event name.
 	TypeNameDeployPreparationFailed TypeName = "deployPreparationFailed"
 	// TypeNameDeployInterrupted is an internal durable lifecycle fact, not a configurable event name.
@@ -99,9 +101,12 @@ var (
 		category: CategorySync,
 		window:   1 * time.Minute,
 	}
-	TypeAlertOpened   = Type{name: TypeNameAlertOpened, severity: SeverityAlert, category: CategorySync}
-	TypeAlertResolved = Type{name: TypeNameAlertResolved, severity: SeverityInfo, category: CategorySync}
-	TypeDeployFailed  = Type{
+	TypeAlertOpened          = Type{name: TypeNameAlertOpened, severity: SeverityAlert, category: CategorySync}
+	TypeAlertResolved        = Type{name: TypeNameAlertResolved, severity: SeverityInfo, category: CategorySync}
+	TypeConfigurationChanged = Type{
+		name: TypeNameConfigurationChanged, severity: SeverityInfo, category: CategorySync,
+	}
+	TypeDeployFailed = Type{
 		name:     TypeNameDeployFailed,
 		severity: SeverityAlert,
 		category: CategorySync,
@@ -270,6 +275,8 @@ func parseStoredType(name string) (Type, bool) {
 		return TypeAlertOpened, true
 	case TypeNameAlertResolved:
 		return TypeAlertResolved, true
+	case TypeNameConfigurationChanged:
+		return TypeConfigurationChanged, true
 	}
 	if typ == TypeNameDeployFailed {
 		return TypeDeployFailed, true
@@ -290,7 +297,7 @@ func (n TypeName) Valid() bool {
 	case TypeNameDeploySuccess:
 		return true
 	case TypeNameDeployFailed, TypeNameDeployPreparationFailed, TypeNameDeployInterrupted,
-		TypeNameAlertOpened, TypeNameAlertResolved:
+		TypeNameAlertOpened, TypeNameAlertResolved, TypeNameConfigurationChanged:
 		return false
 	case TypeNameSendNotificationFailed:
 		return true
@@ -328,7 +335,7 @@ func (n TypeName) Valid() bool {
 // ParseType resolves event type metadata by event name.
 func ParseType(name string) (Type, bool) {
 	switch TypeName(name) {
-	case TypeNameAlertOpened, TypeNameAlertResolved:
+	case TypeNameAlertOpened, TypeNameAlertResolved, TypeNameConfigurationChanged:
 		return Type{}, false
 	case TypeNameServiceCatalogUpdated:
 		return TypeServiceCatalogUpdated, true

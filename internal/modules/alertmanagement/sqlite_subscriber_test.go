@@ -2,11 +2,14 @@ package alertmanagement
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
@@ -15,7 +18,8 @@ import (
 )
 
 func newTestSQLSubscriber(store *modelstore.SQLStore) *SQLSubscriber {
-	return NewSQLSubscriber(store, &dispatcher.NopDispatcher{}, func(model.AlertKind) []events.AlertRecipient { return nil })
+	return NewSQLSubscriber(store, &dispatcher.NopDispatcher{}, func(model.AlertKind) []events.AlertRecipient { return nil },
+		&config.Config{})
 }
 
 func TestSQLSubscriberIdempotenceAndRollback(t *testing.T) {
@@ -104,4 +108,50 @@ func TestPreparationAndInterruptedFailuresShareDeploymentAlertLifecycle(t *testi
 	alerts, err = repo.List(ctx, modelstore.ListFilter{})
 	require.NoError(t, err)
 	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
+}
+
+func TestConfigurationChangedResolvesRemovedStackIdempotently(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.Open(ctx, t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+	repo := modelstore.NewSQLStore(db)
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "stacks.yaml"), []byte(`
+stacks:
+  - name: kept
+    composeFile: kept.yaml
+`), 0o600))
+	cfg := &config.Config{Spec: config.Spec{StacksSource: config.StacksSourceSpec{File: "stacks.yaml"}}}
+	_, err = cfg.Reload(dir)
+	require.NoError(t, err)
+	subscriber := NewSQLSubscriber(repo, &dispatcher.NopDispatcher{},
+		func(model.AlertKind) []events.AlertRecipient { return nil }, cfg)
+	at := time.Now().UTC()
+
+	for index, stack := range []string{"removed", "kept"} {
+		require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+			ID: stack, OccurredAt: at.Add(time.Duration(index) * time.Second),
+			Event: &events.DeployFailed{DeployEvent: events.DeployEvent{StackName: stack}, Error: assert.AnError},
+		}))
+	}
+	configurationChanged := events.Envelope{
+		ID: "configuration", OccurredAt: at.Add(2 * time.Second), Event: &events.ConfigurationChanged{},
+	}
+	for range 2 {
+		require.NoError(t, subscriber.Handle(ctx, configurationChanged))
+	}
+
+	alerts, err := repo.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 2)
+	byResource := map[string]model.Alert{}
+	for _, alert := range alerts {
+		byResource[alert.ResourceID] = alert
+	}
+	assert.Equal(t, model.AlertStatusResolved, byResource["removed"].Status)
+	require.NotNil(t, byResource["removed"].Resolution)
+	assert.Equal(t, model.ResolutionReasonResourceRemoved, byResource["removed"].Resolution.Reason)
+	assert.Equal(t, "configuration", byResource["removed"].Resolution.EventID)
+	assert.Equal(t, model.AlertStatusOpen, byResource["kept"].Status)
 }

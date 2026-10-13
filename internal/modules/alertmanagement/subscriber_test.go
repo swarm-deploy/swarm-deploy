@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
@@ -18,7 +19,8 @@ import (
 )
 
 func newTestSubscriber(store modelstore.Store) *Subscriber {
-	return NewSubscriber(store, &dispatcher.NopDispatcher{}, func(model.AlertKind) []events.AlertRecipient { return nil })
+	return NewSubscriber(store, &dispatcher.NopDispatcher{}, func(model.AlertKind) []events.AlertRecipient { return nil },
+		&config.Config{})
 }
 
 func TestSubscriberDeploymentLifecycle(t *testing.T) {

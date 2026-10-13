@@ -121,7 +121,7 @@ export interface EventHistoryResponse {
 export type AlertStatus = "open" | "resolved";
 
 export interface AlertResolution {
-  reason: "recovered";
+  reason: "recovered" | "resource_removed";
   message: string;
   eventId: string;
 }
