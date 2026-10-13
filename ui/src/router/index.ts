@@ -37,7 +37,7 @@ export const router = createRouter({
     {
       path: "/alerts",
       name: "alerts",
-      redirect: "/events#alerts",
+      redirect: "/events?tab=alerts",
     },
     {
       path: "/events",

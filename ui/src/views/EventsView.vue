@@ -311,7 +311,6 @@ onBeforeUnmount(() => {
 <template>
   <section class="services-page events-page">
     <header class="services-header events-header">
-      <h2>Events</h2>
       <div class="events-filter-bar">
         <div class="events-filter-field">
           <span>Type</span>
