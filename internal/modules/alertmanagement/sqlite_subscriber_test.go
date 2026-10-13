@@ -155,3 +155,43 @@ stacks:
 	assert.Equal(t, "configuration", byResource["removed"].Resolution.EventID)
 	assert.Equal(t, model.AlertStatusOpen, byResource["kept"].Status)
 }
+
+func TestTemporaryFailureCounterSurvivesRestartAndDuplicateDelivery(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	at := time.Now().UTC()
+	eventsBeforeRestart := []events.Envelope{
+		{ID: "temporary-1", OccurredAt: at, Event: &events.DeployFailed{
+			DeployEvent: events.DeployEvent{StackName: "app"}, Error: temporaryError{message: "unavailable"},
+		}},
+		{ID: "temporary-2", OccurredAt: at.Add(time.Second), Event: &events.DeployFailed{
+			DeployEvent: events.DeployEvent{StackName: "app"}, Error: temporaryError{message: "unavailable"},
+		}},
+	}
+
+	db, err := storage.Open(ctx, dir)
+	require.NoError(t, err)
+	subscriber := newTestSQLSubscriber(modelstore.NewSQLStore(db))
+	for _, event := range eventsBeforeRestart {
+		require.NoError(t, subscriber.Handle(ctx, event))
+		require.NoError(t, subscriber.Handle(ctx, event), "duplicate delivery must not increment the counter")
+	}
+	require.NoError(t, db.Close())
+
+	db, err = storage.Open(ctx, dir)
+	require.NoError(t, err)
+	defer db.Close()
+	repo := modelstore.NewSQLStore(db)
+	subscriber = newTestSQLSubscriber(repo)
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+		ID: "temporary-3", OccurredAt: at.Add(2 * time.Second), Event: &events.DeployFailed{
+			DeployEvent: events.DeployEvent{StackName: "app"}, Error: temporaryError{message: "unavailable"},
+		},
+	}))
+
+	alerts, err := repo.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 1)
+	assert.Equal(t, uint64(3), alerts[0].Occurrences)
+	assert.Equal(t, "temporary-3", alerts[0].OpenEventID)
+}

@@ -121,6 +121,56 @@ func TestEmptyStacksReloadPublishesAndResolvesAllStackAlerts(t *testing.T) {
 	assert.Equal(t, model.ResolutionReasonResourceRemoved, alert.Resolution.Reason)
 }
 
+func TestRemovedStackResetsPartialFailureStreakAndIgnoresDelayedFailure(t *testing.T) {
+	dir := writeStackConfiguration(t, "app")
+	emptyDir := writeStackConfiguration(t)
+	cfg := stackConfiguration()
+	db, repo := openAlertStore(t)
+	bus := outbox.New(db)
+	store := configstore.New(cfg, bus)
+	require.NoError(t, store.Reload(t.Context(), dir))
+	subscriber := NewSQLSubscriber(repo, bus, noAlertRecipients, store)
+	at := time.Now().UTC()
+
+	for index := range 2 {
+		require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{
+			ID: fmt.Sprintf("temporary-%d", index), OccurredAt: at.Add(time.Duration(index) * time.Second),
+			Event: &events.DeployFailed{
+				DeployEvent: events.DeployEvent{StackName: "app"},
+				Error:       temporaryError{message: "registry unavailable"},
+			},
+		}))
+	}
+	require.NoError(t, store.Reload(t.Context(), emptyDir))
+	require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{
+		ID: "configuration", OccurredAt: at.Add(3 * time.Second), Event: &events.ConfigurationChanged{},
+	}))
+
+	require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{
+		ID: "delayed", OccurredAt: at.Add(2500 * time.Millisecond),
+		Event: &events.DeployFailed{
+			DeployEvent: events.DeployEvent{StackName: "app"}, Error: assert.AnError,
+		},
+	}))
+	alerts, err := repo.List(t.Context(), modelstore.ListFilter{ResourceID: "app"})
+	require.NoError(t, err)
+	assert.Empty(t, alerts, "a delayed failure must not recreate state for a removed stack")
+
+	require.NoError(t, store.Reload(t.Context(), dir))
+	for index := range 2 {
+		require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{
+			ID: fmt.Sprintf("after-readd-%d", index), OccurredAt: at.Add(time.Duration(index+4) * time.Second),
+			Event: &events.DeployFailed{
+				DeployEvent: events.DeployEvent{StackName: "app"},
+				Error:       temporaryError{message: "registry unavailable"},
+			},
+		}))
+	}
+	alerts, err = repo.List(t.Context(), modelstore.ListFilter{ResourceID: "app"})
+	require.NoError(t, err)
+	assert.Empty(t, alerts, "the removed stack must start a new failure streak when re-added")
+}
+
 func TestConcurrentReloadReadsAndOutboxConfigurationProcessing(t *testing.T) {
 	nonEmptyDir := writeStackConfiguration(t, "app")
 	emptyDir := writeStackConfiguration(t)

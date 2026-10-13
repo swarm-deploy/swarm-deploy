@@ -29,6 +29,8 @@ type Subscriber struct {
 	newID      func() string
 }
 
+const temporaryFailureThreshold = 3
+
 // NewSubscriber creates a deployment alert subscriber.
 func NewSubscriber(store modelstore.Store, publisher interface {
 	Publish(context.Context, events.Event) error
@@ -57,20 +59,21 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 	case *events.NodeConnected:
 		return s.handleNode(ctx, event.ID, deployment.NodeID, false)
 	case *events.DeployFailed:
-		return s.handleFailed(ctx, event.ID, deployment.StackName, "Deployment failed", deployFailureDetails(deployment))
+		return s.handleFailed(ctx, event.ID, deployment.StackName, "Deployment failed",
+			deployFailureDetails(deployment), isTemporary(deployment.Error))
 	case *events.DeployPreparationFailed:
 		return s.handleFailed(ctx, event.ID, deployment.StackName, "Deployment failed", failureDetails{
 			message:       safeFailureMessage(deployment.Error, deployment.ErrorCode, deployment.Stage),
 			hasDiagnostic: hasUsefulDiagnostic(deployment.Error, deployment.ErrorCode),
 			stage:         deployment.Stage, code: deployment.ErrorCode, commit: deployment.Commit,
-		})
+		}, isTemporary(deployment.Error))
 	case *events.DeployInterrupted:
 		return s.handleFailed(ctx, event.ID, deployment.StackName, "Deployment outcome unknown", failureDetails{
 			message:       safeFailureMessage(deployment.Error, deployment.Reason, deployment.Stage),
 			hasDiagnostic: hasUsefulDiagnostic(deployment.Error, deployment.Reason),
 			stage:         deployment.Stage, code: deployment.Reason, deploymentID: deployment.DeploymentID,
 			commit: deployment.Commit,
-		})
+		}, isTemporary(deployment.Error))
 	case *events.DeploySuccess:
 		return s.handleSucceeded(ctx, event.ID, deployment)
 	default:
@@ -87,8 +90,13 @@ func (s *Subscriber) handleConfigurationChanged(ctx context.Context, eventID str
 	}
 
 	desired := make(map[string]struct{})
+	desiredFingerprints := make([]string, 0)
 	for _, stack := range s.stacks.Stacks() {
 		desired[stack.Name] = struct{}{}
+		desiredFingerprints = append(desiredFingerprints, model.DeployFailedFingerprint(stack.Name))
+	}
+	if err := s.store.ResetFailureStreaksExcept(ctx, desiredFingerprints); err != nil {
+		return fmt.Errorf("reset deployment failure streaks for removed stacks: %w", err)
 	}
 	alerts, err := s.store.List(ctx, modelstore.ListFilter{
 		Status:       model.AlertStatusOpen,
@@ -129,9 +137,19 @@ type failureDetails struct {
 }
 
 func (s *Subscriber) handleFailed(
-	ctx context.Context, eventID, stackName, title string, details failureDetails,
+	ctx context.Context, eventID, stackName, title string, details failureDetails, temporary bool,
 ) error {
 	fingerprint := model.DeployFailedFingerprint(stackName)
+	if s.stackRemoved(stackName) {
+		if err := s.store.ResetFailureStreak(ctx, fingerprint); err != nil {
+			return fmt.Errorf("reset deployment failure streak for removed stack: %w", err)
+		}
+		return nil
+	}
+	failures, err := s.store.IncrementFailureStreak(ctx, fingerprint)
+	if err != nil {
+		return fmt.Errorf("increment deployment failure streak: %w", err)
+	}
 	now := s.now()
 	if eventID == "" {
 		eventID = s.newID()
@@ -155,6 +173,9 @@ func (s *Subscriber) handleFailed(
 		}
 		return nil
 	}
+	if temporary && failures < temporaryFailureThreshold {
+		return nil
+	}
 
 	alert = model.Alert{
 		ID: s.newID(), Fingerprint: fingerprint, Kind: model.AlertKindDeployFailed,
@@ -162,7 +183,7 @@ func (s *Subscriber) handleFailed(
 		Status: model.AlertStatusOpen, Title: title, Message: details.message,
 		FailureStage: details.stage, ErrorCode: details.code,
 		DeploymentID: details.deploymentID, Commit: details.commit,
-		Occurrences: 1, OpenedAt: now, UpdatedAt: now, OpenEventID: eventID, LatestEventID: eventID,
+		Occurrences: failures, OpenedAt: now, UpdatedAt: now, OpenEventID: eventID, LatestEventID: eventID,
 	}
 	err = s.store.Create(ctx, alert)
 	if err == nil {
@@ -172,6 +193,19 @@ func (s *Subscriber) handleFailed(
 		return fmt.Errorf("create deployment alert: %w", err)
 	}
 	return s.updateConcurrentFailure(ctx, fingerprint, eventID, now, alert, details.hasDiagnostic, err)
+}
+
+func (s *Subscriber) stackRemoved(stackName string) bool {
+	readiness, ok := s.stacks.(interface{ Ready() bool })
+	if !ok || !readiness.Ready() {
+		return false
+	}
+	for _, stack := range s.stacks.Stacks() {
+		if stack.Name == stackName {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Subscriber) updateConcurrentFailure(
@@ -203,7 +237,11 @@ func (s *Subscriber) updateConcurrentFailure(
 }
 
 func (s *Subscriber) handleSucceeded(ctx context.Context, eventID string, event *events.DeploySuccess) error {
-	alert, err := s.store.FindOpenByFingerprint(ctx, model.DeployFailedFingerprint(event.StackName))
+	fingerprint := model.DeployFailedFingerprint(event.StackName)
+	if err := s.store.ResetFailureStreak(ctx, fingerprint); err != nil {
+		return fmt.Errorf("reset deployment failure streak: %w", err)
+	}
+	alert, err := s.store.FindOpenByFingerprint(ctx, fingerprint)
 	if err != nil {
 		if errors.Is(err, modelstore.ErrAlertNotFound) {
 			return nil
@@ -270,6 +308,11 @@ func deployFailureDetails(event *events.DeployFailed) failureDetails {
 func hasUsefulDiagnostic(err error, code string) bool {
 	diagnostic := faults.SafeDiagnostic(err)
 	return diagnostic != "" && diagnostic != code
+}
+
+func isTemporary(err error) bool {
+	var classified faults.Error
+	return errors.As(err, &classified) && classified.Temporary()
 }
 
 func safeFailureMessage(err error, code, stage string) string {
