@@ -18,6 +18,7 @@ type Category string
 const (
 	TypeNameServiceCatalogUpdated TypeName = "ServiceCatalogUpdated"
 	TypeNameDeploySuccess         TypeName = "DeploySuccess"
+	TypeNameSyncFailed            TypeName = "SyncFailed"
 	TypeNameAlertOpened           TypeName = "AlertOpened"
 	TypeNameAlertResolved         TypeName = "AlertResolved"
 	TypeNameDeployFailed          TypeName = "DeployFailed"
@@ -100,6 +101,11 @@ var (
 		severity: SeverityInfo,
 		category: CategorySync,
 		window:   1 * time.Minute,
+	}
+	TypeSyncFailed = Type{
+		name:     TypeNameSyncFailed,
+		severity: SeverityError,
+		category: CategorySync,
 	}
 	TypeAlertOpened          = Type{name: TypeNameAlertOpened, severity: SeverityAlert, category: CategorySync}
 	TypeAlertResolved        = Type{name: TypeNameAlertResolved, severity: SeverityInfo, category: CategorySync}
@@ -205,6 +211,7 @@ var (
 	Types = []Type{
 		TypeServiceCatalogUpdated,
 		TypeDeploySuccess,
+		TypeSyncFailed,
 		TypeSendNotificationFailed,
 		TypeSyncManualStarted,
 		TypeWebhookReceived,
@@ -296,9 +303,9 @@ func (n TypeName) Valid() bool {
 		return true
 	case TypeNameDeploySuccess:
 		return true
-	case TypeNameDeployFailed:
+	case TypeNameSyncFailed:
 		return true
-	case TypeNameDeployPreparationFailed, TypeNameDeployInterrupted,
+	case TypeNameDeployFailed, TypeNameDeployPreparationFailed, TypeNameDeployInterrupted,
 		TypeNameAlertOpened, TypeNameAlertResolved, TypeNameConfigurationChanged:
 		return false
 	case TypeNameSendNotificationFailed:
@@ -343,6 +350,8 @@ func ParseType(name string) (Type, bool) {
 		return TypeServiceCatalogUpdated, true
 	case TypeNameDeploySuccess:
 		return TypeDeploySuccess, true
+	case TypeNameSyncFailed:
+		return TypeSyncFailed, true
 	case TypeNameDeployFailed, TypeNameDeployPreparationFailed, TypeNameDeployInterrupted:
 		return Type{}, false
 	case TypeNameSendNotificationFailed:

@@ -10,7 +10,7 @@ func StandardTemplate(eventType events.TypeName) (string, bool) {
 	switch eventType {
 	case events.TypeNameDeploySuccess:
 		return eventnotifications.SuccessTemplate(), true
-	case events.TypeNameDeployFailed:
+	case events.TypeNameSyncFailed:
 		return eventnotifications.FailedTemplate(), true
 	case events.TypeNameNodeJoined, events.TypeNameNodeConnected, events.TypeNameNodeDisconnected:
 		return eventnotifications.DefaultTemplate(), true
@@ -26,7 +26,7 @@ func StandardTemplate(eventType events.TypeName) (string, bool) {
 		return eventnotifications.DefaultTemplate(), true
 	case events.TypeNameSendNotificationFailed:
 		return eventnotifications.DefaultTemplate(), true
-	case events.TypeNameDeployPreparationFailed, events.TypeNameDeployInterrupted,
+	case events.TypeNameDeployFailed, events.TypeNameDeployPreparationFailed, events.TypeNameDeployInterrupted,
 		events.TypeNameAlertOpened, events.TypeNameAlertResolved, events.TypeNameConfigurationChanged:
 		return "", false
 	default:
@@ -39,7 +39,7 @@ func ReferencePayloads(eventType events.TypeName) ([]any, bool) {
 	switch eventType {
 	case events.TypeNameDeploySuccess:
 		return []any{eventnotifications.DeploymentSuccessReferencePayload()}, true
-	case events.TypeNameDeployFailed:
+	case events.TypeNameSyncFailed:
 		payloads := eventnotifications.DeploymentFailureReferencePayloads()
 		result := make([]any, 0, len(payloads))
 		for _, payload := range payloads {
@@ -64,7 +64,7 @@ func ReferencePayloads(eventType events.TypeName) ([]any, bool) {
 		return []any{eventnotifications.AssistantReferencePayload()}, true
 	case events.TypeNameSendNotificationFailed:
 		return []any{eventnotifications.ReferencePayload()}, true
-	case events.TypeNameDeployPreparationFailed, events.TypeNameDeployInterrupted,
+	case events.TypeNameDeployFailed, events.TypeNameDeployPreparationFailed, events.TypeNameDeployInterrupted,
 		events.TypeNameAlertOpened, events.TypeNameAlertResolved, events.TypeNameConfigurationChanged:
 		return nil, false
 	default:

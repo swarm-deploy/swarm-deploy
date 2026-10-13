@@ -15,6 +15,9 @@ func encodeInternal(event events.Event) ([]byte, bool, error) {
 	case *events.AlertResolved:
 		payload, err := json.Marshal(alertResolvedPayload{Alert: alertPayloadFrom(e.Alert), Recipients: e.Recipients})
 		return payload, true, err
+	case *events.SyncFailed:
+		payload, err := encodeSyncFailure(e)
+		return payload, true, err
 	default:
 		return nil, false, nil
 	}

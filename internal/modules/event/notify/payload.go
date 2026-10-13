@@ -7,6 +7,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	eventnotifications "github.com/swarm-deploy/swarm-deploy/internal/modules/event/notifications"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
 
 func notificationPayload(envelope events.Envelope) (any, error) {
@@ -17,15 +18,15 @@ func notificationPayload(envelope events.Envelope) (any, error) {
 		return deploymentPayload(eventID, occurredAt, events.TypeNameDeploySuccess, eventnotifications.StatusSuccess,
 			event.DeploymentID, event.StackName, event.Commit, "", "", "", event.Services), nil
 	case *events.DeployFailed:
-		return deploymentPayload(eventID, occurredAt, events.TypeNameDeployFailed, eventnotifications.StatusFailed,
+		return deploymentPayload(eventID, occurredAt, events.TypeNameSyncFailed, eventnotifications.StatusFailed,
 			event.DeploymentID, event.StackName, event.Commit, errorString(event.Error), event.ErrorCode, event.Stage,
 			event.Services), nil
 	case *events.DeployPreparationFailed:
-		return deploymentPayload(eventID, occurredAt, events.TypeNameDeployFailed,
+		return deploymentPayload(eventID, occurredAt, events.TypeNameSyncFailed,
 			eventnotifications.StatusPreparationFailed, "", event.StackName, event.Commit, errorString(event.Error),
 			event.ErrorCode, event.Stage, event.Services), nil
 	case *events.DeployInterrupted:
-		return deploymentPayload(eventID, occurredAt, events.TypeNameDeployFailed, eventnotifications.StatusInterrupted,
+		return deploymentPayload(eventID, occurredAt, events.TypeNameSyncFailed, eventnotifications.StatusInterrupted,
 			event.DeploymentID, event.StackName, event.Commit, errorString(event.Error), event.Reason, event.Stage,
 			event.Services), nil
 	case *events.NodeJoined:
@@ -116,8 +117,5 @@ func servicePayload(
 }
 
 func errorString(err error) string {
-	if err == nil {
-		return ""
-	}
-	return err.Error()
+	return faults.SafeDiagnostic(err)
 }

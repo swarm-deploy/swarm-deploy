@@ -64,6 +64,11 @@ func InitModule(ctx context.Context, cfg *config.Config, cnt Container) (*Module
 	if err = srv.subscribeOnAllEvents("event-history", historyStore); err != nil {
 		return nil, err
 	}
+	for _, typ := range deploymentFailureEventTypes() {
+		if err = srv.Dispatcher.Subscribe(typ, "event-history", historyStore); err != nil {
+			return nil, err
+		}
+	}
 	if err = srv.subscribeOnAllEvents("event-metrics", eventmetrics.NewSubscriber(cnt.GetMetrics().Events)); err != nil {
 		return nil, err
 	}
@@ -174,16 +179,18 @@ func (s *Module) registerCustomNotifications(types []events.TypeName, channels [
 }
 
 func notificationEventTypes(configured events.TypeName) []events.TypeName {
-	if configured == events.TypeNameDeployFailed {
-		// Existing DeployFailed notification configuration also covers failures
-		// before an attempt and interrupted attempts with an unknown outcome.
-		return []events.TypeName{
-			events.TypeNameDeployFailed,
-			events.TypeNameDeployPreparationFailed,
-			events.TypeNameDeployInterrupted,
-		}
+	if configured == events.TypeNameSyncFailed {
+		return deploymentFailureEventTypes()
 	}
 	return []events.TypeName{configured}
+}
+
+func deploymentFailureEventTypes() []events.TypeName {
+	return []events.TypeName{
+		events.TypeNameDeployFailed,
+		events.TypeNameDeployPreparationFailed,
+		events.TypeNameDeployInterrupted,
+	}
 }
 
 func (s *Module) subscribeOnAllEvents(id string, subscriber dispatcher.Subscriber) error {

@@ -13,31 +13,62 @@ import (
 	notificationtemplate "github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/template"
 )
 
-func TestDeploymentNotificationPayload(t *testing.T) {
+func TestDeploymentFailureNotificationPayloadsUseSyncFailedContract(t *testing.T) {
 	occurredAt := time.Date(2026, time.October, 13, 12, 30, 0, 0, time.FixedZone("test", 3*60*60))
-	payload, err := notificationPayload(events.Envelope{ID: "event-1", OccurredAt: occurredAt, Event: &events.DeployFailed{
-		DeployEvent: events.DeployEvent{DeploymentID: "deployment-1", StackName: "payments", Commit: "abc123",
-			Services: []compose.Service{{Name: "api", Image: "registry.example.com/api:v3"}}},
-		Error: errors.New("apply rejected"), ErrorCode: "apply_failed", Stage: "apply",
-	}})
-	require.NoError(t, err)
+	services := []compose.Service{{Name: "api", Image: "registry.example.com/api:v3"}}
+	tests := []struct {
+		name         string
+		event        events.Event
+		status       string
+		deploymentID string
+		errorCode    string
+	}{
+		{name: "deployment failure", status: eventnotifications.StatusFailed, deploymentID: "deployment-1",
+			errorCode: "apply_failed", event: &events.DeployFailed{
+				DeployEvent: events.DeployEvent{DeploymentID: "deployment-1", StackName: "payments", Commit: "abc123",
+					Services: services},
+				Error: errors.New("token=private apply rejected"), ErrorCode: "apply_failed", Stage: "apply",
+			}},
+		{name: "preparation failure", status: eventnotifications.StatusPreparationFailed,
+			errorCode: "preparation_failed", event: &events.DeployPreparationFailed{
+				StackName: "payments", Commit: "abc123", Services: services,
+				Error: errors.New("token=private validation failed"), ErrorCode: "preparation_failed", Stage: "validation",
+			}},
+		{name: "interrupted deployment", status: eventnotifications.StatusInterrupted, deploymentID: "deployment-2",
+			errorCode: "process_interrupted", event: &events.DeployInterrupted{
+				DeploymentID: "deployment-2", StackName: "payments", Commit: "abc123", Services: services,
+				Error: errors.New("token=private process stopped"), Reason: "process_interrupted", Stage: "apply",
+			}},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			payload, err := notificationPayload(events.Envelope{
+				ID: "event-1", OccurredAt: occurredAt, Event: testCase.event,
+			})
+			require.NoError(t, err)
+			actual, ok := payload.(eventnotifications.DeploymentPayload)
+			require.True(t, ok)
+			assert.Equal(t, "event-1", actual.ID)
+			assert.Equal(t, testCase.status, actual.Status)
+			assert.Equal(t, string(events.TypeNameSyncFailed), actual.Type)
+			assert.Equal(t, testCase.deploymentID, actual.DeploymentID)
+			assert.Equal(t, testCase.errorCode, actual.ErrorCode)
+			assert.Equal(t, "payments", actual.StackName)
+			assert.Equal(t, []eventnotifications.DeploymentService{{Name: "api", Image: "registry.example.com/api:v3"}}, actual.Services)
+			assert.Contains(t, actual.Error, "token=****")
+			assert.NotContains(t, actual.Error, "private")
+			assert.Equal(t, occurredAt.UTC(), actual.OccurredAt)
 
-	actual, ok := payload.(eventnotifications.DeploymentPayload)
-	require.True(t, ok)
-	assert.Equal(t, "event-1", actual.ID)
-	assert.Equal(t, eventnotifications.StatusFailed, actual.Status)
-	assert.Equal(t, "payments", actual.StackName)
-	assert.Equal(t, []eventnotifications.DeploymentService{{Name: "api", Image: "registry.example.com/api:v3"}}, actual.Services)
-	assert.Equal(t, "apply rejected", actual.Error)
-	assert.Equal(t, occurredAt.UTC(), actual.OccurredAt)
+			template, ok := StandardTemplate(events.TypeNameSyncFailed)
+			require.True(t, ok)
+			require.NoError(t, notificationtemplate.Validate(template, actual))
+		})
+	}
 }
 
 func TestEveryConfigurableEventHasTemplateContract(t *testing.T) {
-	eventTypes := []events.TypeName{events.TypeNameDeployFailed}
 	for _, eventType := range events.Types {
-		eventTypes = append(eventTypes, eventType.Name())
-	}
-	for _, eventType := range eventTypes {
+		eventType := eventType.Name()
 		t.Run(string(eventType), func(t *testing.T) {
 			source, ok := StandardTemplate(eventType)
 			require.True(t, ok)
