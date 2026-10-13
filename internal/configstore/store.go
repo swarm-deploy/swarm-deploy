@@ -39,6 +39,10 @@ func (s *ConfigStore) Reload(ctx context.Context, baseDirs ...string) error {
 	return nil
 }
 
+// Ready reports whether the first complete desired-configuration reload succeeded.
+// Preloaded startup files alone do not make the store ready.
+func (s *ConfigStore) Ready() bool { return s.initialReloadDone.Load() }
+
 // Stacks returns an isolated copy of the currently accepted stacks.
 func (s *ConfigStore) Stacks() []config.StackSpec { return s.cfg.Stacks() }
 
