@@ -49,9 +49,12 @@ func TestReloadWaitsForSuccessfulInitialConfigurationBeforePublishing(t *testing
 	eventsDispatcher.EXPECT().Publish(gomock.Any(), gomock.Any()).Return(nil).Times(1)
 	store := New(cfg, eventsDispatcher)
 
+	assert.False(t, store.Ready())
 	require.Error(t, store.Reload(t.Context(), dir))
+	assert.False(t, store.Ready())
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "stacks.yaml"), []byte("stacks: []\n"), 0o600))
 	require.NoError(t, store.Reload(t.Context(), dir))
+	assert.True(t, store.Ready())
 }
 
 func TestReloadDoesNotHoldConfigurationLockDuringPublication(t *testing.T) {
