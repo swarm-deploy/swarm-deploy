@@ -599,7 +599,7 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
             <h3 id="eventsTitle">Доступные события</h3>
             <ul class="mini-list">
               <li id="eventsItemDeploySuccess"><code>DeploySuccess</code>: успешный деплой стэка.</li>
-              <li id="eventsItemDeployFailed"><code>DeployFailed</code>: ошибка деплоя стэка.</li>
+              <li id="eventsItemSyncFailed"><code>SyncFailed</code>: ошибка деплоя стэка.</li>
               <li id="eventsItemSyncManualStarted"><code>SyncManualStarted</code>: пользователь запустил ручной sync.</li>
               <li id="eventsItemNodeJoined"><code>NodeJoined</code>: новая swarm-нода добавлена в кластер.</li>
               <li id="eventsItemNodeConnected"><code>NodeConnected</code>: swarm-нода перешла в статус ready.</li>
@@ -708,8 +708,8 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
                   DeploySuccess
                 </label>
                 <label>
-                  <input type="checkbox" name="events" value="DeployFailed" checked />
-                  DeployFailed
+                  <input type="checkbox" name="events" value="SyncFailed" checked />
+                  SyncFailed
                 </label>
                 <label>
                   <input type="checkbox" name="events" value="SyncManualStarted" />
@@ -846,7 +846,7 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
           methodsItem2: "<code>custom</code>: webhook URL, HTTP method, headers.",
           eventsTitle: "Доступные события",
           eventsItemDeploySuccess: "<code>DeploySuccess</code>: успешный деплой стэка.",
-          eventsItemDeployFailed: "<code>DeployFailed</code>: ошибка деплоя стэка.",
+          eventsItemSyncFailed: "<code>SyncFailed</code>: ошибка деплоя стэка.",
           eventsItemSyncManualStarted:
             "<code>SyncManualStarted</code>: пользователь запустил ручной sync.",
           eventsItemNodeJoined:
@@ -907,53 +907,53 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
           templates: {
             DeploySuccess: [
               "деплой успешен",
-              "stack: {{.event.stack_name}}",
-              "{{ range .event.services }}service: {{.name}} | image: {{.image}}{{ end }}",
-              "commit: {{.event.commit}}",
+              "stack: {{ .StackName }}",
+              "{{ range .Services }}service: {{ .Name }} | image: {{ .Image }}{{ end }}",
+              "commit: {{ .Commit }}",
             ],
-            DeployFailed: [
+            SyncFailed: [
               "деплой завершился ошибкой",
-              "stack: {{.event.stack_name}}",
-              "{{ range .event.services }}service: {{.name}} | image: {{.image}}{{ end }}",
-              "error: {{.event.error}}",
+              "stack: {{ .StackName }}",
+              "{{ range .Services }}service: {{ .Name }} | image: {{ .Image }}{{ end }}",
+              "error: {{ .Error }}",
             ],
             SyncManualStarted: ["ручной sync запущен"],
             NodeJoined: [
               "swarm-нода добавлена в кластер",
-              "node: {{.event.node_name}}",
-              "node_id: {{.event.node_id}}",
-              "role: {{.event.role}}",
+              "node: {{ .NodeName }}",
+              "node_id: {{ .NodeID }}",
+              "role: {{ .Role }}",
             ],
             NodeConnected: [
               "swarm-нода подключена",
-              "node: {{.event.node_name}}",
-              "node_id: {{.event.node_id}}",
-              "status: {{.event.status}}",
+              "node: {{ .NodeName }}",
+              "node_id: {{ .NodeID }}",
+              "status: {{ .Status }}",
             ],
             NodeDisconnected: [
               "swarm-нода отключена",
-              "node: {{.event.node_name}}",
-              "node_id: {{.event.node_id}}",
-              "status: {{.event.status}}",
+              "node: {{ .NodeName }}",
+              "node_id: {{ .NodeID }}",
+              "status: {{ .Status }}",
             ],
             ServiceMissed: [
               "сервис отсутствует в swarm",
-              "stack: {{.event.stack_name}}",
-              "service: {{.event.service_name}}",
-              "commit: {{.event.commit}}",
+              "stack: {{ .StackName }}",
+              "service: {{ .ServiceName }}",
+              "commit: {{ .Commit }}",
             ],
-            UserAuthenticated: ["пользователь авторизован", "username: {{.event.username}}"],
+            UserAuthenticated: ["пользователь авторизован", "username: {{ .Username }}"],
             SendNotificationFailed: [
               "ошибка отправки нотификации",
-              "destination: {{.event.destination}}",
-              "channel: {{.event.channel}}",
-              "event_type: {{.event.event_type}}",
-              "error: {{.event.error}}",
+              "destination: {{ .Destination }}",
+              "channel: {{ .Channel }}",
+              "event_type: {{ .EventType }}",
+              "error: {{ .Error }}",
             ],
             AssistantPromptInjectionDetected: [
               "обнаружена prompt injection атака",
-              "detector: {{.event.detector}}",
-              "username: {{.event.username}}",
+              "detector: {{ .Detector }}",
+              "username: {{ .Username }}",
             ],
           },
         },
@@ -1018,7 +1018,7 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
           methodsItem2: "<code>custom</code>: webhook URL, HTTP method, headers.",
           eventsTitle: "Available events",
           eventsItemDeploySuccess: "<code>DeploySuccess</code>: stack deployment succeeded.",
-          eventsItemDeployFailed: "<code>DeployFailed</code>: stack deployment failed.",
+          eventsItemSyncFailed: "<code>SyncFailed</code>: stack deployment failed.",
           eventsItemSyncManualStarted:
             "<code>SyncManualStarted</code>: a user started manual sync.",
           eventsItemNodeJoined:
@@ -1079,53 +1079,53 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
           templates: {
             DeploySuccess: [
               "deploy succeeded",
-              "stack: {{.event.stack_name}}",
-              "{{ range .event.services }}service: {{.name}} | image: {{.image}}{{ end }}",
-              "commit: {{.event.commit}}",
+              "stack: {{ .StackName }}",
+              "{{ range .Services }}service: {{ .Name }} | image: {{ .Image }}{{ end }}",
+              "commit: {{ .Commit }}",
             ],
-            DeployFailed: [
+            SyncFailed: [
               "deploy failed",
-              "stack: {{.event.stack_name}}",
-              "{{ range .event.services }}service: {{.name}} | image: {{.image}}{{ end }}",
-              "error: {{.event.error}}",
+              "stack: {{ .StackName }}",
+              "{{ range .Services }}service: {{ .Name }} | image: {{ .Image }}{{ end }}",
+              "error: {{ .Error }}",
             ],
             SyncManualStarted: ["manual sync started"],
             NodeJoined: [
               "swarm node joined the cluster",
-              "node: {{.event.node_name}}",
-              "node_id: {{.event.node_id}}",
-              "role: {{.event.role}}",
+              "node: {{ .NodeName }}",
+              "node_id: {{ .NodeID }}",
+              "role: {{ .Role }}",
             ],
             NodeConnected: [
               "swarm node connected",
-              "node: {{.event.node_name}}",
-              "node_id: {{.event.node_id}}",
-              "status: {{.event.status}}",
+              "node: {{ .NodeName }}",
+              "node_id: {{ .NodeID }}",
+              "status: {{ .Status }}",
             ],
             NodeDisconnected: [
               "swarm node disconnected",
-              "node: {{.event.node_name}}",
-              "node_id: {{.event.node_id}}",
-              "status: {{.event.status}}",
+              "node: {{ .NodeName }}",
+              "node_id: {{ .NodeID }}",
+              "status: {{ .Status }}",
             ],
             ServiceMissed: [
               "service is missing in swarm",
-              "stack: {{.event.stack_name}}",
-              "service: {{.event.service_name}}",
-              "commit: {{.event.commit}}",
+              "stack: {{ .StackName }}",
+              "service: {{ .ServiceName }}",
+              "commit: {{ .Commit }}",
             ],
-            UserAuthenticated: ["user authenticated", "username: {{.event.username}}"],
+            UserAuthenticated: ["user authenticated", "username: {{ .Username }}"],
             SendNotificationFailed: [
               "notification failed",
-              "destination: {{.event.destination}}",
-              "channel: {{.event.channel}}",
-              "event_type: {{.event.event_type}}",
-              "error: {{.event.error}}",
+              "destination: {{ .Destination }}",
+              "channel: {{ .Channel }}",
+              "event_type: {{ .EventType }}",
+              "error: {{ .Error }}",
             ],
             AssistantPromptInjectionDetected: [
               "assistant prompt injection detected",
-              "detector: {{.event.detector}}",
-              "username: {{.event.username}}",
+              "detector: {{ .Detector }}",
+              "username: {{ .Username }}",
             ],
           },
         },
@@ -1246,7 +1246,7 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
         setHTML("methodsItem2", "methodsItem2");
         setText("eventsTitle", "eventsTitle");
         setHTML("eventsItemDeploySuccess", "eventsItemDeploySuccess");
-        setHTML("eventsItemDeployFailed", "eventsItemDeployFailed");
+        setHTML("eventsItemSyncFailed", "eventsItemSyncFailed");
         setHTML("eventsItemSyncManualStarted", "eventsItemSyncManualStarted");
         setHTML("eventsItemNodeJoined", "eventsItemNodeJoined");
         setHTML("eventsItemNodeConnected", "eventsItemNodeConnected");
@@ -1519,7 +1519,7 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
           const events = selectedEvents();
           const telegramEnabled = document.getElementById("methodTelegram").checked;
           const customEnabled = document.getElementById("methodCustom").checked;
-          const tgName = document.getElementById("telegramName").value.trim() || "ops-telegram";
+
           const tgBotTokenPath = document.getElementById("telegramBotTokenPath").value.trim();
           const tgChatId = document.getElementById("telegramChatId").value.trim();
           const tgThread = document.getElementById("telegramChatThreadId").value.trim();
@@ -1532,19 +1532,25 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
 
           lines.push("");
           lines.push("notifications:");
-          lines.push("  on:");
+          if (telegramEnabled) {
+            lines.push("  messengers:");
+            lines.push("    telegram:");
+            lines.push(`      botTokenPath: ${yamlString(tgBotTokenPath)}`);
+            lines.push("      chats:");
+            lines.push("        default:");
+            lines.push(`          id: ${yamlString(tgChatId)}`);
+            if (tgThread) {
+              lines.push(`          threadId: ${Number(tgThread)}`);
+            }
+          }
+          lines.push("  events:");
 
           events.forEach((eventName) => {
             lines.push(`    ${eventName}:`);
 
             if (telegramEnabled) {
               lines.push("      telegram:");
-              lines.push(`        - name: ${yamlString(`${tgName}-${eventName}`)}`);
-              lines.push(`          botTokenPath: ${yamlString(tgBotTokenPath)}`);
-              lines.push(`          chatId: ${yamlString(tgChatId)}`);
-              if (tgThread) {
-                lines.push(`          chatThreadId: ${Number(tgThread)}`);
-              }
+              lines.push("        - chats: default");
               lines.push("          message: |");
               templateForEvent(eventName).forEach((line) => {
                 lines.push(`            ${line}`);
