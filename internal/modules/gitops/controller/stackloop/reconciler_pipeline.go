@@ -200,6 +200,13 @@ func (r *Reconciler) writeRenderedCompose(_ context.Context, payload *pipelinePa
 	return nil
 }
 
+func (r *Reconciler) cleanupRenderedComposeFiles(ctx context.Context) {
+	renderedDir := filepath.Join(r.cfg.Spec.DataDir, "rendered")
+	if err := os.RemoveAll(renderedDir); err != nil {
+		slog.WarnContext(ctx, "failed to clean up rendered compose files", "path", renderedDir, "err", err)
+	}
+}
+
 func (r *Reconciler) deployStack(ctx context.Context, payload *pipelinePayload) error {
 	return r.deployer.DeployStack(
 		ctx,

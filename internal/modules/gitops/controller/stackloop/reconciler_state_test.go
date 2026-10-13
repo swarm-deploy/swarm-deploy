@@ -79,6 +79,8 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 	})
 
 	require.NoError(t, err, "reconcile")
+	assert.NoFileExists(t, filepath.Join(repoDir, ".data", "rendered", "app.yaml"),
+		"rendered compose must be removed after successful reconciliation")
 	state := readSQLState(t, stateStore)
 	stackState, exists := state.Stacks["app"]
 	require.True(t, exists, "expected stack state")
@@ -138,6 +140,8 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 
 	require.Error(t, err, "expected reconcile error")
 	assert.ErrorIs(t, err, errDeployFailed, "unexpected error")
+	assert.NoFileExists(t, filepath.Join(repoDir, ".data", "rendered", "app.yaml"),
+		"rendered compose must be removed after failed deployment")
 	state := readSQLState(t, stateStore)
 	stackState, exists := state.Stacks["app"]
 	require.True(t, exists, "expected stack state")
@@ -457,8 +461,15 @@ configs:
 	require.NotEqual(t, oldStackFile.Digest, newStackFile.Digest, "expected config content to change digest")
 
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+	var renderedCompose *compose.Compose
 	stackDeployer.EXPECT().
 		DeployStack(gomock.Any(), "app", composePath, renderedPath, gomock.Any()).
+		Do(func(_ context.Context, _, _, deployComposePath string, _ compose.Compose) {
+			renderedRaw, readErr := os.ReadFile(deployComposePath)
+			require.NoError(t, readErr, "read rendered compose during deploy")
+			renderedCompose, readErr = compose.Parse(renderedRaw)
+			require.NoError(t, readErr, "parse rendered compose during deploy")
+		}).
 		Return(nil)
 	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
 
@@ -495,12 +506,8 @@ configs:
 	})
 
 	require.NoError(t, reconcileErr, "reconcile")
-
-	renderedRaw, err := os.ReadFile(renderedPath)
-	require.NoError(t, err, "read rendered compose")
-
-	renderedCompose, err := compose.Parse(renderedRaw)
-	require.NoError(t, err, "parse rendered compose")
+	require.NotNil(t, renderedCompose, "expected rendered compose during deploy")
+	assert.NoFileExists(t, renderedPath, "rendered compose must be removed after reconciliation")
 
 	expectedConfigName := NewRotator().buildRotatedObjectName(
 		"app",
@@ -558,8 +565,15 @@ secrets:
 	require.NoError(t, os.WriteFile(absSecretPath, []byte("absolute secret\n"), 0o600), "write absolute secret")
 
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+	var renderedCompose *compose.Compose
 	stackDeployer.EXPECT().
 		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, "deploy", "docker-compose.yaml"), renderedPath, gomock.Any()).
+		Do(func(_ context.Context, _, _, deployComposePath string, _ compose.Compose) {
+			renderedRaw, readErr := os.ReadFile(deployComposePath)
+			require.NoError(t, readErr, "read rendered compose during deploy")
+			renderedCompose, readErr = compose.Parse(renderedRaw)
+			require.NoError(t, readErr, "parse rendered compose during deploy")
+		}).
 		Return(nil)
 	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
 
@@ -592,12 +606,8 @@ secrets:
 	})
 
 	require.NoError(t, reconcileErr, "reconcile")
-
-	renderedRaw, err := os.ReadFile(renderedPath)
-	require.NoError(t, err, "read rendered compose")
-
-	renderedCompose, err := compose.Parse(renderedRaw)
-	require.NoError(t, err, "parse rendered compose")
+	require.NotNil(t, renderedCompose, "expected rendered compose during deploy")
+	assert.NoFileExists(t, renderedPath, "rendered compose must be removed after reconciliation")
 
 	assert.Equal(
 		t,
@@ -649,8 +659,15 @@ services:
 `), 0o600), "write compose")
 
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+	var renderedCompose *compose.Compose
 	stackDeployer.EXPECT().
 		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, "deploy", "compose.yaml"), renderedPath, gomock.Any()).
+		Do(func(_ context.Context, _, _, deployComposePath string, _ compose.Compose) {
+			renderedRaw, readErr := os.ReadFile(deployComposePath)
+			require.NoError(t, readErr, "read rendered compose during deploy")
+			renderedCompose, readErr = compose.Parse(renderedRaw)
+			require.NoError(t, readErr, "parse rendered compose during deploy")
+		}).
 		Return(nil)
 	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
 
@@ -686,12 +703,8 @@ services:
 		Commit: "commit-env-1",
 	})
 	require.NoError(t, reconcileErr, "reconcile")
-
-	renderedRaw, err := os.ReadFile(renderedPath)
-	require.NoError(t, err, "read rendered compose")
-
-	renderedCompose, err := compose.Parse(renderedRaw)
-	require.NoError(t, err, "parse rendered compose")
+	require.NotNil(t, renderedCompose, "expected rendered compose during deploy")
+	assert.NoFileExists(t, renderedPath, "rendered compose must be removed after reconciliation")
 	require.Len(t, renderedCompose.Services, 1, "expected one service")
 
 	service := renderedCompose.Services[0]
@@ -722,8 +735,15 @@ services:
 `, labelsdict.ServiceManagedLabelKey, labelsdict.ServiceManagedLabelValue)), 0o600), "write compose")
 
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+	var renderedCompose *compose.Compose
 	stackDeployer.EXPECT().
 		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, "app.yaml"), renderedPath, gomock.Any()).
+		Do(func(_ context.Context, _, _, deployComposePath string, _ compose.Compose) {
+			renderedRaw, readErr := os.ReadFile(deployComposePath)
+			require.NoError(t, readErr, "read rendered compose during deploy")
+			renderedCompose, readErr = compose.Parse(renderedRaw)
+			require.NoError(t, readErr, "parse rendered compose during deploy")
+		}).
 		Return(nil)
 	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
 
@@ -759,12 +779,8 @@ services:
 	})
 
 	require.NoError(t, reconcileErr, "reconcile")
-
-	renderedRaw, err := os.ReadFile(renderedPath)
-	require.NoError(t, err, "read rendered compose")
-
-	renderedCompose, err := compose.Parse(renderedRaw)
-	require.NoError(t, err, "parse rendered compose")
+	require.NotNil(t, renderedCompose, "expected rendered compose during deploy")
+	assert.NoFileExists(t, renderedPath, "rendered compose must be removed after reconciliation")
 	require.Len(t, renderedCompose.Services, 1, "expected one service")
 
 	service := renderedCompose.Services[0]

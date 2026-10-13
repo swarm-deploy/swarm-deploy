@@ -98,6 +98,7 @@ func New(
 		cfg.Spec.SecretRotation.Cleanup,
 	)
 
+	reconciler.cleanupRenderedComposeFiles(context.Background())
 	reconciler.attachPipeline()
 
 	return reconciler
@@ -144,6 +145,7 @@ func (r *Reconciler) Reconcile(
 ) error {
 	r.reconcileMu.Lock()
 	defer r.reconcileMu.Unlock()
+	defer r.cleanupRenderedComposeFiles(ctx)
 
 	if err := r.recoverPending(ctx, req.Stack.Name); err != nil {
 		return fmt.Errorf("recover deployment result: %w", err)
@@ -176,7 +178,6 @@ func (r *Reconciler) Reconcile(
 		pipeErr, _ := errors.AsType[*pipe.StepError](err)
 
 		return r.recordPipelineFailure(ctx, req, prev, pl, pipeErr)
-
 	}
 
 	if err = r.processResult(ctx, req, prev, desiredState, pl); err != nil {
