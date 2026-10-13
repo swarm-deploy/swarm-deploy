@@ -128,7 +128,9 @@ func (s *Subscriber) opened(ctx context.Context, alert events.AlertSnapshot) err
 	if err != nil {
 		return err
 	}
-	if link.OpenedAt.Valid {
+	// A terminal opening delivery can be replayed after resolution was sent.
+	// Never reopen a notification that has already completed its lifecycle.
+	if link.OpenedAt.Valid || link.ResolvedAt.Valid {
 		return nil
 	}
 	rule := s.rule(alert.Kind)
