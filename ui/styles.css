@@ -2569,6 +2569,7 @@ a.overview-summary-row:focus-visible {
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 12px;
+  padding-right: 50px;
 }
 
 .modal-header h2 {
@@ -2577,7 +2578,35 @@ a.overview-summary-row:focus-visible {
 }
 
 .modal-close {
-  padding: 6px 10px;
+  position: absolute;
+  z-index: 2;
+  top: 12px;
+  right: 12px;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  background: var(--surface-control-strong);
+  color: var(--text);
+  padding: 0;
+}
+
+.modal-close svg {
+  width: 20px;
+  height: 20px;
+}
+
+.modal-close:hover {
+  transform: none;
+  background: var(--surface-hover-strong);
+  filter: none;
+}
+
+.modal-close:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .modal-body {

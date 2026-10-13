@@ -196,6 +196,12 @@ function value(raw: string | null | undefined, redacted: boolean): string {
   if (raw === "") return '"" (empty)';
   return raw;
 }
+function hasLongValue(change: DeploymentChange): boolean {
+  return [change.before, change.after].some((item) => {
+    const displayValue = value(item, change.redacted);
+    return displayValue.length > 48 || displayValue.includes("\n");
+  });
+}
 function focusableElements(): HTMLElement[] {
   return dialog.value ? [...dialog.value.querySelectorAll<HTMLElement>(focusableSelector)] : [];
 }
@@ -246,8 +252,8 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
   >
     <div class="modal-overlay" @click="close" />
     <div ref="dialog" class="modal-card deployment-modal" role="dialog" aria-modal="true" aria-labelledby="deployment-details-title" tabindex="-1">
-      <button ref="closeButton" class="modal-close deployment-modal-close" type="button" aria-label="Close deployment details" @click="close">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
+      <button ref="closeButton" class="modal-close" type="button" aria-label="Close deployment details" @click="close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
       </button>
       <div class="modal-body deployment-modal-body">
         <header class="deployment-modal-header">
@@ -270,13 +276,14 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
             <div class="deployment-metadata-item"><dt><DeploymentIcon name="config" />Stage</dt><dd>{{ detail.phase }}</dd></div>
           </dl>
         </header>
-        <p v-if="store.deploymentDetailsLoading" role="status" class="meta">Loading deployment details...</p>
-        <div v-else-if="store.deploymentDetailsError" role="alert" class="deployment-state-message">
-          <p>Could not load deployment details: {{ store.deploymentDetailsError }}</p>
-          <button type="button" @click="store.openDeploymentDetailsModal(store.deploymentDetailsID)">Retry</button>
-        </div>
-        <p v-else-if="!detail" class="meta">Deployment details are unavailable.</p>
-        <template v-else>
+        <main class="deployment-modal-content">
+          <p v-if="store.deploymentDetailsLoading" role="status" class="meta">Loading deployment details...</p>
+          <div v-else-if="store.deploymentDetailsError" role="alert" class="deployment-state-message">
+            <p>Could not load deployment details: {{ store.deploymentDetailsError }}</p>
+            <button type="button" @click="store.openDeploymentDetailsModal(store.deploymentDetailsID)">Retry</button>
+          </div>
+          <p v-else-if="!detail" class="meta">Deployment details are unavailable.</p>
+          <template v-else>
           <section class="deployment-outcome" :class="`deployment-outcome--${detail.status}`" aria-labelledby="deployment-outcome-title">
             <span class="deployment-outcome-icon"><DeploymentIcon :name="statusIcon" /></span>
             <div>
@@ -336,13 +343,18 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
               <p class="meta">{{ comparison }}</p>
             </template>
             <template v-else>
-              <div class="deployment-changes-heading"><div><h3>Desired-state changes</h3><p class="deployment-note">{{ comparison }} These entries do not confirm runtime convergence.</p></div><span>{{ total }} fields</span></div>
+              <div class="deployment-changes-heading"><div><h3>Desired-state changes</h3><p class="deployment-note">{{ comparison }} These entries do not confirm runtime convergence.</p></div><span>{{ pluralize(total, "field") }}</span></div>
               <p class="meta">{{ detail.summary.added }} added · {{ detail.summary.changed }} changed · {{ detail.summary.removed }} removed<template v-if="detail.summary.redacted"> · {{ detail.summary.redacted }} masked</template></p>
               <details v-for="group in groups" :key="`${group.type}/${group.name}`" class="deployment-resource" open>
                 <summary><span><svg class="deployment-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg><DeploymentIcon :name="resourceIcon(group.type)" /><span><span class="deployment-resource-type">{{ group.type }}</span><strong>{{ group.name }}</strong></span></span><span class="deployment-resource-operation" :class="`deployment-resource-operation--${group.operation}`">{{ group.operation }}</span></summary>
                 <section v-for="section in group.sections" :key="section.name" class="deployment-change-section">
                   <h4>{{ sectionLabel(section.name) }}</h4>
-                  <div v-for="(change, index) in section.changes" :key="`${change.field}-${index}`" class="deployment-change">
+                  <div
+                    v-for="(change, index) in section.changes"
+                    :key="`${change.field}-${index}`"
+                    class="deployment-change"
+                    :class="{ 'deployment-change--long': hasLongValue(change) }"
+                  >
                     <strong class="deployment-field">{{ fieldLabel(change, section.name) }}</strong>
                     <div class="deployment-diff-values">
                       <div v-if="change.operation !== 'added'" class="deployment-diff-line deployment-diff-line--before"><span aria-hidden="true">−</span><code>{{ value(change.before, change.redacted) }}</code></div>
@@ -359,7 +371,8 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
             <p v-if="!configuration" class="meta">Recorded configuration is unavailable.</p>
             <div v-else class="deployment-yaml manifest-code shj-lang-yaml shj-block" aria-label="Recorded desired configuration YAML" v-html="configurationHtml" />
           </section>
-        </template>
+          </template>
+        </main>
       </div>
       <footer v-if="detail && !store.deploymentDetailsLoading && !store.deploymentDetailsError" class="deployment-modal-footer">
         <button type="button" class="button-ghost" @click="close">Close</button>
@@ -370,11 +383,11 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
 
 <style scoped>
 .deployment-modal {
-  width: min(1450px, calc(100vw - 48px));
-  max-width: calc(100vw - 48px);
+  width: min(1440px, calc(100vw - 64px));
+  max-width: calc(100vw - 64px);
   min-width: 0;
-  max-height: 90dvh;
-  margin: 5dvh auto;
+  max-height: min(85dvh, calc(100dvh - 64px));
+  margin: max(32px, 7.5dvh) auto;
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
   overflow: hidden;
@@ -385,26 +398,10 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
   box-shadow: 0 24px 80px rgba(0, 0, 0, .48);
 }
 :global(:root[data-theme="light"]) .deployment-modal { background: #fff; }
-.deployment-modal-close {
-  position: absolute;
-  z-index: 2;
-  top: 12px;
-  right: 12px;
-  width: 42px;
-  height: 42px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--border-subtle);
-  border-radius: 9px;
-  background: var(--surface-control-strong);
-  color: var(--text);
-  padding: 0;
-}
-.deployment-modal-close svg { width: 20px; height: 20px; }
-.deployment-modal-close:hover { transform: none; background: var(--surface-hover-strong); filter: none; }
-.deployment-modal-body { min-width: 0; min-height: 0; display: block; overflow: auto; padding: 22px 28px 14px; }
+.deployment-modal-body { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; }
+.deployment-modal-content { min-width: 0; min-height: 0; overflow: auto; padding: 18px 24px 12px; }
 .deployment-state-message { padding: 32px 0; }
-.deployment-modal-header { padding-right: 42px; }
+.deployment-modal-header { padding: 18px 66px 16px 24px; border-bottom: 1px solid var(--line); }
 .deployment-heading-row { min-width: 0; display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
 .deployment-title { min-width: 0; }
 .deployment-title h2 { margin: 6px 0 0; font-size: 1.55rem; line-height: 1.2; overflow-wrap: anywhere; }
@@ -433,7 +430,7 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
 .deployment-metadata {
   display: grid;
   grid-template-columns: minmax(140px, 1fr) minmax(130px, .9fr) minmax(190px, 1.35fr) minmax(190px, 1.35fr) minmax(120px, .75fr) minmax(130px, .8fr);
-  margin: 26px 0 0;
+  margin: 18px 0 0;
 }
 .deployment-metadata-item { min-width: 0; position: relative; padding: 0 24px 0 63px; border-left: 1px solid var(--line); }
 .deployment-metadata-item:first-child { padding-left: 0; border-left: 0; }
@@ -451,7 +448,7 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
   grid-template-columns: 46px minmax(0, 1fr);
   gap: 16px;
   align-items: start;
-  margin-top: 26px;
+  margin-top: 0;
   border: 1px solid var(--line);
   border-radius: 13px;
   padding: 17px 19px;
@@ -475,7 +472,7 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
 .deployment-tabs button { border: 0; border-bottom: 3px solid transparent; border-radius: 0; background: transparent; color: var(--muted); padding: 10px 10px 12px; }
 .deployment-tabs button:hover { color: var(--text); transform: none; filter: none; }
 .deployment-tabs button.active { border-bottom-color: var(--accent); color: var(--accent-strong); }
-.deployment-tab-panel { min-width: 0; padding: 26px 0 4px; }
+.deployment-tab-panel { min-width: 0; padding: 20px 0 4px; }
 .deployment-tab-panel > h3 { margin: 0 0 4px; font-size: 1.35rem; }
 .deployment-tab-panel > .deployment-note { margin: 0; }
 .deployment-counts { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0 18px; }
@@ -530,7 +527,8 @@ details[open] > summary .deployment-chevron { transform: rotate(90deg); }
 .deployment-change-section { margin-left: 32px; padding: 10px 12px; border: 1px solid var(--border-subtle); border-bottom: 0; }
 .deployment-change-section:last-child { border-bottom: 1px solid var(--border-subtle); border-radius: 0 0 8px 8px; margin-bottom: 12px; }
 .deployment-change-section h4 { margin: 0 0 7px; color: var(--muted); font-size: .76rem; text-transform: capitalize; }
-.deployment-change { display: grid; grid-template-columns: minmax(130px, .7fr) minmax(0, 2fr); gap: 12px; align-items: start; padding: 8px 0; border-top: 1px solid var(--line); }
+.deployment-change { display: grid; grid-template-columns: minmax(110px, 180px) minmax(0, 1fr); gap: 12px; align-items: start; padding: 8px 0; border-top: 1px solid var(--line); }
+.deployment-change--long { grid-template-columns: minmax(0, 1fr); gap: 10px; }
 .deployment-change:first-of-type { border-top: 0; }
 .deployment-field { overflow-wrap: anywhere; font-size: .84rem; }
 .deployment-diff-values { min-width: 0; display: grid; gap: 3px; }
@@ -540,16 +538,16 @@ details[open] > summary .deployment-chevron { transform: rotate(90deg); }
 .deployment-diff-line--after { color: var(--success); background: var(--success-muted); }
 .deployment-configuration-heading > div { min-width: 0; }
 .deployment-yaml { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; max-height: 55vh; overflow: auto; border: 1px solid var(--border-default); border-radius: 8px; background: var(--surface-code); }
-.deployment-modal-footer { display: flex; justify-content: flex-end; border-top: 1px solid var(--line); padding: 14px 26px 16px; }
-.deployment-modal-footer button { padding: 9px 20px; }
+.deployment-modal-footer { min-height: 60px; display: flex; align-items: center; justify-content: flex-end; border-top: 1px solid var(--line); padding: 10px 24px; }
+.deployment-modal-footer button { padding: 8px 20px; }
 @media (max-width: 1100px) {
   .deployment-metadata { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 18px; }
   .deployment-metadata-item:nth-child(4) { padding-left: 0; border-left: 0; }
 }
 @media (max-width: 700px) {
   .deployment-modal { width: calc(100vw - 16px); max-width: calc(100vw - 16px); max-height: calc(100dvh - 16px); margin: 8px auto; border-radius: 12px; }
-  .deployment-modal-body { padding: 18px 16px 10px; }
-  .deployment-modal-header { padding-right: 38px; }
+  .deployment-modal-content { padding: 16px 16px 10px; }
+  .deployment-modal-header { padding: 16px 54px 14px 16px; }
   .deployment-heading-row { align-items: flex-start; flex-direction: column; gap: 14px; }
   .deployment-title h2 { font-size: 1.3rem; }
   .deployment-metadata { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 20px; row-gap: 0; }
@@ -568,7 +566,7 @@ details[open] > summary .deployment-chevron { transform: rotate(90deg); }
   .deployment-service-table-wrap, .deployment-resource-list, .deployment-resource-empty, .deployment-change-section { margin-left: 0; }
   .deployment-change { grid-template-columns: minmax(0, 1fr); gap: 5px; }
   .deployment-changes-heading, .deployment-configuration-heading { align-items: flex-start; flex-wrap: wrap; }
-  .deployment-modal-footer { padding: 12px 16px 14px; }
+  .deployment-modal-footer { min-height: 58px; padding: 9px 16px; }
 }
 @media (max-width: 420px) {
   .deployment-metadata { grid-template-columns: minmax(0, 1fr); }

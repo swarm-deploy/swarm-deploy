@@ -111,6 +111,29 @@ describe("Deployment Details modal", () => {
     wrapper.unmount();
   });
 
+  it("stacks long diff values and pluralizes the field counter", async () => {
+    const store = useOverviewStore();
+    const details = deployment("succeeded", "successful_baseline");
+    const longImage = `registry.example.test/platform/api@sha256:${"a".repeat(64)}`;
+    details.changes![0].after = longImage;
+    store.deploymentDetailsModalOpen = true;
+    store.deploymentDetailsData = details;
+    const wrapper = mount(DeploymentDetailsModal);
+
+    expect(wrapper.findAll(".deployment-change")[0].classes()).toContain("deployment-change--long");
+    expect(wrapper.findAll(".deployment-change")[1].classes()).not.toContain("deployment-change--long");
+    expect(wrapper.text()).toContain("3 fields");
+    expect(wrapper.text()).toContain(longImage);
+
+    details.changes = [details.changes![0]];
+    details.summary = { added: 0, changed: 1, removed: 0, redacted: 0 };
+    store.deploymentDetailsData = { ...details };
+    await wrapper.vm.$nextTick();
+    expect(wrapper.text()).toContain("1 field");
+    expect(wrapper.text()).not.toContain("1 fields");
+    wrapper.unmount();
+  });
+
   it("distinguishes zero changes from an unavailable comparison", async () => {
     const store = useOverviewStore();
     const unchanged = deployment("succeeded", "successful_baseline");

@@ -737,7 +737,9 @@ onUnmounted(() => {
       <div class="modal-card service-labels-modal-card" role="dialog" aria-modal="true" aria-labelledby="service-labels-title">
         <div class="modal-header">
           <h2 id="service-labels-title">Service labels</h2>
-          <button class="modal-close" type="button" aria-label="Close modal" @click="closeLabelsModal">x</button>
+          <button class="modal-close" type="button" aria-label="Close modal" @click="closeLabelsModal">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
+          </button>
         </div>
         <div class="modal-body service-labels-modal-body">
           <section v-for="group in serviceLabelGroups" :key="group.name" class="service-labels-group">
@@ -758,7 +760,9 @@ onUnmounted(() => {
       <div class="modal-card task-logs-modal-card" role="dialog" aria-modal="true" aria-labelledby="task-logs-title">
         <div class="modal-header">
           <h2 id="task-logs-title">Task logs</h2>
-          <button class="modal-close" type="button" aria-label="Close modal" @click="closeTaskLogsModal">x</button>
+          <button class="modal-close" type="button" aria-label="Close modal" @click="closeTaskLogsModal">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
+          </button>
         </div>
         <div class="modal-body">
           <p class="meta">task: <code>{{ logsTaskID || "n/a" }}</code></p>
