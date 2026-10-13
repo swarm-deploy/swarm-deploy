@@ -297,7 +297,6 @@ func TestAlertResolutionUsesOriginalPhysicalChatAfterRouteChange(t *testing.T) {
 	}}), "credentials unavailable")
 }
 
-
 func TestResolvedAlertDoesNotSendOpeningOnManualReplay(t *testing.T) {
 	db, err := storage.Open(t.Context(), t.TempDir())
 	require.NoError(t, err)
