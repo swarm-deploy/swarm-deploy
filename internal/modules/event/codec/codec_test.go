@@ -66,6 +66,16 @@ func TestVersionAndPayloadValidation(t *testing.T) {
 	}
 }
 
+func TestConfigurationChangedCodecHasNoDomainPayload(t *testing.T) {
+	payload, err := Encode(&events.ConfigurationChanged{})
+	require.NoError(t, err)
+	assert.JSONEq(t, `{}`, string(payload))
+	decoded, err := Decode(events.TypeNameConfigurationChanged, Version, payload)
+	require.NoError(t, err)
+	assert.IsType(t, &events.ConfigurationChanged{}, decoded)
+	assert.Empty(t, decoded.Details())
+}
+
 func TestDeploymentFailureCategorySurvivesCodec(t *testing.T) {
 	for _, code := range []string{"policy_rejected", "init_failed", "apply_failed", "prune_failed"} {
 		event := &events.DeployFailed{DeployEvent: events.DeployEvent{StackName: "app"}, Error: errors.New(code)}

@@ -3,6 +3,7 @@ package alertmanagement
 import (
 	"context"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -19,14 +20,18 @@ type SQLSubscriber struct {
 func NewSQLSubscriber(store *modelstore.SQLStore, publisher interface {
 	Publish(context.Context, events.Event) error
 },
-	recipients func(model.AlertKind) []events.AlertRecipient) *SQLSubscriber {
-	return &SQLSubscriber{Subscriber: NewSubscriber(store, publisher, recipients), store: store}
+	recipients func(model.AlertKind) []events.AlertRecipient,
+	stacks config.StackProvider,
+) *SQLSubscriber {
+	return &SQLSubscriber{Subscriber: NewSubscriber(store, publisher, recipients, stacks), store: store}
 }
 
 // Handle applies each source publication once, even across retry and restart.
 func (s *SQLSubscriber) Handle(ctx context.Context, event events.Envelope) error {
 	var resource string
 	switch e := event.Event.(type) {
+	case *events.ConfigurationChanged:
+		resource = "configuration"
 	case *events.DeploySuccess:
 		resource = "stack:" + e.StackName
 	case *events.DeployFailed:

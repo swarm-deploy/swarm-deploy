@@ -28,6 +28,10 @@ not public event names. Deployment failures and node disconnections feed Alert M
 and success/reconnection resolves the respective open incident. New SQLite history records use the safe event codec,
 which omits raw prompts, logs and error strings.
 
+`configurationChanged` is an internal, payload-free signal emitted after an effective
+in-memory configuration change. Subscribers inspect the current configuration when they
+handle it; the signal is not a historical configuration snapshot and is excluded from history.
+
 Startup does not read, import, update or delete `event-history.json`. The file may
 remain as an operator-owned archive, but SQLite is the only active Event History store.
 The Outbox uses a bounded worker pool after publication commits and preserves ordering

@@ -131,6 +131,8 @@ func (s AlertResolutionReason) Validate() error {
 	switch s {
 	case "recovered":
 		return nil
+	case "resource_removed":
+		return nil
 	default:
 		return errors.Errorf("invalid value: %v", s)
 	}

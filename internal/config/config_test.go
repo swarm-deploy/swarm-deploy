@@ -41,9 +41,10 @@ stacks:
 
 	cfg, err := Load(configPath)
 	require.NoError(t, err, "load config")
-	require.Len(t, cfg.Spec.Stacks, 2, "expected 2 stacks")
-	assert.Equal(t, "app", cfg.Spec.Stacks[0].Name, "unexpected first stack")
-	assert.Equal(t, "worker", cfg.Spec.Stacks[1].Name, "unexpected second stack")
+	stacks := cfg.Stacks()
+	require.Len(t, stacks, 2, "expected 2 stacks")
+	assert.Equal(t, "app", stacks[0].Name, "unexpected first stack")
+	assert.Equal(t, "worker", stacks[1].Name, "unexpected second stack")
 }
 
 func TestLoadAppliesDefaultSyncInterval(t *testing.T) {
@@ -230,7 +231,7 @@ stacks:
 
 	cfg, err := Load(configPath)
 	require.NoError(t, err, "load config")
-	assert.Empty(t, cfg.Spec.Stacks, "stacks must be loaded later from git repository during sync")
+	assert.Empty(t, cfg.Stacks(), "stacks must be loaded later from git repository during sync")
 }
 
 func TestLoadWithNetworksFile(t *testing.T) {
@@ -268,9 +269,10 @@ networks:
 
 	cfg, err := Load(configPath)
 	require.NoError(t, err, "load config")
-	require.Len(t, cfg.Spec.Networks, 1, "expected one network")
-	assert.Equal(t, "app_backend", cfg.Spec.Networks[0].Name, "unexpected network name")
-	assert.Equal(t, "overlay", cfg.Spec.Networks[0].Driver, "unexpected default network driver")
+	networks := cfg.Networks()
+	require.Len(t, networks, 1, "expected one network")
+	assert.Equal(t, "app_backend", networks[0].Name, "unexpected network name")
+	assert.Equal(t, "overlay", networks[0].Driver, "unexpected default network driver")
 }
 
 func TestLoadAllowsMissingNetworksFileBeforeFirstSync(t *testing.T) {
@@ -299,7 +301,7 @@ networks:
 
 	cfg, err := Load(configPath)
 	require.NoError(t, err, "load config")
-	assert.Empty(t, cfg.Spec.Networks, "networks must be loaded later from git repository during sync")
+	assert.Empty(t, cfg.Networks(), "networks must be loaded later from git repository during sync")
 }
 
 func TestLoadWithContainersDownward(t *testing.T) {
@@ -393,7 +395,7 @@ stacks:
 	assert.Equal(t, defaultWebhookAddress, cfg.Spec.Sync.Webhook.Address, "expected sync.webhook.address")
 }
 
-func TestReloadStacksPrefersFirstAvailableBaseDir(t *testing.T) {
+func TestReloadPrefersFirstAvailableBaseDir(t *testing.T) {
 	dir := t.TempDir()
 	configDir := filepath.Join(dir, "config")
 	repoDir := filepath.Join(dir, "repo")
@@ -426,14 +428,15 @@ stacks:
 		},
 	}
 
-	loadedFrom, err := cfg.ReloadStacks(repoDir, configDir)
+	changed, err := cfg.Reload(repoDir, configDir)
 	require.NoError(t, err, "reload stacks")
-	assert.Equal(t, repoStacksPath, loadedFrom, "expected repo stacks path")
-	require.Len(t, cfg.Spec.Stacks, 1, "expected one stack")
-	assert.Equal(t, "from-repo", cfg.Spec.Stacks[0].Name, "expected stack from repo")
+	assert.True(t, changed)
+	stacks := cfg.Stacks()
+	require.Len(t, stacks, 1, "expected one stack")
+	assert.Equal(t, "from-repo", stacks[0].Name, "expected stack from repo")
 }
 
-func TestReloadStacksFallsBackToNextBaseDir(t *testing.T) {
+func TestReloadFallsBackToNextBaseDir(t *testing.T) {
 	dir := t.TempDir()
 	missingRepoDir := filepath.Join(dir, "repo")
 	configDir := filepath.Join(dir, "config")
@@ -455,11 +458,12 @@ stacks:
 		},
 	}
 
-	loadedFrom, err := cfg.ReloadStacks(missingRepoDir, configDir)
+	changed, err := cfg.Reload(missingRepoDir, configDir)
 	require.NoError(t, err, "reload stacks")
-	assert.Equal(t, configStacksPath, loadedFrom, "expected fallback config stacks path")
-	require.Len(t, cfg.Spec.Stacks, 1, "expected one stack")
-	assert.Equal(t, "from-config", cfg.Spec.Stacks[0].Name, "expected stack from config")
+	assert.True(t, changed)
+	stacks := cfg.Stacks()
+	require.Len(t, stacks, 1, "expected one stack")
+	assert.Equal(t, "from-config", stacks[0].Name, "expected stack from config")
 }
 
 func TestReloadNetworksPrefersFirstAvailableBaseDir(t *testing.T) {
@@ -484,20 +488,29 @@ networks:
 
 	require.NoError(t, os.WriteFile(configNetworksPath, configNetworks, 0o600), "write config networks")
 	require.NoError(t, os.WriteFile(repoNetworksPath, repoNetworks, 0o600), "write repo networks")
+	for _, baseDir := range []string{configDir, repoDir} {
+		require.NoError(t, os.WriteFile(filepath.Join(baseDir, "stacks.yaml"), []byte(`
+stacks:
+  - name: app
+    composeFile: app.yaml
+`), 0o600), "write stacks")
+	}
 
 	cfg := &Config{
 		Spec: Spec{
+			StacksSource: StacksSourceSpec{File: "./stacks.yaml"},
 			NetworksSource: NetworksSourceSpec{
 				File: "./networks.yaml",
 			},
 		},
 	}
 
-	loadedFrom, err := cfg.ReloadNetworks(repoDir, configDir)
+	changed, err := cfg.Reload(repoDir, configDir)
 	require.NoError(t, err, "reload networks")
-	assert.Equal(t, repoNetworksPath, loadedFrom, "expected repo networks path")
-	require.Len(t, cfg.Spec.Networks, 1, "expected one network")
-	assert.Equal(t, "from-repo", cfg.Spec.Networks[0].Name, "expected network from repo")
+	assert.True(t, changed)
+	networks := cfg.Networks()
+	require.Len(t, networks, 1, "expected one network")
+	assert.Equal(t, "from-repo", networks[0].Name, "expected network from repo")
 }
 
 func TestLoadFailsOnManagedNetworkLabelNotTrue(t *testing.T) {

@@ -13,22 +13,14 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-func (c *Controller) reloadNetworks() (string, error) {
-	if c.cfg.Spec.NetworksSource.File == "" {
-		c.cfg.Spec.Networks = nil
-		return "", nil
-	}
-
-	return c.cfg.ReloadNetworks(c.git.WorkingDir())
-}
-
 func (c *Controller) syncNetworks(ctx context.Context, commit string) error {
 	ctx, span := c.tracer.Start(ctx, "controller.SyncNetworks", trace.WithAttributes(
 		tracing.SyncCommitSha.String(commit),
 	))
 	defer span.End()
 
-	if len(c.cfg.Spec.Networks) == 0 {
+	networks := c.configStore.Networks()
+	if len(networks) == 0 {
 		return c.stateStore.Update(ctx, func(s *model.Runtime) {
 			s.Networks = map[string]model.Network{}
 		})
@@ -39,10 +31,10 @@ func (c *Controller) syncNetworks(ctx context.Context, commit string) error {
 		return readErr
 	}
 	syncedAt := time.Now()
-	nextState := make(map[string]model.Network, len(c.cfg.Spec.Networks))
+	nextState := make(map[string]model.Network, len(networks))
 	var reconcileErrs []error
 	var createdEvents []*events.NetworkCreated
-	for _, networkCfg := range c.cfg.Spec.Networks {
+	for _, networkCfg := range networks {
 		if previousState, exists := currentState.Networks[networkCfg.Name]; exists {
 			if previousState.LastCommit == commit &&
 				(previousState.LastStatus == "success" || previousState.LastStatus == "no_change") {

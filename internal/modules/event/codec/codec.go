@@ -29,6 +29,8 @@ func Encode(event events.Event) ([]byte, error) {
 		return payload, err
 	}
 	switch e := event.(type) {
+	case *events.ConfigurationChanged:
+		return json.Marshal(struct{}{})
 	case *events.ServiceCatalogUpdated:
 		return json.Marshal(servicePayload{Stack: e.StackName})
 	case *events.DeploySuccess:
@@ -100,6 +102,8 @@ func Decode(typ events.TypeName, version int, payload []byte) (events.Event, err
 		return decodeDeploymentFailure(typ, payload)
 	}
 	switch typ { //nolint:exhaustive // Failure events are decoded by decodeDeploymentFailure above.
+	case events.TypeNameConfigurationChanged:
+		return decodeAs(payload, func(struct{}) events.Event { return &events.ConfigurationChanged{} })
 	case events.TypeNameAlertOpened:
 		return decodeAs(payload, func(p alertOpenedPayload) events.Event {
 			return &events.AlertOpened{Alert: p.Alert.snapshot(), Recipients: p.Recipients}

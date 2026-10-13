@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/configstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/networkloop"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
@@ -27,17 +28,9 @@ func TestControllerSyncNetworksStoresState(t *testing.T) {
 		Return("created-id", nil)
 
 	db, store := newSQLState(t)
+	configuration := newNetworkTestConfigStore(t, "app_backend")
 	c := &Controller{db: db, event: &dispatcher.NopDispatcher{},
-		cfg: &config.Config{
-			Spec: config.Spec{
-				Networks: []config.NetworkSpec{
-					{
-						Name:   "app_backend",
-						Driver: "overlay",
-					},
-				},
-			},
-		},
+		configStore:       configuration,
 		networkReconciler: networkloop.New(manager),
 		stateStore:        store,
 		tracer:            otel.Tracer("test"),
@@ -69,17 +62,9 @@ func TestControllerSyncNetworksStoresFailedState(t *testing.T) {
 		}, nil)
 
 	db, store := newSQLState(t)
+	configuration := newNetworkTestConfigStore(t, "app_backend")
 	c := &Controller{db: db, event: &dispatcher.NopDispatcher{},
-		cfg: &config.Config{
-			Spec: config.Spec{
-				Networks: []config.NetworkSpec{
-					{
-						Name:   "app_backend",
-						Driver: "overlay",
-					},
-				},
-			},
-		},
+		configStore:       configuration,
 		networkReconciler: networkloop.New(manager),
 		stateStore:        store,
 		tracer:            otel.Tracer("test"),
@@ -107,11 +92,7 @@ func TestControllerSyncNetworksClearsStateWhenNetworksListIsEmpty(t *testing.T) 
 	})
 
 	c := &Controller{db: db, event: &dispatcher.NopDispatcher{},
-		cfg: &config.Config{
-			Spec: config.Spec{
-				Networks: nil,
-			},
-		},
+		configStore: newNetworkTestConfigStore(t, ""),
 		networkReconciler: networkloop.New(
 			swarm.NewMockNetworkManager(gomock.NewController(t)),
 		),
@@ -141,16 +122,7 @@ func TestControllerSyncNetworksSkipsReconcileWhenStateAlreadySyncedForCommit(t *
 	manager := swarm.NewMockNetworkManager(ctrl)
 
 	c := &Controller{db: db, event: &dispatcher.NopDispatcher{},
-		cfg: &config.Config{
-			Spec: config.Spec{
-				Networks: []config.NetworkSpec{
-					{
-						Name:   "app_backend",
-						Driver: "overlay",
-					},
-				},
-			},
-		},
+		configStore:       newNetworkTestConfigStore(t, "app_backend"),
 		networkReconciler: networkloop.New(manager),
 		stateStore:        store,
 		tracer:            otel.Tracer("test"),
@@ -163,4 +135,18 @@ func TestControllerSyncNetworksSkipsReconcileWhenStateAlreadySyncedForCommit(t *
 	networkState := state.Networks["app_backend"]
 	assert.Equal(t, "success", networkState.LastStatus, "expected previous successful status preserved")
 	assert.Equal(t, "commit-4", networkState.LastCommit, "expected previous commit preserved")
+}
+
+func newNetworkTestConfigStore(t *testing.T, network string) *configstore.ConfigStore {
+	t.Helper()
+	dir := t.TempDir()
+	require.NoError(t, writeStacksFile(dir+"/stacks.yaml", "app"))
+	cfg := &config.Config{Spec: config.Spec{StacksSource: config.StacksSourceSpec{File: "stacks.yaml"}}}
+	if network != "" {
+		require.NoError(t, writeNetworksFile(dir+"/networks.yaml", network))
+		cfg.Spec.NetworksSource.File = "networks.yaml"
+	}
+	_, err := cfg.Reload(dir)
+	require.NoError(t, err)
+	return configstore.New(cfg, &dispatcher.NopDispatcher{})
 }

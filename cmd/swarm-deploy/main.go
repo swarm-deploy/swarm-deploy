@@ -13,6 +13,7 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/configstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/healthserver"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/sd"
@@ -51,6 +52,7 @@ var modules = []module{
 			if err != nil {
 				return err
 			}
+			cnt.ConfigStore = configstore.New(cfg, mod.Dispatcher)
 			return prometheus.Register(mod.Bus)
 		},
 	},
@@ -194,7 +196,7 @@ func main() {
 
 	webApplication, err := webserver.NewApplication(
 		cfg.Spec.Web.Address,
-		cfg,
+		cnt.ConfigStore,
 		cnt.GitOps,
 		cnt.Swarm,
 		cnt.Event,
@@ -313,6 +315,7 @@ type container struct {
 	Swarm           *swarm.Swarm
 	EventDispatcher dispatcher.Dispatcher
 	Deployer        deployer.StackDeployer
+	ConfigStore     *configstore.ConfigStore
 
 	Event           *event.Module
 	Resources       *resources.Module
@@ -340,6 +343,9 @@ func (c *container) GetSwarm() *swarm.Swarm {
 func (c *container) GetEventModule() *event.Module {
 	return c.Event
 }
+
+// GetConfigStore returns the shared runtime configuration store.
+func (c *container) GetConfigStore() *configstore.ConfigStore { return c.ConfigStore }
 
 func (c *container) GetResourcesModule() *resources.Module {
 	return c.Resources

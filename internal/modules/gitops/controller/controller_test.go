@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/configstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
@@ -78,14 +79,17 @@ func TestControllerCleanupStacksUsesDedicatedCleanupPath(t *testing.T) {
 			"broken": errors.New("cleanup failed"),
 		},
 	}
+	cfg := &config.Config{Spec: config.Spec{StacksSource: config.StacksSourceSpec{File: "stacks.yaml"}}}
+	dir := t.TempDir()
+	require.NoError(t, writeStacksConfigFile(filepath.Join(dir, "stacks.yaml"), []stackFileSpec{
+		{Name: "app", ComposeFile: "app.yaml"},
+		{Name: "broken", ComposeFile: "broken.yaml"},
+		{Name: "worker", ComposeFile: "worker.yaml"},
+	}))
+	_, err := cfg.Reload(dir)
+	require.NoError(t, err)
 	controller := &Controller{
-		cfg: &config.Config{Spec: config.Spec{
-			Stacks: []config.StackSpec{
-				{Name: "app"},
-				{Name: "broken"},
-				{Name: "worker"},
-			},
-		}},
+		configStore:     configstore.New(cfg, &dispatcher.NopDispatcher{}),
 		stackReconciler: reconciler,
 	}
 
@@ -329,7 +333,7 @@ func TestControllerCancelsReconciliationAfterShutdownGracePeriod(t *testing.T) {
 	require.NoError(t, <-done)
 }
 
-func TestReloadStacksUsesRepositoryDirFirst(t *testing.T) {
+func TestConfigStoreReloadUsesRepositoryDirFirst(t *testing.T) {
 	rootDir := t.TempDir()
 	dataDir := filepath.Join(rootDir, ".swarm-deploy")
 	repoDir := filepath.Join(dataDir, "repo")
@@ -350,16 +354,17 @@ func TestReloadStacksUsesRepositoryDirFirst(t *testing.T) {
 	repository := git.NewRepository(config.GitSpec{}, filepath.Join(dataDir, "repo"))
 
 	c := &Controller{
-		cfg:    cfg,
-		git:    repository,
-		tracer: otel.Tracer("test"),
+		cfg:         cfg,
+		configStore: configstore.New(cfg, &dispatcher.NopDispatcher{}),
+		git:         repository,
+		tracer:      otel.Tracer("test"),
 	}
 
-	loadedFrom, err := c.reloadStacks()
+	err := c.configStore.Reload(t.Context(), c.git.WorkingDir())
 	require.NoError(t, err, "reload stacks")
-	assert.Equal(t, filepath.Join(repoDir, "stacks.yaml"), loadedFrom, "expected path from repo")
-	require.Len(t, c.cfg.Spec.Stacks, 1, "expected one stack")
-	assert.Equal(t, "from-repo", c.cfg.Spec.Stacks[0].Name, "expected stack loaded from repo")
+	stacks := c.configStore.Stacks()
+	require.Len(t, stacks, 1, "expected one stack")
+	assert.Equal(t, "from-repo", stacks[0].Name, "expected stack loaded from repo")
 }
 
 func TestReloadNetworksUsesRepositoryDirFirst(t *testing.T) {
@@ -378,10 +383,13 @@ func TestReloadNetworksUsesRepositoryDirFirst(t *testing.T) {
 		writeNetworksFile(filepath.Join(repoDir, "networks.yaml"), "from-repo"),
 		"write repo networks",
 	)
+	require.NoError(t, writeStacksFile(filepath.Join(configDir, "stacks.yaml"), "from-config"))
+	require.NoError(t, writeStacksFile(filepath.Join(repoDir, "stacks.yaml"), "from-repo"))
 
 	cfg := &config.Config{
 		Spec: config.Spec{
-			DataDir: dataDir,
+			DataDir:      dataDir,
+			StacksSource: config.StacksSourceSpec{File: "./stacks.yaml"},
 			NetworksSource: config.NetworksSourceSpec{
 				File: "./networks.yaml",
 			},
@@ -391,19 +399,20 @@ func TestReloadNetworksUsesRepositoryDirFirst(t *testing.T) {
 	repository := git.NewRepository(config.GitSpec{}, filepath.Join(dataDir, "repo"))
 
 	c := &Controller{
-		cfg:    cfg,
-		git:    repository,
-		tracer: otel.Tracer("test"),
+		cfg:         cfg,
+		configStore: configstore.New(cfg, &dispatcher.NopDispatcher{}),
+		git:         repository,
+		tracer:      otel.Tracer("test"),
 	}
 
-	loadedFrom, err := c.reloadNetworks()
+	err := c.configStore.Reload(t.Context(), c.git.WorkingDir())
 	require.NoError(t, err, "reload networks")
-	assert.Equal(t, filepath.Join(repoDir, "networks.yaml"), loadedFrom, "expected path from repo")
-	require.Len(t, c.cfg.Spec.Networks, 1, "expected one network")
-	assert.Equal(t, "from-repo", c.cfg.Spec.Networks[0].Name, "expected network loaded from repo")
+	networks := c.configStore.Networks()
+	require.Len(t, networks, 1, "expected one network")
+	assert.Equal(t, "from-repo", networks[0].Name, "expected network loaded from repo")
 }
 
-func TestControllerSyncOnceReconcilesStacksOnIntervalWithoutGitPull(t *testing.T) {
+func TestControllerSyncContinuesWhenConfigurationEventPublicationFails(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	repoDir := t.TempDir()
 	dataDir := filepath.Join(t.TempDir(), ".swarm-deploy")
@@ -445,12 +454,21 @@ func TestControllerSyncOnceReconcilesStacksOnIntervalWithoutGitPull(t *testing.T
 			},
 		},
 	}
-	eventDispatcher := &dispatcher.NopDispatcher{}
+	eventDispatcher := dispatcher.NewMockDispatcher(ctrl)
+	eventDispatcher.EXPECT().Publish(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, event events.Event) error {
+			if _, configurationChanged := event.(*events.ConfigurationChanged); configurationChanged {
+				return errors.New("outbox unavailable")
+			}
+			return nil
+		},
+	).AnyTimes()
 	metricGroup := metrics.NewGroup(metrics.CreateGroupParams{
 		Namespace: "test_sync_once_unchanged",
 	})
 	controller := &Controller{db: db,
 		cfg:               cfg,
+		configStore:       configstore.New(cfg, eventDispatcher),
 		git:               repository,
 		metrics:           metricGroup,
 		event:             eventDispatcher,
@@ -600,6 +618,7 @@ func TestControllerSyncOncePrioritizesChangedStacks(t *testing.T) {
 	})
 	controller := &Controller{db: db,
 		cfg:               cfg,
+		configStore:       configstore.New(cfg, eventDispatcher),
 		git:               repository,
 		metrics:           metricGroup,
 		event:             eventDispatcher,
@@ -680,6 +699,7 @@ func TestControllerSyncOnceContinuesWhenGitDiffFails(t *testing.T) {
 	})
 	controller := &Controller{db: db,
 		cfg:               cfg,
+		configStore:       configstore.New(cfg, eventDispatcher),
 		git:               repository,
 		metrics:           metricGroup,
 		event:             eventDispatcher,

@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/configstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
@@ -38,6 +39,8 @@ type Container interface {
 	GetDeployer() deployer.StackDeployer
 	GetMetrics() *metrics.Group
 	GetEventModule() *event.Module
+	// GetConfigStore returns the shared runtime configuration store.
+	GetConfigStore() *configstore.ConfigStore
 }
 
 func InitModule(
@@ -57,6 +60,7 @@ func InitModule(
 
 	srv.Controller = controller.New(
 		cfg,
+		cnt.GetConfigStore(),
 		srv.GitRepository,
 		cnt.GetSwarm(),
 		cnt.GetDeployer(),
@@ -65,6 +69,5 @@ func InitModule(
 		srv.Store,
 		cnt.GetFileSystem(), cnt.GetStorage(),
 	)
-
 	return srv, nil
 }

@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
@@ -52,6 +54,10 @@ const (
 type Config struct {
 	// Spec is the runtime configuration loaded from YAML.
 	Spec Spec `yaml:"-"`
+
+	mu       sync.RWMutex
+	stacks   []StackSpec
+	networks []NetworkSpec
 }
 
 type Spec struct {
@@ -63,12 +69,8 @@ type Spec struct {
 	Sync SyncSpec `yaml:"sync"`
 	// StacksSource contains path to stack definitions file inside git repository.
 	StacksSource StacksSourceSpec `yaml:"stacks"`
-	// Stacks is a parsed list of stack specifications loaded from stacks.file.
-	Stacks []StackSpec `yaml:"-"`
 	// NetworksSource contains path to network definitions file inside git repository.
 	NetworksSource NetworksSourceSpec `yaml:"networks"`
-	// Networks is a parsed list of network specifications loaded from networks.file.
-	Networks []NetworkSpec `yaml:"-"`
 	// Notifications contains notification channel configuration.
 	Notifications NotificationSpec `yaml:"notifications"`
 	// Web contains public HTTP server settings.
@@ -368,71 +370,84 @@ func (c *Config) applyEventHistoryDefaults() {
 	}
 }
 
-func (c *Config) loadStacks(configDir string) error {
-	_, err := c.ReloadStacks(filepath.Join(c.Spec.DataDir, "repo"), configDir)
-	if err == nil {
-		return nil
+func (c *Config) loadInitialDesired(configDir string) error {
+	baseDirs := []string{filepath.Join(c.Spec.DataDir, "repo"), configDir}
+	stacks, err := c.loadStacks(baseDirs...)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
+	if err != nil {
+		stacks = nil
 	}
-	return err
+
+	networks, err := c.loadNetworks(baseDirs...)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	if err != nil {
+		networks = nil
+	}
+
+	c.mu.Lock()
+	c.stacks = cloneStacks(stacks)
+	c.networks = cloneNetworks(networks)
+	c.mu.Unlock()
+	return nil
 }
 
-func (c *Config) loadNetworks(configDir string) error {
-	if strings.TrimSpace(c.Spec.NetworksSource.File) == "" {
-		c.Spec.Networks = nil
-		return nil
+// Reload loads and validates all reloadable configuration, then atomically
+// replaces the accepted state when its effective value changed.
+func (c *Config) Reload(baseDirs ...string) (bool, error) {
+	stacks, err := c.loadStacks(baseDirs...)
+	if err != nil {
+		return false, err
+	}
+	networks, err := c.loadNetworks(baseDirs...)
+	if err != nil {
+		return false, err
 	}
 
-	_, err := c.ReloadNetworks(filepath.Join(c.Spec.DataDir, "repo"), configDir)
-	if err == nil {
-		return nil
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if reflect.DeepEqual(c.stacks, stacks) && reflect.DeepEqual(c.networks, networks) {
+		return false, nil
 	}
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	return err
+	c.stacks = cloneStacks(stacks)
+	c.networks = cloneNetworks(networks)
+	return true, nil
 }
 
-// ReloadStacks reloads stack definitions from the first existing base directory.
-// If stacks.file is absolute, the absolute path is used directly.
-func (c *Config) ReloadStacks(baseDirs ...string) (string, error) {
+func (c *Config) loadStacks(baseDirs ...string) ([]StackSpec, error) {
 	stacksPath, err := c.resolveStacksPath(baseDirs...)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-
 	stacks, err := loadStacksFromFile(stacksPath)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if errs := validateStacksList(stacks); len(errs) > 0 {
-		return "", errors.Join(errs...)
+		return nil, errors.Join(errs...)
 	}
-
-	c.Spec.Stacks = stacks
-	return stacksPath, nil
+	return stacks, nil
 }
 
-// ReloadNetworks reloads network definitions from the first existing base directory.
-// If networks.file is absolute, the absolute path is used directly.
-func (c *Config) ReloadNetworks(baseDirs ...string) (string, error) {
+func (c *Config) loadNetworks(baseDirs ...string) ([]NetworkSpec, error) {
+	if strings.TrimSpace(c.Spec.NetworksSource.File) == "" {
+		return nil, nil
+	}
 	networksPath, err := c.resolveNetworksPath(baseDirs...)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-
 	networks, err := loadNetworksFromFile(networksPath)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if errs := validateNetworksList(networks); len(errs) > 0 {
-		return "", errors.Join(errs...)
+		return nil, errors.Join(errs...)
 	}
-
-	c.Spec.Networks = networks
-	return networksPath, nil
+	return networks, nil
 }
 
 func (c *Config) resolveStacksPath(baseDirs ...string) (string, error) {
@@ -643,19 +658,21 @@ func (c *Config) validateRequired() []error {
 }
 
 func (c *Config) validateStacks() []error {
-	if len(c.Spec.Stacks) == 0 {
+	stacks := c.Stacks()
+	if len(stacks) == 0 {
 		return nil
 	}
 
-	return validateStacksList(c.Spec.Stacks)
+	return validateStacksList(stacks)
 }
 
 func (c *Config) validateNetworks() []error {
-	if len(c.Spec.Networks) == 0 {
+	networks := c.Networks()
+	if len(networks) == 0 {
 		return nil
 	}
 
-	return validateNetworksList(c.Spec.Networks)
+	return validateNetworksList(networks)
 }
 
 func validateStacksList(stacks []StackSpec) []error {

@@ -17,6 +17,7 @@ func TestDeployFailedNotificationCompatibility(t *testing.T) {
 
 func TestDeploymentLifecycleFactsAreNotPublicEventTypes(t *testing.T) {
 	for _, typ := range []events.TypeName{
+		events.TypeNameConfigurationChanged,
 		events.TypeNameDeployFailed,
 		events.TypeNameDeployPreparationFailed,
 		events.TypeNameDeployInterrupted,

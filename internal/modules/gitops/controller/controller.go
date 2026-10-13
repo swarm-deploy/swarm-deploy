@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/configstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
@@ -54,12 +55,13 @@ const (
 )
 
 type Controller struct {
-	db       *storage.Database
-	cfg      *config.Config
-	git      gitx.Repository
-	deployer deployer.StackDeployer
-	metrics  *metrics.Group
-	event    dispatcher.Dispatcher
+	db          *storage.Database
+	cfg         *config.Config
+	configStore *configstore.ConfigStore
+	git         gitx.Repository
+	deployer    deployer.StackDeployer
+	metrics     *metrics.Group
+	event       dispatcher.Dispatcher
 
 	stateStore        modelstore.Store
 	networkReconciler *networkloop.Reconciler
@@ -86,6 +88,7 @@ type reconcileTask struct {
 
 func New(
 	cfg *config.Config,
+	configStore *configstore.ConfigStore,
 	git gitx.Repository,
 	swarmService *swarm.Swarm,
 	deployer deployer.StackDeployer,
@@ -96,12 +99,13 @@ func New(
 	db *storage.Database,
 ) *Controller {
 	return &Controller{db: db,
-		cfg:        cfg,
-		git:        git,
-		deployer:   deployer,
-		metrics:    metricGroup,
-		event:      eventDispatcher,
-		stateStore: stateStore,
+		cfg:         cfg,
+		configStore: configStore,
+		git:         git,
+		deployer:    deployer,
+		metrics:     metricGroup,
+		event:       eventDispatcher,
+		stateStore:  stateStore,
 		networkReconciler: networkloop.New(
 			swarmService.Networks,
 		),
@@ -271,7 +275,7 @@ func (c *Controller) handleCleanupTick(ctx context.Context) {
 }
 
 func (c *Controller) cleanupStacks(ctx context.Context) {
-	for _, stack := range c.cfg.Spec.Stacks {
+	for _, stack := range c.configStore.Stacks() {
 		if err := c.stackReconciler.Cleanup(ctx, stack); err != nil {
 			slog.WarnContext(ctx, "[controller] rotated resource cleanup failed",
 				slog.String("stack", stack.Name),
@@ -435,29 +439,26 @@ func (c *Controller) reconcile( //nolint:funlen // reconciliation pipeline
 
 	slog.InfoContext(ctx, "[controller] run sync", slog.String("reason", string(task.reason)))
 
-	reloadedNetworksFrom, reloadNetworksErr := c.reloadNetworks()
-	if reloadNetworksErr != nil {
-		slog.ErrorContext(ctx, "sync failed at networks reload stage",
+	reloadErr := c.configStore.Reload(ctx, c.git.WorkingDir())
+	if reloadErr != nil {
+		slog.ErrorContext(ctx, "sync failed at configuration reload stage",
 			slog.String("reason", string(task.reason)),
-			slog.String("networks.file", c.cfg.Spec.NetworksSource.File),
-			slog.Any("err", reloadNetworksErr),
+			slog.Any("err", reloadErr),
 		)
 		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
 		_ = c.updateState(ctx, func(s *model.Runtime) {
 			s.LastSyncAt = time.Now()
 			s.LastSyncReason = string(task.reason)
 			s.LastSyncResult = syncRunResultError
-			s.LastSyncError = reloadNetworksErr.Error()
+			s.LastSyncError = reloadErr.Error()
 			s.GitRevision = gitResult.NewRevision
 		})
 		return
 	}
-	if reloadedNetworksFrom != "" {
-		slog.InfoContext(ctx, "[controller] networks reloaded",
-			slog.String("path", reloadedNetworksFrom),
-			slog.Int("count", len(c.cfg.Spec.Networks)),
-		)
-	}
+	slog.InfoContext(ctx, "[controller] configuration reloaded",
+		slog.Int("stacks", len(c.configStore.Stacks())),
+		slog.Int("networks", len(c.configStore.Networks())),
+	)
 
 	reconcileNetworksErr := c.syncNetworks(ctx, gitResult.NewRevision)
 	if reconcileNetworksErr != nil {
@@ -477,29 +478,7 @@ func (c *Controller) reconcile( //nolint:funlen // reconciliation pipeline
 		return
 	}
 
-	reloadedFrom, reloadErr := c.reloadStacks()
-	if reloadErr != nil {
-		slog.ErrorContext(ctx, "sync failed at stacks reload stage",
-			slog.String("reason", string(task.reason)),
-			slog.String("stacks.file", c.cfg.Spec.StacksSource.File),
-			slog.Any("err", reloadErr),
-		)
-		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
-		_ = c.updateState(ctx, func(s *model.Runtime) {
-			s.LastSyncAt = time.Now()
-			s.LastSyncReason = string(task.reason)
-			s.LastSyncResult = syncRunResultError
-			s.LastSyncError = reloadErr.Error()
-			s.GitRevision = gitResult.NewRevision
-		})
-		return
-	}
-
-	slog.InfoContext(ctx, "[controller] stacks reloaded",
-		slog.String("path", reloadedFrom),
-		slog.Int("count", len(c.cfg.Spec.Stacks)),
-	)
-	stacksToSync := c.cfg.Spec.Stacks
+	stacksToSync := c.configStore.Stacks()
 	if gitResult.Updated {
 		fileDiffs, diffErr := c.git.Diff(ctx, gitResult.OldRevision, gitResult.NewRevision)
 		if diffErr != nil {
@@ -510,7 +489,7 @@ func (c *Controller) reconcile( //nolint:funlen // reconciliation pipeline
 				slog.Any("err", diffErr),
 			)
 		} else {
-			stacksToSync = prioritizeStacksByFileDiffs(c.cfg.Spec.Stacks, fileDiffs)
+			stacksToSync = prioritizeStacksByFileDiffs(stacksToSync, fileDiffs)
 		}
 	}
 
@@ -628,10 +607,6 @@ func (c *Controller) pullGit(ctx context.Context, reason TriggerReason) (gitx.Pu
 	c.metrics.Git.RecordGitUpdate(c.cfg.Spec.Git.Repository, updateResult)
 
 	return gitResult, nil
-}
-
-func (c *Controller) reloadStacks() (string, error) {
-	return c.cfg.ReloadStacks(c.git.WorkingDir())
 }
 
 func (c *Controller) syncStack(

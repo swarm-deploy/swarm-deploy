@@ -88,6 +88,7 @@ func TestSQLiteProjectionSelectionIdempotenceAndRollback(t *testing.T) {
 	assert.Empty(t, entries)
 	for _, envelope := range []events.Envelope{
 		e, e,
+		{ID: "configuration", OccurredAt: now, Event: &events.ConfigurationChanged{}},
 		{ID: "failure", OccurredAt: now, Event: &events.DeployFailed{}},
 		{ID: "disconnected", OccurredAt: now, Event: &events.NodeDisconnected{NodeID: "node"}},
 	} {
