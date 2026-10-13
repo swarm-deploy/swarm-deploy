@@ -5,6 +5,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import type { DeploymentChange } from "../../api/types";
 import { useOverviewStore } from "../../stores/overview";
 import { formatDate, shortCommitHash } from "../../utils/format";
+import DeploymentIcon from "./DeploymentIcon.vue";
 
 type DetailsTab = "changes" | "configuration";
 type ChangeGroup = {
@@ -12,6 +13,13 @@ type ChangeGroup = {
   name: string;
   operation: "added" | "modified" | "removed";
   sections: Array<{ name: string; changes: DeploymentChange[] }>;
+};
+type ResourceKey = "service" | "network" | "secret" | "config" | "volume";
+type ResourceSection = {
+  key: ResourceKey;
+  label: string;
+  count: number;
+  groups: ChangeGroup[];
 };
 
 const store = useOverviewStore();
@@ -22,7 +30,7 @@ const copyLabel = ref("Copy YAML");
 let returnFocus: HTMLElement | null = null;
 const focusableSelector = [
   "a[href]", "button:not([disabled])", "input:not([disabled])", "select:not([disabled])",
-  "textarea:not([disabled])", "[tabindex]:not([tabindex=\"-1\"])",
+  "textarea:not([disabled])", "summary", "[tabindex]:not([tabindex=\"-1\"])",
 ].join(", ");
 const detail = computed(() => store.deploymentDetailsData);
 const initialSnapshot = computed(() => detail.value?.comparison_basis === "none");
@@ -67,11 +75,37 @@ const groups = computed<ChangeGroup[]>(() => {
   });
 });
 
-const initialServices = computed(() => groups.value.filter((group) => group.type === "service").map((group) => {
+const initialServices = computed(() => groupsForResource("service").map((group) => {
   const changes = group.sections.flatMap((section) => section.changes);
   const field = (name: string) => changes.find((change) => change.field === name)?.after;
   return { name: group.name, image: field("image") || "—", replicas: field("deploy.replicas") || "—" };
 }));
+
+function groupsForResource(key: ResourceKey): ChangeGroup[] {
+  return groups.value.filter((group) => group.type === key || group.type === `${key}s`);
+}
+
+function resourceIcon(type: string): ResourceKey {
+  const normalized = type.toLowerCase().replace(/s$/, "");
+  return (["service", "network", "secret", "config", "volume"] as ResourceKey[]).includes(normalized as ResourceKey)
+    ? normalized as ResourceKey
+    : "service";
+}
+
+const initialResourceSections = computed<ResourceSection[]>(() => {
+  if (!detail.value) return [];
+  const sections: Array<Omit<ResourceSection, "count" | "groups"> & { count: number }> = [
+    { key: "service", label: "Services", count: detail.value.resources.services },
+    { key: "network", label: "Networks", count: detail.value.resources.networks },
+    { key: "secret", label: "Secrets", count: detail.value.resources.secrets },
+    { key: "config", label: "Configs", count: detail.value.resources.configs },
+    { key: "volume", label: "Volumes", count: detail.value.resources.volumes },
+  ];
+  return sections.filter((section) => section.key !== "volume" || section.count > 0).map((section) => ({
+    ...section,
+    groups: groupsForResource(section.key),
+  }));
+});
 
 const comparison = computed(() => {
   switch (detail.value?.comparison_basis) {
@@ -81,13 +115,30 @@ const comparison = computed(() => {
     default: return "No previous desired snapshot is available for comparison.";
   }
 });
-const outcome = computed(() => {
+const statusTitle = computed(() => {
+  switch (detail.value?.status) {
+    case "running": return "Apply pipeline is running.";
+    case "succeeded": return "Apply pipeline completed.";
+    case "failed": return "Apply pipeline failed.";
+    case "interrupted": return "Apply pipeline was interrupted.";
+    default: return "";
+  }
+});
+const statusDescription = computed(() => {
   switch (detail.value?.status) {
     case "running": return "Apply attempt is still in progress. Live convergence has not been verified.";
-    case "succeeded": return "Apply pipeline completed. Service health and live convergence have not been verified.";
+    case "succeeded": return "Service health and live convergence have not been verified.";
     case "failed": return "Apply attempt failed. The actual Swarm state may differ from this desired configuration.";
     case "interrupted": return "Apply outcome is unknown. The actual Swarm state may differ from this desired configuration.";
     default: return "";
+  }
+});
+const statusIcon = computed<"check" | "running" | "failed" | "warning">(() => {
+  switch (detail.value?.status) {
+    case "succeeded": return "check";
+    case "running": return "running";
+    case "failed": return "failed";
+    default: return "warning";
   }
 });
 const total = computed(() => detail.value?.changes?.length ?? 0);
@@ -104,6 +155,9 @@ const statusLabel = computed(() => {
     default: return "Unknown";
   }
 });
+function pluralize(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
 const reasonLabels: Record<string, string> = {
   policy_rejected: "Policy check failed", init_failed: "Init job failed", apply_failed: "Apply failed",
   prune_failed: "Cleanup failed", verification_unknown: "Live state read failed", process_interrupted: "Process interrupted",
@@ -192,37 +246,47 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
   >
     <div class="modal-overlay" @click="close" />
     <div ref="dialog" class="modal-card deployment-modal" role="dialog" aria-modal="true" aria-labelledby="deployment-details-title" tabindex="-1">
-      <div class="modal-header deployment-modal-header">
-        <div><span class="deployment-modal-eyebrow">Deployment details</span><h2 id="deployment-details-title">{{ detail?.stack || "Deployment" }}</h2></div>
-        <button ref="closeButton" class="modal-close" type="button" aria-label="Close deployment details" @click="close">×</button>
-      </div>
+      <button ref="closeButton" class="modal-close deployment-modal-close" type="button" aria-label="Close deployment details" @click="close">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
+      </button>
       <div class="modal-body deployment-modal-body">
+        <header class="deployment-modal-header">
+          <div class="deployment-heading-row">
+            <div class="deployment-title">
+              <span class="deployment-modal-eyebrow">Deployment</span>
+              <h2 id="deployment-details-title">{{ detail?.stack || "Deployment" }}</h2>
+            </div>
+            <strong v-if="detail && !store.deploymentDetailsLoading && !store.deploymentDetailsError" class="deployment-status" :class="`deployment-status--${detail.status}`">
+              <span class="deployment-status-icon"><DeploymentIcon :name="statusIcon" /></span>
+              {{ statusLabel }}
+            </strong>
+          </div>
+          <dl v-if="detail && !store.deploymentDetailsLoading && !store.deploymentDetailsError" class="deployment-metadata">
+            <div class="deployment-metadata-item"><dt><DeploymentIcon name="stack" />Stack</dt><dd>{{ detail.stack }}</dd></div>
+            <div class="deployment-metadata-item"><dt><DeploymentIcon name="commit" />Commit</dt><dd><button v-if="detail.commit" type="button" class="deployment-commit-link" @click="openCommit">{{ shortCommitHash(detail.commit) }}<span aria-hidden="true">↗</span></button><span v-else>—</span></dd></div>
+            <div class="deployment-metadata-item"><dt><DeploymentIcon name="calendar" />Started</dt><dd>{{ formatDate(detail.started_at) }}</dd></div>
+            <div class="deployment-metadata-item"><dt><DeploymentIcon name="calendar" />Finished</dt><dd>{{ detail.finished_at ? formatDate(detail.finished_at) : detail.status === "running" ? "In progress" : "—" }}</dd></div>
+            <div class="deployment-metadata-item"><dt><DeploymentIcon name="clock" />Duration</dt><dd>{{ duration }}</dd></div>
+            <div class="deployment-metadata-item"><dt><DeploymentIcon name="config" />Stage</dt><dd>{{ detail.phase }}</dd></div>
+          </dl>
+        </header>
         <p v-if="store.deploymentDetailsLoading" role="status" class="meta">Loading deployment details...</p>
-        <div v-else-if="store.deploymentDetailsError" role="alert">
+        <div v-else-if="store.deploymentDetailsError" role="alert" class="deployment-state-message">
           <p>Could not load deployment details: {{ store.deploymentDetailsError }}</p>
           <button type="button" @click="store.openDeploymentDetailsModal(store.deploymentDetailsID)">Retry</button>
         </div>
         <p v-else-if="!detail" class="meta">Deployment details are unavailable.</p>
         <template v-else>
-          <section class="deployment-summary" aria-labelledby="deployment-summary-title">
-            <div class="deployment-summary-heading">
-              <h3 id="deployment-summary-title">Summary</h3>
-              <strong class="deployment-status" :class="`deployment-status--${detail.status}`">{{ statusLabel }}</strong>
+          <section class="deployment-outcome" :class="`deployment-outcome--${detail.status}`" aria-labelledby="deployment-outcome-title">
+            <span class="deployment-outcome-icon"><DeploymentIcon :name="statusIcon" /></span>
+            <div>
+              <strong id="deployment-outcome-title">{{ statusTitle }}</strong>
+              <p>{{ statusDescription }}</p>
+              <template v-if="detail.status === 'failed' || detail.status === 'interrupted'">
+                <p class="deployment-diagnostic">{{ failureReason }}</p>
+                <span v-if="detail.reason" class="deployment-code">Code: {{ detail.reason }}</span>
+              </template>
             </div>
-            <dl class="deployment-summary-grid">
-              <div><dt>Stack</dt><dd>{{ detail.stack }}</dd></div>
-              <div><dt>Commit</dt><dd><button v-if="detail.commit" type="button" class="deployment-commit-link" @click="openCommit">{{ shortCommitHash(detail.commit) }}</button><span v-else>—</span></dd></div>
-              <div><dt>Started</dt><dd>{{ formatDate(detail.started_at) }}</dd></div>
-              <div><dt>Finished</dt><dd>{{ detail.finished_at ? formatDate(detail.finished_at) : detail.status === "running" ? "In progress" : "—" }}</dd></div>
-              <div><dt>Duration</dt><dd>{{ duration }}</dd></div>
-              <div><dt>Stage</dt><dd>{{ detail.phase }}</dd></div>
-            </dl>
-            <div v-if="detail.status === 'failed' || detail.status === 'interrupted'" class="deployment-diagnostic" role="status">
-              <strong>{{ detail.status === "failed" ? "Failure reason" : "Outcome detail" }}</strong>
-              <p>{{ failureReason }}</p>
-              <span v-if="detail.reason" class="deployment-code">Code: {{ detail.reason }}</span>
-            </div>
-            <p class="deployment-note">{{ outcome }}</p>
           </section>
 
           <div class="deployment-tabs" role="tablist" aria-label="Deployment detail views">
@@ -235,17 +299,32 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
               <h3>Initial snapshot</h3>
               <p class="deployment-note">First recorded desired-state snapshot. No previous snapshot is available for comparison.</p>
               <div class="deployment-counts" aria-label="Recorded resource counts">
-                <span><strong>{{ detail.resources.services }}</strong> services</span><span><strong>{{ detail.resources.networks }}</strong> networks</span>
-                <span><strong>{{ detail.resources.secrets }}</strong> secrets</span><span><strong>{{ detail.resources.configs }}</strong> configs</span>
-                <span v-if="detail.resources.volumes"><strong>{{ detail.resources.volumes }}</strong> volumes</span>
+                <span><DeploymentIcon name="service" /><strong>{{ pluralize(detail.resources.services, "service") }}</strong></span>
+                <span><DeploymentIcon name="network" /><strong>{{ pluralize(detail.resources.networks, "network") }}</strong></span>
+                <span><DeploymentIcon name="secret" /><strong>{{ pluralize(detail.resources.secrets, "secret") }}</strong></span>
+                <span><DeploymentIcon name="config" /><strong>{{ pluralize(detail.resources.configs, "config") }}</strong></span>
+                <span v-if="detail.resources.volumes"><DeploymentIcon name="volume" /><strong>{{ pluralize(detail.resources.volumes, "volume") }}</strong></span>
               </div>
-              <div v-if="initialServices.length" class="deployment-service-overview">
-                <h4>Services</h4>
-                <div v-for="service in initialServices" :key="service.name" class="deployment-service-row">
-                  <strong>{{ service.name }}</strong><span>{{ service.image }}</span><span>{{ service.replicas }} replicas</span>
-                </div>
+              <div class="deployment-initial-resources">
+                <details v-for="section in initialResourceSections" :key="section.key" class="deployment-resource-section" :open="section.key === 'service'">
+                  <summary>
+                    <svg class="deployment-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg>
+                    <DeploymentIcon :name="section.key" />
+                    <strong>{{ section.label }}</strong>
+                    <span class="deployment-resource-count">{{ section.count }}</span>
+                  </summary>
+                  <div v-if="section.key === 'service' && initialServices.length" class="deployment-service-table-wrap">
+                    <table class="deployment-service-table">
+                      <thead><tr><th>Name</th><th>Image</th><th>Replicas</th></tr></thead>
+                      <tbody><tr v-for="service in initialServices" :key="service.name"><td><span class="deployment-table-name"><DeploymentIcon name="service" />{{ service.name }}</span></td><td :title="service.image">{{ service.image }}</td><td>{{ service.replicas }}</td></tr></tbody>
+                    </table>
+                  </div>
+                  <ul v-else-if="section.groups.length" class="deployment-resource-list">
+                    <li v-for="group in section.groups" :key="group.name"><DeploymentIcon :name="section.key" /><span>{{ group.name }}</span></li>
+                  </ul>
+                  <p v-else class="deployment-resource-empty">Detailed {{ section.label.toLowerCase() }} data is unavailable for this snapshot.</p>
+                </details>
               </div>
-              <p v-else class="meta">No service summary is available for this snapshot.</p>
             </template>
             <template v-else-if="changeState === 'unavailable'">
               <h3>Changes unavailable</h3>
@@ -260,7 +339,7 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
               <div class="deployment-changes-heading"><div><h3>Desired-state changes</h3><p class="deployment-note">{{ comparison }} These entries do not confirm runtime convergence.</p></div><span>{{ total }} fields</span></div>
               <p class="meta">{{ detail.summary.added }} added · {{ detail.summary.changed }} changed · {{ detail.summary.removed }} removed<template v-if="detail.summary.redacted"> · {{ detail.summary.redacted }} masked</template></p>
               <details v-for="group in groups" :key="`${group.type}/${group.name}`" class="deployment-resource" open>
-                <summary><span><span class="deployment-resource-type">{{ group.type }}</span><strong>{{ group.name }}</strong></span><span class="deployment-resource-operation" :class="`deployment-resource-operation--${group.operation}`">{{ group.operation }}</span></summary>
+                <summary><span><svg class="deployment-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg><DeploymentIcon :name="resourceIcon(group.type)" /><span><span class="deployment-resource-type">{{ group.type }}</span><strong>{{ group.name }}</strong></span></span><span class="deployment-resource-operation" :class="`deployment-resource-operation--${group.operation}`">{{ group.operation }}</span></summary>
                 <section v-for="section in group.sections" :key="section.name" class="deployment-change-section">
                   <h4>{{ sectionLabel(section.name) }}</h4>
                   <div v-for="(change, index) in section.changes" :key="`${change.field}-${index}`" class="deployment-change">
@@ -282,72 +361,219 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
           </section>
         </template>
       </div>
+      <footer v-if="detail && !store.deploymentDetailsLoading && !store.deploymentDetailsError" class="deployment-modal-footer">
+        <button type="button" class="button-ghost" @click="close">Close</button>
+      </footer>
     </div>
   </div>
 </template>
 
 <style scoped>
-.deployment-modal { width: min(960px, calc(100vw - 32px)); max-width: calc(100vw - 32px); min-width: 0; max-height: min(calc(100dvh - 32px), 940px); margin: max(16px, 4dvh) auto; display: flex; flex-direction: column; overflow: hidden; }
-.deployment-modal-header { flex: 0 0 auto; align-items: flex-start; }
-.deployment-modal-header > div { min-width: 0; }
-.deployment-modal-header h2 { margin: 2px 0 0; overflow-wrap: anywhere; }
-.deployment-modal-eyebrow { color: var(--muted); font-size: .72rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-.deployment-modal-body { min-width: 0; min-height: 0; overflow: auto; }
-.deployment-summary { border: 1px solid var(--line); border-radius: 10px; padding: 14px; background: var(--surface-card-soft); }
-.deployment-summary-heading, .deployment-changes-heading, .deployment-configuration-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
-.deployment-summary-heading h3, .deployment-changes-heading h3, .deployment-configuration-heading h3 { margin: 0; }
-.deployment-status { text-transform: capitalize; padding: 4px 9px; border-radius: 999px; background: var(--surface-muted); }
-.deployment-status--succeeded { color: var(--success); background: var(--success-muted); }
-.deployment-status--running { color: var(--info); background: var(--info-muted); }
-.deployment-status--failed { color: var(--error); background: var(--error-muted); }
-.deployment-status--interrupted { color: var(--warning); background: var(--warning-muted); }
-.deployment-summary-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 20px; margin: 14px 0 0; }
-.deployment-summary-grid div { min-width: 0; }
-.deployment-summary-grid dt { color: var(--muted); font-size: .72rem; text-transform: uppercase; }
-.deployment-summary-grid dd { margin: 3px 0 0; overflow-wrap: anywhere; }
-.deployment-commit-link { border: 0; background: transparent; color: var(--accent-strong); padding: 0; font: inherit; font-family: ui-monospace, monospace; }
-.deployment-diagnostic { margin-top: 14px; border-left: 3px solid var(--error); border-radius: 5px; background: var(--error-muted); padding: 10px 12px; }
-.deployment-diagnostic p { margin: 5px 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.deployment-code { color: var(--muted); font-family: ui-monospace, monospace; font-size: .75rem; }
+.deployment-modal {
+  width: min(1450px, calc(100vw - 48px));
+  max-width: calc(100vw - 48px);
+  min-width: 0;
+  max-height: 90dvh;
+  margin: 5dvh auto;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  overflow: hidden;
+  border-color: var(--border-default);
+  border-radius: 18px;
+  background: #171a22;
+  padding: 0;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, .48);
+}
+:global(:root[data-theme="light"]) .deployment-modal { background: #fff; }
+.deployment-modal-close {
+  position: absolute;
+  z-index: 2;
+  top: 12px;
+  right: 12px;
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  background: var(--surface-control-strong);
+  color: var(--text);
+  padding: 0;
+}
+.deployment-modal-close svg { width: 20px; height: 20px; }
+.deployment-modal-close:hover { transform: none; background: var(--surface-hover-strong); filter: none; }
+.deployment-modal-body { min-width: 0; min-height: 0; display: block; overflow: auto; padding: 22px 28px 14px; }
+.deployment-state-message { padding: 32px 0; }
+.deployment-modal-header { padding-right: 42px; }
+.deployment-heading-row { min-width: 0; display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
+.deployment-title { min-width: 0; }
+.deployment-title h2 { margin: 6px 0 0; font-size: 1.55rem; line-height: 1.2; overflow-wrap: anywhere; }
+.deployment-modal-eyebrow { color: var(--muted); font-size: .76rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.deployment-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 6px 12px 6px 8px;
+  font-size: .9rem;
+  line-height: 1;
+}
+.deployment-status-icon { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; }
+.deployment-status-icon :deep(.deployment-icon) { width: 17px; height: 17px; }
+.deployment-status--succeeded { color: var(--success); background: rgba(29, 111, 67, .45); border-color: rgba(74, 222, 128, .08); }
+.deployment-status--succeeded .deployment-status-icon { color: #14532d; background: var(--success); }
+.deployment-status--running { color: var(--info); background: var(--info-muted); border-color: var(--accent-border); }
+.deployment-status--running .deployment-status-icon { color: #172033; background: var(--info); }
+.deployment-status--failed { color: var(--error); background: var(--error-muted); border-color: var(--error-border); }
+.deployment-status--failed .deployment-status-icon { color: #172033; background: var(--error); }
+.deployment-status--interrupted { color: var(--warning); background: var(--warning-muted); border-color: var(--warning-border); }
+.deployment-status--interrupted .deployment-status-icon { color: #172033; background: var(--warning); }
+.deployment-metadata {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) minmax(130px, .9fr) minmax(190px, 1.35fr) minmax(190px, 1.35fr) minmax(120px, .75fr) minmax(130px, .8fr);
+  margin: 26px 0 0;
+}
+.deployment-metadata-item { min-width: 0; position: relative; padding: 0 24px 0 63px; border-left: 1px solid var(--line); }
+.deployment-metadata-item:first-child { padding-left: 0; border-left: 0; }
+.deployment-metadata-item:last-child { padding-right: 0; }
+.deployment-metadata-item:first-child dt, .deployment-metadata-item:first-child dd { padding-left: 39px; }
+.deployment-metadata dt { color: var(--muted); font-size: .78rem; line-height: 1.2; }
+.deployment-metadata dt > :deep(.deployment-icon) { position: absolute; left: 24px; top: 50%; width: 25px; height: 25px; color: #b8c0d0; transform: translateY(-50%); }
+.deployment-metadata-item:first-child dt > :deep(.deployment-icon) { left: 0; }
+.deployment-metadata dd { margin: 4px 0 0; overflow-wrap: anywhere; line-height: 1.25; }
+.deployment-commit-link { display: inline-flex; align-items: center; gap: 7px; border: 0; background: transparent; color: var(--accent-strong); padding: 0; font: inherit; font-family: ui-monospace, monospace; }
+.deployment-commit-link:hover { transform: none; filter: none; text-decoration: underline; }
+.deployment-commit-link span { font-family: inherit; font-size: .95rem; }
+.deployment-outcome {
+  display: grid;
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  margin-top: 26px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  padding: 17px 19px;
+  background: var(--surface-muted);
+}
+.deployment-outcome--succeeded { border-color: rgba(74, 222, 128, .13); background: linear-gradient(90deg, rgba(42, 118, 79, .22), rgba(42, 118, 79, .1)); }
+.deployment-outcome--failed { border-color: rgba(248, 113, 113, .18); background: linear-gradient(90deg, rgba(126, 45, 45, .2), rgba(126, 45, 45, .08)); }
+.deployment-outcome--running { border-color: rgba(96, 165, 250, .18); background: linear-gradient(90deg, rgba(37, 99, 235, .18), rgba(37, 99, 235, .07)); }
+.deployment-outcome--interrupted { border-color: rgba(250, 204, 21, .18); background: linear-gradient(90deg, rgba(161, 98, 7, .18), rgba(161, 98, 7, .07)); }
+.deployment-outcome-icon { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; color: #122018; background: var(--success); }
+.deployment-outcome--failed .deployment-outcome-icon { color: #251414; background: var(--error); }
+.deployment-outcome--running .deployment-outcome-icon { color: #101b2b; background: var(--info); }
+.deployment-outcome--interrupted .deployment-outcome-icon { color: #271e0b; background: var(--warning); }
+.deployment-outcome-icon :deep(.deployment-icon) { width: 22px; height: 22px; stroke-width: 2.2; }
+.deployment-outcome strong { display: block; font-size: 1rem; }
+.deployment-outcome p { margin: 5px 0 0; color: var(--muted); line-height: 1.4; }
+.deployment-outcome .deployment-diagnostic { color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
+.deployment-code { display: inline-block; margin-top: 7px; color: var(--muted); font-family: ui-monospace, monospace; font-size: .75rem; }
 .deployment-note { color: var(--muted); line-height: 1.45; }
-.deployment-tabs { display: flex; gap: 4px; margin-top: 16px; border-bottom: 1px solid var(--line); }
-.deployment-tabs button { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--muted); padding: 9px 12px; }
-.deployment-tabs button.active { border-bottom-color: var(--accent); color: var(--text); }
-.deployment-tab-panel { min-width: 0; padding-top: 16px; }
-.deployment-tab-panel > h3 { margin-top: 0; }
-.deployment-counts { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0; }
-.deployment-counts span { border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px; color: var(--muted); }
-.deployment-counts strong { color: var(--text); }
-.deployment-service-overview { margin-top: 16px; }
-.deployment-service-overview h4 { margin-bottom: 8px; }
-.deployment-service-row { display: grid; grid-template-columns: minmax(120px, .8fr) minmax(0, 2fr) max-content; gap: 12px; border-top: 1px solid var(--line); padding: 9px 4px; font-size: .85rem; }
-.deployment-service-row > * { min-width: 0; overflow-wrap: anywhere; }
-.deployment-resource { border: 1px solid var(--line); border-radius: 8px; margin: 12px 0; overflow: hidden; }
-.deployment-resource summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; padding: 11px 12px; background: var(--surface-card-soft); }
-.deployment-resource summary > span:first-child { display: flex; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+.deployment-tabs { display: flex; gap: 8px; margin-top: 20px; border-bottom: 1px solid var(--line); }
+.deployment-tabs button { border: 0; border-bottom: 3px solid transparent; border-radius: 0; background: transparent; color: var(--muted); padding: 10px 10px 12px; }
+.deployment-tabs button:hover { color: var(--text); transform: none; filter: none; }
+.deployment-tabs button.active { border-bottom-color: var(--accent); color: var(--accent-strong); }
+.deployment-tab-panel { min-width: 0; padding: 26px 0 4px; }
+.deployment-tab-panel > h3 { margin: 0 0 4px; font-size: 1.35rem; }
+.deployment-tab-panel > .deployment-note { margin: 0; }
+.deployment-counts { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0 18px; }
+.deployment-counts > span { display: inline-flex; align-items: center; gap: 12px; min-height: 54px; border: 1px solid var(--border-default); border-radius: 10px; padding: 10px 14px; background: var(--surface-card-soft); color: var(--muted); }
+.deployment-counts :deep(.deployment-icon) { width: 23px; height: 23px; color: #7eb2f5; }
+.deployment-counts strong { color: var(--text); font-size: .9rem; }
+.deployment-initial-resources { border-top: 1px solid var(--line); }
+.deployment-resource-section { border-bottom: 1px solid var(--line); }
+.deployment-resource-section summary {
+  min-height: 50px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  cursor: pointer;
+  list-style: none;
+  padding: 10px 2px;
+}
+.deployment-resource-section summary::-webkit-details-marker, .deployment-resource summary::-webkit-details-marker { display: none; }
+.deployment-resource-section summary:hover { background: var(--surface-hover-soft); }
+.deployment-resource-section summary > :deep(.deployment-icon) { width: 23px; height: 23px; color: #c2c9d6; }
+.deployment-resource-section summary strong { font-size: .98rem; }
+.deployment-chevron { width: 18px; height: 18px; transition: transform 140ms ease; }
+details[open] > summary .deployment-chevron { transform: rotate(90deg); }
+.deployment-resource-count { min-width: 27px; border-radius: 999px; background: var(--surface-muted-strong); padding: 3px 8px; color: var(--text); font-size: .75rem; text-align: center; }
+.deployment-service-table-wrap { margin: 0 0 14px 33px; overflow-x: auto; border: 1px solid var(--border-subtle); border-radius: 8px; }
+.deployment-service-table { width: 100%; min-width: 620px; border-collapse: collapse; table-layout: fixed; font-size: .84rem; }
+.deployment-service-table th { color: var(--muted); background: var(--surface-panel-header); font-weight: 500; text-align: left; }
+.deployment-service-table th, .deployment-service-table td { padding: 10px 14px; border-bottom: 1px solid var(--line); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.deployment-service-table th:first-child { width: 30%; }
+.deployment-service-table th:nth-child(2) { width: 58%; }
+.deployment-service-table th:last-child, .deployment-service-table td:last-child { width: 12%; text-align: right; }
+.deployment-service-table tbody tr:last-child td { border-bottom: 0; }
+.deployment-table-name { display: inline-flex; align-items: center; gap: 10px; min-width: 0; }
+.deployment-table-name :deep(.deployment-icon) { width: 21px; height: 21px; color: #c2c9d6; }
+.deployment-resource-list { margin: 0 0 12px 33px; padding: 0; list-style: none; border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden; }
+.deployment-resource-list li { display: flex; align-items: center; gap: 10px; border-top: 1px solid var(--line); padding: 9px 13px; }
+.deployment-resource-list li:first-child { border-top: 0; }
+.deployment-resource-list :deep(.deployment-icon) { width: 20px; height: 20px; color: #c2c9d6; }
+.deployment-resource-empty { margin: 0 0 12px 33px; color: var(--muted); font-size: .82rem; }
+.deployment-changes-heading, .deployment-configuration-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.deployment-changes-heading h3, .deployment-configuration-heading h3 { margin: 0; }
+.deployment-resource { border-bottom: 1px solid var(--line); margin: 10px 0; overflow: hidden; }
+.deployment-resource summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; list-style: none; padding: 11px 4px; }
+.deployment-resource summary > span:first-child { display: flex; align-items: center; gap: 10px; min-width: 0; overflow-wrap: anywhere; }
+.deployment-resource summary > span:first-child > :deep(.deployment-icon) { width: 22px; height: 22px; color: #c2c9d6; }
+.deployment-resource summary > span:first-child > span { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .deployment-resource-type { color: var(--muted); text-transform: capitalize; }
-.deployment-resource-operation { border-radius: 999px; padding: 2px 7px; font-size: .72rem; text-transform: capitalize; }
+.deployment-resource-operation { border-radius: 999px; padding: 3px 8px; font-size: .72rem; text-transform: capitalize; }
 .deployment-resource-operation--added { color: var(--success); background: var(--success-muted); }
 .deployment-resource-operation--removed { color: var(--error); background: var(--error-muted); }
 .deployment-resource-operation--modified { color: var(--accent-strong); background: var(--surface-muted); }
-.deployment-change-section { padding: 10px 12px; }
-.deployment-change-section + .deployment-change-section { border-top: 1px solid var(--line); }
+.deployment-change-section { margin-left: 32px; padding: 10px 12px; border: 1px solid var(--border-subtle); border-bottom: 0; }
+.deployment-change-section:last-child { border-bottom: 1px solid var(--border-subtle); border-radius: 0 0 8px 8px; margin-bottom: 12px; }
 .deployment-change-section h4 { margin: 0 0 7px; color: var(--muted); font-size: .76rem; text-transform: capitalize; }
 .deployment-change { display: grid; grid-template-columns: minmax(130px, .7fr) minmax(0, 2fr); gap: 12px; align-items: start; padding: 8px 0; border-top: 1px solid var(--line); }
 .deployment-change:first-of-type { border-top: 0; }
 .deployment-field { overflow-wrap: anywhere; font-size: .84rem; }
 .deployment-diff-values { min-width: 0; display: grid; gap: 3px; }
-.deployment-diff-line { min-width: 0; display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 5px; padding: 3px 6px; border-radius: 4px; }
+.deployment-diff-line { min-width: 0; display: grid; grid-template-columns: 14px minmax(0, 1fr); gap: 5px; padding: 4px 7px; border-radius: 4px; }
 .deployment-diff-line code { white-space: pre-wrap; overflow-wrap: anywhere; }
 .deployment-diff-line--before { color: var(--error); background: var(--error-muted); }
 .deployment-diff-line--after { color: var(--success); background: var(--success-muted); }
 .deployment-configuration-heading > div { min-width: 0; }
-.deployment-yaml { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; max-height: 55vh; overflow: auto; border: 1px solid var(--line); border-radius: 7px; }
-@media (max-width: 640px) {
-  .deployment-modal { width: calc(100vw - 16px); max-width: calc(100vw - 16px); max-height: calc(100dvh - 16px); margin: 8px auto; }
-  .deployment-summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .deployment-service-row, .deployment-change { grid-template-columns: minmax(0, 1fr); gap: 5px; }
-  .deployment-service-row > :last-child { color: var(--muted); }
+.deployment-yaml { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; max-height: 55vh; overflow: auto; border: 1px solid var(--border-default); border-radius: 8px; background: var(--surface-code); }
+.deployment-modal-footer { display: flex; justify-content: flex-end; border-top: 1px solid var(--line); padding: 14px 26px 16px; }
+.deployment-modal-footer button { padding: 9px 20px; }
+@media (max-width: 1100px) {
+  .deployment-metadata { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 18px; }
+  .deployment-metadata-item:nth-child(4) { padding-left: 0; border-left: 0; }
+}
+@media (max-width: 700px) {
+  .deployment-modal { width: calc(100vw - 16px); max-width: calc(100vw - 16px); max-height: calc(100dvh - 16px); margin: 8px auto; border-radius: 12px; }
+  .deployment-modal-body { padding: 18px 16px 10px; }
+  .deployment-modal-header { padding-right: 38px; }
+  .deployment-heading-row { align-items: flex-start; flex-direction: column; gap: 14px; }
+  .deployment-title h2 { font-size: 1.3rem; }
+  .deployment-metadata { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 20px; row-gap: 0; }
+  .deployment-metadata-item { min-height: 68px; padding: 13px 12px 10px 50px; border-top: 1px solid var(--line); }
+  .deployment-metadata-item:nth-child(odd) { padding-left: 38px; border-left: 0; }
+  .deployment-metadata-item:nth-child(even) { padding-right: 0; }
+  .deployment-metadata-item:nth-child(4) { padding-left: 50px; border-left: 1px solid var(--line); }
+  .deployment-metadata-item:first-child dt, .deployment-metadata-item:first-child dd { padding-left: 0; }
+  .deployment-metadata dt > :deep(.deployment-icon), .deployment-metadata-item:first-child dt > :deep(.deployment-icon) { left: 12px; }
+  .deployment-metadata-item:nth-child(odd) dt > :deep(.deployment-icon), .deployment-metadata-item:first-child dt > :deep(.deployment-icon) { left: 0; }
+  .deployment-outcome { grid-template-columns: 34px minmax(0, 1fr); gap: 12px; padding: 14px; }
+  .deployment-outcome-icon { width: 32px; height: 32px; }
+  .deployment-tabs { margin-top: 16px; }
+  .deployment-tab-panel { padding-top: 20px; }
+  .deployment-counts > span { flex: 1 1 calc(50% - 10px); min-width: 135px; }
+  .deployment-service-table-wrap, .deployment-resource-list, .deployment-resource-empty, .deployment-change-section { margin-left: 0; }
+  .deployment-change { grid-template-columns: minmax(0, 1fr); gap: 5px; }
   .deployment-changes-heading, .deployment-configuration-heading { align-items: flex-start; flex-wrap: wrap; }
+  .deployment-modal-footer { padding: 12px 16px 14px; }
+}
+@media (max-width: 420px) {
+  .deployment-metadata { grid-template-columns: minmax(0, 1fr); }
+  .deployment-metadata-item, .deployment-metadata-item:nth-child(4) { padding: 12px 0 12px 40px; border-left: 0; }
+  .deployment-metadata dt > :deep(.deployment-icon), .deployment-metadata-item:nth-child(odd) dt > :deep(.deployment-icon), .deployment-metadata-item:first-child dt > :deep(.deployment-icon) { left: 0; }
+  .deployment-counts > span { flex-basis: 100%; }
 }
 </style>
