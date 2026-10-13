@@ -2,6 +2,7 @@ package stackloop
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -27,9 +28,10 @@ type pipelinePayload struct {
 	IsNewDigest  bool
 	IsManualSync bool
 
-	Desired           *compose.File
-	DesiredMutated    bool
-	DeployComposePath string
+	Desired             *compose.File
+	DesiredMutated      bool
+	DeployComposePath   string
+	RenderedComposePath string
 
 	LiveServices   []swarm.StackService
 	ObservedAt     time.Time
@@ -190,6 +192,7 @@ func (r *Reconciler) writeRenderedCompose(_ context.Context, payload *pipelinePa
 	}
 
 	target := filepath.Join(renderedDir, payload.Stack.Name+".yaml")
+	payload.RenderedComposePath = target
 	err = os.WriteFile(target, content, 0o600)
 	if err != nil {
 		return fmt.Errorf("write rendered compose %s: %w", target, err)
@@ -200,10 +203,12 @@ func (r *Reconciler) writeRenderedCompose(_ context.Context, payload *pipelinePa
 	return nil
 }
 
-func (r *Reconciler) cleanupRenderedComposeFiles(ctx context.Context) {
-	renderedDir := filepath.Join(r.cfg.Spec.DataDir, "rendered")
-	if err := os.RemoveAll(renderedDir); err != nil {
-		slog.WarnContext(ctx, "failed to clean up rendered compose files", "path", renderedDir, "err", err)
+func (r *Reconciler) cleanupRenderedComposeFile(ctx context.Context, payload *pipelinePayload) {
+	if payload.RenderedComposePath == "" {
+		return
+	}
+	if err := os.Remove(payload.RenderedComposePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+		slog.WarnContext(ctx, "failed to clean up rendered compose file", "path", payload.RenderedComposePath, "err", err)
 	}
 }
 

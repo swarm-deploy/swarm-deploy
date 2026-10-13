@@ -44,6 +44,10 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
 
 	require.NoError(t, writeComposeFile(repoDir), "write compose")
+	otherRenderedPath := filepath.Join(repoDir, ".data", "rendered", "other.yaml")
+	require.NoError(t, os.MkdirAll(filepath.Dir(otherRenderedPath), 0o755), "create rendered dir")
+	require.NoError(t, os.WriteFile(otherRenderedPath, []byte("other stack"), 0o600),
+		"write another stack rendered compose")
 
 	stackDeployer.EXPECT().
 		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, "app.yaml"), filepath.Join(repoDir, ".data", "rendered", "app.yaml"), gomock.Any()).
@@ -81,6 +85,7 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 	require.NoError(t, err, "reconcile")
 	assert.NoFileExists(t, filepath.Join(repoDir, ".data", "rendered", "app.yaml"),
 		"rendered compose must be removed after successful reconciliation")
+	assert.FileExists(t, otherRenderedPath, "reconciliation must not remove another stack rendered compose")
 	state := readSQLState(t, stateStore)
 	stackState, exists := state.Stacks["app"]
 	require.True(t, exists, "expected stack state")
