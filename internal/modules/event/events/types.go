@@ -16,31 +16,31 @@ type Severity string
 type Category string
 
 const (
-	TypeNameServiceCatalogUpdated TypeName = "serviceCatalogUpdated"
-	TypeNameDeploySuccess         TypeName = "deploySuccess"
-	TypeNameAlertOpened           TypeName = "alertOpened"
-	TypeNameAlertResolved         TypeName = "alertResolved"
-	TypeNameDeployFailed          TypeName = "deployFailed"
+	TypeNameServiceCatalogUpdated TypeName = "ServiceCatalogUpdated"
+	TypeNameDeploySuccess         TypeName = "DeploySuccess"
+	TypeNameAlertOpened           TypeName = "AlertOpened"
+	TypeNameAlertResolved         TypeName = "AlertResolved"
+	TypeNameDeployFailed          TypeName = "DeployFailed"
 	// TypeNameConfigurationChanged is an internal accepted-configuration signal.
-	TypeNameConfigurationChanged TypeName = "configurationChanged"
+	TypeNameConfigurationChanged TypeName = "ConfigurationChanged"
 	// TypeNameDeployPreparationFailed is an internal durable lifecycle fact, not a configurable event name.
-	TypeNameDeployPreparationFailed TypeName = "deployPreparationFailed"
+	TypeNameDeployPreparationFailed TypeName = "DeployPreparationFailed"
 	// TypeNameDeployInterrupted is an internal durable lifecycle fact, not a configurable event name.
-	TypeNameDeployInterrupted                TypeName = "deployInterrupted"
-	TypeNameSendNotificationFailed           TypeName = "sendNotificationFailed"
-	TypeNameSyncManualStarted                TypeName = "syncManualStarted"
-	TypeNameWebhookReceived                  TypeName = "webhookReceived"
-	TypeNameNodeJoined                       TypeName = "nodeJoined"
-	TypeNameNodeConnected                    TypeName = "nodeConnected"
-	TypeNameNodeDisconnected                 TypeName = "nodeDisconnected"
-	TypeNameServiceMissed                    TypeName = "serviceMissed"
-	TypeNameServiceReplicasIncreased         TypeName = "serviceReplicasIncreased"
-	TypeNameServiceReplicasDecreased         TypeName = "serviceReplicasDecreased"
-	TypeNameServiceRestarted                 TypeName = "serviceRestarted"
-	TypeNameServicePruned                    TypeName = "servicePruned"
-	TypeNameNetworkCreated                   TypeName = "networkCreated"
-	TypeNameUserAuthenticated                TypeName = "userAuthenticated"
-	TypeNameAssistantPromptInjectionDetected TypeName = "assistantPromptInjectionDetected"
+	TypeNameDeployInterrupted                TypeName = "DeployInterrupted"
+	TypeNameSendNotificationFailed           TypeName = "SendNotificationFailed"
+	TypeNameSyncManualStarted                TypeName = "SyncManualStarted"
+	TypeNameWebhookReceived                  TypeName = "WebhookReceived"
+	TypeNameNodeJoined                       TypeName = "NodeJoined"
+	TypeNameNodeConnected                    TypeName = "NodeConnected"
+	TypeNameNodeDisconnected                 TypeName = "NodeDisconnected"
+	TypeNameServiceMissed                    TypeName = "ServiceMissed"
+	TypeNameServiceReplicasIncreased         TypeName = "ServiceReplicasIncreased"
+	TypeNameServiceReplicasDecreased         TypeName = "ServiceReplicasDecreased"
+	TypeNameServiceRestarted                 TypeName = "ServiceRestarted"
+	TypeNameServicePruned                    TypeName = "ServicePruned"
+	TypeNameNetworkCreated                   TypeName = "NetworkCreated"
+	TypeNameUserAuthenticated                TypeName = "UserAuthenticated"
+	TypeNameAssistantPromptInjectionDetected TypeName = "AssistantPromptInjectionDetected"
 )
 
 const (
@@ -296,7 +296,9 @@ func (n TypeName) Valid() bool {
 		return true
 	case TypeNameDeploySuccess:
 		return true
-	case TypeNameDeployFailed, TypeNameDeployPreparationFailed, TypeNameDeployInterrupted,
+	case TypeNameDeployFailed:
+		return true
+	case TypeNameDeployPreparationFailed, TypeNameDeployInterrupted,
 		TypeNameAlertOpened, TypeNameAlertResolved, TypeNameConfigurationChanged:
 		return false
 	case TypeNameSendNotificationFailed:

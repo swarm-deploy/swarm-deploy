@@ -35,7 +35,7 @@ func TestHandlerListEventsFiltersBySeverityAndCategory(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, resp.Events, 1)
-	assert.Equal(t, "sendNotificationFailed", resp.Events[0].Type)
+	assert.Equal(t, "SendNotificationFailed", resp.Events[0].Type)
 	assert.Equal(t, generated.EventSeverityError, resp.Events[0].Severity)
 	assert.Equal(t, generated.EventCategorySync, resp.Events[0].Category)
 }
@@ -54,8 +54,8 @@ func TestHandlerListEventsUsesOrWithinSeverityFilter(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, resp.Events, 2)
-	assert.Equal(t, "syncManualStarted", resp.Events[0].Type)
-	assert.Equal(t, "sendNotificationFailed", resp.Events[1].Type)
+	assert.Equal(t, "SyncManualStarted", resp.Events[0].Type)
+	assert.Equal(t, "SendNotificationFailed", resp.Events[1].Type)
 }
 
 func TestHandlerListEventsFiltersBySwarmCategory(t *testing.T) {
@@ -71,7 +71,7 @@ func TestHandlerListEventsFiltersBySwarmCategory(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, resp.Events, 1)
-	assert.Equal(t, "nodeJoined", resp.Events[0].Type)
+	assert.Equal(t, "NodeJoined", resp.Events[0].Type)
 	assert.Equal(t, generated.EventSeverityInfo, resp.Events[0].Severity)
 	assert.Equal(t, generated.EventCategorySwarm, resp.Events[0].Category)
 }
@@ -92,7 +92,7 @@ func TestHandlerListEventsFiltersByType(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, resp.Events, 1)
-	assert.Equal(t, "nodeJoined", resp.Events[0].Type)
+	assert.Equal(t, "NodeJoined", resp.Events[0].Type)
 	assert.Equal(t, generated.EventSeverityInfo, resp.Events[0].Severity)
 }
 
@@ -120,8 +120,8 @@ func TestHandlerListEventsFiltersBySince(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, resp.Events, 2)
-	assert.Equal(t, "sendNotificationFailed", resp.Events[0].Type)
-	assert.Equal(t, "sendNotificationFailed", resp.Events[1].Type)
+	assert.Equal(t, "SendNotificationFailed", resp.Events[0].Type)
+	assert.Equal(t, "SendNotificationFailed", resp.Events[1].Type)
 }
 
 func TestHandlerListEventsLimitsLatestFilteredEvents(t *testing.T) {

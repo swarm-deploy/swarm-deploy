@@ -16,7 +16,7 @@ This expands [SQLite + Deployment architecture](sqlite-outbox-refactor.md). The 
 
 ### Consequence: eventual consistency across modules
 
-A successful deployment's `deployments` row and its `DeploymentSucceeded` outbox event are atomic **in T1**. The public `deploySuccess` history row and alert resolution are **eventually** materialized by separate consumers after T1 commits. A subscriber failure cannot roll back an already committed successful deployment. Reconciliation and `Latest deployments` use the first-class Deployment repository, **not** an immediately available Event History record. UI and API should tolerate projection lag.
+A successful deployment's `deployments` row and its `DeploymentSucceeded` outbox event are atomic **in T1**. The public `DeploySuccess` history row and alert resolution are **eventually** materialized by separate consumers after T1 commits. A subscriber failure cannot roll back an already committed successful deployment. Reconciliation and `Latest deployments` use the first-class Deployment repository, **not** an immediately available Event History record. UI and API should tolerate projection lag.
 
 Event History uses a stable subscription and idempotent projection. Failed deliveries remain visible for operator replay or discard.
 
@@ -157,15 +157,15 @@ Foreign-key cascade removes all delivery records. The delete is **not** a retent
 ```text
 T1: DeploymentService
     UPDATE deployments
-    INSERT outbox_events(deploySuccess)
+    INSERT outbox_events(DeploySuccess)
     INSERT deliveries(event-history, alert-management)
     COMMIT
 
-T2: Worker claims (deploySuccess, event-history)
+T2: Worker claims (DeploySuccess, event-history)
     COMMIT
 
 T3: Event History subscriber
-    INSERT event_history(deploySuccess)
+    INSERT event_history(DeploySuccess)
     ACK delivery(event-history)
     COMMIT
 
@@ -176,7 +176,7 @@ T2: Worker claims notification delivery
 
 T2: Worker claims service catalog delivery
     Inspect Docker outside a write transaction
-    Commit source receipt + catalog + serviceCatalogUpdated child atomically
+    Commit source receipt + catalog + ServiceCatalogUpdated child atomically
     ACK the parent delivery separately
     A retry after commit but before ACK is suppressed by the source receipt
 

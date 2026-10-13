@@ -9,6 +9,6 @@ Keep deployment attempt status, Docker apply status, actual Swarm-state observat
 For `git_commit_diff`, treat `diff.services` as the source of truth for service changes. If it is empty or absent, explicitly say that no service changes were reported.
 
 Source selection for historical signals:
-- Internal `deployFailed` facts are not user-facing Event History entries. Investigate failed or interrupted attempts through `deployment_list` / `deployment_get` and the corresponding alerts instead.
-- `deploySuccess` in Event History is a timeline item, not proof of service health; use the Deployment Model for the attempt outcome.
-- `syncManualStarted` indicates a sync request, not its result. A `sendNotificationFailed` signal (if present in history) describes notification delivery, not Docker apply failure. Check actual outcomes in the Deployment Model.
+- Internal `DeployFailed` facts are not user-facing Event History entries. Investigate failed or interrupted attempts through `deployment_list` / `deployment_get` and the corresponding alerts instead.
+- `DeploySuccess` in Event History is a timeline item, not proof of service health; use the Deployment Model for the attempt outcome.
+- `SyncManualStarted` indicates a sync request, not its result. A `SendNotificationFailed` signal (if present in history) describes notification delivery, not Docker apply failure. Check actual outcomes in the Deployment Model.

@@ -22,7 +22,7 @@ func TestSubscriberReturnsDeliveryFailureWithoutPublishing(t *testing.T) {
 			notifier := notifiers.NewMockNotifier(gomock.NewController(t))
 			event := &events.DeploySuccess{}
 			notifier.EXPECT().Notify(gomock.Any(), notifiers.Message{Payload: eventnotifications.DeploymentPayload{
-				ID: "source", Type: "deploySuccess", Status: eventnotifications.StatusSuccess,
+				ID: "source", Type: "DeploySuccess", Status: eventnotifications.StatusSuccess,
 				OccurredAt: time.Time{}.UTC(),
 			}}).Return(notifiers.Receipt{}, tc.err)
 			err := NewSubscriber(notifier).Handle(context.Background(), events.Envelope{ID: "source", Event: event})

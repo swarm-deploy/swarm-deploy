@@ -25,7 +25,7 @@ type Payload struct {
 
 // ReferencePayload returns representative delivery-failure data.
 func ReferencePayload() Payload {
-	return Payload{ID: "event-notification-failed", Type: "sendNotificationFailed", EventType: "deployFailed",
+	return Payload{ID: "event-notification-failed", Type: "SendNotificationFailed", EventType: "DeployFailed",
 		Destination: "telegram", Channel: "ops", Error: "request timeout", Message: "Failed to send notification",
 		OccurredAt: time.Date(2026, time.October, 13, 9, 30, 0, 0, time.UTC)}
 }

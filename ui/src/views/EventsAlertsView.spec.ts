@@ -6,7 +6,7 @@ import EventsAlertsView from "./EventsAlertsView.vue";
 vi.mock("../stores/overview", () => ({ useOverviewStore: () => ({ openAlertDetailsModal: vi.fn() }) }));
 vi.mock("../api/overview", () => ({
   fetchEvents: vi.fn().mockResolvedValue({ events: [{
-    id: "fact", type: "nodeJoined", severity: "info", category: "swarm",
+    id: "fact", type: "NodeJoined", severity: "info", category: "swarm",
     created_at: "2026-10-10T10:00:00Z", message: "Worker joined",
   }] }),
   fetchAlerts: vi.fn().mockResolvedValue({ alerts: [{

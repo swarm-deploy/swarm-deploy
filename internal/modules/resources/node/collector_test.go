@@ -49,7 +49,7 @@ func TestCollector_WatchOnce(t *testing.T) {
 			want:          nil,
 		},
 		{
-			name:          "node created emits only nodeJoined with enriched metadata",
+			name:          "node created emits only NodeJoined with enriched metadata",
 			subscribeList: []swarm.Node{ready("m1", "manager", swarm.NodeManagerStatusLeader)},
 			steps: []collectorStep{{
 				action: dockerevents.ActionCreate,
@@ -108,7 +108,7 @@ func TestCollector_WatchOnce(t *testing.T) {
 			want: nil,
 		},
 		{
-			name:          "existing node becoming ready emits nodeConnected",
+			name:          "existing node becoming ready emits NodeConnected",
 			subscribeList: []swarm.Node{down("w1", "worker-1")},
 			steps: []collectorStep{{
 				action: dockerevents.ActionUpdate,
@@ -138,7 +138,7 @@ func TestCollector_WatchOnce(t *testing.T) {
 			},
 		},
 		{
-			name:          "ready node going down emits nodeDisconnected",
+			name:          "ready node going down emits NodeDisconnected",
 			subscribeList: []swarm.Node{ready("w1", "worker-1", swarm.NodeManagerStatusWorker)},
 			steps: []collectorStep{{
 				action: dockerevents.ActionUpdate,
@@ -148,7 +148,7 @@ func TestCollector_WatchOnce(t *testing.T) {
 			want: []events.Event{&events.NodeDisconnected{NodeID: "w1", NodeName: "worker-1", Status: "down"}},
 		},
 		{
-			name:          "removed ready node emits nodeDisconnected",
+			name:          "removed ready node emits NodeDisconnected",
 			subscribeList: []swarm.Node{ready("w1", "worker-1", swarm.NodeManagerStatusWorker)},
 			steps: []collectorStep{{
 				action: dockerevents.ActionRemove,

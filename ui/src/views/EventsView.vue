@@ -6,26 +6,16 @@ import { fetchEvents } from "../api/overview";
 import type { EventHistoryItem, EventSeverity } from "../api/types";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
+import { eventTypeDescriptions, eventTypeMetadata, type EventTypeMetadata } from "../utils/eventMetadata";
 import { formatDate } from "../utils/format";
 
-const eventTypeOptions = [
-  "deploySuccess",
-  "sendNotificationFailed",
-  "syncManualStarted",
-  "webhookReceived",
-  "nodeJoined",
-  "nodeConnected",
-  "nodeDisconnected",
-  "serviceMissed",
-  "serviceReplicasIncreased",
-  "serviceReplicasDecreased",
-  "serviceRestarted",
-  "servicePruned",
-  "networkCreated",
-  "userAuthenticated",
-  "assistantPromptInjectionDetected",
-] as const;
-const severityOptions: EventSeverity[] = ["info", "warn", "error", "alert"];
+const severityOptions: EventSeverity[] = ["info", "warn", "error"];
+const severityLabels: Record<EventSeverity, string> = {
+  info: "Info",
+  warn: "Warning",
+  error: "Error",
+  alert: "Alert",
+};
 
 type SortKey = "time" | "severity";
 type SortDirection = "asc" | "desc";
@@ -46,11 +36,11 @@ const typeFilter = ref<HTMLDetailsElement | null>(null);
 
 let requestID = 0;
 
-const typeFilterOptions = computed(() => {
-  const options = [...eventTypeOptions] as string[];
+const typeFilterOptions = computed<EventTypeMetadata[]>(() => {
+  const options = eventTypeMetadata.map((metadata) => ({ ...metadata }));
   for (const type of selectedTypes.value) {
-    if (!options.includes(type)) {
-      options.push(type);
+    if (!options.some((option) => option.type === type)) {
+      options.push({ type, description: eventTypeDescriptions.get(type) ?? "Custom event type" });
     }
   }
   return options;
@@ -346,13 +336,17 @@ onBeforeUnmount(() => {
                   Clear
                 </button>
               </div>
-              <label v-for="type in typeFilterOptions" :key="type" class="events-type-filter-option">
+              <label v-for="metadata in typeFilterOptions" :key="metadata.type" class="events-type-filter-option">
                 <input
                   type="checkbox"
-                  :checked="selectedTypes.includes(type)"
-                  @change="toggleType(type)"
+                  :value="metadata.type"
+                  :checked="selectedTypes.includes(metadata.type)"
+                  @change="toggleType(metadata.type)"
                 />
-                <span>{{ type }}</span>
+                <span class="events-type-filter-option-text">
+                  <span class="events-type-filter-option-name">{{ metadata.type }}</span>
+                  <span class="events-type-filter-option-description">{{ metadata.description }}</span>
+                </span>
               </label>
             </div>
           </details>
@@ -362,7 +356,7 @@ onBeforeUnmount(() => {
           <span>Severity</span>
           <select v-model="selectedSeverity">
             <option value="">All severities</option>
-            <option v-for="severity in severityOptions" :key="severity" :value="severity">{{ severity }}</option>
+            <option v-for="severity in severityOptions" :key="severity" :value="severity">{{ severityLabels[severity] }}</option>
           </select>
         </label>
       </div>
@@ -405,7 +399,7 @@ onBeforeUnmount(() => {
               <td>{{ formatDate(event.created_at) }}</td>
               <td>
                 <span class="event-severity" :class="`event-severity-${normalizedSeverity(event)}`">
-                  {{ normalizedSeverity(event) }}
+                  {{ severityLabels[normalizedSeverity(event)] }}
                 </span>
               </td>
               <td>{{ event.type || "unknown" }}</td>

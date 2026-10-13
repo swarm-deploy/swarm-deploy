@@ -77,7 +77,7 @@ func TestIndexSubscriberBuildsIndexOnDeploySuccess(t *testing.T) {
 	err := subscriber.Handle(context.Background(), events.Envelope{ID: "deploy", Event: &events.ServiceCatalogUpdated{
 		StackName: "app",
 	}})
-	require.NoError(t, err, "handle deploySuccess")
+	require.NoError(t, err, "handle DeploySuccess")
 	assert.Equal(t, []string{"success"}, observer.rebuildStatuses, "expected rebuild metric")
 	require.Len(t, embedder.inputs, 1, "expected index embeddings build")
 	assert.Len(t, embedder.inputs[0], 2, "expected one embedding input per service")

@@ -598,16 +598,16 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
           <div class="methods-card">
             <h3 id="eventsTitle">Доступные события</h3>
             <ul class="mini-list">
-              <li id="eventsItemDeploySuccess"><code>deploySuccess</code>: успешный деплой стэка.</li>
-              <li id="eventsItemDeployFailed"><code>deployFailed</code>: ошибка деплоя стэка.</li>
-              <li id="eventsItemSyncManualStarted"><code>syncManualStarted</code>: пользователь запустил ручной sync.</li>
-              <li id="eventsItemNodeJoined"><code>nodeJoined</code>: новая swarm-нода добавлена в кластер.</li>
-              <li id="eventsItemNodeConnected"><code>nodeConnected</code>: swarm-нода перешла в статус ready.</li>
-              <li id="eventsItemNodeDisconnected"><code>nodeDisconnected</code>: swarm-нода вышла из статуса ready.</li>
-              <li id="eventsItemServiceMissed"><code>serviceMissed</code>: ожидаемый сервис отсутствует в live-состоянии swarm.</li>
-              <li id="eventsItemUserAuthenticated"><code>userAuthenticated</code>: пользователь успешно прошел web-аутентификацию.</li>
-              <li id="eventsItemSendNotificationFailed"><code>sendNotificationFailed</code>: не удалось отправить нотификацию.</li>
-              <li id="eventsItemAssistantPromptInjectionDetected"><code>assistantPromptInjectionDetected</code>: детектирована prompt injection атака.</li>
+              <li id="eventsItemDeploySuccess"><code>DeploySuccess</code>: успешный деплой стэка.</li>
+              <li id="eventsItemDeployFailed"><code>DeployFailed</code>: ошибка деплоя стэка.</li>
+              <li id="eventsItemSyncManualStarted"><code>SyncManualStarted</code>: пользователь запустил ручной sync.</li>
+              <li id="eventsItemNodeJoined"><code>NodeJoined</code>: новая swarm-нода добавлена в кластер.</li>
+              <li id="eventsItemNodeConnected"><code>NodeConnected</code>: swarm-нода перешла в статус ready.</li>
+              <li id="eventsItemNodeDisconnected"><code>NodeDisconnected</code>: swarm-нода вышла из статуса ready.</li>
+              <li id="eventsItemServiceMissed"><code>ServiceMissed</code>: ожидаемый сервис отсутствует в live-состоянии swarm.</li>
+              <li id="eventsItemUserAuthenticated"><code>UserAuthenticated</code>: пользователь успешно прошел web-аутентификацию.</li>
+              <li id="eventsItemSendNotificationFailed"><code>SendNotificationFailed</code>: не удалось отправить нотификацию.</li>
+              <li id="eventsItemAssistantPromptInjectionDetected"><code>AssistantPromptInjectionDetected</code>: детектирована prompt injection атака.</li>
             </ul>
           </div>
 
@@ -704,52 +704,52 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
               <legend id="legendEvents">События для уведомлений *</legend>
               <div class="checkbox-grid">
                 <label>
-                  <input type="checkbox" name="events" value="deploySuccess" checked />
-                  deploySuccess
+                  <input type="checkbox" name="events" value="DeploySuccess" checked />
+                  DeploySuccess
                 </label>
                 <label>
-                  <input type="checkbox" name="events" value="deployFailed" checked />
-                  deployFailed
+                  <input type="checkbox" name="events" value="DeployFailed" checked />
+                  DeployFailed
                 </label>
                 <label>
-                  <input type="checkbox" name="events" value="syncManualStarted" />
-                  syncManualStarted
+                  <input type="checkbox" name="events" value="SyncManualStarted" />
+                  SyncManualStarted
                 </label>
                 <label>
-                  <input type="checkbox" name="events" value="nodeJoined" />
-                  nodeJoined
+                  <input type="checkbox" name="events" value="NodeJoined" />
+                  NodeJoined
                 </label>
                 <label>
-                  <input type="checkbox" name="events" value="nodeConnected" />
-                  nodeConnected
+                  <input type="checkbox" name="events" value="NodeConnected" />
+                  NodeConnected
                 </label>
                 <label>
-                  <input type="checkbox" name="events" value="nodeDisconnected" />
-                  nodeDisconnected
+                  <input type="checkbox" name="events" value="NodeDisconnected" />
+                  NodeDisconnected
                 </label>
                 <label>
-                  <input type="checkbox" name="events" value="serviceMissed" />
-                  serviceMissed
+                  <input type="checkbox" name="events" value="ServiceMissed" />
+                  ServiceMissed
                 </label>
                 <label>
-                  <input type="checkbox" name="events" value="userAuthenticated" />
-                  userAuthenticated
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    name="events"
-                    value="sendNotificationFailed"
-                  />
-                  sendNotificationFailed
+                  <input type="checkbox" name="events" value="UserAuthenticated" />
+                  UserAuthenticated
                 </label>
                 <label>
                   <input
                     type="checkbox"
                     name="events"
-                    value="assistantPromptInjectionDetected"
+                    value="SendNotificationFailed"
                   />
-                  assistantPromptInjectionDetected
+                  SendNotificationFailed
+                </label>
+                <label>
+                  <input
+                    type="checkbox"
+                    name="events"
+                    value="AssistantPromptInjectionDetected"
+                  />
+                  AssistantPromptInjectionDetected
                 </label>
               </div>
             </fieldset>
@@ -845,24 +845,24 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
           methodsItem1: "<code>telegram</code>: бот-токен, chatId, шаблон сообщения.",
           methodsItem2: "<code>custom</code>: webhook URL, HTTP method, headers.",
           eventsTitle: "Доступные события",
-          eventsItemDeploySuccess: "<code>deploySuccess</code>: успешный деплой стэка.",
-          eventsItemDeployFailed: "<code>deployFailed</code>: ошибка деплоя стэка.",
+          eventsItemDeploySuccess: "<code>DeploySuccess</code>: успешный деплой стэка.",
+          eventsItemDeployFailed: "<code>DeployFailed</code>: ошибка деплоя стэка.",
           eventsItemSyncManualStarted:
-            "<code>syncManualStarted</code>: пользователь запустил ручной sync.",
+            "<code>SyncManualStarted</code>: пользователь запустил ручной sync.",
           eventsItemNodeJoined:
-            "<code>nodeJoined</code>: новая swarm-нода добавлена в кластер.",
+            "<code>NodeJoined</code>: новая swarm-нода добавлена в кластер.",
           eventsItemNodeConnected:
-            "<code>nodeConnected</code>: swarm-нода перешла в статус ready.",
+            "<code>NodeConnected</code>: swarm-нода перешла в статус ready.",
           eventsItemNodeDisconnected:
-            "<code>nodeDisconnected</code>: swarm-нода вышла из статуса ready.",
+            "<code>NodeDisconnected</code>: swarm-нода вышла из статуса ready.",
           eventsItemServiceMissed:
-            "<code>serviceMissed</code>: ожидаемый сервис отсутствует в live-состоянии swarm.",
+            "<code>ServiceMissed</code>: ожидаемый сервис отсутствует в live-состоянии swarm.",
           eventsItemUserAuthenticated:
-            "<code>userAuthenticated</code>: пользователь успешно прошел web-аутентификацию.",
+            "<code>UserAuthenticated</code>: пользователь успешно прошел web-аутентификацию.",
           eventsItemSendNotificationFailed:
-            "<code>sendNotificationFailed</code>: не удалось отправить нотификацию.",
+            "<code>SendNotificationFailed</code>: не удалось отправить нотификацию.",
           eventsItemAssistantPromptInjectionDetected:
-            "<code>assistantPromptInjectionDetected</code>: детектирована prompt injection атака.",
+            "<code>AssistantPromptInjectionDetected</code>: детектирована prompt injection атака.",
           legendNotificationsEnabled: "Включить нотификации?",
           notificationsNoText: "Нет, пропустить",
           notificationsYesText: "Да, настроить",
@@ -905,52 +905,52 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
           statusCopyFailed: "Не удалось скопировать автоматически. Скопируйте вручную.",
           statusDownloaded: "Файл swarm-deploy.yaml скачан.",
           templates: {
-            deploySuccess: [
+            DeploySuccess: [
               "деплой успешен",
               "stack: {{.event.stack_name}}",
               "{{ range .event.services }}service: {{.name}} | image: {{.image}}{{ end }}",
               "commit: {{.event.commit}}",
             ],
-            deployFailed: [
+            DeployFailed: [
               "деплой завершился ошибкой",
               "stack: {{.event.stack_name}}",
               "{{ range .event.services }}service: {{.name}} | image: {{.image}}{{ end }}",
               "error: {{.event.error}}",
             ],
-            syncManualStarted: ["ручной sync запущен"],
-            nodeJoined: [
+            SyncManualStarted: ["ручной sync запущен"],
+            NodeJoined: [
               "swarm-нода добавлена в кластер",
               "node: {{.event.node_name}}",
               "node_id: {{.event.node_id}}",
               "role: {{.event.role}}",
             ],
-            nodeConnected: [
+            NodeConnected: [
               "swarm-нода подключена",
               "node: {{.event.node_name}}",
               "node_id: {{.event.node_id}}",
               "status: {{.event.status}}",
             ],
-            nodeDisconnected: [
+            NodeDisconnected: [
               "swarm-нода отключена",
               "node: {{.event.node_name}}",
               "node_id: {{.event.node_id}}",
               "status: {{.event.status}}",
             ],
-            serviceMissed: [
+            ServiceMissed: [
               "сервис отсутствует в swarm",
               "stack: {{.event.stack_name}}",
               "service: {{.event.service_name}}",
               "commit: {{.event.commit}}",
             ],
-            userAuthenticated: ["пользователь авторизован", "username: {{.event.username}}"],
-            sendNotificationFailed: [
+            UserAuthenticated: ["пользователь авторизован", "username: {{.event.username}}"],
+            SendNotificationFailed: [
               "ошибка отправки нотификации",
               "destination: {{.event.destination}}",
               "channel: {{.event.channel}}",
               "event_type: {{.event.event_type}}",
               "error: {{.event.error}}",
             ],
-            assistantPromptInjectionDetected: [
+            AssistantPromptInjectionDetected: [
               "обнаружена prompt injection атака",
               "detector: {{.event.detector}}",
               "username: {{.event.username}}",
@@ -1017,24 +1017,24 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
           methodsItem1: "<code>telegram</code>: bot token, chatId, message template.",
           methodsItem2: "<code>custom</code>: webhook URL, HTTP method, headers.",
           eventsTitle: "Available events",
-          eventsItemDeploySuccess: "<code>deploySuccess</code>: stack deployment succeeded.",
-          eventsItemDeployFailed: "<code>deployFailed</code>: stack deployment failed.",
+          eventsItemDeploySuccess: "<code>DeploySuccess</code>: stack deployment succeeded.",
+          eventsItemDeployFailed: "<code>DeployFailed</code>: stack deployment failed.",
           eventsItemSyncManualStarted:
-            "<code>syncManualStarted</code>: a user started manual sync.",
+            "<code>SyncManualStarted</code>: a user started manual sync.",
           eventsItemNodeJoined:
-            "<code>nodeJoined</code>: a new swarm node joined the cluster.",
+            "<code>NodeJoined</code>: a new swarm node joined the cluster.",
           eventsItemNodeConnected:
-            "<code>nodeConnected</code>: a swarm node became ready.",
+            "<code>NodeConnected</code>: a swarm node became ready.",
           eventsItemNodeDisconnected:
-            "<code>nodeDisconnected</code>: a swarm node left ready state.",
+            "<code>NodeDisconnected</code>: a swarm node left ready state.",
           eventsItemServiceMissed:
-            "<code>serviceMissed</code>: a desired service is absent from live swarm state.",
+            "<code>ServiceMissed</code>: a desired service is absent from live swarm state.",
           eventsItemUserAuthenticated:
-            "<code>userAuthenticated</code>: a user successfully passed web authentication.",
+            "<code>UserAuthenticated</code>: a user successfully passed web authentication.",
           eventsItemSendNotificationFailed:
-            "<code>sendNotificationFailed</code>: notification delivery failed.",
+            "<code>SendNotificationFailed</code>: notification delivery failed.",
           eventsItemAssistantPromptInjectionDetected:
-            "<code>assistantPromptInjectionDetected</code>: a prompt injection attack was detected.",
+            "<code>AssistantPromptInjectionDetected</code>: a prompt injection attack was detected.",
           legendNotificationsEnabled: "Enable notifications?",
           notificationsNoText: "No, skip",
           notificationsYesText: "Yes, configure",
@@ -1077,52 +1077,52 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
           statusCopyFailed: "Automatic copy failed. Please copy manually.",
           statusDownloaded: "swarm-deploy.yaml downloaded.",
           templates: {
-            deploySuccess: [
+            DeploySuccess: [
               "deploy succeeded",
               "stack: {{.event.stack_name}}",
               "{{ range .event.services }}service: {{.name}} | image: {{.image}}{{ end }}",
               "commit: {{.event.commit}}",
             ],
-            deployFailed: [
+            DeployFailed: [
               "deploy failed",
               "stack: {{.event.stack_name}}",
               "{{ range .event.services }}service: {{.name}} | image: {{.image}}{{ end }}",
               "error: {{.event.error}}",
             ],
-            syncManualStarted: ["manual sync started"],
-            nodeJoined: [
+            SyncManualStarted: ["manual sync started"],
+            NodeJoined: [
               "swarm node joined the cluster",
               "node: {{.event.node_name}}",
               "node_id: {{.event.node_id}}",
               "role: {{.event.role}}",
             ],
-            nodeConnected: [
+            NodeConnected: [
               "swarm node connected",
               "node: {{.event.node_name}}",
               "node_id: {{.event.node_id}}",
               "status: {{.event.status}}",
             ],
-            nodeDisconnected: [
+            NodeDisconnected: [
               "swarm node disconnected",
               "node: {{.event.node_name}}",
               "node_id: {{.event.node_id}}",
               "status: {{.event.status}}",
             ],
-            serviceMissed: [
+            ServiceMissed: [
               "service is missing in swarm",
               "stack: {{.event.stack_name}}",
               "service: {{.event.service_name}}",
               "commit: {{.event.commit}}",
             ],
-            userAuthenticated: ["user authenticated", "username: {{.event.username}}"],
-            sendNotificationFailed: [
+            UserAuthenticated: ["user authenticated", "username: {{.event.username}}"],
+            SendNotificationFailed: [
               "notification failed",
               "destination: {{.event.destination}}",
               "channel: {{.event.channel}}",
               "event_type: {{.event.event_type}}",
               "error: {{.event.error}}",
             ],
-            assistantPromptInjectionDetected: [
+            AssistantPromptInjectionDetected: [
               "assistant prompt injection detected",
               "detector: {{.event.detector}}",
               "username: {{.event.username}}",

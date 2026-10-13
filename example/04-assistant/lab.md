@@ -175,7 +175,7 @@ notifications:
           id: "<chat-id>"
           threadId: 155
   events:
-    assistantPromptInjectionDetected:
+    AssistantPromptInjectionDetected:
       telegram:
         - chats: default
           message: |

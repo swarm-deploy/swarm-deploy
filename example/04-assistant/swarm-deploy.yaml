@@ -79,7 +79,7 @@ notifications:
           id: "-1001234567890"
           threadId: 155
   events:
-    deploySuccess:
+    DeploySuccess:
       telegram:
         - chats: deployments
           message: |
@@ -91,7 +91,7 @@ notifications:
           method: POST
           header:
             Content-Type: application/json
-    syncManualStarted:
+    SyncManualStarted:
       telegram:
         - message: |
             sync started manually

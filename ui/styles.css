@@ -1684,7 +1684,7 @@ a.overview-summary-row:focus-visible {
   z-index: 20;
   top: calc(100% + 6px);
   left: 0;
-  width: max(100%, 280px);
+  width: max(100%, 340px);
   max-height: 320px;
   overflow-y: auto;
   border: 1px solid var(--border-default);
@@ -1717,13 +1717,12 @@ a.overview-summary-row:focus-visible {
 }
 
 .events-type-filter-option {
-  min-height: 38px;
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 10px;
   border-radius: 6px;
   color: var(--text);
-  padding: 6px 8px;
+  padding: 8px;
   cursor: pointer;
 }
 
@@ -1732,7 +1731,38 @@ a.overview-summary-row:focus-visible {
 }
 
 .events-type-filter-option input {
+  flex: 0 0 auto;
   margin: 0;
+  margin-top: 2px;
+}
+
+.events-type-filter-option-text {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.events-type-filter-option-name {
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.events-type-filter-option-description {
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.25;
+}
+
+@media (max-width: 640px) {
+  .events-type-filter {
+    width: min(100vw - 32px, 360px);
+    min-width: 0;
+  }
+
+  .events-type-filter-menu {
+    width: 100%;
+    max-height: min(320px, 60vh);
+  }
 }
 
 .events-table th:nth-child(1),

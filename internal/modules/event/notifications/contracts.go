@@ -148,7 +148,7 @@ type AssistantPayload struct {
 // DeploymentSuccessReferencePayload returns representative data used to validate success templates.
 func DeploymentSuccessReferencePayload() DeploymentPayload {
 	return DeploymentPayload{
-		ID: "event-deploy-success", DeploymentID: "deployment-42", Type: "deploySuccess", Status: StatusSuccess,
+		ID: "event-deploy-success", DeploymentID: "deployment-42", Type: "DeploySuccess", Status: StatusSuccess,
 		StackName: "payments", Commit: "a1b2c3d4", OccurredAt: referenceTime(),
 		Services: []DeploymentService{{Name: "api", Image: "registry.example.com/payments/api:v2.4.1"}},
 	}
@@ -157,7 +157,7 @@ func DeploymentSuccessReferencePayload() DeploymentPayload {
 // DeploymentFailureReferencePayloads returns representative data for every deployment failure state.
 func DeploymentFailureReferencePayloads() []DeploymentPayload {
 	base := DeploymentPayload{
-		ID: "event-deploy-failed", DeploymentID: "deployment-43", Type: "deployFailed", Status: StatusFailed,
+		ID: "event-deploy-failed", DeploymentID: "deployment-43", Type: "DeployFailed", Status: StatusFailed,
 		StackName: "payments", Commit: "d4c3b2a1", Error: "service update rejected",
 		ErrorCode: "apply_failed", Stage: "apply", OccurredAt: referenceTime(),
 		Services: []DeploymentService{{Name: "worker", Image: "registry.example.com/payments/worker:v2.4.2"}},
@@ -174,19 +174,19 @@ func DeploymentFailureReferencePayloads() []DeploymentPayload {
 
 // NodeJoinedReferencePayload returns representative node-joined data.
 func NodeJoinedReferencePayload() NodePayload {
-	return NodePayload{ID: "event-node-joined", Type: "nodeJoined", NodeID: "node-1", NodeName: "worker-1",
+	return NodePayload{ID: "event-node-joined", Type: "NodeJoined", NodeID: "node-1", NodeName: "worker-1",
 		Role: "worker", Message: "Node worker-1 joined the swarm", OccurredAt: referenceTime()}
 }
 
 // NodeConnectedReferencePayload returns representative node-connected data.
 func NodeConnectedReferencePayload() NodePayload {
-	return NodePayload{ID: "event-node-connected", Type: "nodeConnected", NodeID: "node-1", NodeName: "worker-1",
+	return NodePayload{ID: "event-node-connected", Type: "NodeConnected", NodeID: "node-1", NodeName: "worker-1",
 		Status: "ready", Message: "Node worker-1 connected", OccurredAt: referenceTime()}
 }
 
 // NodeDisconnectedReferencePayload returns representative node-disconnected data.
 func NodeDisconnectedReferencePayload() NodePayload {
-	return NodePayload{ID: "event-node-disconnected", Type: "nodeDisconnected", NodeID: "node-1", NodeName: "worker-1",
+	return NodePayload{ID: "event-node-disconnected", Type: "NodeDisconnected", NodeID: "node-1", NodeName: "worker-1",
 		Status: "down", Message: "Node worker-1 disconnected", OccurredAt: referenceTime()}
 }
 
@@ -201,16 +201,16 @@ func ServiceReferencePayload(eventType string) ServicePayload {
 		Commit: "a1b2c3d4", Username: "operator", PreviousReplicas: referencePreviousReplicas,
 		CurrentReplicas: referenceCurrentReplicas, OccurredAt: referenceTime()}
 	switch eventType {
-	case "serviceMissed":
+	case "ServiceMissed":
 		payload.Message = "Service payments/api missed"
-	case "servicePruned":
+	case "ServicePruned":
 		payload.Message = "Service payments/api pruned"
-	case "serviceReplicasIncreased":
+	case "ServiceReplicasIncreased":
 		payload.Message = "Service payments/api replicas increased from 2 to 3"
-	case "serviceReplicasDecreased":
+	case "ServiceReplicasDecreased":
 		payload.PreviousReplicas, payload.CurrentReplicas = referenceCurrentReplicas, referencePreviousReplicas
 		payload.Message = "Service payments/api replicas decreased from 3 to 2"
-	case "serviceRestarted":
+	case "ServiceRestarted":
 		payload.Message = "Service payments/api restarted"
 	default:
 		payload.Message = "Service event"
@@ -224,13 +224,13 @@ func ReconciliationReferencePayload(eventType string) ReconciliationPayload {
 		TriggeredBy: "operator", Queued: true, NetworkName: "payments", NetworkID: "network-42", Driver: "overlay",
 		OccurredAt: referenceTime()}
 	switch eventType {
-	case "serviceCatalogUpdated":
+	case "ServiceCatalogUpdated":
 		payload.Message = "Service catalog updated"
-	case "syncManualStarted":
+	case "SyncManualStarted":
 		payload.Message = "Manual sync started"
-	case "webhookReceived":
+	case "WebhookReceived":
 		payload.Message = "Webhook received"
-	case "networkCreated":
+	case "NetworkCreated":
 		payload.Message = "Network payments created"
 	default:
 		payload.Message = "Reconciliation event"
@@ -240,13 +240,13 @@ func ReconciliationReferencePayload(eventType string) ReconciliationPayload {
 
 // SecurityReferencePayload returns representative authenticated-user data.
 func SecurityReferencePayload() SecurityPayload {
-	return SecurityPayload{ID: "event-user-authenticated", Type: "userAuthenticated", Username: "operator",
+	return SecurityPayload{ID: "event-user-authenticated", Type: "UserAuthenticated", Username: "operator",
 		Message: "User operator authenticated", OccurredAt: referenceTime()}
 }
 
 // AssistantReferencePayload returns representative prompt-injection data.
 func AssistantReferencePayload() AssistantPayload {
-	return AssistantPayload{ID: "event-prompt-injection", Type: "assistantPromptInjectionDetected", Detector: "regexp",
+	return AssistantPayload{ID: "event-prompt-injection", Type: "AssistantPromptInjectionDetected", Detector: "regexp",
 		Username: "operator", Message: "Detected prompt injection", OccurredAt: referenceTime()}
 }
 
