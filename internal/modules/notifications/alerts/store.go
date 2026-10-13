@@ -125,7 +125,8 @@ func (s *Store) MarkOpened(
 	query, args, err := dialect.Update("notification_messages").Prepared(true).Set(goqu.Record{
 		"opened_message_id": receipt.MessageID, "opened_at": at.UTC(),
 	}).Where(goqu.Ex{"alert_id": alertID, "messenger": "telegram", "bot_identity": recipient.BotIdentity,
-		"chat_id": recipient.ChatID, "thread_id": recipient.ThreadID, "opened_message_id": nil}).ToSQL()
+		"chat_id": recipient.ChatID, "thread_id": recipient.ThreadID,
+		"opened_message_id": nil, "resolved_at": nil}).ToSQL()
 	if err != nil {
 		return err
 	}
