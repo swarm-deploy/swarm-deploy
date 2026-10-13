@@ -20,6 +20,12 @@ sync:
   policy:
     # Removes orphaned managed services that are no longer defined in compose.
     prune: true
+    # Optional service image reference rules. All are disabled by default.
+    image:
+      tag:
+        required: false
+        no_latest: false
+        only_sha: false
 
 # AI assistant settings.
 assistant:
