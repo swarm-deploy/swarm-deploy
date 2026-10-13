@@ -20,7 +20,7 @@ func TestAlertNotificationFallback(t *testing.T) {
 	spec := alertNotificationSpec()
 	require.Empty(t, spec.validate())
 	assert.Equal(t, []string{"default"}, (TelegramChannel{Chats: spec.AlertTelegramRoutes("deploy_failed")[0].Chats}).ChatNames())
-	assert.Contains(t, spec.AlertTelegramRoutes("deploy_failed")[0].AlertOpenedTemplate(), ".Title")
+	assert.Contains(t, spec.AlertTelegramRoutes("deploy_failed")[0].AlertOpenedTemplate("deploy_failed"), ".ResourceID")
 	assert.Equal(t, "reply", spec.AlertTelegramRoutes("deploy_failed")[0].AlertResolvedAction())
 	spec.Alerts = map[string]NotificationAlertRoutes{
 		"default":       {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"deployments"}, Resolved: AlertMessageSpec{Action: "edit"}}}},

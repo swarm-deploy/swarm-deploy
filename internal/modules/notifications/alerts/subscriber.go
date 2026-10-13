@@ -6,16 +6,25 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"html"
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	alertmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/notifiers"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
+)
+
+const (
+	telegramMessageLimit              = 4096
+	deploymentFailedErrorTruncated    = "\n\n[error truncated]"
+	deploymentFailedVisibleHeaderBase = "🚨 Deployment failed\n\nStack: \n\nError:\n"
 )
 
 // SubscriptionID identifies one physical destination across configuration alias changes.
@@ -134,11 +143,17 @@ func (s *Subscriber) opened(ctx context.Context, alert events.AlertSnapshot) err
 		return nil
 	}
 	rule := s.rule(alert.Kind)
-	notifier, err := s.notifier(rule.AlertOpenedTemplate())
+	payload := alert
+	parseMode := ""
+	if alert.Kind == string(alertmodel.AlertKindDeployFailed) && strings.TrimSpace(rule.Opened.Message) == "" {
+		payload = defaultDeploymentFailedPayload(alert)
+		parseMode = "HTML"
+	}
+	notifier, err := s.notifier(rule.AlertOpenedTemplate(alert.Kind), parseMode)
 	if err != nil {
 		return err
 	}
-	receipt, err := notifier.Notify(ctx, notifiers.Message{Payload: alert, Action: notifiers.ActionSend})
+	receipt, err := notifier.Notify(ctx, notifiers.Message{Payload: payload, Action: notifiers.ActionSend})
 	if err != nil {
 		return err
 	}
@@ -158,7 +173,7 @@ func (s *Subscriber) resolved(ctx context.Context, event *events.AlertResolved) 
 		return nil
 	}
 	rule := s.rule(alert.Kind)
-	notifier, err := s.notifier(rule.AlertResolvedTemplate())
+	notifier, err := s.notifier(rule.AlertResolvedTemplate(), "")
 	if err != nil {
 		return err
 	}
@@ -236,12 +251,57 @@ func (s *Subscriber) rule(kind string) config.TelegramAlertChannel {
 	return config.TelegramAlertChannel{}
 }
 
-func (s *Subscriber) notifier(message string) (notifiers.Notifier, error) {
+func (s *Subscriber) notifier(message, parseMode string) (notifiers.Notifier, error) {
 	telegram := s.spec.Messengers.Telegram
 	if s.spec.TelegramBotIdentity() != s.recipient.BotIdentity {
 		return nil, fmt.Errorf("telegram credentials unavailable for alert recipient")
 	}
 	return notifiers.NewTelegramNotifier(s.recipient.ChatID, string(telegram.BotToken.Content), s.recipient.ChatID,
-		notifiers.TelegramOptions{ChatThreadID: s.recipient.ThreadID, Message: message, Retries: telegram.Retries,
+		notifiers.TelegramOptions{ChatThreadID: s.recipient.ThreadID, Message: message,
+			ParseMode: parseMode, Retries: telegram.Retries,
 			SOCKS5Address: telegram.Proxy.SOCKS5.Address.Value, APIBaseURL: s.apiBaseURL})
+}
+
+func defaultDeploymentFailedPayload(alert events.AlertSnapshot) events.AlertSnapshot {
+	available := telegramMessageLimit - telegramTextLength(deploymentFailedVisibleHeaderBase) -
+		telegramTextLength(alert.ResourceID)
+	alert.ResourceID = html.EscapeString(alert.ResourceID)
+	alert.Message = html.EscapeString(truncateTelegramText(alert.Message, available, deploymentFailedErrorTruncated))
+	return alert
+}
+
+func truncateTelegramText(value string, limit int, suffix string) string {
+	if limit <= 0 {
+		return ""
+	}
+	if telegramTextLength(value) <= limit {
+		return value
+	}
+	suffixLength := telegramTextLength(suffix)
+	if limit <= suffixLength {
+		return takeTelegramText(suffix, limit)
+	}
+	return takeTelegramText(value, limit-suffixLength) + suffix
+}
+
+func takeTelegramText(value string, limit int) string {
+	result := make([]rune, 0, len([]rune(value)))
+	length := 0
+	for _, character := range value {
+		characterLength := utf16.RuneLen(character)
+		if length+characterLength > limit {
+			break
+		}
+		result = append(result, character)
+		length += characterLength
+	}
+	return string(result)
+}
+
+func telegramTextLength(value string) int {
+	length := 0
+	for _, character := range value {
+		length += utf16.RuneLen(character)
+	}
+	return length
 }

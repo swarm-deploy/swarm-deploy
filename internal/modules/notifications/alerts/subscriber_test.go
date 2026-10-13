@@ -3,9 +3,11 @@ package alerts
 import (
 	"database/sql"
 	"encoding/json"
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -32,6 +34,100 @@ func alertSpec() config.NotificationSpec {
 			Resolved: config.AlertMessageSpec{Action: "reply", Message: "{{ .Resolution }}"},
 		}}}},
 	}
+}
+
+func TestDeploymentFailedAlertRendering(t *testing.T) {
+	tests := []struct {
+		name          string
+		customMessage string
+		wantText      string
+		wantParseMode string
+	}{
+		{
+			name: "default multiline HTML",
+			wantText: `<b>🚨 Deployment failed</b>
+
+<b>Stack:</b> <code>infra&lt;&amp;</code>
+
+<b>Error:</b>
+<pre>first line
+&lt;broken&gt; &amp; stopped</pre>`,
+			wantParseMode: "HTML",
+		},
+		{
+			name:          "custom template",
+			customMessage: "custom {{ .ResourceID }}: {{ .Message }}",
+			wantText:      "custom infra<&: first line\n<broken> & stopped",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db, err := storage.Open(t.Context(), t.TempDir())
+			require.NoError(t, err)
+			defer db.Close()
+			spec := alertSpec()
+			if test.customMessage != "" {
+				spec.Alerts["deploy_failed"] = config.NotificationAlertRoutes{Telegram: []config.TelegramAlertChannel{{
+					Opened: config.AlertMessageSpec{Message: test.customMessage},
+				}}}
+			}
+			var request struct {
+				Text      string `json:"text"`
+				ParseMode string `json:"parse_mode"`
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
+				_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":42}}`))
+			}))
+			defer server.Close()
+			recipient := spec.AlertRecipients("deploy_failed")[0]
+			subscriber := &Subscriber{
+				store: NewStore(db), spec: spec, recipient: recipient, now: time.Now, apiBaseURL: server.URL,
+			}
+			alert := events.AlertSnapshot{
+				ID: "failed", Kind: "deploy_failed", Title: "Deployment failed", ResourceID: "infra<&",
+				Message: "first line\n<broken> & stopped", OpenedAt: time.Now().UTC(),
+			}
+			require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{Event: &events.AlertOpened{
+				Alert: alert, Recipients: []events.AlertRecipient{recipient},
+			}}))
+			assert.Equal(t, test.wantText, request.Text)
+			assert.Equal(t, test.wantParseMode, request.ParseMode)
+		})
+	}
+}
+
+func TestDeploymentFailedDefaultAlertTruncatesLongError(t *testing.T) {
+	db, err := storage.Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+	spec := alertSpec()
+	var request struct {
+		Text      string `json:"text"`
+		ParseMode string `json:"parse_mode"`
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":42}}`))
+	}))
+	defer server.Close()
+	recipient := spec.AlertRecipients("deploy_failed")[0]
+	subscriber := &Subscriber{
+		store: NewStore(db), spec: spec, recipient: recipient, now: time.Now, apiBaseURL: server.URL,
+	}
+	alert := events.AlertSnapshot{
+		ID: "long-failure", Kind: "deploy_failed", Title: "Deployment failed", ResourceID: "infra-monitoring",
+		Message: strings.Repeat("failed <&> 😀\n", 500), OpenedAt: time.Now().UTC(),
+	}
+	require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{Event: &events.AlertOpened{
+		Alert: alert, Recipients: []events.AlertRecipient{recipient},
+	}}))
+	visible := html.UnescapeString(strings.NewReplacer(
+		"<b>", "", "</b>", "", "<code>", "", "</code>", "", "<pre>", "", "</pre>", "",
+	).Replace(request.Text))
+	assert.LessOrEqual(t, telegramTextLength(visible), telegramMessageLimit)
+	assert.Contains(t, request.Text, "[error truncated]")
+	assert.Equal(t, "HTML", request.ParseMode)
 }
 
 func subscribeTestRecipients(t *testing.T, bus *outbox.Bus, db *storage.Database, spec config.NotificationSpec, url string) []events.AlertRecipient {
