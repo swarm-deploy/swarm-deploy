@@ -65,8 +65,6 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 		})
 	case *events.DeploySuccess:
 		return s.handleSucceeded(ctx, event.ID, deployment)
-	case *events.StacksConfigured:
-		return s.handleConfigured(ctx, event.ID, deployment.Names)
 	default:
 		return nil
 	}
@@ -197,35 +195,6 @@ func alertSnapshot(alert model.Alert) events.AlertSnapshot {
 		snapshot.ResolutionReason = string(alert.Resolution.Reason)
 	}
 	return snapshot
-}
-
-func (s *Subscriber) handleConfigured(ctx context.Context, eventID string, names []string) error {
-	configured := make(map[string]bool, len(names))
-	for _, name := range names {
-		configured[name] = true
-	}
-	alerts, err := s.store.List(ctx, modelstore.ListFilter{
-		Status: model.AlertStatusOpen, Kind: model.AlertKindDeployFailed,
-	})
-	if err != nil {
-		return err
-	}
-	for _, alert := range alerts {
-		if configured[alert.ResourceID] {
-			continue
-		}
-		now := s.now()
-		alert.Status, alert.UpdatedAt, alert.ResolvedAt = model.AlertStatusResolved, now, &now
-		alert.Resolution = &model.AlertResolution{Reason: model.ResolutionReasonRemovedFromConfig,
-			Message: "Stack removed from configuration", EventID: eventReferenceID(eventID, s.newID)}
-		if err = s.store.Update(ctx, alert); err != nil {
-			return err
-		}
-		if err = s.publishResolved(ctx, alert); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func eventReferenceID(eventID string, fallback func() string) string {

@@ -64,6 +64,19 @@ func TestAlertRouteValidation(t *testing.T) {
 		{"duplicate chat", func(s *NotificationSpec) {
 			s.Alerts["default"] = NotificationAlertRoutes{Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default", "default"}}}}
 		}, `duplicate`},
+		{"duplicate physical destination with identical names", func(s *NotificationSpec) {
+			s.Alerts["deploy_failed"] = NotificationAlertRoutes{Telegram: []TelegramAlertChannel{
+				{Chats: NotificationChatNames{"default"}},
+				{Chats: NotificationChatNames{"default"}},
+			}}
+		}, `notifications.alerts["deploy_failed"].telegram[1].chats resolves to a duplicate Telegram destination`},
+		{"duplicate physical destination with different aliases", func(s *NotificationSpec) {
+			s.Messengers.Telegram.Chats["duplicate"] = s.Messengers.Telegram.Chats["default"]
+			s.Alerts["deploy_failed"] = NotificationAlertRoutes{Telegram: []TelegramAlertChannel{
+				{Chats: NotificationChatNames{"default"}},
+				{Chats: NotificationChatNames{"duplicate"}},
+			}}
+		}, `notifications.alerts["deploy_failed"].telegram[1].chats resolves to a duplicate Telegram destination`},
 		{"bad action", func(s *NotificationSpec) {
 			s.Alerts["default"] = NotificationAlertRoutes{Telegram: []TelegramAlertChannel{{Resolved: AlertMessageSpec{Action: "delete"}}}}
 		}, `.resolved.action`},
@@ -87,4 +100,14 @@ func TestAlertRouteValidation(t *testing.T) {
 			assert.Contains(t, joinNotificationErrors(spec.validate()), tt.want)
 		})
 	}
+}
+
+func TestAlertRouteValidationAllowsSamePhysicalDestinationForDifferentKinds(t *testing.T) {
+	spec := alertNotificationSpec()
+	spec.Alerts = map[string]NotificationAlertRoutes{
+		"deploy_failed":     {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default"}}}},
+		"node_disconnected": {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default"}}}},
+	}
+
+	assert.Empty(t, spec.validate())
 }

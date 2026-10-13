@@ -279,6 +279,36 @@ func (c *NotificationSpec) validateAlertRoutes() []error {
 			routePath := fmt.Sprintf("%s[%d]", path, i)
 			errs = append(errs, c.validateAlertChannel(routePath, route)...)
 		}
+		errs = append(errs, c.validateAlertDestinations(path, routes.Telegram)...)
+	}
+	return errs
+}
+
+func (c *NotificationSpec) validateAlertDestinations(path string, routes []TelegramAlertChannel) []error {
+	var errs []error
+	seen := make(map[events.AlertRecipient]string)
+	identity := c.TelegramBotIdentity()
+	for i, route := range routes {
+		routePath := fmt.Sprintf("%s[%d]", path, i)
+		for _, name := range (TelegramChannel{Chats: route.Chats}).ChatNames() {
+			chat, ok := c.Messengers.Telegram.Chats[name]
+			if !ok {
+				continue
+			}
+			recipient := events.AlertRecipient{
+				BotIdentity: identity,
+				ChatID:      chat.ID,
+				ThreadID:    chat.ThreadID,
+			}
+			if firstPath, duplicate := seen[recipient]; duplicate {
+				errs = append(errs, fmt.Errorf(
+					"%s.chats resolves to a duplicate Telegram destination already selected by %s.chats",
+					routePath, firstPath,
+				))
+				continue
+			}
+			seen[recipient] = routePath
+		}
 	}
 	return errs
 }

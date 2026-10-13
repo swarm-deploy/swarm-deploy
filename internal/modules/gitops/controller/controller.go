@@ -499,14 +499,6 @@ func (c *Controller) reconcile( //nolint:funlen // reconciliation pipeline
 		slog.String("path", reloadedFrom),
 		slog.Int("count", len(c.cfg.Spec.Stacks)),
 	)
-	stackNames := make([]string, 0, len(c.cfg.Spec.Stacks))
-	for _, stack := range c.cfg.Spec.Stacks {
-		stackNames = append(stackNames, stack.Name)
-	}
-	if publishErr := c.event.Publish(ctx, &events.StacksConfigured{Names: stackNames}); publishErr != nil {
-		slog.ErrorContext(ctx, "publish configured stacks for alert resolution", "error_type", fmt.Sprintf("%T", publishErr))
-	}
-
 	stacksToSync := c.cfg.Spec.Stacks
 	if gitResult.Updated {
 		fileDiffs, diffErr := c.git.Diff(ctx, gitResult.OldRevision, gitResult.NewRevision)

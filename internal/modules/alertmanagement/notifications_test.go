@@ -93,31 +93,6 @@ func TestAlertResolutionPublicationRollback(t *testing.T) {
 	assert.Equal(t, model.AlertStatusOpen, alert.Status)
 }
 
-func TestRemovedStackResolvesAlert(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
-	require.NoError(t, err)
-	defer db.Close()
-	bus := outbox.New(db)
-	repo := modelstore.NewSQLStore(db)
-	subscriber := NewSQLSubscriber(repo, bus, func(model.AlertKind) []events.AlertRecipient { return nil })
-	require.NoError(t, bus.Subscribe(events.TypeNameAlertOpened, "test-open", subscriber))
-	require.NoError(t, bus.Subscribe(events.TypeNameAlertResolved, "test-resolve", subscriber))
-	at := time.Now().UTC()
-	require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{ID: "failed", OccurredAt: at,
-		Event: &events.DeployFailed{DeployEvent: events.DeployEvent{StackName: "removed"}}}))
-	require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{ID: "config", OccurredAt: at.Add(time.Second),
-		Event: &events.StacksConfigured{Names: []string{"retained"}}}))
-	alerts, err := repo.List(t.Context(), modelstore.ListFilter{})
-	require.NoError(t, err)
-	require.Len(t, alerts, 1)
-	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
-	assert.Equal(t, model.ResolutionReasonRemovedFromConfig, alerts[0].Resolution.Reason)
-	assert.Equal(t, 1, alertSignalCount(t, db, "alertResolved"))
-	require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{ID: "config", OccurredAt: at.Add(time.Second),
-		Event: &events.StacksConfigured{Names: []string{"retained"}}}))
-	assert.Equal(t, 1, alertSignalCount(t, db, "alertResolved"))
-}
-
 func alertSignalCount(t *testing.T, db *storage.Database, kind string) int {
 	t.Helper()
 	var count int

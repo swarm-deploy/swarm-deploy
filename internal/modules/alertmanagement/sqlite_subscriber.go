@@ -39,10 +39,6 @@ func (s *SQLSubscriber) Handle(ctx context.Context, event events.Envelope) error
 		resource = "node:" + e.NodeID
 	case *events.NodeConnected:
 		resource = "node:" + e.NodeID
-	case *events.StacksConfigured:
-		return s.store.ConsumeLatest(ctx, event.ID, "stack-configuration", event.OccurredAt, func(ctx context.Context) error {
-			return s.Subscriber.Handle(ctx, event)
-		})
 	default:
 		return nil
 	}

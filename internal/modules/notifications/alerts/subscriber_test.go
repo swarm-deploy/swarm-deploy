@@ -56,6 +56,43 @@ func drain(t *testing.T, bus *outbox.Bus) {
 	}
 }
 
+func TestRegisterIncludesFallbackAndCustomRecipientsForFutureAlertKinds(t *testing.T) {
+	db, err := storage.Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+	spec := alertSpec()
+	spec.Messengers.Telegram.Chats["deployments"] = config.NotificationChatSpec{ID: "-102", ThreadID: 3}
+	spec.Alerts = map[string]config.NotificationAlertRoutes{
+		"default": {Telegram: []config.TelegramAlertChannel{{Chats: config.NotificationChatNames{"default"}}}},
+		"deploy_failed": {Telegram: []config.TelegramAlertChannel{{
+			Chats: config.NotificationChatNames{"deployments"},
+		}}},
+		"node_disconnected": {Telegram: []config.TelegramAlertChannel{{
+			Chats: config.NotificationChatNames{"infra"},
+		}}},
+	}
+	bus := outbox.New(db)
+	require.NoError(t, Register(t.Context(), bus, db, spec))
+	futureRecipients := spec.AlertRecipients("future_alert_kind")
+	require.Len(t, futureRecipients, 1)
+	require.NoError(t, bus.Publish(t.Context(), &events.AlertOpened{
+		Alert: events.AlertSnapshot{
+			ID: "future-alert", Kind: "future_alert_kind", Title: "Future alert", OpenedAt: time.Now().UTC(),
+		},
+		Recipients: futureRecipients,
+	}))
+
+	for _, kind := range []string{"future_alert_kind", "deploy_failed", "node_disconnected"} {
+		recipients := spec.AlertRecipients(kind)
+		require.Len(t, recipients, 1)
+		var deliveries int
+		require.NoError(t, db.Get(t.Context(), &deliveries, `SELECT count(*) FROM outbox_deliveries d
+			JOIN outbox_events e ON e.id=d.event_id WHERE e.event_type='alertOpened' AND d.subscription_id=?`,
+			SubscriptionID(recipients[0])))
+		assert.Equal(t, 1, deliveries, "recipient for %s must be registered", kind)
+	}
+}
+
 func TestAlertIndependentDeliveryOrderingAndRestart(t *testing.T) {
 	directory := t.TempDir()
 	db, err := storage.Open(t.Context(), directory)

@@ -27,7 +27,7 @@ func StandardTemplate(eventType events.TypeName) (string, bool) {
 	case events.TypeNameSendNotificationFailed:
 		return eventnotifications.DefaultTemplate(), true
 	case events.TypeNameDeployPreparationFailed, events.TypeNameDeployInterrupted,
-		events.TypeNameAlertOpened, events.TypeNameAlertResolved, events.TypeNameStacksConfigured:
+		events.TypeNameAlertOpened, events.TypeNameAlertResolved:
 		return "", false
 	default:
 		return "", false
@@ -65,7 +65,7 @@ func ReferencePayloads(eventType events.TypeName) ([]any, bool) {
 	case events.TypeNameSendNotificationFailed:
 		return []any{eventnotifications.ReferencePayload()}, true
 	case events.TypeNameDeployPreparationFailed, events.TypeNameDeployInterrupted,
-		events.TypeNameAlertOpened, events.TypeNameAlertResolved, events.TypeNameStacksConfigured:
+		events.TypeNameAlertOpened, events.TypeNameAlertResolved:
 		return nil, false
 	default:
 		return nil, false

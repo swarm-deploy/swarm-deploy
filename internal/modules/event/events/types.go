@@ -20,7 +20,6 @@ const (
 	TypeNameDeploySuccess         TypeName = "deploySuccess"
 	TypeNameAlertOpened           TypeName = "alertOpened"
 	TypeNameAlertResolved         TypeName = "alertResolved"
-	TypeNameStacksConfigured      TypeName = "stacksConfigured"
 	TypeNameDeployFailed          TypeName = "deployFailed"
 	// TypeNameDeployPreparationFailed is an internal durable lifecycle fact, not a configurable event name.
 	TypeNameDeployPreparationFailed TypeName = "deployPreparationFailed"
@@ -100,10 +99,9 @@ var (
 		category: CategorySync,
 		window:   1 * time.Minute,
 	}
-	TypeAlertOpened      = Type{name: TypeNameAlertOpened, severity: SeverityAlert, category: CategorySync}
-	TypeAlertResolved    = Type{name: TypeNameAlertResolved, severity: SeverityInfo, category: CategorySync}
-	TypeStacksConfigured = Type{name: TypeNameStacksConfigured, severity: SeverityInfo, category: CategorySync}
-	TypeDeployFailed     = Type{
+	TypeAlertOpened   = Type{name: TypeNameAlertOpened, severity: SeverityAlert, category: CategorySync}
+	TypeAlertResolved = Type{name: TypeNameAlertResolved, severity: SeverityInfo, category: CategorySync}
+	TypeDeployFailed  = Type{
 		name:     TypeNameDeployFailed,
 		severity: SeverityAlert,
 		category: CategorySync,
@@ -272,8 +270,6 @@ func parseStoredType(name string) (Type, bool) {
 		return TypeAlertOpened, true
 	case TypeNameAlertResolved:
 		return TypeAlertResolved, true
-	case TypeNameStacksConfigured:
-		return TypeStacksConfigured, true
 	}
 	if typ == TypeNameDeployFailed {
 		return TypeDeployFailed, true
@@ -294,7 +290,7 @@ func (n TypeName) Valid() bool {
 	case TypeNameDeploySuccess:
 		return true
 	case TypeNameDeployFailed, TypeNameDeployPreparationFailed, TypeNameDeployInterrupted,
-		TypeNameAlertOpened, TypeNameAlertResolved, TypeNameStacksConfigured:
+		TypeNameAlertOpened, TypeNameAlertResolved:
 		return false
 	case TypeNameSendNotificationFailed:
 		return true
@@ -332,7 +328,7 @@ func (n TypeName) Valid() bool {
 // ParseType resolves event type metadata by event name.
 func ParseType(name string) (Type, bool) {
 	switch TypeName(name) {
-	case TypeNameAlertOpened, TypeNameAlertResolved, TypeNameStacksConfigured:
+	case TypeNameAlertOpened, TypeNameAlertResolved:
 		return Type{}, false
 	case TypeNameServiceCatalogUpdated:
 		return TypeServiceCatalogUpdated, true

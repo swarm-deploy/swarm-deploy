@@ -15,9 +15,6 @@ func encodeInternal(event events.Event) ([]byte, bool, error) {
 	case *events.AlertResolved:
 		payload, err := json.Marshal(alertResolvedPayload{Alert: alertPayloadFrom(e.Alert), Recipients: e.Recipients})
 		return payload, true, err
-	case *events.StacksConfigured:
-		payload, err := json.Marshal(stacksConfiguredPayload{Names: e.Names})
-		return payload, true, err
 	default:
 		return nil, false, nil
 	}
@@ -45,9 +42,6 @@ type alertOpenedPayload struct {
 type alertResolvedPayload struct {
 	Alert      alertPayload            `json:"alert"`
 	Recipients []events.AlertRecipient `json:"recipients"`
-}
-type stacksConfiguredPayload struct {
-	Names []string `json:"names"`
 }
 
 func alertPayloadFrom(a events.AlertSnapshot) alertPayload {

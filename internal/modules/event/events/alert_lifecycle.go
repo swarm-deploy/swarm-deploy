@@ -59,13 +59,3 @@ type AlertResolved struct {
 func (*AlertResolved) Type() Type                 { return TypeAlertResolved }
 func (*AlertResolved) Message() string            { return "Alert resolved" }
 func (*AlertResolved) Details() map[string]string { return nil }
-
-// StacksConfigured reports the successfully loaded stack names for alert cleanup.
-type StacksConfigured struct {
-	// Names are the stack names in the active configuration.
-	Names []string `json:"names"`
-}
-
-func (*StacksConfigured) Type() Type                 { return TypeStacksConfigured }
-func (*StacksConfigured) Message() string            { return "Stacks configured" }
-func (*StacksConfigured) Details() map[string]string { return nil }

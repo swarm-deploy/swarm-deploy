@@ -49,7 +49,13 @@ func Register(
 		return err
 	}
 	recipients := make(map[events.AlertRecipient]bool)
-	for _, kind := range []string{"deploy_failed", "node_disconnected"} {
+	for _, recipient := range spec.AlertRecipients("default") {
+		recipients[recipient] = true
+	}
+	for kind := range spec.Alerts {
+		if kind == "default" {
+			continue
+		}
 		for _, recipient := range spec.AlertRecipients(kind) {
 			recipients[recipient] = true
 		}

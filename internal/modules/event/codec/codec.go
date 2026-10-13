@@ -108,10 +108,6 @@ func Decode(typ events.TypeName, version int, payload []byte) (events.Event, err
 		return decodeAs(payload, func(p alertResolvedPayload) events.Event {
 			return &events.AlertResolved{Alert: p.Alert.snapshot(), Recipients: p.Recipients}
 		})
-	case events.TypeNameStacksConfigured:
-		return decodeAs(payload, func(p stacksConfiguredPayload) events.Event {
-			return &events.StacksConfigured{Names: p.Names}
-		})
 	case events.TypeNameServiceCatalogUpdated:
 		return decodeAs(payload, func(p servicePayload) events.Event {
 			return &events.ServiceCatalogUpdated{StackName: p.Stack}

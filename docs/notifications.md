@@ -19,8 +19,7 @@ that chat. Without Telegram, alerts continue to be stored and shown in the UI.
 An alert sends one new message when opened. Repeated detections update its alert record
 without sending another message. Resolution replies to or edits that initial message;
 `reply` is the default action. A new opening after resolution has a new alert ID and a
-new initial message. A stack removed from the loaded configuration resolves an open
-`deploy_failed` alert with reason `removed_from_configuration`.
+new initial message.
 
 Each alert rule may route to one chat (`chats: deployments`) or several
 (`chats: [default, infrastructure]`). An omitted `chats` selects `default`.
