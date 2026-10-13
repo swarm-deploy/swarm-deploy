@@ -73,14 +73,14 @@ func TestPendingConfigurationEventWaitsForInitialGitReload(t *testing.T) {
 	assertAlertStatus(t, repo, "removed", model.AlertStatusOpen)
 
 	var deliveryStatus string
-	require.NoError(t, db.Get(t.Context()).QueryRowContext(t.Context(),
-		"SELECT status FROM outbox_deliveries WHERE subscription_id = ?", "alert-management").Scan(&deliveryStatus))
+	require.NoError(t, db.Get(t.Context(), &deliveryStatus,
+		"SELECT status FROM outbox_deliveries WHERE subscription_id = ?", "alert-management"))
 	assert.Equal(t, "pending", deliveryStatus, "early delivery must be retried rather than acknowledged")
 
 	// Once the actual Git configuration loads, the old event can safely run.
 	require.NoError(t, store.Reload(t.Context(), dir))
 	require.True(t, store.Ready())
-	_, err = db.Get(t.Context()).ExecContext(t.Context(),
+	_, err = db.Exec(t.Context(),
 		"UPDATE outbox_deliveries SET available_at = ? WHERE status = 'pending'",
 		time.Now().Add(-time.Minute).UTC())
 	require.NoError(t, err)
