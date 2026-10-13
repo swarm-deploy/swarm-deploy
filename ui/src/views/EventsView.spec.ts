@@ -13,7 +13,7 @@ vi.mock("../api/overview", () => ({
 const events: EventHistoryItem[] = [
   {
     id: "older-info",
-    type: "syncManualStarted",
+    type: "SyncManualStarted",
     severity: "info",
     category: "sync",
     created_at: "2026-10-06T16:00:00Z",
@@ -21,7 +21,7 @@ const events: EventHistoryItem[] = [
   },
   {
     id: "newer-info",
-    type: "deploySuccess",
+    type: "DeploySuccess",
     severity: "info",
     category: "sync",
     created_at: "2026-10-06T18:00:00Z",
@@ -29,7 +29,7 @@ const events: EventHistoryItem[] = [
   },
   {
     id: "warning",
-    type: "serviceMissed",
+    type: "ServiceMissed",
     severity: "warn",
     category: "swarm",
     created_at: "2026-10-06T17:00:00Z",
@@ -37,7 +37,7 @@ const events: EventHistoryItem[] = [
   },
   {
     id: "error",
-    type: "deployFailed",
+    type: "DeployFailed",
     severity: "error",
     category: "sync",
     created_at: "2026-10-06T15:00:00Z",
@@ -84,7 +84,7 @@ describe("EventsView", () => {
   });
 
   it("restores multiple event types from the URL and keeps them selected", async () => {
-    const { wrapper } = await mountView("/events?types=deploySuccess&types=syncManualStarted");
+    const { wrapper } = await mountView("/events?types=DeploySuccess&types=SyncManualStarted");
 
     const checkedTypes = wrapper
       .findAll(".events-type-filter-option input")
@@ -92,10 +92,10 @@ describe("EventsView", () => {
       .map((input) => input.element.getAttribute("value") ?? input.element.parentElement?.textContent?.trim());
 
     expect(checkedTypes).toHaveLength(2);
-    expect(wrapper.find(".events-type-filter-selection").text()).toContain("deploySuccess");
-    expect(wrapper.find(".events-type-filter-selection").text()).toContain("syncManualStarted");
+    expect(wrapper.find(".events-type-filter-selection").text()).toContain("DeploySuccess");
+    expect(wrapper.find(".events-type-filter-selection").text()).toContain("SyncManualStarted");
     expect(fetchEvents).toHaveBeenLastCalledWith({
-      types: ["deploySuccess", "syncManualStarted"],
+      types: ["DeploySuccess", "SyncManualStarted"],
       severities: [],
       limit: 50,
       sort: "time",
@@ -108,37 +108,88 @@ describe("EventsView", () => {
 
     const option = wrapper
       .findAll(".events-type-filter-option")
-      .find((item) => item.text() === "deploySuccess");
+      .find((item) => item.find(".events-type-filter-option-name").text() === "DeploySuccess");
     expect(option).toBeDefined();
 
     await option!.find("input").setValue(true);
     await flushPromises();
 
-    expect(router.currentRoute.value.query.types).toEqual(["deploySuccess"]);
+    expect(router.currentRoute.value.query.types).toEqual(["DeploySuccess"]);
 
     const secondOption = wrapper
       .findAll(".events-type-filter-option")
-      .find((item) => item.text() === "syncManualStarted");
+      .find((item) => item.find(".events-type-filter-option-name").text() === "SyncManualStarted");
     await secondOption!.find("input").setValue(true);
     await flushPromises();
 
-    expect(router.currentRoute.value.query.types).toEqual(["deploySuccess", "syncManualStarted"]);
+    expect(router.currentRoute.value.query.types).toEqual(["DeploySuccess", "SyncManualStarted"]);
   });
 
 
-  it("offers webhookReceived in the type filter", async () => {
+  it("offers WebhookReceived in the type filter", async () => {
     const { wrapper } = await mountView();
-    const option = wrapper.findAll(".events-type-filter-option").find((item) => item.text() === "webhookReceived");
+    const option = wrapper
+      .findAll(".events-type-filter-option")
+      .find((item) => item.find(".events-type-filter-option-name").text() === "WebhookReceived");
     expect(option).toBeDefined();
     await option!.find("input").setValue(true);
     await flushPromises();
     expect(fetchEvents).toHaveBeenLastCalledWith({
-      types: ["webhookReceived"],
+      types: ["WebhookReceived"],
       severities: [],
       limit: 50,
       sort: "time",
       order: "desc",
     });
+  });
+
+  it("shows concise descriptions for all event type filter options", async () => {
+    const { wrapper } = await mountView();
+    const options = wrapper.findAll(".events-type-filter-option");
+
+    expect(options).toHaveLength(15);
+    expect(options.map((option) => option.find(".events-type-filter-option-name").text())).toEqual([
+      "DeploySuccess",
+      "SendNotificationFailed",
+      "SyncManualStarted",
+      "WebhookReceived",
+      "NodeJoined",
+      "NodeConnected",
+      "NodeDisconnected",
+      "ServiceMissed",
+      "ServiceReplicasIncreased",
+      "ServiceReplicasDecreased",
+      "ServiceRestarted",
+      "ServicePruned",
+      "NetworkCreated",
+      "UserAuthenticated",
+      "AssistantPromptInjectionDetected",
+    ]);
+    expect(options.map((option) => option.find(".events-type-filter-option-description").text()))
+      .not.toContain("");
+    expect(wrapper.find(".events-type-filter-menu").text()).toContain("Deployment completed successfully");
+  });
+
+  it("shows only user-facing severity choices while keeping alert events visible by default", async () => {
+    const alertEvent: EventHistoryItem = {
+      id: "alert",
+      type: "NodeDisconnected",
+      severity: "alert",
+      category: "swarm",
+      created_at: "2026-10-06T19:00:00Z",
+      message: "Node disconnected",
+    };
+    vi.mocked(fetchEvents).mockResolvedValueOnce({ events: [alertEvent] });
+    const { wrapper } = await mountView();
+
+    expect(wrapper.findAll("select option").map((option) => option.text())).toEqual([
+      "All severities",
+      "Info",
+      "Warning",
+      "Error",
+    ]);
+    expect(wrapper.find(".events-table").text()).toContain("Node disconnected");
+    expect(wrapper.find(".event-severity").text()).toBe("Alert");
   });
 
   it("closes the type filter when clicking outside", async () => {

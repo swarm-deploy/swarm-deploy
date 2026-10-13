@@ -70,15 +70,15 @@ All payloads have `ID`, `Type`, and `OccurredAt` (`time.Time`, UTC). Most also p
 
 | Event types | Payload fields |
 | --- | --- |
-| `deploySuccess`, `deployFailed` | `ID`, `DeploymentID`, `Type`, `Status`, `StackName`, `Services` (`Name`, `Image`), `Commit`, `Error`, `ErrorCode`, `Stage`, `OccurredAt` |
-| `nodeJoined`, `nodeConnected`, `nodeDisconnected` | `ID`, `Type`, `NodeID`, `NodeName`, `Role`, `Status`, `Message`, `OccurredAt` |
-| `serviceMissed`, `servicePruned`, `serviceReplicasIncreased`, `serviceReplicasDecreased`, `serviceRestarted` | `ID`, `Type`, `StackName`, `ServiceName`, `Commit`, `Username`, `PreviousReplicas`, `CurrentReplicas`, `Message`, `OccurredAt` |
-| `serviceCatalogUpdated`, `syncManualStarted`, `webhookReceived`, `networkCreated` | `ID`, `Type`, `StackName`, `TriggeredBy`, `Queued`, `NetworkName`, `NetworkID`, `Driver`, `Message`, `OccurredAt` |
-| `userAuthenticated` | `ID`, `Type`, `Username`, `Message`, `OccurredAt` |
-| `assistantPromptInjectionDetected` | `ID`, `Type`, `Detector`, `Username`, `Message`, `OccurredAt` |
-| `sendNotificationFailed` | `ID`, `Type`, `EventType`, `Destination`, `Channel`, `Error`, `Message`, `OccurredAt` |
+| `DeploySuccess`, `DeployFailed` | `ID`, `DeploymentID`, `Type`, `Status`, `StackName`, `Services` (`Name`, `Image`), `Commit`, `Error`, `ErrorCode`, `Stage`, `OccurredAt` |
+| `NodeJoined`, `NodeConnected`, `NodeDisconnected` | `ID`, `Type`, `NodeID`, `NodeName`, `Role`, `Status`, `Message`, `OccurredAt` |
+| `ServiceMissed`, `ServicePruned`, `ServiceReplicasIncreased`, `ServiceReplicasDecreased`, `ServiceRestarted` | `ID`, `Type`, `StackName`, `ServiceName`, `Commit`, `Username`, `PreviousReplicas`, `CurrentReplicas`, `Message`, `OccurredAt` |
+| `ServiceCatalogUpdated`, `SyncManualStarted`, `WebhookReceived`, `NetworkCreated` | `ID`, `Type`, `StackName`, `TriggeredBy`, `Queued`, `NetworkName`, `NetworkID`, `Driver`, `Message`, `OccurredAt` |
+| `UserAuthenticated` | `ID`, `Type`, `Username`, `Message`, `OccurredAt` |
+| `AssistantPromptInjectionDetected` | `ID`, `Type`, `Detector`, `Username`, `Message`, `OccurredAt` |
+| `SendNotificationFailed` | `ID`, `Type`, `EventType`, `Destination`, `Channel`, `Error`, `Message`, `OccurredAt` |
 
-`deployFailed` covers the complete deployment-failure lifecycle. It receives ordinary
+`DeployFailed` covers the complete deployment-failure lifecycle. It receives ordinary
 failures (`Status == "failed"`), preparation failures
 (`"preparation_failed"`), and interrupted attempts (`"interrupted"`). Fields that do not
 apply to a state have their Go zero value: strings are empty, numeric values are zero,
@@ -100,13 +100,13 @@ server timezone. If a future or source-specific contract exposes a nullable time
 ## Validation and runtime errors
 
 Every custom template is parsed and executed against representative payloads while the
-configuration is loaded. `deployFailed` is checked against all three failure states.
+configuration is loaded. `DeployFailed` is checked against all three failure states.
 Unknown fields, invalid functions, syntax errors, and execution errors reject the entire
 configuration before modules are initialized. The error includes the event type and YAML
 path, for example:
 
 ```text
-notifications.events["deployFailed"].telegram[0].message: invalid template: execute template: template: notification:1:3: executing "notification" at <.Stack>: can't evaluate field Stack in type notifications.Payload
+notifications.events["DeployFailed"].telegram[0].message: invalid template: execute template: template: notification:1:3: executing "notification" at <.Stack>: can't evaluate field Stack in type notifications.Payload
 ```
 
 The current application loads configuration only at startup; there is no hot-reload path.
@@ -134,14 +134,14 @@ notifications:
           id: "-1001234567890"
           threadId: 155
   events:
-    deploySuccess:
+    DeploySuccess:
       telegram:
         - chats: deployments
           message: |
             💚 deploy {{ .Status }}
             stack: {{ .StackName }}
             at: {{ date "2006-01-02 15:04" .OccurredAt }} UTC
-    nodeJoined:
+    NodeJoined:
       telegram:
         - chats: [default, deployments]
           message: "node joined: {{ .NodeName }}"

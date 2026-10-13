@@ -2,40 +2,41 @@
 
 | Type                               | Severity | Category   | Trigger                             | Details keys                                                 |
 |------------------------------------|----------|------------|-------------------------------------|--------------------------------------------------------------|
-| `deploySuccess`                    | `info`   | `sync`     | Successful stack deployment         | `stack`, `commit`                                            |
-| `servicePruned`                    | `info`   | `sync`     | Orphaned managed service was removed | `stack_name`, `service_name`, `commit`                       |
-| `networkCreated`                   | `info`   | `sync`     | Managed network was created          | `network_name`, `network_id`, `driver`                       |
-| `sendNotificationFailed`           | `error`  | `sync`     | Notification delivery failure       | `destination`, `channel`, `event_type`, `error` (if present) |
-| `webhookReceived`                  | `info`   | `sync`     | Authenticated webhook received and reconciliation scheduling attempted | `queued` (`true` or `false`)                     |
-| `syncManualStarted`                | `info`   | `sync`     | Manual sync run started             | `triggered_by` (if present)                                  |
-| `nodeJoined`                       | `info`   | `swarm`    | New node joined the swarm           | `node_id`, `node_name` (if present), `role` (if present)      |
-| `nodeConnected`                    | `info`   | `swarm`    | Swarm node became ready             | `node_id`, `node_name` (if present), `status`                 |
-| `nodeDisconnected`                 | `alert`  | `swarm`    | Swarm node left ready state         | `node_id`, `node_name` (if present), `status`                 |
-| `serviceMissed`                    | `alert`  | `sync`     | Desired service is absent in swarm state | `stack_name`, `service_name`, `commit`                  |
-| `serviceReplicasIncreased`         | `info`   | `sync`     | Service replicas count increased    | `stack`, `service`, `previous_replicas`, `current_replicas`, `username` (if present) |
-| `serviceReplicasDecreased`         | `info`   | `sync`     | Service replicas count decreased    | `stack`, `service`, `previous_replicas`, `current_replicas`, `username` (if present) |
-| `serviceRestarted`                 | `info`   | `sync`     | Service restarted                   | `stack`, `service`, `username` (if present)                  |
-| `userAuthenticated`                | `info`   | `security` | User passed web authentication      | `username`                                                   |
-| `assistantPromptInjectionDetected` | `alert`  | `security` | Assistant prompt injection detected | `detector`, `prompt` (if present), `username` (if present)   |
+| `DeploySuccess`                    | `info`   | `sync`     | Successful stack deployment         | `stack`, `commit`                                            |
+| `ServicePruned`                    | `info`   | `sync`     | Orphaned managed service was removed | `stack_name`, `service_name`, `commit`                       |
+| `NetworkCreated`                   | `info`   | `sync`     | Managed network was created          | `network_name`, `network_id`, `driver`                       |
+| `SendNotificationFailed`           | `error`  | `sync`     | Notification delivery failure       | `destination`, `channel`, `event_type`, `error` (if present) |
+| `WebhookReceived`                  | `info`   | `sync`     | Authenticated webhook received and reconciliation scheduling attempted | `queued` (`true` or `false`)                     |
+| `SyncManualStarted`                | `info`   | `sync`     | Manual sync run started             | `triggered_by` (if present)                                  |
+| `NodeJoined`                       | `info`   | `swarm`    | New node joined the swarm           | `node_id`, `node_name` (if present), `role` (if present)      |
+| `NodeConnected`                    | `info`   | `swarm`    | Swarm node became ready             | `node_id`, `node_name` (if present), `status`                 |
+| `NodeDisconnected`                 | `alert`  | `swarm`    | Swarm node left ready state         | `node_id`, `node_name` (if present), `status`                 |
+| `ServiceMissed`                    | `alert`  | `sync`     | Desired service is absent in swarm state | `stack_name`, `service_name`, `commit`                  |
+| `ServiceReplicasIncreased`         | `info`   | `sync`     | Service replicas count increased    | `stack`, `service`, `previous_replicas`, `current_replicas`, `username` (if present) |
+| `ServiceReplicasDecreased`         | `info`   | `sync`     | Service replicas count decreased    | `stack`, `service`, `previous_replicas`, `current_replicas`, `username` (if present) |
+| `ServiceRestarted`                 | `info`   | `sync`     | Service restarted                   | `stack`, `service`, `username` (if present)                  |
+| `UserAuthenticated`                | `info`   | `security` | User passed web authentication      | `username`                                                   |
+| `AssistantPromptInjectionDetected` | `alert`  | `security` | Assistant prompt injection detected | `detector`, `prompt` (if present), `username` (if present)   |
 
 Selected user-visible events are stored in
 `event_history` in `<dataDir>/swarm-deploy.sqlite`. Deployment failure facts and new
-`nodeDisconnected` records are excluded from history; imported history is preserved
-unchanged. The table above describes public event types, not a promise that every
+`NodeDisconnected` records are excluded from history. SQLite migration
+`0003_pascalcase_event_types.sql` updates retained event identifiers to PascalCase.
+The table above describes public event types, not a promise that every
 signal appears in user history. Preparation failures and interrupted attempts are internal
 deployment lifecycle facts consumed by Deployment Model and Alert Management; they are
 not public event names. Deployment failures and node disconnections feed Alert Management,
 and success/reconnection resolves the respective open incident. New SQLite history records use the safe event codec,
 which omits raw prompts, logs and error strings.
 
-`configurationChanged` is an internal, payload-free signal emitted after an effective
+`ConfigurationChanged` is an internal, payload-free signal emitted after an effective
 in-memory configuration change. Subscribers inspect the current configuration when they
 handle it; the signal is not a historical configuration snapshot and is excluded from history.
 
 Startup does not read, import, update or delete `event-history.json`. The file may
 remain as an operator-owned archive, but SQLite is the only active Event History store.
 The Outbox uses a bounded worker pool after publication commits and preserves ordering
-within each subscription. Failed projections retry independently. The internal `serviceCatalogUpdated` event updates
+within each subscription. Failed projections retry independently. The internal `ServiceCatalogUpdated` event updates
 RAG after service metadata is committed and is excluded from user history.
 
 History can be viewed via API:
@@ -69,9 +70,9 @@ Config example:
 eventHistory:
   capacity: 500
 ```
-Deployment notifications retain `deploySuccess` plus `deployFailed` as a notification-only
-compatibility alias. An existing `deployFailed` notification also receives preparation failures and interrupted
-attempts, with safe stack/revision/category data. Durable payloads intentionally
+Deployment notifications use PascalCase event type identifiers. A `DeployFailed`
+notification also receives preparation failures and interrupted attempts, with safe
+stack/revision/category data. Durable payloads intentionally
 omit raw Compose, environment, logs, arbitrary errors and assistant prompts.
-`sendNotificationFailed` remains a compatible type but has no runtime publisher;
+`SendNotificationFailed` has no runtime publisher;
 delivery diagnostics live in outbox status/metrics rather than recursive notifications.

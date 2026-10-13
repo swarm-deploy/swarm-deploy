@@ -236,7 +236,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "sum(increase(swarm_deploy_events_total{type=\"assistantPromptInjectionDetected\"}[1m]))",
+          "expr": "sum(increase(swarm_deploy_events_total{type=\"AssistantPromptInjectionDetected\"}[1m]))",
           "legendFormat": "events",
           "range": true,
           "refId": "A"

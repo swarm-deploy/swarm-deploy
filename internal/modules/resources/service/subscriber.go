@@ -20,7 +20,7 @@ import (
 	webroute "github.com/swarm-deploy/webroute/api"
 )
 
-// Subscriber persists service metadata on deploySuccess events.
+// Subscriber persists service metadata on DeploySuccess events.
 type Subscriber struct {
 	db               *storage.Database
 	events           dispatcher.Dispatcher
@@ -54,7 +54,7 @@ func (s *Subscriber) Name() string {
 	return "save-service-metadata"
 }
 
-// Handle processes deploySuccess events and persists resolved services snapshot.
+// Handle processes DeploySuccess events and persists resolved services snapshot.
 func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 	deploySuccess, ok := event.Event.(*events.DeploySuccess)
 	if !ok {

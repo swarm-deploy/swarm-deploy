@@ -8,4 +8,4 @@ Prune policy priority (highest to lowest):
 2. Stack `stacks[].sync.policy.prune`.
 3. Global `sync.policy.prune`.
 
-When the service is deleted, the `servicePruned` event will be dispatched.
+When the service is deleted, the `ServicePruned` event will be dispatched.

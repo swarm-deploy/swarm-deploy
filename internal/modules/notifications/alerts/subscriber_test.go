@@ -87,7 +87,7 @@ func TestRegisterIncludesFallbackAndCustomRecipientsForFutureAlertKinds(t *testi
 		require.Len(t, recipients, 1)
 		var deliveries int
 		require.NoError(t, db.Get(t.Context(), &deliveries, `SELECT count(*) FROM outbox_deliveries d
-			JOIN outbox_events e ON e.id=d.event_id WHERE e.event_type='alertOpened' AND d.subscription_id=?`,
+			JOIN outbox_events e ON e.id=d.event_id WHERE e.event_type='AlertOpened' AND d.subscription_id=?`,
 			SubscriptionID(recipients[0])))
 		assert.Equal(t, 1, deliveries, "recipient for %s must be registered", kind)
 	}
@@ -158,7 +158,7 @@ func TestAlertIndependentDeliveryOrderingAndRestart(t *testing.T) {
 	failInfra.Store(false)
 	var infraOpenEventID string
 	require.NoError(t, db.Get(t.Context(), &infraOpenEventID, `SELECT d.event_id FROM outbox_deliveries d
-		JOIN outbox_events e ON e.id=d.event_id WHERE e.event_type='alertOpened' AND d.subscription_id=?`,
+		JOIN outbox_events e ON e.id=d.event_id WHERE e.event_type='AlertOpened' AND d.subscription_id=?`,
 		SubscriptionID(recipients[1])))
 	_, err = db.Exec(t.Context(), `UPDATE outbox_deliveries SET status='failed' WHERE event_id=? AND subscription_id=?`,
 		infraOpenEventID, SubscriptionID(recipients[1]))
@@ -330,7 +330,7 @@ func TestResolvedAlertDoesNotSendOpeningOnManualReplay(t *testing.T) {
 	var openingID string
 	require.NoError(t, db.Get(t.Context(), &openingID, `SELECT e.id FROM outbox_events e
 		JOIN outbox_deliveries d ON d.event_id = e.id
-		WHERE e.event_type = 'alertOpened' AND d.subscription_id = ?`, id))
+		WHERE e.event_type = 'AlertOpened' AND d.subscription_id = ?`, id))
 	// Simulate an opening delivery exhausted before it could send.
 	_, err = db.Exec(t.Context(), `UPDATE outbox_deliveries SET status='failed'
 		WHERE event_id=? AND subscription_id=?`, openingID, id)

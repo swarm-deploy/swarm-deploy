@@ -575,7 +575,7 @@ stacks:
   file: ./stacks.yaml
 notifications:
   events:
-    deploySuccess:
+    DeploySuccess:
       custom:
         - name: audit
 `)
@@ -586,7 +586,7 @@ notifications:
 	assert.Contains(
 		t,
 		err.Error(),
-		`notifications.events["deploySuccess"].custom[0].url or urlEnv is required`,
+		`notifications.events["DeploySuccess"].custom[0].url or urlEnv is required`,
 		"unexpected error",
 	)
 }
@@ -658,7 +658,7 @@ notifications:
         default:
           id: "-1001234567890"
   events:
-    deploySuccess:
+    DeploySuccess:
       telegram:
         - message: %q
 `, filepath.Join(dir, "telegram-token"), test.message)
@@ -671,7 +671,7 @@ notifications:
 				return
 			}
 			require.Error(t, err)
-			assert.Contains(t, err.Error(), `notifications.events["deploySuccess"].telegram[0].message: invalid template`)
+			assert.Contains(t, err.Error(), `notifications.events["DeploySuccess"].telegram[0].message: invalid template`)
 			assert.Contains(t, err.Error(), test.wantError)
 		})
 	}

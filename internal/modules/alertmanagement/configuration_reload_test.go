@@ -115,7 +115,7 @@ func TestEmptyStacksReloadPublishesAndResolvesAllStackAlerts(t *testing.T) {
 	require.NoError(t, store.Reload(t.Context(), emptyDir))
 	handled, err = bus.ProcessNext(t.Context())
 	require.NoError(t, err)
-	require.True(t, handled, "transition to an empty stack list must publish configurationChanged")
+	require.True(t, handled, "transition to an empty stack list must publish ConfigurationChanged")
 	alert := assertAlertStatus(t, repo, "app", model.AlertStatusResolved)
 	require.NotNil(t, alert.Resolution)
 	assert.Equal(t, model.ResolutionReasonResourceRemoved, alert.Resolution.Reason)

@@ -12,7 +12,7 @@ type DeployPreparationFailed struct {
 	StackName string
 	// Commit identifies the source revision.
 	Commit string
-	// Services contains the same notification-safe service summary as deployFailed.
+	// Services contains the same notification-safe service summary as DeployFailed.
 	Services []compose.Service
 	// Error contains a secret-masked human-readable diagnostic after durable decoding.
 	Error error
@@ -47,7 +47,7 @@ type DeployInterrupted struct {
 	StackName string
 	// Commit identifies the source revision.
 	Commit string
-	// Services contains the same notification-safe service summary as deployFailed.
+	// Services contains the same notification-safe service summary as DeployFailed.
 	Services []compose.Service
 	// Error is populated with a generic safe diagnostic after durable decoding.
 	Error error

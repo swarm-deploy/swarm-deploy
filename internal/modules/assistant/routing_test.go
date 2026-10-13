@@ -506,18 +506,18 @@ func TestAssistantRestoredBehaviorPrompts(t *testing.T) {
 			name:  "diagnostic source separation",
 			route: RouteDiagnostics,
 			expected: []string{
-				"`deployFailed` is an internal event",
-				"`nodeDisconnected` is an internal signal",
-				"`serviceMissed` and `serviceRestarted`",
+				"`DeployFailed` is an internal event",
+				"`NodeDisconnected` is an internal signal",
+				"`ServiceMissed` and `ServiceRestarted`",
 			},
 		},
 		{
 			name:  "deployment source separation",
 			route: RouteDeployments,
 			expected: []string{
-				"Internal `deployFailed` facts are not user-facing Event History entries",
-				"`syncManualStarted` indicates a sync request",
-				"`sendNotificationFailed` signal",
+				"Internal `DeployFailed` facts are not user-facing Event History entries",
+				"`SyncManualStarted` indicates a sync request",
+				"`SendNotificationFailed` signal",
 			},
 		},
 		{

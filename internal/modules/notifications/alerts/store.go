@@ -94,7 +94,7 @@ func (s *Store) HasAny(ctx context.Context, alertID string) (bool, error) {
 func (s *Store) OpeningRecipients(ctx context.Context, alertID string) ([]events.AlertRecipient, bool, error) {
 	var payload string
 	query, args, err := dialect.From("outbox_events").Prepared(true).Select("payload").
-		Where(goqu.Ex{"event_type": "alertOpened"},
+		Where(goqu.Ex{"event_type": "AlertOpened"},
 			goqu.L("json_extract(payload, '$.alert.id') = ?", alertID)).Limit(1).ToSQL()
 	if err != nil {
 		return nil, false, err
@@ -204,7 +204,7 @@ func (s *Store) PruneCompleted(ctx context.Context) error {
 	query := `DELETE FROM notification_messages
 		WHERE resolved_at IS NOT NULL AND NOT EXISTS (
 			SELECT 1 FROM outbox_events e
-			WHERE e.event_type IN ('alertOpened','alertResolved')
+			WHERE e.event_type IN ('AlertOpened','AlertResolved')
 			AND json_extract(e.payload, '$.alert.id') = notification_messages.alert_id
 		)`
 	_, err := s.db.Exec(ctx, query)

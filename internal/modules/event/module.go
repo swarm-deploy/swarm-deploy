@@ -175,7 +175,7 @@ func (s *Module) registerCustomNotifications(types []events.TypeName, channels [
 
 func notificationEventTypes(configured events.TypeName) []events.TypeName {
 	if configured == events.TypeNameDeployFailed {
-		// Existing deployFailed notification configuration also covers failures
+		// Existing DeployFailed notification configuration also covers failures
 		// before an attempt and interrupted attempts with an unknown outcome.
 		return []events.TypeName{
 			events.TypeNameDeployFailed,

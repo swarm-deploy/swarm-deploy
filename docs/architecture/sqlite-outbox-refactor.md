@@ -38,8 +38,8 @@ from those files or from live Docker resources.
 - **T2 (worker claim):** after T1 commits, a worker claims one delivery using a short transaction and a lease.
 - **T3 (handler):** DB-only subscribers (Event History, Alert Management) run in a **new** context-propagated DB transaction, then acknowledge delivery in **that same T3**. Subscriber-side state changes and any newly emitted Outbox events commit together with the ack. External notifications execute outside a DB write transaction, and are subsequently acknowledged in a short transaction.
 - Each delivery is independent. Failed handlers retry/park without rolling back the previously committed publishing transaction or another successful subscriber.
-- Event History decides which published events deserve user-visible history; it does not run within the Deployment publisher's transaction. Projections are **eventually consistent**. For example, `DeploymentSucceeded` can become a public `deploySuccess` after T1 commits; `DeploymentFailed` may update an Alert without becoming a public Event.
-- Nested/follow-up events (currently `serviceCatalogUpdated`) are **published from a subscriber's T3**, and picked up in subsequent transactions. Never recursively run their handlers inline.
+- Event History decides which published events deserve user-visible history; it does not run within the Deployment publisher's transaction. Projections are **eventually consistent**. For example, `DeploymentSucceeded` can become a public `DeploySuccess` after T1 commits; `DeploymentFailed` may update an Alert without becoming a public Event.
+- Nested/follow-up events (currently `ServiceCatalogUpdated`) are **published from a subscriber's T3**, and picked up in subsequent transactions. Never recursively run their handlers inline.
 - Publications with no matching registered subscribers do not create Outbox records.
 - Outbox events with matching subscribers are deleted immediately once **every** delivery succeeds; no retention, no deleting pending or terminal-failed work.
 - Transactions are propagated through `context.Context` using a context-aware transactor and DB getter (`*sql.DB` or `*sql.Tx`). No explicit `Tx` parameters or `UnitOfWork`. `Bus.Publish` outside an active transaction wraps its own short enqueue transaction.
@@ -53,17 +53,17 @@ See [Event Bus contracts and SQL schema](event-bus-outbox-schema.md).
 ```text
 Deployment apply completed (Docker API outside DB transaction)
   -> T1: Deployment=succeeded + DesiredSnapshot + GitOps state
-       + outbox event deploySuccess and deliveries
+       + outbox event DeploySuccess and deliveries
   -> COMMIT T1
 
   -> T2: worker claims Event History delivery; COMMIT T2
-  -> T3: Event History persists deploySuccess + ack; COMMIT T3
+  -> T3: Event History persists DeploySuccess + ack; COMMIT T3
 
   -> T2: worker claims Alert Management delivery; COMMIT T2
   -> T3: Alert Management resolves alert + ack; COMMIT T3
 
   -> independent notification delivery outside a write transaction, then ack
-  -> service catalog consumer commits catalog + serviceCatalogUpdated child
+  -> service catalog consumer commits catalog + ServiceCatalogUpdated child
   -> separate worker delivery refreshes RAG from the committed catalog
 ```
 
@@ -85,11 +85,11 @@ The Outbox is an **operational queue**, not an audit log. It is generic infrastr
 ## Deployment lifecycle
 
 - Deployment records a **real attempt to apply a changed effective desired state**, not every reconcile. Distinct retries create distinct deployment IDs. Reconciler owns whether a retry happens; a store must not suppress attempts with the same revision/digest.
-- Preparation failures prior to an apply attempt do not create a Deployment. Runtime state and a safe `deployPreparationFailed` fact commit atomically so Alerts and Notifications still observe the failure. Once application has begun, policy rejection is a failed Deployment.
+- Preparation failures prior to an apply attempt do not create a Deployment. Runtime state and a safe `DeployPreparationFailed` fact commit atomically so Alerts and Notifications still observe the failure. Once application has begun, policy rejection is a failed Deployment.
 - States: `running`, `succeeded`, `failed`, `interrupted`.
 - Apply boundary includes policies, init jobs, stack deployment, and authorized prune. Maintenance work after successful apply does not retroactively change a completed Deployment.
 - Successful application means the deploy pipeline completed, **not** that the services are healthy or that actual live convergence was verified. Rollout tracking is explicitly deferred.
-- Preserve user-visible `deploySuccess`. Create it at successful completion of a Deployment.
+- Preserve user-visible `DeploySuccess`. Create it at successful completion of a Deployment.
 - Only a successful Deployment advances the per-stack `DesiredSnapshot` baseline. A failed or interrupted attempt must never replace a known-good baseline.
 - A matching successful baseline is a no-op only when no failed/interrupted attempt followed it. Returning to the baseline after an attempt that may have changed Swarm creates a new attempt.
 - Desired snapshots contain effective rendered Compose data suitable for semantic diffs. Commands, entrypoints, healthcheck commands and init-job scripts are opaque persisted values: displays contain only masks while unkeyed fingerprints detect changes. Snapshots, diffs, events, outbox payloads, and logs exclude unmasked secret contents.
@@ -102,7 +102,7 @@ External Docker operations and the database **cannot share a transaction**. The 
 
 - Before an external apply, persist a `running` Deployment.
 - On completed apply, use **one publisher DB transaction** to commit `Deployment=succeeded`, successful `DesiredSnapshot`, GitOps state and a `DeploymentSucceeded` Outbox event plus delivery records. **Do not** also require the Event History projection or Alert resolution in that transaction: they are performed by subscribers later in their own transactions.
-- Failed/interrupted transitions and their durable side effects must use the same principle. `deployInterrupted` is a separate durable fact for an unknown external outcome; it is not reported as a known failure.
+- Failed/interrupted transitions and their durable side effects must use the same principle. `DeployInterrupted` is a separate durable fact for an unknown external outcome; it is not reported as a known failure.
 - If the current process knows the external outcome but completion persistence fails, the reconciler retries that exact success/failed transition before another apply. A running attempt with no known in-process outcome is atomically interrupted before retry policy is evaluated.
 - If a retained completion races with a terminal transition, recovery rereads that exact deployment ID transactionally. A proven terminal row wins unchanged and the obsolete in-memory completion is discarded with a structured lifecycle-conflict log; missing, inconsistent, or still-running rows remain errors.
 - After a crash between Docker API success and the success transaction, the Deployment remains `running` until it is detected as `interrupted`; do not invent success or overwrite the baseline. Actual-state convergence detection is future work.
@@ -114,7 +114,7 @@ External Docker operations and the database **cannot share a transaction**. The 
 
 ## Events, alerts, and notifications
 
-- Public Events = **selected user-significant projections** of published domain facts (e.g. `nodeJoined`, `deploySuccess`) chosen by Event History. Every source event is still in the outbox regardless of projection. `nodeJoined` means a genuinely new swarm node, not an existing node becoming Ready.
+- Public Events = **selected user-significant projections** of published domain facts (e.g. `NodeJoined`, `DeploySuccess`) chosen by Event History. Every source event is still in the outbox regardless of projection. `NodeJoined` means a genuinely new swarm node, not an existing node becoming Ready.
 - `NodeDisconnected`, `DeployFailed`, `DeployPreparationFailed` and `DeployInterrupted` are internal signals / alert inputs, not automatically user-visible Event History rows.
 - Alerts maintain their own lifecycle and deduplication identity. Events and Alerts share a UI page, but **remain separate tables**.
 - Notifications are a distinct module/concern. Stable public notification semantics can combine technical failure causes so users do not have to guess which low-level event to subscribe to.
