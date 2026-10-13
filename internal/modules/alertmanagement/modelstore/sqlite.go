@@ -220,6 +220,54 @@ func (s *SQLStore) List(ctx context.Context, filter ListFilter) ([]model.Alert, 
 	return alerts, nil
 }
 
+// IncrementFailureStreak records another consecutive failure and returns the new count.
+func (s *SQLStore) IncrementFailureStreak(ctx context.Context, fingerprint string) (uint64, error) {
+	var failures uint64
+	err := s.db.WithinTransaction(ctx, func(ctx context.Context) error {
+		query, args, buildErr := dialect.Insert("alert_failure_streaks").Prepared(true).
+			Rows(goqu.Record{"fingerprint": fingerprint, "failures": 1}).
+			OnConflict(goqu.DoUpdate("fingerprint", goqu.Record{"failures": goqu.L("failures+1")})).ToSQL()
+		if buildErr != nil {
+			return buildErr
+		}
+		if _, execErr := s.db.Exec(ctx, query, args...); execErr != nil {
+			return execErr
+		}
+		query, args, buildErr = dialect.From("alert_failure_streaks").Prepared(true).
+			Select("failures").Where(goqu.Ex{"fingerprint": fingerprint}).ToSQL()
+		if buildErr != nil {
+			return buildErr
+		}
+		return s.db.Get(ctx, &failures, query, args...)
+	})
+	return failures, err
+}
+
+// ResetFailureStreak clears consecutive failures after recovery.
+func (s *SQLStore) ResetFailureStreak(ctx context.Context, fingerprint string) error {
+	query, args, err := dialect.Delete("alert_failure_streaks").Prepared(true).
+		Where(goqu.Ex{"fingerprint": fingerprint}).ToSQL()
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(ctx, query, args...)
+	return err
+}
+
+// ResetFailureStreaksExcept clears counters for resources absent from the desired configuration.
+func (s *SQLStore) ResetFailureStreaksExcept(ctx context.Context, fingerprints []string) error {
+	dataset := dialect.Delete("alert_failure_streaks").Prepared(true)
+	if len(fingerprints) > 0 {
+		dataset = dataset.Where(goqu.I("fingerprint").NotIn(fingerprints))
+	}
+	query, args, err := dataset.ToSQL()
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(ctx, query, args...)
+	return err
+}
+
 // ConsumeLatest ignores delayed events older than the last applied resource transition.
 func (s *SQLStore) ConsumeLatest(
 	ctx context.Context, id, resource string, at time.Time, apply func(context.Context) error,

@@ -46,4 +46,10 @@ type Store interface {
 	FindOpenByFingerprint(ctx context.Context, fingerprint string) (model.Alert, error)
 	// List returns alerts matching the filter.
 	List(ctx context.Context, filter ListFilter) ([]model.Alert, error)
+	// IncrementFailureStreak records another consecutive failure and returns the new count.
+	IncrementFailureStreak(ctx context.Context, fingerprint string) (uint64, error)
+	// ResetFailureStreak clears consecutive failures after recovery.
+	ResetFailureStreak(ctx context.Context, fingerprint string) error
+	// ResetFailureStreaksExcept clears counters for resources absent from the desired configuration.
+	ResetFailureStreaksExcept(ctx context.Context, fingerprints []string) error
 }

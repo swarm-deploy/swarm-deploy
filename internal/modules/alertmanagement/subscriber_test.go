@@ -182,3 +182,63 @@ func TestInterruptedAlertKeepsUnknownOutcomeAndResolvesOnSuccess(t *testing.T) {
 	require.Len(t, resolved, 1)
 	assert.Equal(t, open[0].ID, resolved[0].ID)
 }
+
+type temporaryError struct{ message string }
+
+func (e temporaryError) Error() string   { return e.message }
+func (e temporaryError) Temporary() bool { return true }
+
+func TestTemporaryDeploymentFailureThresholdAndReset(t *testing.T) {
+	ctx := context.Background()
+	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
+	subscriber := newTestSubscriber(store)
+
+	for index := range 2 {
+		require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+			ID: fmt.Sprintf("temporary-%d", index),
+			Event: &events.DeployFailed{
+				DeployEvent: events.DeployEvent{StackName: "api"},
+				Error:       temporaryError{message: "registry unavailable"},
+			},
+		}))
+	}
+	alerts, err := store.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	assert.Empty(t, alerts)
+
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+		ID: "success", Event: &events.DeploySuccess{DeployEvent: events.DeployEvent{StackName: "api"}},
+	}))
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+		ID: "temporary-after-success",
+		Event: &events.DeployFailed{
+			DeployEvent: events.DeployEvent{StackName: "api"},
+			Error:       temporaryError{message: "registry unavailable"},
+		},
+	}))
+	alerts, err = store.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	assert.Empty(t, alerts, "success must reset the threshold")
+}
+
+func TestThirdTemporaryDeploymentFailureOpensAndUpdatesAlert(t *testing.T) {
+	ctx := context.Background()
+	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
+	subscriber := newTestSubscriber(store)
+
+	for index := range 4 {
+		require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+			ID: fmt.Sprintf("temporary-%d", index),
+			Event: &events.DeployFailed{
+				DeployEvent: events.DeployEvent{StackName: "api"},
+				Error:       temporaryError{message: "registry unavailable"},
+			},
+		}))
+	}
+	alerts, err := store.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 1)
+	assert.Equal(t, uint64(4), alerts[0].Occurrences)
+	assert.Equal(t, "temporary-2", alerts[0].OpenEventID)
+	assert.Equal(t, "temporary-3", alerts[0].LatestEventID)
+}
