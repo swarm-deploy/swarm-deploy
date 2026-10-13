@@ -50,6 +50,49 @@ func TestStartupReloadResolvesOrphanedAlertWhenConfigurationIsUnchanged(t *testi
 	assert.False(t, handled, "startup reconciliation must only be published once")
 }
 
+func TestPendingConfigurationEventWaitsForInitialGitReload(t *testing.T) {
+	dir := writeStackConfiguration(t, "kept")
+	cfg := stackConfiguration() // Startup has no Git checkout and no accepted stacks.
+	db, repo := openAlertStore(t)
+	seedOpenStackAlert(t, repo, cfg, "kept")
+	seedOpenStackAlert(t, repo, cfg, "removed")
+	bus := outbox.New(db)
+	store := configstore.New(cfg, bus)
+	subscriber := NewSQLSubscriber(repo, bus, noAlertRecipients, store)
+	require.NoError(t, bus.Subscribe(events.TypeNameConfigurationChanged, "alert-management", subscriber))
+
+	// Simulate an Outbox event persisted by the previous process.
+	require.NoError(t, bus.Publish(t.Context(), &events.ConfigurationChanged{}))
+	require.False(t, store.Ready())
+	require.Error(t, store.Reload(t.Context(), t.TempDir()), "missing Git files must not mark the store ready")
+
+	handled, err := bus.ProcessNext(t.Context())
+	require.NoError(t, err)
+	require.True(t, handled)
+	assertAlertStatus(t, repo, "kept", model.AlertStatusOpen)
+	assertAlertStatus(t, repo, "removed", model.AlertStatusOpen)
+
+	var deliveryStatus string
+	require.NoError(t, db.Get(t.Context()).QueryRowContext(t.Context(),
+		"SELECT status FROM outbox_deliveries WHERE subscription_id = ?", "alert-management").Scan(&deliveryStatus))
+	assert.Equal(t, "pending", deliveryStatus, "early delivery must be retried rather than acknowledged")
+
+	// Once the actual Git configuration loads, the old event can safely run.
+	require.NoError(t, store.Reload(t.Context(), dir))
+	require.True(t, store.Ready())
+	_, err = db.Get(t.Context()).ExecContext(t.Context(),
+		"UPDATE outbox_deliveries SET available_at = ? WHERE status = 'pending'",
+		time.Now().Add(-time.Minute).UTC())
+	require.NoError(t, err)
+	handled, err = bus.ProcessNext(t.Context())
+	require.NoError(t, err)
+	require.True(t, handled)
+	assertAlertStatus(t, repo, "kept", model.AlertStatusOpen)
+	resolved := assertAlertStatus(t, repo, "removed", model.AlertStatusResolved)
+	require.NotNil(t, resolved.Resolution)
+	assert.Equal(t, model.ResolutionReasonResourceRemoved, resolved.Resolution.Reason)
+}
+
 func TestEmptyStacksReloadPublishesAndResolvesAllStackAlerts(t *testing.T) {
 	nonEmptyDir := writeStackConfiguration(t, "app")
 	emptyDir := writeStackConfiguration(t)
