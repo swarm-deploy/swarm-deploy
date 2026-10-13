@@ -54,7 +54,7 @@ onMounted(() => void loadAlerts());
       <p class="meta">All alerts are resolved.</p>
     </div>
     <AppTableEmpty v-else-if="alerts.length === 0" message="No alerts." />
-    <AppTable v-else fixed table-class="alerts-table" wrap-class="alerts-table-wrap">
+    <AppTable v-else fixed min-width="800px" table-class="alerts-table" wrap-class="alerts-table-wrap">
       <template #head><tr><th>Alert</th><th>Resource</th><th>Opened</th><th>{{ showResolved ? "Updated / Resolved" : "Updated" }}</th><th>Occurrences</th></tr></template>
       <tr v-for="alert in alerts" :key="alert.id" class="alerts-row" tabindex="0" @click="overviewStore.openAlertDetailsModal(alert)" @keydown.enter="overviewStore.openAlertDetailsModal(alert)">
         <td><strong>{{ alert.title }}</strong><span v-if="alert.resolution" class="alerts-message">{{ alert.resolution.reason }} · {{ alert.resolution.message }}</span></td>
