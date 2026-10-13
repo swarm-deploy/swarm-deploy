@@ -102,6 +102,31 @@ stacks:
 	assert.Equal(t, 15*time.Second, cfg.Spec.Sync.Interval.Value, "expected configured sync interval")
 }
 
+func TestLoadImagePolicy(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "stacks.yaml"), []byte("stacks: []\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "swarm-deploy.yaml"), []byte(`
+git:
+  repository: https://example.com/repo.git
+sync:
+  mode: pull
+  policy:
+    image:
+      tag:
+        required: true
+        no_latest: true
+        only_sha: true
+stacks:
+  file: ./stacks.yaml
+`), 0o600))
+
+	cfg, err := Load(filepath.Join(dir, "swarm-deploy.yaml"))
+	require.NoError(t, err)
+	assert.True(t, cfg.Spec.Sync.Policy.Image.Enabled())
+	assert.Equal(t, ImageTagPolicySpec{Required: true, NoLatest: true, OnlySHA: true},
+		cfg.Spec.Sync.Policy.Image.Tag)
+}
+
 func TestLoadAppliesSecretRotationCleanupDefaults(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "stacks.yaml"), []byte(`
