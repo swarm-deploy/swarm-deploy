@@ -117,8 +117,6 @@ const comparison = computed(() => {
 });
 const statusTitle = computed(() => {
   switch (detail.value?.status) {
-    case "running": return "Apply pipeline is running.";
-    case "succeeded": return "Apply pipeline completed.";
     case "failed": return "Apply pipeline failed.";
     case "interrupted": return "Apply pipeline was interrupted.";
     default: return "";
@@ -126,8 +124,6 @@ const statusTitle = computed(() => {
 });
 const statusDescription = computed(() => {
   switch (detail.value?.status) {
-    case "running": return "Apply attempt is still in progress. Live convergence has not been verified.";
-    case "succeeded": return "Service health and live convergence have not been verified.";
     case "failed": return "Apply attempt failed. The actual Swarm state may differ from this desired configuration.";
     case "interrupted": return "Apply outcome is unknown. The actual Swarm state may differ from this desired configuration.";
     default: return "";
@@ -284,15 +280,18 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
           </div>
           <p v-else-if="!detail" class="meta">Deployment details are unavailable.</p>
           <template v-else>
-          <section class="deployment-outcome" :class="`deployment-outcome--${detail.status}`" aria-labelledby="deployment-outcome-title">
-            <span v-if="detail.status !== 'succeeded'" class="deployment-outcome-icon"><DeploymentIcon :name="statusIcon" /></span>
+          <section
+            v-if="detail.status === 'failed' || detail.status === 'interrupted'"
+            class="deployment-outcome"
+            :class="`deployment-outcome--${detail.status}`"
+            aria-labelledby="deployment-outcome-title"
+          >
+            <span class="deployment-outcome-icon"><DeploymentIcon :name="statusIcon" /></span>
             <div>
               <strong id="deployment-outcome-title">{{ statusTitle }}</strong>
               <p>{{ statusDescription }}</p>
-              <template v-if="detail.status === 'failed' || detail.status === 'interrupted'">
-                <p class="deployment-diagnostic">{{ failureReason }}</p>
-                <span v-if="detail.reason" class="deployment-code">Code: {{ detail.reason }}</span>
-              </template>
+              <p class="deployment-diagnostic">{{ failureReason }}</p>
+              <span v-if="detail.reason" class="deployment-code">Code: {{ detail.reason }}</span>
             </div>
           </section>
 
@@ -451,15 +450,10 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
   padding: 17px 19px;
   background: var(--surface-muted);
 }
-.deployment-outcome--succeeded { display: block; border-color: var(--border-subtle); background: var(--surface-muted); padding: 12px 14px; }
-.deployment-outcome--succeeded strong { font-size: .85rem; }
-.deployment-outcome--succeeded p { font-size: .82rem; }
 .deployment-outcome--failed { border-color: rgba(248, 113, 113, .18); background: linear-gradient(90deg, rgba(126, 45, 45, .2), rgba(126, 45, 45, .08)); }
-.deployment-outcome--running { border-color: rgba(96, 165, 250, .18); background: linear-gradient(90deg, rgba(37, 99, 235, .18), rgba(37, 99, 235, .07)); }
 .deployment-outcome--interrupted { border-color: rgba(250, 204, 21, .18); background: linear-gradient(90deg, rgba(161, 98, 7, .18), rgba(161, 98, 7, .07)); }
-.deployment-outcome-icon { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; color: var(--text-on-status); background: var(--status-success-bg); }
+.deployment-outcome-icon { width: 36px; height: 36px; display: grid; place-items: center; border-radius: 50%; }
 .deployment-outcome--failed .deployment-outcome-icon { color: var(--text-on-status); background: var(--status-error-bg); }
-.deployment-outcome--running .deployment-outcome-icon { color: #101b2b; background: var(--info); }
 .deployment-outcome--interrupted .deployment-outcome-icon { color: var(--text-on-status); background: var(--status-warning-bg); }
 .deployment-outcome-icon :deep(.deployment-icon) { width: 22px; height: 22px; stroke-width: 2.2; }
 .deployment-outcome strong { display: block; font-size: 1rem; }
