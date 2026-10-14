@@ -39,12 +39,14 @@ func alertSpec() config.NotificationSpec {
 func TestDeploymentFailedAlertRendering(t *testing.T) {
 	tests := []struct {
 		name          string
+		title         string
 		customMessage string
 		wantText      string
 		wantParseMode string
 	}{
 		{
-			name: "default multiline HTML",
+			name:  "default multiline HTML",
+			title: "Deployment failed",
 			wantText: `<b>🚨 Deployment failed</b>
 
 <b>Stack:</b> <code>infra&lt;&amp;</code>
@@ -55,7 +57,32 @@ func TestDeploymentFailedAlertRendering(t *testing.T) {
 			wantParseMode: "HTML",
 		},
 		{
+			name:  "interrupted deployment title",
+			title: "Deployment outcome unknown",
+			wantText: `<b>🚨 Deployment outcome unknown</b>
+
+<b>Stack:</b> <code>infra&lt;&amp;</code>
+
+<b>Error:</b>
+<pre>first line
+&lt;broken&gt; &amp; stopped</pre>`,
+			wantParseMode: "HTML",
+		},
+		{
+			name:  "escape dynamic title",
+			title: "Deployment <outcome> & unknown",
+			wantText: `<b>🚨 Deployment &lt;outcome&gt; &amp; unknown</b>
+
+<b>Stack:</b> <code>infra&lt;&amp;</code>
+
+<b>Error:</b>
+<pre>first line
+&lt;broken&gt; &amp; stopped</pre>`,
+			wantParseMode: "HTML",
+		},
+		{
 			name:          "custom template",
+			title:         "Deployment failed",
 			customMessage: "custom {{ .ResourceID }}: {{ .Message }}",
 			wantText:      "custom infra<&: first line\n<broken> & stopped",
 		},
@@ -85,7 +112,7 @@ func TestDeploymentFailedAlertRendering(t *testing.T) {
 				store: NewStore(db), spec: spec, recipient: recipient, now: time.Now, apiBaseURL: server.URL,
 			}
 			alert := events.AlertSnapshot{
-				ID: "failed", Kind: "deploy_failed", Title: "Deployment failed", ResourceID: "infra<&",
+				ID: "failed", Kind: "deploy_failed", Title: test.title, ResourceID: "infra<&",
 				Message: "first line\n<broken> & stopped", OpenedAt: time.Now().UTC(),
 			}
 			require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{Event: &events.AlertOpened{
@@ -116,7 +143,7 @@ func TestDeploymentFailedDefaultAlertTruncatesLongError(t *testing.T) {
 		store: NewStore(db), spec: spec, recipient: recipient, now: time.Now, apiBaseURL: server.URL,
 	}
 	alert := events.AlertSnapshot{
-		ID: "long-failure", Kind: "deploy_failed", Title: "Deployment failed", ResourceID: "infra-monitoring",
+		ID: "long-failure", Kind: "deploy_failed", Title: "Deployment outcome unknown", ResourceID: "infra-monitoring",
 		Message: strings.Repeat("failed <&> 😀\n", 500), OpenedAt: time.Now().UTC(),
 	}
 	require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{Event: &events.AlertOpened{
@@ -126,6 +153,7 @@ func TestDeploymentFailedDefaultAlertTruncatesLongError(t *testing.T) {
 		"<b>", "", "</b>", "", "<code>", "", "</code>", "", "<pre>", "", "</pre>", "",
 	).Replace(request.Text))
 	assert.LessOrEqual(t, telegramTextLength(visible), telegramMessageLimit)
+	assert.Contains(t, request.Text, "<b>🚨 Deployment outcome unknown</b>")
 	assert.Contains(t, request.Text, "[error truncated]")
 	assert.Equal(t, "HTML", request.ParseMode)
 }
