@@ -157,7 +157,8 @@ describe("Deployment Details modal", () => {
     store.deploymentDetailsData = deployment(status);
     const wrapper = mount(DeploymentDetailsModal);
 
-    expect(wrapper.get(".deployment-status").text()).toBe(status[0].toUpperCase() + status.slice(1));
+    expect(wrapper.get(".deployment-title-topline .deployment-modal-eyebrow").text()).toBe("Deployment");
+    expect(wrapper.get(".deployment-title-topline .deployment-status").text()).toBe(status[0].toUpperCase() + status.slice(1));
     expect(wrapper.get(".deployment-status-dot").attributes("aria-hidden")).toBe("true");
     expect(wrapper.find(".deployment-status-icon").exists()).toBe(false);
     expect(wrapper.find(".deployment-outcome").exists()).toBe(false);
@@ -176,7 +177,8 @@ describe("Deployment Details modal", () => {
     store.deploymentDetailsData = deployment(status);
     const wrapper = mount(DeploymentDetailsModal);
 
-    expect(wrapper.get(".deployment-status").text()).toBe(status[0].toUpperCase() + status.slice(1));
+    expect(wrapper.get(".deployment-title-topline .deployment-modal-eyebrow").text()).toBe("Deployment");
+    expect(wrapper.get(".deployment-title-topline .deployment-status").text()).toBe(status[0].toUpperCase() + status.slice(1));
     expect(wrapper.get(".deployment-status-dot").attributes("aria-hidden")).toBe("true");
     expect(wrapper.find(".deployment-status-icon").exists()).toBe(false);
     expect(wrapper.get(".deployment-outcome").classes()).toContain(`deployment-outcome--${status}`);
