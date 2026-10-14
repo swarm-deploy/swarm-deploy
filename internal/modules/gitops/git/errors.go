@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"net"
+	"net/http"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -83,6 +84,12 @@ func classifyFailure(err error, repository string, authType config.GitAuthType) 
 	case errors.Is(err, transport.ErrRepositoryNotFound):
 		return FailureRepositoryNotFound
 	}
+	if status, ok := gitHTTPStatus(err); ok {
+		switch status {
+		case http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+			return FailureNetwork
+		}
+	}
 
 	var hostKeyError *knownhosts.KeyError
 	if errors.As(err, &hostKeyError) {
@@ -119,6 +126,21 @@ func classifyFailure(err error, repository string, authType config.GitAuthType) 
 		}
 	}
 	return FailureOther
+}
+
+func gitHTTPStatus(err error) (int, bool) {
+	type statusCoder interface{ StatusCode() int }
+	for current := err; current != nil; current = errors.Unwrap(current) {
+		if status, ok := current.(statusCoder); ok {
+			return status.StatusCode(), true
+		}
+		if unexpected, unexpectedOK := current.(*plumbing.UnexpectedError); unexpectedOK {
+			if status, statusOK := unexpected.Err.(statusCoder); statusOK {
+				return status.StatusCode(), true
+			}
+		}
+	}
+	return 0, false
 }
 
 func failureDiagnostic(category FailureCategory) string {

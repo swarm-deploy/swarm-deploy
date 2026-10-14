@@ -85,6 +85,22 @@ func TestConfigurationChangedCodecHasNoDomainPayload(t *testing.T) {
 	assert.Empty(t, decoded.Details())
 }
 
+func TestConfigurationChangedCodecCarriesSafeRepositoryTransition(t *testing.T) {
+	event := &events.ConfigurationChanged{
+		PreviousRepository: "git.example.com/team/old", Repository: "git.example.com/team/new",
+	}
+	payload, err := Encode(event)
+	require.NoError(t, err)
+	decoded, err := Decode(events.TypeNameConfigurationChanged, Version, payload)
+	require.NoError(t, err)
+	assert.Equal(t, event, decoded)
+
+	_, err = Encode(&events.ConfigurationChanged{
+		PreviousRepository: "https://user:secret@git.example.com/old", Repository: "git.example.com/team/new",
+	})
+	require.Error(t, err)
+}
+
 func TestGitPullLifecycleCodec(t *testing.T) {
 	failed := &events.GitPullFailed{
 		Repository: "git.example.com/team/app", Category: events.GitFailureAuthentication,

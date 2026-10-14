@@ -639,10 +639,25 @@ func (c *Controller) recordGitPullFailure(
 	reason TriggerReason,
 ) error {
 	return c.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		if err := c.stateStore.Update(ctx, func(state *model.Runtime) {
+		state, err := c.stateStore.Read(ctx)
+		if err != nil {
+			return fmt.Errorf("read Git pull failure state: %w", err)
+		}
+		previousRepository := ""
+		if state.GitPullFailure != nil && state.GitPullFailure.Repository != repository {
+			previousRepository = state.GitPullFailure.Repository
+		}
+		if updateErr := c.stateStore.Update(ctx, func(state *model.Runtime) {
 			state.GitPullFailure = &model.GitPullFailure{Repository: repository}
-		}); err != nil {
-			return fmt.Errorf("persist Git pull failure state: %w", err)
+		}); updateErr != nil {
+			return fmt.Errorf("persist Git pull failure state: %w", updateErr)
+		}
+		if previousRepository != "" {
+			if err = c.event.Publish(ctx, &events.ConfigurationChanged{
+				PreviousRepository: previousRepository, Repository: repository,
+			}); err != nil {
+				return err
+			}
 		}
 		return c.event.Publish(ctx, &events.GitPullFailed{
 			Repository: repository, Category: events.GitFailureCategory(category),
@@ -658,7 +673,18 @@ func (c *Controller) recordGitPullSuccess(ctx context.Context, repository string
 			return fmt.Errorf("read Git pull recovery state: %w", err)
 		}
 		if state.GitPullFailure == nil || state.GitPullFailure.Repository != repository {
-			return nil
+			if state.GitPullFailure == nil {
+				return nil
+			}
+			previousRepository := state.GitPullFailure.Repository
+			if updateErr := c.stateStore.Update(ctx, func(state *model.Runtime) {
+				state.GitPullFailure = nil
+			}); updateErr != nil {
+				return fmt.Errorf("persist Git repository change state: %w", updateErr)
+			}
+			return c.event.Publish(ctx, &events.ConfigurationChanged{
+				PreviousRepository: previousRepository, Repository: repository,
+			})
 		}
 		if updateErr := c.stateStore.Update(ctx, func(state *model.Runtime) {
 			state.GitPullFailure = nil

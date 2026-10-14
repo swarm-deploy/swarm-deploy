@@ -91,6 +91,7 @@ func (r *GoGitRepository) Pull(ctx context.Context) (PullResult, error) {
 
 	err = worktree.PullContext(ctx, &gogit.PullOptions{
 		RemoteName:    "origin",
+		RemoteURL:     r.remote,
 		SingleBranch:  true,
 		ReferenceName: plumbing.NewBranchReferenceName(r.branch),
 		Auth:          r.auth,

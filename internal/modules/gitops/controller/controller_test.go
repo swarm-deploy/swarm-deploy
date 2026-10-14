@@ -625,6 +625,94 @@ func TestGitPullRecoveryStateSurvivesControllerRestart(t *testing.T) {
 	assert.Nil(t, state.GitPullFailure)
 }
 
+func TestSuccessfulPullFromChangedRepositoryRemovesPreviousFailureWithoutRecovery(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	db, store := newSQLState(t)
+	repository := git.NewMockRepository(ctrl)
+	repository.EXPECT().Pull(gomock.Any()).Return(git.PullResult{NewRevision: "new"}, nil)
+	publisher := dispatcher.NewMockDispatcher(ctrl)
+	gomock.InOrder(
+		publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.GitPullFailed{})).Return(nil),
+		publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.ConfigurationChanged{})).DoAndReturn(
+			func(_ context.Context, event events.Event) error {
+				changed := event.(*events.ConfigurationChanged)
+				assert.Equal(t, "git.example.com/team/old", changed.PreviousRepository)
+				assert.Equal(t, "git.example.com/team/new", changed.Repository)
+				return nil
+			},
+		),
+	)
+	controller := &Controller{
+		db: db, stateStore: store, git: repository, event: publisher,
+		cfg:     &config.Config{Spec: config.Spec{Git: config.GitSpec{Repository: "https://git.example.com/team/new.git"}}},
+		metrics: metrics.NewGroup(metrics.CreateGroupParams{Namespace: "test_git_changed_repository_success"}),
+	}
+	require.NoError(t, controller.recordGitPullFailure(t.Context(), "git.example.com/team/old",
+		git.FailureAuthentication, "Git repository authentication failed", TriggerPoll))
+
+	_, err := controller.pullGit(t.Context(), TriggerStartup)
+	require.NoError(t, err)
+	assert.Nil(t, readSQLState(t, store).GitPullFailure)
+}
+
+func TestFailedPullFromChangedRepositoryRemovesPreviousAndRecordsCurrentFailure(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	db, store := newSQLState(t)
+	repository := git.NewMockRepository(ctrl)
+	repository.EXPECT().Pull(gomock.Any()).Return(git.PullResult{}, errors.New("unavailable"))
+	publisher := dispatcher.NewMockDispatcher(ctrl)
+	gomock.InOrder(
+		publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.GitPullFailed{})).Return(nil),
+		publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.ConfigurationChanged{})).DoAndReturn(
+			func(_ context.Context, event events.Event) error {
+				changed := event.(*events.ConfigurationChanged)
+				assert.Equal(t, "git.example.com/team/old", changed.PreviousRepository)
+				assert.Equal(t, "git.example.com/team/new", changed.Repository)
+				return nil
+			},
+		),
+		publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.GitPullFailed{})).DoAndReturn(
+			func(_ context.Context, event events.Event) error {
+				assert.Equal(t, "git.example.com/team/new", event.(*events.GitPullFailed).Repository)
+				return nil
+			},
+		),
+	)
+	controller := &Controller{
+		db: db, stateStore: store, git: repository, event: publisher,
+		cfg:     &config.Config{Spec: config.Spec{Git: config.GitSpec{Repository: "https://git.example.com/team/new.git"}}},
+		metrics: metrics.NewGroup(metrics.CreateGroupParams{Namespace: "test_git_changed_repository_failure"}),
+	}
+	require.NoError(t, controller.recordGitPullFailure(t.Context(), "git.example.com/team/old",
+		git.FailureAuthentication, "Git repository authentication failed", TriggerPoll))
+
+	_, err := controller.pullGit(t.Context(), TriggerStartup)
+	require.Error(t, err)
+	state := readSQLState(t, store)
+	require.NotNil(t, state.GitPullFailure)
+	assert.Equal(t, "git.example.com/team/new", state.GitPullFailure.Repository)
+}
+
+func TestRepositoryChangePublicationFailureRetainsPreviousFailureState(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	db, store := newSQLState(t)
+	publisher := dispatcher.NewMockDispatcher(ctrl)
+	gomock.InOrder(
+		publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.GitPullFailed{})).Return(nil),
+		publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.ConfigurationChanged{})).
+			Return(errors.New("outbox unavailable")),
+	)
+	controller := &Controller{db: db, stateStore: store, event: publisher}
+	require.NoError(t, controller.recordGitPullFailure(t.Context(), "git.example.com/team/old",
+		git.FailureAuthentication, "Git repository authentication failed", TriggerPoll))
+
+	err := controller.recordGitPullSuccess(t.Context(), "git.example.com/team/new", TriggerStartup)
+	require.ErrorContains(t, err, "outbox unavailable")
+	state := readSQLState(t, store)
+	require.NotNil(t, state.GitPullFailure)
+	assert.Equal(t, "git.example.com/team/old", state.GitPullFailure.Repository)
+}
+
 func TestGitPullStateAndEventPublicationRollBackTogether(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	db, store := newSQLState(t)

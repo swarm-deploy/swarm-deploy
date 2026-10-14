@@ -1,8 +1,12 @@
 package events
 
 // ConfigurationChanged is emitted after a distinct configuration has been
-// successfully accepted. Consumers read the current accepted state directly.
-type ConfigurationChanged struct{}
+// accepted. Repository fields are set only when GitOps detects a configured
+// repository transition before desired-state reload can complete.
+type ConfigurationChanged struct {
+	PreviousRepository string
+	Repository         string
+}
 
 // Type returns the internal configuration lifecycle event type.
 func (*ConfigurationChanged) Type() Type { return TypeConfigurationChanged }

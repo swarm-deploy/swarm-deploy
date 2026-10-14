@@ -53,6 +53,9 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 
 	switch deployment := event.Event.(type) {
 	case *events.ConfigurationChanged:
+		if deployment.PreviousRepository != "" {
+			return s.handleGitRepositoryChanged(ctx, event.ID, deployment)
+		}
 		return s.handleConfigurationChanged(ctx, event.ID)
 	case *events.NodeDisconnected:
 		return s.handleNode(ctx, event.ID, deployment.NodeID, true)
@@ -151,6 +154,34 @@ func (s *Subscriber) handleGitPullSucceeded(ctx context.Context, eventID string,
 	}
 	if err = s.store.Update(ctx, alert); err != nil {
 		return fmt.Errorf("resolve Git repository alert: %w", err)
+	}
+	return s.publishResolved(ctx, alert)
+}
+
+func (s *Subscriber) handleGitRepositoryChanged(
+	ctx context.Context, eventID string, event *events.ConfigurationChanged,
+) error {
+	fingerprint := model.GitRepositoryUnavailableFingerprint(event.PreviousRepository)
+	if err := s.store.ResetFailureStreak(ctx, fingerprint); err != nil {
+		return fmt.Errorf("reset removed Git repository failure streak: %w", err)
+	}
+	alert, err := s.store.FindOpenByFingerprint(ctx, fingerprint)
+	if err != nil {
+		if errors.Is(err, modelstore.ErrAlertNotFound) {
+			return nil
+		}
+		return fmt.Errorf("find removed Git repository alert: %w", err)
+	}
+	now := s.now()
+	alert.Status = model.AlertStatusResolved
+	alert.UpdatedAt = now
+	alert.ResolvedAt = &now
+	alert.Resolution = &model.AlertResolution{
+		Reason: model.ResolutionReasonResourceRemoved, Message: "Git repository removed from configuration",
+		EventID: eventReferenceID(eventID, s.newID),
+	}
+	if err = s.store.Update(ctx, alert); err != nil {
+		return fmt.Errorf("resolve removed Git repository alert: %w", err)
 	}
 	return s.publishResolved(ctx, alert)
 }

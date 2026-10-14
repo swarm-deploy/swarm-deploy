@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/configstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
@@ -234,6 +235,107 @@ func TestGitRepositoryAuthenticationFailureOpensAndRecoveryResolvesAlert(t *test
 	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
 	assert.Equal(t, model.ResolutionReasonRecovered, alerts[0].Resolution.Reason)
 	assert.Equal(t, "recovered", alerts[0].Resolution.EventID)
+}
+
+func TestGitRepositoryChangeResolvesPreviousAsRemovedAndOrdersDelayedRecovery(t *testing.T) {
+	ctx := t.Context()
+	db, err := storage.Open(ctx, t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+	repo := modelstore.NewSQLStore(db)
+	subscriber := newTestSQLSubscriber(repo)
+	at := time.Now().UTC()
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+		ID: "old-failed", OccurredAt: at, Event: &events.GitPullFailed{
+			Repository: "git.example.com/team/old", Category: events.GitFailureAuthentication,
+			Description: "Git repository authentication failed",
+		},
+	}))
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+		ID: "repository-changed", OccurredAt: at.Add(3 * time.Second), Event: &events.ConfigurationChanged{
+			PreviousRepository: "git.example.com/team/old", Repository: "git.example.com/team/new",
+		},
+	}))
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+		ID: "delayed-old-failure", OccurredAt: at.Add(time.Second), Event: &events.GitPullFailed{
+			Repository: "git.example.com/team/old", Category: events.GitFailureAuthentication,
+			Description: "Git repository authentication failed",
+		},
+	}))
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+		ID: "delayed-old-success", OccurredAt: at.Add(2 * time.Second), Event: &events.GitPullSucceeded{
+			Repository: "git.example.com/team/old",
+		},
+	}))
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+		ID: "new-failed", OccurredAt: at.Add(4 * time.Second), Event: &events.GitPullFailed{
+			Repository: "git.example.com/team/new", Category: events.GitFailureAuthentication,
+			Description: "Git repository authentication failed",
+		},
+	}))
+
+	alerts, err := repo.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 2)
+	byRepository := map[string]model.Alert{}
+	for _, alert := range alerts {
+		byRepository[alert.ResourceID] = alert
+	}
+	old := byRepository["git.example.com/team/old"]
+	assert.Equal(t, model.AlertStatusResolved, old.Status)
+	require.NotNil(t, old.Resolution)
+	assert.Equal(t, model.ResolutionReasonResourceRemoved, old.Resolution.Reason)
+	assert.Equal(t, "repository-changed", old.Resolution.EventID)
+	assert.Equal(t, model.AlertStatusOpen, byRepository["git.example.com/team/new"].Status)
+
+	var oldCounters int
+	require.NoError(t, db.Get(ctx, &oldCounters,
+		"SELECT count(*) FROM alert_failure_streaks WHERE fingerprint = ?",
+		model.GitRepositoryUnavailableFingerprint("git.example.com/team/old")))
+	assert.Zero(t, oldCounters)
+}
+
+func TestGitRepositoryChangeBypassesUnreadyStackConfiguration(t *testing.T) {
+	ctx := t.Context()
+	db, err := storage.Open(ctx, t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+	repo := modelstore.NewSQLStore(db)
+	configStore := configstore.New(&config.Config{}, &dispatcher.NopDispatcher{})
+	subscriber := NewSQLSubscriber(repo, &dispatcher.NopDispatcher{},
+		func(model.AlertKind) []events.AlertRecipient { return nil }, configStore)
+	at := time.Now().UTC()
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+		ID: "old-failed", OccurredAt: at, Event: &events.GitPullFailed{
+			Repository: "git.example.com/team/old", Category: events.GitFailureAuthentication,
+			Description: "Git repository authentication failed",
+		},
+	}))
+	require.NoError(t, repo.Create(ctx, model.Alert{
+		ID: "stack-alert", Fingerprint: model.SyncFailedFingerprint("app"), Kind: model.AlertKindSyncFailed,
+		ResourceType: model.ResourceTypeStack, ResourceID: "app", Status: model.AlertStatusOpen,
+		Title: "Synchronization failed", Occurrences: 1, OpenedAt: at, UpdatedAt: at,
+		OpenEventID: "stack-failed", LatestEventID: "stack-failed",
+	}))
+
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+		ID: "repository-changed", OccurredAt: at.Add(time.Second), Event: &events.ConfigurationChanged{
+			PreviousRepository: "git.example.com/team/old", Repository: "git.example.com/team/new",
+		},
+	}))
+
+	alerts, err := repo.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 2)
+	for _, alert := range alerts {
+		if alert.ResourceType == model.ResourceTypeRepository {
+			assert.Equal(t, model.AlertStatusResolved, alert.Status)
+			require.NotNil(t, alert.Resolution)
+			assert.Equal(t, model.ResolutionReasonResourceRemoved, alert.Resolution.Reason)
+			continue
+		}
+		assert.Equal(t, model.AlertStatusOpen, alert.Status, "repository-only event must not reconcile stacks")
+	}
 }
 
 func TestGitRepositoryNetworkThresholdSurvivesRestartAndDeduplicatesDelivery(t *testing.T) {

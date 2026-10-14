@@ -21,6 +21,46 @@ type gitPullSucceededPayload struct {
 	TriggerReason string `json:"triggerReason,omitempty"`
 }
 
+type configurationChangedPayload struct {
+	PreviousRepository string `json:"previousRepository,omitempty"`
+	Repository         string `json:"repository,omitempty"`
+}
+
+func encodeConfigurationChanged(event *events.ConfigurationChanged) ([]byte, error) {
+	if err := validateRepositoryTransition(event.PreviousRepository, event.Repository); err != nil {
+		return nil, err
+	}
+	return json.Marshal(configurationChangedPayload{
+		PreviousRepository: event.PreviousRepository, Repository: event.Repository,
+	})
+}
+
+func decodeConfigurationChanged(payload []byte) (events.Event, error) {
+	var value configurationChangedPayload
+	if err := decode(payload, &value); err != nil {
+		return nil, err
+	}
+	if err := validateRepositoryTransition(value.PreviousRepository, value.Repository); err != nil {
+		return nil, err
+	}
+	return &events.ConfigurationChanged{
+		PreviousRepository: value.PreviousRepository, Repository: value.Repository,
+	}, nil
+}
+
+func validateRepositoryTransition(previous, current string) error {
+	if previous == "" && current == "" {
+		return nil
+	}
+	if previous == "" || current == "" || previous == current {
+		return errors.New("invalid git repository configuration transition")
+	}
+	if err := validateRepositoryIdentifier(previous); err != nil {
+		return err
+	}
+	return validateRepositoryIdentifier(current)
+}
+
 func encodeGitPullFailed(event *events.GitPullFailed) ([]byte, error) {
 	description, ok := safeGitFailureDescription(event.Category)
 	if !ok {

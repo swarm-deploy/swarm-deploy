@@ -32,6 +32,9 @@ func (s *SQLSubscriber) Handle(ctx context.Context, event events.Envelope) error
 	switch e := event.Event.(type) {
 	case *events.ConfigurationChanged:
 		resource = "configuration"
+		if e.PreviousRepository != "" {
+			resource = "repository:" + e.PreviousRepository
+		}
 	case *events.DeploySuccess:
 		resource = "stack:" + e.StackName
 	case *events.DeployFailed:
