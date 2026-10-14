@@ -137,7 +137,6 @@ const statusIcon = computed<"check" | "running" | "failed" | "warning">(() => {
     default: return "warning";
   }
 });
-const total = computed(() => detail.value?.changes?.length ?? 0);
 const duration = computed(() => {
   const ms = detail.value?.duration_ms;
   return ms == null ? (detail.value?.status === "running" ? "In progress" : "—") : ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
@@ -344,7 +343,7 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
               <p class="meta">{{ comparison }}</p>
             </template>
             <template v-else>
-              <div class="deployment-changes-heading"><div><h3>Desired-state changes</h3><p class="deployment-note">{{ comparison }} These entries do not confirm runtime convergence.</p></div><span>{{ pluralize(total, "field") }}</span></div>
+              <div class="deployment-changes-heading"><div><h3>Desired-state changes</h3><p class="deployment-note">{{ comparison }} These entries do not confirm runtime convergence.</p></div></div>
               <p class="meta">{{ detail.summary.added }} added · {{ detail.summary.changed }} changed · {{ detail.summary.removed }} removed<template v-if="detail.summary.redacted"> · {{ detail.summary.redacted }} masked</template></p>
               <details v-for="group in groups" :key="`${group.type}/${group.name}`" class="deployment-resource" open>
                 <summary><span><svg class="deployment-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg><DeploymentIcon :name="resourceIcon(group.type)" /><span><span class="deployment-resource-type">{{ group.type }}</span><strong>{{ group.name }}</strong></span></span><span class="deployment-resource-operation" :class="`deployment-resource-operation--${group.operation}`">{{ group.operation }}</span></summary>
