@@ -159,6 +159,7 @@ describe("Deployment Details modal", () => {
 
     expect(wrapper.get(".deployment-status").text()).toBe(status[0].toUpperCase() + status.slice(1));
     expect(wrapper.find(".deployment-outcome").exists()).toBe(false);
+    expect(wrapper.get(".deployment-modal-content").classes()).toContain("deployment-modal-content--compact");
     expect(wrapper.text()).not.toContain("Apply pipeline completed");
     expect(wrapper.text()).toContain("Initial snapshot");
     wrapper.unmount();
@@ -175,6 +176,7 @@ describe("Deployment Details modal", () => {
 
     expect(wrapper.get(".deployment-status").text()).toBe(status[0].toUpperCase() + status.slice(1));
     expect(wrapper.get(".deployment-outcome").classes()).toContain(`deployment-outcome--${status}`);
+    expect(wrapper.get(".deployment-modal-content").classes()).not.toContain("deployment-modal-content--compact");
     expect(wrapper.get(".deployment-diagnostic").text()).toContain("update service api: image not found");
     expect(wrapper.get(".deployment-code").text()).toContain("apply_failed");
     expect(wrapper.text()).toContain(expected);
