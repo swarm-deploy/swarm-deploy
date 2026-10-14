@@ -1,6 +1,7 @@
 package notifications
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	notificationtemplate "github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/template"
 )
 
@@ -41,7 +43,7 @@ func TestMovedPayloadContracts(t *testing.T) {
 		}},
 		{name: "reconciliation", typ: reflect.TypeFor[ReconciliationPayload](), fields: map[string]reflect.Type{
 			"ID": reflect.TypeFor[string](), "Type": reflect.TypeFor[string](), "StackName": reflect.TypeFor[string](),
-			"TriggeredBy": reflect.TypeFor[string](), "Queued": reflect.TypeFor[bool](),
+			"Username": reflect.TypeFor[string](), "Queued": reflect.TypeFor[bool](),
 			"NetworkName": reflect.TypeFor[string](), "NetworkID": reflect.TypeFor[string](),
 			"Driver": reflect.TypeFor[string](), "Message": reflect.TypeFor[string](),
 			"OccurredAt": reflect.TypeFor[time.Time](),
@@ -140,4 +142,48 @@ func TestFailureTemplateValidatesEveryFailureState(t *testing.T) {
 	for _, payload := range DeploymentFailureReferencePayloads() {
 		require.NoError(t, notificationtemplate.Validate(FailedTemplate(), payload))
 	}
+}
+
+func TestNotificationPayloadJSONUsesStandardAttributeNames(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload any
+		keys    []string
+	}{
+		{name: "deployment", payload: DeploymentFailureReferencePayloads()[0], keys: []string{
+			events.AttributeDeploymentID, events.AttributeStackName, events.AttributeCommit, events.AttributeStatus,
+			events.AttributeError, events.AttributeErrorCode, events.AttributeStage,
+		}},
+		{name: "node", payload: NodeConnectedReferencePayload(), keys: []string{
+			events.AttributeNodeID, events.AttributeNodeName, events.AttributeStatus,
+		}},
+		{name: "service", payload: ServiceReferencePayload("ServiceReplicasIncreased"), keys: []string{
+			events.AttributeStackName, events.AttributeServiceName, events.AttributeCommit, events.AttributeUsername,
+		}},
+		{name: "reconciliation", payload: ReconciliationReferencePayload("SyncManualStarted"), keys: []string{
+			events.AttributeStackName, events.AttributeUsername, events.AttributeNetworkID, events.AttributeNetworkName,
+		}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			encoded, err := json.Marshal(test.payload)
+			require.NoError(t, err)
+
+			var value map[string]any
+			require.NoError(t, json.Unmarshal(encoded, &value))
+			for _, key := range test.keys {
+				assert.Contains(t, value, key)
+			}
+			assert.NotContains(t, value, "stack")
+			assert.NotContains(t, value, "service")
+			assert.NotContains(t, value, "triggered_by")
+		})
+	}
+}
+
+func TestManualSyncTemplateUsesUsername(t *testing.T) {
+	payload := ReconciliationReferencePayload("SyncManualStarted")
+	require.NoError(t, notificationtemplate.Validate(`{{ .Username }}`, payload))
+	assert.ErrorContains(t, notificationtemplate.Validate(`{{ .TriggeredBy }}`, payload), "TriggeredBy")
 }

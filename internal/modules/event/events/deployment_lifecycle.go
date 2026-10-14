@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
 
 // DeployPreparationFailed reports a safe pre-apply failure without inventing a deployment attempt.
@@ -32,9 +33,15 @@ func (e *DeployPreparationFailed) Message() string {
 
 // Details returns only stable categories and identifiers.
 func (e *DeployPreparationFailed) Details() map[string]string {
-	details := map[string]string{"stack": e.StackName, "commit": e.Commit, "error": e.ErrorCode, "stage": e.Stage}
+	details := map[string]string{
+		AttributeStackName: e.StackName,
+		AttributeCommit:    e.Commit,
+		AttributeStatus:    "preparation_failed",
+		AttributeErrorCode: e.ErrorCode,
+		AttributeStage:     e.Stage,
+	}
 	if e.Error != nil {
-		details["diagnostic"] = e.Error.Error()
+		details[AttributeError] = faults.SafeDiagnostic(e.Error)
 	}
 	return details
 }
@@ -67,5 +74,17 @@ func (e *DeployInterrupted) Message() string {
 
 // Details returns only stable categories and identifiers.
 func (e *DeployInterrupted) Details() map[string]string {
-	return map[string]string{"stack": e.StackName, "commit": e.Commit, "error": e.Reason, "stage": e.Stage}
+	details := map[string]string{
+		AttributeStackName:    e.StackName,
+		AttributeCommit:       e.Commit,
+		AttributeDeploymentID: e.DeploymentID,
+		AttributeStatus:       "interrupted",
+		AttributeErrorCode:    e.Reason,
+		AttributeStage:        e.Stage,
+	}
+	if e.Error != nil {
+		details[AttributeError] = faults.SafeDiagnostic(e.Error)
+	}
+
+	return details
 }

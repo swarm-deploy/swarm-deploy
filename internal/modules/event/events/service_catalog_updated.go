@@ -14,5 +14,5 @@ func (*ServiceCatalogUpdated) Message() string { return "Service catalog updated
 
 // Details contains non-sensitive identity only.
 func (e *ServiceCatalogUpdated) Details() map[string]string {
-	return map[string]string{"stack_name": e.StackName}
+	return map[string]string{AttributeStackName: e.StackName}
 }

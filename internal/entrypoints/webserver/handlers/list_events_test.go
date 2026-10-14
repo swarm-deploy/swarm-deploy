@@ -116,7 +116,7 @@ func TestHandlerListEventsFiltersBySince(t *testing.T) {
 	generatedSince.SetTo(since)
 	resp, err := (&handler{history: store}).ListEvents(context.Background(), generated.ListEventsParams{
 		Severities: []generated.EventSeverity{generated.EventSeverityError},
-		Since: generatedSince,
+		Since:      generatedSince,
 	})
 	require.NoError(t, err)
 	require.Len(t, resp.Events, 2)
@@ -164,8 +164,8 @@ func TestHandlerListEventsCursorPagination(t *testing.T) {
 	first, err := h.ListEvents(context.Background(), params)
 	require.NoError(t, err)
 	require.Len(t, first.Events, 2)
-	assert.Equal(t, "four", first.Events[0].Details.Value["stack"])
-	assert.Equal(t, "three", first.Events[1].Details.Value["stack"])
+	assert.Equal(t, "four", first.Events[0].Details.Value[events.AttributeStackName])
+	assert.Equal(t, "three", first.Events[1].Details.Value[events.AttributeStackName])
 	cursor, ok := first.NextCursor.Get()
 	require.True(t, ok)
 
@@ -173,8 +173,8 @@ func TestHandlerListEventsCursorPagination(t *testing.T) {
 	second, err := h.ListEvents(context.Background(), params)
 	require.NoError(t, err)
 	require.Len(t, second.Events, 2)
-	assert.Equal(t, "two", second.Events[0].Details.Value["stack"])
-	assert.Equal(t, "one", second.Events[1].Details.Value["stack"])
+	assert.Equal(t, "two", second.Events[0].Details.Value[events.AttributeStackName])
+	assert.Equal(t, "one", second.Events[1].Details.Value[events.AttributeStackName])
 	assert.False(t, second.NextCursor.IsSet())
 
 	unpaginated := generated.ListEventsParams{}
@@ -182,8 +182,8 @@ func TestHandlerListEventsCursorPagination(t *testing.T) {
 	response, err := h.ListEvents(context.Background(), unpaginated)
 	require.NoError(t, err)
 	require.Len(t, response.Events, 2)
-	assert.Equal(t, "three", response.Events[0].Details.Value["stack"])
-	assert.Equal(t, "four", response.Events[1].Details.Value["stack"])
+	assert.Equal(t, "three", response.Events[0].Details.Value[events.AttributeStackName])
+	assert.Equal(t, "four", response.Events[1].Details.Value[events.AttributeStackName])
 	assert.False(t, response.NextCursor.IsSet())
 }
 

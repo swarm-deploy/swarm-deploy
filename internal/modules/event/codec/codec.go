@@ -79,7 +79,7 @@ func Encode(event events.Event) ([]byte, error) {
 	case *events.NetworkCreated:
 		return json.Marshal(networkPayload{ID: e.NetworkID, Name: e.NetworkName, Driver: e.Driver})
 	case *events.SyncManualStarted:
-		return json.Marshal(userPayload{Username: e.TriggeredBy})
+		return json.Marshal(userPayload{Username: e.Username})
 	case *events.UserAuthenticated:
 		return json.Marshal(userPayload{Username: e.Username})
 	case *events.WebhookReceived:
@@ -166,7 +166,7 @@ func Decode(typ events.TypeName, version int, payload []byte) (events.Event, err
 		})
 	case events.TypeNameSyncManualStarted:
 		return decodeAs(payload, func(p userPayload) events.Event {
-			return &events.SyncManualStarted{TriggeredBy: p.Username}
+			return &events.SyncManualStarted{Username: p.Username}
 		})
 	case events.TypeNameUserAuthenticated:
 		return decodeAs(payload, func(p userPayload) events.Event { return &events.UserAuthenticated{Username: p.Username} })

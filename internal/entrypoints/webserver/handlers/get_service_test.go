@@ -14,8 +14,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 	"go.uber.org/mock/gomock"
 )
 
@@ -141,7 +141,7 @@ func TestHandlerListServiceDeployments_MapsFromHistory(t *testing.T) {
 		},
 	}))
 	require.NoError(t, storeEvent(store, ctx, &events.SyncManualStarted{
-		TriggeredBy: "admin",
+		Username: "admin",
 	}))
 	require.NoError(t, storeEvent(store, ctx, &events.DeployFailed{
 		DeployEvent: events.DeployEvent{

@@ -1,6 +1,7 @@
 package notify
 
 import (
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -15,7 +16,10 @@ import (
 
 func TestDeploymentFailureNotificationPayloadsUseSyncFailedContract(t *testing.T) {
 	occurredAt := time.Date(2026, time.October, 13, 12, 30, 0, 0, time.FixedZone("test", 3*60*60))
-	services := []compose.Service{{Name: "api", Image: "registry.example.com/api:v3"}}
+	services := []compose.Service{{
+		Name: "api", Image: "registry.example.com/api:v3",
+		Environment: compose.Environment{Map: map[string]string{"TOKEN": "private"}},
+	}}
 	tests := []struct {
 		name         string
 		event        events.Event
@@ -62,8 +66,30 @@ func TestDeploymentFailureNotificationPayloadsUseSyncFailedContract(t *testing.T
 			template, ok := StandardTemplate(events.TypeNameSyncFailed)
 			require.True(t, ok)
 			require.NoError(t, notificationtemplate.Validate(template, actual))
+
+			encoded, err := json.Marshal(actual)
+			require.NoError(t, err)
+			assert.NotContains(t, string(encoded), "private")
 		})
 	}
+}
+
+func TestAssistantNotificationPayloadOmitsPrompt(t *testing.T) {
+	payload, err := notificationPayload(events.Envelope{
+		ID: "event-1",
+		Event: &events.AssistantPromptInjectionDetected{
+			Prompt: "token=private", Detector: events.AssistantPromptInjectionDetectorRegexp, Username: "operator",
+		},
+	})
+	require.NoError(t, err)
+
+	encoded, err := json.Marshal(payload)
+	require.NoError(t, err)
+	assert.NotContains(t, string(encoded), "private")
+
+	var value map[string]any
+	require.NoError(t, json.Unmarshal(encoded, &value))
+	assert.NotContains(t, value, "prompt")
 }
 
 func TestEveryConfigurableEventHasTemplateContract(t *testing.T) {

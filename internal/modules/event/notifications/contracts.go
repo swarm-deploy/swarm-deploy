@@ -99,8 +99,8 @@ type ReconciliationPayload struct {
 	Type string `json:"type"`
 	// StackName identifies an affected stack when available.
 	StackName string `json:"stack_name"`
-	// TriggeredBy identifies the user who started a manual sync.
-	TriggeredBy string `json:"triggered_by"`
+	// Username identifies the user who started a manual sync.
+	Username string `json:"username"`
 	// Queued reports whether a webhook scheduled reconciliation.
 	Queued bool `json:"queued"`
 	// NetworkName identifies a created network.
@@ -221,7 +221,7 @@ func ServiceReferencePayload(eventType string) ServicePayload {
 // ReconciliationReferencePayload returns representative data for a reconciliation event type.
 func ReconciliationReferencePayload(eventType string) ReconciliationPayload {
 	payload := ReconciliationPayload{ID: "event-reconciliation", Type: eventType, StackName: "payments",
-		TriggeredBy: "operator", Queued: true, NetworkName: "payments", NetworkID: "network-42", Driver: "overlay",
+		Username: "operator", Queued: true, NetworkName: "payments", NetworkID: "network-42", Driver: "overlay",
 		OccurredAt: referenceTime()}
 	switch eventType {
 	case "ServiceCatalogUpdated":

@@ -159,10 +159,11 @@ func toGeneratedServiceDeployments(
 			continue
 		}
 
-		if entry.Details["stack"] != stackName {
+		if entry.Details[events.AttributeStackName] != stackName {
 			continue
 		}
-		if serviceInEvent := entry.Details["service"]; serviceInEvent != "" && serviceInEvent != serviceName {
+		serviceInEvent := entry.Details[events.AttributeServiceName]
+		if serviceInEvent != "" && serviceInEvent != serviceName {
 			continue
 		}
 
@@ -176,7 +177,7 @@ func toGeneratedServiceDeployments(
 		if entry.Message != "" {
 			item.Message = generated.NewOptString(entry.Message)
 		}
-		if commit := entry.Details["commit"]; commit != "" {
+		if commit := entry.Details[events.AttributeCommit]; commit != "" {
 			item.Commit = generated.NewOptString(commit)
 		}
 
