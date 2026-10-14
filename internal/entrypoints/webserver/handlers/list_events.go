@@ -49,6 +49,7 @@ func (h *handler) ListEvents(
 	if !params.Sort.IsSet() && !params.Order.IsSet() && !params.Cursor.IsSet() {
 		entries, err := h.history.ReadRecent(ctx, history.QueryOptions{
 			Severities: severities, Categories: categories, Types: types, Since: since,
+			StackNames: params.StackName, ServiceNames: params.ServiceName,
 			Limit: int(params.Limit.Or(0)),
 		})
 		if err != nil {
@@ -58,13 +59,15 @@ func (h *handler) ListEvents(
 	}
 
 	page, err := h.history.QueryPage(ctx, history.QueryOptions{
-		Severities: severities,
-		Categories: categories,
-		Types:      types,
-		Since:      since,
-		Limit:      int(params.Limit.Or(defaultEventPageSize)),
-		Cursor:     params.Cursor.Or(""),
-		Sort:       history.SortOrder(params.Sort.Or("time") + "_" + params.Order.Or("desc")),
+		Severities:   severities,
+		Categories:   categories,
+		Types:        types,
+		StackNames:   params.StackName,
+		ServiceNames: params.ServiceName,
+		Since:        since,
+		Limit:        int(params.Limit.Or(defaultEventPageSize)),
+		Cursor:       params.Cursor.Or(""),
+		Sort:         history.SortOrder(params.Sort.Or("time") + "_" + params.Order.Or("desc")),
 	})
 	if err != nil {
 		return nil, withStatusError(http.StatusBadRequest, err)

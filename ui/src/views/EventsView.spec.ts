@@ -43,7 +43,8 @@ const events: EventHistoryItem[] = [
     created_at: "2026-10-06T15:00:00Z",
     message: "Error",
     details: {
-      stack: "payments",
+      stack_name: "payments",
+      service_name: "api",
       status: "failed",
       error_code: "apply_failed",
     },
@@ -72,6 +73,7 @@ function renderedMessages(wrapper: ReturnType<typeof mount>): string[] {
 
 describe("EventsView", () => {
   beforeEach(() => {
+    vi.restoreAllMocks();
     vi.mocked(fetchEvents).mockReset();
     vi.mocked(fetchEvents).mockImplementation(async (options = {}) => {
       const severityRank = { info: 0, warn: 1, error: 2, alert: 3 };
@@ -214,7 +216,7 @@ describe("EventsView", () => {
     vi.mocked(fetchEvents).mockResolvedValueOnce({ events: [alertEvent] });
     const { wrapper } = await mountView();
 
-    expect(wrapper.findAll("select option").map((option) => option.text())).toEqual([
+    expect(wrapper.find('select[aria-label="Filter events by severity"]').findAll("option").map((option) => option.text())).toEqual([
       "All severities",
       "Info",
       "Warning",
@@ -312,5 +314,97 @@ describe("EventsView", () => {
     expect(renderedMessages(wrapper)).toEqual(["Newer info", "Older info", "Warning", "Error"]);
     const severityHeader = wrapper.findAll("th").find((header) => header.text().startsWith("Severity"));
     expect(severityHeader?.attributes("aria-sort")).toBe("ascending");
+  });
+
+  it("restores all investigation filters from the URL", async () => {
+    const now = Date.parse("2026-10-14T12:00:00Z");
+    vi.spyOn(Date, "now").mockReturnValue(now);
+
+    const { wrapper } = await mountView(
+      "/events?category=swarm&stack_name=payments&service_name=api&period=24h&severity=warn",
+    );
+
+    expect((wrapper.find('select[aria-label="Filter events by category"]').element as HTMLSelectElement).value).toBe("swarm");
+    expect((wrapper.find('input[aria-label="Filter events by stack"]').element as HTMLInputElement).value).toBe("payments");
+    expect((wrapper.find('input[aria-label="Filter events by service"]').element as HTMLInputElement).value).toBe("api");
+    expect((wrapper.find('select[aria-label="Filter events by period"]').element as HTMLSelectElement).value).toBe("24h");
+    expect(fetchEvents).toHaveBeenLastCalledWith({
+      types: [],
+      severities: ["warn"],
+      categories: ["swarm"],
+      stackNames: ["payments"],
+      serviceNames: ["api"],
+      since: "2026-10-13T12:00:00.000Z",
+      limit: 50,
+      sort: "time",
+      order: "desc",
+    });
+  });
+
+  it("applies stack and service filters from event details", async () => {
+    vi.mocked(fetchEvents).mockResolvedValue({ events: [events[3]] });
+    const { wrapper, router } = await mountView();
+    await wrapper.find("tbody tr.app-table-row--clickable").trigger("click");
+
+    const filterButtons = wrapper.findAll(".event-detail-filter");
+    expect(filterButtons).toHaveLength(2);
+    await filterButtons.find((button) => button.attributes("aria-label")?.includes("stack_name"))!.trigger("click");
+    await flushPromises();
+    expect(router.currentRoute.value.query.stack_name).toBe("payments");
+    expect(fetchEvents).toHaveBeenLastCalledWith(expect.objectContaining({ stackNames: ["payments"] }));
+
+    await wrapper.find("tbody tr.app-table-row--clickable").trigger("click");
+    await wrapper.findAll(".event-detail-filter")
+      .find((button) => button.attributes("aria-label")?.includes("service_name"))!.trigger("click");
+    await flushPromises();
+    expect(router.currentRoute.value.query.service_name).toBe("api");
+    expect(fetchEvents).toHaveBeenLastCalledWith(expect.objectContaining({
+      stackNames: ["payments"], serviceNames: ["api"],
+    }));
+  });
+
+  it("clears filters without resetting sorting", async () => {
+    const { wrapper, router } = await mountView(
+      "/events?types=SyncFailed&severity=error&category=sync&stack_name=payments&service_name=api&period=7d&sort=severity&order=asc",
+    );
+
+    await wrapper.find(".events-clear-filters").trigger("click");
+    await flushPromises();
+
+    expect(router.currentRoute.value.query).toEqual({ sort: "severity", order: "asc" });
+    expect(fetchEvents).toHaveBeenLastCalledWith({
+      types: [], severities: [], limit: 50, sort: "severity", order: "asc",
+    });
+  });
+
+  it("keeps the resolved period boundary stable across cursor pages", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-14T12:00:00Z"));
+    vi.mocked(fetchEvents)
+      .mockResolvedValueOnce({ events: [events[1]], nextCursor: "page-2" })
+      .mockResolvedValueOnce({ events: [events[0]] });
+    const { wrapper } = await mountView("/events?period=1h");
+
+    await wrapper.find(".events-load-more").trigger("click");
+    await flushPromises();
+
+    const calls = vi.mocked(fetchEvents).mock.calls;
+    expect(calls[0][0]?.since).toBe("2026-10-14T11:00:00.000Z");
+    expect(calls[1][0]).toMatchObject({ since: calls[0][0]?.since, cursor: "page-2" });
+  });
+
+  it("resets pagination when an investigation filter changes", async () => {
+    vi.mocked(fetchEvents)
+      .mockResolvedValueOnce({ events: [events[1]], nextCursor: "page-2" })
+      .mockResolvedValueOnce({ events: [events[2]] });
+    const { wrapper } = await mountView();
+
+    await wrapper.find('select[aria-label="Filter events by category"]').setValue("swarm");
+    await flushPromises();
+
+    expect(fetchEvents).toHaveBeenLastCalledWith({
+      types: [], severities: [], categories: ["swarm"], limit: 50, sort: "time", order: "desc",
+    });
+    expect(renderedMessages(wrapper)).toEqual(["Warning"]);
+    expect(wrapper.find(".events-load-more").exists()).toBe(false);
   });
 });

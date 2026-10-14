@@ -25,6 +25,24 @@ paths:
             items:
               type: string
         - in: query
+          name: stack_name
+          required: false
+          description: Exact stack names. Multiple values are combined with OR.
+          schema:
+            type: array
+            items:
+              type: string
+              minLength: 1
+        - in: query
+          name: service_name
+          required: false
+          description: Exact service names. Multiple values are combined with OR.
+          schema:
+            type: array
+            items:
+              type: string
+              minLength: 1
+        - in: query
           name: since
           required: false
           schema:

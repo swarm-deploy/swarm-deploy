@@ -32,6 +32,8 @@ export interface FetchEventsOptions {
   severities?: string[];
   categories?: string[];
   types?: string[];
+  stackNames?: string[];
+  serviceNames?: string[];
   since?: string;
   limit?: number;
   cursor?: string;
@@ -64,6 +66,12 @@ export function fetchEvents(options: FetchEventsOptions = {}): Promise<EventHist
   }
   for (const type of options.types ?? []) {
     params.append("types", type);
+  }
+  for (const stackName of options.stackNames ?? []) {
+    params.append("stack_name", stackName);
+  }
+  for (const serviceName of options.serviceNames ?? []) {
+    params.append("service_name", serviceName);
   }
   if (options.since) {
     params.set("since", options.since);

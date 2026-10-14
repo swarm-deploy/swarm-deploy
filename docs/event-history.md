@@ -70,6 +70,8 @@ History can be viewed via API:
     - `severities` - list of severities (`info`, `warn`, `error`, `alert`)
     - `categories` - list of categories (`sync`, `security`, `swarm`)
     - `types` - list of event types
+    - `stack_name` - list of exact `stack_name` attribute values
+    - `service_name` - list of exact `service_name` attribute values
     - `since` - inclusive timestamp
     - `limit` - maximum events to return (1-100)
     - `sort` - `time` or `severity`; enables paginated sorting

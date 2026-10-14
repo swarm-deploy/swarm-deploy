@@ -63,6 +63,60 @@ func TestSQLiteQueryPagination(t *testing.T) {
 	assert.NotEqual(t, entryIDs(first.Entries), entryIDs(second.Entries))
 }
 
+func TestSQLiteQueryFiltersAttributesBeforePagination(t *testing.T) {
+	t.Parallel()
+	db, err := storage.Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	repo, err := NewSQLStore(db, 100)
+	require.NoError(t, err)
+	at := time.Date(2026, time.October, 14, 12, 0, 0, 0, time.UTC)
+	entries := []Entry{
+		{ID: "api-worker-old", Type: events.TypeServiceMissed, Severity: events.SeverityWarn,
+			Category: events.CategorySwarm, CreatedAt: at,
+			Details: map[string]string{events.AttributeStackName: "api", events.AttributeServiceName: "worker"}},
+		{ID: "web-worker", Type: events.TypeServiceMissed, Severity: events.SeverityWarn,
+			Category: events.CategorySwarm, CreatedAt: at.Add(time.Second),
+			Details: map[string]string{events.AttributeStackName: "web", events.AttributeServiceName: "worker"}},
+		{ID: "api-database", Type: events.TypeServiceMissed, Severity: events.SeverityWarn,
+			Category: events.CategorySwarm, CreatedAt: at.Add(2 * time.Second),
+			Details: map[string]string{events.AttributeStackName: "api", events.AttributeServiceName: "database"}},
+		{ID: "no-service", Type: events.TypeDeploySuccess, Severity: events.SeverityInfo,
+			Category: events.CategorySync, CreatedAt: at.Add(3 * time.Second),
+			Details: map[string]string{events.AttributeStackName: "api"}},
+		{ID: "api-worker-new", Type: events.TypeServiceRestarted, Severity: events.SeverityWarn,
+			Category: events.CategorySwarm, CreatedAt: at.Add(4 * time.Second),
+			Details: map[string]string{events.AttributeStackName: "api", events.AttributeServiceName: "worker"}},
+	}
+	for index, entry := range entries {
+		require.NoError(t, repo.insert(t.Context(), entry, int64(index+1)))
+	}
+
+	options := QueryOptions{
+		StackNames: []string{"api", "jobs"}, ServiceNames: []string{"worker"},
+		Categories: []events.Category{events.CategorySwarm}, Limit: 1, Sort: SortTimeDesc,
+	}
+	first, err := repo.QueryPage(t.Context(), options)
+	require.NoError(t, err)
+	require.Len(t, first.Entries, 1)
+	assert.Equal(t, "api-worker-new", first.Entries[0].ID)
+	require.NotEmpty(t, first.NextCursor)
+
+	options.Cursor = first.NextCursor
+	second, err := repo.QueryPage(t.Context(), options)
+	require.NoError(t, err)
+	require.Len(t, second.Entries, 1)
+	assert.Equal(t, "api-worker-old", second.Entries[0].ID)
+	assert.Empty(t, second.NextCursor)
+
+	missing, err := repo.QueryPage(t.Context(), QueryOptions{
+		ServiceNames: []string{"worker"}, Categories: []events.Category{events.CategorySync},
+		Limit: 10, Sort: SortTimeDesc,
+	})
+	require.NoError(t, err)
+	assert.Empty(t, missing.Entries, "events without service_name must not match")
+}
+
 func entryIDs(entries []Entry) []string {
 	ids := make([]string, 0, len(entries))
 	for _, entry := range entries {

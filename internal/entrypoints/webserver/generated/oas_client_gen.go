@@ -1936,6 +1936,58 @@ func (c *Client) sendListEvents(ctx context.Context, params ListEventsParams) (r
 		}
 	}
 	{
+		// Encode "stack_name" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "stack_name",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if params.StackName != nil {
+				return e.EncodeArray(func(e uri.Encoder) error {
+					for i, item := range params.StackName {
+						if err := func() error {
+							return e.EncodeValue(conv.StringToString(item))
+						}(); err != nil {
+							return errors.Wrapf(err, "[%d]", i)
+						}
+					}
+					return nil
+				})
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "service_name" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "service_name",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if params.ServiceName != nil {
+				return e.EncodeArray(func(e uri.Encoder) error {
+					for i, item := range params.ServiceName {
+						if err := func() error {
+							return e.EncodeValue(conv.StringToString(item))
+						}(); err != nil {
+							return errors.Wrapf(err, "[%d]", i)
+						}
+					}
+					return nil
+				})
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
 		// Encode "since" parameter.
 		cfg := uri.QueryParameterEncodingConfig{
 			Name:    "since",

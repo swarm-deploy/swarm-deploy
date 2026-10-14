@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
 import { fetchEvents } from "../api/overview";
-import type { EventHistoryItem, EventSeverity } from "../api/types";
+import type { EventCategory, EventHistoryItem, EventSeverity } from "../api/types";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import { eventTypeDescriptions, eventTypeMetadata, type EventTypeMetadata } from "../utils/eventMetadata";
@@ -19,6 +19,15 @@ const severityLabels: Record<EventSeverity, string> = {
 
 type SortKey = "time" | "severity";
 type SortDirection = "asc" | "desc";
+type EventPeriod = "" | "1h" | "24h" | "7d" | "30d";
+
+const categoryOptions: EventCategory[] = ["sync", "security", "swarm"];
+const periodOptions: { value: Exclude<EventPeriod, "">; label: string; duration: number }[] = [
+  { value: "1h", label: "Last 1h", duration: 60 * 60 * 1000 },
+  { value: "24h", label: "Last 24h", duration: 24 * 60 * 60 * 1000 },
+  { value: "7d", label: "Last 7d", duration: 7 * 24 * 60 * 60 * 1000 },
+  { value: "30d", label: "Last 30d", duration: 30 * 24 * 60 * 60 * 1000 },
+];
 
 const route = useRoute();
 const router = useRouter();
@@ -29,12 +38,17 @@ const nextCursor = ref("");
 const loadingMore = ref(false);
 const selectedTypes = ref<string[]>(normalizeTypesQuery(route.query.types));
 const selectedSeverity = ref(normalizeSeverityQuery(route.query.severity));
+const selectedCategory = ref(normalizeCategoryQuery(route.query.category));
+const selectedStack = ref(normalizeTextQuery(route.query.stack_name));
+const selectedService = ref(normalizeTextQuery(route.query.service_name));
+const selectedPeriod = ref(normalizePeriodQuery(route.query.period));
 const sortKey = ref<SortKey>(normalizeSortQuery(route.query.sort));
 const sortDirection = ref<SortDirection>(normalizeSortDirectionQuery(route.query.order));
 const expandedKey = ref("");
 const typeFilter = ref<HTMLDetailsElement | null>(null);
 
 let requestID = 0;
+let resolvedSince = resolvePeriodSince(selectedPeriod.value);
 
 const typeFilterOptions = computed<EventTypeMetadata[]>(() => {
   const options = eventTypeMetadata.map((metadata) => ({ ...metadata }));
@@ -64,6 +78,21 @@ function firstQueryValue(value: unknown): unknown {
 function normalizeSeverityQuery(value: unknown): EventSeverity | "" {
   const severity = firstQueryValue(value);
   return severityOptions.includes(severity as EventSeverity) ? (severity as EventSeverity) : "";
+}
+
+function normalizeCategoryQuery(value: unknown): EventCategory | "" {
+  const category = firstQueryValue(value);
+  return categoryOptions.includes(category as EventCategory) ? (category as EventCategory) : "";
+}
+
+function normalizePeriodQuery(value: unknown): EventPeriod {
+  const period = firstQueryValue(value);
+  return periodOptions.some((option) => option.value === period) ? (period as EventPeriod) : "";
+}
+
+function normalizeTextQuery(value: unknown): string {
+  const text = firstQueryValue(value);
+  return typeof text === "string" ? text.trim() : "";
 }
 
 function normalizeTypesQuery(value: unknown): string[] {
@@ -114,6 +143,37 @@ function clearTypes(): void {
   selectedTypes.value = [];
 }
 
+const hasActiveFilters = computed(() =>
+  selectedTypes.value.length > 0 || Boolean(selectedSeverity.value) || Boolean(selectedCategory.value) ||
+  Boolean(selectedStack.value) || Boolean(selectedService.value) || Boolean(selectedPeriod.value),
+);
+
+function clearFilters(): void {
+  selectedTypes.value = [];
+  selectedSeverity.value = "";
+  selectedCategory.value = "";
+  selectedStack.value = "";
+  selectedService.value = "";
+  selectedPeriod.value = "";
+}
+
+function applyDetailFilter(key: string, value: string): void {
+  if (key === "stack_name") {
+    selectedStack.value = value;
+  } else if (key === "service_name") {
+    selectedService.value = value;
+  }
+}
+
+function canFilterDetail(key: string): boolean {
+  return key === "stack_name" || key === "service_name";
+}
+
+function resolvePeriodSince(period: EventPeriod): string {
+  const option = periodOptions.find((candidate) => candidate.value === period);
+  return option ? new Date(Date.now() - option.duration).toISOString() : "";
+}
+
 function handleDocumentClick(event: MouseEvent): void {
   const filter = typeFilter.value;
   const target = event.target;
@@ -154,6 +214,10 @@ function eventQuery(cursor?: string) {
   return {
     types: selectedTypes.value,
     severities: selectedSeverity.value ? [selectedSeverity.value] : [],
+    ...(selectedCategory.value ? { categories: [selectedCategory.value] } : {}),
+    ...(selectedStack.value ? { stackNames: [selectedStack.value] } : {}),
+    ...(selectedService.value ? { serviceNames: [selectedService.value] } : {}),
+    ...(resolvedSince ? { since: resolvedSince } : {}),
     limit: PAGE_SIZE,
     sort: sortKey.value,
     order: sortDirection.value,
@@ -219,34 +283,44 @@ async function loadMoreEvents() {
   }
 }
 
-watch(selectedTypes, async (types) => {
-  const currentTypes = normalizeTypesQuery(route.query.types);
-  if (sameStrings(currentTypes, types)) {
+async function persistFilters(): Promise<void> {
+  const currentValues = [
+    normalizeSeverityQuery(route.query.severity),
+    normalizeCategoryQuery(route.query.category),
+    normalizeTextQuery(route.query.stack_name),
+    normalizeTextQuery(route.query.service_name),
+    normalizePeriodQuery(route.query.period),
+  ];
+  const selectedValues = [
+    selectedSeverity.value, selectedCategory.value, selectedStack.value, selectedService.value, selectedPeriod.value,
+  ];
+  if (sameStrings(normalizeTypesQuery(route.query.types), selectedTypes.value) &&
+    currentValues.every((value, index) => value === selectedValues[index])) {
     return;
   }
 
   const nextQuery = { ...route.query };
-  if (types.length > 0) {
-    nextQuery.types = [...types];
+  if (selectedTypes.value.length > 0) {
+    nextQuery.types = [...selectedTypes.value];
   } else {
     delete nextQuery.types;
   }
-  await router.replace({ query: nextQuery });
-});
-
-watch(selectedSeverity, async (severity) => {
-  if (normalizeSeverityQuery(route.query.severity) === severity) {
-    return;
+  const values: [string, string][] = [
+    ["severity", selectedSeverity.value],
+    ["category", selectedCategory.value],
+    ["stack_name", selectedStack.value],
+    ["service_name", selectedService.value],
+    ["period", selectedPeriod.value],
+  ];
+  for (const [key, value] of values) {
+    if (value) {
+      nextQuery[key] = value;
+    } else {
+      delete nextQuery[key];
+    }
   }
-
-  const nextQuery = { ...route.query };
-  if (severity) {
-    nextQuery.severity = severity;
-  } else {
-    delete nextQuery.severity;
-  }
   await router.replace({ query: nextQuery });
-});
+}
 
 watch([sortKey, sortDirection], async ([key, direction]) => {
   if (normalizeSortQuery(route.query.sort) === key && normalizeSortDirectionQuery(route.query.order) === direction) {
@@ -263,9 +337,13 @@ watch([sortKey, sortDirection], async ([key, direction]) => {
 });
 
 watch(
-  () => route.query.severity,
-  (severity) => {
+  () => [route.query.severity, route.query.category, route.query.stack_name, route.query.service_name, route.query.period],
+  ([severity, category, stackName, serviceName, period]) => {
     selectedSeverity.value = normalizeSeverityQuery(severity);
+    selectedCategory.value = normalizeCategoryQuery(category);
+    selectedStack.value = normalizeTextQuery(stackName);
+    selectedService.value = normalizeTextQuery(serviceName);
+    selectedPeriod.value = normalizePeriodQuery(period);
   },
 );
 
@@ -293,7 +371,14 @@ watch(
   },
 );
 
-watch([selectedTypes, selectedSeverity, sortKey, sortDirection], () => {
+watch([selectedTypes, selectedSeverity, selectedCategory, selectedStack, selectedService, selectedPeriod], () => {
+  resolvedSince = resolvePeriodSince(selectedPeriod.value);
+  expandedKey.value = "";
+  void persistFilters();
+  void loadEvents();
+});
+
+watch([sortKey, sortDirection], () => {
   expandedKey.value = "";
   void loadEvents();
 });
@@ -353,11 +438,43 @@ onBeforeUnmount(() => {
 
         <label class="events-filter-field">
           <span>Severity</span>
-          <select v-model="selectedSeverity">
+          <select v-model="selectedSeverity" aria-label="Filter events by severity">
             <option value="">All severities</option>
             <option v-for="severity in severityOptions" :key="severity" :value="severity">{{ severityLabels[severity] }}</option>
           </select>
         </label>
+
+        <label class="events-filter-field">
+          <span>Category</span>
+          <select v-model="selectedCategory" aria-label="Filter events by category">
+            <option value="">All categories</option>
+            <option v-for="category in categoryOptions" :key="category" :value="category">
+              {{ category.charAt(0).toUpperCase() + category.slice(1) }}
+            </option>
+          </select>
+        </label>
+
+        <label class="events-filter-field events-filter-field--text">
+          <span>Stack</span>
+          <input v-model.trim.lazy="selectedStack" type="text" placeholder="Exact stack name" aria-label="Filter events by stack" />
+        </label>
+
+        <label class="events-filter-field events-filter-field--text">
+          <span>Service</span>
+          <input v-model.trim.lazy="selectedService" type="text" placeholder="Exact service name" aria-label="Filter events by service" />
+        </label>
+
+        <label class="events-filter-field">
+          <span>Period</span>
+          <select v-model="selectedPeriod" aria-label="Filter events by period">
+            <option value="">All time</option>
+            <option v-for="period in periodOptions" :key="period.value" :value="period.value">{{ period.label }}</option>
+          </select>
+        </label>
+
+        <button class="events-clear-filters" type="button" :disabled="!hasActiveFilters" @click="clearFilters">
+          Clear filters
+        </button>
       </div>
     </header>
 
@@ -409,7 +526,18 @@ onBeforeUnmount(() => {
                 <ul v-if="sortedEventDetails(event).length > 0" class="event-details">
                   <li v-for="[key, value] in sortedEventDetails(event)" :key="key" class="event-detail">
                     <span class="event-detail-key">{{ key }}</span>
-                    <code class="event-detail-value">{{ value }}</code>
+                    <span class="event-detail-content">
+                      <code class="event-detail-value">{{ value }}</code>
+                      <button
+                        v-if="canFilterDetail(key)"
+                        class="event-detail-filter"
+                        type="button"
+                        :aria-label="`Filter by ${key} ${value}`"
+                        @click.stop="applyDetailFilter(key, value)"
+                      >
+                        Filter
+                      </button>
+                    </span>
                   </li>
                 </ul>
                 <p v-else class="meta">details: n/a</p>

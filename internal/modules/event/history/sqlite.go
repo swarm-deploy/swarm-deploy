@@ -205,10 +205,23 @@ func historyFilters(options QueryOptions) []exp.Expression {
 	addHistoryFilter(&where, "severity", options.Severities)
 	addHistoryFilter(&where, "category", options.Categories)
 	addHistoryFilter(&where, "event_type", options.Types)
+	addHistoryAttributeFilter(&where, events.AttributeStackName, options.StackNames)
+	addHistoryAttributeFilter(&where, events.AttributeServiceName, options.ServiceNames)
 	if options.Since != nil {
 		where = append(where, goqu.C("created_at").Gte(options.Since.UTC()))
 	}
 	return where
+}
+
+func addHistoryAttributeFilter(where *[]exp.Expression, attribute string, values []string) {
+	if len(values) == 0 {
+		return
+	}
+	items := make([]any, len(values))
+	for i := range values {
+		items[i] = values[i]
+	}
+	*where = append(*where, goqu.Func("json_extract", goqu.I("details"), "$."+attribute).In(items...))
 }
 
 var historyOrders = map[SortOrder][]exp.OrderedExpression{

@@ -1602,13 +1602,35 @@ a.overview-summary-row:focus-visible {
   font-size: 0.78rem;
 }
 
-.events-filter-field select {
+.events-filter-field select,
+.events-filter-field input {
   min-width: 180px;
   border: 1px solid var(--border-default);
   border-radius: 8px;
   background: var(--surface-input);
   color: var(--text);
   padding: 9px 12px;
+}
+
+.events-filter-field--text input {
+  width: 190px;
+}
+
+.events-clear-filters {
+  align-self: end;
+  min-height: 38px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--surface-input);
+  color: var(--text);
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.events-clear-filters:disabled {
+  color: var(--muted);
+  cursor: default;
+  opacity: 0.65;
 }
 
 .events-type-filter {
@@ -2993,6 +3015,33 @@ a.overview-summary-row:focus-visible {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.event-detail-content {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.event-detail-content .event-detail-value {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.event-detail-filter {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: var(--accent-strong);
+  padding: 5px 4px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.event-detail-filter:hover {
+  text-decoration: underline;
 }
 
 .event-detail-error .event-detail-key {

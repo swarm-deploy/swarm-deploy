@@ -1420,8 +1420,12 @@ type ListEventsParams struct {
 	Severities []EventSeverity `json:",omitempty"`
 	Categories []EventCategory `json:",omitempty"`
 	Types      []string        `json:",omitempty"`
-	Since      OptDateTime     `json:",omitempty,omitzero"`
-	Limit      OptInt32        `json:",omitempty,omitzero"`
+	// Exact stack names. Multiple values are combined with OR.
+	StackName []string `json:",omitempty"`
+	// Exact service names. Multiple values are combined with OR.
+	ServiceName []string    `json:",omitempty"`
+	Since       OptDateTime `json:",omitempty,omitzero"`
+	Limit       OptInt32    `json:",omitempty,omitzero"`
 	// Opaque cursor returned by the previous page.
 	Cursor OptString `json:",omitempty,omitzero"`
 	// Paginated sort field: time or severity. Legacy requests preserve their ordering.
@@ -1456,6 +1460,24 @@ func unpackListEventsParams(packed middleware.Parameters) (params ListEventsPara
 		}
 		if v, ok := packed[key]; ok {
 			params.Types = v.([]string)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "stack_name",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.StackName = v.([]string)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "service_name",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.ServiceName = v.([]string)
 		}
 	}
 	{
@@ -1677,6 +1699,160 @@ func decodeListEventsParams(args [0]string, argsEscaped bool, r *http.Request) (
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "types",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: stack_name.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "stack_name",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				return d.DecodeArray(func(d uri.Decoder) error {
+					var paramsDotStackNameVal string
+					if err := func() error {
+						val, err := d.DecodeValue()
+						if err != nil {
+							return err
+						}
+
+						c, err := conv.ToString(val)
+						if err != nil {
+							return err
+						}
+
+						paramsDotStackNameVal = c
+						return nil
+					}(); err != nil {
+						return err
+					}
+					params.StackName = append(params.StackName, paramsDotStackNameVal)
+					return nil
+				})
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				var failures []validate.FieldError
+				for i, elem := range params.StackName {
+					if err := func() error {
+						if err := (validate.String{
+							MinLength:     1,
+							MinLengthSet:  true,
+							MaxLength:     0,
+							MaxLengthSet:  false,
+							Email:         false,
+							Hostname:      false,
+							Regex:         nil,
+							MinNumeric:    0,
+							MinNumericSet: false,
+							MaxNumeric:    0,
+							MaxNumericSet: false,
+						}).Validate(string(elem)); err != nil {
+							return errors.Wrap(err, "string")
+						}
+						return nil
+					}(); err != nil {
+						failures = append(failures, validate.FieldError{
+							Name:  fmt.Sprintf("[%d]", i),
+							Error: err,
+						})
+					}
+				}
+				if len(failures) > 0 {
+					return &validate.Error{Fields: failures}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "stack_name",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: service_name.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "service_name",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				return d.DecodeArray(func(d uri.Decoder) error {
+					var paramsDotServiceNameVal string
+					if err := func() error {
+						val, err := d.DecodeValue()
+						if err != nil {
+							return err
+						}
+
+						c, err := conv.ToString(val)
+						if err != nil {
+							return err
+						}
+
+						paramsDotServiceNameVal = c
+						return nil
+					}(); err != nil {
+						return err
+					}
+					params.ServiceName = append(params.ServiceName, paramsDotServiceNameVal)
+					return nil
+				})
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				var failures []validate.FieldError
+				for i, elem := range params.ServiceName {
+					if err := func() error {
+						if err := (validate.String{
+							MinLength:     1,
+							MinLengthSet:  true,
+							MaxLength:     0,
+							MaxLengthSet:  false,
+							Email:         false,
+							Hostname:      false,
+							Regex:         nil,
+							MinNumeric:    0,
+							MinNumericSet: false,
+							MaxNumeric:    0,
+							MaxNumericSet: false,
+						}).Validate(string(elem)); err != nil {
+							return errors.Wrap(err, "string")
+						}
+						return nil
+					}(); err != nil {
+						failures = append(failures, validate.FieldError{
+							Name:  fmt.Sprintf("[%d]", i),
+							Error: err,
+						})
+					}
+				}
+				if len(failures) > 0 {
+					return &validate.Error{Fields: failures}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "service_name",
 			In:   "query",
 			Err:  err,
 		}

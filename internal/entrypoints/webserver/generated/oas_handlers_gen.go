@@ -2520,6 +2520,14 @@ func (s *Server) handleListEventsRequest(args [0]string, argsEscaped bool, w htt
 					In:   "query",
 				}: params.Types,
 				{
+					Name: "stack_name",
+					In:   "query",
+				}: params.StackName,
+				{
+					Name: "service_name",
+					In:   "query",
+				}: params.ServiceName,
+				{
 					Name: "since",
 					In:   "query",
 				}: params.Since,
