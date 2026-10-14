@@ -254,9 +254,11 @@ func (s *SQLStore) ResetFailureStreak(ctx context.Context, fingerprint string) e
 	return err
 }
 
-// ResetFailureStreaksExcept clears counters for resources absent from the desired configuration.
+// ResetFailureStreaksExcept clears stack counters for resources absent from the desired configuration.
 func (s *SQLStore) ResetFailureStreaksExcept(ctx context.Context, fingerprints []string) error {
-	dataset := dialect.Delete("alert_failure_streaks").Prepared(true)
+	dataset := dialect.Delete("alert_failure_streaks").Prepared(true).
+		Where(goqu.C("fingerprint").Like(string(model.AlertKindSyncFailed) + ":" +
+			string(model.ResourceTypeStack) + ":%"))
 	if len(fingerprints) > 0 {
 		dataset = dataset.Where(goqu.I("fingerprint").NotIn(fingerprints))
 	}

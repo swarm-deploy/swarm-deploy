@@ -20,7 +20,11 @@ const (
 	TypeNameDeploySuccess         TypeName = "DeploySuccess"
 	TypeNameAlertOpened           TypeName = "AlertOpened"
 	TypeNameAlertResolved         TypeName = "AlertResolved"
-	TypeNameDeployFailed          TypeName = "DeployFailed"
+	// TypeNameGitPullFailed is an internal durable Git accessibility observation.
+	TypeNameGitPullFailed TypeName = "GitPullFailed"
+	// TypeNameGitPullSucceeded is an internal durable Git accessibility recovery.
+	TypeNameGitPullSucceeded TypeName = "GitPullSucceeded"
+	TypeNameDeployFailed     TypeName = "DeployFailed"
 	// TypeNameConfigurationChanged is an internal accepted-configuration signal.
 	TypeNameConfigurationChanged TypeName = "ConfigurationChanged"
 	// TypeNameDeployPreparationFailed is an internal durable lifecycle fact, not a configurable event name.
@@ -103,6 +107,8 @@ var (
 	}
 	TypeAlertOpened          = Type{name: TypeNameAlertOpened, severity: SeverityAlert, category: CategorySync}
 	TypeAlertResolved        = Type{name: TypeNameAlertResolved, severity: SeverityInfo, category: CategorySync}
+	TypeGitPullFailed        = Type{name: TypeNameGitPullFailed, severity: SeverityAlert, category: CategorySync}
+	TypeGitPullSucceeded     = Type{name: TypeNameGitPullSucceeded, severity: SeverityInfo, category: CategorySync}
 	TypeConfigurationChanged = Type{
 		name: TypeNameConfigurationChanged, severity: SeverityInfo, category: CategorySync,
 	}
@@ -275,6 +281,10 @@ func parseStoredType(name string) (Type, bool) {
 		return TypeAlertOpened, true
 	case TypeNameAlertResolved:
 		return TypeAlertResolved, true
+	case TypeNameGitPullFailed:
+		return TypeGitPullFailed, true
+	case TypeNameGitPullSucceeded:
+		return TypeGitPullSucceeded, true
 	case TypeNameConfigurationChanged:
 		return TypeConfigurationChanged, true
 	}
@@ -297,7 +307,8 @@ func (n TypeName) Valid() bool {
 	case TypeNameDeploySuccess:
 		return true
 	case TypeNameDeployFailed, TypeNameDeployPreparationFailed, TypeNameDeployInterrupted,
-		TypeNameAlertOpened, TypeNameAlertResolved, TypeNameConfigurationChanged:
+		TypeNameAlertOpened, TypeNameAlertResolved, TypeNameConfigurationChanged,
+		TypeNameGitPullFailed, TypeNameGitPullSucceeded:
 		return false
 	case TypeNameSendNotificationFailed:
 		return true
@@ -335,7 +346,8 @@ func (n TypeName) Valid() bool {
 // ParseType resolves event type metadata by event name.
 func ParseType(name string) (Type, bool) {
 	switch TypeName(name) {
-	case TypeNameAlertOpened, TypeNameAlertResolved, TypeNameConfigurationChanged:
+	case TypeNameAlertOpened, TypeNameAlertResolved, TypeNameConfigurationChanged,
+		TypeNameGitPullFailed, TypeNameGitPullSucceeded:
 		return Type{}, false
 	case TypeNameServiceCatalogUpdated:
 		return TypeServiceCatalogUpdated, true

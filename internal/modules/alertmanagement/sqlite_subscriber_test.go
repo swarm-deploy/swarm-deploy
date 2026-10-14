@@ -2,6 +2,7 @@ package alertmanagement
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -196,4 +197,127 @@ func TestTemporaryFailureCounterSurvivesRestartAndDuplicateDelivery(t *testing.T
 	require.Len(t, alerts, 1)
 	assert.Equal(t, uint64(3), alerts[0].Occurrences)
 	assert.Equal(t, "temporary-3", alerts[0].OpenEventID)
+}
+
+func TestGitRepositoryAuthenticationFailureOpensAndRecoveryResolvesAlert(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.Open(ctx, t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+	repo := modelstore.NewSQLStore(db)
+	subscriber := newTestSQLSubscriber(repo)
+	at := time.Now().UTC()
+
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+		ID: "failed", OccurredAt: at, Event: &events.GitPullFailed{
+			Repository: "git.example.com/team/app", Category: events.GitFailureAuthentication,
+			Description: "Git repository authentication failed", TriggerReason: "manual",
+		},
+	}))
+	alerts, err := repo.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 1)
+	assert.Equal(t, model.AlertKindGitRepositoryUnavailable, alerts[0].Kind)
+	assert.Equal(t, model.ResourceTypeRepository, alerts[0].ResourceType)
+	assert.Equal(t, "git.example.com/team/app", alerts[0].ResourceID)
+	assert.Equal(t, "authentication", alerts[0].ErrorCode)
+	assert.EqualValues(t, 1, alerts[0].Occurrences)
+
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+		ID: "recovered", OccurredAt: at.Add(time.Second), Event: &events.GitPullSucceeded{
+			Repository: "git.example.com/team/app", TriggerReason: "startup",
+		},
+	}))
+	alerts, err = repo.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 1)
+	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
+	assert.Equal(t, model.ResolutionReasonRecovered, alerts[0].Resolution.Reason)
+	assert.Equal(t, "recovered", alerts[0].Resolution.EventID)
+}
+
+func TestGitRepositoryNetworkThresholdSurvivesRestartAndDeduplicatesDelivery(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	at := time.Now().UTC()
+	db, err := storage.Open(ctx, dir)
+	require.NoError(t, err)
+	subscriber := newTestSQLSubscriber(modelstore.NewSQLStore(db))
+	for index := range 2 {
+		event := events.Envelope{
+			ID: fmt.Sprintf("network-%d", index), OccurredAt: at.Add(time.Duration(index) * time.Second),
+			Event: &events.GitPullFailed{
+				Repository: "git.example.com/team/app", Category: events.GitFailureNetwork,
+				Description: "Git repository is temporarily unreachable",
+			},
+		}
+		require.NoError(t, subscriber.Handle(ctx, event))
+		require.NoError(t, subscriber.Handle(ctx, event), "duplicate delivery must not increment the streak")
+	}
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+		ID: "configuration", OccurredAt: at.Add(1500 * time.Millisecond), Event: &events.ConfigurationChanged{},
+	}), "configuration changes must not reset repository failure streaks")
+	require.NoError(t, db.Close())
+
+	db, err = storage.Open(ctx, dir)
+	require.NoError(t, err)
+	defer db.Close()
+	repo := modelstore.NewSQLStore(db)
+	subscriber = newTestSQLSubscriber(repo)
+	third := events.Envelope{
+		ID: "network-2", OccurredAt: at.Add(2 * time.Second), Event: &events.GitPullFailed{
+			Repository: "git.example.com/team/app", Category: events.GitFailureNetwork,
+			Description: "Git repository is temporarily unreachable",
+		},
+	}
+	require.NoError(t, subscriber.Handle(ctx, third))
+	require.NoError(t, subscriber.Handle(ctx, third))
+	alerts, err := repo.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 1)
+	assert.EqualValues(t, 3, alerts[0].Occurrences)
+
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+		ID: "network-3", OccurredAt: at.Add(3 * time.Second), Event: &events.GitPullFailed{
+			Repository: "git.example.com/team/app", Category: events.GitFailureNetwork,
+			Description: "Git repository is temporarily unreachable",
+		},
+	}))
+	alerts, err = repo.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 1, "repeated failures must update one incident")
+	assert.EqualValues(t, 4, alerts[0].Occurrences)
+}
+
+func TestGitRepositoryRecoveryIgnoresDelayedFailureAndResetsCounter(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.Open(ctx, t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+	repo := modelstore.NewSQLStore(db)
+	subscriber := newTestSQLSubscriber(repo)
+	at := time.Now().UTC()
+	failed := events.Envelope{ID: "001", OccurredAt: at, Event: &events.GitPullFailed{
+		Repository: "git.example.com/team/app", Category: events.GitFailureAuthentication,
+		Description: "Git repository authentication failed",
+	}}
+	recovered := events.Envelope{ID: "003", OccurredAt: at.Add(2 * time.Second), Event: &events.GitPullSucceeded{
+		Repository: "git.example.com/team/app",
+	}}
+	delayed := events.Envelope{ID: "002", OccurredAt: at.Add(time.Second), Event: &events.GitPullFailed{
+		Repository: "git.example.com/team/app", Category: events.GitFailureAuthentication,
+		Description: "Git repository authentication failed",
+	}}
+	for _, event := range []events.Envelope{failed, recovered, delayed} {
+		require.NoError(t, subscriber.Handle(ctx, event))
+	}
+	alerts, err := repo.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 1)
+	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
+	assert.EqualValues(t, 1, alerts[0].Occurrences)
+
+	var counters int
+	require.NoError(t, db.Get(ctx, &counters, "SELECT count(*) FROM alert_failure_streaks"))
+	assert.Zero(t, counters)
 }

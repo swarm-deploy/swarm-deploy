@@ -229,8 +229,9 @@ func (s *Alert) SetResolution(val OptAlertResolution) {
 type AlertKind string
 
 const (
-	AlertKindSyncFailed       AlertKind = "sync_failed"
-	AlertKindNodeDisconnected AlertKind = "node_disconnected"
+	AlertKindSyncFailed               AlertKind = "sync_failed"
+	AlertKindNodeDisconnected         AlertKind = "node_disconnected"
+	AlertKindGitRepositoryUnavailable AlertKind = "git_repository_unavailable"
 )
 
 // AllValues returns all AlertKind values.
@@ -238,6 +239,7 @@ func (AlertKind) AllValues() []AlertKind {
 	return []AlertKind{
 		AlertKindSyncFailed,
 		AlertKindNodeDisconnected,
+		AlertKindGitRepositoryUnavailable,
 	}
 }
 
@@ -247,6 +249,8 @@ func (s AlertKind) MarshalText() ([]byte, error) {
 	case AlertKindSyncFailed:
 		return []byte(s), nil
 	case AlertKindNodeDisconnected:
+		return []byte(s), nil
+	case AlertKindGitRepositoryUnavailable:
 		return []byte(s), nil
 	default:
 		return nil, errors.Errorf("invalid value: %q", s)
@@ -261,6 +265,9 @@ func (s *AlertKind) UnmarshalText(data []byte) error {
 		return nil
 	case AlertKindNodeDisconnected:
 		*s = AlertKindNodeDisconnected
+		return nil
+	case AlertKindGitRepositoryUnavailable:
+		*s = AlertKindGitRepositoryUnavailable
 		return nil
 	default:
 		return errors.Errorf("invalid value: %q", data)
@@ -348,8 +355,9 @@ func (s *AlertResolutionReason) UnmarshalText(data []byte) error {
 type AlertResourceType string
 
 const (
-	AlertResourceTypeStack AlertResourceType = "stack"
-	AlertResourceTypeNode  AlertResourceType = "node"
+	AlertResourceTypeStack      AlertResourceType = "stack"
+	AlertResourceTypeNode       AlertResourceType = "node"
+	AlertResourceTypeRepository AlertResourceType = "repository"
 )
 
 // AllValues returns all AlertResourceType values.
@@ -357,6 +365,7 @@ func (AlertResourceType) AllValues() []AlertResourceType {
 	return []AlertResourceType{
 		AlertResourceTypeStack,
 		AlertResourceTypeNode,
+		AlertResourceTypeRepository,
 	}
 }
 
@@ -366,6 +375,8 @@ func (s AlertResourceType) MarshalText() ([]byte, error) {
 	case AlertResourceTypeStack:
 		return []byte(s), nil
 	case AlertResourceTypeNode:
+		return []byte(s), nil
+	case AlertResourceTypeRepository:
 		return []byte(s), nil
 	default:
 		return nil, errors.Errorf("invalid value: %q", s)
@@ -380,6 +391,9 @@ func (s *AlertResourceType) UnmarshalText(data []byte) error {
 		return nil
 	case AlertResourceTypeNode:
 		*s = AlertResourceTypeNode
+		return nil
+	case AlertResourceTypeRepository:
+		*s = AlertResourceTypeRepository
 		return nil
 	default:
 		return errors.Errorf("invalid value: %q", data)

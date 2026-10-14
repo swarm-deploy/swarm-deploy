@@ -15,6 +15,15 @@ func encodeInternal(event events.Event) ([]byte, bool, error) {
 	case *events.AlertResolved:
 		payload, err := json.Marshal(alertResolvedPayload{Alert: alertPayloadFrom(e.Alert), Recipients: e.Recipients})
 		return payload, true, err
+	case *events.GitPullFailed:
+		payload, err := encodeGitPullFailed(e)
+		return payload, true, err
+	case *events.GitPullSucceeded:
+		if err := validateRepositoryIdentifier(e.Repository); err != nil {
+			return nil, true, err
+		}
+		payload, err := json.Marshal(gitPullSucceededPayload{Repository: e.Repository, TriggerReason: e.TriggerReason})
+		return payload, true, err
 	default:
 		return nil, false, nil
 	}

@@ -6,11 +6,13 @@ type AlertKind string
 
 const AlertKindSyncFailed AlertKind = "sync_failed"
 const AlertKindNodeDisconnected AlertKind = "node_disconnected"
+const AlertKindGitRepositoryUnavailable AlertKind = "git_repository_unavailable"
 
 type ResourceType string
 
 const ResourceTypeStack ResourceType = "stack"
 const ResourceTypeNode ResourceType = "node"
+const ResourceTypeRepository ResourceType = "repository"
 
 type AlertStatus string
 
@@ -79,4 +81,9 @@ type Alert struct {
 // SyncFailedFingerprint returns the correlation key for a stack synchronization failure.
 func SyncFailedFingerprint(stackID string) string {
 	return string(AlertKindSyncFailed) + ":" + string(ResourceTypeStack) + ":" + stackID
+}
+
+// GitRepositoryUnavailableFingerprint returns the correlation key for repository access failures.
+func GitRepositoryUnavailableFingerprint(repository string) string {
+	return string(AlertKindGitRepositoryUnavailable) + ":" + string(ResourceTypeRepository) + ":" + repository
 }

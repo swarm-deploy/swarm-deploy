@@ -50,6 +50,6 @@ type Store interface {
 	IncrementFailureStreak(ctx context.Context, fingerprint string) (uint64, error)
 	// ResetFailureStreak clears consecutive failures after recovery.
 	ResetFailureStreak(ctx context.Context, fingerprint string) error
-	// ResetFailureStreaksExcept clears counters for resources absent from the desired configuration.
+	// ResetFailureStreaksExcept clears stack counters for resources absent from the desired configuration.
 	ResetFailureStreaksExcept(ctx context.Context, fingerprints []string) error
 }

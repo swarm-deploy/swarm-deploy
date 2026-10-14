@@ -104,6 +104,10 @@ func Decode(typ events.TypeName, version int, payload []byte) (events.Event, err
 	switch typ { //nolint:exhaustive // Failure events are decoded by decodeDeploymentFailure above.
 	case events.TypeNameConfigurationChanged:
 		return decodeAs(payload, func(struct{}) events.Event { return &events.ConfigurationChanged{} })
+	case events.TypeNameGitPullFailed:
+		return decodeGitPullFailed(payload)
+	case events.TypeNameGitPullSucceeded:
+		return decodeGitPullSucceeded(payload)
 	case events.TypeNameAlertOpened:
 		return decodeAs(payload, func(p alertOpenedPayload) events.Event {
 			return &events.AlertOpened{Alert: p.Alert.snapshot(), Recipients: p.Recipients}

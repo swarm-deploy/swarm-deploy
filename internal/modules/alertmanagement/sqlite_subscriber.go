@@ -44,6 +44,10 @@ func (s *SQLSubscriber) Handle(ctx context.Context, event events.Envelope) error
 		resource = "node:" + e.NodeID
 	case *events.NodeConnected:
 		resource = "node:" + e.NodeID
+	case *events.GitPullFailed:
+		resource = "repository:" + e.Repository
+	case *events.GitPullSucceeded:
+		resource = "repository:" + e.Repository
 	default:
 		return nil
 	}

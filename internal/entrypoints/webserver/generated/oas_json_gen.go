@@ -431,6 +431,8 @@ func (s *AlertKind) Decode(d *jx.Decoder) error {
 		*s = AlertKindSyncFailed
 	case AlertKindNodeDisconnected:
 		*s = AlertKindNodeDisconnected
+	case AlertKindGitRepositoryUnavailable:
+		*s = AlertKindGitRepositoryUnavailable
 	default:
 		*s = AlertKind(v)
 	}
@@ -639,6 +641,8 @@ func (s *AlertResourceType) Decode(d *jx.Decoder) error {
 		*s = AlertResourceTypeStack
 	case AlertResourceTypeNode:
 		*s = AlertResourceTypeNode
+	case AlertResourceTypeRepository:
+		*s = AlertResourceTypeRepository
 	default:
 		*s = AlertResourceType(v)
 	}
