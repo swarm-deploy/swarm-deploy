@@ -259,7 +259,7 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
               <h2 id="deployment-details-title">{{ detail?.stack || "Deployment" }}</h2>
             </div>
             <strong v-if="detail && !store.deploymentDetailsLoading && !store.deploymentDetailsError" class="deployment-status" :class="`deployment-status--${detail.status}`">
-              <span class="deployment-status-icon"><DeploymentIcon :name="statusIcon" /></span>
+              <span class="deployment-status-dot" aria-hidden="true" />
               {{ statusLabel }}
             </strong>
           </div>
@@ -408,24 +408,18 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
 .deployment-status {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex: 0 0 auto;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  padding: 6px 12px 6px 8px;
-  font-size: .9rem;
-  line-height: 1;
+  padding: 0;
+  font-size: .8rem;
+  font-weight: 600;
+  line-height: 1.25;
 }
-.deployment-status-icon { width: 24px; height: 24px; display: grid; place-items: center; border-radius: 50%; }
-.deployment-status-icon :deep(.deployment-icon) { width: 17px; height: 17px; }
-.deployment-status--succeeded { color: var(--success); background: var(--success-muted); border-color: var(--success-border); }
-.deployment-status--succeeded .deployment-status-icon { color: var(--text-on-status); background: var(--status-success-bg); }
-.deployment-status--running { color: var(--info); background: var(--info-muted); border-color: var(--accent-border); }
-.deployment-status--running .deployment-status-icon { color: #172033; background: var(--info); }
-.deployment-status--failed { color: var(--error); background: var(--error-muted); border-color: var(--error-border); }
-.deployment-status--failed .deployment-status-icon { color: #172033; background: var(--error); }
-.deployment-status--interrupted { color: var(--warning); background: var(--warning-muted); border-color: var(--warning-border); }
-.deployment-status--interrupted .deployment-status-icon { color: #172033; background: var(--warning); }
+.deployment-status-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: currentColor; }
+.deployment-status--succeeded { color: var(--success); }
+.deployment-status--running { color: var(--info); }
+.deployment-status--failed { color: var(--error); }
+.deployment-status--interrupted { color: var(--warning); }
 .deployment-metadata {
   display: grid;
   grid-template-columns: minmax(140px, 1fr) minmax(130px, .9fr) minmax(190px, 1.35fr) minmax(190px, 1.35fr) minmax(120px, .75fr) minmax(130px, .8fr);
@@ -550,10 +544,9 @@ details[open] > summary .deployment-chevron { transform: rotate(90deg); }
   .deployment-modal-content { padding: 14px 12px 16px; }
   .deployment-modal-content--compact { padding-top: 4px; }
   .deployment-modal-header { padding: 14px 12px 12px; }
-  .deployment-heading-row { align-items: flex-start; flex-direction: column; gap: 10px; padding-right: 48px; }
+  .deployment-heading-row { align-items: flex-start; flex-direction: column; gap: 8px; padding-right: 48px; }
   .deployment-title h2 { font-size: 1.25rem; }
-  .deployment-status { font-size: .82rem; padding: 5px 10px 5px 6px; }
-  .deployment-status-icon { width: 22px; height: 22px; }
+  .deployment-status { font-size: .78rem; }
 
   /* Compact two-column metadata leaves room for the actual deployment diff. */
   .deployment-metadata { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
