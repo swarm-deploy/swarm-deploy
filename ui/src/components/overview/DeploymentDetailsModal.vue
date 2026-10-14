@@ -272,7 +272,7 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
             <div class="deployment-metadata-item"><dt><DeploymentIcon name="config" />Stage</dt><dd>{{ detail.phase }}</dd></div>
           </dl>
         </header>
-        <main class="deployment-modal-content">
+        <main class="deployment-modal-content" :class="{ 'deployment-modal-content--compact': detail?.status === 'succeeded' || detail?.status === 'running' }">
           <p v-if="store.deploymentDetailsLoading" role="status" class="meta">Loading deployment details...</p>
           <div v-else-if="store.deploymentDetailsError" role="alert" class="deployment-state-message">
             <p>Could not load deployment details: {{ store.deploymentDetailsError }}</p>
@@ -396,6 +396,9 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
 }
 .deployment-modal-body { min-width: 0; min-height: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; }
 .deployment-modal-content { min-width: 0; min-height: 0; overflow: auto; padding: 18px 24px 12px; }
+/* When there is no diagnostic banner, put the tabs directly below the metadata. */
+.deployment-modal-content--compact { padding-top: 8px; }
+.deployment-modal-content--compact .deployment-tabs { margin-top: 0; }
 .deployment-state-message { padding: 32px 0; }
 .deployment-modal-header { padding: 18px 66px 16px 24px; border-bottom: 1px solid var(--line); }
 .deployment-heading-row { min-width: 0; display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
@@ -545,6 +548,7 @@ details[open] > summary .deployment-chevron { transform: rotate(90deg); }
     border-radius: 12px;
   }
   .deployment-modal-content { padding: 14px 12px 16px; }
+  .deployment-modal-content--compact { padding-top: 4px; }
   .deployment-modal-header { padding: 14px 12px 12px; }
   .deployment-heading-row { align-items: flex-start; flex-direction: column; gap: 10px; padding-right: 48px; }
   .deployment-title h2 { font-size: 1.25rem; }
