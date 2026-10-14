@@ -733,6 +733,7 @@ func TestGitPullFailureWithMalformedCredentialURLPublishesSafeIdentifier(t *test
 	for index, remote := range []string{
 		"https://robot:" + secret + "%zz@git.example.com/team/app.git",
 		"https:robot:" + secret + "@git.example.com/team/app.git",
+		"https:robot:" + secret + "%zz@git.example.com/team/app.git",
 		"https:/",
 	} {
 		t.Run(remote, func(t *testing.T) {

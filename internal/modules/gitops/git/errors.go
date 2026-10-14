@@ -148,6 +148,9 @@ func RepositoryIdentifier(raw string) string {
 	}
 	parsed, err := url.Parse(raw)
 	if err != nil {
+		if hasURLSchemePrefix(raw) {
+			return opaqueRepositoryIdentifier(raw)
+		}
 		if host, path, ok := splitSCPRemote(raw); ok {
 			return canonicalHostPath(host, path)
 		}
@@ -188,6 +191,21 @@ func repositoryURLIdentifier(raw string, parsed *url.URL) string {
 func opaqueRepositoryIdentifier(raw string) string {
 	digest := sha256.Sum256([]byte(raw))
 	return "repository-" + hex.EncodeToString(digest[:8])
+}
+
+func hasURLSchemePrefix(raw string) bool {
+	colon := strings.IndexByte(raw, ':')
+	if colon <= 0 || raw[0] < 'A' || raw[0] > 'Z' && (raw[0] < 'a' || raw[0] > 'z') {
+		return false
+	}
+	for _, character := range raw[1:colon] {
+		if character >= 'A' && character <= 'Z' || character >= 'a' && character <= 'z' ||
+			character >= '0' && character <= '9' || strings.ContainsRune("+-.", character) {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func splitSCPRemote(raw string) (string, string, bool) {

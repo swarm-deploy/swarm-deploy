@@ -66,6 +66,7 @@ func TestRepositoryIdentifierMalformedURLIsOpaqueAndStable(t *testing.T) {
 	for _, remote := range []string{
 		"https://robot:" + secret + "%zz@git.example.com/team/app.git",
 		"https:robot:" + secret + "@git.example.com/team/app.git",
+		"https:robot:" + secret + "%zz@git.example.com/team/app.git",
 		"https:/",
 	} {
 		identifier := RepositoryIdentifier(remote)
