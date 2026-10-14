@@ -49,7 +49,7 @@ type AlertMessageSpec struct {
 
 const (
 	defaultAlertOpenedTemplate             = "🚨 {{ .Title }}\n{{ .Message }}"
-	defaultDeployFailedAlertOpenedTemplate = `<b>🚨 Deployment failed</b>
+	defaultDeployFailedAlertOpenedTemplate = `<b>🚨 {{ .Title }}</b>
 
 <b>Stack:</b> <code>{{ .ResourceID }}</code>
 
