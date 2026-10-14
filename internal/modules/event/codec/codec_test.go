@@ -27,8 +27,6 @@ func TestSensitiveFieldsAreNeverPersisted(t *testing.T) {
 	}
 	for _, event := range []events.Event{
 		&events.DeploySuccess{DeployEvent: events.DeployEvent{Services: []compose.Service{service}}},
-		&events.SyncFailed{StackName: "stack", Status: "failed", Diagnostic: secret,
-			Services: []compose.Service{service}},
 		&events.DeployFailed{DeployEvent: events.DeployEvent{StackName: "stack", Commit: "revision", StackDefinition: compose.File{Path: secret}}, Error: errors.New(secret), Logs: []string{secret}},
 		&events.DeployPreparationFailed{StackName: "stack", Commit: "revision", ErrorCode: "preparation_failed"},
 		&events.DeployInterrupted{DeploymentID: "deployment", StackName: "stack", Commit: "revision", Reason: "process_interrupted"},

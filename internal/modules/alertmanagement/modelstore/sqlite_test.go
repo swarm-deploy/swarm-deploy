@@ -18,10 +18,10 @@ func TestSQLStoreListAppliesAlertFiltersAndNewestOrdering(t *testing.T) {
 	store := NewSQLStore(testutil.OpenSQLite(t))
 	base := time.Date(2026, time.October, 11, 10, 0, 0, 0, time.UTC)
 	alerts := []model.Alert{
-		{ID: "old-stack", Fingerprint: "old-stack", Kind: model.AlertKindDeployFailed,
+		{ID: "old-stack", Fingerprint: "old-stack", Kind: model.AlertKindSyncFailed,
 			ResourceType: model.ResourceTypeStack, ResourceID: "api", Status: model.AlertStatusOpen,
 			OpenedAt: base, UpdatedAt: base},
-		{ID: "new-stack", Fingerprint: "new-stack", Kind: model.AlertKindDeployFailed,
+		{ID: "new-stack", Fingerprint: "new-stack", Kind: model.AlertKindSyncFailed,
 			ResourceType: model.ResourceTypeStack, ResourceID: "web", Status: model.AlertStatusResolved,
 			DeploymentID: "deployment-2", OpenedAt: base, UpdatedAt: base.Add(2 * time.Minute)},
 		{ID: "node", Fingerprint: "node", Kind: model.AlertKindNodeDisconnected,
@@ -39,11 +39,11 @@ func TestSQLStoreListAppliesAlertFiltersAndNewestOrdering(t *testing.T) {
 	}{
 		{name: "all newest first", filter: ListFilter{}, want: []string{"new-stack", "node", "old-stack"}},
 		{name: "status", filter: ListFilter{Status: model.AlertStatusOpen}, want: []string{"node", "old-stack"}},
-		{name: "kind", filter: ListFilter{Kind: model.AlertKindDeployFailed}, want: []string{"new-stack", "old-stack"}},
+		{name: "kind", filter: ListFilter{Kind: model.AlertKindSyncFailed}, want: []string{"new-stack", "old-stack"}},
 		{name: "resource type", filter: ListFilter{ResourceType: model.ResourceTypeNode}, want: []string{"node"}},
 		{name: "resource id", filter: ListFilter{ResourceID: "api"}, want: []string{"old-stack"}},
 		{name: "deployment", filter: ListFilter{DeploymentID: "deployment-2"}, want: []string{"new-stack"}},
-		{name: "combined", filter: ListFilter{Status: model.AlertStatusResolved, Kind: model.AlertKindDeployFailed,
+		{name: "combined", filter: ListFilter{Status: model.AlertStatusResolved, Kind: model.AlertKindSyncFailed,
 			ResourceType: model.ResourceTypeStack, ResourceID: "web"}, want: []string{"new-stack"}},
 		{name: "limit", filter: ListFilter{Limit: 1}, want: []string{"new-stack"}},
 		{name: "empty", filter: ListFilter{ResourceID: "missing"}, want: []string{}},
@@ -66,7 +66,7 @@ func TestSQLStorePersistsAndSynchronizesIndexedFields(t *testing.T) {
 	store := NewSQLStore(db)
 	now := time.Date(2026, time.October, 11, 10, 0, 0, 0, time.UTC)
 	alert := model.Alert{
-		ID: "alert-1", Fingerprint: "deploy_failed:stack:api", Kind: model.AlertKindDeployFailed,
+		ID: "alert-1", Fingerprint: "sync_failed:stack:api", Kind: model.AlertKindSyncFailed,
 		ResourceType: model.ResourceTypeStack, ResourceID: "api", Status: model.AlertStatusOpen,
 		Occurrences: 1, OpenedAt: now, UpdatedAt: now,
 	}
@@ -102,7 +102,7 @@ func TestSQLStoreRejectsOpenedAtChangeAtomically(t *testing.T) {
 	store := NewSQLStore(db)
 	openedAt := time.Date(2026, time.October, 11, 10, 0, 0, 0, time.UTC)
 	alert := model.Alert{
-		ID: "immutable-opened-at", Fingerprint: "deploy_failed:stack:api", Kind: model.AlertKindDeployFailed,
+		ID: "immutable-opened-at", Fingerprint: "sync_failed:stack:api", Kind: model.AlertKindSyncFailed,
 		ResourceType: model.ResourceTypeStack, ResourceID: "api", Status: model.AlertStatusOpen,
 		Occurrences: 1, OpenedAt: openedAt, UpdatedAt: openedAt,
 	}
@@ -146,7 +146,7 @@ func TestAlertIndexesSupportFiltering(t *testing.T) {
 		},
 		{
 			name:      "kind",
-			query:     `SELECT payload FROM alerts WHERE kind='deploy_failed'`,
+			query:     `SELECT payload FROM alerts WHERE kind='sync_failed'`,
 			wantIndex: "idx_alert_kind_status_updated",
 		},
 		{
@@ -180,7 +180,7 @@ func TestAlertIndexesOrderingCoverage(t *testing.T) {
 			ORDER BY updated_at DESC,id`, coversSorting: true},
 		{name: "status", query: `SELECT payload FROM alerts WHERE status='open'
 			ORDER BY updated_at DESC,id`, coversSorting: true},
-		{name: "kind without status", query: `SELECT payload FROM alerts WHERE kind='deploy_failed'
+		{name: "kind without status", query: `SELECT payload FROM alerts WHERE kind='sync_failed'
 			ORDER BY updated_at DESC,id`, coversSorting: false},
 		{name: "resource without status", query: `SELECT payload FROM alerts
 			WHERE resource_type='stack' AND resource_id='api' ORDER BY updated_at DESC,id`, coversSorting: false},
@@ -250,7 +250,7 @@ func TestAlertStorageColumnPayloadSeparationAndNullableFields(t *testing.T) {
 	store := NewSQLStore(db)
 	now := time.Date(2026, 10, 12, 11, 12, 13, 123, time.UTC)
 	alert := model.Alert{
-		ID: "alert-one", Fingerprint: "fp", Kind: model.AlertKindDeployFailed,
+		ID: "alert-one", Fingerprint: "fp", Kind: model.AlertKindSyncFailed,
 		ResourceType: model.ResourceTypeStack, ResourceID: "app", Status: model.AlertStatusOpen,
 		Title: "Failed", Message: "Docker API rejected the update", Occurrences: 1,
 		OpenedAt: now, UpdatedAt: now,

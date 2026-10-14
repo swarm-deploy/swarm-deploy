@@ -122,7 +122,7 @@ func TestAssistantToolExecutionLimitDoesNotExecuteFourthRound(t *testing.T) {
 }
 
 func TestAssistantAlertDeploymentToolChain(t *testing.T) {
-	const alertResult = `{"alerts":[{"id":"alert-7","status":"open","kind":"deploy_failed","resource_type":"stack","resource_id":"infra-monitoring","title":"Deployment failed","updated_at":"2026-10-11T12:00:00Z","deployment_id":"deploy-42","error_code":"apply_failed"}]}`
+	const alertResult = `{"alerts":[{"id":"alert-7","status":"open","kind":"sync_failed","resource_type":"stack","resource_id":"infra-monitoring","title":"Synchronization failed","updated_at":"2026-10-11T12:00:00Z","deployment_id":"deploy-42","error_code":"apply_failed"}]}`
 	const deploymentResult = `{"deployment":{"id":"deploy-42","stack":"infra-monitoring","status":"failed","phase":"apply","apply_status":"failed","error_code":"apply_failed","error_diagnostic":"network monitor-overlay not found"}}`
 
 	controller := gomock.NewController(t)
@@ -131,7 +131,7 @@ func TestAssistantAlertDeploymentToolChain(t *testing.T) {
 	gomock.InOrder(
 		toolExecutor.EXPECT().Execute(gomock.Any(), routing.Request{
 			ToolName: "alert_list",
-			Payload:  `{"status":"open","kind":"deploy_failed","resource_type":"stack","resource_id":"infra-monitoring","limit":5}`,
+			Payload:  `{"status":"open","kind":"sync_failed","resource_type":"stack","resource_id":"infra-monitoring","limit":5}`,
 		}).Return(alertResult, nil),
 		toolExecutor.EXPECT().Execute(gomock.Any(), routing.Request{
 			ToolName: "deployment_get",
@@ -150,7 +150,7 @@ func TestAssistantAlertDeploymentToolChain(t *testing.T) {
 			writeChatResponse(t, w, "", []map[string]any{{
 				"id": "alert-list-1", "type": "function", "function": map[string]any{
 					"name":      "alert_list",
-					"arguments": `{"status":"open","kind":"deploy_failed","resource_type":"stack","resource_id":"infra-monitoring","limit":5}`,
+					"arguments": `{"status":"open","kind":"sync_failed","resource_type":"stack","resource_id":"infra-monitoring","limit":5}`,
 				},
 			}})
 		case 3:
@@ -179,7 +179,7 @@ func TestAssistantAlertDeploymentToolChain(t *testing.T) {
 }
 
 func TestAssistantAlertWithoutDeploymentDoesNotInventAttempt(t *testing.T) {
-	const alertResult = `{"alerts":[{"id":"alert-prep","status":"open","kind":"deploy_failed","resource_type":"stack","resource_id":"infra-monitoring","title":"Preparation failed","updated_at":"2026-10-11T12:00:00Z","error_code":"prepare_failed"}]}`
+	const alertResult = `{"alerts":[{"id":"alert-prep","status":"open","kind":"sync_failed","resource_type":"stack","resource_id":"infra-monitoring","title":"Preparation failed","updated_at":"2026-10-11T12:00:00Z","error_code":"prepare_failed"}]}`
 
 	controller := gomock.NewController(t)
 	toolExecutor := NewMockToolExecutor(controller)

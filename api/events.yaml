@@ -194,7 +194,7 @@ components:
           type: string
         kind:
           type: string
-          enum: [deploy_failed, node_disconnected]
+          enum: [sync_failed, node_disconnected]
         resourceType:
           type: string
           enum: [stack, node]

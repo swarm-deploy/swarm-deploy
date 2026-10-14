@@ -95,7 +95,7 @@ func (s *Alert) Validate() error {
 
 func (s AlertKind) Validate() error {
 	switch s {
-	case "deploy_failed":
+	case "sync_failed":
 		return nil
 	case "node_disconnected":
 		return nil

@@ -115,7 +115,7 @@ External Docker operations and the database **cannot share a transaction**. The 
 ## Events, alerts, and notifications
 
 - Public Events = **selected user-significant projections** of published domain facts (e.g. `NodeJoined`, `DeploySuccess`) chosen by Event History. Every source event is still in the outbox regardless of projection. `NodeJoined` means a genuinely new swarm node, not an existing node becoming Ready.
-- `NodeDisconnected`, `DeployFailed`, `DeployPreparationFailed` and `DeployInterrupted` are internal signals / alert inputs. Deployment failures are projected to the public `SyncFailed` history type; node disconnections remain alert-only.
+- `NodeDisconnected`, `DeployFailed`, `DeployPreparationFailed` and `DeployInterrupted` are internal signals / alert inputs and are not projected into public Event History.
 - Alerts maintain their own lifecycle and deduplication identity. Events and Alerts share a UI page, but **remain separate tables**.
 - Notifications are a distinct module/concern. Stable public notification semantics can combine technical failure causes so users do not have to guess which low-level event to subscribe to.
 - Event History cursor pagination and filtering use indexed database queries.

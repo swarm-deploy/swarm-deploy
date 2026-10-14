@@ -11,8 +11,8 @@ describe("Alert details modal", () => {
     const store = useOverviewStore();
     store.alertDetailsModalOpen = true;
     store.alertDetailsAlert = {
-      id: "alert", fingerprint: "deploy_failed:stack:app", kind: "deploy_failed", resourceType: "stack",
-      resourceId: "app", status: "open", title: "Deployment failed",
+      id: "alert", fingerprint: "sync_failed:stack:app", kind: "sync_failed", resourceType: "stack",
+      resourceId: "app", status: "open", title: "Synchronization failed",
       message: "update service api: rpc error: image not found", failureStage: "apply", errorCode: "apply_failed",
       deploymentId: "deployment", commit: "abcdef012345", occurrences: 3,
       openedAt: "2026-10-10T10:00:00Z", updatedAt: "2026-10-10T10:05:00Z",
@@ -34,8 +34,8 @@ describe("Alert details modal", () => {
 
     store.alertDetailsModalOpen = true;
     store.alertDetailsAlert = {
-      id: "alert", fingerprint: "deploy_failed:stack:app", kind: "deploy_failed", resourceType: "stack",
-      resourceId: "app", status: "open", title: "Deployment failed", message: "image not found",
+      id: "alert", fingerprint: "sync_failed:stack:app", kind: "sync_failed", resourceType: "stack",
+      resourceId: "app", status: "open", title: "Synchronization failed", message: "image not found",
       deploymentId: "deployment", occurrences: 3, openedAt: "2026-10-10T10:00:00Z",
       updatedAt: "2026-10-10T10:05:00Z", openEventId: "one", latestEventId: "three",
     };
@@ -51,9 +51,9 @@ describe("Alert details modal", () => {
     const store = useOverviewStore();
     store.alertDetailsModalOpen = true;
     store.alertDetailsAlert = {
-      id: "alert", fingerprint: "deploy_failed:stack:app", kind: "deploy_failed", resourceType: "stack",
-      resourceId: "app", status: "open", title: "Deployment failed",
-      message: "Deployment failed during validation. No detailed diagnostic was recorded.",
+      id: "alert", fingerprint: "sync_failed:stack:app", kind: "sync_failed", resourceType: "stack",
+      resourceId: "app", status: "open", title: "Synchronization failed",
+      message: "Synchronization failed during validation. No detailed diagnostic was recorded.",
       failureStage: "validation", errorCode: "preparation_failed", occurrences: 1,
       openedAt: "2026-10-10T10:00:00Z", updatedAt: "2026-10-10T10:00:00Z",
       openEventId: "one", latestEventId: "one",

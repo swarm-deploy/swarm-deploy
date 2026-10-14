@@ -25,7 +25,6 @@ func TestEventTypeIdentifiersUsePascalCase(t *testing.T) {
 	assert.Equal(t, map[TypeName]bool{
 		TypeNameServiceCatalogUpdated:            true,
 		TypeNameDeploySuccess:                    true,
-		TypeNameSyncFailed:                       true,
 		TypeNameAlertOpened:                      true,
 		TypeNameAlertResolved:                    true,
 		TypeNameDeployFailed:                     true,

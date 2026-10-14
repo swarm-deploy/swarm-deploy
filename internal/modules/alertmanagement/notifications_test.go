@@ -91,7 +91,7 @@ func TestAlertResolutionPublicationRollback(t *testing.T) {
 		Event: &events.DeploySuccess{DeployEvent: events.DeployEvent{StackName: "app"}},
 	})
 	require.ErrorIs(t, err, assert.AnError)
-	alert, err := repo.FindOpenByFingerprint(t.Context(), model.DeployFailedFingerprint("app"))
+	alert, err := repo.FindOpenByFingerprint(t.Context(), model.SyncFailedFingerprint("app"))
 	require.NoError(t, err)
 	assert.Equal(t, model.AlertStatusOpen, alert.Status)
 }

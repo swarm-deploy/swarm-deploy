@@ -64,7 +64,7 @@ onUnmounted(() => {
             <strong class="alert-details-status" :class="`alert-details-status--${alert.status}`">{{ alert.status }}</strong>
           </div>
           <div class="alert-details-diagnostic">
-            <strong>{{ alert.kind === "deploy_failed" ? "Failure reason" : "Details" }}</strong>
+            <strong>{{ alert.kind === "sync_failed" ? "Failure reason" : "Details" }}</strong>
             <p>{{ alert.message || "No detailed diagnostic was recorded." }}</p>
           </div>
         </div>

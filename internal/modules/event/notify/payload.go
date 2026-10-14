@@ -16,19 +16,7 @@ func notificationPayload(envelope events.Envelope) (any, error) {
 	switch event := envelope.Event.(type) {
 	case *events.DeploySuccess:
 		return deploymentPayload(eventID, occurredAt, events.TypeNameDeploySuccess, eventnotifications.StatusSuccess,
-			event.DeploymentID, event.StackName, event.Commit, "", "", "", event.Services), nil
-	case *events.DeployFailed:
-		return deploymentPayload(eventID, occurredAt, events.TypeNameSyncFailed, eventnotifications.StatusFailed,
-			event.DeploymentID, event.StackName, event.Commit, errorString(event.Error), event.ErrorCode, event.Stage,
-			event.Services), nil
-	case *events.DeployPreparationFailed:
-		return deploymentPayload(eventID, occurredAt, events.TypeNameSyncFailed,
-			eventnotifications.StatusPreparationFailed, "", event.StackName, event.Commit, errorString(event.Error),
-			event.ErrorCode, event.Stage, event.Services), nil
-	case *events.DeployInterrupted:
-		return deploymentPayload(eventID, occurredAt, events.TypeNameSyncFailed, eventnotifications.StatusInterrupted,
-			event.DeploymentID, event.StackName, event.Commit, errorString(event.Error), event.Reason, event.Stage,
-			event.Services), nil
+			event.DeploymentID, event.StackName, event.Commit, event.Services), nil
 	case *events.NodeJoined:
 		return eventnotifications.NodePayload{ID: eventID, Type: event.Type().String(), NodeID: event.NodeID,
 			NodeName: event.NodeName, Role: event.Role, Message: event.Message(), OccurredAt: occurredAt}, nil
@@ -86,12 +74,12 @@ func deploymentPayload(
 	id string,
 	occurredAt time.Time,
 	eventType events.TypeName,
-	status, deploymentID, stackName, commit, diagnostic, code, stage string,
+	status, deploymentID, stackName, commit string,
 	services []compose.Service,
 ) eventnotifications.DeploymentPayload {
 	payload := eventnotifications.DeploymentPayload{
 		ID: id, DeploymentID: deploymentID, Type: string(eventType), Status: status, StackName: stackName,
-		Commit: commit, Error: diagnostic, ErrorCode: code, Stage: stage, OccurredAt: occurredAt,
+		Commit: commit, OccurredAt: occurredAt,
 	}
 	if len(services) > 0 {
 		payload.Services = make([]eventnotifications.DeploymentService, 0, len(services))

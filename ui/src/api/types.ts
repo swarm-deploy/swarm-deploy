@@ -139,7 +139,7 @@ export interface AlertResolution {
 export interface Alert {
   id: string;
   fingerprint: string;
-  kind: "deploy_failed" | "node_disconnected";
+  kind: "sync_failed" | "node_disconnected";
   resourceType: "stack" | "node";
   resourceId: string;
   status: AlertStatus;

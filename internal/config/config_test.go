@@ -654,7 +654,7 @@ func TestLoadValidatesNotificationTemplates(t *testing.T) {
 		wantError string
 	}{
 		{name: "valid", message: `{{ .Status }} {{ .StackName }} {{ date "2006-01-02" .OccurredAt }}`},
-		{name: "condition and nullable value", message: `{{ if .Error }}{{ .Error }}{{ else }}ok{{ end }}`},
+		{name: "condition and optional value", message: `{{ if .Commit }}{{ .Commit }}{{ else }}ok{{ end }}`},
 		{name: "syntax error", message: `{{ if }}`, wantError: "parse template"},
 		{name: "unknown field", message: `{{ .Stack }}`, wantError: `can't evaluate field Stack`},
 		{name: "unknown nested field", message: `{{ (index .Services 0).Digest }}`, wantError: "can't evaluate field Digest"},

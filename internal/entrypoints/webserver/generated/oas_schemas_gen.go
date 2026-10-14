@@ -229,14 +229,14 @@ func (s *Alert) SetResolution(val OptAlertResolution) {
 type AlertKind string
 
 const (
-	AlertKindDeployFailed     AlertKind = "deploy_failed"
+	AlertKindSyncFailed       AlertKind = "sync_failed"
 	AlertKindNodeDisconnected AlertKind = "node_disconnected"
 )
 
 // AllValues returns all AlertKind values.
 func (AlertKind) AllValues() []AlertKind {
 	return []AlertKind{
-		AlertKindDeployFailed,
+		AlertKindSyncFailed,
 		AlertKindNodeDisconnected,
 	}
 }
@@ -244,7 +244,7 @@ func (AlertKind) AllValues() []AlertKind {
 // MarshalText implements encoding.TextMarshaler.
 func (s AlertKind) MarshalText() ([]byte, error) {
 	switch s {
-	case AlertKindDeployFailed:
+	case AlertKindSyncFailed:
 		return []byte(s), nil
 	case AlertKindNodeDisconnected:
 		return []byte(s), nil
@@ -256,8 +256,8 @@ func (s AlertKind) MarshalText() ([]byte, error) {
 // UnmarshalText implements encoding.TextUnmarshaler.
 func (s *AlertKind) UnmarshalText(data []byte) error {
 	switch AlertKind(data) {
-	case AlertKindDeployFailed:
-		*s = AlertKindDeployFailed
+	case AlertKindSyncFailed:
+		*s = AlertKindSyncFailed
 		return nil
 	case AlertKindNodeDisconnected:
 		*s = AlertKindNodeDisconnected

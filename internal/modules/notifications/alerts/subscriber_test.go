@@ -36,7 +36,7 @@ func alertSpec() config.NotificationSpec {
 	}
 }
 
-func TestDeploymentFailedAlertRendering(t *testing.T) {
+func TestSyncFailedAlertRendering(t *testing.T) {
 	tests := []struct {
 		name          string
 		title         string
@@ -46,8 +46,8 @@ func TestDeploymentFailedAlertRendering(t *testing.T) {
 	}{
 		{
 			name:  "default multiline HTML",
-			title: "Deployment failed",
-			wantText: `<b>🚨 Deployment failed</b>
+			title: "Synchronization failed",
+			wantText: `<b>🚨 Synchronization failed</b>
 
 <b>Stack:</b> <code>infra&lt;&amp;</code>
 
@@ -58,8 +58,8 @@ func TestDeploymentFailedAlertRendering(t *testing.T) {
 		},
 		{
 			name:  "interrupted deployment title",
-			title: "Deployment outcome unknown",
-			wantText: `<b>🚨 Deployment outcome unknown</b>
+			title: "Synchronization outcome unknown",
+			wantText: `<b>🚨 Synchronization outcome unknown</b>
 
 <b>Stack:</b> <code>infra&lt;&amp;</code>
 
@@ -82,7 +82,7 @@ func TestDeploymentFailedAlertRendering(t *testing.T) {
 		},
 		{
 			name:          "custom template",
-			title:         "Deployment failed",
+			title:         "Synchronization failed",
 			customMessage: "custom {{ .ResourceID }}: {{ .Message }}",
 			wantText:      "custom infra<&: first line\n<broken> & stopped",
 		},
@@ -94,7 +94,7 @@ func TestDeploymentFailedAlertRendering(t *testing.T) {
 			defer db.Close()
 			spec := alertSpec()
 			if test.customMessage != "" {
-				spec.Alerts["deploy_failed"] = config.NotificationAlertRoutes{Telegram: []config.TelegramAlertChannel{{
+				spec.Alerts["sync_failed"] = config.NotificationAlertRoutes{Telegram: []config.TelegramAlertChannel{{
 					Opened: config.AlertMessageSpec{Message: test.customMessage},
 				}}}
 			}
@@ -107,12 +107,12 @@ func TestDeploymentFailedAlertRendering(t *testing.T) {
 				_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":42}}`))
 			}))
 			defer server.Close()
-			recipient := spec.AlertRecipients("deploy_failed")[0]
+			recipient := spec.AlertRecipients("sync_failed")[0]
 			subscriber := &Subscriber{
 				store: NewStore(db), spec: spec, recipient: recipient, now: time.Now, apiBaseURL: server.URL,
 			}
 			alert := events.AlertSnapshot{
-				ID: "failed", Kind: "deploy_failed", Title: test.title, ResourceID: "infra<&",
+				ID: "failed", Kind: "sync_failed", Title: test.title, ResourceID: "infra<&",
 				Message: "first line\n<broken> & stopped", OpenedAt: time.Now().UTC(),
 			}
 			require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{Event: &events.AlertOpened{
@@ -124,7 +124,7 @@ func TestDeploymentFailedAlertRendering(t *testing.T) {
 	}
 }
 
-func TestDeploymentFailedDefaultAlertTruncatesLongError(t *testing.T) {
+func TestSyncFailedDefaultAlertTruncatesLongError(t *testing.T) {
 	db, err := storage.Open(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
@@ -138,12 +138,12 @@ func TestDeploymentFailedDefaultAlertTruncatesLongError(t *testing.T) {
 		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":42}}`))
 	}))
 	defer server.Close()
-	recipient := spec.AlertRecipients("deploy_failed")[0]
+	recipient := spec.AlertRecipients("sync_failed")[0]
 	subscriber := &Subscriber{
 		store: NewStore(db), spec: spec, recipient: recipient, now: time.Now, apiBaseURL: server.URL,
 	}
 	alert := events.AlertSnapshot{
-		ID: "long-failure", Kind: "deploy_failed", Title: "Deployment outcome unknown", ResourceID: "infra-monitoring",
+		ID: "long-failure", Kind: "sync_failed", Title: "Synchronization outcome unknown", ResourceID: "infra-monitoring",
 		Message: strings.Repeat("failed <&> 😀\n", 500), OpenedAt: time.Now().UTC(),
 	}
 	require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{Event: &events.AlertOpened{
@@ -153,7 +153,7 @@ func TestDeploymentFailedDefaultAlertTruncatesLongError(t *testing.T) {
 		"<b>", "", "</b>", "", "<code>", "", "</code>", "", "<pre>", "", "</pre>", "",
 	).Replace(request.Text))
 	assert.LessOrEqual(t, telegramTextLength(visible), telegramMessageLimit)
-	assert.Contains(t, request.Text, "<b>🚨 Deployment outcome unknown</b>")
+	assert.Contains(t, request.Text, "<b>🚨 Synchronization outcome unknown</b>")
 	assert.Contains(t, request.Text, "[error truncated]")
 	assert.Equal(t, "HTML", request.ParseMode)
 }
@@ -188,7 +188,7 @@ func TestRegisterIncludesFallbackAndCustomRecipientsForFutureAlertKinds(t *testi
 	spec.Messengers.Telegram.Chats["deployments"] = config.NotificationChatSpec{ID: "-102", ThreadID: 3}
 	spec.Alerts = map[string]config.NotificationAlertRoutes{
 		"default": {Telegram: []config.TelegramAlertChannel{{Chats: config.NotificationChatNames{"default"}}}},
-		"deploy_failed": {Telegram: []config.TelegramAlertChannel{{
+		"sync_failed": {Telegram: []config.TelegramAlertChannel{{
 			Chats: config.NotificationChatNames{"deployments"},
 		}}},
 		"node_disconnected": {Telegram: []config.TelegramAlertChannel{{
@@ -206,7 +206,7 @@ func TestRegisterIncludesFallbackAndCustomRecipientsForFutureAlertKinds(t *testi
 		Recipients: futureRecipients,
 	}))
 
-	for _, kind := range []string{"future_alert_kind", "deploy_failed", "node_disconnected"} {
+	for _, kind := range []string{"future_alert_kind", "sync_failed", "node_disconnected"} {
 		recipients := spec.AlertRecipients(kind)
 		require.Len(t, recipients, 1)
 		var deliveries int

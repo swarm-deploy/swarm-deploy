@@ -1,7 +1,6 @@
 package events
 
 import (
-	"errors"
 	"fmt"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -31,26 +30,6 @@ type DeployFailed struct {
 	// Stage identifies the pipeline stage that failed.
 	Stage string
 	Logs  []string
-}
-
-// SyncFailed is the user-facing fact produced from an internal synchronization failure.
-type SyncFailed struct {
-	// DeploymentID identifies a deployment attempt when one was created.
-	DeploymentID string
-	// StackName identifies the affected stack.
-	StackName string
-	// Commit identifies the source revision.
-	Commit string
-	// Services contains notification-safe service names and images.
-	Services []compose.Service
-	// Status distinguishes failed, preparation_failed, and interrupted synchronization.
-	Status string
-	// ErrorCode is the stable technical failure category.
-	ErrorCode string
-	// Stage identifies the synchronization stage that failed.
-	Stage string
-	// Diagnostic contains bounded, secret-masked technical context.
-	Diagnostic string
 }
 
 func (d *DeploySuccess) Type() Type {
@@ -89,26 +68,6 @@ func (d *DeployFailed) Details() map[string]string {
 	}
 	if d.Error != nil {
 		details[AttributeError] = faults.SafeDiagnostic(d.Error)
-	}
-	return details
-}
-
-// Type returns the public synchronization-failure type.
-func (*SyncFailed) Type() Type { return TypeSyncFailed }
-
-// Message returns a user-facing synchronization-failure summary.
-func (e *SyncFailed) Message() string {
-	return fmt.Sprintf("Synchronization failed for stack %s", e.StackName)
-}
-
-// Details returns safe synchronization-failure fields.
-func (e *SyncFailed) Details() map[string]string {
-	details := map[string]string{
-		AttributeStackName: e.StackName, AttributeCommit: e.Commit, AttributeDeploymentID: e.DeploymentID,
-		AttributeStatus: e.Status, AttributeErrorCode: e.ErrorCode, AttributeStage: e.Stage,
-	}
-	if e.Diagnostic != "" {
-		details[AttributeError] = faults.SafeDiagnostic(errors.New(e.Diagnostic))
 	}
 	return details
 }

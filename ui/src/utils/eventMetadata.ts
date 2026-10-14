@@ -5,7 +5,6 @@ export interface EventTypeMetadata {
 
 export const eventTypeMetadata: EventTypeMetadata[] = [
   { type: "DeploySuccess", description: "Deployment completed successfully" },
-  { type: "SyncFailed", description: "Stack synchronization failed before, during, or after deployment" },
   { type: "SendNotificationFailed", description: "Notification delivery failed" },
   { type: "SyncManualStarted", description: "Manual sync started" },
   { type: "WebhookReceived", description: "Webhook request accepted" },

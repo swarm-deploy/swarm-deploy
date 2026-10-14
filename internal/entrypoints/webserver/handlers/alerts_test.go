@@ -17,7 +17,7 @@ func TestAlertsAPIReadsPersistedAlerts(t *testing.T) {
 	ctx := context.Background()
 	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
 	now := time.Date(2026, 9, 22, 10, 0, 0, 0, time.UTC)
-	open := alertmodel.Alert{ID: "open-id", Fingerprint: "open", Status: alertmodel.AlertStatusOpen, Kind: alertmodel.AlertKindDeployFailed, ResourceType: alertmodel.ResourceTypeStack, ResourceID: "api", Title: "Deployment failed", Message: "image missing", FailureStage: "apply", ErrorCode: "apply_failed", DeploymentID: "deployment", Commit: "sha", Occurrences: 1, OpenedAt: now, UpdatedAt: now, OpenEventID: "event", LatestEventID: "event"}
+	open := alertmodel.Alert{ID: "open-id", Fingerprint: "open", Status: alertmodel.AlertStatusOpen, Kind: alertmodel.AlertKindSyncFailed, ResourceType: alertmodel.ResourceTypeStack, ResourceID: "api", Title: "Synchronization failed", Message: "image missing", FailureStage: "apply", ErrorCode: "apply_failed", DeploymentID: "deployment", Commit: "sha", Occurrences: 1, OpenedAt: now, UpdatedAt: now, OpenEventID: "event", LatestEventID: "event"}
 	resolvedAt := now.Add(time.Minute)
 	resolved := open
 	resolved.ID = "resolved-id"

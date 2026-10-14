@@ -11,9 +11,10 @@ import (
 	"github.com/doug-martin/goqu/v9/exp"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
+
+const legacySyncFailedEventType = "SyncFailed"
 
 // Repository provides context-aware history reads.
 type Repository interface {
@@ -64,10 +65,9 @@ func (s *SQLStore) Name() string { return "event-history" }
 func (s *SQLStore) Handle(ctx context.Context, e events.Envelope) error {
 	switch e.Event.Type() {
 	case events.TypeConfigurationChanged, events.TypeServiceCatalogUpdated,
-		events.TypeNodeDisconnected:
+		events.TypeNodeDisconnected, events.TypeDeployFailed,
+		events.TypeDeployPreparationFailed, events.TypeDeployInterrupted:
 		return nil
-	case events.TypeDeployFailed, events.TypeDeployPreparationFailed, events.TypeDeployInterrupted:
-		e.Event = syncFailure(e.Event)
 	}
 	if e.ID == "" || e.OccurredAt.IsZero() || e.PublicationSequence <= 0 {
 		return fmt.Errorf("history requires a persisted event ID, publication time and sequence")
@@ -101,31 +101,6 @@ func (s *SQLStore) Handle(ctx context.Context, e events.Envelope) error {
 	})
 }
 
-func syncFailure(event events.Event) *events.SyncFailed {
-	switch failure := event.(type) {
-	case *events.DeployFailed:
-		return &events.SyncFailed{
-			DeploymentID: failure.DeploymentID, StackName: failure.StackName, Commit: failure.Commit,
-			Services: failure.Services, Status: "failed", ErrorCode: failure.ErrorCode, Stage: failure.Stage,
-			Diagnostic: faults.SafeDiagnostic(failure.Error),
-		}
-	case *events.DeployPreparationFailed:
-		return &events.SyncFailed{
-			StackName: failure.StackName, Commit: failure.Commit, Services: failure.Services,
-			Status: "preparation_failed", ErrorCode: failure.ErrorCode, Stage: failure.Stage,
-			Diagnostic: faults.SafeDiagnostic(failure.Error),
-		}
-	case *events.DeployInterrupted:
-		return &events.SyncFailed{
-			DeploymentID: failure.DeploymentID, StackName: failure.StackName, Commit: failure.Commit,
-			Services: failure.Services, Status: "interrupted", ErrorCode: failure.Reason, Stage: failure.Stage,
-			Diagnostic: faults.SafeDiagnostic(failure.Error),
-		}
-	default:
-		return nil
-	}
-}
-
 func (s *SQLStore) insert(ctx context.Context, entry Entry, publicationSequence int64) error {
 	var details any
 	if len(entry.Details) > 0 {
@@ -146,6 +121,7 @@ func (s *SQLStore) insert(ctx context.Context, entry Entry, publicationSequence 
 // List returns the retained publication sequence, in publication order.
 func (s *SQLStore) Read(ctx context.Context) ([]Entry, error) {
 	dataset := goqu.Dialect("sqlite3").From("event_history").Prepared(true).Select(historyColumns...).
+		Where(publicHistoryFilter()).
 		Order(goqu.I("publication_sequence").Asc())
 	return s.queryEntriesDataset(ctx, dataset)
 }
@@ -158,8 +134,8 @@ func (s *SQLStore) FilterOptions(ctx context.Context) (FilterOptions, error) {
 	var stacks []string
 	if err := s.db.Select(ctx, &stacks, `SELECT DISTINCT `+stackExpression+` AS stack_name
 		FROM event_history
-		WHERE `+stackExpression+` IS NOT NULL AND `+stackExpression+` <> ''
-		ORDER BY stack_name`); err != nil {
+		WHERE event_type <> ? AND `+stackExpression+` IS NOT NULL AND `+stackExpression+` <> ''
+		ORDER BY stack_name`, legacySyncFailedEventType); err != nil {
 		return FilterOptions{}, err
 	}
 
@@ -167,9 +143,9 @@ func (s *SQLStore) FilterOptions(ctx context.Context) (FilterOptions, error) {
 	if err := s.db.Select(ctx, &services, `SELECT DISTINCT
 		`+stackExpression+` AS stack_name, `+serviceExpression+` AS service_name
 		FROM event_history
-		WHERE `+stackExpression+` IS NOT NULL AND `+stackExpression+` <> ''
+		WHERE event_type <> ? AND `+stackExpression+` IS NOT NULL AND `+stackExpression+` <> ''
 		AND `+serviceExpression+` IS NOT NULL AND `+serviceExpression+` <> ''
-		ORDER BY stack_name, service_name`); err != nil {
+		ORDER BY stack_name, service_name`, legacySyncFailedEventType); err != nil {
 		return FilterOptions{}, err
 	}
 
@@ -245,7 +221,7 @@ func (s *SQLStore) queryEntriesDataset(ctx context.Context, dataset *goqu.Select
 }
 
 func historyFilters(options QueryOptions) []exp.Expression {
-	where := []exp.Expression{}
+	where := []exp.Expression{publicHistoryFilter()}
 	addHistoryFilter(&where, "severity", options.Severities)
 	addHistoryFilter(&where, "category", options.Categories)
 	addHistoryFilter(&where, "event_type", options.Types)
@@ -255,6 +231,10 @@ func historyFilters(options QueryOptions) []exp.Expression {
 		where = append(where, goqu.C("created_at").Gte(options.Since.UTC()))
 	}
 	return where
+}
+
+func publicHistoryFilter() exp.Expression {
+	return goqu.C("event_type").Neq(legacySyncFailedEventType)
 }
 
 func addHistoryAttributeFilter(where *[]exp.Expression, attribute string, values []string) {

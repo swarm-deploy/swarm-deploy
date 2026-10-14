@@ -154,6 +154,67 @@ func TestSQLiteFilterOptionsUsesRetainedHistory(t *testing.T) {
 	}, options.Services)
 }
 
+func TestSQLiteQueriesExcludeLegacySyncFailedHistory(t *testing.T) {
+	t.Parallel()
+	db, err := storage.Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	repo, err := NewSQLStore(db, 100)
+	require.NoError(t, err)
+	at := time.Date(2026, time.October, 14, 12, 0, 0, 0, time.UTC)
+	valid := []Entry{
+		{ID: "older", Type: events.TypeDeploySuccess, Severity: events.SeverityInfo,
+			Category: events.CategorySync, CreatedAt: at,
+			Details: map[string]string{events.AttributeStackName: "api"}},
+		{ID: "newer", Type: events.TypeServiceMissed, Severity: events.SeverityWarn,
+			Category: events.CategorySwarm, CreatedAt: at.Add(2 * time.Second),
+			Details: map[string]string{events.AttributeStackName: "web", events.AttributeServiceName: "worker"}},
+	}
+	require.NoError(t, repo.insert(t.Context(), valid[0], 1))
+	_, err = db.Exec(t.Context(), `INSERT INTO event_history
+		(publication_sequence,id,event_type,severity,severity_rank,category,created_at,message,details)
+		VALUES (?,?,?,?,?,?,?,?,?)`, 2, "legacy", legacySyncFailedEventType, events.SeverityError,
+		severityRank(events.SeverityError), events.CategorySync, at.Add(time.Second),
+		"legacy sync failure", `{"stack_name":"legacy","service_name":"legacy-service"}`)
+	require.NoError(t, err)
+	require.NoError(t, repo.insert(t.Context(), valid[1], 3))
+
+	entries, err := repo.Read(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"older", "newer"}, entryIDs(entries))
+
+	recent, err := repo.ReadRecent(t.Context(), QueryOptions{Limit: 1})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"newer"}, entryIDs(recent))
+
+	options := QueryOptions{Limit: 1, Sort: SortTimeDesc}
+	first, err := repo.QueryPage(t.Context(), options)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"newer"}, entryIDs(first.Entries))
+	require.NotEmpty(t, first.NextCursor)
+	options.Cursor = first.NextCursor
+	second, err := repo.QueryPage(t.Context(), options)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"older"}, entryIDs(second.Entries))
+	assert.Empty(t, second.NextCursor)
+
+	legacyOnly, err := repo.QueryPage(t.Context(), QueryOptions{
+		Limit: 10, Sort: SortTimeDesc, Types: []events.TypeName{events.TypeName(legacySyncFailedEventType)},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, legacyOnly.Entries)
+
+	filterOptions, err := repo.FilterOptions(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"api", "web"}, filterOptions.Stacks)
+	assert.Equal(t, []FilterService{{StackName: "web", ServiceName: "worker"}}, filterOptions.Services)
+
+	var legacyCount int
+	require.NoError(t, db.Get(t.Context(), &legacyCount,
+		`SELECT count(*) FROM event_history WHERE event_type=?`, legacySyncFailedEventType))
+	assert.Equal(t, 1, legacyCount, "legacy rows must remain unchanged")
+}
+
 func entryIDs(entries []Entry) []string {
 	ids := make([]string, 0, len(entries))
 	for _, entry := range entries {
@@ -191,11 +252,8 @@ func TestSQLiteProjectionSelectionIdempotenceAndRollback(t *testing.T) {
 	}
 	entries, err = repo.Read(ctx)
 	require.NoError(t, err)
-	require.Len(t, entries, 2)
+	require.Len(t, entries, 1)
 	assert.Equal(t, "joined", entries[0].ID)
-	assert.Equal(t, events.TypeSyncFailed, entries[1].Type)
-	assert.Equal(t, "failed", entries[1].Details["status"])
-	assert.Equal(t, "apply_failed", entries[1].Details["error_code"])
 	for i, id := range []string{"next", "last"} {
 		e.ID = id
 		e.PublicationSequence = int64(i + 3)
@@ -207,7 +265,7 @@ func TestSQLiteProjectionSelectionIdempotenceAndRollback(t *testing.T) {
 	assert.Equal(t, "next", entries[0].ID)
 }
 
-func TestDeploymentFailuresProjectToIdempotentSyncFailedHistoryEntries(t *testing.T) {
+func TestDeploymentFailuresAreExcludedFromEventHistory(t *testing.T) {
 	db, err := storage.Open(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
@@ -215,19 +273,18 @@ func TestDeploymentFailuresProjectToIdempotentSyncFailedHistoryEntries(t *testin
 	require.NoError(t, err)
 	at := time.Date(2026, time.October, 13, 12, 0, 0, 0, time.UTC)
 	failures := []struct {
-		id     string
-		status string
-		event  events.Event
+		id    string
+		event events.Event
 	}{
-		{id: "deploy", status: "failed", event: &events.DeployFailed{
+		{id: "deploy", event: &events.DeployFailed{
 			DeployEvent: events.DeployEvent{DeploymentID: "deployment-1", StackName: "app", Commit: "sha"},
 			Error:       errors.New("token=private apply rejected"), ErrorCode: "apply_failed", Stage: "apply",
 		}},
-		{id: "prepare", status: "preparation_failed", event: &events.DeployPreparationFailed{
+		{id: "prepare", event: &events.DeployPreparationFailed{
 			StackName: "app", Commit: "sha", Error: errors.New("token=private invalid compose"),
 			ErrorCode: "preparation_failed", Stage: "validation",
 		}},
-		{id: "interrupted", status: "interrupted", event: &events.DeployInterrupted{
+		{id: "interrupted", event: &events.DeployInterrupted{
 			DeploymentID: "deployment-2", StackName: "app", Commit: "sha",
 			Error: errors.New("token=private interrupted"), Reason: "process_interrupted", Stage: "apply",
 		}},
@@ -243,15 +300,7 @@ func TestDeploymentFailuresProjectToIdempotentSyncFailedHistoryEntries(t *testin
 
 	entries, err := repo.Read(t.Context())
 	require.NoError(t, err)
-	require.Len(t, entries, len(failures))
-	for index, entry := range entries {
-		assert.Equal(t, failures[index].id, entry.ID)
-		assert.Equal(t, events.TypeSyncFailed, entry.Type)
-		assert.Equal(t, failures[index].status, entry.Details["status"])
-		assert.Equal(t, at.Add(time.Duration(index)*time.Second), entry.CreatedAt)
-		assert.Contains(t, entry.Details["error"], "token=****")
-		assert.NotContains(t, entry.Details["error"], "private")
-	}
+	assert.Empty(t, entries)
 }
 
 func TestSQLiteRetentionUsesPublicationOrderAcrossDelayedDeliveries(t *testing.T) {

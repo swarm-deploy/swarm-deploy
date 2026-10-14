@@ -1,6 +1,0 @@
-deploy failed
-stack_name: payments
-service: worker
-image: registry.example.com/payments/worker:v2.4.2
-commit: d4c3b2a1
-error: service update rejected

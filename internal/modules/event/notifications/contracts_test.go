@@ -25,9 +25,7 @@ func TestMovedPayloadContracts(t *testing.T) {
 			"ID": reflect.TypeFor[string](), "DeploymentID": reflect.TypeFor[string](),
 			"Type": reflect.TypeFor[string](), "Status": reflect.TypeFor[string](),
 			"StackName": reflect.TypeFor[string](), "Services": reflect.TypeFor[[]DeploymentService](),
-			"Commit": reflect.TypeFor[string](), "Error": reflect.TypeFor[string](),
-			"ErrorCode": reflect.TypeFor[string](), "Stage": reflect.TypeFor[string](),
-			"OccurredAt": reflect.TypeFor[time.Time](),
+			"Commit": reflect.TypeFor[string](), "OccurredAt": reflect.TypeFor[time.Time](),
 		}},
 		{name: "node", typ: reflect.TypeFor[NodePayload](), fields: map[string]reflect.Type{
 			"ID": reflect.TypeFor[string](), "Type": reflect.TypeFor[string](), "NodeID": reflect.TypeFor[string](),
@@ -112,36 +110,14 @@ func TestMessagePayloadsUseDefaultTemplate(t *testing.T) {
 	}
 }
 
-func TestDeploymentTemplates(t *testing.T) {
-	tests := []struct {
-		name    string
-		source  string
-		payload DeploymentPayload
-		golden  string
-	}{
-		{name: "success", source: SuccessTemplate(), payload: DeploymentSuccessReferencePayload(),
-			golden: "success.golden"},
-		{name: "failed", source: FailedTemplate(), payload: DeploymentFailureReferencePayloads()[0],
-			golden: "failed.golden"},
-	}
-
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			renderer, err := notificationtemplate.New(test.source)
-			require.NoError(t, err)
-			actual, err := renderer.Render(test.payload)
-			require.NoError(t, err)
-			expected, err := os.ReadFile(filepath.Join("testdata", test.golden))
-			require.NoError(t, err)
-			assert.Equal(t, strings.TrimSuffix(string(expected), "\n"), actual)
-		})
-	}
-}
-
-func TestFailureTemplateValidatesEveryFailureState(t *testing.T) {
-	for _, payload := range DeploymentFailureReferencePayloads() {
-		require.NoError(t, notificationtemplate.Validate(FailedTemplate(), payload))
-	}
+func TestDeploymentSuccessTemplate(t *testing.T) {
+	renderer, err := notificationtemplate.New(SuccessTemplate())
+	require.NoError(t, err)
+	actual, err := renderer.Render(DeploymentSuccessReferencePayload())
+	require.NoError(t, err)
+	expected, err := os.ReadFile(filepath.Join("testdata", "success.golden"))
+	require.NoError(t, err)
+	assert.Equal(t, strings.TrimSuffix(string(expected), "\n"), actual)
 }
 
 func TestNotificationPayloadJSONUsesStandardAttributeNames(t *testing.T) {
@@ -150,9 +126,8 @@ func TestNotificationPayloadJSONUsesStandardAttributeNames(t *testing.T) {
 		payload any
 		keys    []string
 	}{
-		{name: "deployment", payload: DeploymentFailureReferencePayloads()[0], keys: []string{
+		{name: "deployment", payload: DeploymentSuccessReferencePayload(), keys: []string{
 			events.AttributeDeploymentID, events.AttributeStackName, events.AttributeCommit, events.AttributeStatus,
-			events.AttributeError, events.AttributeErrorCode, events.AttributeStage,
 		}},
 		{name: "node", payload: NodeConnectedReferencePayload(), keys: []string{
 			events.AttributeNodeID, events.AttributeNodeName, events.AttributeStatus,
