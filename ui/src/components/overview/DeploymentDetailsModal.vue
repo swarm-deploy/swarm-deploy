@@ -436,7 +436,7 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
 .deployment-metadata dt > :deep(.deployment-icon) { position: absolute; left: 24px; top: 50%; width: 25px; height: 25px; color: var(--muted); transform: translateY(-50%); }
 .deployment-metadata-item:first-child dt > :deep(.deployment-icon) { left: 0; }
 .deployment-metadata dd { margin: 4px 0 0; overflow-wrap: anywhere; line-height: 1.25; }
-.deployment-commit-link { display: inline-flex; align-items: center; gap: 7px; border: 0; background: transparent; color: var(--accent-strong); padding: 0; font: inherit; font-family: ui-monospace, monospace; }
+.deployment-commit-link { display: inline-flex; align-items: center; gap: 7px; border: 0; background: transparent; color: var(--control-primary); padding: 0; font: inherit; font-family: ui-monospace, monospace; }
 .deployment-commit-link:hover { transform: none; filter: none; text-decoration: underline; }
 .deployment-commit-link span { font-family: inherit; font-size: .95rem; }
 .deployment-outcome {
@@ -464,7 +464,7 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
 .deployment-tabs { display: flex; gap: 8px; margin-top: 20px; border-bottom: 1px solid var(--line); }
 .deployment-tabs button { border: 0; border-bottom: 3px solid transparent; border-radius: 0; background: transparent; color: var(--muted); padding: 10px 10px 12px; }
 .deployment-tabs button:hover { color: var(--text); transform: none; filter: none; }
-.deployment-tabs button.active { border-bottom-color: var(--accent); color: var(--accent-strong); }
+.deployment-tabs button.active { border-bottom-color: var(--control-primary); color: var(--control-primary); }
 .deployment-tab-panel { min-width: 0; padding: 20px 0 4px; }
 .deployment-tab-panel > h3 { margin: 0 0 4px; font-size: 1.35rem; }
 .deployment-tab-panel > .deployment-note { margin: 0; }
