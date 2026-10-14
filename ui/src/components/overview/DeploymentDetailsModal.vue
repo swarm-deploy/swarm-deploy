@@ -255,13 +255,15 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
         <header class="deployment-modal-header">
           <div class="deployment-heading-row">
             <div class="deployment-title">
-              <span class="deployment-modal-eyebrow">Deployment</span>
+              <div class="deployment-title-topline">
+                <span class="deployment-modal-eyebrow">Deployment</span>
+                <strong v-if="detail && !store.deploymentDetailsLoading && !store.deploymentDetailsError" class="deployment-status" :class="`deployment-status--${detail.status}`">
+                  <span class="deployment-status-dot" aria-hidden="true" />
+                  {{ statusLabel }}
+                </strong>
+              </div>
               <h2 id="deployment-details-title">{{ detail?.stack || "Deployment" }}</h2>
             </div>
-            <strong v-if="detail && !store.deploymentDetailsLoading && !store.deploymentDetailsError" class="deployment-status" :class="`deployment-status--${detail.status}`">
-              <span class="deployment-status-dot" aria-hidden="true" />
-              {{ statusLabel }}
-            </strong>
           </div>
           <dl v-if="detail && !store.deploymentDetailsLoading && !store.deploymentDetailsError" class="deployment-metadata">
             <div class="deployment-metadata-item"><dt><DeploymentIcon name="stack" />Stack</dt><dd>{{ detail.stack }}</dd></div>
@@ -401,8 +403,9 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
 .deployment-modal-content--compact .deployment-tabs { margin-top: 0; }
 .deployment-state-message { padding: 32px 0; }
 .deployment-modal-header { padding: 18px 66px 16px 24px; border-bottom: 1px solid var(--line); }
-.deployment-heading-row { min-width: 0; display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; }
+.deployment-heading-row { min-width: 0; }
 .deployment-title { min-width: 0; }
+.deployment-title-topline { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-width: 0; }
 .deployment-title h2 { margin: 6px 0 0; font-size: 1.55rem; line-height: 1.2; overflow-wrap: anywhere; }
 .deployment-modal-eyebrow { color: var(--muted); font-size: .76rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .deployment-status {
@@ -544,7 +547,7 @@ details[open] > summary .deployment-chevron { transform: rotate(90deg); }
   .deployment-modal-content { padding: 14px 12px 16px; }
   .deployment-modal-content--compact { padding-top: 4px; }
   .deployment-modal-header { padding: 14px 12px 12px; }
-  .deployment-heading-row { align-items: flex-start; flex-direction: column; gap: 8px; padding-right: 48px; }
+  .deployment-heading-row { padding-right: 48px; }
   .deployment-title h2 { font-size: 1.25rem; }
   .deployment-status { font-size: .78rem; }
 
