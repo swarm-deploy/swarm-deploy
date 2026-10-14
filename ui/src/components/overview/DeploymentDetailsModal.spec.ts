@@ -111,7 +111,7 @@ describe("Deployment Details modal", () => {
     wrapper.unmount();
   });
 
-  it("stacks long diff values and pluralizes the field counter", async () => {
+  it("stacks long diff values without a redundant field counter", async () => {
     const store = useOverviewStore();
     const details = deployment("succeeded", "successful_baseline");
     const longImage = `registry.example.test/platform/api@sha256:${"a".repeat(64)}`;
@@ -122,15 +122,16 @@ describe("Deployment Details modal", () => {
 
     expect(wrapper.findAll(".deployment-change")[0].classes()).toContain("deployment-change--long");
     expect(wrapper.findAll(".deployment-change")[1].classes()).not.toContain("deployment-change--long");
-    expect(wrapper.text()).toContain("3 fields");
+    expect(wrapper.text()).not.toContain("3 fields");
+    expect(wrapper.text()).toContain("1 added · 2 changed · 0 removed");
     expect(wrapper.text()).toContain(longImage);
 
     details.changes = [details.changes![0]];
     details.summary = { added: 0, changed: 1, removed: 0, redacted: 0 };
     store.deploymentDetailsData = { ...details };
     await wrapper.vm.$nextTick();
-    expect(wrapper.text()).toContain("1 field");
-    expect(wrapper.text()).not.toContain("1 fields");
+    expect(wrapper.text()).not.toContain("1 field");
+    expect(wrapper.text()).toContain("0 added · 1 changed · 0 removed");
     wrapper.unmount();
   });
 
