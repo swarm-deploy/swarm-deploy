@@ -95,13 +95,13 @@ func nodeDisplayName(nodeName, nodeID string) string {
 func nodeDetails(nodeID, nodeName, status string) map[string]string {
 	details := map[string]string{}
 	if nodeID != "" {
-		details["node_id"] = nodeID
+		details[AttributeNodeID] = nodeID
 	}
 	if nodeName != "" {
-		details["node_name"] = nodeName
+		details[AttributeNodeName] = nodeName
 	}
 	if status != "" {
-		details["status"] = status
+		details[AttributeStatus] = status
 	}
 
 	return details

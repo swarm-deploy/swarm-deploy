@@ -35,14 +35,14 @@ func (s *ServiceReplicasIncreased) Message() string {
 
 func (s *ServiceReplicasIncreased) Details() map[string]string {
 	details := map[string]string{
-		"stack":             s.StackName,
-		"service":           s.ServiceName,
-		"previous_replicas": strconv.FormatUint(s.PreviousReplicas, 10),
-		"current_replicas":  strconv.FormatUint(s.CurrentReplicas, 10),
+		AttributeStackName:   s.StackName,
+		AttributeServiceName: s.ServiceName,
+		"previous_replicas":  strconv.FormatUint(s.PreviousReplicas, 10),
+		"current_replicas":   strconv.FormatUint(s.CurrentReplicas, 10),
 	}
 
 	if s.Username != "" {
-		details["username"] = s.Username
+		details[AttributeUsername] = s.Username
 	}
 
 	return details
@@ -88,14 +88,14 @@ func (s *ServiceReplicasDecreased) Message() string {
 
 func (s *ServiceReplicasDecreased) Details() map[string]string {
 	details := map[string]string{
-		"stack":             s.StackName,
-		"service":           s.ServiceName,
-		"previous_replicas": strconv.FormatUint(s.PreviousReplicas, 10),
-		"current_replicas":  strconv.FormatUint(s.CurrentReplicas, 10),
+		AttributeStackName:   s.StackName,
+		AttributeServiceName: s.ServiceName,
+		"previous_replicas":  strconv.FormatUint(s.PreviousReplicas, 10),
+		"current_replicas":   strconv.FormatUint(s.CurrentReplicas, 10),
 	}
 
 	if s.Username != "" {
-		details["username"] = s.Username
+		details[AttributeUsername] = s.Username
 	}
 
 	return details
@@ -131,12 +131,12 @@ func (s *ServiceRestarted) Message() string {
 
 func (s *ServiceRestarted) Details() map[string]string {
 	details := map[string]string{
-		"stack":   s.StackName,
-		"service": s.ServiceName,
+		AttributeStackName:   s.StackName,
+		AttributeServiceName: s.ServiceName,
 	}
 
 	if s.Username != "" {
-		details["username"] = s.Username
+		details[AttributeUsername] = s.Username
 	}
 
 	return details

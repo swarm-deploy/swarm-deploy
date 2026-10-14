@@ -1,10 +1,11 @@
 package events
 
 import (
+	"errors"
 	"fmt"
-	"strings"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
 
 type DeployEvent struct {
@@ -62,8 +63,10 @@ func (d *DeploySuccess) Message() string {
 
 func (d *DeploySuccess) Details() map[string]string {
 	return map[string]string{
-		"stack":  d.StackName,
-		"commit": d.Commit,
+		AttributeStackName:    d.StackName,
+		AttributeCommit:       d.Commit,
+		AttributeDeploymentID: d.DeploymentID,
+		AttributeStatus:       "success",
 	}
 }
 
@@ -77,15 +80,15 @@ func (d *DeployFailed) Message() string {
 
 func (d *DeployFailed) Details() map[string]string {
 	details := map[string]string{
-		"stack":         d.StackName,
-		"commit":        d.Commit,
-		"deployment_id": d.DeploymentID,
-		"error_code":    d.ErrorCode,
-		"stage":         d.Stage,
-		"logs":          strings.Join(d.Logs, "\n"),
+		AttributeStackName:    d.StackName,
+		AttributeCommit:       d.Commit,
+		AttributeDeploymentID: d.DeploymentID,
+		AttributeStatus:       "failed",
+		AttributeErrorCode:    d.ErrorCode,
+		AttributeStage:        d.Stage,
 	}
 	if d.Error != nil {
-		details["error"] = d.Error.Error()
+		details[AttributeError] = faults.SafeDiagnostic(d.Error)
 	}
 	return details
 }
@@ -101,11 +104,11 @@ func (e *SyncFailed) Message() string {
 // Details returns safe synchronization-failure fields.
 func (e *SyncFailed) Details() map[string]string {
 	details := map[string]string{
-		"stack": e.StackName, "commit": e.Commit, "deployment_id": e.DeploymentID,
-		"status": e.Status, "error_code": e.ErrorCode, "stage": e.Stage,
+		AttributeStackName: e.StackName, AttributeCommit: e.Commit, AttributeDeploymentID: e.DeploymentID,
+		AttributeStatus: e.Status, AttributeErrorCode: e.ErrorCode, AttributeStage: e.Stage,
 	}
 	if e.Diagnostic != "" {
-		details["error"] = e.Diagnostic
+		details[AttributeError] = faults.SafeDiagnostic(errors.New(e.Diagnostic))
 	}
 	return details
 }

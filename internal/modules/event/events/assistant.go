@@ -31,7 +31,7 @@ func (m *AssistantPromptInjectionDetected) Details() map[string]string {
 	}
 
 	if m.Username != "" {
-		details["username"] = m.Username
+		details[AttributeUsername] = m.Username
 	}
 
 	return details

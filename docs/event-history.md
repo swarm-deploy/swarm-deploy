@@ -1,21 +1,43 @@
 ## Event history
 
+Event details are a public attribute contract. Shared attributes always use the
+following `snake_case` names:
+
+| Attribute | Semantics |
+| --- | --- |
+| `stack_name` | Stack name |
+| `service_name` | Service name without the stack prefix |
+| `deployment_id` | Persisted deployment attempt identifier |
+| `commit` | Source revision |
+| `username` | User who initiated the action |
+| `node_id`, `node_name` | Swarm node identifier and hostname |
+| `network_id`, `network_name` | Swarm network identifier and name |
+| `status` | Event-specific lifecycle status |
+| `error` | Bounded, secret-masked human-readable diagnostic |
+| `error_code` | Stable machine-readable failure category |
+| `stage` | Stage responsible for the failure |
+
+The obsolete `stack`, `service`, `triggered_by`, and `diagnostic` detail keys are
+not emitted. Event-specific attributes not listed above also use `snake_case`.
+Existing SQLite history rows are not migrated; the standardized keys apply to
+newly persisted events.
+
 | Type                               | Severity | Category   | Trigger                             | Details keys                                                 |
 |------------------------------------|----------|------------|-------------------------------------|--------------------------------------------------------------|
-| `DeploySuccess`                    | `info`   | `sync`     | Successful stack deployment         | `stack`, `commit`                                            |
-| `SyncFailed`                       | `error`  | `sync`     | Synchronization failed before, during, or after apply | `stack`, `commit`, `deployment_id`, `status`, `error_code`, `stage`, `error` (if present) |
+| `DeploySuccess`                    | `info`   | `sync`     | Successful stack deployment         | `stack_name`, `commit`, `deployment_id`, `status`             |
+| `SyncFailed`                       | `error`  | `sync`     | Synchronization failed before, during, or after apply | `stack_name`, `commit`, `deployment_id`, `status`, `error_code`, `stage`, `error` (if present) |
 | `ServicePruned`                    | `info`   | `sync`     | Orphaned managed service was removed | `stack_name`, `service_name`, `commit`                       |
 | `NetworkCreated`                   | `info`   | `sync`     | Managed network was created          | `network_name`, `network_id`, `driver`                       |
 | `SendNotificationFailed`           | `error`  | `sync`     | Notification delivery failure       | `destination`, `channel`, `event_type`, `error` (if present) |
 | `WebhookReceived`                  | `info`   | `sync`     | Authenticated webhook received and reconciliation scheduling attempted | `queued` (`true` or `false`)                     |
-| `SyncManualStarted`                | `info`   | `sync`     | Manual sync run started             | `triggered_by` (if present)                                  |
+| `SyncManualStarted`                | `info`   | `sync`     | Manual sync run started             | `username` (if present)                                      |
 | `NodeJoined`                       | `info`   | `swarm`    | New node joined the swarm           | `node_id`, `node_name` (if present), `role` (if present)      |
 | `NodeConnected`                    | `info`   | `swarm`    | Swarm node became ready             | `node_id`, `node_name` (if present), `status`                 |
 | `NodeDisconnected`                 | `alert`  | `swarm`    | Swarm node left ready state         | `node_id`, `node_name` (if present), `status`                 |
 | `ServiceMissed`                    | `alert`  | `sync`     | Desired service is absent in swarm state | `stack_name`, `service_name`, `commit`                  |
-| `ServiceReplicasIncreased`         | `info`   | `sync`     | Service replicas count increased    | `stack`, `service`, `previous_replicas`, `current_replicas`, `username` (if present) |
-| `ServiceReplicasDecreased`         | `info`   | `sync`     | Service replicas count decreased    | `stack`, `service`, `previous_replicas`, `current_replicas`, `username` (if present) |
-| `ServiceRestarted`                 | `info`   | `sync`     | Service restarted                   | `stack`, `service`, `username` (if present)                  |
+| `ServiceReplicasIncreased`         | `info`   | `sync`     | Service replicas count increased    | `stack_name`, `service_name`, `previous_replicas`, `current_replicas`, `username` (if present) |
+| `ServiceReplicasDecreased`         | `info`   | `sync`     | Service replicas count decreased    | `stack_name`, `service_name`, `previous_replicas`, `current_replicas`, `username` (if present) |
+| `ServiceRestarted`                 | `info`   | `sync`     | Service restarted                   | `stack_name`, `service_name`, `username` (if present)        |
 | `UserAuthenticated`                | `info`   | `security` | User passed web authentication      | `username`                                                   |
 | `AssistantPromptInjectionDetected` | `alert`  | `security` | Assistant prompt injection detected | `detector`, `prompt` (if present), `username` (if present)   |
 

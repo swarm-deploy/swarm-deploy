@@ -73,10 +73,30 @@ All payloads have `ID`, `Type`, and `OccurredAt` (`time.Time`, UTC). Most also p
 | `DeploySuccess`, `SyncFailed` | `ID`, `DeploymentID`, `Type`, `Status`, `StackName`, `Services` (`Name`, `Image`), `Commit`, `Error`, `ErrorCode`, `Stage`, `OccurredAt` |
 | `NodeJoined`, `NodeConnected`, `NodeDisconnected` | `ID`, `Type`, `NodeID`, `NodeName`, `Role`, `Status`, `Message`, `OccurredAt` |
 | `ServiceMissed`, `ServicePruned`, `ServiceReplicasIncreased`, `ServiceReplicasDecreased`, `ServiceRestarted` | `ID`, `Type`, `StackName`, `ServiceName`, `Commit`, `Username`, `PreviousReplicas`, `CurrentReplicas`, `Message`, `OccurredAt` |
-| `ServiceCatalogUpdated`, `SyncManualStarted`, `WebhookReceived`, `NetworkCreated` | `ID`, `Type`, `StackName`, `TriggeredBy`, `Queued`, `NetworkName`, `NetworkID`, `Driver`, `Message`, `OccurredAt` |
+| `ServiceCatalogUpdated`, `SyncManualStarted`, `WebhookReceived`, `NetworkCreated` | `ID`, `Type`, `StackName`, `Username`, `Queued`, `NetworkName`, `NetworkID`, `Driver`, `Message`, `OccurredAt` |
 | `UserAuthenticated` | `ID`, `Type`, `Username`, `Message`, `OccurredAt` |
 | `AssistantPromptInjectionDetected` | `ID`, `Type`, `Detector`, `Username`, `Message`, `OccurredAt` |
 | `SendNotificationFailed` | `ID`, `Type`, `EventType`, `Destination`, `Channel`, `Error`, `Message`, `OccurredAt` |
+
+Shared template fields and serialized JSON names match Event History semantics:
+
+| Template field | JSON and Event History attribute |
+| --- | --- |
+| `.StackName` | `stack_name` |
+| `.ServiceName` | `service_name` |
+| `.DeploymentID` | `deployment_id` |
+| `.Commit` | `commit` |
+| `.Username` | `username` |
+| `.NodeID`, `.NodeName` | `node_id`, `node_name` |
+| `.NetworkID`, `.NetworkName` | `network_id`, `network_name` |
+| `.Status` | `status` |
+| `.Error` | `error` (bounded, secret-masked diagnostic) |
+| `.ErrorCode` | `error_code` (stable failure category) |
+| `.Stage` | `stage` |
+
+The former `.TriggeredBy` template field and `triggered_by` JSON field have been
+removed; manual synchronization templates must use `.Username`. The obsolete
+`stack` and `service` aliases are not available in notification JSON.
 
 `SyncFailed` covers the complete synchronization-failure lifecycle. It receives ordinary
 failures (`Status == "failed"`), preparation failures

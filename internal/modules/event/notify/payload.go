@@ -58,7 +58,7 @@ func notificationPayload(envelope events.Envelope) (any, error) {
 			Message: event.Message(), OccurredAt: occurredAt}, nil
 	case *events.SyncManualStarted:
 		return eventnotifications.ReconciliationPayload{
-			ID: eventID, Type: event.Type().String(), TriggeredBy: event.TriggeredBy,
+			ID: eventID, Type: event.Type().String(), Username: event.Username,
 			Message: event.Message(), OccurredAt: occurredAt}, nil
 	case *events.WebhookReceived:
 		return eventnotifications.ReconciliationPayload{ID: eventID, Type: event.Type().String(), Queued: event.Queued,

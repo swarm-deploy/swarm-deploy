@@ -704,5 +704,5 @@ func (c *Controller) publishManualSync(ctx context.Context, task reconcileTask) 
 	if task.reason != TriggerManual {
 		return nil
 	}
-	return c.event.Publish(ctx, &events.SyncManualStarted{TriggeredBy: task.triggeredBy})
+	return c.event.Publish(ctx, &events.SyncManualStarted{Username: task.triggeredBy})
 }
