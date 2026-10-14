@@ -146,27 +146,43 @@ func RepositoryIdentifier(raw string) string {
 	if raw == "" {
 		return "repository-unknown"
 	}
-	if host, path, ok := splitSCPRemote(raw); ok {
-		return canonicalHostPath(host, path)
-	}
 	parsed, err := url.Parse(raw)
 	if err != nil {
+		if host, path, ok := splitSCPRemote(raw); ok {
+			return canonicalHostPath(host, path)
+		}
 		return opaqueRepositoryIdentifier(raw)
 	}
 	if parsed.Scheme != "" {
-		if parsed.Scheme == "file" {
-			return filepath.Clean(parsed.Path)
-		}
-		host := strings.ToLower(parsed.Hostname())
-		if parsed.Port() != "" {
-			host += ":" + parsed.Port()
-		}
-		return canonicalHostPath(host, parsed.Path)
+		return repositoryURLIdentifier(raw, parsed)
+	}
+	if host, path, ok := splitSCPRemote(raw); ok {
+		return canonicalHostPath(host, path)
 	}
 	if absolute, absoluteErr := filepath.Abs(raw); absoluteErr == nil {
 		return filepath.Clean(absolute)
 	}
 	return filepath.Clean(raw)
+}
+
+func repositoryURLIdentifier(raw string, parsed *url.URL) string {
+	if parsed.Opaque != "" {
+		return opaqueRepositoryIdentifier(raw)
+	}
+	if parsed.Scheme == "file" {
+		if parsed.Path == "" {
+			return opaqueRepositoryIdentifier(raw)
+		}
+		return filepath.Clean(parsed.Path)
+	}
+	host := strings.ToLower(parsed.Hostname())
+	if host == "" {
+		return opaqueRepositoryIdentifier(raw)
+	}
+	if parsed.Port() != "" {
+		host += ":" + parsed.Port()
+	}
+	return canonicalHostPath(host, parsed.Path)
 }
 
 func opaqueRepositoryIdentifier(raw string) string {
@@ -186,7 +202,11 @@ func splitSCPRemote(raw string) (string, string, bool) {
 	if at := strings.LastIndexByte(host, '@'); at >= 0 {
 		host = host[at+1:]
 	}
-	return strings.ToLower(host), raw[colon+1:], host != ""
+	path := raw[colon+1:]
+	if unsafe := strings.IndexAny(path, "?#"); unsafe >= 0 {
+		path = path[:unsafe]
+	}
+	return strings.ToLower(host), path, host != "" && path != ""
 }
 
 func canonicalHostPath(host, path string) string {

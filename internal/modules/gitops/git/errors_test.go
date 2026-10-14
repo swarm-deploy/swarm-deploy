@@ -63,11 +63,15 @@ func TestRepositoryIdentifierMatchesHTTPSAndSSHForms(t *testing.T) {
 
 func TestRepositoryIdentifierMalformedURLIsOpaqueAndStable(t *testing.T) {
 	const secret = "top-secret-token"
-	remote := "https://robot:" + secret + "%zz@git.example.com/team/app.git"
-
-	identifier := RepositoryIdentifier(remote)
-	assert.Equal(t, identifier, RepositoryIdentifier(remote))
-	assert.Regexp(t, `^repository-[0-9a-f]{16}$`, identifier)
-	assert.NotContains(t, identifier, secret)
-	assert.NotContains(t, identifier, "robot")
+	for _, remote := range []string{
+		"https://robot:" + secret + "%zz@git.example.com/team/app.git",
+		"https:robot:" + secret + "@git.example.com/team/app.git",
+		"https:/",
+	} {
+		identifier := RepositoryIdentifier(remote)
+		assert.Equal(t, identifier, RepositoryIdentifier(remote))
+		assert.Regexp(t, `^repository-[0-9a-f]{16}$`, identifier)
+		assert.NotContains(t, identifier, secret)
+		assert.NotContains(t, identifier, "robot")
+	}
 }

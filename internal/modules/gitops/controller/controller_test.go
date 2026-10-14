@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -729,33 +730,42 @@ func TestGitPullFailureMonitoringCoversEveryPullTrigger(t *testing.T) {
 
 func TestGitPullFailureWithMalformedCredentialURLPublishesSafeIdentifier(t *testing.T) {
 	const secret = "private-token"
-	ctrl := gomock.NewController(t)
-	db, store := newSQLState(t)
-	repository := git.NewMockRepository(ctrl)
-	repository.EXPECT().Pull(gomock.Any()).Return(git.PullResult{}, errors.New("remote unavailable"))
-	publisher := dispatcher.NewMockDispatcher(ctrl)
-	publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.GitPullFailed{})).DoAndReturn(
-		func(_ context.Context, event events.Event) error {
-			failed := event.(*events.GitPullFailed)
-			assert.Regexp(t, `^repository-[0-9a-f]{16}$`, failed.Repository)
-			assert.NotContains(t, failed.Repository, secret)
-			return nil
-		},
-	)
-	controller := &Controller{
-		db: db, stateStore: store, git: repository, event: publisher,
-		cfg: &config.Config{Spec: config.Spec{Git: config.GitSpec{
-			Repository: "https://robot:" + secret + "%zz@git.example.com/team/app.git",
-		}}},
-		metrics: metrics.NewGroup(metrics.CreateGroupParams{Namespace: "test_git_pull_malformed_remote"}),
-	}
+	for index, remote := range []string{
+		"https://robot:" + secret + "%zz@git.example.com/team/app.git",
+		"https:robot:" + secret + "@git.example.com/team/app.git",
+		"https:/",
+	} {
+		t.Run(remote, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			db, store := newSQLState(t)
+			repository := git.NewMockRepository(ctrl)
+			repository.EXPECT().Pull(gomock.Any()).Return(git.PullResult{}, errors.New("remote unavailable"))
+			publisher := dispatcher.NewMockDispatcher(ctrl)
+			publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.GitPullFailed{})).DoAndReturn(
+				func(_ context.Context, event events.Event) error {
+					failed := event.(*events.GitPullFailed)
+					assert.Regexp(t, `^repository-[0-9a-f]{16}$`, failed.Repository)
+					assert.NotContains(t, failed.Repository, secret)
+					return nil
+				},
+			)
+			controller := &Controller{
+				db: db, stateStore: store, git: repository, event: publisher,
+				cfg: &config.Config{Spec: config.Spec{Git: config.GitSpec{Repository: remote}}},
+				metrics: metrics.NewGroup(metrics.CreateGroupParams{
+					Namespace: fmt.Sprintf("test_git_pull_malformed_remote_%d", index),
+				}),
+			}
 
-	_, err := controller.pullGit(t.Context(), TriggerStartup)
-	require.Error(t, err)
-	assert.NotContains(t, err.Error(), secret)
-	state := readSQLState(t, store)
-	require.NotNil(t, state.GitPullFailure)
-	assert.NotContains(t, state.GitPullFailure.Repository, secret)
+			_, err := controller.pullGit(t.Context(), TriggerStartup)
+			require.Error(t, err)
+			assert.NotContains(t, err.Error(), secret)
+			state := readSQLState(t, store)
+			require.NotNil(t, state.GitPullFailure)
+			assert.Regexp(t, `^repository-[0-9a-f]{16}$`, state.GitPullFailure.Repository)
+			assert.NotContains(t, state.GitPullFailure.Repository, secret)
+		})
+	}
 }
 
 func TestControllerSyncOncePrioritizesChangedStacks(t *testing.T) {
