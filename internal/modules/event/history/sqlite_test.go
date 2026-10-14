@@ -154,6 +154,67 @@ func TestSQLiteFilterOptionsUsesRetainedHistory(t *testing.T) {
 	}, options.Services)
 }
 
+func TestSQLiteQueriesExcludeLegacySyncFailedHistory(t *testing.T) {
+	t.Parallel()
+	db, err := storage.Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	repo, err := NewSQLStore(db, 100)
+	require.NoError(t, err)
+	at := time.Date(2026, time.October, 14, 12, 0, 0, 0, time.UTC)
+	valid := []Entry{
+		{ID: "older", Type: events.TypeDeploySuccess, Severity: events.SeverityInfo,
+			Category: events.CategorySync, CreatedAt: at,
+			Details: map[string]string{events.AttributeStackName: "api"}},
+		{ID: "newer", Type: events.TypeServiceMissed, Severity: events.SeverityWarn,
+			Category: events.CategorySwarm, CreatedAt: at.Add(2 * time.Second),
+			Details: map[string]string{events.AttributeStackName: "web", events.AttributeServiceName: "worker"}},
+	}
+	require.NoError(t, repo.insert(t.Context(), valid[0], 1))
+	_, err = db.Exec(t.Context(), `INSERT INTO event_history
+		(publication_sequence,id,event_type,severity,severity_rank,category,created_at,message,details)
+		VALUES (?,?,?,?,?,?,?,?,?)`, 2, "legacy", legacySyncFailedEventType, events.SeverityError,
+		severityRank(events.SeverityError), events.CategorySync, at.Add(time.Second),
+		"legacy sync failure", `{"stack_name":"legacy","service_name":"legacy-service"}`)
+	require.NoError(t, err)
+	require.NoError(t, repo.insert(t.Context(), valid[1], 3))
+
+	entries, err := repo.Read(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"older", "newer"}, entryIDs(entries))
+
+	recent, err := repo.ReadRecent(t.Context(), QueryOptions{Limit: 1})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"newer"}, entryIDs(recent))
+
+	options := QueryOptions{Limit: 1, Sort: SortTimeDesc}
+	first, err := repo.QueryPage(t.Context(), options)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"newer"}, entryIDs(first.Entries))
+	require.NotEmpty(t, first.NextCursor)
+	options.Cursor = first.NextCursor
+	second, err := repo.QueryPage(t.Context(), options)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"older"}, entryIDs(second.Entries))
+	assert.Empty(t, second.NextCursor)
+
+	legacyOnly, err := repo.QueryPage(t.Context(), QueryOptions{
+		Limit: 10, Sort: SortTimeDesc, Types: []events.TypeName{events.TypeName(legacySyncFailedEventType)},
+	})
+	require.NoError(t, err)
+	assert.Empty(t, legacyOnly.Entries)
+
+	filterOptions, err := repo.FilterOptions(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"api", "web"}, filterOptions.Stacks)
+	assert.Equal(t, []FilterService{{StackName: "web", ServiceName: "worker"}}, filterOptions.Services)
+
+	var legacyCount int
+	require.NoError(t, db.Get(t.Context(), &legacyCount,
+		`SELECT count(*) FROM event_history WHERE event_type=?`, legacySyncFailedEventType))
+	assert.Equal(t, 1, legacyCount, "legacy rows must remain unchanged")
+}
+
 func entryIDs(entries []Entry) []string {
 	ids := make([]string, 0, len(entries))
 	for _, entry := range entries {

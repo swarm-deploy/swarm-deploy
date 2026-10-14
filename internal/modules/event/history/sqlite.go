@@ -14,6 +14,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
 
+const legacySyncFailedEventType = "SyncFailed"
+
 // Repository provides context-aware history reads.
 type Repository interface {
 	// List returns retained history in publication order.
@@ -119,6 +121,7 @@ func (s *SQLStore) insert(ctx context.Context, entry Entry, publicationSequence 
 // List returns the retained publication sequence, in publication order.
 func (s *SQLStore) Read(ctx context.Context) ([]Entry, error) {
 	dataset := goqu.Dialect("sqlite3").From("event_history").Prepared(true).Select(historyColumns...).
+		Where(publicHistoryFilter()).
 		Order(goqu.I("publication_sequence").Asc())
 	return s.queryEntriesDataset(ctx, dataset)
 }
@@ -131,8 +134,8 @@ func (s *SQLStore) FilterOptions(ctx context.Context) (FilterOptions, error) {
 	var stacks []string
 	if err := s.db.Select(ctx, &stacks, `SELECT DISTINCT `+stackExpression+` AS stack_name
 		FROM event_history
-		WHERE `+stackExpression+` IS NOT NULL AND `+stackExpression+` <> ''
-		ORDER BY stack_name`); err != nil {
+		WHERE event_type <> ? AND `+stackExpression+` IS NOT NULL AND `+stackExpression+` <> ''
+		ORDER BY stack_name`, legacySyncFailedEventType); err != nil {
 		return FilterOptions{}, err
 	}
 
@@ -140,9 +143,9 @@ func (s *SQLStore) FilterOptions(ctx context.Context) (FilterOptions, error) {
 	if err := s.db.Select(ctx, &services, `SELECT DISTINCT
 		`+stackExpression+` AS stack_name, `+serviceExpression+` AS service_name
 		FROM event_history
-		WHERE `+stackExpression+` IS NOT NULL AND `+stackExpression+` <> ''
+		WHERE event_type <> ? AND `+stackExpression+` IS NOT NULL AND `+stackExpression+` <> ''
 		AND `+serviceExpression+` IS NOT NULL AND `+serviceExpression+` <> ''
-		ORDER BY stack_name, service_name`); err != nil {
+		ORDER BY stack_name, service_name`, legacySyncFailedEventType); err != nil {
 		return FilterOptions{}, err
 	}
 
@@ -218,7 +221,7 @@ func (s *SQLStore) queryEntriesDataset(ctx context.Context, dataset *goqu.Select
 }
 
 func historyFilters(options QueryOptions) []exp.Expression {
-	where := []exp.Expression{}
+	where := []exp.Expression{publicHistoryFilter()}
 	addHistoryFilter(&where, "severity", options.Severities)
 	addHistoryFilter(&where, "category", options.Categories)
 	addHistoryFilter(&where, "event_type", options.Types)
@@ -228,6 +231,10 @@ func historyFilters(options QueryOptions) []exp.Expression {
 		where = append(where, goqu.C("created_at").Gte(options.Since.UTC()))
 	}
 	return where
+}
+
+func publicHistoryFilter() exp.Expression {
+	return goqu.C("event_type").Neq(legacySyncFailedEventType)
 }
 
 func addHistoryAttributeFilter(where *[]exp.Expression, attribute string, values []string) {
