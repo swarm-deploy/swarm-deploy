@@ -61,7 +61,7 @@ describe("Deployment Details modal", () => {
     expect(wrapper.findAll(".deployment-service-table th").map((item) => item.text())).toEqual(["Name", "Image", "Replicas"]);
     expect(wrapper.find(".deployment-service-table tbody td:last-child").text()).toBe("3");
     expect(wrapper.text()).not.toContain("API_TOKEN");
-    expect(wrapper.text()).toContain("Service health and live convergence have not been verified");
+    expect(wrapper.find(".deployment-outcome").exists()).toBe(false);
 
     await wrapper.get('[role="tab"]:last-child').trigger("click");
     expect(wrapper.text()).toContain("Recorded desired configuration");
@@ -151,18 +151,32 @@ describe("Deployment Details modal", () => {
     wrapper.unmount();
   });
 
-  it.each([
-    ["running", "Apply attempt is still in progress"],
-    ["succeeded", "Apply pipeline completed"],
-    ["failed", "Apply attempt failed"],
-    ["interrupted", "Apply outcome is unknown"],
-  ] as const)("renders %s semantics", (status, expected) => {
+  it.each(["running", "succeeded"] as const)("shows %s status without a redundant outcome banner", (status) => {
     const store = useOverviewStore();
     store.deploymentDetailsModalOpen = true;
     store.deploymentDetailsData = deployment(status);
     const wrapper = mount(DeploymentDetailsModal);
-    expect(wrapper.find(".deployment-status").text()).toBe(status[0].toUpperCase() + status.slice(1));
-    expect(wrapper.find(".deployment-outcome").classes()).toContain(`deployment-outcome--${status}`);
+
+    expect(wrapper.get(".deployment-status").text()).toBe(status[0].toUpperCase() + status.slice(1));
+    expect(wrapper.find(".deployment-outcome").exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("Apply pipeline completed");
+    expect(wrapper.text()).toContain("Initial snapshot");
+    wrapper.unmount();
+  });
+
+  it.each([
+    ["failed", "Apply attempt failed"],
+    ["interrupted", "Apply outcome is unknown"],
+  ] as const)("keeps %s diagnostics visible", (status, expected) => {
+    const store = useOverviewStore();
+    store.deploymentDetailsModalOpen = true;
+    store.deploymentDetailsData = deployment(status);
+    const wrapper = mount(DeploymentDetailsModal);
+
+    expect(wrapper.get(".deployment-status").text()).toBe(status[0].toUpperCase() + status.slice(1));
+    expect(wrapper.get(".deployment-outcome").classes()).toContain(`deployment-outcome--${status}`);
+    expect(wrapper.get(".deployment-diagnostic").text()).toContain("update service api: image not found");
+    expect(wrapper.get(".deployment-code").text()).toContain("apply_failed");
     expect(wrapper.text()).toContain(expected);
     wrapper.unmount();
   });
