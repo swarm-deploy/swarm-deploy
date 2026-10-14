@@ -48,7 +48,13 @@ type AlertMessageSpec struct {
 }
 
 const (
-	defaultAlertOpenedTemplate   = "🚨 {{ .Title }}\n{{ .Message }}"
+	defaultAlertOpenedTemplate             = "🚨 {{ .Title }}\n{{ .Message }}"
+	defaultDeployFailedAlertOpenedTemplate = `<b>🚨 {{ .Title }}</b>
+
+<b>Stack:</b> <code>{{ .ResourceID }}</code>
+
+<b>Error:</b>
+<pre>{{ .Message }}</pre>`
 	defaultAlertResolvedTemplate = "✅ Resolved: {{ .Title }}\n{{ .Resolution }}"
 )
 
@@ -61,7 +67,6 @@ func (c NotificationSpec) AlertTelegramRoutes(kind string) []TelegramAlertChanne
 		return route.Telegram
 	}
 	return []TelegramAlertChannel{{
-		Opened:   AlertMessageSpec{Message: defaultAlertOpenedTemplate},
 		Resolved: AlertMessageSpec{Action: "reply", Message: defaultAlertResolvedTemplate},
 	}}
 }
@@ -98,9 +103,12 @@ func (c NotificationSpec) TelegramBotIdentity() string {
 }
 
 // AlertOpenedTemplate returns the effective initial message template.
-func (c TelegramAlertChannel) AlertOpenedTemplate() string {
+func (c TelegramAlertChannel) AlertOpenedTemplate(kind string) string {
 	if strings.TrimSpace(c.Opened.Message) != "" {
 		return c.Opened.Message
+	}
+	if kind == string(alertmodel.AlertKindDeployFailed) {
+		return defaultDeployFailedAlertOpenedTemplate
 	}
 	return defaultAlertOpenedTemplate
 }
@@ -277,7 +285,7 @@ func (c *NotificationSpec) validateAlertRoutes() []error {
 		}
 		for i, route := range routes.Telegram {
 			routePath := fmt.Sprintf("%s[%d]", path, i)
-			errs = append(errs, c.validateAlertChannel(routePath, route)...)
+			errs = append(errs, c.validateAlertChannel(routePath, kind, route)...)
 		}
 		errs = append(errs, c.validateAlertDestinations(path, routes.Telegram)...)
 	}
@@ -313,7 +321,7 @@ func (c *NotificationSpec) validateAlertDestinations(path string, routes []Teleg
 	return errs
 }
 
-func (c *NotificationSpec) validateAlertChannel(path string, route TelegramAlertChannel) []error {
+func (c *NotificationSpec) validateAlertChannel(path, kind string, route TelegramAlertChannel) []error {
 	var errs []error
 	if len(c.Messengers.Telegram.BotToken.Content) == 0 {
 		errs = append(errs, fmt.Errorf("%s: notifications.messengers.telegram.botTokenPath is required", path))
@@ -328,7 +336,7 @@ func (c *NotificationSpec) validateAlertChannel(path string, route TelegramAlert
 	payload := events.AlertSnapshot{
 		Title: "Alert", Message: "details", ResourceID: "resource", OpenedAt: time.Now().UTC(),
 	}
-	if err := notificationtemplate.Validate(route.AlertOpenedTemplate(), payload); err != nil {
+	if err := notificationtemplate.Validate(route.AlertOpenedTemplate(kind), payload); err != nil {
 		errs = append(errs, fmt.Errorf("%s.opened.message: invalid template: %w", path, err))
 	}
 	resolvedAt := time.Now().UTC()

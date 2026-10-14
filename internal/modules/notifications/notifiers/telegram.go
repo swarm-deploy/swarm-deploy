@@ -32,6 +32,8 @@ type TelegramOptions struct {
 	Message string
 	// DefaultMessage is the source-owned template used when Message is empty.
 	DefaultMessage string
+	// ParseMode selects Telegram message entity parsing.
+	ParseMode string
 	// APIBaseURL is a base URL for Telegram Bot API.
 	APIBaseURL string
 	// Retries is a number of send attempts for Telegram notification.
@@ -47,6 +49,7 @@ type TelegramNotifier struct {
 	chatThreadID int64
 	apiBaseURL   string
 	messageTmpl  *notificationtemplate.Renderer
+	parseMode    string
 	retries      uint
 	client       *http.Client
 }
@@ -114,6 +117,7 @@ func newTelegramNotifier(name, token, chatID string, options TelegramOptions) (*
 		chatThreadID: options.ChatThreadID,
 		apiBaseURL:   strings.TrimRight(apiBaseURL, "/"),
 		messageTmpl:  tmpl,
+		parseMode:    options.ParseMode,
 		retries:      retries,
 		client:       client,
 	}, nil
@@ -152,6 +156,9 @@ func (n *TelegramNotifier) notifyAction(
 	payload := map[string]any{
 		"chat_id": n.chatID,
 		"text":    message,
+	}
+	if n.parseMode != "" {
+		payload["parse_mode"] = n.parseMode
 	}
 	endpoint := telegramSendEndpoint
 	switch action {
