@@ -158,6 +158,8 @@ describe("Deployment Details modal", () => {
     const wrapper = mount(DeploymentDetailsModal);
 
     expect(wrapper.get(".deployment-status").text()).toBe(status[0].toUpperCase() + status.slice(1));
+    expect(wrapper.get(".deployment-status-dot").attributes("aria-hidden")).toBe("true");
+    expect(wrapper.find(".deployment-status-icon").exists()).toBe(false);
     expect(wrapper.find(".deployment-outcome").exists()).toBe(false);
     expect(wrapper.get(".deployment-modal-content").classes()).toContain("deployment-modal-content--compact");
     expect(wrapper.text()).not.toContain("Apply pipeline completed");
@@ -175,6 +177,8 @@ describe("Deployment Details modal", () => {
     const wrapper = mount(DeploymentDetailsModal);
 
     expect(wrapper.get(".deployment-status").text()).toBe(status[0].toUpperCase() + status.slice(1));
+    expect(wrapper.get(".deployment-status-dot").attributes("aria-hidden")).toBe("true");
+    expect(wrapper.find(".deployment-status-icon").exists()).toBe(false);
     expect(wrapper.get(".deployment-outcome").classes()).toContain(`deployment-outcome--${status}`);
     expect(wrapper.get(".deployment-modal-content").classes()).not.toContain("deployment-modal-content--compact");
     expect(wrapper.get(".deployment-diagnostic").text()).toContain("update service api: image not found");
