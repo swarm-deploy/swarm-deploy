@@ -12,6 +12,21 @@ import (
 
 const defaultEventPageSize int32 = 50
 
+// GetEventFilters returns contextual stack and service options from retained event history.
+func (h *handler) GetEventFilters(ctx context.Context) (*generated.EventFilterOptions, error) {
+	options, err := h.history.FilterOptions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	services := make([]generated.EventFilterService, 0, len(options.Services))
+	for _, service := range options.Services {
+		services = append(services, generated.EventFilterService{
+			StackName: service.StackName, ServiceName: service.ServiceName,
+		})
+	}
+	return &generated.EventFilterOptions{Stacks: options.Stacks, Services: services}, nil
+}
+
 func (h *handler) ListEvents(
 	ctx context.Context,
 	params generated.ListEventsParams,

@@ -64,6 +64,13 @@ func (UnimplementedHandler) GetDeployment(ctx context.Context, params GetDeploym
 	return r, ht.ErrNotImplemented
 }
 
+// GetEventFilters implements getEventFilters operation.
+//
+// GET /api/v1/events/filters
+func (UnimplementedHandler) GetEventFilters(ctx context.Context) (r *EventFilterOptions, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetGitCommit implements getGitCommit operation.
 //
 // GET /api/v1/git/commits/{commit}

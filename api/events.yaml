@@ -81,6 +81,16 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EventHistoryResponse'
+  /api/v1/events/filters:
+    get:
+      operationId: getEventFilters
+      responses:
+        '200':
+          description: Stack and service filter options from retained event history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventFilterOptions'
   /api/v1/alerts:
     get:
       operationId: listAlerts
@@ -123,6 +133,26 @@ paths:
                 $ref: '#/components/schemas/Alert'
 components:
   schemas:
+    EventFilterOptions:
+      type: object
+      required: [stacks, services]
+      properties:
+        stacks:
+          type: array
+          items:
+            type: string
+        services:
+          type: array
+          items:
+            $ref: '#/components/schemas/EventFilterService'
+    EventFilterService:
+      type: object
+      required: [stack_name, service_name]
+      properties:
+        stack_name:
+          type: string
+        service_name:
+          type: string
     EventHistoryResponse:
       type: object
       required: [events]

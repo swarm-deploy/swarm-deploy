@@ -118,6 +118,16 @@ export interface EventHistoryResponse {
   nextCursor?: string;
 }
 
+export interface EventFilterService {
+  stack_name: string;
+  service_name: string;
+}
+
+export interface EventFilterOptions {
+  stacks: string[];
+  services: EventFilterService[];
+}
+
 export type AlertStatus = "open" | "resolved";
 
 export interface AlertResolution {

@@ -2,8 +2,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
-import { fetchEvents } from "../api/overview";
-import type { EventCategory, EventHistoryItem, EventSeverity } from "../api/types";
+import { fetchEventFilters, fetchEvents } from "../api/overview";
+import type { EventCategory, EventFilterOptions, EventFilterService, EventHistoryItem, EventSeverity } from "../api/types";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import { eventTypeDescriptions, eventTypeMetadata, type EventTypeMetadata } from "../utils/eventMetadata";
@@ -19,15 +19,8 @@ const severityLabels: Record<EventSeverity, string> = {
 
 type SortKey = "time" | "severity";
 type SortDirection = "asc" | "desc";
-type EventPeriod = "" | "1h" | "24h" | "7d" | "30d";
 
 const categoryOptions: EventCategory[] = ["sync", "security", "swarm"];
-const periodOptions: { value: Exclude<EventPeriod, "">; label: string; duration: number }[] = [
-  { value: "1h", label: "Last 1h", duration: 60 * 60 * 1000 },
-  { value: "24h", label: "Last 24h", duration: 24 * 60 * 60 * 1000 },
-  { value: "7d", label: "Last 7d", duration: 7 * 24 * 60 * 60 * 1000 },
-  { value: "30d", label: "Last 30d", duration: 30 * 24 * 60 * 60 * 1000 },
-];
 
 const route = useRoute();
 const router = useRouter();
@@ -41,14 +34,18 @@ const selectedSeverity = ref(normalizeSeverityQuery(route.query.severity));
 const selectedCategory = ref(normalizeCategoryQuery(route.query.category));
 const selectedStack = ref(normalizeTextQuery(route.query.stack_name));
 const selectedService = ref(normalizeTextQuery(route.query.service_name));
-const selectedPeriod = ref(normalizePeriodQuery(route.query.period));
 const sortKey = ref<SortKey>(normalizeSortQuery(route.query.sort));
 const sortDirection = ref<SortDirection>(normalizeSortDirectionQuery(route.query.order));
 const expandedKey = ref("");
-const typeFilter = ref<HTMLDetailsElement | null>(null);
+const filterPanel = ref<HTMLElement | null>(null);
+const stackFilter = ref<HTMLDetailsElement | null>(null);
+const serviceFilter = ref<HTMLDetailsElement | null>(null);
+const filterOptions = ref<EventFilterOptions>({ stacks: [], services: [] });
+const stackSearch = ref("");
+const serviceSearch = ref("");
+const mobileFiltersOpen = ref(false);
 
 let requestID = 0;
-let resolvedSince = resolvePeriodSince(selectedPeriod.value);
 
 const typeFilterOptions = computed<EventTypeMetadata[]>(() => {
   const options = eventTypeMetadata.map((metadata) => ({ ...metadata }));
@@ -70,6 +67,51 @@ const selectedTypeSummary = computed(() => {
   return [`${selectedTypes.value.length} types selected`];
 });
 
+const activeFilterCount = computed(() => [
+  selectedTypes.value.length > 0,
+  Boolean(selectedSeverity.value),
+  Boolean(selectedCategory.value),
+  Boolean(selectedStack.value),
+  Boolean(selectedService.value),
+].filter(Boolean).length);
+
+const stackFilterOptions = computed(() => {
+  const options = [...filterOptions.value.stacks];
+  if (selectedStack.value && !options.includes(selectedStack.value)) {
+    options.push(selectedStack.value);
+  }
+  const search = stackSearch.value.trim().toLocaleLowerCase();
+  return options.sort((left, right) => left.localeCompare(right))
+    .filter((stack) => !search || stack.toLocaleLowerCase().includes(search));
+});
+
+const serviceFilterOptions = computed(() => {
+  const options = filterOptions.value.services.filter(
+    (service) => !selectedStack.value || service.stack_name === selectedStack.value,
+  );
+  if (selectedService.value && selectedStack.value && !options.some(
+    (service) => service.stack_name === selectedStack.value && service.service_name === selectedService.value,
+  )) {
+    options.push({ stack_name: selectedStack.value, service_name: selectedService.value });
+  }
+  if (selectedService.value && !selectedStack.value && !options.some(
+    (service) => service.service_name === selectedService.value,
+  )) {
+    options.push({ stack_name: "", service_name: selectedService.value });
+  }
+  const search = serviceSearch.value.trim().toLocaleLowerCase();
+  return options.sort((left, right) =>
+    left.stack_name.localeCompare(right.stack_name) || left.service_name.localeCompare(right.service_name),
+  ).filter((service) => !search || `${service.stack_name} ${service.service_name}`.toLocaleLowerCase().includes(search));
+});
+
+const selectedServiceLabel = computed(() => {
+  if (!selectedService.value) return "All services";
+  if (selectedStack.value) return selectedService.value;
+  const matches = filterOptions.value.services.filter((service) => service.service_name === selectedService.value);
+  return matches.length === 1 ? `${matches[0].service_name} — ${matches[0].stack_name}` : selectedService.value;
+});
+
 
 function firstQueryValue(value: unknown): unknown {
   return Array.isArray(value) ? value[0] : value;
@@ -83,11 +125,6 @@ function normalizeSeverityQuery(value: unknown): EventSeverity | "" {
 function normalizeCategoryQuery(value: unknown): EventCategory | "" {
   const category = firstQueryValue(value);
   return categoryOptions.includes(category as EventCategory) ? (category as EventCategory) : "";
-}
-
-function normalizePeriodQuery(value: unknown): EventPeriod {
-  const period = firstQueryValue(value);
-  return periodOptions.some((option) => option.value === period) ? (period as EventPeriod) : "";
 }
 
 function normalizeTextQuery(value: unknown): string {
@@ -143,24 +180,12 @@ function clearTypes(): void {
   selectedTypes.value = [];
 }
 
-const hasActiveFilters = computed(() =>
-  selectedTypes.value.length > 0 || Boolean(selectedSeverity.value) || Boolean(selectedCategory.value) ||
-  Boolean(selectedStack.value) || Boolean(selectedService.value) || Boolean(selectedPeriod.value),
-);
-
-function clearFilters(): void {
-  selectedTypes.value = [];
-  selectedSeverity.value = "";
-  selectedCategory.value = "";
-  selectedStack.value = "";
-  selectedService.value = "";
-  selectedPeriod.value = "";
-}
-
-function applyDetailFilter(key: string, value: string): void {
+function applyDetailFilter(key: string, value: string, event: EventHistoryItem): void {
   if (key === "stack_name") {
-    selectedStack.value = value;
+    selectStack(value);
   } else if (key === "service_name") {
+    const stackName = event.details?.stack_name?.trim() ?? "";
+    if (stackName) selectedStack.value = stackName;
     selectedService.value = value;
   }
 }
@@ -169,19 +194,37 @@ function canFilterDetail(key: string): boolean {
   return key === "stack_name" || key === "service_name";
 }
 
-function resolvePeriodSince(period: EventPeriod): string {
-  const option = periodOptions.find((candidate) => candidate.value === period);
-  return option ? new Date(Date.now() - option.duration).toISOString() : "";
+function selectStack(stackName: string): void {
+  if (stackName !== selectedStack.value && selectedService.value) {
+    const compatible = Boolean(stackName) && filterOptions.value.services.some(
+      (service) => service.stack_name === stackName && service.service_name === selectedService.value,
+    );
+    if (!compatible) selectedService.value = "";
+  }
+  selectedStack.value = stackName;
+  stackSearch.value = "";
+  if (stackFilter.value) stackFilter.value.open = false;
+}
+
+function selectService(service?: EventFilterService): void {
+  if (!service) {
+    selectedService.value = "";
+  } else {
+    if (!selectedStack.value && service.stack_name) selectedStack.value = service.stack_name;
+    selectedService.value = service.service_name;
+  }
+  serviceSearch.value = "";
+  if (serviceFilter.value) serviceFilter.value.open = false;
 }
 
 function handleDocumentClick(event: MouseEvent): void {
-  const filter = typeFilter.value;
   const target = event.target;
-  if (!filter?.open || !(target instanceof Node) || filter.contains(target)) {
+  if (!(target instanceof Node) || filterPanel.value?.contains(target)) {
     return;
   }
-
-  filter.open = false;
+  for (const filter of filterPanel.value?.querySelectorAll<HTMLDetailsElement>(".events-filter-dropdown[open]") ?? []) {
+    filter.open = false;
+  }
 }
 
 function changeSort(key: SortKey): void {
@@ -217,7 +260,6 @@ function eventQuery(cursor?: string) {
     ...(selectedCategory.value ? { categories: [selectedCategory.value] } : {}),
     ...(selectedStack.value ? { stackNames: [selectedStack.value] } : {}),
     ...(selectedService.value ? { serviceNames: [selectedService.value] } : {}),
-    ...(resolvedSince ? { since: resolvedSince } : {}),
     limit: PAGE_SIZE,
     sort: sortKey.value,
     order: sortDirection.value,
@@ -250,6 +292,18 @@ async function loadEvents() {
     if (currentRequestID === requestID) {
       loading.value = false;
     }
+  }
+}
+
+async function loadFilterOptions() {
+  try {
+    const response = await fetchEventFilters();
+    filterOptions.value = {
+      stacks: Array.isArray(response.stacks) ? response.stacks : [],
+      services: Array.isArray(response.services) ? response.services : [],
+    };
+  } catch {
+    filterOptions.value = { stacks: [], services: [] };
   }
 }
 
@@ -289,10 +343,9 @@ async function persistFilters(): Promise<void> {
     normalizeCategoryQuery(route.query.category),
     normalizeTextQuery(route.query.stack_name),
     normalizeTextQuery(route.query.service_name),
-    normalizePeriodQuery(route.query.period),
   ];
   const selectedValues = [
-    selectedSeverity.value, selectedCategory.value, selectedStack.value, selectedService.value, selectedPeriod.value,
+    selectedSeverity.value, selectedCategory.value, selectedStack.value, selectedService.value,
   ];
   if (sameStrings(normalizeTypesQuery(route.query.types), selectedTypes.value) &&
     currentValues.every((value, index) => value === selectedValues[index])) {
@@ -310,7 +363,6 @@ async function persistFilters(): Promise<void> {
     ["category", selectedCategory.value],
     ["stack_name", selectedStack.value],
     ["service_name", selectedService.value],
-    ["period", selectedPeriod.value],
   ];
   for (const [key, value] of values) {
     if (value) {
@@ -337,13 +389,12 @@ watch([sortKey, sortDirection], async ([key, direction]) => {
 });
 
 watch(
-  () => [route.query.severity, route.query.category, route.query.stack_name, route.query.service_name, route.query.period],
-  ([severity, category, stackName, serviceName, period]) => {
+  () => [route.query.severity, route.query.category, route.query.stack_name, route.query.service_name],
+  ([severity, category, stackName, serviceName]) => {
     selectedSeverity.value = normalizeSeverityQuery(severity);
     selectedCategory.value = normalizeCategoryQuery(category);
     selectedStack.value = normalizeTextQuery(stackName);
     selectedService.value = normalizeTextQuery(serviceName);
-    selectedPeriod.value = normalizePeriodQuery(period);
   },
 );
 
@@ -371,8 +422,7 @@ watch(
   },
 );
 
-watch([selectedTypes, selectedSeverity, selectedCategory, selectedStack, selectedService, selectedPeriod], () => {
-  resolvedSince = resolvePeriodSince(selectedPeriod.value);
+watch([selectedTypes, selectedSeverity, selectedCategory, selectedStack, selectedService], () => {
   expandedKey.value = "";
   void persistFilters();
   void loadEvents();
@@ -385,6 +435,7 @@ watch([sortKey, sortDirection], () => {
 
 onMounted(() => {
   document.addEventListener("click", handleDocumentClick);
+  void loadFilterOptions();
   void loadEvents();
 });
 
@@ -396,10 +447,24 @@ onBeforeUnmount(() => {
 <template>
   <section class="services-page events-page">
     <header class="services-header events-header">
-      <div class="events-filter-bar">
+      <button
+        class="events-mobile-filter-toggle"
+        type="button"
+        :aria-expanded="mobileFiltersOpen"
+        aria-controls="events-filter-panel"
+        @click="mobileFiltersOpen = !mobileFiltersOpen"
+      >
+        Filters ({{ activeFilterCount }})
+      </button>
+      <div
+        id="events-filter-panel"
+        ref="filterPanel"
+        class="events-filter-bar"
+        :class="{ 'events-filter-bar--open': mobileFiltersOpen }"
+      >
         <div class="events-filter-field">
           <span>Type</span>
-          <details ref="typeFilter" class="events-type-filter">
+          <details class="events-type-filter events-filter-dropdown">
             <summary aria-label="Filter events by type">
               <span class="events-type-filter-selection">
                 <span
@@ -428,7 +493,7 @@ onBeforeUnmount(() => {
                   @change="toggleType(metadata.type)"
                 />
                 <span class="events-type-filter-option-text">
-                  <span class="events-type-filter-option-name">{{ metadata.type }}</span>
+                  <span class="events-type-filter-option-name" :title="metadata.type">{{ metadata.type }}</span>
                   <span class="events-type-filter-option-description">{{ metadata.description }}</span>
                 </span>
               </label>
@@ -454,27 +519,54 @@ onBeforeUnmount(() => {
           </select>
         </label>
 
-        <label class="events-filter-field events-filter-field--text">
+        <div class="events-filter-field">
           <span>Stack</span>
-          <input v-model.trim.lazy="selectedStack" type="text" placeholder="Exact stack name" aria-label="Filter events by stack" />
-        </label>
+          <details ref="stackFilter" class="events-search-filter events-filter-dropdown">
+            <summary aria-label="Filter events by stack">
+              <span :class="{ 'events-filter-placeholder': !selectedStack }">{{ selectedStack || "All stacks" }}</span>
+              <span aria-hidden="true">⌄</span>
+            </summary>
+            <div class="events-search-filter-menu">
+              <input v-model="stackSearch" type="search" placeholder="Search stacks" aria-label="Search stacks" />
+              <button type="button" :class="{ selected: !selectedStack }" @click="selectStack('')">All stacks</button>
+              <button
+                v-for="stack in stackFilterOptions"
+                :key="stack"
+                type="button"
+                :class="{ selected: selectedStack === stack }"
+                @click="selectStack(stack)"
+              >
+                {{ stack }}
+              </button>
+              <p v-if="stackFilterOptions.length === 0" class="events-filter-empty">No matching stacks</p>
+            </div>
+          </details>
+        </div>
 
-        <label class="events-filter-field events-filter-field--text">
+        <div class="events-filter-field">
           <span>Service</span>
-          <input v-model.trim.lazy="selectedService" type="text" placeholder="Exact service name" aria-label="Filter events by service" />
-        </label>
-
-        <label class="events-filter-field">
-          <span>Period</span>
-          <select v-model="selectedPeriod" aria-label="Filter events by period">
-            <option value="">All time</option>
-            <option v-for="period in periodOptions" :key="period.value" :value="period.value">{{ period.label }}</option>
-          </select>
-        </label>
-
-        <button class="events-clear-filters" type="button" :disabled="!hasActiveFilters" @click="clearFilters">
-          Clear filters
-        </button>
+          <details ref="serviceFilter" class="events-search-filter events-filter-dropdown">
+            <summary aria-label="Filter events by service">
+              <span :class="{ 'events-filter-placeholder': !selectedService }">{{ selectedServiceLabel }}</span>
+              <span aria-hidden="true">⌄</span>
+            </summary>
+            <div class="events-search-filter-menu">
+              <input v-model="serviceSearch" type="search" placeholder="Search services" aria-label="Search services" />
+              <button type="button" :class="{ selected: !selectedService }" @click="selectService()">All services</button>
+              <button
+                v-for="service in serviceFilterOptions"
+                :key="`${service.stack_name}/${service.service_name}`"
+                type="button"
+                :class="{ selected: selectedService === service.service_name && (!selectedStack || selectedStack === service.stack_name) }"
+                @click="selectService(service)"
+              >
+                <span>{{ service.service_name }}</span>
+                <small v-if="!selectedStack && service.stack_name">{{ service.stack_name }}</small>
+              </button>
+              <p v-if="serviceFilterOptions.length === 0" class="events-filter-empty">No matching services</p>
+            </div>
+          </details>
+        </div>
       </div>
     </header>
 
@@ -533,7 +625,7 @@ onBeforeUnmount(() => {
                         class="event-detail-filter"
                         type="button"
                         :aria-label="`Filter by ${key} ${value}`"
-                        @click.stop="applyDetailFilter(key, value)"
+                        @click.stop="applyDetailFilter(key, value, event)"
                       >
                         Filter
                       </button>
@@ -555,6 +647,178 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.events-header {
+  display: block;
+}
+.events-mobile-filter-toggle {
+  display: none;
+}
+.events-filter-bar {
+  display: grid;
+  grid-template-columns: minmax(190px, 1.35fr) repeat(4, minmax(130px, 1fr));
+  gap: 0.65rem;
+  width: 100%;
+}
+.events-filter-field {
+  min-width: 0;
+}
+.events-filter-field > span {
+  display: block;
+  margin-bottom: 0.3rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+.events-filter-field select,
+.events-filter-dropdown > summary {
+  box-sizing: border-box;
+  width: 100%;
+  height: 2.35rem;
+  border: 1px solid var(--border-default);
+  border-radius: 0.45rem;
+  background: var(--surface-elevated);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.84rem;
+}
+.events-filter-field select {
+  padding: 0 0.65rem;
+}
+.events-filter-dropdown {
+  position: relative;
+  min-width: 0;
+}
+.events-filter-dropdown > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0 0.7rem;
+  cursor: pointer;
+  list-style: none;
+}
+.events-filter-dropdown > summary::-webkit-details-marker {
+  display: none;
+}
+.events-filter-placeholder {
+  color: var(--muted);
+}
+.events-type-filter-selection {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.events-type-chip + .events-type-chip::before {
+  content: ", ";
+}
+.events-type-filter-menu,
+.events-search-filter-menu {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 0.35rem);
+  left: 0;
+  box-sizing: border-box;
+  width: max(100%, 260px);
+  max-width: calc(100vw - 2rem);
+  max-height: min(320px, calc(100dvh - 8rem));
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid var(--border-default);
+  border-radius: 0.5rem;
+  background: var(--surface-elevated);
+  box-shadow: var(--shadow-popover);
+  padding: 0.45rem;
+}
+.events-type-filter-menu-header,
+.events-type-filter-option,
+.events-search-filter-menu button {
+  display: flex;
+  align-items: center;
+}
+.events-type-filter-menu-header {
+  justify-content: space-between;
+  padding: 0.35rem 0.4rem 0.55rem;
+}
+.events-type-filter-clear {
+  border: 0;
+  background: transparent;
+  color: var(--accent-strong);
+}
+.events-type-filter-option {
+  align-items: flex-start;
+  gap: 0.55rem;
+  padding: 0.4rem;
+  border-radius: 0.35rem;
+}
+.events-type-filter-menu {
+  width: max(100%, 380px);
+}
+.events-type-filter-option input {
+  flex: 0 0 1rem;
+  width: 1rem;
+  min-width: 1rem;
+  height: 1rem;
+  margin: 0.15rem 0 0;
+  padding: 0;
+}
+.events-type-filter-option:hover,
+.events-search-filter-menu button:hover,
+.events-search-filter-menu button.selected {
+  background: var(--surface-hover-soft);
+}
+.events-type-filter-option-text {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.events-type-filter-option-name {
+  overflow: hidden;
+  font-size: 0.82rem;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.events-type-filter-option-description,
+.events-search-filter-menu small {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+.events-type-filter-option-description {
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+.events-search-filter-menu input {
+  box-sizing: border-box;
+  width: 100%;
+  margin-bottom: 0.35rem;
+  border: 1px solid var(--border-default);
+  border-radius: 0.35rem;
+  background: var(--surface);
+  color: var(--text);
+  padding: 0.5rem 0.6rem;
+  font: inherit;
+  font-size: 0.82rem;
+}
+.events-search-filter-menu button {
+  justify-content: space-between;
+  gap: 0.75rem;
+  width: 100%;
+  border: 0;
+  border-radius: 0.35rem;
+  background: transparent;
+  color: var(--text);
+  padding: 0.5rem 0.55rem;
+  text-align: left;
+  font: inherit;
+  font-size: 0.82rem;
+}
+.events-filter-empty {
+  margin: 0;
+  padding: 0.65rem 0.55rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
 .events-pagination {
   display: flex;
   align-items: center;
@@ -573,5 +837,32 @@ onBeforeUnmount(() => {
 .events-load-more:disabled {
   cursor: wait;
   opacity: 0.6;
+}
+@media (max-width: 720px) {
+  .events-mobile-filter-toggle {
+    display: inline-flex;
+    align-items: center;
+    width: max-content;
+    min-height: 2.3rem;
+    border: 1px solid var(--border-default);
+    border-radius: 0.45rem;
+    background: var(--surface-elevated);
+    color: var(--text);
+    padding: 0.45rem 0.75rem;
+    font: inherit;
+    font-size: 0.84rem;
+  }
+  .events-filter-bar {
+    display: none;
+    grid-template-columns: 1fr;
+  }
+  .events-filter-bar--open {
+    display: grid;
+  }
+  .events-type-filter-menu,
+  .events-search-filter-menu {
+    width: 100%;
+    max-width: 100%;
+  }
 }
 </style>

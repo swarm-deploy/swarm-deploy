@@ -5,6 +5,7 @@ import type {
   Deployment,
   AlertStatus,
   EventHistoryResponse,
+  EventFilterOptions,
   GitCommitDetailsResponse,
   QueueResponse,
   RecommendationsResponse,
@@ -91,6 +92,10 @@ export function fetchEvents(options: FetchEventsOptions = {}): Promise<EventHist
 
   const query = params.toString();
   return apiRequest<EventHistoryResponse>(`/api/v1/events${query ? `?${query}` : ""}`);
+}
+
+export function fetchEventFilters(): Promise<EventFilterOptions> {
+  return apiRequest<EventFilterOptions>("/api/v1/events/filters");
 }
 
 export function fetchRecommendations(options: { stack?: string; limit?: number } = {}): Promise<RecommendationsResponse> {

@@ -13,6 +13,7 @@ const (
 	GetAssistantChatOperation       OperationName = "GetAssistantChat"
 	GetCurrentUserOperation         OperationName = "GetCurrentUser"
 	GetDeploymentOperation          OperationName = "GetDeployment"
+	GetEventFiltersOperation        OperationName = "GetEventFilters"
 	GetGitCommitOperation           OperationName = "GetGitCommit"
 	GetGraphOperation               OperationName = "GetGraph"
 	GetSecretByNameOperation        OperationName = "GetSecretByName"

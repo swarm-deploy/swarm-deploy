@@ -19,10 +19,28 @@ import (
 type Repository interface {
 	// List returns retained history in publication order.
 	Read(context.Context) ([]Entry, error)
+	// FilterOptions returns distinct stack and service values from retained history.
+	FilterOptions(context.Context) (FilterOptions, error)
 	// ReadRecent filters by SQL and returns the latest matching publication sequence oldest first.
 	ReadRecent(context.Context, QueryOptions) ([]Entry, error)
 	// Query filters and pages history using a stable value cursor.
 	QueryPage(context.Context, QueryOptions) (Page, error)
+}
+
+// FilterOptions contains contextual resources found in retained event history.
+type FilterOptions struct {
+	// Stacks contains unique non-empty stack names.
+	Stacks []string
+	// Services contains unique non-empty stack and service pairs.
+	Services []FilterService
+}
+
+// FilterService identifies a service unambiguously within its stack.
+type FilterService struct {
+	// StackName is the stack containing the service.
+	StackName string `db:"stack_name"`
+	// ServiceName is the service name within the stack.
+	ServiceName string `db:"service_name"`
 }
 
 // SQLStore persists the user-visible projection, independently of the outbox.
@@ -130,6 +148,32 @@ func (s *SQLStore) Read(ctx context.Context) ([]Entry, error) {
 	dataset := goqu.Dialect("sqlite3").From("event_history").Prepared(true).Select(historyColumns...).
 		Order(goqu.I("publication_sequence").Asc())
 	return s.queryEntriesDataset(ctx, dataset)
+}
+
+// FilterOptions returns sorted, deduplicated resources directly from retained history.
+func (s *SQLStore) FilterOptions(ctx context.Context) (FilterOptions, error) {
+	const stackExpression = `trim(json_extract(details, '$.stack_name'))`
+	const serviceExpression = `trim(json_extract(details, '$.service_name'))`
+
+	var stacks []string
+	if err := s.db.Select(ctx, &stacks, `SELECT DISTINCT `+stackExpression+` AS stack_name
+		FROM event_history
+		WHERE `+stackExpression+` IS NOT NULL AND `+stackExpression+` <> ''
+		ORDER BY stack_name`); err != nil {
+		return FilterOptions{}, err
+	}
+
+	var services []FilterService
+	if err := s.db.Select(ctx, &services, `SELECT DISTINCT
+		`+stackExpression+` AS stack_name, `+serviceExpression+` AS service_name
+		FROM event_history
+		WHERE `+stackExpression+` IS NOT NULL AND `+stackExpression+` <> ''
+		AND `+serviceExpression+` IS NOT NULL AND `+serviceExpression+` <> ''
+		ORDER BY stack_name, service_name`); err != nil {
+		return FilterOptions{}, err
+	}
+
+	return FilterOptions{Stacks: stacks, Services: services}, nil
 }
 
 // Query applies filtering, ordering and cursor boundaries in SQLite.

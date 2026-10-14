@@ -102,4 +102,8 @@ function selectTab(tab: EventsAlertsTab): void {
   border-bottom-color: var(--control-primary);
   color: var(--control-primary);
 }
+
+:global(:root[data-theme="dark"] .events-alerts-tabs button.active) {
+  color: var(--text);
+}
 </style>

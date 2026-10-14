@@ -2,13 +2,23 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { createMemoryHistory, createRouter } from "vue-router";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { fetchEvents } from "../api/overview";
+import { fetchEventFilters, fetchEvents } from "../api/overview";
 import type { EventHistoryItem } from "../api/types";
 import EventsView from "./EventsView.vue";
 
 vi.mock("../api/overview", () => ({
+  fetchEventFilters: vi.fn(),
   fetchEvents: vi.fn(),
 }));
+
+const filterOptions = {
+  stacks: ["archive", "payments"],
+  services: [
+    { stack_name: "archive", service_name: "api" },
+    { stack_name: "payments", service_name: "api" },
+    { stack_name: "payments", service_name: "worker" },
+  ],
+};
 
 const events: EventHistoryItem[] = [
   {
@@ -74,6 +84,8 @@ function renderedMessages(wrapper: ReturnType<typeof mount>): string[] {
 describe("EventsView", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.mocked(fetchEventFilters).mockReset();
+    vi.mocked(fetchEventFilters).mockResolvedValue(filterOptions);
     vi.mocked(fetchEvents).mockReset();
     vi.mocked(fetchEvents).mockImplementation(async (options = {}) => {
       const severityRank = { info: 0, warn: 1, error: 2, alert: 3 };
@@ -316,25 +328,21 @@ describe("EventsView", () => {
     expect(severityHeader?.attributes("aria-sort")).toBe("ascending");
   });
 
-  it("restores all investigation filters from the URL", async () => {
-    const now = Date.parse("2026-10-14T12:00:00Z");
-    vi.spyOn(Date, "now").mockReturnValue(now);
-
+  it("restores contextual filters from the URL", async () => {
     const { wrapper } = await mountView(
-      "/events?category=swarm&stack_name=payments&service_name=api&period=24h&severity=warn",
+      "/events?category=swarm&stack_name=deleted-stack&service_name=deleted-service&severity=warn",
     );
 
     expect((wrapper.find('select[aria-label="Filter events by category"]').element as HTMLSelectElement).value).toBe("swarm");
-    expect((wrapper.find('input[aria-label="Filter events by stack"]').element as HTMLInputElement).value).toBe("payments");
-    expect((wrapper.find('input[aria-label="Filter events by service"]').element as HTMLInputElement).value).toBe("api");
-    expect((wrapper.find('select[aria-label="Filter events by period"]').element as HTMLSelectElement).value).toBe("24h");
+    expect(wrapper.find('summary[aria-label="Filter events by stack"]').text()).toContain("deleted-stack");
+    expect(wrapper.find('summary[aria-label="Filter events by service"]').text()).toContain("deleted-service");
+    expect(wrapper.findAll(".events-search-filter-menu button").map((button) => button.text())).toContain("deleted-stack");
     expect(fetchEvents).toHaveBeenLastCalledWith({
       types: [],
       severities: ["warn"],
       categories: ["swarm"],
-      stackNames: ["payments"],
-      serviceNames: ["api"],
-      since: "2026-10-13T12:00:00.000Z",
+      stackNames: ["deleted-stack"],
+      serviceNames: ["deleted-service"],
       limit: 50,
       sort: "time",
       order: "desc",
@@ -363,33 +371,56 @@ describe("EventsView", () => {
     }));
   });
 
-  it("clears filters without resetting sorting", async () => {
-    const { wrapper, router } = await mountView(
-      "/events?types=SyncFailed&severity=error&category=sync&stack_name=payments&service_name=api&period=7d&sort=severity&order=asc",
-    );
+  it("searches stacks and filters services by the selected stack", async () => {
+    const { wrapper } = await mountView();
 
-    await wrapper.find(".events-clear-filters").trigger("click");
+    await wrapper.find('input[aria-label="Search stacks"]').setValue("pay");
+    expect(wrapper.findAll(".events-search-filter-menu")[0].findAll("button").map((button) => button.text()))
+      .toEqual(["All stacks", "payments"]);
+
+    const payments = wrapper.findAll(".events-search-filter-menu")[0].findAll("button")
+      .find((button) => button.text() === "payments");
+    await payments!.trigger("click");
     await flushPromises();
 
-    expect(router.currentRoute.value.query).toEqual({ sort: "severity", order: "asc" });
-    expect(fetchEvents).toHaveBeenLastCalledWith({
-      types: [], severities: [], limit: 50, sort: "severity", order: "asc",
-    });
+    expect(wrapper.findAll(".events-search-filter-menu")[1].findAll("button").map((button) => button.text()))
+      .toEqual(["All services", "api", "worker"]);
+
+    await wrapper.find('input[aria-label="Search services"]').setValue("work");
+    expect(wrapper.findAll(".events-search-filter-menu")[1].findAll("button").map((button) => button.text()))
+      .toEqual(["All services", "worker"]);
   });
 
-  it("keeps the resolved period boundary stable across cursor pages", async () => {
-    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-14T12:00:00Z"));
-    vi.mocked(fetchEvents)
-      .mockResolvedValueOnce({ events: [events[1]], nextCursor: "page-2" })
-      .mockResolvedValueOnce({ events: [events[0]] });
-    const { wrapper } = await mountView("/events?period=1h");
+  it("distinguishes duplicate service names by stack and selects an unambiguous pair", async () => {
+    const { wrapper, router } = await mountView();
+    const serviceButtons = wrapper.findAll(".events-search-filter-menu")[1].findAll("button");
+    expect(serviceButtons.map((button) => button.text())).toEqual([
+      "All services", "apiarchive", "apipayments", "workerpayments",
+    ]);
 
-    await wrapper.find(".events-load-more").trigger("click");
+    await serviceButtons.find((button) => button.text() === "apipayments")!.trigger("click");
     await flushPromises();
+    expect(router.currentRoute.value.query).toMatchObject({ stack_name: "payments", service_name: "api" });
+  });
 
-    const calls = vi.mocked(fetchEvents).mock.calls;
-    expect(calls[0][0]?.since).toBe("2026-10-14T11:00:00.000Z");
-    expect(calls[1][0]).toMatchObject({ since: calls[0][0]?.since, cursor: "page-2" });
+  it("resets an incompatible service when the stack changes", async () => {
+    const { wrapper, router } = await mountView("/events?stack_name=payments&service_name=worker");
+    const archive = wrapper.findAll(".events-search-filter-menu")[0].findAll("button")
+      .find((button) => button.text() === "archive");
+    await archive!.trigger("click");
+    await flushPromises();
+    expect(router.currentRoute.value.query.stack_name).toBe("archive");
+    expect(router.currentRoute.value.query.service_name).toBeUndefined();
+  });
+
+  it("uses a compact mobile filter toggle with the active filter count", async () => {
+    const { wrapper } = await mountView("/events?severity=warn&stack_name=payments");
+    const toggle = wrapper.find(".events-mobile-filter-toggle");
+    expect(toggle.text()).toBe("Filters (2)");
+    expect(toggle.attributes("aria-expanded")).toBe("false");
+    await toggle.trigger("click");
+    expect(toggle.attributes("aria-expanded")).toBe("true");
+    expect(wrapper.find(".events-filter-bar").classes()).toContain("events-filter-bar--open");
   });
 
   it("resets pagination when an investigation filter changes", async () => {

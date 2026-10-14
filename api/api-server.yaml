@@ -28,6 +28,8 @@ paths:
     $ref: './assistant.yaml#/paths/~1api~1v1~1assistant~1chats~1{conversationID}'
   /api/v1/events:
     $ref: './events.yaml#/paths/~1api~1v1~1events'
+  /api/v1/events/filters:
+    $ref: './events.yaml#/paths/~1api~1v1~1events~1filters'
   /api/v1/alerts:
     $ref: './events.yaml#/paths/~1api~1v1~1alerts'
   /api/v1/alerts/{id}:
@@ -86,6 +88,10 @@ components:
       $ref: './gitops.yaml#/components/schemas/QueueResponse'
     EventHistoryResponse:
       $ref: './events.yaml#/components/schemas/EventHistoryResponse'
+    EventFilterOptions:
+      $ref: './events.yaml#/components/schemas/EventFilterOptions'
+    EventFilterService:
+      $ref: './events.yaml#/components/schemas/EventFilterService'
     EventSeverity:
       $ref: './events.yaml#/components/schemas/EventSeverity'
     EventCategory:

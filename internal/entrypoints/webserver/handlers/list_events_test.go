@@ -40,6 +40,24 @@ func TestHandlerListEventsFiltersBySeverityAndCategory(t *testing.T) {
 	assert.Equal(t, generated.EventCategorySync, resp.Events[0].Category)
 }
 
+func TestHandlerGetEventFilters(t *testing.T) {
+	store := newHistoryStore(t)
+	require.NoError(t, storeEvent(store, t.Context(), &events.ServiceMissed{
+		StackName: "removed", ServiceName: "worker",
+	}))
+	require.NoError(t, storeEvent(store, t.Context(), &events.ServiceRestarted{
+		StackName: "active", ServiceName: "api",
+	}))
+
+	response, err := (&handler{history: store}).GetEventFilters(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"active", "removed"}, response.Stacks)
+	assert.Equal(t, []generated.EventFilterService{
+		{StackName: "active", ServiceName: "api"},
+		{StackName: "removed", ServiceName: "worker"},
+	}, response.Services)
+}
+
 func TestHandlerListEventsUsesOrWithinSeverityFilter(t *testing.T) {
 	t.Parallel()
 	store := newHistoryStore(t)

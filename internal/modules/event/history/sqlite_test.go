@@ -117,6 +117,43 @@ func TestSQLiteQueryFiltersAttributesBeforePagination(t *testing.T) {
 	assert.Empty(t, missing.Entries, "events without service_name must not match")
 }
 
+func TestSQLiteFilterOptionsUsesRetainedHistory(t *testing.T) {
+	t.Parallel()
+	db, err := storage.Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	repo, err := NewSQLStore(db, 100)
+	require.NoError(t, err)
+	at := time.Date(2026, time.October, 14, 12, 0, 0, 0, time.UTC)
+	entries := []Entry{
+		{ID: "deleted-service", Type: events.TypeServiceMissed, CreatedAt: at,
+			Details: map[string]string{events.AttributeStackName: "removed", events.AttributeServiceName: "worker"}},
+		{ID: "duplicate", Type: events.TypeServiceRestarted, CreatedAt: at,
+			Details: map[string]string{events.AttributeStackName: "removed", events.AttributeServiceName: "worker"}},
+		{ID: "same-name-other-stack", Type: events.TypeServiceMissed, CreatedAt: at,
+			Details: map[string]string{events.AttributeStackName: "active", events.AttributeServiceName: "worker"}},
+		{ID: "stack-only", Type: events.TypeDeploySuccess, CreatedAt: at,
+			Details: map[string]string{events.AttributeStackName: "archive"}},
+		{ID: "empty", Type: events.TypeDeploySuccess, CreatedAt: at,
+			Details: map[string]string{events.AttributeStackName: " ", events.AttributeServiceName: ""}},
+		{ID: "service-only", Type: events.TypeServiceMissed, CreatedAt: at,
+			Details: map[string]string{events.AttributeServiceName: "orphan"}},
+	}
+	for index, entry := range entries {
+		entry.Severity = entry.Type.Severity()
+		entry.Category = entry.Type.Category()
+		require.NoError(t, repo.insert(t.Context(), entry, int64(index+1)))
+	}
+
+	options, err := repo.FilterOptions(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"active", "archive", "removed"}, options.Stacks)
+	assert.Equal(t, []FilterService{
+		{StackName: "active", ServiceName: "worker"},
+		{StackName: "removed", ServiceName: "worker"},
+	}, options.Services)
+}
+
 func entryIDs(entries []Entry) []string {
 	ids := make([]string, 0, len(entries))
 	for _, entry := range entries {

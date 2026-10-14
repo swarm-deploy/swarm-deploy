@@ -839,8 +839,7 @@ body {
 
   .events-filter-field,
   .events-filter-field select,
-  .events-filter-field input,
-  .events-clear-filters {
+  .events-filter-field input {
     width: 100%;
     min-width: 0;
   }

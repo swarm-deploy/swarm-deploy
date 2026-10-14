@@ -439,6 +439,8 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
 .deployment-commit-link { display: inline-flex; align-items: center; gap: 7px; border: 0; background: transparent; color: var(--control-primary); padding: 0; font: inherit; font-family: ui-monospace, monospace; }
 .deployment-commit-link:hover { transform: none; filter: none; text-decoration: underline; }
 .deployment-commit-link span { font-family: inherit; font-size: .95rem; }
+:global(:root[data-theme="dark"] .deployment-commit-link) { color: var(--text); }
+:global(:root[data-theme="dark"] .deployment-commit-link span) { color: var(--accent-strong); }
 .deployment-outcome {
   display: grid;
   grid-template-columns: 46px minmax(0, 1fr);
@@ -465,6 +467,7 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
 .deployment-tabs button { border: 0; border-bottom: 3px solid transparent; border-radius: 0; background: transparent; color: var(--muted); padding: 10px 10px 12px; }
 .deployment-tabs button:hover { color: var(--text); transform: none; filter: none; }
 .deployment-tabs button.active { border-bottom-color: var(--control-primary); color: var(--control-primary); }
+:global(:root[data-theme="dark"] .deployment-tabs button.active) { color: var(--text); }
 .deployment-tab-panel { min-width: 0; padding: 20px 0 4px; }
 .deployment-tab-panel > h3 { margin: 0 0 4px; font-size: 1.35rem; }
 .deployment-tab-panel > .deployment-note { margin: 0; }
