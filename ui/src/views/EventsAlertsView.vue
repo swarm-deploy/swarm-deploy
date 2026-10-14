@@ -99,7 +99,11 @@ function selectTab(tab: EventsAlertsTab): void {
 }
 
 .events-alerts-tabs button.active {
-  border-bottom-color: var(--accent);
-  color: var(--accent-strong);
+  border-bottom-color: var(--control-primary);
+  color: var(--control-primary);
+}
+
+:global(:root[data-theme="dark"] .events-alerts-tabs button.active) {
+  color: var(--text);
 }
 </style>

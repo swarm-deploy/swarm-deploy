@@ -40,6 +40,24 @@ func TestHandlerListEventsFiltersBySeverityAndCategory(t *testing.T) {
 	assert.Equal(t, generated.EventCategorySync, resp.Events[0].Category)
 }
 
+func TestHandlerGetEventFilters(t *testing.T) {
+	store := newHistoryStore(t)
+	require.NoError(t, storeEvent(store, t.Context(), &events.ServiceMissed{
+		StackName: "removed", ServiceName: "worker",
+	}))
+	require.NoError(t, storeEvent(store, t.Context(), &events.ServiceRestarted{
+		StackName: "active", ServiceName: "api",
+	}))
+
+	response, err := (&handler{history: store}).GetEventFilters(t.Context())
+	require.NoError(t, err)
+	assert.Equal(t, []string{"active", "removed"}, response.Stacks)
+	assert.Equal(t, []generated.EventFilterService{
+		{StackName: "active", ServiceName: "api"},
+		{StackName: "removed", ServiceName: "worker"},
+	}, response.Services)
+}
+
 func TestHandlerListEventsUsesOrWithinSeverityFilter(t *testing.T) {
 	t.Parallel()
 	store := newHistoryStore(t)
@@ -94,6 +112,30 @@ func TestHandlerListEventsFiltersByType(t *testing.T) {
 	require.Len(t, resp.Events, 1)
 	assert.Equal(t, "NodeJoined", resp.Events[0].Type)
 	assert.Equal(t, generated.EventSeverityInfo, resp.Events[0].Severity)
+}
+
+func TestHandlerListEventsFiltersByStackAndService(t *testing.T) {
+	t.Parallel()
+	store := newHistoryStore(t)
+	for _, service := range []*events.ServiceMissed{
+		{StackName: "api", ServiceName: "worker", Commit: "one"},
+		{StackName: "jobs", ServiceName: "worker", Commit: "two"},
+		{StackName: "api", ServiceName: "database", Commit: "three"},
+	} {
+		require.NoError(t, storeEvent(store, context.Background(), service))
+	}
+	require.NoError(t, storeEvent(store, context.Background(), &events.DeploySuccess{
+		DeployEvent: events.DeployEvent{StackName: "api", Commit: "four"},
+	}))
+
+	resp, err := (&handler{history: store}).ListEvents(context.Background(), generated.ListEventsParams{
+		StackName:   []string{"api", "jobs"},
+		ServiceName: []string{"worker"},
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.Events, 2)
+	assert.Equal(t, "api", resp.Events[0].Details.Value[events.AttributeStackName])
+	assert.Equal(t, "jobs", resp.Events[1].Details.Value[events.AttributeStackName])
 }
 
 func TestHandlerListEventsFiltersBySince(t *testing.T) {

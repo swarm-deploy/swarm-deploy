@@ -37,6 +37,10 @@ type Handler interface {
 	//
 	// GET /api/v1/deployments/{id}
 	GetDeployment(ctx context.Context, params GetDeploymentParams) (*Deployment, error)
+	// GetEventFilters implements getEventFilters operation.
+	//
+	// GET /api/v1/events/filters
+	GetEventFilters(ctx context.Context) (*EventFilterOptions, error)
 	// GetGitCommit implements getGitCommit operation.
 	//
 	// GET /api/v1/git/commits/{commit}

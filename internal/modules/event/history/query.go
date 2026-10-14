@@ -31,13 +31,15 @@ var (
 )
 
 type QueryOptions struct {
-	Severities []events.Severity
-	Categories []events.Category
-	Types      []events.TypeName
-	Since      *time.Time
-	Limit      int
-	Cursor     string
-	Sort       SortOrder
+	Severities   []events.Severity
+	Categories   []events.Category
+	Types        []events.TypeName
+	StackNames   []string
+	ServiceNames []string
+	Since        *time.Time
+	Limit        int
+	Cursor       string
+	Sort         SortOrder
 }
 
 type Page struct {

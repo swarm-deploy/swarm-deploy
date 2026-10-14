@@ -12,6 +12,21 @@ import (
 
 const defaultEventPageSize int32 = 50
 
+// GetEventFilters returns contextual stack and service options from retained event history.
+func (h *handler) GetEventFilters(ctx context.Context) (*generated.EventFilterOptions, error) {
+	options, err := h.history.FilterOptions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	services := make([]generated.EventFilterService, 0, len(options.Services))
+	for _, service := range options.Services {
+		services = append(services, generated.EventFilterService{
+			StackName: service.StackName, ServiceName: service.ServiceName,
+		})
+	}
+	return &generated.EventFilterOptions{Stacks: options.Stacks, Services: services}, nil
+}
+
 func (h *handler) ListEvents(
 	ctx context.Context,
 	params generated.ListEventsParams,
@@ -49,6 +64,7 @@ func (h *handler) ListEvents(
 	if !params.Sort.IsSet() && !params.Order.IsSet() && !params.Cursor.IsSet() {
 		entries, err := h.history.ReadRecent(ctx, history.QueryOptions{
 			Severities: severities, Categories: categories, Types: types, Since: since,
+			StackNames: params.StackName, ServiceNames: params.ServiceName,
 			Limit: int(params.Limit.Or(0)),
 		})
 		if err != nil {
@@ -58,13 +74,15 @@ func (h *handler) ListEvents(
 	}
 
 	page, err := h.history.QueryPage(ctx, history.QueryOptions{
-		Severities: severities,
-		Categories: categories,
-		Types:      types,
-		Since:      since,
-		Limit:      int(params.Limit.Or(defaultEventPageSize)),
-		Cursor:     params.Cursor.Or(""),
-		Sort:       history.SortOrder(params.Sort.Or("time") + "_" + params.Order.Or("desc")),
+		Severities:   severities,
+		Categories:   categories,
+		Types:        types,
+		StackNames:   params.StackName,
+		ServiceNames: params.ServiceName,
+		Since:        since,
+		Limit:        int(params.Limit.Or(defaultEventPageSize)),
+		Cursor:       params.Cursor.Or(""),
+		Sort:         history.SortOrder(params.Sort.Or("time") + "_" + params.Order.Or("desc")),
 	})
 	if err != nil {
 		return nil, withStatusError(http.StatusBadRequest, err)

@@ -2036,6 +2036,58 @@ func (s *EventCategory) UnmarshalText(data []byte) error {
 	}
 }
 
+// Ref: #/components/schemas/EventFilterOptions
+type EventFilterOptions struct {
+	Stacks   []string             `json:"stacks"`
+	Services []EventFilterService `json:"services"`
+}
+
+// GetStacks returns the value of Stacks.
+func (s *EventFilterOptions) GetStacks() []string {
+	return s.Stacks
+}
+
+// GetServices returns the value of Services.
+func (s *EventFilterOptions) GetServices() []EventFilterService {
+	return s.Services
+}
+
+// SetStacks sets the value of Stacks.
+func (s *EventFilterOptions) SetStacks(val []string) {
+	s.Stacks = val
+}
+
+// SetServices sets the value of Services.
+func (s *EventFilterOptions) SetServices(val []EventFilterService) {
+	s.Services = val
+}
+
+// Ref: #/components/schemas/EventFilterService
+type EventFilterService struct {
+	StackName   string `json:"stack_name"`
+	ServiceName string `json:"service_name"`
+}
+
+// GetStackName returns the value of StackName.
+func (s *EventFilterService) GetStackName() string {
+	return s.StackName
+}
+
+// GetServiceName returns the value of ServiceName.
+func (s *EventFilterService) GetServiceName() string {
+	return s.ServiceName
+}
+
+// SetStackName sets the value of StackName.
+func (s *EventFilterService) SetStackName(val string) {
+	s.StackName = val
+}
+
+// SetServiceName sets the value of ServiceName.
+func (s *EventFilterService) SetServiceName(val string) {
+	s.ServiceName = val
+}
+
 // Ref: #/components/schemas/EventHistoryItem
 type EventHistoryItem struct {
 	ID        string                     `json:"id"`

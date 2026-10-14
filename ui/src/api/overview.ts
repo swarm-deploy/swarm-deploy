@@ -5,6 +5,7 @@ import type {
   Deployment,
   AlertStatus,
   EventHistoryResponse,
+  EventFilterOptions,
   GitCommitDetailsResponse,
   QueueResponse,
   RecommendationsResponse,
@@ -32,6 +33,8 @@ export interface FetchEventsOptions {
   severities?: string[];
   categories?: string[];
   types?: string[];
+  stackNames?: string[];
+  serviceNames?: string[];
   since?: string;
   limit?: number;
   cursor?: string;
@@ -65,6 +68,12 @@ export function fetchEvents(options: FetchEventsOptions = {}): Promise<EventHist
   for (const type of options.types ?? []) {
     params.append("types", type);
   }
+  for (const stackName of options.stackNames ?? []) {
+    params.append("stack_name", stackName);
+  }
+  for (const serviceName of options.serviceNames ?? []) {
+    params.append("service_name", serviceName);
+  }
   if (options.since) {
     params.set("since", options.since);
   }
@@ -83,6 +92,10 @@ export function fetchEvents(options: FetchEventsOptions = {}): Promise<EventHist
 
   const query = params.toString();
   return apiRequest<EventHistoryResponse>(`/api/v1/events${query ? `?${query}` : ""}`);
+}
+
+export function fetchEventFilters(): Promise<EventFilterOptions> {
+  return apiRequest<EventFilterOptions>("/api/v1/events/filters");
 }
 
 export function fetchRecommendations(options: { stack?: string; limit?: number } = {}): Promise<RecommendationsResponse> {
