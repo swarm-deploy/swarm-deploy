@@ -285,7 +285,7 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
           <p v-else-if="!detail" class="meta">Deployment details are unavailable.</p>
           <template v-else>
           <section class="deployment-outcome" :class="`deployment-outcome--${detail.status}`" aria-labelledby="deployment-outcome-title">
-            <span class="deployment-outcome-icon"><DeploymentIcon :name="statusIcon" /></span>
+            <span v-if="detail.status !== 'succeeded'" class="deployment-outcome-icon"><DeploymentIcon :name="statusIcon" /></span>
             <div>
               <strong id="deployment-outcome-title">{{ statusTitle }}</strong>
               <p>{{ statusDescription }}</p>
@@ -390,7 +390,8 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
   overflow: hidden;
   border-color: var(--border-default);
   border-radius: 18px;
-  background: var(--surface-modal);
+  /* An opaque surface prevents underlying page content bleeding through the dialog. */
+  background: var(--shell-chrome-bg);
   padding: 0;
   box-shadow: var(--shadow-popover);
 }
@@ -450,7 +451,9 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
   padding: 17px 19px;
   background: var(--surface-muted);
 }
-.deployment-outcome--succeeded { border-color: rgba(74, 222, 128, .13); background: linear-gradient(90deg, rgba(42, 118, 79, .22), rgba(42, 118, 79, .1)); }
+.deployment-outcome--succeeded { display: block; border-color: var(--border-subtle); background: var(--surface-muted); padding: 12px 14px; }
+.deployment-outcome--succeeded strong { font-size: .85rem; }
+.deployment-outcome--succeeded p { font-size: .82rem; }
 .deployment-outcome--failed { border-color: rgba(248, 113, 113, .18); background: linear-gradient(90deg, rgba(126, 45, 45, .2), rgba(126, 45, 45, .08)); }
 .deployment-outcome--running { border-color: rgba(96, 165, 250, .18); background: linear-gradient(90deg, rgba(37, 99, 235, .18), rgba(37, 99, 235, .07)); }
 .deployment-outcome--interrupted { border-color: rgba(250, 204, 21, .18); background: linear-gradient(90deg, rgba(161, 98, 7, .18), rgba(161, 98, 7, .07)); }
