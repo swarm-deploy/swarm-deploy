@@ -59,7 +59,10 @@ func validateRepositoryIdentifier(repository string) error {
 		return errors.New("git repository identifier is required")
 	}
 	parsed, err := url.Parse(repository)
-	if err == nil && (parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "") {
+	if err != nil {
+		return errors.New("invalid git repository identifier")
+	}
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
 		return errors.New("git repository identifier contains unsafe URL components")
 	}
 	return nil

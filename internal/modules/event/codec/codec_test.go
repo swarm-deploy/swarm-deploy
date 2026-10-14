@@ -111,6 +111,7 @@ func TestGitPullLifecycleCodec(t *testing.T) {
 func TestGitPullCodecRejectsUnsafePayloads(t *testing.T) {
 	for _, event := range []events.Event{
 		&events.GitPullFailed{Repository: "https://user:secret@git.example.com/team/app", Category: events.GitFailureOther},
+		&events.GitPullFailed{Repository: "https://user:secret%zz@git.example.com/team/app", Category: events.GitFailureOther},
 		&events.GitPullFailed{Repository: "git.example.com/team/app", Category: "unclassified"},
 		&events.GitPullSucceeded{Repository: "https://git.example.com/team/app?token=secret"},
 	} {

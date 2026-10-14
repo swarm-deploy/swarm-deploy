@@ -2,6 +2,8 @@ package git
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"net"
 	"net/url"
@@ -86,6 +88,10 @@ func classifyFailure(err error, repository string, authType config.GitAuthType) 
 	if errors.As(err, &hostKeyError) {
 		return FailureSSHHostVerification
 	}
+	var revokedHostKeyError *knownhosts.RevokedError
+	if errors.As(err, &revokedHostKeyError) {
+		return FailureSSHHostVerification
+	}
 	var networkError net.Error
 	if errors.As(err, &networkError) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		return FailureNetwork
@@ -137,11 +143,17 @@ func failureDiagnostic(category FailureCategory) string {
 // RepositoryIdentifier returns a stable credential-free repository identity.
 func RepositoryIdentifier(raw string) string {
 	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "repository-unknown"
+	}
 	if host, path, ok := splitSCPRemote(raw); ok {
 		return canonicalHostPath(host, path)
 	}
 	parsed, err := url.Parse(raw)
-	if err == nil && parsed.Scheme != "" {
+	if err != nil {
+		return opaqueRepositoryIdentifier(raw)
+	}
+	if parsed.Scheme != "" {
 		if parsed.Scheme == "file" {
 			return filepath.Clean(parsed.Path)
 		}
@@ -155,6 +167,11 @@ func RepositoryIdentifier(raw string) string {
 		return filepath.Clean(absolute)
 	}
 	return filepath.Clean(raw)
+}
+
+func opaqueRepositoryIdentifier(raw string) string {
+	digest := sha256.Sum256([]byte(raw))
+	return "repository-" + hex.EncodeToString(digest[:8])
 }
 
 func splitSCPRemote(raw string) (string, string, bool) {

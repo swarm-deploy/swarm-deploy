@@ -36,6 +36,9 @@ func TestAlertListFiltersDefaultsAndRepresentations(t *testing.T) {
 		require.NoError(t, store.Create(t.Context(), alert))
 	}
 	tool := NewAlertList(store)
+	properties := tool.Definition().ParametersJSONSchema["properties"].(map[string]any)
+	kind := properties["kind"].(map[string]any)
+	assert.Contains(t, kind["enum"].([]string), string(alertmodel.AlertKindGitRepositoryUnavailable))
 
 	testCases := []struct {
 		name    string

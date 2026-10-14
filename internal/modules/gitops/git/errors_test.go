@@ -26,6 +26,7 @@ func TestClassifyPullError(t *testing.T) {
 		{name: "repository not found", err: transport.ErrRepositoryNotFound, want: FailureRepositoryNotFound},
 		{name: "network", err: &net.DNSError{Err: "temporary", Name: "git.example.com", IsTemporary: true}, want: FailureNetwork},
 		{name: "SSH host verification", err: &knownhosts.KeyError{}, repository: "git@example.com:team/app.git", want: FailureSSHHostVerification},
+		{name: "revoked SSH host key", err: &knownhosts.RevokedError{}, repository: "git@example.com:team/app.git", want: FailureSSHHostVerification},
 		{name: "SSH authentication", err: errors.New("ssh: handshake failed: ssh: unable to authenticate"), authType: config.GitAuthTypeSSH, want: FailureAuthentication},
 		{name: "SSH access denied", err: &pktline.ErrorLine{Text: "ERROR: Access denied"}, repository: "ssh://git@example.com/team/app.git", want: FailureAccessDenied},
 		{name: "other", err: errors.New("unexpected Git error"), want: FailureOther},
@@ -58,4 +59,15 @@ func TestRepositoryIdentifierMatchesHTTPSAndSSHForms(t *testing.T) {
 		RepositoryIdentifier("https://git.example.com/team/app.git"),
 		RepositoryIdentifier("git@git.example.com:team/app.git"),
 	)
+}
+
+func TestRepositoryIdentifierMalformedURLIsOpaqueAndStable(t *testing.T) {
+	const secret = "top-secret-token"
+	remote := "https://robot:" + secret + "%zz@git.example.com/team/app.git"
+
+	identifier := RepositoryIdentifier(remote)
+	assert.Equal(t, identifier, RepositoryIdentifier(remote))
+	assert.Regexp(t, `^repository-[0-9a-f]{16}$`, identifier)
+	assert.NotContains(t, identifier, secret)
+	assert.NotContains(t, identifier, "robot")
 }

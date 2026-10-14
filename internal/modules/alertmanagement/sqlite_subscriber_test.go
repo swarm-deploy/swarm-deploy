@@ -287,6 +287,33 @@ func TestGitRepositoryNetworkThresholdSurvivesRestartAndDeduplicatesDelivery(t *
 	require.NoError(t, err)
 	require.Len(t, alerts, 1, "repeated failures must update one incident")
 	assert.EqualValues(t, 4, alerts[0].Occurrences)
+
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+		ID: "network-recovered", OccurredAt: at.Add(4 * time.Second), Event: &events.GitPullSucceeded{
+			Repository: "git.example.com/team/app",
+		},
+	}))
+	alerts, err = repo.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 1)
+	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
+
+	var counters int
+	require.NoError(t, db.Get(ctx, &counters, "SELECT count(*) FROM alert_failure_streaks"))
+	assert.Zero(t, counters, "recovery must reset the network failure counter")
+	for index := range 2 {
+		require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+			ID:         fmt.Sprintf("network-after-recovery-%d", index),
+			OccurredAt: at.Add(time.Duration(5+index) * time.Second),
+			Event: &events.GitPullFailed{
+				Repository: "git.example.com/team/app", Category: events.GitFailureNetwork,
+				Description: "Git repository is temporarily unreachable",
+			},
+		}))
+	}
+	alerts, err = repo.List(ctx, modelstore.ListFilter{Status: model.AlertStatusOpen})
+	require.NoError(t, err)
+	assert.Empty(t, alerts, "a recovered network streak must start again below the threshold")
 }
 
 func TestGitRepositoryRecoveryIgnoresDelayedFailureAndResetsCounter(t *testing.T) {

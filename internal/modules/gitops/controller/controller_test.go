@@ -658,6 +658,33 @@ func TestGitPullRecoveryPublicationFailureRetainsFailedState(t *testing.T) {
 	require.NotNil(t, state.GitPullFailure, "recovery state must roll back when its event cannot be published")
 }
 
+func TestGitPullRecoveryPublicationFailureDoesNotChangeSuccessfulPull(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	db, store := newSQLState(t)
+	repository := git.NewMockRepository(ctrl)
+	repository.EXPECT().Pull(gomock.Any()).Return(git.PullResult{OldRevision: "one", NewRevision: "two", Updated: true}, nil)
+	publisher := dispatcher.NewMockDispatcher(ctrl)
+	gomock.InOrder(
+		publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.GitPullFailed{})).Return(nil),
+		publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.GitPullSucceeded{})).
+			Return(errors.New("outbox unavailable")),
+	)
+	controller := &Controller{
+		db: db, stateStore: store, git: repository, event: publisher,
+		cfg:     &config.Config{Spec: config.Spec{Git: config.GitSpec{Repository: "https://git.example.com/team/app.git"}}},
+		metrics: metrics.NewGroup(metrics.CreateGroupParams{Namespace: "test_git_pull_recovery_publication"}),
+	}
+	require.NoError(t, controller.recordGitPullFailure(t.Context(), "git.example.com/team/app",
+		git.FailureNetwork, "Git repository is temporarily unreachable", TriggerPoll))
+
+	result, err := controller.pullGit(t.Context(), TriggerPoll)
+	require.NoError(t, err)
+	assert.True(t, result.Updated)
+	assert.Equal(t, "two", result.NewRevision)
+	assert.NotNil(t, readSQLState(t, store).GitPullFailure,
+		"failed recovery publication must remain retryable after a successful pull")
+}
+
 func TestNormalGitPullSuccessDoesNotPublishRecovery(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	db, store := newSQLState(t)
@@ -698,6 +725,37 @@ func TestGitPullFailureMonitoringCoversEveryPullTrigger(t *testing.T) {
 			assert.NotContains(t, err.Error(), "private-token")
 		})
 	}
+}
+
+func TestGitPullFailureWithMalformedCredentialURLPublishesSafeIdentifier(t *testing.T) {
+	const secret = "private-token"
+	ctrl := gomock.NewController(t)
+	db, store := newSQLState(t)
+	repository := git.NewMockRepository(ctrl)
+	repository.EXPECT().Pull(gomock.Any()).Return(git.PullResult{}, errors.New("remote unavailable"))
+	publisher := dispatcher.NewMockDispatcher(ctrl)
+	publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.GitPullFailed{})).DoAndReturn(
+		func(_ context.Context, event events.Event) error {
+			failed := event.(*events.GitPullFailed)
+			assert.Regexp(t, `^repository-[0-9a-f]{16}$`, failed.Repository)
+			assert.NotContains(t, failed.Repository, secret)
+			return nil
+		},
+	)
+	controller := &Controller{
+		db: db, stateStore: store, git: repository, event: publisher,
+		cfg: &config.Config{Spec: config.Spec{Git: config.GitSpec{
+			Repository: "https://robot:" + secret + "%zz@git.example.com/team/app.git",
+		}}},
+		metrics: metrics.NewGroup(metrics.CreateGroupParams{Namespace: "test_git_pull_malformed_remote"}),
+	}
+
+	_, err := controller.pullGit(t.Context(), TriggerStartup)
+	require.Error(t, err)
+	assert.NotContains(t, err.Error(), secret)
+	state := readSQLState(t, store)
+	require.NotNil(t, state.GitPullFailure)
+	assert.NotContains(t, state.GitPullFailure.Repository, secret)
 }
 
 func TestControllerSyncOncePrioritizesChangedStacks(t *testing.T) {

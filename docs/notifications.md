@@ -10,7 +10,8 @@ The removed `notifications.on` key is rejected; no compatibility alias is provid
 
 ## Alert lifecycle
 
-Alert Management currently creates `sync_failed` and `node_disconnected` alerts.
+Alert Management currently creates `sync_failed`, `node_disconnected`, and
+`git_repository_unavailable` alerts.
 Use those exact keys under `notifications.alerts`; `default` is the fallback rule.
 A kind rule replaces `alerts.default`, and an omitted `alerts.default` selects built-in
 opened and resolved messages in Telegram chat `default`. Configuring Telegram requires
