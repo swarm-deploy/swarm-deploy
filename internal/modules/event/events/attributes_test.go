@@ -34,8 +34,6 @@ func TestEventDetailsUseStandardAttributeNames(t *testing.T) {
 			keys: []string{AttributeStackName, AttributeCommit, AttributeDeploymentID, AttributeStatus}},
 		{name: "deploy failed", event: &DeployFailed{},
 			keys: []string{AttributeStackName, AttributeCommit, AttributeDeploymentID, AttributeStatus, AttributeErrorCode, AttributeStage}},
-		{name: "sync failed", event: &SyncFailed{},
-			keys: []string{AttributeStackName, AttributeCommit, AttributeDeploymentID, AttributeStatus, AttributeErrorCode, AttributeStage}},
 		{name: "preparation failed", event: &DeployPreparationFailed{},
 			keys: []string{AttributeStackName, AttributeCommit, AttributeStatus, AttributeErrorCode, AttributeStage}},
 		{name: "deploy interrupted", event: &DeployInterrupted{},
@@ -95,7 +93,6 @@ func TestFailureDetailsMaskSensitiveDiagnostics(t *testing.T) {
 		event Event
 	}{
 		{name: "deploy failed", event: &DeployFailed{Error: errors.New("token=" + secret)}},
-		{name: "sync failed", event: &SyncFailed{Diagnostic: "token=" + secret}},
 		{name: "preparation failed", event: &DeployPreparationFailed{Error: errors.New("token=" + secret)}},
 		{name: "interrupted", event: &DeployInterrupted{Error: errors.New("token=" + secret)}},
 		{name: "notification failed", event: &SendNotificationFailed{Error: errors.New("token=" + secret)}},

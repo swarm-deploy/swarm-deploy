@@ -10,8 +10,6 @@ func StandardTemplate(eventType events.TypeName) (string, bool) {
 	switch eventType {
 	case events.TypeNameDeploySuccess:
 		return eventnotifications.SuccessTemplate(), true
-	case events.TypeNameSyncFailed:
-		return eventnotifications.FailedTemplate(), true
 	case events.TypeNameNodeJoined, events.TypeNameNodeConnected, events.TypeNameNodeDisconnected:
 		return eventnotifications.DefaultTemplate(), true
 	case events.TypeNameServiceMissed, events.TypeNameServicePruned, events.TypeNameServiceReplicasIncreased,
@@ -39,13 +37,6 @@ func ReferencePayloads(eventType events.TypeName) ([]any, bool) {
 	switch eventType {
 	case events.TypeNameDeploySuccess:
 		return []any{eventnotifications.DeploymentSuccessReferencePayload()}, true
-	case events.TypeNameSyncFailed:
-		payloads := eventnotifications.DeploymentFailureReferencePayloads()
-		result := make([]any, 0, len(payloads))
-		for _, payload := range payloads {
-			result = append(result, payload)
-		}
-		return result, true
 	case events.TypeNameNodeJoined:
 		return []any{eventnotifications.NodeJoinedReferencePayload()}, true
 	case events.TypeNameNodeConnected:

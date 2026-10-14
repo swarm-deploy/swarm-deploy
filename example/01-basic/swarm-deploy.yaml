@@ -72,14 +72,14 @@ notifications:
         - message: |
             sync started manually
   alerts:
-    deploy_failed:
+    sync_failed:
       telegram:
         - chats: deployments
           opened:
-            message: "🔴 Deployment failed: {{ .ResourceID }}"
+            message: "🔴 Synchronization failed: {{ .ResourceID }}"
           resolved:
             action: edit
-            message: "✅ Deployment recovered: {{ .ResourceID }}"
+            message: "✅ Synchronization recovered: {{ .ResourceID }}"
 
 # Secret/config name rotation settings.
 secretRotation:

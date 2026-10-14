@@ -101,6 +101,8 @@ func TestPreparationAndInterruptedFailuresShareDeploymentAlertLifecycle(t *testi
 	require.Len(t, alerts, 1)
 	assert.EqualValues(t, 3, alerts[0].Occurrences)
 	assert.Equal(t, model.AlertStatusOpen, alerts[0].Status)
+	assert.Equal(t, model.AlertKindSyncFailed, alerts[0].Kind)
+	assert.Equal(t, "sync_failed:stack:app", alerts[0].Fingerprint)
 	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
 		ID: "success", OccurredAt: at.Add(3 * time.Second),
 		Event: &events.DeploySuccess{DeployEvent: events.DeployEvent{StackName: "app"}},

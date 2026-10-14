@@ -5,12 +5,6 @@ import "time"
 const (
 	// StatusSuccess identifies a completed deployment.
 	StatusSuccess = "success"
-	// StatusFailed identifies a failed deployment attempt.
-	StatusFailed = "failed"
-	// StatusPreparationFailed identifies a failure before an attempt was created.
-	StatusPreparationFailed = "preparation_failed"
-	// StatusInterrupted identifies an attempt with an unknown external outcome.
-	StatusInterrupted = "interrupted"
 )
 
 // DeploymentService is the notification-safe deployment service summary.
@@ -29,7 +23,7 @@ type DeploymentPayload struct {
 	DeploymentID string `json:"deployment_id"`
 	// Type is the configured notification event type.
 	Type string `json:"type"`
-	// Status is success, failed, preparation_failed, or interrupted.
+	// Status identifies a successful deployment.
 	Status string `json:"status"`
 	// StackName identifies the deployed stack.
 	StackName string `json:"stack_name"`
@@ -37,12 +31,6 @@ type DeploymentPayload struct {
 	Services []DeploymentService `json:"services"`
 	// Commit identifies the source revision.
 	Commit string `json:"commit"`
-	// Error is a safe human-readable failure diagnostic.
-	Error string `json:"error"`
-	// ErrorCode is the stable failure category.
-	ErrorCode string `json:"error_code"`
-	// Stage identifies the deployment stage responsible for a failure.
-	Stage string `json:"stage"`
 	// OccurredAt is the event publication time in UTC.
 	OccurredAt time.Time `json:"occurred_at"`
 }
@@ -152,24 +140,6 @@ func DeploymentSuccessReferencePayload() DeploymentPayload {
 		StackName: "payments", Commit: "a1b2c3d4", OccurredAt: referenceTime(),
 		Services: []DeploymentService{{Name: "api", Image: "registry.example.com/payments/api:v2.4.1"}},
 	}
-}
-
-// DeploymentFailureReferencePayloads returns representative data for every deployment failure state.
-func DeploymentFailureReferencePayloads() []DeploymentPayload {
-	base := DeploymentPayload{
-		ID: "event-deploy-failed", DeploymentID: "deployment-43", Type: "SyncFailed", Status: StatusFailed,
-		StackName: "payments", Commit: "d4c3b2a1", Error: "service update rejected",
-		ErrorCode: "apply_failed", Stage: "apply", OccurredAt: referenceTime(),
-		Services: []DeploymentService{{Name: "worker", Image: "registry.example.com/payments/worker:v2.4.2"}},
-	}
-	preparation := base
-	preparation.ID, preparation.DeploymentID = "event-preparation-failed", ""
-	preparation.Status, preparation.ErrorCode, preparation.Stage = StatusPreparationFailed, "preparation_failed", "load"
-	interrupted := base
-	interrupted.ID = "event-deploy-interrupted"
-	interrupted.Status, interrupted.ErrorCode, interrupted.Stage = StatusInterrupted, "process_interrupted", "apply"
-
-	return []DeploymentPayload{base, preparation, interrupted}
 }
 
 // NodeJoinedReferencePayload returns representative node-joined data.

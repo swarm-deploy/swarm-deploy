@@ -19,15 +19,15 @@ func alertNotificationSpec() NotificationSpec {
 func TestAlertNotificationFallback(t *testing.T) {
 	spec := alertNotificationSpec()
 	require.Empty(t, spec.validate())
-	assert.Equal(t, []string{"default"}, (TelegramChannel{Chats: spec.AlertTelegramRoutes("deploy_failed")[0].Chats}).ChatNames())
-	assert.Contains(t, spec.AlertTelegramRoutes("deploy_failed")[0].AlertOpenedTemplate("deploy_failed"), ".ResourceID")
-	assert.Equal(t, "reply", spec.AlertTelegramRoutes("deploy_failed")[0].AlertResolvedAction())
+	assert.Equal(t, []string{"default"}, (TelegramChannel{Chats: spec.AlertTelegramRoutes("sync_failed")[0].Chats}).ChatNames())
+	assert.Contains(t, spec.AlertTelegramRoutes("sync_failed")[0].AlertOpenedTemplate("sync_failed"), ".ResourceID")
+	assert.Equal(t, "reply", spec.AlertTelegramRoutes("sync_failed")[0].AlertResolvedAction())
 	spec.Alerts = map[string]NotificationAlertRoutes{
-		"default":       {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"deployments"}, Resolved: AlertMessageSpec{Action: "edit"}}}},
-		"deploy_failed": {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default"}, Resolved: AlertMessageSpec{Action: "reply"}}}},
+		"default":     {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"deployments"}, Resolved: AlertMessageSpec{Action: "edit"}}}},
+		"sync_failed": {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default"}, Resolved: AlertMessageSpec{Action: "reply"}}}},
 	}
 	require.Empty(t, spec.validate())
-	assert.Equal(t, []string{"default"}, (TelegramChannel{Chats: spec.AlertTelegramRoutes("deploy_failed")[0].Chats}).ChatNames())
+	assert.Equal(t, []string{"default"}, (TelegramChannel{Chats: spec.AlertTelegramRoutes("sync_failed")[0].Chats}).ChatNames())
 	assert.Equal(t, []string{"deployments"}, (TelegramChannel{Chats: spec.AlertTelegramRoutes("node_disconnected")[0].Chats}).ChatNames())
 }
 
@@ -65,18 +65,18 @@ func TestAlertRouteValidation(t *testing.T) {
 			s.Alerts["default"] = NotificationAlertRoutes{Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default", "default"}}}}
 		}, `duplicate`},
 		{"duplicate physical destination with identical names", func(s *NotificationSpec) {
-			s.Alerts["deploy_failed"] = NotificationAlertRoutes{Telegram: []TelegramAlertChannel{
+			s.Alerts["sync_failed"] = NotificationAlertRoutes{Telegram: []TelegramAlertChannel{
 				{Chats: NotificationChatNames{"default"}},
 				{Chats: NotificationChatNames{"default"}},
 			}}
-		}, `notifications.alerts["deploy_failed"].telegram[1].chats resolves to a duplicate Telegram destination`},
+		}, `notifications.alerts["sync_failed"].telegram[1].chats resolves to a duplicate Telegram destination`},
 		{"duplicate physical destination with different aliases", func(s *NotificationSpec) {
 			s.Messengers.Telegram.Chats["duplicate"] = s.Messengers.Telegram.Chats["default"]
-			s.Alerts["deploy_failed"] = NotificationAlertRoutes{Telegram: []TelegramAlertChannel{
+			s.Alerts["sync_failed"] = NotificationAlertRoutes{Telegram: []TelegramAlertChannel{
 				{Chats: NotificationChatNames{"default"}},
 				{Chats: NotificationChatNames{"duplicate"}},
 			}}
-		}, `notifications.alerts["deploy_failed"].telegram[1].chats resolves to a duplicate Telegram destination`},
+		}, `notifications.alerts["sync_failed"].telegram[1].chats resolves to a duplicate Telegram destination`},
 		{"bad action", func(s *NotificationSpec) {
 			s.Alerts["default"] = NotificationAlertRoutes{Telegram: []TelegramAlertChannel{{Resolved: AlertMessageSpec{Action: "delete"}}}}
 		}, `.resolved.action`},
@@ -88,6 +88,9 @@ func TestAlertRouteValidation(t *testing.T) {
 		}, `.resolved.message`},
 		{"unknown kind", func(s *NotificationSpec) {
 			s.Alerts["wrong"] = NotificationAlertRoutes{Telegram: []TelegramAlertChannel{{}}}
+		}, `unknown alert kind`},
+		{"legacy deploy failed kind", func(s *NotificationSpec) {
+			s.Alerts["deploy_failed"] = NotificationAlertRoutes{Telegram: []TelegramAlertChannel{{}}}
 		}, `unknown alert kind`},
 		{"missing messenger", func(s *NotificationSpec) { s.Messengers.Telegram.BotToken.Content = nil }, `botTokenPath is required`},
 		{"missing fallback chat", func(s *NotificationSpec) { delete(s.Messengers.Telegram.Chats, "default") }, `required for alert fallback`},
@@ -105,7 +108,7 @@ func TestAlertRouteValidation(t *testing.T) {
 func TestAlertRouteValidationAllowsSamePhysicalDestinationForDifferentKinds(t *testing.T) {
 	spec := alertNotificationSpec()
 	spec.Alerts = map[string]NotificationAlertRoutes{
-		"deploy_failed":     {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default"}}}},
+		"sync_failed":       {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default"}}}},
 		"node_disconnected": {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default"}}}},
 	}
 

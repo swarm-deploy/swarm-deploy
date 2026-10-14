@@ -48,8 +48,8 @@ type AlertMessageSpec struct {
 }
 
 const (
-	defaultAlertOpenedTemplate             = "🚨 {{ .Title }}\n{{ .Message }}"
-	defaultDeployFailedAlertOpenedTemplate = `<b>🚨 {{ .Title }}</b>
+	defaultAlertOpenedTemplate           = "🚨 {{ .Title }}\n{{ .Message }}"
+	defaultSyncFailedAlertOpenedTemplate = `<b>🚨 {{ .Title }}</b>
 
 <b>Stack:</b> <code>{{ .ResourceID }}</code>
 
@@ -107,8 +107,8 @@ func (c TelegramAlertChannel) AlertOpenedTemplate(kind string) string {
 	if strings.TrimSpace(c.Opened.Message) != "" {
 		return c.Opened.Message
 	}
-	if kind == string(alertmodel.AlertKindDeployFailed) {
-		return defaultDeployFailedAlertOpenedTemplate
+	if kind == string(alertmodel.AlertKindSyncFailed) {
+		return defaultSyncFailedAlertOpenedTemplate
 	}
 	return defaultAlertOpenedTemplate
 }
@@ -274,7 +274,7 @@ func (c *NotificationSpec) validateTelegramMessenger() []error {
 func (c *NotificationSpec) validateAlertRoutes() []error {
 	var errs []error
 	for kind, routes := range c.Alerts {
-		if kind != "default" && kind != string(alertmodel.AlertKindDeployFailed) &&
+		if kind != "default" && kind != string(alertmodel.AlertKindSyncFailed) &&
 			kind != string(alertmodel.AlertKindNodeDisconnected) {
 			errs = append(errs, fmt.Errorf("notifications.alerts[%q]: unknown alert kind", kind))
 			continue

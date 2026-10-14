@@ -128,7 +128,9 @@ func (l *AlertList) Definition() routing.ToolDefinition {
 			"properties": map[string]any{
 				"status": map[string]any{"type": "string", "enum": []string{"open", "resolved", "all"},
 					"description": "Alert lifecycle state. Defaults to open."},
-				"kind":          map[string]any{"type": "string", "description": "Optional alert kind."},
+				"kind": map[string]any{"type": "string",
+					"enum":        []string{string(alertmodel.AlertKindSyncFailed), string(alertmodel.AlertKindNodeDisconnected)},
+					"description": "Optional alert kind."},
 				"resource_type": map[string]any{"type": "string", "description": "Optional resource type."},
 				"resource_id":   map[string]any{"type": "string", "description": "Optional resource identifier."},
 				"limit": map[string]any{"type": "integer", "minimum": 1, "maximum": maxAlertLimit,

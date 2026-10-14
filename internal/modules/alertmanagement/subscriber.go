@@ -59,17 +59,17 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 	case *events.NodeConnected:
 		return s.handleNode(ctx, event.ID, deployment.NodeID, false)
 	case *events.DeployFailed:
-		return s.handleFailed(ctx, event.ID, deployment.StackName, "Deployment failed",
+		return s.handleFailed(ctx, event.ID, deployment.StackName, "Synchronization failed",
 			deployFailureDetails(deployment), isTemporary(deployment.Error))
 	case *events.DeployPreparationFailed:
-		return s.handleFailed(ctx, event.ID, deployment.StackName, "Deployment failed", failureDetails{
+		return s.handleFailed(ctx, event.ID, deployment.StackName, "Synchronization failed", failureDetails{
 			message:       safeFailureMessage(deployment.Error, deployment.ErrorCode, deployment.Stage),
 			hasDiagnostic: hasUsefulDiagnostic(deployment.Error, deployment.ErrorCode),
 			stage:         deployment.Stage, code: deployment.ErrorCode, commit: deployment.Commit,
 		}, isTemporary(deployment.Error))
 	case *events.DeployInterrupted:
-		return s.handleFailed(ctx, event.ID, deployment.StackName, "Deployment outcome unknown", failureDetails{
-			message:       safeFailureMessage(deployment.Error, deployment.Reason, deployment.Stage),
+		return s.handleFailed(ctx, event.ID, deployment.StackName, "Synchronization outcome unknown", failureDetails{
+			message:       safeUnknownOutcomeMessage(deployment.Error, deployment.Reason, deployment.Stage),
 			hasDiagnostic: hasUsefulDiagnostic(deployment.Error, deployment.Reason),
 			stage:         deployment.Stage, code: deployment.Reason, deploymentID: deployment.DeploymentID,
 			commit: deployment.Commit,
@@ -93,7 +93,7 @@ func (s *Subscriber) handleConfigurationChanged(ctx context.Context, eventID str
 	desiredFingerprints := make([]string, 0)
 	for _, stack := range s.stacks.Stacks() {
 		desired[stack.Name] = struct{}{}
-		desiredFingerprints = append(desiredFingerprints, model.DeployFailedFingerprint(stack.Name))
+		desiredFingerprints = append(desiredFingerprints, model.SyncFailedFingerprint(stack.Name))
 	}
 	if err := s.store.ResetFailureStreaksExcept(ctx, desiredFingerprints); err != nil {
 		return fmt.Errorf("reset deployment failure streaks for removed stacks: %w", err)
@@ -139,7 +139,7 @@ type failureDetails struct {
 func (s *Subscriber) handleFailed(
 	ctx context.Context, eventID, stackName, title string, details failureDetails, temporary bool,
 ) error {
-	fingerprint := model.DeployFailedFingerprint(stackName)
+	fingerprint := model.SyncFailedFingerprint(stackName)
 	if s.stackRemoved(stackName) {
 		if err := s.store.ResetFailureStreak(ctx, fingerprint); err != nil {
 			return fmt.Errorf("reset deployment failure streak for removed stack: %w", err)
@@ -178,7 +178,7 @@ func (s *Subscriber) handleFailed(
 	}
 
 	alert = model.Alert{
-		ID: s.newID(), Fingerprint: fingerprint, Kind: model.AlertKindDeployFailed,
+		ID: s.newID(), Fingerprint: fingerprint, Kind: model.AlertKindSyncFailed,
 		ResourceType: model.ResourceTypeStack, ResourceID: stackName,
 		Status: model.AlertStatusOpen, Title: title, Message: details.message,
 		FailureStage: details.stage, ErrorCode: details.code,
@@ -237,7 +237,7 @@ func (s *Subscriber) updateConcurrentFailure(
 }
 
 func (s *Subscriber) handleSucceeded(ctx context.Context, eventID string, event *events.DeploySuccess) error {
-	fingerprint := model.DeployFailedFingerprint(event.StackName)
+	fingerprint := model.SyncFailedFingerprint(event.StackName)
 	if err := s.store.ResetFailureStreak(ctx, fingerprint); err != nil {
 		return fmt.Errorf("reset deployment failure streak: %w", err)
 	}
@@ -254,7 +254,7 @@ func (s *Subscriber) handleSucceeded(ctx context.Context, eventID string, event 
 	alert.ResolvedAt = &now
 	alert.Resolution = &model.AlertResolution{
 		Reason:  model.ResolutionReasonRecovered,
-		Message: "Deployment completed successfully",
+		Message: "Synchronization completed successfully",
 		EventID: eventReferenceID(eventID, s.newID),
 	}
 	if err = s.store.Update(ctx, alert); err != nil {
@@ -322,5 +322,17 @@ func safeFailureMessage(err error, code, stage string) string {
 	if stage == "" {
 		stage = "an unknown stage"
 	}
-	return fmt.Sprintf("Deployment failed during %s. No detailed diagnostic was recorded.", stage)
+	return fmt.Sprintf("Synchronization failed during %s. No detailed diagnostic was recorded.", stage)
+}
+
+func safeUnknownOutcomeMessage(err error, code, stage string) string {
+	if diagnostic := faults.SafeDiagnostic(err); diagnostic != "" && diagnostic != code {
+		return diagnostic
+	}
+	if stage == "" {
+		stage = "an unknown stage"
+	}
+	return fmt.Sprintf(
+		"Deployment outcome is unknown after interruption during %s. No detailed diagnostic was recorded.", stage,
+	)
 }

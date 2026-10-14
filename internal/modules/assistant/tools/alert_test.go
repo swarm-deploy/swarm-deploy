@@ -18,17 +18,17 @@ func TestAlertListFiltersDefaultsAndRepresentations(t *testing.T) {
 	now := time.Date(2026, time.October, 11, 12, 0, 0, 0, time.UTC)
 	resolvedAt := now.Add(time.Minute)
 	alerts := []alertmodel.Alert{
-		{ID: "open-stack", Fingerprint: "deploy_failed:stack:api", Kind: alertmodel.AlertKindDeployFailed,
+		{ID: "open-stack", Fingerprint: "sync_failed:stack:api", Kind: alertmodel.AlertKindSyncFailed,
 			ResourceType: alertmodel.ResourceTypeStack, ResourceID: "api", Status: alertmodel.AlertStatusOpen,
-			Title: "Deployment failed", Message: "apply failed", FailureStage: "apply", ErrorCode: "apply_failed",
+			Title: "Synchronization failed", Message: "apply failed", FailureStage: "apply", ErrorCode: "apply_failed",
 			Commit: "abc", Occurrences: 2, OpenedAt: now, UpdatedAt: now,
 			OpenEventID: "event-open", LatestEventID: "event-latest"},
 		{ID: "open-node", Fingerprint: "node_disconnected:node:node-1", Kind: alertmodel.AlertKindNodeDisconnected,
 			ResourceType: alertmodel.ResourceTypeNode, ResourceID: "node-1", Status: alertmodel.AlertStatusOpen,
 			Title: "Node disconnected", Occurrences: 1, OpenedAt: now, UpdatedAt: now.Add(time.Second)},
-		{ID: "resolved-stack", Fingerprint: "deploy_failed:stack:web", Kind: alertmodel.AlertKindDeployFailed,
+		{ID: "resolved-stack", Fingerprint: "sync_failed:stack:web", Kind: alertmodel.AlertKindSyncFailed,
 			ResourceType: alertmodel.ResourceTypeStack, ResourceID: "web", Status: alertmodel.AlertStatusResolved,
-			Title: "Deployment failed", DeploymentID: "deployment-1", Occurrences: 1, OpenedAt: now,
+			Title: "Synchronization failed", DeploymentID: "deployment-1", Occurrences: 1, OpenedAt: now,
 			UpdatedAt: resolvedAt, ResolvedAt: &resolvedAt,
 			Resolution: &alertmodel.AlertResolution{Reason: alertmodel.ResolutionReasonRecovered, Message: "recovered"}},
 	}
@@ -44,7 +44,7 @@ func TestAlertListFiltersDefaultsAndRepresentations(t *testing.T) {
 	}{
 		{name: "default open", request: alertListRequest{}, wantIDs: []string{"open-node", "open-stack"}},
 		{name: "resolved", request: alertListRequest{Status: "resolved"}, wantIDs: []string{"resolved-stack"}},
-		{name: "all kind", request: alertListRequest{Status: "all", Kind: string(alertmodel.AlertKindDeployFailed)},
+		{name: "all kind", request: alertListRequest{Status: "all", Kind: string(alertmodel.AlertKindSyncFailed)},
 			wantIDs: []string{"resolved-stack", "open-stack"}},
 		{name: "resource type", request: alertListRequest{ResourceType: string(alertmodel.ResourceTypeNode)},
 			wantIDs: []string{"open-node"}},
@@ -74,10 +74,10 @@ func TestAlertListFiltersDefaultsAndRepresentations(t *testing.T) {
 		"alerts": [{
 			"id": "resolved-stack",
 			"status": "resolved",
-			"kind": "deploy_failed",
+			"kind": "sync_failed",
 			"resource_type": "stack",
 			"resource_id": "web",
-			"title": "Deployment failed",
+			"title": "Synchronization failed",
 			"updated_at": "2026-10-11T12:01:00Z",
 			"deployment_id": "deployment-1"
 		}]
@@ -102,12 +102,12 @@ func TestAlertListFiltersDefaultsAndRepresentations(t *testing.T) {
 	assert.JSONEq(t, `{
 		"alert": {
 			"id": "open-stack",
-			"fingerprint": "deploy_failed:stack:api",
-			"kind": "deploy_failed",
+			"fingerprint": "sync_failed:stack:api",
+			"kind": "sync_failed",
 			"resource_type": "stack",
 			"resource_id": "api",
 			"status": "open",
-			"title": "Deployment failed",
+			"title": "Synchronization failed",
 			"message": "apply failed",
 			"failure_stage": "apply",
 			"error_code": "apply_failed",

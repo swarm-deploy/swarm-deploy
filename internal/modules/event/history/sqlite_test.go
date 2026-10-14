@@ -191,11 +191,8 @@ func TestSQLiteProjectionSelectionIdempotenceAndRollback(t *testing.T) {
 	}
 	entries, err = repo.Read(ctx)
 	require.NoError(t, err)
-	require.Len(t, entries, 2)
+	require.Len(t, entries, 1)
 	assert.Equal(t, "joined", entries[0].ID)
-	assert.Equal(t, events.TypeSyncFailed, entries[1].Type)
-	assert.Equal(t, "failed", entries[1].Details["status"])
-	assert.Equal(t, "apply_failed", entries[1].Details["error_code"])
 	for i, id := range []string{"next", "last"} {
 		e.ID = id
 		e.PublicationSequence = int64(i + 3)
@@ -207,7 +204,7 @@ func TestSQLiteProjectionSelectionIdempotenceAndRollback(t *testing.T) {
 	assert.Equal(t, "next", entries[0].ID)
 }
 
-func TestDeploymentFailuresProjectToIdempotentSyncFailedHistoryEntries(t *testing.T) {
+func TestDeploymentFailuresAreExcludedFromEventHistory(t *testing.T) {
 	db, err := storage.Open(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
@@ -215,19 +212,18 @@ func TestDeploymentFailuresProjectToIdempotentSyncFailedHistoryEntries(t *testin
 	require.NoError(t, err)
 	at := time.Date(2026, time.October, 13, 12, 0, 0, 0, time.UTC)
 	failures := []struct {
-		id     string
-		status string
-		event  events.Event
+		id    string
+		event events.Event
 	}{
-		{id: "deploy", status: "failed", event: &events.DeployFailed{
+		{id: "deploy", event: &events.DeployFailed{
 			DeployEvent: events.DeployEvent{DeploymentID: "deployment-1", StackName: "app", Commit: "sha"},
 			Error:       errors.New("token=private apply rejected"), ErrorCode: "apply_failed", Stage: "apply",
 		}},
-		{id: "prepare", status: "preparation_failed", event: &events.DeployPreparationFailed{
+		{id: "prepare", event: &events.DeployPreparationFailed{
 			StackName: "app", Commit: "sha", Error: errors.New("token=private invalid compose"),
 			ErrorCode: "preparation_failed", Stage: "validation",
 		}},
-		{id: "interrupted", status: "interrupted", event: &events.DeployInterrupted{
+		{id: "interrupted", event: &events.DeployInterrupted{
 			DeploymentID: "deployment-2", StackName: "app", Commit: "sha",
 			Error: errors.New("token=private interrupted"), Reason: "process_interrupted", Stage: "apply",
 		}},
@@ -243,15 +239,7 @@ func TestDeploymentFailuresProjectToIdempotentSyncFailedHistoryEntries(t *testin
 
 	entries, err := repo.Read(t.Context())
 	require.NoError(t, err)
-	require.Len(t, entries, len(failures))
-	for index, entry := range entries {
-		assert.Equal(t, failures[index].id, entry.ID)
-		assert.Equal(t, events.TypeSyncFailed, entry.Type)
-		assert.Equal(t, failures[index].status, entry.Details["status"])
-		assert.Equal(t, at.Add(time.Duration(index)*time.Second), entry.CreatedAt)
-		assert.Contains(t, entry.Details["error"], "token=****")
-		assert.NotContains(t, entry.Details["error"], "private")
-	}
+	assert.Empty(t, entries)
 }
 
 func TestSQLiteRetentionUsesPublicationOrderAcrossDelayedDeliveries(t *testing.T) {

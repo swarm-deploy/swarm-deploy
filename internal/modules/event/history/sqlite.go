@@ -11,7 +11,6 @@ import (
 	"github.com/doug-martin/goqu/v9/exp"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
 
@@ -64,10 +63,9 @@ func (s *SQLStore) Name() string { return "event-history" }
 func (s *SQLStore) Handle(ctx context.Context, e events.Envelope) error {
 	switch e.Event.Type() {
 	case events.TypeConfigurationChanged, events.TypeServiceCatalogUpdated,
-		events.TypeNodeDisconnected:
+		events.TypeNodeDisconnected, events.TypeDeployFailed,
+		events.TypeDeployPreparationFailed, events.TypeDeployInterrupted:
 		return nil
-	case events.TypeDeployFailed, events.TypeDeployPreparationFailed, events.TypeDeployInterrupted:
-		e.Event = syncFailure(e.Event)
 	}
 	if e.ID == "" || e.OccurredAt.IsZero() || e.PublicationSequence <= 0 {
 		return fmt.Errorf("history requires a persisted event ID, publication time and sequence")
@@ -99,31 +97,6 @@ func (s *SQLStore) Handle(ctx context.Context, e events.Envelope) error {
 		_, pruneErr := s.db.Exec(ctx, query, args...)
 		return pruneErr
 	})
-}
-
-func syncFailure(event events.Event) *events.SyncFailed {
-	switch failure := event.(type) {
-	case *events.DeployFailed:
-		return &events.SyncFailed{
-			DeploymentID: failure.DeploymentID, StackName: failure.StackName, Commit: failure.Commit,
-			Services: failure.Services, Status: "failed", ErrorCode: failure.ErrorCode, Stage: failure.Stage,
-			Diagnostic: faults.SafeDiagnostic(failure.Error),
-		}
-	case *events.DeployPreparationFailed:
-		return &events.SyncFailed{
-			StackName: failure.StackName, Commit: failure.Commit, Services: failure.Services,
-			Status: "preparation_failed", ErrorCode: failure.ErrorCode, Stage: failure.Stage,
-			Diagnostic: faults.SafeDiagnostic(failure.Error),
-		}
-	case *events.DeployInterrupted:
-		return &events.SyncFailed{
-			DeploymentID: failure.DeploymentID, StackName: failure.StackName, Commit: failure.Commit,
-			Services: failure.Services, Status: "interrupted", ErrorCode: failure.Reason, Stage: failure.Stage,
-			Diagnostic: faults.SafeDiagnostic(failure.Error),
-		}
-	default:
-		return nil
-	}
 }
 
 func (s *SQLStore) insert(ctx context.Context, entry Entry, publicationSequence int64) error {

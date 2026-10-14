@@ -120,8 +120,6 @@ func Decode(typ events.TypeName, version int, payload []byte) (events.Event, err
 		return decodeAs(payload, func(p deployPayload) events.Event {
 			return &events.DeploySuccess{DeployEvent: p.deployment()}
 		})
-	case events.TypeNameSyncFailed:
-		return decodeAs(payload, func(p syncFailurePayload) events.Event { return p.event() })
 	case events.TypeNameNodeJoined:
 		return decodeAs(payload, func(p nodePayload) events.Event {
 			return &events.NodeJoined{NodeID: p.ID, NodeName: p.Name, Role: p.Role}
@@ -289,44 +287,6 @@ type deploymentFailurePayload struct {
 	Temporary bool `json:"temporary"`
 	// Services contains only service names and images.
 	Services []servicePayload `json:"services"`
-}
-
-type syncFailurePayload struct {
-	DeploymentID string           `json:"deployment_id,omitempty"`
-	Stack        string           `json:"stack"`
-	Commit       string           `json:"commit"`
-	Status       string           `json:"status"`
-	Code         string           `json:"code"`
-	Stage        string           `json:"stage,omitempty"`
-	Diagnostic   string           `json:"diagnostic,omitempty"`
-	Services     []servicePayload `json:"services"`
-}
-
-func encodeSyncFailure(event *events.SyncFailed) ([]byte, error) {
-	if event.Status != "failed" && event.Status != "preparation_failed" && event.Status != "interrupted" {
-		return nil, errors.New("unsupported synchronization failure status")
-	}
-	payload := syncFailurePayload{
-		DeploymentID: event.DeploymentID, Stack: event.StackName, Commit: event.Commit,
-		Status: event.Status, Code: event.ErrorCode, Stage: event.Stage,
-		Diagnostic: faults.SafeDiagnostic(errors.New(event.Diagnostic)),
-		Services:   make([]servicePayload, 0, len(event.Services)),
-	}
-	for _, service := range event.Services {
-		payload.Services = append(payload.Services, servicePayload{Name: service.Name, Image: service.Image})
-	}
-	return json.Marshal(payload)
-}
-
-func (p syncFailurePayload) event() events.Event {
-	event := &events.SyncFailed{
-		DeploymentID: p.DeploymentID, StackName: p.Stack, Commit: p.Commit,
-		Status: p.Status, ErrorCode: p.Code, Stage: p.Stage, Diagnostic: p.Diagnostic,
-	}
-	for _, service := range p.Services {
-		event.Services = append(event.Services, compose.Service{Name: service.Name, Image: service.Image})
-	}
-	return event
 }
 
 func (p deploymentFailurePayload) services() []compose.Service {

@@ -25,7 +25,6 @@ newly persisted events.
 | Type                               | Severity | Category   | Trigger                             | Details keys                                                 |
 |------------------------------------|----------|------------|-------------------------------------|--------------------------------------------------------------|
 | `DeploySuccess`                    | `info`   | `sync`     | Successful stack deployment         | `stack_name`, `commit`, `deployment_id`, `status`             |
-| `SyncFailed`                       | `error`  | `sync`     | Synchronization failed before, during, or after apply | `stack_name`, `commit`, `deployment_id`, `status`, `error_code`, `stage`, `error` (if present) |
 | `ServicePruned`                    | `info`   | `sync`     | Orphaned managed service was removed | `stack_name`, `service_name`, `commit`                       |
 | `NetworkCreated`                   | `info`   | `sync`     | Managed network was created          | `network_name`, `network_id`, `driver`                       |
 | `SendNotificationFailed`           | `error`  | `sync`     | Notification delivery failure       | `destination`, `channel`, `event_type`, `error` (if present) |
@@ -42,13 +41,13 @@ newly persisted events.
 | `AssistantPromptInjectionDetected` | `alert`  | `security` | Assistant prompt injection detected | `detector`, `prompt` (if present), `username` (if present)   |
 
 Selected user-visible events are stored in
-`event_history` in `<dataDir>/swarm-deploy.sqlite`. Internal deployment failure facts are
-projected as `SyncFailed`; `NodeDisconnected` records remain alert inputs and are excluded from history. SQLite migration
+`event_history` in `<dataDir>/swarm-deploy.sqlite`. Internal deployment failure facts and
+`NodeDisconnected` records remain alert inputs and are excluded from history. SQLite migration
 `0003_pascalcase_event_types.sql` updates retained event identifiers to PascalCase.
 The table above describes public event types, not a promise that every
 signal appears in user history. `DeployFailed`, preparation failures, and interrupted attempts are internal
 deployment lifecycle facts consumed by Deployment Model and Alert Management; they are
-not public event names. All three share the single public `SyncFailed` projection and notification contract.
+not public event names and are not available under `notifications.events`.
 Deployment failures and node disconnections feed Alert Management,
 and success/reconnection resolves the respective open incident. New SQLite history records use the safe event codec,
 which omits raw prompts, logs and error strings.
@@ -96,9 +95,8 @@ Config example:
 eventHistory:
   capacity: 500
 ```
-Deployment notifications use PascalCase event type identifiers. A `SyncFailed`
-notification receives apply failures, preparation failures, and interrupted attempts, with safe
-stack/revision/category data. Durable payloads intentionally
+Event notifications use PascalCase event type identifiers. Synchronization failures are delivered
+through the `sync_failed` alert lifecycle instead of Event Notifications. Durable payloads intentionally
 omit raw Compose, environment, logs, arbitrary errors and assistant prompts.
 `SendNotificationFailed` has no runtime publisher;
 delivery diagnostics live in outbox status/metrics rather than recursive notifications.

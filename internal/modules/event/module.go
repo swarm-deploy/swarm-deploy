@@ -64,11 +64,6 @@ func InitModule(ctx context.Context, cfg *config.Config, cnt Container) (*Module
 	if err = srv.subscribeOnAllEvents("event-history", historyStore); err != nil {
 		return nil, err
 	}
-	for _, typ := range deploymentFailureEventTypes() {
-		if err = srv.Dispatcher.Subscribe(typ, "event-history", historyStore); err != nil {
-			return nil, err
-		}
-	}
 	if err = srv.subscribeOnAllEvents("event-metrics", eventmetrics.NewSubscriber(cnt.GetMetrics().Events)); err != nil {
 		return nil, err
 	}
@@ -95,17 +90,16 @@ func (s *Module) initNotificationSubscribers(ctx context.Context) error {
 			return fmt.Errorf("unknown notifications.events event type %q", eventTypeName)
 		}
 
-		targetTypes := notificationEventTypes(eventTypeName)
 		defaultTemplate, ok := notify2.StandardTemplate(eventTypeName)
 		if !ok {
 			return fmt.Errorf("notification template is not defined for event type %q", eventTypeName)
 		}
-		count, err := s.registerTelegramNotifications(targetTypes, channels.Telegram, defaultTemplate)
+		count, err := s.registerTelegramNotifications([]events.TypeName{eventTypeName}, channels.Telegram, defaultTemplate)
 		if err != nil {
 			return err
 		}
 		subscribersCount += count
-		count, err = s.registerCustomNotifications(targetTypes, channels.Custom)
+		count, err = s.registerCustomNotifications([]events.TypeName{eventTypeName}, channels.Custom)
 		if err != nil {
 			return err
 		}
@@ -176,21 +170,6 @@ func (s *Module) registerCustomNotifications(types []events.TypeName, channels [
 		}
 	}
 	return count, nil
-}
-
-func notificationEventTypes(configured events.TypeName) []events.TypeName {
-	if configured == events.TypeNameSyncFailed {
-		return deploymentFailureEventTypes()
-	}
-	return []events.TypeName{configured}
-}
-
-func deploymentFailureEventTypes() []events.TypeName {
-	return []events.TypeName{
-		events.TypeNameDeployFailed,
-		events.TypeNameDeployPreparationFailed,
-		events.TypeNameDeployInterrupted,
-	}
 }
 
 func (s *Module) subscribeOnAllEvents(id string, subscriber dispatcher.Subscriber) error {

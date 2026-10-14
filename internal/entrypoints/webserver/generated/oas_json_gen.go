@@ -427,8 +427,8 @@ func (s *AlertKind) Decode(d *jx.Decoder) error {
 	}
 	// Try to use constant string.
 	switch AlertKind(v) {
-	case AlertKindDeployFailed:
-		*s = AlertKindDeployFailed
+	case AlertKindSyncFailed:
+		*s = AlertKindSyncFailed
 	case AlertKindNodeDisconnected:
 		*s = AlertKindNodeDisconnected
 	default:

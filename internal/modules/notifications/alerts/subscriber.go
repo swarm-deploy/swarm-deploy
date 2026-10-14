@@ -22,8 +22,8 @@ import (
 )
 
 const (
-	telegramMessageLimit           = 4096
-	deploymentFailedErrorTruncated = "\n\n[error truncated]"
+	telegramMessageLimit     = 4096
+	syncFailedErrorTruncated = "\n\n[error truncated]"
 )
 
 // SubscriptionID identifies one physical destination across configuration alias changes.
@@ -144,8 +144,8 @@ func (s *Subscriber) opened(ctx context.Context, alert events.AlertSnapshot) err
 	rule := s.rule(alert.Kind)
 	payload := alert
 	parseMode := ""
-	if alert.Kind == string(alertmodel.AlertKindDeployFailed) && strings.TrimSpace(rule.Opened.Message) == "" {
-		payload = defaultDeploymentFailedPayload(alert)
+	if alert.Kind == string(alertmodel.AlertKindSyncFailed) && strings.TrimSpace(rule.Opened.Message) == "" {
+		payload = defaultSyncFailedPayload(alert)
 		parseMode = "HTML"
 	}
 	notifier, err := s.notifier(rule.AlertOpenedTemplate(alert.Kind), parseMode)
@@ -261,12 +261,12 @@ func (s *Subscriber) notifier(message, parseMode string) (notifiers.Notifier, er
 			SOCKS5Address: telegram.Proxy.SOCKS5.Address.Value, APIBaseURL: s.apiBaseURL})
 }
 
-func defaultDeploymentFailedPayload(alert events.AlertSnapshot) events.AlertSnapshot {
+func defaultSyncFailedPayload(alert events.AlertSnapshot) events.AlertSnapshot {
 	header := "🚨 " + alert.Title + "\n\nStack: " + alert.ResourceID + "\n\nError:\n"
 	available := telegramMessageLimit - telegramTextLength(header)
 	alert.Title = html.EscapeString(alert.Title)
 	alert.ResourceID = html.EscapeString(alert.ResourceID)
-	alert.Message = html.EscapeString(truncateTelegramText(alert.Message, available, deploymentFailedErrorTruncated))
+	alert.Message = html.EscapeString(truncateTelegramText(alert.Message, available, syncFailedErrorTruncated))
 	return alert
 }
 

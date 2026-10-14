@@ -18,12 +18,9 @@ import (
 	alertstore "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	eventhistory "github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
-	eventnotifications "github.com/swarm-deploy/swarm-deploy/internal/modules/event/notifications"
-	eventnotify "github.com/swarm-deploy/swarm-deploy/internal/modules/event/notify"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/notifiers"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
@@ -185,22 +182,6 @@ func TestImagePolicyViolationLifecycle(t *testing.T) {
 	require.NoError(t, bus.Subscribe(events.TypeNameDeploySuccess, "event-history", history))
 
 	ctrl := gomock.NewController(t)
-	notifier := notifiers.NewMockNotifier(ctrl)
-	notificationIDs := make([]string, 0, 2)
-	notifier.EXPECT().Notify(gomock.Any(), gomock.Any()).DoAndReturn(
-		func(_ context.Context, message notifiers.Message) (notifiers.Receipt, error) {
-			payload, ok := message.Payload.(eventnotifications.DeploymentPayload)
-			require.True(t, ok)
-			assert.Equal(t, string(events.TypeNameSyncFailed), payload.Type)
-			assert.Equal(t, eventnotifications.StatusPreparationFailed, payload.Status)
-			assert.Equal(t, "validation", payload.Stage)
-			notificationIDs = append(notificationIDs, payload.ID)
-			return notifiers.Receipt{}, nil
-		},
-	).Times(2)
-	require.NoError(t, bus.Subscribe(events.TypeNameDeployPreparationFailed, "notification:sync-failed",
-		outbox.External(eventnotify.NewSubscriber(notifier))))
-
 	repository := gitx.NewMockRepository(ctrl)
 	stackDeployer := deployer.NewMockStackDeployer(ctrl)
 	serviceManager := swarm.NewMockServiceManager(ctrl)
@@ -233,10 +214,7 @@ func TestImagePolicyViolationLifecycle(t *testing.T) {
 	assert.Empty(t, deployments.Deployments, "policy rejection must happen before attempt creation")
 	historyEntries, err := history.Read(ctx)
 	require.NoError(t, err)
-	require.Len(t, historyEntries, 1)
-	assert.Equal(t, events.TypeSyncFailed, historyEntries[0].Type)
-	assert.Equal(t, "preparation_failed", historyEntries[0].Details["status"])
-	assert.Equal(t, "validation", historyEntries[0].Details["stage"])
+	assert.Empty(t, historyEntries, "preparation failures must remain alert-only")
 
 	require.Error(t, reconciler.Reconcile(ctx, ReconciliationRequest{
 		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "sha",
@@ -248,12 +226,7 @@ func TestImagePolicyViolationLifecycle(t *testing.T) {
 	assert.Equal(t, uint64(2), stored[0].Occurrences)
 	historyEntries, err = history.Read(ctx)
 	require.NoError(t, err)
-	require.Len(t, historyEntries, 2, "each failed synchronization must have one history entry")
-	require.Len(t, notificationIDs, 2, "each failed synchronization must send one notification")
-	assert.NotEqual(t, historyEntries[0].ID, historyEntries[1].ID)
-	assert.NotEqual(t, notificationIDs[0], notificationIDs[1])
-	assert.Equal(t, historyEntries[0].ID, notificationIDs[0], "history and notification must project one source event")
-	assert.Equal(t, historyEntries[1].ID, notificationIDs[1], "history and notification must project one source event")
+	assert.Empty(t, historyEntries, "repeated preparation failures must remain alert-only")
 
 	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "app.yaml"),
 		[]byte("services:\n  api:\n    image: nginx:1.27\n"), 0o600))
@@ -275,8 +248,8 @@ func TestImagePolicyViolationLifecycle(t *testing.T) {
 	assert.Equal(t, deployment.Succeeded, deployments.Deployments[0].Status)
 	historyEntries, err = history.Read(ctx)
 	require.NoError(t, err)
-	require.Len(t, historyEntries, 3)
-	assert.Equal(t, events.TypeDeploySuccess, historyEntries[2].Type)
+	require.Len(t, historyEntries, 1)
+	assert.Equal(t, events.TypeDeploySuccess, historyEntries[0].Type)
 }
 
 func TestImagePolicyDisabledPreservesDeployment(t *testing.T) {

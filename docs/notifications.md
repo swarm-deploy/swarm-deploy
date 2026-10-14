@@ -10,7 +10,7 @@ The removed `notifications.on` key is rejected; no compatibility alias is provid
 
 ## Alert lifecycle
 
-Alert Management currently creates `deploy_failed` and `node_disconnected` alerts.
+Alert Management currently creates `sync_failed` and `node_disconnected` alerts.
 Use those exact keys under `notifications.alerts`; `default` is the fallback rule.
 A kind rule replaces `alerts.default`, and an omitted `alerts.default` selects built-in
 opened and resolved messages in Telegram chat `default`. Configuring Telegram requires
@@ -33,7 +33,7 @@ Alert templates use the shared Go template renderer. The typed fields at the roo
 `ResolvedAt` (`*time.Time`), `Resolution` and `ResolutionReason`.
 For example, `{{ .ResourceID }}` is valid; `.alert.Title` and `.event.StackName` are not.
 Custom opened and resolved templates are validated when configuration loads, with the
-exact path such as `notifications.alerts["deploy_failed"].telegram[0].resolved.message`
+exact path such as `notifications.alerts["sync_failed"].telegram[0].resolved.message`
 in an error.
 
 The internal `AlertOpened` and `AlertResolved` transitions join the SQLite transaction
@@ -61,7 +61,6 @@ models. Public fields use Go names and are available at the template root:
 ```gotemplate
 {{ .Status }}
 {{ .StackName }}
-{{ if .Error }}error: {{ .Error }}{{ else }}no error{{ end }}
 {{ range .Services }}{{ .Name }}: {{ .Image }}{{ end }}
 ```
 
@@ -70,7 +69,7 @@ All payloads have `ID`, `Type`, and `OccurredAt` (`time.Time`, UTC). Most also p
 
 | Event types | Payload fields |
 | --- | --- |
-| `DeploySuccess`, `SyncFailed` | `ID`, `DeploymentID`, `Type`, `Status`, `StackName`, `Services` (`Name`, `Image`), `Commit`, `Error`, `ErrorCode`, `Stage`, `OccurredAt` |
+| `DeploySuccess` | `ID`, `DeploymentID`, `Type`, `Status`, `StackName`, `Services` (`Name`, `Image`), `Commit`, `OccurredAt` |
 | `NodeJoined`, `NodeConnected`, `NodeDisconnected` | `ID`, `Type`, `NodeID`, `NodeName`, `Role`, `Status`, `Message`, `OccurredAt` |
 | `ServiceMissed`, `ServicePruned`, `ServiceReplicasIncreased`, `ServiceReplicasDecreased`, `ServiceRestarted` | `ID`, `Type`, `StackName`, `ServiceName`, `Commit`, `Username`, `PreviousReplicas`, `CurrentReplicas`, `Message`, `OccurredAt` |
 | `ServiceCatalogUpdated`, `SyncManualStarted`, `WebhookReceived`, `NetworkCreated` | `ID`, `Type`, `StackName`, `Username`, `Queued`, `NetworkName`, `NetworkID`, `Driver`, `Message`, `OccurredAt` |
@@ -98,11 +97,9 @@ The former `.TriggeredBy` template field and `triggered_by` JSON field have been
 removed; manual synchronization templates must use `.Username`. The obsolete
 `stack` and `service` aliases are not available in notification JSON.
 
-`SyncFailed` covers the complete synchronization-failure lifecycle. It receives ordinary
-failures (`Status == "failed"`), preparation failures
-(`"preparation_failed"`), and interrupted attempts (`"interrupted"`). Fields that do not
-apply to a state have their Go zero value: strings are empty, numeric values are zero,
-slices may be empty. Test optional fields with `if` before rendering them.
+`DeployFailed`, `DeployPreparationFailed`, and `DeployInterrupted` are internal lifecycle
+events. They cannot be configured under `notifications.events`; synchronization failures
+open or update the `sync_failed` alert and use Alert Notifications instead.
 
 ## Date formatting
 
@@ -119,14 +116,14 @@ server timezone. If a future or source-specific contract exposes a nullable time
 
 ## Validation and runtime errors
 
-Every custom template is parsed and executed against representative payloads while the
-configuration is loaded. `SyncFailed` is checked against all three failure states.
+Every custom template is parsed and executed against a representative payload while the
+configuration is loaded.
 Unknown fields, invalid functions, syntax errors, and execution errors reject the entire
 configuration before modules are initialized. The error includes the event type and YAML
 path, for example:
 
 ```text
-notifications.events["SyncFailed"].telegram[0].message: invalid template: execute template: template: notification:1:3: executing "notification" at <.Stack>: can't evaluate field Stack in type notifications.Payload
+notifications.events["DeploySuccess"].telegram[0].message: invalid template: execute template: template: notification:1:3: executing "notification" at <.Stack>: can't evaluate field Stack in type notifications.DeploymentPayload
 ```
 
 The current application loads configuration only at startup; there is no hot-reload path.
@@ -173,12 +170,12 @@ notifications:
           resolved:
             action: reply
             message: "✅ {{ .Title }}: {{ .Resolution }}"
-    deploy_failed:
+    sync_failed:
       telegram:
         - chats: deployments
           opened:
-            message: "🔴 Deployment failed: {{ .ResourceID }}"
+            message: "🔴 Synchronization failed: {{ .ResourceID }}"
           resolved:
             action: edit
-            message: "✅ Deployment recovered: {{ .ResourceID }}"
+            message: "✅ Synchronization recovered: {{ .ResourceID }}"
 ```

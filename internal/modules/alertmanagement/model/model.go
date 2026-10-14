@@ -4,7 +4,7 @@ import "time"
 
 type AlertKind string
 
-const AlertKindDeployFailed AlertKind = "deploy_failed"
+const AlertKindSyncFailed AlertKind = "sync_failed"
 const AlertKindNodeDisconnected AlertKind = "node_disconnected"
 
 type ResourceType string
@@ -76,7 +76,7 @@ type Alert struct {
 	Resolution *AlertResolution `json:"resolution,omitempty"`
 }
 
-// DeployFailedFingerprint returns the correlation key for a stack deployment failure.
-func DeployFailedFingerprint(stackID string) string {
-	return string(AlertKindDeployFailed) + ":" + string(ResourceTypeStack) + ":" + stackID
+// SyncFailedFingerprint returns the correlation key for a stack synchronization failure.
+func SyncFailedFingerprint(stackID string) string {
+	return string(AlertKindSyncFailed) + ":" + string(ResourceTypeStack) + ":" + stackID
 }

@@ -50,6 +50,8 @@ func TestSubscriberDeploymentLifecycle(t *testing.T) {
 	firstID := alerts[0].ID
 	openedAt := alerts[0].OpenedAt
 	assert.Equal(t, model.AlertStatusOpen, alerts[0].Status, "alert should be open")
+	assert.Equal(t, model.AlertKindSyncFailed, alerts[0].Kind)
+	assert.Equal(t, "sync_failed:stack:api", alerts[0].Fingerprint)
 	assert.Equal(t, uint64(1), alerts[0].Occurrences, "first occurrence")
 	assert.Equal(t, "image missing", alerts[0].Message, "failure detail")
 	assert.Equal(t, "apply", alerts[0].FailureStage)
@@ -81,7 +83,7 @@ func TestSubscriberDeploymentLifecycle(t *testing.T) {
 	require.Len(t, resolved, 1, "incident should be resolved")
 	assert.Equal(t, openedAt, resolved[0].OpenedAt, "closing an incident must preserve the opening time")
 	assert.Equal(t, model.ResolutionReasonRecovered, resolved[0].Resolution.Reason, "resolution reason")
-	assert.Equal(t, "Deployment completed successfully", resolved[0].Resolution.Message, "resolution message")
+	assert.Equal(t, "Synchronization completed successfully", resolved[0].Resolution.Message, "resolution message")
 	assert.Equal(t, "success-1", resolved[0].Resolution.EventID, "recovery event reference")
 
 	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "failure-3", Event: &events.DeployFailed{
@@ -127,7 +129,7 @@ func TestSubscriberGenericPreparationFailureUsesHonestFallback(t *testing.T) {
 	alerts, err := store.List(ctx, modelstore.ListFilter{})
 	require.NoError(t, err)
 	require.Len(t, alerts, 1)
-	assert.Equal(t, "Deployment failed during validation. No detailed diagnostic was recorded.", alerts[0].Message)
+	assert.Equal(t, "Synchronization failed during validation. No detailed diagnostic was recorded.", alerts[0].Message)
 	assert.Empty(t, alerts[0].DeploymentID)
 }
 
@@ -173,7 +175,11 @@ func TestInterruptedAlertKeepsUnknownOutcomeAndResolvesOnSuccess(t *testing.T) {
 	open, err := store.List(ctx, modelstore.ListFilter{Status: model.AlertStatusOpen})
 	require.NoError(t, err)
 	require.Len(t, open, 1)
-	assert.Equal(t, "Deployment outcome unknown", open[0].Title)
+	assert.Equal(t, "Synchronization outcome unknown", open[0].Title)
+	assert.Equal(t,
+		"Deployment outcome is unknown after interruption during an unknown stage. No detailed diagnostic was recorded.",
+		open[0].Message,
+	)
 	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "success", Event: &events.DeploySuccess{
 		DeployEvent: events.DeployEvent{StackName: "app"},
 	}}))
