@@ -96,13 +96,3 @@ Deployment completion and its Outbox publication commit atomically. Event Histor
 Alerts, Recommendations and other subscribers process that publication later in
 separate transactions. A successful Deployment means that the apply pipeline
 completed; it does not mean that live Swarm convergence was verified.
-
-## Outbox operations
-
-The `sd` CLI exposes safe operational commands:
-
-- `outbox-list <dataDir>`
-- `outbox-replay <dataDir> <eventID> <subscriptionID>`
-- `outbox-discard <dataDir> <eventID> <subscriptionID>`
-
-These commands expose identifiers and delivery state, not persisted event payloads.

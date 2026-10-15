@@ -18,7 +18,7 @@ This expands [SQLite + Deployment architecture](sqlite-outbox-refactor.md). The 
 
 A successful deployment's `deployments` row and its `DeploymentSucceeded` outbox event are atomic **in T1**. The public `DeploySuccess` history row and alert resolution are **eventually** materialized by separate consumers after T1 commits. A subscriber failure cannot roll back an already committed successful deployment. Reconciliation and `Latest deployments` use the first-class Deployment repository, **not** an immediately available Event History record. UI and API should tolerate projection lag.
 
-Event History uses a stable subscription and idempotent projection. Failed deliveries remain visible for operator replay or discard.
+Event History uses a stable subscription and idempotent projection. Failed deliveries remain stored until explicitly replayed or discarded.
 
 ## Transaction propagation in Go
 
@@ -33,9 +33,7 @@ publication or durability: every matching subscriber gets its own delivery recor
 `Run` stops on cancellation; unacknowledged work remains on disk. Missing subscriptions
 or incompatible payloads are parked as failed. `Replay` and `Discard` address a single
 failed delivery. Prometheus collection reports queue depth by status and subscription.
-The container includes `sd outbox-list`, `sd outbox-replay` and `sd outbox-discard`
-for operational inspection and explicit failed-delivery actions. IDs and schema
-versions are preserved across restarts. SQLite assigns each publication a monotonic
+IDs and schema versions are preserved across restarts. SQLite assigns each publication a monotonic
 sequence independent of delivery time; per-resource projection high-water marks prevent delayed alert or
 recommendation retries from regressing newer state.
 Raw handler errors are not persisted or logged because they can contain credentials;
