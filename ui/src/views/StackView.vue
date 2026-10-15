@@ -9,7 +9,6 @@ import type { Alert, DeploymentSummary, NetworkInfo, ServiceInfo, StackView } fr
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import ServicesTable from "../components/overview/ServicesTable.vue";
-import SummaryPanel from "../components/overview/SummaryPanel.vue";
 import SummaryRow from "../components/overview/SummaryRow.vue";
 import { useOverviewStore } from "../stores/overview";
 import { formatDate, shortCommitHash } from "../utils/format";
@@ -36,6 +35,25 @@ function errorMessage(reason: unknown): string {
   return reason instanceof Error ? reason.message : "Request failed";
 }
 
+function deploymentStatusClass(status: string): string {
+  switch (status) {
+    case "succeeded": return "success";
+    case "failed": return "failed";
+    case "running": return "deployment-status-running";
+    default: return "unknown";
+  }
+}
+
+function deploymentStatusLabel(status: string): string {
+  return status ? status.charAt(0).toUpperCase() + status.slice(1) : "Unknown";
+}
+
+function openDeploymentFromKeyboard(event: KeyboardEvent, id: string) {
+  if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+  event.preventDefault();
+  void store.openDeploymentDetailsModal(id);
+}
+
 async function load() {
   const current = ++request;
   const name = stackName.value;
@@ -51,7 +69,7 @@ async function load() {
   if (!name.trim()) { loading.value = false; return; }
   loading.value = true;
   const [stackResult, serviceResult, deploymentResult, alertResult, networkResult] = await Promise.allSettled([
-    fetchStacks(), fetchServices(), fetchDeployments({ stack: name, limit: 5 }),
+    fetchStacks(), fetchServices(), fetchDeployments({ stack: name, limit: 3 }),
     // Without a limit the existing API returns all open alerts, so filtering cannot hide a stack alert.
     fetchAlerts({ status: "open" }), fetchNetworks(),
   ]);
@@ -65,7 +83,7 @@ async function load() {
   } else error.value = [error.value, errorMessage(serviceResult.reason)].filter(Boolean).join("; ");
   if (deploymentResult.status === "fulfilled") {
     deployments.value = (deploymentResult.value.deployments ?? []).filter((item) => item.stack === name)
-      .sort((left, right) => Date.parse(right.started_at) - Date.parse(left.started_at));
+      .sort((left, right) => Date.parse(right.started_at) - Date.parse(left.started_at)).slice(0, 3);
   } else deploymentsError.value = errorMessage(deploymentResult.reason);
   if (alertResult.status === "fulfilled") {
     alerts.value = (alertResult.value.alerts ?? []).filter((item) =>
@@ -118,45 +136,64 @@ onUnmounted(() => { request++; });
         <h3 id="stack-services-title">Services</h3>
         <ServicesTable :services="services" />
       </section>
-      <div class="stack-details-panels">
-        <SummaryPanel title="Recent Deployments" icon="deployments" :to="deploymentsLink">
-          <p v-if="deploymentsError" class="meta" role="alert">Failed to load deployments: {{ deploymentsError }}</p>
-          <p v-else-if="!deployments.length" class="meta">No deployments yet.</p>
-          <SummaryRow v-for="deployment in deployments" v-else :key="deployment.id" interactive :aria-label="`Open ${deployment.status} deployment details`" @activate="store.openDeploymentDetailsModal(deployment.id)">
-            <span class="overview-summary-row-copy">
-              <strong>{{ deployment.status }}</strong>
-              <time class="overview-summary-secondary" :datetime="deployment.started_at">{{ formatDate(deployment.started_at) }}</time>
-            </span>
-            <span class="overview-summary-sha-badge">{{ shortCommitHash(deployment.commit) || "n/a" }}</span>
-          </SummaryRow>
+      <section aria-labelledby="stack-deployments-title">
+        <div class="stack-section-heading">
+          <h3 id="stack-deployments-title">Recent Deployments</h3>
           <RouterLink :to="deploymentsLink" class="stack-history-link">View all deployments</RouterLink>
-        </SummaryPanel>
-        <SummaryPanel title="Active Alerts" icon="alerts" to="/events?tab=alerts">
-          <p v-if="alertsError" class="meta" role="alert">Failed to load alerts: {{ alertsError }}</p>
-          <p v-else-if="!alerts.length" class="meta">No active alerts.</p>
-          <SummaryRow v-for="alert in alerts" v-else :key="alert.id" interactive :aria-label="`Open alert: ${alert.title}`" @activate="store.openAlertDetailsModal(alert)">
-            <span class="overview-summary-severity overview-summary-severity--alert" aria-hidden="true" />
-            <span class="overview-summary-row-copy"><span class="overview-alert-message">{{ alert.title }}</span><time class="overview-summary-secondary" :datetime="alert.updatedAt">{{ formatDate(alert.updatedAt) }}</time></span>
+        </div>
+        <p v-if="deploymentsError" class="meta" role="alert">Failed to load deployments: {{ deploymentsError }}</p>
+        <p v-else-if="!deployments.length" class="meta">No deployments yet.</p>
+        <AppTable v-else min-width="360px" table-class="stack-deployments-table" aria-label="Recent deployments">
+          <template #head><tr><th>Status</th><th>Commit</th><th>Timestamp</th></tr></template>
+          <tr v-for="deployment in deployments" :key="deployment.id" class="app-table-row--clickable" tabindex="0"
+            :aria-label="`Open ${deployment.status} deployment details`"
+            @click="store.openDeploymentDetailsModal(deployment.id)"
+            @keydown="openDeploymentFromKeyboard($event, deployment.id)">
+            <td><span class="status" :class="deploymentStatusClass(deployment.status)">{{ deploymentStatusLabel(deployment.status) }}</span></td>
+            <td>
+              <button v-if="deployment.commit" type="button" class="overview-commit-badge"
+                :aria-label="`Open deployment commit ${deployment.commit}`"
+                @click.stop="store.openCommitDetailsModal(deployment.commit)" @keydown.stop>{{ shortCommitHash(deployment.commit) }}</button>
+              <span v-else class="meta">n/a</span>
+            </td>
+            <td><time :datetime="deployment.started_at">{{ formatDate(deployment.started_at) }}</time></td>
+          </tr>
+        </AppTable>
+      </section>
+      <p v-if="alertsError" class="meta" role="alert">Failed to load alerts: {{ alertsError }}</p>
+      <section v-else-if="alerts.length" aria-labelledby="stack-alerts-title">
+        <h3 id="stack-alerts-title">Active Alerts</h3>
+        <div class="stack-alert-list">
+          <SummaryRow v-for="alert in alerts" :key="alert.id" interactive :aria-label="`Open alert: ${alert.title}`" @activate="store.openAlertDetailsModal(alert)">
+            <span class="overview-alert-message">{{ alert.title }}</span>
+            <time class="meta" :datetime="alert.updatedAt">{{ formatDate(alert.updatedAt) }}</time>
           </SummaryRow>
-        </SummaryPanel>
-      </div>
-      <section v-if="networks.length || networksError" aria-labelledby="stack-resources-title">
+        </div>
+      </section>
+      <section aria-labelledby="stack-resources-title">
         <h3 id="stack-resources-title">Resources</h3>
-        <p v-if="networksError" class="meta" role="alert">Network information unavailable: {{ networksError }}</p>
-        <template v-else>
-          <h4>Networks</h4>
-          <AppTable min-width="360px">
-            <template #head><tr><th>Name</th><th>Driver</th><th>Scope</th></tr></template>
-            <tr v-for="network in networks" :key="network.id"><td>{{ network.name }}</td><td>{{ network.driver }}</td><td>{{ network.scope }}</td></tr>
-          </AppTable>
-        </template>
+        <div class="stack-resource-summary" :key="stack.name">
+          <details class="stack-resource">
+            <summary>Networks <strong>{{ networksError ? "n/a" : networks.length }}</strong></summary>
+            <p v-if="networksError" class="meta" role="alert">Network information unavailable: {{ networksError }}</p>
+            <ul v-else-if="networks.length" class="stack-resource-list">
+              <li v-for="network in networks" :key="network.id"><span>{{ network.name }}</span><span class="meta">{{ network.driver }} · {{ network.scope }}</span></li>
+            </ul>
+            <p v-else class="meta">No stack-owned networks.</p>
+          </details>
+          <details v-for="type in ['Secrets', 'Configs']" :key="type" class="stack-resource">
+            <summary>{{ type }} <span class="meta">n/a</span></summary>
+            <p class="meta">{{ type }} inventory for this stack is unavailable from the current APIs.</p>
+          </details>
+        </div>
       </section>
     </template>
   </section>
 </template>
 
 <style scoped>
-.stack-details-page { display: grid; gap: 20px; }
+.stack-details-page { display: grid; gap: 16px; min-width: 0; }
+.stack-details-page > section { min-width: 0; }
 .stack-breadcrumbs, .stack-details-heading { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; min-width: 0; overflow-wrap: anywhere; }
 .stack-breadcrumbs a, .stack-history-link { color: var(--accent-strong); }
 .stack-details-header { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
@@ -164,14 +201,29 @@ onUnmounted(() => { request++; });
 .stack-details-metadata { flex-basis: 100%; display: flex; flex-wrap: wrap; gap: 24px; margin: 0; }
 .stack-details-metadata > div { display: flex; align-items: center; gap: 8px; }
 .stack-details-metadata dd { margin: 0; }
-.stack-details-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0; padding: 14px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface-card-soft); }
+.stack-details-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0; padding: 9px 12px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface-card-soft); }
 .stack-details-summary dt { color: var(--muted); font-size: .8rem; }
-.stack-details-summary dd { margin: 6px 0 0; font-weight: 600; font-size: 1.2rem; }
-.stack-details-panels { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.stack-history-link { display: inline-block; margin-top: 12px; font-size: .85rem; }
-h3 { margin: 0 0 12px; }
+.stack-details-summary dd { margin: 0; font-weight: 600; font-size: .95rem; }
+.stack-details-summary > div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+.stack-section-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.stack-section-heading h3 { margin: 0; }
+.stack-history-link { font-size: .8rem; }
+h3 { margin: 0 0 8px; font-size: .95rem; }
+p { margin: 6px 0; }
+:deep(.app-table th), :deep(.app-table td) { padding-top: 7px; padding-bottom: 7px; }
+:deep(.stack-deployments-table th:last-child), :deep(.stack-deployments-table td:last-child) { text-align: right; white-space: nowrap; }
+.deployment-status-running { color: var(--info); border-color: var(--accent-border); background: var(--info-muted); }
+.stack-alert-list { border-top: 1px solid var(--border-subtle); }
+.stack-alert-list :deep(.overview-summary-row) { grid-template-columns: minmax(0, 1fr) auto; min-height: 0; padding: 7px 0; gap: 12px; }
+.stack-alert-list time { margin-left: auto; white-space: nowrap; font-size: .75rem; }
+.stack-resource-summary { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 24px; border-top: 1px solid var(--border-subtle); padding-top: 8px; }
+.stack-resource { min-width: 130px; max-width: 100%; font-size: .85rem; }
+.stack-resource summary { cursor: pointer; padding: 3px 0; }
+.stack-resource summary > strong, .stack-resource summary > span { margin-left: 8px; }
+.stack-resource > p { max-width: 280px; }
+.stack-resource-list { list-style: none; margin: 6px 0 0; padding: 0; }
+.stack-resource-list li { display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 4px 0; overflow-wrap: anywhere; }
 @media (max-width: 760px) {
-  .stack-details-panels { grid-template-columns: minmax(0, 1fr); }
   .stack-details-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 </style>

@@ -82,7 +82,7 @@ describe("Stack Details", () => {
     await flushPromises();
     expect(wrapper.get(".overview-stack-status-badge").text()).toBe(label);
     // A failed deployment remains failed when the aggregate says Synced.
-    expect(wrapper.get('[aria-label="Open failed deployment details"]').text()).toContain("failed");
+    expect(wrapper.get('[aria-label="Open failed deployment details"]').text()).toContain("Failed");
     wrapper.unmount();
   });
 
@@ -117,8 +117,10 @@ describe("Stack Details", () => {
     vi.mocked(fetchNetworks).mockResolvedValue({ networks: [] });
     const { wrapper } = await render();
     await flushPromises();
-    for (const text of ["No services captured yet.", "No deployments yet.", "No active alerts.", "n/a"]) expect(wrapper.text()).toContain(text);
-    expect(wrapper.text()).not.toContain("Resources");
+    for (const text of ["No services captured yet.", "No deployments yet.", "n/a"]) expect(wrapper.text()).toContain(text);
+    expect(wrapper.find('[aria-labelledby="stack-alerts-title"]').exists()).toBe(false);
+    expect(wrapper.findAll(".stack-details-summary dd").at(-1)?.text()).toBe("0");
+    expect(wrapper.get(".stack-resource summary").text()).toBe("Networks 0");
     wrapper.unmount();
   });
 
@@ -147,7 +149,7 @@ describe("Stack Details", () => {
   it("opens deployments, filters the history link, and navigates to service details", async () => {
     const { wrapper, router, store } = await render();
     await flushPromises();
-    expect(fetchDeployments).toHaveBeenCalledWith({ stack: "app", limit: 5 });
+    expect(fetchDeployments).toHaveBeenCalledWith({ stack: "app", limit: 3 });
     expect(fetchAlerts).toHaveBeenCalledWith({ status: "open" });
     expect(wrapper.get(".stack-history-link").attributes("href")).toBe("/deployments?stack_name=app");
     await wrapper.get('[aria-label="Open failed deployment details"]').trigger("click");
@@ -155,6 +157,72 @@ describe("Stack Details", () => {
     await wrapper.get('[aria-label="Open details for api"]').trigger("keydown", { key: "Enter" });
     await flushPromises();
     expect(router.currentRoute.value.fullPath).toBe("/services/app/api");
+    wrapper.unmount();
+  });
+
+
+  it("shows only the latest three attempts in a compact table and isolates commit actions", async () => {
+    vi.mocked(fetchDeployments).mockResolvedValue({ deployments: [1, 4, 2, 3].map((day) => ({
+      ...deployment, id: `d${day}`, commit: `commit${day}`, started_at: `2026-10-0${day}T10:00:00Z`,
+    })) });
+    const { wrapper, store } = await render();
+    await flushPromises();
+    expect(wrapper.findAll(".stack-deployments-table th").map((item) => item.text())).toEqual(["Status", "Commit", "Timestamp"]);
+    const rows = wrapper.findAll(".stack-deployments-table tbody tr");
+    expect(rows).toHaveLength(3);
+    expect(rows.map((row) => row.find("button").attributes("aria-label"))).toEqual([
+      "Open deployment commit commit4", "Open deployment commit commit3", "Open deployment commit commit2",
+    ]);
+    await rows[0].get("button").trigger("click");
+    await rows[0].get("button").trigger("keydown", { key: "Enter" });
+    await rows[0].get("button").trigger("keydown", { key: " " });
+    expect(store.openCommitDetailsModal).toHaveBeenCalledWith("commit4");
+    expect(store.openDeploymentDetailsModal).not.toHaveBeenCalled();
+    await rows[0].trigger("click");
+    await rows[1].trigger("keydown", { key: "Enter" });
+    await rows[2].trigger("keydown", { key: " " });
+    expect(vi.mocked(store.openDeploymentDetailsModal).mock.calls).toEqual([["d4"], ["d3"], ["d2"]]);
+    wrapper.unmount();
+  });
+
+  it("uses the existing deployment status labels and handles missing commits", async () => {
+    vi.mocked(fetchDeployments).mockResolvedValue({ deployments: ["succeeded", "running", "interrupted"].map((status) => ({
+      ...deployment, id: status, status: status as DeploymentSummary["status"], commit: "",
+    })) });
+    const { wrapper } = await render();
+    await flushPromises();
+    const badges = wrapper.findAll(".stack-deployments-table .status");
+    expect(badges.map((badge) => badge.text())).toEqual(["Succeeded", "Running", "Interrupted"]);
+    expect(badges[0].classes()).toContain("success");
+    expect(badges[1].classes()).toContain("deployment-status-running");
+    expect(badges[2].classes()).toContain("unknown");
+    expect(wrapper.findAll(".stack-deployments-table button")).toHaveLength(0);
+    wrapper.unmount();
+  });
+
+  it("omits empty alerts without hiding fetch errors or the summary count", async () => {
+    vi.mocked(fetchAlerts).mockResolvedValue({ alerts: [] });
+    const { wrapper } = await render();
+    await flushPromises();
+    expect(wrapper.find('[aria-labelledby="stack-alerts-title"]').exists()).toBe(false);
+    expect(wrapper.findAll(".stack-details-summary dd").at(-1)?.text()).toBe("0");
+    expect(wrapper.find(".stack-details-panels").exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it("keeps resources collapsed, expands names, and distinguishes unavailable counts from zero", async () => {
+    const { wrapper } = await render();
+    await flushPromises();
+    const details = wrapper.findAll(".stack-resource");
+    expect(details.map((item) => item.get("summary").text())).toEqual(["Networks 1", "Secrets n/a", "Configs n/a"]);
+    for (const item of details) expect((item.element as HTMLDetailsElement).open).toBe(false);
+    // Native details handles Enter/Space; model its open state to verify the expanded content.
+    (details[0].element as HTMLDetailsElement).open = true;
+    await details[0].trigger("toggle");
+    expect(details[0].get("li").text()).toContain("app_default");
+    expect(details[0].get("li").text()).toContain("overlay · swarm");
+    expect(wrapper.find('[aria-labelledby="stack-resources-title"] table').exists()).toBe(false);
+    expect(details[1].text()).toContain("unavailable from the current APIs");
     wrapper.unmount();
   });
 
@@ -169,7 +237,7 @@ describe("Stack Details", () => {
     resolve({ stacks: [stack], sync: {} });
     await flushPromises();
     expect(wrapper.get("h2").text()).toBe("infra");
-    expect(fetchDeployments).toHaveBeenLastCalledWith({ stack: "infra", limit: 5 });
+    expect(fetchDeployments).toHaveBeenLastCalledWith({ stack: "infra", limit: 3 });
     wrapper.unmount();
   });
 });
