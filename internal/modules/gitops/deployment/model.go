@@ -231,6 +231,20 @@ type DeploymentSummary struct {
 	DiffAvailable bool
 }
 
+// ServiceDeployment contains the fields needed to display an attempt for one service.
+type ServiceDeployment struct {
+	// ID uniquely identifies the attempt.
+	ID string
+	// Commit identifies the Git revision being applied.
+	Commit string
+	// Status is the durable attempt outcome.
+	Status Status
+	// StartedAt is recorded before external apply.
+	StartedAt time.Time
+	// Image is the service image in the attempt's desired snapshot.
+	Image string
+}
+
 // Page is a stable cursor page of lightweight deployment summaries.
 type Page struct {
 	// Deployments contains attempts in newest-first order.

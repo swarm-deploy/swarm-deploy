@@ -9215,6 +9215,10 @@ func (s *ServiceDeploymentResponse) Encode(e *jx.Encoder) {
 // encodeFields encodes fields.
 func (s *ServiceDeploymentResponse) encodeFields(e *jx.Encoder) {
 	{
+		e.FieldStart("id")
+		e.Str(s.ID)
+	}
+	{
 		e.FieldStart("created_at")
 		json.EncodeDateTime(e, s.CreatedAt)
 	}
@@ -9244,13 +9248,14 @@ func (s *ServiceDeploymentResponse) encodeFields(e *jx.Encoder) {
 	}
 }
 
-var jsonFieldsNameOfServiceDeploymentResponse = [6]string{
-	0: "created_at",
-	1: "status",
-	2: "image",
-	3: "image_version",
-	4: "message",
-	5: "commit",
+var jsonFieldsNameOfServiceDeploymentResponse = [7]string{
+	0: "id",
+	1: "created_at",
+	2: "status",
+	3: "image",
+	4: "image_version",
+	5: "message",
+	6: "commit",
 }
 
 // Decode decodes ServiceDeploymentResponse from json.
@@ -9262,8 +9267,20 @@ func (s *ServiceDeploymentResponse) Decode(d *jx.Decoder) error {
 
 	if err := d.ObjBytes(func(d *jx.Decoder, k []byte) error {
 		switch string(k) {
-		case "created_at":
+		case "id":
 			requiredBitSet[0] |= 1 << 0
+			if err := func() error {
+				v, err := d.Str()
+				s.ID = string(v)
+				if err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"id\"")
+			}
+		case "created_at":
+			requiredBitSet[0] |= 1 << 1
 			if err := func() error {
 				v, err := json.DecodeDateTime(d)
 				s.CreatedAt = v
@@ -9275,7 +9292,7 @@ func (s *ServiceDeploymentResponse) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"created_at\"")
 			}
 		case "status":
-			requiredBitSet[0] |= 1 << 1
+			requiredBitSet[0] |= 1 << 2
 			if err := func() error {
 				if err := s.Status.Decode(d); err != nil {
 					return err
@@ -9285,7 +9302,7 @@ func (s *ServiceDeploymentResponse) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"status\"")
 			}
 		case "image":
-			requiredBitSet[0] |= 1 << 2
+			requiredBitSet[0] |= 1 << 3
 			if err := func() error {
 				v, err := d.Str()
 				s.Image = string(v)
@@ -9297,7 +9314,7 @@ func (s *ServiceDeploymentResponse) Decode(d *jx.Decoder) error {
 				return errors.Wrap(err, "decode field \"image\"")
 			}
 		case "image_version":
-			requiredBitSet[0] |= 1 << 3
+			requiredBitSet[0] |= 1 << 4
 			if err := func() error {
 				v, err := d.Str()
 				s.ImageVersion = string(v)
@@ -9338,7 +9355,7 @@ func (s *ServiceDeploymentResponse) Decode(d *jx.Decoder) error {
 	// Validate required fields.
 	var failures []validate.FieldError
 	for i, mask := range [1]uint8{
-		0b00001111,
+		0b00011111,
 	} {
 		if result := (requiredBitSet[i] & mask) ^ mask; result != 0 {
 			// Mask only required fields and check equality to mask using XOR.
@@ -9400,10 +9417,14 @@ func (s *ServiceDeploymentStatus) Decode(d *jx.Decoder) error {
 	}
 	// Try to use constant string.
 	switch ServiceDeploymentStatus(v) {
-	case ServiceDeploymentStatusSuccess:
-		*s = ServiceDeploymentStatusSuccess
+	case ServiceDeploymentStatusRunning:
+		*s = ServiceDeploymentStatusRunning
+	case ServiceDeploymentStatusSucceeded:
+		*s = ServiceDeploymentStatusSucceeded
 	case ServiceDeploymentStatusFailed:
 		*s = ServiceDeploymentStatusFailed
+	case ServiceDeploymentStatusInterrupted:
+		*s = ServiceDeploymentStatusInterrupted
 	default:
 		*s = ServiceDeploymentStatus(v)
 	}

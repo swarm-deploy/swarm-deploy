@@ -97,6 +97,44 @@ func (s *Store) List(ctx context.Context, filter ListFilter) (Page, error) {
 	return page, nil
 }
 
+// ListServiceDeployments returns only recent attempts and display fields for one service.
+func (s *Store) ListServiceDeployments(
+	ctx context.Context,
+	stack string,
+	service string,
+	limit int,
+) ([]ServiceDeployment, error) {
+	if limit < 1 || limit > 100 {
+		limit = 5
+	}
+	const query = `
+		SELECT d.id, d."commit", d.status, d.started_at,
+			json_extract(svc.value, '$.image') AS image
+		FROM deployments AS d,
+			json_each(d.desired_payload, '$.definition.compose.services') AS svc
+		WHERE d.stack = ? AND json_extract(svc.value, '$.name') = ?
+		ORDER BY d.started_at DESC, d.id ASC
+		LIMIT ?`
+	var rows []struct {
+		ID        string    `db:"id"`
+		Commit    string    `db:"commit"`
+		Status    Status    `db:"status"`
+		StartedAt time.Time `db:"started_at"`
+		Image     string    `db:"image"`
+	}
+	if err := s.db.Select(ctx, &rows, query, stack, service, limit); err != nil {
+		return nil, err
+	}
+	items := make([]ServiceDeployment, 0, len(rows))
+	for _, row := range rows {
+		items = append(items, ServiceDeployment{
+			ID: row.ID, Commit: row.Commit, Status: row.Status,
+			StartedAt: row.StartedAt.UTC(), Image: row.Image,
+		})
+	}
+	return items, nil
+}
+
 type summaryRow struct {
 	ID             string       `db:"id"`
 	Stack          string       `db:"stack"`

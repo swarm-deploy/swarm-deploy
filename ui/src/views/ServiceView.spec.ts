@@ -4,6 +4,7 @@ import { nextTick } from "vue";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import ServiceView from "./ServiceView.vue";
+import { useOverviewStore } from "../stores/overview";
 
 const apiMocks = vi.hoisted(() => ({
   fetchServiceDeployments: vi.fn(),
@@ -155,5 +156,41 @@ describe("ServiceView", () => {
     expect(mobileTask.get(".service-realtime-mobile-logs").text()).toBe("Logs");
     expect(mobileTask.find(".service-copy-task-id-button").exists()).toBe(false);
     expect(wrapper.find(".service-realtime-desktop .service-copy-task-id-button").exists()).toBe(true);
+  });
+
+  it("shows compact deployment rows and opens details by ID", async () => {
+    apiMocks.fetchServiceDeployments.mockResolvedValue({ deployments: [
+      { id: "deployment-1", created_at: "2026-10-10T10:00:00Z", status: "succeeded",
+        image: "registry.example.com/api:v2", image_version: "v2", commit: "abc123456" },
+      { id: "deployment-2", created_at: "2026-10-09T10:00:00Z", status: "failed",
+        image: "registry.example.com/api:v2", image_version: "v2", commit: "def123456" },
+      { id: "deployment-3", created_at: "2026-10-08T10:00:00Z", status: "running",
+        image: "registry.example.com/api:v2", image_version: "v2" },
+      { id: "deployment-4", created_at: "2026-10-07T10:00:00Z", status: "interrupted",
+        image: "registry.example.com/api:v2", image_version: "v2" },
+    ] });
+    const wrapper = await mountServiceView();
+    const rows = wrapper.findAll(".service-deployment-item");
+    expect(rows).toHaveLength(4);
+    expect(rows[0].text()).toContain("succeeded");
+    expect(rows.every((row) => row.text().includes("Image v2"))).toBe(true);
+    expect(rows[0].get(".service-deployment-image").attributes("title")).toBe("registry.example.com/api:v2");
+    expect(rows[0].text()).not.toContain("infra/api");
+    expect(rows[0].get("time").attributes("title")).toBeTruthy();
+    expect(rows[0].get(".overview-deployment-result").classes()).toContain("overview-deployment-result--success");
+    expect(rows[1].get(".overview-deployment-result").classes()).toContain("overview-deployment-result--failed");
+    expect(rows[2].get(".overview-deployment-result").classes()).toContain("overview-deployment-result--running");
+    expect(rows[3].get(".overview-deployment-result").classes()).toContain("overview-deployment-result--interrupted");
+
+    const store = useOverviewStore();
+    const openDeployment = vi.spyOn(store, "openDeploymentDetailsModal").mockResolvedValue(undefined);
+    const openCommit = vi.spyOn(store, "openCommitDetailsModal").mockResolvedValue(undefined);
+    const detailsButton = rows[0].get(".overview-deployment-details");
+    expect(detailsButton.element.tagName).toBe("BUTTON");
+    await detailsButton.trigger("click");
+    expect(openDeployment).toHaveBeenCalledWith("deployment-1");
+    await rows[0].get(".overview-summary-sha-badge").trigger("click");
+    expect(openCommit).toHaveBeenCalledWith("abc123456");
+    expect(openDeployment).toHaveBeenCalledTimes(1);
   });
 });

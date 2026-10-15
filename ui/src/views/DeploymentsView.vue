@@ -3,6 +3,7 @@ import { onMounted, ref } from "vue";
 import { fetchDeployments } from "../api/overview";
 import type { DeploymentSummary } from "../api/types";
 import AppTable from "../components/common/AppTable.vue";
+import AppPagination from "../components/common/AppPagination.vue";
 import { useOverviewStore } from "../stores/overview";
 import { formatDate, shortCommitHash } from "../utils/format";
 
@@ -113,17 +114,11 @@ onMounted(() => { void load(0, ""); });
         </td>
       </tr>
     </AppTable>
-    <nav class="deployment-pages" aria-label="Deployment pages">
-      <button type="button" :disabled="loading || page === 0" @click="previous">Previous</button>
-      <span>Page {{ page + 1 }}</span>
-      <button type="button" :disabled="loading || !nextCursor" @click="next">Next</button>
-    </nav>
+    <AppPagination class="deployment-pages" label="Deployment pages" :page="page" :loading="loading" :has-next="Boolean(nextCursor)" @previous="previous" @next="next" />
   </section>
 </template>
 
 <style scoped>
-.deployment-pages { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
-
 :deep(.deployments-table th:nth-child(1)),
 :deep(.deployments-table td:nth-child(1)) { width: 42%; }
 :deep(.deployments-table th:nth-child(2)),

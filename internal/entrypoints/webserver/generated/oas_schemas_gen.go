@@ -4549,12 +4549,19 @@ func (s *SecretsResponse) SetSecrets(val []SecretInfo) {
 
 // Ref: #/components/schemas/ServiceDeploymentResponse
 type ServiceDeploymentResponse struct {
+	// Deployment attempt ID.
+	ID           string                  `json:"id"`
 	CreatedAt    time.Time               `json:"created_at"`
 	Status       ServiceDeploymentStatus `json:"status"`
 	Image        string                  `json:"image"`
 	ImageVersion string                  `json:"image_version"`
 	Message      OptString               `json:"message"`
 	Commit       OptString               `json:"commit"`
+}
+
+// GetID returns the value of ID.
+func (s *ServiceDeploymentResponse) GetID() string {
+	return s.ID
 }
 
 // GetCreatedAt returns the value of CreatedAt.
@@ -4585,6 +4592,11 @@ func (s *ServiceDeploymentResponse) GetMessage() OptString {
 // GetCommit returns the value of Commit.
 func (s *ServiceDeploymentResponse) GetCommit() OptString {
 	return s.Commit
+}
+
+// SetID sets the value of ID.
+func (s *ServiceDeploymentResponse) SetID(val string) {
+	s.ID = val
 }
 
 // SetCreatedAt sets the value of CreatedAt.
@@ -4621,24 +4633,32 @@ func (s *ServiceDeploymentResponse) SetCommit(val OptString) {
 type ServiceDeploymentStatus string
 
 const (
-	ServiceDeploymentStatusSuccess ServiceDeploymentStatus = "success"
-	ServiceDeploymentStatusFailed  ServiceDeploymentStatus = "failed"
+	ServiceDeploymentStatusRunning     ServiceDeploymentStatus = "running"
+	ServiceDeploymentStatusSucceeded   ServiceDeploymentStatus = "succeeded"
+	ServiceDeploymentStatusFailed      ServiceDeploymentStatus = "failed"
+	ServiceDeploymentStatusInterrupted ServiceDeploymentStatus = "interrupted"
 )
 
 // AllValues returns all ServiceDeploymentStatus values.
 func (ServiceDeploymentStatus) AllValues() []ServiceDeploymentStatus {
 	return []ServiceDeploymentStatus{
-		ServiceDeploymentStatusSuccess,
+		ServiceDeploymentStatusRunning,
+		ServiceDeploymentStatusSucceeded,
 		ServiceDeploymentStatusFailed,
+		ServiceDeploymentStatusInterrupted,
 	}
 }
 
 // MarshalText implements encoding.TextMarshaler.
 func (s ServiceDeploymentStatus) MarshalText() ([]byte, error) {
 	switch s {
-	case ServiceDeploymentStatusSuccess:
+	case ServiceDeploymentStatusRunning:
+		return []byte(s), nil
+	case ServiceDeploymentStatusSucceeded:
 		return []byte(s), nil
 	case ServiceDeploymentStatusFailed:
+		return []byte(s), nil
+	case ServiceDeploymentStatusInterrupted:
 		return []byte(s), nil
 	default:
 		return nil, errors.Errorf("invalid value: %q", s)
@@ -4648,11 +4668,17 @@ func (s ServiceDeploymentStatus) MarshalText() ([]byte, error) {
 // UnmarshalText implements encoding.TextUnmarshaler.
 func (s *ServiceDeploymentStatus) UnmarshalText(data []byte) error {
 	switch ServiceDeploymentStatus(data) {
-	case ServiceDeploymentStatusSuccess:
-		*s = ServiceDeploymentStatusSuccess
+	case ServiceDeploymentStatusRunning:
+		*s = ServiceDeploymentStatusRunning
+		return nil
+	case ServiceDeploymentStatusSucceeded:
+		*s = ServiceDeploymentStatusSucceeded
 		return nil
 	case ServiceDeploymentStatusFailed:
 		*s = ServiceDeploymentStatusFailed
+		return nil
+	case ServiceDeploymentStatusInterrupted:
+		*s = ServiceDeploymentStatusInterrupted
 		return nil
 	default:
 		return errors.Errorf("invalid value: %q", data)

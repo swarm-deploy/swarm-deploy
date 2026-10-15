@@ -256,9 +256,10 @@ export interface TaskLogEvent {
   message: string;
 }
 
-export type ServiceDeploymentStatus = "Synced" | "OutOfSync";
+export type ServiceDeploymentStatus = "running" | "succeeded" | "failed" | "interrupted";
 
 export interface ServiceDeploymentResponse {
+  id: string;
   created_at: string;
   status: ServiceDeploymentStatus;
   image: string;

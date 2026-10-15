@@ -1771,9 +1771,13 @@ func (s *ServiceDeploymentResponse) Validate() error {
 
 func (s ServiceDeploymentStatus) Validate() error {
 	switch s {
-	case "success":
+	case "running":
+		return nil
+	case "succeeded":
 		return nil
 	case "failed":
+		return nil
+	case "interrupted":
 		return nil
 	default:
 		return errors.Errorf("invalid value: %v", s)
