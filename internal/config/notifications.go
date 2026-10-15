@@ -14,7 +14,14 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-const defaultNotificationTelegramRetries = 3
+const (
+	defaultNotificationTelegramRetries = 3
+
+	notificationAlertNameDefault                  = "default"
+	notificationAlertNameSyncFailed               = "SyncFailed"
+	notificationAlertNameNodeDisconnected         = "NodeDisconnected"
+	notificationAlertNameGitRepositoryUnavailable = "GitRepositoryUnavailable"
+)
 
 // NotificationSpec defines event subscriptions, alert routes and messenger destinations.
 type NotificationSpec struct {
@@ -60,10 +67,10 @@ const (
 
 // AlertTelegramRoutes returns the replacing kind route, configured default or built-in route.
 func (c NotificationSpec) AlertTelegramRoutes(kind string) []TelegramAlertChannel {
-	if route, ok := c.Alerts[kind]; ok {
+	if route, ok := c.Alerts[notificationAlertConfigKey(alertmodel.AlertKind(kind))]; ok {
 		return route.Telegram
 	}
-	if route, ok := c.Alerts["default"]; ok {
+	if route, ok := c.Alerts[notificationAlertNameDefault]; ok {
 		return route.Telegram
 	}
 	return []TelegramAlertChannel{{
