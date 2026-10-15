@@ -102,7 +102,7 @@ notifications:
         - message: |
             sync started manually
   alerts:
-    node_disconnected:
+    NodeDisconnected:
       telegram:
         - chats: default
           opened:
