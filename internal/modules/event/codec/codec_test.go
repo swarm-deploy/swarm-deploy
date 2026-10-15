@@ -101,6 +101,20 @@ func TestConfigurationChangedCodecCarriesSafeRepositoryTransition(t *testing.T) 
 	require.Error(t, err)
 }
 
+func TestAlertLifecycleCodecCarriesDeploymentID(t *testing.T) {
+	event := &events.AlertOpened{Alert: events.AlertSnapshot{
+		ID: "alert", Kind: "sync_failed", ResourceType: "stack", ResourceID: "app",
+		DeploymentID: "deployment-1",
+	}}
+	payload, err := Encode(event)
+	require.NoError(t, err)
+	assert.Contains(t, string(payload), `"deploymentId":"deployment-1"`)
+
+	decoded, err := Decode(events.TypeNameAlertOpened, Version, payload)
+	require.NoError(t, err)
+	assert.Equal(t, "deployment-1", decoded.(*events.AlertOpened).Alert.DeploymentID)
+}
+
 func TestGitPullLifecycleCodec(t *testing.T) {
 	failed := &events.GitPullFailed{
 		Repository: "git.example.com/team/app", Category: events.GitFailureAuthentication,
