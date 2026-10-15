@@ -2693,25 +2693,31 @@ a.overview-summary-row:focus-visible {
 .manifest-tabs {
   display: flex;
   gap: 8px;
-  align-items: center;
+  border-bottom: 1px solid var(--line);
 }
 
-.manifest-tab-btn,
-.manifest-tab-btn:hover {
-  border-radius: 8px;
-  background: var(--surface-control-strong);
-  border: 1px solid var(--border-default);
+.manifest-tab-btn {
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: 0;
+  background: transparent;
   color: var(--muted);
-  padding: 6px 12px;
+  padding: 10px 10px 12px;
+}
+
+.manifest-tab-btn:hover {
+  color: var(--text);
   transform: none;
   filter: none;
 }
 
-.manifest-tab-btn.active,
-.manifest-tab-btn.active:hover {
+.manifest-tab-btn.active {
+  border-bottom-color: var(--control-primary);
+  color: var(--control-primary);
+}
+
+:root[data-theme="dark"] .manifest-tab-btn.active {
   color: var(--text);
-  border-color: var(--accent-border);
-  background: var(--surface-selected-strong);
 }
 
 .manifest-viewer,
