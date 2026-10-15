@@ -203,7 +203,7 @@ var (
 	}
 	TypeAssistantPromptInjectionDetected = Type{
 		name:     TypeNameAssistantPromptInjectionDetected,
-		severity: SeverityAlert,
+		severity: SeverityWarn,
 		category: CategorySecurity,
 		window:   securityAlertDedupWindow,
 	}
