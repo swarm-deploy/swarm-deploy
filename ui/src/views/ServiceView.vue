@@ -13,6 +13,7 @@ import type {
 } from "../api/types";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
+import DeploymentIcon from "../components/overview/DeploymentIcon.vue";
 import { useOverviewStore } from "../stores/overview";
 import { useSecretDetailsStore } from "../stores/secretDetails";
 import { formatBytes, formatDate, formatNanoCPU, shortCommitHash } from "../utils/format";
@@ -459,7 +460,7 @@ onUnmounted(() => {
           <header class="overview-summary-panel-header">
             <div class="service-panel-heading">
               <span class="overview-summary-panel-icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="2" /><path d="M8 9h8M8 13h8M8 17h5" /></svg>
+                <DeploymentIcon name="service" />
               </span>
               <h3 class="overview-panel-title">Service</h3>
             </div>
