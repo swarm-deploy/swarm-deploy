@@ -493,6 +493,7 @@ export interface DeploymentSummary {
 export interface Deployment extends DeploymentSummary {
   diagnostic?: string;
   configuration_yaml?: string;
+  services?: Array<{ name: string; image: string; replicas: string }>;
   changes: DeploymentChange[];
 }
 export interface DeploymentsResponse {

@@ -22,12 +22,22 @@ func TestDeploymentAPIReadsAttemptsWithoutHistory(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 	svc := deployment.NewService(db, outbox.New(db))
+	replicas := uint64(3)
 	attempt, err := svc.StartIfChanged(ctx, "app", "sha", compose.File{Compose: compose.Compose{Services: compose.Services{{
 		Name: "api", Image: "image:1",
 		Command:     compose.NewCommand([]string{"sh", "-c", "app --password api-command-secret"}),
 		Healthcheck: &compose.ServiceHealth{Test: compose.NewCommand([]string{"CMD-SHELL", "check health-secret"})},
 		InitJobs:    []compose.InitJob{{Name: "init", Image: "image:1", Command: []string{"init init-secret"}}},
 		Environment: compose.Environment{Map: map[string]string{"API_TOKEN": "do-not-expose"}},
+		Deploy:      compose.ServiceDeploy{Replicas: &replicas},
+	}, {
+		Name: "worker", Image: "worker:1",
+	}, {
+		Name: "metrics", Image: "metrics:1", Deploy: compose.ServiceDeploy{Mode: "global"},
+	}, {
+		Name: "batch", Image: "batch:1", Deploy: compose.ServiceDeploy{Mode: "replicated-job", Extra: map[string]interface{}{
+			"max_concurrent": 2, "total_completions": 5,
+		}},
 	}}}}, true)
 	require.NoError(t, err)
 	h := &handler{deployments: deployment.NewStore(db)}
@@ -54,6 +64,12 @@ func TestDeploymentAPIReadsAttemptsWithoutHistory(t *testing.T) {
 	require.True(t, detail.ConfigurationYaml.IsSet())
 	assert.Contains(t, detail.ConfigurationYaml.Value, "services:")
 	assert.Contains(t, detail.ConfigurationYaml.Value, "API_TOKEN=****")
+	assert.ElementsMatch(t, []generated.DeploymentService{
+		{Name: "api", Image: "image:1", Replicas: "3"},
+		{Name: "worker", Image: "worker:1", Replicas: "1"},
+		{Name: "metrics", Image: "metrics:1", Replicas: "Global"},
+		{Name: "batch", Image: "batch:1", Replicas: "Job: 2 concurrent, 5 total"},
+	}, detail.Services)
 	for _, internalField := range []string{"\"path\"", "Map", "Args", "Extra"} {
 		assert.NotContains(t, string(encoded), internalField)
 	}
@@ -62,4 +78,30 @@ func TestDeploymentAPIReadsAttemptsWithoutHistory(t *testing.T) {
 	listed, err := h.ListDeployments(ctx, generated.ListDeploymentsParams{Stack: generated.NewOptString("app")})
 	require.NoError(t, err)
 	require.Len(t, listed.Deployments, 1)
+}
+
+func TestDeploymentServiceReplicas(t *testing.T) {
+	three := uint64(3)
+	zero := uint64(0)
+	for _, tc := range []struct {
+		name   string
+		deploy compose.ServiceDeploy
+		want   string
+	}{
+		{name: "explicit replicas", deploy: compose.ServiceDeploy{Replicas: &three}, want: "3"},
+		{name: "zero replicas", deploy: compose.ServiceDeploy{Replicas: &zero}, want: "0"},
+		{name: "default replicas", deploy: compose.ServiceDeploy{Mode: "replicated"}, want: "1"},
+		{name: "missing deploy", deploy: compose.ServiceDeploy{}, want: "1"},
+		{name: "global", deploy: compose.ServiceDeploy{Mode: "global"}, want: "Global"},
+		{name: "global job", deploy: compose.ServiceDeploy{Mode: "global-job"}, want: "Global job"},
+		{name: "replicated job", deploy: compose.ServiceDeploy{Mode: "replicated-job", Extra: map[string]interface{}{
+			"max_concurrent": float64(2), "total_completions": float64(5),
+		}}, want: "Job: 2 concurrent, 5 total"},
+		{name: "incomplete job", deploy: compose.ServiceDeploy{Mode: "replicated-job"}, want: "Replicated job"},
+		{name: "unknown mode", deploy: compose.ServiceDeploy{Mode: "unknown"}, want: "—"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, deploymentServiceReplicas(tc.deploy))
+		})
+	}
 }

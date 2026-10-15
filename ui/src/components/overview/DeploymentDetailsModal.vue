@@ -75,7 +75,9 @@ const groups = computed<ChangeGroup[]>(() => {
   });
 });
 
-const initialServices = computed(() => groupsForResource("service").map((group) => {
+const initialServices = computed(() => detail.value?.services?.length ? detail.value.services.map((service) => ({
+  name: service.name, image: service.image || "—", replicas: service.replicas || "—",
+})) : groupsForResource("service").map((group) => {
   const changes = group.sections.flatMap((section) => section.changes);
   const field = (name: string) => changes.find((change) => change.field === name)?.after;
   return { name: group.name, image: field("image") || "—", replicas: field("deploy.replicas") || "—" };

@@ -955,6 +955,8 @@ type Deployment struct {
 	Summary            DeploymentChangeSummary     `json:"summary"`
 	Resources          DeploymentResourceSummary   `json:"resources"`
 	DiffAvailable      bool                        `json:"diff_available"`
+	// Services from this deployment's recorded desired configuration.
+	Services []DeploymentService `json:"services"`
 	// Bounded secret-masked failure detail, when recorded.
 	Diagnostic OptString `json:"diagnostic"`
 	// Secret-masked recorded desired configuration rendered as YAML.
@@ -1060,6 +1062,11 @@ func (s *Deployment) GetResources() DeploymentResourceSummary {
 // GetDiffAvailable returns the value of DiffAvailable.
 func (s *Deployment) GetDiffAvailable() bool {
 	return s.DiffAvailable
+}
+
+// GetServices returns the value of Services.
+func (s *Deployment) GetServices() []DeploymentService {
+	return s.Services
 }
 
 // GetDiagnostic returns the value of Diagnostic.
@@ -1175,6 +1182,11 @@ func (s *Deployment) SetResources(val DeploymentResourceSummary) {
 // SetDiffAvailable sets the value of DiffAvailable.
 func (s *Deployment) SetDiffAvailable(val bool) {
 	s.DiffAvailable = val
+}
+
+// SetServices sets the value of Services.
+func (s *Deployment) SetServices(val []DeploymentService) {
+	s.Services = val
 }
 
 // SetDiagnostic sets the value of Diagnostic.
@@ -1623,6 +1635,44 @@ func (s *DeploymentResourceSummary) SetNetworks(val int) {
 // SetVolumes sets the value of Volumes.
 func (s *DeploymentResourceSummary) SetVolumes(val int) {
 	s.Volumes = val
+}
+
+// Ref: #/components/schemas/DeploymentService
+type DeploymentService struct {
+	Name  string `json:"name"`
+	Image string `json:"image"`
+	// Desired replica count or service mode from the recorded specification.
+	Replicas string `json:"replicas"`
+}
+
+// GetName returns the value of Name.
+func (s *DeploymentService) GetName() string {
+	return s.Name
+}
+
+// GetImage returns the value of Image.
+func (s *DeploymentService) GetImage() string {
+	return s.Image
+}
+
+// GetReplicas returns the value of Replicas.
+func (s *DeploymentService) GetReplicas() string {
+	return s.Replicas
+}
+
+// SetName sets the value of Name.
+func (s *DeploymentService) SetName(val string) {
+	s.Name = val
+}
+
+// SetImage sets the value of Image.
+func (s *DeploymentService) SetImage(val string) {
+	s.Image = val
+}
+
+// SetReplicas sets the value of Replicas.
+func (s *DeploymentService) SetReplicas(val string) {
+	s.Replicas = val
 }
 
 // Ref: #/components/schemas/DeploymentStageStatus

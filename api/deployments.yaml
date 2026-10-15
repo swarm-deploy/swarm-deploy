@@ -179,6 +179,11 @@ components:
         - type: object
           required: [changes]
           properties:
+            services:
+              type: array
+              description: Services from this deployment's recorded desired configuration.
+              items:
+                $ref: '#/components/schemas/DeploymentService'
             diagnostic:
               type: string
               description: Bounded secret-masked failure detail, when recorded.
@@ -189,6 +194,17 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/DeploymentChange'
+    DeploymentService:
+      type: object
+      required: [name, image, replicas]
+      properties:
+        name:
+          type: string
+        image:
+          type: string
+        replicas:
+          type: string
+          description: Desired replica count or service mode from the recorded specification.
     DeploymentsResponse:
       type: object
       required: [deployments]

@@ -29,6 +29,7 @@ function deployment(
     started_at: "2026-10-10T10:00:00Z", comparison_basis: basis, comparison_status: "unknown",
     diff_available: true, diagnostic: "update service api: image not found",
     configuration_yaml: "services:\n  api:\n    image: api:2\n    environment:\n      API_TOKEN: '****'\n",
+    services: [{ name: "api", image: "api:2", replicas: "3" }],
     summary: { added: 1, changed: 2, removed: 0, redacted: 1 },
     resources: { services: 1, configs: 1, secrets: 1, networks: 2, volumes: 0 },
     changes: [
@@ -68,6 +69,50 @@ describe("Deployment Details modal", () => {
     expect(wrapper.find('[aria-label="Recorded desired configuration YAML"]').html()).toContain("API_TOKEN");
     expect(wrapper.find('[aria-label="Recorded desired configuration YAML"]').html()).toContain("****");
     expect(wrapper.html()).not.toContain("plaintext");
+    wrapper.unmount();
+  });
+
+  it.each([
+    ["3", "3"],
+    ["1", "1"],
+    ["Global", "Global"],
+    ["Job: 2 concurrent, 5 total", "Job: 2 concurrent, 5 total"],
+    ["Replicated job", "Replicated job"],
+  ])("renders snapshot replica setting %s", (replicas, expected) => {
+    const store = useOverviewStore();
+    const details = deployment("succeeded");
+    details.services = [{ name: "api", image: "api:2", replicas }];
+    details.changes = details.changes?.filter((change) => change.field !== "deploy.replicas") ?? [];
+    store.deploymentDetailsModalOpen = true;
+    store.deploymentDetailsData = details;
+    const wrapper = mount(DeploymentDetailsModal);
+
+    expect(wrapper.get(".deployment-service-table tbody td:last-child").text()).toBe(expected);
+    wrapper.unmount();
+  });
+
+  it("renders historical deployments without service summaries", () => {
+    const store = useOverviewStore();
+    const details = deployment("succeeded");
+    delete details.services;
+    store.deploymentDetailsModalOpen = true;
+    store.deploymentDetailsData = details;
+    const wrapper = mount(DeploymentDetailsModal);
+
+    expect(wrapper.get(".deployment-service-table tbody td:last-child").text()).toBe("3");
+    wrapper.unmount();
+  });
+
+  it("shows an unknown setting when an old record has no replica information", () => {
+    const store = useOverviewStore();
+    const details = deployment("succeeded");
+    delete details.services;
+    details.changes = details.changes?.filter((change) => change.field !== "deploy.replicas") ?? [];
+    store.deploymentDetailsModalOpen = true;
+    store.deploymentDetailsData = details;
+    const wrapper = mount(DeploymentDetailsModal);
+
+    expect(wrapper.get(".deployment-service-table tbody td:last-child").text()).toBe("—");
     wrapper.unmount();
   });
 
