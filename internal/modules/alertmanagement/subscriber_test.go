@@ -58,6 +58,7 @@ func TestSubscriberDeploymentLifecycle(t *testing.T) {
 	assert.Equal(t, "apply_failed", alerts[0].ErrorCode)
 	assert.Equal(t, "deployment-1", alerts[0].DeploymentID)
 	assert.Equal(t, "sha", alerts[0].Commit)
+	assert.Equal(t, "deployment-1", alertSnapshot(alerts[0]).DeploymentID)
 	assert.Equal(t, alerts[0].OpenEventID, alerts[0].LatestEventID, "first event references")
 	assert.Equal(t, "failure-1", alerts[0].OpenEventID, "triggering event id")
 
