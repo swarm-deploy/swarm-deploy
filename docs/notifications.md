@@ -10,9 +10,10 @@ The removed `notifications.on` key is rejected; no compatibility alias is provid
 
 ## Alert lifecycle
 
-Alert Management currently creates `sync_failed`, `node_disconnected`, and
-`git_repository_unavailable` alerts.
-Use those exact keys under `notifications.alerts`; `default` is the fallback rule.
+Notification configuration uses the exact PascalCase alert names `SyncFailed`,
+`NodeDisconnected`, and `GitRepositoryUnavailable`.
+The special `default` key remains the fallback rule. Internal alert kinds and
+fingerprints keep their existing snake_case identifiers.
 A kind rule replaces `alerts.default`, and an omitted `alerts.default` selects built-in
 opened and resolved messages in Telegram chat `default`. Configuring Telegram requires
 that chat. Without Telegram, alerts continue to be stored and shown in the UI.
@@ -37,7 +38,7 @@ For example, `{{ .ResourceID }}` is valid; `.alert.Title` and `.event.StackName`
 attempt starts. A notification can link directly to its UI modal with
 `/deployments?deployment_id={{ .DeploymentID }}`. Preparation failures may leave it empty.
 Custom opened and resolved templates are validated when configuration loads, with the
-exact path such as `notifications.alerts["sync_failed"].telegram[0].resolved.message`
+exact path such as `notifications.alerts["SyncFailed"].telegram[0].resolved.message`
 in an error.
 
 The internal `AlertOpened` and `AlertResolved` transitions join the SQLite transaction
@@ -174,7 +175,7 @@ notifications:
           resolved:
             action: reply
             message: "✅ {{ .Title }}: {{ .Resolution }}"
-    sync_failed:
+    SyncFailed:
       telegram:
         - chats: deployments
           opened:
