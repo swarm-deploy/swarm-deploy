@@ -70,6 +70,7 @@ async function explainWithAI() {
 
   returnFocus = null;
   closeCommitDetailsModal();
+  assistantStore.newChat();
   uiStore.openAssistantDrawer();
   await assistantStore.sendMessage(`Explain changes in git commit: ${commitHash}`);
 }

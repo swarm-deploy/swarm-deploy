@@ -7,6 +7,7 @@ import CommitDetailsModal from "./CommitDetailsModal.vue";
 const assistantStore = vi.hoisted(() => ({
   enabled: true,
   pending: false,
+  newChat: vi.fn(),
   sendMessage: vi.fn(async () => undefined),
 }));
 const uiStore = vi.hoisted(() => ({ openAssistantDrawer: vi.fn() }));
@@ -33,6 +34,7 @@ describe("Commit Details modal", () => {
     setActivePinia(createPinia());
     assistantStore.enabled = true;
     assistantStore.pending = false;
+    assistantStore.newChat.mockClear();
     assistantStore.sendMessage.mockClear();
     uiStore.openAssistantDrawer.mockClear();
   });
@@ -74,8 +76,12 @@ describe("Commit Details modal", () => {
     await flushPromises();
 
     expect(store.commitDetailsModalOpen).toBe(false);
+    expect(assistantStore.newChat).toHaveBeenCalledOnce();
     expect(uiStore.openAssistantDrawer).toHaveBeenCalledOnce();
     expect(assistantStore.sendMessage).toHaveBeenCalledWith("Explain changes in git commit: abcdef012345");
+    expect(assistantStore.newChat.mock.invocationCallOrder[0]).toBeLessThan(
+      assistantStore.sendMessage.mock.invocationCallOrder[0],
+    );
     wrapper.unmount();
   });
 });

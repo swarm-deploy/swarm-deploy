@@ -176,6 +176,7 @@ async function newChat() {
 
 async function closeDrawer() {
   usageOpenChatID.value = "";
+  uiStore.closeAssistantDrawer();
   await router.push({ query: assistantQuery(undefined) });
 }
 
