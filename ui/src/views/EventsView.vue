@@ -6,6 +6,7 @@ import { fetchEventFilters, fetchEvents } from "../api/overview";
 import type { EventCategory, EventFilterOptions, EventFilterService, EventHistoryItem, EventSeverity } from "../api/types";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
+import AppPagination from "../components/common/AppPagination.vue";
 import { eventTypeDescriptions, eventTypeMetadata, type EventTypeMetadata } from "../utils/eventMetadata";
 import { formatDate } from "../utils/format";
 
@@ -28,7 +29,8 @@ const loading = ref(false);
 const loadingError = ref("");
 const events = ref<EventHistoryItem[]>([]);
 const nextCursor = ref("");
-const loadingMore = ref(false);
+const cursors = ref<string[]>([""]);
+const page = ref(0);
 const selectedTypes = ref<string[]>(normalizeTypesQuery(route.query.types));
 const selectedSeverity = ref(normalizeSeverityQuery(route.query.severity));
 const selectedCategory = ref(normalizeCategoryQuery(route.query.category));
@@ -268,21 +270,29 @@ function eventQuery(cursor?: string) {
 }
 
 async function loadEvents() {
+  ++requestID;
+  page.value = 0;
+  cursors.value = [""];
+  events.value = [];
+  nextCursor.value = "";
+  await loadPage(0, "");
+}
+
+async function loadPage(index: number, cursor: string) {
   const currentRequestID = ++requestID;
   loading.value = true;
-  loadingMore.value = false;
   loadingError.value = "";
   expandedKey.value = "";
-  nextCursor.value = "";
-  events.value = [];
 
   try {
-    const response = await fetchEvents(eventQuery());
+    const response = await fetchEvents(eventQuery(cursor));
     if (currentRequestID !== requestID) {
       return;
     }
     events.value = Array.isArray(response.events) ? response.events : [];
     nextCursor.value = response.nextCursor ?? "";
+    page.value = index;
+    cursors.value[index] = cursor;
   } catch (error) {
     if (currentRequestID !== requestID) {
       return;
@@ -307,34 +317,12 @@ async function loadFilterOptions() {
   }
 }
 
-async function loadMoreEvents() {
-  if (!nextCursor.value || loadingMore.value || loading.value) {
-    return;
-  }
+function nextPage(): void {
+  if (!loading.value && nextCursor.value) void loadPage(page.value + 1, nextCursor.value);
+}
 
-  const currentRequestID = ++requestID;
-  const cursor = nextCursor.value;
-  loadingMore.value = true;
-  loadingError.value = "";
-  try {
-    const response = await fetchEvents(eventQuery(cursor));
-    if (currentRequestID !== requestID) {
-      return;
-    }
-    const existingIDs = new Set(events.value.map((event) => event.id));
-    const newEvents = (response.events ?? []).filter((event) => !existingIDs.has(event.id));
-    events.value = [...events.value, ...newEvents];
-    nextCursor.value = response.nextCursor ?? "";
-  } catch (error) {
-    if (currentRequestID !== requestID) {
-      return;
-    }
-    loadingError.value = error instanceof Error ? error.message : "Failed to load more events";
-  } finally {
-    if (currentRequestID === requestID) {
-      loadingMore.value = false;
-    }
-  }
+function previousPage(): void {
+  if (!loading.value && page.value > 0) void loadPage(page.value - 1, cursors.value[page.value - 1] ?? "");
 }
 
 async function persistFilters(): Promise<void> {
@@ -637,12 +625,8 @@ onBeforeUnmount(() => {
             </tr>
           </template>
     </AppTable>
-    <div v-if="events.length > 0 && (nextCursor || loadingMore || loadingError)" class="events-pagination">
-      <p v-if="loadingError" class="meta" role="alert">Failed to load more events: {{ loadingError }}</p>
-      <button v-if="nextCursor" class="events-load-more" type="button" :disabled="loadingMore" @click="loadMoreEvents">
-        {{ loadingMore ? "Loading..." : "Load more" }}
-      </button>
-    </div>
+    <p v-if="loadingError && events.length > 0" class="meta" role="alert">Failed to load events: {{ loadingError }}</p>
+    <AppPagination v-if="events.length > 0 || page > 0" class="events-pagination" label="Event pages" :page="page" :loading="loading" :has-next="Boolean(nextCursor)" @previous="previousPage" @next="nextPage" />
   </section>
 </template>
 
@@ -818,25 +802,6 @@ onBeforeUnmount(() => {
   padding: 0.65rem 0.55rem;
   color: var(--muted);
   font-size: 0.78rem;
-}
-.events-pagination {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 1rem;
-  padding: 1.25rem;
-}
-.events-load-more {
-  cursor: pointer;
-  padding: 0.55rem 1.25rem;
-  border: 1px solid var(--border-color, #43495b);
-  border-radius: 0.5rem;
-  background: var(--surface, transparent);
-  color: inherit;
-}
-.events-load-more:disabled {
-  cursor: wait;
-  opacity: 0.6;
 }
 @media (max-width: 720px) {
   .events-mobile-filter-toggle {

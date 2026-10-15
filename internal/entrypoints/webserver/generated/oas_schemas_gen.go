@@ -955,6 +955,8 @@ type Deployment struct {
 	Summary            DeploymentChangeSummary     `json:"summary"`
 	Resources          DeploymentResourceSummary   `json:"resources"`
 	DiffAvailable      bool                        `json:"diff_available"`
+	// Services from this deployment's recorded desired configuration.
+	Services []DeploymentService `json:"services"`
 	// Bounded secret-masked failure detail, when recorded.
 	Diagnostic OptString `json:"diagnostic"`
 	// Secret-masked recorded desired configuration rendered as YAML.
@@ -1060,6 +1062,11 @@ func (s *Deployment) GetResources() DeploymentResourceSummary {
 // GetDiffAvailable returns the value of DiffAvailable.
 func (s *Deployment) GetDiffAvailable() bool {
 	return s.DiffAvailable
+}
+
+// GetServices returns the value of Services.
+func (s *Deployment) GetServices() []DeploymentService {
+	return s.Services
 }
 
 // GetDiagnostic returns the value of Diagnostic.
@@ -1175,6 +1182,11 @@ func (s *Deployment) SetResources(val DeploymentResourceSummary) {
 // SetDiffAvailable sets the value of DiffAvailable.
 func (s *Deployment) SetDiffAvailable(val bool) {
 	s.DiffAvailable = val
+}
+
+// SetServices sets the value of Services.
+func (s *Deployment) SetServices(val []DeploymentService) {
+	s.Services = val
 }
 
 // SetDiagnostic sets the value of Diagnostic.
@@ -1623,6 +1635,44 @@ func (s *DeploymentResourceSummary) SetNetworks(val int) {
 // SetVolumes sets the value of Volumes.
 func (s *DeploymentResourceSummary) SetVolumes(val int) {
 	s.Volumes = val
+}
+
+// Ref: #/components/schemas/DeploymentService
+type DeploymentService struct {
+	Name  string `json:"name"`
+	Image string `json:"image"`
+	// Desired replica count or service mode from the recorded specification.
+	Replicas string `json:"replicas"`
+}
+
+// GetName returns the value of Name.
+func (s *DeploymentService) GetName() string {
+	return s.Name
+}
+
+// GetImage returns the value of Image.
+func (s *DeploymentService) GetImage() string {
+	return s.Image
+}
+
+// GetReplicas returns the value of Replicas.
+func (s *DeploymentService) GetReplicas() string {
+	return s.Replicas
+}
+
+// SetName sets the value of Name.
+func (s *DeploymentService) SetName(val string) {
+	s.Name = val
+}
+
+// SetImage sets the value of Image.
+func (s *DeploymentService) SetImage(val string) {
+	s.Image = val
+}
+
+// SetReplicas sets the value of Replicas.
+func (s *DeploymentService) SetReplicas(val string) {
+	s.Replicas = val
 }
 
 // Ref: #/components/schemas/DeploymentStageStatus
@@ -4499,12 +4549,19 @@ func (s *SecretsResponse) SetSecrets(val []SecretInfo) {
 
 // Ref: #/components/schemas/ServiceDeploymentResponse
 type ServiceDeploymentResponse struct {
+	// Deployment attempt ID.
+	ID           string                  `json:"id"`
 	CreatedAt    time.Time               `json:"created_at"`
 	Status       ServiceDeploymentStatus `json:"status"`
 	Image        string                  `json:"image"`
 	ImageVersion string                  `json:"image_version"`
 	Message      OptString               `json:"message"`
 	Commit       OptString               `json:"commit"`
+}
+
+// GetID returns the value of ID.
+func (s *ServiceDeploymentResponse) GetID() string {
+	return s.ID
 }
 
 // GetCreatedAt returns the value of CreatedAt.
@@ -4535,6 +4592,11 @@ func (s *ServiceDeploymentResponse) GetMessage() OptString {
 // GetCommit returns the value of Commit.
 func (s *ServiceDeploymentResponse) GetCommit() OptString {
 	return s.Commit
+}
+
+// SetID sets the value of ID.
+func (s *ServiceDeploymentResponse) SetID(val string) {
+	s.ID = val
 }
 
 // SetCreatedAt sets the value of CreatedAt.
@@ -4571,24 +4633,32 @@ func (s *ServiceDeploymentResponse) SetCommit(val OptString) {
 type ServiceDeploymentStatus string
 
 const (
-	ServiceDeploymentStatusSuccess ServiceDeploymentStatus = "success"
-	ServiceDeploymentStatusFailed  ServiceDeploymentStatus = "failed"
+	ServiceDeploymentStatusRunning     ServiceDeploymentStatus = "running"
+	ServiceDeploymentStatusSucceeded   ServiceDeploymentStatus = "succeeded"
+	ServiceDeploymentStatusFailed      ServiceDeploymentStatus = "failed"
+	ServiceDeploymentStatusInterrupted ServiceDeploymentStatus = "interrupted"
 )
 
 // AllValues returns all ServiceDeploymentStatus values.
 func (ServiceDeploymentStatus) AllValues() []ServiceDeploymentStatus {
 	return []ServiceDeploymentStatus{
-		ServiceDeploymentStatusSuccess,
+		ServiceDeploymentStatusRunning,
+		ServiceDeploymentStatusSucceeded,
 		ServiceDeploymentStatusFailed,
+		ServiceDeploymentStatusInterrupted,
 	}
 }
 
 // MarshalText implements encoding.TextMarshaler.
 func (s ServiceDeploymentStatus) MarshalText() ([]byte, error) {
 	switch s {
-	case ServiceDeploymentStatusSuccess:
+	case ServiceDeploymentStatusRunning:
+		return []byte(s), nil
+	case ServiceDeploymentStatusSucceeded:
 		return []byte(s), nil
 	case ServiceDeploymentStatusFailed:
+		return []byte(s), nil
+	case ServiceDeploymentStatusInterrupted:
 		return []byte(s), nil
 	default:
 		return nil, errors.Errorf("invalid value: %q", s)
@@ -4598,11 +4668,17 @@ func (s ServiceDeploymentStatus) MarshalText() ([]byte, error) {
 // UnmarshalText implements encoding.TextUnmarshaler.
 func (s *ServiceDeploymentStatus) UnmarshalText(data []byte) error {
 	switch ServiceDeploymentStatus(data) {
-	case ServiceDeploymentStatusSuccess:
-		*s = ServiceDeploymentStatusSuccess
+	case ServiceDeploymentStatusRunning:
+		*s = ServiceDeploymentStatusRunning
+		return nil
+	case ServiceDeploymentStatusSucceeded:
+		*s = ServiceDeploymentStatusSucceeded
 		return nil
 	case ServiceDeploymentStatusFailed:
 		*s = ServiceDeploymentStatusFailed
+		return nil
+	case ServiceDeploymentStatusInterrupted:
+		*s = ServiceDeploymentStatusInterrupted
 		return nil
 	default:
 		return errors.Errorf("invalid value: %q", data)

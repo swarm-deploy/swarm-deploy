@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 )
@@ -49,6 +52,12 @@ func (h *handler) GetDeployment(
 	if err != nil {
 		return nil, err
 	}
+	result.Services = make([]generated.DeploymentService, 0, len(desired.Compose.Services))
+	for _, service := range desired.Compose.Services {
+		result.Services = append(result.Services, generated.DeploymentService{
+			Name: service.Name, Image: service.Image, Replicas: deploymentServiceReplicas(service.Deploy),
+		})
+	}
 	configuration, err := desired.MarshalYAML()
 	if err != nil {
 		return nil, err
@@ -58,6 +67,51 @@ func (h *handler) GetDeployment(
 		result.Diagnostic = generated.NewOptString(item.ErrorDiagnostic)
 	}
 	return &result, nil
+}
+
+func deploymentServiceReplicas(deploy compose.ServiceDeploy) string {
+	switch deploy.Mode {
+	case "", "replicated":
+		if deploy.Replicas == nil {
+			return "1"
+		}
+		return strconv.FormatUint(*deploy.Replicas, 10)
+	case "global":
+		return "Global"
+	case "global-job":
+		return "Global job"
+	case "replicated-job":
+		parts := []string{}
+		for _, field := range []struct{ key, label string }{
+			{"max_concurrent", "concurrent"}, {"total_completions", "total"},
+		} {
+			if count := jobCount(deploy.Extra[field.key]); count != "" {
+				parts = append(parts, count+" "+field.label)
+			}
+		}
+		if len(parts) == 0 {
+			return "Replicated job"
+		}
+		return "Job: " + strings.Join(parts, ", ")
+	default:
+		return "—"
+	}
+}
+
+func jobCount(value any) string {
+	switch count := value.(type) {
+	case int:
+		if count >= 0 {
+			return strconv.Itoa(count)
+		}
+	case uint64:
+		return strconv.FormatUint(count, 10)
+	case float64:
+		if count >= 0 && count == float64(uint64(count)) {
+			return strconv.FormatUint(uint64(count), 10)
+		}
+	}
+	return ""
 }
 
 func toGeneratedDeploymentSummary(item deployment.DeploymentSummary) generated.DeploymentSummary {

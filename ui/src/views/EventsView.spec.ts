@@ -259,22 +259,33 @@ describe("EventsView", () => {
     expect(router.currentRoute.value.query.order).toBe("asc");
   });
 
-  it("loads subsequent pages with a cursor without replacing earlier rows", async () => {
+  it("navigates between cursor pages and replaces the visible rows", async () => {
     vi.mocked(fetchEvents)
       .mockResolvedValueOnce({ events: [events[1], events[2]], nextCursor: "page-2" })
-      .mockResolvedValueOnce({ events: [events[0], events[3]] });
+      .mockResolvedValueOnce({ events: [events[0], events[3]] })
+      .mockResolvedValueOnce({ events: [events[1], events[2]], nextCursor: "page-2" });
     const { wrapper } = await mountView();
 
     expect(renderedMessages(wrapper)).toEqual(["Newer info", "Warning"]);
-    expect(wrapper.find(".events-load-more").exists()).toBe(true);
+    expect(wrapper.find(".events-pagination").text()).toContain("Page 1");
+    expect(wrapper.findAll(".events-pagination button")[0].attributes("disabled")).toBeDefined();
 
-    await wrapper.find(".events-load-more").trigger("click");
+    await wrapper.findAll(".events-pagination button")[1].trigger("click");
     await flushPromises();
     expect(fetchEvents).toHaveBeenLastCalledWith({
       types: [], severities: [], limit: 50, sort: "time", order: "desc", cursor: "page-2",
     });
-    expect(renderedMessages(wrapper)).toEqual(["Newer info", "Warning", "Older info", "Error"]);
-    expect(wrapper.find(".events-load-more").exists()).toBe(false);
+    expect(renderedMessages(wrapper)).toEqual(["Older info", "Error"]);
+    expect(wrapper.find(".events-pagination").text()).toContain("Page 2");
+    expect(wrapper.findAll(".events-pagination button")[1].attributes("disabled")).toBeDefined();
+
+    await wrapper.findAll(".events-pagination button")[0].trigger("click");
+    await flushPromises();
+    expect(fetchEvents).toHaveBeenLastCalledWith({
+      types: [], severities: [], limit: 50, sort: "time", order: "desc",
+    });
+    expect(renderedMessages(wrapper)).toEqual(["Newer info", "Warning"]);
+    expect(wrapper.find(".events-pagination").text()).toContain("Page 1");
   });
 
   it("resets the cursor and loaded rows when the sort changes", async () => {
@@ -407,6 +418,7 @@ describe("EventsView", () => {
       types: [], severities: [], categories: ["swarm"], limit: 50, sort: "time", order: "desc",
     });
     expect(renderedMessages(wrapper)).toEqual(["Warning"]);
-    expect(wrapper.find(".events-load-more").exists()).toBe(false);
+    expect(wrapper.find(".events-pagination").text()).toContain("Page 1");
+    expect(wrapper.findAll(".events-pagination button")[1].attributes("disabled")).toBeDefined();
   });
 });

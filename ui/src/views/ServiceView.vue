@@ -144,7 +144,16 @@ function isOtherSystemLabel(key: string): boolean {
 }
 
 function deploymentStatusClass(status: ServiceDeploymentResponse["status"]): string {
-  return status;
+  if (status === "succeeded") return "overview-deployment-result--success";
+  if (status === "running") return "overview-deployment-result--running";
+  if (status === "interrupted") return "overview-deployment-result--interrupted";
+  return "overview-deployment-result--failed";
+}
+
+function deploymentTime(raw: string): string {
+  const date = new Date(raw);
+  if (Number.isNaN(date.valueOf())) return raw;
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
 function realtimeStateClass(state: string): string {
@@ -156,10 +165,6 @@ function realtimeStateClass(state: string): string {
     return "service-realtime-mobile-state--error";
   }
   return "service-realtime-mobile-state--unknown";
-}
-
-function deploymentKey(item: ServiceDeploymentResponse, index: number): string {
-  return `${item.created_at}-${item.status}-${item.image_version}-${index}`;
 }
 
 async function copyTaskID(taskID: string): Promise<void> {
@@ -705,27 +710,27 @@ onUnmounted(() => {
           <p v-if="deploymentsLoading" class="meta">Loading deployments...</p>
           <p v-else-if="deploymentsError" class="meta">Failed to load deployments: {{ deploymentsError }}</p>
           <p v-else-if="deployments.length === 0" class="meta">No deployments yet.</p>
-          <ul v-else class="service-deployments-list">
-            <li v-for="(deployment, index) in deployments" :key="deploymentKey(deployment, index)" class="service-deployment-item">
-              <div class="service-deployment-head">
-                <span class="status" :class="deploymentStatusClass(deployment.status)">
-                  {{ deployment.status }}
-                </span>
-                <span class="meta">{{ formatDate(deployment.created_at) }}</span>
-              </div>
-              <p class="meta">image version: {{ deployment.image_version || "n/a" }}</p>
-              <p class="meta">
-                commit:
-                <button
-                  v-if="deployment.commit"
-                  type="button"
-                  class="stack-commit-badge status unknown"
-                  @click="openCommitDetails(deployment.commit)"
-                >
-                  {{ shortCommitHash(deployment.commit) }}
-                </button>
-                <span v-else> n/a</span>
-              </p>
+          <ul v-else class="service-deployments-list overview-deployment-list">
+            <li v-for="deployment in deployments" :key="deployment.id"
+              class="service-deployment-item service-deployment-item--interactive overview-summary-row overview-deployment-row">
+              <button type="button" class="overview-deployment-details"
+                :aria-label="`Open ${deployment.status} deployment details from ${formatDate(deployment.created_at)}`"
+                @click="overviewStore.openDeploymentDetailsModal(deployment.id)" />
+              <span class="overview-summary-severity overview-deployment-result"
+                :class="deploymentStatusClass(deployment.status)" :aria-label="`Deployment ${deployment.status}`"
+                :title="deployment.status" role="img"></span>
+              <span class="service-deployment-status">{{ deployment.status }}</span>
+              <time class="overview-deployment-time" :datetime="deployment.created_at" :title="formatDate(deployment.created_at)">
+                {{ deploymentTime(deployment.created_at) }}
+              </time>
+              <button v-if="deployment.commit" type="button" class="overview-commit-badge overview-summary-sha-badge"
+                :aria-label="`Open Git commit ${deployment.commit}`" @click.stop="openCommitDetails(deployment.commit)">
+                {{ shortCommitHash(deployment.commit) }}
+              </button>
+              <span v-else class="overview-summary-value-empty">n/a</span>
+              <span class="service-deployment-image" :title="deployment.image">
+                Image {{ deployment.image_version || "n/a" }}
+              </span>
             </li>
           </ul>
         </article>
