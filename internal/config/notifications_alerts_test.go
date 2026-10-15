@@ -31,6 +31,17 @@ func TestAlertNotificationFallback(t *testing.T) {
 	assert.Equal(t, []string{"deployments"}, (TelegramChannel{Chats: spec.AlertTelegramRoutes("node_disconnected")[0].Chats}).ChatNames())
 }
 
+func TestAlertRouteValidationAllowsDeploymentIDTemplate(t *testing.T) {
+	spec := alertNotificationSpec()
+	spec.Alerts = map[string]NotificationAlertRoutes{
+		"sync_failed": {Telegram: []TelegramAlertChannel{{
+			Opened: AlertMessageSpec{Message: "deployment: {{ .DeploymentID }}"},
+		}}},
+	}
+
+	assert.Empty(t, spec.validate())
+}
+
 func TestAlertRoutesYAMLChats(t *testing.T) {
 	tests := []struct {
 		name, route string

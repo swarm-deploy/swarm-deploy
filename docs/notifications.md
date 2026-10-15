@@ -31,8 +31,11 @@ longer available, its Outbox delivery records an error for inspection and replay
 
 Alert templates use the shared Go template renderer. The typed fields at the root are
 `ID`, `Kind`, `Title`, `Message`, `ResourceType`, `ResourceID`, `OpenedAt`,
-`ResolvedAt` (`*time.Time`), `Resolution` and `ResolutionReason`.
+`DeploymentID`, `ResolvedAt` (`*time.Time`), `Resolution` and `ResolutionReason`.
 For example, `{{ .ResourceID }}` is valid; `.alert.Title` and `.event.StackName` are not.
+`DeploymentID` is populated for synchronization failures created after a deployment
+attempt starts. A notification can link directly to its UI modal with
+`/deployments?deployment_id={{ .DeploymentID }}`. Preparation failures may leave it empty.
 Custom opened and resolved templates are validated when configuration loads, with the
 exact path such as `notifications.alerts["sync_failed"].telegram[0].resolved.message`
 in an error.
@@ -175,7 +178,7 @@ notifications:
       telegram:
         - chats: deployments
           opened:
-            message: "🔴 Synchronization failed: {{ .ResourceID }}"
+            message: "🔴 Synchronization failed: {{ .ResourceID }}\nhttps://swarm-deploy.example/deployments?deployment_id={{ .DeploymentID }}"
           resolved:
             action: edit
             message: "✅ Synchronization recovered: {{ .ResourceID }}"

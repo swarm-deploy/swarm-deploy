@@ -335,7 +335,8 @@ func (c *NotificationSpec) validateAlertChannel(path, kind string, route Telegra
 		errs = append(errs, fmt.Errorf("%s.resolved.action must be reply or edit", path))
 	}
 	payload := events.AlertSnapshot{
-		Title: "Alert", Message: "details", ResourceID: "resource", OpenedAt: time.Now().UTC(),
+		Title: "Alert", Message: "details", ResourceID: "resource", DeploymentID: "deployment-id",
+		OpenedAt: time.Now().UTC(),
 	}
 	if err := notificationtemplate.Validate(route.AlertOpenedTemplate(kind), payload); err != nil {
 		errs = append(errs, fmt.Errorf("%s.opened.message: invalid template: %w", path, err))

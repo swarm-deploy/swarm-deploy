@@ -381,7 +381,7 @@ func (s *Subscriber) publishResolved(ctx context.Context, alert model.Alert) err
 func alertSnapshot(alert model.Alert) events.AlertSnapshot {
 	snapshot := events.AlertSnapshot{ID: alert.ID, Kind: string(alert.Kind), Title: alert.Title,
 		Message: alert.Message, ResourceType: string(alert.ResourceType), ResourceID: alert.ResourceID,
-		OpenedAt: alert.OpenedAt, ResolvedAt: alert.ResolvedAt}
+		DeploymentID: alert.DeploymentID, OpenedAt: alert.OpenedAt, ResolvedAt: alert.ResolvedAt}
 	if alert.Resolution != nil {
 		snapshot.Resolution = alert.Resolution.Message
 		snapshot.ResolutionReason = string(alert.Resolution.Reason)

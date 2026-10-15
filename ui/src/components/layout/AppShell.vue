@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from "vue";
+import { computed, onMounted, watch } from "vue";
 import { RouterView, useRoute, useRouter } from "vue-router";
 
 import { useAssistantStore } from "../../stores/assistant";
@@ -30,6 +30,32 @@ const syncDisabled = computed(() => !isOverviewRoute.value);
 const assistantPinnedActive = computed(
   () => assistantStore.enabled && uiStore.assistantDrawerOpen && uiStore.assistantPinned,
 );
+const linkedDeploymentID = computed(() => {
+  const value = route.query.deployment_id;
+  if (typeof value === "string") return value.trim();
+  if (Array.isArray(value)) return value.find((item) => typeof item === "string" && item.trim())?.trim() ?? "";
+  return "";
+});
+
+watch(linkedDeploymentID, (deploymentID, previousDeploymentID) => {
+  if (deploymentID) {
+    if (!overviewStore.deploymentDetailsModalOpen || overviewStore.deploymentDetailsID !== deploymentID) {
+      void overviewStore.openDeploymentDetailsModal(deploymentID);
+    }
+    return;
+  }
+  if (previousDeploymentID && overviewStore.deploymentDetailsModalOpen &&
+      overviewStore.deploymentDetailsID === previousDeploymentID) {
+    overviewStore.closeDeploymentDetailsModal();
+  }
+}, { immediate: true });
+
+watch(() => overviewStore.deploymentDetailsModalOpen, (open, wasOpen) => {
+  if (open || !wasOpen || !linkedDeploymentID.value) return;
+  const query = { ...route.query };
+  delete query.deployment_id;
+  void router.replace({ query });
+});
 
 async function handleSyncNow() {
   if (!isOverviewRoute.value) {
