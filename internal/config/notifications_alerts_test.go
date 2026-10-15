@@ -23,7 +23,7 @@ func TestAlertNotificationFallback(t *testing.T) {
 	assert.Contains(t, spec.AlertTelegramRoutes("sync_failed")[0].AlertOpenedTemplate("sync_failed"), ".ResourceID")
 	assert.Equal(t, "reply", spec.AlertTelegramRoutes("sync_failed")[0].AlertResolvedAction())
 	spec.Alerts = map[string]NotificationAlertRoutes{
-		"default":     {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"deployments"}, Resolved: AlertMessageSpec{Action: "edit"}}}},
+		"default":    {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"deployments"}, Resolved: AlertMessageSpec{Action: "edit"}}}},
 		"SyncFailed": {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default"}, Resolved: AlertMessageSpec{Action: "reply"}}}},
 	}
 	require.Empty(t, spec.validate())
@@ -128,8 +128,8 @@ func TestAlertRouteValidation(t *testing.T) {
 func TestAlertRouteValidationAllowsSamePhysicalDestinationForDifferentKinds(t *testing.T) {
 	spec := alertNotificationSpec()
 	spec.Alerts = map[string]NotificationAlertRoutes{
-		"SyncFailed":                {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default"}}}},
-		"NodeDisconnected":          {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default"}}}},
+		"SyncFailed":               {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default"}}}},
+		"NodeDisconnected":         {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default"}}}},
 		"GitRepositoryUnavailable": {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default"}}}},
 	}
 
