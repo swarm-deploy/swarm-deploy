@@ -1,10 +1,25 @@
 paths:
+  /api/v1/deployments/filters:
+    get:
+      operationId: getDeploymentFilters
+      responses:
+        '200':
+          description: Stack and service names with recorded deployment attempts.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeploymentFilterOptions'
   /api/v1/deployments:
     get:
       operationId: listDeployments
       parameters:
         - in: query
           name: stack
+          schema:
+            type: string
+        - in: query
+          name: service_name
+          description: Exact service name from the recorded desired configuration.
           schema:
             type: string
         - in: query
@@ -44,6 +59,26 @@ paths:
                 $ref: '#/components/schemas/Deployment'
 components:
   schemas:
+    DeploymentFilterOptions:
+      type: object
+      required: [stacks, services]
+      properties:
+        stacks:
+          type: array
+          items:
+            type: string
+        services:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeploymentFilterService'
+    DeploymentFilterService:
+      type: object
+      required: [stack_name, service_name]
+      properties:
+        stack_name:
+          type: string
+        service_name:
+          type: string
     DeploymentStatus:
       type: string
       enum: [running, succeeded, failed, interrupted]

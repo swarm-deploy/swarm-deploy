@@ -2,6 +2,7 @@ import { apiRequest } from "./client";
 import type {
   AlertsResponse,
   DeploymentsResponse,
+  DeploymentFilterOptions,
   Deployment,
   AlertStatus,
   EventHistoryResponse,
@@ -153,10 +154,15 @@ export function fetchDeployment(id: string): Promise<Deployment> {
   return apiRequest<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}`);
 }
 
-export function fetchDeployments(options: { stack?: string; limit?: number; cursor?: string } = {}): Promise<DeploymentsResponse> {
+export function fetchDeployments(options: { stack?: string; serviceName?: string; limit?: number; cursor?: string } = {}): Promise<DeploymentsResponse> {
   const params = new URLSearchParams();
   if (options.stack) params.set("stack", options.stack);
+  if (options.serviceName) params.set("service_name", options.serviceName);
   if (options.limit) params.set("limit", String(options.limit));
   if (options.cursor) params.set("cursor", options.cursor);
   return apiRequest<DeploymentsResponse>(`/api/v1/deployments?${params}`);
+}
+
+export function fetchDeploymentFilters(): Promise<DeploymentFilterOptions> {
+  return apiRequest<DeploymentFilterOptions>("/api/v1/deployments/filters");
 }

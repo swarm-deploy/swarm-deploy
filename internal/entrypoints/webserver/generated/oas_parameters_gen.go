@@ -1226,7 +1226,9 @@ func decodeListAlertsParams(args [0]string, argsEscaped bool, r *http.Request) (
 // ListDeploymentsParams is parameters of listDeployments operation.
 type ListDeploymentsParams struct {
 	Stack OptString `json:",omitempty,omitzero"`
-	Limit OptInt32  `json:",omitempty,omitzero"`
+	// Exact service name from the recorded desired configuration.
+	ServiceName OptString `json:",omitempty,omitzero"`
+	Limit       OptInt32  `json:",omitempty,omitzero"`
 	// Opaque cursor returned by the previous page.
 	Cursor OptString `json:",omitempty,omitzero"`
 }
@@ -1239,6 +1241,15 @@ func unpackListDeploymentsParams(packed middleware.Parameters) (params ListDeplo
 		}
 		if v, ok := packed[key]; ok {
 			params.Stack = v.(OptString)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "service_name",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.ServiceName = v.(OptString)
 		}
 	}
 	{
@@ -1301,6 +1312,47 @@ func decodeListDeploymentsParams(args [0]string, argsEscaped bool, r *http.Reque
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "stack",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: service_name.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "service_name",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotServiceNameVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotServiceNameVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.ServiceName.SetTo(paramsDotServiceNameVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "service_name",
 			In:   "query",
 			Err:  err,
 		}

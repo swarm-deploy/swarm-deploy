@@ -10,6 +10,8 @@ servers:
 paths:
   /api/v1/deployments:
     $ref: './deployments.yaml#/paths/~1api~1v1~1deployments'
+  /api/v1/deployments/filters:
+    $ref: './deployments.yaml#/paths/~1api~1v1~1deployments~1filters'
   /api/v1/deployments/{id}:
     $ref: './deployments.yaml#/paths/~1api~1v1~1deployments~1{id}'
   /api/v1/stacks:
@@ -70,6 +72,10 @@ paths:
     $ref: './users.yaml#/paths/~1api~1v1~1users~1me'
 components:
   schemas:
+    DeploymentFilterOptions:
+      $ref: './deployments.yaml#/components/schemas/DeploymentFilterOptions'
+    DeploymentFilterService:
+      $ref: './deployments.yaml#/components/schemas/DeploymentFilterService'
     AssistantChatRequest:
       $ref: './assistant.yaml#/components/schemas/AssistantChatRequest'
     AssistantChatResponse:

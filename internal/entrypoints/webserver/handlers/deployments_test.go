@@ -105,3 +105,36 @@ func TestDeploymentServiceReplicas(t *testing.T) {
 		})
 	}
 }
+
+func TestDeploymentFiltersUsesAllRecordedStacks(t *testing.T) {
+	ctx := t.Context()
+	db, err := storage.Open(ctx, t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+	h := &handler{deployments: deployment.NewStore(db)}
+	service := deployment.NewService(db, outbox.New(db))
+	for _, tc := range []struct {
+		stack   string
+		commit  string
+		service string
+	}{
+		{stack: "zeta", commit: "one", service: "api"},
+		{stack: "alpha", commit: "two", service: "worker"},
+	} {
+		_, err := service.StartIfChanged(ctx, tc.stack, tc.commit, compose.File{Compose: compose.Compose{
+			Services: compose.Services{{Name: tc.service, Image: "image:1"}},
+		}}, true)
+		require.NoError(t, err)
+	}
+	filters, err := h.GetDeploymentFilters(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"alpha", "zeta"}, filters.Stacks)
+	assert.Equal(t, []generated.DeploymentFilterService{
+		{StackName: "alpha", ServiceName: "worker"},
+		{StackName: "zeta", ServiceName: "api"},
+	}, filters.Services)
+	listed, err := h.ListDeployments(ctx, generated.ListDeploymentsParams{ServiceName: generated.NewOptString("worker")})
+	require.NoError(t, err)
+	require.Len(t, listed.Deployments, 1)
+	assert.Equal(t, "alpha", listed.Deployments[0].Stack)
+}

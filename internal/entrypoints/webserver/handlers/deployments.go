@@ -13,11 +13,30 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 )
 
+// GetDeploymentFilters returns stack and service names with recorded deployment attempts.
+func (h *handler) GetDeploymentFilters(ctx context.Context) (*generated.DeploymentFilterOptions, error) {
+	stacks, services, err := h.deployments.FilterOptions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	result := &generated.DeploymentFilterOptions{
+		Stacks:   stacks,
+		Services: make([]generated.DeploymentFilterService, 0, len(services)),
+	}
+	for _, service := range services {
+		result.Services = append(result.Services, generated.DeploymentFilterService{
+			StackName: service.StackName, ServiceName: service.ServiceName,
+		})
+	}
+	return result, nil
+}
+
 func (h *handler) ListDeployments(
 	ctx context.Context, params generated.ListDeploymentsParams,
 ) (*generated.DeploymentsResponse, error) {
 	page, err := h.deployments.List(ctx, deployment.ListFilter{
-		Stack: params.Stack.Or(""), Limit: int(params.Limit.Or(0)), Cursor: params.Cursor.Or(""),
+		Stack: params.Stack.Or(""), Service: params.ServiceName.Or(""),
+		Limit: int(params.Limit.Or(0)), Cursor: params.Cursor.Or(""),
 	})
 	if errors.Is(err, deployment.ErrInvalidCursor) {
 		return nil, withStatusError(http.StatusBadRequest, err)

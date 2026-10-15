@@ -37,6 +37,41 @@ type Store struct{ db *storage.Database }
 // NewStore creates a deployment repository on the application database.
 func NewStore(db *storage.Database) *Store { return &Store{db: db} }
 
+// FilterOptions returns stack and service names represented by deployment attempts.
+func (s *Store) FilterOptions(ctx context.Context) ([]string, []FilterService, error) {
+	var rows []struct {
+		Stack string `db:"stack"`
+	}
+	const stacksQuery = `SELECT DISTINCT stack FROM deployments WHERE stack <> '' ORDER BY stack`
+	if err := s.db.Select(ctx, &rows, stacksQuery); err != nil {
+		return nil, nil, err
+	}
+	stacks := make([]string, 0, len(rows))
+	for _, row := range rows {
+		stacks = append(stacks, row.Stack)
+	}
+	var services []FilterService
+	if err := s.db.Select(ctx, &services, `SELECT DISTINCT d.stack AS stack_name,
+		json_extract(svc.value, '$.name') AS service_name
+		FROM deployments AS d, json_each(d.desired_payload, '$.definition.compose.services') AS svc
+		WHERE json_extract(svc.value, '$.name') <> ''
+		ORDER BY stack_name, service_name`); err != nil {
+		return nil, nil, err
+	}
+	if services == nil {
+		services = []FilterService{}
+	}
+	return stacks, services, nil
+}
+
+// FilterService identifies a service within a stack for deployment filtering.
+type FilterService struct {
+	// StackName identifies the stack containing the service.
+	StackName string `db:"stack_name"`
+	// ServiceName identifies the service in the recorded desired configuration.
+	ServiceName string `db:"service_name"`
+}
+
 var summaryColumns = []any{
 	"id", "stack", "commit", "status", "error_code", "phase", "started_at", "finished_at", "details_payload",
 }
@@ -46,6 +81,11 @@ func (s *Store) List(ctx context.Context, filter ListFilter) (Page, error) {
 	dataset := dialect.From("deployments").Prepared(true).Select(summaryColumns...)
 	if filter.Stack != "" {
 		dataset = dataset.Where(goqu.Ex{"stack": filter.Stack})
+	}
+	if filter.Service != "" {
+		const serviceQuery = `EXISTS (SELECT 1 FROM json_each(deployments.desired_payload,
+			'$.definition.compose.services') AS svc WHERE json_extract(svc.value, '$.name') = ?)`
+		dataset = dataset.Where(goqu.L(serviceQuery, filter.Service))
 	}
 	if filter.Status != "" {
 		dataset = dataset.Where(goqu.Ex{"status": filter.Status})

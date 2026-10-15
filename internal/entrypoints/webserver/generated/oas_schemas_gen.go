@@ -1522,6 +1522,58 @@ func (s *DeploymentComparisonStatus) UnmarshalText(data []byte) error {
 	}
 }
 
+// Ref: #/components/schemas/DeploymentFilterOptions
+type DeploymentFilterOptions struct {
+	Stacks   []string                  `json:"stacks"`
+	Services []DeploymentFilterService `json:"services"`
+}
+
+// GetStacks returns the value of Stacks.
+func (s *DeploymentFilterOptions) GetStacks() []string {
+	return s.Stacks
+}
+
+// GetServices returns the value of Services.
+func (s *DeploymentFilterOptions) GetServices() []DeploymentFilterService {
+	return s.Services
+}
+
+// SetStacks sets the value of Stacks.
+func (s *DeploymentFilterOptions) SetStacks(val []string) {
+	s.Stacks = val
+}
+
+// SetServices sets the value of Services.
+func (s *DeploymentFilterOptions) SetServices(val []DeploymentFilterService) {
+	s.Services = val
+}
+
+// Ref: #/components/schemas/DeploymentFilterService
+type DeploymentFilterService struct {
+	StackName   string `json:"stack_name"`
+	ServiceName string `json:"service_name"`
+}
+
+// GetStackName returns the value of StackName.
+func (s *DeploymentFilterService) GetStackName() string {
+	return s.StackName
+}
+
+// GetServiceName returns the value of ServiceName.
+func (s *DeploymentFilterService) GetServiceName() string {
+	return s.ServiceName
+}
+
+// SetStackName sets the value of StackName.
+func (s *DeploymentFilterService) SetStackName(val string) {
+	s.StackName = val
+}
+
+// SetServiceName sets the value of ServiceName.
+func (s *DeploymentFilterService) SetServiceName(val string) {
+	s.ServiceName = val
+}
+
 // Ref: #/components/schemas/DeploymentPhase
 type DeploymentPhase string
 

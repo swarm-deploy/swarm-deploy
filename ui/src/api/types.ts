@@ -501,3 +501,7 @@ export interface DeploymentsResponse {
   deployments: DeploymentSummary[];
   next_cursor?: string;
 }
+export interface DeploymentFilterOptions {
+  stacks: string[];
+  services: Array<{ stack_name: string; service_name: string }>;
+}

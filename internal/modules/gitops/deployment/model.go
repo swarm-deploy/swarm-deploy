@@ -272,6 +272,8 @@ type Prepared struct {
 type ListFilter struct {
 	// Stack restricts results to a stack; empty means all stacks.
 	Stack string
+	// Service restricts results to attempts containing a service in their desired configuration.
+	Service string
 	// Status restricts results to one deployment outcome; empty means all statuses.
 	Status Status
 	// ErrorCode restricts results to one stable failure category; empty means all categories.
