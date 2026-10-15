@@ -83,8 +83,8 @@ func TestSyncFailedAlertRendering(t *testing.T) {
 		{
 			name:          "custom template",
 			title:         "Synchronization failed",
-			customMessage: "custom {{ .ResourceID }}: {{ .Message }}",
-			wantText:      "custom infra<&: first line\n<broken> & stopped",
+			customMessage: "custom {{ .ResourceID }} deployment {{ .DeploymentID }}: {{ .Message }}",
+			wantText:      "custom infra<& deployment deployment-1: first line\n<broken> & stopped",
 		},
 	}
 	for _, test := range tests {
@@ -113,7 +113,7 @@ func TestSyncFailedAlertRendering(t *testing.T) {
 			}
 			alert := events.AlertSnapshot{
 				ID: "failed", Kind: "sync_failed", Title: test.title, ResourceID: "infra<&",
-				Message: "first line\n<broken> & stopped", OpenedAt: time.Now().UTC(),
+				DeploymentID: "deployment-1", Message: "first line\n<broken> & stopped", OpenedAt: time.Now().UTC(),
 			}
 			require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{Event: &events.AlertOpened{
 				Alert: alert, Recipients: []events.AlertRecipient{recipient},
