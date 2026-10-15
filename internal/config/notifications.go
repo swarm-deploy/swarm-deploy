@@ -278,12 +278,46 @@ func (c *NotificationSpec) validateTelegramMessenger() []error {
 	return errs
 }
 
+func notificationAlertConfigKey(kind alertmodel.AlertKind) string {
+	switch kind {
+	case alertmodel.AlertKindSyncFailed:
+		return notificationAlertNameSyncFailed
+	case alertmodel.AlertKindNodeDisconnected:
+		return notificationAlertNameNodeDisconnected
+	case alertmodel.AlertKindGitRepositoryUnavailable:
+		return notificationAlertNameGitRepositoryUnavailable
+	default:
+		return string(kind)
+	}
+}
+
+func notificationAlertKind(configKey string) alertmodel.AlertKind {
+	switch configKey {
+	case notificationAlertNameSyncFailed:
+		return alertmodel.AlertKindSyncFailed
+	case notificationAlertNameNodeDisconnected:
+		return alertmodel.AlertKindNodeDisconnected
+	case notificationAlertNameGitRepositoryUnavailable:
+		return alertmodel.AlertKindGitRepositoryUnavailable
+	default:
+		return alertmodel.AlertKind(configKey)
+	}
+}
+
+func validNotificationAlertConfigKey(kind string) bool {
+	switch kind {
+	case notificationAlertNameDefault, notificationAlertNameSyncFailed,
+		notificationAlertNameNodeDisconnected, notificationAlertNameGitRepositoryUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
 func (c *NotificationSpec) validateAlertRoutes() []error {
 	var errs []error
 	for kind, routes := range c.Alerts {
-		if kind != "default" && kind != string(alertmodel.AlertKindSyncFailed) &&
-			kind != string(alertmodel.AlertKindNodeDisconnected) &&
-			kind != string(alertmodel.AlertKindGitRepositoryUnavailable) {
+		if !validNotificationAlertConfigKey(kind) {
 			errs = append(errs, fmt.Errorf("notifications.alerts[%q]: unknown alert kind", kind))
 			continue
 		}
@@ -345,7 +379,10 @@ func (c *NotificationSpec) validateAlertChannel(path, kind string, route Telegra
 		Title: "Alert", Message: "details", ResourceID: "resource", DeploymentID: "deployment-id",
 		OpenedAt: time.Now().UTC(),
 	}
-	if err := notificationtemplate.Validate(route.AlertOpenedTemplate(kind), payload); err != nil {
+	if err := notificationtemplate.Validate(
+		route.AlertOpenedTemplate(string(notificationAlertKind(kind))),
+		payload,
+	); err != nil {
 		errs = append(errs, fmt.Errorf("%s.opened.message: invalid template: %w", path, err))
 	}
 	resolvedAt := time.Now().UTC()
