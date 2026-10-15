@@ -3,13 +3,13 @@ import { createPinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryHistory, createRouter } from "vue-router";
 import { fetchNetworks } from "../api/cluster";
-import { fetchAlerts, fetchDeployments, fetchStacks } from "../api/overview";
+import { fetchAlerts, fetchDeployments, fetchRecommendations, fetchStacks } from "../api/overview";
 import { fetchServices } from "../api/services";
-import type { Alert, DeploymentSummary, ServiceInfo, StackView as Stack } from "../api/types";
+import type { Alert, DeploymentSummary, Recommendation, ServiceInfo, StackView as Stack } from "../api/types";
 import { useOverviewStore } from "../stores/overview";
 import StackView from "./StackView.vue";
 
-vi.mock("../api/overview", () => ({ fetchStacks: vi.fn(), fetchDeployments: vi.fn(), fetchAlerts: vi.fn() }));
+vi.mock("../api/overview", () => ({ fetchStacks: vi.fn(), fetchDeployments: vi.fn(), fetchAlerts: vi.fn(), fetchRecommendations: vi.fn() }));
 vi.mock("../api/services", () => ({ fetchServices: vi.fn() }));
 vi.mock("../api/cluster", () => ({ fetchNetworks: vi.fn() }));
 
@@ -47,6 +47,7 @@ beforeEach(() => {
   vi.mocked(fetchServices).mockResolvedValue({ services: [service("api", "Synced"), service("worker", "OutOfSync"), service("pending", "unknown"), service("other", "Synced", "infra")] });
   vi.mocked(fetchDeployments).mockResolvedValue({ deployments: [deployment] });
   vi.mocked(fetchAlerts).mockResolvedValue({ alerts: [alert("own"), alert("other", "stack", "infra"), alert("node", "node"), alert("repo", "repository"), alert("closed", "stack", "app", "resolved")] });
+  vi.mocked(fetchRecommendations).mockResolvedValue({ recommendations: [] });
   vi.mocked(fetchNetworks).mockResolvedValue({ networks: [{ id: "net", name: "app_default", driver: "overlay", scope: "swarm", internal: false, attachable: false, ingress: false, managed: true, stack_name: "app" }, { id: "foreign", name: "foreign", driver: "overlay", scope: "swarm", internal: false, attachable: false, ingress: false, managed: false }] });
 });
 
@@ -57,7 +58,7 @@ describe("Stack Details", () => {
     expect(wrapper.get("h2").text()).toBe("app");
     expect(wrapper.get(".overview-stack-status-badge").text()).toBe("Out of sync 1");
     // API aggregate is authoritative, even if the service metadata snapshot differs.
-    expect(wrapper.findAll(".stack-details-summary dd").map((item) => item.text())).toEqual(["3", "2", "1", "1"]);
+    expect(wrapper.findAll(".stack-details-summary dd").map((item) => item.text())).toEqual(["3", "2", "1", "1", "0"]);
     expect(wrapper.findAll(".services-cell-sync-status .status").map((item) => item.text())).toEqual(["Synced", "unknown", "OutOfSync"]);
     expect(wrapper.text()).toContain("Application");
     expect(wrapper.text()).toContain("app_default");
@@ -119,7 +120,7 @@ describe("Stack Details", () => {
     await flushPromises();
     for (const text of ["No services captured yet.", "No deployments yet.", "n/a"]) expect(wrapper.text()).toContain(text);
     expect(wrapper.find('[aria-labelledby="stack-alerts-title"]').exists()).toBe(false);
-    expect(wrapper.findAll(".stack-details-summary dd").at(-1)?.text()).toBe("0");
+    expect(wrapper.get('[data-summary="alerts"] dd').text()).toBe("0");
     expect(wrapper.get(".stack-resource summary").text()).toBe("Networks 0");
     wrapper.unmount();
   });
@@ -130,7 +131,7 @@ describe("Stack Details", () => {
     vi.mocked(fetchNetworks).mockRejectedValue(new Error("networks offline"));
     const { wrapper } = await render();
     await flushPromises();
-    expect(wrapper.findAll(".stack-details-summary dd").at(-1)?.text()).toBe("n/a");
+    expect(wrapper.get('[data-summary="alerts"] dd').text()).toBe("n/a");
     for (const text of ["history offline", "alerts offline", "networks offline"]) expect(wrapper.text()).toContain(text);
     expect(wrapper.text()).not.toContain("No active alerts.");
     expect(wrapper.find(".services-stack-table").exists()).toBe(true);
@@ -146,12 +147,14 @@ describe("Stack Details", () => {
     wrapper.unmount();
   });
 
-  it("opens deployments, filters the history link, and navigates to service details", async () => {
+  it("opens deployments and services without breadcrumbs or a history link", async () => {
     const { wrapper, router, store } = await render();
     await flushPromises();
     expect(fetchDeployments).toHaveBeenCalledWith({ stack: "app", limit: 3 });
     expect(fetchAlerts).toHaveBeenCalledWith({ status: "open" });
-    expect(wrapper.get(".stack-history-link").attributes("href")).toBe("/deployments?stack_name=app");
+    expect(wrapper.find(".stack-history-link").exists()).toBe(false);
+    expect(wrapper.find('[aria-label="Breadcrumb"]').exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("View all");
     await wrapper.get('[aria-label="Open failed deployment details"]').trigger("click");
     expect(store.openDeploymentDetailsModal).toHaveBeenCalledWith("d1");
     await wrapper.get('[aria-label="Open details for api"]').trigger("keydown", { key: "Enter" });
@@ -205,7 +208,7 @@ describe("Stack Details", () => {
     const { wrapper } = await render();
     await flushPromises();
     expect(wrapper.find('[aria-labelledby="stack-alerts-title"]').exists()).toBe(false);
-    expect(wrapper.findAll(".stack-details-summary dd").at(-1)?.text()).toBe("0");
+    expect(wrapper.get('[data-summary="alerts"] dd').text()).toBe("0");
     expect(wrapper.find(".stack-details-panels").exists()).toBe(false);
     wrapper.unmount();
   });
@@ -226,6 +229,66 @@ describe("Stack Details", () => {
     wrapper.unmount();
   });
 
+
+  it("counts recommendations only for the current stack without limiting the request", async () => {
+    const recommendation = (stack: string, service: string): Recommendation => ({
+      severity: "medium", type: "service.image.latest", subject: { stack, service },
+      source: { file: "app.yaml", digest: "sha256:abc", commit: "abcdef" },
+      title: "Pin image version", recommendation: "Use an explicit version", created_at: "2026-10-10T10:00:00Z",
+    });
+    vi.mocked(fetchRecommendations).mockResolvedValue({ recommendations: [
+      recommendation("app", "api"), recommendation("app", "worker"), recommendation("infra", "proxy"),
+    ] });
+    const { wrapper } = await render();
+    await flushPromises();
+    expect(fetchRecommendations).toHaveBeenCalledWith({ stack: "app" });
+    expect(wrapper.get('[data-summary="recommendations"] dd').text()).toBe("2");
+    expect(wrapper.get('[data-summary="recommendations"] svg').classes()).toContain("summary-icon--warning");
+    expect(wrapper.get('[data-summary="alerts"] svg').classes()).toContain("summary-icon--error");
+    expect(wrapper.get('[data-summary="out-of-sync"] svg').classes()).toContain("summary-icon--warning");
+    expect(wrapper.get(".stack-details-main").findAll(":scope > section")).toHaveLength(2);
+    wrapper.unmount();
+  });
+
+  it("uses muted icons for zero recommendations, alerts, and OutOfSync", async () => {
+    vi.mocked(fetchAlerts).mockResolvedValue({ alerts: [] });
+    vi.mocked(fetchStacks).mockResolvedValue({ stacks: [{ ...stack, status: { synced: 1, out_of_synced: 0 } }], sync: {} });
+    vi.mocked(fetchServices).mockResolvedValue({ services: [service("api", "Synced")] });
+    const { wrapper } = await render();
+    await flushPromises();
+    for (const key of ["recommendations", "alerts", "out-of-sync"]) {
+      expect(wrapper.get(`[data-summary="${key}"] dd`).text()).toBe("0");
+      expect(wrapper.get(`[data-summary="${key}"] svg`).classes()).toContain("summary-icon--muted");
+    }
+    expect(wrapper.get('[data-summary="services"] svg').classes()).toContain("summary-icon--muted");
+    expect(wrapper.get('[data-summary="synced"] svg').classes()).toContain("summary-icon--success");
+    wrapper.unmount();
+  });
+
+  it("does not show a false zero while recommendations load", async () => {
+    let resolve!: (value: { recommendations: Recommendation[] }) => void;
+    vi.mocked(fetchRecommendations).mockReturnValueOnce(new Promise((done) => { resolve = done; }));
+    const { wrapper } = await render();
+    await flushPromises();
+    expect(wrapper.get('[role="status"]').text()).toBe("Loading stack...");
+    expect(wrapper.find('[data-summary="recommendations"]').exists()).toBe(false);
+    resolve({ recommendations: [] });
+    await flushPromises();
+    expect(wrapper.get('[data-summary="recommendations"] dd').text()).toBe("0");
+    wrapper.unmount();
+  });
+
+  it("shows an unknown recommendation count on API failure while preserving the page", async () => {
+    vi.mocked(fetchRecommendations).mockRejectedValue(new Error("recommendations offline"));
+    const { wrapper } = await render();
+    await flushPromises();
+    expect(wrapper.get('[data-summary="recommendations"] dd').text()).toBe("n/a");
+    expect(wrapper.get('[data-summary="recommendations"] svg').classes()).toContain("summary-icon--muted");
+    expect(wrapper.get('[role="alert"]').text()).toContain("recommendations offline");
+    expect(wrapper.find(".services-stack-table").exists()).toBe(true);
+    wrapper.unmount();
+  });
+
   it("reloads when route parameters change and ignores an obsolete response", async () => {
     let resolve!: (value: Awaited<ReturnType<typeof fetchStacks>>) => void;
     vi.mocked(fetchStacks).mockReturnValueOnce(new Promise((done) => { resolve = done; }));
@@ -238,6 +301,7 @@ describe("Stack Details", () => {
     await flushPromises();
     expect(wrapper.get("h2").text()).toBe("infra");
     expect(fetchDeployments).toHaveBeenLastCalledWith({ stack: "infra", limit: 3 });
+    expect(fetchRecommendations).toHaveBeenLastCalledWith({ stack: "infra" });
     wrapper.unmount();
   });
 });

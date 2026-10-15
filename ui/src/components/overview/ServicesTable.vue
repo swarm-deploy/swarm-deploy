@@ -3,7 +3,7 @@ import { useRouter } from "vue-router";
 import type { ServiceInfo, ServiceSyncStatus } from "../../api/types";
 import AppTable from "../common/AppTable.vue";
 
-defineProps<{ services: ServiceInfo[] }>();
+withDefaults(defineProps<{ services: ServiceInfo[]; minWidth?: string }>(), { minWidth: "720px" });
 const router = useRouter();
 async function openServiceDetails(stack: string, service: string) {
   if (stack && service) await router.push({ name: "service-details", params: { stack, service } });
@@ -39,7 +39,7 @@ function syncErrorText(syncError: string | undefined): string {
 </script>
 
 <template>
-  <AppTable fixed table-class="services-stack-table" min-width="720px" wrap-class="stack-services-table-wrap">
+  <AppTable fixed table-class="services-stack-table" :min-width="minWidth" wrap-class="stack-services-table-wrap">
     <template #colgroup>
       <colgroup>
         <col class="services-col-name" />
