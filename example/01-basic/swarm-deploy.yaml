@@ -72,7 +72,7 @@ notifications:
         - message: |
             sync started manually
   alerts:
-    sync_failed:
+    SyncFailed:
       telegram:
         - chats: deployments
           opened:

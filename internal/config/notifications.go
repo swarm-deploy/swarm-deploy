@@ -14,7 +14,14 @@ import (
 	"go.yaml.in/yaml/v3"
 )
 
-const defaultNotificationTelegramRetries = 3
+const (
+	defaultNotificationTelegramRetries = 3
+
+	notificationAlertNameDefault                  = "default"
+	notificationAlertNameSyncFailed               = "SyncFailed"
+	notificationAlertNameNodeDisconnected         = "NodeDisconnected"
+	notificationAlertNameGitRepositoryUnavailable = "GitRepositoryUnavailable"
+)
 
 // NotificationSpec defines event subscriptions, alert routes and messenger destinations.
 type NotificationSpec struct {
@@ -60,10 +67,10 @@ const (
 
 // AlertTelegramRoutes returns the replacing kind route, configured default or built-in route.
 func (c NotificationSpec) AlertTelegramRoutes(kind string) []TelegramAlertChannel {
-	if route, ok := c.Alerts[kind]; ok {
+	if route, ok := c.Alerts[notificationAlertConfigKey(alertmodel.AlertKind(kind))]; ok {
 		return route.Telegram
 	}
-	if route, ok := c.Alerts["default"]; ok {
+	if route, ok := c.Alerts[notificationAlertNameDefault]; ok {
 		return route.Telegram
 	}
 	return []TelegramAlertChannel{{
@@ -271,12 +278,46 @@ func (c *NotificationSpec) validateTelegramMessenger() []error {
 	return errs
 }
 
+func notificationAlertConfigKey(kind alertmodel.AlertKind) string {
+	switch kind {
+	case alertmodel.AlertKindSyncFailed:
+		return notificationAlertNameSyncFailed
+	case alertmodel.AlertKindNodeDisconnected:
+		return notificationAlertNameNodeDisconnected
+	case alertmodel.AlertKindGitRepositoryUnavailable:
+		return notificationAlertNameGitRepositoryUnavailable
+	default:
+		return string(kind)
+	}
+}
+
+func notificationAlertKind(configKey string) alertmodel.AlertKind {
+	switch configKey {
+	case notificationAlertNameSyncFailed:
+		return alertmodel.AlertKindSyncFailed
+	case notificationAlertNameNodeDisconnected:
+		return alertmodel.AlertKindNodeDisconnected
+	case notificationAlertNameGitRepositoryUnavailable:
+		return alertmodel.AlertKindGitRepositoryUnavailable
+	default:
+		return alertmodel.AlertKind(configKey)
+	}
+}
+
+func validNotificationAlertConfigKey(kind string) bool {
+	switch kind {
+	case notificationAlertNameDefault, notificationAlertNameSyncFailed,
+		notificationAlertNameNodeDisconnected, notificationAlertNameGitRepositoryUnavailable:
+		return true
+	default:
+		return false
+	}
+}
+
 func (c *NotificationSpec) validateAlertRoutes() []error {
 	var errs []error
 	for kind, routes := range c.Alerts {
-		if kind != "default" && kind != string(alertmodel.AlertKindSyncFailed) &&
-			kind != string(alertmodel.AlertKindNodeDisconnected) &&
-			kind != string(alertmodel.AlertKindGitRepositoryUnavailable) {
+		if !validNotificationAlertConfigKey(kind) {
 			errs = append(errs, fmt.Errorf("notifications.alerts[%q]: unknown alert kind", kind))
 			continue
 		}
@@ -338,7 +379,10 @@ func (c *NotificationSpec) validateAlertChannel(path, kind string, route Telegra
 		Title: "Alert", Message: "details", ResourceID: "resource", DeploymentID: "deployment-id",
 		OpenedAt: time.Now().UTC(),
 	}
-	if err := notificationtemplate.Validate(route.AlertOpenedTemplate(kind), payload); err != nil {
+	if err := notificationtemplate.Validate(
+		route.AlertOpenedTemplate(string(notificationAlertKind(kind))),
+		payload,
+	); err != nil {
 		errs = append(errs, fmt.Errorf("%s.opened.message: invalid template: %w", path, err))
 	}
 	resolvedAt := time.Now().UTC()
