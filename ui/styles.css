@@ -1211,6 +1211,24 @@ a.overview-summary-row:focus-visible {
   min-width: 0;
 }
 
+.service-panel {
+  min-height: 0;
+}
+
+.service-panel-heading {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 9px;
+  padding: 17px 16px 13px;
+  background: var(--surface-panel-header);
+}
+
+.service-panel-content {
+  min-width: 0;
+  padding: 0 16px 15px;
+}
+
 .service-details-card .app-table-wrap,
 .service-details-card .app-table {
   width: 100%;
@@ -3471,6 +3489,14 @@ a.overview-summary-row:focus-visible {
   }
 
   .overview-summary-panel-content {
+    padding: 0 13px 12px;
+  }
+
+  .service-panel-heading {
+    padding: 15px 13px 13px;
+  }
+
+  .service-panel-content {
     padding: 0 13px 12px;
   }
 

@@ -31,7 +31,10 @@ vi.mock("../api/services", () => ({
 
 async function mountServiceView() {
   const wrapper = mount(ServiceView, {
-    global: { plugins: [createPinia()] },
+    global: {
+      plugins: [createPinia()],
+      stubs: { RouterLink: { name: "RouterLink", props: ["to"], template: "<a><slot /></a>" } },
+    },
   });
   await flushPromises();
   return wrapper;
@@ -170,6 +173,11 @@ describe("ServiceView", () => {
         image: "registry.example.com/api:v2", image_version: "v2" },
     ] });
     const wrapper = await mountServiceView();
+    expect(wrapper.findAll(".service-panel")).toHaveLength(4);
+    expect(wrapper.getComponent({ name: "RouterLink" }).props("to")).toEqual({
+      name: "deployments",
+      query: { stack_name: "infra", service_name: "api" },
+    });
     const rows = wrapper.findAll(".service-deployment-item");
     expect(rows).toHaveLength(4);
     expect(rows[0].text()).toContain("succeeded");

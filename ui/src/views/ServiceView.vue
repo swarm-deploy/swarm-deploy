@@ -455,8 +455,16 @@ onUnmounted(() => {
 
     <div v-else class="service-details-layout">
       <div class="service-details-main">
-        <article class="stack-card service-details-card">
-          <h3 class="stack-title">Service</h3>
+        <article class="overview-summary-panel service-panel service-details-card">
+          <header class="overview-summary-panel-header">
+            <div class="service-panel-heading">
+              <span class="overview-summary-panel-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none"><rect x="4" y="4" width="16" height="16" rx="2" /><path d="M8 9h8M8 13h8M8 17h5" /></svg>
+              </span>
+              <h3 class="overview-panel-title">Service</h3>
+            </div>
+          </header>
+          <div class="service-panel-content">
           <AppTable summary fixed aria-label="Service details">
               <tr>
                 <th scope="row">Name</th>
@@ -557,10 +565,19 @@ onUnmounted(() => {
               </tr>
           </AppTable>
           <p v-if="loadingError" class="meta">Warning: {{ loadingError }}</p>
+          </div>
         </article>
 
-        <article class="stack-card service-realtime-card">
-          <h3 class="stack-title">Realtime</h3>
+        <article class="overview-summary-panel service-panel service-realtime-card">
+          <header class="overview-summary-panel-header">
+            <div class="service-panel-heading">
+              <span class="overview-summary-panel-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M3 12h4l3-7 4 14 3-7h4" /></svg>
+              </span>
+              <h3 class="overview-panel-title">Realtime</h3>
+            </div>
+          </header>
+          <div class="service-panel-content">
           <AppTableEmpty v-if="realtimeLoading" message="Loading realtime..." />
           <AppTableEmpty v-else-if="realtimeError">Failed to load realtime: {{ realtimeError }}</AppTableEmpty>
           <AppTableEmpty v-else-if="realtime.length === 0" message="No tasks yet." />
@@ -650,12 +667,21 @@ onUnmounted(() => {
               <p v-if="task.error" class="service-realtime-mobile-error">{{ task.error }}</p>
             </li>
           </ul>
+          </div>
         </article>
       </div>
 
       <div class="service-details-side">
-        <article v-if="serviceLinks.length > 0" class="stack-card service-links-card">
-          <h3 class="stack-title">Links</h3>
+        <article v-if="serviceLinks.length > 0" class="overview-summary-panel service-panel service-links-card">
+          <header class="overview-summary-panel-header">
+            <div class="service-panel-heading">
+              <span class="overview-summary-panel-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.2 1.2M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.2-1.2" /></svg>
+              </span>
+              <h3 class="overview-panel-title">Links</h3>
+            </div>
+          </header>
+          <div class="service-panel-content">
           <ul class="service-links-list">
             <li v-for="link in serviceLinks" :key="`${link.type}-${link.url}`">
               <a
@@ -683,10 +709,19 @@ onUnmounted(() => {
               </a>
             </li>
           </ul>
+          </div>
         </article>
 
-        <article class="stack-card service-resources-card">
-          <h3 class="stack-title">Resources</h3>
+        <article class="overview-summary-panel service-panel service-resources-card">
+          <header class="overview-summary-panel-header">
+            <div class="service-panel-heading">
+              <span class="overview-summary-panel-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none"><rect x="4" y="7" width="16" height="10" rx="2" /><path d="M8 4v3m4-3v3m4-3v3M8 17v3m4-3v3m4-3v3" /></svg>
+              </span>
+              <h3 class="overview-panel-title">Resources</h3>
+            </div>
+          </header>
+          <div class="service-panel-content">
           <AppTable summary aria-label="Service resources">
               <tr>
                 <th scope="row">Deploy mode</th>
@@ -701,12 +736,24 @@ onUnmounted(() => {
                 <td>{{ serviceSpec?.requested_cpu_nano ? formatNanoCPU(serviceSpec?.requested_cpu_nano) : 0 }} / {{ serviceSpec?.limit_cpu_nano? formatNanoCPU(serviceSpec?.limit_cpu_nano) : '∞' }}</td>
               </tr>
           </AppTable>
+          </div>
         </article>
 
 
 
-        <article class="stack-card service-deployments-card">
-          <h3 class="stack-title">Latest deployments</h3>
+        <article class="overview-summary-panel service-panel service-deployments-card">
+          <header class="overview-summary-panel-header">
+            <RouterLink
+              :to="{ name: 'deployments', query: { stack_name: stackName, service_name: serviceName } }"
+              class="overview-summary-panel-header-link"
+            >
+              <span class="overview-summary-panel-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 17v3h14v-3" /></svg>
+              </span>
+              <h3 class="overview-panel-title">Latest Deployments</h3>
+            </RouterLink>
+          </header>
+          <div class="service-panel-content">
           <p v-if="deploymentsLoading" class="meta">Loading deployments...</p>
           <p v-else-if="deploymentsError" class="meta">Failed to load deployments: {{ deploymentsError }}</p>
           <p v-else-if="deployments.length === 0" class="meta">No deployments yet.</p>
@@ -733,6 +780,7 @@ onUnmounted(() => {
               </span>
             </li>
           </ul>
+          </div>
         </article>
       </div>
     </div>
