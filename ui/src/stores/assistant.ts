@@ -70,10 +70,6 @@ export const useAssistantStore = defineStore("assistant", {
       }
     },
     async toggleHistory() {
-      if (this.pending) {
-        return;
-      }
-
       this.historyOpen = !this.historyOpen;
       if (this.historyOpen) {
         await this.loadChats();

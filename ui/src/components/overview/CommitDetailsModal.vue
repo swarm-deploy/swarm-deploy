@@ -70,6 +70,7 @@ async function explainWithAI() {
 
   returnFocus = null;
   closeCommitDetailsModal();
+  assistantStore.newChat();
   uiStore.openAssistantDrawer();
   await assistantStore.sendMessage(`Explain changes in git commit: ${commitHash}`);
 }
@@ -126,9 +127,22 @@ onUnmounted(() => {
   <div v-if="overviewStore.commitDetailsModalOpen" class="modal">
     <div class="modal-overlay" @click="closeCommitDetailsModal" />
     <div ref="dialog" class="modal-card" role="dialog" aria-modal="true" aria-labelledby="commit-details-title" tabindex="-1">
-      <div class="modal-header">
+      <div class="modal-header commit-details-modal-header">
         <h2 id="commit-details-title">{{ titleText }}</h2>
-        <button ref="closeButton" class="modal-close" type="button" aria-label="Close modal" @click="closeCommitDetailsModal">
+        <button
+          class="commit-header-icon-button commit-explain-button"
+          type="button"
+          aria-label="Explain commit"
+          title="Explain commit"
+          :disabled="explainDisabled"
+          @click="explainWithAI"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m12 3 1.15 3.1a4 4 0 0 0 2.35 2.35L18.6 9.6l-3.1 1.15a4 4 0 0 0-2.35 2.35L12 16.2l-1.15-3.1a4 4 0 0 0-2.35-2.35L5.4 9.6l3.1-1.15a4 4 0 0 0 2.35-2.35L12 3Z" />
+            <path d="m18.5 15 .55 1.45L20.5 17l-1.45.55L18.5 19l-.55-1.45L16.5 17l1.45-.55L18.5 15Z" />
+          </svg>
+        </button>
+        <button ref="closeButton" class="modal-close commit-header-icon-button" type="button" aria-label="Close modal" @click="closeCommitDetailsModal">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
         </button>
       </div>
@@ -160,12 +174,72 @@ onUnmounted(() => {
               <td>{{ changedFilesText }}</td>
             </tr>
         </AppTable>
-        <div class="services-link-panel service-status-link-panel">
-          <button type="button" class="service-status-open-details-btn" :disabled="explainDisabled" @click="explainWithAI">
-            Explain with AI
-          </button>
-        </div>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+.commit-details-modal-header {
+  padding-right: 92px;
+}
+
+.commit-header-icon-button {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--muted);
+  transition: background-color 150ms ease, color 150ms ease, opacity 150ms ease;
+}
+
+.commit-header-icon-button svg {
+  width: 20px;
+  height: 20px;
+}
+
+.commit-header-icon-button:hover:not(:disabled) {
+  background: var(--surface-hover-strong);
+  color: var(--text);
+  filter: none;
+  transform: none;
+}
+
+.commit-header-icon-button:focus-visible {
+  outline: 2px solid var(--accent-focus);
+  outline-offset: 2px;
+}
+
+.commit-header-icon-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.commit-header-icon-button:disabled:hover {
+  background: transparent;
+  filter: none;
+  transform: none;
+}
+
+.commit-explain-button {
+  position: absolute;
+  z-index: 2;
+  top: 8px;
+  right: 52px;
+}
+
+@media (max-width: 650px) {
+  .commit-details-modal-header {
+    padding-right: 88px;
+  }
+
+  .commit-explain-button {
+    top: 6px;
+    right: 50px;
+  }
+}
+</style>

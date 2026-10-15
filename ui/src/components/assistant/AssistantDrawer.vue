@@ -151,10 +151,6 @@ function assistantQuery(value: string | undefined) {
 }
 
 async function openHistory() {
-  if (pending.value) {
-    return;
-  }
-
   await router.push({ query: assistantQuery("chats") });
 }
 
@@ -176,6 +172,7 @@ async function newChat() {
 
 async function closeDrawer() {
   usageOpenChatID.value = "";
+  uiStore.closeAssistantDrawer();
   await router.push({ query: assistantQuery(undefined) });
 }
 
@@ -266,7 +263,6 @@ function renderMessageText(role: string, text: string): string {
               class="assistant-icon-button"
               aria-label="Back to chats"
               title="Back to chats"
-              :disabled="pending"
               @click="openHistory"
             >
               <svg viewBox="0 0 24 24" aria-hidden="true">
