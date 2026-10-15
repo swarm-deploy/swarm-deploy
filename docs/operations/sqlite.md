@@ -22,9 +22,11 @@ from the current Docker Swarm state.
 
 ## Schema lifecycle
 
-The initial schema is in `migrations/sqlite/0001_initial.sql`. Goose applies it on a new database and records
-the version in `goose_db_version`. Restarting with an existing database preserves
-its state and applies only pending future migrations.
+The complete initial schema is in `migrations/sqlite/0001_initial.sql`. Goose applies it on a new database and records
+version 1 in `goose_db_version`. Restarting with an existing database preserves
+its state and applies only pending future migrations. This squashed baseline does not
+upgrade databases that stopped at an older schema version; migrate those databases
+through the previous release before deploying this one.
 
 Back up the complete data directory before rollout. Do not delete the SQLite database
 or edit Goose migration history to bypass a startup failure.

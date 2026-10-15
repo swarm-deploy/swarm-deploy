@@ -42,8 +42,8 @@ newly persisted events.
 
 Selected user-visible events are stored in
 `event_history` in `<dataDir>/swarm-deploy.sqlite`. Internal deployment failure facts and
-`NodeDisconnected` records remain alert inputs and are excluded from history. SQLite migration
-`0003_pascalcase_event_types.sql` updates retained event identifiers to PascalCase.
+`NodeDisconnected` records remain alert inputs and are excluded from history. New event
+identifiers use PascalCase.
 The table above describes public event types, not a promise that every
 signal appears in user history. `DeployFailed`, preparation failures, and interrupted attempts are internal
 deployment lifecycle facts consumed by Deployment Model and Alert Management; they are

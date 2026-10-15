@@ -72,6 +72,30 @@ CREATE INDEX idx_alert_resource_status_updated
 CREATE INDEX idx_alert_deployment_updated
     ON alerts(deployment_id,updated_at DESC,id) WHERE deployment_id IS NOT NULL;
 
+-- Consecutive observations survive restarts before an alert reaches its opening threshold.
+-- Source-event idempotency remains in projection_versions.
+CREATE TABLE alert_failure_streaks (
+    fingerprint TEXT NOT NULL PRIMARY KEY,
+    failures INTEGER NOT NULL CHECK (failures > 0)
+);
+
+-- One physical recipient per alert lifecycle. No alert FK: retention may remove a
+-- resolved alert while its durable resolution delivery is still pending.
+CREATE TABLE notification_messages (
+    alert_id TEXT NOT NULL,
+    messenger TEXT NOT NULL CHECK (messenger = 'telegram'),
+    bot_identity TEXT NOT NULL,
+    chat_id TEXT NOT NULL,
+    thread_id INTEGER NOT NULL DEFAULT 0,
+    opened_message_id INTEGER,
+    opened_at TIMESTAMP CHECK (opened_at IS NULL OR typeof(opened_at) = 'integer'),
+    resolved_at TIMESTAMP CHECK (resolved_at IS NULL OR typeof(resolved_at) = 'integer'),
+    resolved_action TEXT CHECK (resolved_action IS NULL OR resolved_action IN ('send','reply','edit')),
+    reply_message_id INTEGER,
+    PRIMARY KEY (alert_id, messenger, bot_identity, chat_id, thread_id)
+);
+CREATE INDEX idx_notification_messages_bot ON notification_messages(bot_identity, chat_id, thread_id);
+
 CREATE TABLE gitops_runtime (id INTEGER PRIMARY KEY CHECK (id=1), payload TEXT NOT NULL CHECK (json_valid(payload)));
 -- id and hostname live only in columns; payload holds the remaining node attributes.
 CREATE TABLE nodes (id TEXT NOT NULL PRIMARY KEY, hostname TEXT NOT NULL, payload TEXT NOT NULL CHECK (json_valid(payload)));
@@ -174,6 +198,8 @@ DROP TABLE service_catalog_receipts;
 DROP TABLE services;
 DROP TABLE nodes;
 DROP TABLE gitops_runtime;
+DROP TABLE notification_messages;
+DROP TABLE alert_failure_streaks;
 DROP TABLE alerts;
 DROP TABLE event_history;
 DROP TABLE outbox_deliveries;

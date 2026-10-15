@@ -7,14 +7,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	sqlitemigrations "github.com/swarm-deploy/swarm-deploy/migrations/sqlite"
 )
 
 func TestTimestampRoundTrip(t *testing.T) {
@@ -136,6 +134,17 @@ func TestFreshDatabaseEnforcesForeignKeysAndChecks(t *testing.T) {
 		(id,event_type,schema_version,occurred_at,payload) VALUES (?,?,?,?,?)`,
 		"text-time", "NodeJoined", 1, "2026-04-05T06:07:08Z", `{}`)
 	require.Error(t, err, "SQL timestamps must be stored as INTEGER")
+
+	for _, table := range []string{"notification_messages", "alert_failure_streaks"} {
+		var count int
+		require.NoError(t, db.Get(t.Context(), &count,
+			"SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?", table))
+		assert.Equal(t, 1, count, "%s must be part of the initial schema", table)
+	}
+	var appliedVersions int
+	require.NoError(t, db.Get(t.Context(), &appliedVersions,
+		"SELECT count(*) FROM goose_db_version WHERE version_id > 0 AND is_applied = 1"))
+	assert.Equal(t, 1, appliedVersions)
 }
 
 func TestRestartAndRollback(t *testing.T) {
@@ -179,65 +188,6 @@ func TestRestartAndRollback(t *testing.T) {
 		"SELECT count(*) FROM goose_db_version WHERE version_id = 1 AND is_applied = 1",
 	))
 	assert.Equal(t, 1, count)
-}
-
-func TestPascalCaseEventTypeMigration(t *testing.T) {
-	db, err := Open(t.Context(), t.TempDir())
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
-
-	now := time.Date(2026, 10, 13, 12, 0, 0, 0, time.UTC)
-	_, err = db.Exec(t.Context(), `INSERT INTO outbox_events
-		(id,event_type,schema_version,occurred_at,payload) VALUES
-		('outbox','sendNotificationFailed',1,?, '{"event_type":"deployFailed","destination":"telegram","channel":"ops"}')`, now)
-	require.NoError(t, err)
-	_, err = db.Exec(t.Context(), `INSERT INTO event_history
-		(publication_sequence,id,event_type,severity,severity_rank,category,created_at,message,details) VALUES
-		(1,'history','nodeJoined','info',0,'swarm',?,'Node joined','{"event_type":"deploySuccess"}')`, now)
-	require.NoError(t, err)
-
-	runMigrationUp(t, db, "0003_pascalcase_event_types.sql")
-
-	var outbox struct {
-		Type              string `db:"event_type"`
-		PayloadEventType  string `db:"payload_event_type"`
-		HistoryType       string `db:"history_type"`
-		HistoryDetailType string `db:"history_detail_type"`
-	}
-	require.NoError(t, db.Get(t.Context(), &outbox, `SELECT
-		(SELECT event_type FROM outbox_events WHERE id='outbox') AS event_type,
-		(SELECT json_extract(payload, '$.event_type') FROM outbox_events WHERE id='outbox') AS payload_event_type,
-		(SELECT event_type FROM event_history WHERE id='history') AS history_type,
-		(SELECT json_extract(details, '$.event_type') FROM event_history WHERE id='history') AS history_detail_type`))
-	assert.Equal(t, "SendNotificationFailed", outbox.Type)
-	assert.Equal(t, "DeployFailed", outbox.PayloadEventType)
-	assert.Equal(t, "NodeJoined", outbox.HistoryType)
-	assert.Equal(t, "DeploySuccess", outbox.HistoryDetailType)
-}
-
-func runMigrationUp(t *testing.T, db *Database, name string) {
-	t.Helper()
-	raw, err := sqlitemigrations.Files.ReadFile(name)
-	require.NoError(t, err)
-	sql := string(raw)
-	up, _, found := strings.Cut(sql, "-- +goose Down")
-	require.True(t, found)
-	up = strings.ReplaceAll(up, "-- +goose Up", "")
-	lines := strings.Split(up, "\n")
-	for i, line := range lines {
-		if strings.HasPrefix(strings.TrimSpace(line), "--") {
-			lines[i] = ""
-		}
-	}
-	up = strings.Join(lines, "\n")
-	for _, statement := range strings.Split(up, ";") {
-		statement = strings.TrimSpace(statement)
-		if statement == "" {
-			continue
-		}
-		_, err = db.Exec(t.Context(), statement)
-		require.NoError(t, err, statement)
-	}
 }
 
 func TestFreshDatabaseHasAlertIndexedSchema(t *testing.T) {

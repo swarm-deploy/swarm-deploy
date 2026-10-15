@@ -49,7 +49,7 @@ precedes resolved delivery for each recipient. A temporary Telegram error is ret
 an invalid original message reference falls back to a regular resolution message.
 Without an original message ID, resolution also sends a regular message.
 
-SQLite migration `0002_notification_messages.sql` adds one `notification_messages`
+The initial SQLite schema has one `notification_messages`
 row per alert ID, messenger, bot identity, chat ID and thread ID. It stores the initial
 message ID and send time, the processed resolution time and action, and a reply message
 ID when applicable. Resolved links are removed only after their lifecycle events have
