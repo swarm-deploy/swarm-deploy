@@ -16,6 +16,8 @@ type AlertSnapshot struct {
 	ResourceType string `json:"resourceType"`
 	// ResourceID identifies the affected resource.
 	ResourceID string `json:"resourceId"`
+	// DeploymentID links the alert to a persisted deployment attempt when one exists.
+	DeploymentID string `json:"deploymentId,omitempty"`
 	// OpenedAt marks the beginning of this incident.
 	OpenedAt time.Time `json:"openedAt"`
 	// ResolvedAt is set for resolution notifications.
