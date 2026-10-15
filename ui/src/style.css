@@ -222,7 +222,7 @@ body {
   align-items: center;
   justify-content: center;
   overflow: hidden;
-  color: var(--accent-strong);
+  color: var(--control-primary);
   font-size: 0.9rem;
   font-weight: 800;
   letter-spacing: -0.04em;
@@ -232,6 +232,7 @@ body {
 }
 
 .sidebar-brand-name {
+  color: var(--control-primary);
   font-size: 1rem;
   font-weight: 700;
   line-height: 1.25;

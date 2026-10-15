@@ -196,7 +196,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section class="status-panel">
+  <section class="status-panel overview-sync-panel">
     <p v-if="overviewStore.loadingError" class="meta">Failed to load state: {{ overviewStore.loadingError }}</p>
     <p v-else-if="!syncInfo" class="meta">Sync status is unavailable.</p>
     <p v-else class="meta">

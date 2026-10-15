@@ -230,6 +230,10 @@ button:hover,
   margin-bottom: 20px;
 }
 
+.overview-sync-panel {
+  border-left-color: var(--control-primary);
+}
+
 .services-link-panel {
   margin-bottom: 20px;
   display: flex;
@@ -738,7 +742,7 @@ a.overview-summary-row:focus-visible {
 .overview-deployment-row > .overview-summary-sha-badge:hover,
 .overview-deployment-row > .overview-summary-sha-badge:focus-visible {
   border-color: var(--border-strong);
-  color: var(--accent-strong);
+  color: var(--control-primary);
   filter: none;
   transform: none;
 }
