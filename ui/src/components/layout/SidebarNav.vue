@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 
 import { useUIStore, type ThemeMode } from "../../stores/ui";
@@ -73,6 +73,26 @@ function selectTheme(theme: ThemeMode) {
     userMenuRef.value.open = false;
   }
 }
+
+function handleDocumentClick(event: MouseEvent) {
+  const userMenu = userMenuRef.value;
+  if (!userMenu || !userMenu.open) {
+    return;
+  }
+  if (event.target instanceof Node && userMenu.contains(event.target)) {
+    return;
+  }
+
+  userMenu.open = false;
+}
+
+onMounted(() => {
+  document.addEventListener("mousedown", handleDocumentClick);
+});
+
+onUnmounted(() => {
+  document.removeEventListener("mousedown", handleDocumentClick);
+});
 </script>
 
 <template>
