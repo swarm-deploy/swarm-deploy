@@ -275,7 +275,8 @@ func (c *NotificationSpec) validateAlertRoutes() []error {
 	var errs []error
 	for kind, routes := range c.Alerts {
 		if kind != "default" && kind != string(alertmodel.AlertKindSyncFailed) &&
-			kind != string(alertmodel.AlertKindNodeDisconnected) {
+			kind != string(alertmodel.AlertKindNodeDisconnected) &&
+			kind != string(alertmodel.AlertKindGitRepositoryUnavailable) {
 			errs = append(errs, fmt.Errorf("notifications.alerts[%q]: unknown alert kind", kind))
 			continue
 		}

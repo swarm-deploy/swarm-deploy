@@ -26,6 +26,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/logx"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
+	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
@@ -269,7 +270,7 @@ func main() {
 		slog.String("healthz.path", cfg.Spec.HealthServer.Healthz.Path),
 		slog.String("metrics.path", cfg.Spec.HealthServer.Metrics.Path),
 		slog.String("mode", cfg.Spec.Sync.Mode),
-		slog.String("repo", cfg.Spec.Git.Repository),
+		slog.String("repo", repositoryLogValue(cfg.Spec.Git.Repository)),
 		slog.String("log.level", cfg.Spec.Log.Level.String()),
 		slog.Bool("assistant.enabled", cfg.Spec.Assistant.Enabled),
 	)
@@ -287,6 +288,10 @@ func main() {
 	}
 
 	shutdownTracing(tracerProvider)
+}
+
+func repositoryLogValue(repository string) string {
+	return gitx.RepositoryIdentifier(repository)
 }
 
 func shutdownTracing(tracerProvider *sdktrace.TracerProvider) {

@@ -108,8 +108,9 @@ func TestAlertRouteValidation(t *testing.T) {
 func TestAlertRouteValidationAllowsSamePhysicalDestinationForDifferentKinds(t *testing.T) {
 	spec := alertNotificationSpec()
 	spec.Alerts = map[string]NotificationAlertRoutes{
-		"sync_failed":       {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default"}}}},
-		"node_disconnected": {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default"}}}},
+		"sync_failed":                {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default"}}}},
+		"node_disconnected":          {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default"}}}},
+		"git_repository_unavailable": {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default"}}}},
 	}
 
 	assert.Empty(t, spec.validate())

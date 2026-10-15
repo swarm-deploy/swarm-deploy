@@ -53,6 +53,9 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 
 	switch deployment := event.Event.(type) {
 	case *events.ConfigurationChanged:
+		if deployment.PreviousRepository != "" {
+			return s.handleGitRepositoryChanged(ctx, event.ID, deployment)
+		}
 		return s.handleConfigurationChanged(ctx, event.ID)
 	case *events.NodeDisconnected:
 		return s.handleNode(ctx, event.ID, deployment.NodeID, true)
@@ -76,9 +79,111 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 		}, isTemporary(deployment.Error))
 	case *events.DeploySuccess:
 		return s.handleSucceeded(ctx, event.ID, deployment)
+	case *events.GitPullFailed:
+		return s.handleGitPullFailed(ctx, event.ID, deployment)
+	case *events.GitPullSucceeded:
+		return s.handleGitPullSucceeded(ctx, event.ID, deployment)
 	default:
 		return nil
 	}
+}
+
+func (s *Subscriber) handleGitPullFailed(ctx context.Context, eventID string, event *events.GitPullFailed) error {
+	fingerprint := model.GitRepositoryUnavailableFingerprint(event.Repository)
+	failures, err := s.store.IncrementFailureStreak(ctx, fingerprint)
+	if err != nil {
+		return fmt.Errorf("increment Git repository failure streak: %w", err)
+	}
+	now := s.now()
+	if eventID == "" {
+		eventID = s.newID()
+	}
+	alert, err := s.store.FindOpenByFingerprint(ctx, fingerprint)
+	if err != nil && !errors.Is(err, modelstore.ErrAlertNotFound) {
+		return fmt.Errorf("find open Git repository alert: %w", err)
+	}
+	if err == nil {
+		alert.Occurrences++
+		alert.UpdatedAt = now
+		alert.LatestEventID = eventID
+		alert.Message = event.Description
+		alert.ErrorCode = string(event.Category)
+		if err = s.store.Update(ctx, alert); err != nil {
+			return fmt.Errorf("update Git repository alert: %w", err)
+		}
+		return nil
+	}
+	if event.Category == events.GitFailureNetwork && failures < temporaryFailureThreshold {
+		return nil
+	}
+	alert = model.Alert{
+		ID: s.newID(), Fingerprint: fingerprint, Kind: model.AlertKindGitRepositoryUnavailable,
+		ResourceType: model.ResourceTypeRepository, ResourceID: event.Repository,
+		Status: model.AlertStatusOpen, Title: "Git repository unavailable", Message: event.Description,
+		FailureStage: "git_pull", ErrorCode: string(event.Category), Occurrences: failures,
+		OpenedAt: now, UpdatedAt: now, OpenEventID: eventID, LatestEventID: eventID,
+	}
+	if err = s.store.Create(ctx, alert); err == nil {
+		return s.publishOpened(ctx, alert)
+	}
+	if !errors.Is(err, modelstore.ErrOpenAlertExists) {
+		return fmt.Errorf("create Git repository alert: %w", err)
+	}
+	return s.updateConcurrentFailure(ctx, fingerprint, eventID, now, alert, true, err)
+}
+
+func (s *Subscriber) handleGitPullSucceeded(ctx context.Context, eventID string, event *events.GitPullSucceeded) error {
+	fingerprint := model.GitRepositoryUnavailableFingerprint(event.Repository)
+	if err := s.store.ResetFailureStreak(ctx, fingerprint); err != nil {
+		return fmt.Errorf("reset Git repository failure streak: %w", err)
+	}
+	alert, err := s.store.FindOpenByFingerprint(ctx, fingerprint)
+	if err != nil {
+		if errors.Is(err, modelstore.ErrAlertNotFound) {
+			return nil
+		}
+		return fmt.Errorf("find open Git repository alert: %w", err)
+	}
+	now := s.now()
+	alert.Status = model.AlertStatusResolved
+	alert.UpdatedAt = now
+	alert.ResolvedAt = &now
+	alert.Resolution = &model.AlertResolution{
+		Reason: model.ResolutionReasonRecovered, Message: "Git repository access recovered",
+		EventID: eventReferenceID(eventID, s.newID),
+	}
+	if err = s.store.Update(ctx, alert); err != nil {
+		return fmt.Errorf("resolve Git repository alert: %w", err)
+	}
+	return s.publishResolved(ctx, alert)
+}
+
+func (s *Subscriber) handleGitRepositoryChanged(
+	ctx context.Context, eventID string, event *events.ConfigurationChanged,
+) error {
+	fingerprint := model.GitRepositoryUnavailableFingerprint(event.PreviousRepository)
+	if err := s.store.ResetFailureStreak(ctx, fingerprint); err != nil {
+		return fmt.Errorf("reset removed Git repository failure streak: %w", err)
+	}
+	alert, err := s.store.FindOpenByFingerprint(ctx, fingerprint)
+	if err != nil {
+		if errors.Is(err, modelstore.ErrAlertNotFound) {
+			return nil
+		}
+		return fmt.Errorf("find removed Git repository alert: %w", err)
+	}
+	now := s.now()
+	alert.Status = model.AlertStatusResolved
+	alert.UpdatedAt = now
+	alert.ResolvedAt = &now
+	alert.Resolution = &model.AlertResolution{
+		Reason: model.ResolutionReasonResourceRemoved, Message: "Git repository removed from configuration",
+		EventID: eventReferenceID(eventID, s.newID),
+	}
+	if err = s.store.Update(ctx, alert); err != nil {
+		return fmt.Errorf("resolve removed Git repository alert: %w", err)
+	}
+	return s.publishResolved(ctx, alert)
 }
 
 func (s *Subscriber) handleConfigurationChanged(ctx context.Context, eventID string) error {

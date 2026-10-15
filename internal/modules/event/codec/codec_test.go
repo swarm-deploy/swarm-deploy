@@ -85,6 +85,60 @@ func TestConfigurationChangedCodecHasNoDomainPayload(t *testing.T) {
 	assert.Empty(t, decoded.Details())
 }
 
+func TestConfigurationChangedCodecCarriesSafeRepositoryTransition(t *testing.T) {
+	event := &events.ConfigurationChanged{
+		PreviousRepository: "git.example.com/team/old", Repository: "git.example.com/team/new",
+	}
+	payload, err := Encode(event)
+	require.NoError(t, err)
+	decoded, err := Decode(events.TypeNameConfigurationChanged, Version, payload)
+	require.NoError(t, err)
+	assert.Equal(t, event, decoded)
+
+	_, err = Encode(&events.ConfigurationChanged{
+		PreviousRepository: "https://user:secret@git.example.com/old", Repository: "git.example.com/team/new",
+	})
+	require.Error(t, err)
+}
+
+func TestGitPullLifecycleCodec(t *testing.T) {
+	failed := &events.GitPullFailed{
+		Repository: "git.example.com/team/app", Category: events.GitFailureAuthentication,
+		Description: "token=must-not-be-copied", TriggerReason: "webhook",
+	}
+	payload, err := Encode(failed)
+	require.NoError(t, err)
+	assert.NotContains(t, string(payload), "must-not-be-copied")
+	assert.Contains(t, string(payload), "Git repository authentication failed")
+	decoded, err := Decode(events.TypeNameGitPullFailed, Version, payload)
+	require.NoError(t, err)
+	assert.Equal(t, "git.example.com/team/app", decoded.(*events.GitPullFailed).Repository)
+	assert.Equal(t, events.GitFailureAuthentication, decoded.(*events.GitPullFailed).Category)
+	assert.Equal(t, "webhook", decoded.(*events.GitPullFailed).TriggerReason)
+
+	succeeded := &events.GitPullSucceeded{Repository: "git.example.com/team/app", TriggerReason: "poll"}
+	payload, err = Encode(succeeded)
+	require.NoError(t, err)
+	decoded, err = Decode(events.TypeNameGitPullSucceeded, Version, payload)
+	require.NoError(t, err)
+	assert.Equal(t, succeeded, decoded)
+}
+
+func TestGitPullCodecRejectsUnsafePayloads(t *testing.T) {
+	for _, event := range []events.Event{
+		&events.GitPullFailed{Repository: "https://user:secret@git.example.com/team/app", Category: events.GitFailureOther},
+		&events.GitPullFailed{Repository: "https://user:secret%zz@git.example.com/team/app", Category: events.GitFailureOther},
+		&events.GitPullFailed{Repository: "git.example.com/team/app", Category: "unclassified"},
+		&events.GitPullSucceeded{Repository: "https://git.example.com/team/app?token=secret"},
+	} {
+		_, err := Encode(event)
+		require.Error(t, err)
+	}
+	_, err := Decode(events.TypeNameGitPullFailed, Version,
+		[]byte(`{"repository":"git.example.com/team/app","category":"authentication","description":"secret"}`))
+	require.Error(t, err)
+}
+
 func TestDeploymentFailureCategorySurvivesCodec(t *testing.T) {
 	for _, code := range []string{"policy_rejected", "init_failed", "apply_failed", "prune_failed"} {
 		event := &events.DeployFailed{DeployEvent: events.DeployEvent{StackName: "app"}, Error: errors.New(code)}

@@ -10,7 +10,8 @@ import (
 
 func TestEventTypeIdentifiersUsePascalCase(t *testing.T) {
 	allTypes := append([]Type{TypeAlertOpened, TypeAlertResolved, TypeConfigurationChanged,
-		TypeDeployFailed, TypeDeployPreparationFailed, TypeDeployInterrupted}, Types...)
+		TypeDeployFailed, TypeDeployPreparationFailed, TypeDeployInterrupted,
+		TypeGitPullFailed, TypeGitPullSucceeded}, Types...)
 
 	seen := make(map[TypeName]bool, len(allTypes))
 	for _, typ := range allTypes {
@@ -31,6 +32,8 @@ func TestEventTypeIdentifiersUsePascalCase(t *testing.T) {
 		TypeNameConfigurationChanged:             true,
 		TypeNameDeployPreparationFailed:          true,
 		TypeNameDeployInterrupted:                true,
+		TypeNameGitPullFailed:                    true,
+		TypeNameGitPullSucceeded:                 true,
 		TypeNameSendNotificationFailed:           true,
 		TypeNameSyncManualStarted:                true,
 		TypeNameWebhookReceived:                  true,

@@ -596,16 +596,28 @@ func (c *Controller) updatePollState(ctx context.Context, result string, err err
 }
 
 func (c *Controller) pullGit(ctx context.Context, reason TriggerReason) (gitx.PullResult, error) {
+	repository := gitx.RepositoryIdentifier(c.cfg.Spec.Git.Repository)
 	gitResult, err := c.git.Pull(ctx)
 	if err != nil {
+		err = gitx.ClassifyPullError(err, c.cfg.Spec.Git.Repository, c.cfg.Spec.Git.Auth.Type)
+		category, diagnostic := gitx.PullFailure(err)
 		slog.ErrorContext(ctx, "git pull failed",
 			slog.String("reason", string(reason)),
-			slog.String("repository", c.cfg.Spec.Git.Repository),
-			slog.Any("err", err),
+			slog.String("repository", repository),
+			slog.String("category", string(category)),
+			slog.String("diagnostic", diagnostic),
 		)
-		c.metrics.Git.RecordGitUpdate(c.cfg.Spec.Git.Repository, "error")
+		c.metrics.Git.RecordGitUpdate(repository, "error")
+		if monitorErr := c.recordGitPullFailure(ctx, repository, category, diagnostic, reason); monitorErr != nil {
+			slog.ErrorContext(ctx, "persist Git pull failure observation",
+				slog.String("repository", repository), slog.Any("err", monitorErr))
+		}
 
 		return gitx.PullResult{}, err
+	}
+	if monitorErr := c.recordGitPullSuccess(ctx, repository, reason); monitorErr != nil {
+		slog.ErrorContext(ctx, "persist Git pull recovery",
+			slog.String("repository", repository), slog.Any("err", monitorErr))
 	}
 
 	slog.InfoContext(ctx, "[controller] git synced", slog.Any("result", gitResult))
@@ -614,9 +626,75 @@ func (c *Controller) pullGit(ctx context.Context, reason TriggerReason) (gitx.Pu
 	if gitResult.Updated {
 		updateResult = syncRunResultUpdated
 	}
-	c.metrics.Git.RecordGitUpdate(c.cfg.Spec.Git.Repository, updateResult)
+	c.metrics.Git.RecordGitUpdate(repository, updateResult)
 
 	return gitResult, nil
+}
+
+func (c *Controller) recordGitPullFailure(
+	ctx context.Context,
+	repository string,
+	category gitx.FailureCategory,
+	diagnostic string,
+	reason TriggerReason,
+) error {
+	return c.db.WithinTransaction(ctx, func(ctx context.Context) error {
+		state, err := c.stateStore.Read(ctx)
+		if err != nil {
+			return fmt.Errorf("read Git pull failure state: %w", err)
+		}
+		previousRepository := ""
+		if state.GitPullFailure != nil && state.GitPullFailure.Repository != repository {
+			previousRepository = state.GitPullFailure.Repository
+		}
+		if updateErr := c.stateStore.Update(ctx, func(state *model.Runtime) {
+			state.GitPullFailure = &model.GitPullFailure{Repository: repository}
+		}); updateErr != nil {
+			return fmt.Errorf("persist Git pull failure state: %w", updateErr)
+		}
+		if previousRepository != "" {
+			if err = c.event.Publish(ctx, &events.ConfigurationChanged{
+				PreviousRepository: previousRepository, Repository: repository,
+			}); err != nil {
+				return err
+			}
+		}
+		return c.event.Publish(ctx, &events.GitPullFailed{
+			Repository: repository, Category: events.GitFailureCategory(category),
+			Description: diagnostic, TriggerReason: string(reason),
+		})
+	})
+}
+
+func (c *Controller) recordGitPullSuccess(ctx context.Context, repository string, reason TriggerReason) error {
+	return c.db.WithinTransaction(ctx, func(ctx context.Context) error {
+		state, err := c.stateStore.Read(ctx)
+		if err != nil {
+			return fmt.Errorf("read Git pull recovery state: %w", err)
+		}
+		if state.GitPullFailure == nil || state.GitPullFailure.Repository != repository {
+			if state.GitPullFailure == nil {
+				return nil
+			}
+			previousRepository := state.GitPullFailure.Repository
+			if updateErr := c.stateStore.Update(ctx, func(state *model.Runtime) {
+				state.GitPullFailure = nil
+			}); updateErr != nil {
+				return fmt.Errorf("persist Git repository change state: %w", updateErr)
+			}
+			return c.event.Publish(ctx, &events.ConfigurationChanged{
+				PreviousRepository: previousRepository, Repository: repository,
+			})
+		}
+		if updateErr := c.stateStore.Update(ctx, func(state *model.Runtime) {
+			state.GitPullFailure = nil
+		}); updateErr != nil {
+			return fmt.Errorf("persist Git pull recovery state: %w", updateErr)
+		}
+		return c.event.Publish(ctx, &events.GitPullSucceeded{
+			Repository: repository, TriggerReason: string(reason),
+		})
+	})
 }
 
 func (c *Controller) syncStack(

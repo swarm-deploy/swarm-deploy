@@ -32,6 +32,9 @@ func (s *SQLSubscriber) Handle(ctx context.Context, event events.Envelope) error
 	switch e := event.Event.(type) {
 	case *events.ConfigurationChanged:
 		resource = "configuration"
+		if e.PreviousRepository != "" {
+			resource = "repository:" + e.PreviousRepository
+		}
 	case *events.DeploySuccess:
 		resource = "stack:" + e.StackName
 	case *events.DeployFailed:
@@ -44,6 +47,10 @@ func (s *SQLSubscriber) Handle(ctx context.Context, event events.Envelope) error
 		resource = "node:" + e.NodeID
 	case *events.NodeConnected:
 		resource = "node:" + e.NodeID
+	case *events.GitPullFailed:
+		resource = "repository:" + e.Repository
+	case *events.GitPullSucceeded:
+		resource = "repository:" + e.Repository
 	default:
 		return nil
 	}
