@@ -1134,7 +1134,7 @@ a.overview-summary-row:focus-visible {
 
 .node-label-form {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .node-label-form label {
@@ -1166,6 +1166,7 @@ a.overview-summary-row:focus-visible {
   gap: 8px;
   align-items: center;
   flex-wrap: wrap;
+  padding-top: 2px;
 }
 
 .node-label-dialog-spacer {
@@ -2570,12 +2571,12 @@ a.overview-summary-row:focus-visible {
 .modal-card {
   position: relative;
   width: min(900px, 94vw);
-  margin: 7vh auto;
+  margin: 5vh auto;
   border: 1px solid var(--line);
   border-radius: 10px;
   background: var(--surface-modal);
-  padding: 14px;
-  max-height: 84vh;
+  padding: 0;
+  max-height: 90vh;
   overflow: auto;
 }
 
@@ -2590,8 +2591,9 @@ a.overview-summary-row:focus-visible {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 12px;
-  padding-right: 50px;
+  min-height: 52px;
+  border-bottom: 1px solid var(--line);
+  padding: 10px 52px 10px 16px;
 }
 
 .modal-header h2 {
@@ -2602,17 +2604,18 @@ a.overview-summary-row:focus-visible {
 .modal-close {
   position: absolute;
   z-index: 2;
-  top: 12px;
-  right: 12px;
-  width: 42px;
-  height: 42px;
+  top: 8px;
+  right: 10px;
+  width: 36px;
+  height: 36px;
   display: grid;
   place-items: center;
-  border: 1px solid var(--border-subtle);
-  border-radius: 9px;
-  background: var(--surface-control-strong);
-  color: var(--text);
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
   padding: 0;
+  transition: background-color 150ms ease, color 150ms ease, opacity 150ms ease;
 }
 
 .modal-close svg {
@@ -2623,7 +2626,13 @@ a.overview-summary-row:focus-visible {
 .modal-close:hover {
   transform: none;
   background: var(--surface-hover-strong);
+  color: var(--text);
   filter: none;
+}
+
+.modal-close:focus-visible {
+  outline: 2px solid var(--accent-focus);
+  outline-offset: 2px;
 }
 
 .modal-close:disabled {
@@ -2633,7 +2642,19 @@ a.overview-summary-row:focus-visible {
 
 .modal-body {
   display: grid;
-  gap: 12px;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px 16px 16px;
+}
+
+.modal-body > .meta {
+  margin: 0;
+}
+
+.modal-body .app-table--summary tbody th,
+.modal-body .app-table--summary tbody td {
+  padding-top: 9px;
+  padding-bottom: 9px;
 }
 
 .manifest-modal-card {
@@ -2652,7 +2673,7 @@ a.overview-summary-row:focus-visible {
   background: var(--surface-control-strong);
   border: 1px solid var(--border-default);
   color: var(--muted);
-  padding: 8px 14px;
+  padding: 6px 12px;
   transform: none;
   filter: none;
 }
@@ -3340,11 +3361,32 @@ a.overview-summary-row:focus-visible {
     padding-top: 20px;
   }
 
+  .modal-card {
+    width: calc(100vw - 16px);
+    max-width: calc(100vw - 16px);
+    max-height: calc(100dvh - 16px);
+    margin: 8px auto;
+  }
+
+  .modal-header {
+    min-height: 48px;
+    padding: 8px 48px 8px 12px;
+  }
+
+  .modal-close {
+    top: 6px;
+    right: 8px;
+  }
+
+  .modal-body {
+    padding: 10px 12px 12px;
+  }
+
   .service-labels-modal-card {
-    width: calc(100vw - 20px);
-    max-width: calc(100vw - 20px);
-    margin: 10px auto;
-    max-height: calc(100dvh - 20px);
+    width: calc(100vw - 16px);
+    max-width: calc(100vw - 16px);
+    margin: 8px auto;
+    max-height: calc(100dvh - 16px);
   }
 
   .service-labels-list-item {

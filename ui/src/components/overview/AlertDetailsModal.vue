@@ -92,15 +92,15 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.alert-details-summary { margin-bottom: 14px; }
-.alert-details-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.alert-details-summary { margin-bottom: 8px; }
+.alert-details-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .alert-details-heading h3 { margin: 2px 0 0; }
 .alert-details-kind { color: var(--muted); font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; }
 .alert-details-status { border-radius: 999px; padding: 4px 9px; text-transform: capitalize; }
 .alert-details-status--open { color: var(--error); background: var(--error-muted); }
 .alert-details-status--resolved { color: var(--success); background: var(--success-muted); }
-.alert-details-diagnostic { margin-top: 14px; border-left: 3px solid var(--error); border-radius: 5px; background: var(--error-muted); padding: 10px 12px; }
+.alert-details-diagnostic { margin-top: 10px; border-left: 3px solid var(--error); border-radius: 5px; background: var(--error-muted); padding: 8px 10px; }
 .alert-details-diagnostic p { margin: 5px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
-.alert-details-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
-.alert-details-actions a { display: inline-flex; align-items: center; border-radius: 6px; background: var(--accent); color: var(--text-on-accent); padding: 8px 12px; text-decoration: none; }
+.alert-details-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.alert-details-actions a { display: inline-flex; align-items: center; border-radius: 6px; background: var(--accent); color: var(--text-on-accent); padding: 7px 10px; text-decoration: none; }
 </style>

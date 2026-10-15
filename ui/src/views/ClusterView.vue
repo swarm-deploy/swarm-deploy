@@ -309,7 +309,7 @@ onMounted(() => {
           </button>
         </div>
 
-        <form class="node-label-form" @submit.prevent="submitLabelDialog">
+        <form class="modal-body node-label-form" @submit.prevent="submitLabelDialog">
           <label>
             <span>Key</span>
             <input v-model="labelDialog.key" type="text" :readonly="labelDialog.mode === 'edit'" :disabled="labelDialog.saving" />
