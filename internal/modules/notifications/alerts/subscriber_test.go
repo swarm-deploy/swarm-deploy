@@ -28,7 +28,7 @@ func alertSpec() config.NotificationSpec {
 			BotToken: specw.File{Content: []byte("123:token")}, Retries: 1,
 			Chats: map[string]config.NotificationChatSpec{"default": {ID: "-100", ThreadID: 1}, "infra": {ID: "-101", ThreadID: 2}},
 		}},
-		Alerts: map[string]config.NotificationAlertRoutes{"node_disconnected": {Telegram: []config.TelegramAlertChannel{{
+		Alerts: map[string]config.NotificationAlertRoutes{"NodeDisconnected": {Telegram: []config.TelegramAlertChannel{{
 			Chats:    config.NotificationChatNames{"default", "infra"},
 			Opened:   config.AlertMessageSpec{Message: "{{ .Title }}"},
 			Resolved: config.AlertMessageSpec{Action: "reply", Message: "{{ .Resolution }}"},
@@ -94,7 +94,7 @@ func TestSyncFailedAlertRendering(t *testing.T) {
 			defer db.Close()
 			spec := alertSpec()
 			if test.customMessage != "" {
-				spec.Alerts["sync_failed"] = config.NotificationAlertRoutes{Telegram: []config.TelegramAlertChannel{{
+				spec.Alerts["SyncFailed"] = config.NotificationAlertRoutes{Telegram: []config.TelegramAlertChannel{{
 					Opened: config.AlertMessageSpec{Message: test.customMessage},
 				}}}
 			}
@@ -188,10 +188,10 @@ func TestRegisterIncludesFallbackAndCustomRecipientsForFutureAlertKinds(t *testi
 	spec.Messengers.Telegram.Chats["deployments"] = config.NotificationChatSpec{ID: "-102", ThreadID: 3}
 	spec.Alerts = map[string]config.NotificationAlertRoutes{
 		"default": {Telegram: []config.TelegramAlertChannel{{Chats: config.NotificationChatNames{"default"}}}},
-		"sync_failed": {Telegram: []config.TelegramAlertChannel{{
+		"SyncFailed": {Telegram: []config.TelegramAlertChannel{{
 			Chats: config.NotificationChatNames{"deployments"},
 		}}},
-		"node_disconnected": {Telegram: []config.TelegramAlertChannel{{
+		"NodeDisconnected": {Telegram: []config.TelegramAlertChannel{{
 			Chats: config.NotificationChatNames{"infra"},
 		}}},
 	}
