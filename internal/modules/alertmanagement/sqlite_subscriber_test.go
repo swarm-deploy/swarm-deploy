@@ -460,6 +460,7 @@ func TestGitNetworkDiagnosticReachesAlertAfterDurableCodec(t *testing.T) {
 	store := modelstore.NewSQLStore(db)
 	subscriber := newTestSQLSubscriber(store)
 	const diagnostic = "Git repository connection refused"
+	startedAt := time.Now().UTC()
 	for i := range 3 {
 		payload, encodeErr := codec.Encode(&events.GitPullFailed{
 			Repository: "git.example.com/team/app", Category: events.GitFailureNetwork,
@@ -469,7 +470,8 @@ func TestGitNetworkDiagnosticReachesAlertAfterDurableCodec(t *testing.T) {
 		decoded, decodeErr := codec.Decode(events.TypeNameGitPullFailed, codec.Version, payload)
 		require.NoError(t, decodeErr)
 		require.NoError(t, subscriber.Handle(ctx, events.Envelope{
-			ID: fmt.Sprintf("git-failure-%d", i), Event: decoded,
+			ID: fmt.Sprintf("git-failure-%d", i),
+			OccurredAt: startedAt.Add(time.Duration(i) * time.Second), Event: decoded,
 		}))
 	}
 	alerts, err := store.List(ctx, modelstore.ListFilter{})
