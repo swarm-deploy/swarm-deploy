@@ -96,11 +96,11 @@ func (d *Deployer) DeployStack(
 	desired compose.Compose,
 ) error {
 	resolved := resolvedResources{}
-	if hasInitJobs(desired.Services) && (len(desired.Configs) > 0 || len(desired.Secrets) > 0) {
+	if len(desired.Configs) > 0 || len(desired.Secrets) > 0 {
 		var err error
 		resolved, err = d.resources.Reconcile(ctx, stackName, sourceComposePath, desired.Configs, desired.Secrets)
 		if err != nil {
-			return fmt.Errorf("reconcile init job configs and secrets: %w", err)
+			return fmt.Errorf("reconcile configs and secrets: %w", err)
 		}
 	}
 
@@ -147,14 +147,4 @@ func (d *Deployer) runInitJobs(
 		}
 	}
 	return nil
-}
-
-func hasInitJobs(services []compose.Service) bool {
-	for _, service := range services {
-		if len(service.InitJobs) > 0 {
-			return true
-		}
-	}
-
-	return false
 }
