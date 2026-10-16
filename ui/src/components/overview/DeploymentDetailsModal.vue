@@ -27,6 +27,31 @@ const dialog = ref<HTMLElement | null>(null);
 const closeButton = ref<HTMLButtonElement | null>(null);
 const activeTab = ref<DetailsTab>("changes");
 const copyLabel = ref("Copy YAML");
+const infoOpen = ref<DetailsTab | null>(null);
+const infoPinned = ref(false);
+
+function dismissInfo() {
+  infoOpen.value = null;
+  infoPinned.value = false;
+}
+function showInfo(tab: DetailsTab, event: PointerEvent) {
+  if (event.pointerType === "mouse" && !infoPinned.value) infoOpen.value = tab;
+}
+function hideInfo(tab: DetailsTab, event: PointerEvent) {
+  if (event.pointerType === "mouse" && !infoPinned.value && infoOpen.value === tab) infoOpen.value = null;
+}
+function toggleInfo(tab: DetailsTab) {
+  if (infoOpen.value === tab && infoPinned.value) {
+    dismissInfo();
+  } else {
+    infoOpen.value = tab;
+    infoPinned.value = true;
+  }
+}
+function onPointerDown(event: PointerEvent) {
+  if (infoOpen.value && !(event.target as Element | null)?.closest(".deployment-info")) dismissInfo();
+}
+
 let returnFocus: HTMLElement | null = null;
 const focusableSelector = [
   "a[href]", "button:not([disabled])", "input:not([disabled])", "select:not([disabled])",
@@ -222,7 +247,12 @@ async function copyConfiguration() {
 }
 function onKeydown(event: KeyboardEvent) {
   if (!store.deploymentDetailsModalOpen || store.commitDetailsModalOpen) return;
-  if (event.key === "Escape") { event.preventDefault(); close(); return; }
+  if (event.key === "Escape") {
+    event.preventDefault();
+    if (infoOpen.value) { dismissInfo(); return; }
+    close();
+    return;
+  }
   if (event.key !== "Tab") return;
   const focusable = focusableElements();
   if (focusable.length === 0) { event.preventDefault(); dialog.value?.focus(); return; }
@@ -237,14 +267,23 @@ watch(() => store.deploymentDetailsModalOpen, async (open, wasOpen) => {
   if (open && !wasOpen) {
     returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     activeTab.value = "changes";
+    dismissInfo();
     await nextTick(); closeButton.value?.focus();
   } else if (!open && wasOpen) {
+    dismissInfo();
     if (returnFocus?.isConnected) returnFocus.focus();
     returnFocus = null;
   }
 });
-onMounted(() => document.addEventListener("keydown", onKeydown));
-onUnmounted(() => document.removeEventListener("keydown", onKeydown));
+watch(activeTab, dismissInfo);
+onMounted(() => {
+  document.addEventListener("keydown", onKeydown);
+  document.addEventListener("pointerdown", onPointerDown);
+});
+onUnmounted(() => {
+  document.removeEventListener("keydown", onKeydown);
+  document.removeEventListener("pointerdown", onPointerDown);
+});
 </script>
 
 <template>
@@ -352,7 +391,17 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
               <p class="meta">{{ comparison }}</p>
             </template>
             <template v-else>
-              <div class="deployment-changes-heading"><div><h3>Desired-state changes</h3><p class="deployment-note">{{ comparison }} These entries do not confirm runtime convergence.</p></div></div>
+              <div class="deployment-changes-heading">
+                <div class="deployment-info-heading">
+                  <h3>Desired Changes</h3>
+                  <div class="deployment-info" @pointerenter="showInfo('changes', $event)" @pointerleave="hideInfo('changes', $event)">
+                    <button type="button" class="deployment-info-button" aria-label="About desired changes" :aria-expanded="infoOpen === 'changes'" :aria-describedby="infoOpen === 'changes' ? 'deployment-changes-tooltip' : undefined" @click.stop="toggleInfo('changes')">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" stroke-linecap="round" /></svg>
+                    </button>
+                    <div v-if="infoOpen === 'changes'" id="deployment-changes-tooltip" class="deployment-info-tooltip" role="tooltip">{{ comparison }} These entries do not confirm runtime convergence.</div>
+                  </div>
+                </div>
+              </div>
               <p class="meta">{{ detail.summary.added }} added · {{ detail.summary.changed }} changed · {{ detail.summary.removed }} removed<template v-if="detail.summary.redacted"> · {{ detail.summary.redacted }} masked</template></p>
               <details v-for="group in groups" :key="`${group.type}/${group.name}`" class="deployment-resource" open>
                 <summary><span><svg class="deployment-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg><DeploymentIcon :name="resourceIcon(group.type)" /><span><span class="deployment-resource-type">{{ group.type }}</span><strong>{{ group.name }}</strong></span></span><span class="deployment-resource-operation" :class="`deployment-resource-operation--${group.operation}`">{{ group.operation }}</span></summary>
@@ -376,7 +425,18 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
           </section>
 
           <section v-else class="deployment-tab-panel" role="tabpanel">
-            <div class="deployment-configuration-heading"><div><h3>Recorded desired configuration</h3><p class="deployment-note">Sensitive values are masked before storage.</p></div><button v-if="configuration" type="button" class="button-ghost" @click="copyConfiguration">{{ copyLabel }}</button></div>
+            <div class="deployment-configuration-heading">
+              <div class="deployment-info-heading">
+                <h3>Configuration Snapshot</h3>
+                <div class="deployment-info" @pointerenter="showInfo('configuration', $event)" @pointerleave="hideInfo('configuration', $event)">
+                  <button type="button" class="deployment-info-button" aria-label="About configuration snapshot" :aria-expanded="infoOpen === 'configuration'" :aria-describedby="infoOpen === 'configuration' ? 'deployment-configuration-tooltip' : undefined" @click.stop="toggleInfo('configuration')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" stroke-linecap="round" /></svg>
+                  </button>
+                  <div v-if="infoOpen === 'configuration'" id="deployment-configuration-tooltip" class="deployment-info-tooltip" role="tooltip">Sensitive values are masked before storage.</div>
+                </div>
+              </div>
+              <button v-if="configuration" type="button" class="button-ghost" @click="copyConfiguration">{{ copyLabel }}</button>
+            </div>
             <p v-if="!configuration" class="meta">Recorded configuration is unavailable.</p>
             <div v-else class="deployment-yaml manifest-code shj-lang-yaml shj-block" aria-label="Recorded desired configuration YAML" v-html="configurationHtml" />
           </section>
@@ -519,6 +579,54 @@ details[open] > summary .deployment-chevron { transform: rotate(90deg); }
 .deployment-resource-empty { margin: 0 0 12px 33px; color: var(--muted); font-size: .82rem; }
 .deployment-changes-heading, .deployment-configuration-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .deployment-changes-heading h3, .deployment-configuration-heading h3 { margin: 0; }
+.deployment-info-heading { position: relative; display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.deployment-info { flex: 0 0 auto; }
+.deployment-info-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 25px;
+  height: 25px;
+  padding: 2px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: help;
+}
+.deployment-info-button svg { width: 20px; height: 20px; }
+.deployment-info-button:hover, .deployment-info-button[aria-expanded="true"] { color: var(--text); transform: none; filter: none; }
+.deployment-info-button:focus-visible { outline: 2px solid var(--control-primary); outline-offset: 2px; }
+.deployment-info-tooltip {
+  position: absolute;
+  z-index: 10;
+  top: -8px;
+  left: calc(100% + 12px);
+  box-sizing: border-box;
+  width: min(325px, calc(100vw - 52px));
+  padding: 11px 13px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--surface-elevated);
+  box-shadow: var(--shadow-popover);
+  color: var(--text);
+  font-size: .82rem;
+  font-weight: 400;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.deployment-info-tooltip::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  top: 15px;
+  width: 9px;
+  height: 9px;
+  border-bottom: 1px solid var(--border-default);
+  border-left: 1px solid var(--border-default);
+  background: var(--surface-elevated);
+  transform: rotate(45deg);
+}
 .deployment-resource { border-bottom: 1px solid var(--line); margin: 10px 0; overflow: hidden; }
 .deployment-resource summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; list-style: none; padding: 8px 4px; }
 .deployment-resource summary > span:first-child { display: flex; align-items: center; gap: 10px; min-width: 0; overflow-wrap: anywhere; }
@@ -601,5 +709,7 @@ details[open] > summary .deployment-chevron { transform: rotate(90deg); }
   .deployment-service-table-wrap, .deployment-resource-list, .deployment-resource-empty, .deployment-change-section { margin-left: 0; }
   .deployment-change { grid-template-columns: minmax(0, 1fr); gap: 5px; }
   .deployment-changes-heading, .deployment-configuration-heading { align-items: flex-start; flex-wrap: wrap; }
+  .deployment-info-tooltip { top: calc(100% + 8px); left: 0; width: min(315px, calc(100vw - 44px)); }
+  .deployment-info-tooltip::before { display: none; }
 }
 </style>
