@@ -260,3 +260,29 @@ func deploymentFailureError(event events.Event) error {
 		return nil
 	}
 }
+func TestGitAlertSnapshotDetailsSurviveCodec(t *testing.T) {
+	resolvedAt := time.Now().UTC()
+	alert := events.AlertSnapshot{
+		ID: "git-alert", Kind: "git_repository_unavailable", ResourceType: "repository",
+		ResourceID: "git.example.com/team/repo", Message: "Git repository connection timed out",
+		ErrorCode: "network", Occurrences: 7, Duration: "2m14s",
+		OpenedAt: resolvedAt.Add(-134 * time.Second), ResolvedAt: &resolvedAt,
+	}
+	for _, event := range []events.Event{
+		&events.AlertOpened{Alert: alert},
+		&events.AlertResolved{Alert: alert},
+	} {
+		payload, err := Encode(event)
+		require.NoError(t, err)
+		decoded, err := Decode(event.Type().Name(), Version, payload)
+		require.NoError(t, err)
+		var got events.AlertSnapshot
+		switch e := decoded.(type) {
+		case *events.AlertOpened:
+			got = e.Alert
+		case *events.AlertResolved:
+			got = e.Alert
+		}
+		assert.Equal(t, alert, got)
+	}
+}
