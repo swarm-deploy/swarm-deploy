@@ -172,7 +172,7 @@ func (s *Subscriber) resolved(ctx context.Context, event *events.AlertResolved) 
 		return nil
 	}
 	rule := s.rule(alert.Kind)
-	notifier, err := s.notifier(rule.AlertResolvedTemplate(), "")
+	notifier, err := s.notifier(rule.AlertResolvedTemplate(alert.Kind), "")
 	if err != nil {
 		return err
 	}
