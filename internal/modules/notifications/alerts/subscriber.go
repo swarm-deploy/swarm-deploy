@@ -144,7 +144,12 @@ func (s *Subscriber) opened(ctx context.Context, alert events.AlertSnapshot) err
 	rule := s.rule(alert.Kind)
 	payload := alert
 	parseMode := ""
-	if alert.Kind == string(alertmodel.AlertKindSyncFailed) && strings.TrimSpace(rule.Opened.Message) == "" {
+	if alert.Kind == string(alertmodel.AlertKindGitRepositoryUnavailable) && strings.TrimSpace(rule.Opened.Message) == "" {
+		payload.ResourceID = html.EscapeString(alert.ResourceID)
+		payload.Title = html.EscapeString(alert.Title)
+		payload.Message = html.EscapeString(alert.Message)
+		parseMode = "HTML"
+	} else if alert.Kind == string(alertmodel.AlertKindSyncFailed) && strings.TrimSpace(rule.Opened.Message) == "" {
 		payload = defaultSyncFailedPayload(alert)
 		parseMode = "HTML"
 	}
@@ -172,7 +177,13 @@ func (s *Subscriber) resolved(ctx context.Context, event *events.AlertResolved) 
 		return nil
 	}
 	rule := s.rule(alert.Kind)
-	notifier, err := s.notifier(rule.AlertResolvedTemplate(alert.Kind), "")
+	payload := alert
+	parseMode := ""
+	if alert.Kind == string(alertmodel.AlertKindGitRepositoryUnavailable) && strings.TrimSpace(rule.Resolved.Message) == "" {
+		payload.ResourceID = html.EscapeString(alert.ResourceID)
+		parseMode = "HTML"
+	}
+	notifier, err := s.notifier(rule.AlertResolvedTemplate(alert.Kind), parseMode)
 	if err != nil {
 		return err
 	}
@@ -181,7 +192,7 @@ func (s *Subscriber) resolved(ctx context.Context, event *events.AlertResolved) 
 		action = notifiers.Action(rule.AlertResolvedAction())
 	}
 	receipt, err := notifier.Notify(ctx, notifiers.Message{
-		Payload: alert, Action: action, TargetMessageID: link.OpenedMessageID.Int64,
+		Payload: payload, Action: action, TargetMessageID: link.OpenedMessageID.Int64,
 	})
 	if err != nil {
 		return err
