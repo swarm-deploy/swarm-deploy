@@ -63,9 +63,9 @@ const (
 <b>Error:</b>
 <pre>{{ .Message }}</pre>`
 	defaultAlertResolvedTemplate = "✅ Resolved: {{ .Title }}\n{{ .Resolution }}"
-	defaultGitOpenedTemplate     = "🚨 {{ .Title }}\nRepository: {{ .ResourceID }}\nError: {{ .Message }}" +
+	defaultGitOpenedTemplate     = "🚨 {{ .Title }}\nRepository: <code>{{ .ResourceID }}</code>\nError: {{ .Message }}" +
 		"\nCategory: {{ .ErrorCode }}\nFailed attempts: {{ .Occurrences }}"
-	defaultGitResolvedTemplate = "✅ Git repository recovered\nRepository: {{ .ResourceID }}" +
+	defaultGitResolvedTemplate = "✅ Git repository recovered\nRepository: <code>{{ .ResourceID }}</code>" +
 		"\nFailed attempts: {{ .Occurrences }}\nIncident duration: {{ .Duration }}"
 )
 
