@@ -1,7 +1,9 @@
 package git
 
 import (
+	"context"
 	"errors"
+	"syscall"
 	"net"
 	"testing"
 
@@ -74,5 +76,26 @@ func TestRepositoryIdentifierMalformedURLIsOpaqueAndStable(t *testing.T) {
 		assert.Regexp(t, `^repository-[0-9a-f]{16}$`, identifier)
 		assert.NotContains(t, identifier, secret)
 		assert.NotContains(t, identifier, "robot")
+	}
+}
+
+func TestSafePullDiagnostic(t *testing.T) {
+	tests := []struct {
+		name string
+		err error
+		want string
+	}{
+		{name: "DNS failure", err: &net.DNSError{Err: "secret token", Name: "secret.example", IsTemporary: true}, want: "Git repository DNS lookup failed"},
+		{name: "timeout", err: context.DeadlineExceeded, want: "Git repository connection timed out"},
+		{name: "connection refused", err: syscall.ECONNREFUSED, want: "Git repository connection refused"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			classified := ClassifyPullError(tc.err, "https://git.example/team/repo", config.GitAuthTypeHTTP)
+			category, detail := PullFailure(classified)
+			assert.Equal(t, FailureNetwork, category)
+			assert.Equal(t, tc.want, detail)
+			assert.NotContains(t, detail, "secret")
+		})
 	}
 }
