@@ -23,7 +23,7 @@ import (
 
 const (
 	telegramMessageLimit     = 4096
-	telegramHTMLParseMode   = "HTML"
+	telegramHTMLParseMode    = "HTML"
 	syncFailedErrorTruncated = "\n\n[error truncated]"
 )
 
