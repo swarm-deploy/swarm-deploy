@@ -102,6 +102,7 @@ func classifyFailure(err error, repository string, authType config.GitAuthType) 
 	}
 	var networkError net.Error
 	if gitErrorAs(err, &networkError) || gitErrorIs(err, syscall.ECONNREFUSED) ||
+		gitErrorIs(err, syscall.EHOSTUNREACH) || gitErrorIs(err, syscall.ENETUNREACH) ||
 		gitErrorIs(err, context.DeadlineExceeded) || gitErrorIs(err, context.Canceled) {
 		return FailureNetwork
 	}
@@ -196,6 +197,12 @@ func safePullDiagnostic(err error, category FailureCategory) string {
 	}
 	if gitErrorIs(err, syscall.ECONNREFUSED) {
 		return "Git repository connection refused"
+	}
+	if gitErrorIs(err, syscall.EHOSTUNREACH) {
+		return "Git repository host unreachable"
+	}
+	if gitErrorIs(err, syscall.ENETUNREACH) {
+		return "Git repository network unreachable"
 	}
 	if status, ok := gitHTTPStatus(err); ok {
 		switch status {
