@@ -2,6 +2,7 @@ package codec
 
 import (
 	"errors"
+	"time"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
