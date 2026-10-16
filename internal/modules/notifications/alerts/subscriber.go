@@ -23,6 +23,7 @@ import (
 
 const (
 	telegramMessageLimit     = 4096
+	telegramHTMLParseMode   = "HTML"
 	syncFailedErrorTruncated = "\n\n[error truncated]"
 )
 
@@ -148,10 +149,10 @@ func (s *Subscriber) opened(ctx context.Context, alert events.AlertSnapshot) err
 		payload.ResourceID = html.EscapeString(alert.ResourceID)
 		payload.Title = html.EscapeString(alert.Title)
 		payload.Message = html.EscapeString(alert.Message)
-		parseMode = "HTML"
+		parseMode = telegramHTMLParseMode
 	} else if alert.Kind == string(alertmodel.AlertKindSyncFailed) && strings.TrimSpace(rule.Opened.Message) == "" {
 		payload = defaultSyncFailedPayload(alert)
-		parseMode = "HTML"
+		parseMode = telegramHTMLParseMode
 	}
 	notifier, err := s.notifier(rule.AlertOpenedTemplate(alert.Kind), parseMode)
 	if err != nil {
@@ -179,9 +180,10 @@ func (s *Subscriber) resolved(ctx context.Context, event *events.AlertResolved) 
 	rule := s.rule(alert.Kind)
 	payload := alert
 	parseMode := ""
-	if alert.Kind == string(alertmodel.AlertKindGitRepositoryUnavailable) && strings.TrimSpace(rule.Resolved.Message) == "" {
+	if alert.Kind == string(alertmodel.AlertKindGitRepositoryUnavailable) &&
+		strings.TrimSpace(rule.Resolved.Message) == "" {
 		payload.ResourceID = html.EscapeString(alert.ResourceID)
-		parseMode = "HTML"
+		parseMode = telegramHTMLParseMode
 	}
 	notifier, err := s.notifier(rule.AlertResolvedTemplate(alert.Kind), parseMode)
 	if err != nil {
