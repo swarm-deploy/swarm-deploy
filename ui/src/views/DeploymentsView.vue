@@ -221,8 +221,8 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.deployments-filter-bar { display: flex; flex-wrap: wrap; gap: 12px; }
-.deployments-filter-field { display: flex; flex-direction: column; gap: 6px; width: min(100%, 260px); margin: 18px 0; }
+.deployments-filter-bar { display: flex; flex-wrap: wrap; column-gap: 12px; row-gap: 16px; margin: 8px 0 12px; }
+.deployments-filter-field { display: flex; flex-direction: column; gap: 6px; width: min(100%, 260px); }
 .deployments-filter-field > span { font-size: 0.8rem; color: var(--muted); }
 .deployments-stack-filter { position: relative; }
 .deployments-stack-filter > summary { display: flex; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-elevated); cursor: pointer; list-style: none; }
