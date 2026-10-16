@@ -34,7 +34,7 @@ func TestStackDeployComposeOmitsInitJobsWithoutMutatingDesired(t *testing.T) {
 		},
 	}
 
-	rendered := stackDeployCompose(desired)
+	rendered := stackDeployCompose(desired, "app")
 	renderedRaw, err := rendered.MarshalYAML()
 	require.NoError(t, err, "marshal rendered stack compose")
 
@@ -56,6 +56,11 @@ func TestStackDeployComposeOmitsInitJobsWithoutMutatingDesired(t *testing.T) {
 }
 
 func TestNeedsRenderedCompose(t *testing.T) {
+	t.Run("age without rotation or other mutations", func(t *testing.T) {
+		assert.True(t, needsRenderedCompose(&pipelinePayload{Desired: &compose.File{Compose: compose.Compose{
+			Secrets: compose.Secrets{"password": {File: "./secrets/password.age"}},
+		}}}))
+	})
 	t.Run("desired mutated", func(t *testing.T) {
 		assert.True(t, needsRenderedCompose(&pipelinePayload{
 			DesiredMutated: true,
@@ -89,4 +94,26 @@ func TestNeedsRenderedCompose(t *testing.T) {
 			},
 		}))
 	})
+}
+
+func TestStackDeployComposeExternalizesOnlyAgeSecrets(t *testing.T) {
+	desired := &compose.File{Compose: compose.Compose{Secrets: compose.Secrets{
+		"password": {File: "./secrets/password.age", Labels: *compose.NewLabels(map[string]string{"purpose": "app"})},
+		"rotated":  {Name: "app-rotated-abc123", File: "/repo/token.age"},
+		"plain":    {File: "./secrets/plain.txt"},
+		"external": {Name: "existing.age", External: true},
+	}}}
+	rendered := stackDeployCompose(desired, "app")
+	assert.Equal(t, &compose.Secret{Name: "app_password", External: true}, rendered.Compose.Secrets["password"])
+	assert.Equal(t, &compose.Secret{Name: "app-rotated-abc123", External: true}, rendered.Compose.Secrets["rotated"])
+	assert.Equal(t, desired.Compose.Secrets["plain"], rendered.Compose.Secrets["plain"])
+	assert.Equal(t, desired.Compose.Secrets["external"], rendered.Compose.Secrets["external"])
+	assert.Equal(t, "./secrets/password.age", desired.Compose.Secrets["password"].File)
+	assert.False(t, desired.Compose.Secrets["password"].External)
+	assert.Equal(t, "app", desired.Compose.Secrets["password"].Labels.Map["purpose"])
+	raw, err := rendered.MarshalYAML()
+	require.NoError(t, err)
+	assert.NotContains(t, string(raw), "password.age")
+	assert.NotContains(t, string(raw), "/repo/token.age")
+	assert.Contains(t, string(raw), "external: true")
 }

@@ -47,7 +47,7 @@ func TestResourceReconcilerFiltersBulkListsByResourceName(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	_, err := newResourceReconciler(swarm.NewSwarm(newDockerTestClient(t, server), "")).Reconcile(
+	_, err := newResourceReconciler(swarm.NewSwarm(newDockerTestClient(t, server), ""), nil).Reconcile(
 		context.Background(),
 		"demo",
 		filepath.Join(t.TempDir(), "compose.yaml"),

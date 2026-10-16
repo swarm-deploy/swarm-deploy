@@ -162,7 +162,7 @@ secrets:
 				// Avoid registry access and task convergence polling in this API contract test.
 				stackDeployArgs: []string{"stack", "deploy", "--detach=true", "--resolve-image=never"},
 				runner:          swarmService.BinaryRunner,
-				resources:       newResourceReconciler(swarmService),
+				resources:       newResourceReconciler(swarmService, nil),
 			}
 			for range 2 {
 				require.NoError(t, deployer.DeployStack(t.Context(), "demo", path, path, desired.Compose))

@@ -229,6 +229,8 @@ type SwarmSpec struct {
 }
 
 type SecretRotationSpec struct {
+	// Age configures decryption independently of name rotation.
+	Age AgeSpec `yaml:"age"`
 	// Enabled toggles secret/config name rotation.
 	Enabled bool `yaml:"enabled"`
 	// HashLength is a length of generated hash suffix.
@@ -237,6 +239,12 @@ type SecretRotationSpec struct {
 	IncludePath bool `yaml:"includePath"`
 	// Cleanup controls removal of old managed rotated resources.
 	Cleanup SecretRotationCleanupSpec `yaml:"cleanup"`
+}
+
+// AgeSpec configures file-based age identities for encrypted Docker secrets.
+type AgeSpec struct {
+	// IdentityFile loads private identities from a mounted file.
+	IdentityFile specw.File `yaml:"identityFile" json:"-"`
 }
 
 // SecretRotationCleanupSpec controls cleanup of old rotated configs and secrets.

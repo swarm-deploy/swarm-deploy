@@ -64,11 +64,12 @@ func NewDeployer(
 	dockerClient *client.Client,
 	swarmService *swarm.Swarm,
 	initJobMetrics InitJobMetrics,
+	ageIdentity []byte,
 ) StackDeployer {
 	deployer := &Deployer{
 		stackDeployArgs: []string{"stack", "deploy", "--with-registry-auth", "--detach=false", "--quiet"},
 		runner:          swarmService.BinaryRunner,
-		resources:       newResourceReconciler(swarmService),
+		resources:       newResourceReconciler(swarmService, ageIdentity),
 		initJobRunner: NewInitJobRunner(
 			dockerClient,
 			swarmService,

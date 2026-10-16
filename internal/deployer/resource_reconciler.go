@@ -18,14 +18,16 @@ type resolvedResources struct {
 }
 
 type resourceReconciler struct {
-	configs swarm.ConfigManager
-	secrets swarm.SecretManager
+	configs     swarm.ConfigManager
+	secrets     swarm.SecretManager
+	ageIdentity []byte
 }
 
-func newResourceReconciler(swarmService *swarm.Swarm) *resourceReconciler {
+func newResourceReconciler(swarmService *swarm.Swarm, ageIdentity []byte) *resourceReconciler {
 	return &resourceReconciler{
-		configs: swarmService.Configs,
-		secrets: swarmService.Secrets,
+		configs:     swarmService.Configs,
+		secrets:     swarmService.Secrets,
+		ageIdentity: ageIdentity,
 	}
 }
 
@@ -117,6 +119,9 @@ func (r *resourceReconciler) reconcileSecrets(
 	for _, alias := range sortedObjectAliases(objects) {
 		object := objects[alias]
 		name := dockerSecretName(stackName, alias, object)
+		if object.IsAgeEncrypted() && object.Driver != "" {
+			return nil, fmt.Errorf("age secret %s cannot use an external driver", name)
+		}
 
 		if secret, ok := existingByName[name]; ok {
 			resolved[alias] = ResolvedResource{ID: secret.ID, Name: secret.Name}
@@ -129,7 +134,7 @@ func (r *resourceReconciler) reconcileSecrets(
 		var data []byte
 		if object.Driver == "" {
 			var readErr error
-			data, readErr = readSecret(sourceComposePath, object)
+			data, readErr = r.readSecret(sourceComposePath, object)
 			if readErr != nil {
 				return nil, fmt.Errorf("read secret %s: %w", name, readErr)
 			}
@@ -143,7 +148,12 @@ func (r *resourceReconciler) reconcileSecrets(
 			DriverOptions:  object.DriverOpts,
 			TemplateDriver: object.TemplateDriver,
 		})
+		clear(data)
 		if err != nil {
+			// A remote error may echo the request body. Never propagate it for age secrets.
+			if object.IsAgeEncrypted() {
+				return nil, fmt.Errorf("create secret %s: Docker API request failed", name)
+			}
 			return nil, fmt.Errorf("create secret %s: %w", name, err)
 		}
 
@@ -227,7 +237,7 @@ func dockerSecretName(stackName, alias string, object *compose.Secret) string {
 	return stackName + "_" + alias
 }
 
-func readSecret(sourceComposePath string, object *compose.Secret) ([]byte, error) {
+func (r *resourceReconciler) readSecret(sourceComposePath string, object *compose.Secret) ([]byte, error) {
 	if object.File == "" {
 		return nil, fmt.Errorf("file is required")
 	}
@@ -237,5 +247,10 @@ func readSecret(sourceComposePath string, object *compose.Secret) ([]byte, error
 		path = filepath.Join(filepath.Dir(sourceComposePath), path)
 	}
 
-	return os.ReadFile(path)
+	data, err := os.ReadFile(path)
+	if err != nil || !object.IsAgeEncrypted() {
+		return data, err
+	}
+
+	return decryptAgeSecret(data, r.ageIdentity)
 }

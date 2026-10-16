@@ -1,0 +1,188 @@
+package deployer
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"filippo.io/age"
+	"filippo.io/age/armor"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.uber.org/mock/gomock"
+)
+
+func encryptTestSecret(t *testing.T, recipient age.Recipient, plaintext []byte, armored bool) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	var output io.Writer = &buf
+	var encoded io.WriteCloser
+	if armored {
+		encoded = armor.NewWriter(output)
+		output = encoded
+	}
+	w, err := age.Encrypt(output, recipient)
+	require.NoError(t, err)
+	_, err = w.Write(plaintext)
+	require.NoError(t, err)
+	require.NoError(t, w.Close())
+	if encoded != nil {
+		require.NoError(t, encoded.Close())
+	}
+	return buf.Bytes()
+}
+
+func TestDecryptAgeSecret(t *testing.T) {
+	identity, err := age.GenerateX25519Identity()
+	require.NoError(t, err)
+	other, err := age.GenerateX25519Identity()
+	require.NoError(t, err)
+	plaintext := []byte("private value\x00\nwith binary data\xff")
+	ciphertext := encryptTestSecret(t, identity.Recipient(), plaintext, false)
+	tampered := bytes.Clone(ciphertext)
+	tampered[len(tampered)-1] ^= 1
+	for _, tt := range []struct {
+		name       string
+		ciphertext []byte
+		identities string
+		wantError  string
+	}{
+		{"binary", ciphertext, identity.String(), ""},
+		{"armor", encryptTestSecret(t, identity.Recipient(), plaintext, true), identity.String(), ""},
+		{"multiple identities and comments", ciphertext, "# identities\n\n" + other.String() + "\n" + identity.String() + "\n", ""},
+		{"missing key", ciphertext, "", "requires secretRotation.age.identityFile"},
+		{"empty key file", ciphertext, "# no identities\n", "invalid age identity file"},
+		{"invalid key", ciphertext, identity.String() + "private-marker", "invalid age identity file"},
+		{"wrong key", ciphertext, other.String(), "no matching identity"},
+		{"invalid ciphertext", []byte("private-marker\n"), identity.String(), "invalid ciphertext"},
+		{"invalid armor", []byte(armor.Header + "\nprivate-marker"), identity.String(), "invalid ciphertext"},
+		{"truncated", ciphertext[:len(ciphertext)-1], identity.String(), "invalid or truncated payload"},
+		{"tampered", tampered, identity.String(), "invalid or truncated payload"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			got, decryptErr := decryptAgeSecret(tt.ciphertext, []byte(tt.identities))
+			if tt.wantError == "" {
+				require.NoError(t, decryptErr)
+				assert.Equal(t, plaintext, got)
+				return
+			}
+			require.ErrorContains(t, decryptErr, tt.wantError)
+			assert.Nil(t, got, "never return partial plaintext")
+			assert.NotContains(t, decryptErr.Error(), "private-marker")
+			assert.NotContains(t, decryptErr.Error(), identity.String())
+			assert.NotContains(t, decryptErr.Error(), string(plaintext))
+		})
+	}
+}
+
+func TestDecryptAgeSecretSizeLimit(t *testing.T) {
+	identity, err := age.GenerateX25519Identity()
+	require.NoError(t, err)
+	for _, size := range []int{maxSecretSize, maxSecretSize + 1} {
+		ciphertext := encryptTestSecret(t, identity.Recipient(), bytes.Repeat([]byte("x"), size), false)
+		got, decryptErr := decryptAgeSecret(ciphertext, []byte(identity.String()))
+		if size <= maxSecretSize {
+			require.NoError(t, decryptErr)
+			assert.Len(t, got, size)
+		} else {
+			require.ErrorContains(t, decryptErr, "500 KiB limit")
+			assert.Nil(t, got)
+		}
+	}
+}
+
+func TestReconcileAgeSecrets(t *testing.T) {
+	for _, absolute := range []bool{false, true} {
+		t.Run(map[bool]string{false: "relative", true: "absolute"}[absolute], func(t *testing.T) {
+			identity, err := age.GenerateX25519Identity()
+			require.NoError(t, err)
+			dir := t.TempDir()
+			path := filepath.Join(dir, "password.age")
+			ciphertext := encryptTestSecret(t, identity.Recipient(), []byte("private-marker"), false)
+			require.NoError(t, os.WriteFile(path, ciphertext, 0o600))
+			if !absolute {
+				path = "./password.age"
+			}
+			ctrl := gomock.NewController(t)
+			secrets := swarm.NewMockSecretManager(ctrl)
+			secrets.EXPECT().List(gomock.Any(), swarm.ListSecretsFilter{Names: []string{"rotated-password"}}).Return(nil, nil)
+			secrets.EXPECT().Create(gomock.Any(), gomock.Any()).DoAndReturn(func(_ context.Context, req swarm.CreateSecretRequest) (string, error) {
+				assert.Equal(t, []byte("private-marker"), req.Data)
+				assert.Equal(t, "rotated-password", req.Name)
+				assert.Equal(t, "app", req.Labels["com.docker.stack.namespace"])
+				assert.Equal(t, "managed", req.Labels["purpose"])
+				assert.Equal(t, "golang", req.TemplateDriver)
+				return "secret-id", nil
+			})
+			r := newResourceReconciler(&swarm.Swarm{Secrets: secrets}, []byte(identity.String()))
+			objects := compose.Secrets{"password": {
+				File: path, Name: "rotated-password", TemplateDriver: "golang",
+				Labels: *compose.NewLabels(map[string]string{"purpose": "managed"}),
+			}}
+			resolved, err := r.Reconcile(t.Context(), "app", filepath.Join(dir, "compose.yaml"), nil, objects)
+			require.NoError(t, err)
+			assert.Equal(t, ResolvedResource{ID: "secret-id", Name: "rotated-password"}, resolved.secrets["password"])
+			stored, err := os.ReadFile(filepath.Join(dir, "password.age"))
+			require.NoError(t, err)
+			assert.Equal(t, ciphertext, stored)
+		})
+	}
+}
+
+func TestReconcileAgeSecretFailuresDoNotReachCLI(t *testing.T) {
+	identity, err := age.GenerateX25519Identity()
+	require.NoError(t, err)
+	for _, tt := range []struct {
+		name        string
+		key         []byte
+		contents    []byte
+		driver      string
+		createError bool
+		want        string
+	}{
+		{name: "missing identity", contents: []byte("private-marker"), want: "requires secretRotation.age.identityFile"},
+		{name: "bad ciphertext", key: []byte(identity.String()), contents: []byte("private-marker"), want: "invalid ciphertext"},
+		{name: "driver", driver: "vault", want: "cannot use an external driver"},
+		{name: "remote echo", key: []byte(identity.String()), contents: encryptTestSecret(t, identity.Recipient(), []byte("private-marker"), false), createError: true, want: "Docker API request failed"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "password.age"), tt.contents, 0o600))
+			ctrl := gomock.NewController(t)
+			secrets := swarm.NewMockSecretManager(ctrl)
+			secrets.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, nil)
+			if tt.createError {
+				secrets.EXPECT().Create(gomock.Any(), gomock.Any()).Return("", errors.New("private-marker "+identity.String()))
+			}
+			runner := NewMockRunner(ctrl)
+			d := &Deployer{resources: newResourceReconciler(&swarm.Swarm{Secrets: secrets}, tt.key), runner: runner}
+			err := d.DeployStack(t.Context(), "app", filepath.Join(dir, "compose.yaml"), "unused", compose.Compose{
+				Secrets: compose.Secrets{"password": {File: "password.age", Driver: tt.driver}},
+			})
+			require.ErrorContains(t, err, tt.want)
+			assert.NotContains(t, err.Error(), "private-marker")
+			assert.NotContains(t, err.Error(), identity.String())
+		})
+	}
+}
+
+func TestReadPlaintextSecretIgnoresAgeIdentity(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "password.txt"), []byte("plain"), 0o600))
+	r := &resourceReconciler{ageIdentity: []byte("invalid identity")}
+	data, err := r.readSecret(filepath.Join(dir, "compose.yaml"), &compose.Secret{File: "password.txt"})
+	require.NoError(t, err)
+	assert.Equal(t, "plain", string(data))
+	_, err = r.readSecret(filepath.Join(dir, "compose.yaml"), &compose.Secret{})
+	require.ErrorContains(t, err, "file is required")
+	_, err = r.readSecret(filepath.Join(dir, "compose.yaml"), &compose.Secret{File: "missing.age"})
+	require.Error(t, err)
+	assert.False(t, strings.Contains(err.Error(), "invalid identity"))
+}

@@ -47,6 +47,33 @@ stacks:
 	assert.Equal(t, "worker", stacks[1].Name, "unexpected second stack")
 }
 
+func TestLoadAgeIdentityIndependentlyOfRotation(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprint(enabled), func(t *testing.T) {
+			dir := t.TempDir()
+			identityPath := filepath.Join(dir, "identity")
+			require.NoError(t, os.WriteFile(identityPath, []byte("private-identity-marker"), 0o600))
+			path := filepath.Join(dir, "swarm-deploy.yaml")
+			require.NoError(t, os.WriteFile(path, fmt.Appendf(nil, `git:
+  repository: https://example.com/repo.git
+sync:
+  mode: pull
+stacks:
+  file: ./stacks.yaml
+secretRotation:
+  enabled: %t
+  age:
+    identityFile: %s
+`, enabled, identityPath), 0o600))
+			cfg, err := Load(path)
+			require.NoError(t, err)
+			assert.Equal(t, enabled, cfg.Spec.SecretRotation.Enabled)
+			assert.Equal(t, identityPath, cfg.Spec.SecretRotation.Age.IdentityFile.Path)
+			assert.Equal(t, []byte("private-identity-marker"), cfg.Spec.SecretRotation.Age.IdentityFile.Content)
+		})
+	}
+}
+
 func TestLoadAppliesDefaultSyncInterval(t *testing.T) {
 	dir := t.TempDir()
 

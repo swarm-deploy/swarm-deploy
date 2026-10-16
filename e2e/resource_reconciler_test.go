@@ -58,7 +58,7 @@ exec "$SWARM_E2E_REAL_DOCKER" "$@"
 	t.Setenv("SWARM_E2E_CONFIG_NAME", stack+"_settings")
 
 	swarmService := swarm.NewSwarm(dockerClient, wrapperPath)
-	stackDeployer := deployer.NewDeployer(100*time.Millisecond, 2*time.Minute, dockerClient, swarmService, nil)
+	stackDeployer := deployer.NewDeployer(100*time.Millisecond, 2*time.Minute, dockerClient, swarmService, nil, nil)
 	composePath := filepath.Join(dir, "compose.yaml")
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)

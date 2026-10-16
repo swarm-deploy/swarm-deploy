@@ -3,6 +3,7 @@ module github.com/swarm-deploy/swarm-deploy
 go 1.26.3
 
 require (
+	filippo.io/age v1.3.2
 	github.com/DrSmithFr/go-console v1.4.4
 	github.com/Thiht/transactor/sqlx v0.0.0-20261005223553-4be91b9cb3f4
 	github.com/artarts36/envmasker v0.0.0-20260424231721-45f9d0bb307b
@@ -57,6 +58,7 @@ require (
 
 require (
 	dario.cat/mergo v1.0.0 // indirect
+	filippo.io/hpke v0.4.0 // indirect
 	github.com/GehirnInc/crypt v0.0.0-20230320061759-8cc1b52080c5 // indirect
 	github.com/Microsoft/go-winio v0.6.2 // indirect
 	github.com/ProtonMail/go-crypto v1.1.6 // indirect

@@ -113,6 +113,9 @@ notifications:
 
 # Secret/config name rotation settings.
 secretRotation:
+  # Optional age identity file; works even when rotation is disabled.
+  # age:
+  #   identityFile: /run/secrets/swarm_deploy_age_identity
   # Enable rotation.
   enabled: true
   # Hash suffix length.

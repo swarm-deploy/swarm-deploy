@@ -183,7 +183,7 @@ func (r *Reconciler) writeRenderedCompose(_ context.Context, payload *pipelinePa
 		return fmt.Errorf("create rendered dir: %w", err)
 	}
 
-	rendered := stackDeployCompose(payload.Desired)
+	rendered := stackDeployCompose(payload.Desired, payload.Stack.Name)
 	r.normalizeRenderedObjectFilePaths(rendered)
 
 	content, err := rendered.MarshalYAML()
@@ -226,6 +226,11 @@ func needsRenderedCompose(payload *pipelinePayload) bool {
 	if payload.DesiredMutated {
 		return true
 	}
+	for _, secret := range payload.Desired.Compose.Secrets {
+		if secret.IsAgeEncrypted() {
+			return true
+		}
+	}
 
 	for _, service := range payload.Desired.Compose.Services {
 		if len(service.InitJobs) > 0 {
@@ -236,12 +241,25 @@ func needsRenderedCompose(payload *pipelinePayload) bool {
 	return false
 }
 
-func stackDeployCompose(desired *compose.File) *compose.File {
+func stackDeployCompose(desired *compose.File, stackName string) *compose.File {
 	rendered := *desired
 	rendered.Compose = desired.Compose
 	rendered.Compose.Services = append(compose.Services(nil), desired.Compose.Services...)
 	rendered.Compose.Configs = cloneObjects(desired.Compose.Configs)
 	rendered.Compose.Secrets = cloneObjects(desired.Compose.Secrets)
+
+	// The API reconciler creates age secrets before invoking Docker CLI. Only
+	// references reach the CLI, which must never read ciphertext as secret data.
+	for alias, secret := range rendered.Compose.Secrets {
+		if !secret.IsAgeEncrypted() {
+			continue
+		}
+		name := secret.Name
+		if name == "" {
+			name = stackName + "_" + alias
+		}
+		rendered.Compose.Secrets[alias] = &compose.Secret{Name: name, External: true}
+	}
 
 	for i := range rendered.Compose.Services {
 		rendered.Compose.Services[i].InitJobs = nil
