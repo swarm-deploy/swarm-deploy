@@ -1,0 +1,87 @@
+name: Build branch image
+
+on:
+  workflow_dispatch:
+  delete:
+
+permissions:
+  contents: read
+
+jobs:
+  docker:
+    name: Build and push Docker image
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out selected branch
+        uses: actions/checkout@v4
+
+      - name: Generate image tag and build time
+        id: values
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" != refs/heads/* ]]; then
+            echo "::error::Select a branch to build"
+            exit 1
+          fi
+
+          branch="${GITHUB_REF#refs/heads/}"
+          tag="${branch//\//-}"
+
+          if [[ ! "$tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+            echo "::error::Branch name '$branch' cannot be used as a Docker tag"
+            exit 1
+          fi
+
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "timestamp=$(date +%FT%T%z)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_LOGIN }}
+          password: ${{ secrets.DOCKERHUB_PASSWORD }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          platforms: linux/amd64,linux/arm64
+          cache-from: type=gha,scope=swarm-deploy
+          cache-to: type=gha,mode=max,scope=swarm-deploy
+          build-args: |
+            APP_VERSION=${{ steps.values.outputs.tag }}
+            BUILD_TIME=${{ steps.values.outputs.timestamp }}
+          tags: |
+            swarmdeployorg/swarm-deploy:${{ steps.values.outputs.tag }}
+
+  cleanup:
+    name: Delete tag for removed branch
+    if: github.event_name == 'delete' && github.event.ref_type == 'branch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove Docker Hub tag
+        env:
+          BRANCH: ${{ github.event.ref }}
+          HUB_USER: ${{ secrets.DOCKERHUB_LOGIN }}
+          HUB_TOKEN: ${{ secrets.DOCKERHUB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          tag="${BRANCH//\//-}"
+          response=$(curl --silent --show-error --fail-with-body \
+            --header 'Content-Type: application/json' \
+            --data "$(jq -nc --arg username "$HUB_USER" --arg password "$HUB_TOKEN" '{username:$username,password:$password}')" \
+            https://hub.docker.com/v2/users/login/)
+          token=$(jq -er '.token' <<< "$response")
+          code=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            -X DELETE -H "Authorization: JWT $token" \
+            "https://hub.docker.com/v2/repositories/swarmdeployorg/swarm-deploy/tags/$tag/")
+          [[ "$code" == 204 || "$code" == 404 ]] || exit 1
