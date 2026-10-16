@@ -45,7 +45,7 @@ set -eu
 if [ "$1" = "stack" ] && [ "$2" = "deploy" ]; then
   "$SWARM_E2E_REAL_DOCKER" secret inspect "$SWARM_E2E_SECRET_NAME" >/dev/null
   "$SWARM_E2E_REAL_DOCKER" config inspect "$SWARM_E2E_CONFIG_NAME" >/dev/null
-  printf '%s %s\\n' "$SWARM_E2E_SECRET_NAME" "$SWARM_E2E_CONFIG_NAME" >> "$SWARM_E2E_PREFLIGHT_LOG"
+  printf '%s %s\n' "$SWARM_E2E_SECRET_NAME" "$SWARM_E2E_CONFIG_NAME" >> "$SWARM_E2E_PREFLIGHT_LOG"
 fi
 exec "$SWARM_E2E_REAL_DOCKER" "$@"
 `
@@ -101,7 +101,7 @@ exec "$SWARM_E2E_REAL_DOCKER" "$@"
 		stack + "_password " + stack + "_settings",
 		stack + "_password " + stack + "_settings",
 		rotatedSecretName + " " + rotatedConfigName,
-	}, strings.Split(strings.TrimSpace(string(preflights)), "\\n"),
+	}, strings.Split(strings.TrimSpace(string(preflights)), "\n"),
 		"all three deployments must have resources ready before Docker CLI starts")
 }
 
