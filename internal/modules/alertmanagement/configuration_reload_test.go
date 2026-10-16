@@ -218,6 +218,7 @@ func TestConcurrentReloadReadsAndOutboxConfigurationProcessing(t *testing.T) {
 	})
 	group.Go(func() {
 		<-start
+		reloadsComplete := false
 		for {
 			handled, processErr := bus.ProcessNext(ctx)
 			if processErr != nil {
@@ -228,9 +229,12 @@ func TestConcurrentReloadReadsAndOutboxConfigurationProcessing(t *testing.T) {
 				processed.Add(1)
 				continue
 			}
+			if reloadsComplete {
+				return
+			}
 			select {
 			case <-reloadsDone:
-				return
+				reloadsComplete = true
 			default:
 				runtime.Gosched()
 			}
