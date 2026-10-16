@@ -120,6 +120,17 @@ func (UnimplementedHandler) GetStackManifestos(ctx context.Context, params GetSt
 	return r, ht.ErrNotImplemented
 }
 
+// GetStackResources implements getStackResources operation.
+//
+// Current Docker resources owned by a configured stack, selected by the exact
+// com.docker.stack.namespace label. Unlabelled external resources are excluded.
+// Returns metadata only, never secret values or config payloads.
+//
+// GET /api/v1/stacks/{stack}/resources
+func (UnimplementedHandler) GetStackResources(ctx context.Context, params GetStackResourcesParams) (r *StackResourcesResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetTaskLogs implements getTaskLogs operation.
 //
 // GET /api/tasks/{taskID}/logs

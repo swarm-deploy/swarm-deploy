@@ -69,6 +69,14 @@ type Handler interface {
 	//
 	// GET /api/v1/stacks/{stack}/manifestos
 	GetStackManifestos(ctx context.Context, params GetStackManifestosParams) (*StackManifestosResponse, error)
+	// GetStackResources implements getStackResources operation.
+	//
+	// Current Docker resources owned by a configured stack, selected by the exact
+	// com.docker.stack.namespace label. Unlabelled external resources are excluded.
+	// Returns metadata only, never secret values or config payloads.
+	//
+	// GET /api/v1/stacks/{stack}/resources
+	GetStackResources(ctx context.Context, params GetStackResourcesParams) (*StackResourcesResponse, error)
 	// ListAlerts implements listAlerts operation.
 	//
 	// GET /api/v1/alerts

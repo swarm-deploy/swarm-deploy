@@ -5455,6 +5455,70 @@ func (s *StackManifestosResponse) SetLive(val string) {
 	s.Live = val
 }
 
+// Resource identity without values, configuration data or labels.
+// Ref: #/components/schemas/StackResourceInfo
+type StackResourceInfo struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// GetID returns the value of ID.
+func (s *StackResourceInfo) GetID() string {
+	return s.ID
+}
+
+// GetName returns the value of Name.
+func (s *StackResourceInfo) GetName() string {
+	return s.Name
+}
+
+// SetID sets the value of ID.
+func (s *StackResourceInfo) SetID(val string) {
+	s.ID = val
+}
+
+// SetName sets the value of Name.
+func (s *StackResourceInfo) SetName(val string) {
+	s.Name = val
+}
+
+// Ref: #/components/schemas/StackResourcesResponse
+type StackResourcesResponse struct {
+	Networks []NetworkInfo       `json:"networks"`
+	Secrets  []StackResourceInfo `json:"secrets"`
+	Configs  []StackResourceInfo `json:"configs"`
+}
+
+// GetNetworks returns the value of Networks.
+func (s *StackResourcesResponse) GetNetworks() []NetworkInfo {
+	return s.Networks
+}
+
+// GetSecrets returns the value of Secrets.
+func (s *StackResourcesResponse) GetSecrets() []StackResourceInfo {
+	return s.Secrets
+}
+
+// GetConfigs returns the value of Configs.
+func (s *StackResourcesResponse) GetConfigs() []StackResourceInfo {
+	return s.Configs
+}
+
+// SetNetworks sets the value of Networks.
+func (s *StackResourcesResponse) SetNetworks(val []NetworkInfo) {
+	s.Networks = val
+}
+
+// SetSecrets sets the value of Secrets.
+func (s *StackResourcesResponse) SetSecrets(val []StackResourceInfo) {
+	s.Secrets = val
+}
+
+// SetConfigs sets the value of Configs.
+func (s *StackResourcesResponse) SetConfigs(val []StackResourceInfo) {
+	s.Configs = val
+}
+
 // Ref: #/components/schemas/StackStatus
 type StackStatus struct {
 	Synced      int64 `json:"synced"`

@@ -15,10 +15,12 @@ import type {
   ServiceStatusResponse,
   StackManifestosResponse,
   StacksResponse,
+  StackResourcesResponse,
 } from "./types";
 
-export function fetchAlerts(options: { status?: AlertStatus; limit?: number } = {}): Promise<AlertsResponse> {
+export function fetchAlerts(options: { status?: AlertStatus; limit?: number; stack?: string } = {}): Promise<AlertsResponse> {
   const params = new URLSearchParams();
+  if (options.stack) params.set("stack", options.stack);
   if (options.status) {
     params.set("status", options.status);
   }
@@ -45,6 +47,10 @@ export interface FetchEventsOptions {
 
 export function fetchStacks(): Promise<StacksResponse> {
   return apiRequest<StacksResponse>("/api/v1/stacks");
+}
+
+export function fetchStackResources(stack: string): Promise<StackResourcesResponse> {
+  return apiRequest<StackResourcesResponse>(`/api/v1/stacks/${encodeURIComponent(stack)}/resources`);
 }
 
 export function fetchGitCommit(commitHash: string): Promise<GitCommitDetailsResponse> {

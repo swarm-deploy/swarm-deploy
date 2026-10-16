@@ -29,6 +29,8 @@ type handler struct {
 	secrets          secretstore.Store
 	secretManagers   *secretmanager.Domain
 	networks         swarm.NetworkManager
+	dockerSecrets    swarm.SecretManager
+	dockerConfigs    swarm.ConfigManager
 	nodeManager      swarm.NodeManager
 	history          history.Repository
 	services         servicestore.Store
@@ -67,6 +69,8 @@ func New(
 		secrets:          secrets,
 		secretManagers:   secretManagers,
 		networks:         swarmService.Networks,
+		dockerSecrets:    swarmService.Secrets,
+		dockerConfigs:    swarmService.Configs,
 		nodeManager:      swarmService.Nodes,
 		history:          history,
 		services:         services,

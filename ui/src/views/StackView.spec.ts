@@ -2,16 +2,14 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { createPinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createMemoryHistory, createRouter } from "vue-router";
-import { fetchNetworks } from "../api/cluster";
-import { fetchAlerts, fetchDeployments, fetchRecommendations, fetchStacks } from "../api/overview";
+import { fetchAlerts, fetchDeployments, fetchRecommendations, fetchStackResources, fetchStacks } from "../api/overview";
 import { fetchServices } from "../api/services";
 import type { Alert, DeploymentSummary, Recommendation, ServiceInfo, StackView as Stack } from "../api/types";
 import { useOverviewStore } from "../stores/overview";
 import StackView from "./StackView.vue";
 
-vi.mock("../api/overview", () => ({ fetchStacks: vi.fn(), fetchDeployments: vi.fn(), fetchAlerts: vi.fn(), fetchRecommendations: vi.fn() }));
+vi.mock("../api/overview", () => ({ fetchStacks: vi.fn(), fetchDeployments: vi.fn(), fetchAlerts: vi.fn(), fetchRecommendations: vi.fn(), fetchStackResources: vi.fn() }));
 vi.mock("../api/services", () => ({ fetchServices: vi.fn() }));
-vi.mock("../api/cluster", () => ({ fetchNetworks: vi.fn() }));
 
 const stack: Stack = { name: "app", compose_file: "app.yaml", status: { synced: 2, out_of_synced: 1 }, last_commit: "abcdef012345", last_deploy_at: "2026-10-10T10:00:00Z" };
 const service = (name: string, sync_status: ServiceInfo["sync_status"], owner = "app"): ServiceInfo => ({ name, stack: owner, sync_status, type: "application", type_title: "Application", image: "app:2", image_version: "2" });
@@ -31,7 +29,8 @@ async function render(path = "/stacks/app") {
     { path: "/overview", component: { template: "<div />" } },
     { path: "/services/:stack/:service", name: "service-details", component: { template: "<div />" } },
     { path: "/deployments", name: "deployments", component: { template: "<div />" } },
-    { path: "/events", component: { template: "<div />" } },
+    { path: "/recommendations", name: "recommendations", component: { template: "<div />" } },
+    { path: "/events", name: "events", component: { template: "<div />" } },
   ] });
   await router.push(path);
   const pinia = createPinia();
@@ -48,7 +47,7 @@ beforeEach(() => {
   vi.mocked(fetchDeployments).mockResolvedValue({ deployments: [deployment] });
   vi.mocked(fetchAlerts).mockResolvedValue({ alerts: [alert("own"), alert("other", "stack", "infra"), alert("node", "node"), alert("repo", "repository"), alert("closed", "stack", "app", "resolved")] });
   vi.mocked(fetchRecommendations).mockResolvedValue({ recommendations: [] });
-  vi.mocked(fetchNetworks).mockResolvedValue({ networks: [{ id: "net", name: "app_default", driver: "overlay", scope: "swarm", internal: false, attachable: false, ingress: false, managed: true, stack_name: "app" }, { id: "foreign", name: "foreign", driver: "overlay", scope: "swarm", internal: false, attachable: false, ingress: false, managed: false }] });
+  vi.mocked(fetchStackResources).mockResolvedValue({ networks: [{ id: "net", name: "app_default", driver: "overlay", scope: "swarm", internal: false, attachable: false, ingress: false, managed: true, stack_name: "app" }, { id: "foreign", name: "foreign", driver: "overlay", scope: "swarm", internal: false, attachable: false, ingress: false, managed: false }], secrets: [{ id: "s1", name: "app_password" }], configs: [{ id: "c1", name: "app_config" }] });
 });
 
 describe("Stack Details", () => {
@@ -115,20 +114,20 @@ describe("Stack Details", () => {
     vi.mocked(fetchServices).mockResolvedValue({ services: [] });
     vi.mocked(fetchDeployments).mockResolvedValue({ deployments: [] });
     vi.mocked(fetchAlerts).mockResolvedValue({ alerts: [] });
-    vi.mocked(fetchNetworks).mockResolvedValue({ networks: [] });
+    vi.mocked(fetchStackResources).mockResolvedValue({ networks: [], secrets: [], configs: [] });
     const { wrapper } = await render();
     await flushPromises();
     for (const text of ["No services captured yet.", "No deployments yet.", "n/a"]) expect(wrapper.text()).toContain(text);
     expect(wrapper.find('[aria-labelledby="stack-alerts-title"]').exists()).toBe(false);
     expect(wrapper.get('[data-summary="alerts"] dd').text()).toBe("0");
-    expect(wrapper.get(".stack-resource summary").text()).toBe("Networks 0");
+    expect(wrapper.findAll(".stack-resource summary").map((item) => item.text())).toEqual(["Networks 0", "Secrets 0", "Configs 0"]);
     wrapper.unmount();
   });
 
   it("keeps optional API errors distinct from empty and zero states", async () => {
     vi.mocked(fetchDeployments).mockRejectedValue(new Error("history offline"));
     vi.mocked(fetchAlerts).mockRejectedValue(new Error("alerts offline"));
-    vi.mocked(fetchNetworks).mockRejectedValue(new Error("networks offline"));
+    vi.mocked(fetchStackResources).mockRejectedValue(new Error("networks offline"));
     const { wrapper } = await render();
     await flushPromises();
     expect(wrapper.get('[data-summary="alerts"] dd').text()).toBe("n/a");
@@ -151,7 +150,8 @@ describe("Stack Details", () => {
     const { wrapper, router, store } = await render();
     await flushPromises();
     expect(fetchDeployments).toHaveBeenCalledWith({ stack: "app", limit: 3 });
-    expect(fetchAlerts).toHaveBeenCalledWith({ status: "open" });
+    expect(fetchAlerts).toHaveBeenCalledWith({ status: "open", stack: "app" });
+    expect(fetchStackResources).toHaveBeenCalledWith("app");
     expect(wrapper.find(".stack-history-link").exists()).toBe(false);
     expect(wrapper.find('[aria-label="Breadcrumb"]').exists()).toBe(false);
     expect(wrapper.text()).not.toContain("View all");
@@ -217,7 +217,7 @@ describe("Stack Details", () => {
     const { wrapper } = await render();
     await flushPromises();
     const details = wrapper.findAll(".stack-resource");
-    expect(details.map((item) => item.get("summary").text())).toEqual(["Networks 1", "Secrets n/a", "Configs n/a"]);
+    expect(details.map((item) => item.get("summary").text())).toEqual(["Networks 1", "Secrets 1", "Configs 1"]);
     for (const item of details) expect((item.element as HTMLDetailsElement).open).toBe(false);
     // Native details handles Enter/Space; model its open state to verify the expanded content.
     (details[0].element as HTMLDetailsElement).open = true;
@@ -225,7 +225,8 @@ describe("Stack Details", () => {
     expect(details[0].get("li").text()).toContain("app_default");
     expect(details[0].get("li").text()).toContain("overlay · swarm");
     expect(wrapper.find('[aria-labelledby="stack-resources-title"] table').exists()).toBe(false);
-    expect(details[1].text()).toContain("unavailable from the current APIs");
+    expect(details[1].get("li").text()).toBe("app_password");
+    expect(details[2].get("li").text()).toBe("app_config");
     wrapper.unmount();
   });
 
@@ -289,6 +290,30 @@ describe("Stack Details", () => {
     wrapper.unmount();
   });
 
+
+  it.each([
+    ["alerts", "/events?tab=alerts&stack_name=app"],
+    ["recommendations", "/recommendations?stack_name=app"],
+  ])("links the %s indicator to the filtered list", async (kind, destination) => {
+    const { wrapper, router } = await render();
+    await flushPromises();
+    const link = wrapper.get(`[data-summary="${kind}"] a`);
+    expect(link.attributes("href")).toBe(destination);
+    await link.trigger("click");
+    await flushPromises();
+    expect(router.currentRoute.value.fullPath).toBe(destination);
+    wrapper.unmount();
+  });
+
+  it("shows unknown counts for every resource group on API failure", async () => {
+    vi.mocked(fetchStackResources).mockRejectedValue(new Error("resources unavailable"));
+    const { wrapper } = await render();
+    await flushPromises();
+    expect(wrapper.findAll(".stack-resource summary").map((item) => item.text())).toEqual(["Networks n/a", "Secrets n/a", "Configs n/a"]);
+    expect(wrapper.find(".services-stack-table").exists()).toBe(true);
+    wrapper.unmount();
+  });
+
   it("reloads when route parameters change and ignores an obsolete response", async () => {
     let resolve!: (value: Awaited<ReturnType<typeof fetchStacks>>) => void;
     vi.mocked(fetchStacks).mockReturnValueOnce(new Promise((done) => { resolve = done; }));
@@ -302,6 +327,7 @@ describe("Stack Details", () => {
     expect(wrapper.get("h2").text()).toBe("infra");
     expect(fetchDeployments).toHaveBeenLastCalledWith({ stack: "infra", limit: 3 });
     expect(fetchRecommendations).toHaveBeenLastCalledWith({ stack: "infra" });
+    expect(fetchStackResources).toHaveBeenLastCalledWith("infra");
     wrapper.unmount();
   });
 });

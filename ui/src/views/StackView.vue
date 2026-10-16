@@ -2,10 +2,9 @@
 import { computed, onUnmounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
-import { fetchNetworks } from "../api/cluster";
-import { fetchAlerts, fetchDeployments, fetchRecommendations, fetchStacks } from "../api/overview";
+import { fetchAlerts, fetchDeployments, fetchRecommendations, fetchStackResources, fetchStacks } from "../api/overview";
 import { fetchServices } from "../api/services";
-import type { Alert, DeploymentSummary, NetworkInfo, ServiceInfo, StackView } from "../api/types";
+import type { Alert, DeploymentSummary, NetworkInfo, ServiceInfo, StackResourceInfo, StackView } from "../api/types";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import SidebarIcon from "../components/layout/SidebarIcon.vue";
@@ -24,13 +23,15 @@ const services = ref<ServiceInfo[]>([]);
 const deployments = ref<DeploymentSummary[]>([]);
 const alerts = ref<Alert[]>([]);
 const networks = ref<NetworkInfo[]>([]);
+const secrets = ref<StackResourceInfo[]>([]);
+const configs = ref<StackResourceInfo[]>([]);
 const recommendationCount = ref<number | null>(null);
 const recommendationsError = ref("");
 const loading = ref(false);
 const error = ref("");
 const deploymentsError = ref("");
 const alertsError = ref("");
-const networksError = ref("");
+const resourcesError = ref("");
 const syncStatus = computed(() => stackSyncStatus(stack.value?.status));
 let request = 0;
 
@@ -65,18 +66,19 @@ async function load() {
   deployments.value = [];
   alerts.value = [];
   networks.value = [];
+  secrets.value = [];
+  configs.value = [];
   recommendationCount.value = null;
   recommendationsError.value = "";
   error.value = "";
   deploymentsError.value = "";
   alertsError.value = "";
-  networksError.value = "";
+  resourcesError.value = "";
   if (!name.trim()) { loading.value = false; return; }
   loading.value = true;
-  const [stackResult, serviceResult, deploymentResult, alertResult, networkResult, recommendationResult] = await Promise.allSettled([
+  const [stackResult, serviceResult, deploymentResult, alertResult, resourceResult, recommendationResult] = await Promise.allSettled([
     fetchStacks(), fetchServices(), fetchDeployments({ stack: name, limit: 3 }),
-    // Without a limit the existing API returns all open alerts, so filtering cannot hide a stack alert.
-    fetchAlerts({ status: "open" }), fetchNetworks(), fetchRecommendations({ stack: name }),
+    fetchAlerts({ status: "open", stack: name }), fetchStackResources(name), fetchRecommendations({ stack: name }),
   ]);
   if (current !== request) return;
   if (stackResult.status === "fulfilled") {
@@ -94,10 +96,12 @@ async function load() {
     alerts.value = (alertResult.value.alerts ?? []).filter((item) =>
       item.status === "open" && item.resourceType === "stack" && item.resourceId === name);
   } else alertsError.value = errorMessage(alertResult.reason);
-  if (networkResult.status === "fulfilled") {
-    networks.value = (networkResult.value.networks ?? []).filter((item) => item.stack_name === name)
+  if (resourceResult.status === "fulfilled") {
+    networks.value = (resourceResult.value.networks ?? []).filter((item) => item.stack_name === name)
       .sort((left, right) => left.name.localeCompare(right.name));
-  } else networksError.value = errorMessage(networkResult.reason);
+    secrets.value = resourceResult.value.secrets ?? [];
+    configs.value = resourceResult.value.configs ?? [];
+  } else resourcesError.value = errorMessage(resourceResult.reason);
   if (recommendationResult.status === "fulfilled") {
     recommendationCount.value = (recommendationResult.value.recommendations ?? []).filter((item) => item.subject.stack === name).length;
   } else recommendationsError.value = errorMessage(recommendationResult.reason);
@@ -135,8 +139,8 @@ onUnmounted(() => { request++; });
         <div data-summary="services"><dt><DeploymentIcon name="service" class="summary-icon summary-icon--muted" />Services</dt><dd>{{ services.length }}</dd></div>
         <div data-summary="synced"><dt><DeploymentIcon name="check" class="summary-icon summary-icon--success" />Synced</dt><dd>{{ stack.status?.synced ?? 0 }}</dd></div>
         <div data-summary="out-of-sync"><dt><DeploymentIcon name="warning" class="summary-icon" :class="stack.status?.out_of_synced > 0 ? 'summary-icon--warning' : 'summary-icon--muted'" />OutOfSync</dt><dd>{{ stack.status?.out_of_synced ?? 0 }}</dd></div>
-        <div data-summary="alerts"><dt><SidebarIcon name="alerts" class="summary-icon" :class="!alertsError && alerts.length > 0 ? 'summary-icon--error' : 'summary-icon--muted'" />Active alerts</dt><dd>{{ alertsError ? "n/a" : alerts.length }}</dd></div>
-        <div data-summary="recommendations"><dt><SidebarIcon name="recommendations" class="summary-icon" :class="recommendationCount !== null && recommendationCount > 0 ? 'summary-icon--warning' : 'summary-icon--muted'" />Recommendations</dt><dd>{{ recommendationCount ?? "n/a" }}</dd></div>
+        <div data-summary="alerts"><dt><RouterLink class="stack-summary-link" :to="{ name: 'events', query: { tab: 'alerts', stack_name: stack.name } }" :aria-label="`View active alerts for stack ${stack.name}`"><SidebarIcon name="alerts" class="summary-icon" :class="!alertsError && alerts.length > 0 ? 'summary-icon--error' : 'summary-icon--muted'" />Active alerts</RouterLink></dt><dd>{{ alertsError ? "n/a" : alerts.length }}</dd></div>
+        <div data-summary="recommendations"><dt><RouterLink class="stack-summary-link" :to="{ name: 'recommendations', query: { stack_name: stack.name } }" :aria-label="`View recommendations for stack ${stack.name}`"><SidebarIcon name="recommendations" class="summary-icon" :class="recommendationCount !== null && recommendationCount > 0 ? 'summary-icon--warning' : 'summary-icon--muted'" />Recommendations</RouterLink></dt><dd>{{ recommendationCount ?? "n/a" }}</dd></div>
       </dl>
       <p v-if="recommendationsError" class="meta" role="alert">Failed to load recommendations: {{ recommendationsError }}</p>
       <div class="stack-details-main">
@@ -180,16 +184,20 @@ onUnmounted(() => { request++; });
         <h3 id="stack-resources-title">Resources</h3>
         <div class="stack-resource-summary" :key="stack.name">
           <details class="stack-resource">
-            <summary><DeploymentIcon name="network" />Networks <strong>{{ networksError ? "n/a" : networks.length }}</strong></summary>
-            <p v-if="networksError" class="meta" role="alert">Network information unavailable: {{ networksError }}</p>
+            <summary><DeploymentIcon name="network" />Networks <strong>{{ resourcesError ? "n/a" : networks.length }}</strong></summary>
+            <p v-if="resourcesError" class="meta" role="alert">Resource information unavailable: {{ resourcesError }}</p>
             <ul v-else-if="networks.length" class="stack-resource-list">
               <li v-for="network in networks" :key="network.id"><span>{{ network.name }}</span><span class="meta">{{ network.driver }} · {{ network.scope }}</span></li>
             </ul>
             <p v-else class="meta">No stack-owned networks.</p>
           </details>
-          <details v-for="type in ['Secrets', 'Configs']" :key="type" class="stack-resource">
-            <summary><DeploymentIcon :name="type === 'Secrets' ? 'secret' : 'config'" />{{ type }} <span class="meta">n/a</span></summary>
-            <p class="meta">{{ type }} inventory for this stack is unavailable from the current APIs.</p>
+          <details v-for="group in [{ title: 'Secrets', icon: 'secret', items: secrets }, { title: 'Configs', icon: 'config', items: configs }]" :key="group.title" class="stack-resource">
+            <summary><DeploymentIcon :name="group.icon === 'secret' ? 'secret' : 'config'" />{{ group.title }} <strong>{{ resourcesError ? "n/a" : group.items.length }}</strong></summary>
+            <p v-if="resourcesError" class="meta">Resource information unavailable: {{ resourcesError }}</p>
+            <ul v-else-if="group.items.length" class="stack-resource-list">
+              <li v-for="resource in group.items" :key="resource.id">{{ resource.name }}</li>
+            </ul>
+            <p v-else class="meta">No stack-owned {{ group.title.toLowerCase() }}.</p>
           </details>
         </div>
       </section>
@@ -207,10 +215,14 @@ onUnmounted(() => { request++; });
 .stack-details-metadata > div { display: flex; align-items: center; gap: 8px; }
 .stack-details-metadata dd { margin: 0; }
 .stack-details-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 0; margin: 0; padding: 8px 0; border-block: 1px solid var(--border-subtle); }
-.stack-details-summary > div { display: flex; align-items: center; gap: 6px; padding: 0 14px; border-left: 1px solid var(--border-subtle); }
+.stack-details-summary > div { position: relative; display: flex; align-items: center; gap: 6px; padding: 0 14px; border-left: 1px solid var(--border-subtle); }
 .stack-details-summary > div:first-child { padding-left: 0; border-left: 0; }
 .stack-details-summary dt { display: flex; align-items: center; gap: 5px; color: var(--muted); font-size: .8rem; }
 .stack-details-summary dd { margin: 0; font-weight: 600; font-size: .85rem; }
+.stack-summary-link { display: inline-flex; align-items: center; gap: 5px; color: inherit; text-decoration: none; }
+.stack-summary-link::after { content: ""; position: absolute; inset: 0; }
+.stack-summary-link:hover { color: var(--accent-strong); }
+.stack-details-summary > div:has(.stack-summary-link:focus-visible) { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
 .summary-icon { width: 15px; height: 15px; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; flex-shrink: 0; }
 .summary-icon--muted { color: var(--muted); }
 .summary-icon--success { color: var(--success); }

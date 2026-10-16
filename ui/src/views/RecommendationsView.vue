@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 
 import { fetchRecommendations } from "../api/overview";
 import type { Recommendation, RecommendationSeverity } from "../api/types";
@@ -16,13 +17,16 @@ const severityRank: Record<RecommendationSeverity, number> = {
 const loading = ref(false);
 const loadingError = ref("");
 const recommendations = ref<Recommendation[]>([]);
-const selectedStack = ref("");
+const route = useRoute();
+const router = useRouter();
+const routeStack = computed(() => typeof route.query.stack_name === "string" ? route.query.stack_name : "");
+const selectedStack = ref(routeStack.value);
 const selectedSeverity = ref<RecommendationSeverity | "">("");
 
 let requestID = 0;
 
 const stackOptions = computed(() =>
-  Array.from(new Set(recommendations.value.map((recommendation) => recommendation.subject.stack).filter(Boolean))).sort(),
+  Array.from(new Set([selectedStack.value, ...recommendations.value.map((recommendation) => recommendation.subject.stack)].filter(Boolean))).sort(),
 );
 
 const visibleRecommendations = computed(() =>
@@ -76,10 +80,13 @@ async function loadRecommendations() {
   }
 }
 
-watch(stackOptions, (options) => {
-  if (selectedStack.value && !options.includes(selectedStack.value)) {
-    selectedStack.value = "";
-  }
+watch(routeStack, (stack) => { selectedStack.value = stack; });
+watch(selectedStack, (stack) => {
+  if (stack === routeStack.value) return;
+  const query = { ...route.query };
+  if (stack) query.stack_name = stack;
+  else delete query.stack_name;
+  void router.replace({ query });
 });
 
 onMounted(() => {
