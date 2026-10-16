@@ -101,8 +101,8 @@ func classifyFailure(err error, repository string, authType config.GitAuthType) 
 		return FailureSSHHostVerification
 	}
 	var networkError net.Error
-	if errors.As(err, &networkError) || errors.Is(err, syscall.ECONNREFUSED) ||
-		errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+	if gitErrorAs(err, &networkError) || gitErrorIs(err, syscall.ECONNREFUSED) ||
+		gitErrorIs(err, context.DeadlineExceeded) || gitErrorIs(err, context.Canceled) {
 		return FailureNetwork
 	}
 
@@ -145,6 +145,38 @@ func gitHTTPStatus(err error) (int, bool) {
 	return 0, false
 }
 
+// gitErrorIs and gitErrorAs also inspect go-git's UnexpectedError.Err.
+// This wrapper is not guaranteed to implement Unwrap on all go-git versions.
+func gitErrorIs(err, target error) bool {
+	for err != nil {
+		if errors.Is(err, target) {
+			return true
+		}
+		unexpected, ok := err.(*plumbing.UnexpectedError)
+		if ok {
+			err = unexpected.Err
+		} else {
+			err = errors.Unwrap(err)
+		}
+	}
+	return false
+}
+
+func gitErrorAs(err error, target any) bool {
+	for err != nil {
+		if errors.As(err, target) {
+			return true
+		}
+		unexpected, ok := err.(*plumbing.UnexpectedError)
+		if ok {
+			err = unexpected.Err
+		} else {
+			err = errors.Unwrap(err)
+		}
+	}
+	return false
+}
+
 // safePullDiagnostic adds actionable detail from typed errors without persisting
 // transport error strings, which may contain Git credentials.
 func safePullDiagnostic(err error, category FailureCategory) string {
@@ -152,17 +184,17 @@ func safePullDiagnostic(err error, category FailureCategory) string {
 		return failureDiagnostic(category)
 	}
 	var dnsError *net.DNSError
-	if errors.As(err, &dnsError) {
+	if gitErrorAs(err, &dnsError) {
 		return "Git repository DNS lookup failed"
 	}
-	if errors.Is(err, context.DeadlineExceeded) {
+	if gitErrorIs(err, context.DeadlineExceeded) {
 		return "Git repository connection timed out"
 	}
 	var networkError net.Error
-	if errors.As(err, &networkError) && networkError.Timeout() {
+	if gitErrorAs(err, &networkError) && networkError.Timeout() {
 		return "Git repository connection timed out"
 	}
-	if errors.Is(err, syscall.ECONNREFUSED) {
+	if gitErrorIs(err, syscall.ECONNREFUSED) {
 		return "Git repository connection refused"
 	}
 	if status, ok := gitHTTPStatus(err); ok {
