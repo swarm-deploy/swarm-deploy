@@ -287,3 +287,47 @@ func TestGitAlertSnapshotDetailsSurviveCodec(t *testing.T) {
 		assert.Equal(t, alert, got)
 	}
 }
+
+func TestGitNetworkDiagnosticsSurviveDurableCodec(t *testing.T) {
+	for _, description := range []string{
+		"Git repository is temporarily unreachable",
+		"Git repository connection refused",
+		"Git repository connection timed out",
+		"Git repository DNS lookup failed",
+		"Git repository host unreachable",
+		"Git repository network unreachable",
+		"Git remote returned HTTP 502 (Bad Gateway)",
+		"Git remote returned HTTP 503 (Service Unavailable)",
+		"Git remote returned HTTP 504 (Gateway Timeout)",
+	} {
+		t.Run(description, func(t *testing.T) {
+			original := &events.GitPullFailed{
+				Repository: "git.example.com/team/app", Category: events.GitFailureNetwork,
+				Description: description, TriggerReason: "manual",
+			}
+			payload, err := Encode(original)
+			require.NoError(t, err)
+			decoded, err := Decode(events.TypeNameGitPullFailed, Version, payload)
+			require.NoError(t, err)
+			assert.Equal(t, description, decoded.(*events.GitPullFailed).Description)
+		})
+	}
+}
+
+func TestGitNetworkDiagnosticsDoNotPersistUnsafeDescriptions(t *testing.T) {
+	const secret = "must-not-leak"
+	original := &events.GitPullFailed{
+		Repository: "git.example.com/team/app", Category: events.GitFailureNetwork,
+		Description: "Git repository connection refused; token=" + secret,
+	}
+	payload, err := Encode(original)
+	require.NoError(t, err)
+	assert.NotContains(t, string(payload), secret)
+	decoded, err := Decode(events.TypeNameGitPullFailed, Version, payload)
+	require.NoError(t, err)
+	assert.Equal(t, "Git repository is temporarily unreachable", decoded.(*events.GitPullFailed).Description)
+	_, err = Decode(events.TypeNameGitPullFailed, Version, []byte(
+		`{"repository":"git.example.com/team/app","category":"network","description":"Git repository connection refused; token=must-not-leak"}`,
+	))
+	require.Error(t, err)
+}
