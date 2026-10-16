@@ -76,7 +76,7 @@ func (c NotificationSpec) AlertTelegramRoutes(kind string) []TelegramAlertChanne
 		return route.Telegram
 	}
 	return []TelegramAlertChannel{{
-		Resolved: AlertMessageSpec{Action: "reply", Message: defaultAlertResolvedTemplate},
+		Resolved: AlertMessageSpec{Action: "reply"},
 	}}
 }
 
