@@ -2,6 +2,7 @@ name: Build branch image
 
 on:
   workflow_dispatch:
+  delete:
 
 permissions:
   contents: read
@@ -9,6 +10,7 @@ permissions:
 jobs:
   docker:
     name: Build and push Docker image
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - name: Check out selected branch
@@ -60,3 +62,26 @@ jobs:
             BUILD_TIME=${{ steps.values.outputs.timestamp }}
           tags: |
             swarmdeployorg/swarm-deploy:${{ steps.values.outputs.tag }}
+
+  cleanup:
+    name: Delete tag for removed branch
+    if: github.event_name == 'delete' && github.event.ref_type == 'branch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove Docker Hub tag
+        env:
+          BRANCH: ${{ github.event.ref }}
+          HUB_USER: ${{ secrets.DOCKERHUB_LOGIN }}
+          HUB_TOKEN: ${{ secrets.DOCKERHUB_PASSWORD }}
+        run: |
+          set -euo pipefail
+          tag="${BRANCH//\//-}"
+          response=$(curl --silent --show-error --fail-with-body \
+            --header 'Content-Type: application/json' \
+            --data "$(jq -nc --arg username "$HUB_USER" --arg password "$HUB_TOKEN" '{username:$username,password:$password}')" \
+            https://hub.docker.com/v2/users/login/)
+          token=$(jq -er '.token' <<< "$response")
+          code=$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            -X DELETE -H "Authorization: JWT $token" \
+            "https://hub.docker.com/v2/repositories/swarmdeployorg/swarm-deploy/tags/$tag/")
+          [[ "$code" == 204 || "$code" == 404 ]] || exit 1
