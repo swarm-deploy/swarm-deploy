@@ -58,15 +58,39 @@ type alertResolvedPayload struct {
 }
 
 func alertPayloadFrom(a events.AlertSnapshot) alertPayload {
-	return alertPayload{ID: a.ID, Kind: a.Kind, Title: a.Title, Message: a.Message,
-		ResourceType: a.ResourceType, ResourceID: a.ResourceID, DeploymentID: a.DeploymentID, ErrorCode: a.ErrorCode, Occurrences: a.Occurrences,
-		Duration: a.Duration, OpenedAt: a.OpenedAt,
-		ResolvedAt: a.ResolvedAt, Resolution: a.Resolution, ResolutionReason: a.ResolutionReason}
+	return alertPayload{
+		ID:               a.ID,
+		Kind:             a.Kind,
+		Title:            a.Title,
+		Message:          a.Message,
+		ResourceType:     a.ResourceType,
+		ResourceID:       a.ResourceID,
+		DeploymentID:     a.DeploymentID,
+		ErrorCode:        a.ErrorCode,
+		Occurrences:      a.Occurrences,
+		Duration:         a.Duration,
+		OpenedAt:         a.OpenedAt,
+		ResolvedAt:       a.ResolvedAt,
+		Resolution:       a.Resolution,
+		ResolutionReason: a.ResolutionReason,
+	}
 }
 
 func (p alertPayload) snapshot() events.AlertSnapshot {
-	return events.AlertSnapshot{ID: p.ID, Kind: p.Kind, Title: p.Title, Message: p.Message,
-		ResourceType: p.ResourceType, ResourceID: p.ResourceID, DeploymentID: p.DeploymentID, ErrorCode: p.ErrorCode, Occurrences: p.Occurrences,
-		Duration: p.Duration, OpenedAt: p.OpenedAt,
-		ResolvedAt: p.ResolvedAt, Resolution: p.Resolution, ResolutionReason: p.ResolutionReason}
+	return events.AlertSnapshot{
+		ID:               p.ID,
+		Kind:             p.Kind,
+		Title:            p.Title,
+		Message:          p.Message,
+		ResourceType:     p.ResourceType,
+		ResourceID:       p.ResourceID,
+		DeploymentID:     p.DeploymentID,
+		ErrorCode:        p.ErrorCode,
+		Occurrences:      p.Occurrences,
+		Duration:         p.Duration,
+		OpenedAt:         p.OpenedAt,
+		ResolvedAt:       p.ResolvedAt,
+		Resolution:       p.Resolution,
+		ResolutionReason: p.ResolutionReason,
+	}
 }

@@ -63,8 +63,10 @@ const (
 <b>Error:</b>
 <pre>{{ .Message }}</pre>`
 	defaultAlertResolvedTemplate = "✅ Resolved: {{ .Title }}\n{{ .Resolution }}"
-	defaultGitOpenedTemplate = "🚨 {{ .Title }}\nRepository: {{ .ResourceID }}\nError: {{ .Message }}\nCategory: {{ .ErrorCode }}\nFailed attempts: {{ .Occurrences }}"
-	defaultGitResolvedTemplate = "✅ Git repository recovered\nRepository: {{ .ResourceID }}\nFailed attempts: {{ .Occurrences }}\nIncident duration: {{ .Duration }}"
+	defaultGitOpenedTemplate     = "🚨 {{ .Title }}\nRepository: {{ .ResourceID }}\nError: {{ .Message }}" +
+		"\nCategory: {{ .ErrorCode }}\nFailed attempts: {{ .Occurrences }}"
+	defaultGitResolvedTemplate = "✅ Git repository recovered\nRepository: {{ .ResourceID }}" +
+		"\nFailed attempts: {{ .Occurrences }}\nIncident duration: {{ .Duration }}"
 )
 
 // AlertTelegramRoutes returns the replacing kind route, configured default or built-in route.

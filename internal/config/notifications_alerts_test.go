@@ -146,7 +146,7 @@ func TestGitAlertDefaultTemplatesIncludeContext(t *testing.T) {
 	for _, field := range []string{".ResourceID", ".Occurrences", ".Duration"} {
 		assert.Contains(t, resolved, field)
 	}
-	assert.Contains(t, opened, "\\nRepository:")
-	assert.Contains(t, resolved, "\\nRepository:")
+	assert.Contains(t, opened, "\nRepository:")
+	assert.Contains(t, resolved, "\nRepository:")
 	assert.NotContains(t, channel.AlertResolvedTemplate("node_disconnected"), ".Duration")
 }
