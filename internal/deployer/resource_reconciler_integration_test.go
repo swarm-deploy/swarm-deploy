@@ -35,13 +35,35 @@ func TestDeployStackOnRealSwarm(t *testing.T) {
 	t.Cleanup(func() { assert.NoError(t, dockerClient.Close()) })
 
 	swarmService := swarm.NewSwarm(dockerClient, dockerPath)
+	stack := fmt.Sprintf("sdreconcile%d", time.Now().UnixNano())
+	expectedSecret, expectedConfig := stack+"_password", stack+"_settings"
+	preflightChecks := 0
 	deployer := &Deployer{
 		stackDeployArgs: []string{"stack", "deploy", "--detach=true", "--resolve-image=never"},
-		runner:          swarmService.BinaryRunner,
 		resources:       newResourceReconciler(swarmService),
+		runner: &swarmPreflightRunner{
+			Runner: swarmService.BinaryRunner,
+			verify: func(ctx context.Context) error {
+				// This assertion is intentionally placed *before* the CLI runs.
+				// If Deployer stops reconciling ordinary stacks, it must fail
+				// even though docker stack deploy could create these resources.
+				secret, _, err := dockerClient.SecretInspectWithRaw(ctx, expectedSecret)
+				if err != nil {
+					return fmt.Errorf("secret %s missing before docker stack deploy: %w", expectedSecret, err)
+				}
+				config, _, err := dockerClient.ConfigInspectWithRaw(ctx, expectedConfig)
+				if err != nil {
+					return fmt.Errorf("config %s missing before docker stack deploy: %w", expectedConfig, err)
+				}
+				if secret.Spec.Labels["com.docker.stack.namespace"] != stack ||
+					config.Spec.Labels["com.docker.stack.namespace"] != stack {
+					return fmt.Errorf("reconciled resources have incorrect stack ownership labels")
+				}
+				preflightChecks++
+				return nil
+			},
+		},
 	}
-
-	stack := fmt.Sprintf("sdreconcile%d", time.Now().UnixNano())
 	dir := t.TempDir()
 	composePath := filepath.Join(dir, "compose.yaml")
 	t.Cleanup(func() {
@@ -71,12 +93,26 @@ func TestDeployStackOnRealSwarm(t *testing.T) {
 	// new resource versions are created and mounted in the new task.
 	rotatedSecretName := stack + "-password-v2"
 	rotatedConfigName := stack + "-settings-v2"
+	expectedSecret, expectedConfig = rotatedSecretName, rotatedConfigName
 	writeRealSwarmFixture(t, dir, composePath, rotatedSecretName, rotatedConfigName, "secret-v2", "config-v2", "mounted-v2")
 	deployFixture(t, ctx, deployer, stack, composePath)
 	secretID2, configID2 := inspectRealSwarmResources(t, ctx, dockerClient, dockerPath, stack, rotatedSecretName, rotatedConfigName)
 	assert.NotEqual(t, secretID1, secretID2, "rotated secret must be a different Docker object")
 	assert.NotEqual(t, configID1, configID2, "rotated config must be a different Docker object")
 	waitForRealSwarmTask(t, ctx, dockerPath, stack+"_check", "mounted-v2")
+	assert.Equal(t, 3, preflightChecks, "all deploys must have resources ready before invoking Docker CLI")
+}
+
+type swarmPreflightRunner struct {
+	Runner
+	verify func(context.Context) error
+}
+
+func (r *swarmPreflightRunner) Run(ctx context.Context, args ...string) (string, error) {
+	if err := r.verify(ctx); err != nil {
+		return "", fmt.Errorf("pre-deploy resource verification: %w", err)
+	}
+	return r.Runner.Run(ctx, args...)
 }
 
 func writeRealSwarmFixture(t *testing.T, dir, composePath, secretName, configName, secretValue, configValue, marker string) {
