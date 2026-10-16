@@ -177,7 +177,8 @@ func main() {
 		dockerClient,
 		cnt.GetSwarm(),
 		metricsGroup.Deploys,
-		cfg.Spec.SecretRotation.Age.IdentityFile.Content,
+		deployer.NewSecretResolver(cnt.GetFileSystem(),
+			deployer.NewAgeDecoder(cfg.Spec.SecretRotation.Age.IdentityFile.Content), deployer.PlaintextDecoder{}),
 	)
 
 	for _, mod := range modules {

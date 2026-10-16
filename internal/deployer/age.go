@@ -4,15 +4,33 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"path/filepath"
 
 	"filippo.io/age"
 	"filippo.io/age/armor"
 )
 
+// AgeDecoder decrypts native age files without exposing key or payload errors.
+type AgeDecoder struct {
+	identity []byte
+}
+
+// NewAgeDecoder builds a decoder using identities loaded from a mounted file.
+func NewAgeDecoder(identity []byte) *AgeDecoder {
+	return &AgeDecoder{identity: identity}
+}
+
+// Matches selects age-encrypted secret files by extension.
+func (*AgeDecoder) Matches(path string) bool {
+	return filepath.Ext(path) == ".age"
+}
+
 // Docker Engine limits the plaintext payload of a secret to 500 KiB.
 const maxSecretSize = 500 * 1024
 
-func decryptAgeSecret(ciphertext, identityContent []byte) ([]byte, error) {
+// Decode authenticates and decrypts the complete secret payload in memory.
+func (d *AgeDecoder) Decode(ciphertext []byte) ([]byte, error) {
+	identityContent := d.identity
 	if len(identityContent) == 0 {
 		return nil, errors.New("age secret requires secretRotation.age.identityFile")
 	}

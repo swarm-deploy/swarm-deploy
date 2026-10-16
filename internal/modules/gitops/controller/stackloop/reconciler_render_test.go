@@ -96,18 +96,21 @@ func TestNeedsRenderedCompose(t *testing.T) {
 	})
 }
 
-func TestStackDeployComposeExternalizesOnlyAgeSecrets(t *testing.T) {
+func TestStackDeployComposeExternalizesAllAPIManagedSecrets(t *testing.T) {
 	desired := &compose.File{Compose: compose.Compose{Secrets: compose.Secrets{
 		"password": {File: "./secrets/password.age", Labels: *compose.NewLabels(map[string]string{"purpose": "app"})},
 		"rotated":  {Name: "app-rotated-abc123", File: "/repo/token.age"},
 		"plain":    {File: "./secrets/plain.txt"},
 		"external": {Name: "existing.age", External: true},
+		"driver":   {Name: "vault-password", Driver: "vault", DriverOpts: map[string]string{"key": "app/db"}},
 	}}}
 	rendered := stackDeployCompose(desired, "app")
 	assert.Equal(t, &compose.Secret{Name: "app_password", External: true}, rendered.Compose.Secrets["password"])
 	assert.Equal(t, &compose.Secret{Name: "app-rotated-abc123", External: true}, rendered.Compose.Secrets["rotated"])
-	assert.Equal(t, desired.Compose.Secrets["plain"], rendered.Compose.Secrets["plain"])
+	assert.Equal(t, &compose.Secret{Name: "app_plain", External: true}, rendered.Compose.Secrets["plain"])
 	assert.Equal(t, desired.Compose.Secrets["external"], rendered.Compose.Secrets["external"])
+	assert.Equal(t, &compose.Secret{Name: "vault-password", External: true}, rendered.Compose.Secrets["driver"])
+	assert.Equal(t, "vault", desired.Compose.Secrets["driver"].Driver)
 	assert.Equal(t, "./secrets/password.age", desired.Compose.Secrets["password"].File)
 	assert.False(t, desired.Compose.Secrets["password"].External)
 	assert.Equal(t, "app", desired.Compose.Secrets["password"].Labels.Map["purpose"])

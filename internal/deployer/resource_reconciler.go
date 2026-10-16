@@ -3,8 +3,7 @@ package deployer
 import (
 	"context"
 	"fmt"
-	"os"
-	"path/filepath"
+	"maps"
 	"sort"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
@@ -18,32 +17,30 @@ type resolvedResources struct {
 }
 
 type resourceReconciler struct {
-	configs     swarm.ConfigManager
-	secrets     swarm.SecretManager
-	ageIdentity []byte
+	configs swarm.ConfigManager
+	secrets swarm.SecretManager
 }
 
-func newResourceReconciler(swarmService *swarm.Swarm, ageIdentity []byte) *resourceReconciler {
+func newResourceReconciler(swarmService *swarm.Swarm) *resourceReconciler {
 	return &resourceReconciler{
-		configs:     swarmService.Configs,
-		secrets:     swarmService.Secrets,
-		ageIdentity: ageIdentity,
+		configs: swarmService.Configs,
+		secrets: swarmService.Secrets,
 	}
 }
 
 func (r *resourceReconciler) Reconcile(
 	ctx context.Context,
 	stackName string,
-	sourceComposePath string,
 	configs compose.Configs,
 	secrets compose.Secrets,
+	secretData map[string][]byte,
 ) (resolvedResources, error) {
 	resolvedConfigs, err := r.reconcileConfigs(ctx, stackName, configs)
 	if err != nil {
 		return resolvedResources{}, err
 	}
 
-	resolvedSecrets, err := r.reconcileSecrets(ctx, stackName, sourceComposePath, secrets)
+	resolvedSecrets, err := r.reconcileSecrets(ctx, stackName, secrets, secretData)
 	if err != nil {
 		return resolvedResources{}, err
 	}
@@ -102,8 +99,8 @@ func (r *resourceReconciler) reconcileConfigs(
 func (r *resourceReconciler) reconcileSecrets(
 	ctx context.Context,
 	stackName string,
-	sourceComposePath string,
 	objects compose.Secrets,
+	secretData map[string][]byte,
 ) (map[string]ResolvedResource, error) {
 	resolved := make(map[string]ResolvedResource, len(objects))
 	if len(objects) == 0 {
@@ -119,11 +116,16 @@ func (r *resourceReconciler) reconcileSecrets(
 	for _, alias := range sortedObjectAliases(objects) {
 		object := objects[alias]
 		name := dockerSecretName(stackName, alias, object)
-		if object.IsAgeEncrypted() && object.Driver != "" {
-			return nil, fmt.Errorf("age secret %s cannot use an external driver", name)
-		}
 
 		if secret, ok := existingByName[name]; ok {
+			labels := resourceLabels(stackName, object.Labels.Map)
+			if !object.External && !maps.Equal(secret.Labels, labels) {
+				if err := r.secrets.UpdateLabels(ctx, secret.ID, labels); err != nil {
+					return nil, fmt.Errorf("update secret %s: Docker API request failed", name)
+				}
+				secret.Labels = labels
+				existingByName[name] = secret
+			}
 			resolved[alias] = ResolvedResource{ID: secret.ID, Name: secret.Name}
 			continue
 		}
@@ -131,34 +133,21 @@ func (r *resourceReconciler) reconcileSecrets(
 			return nil, fmt.Errorf("external secret %s does not exist", name)
 		}
 
-		var data []byte
-		if object.Driver == "" {
-			var readErr error
-			data, readErr = r.readSecret(sourceComposePath, object)
-			if readErr != nil {
-				return nil, fmt.Errorf("read secret %s: %w", name, readErr)
-			}
-		}
-
 		createdID, err := r.secrets.Create(ctx, swarm.CreateSecretRequest{
 			Name:           name,
 			Labels:         resourceLabels(stackName, object.Labels.Map),
-			Data:           data,
+			Data:           secretData[alias],
 			Driver:         object.Driver,
 			DriverOptions:  object.DriverOpts,
 			TemplateDriver: object.TemplateDriver,
 		})
-		clear(data)
 		if err != nil {
-			// A remote error may echo the request body. Never propagate it for age secrets.
-			if object.IsAgeEncrypted() {
-				return nil, fmt.Errorf("create secret %s: Docker API request failed", name)
-			}
-			return nil, fmt.Errorf("create secret %s: %w", name, err)
+			// Remote errors may echo secret payloads, regardless of their source format.
+			return nil, fmt.Errorf("create secret %s: Docker API request failed", name)
 		}
 
 		resolved[alias] = ResolvedResource{ID: createdID, Name: name}
-		existingByName[name] = swarm.Secret{ID: createdID, Name: name}
+		existingByName[name] = swarm.Secret{ID: createdID, Name: name, Labels: resourceLabels(stackName, object.Labels.Map)}
 	}
 
 	return resolved, nil
@@ -235,22 +224,4 @@ func dockerSecretName(stackName, alias string, object *compose.Secret) string {
 	}
 
 	return stackName + "_" + alias
-}
-
-func (r *resourceReconciler) readSecret(sourceComposePath string, object *compose.Secret) ([]byte, error) {
-	if object.File == "" {
-		return nil, fmt.Errorf("file is required")
-	}
-
-	path := object.File
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(filepath.Dir(sourceComposePath), path)
-	}
-
-	data, err := os.ReadFile(path)
-	if err != nil || !object.IsAgeEncrypted() {
-		return data, err
-	}
-
-	return decryptAgeSecret(data, r.ageIdentity)
 }

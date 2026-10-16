@@ -18,7 +18,7 @@ secrets:
 Paths are resolved relative to the source Compose file, including when a rendered
 Compose is used for deployment. Absolute paths are also supported. Only local
 Secrets with the `.age` extension are decrypted; Configs and other secret files
-retain their existing behavior. External Secrets are reused unchanged. An age
+retain their existing behavior. External Secrets are reused unchanged. A secret
 file cannot be combined with an external secret driver.
 
 Mount an age identity file into swarm-deploy and configure its path:
@@ -37,11 +37,19 @@ are not supported. Provision the identity file separately from the manifests
 repository; do not commit private keys alongside the encrypted files. The file
 is read when swarm-deploy loads its configuration; restart after replacing it.
 
-Decryption works even with `secretRotation.enabled: false`. The payload is
-decrypted in memory and sent directly to the existing Docker Secret API
-reconciler before Init Jobs and regular services run. The Docker CLI receives
-only an external reference to the created Secret, preserving its name and
-mount options. No decrypted file is written to disk or embedded in rendered
+Decryption works even with `secretRotation.enabled: false`. A dedicated
+`SecretResolver` reads files through the shared, traced filesystem
+and selects the first matching decoder (age, then plaintext). It authenticates
+and decrypts file-backed Secrets before the Docker API reconciler runs, including
+when an existing Docker Secret will be reused. The resource reconciler receives
+only resolved bytes and does not know their encryption format. Init Jobs and
+regular services use the resulting Docker Secret IDs.
+
+The Docker CLI receives external references for **all API-managed Secrets**,
+including plaintext and driver-backed Secrets, preserving names and mount options.
+Mutable labels of reused API-managed Secrets are synchronized through the Docker
+API; external Secrets remain untouched. No decrypted file is written to disk or
+embedded in rendered
 Compose, deployment snapshots, logs, traces or errors. The original Compose and
 encrypted file remain unchanged. Decrypted payloads must fit Docker's 500 KiB
 secret limit. Invalid keys, ciphertext and authentication failures stop creation
@@ -59,7 +67,8 @@ value. Enable rotation to roll out changed secret values. Plaintext Secrets can
 coexist with age Secrets in the same stack.
 
 Unit tests run with `make check`. Real Swarm E2E tests exercise the production
-GitOps pipeline, mounted secret contents, reuse, rotation and cleanup:
+GitOps pipeline, mounted secret contents in services and Init Jobs, validation
+before reuse, rotation and cleanup:
 
 ```sh
 docker swarm init

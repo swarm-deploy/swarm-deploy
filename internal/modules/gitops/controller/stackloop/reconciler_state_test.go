@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -67,7 +68,7 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 		stateStore:     stateStore,
 		pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
 		composeLoader:  compose.NewFileLoader(),
-		composeRotator: NewRotator(),
+		composeRotator: NewRotator(fs.NewLocalFileSystem()),
 		serviceManager: serviceManager,
 	}
 	reconciler.db = db
@@ -129,7 +130,7 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 		stateStore:     stateStore,
 		pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
 		composeLoader:  compose.NewFileLoader(),
-		composeRotator: NewRotator(),
+		composeRotator: NewRotator(fs.NewLocalFileSystem()),
 	}
 	reconciler.db = db
 	reconciler.deployments = deployment.NewService(db, reconciler.event)
@@ -221,7 +222,7 @@ func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
 				cfg: cfg, git: repository, deployer: stackDeployer, event: eventDispatcher,
 				deployMetrics: &metrics.NopDeploys{}, stateStore: stateStore,
 				pruner:        pruner.NewServicePruner(serviceManager, eventDispatcher, cfg.Spec.Sync.Policy),
-				composeLoader: compose.NewFileLoader(), composeRotator: NewRotator(), serviceManager: serviceManager,
+				composeLoader: compose.NewFileLoader(), composeRotator: NewRotator(fs.NewLocalFileSystem()), serviceManager: serviceManager,
 			}
 			reconciler.db = db
 			reconciler.deployments = deployment.NewService(db, eventDispatcher)
@@ -270,7 +271,7 @@ secrets:
     file: ./token
 `), 0o600), "write compose")
 
-	currentName := NewRotator().buildRotatedObjectName("app", "token", "./token", []byte("current-token"), 8, false)
+	currentName := NewRotator(fs.NewLocalFileSystem()).buildRotatedObjectName("app", "token", "./token", []byte("current-token"), 8, false)
 	liveSecrets := []swarm.Secret{
 		managedSecret("old", "app-token-old", "token", now.Add(-2*time.Hour)),
 		managedSecret("current", currentName, "token", now.Add(-time.Hour)),
@@ -316,7 +317,7 @@ secrets:
 		stateStore:      stateStore,
 		pruner:          pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),
 		composeLoader:   compose.NewFileLoader(),
-		composeRotator:  NewRotator(),
+		composeRotator:  NewRotator(fs.NewLocalFileSystem()),
 		driftAnalyzer:   drift.NewAnalyzer(),
 		serviceManager:  serviceManager,
 		secretManager:   secretManager,
@@ -386,7 +387,7 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 		stateStore:     stateStore,
 		pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
 		composeLoader:  loader,
-		composeRotator: NewRotator(),
+		composeRotator: NewRotator(fs.NewLocalFileSystem()),
 		serviceManager: serviceManager,
 		secretManager:  secretManager,
 		configManager:  configManager,
@@ -495,7 +496,7 @@ configs:
 		stateStore:     stateStore,
 		pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
 		composeLoader:  loader,
-		composeRotator: NewRotator(),
+		composeRotator: NewRotator(fs.NewLocalFileSystem()),
 		serviceManager: serviceManager,
 	}
 	reconciler.db = db
@@ -514,7 +515,7 @@ configs:
 	require.NotNil(t, renderedCompose, "expected rendered compose during deploy")
 	assert.NoFileExists(t, renderedPath, "rendered compose must be removed after reconciliation")
 
-	expectedConfigName := NewRotator().buildRotatedObjectName(
+	expectedConfigName := NewRotator(fs.NewLocalFileSystem()).buildRotatedObjectName(
 		"app",
 		"app-config",
 		"./config/app.yaml",
@@ -595,7 +596,7 @@ secrets:
 		stateStore:     stateStore,
 		pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
 		composeLoader:  compose.NewFileLoader(),
-		composeRotator: NewRotator(),
+		composeRotator: NewRotator(fs.NewLocalFileSystem()),
 		serviceManager: serviceManager,
 	}
 	reconciler.db = db
@@ -626,18 +627,9 @@ secrets:
 		renderedCompose.Configs["abs-config"].File,
 		"absolute config file should be preserved",
 	)
-	assert.Equal(
-		t,
-		filepath.Join(repoDir, "deploy", "secrets", "password.txt"),
-		renderedCompose.Secrets["app-secret"].File,
-		"relative secret file should be resolved from source compose dir",
-	)
-	assert.Equal(
-		t,
-		absSecretPath,
-		renderedCompose.Secrets["abs-secret"].File,
-		"absolute secret file should be preserved",
-	)
+	assert.Equal(t, &compose.Secret{Alias: "app-secret", Name: "app_app-secret", External: true}, renderedCompose.Secrets["app-secret"])
+	assert.Equal(t, &compose.Secret{Alias: "abs-secret", Name: "app_abs-secret", External: true}, renderedCompose.Secrets["abs-secret"])
+
 }
 
 func TestReconcilePopulatesEnvFilesIntoRenderedEnvironment(t *testing.T) {
@@ -693,7 +685,7 @@ services:
 		pruner:           pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),
 		composeLoader:    compose.NewFileLoaderWithReader(readFile),
 		envFilePopulator: compose.NewEnvFilePopulator(),
-		composeRotator:   NewRotator(),
+		composeRotator:   NewRotator(fs.NewLocalFileSystem()),
 		serviceManager:   serviceManager,
 	}
 	reconciler.db = db
@@ -768,7 +760,7 @@ services:
 		stateStore:     stateStore,
 		pruner:         pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),
 		composeLoader:  compose.NewFileLoader(),
-		composeRotator: NewRotator(),
+		composeRotator: NewRotator(fs.NewLocalFileSystem()),
 		serviceManager: serviceManager,
 	}
 	reconciler.db = db
@@ -843,7 +835,7 @@ services:
 		stateStore:     stateStore,
 		pruner:         pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),
 		composeLoader:  compose.NewFileLoader(),
-		composeRotator: NewRotator(),
+		composeRotator: NewRotator(fs.NewLocalFileSystem()),
 		driftAnalyzer:  drift.NewAnalyzer(),
 		serviceManager: serviceManager,
 	}
@@ -962,7 +954,7 @@ func TestReconcilePrunesServicesForSkippedManualSync(t *testing.T) {
 		stateStore:     stateStore,
 		pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{Prune: true}),
 		composeLoader:  loader,
-		composeRotator: NewRotator(),
+		composeRotator: NewRotator(fs.NewLocalFileSystem()),
 		serviceManager: serviceManager,
 	}
 	reconciler.db = db
@@ -1055,7 +1047,7 @@ func TestReconcileServiceMissedEventOnDrift(t *testing.T) {
 				stateStore:     stateStore,
 				pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
 				composeLoader:  loader,
-				composeRotator: NewRotator(),
+				composeRotator: NewRotator(fs.NewLocalFileSystem()),
 				driftAnalyzer:  drift.NewAnalyzer(),
 				serviceManager: serviceManager,
 			}

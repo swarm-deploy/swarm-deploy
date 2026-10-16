@@ -84,7 +84,7 @@ func New(
 		stateStore:       stateStore,
 		composeLoader:    compose.NewFileLoaderWithReader(fileSystem.ReadFile),
 		envFilePopulator: compose.NewEnvFilePopulator(),
-		composeRotator:   NewRotator(),
+		composeRotator:   NewRotator(fileSystem),
 		pruner:           pruner.NewServicePruner(swarmService.Services, eventDispatcher, cfg.Spec.Sync.Policy),
 		driftAnalyzer:    drift.NewAnalyzer(),
 		serviceManager:   swarmService.Services,

@@ -98,10 +98,11 @@ exec "$SWARM_AGE_DOCKER" "$@"
 			t.Setenv("SWARM_AGE_CAPTURE", capture)
 			t.Setenv("SWARM_AGE_DOCKER", dockerPath)
 			swarmService := swarm.NewSwarm(dockerClient, wrapperPath)
-			stackDeployer := deployer.NewDeployer(100*time.Millisecond, time.Minute, dockerClient, swarmService, nil,
-				cfg.Spec.SecretRotation.Age.IdentityFile.Content)
+			fileSystem := sharedfs.NewLocalFileSystem()
+			stackDeployer := deployer.NewDeployer(100*time.Millisecond, time.Minute, dockerClient, swarmService, &metrics.NopDeploys{},
+				deployer.NewSecretResolver(fileSystem, deployer.NewAgeDecoder(cfg.Spec.SecretRotation.Age.IdentityFile.Content), deployer.PlaintextDecoder{}))
 			r := stackloop.New(cfg, gitx.NewRepository(cfg.Spec.Git, dir), stackDeployer, swarmService,
-				outbox.New(db), &metrics.NopDeploys{}, modelstore.NewSQLStore(db), sharedfs.NewLocalFileSystem(), db)
+				outbox.New(db), &metrics.NopDeploys{}, modelstore.NewSQLStore(db), fileSystem, db)
 			req := stackloop.ReconciliationRequest{Stack: config.StackSpec{Name: stack, ComposeFile: "compose.yaml"}, Commit: "v1"}
 			composePath := filepath.Join(dir, "compose.yaml")
 			writeAgeSwarmFixture(t, dir, identity.Recipient(), "age-private-marker-v1", "mounted-age-v1")
@@ -117,8 +118,22 @@ exec "$SWARM_AGE_DOCKER" "$@"
 			assert.True(t, cli.Secrets["password"].External)
 			assert.Equal(t, firstName, cli.Secrets["password"].Name)
 			assert.Empty(t, cli.Secrets["password"].File)
-			assert.False(t, cli.Secrets["plain"].External)
+			assert.True(t, cli.Secrets["plain"].External)
 			assert.NotContains(t, string(cliBytes), "password.age")
+			assert.NotContains(t, string(cliBytes), "x-init-deploy-jobs")
+			// A deliberately failing init job must prevent regular service deployment,
+			// even though the same valid secret already exists in Swarm.
+			brokenInit := strings.Replace(string(initialManifest), `command: ["test `, `command: ["false && test `, 1)
+			require.NotEqual(t, string(initialManifest), brokenInit)
+			require.NoError(t, os.WriteFile(composePath, []byte(brokenInit), 0o600))
+			req.Commit = "init-failure"
+			err = r.Reconcile(ctx, req)
+			require.ErrorContains(t, err, "init job")
+			afterInitFailure, err := os.ReadFile(capture)
+			require.NoError(t, err)
+			assert.Equal(t, cliBytes, afterInitFailure)
+			require.NoError(t, os.WriteFile(composePath, initialManifest, 0o600))
+			req.Commit = "v1"
 
 			// Unchanged reconcile must preserve the Docker secret identity.
 			require.NoError(t, r.Reconcile(ctx, req))
@@ -162,7 +177,11 @@ exec "$SWARM_AGE_DOCKER" "$@"
 			require.NoError(t, err)
 			require.NotEmpty(t, attempts.Deployments)
 			for _, attempt := range attempts.Deployments {
-				assert.Equal(t, deployment.Succeeded, attempt.Status)
+				if attempt.Commit == "init-failure" {
+					assert.Equal(t, deployment.Failed, attempt.Status)
+				} else {
+					assert.Equal(t, deployment.Succeeded, attempt.Status)
+				}
 			}
 			original, err := os.ReadFile(composePath)
 			require.NoError(t, err)
@@ -175,9 +194,7 @@ exec "$SWARM_AGE_DOCKER" "$@"
 			lastCLI, err := os.ReadFile(capture)
 			require.NoError(t, err)
 			require.NoError(t, os.WriteFile(filepath.Join(dir, "password.age"), []byte("invalid-ciphertext-marker"), 0o600))
-			invalidManifest := strings.Replace(string(original), "    file: ./password.age",
-				"    name: "+stack+"-invalid\n    file: ./password.age", 1)
-			require.NoError(t, os.WriteFile(composePath, []byte(invalidManifest), 0o600))
+			// Keep the same Compose name: validation must also run when Docker would reuse the Secret.
 			req.Commit = "invalid"
 			err = r.Reconcile(ctx, req)
 			require.Error(t, err)
@@ -207,6 +224,11 @@ func writeAgeSwarmFixture(t *testing.T, dir string, recipient age.Recipient, val
   check:
     image: busybox:1.36
     command: ["sh", "-ec", "test $$(sha256sum /run/secrets/password | cut -d' ' -f1) = %x && grep -qx plain-fixture /run/secrets/plain && echo %s && sleep 300"]
+    x-init-deploy-jobs:
+      - name: validate-age
+        image: busybox:1.36
+        entrypoint: ["sh", "-ec"]
+        command: ["test $(sha256sum /run/secrets/password | cut -d' ' -f1) = %x && grep -qx plain-fixture /run/secrets/plain"]
     secrets:
       - source: password
         target: password
@@ -219,7 +241,7 @@ secrets:
     file: ./password.age
   plain:
     file: ./plain.txt
-`, sha256.Sum256([]byte(value)), marker)
+`, sha256.Sum256([]byte(value)), marker, sha256.Sum256([]byte(value)))
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "compose.yaml"), []byte(manifest), 0o600))
 }
 

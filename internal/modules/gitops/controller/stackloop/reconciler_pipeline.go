@@ -156,11 +156,11 @@ func (r *Reconciler) addManagedLabel(_ context.Context, payload *pipelinePayload
 	return nil
 }
 
-func (r *Reconciler) rotateSecrets(_ context.Context, payload *pipelinePayload) error {
+func (r *Reconciler) rotateSecrets(ctx context.Context, payload *pipelinePayload) error {
 	// Rotation mutates secret/config object names in the in-memory compose model.
 	// We keep digest based on original source, but deploy a rendered, rotated file.
 	changed, err := r.composeRotator.Rotate(
-		payload.Desired,
+		ctx, payload.Desired,
 		payload.Stack.Name,
 		r.cfg.Spec.SecretRotation.HashLength,
 		r.cfg.Spec.SecretRotation.IncludePath,
@@ -227,7 +227,7 @@ func needsRenderedCompose(payload *pipelinePayload) bool {
 		return true
 	}
 	for _, secret := range payload.Desired.Compose.Secrets {
-		if secret.IsAgeEncrypted() {
+		if !secret.External {
 			return true
 		}
 	}
@@ -248,10 +248,10 @@ func stackDeployCompose(desired *compose.File, stackName string) *compose.File {
 	rendered.Compose.Configs = cloneObjects(desired.Compose.Configs)
 	rendered.Compose.Secrets = cloneObjects(desired.Compose.Secrets)
 
-	// The API reconciler creates age secrets before invoking Docker CLI. Only
-	// references reach the CLI, which must never read ciphertext as secret data.
+	// The API reconciler owns secret creation. Docker CLI receives references
+	// for all API-managed secrets, independently of their source format.
 	for alias, secret := range rendered.Compose.Secrets {
-		if !secret.IsAgeEncrypted() {
+		if secret.External {
 			continue
 		}
 		name := secret.Name
@@ -368,7 +368,7 @@ func (r *Reconciler) pruneOrphanedServices(ctx context.Context, payload *pipelin
 
 func (r *Reconciler) cleanRotatedResources(ctx context.Context, payload *pipelinePayload) error {
 	desiredConfigs, desiredSecrets, err := r.composeRotator.DesiredResourceNames(
-		payload.Desired,
+		ctx, payload.Desired,
 		payload.Stack.Name,
 		r.cfg.Spec.SecretRotation.HashLength,
 		r.cfg.Spec.SecretRotation.IncludePath,

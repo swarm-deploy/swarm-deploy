@@ -2,7 +2,6 @@ package compose
 
 import (
 	"fmt"
-	"path/filepath"
 
 	"go.yaml.in/yaml/v3"
 )
@@ -70,11 +69,6 @@ type Secret struct {
 
 // Secrets contains top-level Compose secrets keyed by alias.
 type Secrets map[string]*Secret
-
-// IsAgeEncrypted reports whether a locally managed secret uses an age file.
-func (s *Secret) IsAgeEncrypted() bool {
-	return !s.External && filepath.Ext(s.File) == ".age"
-}
 
 // UnmarshalYAML decodes secrets and records their Compose aliases.
 func (s *Secrets) UnmarshalYAML(node *yaml.Node) error {

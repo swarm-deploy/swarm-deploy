@@ -158,11 +158,11 @@ secrets:
 			t.Cleanup(server.Close)
 			t.Setenv("DOCKER_HOST", strings.Replace(server.URL, "http://", "tcp://", 1))
 			swarmService := swarm.NewSwarm(newDockerTestClient(t, server), dockerPath)
-			deployer := &Deployer{
+			deployer := &Deployer{secretResolver: newTestSecretResolver(),
 				// Avoid registry access and task convergence polling in this API contract test.
 				stackDeployArgs: []string{"stack", "deploy", "--detach=true", "--resolve-image=never"},
 				runner:          swarmService.BinaryRunner,
-				resources:       newResourceReconciler(swarmService, nil),
+				resources:       newResourceReconciler(swarmService),
 			}
 			for range 2 {
 				require.NoError(t, deployer.DeployStack(t.Context(), "demo", path, path, desired.Compose))

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 
 	"github.com/docker/docker/api/types/filters"
@@ -38,8 +37,8 @@ func TestResourceReconcilerFiltersBulkListsByResourceName(t *testing.T) {
 		case req.Method == http.MethodGet && path == "/secrets":
 			secretNames = args.Get("name")
 			_ = json.NewEncoder(w).Encode([]dockerswarm.Secret{
-				{ID: "secret-id", Spec: dockerswarm.SecretSpec{Annotations: dockerswarm.Annotations{Name: "demo_db-password"}}},
-				{ID: "rotated-secret-id", Spec: dockerswarm.SecretSpec{Annotations: dockerswarm.Annotations{Name: "demo-api-token-abc123"}}},
+				{ID: "secret-id", Spec: dockerswarm.SecretSpec{Annotations: dockerswarm.Annotations{Name: "demo_db-password", Labels: map[string]string{"com.docker.stack.namespace": "demo"}}}},
+				{ID: "rotated-secret-id", Spec: dockerswarm.SecretSpec{Annotations: dockerswarm.Annotations{Name: "demo-api-token-abc123", Labels: map[string]string{"com.docker.stack.namespace": "demo"}}}},
 			})
 		default:
 			http.Error(w, `{"message":"unexpected request"}`, http.StatusInternalServerError)
@@ -47,10 +46,9 @@ func TestResourceReconcilerFiltersBulkListsByResourceName(t *testing.T) {
 	}))
 	t.Cleanup(server.Close)
 
-	_, err := newResourceReconciler(swarm.NewSwarm(newDockerTestClient(t, server), ""), nil).Reconcile(
+	_, err := newResourceReconciler(swarm.NewSwarm(newDockerTestClient(t, server), "")).Reconcile(
 		context.Background(),
 		"demo",
-		filepath.Join(t.TempDir(), "compose.yaml"),
 		compose.Configs{
 			"app-config":    {Alias: "app-config", File: "unused"},
 			"shared-config": {Alias: "shared-config", External: true},
@@ -59,6 +57,7 @@ func TestResourceReconcilerFiltersBulkListsByResourceName(t *testing.T) {
 			"db-password": {Alias: "db-password", File: "unused"},
 			"api-token":   {Alias: "api-token", Name: "demo-api-token-abc123", File: "unused"},
 		},
+		nil,
 	)
 	require.NoError(t, err)
 

@@ -313,6 +313,20 @@ func (mr *MockSecretManagerMockRecorder) ResolveReference(ctx, source, target an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolveReference", reflect.TypeOf((*MockSecretManager)(nil).ResolveReference), ctx, source, target)
 }
 
+// UpdateLabels mocks base method.
+func (m *MockSecretManager) UpdateLabels(ctx context.Context, secretID string, labels map[string]string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "UpdateLabels", ctx, secretID, labels)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// UpdateLabels indicates an expected call of UpdateLabels.
+func (mr *MockSecretManagerMockRecorder) UpdateLabels(ctx, secretID, labels any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateLabels", reflect.TypeOf((*MockSecretManager)(nil).UpdateLabels), ctx, secretID, labels)
+}
+
 // Watch mocks base method.
 func (m *MockSecretManager) Watch(ctx context.Context) (<-chan events.Message, <-chan error, error) {
 	m.ctrl.T.Helper()

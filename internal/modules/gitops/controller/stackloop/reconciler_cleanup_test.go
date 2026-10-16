@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -43,7 +44,7 @@ func TestReconcileRemovesRenderedComposeAfterEarlyPipelineFailure(t *testing.T) 
 		deployMetrics:    &metrics.NopDeploys{},
 		stateStore:       stateStore,
 		composeLoader:    compose.NewFileLoader(),
-		composeRotator:   NewRotator(),
+		composeRotator:   NewRotator(fs.NewLocalFileSystem()),
 		envFilePopulator: compose.NewEnvFilePopulator(),
 		pending:          map[string]pendingCompletion{},
 	}
@@ -111,7 +112,7 @@ func TestRenderedComposeCleanupFailureDoesNotFailReconciliation(t *testing.T) {
 		stateStore:     stateStore,
 		pruner:         pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),
 		composeLoader:  compose.NewFileLoader(),
-		composeRotator: NewRotator(),
+		composeRotator: NewRotator(fs.NewLocalFileSystem()),
 		driftAnalyzer:  nil,
 		serviceManager: serviceManager,
 		pending:        map[string]pendingCompletion{},

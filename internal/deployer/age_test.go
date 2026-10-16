@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"filippo.io/age"
@@ -67,7 +66,7 @@ func TestDecryptAgeSecret(t *testing.T) {
 		{"tampered", tampered, identity.String(), "invalid or truncated payload"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
-			got, decryptErr := decryptAgeSecret(tt.ciphertext, []byte(tt.identities))
+			got, decryptErr := NewAgeDecoder([]byte(tt.identities)).Decode(tt.ciphertext)
 			if tt.wantError == "" {
 				require.NoError(t, decryptErr)
 				assert.Equal(t, plaintext, got)
@@ -87,7 +86,7 @@ func TestDecryptAgeSecretSizeLimit(t *testing.T) {
 	require.NoError(t, err)
 	for _, size := range []int{maxSecretSize, maxSecretSize + 1} {
 		ciphertext := encryptTestSecret(t, identity.Recipient(), bytes.Repeat([]byte("x"), size), false)
-		got, decryptErr := decryptAgeSecret(ciphertext, []byte(identity.String()))
+		got, decryptErr := NewAgeDecoder([]byte(identity.String())).Decode(ciphertext)
 		if size <= maxSecretSize {
 			require.NoError(t, decryptErr)
 			assert.Len(t, got, size)
@@ -121,12 +120,15 @@ func TestReconcileAgeSecrets(t *testing.T) {
 				assert.Equal(t, "golang", req.TemplateDriver)
 				return "secret-id", nil
 			})
-			r := newResourceReconciler(&swarm.Swarm{Secrets: secrets}, []byte(identity.String()))
+			r := newResourceReconciler(&swarm.Swarm{Secrets: secrets})
 			objects := compose.Secrets{"password": {
 				File: path, Name: "rotated-password", TemplateDriver: "golang",
 				Labels: *compose.NewLabels(map[string]string{"purpose": "managed"}),
 			}}
-			resolved, err := r.Reconcile(t.Context(), "app", filepath.Join(dir, "compose.yaml"), nil, objects)
+			data, err := newTestSecretResolverWithIdentity([]byte(identity.String())).Resolve(t.Context(), "app", filepath.Join(dir, "compose.yaml"), objects)
+			require.NoError(t, err)
+			defer clearSecretData(data)
+			resolved, err := r.Reconcile(t.Context(), "app", nil, objects, data)
 			require.NoError(t, err)
 			assert.Equal(t, ResolvedResource{ID: "secret-id", Name: "rotated-password"}, resolved.secrets["password"])
 			stored, err := os.ReadFile(filepath.Join(dir, "password.age"))
@@ -149,7 +151,7 @@ func TestReconcileAgeSecretFailuresDoNotReachCLI(t *testing.T) {
 	}{
 		{name: "missing identity", contents: []byte("private-marker"), want: "requires secretRotation.age.identityFile"},
 		{name: "bad ciphertext", key: []byte(identity.String()), contents: []byte("private-marker"), want: "invalid ciphertext"},
-		{name: "driver", driver: "vault", want: "cannot use an external driver"},
+		{name: "driver", driver: "vault", want: "cannot combine a secret file with an external driver"},
 		{name: "remote echo", key: []byte(identity.String()), contents: encryptTestSecret(t, identity.Recipient(), []byte("private-marker"), false), createError: true, want: "Docker API request failed"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -157,12 +159,12 @@ func TestReconcileAgeSecretFailuresDoNotReachCLI(t *testing.T) {
 			require.NoError(t, os.WriteFile(filepath.Join(dir, "password.age"), tt.contents, 0o600))
 			ctrl := gomock.NewController(t)
 			secrets := swarm.NewMockSecretManager(ctrl)
-			secrets.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, nil)
 			if tt.createError {
+				secrets.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, nil)
 				secrets.EXPECT().Create(gomock.Any(), gomock.Any()).Return("", errors.New("private-marker "+identity.String()))
 			}
 			runner := NewMockRunner(ctrl)
-			d := &Deployer{resources: newResourceReconciler(&swarm.Swarm{Secrets: secrets}, tt.key), runner: runner}
+			d := &Deployer{secretResolver: newTestSecretResolverWithIdentity(tt.key), resources: newResourceReconciler(&swarm.Swarm{Secrets: secrets}), runner: runner}
 			err := d.DeployStack(t.Context(), "app", filepath.Join(dir, "compose.yaml"), "unused", compose.Compose{
 				Secrets: compose.Secrets{"password": {File: "password.age", Driver: tt.driver}},
 			})
@@ -176,13 +178,16 @@ func TestReconcileAgeSecretFailuresDoNotReachCLI(t *testing.T) {
 func TestReadPlaintextSecretIgnoresAgeIdentity(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "password.txt"), []byte("plain"), 0o600))
-	r := &resourceReconciler{ageIdentity: []byte("invalid identity")}
-	data, err := r.readSecret(filepath.Join(dir, "compose.yaml"), &compose.Secret{File: "password.txt"})
+	resolver := newTestSecretResolverWithIdentity([]byte("invalid identity"))
+	objects := compose.Secrets{"password": {File: "password.txt"}}
+	data, err := resolver.Resolve(t.Context(), "app", filepath.Join(dir, "compose.yaml"), objects)
 	require.NoError(t, err)
-	assert.Equal(t, "plain", string(data))
-	_, err = r.readSecret(filepath.Join(dir, "compose.yaml"), &compose.Secret{})
+	assert.Equal(t, "plain", string(data["password"]))
+	objects["password"].File = ""
+	_, err = resolver.Resolve(t.Context(), "app", filepath.Join(dir, "compose.yaml"), objects)
 	require.ErrorContains(t, err, "file is required")
-	_, err = r.readSecret(filepath.Join(dir, "compose.yaml"), &compose.Secret{File: "missing.age"})
+	objects["password"].File = "missing.age"
+	_, err = resolver.Resolve(t.Context(), "app", filepath.Join(dir, "compose.yaml"), objects)
 	require.Error(t, err)
-	assert.False(t, strings.Contains(err.Error(), "invalid identity"))
+	assert.NotContains(t, err.Error(), "invalid identity")
 }
