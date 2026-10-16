@@ -160,7 +160,7 @@ describe("Deployment Details modal", () => {
     const store = useOverviewStore();
     store.deploymentDetailsModalOpen = true;
     store.deploymentDetailsData = deployment("succeeded", "successful_baseline");
-    const wrapper = mount(DeploymentDetailsModal);
+    const wrapper = mount(DeploymentDetailsModal, { attachTo: document.body });
 
     const button = wrapper.get('[aria-label="About desired changes"]');
     const message = "Compared with the last successful desired snapshot.";
