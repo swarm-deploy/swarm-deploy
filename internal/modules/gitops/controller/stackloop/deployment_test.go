@@ -3,22 +3,28 @@ package stackloop
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
+	pipe "github.com/artarts36/gopipe"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
@@ -242,7 +248,7 @@ func TestReconcileRecoversSucceededCompletionConflictWithoutContradictoryOutcome
 		state:        model.Stack{LastCommit: "contradictory"},
 		status:       deployment.Failed,
 		errorCode:    "apply_failed",
-		diagnostic:   "obsolete failure",
+		cause:        errors.New("obsolete failure"),
 	}
 	docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 	services.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{}, nil)
@@ -298,4 +304,88 @@ func TestPreparationFailureStateAndPublicationAreAtomicAndSecretSafe(t *testing.
 	assert.NotContains(t, payloads, "raw-secret-value")
 	require.NoError(t, db.Get(ctx, &count, "SELECT count(*) FROM outbox_events"))
 	assert.Equal(t, 2, count, "repeated failures are distinct domain facts")
+}
+
+func TestPendingFailureRecoveryPreservesTemporaryClassification(t *testing.T) {
+	for _, step := range []string{"deploy stack", "load live state", "prune orphaned services"} {
+		for _, temporary := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/temporary=%t", step, temporary), func(t *testing.T) {
+				ctx := context.Background()
+				db, state := newSQLState(t)
+				bus := outbox.New(db)
+				hist, err := history.NewSQLStore(db, 10)
+				require.NoError(t, err)
+				typ := events.TypeNameDeployFailed
+				if step == "load live state" {
+					typ = events.TypeNameDeployInterrupted
+				}
+				require.NoError(t, bus.Subscribe(typ, "history", hist))
+				service := deployment.NewService(db, bus)
+				file := compose.File{Compose: compose.Compose{Services: compose.Services{{Name: "api", Image: "api:1"}}}}
+				attempt, err := service.StartIfChanged(ctx, "app", "commit", file, true)
+				require.NoError(t, err)
+				r := &Reconciler{db: db, stateStore: state, event: bus, deployments: service,
+					deployMetrics: &metrics.NopDeploys{}, pending: map[string]pendingCompletion{}}
+				_, err = db.Exec(ctx, "CREATE TRIGGER fail_event BEFORE INSERT ON outbox_events BEGIN SELECT RAISE(ABORT,'injected'); END")
+				require.NoError(t, err)
+				cause := fmt.Errorf("wrapped: %w", &net.DNSError{Err: "token=private-value", IsTemporary: temporary})
+				require.Error(t, r.recordPipelineFailure(ctx,
+					ReconciliationRequest{Stack: config.StackSpec{Name: "app"}, Commit: "commit"}, model.Stack{},
+					&pipelinePayload{Attempt: attempt, Desired: &file, ObservedAt: time.Now()},
+					&pipe.StepError{StepName: step, Err: cause}))
+				require.Contains(t, r.pending, "app")
+				assert.NotContains(t, r.pending["app"].cause.Error(), "private-value")
+				_, err = db.Exec(ctx, "DROP TRIGGER fail_event")
+				require.NoError(t, err)
+				require.NoError(t, r.recoverPending(ctx, "app"))
+				assert.Empty(t, r.pending)
+				var payload string
+				require.NoError(t, db.Get(ctx, &payload, "SELECT payload FROM outbox_events WHERE event_type=?", typ))
+				assert.NotContains(t, payload, "private-value")
+				decoded, err := codec.Decode(typ, codec.Version, []byte(payload))
+				require.NoError(t, err)
+				var decodedCause error
+				switch event := decoded.(type) {
+				case *events.DeployFailed:
+					decodedCause = event.Error
+				case *events.DeployInterrupted:
+					decodedCause = event.Error
+				}
+				var classified faults.Error
+				require.ErrorAs(t, decodedCause, &classified)
+				assert.Equal(t, temporary, classified.Temporary())
+				require.NoError(t, r.recoverPending(ctx, "app"))
+				var count int
+				require.NoError(t, db.Get(ctx, &count, "SELECT count(*) FROM outbox_events"))
+				assert.Equal(t, 1, count, "recovery must publish the outcome exactly once")
+			})
+		}
+	}
+}
+
+func TestPreparationFailurePreservesTemporaryClassification(t *testing.T) {
+	for _, temporary := range []bool{false, true} {
+		t.Run(fmt.Sprint(temporary), func(t *testing.T) {
+			ctx := context.Background()
+			db, state := newSQLState(t)
+			bus := outbox.New(db)
+			hist, err := history.NewSQLStore(db, 10)
+			require.NoError(t, err)
+			require.NoError(t, bus.Subscribe(events.TypeNameDeployPreparationFailed, "history", hist))
+			r := &Reconciler{db: db, stateStore: state, event: bus}
+			cause := fmt.Errorf("fetch: %w", &net.DNSError{Err: "token=private-value", IsTemporary: temporary})
+			require.NoError(t, r.recordFailure(ctx, "app", "commit", nil, cause))
+			var payload string
+			require.NoError(t, db.Get(ctx, &payload, "SELECT payload FROM outbox_events"))
+			assert.NotContains(t, payload, "private-value")
+			decoded, err := codec.Decode(events.TypeNameDeployPreparationFailed, codec.Version, []byte(payload))
+			require.NoError(t, err)
+			event, ok := decoded.(*events.DeployPreparationFailed)
+			require.True(t, ok)
+			var classified faults.Error
+			require.ErrorAs(t, event.Error, &classified)
+			assert.Equal(t, temporary, classified.Temporary())
+			assert.Equal(t, "preparation_failed", event.ErrorCode)
+		})
+	}
 }

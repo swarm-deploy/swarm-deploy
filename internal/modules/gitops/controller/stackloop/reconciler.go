@@ -57,7 +57,7 @@ type pendingCompletion struct {
 	state        model.Stack
 	status       deployment.Status
 	errorCode    string
-	diagnostic   string
+	cause        error
 	observedAt   time.Time
 }
 
@@ -252,7 +252,7 @@ func (r *Reconciler) processResult(
 func (r *Reconciler) recordFailure(
 	ctx context.Context, stackName, commit string, services []compose.Service, cause error,
 ) error {
-	diagnostic := faults.SafeDiagnostic(cause)
+	safeCause := faults.SafeError(cause)
 	return r.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		if err := r.stateStore.Update(ctx, func(runtime *model.Runtime) {
 			state := runtime.Stacks[stackName]
@@ -272,7 +272,7 @@ func (r *Reconciler) recordFailure(
 		}
 		return r.event.Publish(ctx, &events.DeployPreparationFailed{
 			StackName: stackName, Commit: commit, Services: services, ErrorCode: "preparation_failed",
-			Stage: preparationFailureStage(cause), Error: diagnosticError(diagnostic),
+			Stage: preparationFailureStage(cause), Error: safeCause,
 		})
 	})
 }
@@ -315,7 +315,7 @@ func (r *Reconciler) recordPipelineFailure(
 		if persistErr != nil {
 			r.pending[req.Stack.Name] = pendingCompletion{
 				deploymentID: pl.Attempt.ID, state: failed, status: status, errorCode: code,
-				diagnostic: faults.SafeDiagnostic(pipeErr), observedAt: pl.ObservedAt,
+				cause: faults.SafeError(pipeErr), observedAt: pl.ObservedAt,
 			}
 		}
 		for _, service := range services {
@@ -336,13 +336,13 @@ func (r *Reconciler) recoverPending(ctx context.Context, stack string) error {
 		err = r.deployments.SucceedObserved(ctx, pending.deploymentID, pending.state, pending.observedAt)
 	case pending.status == deployment.Interrupted:
 		err = r.deployments.InterruptVerificationWithError(ctx, pending.deploymentID, pending.state,
-			diagnosticError(pending.diagnostic))
+			pending.cause)
 	case pending.errorCode == pruneFailureCode:
 		err = r.deployments.FailCleanupWithError(ctx, pending.deploymentID, pending.state, pending.errorCode,
-			pending.observedAt, diagnosticError(pending.diagnostic))
+			pending.observedAt, pending.cause)
 	default:
 		err = r.deployments.FailApplyWithError(ctx, pending.deploymentID, pending.state, pending.errorCode,
-			diagnosticError(pending.diagnostic))
+			pending.cause)
 	}
 	if err == nil {
 		delete(r.pending, stack)
@@ -395,13 +395,6 @@ func preparationFailureStage(err error) string {
 		return "validation"
 	}
 	return "preparation"
-}
-
-func diagnosticError(diagnostic string) error {
-	if diagnostic == "" {
-		return nil
-	}
-	return errors.New(diagnostic)
 }
 
 func (r *Reconciler) persistResult(
