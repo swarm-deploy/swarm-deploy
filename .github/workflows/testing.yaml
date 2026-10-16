@@ -85,8 +85,8 @@ jobs:
       - name: Build UI
         run: npm run build
 
-  docker-swarm-integration:
-    name: docker-swarm-integration
+  docker-swarm-e2e:
+    name: docker-swarm-e2e
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -106,8 +106,8 @@ jobs:
 
       - name: Test real Swarm resource reconciliation
         env:
-          SWARM_DEPLOY_INTEGRATION: '1'
-        run: go test -tags=integration -count=1 -timeout=10m -run '^TestDeployStackOnRealSwarm$' -v ./internal/deployer
+          SWARM_DEPLOY_E2E: '1'
+        run: go test -count=1 -timeout=10m -v ./e2e
 
       - name: Collect Swarm diagnostics on failure
         if: failure()
