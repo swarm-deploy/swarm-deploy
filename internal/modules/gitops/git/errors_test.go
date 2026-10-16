@@ -3,10 +3,12 @@ package git
 import (
 	"context"
 	"errors"
-	"syscall"
+	"fmt"
 	"net"
+	"syscall"
 	"testing"
 
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/format/pktline"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/stretchr/testify/assert"
@@ -96,6 +98,26 @@ func TestSafePullDiagnostic(t *testing.T) {
 			assert.Equal(t, FailureNetwork, category)
 			assert.Equal(t, tc.want, detail)
 			assert.NotContains(t, detail, "secret")
+		})
+	}
+}
+
+func TestClassifyWrappedGitNetworkErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		err error
+		want string
+	}{
+		{name: "wrapped refusal", err: fmt.Errorf("transport: %w", &plumbing.UnexpectedError{Err: &net.OpError{Op: "dial", Err: syscall.ECONNREFUSED}}), want: "Git repository connection refused"},
+		{name: "wrapped timeout", err: &plumbing.UnexpectedError{Err: &net.OpError{Op: "dial", Err: context.DeadlineExceeded}}, want: "Git repository connection timed out"},
+		{name: "wrapped DNS", err: &plumbing.UnexpectedError{Err: &net.DNSError{Err: "token=private", Name: "private.example", IsTemporary: true}}, want: "Git repository DNS lookup failed"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			category, diagnostic := PullFailure(ClassifyPullError(tc.err, "https://git.example/repo", config.GitAuthTypeHTTP))
+			assert.Equal(t, FailureNetwork, category)
+			assert.Equal(t, tc.want, diagnostic)
+			assert.NotContains(t, diagnostic, "private")
 		})
 	}
 }
