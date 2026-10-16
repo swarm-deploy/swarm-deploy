@@ -18,6 +18,12 @@ type AlertSnapshot struct {
 	ResourceID string `json:"resourceId"`
 	// DeploymentID links the alert to a persisted deployment attempt when one exists.
 	DeploymentID string `json:"deploymentId,omitempty"`
+	// ErrorCode identifies the failure category.
+	ErrorCode string `json:"errorCode,omitempty"`
+	// Occurrences is the number of failed attempts in the incident.
+	Occurrences uint64 `json:"occurrences,omitempty"`
+	// Duration is the incident duration at resolution.
+	Duration string `json:"duration,omitempty"`
 	// OpenedAt marks the beginning of this incident.
 	OpenedAt time.Time `json:"openedAt"`
 	// ResolvedAt is set for resolution notifications.

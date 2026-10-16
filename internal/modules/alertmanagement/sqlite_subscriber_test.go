@@ -14,6 +14,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/configstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
@@ -449,4 +450,34 @@ func TestGitRepositoryRecoveryIgnoresDelayedFailureAndResetsCounter(t *testing.T
 	var counters int
 	require.NoError(t, db.Get(ctx, &counters, "SELECT count(*) FROM alert_failure_streaks"))
 	assert.Zero(t, counters)
+}
+
+func TestGitNetworkDiagnosticReachesAlertAfterDurableCodec(t *testing.T) {
+	ctx := t.Context()
+	db, err := storage.Open(ctx, t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+	store := modelstore.NewSQLStore(db)
+	subscriber := newTestSQLSubscriber(store)
+	const diagnostic = "Git repository connection refused"
+	startedAt := time.Now().UTC()
+	for i := range 3 {
+		payload, encodeErr := codec.Encode(&events.GitPullFailed{
+			Repository: "git.example.com/team/app", Category: events.GitFailureNetwork,
+			Description: diagnostic,
+		})
+		require.NoError(t, encodeErr)
+		decoded, decodeErr := codec.Decode(events.TypeNameGitPullFailed, codec.Version, payload)
+		require.NoError(t, decodeErr)
+		require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+			ID: fmt.Sprintf("git-failure-%d", i),
+			OccurredAt: startedAt.Add(time.Duration(i) * time.Second), Event: decoded,
+		}))
+	}
+	alerts, err := store.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 1)
+	assert.Equal(t, diagnostic, alerts[0].Message)
+	assert.EqualValues(t, 3, alerts[0].Occurrences)
+	assert.Equal(t, diagnostic, alertSnapshot(alerts[0]).Message)
 }

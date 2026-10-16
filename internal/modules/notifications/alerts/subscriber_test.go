@@ -3,6 +3,7 @@ package alerts
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"html"
 	"net/http"
 	"net/http/httptest"
@@ -490,4 +491,61 @@ func TestResolvedAlertDoesNotSendOpeningOnManualReplay(t *testing.T) {
 	link, err = store.Get(t.Context(), alert.ID, recipient)
 	require.NoError(t, err)
 	assert.False(t, link.OpenedAt.Valid)
+}
+
+func TestGitAlertDefaultTelegramHTMLAndCustomTemplates(t *testing.T) {
+	for _, custom := range []bool{false, true} {
+		t.Run(fmt.Sprintf("custom=%t", custom), func(t *testing.T) {
+			db, err := storage.Open(t.Context(), t.TempDir())
+			require.NoError(t, err)
+			defer db.Close()
+			spec := alertSpec()
+			if custom {
+				spec.Alerts["GitRepositoryUnavailable"] = config.NotificationAlertRoutes{Telegram: []config.TelegramAlertChannel{{
+					Opened: config.AlertMessageSpec{Message: "repo={{ .ResourceID }}"},
+					Resolved: config.AlertMessageSpec{Message: "recovered={{ .ResourceID }}"},
+				}}}
+			}
+			type request struct {
+				Text string `json:"text"`
+				ParseMode string `json:"parse_mode"`
+			}
+			var received []request
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var req request
+				require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+				received = append(received, req)
+				_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":42}}`))
+			}))
+			defer server.Close()
+			recipient := spec.AlertRecipients("git_repository_unavailable")[0]
+			subscriber := &Subscriber{store: NewStore(db), spec: spec, recipient: recipient, now: time.Now, apiBaseURL: server.URL}
+			alert := events.AlertSnapshot{
+				ID: "git-html", Kind: "git_repository_unavailable", Title: "Git repository unavailable",
+				ResourceID: "example.com/org/<repo>&test", Message: "Git <network> & unavailable",
+				ErrorCode: "network", Occurrences: 3, Duration: "1m19s", OpenedAt: time.Now().UTC(),
+			}
+			require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{Event: &events.AlertOpened{
+				Alert: alert, Recipients: []events.AlertRecipient{recipient},
+			}}))
+			resolved := time.Now().UTC()
+			alert.ResolvedAt = &resolved
+			require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{Event: &events.AlertResolved{
+				Alert: alert, Recipients: []events.AlertRecipient{recipient},
+			}}))
+			require.Len(t, received, 2)
+			if custom {
+				assert.Empty(t, received[0].ParseMode)
+				assert.Empty(t, received[1].ParseMode)
+				assert.Contains(t, received[0].Text, "<repo>&test")
+				assert.Contains(t, received[1].Text, "<repo>&test")
+			} else {
+				for _, req := range received {
+					assert.Equal(t, "HTML", req.ParseMode)
+					assert.Contains(t, req.Text, "<code>example.com/org/&lt;repo&gt;&amp;test</code>")
+				}
+				assert.Contains(t, received[0].Text, "Git &lt;network&gt; &amp; unavailable")
+			}
+		})
+	}
 }

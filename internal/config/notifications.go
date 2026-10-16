@@ -63,6 +63,10 @@ const (
 <b>Error:</b>
 <pre>{{ .Message }}</pre>`
 	defaultAlertResolvedTemplate = "✅ Resolved: {{ .Title }}\n{{ .Resolution }}"
+	defaultGitOpenedTemplate     = "🚨 {{ .Title }}\nRepository: <code>{{ .ResourceID }}</code>\nError: {{ .Message }}" +
+		"\nCategory: {{ .ErrorCode }}\nFailed attempts: {{ .Occurrences }}"
+	defaultGitResolvedTemplate = "✅ Git repository recovered\nRepository: <code>{{ .ResourceID }}</code>" +
+		"\nFailed attempts: {{ .Occurrences }}\nIncident duration: {{ .Duration }}"
 )
 
 // AlertTelegramRoutes returns the replacing kind route, configured default or built-in route.
@@ -74,7 +78,7 @@ func (c NotificationSpec) AlertTelegramRoutes(kind string) []TelegramAlertChanne
 		return route.Telegram
 	}
 	return []TelegramAlertChannel{{
-		Resolved: AlertMessageSpec{Action: "reply", Message: defaultAlertResolvedTemplate},
+		Resolved: AlertMessageSpec{Action: "reply"},
 	}}
 }
 
@@ -117,13 +121,19 @@ func (c TelegramAlertChannel) AlertOpenedTemplate(kind string) string {
 	if kind == string(alertmodel.AlertKindSyncFailed) {
 		return defaultSyncFailedAlertOpenedTemplate
 	}
+	if kind == string(alertmodel.AlertKindGitRepositoryUnavailable) {
+		return defaultGitOpenedTemplate
+	}
 	return defaultAlertOpenedTemplate
 }
 
 // AlertResolvedTemplate returns the effective resolution message template.
-func (c TelegramAlertChannel) AlertResolvedTemplate() string {
+func (c TelegramAlertChannel) AlertResolvedTemplate(kind ...string) string {
 	if strings.TrimSpace(c.Resolved.Message) != "" {
 		return c.Resolved.Message
+	}
+	if len(kind) > 0 && kind[0] == string(alertmodel.AlertKindGitRepositoryUnavailable) {
+		return defaultGitResolvedTemplate
 	}
 	return defaultAlertResolvedTemplate
 }

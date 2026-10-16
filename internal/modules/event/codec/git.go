@@ -66,6 +66,11 @@ func encodeGitPullFailed(event *events.GitPullFailed) ([]byte, error) {
 	if !ok {
 		return nil, errors.New("unsupported Git failure category")
 	}
+	// Only retain allowlisted diagnostics from the Git classifier. Raw transport
+	// errors may include credentials and must never reach the durable outbox.
+	if isAllowedGitFailureDescription(event.Category, event.Description) {
+		description = event.Description
+	}
 	if err := validateRepositoryIdentifier(event.Repository); err != nil {
 		return nil, err
 	}
@@ -94,6 +99,34 @@ func safeGitFailureDescription(category events.GitFailureCategory) (string, bool
 	}
 }
 
+// isAllowedGitFailureDescription validates a category-specific, non-sensitive
+// diagnostic. The allowlist is intentionally static: never accept raw errors.
+func isAllowedGitFailureDescription(category events.GitFailureCategory, description string) bool {
+	fallback, ok := safeGitFailureDescription(category)
+	if !ok {
+		return false
+	}
+	if description == fallback {
+		return true
+	}
+	if category != events.GitFailureNetwork {
+		return false
+	}
+	switch description {
+	case "Git repository DNS lookup failed",
+		"Git repository connection timed out",
+		"Git repository connection refused",
+		"Git repository host unreachable",
+		"Git repository network unreachable",
+		"Git remote returned HTTP 502 (Bad Gateway)",
+		"Git remote returned HTTP 503 (Service Unavailable)",
+		"Git remote returned HTTP 504 (Gateway Timeout)":
+		return true
+	default:
+		return false
+	}
+}
+
 func validateRepositoryIdentifier(repository string) error {
 	if strings.TrimSpace(repository) == "" {
 		return errors.New("git repository identifier is required")
@@ -113,15 +146,14 @@ func decodeGitPullFailed(payload []byte) (events.Event, error) {
 	if err := decode(payload, &value); err != nil {
 		return nil, err
 	}
-	description, ok := safeGitFailureDescription(value.Category)
-	if !ok || value.Description != description {
+	if !isAllowedGitFailureDescription(value.Category, value.Description) {
 		return nil, errors.New("invalid Git failure diagnostic")
 	}
 	if err := validateRepositoryIdentifier(value.Repository); err != nil {
 		return nil, err
 	}
 	return &events.GitPullFailed{
-		Repository: value.Repository, Category: value.Category, Description: description,
+		Repository: value.Repository, Category: value.Category, Description: value.Description,
 		TriggerReason: value.TriggerReason,
 	}, nil
 }
