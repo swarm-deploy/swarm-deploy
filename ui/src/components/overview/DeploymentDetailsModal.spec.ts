@@ -65,7 +65,7 @@ describe("Deployment Details modal", () => {
     expect(wrapper.find(".deployment-outcome").exists()).toBe(false);
 
     await wrapper.get('[role="tab"]:last-child').trigger("click");
-    expect(wrapper.text()).toContain("Recorded desired configuration");
+    expect(wrapper.text()).toContain("Configuration Snapshot");
     expect(wrapper.find('[aria-label="Recorded desired configuration YAML"]').html()).toContain("API_TOKEN");
     expect(wrapper.find('[aria-label="Recorded desired configuration YAML"]').html()).toContain("****");
     expect(wrapper.html()).not.toContain("plaintext");
@@ -144,7 +144,7 @@ describe("Deployment Details modal", () => {
     store.deploymentDetailsData = deployment("failed", "successful_baseline");
     const wrapper = mount(DeploymentDetailsModal);
 
-    expect(wrapper.text()).toContain("Desired-state changes");
+    expect(wrapper.text()).toContain("Desired Changes");
     expect(wrapper.text()).toContain("serviceapi");
     expect(wrapper.text()).toContain("Environment");
     expect(wrapper.text()).toContain("api:1");
@@ -153,6 +153,74 @@ describe("Deployment Details modal", () => {
     expect(wrapper.text()).not.toContain("plaintext");
     expect(wrapper.text()).toContain("update service api: image not found");
     expect(wrapper.findAll(".deployment-resource")).toHaveLength(1);
+    wrapper.unmount();
+  });
+
+  it("shows change details on demand instead of taking vertical space", async () => {
+    const store = useOverviewStore();
+    store.deploymentDetailsModalOpen = true;
+    store.deploymentDetailsData = deployment("succeeded", "successful_baseline");
+    const wrapper = mount(DeploymentDetailsModal, { attachTo: document.body });
+
+    const button = wrapper.get('[aria-label="About desired changes"]');
+    const message = "Compared with the last successful desired snapshot.";
+    expect(wrapper.get(".deployment-info-heading h3").text()).toBe("Desired Changes");
+    expect(wrapper.text()).not.toContain(message);
+    expect(button.attributes("aria-expanded")).toBe("false");
+    expect(wrapper.find('[role="tooltip"]').exists()).toBe(false);
+
+    await button.trigger("click");
+    expect(button.attributes("aria-expanded")).toBe("true");
+    expect(wrapper.get('[role="tooltip"]').text()).toContain(message);
+    expect(wrapper.get('[role="tooltip"]').text()).toContain("do not confirm runtime convergence");
+    expect(button.attributes("aria-describedby")).toBe("deployment-changes-tooltip");
+
+    await wrapper.get(".deployment-tabs").trigger("pointerdown");
+    expect(wrapper.find('[role="tooltip"]').exists()).toBe(false);
+    expect(button.attributes("aria-expanded")).toBe("false");
+    expect(store.deploymentDetailsModalOpen).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("supports hover and Escape without closing the deployment modal", async () => {
+    const store = useOverviewStore();
+    store.deploymentDetailsModalOpen = true;
+    store.deploymentDetailsData = deployment("succeeded", "successful_baseline");
+    const wrapper = mount(DeploymentDetailsModal);
+
+    const trigger = wrapper.get(".deployment-info");
+    const hover = (name: string) => trigger.element.dispatchEvent(
+      Object.assign(new Event(name), { pointerType: "mouse" }),
+    );
+    hover("pointerenter");
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[role="tooltip"]').exists()).toBe(true);
+    hover("pointerleave");
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[role="tooltip"]').exists()).toBe(false);
+
+    await trigger.get("button").trigger("click");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[role="tooltip"]').exists()).toBe(false);
+    expect(store.deploymentDetailsModalOpen).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("shows the configuration masking explanation without modifying the YAML viewer", async () => {
+    const store = useOverviewStore();
+    store.deploymentDetailsModalOpen = true;
+    store.deploymentDetailsData = deployment("succeeded", "successful_baseline");
+    const wrapper = mount(DeploymentDetailsModal);
+
+    await wrapper.get('[role="tab"]:last-child').trigger("click");
+    expect(wrapper.get(".deployment-info-heading h3").text()).toBe("Configuration Snapshot");
+    expect(wrapper.text()).not.toContain("Sensitive values are masked before storage.");
+    expect(wrapper.get('[aria-label="Recorded desired configuration YAML"]').html()).toContain("****");
+    await wrapper.get('[aria-label="About configuration snapshot"]').trigger("click");
+    expect(wrapper.get('[role="tooltip"]').text()).toBe("Sensitive values are masked before storage.");
+    await wrapper.get('[role="tab"]:first-child').trigger("click");
+    expect(wrapper.find('[role="tooltip"]').exists()).toBe(false);
     wrapper.unmount();
   });
 
