@@ -110,6 +110,8 @@ func TestClassifyWrappedGitNetworkErrors(t *testing.T) {
 	}{
 		{name: "wrapped refusal", err: fmt.Errorf("transport: %w", &plumbing.UnexpectedError{Err: &net.OpError{Op: "dial", Err: syscall.ECONNREFUSED}}), want: "Git repository connection refused"},
 		{name: "wrapped timeout", err: &plumbing.UnexpectedError{Err: &net.OpError{Op: "dial", Err: context.DeadlineExceeded}}, want: "Git repository connection timed out"},
+		{name: "host unreachable", err: &plumbing.UnexpectedError{Err: syscall.EHOSTUNREACH}, want: "Git repository host unreachable"},
+		{name: "network unreachable", err: &plumbing.UnexpectedError{Err: syscall.ENETUNREACH}, want: "Git repository network unreachable"},
 		{name: "wrapped DNS", err: &plumbing.UnexpectedError{Err: &net.DNSError{Err: "token=private", Name: "private.example", IsTemporary: true}}, want: "Git repository DNS lookup failed"},
 	}
 	for _, tc := range tests {
