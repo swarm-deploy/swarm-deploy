@@ -139,6 +139,13 @@ const statusIcon = computed<"check" | "running" | "failed" | "warning">(() => {
     default: return "warning";
   }
 });
+// Keep date and time legible within the two-column mobile metadata layout.
+function formatCompactDate(raw: string): string {
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.valueOf())) return raw;
+  const twoDigits = (value: number) => String(value).padStart(2, "0");
+  return `${twoDigits(parsed.getDate())}.${twoDigits(parsed.getMonth() + 1)}.${twoDigits(parsed.getFullYear() % 100)} ${twoDigits(parsed.getHours())}:${twoDigits(parsed.getMinutes())}:${twoDigits(parsed.getSeconds())}`;
+}
 const duration = computed(() => {
   const ms = detail.value?.duration_ms;
   return ms == null ? (detail.value?.status === "running" ? "In progress" : "—") : ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
@@ -269,8 +276,8 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
           <dl v-if="detail && !store.deploymentDetailsLoading && !store.deploymentDetailsError" class="deployment-metadata">
             <div class="deployment-metadata-item"><dt><DeploymentIcon name="stack" />Stack</dt><dd>{{ detail.stack }}</dd></div>
             <div class="deployment-metadata-item"><dt><DeploymentIcon name="commit" />Commit</dt><dd><button v-if="detail.commit" type="button" class="deployment-commit-link" @click="openCommit">{{ shortCommitHash(detail.commit) }}<span aria-hidden="true">↗</span></button><span v-else>—</span></dd></div>
-            <div class="deployment-metadata-item"><dt><DeploymentIcon name="calendar" />Started</dt><dd>{{ formatDate(detail.started_at) }}</dd></div>
-            <div class="deployment-metadata-item"><dt><DeploymentIcon name="calendar" />Finished</dt><dd>{{ detail.finished_at ? formatDate(detail.finished_at) : detail.status === "running" ? "In progress" : "—" }}</dd></div>
+            <div class="deployment-metadata-item"><dt><DeploymentIcon name="calendar" />Started</dt><dd><span class="deployment-date-desktop">{{ formatDate(detail.started_at) }}</span><span class="deployment-date-mobile">{{ formatCompactDate(detail.started_at) }}</span></dd></div>
+            <div class="deployment-metadata-item"><dt><DeploymentIcon name="calendar" />Finished</dt><dd><span class="deployment-date-desktop">{{ detail.finished_at ? formatDate(detail.finished_at) : detail.status === "running" ? "In progress" : "—" }}</span><span class="deployment-date-mobile">{{ detail.finished_at ? formatCompactDate(detail.finished_at) : detail.status === "running" ? "In progress" : "—" }}</span></dd></div>
             <div class="deployment-metadata-item"><dt><DeploymentIcon name="clock" />Duration</dt><dd>{{ duration }}</dd></div>
             <div class="deployment-metadata-item"><dt><DeploymentIcon name="config" />Stage</dt><dd>{{ detail.phase }}</dd></div>
           </dl>
@@ -437,6 +444,7 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
 .deployment-metadata dt > :deep(.deployment-icon) { position: absolute; left: 18px; top: 50%; width: 22px; height: 22px; color: var(--muted); transform: translateY(-50%); }
 .deployment-metadata-item:first-child dt > :deep(.deployment-icon) { left: 0; }
 .deployment-metadata dd { margin: 4px 0 0; overflow-wrap: anywhere; line-height: 1.25; }
+.deployment-date-mobile { display: none; }
 .deployment-commit-link { display: inline-flex; align-items: center; gap: 7px; border: 0; background: transparent; color: var(--control-primary); padding: 0; font: inherit; font-family: ui-monospace, monospace; }
 .deployment-commit-link:hover { transform: none; filter: none; text-decoration: underline; }
 .deployment-commit-link span { font-family: inherit; font-size: .95rem; }
@@ -555,24 +563,35 @@ details[open] > summary .deployment-chevron { transform: rotate(90deg); }
   .deployment-title h2 { font-size: 1.25rem; }
   .deployment-status { font-size: .78rem; }
 
-  /* Compact two-column metadata leaves room for the actual deployment diff. */
-  .deployment-metadata { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+  /* Show icon-and-value metadata without cards or redundant stack/stage fields on mobile. */
+  .deployment-metadata { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 10px; margin-top: 14px; }
   .deployment-metadata-item,
   .deployment-metadata-item:first-child,
   .deployment-metadata-item:nth-child(4) {
-    min-height: 60px;
-    padding: 9px 10px;
-    border: 1px solid var(--border-subtle);
-    border-radius: 9px;
-    background: var(--surface-muted);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    min-height: 24px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
   }
-  .deployment-metadata-item:first-child dt,
-  .deployment-metadata-item:first-child dd { padding-left: 0; }
-  .deployment-metadata dt { font-size: .72rem; }
-  .deployment-metadata dt > :deep(.deployment-icon) { display: none; }
-  .deployment-metadata dd { margin-top: 5px; font-size: .82rem; }
-  .deployment-metadata-item:nth-child(3) dd,
-  .deployment-metadata-item:nth-child(4) dd { font-size: .78rem; font-variant-numeric: tabular-nums; }
+  .deployment-metadata-item:first-child,
+  .deployment-metadata-item:last-child { display: none; }
+  .deployment-metadata dt { display: flex; flex: 0 0 19px; align-items: center; font-size: 0; }
+  .deployment-metadata dt > :deep(.deployment-icon) {
+    position: static;
+    display: block;
+    width: 19px;
+    height: 19px;
+    color: var(--muted);
+    transform: none;
+  }
+  .deployment-metadata dd { min-width: 0; margin: 0; font-size: .82rem; line-height: 1.25; }
+  .deployment-date-desktop { display: none; }
+  .deployment-date-mobile { display: inline; font-size: .74rem; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 
   .deployment-outcome { grid-template-columns: 34px minmax(0, 1fr); gap: 12px; padding: 14px; }
   .deployment-outcome-icon { width: 32px; height: 32px; }
