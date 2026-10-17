@@ -14,11 +14,11 @@ import (
 
 func TestUpdateSecretLabelsPreservesMetadata(t *testing.T) {
 	original := dockerswarm.Secret{ID: "secret-id", Meta: dockerswarm.Meta{Version: dockerswarm.Version{Index: 7}}, Spec: dockerswarm.SecretSpec{
-		Annotations: dockerswarm.Annotations{Name: "password", Labels: map[string]string{"old": "label"}},
+		Annotations: dockerswarm.Annotations{Name: "password", Labels: map[string]string{"old": "label", stackNamespaceLabelKey: "app"}},
 		Driver:      &dockerswarm.Driver{Name: "vault", Options: map[string]string{"key": "app/password"}},
 		Templating:  &dockerswarm.Driver{Name: "golang"},
 	}}
-	labels := map[string]string{"purpose": "app"}
+	labels := map[string]string{"purpose": "app", stackNamespaceLabelKey: "app"}
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		calls++
@@ -47,4 +47,29 @@ func TestUpdateSecretLabelsPreservesMetadata(t *testing.T) {
 	defer func() { require.NoError(t, docker.Close()) }()
 	require.NoError(t, newSecretManager(docker).UpdateLabels(t.Context(), "secret-id", labels))
 	assert.Equal(t, 2, calls)
+}
+
+func TestUpdateSecretLabelsRechecksOwnership(t *testing.T) {
+	for _, owner := range []string{"other-stack", ""} {
+		t.Run("current owner="+owner, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				if req.Method != http.MethodGet || req.URL.Path != "/v1.48/secrets/secret-id" {
+					t.Error("must not update a secret with conflicting or missing ownership")
+					http.Error(w, "unexpected update", http.StatusInternalServerError)
+					return
+				}
+				assert.NoError(t, json.NewEncoder(w).Encode(dockerswarm.Secret{
+					ID: "secret-id", Spec: dockerswarm.SecretSpec{Annotations: dockerswarm.Annotations{
+						Name: "password", Labels: map[string]string{stackNamespaceLabelKey: owner},
+					}},
+				}))
+			}))
+			defer server.Close()
+			docker, err := client.NewClientWithOpts(client.WithHost(server.URL), client.WithHTTPClient(server.Client()), client.WithVersion("1.48"))
+			require.NoError(t, err)
+			defer func() { require.NoError(t, docker.Close()) }()
+			err = newSecretManager(docker).UpdateLabels(t.Context(), "secret-id", map[string]string{stackNamespaceLabelKey: "app"})
+			require.ErrorContains(t, err, "ownership conflict")
+		})
+	}
 }

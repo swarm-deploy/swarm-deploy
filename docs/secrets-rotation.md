@@ -48,7 +48,10 @@ regular services use the resulting Docker Secret IDs.
 The Docker CLI receives external references for **all API-managed Secrets**,
 including plaintext and driver-backed Secrets, preserving names and mount options.
 Mutable labels of reused API-managed Secrets are synchronized through the Docker
-API; external Secrets remain untouched. No decrypted file is written to disk or
+API only when their `com.docker.stack.namespace` matches the current stack.
+Conflicting or missing ownership fails reconciliation without changing Secret
+labels; external Secrets remain untouched. Sanitized API failures retain their
+`Temporary()` classification for Alert Management. No decrypted file is written to disk or
 embedded in rendered
 Compose, deployment snapshots, logs, traces or errors. The original Compose and
 encrypted file remain unchanged. Decrypted payloads must fit Docker's 500 KiB

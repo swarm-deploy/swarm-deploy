@@ -78,6 +78,11 @@ func (r *secretManager) UpdateLabels(ctx context.Context, secretID string, label
 	if err != nil {
 		return fmt.Errorf("inspect secret for label update: %w", err)
 	}
+	// Recheck the freshly inspected owner: labels may have changed since List.
+	owner := labels[stackNamespaceLabelKey]
+	if owner == "" || secret.Spec.Labels[stackNamespaceLabelKey] != owner {
+		return fmt.Errorf("secret %s ownership conflict", secretID)
+	}
 	secret.Spec.Labels = labels
 	if err = r.dockerClient.SecretUpdate(ctx, secret.ID, secret.Version, secret.Spec); err != nil {
 		return fmt.Errorf("update secret labels: %w", err)

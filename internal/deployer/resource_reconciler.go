@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -112,6 +113,9 @@ func (r *resourceReconciler) reconcileSecrets(
 		return nil, fmt.Errorf("list secrets: %w", listErr)
 	}
 	existingByName := secretsByName(existing)
+	if err := validateSecretOwnership(stackName, objects, existingByName); err != nil {
+		return nil, err
+	}
 
 	for _, alias := range sortedObjectAliases(objects) {
 		object := objects[alias]
@@ -121,7 +125,7 @@ func (r *resourceReconciler) reconcileSecrets(
 			labels := resourceLabels(stackName, object.Labels.Map)
 			if !object.External && !maps.Equal(secret.Labels, labels) {
 				if err := r.secrets.UpdateLabels(ctx, secret.ID, labels); err != nil {
-					return nil, fmt.Errorf("update secret %s: Docker API request failed", name)
+					return nil, fmt.Errorf("update secret %s: %w", name, faults.SanitizeError(err, "Docker API request failed"))
 				}
 				secret.Labels = labels
 				existingByName[name] = secret
@@ -143,7 +147,7 @@ func (r *resourceReconciler) reconcileSecrets(
 		})
 		if err != nil {
 			// Remote errors may echo secret payloads, regardless of their source format.
-			return nil, fmt.Errorf("create secret %s: Docker API request failed", name)
+			return nil, fmt.Errorf("create secret %s: %w", name, faults.SanitizeError(err, "Docker API request failed"))
 		}
 
 		resolved[alias] = ResolvedResource{ID: createdID, Name: name}
@@ -151,6 +155,19 @@ func (r *resourceReconciler) reconcileSecrets(
 	}
 
 	return resolved, nil
+}
+
+// Validate the entire batch before adopting resources or changing any labels.
+func validateSecretOwnership(stackName string, objects compose.Secrets, existing map[string]swarm.Secret) error {
+	for _, alias := range sortedObjectAliases(objects) {
+		object := objects[alias]
+		name := dockerSecretName(stackName, alias, object)
+		if secret, exists := existing[name]; exists && !object.External &&
+			secret.Labels[labelsdict.StackNamespace] != stackName {
+			return fmt.Errorf("secret %s ownership conflict: expected stack %s", name, stackName)
+		}
+	}
+	return nil
 }
 
 func configsByName(configs []swarm.Config) map[string]swarm.Config {
