@@ -20,9 +20,17 @@ func withInitJobLogs(err error) (error, bool) {
 	if !errors.As(err, &logged) {
 		return err, false
 	}
+	lines := initJobDiagnosticLines(logged.Logs())
+	if len(lines) == 0 {
+		return err, true
+	}
+	return fmt.Errorf("%w\ninit job logs:\n%s", err, strings.Join(lines, "\n")), true
+}
+
+func initJobDiagnosticLines(logs []string) []string {
 	var lines []string
 	used := 0
-	for _, raw := range logged.Logs() {
+	for _, raw := range logs {
 		for _, line := range strings.Split(raw, "\n") {
 			line = strings.TrimSpace(line)
 			if line == "" || mayContainCredentials(line) {
@@ -46,10 +54,7 @@ func withInitJobLogs(err error) (error, bool) {
 			break
 		}
 	}
-	if len(lines) == 0 {
-		return err, true
-	}
-	return fmt.Errorf("%w\ninit job logs:\n%s", err, strings.Join(lines, "\n")), true
+	return lines
 }
 
 // Unknown log formats are not guaranteed to be safe. Drop likely credential
@@ -59,7 +64,7 @@ func mayContainCredentials(line string) bool {
 	for _, marker := range []string{
 		"password", "passwd", "secret", "token", "credential", "authorization",
 		"bearer", "private_key", "api_key", "apikey", "dsn", "database_url",
-		"postgres://", "postgresql://", "://", "-----begin", "=", 
+		"postgres://", "postgresql://", "://", "-----begin", "=",
 	} {
 		if strings.Contains(value, marker) {
 			return true

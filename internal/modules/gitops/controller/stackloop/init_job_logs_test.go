@@ -12,7 +12,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
-	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -26,7 +25,7 @@ type failedJobWithLogs struct {
 	logs []string
 }
 
-func (e *failedJobWithLogs) Error() string { return "job exited with status 1" }
+func (e *failedJobWithLogs) Error() string  { return "job exited with status 1" }
 func (e *failedJobWithLogs) Logs() []string { return e.logs }
 
 func TestWithInitJobLogs(t *testing.T) {
