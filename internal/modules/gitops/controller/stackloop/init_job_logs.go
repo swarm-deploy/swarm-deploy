@@ -40,7 +40,7 @@ func initJobDiagnosticLines(logs []string) []string {
 			if line == "" {
 				continue
 			}
-			remaining := maxInitJobDiagnosticBytes - used
+			remaining := maxInitJobDiagnosticBytes - used - len(lines)
 			if remaining <= 0 || len(lines) >= maxInitJobDiagnosticLines {
 				break
 			}
@@ -50,7 +50,7 @@ func initJobDiagnosticLines(logs []string) []string {
 			lines = append(lines, line)
 			used += len(line)
 		}
-		if used >= maxInitJobDiagnosticBytes || len(lines) >= maxInitJobDiagnosticLines {
+		if used+len(lines) >= maxInitJobDiagnosticBytes || len(lines) >= maxInitJobDiagnosticLines {
 			break
 		}
 	}

@@ -50,6 +50,34 @@ func TestWithInitJobLogs(t *testing.T) {
 	assert.EqualError(t, original, "regular failure")
 }
 
+func TestInitJobDiagnosticLines(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		logs []string
+		want []string
+	}{
+		{name: "empty"},
+		{name: "filtered", logs: []string{"password=hidden", "  "}},
+		{name: "multiline", logs: []string{" first\n\n second "}, want: []string{"first", "second"}},
+		{
+			name: "byte limit includes separators",
+			logs: []string{"first", strings.Repeat("x", maxInitJobDiagnosticBytes)},
+			want: []string{"first", strings.Repeat("x", maxInitJobDiagnosticBytes-len("first\n"))},
+		},
+		{
+			name: "line limit",
+			logs: []string{strings.Repeat("line\n", maxInitJobDiagnosticLines+1)},
+			want: strings.Split(strings.TrimSuffix(strings.Repeat("line\n", maxInitJobDiagnosticLines), "\n"), "\n"),
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			lines := initJobDiagnosticLines(tt.logs)
+			assert.Equal(t, tt.want, lines)
+			assert.LessOrEqual(t, len(strings.Join(lines, "\n")), maxInitJobDiagnosticBytes)
+		})
+	}
+}
+
 func TestFailedInitJobLogsReachDurableDeploymentDiagnostics(t *testing.T) {
 	ctx := context.Background()
 	db, state := newSQLState(t)
