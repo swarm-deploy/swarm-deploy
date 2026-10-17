@@ -288,7 +288,16 @@ func (r *Reconciler) recordPipelineFailure(
 		failed := prev
 		code := "apply_failed"
 		status := deployment.Failed
+		// Keep Docker job output out of returned errors and tracing; only the
+		// bounded, masked excerpt is passed to durable failure diagnostics.
+		var failureCause error = pipeErr
 		switch pipeErr.StepName {
+		case "deploy stack":
+			var initJobFailure bool
+			failureCause, initJobFailure = withInitJobLogs(pipeErr)
+			if initJobFailure {
+				code = "init_failed"
+			}
 		case "load live state":
 			code, status = "verification_unknown", deployment.Interrupted
 		case "prune orphaned services":
@@ -306,16 +315,16 @@ func (r *Reconciler) recordPipelineFailure(
 		failed.Status = model.NewStackStatus(failed.Services)
 		switch code {
 		case "verification_unknown":
-			persistErr = r.deployments.InterruptVerificationWithError(ctx, pl.Attempt.ID, failed, pipeErr)
+			persistErr = r.deployments.InterruptVerificationWithError(ctx, pl.Attempt.ID, failed, failureCause)
 		case pruneFailureCode:
-			persistErr = r.deployments.FailCleanupWithError(ctx, pl.Attempt.ID, failed, code, pl.ObservedAt, pipeErr)
+			persistErr = r.deployments.FailCleanupWithError(ctx, pl.Attempt.ID, failed, code, pl.ObservedAt, failureCause)
 		default:
-			persistErr = r.deployments.FailApplyWithError(ctx, pl.Attempt.ID, failed, code, pipeErr)
+			persistErr = r.deployments.FailApplyWithError(ctx, pl.Attempt.ID, failed, code, failureCause)
 		}
 		if persistErr != nil {
 			r.pending[req.Stack.Name] = pendingCompletion{
 				deploymentID: pl.Attempt.ID, state: failed, status: status, errorCode: code,
-				cause: faults.SafeError(pipeErr), observedAt: pl.ObservedAt,
+				cause: faults.SafeError(failureCause), observedAt: pl.ObservedAt,
 			}
 		}
 		for _, service := range services {
