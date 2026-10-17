@@ -2,6 +2,7 @@ package alertmanagement
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/configstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
@@ -17,6 +19,9 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
+	gitopsmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
 
@@ -470,7 +475,7 @@ func TestGitNetworkDiagnosticReachesAlertAfterDurableCodec(t *testing.T) {
 		decoded, decodeErr := codec.Decode(events.TypeNameGitPullFailed, codec.Version, payload)
 		require.NoError(t, decodeErr)
 		require.NoError(t, subscriber.Handle(ctx, events.Envelope{
-			ID: fmt.Sprintf("git-failure-%d", i),
+			ID:         fmt.Sprintf("git-failure-%d", i),
 			OccurredAt: startedAt.Add(time.Duration(i) * time.Second), Event: decoded,
 		}))
 	}
@@ -480,4 +485,74 @@ func TestGitNetworkDiagnosticReachesAlertAfterDurableCodec(t *testing.T) {
 	assert.Equal(t, diagnostic, alerts[0].Message)
 	assert.EqualValues(t, 3, alerts[0].Occurrences)
 	assert.Equal(t, diagnostic, alertSnapshot(alerts[0]).Message)
+}
+
+func TestDeploymentCompletionOutboxPreservesAlertThresholds(t *testing.T) {
+	for _, phase := range []string{"apply", "verification", "cleanup"} {
+		for _, temporary := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/temporary=%t", phase, temporary), func(t *testing.T) {
+				ctx := context.Background()
+				dir := t.TempDir()
+				db, err := storage.Open(ctx, dir)
+				require.NoError(t, err)
+				bus := outbox.New(db)
+				repo := modelstore.NewSQLStore(db)
+				subscriber := newTestSQLSubscriber(repo)
+				typ := events.TypeNameDeployFailed
+				if phase == "verification" {
+					typ = events.TypeNameDeployInterrupted
+				}
+				require.NoError(t, bus.Subscribe(typ, "alerts", subscriber))
+				for i := range 3 {
+					service := deployment.NewService(db, bus)
+					attempt, startErr := service.StartIfChanged(ctx, "app", fmt.Sprint(i), compose.File{
+						Compose: compose.Compose{Services: compose.Services{{Name: "api", Image: "api:1"}}},
+					}, true)
+					require.NoError(t, startErr)
+					var cause error = errors.New("token=private-value")
+					if temporary {
+						cause = fmt.Errorf("wrapped: %w", temporaryError{message: "token=private-value"})
+					}
+					switch phase {
+					case "apply":
+						err = service.FailApplyWithError(ctx, attempt.ID, gitopsmodel.Stack{}, "apply_failed", cause)
+					case "verification":
+						err = service.InterruptVerificationWithError(ctx, attempt.ID, gitopsmodel.Stack{}, cause)
+					case "cleanup":
+						err = service.FailCleanupWithError(ctx, attempt.ID, gitopsmodel.Stack{}, "prune_failed", time.Now(), cause)
+					}
+					require.NoError(t, err)
+					stored, readErr := deployment.NewStore(db).Get(ctx, attempt.ID)
+					require.NoError(t, readErr)
+					assert.NotContains(t, stored.ErrorDiagnostic, "private-value")
+					assert.Contains(t, stored.ErrorDiagnostic, "****")
+					var payload string
+					require.NoError(t, db.Get(ctx, &payload, "SELECT payload FROM outbox_events WHERE event_type=?", typ))
+					assert.NotContains(t, payload, "private-value")
+					assert.Contains(t, payload, fmt.Sprintf(`"temporary":%t`, temporary))
+					// Reopen before delivery: the subscriber must consume the persisted classification.
+					require.NoError(t, db.Close())
+					db, err = storage.Open(ctx, dir)
+					require.NoError(t, err)
+					bus = outbox.New(db)
+					repo = modelstore.NewSQLStore(db)
+					subscriber = newTestSQLSubscriber(repo)
+					require.NoError(t, bus.Subscribe(typ, "alerts", subscriber))
+					processed, processErr := bus.ProcessNext(ctx)
+					require.NoError(t, processErr)
+					require.True(t, processed)
+					alerts, listErr := repo.List(ctx, modelstore.ListFilter{})
+					require.NoError(t, listErr)
+					if temporary && i < 2 {
+						assert.Empty(t, alerts)
+					} else {
+						require.Len(t, alerts, 1)
+						assert.EqualValues(t, i+1, alerts[0].Occurrences)
+						assert.NotContains(t, alerts[0].Message, "private-value")
+					}
+				}
+				require.NoError(t, db.Close())
+			})
+		}
+	}
 }

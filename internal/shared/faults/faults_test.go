@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
+	"net"
 	"strings"
 	"testing"
 
@@ -45,4 +47,19 @@ func TestSafeLoggerMasksErrorAttributes(t *testing.T) {
 	assert.NotContains(t, output.String(), "password")
 	assert.NotContains(t, output.String(), "private-value")
 	assert.Contains(t, output.String(), "****")
+}
+
+func TestSafeErrorPreservesClassificationWithoutRetainingCause(t *testing.T) {
+	for _, temporary := range []bool{false, true} {
+		original := &net.DNSError{Err: "token=private-value", IsTemporary: temporary}
+		safe := SafeError(fmt.Errorf("lookup: %w", original))
+		assert.Equal(t, SafeDiagnostic(original), strings.TrimPrefix(safe.Error(), "lookup: "))
+		assert.Equal(t, temporary, safe.(Error).Temporary())
+		assert.NotContains(t, safe.Error(), "private-value")
+		assert.Nil(t, errors.Unwrap(safe))
+		assert.False(t, errors.Is(safe, original))
+	}
+	assert.Nil(t, SafeError(nil))
+	assert.False(t, SafeError(errors.New("permanent")).(Error).Temporary())
+	assert.True(t, SafeError(&net.DNSError{IsTemporary: true}).(Error).Temporary())
 }
