@@ -22,6 +22,7 @@ swarm-deploy is a Swarm-native GitOps controller inspired by Argo CD. It keeps s
 - Optional **image policy** for requiring tags or digests and rejecting `latest`. See [image policy](./docs/image-policy.md).
 - [**Managed Docker networks**](./docs/networks.md) kept in Git and reconciled before stack deployment.
 - **Secret/config rollout rotation** using content-based names, so services receive new Docker objects when source files change. See [secret rotation](./docs/secrets-rotation.md).
+- **age-encrypted Docker Secrets** decrypted in memory from Compose `.age` files, with optional name rotation. See [encrypted secrets](./docs/secrets-rotation.md#age-encrypted-secrets).
 
 ### Service Catalog
 

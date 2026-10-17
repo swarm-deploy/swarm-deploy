@@ -52,6 +52,9 @@ type SecretManager interface {
 	// Create creates a Docker secret and returns its identifier.
 	Create(ctx context.Context, req CreateSecretRequest) (string, error)
 
+	// UpdateLabels updates only a secret's mutable labels, preserving its other metadata.
+	UpdateLabels(ctx context.Context, secretID string, labels map[string]string) error
+
 	// Remove deletes a Docker secret by identifier.
 	Remove(ctx context.Context, secretID string) error
 

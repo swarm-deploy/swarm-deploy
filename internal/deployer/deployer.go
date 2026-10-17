@@ -17,6 +17,7 @@ type Deployer struct {
 	stackDeployArgs []string
 	runner          Runner
 	resources       *resourceReconciler
+	secretResolver  *SecretResolver
 
 	initJobRunner initJobExecutor
 }
@@ -64,10 +65,12 @@ func NewDeployer(
 	dockerClient *client.Client,
 	swarmService *swarm.Swarm,
 	initJobMetrics InitJobMetrics,
+	secretResolver *SecretResolver,
 ) StackDeployer {
 	deployer := &Deployer{
 		stackDeployArgs: []string{"stack", "deploy", "--with-registry-auth", "--detach=false", "--quiet"},
 		runner:          swarmService.BinaryRunner,
+		secretResolver:  secretResolver,
 		resources:       newResourceReconciler(swarmService),
 		initJobRunner: NewInitJobRunner(
 			dockerClient,
@@ -97,8 +100,12 @@ func (d *Deployer) DeployStack(
 ) error {
 	resolved := resolvedResources{}
 	if len(desired.Configs) > 0 || len(desired.Secrets) > 0 {
-		var err error
-		resolved, err = d.resources.Reconcile(ctx, stackName, sourceComposePath, desired.Configs, desired.Secrets)
+		data, err := d.secretResolver.Resolve(ctx, stackName, sourceComposePath, desired.Secrets)
+		if err != nil {
+			return fmt.Errorf("resolve secrets: %w", err)
+		}
+		resolved, err = d.resources.Reconcile(ctx, stackName, desired.Configs, desired.Secrets, data)
+		clearSecretData(data)
 		if err != nil {
 			return fmt.Errorf("reconcile configs and secrets: %w", err)
 		}

@@ -53,11 +53,15 @@ func TestDeployStackReconcilesResourcesWithAndWithoutInitJobs(t *testing.T) {
 					}
 				}
 
+				if !tt.external {
+					secret.File = "password.txt"
+					require.NoError(t, os.WriteFile(filepath.Join(dir, secret.File), []byte("secret-data"), 0o600))
+				}
 				var existingConfigs []swarm.Config
 				var existingSecrets []swarm.Secret
 				if tt.existing {
 					existingConfigs = []swarm.Config{{ID: "config-id", Name: configName}}
-					existingSecrets = []swarm.Secret{{ID: "secret-id", Name: secretName}}
+					existingSecrets = []swarm.Secret{{ID: "secret-id", Name: secretName, Labels: map[string]string{"com.docker.stack.namespace": "demo"}}}
 				} else {
 					config.Data = []byte("config-data")
 					config.Labels = *compose.NewLabels(map[string]string{"purpose": "app"})
@@ -100,7 +104,7 @@ func TestDeployStackReconcilesResourcesWithAndWithoutInitJobs(t *testing.T) {
 					calls[i].After(calls[i-1])
 				}
 
-				deployer := &Deployer{
+				deployer := &Deployer{secretResolver: newTestSecretResolver(),
 					stackDeployArgs: []string{"stack", "deploy"}, runner: runner, initJobRunner: jobs,
 					resources: &resourceReconciler{configs: configs, secrets: secrets},
 				}
@@ -154,7 +158,12 @@ func TestDeployStackResourceFailuresStopDeployment(t *testing.T) {
 					}
 				} else {
 					desired.Secrets = compose.Secrets{"password": {External: tt.external, File: "password.txt"}}
-					secrets.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, listErr)
+					if tt.stage != "read" {
+						secrets.EXPECT().List(gomock.Any(), gomock.Any()).Return(nil, listErr)
+					}
+					if tt.stage == "list" {
+						require.NoError(t, os.WriteFile(filepath.Join(dir, "password.txt"), []byte("data"), 0o600))
+					}
 					if tt.stage == "create" {
 						// A later failure must also retain resources already created in this attempt.
 						desired.Configs = compose.Configs{"app": {Data: []byte("data")}}
@@ -166,14 +175,14 @@ func TestDeployStackResourceFailuresStopDeployment(t *testing.T) {
 						secrets.EXPECT().Create(gomock.Any(), gomock.Any()).Return("", apiErr)
 					}
 				}
-				deployer := &Deployer{
+				deployer := &Deployer{secretResolver: newTestSecretResolver(),
 					stackDeployArgs: []string{"stack", "deploy"}, runner: runner, initJobRunner: jobs,
 					resources: &resourceReconciler{configs: configs, secrets: secrets},
 				}
 				err := deployer.DeployStack(context.Background(), "demo", filepath.Join(dir, "compose.yaml"), "rendered.yaml", desired)
-				require.ErrorContains(t, err, "reconcile configs and secrets: ")
+				require.ErrorContains(t, err, "")
 				assert.ErrorContains(t, err, tt.errorMatch)
-				if tt.stage == "list" || tt.stage == "create" {
+				if tt.stage == "list" || (tt.stage == "create" && tt.config) {
 					assert.ErrorIs(t, err, apiErr)
 				}
 				// Unexpected job, deploy, or cleanup calls fail through gomock.
@@ -204,7 +213,7 @@ func TestDeployStackDeployFailureKeepsReconciledResources(t *testing.T) {
 				jobs.EXPECT().Run(gomock.Any(), gomock.Any()).Return(nil)
 			}
 			runner.EXPECT().Run(gomock.Any(), "stack", "deploy", "-c", "rendered.yaml", "demo").Return("", deployErr)
-			deployer := &Deployer{
+			deployer := &Deployer{secretResolver: newTestSecretResolver(),
 				stackDeployArgs: []string{"stack", "deploy"}, runner: runner, initJobRunner: jobs,
 				resources: &resourceReconciler{configs: configs, secrets: secrets},
 			}

@@ -101,7 +101,7 @@ func TestDeployStackReconcilesResourcesBeforeInitJobs(t *testing.T) {
 			dockerClient := newDockerTestClient(t, server)
 			initJobs := &fakeInitJobExecutor{events: &events}
 			runner := &fakeRunner{events: &events}
-			deployer := &Deployer{
+			deployer := &Deployer{secretResolver: newTestSecretResolver(),
 				stackDeployArgs: []string{"stack", "deploy"},
 				runner:          runner,
 				resources:       newResourceReconciler(swarm.NewSwarm(dockerClient, "")),
@@ -159,8 +159,8 @@ func TestResourceReconcilerReusesExistingResource(t *testing.T) {
 	resolved, err := newResourceReconciler(swarm.NewSwarm(newDockerTestClient(t, server), "")).Reconcile(
 		context.Background(),
 		"demo",
-		filepath.Join(t.TempDir(), "compose.yaml"),
 		compose.Configs{"app-config": {Alias: "app-config", File: "unused.yaml"}},
+		nil,
 		nil,
 	)
 	require.NoError(t, err, "reconcile resources")
@@ -201,9 +201,9 @@ func TestResourceReconcilerUsesRotatedNameOnce(t *testing.T) {
 		"app-config": {Alias: "app-config", Name: rotatedName, File: "config.yaml", Data: []byte("v2")},
 	}
 
-	first, err := reconciler.Reconcile(context.Background(), "demo", filepath.Join(dir, "compose.yaml"), objects, nil)
+	first, err := reconciler.Reconcile(context.Background(), "demo", objects, nil, nil)
 	require.NoError(t, err, "first reconcile")
-	second, err := reconciler.Reconcile(context.Background(), "demo", filepath.Join(dir, "compose.yaml"), objects, nil)
+	second, err := reconciler.Reconcile(context.Background(), "demo", objects, nil, nil)
 	require.NoError(t, err, "second reconcile")
 
 	assert.Equal(t, 1, createCalls, "rotated resource must be created once")
@@ -234,7 +234,7 @@ func TestDeployStackInitJobFailureDoesNotDeleteResources(t *testing.T) {
 	initErr := errors.New("migration failed")
 	initJobs := &fakeInitJobExecutor{errAt: 1, err: initErr}
 	runner := &fakeRunner{}
-	deployer := &Deployer{
+	deployer := &Deployer{secretResolver: newTestSecretResolver(),
 		stackDeployArgs: []string{"stack", "deploy"},
 		runner:          runner,
 		resources:       newResourceReconciler(swarm.NewSwarm(newDockerTestClient(t, server), "")),
@@ -279,8 +279,8 @@ func TestResourceReconcilerListsMultipleResourcesInBulk(t *testing.T) {
 		case req.Method == http.MethodGet && path == "/secrets":
 			secretListCalls++
 			_ = json.NewEncoder(w).Encode([]dockerswarm.Secret{
-				{ID: "secret-a-id", Spec: dockerswarm.SecretSpec{Annotations: dockerswarm.Annotations{Name: "demo_secret-a"}}},
-				{ID: "secret-b-id", Spec: dockerswarm.SecretSpec{Annotations: dockerswarm.Annotations{Name: "demo_secret-b"}}},
+				{ID: "secret-a-id", Spec: dockerswarm.SecretSpec{Annotations: dockerswarm.Annotations{Name: "demo_secret-a", Labels: map[string]string{"com.docker.stack.namespace": "demo"}}}},
+				{ID: "secret-b-id", Spec: dockerswarm.SecretSpec{Annotations: dockerswarm.Annotations{Name: "demo_secret-b", Labels: map[string]string{"com.docker.stack.namespace": "demo"}}}},
 			})
 		case req.Method == http.MethodGet:
 			inspectCalls++
@@ -294,7 +294,6 @@ func TestResourceReconcilerListsMultipleResourcesInBulk(t *testing.T) {
 	resolved, err := newResourceReconciler(swarm.NewSwarm(newDockerTestClient(t, server), "")).Reconcile(
 		context.Background(),
 		"demo",
-		filepath.Join(t.TempDir(), "compose.yaml"),
 		compose.Configs{
 			"config-b": {Alias: "config-b", File: "unused-b"},
 			"config-a": {Alias: "config-a", File: "unused-a"},
@@ -303,6 +302,7 @@ func TestResourceReconcilerListsMultipleResourcesInBulk(t *testing.T) {
 			"secret-b": {Alias: "secret-b", File: "unused-b"},
 			"secret-a": {Alias: "secret-a", File: "unused-a"},
 		},
+		nil,
 	)
 	require.NoError(t, err, "reconcile resources")
 
@@ -346,7 +346,6 @@ func TestResourceReconcilerPreservesComposeResourceOptions(t *testing.T) {
 	_, err := newResourceReconciler(swarm.NewSwarm(newDockerTestClient(t, server), "")).Reconcile(
 		context.Background(),
 		"demo",
-		filepath.Join(dir, "compose.yaml"),
 		compose.Configs{
 			"app-config": {
 				Alias:          "app-config",
@@ -365,6 +364,7 @@ func TestResourceReconcilerPreservesComposeResourceOptions(t *testing.T) {
 				TemplateDriver: "golang",
 			},
 		},
+		nil,
 	)
 	require.NoError(t, err, "reconcile resources")
 	require.NoError(t, handlerErr, "decode create spec")
@@ -427,9 +427,9 @@ func TestResourceReconcilerDoesNotCreateMissingExternalResource(t *testing.T) {
 			_, err := newResourceReconciler(swarm.NewSwarm(newDockerTestClient(t, server), "")).Reconcile(
 				context.Background(),
 				"demo",
-				filepath.Join(t.TempDir(), "compose.yaml"),
 				tt.configs,
 				tt.secrets,
+				nil,
 			)
 			require.ErrorContains(t, err, tt.errorMatch)
 			assert.Zero(t, createCalls, "external resources must never be created")

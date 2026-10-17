@@ -156,11 +156,11 @@ func (r *Reconciler) addManagedLabel(_ context.Context, payload *pipelinePayload
 	return nil
 }
 
-func (r *Reconciler) rotateSecrets(_ context.Context, payload *pipelinePayload) error {
+func (r *Reconciler) rotateSecrets(ctx context.Context, payload *pipelinePayload) error {
 	// Rotation mutates secret/config object names in the in-memory compose model.
 	// We keep digest based on original source, but deploy a rendered, rotated file.
 	changed, err := r.composeRotator.Rotate(
-		payload.Desired,
+		ctx, payload.Desired,
 		payload.Stack.Name,
 		r.cfg.Spec.SecretRotation.HashLength,
 		r.cfg.Spec.SecretRotation.IncludePath,
@@ -183,7 +183,7 @@ func (r *Reconciler) writeRenderedCompose(_ context.Context, payload *pipelinePa
 		return fmt.Errorf("create rendered dir: %w", err)
 	}
 
-	rendered := stackDeployCompose(payload.Desired)
+	rendered := stackDeployCompose(payload.Desired, payload.Stack.Name)
 	r.normalizeRenderedObjectFilePaths(rendered)
 
 	content, err := rendered.MarshalYAML()
@@ -226,6 +226,11 @@ func needsRenderedCompose(payload *pipelinePayload) bool {
 	if payload.DesiredMutated {
 		return true
 	}
+	for _, secret := range payload.Desired.Compose.Secrets {
+		if !secret.External {
+			return true
+		}
+	}
 
 	for _, service := range payload.Desired.Compose.Services {
 		if len(service.InitJobs) > 0 {
@@ -236,12 +241,25 @@ func needsRenderedCompose(payload *pipelinePayload) bool {
 	return false
 }
 
-func stackDeployCompose(desired *compose.File) *compose.File {
+func stackDeployCompose(desired *compose.File, stackName string) *compose.File {
 	rendered := *desired
 	rendered.Compose = desired.Compose
 	rendered.Compose.Services = append(compose.Services(nil), desired.Compose.Services...)
 	rendered.Compose.Configs = cloneObjects(desired.Compose.Configs)
 	rendered.Compose.Secrets = cloneObjects(desired.Compose.Secrets)
+
+	// The API reconciler owns secret creation. Docker CLI receives references
+	// for all API-managed secrets, independently of their source format.
+	for alias, secret := range rendered.Compose.Secrets {
+		if secret.External {
+			continue
+		}
+		name := secret.Name
+		if name == "" {
+			name = stackName + "_" + alias
+		}
+		rendered.Compose.Secrets[alias] = &compose.Secret{Name: name, External: true}
+	}
 
 	for i := range rendered.Compose.Services {
 		rendered.Compose.Services[i].InitJobs = nil
@@ -350,7 +368,7 @@ func (r *Reconciler) pruneOrphanedServices(ctx context.Context, payload *pipelin
 
 func (r *Reconciler) cleanRotatedResources(ctx context.Context, payload *pipelinePayload) error {
 	desiredConfigs, desiredSecrets, err := r.composeRotator.DesiredResourceNames(
-		payload.Desired,
+		ctx, payload.Desired,
 		payload.Stack.Name,
 		r.cfg.Spec.SecretRotation.HashLength,
 		r.cfg.Spec.SecretRotation.IncludePath,

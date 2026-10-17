@@ -1,27 +1,30 @@
 package stackloop
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"os"
 	"path/filepath"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 )
 
 // Rotator rewrites config and secret names based on file contents.
 type Rotator struct {
+	fileSystem fs.FileSystem
 }
 
 // NewRotator builds a compose object rotator.
-func NewRotator() *Rotator {
-	return &Rotator{}
+func NewRotator(fileSystem fs.FileSystem) *Rotator {
+	return &Rotator{fileSystem: fileSystem}
 }
 
 // Rotate mutates shared object names in-place when rotation is enabled.
 func (f *Rotator) Rotate(
+	ctx context.Context,
 	file *compose.File,
 	stackName string,
 	hashLength int,
@@ -41,7 +44,7 @@ func (f *Rotator) Rotate(
 	}
 
 	if err := apply(applyObjectTypeRotation(
-		f,
+		ctx, f,
 		file.Compose.Configs,
 		stackName,
 		baseDir,
@@ -58,7 +61,7 @@ func (f *Rotator) Rotate(
 	}
 
 	if err := apply(applyObjectTypeRotation(
-		f,
+		ctx, f,
 		file.Compose.Secrets,
 		stackName,
 		baseDir,
@@ -78,6 +81,7 @@ func (f *Rotator) Rotate(
 }
 
 func applyObjectTypeRotation[T any, Objects ~map[string]*T](
+	ctx context.Context,
 	f *Rotator,
 	objects Objects,
 	stackName string,
@@ -98,7 +102,7 @@ func applyObjectTypeRotation[T any, Objects ~map[string]*T](
 			continue
 		}
 
-		fileBytes, err := os.ReadFile(resolveObjectFilePath(baseDir, objectFile))
+		fileBytes, err := f.fileSystem.ReadFile(ctx, resolveObjectFilePath(baseDir, objectFile))
 		if err != nil {
 			return false, fmt.Errorf("read %s for rotation: %w", objectFile, err)
 		}
@@ -117,6 +121,7 @@ func applyObjectTypeRotation[T any, Objects ~map[string]*T](
 
 // DesiredResourceNames resolves current rotated Docker names keyed by logical compose object name.
 func (f *Rotator) DesiredResourceNames(
+	ctx context.Context,
 	file *compose.File,
 	stackName string,
 	hashLength int,
@@ -125,7 +130,7 @@ func (f *Rotator) DesiredResourceNames(
 	baseDir := filepath.Dir(file.Path)
 
 	configs, err := resolveDesiredResourceNames(
-		f, file.Compose.Configs, stackName, baseDir, hashLength, includePath,
+		ctx, f, file.Compose.Configs, stackName, baseDir, hashLength, includePath,
 		func(config *compose.Config) (string, string, bool, compose.Labels) {
 			return config.Name, config.File, config.External, config.Labels
 		},
@@ -134,7 +139,7 @@ func (f *Rotator) DesiredResourceNames(
 		return nil, nil, fmt.Errorf("configs: %w", err)
 	}
 	secrets, err := resolveDesiredResourceNames(
-		f, file.Compose.Secrets, stackName, baseDir, hashLength, includePath,
+		ctx, f, file.Compose.Secrets, stackName, baseDir, hashLength, includePath,
 		func(secret *compose.Secret) (string, string, bool, compose.Labels) {
 			return secret.Name, secret.File, secret.External, secret.Labels
 		},
@@ -147,6 +152,7 @@ func (f *Rotator) DesiredResourceNames(
 }
 
 func resolveDesiredResourceNames[T any, Objects ~map[string]*T](
+	ctx context.Context,
 	rotator *Rotator,
 	objects Objects,
 	stackName string,
@@ -166,7 +172,7 @@ func resolveDesiredResourceNames[T any, Objects ~map[string]*T](
 			continue
 		}
 
-		fileBytes, err := os.ReadFile(resolveObjectFilePath(baseDir, objectFile))
+		fileBytes, err := rotator.fileSystem.ReadFile(ctx, resolveObjectFilePath(baseDir, objectFile))
 		if err != nil {
 			return nil, fmt.Errorf("read %s for rotation: %w", objectFile, err)
 		}

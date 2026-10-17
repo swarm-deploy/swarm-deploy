@@ -38,7 +38,7 @@ func TestDeployStackRunsInitJobsBeforeDeploy(t *testing.T) {
 	runner := &fakeRunner{
 		events: &events,
 	}
-	deployer := &Deployer{
+	deployer := &Deployer{secretResolver: newTestSecretResolver(),
 		stackDeployArgs: []string{"stack", "deploy", "--prune"},
 		runner:          runner,
 		initJobRunner:   initJobs,
@@ -109,7 +109,7 @@ func TestDeployStackStopsWhenInitJobFails(t *testing.T) {
 		err:   initErr,
 	}
 	runner := &fakeRunner{}
-	deployer := &Deployer{
+	deployer := &Deployer{secretResolver: newTestSecretResolver(),
 		stackDeployArgs: []string{"stack", "deploy"},
 		runner:          runner,
 		initJobRunner:   initJobs,
@@ -143,7 +143,7 @@ func TestDeployStackStopsWhenInitJobFails(t *testing.T) {
 func TestDeployStackDeploysWithoutInitJobs(t *testing.T) {
 	initJobs := &fakeInitJobExecutor{}
 	runner := &fakeRunner{}
-	deployer := &Deployer{
+	deployer := &Deployer{secretResolver: newTestSecretResolver(),
 		stackDeployArgs: []string{"stack", "deploy"},
 		runner:          runner,
 		initJobRunner:   initJobs,
