@@ -845,6 +845,91 @@ func decodeGetStackManifestosParams(args [1]string, argsEscaped bool, r *http.Re
 	return params, nil
 }
 
+// GetStackResourcesParams is parameters of getStackResources operation.
+type GetStackResourcesParams struct {
+	Stack string
+}
+
+func unpackGetStackResourcesParams(packed middleware.Parameters) (params GetStackResourcesParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "stack",
+			In:   "path",
+		}
+		params.Stack = packed[key].(string)
+	}
+	return params
+}
+
+func decodeGetStackResourcesParams(args [1]string, argsEscaped bool, r *http.Request) (params GetStackResourcesParams, _ error) {
+	// Decode path: stack.
+	if err := func() error {
+		param := args[0]
+		if argsEscaped {
+			unescaped, err := url.PathUnescape(args[0])
+			if err != nil {
+				return errors.Wrap(err, "unescape path")
+			}
+			param = unescaped
+		}
+		if len(param) > 0 {
+			d := uri.NewPathDecoder(uri.PathDecoderConfig{
+				Param:   "stack",
+				Value:   param,
+				Style:   uri.PathStyleSimple,
+				Explode: false,
+			})
+
+			if err := func() error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToString(val)
+				if err != nil {
+					return err
+				}
+
+				params.Stack = c
+				return nil
+			}(); err != nil {
+				return err
+			}
+			if err := func() error {
+				if err := (validate.String{
+					MinLength:     1,
+					MinLengthSet:  true,
+					MaxLength:     0,
+					MaxLengthSet:  false,
+					Email:         false,
+					Hostname:      false,
+					Regex:         nil,
+					MinNumeric:    0,
+					MinNumericSet: false,
+					MaxNumeric:    0,
+					MaxNumericSet: false,
+				}).Validate(string(params.Stack)); err != nil {
+					return errors.Wrap(err, "string")
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		} else {
+			return validate.ErrFieldRequired
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "stack",
+			In:   "path",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
 // GetTaskLogsParams is parameters of getTaskLogs operation.
 type GetTaskLogsParams struct {
 	TaskID string
@@ -1072,6 +1157,8 @@ func decodeGetTaskLogsParams(args [1]string, argsEscaped bool, r *http.Request) 
 type ListAlertsParams struct {
 	Status OptAlertStatus `json:",omitempty,omitzero"`
 	Limit  OptInt32       `json:",omitempty,omitzero"`
+	// Only alerts with resourceType=stack and resourceId exactly equal to this stack name.
+	Stack OptString `json:",omitempty,omitzero"`
 }
 
 func unpackListAlertsParams(packed middleware.Parameters) (params ListAlertsParams) {
@@ -1091,6 +1178,15 @@ func unpackListAlertsParams(packed middleware.Parameters) (params ListAlertsPara
 		}
 		if v, ok := packed[key]; ok {
 			params.Limit = v.(OptInt32)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "stack",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Stack = v.(OptString)
 		}
 	}
 	return params
@@ -1216,6 +1312,74 @@ func decodeListAlertsParams(args [0]string, argsEscaped bool, r *http.Request) (
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "limit",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: stack.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "stack",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotStackVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotStackVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.Stack.SetTo(paramsDotStackVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if value, ok := params.Stack.Get(); ok {
+					if err := func() error {
+						if err := (validate.String{
+							MinLength:     1,
+							MinLengthSet:  true,
+							MaxLength:     0,
+							MaxLengthSet:  false,
+							Email:         false,
+							Hostname:      false,
+							Regex:         nil,
+							MinNumeric:    0,
+							MinNumericSet: false,
+							MaxNumeric:    0,
+							MaxNumericSet: false,
+						}).Validate(string(value)); err != nil {
+							return errors.Wrap(err, "string")
+						}
+						return nil
+					}(); err != nil {
+						return err
+					}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "stack",
 			In:   "query",
 			Err:  err,
 		}

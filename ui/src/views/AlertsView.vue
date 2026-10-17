@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from "vue";
+import { computed, onMounted, ref, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 
 import { fetchAlerts } from "../api/overview";
 import type { Alert } from "../api/types";
@@ -10,6 +11,14 @@ import { formatDate } from "../utils/format";
 
 const overviewStore = useOverviewStore();
 const showResolved = ref(false);
+const route = useRoute();
+const router = useRouter();
+const stackFilter = computed(() => typeof route.query.stack_name === "string" ? route.query.stack_name : "");
+function clearStackFilter() {
+  const query = { ...route.query };
+  delete query.stack_name;
+  void router.replace({ query });
+}
 const alerts = ref<Alert[]>([]);
 const loading = ref(false);
 const loadingError = ref("");
@@ -17,10 +26,13 @@ let requestID = 0;
 
 async function loadAlerts() {
   loading.value = true;
+  alerts.value = [];
   loadingError.value = "";
   const currentRequestID = ++requestID;
   try {
-    const response = await fetchAlerts(showResolved.value ? {} : { status: "open" });
+    const options: Parameters<typeof fetchAlerts>[0] = showResolved.value ? {} : { status: "open" };
+    if (stackFilter.value) options.stack = stackFilter.value;
+    const response = await fetchAlerts(options);
     if (currentRequestID === requestID) {
       alerts.value = Array.isArray(response.alerts) ? response.alerts : [];
     }
@@ -34,7 +46,7 @@ async function loadAlerts() {
   }
 }
 
-watch(showResolved, () => void loadAlerts());
+watch([showResolved, stackFilter], () => void loadAlerts());
 onMounted(() => void loadAlerts());
 </script>
 
@@ -45,13 +57,14 @@ onMounted(() => void loadAlerts());
         <input v-model="showResolved" type="checkbox" />
         <span>Show resolved alerts</span>
       </label>
+      <p v-if="stackFilter" class="meta">Stack: <strong>{{ stackFilter }}</strong> <button type="button" class="button-ghost" @click="clearStackFilter">Clear stack filter</button></p>
     </header>
 
     <AppTableEmpty v-if="loading && alerts.length === 0" message="Loading alerts..." />
     <AppTableEmpty v-else-if="loadingError">Failed to load alerts: {{ loadingError }}</AppTableEmpty>
     <div v-else-if="alerts.length === 0 && !showResolved" class="app-table-empty alerts-empty">
       <strong>No active alerts</strong>
-      <p class="meta">All alerts are resolved.</p>
+      <p class="meta">{{ stackFilter ? "No active alerts for this stack." : "All alerts are resolved." }}</p>
     </div>
     <AppTableEmpty v-else-if="alerts.length === 0" message="No alerts." />
     <AppTable v-else fixed min-width="800px" table-class="alerts-table" wrap-class="alerts-table-wrap">
