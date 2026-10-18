@@ -11,9 +11,107 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pressly/goose/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	sqlitemigrations "github.com/swarm-deploy/swarm-deploy/migrations/sqlite"
 )
+
+func TestDeploymentAttemptMigrationPreservesExistingHistory(t *testing.T) {
+	db, err := Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	provider, err := goose.NewProvider(goose.DialectSQLite3, db.db.DB, sqlitemigrations.Files)
+	require.NoError(t, err)
+	_, err = provider.DownTo(t.Context(), 1)
+	require.NoError(t, err)
+	finished := time.Date(2026, 10, 18, 10, 0, 0, 0, time.UTC)
+	_, err = db.Exec(t.Context(), `INSERT INTO deployments
+		(id,stack,"commit",status,error_code,phase,started_at,finished_at,
+		 desired_payload,details_payload,changes_payload)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+		"legacy-deployment", "app", "sha", "failed", "apply_failed", "apply",
+		finished.Add(-time.Minute), finished, `{"digest":"digest"}`,
+		`{"error_diagnostic":"old failure","apply_status":"failed","verification_status":"skipped","cleanup_status":"skipped","actual_state_status":"unknown","comparison_basis":"none","comparison_status":"unknown","summary":{},"resources":{},"diff_available":true}`,
+		`[]`)
+	require.NoError(t, err)
+	_, err = db.Exec(t.Context(),
+		"INSERT INTO desired_snapshots(stack,deployment_id) VALUES (?,?)", "app", "legacy-deployment")
+	require.NoError(t, err)
+	_, err = provider.Up(t.Context())
+	require.NoError(t, err)
+
+	var deploymentRow struct {
+		LatestAttemptID string `db:"latest_attempt_id"`
+		AttemptCount    int    `db:"attempt_count"`
+		Status          string `db:"status"`
+	}
+	require.NoError(t, db.Get(t.Context(), &deploymentRow,
+		"SELECT latest_attempt_id,attempt_count,status FROM deployments WHERE id=?", "legacy-deployment"))
+	assert.Equal(t, "legacy-deployment-attempt-1", deploymentRow.LatestAttemptID)
+	assert.Equal(t, 1, deploymentRow.AttemptCount)
+	assert.Equal(t, "failed", deploymentRow.Status)
+	var attemptRow struct {
+		DeploymentID string `db:"deployment_id"`
+		Number       int    `db:"number"`
+		Diagnostic   string `db:"diagnostic"`
+	}
+	require.NoError(t, db.Get(t.Context(), &attemptRow, `SELECT deployment_id,number,
+		json_extract(details_payload,'$.error_diagnostic') AS diagnostic
+		FROM deployment_attempts WHERE id=?`, deploymentRow.LatestAttemptID))
+	assert.Equal(t, "legacy-deployment", attemptRow.DeploymentID)
+	assert.Equal(t, 1, attemptRow.Number)
+	assert.Equal(t, "old failure", attemptRow.Diagnostic)
+	var baseline string
+	require.NoError(t, db.Get(t.Context(), &baseline,
+		"SELECT deployment_id FROM desired_snapshots WHERE stack='app'"))
+	assert.Equal(t, "legacy-deployment", baseline)
+}
+
+func TestDeploymentAttemptMigrationSupersedesOlderUnfinishedHistory(t *testing.T) {
+	db, err := Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	provider, err := goose.NewProvider(goose.DialectSQLite3, db.db.DB, sqlitemigrations.Files)
+	require.NoError(t, err)
+	_, err = provider.DownTo(t.Context(), 1)
+	require.NoError(t, err)
+
+	started := time.Date(2026, 10, 18, 10, 0, 0, 0, time.UTC)
+	for index, id := range []string{"legacy-success", "legacy-failure-1", "legacy-failure-2"} {
+		status, code := "failed", "apply_failed"
+		if index == 0 {
+			status, code = "succeeded", ""
+		}
+		_, err = db.Exec(t.Context(), `INSERT INTO deployments
+			(id,stack,"commit",status,error_code,phase,started_at,finished_at,
+			 desired_payload,details_payload,changes_payload)
+			VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+			id, "app", id, status, code, "completed", started.Add(time.Duration(index)*time.Minute),
+			started.Add(time.Duration(index)*time.Minute+time.Second), `{"digest":"digest"}`,
+			`{"apply_status":"failed","verification_status":"skipped","cleanup_status":"skipped","actual_state_status":"unknown","comparison_basis":"none","comparison_status":"unknown","summary":{},"resources":{},"diff_available":true}`,
+			`[]`)
+		require.NoError(t, err)
+	}
+	_, err = db.Exec(t.Context(),
+		"INSERT INTO desired_snapshots(stack,deployment_id) VALUES (?,?)", "app", "legacy-success")
+	require.NoError(t, err)
+	_, err = provider.Up(t.Context())
+	require.NoError(t, err)
+
+	var statuses []string
+	require.NoError(t, db.Select(t.Context(), &statuses,
+		"SELECT status FROM deployments WHERE stack='app' ORDER BY started_at,id"))
+	assert.Equal(t, []string{"succeeded", "superseded", "failed"}, statuses)
+	var active int
+	require.NoError(t, db.Get(t.Context(), &active,
+		"SELECT count(*) FROM deployments WHERE stack='app' AND status IN ('running','failed','interrupted')"))
+	assert.Equal(t, 1, active)
+	var attempts int
+	require.NoError(t, db.Get(t.Context(), &attempts,
+		"SELECT count(*) FROM deployment_attempts WHERE deployment_id LIKE 'legacy-%'"))
+	assert.Equal(t, 3, attempts, "every legacy execution must remain independently inspectable")
+}
 
 func TestTimestampRoundTrip(t *testing.T) {
 	db, err := Open(t.Context(), t.TempDir())
@@ -117,15 +215,15 @@ func TestFreshDatabaseEnforcesForeignKeysAndChecks(t *testing.T) {
 
 	_, err = db.Exec(t.Context(), `INSERT INTO deployments
 		(id,stack,"commit",status,error_code,phase,started_at,finished_at,
-		 desired_payload,details_payload,changes_payload)
-		VALUES (?,?,?,?,?,?,?,NULL,'{}','{}','[]')`,
-		"invalid-status", "app", "commit", "unknown", "", "apply", now)
+		 desired_payload,details_payload,changes_payload,latest_attempt_id,attempt_count)
+		VALUES (?,?,?,?,?,?,?,NULL,'{}','{}','[]',?,1)`,
+		"invalid-status", "app", "commit", "unknown", "", "apply", now, "attempt-1")
 	require.Error(t, err)
 	_, err = db.Exec(t.Context(), `INSERT INTO deployments
 		(id,stack,"commit",status,error_code,phase,started_at,finished_at,
-		 desired_payload,details_payload,changes_payload)
-		VALUES (?,?,?,?,?,?,?,NULL,'{}','{}','[]')`,
-		"invalid-terminal-time", "app", "commit", "succeeded", "", "completed", now)
+		 desired_payload,details_payload,changes_payload,latest_attempt_id,attempt_count)
+		VALUES (?,?,?,?,?,?,?,NULL,'{}','{}','[]',?,1)`,
+		"invalid-terminal-time", "app", "commit", "succeeded", "", "completed", now, "attempt-2")
 	require.Error(t, err)
 	_, err = db.Exec(t.Context(),
 		"INSERT INTO desired_snapshots(stack,deployment_id) VALUES (?,?)", "app", "missing")
@@ -144,7 +242,7 @@ func TestFreshDatabaseEnforcesForeignKeysAndChecks(t *testing.T) {
 	var appliedVersions int
 	require.NoError(t, db.Get(t.Context(), &appliedVersions,
 		"SELECT count(*) FROM goose_db_version WHERE version_id > 0 AND is_applied = 1"))
-	assert.Equal(t, 1, appliedVersions)
+	assert.Equal(t, 2, appliedVersions)
 }
 
 func TestRestartAndRollback(t *testing.T) {

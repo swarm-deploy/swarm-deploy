@@ -51,8 +51,11 @@ func TestDeploymentAPIReadsAttemptsWithoutHistory(t *testing.T) {
 	assert.NotContains(t, string(listPayload), "changes", "list response must remain lightweight")
 	require.NoError(t, svc.FailApplyWithError(ctx, attempt.ID, gitopsmodel.Stack{}, "apply_failed",
 		errors.New("update service api: pull https://user:password@registry.example/image: image not found")))
-	detail, err := h.GetDeployment(ctx, generated.GetDeploymentParams{ID: attempt.ID})
+	detail, err := h.GetDeployment(ctx, generated.GetDeploymentParams{ID: attempt.DeploymentID})
 	require.NoError(t, err)
+	require.Len(t, detail.Attempts, 1)
+	assert.Equal(t, attempt.ID, detail.Attempts[0].ID)
+	assert.Equal(t, generated.DeploymentAttemptStatusFailed, detail.Attempts[0].Status)
 	encoded, err := json.Marshal(detail)
 	require.NoError(t, err)
 	for _, secret := range []string{"do-not-expose", "api-command-secret", "health-secret", "init-secret"} {

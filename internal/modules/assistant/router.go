@@ -163,7 +163,7 @@ Capabilities:
 - service_runtime: read-only service logs, specs, web-route ping, or dependencies
 - service_operations: mutating service restart or replica changes
 - cluster: nodes, Docker networks, plugins, and secrets
-- deployment_history: deployment attempts/details, user-facing event history, recommendations, git history, and commit diffs
+- deployment_history: desired-state deployments with nested attempts, user-facing event history, recommendations, git history, and commit diffs
 - alert_management: operational incidents and their open/resolved lifecycle
 - deployment_sync: trigger synchronization
 - registry: registry image version lookup

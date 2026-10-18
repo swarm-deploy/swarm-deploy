@@ -39,7 +39,7 @@ func TestSuccessfulDeploymentIsIndependentOfHistoryFailure(t *testing.T) {
 	attempt, err := service.StartIfChanged(ctx, "app", "commit", desired("api:1"), true)
 	require.NoError(t, err)
 	require.NotNil(t, attempt)
-	current, err := repo.Get(ctx, attempt.ID)
+	current, err := repo.Get(ctx, attempt.DeploymentID)
 	require.NoError(t, err)
 	assert.Equal(t, Running, current.Status)
 	require.NoError(t, service.Succeed(ctx, attempt.ID, model.Stack{SourceDigest: "source", LastCommit: "commit"}))
@@ -50,7 +50,7 @@ func TestSuccessfulDeploymentIsIndependentOfHistoryFailure(t *testing.T) {
 	require.NoError(t, err)
 	_, err = bus.ProcessNext(ctx)
 	require.NoError(t, err)
-	current, err = repo.Get(ctx, attempt.ID)
+	current, err = repo.Get(ctx, attempt.DeploymentID)
 	require.NoError(t, err)
 	assert.Equal(t, Succeeded, current.Status)
 	_, err = db.Exec(ctx, "DROP TRIGGER reject_history")
@@ -108,7 +108,7 @@ func TestFailedCommitAndCrashKeepSuccessfulBaseline(t *testing.T) {
 	service = NewService(db, bus)
 	require.NoError(t, service.InterruptRunning(ctx))
 	require.NoError(t, service.InterruptRunning(ctx))
-	current, err := NewStore(db).Get(ctx, second.ID)
+	current, err := NewStore(db).Get(ctx, second.DeploymentID)
 	require.NoError(t, err)
 	assert.Equal(t, Interrupted, current.Status)
 	var interruptedEvents int
@@ -121,11 +121,58 @@ func TestFailedCommitAndCrashKeepSuccessfulBaseline(t *testing.T) {
 	retry, err := service.StartIfChanged(ctx, "app", "second", desired("api:2"), true)
 	require.NoError(t, err)
 	require.NotNil(t, retry)
+	assert.Equal(t, second.DeploymentID, retry.DeploymentID)
 	assert.NotEqual(t, second.ID, retry.ID)
 	require.NoError(t, service.Succeed(ctx, retry.ID, model.Stack{LastCommit: "second", SourceDigest: "second"}))
 	baseline, err = NewStore(db).Baseline(ctx, "app")
 	require.NoError(t, err)
 	assert.Equal(t, "api:2", baseline.Definition.Compose.Services[0].Image)
+}
+
+func TestRetryReusesDeploymentAndPreservesAttemptHistoryAndDesiredChanges(t *testing.T) {
+	ctx := t.Context()
+	db, err := storage.Open(ctx, t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	service := NewService(db, outbox.New(db))
+	store := NewStore(db)
+
+	baselineAttempt, err := service.StartIfChanged(ctx, "app", "baseline", desired("api:1"), true)
+	require.NoError(t, err)
+	require.NoError(t, service.Succeed(ctx, baselineAttempt.ID, model.Stack{}))
+	first, err := service.StartIfChanged(ctx, "app", "desired", desired("api:2"), true)
+	require.NoError(t, err)
+	require.NoError(t, service.FailApplyWithError(ctx, first.ID, model.Stack{}, "apply_failed",
+		fmt.Errorf("first diagnostic")))
+	beforeRetry, err := store.Get(ctx, first.DeploymentID)
+	require.NoError(t, err)
+	require.Len(t, beforeRetry.Changes, 1)
+
+	retry, err := service.StartIfChanged(ctx, "app", "new-commit-same-state", desired("api:2"), true)
+	require.NoError(t, err)
+	require.NotNil(t, retry)
+	assert.Equal(t, first.DeploymentID, retry.DeploymentID)
+	assert.NotEqual(t, first.ID, retry.ID)
+	require.NoError(t, service.FailApplyWithError(ctx, retry.ID, model.Stack{}, "apply_failed",
+		fmt.Errorf("second diagnostic")))
+	afterRetry, err := store.Get(ctx, first.DeploymentID)
+	require.NoError(t, err)
+	assert.Equal(t, beforeRetry.Changes, afterRetry.Changes)
+	assert.Equal(t, beforeRetry.BasisDeploymentID, afterRetry.BasisDeploymentID)
+	assert.Equal(t, 2, afterRetry.AttemptCount)
+	require.Len(t, afterRetry.Attempts, 2)
+	assert.Equal(t, "second diagnostic", afterRetry.Attempts[0].ErrorDiagnostic)
+	assert.Equal(t, "first diagnostic", afterRetry.Attempts[1].ErrorDiagnostic)
+
+	third, err := service.StartIfChanged(ctx, "app", "same-again", desired("api:2"), true)
+	require.NoError(t, err)
+	require.NoError(t, service.Succeed(ctx, third.ID, model.Stack{}))
+	noExecution, err := service.StartIfChanged(ctx, "app", "ordinary-reconcile", desired("api:2"), true)
+	require.NoError(t, err)
+	assert.Nil(t, noExecution)
+	succeeded, err := store.Get(ctx, first.DeploymentID)
+	require.NoError(t, err)
+	assert.Equal(t, 3, succeeded.AttemptCount)
 }
 
 func TestRollbackToBaselineRetriesAfterUnsuccessfulAttempt(t *testing.T) {
@@ -150,20 +197,13 @@ func TestRollbackToBaselineRetriesAfterUnsuccessfulAttempt(t *testing.T) {
 			rollback, err := service.StartIfChanged(ctx, "app", "rollback", desired("api:a"), true)
 			require.NoError(t, err)
 			require.NotNil(t, rollback)
-			assert.NotEqual(t, second.ID, rollback.ID)
-			assert.Equal(t, BasisLastAttempt, rollback.ComparisonBasis)
-			assert.Equal(t, ComparisonUnknown, rollback.ComparisonStatus)
-			assert.Equal(t, second.ID, rollback.BasisDeploymentID)
-			require.NotEmpty(t, rollback.Changes, "recovery must describe the last attempt to desired transition")
-			image := rollback.Changes[0]
-			assert.Equal(t, "service", image.ResourceType)
-			assert.Equal(t, "api", image.ResourceName)
-			assert.Equal(t, "image", image.Field)
-			assert.Equal(t, OperationChanged, image.Operation)
-			require.NotNil(t, image.Before)
-			require.NotNil(t, image.After)
-			assert.Equal(t, "api:b", *image.Before)
-			assert.Equal(t, "api:a", *image.After)
+			assert.NotEqual(t, second.DeploymentID, rollback.DeploymentID)
+			stored, getErr := NewStore(db).Get(ctx, rollback.DeploymentID)
+			require.NoError(t, getErr)
+			assert.Equal(t, BasisSuccessfulBaseline, stored.ComparisonBasis)
+			assert.Equal(t, ComparisonUnknown, stored.ComparisonStatus)
+			assert.Equal(t, first.DeploymentID, stored.BasisDeploymentID)
+			assert.Empty(t, stored.Changes, "changes must stay relative to the successful baseline")
 		})
 	}
 }
@@ -222,7 +262,7 @@ func TestListFiltersStatusBeforeCursorPagination(t *testing.T) {
 		clock = clock.Add(time.Second)
 		return clock
 	}
-	for index, stack := range []string{"app", "other", "app", "app"} {
+	for index, stack := range []string{"app-0", "other", "app-2", "app-3"} {
 		attempt, startErr := service.StartIfChanged(ctx, stack, fmt.Sprintf("commit-%d", index),
 			desired(fmt.Sprintf("api:%d", index)), true)
 		require.NoError(t, startErr)
@@ -234,12 +274,12 @@ func TestListFiltersStatusBeforeCursorPagination(t *testing.T) {
 	}
 
 	store := NewStore(db)
-	first, err := store.List(ctx, ListFilter{Stack: "app", Status: Failed, Limit: 2})
+	first, err := store.List(ctx, ListFilter{Status: Failed, Limit: 2})
 	require.NoError(t, err)
 	require.Len(t, first.Deployments, 2)
 	require.NotEmpty(t, first.NextCursor)
 	assert.Equal(t, []string{"commit-3", "commit-2"}, []string{first.Deployments[0].Commit, first.Deployments[1].Commit})
-	second, err := store.List(ctx, ListFilter{Stack: "app", Status: Failed, Limit: 2, Cursor: first.NextCursor})
+	second, err := store.List(ctx, ListFilter{Status: Failed, Limit: 2, Cursor: first.NextCursor})
 	require.NoError(t, err)
 	require.Len(t, second.Deployments, 1)
 	assert.Equal(t, "commit-0", second.Deployments[0].Commit)
@@ -280,13 +320,13 @@ func TestDeploymentColumnsStaySynchronizedAndSupportFailureFilters(t *testing.T)
 				desired(fmt.Sprintf("api:%d", index)), true)
 			require.NoError(t, startErr)
 			require.NotNil(t, attempt)
-			assertDeploymentColumns(t, db, attempt.ID, "", PhaseApply)
+			assertDeploymentColumns(t, db, attempt.DeploymentID, "", PhaseApply)
 			require.NoError(t, testCase.complete(attempt.ID))
-			assertDeploymentColumns(t, db, attempt.ID, testCase.code, testCase.phase)
-			stored, getErr := repo.Get(ctx, attempt.ID)
+			assertDeploymentColumns(t, db, attempt.DeploymentID, testCase.code, testCase.phase)
+			stored, getErr := repo.Get(ctx, attempt.DeploymentID)
 			require.NoError(t, getErr)
 			assert.Equal(t, testCase.status, stored.Status)
-			ids[testCase.name] = attempt.ID
+			ids[testCase.name] = attempt.DeploymentID
 		})
 	}
 
@@ -374,7 +414,7 @@ func TestInterruptedTransitionIsAtomicDurableAndIdempotent(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, service.InterruptRunning(ctx))
 	require.NoError(t, service.InterruptRunning(ctx))
-	current, err := NewStore(db).Get(ctx, attempt.ID)
+	current, err := NewStore(db).Get(ctx, attempt.DeploymentID)
 	require.NoError(t, err)
 	assert.Equal(t, Interrupted, current.Status)
 	runtime, err := modelstore.NewSQLStore(db).Read(ctx)
@@ -397,10 +437,13 @@ func TestDeploymentPayloadsDoNotDuplicateSQLColumns(t *testing.T) {
 	attempt, err := service.StartIfChanged(ctx, "app", "commit", desired("api:1"), true)
 	require.NoError(t, err)
 	store := NewStore(db)
-	stored, err := store.Get(ctx, attempt.ID)
+	stored, err := store.Get(ctx, attempt.DeploymentID)
 	require.NoError(t, err)
-	assert.Equal(t, *attempt, stored)
-	assertDeploymentColumns(t, db, attempt.ID, "", PhaseApply)
+	assert.Equal(t, attempt.ID, stored.LatestAttemptID)
+	assert.Equal(t, 1, stored.AttemptCount)
+	require.Len(t, stored.Attempts, 1)
+	assert.Equal(t, *attempt, stored.Attempts[0])
+	assertDeploymentColumns(t, db, attempt.DeploymentID, "", PhaseApply)
 }
 
 func TestSnapshotMaskingAndSemanticChanges(t *testing.T) {
@@ -576,7 +619,7 @@ func TestCommandSemanticsDriveDeploymentAttempts(t *testing.T) {
 	changed, err := service.StartIfChanged(ctx, "app", "three", parse("[\"echo hello\"]"), true)
 	require.NoError(t, err)
 	require.NotNil(t, changed)
-	assert.NotEqual(t, baseline.ID, changed.ID)
+	assert.NotEqual(t, baseline.DeploymentID, changed.DeploymentID)
 }
 
 func TestNoBaselineNeverClaimsObservedState(t *testing.T) {
@@ -588,10 +631,12 @@ func TestNoBaselineNeverClaimsObservedState(t *testing.T) {
 	attempt, err := service.StartIfChanged(ctx, "app", "first", desired("api:1"), true)
 	require.NoError(t, err)
 	require.NotNil(t, attempt)
-	assert.Equal(t, BasisNone, attempt.ComparisonBasis)
-	assert.Equal(t, ComparisonUnknown, attempt.ComparisonStatus)
+	initial, err := NewStore(db).Get(ctx, attempt.DeploymentID)
+	require.NoError(t, err)
+	assert.Equal(t, BasisNone, initial.ComparisonBasis)
+	assert.Equal(t, ComparisonUnknown, initial.ComparisonStatus)
 	require.NoError(t, service.SucceedObserved(ctx, attempt.ID, model.Stack{}, time.Now()))
-	stored, err := NewStore(db).Get(ctx, attempt.ID)
+	stored, err := NewStore(db).Get(ctx, attempt.DeploymentID)
 	require.NoError(t, err)
 	assert.Equal(t, StageSkipped, stored.VerificationStatus)
 	assert.Equal(t, ActualStateObserved, stored.ActualStateStatus)

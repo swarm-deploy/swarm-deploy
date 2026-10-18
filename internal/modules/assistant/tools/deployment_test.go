@@ -28,7 +28,7 @@ func TestDeploymentToolsListFilterPaginationAndSafeDetail(t *testing.T) {
 			require.NoError(t, service.Succeed(t.Context(), attempt.ID, gitopsmodel.Stack{}))
 			continue
 		}
-		failedIDs = append(failedIDs, attempt.ID)
+		failedIDs = append(failedIDs, attempt.DeploymentID)
 		require.NoError(t, service.FailApplyWithError(t.Context(), attempt.ID, gitopsmodel.Stack{},
 			"apply_failed", errors.New("registry request failed: token=private-value")))
 	}
@@ -43,7 +43,7 @@ func TestDeploymentToolsListFilterPaginationAndSafeDetail(t *testing.T) {
 	list := NewDeploymentList(store)
 	limit := 2
 	first, err := list.Execute(t.Context(), routing.Request{Payload: deploymentListRequest{
-		Stack: "api", Status: "failed", Limit: &limit,
+		Stack: "api", Limit: &limit,
 	}})
 	require.NoError(t, err)
 	firstPayload := first.Payload.(struct {
@@ -53,12 +53,11 @@ func TestDeploymentToolsListFilterPaginationAndSafeDetail(t *testing.T) {
 	require.Len(t, firstPayload.Deployments, 2)
 	require.NotEmpty(t, firstPayload.NextCursor)
 	for _, item := range firstPayload.Deployments {
-		assert.Equal(t, deployment.Failed, item.Status)
 		assert.Equal(t, "api", item.Stack)
 		assert.NotNil(t, item.DurationMS)
 	}
 	second, err := list.Execute(t.Context(), routing.Request{Payload: deploymentListRequest{
-		Stack: "api", Status: "failed", Limit: &limit, Cursor: firstPayload.NextCursor,
+		Stack: "api", Limit: &limit, Cursor: firstPayload.NextCursor,
 	}})
 	require.NoError(t, err)
 	secondPayload := second.Payload.(struct {
@@ -68,7 +67,7 @@ func TestDeploymentToolsListFilterPaginationAndSafeDetail(t *testing.T) {
 	require.Len(t, secondPayload.Deployments, 1)
 	assert.Empty(t, secondPayload.NextCursor)
 
-	statuses := []deployment.Status{deployment.Running, deployment.Succeeded, deployment.Interrupted}
+	statuses := []deployment.Status{deployment.Running, deployment.Succeeded, deployment.Interrupted, deployment.Superseded}
 	for _, status := range statuses {
 		t.Run(string(status), func(t *testing.T) {
 			response, listErr := list.Execute(t.Context(), routing.Request{Payload: deploymentListRequest{Status: string(status)}})

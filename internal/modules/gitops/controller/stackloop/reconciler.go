@@ -53,12 +53,12 @@ type Reconciler struct {
 }
 
 type pendingCompletion struct {
-	deploymentID string
-	state        model.Stack
-	status       deployment.Status
-	errorCode    string
-	cause        error
-	observedAt   time.Time
+	attemptID  string
+	state      model.Stack
+	status     deployment.Status
+	errorCode  string
+	cause      error
+	observedAt time.Time
 }
 
 const pruneFailureCode = "prune_failed"
@@ -235,7 +235,7 @@ func (r *Reconciler) processResult(
 	if err != nil {
 		if payload.Attempt != nil {
 			r.pending[req.Stack.Name] = pendingCompletion{
-				deploymentID: payload.Attempt.ID, state: result, status: deployment.Succeeded,
+				attemptID: payload.Attempt.ID, state: result, status: deployment.Succeeded,
 				observedAt: payload.ObservedAt,
 			}
 		}
@@ -323,7 +323,7 @@ func (r *Reconciler) recordPipelineFailure(
 		}
 		if persistErr != nil {
 			r.pending[req.Stack.Name] = pendingCompletion{
-				deploymentID: pl.Attempt.ID, state: failed, status: status, errorCode: code,
+				attemptID: pl.Attempt.ID, state: failed, status: status, errorCode: code,
 				cause: faults.SafeError(failureCause), observedAt: pl.ObservedAt,
 			}
 		}
@@ -342,15 +342,15 @@ func (r *Reconciler) recoverPending(ctx context.Context, stack string) error {
 	var err error
 	switch {
 	case pending.status == deployment.Succeeded:
-		err = r.deployments.SucceedObserved(ctx, pending.deploymentID, pending.state, pending.observedAt)
+		err = r.deployments.SucceedObserved(ctx, pending.attemptID, pending.state, pending.observedAt)
 	case pending.status == deployment.Interrupted:
-		err = r.deployments.InterruptVerificationWithError(ctx, pending.deploymentID, pending.state,
+		err = r.deployments.InterruptVerificationWithError(ctx, pending.attemptID, pending.state,
 			pending.cause)
 	case pending.errorCode == pruneFailureCode:
-		err = r.deployments.FailCleanupWithError(ctx, pending.deploymentID, pending.state, pending.errorCode,
+		err = r.deployments.FailCleanupWithError(ctx, pending.attemptID, pending.state, pending.errorCode,
 			pending.observedAt, pending.cause)
 	default:
-		err = r.deployments.FailApplyWithError(ctx, pending.deploymentID, pending.state, pending.errorCode,
+		err = r.deployments.FailApplyWithError(ctx, pending.attemptID, pending.state, pending.errorCode,
 			pending.cause)
 	}
 	if err == nil {
@@ -366,7 +366,7 @@ func (r *Reconciler) recoverPending(ctx context.Context, stack string) error {
 func (r *Reconciler) resolveCompletionConflict(
 	ctx context.Context, stack string, pending pendingCompletion, completionErr error,
 ) error {
-	actual, err := r.deployments.Inspect(ctx, pending.deploymentID)
+	actual, err := r.deployments.Inspect(ctx, pending.attemptID)
 	if err != nil {
 		return fmt.Errorf("inspect deployment completion conflict: %w", err)
 	}
@@ -375,9 +375,9 @@ func (r *Reconciler) resolveCompletionConflict(
 			stack, actual.Stack)
 	}
 	switch actual.Status {
-	case deployment.Succeeded, deployment.Failed, deployment.Interrupted:
+	case deployment.Succeeded, deployment.Failed, deployment.Interrupted, deployment.Superseded:
 		slog.WarnContext(ctx, "deployment completion lifecycle conflict",
-			slog.String("deployment_id", pending.deploymentID),
+			slog.String("attempt_id", pending.attemptID),
 			slog.String("stack", stack),
 			slog.String("expected_status", string(pending.status)),
 			slog.String("actual_status", string(actual.Status)),
@@ -386,10 +386,10 @@ func (r *Reconciler) resolveCompletionConflict(
 		return nil
 	case deployment.Running:
 		return fmt.Errorf("completion returned not running but deployment %s is running: %w",
-			pending.deploymentID, completionErr)
+			pending.attemptID, completionErr)
 	default:
 		return fmt.Errorf("deployment %s has invalid status %q: %w",
-			pending.deploymentID, actual.Status, deployment.ErrInconsistentDeployment)
+			pending.attemptID, actual.Status, deployment.ErrInconsistentDeployment)
 	}
 }
 

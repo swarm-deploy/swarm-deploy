@@ -26,7 +26,7 @@ func TestListServiceDeploymentsReadsDeploymentStore(t *testing.T) {
 	file := func(services ...compose.Service) compose.File {
 		return compose.File{Compose: compose.Compose{Services: services}}
 	}
-	start := func(stack, commit string, services ...compose.Service) *deployment.Deployment {
+	start := func(stack, commit string, services ...compose.Service) *deployment.Attempt {
 		attempt, startErr := svc.StartIfChanged(ctx, stack, commit, file(services...), true)
 		require.NoError(t, startErr)
 		require.NotNil(t, attempt)
@@ -50,14 +50,14 @@ func TestListServiceDeploymentsReadsDeploymentStore(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, response.Deployments, 2)
-	assert.Equal(t, unchanged.ID, response.Deployments[0].ID)
+	assert.Equal(t, unchanged.DeploymentID, response.Deployments[0].ID)
 	assert.Equal(t, generated.ServiceDeploymentStatusRunning, response.Deployments[0].Status)
 	assert.Equal(t, unchanged.StartedAt, response.Deployments[0].CreatedAt)
 	assert.Equal(t, "sha-3", response.Deployments[0].Commit.Value)
 	assert.Equal(t, "registry.example.com/api:v2", response.Deployments[0].Image)
 	assert.Equal(t, "v2", response.Deployments[0].ImageVersion)
-	assert.Equal(t, changed.ID, response.Deployments[1].ID)
-	assert.Equal(t, generated.ServiceDeploymentStatusFailed, response.Deployments[1].Status)
+	assert.Equal(t, changed.DeploymentID, response.Deployments[1].ID)
+	assert.Equal(t, generated.ServiceDeploymentStatusSuperseded, response.Deployments[1].Status)
 	assert.Equal(t, "v2", response.Deployments[1].ImageVersion)
 
 	response, err = h.ListServiceDeployments(ctx, generated.ListServiceDeploymentsParams{
@@ -65,7 +65,7 @@ func TestListServiceDeploymentsReadsDeploymentStore(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, response.Deployments, 3)
-	assert.Equal(t, first.ID, response.Deployments[2].ID)
+	assert.Equal(t, first.DeploymentID, response.Deployments[2].ID)
 	assert.Equal(t, "v1", response.Deployments[2].ImageVersion)
 }
 

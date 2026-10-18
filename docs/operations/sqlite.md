@@ -49,14 +49,14 @@ Before restarting a controller with a stuck deployment, capture the following re
 completion itself is process memory and disappears with the process:
 
 - current and previous Swarm task/container IDs, node IDs, start times, desired/current states, and application logs;
-- `/api/v1/deployments` plus `/api/v1/deployments/{id}` for every relevant attempt ID;
+- `/api/v1/deployments` plus `/api/v1/deployments/{id}` for every relevant Deployment ID and its nested Attempts;
 - the controller runtime sync reason, revision, result, and full recovery error;
-- `deployments` rows including SQL status, phase, timestamps, commit, error code, deployment ID, and the
-  `details_payload` needed to diagnose the attempt;
+- `deployments` rows plus `deployment_attempts`, including statuses, phases, timestamps, commit, error codes,
+  Deployment/Attempt IDs, and the `details_payload` needed to diagnose each execution;
 - `desired_snapshots`, matching `outbox_events`/`outbox_deliveries`, and the current Git revision/digest;
 - the consistent SQLite backup and its integrity-check result.
 
-Do not infer that the attempt displayed in the UI is the same ID as a completion retained in memory. Correlate IDs,
+Do not confuse the Deployment ID used by UI routes with the Attempt ID retained for completion recovery. Correlate both IDs,
 commit, timestamps, logs, and persisted status.
 
 ## Controller ownership and recovery
@@ -73,9 +73,9 @@ SQLite WAL on a multi-host/network filesystem and replicas with separate local v
 first upgrade from a version without this lock, capture the evidence and backup above, then use a one-time `stop-first`
 update or otherwise prove the old task has stopped; later upgrades can use `start-first` safely.
 
-On restart, the lock owner marks genuinely orphaned `running` deployments
+On restart, the lock owner marks genuinely orphaned `running` Attempts
 `interrupted` before reconciliation. Already-terminal rows remain unchanged. A
-retry receives a new deployment ID; only a successful attempt advances the desired
+retry receives a new Attempt ID under the same unchanged Deployment; only a successful Attempt advances the desired
 baseline. If recovery fails, preserve the database and diagnostic evidence rather
 than editing deployment or Goose rows by hand.
 
@@ -87,7 +87,7 @@ shows the safe recorded target configuration without claiming that every field o
 resource was newly created in Swarm. A successful apply still does not prove service
 health or live convergence.
 
-Later attempts with a trustworthy comparison basis show the normal structured
+Later Deployments with a trustworthy comparison basis show the normal structured
 `added` / `changed` / `removed` semantic diff.
 
 ## Deployments and eventual consistency

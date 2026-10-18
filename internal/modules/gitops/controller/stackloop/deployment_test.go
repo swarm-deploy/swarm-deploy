@@ -149,10 +149,14 @@ func TestReconcileRecoversFailedResultPersistenceInSameProcess(t *testing.T) {
 	require.NoError(t, r.Reconcile(ctx, req))
 	attempts, err = repo.List(ctx, deployment.ListFilter{})
 	require.NoError(t, err)
-	require.Len(t, attempts.Deployments, 2)
+	require.Len(t, attempts.Deployments, 1)
 	assert.Equal(t, deployment.Succeeded, attempts.Deployments[0].Status)
-	assert.Equal(t, deployment.Failed, attempts.Deployments[1].Status)
-	assert.NotEqual(t, attempts.Deployments[0].ID, attempts.Deployments[1].ID)
+	assert.Equal(t, 2, attempts.Deployments[0].AttemptCount)
+	stored, err := repo.Get(ctx, attempts.Deployments[0].ID)
+	require.NoError(t, err)
+	require.Len(t, stored.Attempts, 2)
+	assert.Equal(t, deployment.Succeeded, stored.Attempts[0].Status)
+	assert.Equal(t, deployment.Failed, stored.Attempts[1].Status)
 }
 
 func TestReconcileRecoversInterruptedCompletionConflictAndAppliesCorrectedDesiredState(t *testing.T) {
@@ -213,7 +217,7 @@ func TestReconcileRecoversInterruptedCompletionConflictAndAppliesCorrectedDesire
 	assert.Equal(t, deployment.Succeeded, page.Deployments[0].Status)
 	assert.Equal(t, "corrected", page.Deployments[0].Commit)
 	assert.NotEqual(t, staleID, page.Deployments[0].ID)
-	assert.Equal(t, deployment.Interrupted, page.Deployments[1].Status)
+	assert.Equal(t, deployment.Superseded, page.Deployments[1].Status)
 }
 
 func TestReconcileRecoversSucceededCompletionConflictWithoutContradictoryOutcome(t *testing.T) {
@@ -244,11 +248,11 @@ func TestReconcileRecoversSucceededCompletionConflictWithoutContradictoryOutcome
 		Services: services, Configs: swarm.NewMockConfigManager(ctrl), Secrets: swarm.NewMockSecretManager(ctrl),
 	}, bus, &metrics.NopDeploys{}, state, fs.NewLocalFileSystem(), db)
 	r.pending["app"] = pendingCompletion{
-		deploymentID: first.ID,
-		state:        model.Stack{LastCommit: "contradictory"},
-		status:       deployment.Failed,
-		errorCode:    "apply_failed",
-		cause:        errors.New("obsolete failure"),
+		attemptID: first.ID,
+		state:     model.Stack{LastCommit: "contradictory"},
+		status:    deployment.Failed,
+		errorCode: "apply_failed",
+		cause:     errors.New("obsolete failure"),
 	}
 	docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 	services.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{}, nil)
@@ -256,7 +260,7 @@ func TestReconcileRecoversSucceededCompletionConflictWithoutContradictoryOutcome
 		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "second",
 	}))
 
-	storedFirst, err := deployment.NewStore(db).Get(ctx, first.ID)
+	storedFirst, err := deployment.NewStore(db).Get(ctx, first.DeploymentID)
 	require.NoError(t, err)
 	assert.Equal(t, deployment.Succeeded, storedFirst.Status)
 	baseline, err := deployment.NewStore(db).Baseline(ctx, "app")

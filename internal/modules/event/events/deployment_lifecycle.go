@@ -48,8 +48,10 @@ func (e *DeployPreparationFailed) Details() map[string]string {
 
 // DeployInterrupted reports an apply whose external outcome is unknown.
 type DeployInterrupted struct {
-	// DeploymentID identifies the interrupted attempt.
+	// DeploymentID identifies the desired state whose execution was interrupted.
 	DeploymentID string
+	// AttemptID identifies the interrupted execution.
+	AttemptID string
 	// StackName identifies the affected stack.
 	StackName string
 	// Commit identifies the source revision.
@@ -78,6 +80,7 @@ func (e *DeployInterrupted) Details() map[string]string {
 		AttributeStackName:    e.StackName,
 		AttributeCommit:       e.Commit,
 		AttributeDeploymentID: e.DeploymentID,
+		AttributeAttemptID:    e.AttemptID,
 		AttributeStatus:       "interrupted",
 		AttributeErrorCode:    e.Reason,
 		AttributeStage:        e.Stage,

@@ -146,6 +146,7 @@ const statusTitle = computed(() => {
   switch (detail.value?.status) {
     case "failed": return "Apply pipeline failed.";
     case "interrupted": return "Apply pipeline was interrupted.";
+    case "superseded": return "Desired state was superseded.";
     default: return "";
   }
 });
@@ -153,6 +154,7 @@ const statusDescription = computed(() => {
   switch (detail.value?.status) {
     case "failed": return "Apply attempt failed. The actual Swarm state may differ from this desired configuration.";
     case "interrupted": return "Apply outcome is unknown. The actual Swarm state may differ from this desired configuration.";
+    case "superseded": return "A newer desired state replaced this deployment. Its attempt history is preserved below.";
     default: return "";
   }
 });
@@ -181,9 +183,15 @@ const statusLabel = computed(() => {
     case "succeeded": return "Succeeded";
     case "failed": return "Failed";
     case "interrupted": return "Interrupted";
+    case "superseded": return "Superseded";
     default: return "Unknown";
   }
 });
+function attemptDuration(startedAt: string, finishedAt?: string): string {
+  if (!finishedAt) return "In progress";
+  const ms = Math.max(0, Date.parse(finishedAt) - Date.parse(startedAt));
+  return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
+}
 function pluralize(count: number, singular: string, plural = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }
@@ -330,7 +338,7 @@ onUnmounted(() => {
           <p v-else-if="!detail" class="meta">Deployment details are unavailable.</p>
           <template v-else>
           <section
-            v-if="detail.status === 'failed' || detail.status === 'interrupted'"
+            v-if="detail.status === 'failed' || detail.status === 'interrupted' || detail.status === 'superseded'"
             class="deployment-outcome"
             :class="`deployment-outcome--${detail.status}`"
             aria-labelledby="deployment-outcome-title"
@@ -342,6 +350,25 @@ onUnmounted(() => {
               <p class="deployment-diagnostic">{{ failureReason }}</p>
               <span v-if="detail.reason" class="deployment-code">Code: {{ detail.reason }}</span>
             </div>
+          </section>
+
+          <section class="deployment-attempts" aria-labelledby="deployment-attempts-title">
+            <div class="deployment-attempts-heading">
+              <h3 id="deployment-attempts-title">Attempts</h3>
+              <span>{{ detail.attempt_count }}</span>
+            </div>
+            <ol>
+              <li v-for="attempt in detail.attempts" :key="attempt.id">
+                <div class="deployment-attempt-title">
+                  <strong>Attempt {{ attempt.number }}</strong>
+                  <span class="deployment-status" :class="`deployment-status--${attempt.status}`">
+                    <span class="deployment-status-dot" aria-hidden="true" />{{ attempt.status }}
+                  </span>
+                </div>
+                <p><time :datetime="attempt.started_at">{{ formatDate(attempt.started_at) }}</time> · {{ attempt.phase }} · {{ attemptDuration(attempt.started_at, attempt.finished_at) }}</p>
+                <p v-if="attempt.diagnostic" class="deployment-attempt-diagnostic">{{ attempt.diagnostic }}</p>
+              </li>
+            </ol>
           </section>
 
           <div class="deployment-tabs" role="tablist" aria-label="Deployment detail views">
@@ -470,6 +497,15 @@ onUnmounted(() => {
 .deployment-modal-content--compact { padding-top: 6px; }
 .deployment-modal-content--compact .deployment-tabs { margin-top: 0; }
 .deployment-state-message { padding: 24px 0; }
+.deployment-attempts { margin: 0 0 14px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
+.deployment-attempts-heading, .deployment-attempt-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.deployment-attempts-heading h3 { margin: 0; font-size: .95rem; }
+.deployment-attempts-heading > span { color: var(--muted); font-size: .8rem; }
+.deployment-attempts ol { display: grid; gap: 8px; margin: 10px 0 0; padding: 0; list-style: none; }
+.deployment-attempts li { padding-top: 8px; border-top: 1px solid var(--line); }
+.deployment-attempt-title strong { font-size: .85rem; }
+.deployment-attempts p { margin: 4px 0 0; color: var(--muted); font-size: .78rem; }
+.deployment-attempts .deployment-attempt-diagnostic { color: var(--danger); overflow-wrap: anywhere; }
 .deployment-modal-header { padding: 14px 56px 12px 18px; border-bottom: 1px solid var(--line); }
 .deployment-heading-row { min-width: 0; }
 .deployment-title { min-width: 0; }

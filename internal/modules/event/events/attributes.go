@@ -4,6 +4,7 @@ const (
 	AttributeStackName    = "stack_name"
 	AttributeServiceName  = "service_name"
 	AttributeDeploymentID = "deployment_id"
+	AttributeAttemptID    = "attempt_id"
 	AttributeCommit       = "commit"
 	AttributeUsername     = "username"
 	AttributeNodeID       = "node_id"

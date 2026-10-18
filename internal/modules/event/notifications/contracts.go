@@ -19,8 +19,10 @@ type DeploymentService struct {
 type DeploymentPayload struct {
 	// ID identifies the source event delivery.
 	ID string `json:"id"`
-	// DeploymentID identifies the persisted deployment attempt when one exists.
+	// DeploymentID identifies the persisted desired state when one exists.
 	DeploymentID string `json:"deployment_id"`
+	// AttemptID identifies the execution which produced the notification.
+	AttemptID string `json:"attempt_id"`
 	// Type is the configured notification event type.
 	Type string `json:"type"`
 	// Status identifies a successful deployment.

@@ -25,6 +25,7 @@ function deployment(
 ): Deployment {
   return {
     id: "one", stack: "app", commit: "abcdef012345", status, phase: "apply", reason: "apply_failed",
+	latest_attempt_id: "attempt-one", attempt_count: 1,
     apply_status: "failed", verification_status: "skipped", cleanup_status: "skipped", actual_state_status: "unknown",
     started_at: "2026-10-10T10:00:00Z", comparison_basis: basis, comparison_status: "unknown",
     diff_available: true, diagnostic: "update service api: image not found",
@@ -40,11 +41,34 @@ function deployment(
       { resourceType: "service", resourceName: "api", field: "environment.API_TOKEN", operation: "added",
         after: "plaintext", redacted: true },
     ],
+	attempts: [{ id: "attempt-one", number: 1, status: status === "superseded" ? "interrupted" : status,
+		phase: "apply", reason: "apply_failed", diagnostic: "update service api: image not found",
+		apply_status: "failed", verification_status: "skipped", cleanup_status: "skipped",
+		actual_state_status: "unknown", started_at: "2026-10-10T10:00:00Z" }],
   };
 }
 
 describe("Deployment Details modal", () => {
   beforeEach(() => setActivePinia(createPinia()));
+
+  it("shows immutable nested attempt history", () => {
+    const store = useOverviewStore();
+    const detail = deployment("failed");
+    detail.attempt_count = 2;
+    detail.attempts = [
+      { ...detail.attempts[0], id: "attempt-two", number: 2, diagnostic: "second failure" },
+      { ...detail.attempts[0], id: "attempt-one", number: 1, diagnostic: "first failure" },
+    ];
+    store.deploymentDetailsModalOpen = true;
+    store.deploymentDetailsData = detail;
+    const wrapper = mount(DeploymentDetailsModal);
+
+    expect(wrapper.findAll(".deployment-attempts li")).toHaveLength(2);
+    expect(wrapper.text()).toContain("Attempt 2");
+    expect(wrapper.text()).toContain("second failure");
+    expect(wrapper.text()).toContain("first failure");
+    wrapper.unmount();
+  });
 
   it("shows an initial summary and keeps the full masked configuration secondary", async () => {
     const store = useOverviewStore();

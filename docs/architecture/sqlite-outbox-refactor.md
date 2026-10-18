@@ -84,14 +84,14 @@ The Outbox is an **operational queue**, not an audit log. It is generic infrastr
 
 ## Deployment lifecycle
 
-- Deployment records a **real attempt to apply a changed effective desired state**, not every reconcile. Distinct retries create distinct deployment IDs. Reconciler owns whether a retry happens; a store must not suppress attempts with the same revision/digest.
+- A Deployment records one immutable **effective desired state**. Every real pipeline execution is a nested Attempt; retries of the same digest reuse the Deployment and receive distinct attempt IDs. An ordinary reconcile after success creates no Attempt.
 - Preparation failures prior to an apply attempt do not create a Deployment. Runtime state and a safe `DeployPreparationFailed` fact commit atomically so Alerts and Notifications still observe the failure. Once application has begun, policy rejection is a failed Deployment.
-- States: `running`, `succeeded`, `failed`, `interrupted`.
+- Deployment states: `running`, `succeeded`, `failed`, `interrupted`, `superseded`. Attempt states exclude `superseded`.
 - Apply boundary includes policies, init jobs, stack deployment, and authorized prune. Maintenance work after successful apply does not retroactively change a completed Deployment.
 - Successful application means the deploy pipeline completed, **not** that the services are healthy or that actual live convergence was verified. Rollout tracking is explicitly deferred.
 - Preserve user-visible `DeploySuccess`. Create it at successful completion of a Deployment.
 - Only a successful Deployment advances the per-stack `DesiredSnapshot` baseline. A failed or interrupted attempt must never replace a known-good baseline.
-- A matching successful baseline is a no-op only when no failed/interrupted attempt followed it. Returning to the baseline after an attempt that may have changed Swarm creates a new attempt.
+- Changes are calculated once from the last successful desired-state baseline and remain immutable across retries. Returning to the baseline after another desired state creates a new Deployment, even when its diff is empty.
 - Desired snapshots contain effective rendered Compose data suitable for semantic diffs. Commands, entrypoints, healthcheck commands and init-job scripts are opaque persisted values: displays contain only masks while unkeyed fingerprints detect changes. Snapshots, diffs, events, outbox payloads, and logs exclude unmasked secret contents.
 - Effective command identity preserves Compose scalar versus list form because those forms produce different argv; presentation-only YAML formatting remains a no-op.
 - Persist meaningful structured changes (`added`, `removed`, `changed` plus semantic details), rather than presenting only flat change counts. A failed attempt can show **planned** changes without claiming they were applied.
@@ -100,11 +100,11 @@ The Outbox is an **operational queue**, not an audit log. It is generic infrastr
 
 External Docker operations and the database **cannot share a transaction**. The DB can guarantee only that *local state transitions* and their emitted durable records are committed together.
 
-- Before an external apply, persist a `running` Deployment.
+- Before an external apply, persist a `running` Attempt and project it as the Deployment's latest status.
 - On completed apply, use **one publisher DB transaction** to commit `Deployment=succeeded`, successful `DesiredSnapshot`, GitOps state and a `DeploymentSucceeded` Outbox event plus delivery records. **Do not** also require the Event History projection or Alert resolution in that transaction: they are performed by subscribers later in their own transactions.
 - Failed/interrupted transitions and their durable side effects must use the same principle. `DeployInterrupted` is a separate durable fact for an unknown external outcome; it is not reported as a known failure.
 - If the current process knows the external outcome but completion persistence fails, the reconciler retries that exact success/failed transition before another apply. A running attempt with no known in-process outcome is atomically interrupted before retry policy is evaluated.
-- If a retained completion races with a terminal transition, recovery rereads that exact deployment ID transactionally. A proven terminal row wins unchanged and the obsolete in-memory completion is discarded with a structured lifecycle-conflict log; missing, inconsistent, or still-running rows remain errors.
+- If a retained completion races with a terminal transition, recovery rereads that exact attempt ID transactionally. A proven terminal row wins unchanged and the obsolete in-memory completion is discarded with a structured lifecycle-conflict log; missing, inconsistent, or still-running rows remain errors.
 - After a crash between Docker API success and the success transaction, the Deployment remains `running` until it is detected as `interrupted`; do not invent success or overwrite the baseline. Actual-state convergence detection is future work.
 - The Event Bus worker reads due subscriber records, retries with bounded backoff, and exposes terminal failures and queue metrics. Expired leases recover after restart.
 - Model **separate durable delivery state per destination** (e.g. independent stable subscriber IDs) so partial success across Telegram/webhooks is not treated as all-or-nothing.
@@ -130,7 +130,7 @@ records its version. Restarting an existing database preserves its state.
 
 The initial schema contains `goose_db_version`, `gitops_runtime`, `nodes`,
 `services`, `secret_metadata`, `recommendations`, `assistant_chats`,
-`assistant_turns`, `deployments`, `desired_snapshots`, `event_history`,
+`assistant_turns`, `deployments`, `deployment_attempts`, `desired_snapshots`, `event_history`,
 `alerts`, `outbox_events`, `outbox_deliveries` and the supporting projection
 tables. There is no import marker table.
 
@@ -143,15 +143,15 @@ first Deployment.
 ## Deployment detail presentation and comparison limits
 
 Overview and the paginated Deployments page open the same Deployment Details dialog
-by attempt ID. The list endpoint returns summaries only; detail is loaded on demand.
+by Deployment ID. The list endpoint returns summaries only; detail includes nested Attempts and is loaded on demand.
 Git commit details remain a separate action. Changes are grouped by resource and
 field, with before/after values or masks. Missing values and empty strings are
 distinct. Sensitive executable fields and secret content remain masked.
 
 `comparison_basis=none` means the first desired snapshot has no trustworthy
-previous baseline. `successful_baseline` and `last_attempt` compare desired
-snapshots, not measured live state. ListStackServices records a technical read
+previous baseline. `successful_baseline` compares desired snapshots, not measured
+live state. ListStackServices records a technical read
 (`actual_state_status=observed`), while `verification_status=skipped` and
 `comparison_status=unknown` remain until real convergence verification is built.
-`succeeded` still means the apply pipeline completed. Failed and interrupted
-attempts display planned desired changes, not asserted applied changes.
+`succeeded` still means the latest apply pipeline completed. Failed and interrupted
+Attempts share the Deployment's planned desired changes, not asserted applied changes.

@@ -955,13 +955,16 @@ type Deployment struct {
 	Summary            DeploymentChangeSummary     `json:"summary"`
 	Resources          DeploymentResourceSummary   `json:"resources"`
 	DiffAvailable      bool                        `json:"diff_available"`
+	LatestAttemptID    string                      `json:"latest_attempt_id"`
+	AttemptCount       int                         `json:"attempt_count"`
 	// Services from this deployment's recorded desired configuration.
 	Services []DeploymentService `json:"services"`
 	// Bounded secret-masked failure detail, when recorded.
 	Diagnostic OptString `json:"diagnostic"`
 	// Secret-masked recorded desired configuration rendered as YAML.
-	ConfigurationYaml OptString          `json:"configuration_yaml"`
-	Changes           []DeploymentChange `json:"changes"`
+	ConfigurationYaml OptString           `json:"configuration_yaml"`
+	Changes           []DeploymentChange  `json:"changes"`
+	Attempts          []DeploymentAttempt `json:"attempts"`
 }
 
 // GetID returns the value of ID.
@@ -1064,6 +1067,16 @@ func (s *Deployment) GetDiffAvailable() bool {
 	return s.DiffAvailable
 }
 
+// GetLatestAttemptID returns the value of LatestAttemptID.
+func (s *Deployment) GetLatestAttemptID() string {
+	return s.LatestAttemptID
+}
+
+// GetAttemptCount returns the value of AttemptCount.
+func (s *Deployment) GetAttemptCount() int {
+	return s.AttemptCount
+}
+
 // GetServices returns the value of Services.
 func (s *Deployment) GetServices() []DeploymentService {
 	return s.Services
@@ -1082,6 +1095,11 @@ func (s *Deployment) GetConfigurationYaml() OptString {
 // GetChanges returns the value of Changes.
 func (s *Deployment) GetChanges() []DeploymentChange {
 	return s.Changes
+}
+
+// GetAttempts returns the value of Attempts.
+func (s *Deployment) GetAttempts() []DeploymentAttempt {
+	return s.Attempts
 }
 
 // SetID sets the value of ID.
@@ -1184,6 +1202,16 @@ func (s *Deployment) SetDiffAvailable(val bool) {
 	s.DiffAvailable = val
 }
 
+// SetLatestAttemptID sets the value of LatestAttemptID.
+func (s *Deployment) SetLatestAttemptID(val string) {
+	s.LatestAttemptID = val
+}
+
+// SetAttemptCount sets the value of AttemptCount.
+func (s *Deployment) SetAttemptCount(val int) {
+	s.AttemptCount = val
+}
+
 // SetServices sets the value of Services.
 func (s *Deployment) SetServices(val []DeploymentService) {
 	s.Services = val
@@ -1202,6 +1230,11 @@ func (s *Deployment) SetConfigurationYaml(val OptString) {
 // SetChanges sets the value of Changes.
 func (s *Deployment) SetChanges(val []DeploymentChange) {
 	s.Changes = val
+}
+
+// SetAttempts sets the value of Attempts.
+func (s *Deployment) SetAttempts(val []DeploymentAttempt) {
+	s.Attempts = val
 }
 
 // Ref: #/components/schemas/DeploymentActualStateStatus
@@ -1240,6 +1273,220 @@ func (s *DeploymentActualStateStatus) UnmarshalText(data []byte) error {
 		return nil
 	case DeploymentActualStateStatusUnknown:
 		*s = DeploymentActualStateStatusUnknown
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/DeploymentAttempt
+type DeploymentAttempt struct {
+	ID                 string                      `json:"id"`
+	Number             int                         `json:"number"`
+	Status             DeploymentAttemptStatus     `json:"status"`
+	Phase              DeploymentPhase             `json:"phase"`
+	Reason             OptString                   `json:"reason"`
+	Diagnostic         OptString                   `json:"diagnostic"`
+	ApplyStatus        DeploymentStageStatus       `json:"apply_status"`
+	VerificationStatus DeploymentStageStatus       `json:"verification_status"`
+	CleanupStatus      DeploymentStageStatus       `json:"cleanup_status"`
+	ActualStateStatus  DeploymentActualStateStatus `json:"actual_state_status"`
+	ObservedAt         OptDateTime                 `json:"observed_at"`
+	StartedAt          time.Time                   `json:"started_at"`
+	FinishedAt         OptDateTime                 `json:"finished_at"`
+	DurationMs         OptInt64                    `json:"duration_ms"`
+}
+
+// GetID returns the value of ID.
+func (s *DeploymentAttempt) GetID() string {
+	return s.ID
+}
+
+// GetNumber returns the value of Number.
+func (s *DeploymentAttempt) GetNumber() int {
+	return s.Number
+}
+
+// GetStatus returns the value of Status.
+func (s *DeploymentAttempt) GetStatus() DeploymentAttemptStatus {
+	return s.Status
+}
+
+// GetPhase returns the value of Phase.
+func (s *DeploymentAttempt) GetPhase() DeploymentPhase {
+	return s.Phase
+}
+
+// GetReason returns the value of Reason.
+func (s *DeploymentAttempt) GetReason() OptString {
+	return s.Reason
+}
+
+// GetDiagnostic returns the value of Diagnostic.
+func (s *DeploymentAttempt) GetDiagnostic() OptString {
+	return s.Diagnostic
+}
+
+// GetApplyStatus returns the value of ApplyStatus.
+func (s *DeploymentAttempt) GetApplyStatus() DeploymentStageStatus {
+	return s.ApplyStatus
+}
+
+// GetVerificationStatus returns the value of VerificationStatus.
+func (s *DeploymentAttempt) GetVerificationStatus() DeploymentStageStatus {
+	return s.VerificationStatus
+}
+
+// GetCleanupStatus returns the value of CleanupStatus.
+func (s *DeploymentAttempt) GetCleanupStatus() DeploymentStageStatus {
+	return s.CleanupStatus
+}
+
+// GetActualStateStatus returns the value of ActualStateStatus.
+func (s *DeploymentAttempt) GetActualStateStatus() DeploymentActualStateStatus {
+	return s.ActualStateStatus
+}
+
+// GetObservedAt returns the value of ObservedAt.
+func (s *DeploymentAttempt) GetObservedAt() OptDateTime {
+	return s.ObservedAt
+}
+
+// GetStartedAt returns the value of StartedAt.
+func (s *DeploymentAttempt) GetStartedAt() time.Time {
+	return s.StartedAt
+}
+
+// GetFinishedAt returns the value of FinishedAt.
+func (s *DeploymentAttempt) GetFinishedAt() OptDateTime {
+	return s.FinishedAt
+}
+
+// GetDurationMs returns the value of DurationMs.
+func (s *DeploymentAttempt) GetDurationMs() OptInt64 {
+	return s.DurationMs
+}
+
+// SetID sets the value of ID.
+func (s *DeploymentAttempt) SetID(val string) {
+	s.ID = val
+}
+
+// SetNumber sets the value of Number.
+func (s *DeploymentAttempt) SetNumber(val int) {
+	s.Number = val
+}
+
+// SetStatus sets the value of Status.
+func (s *DeploymentAttempt) SetStatus(val DeploymentAttemptStatus) {
+	s.Status = val
+}
+
+// SetPhase sets the value of Phase.
+func (s *DeploymentAttempt) SetPhase(val DeploymentPhase) {
+	s.Phase = val
+}
+
+// SetReason sets the value of Reason.
+func (s *DeploymentAttempt) SetReason(val OptString) {
+	s.Reason = val
+}
+
+// SetDiagnostic sets the value of Diagnostic.
+func (s *DeploymentAttempt) SetDiagnostic(val OptString) {
+	s.Diagnostic = val
+}
+
+// SetApplyStatus sets the value of ApplyStatus.
+func (s *DeploymentAttempt) SetApplyStatus(val DeploymentStageStatus) {
+	s.ApplyStatus = val
+}
+
+// SetVerificationStatus sets the value of VerificationStatus.
+func (s *DeploymentAttempt) SetVerificationStatus(val DeploymentStageStatus) {
+	s.VerificationStatus = val
+}
+
+// SetCleanupStatus sets the value of CleanupStatus.
+func (s *DeploymentAttempt) SetCleanupStatus(val DeploymentStageStatus) {
+	s.CleanupStatus = val
+}
+
+// SetActualStateStatus sets the value of ActualStateStatus.
+func (s *DeploymentAttempt) SetActualStateStatus(val DeploymentActualStateStatus) {
+	s.ActualStateStatus = val
+}
+
+// SetObservedAt sets the value of ObservedAt.
+func (s *DeploymentAttempt) SetObservedAt(val OptDateTime) {
+	s.ObservedAt = val
+}
+
+// SetStartedAt sets the value of StartedAt.
+func (s *DeploymentAttempt) SetStartedAt(val time.Time) {
+	s.StartedAt = val
+}
+
+// SetFinishedAt sets the value of FinishedAt.
+func (s *DeploymentAttempt) SetFinishedAt(val OptDateTime) {
+	s.FinishedAt = val
+}
+
+// SetDurationMs sets the value of DurationMs.
+func (s *DeploymentAttempt) SetDurationMs(val OptInt64) {
+	s.DurationMs = val
+}
+
+// Ref: #/components/schemas/DeploymentAttemptStatus
+type DeploymentAttemptStatus string
+
+const (
+	DeploymentAttemptStatusRunning     DeploymentAttemptStatus = "running"
+	DeploymentAttemptStatusSucceeded   DeploymentAttemptStatus = "succeeded"
+	DeploymentAttemptStatusFailed      DeploymentAttemptStatus = "failed"
+	DeploymentAttemptStatusInterrupted DeploymentAttemptStatus = "interrupted"
+)
+
+// AllValues returns all DeploymentAttemptStatus values.
+func (DeploymentAttemptStatus) AllValues() []DeploymentAttemptStatus {
+	return []DeploymentAttemptStatus{
+		DeploymentAttemptStatusRunning,
+		DeploymentAttemptStatusSucceeded,
+		DeploymentAttemptStatusFailed,
+		DeploymentAttemptStatusInterrupted,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s DeploymentAttemptStatus) MarshalText() ([]byte, error) {
+	switch s {
+	case DeploymentAttemptStatusRunning:
+		return []byte(s), nil
+	case DeploymentAttemptStatusSucceeded:
+		return []byte(s), nil
+	case DeploymentAttemptStatusFailed:
+		return []byte(s), nil
+	case DeploymentAttemptStatusInterrupted:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *DeploymentAttemptStatus) UnmarshalText(data []byte) error {
+	switch DeploymentAttemptStatus(data) {
+	case DeploymentAttemptStatusRunning:
+		*s = DeploymentAttemptStatusRunning
+		return nil
+	case DeploymentAttemptStatusSucceeded:
+		*s = DeploymentAttemptStatusSucceeded
+		return nil
+	case DeploymentAttemptStatusFailed:
+		*s = DeploymentAttemptStatusFailed
+		return nil
+	case DeploymentAttemptStatusInterrupted:
+		*s = DeploymentAttemptStatusInterrupted
 		return nil
 	default:
 		return errors.Errorf("invalid value: %q", data)
@@ -1805,6 +2052,7 @@ const (
 	DeploymentStatusSucceeded   DeploymentStatus = "succeeded"
 	DeploymentStatusFailed      DeploymentStatus = "failed"
 	DeploymentStatusInterrupted DeploymentStatus = "interrupted"
+	DeploymentStatusSuperseded  DeploymentStatus = "superseded"
 )
 
 // AllValues returns all DeploymentStatus values.
@@ -1814,6 +2062,7 @@ func (DeploymentStatus) AllValues() []DeploymentStatus {
 		DeploymentStatusSucceeded,
 		DeploymentStatusFailed,
 		DeploymentStatusInterrupted,
+		DeploymentStatusSuperseded,
 	}
 }
 
@@ -1827,6 +2076,8 @@ func (s DeploymentStatus) MarshalText() ([]byte, error) {
 	case DeploymentStatusFailed:
 		return []byte(s), nil
 	case DeploymentStatusInterrupted:
+		return []byte(s), nil
+	case DeploymentStatusSuperseded:
 		return []byte(s), nil
 	default:
 		return nil, errors.Errorf("invalid value: %q", s)
@@ -1847,6 +2098,9 @@ func (s *DeploymentStatus) UnmarshalText(data []byte) error {
 		return nil
 	case DeploymentStatusInterrupted:
 		*s = DeploymentStatusInterrupted
+		return nil
+	case DeploymentStatusSuperseded:
+		*s = DeploymentStatusSuperseded
 		return nil
 	default:
 		return errors.Errorf("invalid value: %q", data)
@@ -1875,6 +2129,8 @@ type DeploymentSummary struct {
 	Summary            DeploymentChangeSummary     `json:"summary"`
 	Resources          DeploymentResourceSummary   `json:"resources"`
 	DiffAvailable      bool                        `json:"diff_available"`
+	LatestAttemptID    string                      `json:"latest_attempt_id"`
+	AttemptCount       int                         `json:"attempt_count"`
 }
 
 // GetID returns the value of ID.
@@ -1977,6 +2233,16 @@ func (s *DeploymentSummary) GetDiffAvailable() bool {
 	return s.DiffAvailable
 }
 
+// GetLatestAttemptID returns the value of LatestAttemptID.
+func (s *DeploymentSummary) GetLatestAttemptID() string {
+	return s.LatestAttemptID
+}
+
+// GetAttemptCount returns the value of AttemptCount.
+func (s *DeploymentSummary) GetAttemptCount() int {
+	return s.AttemptCount
+}
+
 // SetID sets the value of ID.
 func (s *DeploymentSummary) SetID(val string) {
 	s.ID = val
@@ -2075,6 +2341,16 @@ func (s *DeploymentSummary) SetResources(val DeploymentResourceSummary) {
 // SetDiffAvailable sets the value of DiffAvailable.
 func (s *DeploymentSummary) SetDiffAvailable(val bool) {
 	s.DiffAvailable = val
+}
+
+// SetLatestAttemptID sets the value of LatestAttemptID.
+func (s *DeploymentSummary) SetLatestAttemptID(val string) {
+	s.LatestAttemptID = val
+}
+
+// SetAttemptCount sets the value of AttemptCount.
+func (s *DeploymentSummary) SetAttemptCount(val int) {
+	s.AttemptCount = val
 }
 
 // Ref: #/components/schemas/DeploymentsResponse
@@ -4601,7 +4877,7 @@ func (s *SecretsResponse) SetSecrets(val []SecretInfo) {
 
 // Ref: #/components/schemas/ServiceDeploymentResponse
 type ServiceDeploymentResponse struct {
-	// Deployment attempt ID.
+	// Desired-state deployment ID.
 	ID           string                  `json:"id"`
 	CreatedAt    time.Time               `json:"created_at"`
 	Status       ServiceDeploymentStatus `json:"status"`
@@ -4689,6 +4965,7 @@ const (
 	ServiceDeploymentStatusSucceeded   ServiceDeploymentStatus = "succeeded"
 	ServiceDeploymentStatusFailed      ServiceDeploymentStatus = "failed"
 	ServiceDeploymentStatusInterrupted ServiceDeploymentStatus = "interrupted"
+	ServiceDeploymentStatusSuperseded  ServiceDeploymentStatus = "superseded"
 )
 
 // AllValues returns all ServiceDeploymentStatus values.
@@ -4698,6 +4975,7 @@ func (ServiceDeploymentStatus) AllValues() []ServiceDeploymentStatus {
 		ServiceDeploymentStatusSucceeded,
 		ServiceDeploymentStatusFailed,
 		ServiceDeploymentStatusInterrupted,
+		ServiceDeploymentStatusSuperseded,
 	}
 }
 
@@ -4711,6 +4989,8 @@ func (s ServiceDeploymentStatus) MarshalText() ([]byte, error) {
 	case ServiceDeploymentStatusFailed:
 		return []byte(s), nil
 	case ServiceDeploymentStatusInterrupted:
+		return []byte(s), nil
+	case ServiceDeploymentStatusSuperseded:
 		return []byte(s), nil
 	default:
 		return nil, errors.Errorf("invalid value: %q", s)
@@ -4731,6 +5011,9 @@ func (s *ServiceDeploymentStatus) UnmarshalText(data []byte) error {
 		return nil
 	case ServiceDeploymentStatusInterrupted:
 		*s = ServiceDeploymentStatusInterrupted
+		return nil
+	case ServiceDeploymentStatusSuperseded:
+		*s = ServiceDeploymentStatusSuperseded
 		return nil
 	default:
 		return errors.Errorf("invalid value: %q", data)

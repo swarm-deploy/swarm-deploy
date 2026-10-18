@@ -441,7 +441,7 @@ export interface AssistantChatMessage {
 export interface AssistantChatHistory extends AssistantChatSummary {
   messages: AssistantChatMessage[];
 }
-export type DeploymentStatus = "running" | "succeeded" | "failed" | "interrupted";
+export type DeploymentStatus = "running" | "succeeded" | "failed" | "interrupted" | "superseded";
 export type DeploymentPhase = "apply" | "verification" | "cleanup" | "completed";
 export type DeploymentStageStatus = "pending" | "running" | "succeeded" | "failed" | "unknown" | "skipped";
 export type DeploymentActualStateStatus = "observed" | "unknown";
@@ -490,12 +490,31 @@ export interface DeploymentSummary {
   summary: DeploymentChangeSummary;
   resources: DeploymentResourceSummary;
   diff_available: boolean;
+  latest_attempt_id: string;
+  attempt_count: number;
+}
+export interface DeploymentAttempt {
+  id: string;
+  number: number;
+  status: Exclude<DeploymentStatus, "superseded">;
+  phase: DeploymentPhase;
+  reason?: string;
+  diagnostic?: string;
+  apply_status: DeploymentStageStatus;
+  verification_status: DeploymentStageStatus;
+  cleanup_status: DeploymentStageStatus;
+  actual_state_status: DeploymentActualStateStatus;
+  observed_at?: string;
+  started_at: string;
+  finished_at?: string;
+  duration_ms?: number;
 }
 export interface Deployment extends DeploymentSummary {
   diagnostic?: string;
   configuration_yaml?: string;
   services?: Array<{ name: string; image: string; replicas: string }>;
   changes: DeploymentChange[];
+  attempts: DeploymentAttempt[];
 }
 export interface DeploymentsResponse {
   deployments: DeploymentSummary[];

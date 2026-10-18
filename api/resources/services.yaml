@@ -308,14 +308,14 @@ components:
             $ref: '#/components/schemas/ServiceRealtimeTask'
     ServiceDeploymentStatus:
       type: string
-      enum: [running, succeeded, failed, interrupted]
+      enum: [running, succeeded, failed, interrupted, superseded]
     ServiceDeploymentResponse:
       type: object
       required: [id, created_at, status, image, image_version]
       properties:
         id:
           type: string
-          description: Deployment attempt ID.
+          description: Desired-state deployment ID.
         created_at:
           type: string
           format: date-time
