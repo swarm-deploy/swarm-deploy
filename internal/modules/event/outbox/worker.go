@@ -101,7 +101,6 @@ func (b *Bus) ProcessNext(ctx context.Context) (bool, error) {
 	return true, nil
 }
 
-
 // safeDeliveryErrorFields records only explicit, stable classifications. Never
 // log arbitrary handler error messages: subscribers may handle credentials or
 // untrusted response bodies.
