@@ -312,13 +312,13 @@ func (n *TelegramNotifier) sendRequest(
 		return Receipt{}, fmt.Errorf("read response body: %w", err)
 	}
 	var answer struct {
-		OK          bool            `json:"ok"`
-		Description string          `json:"description"`
-		ErrorCode   int             `json:"error_code"`
+		OK          bool   `json:"ok"`
+		Description string `json:"description"`
+		ErrorCode   int    `json:"error_code"`
 		Parameters  struct {
 			RetryAfter int `json:"retry_after"`
 		} `json:"parameters"`
-		Result      json.RawMessage `json:"result"`
+		Result json.RawMessage `json:"result"`
 	}
 	if err = json.Unmarshal(respBody, &answer); err != nil {
 		return Receipt{}, fmt.Errorf("decode telegram response: %w", err)
