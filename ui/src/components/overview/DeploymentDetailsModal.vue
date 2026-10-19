@@ -403,24 +403,32 @@ onUnmounted(() => {
                 </div>
               </div>
               <p class="meta">{{ detail.summary.added }} added · {{ detail.summary.changed }} changed · {{ detail.summary.removed }} removed<template v-if="detail.summary.redacted"> · {{ detail.summary.redacted }} masked</template></p>
-              <details v-for="group in groups" :key="`${group.type}/${group.name}`" class="deployment-resource" open>
-                <summary><span><svg class="deployment-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg><DeploymentIcon :name="resourceIcon(group.type)" /><span><span class="deployment-resource-type">{{ group.type }}</span><strong>{{ group.name }}</strong></span></span><span class="deployment-resource-operation" :class="`deployment-resource-operation--${group.operation}`">{{ group.operation }}</span></summary>
-                <section v-for="section in group.sections" :key="section.name" class="deployment-change-section">
-                  <h4>{{ sectionLabel(section.name) }}</h4>
-                  <div
-                    v-for="(change, index) in section.changes"
-                    :key="`${change.field}-${index}`"
-                    class="deployment-change"
-                    :class="{ 'deployment-change--long': hasLongValue(change) }"
-                  >
-                    <strong class="deployment-field">{{ fieldLabel(change, section.name) }}</strong>
-                    <div class="deployment-diff-values">
-                      <div v-if="change.operation !== 'added'" class="deployment-diff-line deployment-diff-line--before"><span aria-hidden="true">−</span><code>{{ value(change.before, change.redacted) }}</code></div>
-                      <div v-if="change.operation !== 'removed'" class="deployment-diff-line deployment-diff-line--after"><span aria-hidden="true">+</span><code>{{ value(change.after, change.redacted) }}</code></div>
-                    </div>
+              <template v-for="group in groups" :key="`${group.type}/${group.name}`">
+                <div v-if="group.operation === 'removed'" class="deployment-resource deployment-resource--removed">
+                  <div class="deployment-resource-heading">
+                    <span><DeploymentIcon :name="resourceIcon(group.type)" /><span><span class="deployment-resource-type">{{ group.type }}</span><strong>{{ group.name }}</strong></span></span>
+                    <span class="deployment-resource-operation deployment-resource-operation--removed">Removed</span>
                   </div>
-                </section>
-              </details>
+                </div>
+                <details v-else class="deployment-resource" open>
+                  <summary class="deployment-resource-heading"><span><svg class="deployment-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg><DeploymentIcon :name="resourceIcon(group.type)" /><span><span class="deployment-resource-type">{{ group.type }}</span><strong>{{ group.name }}</strong></span></span><span class="deployment-resource-operation" :class="`deployment-resource-operation--${group.operation}`">{{ group.operation }}</span></summary>
+                  <section v-for="section in group.sections" :key="section.name" class="deployment-change-section">
+                    <h4>{{ sectionLabel(section.name) }}</h4>
+                    <div
+                      v-for="(change, index) in section.changes"
+                      :key="`${change.field}-${index}`"
+                      class="deployment-change"
+                      :class="{ 'deployment-change--long': hasLongValue(change) }"
+                    >
+                      <strong class="deployment-field">{{ fieldLabel(change, section.name) }}</strong>
+                      <div class="deployment-diff-values">
+                        <div v-if="change.operation !== 'added'" class="deployment-diff-line deployment-diff-line--before"><span aria-hidden="true">−</span><code>{{ value(change.before, change.redacted) }}</code></div>
+                        <div v-if="change.operation !== 'removed'" class="deployment-diff-line deployment-diff-line--after"><span aria-hidden="true">+</span><code>{{ value(change.after, change.redacted) }}</code></div>
+                      </div>
+                    </div>
+                  </section>
+                </details>
+              </template>
             </template>
           </section>
 
@@ -628,10 +636,11 @@ details[open] > summary .deployment-chevron { transform: rotate(90deg); }
   transform: rotate(45deg);
 }
 .deployment-resource { border-bottom: 1px solid var(--line); margin: 10px 0; overflow: hidden; }
-.deployment-resource summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; list-style: none; padding: 8px 4px; }
-.deployment-resource summary > span:first-child { display: flex; align-items: center; gap: 10px; min-width: 0; overflow-wrap: anywhere; }
-.deployment-resource summary > span:first-child > :deep(.deployment-icon) { width: 22px; height: 22px; color: var(--muted); }
-.deployment-resource summary > span:first-child > span { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.deployment-resource-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; list-style: none; padding: 8px 4px; }
+summary.deployment-resource-heading { cursor: pointer; }
+.deployment-resource-heading > span:first-child { display: flex; align-items: center; gap: 10px; min-width: 0; overflow-wrap: anywhere; }
+.deployment-resource-heading > span:first-child > :deep(.deployment-icon) { width: 22px; height: 22px; color: var(--muted); }
+.deployment-resource-heading > span:first-child > span { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .deployment-resource-type { color: var(--muted); text-transform: capitalize; }
 .deployment-resource-operation { border-radius: 999px; padding: 3px 8px; font-size: .72rem; text-transform: capitalize; }
 .deployment-resource-operation--added { color: var(--success); background: var(--success-muted); }
