@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
-import type { StackStatus, StackView } from "../../api/types";
+import type { StackView } from "../../api/types";
+import { stackSyncStatus } from "../../utils/stackStatus";
 import { formatDate, shortCommitHash } from "../../utils/format";
 
 const props = defineProps<{
@@ -14,32 +15,9 @@ const emit = defineEmits<{
   commit: [commitHash: string];
 }>();
 
-const normalizedStatus = computed<StackStatus>(() => ({
-  synced: Number(props.stack.status?.synced ?? 0),
-  out_of_synced: Number(props.stack.status?.out_of_synced ?? 0),
-}));
-
-const statusKind = computed<"synced" | "out-of-sync" | "unknown">(() => {
-  if (normalizedStatus.value.out_of_synced > 0) {
-    return "out-of-sync";
-  }
-  if (normalizedStatus.value.synced > 0) {
-    return "synced";
-  }
-
-  return "unknown";
-});
-
-const statusLabel = computed(() => {
-  if (statusKind.value === "out-of-sync") {
-    return `Out of sync ${normalizedStatus.value.out_of_synced}`;
-  }
-  if (statusKind.value === "synced") {
-    return "Synced";
-  }
-
-  return "Unknown";
-});
+const status = computed(() => stackSyncStatus(props.stack.status));
+const statusKind = computed(() => status.value.kind);
+const statusLabel = computed(() => status.value.label);
 
 const serviceLabel = computed(() => `${props.serviceCount} ${props.serviceCount === 1 ? "service" : "services"}`);
 const stackAnchor = computed(() => `stack-${encodeURIComponent(props.stack.name)}`);
@@ -48,7 +26,7 @@ const stackAnchor = computed(() => `stack-${encodeURIComponent(props.stack.name)
 <template>
   <article :id="stackAnchor" class="stack-card overview-stack-card" :class="`overview-stack-card--${statusKind}`">
     <header class="overview-stack-card-header">
-      <h3 class="overview-stack-card-title" :title="stack.name">{{ stack.name }}</h3>
+      <h3 class="overview-stack-card-title" :title="stack.name"><RouterLink class="stack-card-link" :to="{ name: 'stack-details', params: { stack: stack.name } }">{{ stack.name }}</RouterLink></h3>
       <div class="overview-stack-card-badges">
         <span class="overview-stack-status-badge" :class="`overview-stack-status-badge--${statusKind}`">
           {{ statusLabel }}
@@ -71,7 +49,7 @@ const stackAnchor = computed(() => `stack-${encodeURIComponent(props.stack.name)
             class="overview-commit-badge overview-stack-commit-badge"
             :aria-label="`Open commit ${shortCommitHash(stack.last_commit)}`"
             :title="stack.last_commit"
-            @click="emit('commit', stack.last_commit)"
+            @click.stop="emit('commit', stack.last_commit)"
           >
             {{ shortCommitHash(stack.last_commit) }}
           </button>
@@ -81,9 +59,20 @@ const stackAnchor = computed(() => `stack-${encodeURIComponent(props.stack.name)
     </dl>
 
     <footer class="overview-stack-card-actions">
-      <button type="button" class="overview-stack-card-action" @click="emit('compare', stack.name)">
+      <button type="button" class="overview-stack-card-action" @click.stop="emit('compare', stack.name)">
         Compare state
       </button>
     </footer>
   </article>
 </template>
+
+<style scoped>
+.overview-stack-card { position: relative; }
+.stack-card-link { color: inherit; text-decoration: none; }
+.stack-card-link::after { content: ""; position: absolute; inset: 0; }
+.stack-card-link:focus-visible { outline: none; }
+.overview-stack-card:has(.stack-card-link:focus-visible) { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
+.overview-stack-card-actions, .overview-stack-commit-badge { position: relative; z-index: 1; }
+.overview-stack-card-actions { pointer-events: none; }
+.overview-stack-card-action { pointer-events: auto; }
+</style>

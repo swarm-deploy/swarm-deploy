@@ -1037,6 +1037,33 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 										return
 									}
 
+								case 'r': // Prefix: "resources"
+
+									if l := len("resources"); len(elem) >= l && elem[0:l] == "resources" {
+										elem = elem[l:]
+									} else {
+										break
+									}
+
+									if len(elem) == 0 {
+										// Leaf node.
+										switch r.Method {
+										case "GET":
+											s.handleGetStackResourcesRequest([1]string{
+												args[0],
+											}, elemIsEscaped, w, r)
+										default:
+											s.notAllowed(w, r, notAllowedParams{
+												allowedMethods: "GET",
+												allowedHeaders: nil,
+												acceptPost:     "",
+												acceptPatch:    "",
+											})
+										}
+
+										return
+									}
+
 								case 's': // Prefix: "services/"
 
 									if l := len("services/"); len(elem) >= l && elem[0:l] == "services/" {
@@ -2243,6 +2270,31 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 											r.operationID = "getStackManifestos"
 											r.operationGroup = ""
 											r.pathPattern = "/api/v1/stacks/{stack}/manifestos"
+											r.args = args
+											r.count = 1
+											return r, true
+										default:
+											return
+										}
+									}
+
+								case 'r': // Prefix: "resources"
+
+									if l := len("resources"); len(elem) >= l && elem[0:l] == "resources" {
+										elem = elem[l:]
+									} else {
+										break
+									}
+
+									if len(elem) == 0 {
+										// Leaf node.
+										switch method {
+										case "GET":
+											r.name = GetStackResourcesOperation
+											r.summary = ""
+											r.operationID = "getStackResources"
+											r.operationGroup = ""
+											r.pathPattern = "/api/v1/stacks/{stack}/resources"
 											r.args = args
 											r.count = 1
 											return r, true

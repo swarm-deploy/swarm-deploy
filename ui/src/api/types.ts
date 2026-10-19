@@ -505,3 +505,14 @@ export interface DeploymentFilterOptions {
   stacks: string[];
   services: Array<{ stack_name: string; service_name: string }>;
 }
+
+export interface StackResourceInfo {
+  id: string;
+  name: string;
+}
+
+export interface StackResourcesResponse {
+  networks: NetworkInfo[];
+  secrets: StackResourceInfo[];
+  configs: StackResourceInfo[];
+}

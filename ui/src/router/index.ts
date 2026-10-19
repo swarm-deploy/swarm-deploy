@@ -9,11 +9,13 @@ import NetworksView from "../views/NetworksView.vue";
 import OverviewView from "../views/OverviewView.vue";
 import RecommendationsView from "../views/RecommendationsView.vue";
 import SecretsView from "../views/SecretsView.vue";
+import StackView from "../views/StackView.vue";
 import ServiceView from "../views/ServiceView.vue";
 
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
+    { path: "/stacks/:stack", name: "stack-details", component: StackView },
     { path: "/deployments", name: "deployments", component: DeploymentsView },
     {
       path: "/",
