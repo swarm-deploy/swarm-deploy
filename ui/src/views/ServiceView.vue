@@ -9,7 +9,9 @@ import type {
   ServiceInfo,
   ServiceRealtimeTask,
   ServiceStatusResponse,
+  TaskLogCountsEvent,
   TaskLogEvent,
+  TaskLogLevel,
 } from "../api/types";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
@@ -38,11 +40,19 @@ const logsError = ref("");
 const logsEnded = ref(false);
 const logsViewer = ref<HTMLElement | null>(null);
 const logsAutoScroll = ref(true);
+const parseLogs = ref(false);
+const taskLogLevels: TaskLogLevel[] = ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"];
+const selectedLogLevels = ref<TaskLogLevel[]>([...taskLogLevels]);
+const logLevelCounts = ref<Record<TaskLogLevel, number>>(emptyLogLevelCounts());
 const labelsModalOpen = ref(false);
 const secretDetailsStore = useSecretDetailsStore();
 const overviewStore = useOverviewStore();
 
 let logsStream: EventSource | null = null;
+
+function emptyLogLevelCounts(): Record<TaskLogLevel, number> {
+  return { TRACE: 0, DEBUG: 0, INFO: 0, WARN: 0, ERROR: 0, FATAL: 0 };
+}
 
 const stackName = computed(() => String(route.params.stack ?? "").trim());
 const serviceName = computed(() => String(route.params.service ?? "").trim());
@@ -262,34 +272,44 @@ function appendTaskLog(entry: TaskLogEvent): void {
   }
 }
 
-function openTaskLogs(taskID: string): void {
-  const id = String(taskID || "").trim();
+function startTaskLogsStream(): void {
+  const id = logsTaskID.value;
   if (!id) {
     return;
   }
 
   closeTaskLogsStream();
-  logsModalOpen.value = true;
-  logsTaskID.value = id;
   logs.value = [];
   logsError.value = "";
   logsEnded.value = false;
   logsLoading.value = true;
   logsAutoScroll.value = true;
+  logLevelCounts.value = emptyLogLevelCounts();
 
   void nextTick(scrollLogsToBottom);
 
-  const stream = openTaskLogsStream(id, { follow: true, tail: 200 });
+  const stream = openTaskLogsStream(id, {
+    follow: true,
+    tail: 200,
+    parse: parseLogs.value,
+    levels: parseLogs.value ? selectedLogLevels.value : undefined,
+  });
   logsStream = stream;
 
   stream.addEventListener("log", (event) => {
+    if (logsStream !== stream) {
+      return;
+    }
     logsLoading.value = false;
     try {
       const payload = JSON.parse(event.data) as TaskLogEvent;
       appendTaskLog({
         timestamp: String(payload.timestamp || ""),
         stream: String(payload.stream || "stdout"),
+        level: payload.level,
         message: String(payload.message || ""),
+        attributes: payload.attributes,
+        raw_message: String(payload.raw_message || ""),
       });
     } catch {
       appendTaskLog({
@@ -300,19 +320,79 @@ function openTaskLogs(taskID: string): void {
     }
   });
 
+  stream.addEventListener("counts", (event) => {
+    if (logsStream !== stream) {
+      return;
+    }
+    logsLoading.value = false;
+    try {
+      const payload = JSON.parse(event.data) as TaskLogCountsEvent;
+      const counts = emptyLogLevelCounts();
+      for (const level of taskLogLevels) {
+        counts[level] = Number(payload.counts?.[level] ?? 0);
+      }
+      logLevelCounts.value = counts;
+    } catch {
+      // Ignore malformed count updates without interrupting the log stream.
+    }
+  });
+
   stream.addEventListener("eof", () => {
+    if (logsStream !== stream) {
+      return;
+    }
     logsLoading.value = false;
     logsEnded.value = true;
     closeTaskLogsStream();
   });
 
   stream.onerror = () => {
+    if (logsStream !== stream) {
+      return;
+    }
     logsLoading.value = false;
     if (!logsEnded.value) {
       logsError.value = "Log stream interrupted";
     }
     closeTaskLogsStream();
   };
+}
+
+function openTaskLogs(taskID: string): void {
+  const id = String(taskID || "").trim();
+  if (!id) {
+    return;
+  }
+
+  logsModalOpen.value = true;
+  logsTaskID.value = id;
+  parseLogs.value = false;
+  selectedLogLevels.value = [...taskLogLevels];
+  startTaskLogsStream();
+}
+
+function toggleLogParsing(): void {
+  parseLogs.value = !parseLogs.value;
+  if (parseLogs.value && selectedLogLevels.value.length === 0) {
+    selectedLogLevels.value = [...taskLogLevels];
+  }
+  startTaskLogsStream();
+}
+
+function toggleLogLevel(level: TaskLogLevel): void {
+  const selected = selectedLogLevels.value.includes(level);
+  if (selected && selectedLogLevels.value.length === 1) {
+    return;
+  }
+
+  selectedLogLevels.value = selected
+    ? selectedLogLevels.value.filter((candidate) => candidate !== level)
+    : taskLogLevels.filter((candidate) => candidate === level || selectedLogLevels.value.includes(candidate));
+  startTaskLogsStream();
+}
+
+function formattedLogAttributes(attributes: Record<string, unknown> | undefined): string {
+  return JSON.stringify(attributes ?? {}, null, 2);
 }
 
 function handleEscape(event: KeyboardEvent): void {
@@ -809,7 +889,7 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <div class="modal" :class="{ hidden: !logsModalOpen }" aria-hidden="true">
+    <div class="modal" :class="{ hidden: !logsModalOpen }" :aria-hidden="!logsModalOpen">
       <div class="modal-overlay" @click="closeTaskLogsModal" />
       <div class="modal-card task-logs-modal-card" role="dialog" aria-modal="true" aria-labelledby="task-logs-title">
         <div class="modal-header">
@@ -820,6 +900,31 @@ onUnmounted(() => {
         </div>
         <div class="modal-body">
           <p class="meta">task: <code>{{ logsTaskID || "n/a" }}</code></p>
+          <div class="task-logs-toolbar" aria-label="Log parsing and filters">
+            <button
+              class="task-logs-parse-toggle"
+              :class="{ 'task-logs-parse-toggle--active': parseLogs }"
+              type="button"
+              role="switch"
+              :aria-checked="parseLogs"
+              @click="toggleLogParsing"
+            >
+              Parse logs
+            </button>
+            <div v-if="parseLogs" class="task-log-level-filters" aria-label="Log level filters">
+              <button
+                v-for="level in taskLogLevels"
+                :key="level"
+                class="task-log-level-filter"
+                :class="[`task-log-level-${level.toLowerCase()}`, { 'task-log-level-filter--selected': selectedLogLevels.includes(level) }]"
+                type="button"
+                :aria-pressed="selectedLogLevels.includes(level)"
+                @click="toggleLogLevel(level)"
+              >
+                {{ level }} <span>{{ logLevelCounts[level] }}</span>
+              </button>
+            </div>
+          </div>
           <p v-if="logsLoading && logs.length === 0" class="meta">Loading logs...</p>
           <p v-if="logsError" class="meta task-logs-error">{{ logsError }}</p>
           <div ref="logsViewer" class="task-logs-viewer" aria-live="polite" @scroll="handleLogsScroll">
@@ -827,8 +932,23 @@ onUnmounted(() => {
             <ol v-else class="task-logs-list">
               <li v-for="(entry, index) in logs" :key="`${entry.timestamp}-${index}`" class="task-log-line">
                 <time class="task-log-time">{{ entry.timestamp || "no timestamp" }}</time>
-                <span class="task-log-stream" :class="`task-log-stream-${entry.stream}`">{{ entry.stream }}</span>
-                <code class="task-log-message">{{ entry.message }}</code>
+                <span
+                  v-if="parseLogs"
+                  class="task-log-level"
+                  :class="`task-log-level-${String(entry.level || 'INFO').toLowerCase()}`"
+                >{{ entry.level || "INFO" }}</span>
+                <code class="task-log-message" :class="{ 'task-log-message--raw': !parseLogs }">{{ entry.message }}</code>
+                <details v-if="parseLogs" class="task-log-details">
+                  <summary>Details</summary>
+                  <div v-if="entry.attributes && Object.keys(entry.attributes).length > 0" class="task-log-detail-section">
+                    <strong>Attributes</strong>
+                    <pre>{{ formattedLogAttributes(entry.attributes) }}</pre>
+                  </div>
+                  <div class="task-log-detail-section">
+                    <strong>Raw</strong>
+                    <pre>{{ entry.raw_message || entry.message }}</pre>
+                  </div>
+                </details>
               </li>
             </ol>
           </div>

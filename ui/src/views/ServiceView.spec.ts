@@ -40,6 +40,28 @@ async function mountServiceView() {
   return wrapper;
 }
 
+class FakeEventSource {
+  private listeners = new Map<string, Array<(event: MessageEvent<string>) => void>>();
+  onerror: ((event: Event) => void) | null = null;
+  closed = false;
+
+  addEventListener(type: string, listener: EventListenerOrEventListenerObject): void {
+    const callback = listener as (event: MessageEvent<string>) => void;
+    this.listeners.set(type, [...(this.listeners.get(type) ?? []), callback]);
+  }
+
+  emit(type: string, payload: unknown): void {
+    const data = typeof payload === "string" ? payload : JSON.stringify(payload);
+    for (const listener of this.listeners.get(type) ?? []) {
+      listener(new MessageEvent(type, { data }));
+    }
+  }
+
+  close(): void {
+    this.closed = true;
+  }
+}
+
 describe("ServiceView", () => {
   beforeEach(() => {
     apiMocks.fetchServices.mockResolvedValue({
@@ -159,6 +181,77 @@ describe("ServiceView", () => {
     expect(mobileTask.get(".service-realtime-mobile-logs").text()).toBe("Logs");
     expect(mobileTask.find(".service-copy-task-id-button").exists()).toBe(false);
     expect(wrapper.find(".service-realtime-desktop .service-copy-task-id-button").exists()).toBe(true);
+  });
+
+  it("parses and filters task logs through backend streams", async () => {
+    const rawStream = new FakeEventSource();
+    const parsedStream = new FakeEventSource();
+    const filteredStream = new FakeEventSource();
+    apiMocks.openTaskLogsStream
+      .mockReturnValueOnce(rawStream as unknown as EventSource)
+      .mockReturnValueOnce(parsedStream as unknown as EventSource)
+      .mockReturnValueOnce(filteredStream as unknown as EventSource);
+
+    const wrapper = await mountServiceView();
+    await wrapper.get(".service-task-logs-button").trigger("click");
+
+    expect(apiMocks.openTaskLogsStream).toHaveBeenLastCalledWith("task-id", {
+      follow: true,
+      tail: 200,
+      parse: false,
+      levels: undefined,
+    });
+    expect(wrapper.find(".task-log-level-filters").exists()).toBe(false);
+
+    rawStream.emit("log", {
+      timestamp: "2026-10-19T18:00:00Z",
+      stream: "stderr",
+      message: "raw line",
+    });
+    await nextTick();
+    expect(wrapper.get(".task-log-message").text()).toBe("raw line");
+    expect(wrapper.find(".task-log-stream").exists()).toBe(false);
+
+    await wrapper.get(".task-logs-parse-toggle").trigger("click");
+    expect(rawStream.closed).toBe(true);
+    expect(apiMocks.openTaskLogsStream).toHaveBeenLastCalledWith("task-id", {
+      follow: true,
+      tail: 200,
+      parse: true,
+      levels: ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"],
+    });
+
+    parsedStream.emit("counts", { counts: { INFO: 2, ERROR: 1 } });
+    parsedStream.emit("log", {
+      timestamp: "2026-10-19T18:00:01Z",
+      stream: "stderr",
+      level: "ERROR",
+      message: "request failed",
+      attributes: { request_id: "req-1" },
+      raw_message: `level=error msg="request failed" request_id=req-1`,
+    });
+    await nextTick();
+
+    const filters = wrapper.findAll(".task-log-level-filter");
+    expect(filters).toHaveLength(6);
+    expect(filters.find((filter) => filter.text().startsWith("INFO"))?.text()).toBe("INFO 2");
+    expect(filters.find((filter) => filter.text().startsWith("ERROR"))?.text()).toBe("ERROR 1");
+    expect(wrapper.get(".task-log-level").text()).toBe("ERROR");
+    expect(wrapper.get(".task-log-message").text()).toBe("request failed");
+    expect(wrapper.find(".task-log-stream").exists()).toBe(false);
+    expect(wrapper.get(".task-log-details").text()).toContain("request_id");
+    expect(wrapper.get(".task-log-details").text()).toContain("level=error");
+
+    const infoFilter = filters.find((filter) => filter.text().startsWith("INFO"));
+    expect(infoFilter).toBeDefined();
+    await infoFilter!.trigger("click");
+    expect(parsedStream.closed).toBe(true);
+    expect(apiMocks.openTaskLogsStream).toHaveBeenLastCalledWith("task-id", {
+      follow: true,
+      tail: 200,
+      parse: true,
+      levels: ["TRACE", "DEBUG", "WARN", "ERROR", "FATAL"],
+    });
   });
 
   it("shows compact deployment rows and opens details by ID", async () => {

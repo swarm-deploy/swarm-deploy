@@ -353,13 +353,22 @@ func buildDockerTaskLogsOptions(options TaskLogsOptions) container.LogsOptions {
 		limit = defaultServiceLogsLimit
 	}
 
-	return container.LogsOptions{
+	logsOptions := container.LogsOptions{
 		ShowStdout: true,
 		ShowStderr: true,
 		Timestamps: true,
 		Follow:     options.Follow,
 		Tail:       strconv.Itoa(limit),
 	}
+
+	if options.Since != nil {
+		logsOptions.Since = options.Since.UTC().Format(time.RFC3339Nano)
+	}
+	if options.Until != nil {
+		logsOptions.Until = options.Until.UTC().Format(time.RFC3339Nano)
+	}
+
+	return logsOptions
 }
 
 func demultiplexDockerLogStream(raw []byte) []byte {

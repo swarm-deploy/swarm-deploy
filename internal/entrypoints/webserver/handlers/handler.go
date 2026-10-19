@@ -17,6 +17,7 @@ import (
 	secretstore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/modelstore"
 	servicestore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"github.com/swarm-deploy/swarm-deploy/internal/tasklogs"
 )
 
 type handler struct {
@@ -26,6 +27,7 @@ type handler struct {
 	stateStore       modelstore.ReadStore
 	control          *controller.Controller
 	serviceInspector swarm.ServiceManager
+	taskLogs         *tasklogs.Service
 	secrets          secretstore.Store
 	secretManagers   *secretmanager.Domain
 	networks         swarm.NetworkManager
@@ -58,12 +60,14 @@ func New(
 	alerts alertstore.Store,
 	assistantService assistant.Assistant,
 	deployments *deployment.Store,
+	taskLogs *tasklogs.Service,
 ) *handler {
 	return &handler{deployments: deployments,
 		stackProvider:    stackProvider,
 		stateStore:       stateStore,
 		control:          control,
 		serviceInspector: swarmService.Services,
+		taskLogs:         taskLogs,
 		secrets:          secrets,
 		secretManagers:   secretManagers,
 		networks:         swarmService.Networks,

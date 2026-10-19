@@ -23,6 +23,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"github.com/swarm-deploy/swarm-deploy/internal/tasklogs"
 	"github.com/swarm-deploy/swarm-deploy/ui"
 )
 
@@ -89,6 +90,7 @@ func NewApplication(
 	recommendations recommendationstore.Store,
 	alerts alertstore.Store,
 	assistantService assistant.Assistant,
+	taskLogs *tasklogs.Service,
 	authCfg config.AuthenticationSpec,
 ) (*Application, error) {
 	h := handlers.New(
@@ -104,7 +106,9 @@ func NewApplication(
 		resourcesModule.SecretManagers,
 		recommendations,
 		alerts,
-		assistantService, gitopsModule.Deployments,
+		assistantService,
+		gitopsModule.Deployments,
+		taskLogs,
 	)
 
 	apiHandler, err := generated.NewServer(h, h, generated.WithErrorHandler(handlers.HandleHTTPError))

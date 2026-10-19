@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"github.com/swarm-deploy/swarm-deploy/internal/tasklogs"
 	"go.uber.org/mock/gomock"
 )
 
@@ -19,7 +20,7 @@ func TestHandlerGetTaskLogsDefaults(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	serviceInspector := swarm.NewMockServiceManager(ctrl)
-	h := &handler{serviceInspector: serviceInspector}
+	h := &handler{serviceInspector: serviceInspector, taskLogs: tasklogs.NewService(serviceInspector)}
 
 	entries := make(chan swarm.LogEntry)
 	errs := make(chan error)
@@ -43,7 +44,7 @@ func TestHandlerGetTaskLogsStreamsLogEventsAndEOF(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	serviceInspector := swarm.NewMockServiceManager(ctrl)
-	h := &handler{serviceInspector: serviceInspector}
+	h := &handler{serviceInspector: serviceInspector, taskLogs: tasklogs.NewService(serviceInspector)}
 
 	entries := make(chan swarm.LogEntry, 2)
 	errs := make(chan error)
@@ -91,7 +92,7 @@ func TestHandlerGetTaskLogsStopsOnContextCancellationWithoutEOF(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	serviceInspector := swarm.NewMockServiceManager(ctrl)
-	h := &handler{serviceInspector: serviceInspector}
+	h := &handler{serviceInspector: serviceInspector, taskLogs: tasklogs.NewService(serviceInspector)}
 
 	serviceInspector.EXPECT().
 		TaskLogs(gomock.Any(), "task-1", swarm.TaskLogsOptions{Follow: true, Limit: 200}).
@@ -121,7 +122,7 @@ func TestGetTaskLogsOgenServerStreamsSSE(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	serviceInspector := swarm.NewMockServiceManager(ctrl)
-	h := &handler{serviceInspector: serviceInspector}
+	h := &handler{serviceInspector: serviceInspector, taskLogs: tasklogs.NewService(serviceInspector)}
 	apiHandler, err := generated.NewServer(
 		h,
 		h,
@@ -154,6 +155,54 @@ func TestGetTaskLogsOgenServerStreamsSSE(t *testing.T) {
 	assert.Contains(t, rec.Body.String(), "event: log")
 	assert.Contains(t, rec.Body.String(), "event: eof\ndata: {}\n\n")
 	assert.True(t, rec.Flushed, "expected generated SSE encoder to flush")
+}
+
+func TestHandlerGetTaskLogsParsesCountsAndFiltersOnBackend(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	serviceInspector := swarm.NewMockServiceManager(ctrl)
+	h := &handler{serviceInspector: serviceInspector, taskLogs: tasklogs.NewService(serviceInspector)}
+	timestamp := time.Date(2026, time.September, 15, 18, 20, 11, 0, time.UTC)
+
+	entries := make(chan swarm.LogEntry, 2)
+	errs := make(chan error)
+	entries <- swarm.LogEntry{
+		Timestamp: timestamp,
+		Stream:    "stdout",
+		Message:   `{"level":"info","message":"ready","component":"api"}`,
+	}
+	entries <- swarm.LogEntry{
+		Timestamp: timestamp.Add(time.Second),
+		Stream:    "stderr",
+		Message:   `level=error msg="request failed" request_id=req-1`,
+	}
+	close(entries)
+	close(errs)
+
+	serviceInspector.EXPECT().
+		TaskLogs(gomock.Any(), "task-1", swarm.TaskLogsOptions{Follow: false, Limit: 50}).
+		Return((<-chan swarm.LogEntry)(entries), (<-chan error)(errs), nil)
+
+	rec := httptest.NewRecorder()
+	err := h.GetTaskLogs(context.Background(), generated.GetTaskLogsParams{
+		TaskID: "task-1",
+		Follow: generated.OptBool{Value: false, Set: true},
+		Tail:   generated.NewOptInt32(50),
+		Parse:  generated.OptBool{Value: true, Set: true},
+		Levels: []string{"error"},
+	}, rec)
+	require.NoError(t, err)
+
+	body := rec.Body.String()
+	assert.Contains(t, body, `event: counts`)
+	assert.Contains(t, body, `"INFO":1`)
+	assert.Contains(t, body, `"ERROR":1`)
+	assert.NotContains(t, body, `"message":"ready"`, "INFO entry must be filtered on backend")
+	assert.Contains(t, body, `"level":"ERROR"`)
+	assert.Contains(t, body, `"message":"request failed"`)
+	assert.Contains(t, body, `"attributes":{"request_id":"req-1"}`)
+	assert.Contains(t, body, `"raw_message":"level=error msg=\"request failed\" request_id=req-1"`)
 }
 
 func TestGetTaskLogsOgenServerRejectsInvalidQuery(t *testing.T) {

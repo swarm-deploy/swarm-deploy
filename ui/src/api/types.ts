@@ -250,10 +250,19 @@ export interface ServiceRealtimeResponse {
   tasks: ServiceRealtimeTask[];
 }
 
+export type TaskLogLevel = "TRACE" | "DEBUG" | "INFO" | "WARN" | "ERROR" | "FATAL";
+
 export interface TaskLogEvent {
   timestamp: string;
   stream: "stdout" | "stderr" | string;
+  level?: TaskLogLevel;
   message: string;
+  attributes?: Record<string, unknown>;
+  raw_message?: string;
+}
+
+export interface TaskLogCountsEvent {
+  counts: Partial<Record<TaskLogLevel, number>>;
 }
 
 export type ServiceDeploymentStatus = "running" | "succeeded" | "failed" | "interrupted";

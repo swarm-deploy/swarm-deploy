@@ -18,6 +18,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"github.com/swarm-deploy/swarm-deploy/internal/tasklogs"
 )
 
 // Module contains assistant services exposed to application entrypoints.
@@ -31,6 +32,8 @@ type Container interface {
 	GetStorage() *storage.Database
 	GetMetrics() *metrics.Group
 	GetSwarm() *swarm.Swarm
+	// GetTaskLogs returns the shared task log parsing and filtering service.
+	GetTaskLogs() *tasklogs.Service
 	GetEventModule() *event.Module
 	// GetConfigStore returns the shared runtime configuration store.
 	GetConfigStore() *configstore.ConfigStore
@@ -72,6 +75,7 @@ func InitModule(_ context.Context, cfg *config.Config, cnt Container) (*Module, 
 		cnt.GetAlertManagementModule(),
 		eventModule,
 		cnt.GetSwarm(),
+		cnt.GetTaskLogs(),
 		cnt.GetRecommendationsModule().Store,
 		imageVersionResolver,
 		hostingProviders,

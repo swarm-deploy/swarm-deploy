@@ -3293,6 +3293,55 @@ a.overview-summary-row:focus-visible {
   color: var(--error);
 }
 
+.task-logs-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 10px;
+}
+
+.task-logs-parse-toggle,
+.task-log-level-filter {
+  min-height: 28px;
+  border: 1px solid var(--border-default);
+  border-radius: 7px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.74rem;
+  font-weight: 650;
+}
+
+.task-logs-parse-toggle {
+  padding: 4px 10px;
+}
+
+.task-logs-parse-toggle--active,
+.task-log-level-filter--selected {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface-muted));
+  color: var(--text);
+}
+
+.task-log-level-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.task-log-level-filter {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  padding: 3px 7px;
+}
+
+.task-log-level-filter span {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .task-logs-viewer {
   min-height: 320px;
   max-height: 58vh;
@@ -3316,7 +3365,7 @@ a.overview-summary-row:focus-visible {
 
 .task-log-line {
   display: grid;
-  grid-template-columns: minmax(190px, max-content) 62px minmax(0, 1fr);
+  grid-template-columns: minmax(190px, max-content) minmax(52px, max-content) minmax(0, 1fr);
   gap: 8px;
   align-items: start;
   min-width: 0;
@@ -3327,20 +3376,30 @@ a.overview-summary-row:focus-visible {
   white-space: nowrap;
 }
 
-.task-log-stream {
+.task-log-level {
   justify-self: start;
-  min-width: 52px;
-  border: 1px solid var(--border-default);
-  border-radius: 999px;
-  padding: 0 6px;
-  color: var(--muted);
-  text-align: center;
+  min-width: 48px;
+  padding-top: 1px;
   font-size: 0.74rem;
+  font-weight: 750;
 }
 
-.task-log-stream-stderr {
+.task-log-level-trace,
+.task-log-level-debug {
+  color: var(--muted);
+}
+
+.task-log-level-info {
+  color: var(--accent-strong);
+}
+
+.task-log-level-warn {
+  color: var(--warning);
+}
+
+.task-log-level-error,
+.task-log-level-fatal {
   color: var(--error);
-  border-color: rgba(248, 113, 113, 0.38);
 }
 
 .task-log-message {
@@ -3348,6 +3407,44 @@ a.overview-summary-row:focus-visible {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+.task-log-details {
+  grid-column: 3;
+  color: var(--muted);
+}
+
+.task-log-details summary {
+  width: max-content;
+  cursor: pointer;
+  font-size: 0.76rem;
+}
+
+.task-log-detail-section {
+  margin-top: 7px;
+}
+
+.task-log-detail-section strong {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+}
+
+.task-log-detail-section pre {
+  margin: 0;
+  border: 1px solid var(--border-default);
+  border-radius: 6px;
+  background: var(--surface-muted);
+  padding: 7px;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.task-log-message--raw {
+  grid-column: 2 / -1;
 }
 
 .service-status-link-panel {
