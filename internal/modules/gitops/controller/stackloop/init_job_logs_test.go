@@ -100,7 +100,7 @@ func TestFailedInitJobLogsReachDurableDeploymentDiagnostics(t *testing.T) {
 		ReconciliationRequest{Stack: config.StackSpec{Name: "app"}, Commit: "commit"}, model.Stack{},
 		&pipelinePayload{Attempt: attempt, Desired: &file}, failure))
 
-	saved, err := deployment.NewStore(db).Get(ctx, attempt.ID)
+	saved, err := deployment.NewStore(db).Get(ctx, attempt.DeploymentID)
 	require.NoError(t, err)
 	assert.Equal(t, "init_failed", saved.ErrorCode)
 	assert.Contains(t, saved.ErrorDiagnostic, "migration failed at revision 17")

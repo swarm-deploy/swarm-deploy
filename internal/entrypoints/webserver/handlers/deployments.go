@@ -13,7 +13,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 )
 
-// GetDeploymentFilters returns stack and service names with recorded deployment attempts.
+// GetDeploymentFilters returns stack and service names with recorded desired-state deployments.
 func (h *handler) GetDeploymentFilters(ctx context.Context) (*generated.DeploymentFilterOptions, error) {
 	stacks, services, err := h.deployments.FilterOptions(ctx)
 	if err != nil {
@@ -153,7 +153,9 @@ func toGeneratedDeploymentSummary(item deployment.DeploymentSummary) generated.D
 			Services: item.Resources.Services, Configs: item.Resources.Configs, Secrets: item.Resources.Secrets,
 			Networks: item.Resources.Networks, Volumes: item.Resources.Volumes,
 		},
-		DiffAvailable: item.DiffAvailable,
+		DiffAvailable:   item.DiffAvailable,
+		LatestAttemptID: item.LatestAttemptID,
+		AttemptCount:    item.AttemptCount,
 	}
 	setGeneratedDeploymentSummaryOptional(&result, item.ErrorCode, item.BasisDeploymentID,
 		item.StartedAt, item.FinishedAt, item.ObservedAt)
@@ -180,8 +182,11 @@ func toGeneratedDeployment(item deployment.Deployment) generated.Deployment {
 			Services: item.Resources.Services, Configs: item.Resources.Configs, Secrets: item.Resources.Secrets,
 			Networks: item.Resources.Networks, Volumes: item.Resources.Volumes,
 		},
-		DiffAvailable: item.DiffAvailable,
-		Changes:       make([]generated.DeploymentChange, 0, len(item.Changes)),
+		DiffAvailable:   item.DiffAvailable,
+		LatestAttemptID: item.LatestAttemptID,
+		AttemptCount:    item.AttemptCount,
+		Changes:         make([]generated.DeploymentChange, 0, len(item.Changes)),
+		Attempts:        make([]generated.DeploymentAttempt, 0, len(item.Attempts)),
 	}
 	if item.ErrorCode != "" {
 		result.Reason = generated.NewOptString(item.ErrorCode)
@@ -203,6 +208,26 @@ func toGeneratedDeployment(item deployment.Deployment) generated.Deployment {
 			mapped.After = generated.NewOptString(*change.After)
 		}
 		result.Changes = append(result.Changes, mapped)
+	}
+	for _, attempt := range item.Attempts {
+		mapped := generated.DeploymentAttempt{
+			ID: attempt.ID, Number: attempt.Number, Status: generated.DeploymentAttemptStatus(attempt.Status),
+			Phase:              generated.DeploymentPhase(attempt.Phase),
+			ApplyStatus:        generated.DeploymentStageStatus(attempt.ApplyStatus),
+			VerificationStatus: generated.DeploymentStageStatus(attempt.VerificationStatus),
+			CleanupStatus:      generated.DeploymentStageStatus(attempt.CleanupStatus),
+			ActualStateStatus:  generated.DeploymentActualStateStatus(attempt.ActualStateStatus),
+			StartedAt:          attempt.StartedAt,
+		}
+		if attempt.ErrorCode != "" {
+			mapped.Reason = generated.NewOptString(attempt.ErrorCode)
+		}
+		if attempt.ErrorDiagnostic != "" {
+			mapped.Diagnostic = generated.NewOptString(attempt.ErrorDiagnostic)
+		}
+		setGeneratedTimes(attempt.StartedAt, attempt.FinishedAt, attempt.ObservedAt,
+			&mapped.FinishedAt, &mapped.ObservedAt, &mapped.DurationMs)
+		result.Attempts = append(result.Attempts, mapped)
 	}
 	return result
 }

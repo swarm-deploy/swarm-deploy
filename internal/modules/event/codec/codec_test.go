@@ -2,8 +2,8 @@ package codec
 
 import (
 	"errors"
-	"time"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -171,7 +171,7 @@ func TestDeploymentFailureCategorySurvivesCodec(t *testing.T) {
 
 func TestDeploymentFailureDiagnosticIsActionableAndMasked(t *testing.T) {
 	event := &events.DeployFailed{
-		DeployEvent: events.DeployEvent{DeploymentID: "deployment", StackName: "app", Commit: "sha"},
+		DeployEvent: events.DeployEvent{DeploymentID: "deployment", AttemptID: "attempt-2", StackName: "app", Commit: "sha"},
 		ErrorCode:   "apply_failed",
 		Stage:       "apply",
 		Error:       errors.New("update service api: pull https://user:password@registry.example/image token=private-value: image not found"),
@@ -184,6 +184,7 @@ func TestDeploymentFailureDiagnosticIsActionableAndMasked(t *testing.T) {
 	require.NoError(t, err)
 	failure := decoded.(*events.DeployFailed)
 	assert.Equal(t, "deployment", failure.DeploymentID)
+	assert.Equal(t, "attempt-2", failure.AttemptID)
 	assert.Equal(t, "apply", failure.Stage)
 	assert.Equal(t, "apply_failed", failure.ErrorCode)
 	require.Error(t, failure.Error)

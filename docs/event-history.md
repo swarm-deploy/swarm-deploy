@@ -7,7 +7,8 @@ following `snake_case` names:
 | --- | --- |
 | `stack_name` | Stack name |
 | `service_name` | Service name without the stack prefix |
-| `deployment_id` | Persisted deployment attempt identifier |
+| `deployment_id` | Persisted desired-state deployment identifier |
+| `attempt_id` | Persisted execution attempt identifier |
 | `commit` | Source revision |
 | `username` | User who initiated the action |
 | `node_id`, `node_name` | Swarm node identifier and hostname |
@@ -24,7 +25,7 @@ newly persisted events.
 
 | Type                               | Severity | Category   | Trigger                             | Details keys                                                 |
 |------------------------------------|----------|------------|-------------------------------------|--------------------------------------------------------------|
-| `DeploySuccess`                    | `info`   | `sync`     | Successful stack deployment         | `stack_name`, `commit`, `deployment_id`, `status`             |
+| `DeploySuccess`                    | `info`   | `sync`     | Successful stack deployment         | `stack_name`, `commit`, `deployment_id`, `attempt_id`, `status` |
 | `ServicePruned`                    | `info`   | `sync`     | Orphaned managed service was removed | `stack_name`, `service_name`, `commit`                       |
 | `NetworkCreated`                   | `info`   | `sync`     | Managed network was created          | `network_name`, `network_id`, `driver`                       |
 | `SendNotificationFailed`           | `error`  | `sync`     | Notification delivery failure       | `destination`, `channel`, `event_type`, `error` (if present) |

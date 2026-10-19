@@ -31,13 +31,15 @@ func TestEventDetailsUseStandardAttributeNames(t *testing.T) {
 		keys  []string
 	}{
 		{name: "deploy success", event: &DeploySuccess{DeployEvent: DeployEvent{}},
-			keys: []string{AttributeStackName, AttributeCommit, AttributeDeploymentID, AttributeStatus}},
+			keys: []string{AttributeStackName, AttributeCommit, AttributeDeploymentID, AttributeAttemptID, AttributeStatus}},
 		{name: "deploy failed", event: &DeployFailed{},
-			keys: []string{AttributeStackName, AttributeCommit, AttributeDeploymentID, AttributeStatus, AttributeErrorCode, AttributeStage}},
+			keys: []string{AttributeStackName, AttributeCommit, AttributeDeploymentID, AttributeAttemptID,
+				AttributeStatus, AttributeErrorCode, AttributeStage}},
 		{name: "preparation failed", event: &DeployPreparationFailed{},
 			keys: []string{AttributeStackName, AttributeCommit, AttributeStatus, AttributeErrorCode, AttributeStage}},
 		{name: "deploy interrupted", event: &DeployInterrupted{},
-			keys: []string{AttributeStackName, AttributeCommit, AttributeDeploymentID, AttributeStatus, AttributeErrorCode, AttributeStage}},
+			keys: []string{AttributeStackName, AttributeCommit, AttributeDeploymentID, AttributeAttemptID,
+				AttributeStatus, AttributeErrorCode, AttributeStage}},
 		{name: "service missed", event: &ServiceMissed{},
 			keys: []string{AttributeStackName, AttributeServiceName, AttributeCommit}},
 		{name: "service pruned", event: &ServicePruned{},

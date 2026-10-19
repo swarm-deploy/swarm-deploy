@@ -43,11 +43,11 @@ type AlertReader interface {
 	Get(ctx context.Context, id string) (alertmodel.Alert, error)
 }
 
-// DeploymentReader reads persisted deployment attempts and safe diagnostics.
+// DeploymentReader reads persisted desired-state deployments, attempts and safe diagnostics.
 type DeploymentReader interface {
 	// List returns a lightweight cursor page matching the repository-level filter.
 	List(ctx context.Context, filter deployment.ListFilter) (deployment.Page, error)
-	// Get returns one deployment attempt by ID.
+	// Get returns one desired-state deployment by ID, including its attempts.
 	Get(ctx context.Context, id string) (deployment.Deployment, error)
 }
 

@@ -22,7 +22,7 @@ import (
 
 type pipelinePayload struct {
 	// Attempt is persisted before any external apply.
-	Attempt      *deployment.Deployment
+	Attempt      *deployment.Attempt
 	Stack        config.StackSpec
 	Commit       string
 	IsNewDigest  bool

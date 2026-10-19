@@ -4,7 +4,7 @@ paths:
       operationId: getDeploymentFilters
       responses:
         '200':
-          description: Stack and service names with recorded deployment attempts.
+          description: Stack and service names with recorded desired-state deployments.
           content:
             application/json:
               schema:
@@ -36,7 +36,7 @@ paths:
             type: string
       responses:
         '200':
-          description: Lightweight apply-attempt summaries in newest-first order.
+          description: Lightweight desired-state deployments in newest-first order.
           content:
             application/json:
               schema:
@@ -52,7 +52,7 @@ paths:
             type: string
       responses:
         '200':
-          description: One apply attempt and its secret-safe structured changes.
+          description: One desired-state deployment, its attempts and secret-safe structured changes.
           content:
             application/json:
               schema:
@@ -80,6 +80,9 @@ components:
         service_name:
           type: string
     DeploymentStatus:
+      type: string
+      enum: [running, succeeded, failed, interrupted, superseded]
+    DeploymentAttemptStatus:
       type: string
       enum: [running, succeeded, failed, interrupted]
     DeploymentPhase:
@@ -162,6 +165,8 @@ components:
         - summary
         - resources
         - diff_available
+        - latest_attempt_id
+        - attempt_count
       properties:
         id:
           type: string
@@ -208,11 +213,65 @@ components:
           $ref: '#/components/schemas/DeploymentResourceSummary'
         diff_available:
           type: boolean
+        latest_attempt_id:
+          type: string
+          description: Empty when a legacy Deployment has no persisted Attempts.
+        attempt_count:
+          type: integer
+          minimum: 0
+          description: Number of persisted Attempts; legacy Deployments may have zero.
+    DeploymentAttempt:
+      type: object
+      required:
+        - id
+        - number
+        - status
+        - phase
+        - apply_status
+        - verification_status
+        - cleanup_status
+        - actual_state_status
+        - started_at
+      properties:
+        id:
+          type: string
+        number:
+          type: integer
+          minimum: 1
+        status:
+          $ref: '#/components/schemas/DeploymentAttemptStatus'
+        phase:
+          $ref: '#/components/schemas/DeploymentPhase'
+        reason:
+          type: string
+        diagnostic:
+          type: string
+        apply_status:
+          $ref: '#/components/schemas/DeploymentStageStatus'
+        verification_status:
+          $ref: '#/components/schemas/DeploymentStageStatus'
+        cleanup_status:
+          $ref: '#/components/schemas/DeploymentStageStatus'
+        actual_state_status:
+          $ref: '#/components/schemas/DeploymentActualStateStatus'
+        observed_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+        duration_ms:
+          type: integer
+          format: int64
+          minimum: 0
     Deployment:
       allOf:
         - $ref: '#/components/schemas/DeploymentSummary'
         - type: object
-          required: [changes]
+          required: [changes, attempts]
           properties:
             services:
               type: array
@@ -229,6 +288,10 @@ components:
               type: array
               items:
                 $ref: '#/components/schemas/DeploymentChange'
+            attempts:
+              type: array
+              items:
+                $ref: '#/components/schemas/DeploymentAttempt'
     DeploymentService:
       type: object
       required: [name, image, replicas]

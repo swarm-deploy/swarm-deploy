@@ -120,7 +120,8 @@ func TestSubscriberStaleDeploymentDoesNotPersistReceiptOrCatalog(t *testing.T) {
 		(id,stack,"commit",status,error_code,phase,started_at,finished_at,
 		 desired_payload,details_payload,changes_payload)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-		"current-deployment", "app", "commit", "succeeded", "", "completed", now, now, `{}`, `{}`, `[]`)
+		"current-deployment", "app", "commit", "succeeded", "", "completed", now, now,
+		`{}`, `{}`, `[]`)
 	require.NoError(t, err)
 	_, err = db.Exec(t.Context(),
 		"INSERT INTO desired_snapshots(stack,deployment_id) VALUES (?,?)", "app", "current-deployment")

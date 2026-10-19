@@ -155,7 +155,7 @@ onMounted(() => {
 <template>
   <section class="services-page">
     <header class="services-header"><h2>Deployments</h2></header>
-    <p class="meta">Apply attempts and their desired changes. Service convergence is not verified.</p>
+    <p class="meta">Desired-state deployments and their execution attempts. Service convergence is not verified.</p>
     <div class="deployments-filter-bar"><div class="deployments-filter-field">
       <span>Stack</span>
       <details ref="stackFilter" class="deployments-stack-filter">
@@ -197,7 +197,7 @@ onMounted(() => {
         <td class="deployment-stack" :title="deployment.stack">{{ deployment.stack }}</td>
         <td>
           <span class="status deployment-status-badge" :class="statusClass(deployment.status)">
-            {{ statusLabel(deployment.status) }}
+            {{ statusLabel(deployment.status) }}<small v-if="deployment.attempt_count > 1">{{ deployment.attempt_count }} attempts</small>
           </span>
         </td>
         <td class="deployment-started"><time :datetime="deployment.started_at">{{ formatDate(deployment.started_at) }}</time></td>
@@ -258,6 +258,7 @@ onMounted(() => {
   background: var(--surface-muted);
   line-height: 1.2;
 }
+.deployment-status-badge small { margin-left: 6px; color: var(--muted); font-size: .72rem; font-weight: 500; }
 
 .deployment-status-badge.success { background: var(--success-muted); }
 .deployment-status-badge.failed { background: var(--error-muted); }

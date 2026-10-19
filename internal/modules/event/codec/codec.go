@@ -40,19 +40,19 @@ func Encode(event events.Event) ([]byte, error) {
 		if code == "" {
 			code = safeFailureCode(e.Error)
 		}
-		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, code, e.Stage,
+		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.AttemptID, code, e.Stage,
 			faults.SafeDiagnostic(e.Error), temporaryClassification(e.Error), e.Services)
 	case *events.DeployPreparationFailed:
 		if e.ErrorCode != "preparation_failed" {
 			return nil, errors.New("unsupported deployment preparation failure code")
 		}
-		return encodeDeploymentFailure(e.StackName, e.Commit, "", e.ErrorCode, e.Stage,
+		return encodeDeploymentFailure(e.StackName, e.Commit, "", "", e.ErrorCode, e.Stage,
 			faults.SafeDiagnostic(e.Error), temporaryClassification(e.Error), e.Services)
 	case *events.DeployInterrupted:
 		if e.Reason != "process_interrupted" && e.Reason != "verification_unknown" {
 			return nil, errors.New("unsupported deployment interruption reason")
 		}
-		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.Reason, e.Stage,
+		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.AttemptID, e.Reason, e.Stage,
 			faults.SafeDiagnostic(e.Error), temporaryClassification(e.Error), e.Services)
 	case *events.NodeJoined:
 		return json.Marshal(nodePayload{ID: e.NodeID, Name: e.NodeName, Role: e.Role})
@@ -200,7 +200,8 @@ func decodeDeploymentFailure(typ events.TypeName, payload []byte) (events.Event,
 		case events.TypeNameDeployFailed:
 			return &events.DeployFailed{
 				DeployEvent: events.DeployEvent{
-					DeploymentID: p.DeploymentID, StackName: p.Stack, Commit: p.Commit, Services: p.services(),
+					DeploymentID: p.DeploymentID, AttemptID: p.AttemptID,
+					StackName: p.Stack, Commit: p.Commit, Services: p.services(),
 				},
 				Error: diagnostic, ErrorCode: safeFailureCode(errors.New(p.Code)), Stage: p.Stage,
 			}
@@ -211,7 +212,7 @@ func decodeDeploymentFailure(typ events.TypeName, payload []byte) (events.Event,
 			}
 		default:
 			return &events.DeployInterrupted{
-				DeploymentID: p.DeploymentID, StackName: p.Stack, Commit: p.Commit,
+				DeploymentID: p.DeploymentID, AttemptID: p.AttemptID, StackName: p.Stack, Commit: p.Commit,
 				Services: p.services(), Reason: p.Code, Error: diagnostic, Stage: p.Stage,
 			}
 		}
@@ -266,6 +267,8 @@ func decode(payload []byte, target any) error {
 type deployPayload struct {
 	// DeploymentID references safe input in the deployment repository.
 	DeploymentID string `json:"deployment_id,omitempty"`
+	// AttemptID identifies the execution that produced the event.
+	AttemptID string `json:"attempt_id,omitempty"`
 	// Stack identifies the stack.
 	Stack string `json:"stack"`
 	// Commit identifies the source revision.
@@ -277,6 +280,8 @@ type deployPayload struct {
 type deploymentFailurePayload struct {
 	// DeploymentID is absent for preparation failures before an attempt exists.
 	DeploymentID string `json:"deployment_id,omitempty"`
+	// AttemptID is absent only for failures before an execution exists.
+	AttemptID string `json:"attempt_id,omitempty"`
 	// Stack identifies the affected stack.
 	Stack string `json:"stack"`
 	// Commit identifies the source revision.
@@ -312,11 +317,11 @@ func safeFailureCode(err error) string {
 }
 
 func encodeDeploymentFailure(
-	stack, commit, deploymentID, code, stage, diagnostic string, temporary bool,
+	stack, commit, deploymentID, attemptID, code, stage, diagnostic string, temporary bool,
 	services []compose.Service,
 ) ([]byte, error) {
 	payload := deploymentFailurePayload{
-		DeploymentID: deploymentID, Stack: stack, Commit: commit, Code: code, Stage: stage,
+		DeploymentID: deploymentID, AttemptID: attemptID, Stack: stack, Commit: commit, Code: code, Stage: stage,
 		Diagnostic: diagnostic, Temporary: temporary,
 		Services: make([]servicePayload, 0, len(services)),
 	}
@@ -327,7 +332,8 @@ func encodeDeploymentFailure(
 }
 
 func (p deployPayload) deployment() events.DeployEvent {
-	event := events.DeployEvent{DeploymentID: p.DeploymentID, StackName: p.Stack, Commit: p.Commit}
+	event := events.DeployEvent{DeploymentID: p.DeploymentID, AttemptID: p.AttemptID,
+		StackName: p.Stack, Commit: p.Commit}
 	for _, service := range p.Services {
 		event.Services = append(event.Services, compose.Service{Name: service.Name, Image: service.Image})
 	}
@@ -335,7 +341,8 @@ func (p deployPayload) deployment() events.DeployEvent {
 }
 
 func encodeDeployment(event events.DeployEvent) ([]byte, error) {
-	p := deployPayload{DeploymentID: event.DeploymentID, Stack: event.StackName, Commit: event.Commit}
+	p := deployPayload{DeploymentID: event.DeploymentID, AttemptID: event.AttemptID,
+		Stack: event.StackName, Commit: event.Commit}
 	for _, service := range event.Services {
 		p.Services = append(p.Services, servicePayload{Name: service.Name, Image: service.Image})
 	}

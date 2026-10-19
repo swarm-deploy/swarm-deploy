@@ -22,6 +22,7 @@ describe("Latest deployments", () => {
   it("restores the compact pre-PR rows while using deployment records", async () => {
     vi.mocked(fetchDeployments).mockResolvedValue({ deployments: ["running", "succeeded", "failed", "interrupted"].map((status, i) => ({
       id: String(i), stack: i === 0 ? "a-very-long-stack-name-that-needs-truncation" : "app", commit: "abc123", status: status as "running" | "succeeded" | "failed" | "interrupted",
+		latest_attempt_id: `attempt-${i}`, attempt_count: 1,
       phase: "apply", apply_status: "running", verification_status: "pending", cleanup_status: "pending",
       actual_state_status: "unknown", comparison_basis: i === 0 ? "none" : "successful_baseline", comparison_status: i === 0 ? "unknown" : "known",
       started_at: "2026-10-10T10:00:00Z", diff_available: i !== 3,

@@ -503,12 +503,19 @@ func TestDeploymentCompletionOutboxPreservesAlertThresholds(t *testing.T) {
 					typ = events.TypeNameDeployInterrupted
 				}
 				require.NoError(t, bus.Subscribe(typ, "alerts", subscriber))
+				var deploymentID string
 				for i := range 3 {
 					service := deployment.NewService(db, bus)
 					attempt, startErr := service.StartIfChanged(ctx, "app", fmt.Sprint(i), compose.File{
 						Compose: compose.Compose{Services: compose.Services{{Name: "api", Image: "api:1"}}},
 					}, true)
 					require.NoError(t, startErr)
+					if i == 0 {
+						deploymentID = attempt.DeploymentID
+					} else {
+						assert.Equal(t, deploymentID, attempt.DeploymentID,
+							"failed retries must keep one alert-correlated deployment")
+					}
 					var cause error = errors.New("token=private-value")
 					if temporary {
 						cause = fmt.Errorf("wrapped: %w", temporaryError{message: "token=private-value"})
@@ -522,7 +529,7 @@ func TestDeploymentCompletionOutboxPreservesAlertThresholds(t *testing.T) {
 						err = service.FailCleanupWithError(ctx, attempt.ID, gitopsmodel.Stack{}, "prune_failed", time.Now(), cause)
 					}
 					require.NoError(t, err)
-					stored, readErr := deployment.NewStore(db).Get(ctx, attempt.ID)
+					stored, readErr := deployment.NewStore(db).Get(ctx, attempt.DeploymentID)
 					require.NoError(t, readErr)
 					assert.NotContains(t, stored.ErrorDiagnostic, "private-value")
 					assert.Contains(t, stored.ErrorDiagnostic, "****")

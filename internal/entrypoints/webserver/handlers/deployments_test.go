@@ -51,8 +51,11 @@ func TestDeploymentAPIReadsAttemptsWithoutHistory(t *testing.T) {
 	assert.NotContains(t, string(listPayload), "changes", "list response must remain lightweight")
 	require.NoError(t, svc.FailApplyWithError(ctx, attempt.ID, gitopsmodel.Stack{}, "apply_failed",
 		errors.New("update service api: pull https://user:password@registry.example/image: image not found")))
-	detail, err := h.GetDeployment(ctx, generated.GetDeploymentParams{ID: attempt.ID})
+	detail, err := h.GetDeployment(ctx, generated.GetDeploymentParams{ID: attempt.DeploymentID})
 	require.NoError(t, err)
+	require.Len(t, detail.Attempts, 1)
+	assert.Equal(t, attempt.ID, detail.Attempts[0].ID)
+	assert.Equal(t, generated.DeploymentAttemptStatusFailed, detail.Attempts[0].Status)
 	encoded, err := json.Marshal(detail)
 	require.NoError(t, err)
 	for _, secret := range []string{"do-not-expose", "api-command-secret", "health-secret", "init-secret"} {
@@ -73,11 +76,20 @@ func TestDeploymentAPIReadsAttemptsWithoutHistory(t *testing.T) {
 	for _, internalField := range []string{"\"path\"", "Map", "Args", "Extra"} {
 		assert.NotContains(t, string(encoded), internalField)
 	}
+	_, err = db.Exec(ctx, "DELETE FROM deployment_attempts WHERE deployment_id=?", attempt.DeploymentID)
+	require.NoError(t, err)
+	legacyDetail, err := h.GetDeployment(ctx, generated.GetDeploymentParams{ID: attempt.DeploymentID})
+	require.NoError(t, err)
+	assert.Empty(t, legacyDetail.LatestAttemptID)
+	assert.Zero(t, legacyDetail.AttemptCount)
+	assert.Empty(t, legacyDetail.Attempts)
+	require.NoError(t, legacyDetail.Validate())
 	_, err = h.GetDeployment(ctx, generated.GetDeploymentParams{ID: "unknown"})
 	require.Error(t, err)
 	listed, err := h.ListDeployments(ctx, generated.ListDeploymentsParams{Stack: generated.NewOptString("app")})
 	require.NoError(t, err)
 	require.Len(t, listed.Deployments, 1)
+	require.NoError(t, listed.Deployments[0].Validate())
 }
 
 func TestDeploymentServiceReplicas(t *testing.T) {
