@@ -156,6 +156,60 @@ describe("Deployment Details modal", () => {
     wrapper.unmount();
   });
 
+  it("renders removed resources as non-expandable summaries without configuration fields", () => {
+    const store = useOverviewStore();
+    const details = deployment("succeeded", "successful_baseline");
+    const removedResources = [
+      ["service", "legacy-api"],
+      ["secret", "legacy-secret"],
+      ["config", "legacy-config"],
+      ["network", "legacy-network"],
+      ["volume", "legacy-volume"],
+      ["extension", "legacy-extension"],
+    ];
+    details.changes = [
+      ...removedResources.map(([resourceType, resourceName]) => ({
+        resourceType,
+        resourceName,
+        field: "definition",
+        operation: "removed" as const,
+        before: `configuration-for-${resourceName}`,
+        redacted: false,
+      })),
+      { resourceType: "service", resourceName: "worker", field: "definition", operation: "added",
+        after: "worker-definition", redacted: false },
+      { resourceType: "service", resourceName: "api", field: "image", operation: "changed",
+        before: "api:1", after: "api:2", redacted: false },
+      { resourceType: "secret", resourceName: "api-token", field: "definition", operation: "added",
+        after: "secret-plaintext", redacted: true },
+    ];
+    details.summary = { added: 2, changed: 1, removed: removedResources.length, redacted: 1 };
+    store.deploymentDetailsModalOpen = true;
+    store.deploymentDetailsData = details;
+    const wrapper = mount(DeploymentDetailsModal);
+
+    const removed = wrapper.findAll(".deployment-resource--removed");
+    expect(removed).toHaveLength(removedResources.length);
+    removed.forEach((resource, index) => {
+      expect(resource.element.tagName).toBe("DIV");
+      expect(resource.text()).toContain(removedResources[index][0]);
+      expect(resource.text()).toContain(removedResources[index][1]);
+      expect(resource.get(".deployment-resource-operation").text()).toBe("Removed");
+      expect(resource.find("summary").exists()).toBe(false);
+      expect(resource.find(".deployment-chevron").exists()).toBe(false);
+      expect(resource.find(".deployment-change-section").exists()).toBe(false);
+      expect(resource.text()).not.toContain(`configuration-for-${removedResources[index][1]}`);
+    });
+
+    expect(wrapper.findAll("details.deployment-resource")).toHaveLength(3);
+    expect(wrapper.text()).toContain("worker-definition");
+    expect(wrapper.text()).toContain("api:1");
+    expect(wrapper.text()).toContain("api:2");
+    expect(wrapper.text()).toContain("****");
+    expect(wrapper.html()).not.toContain("secret-plaintext");
+    wrapper.unmount();
+  });
+
   it("shows change details on demand instead of taking vertical space", async () => {
     const store = useOverviewStore();
     store.deploymentDetailsModalOpen = true;
