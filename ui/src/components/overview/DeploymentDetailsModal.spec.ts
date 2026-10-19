@@ -25,7 +25,7 @@ function deployment(
 ): Deployment {
   return {
     id: "one", stack: "app", commit: "abcdef012345", status, phase: "apply", reason: "apply_failed",
-	latest_attempt_id: "attempt-one", attempt_count: 1,
+    latest_attempt_id: "attempt-one", attempt_count: 1,
     apply_status: "failed", verification_status: "skipped", cleanup_status: "skipped", actual_state_status: "unknown",
     started_at: "2026-10-10T10:00:00Z", comparison_basis: basis, comparison_status: "unknown",
     diff_available: true, diagnostic: "update service api: image not found",
@@ -41,32 +41,102 @@ function deployment(
       { resourceType: "service", resourceName: "api", field: "environment.API_TOKEN", operation: "added",
         after: "plaintext", redacted: true },
     ],
-	attempts: [{ id: "attempt-one", number: 1, status: status === "superseded" ? "interrupted" : status,
-		phase: "apply", reason: "apply_failed", diagnostic: "update service api: image not found",
-		apply_status: "failed", verification_status: "skipped", cleanup_status: "skipped",
-		actual_state_status: "unknown", started_at: "2026-10-10T10:00:00Z" }],
+    attempts: [{
+      id: "attempt-one", number: 1, status: status === "superseded" ? "interrupted" : status,
+      phase: "apply", reason: "apply_failed", diagnostic: "update service api: image not found",
+      apply_status: "failed", verification_status: "skipped", cleanup_status: "skipped",
+      actual_state_status: "unknown", started_at: "2026-10-10T10:00:00Z",
+    }],
   };
 }
 
 describe("Deployment Details modal", () => {
   beforeEach(() => setActivePinia(createPinia()));
 
-  it("shows immutable nested attempt history", () => {
+  it("puts attempts first with a compact total-count badge", () => {
     const store = useOverviewStore();
-    const detail = deployment("failed");
-    detail.attempt_count = 2;
-    detail.attempts = [
-      { ...detail.attempts[0], id: "attempt-two", number: 2, diagnostic: "second failure" },
-      { ...detail.attempts[0], id: "attempt-one", number: 1, diagnostic: "first failure" },
-    ];
+    const details = deployment("failed");
+    details.attempt_count = 3;
     store.deploymentDetailsModalOpen = true;
-    store.deploymentDetailsData = detail;
+    store.deploymentDetailsData = details;
     const wrapper = mount(DeploymentDetailsModal);
 
-    expect(wrapper.findAll(".deployment-attempts li")).toHaveLength(2);
-    expect(wrapper.text()).toContain("Attempt 2");
-    expect(wrapper.text()).toContain("second failure");
-    expect(wrapper.text()).toContain("first failure");
+    expect(wrapper.findAll('[role="tab"]').map((tab) => tab.text())).toEqual(["Attempts 3", "Changes", "Configuration"]);
+    expect(wrapper.get(".deployment-tab-count").text()).toBe("3");
+    expect(wrapper.get('[role="tab"]:first-child').attributes("aria-selected")).toBe("true");
+    wrapper.unmount();
+  });
+
+  it.each([
+    ["running", "Attempts"],
+    ["pending", "Attempts"],
+    ["failed", "Attempts"],
+    ["interrupted", "Attempts"],
+    ["succeeded", "Changes"],
+  ] as const)("defaults %s deployments to %s", (status, selected) => {
+    const store = useOverviewStore();
+    store.deploymentDetailsModalOpen = true;
+    const details = deployment(status === "pending" ? "running" : status);
+    if (status === "pending") (details as { status: string }).status = status;
+    store.deploymentDetailsData = details;
+    const wrapper = mount(DeploymentDetailsModal);
+
+    expect(wrapper.findAll('[role="tab"]').find((tab) => tab.text().startsWith(selected))?.attributes("aria-selected")).toBe("true");
+    wrapper.unmount();
+  });
+
+  it("preserves a manually selected tab across realtime status updates", async () => {
+    const store = useOverviewStore();
+    store.deploymentDetailsModalOpen = true;
+    store.deploymentDetailsData = deployment("running");
+    const wrapper = mount(DeploymentDetailsModal);
+
+    const configurationTab = wrapper.findAll('[role="tab"]')[2];
+    await configurationTab.trigger("click");
+    store.deploymentDetailsData = { ...deployment("succeeded"), configuration_yaml: "services: {}\n" };
+    await wrapper.vm.$nextTick();
+
+    expect(configurationTab.attributes("aria-selected")).toBe("true");
+    expect(wrapper.find('[aria-label="Recorded desired configuration YAML"]').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("shows newest attempts first as expandable flat rows with status dots", async () => {
+    const store = useOverviewStore();
+    const details = deployment("failed");
+    const longDiagnostic = `docker service update --image registry.example.test/api:${"x".repeat(512)}\npermission denied`;
+    details.attempt_count = 5;
+    details.attempts = [
+      { ...details.attempts[0], id: "old", number: 1, status: "succeeded", diagnostic: "old diagnostic" },
+      { ...details.attempts[0], id: "running", number: 3, status: "running", diagnostic: "running diagnostic" },
+      { ...details.attempts[0], id: "new", number: 5, status: "failed", diagnostic: longDiagnostic },
+      { ...details.attempts[0], id: "pending", number: 4, status: "pending" as never, diagnostic: "pending diagnostic" },
+      { ...details.attempts[0], id: "interrupted", number: 2, status: "interrupted", diagnostic: "interrupted diagnostic" },
+    ];
+    store.deploymentDetailsModalOpen = true;
+    store.deploymentDetailsData = details;
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const wrapper = mount(DeploymentDetailsModal);
+    const rows = wrapper.findAll(".deployment-attempt-row");
+
+    expect(rows.map((row) => row.attributes("open"))).toEqual([undefined, undefined, undefined, undefined, undefined]);
+    expect(rows.map((row) => row.get(".deployment-attempt-status").classes().at(-1))).toEqual([
+      "deployment-attempt-status--failed",
+      "deployment-attempt-status--pending",
+      "deployment-attempt-status--running",
+      "deployment-attempt-status--interrupted",
+      "deployment-attempt-status--succeeded",
+    ]);
+    expect(wrapper.text()).not.toContain("Attempt 4");
+    expect(wrapper.find(".deployment-attempt-details").isVisible()).toBe(false);
+
+    await rows[0].get("summary").trigger("click");
+    expect(rows[0].attributes("open")).toBeDefined();
+    expect(rows[0].get(".deployment-attempt-details code").text()).toBe(longDiagnostic);
+    expect(rows[0].get(".deployment-attempt-details pre").attributes("style")).toBeUndefined();
+    await rows[0].get(".deployment-attempt-details button").trigger("click");
+    expect(writeText).toHaveBeenCalledWith(longDiagnostic);
     wrapper.unmount();
   });
 
@@ -156,17 +226,18 @@ describe("Deployment Details modal", () => {
     expect(yaml.text()).toContain(longValue);
     expect(wrapper.get(".deployment-modal").element).toBe(modal);
 
-    await wrapper.get('[role="tab"]:first-child').trigger("click");
-    expect(wrapper.get('[role="tab"]:first-child').attributes("aria-selected")).toBe("true");
+    await wrapper.findAll('[role="tab"]')[1].trigger("click");
+    expect(wrapper.findAll('[role="tab"]')[1].attributes("aria-selected")).toBe("true");
     expect(wrapper.get(".deployment-modal").element).toBe(modal);
     wrapper.unmount();
   });
 
-  it("groups a real desired-state diff with readable old and new values", () => {
+  it("groups a real desired-state diff with readable old and new values", async () => {
     const store = useOverviewStore();
     store.deploymentDetailsModalOpen = true;
     store.deploymentDetailsData = deployment("failed", "successful_baseline");
     const wrapper = mount(DeploymentDetailsModal);
+    await wrapper.findAll('[role="tab"]')[1].trigger("click");
 
     expect(wrapper.text()).toContain("Desired Changes");
     expect(wrapper.text()).toContain("serviceapi");
@@ -356,7 +427,8 @@ describe("Deployment Details modal", () => {
     expect(wrapper.find(".deployment-outcome").exists()).toBe(false);
     expect(wrapper.get(".deployment-modal-content").classes()).toContain("deployment-modal-content--compact");
     expect(wrapper.text()).not.toContain("Apply pipeline completed");
-    expect(wrapper.text()).toContain("Initial snapshot");
+    if (status === "succeeded") expect(wrapper.text()).toContain("Initial snapshot");
+    else expect(wrapper.find(".deployment-attempts-panel").exists()).toBe(true);
     wrapper.unmount();
   });
 

@@ -2,12 +2,12 @@
 import yaml from "@speed-highlight/core/languages/yaml.js";
 import { tokenizeWith } from "@speed-highlight/core/tokenize";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import type { DeploymentChange } from "../../api/types";
+import type { DeploymentAttempt, DeploymentChange } from "../../api/types";
 import { useOverviewStore } from "../../stores/overview";
 import { formatDate, shortCommitHash } from "../../utils/format";
 import DeploymentIcon from "./DeploymentIcon.vue";
 
-type DetailsTab = "changes" | "configuration";
+type DetailsTab = "attempts" | "changes" | "configuration";
 type ChangeGroup = {
   type: string;
   name: string;
@@ -25,8 +25,15 @@ type ResourceSection = {
 const store = useOverviewStore();
 const dialog = ref<HTMLElement | null>(null);
 const closeButton = ref<HTMLButtonElement | null>(null);
-const activeTab = ref<DetailsTab>("changes");
+function defaultTab(status?: string): DetailsTab {
+  return status === "succeeded" ? "changes" : "attempts";
+}
+
+const activeTab = ref<DetailsTab>(defaultTab(store.deploymentDetailsData?.status));
+const tabSelectionInitialized = ref(Boolean(store.deploymentDetailsData));
+const tabManuallySelected = ref(false);
 const copyLabel = ref("Copy YAML");
+const copiedAttemptID = ref("");
 const infoOpen = ref<DetailsTab | null>(null);
 const infoPinned = ref(false);
 
@@ -58,6 +65,10 @@ const focusableSelector = [
   "textarea:not([disabled])", "summary", "[tabindex]:not([tabindex=\"-1\"])",
 ].join(", ");
 const detail = computed(() => store.deploymentDetailsData);
+const attempts = computed(() => [...(detail.value?.attempts ?? [])].sort((left, right) =>
+  right.number - left.number || Date.parse(right.started_at) - Date.parse(left.started_at),
+));
+const attemptCount = computed(() => detail.value?.attempt_count ?? attempts.value.length);
 const initialSnapshot = computed(() => detail.value?.comparison_basis === "none");
 const changeState = computed<"initial" | "unavailable" | "none" | "changes">(() => {
   if (initialSnapshot.value) return "initial";
@@ -187,10 +198,22 @@ const statusLabel = computed(() => {
     default: return "Unknown";
   }
 });
-function attemptDuration(startedAt: string, finishedAt?: string): string {
-  if (!finishedAt) return "In progress";
-  const ms = Math.max(0, Date.parse(finishedAt) - Date.parse(startedAt));
-  return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(1)} s`;
+function attemptDuration(attempt: DeploymentAttempt): string {
+  let milliseconds = attempt.duration_ms;
+  if (milliseconds == null && attempt.finished_at) {
+    const started = Date.parse(attempt.started_at);
+    const finished = Date.parse(attempt.finished_at);
+    if (!Number.isNaN(started) && !Number.isNaN(finished)) milliseconds = Math.max(0, finished - started);
+  }
+  if (milliseconds == null) return attempt.status === "running" ? "In progress" : "—";
+  return milliseconds < 1000 ? `${milliseconds} ms` : `${(milliseconds / 1000).toFixed(1)} s`;
+}
+function attemptDiagnostic(attempt: DeploymentAttempt): string {
+  return attempt.diagnostic || reasonLabels[attempt.reason ?? ""] || "No diagnostics were recorded.";
+}
+function selectTab(tab: DetailsTab) {
+  activeTab.value = tab;
+  tabManuallySelected.value = true;
 }
 function pluralize(count: number, singular: string, plural = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;
@@ -253,6 +276,13 @@ async function copyConfiguration() {
   copyLabel.value = "Copied";
   window.setTimeout(() => { copyLabel.value = "Copy YAML"; }, 1200);
 }
+async function copyAttemptDiagnostic(attempt: DeploymentAttempt) {
+  await navigator.clipboard?.writeText(attemptDiagnostic(attempt));
+  copiedAttemptID.value = attempt.id;
+  window.setTimeout(() => {
+    if (copiedAttemptID.value === attempt.id) copiedAttemptID.value = "";
+  }, 1200);
+}
 function onKeydown(event: KeyboardEvent) {
   if (!store.deploymentDetailsModalOpen || store.commitDetailsModalOpen) return;
   if (event.key === "Escape") {
@@ -274,7 +304,10 @@ function onKeydown(event: KeyboardEvent) {
 watch(() => store.deploymentDetailsModalOpen, async (open, wasOpen) => {
   if (open && !wasOpen) {
     returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    activeTab.value = "changes";
+    tabManuallySelected.value = false;
+    tabSelectionInitialized.value = Boolean(detail.value);
+    activeTab.value = defaultTab(detail.value?.status);
+    copiedAttemptID.value = "";
     dismissInfo();
     await nextTick(); closeButton.value?.focus();
   } else if (!open && wasOpen) {
@@ -282,6 +315,11 @@ watch(() => store.deploymentDetailsModalOpen, async (open, wasOpen) => {
     if (returnFocus?.isConnected) returnFocus.focus();
     returnFocus = null;
   }
+});
+watch(detail, (current) => {
+  if (!store.deploymentDetailsModalOpen || !current || tabSelectionInitialized.value || tabManuallySelected.value) return;
+  activeTab.value = defaultTab(current.status);
+  tabSelectionInitialized.value = true;
 });
 watch(activeTab, dismissInfo);
 onMounted(() => {
@@ -352,31 +390,44 @@ onUnmounted(() => {
             </div>
           </section>
 
-          <section class="deployment-attempts" aria-labelledby="deployment-attempts-title">
-            <div class="deployment-attempts-heading">
-              <h3 id="deployment-attempts-title">Attempts</h3>
-              <span>{{ detail.attempt_count }}</span>
-            </div>
-            <ol>
-              <li v-for="attempt in detail.attempts" :key="attempt.id">
-                <div class="deployment-attempt-title">
-                  <strong>Attempt {{ attempt.number }}</strong>
-                  <span class="deployment-status" :class="`deployment-status--${attempt.status}`">
-                    <span class="deployment-status-dot" aria-hidden="true" />{{ attempt.status }}
-                  </span>
-                </div>
-                <p><time :datetime="attempt.started_at">{{ formatDate(attempt.started_at) }}</time> · {{ attempt.phase }} · {{ attemptDuration(attempt.started_at, attempt.finished_at) }}</p>
-                <p v-if="attempt.diagnostic" class="deployment-attempt-diagnostic">{{ attempt.diagnostic }}</p>
-              </li>
-            </ol>
-          </section>
-
           <div class="deployment-tabs" role="tablist" aria-label="Deployment detail views">
-            <button type="button" role="tab" :aria-selected="activeTab === 'changes'" :class="{ active: activeTab === 'changes' }" @click="activeTab = 'changes'">Changes</button>
-            <button type="button" role="tab" :aria-selected="activeTab === 'configuration'" :class="{ active: activeTab === 'configuration' }" @click="activeTab = 'configuration'">Configuration</button>
+            <button type="button" role="tab" :aria-selected="activeTab === 'attempts'" :class="{ active: activeTab === 'attempts' }" @click="selectTab('attempts')">Attempts <span class="deployment-tab-count">{{ attemptCount }}</span></button>
+            <button type="button" role="tab" :aria-selected="activeTab === 'changes'" :class="{ active: activeTab === 'changes' }" @click="selectTab('changes')">Changes</button>
+            <button type="button" role="tab" :aria-selected="activeTab === 'configuration'" :class="{ active: activeTab === 'configuration' }" @click="selectTab('configuration')">Configuration</button>
           </div>
 
-          <section v-if="activeTab === 'changes'" class="deployment-tab-panel" role="tabpanel">
+          <section v-if="activeTab === 'attempts'" class="deployment-tab-panel deployment-attempts-panel" role="tabpanel">
+            <p v-if="attempts.length === 0" class="meta">No deployment attempts were recorded.</p>
+            <template v-else>
+              <div class="deployment-attempt-columns" aria-hidden="true">
+                <span />
+                <span>Started</span>
+                <span>Stage</span>
+                <span>Duration</span>
+                <span />
+              </div>
+              <div class="deployment-attempt-list">
+                <details v-for="attempt in attempts" :key="attempt.id" class="deployment-attempt-row">
+                  <summary>
+                    <span class="deployment-attempt-status" :class="`deployment-attempt-status--${attempt.status}`" role="img" :aria-label="`${attempt.status} attempt`" />
+                    <time :datetime="attempt.started_at">{{ formatDate(attempt.started_at) }}</time>
+                    <span class="deployment-attempt-stage">{{ sectionLabel(attempt.phase) }}</span>
+                    <span class="deployment-attempt-duration">{{ attemptDuration(attempt) }}</span>
+                    <svg class="deployment-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg>
+                  </summary>
+                  <div class="deployment-attempt-details">
+                    <div class="deployment-attempt-details-heading">
+                      <strong>Diagnostics</strong>
+                      <button type="button" class="button-ghost" @click="copyAttemptDiagnostic(attempt)">{{ copiedAttemptID === attempt.id ? "Copied" : "Copy" }}</button>
+                    </div>
+                    <pre><code>{{ attemptDiagnostic(attempt) }}</code></pre>
+                  </div>
+                </details>
+              </div>
+            </template>
+          </section>
+
+          <section v-else-if="activeTab === 'changes'" class="deployment-tab-panel" role="tabpanel">
             <template v-if="changeState === 'initial'">
               <h3>Initial snapshot</h3>
               <p class="deployment-note">First recorded desired-state snapshot. No previous snapshot is available for comparison.</p>
@@ -505,15 +556,6 @@ onUnmounted(() => {
 .deployment-modal-content--compact { padding-top: 6px; }
 .deployment-modal-content--compact .deployment-tabs { margin-top: 0; }
 .deployment-state-message { padding: 24px 0; }
-.deployment-attempts { margin: 0 0 14px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; }
-.deployment-attempts-heading, .deployment-attempt-title { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.deployment-attempts-heading h3 { margin: 0; font-size: .95rem; }
-.deployment-attempts-heading > span { color: var(--muted); font-size: .8rem; }
-.deployment-attempts ol { display: grid; gap: 8px; margin: 10px 0 0; padding: 0; list-style: none; }
-.deployment-attempts li { padding-top: 8px; border-top: 1px solid var(--line); }
-.deployment-attempt-title strong { font-size: .85rem; }
-.deployment-attempts p { margin: 4px 0 0; color: var(--muted); font-size: .78rem; }
-.deployment-attempts .deployment-attempt-diagnostic { color: var(--danger); overflow-wrap: anywhere; }
 .deployment-modal-header { padding: 14px 56px 12px 18px; border-bottom: 1px solid var(--line); }
 .deployment-heading-row { min-width: 0; }
 .deployment-title { min-width: 0; }
@@ -535,6 +577,7 @@ onUnmounted(() => {
 .deployment-status--running { color: var(--info); }
 .deployment-status--failed { color: var(--error); }
 .deployment-status--interrupted { color: var(--warning); }
+.deployment-status--superseded { color: var(--muted); }
 .deployment-metadata {
   display: grid;
   grid-template-columns: minmax(140px, 1fr) minmax(130px, .9fr) minmax(190px, 1.35fr) minmax(190px, 1.35fr) minmax(120px, .75fr) minmax(130px, .8fr);
@@ -581,9 +624,78 @@ onUnmounted(() => {
 .deployment-tabs button:hover { color: var(--text); transform: none; filter: none; }
 .deployment-tabs button.active { border-bottom-color: var(--control-primary); color: var(--control-primary); }
 :global(:root[data-theme="dark"] .deployment-tabs button.active) { color: var(--text); }
+.deployment-tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  margin-left: 4px;
+  border: 0;
+  border-radius: 999px;
+  padding: 1px 5px;
+  background: var(--surface-muted-strong);
+  color: var(--muted);
+  font-size: .68rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.deployment-tabs button.active .deployment-tab-count { color: var(--text); }
 .deployment-tab-panel { min-width: 0; padding: 14px 0 4px; }
 .deployment-tab-panel > h3 { margin: 0 0 4px; font-size: 1.35rem; }
 .deployment-tab-panel > .deployment-note { margin: 0; }
+.deployment-attempts-panel { padding-top: 8px; }
+.deployment-attempt-columns,
+.deployment-attempt-row summary {
+  display: grid;
+  grid-template-columns: 16px minmax(220px, 1.4fr) minmax(100px, .7fr) minmax(100px, .5fr) 18px;
+  gap: 12px;
+  align-items: center;
+}
+.deployment-attempt-columns { padding: 4px 8px 7px; color: var(--muted); font-size: .72rem; font-weight: 600; }
+.deployment-attempt-list { border-top: 1px solid var(--line); }
+.deployment-attempt-row { min-width: 0; border-bottom: 1px solid var(--line); }
+.deployment-attempt-row summary {
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px;
+  cursor: pointer;
+  list-style: none;
+  font-size: .84rem;
+}
+.deployment-attempt-row summary::-webkit-details-marker { display: none; }
+.deployment-attempt-row summary:hover { background: var(--surface-hover-soft); }
+.deployment-attempt-row summary > * { min-width: 0; }
+.deployment-attempt-row time { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.deployment-attempt-stage { color: var(--muted); }
+.deployment-attempt-duration { color: var(--muted); font-variant-numeric: tabular-nums; }
+.deployment-attempt-status { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.deployment-attempt-status--succeeded { background: var(--success); }
+.deployment-attempt-status--failed { background: var(--error); }
+.deployment-attempt-status--running { background: var(--info); }
+.deployment-attempt-status--interrupted,
+.deployment-attempt-status--pending { background: var(--muted); }
+.deployment-attempt-row .deployment-chevron { justify-self: end; color: var(--muted); }
+.deployment-attempt-details { min-width: 0; padding: 2px 38px 14px 36px; }
+.deployment-attempt-details-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.deployment-attempt-details-heading strong { font-size: .78rem; }
+.deployment-attempt-details-heading .button-ghost { flex: 0 0 auto; padding: 4px 7px; font-size: .74rem; }
+.deployment-attempt-details pre {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin: 5px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  color: var(--text);
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: .78rem;
+  line-height: 1.5;
+  user-select: text;
+}
+.deployment-attempt-details code { white-space: inherit; overflow-wrap: inherit; word-break: inherit; }
 .deployment-counts { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 14px; }
 .deployment-counts > span { display: inline-flex; align-items: center; gap: 10px; min-height: 46px; border: 1px solid var(--border-default); border-radius: 10px; padding: 8px 12px; background: var(--surface-card-soft); color: var(--muted); }
 .deployment-counts :deep(.deployment-icon) { width: 23px; height: 23px; color: var(--accent-strong); }
@@ -750,6 +862,17 @@ summary.deployment-resource-heading { cursor: pointer; }
   .deployment-outcome-icon { width: 32px; height: 32px; }
   .deployment-tabs { margin-top: 12px; }
   .deployment-tab-panel { padding-top: 12px; }
+  .deployment-attempt-columns { display: none; }
+  .deployment-attempt-list { border-top: 0; }
+  .deployment-attempt-row summary {
+    grid-template-columns: 12px minmax(0, 1fr) auto 16px;
+    gap: 8px;
+  }
+  .deployment-attempt-row time { grid-column: 2; }
+  .deployment-attempt-stage { grid-column: 2; grid-row: 2; }
+  .deployment-attempt-duration { grid-column: 3; grid-row: 1 / span 2; }
+  .deployment-attempt-row .deployment-chevron { grid-column: 4; grid-row: 1 / span 2; }
+  .deployment-attempt-details { padding: 2px 8px 14px 28px; }
   .deployment-counts > span { flex: 1 1 calc(50% - 10px); min-width: 0; gap: 8px; padding: 9px 10px; }
   .deployment-service-table-wrap, .deployment-resource-list, .deployment-resource-empty, .deployment-change-section { margin-left: 0; }
   .deployment-change { grid-template-columns: minmax(0, 1fr); gap: 5px; }
