@@ -204,6 +204,21 @@ func (n *TelegramNotifier) notifyAction(
 	return receipt, nil
 }
 
+type telegramTransportError struct{ kind string }
+func (e *telegramTransportError) Error() string { return "telegram transport " + e.kind }
+func (e *telegramTransportError) SafeLogFields() []slog.Attr {
+ return []slog.Attr{slog.String("failure_source", "telegram"), slog.String("failure_kind", e.kind)}
+}
+func telegramTransportFailureKind(err error) string {
+ if errors.Is(err, context.Canceled) { return "canceled" }
+ if errors.Is(err, context.DeadlineExceeded) { return "timeout" }
+ var dnsErr *net.DNSError
+ if errors.As(err, &dnsErr) { return "dns_error" }
+ var netErr net.Error
+ if errors.As(err, &netErr) && netErr.Timeout() { return "timeout" }
+ return "connection_failed"
+}
+
 type telegramAPIError struct {
  status int
  code int
@@ -250,7 +265,7 @@ func (n *TelegramNotifier) sendRequest(
 	// #nosec G704 -- Telegram API base URL is explicitly configured by the operator.
 	resp, err := n.client.Do(req)
 	if err != nil {
-		return Receipt{}, fmt.Errorf("send request: %s", maskTelegramSendError(err, n.token))
+		return Receipt{}, fmt.Errorf("send request: %w", errors.Join(&telegramTransportError{kind: telegramTransportFailureKind(err)}, errors.New(maskTelegramSendError(err, n.token))))
 	}
 	defer resp.Body.Close()
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, telegramResponseLimit))
