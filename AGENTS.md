@@ -10,7 +10,7 @@
 - `alwaysApply: true` means apply regardless of globs.
 - In the first progress update, briefly state which `.cursor` rules were loaded.
 - After every change, always run `make check` to execute tests and linters before finishing the task.
-- If instructed to create a pull request, always assign appropriate repository labels to the PR before finishing the task.
+- If instructed to create a pull request, always assign appropriate repository labels to the PR before finishing the task. Use only the allowed labels from the file `.github/workflows/pr-labels.yaml`
 
 ## Project structure
 - `./ui` - Frontend
