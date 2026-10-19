@@ -5,28 +5,45 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
+	txsqlx "github.com/Thiht/transactor/sqlx"
+	"github.com/jmoiron/sqlx"
 	"github.com/pressly/goose/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	sqlitemigrations "github.com/swarm-deploy/swarm-deploy/migrations/sqlite"
 )
 
-func TestDeploymentAttemptMigrationPreservesExistingHistory(t *testing.T) {
-	db, err := Open(t.Context(), t.TempDir())
+func openAtMigration1(t *testing.T) (*Database, *goose.Provider) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "swarm-deploy.sqlite")
+	u := url.URL{Scheme: "file", Path: path}
+	u.RawQuery = "_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)" +
+		"&_pragma=synchronous(FULL)&_txlock=immediate&_time_integer_format=unix_nano&_inttotime=1"
+	driver, err := sqlx.Open("sqlite", u.String())
 	require.NoError(t, err)
+	driver.SetMaxOpenConns(maxConnections)
+	driver.SetMaxIdleConns(maxConnections)
+	transactor, get := txsqlx.NewTransactor(driver, txsqlx.NestedTransactionsSavepoints)
+	db := &Database{db: driver, get: get, transactor: transactor}
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	provider, err := goose.NewProvider(goose.DialectSQLite3, db.db.DB, sqlitemigrations.Files)
+	provider, err := goose.NewProvider(goose.DialectSQLite3, driver.DB, sqlitemigrations.Files)
 	require.NoError(t, err)
-	_, err = provider.DownTo(t.Context(), 1)
+	_, err = provider.UpTo(t.Context(), 1)
 	require.NoError(t, err)
+	return db, provider
+}
+
+func TestDeploymentAttemptMigrationPreservesExistingHistory(t *testing.T) {
+	db, provider := openAtMigration1(t)
 	finished := time.Date(2026, 10, 18, 10, 0, 0, 0, time.UTC)
-	_, err = db.Exec(t.Context(), `INSERT INTO deployments
+	_, err := db.Exec(t.Context(), `INSERT INTO deployments
 		(id,stack,"commit",status,error_code,phase,started_at,finished_at,
 		 desired_payload,details_payload,changes_payload)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
@@ -42,14 +59,14 @@ func TestDeploymentAttemptMigrationPreservesExistingHistory(t *testing.T) {
 	require.NoError(t, err)
 
 	var deploymentRow struct {
-		LatestAttemptID string `db:"latest_attempt_id"`
-		AttemptCount    int    `db:"attempt_count"`
-		Status          string `db:"status"`
+		LatestAttemptID sql.NullString `db:"latest_attempt_id"`
+		AttemptCount    int            `db:"attempt_count"`
+		Status          string         `db:"status"`
 	}
 	require.NoError(t, db.Get(t.Context(), &deploymentRow,
 		"SELECT latest_attempt_id,attempt_count,status FROM deployments WHERE id=?", "legacy-deployment"))
-	assert.Equal(t, "legacy-deployment-attempt-1", deploymentRow.LatestAttemptID)
-	assert.Equal(t, 1, deploymentRow.AttemptCount)
+	assert.False(t, deploymentRow.LatestAttemptID.Valid)
+	assert.Zero(t, deploymentRow.AttemptCount)
 	assert.Equal(t, "failed", deploymentRow.Status)
 	var attemptRow struct {
 		DeploymentID string `db:"deployment_id"`
@@ -58,7 +75,7 @@ func TestDeploymentAttemptMigrationPreservesExistingHistory(t *testing.T) {
 	}
 	require.NoError(t, db.Get(t.Context(), &attemptRow, `SELECT deployment_id,number,
 		json_extract(details_payload,'$.error_diagnostic') AS diagnostic
-		FROM deployment_attempts WHERE id=?`, deploymentRow.LatestAttemptID))
+		FROM deployment_attempts WHERE id=?`, "legacy-deployment-attempt-1"))
 	assert.Equal(t, "legacy-deployment", attemptRow.DeploymentID)
 	assert.Equal(t, 1, attemptRow.Number)
 	assert.Equal(t, "old failure", attemptRow.Diagnostic)
@@ -69,15 +86,10 @@ func TestDeploymentAttemptMigrationPreservesExistingHistory(t *testing.T) {
 }
 
 func TestDeploymentAttemptMigrationSupersedesOlderUnfinishedHistory(t *testing.T) {
-	db, err := Open(t.Context(), t.TempDir())
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	provider, err := goose.NewProvider(goose.DialectSQLite3, db.db.DB, sqlitemigrations.Files)
-	require.NoError(t, err)
-	_, err = provider.DownTo(t.Context(), 1)
-	require.NoError(t, err)
+	db, provider := openAtMigration1(t)
 
 	started := time.Date(2026, 10, 18, 10, 0, 0, 0, time.UTC)
+	var err error
 	for index, id := range []string{"legacy-success", "legacy-failure-1", "legacy-failure-2"} {
 		status, code := "failed", "apply_failed"
 		if index == 0 {
@@ -99,18 +111,107 @@ func TestDeploymentAttemptMigrationSupersedesOlderUnfinishedHistory(t *testing.T
 	_, err = provider.Up(t.Context())
 	require.NoError(t, err)
 
-	var statuses []string
-	require.NoError(t, db.Select(t.Context(), &statuses,
-		"SELECT status FROM deployments WHERE stack='app' ORDER BY started_at,id"))
-	assert.Equal(t, []string{"succeeded", "superseded", "failed"}, statuses)
+	var rows []struct {
+		Status       string `db:"status"`
+		IsSuperseded bool   `db:"is_superseded"`
+	}
+	require.NoError(t, db.Select(t.Context(), &rows,
+		`SELECT status, superseded_at IS NOT NULL AS is_superseded
+		 FROM deployments WHERE stack='app' ORDER BY started_at,id`))
+	assert.Equal(t, []struct {
+		Status       string `db:"status"`
+		IsSuperseded bool   `db:"is_superseded"`
+	}{
+		{Status: "succeeded"},
+		{Status: "failed", IsSuperseded: true},
+		{Status: "failed"},
+	}, rows)
 	var active int
 	require.NoError(t, db.Get(t.Context(), &active,
-		"SELECT count(*) FROM deployments WHERE stack='app' AND status IN ('running','failed','interrupted')"))
+		`SELECT count(*) FROM deployments
+		 WHERE stack='app' AND status IN ('running','failed','interrupted') AND superseded_at IS NULL`))
 	assert.Equal(t, 1, active)
 	var attempts int
 	require.NoError(t, db.Get(t.Context(), &attempts,
 		"SELECT count(*) FROM deployment_attempts WHERE deployment_id LIKE 'legacy-%'"))
 	assert.Equal(t, 3, attempts, "every legacy execution must remain independently inspectable")
+}
+
+func TestDeploymentAttemptMigrationMirrorsOldBinaryWrites(t *testing.T) {
+	db, provider := openAtMigration1(t)
+	_, err := provider.Up(t.Context())
+	require.NoError(t, err)
+
+	started := time.Date(2026, 10, 18, 10, 0, 0, 0, time.UTC)
+	details := `{"apply_status":"running","verification_status":"pending","cleanup_status":"pending","actual_state_status":"unknown","comparison_basis":"none","comparison_status":"unknown","summary":{},"resources":{},"diff_available":true}`
+	_, err = db.Exec(t.Context(), `INSERT INTO deployments
+		(id,stack,"commit",status,error_code,phase,started_at,finished_at,
+		 desired_payload,details_payload,changes_payload)
+		VALUES (?,?,?,?,?,?,?,NULL,?,?,?)`,
+		"old-writer-1", "app", "first", "running", "", "apply", started,
+		`{"digest":"digest-1"}`, details, `[]`)
+	require.NoError(t, err)
+
+	var projection struct {
+		LatestAttemptID sql.NullString `db:"latest_attempt_id"`
+		AttemptCount    int            `db:"attempt_count"`
+	}
+	require.NoError(t, db.Get(t.Context(), &projection,
+		"SELECT latest_attempt_id,attempt_count FROM deployments WHERE id='old-writer-1'"))
+	assert.False(t, projection.LatestAttemptID.Valid)
+	assert.Zero(t, projection.AttemptCount)
+
+	finished := started.Add(time.Minute)
+	failedDetails := `{"error_diagnostic":"old binary failure","apply_status":"failed","verification_status":"skipped","cleanup_status":"skipped","actual_state_status":"unknown","comparison_basis":"none","comparison_status":"unknown","summary":{},"resources":{},"diff_available":true}`
+	_, err = db.Exec(t.Context(), `UPDATE deployments
+		SET status='failed',error_code='apply_failed',phase='apply',finished_at=?,details_payload=?
+		WHERE id='old-writer-1'`, finished, failedDetails)
+	require.NoError(t, err)
+
+	var attempt struct {
+		Status     string `db:"status"`
+		Diagnostic string `db:"diagnostic"`
+	}
+	require.NoError(t, db.Get(t.Context(), &attempt, `SELECT status,
+		json_extract(details_payload,'$.error_diagnostic') AS diagnostic
+		FROM deployment_attempts WHERE id='old-writer-1-attempt-1'`))
+	assert.Equal(t, "failed", attempt.Status)
+	assert.Equal(t, "old binary failure", attempt.Diagnostic)
+
+	_, err = db.Exec(t.Context(), `INSERT INTO deployments
+		(id,stack,"commit",status,error_code,phase,started_at,finished_at,
+		 desired_payload,details_payload,changes_payload)
+		VALUES (?,?,?,?,?,?,?,NULL,?,?,?)`,
+		"old-writer-2", "app", "second", "running", "", "apply", finished.Add(time.Minute),
+		`{"digest":"digest-2"}`, details, `[]`)
+	require.NoError(t, err)
+	var supersededAt sql.NullTime
+	require.NoError(t, db.Get(t.Context(), &supersededAt,
+		"SELECT superseded_at FROM deployments WHERE id='old-writer-1'"))
+	assert.True(t, supersededAt.Valid)
+	var attempts int
+	require.NoError(t, db.Get(t.Context(), &attempts,
+		"SELECT count(*) FROM deployment_attempts WHERE deployment_id LIKE 'old-writer-%'"))
+	assert.Equal(t, 2, attempts)
+
+	_, err = db.Exec(t.Context(), "UPDATE deployments SET status='superseded' WHERE id='old-writer-1'")
+	require.Error(t, err, "the original deployment status constraint must remain unchanged")
+}
+
+func TestDeploymentAttemptMigrationIsForwardOnly(t *testing.T) {
+	db, provider := openAtMigration1(t)
+	_, err := provider.Up(t.Context())
+	require.NoError(t, err)
+	_, err = provider.Down(t.Context())
+	require.Error(t, err)
+
+	version, err := provider.GetDBVersion(t.Context())
+	require.NoError(t, err)
+	assert.EqualValues(t, 2, version)
+	var tableCount int
+	require.NoError(t, db.Get(t.Context(), &tableCount,
+		"SELECT count(*) FROM sqlite_master WHERE type='table' AND name='deployment_attempts'"))
+	assert.Equal(t, 1, tableCount)
 }
 
 func TestTimestampRoundTrip(t *testing.T) {

@@ -1,23 +1,10 @@
 -- +goose Up
-ALTER TABLE desired_snapshots RENAME TO legacy_desired_snapshots;
-ALTER TABLE deployments RENAME TO legacy_deployments;
-
-CREATE TABLE deployments (
-    id TEXT NOT NULL PRIMARY KEY,
-    stack TEXT NOT NULL,
-    "commit" TEXT NOT NULL,
-    status TEXT NOT NULL CHECK(status IN ('running','succeeded','failed','interrupted','superseded')),
-    error_code TEXT NOT NULL,
-    phase TEXT NOT NULL CHECK(phase IN ('apply','verification','cleanup','completed')),
-    started_at TIMESTAMP NOT NULL CHECK (typeof(started_at) = 'integer'),
-    finished_at TIMESTAMP CHECK (finished_at IS NULL OR typeof(finished_at) = 'integer'),
-    desired_payload TEXT NOT NULL CHECK(json_valid(desired_payload)),
-    details_payload TEXT NOT NULL CHECK(json_valid(details_payload)),
-    changes_payload TEXT NOT NULL CHECK(json_valid(changes_payload) AND json_type(changes_payload) = 'array'),
-    latest_attempt_id TEXT NOT NULL,
-    attempt_count INTEGER NOT NULL CHECK(attempt_count > 0),
-    CHECK((status='running' AND finished_at IS NULL) OR (status<>'running' AND finished_at IS NOT NULL))
-);
+-- This migration is intentionally additive so an older swarm-deploy instance
+-- can keep using the original deployments and desired_snapshots tables during
+-- a start-first rolling update.
+ALTER TABLE deployments ADD COLUMN latest_attempt_id TEXT;
+ALTER TABLE deployments ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE deployments ADD COLUMN superseded_at TIMESTAMP;
 
 CREATE TABLE deployment_attempts (
     id TEXT NOT NULL PRIMARY KEY,
@@ -33,27 +20,21 @@ CREATE TABLE deployment_attempts (
     UNIQUE(deployment_id, number)
 );
 
-INSERT INTO deployments (
-    id, stack, "commit", status, error_code, phase, started_at, finished_at,
-    desired_payload, details_payload, changes_payload, latest_attempt_id, attempt_count
-)
-SELECT id, stack, "commit", status, error_code, phase, started_at, finished_at,
-       desired_payload, details_payload, changes_payload, id || '-attempt-1', 1
-FROM legacy_deployments
-ORDER BY rowid;
-
+-- Existing rows remain legacy-owned while an old process may still be running:
+-- NULL/0 in the additive projection columns is the compatibility marker. Reads
+-- derive attempt 1 from the deterministic ID until a new binary starts a retry.
 INSERT INTO deployment_attempts (
     id, deployment_id, number, status, error_code, phase, started_at, finished_at, details_payload
 )
 SELECT id || '-attempt-1', id, 1, status, error_code, phase, started_at, finished_at, details_payload
-FROM legacy_deployments;
+FROM deployments;
 
--- Legacy retries were separate deployments. Preserve every row and its attempt,
--- but close older unfinished projections when a newer deployment exists for the
--- same stack so the new single-active-deployment invariant can be established.
+-- Preserve the original status and diagnostics. Supersession is a separate
+-- projection and only older unfinished history is marked during the backfill.
 UPDATE deployments AS deployment
-SET status = 'superseded'
+SET superseded_at = finished_at
 WHERE status IN ('failed', 'interrupted')
+  AND superseded_at IS NULL
   AND EXISTS (
       SELECT 1
       FROM deployments AS newer
@@ -61,69 +42,64 @@ WHERE status IN ('failed', 'interrupted')
         AND newer.rowid > deployment.rowid
   );
 
-CREATE TABLE desired_snapshots (
-    stack TEXT NOT NULL PRIMARY KEY,
-    deployment_id TEXT NOT NULL UNIQUE REFERENCES deployments(id)
-);
-INSERT INTO desired_snapshots(stack, deployment_id)
-SELECT stack, deployment_id FROM legacy_desired_snapshots;
+-- An old binary does not know about Attempts. Mirror its explicit-column INSERT
+-- and later lifecycle UPDATE statements while leaving the compatibility marker
+-- intact. New binaries set latest_attempt_id/attempt_count and skip these triggers.
+-- +goose StatementBegin
+CREATE TRIGGER deployment_attempts_legacy_insert
+AFTER INSERT ON deployments
+WHEN NEW.latest_attempt_id IS NULL AND NEW.attempt_count = 0
+BEGIN
+    UPDATE deployments
+    SET superseded_at = NEW.started_at
+    WHERE stack = NEW.stack
+      AND id <> NEW.id
+      AND superseded_at IS NULL
+      AND status IN ('failed', 'interrupted');
 
-DROP TABLE legacy_desired_snapshots;
-DROP TABLE legacy_deployments;
+    INSERT OR IGNORE INTO deployment_attempts (
+        id, deployment_id, number, status, error_code, phase,
+        started_at, finished_at, details_payload
+    ) VALUES (
+        NEW.id || '-attempt-1', NEW.id, 1, NEW.status, NEW.error_code, NEW.phase,
+        NEW.started_at, NEW.finished_at, NEW.details_payload
+    );
+END;
+-- +goose StatementEnd
 
-CREATE INDEX idx_deployments_stack_time ON deployments(stack,started_at DESC,id);
-CREATE INDEX idx_deployments_time ON deployments(started_at DESC,id);
-CREATE INDEX idx_deployments_status_time ON deployments(status,started_at DESC,id);
-CREATE UNIQUE INDEX idx_deployments_active_stack ON deployments(stack)
-    WHERE status IN ('running','failed','interrupted');
+-- +goose StatementBegin
+CREATE TRIGGER deployment_attempts_legacy_update
+AFTER UPDATE OF status, error_code, phase, started_at, finished_at, details_payload ON deployments
+WHEN NEW.latest_attempt_id IS NULL AND NEW.attempt_count = 0
+BEGIN
+    INSERT OR IGNORE INTO deployment_attempts (
+        id, deployment_id, number, status, error_code, phase,
+        started_at, finished_at, details_payload
+    ) VALUES (
+        NEW.id || '-attempt-1', NEW.id, 1, NEW.status, NEW.error_code, NEW.phase,
+        NEW.started_at, NEW.finished_at, NEW.details_payload
+    );
+
+    UPDATE deployment_attempts
+    SET status = NEW.status,
+        error_code = NEW.error_code,
+        phase = NEW.phase,
+        started_at = NEW.started_at,
+        finished_at = NEW.finished_at,
+        details_payload = NEW.details_payload
+    WHERE id = NEW.id || '-attempt-1'
+      AND deployment_id = NEW.id
+      AND number = 1;
+END;
+-- +goose StatementEnd
+
 CREATE INDEX idx_deployment_attempts_deployment ON deployment_attempts(deployment_id,number DESC);
 CREATE INDEX idx_deployment_attempts_status_time ON deployment_attempts(status,started_at DESC,id);
 CREATE UNIQUE INDEX idx_deployment_attempts_running_deployment ON deployment_attempts(deployment_id)
     WHERE status='running';
 
 -- +goose Down
-ALTER TABLE desired_snapshots RENAME TO current_desired_snapshots;
-ALTER TABLE deployments RENAME TO current_deployments;
-
-CREATE TABLE deployments (
-    id TEXT NOT NULL PRIMARY KEY,
-    stack TEXT NOT NULL,
-    "commit" TEXT NOT NULL,
-    status TEXT NOT NULL CHECK(status IN ('running','succeeded','failed','interrupted')),
-    error_code TEXT NOT NULL,
-    phase TEXT NOT NULL CHECK(phase IN ('apply','verification','cleanup','completed')),
-    started_at TIMESTAMP NOT NULL CHECK (typeof(started_at) = 'integer'),
-    finished_at TIMESTAMP CHECK (finished_at IS NULL OR typeof(finished_at) = 'integer'),
-    desired_payload TEXT NOT NULL CHECK(json_valid(desired_payload)),
-    details_payload TEXT NOT NULL CHECK(json_valid(details_payload)),
-    changes_payload TEXT NOT NULL CHECK(json_valid(changes_payload) AND json_type(changes_payload) = 'array'),
-    CHECK((status='running' AND finished_at IS NULL) OR (status<>'running' AND finished_at IS NOT NULL))
-);
-
-INSERT INTO deployments (
-    id, stack, "commit", status, error_code, phase, started_at, finished_at,
-    desired_payload, details_payload, changes_payload
-)
-SELECT id, stack, "commit",
-       CASE WHEN status='superseded' THEN 'interrupted' ELSE status END,
-       CASE WHEN status='superseded' THEN 'superseded' ELSE error_code END,
-       phase, started_at,
-       CASE WHEN finished_at IS NULL THEN started_at ELSE finished_at END,
-       desired_payload, details_payload, changes_payload
-FROM current_deployments;
-
-CREATE TABLE desired_snapshots (
-    stack TEXT NOT NULL PRIMARY KEY,
-    deployment_id TEXT NOT NULL UNIQUE REFERENCES deployments(id)
-);
-INSERT INTO desired_snapshots(stack, deployment_id)
-SELECT stack, deployment_id FROM current_desired_snapshots;
-
-DROP TABLE deployment_attempts;
-DROP TABLE current_desired_snapshots;
-DROP TABLE current_deployments;
-
-CREATE INDEX idx_deployments_stack_time ON deployments(stack,started_at DESC,id);
-CREATE INDEX idx_deployments_time ON deployments(started_at DESC,id);
-CREATE INDEX idx_deployments_status_time ON deployments(status,started_at DESC,id);
-CREATE UNIQUE INDEX idx_deployments_running_stack ON deployments(stack) WHERE status='running';
+-- Forward-only by design: removing Attempts or additive columns would destroy
+-- history and make a rolling application rollback unsafe. This deliberate error
+-- keeps the schema version at 2 and documents that rollback is application-only.
+SELECT * FROM deployment_attempts_migration_0002_is_forward_only;

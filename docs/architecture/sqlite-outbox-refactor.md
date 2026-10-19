@@ -86,7 +86,9 @@ The Outbox is an **operational queue**, not an audit log. It is generic infrastr
 
 - A Deployment records one immutable **effective desired state**. Every real pipeline execution is a nested Attempt; retries of the same digest reuse the Deployment and receive distinct attempt IDs. An ordinary reconcile after success creates no Attempt.
 - Preparation failures prior to an apply attempt do not create a Deployment. Runtime state and a safe `DeployPreparationFailed` fact commit atomically so Alerts and Notifications still observe the failure. Once application has begun, policy rejection is a failed Deployment.
-- Deployment states: `running`, `succeeded`, `failed`, `interrupted`, `superseded`. Attempt states exclude `superseded`.
+- Deployment API states: `running`, `succeeded`, `failed`, `interrupted`, `superseded`. Attempt states exclude
+  `superseded`. SQLite retains the latest Attempt's original status and diagnostics; a separate `superseded_at`
+  projection exposes `superseded` without widening the legacy status constraint.
 - Apply boundary includes policies, init jobs, stack deployment, and authorized prune. Maintenance work after successful apply does not retroactively change a completed Deployment.
 - Successful application means the deploy pipeline completed, **not** that the services are healthy or that actual live convergence was verified. Rollout tracking is explicitly deferred.
 - Preserve user-visible `DeploySuccess`. Create it at successful completion of a Deployment.

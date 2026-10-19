@@ -2,6 +2,7 @@ package deployment
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -173,6 +174,93 @@ func TestRetryReusesDeploymentAndPreservesAttemptHistoryAndDesiredChanges(t *tes
 	succeeded, err := store.Get(ctx, first.DeploymentID)
 	require.NoError(t, err)
 	assert.Equal(t, 3, succeeded.AttemptCount)
+}
+
+func TestRetryAdoptsLegacyDeploymentProjection(t *testing.T) {
+	ctx := t.Context()
+	db, err := storage.Open(ctx, t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	service := NewService(db, outbox.New(db))
+	store := NewStore(db)
+
+	legacyDesired, err := Prepare(desired("api:2"))
+	require.NoError(t, err)
+	desiredPayload, err := json.Marshal(legacyDesired)
+	require.NoError(t, err)
+	detailsPayload, err := json.Marshal(deploymentDetails{
+		ErrorDiagnostic: "legacy diagnostic", ApplyStatus: StageFailed,
+		VerificationStatus: StageSkipped, CleanupStatus: StageSkipped,
+		ActualStateStatus: ActualStateUnknown, ComparisonBasis: BasisNone,
+		ComparisonStatus: ComparisonUnknown, DiffAvailable: true,
+	})
+	require.NoError(t, err)
+	started := time.Now().UTC().Add(-time.Minute)
+	finished := started.Add(time.Second)
+	const deploymentID = "legacy-deployment"
+	_, err = db.Exec(ctx, `INSERT INTO deployments
+		(id,stack,"commit",status,error_code,phase,started_at,finished_at,
+		 desired_payload,details_payload,changes_payload)
+		VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
+		deploymentID, "app", "desired", "failed", "apply_failed", "apply", started, finished,
+		string(desiredPayload), string(detailsPayload), `[]`)
+	require.NoError(t, err)
+
+	legacy, err := store.Get(ctx, deploymentID)
+	require.NoError(t, err)
+	assert.Equal(t, legacyAttemptID(deploymentID), legacy.LatestAttemptID)
+	assert.Equal(t, 1, legacy.AttemptCount)
+	retry, err := service.StartIfChanged(ctx, "app", "same-state", desired("api:2"), true)
+	require.NoError(t, err)
+	require.NotNil(t, retry)
+	assert.Equal(t, 2, retry.Number)
+	require.NoError(t, service.Fail(ctx, retry.ID, model.Stack{}, "apply_failed"))
+
+	stored, err := store.Get(ctx, deploymentID)
+	require.NoError(t, err)
+	assert.Equal(t, retry.ID, stored.LatestAttemptID)
+	assert.Equal(t, 2, stored.AttemptCount)
+	require.Len(t, stored.Attempts, 2)
+}
+
+func TestSupersessionPreservesStoredStatusAndDiagnostics(t *testing.T) {
+	ctx := t.Context()
+	db, err := storage.Open(ctx, t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	service := NewService(db, outbox.New(db))
+	store := NewStore(db)
+
+	first, err := service.StartIfChanged(ctx, "app", "first", desired("api:1"), true)
+	require.NoError(t, err)
+	require.NoError(t, service.FailApplyWithError(ctx, first.ID, model.Stack{}, "apply_failed",
+		fmt.Errorf("preserved diagnostic")))
+	_, err = service.StartIfChanged(ctx, "app", "second", desired("api:2"), true)
+	require.NoError(t, err)
+
+	projected, err := store.Get(ctx, first.DeploymentID)
+	require.NoError(t, err)
+	assert.Equal(t, Superseded, projected.Status)
+	assert.Equal(t, "preserved diagnostic", projected.ErrorDiagnostic)
+	var raw struct {
+		Status       string       `db:"status"`
+		Diagnostic   string       `db:"diagnostic"`
+		SupersededAt sql.NullTime `db:"superseded_at"`
+	}
+	require.NoError(t, db.Get(ctx, &raw, `SELECT status,
+		json_extract(details_payload,'$.error_diagnostic') AS diagnostic,superseded_at
+		FROM deployments WHERE id=?`, first.DeploymentID))
+	assert.Equal(t, "failed", raw.Status)
+	assert.Equal(t, "preserved diagnostic", raw.Diagnostic)
+	assert.True(t, raw.SupersededAt.Valid)
+
+	superseded, err := store.List(ctx, ListFilter{Status: Superseded})
+	require.NoError(t, err)
+	require.Len(t, superseded.Deployments, 1)
+	assert.Equal(t, first.DeploymentID, superseded.Deployments[0].ID)
+	failed, err := store.List(ctx, ListFilter{Status: Failed})
+	require.NoError(t, err)
+	assert.Empty(t, failed.Deployments)
 }
 
 func TestRollbackToBaselineRetriesAfterUnsuccessfulAttempt(t *testing.T) {
