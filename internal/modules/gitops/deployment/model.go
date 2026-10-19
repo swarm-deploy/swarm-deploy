@@ -179,7 +179,7 @@ type Attempt struct {
 	ObservedAt *time.Time `json:"observed_at,omitempty"`
 }
 
-// Deployment is one immutable effective desired state with one or more execution attempts.
+// Deployment is one immutable effective desired state with zero or more persisted execution attempts.
 type Deployment struct {
 	// ID uniquely identifies this desired state; retries reuse it.
 	ID string `json:"id"`
@@ -223,9 +223,9 @@ type Deployment struct {
 	Changes []Change `json:"changes"`
 	// DiffAvailable distinguishes a verified zero diff from missing comparison data.
 	DiffAvailable bool `json:"diff_available"`
-	// LatestAttemptID identifies the attempt projected into the compatibility status fields.
+	// LatestAttemptID identifies the latest persisted attempt; legacy deployments may have none.
 	LatestAttemptID string `json:"latest_attempt_id"`
-	// AttemptCount is the number of executions recorded for this desired state.
+	// AttemptCount is the number of persisted attempts for this desired state.
 	AttemptCount int `json:"attempt_count"`
 	// Attempts contains immutable execution history in newest-first order.
 	Attempts []Attempt `json:"attempts,omitempty"`
@@ -271,9 +271,9 @@ type DeploymentSummary struct {
 	Resources ResourceSummary
 	// DiffAvailable distinguishes a verified zero diff from unavailable comparison data.
 	DiffAvailable bool
-	// LatestAttemptID identifies the latest execution.
+	// LatestAttemptID identifies the latest persisted attempt; legacy deployments may have none.
 	LatestAttemptID string
-	// AttemptCount is the number of executions for this desired state.
+	// AttemptCount is the number of persisted attempts for this desired state.
 	AttemptCount int
 }
 

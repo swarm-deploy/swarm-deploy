@@ -76,11 +76,20 @@ func TestDeploymentAPIReadsAttemptsWithoutHistory(t *testing.T) {
 	for _, internalField := range []string{"\"path\"", "Map", "Args", "Extra"} {
 		assert.NotContains(t, string(encoded), internalField)
 	}
+	_, err = db.Exec(ctx, "DELETE FROM deployment_attempts WHERE deployment_id=?", attempt.DeploymentID)
+	require.NoError(t, err)
+	legacyDetail, err := h.GetDeployment(ctx, generated.GetDeploymentParams{ID: attempt.DeploymentID})
+	require.NoError(t, err)
+	assert.Empty(t, legacyDetail.LatestAttemptID)
+	assert.Zero(t, legacyDetail.AttemptCount)
+	assert.Empty(t, legacyDetail.Attempts)
+	require.NoError(t, legacyDetail.Validate())
 	_, err = h.GetDeployment(ctx, generated.GetDeploymentParams{ID: "unknown"})
 	require.Error(t, err)
 	listed, err := h.ListDeployments(ctx, generated.ListDeploymentsParams{Stack: generated.NewOptString("app")})
 	require.NoError(t, err)
 	require.Len(t, listed.Deployments, 1)
+	require.NoError(t, listed.Deployments[0].Validate())
 }
 
 func TestDeploymentServiceReplicas(t *testing.T) {

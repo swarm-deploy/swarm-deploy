@@ -2,7 +2,6 @@ package deployment
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -208,19 +207,64 @@ func TestRetryAdoptsLegacyDeploymentProjection(t *testing.T) {
 
 	legacy, err := store.Get(ctx, deploymentID)
 	require.NoError(t, err)
-	assert.Equal(t, legacyAttemptID(deploymentID), legacy.LatestAttemptID)
-	assert.Equal(t, 1, legacy.AttemptCount)
+	assert.Empty(t, legacy.LatestAttemptID)
+	assert.Zero(t, legacy.AttemptCount)
+	assert.Empty(t, legacy.Attempts)
 	retry, err := service.StartIfChanged(ctx, "app", "same-state", desired("api:2"), true)
 	require.NoError(t, err)
 	require.NotNil(t, retry)
-	assert.Equal(t, 2, retry.Number)
+	assert.Equal(t, 1, retry.Number)
 	require.NoError(t, service.Fail(ctx, retry.ID, model.Stack{}, "apply_failed"))
 
 	stored, err := store.Get(ctx, deploymentID)
 	require.NoError(t, err)
 	assert.Equal(t, retry.ID, stored.LatestAttemptID)
-	assert.Equal(t, 2, stored.AttemptCount)
-	require.Len(t, stored.Attempts, 2)
+	assert.Equal(t, 1, stored.AttemptCount)
+	require.Len(t, stored.Attempts, 1)
+}
+
+func TestLegacyRunningDeploymentIsRecoveredBeforeRetry(t *testing.T) {
+	ctx := t.Context()
+	db, err := storage.Open(ctx, t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	service := NewService(db, outbox.New(db))
+	store := NewStore(db)
+
+	legacyDesired, err := Prepare(desired("api:2"))
+	require.NoError(t, err)
+	desiredPayload, err := json.Marshal(legacyDesired)
+	require.NoError(t, err)
+	detailsPayload, err := json.Marshal(deploymentDetails{
+		ApplyStatus: StageRunning, VerificationStatus: StagePending,
+		CleanupStatus: StagePending, ActualStateStatus: ActualStateUnknown,
+		ComparisonBasis: BasisNone, ComparisonStatus: ComparisonUnknown, DiffAvailable: true,
+	})
+	require.NoError(t, err)
+	started := time.Now().UTC().Add(-time.Minute)
+	const deploymentID = "legacy-running-deployment"
+	_, err = db.Exec(ctx, `INSERT INTO deployments
+		(id,stack,"commit",status,error_code,phase,started_at,finished_at,
+		 desired_payload,details_payload,changes_payload)
+		VALUES (?,?,?,?,?,?,?,NULL,?,?,?)`,
+		deploymentID, "app", "desired", "running", "", "apply", started,
+		string(desiredPayload), string(detailsPayload), `[]`)
+	require.NoError(t, err)
+
+	require.NoError(t, service.InterruptRunning(ctx))
+	require.NoError(t, service.InterruptRunning(ctx))
+	recovered, err := store.Get(ctx, deploymentID)
+	require.NoError(t, err)
+	assert.Equal(t, Interrupted, recovered.Status)
+	assert.Equal(t, 1, recovered.AttemptCount)
+	require.Len(t, recovered.Attempts, 1)
+	assert.Equal(t, Interrupted, recovered.Attempts[0].Status)
+	assert.Equal(t, "process_interrupted", recovered.Attempts[0].ErrorCode)
+
+	retry, err := service.StartIfChanged(ctx, "app", "same-state", desired("api:2"), true)
+	require.NoError(t, err)
+	require.NotNil(t, retry)
+	assert.Equal(t, 2, retry.Number)
 }
 
 func TestSupersessionPreservesStoredStatusAndDiagnostics(t *testing.T) {
@@ -243,16 +287,14 @@ func TestSupersessionPreservesStoredStatusAndDiagnostics(t *testing.T) {
 	assert.Equal(t, Superseded, projected.Status)
 	assert.Equal(t, "preserved diagnostic", projected.ErrorDiagnostic)
 	var raw struct {
-		Status       string       `db:"status"`
-		Diagnostic   string       `db:"diagnostic"`
-		SupersededAt sql.NullTime `db:"superseded_at"`
+		Status     string `db:"status"`
+		Diagnostic string `db:"diagnostic"`
 	}
 	require.NoError(t, db.Get(ctx, &raw, `SELECT status,
-		json_extract(details_payload,'$.error_diagnostic') AS diagnostic,superseded_at
+		json_extract(details_payload,'$.error_diagnostic') AS diagnostic
 		FROM deployments WHERE id=?`, first.DeploymentID))
 	assert.Equal(t, "failed", raw.Status)
 	assert.Equal(t, "preserved diagnostic", raw.Diagnostic)
-	assert.True(t, raw.SupersededAt.Valid)
 
 	superseded, err := store.List(ctx, ListFilter{Status: Superseded})
 	require.NoError(t, err)

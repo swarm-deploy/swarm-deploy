@@ -32,20 +32,20 @@ Back up the complete data directory before rollout. Do not delete the SQLite dat
 or edit Goose migration history to bypass a startup failure.
 
 Migration `0002_deployment_attempts.sql` is forward-only and strictly additive. It
-keeps `deployments` and `desired_snapshots` in place, adds nullable/defaulted
-projection columns, and creates `deployment_attempts` separately. Compatibility
-triggers mirror Deployments inserted or completed by an older binary during a
-`start-first` rollout. Supersession is recorded in `superseded_at`; the original
-Deployment status and failure diagnostics remain unchanged and are projected as
-`superseded` by the application API.
+only creates `deployment_attempts` and its indexes; it does not alter or backfill
+existing tables. Historical Deployments therefore have no Attempts. The application
+reads them from the original Deployment fields, derives supersession from newer
+Deployments in the same stack, and starts numbering newly executed retries at one.
+Legacy `running` Deployments receive an Attempt only when the new controller recovers
+and interrupts that in-flight execution.
 
 Application rollback across this migration is supported: stop the newer task and
 run the older binary against the same additive schema. The older binary ignores the
-new columns and table, while its subsequent writes continue to be mirrored into
-Attempts. Schema downgrade is intentionally unsupported. Do not run Goose down or
-remove the compatibility triggers, additive columns, or Attempt history. Restore a
-pre-upgrade backup only when a true database rollback is unavoidable, accepting that
-all data committed after that backup will be absent.
+new table and continues reading and writing `deployments`; records it creates remain
+readable by the new binary without synthetic historical Attempts. Schema downgrade is
+intentionally unsupported. Do not run Goose down or remove Attempt history. Restore
+a pre-upgrade backup only when a true database rollback is unavoidable, accepting
+that all data committed after that backup will be absent.
 
 ## Consistent backup and incident evidence
 

@@ -215,9 +215,11 @@ components:
           type: boolean
         latest_attempt_id:
           type: string
+          description: Empty when a legacy Deployment has no persisted Attempts.
         attempt_count:
           type: integer
-          minimum: 1
+          minimum: 0
+          description: Number of persisted Attempts; legacy Deployments may have zero.
     DeploymentAttempt:
       type: object
       required:

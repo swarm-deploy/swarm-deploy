@@ -118,23 +118,21 @@ func (s *Service) startExisting(ctx context.Context, latest Deployment) (*Attemp
 }
 
 func (s *Service) supersedePrevious(ctx context.Context, latest Deployment) error {
-	if latest.Status == Running {
-		if len(latest.Attempts) == 0 {
-			return ErrInconsistentDeployment
-		}
-		if err := s.interruptOne(ctx, latest.Attempts[0], s.now().UTC()); err != nil {
-			return err
-		}
-		var err error
-		latest, _, err = s.store.latest(ctx, latest.Stack)
-		if err != nil {
-			return err
-		}
+	if latest.Status != Running {
+		return nil
 	}
-	if latest.Status == Failed || latest.Status == Interrupted {
-		return s.store.supersede(ctx, latest, s.now().UTC())
+	attempt, err := s.runningAttempt(ctx, latest)
+	if err != nil {
+		return err
 	}
-	return nil
+	return s.interruptOne(ctx, attempt, s.now().UTC())
+}
+
+func (s *Service) runningAttempt(ctx context.Context, deployment Deployment) (Attempt, error) {
+	if len(deployment.Attempts) > 0 {
+		return deployment.Attempts[0], nil
+	}
+	return s.materializeLegacyRunning(ctx, deployment)
 }
 
 func (s *Service) createDeployment(
@@ -358,6 +356,17 @@ func (s *Service) interrupt(ctx context.Context, stack string) error {
 		if err != nil {
 			return err
 		}
+		legacy, err := s.store.legacyRunning(ctx, stack)
+		if err != nil {
+			return err
+		}
+		for _, deployment := range legacy {
+			attempt, materializeErr := s.materializeLegacyRunning(ctx, deployment)
+			if materializeErr != nil {
+				return materializeErr
+			}
+			running = append(running, attempt)
+		}
 		now := s.now().UTC()
 		for _, attempt := range running {
 			if err = s.interruptOne(ctx, attempt, now); err != nil {
@@ -366,6 +375,14 @@ func (s *Service) interrupt(ctx context.Context, stack string) error {
 		}
 		return nil
 	})
+}
+
+func (s *Service) materializeLegacyRunning(ctx context.Context, deployment Deployment) (Attempt, error) {
+	attempt := newAttempt(deployment.ID, 1, deployment.StartedAt)
+	if err := s.store.insertAttemptRow(ctx, attempt); err != nil {
+		return Attempt{}, err
+	}
+	return attempt, nil
 }
 
 func (s *Service) running(ctx context.Context, stack string) ([]Attempt, error) {

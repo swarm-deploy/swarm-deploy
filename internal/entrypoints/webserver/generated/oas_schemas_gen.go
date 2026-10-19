@@ -955,8 +955,10 @@ type Deployment struct {
 	Summary            DeploymentChangeSummary     `json:"summary"`
 	Resources          DeploymentResourceSummary   `json:"resources"`
 	DiffAvailable      bool                        `json:"diff_available"`
-	LatestAttemptID    string                      `json:"latest_attempt_id"`
-	AttemptCount       int                         `json:"attempt_count"`
+	// Empty when a legacy Deployment has no persisted Attempts.
+	LatestAttemptID string `json:"latest_attempt_id"`
+	// Number of persisted Attempts; legacy Deployments may have zero.
+	AttemptCount int `json:"attempt_count"`
 	// Services from this deployment's recorded desired configuration.
 	Services []DeploymentService `json:"services"`
 	// Bounded secret-masked failure detail, when recorded.
@@ -2129,8 +2131,10 @@ type DeploymentSummary struct {
 	Summary            DeploymentChangeSummary     `json:"summary"`
 	Resources          DeploymentResourceSummary   `json:"resources"`
 	DiffAvailable      bool                        `json:"diff_available"`
-	LatestAttemptID    string                      `json:"latest_attempt_id"`
-	AttemptCount       int                         `json:"attempt_count"`
+	// Empty when a legacy Deployment has no persisted Attempts.
+	LatestAttemptID string `json:"latest_attempt_id"`
+	// Number of persisted Attempts; legacy Deployments may have zero.
+	AttemptCount int `json:"attempt_count"`
 }
 
 // GetID returns the value of ID.

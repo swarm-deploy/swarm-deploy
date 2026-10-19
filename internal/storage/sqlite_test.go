@@ -40,7 +40,7 @@ func openAtMigration1(t *testing.T) (*Database, *goose.Provider) {
 	return db, provider
 }
 
-func TestDeploymentAttemptMigrationPreservesExistingHistory(t *testing.T) {
+func TestDeploymentAttemptMigrationPreservesPopulatedV1Database(t *testing.T) {
 	db, provider := openAtMigration1(t)
 	finished := time.Date(2026, 10, 18, 10, 0, 0, 0, time.UTC)
 	_, err := db.Exec(t.Context(), `INSERT INTO deployments
@@ -55,89 +55,48 @@ func TestDeploymentAttemptMigrationPreservesExistingHistory(t *testing.T) {
 	_, err = db.Exec(t.Context(),
 		"INSERT INTO desired_snapshots(stack,deployment_id) VALUES (?,?)", "app", "legacy-deployment")
 	require.NoError(t, err)
+	_, err = db.Exec(t.Context(), `INSERT INTO outbox_events
+		(id,event_type,schema_version,occurred_at,payload) VALUES (?,?,?,?,?)`,
+		"legacy-event", "DeployFailed", 1, finished, `{}`)
+	require.NoError(t, err)
+	_, err = db.Exec(t.Context(), `INSERT INTO alerts
+		(id,fingerprint,kind,resource_type,resource_id,deployment_id,status,opened_at,updated_at,payload)
+		VALUES (?,?,?,?,?,?,?,?,?,?)`,
+		"legacy-alert", "legacy-fingerprint", "deployment", "stack", "app", "legacy-deployment",
+		"open", finished, finished, `{}`)
+	require.NoError(t, err)
 	_, err = provider.Up(t.Context())
 	require.NoError(t, err)
 
-	var deploymentRow struct {
-		LatestAttemptID sql.NullString `db:"latest_attempt_id"`
-		AttemptCount    int            `db:"attempt_count"`
-		Status          string         `db:"status"`
-	}
-	require.NoError(t, db.Get(t.Context(), &deploymentRow,
-		"SELECT latest_attempt_id,attempt_count,status FROM deployments WHERE id=?", "legacy-deployment"))
-	assert.False(t, deploymentRow.LatestAttemptID.Valid)
-	assert.Zero(t, deploymentRow.AttemptCount)
-	assert.Equal(t, "failed", deploymentRow.Status)
-	var attemptRow struct {
-		DeploymentID string `db:"deployment_id"`
-		Number       int    `db:"number"`
-		Diagnostic   string `db:"diagnostic"`
-	}
-	require.NoError(t, db.Get(t.Context(), &attemptRow, `SELECT deployment_id,number,
-		json_extract(details_payload,'$.error_diagnostic') AS diagnostic
-		FROM deployment_attempts WHERE id=?`, "legacy-deployment-attempt-1"))
-	assert.Equal(t, "legacy-deployment", attemptRow.DeploymentID)
-	assert.Equal(t, 1, attemptRow.Number)
-	assert.Equal(t, "old failure", attemptRow.Diagnostic)
+	var columnNames []string
+	require.NoError(t, db.Select(t.Context(), &columnNames,
+		"SELECT name FROM pragma_table_info('deployments') ORDER BY cid"))
+	assert.Equal(t, []string{
+		"id", "stack", "commit", "status", "error_code", "phase", "started_at", "finished_at",
+		"desired_payload", "details_payload", "changes_payload",
+	}, columnNames)
+	var attempts int
+	require.NoError(t, db.Get(t.Context(), &attempts, "SELECT count(*) FROM deployment_attempts"))
+	assert.Zero(t, attempts, "historical executions are intentionally not backfilled")
+	var status, diagnostic string
+	require.NoError(t, db.Get(t.Context(), &status,
+		"SELECT status FROM deployments WHERE id='legacy-deployment'"))
+	require.NoError(t, db.Get(t.Context(), &diagnostic,
+		`SELECT json_extract(details_payload,'$.error_diagnostic') FROM deployments WHERE id='legacy-deployment'`))
+	assert.Equal(t, "failed", status)
+	assert.Equal(t, "old failure", diagnostic)
 	var baseline string
 	require.NoError(t, db.Get(t.Context(), &baseline,
 		"SELECT deployment_id FROM desired_snapshots WHERE stack='app'"))
 	assert.Equal(t, "legacy-deployment", baseline)
+	var preserved int
+	require.NoError(t, db.Get(t.Context(), &preserved,
+		`SELECT (SELECT count(*) FROM outbox_events WHERE id='legacy-event') +
+		        (SELECT count(*) FROM alerts WHERE id='legacy-alert' AND deployment_id='legacy-deployment')`))
+	assert.Equal(t, 2, preserved)
 }
 
-func TestDeploymentAttemptMigrationSupersedesOlderUnfinishedHistory(t *testing.T) {
-	db, provider := openAtMigration1(t)
-
-	started := time.Date(2026, 10, 18, 10, 0, 0, 0, time.UTC)
-	var err error
-	for index, id := range []string{"legacy-success", "legacy-failure-1", "legacy-failure-2"} {
-		status, code := "failed", "apply_failed"
-		if index == 0 {
-			status, code = "succeeded", ""
-		}
-		_, err = db.Exec(t.Context(), `INSERT INTO deployments
-			(id,stack,"commit",status,error_code,phase,started_at,finished_at,
-			 desired_payload,details_payload,changes_payload)
-			VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-			id, "app", id, status, code, "completed", started.Add(time.Duration(index)*time.Minute),
-			started.Add(time.Duration(index)*time.Minute+time.Second), `{"digest":"digest"}`,
-			`{"apply_status":"failed","verification_status":"skipped","cleanup_status":"skipped","actual_state_status":"unknown","comparison_basis":"none","comparison_status":"unknown","summary":{},"resources":{},"diff_available":true}`,
-			`[]`)
-		require.NoError(t, err)
-	}
-	_, err = db.Exec(t.Context(),
-		"INSERT INTO desired_snapshots(stack,deployment_id) VALUES (?,?)", "app", "legacy-success")
-	require.NoError(t, err)
-	_, err = provider.Up(t.Context())
-	require.NoError(t, err)
-
-	var rows []struct {
-		Status       string `db:"status"`
-		IsSuperseded bool   `db:"is_superseded"`
-	}
-	require.NoError(t, db.Select(t.Context(), &rows,
-		`SELECT status, superseded_at IS NOT NULL AS is_superseded
-		 FROM deployments WHERE stack='app' ORDER BY started_at,id`))
-	assert.Equal(t, []struct {
-		Status       string `db:"status"`
-		IsSuperseded bool   `db:"is_superseded"`
-	}{
-		{Status: "succeeded"},
-		{Status: "failed", IsSuperseded: true},
-		{Status: "failed"},
-	}, rows)
-	var active int
-	require.NoError(t, db.Get(t.Context(), &active,
-		`SELECT count(*) FROM deployments
-		 WHERE stack='app' AND status IN ('running','failed','interrupted') AND superseded_at IS NULL`))
-	assert.Equal(t, 1, active)
-	var attempts int
-	require.NoError(t, db.Get(t.Context(), &attempts,
-		"SELECT count(*) FROM deployment_attempts WHERE deployment_id LIKE 'legacy-%'"))
-	assert.Equal(t, 3, attempts, "every legacy execution must remain independently inspectable")
-}
-
-func TestDeploymentAttemptMigrationMirrorsOldBinaryWrites(t *testing.T) {
+func TestDeploymentAttemptMigrationAllowsOldBinaryWrites(t *testing.T) {
 	db, provider := openAtMigration1(t)
 	_, err := provider.Up(t.Context())
 	require.NoError(t, err)
@@ -152,15 +111,6 @@ func TestDeploymentAttemptMigrationMirrorsOldBinaryWrites(t *testing.T) {
 		`{"digest":"digest-1"}`, details, `[]`)
 	require.NoError(t, err)
 
-	var projection struct {
-		LatestAttemptID sql.NullString `db:"latest_attempt_id"`
-		AttemptCount    int            `db:"attempt_count"`
-	}
-	require.NoError(t, db.Get(t.Context(), &projection,
-		"SELECT latest_attempt_id,attempt_count FROM deployments WHERE id='old-writer-1'"))
-	assert.False(t, projection.LatestAttemptID.Valid)
-	assert.Zero(t, projection.AttemptCount)
-
 	finished := started.Add(time.Minute)
 	failedDetails := `{"error_diagnostic":"old binary failure","apply_status":"failed","verification_status":"skipped","cleanup_status":"skipped","actual_state_status":"unknown","comparison_basis":"none","comparison_status":"unknown","summary":{},"resources":{},"diff_available":true}`
 	_, err = db.Exec(t.Context(), `UPDATE deployments
@@ -168,15 +118,15 @@ func TestDeploymentAttemptMigrationMirrorsOldBinaryWrites(t *testing.T) {
 		WHERE id='old-writer-1'`, finished, failedDetails)
 	require.NoError(t, err)
 
-	var attempt struct {
+	var deployment struct {
 		Status     string `db:"status"`
 		Diagnostic string `db:"diagnostic"`
 	}
-	require.NoError(t, db.Get(t.Context(), &attempt, `SELECT status,
+	require.NoError(t, db.Get(t.Context(), &deployment, `SELECT status,
 		json_extract(details_payload,'$.error_diagnostic') AS diagnostic
-		FROM deployment_attempts WHERE id='old-writer-1-attempt-1'`))
-	assert.Equal(t, "failed", attempt.Status)
-	assert.Equal(t, "old binary failure", attempt.Diagnostic)
+		FROM deployments WHERE id='old-writer-1'`))
+	assert.Equal(t, "failed", deployment.Status)
+	assert.Equal(t, "old binary failure", deployment.Diagnostic)
 
 	_, err = db.Exec(t.Context(), `INSERT INTO deployments
 		(id,stack,"commit",status,error_code,phase,started_at,finished_at,
@@ -185,14 +135,10 @@ func TestDeploymentAttemptMigrationMirrorsOldBinaryWrites(t *testing.T) {
 		"old-writer-2", "app", "second", "running", "", "apply", finished.Add(time.Minute),
 		`{"digest":"digest-2"}`, details, `[]`)
 	require.NoError(t, err)
-	var supersededAt sql.NullTime
-	require.NoError(t, db.Get(t.Context(), &supersededAt,
-		"SELECT superseded_at FROM deployments WHERE id='old-writer-1'"))
-	assert.True(t, supersededAt.Valid)
 	var attempts int
 	require.NoError(t, db.Get(t.Context(), &attempts,
 		"SELECT count(*) FROM deployment_attempts WHERE deployment_id LIKE 'old-writer-%'"))
-	assert.Equal(t, 2, attempts)
+	assert.Zero(t, attempts)
 
 	_, err = db.Exec(t.Context(), "UPDATE deployments SET status='superseded' WHERE id='old-writer-1'")
 	require.Error(t, err, "the original deployment status constraint must remain unchanged")
@@ -316,15 +262,15 @@ func TestFreshDatabaseEnforcesForeignKeysAndChecks(t *testing.T) {
 
 	_, err = db.Exec(t.Context(), `INSERT INTO deployments
 		(id,stack,"commit",status,error_code,phase,started_at,finished_at,
-		 desired_payload,details_payload,changes_payload,latest_attempt_id,attempt_count)
-		VALUES (?,?,?,?,?,?,?,NULL,'{}','{}','[]',?,1)`,
-		"invalid-status", "app", "commit", "unknown", "", "apply", now, "attempt-1")
+		 desired_payload,details_payload,changes_payload)
+		VALUES (?,?,?,?,?,?,?,NULL,'{}','{}','[]')`,
+		"invalid-status", "app", "commit", "unknown", "", "apply", now)
 	require.Error(t, err)
 	_, err = db.Exec(t.Context(), `INSERT INTO deployments
 		(id,stack,"commit",status,error_code,phase,started_at,finished_at,
-		 desired_payload,details_payload,changes_payload,latest_attempt_id,attempt_count)
-		VALUES (?,?,?,?,?,?,?,NULL,'{}','{}','[]',?,1)`,
-		"invalid-terminal-time", "app", "commit", "succeeded", "", "completed", now, "attempt-2")
+		 desired_payload,details_payload,changes_payload)
+		VALUES (?,?,?,?,?,?,?,NULL,'{}','{}','[]')`,
+		"invalid-terminal-time", "app", "commit", "succeeded", "", "completed", now)
 	require.Error(t, err)
 	_, err = db.Exec(t.Context(),
 		"INSERT INTO desired_snapshots(stack,deployment_id) VALUES (?,?)", "app", "missing")

@@ -74,8 +74,20 @@ type FilterService struct {
 
 var summaryColumns = []any{
 	"id", "stack", "commit", "status", "error_code", "phase", "started_at", "finished_at", "details_payload",
-	"latest_attempt_id", "attempt_count", "superseded_at",
+	goqu.L(`(SELECT attempt.id FROM deployment_attempts AS attempt
+		WHERE attempt.deployment_id = deployments.id ORDER BY attempt.number DESC LIMIT 1)`).As("latest_attempt_id"),
+	goqu.L(`(SELECT count(*) FROM deployment_attempts AS attempt
+		WHERE attempt.deployment_id = deployments.id)`).As("attempt_count"),
+	goqu.L(`CASE WHEN deployments.status IN ('failed','interrupted') AND EXISTS (
+		SELECT 1 FROM deployments AS newer
+		WHERE newer.stack = deployments.stack AND newer.rowid > deployments.rowid
+	) THEN 1 ELSE 0 END`).As("is_superseded"),
 }
+
+const supersededPredicate = `deployments.status IN ('failed','interrupted') AND EXISTS (
+	SELECT 1 FROM deployments AS newer
+	WHERE newer.stack = deployments.stack AND newer.rowid > deployments.rowid
+)`
 
 // List returns a lightweight page without loading desired snapshots or change arrays.
 func (s *Store) List(ctx context.Context, filter ListFilter) (Page, error) {
@@ -90,11 +102,11 @@ func (s *Store) List(ctx context.Context, filter ListFilter) (Page, error) {
 	}
 	if filter.Status != "" {
 		if filter.Status == Superseded {
-			dataset = dataset.Where(goqu.C("superseded_at").IsNotNull())
+			dataset = dataset.Where(goqu.L(supersededPredicate))
 		} else {
 			dataset = dataset.Where(
 				goqu.Ex{"status": filter.Status},
-				goqu.C("superseded_at").IsNull(),
+				goqu.L("NOT ("+supersededPredicate+")"),
 			)
 		}
 	}
@@ -156,7 +168,12 @@ func (s *Store) ListServiceDeployments(
 		limit = 5
 	}
 	const query = `
-		SELECT d.id, d."commit", d.status, d.superseded_at, d.started_at,
+		SELECT d.id, d."commit", d.status,
+			CASE WHEN d.status IN ('failed','interrupted') AND EXISTS (
+				SELECT 1 FROM deployments AS newer
+				WHERE newer.stack = d.stack AND newer.rowid > d.rowid
+			) THEN 1 ELSE 0 END AS is_superseded,
+			d.started_at,
 			json_extract(svc.value, '$.image') AS image
 		FROM deployments AS d,
 			json_each(d.desired_payload, '$.definition.compose.services') AS svc
@@ -164,12 +181,12 @@ func (s *Store) ListServiceDeployments(
 		ORDER BY d.started_at DESC, d.id ASC
 		LIMIT ?`
 	var rows []struct {
-		ID           string       `db:"id"`
-		Commit       string       `db:"commit"`
-		Status       Status       `db:"status"`
-		SupersededAt sql.NullTime `db:"superseded_at"`
-		StartedAt    time.Time    `db:"started_at"`
-		Image        string       `db:"image"`
+		ID           string    `db:"id"`
+		Commit       string    `db:"commit"`
+		Status       Status    `db:"status"`
+		IsSuperseded bool      `db:"is_superseded"`
+		StartedAt    time.Time `db:"started_at"`
+		Image        string    `db:"image"`
 	}
 	if err := s.db.Select(ctx, &rows, query, stack, service, limit); err != nil {
 		return nil, err
@@ -177,7 +194,7 @@ func (s *Store) ListServiceDeployments(
 	items := make([]ServiceDeployment, 0, len(rows))
 	for _, row := range rows {
 		items = append(items, ServiceDeployment{
-			ID: row.ID, Commit: row.Commit, Status: projectedStatus(row.Status, row.SupersededAt),
+			ID: row.ID, Commit: row.Commit, Status: projectedStatus(row.Status, row.IsSuperseded),
 			StartedAt: row.StartedAt.UTC(), Image: row.Image,
 		})
 	}
@@ -196,7 +213,7 @@ type summaryRow struct {
 	DetailsPayload  []byte         `db:"details_payload"`
 	LatestAttemptID sql.NullString `db:"latest_attempt_id"`
 	AttemptCount    int            `db:"attempt_count"`
-	SupersededAt    sql.NullTime   `db:"superseded_at"`
+	IsSuperseded    bool           `db:"is_superseded"`
 }
 
 type deploymentDetails struct {
@@ -227,7 +244,7 @@ type deploymentRow struct {
 	ChangesPayload  []byte         `db:"changes_payload"`
 	LatestAttemptID sql.NullString `db:"latest_attempt_id"`
 	AttemptCount    int            `db:"attempt_count"`
-	SupersededAt    sql.NullTime   `db:"superseded_at"`
+	IsSuperseded    bool           `db:"is_superseded"`
 }
 
 type attemptRow struct {
@@ -269,20 +286,8 @@ func marshalDeploymentPayloads(d Deployment) (string, string, error) {
 	return string(details), string(changesPayload), nil
 }
 
-func legacyAttemptID(deploymentID string) string { return deploymentID + "-attempt-1" }
-
-func attemptProjection(deploymentID string, latest sql.NullString, count int) (string, int) {
-	if latest.Valid && latest.String != "" {
-		return latest.String, count
-	}
-	if count == 0 {
-		return legacyAttemptID(deploymentID), 1
-	}
-	return "", count
-}
-
-func projectedStatus(status Status, supersededAt sql.NullTime) Status {
-	if supersededAt.Valid {
+func projectedStatus(status Status, isSuperseded bool) Status {
+	if isSuperseded {
 		return Superseded
 	}
 	return status
@@ -297,9 +302,8 @@ func (row deploymentRow) deployment() (Deployment, error) {
 	if err := json.Unmarshal(row.ChangesPayload, &changes); err != nil {
 		return Deployment{}, err
 	}
-	latestAttemptID, attemptCount := attemptProjection(row.ID, row.LatestAttemptID, row.AttemptCount)
 	result := Deployment{
-		ID: row.ID, Stack: row.Stack, Commit: row.Commit, Status: projectedStatus(row.Status, row.SupersededAt),
+		ID: row.ID, Stack: row.Stack, Commit: row.Commit, Status: projectedStatus(row.Status, row.IsSuperseded),
 		StartedAt: row.StartedAt.UTC(), ErrorCode: row.ErrorCode,
 		ErrorDiagnostic: details.ErrorDiagnostic, Phase: row.Phase,
 		ApplyStatus: details.ApplyStatus, VerificationStatus: details.VerificationStatus,
@@ -307,8 +311,8 @@ func (row deploymentRow) deployment() (Deployment, error) {
 		ObservedAt: details.ObservedAt, ComparisonBasis: details.ComparisonBasis,
 		ComparisonStatus: details.ComparisonStatus, BasisDeploymentID: details.BasisDeploymentID,
 		Summary: details.Summary, Resources: details.Resources, Changes: changes,
-		DiffAvailable: details.DiffAvailable, LatestAttemptID: latestAttemptID,
-		AttemptCount: attemptCount,
+		DiffAvailable: details.DiffAvailable, LatestAttemptID: row.LatestAttemptID.String,
+		AttemptCount: row.AttemptCount,
 	}
 	if row.FinishedAt.Valid {
 		finished := row.FinishedAt.Time.UTC()
@@ -322,12 +326,11 @@ func (row summaryRow) toSummary() (DeploymentSummary, error) {
 	if err := json.Unmarshal(row.DetailsPayload, &details); err != nil {
 		return DeploymentSummary{}, err
 	}
-	latestAttemptID, attemptCount := attemptProjection(row.ID, row.LatestAttemptID, row.AttemptCount)
 	item := DeploymentSummary{
 		ID:                 row.ID,
 		Stack:              row.Stack,
 		Commit:             row.Commit,
-		Status:             projectedStatus(row.Status, row.SupersededAt),
+		Status:             projectedStatus(row.Status, row.IsSuperseded),
 		StartedAt:          row.StartedAt.UTC(),
 		ErrorCode:          row.ErrorCode,
 		Phase:              row.Phase,
@@ -342,8 +345,8 @@ func (row summaryRow) toSummary() (DeploymentSummary, error) {
 		Summary:            details.Summary,
 		Resources:          details.Resources,
 		DiffAvailable:      details.DiffAvailable,
-		LatestAttemptID:    latestAttemptID,
-		AttemptCount:       attemptCount,
+		LatestAttemptID:    row.LatestAttemptID.String,
+		AttemptCount:       row.AttemptCount,
 	}
 	if row.FinishedAt.Valid {
 		value := row.FinishedAt.Time.UTC()
@@ -433,11 +436,10 @@ func decodeCursor(cursor string) (int64, string, error) {
 // Get loads one desired-state deployment with all attempts in newest-first order.
 func (s *Store) Get(ctx context.Context, id string) (Deployment, error) {
 	var row deploymentRow
+	columns := append([]any{}, summaryColumns...)
+	columns = append(columns, "changes_payload")
 	query, args, err := dialect.From("deployments").Prepared(true).
-		Select(
-			"id", "stack", "commit", "status", "error_code", "phase", "started_at", "finished_at",
-			"details_payload", "changes_payload", "latest_attempt_id", "attempt_count", "superseded_at",
-		).
+		Select(columns...).
 		Where(goqu.Ex{"id": id}).ToSQL()
 	if err != nil {
 		return Deployment{}, err
@@ -517,6 +519,35 @@ func (s *Store) latest(ctx context.Context, stack string) (Deployment, Prepared,
 	return deployment, prepared, err
 }
 
+func (s *Store) legacyRunning(ctx context.Context, stack string) ([]Deployment, error) {
+	dataset := dialect.From("deployments").Prepared(true).Select("id").
+		Where(
+			goqu.Ex{"status": Running},
+			goqu.L(`NOT EXISTS (SELECT 1 FROM deployment_attempts AS attempt
+				WHERE attempt.deployment_id = deployments.id)`),
+		)
+	if stack != "" {
+		dataset = dataset.Where(goqu.Ex{"stack": stack})
+	}
+	query, args, err := dataset.ToSQL()
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	if err = s.db.Select(ctx, &ids, query, args...); err != nil {
+		return nil, err
+	}
+	result := make([]Deployment, 0, len(ids))
+	for _, id := range ids {
+		deployment, getErr := s.Get(ctx, id)
+		if getErr != nil {
+			return nil, getErr
+		}
+		result = append(result, deployment)
+	}
+	return result, nil
+}
+
 func (s *Store) prepared(ctx context.Context, id string) (Prepared, error) {
 	query, args, err := dialect.From("deployments").Prepared(true).
 		Select("desired_payload").Where(goqu.Ex{"id": id}).ToSQL()
@@ -550,7 +581,6 @@ func (s *Store) insert(ctx context.Context, d Deployment, desired Prepared, atte
 		"id": d.ID, "stack": d.Stack, "commit": d.Commit, "status": d.Status,
 		"error_code": d.ErrorCode, "phase": d.Phase, "started_at": d.StartedAt.UTC(),
 		"desired_payload": string(safe), "details_payload": details, "changes_payload": changes,
-		"latest_attempt_id": attempt.ID, "attempt_count": 1,
 	}).ToSQL()
 	if err != nil {
 		return err
@@ -572,21 +602,11 @@ func (s *Store) insertAttempt(ctx context.Context, d Deployment, attempt Attempt
 	if err != nil {
 		return err
 	}
-	projectionMatches := goqu.Or(goqu.Ex{"latest_attempt_id": d.LatestAttemptID})
-	if d.LatestAttemptID == legacyAttemptID(d.ID) {
-		projectionMatches = goqu.Or(
-			goqu.Ex{"latest_attempt_id": d.LatestAttemptID},
-			goqu.And(goqu.C("latest_attempt_id").IsNull(), goqu.Ex{"attempt_count": 0}),
-		)
-	}
 	query, args, err := dialect.Update("deployments").Prepared(true).Set(goqu.Record{
 		"status": Running, "error_code": "", "phase": PhaseApply,
 		"finished_at": nil, "details_payload": details,
-		"latest_attempt_id": attempt.ID, "attempt_count": attempt.Number,
 	}).Where(
 		goqu.Ex{"id": d.ID, "status": []Status{Failed, Interrupted}},
-		goqu.C("superseded_at").IsNull(),
-		projectionMatches,
 	).ToSQL()
 	if err != nil {
 		return err
@@ -654,21 +674,13 @@ func (s *Store) finish(ctx context.Context, d Deployment, attempt Attempt) error
 	if err != nil {
 		return err
 	}
-	projectionMatches := goqu.Or(goqu.Ex{"latest_attempt_id": attempt.ID})
-	if attempt.ID == legacyAttemptID(d.ID) {
-		projectionMatches = goqu.Or(
-			goqu.Ex{"latest_attempt_id": attempt.ID},
-			goqu.And(goqu.C("latest_attempt_id").IsNull(), goqu.Ex{"attempt_count": 0}),
-		)
-	}
 	query, args, err = dialect.Update("deployments").Prepared(true).Set(goqu.Record{
 		"status": attempt.Status, "error_code": attempt.ErrorCode, "phase": attempt.Phase,
 		"finished_at": attempt.FinishedAt.UTC(), "details_payload": details,
-		"latest_attempt_id": attempt.ID, "attempt_count": attempt.Number,
 	}).Where(
 		goqu.Ex{"id": d.ID, "status": Running},
-		goqu.C("superseded_at").IsNull(),
-		projectionMatches,
+		goqu.L(`NOT EXISTS (SELECT 1 FROM deployment_attempts AS newer
+			WHERE newer.deployment_id = deployments.id AND newer.number > ?)`, attempt.Number),
 	).ToSQL()
 	if err != nil {
 		return err
@@ -689,20 +701,6 @@ func requireOneRunning(result sql.Result) error {
 		return ErrNotRunning
 	}
 	return nil
-}
-
-func (s *Store) supersede(ctx context.Context, deployment Deployment, now time.Time) error {
-	query, args, err := dialect.Update("deployments").Prepared(true).Set(goqu.Record{
-		"superseded_at": now.UTC(),
-	}).Where(
-		goqu.Ex{"id": deployment.ID, "status": []Status{Failed, Interrupted}},
-		goqu.C("superseded_at").IsNull(),
-	).ToSQL()
-	if err != nil {
-		return err
-	}
-	_, err = s.db.Exec(ctx, query, args...)
-	return err
 }
 
 func (s *Store) saveBaseline(ctx context.Context, id string) error {

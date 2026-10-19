@@ -676,7 +676,7 @@ func (s *Deployment) Validate() error {
 	if err := func() error {
 		if err := (validate.Int{
 			MinSet:        true,
-			Min:           1,
+			Min:           0,
 			MaxSet:        false,
 			Max:           0,
 			MinExclusive:  false,
@@ -1181,7 +1181,7 @@ func (s *DeploymentSummary) Validate() error {
 	if err := func() error {
 		if err := (validate.Int{
 			MinSet:        true,
-			Min:           1,
+			Min:           0,
 			MaxSet:        false,
 			Max:           0,
 			MinExclusive:  false,
