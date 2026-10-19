@@ -334,7 +334,7 @@ func (n *TelegramNotifier) sendRequest(
 		}
 		return Receipt{}, &telegramAPIError{
 			status: resp.StatusCode, code: answer.ErrorCode,
-			kind: telegramHTTPFailureKind(resp.StatusCode),
+			kind:       telegramHTTPFailureKind(resp.StatusCode),
 			retryAfter: answer.Parameters.RetryAfter,
 		}
 	}
