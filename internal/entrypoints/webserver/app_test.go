@@ -14,8 +14,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources"
 	resourcesecrets "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets"
 	secretstore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/logparser"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
-	"github.com/swarm-deploy/swarm-deploy/internal/tasklogs"
 	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 	"go.uber.org/mock/gomock"
 )
@@ -36,7 +36,7 @@ func TestUIRoutes(t *testing.T) {
 		nil,
 		nil,
 		nil,
-		tasklogs.NewService(serviceManager),
+		logparser.NewService(serviceManager),
 		config.AuthenticationSpec{},
 	)
 	require.NoError(t, err, "new application")

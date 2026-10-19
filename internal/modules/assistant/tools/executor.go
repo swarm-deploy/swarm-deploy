@@ -19,9 +19,9 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/logparser"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
-	"github.com/swarm-deploy/swarm-deploy/internal/tasklogs"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -47,7 +47,7 @@ func NewExecutor(
 	alertModule *alertmanagement.Module,
 	eventModule *event.Module,
 	swarmService *swarm.Swarm,
-	taskLogs *tasklogs.Service,
+	taskLogs *logparser.Service,
 	recommendations RecommendationsReader,
 	imageVersionResolver ImageVersionResolver,
 	hostingProviders *githosting.ProviderManager,

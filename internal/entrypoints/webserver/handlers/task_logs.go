@@ -10,23 +10,23 @@ import (
 	"time"
 
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/logparser"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
-	"github.com/swarm-deploy/swarm-deploy/internal/tasklogs"
 )
 
 const defaultTaskLogsTail = 200
 
 type taskLogSSEEvent struct {
-	Timestamp  string         `json:"timestamp"`
-	Stream     string         `json:"stream"`
-	Level      tasklogs.Level `json:"level,omitempty"`
-	Message    string         `json:"message"`
-	Attributes map[string]any `json:"attributes,omitempty"`
-	RawMessage string         `json:"raw_message,omitempty"`
+	Timestamp  string          `json:"timestamp"`
+	Stream     string          `json:"stream"`
+	Level      logparser.Level `json:"level,omitempty"`
+	Message    string          `json:"message"`
+	Attributes map[string]any  `json:"attributes,omitempty"`
+	RawMessage string          `json:"raw_message,omitempty"`
 }
 
 type taskLogCountsSSEEvent struct {
-	Counts map[tasklogs.Level]int `json:"counts"`
+	Counts map[logparser.Level]int `json:"counts"`
 }
 
 type sseFlusher interface {
@@ -66,23 +66,23 @@ func (h *handler) GetTaskLogs(
 	return streamTaskLogEvents(ctx, w, flusher, entries, errs, query.Parse)
 }
 
-func parseTaskLogsQuery(params generated.GetTaskLogsParams) (tasklogs.Query, error) {
+func parseTaskLogsQuery(params generated.GetTaskLogsParams) (logparser.Query, error) {
 	parse := params.Parse.Or(false)
-	levels, err := tasklogs.ParseLevels(params.Levels)
+	levels, err := logparser.ParseLevels(params.Levels)
 	if err != nil {
-		return tasklogs.Query{}, err
+		return logparser.Query{}, err
 	}
 	if !parse && len(levels) > 0 {
-		return tasklogs.Query{}, errors.New("level filters require parse=true")
+		return logparser.Query{}, errors.New("level filters require parse=true")
 	}
 
 	since := optionalTaskLogsTime(params.Since)
 	until := optionalTaskLogsTime(params.Until)
 	if since != nil && until != nil && since.After(*until) {
-		return tasklogs.Query{}, errors.New("since must be before or equal to until")
+		return logparser.Query{}, errors.New("since must be before or equal to until")
 	}
 
-	return tasklogs.Query{
+	return logparser.Query{
 		Follow: params.Follow.Or(true),
 		Limit:  int(params.Tail.Or(defaultTaskLogsTail)),
 		Since:  since,
@@ -96,7 +96,7 @@ func streamTaskLogEvents(
 	ctx context.Context,
 	w io.Writer,
 	flusher sseFlusher,
-	entries <-chan tasklogs.StreamItem,
+	entries <-chan logparser.StreamItem,
 	errs <-chan error,
 	parse bool,
 ) error {
@@ -124,7 +124,7 @@ func finishTaskLogStream(w io.Writer, flusher sseFlusher, errs <-chan error) err
 	return nil
 }
 
-func writeTaskLogStreamItem(w io.Writer, flusher sseFlusher, item tasklogs.StreamItem, parsed bool) error {
+func writeTaskLogStreamItem(w io.Writer, flusher sseFlusher, item logparser.StreamItem, parsed bool) error {
 	if parsed {
 		if err := writeTaskLogCountsEvent(w, flusher, item.Counts); err != nil {
 			return err
@@ -137,7 +137,7 @@ func writeTaskLogStreamItem(w io.Writer, flusher sseFlusher, item tasklogs.Strea
 	return writeTaskLogEvent(w, flusher, item.Entry, parsed)
 }
 
-func writeTaskLogEvent(w io.Writer, flusher sseFlusher, entry tasklogs.Entry, parsed bool) error {
+func writeTaskLogEvent(w io.Writer, flusher sseFlusher, entry logparser.Entry, parsed bool) error {
 	timestamp := ""
 	if !entry.Timestamp.IsZero() {
 		timestamp = entry.Timestamp.UTC().Format(time.RFC3339Nano)
@@ -169,7 +169,7 @@ func writeTaskLogEvent(w io.Writer, flusher sseFlusher, entry tasklogs.Entry, pa
 	return nil
 }
 
-func writeTaskLogCountsEvent(w io.Writer, flusher sseFlusher, counts map[tasklogs.Level]int) error {
+func writeTaskLogCountsEvent(w io.Writer, flusher sseFlusher, counts map[logparser.Level]int) error {
 	payload, err := json.Marshal(taskLogCountsSSEEvent{Counts: counts})
 	if err != nil {
 		return fmt.Errorf("marshal log level counts: %w", err)

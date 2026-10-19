@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/logparser"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
-	"github.com/swarm-deploy/swarm-deploy/internal/tasklogs"
 	"go.uber.org/mock/gomock"
 )
 
@@ -20,7 +20,7 @@ func TestGetTaskLogsExecuteReturnsBoundedStructuredLogs(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	source := swarm.NewMockServiceManager(ctrl)
-	tool := NewGetTaskLogs(tasklogs.NewService(source))
+	tool := NewGetTaskLogs(logparser.NewService(source))
 	since := time.Date(2026, time.October, 19, 18, 0, 0, 0, time.UTC)
 	until := since.Add(time.Hour)
 
@@ -48,13 +48,13 @@ func TestGetTaskLogsExecuteReturnsBoundedStructuredLogs(t *testing.T) {
 	require.NoError(t, err)
 
 	var payload struct {
-		TaskID       string           `json:"task_id"`
-		Parsed       bool             `json:"parsed"`
-		Entries      []tasklogs.Entry `json:"entries"`
-		Count        int              `json:"count"`
-		LevelCounts  map[string]int   `json:"level_counts"`
-		AppliedSince string           `json:"applied_since"`
-		AppliedUntil string           `json:"applied_until"`
+		TaskID       string            `json:"task_id"`
+		Parsed       bool              `json:"parsed"`
+		Entries      []logparser.Entry `json:"entries"`
+		Count        int               `json:"count"`
+		LevelCounts  map[string]int    `json:"level_counts"`
+		AppliedSince string            `json:"applied_since"`
+		AppliedUntil string            `json:"applied_until"`
 	}
 	encoded, err := json.Marshal(response.Payload)
 	require.NoError(t, err)
@@ -64,7 +64,7 @@ func TestGetTaskLogsExecuteReturnsBoundedStructuredLogs(t *testing.T) {
 	assert.True(t, payload.Parsed)
 	assert.Equal(t, 1, payload.Count)
 	require.Len(t, payload.Entries, 1)
-	assert.Equal(t, tasklogs.LevelError, payload.Entries[0].Level)
+	assert.Equal(t, logparser.LevelError, payload.Entries[0].Level)
 	assert.Equal(t, "failed", payload.Entries[0].Message)
 	assert.Equal(t, `level=error msg="failed" code=E_CONN`, payload.Entries[0].RawMessage)
 	assert.Equal(t, 1, payload.LevelCounts["INFO"])
@@ -78,7 +78,7 @@ func TestGetTaskLogsRejectsInvalidRequests(t *testing.T) {
 	t.Parallel()
 
 	ctrl := gomock.NewController(t)
-	tool := NewGetTaskLogs(tasklogs.NewService(swarm.NewMockServiceManager(ctrl)))
+	tool := NewGetTaskLogs(logparser.NewService(swarm.NewMockServiceManager(ctrl)))
 	tests := []struct {
 		name    string
 		request getTaskLogsRequest
@@ -106,7 +106,7 @@ func TestGetTaskLogsRejectsInvalidRequests(t *testing.T) {
 func TestBoundTaskLogEntriesLimitsToolPayload(t *testing.T) {
 	t.Parallel()
 
-	entries := []tasklogs.Entry{{
+	entries := []logparser.Entry{{
 		Message:    string(make([]byte, maxTaskLogFieldBytes+100)),
 		RawMessage: string(make([]byte, maxTaskLogFieldBytes+100)),
 		Attributes: map[string]any{"payload": string(make([]byte, maxTaskLogFieldBytes+100))},

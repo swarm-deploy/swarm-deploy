@@ -1,4 +1,4 @@
-package tasklogs
+package logparser
 
 import (
 	"context"

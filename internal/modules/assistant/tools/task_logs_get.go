@@ -10,7 +10,7 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
-	"github.com/swarm-deploy/swarm-deploy/internal/tasklogs"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/logparser"
 )
 
 const (
@@ -25,7 +25,7 @@ const (
 
 // GetTaskLogs returns bounded raw or structured logs for a Docker Swarm task.
 type GetTaskLogs struct {
-	logs *tasklogs.Service
+	logs *logparser.Service
 }
 
 type getTaskLogsRequest struct {
@@ -38,7 +38,7 @@ type getTaskLogsRequest struct {
 }
 
 // NewGetTaskLogs creates the service_task_logs_get component.
-func NewGetTaskLogs(logs *tasklogs.Service) *GetTaskLogs {
+func NewGetTaskLogs(logs *logparser.Service) *GetTaskLogs {
 	return &GetTaskLogs{logs: logs}
 }
 
@@ -104,7 +104,7 @@ func (g *GetTaskLogs) Execute(ctx context.Context, request routing.Request) (rou
 		return routing.Response{}, err
 	}
 
-	result, err := g.logs.Get(ctx, params.TaskID, tasklogs.Query{
+	result, err := g.logs.Get(ctx, params.TaskID, logparser.Query{
 		Limit:  params.Limit,
 		Since:  params.Since,
 		Until:  params.Until,
@@ -126,13 +126,13 @@ func (g *GetTaskLogs) Execute(ctx context.Context, request routing.Request) (rou
 		// Parsed reports whether structured parsing was enabled.
 		Parsed bool `json:"parsed"`
 		// Entries contains bounded task logs accepted by backend filtering.
-		Entries []tasklogs.Entry `json:"entries"`
+		Entries []logparser.Entry `json:"entries"`
 		// Count is the number of returned entries.
 		Count int `json:"count"`
 		// Truncated reports whether fields or entries were shortened to bound tool output.
 		Truncated bool `json:"truncated"`
 		// LevelCounts contains counts across the inspected raw window when parsing is enabled.
-		LevelCounts map[tasklogs.Level]int `json:"level_counts,omitempty"`
+		LevelCounts map[logparser.Level]int `json:"level_counts,omitempty"`
 		// AppliedSince is the applied inclusive lower boundary.
 		AppliedSince string `json:"applied_since,omitempty"`
 		// AppliedUntil is the applied inclusive upper boundary.
@@ -151,8 +151,8 @@ func (g *GetTaskLogs) Execute(ctx context.Context, request routing.Request) (rou
 	return routing.Response{Payload: payload}, nil
 }
 
-func boundTaskLogEntries(entries []tasklogs.Entry) ([]tasklogs.Entry, bool) {
-	bounded := make([]tasklogs.Entry, 0, len(entries))
+func boundTaskLogEntries(entries []logparser.Entry) ([]logparser.Entry, bool) {
+	bounded := make([]logparser.Entry, 0, len(entries))
 	totalBytes := 0
 	truncated := false
 
@@ -205,7 +205,7 @@ func truncateTaskLogText(value string, maxBytes int) (string, bool) {
 type getTaskLogsParams struct {
 	TaskID string
 	Parse  bool
-	Levels []tasklogs.Level
+	Levels []logparser.Level
 	Limit  int
 	Since  *time.Time
 	Until  *time.Time
@@ -228,7 +228,7 @@ func parseGetTaskLogsParams(request getTaskLogsRequest) (getTaskLogsParams, erro
 		return getTaskLogsParams{}, fmt.Errorf("limit must be <= %d", maxTaskLogsLimit)
 	}
 
-	levels, err := tasklogs.ParseLevels(request.Levels)
+	levels, err := logparser.ParseLevels(request.Levels)
 	if err != nil {
 		return getTaskLogsParams{}, err
 	}

@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/logparser"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
-	"github.com/swarm-deploy/swarm-deploy/internal/tasklogs"
 	"go.uber.org/mock/gomock"
 )
 
@@ -20,7 +20,7 @@ func TestHandlerGetTaskLogsDefaults(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	serviceInspector := swarm.NewMockServiceManager(ctrl)
-	h := &handler{serviceInspector: serviceInspector, taskLogs: tasklogs.NewService(serviceInspector)}
+	h := &handler{serviceInspector: serviceInspector, taskLogs: logparser.NewService(serviceInspector)}
 
 	entries := make(chan swarm.LogEntry)
 	errs := make(chan error)
@@ -44,7 +44,7 @@ func TestHandlerGetTaskLogsStreamsLogEventsAndEOF(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	serviceInspector := swarm.NewMockServiceManager(ctrl)
-	h := &handler{serviceInspector: serviceInspector, taskLogs: tasklogs.NewService(serviceInspector)}
+	h := &handler{serviceInspector: serviceInspector, taskLogs: logparser.NewService(serviceInspector)}
 
 	entries := make(chan swarm.LogEntry, 2)
 	errs := make(chan error)
@@ -92,7 +92,7 @@ func TestHandlerGetTaskLogsStopsOnContextCancellationWithoutEOF(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	serviceInspector := swarm.NewMockServiceManager(ctrl)
-	h := &handler{serviceInspector: serviceInspector, taskLogs: tasklogs.NewService(serviceInspector)}
+	h := &handler{serviceInspector: serviceInspector, taskLogs: logparser.NewService(serviceInspector)}
 
 	serviceInspector.EXPECT().
 		TaskLogs(gomock.Any(), "task-1", swarm.TaskLogsOptions{Follow: true, Limit: 200}).
@@ -122,7 +122,7 @@ func TestGetTaskLogsOgenServerStreamsSSE(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	serviceInspector := swarm.NewMockServiceManager(ctrl)
-	h := &handler{serviceInspector: serviceInspector, taskLogs: tasklogs.NewService(serviceInspector)}
+	h := &handler{serviceInspector: serviceInspector, taskLogs: logparser.NewService(serviceInspector)}
 	apiHandler, err := generated.NewServer(
 		h,
 		h,
@@ -162,7 +162,7 @@ func TestHandlerGetTaskLogsParsesCountsAndFiltersOnBackend(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	serviceInspector := swarm.NewMockServiceManager(ctrl)
-	h := &handler{serviceInspector: serviceInspector, taskLogs: tasklogs.NewService(serviceInspector)}
+	h := &handler{serviceInspector: serviceInspector, taskLogs: logparser.NewService(serviceInspector)}
 	timestamp := time.Date(2026, time.September, 15, 18, 20, 11, 0, time.UTC)
 
 	entries := make(chan swarm.LogEntry, 2)
