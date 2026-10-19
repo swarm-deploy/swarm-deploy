@@ -101,7 +101,7 @@ describe("Deployment Details modal", () => {
     wrapper.unmount();
   });
 
-  it("shows newest attempts first as expandable flat rows with status dots", async () => {
+  it("shows newest attempts first and only expands unsuccessful rows", async () => {
     const store = useOverviewStore();
     const details = deployment("failed");
     const longDiagnostic = `docker service update --image registry.example.test/api:${"x".repeat(512)}\npermission denied`;
@@ -130,6 +130,11 @@ describe("Deployment Details modal", () => {
     ]);
     expect(wrapper.text()).not.toContain("Attempt 4");
     expect(wrapper.find(".deployment-attempt-details").isVisible()).toBe(false);
+    expect(rows.slice(0, 4).every((row) => row.element.tagName === "DETAILS")).toBe(true);
+    expect(rows[4].element.tagName).toBe("DIV");
+    expect(rows[4].find("summary").exists()).toBe(false);
+    expect(rows[4].find(".deployment-chevron").exists()).toBe(false);
+    expect(rows[4].find(".deployment-attempt-details").exists()).toBe(false);
 
     await rows[0].get("summary").trigger("click");
     expect(rows[0].attributes("open")).toBeDefined();

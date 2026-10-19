@@ -407,22 +407,28 @@ onUnmounted(() => {
                 <span />
               </div>
               <div class="deployment-attempt-list">
-                <details v-for="attempt in attempts" :key="attempt.id" class="deployment-attempt-row">
-                  <summary>
+                <component
+                  :is="attempt.status === 'succeeded' ? 'div' : 'details'"
+                  v-for="attempt in attempts"
+                  :key="attempt.id"
+                  class="deployment-attempt-row"
+                  :class="{ 'deployment-attempt-row--static': attempt.status === 'succeeded' }"
+                >
+                  <component :is="attempt.status === 'succeeded' ? 'div' : 'summary'" class="deployment-attempt-summary">
                     <span class="deployment-attempt-status" :class="`deployment-attempt-status--${attempt.status}`" role="img" :aria-label="`${attempt.status} attempt`" />
                     <time :datetime="attempt.started_at">{{ formatDate(attempt.started_at) }}</time>
                     <span class="deployment-attempt-stage">{{ sectionLabel(attempt.phase) }}</span>
                     <span class="deployment-attempt-duration">{{ attemptDuration(attempt) }}</span>
-                    <svg class="deployment-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg>
-                  </summary>
-                  <div class="deployment-attempt-details">
+                    <svg v-if="attempt.status !== 'succeeded'" class="deployment-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg>
+                  </component>
+                  <div v-if="attempt.status !== 'succeeded'" class="deployment-attempt-details">
                     <div class="deployment-attempt-details-heading">
                       <strong>Diagnostics</strong>
                       <button type="button" class="button-ghost" @click="copyAttemptDiagnostic(attempt)">{{ copiedAttemptID === attempt.id ? "Copied" : "Copy" }}</button>
                     </div>
                     <pre><code>{{ attemptDiagnostic(attempt) }}</code></pre>
                   </div>
-                </details>
+                </component>
               </div>
             </template>
           </section>
@@ -645,7 +651,7 @@ onUnmounted(() => {
 .deployment-tab-panel > .deployment-note { margin: 0; }
 .deployment-attempts-panel { padding-top: 8px; }
 .deployment-attempt-columns,
-.deployment-attempt-row summary {
+.deployment-attempt-summary {
   display: grid;
   grid-template-columns: 16px minmax(220px, 1.4fr) minmax(100px, .7fr) minmax(100px, .5fr) 18px;
   gap: 12px;
@@ -654,7 +660,7 @@ onUnmounted(() => {
 .deployment-attempt-columns { padding: 4px 8px 7px; color: var(--muted); font-size: .72rem; font-weight: 600; }
 .deployment-attempt-list { border-top: 1px solid var(--line); }
 .deployment-attempt-row { min-width: 0; border-bottom: 1px solid var(--line); }
-.deployment-attempt-row summary {
+.deployment-attempt-summary {
   min-width: 0;
   min-height: 44px;
   padding: 8px;
@@ -662,9 +668,10 @@ onUnmounted(() => {
   list-style: none;
   font-size: .84rem;
 }
-.deployment-attempt-row summary::-webkit-details-marker { display: none; }
-.deployment-attempt-row summary:hover { background: var(--surface-hover-soft); }
-.deployment-attempt-row summary > * { min-width: 0; }
+.deployment-attempt-row summary.deployment-attempt-summary::-webkit-details-marker { display: none; }
+.deployment-attempt-summary:hover { background: var(--surface-hover-soft); }
+.deployment-attempt-row--static .deployment-attempt-summary { cursor: default; }
+.deployment-attempt-summary > * { min-width: 0; }
 .deployment-attempt-row time { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
 .deployment-attempt-stage { color: var(--muted); }
 .deployment-attempt-duration { color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -864,7 +871,7 @@ summary.deployment-resource-heading { cursor: pointer; }
   .deployment-tab-panel { padding-top: 12px; }
   .deployment-attempt-columns { display: none; }
   .deployment-attempt-list { border-top: 0; }
-  .deployment-attempt-row summary {
+  .deployment-attempt-summary {
     grid-template-columns: 12px minmax(0, 1fr) auto 16px;
     gap: 8px;
   }
