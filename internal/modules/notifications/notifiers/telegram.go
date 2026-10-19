@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+"log/slog"
 	"regexp"
 	"strings"
 	"time"
@@ -203,7 +204,32 @@ func (n *TelegramNotifier) notifyAction(
 	return receipt, nil
 }
 
-type telegramAPIError struct{ status int }
+type telegramAPIError struct {
+ status int
+ code int
+ kind string
+ retryAfter int
+}
+func (e *telegramAPIError) SafeLogFields() []slog.Attr {
+ fields := []slog.Attr{slog.String("failure_source", "telegram"), slog.String("failure_kind", e.kind), slog.Int("http_status", e.status)}
+ if e.code != 0 { fields = append(fields, slog.Int("telegram_error_code", e.code)) }
+ if e.retryAfter > 0 { fields = append(fields, slog.Int("retry_after", e.retryAfter)) }
+ return fields
+}
+func telegramHTTPFailureKind(status int) string {
+ switch status {
+ case 400: return "bad_request"
+ case 401: return "unauthorized"
+ case 403: return "forbidden"
+ case 404: return "not_found"
+ case 409: return "conflict"
+ case 429: return "rate_limited"
+ default:
+  if status >= 500 { return "server_error" }
+  if status >= 400 { return "client_error" }
+  return "unexpected_response"
+ }
+}
 
 func (e *telegramAPIError) Error() string { return fmt.Sprintf("telegram API status %d", e.status) }
 
@@ -234,6 +260,8 @@ func (n *TelegramNotifier) sendRequest(
 	var answer struct {
 		OK          bool            `json:"ok"`
 		Description string          `json:"description"`
+		ErrorCode int `json:"error_code"`
+		Parameters struct { RetryAfter int `json:"retry_after"` } `json:"parameters"`
 		Result      json.RawMessage `json:"result"`
 	}
 	if err = json.Unmarshal(respBody, &answer); err != nil {
@@ -248,7 +276,7 @@ func (n *TelegramNotifier) sendRequest(
 			invalidTelegramReference(endpoint, answer.Description) {
 			return Receipt{}, ErrMessageReferenceInvalid
 		}
-		return Receipt{}, &telegramAPIError{status: resp.StatusCode}
+		return Receipt{}, &telegramAPIError{status: resp.StatusCode, code: answer.ErrorCode, kind: telegramHTTPFailureKind(resp.StatusCode), retryAfter: answer.Parameters.RetryAfter}
 	}
 	if endpoint == telegramEditEndpoint && string(answer.Result) == "true" {
 		return Receipt{MessageID: targetID, Action: ActionEdit}, nil
