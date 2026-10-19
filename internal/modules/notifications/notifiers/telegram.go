@@ -15,10 +15,12 @@ import (
 	"time"
 
 	"github.com/avast/retry-go/v5"
-	notificationtemplate "github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/template"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"go.opentelemetry.io/otel/attribute"
 	"golang.org/x/net/proxy"
+
+	notificationtemplate "github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/template"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 )
 
 var telegramBotSendMessagePathPattern = regexp.MustCompile(`/bot[^/\s]+/(sendMessage|editMessageText)`)
@@ -215,24 +217,6 @@ func (e *telegramTransportError) SafeLogFields() []slog.Attr {
 	}
 }
 
-func telegramTransportFailureKind(err error) string {
-	if errors.Is(err, context.Canceled) {
-		return "canceled"
-	}
-	if errors.Is(err, context.DeadlineExceeded) {
-		return "timeout"
-	}
-	var dnsErr *net.DNSError
-	if errors.As(err, &dnsErr) {
-		return "dns_error"
-	}
-	var netErr net.Error
-	if errors.As(err, &netErr) && netErr.Timeout() {
-		return "timeout"
-	}
-	return "connection_failed"
-}
-
 type telegramAPIError struct {
 	status     int
 	code       int
@@ -253,31 +237,6 @@ func (e *telegramAPIError) SafeLogFields() []slog.Attr {
 		fields = append(fields, slog.Int("retry_after", e.retryAfter))
 	}
 	return fields
-}
-
-func telegramHTTPFailureKind(status int) string {
-	switch status {
-	case http.StatusBadRequest:
-		return "bad_request"
-	case http.StatusUnauthorized:
-		return "unauthorized"
-	case http.StatusForbidden:
-		return "forbidden"
-	case http.StatusNotFound:
-		return "not_found"
-	case http.StatusConflict:
-		return "conflict"
-	case http.StatusTooManyRequests:
-		return "rate_limited"
-	default:
-		if status >= http.StatusInternalServerError {
-			return "server_error"
-		}
-		if status >= http.StatusBadRequest {
-			return "client_error"
-		}
-		return "unexpected_response"
-	}
 }
 
 func (e *telegramAPIError) Error() string {
@@ -302,7 +261,7 @@ func (n *TelegramNotifier) sendRequest(
 	resp, err := n.client.Do(req)
 	if err != nil {
 		return Receipt{}, fmt.Errorf("send request: %w", errors.Join(
-			&telegramTransportError{kind: telegramTransportFailureKind(err)},
+			&telegramTransportError{kind: faults.TransportErrorKind(err)},
 			errors.New(maskTelegramSendError(err, n.token)),
 		))
 	}
@@ -333,8 +292,9 @@ func (n *TelegramNotifier) sendRequest(
 			return Receipt{}, ErrMessageReferenceInvalid
 		}
 		return Receipt{}, &telegramAPIError{
-			status: resp.StatusCode, code: answer.ErrorCode,
-			kind:       telegramHTTPFailureKind(resp.StatusCode),
+			status:     resp.StatusCode,
+			code:       answer.ErrorCode,
+			kind:       faults.HTTPCodeKind(resp.StatusCode),
 			retryAfter: answer.Parameters.RetryAfter,
 		}
 	}

@@ -5,9 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
-"log/slog"
-"net"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -266,10 +265,4 @@ func TestTelegramStructuredDiagnostics(t *testing.T) {
  assert.Contains(t, fields, slog.Int("http_status", 429))
  assert.Contains(t, fields, slog.Int("retry_after", 17))
  assert.NotContains(t, err.Error(), "do-not-log")
-}
-
-func TestTelegramTransportDiagnosticClassification(t *testing.T) {
- assert.Equal(t, "dns_error", telegramTransportFailureKind(&net.DNSError{Err:"secret"}))
- assert.Equal(t, "timeout", telegramTransportFailureKind(context.DeadlineExceeded))
- assert.Equal(t, "canceled", telegramTransportFailureKind(context.Canceled))
 }
