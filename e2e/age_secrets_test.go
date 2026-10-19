@@ -173,14 +173,19 @@ exec "$SWARM_AGE_DOCKER" "$@"
 			// desired state, SQLite/WAL, captured CLI YAML and rendered files
 			// must contain neither age plaintext nor the private key.
 			assertAgeFilesSafe(t, dir, identityPath, identity.String())
-			attempts, err := deployment.NewStore(db).List(ctx, deployment.ListFilter{})
+			store := deployment.NewStore(db)
+			deployments, err := store.List(ctx, deployment.ListFilter{})
 			require.NoError(t, err)
-			require.NotEmpty(t, attempts.Deployments)
-			for _, attempt := range attempts.Deployments {
-				if attempt.Commit == "init-failure" {
-					assert.Equal(t, deployment.Failed, attempt.Status)
+			require.NotEmpty(t, deployments.Deployments)
+			for _, item := range deployments.Deployments {
+				if item.Commit == "init-failure" {
+					assert.Equal(t, deployment.Superseded, item.Status)
+					failed, getErr := store.Get(ctx, item.ID)
+					require.NoError(t, getErr)
+					require.Len(t, failed.Attempts, 1)
+					assert.Equal(t, deployment.Failed, failed.Attempts[0].Status)
 				} else {
-					assert.Equal(t, deployment.Succeeded, attempt.Status)
+					assert.Equal(t, deployment.Succeeded, item.Status)
 				}
 			}
 			original, err := os.ReadFile(composePath)
