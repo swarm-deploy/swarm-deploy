@@ -102,41 +102,40 @@ func (b *Bus) ProcessNext(ctx context.Context) (bool, error) {
 }
 
 
- // safeDeliveryErrorFields records only explicit, stable classifications. Never
- // log arbitrary handler error messages: subscribers may handle credentials or
- // untrusted response bodies.
- func safeDeliveryErrorFields(err error) []any {
- 	var diagnostic interface{ SafeLogFields() []slog.Attr }
- 	if errors.As(err, &diagnostic) {
- 		fields := diagnostic.SafeLogFields()
- 		attrs := make([]any, 0, len(fields))
- 		for _, field := range fields {
- 			attrs = append(attrs, field)
- 		}
- 		return attrs
- 	}
- 	var sqliteErr *sqlite.Error
- 	if errors.As(err, &sqliteErr) {
- 		return []any{"failure_source", "sqlite", "failure_kind", "database_error", "sqlite_code", sqliteErr.Code()}
- 	}
- 	var templateErr texttemplate.ExecError
- 	if errors.As(err, &templateErr) {
- 		return []any{"failure_source", "template", "failure_kind", "render_failed"}
- 	}
- 	switch {
- 	case errors.Is(err, context.DeadlineExceeded):
- 		return []any{"failure_source", "runtime", "failure_kind", "deadline_exceeded"}
- 	case errors.Is(err, context.Canceled):
- 		return []any{"failure_source", "runtime", "failure_kind", "canceled"}
- 	case errors.Is(err, sql.ErrNoRows):
- 		return []any{"failure_source", "database", "failure_kind", "not_found"}
- 	case errors.Is(err, ErrLeaseLost):
- 		return []any{"failure_source", "outbox", "failure_kind", "lease_lost"}
- 	default:
- 		return []any{"failure_source", "handler", "failure_kind", "unclassified"}
- 	}
- }
-
+// safeDeliveryErrorFields records only explicit, stable classifications. Never
+// log arbitrary handler error messages: subscribers may handle credentials or
+// untrusted response bodies.
+func safeDeliveryErrorFields(err error) []any {
+	var diagnostic interface{ SafeLogFields() []slog.Attr }
+	if errors.As(err, &diagnostic) {
+		fields := diagnostic.SafeLogFields()
+		attrs := make([]any, 0, len(fields))
+		for _, field := range fields {
+			attrs = append(attrs, field)
+		}
+		return attrs
+	}
+	var sqliteErr *sqlite.Error
+	if errors.As(err, &sqliteErr) {
+		return []any{"failure_source", "sqlite", "failure_kind", "database_error", "sqlite_code", sqliteErr.Code()}
+	}
+	var templateErr texttemplate.ExecError
+	if errors.As(err, &templateErr) {
+		return []any{"failure_source", "template", "failure_kind", "render_failed"}
+	}
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return []any{"failure_source", "runtime", "failure_kind", "deadline_exceeded"}
+	case errors.Is(err, context.Canceled):
+		return []any{"failure_source", "runtime", "failure_kind", "canceled"}
+	case errors.Is(err, sql.ErrNoRows):
+		return []any{"failure_source", "database", "failure_kind", "not_found"}
+	case errors.Is(err, ErrLeaseLost):
+		return []any{"failure_source", "outbox", "failure_kind", "lease_lost"}
+	default:
+		return []any{"failure_source", "handler", "failure_kind", "unclassified"}
+	}
+}
 
 func (b *Bus) claim(ctx context.Context) (delivery, error) {
 	d := delivery{token: uuid.NewString()}
