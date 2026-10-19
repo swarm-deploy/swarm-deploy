@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -245,4 +246,23 @@ type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
+}
+
+func TestTelegramStructuredDiagnostics(t *testing.T) {
+ server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+  w.WriteHeader(http.StatusTooManyRequests)
+  _, _ = w.Write([]byte(`{"ok":false,"error_code":429,"description":"token=do-not-log","parameters":{"retry_after":17}}`))
+ }))
+ defer server.Close()
+ notifier, err := newTelegramNotifier("ops", "123:token", "-100", TelegramOptions{Message:"{{ .Title }}", Retries:1, APIBaseURL:server.URL})
+ require.NoError(t, err)
+ _, err = notifier.Notify(t.Context(), Message{Payload:map[string]string{"Title":"test"}})
+ require.Error(t, err)
+ var apiErr *telegramAPIError
+ require.ErrorAs(t, err, &apiErr)
+ fields := apiErr.SafeLogFields()
+ assert.Contains(t, fields, slog.String("failure_kind", "rate_limited"))
+ assert.Contains(t, fields, slog.Int("http_status", 429))
+ assert.Contains(t, fields, slog.Int("retry_after", 17))
+ assert.NotContains(t, err.Error(), "do-not-log")
 }

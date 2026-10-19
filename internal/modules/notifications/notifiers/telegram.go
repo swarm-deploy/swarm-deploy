@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"regexp"
@@ -14,10 +15,12 @@ import (
 	"time"
 
 	"github.com/avast/retry-go/v5"
-	notificationtemplate "github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/template"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"go.opentelemetry.io/otel/attribute"
 	"golang.org/x/net/proxy"
+
+	notificationtemplate "github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/template"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 )
 
 var telegramBotSendMessagePathPattern = regexp.MustCompile(`/bot[^/\s]+/(sendMessage|editMessageText)`)
@@ -203,9 +206,42 @@ func (n *TelegramNotifier) notifyAction(
 	return receipt, nil
 }
 
-type telegramAPIError struct{ status int }
+type telegramTransportError struct{ kind string }
 
-func (e *telegramAPIError) Error() string { return fmt.Sprintf("telegram API status %d", e.status) }
+func (e *telegramTransportError) Error() string { return "telegram transport " + e.kind }
+
+func (e *telegramTransportError) SafeLogFields() []slog.Attr {
+	return []slog.Attr{
+		slog.String("failure_source", "telegram"),
+		slog.String("failure_kind", e.kind),
+	}
+}
+
+type telegramAPIError struct {
+	status     int
+	code       int
+	kind       string
+	retryAfter int
+}
+
+func (e *telegramAPIError) SafeLogFields() []slog.Attr {
+	fields := []slog.Attr{
+		slog.String("failure_source", "telegram"),
+		slog.String("failure_kind", e.kind),
+		slog.Int("http_status", e.status),
+	}
+	if e.code != 0 {
+		fields = append(fields, slog.Int("telegram_error_code", e.code))
+	}
+	if e.retryAfter > 0 {
+		fields = append(fields, slog.Int("retry_after", e.retryAfter))
+	}
+	return fields
+}
+
+func (e *telegramAPIError) Error() string {
+	return fmt.Sprintf("telegram API status %d", e.status)
+}
 
 func (n *TelegramNotifier) sendRequest(
 	ctx context.Context, endpoint string, body []byte, targetID int64,
@@ -224,7 +260,10 @@ func (n *TelegramNotifier) sendRequest(
 	// #nosec G704 -- Telegram API base URL is explicitly configured by the operator.
 	resp, err := n.client.Do(req)
 	if err != nil {
-		return Receipt{}, fmt.Errorf("send request: %s", maskTelegramSendError(err, n.token))
+		return Receipt{}, fmt.Errorf("send request: %w", errors.Join(
+			&telegramTransportError{kind: faults.TransportErrorKind(err)},
+			errors.New(maskTelegramSendError(err, n.token)),
+		))
 	}
 	defer resp.Body.Close()
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, telegramResponseLimit))
@@ -232,9 +271,13 @@ func (n *TelegramNotifier) sendRequest(
 		return Receipt{}, fmt.Errorf("read response body: %w", err)
 	}
 	var answer struct {
-		OK          bool            `json:"ok"`
-		Description string          `json:"description"`
-		Result      json.RawMessage `json:"result"`
+		OK          bool   `json:"ok"`
+		Description string `json:"description"`
+		ErrorCode   int    `json:"error_code"`
+		Parameters  struct {
+			RetryAfter int `json:"retry_after"`
+		} `json:"parameters"`
+		Result json.RawMessage `json:"result"`
 	}
 	if err = json.Unmarshal(respBody, &answer); err != nil {
 		return Receipt{}, fmt.Errorf("decode telegram response: %w", err)
@@ -248,7 +291,12 @@ func (n *TelegramNotifier) sendRequest(
 			invalidTelegramReference(endpoint, answer.Description) {
 			return Receipt{}, ErrMessageReferenceInvalid
 		}
-		return Receipt{}, &telegramAPIError{status: resp.StatusCode}
+		return Receipt{}, &telegramAPIError{
+			status:     resp.StatusCode,
+			code:       answer.ErrorCode,
+			kind:       faults.HTTPCodeKind(resp.StatusCode),
+			retryAfter: answer.Parameters.RetryAfter,
+		}
 	}
 	if endpoint == telegramEditEndpoint && string(answer.Result) == "true" {
 		return Receipt{MessageID: targetID, Action: ActionEdit}, nil

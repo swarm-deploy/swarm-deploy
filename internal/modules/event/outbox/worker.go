@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sync"
+	texttemplate "text/template"
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
@@ -14,6 +15,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"modernc.org/sqlite"
 )
 
 // ErrLeaseLost fences a worker whose claim has expired or been replaced.
@@ -46,7 +48,8 @@ func (b *Bus) runWorker(ctx context.Context) {
 		}
 		handled, err := b.ProcessNext(ctx)
 		if err != nil && ctx.Err() == nil {
-			slog.ErrorContext(ctx, "outbox worker operation failed", "error_type", fmt.Sprintf("%T", err))
+			slog.ErrorContext(ctx, "outbox worker operation failed",
+				append([]any{"error_type", fmt.Sprintf("%T", err)}, safeDeliveryErrorFields(err)...)...)
 		}
 		if handled && err == nil {
 			continue
@@ -84,15 +87,53 @@ func (b *Bus) ProcessNext(ctx context.Context) (bool, error) {
 	if terminal {
 		code = invalid.code
 	}
-	slog.ErrorContext(ctx, "outbox delivery failed", "event_id", d.eventID,
-		"subscription_id", d.subscriptionID, "attempt", d.attempts, "reason", code,
-		"error_type", fmt.Sprintf("%T", err))
+	slog.ErrorContext(ctx, "outbox delivery failed",
+		append([]any{
+			"event_id", d.eventID, "subscription_id", d.subscriptionID,
+			"attempt", d.attempts, "reason", code,
+			"error_type", fmt.Sprintf("%T", err),
+		}, safeDeliveryErrorFields(err)...)...)
 	retryCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), databaseOperationTimeout)
 	defer cancel()
 	if retryErr := b.fail(retryCtx, d, code, terminal); retryErr != nil {
 		return true, errors.Join(err, retryErr)
 	}
 	return true, nil
+}
+
+// safeDeliveryErrorFields records only explicit, stable classifications. Never
+// log arbitrary handler error messages: subscribers may handle credentials or
+// untrusted response bodies.
+func safeDeliveryErrorFields(err error) []any {
+	var diagnostic interface{ SafeLogFields() []slog.Attr }
+	if errors.As(err, &diagnostic) {
+		fields := diagnostic.SafeLogFields()
+		attrs := make([]any, 0, len(fields))
+		for _, field := range fields {
+			attrs = append(attrs, field)
+		}
+		return attrs
+	}
+	var sqliteErr *sqlite.Error
+	if errors.As(err, &sqliteErr) {
+		return []any{"failure_source", "sqlite", "failure_kind", "database_error", "sqlite_code", sqliteErr.Code()}
+	}
+	var templateErr texttemplate.ExecError
+	if errors.As(err, &templateErr) {
+		return []any{"failure_source", "template", "failure_kind", "render_failed"}
+	}
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return []any{"failure_source", "runtime", "failure_kind", "deadline_exceeded"}
+	case errors.Is(err, context.Canceled):
+		return []any{"failure_source", "runtime", "failure_kind", "canceled"}
+	case errors.Is(err, sql.ErrNoRows):
+		return []any{"failure_source", "database", "failure_kind", "not_found"}
+	case errors.Is(err, ErrLeaseLost):
+		return []any{"failure_source", "outbox", "failure_kind", "lease_lost"}
+	default:
+		return []any{"failure_source", "handler", "failure_kind", "unclassified"}
+	}
 }
 
 func (b *Bus) claim(ctx context.Context) (delivery, error) {
