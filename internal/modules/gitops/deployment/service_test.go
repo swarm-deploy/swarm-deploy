@@ -558,6 +558,169 @@ func TestInterruptedTransitionIsAtomicDurableAndIdempotent(t *testing.T) {
 	assert.ErrorIs(t, err, ErrNotFound)
 }
 
+func TestRollbackRecoverySynchronizesRunningAttemptWithTerminalDeployment(t *testing.T) {
+	tests := []struct {
+		name              string
+		status            Status
+		errorCode         string
+		diagnostic        string
+		phase             Phase
+		apply             StageStatus
+		verification      StageStatus
+		cleanup           StageStatus
+		wantBaselineImage string
+	}{
+		{
+			name: "succeeded", status: Succeeded, phase: PhaseCompleted,
+			apply: StageSucceeded, verification: StageSkipped, cleanup: StageSucceeded,
+			wantBaselineImage: "api:2",
+		},
+		{
+			name: "failed", status: Failed, errorCode: "apply_failed", diagnostic: "rollback apply failed",
+			phase: PhaseApply, apply: StageFailed, verification: StageSkipped, cleanup: StageSkipped,
+			wantBaselineImage: "api:1",
+		},
+		{
+			name: "interrupted", status: Interrupted, errorCode: "verification_unknown",
+			diagnostic: "rollback verification interrupted", phase: PhaseVerification,
+			apply: StageSucceeded, verification: StageUnknown, cleanup: StageSkipped,
+			wantBaselineImage: "api:1",
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			ctx := t.Context()
+			dir := t.TempDir()
+			db, err := storage.Open(ctx, dir)
+			require.NoError(t, err)
+			bus := outbox.New(db)
+			handler, err := history.NewSQLStore(db, 10)
+			require.NoError(t, err)
+			for _, eventType := range []events.TypeName{
+				events.TypeNameDeploySuccess, events.TypeNameDeployFailed, events.TypeNameDeployInterrupted,
+			} {
+				require.NoError(t, bus.Subscribe(eventType, "rollback-"+string(eventType), handler))
+			}
+
+			service := NewService(db, bus)
+			baselineAttempt, err := service.StartIfChanged(ctx, "app", "baseline", desired("api:1"), true)
+			require.NoError(t, err)
+			require.NoError(t, service.Succeed(ctx, baselineAttempt.ID, model.Stack{}))
+			attempt, err := service.StartIfChanged(ctx, "app", "target", desired("api:2"), true)
+			require.NoError(t, err)
+			require.NotNil(t, attempt)
+
+			store := NewStore(db)
+			parent, err := store.Get(ctx, attempt.DeploymentID)
+			require.NoError(t, err)
+			finishedAt := time.Date(2026, time.October, 19, 12, 0, 0, 0, time.UTC)
+			parent.Status, parent.FinishedAt = testCase.status, &finishedAt
+			parent.ErrorCode, parent.ErrorDiagnostic = testCase.errorCode, testCase.diagnostic
+			parent.Phase, parent.ApplyStatus = testCase.phase, testCase.apply
+			parent.VerificationStatus, parent.CleanupStatus = testCase.verification, testCase.cleanup
+			parent.ActualStateStatus, parent.ObservedAt = ActualStateUnknown, nil
+			details, _, err := marshalDeploymentPayloads(parent)
+			require.NoError(t, err)
+			_, err = db.Exec(ctx, `UPDATE deployments
+				SET status=?, error_code=?, phase=?, finished_at=?, details_payload=? WHERE id=?`,
+				parent.Status, parent.ErrorCode, parent.Phase, finishedAt, details, parent.ID)
+			require.NoError(t, err)
+			if testCase.status == Succeeded {
+				require.NoError(t, store.saveBaseline(ctx, parent.ID))
+			}
+
+			desiredState, err := store.Desired(ctx, parent.ID)
+			require.NoError(t, err)
+			meta := events.DeployEvent{
+				DeploymentID: parent.ID, StackName: parent.Stack, Commit: parent.Commit,
+				Services: desiredState.Compose.Services, StackDefinition: desiredState,
+			}
+			var oldCompletion events.Event
+			switch testCase.status {
+			case Succeeded:
+				oldCompletion = &events.DeploySuccess{DeployEvent: meta}
+			case Failed:
+				oldCompletion = &events.DeployFailed{
+					DeployEvent: meta, Error: fmt.Errorf("%s", testCase.diagnostic),
+					ErrorCode: testCase.errorCode, Stage: string(testCase.phase),
+				}
+			case Interrupted:
+				oldCompletion = &events.DeployInterrupted{
+					DeploymentID: parent.ID, StackName: parent.Stack, Commit: parent.Commit,
+					Services: desiredState.Compose.Services, Error: fmt.Errorf("%s", testCase.diagnostic),
+					Reason: testCase.errorCode, Stage: string(testCase.phase),
+				}
+			default:
+				t.Fatalf("unsupported test status %q", testCase.status)
+			}
+			require.NoError(t, bus.Publish(ctx, oldCompletion))
+
+			var before struct {
+				Status         Status    `db:"status"`
+				ErrorCode      string    `db:"error_code"`
+				Phase          Phase     `db:"phase"`
+				FinishedAt     time.Time `db:"finished_at"`
+				DetailsPayload []byte    `db:"details_payload"`
+			}
+			require.NoError(t, db.Get(ctx, &before, `SELECT status, error_code, phase, finished_at,
+				details_payload FROM deployments WHERE id=?`, parent.ID))
+			var eventsBefore int
+			require.NoError(t, db.Get(ctx, &eventsBefore, "SELECT count(*) FROM outbox_events"))
+			require.NoError(t, db.Close())
+
+			db, err = storage.Open(ctx, dir)
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, db.Close()) })
+			bus = outbox.New(db)
+			handler, err = history.NewSQLStore(db, 10)
+			require.NoError(t, err)
+			for _, eventType := range []events.TypeName{
+				events.TypeNameDeploySuccess, events.TypeNameDeployFailed, events.TypeNameDeployInterrupted,
+			} {
+				require.NoError(t, bus.Subscribe(eventType, "rollback-"+string(eventType), handler))
+			}
+
+			for range 2 {
+				recoveredService := NewService(db, bus)
+				require.NoError(t, recoveredService.InterruptRunning(ctx))
+			}
+
+			recovered, err := NewStore(db).Get(ctx, parent.ID)
+			require.NoError(t, err)
+			assert.Equal(t, testCase.status, recovered.Status)
+			require.Len(t, recovered.Attempts, 1)
+			recoveredAttempt := recovered.Attempts[0]
+			assert.Equal(t, testCase.status, recoveredAttempt.Status)
+			assert.Equal(t, testCase.errorCode, recoveredAttempt.ErrorCode)
+			assert.Equal(t, testCase.diagnostic, recoveredAttempt.ErrorDiagnostic)
+			assert.Equal(t, testCase.phase, recoveredAttempt.Phase)
+			assert.Equal(t, testCase.apply, recoveredAttempt.ApplyStatus)
+			assert.Equal(t, testCase.verification, recoveredAttempt.VerificationStatus)
+			assert.Equal(t, testCase.cleanup, recoveredAttempt.CleanupStatus)
+			require.NotNil(t, recoveredAttempt.FinishedAt)
+			assert.Equal(t, finishedAt, *recoveredAttempt.FinishedAt)
+
+			var after struct {
+				Status         Status    `db:"status"`
+				ErrorCode      string    `db:"error_code"`
+				Phase          Phase     `db:"phase"`
+				FinishedAt     time.Time `db:"finished_at"`
+				DetailsPayload []byte    `db:"details_payload"`
+			}
+			require.NoError(t, db.Get(ctx, &after, `SELECT status, error_code, phase, finished_at,
+				details_payload FROM deployments WHERE id=?`, parent.ID))
+			assert.Equal(t, before, after, "recovery must preserve the old binary's deployment outcome")
+			baseline, err := NewStore(db).Baseline(ctx, "app")
+			require.NoError(t, err)
+			assert.Equal(t, testCase.wantBaselineImage, baseline.Definition.Compose.Services[0].Image)
+			var eventsAfter int
+			require.NoError(t, db.Get(ctx, &eventsAfter, "SELECT count(*) FROM outbox_events"))
+			assert.Equal(t, eventsBefore, eventsAfter, "recovery must not publish a duplicate outcome")
+		})
+	}
+}
+
 func TestDeploymentPayloadsDoNotDuplicateSQLColumns(t *testing.T) {
 	ctx := context.Background()
 	db, err := storage.Open(ctx, t.TempDir())

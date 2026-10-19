@@ -692,6 +692,30 @@ func (s *Store) finish(ctx context.Context, d Deployment, attempt Attempt) error
 	return requireOneRunning(result)
 }
 
+func (s *Store) syncRunningAttemptWithTerminalDeployment(ctx context.Context, attempt Attempt) (bool, error) {
+	const query = `UPDATE deployment_attempts
+		SET status = (SELECT status FROM deployments WHERE id = deployment_attempts.deployment_id),
+			error_code = (SELECT error_code FROM deployments WHERE id = deployment_attempts.deployment_id),
+			phase = (SELECT phase FROM deployments WHERE id = deployment_attempts.deployment_id),
+			finished_at = (SELECT finished_at FROM deployments WHERE id = deployment_attempts.deployment_id),
+			details_payload = (SELECT details_payload FROM deployments WHERE id = deployment_attempts.deployment_id)
+		WHERE id = ? AND deployment_id = ? AND status = 'running'
+			AND EXISTS (
+				SELECT 1 FROM deployments
+				WHERE id = deployment_attempts.deployment_id
+					AND status IN ('succeeded', 'failed', 'interrupted')
+			)`
+	result, err := s.db.Exec(ctx, query, attempt.ID, attempt.DeploymentID)
+	if err != nil {
+		return false, err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return count == 1, nil
+}
+
 func requireOneRunning(result sql.Result) error {
 	count, err := result.RowsAffected()
 	if err != nil {

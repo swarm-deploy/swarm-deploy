@@ -369,6 +369,13 @@ func (s *Service) interrupt(ctx context.Context, stack string) error {
 		}
 		now := s.now().UTC()
 		for _, attempt := range running {
+			synchronized, syncErr := s.store.syncRunningAttemptWithTerminalDeployment(ctx, attempt)
+			if syncErr != nil {
+				return syncErr
+			}
+			if synchronized {
+				continue
+			}
 			if err = s.interruptOne(ctx, attempt, now); err != nil {
 				return err
 			}
