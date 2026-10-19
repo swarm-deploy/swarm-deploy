@@ -7,12 +7,16 @@ import { useOverviewStore } from "../../stores/overview";
 import CommitDetailsModal from "./CommitDetailsModal.vue";
 import DeploymentDetailsModal from "./DeploymentDetailsModal.vue";
 
-vi.mock("../../stores/assistant", () => ({
-  useAssistantStore: () => ({ enabled: false, pending: false }),
+const assistantStore = vi.hoisted(() => ({
+  enabled: true,
+  pending: false,
+  newChat: vi.fn(),
+  sendMessage: vi.fn(async () => undefined),
 }));
-vi.mock("../../stores/ui", () => ({
-  useUIStore: () => ({ openAssistantDrawer: vi.fn() }),
-}));
+const uiStore = vi.hoisted(() => ({ openAssistantDrawer: vi.fn() }));
+
+vi.mock("../../stores/assistant", () => ({ useAssistantStore: () => assistantStore }));
+vi.mock("../../stores/ui", () => ({ useUIStore: () => uiStore }));
 
 const ModalHost = defineComponent({
   components: { CommitDetailsModal, DeploymentDetailsModal },
@@ -51,7 +55,14 @@ function deployment(
 }
 
 describe("Deployment Details modal", () => {
-  beforeEach(() => setActivePinia(createPinia()));
+  beforeEach(() => {
+    setActivePinia(createPinia());
+    assistantStore.enabled = true;
+    assistantStore.pending = false;
+    assistantStore.newChat.mockClear();
+    assistantStore.sendMessage.mockClear();
+    uiStore.openAssistantDrawer.mockClear();
+  });
 
   it("puts attempts first with a compact total-count badge", () => {
     const store = useOverviewStore();
@@ -140,8 +151,43 @@ describe("Deployment Details modal", () => {
     expect(rows[0].attributes("open")).toBeDefined();
     expect(rows[0].get(".deployment-attempt-details code").text()).toBe(longDiagnostic);
     expect(rows[0].get(".deployment-attempt-details pre").attributes("style")).toBeUndefined();
-    await rows[0].get(".deployment-attempt-details button").trigger("click");
+    const detailButtons = rows[0].findAll(".deployment-attempt-details button");
+    expect(detailButtons.map((button) => button.text())).toEqual(["Explain", "Copy"]);
+    await detailButtons[1].trigger("click");
     expect(writeText).toHaveBeenCalledWith(longDiagnostic);
+    wrapper.unmount();
+  });
+
+  it("starts a new assistant chat with deployment and diagnostic context", async () => {
+    const store = useOverviewStore();
+    const details = deployment("failed");
+    details.services = [
+      { name: "api", image: "api:2", replicas: "3" },
+      { name: "worker", image: "worker:2", replicas: "2" },
+    ];
+    store.deploymentDetailsModalOpen = true;
+    store.deploymentDetailsData = details;
+    const wrapper = mount(DeploymentDetailsModal);
+
+    await wrapper.get(".deployment-attempt-row summary").trigger("click");
+    await wrapper.findAll(".deployment-attempt-details button")[0].trigger("click");
+    await flushPromises();
+
+    expect(store.deploymentDetailsModalOpen).toBe(false);
+    expect(assistantStore.newChat).toHaveBeenCalledOnce();
+    expect(uiStore.openAssistantDrawer).toHaveBeenCalledOnce();
+    expect(assistantStore.sendMessage).toHaveBeenCalledWith([
+      "Explain this deployment error.",
+      "",
+      "deployment_id: one",
+      "stack_name: app",
+      "service_name: api",
+      "error:",
+      "update service api: image not found",
+    ].join("\n"));
+    expect(assistantStore.newChat.mock.invocationCallOrder[0]).toBeLessThan(
+      assistantStore.sendMessage.mock.invocationCallOrder[0],
+    );
     wrapper.unmount();
   });
 

@@ -3,7 +3,9 @@ import yaml from "@speed-highlight/core/languages/yaml.js";
 import { tokenizeWith } from "@speed-highlight/core/tokenize";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import type { DeploymentAttempt, DeploymentChange } from "../../api/types";
+import { useAssistantStore } from "../../stores/assistant";
 import { useOverviewStore } from "../../stores/overview";
+import { useUIStore } from "../../stores/ui";
 import { formatDate, shortCommitHash } from "../../utils/format";
 import DeploymentIcon from "./DeploymentIcon.vue";
 
@@ -23,6 +25,8 @@ type ResourceSection = {
 };
 
 const store = useOverviewStore();
+const assistantStore = useAssistantStore();
+const uiStore = useUIStore();
 const dialog = ref<HTMLElement | null>(null);
 const closeButton = ref<HTMLButtonElement | null>(null);
 function defaultTab(status?: string): DetailsTab {
@@ -283,6 +287,31 @@ async function copyAttemptDiagnostic(attempt: DeploymentAttempt) {
     if (copiedAttemptID.value === attempt.id) copiedAttemptID.value = "";
   }, 1200);
 }
+async function explainAttempt(attempt: DeploymentAttempt) {
+  if (!detail.value || !assistantStore.enabled || assistantStore.pending) return;
+
+  const changedServiceNames = detail.value.changes
+    .filter((change) => change.resourceType.replace(/s$/, "") === "service")
+    .map((change) => change.resourceName)
+    .filter(Boolean);
+  const snapshotServiceNames = (detail.value.services ?? []).map((service) => service.name).filter(Boolean);
+  const serviceNames = [...new Set(changedServiceNames.length > 0 ? changedServiceNames : snapshotServiceNames)];
+  const message = [
+    "Explain this deployment error.",
+    "",
+    `deployment_id: ${detail.value.id}`,
+    `stack_name: ${detail.value.stack}`,
+    `service_name: ${serviceNames.join(", ") || "unknown"}`,
+    "error:",
+    attemptDiagnostic(attempt),
+  ].join("\n");
+
+  returnFocus = null;
+  close();
+  assistantStore.newChat();
+  uiStore.openAssistantDrawer();
+  await assistantStore.sendMessage(message);
+}
 function onKeydown(event: KeyboardEvent) {
   if (!store.deploymentDetailsModalOpen || store.commitDetailsModalOpen) return;
   if (event.key === "Escape") {
@@ -424,7 +453,10 @@ onUnmounted(() => {
                   <div v-if="attempt.status !== 'succeeded'" class="deployment-attempt-details">
                     <div class="deployment-attempt-details-heading">
                       <strong>Diagnostics</strong>
-                      <button type="button" class="button-ghost" @click="copyAttemptDiagnostic(attempt)">{{ copiedAttemptID === attempt.id ? "Copied" : "Copy" }}</button>
+                      <div class="deployment-attempt-details-actions">
+                        <button type="button" class="button-ghost" :disabled="!assistantStore.enabled || assistantStore.pending" @click="explainAttempt(attempt)">Explain</button>
+                        <button type="button" class="button-ghost" @click="copyAttemptDiagnostic(attempt)">{{ copiedAttemptID === attempt.id ? "Copied" : "Copy" }}</button>
+                      </div>
                     </div>
                     <pre><code>{{ attemptDiagnostic(attempt) }}</code></pre>
                   </div>
@@ -685,6 +717,7 @@ onUnmounted(() => {
 .deployment-attempt-details { min-width: 0; padding: 2px 38px 14px 36px; }
 .deployment-attempt-details-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .deployment-attempt-details-heading strong { font-size: .78rem; }
+.deployment-attempt-details-actions { display: flex; align-items: center; gap: 4px; }
 .deployment-attempt-details-heading .button-ghost { flex: 0 0 auto; padding: 4px 7px; font-size: .74rem; }
 .deployment-attempt-details pre {
   box-sizing: border-box;
