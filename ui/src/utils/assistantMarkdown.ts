@@ -1,4 +1,5 @@
 import { escapeHtml } from "./escape";
+import { withWebBasePath } from "../runtimeConfig";
 
 function sanitizeLinkHref(rawHref: string): string {
   const trimmed = String(rawHref || "").trim();
@@ -12,7 +13,10 @@ function sanitizeLinkHref(rawHref: string): string {
   }
 
   try {
-    const parsed = new URL(hrefWithNoTitle, window.location.origin);
+    const resolvedHref = hrefWithNoTitle.startsWith("/") && !hrefWithNoTitle.startsWith("//")
+      ? withWebBasePath(hrefWithNoTitle)
+      : hrefWithNoTitle;
+    const parsed = new URL(resolvedHref, window.location.origin);
     const protocol = parsed.protocol.toLowerCase();
     if (protocol !== "http:" && protocol !== "https:" && protocol !== "mailto:") {
       return "";

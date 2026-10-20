@@ -40,7 +40,7 @@ func TestAuthorizeDispatchesUserAuthenticatedEventOnSessionStart(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	handler := Authorize(next, auth, eventsCapture)
+	handler := Authorize(next, auth, eventsCapture, "/infrastructure/swarm")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/stacks", nil)
 	req.SetBasicAuth("admin", "secret")
 	rec := httptest.NewRecorder()
@@ -50,6 +50,7 @@ func TestAuthorizeDispatchesUserAuthenticatedEventOnSessionStart(t *testing.T) {
 	require.Len(t, captured, 1, "expected one event")
 	require.Len(t, rec.Result().Cookies(), 1, "expected session cookie to be set")
 	assert.Equal(t, authSessionCookieName, rec.Result().Cookies()[0].Name, "expected session cookie name")
+	assert.Equal(t, "/infrastructure/swarm", rec.Result().Cookies()[0].Path, "expected base path cookie scope")
 
 	dispatchedEvent, ok := captured[0].(*events.UserAuthenticated)
 	require.True(t, ok, "expected user authenticated event")
@@ -67,7 +68,7 @@ func TestAuthorizeSkipsDispatchInActiveSession(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
-	handler := Authorize(next, auth, eventsCapture)
+	handler := Authorize(next, auth, eventsCapture, "/")
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/stacks", nil)
 	req.SetBasicAuth("admin", "secret")
 	req.AddCookie(&http.Cookie{
@@ -93,7 +94,7 @@ func TestAuthorizeChallengesWhenAuthenticationFailed(t *testing.T) {
 		nextCalled = true
 	})
 
-	handler := Authorize(next, auth, eventsCapture)
+	handler := Authorize(next, auth, eventsCapture, "/")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
 

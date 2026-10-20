@@ -19,6 +19,7 @@ func Authorize(
 	next http.Handler,
 	auth authenticator.Authenticator,
 	eventDispatcher dispatcher.Dispatcher,
+	cookiePath string,
 ) http.Handler {
 	if auth == nil {
 		return next
@@ -38,7 +39,7 @@ func Authorize(
 					http.Error(w, "event persistence unavailable", http.StatusServiceUnavailable)
 					return
 				}
-				setActiveAuthSession(w)
+				setActiveAuthSession(w, cookiePath)
 			}
 
 			next.ServeHTTP(w, req)
@@ -59,11 +60,11 @@ func hasActiveAuthSession(r *http.Request) bool {
 	return cookie.Value == authSessionCookieValue
 }
 
-func setActiveAuthSession(w http.ResponseWriter) {
+func setActiveAuthSession(w http.ResponseWriter, cookiePath string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     authSessionCookieName,
 		Value:    authSessionCookieValue,
-		Path:     "/",
+		Path:     cookiePath,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})

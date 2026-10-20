@@ -4,7 +4,8 @@ import vue from "@vitejs/plugin-vue";
 const appVersion = process.env.APP_VERSION?.trim() || "dev";
 const buildTime = process.env.BUILD_TIME?.trim() || "";
 
-export default defineConfig({
+export default defineConfig(({ command }) => ({
+  base: command === "build" ? "./" : "/",
   plugins: [vue()],
   test: {
     environment: "jsdom",
@@ -18,4 +19,4 @@ export default defineConfig({
     assetsDir: "assets",
     emptyOutDir: true,
   },
-});
+}));

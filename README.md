@@ -121,6 +121,8 @@ networks:
 
 web:
   address: ":8080"
+  # Optional URL prefix for both UI and API. Defaults to /.
+  basePath: /swarm-deploy
 
 healthServer:
   address: ":8082"
@@ -129,6 +131,8 @@ healthServer:
   healthz:
     path: /healthz
 ```
+
+`web.basePath` defaults to `/`. A trailing slash is normalized, so `/infrastructure/swarm/` serves the UI at `/infrastructure/swarm/` and the API below `/infrastructure/swarm/api/`. The configured value is authoritative; `X-Forwarded-Prefix` is not used. Health, metrics, and webhook endpoints keep their independently configured paths.
 
 Stacks are declared separately:
 

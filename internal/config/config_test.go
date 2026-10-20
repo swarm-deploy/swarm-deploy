@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -406,6 +407,7 @@ stacks:
   file: ./stacks.yaml
 web:
   address: ":18080"
+  basePath: /infrastructure/swarm/
 `)
 	if err := os.WriteFile(configPath, configPayload, 0o600); err != nil {
 		require.NoError(t, err, "write config file")
@@ -414,6 +416,7 @@ web:
 	cfg, err := Load(configPath)
 	require.NoError(t, err, "load config")
 	assert.Equal(t, ":18080", cfg.Spec.Web.Address, "expected web.address")
+	assert.Equal(t, "/infrastructure/swarm", cfg.Spec.Web.BasePath, "expected normalized web.basePath")
 	assert.Equal(t, defaultWebhookAddress, cfg.Spec.Sync.Webhook.Address, "expected sync.webhook.address")
 }
 
@@ -444,7 +447,40 @@ stacks:
 	cfg, err := Load(configPath)
 	require.NoError(t, err, "load config")
 	assert.Equal(t, defaultWebAddress, cfg.Spec.Web.Address, "expected web.address")
+	assert.Equal(t, defaultWebBasePath, cfg.Spec.Web.BasePath, "expected web.basePath")
 	assert.Equal(t, defaultWebhookAddress, cfg.Spec.Sync.Webhook.Address, "expected sync.webhook.address")
+}
+
+func TestValidateWebBasePath(t *testing.T) {
+	testCases := []struct {
+		name     string
+		basePath string
+		wantErr  string
+	}{
+		{name: "root", basePath: "/"},
+		{name: "nested", basePath: "/infrastructure/swarm"},
+		{name: "relative", basePath: "infrastructure/swarm", wantErr: "must start with /"},
+		{name: "query", basePath: "/swarm?mode=all", wantErr: "without query"},
+		{name: "fragment", basePath: "/swarm#status", wantErr: "without query"},
+		{name: "backslash", basePath: `/swarm\\admin`, wantErr: "without query"},
+		{name: "empty segment", basePath: "/infrastructure//swarm", wantErr: "empty path segments"},
+		{name: "current segment", basePath: "/infrastructure/./swarm", wantErr: ". or .."},
+		{name: "parent segment", basePath: "/infrastructure/../swarm", wantErr: ". or .."},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			cfg := &Config{Spec: Spec{Web: WebSpec{BasePath: testCase.basePath}}}
+			err := errors.Join(cfg.validateWeb()...)
+			if testCase.wantErr == "" {
+				require.NoError(t, err, "validate web base path")
+				return
+			}
+
+			require.Error(t, err, "expected validation error")
+			assert.Contains(t, err.Error(), testCase.wantErr, "unexpected validation error")
+		})
+	}
 }
 
 func TestReloadPrefersFirstAvailableBaseDir(t *testing.T) {
