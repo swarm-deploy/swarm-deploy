@@ -40,8 +40,10 @@ func (f *EnvFiles) UnmarshalYAML(node *yaml.Node) error {
 		}
 		*f = files
 		return nil
-	default:
+	case yaml.DocumentNode, yaml.MappingNode, yaml.AliasNode:
 		return fmt.Errorf("env_file must be a path or a list of paths")
+	default:
+		return fmt.Errorf("env_file has invalid YAML node kind %d", node.Kind)
 	}
 }
 
