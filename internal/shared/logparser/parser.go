@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -30,13 +31,29 @@ const (
 
 var levels = []Level{LevelTrace, LevelDebug, LevelInfo, LevelWarn, LevelError, LevelFatal}
 
-var (
-	timestampKeys = []string{"timestamp", "time", "ts", "@timestamp"}
-	levelKeys     = []string{"level", "severity", "severity_text", "log.level"}
-	messageKeys   = []string{"message", "msg"}
+const (
+	unixMillisecondsThreshold = 1e12
+	severityCaptureIndex      = 1
+	plainTextTimestampPattern = `\d{4}-\d{2}-\d{2}(?:T|\s)\d{2}:\d{2}:\d{2}` +
+		`(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?`
+	plainTextLevelPattern = `TRACE|DEBUG|INFO|WARN|WARNING|ERROR|FATAL|CRITICAL`
 )
 
-const unixMillisecondsThreshold = 1e12
+var (
+	timestampKeys = []string{"timestamp", "time", "ts", "@timestamp", "@t"}
+	levelKeys     = []string{"level", "severity", "severity_text", "log.level", "@l"}
+	messageKeys   = []string{"message", "msg", "event", "@m"}
+
+	plainTextLevelPatterns = []*regexp.Regexp{
+		regexp.MustCompile(`(?i)^` + plainTextTimestampPattern + `\s+(` + plainTextLevelPattern + `)\b`),
+		regexp.MustCompile(
+			`(?i)^` + plainTextTimestampPattern + `\s+-\s+[^\r\n]+?\s+-\s+(` +
+				plainTextLevelPattern + `)\s+-\s+`,
+		),
+		regexp.MustCompile(`(?i)^(TRACE|DEBUG|INFO|WARN|WARNING|ERROR|FATAL|CRITICAL):[A-Za-z0-9_.-]+:`),
+		regexp.MustCompile(`(?i)^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} \[(DEBUG|INFO|NOTICE|WARN|ERROR|CRIT|ALERT|EMERG)\]`),
+	}
+)
 
 // Entry is a normalized task log entry.
 type Entry struct {
@@ -80,7 +97,7 @@ func Levels() []Level {
 // ParseLevel converts a user-provided severity into a normalized level.
 func ParseLevel(value string) (Level, bool) {
 	switch strings.ToUpper(strings.TrimSpace(value)) {
-	case "TRACE", "TRC":
+	case "TRACE", "TRC", "VERBOSE":
 		return LevelTrace, true
 	case "DEBUG", "DBG":
 		return LevelDebug, true
@@ -90,7 +107,7 @@ func ParseLevel(value string) (Level, bool) {
 		return LevelWarn, true
 	case "ERROR", "ERR":
 		return LevelError, true
-	case "FATAL", "CRITICAL", "CRIT", "PANIC", "DPANIC", "EMERGENCY", "EMERG":
+	case "FATAL", "CRITICAL", "CRIT", "PANIC", "DPANIC", "EMERGENCY", "EMERG", "ALERT":
 		return LevelFatal, true
 	default:
 		return "", false
@@ -113,8 +130,22 @@ func (p *Parser) Parse(raw RawEntry) Entry {
 	if fields, ok := parseLogfmtFields(raw.Message); ok {
 		return normalizeFields(entry, fields)
 	}
+	if level, ok := parsePlainTextLevel(raw.Message); ok {
+		entry.Level = level
+	}
 
 	return entry
+}
+
+func parsePlainTextLevel(raw string) (Level, bool) {
+	for _, pattern := range plainTextLevelPatterns {
+		matches := pattern.FindStringSubmatch(raw)
+		if len(matches) > severityCaptureIndex {
+			return ParseLevel(matches[severityCaptureIndex])
+		}
+	}
+
+	return "", false
 }
 
 func parseJSONFields(raw string) (map[string]any, bool) {
@@ -217,20 +248,20 @@ func readLogfmtValue(input string) (string, string, bool) {
 func normalizeFields(entry Entry, fields map[string]any) Entry {
 	attributes := cloneFields(fields)
 
-	if timestampValue, key, ok := findField(fields, timestampKeys); ok {
-		delete(attributes, key)
+	if timestampValue, path, ok := findField(fields, timestampKeys); ok {
+		deleteField(attributes, path)
 		if timestamp, parsed := parseTimestamp(timestampValue); parsed {
 			entry.Timestamp = timestamp
 		}
 	}
-	if levelValue, key, ok := findField(fields, levelKeys); ok {
-		delete(attributes, key)
-		if level, parsed := ParseLevel(stringValue(levelValue)); parsed {
+	if levelValue, path, ok := findField(fields, levelKeys); ok {
+		deleteField(attributes, path)
+		if level, parsed := parseStructuredLevel(levelValue); parsed {
 			entry.Level = level
 		}
 	}
-	if messageValue, key, ok := findField(fields, messageKeys); ok {
-		delete(attributes, key)
+	if messageValue, path, ok := findField(fields, messageKeys); ok {
+		deleteField(attributes, path)
 		entry.Message = stringValue(messageValue)
 	}
 
@@ -241,16 +272,94 @@ func normalizeFields(entry Entry, fields map[string]any) Entry {
 	return entry
 }
 
-func findField(fields map[string]any, candidates []string) (any, string, bool) {
+func parseStructuredLevel(value any) (Level, bool) {
+	if number, ok := value.(json.Number); ok {
+		switch number.String() {
+		case "10":
+			return LevelTrace, true
+		case "20":
+			return LevelDebug, true
+		case "30":
+			return LevelInfo, true
+		case "40":
+			return LevelWarn, true
+		case "50":
+			return LevelError, true
+		case "60":
+			return LevelFatal, true
+		}
+	}
+
+	return ParseLevel(stringValue(value))
+}
+
+func findField(fields map[string]any, candidates []string) (any, []string, bool) {
 	for _, candidate := range candidates {
-		for key, value := range fields {
-			if strings.EqualFold(key, candidate) {
-				return value, key, true
-			}
+		if value, key, ok := findMapField(fields, candidate); ok {
+			return value, []string{key}, true
+		}
+		if !strings.Contains(candidate, ".") {
+			continue
+		}
+		if value, path, ok := findNestedField(fields, strings.Split(candidate, ".")); ok {
+			return value, path, true
+		}
+	}
+
+	return nil, nil, false
+}
+
+func findNestedField(fields map[string]any, candidates []string) (any, []string, bool) {
+	current := fields
+	path := make([]string, 0, len(candidates))
+
+	for index, candidate := range candidates {
+		value, key, ok := findMapField(current, candidate)
+		if !ok {
+			return nil, nil, false
+		}
+		path = append(path, key)
+		if index == len(candidates)-1 {
+			return value, path, true
+		}
+
+		current, ok = value.(map[string]any)
+		if !ok {
+			return nil, nil, false
+		}
+	}
+
+	return nil, nil, false
+}
+
+func findMapField(fields map[string]any, candidate string) (any, string, bool) {
+	for key, value := range fields {
+		if strings.EqualFold(key, candidate) {
+			return value, key, true
 		}
 	}
 
 	return nil, "", false
+}
+
+func deleteField(fields map[string]any, path []string) {
+	if len(path) == 0 {
+		return
+	}
+	if len(path) == 1 {
+		delete(fields, path[0])
+
+		return
+	}
+
+	nested, ok := fields[path[0]].(map[string]any)
+	if !ok {
+		return
+	}
+	deleteField(nested, path[1:])
+	if len(nested) == 0 {
+		delete(fields, path[0])
+	}
 }
 
 func cloneFields(fields map[string]any) map[string]any {

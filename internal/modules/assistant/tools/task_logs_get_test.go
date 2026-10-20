@@ -88,7 +88,7 @@ func TestGetTaskLogsRejectsInvalidRequests(t *testing.T) {
 		{name: "zero limit", request: getTaskLogsRequest{TaskID: "task", Limit: intPointer(0)}, message: "limit must be > 0"},
 		{name: "excessive limit", request: getTaskLogsRequest{TaskID: "task", Limit: intPointer(maxTaskLogsLimit + 1)}, message: "limit must be <="},
 		{name: "levels without parsing", request: getTaskLogsRequest{TaskID: "task", Levels: []string{"ERROR"}}, message: "parse=true"},
-		{name: "unknown level", request: getTaskLogsRequest{TaskID: "task", Parse: true, Levels: []string{"VERBOSE"}}, message: "unsupported log level"},
+		{name: "unknown level", request: getTaskLogsRequest{TaskID: "task", Parse: true, Levels: []string{"CUSTOM"}}, message: "unsupported log level"},
 		{name: "invalid range", request: getTaskLogsRequest{TaskID: "task", Since: "2026-10-20T00:00:00Z", Until: "2026-10-19T00:00:00Z"}, message: "since must be before"},
 	}
 
