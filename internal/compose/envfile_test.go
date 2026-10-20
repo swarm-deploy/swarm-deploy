@@ -42,9 +42,9 @@ func TestEnvFilesYAML(t *testing.T) {
 	}{
 		{name: "single path", source: "env_file: app.env", paths: []string{"app.env"}},
 		{name: "absolute path", source: "env_file: /etc/app.env", paths: []string{"/etc/app.env"}},
-		{name: "list", source: "env_file:\\n  - default.env\\n  - prod.env", paths: []string{"default.env", "prod.env"}},
+		{name: "list", source: "env_file:\n  - default.env\n  - prod.env", paths: []string{"default.env", "prod.env"}},
 		{name: "flow list", source: "env_file: [default.env, prod.env]", paths: []string{"default.env", "prod.env"}},
-		{name: "mapping remains unsupported", source: "env_file:\\n  path: app.env", wantErr: true},
+		{name: "mapping remains unsupported", source: "env_file:\n  path: app.env", wantErr: true},
 	}
 
 	for _, tt := range tests {
@@ -75,7 +75,7 @@ func TestEnvFilesYAML(t *testing.T) {
 
 func TestComposeSingleEnvFile(t *testing.T) {
 	var compose Compose
-	err := yaml.Unmarshal([]byte("services:\\n  app:\\n    image: nginx:latest\\n    env_file: app.env\\n"), &compose)
+	err := yaml.Unmarshal([]byte("services:\n  app:\n    image: nginx:latest\n    env_file: app.env\n"), &compose)
 	require.NoError(t, err)
 	require.Len(t, compose.Services, 1)
 	require.Len(t, compose.Services[0].EnvFiles, 1)
