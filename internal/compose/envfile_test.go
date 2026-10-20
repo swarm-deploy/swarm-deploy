@@ -33,6 +33,55 @@ func TestEnvFileYAML(t *testing.T) {
 	}
 }
 
+func TestEnvFilesYAML(t *testing.T) {
+	tests := []struct {
+		name    string
+		source  string
+		paths   []string
+		wantErr bool
+	}{
+		{name: "single path", source: "env_file: app.env", paths: []string{"app.env"}},
+		{name: "absolute path", source: "env_file: /etc/app.env", paths: []string{"/etc/app.env"}},
+		{name: "list", source: "env_file:\\n  - default.env\\n  - prod.env", paths: []string{"default.env", "prod.env"}},
+		{name: "flow list", source: "env_file: [default.env, prod.env]", paths: []string{"default.env", "prod.env"}},
+		{name: "mapping remains unsupported", source: "env_file:\\n  path: app.env", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var service Service
+			err := yaml.Unmarshal([]byte(tt.source), &service)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+
+			paths := make([]string, 0, len(service.EnvFiles))
+			for _, file := range service.EnvFiles {
+				paths = append(paths, file.Path)
+			}
+			assert.Equal(t, tt.paths, paths)
+
+			// Marshal back to the established list representation.
+			encoded, err := yaml.Marshal(service.EnvFiles)
+			require.NoError(t, err)
+			var decoded []string
+			require.NoError(t, yaml.Unmarshal(encoded, &decoded))
+			assert.Equal(t, tt.paths, decoded)
+		})
+	}
+}
+
+func TestComposeSingleEnvFile(t *testing.T) {
+	var compose Compose
+	err := yaml.Unmarshal([]byte("services:\\n  app:\\n    image: nginx:latest\\n    env_file: app.env\\n"), &compose)
+	require.NoError(t, err)
+	require.Len(t, compose.Services, 1)
+	require.Len(t, compose.Services[0].EnvFiles, 1)
+	assert.Equal(t, "app.env", compose.Services[0].EnvFiles[0].Path)
+}
+
 func TestEnvFilePopulatorPopulate(t *testing.T) {
 	baseDir := filepath.Join("repo", "deploy")
 	composePath := filepath.Join(baseDir, "compose.yaml")
@@ -44,7 +93,7 @@ func TestEnvFilePopulatorPopulate(t *testing.T) {
 			Services: Services{
 				{
 					Name: "api",
-					EnvFiles: []EnvFile{
+					EnvFiles: EnvFiles{
 						{
 							Path: "default.env",
 							Variables: map[string]string{
@@ -103,7 +152,7 @@ func TestEnvFilePopulatorLaterEnvFileWins(t *testing.T) {
 			Services: Services{
 				{
 					Name: "api",
-					EnvFiles: []EnvFile{
+					EnvFiles: EnvFiles{
 						{Path: "first.env", Variables: map[string]string{"FOO": "first"}},
 						{Path: "second.env", Variables: map[string]string{"FOO": "second"}},
 					},
@@ -126,7 +175,7 @@ func TestEnvFilePopulatorExplicitEnvironmentWins(t *testing.T) {
 			Services: Services{
 				{
 					Name: "api",
-					EnvFiles: []EnvFile{{
+					EnvFiles: EnvFiles{{
 						Path:      "app.env",
 						Variables: map[string]string{"FOO": "from-file"},
 					}},
