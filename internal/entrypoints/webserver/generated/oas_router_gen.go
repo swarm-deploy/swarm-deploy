@@ -73,6 +73,31 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 			switch elem[0] {
+			case 'a': // Prefix: "assistant/suggestions"
+
+				if l := len("assistant/suggestions"); len(elem) >= l && elem[0:l] == "assistant/suggestions" {
+					elem = elem[l:]
+				} else {
+					break
+				}
+
+				if len(elem) == 0 {
+					// Leaf node.
+					switch r.Method {
+					case "GET":
+						s.handleGetAssistantSuggestionsRequest([0]string{}, elemIsEscaped, w, r)
+					default:
+						s.notAllowed(w, r, notAllowedParams{
+							allowedMethods: "GET",
+							allowedHeaders: nil,
+							acceptPost:     "",
+							acceptPatch:    "",
+						})
+					}
+
+					return
+				}
+
 			case 't': // Prefix: "tasks/"
 
 				if l := len("tasks/"); len(elem) >= l && elem[0:l] == "tasks/" {
@@ -1305,6 +1330,31 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 				break
 			}
 			switch elem[0] {
+			case 'a': // Prefix: "assistant/suggestions"
+
+				if l := len("assistant/suggestions"); len(elem) >= l && elem[0:l] == "assistant/suggestions" {
+					elem = elem[l:]
+				} else {
+					break
+				}
+
+				if len(elem) == 0 {
+					// Leaf node.
+					switch method {
+					case "GET":
+						r.name = GetAssistantSuggestionsOperation
+						r.summary = ""
+						r.operationID = "getAssistantSuggestions"
+						r.operationGroup = ""
+						r.pathPattern = "/api/assistant/suggestions"
+						r.args = args
+						r.count = 0
+						return r, true
+					default:
+						return
+					}
+				}
+
 			case 't': // Prefix: "tasks/"
 
 				if l := len("tasks/"); len(elem) >= l && elem[0:l] == "tasks/" {

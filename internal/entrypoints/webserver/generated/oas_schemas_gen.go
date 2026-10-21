@@ -877,6 +877,58 @@ func (s *AssistantChatsResponse) SetChats(val []AssistantChatSummary) {
 	s.Chats = val
 }
 
+// Ref: #/components/schemas/AssistantSuggestion
+type AssistantSuggestion struct {
+	ID     string `json:"id"`
+	Title  string `json:"title"`
+	Prompt string `json:"prompt"`
+}
+
+// GetID returns the value of ID.
+func (s *AssistantSuggestion) GetID() string {
+	return s.ID
+}
+
+// GetTitle returns the value of Title.
+func (s *AssistantSuggestion) GetTitle() string {
+	return s.Title
+}
+
+// GetPrompt returns the value of Prompt.
+func (s *AssistantSuggestion) GetPrompt() string {
+	return s.Prompt
+}
+
+// SetID sets the value of ID.
+func (s *AssistantSuggestion) SetID(val string) {
+	s.ID = val
+}
+
+// SetTitle sets the value of Title.
+func (s *AssistantSuggestion) SetTitle(val string) {
+	s.Title = val
+}
+
+// SetPrompt sets the value of Prompt.
+func (s *AssistantSuggestion) SetPrompt(val string) {
+	s.Prompt = val
+}
+
+// Ref: #/components/schemas/AssistantSuggestionsResponse
+type AssistantSuggestionsResponse struct {
+	Suggestions []AssistantSuggestion `json:"suggestions"`
+}
+
+// GetSuggestions returns the value of Suggestions.
+func (s *AssistantSuggestionsResponse) GetSuggestions() []AssistantSuggestion {
+	return s.Suggestions
+}
+
+// SetSuggestions sets the value of Suggestions.
+func (s *AssistantSuggestionsResponse) SetSuggestions(val []AssistantSuggestion) {
+	s.Suggestions = val
+}
+
 // Ref: #/components/schemas/AssistantTokenUsage
 type AssistantTokenUsage struct {
 	InputTokens  int64 `json:"input_tokens"`

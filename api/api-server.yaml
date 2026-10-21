@@ -8,6 +8,8 @@ info:
 servers:
   - url: http://localhost:8080
 paths:
+  /api/assistant/suggestions:
+    $ref: './assistant.yaml#/paths/~1api~1assistant~1suggestions'
   /api/v1/deployments:
     $ref: './deployments.yaml#/paths/~1api~1v1~1deployments'
   /api/v1/deployments/filters:
@@ -72,6 +74,10 @@ paths:
     $ref: './users.yaml#/paths/~1api~1v1~1users~1me'
 components:
   schemas:
+    AssistantSuggestion:
+      $ref: './assistant.yaml#/components/schemas/AssistantSuggestion'
+    AssistantSuggestionsResponse:
+      $ref: './assistant.yaml#/components/schemas/AssistantSuggestionsResponse'
     DeploymentFilterOptions:
       $ref: './deployments.yaml#/components/schemas/DeploymentFilterOptions'
     DeploymentFilterService:

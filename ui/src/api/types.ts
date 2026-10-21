@@ -441,6 +441,16 @@ export interface AssistantChatsResponse {
   chats: AssistantChatSummary[];
 }
 
+export interface AssistantSuggestion {
+  id: string;
+  title: string;
+  prompt: string;
+}
+
+export interface AssistantSuggestionsResponse {
+  suggestions: AssistantSuggestion[];
+}
+
 export interface AssistantChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
