@@ -133,6 +133,10 @@ type TaskLogsOptions struct {
 	Follow bool
 	// Limit is max number of latest lines to return before following.
 	Limit int
+	// Since defines an optional inclusive lower bound for Docker log timestamps.
+	Since *time.Time
+	// Until defines an optional inclusive upper bound for Docker log timestamps.
+	Until *time.Time
 }
 
 // LogEntry contains one normalized Docker log line.

@@ -29,6 +29,10 @@ type Handler interface {
 	//
 	// GET /api/v1/assistant/chats/{conversationID}
 	GetAssistantChat(ctx context.Context, params GetAssistantChatParams) (*AssistantChatHistory, error)
+	// GetAssistantSuggestions implements getAssistantSuggestions operation.
+	//
+	// GET /api/assistant/suggestions
+	GetAssistantSuggestions(ctx context.Context) (*AssistantSuggestionsResponse, error)
 	// GetCurrentUser implements getCurrentUser operation.
 	//
 	// GET /api/v1/users/me

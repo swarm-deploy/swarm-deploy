@@ -17,7 +17,7 @@ The selected route controls the additional prompt fragment, available tools, and
 
 Successful single calls to `service_restart_trigger` and `service_replicas_set` are terminal assistant actions. After the existing tool-result injection guard passes, the assistant formats their typed result directly instead of issuing a second model completion. Tool errors, malformed results, non-terminal tools, and iterations containing multiple calls continue through the regular model tool loop.
 
-The assistant chat span records request-size diagnostics without recording prompt or user content: `swarm-deploy.assistant.request.system_prompt_chars`, `swarm-deploy.assistant.request.history_chars`, `swarm-deploy.assistant.request.context_chars`, `swarm-deploy.assistant.request.user_message_chars`, `swarm-deploy.assistant.request.tools_chars`, `swarm-deploy.assistant.request.message_count`, and `swarm-deploy.assistant.request.tool_count`. It also records `swarm-deploy.assistant.route` and, for a completed terminal action, `swarm-deploy.assistant.terminal_tool`. MCP tool execution spans use the OpenTelemetry GenAI attribute `gen_ai.operation.name=execute_tool`.
+The assistant chat span records request-size diagnostics without recording prompt or user content: `swarm-deploy.assistant.request.system_prompt_chars`, `swarm-deploy.assistant.request.history_chars`, `swarm-deploy.assistant.request.context_chars`, `swarm-deploy.assistant.request.user_message_chars`, `swarm-deploy.assistant.request.tools_chars`, `swarm-deploy.assistant.request.message_count`, and `swarm-deploy.assistant.request.tool_count`. It also records `swarm-deploy.assistant.route` and, for a completed terminal action, `swarm-deploy.assistant.terminal_tool`. MCP tool execution spans use the OpenTelemetry GenAI attribute `gen_ai.operation.name=execute_tool`. Log tool results are excluded from span attributes; only their encoded character count is recorded.
 
 ## API
 
@@ -87,6 +87,12 @@ Completed user/assistant turns are persisted under `.swarm-deploy/assistant/chat
 - `docker_network_list` - returns current Docker networks snapshot (`name`, `scope`, `driver`, `internal`, `attachable`, `ingress`, `labels`)
 - `docker_plugin_list` - returns current Docker plugins snapshot (`id`, `name`, `description`, `enabled`, `plugin_reference`, `capabilities`)
 - `docker_secret_list` - returns current Docker secrets snapshot (`id`, `name`, `created_at`, `updated_at`, `driver`, `labels`)
+- `service_logs_get` - returns bounded recent logs for a stack service
+- `service_task_list` - returns all Docker Swarm task states for a stack service, newest first
+  - requires `stack_name` and `service_name`; `limit` defaults to `20` and is capped at `100`; use `next_offset` as `offset` to access older tasks
+  - each task contains `id`, `node`, `state`, `error`, `created_at`, and `updated_at`; terminal states such as `failed`, `rejected`, and `shutdown` are retained
+  - use the returned task `id` with `service_task_logs_get`
+- `service_task_logs_get` - returns bounded logs for a Docker task, with optional shared JSON/logfmt parsing, normalized level filters, and time bounds
 - `service_replicas_set` - updates desired replicas count for a specific stack service
 - `service_restart_trigger` - restarts service by scaling replicas to `0` and restoring previous count
 - `service_webroute_ping` - checks web routes for a specific service from `service.store` and returns HTTP results for each route

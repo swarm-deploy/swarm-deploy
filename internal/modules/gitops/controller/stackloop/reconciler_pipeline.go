@@ -300,8 +300,8 @@ func (r *Reconciler) normalizeRenderedObjectFilePaths(file *compose.File) {
 	}
 }
 
-func normalizeEnvFiles(repoDir, baseDir string, envFiles []compose.EnvFile) []compose.EnvFile {
-	result := make([]compose.EnvFile, len(envFiles))
+func normalizeEnvFiles(repoDir, baseDir string, envFiles compose.EnvFiles) compose.EnvFiles {
+	result := make(compose.EnvFiles, len(envFiles))
 
 	for i, file := range envFiles {
 		result[i] = file

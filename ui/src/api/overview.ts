@@ -16,6 +16,7 @@ import type {
   ServiceStatusResponse,
   StackManifestosResponse,
   StacksResponse,
+	TaskLogLevel,
 } from "./types";
 
 export function fetchAlerts(options: { status?: AlertStatus; limit?: number } = {}): Promise<AlertsResponse> {
@@ -138,11 +139,32 @@ export function fetchServiceRealtime(stackName: string, serviceName: string): Pr
   return apiRequest<ServiceRealtimeResponse>(`/api/v1/stacks/${encodedStack}/services/${encodedService}/realtime`);
 }
 
-export function openTaskLogsStream(taskID: string, options?: { follow?: boolean; tail?: number }): EventSource {
+export interface OpenTaskLogsOptions {
+  follow?: boolean;
+  tail?: number;
+  parse?: boolean;
+  levels?: TaskLogLevel[];
+  since?: string;
+  until?: string;
+}
+
+export function openTaskLogsStream(taskID: string, options: OpenTaskLogsOptions = {}): EventSource {
   const encodedTaskID = encodeURIComponent(taskID);
   const params = new URLSearchParams();
-  params.set("follow", String(options?.follow ?? true));
-  params.set("tail", String(options?.tail ?? 200));
+  params.set("follow", String(options.follow ?? true));
+  params.set("tail", String(options.tail ?? 200));
+  if (options.parse) {
+    params.set("parse", "true");
+    for (const level of options.levels ?? []) {
+      params.append("levels", level);
+    }
+  }
+  if (options.since) {
+    params.set("since", options.since);
+  }
+  if (options.until) {
+    params.set("until", options.until);
+  }
 
   return new EventSource(withWebBasePath(`/api/tasks/${encodedTaskID}/logs?${params.toString()}`));
 }

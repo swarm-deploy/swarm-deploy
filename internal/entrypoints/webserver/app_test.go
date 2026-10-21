@@ -18,6 +18,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources"
 	resourcesecrets "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets"
 	secretstore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/logparser"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 	"github.com/swarm-deploy/swarm-deploy/ui"
@@ -28,18 +29,20 @@ func TestUIRoutes(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	gitRepository := gitx.NewMockRepository(ctrl)
 	secretsStore := secretstore.NewSQLStore(testutil.OpenSQLite(t))
+	serviceManager := swarm.NewMockServiceManager(ctrl)
 
 	app, err := NewApplication(
 		":0",
 		"/",
 		nil,
 		&gitops.Module{GitRepository: gitRepository},
-		&swarm.Swarm{},
+		&swarm.Swarm{Services: serviceManager},
 		&event.Module{},
 		&resources.Module{Secrets: &resourcesecrets.Domain{Store: secretsStore}},
 		nil,
 		nil,
 		nil,
+		logparser.NewService(serviceManager),
 		config.AuthenticationSpec{},
 	)
 	require.NoError(t, err, "new application")
@@ -262,7 +265,7 @@ func TestEmbeddedUIWithBasePath(t *testing.T) {
 
 			redirect := request(testCase.prefix + "/ui")
 			assert.Equal(t, http.StatusMovedPermanently, redirect.Code)
-			assert.Equal(t, testCase.prefix + "/overview", redirect.Header().Get("Location"))
+			assert.Equal(t, testCase.prefix+"/overview", redirect.Header().Get("Location"))
 
 			if testCase.prefix != "" {
 				outsideAPI := request("/api/v1/stacks")

@@ -476,6 +476,37 @@ func (s *AssistantChatsResponse) Validate() error {
 	return nil
 }
 
+func (s *AssistantSuggestionsResponse) Validate() error {
+	if s == nil {
+		return validate.ErrNilPointer
+	}
+
+	var failures []validate.FieldError
+	if err := func() error {
+		if s.Suggestions == nil {
+			return errors.New("nil is invalid value")
+		}
+		if err := (validate.Array{
+			MinLength:    0,
+			MinLengthSet: false,
+			MaxLength:    4,
+			MaxLengthSet: true,
+		}).ValidateLength(len(s.Suggestions)); err != nil {
+			return errors.Wrap(err, "array")
+		}
+		return nil
+	}(); err != nil {
+		failures = append(failures, validate.FieldError{
+			Name:  "suggestions",
+			Error: err,
+		})
+	}
+	if len(failures) > 0 {
+		return &validate.Error{Fields: failures}
+	}
+	return nil
+}
+
 func (s *AssistantTokenUsage) Validate() error {
 	if s == nil {
 		return validate.ErrNilPointer

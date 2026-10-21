@@ -1,4 +1,14 @@
 paths:
+  /api/assistant/suggestions:
+    get:
+      operationId: getAssistantSuggestions
+      responses:
+        '200':
+          description: Best-effort assistant suggestions for an empty chat.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AssistantSuggestionsResponse'
   /api/v1/assistant/chat:
     post:
       operationId: assistantChat
@@ -44,6 +54,25 @@ paths:
                 $ref: '#/components/schemas/AssistantChatHistory'
 components:
   schemas:
+    AssistantSuggestion:
+      type: object
+      required: [id, title, prompt]
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        prompt:
+          type: string
+    AssistantSuggestionsResponse:
+      type: object
+      required: [suggestions]
+      properties:
+        suggestions:
+          type: array
+          maxItems: 4
+          items:
+            $ref: '#/components/schemas/AssistantSuggestion'
     AssistantChatRequest:
       type: object
       properties:

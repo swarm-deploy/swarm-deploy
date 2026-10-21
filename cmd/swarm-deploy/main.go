@@ -32,6 +32,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/buildinfo"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/logparser"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -171,6 +172,7 @@ func main() {
 	}
 
 	cnt.Swarm = swarm.NewSwarm(dockerClient, cfg.Spec.Swarm.Command)
+	cnt.TaskLogs = logparser.NewService(cnt.Swarm.Services)
 	cnt.Deployer = deployer.NewDeployer(
 		cfg.Spec.Swarm.InitJobPollEvery.Value,
 		cfg.Spec.Swarm.InitJobMaxDuration.Value,
@@ -208,6 +210,7 @@ func main() {
 		cnt.Recommendations.Store,
 		cnt.AlertManagement.Store,
 		cnt.Assistant.Service,
+		cnt.TaskLogs,
 		cfg.Spec.Web.Security.Authentication,
 	)
 	if err != nil {
@@ -322,6 +325,7 @@ type container struct {
 	FileSystem      fs.FileSystem
 	Metrics         *metrics.Group
 	Swarm           *swarm.Swarm
+	TaskLogs        *logparser.Service
 	EventDispatcher dispatcher.Dispatcher
 	Deployer        deployer.StackDeployer
 	ConfigStore     *configstore.ConfigStore
@@ -347,6 +351,11 @@ func (c *container) GetMetrics() *metrics.Group {
 
 func (c *container) GetSwarm() *swarm.Swarm {
 	return c.Swarm
+}
+
+// GetTaskLogs returns the shared task log parsing and filtering service.
+func (c *container) GetTaskLogs() *logparser.Service {
+	return c.TaskLogs
 }
 
 func (c *container) GetEventModule() *event.Module {

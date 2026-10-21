@@ -850,6 +850,14 @@ type GetTaskLogsParams struct {
 	TaskID string
 	Follow OptBool  `json:",omitempty,omitzero"`
 	Tail   OptInt32 `json:",omitempty,omitzero"`
+	// Parse JSON/logfmt entries and emit normalized structured fields.
+	Parse OptBool `json:",omitempty,omitzero"`
+	// Normalized level filters applied on the backend when parsing is enabled.
+	Levels []string `json:",omitempty"`
+	// Optional inclusive lower Docker log timestamp bound.
+	Since OptDateTime `json:",omitempty,omitzero"`
+	// Optional inclusive upper Docker log timestamp bound.
+	Until OptDateTime `json:",omitempty,omitzero"`
 }
 
 func unpackGetTaskLogsParams(packed middleware.Parameters) (params GetTaskLogsParams) {
@@ -876,6 +884,42 @@ func unpackGetTaskLogsParams(packed middleware.Parameters) (params GetTaskLogsPa
 		}
 		if v, ok := packed[key]; ok {
 			params.Tail = v.(OptInt32)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "parse",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Parse = v.(OptBool)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "levels",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Levels = v.([]string)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "since",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Since = v.(OptDateTime)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "until",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.Until = v.(OptDateTime)
 		}
 	}
 	return params
@@ -1061,6 +1105,177 @@ func decodeGetTaskLogsParams(args [1]string, argsEscaped bool, r *http.Request) 
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "tail",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Set default value for query: parse.
+	{
+		val := bool(false)
+		params.Parse.SetTo(val)
+	}
+	// Decode query: parse.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "parse",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotParseVal bool
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToBool(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotParseVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.Parse.SetTo(paramsDotParseVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "parse",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: levels.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "levels",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				return d.DecodeArray(func(d uri.Decoder) error {
+					var paramsDotLevelsVal string
+					if err := func() error {
+						val, err := d.DecodeValue()
+						if err != nil {
+							return err
+						}
+
+						c, err := conv.ToString(val)
+						if err != nil {
+							return err
+						}
+
+						paramsDotLevelsVal = c
+						return nil
+					}(); err != nil {
+						return err
+					}
+					params.Levels = append(params.Levels, paramsDotLevelsVal)
+					return nil
+				})
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "levels",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: since.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "since",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotSinceVal time.Time
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToDateTime(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotSinceVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.Since.SetTo(paramsDotSinceVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "since",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: until.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "until",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotUntilVal time.Time
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToDateTime(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotUntilVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.Until.SetTo(paramsDotUntilVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "until",
 			In:   "query",
 			Err:  err,
 		}

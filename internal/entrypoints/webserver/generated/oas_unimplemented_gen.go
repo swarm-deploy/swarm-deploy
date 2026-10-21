@@ -50,6 +50,13 @@ func (UnimplementedHandler) GetAssistantChat(ctx context.Context, params GetAssi
 	return r, ht.ErrNotImplemented
 }
 
+// GetAssistantSuggestions implements getAssistantSuggestions operation.
+//
+// GET /api/assistant/suggestions
+func (UnimplementedHandler) GetAssistantSuggestions(ctx context.Context) (r *AssistantSuggestionsResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetCurrentUser implements getCurrentUser operation.
 //
 // GET /api/v1/users/me

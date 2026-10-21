@@ -41,6 +41,8 @@ var capabilityProfiles = map[Capability]CapabilityProfile{
 	CapabilityServiceRuntime: {
 		Tools: []string{
 			"service_logs_get",
+			"service_task_list",
+			"service_task_logs_get",
 			"service_spec_get",
 			"service_webroute_ping",
 			"dependency_graph_get",
