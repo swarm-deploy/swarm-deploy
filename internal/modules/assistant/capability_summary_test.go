@@ -48,7 +48,7 @@ func TestCapabilitySummaryRespectsRegistrationAndAllowlist(t *testing.T) {
 				assert.NotContains(t, summary, absent)
 			}
 			require.True(t, strings.Contains(summary, "informational"))
-			assert.Contains(t, summary, "confirmation required")
+			assert.Contains(t, summary, "does not grant tool access")
 		})
 	}
 }
@@ -59,6 +59,6 @@ func TestCapabilitySummaryStable(t *testing.T) {
 	}
 	assert.Equal(t, g.capabilitySummary(), g.capabilitySummary())
 	assert.Contains(t, g.capabilitySummary(), "service_logs_get")
-	assert.Contains(t, g.capabilitySummary(), "service_task_list")
+	assert.Contains(t, g.capabilitySummary(), "service_spec_get")
 	assert.NotContains(t, g.capabilitySummary(), "assistant_prompt_injection_report")
 }
