@@ -897,7 +897,18 @@ func TestAddDownwardPreservesExistingVariableAndAddsMissingOnes(t *testing.T) {
 	assert.Equal(t, "{{.Task.ID}}", environment[downward.EnvTaskID], "expected missing downward variable")
 }
 
-func TestReconcilePrunesServicesForSkippedManualSync(t *testing.T) {
+func TestReconcilePrunesServicesWithoutNewDeployment(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		manual      bool
+		globalPrune bool
+		stackPrune  *bool
+	}{
+		{name: "manual sync", manual: true, globalPrune: true},
+		{name: "periodic sync with global policy", globalPrune: true},
+		{name: "periodic sync with stack policy", stackPrune: boolRef(true)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	repository := gitx.NewMockRepository(ctrl)
 	serviceManager := swarm.NewMockServiceManager(ctrl)
@@ -942,7 +953,7 @@ func TestReconcilePrunesServicesForSkippedManualSync(t *testing.T) {
 				DataDir: filepath.Join(repoDir, ".data"),
 				Sync: config.SyncSpec{
 					Policy: config.SyncPolicySpec{
-						Prune: true,
+						Prune: tc.globalPrune,
 					},
 				},
 			},
@@ -952,7 +963,7 @@ func TestReconcilePrunesServicesForSkippedManualSync(t *testing.T) {
 		event:          eventDispatcher,
 		deployMetrics:  deployMetrics,
 		stateStore:     stateStore,
-		pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{Prune: true}),
+		pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{Prune: tc.globalPrune}),
 		composeLoader:  loader,
 		composeRotator: NewRotator(fs.NewLocalFileSystem()),
 		serviceManager: serviceManager,
@@ -965,15 +976,18 @@ func TestReconcilePrunesServicesForSkippedManualSync(t *testing.T) {
 		Stack: config.StackSpec{
 			Name:        "app",
 			ComposeFile: "app.yaml",
+			Sync: config.StackSyncSpec{Policy: config.StackSyncPolicySpec{Prune: tc.stackPrune}},
 		},
 		Commit:   "commit-4",
-		IsManual: true,
+		IsManual: tc.manual,
 	})
 
 	require.NoError(t, reconcileErr, "reconcile")
 	stackState, exists := readSQLState(t, stateStore).Stacks["app"]
 	require.True(t, exists, "expected stack state")
 	assert.Equal(t, stackFile.Digest, stackState.SourceDigest, "expected persisted digest to remain unchanged")
+		})
+	}
 }
 
 func TestReconcileServiceMissedEventOnDrift(t *testing.T) {
