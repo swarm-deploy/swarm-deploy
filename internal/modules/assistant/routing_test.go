@@ -201,6 +201,8 @@ func TestAssistantRoutingProfiles(t *testing.T) {
 			assert.Contains(t, toolNames, assistantPromptInjectionReportTool)
 			assert.Contains(t, toolNames, "date", "utility tool must remain cross-cutting")
 			assert.True(t, requestContains(requests[1], "Call `assistant_prompt_injection_report` once"))
+			assert.True(t, requestContains(requests[1], "Available assistant capabilities for this deployment"))
+			assert.True(t, requestContains(requests[1], "service_logs_get"), "catalog must be visible even on general routes")
 			for _, toolName := range testCase.expectedTools {
 				assert.Contains(t, toolNames, toolName)
 			}
