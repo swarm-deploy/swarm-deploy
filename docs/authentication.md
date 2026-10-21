@@ -4,6 +4,8 @@ swarm-deploy can protect the web UI and REST API with built-in HTTP Basic authen
 
 Authentication is configured under `web.security.authentication`.
 
+When `web.basePath` is configured, authentication covers the UI and API below that prefix and the authentication session cookie is scoped to the same path.
+
 ## HTTP Basic authentication
 
 Basic authentication is useful for small or internal installations where a separate identity-aware proxy is not needed.

@@ -1,4 +1,5 @@
 import { apiRequest } from "./client";
+import { withWebBasePath } from "../runtimeConfig";
 import type {
   AlertsResponse,
   DeploymentsResponse,
@@ -165,7 +166,7 @@ export function openTaskLogsStream(taskID: string, options: OpenTaskLogsOptions 
     params.set("until", options.until);
   }
 
-  return new EventSource(`/api/tasks/${encodedTaskID}/logs?${params.toString()}`);
+  return new EventSource(withWebBasePath(`/api/tasks/${encodedTaskID}/logs?${params.toString()}`));
 }
 
 export function fetchStackManifestos(stackName: string): Promise<StackManifestosResponse> {

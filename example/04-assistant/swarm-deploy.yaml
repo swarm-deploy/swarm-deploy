@@ -178,6 +178,8 @@ swarm:
 web:
   # Single web server listen address for UI and API.
   address: ":8080"
+  # URL prefix for UI and API routes. Use / for root deployment.
+  basePath: /
   # UI/API access control settings.
   security:
     authentication:

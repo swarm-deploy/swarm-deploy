@@ -201,6 +201,7 @@ func main() {
 
 	webApplication, err := webserver.NewApplication(
 		cfg.Spec.Web.Address,
+		cfg.Spec.Web.BasePath,
 		cnt.ConfigStore,
 		cnt.GitOps,
 		cnt.Swarm,
@@ -268,6 +269,7 @@ func main() {
 
 	slog.InfoContext(ctx, "starting swarm deploy",
 		slog.String("web.address", cfg.Spec.Web.Address),
+		slog.String("web.basePath", cfg.Spec.Web.BasePath),
 		slog.String("web.security", cfg.Spec.Web.Security.Authentication.Strategy()),
 		slog.String("webhook.address", cfg.Spec.Sync.Webhook.Address),
 		slog.Bool("webhook.enabled", cfg.Spec.Sync.Webhook.Enabled),

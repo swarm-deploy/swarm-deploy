@@ -1,5 +1,7 @@
 import { createRouter, createWebHistory } from "vue-router";
 
+import { getWebBasePath } from "../runtimeConfig";
+
 import ServicesView from "../views/ApplicationsView.vue";
 import DeploymentsView from "../views/DeploymentsView.vue";
 import ClusterView from "../views/ClusterView.vue";
@@ -12,7 +14,7 @@ import SecretsView from "../views/SecretsView.vue";
 import ServiceView from "../views/ServiceView.vue";
 
 export const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHistory(getWebBasePath()),
   routes: [
     { path: "/deployments", name: "deployments", component: DeploymentsView },
     {

@@ -30,6 +30,7 @@ const (
 	AuthenticationStrategyAuthProxy = "auth_proxy"
 
 	defaultWebAddress              = ":8080"
+	defaultWebBasePath             = "/"
 	defaultWebhookAddress          = ":8082"
 	defaultEventHistoryCap         = 500
 	defaultSyncPollInterval        = 30 * time.Second
@@ -319,6 +320,7 @@ func (c *Config) applyWebAndHealthDefaults() {
 	if strings.TrimSpace(c.Spec.Web.Address) == "" {
 		c.Spec.Web.Address = defaultWebAddress
 	}
+	c.Spec.Web.BasePath = normalizeWebBasePath(c.Spec.Web.BasePath)
 	if c.Spec.HealthServer.Address == "" {
 		c.Spec.HealthServer.Address = ":8081"
 	}
@@ -328,6 +330,21 @@ func (c *Config) applyWebAndHealthDefaults() {
 	if c.Spec.HealthServer.Healthz.Path == "" {
 		c.Spec.HealthServer.Healthz.Path = "/healthz"
 	}
+}
+
+func normalizeWebBasePath(basePath string) string {
+	basePath = strings.TrimSpace(basePath)
+	if basePath == "" || basePath == defaultWebBasePath {
+		return defaultWebBasePath
+	}
+
+	// Normalize one optional trailing slash, but retain repeated separators
+	// so validation can reject ambiguous paths rather than silently fixing them.
+	if strings.HasSuffix(basePath, "/") && !strings.HasSuffix(basePath, "//") {
+		return strings.TrimSuffix(basePath, "/")
+	}
+
+	return basePath
 }
 
 func (c *Config) applyAssistantDefaults() {
@@ -671,12 +688,54 @@ func (c *Config) validate() error {
 	errs = append(errs, c.validateSync()...)
 	errs = append(errs, c.validateSecretRotation()...)
 	errs = append(errs, c.validateGitAuth()...)
+	errs = append(errs, c.validateWeb()...)
 	errs = append(errs, c.validateSecurity()...)
 	errs = append(errs, c.Spec.Notifications.validate()...)
 	errs = append(errs, c.validateAssistant()...)
 	errs = append(errs, c.validateTracing()...)
 
 	return errors.Join(errs...)
+}
+
+func (c *Config) validateWeb() []error {
+	basePath := c.Spec.Web.BasePath
+	if !strings.HasPrefix(basePath, "/") {
+		return []error{errors.New("web.basePath must start with /")}
+	}
+	if strings.ContainsAny(basePath, "?#\\") {
+		return []error{errors.New("web.basePath must be a URL path without query, fragment, or backslash")}
+	}
+	if strings.Contains(basePath, "//") {
+		return []error{errors.New("web.basePath must not contain empty path segments")}
+	}
+	if strings.Contains(basePath, "%") {
+		return []error{errors.New("web.basePath must not contain percent-encoded segments")}
+	}
+	if basePath == "/" {
+		return nil
+	}
+
+	for _, segment := range strings.Split(strings.TrimPrefix(basePath, "/"), "/") {
+		if segment == "." || segment == ".." {
+			return []error{errors.New("web.basePath must not contain . or .. path segments")}
+		}
+		// URL-unreserved ASCII characters cannot introduce ServeMux wildcards,
+		// path escapes, or ambiguity between decoded and literal route prefixes.
+		for _, char := range segment {
+			if (char >= 'a' && char <= 'z') ||
+				(char >= 'A' && char <= 'Z') ||
+				(char >= '0' && char <= '9') ||
+				char == '-' || char == '_' || char == '.' || char == '~' {
+				continue
+			}
+			return []error{fmt.Errorf(
+				"web.basePath contains invalid character %q; only URL-unreserved characters are allowed",
+				char,
+			)}
+		}
+	}
+
+	return nil
 }
 
 func (c *Config) validateSecretRotation() []error {

@@ -1,3 +1,5 @@
+import { withWebBasePath } from "../runtimeConfig";
+
 interface ApiErrorPayload {
   error_message?: string;
 }
@@ -26,7 +28,7 @@ async function readErrorMessage(response: Response): Promise<string> {
 }
 
 export async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(path, init);
+  const response = await fetch(withWebBasePath(path), init);
   if (!response.ok) {
     const errorMessage = await readErrorMessage(response);
     throw new ApiError(errorMessage, response.status);
