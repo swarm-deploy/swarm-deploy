@@ -53,6 +53,8 @@ services:
 
 the files are applied in declaration order. Values from later files override values from earlier files, then explicit values from `environment` override values resolved from the files.
 
+For one file, the scalar shorthand `env_file: production.env` is also supported.
+
 After resolution, `env_file` is removed from the effective desired state. Downstream reconciliation therefore operates on a self-contained service environment.
 
 Values from env files are treated literally. swarm-deploy does not perform interpolation, substitution, quote removal, or escaping while populating `environment`.
