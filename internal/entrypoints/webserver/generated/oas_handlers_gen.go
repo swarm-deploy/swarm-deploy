@@ -2206,6 +2206,22 @@ func (s *Server) handleGetTaskLogsRequest(args [1]string, argsEscaped bool, w ht
 					Name: "tail",
 					In:   "query",
 				}: params.Tail,
+				{
+					Name: "parse",
+					In:   "query",
+				}: params.Parse,
+				{
+					Name: "levels",
+					In:   "query",
+				}: params.Levels,
+				{
+					Name: "since",
+					In:   "query",
+				}: params.Since,
+				{
+					Name: "until",
+					In:   "query",
+				}: params.Until,
 			},
 			Raw: r,
 		}

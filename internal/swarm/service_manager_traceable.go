@@ -184,7 +184,11 @@ func (t traceableServiceManager) TaskLogs(
 ) (<-chan LogEntry, <-chan error, error) {
 	ctx, span := t.tracer.Start(ctx, "swarm.TaskLogs", trace.WithAttributes(
 		attribute.String("task.id", taskID),
+		attribute.Bool("logs.follow", options.Follow),
+		attribute.Int("logs.limit", options.Limit),
 	))
+	t.setTimeAttribute(span, "logs.since", options.Since)
+	t.setTimeAttribute(span, "logs.until", options.Until)
 
 	entries, errs, err := t.serviceManager.TaskLogs(ctx, taskID, options)
 	if err != nil {
