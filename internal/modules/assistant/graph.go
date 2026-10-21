@@ -452,6 +452,8 @@ func (g *graph) prepareNode(
 	return func(_ context.Context, state []llms.MessageContent) ([]llms.MessageContent, error) {
 		messages := make([]modelMessage, 0, len(executionState.history)+prepareMessagesExtraCapacity)
 		systemPrompt := buildSystemPrompt(g.config.SystemPrompt, executionState.profile.Prompt)
+		// Share the deployment's tool catalog even on routes with no executable tools.
+		systemPrompt += "\n\n" + g.capabilitySummary()
 		messages = append(messages, modelMessage{
 			Role:    "system",
 			Content: systemPrompt,
