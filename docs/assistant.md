@@ -88,6 +88,10 @@ Completed user/assistant turns are persisted under `.swarm-deploy/assistant/chat
 - `docker_plugin_list` - returns current Docker plugins snapshot (`id`, `name`, `description`, `enabled`, `plugin_reference`, `capabilities`)
 - `docker_secret_list` - returns current Docker secrets snapshot (`id`, `name`, `created_at`, `updated_at`, `driver`, `labels`)
 - `service_logs_get` - returns bounded recent logs for a stack service
+- `service_task_list` - returns all Docker Swarm task states for a stack service, newest first
+  - requires `stack_name` and `service_name`; `limit` defaults to `20` and is capped at `100`; use `next_offset` as `offset` to access older tasks
+  - each task contains `id`, `node`, `state`, `error`, `created_at`, and `updated_at`; terminal states such as `failed`, `rejected`, and `shutdown` are retained
+  - use the returned task `id` with `service_task_logs_get`
 - `service_task_logs_get` - returns bounded logs for a Docker task, with optional shared JSON/logfmt parsing, normalized level filters, and time bounds
 - `service_replicas_set` - updates desired replicas count for a specific stack service
 - `service_restart_trigger` - restarts service by scaling replicas to `0` and restoring previous count

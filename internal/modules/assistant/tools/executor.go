@@ -66,6 +66,7 @@ func NewExecutor(
 		NewDockerPluginList(swarmService.Plugins),
 		NewDockerSecretList(swarmService.Secrets),
 		NewGetServiceLogs(swarmService.Services),
+		NewListServiceTasks(swarmService.Services),
 		NewGetTaskLogs(taskLogs),
 		NewGetServiceSpec(swarmService.Services),
 		NewDNSNameResolve(),
