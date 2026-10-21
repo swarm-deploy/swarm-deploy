@@ -208,9 +208,25 @@ describe("ServiceView", () => {
       stream: "stderr",
       message: "raw line",
     });
+    rawStream.emit("log", {
+      timestamp: "2026-10-19T18:00:00.123456Z",
+      stream: "stdout",
+      message: "health check passed",
+    });
     await nextTick();
-    expect(wrapper.get(".task-log-message").text()).toBe("raw line");
+    expect(wrapper.findAll(".task-log-message").map((message) => message.text())).toEqual([
+      "raw line",
+      "health check passed",
+    ]);
+    expect(wrapper.findAll(".task-log-time")[1].text()).toBe("2026-10-19 18:00:00.123");
     expect(wrapper.find(".task-log-stream").exists()).toBe(false);
+
+    const search = wrapper.get<HTMLInputElement>('.task-logs-search input[type="search"]');
+    const streamCallsBeforeSearch = apiMocks.openTaskLogsStream.mock.calls.length;
+    await search.setValue("health");
+    expect(wrapper.findAll(".task-log-message").map((message) => message.text())).toEqual(["health check passed"]);
+    expect(apiMocks.openTaskLogsStream).toHaveBeenCalledTimes(streamCallsBeforeSearch);
+    await search.setValue("");
 
     await wrapper.get(".task-logs-parse-toggle").trigger("click");
     expect(rawStream.closed).toBe(true);
@@ -227,22 +243,44 @@ describe("ServiceView", () => {
       stream: "stderr",
       level: "ERROR",
       message: "request failed",
-      attributes: { request_id: "req-1" },
+      attributes: { request_id: "req-1", context: { tenant: "acme" } },
       raw_message: `level=error msg="request failed" request_id=req-1`,
+    });
+    parsedStream.emit("log", {
+      timestamp: "2026-10-19T18:00:02Z",
+      stream: "stdout",
+      level: "INFO",
+      message: "worker ready",
+      attributes: { worker: 12 },
+      raw_message: "raw-only-token worker=12",
     });
     await nextTick();
 
     const filters = wrapper.findAll(".task-log-level-filter");
     expect(filters).toHaveLength(6);
-    expect(filters.find((filter) => filter.text().startsWith("INFO"))?.text()).toBe("INFO 2");
-    expect(filters.find((filter) => filter.text().startsWith("ERROR"))?.text()).toBe("ERROR 1");
+    expect(filters.find((filter) => filter.text().startsWith("All"))?.text()).toBe("All3");
+    expect(filters.find((filter) => filter.text().startsWith("Info"))?.text()).toBe("Info2");
+    expect(filters.find((filter) => filter.text().startsWith("Error"))?.text()).toBe("Error1");
     expect(wrapper.get(".task-log-level").text()).toBe("ERROR");
     expect(wrapper.get(".task-log-message").text()).toBe("request failed");
     expect(wrapper.find(".task-log-stream").exists()).toBe(false);
-    expect(wrapper.get(".task-log-details").text()).toContain("request_id");
-    expect(wrapper.get(".task-log-details").text()).toContain("level=error");
+    const firstDetails = wrapper.get(".task-log-details");
+    await firstDetails.get("summary").trigger("click");
+    expect(firstDetails.attributes("open")).toBeDefined();
+    expect(firstDetails.findAll(".task-log-attribute").map((attribute) => attribute.text())).toEqual([
+      "request_idreq-1",
+      'context{"tenant":"acme"}',
+    ]);
+    expect(firstDetails.get(".task-log-detail-section pre").text()).toContain("level=error");
+    expect(firstDetails.get(".task-log-copy").attributes("aria-label")).toBe("Copy raw log 1");
 
-    const infoFilter = filters.find((filter) => filter.text().startsWith("INFO"));
+    await search.setValue("raw-only-token");
+    expect(wrapper.findAll(".task-log-message").map((message) => message.text())).toEqual(["worker ready"]);
+    await search.setValue("acme");
+    expect(wrapper.findAll(".task-log-message").map((message) => message.text())).toEqual(["request failed"]);
+    await search.setValue("");
+
+    const infoFilter = filters.find((filter) => filter.text().startsWith("Info"));
     expect(infoFilter).toBeDefined();
     await infoFilter!.trigger("click");
     expect(parsedStream.closed).toBe(true);
