@@ -728,7 +728,10 @@ func (c *Config) validateWeb() []error {
 				char == '-' || char == '_' || char == '.' || char == '~' {
 				continue
 			}
-			return []error{fmt.Errorf("web.basePath contains invalid character %q; only URL-unreserved characters are allowed", char)}
+			return []error{fmt.Errorf(
+				"web.basePath contains invalid character %q; only URL-unreserved characters are allowed",
+				char,
+			)}
 		}
 	}
 
