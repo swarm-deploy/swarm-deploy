@@ -27,7 +27,7 @@ func TestGetTaskLogsExecuteReturnsBoundedStructuredLogs(t *testing.T) {
 	entries := make(chan swarm.LogEntry, 2)
 	errorsChannel := make(chan error)
 	entries <- swarm.LogEntry{Timestamp: since, Stream: "stdout", Message: `{"level":"info","message":"ready"}`}
-	entries <- swarm.LogEntry{Timestamp: since.Add(time.Minute), Stream: "stderr", Message: `level=error msg="failed" code=E_CONN`}
+	entries <- swarm.LogEntry{Timestamp: since.Add(time.Minute), Stream: "stderr", Message: `level=error msg="failed" code=E_CONN component=api`}
 	close(entries)
 	close(errorsChannel)
 
@@ -38,12 +38,13 @@ func TestGetTaskLogsExecuteReturnsBoundedStructuredLogs(t *testing.T) {
 	}).Return((<-chan swarm.LogEntry)(entries), (<-chan error)(errorsChannel), nil)
 
 	response, err := tool.Execute(context.Background(), routing.Request{Payload: getTaskLogsRequest{
-		TaskID: " task-1 ",
-		Parse:  true,
-		Levels: []string{"ERROR"},
-		Limit:  intPointer(2),
-		Since:  since.Format(time.RFC3339),
-		Until:  until.Format(time.RFC3339),
+		TaskID:     " task-1 ",
+		Parse:      true,
+		Levels:     []string{"ERROR"},
+		Attributes: map[string]any{"component": "api"},
+		Limit:      intPointer(2),
+		Since:      since.Format(time.RFC3339),
+		Until:      until.Format(time.RFC3339),
 	}})
 	require.NoError(t, err)
 
@@ -66,12 +67,19 @@ func TestGetTaskLogsExecuteReturnsBoundedStructuredLogs(t *testing.T) {
 	require.Len(t, payload.Entries, 1)
 	assert.Equal(t, logparser.LevelError, payload.Entries[0].Level)
 	assert.Equal(t, "failed", payload.Entries[0].Message)
-	assert.Equal(t, `level=error msg="failed" code=E_CONN`, payload.Entries[0].RawMessage)
+	assert.Equal(t, `level=error msg="failed" code=E_CONN component=api`, payload.Entries[0].RawMessage)
+	assert.Equal(t, map[string]any{"code": "E_CONN", "component": "api"}, payload.Entries[0].Attributes)
 	assert.Equal(t, 1, payload.LevelCounts["INFO"])
 	assert.Equal(t, 1, payload.LevelCounts["ERROR"])
 	assert.Equal(t, since.Format(time.RFC3339), payload.AppliedSince)
 	assert.Equal(t, until.Format(time.RFC3339), payload.AppliedUntil)
-	assert.Equal(t, config.AssistantToolNameServiceTaskLogsGet, tool.Definition().Name)
+
+	definition := tool.Definition()
+	assert.Equal(t, config.AssistantToolNameServiceTaskLogsGet, definition.Name)
+	properties := definition.ParametersJSONSchema["properties"].(map[string]any)
+	attributeSchema := properties["attributes"].(map[string]any)
+	assert.Equal(t, "object", attributeSchema["type"])
+	assert.Equal(t, true, attributeSchema["additionalProperties"])
 }
 
 func TestGetTaskLogsRejectsInvalidRequests(t *testing.T) {
@@ -88,6 +96,7 @@ func TestGetTaskLogsRejectsInvalidRequests(t *testing.T) {
 		{name: "zero limit", request: getTaskLogsRequest{TaskID: "task", Limit: intPointer(0)}, message: "limit must be > 0"},
 		{name: "excessive limit", request: getTaskLogsRequest{TaskID: "task", Limit: intPointer(maxTaskLogsLimit + 1)}, message: "limit must be <="},
 		{name: "levels without parsing", request: getTaskLogsRequest{TaskID: "task", Levels: []string{"ERROR"}}, message: "parse=true"},
+		{name: "attributes without parsing", request: getTaskLogsRequest{TaskID: "task", Attributes: map[string]any{"component": "api"}}, message: "parse=true"},
 		{name: "unknown level", request: getTaskLogsRequest{TaskID: "task", Parse: true, Levels: []string{"CUSTOM"}}, message: "unsupported log level"},
 		{name: "invalid range", request: getTaskLogsRequest{TaskID: "task", Since: "2026-10-20T00:00:00Z", Until: "2026-10-19T00:00:00Z"}, message: "since must be before"},
 	}

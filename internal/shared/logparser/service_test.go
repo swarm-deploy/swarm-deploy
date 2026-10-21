@@ -2,6 +2,7 @@ package logparser
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -75,4 +76,63 @@ func TestServiceGetKeepsRawCompatibilityWhenParsingDisabled(t *testing.T) {
 	assert.Empty(t, result.Entries[0].Level)
 	assert.Nil(t, result.Entries[0].Attributes)
 	assert.Equal(t, `{"level":"error","message":"unchanged"}`, result.Entries[0].Message)
+}
+
+func TestServiceGetFiltersByAllAttributes(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		attributes map[string]any
+		messages   []string
+	}{
+		{
+			name:       "all pairs match",
+			attributes: map[string]any{"component": "api", "status": float64(200)},
+			messages:   []string{"match"},
+		},
+		{
+			name:       "one pair differs",
+			attributes: map[string]any{"component": "api", "status": json.Number("500")},
+			messages:   []string{},
+		},
+		{
+			name:       "empty filter accepts all entries",
+			attributes: map[string]any{},
+			messages:   []string{"match", "wrong value", "missing key"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctrl := gomock.NewController(t)
+			source := swarm.NewMockServiceManager(ctrl)
+			service := NewService(source)
+			entries := make(chan swarm.LogEntry, 3)
+			errorsChannel := make(chan error)
+			entries <- swarm.LogEntry{Message: `{"message":"match","component":"api","status":200.0}`}
+			entries <- swarm.LogEntry{Message: `{"message":"wrong value","component":"worker","status":200}`}
+			entries <- swarm.LogEntry{Message: `{"message":"missing key","component":"api"}`}
+			close(entries)
+			close(errorsChannel)
+
+			source.EXPECT().TaskLogs(gomock.Any(), "task-1", swarm.TaskLogsOptions{Limit: 3}).
+				Return((<-chan swarm.LogEntry)(entries), (<-chan error)(errorsChannel), nil)
+
+			result, err := service.Get(context.Background(), "task-1", Query{
+				Limit:      3,
+				Parse:      true,
+				Attributes: test.attributes,
+			})
+			require.NoError(t, err)
+
+			messages := make([]string, 0, len(result.Entries))
+			for _, entry := range result.Entries {
+				messages = append(messages, entry.Message)
+			}
+			assert.Equal(t, test.messages, messages)
+		})
+	}
 }

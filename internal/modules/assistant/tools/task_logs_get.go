@@ -29,12 +29,13 @@ type GetTaskLogs struct {
 }
 
 type getTaskLogsRequest struct {
-	TaskID string   `json:"task_id"`
-	Parse  bool     `json:"parse"`
-	Levels []string `json:"levels"`
-	Limit  *int     `json:"limit"`
-	Since  string   `json:"since"`
-	Until  string   `json:"until"`
+	TaskID     string         `json:"task_id"`
+	Parse      bool           `json:"parse"`
+	Levels     []string       `json:"levels"`
+	Attributes map[string]any `json:"attributes"`
+	Limit      *int           `json:"limit"`
+	Since      string         `json:"since"`
+	Until      string         `json:"until"`
 }
 
 // NewGetTaskLogs creates the service_task_logs_get component.
@@ -47,7 +48,7 @@ func (g *GetTaskLogs) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
 		Name: config.AssistantToolNameServiceTaskLogsGet,
 		Description: "Returns bounded logs for a specific Docker Swarm task with optional shared " +
-			"JSON/logfmt parsing and normalized level filtering.",
+			"JSON/logfmt parsing, normalized level filtering, and exact attribute filtering.",
 		ParametersJSONSchema: map[string]any{
 			"type":     "object",
 			"required": []string{"task_id"},
@@ -68,6 +69,11 @@ func (g *GetTaskLogs) Definition() routing.ToolDefinition {
 						"type": "string",
 						"enum": []string{"TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"},
 					},
+				},
+				"attributes": map[string]any{
+					"type":                 "object",
+					"description":          "Optional exact attribute key-value filters. Every pair must match. Requires parse=true.",
+					"additionalProperties": true,
 				},
 				"limit": map[string]any{
 					"type":               "integer",
@@ -105,11 +111,12 @@ func (g *GetTaskLogs) Execute(ctx context.Context, request routing.Request) (rou
 	}
 
 	result, err := g.logs.Get(ctx, params.TaskID, logparser.Query{
-		Limit:  params.Limit,
-		Since:  params.Since,
-		Until:  params.Until,
-		Parse:  params.Parse,
-		Levels: params.Levels,
+		Limit:      params.Limit,
+		Since:      params.Since,
+		Until:      params.Until,
+		Parse:      params.Parse,
+		Levels:     params.Levels,
+		Attributes: params.Attributes,
 	})
 	if err != nil {
 		return routing.Response{}, err
@@ -203,12 +210,13 @@ func truncateTaskLogText(value string, maxBytes int) (string, bool) {
 }
 
 type getTaskLogsParams struct {
-	TaskID string
-	Parse  bool
-	Levels []logparser.Level
-	Limit  int
-	Since  *time.Time
-	Until  *time.Time
+	TaskID     string
+	Parse      bool
+	Levels     []logparser.Level
+	Attributes map[string]any
+	Limit      int
+	Since      *time.Time
+	Until      *time.Time
 }
 
 func parseGetTaskLogsParams(request getTaskLogsRequest) (getTaskLogsParams, error) {
@@ -235,6 +243,9 @@ func parseGetTaskLogsParams(request getTaskLogsRequest) (getTaskLogsParams, erro
 	if !request.Parse && len(levels) > 0 {
 		return getTaskLogsParams{}, fmt.Errorf("level filters require parse=true")
 	}
+	if !request.Parse && len(request.Attributes) > 0 {
+		return getTaskLogsParams{}, fmt.Errorf("attribute filters require parse=true")
+	}
 
 	sinceValue, hasSince, err := parseRFC3339TimestampParam(request.Since, "since")
 	if err != nil {
@@ -258,11 +269,12 @@ func parseGetTaskLogsParams(request getTaskLogsRequest) (getTaskLogsParams, erro
 	}
 
 	return getTaskLogsParams{
-		TaskID: taskID,
-		Parse:  request.Parse,
-		Levels: levels,
-		Limit:  limit,
-		Since:  since,
-		Until:  until,
+		TaskID:     taskID,
+		Parse:      request.Parse,
+		Levels:     levels,
+		Attributes: request.Attributes,
+		Limit:      limit,
+		Since:      since,
+		Until:      until,
 	}, nil
 }

@@ -2,7 +2,9 @@ package logparser
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -22,6 +24,8 @@ type Query struct {
 	Parse bool
 	// Levels selects normalized levels. Empty means all levels.
 	Levels []Level
+	// Attributes selects entries containing every exact attribute key-value pair.
+	Attributes map[string]any
 }
 
 // StreamItem contains one processed source entry and current backend level counts.
@@ -95,7 +99,7 @@ func (s *Service) Stream(
 	errorsChannel := make(chan error, 1)
 	selectedLevels := makeLevelSet(query.Levels)
 
-	go s.forwardStream(ctx, query.Parse, selectedLevels, rawEntries, rawErrors, items, errorsChannel)
+	go s.forwardStream(ctx, query.Parse, selectedLevels, query.Attributes, rawEntries, rawErrors, items, errorsChannel)
 
 	return items, errorsChannel, nil
 }
@@ -104,6 +108,7 @@ func (s *Service) forwardStream(
 	ctx context.Context,
 	parse bool,
 	selectedLevels map[Level]struct{},
+	selectedAttributes map[string]any,
 	rawEntries <-chan swarm.LogEntry,
 	rawErrors <-chan error,
 	items chan<- StreamItem,
@@ -124,7 +129,7 @@ func (s *Service) forwardStream(
 			return
 		}
 
-		item := s.processEntry(rawEntry, parse, selectedLevels, counts)
+		item := s.processEntry(rawEntry, parse, selectedLevels, selectedAttributes, counts)
 		if !sendStreamItem(ctx, items, item) {
 			return
 		}
@@ -153,6 +158,7 @@ func (s *Service) processEntry(
 	rawEntry swarm.LogEntry,
 	parse bool,
 	selectedLevels map[Level]struct{},
+	selectedAttributes map[string]any,
 	counts map[Level]int,
 ) StreamItem {
 	entry := rawTaskLogEntry(rawEntry)
@@ -164,7 +170,7 @@ func (s *Service) processEntry(
 			Message:   rawEntry.Message,
 		})
 		counts[entry.Level]++
-		included = matchesLevel(entry.Level, selectedLevels)
+		included = matchesLevel(entry.Level, selectedLevels) && matchesAttributes(entry.Attributes, selectedAttributes)
 	}
 
 	return StreamItem{
@@ -226,6 +232,36 @@ func matchesLevel(level Level, selected map[Level]struct{}) bool {
 	_, ok := selected[level]
 
 	return ok
+}
+
+func matchesAttributes(attributes map[string]any, selected map[string]any) bool {
+	for key, expected := range selected {
+		actual, ok := attributes[key]
+		if !ok || !equalJSONValues(actual, expected) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func equalJSONValues(left any, right any) bool {
+	leftJSON, leftErr := json.Marshal(left)
+	rightJSON, rightErr := json.Marshal(right)
+	if leftErr != nil || rightErr != nil {
+		return false
+	}
+
+	var normalizedLeft any
+	if err := json.Unmarshal(leftJSON, &normalizedLeft); err != nil {
+		return false
+	}
+	var normalizedRight any
+	if err := json.Unmarshal(rightJSON, &normalizedRight); err != nil {
+		return false
+	}
+
+	return reflect.DeepEqual(normalizedLeft, normalizedRight)
 }
 
 func emptyLevelCounts() map[Level]int {
