@@ -10,6 +10,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
@@ -168,11 +169,16 @@ func TestServicePrunerPrune(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
 			serviceManager := swarm.NewMockServiceManager(ctrl)
-			eventDispatcher := &dispatcher.NopDispatcher{}
+			eventDispatcher := dispatcher.NewMockDispatcher(ctrl)
 			pruner := NewServicePruner(serviceManager, eventDispatcher, tt.syncCfg)
 
 			for _, call := range tt.removeCalls {
 				serviceManager.EXPECT().Remove(gomock.Any(), call.serviceID).Return(call.err)
+			}
+			for _, name := range tt.expectedPruned {
+				eventDispatcher.EXPECT().Publish(gomock.Any(), &events.ServicePruned{
+					StackName: tt.stackCfg.Name, ServiceName: name, Commit: "commit-1",
+				}).Return(nil)
 			}
 
 			prunedServices, err := pruner.Prune(
