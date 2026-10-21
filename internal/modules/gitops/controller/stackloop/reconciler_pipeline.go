@@ -115,10 +115,7 @@ func (r *Reconciler) attachPipeline() {
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "prune orphaned services",
-		When: pipe.When(func(payload *pipelinePayload) bool {
-			return payload.Attempt != nil || payload.IsManualSync
-		}),
-		Run: r.pruneOrphanedServices,
+		Run:  r.pruneOrphanedServices,
 	})
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
