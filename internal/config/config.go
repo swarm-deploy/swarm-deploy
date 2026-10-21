@@ -338,7 +338,13 @@ func normalizeWebBasePath(basePath string) string {
 		return defaultWebBasePath
 	}
 
-	return strings.TrimRight(basePath, "/")
+	// Normalize one optional trailing slash, but retain repeated separators
+	// so validation can reject ambiguous paths rather than silently fixing them.
+	if strings.HasSuffix(basePath, "/") && !strings.HasSuffix(basePath, "//") {
+		return strings.TrimSuffix(basePath, "/")
+	}
+
+	return basePath
 }
 
 func (c *Config) applyAssistantDefaults() {
@@ -702,10 +708,27 @@ func (c *Config) validateWeb() []error {
 	if strings.Contains(basePath, "//") {
 		return []error{errors.New("web.basePath must not contain empty path segments")}
 	}
+	if strings.Contains(basePath, "%") {
+		return []error{errors.New("web.basePath must not contain percent-encoded segments")}
+	}
+	if basePath == "/" {
+		return nil
+	}
 
 	for _, segment := range strings.Split(strings.TrimPrefix(basePath, "/"), "/") {
 		if segment == "." || segment == ".." {
 			return []error{errors.New("web.basePath must not contain . or .. path segments")}
+		}
+		// URL-unreserved ASCII characters cannot introduce ServeMux wildcards,
+		// path escapes, or ambiguity between decoded and literal route prefixes.
+		for _, char := range segment {
+			if (char >= 'a' && char <= 'z') ||
+				(char >= 'A' && char <= 'Z') ||
+				(char >= '0' && char <= '9') ||
+				char == '-' || char == '_' || char == '.' || char == '~' {
+				continue
+			}
+			return []error{fmt.Errorf("web.basePath contains invalid character %q; only URL-unreserved characters are allowed", char)}
 		}
 	}
 

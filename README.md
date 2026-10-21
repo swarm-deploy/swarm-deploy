@@ -132,7 +132,7 @@ healthServer:
     path: /healthz
 ```
 
-`web.basePath` defaults to `/`. A trailing slash is normalized, so `/infrastructure/swarm/` serves the UI at `/infrastructure/swarm/` and the API below `/infrastructure/swarm/api/`. The configured value is authoritative; `X-Forwarded-Prefix` is not used. Health, metrics, and webhook endpoints keep their independently configured paths.
+`web.basePath` defaults to `/`. A trailing slash is normalized, so `/infrastructure/swarm/` serves the UI at `/infrastructure/swarm/` and the API below `/infrastructure/swarm/api/`. Path segments must use URL-unreserved ASCII characters (letters, digits, `-`, `_`, `.`, `~`); percent-encoding and ServeMux wildcard syntax are not accepted. The configured value is authoritative; `X-Forwarded-Prefix` is not used. Health, metrics, and webhook endpoints keep their independently configured paths.
 
 Stacks are declared separately:
 

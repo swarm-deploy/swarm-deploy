@@ -58,11 +58,30 @@ describe("runtime web base path", () => {
     expect(router.resolve("/overview").href).toBe("/infrastructure/swarm/overview");
   });
 
-  it("prefixes internal assistant links", () => {
+  it("prefixes absolute and relative internal assistant links", () => {
     setRuntimeBasePath("/infrastructure/swarm");
 
-    const html = renderAssistantMarkdown("[Services](/services)");
+    const html = renderAssistantMarkdown("[Absolute](/services) [Relative](services) [Dot](./overview)");
 
     expect(html).toContain(`${window.location.origin}/infrastructure/swarm/services`);
+    expect(html).toContain(`${window.location.origin}/infrastructure/swarm/overview`);
+    expect(html).not.toContain(`href="${window.location.origin}/services"`);
+  });
+
+  it("keeps external, mailto, and unsafe assistant links unchanged", () => {
+    setRuntimeBasePath("/infrastructure/swarm");
+
+    const html = renderAssistantMarkdown(
+      "[External](https://example.org/docs) [Email](mailto:ops@example.org) [Unsafe](javascript:alert)",
+    );
+
+    expect(html).toContain('href="https://example.org/docs"');
+    expect(html).toContain('href="mailto:ops@example.org"');
+    expect(html).not.toContain('href="javascript:');
+  });
+
+  it("resolves relative assistant links at root for backward compatibility", () => {
+    const html = renderAssistantMarkdown("[Services](services)");
+    expect(html).toContain(`href="${window.location.origin}/services"`);
   });
 });

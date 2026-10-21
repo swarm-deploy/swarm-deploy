@@ -459,6 +459,17 @@ func TestValidateWebBasePath(t *testing.T) {
 	}{
 		{name: "root", basePath: "/"},
 		{name: "nested", basePath: "/infrastructure/swarm"},
+		{name: "unreserved characters", basePath: "/Swarm-Deploy_v1.2~/metrics"},
+		{name: "wildcard braces", basePath: "/swarm/{stack}", wantErr: "invalid character"},
+		{name: "unclosed wildcard", basePath: "/swarm/{stack", wantErr: "invalid character"},
+		{name: "encoded slash", basePath: "/swarm%2Fdeploy", wantErr: "percent-encoded"},
+		{name: "encoded dot segments", basePath: "/swarm/%2e%2e/admin", wantErr: "percent-encoded"},
+		{name: "encoded wildcard", basePath: "/swarm/%7Bstack%7D", wantErr: "percent-encoded"},
+		{name: "double encoded segment", basePath: "/swarm/%252f", wantErr: "percent-encoded"},
+		{name: "invalid escape", basePath: "/swarm/%GG", wantErr: "percent-encoded"},
+		{name: "space", basePath: "/swarm deploy", wantErr: "invalid character"},
+		{name: "control character", basePath: "/swarm\nadmin", wantErr: "invalid character"},
+		{name: "colon", basePath: "/swarm:admin", wantErr: "invalid character"},
 		{name: "relative", basePath: "infrastructure/swarm", wantErr: "must start with /"},
 		{name: "query", basePath: "/swarm?mode=all", wantErr: "without query"},
 		{name: "fragment", basePath: "/swarm#status", wantErr: "without query"},
@@ -479,6 +490,26 @@ func TestValidateWebBasePath(t *testing.T) {
 
 			require.Error(t, err, "expected validation error")
 			assert.Contains(t, err.Error(), testCase.wantErr, "unexpected validation error")
+		})
+	}
+}
+
+func TestNormalizeWebBasePath(t *testing.T) {
+	testCases := []struct {
+		input string
+		want  string
+	}{
+		{input: "", want: "/"},
+		{input: "/", want: "/"},
+		{input: "/swarm/", want: "/swarm"},
+		{input: "/infrastructure/swarm/", want: "/infrastructure/swarm"},
+		{input: "/swarm//", want: "/swarm//"},
+		{input: "//", want: "//"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(fmt.Sprintf("%q", testCase.input), func(t *testing.T) {
+			assert.Equal(t, testCase.want, normalizeWebBasePath(testCase.input))
 		})
 	}
 }
