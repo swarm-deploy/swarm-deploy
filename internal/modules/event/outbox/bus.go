@@ -16,6 +16,9 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Subscriber consumes one durable publication.
@@ -52,12 +55,14 @@ type Bus struct {
 	lease       time.Duration
 	maxAttempts int
 	workers     int
+	tracer      trace.Tracer
 }
 
 // New constructs the bus. Register all subscriptions before starting workers.
 func New(db *storage.Database) *Bus {
 	return &Bus{db: db, registry: make(map[events.TypeName]map[string]Subscriber),
-		now: time.Now, lease: defaultLease, maxAttempts: defaultMaxAttempts, workers: defaultWorkerCount}
+		now: time.Now, lease: defaultLease, maxAttempts: defaultMaxAttempts, workers: defaultWorkerCount,
+		tracer: otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox")}
 }
 
 // Subscribe registers a stable destination identity for an event type.
@@ -110,12 +115,14 @@ func (b *Bus) Publish(ctx context.Context, event events.Event) error {
 	if now.IsZero() {
 		return errors.New("outbox publication time is required")
 	}
+	traceparent := traceparentFromContext(ctx)
 	insert := func(ctx context.Context) error {
 		cause, _ := ctx.Value(causeKey{}).(string)
 		query, args, buildErr := goqu.Dialect("sqlite3").Insert("outbox_events").Prepared(true).
 			Rows(goqu.Record{
 				"id": id, "event_type": event.Type().Name(), "schema_version": codec.Version,
 				"occurred_at": now, "causation_id": cause, "payload": string(payload),
+				"traceparent": traceparent,
 			}).ToSQL()
 		if buildErr != nil {
 			return buildErr
@@ -141,4 +148,16 @@ func (b *Bus) Publish(ctx context.Context, event events.Event) error {
 		return nil
 	}
 	return b.db.WithinTransaction(ctx, insert)
+}
+
+func traceparentFromContext(ctx context.Context) any {
+	if !trace.SpanContextFromContext(ctx).IsValid() {
+		return nil
+	}
+	carrier := propagation.MapCarrier{}
+	propagation.TraceContext{}.Inject(ctx, carrier)
+	if traceparent := carrier.Get("traceparent"); traceparent != "" {
+		return traceparent
+	}
+	return nil
 }

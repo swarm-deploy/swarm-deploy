@@ -15,6 +15,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 	"modernc.org/sqlite"
 )
 
@@ -227,16 +232,17 @@ type invalidDeliveryError struct{ code string }
 
 func (e *invalidDeliveryError) Error() string { return e.code }
 
-func (b *Bus) process(ctx context.Context, d delivery) error {
+func (b *Bus) process(ctx context.Context, d delivery) (err error) {
 	var row struct {
 		EventType           events.TypeName `db:"event_type"`
 		SchemaVersion       int             `db:"schema_version"`
 		Payload             string          `db:"payload"`
 		OccurredAt          time.Time       `db:"occurred_at"`
 		PublicationSequence int64           `db:"sequence"`
+		Traceparent         sql.NullString  `db:"traceparent"`
 	}
 	query, args, err := goqu.Dialect("sqlite3").From("outbox_events").Prepared(true).
-		Select("event_type", "schema_version", "payload", "occurred_at", "sequence").
+		Select("event_type", "schema_version", "payload", "occurred_at", "sequence", "traceparent").
 		Where(goqu.Ex{"id": d.eventID}).ToSQL()
 	if err != nil {
 		return err
@@ -247,6 +253,27 @@ func (b *Bus) process(ctx context.Context, d delivery) error {
 	}
 	typ, version, payload, occurred, publicationSequence := row.EventType, row.SchemaVersion, row.Payload,
 		row.OccurredAt, row.PublicationSequence
+	spanOptions := []trace.SpanStartOption{
+		trace.WithNewRoot(),
+		trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithAttributes(
+			tracing.EventName.String(string(typ)),
+			tracing.EventSubscriberName.String(d.subscriptionID),
+			attribute.Int("swarm-deploy.events.delivery.attempt", d.attempts),
+		),
+	}
+	if link, ok := traceLink(row.Traceparent); ok {
+		spanOptions = append(spanOptions, trace.WithLinks(link))
+	}
+	ctx, span := b.tracer.Start(ctx, "event.Deliver", spanOptions...)
+	defer func() {
+		if err != nil {
+			tracing.FailSpan(span, err)
+		} else {
+			span.SetStatus(codes.Ok, "")
+		}
+		span.End()
+	}()
 	event, err := codec.Decode(typ, version, []byte(payload))
 	if err != nil {
 		return &invalidDeliveryError{code: "unsupported_or_invalid_payload"}
@@ -282,6 +309,20 @@ func (b *Bus) process(ctx context.Context, d delivery) error {
 		}
 		return b.ack(ctx, d)
 	})
+}
+
+func traceLink(traceparent sql.NullString) (trace.Link, bool) {
+	if !traceparent.Valid {
+		return trace.Link{}, false
+	}
+	ctx := propagation.TraceContext{}.Extract(context.Background(), propagation.MapCarrier{
+		"traceparent": traceparent.String,
+	})
+	spanContext := trace.SpanContextFromContext(ctx)
+	if !spanContext.IsValid() {
+		return trace.Link{}, false
+	}
+	return trace.Link{SpanContext: spanContext}, true
 }
 
 func invoke(ctx context.Context, handler Subscriber, envelope events.Envelope) (err error) {
