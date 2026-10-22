@@ -178,6 +178,7 @@ func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
 		cleanup              deployment.StageStatus
 		actual               deployment.ActualStateStatus
 		expectedObservedTime bool
+		expectedError        bool
 	}{
 		{
 			name: "verification unknown",
@@ -186,10 +187,10 @@ func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
 			},
 			status: deployment.Interrupted, phase: deployment.PhaseVerification,
 			verification: deployment.StageUnknown, cleanup: deployment.StageSkipped,
-			actual: deployment.ActualStateUnknown,
+			actual: deployment.ActualStateUnknown, expectedError: true,
 		},
 		{
-			name: "cleanup failed",
+			name: "prune failure is best effort",
 			setupServices: func(manager *swarm.MockServiceManager) {
 				manager.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{{
 					ID: "old-id", Name: "old", Labels: map[string]string{
@@ -198,8 +199,8 @@ func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
 				}}, nil)
 				manager.EXPECT().Remove(gomock.Any(), "old-id").Return(assert.AnError)
 			},
-			status: deployment.Failed, phase: deployment.PhaseCleanup,
-			verification: deployment.StageSkipped, cleanup: deployment.StageFailed,
+			status: deployment.Succeeded, phase: deployment.PhaseCompleted,
+			verification: deployment.StageSkipped, cleanup: deployment.StageSucceeded,
 			actual: deployment.ActualStateObserved, expectedObservedTime: true,
 		},
 	}
@@ -230,7 +231,11 @@ func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
 			err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
 				Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "commit",
 			})
-			require.Error(t, err)
+			if tt.expectedError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
 			page, listErr := deployment.NewStore(db).List(context.Background(), deployment.ListFilter{})
 			require.NoError(t, listErr)
 			require.Len(t, page.Deployments, 1)

@@ -31,7 +31,6 @@ func TestServicePrunerPrune(t *testing.T) {
 		stackServices  []swarm.StackService
 		removeCalls    []removeExpectation
 		expectedPruned []string
-		expectedErr    error
 	}{
 		{
 			name:    "removes managed orphan services",
@@ -142,7 +141,7 @@ func TestServicePrunerPrune(t *testing.T) {
 			expectedPruned: []string{},
 		},
 		{
-			name:    "returns remove error",
+			name:    "continues when remove fails",
 			syncCfg: config.SyncPolicySpec{Prune: true},
 			stackCfg: config.StackSpec{
 				Name: "app",
@@ -160,7 +159,7 @@ func TestServicePrunerPrune(t *testing.T) {
 					err:       errRemoveFailed,
 				},
 			},
-			expectedErr: errRemoveFailed,
+			expectedPruned: []string{},
 		},
 	}
 
@@ -184,13 +183,6 @@ func TestServicePrunerPrune(t *testing.T) {
 					Live:    tt.stackServices,
 				},
 			)
-
-			if tt.expectedErr != nil {
-				require.Error(t, err, "expected prune error")
-				assert.ErrorIs(t, err, tt.expectedErr, "unexpected error")
-				assert.Nil(t, prunedServices, "expected no prune result")
-				return
-			}
 
 			require.NoError(t, err, "prune services")
 			assert.Equal(t, tt.expectedPruned, prunedServices, "unexpected pruned services")
