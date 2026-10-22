@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/avast/retry-go/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -65,6 +66,7 @@ func TestTelegramNotifyRetriesUntilSuccess(t *testing.T) {
 		},
 	)
 	require.NoError(t, err, "create notifier")
+	disableTelegramRetryDelay(notifier)
 
 	attempts := 0
 	notifier.client = &http.Client{
@@ -103,6 +105,7 @@ func TestTelegramNotifyStopsAfterConfiguredRetries(t *testing.T) {
 		},
 	)
 	require.NoError(t, err, "create notifier")
+	disableTelegramRetryDelay(notifier)
 
 	attempts := 0
 	notifier.client = &http.Client{
@@ -133,6 +136,7 @@ func TestTelegramNotifyUsesDefaultRetries(t *testing.T) {
 		},
 	)
 	require.NoError(t, err, "create notifier")
+	disableTelegramRetryDelay(notifier)
 
 	attempts := 0
 	notifier.client = &http.Client{
@@ -246,6 +250,10 @@ type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripperFunc) RoundTrip(req *http.Request) (*http.Response, error) {
 	return f(req)
+}
+
+func disableTelegramRetryDelay(notifier *TelegramNotifier) {
+	notifier.retryOptions = []retry.Option{retry.Delay(0), retry.MaxJitter(0)}
 }
 
 func TestTelegramStructuredDiagnostics(t *testing.T) {

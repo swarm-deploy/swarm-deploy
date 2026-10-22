@@ -11,8 +11,31 @@ permissions:
   checks: write
 
 jobs:
+  changes:
+    name: detect-changes
+    runs-on: ubuntu-latest
+    outputs:
+      ui: ${{ steps.filter.outputs.ui }}
+      non_ui: ${{ steps.filter.outputs.non_ui }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Classify changed files
+        id: filter
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            ui:
+              - 'ui/**'
+            non_ui:
+              - '**'
+              - '!ui/**'
+
   code-lint:
     name: code-lint
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.non_ui == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: install deps
@@ -38,6 +61,7 @@ jobs:
 
   unit-test:
     name: unit-test
+    needs: changes
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
@@ -67,12 +91,18 @@ jobs:
         run: go mod download
 
       - name: Verify generated API
+        if: github.event_name == 'push' || needs.changes.outputs.non_ui == 'true'
         run: |
           go run -mod=mod github.com/ogen-go/ogen/cmd/ogen@v1.20.1 --config ./ogen.yml --target ./internal/entrypoints/webserver/generated --clean ./api/api-server.yaml
           git diff --exit-code -- internal/entrypoints/webserver/generated
 
-      - name: Run tests
+      - name: Run full tests
+        if: github.event_name == 'push' || needs.changes.outputs.non_ui == 'true'
         run: go test ./internal/...
+
+      - name: Test embedded UI
+        if: github.event_name == 'pull_request' && needs.changes.outputs.ui == 'true' && needs.changes.outputs.non_ui != 'true'
+        run: go test ./internal/entrypoints/webserver/...
 
   frontend-test:
     name: frontend-test
@@ -102,6 +132,8 @@ jobs:
 
   docker-swarm-e2e:
     name: docker-swarm-e2e
+    needs: changes
+    if: github.event_name == 'push' || needs.changes.outputs.non_ui == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

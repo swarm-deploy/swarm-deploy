@@ -224,28 +224,34 @@ func TestClaimQueryUsesActiveSubscriptionIndex(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			db, _ := setup(t)
 			sequence := 0
-			for status, count := range testCase.statuses {
-				for index := range count {
-					sequence++
-					eventID := fmt.Sprintf("event-%06d", sequence)
-					_, err := db.Exec(t.Context(), `INSERT INTO outbox_events
-						(id,event_type,schema_version,occurred_at,payload) VALUES (?,?,?,?,?)`,
-						eventID, events.TypeNameNodeJoined, 1, sequence, `{}`)
-					require.NoError(t, err)
-					for subscriber := range testCase.subscribers {
-						leaseUntil, leaseToken := any(nil), any(nil)
-						if status == "processing" {
-							leaseUntil, leaseToken = int64(sequence), "lease-token"
+			require.NoError(t, db.WithinTransaction(t.Context(), func(ctx context.Context) error {
+				for status, count := range testCase.statuses {
+					for range count {
+						sequence++
+						eventID := fmt.Sprintf("event-%06d", sequence)
+						_, err := db.Exec(ctx, `INSERT INTO outbox_events
+							(id,event_type,schema_version,occurred_at,payload) VALUES (?,?,?,?,?)`,
+							eventID, events.TypeNameNodeJoined, 1, sequence, `{}`)
+						if err != nil {
+							return err
 						}
-						_, err = db.Exec(t.Context(), `INSERT INTO outbox_deliveries
-							(event_id,subscription_id,status,available_at,lease_until,lease_token,updated_at)
-							VALUES (?,?,?,?,?,?,?)`, eventID, fmt.Sprintf("subscriber-%02d", subscriber), status,
-							sequence, leaseUntil, leaseToken, sequence)
-						require.NoError(t, err)
+						for subscriber := range testCase.subscribers {
+							leaseUntil, leaseToken := any(nil), any(nil)
+							if status == "processing" {
+								leaseUntil, leaseToken = int64(sequence), "lease-token"
+							}
+							_, err = db.Exec(ctx, `INSERT INTO outbox_deliveries
+								(event_id,subscription_id,status,available_at,lease_until,lease_token,updated_at)
+								VALUES (?,?,?,?,?,?,?)`, eventID, fmt.Sprintf("subscriber-%02d", subscriber), status,
+								sequence, leaseUntil, leaseToken, sequence)
+							if err != nil {
+								return err
+							}
+						}
 					}
-					_ = index
 				}
-			}
+				return nil
+			}))
 			_, err := db.Exec(t.Context(), "ANALYZE")
 			require.NoError(t, err)
 			now := time.Unix(0, 1_000_000).UTC()

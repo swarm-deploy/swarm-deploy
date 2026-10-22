@@ -54,6 +54,7 @@ type TelegramNotifier struct {
 	messageTmpl  *notificationtemplate.Renderer
 	parseMode    string
 	retries      uint
+	retryOptions []retry.Option
 	client       *http.Client
 }
 
@@ -181,11 +182,13 @@ func (n *TelegramNotifier) notifyAction(
 		return Receipt{}, fmt.Errorf("marshal request: %w", err)
 	}
 	var receipt Receipt
-	err = retry.New(
+	retryOptions := []retry.Option{
 		retry.Attempts(n.retries),
 		retry.Context(ctx),
 		retry.LastErrorOnly(true),
-	).Do(func() error {
+	}
+	retryOptions = append(retryOptions, n.retryOptions...)
+	err = retry.New(retryOptions...).Do(func() error {
 		var sendErr error
 		receipt, sendErr = n.sendRequest(ctx, endpoint, body, targetID)
 		if sendErr != nil && !errors.Is(sendErr, ErrMessageReferenceInvalid) {
