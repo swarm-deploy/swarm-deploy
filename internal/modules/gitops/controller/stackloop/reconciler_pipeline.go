@@ -20,6 +20,11 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
+const (
+	renderedComposeDirectoryMode = 0o755
+	renderedComposeFileMode      = 0o600
+)
+
 type pipelinePayload struct {
 	// Attempt is persisted before any external apply.
 	Attempt      *deployment.Attempt
@@ -115,10 +120,7 @@ func (r *Reconciler) attachPipeline() {
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "prune orphaned services",
-		When: pipe.When(func(payload *pipelinePayload) bool {
-			return payload.Attempt != nil || payload.IsManualSync
-		}),
-		Run: r.pruneOrphanedServices,
+		Run:  r.pruneOrphanedServices,
 	})
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
@@ -143,9 +145,11 @@ func (r *Reconciler) populateEnvironment(_ context.Context, payload *pipelinePay
 func (r *Reconciler) addManagedLabel(_ context.Context, payload *pipelinePayload) error {
 	changed := false
 
-	for _, service := range payload.Desired.Compose.Services {
-		present := service.Deploy.Labels.Add(labelsdict.ServiceManagedLabelKey, labelsdict.ServiceManagedLabelValue)
-		if !present {
+	for i, service := range payload.Desired.Compose.Services {
+		serviceChanged := service.Deploy.Labels.Add(labelsdict.ServiceManagedLabelKey, labelsdict.ServiceManagedLabelValue)
+
+		if serviceChanged {
+			payload.Desired.Compose.Services[i] = service
 			changed = true
 		}
 	}
@@ -176,10 +180,10 @@ func (r *Reconciler) rotateSecrets(ctx context.Context, payload *pipelinePayload
 	return nil
 }
 
-func (r *Reconciler) writeRenderedCompose(_ context.Context, payload *pipelinePayload) error {
+func (r *Reconciler) writeRenderedCompose(ctx context.Context, payload *pipelinePayload) error {
 	renderedDir := filepath.Join(r.cfg.Spec.DataDir, "rendered")
 	// Persist rendered files under data dir so deploy step can use a stable path.
-	if err := os.MkdirAll(renderedDir, 0o755); err != nil {
+	if err := r.fileSystem.CreateDirectory(ctx, renderedDir, renderedComposeDirectoryMode); err != nil {
 		return fmt.Errorf("create rendered dir: %w", err)
 	}
 
@@ -193,7 +197,7 @@ func (r *Reconciler) writeRenderedCompose(_ context.Context, payload *pipelinePa
 
 	target := filepath.Join(renderedDir, payload.Stack.Name+".yaml")
 	payload.RenderedComposePath = target
-	err = os.WriteFile(target, content, 0o600)
+	err = r.fileSystem.WriteFile(ctx, target, content, renderedComposeFileMode)
 	if err != nil {
 		return fmt.Errorf("write rendered compose %s: %w", target, err)
 	}
@@ -207,7 +211,7 @@ func (r *Reconciler) cleanupRenderedComposeFile(ctx context.Context, payload *pi
 	if payload.RenderedComposePath == "" {
 		return
 	}
-	if err := os.Remove(payload.RenderedComposePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := r.fileSystem.RemoveFile(ctx, payload.RenderedComposePath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		slog.WarnContext(ctx, "failed to clean up rendered compose file", "path", payload.RenderedComposePath, "err", err)
 	}
 }

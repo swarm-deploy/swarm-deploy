@@ -23,3 +23,7 @@ func (NopFileSystem) CreateDirectory(context.Context, string, os.FileMode) error
 func (NopFileSystem) Rename(context.Context, string, string) error {
 	return nil
 }
+
+func (NopFileSystem) RemoveFile(context.Context, string) error {
+	return nil
+}

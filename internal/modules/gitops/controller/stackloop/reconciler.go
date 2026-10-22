@@ -38,6 +38,7 @@ type Reconciler struct {
 	event            dispatcher.Dispatcher
 	deployMetrics    metrics.Deploys
 	stateStore       modelstore.Store
+	fileSystem       fs.FileSystem
 	pruner           *pruner.ServicePruner
 	composeLoader    compose.FileLoader
 	envFilePopulator *compose.EnvFilePopulator
@@ -82,6 +83,7 @@ func New(
 		event:            eventDispatcher,
 		deployMetrics:    deployMetrics,
 		stateStore:       stateStore,
+		fileSystem:       fileSystem,
 		composeLoader:    compose.NewFileLoaderWithReader(fileSystem.ReadFile),
 		envFilePopulator: compose.NewEnvFilePopulator(),
 		composeRotator:   NewRotator(fileSystem),

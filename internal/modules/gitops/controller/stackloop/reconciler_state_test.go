@@ -66,6 +66,7 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 		event:          eventDispatcher,
 		deployMetrics:  deployMetrics,
 		stateStore:     stateStore,
+		fileSystem:     fs.NewLocalFileSystem(),
 		pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
 		composeLoader:  compose.NewFileLoader(),
 		composeRotator: NewRotator(fs.NewLocalFileSystem()),
@@ -128,6 +129,7 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 		event:          eventDispatcher,
 		deployMetrics:  &metrics.NopDeploys{},
 		stateStore:     stateStore,
+		fileSystem:     fs.NewLocalFileSystem(),
 		pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
 		composeLoader:  compose.NewFileLoader(),
 		composeRotator: NewRotator(fs.NewLocalFileSystem()),
@@ -178,6 +180,7 @@ func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
 		cleanup              deployment.StageStatus
 		actual               deployment.ActualStateStatus
 		expectedObservedTime bool
+		expectedError        bool
 	}{
 		{
 			name: "verification unknown",
@@ -186,10 +189,10 @@ func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
 			},
 			status: deployment.Interrupted, phase: deployment.PhaseVerification,
 			verification: deployment.StageUnknown, cleanup: deployment.StageSkipped,
-			actual: deployment.ActualStateUnknown,
+			actual: deployment.ActualStateUnknown, expectedError: true,
 		},
 		{
-			name: "cleanup failed",
+			name: "prune failure is best effort",
 			setupServices: func(manager *swarm.MockServiceManager) {
 				manager.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{{
 					ID: "old-id", Name: "old", Labels: map[string]string{
@@ -198,8 +201,8 @@ func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
 				}}, nil)
 				manager.EXPECT().Remove(gomock.Any(), "old-id").Return(assert.AnError)
 			},
-			status: deployment.Failed, phase: deployment.PhaseCleanup,
-			verification: deployment.StageSkipped, cleanup: deployment.StageFailed,
+			status: deployment.Succeeded, phase: deployment.PhaseCompleted,
+			verification: deployment.StageSkipped, cleanup: deployment.StageSucceeded,
 			actual: deployment.ActualStateObserved, expectedObservedTime: true,
 		},
 	}
@@ -220,7 +223,7 @@ func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
 			eventDispatcher := &dispatcher.NopDispatcher{}
 			reconciler := &Reconciler{
 				cfg: cfg, git: repository, deployer: stackDeployer, event: eventDispatcher,
-				deployMetrics: &metrics.NopDeploys{}, stateStore: stateStore,
+				deployMetrics: &metrics.NopDeploys{}, stateStore: stateStore, fileSystem: fs.NewLocalFileSystem(),
 				pruner:        pruner.NewServicePruner(serviceManager, eventDispatcher, cfg.Spec.Sync.Policy),
 				composeLoader: compose.NewFileLoader(), composeRotator: NewRotator(fs.NewLocalFileSystem()), serviceManager: serviceManager,
 			}
@@ -230,7 +233,11 @@ func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
 			err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
 				Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "commit",
 			})
-			require.Error(t, err)
+			if tt.expectedError {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
 			page, listErr := deployment.NewStore(db).List(context.Background(), deployment.ListFilter{})
 			require.NoError(t, listErr)
 			require.Len(t, page.Deployments, 1)
@@ -315,6 +322,7 @@ secrets:
 		event:           &dispatcher.NopDispatcher{},
 		deployMetrics:   &metrics.NopDeploys{},
 		stateStore:      stateStore,
+		fileSystem:      fs.NewLocalFileSystem(),
 		pruner:          pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),
 		composeLoader:   compose.NewFileLoader(),
 		composeRotator:  NewRotator(fs.NewLocalFileSystem()),
@@ -385,6 +393,7 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 		event:          eventDispatcher,
 		deployMetrics:  deployMetrics,
 		stateStore:     stateStore,
+		fileSystem:     fs.NewLocalFileSystem(),
 		pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
 		composeLoader:  loader,
 		composeRotator: NewRotator(fs.NewLocalFileSystem()),
@@ -494,6 +503,7 @@ configs:
 		event:          eventDispatcher,
 		deployMetrics:  deployMetrics,
 		stateStore:     stateStore,
+		fileSystem:     fs.NewLocalFileSystem(),
 		pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
 		composeLoader:  loader,
 		composeRotator: NewRotator(fs.NewLocalFileSystem()),
@@ -594,6 +604,7 @@ secrets:
 		event:          eventDispatcher,
 		deployMetrics:  &metrics.NopDeploys{},
 		stateStore:     stateStore,
+		fileSystem:     fs.NewLocalFileSystem(),
 		pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
 		composeLoader:  compose.NewFileLoader(),
 		composeRotator: NewRotator(fs.NewLocalFileSystem()),
@@ -682,6 +693,7 @@ services:
 		event:            &dispatcher.NopDispatcher{},
 		deployMetrics:    &metrics.NopDeploys{},
 		stateStore:       stateStore,
+		fileSystem:       fs.NewLocalFileSystem(),
 		pruner:           pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),
 		composeLoader:    compose.NewFileLoaderWithReader(readFile),
 		envFilePopulator: compose.NewEnvFilePopulator(),
@@ -758,6 +770,7 @@ services:
 		event:          &dispatcher.NopDispatcher{},
 		deployMetrics:  &metrics.NopDeploys{},
 		stateStore:     stateStore,
+		fileSystem:     fs.NewLocalFileSystem(),
 		pruner:         pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),
 		composeLoader:  compose.NewFileLoader(),
 		composeRotator: NewRotator(fs.NewLocalFileSystem()),
@@ -833,6 +846,7 @@ services:
 		event:          &dispatcher.NopDispatcher{},
 		deployMetrics:  &metrics.NopDeploys{},
 		stateStore:     stateStore,
+		fileSystem:     fs.NewLocalFileSystem(),
 		pruner:         pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),
 		composeLoader:  compose.NewFileLoader(),
 		composeRotator: NewRotator(fs.NewLocalFileSystem()),
@@ -897,83 +911,99 @@ func TestAddDownwardPreservesExistingVariableAndAddsMissingOnes(t *testing.T) {
 	assert.Equal(t, "{{.Task.ID}}", environment[downward.EnvTaskID], "expected missing downward variable")
 }
 
-func TestReconcilePrunesServicesForSkippedManualSync(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	repository := gitx.NewMockRepository(ctrl)
-	serviceManager := swarm.NewMockServiceManager(ctrl)
-	stackDeployer := deployer.NewMockStackDeployer(ctrl)
-	db, stateStore := newSQLState(t)
-	repoDir := t.TempDir()
-	eventDispatcher := &dispatcher.NopDispatcher{}
-	deployMetrics := &metrics.NopDeploys{}
+func TestReconcilePrunesServicesWithoutNewDeployment(t *testing.T) {
+	pruneEnabled := true
+	for _, tc := range []struct {
+		name        string
+		manual      bool
+		globalPrune bool
+		stackPrune  *bool
+	}{
+		{name: "manual sync", manual: true, globalPrune: true},
+		{name: "periodic sync with global policy", globalPrune: true},
+		{name: "periodic sync with stack policy", stackPrune: &pruneEnabled},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			repository := gitx.NewMockRepository(ctrl)
+			serviceManager := swarm.NewMockServiceManager(ctrl)
+			stackDeployer := deployer.NewMockStackDeployer(ctrl)
+			db, stateStore := newSQLState(t)
+			repoDir := t.TempDir()
+			eventDispatcher := &dispatcher.NopDispatcher{}
+			deployMetrics := &metrics.NopDeploys{}
 
-	require.NoError(t, writeComposeFile(repoDir), "write compose")
+			require.NoError(t, writeComposeFile(repoDir), "write compose")
 
-	loader := compose.NewFileLoader()
-	stackFile, err := loader.Load(context.Background(), filepath.Join(repoDir, "app.yaml"))
-	require.NoError(t, err, "load compose for digest")
+			loader := compose.NewFileLoader()
+			stackFile, err := loader.Load(context.Background(), filepath.Join(repoDir, "app.yaml"))
+			require.NoError(t, err, "load compose for digest")
 
-	stateStore.Update(context.Background(), func(state *model.Runtime) {
-		state.Stacks["app"] = model.Stack{
-			SourceDigest: stackFile.Digest,
-			LastCommit:   "previous-commit",
-		}
-	})
+			stateStore.Update(context.Background(), func(state *model.Runtime) {
+				state.Stacks["app"] = model.Stack{
+					SourceDigest: stackFile.Digest,
+					LastCommit:   "previous-commit",
+				}
+			})
 
-	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
-	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{
-		{
-			ID:   "service-api",
-			Name: "api",
-		},
-		{
-			ID:   "service-old",
-			Name: "old",
-			Labels: map[string]string{
-				labelsdict.ServiceManagedLabelKey: labelsdict.ServiceManagedLabelValue,
-			},
-		},
-	}, nil)
-	serviceManager.EXPECT().Remove(gomock.Any(), "service-old").Return(nil)
-
-	reconciler := &Reconciler{
-		cfg: &config.Config{
-			Spec: config.Spec{
-				DataDir: filepath.Join(repoDir, ".data"),
-				Sync: config.SyncSpec{
-					Policy: config.SyncPolicySpec{
-						Prune: true,
+			repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+			serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{
+				{
+					ID:   "service-api",
+					Name: "api",
+				},
+				{
+					ID:   "service-old",
+					Name: "old",
+					Labels: map[string]string{
+						labelsdict.ServiceManagedLabelKey: labelsdict.ServiceManagedLabelValue,
 					},
 				},
-			},
-		},
-		git:            repository,
-		deployer:       stackDeployer,
-		event:          eventDispatcher,
-		deployMetrics:  deployMetrics,
-		stateStore:     stateStore,
-		pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{Prune: true}),
-		composeLoader:  loader,
-		composeRotator: NewRotator(fs.NewLocalFileSystem()),
-		serviceManager: serviceManager,
+			}, nil)
+			serviceManager.EXPECT().Remove(gomock.Any(), "service-old").Return(nil)
+
+			reconciler := &Reconciler{
+				cfg: &config.Config{
+					Spec: config.Spec{
+						DataDir: filepath.Join(repoDir, ".data"),
+						Sync: config.SyncSpec{
+							Policy: config.SyncPolicySpec{
+								Prune: tc.globalPrune,
+							},
+						},
+					},
+				},
+				git:            repository,
+				deployer:       stackDeployer,
+				event:          eventDispatcher,
+				deployMetrics:  deployMetrics,
+				stateStore:     stateStore,
+				fileSystem:     fs.NewLocalFileSystem(),
+				pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{Prune: tc.globalPrune}),
+				composeLoader:  loader,
+				composeRotator: NewRotator(fs.NewLocalFileSystem()),
+				serviceManager: serviceManager,
+			}
+			reconciler.db = db
+			reconciler.deployments = deployment.NewService(db, reconciler.event)
+			reconciler.attachPipeline()
+
+			reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
+				Stack: config.StackSpec{
+					Name:        "app",
+					ComposeFile: "app.yaml",
+					Sync:        config.StackSyncSpec{Policy: config.StackSyncPolicySpec{Prune: tc.stackPrune}},
+				},
+				Commit:   "commit-4",
+				IsManual: tc.manual,
+			})
+
+			require.NoError(t, reconcileErr, "reconcile")
+			stackState, exists := readSQLState(t, stateStore).Stacks["app"]
+			require.True(t, exists, "expected stack state")
+			assert.Equal(t, stackFile.Digest, stackState.SourceDigest, "expected persisted digest to remain unchanged")
+		})
 	}
-	reconciler.db = db
-	reconciler.deployments = deployment.NewService(db, reconciler.event)
-	reconciler.attachPipeline()
-
-	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
-		Stack: config.StackSpec{
-			Name:        "app",
-			ComposeFile: "app.yaml",
-		},
-		Commit:   "commit-4",
-		IsManual: true,
-	})
-
-	require.NoError(t, reconcileErr, "reconcile")
-	stackState, exists := readSQLState(t, stateStore).Stacks["app"]
-	require.True(t, exists, "expected stack state")
-	assert.Equal(t, stackFile.Digest, stackState.SourceDigest, "expected persisted digest to remain unchanged")
 }
 
 func TestReconcileServiceMissedEventOnDrift(t *testing.T) {
@@ -1045,6 +1075,7 @@ func TestReconcileServiceMissedEventOnDrift(t *testing.T) {
 				event:          eventDispatcher,
 				deployMetrics:  &metrics.NopDeploys{},
 				stateStore:     stateStore,
+				fileSystem:     fs.NewLocalFileSystem(),
 				pruner:         pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
 				composeLoader:  loader,
 				composeRotator: NewRotator(fs.NewLocalFileSystem()),
