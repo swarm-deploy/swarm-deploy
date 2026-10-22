@@ -52,7 +52,9 @@ func TestTerminalServiceActionSuccessSkipsSecondGeneration(t *testing.T) {
 				definitions:   assistantTestToolDefinitions(),
 				executeResult: testCase.toolResult,
 			}
-			assistantService := newRoutingTestService(t, server.URL, serviceStore(t, nil), tools, nil)
+			assistantService := newRoutingTestServiceWithHistory(
+				t, server.URL, serviceStore(t, nil), tools, nil, newSQLHistory(t),
+			)
 			response := assistantService.Chat(context.Background(), ChatRequest{Message: "Confirmed service action"})
 
 			require.Equal(t, StatusCompleted, response.Status)

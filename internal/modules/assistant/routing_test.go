@@ -15,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
@@ -608,6 +609,17 @@ func newRoutingTestService(
 	tools ToolExecutor,
 	allowedTools []string,
 ) *Service {
+	return newRoutingTestServiceWithHistory(t, baseURL, store, tools, allowedTools, nil)
+}
+
+func newRoutingTestServiceWithHistory(
+	t *testing.T,
+	baseURL string,
+	store *MockServiceStore,
+	tools ToolExecutor,
+	allowedTools []string,
+	history conversation.HistoryStorage,
+) *Service {
 	t.Helper()
 	assistantService, err := NewService(
 		Config{
@@ -619,6 +631,7 @@ func newRoutingTestService(
 			MaxTokens:               64,
 			AllowedTools:            allowedTools,
 			ConversationInMemoryTTL: time.Hour,
+			ConversationHistory:     history,
 		},
 		store,
 		tools,
