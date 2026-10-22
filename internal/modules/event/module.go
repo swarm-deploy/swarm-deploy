@@ -61,10 +61,11 @@ func InitModule(ctx context.Context, cfg *config.Config, cnt Container) (*Module
 		)
 	}
 
-	if err = srv.subscribeOnAllEvents("event-history", historyStore); err != nil {
+	if err = dispatcher.SubscribeMany(srv.Dispatcher, projectionEventTypes(), "event-history", historyStore); err != nil {
 		return nil, err
 	}
-	if err = srv.subscribeOnAllEvents("event-metrics", eventmetrics.NewSubscriber(cnt.GetMetrics().Events)); err != nil {
+	if err = dispatcher.SubscribeMany(srv.Dispatcher, projectionEventTypes(),
+		"event-metrics", eventmetrics.NewSubscriber(cnt.GetMetrics().Events)); err != nil {
 		return nil, err
 	}
 
@@ -172,11 +173,15 @@ func (s *Module) registerCustomNotifications(types []events.TypeName, channels [
 	return count, nil
 }
 
-func (s *Module) subscribeOnAllEvents(id string, subscriber dispatcher.Subscriber) error {
-	for _, typ := range events.Types {
-		if err := s.Dispatcher.Subscribe(typ.Name(), id, subscriber); err != nil {
-			return err
-		}
+// Keep the original projection subscription set independent of IsPublic.
+// History.Handle retains its own persistence filters.
+func projectionEventTypes() []events.TypeName {
+	return []events.TypeName{
+		events.TypeNameServiceCatalogUpdated, events.TypeNameDeploySuccess, events.TypeNameSendNotificationFailed,
+		events.TypeNameSyncManualStarted, events.TypeNameWebhookReceived, events.TypeNameNodeJoined,
+		events.TypeNameNodeConnected, events.TypeNameNodeDisconnected, events.TypeNameServiceMissed,
+		events.TypeNameServiceReplicasIncreased, events.TypeNameServiceReplicasDecreased,
+		events.TypeNameServiceRestarted, events.TypeNameServicePruned, events.TypeNameNetworkCreated,
+		events.TypeNameUserAuthenticated, events.TypeNameAssistantPromptInjectionDetected,
 	}
-	return nil
 }

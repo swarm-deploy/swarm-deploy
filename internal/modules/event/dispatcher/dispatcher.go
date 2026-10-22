@@ -20,3 +20,14 @@ type NopDispatcher struct{}
 
 func (*NopDispatcher) Subscribe(events.TypeName, string, outbox.Subscriber) error { return nil }
 func (*NopDispatcher) Publish(context.Context, events.Event) error                { return nil }
+
+// SubscribeMany registers the same stable subscriber for several event types.
+// Call during module initialization, before any workers start.
+func SubscribeMany(bus Dispatcher, types []events.TypeName, id string, subscriber outbox.Subscriber) error {
+	for _, typ := range types {
+		if err := bus.Subscribe(typ, id, subscriber); err != nil {
+			return err
+		}
+	}
+	return nil
+}

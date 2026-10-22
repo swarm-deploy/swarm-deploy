@@ -1,20 +1,18 @@
 package events
 
 import (
+	"encoding/json"
 	"testing"
 	"unicode"
 	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestEventTypeIdentifiersUsePascalCase(t *testing.T) {
-	allTypes := append([]Type{TypeAlertOpened, TypeAlertResolved, TypeConfigurationChanged,
-		TypeDeployFailed, TypeDeployPreparationFailed, TypeDeployInterrupted,
-		TypeGitPullFailed, TypeGitPullSucceeded}, Types...)
-
-	seen := make(map[TypeName]bool, len(allTypes))
-	for _, typ := range allTypes {
+	seen := make(map[TypeName]bool, len(Types))
+	for _, typ := range Types {
 		name := typ.Name()
 		first, _ := utf8.DecodeRuneInString(string(name))
 		assert.Truef(t, unicode.IsUpper(first), "event type %q must start with an uppercase letter", name)
@@ -49,4 +47,31 @@ func TestEventTypeIdentifiersUsePascalCase(t *testing.T) {
 		TypeNameUserAuthenticated:                true,
 		TypeNameAssistantPromptInjectionDetected: true,
 	}, seen)
+}
+
+func TestEventTypeClassification(t *testing.T) {
+	internal := map[TypeName]bool{
+		TypeNameAlertOpened: true, TypeNameAlertResolved: true,
+		TypeNameGitPullFailed: true, TypeNameGitPullSucceeded: true,
+		TypeNameConfigurationChanged: true, TypeNameDeployFailed: true,
+		TypeNameDeployPreparationFailed: true, TypeNameDeployInterrupted: true,
+	}
+	for _, typ := range Types {
+		t.Run(typ.String(), func(t *testing.T) {
+			parsed, ok := ParseType(typ.String())
+			assert.True(t, ok)
+			assert.Equal(t, typ, parsed)
+			assert.Equal(t, !internal[typ.Name()], typ.IsPublic())
+			assert.Equal(t, typ.IsPublic(), typ.Name().Valid())
+			data, err := json.Marshal(typ)
+			require.NoError(t, err)
+			var restored Type
+			require.NoError(t, json.Unmarshal(data, &restored))
+			assert.Equal(t, typ, restored)
+		})
+	}
+	_, ok := ParseType("Unknown")
+	assert.False(t, ok)
+	assert.False(t, TypeName("Unknown").Valid())
+	assert.False(t, Type{}.IsPublic())
 }
