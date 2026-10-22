@@ -89,7 +89,7 @@ func NewDeployer(
 	return newTraceableDeployer(tp, deployer)
 }
 
-const binaryTimeout = 1 * time.Minute
+const binaryTimeout = 2 * time.Minute
 
 func (d *Deployer) DeployStack(
 	ctx context.Context,

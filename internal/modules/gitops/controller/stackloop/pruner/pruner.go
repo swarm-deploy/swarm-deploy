@@ -12,6 +12,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -20,6 +21,7 @@ type ServicePruner struct {
 	services swarm.ServiceManager
 	event    dispatcher.Dispatcher
 	syncCfg  config.SyncPolicySpec
+	tracer   trace.Tracer
 }
 
 // NewServicePruner builds a service pruner.
@@ -32,6 +34,7 @@ func NewServicePruner(
 		services: serviceManager,
 		event:    eventDispatcher,
 		syncCfg:  syncCfg,
+		tracer:   otel.Tracer("github.com/swarm-deploy/internal/modules/gitops/controller/stackloop/pruner"),
 	}
 }
 
@@ -43,79 +46,119 @@ func (p *ServicePruner) Prune(
 	span := trace.SpanFromContext(ctx)
 
 	desiredServiceNames := make(map[string]struct{}, len(req.Desired))
+	desiredServiceNamesList := make([]string, 0, len(req.Desired))
+	liveServiceNames := make([]string, 0, len(req.Live))
+
 	for _, service := range req.Desired {
 		desiredServiceNames[service.Name] = struct{}{}
+		desiredServiceNamesList = append(desiredServiceNamesList, service.Name)
 	}
 
+	span.SetAttributes(tracing.ResourceDesiredServiceNames(desiredServiceNamesList))
+
 	prunedServices := make([]string, 0)
-	for _, stackService := range req.Live {
-		if _, exists := desiredServiceNames[stackService.Name]; exists {
-			if span.IsRecording() {
-				span.AddEvent("Live service found in desired state", trace.WithAttributes(
-					tracing.ResourceServiceName.String(stackService.Name),
-				))
-			}
+	for _, liveService := range req.Live {
+		liveServiceNames = append(liveServiceNames, liveService.Name)
 
-			continue
-		}
-
-		if !labelsdict.ServiceManaged(stackService.Labels) {
-			if span.IsRecording() {
-				span.AddEvent("Service skipped: unmanaged", trace.WithAttributes(
-					tracing.ResourceServiceName.String(stackService.Name),
-				))
-			}
-			continue
-		}
-
-		prunePolicyName, pruneEnabled := p.resolvePolicy(
-			stackService.Labels,
-			req.Stack,
-		)
-		if !pruneEnabled {
-			span.AddEvent("Service skipped by sync policy", trace.WithAttributes(
-				tracing.ResourcePrunePolicyName(prunePolicyName),
-				tracing.ResourcePrunePolicyEnabled(pruneEnabled),
+		if _, exists := desiredServiceNames[liveService.Name]; exists {
+			span.AddEvent("Service skipped: service exists in desired state", trace.WithAttributes(
+				tracing.ResourceServiceName.String(liveService.Name),
 			))
 
 			continue
 		}
 
-		span.SetAttributes(
-			tracing.ResourcePrunePolicyName(prunePolicyName),
-			tracing.ResourcePrunePolicyEnabled(pruneEnabled),
-		)
+		pruned, err := p.pruneService(ctx, liveService, req.Stack, req.Commit)
+		if err != nil {
+			slog.ErrorContext(ctx, "[service-pruner] failed to prune service",
+				slog.Any("err", err),
+				slog.String("stack.name", req.Stack.Name),
+				slog.String("service.name", liveService.Name),
+			)
 
-		removeErr := p.services.Remove(ctx, stackService.ID)
-		if removeErr != nil {
-			if errors.Is(removeErr, swarm.ErrServiceNotFound) {
-				span.AddEvent("Service not found")
-
-				continue
-			}
-			return nil, removeErr
+			span.RecordError(err)
 		}
 
-		span.AddEvent("Service pruned")
+		span.AddEvent("Service pruned", trace.WithAttributes(
+			tracing.ResourceServiceName.String(liveService.Name),
+		))
 
-		slog.InfoContext(
-			ctx,
-			"[service-pruner] service pruned",
-			slog.String("stack", req.Stack.Name),
-			slog.String("service", stackService.Name),
-		)
-		publishErr := p.event.Publish(ctx, &events.ServicePruned{
-			StackName:   req.Stack.Name,
-			ServiceName: stackService.Name,
-			Commit:      req.Commit,
-		})
-		if publishErr != nil {
-			return nil, publishErr
+		if pruned {
+			prunedServices = append(prunedServices, liveService.Name)
 		}
-		prunedServices = append(prunedServices, stackService.Name)
 	}
 
+	span.SetAttributes(
+		tracing.ResourceLiveServiceNames(liveServiceNames),
+	)
+
 	return prunedServices, nil
+}
+
+func (p *ServicePruner) pruneService(
+	ctx context.Context,
+	service swarm.StackService,
+	stackCfg config.StackSpec,
+	commit string,
+) (bool, error) {
+	ctx, span := p.tracer.Start(ctx, "pruner.PruneService", trace.WithAttributes(
+		tracing.ResourceServiceName.String(stackCfg.Name),
+	))
+
+	if !labelsdict.ServiceManaged(service.Labels) {
+		span.AddEvent("Service skipped: service unmanaged")
+		return false, nil
+	}
+
+	prunePolicyName, pruneEnabled := p.resolvePolicy(
+		service.Labels,
+		stackCfg,
+	)
+	if !pruneEnabled {
+		span.AddEvent("Service skipped by sync policy", trace.WithAttributes(
+			tracing.ResourcePrunePolicyName(prunePolicyName),
+			tracing.ResourcePrunePolicyEnabled(pruneEnabled),
+		))
+		return false, nil
+	}
+
+	span.SetAttributes(
+		tracing.ResourcePrunePolicyName(prunePolicyName),
+		tracing.ResourcePrunePolicyEnabled(pruneEnabled),
+	)
+
+	removeErr := p.services.Remove(ctx, service.ID)
+	if removeErr != nil {
+		if errors.Is(removeErr, swarm.ErrServiceNotFound) {
+			span.AddEvent("Service not found")
+
+			return false, nil
+		}
+
+		span.RecordError(removeErr)
+
+		return false, removeErr
+	}
+
+	span.AddEvent("Service pruned")
+
+	slog.InfoContext(
+		ctx,
+		"[service-pruner] service pruned",
+		slog.String("stack", stackCfg.Name),
+		slog.String("service", service.Name),
+	)
+	publishErr := p.event.Publish(ctx, &events.ServicePruned{
+		StackName:   stackCfg.Name,
+		ServiceName: service.Name,
+		Commit:      commit,
+	})
+	if publishErr != nil {
+		slog.WarnContext(ctx, "[service-pruner] failed to publish event", slog.Any("err", publishErr))
+		span.RecordError(publishErr)
+	}
+
+	return true, nil
 }
 
 func (p *ServicePruner) resolvePolicy(serviceLabels map[string]string, stackCfg config.StackSpec) (string, bool) {
