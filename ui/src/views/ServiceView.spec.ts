@@ -115,6 +115,89 @@ describe("ServiceView", () => {
     });
   });
 
+  it("copies the exact service image from service metadata", async () => {
+    const image = "registry.example.com/infra/api@sha256:0123456789abcdef";
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    apiMocks.fetchServices.mockResolvedValue({
+      services: [{
+        name: "api",
+        stack: "infra",
+        sync_status: "Synced",
+        type: "application",
+        type_title: "Application",
+        image,
+        image_version: "",
+        web_routes: [],
+      }],
+    });
+    Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+
+    const wrapper = await mountServiceView();
+    await wrapper.get(".service-copy-image-button").trigger("click");
+
+    expect(writeText).toHaveBeenCalledOnce();
+    expect(writeText).toHaveBeenCalledWith(image);
+  });
+
+  it("copies the service spec image when service metadata has no image", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    apiMocks.fetchServices.mockResolvedValue({
+      services: [{
+        name: "api",
+        stack: "infra",
+        sync_status: "Synced",
+        type: "application",
+        type_title: "Application",
+        image: "",
+        image_version: "",
+        web_routes: [],
+      }],
+    });
+    Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+
+    const wrapper = await mountServiceView();
+    await wrapper.get(".service-copy-image-button").trigger("click");
+
+    expect(writeText).toHaveBeenCalledWith("registry.example.com/infra/api:latest");
+  });
+
+  it("hides the image copy button when no image is available", async () => {
+    apiMocks.fetchServices.mockResolvedValue({
+      services: [{
+        name: "api",
+        stack: "infra",
+        sync_status: "Synced",
+        type: "application",
+        type_title: "Application",
+        image: "",
+        image_version: "",
+        web_routes: [],
+      }],
+    });
+    apiMocks.fetchServiceStatus.mockResolvedValue({
+      stack: "infra",
+      service: "api",
+      links: [],
+      spec: {
+        image: "",
+        mode: "replicated",
+        replicas: 1,
+        requested_ram_bytes: 0,
+        requested_cpu_nano: 0,
+        limit_ram_bytes: 0,
+        limit_cpu_nano: 0,
+        labels: {},
+      },
+    });
+
+    const wrapper = await mountServiceView();
+
+    expect(wrapper.find(".service-copy-image-button").exists()).toBe(false);
+    expect(wrapper.get(".service-image-row").text()).toBe("n/a");
+  });
+
   it("shows only custom labels inline and groups every label in the modal", async () => {
     const wrapper = await mountServiceView();
 

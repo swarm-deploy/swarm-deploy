@@ -1259,6 +1259,23 @@ a.overview-summary-row:focus-visible {
   word-break: break-word;
 }
 
+.service-image-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.service-image-row span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.service-copy-image-button {
+  flex: 0 0 auto;
+}
+
 .service-labels-row {
   min-width: 0;
   display: flex;
