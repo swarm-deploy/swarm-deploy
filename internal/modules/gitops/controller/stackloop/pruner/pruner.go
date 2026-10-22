@@ -76,14 +76,14 @@ func (p *ServicePruner) Prune(
 				slog.String("service.name", liveService.Name),
 			)
 
-			span.RecordError(err)
+			tracing.FailSpan(span, err)
 		}
 
-		span.AddEvent("Service pruned", trace.WithAttributes(
-			tracing.ResourceServiceName.String(liveService.Name),
-		))
-
 		if pruned {
+			span.AddEvent("Service pruned", trace.WithAttributes(
+				tracing.ResourceServiceName.String(liveService.Name),
+			))
+
 			prunedServices = append(prunedServices, liveService.Name)
 		}
 	}
@@ -102,8 +102,9 @@ func (p *ServicePruner) pruneService(
 	commit string,
 ) (bool, error) {
 	ctx, span := p.tracer.Start(ctx, "pruner.PruneService", trace.WithAttributes(
-		tracing.ResourceServiceName.String(stackCfg.Name),
+		tracing.ResourceServiceName.String(service.Name),
 	))
+	defer span.End()
 
 	if !labelsdict.ServiceManaged(service.Labels) {
 		span.AddEvent("Service skipped: service unmanaged")
@@ -135,7 +136,7 @@ func (p *ServicePruner) pruneService(
 			return false, nil
 		}
 
-		span.RecordError(removeErr)
+		tracing.FailSpan(span, removeErr)
 
 		return false, removeErr
 	}
@@ -155,7 +156,7 @@ func (p *ServicePruner) pruneService(
 	})
 	if publishErr != nil {
 		slog.WarnContext(ctx, "[service-pruner] failed to publish event", slog.Any("err", publishErr))
-		span.RecordError(publishErr)
+		tracing.FailSpan(span, publishErr)
 	}
 
 	return true, nil
