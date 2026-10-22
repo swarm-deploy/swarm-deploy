@@ -140,9 +140,11 @@ func (r *Reconciler) populateEnvironment(_ context.Context, payload *pipelinePay
 func (r *Reconciler) addManagedLabel(_ context.Context, payload *pipelinePayload) error {
 	changed := false
 
-	for _, service := range payload.Desired.Compose.Services {
-		present := service.Deploy.Labels.Add(labelsdict.ServiceManagedLabelKey, labelsdict.ServiceManagedLabelValue)
-		if !present {
+	for i, service := range payload.Desired.Compose.Services {
+		serviceChanged := service.Deploy.Labels.Add(labelsdict.ServiceManagedLabelKey, labelsdict.ServiceManagedLabelValue)
+
+		if serviceChanged {
+			payload.Desired.Compose.Services[i] = service
 			changed = true
 		}
 	}
