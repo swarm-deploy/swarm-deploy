@@ -14,12 +14,14 @@ var (
 	ResourceServiceID       = attribute.Key("swarm-deploy.resource.service.id")
 	ResourceServiceReplicas = attribute.Key("swarm-deploy.resource.service.replicas")
 
-	ResourceNetworkName = attribute.Key("swarm-deploy.resource.network.name")
-	ResourceNetworkID   = attribute.Key("swarm-deploy.resource.network.id")
-	ResourceConfigName  = attribute.Key("swarm-deploy.resource.config.name")
-	ResourceConfigID    = attribute.Key("swarm-deploy.resource.config.id")
-	ResourceImageRef    = attribute.Key("swarm-deploy.resource.image.ref")
-	ResourceImageID     = attribute.Key("swarm-deploy.resource.image.id")
+	ResourceNetworkName            = attribute.Key("swarm-deploy.resource.network.name")
+	ResourceNetworkID              = attribute.Key("swarm-deploy.resource.network.id")
+	ResourceConfigName             = attribute.Key("swarm-deploy.resource.config.name")
+	ResourceConfigID               = attribute.Key("swarm-deploy.resource.config.id")
+	ResourceImageRef               = attribute.Key("swarm-deploy.resource.image.ref")
+	ResourceImageID                = attribute.Key("swarm-deploy.resource.image.id")
+	ResourcePrunePolicyName        = attribute.Key("swarm-deploy.resource.image.id").String
+	ResourcePrunePolicyEnabled     = attribute.Key("swarm-deploy.resource.image.id").Bool
 
 	SyncCommitSha = attribute.Key("swarm-deploy.sync.commit_sha")
 

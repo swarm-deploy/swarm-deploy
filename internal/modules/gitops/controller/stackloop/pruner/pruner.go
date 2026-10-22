@@ -10,7 +10,9 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // ServicePruner removes managed services missing from desired stack state.
@@ -38,6 +40,8 @@ func (p *ServicePruner) Prune(
 	ctx context.Context,
 	req PruneServicesRequest,
 ) ([]string, error) {
+	span := trace.SpanFromContext(ctx)
+
 	desiredServiceNames := make(map[string]struct{}, len(req.Desired))
 	for _, service := range req.Desired {
 		desiredServiceNames[service.Name] = struct{}{}
@@ -46,27 +50,53 @@ func (p *ServicePruner) Prune(
 	prunedServices := make([]string, 0)
 	for _, stackService := range req.Live {
 		if _, exists := desiredServiceNames[stackService.Name]; exists {
-			continue
-		}
-		if !labelsdict.ServiceManaged(stackService.Labels) {
+			if span.IsRecording() {
+				span.AddEvent("Live service found in desired state", trace.WithAttributes(
+					tracing.ResourceServiceName.String(stackService.Name),
+				))
+			}
+
 			continue
 		}
 
-		pruneEnabled := p.resolvePolicy(
+		if !labelsdict.ServiceManaged(stackService.Labels) {
+			if span.IsRecording() {
+				span.AddEvent("Service skipped: unmanaged", trace.WithAttributes(
+					tracing.ResourceServiceName.String(stackService.Name),
+				))
+			}
+			continue
+		}
+
+		prunePolicyName, pruneEnabled := p.resolvePolicy(
 			stackService.Labels,
 			req.Stack,
 		)
 		if !pruneEnabled {
+			span.AddEvent("Service skipped by sync policy", trace.WithAttributes(
+				tracing.ResourcePrunePolicyName(prunePolicyName),
+				tracing.ResourcePrunePolicyEnabled(pruneEnabled),
+			))
+
 			continue
 		}
+
+		span.SetAttributes(
+			tracing.ResourcePrunePolicyName(prunePolicyName),
+			tracing.ResourcePrunePolicyEnabled(pruneEnabled),
+		)
 
 		removeErr := p.services.Remove(ctx, stackService.ID)
 		if removeErr != nil {
 			if errors.Is(removeErr, swarm.ErrServiceNotFound) {
+				span.AddEvent("Service not found")
+
 				continue
 			}
 			return nil, removeErr
 		}
+
+		span.AddEvent("Service pruned")
 
 		slog.InfoContext(
 			ctx,
@@ -88,14 +118,14 @@ func (p *ServicePruner) Prune(
 	return prunedServices, nil
 }
 
-func (p *ServicePruner) resolvePolicy(serviceLabels map[string]string, stackCfg config.StackSpec) bool {
+func (p *ServicePruner) resolvePolicy(serviceLabels map[string]string, stackCfg config.StackSpec) (string, bool) {
 	if rawValue, exists := serviceLabels[labelsdict.ServiceSyncPolicyPruneLabelKey]; exists {
-		return strings.EqualFold(rawValue, "true")
+		return "service", strings.EqualFold(rawValue, "true")
 	}
 
 	if stackCfg.Sync.Policy.Prune != nil {
-		return *stackCfg.Sync.Policy.Prune
+		return "stack", *stackCfg.Sync.Policy.Prune
 	}
 
-	return p.syncCfg.Prune
+	return "global", p.syncCfg.Prune
 }
