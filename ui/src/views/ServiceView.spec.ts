@@ -1,7 +1,7 @@
 import { createPinia } from "pinia";
 import { flushPromises, mount } from "@vue/test-utils";
 import { nextTick } from "vue";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ServiceView from "./ServiceView.vue";
 import { useOverviewStore } from "../stores/overview";
@@ -112,6 +112,57 @@ describe("ServiceView", () => {
         updated_at: "2026-10-04T18:01:00Z",
         error: "",
       }],
+    });
+  });
+
+  describe("image copying", () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+
+    beforeEach(() => {
+      writeText.mockClear();
+      vi.stubGlobal("isSecureContext", true);
+      vi.stubGlobal("navigator", { clipboard: { writeText } });
+    });
+
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    it.each([
+      "registry.example.com:5000/infra/api:v1.2.3",
+      `registry.example.com/infra/api:v1.2.3@sha256:${"a".repeat(64)}`,
+    ])("copies the exact serviceInfo image %s instead of the spec image", async (image) => {
+      apiMocks.fetchServices.mockResolvedValue({ services: [{ name: "api", stack: "infra", image }] });
+      const wrapper = await mountServiceView();
+      const button = wrapper.get('button[aria-label="Copy image reference"]');
+
+      expect(button.element.parentElement?.textContent).toContain(image);
+      await button.trigger("click");
+
+      expect(writeText).toHaveBeenCalledExactlyOnceWith(image);
+      wrapper.unmount();
+    });
+
+    it("copies the spec image when serviceInfo has no image", async () => {
+      apiMocks.fetchServices.mockResolvedValue({ services: [{ name: "api", stack: "infra", image: "" }] });
+      const wrapper = await mountServiceView();
+
+      await wrapper.get('button[aria-label="Copy image reference"]').trigger("click");
+
+      expect(writeText).toHaveBeenCalledExactlyOnceWith("registry.example.com/infra/api:latest");
+      wrapper.unmount();
+    });
+
+    it.each(["", undefined])("hides the copy button when both images are %s", async (image) => {
+      apiMocks.fetchServices.mockResolvedValue({ services: [{ name: "api", stack: "infra", image }] });
+      apiMocks.fetchServiceStatus.mockResolvedValue({ spec: { image } });
+      const wrapper = await mountServiceView();
+      const row = wrapper.findAll("tr").find((item) => item.find("th").text() === "Image")!;
+
+      expect(row.get("td").text()).toBe("n/a");
+      expect(row.find("button").exists()).toBe(false);
+      expect(writeText).not.toHaveBeenCalled();
+      wrapper.unmount();
     });
   });
 
