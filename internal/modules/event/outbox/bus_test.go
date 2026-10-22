@@ -481,3 +481,18 @@ func TestEnqueueFailureRollsBackWholePublication(t *testing.T) {
 	assert.Zero(t, rows(t, db, "outbox_events"))
 	assert.Zero(t, rows(t, db, "outbox_deliveries"))
 }
+
+func TestRegistrationValidation(t *testing.T) {
+	_, bus := setup(t)
+	handler := NewMockSubscriber(gomock.NewController(t))
+	for _, typ := range events.Types {
+		require.NoError(t, bus.Subscribe(typ.Name(), "subscriber", handler))
+		require.ErrorContains(t, bus.Subscribe(typ.Name(), "subscriber", handler), "duplicate")
+	}
+	require.ErrorContains(t, bus.Subscribe("Unknown", "subscriber", handler), "unknown event type")
+	require.Error(t, bus.Subscribe(events.TypeNameNodeJoined, "", handler))
+	require.Error(t, bus.Subscribe(events.TypeNameNodeJoined, "nil", nil))
+	_, err := bus.ProcessNext(t.Context())
+	require.NoError(t, err)
+	require.ErrorContains(t, bus.Subscribe(events.TypeNameNodeJoined, "late", handler), "before starting")
+}

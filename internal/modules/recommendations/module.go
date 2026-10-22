@@ -63,10 +63,6 @@ func InitModule(ctx context.Context, cfg *config.Config, cnt Container) (*Module
 }
 
 func (r *Module) registerEventSubscribers(eventDispatcher dispatcher.Dispatcher, subscriber outbox.Subscriber) error {
-	for _, typ := range []events.TypeName{events.TypeNameDeploySuccess, events.TypeNameDeployFailed} {
-		if err := eventDispatcher.Subscribe(typ, "recommendations", subscriber); err != nil {
-			return err
-		}
-	}
-	return nil
+	return dispatcher.SubscribeMany(eventDispatcher,
+		[]events.TypeName{events.TypeNameDeploySuccess, events.TypeNameDeployFailed}, "recommendations", subscriber)
 }

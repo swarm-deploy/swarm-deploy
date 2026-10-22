@@ -67,12 +67,7 @@ func (b *Bus) Subscribe(typ events.TypeName, id string, handler Subscriber) erro
 	if b.started {
 		return errors.New("subscriptions must be registered before starting workers")
 	}
-	_, public := events.ParseType(string(typ))
-	internalLifecycle := typ == events.TypeNameDeployFailed || typ == events.TypeNameDeployPreparationFailed ||
-		typ == events.TypeNameDeployInterrupted || typ == events.TypeNameAlertOpened ||
-		typ == events.TypeNameAlertResolved || typ == events.TypeNameConfigurationChanged ||
-		typ == events.TypeNameGitPullFailed || typ == events.TypeNameGitPullSucceeded
-	if !public && !internalLifecycle {
+	if _, registered := events.ParseType(string(typ)); !registered {
 		return fmt.Errorf("unknown event type %q", typ)
 	}
 	if id == "" || handler == nil {
