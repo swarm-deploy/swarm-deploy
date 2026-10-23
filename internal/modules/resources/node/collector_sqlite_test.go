@@ -18,7 +18,7 @@ func TestSnapshotRollsBackWhenPublicationFails(t *testing.T) {
 	c, inspector, publisher, store := newCollectorForTest(t, previous)
 	inspector.EXPECT().List(gomock.Any()).Return([]swarm.Node{{ID: "known", Status: "down"}}, nil)
 	publisher.EXPECT().Publish(gomock.Any(), gomock.Any()).Return(errors.New("SQL failed"))
-	c.handleEvent(ctx, swarm.NodeEvent{Action: swarm.EventActionUpdate, NodeID: "known"})
+	require.Error(t, c.handleEvent(ctx, swarm.NodeEvent{Action: swarm.EventActionUpdate, NodeID: "known"}))
 	actual, err := store.ReadAll(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, previous, actual)
@@ -31,7 +31,7 @@ func TestCreateForKnownNodeDoesNotRepublishJoined(t *testing.T) {
 	require.NoError(t, store.ReplaceSnapshot(ctx, nil)) // disappear without forgetting membership
 	publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.NodeConnected{})).Return(nil)
 	inspector.EXPECT().List(gomock.Any()).Return(previous, nil)
-	c.handleEvent(ctx, swarm.NodeEvent{Action: swarm.EventActionCreate, NodeID: "known"})
+	require.NoError(t, c.handleEvent(ctx, swarm.NodeEvent{Action: swarm.EventActionCreate, NodeID: "known"}))
 	actual, err := store.ReadAll(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, previous, actual)
