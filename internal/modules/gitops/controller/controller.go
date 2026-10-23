@@ -121,7 +121,7 @@ func New(
 			stateStore,
 			filesystem, db,
 		),
-		stackPlanner: stackplan.New(git),
+		stackPlanner: stackplan.NewPlanner(git),
 		reconcileCh:  make(chan reconcileTask, 1),
 		ownership:    newControllerOwnership(cfg.Spec.DataDir),
 		recovery:     deployment.NewService(db, eventDispatcher),

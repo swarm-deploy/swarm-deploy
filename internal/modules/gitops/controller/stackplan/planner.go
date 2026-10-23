@@ -13,6 +13,7 @@ import (
 
 // DiffSource returns files changed between two revisions.
 type DiffSource interface {
+	// Diff returns files changed between oldRevision and newRevision.
 	Diff(ctx context.Context, oldRevision string, newRevision string) ([]gitx.CommitFileDiff, error)
 }
 
@@ -33,8 +34,8 @@ type Planner struct {
 	diff DiffSource
 }
 
-// New creates a Planner.
-func New(diff DiffSource) *Planner {
+// NewPlanner creates a Planner.
+func NewPlanner(diff DiffSource) *Planner {
 	return &Planner{diff: diff}
 }
 
