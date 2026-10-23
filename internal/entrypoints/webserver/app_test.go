@@ -198,6 +198,40 @@ func TestBuildSPAFallbackRejectsNonReadRequests(t *testing.T) {
 	assert.Equal(t, http.StatusNotFound, rec.Code, "non-read SPA request must not serve index")
 }
 
+func TestBuildRouterLimitsAssistantRequestBody(t *testing.T) {
+	for _, testCase := range []struct {
+		name     string
+		basePath string
+		path     string
+	}{
+		{name: "root", basePath: "/", path: "/api/v1/assistant/chat"},
+		{name: "nested", basePath: "/swarm", path: "/swarm/api/v1/assistant/chat"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			called := false
+			api := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				called = true
+				w.WriteHeader(http.StatusNoContent)
+			})
+			uiFS := fstest.MapFS{
+				"index.html": &fstest.MapFile{Data: []byte("<html><head></head><body>app</body></html>")},
+			}
+			handler := buildRouter(testCase.basePath, api, uiFS)
+
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(
+				http.MethodPost,
+				testCase.path,
+				strings.NewReader(strings.Repeat("x", assistantChatRequestBodyMaxBytes+1)),
+			)
+			handler.ServeHTTP(recorder, request)
+
+			assert.Equal(t, http.StatusRequestEntityTooLarge, recorder.Code)
+			assert.False(t, called, "oversized body must not reach the generated handler")
+		})
+	}
+}
+
 func TestEmbeddedUIWithBasePath(t *testing.T) {
 	for _, testCase := range []struct {
 		name     string

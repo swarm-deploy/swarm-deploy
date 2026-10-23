@@ -116,7 +116,7 @@ export const useAssistantStore = defineStore("assistant", {
         this.activity = response.activity || this.activity;
 
         if (response.status === "in_progress") {
-          const delay = 100;
+          const delay = Math.max(100, response.poll_after_ms || 1000);
           payload = {
             conversation_id: this.conversationID || undefined,
             request_id: this.activeRequestID || undefined,

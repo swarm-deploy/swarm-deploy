@@ -110,16 +110,33 @@ func (r *llmRouter) Route(ctx context.Context, req RouteRequest) (RouteResult, e
 		)
 	}
 
-	if decision.Operation != nil && (route != RouteServices || !decision.Operation.Type.supported()) {
+	if decision.Operation != nil && !operationAllowedForRoute(route, decision.Operation.Type) {
 		decision.Operation = nil
 	}
-	if decision.Operation != nil && !hasCapability(normalizedCapabilities, CapabilityServiceOperations) {
-		normalizedCapabilities = append(normalizedCapabilities, CapabilityServiceOperations)
+	if decision.Operation != nil {
+		capability := CapabilityServiceOperations
+		if decision.Operation.Type == OperationDeploySync {
+			capability = CapabilityDeploymentSync
+		}
+		if !hasCapability(normalizedCapabilities, capability) {
+			normalizedCapabilities = append(normalizedCapabilities, capability)
+		}
 	}
 
 	return RouteResult{
 		Route: route, Capabilities: normalizedCapabilities, Operation: decision.Operation, Usage: completion.Usage,
 	}, nil
+}
+
+func operationAllowedForRoute(route Route, operation OperationType) bool {
+	switch operation {
+	case OperationServiceRestart, OperationServiceReplicasSet:
+		return route == RouteServices
+	case OperationDeploySync:
+		return route == RouteDeployments
+	default:
+		return false
+	}
 }
 
 func routerFallbackReason(err error) string {
@@ -173,6 +190,7 @@ Capabilities:
 Do not add capabilities merely because a route commonly uses them. Add only what this request needs.
 Date/time uses the cross-cutting date tool and needs no capability.
 For restart or replica changes, operation is {"type":"service_restart_trigger|service_replicas_set","target":"literal target or empty","replicas":number-or-null}; include service_operations.
+For a request to start synchronization, use the deployments route and operation {"type":"deploy_sync_trigger","target":"","replicas":null}; include deployment_sync.
 Target is copied from the current user message. Never infer a missing operation target from history.
 Examples:
 "Привет" -> {"route":"general","capabilities":[],"operation":null}

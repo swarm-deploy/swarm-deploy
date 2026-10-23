@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"io"
 	"io/fs"
 	"net/http"
 	"path"
@@ -29,7 +30,10 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/ui"
 )
 
-const readHeaderTimeout = 10 * time.Second
+const (
+	readHeaderTimeout                = 10 * time.Second
+	assistantChatRequestBodyMaxBytes = 64 * 1024
+)
 
 type Application struct {
 	server *http.Server
@@ -108,7 +112,7 @@ func injectRuntimeConfig(indexBytes []byte, basePath string) []byte {
 func buildRouter(basePath string, apiHandler http.Handler, uiFS fs.FS) http.Handler {
 	mux := http.NewServeMux()
 
-	mountedAPIHandler := apiHandler
+	mountedAPIHandler := limitAssistantChatRequestBody(apiHandler)
 	mountedUIHandler := buildSPAFallbackHandler(uiFS, basePath)
 	if basePath != "/" {
 		mountedAPIHandler = http.StripPrefix(basePath, mountedAPIHandler)
@@ -125,6 +129,30 @@ func buildRouter(basePath string, apiHandler http.Handler, uiFS fs.FS) http.Hand
 	mux.Handle(basePathWithTrailingSlash(basePath), mountedUIHandler)
 
 	return mux
+}
+
+func limitAssistantChatRequestBody(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/v1/assistant/chat" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		body, err := io.ReadAll(io.LimitReader(r.Body, assistantChatRequestBodyMaxBytes+1))
+		_ = r.Body.Close()
+		if err != nil {
+			http.Error(w, "failed to read request body", http.StatusBadRequest)
+			return
+		}
+		if len(body) > assistantChatRequestBodyMaxBytes {
+			http.Error(w, "assistant request body is too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		r.ContentLength = int64(len(body))
+		next.ServeHTTP(w, r)
+	})
 }
 
 func joinBasePath(basePath, route string) string {
