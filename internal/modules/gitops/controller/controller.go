@@ -7,8 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"sort"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -21,6 +19,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/networkloop"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackplan"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
@@ -68,6 +67,7 @@ type Controller struct {
 	stateStore        modelstore.Store
 	networkReconciler *networkloop.Reconciler
 	stackReconciler   stackloop.StackReconciler
+	stackPlanner      *stackplan.Planner
 
 	reconcileCh chan reconcileTask
 
@@ -121,6 +121,7 @@ func New(
 			stateStore,
 			filesystem, db,
 		),
+		stackPlanner: stackplan.New(git),
 		reconcileCh:  make(chan reconcileTask, 1),
 		ownership:    newControllerOwnership(cfg.Spec.DataDir),
 		recovery:     deployment.NewService(db, eventDispatcher),
@@ -488,24 +489,22 @@ func (c *Controller) reconcile( //nolint:funlen // reconciliation pipeline
 		return
 	}
 
-	stacksToSync := c.configStore.Stacks()
-	if gitResult.Updated {
-		fileDiffs, diffErr := c.git.Diff(ctx, gitResult.OldRevision, gitResult.NewRevision)
-		if diffErr != nil {
-			slog.ErrorContext(ctx, "git diff failed, continue with default stack order",
-				slog.String("reason", string(task.reason)),
-				slog.String("old_revision", gitResult.OldRevision),
-				slog.String("new_revision", gitResult.NewRevision),
-				slog.Any("err", diffErr),
-			)
-		} else {
-			stacksToSync = prioritizeStacksByFileDiffs(stacksToSync, fileDiffs)
-		}
+	plan := c.stackPlanner.Plan(ctx, c.configStore.Stacks(), *gitResult)
+	if plan.DiffErr != nil {
+		slog.ErrorContext(ctx, "git diff failed, continue with default stack order",
+			slog.String("reason", string(task.reason)),
+			slog.String("old_revision", gitResult.OldRevision),
+			slog.String("new_revision", gitResult.NewRevision),
+			slog.Any("err", plan.DiffErr),
+		)
 	}
 
-	stackCtx, stackSpan := c.tracer.Start(ctx, "controller.syncStacks")
+	stackCtx, stackSpan := c.tracer.Start(ctx, "controller.syncStacks", trace.WithAttributes(
+		attribute.Int("stacks.total", len(plan.Stacks)),
+		attribute.Int("stacks.changed", len(plan.Changed)),
+	))
 	defer stackSpan.End()
-	deployErrs := c.syncStacks(stackCtx, stacksToSync, gitResult.NewRevision, task.reason)
+	deployErrs := c.syncStacks(stackCtx, plan.Stacks, gitResult.NewRevision, task.reason)
 
 	result := syncRunResultSuccess
 	combinedErr := errors.Join(deployErrs...)
@@ -712,70 +711,6 @@ func (c *Controller) syncStack(
 		return fmt.Errorf("stack %s %w", stackCfg.Name, err)
 	}
 	return nil
-}
-
-func prioritizeStacksByFileDiffs(stacks []config.StackSpec, fileDiffs []gitx.CommitFileDiff) []config.StackSpec {
-	if len(stacks) == 0 {
-		return nil
-	}
-
-	normalizePath := func(path string) string {
-		return strings.TrimPrefix(strings.TrimSpace(path), "./")
-	}
-
-	stackNameByComposePath := make(map[string]string, len(stacks))
-	for _, stack := range stacks {
-		composePath := normalizePath(stack.ComposeFile)
-		if composePath == "" {
-			continue
-		}
-
-		if _, exists := stackNameByComposePath[composePath]; !exists {
-			stackNameByComposePath[composePath] = stack.Name
-		}
-	}
-
-	changedStacksOrder := make(map[string]int, len(stacks))
-	for diffIndex, fileDiff := range fileDiffs {
-		changedPath := normalizePath(fileDiff.NewPath)
-		if changedPath == "" {
-			changedPath = normalizePath(fileDiff.OldPath)
-		}
-		if changedPath == "" {
-			continue
-		}
-
-		stackName, exists := stackNameByComposePath[changedPath]
-		if !exists {
-			continue
-		}
-		changedStacksOrder[stackName] = diffIndex
-	}
-
-	if len(changedStacksOrder) == 0 {
-		return stacks
-	}
-
-	orderedStacks := make([]config.StackSpec, len(stacks))
-	copy(orderedStacks, stacks)
-
-	sort.SliceStable(orderedStacks, func(i, j int) bool {
-		leftOrder, leftChanged := changedStacksOrder[orderedStacks[i].Name]
-		rightOrder, rightChanged := changedStacksOrder[orderedStacks[j].Name]
-
-		switch {
-		case leftChanged && rightChanged:
-			return leftOrder < rightOrder
-		case leftChanged:
-			return true
-		case rightChanged:
-			return false
-		default:
-			return false
-		}
-	})
-
-	return orderedStacks
 }
 
 func (c *Controller) publishManualSync(ctx context.Context, task reconcileTask) error {
