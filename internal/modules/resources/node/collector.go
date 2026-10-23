@@ -22,13 +22,13 @@ const observedJoinTTL = 10 * time.Minute
 
 // Collector collects and persists swarm nodes snapshot.
 type Collector struct {
-	db           *storage.Database
-	inspector    swarm.NodeManager
-	store        *SQLStore
-	dispatcher   dispatcher.Dispatcher
-	subscription swarm.EventSubscription[swarm.NodeEvent]
-	retryDelay   time.Duration
-	pendingEvent *swarm.NodeEvent
+	db             *storage.Database
+	inspector      swarm.NodeManager
+	store          *SQLStore
+	dispatcher     dispatcher.Dispatcher
+	subscription   swarm.EventSubscription[swarm.NodeEvent]
+	retryDelay     time.Duration
+	pendingEvent   *swarm.NodeEvent
 	joinCandidates map[string]time.Time
 }
 
@@ -41,12 +41,12 @@ func NewNodeCollector(
 	subscription swarm.EventSubscription[swarm.NodeEvent],
 ) *Collector {
 	return &Collector{
-		db:           db,
-		inspector:    inspector,
-		store:        store,
-		dispatcher:   eventDispatcher,
-		subscription: subscription,
-		retryDelay:   defaultSnapshotRetryDelay,
+		db:             db,
+		inspector:      inspector,
+		store:          store,
+		dispatcher:     eventDispatcher,
+		subscription:   subscription,
+		retryDelay:     defaultSnapshotRetryDelay,
 		joinCandidates: make(map[string]time.Time),
 	}
 }
@@ -108,7 +108,7 @@ func (c *Collector) watch(ctx context.Context, retryPending bool) error {
 
 func closedSubscription(ctx context.Context, message string) error {
 	if ctx.Err() != nil {
-		return nil
+		return nil //nolint:nilerr // Cancellation is a normal shutdown path.
 	}
 	return errors.New(message)
 }
