@@ -14,6 +14,7 @@ import (
 
 const (
 	defaultDebounceDelay   = 250 * time.Millisecond
+	defaultRetryDelay      = 5 * time.Second
 	defaultReconcilePeriod = time.Hour
 )
 
@@ -25,6 +26,7 @@ type Collector struct {
 
 	debounceDelay   time.Duration
 	reconcilePeriod time.Duration
+	retryDelay      time.Duration
 }
 
 // NewCollector creates a Docker secret metadata collector.
@@ -39,6 +41,7 @@ func NewCollector(
 		subscription:    subscription,
 		debounceDelay:   defaultDebounceDelay,
 		reconcilePeriod: defaultReconcilePeriod,
+		retryDelay:      defaultRetryDelay,
 	}
 }
 
@@ -46,14 +49,15 @@ func NewCollector(
 func (c *Collector) Run(ctx context.Context) error {
 	defer c.subscription.Close()
 
-	if err := c.refresh(ctx); err != nil {
-		slog.WarnContext(ctx, "[secrets] initial refresh failed", slog.Any("err", err))
+	initialErr := c.refresh(ctx)
+	if initialErr != nil {
+		slog.WarnContext(ctx, "[secrets] initial refresh failed", slog.Any("err", initialErr))
 	}
 
 	reconcileTicker := time.NewTicker(c.reconcilePeriod)
 	defer reconcileTicker.Stop()
 
-	return c.watch(ctx, reconcileTicker.C)
+	return c.watch(ctx, reconcileTicker.C, initialErr != nil)
 }
 
 func (c *Collector) refresh(ctx context.Context) error {
@@ -74,7 +78,10 @@ func (c *Collector) refresh(ctx context.Context) error {
 	return nil
 }
 
-func (c *Collector) watch(ctx context.Context, reconcile <-chan time.Time) error {
+func (c *Collector) watch(ctx context.Context, reconcile <-chan time.Time, retryPending bool) error {
+	retryTicker := time.NewTicker(c.retryDelay)
+	defer retryTicker.Stop()
+
 	debouncer := newRefreshDebouncer(c.debounceDelay)
 	defer debouncer.stop()
 
@@ -82,6 +89,10 @@ func (c *Collector) watch(ctx context.Context, reconcile <-chan time.Time) error
 		select {
 		case <-ctx.Done():
 			return nil
+		case <-retryTicker.C:
+			if retryPending {
+				retryPending = !c.refreshWithWarning(ctx, "[secrets] snapshot retry failed", "")
+			}
 		case _, ok := <-c.subscription.Events:
 			if !ok {
 				if ctx.Err() != nil {
@@ -97,24 +108,26 @@ func (c *Collector) watch(ctx context.Context, reconcile <-chan time.Time) error
 				}
 				return errors.New("docker events resync channel closed")
 			}
-			c.refreshWithWarning(ctx, "[secrets] refresh after event stream resync failed", resync.Reason)
+			retryPending = !c.refreshWithWarning(ctx, "[secrets] refresh after event stream resync failed", resync.Reason)
 		case <-debouncer.wait():
 			debouncer.markFired()
-			c.refreshWithWarning(ctx, "[secrets] refresh after event failed", "")
+			retryPending = !c.refreshWithWarning(ctx, "[secrets] refresh after event failed", "")
 		case <-reconcile:
-			c.refreshWithWarning(ctx, "[secrets] periodic refresh failed", "")
+			retryPending = !c.refreshWithWarning(ctx, "[secrets] periodic refresh failed", "")
 		}
 	}
 }
 
-func (c *Collector) refreshWithWarning(ctx context.Context, message string, reason swarm.ResyncReason) {
+func (c *Collector) refreshWithWarning(ctx context.Context, message string, reason swarm.ResyncReason) bool {
 	if err := c.refresh(ctx); err != nil {
 		attributes := []any{slog.Any("err", err)}
 		if reason != "" {
 			attributes = append(attributes, slog.String("reason", string(reason)))
 		}
 		slog.WarnContext(ctx, message, attributes...)
+		return false
 	}
+	return true
 }
 
 func mapSecret(secret swarm.Secret) model.Secret {
