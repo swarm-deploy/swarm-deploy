@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"time"
 
 	dockerevents "github.com/docker/docker/api/types/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
@@ -14,53 +13,69 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
-const defaultCollectorReconnectDelay = 5 * time.Second
-
 // Collector collects and persists swarm nodes snapshot.
 type Collector struct {
-	db         *storage.Database
-	inspector  swarm.NodeManager
-	store      *SQLStore
-	dispatcher dispatcher.Dispatcher
-
-	reconnectDelay time.Duration
-	// synced reports whether the snapshot was refreshed at least once.
-	synced bool
+	db           *storage.Database
+	inspector    swarm.NodeManager
+	store        *SQLStore
+	dispatcher   dispatcher.Dispatcher
+	subscription swarm.EventSubscription[swarm.NodeEvent]
 }
 
 // NewNodeCollector creates node collector.
 func NewNodeCollector(
-	inspector swarm.NodeManager, store *SQLStore, eventDispatcher dispatcher.Dispatcher, db *storage.Database,
+	inspector swarm.NodeManager,
+	store *SQLStore,
+	eventDispatcher dispatcher.Dispatcher,
+	db *storage.Database,
+	subscription swarm.EventSubscription[swarm.NodeEvent],
 ) *Collector {
-	return &Collector{db: db,
-		inspector:      inspector,
-		store:          store,
-		dispatcher:     eventDispatcher,
-		reconnectDelay: defaultCollectorReconnectDelay,
+	return &Collector{
+		db:           db,
+		inspector:    inspector,
+		store:        store,
+		dispatcher:   eventDispatcher,
+		subscription: subscription,
 	}
 }
 
-// Run subscribes to docker node events; every (re)subscription starts with a snapshot refresh.
-// If the very first subscription fails, the snapshot is still loaded once.
+// Run performs initial refresh and subscribes to Docker node events.
 func (c *Collector) Run(ctx context.Context) error {
+	defer c.subscription.Close()
+
+	if err := c.refresh(ctx); err != nil {
+		slog.WarnContext(ctx, "[nodes] initial refresh failed", slog.Any("err", err))
+	}
+	return c.watch(ctx)
+}
+
+func (c *Collector) watch(ctx context.Context) error {
 	for {
-		err := c.watchOnce(ctx)
-		if err == nil {
-			return nil
-		}
-
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-
-		slog.WarnContext(ctx, "[nodes] watch stream failed", slog.Any("err", err))
-
-		timer := time.NewTimer(c.reconnectDelay)
 		select {
 		case <-ctx.Done():
-			timer.Stop()
 			return nil
-		case <-timer.C:
+		case event, ok := <-c.subscription.Events:
+			if !ok {
+				if ctx.Err() != nil {
+					return nil //nolint:nilerr // Context cancellation is a normal shutdown path.
+				}
+				return errors.New("docker node events channel closed")
+			}
+
+			c.handleEvent(ctx, event)
+		case resync, ok := <-c.subscription.Resync:
+			if !ok {
+				if ctx.Err() != nil {
+					return nil //nolint:nilerr // Context cancellation is a normal shutdown path.
+				}
+				return errors.New("docker events resync channel closed")
+			}
+			if err := c.refresh(ctx); err != nil {
+				slog.WarnContext(ctx, "[nodes] refresh after event stream resync failed",
+					slog.String("reason", string(resync.Reason)),
+					slog.Any("err", err),
+				)
+			}
 		}
 	}
 }
@@ -73,60 +88,15 @@ func (c *Collector) refresh(ctx context.Context) error {
 	if err = c.persistEvent(ctx, dockerevents.Message{}, nodes); err != nil {
 		return fmt.Errorf("save nodes snapshot: %w", err)
 	}
-	c.synced = true
-
 	slog.InfoContext(ctx, "[nodes] snapshot refreshed", slog.Int("count", len(nodes)))
 	return nil
 }
 
-func (c *Collector) watchOnce(parent context.Context) error {
-	// Cancel the subscription on every exit path so reconnects never leave orphaned streams.
-	ctx, cancel := context.WithCancel(parent)
-	defer cancel()
-
-	eventsCh, errorsCh, err := c.inspector.Watch(ctx)
-	if err != nil {
-		if !c.synced {
-			if refreshErr := c.refresh(ctx); refreshErr != nil {
-				slog.WarnContext(ctx, "[nodes] initial refresh failed", slog.Any("err", refreshErr))
-			}
-		}
-
-		return fmt.Errorf("subscribe docker node events: %w", err)
-	}
-
-	// Refresh reconciles missed connection transitions without inventing joined events.
-	if err = c.refresh(ctx); err != nil {
-		return fmt.Errorf("refresh nodes after subscribe: %w", err)
-	}
-
-	for {
-		select {
-		case <-ctx.Done():
-			return nil
-		case event, ok := <-eventsCh:
-			if !ok {
-				return errors.New("docker node events channel closed")
-			}
-
-			c.handleEvent(ctx, event)
-		case watchErr, ok := <-errorsCh:
-			if !ok {
-				return errors.New("docker node events errors channel closed")
-			}
-			if watchErr == nil {
-				continue
-			}
-			return fmt.Errorf("watch docker node events: %w", watchErr)
-		}
-	}
-}
-
-func (c *Collector) handleEvent(ctx context.Context, event dockerevents.Message) {
+func (c *Collector) handleEvent(ctx context.Context, event swarm.NodeEvent) {
 	slog.DebugContext(ctx, "[nodes] docker node event received",
 		slog.String("action", string(event.Action)),
-		slog.String("node_id", event.Actor.ID),
-		slog.Any("node_attributes", event.Actor.Attributes),
+		slog.String("node_id", event.NodeID),
+		slog.Any("node_attributes", event.Attributes),
 	)
 
 	currentNodes, err := c.inspector.List(ctx)
@@ -134,7 +104,13 @@ func (c *Collector) handleEvent(ctx context.Context, event dockerevents.Message)
 		slog.ErrorContext(ctx, "refresh node snapshot", "err", err)
 		return
 	}
-	err = c.persistEvent(ctx, event, currentNodes)
+	err = c.persistEvent(ctx, dockerevents.Message{
+		Action: dockerevents.Action(event.Action),
+		Actor: dockerevents.Actor{
+			ID:         event.NodeID,
+			Attributes: event.Attributes,
+		},
+	}, currentNodes)
 	if err != nil {
 		slog.ErrorContext(ctx, "persist node snapshot and events", "err", err)
 	}
