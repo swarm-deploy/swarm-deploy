@@ -128,15 +128,15 @@ func TestPlannerPlan(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctrl := gomock.NewController(t)
-			repository := gitx.NewMockRepository(ctrl)
+			diffSource := NewMockDiffSource(ctrl)
 			if tc.expectDiff {
-				repository.EXPECT().
+				diffSource.EXPECT().
 					Diff(gomock.Any(), tc.pull.OldRevision, tc.pull.NewRevision).
 					Return(tc.diffs, tc.diffErr)
 			}
 			configured := slices.Clone(tc.stacks)
 
-			plan := NewPlanner(repository).Plan(t.Context(), tc.stacks, tc.pull)
+			plan := NewPlanner(diffSource).Plan(t.Context(), tc.stacks, tc.pull)
 
 			if tc.wantDiffErr != nil {
 				require.ErrorIs(t, plan.DiffErr, tc.wantDiffErr, "diff error")

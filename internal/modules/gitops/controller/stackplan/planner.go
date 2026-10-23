@@ -11,12 +11,6 @@ import (
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 )
 
-// DiffSource returns files changed between two revisions.
-type DiffSource interface {
-	// Diff returns files changed between oldRevision and newRevision.
-	Diff(ctx context.Context, oldRevision string, newRevision string) ([]gitx.CommitFileDiff, error)
-}
-
 // Plan is the result of stack planning for one sync run.
 type Plan struct {
 	// Stacks are all configured stacks in deployment order:
