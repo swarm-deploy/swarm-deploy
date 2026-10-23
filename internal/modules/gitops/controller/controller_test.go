@@ -20,6 +20,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/networkloop"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackplan"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	git "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
@@ -180,12 +181,13 @@ func TestControllerGracefulShutdown(t *testing.T) {
 						Interval:     specw.Duration{Value: time.Hour},
 					},
 				}},
-				git:         repository,
-				metrics:     metricGroup,
-				event:       eventDispatcher,
-				stateStore:  store,
-				reconcileCh: make(chan reconcileTask, 1),
-				tracer:      otel.Tracer("test"),
+				git:          repository,
+				stackPlanner: stackplan.NewPlanner(repository),
+				metrics:      metricGroup,
+				event:        eventDispatcher,
+				stateStore:   store,
+				reconcileCh:  make(chan reconcileTask, 1),
+				tracer:       otel.Tracer("test"),
 			}
 
 			runCtx, cancelRun := context.WithCancel(context.Background())
@@ -249,6 +251,7 @@ func TestControllersSharingSQLiteDoNotReconcileConcurrently(t *testing.T) {
 				Sync:    config.SyncSpec{Interval: specw.Duration{Value: time.Hour}},
 			}},
 			git:          repository,
+			stackPlanner: stackplan.NewPlanner(repository),
 			metrics:      metrics.NewGroup(metrics.CreateGroupParams{Namespace: "test_controller_ownership"}),
 			event:        events,
 			stateStore:   modelstore.NewSQLStore(db),
@@ -344,6 +347,7 @@ func TestControllerCancelsReconciliationAfterShutdownGracePeriod(t *testing.T) {
 			Sync: config.SyncSpec{Interval: specw.Duration{Value: time.Hour}},
 		}},
 		git:          repository,
+		stackPlanner: stackplan.NewPlanner(repository),
 		metrics:      metrics.NewGroup(metrics.CreateGroupParams{Namespace: "test_controller_shutdown_timeout"}),
 		event:        &dispatcher.NopDispatcher{},
 		stateStore:   store,
@@ -395,10 +399,11 @@ func TestConfigStoreReloadUsesRepositoryDirFirst(t *testing.T) {
 	repository := git.NewRepository(config.GitSpec{}, filepath.Join(dataDir, "repo"))
 
 	c := &Controller{
-		cfg:         cfg,
-		configStore: configstore.New(cfg, &dispatcher.NopDispatcher{}),
-		git:         repository,
-		tracer:      otel.Tracer("test"),
+		cfg:          cfg,
+		configStore:  configstore.New(cfg, &dispatcher.NopDispatcher{}),
+		git:          repository,
+		stackPlanner: stackplan.NewPlanner(repository),
+		tracer:       otel.Tracer("test"),
 	}
 
 	err := c.configStore.Reload(t.Context(), c.git.WorkingDir())
@@ -440,10 +445,11 @@ func TestReloadNetworksUsesRepositoryDirFirst(t *testing.T) {
 	repository := git.NewRepository(config.GitSpec{}, filepath.Join(dataDir, "repo"))
 
 	c := &Controller{
-		cfg:         cfg,
-		configStore: configstore.New(cfg, &dispatcher.NopDispatcher{}),
-		git:         repository,
-		tracer:      otel.Tracer("test"),
+		cfg:          cfg,
+		configStore:  configstore.New(cfg, &dispatcher.NopDispatcher{}),
+		git:          repository,
+		stackPlanner: stackplan.NewPlanner(repository),
+		tracer:       otel.Tracer("test"),
 	}
 
 	err := c.configStore.Reload(t.Context(), c.git.WorkingDir())
@@ -511,6 +517,7 @@ func TestControllerSyncContinuesWhenConfigurationEventPublicationFails(t *testin
 		cfg:               cfg,
 		configStore:       configstore.New(cfg, eventDispatcher),
 		git:               repository,
+		stackPlanner:      stackplan.NewPlanner(repository),
 		metrics:           metricGroup,
 		event:             eventDispatcher,
 		stateStore:        store,
@@ -561,11 +568,12 @@ func TestControllerPollGitSkipsReconcileWhenGitHasNoChanges(t *testing.T) {
 		cfg: &config.Config{Spec: config.Spec{
 			Git: config.GitSpec{Repository: "repo"},
 		}},
-		git:        repository,
-		metrics:    metricGroup,
-		event:      &dispatcher.NopDispatcher{},
-		stateStore: store,
-		tracer:     otel.Tracer("test"),
+		git:          repository,
+		stackPlanner: stackplan.NewPlanner(repository),
+		metrics:      metricGroup,
+		event:        &dispatcher.NopDispatcher{},
+		stateStore:   store,
+		tracer:       otel.Tracer("test"),
 	}
 
 	controller.pollGit(context.Background())
@@ -591,11 +599,12 @@ func TestControllerPollGitRecordsErrorState(t *testing.T) {
 		cfg: &config.Config{Spec: config.Spec{
 			Git: config.GitSpec{Repository: "repo"},
 		}},
-		git:        repository,
-		metrics:    metricGroup,
-		event:      &dispatcher.NopDispatcher{},
-		stateStore: store,
-		tracer:     otel.Tracer("test"),
+		git:          repository,
+		stackPlanner: stackplan.NewPlanner(repository),
+		metrics:      metricGroup,
+		event:        &dispatcher.NopDispatcher{},
+		stateStore:   store,
+		tracer:       otel.Tracer("test"),
 	}
 
 	controller.pollGit(context.Background())
@@ -914,6 +923,7 @@ func TestControllerSyncOncePrioritizesChangedStacks(t *testing.T) {
 		cfg:               cfg,
 		configStore:       configstore.New(cfg, eventDispatcher),
 		git:               repository,
+		stackPlanner:      stackplan.NewPlanner(repository),
 		metrics:           metricGroup,
 		event:             eventDispatcher,
 		stateStore:        store,
@@ -995,6 +1005,7 @@ func TestControllerSyncOnceContinuesWhenGitDiffFails(t *testing.T) {
 		cfg:               cfg,
 		configStore:       configstore.New(cfg, eventDispatcher),
 		git:               repository,
+		stackPlanner:      stackplan.NewPlanner(repository),
 		metrics:           metricGroup,
 		event:             eventDispatcher,
 		stateStore:        store,
