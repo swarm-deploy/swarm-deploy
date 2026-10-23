@@ -2,6 +2,8 @@ package tracing
 
 import "go.opentelemetry.io/otel/attribute"
 
+const EventDeliveryAttempt = attribute.Key("swarm-deploy.events.delivery.attempt")
+
 var (
 	SyncReason = attribute.Key("swarm-deploy.sync.reason")
 

@@ -16,7 +16,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
@@ -259,7 +258,7 @@ func (b *Bus) process(ctx context.Context, d delivery) (err error) {
 		trace.WithAttributes(
 			tracing.EventName.String(string(typ)),
 			tracing.EventSubscriberName.String(d.subscriptionID),
-			attribute.Int("swarm-deploy.events.delivery.attempt", d.attempts),
+			tracing.EventDeliveryAttempt.Int(d.attempts),
 		),
 	}
 	if link, ok := traceLink(row.Traceparent); ok {

@@ -134,7 +134,7 @@ func TestDeliverySpansLinkPublicationAcrossSubscribersAndRetries(t *testing.T) {
 		seenSpanIDs[span.SpanContext().SpanID()] = struct{}{}
 		subscriber := spanAttribute(span, tracing.EventSubscriberName).AsString()
 		seenAttempts[subscriber] = append(seenAttempts[subscriber],
-			spanAttribute(span, "swarm-deploy.events.delivery.attempt").AsInt64())
+			spanAttribute(span, tracing.EventDeliveryAttempt).AsInt64())
 		assert.Equal(t, string(events.TypeNameNodeJoined), spanAttribute(span, tracing.EventName).AsString())
 	}
 	assert.Len(t, seenSpanIDs, 3, "each subscriber attempt must have an independent span")
