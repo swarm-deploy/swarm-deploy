@@ -167,10 +167,6 @@ func (s *Service) Chat(ctx context.Context, request ChatRequest) ChatResponse {
 		}
 	}
 
-	if conversationID == "" {
-		conversationID = uuid.NewString()
-		span.SetAttributes(tracing.GenAIConversationID.String(conversationID))
-	}
 	if requestID == "" {
 		requestID = uuid.NewString()
 	}
@@ -184,6 +180,8 @@ func (s *Service) Chat(ctx context.Context, request ChatRequest) ChatResponse {
 		return ChatResponse{Status: StatusFailed, ConversationID: conversationID, RequestID: requestID,
 			ErrorMessage: "Failed to read conversation history"}
 	}
+	conversationID = run.conversationID
+	span.SetAttributes(tracing.GenAIConversationID.String(conversationID))
 	if created {
 		if conversationCreated {
 			s.chatObserver.RecordChatCreated()
@@ -318,10 +316,13 @@ func (s *Service) getOrCreateRun(
 	s.pruneRunsLocked()
 
 	if existing := s.runs[requestID]; existing != nil {
-		if existing.conversationID != conversationID || existing.message != message {
+		if (conversationID != "" && existing.conversationID != conversationID) || existing.message != message {
 			return nil, false, false, errRequestIDConflict
 		}
 		return existing, false, false, nil
+	}
+	if conversationID == "" {
+		conversationID = uuid.NewString()
 	}
 
 	conversationCreated, err := s.isConversationNewLocked(ctx, conversationID)
@@ -329,6 +330,7 @@ func (s *Service) getOrCreateRun(
 		return nil, false, false, err
 	}
 
+	s.makeRoomForRunLocked()
 	run := newChatRun(requestID, conversationID, message)
 	s.runs[requestID] = run
 	return run, true, conversationCreated, nil
@@ -367,6 +369,9 @@ func (s *Service) pruneRunsLocked() {
 			delete(s.runs, requestID)
 		}
 	}
+}
+
+func (s *Service) makeRoomForRunLocked() {
 	if len(s.runs) < maxRetainedRuns {
 		return
 	}

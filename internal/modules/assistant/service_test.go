@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -264,8 +265,7 @@ func TestServiceChatHandlesToolCalls(t *testing.T) {
 					"usage": map[string]any{
 						"prompt_tokens": 5, "completion_tokens": 1, "total_tokens": 6,
 					},
-					"choices": []map[string]any{{"message": map[string]any{"content": `{"route":"deployments","capabilities":["deployment_sync"],"operation":{"type":"deploy_sync_trigger","target":"","replicas":null}}`,
-					}}},
+					"choices": []map[string]any{{"message": map[string]any{"content": `{"route":"deployments","capabilities":["deployment_sync"],"operation":{"type":"deploy_sync_trigger","target":"","replicas":null}}`}}},
 				})
 				return
 			}
@@ -409,6 +409,104 @@ func TestServiceChatBindsRequestIDToConversationAndMessage(t *testing.T) {
 	})
 	assert.Equal(t, StatusFailed, wrongPollConversation.Status)
 	assert.Contains(t, wrongPollConversation.ErrorMessage, "does not belong")
+}
+
+func TestServiceChatRetriesStartWithoutConversationID(t *testing.T) {
+	serviceInstance, err := NewService(
+		Config{Enabled: true, ConversationInMemoryTTL: time.Hour},
+		serviceStore(t, nil),
+		NewMockToolExecutor(gomock.NewController(t)),
+		&dispatcher.NopDispatcher{},
+		&metrics.NopAssistant{},
+	)
+	require.NoError(t, err)
+
+	request := ChatRequest{RequestID: "request-1", Message: "привет"}
+	first := serviceInstance.Chat(context.Background(), request)
+	require.Equal(t, StatusCompleted, first.Status)
+	require.NotEmpty(t, first.ConversationID)
+
+	for _, testCase := range []struct {
+		name           string
+		conversationID string
+		message        string
+		status         Status
+	}{
+		{name: "omitted conversation", message: "привет", status: StatusCompleted},
+		{name: "explicit conversation", conversationID: first.ConversationID, message: "привет", status: StatusCompleted},
+		{name: "changed message", message: "спасибо", status: StatusFailed},
+		{name: "changed conversation", conversationID: "another", message: "привет", status: StatusFailed},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			response := serviceInstance.Chat(context.Background(), ChatRequest{
+				ConversationID: testCase.conversationID, RequestID: request.RequestID, Message: testCase.message,
+			})
+			assert.Equal(t, testCase.status, response.Status)
+			if testCase.status == StatusCompleted {
+				assert.Equal(t, first.ConversationID, response.ConversationID)
+				assert.Equal(t, first.Answer, response.Answer)
+			} else {
+				assert.Contains(t, response.ErrorMessage, "already bound")
+			}
+		})
+	}
+	history, ok := serviceInstance.conversationStorage.Get(first.ConversationID)
+	require.True(t, ok)
+	assert.Len(t, history.Turns, 2, "retries must not append duplicate turns")
+}
+
+func TestServiceChatDeduplicatesAtRunCapacity(t *testing.T) {
+	for _, testCase := range []struct {
+		name           string
+		conversationID string
+		message        string
+		status         Status
+	}{
+		{name: "same request", conversationID: "conversation", message: "привет", status: StatusCompleted},
+		{name: "omitted conversation", message: "привет", status: StatusCompleted},
+		{name: "changed message", conversationID: "conversation", message: "спасибо", status: StatusFailed},
+		{name: "changed conversation", conversationID: "another", message: "привет", status: StatusFailed},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			serviceInstance, err := NewService(
+				Config{Enabled: true, ConversationInMemoryTTL: time.Hour},
+				serviceStore(t, nil),
+				NewMockToolExecutor(gomock.NewController(t)),
+				&dispatcher.NopDispatcher{},
+				&metrics.NopAssistant{},
+			)
+			require.NoError(t, err)
+			oldest := newChatRun("request-0", "conversation", "привет")
+			oldest.finish(StatusCompleted, "original answer", "")
+			oldest.finishedAt = time.Now().Add(-time.Minute)
+			serviceInstance.runs[oldest.requestID] = oldest
+			for index := 1; index < maxRetainedRuns; index++ {
+				run := newChatRun("request-"+strconv.Itoa(index), "conversation", "привет")
+				run.finish(StatusCompleted, "answer", "")
+				serviceInstance.runs[run.requestID] = run
+			}
+
+			response := serviceInstance.Chat(context.Background(), ChatRequest{
+				RequestID: oldest.requestID, ConversationID: testCase.conversationID, Message: testCase.message,
+			})
+			assert.Equal(t, testCase.status, response.Status)
+			if testCase.status == StatusCompleted {
+				assert.Equal(t, oldest.answer, response.Answer)
+				assert.Equal(t, oldest.conversationID, response.ConversationID)
+			} else {
+				assert.Contains(t, response.ErrorMessage, "already bound")
+			}
+			assert.Same(t, oldest, serviceInstance.getRun(oldest.requestID), "retry must not evict its own run")
+			assert.Len(t, serviceInstance.runs, maxRetainedRuns)
+
+			created := serviceInstance.Chat(context.Background(), ChatRequest{
+				RequestID: "new-request", ConversationID: "conversation", Message: "привет",
+			})
+			require.Equal(t, StatusCompleted, created.Status)
+			assert.Nil(t, serviceInstance.getRun(oldest.requestID), "a new run must evict the oldest completed run")
+			assert.Len(t, serviceInstance.runs, maxRetainedRuns)
+		})
+	}
 }
 
 func TestServiceChatRejectsOversizedMessage(t *testing.T) {
