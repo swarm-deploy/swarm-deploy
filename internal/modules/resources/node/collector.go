@@ -62,15 +62,7 @@ func (c *Collector) watch(ctx context.Context, retryPending bool) error {
 	// A failed snapshot must be retried even if Docker sends no more events.
 	// A successful reconciliation clears the retry state to avoid needless polling.
 	reconcile := func(reason string) {
-		if err := c.reconcileAfterResync(ctx); err != nil {
-			retryPending = true
-			slog.WarnContext(ctx, "[nodes] snapshot reconciliation failed",
-				slog.String("reason", reason),
-				slog.Any("err", err),
-			)
-		} else {
-			retryPending = false
-		}
+		retryPending = !c.reconcileWithWarning(ctx, reason)
 	}
 
 	for {
@@ -84,7 +76,7 @@ func (c *Collector) watch(ctx context.Context, retryPending bool) error {
 		case event, ok := <-c.subscription.Events:
 			if !ok {
 				if ctx.Err() != nil {
-					return nil //nolint:nilerr // Context cancellation is a normal shutdown path.
+					return nil
 				}
 				return errors.New("docker node events channel closed")
 			}
@@ -93,13 +85,24 @@ func (c *Collector) watch(ctx context.Context, retryPending bool) error {
 		case resync, ok := <-c.subscription.Resync:
 			if !ok {
 				if ctx.Err() != nil {
-					return nil //nolint:nilerr // Context cancellation is a normal shutdown path.
+					return nil
 				}
 				return errors.New("docker events resync channel closed")
 			}
 			reconcile(string(resync.Reason))
 		}
 	}
+}
+
+func (c *Collector) reconcileWithWarning(ctx context.Context, reason string) bool {
+	if err := c.reconcileAfterResync(ctx); err != nil {
+		slog.WarnContext(ctx, "[nodes] snapshot reconciliation failed",
+			slog.String("reason", reason),
+			slog.Any("err", err),
+		)
+		return false
+	}
+	return true
 }
 
 // reconcileAfterResync processes events already accepted into the bounded queue
