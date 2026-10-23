@@ -490,6 +490,21 @@ func TestCreationFactJoinCandidateTTL(t *testing.T) {
 	}
 }
 
+func TestCollectorExpiredJoinCandidateDoesNotEmitJoined(t *testing.T) {
+	collector, inspector, publisher, store, _, _ := newCollectorWithSubscriptionForTest(t, nil)
+	node := swarm.Node{ID: "known", Hostname: "worker", Status: "ready", ManagerStatus: swarm.NodeManagerStatusWorker}
+	require.NoError(t, store.ReplaceSnapshot(context.Background(), []swarm.Node{node}))
+	collector.joinCandidates["known"] = time.Now().Add(-observedJoinTTL - time.Second)
+	inspector.EXPECT().List(gomock.Any()).Return([]swarm.Node{node}, nil)
+	publisher.EXPECT().Publish(gomock.Any(), gomock.Any()).Times(0)
+
+	require.NoError(t, collector.handleEvent(context.Background(), swarm.NodeEvent{
+		NodeID: "known", Action: swarm.EventActionCreate,
+	}))
+	_, present := collector.joinCandidates["known"]
+	assert.False(t, present, "expired candidate should be removed during lookup")
+}
+
 func TestCollectorRunRetriesFailedNodeEventWithoutFurtherEvents(t *testing.T) {
 	collector, inspector, publisher, store, eventCh, _ := newCollectorWithSubscriptionForTest(t, nil)
 	collector.retryDelay = 10 * time.Millisecond
