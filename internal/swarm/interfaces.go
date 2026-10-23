@@ -4,7 +4,6 @@ package swarm
 import (
 	"context"
 
-	dockerevents "github.com/docker/docker/api/types/events"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 )
 
@@ -58,9 +57,6 @@ type SecretManager interface {
 	// Remove deletes a Docker secret by identifier.
 	Remove(ctx context.Context, secretID string) error
 
-	// Watch subscribes to Docker secret events stream.
-	Watch(ctx context.Context) (<-chan dockerevents.Message, <-chan error, error)
-
 	// ResolveReference resolves a secret reference by source and target.
 	ResolveReference(ctx context.Context, source, target string) (*dockerswarm.SecretReference, error)
 }
@@ -105,7 +101,4 @@ type NodeManager interface {
 
 	// DeleteLabel removes Docker node label while preserving the rest of the node spec.
 	DeleteLabel(ctx context.Context, nodeID string, key string) error
-
-	// Watch subscribes to Docker node events stream.
-	Watch(ctx context.Context) (<-chan dockerevents.Message, <-chan error, error)
 }

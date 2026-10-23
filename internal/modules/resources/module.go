@@ -53,11 +53,16 @@ func InitModule(
 	srv.ServiceStore = modelstore.NewSQLStore(cnt.GetStorage())
 
 	srv.NodeCollector = node.NewNodeCollector(
-		cnt.GetSwarm().Nodes, nodeStore, cnt.GetEventModule().Dispatcher, cnt.GetStorage(),
+		cnt.GetSwarm().Nodes,
+		nodeStore,
+		cnt.GetEventModule().Dispatcher,
+		cnt.GetStorage(),
+		cnt.GetSwarm().Events.SubscribeNodes(),
 	)
 	secretDomain, err := secrets.NewDomain(
 		cnt.GetStorage(),
 		cnt.GetSwarm().Secrets,
+		cnt.GetSwarm().Events.SubscribeSecrets(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("init secrets domain: %w", err)
