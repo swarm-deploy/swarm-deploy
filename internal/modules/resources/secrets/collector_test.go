@@ -138,7 +138,7 @@ func TestCollectorWatchRefreshesOnPeriodicReconciliation(t *testing.T) {
 
 	collector := NewCollector(manager, store, newTestSubscription())
 	done := make(chan error, 1)
-	go func() { done <- collector.watch(ctx, reconcile) }()
+	go func() { done <- collector.watch(ctx, reconcile, false) }()
 	reconcile <- time.Now()
 	requireSignal(t, refreshed)
 	cancel()
@@ -177,6 +177,80 @@ func TestCollectorInitialRefreshFailureKeepsPersistedSnapshot(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, listed, 1)
 	assert.Equal(t, "persisted-secret", listed[0].Name)
+}
+
+
+func TestCollectorRunRetriesFailedResyncWithoutEvents(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	store := newTestStore(t)
+	manager := swarm.NewMockSecretManager(gomock.NewController(t))
+	now := time.Now().UTC()
+	listCalls := make(chan struct{}, 3)
+	gomock.InOrder(
+		manager.EXPECT().List(gomock.Any(), swarm.ListSecretsFilter{}).DoAndReturn(
+			func(context.Context, swarm.ListSecretsFilter) ([]swarm.Secret, error) {
+				listCalls <- struct{}{}
+				return nil, nil
+			}),
+		manager.EXPECT().List(gomock.Any(), swarm.ListSecretsFilter{}).DoAndReturn(
+			func(context.Context, swarm.ListSecretsFilter) ([]swarm.Secret, error) {
+				listCalls <- struct{}{}
+				return nil, errors.New("docker unavailable")
+			}),
+		manager.EXPECT().List(gomock.Any(), swarm.ListSecretsFilter{}).DoAndReturn(
+			func(context.Context, swarm.ListSecretsFilter) ([]swarm.Secret, error) {
+				listCalls <- struct{}{}
+				return []swarm.Secret{{ID: "secret-1", Name: "db", CreatedAt: now, UpdatedAt: now}}, nil
+			}),
+	)
+	resyncCh := make(chan swarm.ResyncEvent, 1)
+	collector := NewCollector(manager, store, swarm.EventSubscription[swarm.SecretEvent]{
+		Events: make(chan swarm.SecretEvent),
+		Resync: resyncCh,
+	})
+	collector.retryDelay = 10 * time.Millisecond
+	collector.reconcilePeriod = time.Hour
+	done := make(chan error, 1)
+	go func() { done <- collector.Run(ctx) }()
+
+	requireSignal(t, listCalls)
+	resyncCh <- swarm.ResyncEvent{Reason: swarm.ResyncReasonReconnect}
+	requireSignal(t, listCalls)
+	requireSignal(t, listCalls)
+	require.Eventually(t, func() bool {
+		secrets, err := store.List(context.Background())
+		return err == nil && len(secrets) == 1 && secrets[0].ID == "secret-1"
+	}, time.Second, time.Millisecond)
+	cancel()
+	require.NoError(t, <-done)
+}
+
+func TestCollectorRunRetriesFailedInitialSnapshotWithoutEvents(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	store := newTestStore(t)
+	manager := swarm.NewMockSecretManager(gomock.NewController(t))
+	now := time.Now().UTC()
+	gomock.InOrder(
+		manager.EXPECT().List(gomock.Any(), swarm.ListSecretsFilter{}).Return(nil, errors.New("docker unavailable")),
+		manager.EXPECT().List(gomock.Any(), swarm.ListSecretsFilter{}).Return(
+			[]swarm.Secret{{ID: "secret-1", Name: "db", CreatedAt: now, UpdatedAt: now}}, nil),
+	)
+	collector := NewCollector(manager, store, newTestSubscription())
+	collector.retryDelay = 10 * time.Millisecond
+	collector.reconcilePeriod = time.Hour
+	done := make(chan error, 1)
+	go func() { done <- collector.Run(ctx) }()
+
+	require.Eventually(t, func() bool {
+		secrets, err := store.List(context.Background())
+		return err == nil && len(secrets) == 1 && secrets[0].ID == "secret-1"
+	}, time.Second, time.Millisecond)
+	cancel()
+	require.NoError(t, <-done)
 }
 
 func newTestSubscription() swarm.EventSubscription[swarm.SecretEvent] {
