@@ -96,6 +96,28 @@ func TestDeploymentAttemptMigrationPreservesPopulatedV1Database(t *testing.T) {
 	assert.Equal(t, 2, preserved)
 }
 
+func TestOutboxTraceparentMigrationPreservesExistingEvents(t *testing.T) {
+	db, provider := openAtMigration1(t)
+	_, err := provider.UpTo(t.Context(), 2)
+	require.NoError(t, err)
+	_, err = db.Exec(t.Context(), `INSERT INTO outbox_events
+		(id,event_type,schema_version,occurred_at,payload) VALUES (?,?,?,?,?)`,
+		"legacy-event", "NodeJoined", 1, time.Now().UTC(), `{}`)
+	require.NoError(t, err)
+
+	_, err = provider.Up(t.Context())
+	require.NoError(t, err)
+	var traceparent sql.NullString
+	require.NoError(t, db.Get(t.Context(), &traceparent,
+		"SELECT traceparent FROM outbox_events WHERE id='legacy-event'"))
+	assert.False(t, traceparent.Valid)
+
+	_, err = db.Exec(t.Context(), `INSERT INTO outbox_events
+		(id,event_type,schema_version,occurred_at,payload) VALUES (?,?,?,?,?)`,
+		"old-writer-event", "NodeJoined", 1, time.Now().UTC(), `{}`)
+	require.NoError(t, err, "the nullable column must remain compatible with old writers")
+}
+
 func TestDeploymentAttemptMigrationAllowsOldBinaryWrites(t *testing.T) {
 	db, provider := openAtMigration1(t)
 	_, err := provider.Up(t.Context())
@@ -149,7 +171,9 @@ func TestDeploymentAttemptMigrationIsForwardOnly(t *testing.T) {
 	_, err := provider.Up(t.Context())
 	require.NoError(t, err)
 	_, err = provider.Down(t.Context())
-	require.Error(t, err)
+	require.NoError(t, err, "the traceparent column migration is reversible")
+	_, err = provider.Down(t.Context())
+	require.Error(t, err, "the deployment attempt migration remains forward-only")
 
 	version, err := provider.GetDBVersion(t.Context())
 	require.NoError(t, err)
@@ -289,7 +313,7 @@ func TestFreshDatabaseEnforcesForeignKeysAndChecks(t *testing.T) {
 	var appliedVersions int
 	require.NoError(t, db.Get(t.Context(), &appliedVersions,
 		"SELECT count(*) FROM goose_db_version WHERE version_id > 0 AND is_applied = 1"))
-	assert.Equal(t, 2, appliedVersions)
+	assert.Equal(t, 3, appliedVersions)
 }
 
 func TestRestartAndRollback(t *testing.T) {
