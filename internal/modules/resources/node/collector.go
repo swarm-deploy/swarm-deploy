@@ -15,6 +15,9 @@ import (
 )
 
 const defaultSnapshotRetryDelay = 5 * time.Second
+// Keep newly discovered identities long enough to match a Create arriving
+// while snapshot reconciliation is in progress. Expiration bounds the cache.
+const observedJoinTTL = 10 * time.Minute
 
 // Collector collects and persists swarm nodes snapshot.
 type Collector struct {
@@ -24,6 +27,8 @@ type Collector struct {
 	dispatcher   dispatcher.Dispatcher
 	subscription swarm.EventSubscription[swarm.NodeEvent]
 	retryDelay   time.Duration
+	pendingEvent *swarm.NodeEvent
+	joinCandidates map[string]time.Time
 }
 
 // NewNodeCollector creates node collector.
@@ -41,6 +46,7 @@ func NewNodeCollector(
 		dispatcher:   eventDispatcher,
 		subscription: subscription,
 		retryDelay:   defaultSnapshotRetryDelay,
+		joinCandidates: make(map[string]time.Time),
 	}
 }
 
@@ -66,6 +72,11 @@ func (c *Collector) watch(ctx context.Context, retryPending bool) error {
 	}
 
 	for {
+		// Preserve a failed event for retry; do not consume later events before it.
+		eventsCh := c.subscription.Events
+		if c.pendingEvent != nil {
+			eventsCh = nil
+		}
 		select {
 		case <-ctx.Done():
 			return nil
@@ -73,7 +84,7 @@ func (c *Collector) watch(ctx context.Context, retryPending bool) error {
 			if retryPending {
 				reconcile("retry")
 			}
-		case event, ok := <-c.subscription.Events:
+		case event, ok := <-eventsCh:
 			if !ok {
 				if ctx.Err() != nil {
 					return nil
@@ -81,7 +92,14 @@ func (c *Collector) watch(ctx context.Context, retryPending bool) error {
 				return errors.New("docker node events channel closed")
 			}
 
-			c.handleEvent(ctx, event)
+			if err := c.handleEvent(ctx, event); err != nil {
+				c.pendingEvent = &event
+				retryPending = true
+				slog.WarnContext(ctx, "[nodes] process event failed; retry scheduled",
+					slog.String("node_id", event.NodeID),
+					slog.Any("err", err),
+				)
+			}
 		case resync, ok := <-c.subscription.Resync:
 			if !ok {
 				if ctx.Err() != nil {
@@ -111,6 +129,13 @@ func (c *Collector) reconcileWithWarning(ctx context.Context, reason string) boo
 // Events actually dropped on overflow cannot be reconstructed as historical
 // joins from a snapshot; reconciliation restores state, not missing facts.
 func (c *Collector) reconcileAfterResync(ctx context.Context) error {
+	// A failed Create must be retried before a snapshot can consume its identity.
+	if c.pendingEvent != nil {
+		if err := c.handleEvent(ctx, *c.pendingEvent); err != nil {
+			return err
+		}
+		c.pendingEvent = nil
+	}
 	// Snapshot the queue length to avoid starving reconciliation when producers
 	// keep publishing new events. FIFO preserves the order of accepted events.
 	for pending := len(c.subscription.Events); pending > 0; pending-- {
@@ -121,7 +146,10 @@ func (c *Collector) reconcileAfterResync(ctx context.Context) error {
 			if !ok {
 				return errors.New("docker node events channel closed")
 			}
-			c.handleEvent(ctx, event)
+			if err := c.handleEvent(ctx, event); err != nil {
+				c.pendingEvent = &event
+				return err
+			}
 		}
 	}
 	return c.refresh(ctx)
@@ -139,7 +167,7 @@ func (c *Collector) refresh(ctx context.Context) error {
 	return nil
 }
 
-func (c *Collector) handleEvent(ctx context.Context, event swarm.NodeEvent) {
+func (c *Collector) handleEvent(ctx context.Context, event swarm.NodeEvent) error {
 	slog.DebugContext(ctx, "[nodes] docker node event received",
 		slog.String("action", string(event.Action)),
 		slog.String("node_id", event.NodeID),
@@ -148,19 +176,18 @@ func (c *Collector) handleEvent(ctx context.Context, event swarm.NodeEvent) {
 
 	currentNodes, err := c.inspector.List(ctx)
 	if err != nil {
-		slog.ErrorContext(ctx, "refresh node snapshot", "err", err)
-		return
+		return fmt.Errorf("list nodes for event %s: %w", event.NodeID, err)
 	}
-	err = c.persistEvent(ctx, dockerevents.Message{
+	if err = c.persistEvent(ctx, dockerevents.Message{
 		Action: dockerevents.Action(event.Action),
 		Actor: dockerevents.Actor{
 			ID:         event.NodeID,
 			Attributes: event.Attributes,
 		},
-	}, currentNodes)
-	if err != nil {
-		slog.ErrorContext(ctx, "persist node snapshot and events", "err", err)
+	}, currentNodes); err != nil {
+		return fmt.Errorf("persist node event %s: %w", event.NodeID, err)
 	}
+	return nil
 }
 
 func nodesByID(nodes []swarm.Node) map[string]swarm.Node {
@@ -191,7 +218,8 @@ func nodeRole(node swarm.Node) string {
 }
 
 func (c *Collector) persistEvent(ctx context.Context, event dockerevents.Message, currentNodes []swarm.Node) error {
-	return c.db.WithinTransaction(ctx, func(ctx context.Context) error {
+	freshIDs := []string{}
+	err := c.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		previousNodes, err := c.store.ReadAll(ctx)
 		if err != nil {
 			return err
@@ -210,7 +238,7 @@ func (c *Collector) persistEvent(ctx context.Context, event dockerevents.Message
 				facts = append(facts, fact)
 			}
 		}
-		reconnected, err := c.reappearedNodes(ctx, previousByID, currentNodes, skipID)
+		reconnected, err := c.reappearedNodes(ctx, previousByID, currentNodes, skipID, &freshIDs)
 		if err != nil {
 			return err
 		}
@@ -226,6 +254,26 @@ func (c *Collector) persistEvent(ctx context.Context, event dockerevents.Message
 		}
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+	if event.Action == dockerevents.ActionCreate {
+		delete(c.joinCandidates, event.Actor.ID)
+	}
+	c.rememberFreshNodes(freshIDs)
+	return nil
+}
+
+func (c *Collector) rememberFreshNodes(ids []string) {
+	now := time.Now()
+	for id, observed := range c.joinCandidates {
+		if now.Sub(observed) > observedJoinTTL {
+			delete(c.joinCandidates, id)
+		}
+	}
+	for _, id := range ids {
+		c.joinCandidates[id] = now
+	}
 }
 
 func connectionEvents(previousNodes, currentNodes []swarm.Node) []events.Event {
@@ -254,7 +302,7 @@ func connectionEvents(previousNodes, currentNodes []swarm.Node) []events.Event {
 	return facts
 }
 func (c *Collector) reappearedNodes(
-	ctx context.Context, previous map[string]swarm.Node, current []swarm.Node, skipID string,
+	ctx context.Context, previous map[string]swarm.Node, current []swarm.Node, skipID string, freshIDs *[]string,
 ) ([]events.Event, error) {
 	facts := []events.Event{}
 	for _, node := range current {
@@ -264,6 +312,9 @@ func (c *Collector) reappearedNodes(
 		fresh, err := c.store.ObserveIdentity(ctx, node.ID)
 		if err != nil {
 			return nil, err
+		}
+		if fresh {
+			*freshIDs = append(*freshIDs, node.ID)
 		}
 		if !fresh && nodeConnected(node) {
 			facts = append(facts, &events.NodeConnected{NodeID: node.ID, NodeName: node.Hostname, Status: node.Status})
@@ -280,7 +331,8 @@ func (c *Collector) creationFact(
 		return nil, err
 	}
 	n, exists := current[id]
-	if fresh {
+	_, recentlyObserved := c.joinCandidates[id]
+	if fresh || recentlyObserved {
 		joined := &events.NodeJoined{NodeID: id}
 		if exists {
 			joined.NodeName, joined.Role = n.Hostname, nodeRole(n)
