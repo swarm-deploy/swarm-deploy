@@ -434,6 +434,58 @@ func TestCollectorReconcileHandlesQueuedCreateBeforeSnapshot(t *testing.T) {
 	assert.Equal(t, []swarm.Node{node}, readNodes(t, store))
 }
 
+
+func TestCollectorResyncRetainsJoinDuringSnapshot(t *testing.T) {
+	collector, inspector, publisher, store, _, _ := newCollectorWithSubscriptionForTest(t, nil)
+	node := swarm.Node{ID: "new", Hostname: "worker", Status: "ready", ManagerStatus: swarm.NodeManagerStatusWorker}
+	inspector.EXPECT().List(gomock.Any()).Return([]swarm.Node{node}, nil).Times(2)
+	publisher.EXPECT().Publish(gomock.Any(), &events.NodeJoined{
+		NodeID: "new", NodeName: "worker", Role: "worker",
+	}).Return(nil).Times(1)
+
+	// The snapshot sees the node before its Docker Create event is delivered.
+	require.NoError(t, collector.reconcileAfterResync(context.Background()))
+	require.NoError(t, collector.handleEvent(context.Background(), swarm.NodeEvent{
+		NodeID: "new", Action: swarm.EventActionCreate,
+	}))
+	assert.Equal(t, []swarm.Node{node}, readNodes(t, store))
+	// A duplicate Create should never publish another join.
+	require.NoError(t, collector.handleEvent(context.Background(), swarm.NodeEvent{
+		NodeID: "new", Action: swarm.EventActionCreate,
+	}))
+}
+
+func TestCollectorRunRetriesFailedNodeEventWithoutFurtherEvents(t *testing.T) {
+	collector, inspector, publisher, store, eventCh, _ := newCollectorWithSubscriptionForTest(t, nil)
+	collector.retryDelay = 10 * time.Millisecond
+	node := swarm.Node{ID: "new", Hostname: "worker", Status: "ready", ManagerStatus: swarm.NodeManagerStatusWorker}
+	initial := make(chan struct{}, 1)
+	gomock.InOrder(
+		inspector.EXPECT().List(gomock.Any()).DoAndReturn(func(context.Context) ([]swarm.Node, error) {
+			initial <- struct{}{}
+			return nil, nil
+		}),
+		inspector.EXPECT().List(gomock.Any()).Return(nil, errors.New("temporary docker failure")),
+		inspector.EXPECT().List(gomock.Any()).Return([]swarm.Node{node}, nil),
+		inspector.EXPECT().List(gomock.Any()).Return([]swarm.Node{node}, nil),
+	)
+	publisher.EXPECT().Publish(gomock.Any(), &events.NodeJoined{
+		NodeID: "new", NodeName: "worker", Role: "worker",
+	}).Return(nil).Times(1)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- collector.Run(ctx) }()
+	requireSignal(t, initial)
+	eventCh <- swarm.NodeEvent{NodeID: "new", Action: swarm.EventActionCreate}
+	require.Eventually(t, func() bool {
+		nodes, err := store.ReadAll(context.Background())
+		return err == nil && len(nodes) == 1 && nodes[0].ID == "new"
+	}, time.Second, time.Millisecond)
+	cancel()
+	require.NoError(t, <-done)
+}
+
 func lastNonNil(lists [][]swarm.Node) []swarm.Node {
 	for index := len(lists) - 1; index >= 0; index-- {
 		if lists[index] != nil {
