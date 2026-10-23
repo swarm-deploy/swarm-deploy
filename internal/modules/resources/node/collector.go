@@ -338,7 +338,10 @@ func (c *Collector) creationFact(
 		return nil, err
 	}
 	n, exists := current[id]
-	_, recentlyObserved := c.joinCandidates[id]
+	observedAt, exists := c.joinCandidates[id]
+	// A candidate can remain in memory if no snapshots have triggered cleanup.
+	// Check its age here so a delayed Create cannot produce a false NodeJoined.
+	recentlyObserved := exists && time.Since(observedAt) <= observedJoinTTL
 	if fresh || recentlyObserved {
 		joined := &events.NodeJoined{NodeID: id}
 		if exists {
