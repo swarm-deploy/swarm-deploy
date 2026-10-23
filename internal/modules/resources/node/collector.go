@@ -337,19 +337,22 @@ func (c *Collector) creationFact(
 	if err != nil {
 		return nil, err
 	}
-	n, exists := current[id]
-	observedAt, exists := c.joinCandidates[id]
-	// A candidate can remain in memory if no snapshots have triggered cleanup.
-	// Check its age here so a delayed Create cannot produce a false NodeJoined.
-	recentlyObserved := exists && time.Since(observedAt) <= observedJoinTTL
+	n, nodeExists := current[id]
+	observedAt, candidateExists := c.joinCandidates[id]
+	// Expire candidates on lookup as well as during snapshot cleanup.
+	// A delayed Create must not be mistaken for a new join.
+	recentlyObserved := candidateExists && time.Since(observedAt) <= observedJoinTTL
+	if candidateExists && !recentlyObserved {
+		delete(c.joinCandidates, id)
+	}
 	if fresh || recentlyObserved {
 		joined := &events.NodeJoined{NodeID: id}
-		if exists {
+		if nodeExists {
 			joined.NodeName, joined.Role = n.Hostname, nodeRole(n)
 		}
 		return joined, nil
 	}
-	if _, wasPresent := previous[id]; exists && !wasPresent && nodeConnected(n) {
+	if _, wasPresent := previous[id]; nodeExists && !wasPresent && nodeConnected(n) {
 		return &events.NodeConnected{NodeID: id, NodeName: n.Hostname, Status: n.Status}, nil
 	}
 	return nil, nil //nolint:nilnil // A known node without a state transition produces no fact.
