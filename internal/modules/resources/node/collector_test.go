@@ -464,6 +464,32 @@ func TestCollectorResyncRetainsJoinDuringSnapshot(t *testing.T) {
 	}))
 }
 
+func TestCreationFactJoinCandidateTTL(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		age  time.Duration
+		wantJoined bool
+	}{
+		{name: "recent", age: observedJoinTTL / 2, wantJoined: true},
+		{name: "expired", age: observedJoinTTL + time.Second},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			collector, _, _, store := newCollectorForTest(t, nil)
+			ctx := context.Background()
+			node := swarm.Node{ID: "node-1", Hostname: "worker-1", Status: "down"}
+			require.NoError(t, store.ReplaceSnapshot(ctx, []swarm.Node{node}))
+			collector.joinCandidates[node.ID] = time.Now().Add(-test.age)
+			fact, err := collector.creationFact(ctx, node.ID, nodesByID([]swarm.Node{node}), nodesByID([]swarm.Node{node}))
+			require.NoError(t, err)
+			if test.wantJoined {
+				assert.Equal(t, &events.NodeJoined{NodeID: node.ID, NodeName: node.Hostname}, fact)
+			} else {
+				assert.Nil(t, fact, "expired candidate must not emit NodeJoined")
+			}
+		})
+	}
+}
+
 func TestCollectorRunRetriesFailedNodeEventWithoutFurtherEvents(t *testing.T) {
 	collector, inspector, publisher, store, eventCh, _ := newCollectorWithSubscriptionForTest(t, nil)
 	collector.retryDelay = 10 * time.Millisecond
