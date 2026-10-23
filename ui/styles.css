@@ -1062,6 +1062,25 @@ a.overview-summary-row:focus-visible {
   border-color: var(--warning-border);
 }
 
+.node-stale-hint {
+  margin: 0;
+  padding: 9px 11px;
+  border: 1px solid var(--warning-border);
+  border-radius: 8px;
+  color: var(--text);
+  background: var(--warning-muted);
+  font-size: 0.83rem;
+  line-height: 1.5;
+}
+
+.node-stale-hint strong {
+  color: var(--warning);
+}
+
+.node-stale-hint code {
+  white-space: nowrap;
+}
+
 .node-meta-row {
   display: grid;
   grid-template-columns: minmax(78px, max-content) minmax(0, 1fr);
