@@ -353,6 +353,87 @@ func newCollectorWithSubscriptionForTest(
 	return collector, inspector, dispatcherMock, store, eventsCh, resyncCh
 }
 
+
+func TestCollectorRunRetriesFailedResyncWithoutNewDockerEvents(t *testing.T) {
+	collector, inspector, publisher, store, _, resyncCh := newCollectorWithSubscriptionForTest(t, []swarm.Node{{
+		ID: "w1", Hostname: "worker-1", Status: "ready",
+	}})
+	collector.retryDelay = 10 * time.Millisecond
+
+	initial := []swarm.Node{{ID: "w1", Hostname: "worker-1", Status: "ready"}}
+	recovered := []swarm.Node{{ID: "w1", Hostname: "worker-1", Status: "down"}}
+	listCalls := make(chan struct{}, 3)
+	gomock.InOrder(
+		inspector.EXPECT().List(gomock.Any()).DoAndReturn(func(context.Context) ([]swarm.Node, error) {
+			listCalls <- struct{}{}
+			return initial, nil
+		}),
+		inspector.EXPECT().List(gomock.Any()).DoAndReturn(func(context.Context) ([]swarm.Node, error) {
+			listCalls <- struct{}{}
+			return nil, errors.New("docker temporarily unavailable")
+		}),
+		inspector.EXPECT().List(gomock.Any()).DoAndReturn(func(context.Context) ([]swarm.Node, error) {
+			listCalls <- struct{}{}
+			return recovered, nil
+		}),
+	)
+	publisher.EXPECT().Publish(gomock.Any(), &events.NodeDisconnected{
+		NodeID: "w1", NodeName: "worker-1", Status: "down",
+	}).Return(nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- collector.Run(ctx) }()
+	requireSignal(t, listCalls)
+	resyncCh <- swarm.ResyncEvent{Reason: swarm.ResyncReasonReconnect}
+	requireSignal(t, listCalls)
+	requireSignal(t, listCalls)
+	require.Eventually(t, func() bool {
+		nodes, err := store.ReadAll(context.Background())
+		return err == nil && len(nodes) == 1 && nodes[0].Status == "down"
+	}, time.Second, time.Millisecond)
+	cancel()
+	require.NoError(t, <-done)
+}
+
+func TestCollectorRunRetriesFailedInitialSnapshotWithoutDockerEvents(t *testing.T) {
+	collector, inspector, publisher, store, _, _ := newCollectorWithSubscriptionForTest(t, nil)
+	collector.retryDelay = 10 * time.Millisecond
+	inspector.EXPECT().List(gomock.Any()).Return(nil, errors.New("docker unavailable"))
+	inspector.EXPECT().List(gomock.Any()).Return([]swarm.Node{{
+		ID: "w1", Hostname: "worker-1", Status: "ready",
+	}}, nil)
+	publisher.EXPECT().Publish(gomock.Any(), gomock.Any()).Times(0)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- collector.Run(ctx) }()
+	require.Eventually(t, func() bool {
+		nodes, err := store.ReadAll(context.Background())
+		return err == nil && len(nodes) == 1 && nodes[0].ID == "w1"
+	}, time.Second, time.Millisecond)
+	cancel()
+	require.NoError(t, <-done)
+}
+
+func TestCollectorReconcileHandlesQueuedCreateBeforeSnapshot(t *testing.T) {
+	base, inspector, publisher, store, _, _ := newCollectorWithSubscriptionForTest(t, nil)
+	eventsCh := make(chan swarm.NodeEvent, 1)
+	eventsCh <- swarm.NodeEvent{NodeID: "w1", Action: swarm.EventActionCreate}
+	collector := NewNodeCollector(inspector, store, publisher, base.db, swarm.EventSubscription[swarm.NodeEvent]{
+		Events: eventsCh,
+		Resync: make(chan swarm.ResyncEvent, 1),
+	})
+	node := swarm.Node{ID: "w1", Hostname: "worker-1", Status: "ready", ManagerStatus: swarm.NodeManagerStatusWorker}
+	inspector.EXPECT().List(gomock.Any()).Return([]swarm.Node{node}, nil).Times(2)
+	publisher.EXPECT().Publish(gomock.Any(), &events.NodeJoined{
+		NodeID: "w1", NodeName: "worker-1", Role: "worker",
+	}).Return(nil).Times(1)
+
+	require.NoError(t, collector.reconcileAfterResync(context.Background()))
+	assert.Equal(t, []swarm.Node{node}, readNodes(t, store))
+}
+
 func lastNonNil(lists [][]swarm.Node) []swarm.Node {
 	for index := len(lists) - 1; index >= 0; index-- {
 		if lists[index] != nil {
