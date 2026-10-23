@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"time"
 
 	dockerevents "github.com/docker/docker/api/types/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
@@ -13,6 +14,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
+const defaultSnapshotRetryDelay = 5 * time.Second
+
 // Collector collects and persists swarm nodes snapshot.
 type Collector struct {
 	db           *storage.Database
@@ -20,6 +23,7 @@ type Collector struct {
 	store        *SQLStore
 	dispatcher   dispatcher.Dispatcher
 	subscription swarm.EventSubscription[swarm.NodeEvent]
+	retryDelay   time.Duration
 }
 
 // NewNodeCollector creates node collector.
@@ -36,6 +40,7 @@ func NewNodeCollector(
 		store:        store,
 		dispatcher:   eventDispatcher,
 		subscription: subscription,
+		retryDelay:   defaultSnapshotRetryDelay,
 	}
 }
 
@@ -43,17 +48,39 @@ func NewNodeCollector(
 func (c *Collector) Run(ctx context.Context) error {
 	defer c.subscription.Close()
 
-	if err := c.refresh(ctx); err != nil {
+	err := c.refresh(ctx)
+	if err != nil {
 		slog.WarnContext(ctx, "[nodes] initial refresh failed", slog.Any("err", err))
 	}
-	return c.watch(ctx)
+	return c.watch(ctx, err != nil)
 }
 
-func (c *Collector) watch(ctx context.Context) error {
+func (c *Collector) watch(ctx context.Context, retryPending bool) error {
+	retryTicker := time.NewTicker(c.retryDelay)
+	defer retryTicker.Stop()
+
+	// A failed snapshot must be retried even if Docker sends no more events.
+	// A successful reconciliation clears the retry state to avoid needless polling.
+	reconcile := func(reason string) {
+		if err := c.reconcileAfterResync(ctx); err != nil {
+			retryPending = true
+			slog.WarnContext(ctx, "[nodes] snapshot reconciliation failed",
+				slog.String("reason", reason),
+				slog.Any("err", err),
+			)
+		} else {
+			retryPending = false
+		}
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
+		case <-retryTicker.C:
+			if retryPending {
+				reconcile("retry")
+			}
 		case event, ok := <-c.subscription.Events:
 			if !ok {
 				if ctx.Err() != nil {
@@ -70,14 +97,31 @@ func (c *Collector) watch(ctx context.Context) error {
 				}
 				return errors.New("docker events resync channel closed")
 			}
-			if err := c.refresh(ctx); err != nil {
-				slog.WarnContext(ctx, "[nodes] refresh after event stream resync failed",
-					slog.String("reason", string(resync.Reason)),
-					slog.Any("err", err),
-				)
-			}
+			reconcile(string(resync.Reason))
 		}
 	}
+}
+
+// reconcileAfterResync processes events already accepted into the bounded queue
+// before replacing the snapshot. Otherwise a queued Create can be overtaken by
+// a resync and lose its NodeJoined fact when ObserveIdentity sees the node.
+// Events actually dropped on overflow cannot be reconstructed as historical
+// joins from a snapshot; reconciliation restores state, not missing facts.
+func (c *Collector) reconcileAfterResync(ctx context.Context) error {
+	// Snapshot the queue length to avoid starving reconciliation when producers
+	// keep publishing new events. FIFO preserves the order of accepted events.
+	for pending := len(c.subscription.Events); pending > 0; pending-- {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case event, ok := <-c.subscription.Events:
+			if !ok {
+				return errors.New("docker node events channel closed")
+			}
+			c.handleEvent(ctx, event)
+		}
+	}
+	return c.refresh(ctx)
 }
 
 func (c *Collector) refresh(ctx context.Context) error {
