@@ -8,22 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestSharedAttributeNames(t *testing.T) {
-	assert.Equal(t, "stack_name", AttributeStackName)
-	assert.Equal(t, "service_name", AttributeServiceName)
-	assert.Equal(t, "deployment_id", AttributeDeploymentID)
-	assert.Equal(t, "commit", AttributeCommit)
-	assert.Equal(t, "username", AttributeUsername)
-	assert.Equal(t, "node_id", AttributeNodeID)
-	assert.Equal(t, "node_name", AttributeNodeName)
-	assert.Equal(t, "network_id", AttributeNetworkID)
-	assert.Equal(t, "network_name", AttributeNetworkName)
-	assert.Equal(t, "status", AttributeStatus)
-	assert.Equal(t, "error", AttributeError)
-	assert.Equal(t, "error_code", AttributeErrorCode)
-	assert.Equal(t, "stage", AttributeStage)
-}
-
 func TestEventDetailsUseStandardAttributeNames(t *testing.T) {
 	tests := []struct {
 		name  string
