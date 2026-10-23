@@ -249,7 +249,16 @@ func TestCollectorRunPreservesNodeEventSemantics(t *testing.T) {
 				Events: eventsCh,
 				Resync: resyncCh,
 			})
-			require.Error(t, collector.Run(context.Background()))
+			if len(test.steps) == 1 && test.steps[0].list == nil {
+				// A failed individual event is retained by Run for retry; exercise
+				// its initial failure directly without waiting for a retry loop.
+				require.NoError(t, collector.refresh(context.Background()))
+				require.Error(t, collector.handleEvent(context.Background(), swarm.NodeEvent{
+					NodeID: test.steps[0].nodeID, Action: swarm.EventAction(test.steps[0].action),
+				}))
+			} else {
+				require.Error(t, collector.Run(context.Background()))
+			}
 
 			assert.Equal(t, test.want, got)
 			assert.Len(t, readNodes(t, store), len(lastNonNil(lists)))
@@ -438,7 +447,7 @@ func TestCollectorReconcileHandlesQueuedCreateBeforeSnapshot(t *testing.T) {
 func TestCollectorResyncRetainsJoinDuringSnapshot(t *testing.T) {
 	collector, inspector, publisher, store, _, _ := newCollectorWithSubscriptionForTest(t, nil)
 	node := swarm.Node{ID: "new", Hostname: "worker", Status: "ready", ManagerStatus: swarm.NodeManagerStatusWorker}
-	inspector.EXPECT().List(gomock.Any()).Return([]swarm.Node{node}, nil).Times(2)
+	inspector.EXPECT().List(gomock.Any()).Return([]swarm.Node{node}, nil).Times(3)
 	publisher.EXPECT().Publish(gomock.Any(), &events.NodeJoined{
 		NodeID: "new", NodeName: "worker", Role: "worker",
 	}).Return(nil).Times(1)
