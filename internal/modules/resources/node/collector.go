@@ -15,6 +15,7 @@ import (
 )
 
 const defaultSnapshotRetryDelay = 5 * time.Second
+
 // Keep newly discovered identities long enough to match a Create arriving
 // while snapshot reconciliation is in progress. Expiration bounds the cache.
 const observedJoinTTL = 10 * time.Minute
@@ -86,12 +87,8 @@ func (c *Collector) watch(ctx context.Context, retryPending bool) error {
 			}
 		case event, ok := <-eventsCh:
 			if !ok {
-				if ctx.Err() != nil {
-					return nil
-				}
-				return errors.New("docker node events channel closed")
+				return closedSubscription(ctx, "docker node events channel closed")
 			}
-
 			if err := c.handleEvent(ctx, event); err != nil {
 				c.pendingEvent = &event
 				retryPending = true
@@ -102,14 +99,18 @@ func (c *Collector) watch(ctx context.Context, retryPending bool) error {
 			}
 		case resync, ok := <-c.subscription.Resync:
 			if !ok {
-				if ctx.Err() != nil {
-					return nil
-				}
-				return errors.New("docker events resync channel closed")
+				return closedSubscription(ctx, "docker events resync channel closed")
 			}
 			reconcile(string(resync.Reason))
 		}
 	}
+}
+
+func closedSubscription(ctx context.Context, message string) error {
+	if ctx.Err() != nil {
+		return nil
+	}
+	return errors.New(message)
 }
 
 func (c *Collector) reconcileWithWarning(ctx context.Context, reason string) bool {
@@ -220,39 +221,7 @@ func nodeRole(node swarm.Node) string {
 func (c *Collector) persistEvent(ctx context.Context, event dockerevents.Message, currentNodes []swarm.Node) error {
 	freshIDs := []string{}
 	err := c.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		previousNodes, err := c.store.ReadAll(ctx)
-		if err != nil {
-			return err
-		}
-		currentByID := nodesByID(currentNodes)
-		previousByID := nodesByID(previousNodes)
-		facts := []events.Event{}
-		skipID := ""
-		if event.Action == dockerevents.ActionCreate {
-			skipID = event.Actor.ID
-			fact, createErr := c.creationFact(ctx, skipID, previousByID, currentByID)
-			if createErr != nil {
-				return createErr
-			}
-			if fact != nil {
-				facts = append(facts, fact)
-			}
-		}
-		reconnected, err := c.reappearedNodes(ctx, previousByID, currentNodes, skipID, &freshIDs)
-		if err != nil {
-			return err
-		}
-		facts = append(facts, reconnected...)
-		facts = append(facts, connectionEvents(previousNodes, currentNodes)...)
-		if err = c.store.ReplaceSnapshot(ctx, currentNodes); err != nil {
-			return err
-		}
-		for _, fact := range facts {
-			if err = c.dispatcher.Publish(ctx, fact); err != nil {
-				return err
-			}
-		}
-		return nil
+		return c.persistEventTx(ctx, event, currentNodes, &freshIDs)
 	})
 	if err != nil {
 		return err
@@ -261,6 +230,44 @@ func (c *Collector) persistEvent(ctx context.Context, event dockerevents.Message
 		delete(c.joinCandidates, event.Actor.ID)
 	}
 	c.rememberFreshNodes(freshIDs)
+	return nil
+}
+
+func (c *Collector) persistEventTx(
+	ctx context.Context, event dockerevents.Message, currentNodes []swarm.Node, freshIDs *[]string,
+) error {
+	previousNodes, err := c.store.ReadAll(ctx)
+	if err != nil {
+		return err
+	}
+	currentByID := nodesByID(currentNodes)
+	previousByID := nodesByID(previousNodes)
+	facts := []events.Event{}
+	skipID := ""
+	if event.Action == dockerevents.ActionCreate {
+		skipID = event.Actor.ID
+		fact, createErr := c.creationFact(ctx, skipID, previousByID, currentByID)
+		if createErr != nil {
+			return createErr
+		}
+		if fact != nil {
+			facts = append(facts, fact)
+		}
+	}
+	reconnected, err := c.reappearedNodes(ctx, previousByID, currentNodes, skipID, freshIDs)
+	if err != nil {
+		return err
+	}
+	facts = append(facts, reconnected...)
+	facts = append(facts, connectionEvents(previousNodes, currentNodes)...)
+	if err = c.store.ReplaceSnapshot(ctx, currentNodes); err != nil {
+		return err
+	}
+	for _, fact := range facts {
+		if err = c.dispatcher.Publish(ctx, fact); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
