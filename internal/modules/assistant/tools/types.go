@@ -27,6 +27,8 @@ type ServiceActionResult struct {
 	Service string `json:"service"`
 	// Replicas is the resulting replicas count.
 	Replicas uint64 `json:"replicas"`
+	// Warning reports a non-fatal failure after the Docker mutation completed.
+	Warning string `json:"warning,omitempty"`
 }
 
 // HistoryReader reads current event history snapshot.

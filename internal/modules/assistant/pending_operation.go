@@ -29,6 +29,8 @@ const (
 	OperationServiceRestart OperationType = serviceRestartTriggerTool
 	// OperationServiceReplicasSet changes a service replica count.
 	OperationServiceReplicasSet OperationType = serviceReplicasSetTool
+	// OperationDeploySync triggers a GitOps synchronization.
+	OperationDeploySync OperationType = deploySyncTriggerTool
 )
 
 // PendingOperationStage identifies the next input required for an operation.
@@ -146,10 +148,6 @@ func equalOptionalUint64(left, right *uint64) bool {
 	return *left == *right
 }
 
-func (t OperationType) supported() bool {
-	return t == OperationServiceRestart || t == OperationServiceReplicasSet
-}
-
 func (g *graph) startPendingOperation(
 	ctx context.Context,
 	conversationID string,
@@ -160,6 +158,11 @@ func (g *graph) startPendingOperation(
 		Stage:    PendingOperationCollecting,
 		Target:   strings.TrimSpace(intent.Target),
 		Replicas: intent.Replicas,
+	}
+	if op.Type == OperationDeploySync {
+		op.Stage = PendingOperationConfirmation
+		g.pending.set(conversationID, op)
+		return confirmationMessage(op), conversation.TokenUsage{}
 	}
 	services, err := g.store.ReadAll(ctx)
 	if err != nil {
@@ -295,21 +298,28 @@ func (g *graph) executePendingOperation(
 	if !g.pending.claim(conversationID, op) {
 		return "Операция уже обрабатывается или больше не ожидает подтверждения.", nil
 	}
-	services, err := g.store.ReadAll(ctx)
-	if err != nil {
-		return "", err
-	}
-	resolution := resolveServiceTarget(services, op.Stack+"/"+op.Service)
-	if !resolution.ok || !strings.EqualFold(resolution.stack, op.Stack) ||
-		!strings.EqualFold(resolution.service, op.Service) {
-		return "Сервис изменился или больше не существует. Операция отменена.", nil
+	capability := CapabilityServiceOperations
+	arguments := map[string]any{}
+	if op.Type != OperationDeploySync {
+		services, err := g.store.ReadAll(ctx)
+		if err != nil {
+			return "", err
+		}
+		resolution := resolveServiceTarget(services, op.Stack+"/"+op.Service)
+		if !resolution.ok || !strings.EqualFold(resolution.stack, op.Stack) ||
+			!strings.EqualFold(resolution.service, op.Service) {
+			return "Сервис изменился или больше не существует. Операция отменена.", nil
+		}
+		arguments["stack"] = resolution.stack
+		arguments["service"] = resolution.service
+	} else {
+		capability = CapabilityDeploymentSync
 	}
 
-	effectiveTools := g.effectiveToolSet([]Capability{CapabilityServiceOperations})
+	effectiveTools := g.effectiveToolSet([]Capability{capability})
 	if _, ok := effectiveTools[string(op.Type)]; !ok {
 		return "Эта операция запрещена настройкой `assistant.tools`.", nil
 	}
-	arguments := map[string]any{"stack": resolution.stack, "service": resolution.service}
 	if op.Type == OperationServiceReplicasSet {
 		arguments["replicas"] = op.Replicas
 	}
@@ -531,6 +541,9 @@ func isSelfResolveRequest(message string) bool {
 }
 
 func confirmationMessage(op PendingOperation) string {
+	if op.Type == OperationDeploySync {
+		return "Запустить синхронизацию GitOps?"
+	}
 	if op.Type == OperationServiceReplicasSet && op.Replicas != nil {
 		return fmt.Sprintf("Установить %d реплик для `%s` в стеке `%s`?", *op.Replicas, op.Service, op.Stack)
 	}
