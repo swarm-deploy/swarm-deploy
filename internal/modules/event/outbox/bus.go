@@ -29,9 +29,25 @@ type Subscriber interface {
 
 type externalSubscriber struct{ Subscriber }
 
+type notificationSubscriber struct {
+	externalSubscriber
+	destination string
+	channel     string
+}
+
 // External adapts a network consumer at the worker boundary. Its Handle runs
 // without a database transaction; delivery still uses the same durable queue.
 func External(handler Subscriber) Subscriber { return externalSubscriber{handler} }
+
+// ExternalNotification adapts a network notification consumer and records only
+// the safe destination metadata needed for terminal delivery-failure events.
+func ExternalNotification(handler Subscriber, destination, channel string) Subscriber {
+	return notificationSubscriber{
+		externalSubscriber: externalSubscriber{Subscriber: handler},
+		destination:        destination,
+		channel:            channel,
+	}
+}
 
 type causeKey struct{}
 

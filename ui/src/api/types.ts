@@ -139,8 +139,8 @@ export interface AlertResolution {
 export interface Alert {
   id: string;
   fingerprint: string;
-  kind: "sync_failed" | "node_disconnected" | "git_repository_unavailable";
-  resourceType: "stack" | "node" | "repository";
+  kind: "sync_failed" | "node_disconnected" | "git_repository_unavailable" | "notification_delivery_failed";
+  resourceType: "stack" | "node" | "repository" | "notification";
   resourceId: string;
   status: AlertStatus;
   title: string;

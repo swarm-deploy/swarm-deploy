@@ -198,6 +198,8 @@ func alertQuestion(alert alertmodel.Alert) string {
 			return fmt.Sprintf("Why is node %s unavailable?", resourceID)
 		}
 		return "Why is the node unavailable?"
+	case alertmodel.AlertKindNotificationDeliveryFailed:
+		return "Why are notification deliveries failing?"
 	default:
 		resourceType := singleLine(string(alert.ResourceType))
 		if resourceType != "" && resourceID != "" {

@@ -99,5 +99,6 @@ eventHistory:
 Event notifications use PascalCase event type identifiers. Synchronization failures are delivered
 through the `sync_failed` alert lifecycle instead of Event Notifications. Durable payloads intentionally
 omit raw Compose, environment, logs, arbitrary errors and assistant prompts.
-`SendNotificationFailed` has no runtime publisher;
-delivery diagnostics live in outbox status/metrics rather than recursive notifications.
+`SendNotificationFailed` is published only when an external notification delivery reaches
+the terminal `failed` state. The terminal transition and event publication share one SQLite
+transaction. Failures while delivering this event do not publish another copy.

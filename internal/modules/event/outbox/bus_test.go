@@ -502,3 +502,112 @@ func TestRegistrationValidation(t *testing.T) {
 	require.NoError(t, err)
 	require.ErrorContains(t, bus.Subscribe(events.TypeNameNodeJoined, "late", handler), "before starting")
 }
+
+func TestNotificationDeliveryFailureSignal(t *testing.T) {
+	for _, testCase := range []struct {
+		name        string
+		maxAttempts int
+		wantSignal  bool
+	}{
+		{name: "temporary failure followed by success", maxAttempts: 2},
+		{name: "terminal failure", maxAttempts: 1, wantSignal: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			db, bus := setup(t)
+			bus.maxAttempts = testCase.maxAttempts
+			controller := gomock.NewController(t)
+			notification := NewMockSubscriber(controller)
+			notification.EXPECT().Handle(gomock.Any(), gomock.Any()).Return(assert.AnError)
+			if !testCase.wantSignal {
+				notification.EXPECT().Handle(gomock.Any(), gomock.Any()).Return(nil)
+			}
+			signal := NewMockSubscriber(controller)
+			if testCase.wantSignal {
+				signal.EXPECT().Handle(gomock.Any(), gomock.Any()).DoAndReturn(
+					func(_ context.Context, envelope events.Envelope) error {
+						failure := envelope.Event.(*events.SendNotificationFailed)
+						assert.Equal(t, events.TypeNameNodeJoined, failure.EventType.Name())
+						assert.Equal(t, "telegram", failure.Destination)
+						assert.Equal(t, "ops", failure.Channel)
+						assert.EqualError(t, failure.Error, "handler_failed")
+						return nil
+					},
+				)
+			}
+			require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, "notification",
+				ExternalNotification(notification, "telegram", "ops")))
+			require.NoError(t, bus.Subscribe(events.TypeNameSendNotificationFailed, "alert-management", signal))
+			require.NoError(t, bus.Publish(t.Context(), &events.NodeJoined{NodeID: "node"}))
+
+			handled, err := bus.ProcessNext(t.Context())
+			require.NoError(t, err)
+			require.True(t, handled)
+			var signals int
+			require.NoError(t, db.Get(t.Context(), &signals,
+				"SELECT count(*) FROM outbox_events WHERE event_type=?", events.TypeNameSendNotificationFailed))
+			assert.Equal(t, map[bool]int{false: 0, true: 1}[testCase.wantSignal], signals)
+
+			if !testCase.wantSignal {
+				_, err = db.Exec(t.Context(), "UPDATE outbox_deliveries SET available_at=0 WHERE status='pending'")
+				require.NoError(t, err)
+				handled, err = bus.ProcessNext(t.Context())
+				require.NoError(t, err)
+				require.True(t, handled)
+				assert.Zero(t, rows(t, db, "outbox_events"))
+				return
+			}
+
+			restarted := New(db)
+			restarted.maxAttempts = testCase.maxAttempts
+			require.NoError(t, restarted.Subscribe(events.TypeNameNodeJoined, "notification",
+				ExternalNotification(notification, "telegram", "ops")))
+			require.NoError(t, restarted.Subscribe(events.TypeNameSendNotificationFailed, "alert-management", signal))
+			handled, err = restarted.ProcessNext(t.Context())
+			require.NoError(t, err)
+			require.True(t, handled)
+			handled, err = restarted.ProcessNext(t.Context())
+			require.NoError(t, err)
+			assert.False(t, handled, "restart must not republish a terminal transition")
+		})
+	}
+}
+
+func TestTerminalNotificationFailurePublicationIsAtomic(t *testing.T) {
+	db, bus := setup(t)
+	bus.maxAttempts = 1
+	notification := NewMockSubscriber(gomock.NewController(t))
+	notification.EXPECT().Handle(gomock.Any(), gomock.Any()).Return(assert.AnError)
+	require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, "notification",
+		ExternalNotification(notification, "custom", "audit")))
+	require.NoError(t, bus.Subscribe(events.TypeNameSendNotificationFailed, "alert-management", notification))
+	_, err := db.Exec(t.Context(), `CREATE TRIGGER reject_failure_signal
+		BEFORE INSERT ON outbox_events WHEN NEW.event_type='SendNotificationFailed'
+		BEGIN SELECT RAISE(ABORT, 'failure signal rejected'); END`)
+	require.NoError(t, err)
+	require.NoError(t, bus.Publish(t.Context(), &events.NodeJoined{}))
+
+	handled, err := bus.ProcessNext(t.Context())
+	require.ErrorContains(t, err, "failure signal rejected")
+	require.True(t, handled)
+	var status string
+	require.NoError(t, db.Get(t.Context(), &status, "SELECT status FROM outbox_deliveries"))
+	assert.Equal(t, "processing", status, "terminal transition must roll back with its event")
+}
+
+func TestSendNotificationFailedDeliveryDoesNotRecurse(t *testing.T) {
+	db, bus := setup(t)
+	bus.maxAttempts = 1
+	notification := NewMockSubscriber(gomock.NewController(t))
+	notification.EXPECT().Handle(gomock.Any(), gomock.Any()).Return(assert.AnError)
+	require.NoError(t, bus.Subscribe(events.TypeNameSendNotificationFailed, "notification",
+		ExternalNotification(notification, "telegram", "ops")))
+	require.NoError(t, bus.Publish(t.Context(), &events.SendNotificationFailed{
+		EventType: events.TypeNodeJoined, Destination: "custom", Channel: "audit", Error: assert.AnError,
+	}))
+
+	handled, err := bus.ProcessNext(t.Context())
+	require.NoError(t, err)
+	require.True(t, handled)
+	assert.Equal(t, 1, rows(t, db, "outbox_events"))
+	assert.Equal(t, 1, rows(t, db, "outbox_deliveries"))
+}

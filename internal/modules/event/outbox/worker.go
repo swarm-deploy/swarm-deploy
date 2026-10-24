@@ -30,6 +30,7 @@ type delivery struct {
 	subscriptionID string
 	token          string
 	attempts       int
+	eventType      events.TypeName
 }
 
 // Run processes committed work until cancellation. Unfinished leases survive
@@ -145,9 +146,10 @@ func (b *Bus) claim(ctx context.Context) (delivery, error) {
 	now := b.now()
 	err := b.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		var claimed struct {
-			EventID        string `db:"event_id"`
-			SubscriptionID string `db:"subscription_id"`
-			Attempts       int    `db:"attempts"`
+			EventID        string          `db:"event_id"`
+			SubscriptionID string          `db:"subscription_id"`
+			Attempts       int             `db:"attempts"`
+			EventType      events.TypeName `db:"event_type"`
 		}
 		query, args, buildErr := claimStatement(
 			now.UTC(), now.UTC(), d.token, now.Add(b.lease).UTC(), now.UTC(),
@@ -166,9 +168,10 @@ func (b *Bus) claim(ctx context.Context) (delivery, error) {
 		if count == 0 {
 			return sql.ErrNoRows
 		}
-		query, args, buildErr = goqu.Dialect("sqlite3").From("outbox_deliveries").Prepared(true).
-			Select("event_id", "subscription_id", "attempts").
-			Where(goqu.Ex{"lease_token": d.token}).
+		query, args, buildErr = goqu.Dialect("sqlite3").From(goqu.T("outbox_deliveries").As("d")).Prepared(true).
+			Join(goqu.T("outbox_events").As("e"), goqu.On(goqu.I("e.id").Eq(goqu.I("d.event_id")))).
+			Select(goqu.I("d.event_id"), goqu.I("d.subscription_id"), goqu.I("d.attempts"), goqu.I("e.event_type")).
+			Where(goqu.Ex{"d.lease_token": d.token}).
 			ToSQL()
 		if buildErr != nil {
 			return buildErr
@@ -176,7 +179,8 @@ func (b *Bus) claim(ctx context.Context) (delivery, error) {
 		if err = b.db.Get(ctx, &claimed, query, args...); err != nil {
 			return err
 		}
-		d.eventID, d.subscriptionID, d.attempts = claimed.EventID, claimed.SubscriptionID, claimed.Attempts
+		d.eventID, d.subscriptionID, d.attempts, d.eventType =
+			claimed.EventID, claimed.SubscriptionID, claimed.Attempts, claimed.EventType
 		return nil
 	})
 	return d, err
@@ -290,11 +294,11 @@ func (b *Bus) process(ctx context.Context, d delivery) (err error) {
 		ID: d.eventID, Event: event, OccurredAt: occurred.UTC(),
 		PublicationSequence: publicationSequence,
 	}
-	if external, ok := handler.(externalSubscriber); ok {
+	if external, ok := externalHandler(handler); ok {
 		if err = b.checkLease(ctx, d); err != nil {
 			return err
 		}
-		if err = invoke(ctx, external.Subscriber, envelope); err != nil {
+		if err = invoke(ctx, external, envelope); err != nil {
 			return err
 		}
 		return b.db.WithinTransaction(ctx, func(ctx context.Context) error { return b.ack(ctx, d) })
@@ -308,6 +312,17 @@ func (b *Bus) process(ctx context.Context, d delivery) (err error) {
 		}
 		return b.ack(ctx, d)
 	})
+}
+
+func externalHandler(handler Subscriber) (Subscriber, bool) {
+	switch subscriber := handler.(type) {
+	case externalSubscriber:
+		return subscriber.Subscriber, true
+	case notificationSubscriber:
+		return subscriber.Subscriber, true
+	default:
+		return nil, false
+	}
 }
 
 func traceLink(traceparent sql.NullString) (trace.Link, bool) {
@@ -428,8 +443,39 @@ func (b *Bus) fail(ctx context.Context, d delivery, code string, terminal bool) 
 		if err != nil {
 			return err
 		}
-		return requireChanged(result)
+		if err = requireChanged(result); err != nil {
+			return err
+		}
+		if status != "failed" {
+			return nil
+		}
+		failure := b.notificationFailure(d, code)
+		if failure == nil {
+			return nil
+		}
+		return b.Publish(context.WithValue(ctx, causeKey{}, d.eventID), failure)
 	})
+}
+
+func (b *Bus) notificationFailure(d delivery, code string) *events.SendNotificationFailed {
+	if d.eventType == events.TypeNameSendNotificationFailed {
+		return nil
+	}
+	b.mu.RLock()
+	handler := b.registry[d.eventType][d.subscriptionID]
+	b.mu.RUnlock()
+	notification, ok := handler.(notificationSubscriber)
+	if !ok {
+		return nil
+	}
+	eventType, ok := events.ParseType(string(d.eventType))
+	if !ok {
+		return nil
+	}
+	return &events.SendNotificationFailed{
+		EventType: eventType, Destination: notification.destination,
+		Channel: notification.channel, Error: errors.New(code),
+	}
 }
 
 // Replay reschedules exactly one terminal failure, preserving delivered siblings.

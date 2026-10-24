@@ -49,6 +49,25 @@ func TestSensitiveFieldsAreNeverPersisted(t *testing.T) {
 	}
 }
 
+func TestNotificationFailureCodecCompatibility(t *testing.T) {
+	event := &events.SendNotificationFailed{
+		EventType: events.TypeAlertOpened, Destination: "telegram", Channel: "alerts",
+		Error: errors.New("handler_failed"),
+	}
+	payload, err := Encode(event)
+	require.NoError(t, err)
+	decoded, err := Decode(events.TypeNameSendNotificationFailed, Version, payload)
+	require.NoError(t, err)
+	failure := decoded.(*events.SendNotificationFailed)
+	assert.Equal(t, events.TypeNameAlertOpened, failure.EventType.Name())
+	assert.EqualError(t, failure.Error, "handler_failed")
+
+	decoded, err = Decode(events.TypeNameSendNotificationFailed, Version,
+		[]byte(`{"event_type":"AlertOpened","destination":"telegram","channel":"alerts"}`))
+	require.NoError(t, err)
+	assert.NoError(t, decoded.(*events.SendNotificationFailed).Error)
+}
+
 func TestDeploymentLifecycleCodecRejectsUnboundedDiagnostics(t *testing.T) {
 	for _, event := range []events.Event{
 		&events.DeployPreparationFailed{StackName: "stack", ErrorCode: "raw secret"},

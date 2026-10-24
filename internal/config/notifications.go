@@ -17,10 +17,11 @@ import (
 const (
 	defaultNotificationTelegramRetries = 3
 
-	notificationAlertNameDefault                  = "default"
-	notificationAlertNameSyncFailed               = "SyncFailed"
-	notificationAlertNameNodeDisconnected         = "NodeDisconnected"
-	notificationAlertNameGitRepositoryUnavailable = "GitRepositoryUnavailable"
+	notificationAlertNameDefault                    = "default"
+	notificationAlertNameSyncFailed                 = "SyncFailed"
+	notificationAlertNameNodeDisconnected           = "NodeDisconnected"
+	notificationAlertNameGitRepositoryUnavailable   = "GitRepositoryUnavailable"
+	notificationAlertNameNotificationDeliveryFailed = "NotificationDeliveryFailed"
 )
 
 // NotificationSpec defines event subscriptions, alert routes and messenger destinations.
@@ -296,6 +297,8 @@ func notificationAlertConfigKey(kind alertmodel.AlertKind) string {
 		return notificationAlertNameNodeDisconnected
 	case alertmodel.AlertKindGitRepositoryUnavailable:
 		return notificationAlertNameGitRepositoryUnavailable
+	case alertmodel.AlertKindNotificationDeliveryFailed:
+		return notificationAlertNameNotificationDeliveryFailed
 	default:
 		return string(kind)
 	}
@@ -309,6 +312,8 @@ func notificationAlertKind(configKey string) alertmodel.AlertKind {
 		return alertmodel.AlertKindNodeDisconnected
 	case notificationAlertNameGitRepositoryUnavailable:
 		return alertmodel.AlertKindGitRepositoryUnavailable
+	case notificationAlertNameNotificationDeliveryFailed:
+		return alertmodel.AlertKindNotificationDeliveryFailed
 	default:
 		return alertmodel.AlertKind(configKey)
 	}
@@ -317,7 +322,8 @@ func notificationAlertKind(configKey string) alertmodel.AlertKind {
 func validNotificationAlertConfigKey(kind string) bool {
 	switch kind {
 	case notificationAlertNameDefault, notificationAlertNameSyncFailed,
-		notificationAlertNameNodeDisconnected, notificationAlertNameGitRepositoryUnavailable:
+		notificationAlertNameNodeDisconnected, notificationAlertNameGitRepositoryUnavailable,
+		notificationAlertNameNotificationDeliveryFailed:
 		return true
 	default:
 		return false

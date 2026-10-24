@@ -87,7 +87,10 @@ func Encode(event events.Event) ([]byte, error) {
 	case *events.AssistantPromptInjectionDetected:
 		return json.Marshal(userPayload{Username: e.Username, Detector: e.Detector})
 	case *events.SendNotificationFailed:
-		return json.Marshal(notificationPayload{EventType: e.EventType, Destination: e.Destination, Channel: e.Channel})
+		return json.Marshal(notificationPayload{
+			EventType: e.EventType, Destination: e.Destination, Channel: e.Channel,
+			Error: faults.SafeDiagnostic(e.Error),
+		})
 	default:
 		return nil, fmt.Errorf("unsupported persistent event %T", event)
 	}
@@ -180,7 +183,13 @@ func Decode(typ events.TypeName, version int, payload []byte) (events.Event, err
 		})
 	case events.TypeNameSendNotificationFailed:
 		return decodeAs(payload, func(p notificationPayload) events.Event {
-			return &events.SendNotificationFailed{EventType: p.EventType, Destination: p.Destination, Channel: p.Channel}
+			var err error
+			if p.Error != "" {
+				err = errors.New(p.Error)
+			}
+			return &events.SendNotificationFailed{
+				EventType: p.EventType, Destination: p.Destination, Channel: p.Channel, Error: err,
+			}
 		})
 	default:
 		return nil, fmt.Errorf("unsupported persistent event type %q", typ)
@@ -405,4 +414,6 @@ type notificationPayload struct {
 	Destination string `json:"destination"`
 	// Channel is the configured channel name.
 	Channel string `json:"channel"`
+	// Error is a sanitized delivery failure classification.
+	Error string `json:"error,omitempty"`
 }

@@ -11,7 +11,7 @@ The removed `notifications.on` key is rejected; no compatibility alias is provid
 ## Alert lifecycle
 
 Notification configuration uses the exact PascalCase alert names `SyncFailed`,
-`NodeDisconnected`, and `GitRepositoryUnavailable`.
+`NodeDisconnected`, `GitRepositoryUnavailable`, and `NotificationDeliveryFailed`.
 The special `default` key remains the fallback rule. Internal alert kinds and
 fingerprints keep their existing snake_case identifiers.
 A kind rule replaces `alerts.default`, and an omitted `alerts.default` selects built-in
@@ -22,6 +22,13 @@ An alert sends one new message when opened. Repeated detections update its alert
 without sending another message. Resolution replies to or edits that initial message;
 `reply` is the default action. A new opening after resolution has a new alert ID and a
 new initial message.
+
+Permanent notification delivery failures open one global
+`notification_delivery_failed` alert. Further terminal failures update its details and
+occurrence count without publishing another `AlertOpened`. It is intentionally not
+resolved automatically. A failed attempt to deliver its opening notification is absorbed
+by the same alert, and delivery failures for `SendNotificationFailed` itself do not emit
+another failure event.
 
 Each alert rule may route to one chat (`chats: deployments`) or several
 (`chats: [default, infrastructure]`). An omitted `chats` selects `default`.

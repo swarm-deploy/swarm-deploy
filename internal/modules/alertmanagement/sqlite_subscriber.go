@@ -51,6 +51,8 @@ func (s *SQLSubscriber) Handle(ctx context.Context, event events.Envelope) error
 		resource = "repository:" + e.Repository
 	case *events.GitPullSucceeded:
 		resource = "repository:" + e.Repository
+	case *events.SendNotificationFailed:
+		resource = "notification-delivery"
 	default:
 		return nil
 	}

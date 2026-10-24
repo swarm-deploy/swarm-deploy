@@ -88,8 +88,10 @@ func Register(
 		recipients[recipient] = true
 	}
 	for recipient := range recipients {
-		handler := outbox.External(&Subscriber{store: store, spec: spec, recipient: recipient, now: time.Now})
 		id := SubscriptionID(recipient)
+		handler := outbox.ExternalNotification(
+			&Subscriber{store: store, spec: spec, recipient: recipient, now: time.Now}, "telegram", id,
+		)
 		if err = bus.Subscribe(events.TypeNameAlertOpened, id, handler); err != nil {
 			return err
 		}

@@ -83,9 +83,53 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 		return s.handleGitPullFailed(ctx, event.ID, deployment)
 	case *events.GitPullSucceeded:
 		return s.handleGitPullSucceeded(ctx, event.ID, deployment)
+	case *events.SendNotificationFailed:
+		return s.handleNotificationFailed(ctx, event.ID, deployment)
 	default:
 		return nil
 	}
+}
+
+func (s *Subscriber) handleNotificationFailed(
+	ctx context.Context, eventID string, event *events.SendNotificationFailed,
+) error {
+	fingerprint := model.NotificationDeliveryFailedFingerprint()
+	now := s.now()
+	eventID = eventReferenceID(eventID, s.newID)
+	message := event.Message()
+	errorCode := faults.SafeDiagnostic(event.Error)
+	if errorCode == "" {
+		errorCode = "delivery_failed"
+	}
+	alert, err := s.store.FindOpenByFingerprint(ctx, fingerprint)
+	if err != nil && !errors.Is(err, modelstore.ErrAlertNotFound) {
+		return fmt.Errorf("find open notification delivery alert: %w", err)
+	}
+	if err == nil {
+		alert.Occurrences++
+		alert.UpdatedAt = now
+		alert.LatestEventID = eventID
+		alert.Message = message
+		alert.ErrorCode = errorCode
+		if err = s.store.Update(ctx, alert); err != nil {
+			return fmt.Errorf("update notification delivery alert: %w", err)
+		}
+		return nil
+	}
+	alert = model.Alert{
+		ID: s.newID(), Fingerprint: fingerprint, Kind: model.AlertKindNotificationDeliveryFailed,
+		ResourceType: model.ResourceTypeNotification, ResourceID: "delivery",
+		Status: model.AlertStatusOpen, Title: "Notification delivery failed", Message: message,
+		FailureStage: "notification_delivery", ErrorCode: errorCode, Occurrences: 1,
+		OpenedAt: now, UpdatedAt: now, OpenEventID: eventID, LatestEventID: eventID,
+	}
+	if err = s.store.Create(ctx, alert); err == nil {
+		return s.publishOpened(ctx, alert)
+	}
+	if !errors.Is(err, modelstore.ErrOpenAlertExists) {
+		return fmt.Errorf("create notification delivery alert: %w", err)
+	}
+	return s.updateConcurrentFailure(ctx, fingerprint, eventID, now, alert, true, err)
 }
 
 func (s *Subscriber) handleGitPullFailed(ctx context.Context, eventID string, event *events.GitPullFailed) error {
@@ -327,7 +371,7 @@ func (s *Subscriber) updateConcurrentFailure(
 		if errors.Is(err, modelstore.ErrAlertNotFound) {
 			return createErr
 		}
-		return fmt.Errorf("refetch concurrent deployment alert: %w", err)
+		return fmt.Errorf("refetch concurrent alert: %w", err)
 	}
 	existing.Occurrences++
 	existing.UpdatedAt = now

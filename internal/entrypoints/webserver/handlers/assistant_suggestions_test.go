@@ -122,6 +122,9 @@ func TestAlertSuggestionQuestionTemplates(t *testing.T) {
 			resourceType: alertmodel.ResourceTypeRepository, resourceID: "origin", want: "Why is Git connectivity unavailable?"},
 		{name: "node", kind: alertmodel.AlertKindNodeDisconnected, resourceType: alertmodel.ResourceTypeNode,
 			resourceID: "worker-2", want: "Why is node worker-2 unavailable?"},
+		{name: "notification", kind: alertmodel.AlertKindNotificationDeliveryFailed,
+			resourceType: alertmodel.ResourceTypeNotification, resourceID: "delivery",
+			want: "Why are notification deliveries failing?"},
 		{name: "unknown", kind: alertmodel.AlertKind("future_kind"), resourceType: alertmodel.ResourceType("service"),
 			resourceID: "nginx", want: "What caused the alert for service nginx?"},
 	}

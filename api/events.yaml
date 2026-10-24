@@ -194,10 +194,10 @@ components:
           type: string
         kind:
           type: string
-          enum: [sync_failed, node_disconnected, git_repository_unavailable]
+          enum: [sync_failed, node_disconnected, git_repository_unavailable, notification_delivery_failed]
         resourceType:
           type: string
-          enum: [stack, node, repository]
+          enum: [stack, node, repository, notification]
         resourceId:
           type: string
         status:
