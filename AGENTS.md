@@ -12,6 +12,18 @@
 - After every change, always run `make check` to execute tests and linters before finishing the task.
 - If instructed to create a pull request, always assign appropriate repository labels to the PR before finishing the task. Use only the allowed labels from the file `.github/workflows/pr-labels.yaml`
 
+## Architecture Decisions
+
+**Agents MUST NOT make architectural decisions without explicit maintainer approval.**
+
+- Preserve existing architecture, component boundaries, and established patterns.
+- Prefer reusing existing components over introducing new abstractions.
+- Local refactoring and implementation decisions are allowed if they do not change architectural responsibilities.
+- Before making architectural changes, explain the motivation, alternatives, and trade-offs, then wait for approval.
+- Approval of a task does not imply approval of architectural changes.
+
+**When in doubt, ask before implementing.**
+
 ## Project structure
 - `./ui` - Frontend
 - `./internal` - Backend on Golang
