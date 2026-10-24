@@ -10,42 +10,30 @@ import (
 	"github.com/cappuccinotm/slogx"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	sharedtracing "github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"go.opentelemetry.io/otel/trace"
 )
 
-func TestLoggingMiddlewaresTraceID(t *testing.T) {
+func TestLoggingMiddlewaresExcludeTraceIDWhenTracingDisabled(t *testing.T) {
+	require.False(t, sharedtracing.Enabled())
+
 	traceID := trace.TraceID{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
 	ctx := trace.ContextWithSpanContext(context.Background(), trace.NewSpanContext(trace.SpanContextConfig{
 		TraceID: traceID,
 		SpanID:  trace.SpanID{1, 2, 3, 4, 5, 6, 7, 8},
 	}))
 
-	for _, tt := range []struct {
-		name           string
-		tracingEnabled bool
-		wantTraceID    bool
-	}{
-		{name: "tracing enabled", tracingEnabled: true, wantTraceID: true},
-		{name: "tracing disabled"},
-	} {
-		t.Run(tt.name, func(t *testing.T) {
-			var output bytes.Buffer
-			logger := slog.New(slogx.NewChain(
-				slog.NewJSONHandler(&output, nil),
-				loggingMiddlewares(tt.tracingEnabled)...,
-			))
+	var output bytes.Buffer
+	logger := slog.New(slogx.NewChain(
+		slog.NewJSONHandler(&output, nil),
+		loggingMiddlewares()...,
+	))
 
-			logger.InfoContext(ctx, "message")
+	logger.InfoContext(ctx, "message")
 
-			var record map[string]any
-			require.NoError(t, json.Unmarshal(output.Bytes(), &record))
-			gotTraceID, exists := record["trace-id"]
-			assert.Equal(t, tt.wantTraceID, exists)
-			if tt.wantTraceID {
-				assert.Equal(t, traceID.String(), gotTraceID)
-			}
-		})
-	}
+	var record map[string]any
+	require.NoError(t, json.Unmarshal(output.Bytes(), &record))
+	assert.NotContains(t, record, "trace-id")
 }
 
 func TestRepositoryLogValueRemovesCredentialsFromMalformedURL(t *testing.T) {

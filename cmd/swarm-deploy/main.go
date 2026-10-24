@@ -116,10 +116,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	slog.SetDefault(slog.New(slogx.NewChain(
-		slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.Spec.Log.Level.Level()}),
-		loggingMiddlewares(cfg.Spec.Tracing != nil)...,
-	)))
+	logHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.Spec.Log.Level.Level()})
+	slog.SetDefault(slog.New(slogx.NewChain(logHandler, loggingMiddlewares()...)))
 
 	tracerProvider, err := sd.InitTracerProvider(ctx, cfg.Spec.Tracing, buildinfo.Info{
 		Version: Version,
@@ -129,6 +127,7 @@ func main() {
 		slog.ErrorContext(ctx, "failed to init tracing", slog.Any("err", err))
 		os.Exit(1)
 	}
+	slog.SetDefault(slog.New(slogx.NewChain(logHandler, loggingMiddlewares()...)))
 
 	err = os.MkdirAll(cfg.Spec.DataDir, 0o755)
 	if err != nil {
@@ -302,9 +301,9 @@ func main() {
 	shutdownTracing(tracerProvider)
 }
 
-func loggingMiddlewares(tracingEnabled bool) []slogx.Middleware {
+func loggingMiddlewares() []slogx.Middleware {
 	middlewares := []slogx.Middleware{slogm.RequestID()}
-	if tracingEnabled {
+	if tracing.Enabled() {
 		middlewares = append(middlewares, tracing.LogTraceID())
 	}
 
