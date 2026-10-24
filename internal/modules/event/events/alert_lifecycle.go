@@ -16,6 +16,8 @@ type AlertSnapshot struct {
 	ResourceType string `json:"resourceType"`
 	// ResourceID identifies the affected resource.
 	ResourceID string `json:"resourceId"`
+	// DestinationKey identifies the affected physical notification destination for internal recursion guards.
+	DestinationKey string `json:"-"`
 	// DeploymentID links the alert to a persisted deployment attempt when one exists.
 	DeploymentID string `json:"deploymentId,omitempty"`
 	// ErrorCode identifies the failure category.

@@ -23,6 +23,8 @@ var alertColumns = []any{
 
 var dialect = goqu.Dialect("sqlite3")
 
+const notificationRecoveryProjection = "alert-notification-recovery"
+
 // SQLStore persists alert lifecycle independently of the delivery queue.
 type SQLStore struct{ db *storage.Database }
 
@@ -287,4 +289,61 @@ func (s *SQLStore) ConsumeLatest(
 		}
 		return apply(ctx)
 	})
+}
+
+// ConsumeOnce applies one delivery event exactly once in the alert transaction.
+func (s *SQLStore) ConsumeOnce(
+	ctx context.Context, id, destinationKey string, sequence int64, apply func(context.Context) error,
+) error {
+	if id == "" || destinationKey == "" || sequence <= 0 {
+		return fmt.Errorf("alert delivery projection requires source event ID, destination key and publication sequence")
+	}
+	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
+		query, args, err := dialect.Insert("alert_event_receipts").Prepared(true).
+			Rows(goqu.Record{
+				"event_id": id, "destination_key": destinationKey, "publication_sequence": sequence,
+			}).
+			OnConflict(goqu.DoNothing()).ToSQL()
+		if err != nil {
+			return err
+		}
+		result, err := s.db.Exec(ctx, query, args...)
+		if err != nil {
+			return err
+		}
+		count, err := result.RowsAffected()
+		if err != nil || count == 0 {
+			return err
+		}
+		return apply(ctx)
+	})
+}
+
+// PruneNotificationDeliveryReceipts removes outcomes made obsolete by a durable recovery watermark.
+func (s *SQLStore) PruneNotificationDeliveryReceipts(
+	ctx context.Context, destinationKey string, throughSequence int64,
+) error {
+	query, args, err := dialect.Delete("alert_event_receipts").Prepared(true).Where(
+		goqu.Ex{"destination_key": destinationKey},
+		goqu.C("publication_sequence").Lte(throughSequence),
+	).ToSQL()
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(ctx, query, args...)
+	return err
+}
+
+// NotificationRecoverySequence returns the latest successful delivery sequence for a destination.
+func (s *SQLStore) NotificationRecoverySequence(ctx context.Context, destinationKey string) (int64, error) {
+	return storage.ProjectionSequence(ctx, s.db, notificationRecoveryProjection, destinationKey)
+}
+
+// AdvanceNotificationRecovery records a newer successful delivery for a destination.
+func (s *SQLStore) AdvanceNotificationRecovery(
+	ctx context.Context, destinationKey string, sequence int64, eventID string,
+) (bool, error) {
+	return storage.AdvanceProjectionSequence(
+		ctx, s.db, notificationRecoveryProjection, destinationKey, sequence, eventID,
+	)
 }

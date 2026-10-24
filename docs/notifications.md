@@ -23,12 +23,28 @@ without sending another message. Resolution replies to or edits that initial mes
 `reply` is the default action. A new opening after resolution has a new alert ID and a
 new initial message.
 
-Permanent notification delivery failures open one global
-`notification_delivery_failed` alert. Further terminal failures update its details and
-occurrence count without publishing another `AlertOpened`. It is intentionally not
-resolved automatically. A failed attempt to deliver its opening notification is absorbed
-by the same alert, and delivery failures for `SendNotificationFailed` itself do not emit
-another failure event.
+Permanent notification delivery failures open one `notification_delivery_failed` alert
+per physical destination. Telegram identity consists of bot, chat and thread; custom
+webhooks use the physical endpoint. These identities are hashed before entering event or
+alert metadata, while `ResourceID` uses the safe configuration alias for display. Two
+aliases for the same recipient share one incident, and renaming an alias does not create
+a new incident. Persisted deliveries whose alias is unavailable use a deterministic safe
+fallback name.
+
+Every unique terminal failure increments the matching open alert without publishing a
+second `AlertOpened`. A later successful delivery to that physical recipient publishes
+the internal `NotificationSent` fact and resolves the alert with `recovered`; another
+failure after recovery opens a new incident. Durable publication sequence, rather than
+wall-clock time, prevents a delayed success from resolving a newer failure or an older
+failure from reopening a recovered destination.
+
+Failures while delivering `SendNotificationFailed` or `NotificationSent` do not emit
+another delivery event. A failure while delivering the opening notification is absorbed
+by the already-open incident. Failure to deliver that incident's own `AlertResolved`
+notification to the same destination is suppressed, so it cannot reopen itself; failures
+to unrelated destinations remain visible. Configure `NotificationDeliveryFailed` alerts
+to an independent destination when possible, so the incident can still be reported while
+the primary notification channel is unavailable.
 
 Each alert rule may route to one chat (`chats: deployments`) or several
 (`chats: [default, infrastructure]`). An omitted `chats` selects `default`.
@@ -49,7 +65,8 @@ exact path such as `notifications.alerts["SyncFailed"].telegram[0].resolved.mess
 in an error.
 
 The internal `AlertOpened` and `AlertResolved` transitions join the SQLite transaction
-that changes the alert, but are not written to Event History. Telegram calls run later
+that changes the alert. `NotificationSent` joins the successful Outbox delivery transition.
+None of these internal events is written to Event History. Telegram calls run later
 through the existing Outbox, independently for each physical recipient. Retries,
 leases, replay and acknowledgement are shared with event notifications. Opened delivery
 precedes resolved delivery for each recipient. A temporary Telegram error is retried;
@@ -87,7 +104,7 @@ All payloads have `ID`, `Type`, and `OccurredAt` (`time.Time`, UTC). Most also p
 | `ServiceCatalogUpdated`, `SyncManualStarted`, `WebhookReceived`, `NetworkCreated` | `ID`, `Type`, `StackName`, `Username`, `Queued`, `NetworkName`, `NetworkID`, `Driver`, `Message`, `OccurredAt` |
 | `UserAuthenticated` | `ID`, `Type`, `Username`, `Message`, `OccurredAt` |
 | `AssistantPromptInjectionDetected` | `ID`, `Type`, `Detector`, `Username`, `Message`, `OccurredAt` |
-| `SendNotificationFailed` | `ID`, `Type`, `EventType`, `Destination`, `Channel`, `Error`, `Message`, `OccurredAt` |
+| `SendNotificationFailed` | `ID`, `Type`, `EventType`, `Destination`, `Channel`, `DestinationKey`, `Error`, `Message`, `OccurredAt` |
 
 Shared template fields and serialized JSON names match Event History semantics:
 

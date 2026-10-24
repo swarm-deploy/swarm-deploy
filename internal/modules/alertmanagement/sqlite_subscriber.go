@@ -52,7 +52,29 @@ func (s *SQLSubscriber) Handle(ctx context.Context, event events.Envelope) error
 	case *events.GitPullSucceeded:
 		resource = "repository:" + e.Repository
 	case *events.SendNotificationFailed:
-		resource = "notification-delivery"
+		key := notificationDestinationKey(e.DestinationKey, e.Destination, e.Channel)
+		return s.store.ConsumeOnce(ctx, event.ID, key, event.PublicationSequence, func(ctx context.Context) error {
+			recoveredAt, err := s.store.NotificationRecoverySequence(ctx, key)
+			if err != nil {
+				return err
+			}
+			if event.PublicationSequence <= recoveredAt {
+				return nil
+			}
+			return s.Subscriber.Handle(ctx, event)
+		})
+	case *events.NotificationSent:
+		key := notificationDestinationKey(e.DestinationKey, e.Destination, e.Channel)
+		return s.store.ConsumeOnce(ctx, event.ID, key, event.PublicationSequence, func(ctx context.Context) error {
+			advanced, err := s.store.AdvanceNotificationRecovery(ctx, key, event.PublicationSequence, event.ID)
+			if err != nil || !advanced {
+				return err
+			}
+			if err = s.Subscriber.Handle(ctx, event); err != nil {
+				return err
+			}
+			return s.store.PruneNotificationDeliveryReceipts(ctx, key, event.PublicationSequence)
+		})
 	default:
 		return nil
 	}

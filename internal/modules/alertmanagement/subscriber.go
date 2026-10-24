@@ -2,6 +2,7 @@ package alertmanagement
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"strings"
@@ -84,16 +85,21 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 	case *events.GitPullSucceeded:
 		return s.handleGitPullSucceeded(ctx, event.ID, deployment)
 	case *events.SendNotificationFailed:
-		return s.handleNotificationFailed(ctx, event.ID, deployment)
+		return s.handleNotificationFailed(ctx, event.ID, event.PublicationSequence, deployment)
+	case *events.NotificationSent:
+		return s.handleNotificationSent(ctx, event.ID, event.PublicationSequence, deployment)
 	default:
 		return nil
 	}
 }
 
 func (s *Subscriber) handleNotificationFailed(
-	ctx context.Context, eventID string, event *events.SendNotificationFailed,
+	ctx context.Context, eventID string, eventSequence int64, event *events.SendNotificationFailed,
 ) error {
-	fingerprint := model.NotificationDeliveryFailedFingerprint()
+	destinationKey := notificationDestinationKey(
+		event.DestinationKey, event.Destination, event.Channel,
+	)
+	fingerprint := model.NotificationDeliveryFailedFingerprint(destinationKey)
 	now := s.now()
 	eventID = eventReferenceID(eventID, s.newID)
 	message := event.Message()
@@ -108,9 +114,13 @@ func (s *Subscriber) handleNotificationFailed(
 	if err == nil {
 		alert.Occurrences++
 		alert.UpdatedAt = now
-		alert.LatestEventID = eventID
-		alert.Message = message
-		alert.ErrorCode = errorCode
+		if eventSequence == 0 || eventSequence > alert.LatestEventSequence {
+			alert.LatestEventID = eventID
+			alert.LatestEventSequence = eventSequence
+			alert.Message = message
+			alert.ResourceID = notificationResourceID(event.Destination, event.Channel)
+			alert.ErrorCode = errorCode
+		}
 		if err = s.store.Update(ctx, alert); err != nil {
 			return fmt.Errorf("update notification delivery alert: %w", err)
 		}
@@ -118,10 +128,12 @@ func (s *Subscriber) handleNotificationFailed(
 	}
 	alert = model.Alert{
 		ID: s.newID(), Fingerprint: fingerprint, Kind: model.AlertKindNotificationDeliveryFailed,
-		ResourceType: model.ResourceTypeNotification, ResourceID: "delivery",
-		Status: model.AlertStatusOpen, Title: "Notification delivery failed", Message: message,
+		ResourceType: model.ResourceTypeNotification,
+		ResourceID:   notificationResourceID(event.Destination, event.Channel),
+		Status:       model.AlertStatusOpen, Title: "Notification delivery failed", Message: message,
 		FailureStage: "notification_delivery", ErrorCode: errorCode, Occurrences: 1,
 		OpenedAt: now, UpdatedAt: now, OpenEventID: eventID, LatestEventID: eventID,
+		LatestEventSequence: eventSequence,
 	}
 	if err = s.store.Create(ctx, alert); err == nil {
 		return s.publishOpened(ctx, alert)
@@ -130,6 +142,55 @@ func (s *Subscriber) handleNotificationFailed(
 		return fmt.Errorf("create notification delivery alert: %w", err)
 	}
 	return s.updateConcurrentFailure(ctx, fingerprint, eventID, now, alert, true, err)
+}
+
+func (s *Subscriber) handleNotificationSent(
+	ctx context.Context, eventID string, eventSequence int64, event *events.NotificationSent,
+) error {
+	destinationKey := notificationDestinationKey(
+		event.DestinationKey, event.Destination, event.Channel,
+	)
+	fingerprint := model.NotificationDeliveryFailedFingerprint(destinationKey)
+	alert, err := s.store.FindOpenByFingerprint(ctx, fingerprint)
+	if err != nil {
+		if errors.Is(err, modelstore.ErrAlertNotFound) {
+			return nil
+		}
+		return fmt.Errorf("find open notification delivery alert: %w", err)
+	}
+	if eventSequence > 0 && eventSequence <= alert.LatestEventSequence {
+		return nil
+	}
+	now := s.now()
+	alert.Status = model.AlertStatusResolved
+	alert.UpdatedAt = now
+	alert.ResolvedAt = &now
+	alert.Resolution = &model.AlertResolution{
+		Reason: model.ResolutionReasonRecovered, Message: "Notification delivery recovered",
+		EventID: eventReferenceID(eventID, s.newID), EventSequence: eventSequence,
+	}
+	if err = s.store.Update(ctx, alert); err != nil {
+		return fmt.Errorf("resolve notification delivery alert: %w", err)
+	}
+	return s.publishResolved(ctx, alert)
+}
+
+func notificationDestinationKey(key, destination, channel string) string {
+	if key != "" {
+		return key
+	}
+	legacy := sha256.Sum256([]byte(destination + "\x00" + channel))
+	return destination + ":legacy:" + fmt.Sprintf("%x", legacy)
+}
+
+func notificationResourceID(destination, channel string) string {
+	if strings.TrimSpace(destination) == "" {
+		destination = "notification"
+	}
+	if strings.TrimSpace(channel) == "" {
+		channel = "unknown"
+	}
+	return destination + ":" + channel
 }
 
 func (s *Subscriber) handleGitPullFailed(ctx context.Context, eventID string, event *events.GitPullFailed) error {
@@ -375,13 +436,17 @@ func (s *Subscriber) updateConcurrentFailure(
 	}
 	existing.Occurrences++
 	existing.UpdatedAt = now
-	existing.LatestEventID = eventID
-	if hasDiagnostic || existing.Message == "" {
-		existing.Message = incoming.Message
+	if incoming.LatestEventSequence == 0 || incoming.LatestEventSequence > existing.LatestEventSequence {
+		existing.LatestEventID = eventID
+		existing.LatestEventSequence = incoming.LatestEventSequence
+		if hasDiagnostic || existing.Message == "" {
+			existing.Message = incoming.Message
+		}
+		existing.ResourceID = incoming.ResourceID
+		existing.Title = incoming.Title
+		existing.FailureStage, existing.ErrorCode = incoming.FailureStage, incoming.ErrorCode
+		existing.DeploymentID, existing.Commit = incoming.DeploymentID, incoming.Commit
 	}
-	existing.Title = incoming.Title
-	existing.FailureStage, existing.ErrorCode = incoming.FailureStage, incoming.ErrorCode
-	existing.DeploymentID, existing.Commit = incoming.DeploymentID, incoming.Commit
 	return s.store.Update(ctx, existing)
 }
 
@@ -427,6 +492,11 @@ func alertSnapshot(alert model.Alert) events.AlertSnapshot {
 		Message: alert.Message, ResourceType: string(alert.ResourceType), ResourceID: alert.ResourceID,
 		DeploymentID: alert.DeploymentID, ErrorCode: alert.ErrorCode, Occurrences: alert.Occurrences,
 		OpenedAt: alert.OpenedAt, ResolvedAt: alert.ResolvedAt}
+	if alert.Kind == model.AlertKindNotificationDeliveryFailed {
+		snapshot.DestinationKey = strings.TrimPrefix(
+			alert.Fingerprint, string(model.AlertKindNotificationDeliveryFailed)+":",
+		)
+	}
 	if alert.Kind == model.AlertKindGitRepositoryUnavailable && alert.ResolvedAt != nil {
 		duration := alert.ResolvedAt.Sub(alert.OpenedAt)
 		if duration < 0 {

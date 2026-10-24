@@ -37,6 +37,16 @@ func alertSpec() config.NotificationSpec {
 	}
 }
 
+func TestNotificationChannelNameUsesDeterministicFallback(t *testing.T) {
+	recipient := events.AlertRecipient{BotIdentity: "old-bot", ChatID: "-100", ThreadID: 7}
+	key := outbox.NotificationDestinationKey("telegram", recipient.BotIdentity, recipient.ChatID, "7")
+	first := notificationChannelName(config.NotificationSpec{}, recipient, key)
+	second := notificationChannelName(config.NotificationSpec{}, recipient, key)
+	assert.Equal(t, first, second)
+	assert.Equal(t, "recipient-"+key[len("telegram:"):len("telegram:")+12], first)
+	assert.NotContains(t, first, recipient.ChatID)
+}
+
 func TestSyncFailedAlertRendering(t *testing.T) {
 	tests := []struct {
 		name          string
@@ -502,12 +512,12 @@ func TestGitAlertDefaultTelegramHTMLAndCustomTemplates(t *testing.T) {
 			spec := alertSpec()
 			if custom {
 				spec.Alerts["GitRepositoryUnavailable"] = config.NotificationAlertRoutes{Telegram: []config.TelegramAlertChannel{{
-					Opened: config.AlertMessageSpec{Message: "repo={{ .ResourceID }}"},
+					Opened:   config.AlertMessageSpec{Message: "repo={{ .ResourceID }}"},
 					Resolved: config.AlertMessageSpec{Message: "recovered={{ .ResourceID }}"},
 				}}}
 			}
 			type request struct {
-				Text string `json:"text"`
+				Text      string `json:"text"`
 				ParseMode string `json:"parse_mode"`
 			}
 			var received []request

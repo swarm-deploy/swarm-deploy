@@ -171,6 +171,8 @@ func TestDeploymentAttemptMigrationIsForwardOnly(t *testing.T) {
 	_, err := provider.Up(t.Context())
 	require.NoError(t, err)
 	_, err = provider.Down(t.Context())
+	require.NoError(t, err, "the notification lifecycle migration is reversible")
+	_, err = provider.Down(t.Context())
 	require.NoError(t, err, "the traceparent column migration is reversible")
 	_, err = provider.Down(t.Context())
 	require.Error(t, err, "the deployment attempt migration remains forward-only")
@@ -313,7 +315,7 @@ func TestFreshDatabaseEnforcesForeignKeysAndChecks(t *testing.T) {
 	var appliedVersions int
 	require.NoError(t, db.Get(t.Context(), &appliedVersions,
 		"SELECT count(*) FROM goose_db_version WHERE version_id > 0 AND is_applied = 1"))
-	assert.Equal(t, 3, appliedVersions)
+	assert.Equal(t, 4, appliedVersions)
 }
 
 func TestRestartAndRollback(t *testing.T) {

@@ -5,8 +5,10 @@ package outbox
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -31,8 +33,15 @@ type externalSubscriber struct{ Subscriber }
 
 type notificationSubscriber struct {
 	externalSubscriber
-	destination string
-	channel     string
+	destination    string
+	channel        string
+	destinationKey string
+}
+
+type publicationSubscription struct {
+	id             string
+	notification   notificationSubscriber
+	isNotification bool
 }
 
 // External adapts a network consumer at the worker boundary. Its Handle runs
@@ -41,24 +50,34 @@ func External(handler Subscriber) Subscriber { return externalSubscriber{handler
 
 // ExternalNotification adapts a network notification consumer and records only
 // the safe destination metadata needed for terminal delivery-failure events.
-func ExternalNotification(handler Subscriber, destination, channel string) Subscriber {
+func ExternalNotification(handler Subscriber, destination, channel, destinationKey string) Subscriber {
 	return notificationSubscriber{
 		externalSubscriber: externalSubscriber{Subscriber: handler},
 		destination:        destination,
 		channel:            channel,
+		destinationKey:     destinationKey,
 	}
+}
+
+// NotificationDestinationKey returns a stable non-reversible identity for one
+// physical recipient. Identity parts must describe transport coordinates, not aliases.
+func NotificationDestinationKey(destination string, identityParts ...string) string {
+	identity := strings.Join(append([]string{destination}, identityParts...), "\x00")
+	return destination + ":" + fmt.Sprintf("%x", sha256.Sum256([]byte(identity)))
 }
 
 type causeKey struct{}
 
 const (
-	defaultLease             = 5 * time.Minute
-	defaultMaxAttempts       = 12
-	databaseOperationTimeout = 5 * time.Second
-	workerPollInterval       = 250 * time.Millisecond
-	defaultWorkerCount       = 4
-	maxRetryBackoff          = 5 * time.Minute
-	maxBackoffExponent       = 9
+	defaultLease                     = 5 * time.Minute
+	defaultMaxAttempts               = 12
+	databaseOperationTimeout         = 5 * time.Second
+	workerPollInterval               = 250 * time.Millisecond
+	defaultWorkerCount               = 4
+	maxRetryBackoff                  = 5 * time.Minute
+	maxBackoffExponent               = 9
+	notificationDestinationTelegram  = "telegram"
+	notificationFallbackDigestLength = 12
 )
 
 // Bus records publications and independently processes subscriber deliveries.
@@ -110,13 +129,8 @@ func (b *Bus) Publish(ctx context.Context, event events.Event) error {
 	if event == nil {
 		return errors.New("cannot publish a nil event")
 	}
-	b.mu.RLock()
-	ids := make([]string, 0, len(b.registry[event.Type().Name()]))
-	for id := range b.registry[event.Type().Name()] {
-		ids = append(ids, id)
-	}
-	b.mu.RUnlock()
-	if len(ids) == 0 {
+	subscriptions := b.publicationSubscriptions(event.Type().Name())
+	if len(subscriptions) == 0 {
 		return nil
 	}
 	payload, err := codec.Encode(event)
@@ -147,23 +161,52 @@ func (b *Bus) Publish(ctx context.Context, event events.Event) error {
 		if insertErr != nil {
 			return fmt.Errorf("insert outbox event: %w", insertErr)
 		}
-		for _, subscriber := range ids {
-			query, args, buildErr = goqu.Dialect("sqlite3").Insert("outbox_deliveries").Prepared(true).
-				Rows(goqu.Record{
-					"event_id": id, "subscription_id": subscriber,
-					"available_at": now, "updated_at": now,
-				}).ToSQL()
-			if buildErr != nil {
-				return buildErr
-			}
-			_, insertErr = b.db.Exec(ctx, query, args...)
-			if insertErr != nil {
-				return fmt.Errorf("insert outbox delivery: %w", insertErr)
+		for _, subscriber := range subscriptions {
+			if insertErr = b.insertDelivery(ctx, id, now, subscriber); insertErr != nil {
+				return insertErr
 			}
 		}
 		return nil
 	}
 	return b.db.WithinTransaction(ctx, insert)
+}
+
+func (b *Bus) publicationSubscriptions(eventType events.TypeName) []publicationSubscription {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	subscriptions := make([]publicationSubscription, 0, len(b.registry[eventType]))
+	for id, handler := range b.registry[eventType] {
+		entry := publicationSubscription{id: id}
+		if notification, ok := handler.(notificationSubscriber); ok {
+			entry.notification = notification
+			entry.isNotification = true
+		}
+		subscriptions = append(subscriptions, entry)
+	}
+	return subscriptions
+}
+
+func (b *Bus) insertDelivery(
+	ctx context.Context, eventID string, now time.Time, subscriber publicationSubscription,
+) error {
+	record := goqu.Record{
+		"event_id": eventID, "subscription_id": subscriber.id,
+		"available_at": now, "updated_at": now,
+	}
+	if subscriber.isNotification {
+		record["notification_destination"] = subscriber.notification.destination
+		record["notification_channel"] = subscriber.notification.channel
+		record["notification_destination_key"] = subscriber.notification.destinationKey
+	}
+	query, args, err := goqu.Dialect("sqlite3").Insert("outbox_deliveries").Prepared(true).
+		Rows(record).ToSQL()
+	if err != nil {
+		return err
+	}
+	if _, err = b.db.Exec(ctx, query, args...); err != nil {
+		return fmt.Errorf("insert outbox delivery: %w", err)
+	}
+	return nil
 }
 
 func traceparentFromContext(ctx context.Context) any {

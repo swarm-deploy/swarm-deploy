@@ -30,8 +30,10 @@ const (
 	// TypeNameDeployPreparationFailed is an internal durable lifecycle fact, not a configurable event name.
 	TypeNameDeployPreparationFailed TypeName = "DeployPreparationFailed"
 	// TypeNameDeployInterrupted is an internal durable lifecycle fact, not a configurable event name.
-	TypeNameDeployInterrupted                TypeName = "DeployInterrupted"
-	TypeNameSendNotificationFailed           TypeName = "SendNotificationFailed"
+	TypeNameDeployInterrupted      TypeName = "DeployInterrupted"
+	TypeNameSendNotificationFailed TypeName = "SendNotificationFailed"
+	// TypeNameNotificationSent is an internal durable notification delivery fact.
+	TypeNameNotificationSent                 TypeName = "NotificationSent"
 	TypeNameSyncManualStarted                TypeName = "SyncManualStarted"
 	TypeNameWebhookReceived                  TypeName = "WebhookReceived"
 	TypeNameNodeJoined                       TypeName = "NodeJoined"
@@ -134,6 +136,9 @@ var (
 		severity: SeverityError,
 		category: CategorySync,
 		window:   1 * time.Hour,
+	}
+	TypeNotificationSent = Type{
+		name: TypeNameNotificationSent, severity: SeverityInfo, category: CategorySync,
 	}
 	TypeSyncManualStarted = Type{
 		name:     TypeNameSyncManualStarted,
@@ -239,6 +244,7 @@ var (
 		TypeServiceCatalogUpdated,
 		TypeDeploySuccess,
 		TypeSendNotificationFailed,
+		TypeNotificationSent,
 		TypeSyncManualStarted,
 		TypeWebhookReceived,
 		TypeNodeJoined,

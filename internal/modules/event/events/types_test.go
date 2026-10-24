@@ -33,6 +33,7 @@ func TestEventTypeIdentifiersUsePascalCase(t *testing.T) {
 		TypeNameGitPullFailed:                    true,
 		TypeNameGitPullSucceeded:                 true,
 		TypeNameSendNotificationFailed:           true,
+		TypeNameNotificationSent:                 true,
 		TypeNameSyncManualStarted:                true,
 		TypeNameWebhookReceived:                  true,
 		TypeNameNodeJoined:                       true,
@@ -55,6 +56,7 @@ func TestEventTypeClassification(t *testing.T) {
 		TypeNameGitPullFailed: true, TypeNameGitPullSucceeded: true,
 		TypeNameConfigurationChanged: true, TypeNameDeployFailed: true,
 		TypeNameDeployPreparationFailed: true, TypeNameDeployInterrupted: true,
+		TypeNameNotificationSent: true,
 	}
 	for _, typ := range Types {
 		t.Run(typ.String(), func(t *testing.T) {

@@ -28,7 +28,7 @@ newly persisted events.
 | `DeploySuccess`                    | `info`   | `sync`     | Successful stack deployment         | `stack_name`, `commit`, `deployment_id`, `attempt_id`, `status` |
 | `ServicePruned`                    | `info`   | `sync`     | Orphaned managed service was removed | `stack_name`, `service_name`, `commit`                       |
 | `NetworkCreated`                   | `info`   | `sync`     | Managed network was created          | `network_name`, `network_id`, `driver`                       |
-| `SendNotificationFailed`           | `error`  | `sync`     | Notification delivery failure       | `destination`, `channel`, `event_type`, `error` (if present) |
+| `SendNotificationFailed`           | `error`  | `sync`     | Notification delivery failure       | `destination`, `channel`, `destination_key`, `event_type`, `error` (if present) |
 | `WebhookReceived`                  | `info`   | `sync`     | Authenticated webhook received and reconciliation scheduling attempted | `queued` (`true` or `false`)                     |
 | `SyncManualStarted`                | `info`   | `sync`     | Manual sync run started             | `username` (if present)                                      |
 | `NodeJoined`                       | `info`   | `swarm`    | New node joined the swarm           | `node_id`, `node_name` (if present), `role` (if present)      |
@@ -102,3 +102,6 @@ omit raw Compose, environment, logs, arbitrary errors and assistant prompts.
 `SendNotificationFailed` is published only when an external notification delivery reaches
 the terminal `failed` state. The terminal transition and event publication share one SQLite
 transaction. Failures while delivering this event do not publish another copy.
+`NotificationSent` is the corresponding internal success fact. It is consumed by Alert
+Management for recovery ordering and is never stored in Event History or exposed as a
+configurable event notification.

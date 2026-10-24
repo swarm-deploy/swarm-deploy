@@ -37,6 +37,7 @@ type alertPayload struct {
 	Message          string     `json:"message"`
 	ResourceType     string     `json:"resourceType"`
 	ResourceID       string     `json:"resourceId"`
+	DestinationKey   string     `json:"destinationKey,omitempty"`
 	DeploymentID     string     `json:"deploymentId,omitempty"`
 	ErrorCode        string     `json:"errorCode,omitempty"`
 	Occurrences      uint64     `json:"occurrences,omitempty"`
@@ -65,6 +66,7 @@ func alertPayloadFrom(a events.AlertSnapshot) alertPayload {
 		Message:          a.Message,
 		ResourceType:     a.ResourceType,
 		ResourceID:       a.ResourceID,
+		DestinationKey:   a.DestinationKey,
 		DeploymentID:     a.DeploymentID,
 		ErrorCode:        a.ErrorCode,
 		Occurrences:      a.Occurrences,
@@ -84,6 +86,7 @@ func (p alertPayload) snapshot() events.AlertSnapshot {
 		Message:          p.Message,
 		ResourceType:     p.ResourceType,
 		ResourceID:       p.ResourceID,
+		DestinationKey:   p.DestinationKey,
 		DeploymentID:     p.DeploymentID,
 		ErrorCode:        p.ErrorCode,
 		Occurrences:      p.Occurrences,

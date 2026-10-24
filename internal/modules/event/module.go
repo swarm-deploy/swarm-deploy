@@ -127,6 +127,7 @@ func (s *Module) registerTelegramNotifications(
 	count := 0
 	telegram := s.cfg.Spec.Notifications.Messengers.Telegram
 	botID, _, _ := strings.Cut(string(telegram.BotToken.Content), ":")
+	botIdentity := s.cfg.Spec.Notifications.TelegramBotIdentity()
 	for ruleIndex, channel := range channels {
 		for _, chatName := range channel.ChatNames() {
 			chat := telegram.Chats[chatName]
@@ -144,8 +145,13 @@ func (s *Module) registerTelegramNotifications(
 			// The destination identity is stable across chat alias changes.
 			id := fmt.Sprintf("notification:telegram:%x:%s:%d:%d",
 				sha256.Sum256([]byte(botID)), chat.ID, chat.ThreadID, ruleIndex)
+			destinationKey := outbox.NotificationDestinationKey(
+				"telegram", botIdentity, chat.ID, fmt.Sprintf("%d", chat.ThreadID),
+			)
 			for _, typ := range types {
-				handler := outbox.ExternalNotification(notify2.NewSubscriber(notifier), notifier.Kind(), notifier.Name())
+				handler := outbox.ExternalNotification(
+					notify2.NewSubscriber(notifier), notifier.Kind(), chatName, destinationKey,
+				)
 				if err = s.Dispatcher.Subscribe(typ, id, handler); err != nil {
 					return 0, err
 				}
@@ -164,8 +170,15 @@ func (s *Module) registerCustomNotifications(types []events.TypeName, channels [
 		)
 		identity := sha256.Sum256([]byte(channel.Method + " " + channel.URL.Value.String()))
 		id := fmt.Sprintf("notification:custom:%s:%x", channel.Name, identity)
+		destinationKey := outbox.NotificationDestinationKey("custom", channel.URL.Value.String())
+		channelName := channel.Name
+		if strings.TrimSpace(channelName) == "" {
+			channelName = "custom-" + destinationKey[len("custom:"):len("custom:")+12]
+		}
 		for _, typ := range types {
-			handler := outbox.ExternalNotification(notify2.NewSubscriber(notifier), notifier.Kind(), notifier.Name())
+			handler := outbox.ExternalNotification(
+				notify2.NewSubscriber(notifier), notifier.Kind(), channelName, destinationKey,
+			)
 			if err := s.Dispatcher.Subscribe(typ, id, handler); err != nil {
 				return 0, err
 			}

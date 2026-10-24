@@ -52,7 +52,7 @@ func TestSensitiveFieldsAreNeverPersisted(t *testing.T) {
 func TestNotificationFailureCodecCompatibility(t *testing.T) {
 	event := &events.SendNotificationFailed{
 		EventType: events.TypeAlertOpened, Destination: "telegram", Channel: "alerts",
-		Error: errors.New("handler_failed"),
+		DestinationKey: "telegram:safe-hash", Error: errors.New("handler_failed"),
 	}
 	payload, err := Encode(event)
 	require.NoError(t, err)
@@ -60,12 +60,27 @@ func TestNotificationFailureCodecCompatibility(t *testing.T) {
 	require.NoError(t, err)
 	failure := decoded.(*events.SendNotificationFailed)
 	assert.Equal(t, events.TypeNameAlertOpened, failure.EventType.Name())
+	assert.Equal(t, "telegram:safe-hash", failure.DestinationKey)
 	assert.EqualError(t, failure.Error, "handler_failed")
 
 	decoded, err = Decode(events.TypeNameSendNotificationFailed, Version,
 		[]byte(`{"event_type":"AlertOpened","destination":"telegram","channel":"alerts"}`))
 	require.NoError(t, err)
 	assert.NoError(t, decoded.(*events.SendNotificationFailed).Error)
+	assert.Empty(t, decoded.(*events.SendNotificationFailed).DestinationKey)
+}
+
+func TestNotificationSentCodec(t *testing.T) {
+	event := &events.NotificationSent{
+		EventType: events.TypeAlertOpened, Destination: "telegram", Channel: "alerts",
+		DestinationKey: "telegram:safe-hash",
+	}
+	payload, err := Encode(event)
+	require.NoError(t, err)
+	assert.NotContains(t, string(payload), "chat-id")
+	decoded, err := Decode(events.TypeNameNotificationSent, Version, payload)
+	require.NoError(t, err)
+	assert.Equal(t, event, decoded)
 }
 
 func TestDeploymentLifecycleCodecRejectsUnboundedDiagnostics(t *testing.T) {

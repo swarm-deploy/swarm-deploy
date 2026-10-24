@@ -15,6 +15,8 @@ type Payload struct {
 	Destination string `json:"destination"`
 	// Channel identifies the configured notification channel.
 	Channel string `json:"channel"`
+	// DestinationKey is the stable non-reversible physical recipient identity.
+	DestinationKey string `json:"destination_key"`
 	// Error is the safe delivery diagnostic when available.
 	Error string `json:"error"`
 	// Message is the human-readable event summary.
@@ -26,6 +28,7 @@ type Payload struct {
 // ReferencePayload returns representative delivery-failure data.
 func ReferencePayload() Payload {
 	return Payload{ID: "event-notification-failed", Type: "SendNotificationFailed", EventType: "DeployFailed",
-		Destination: "telegram", Channel: "ops", Error: "request timeout", Message: "Failed to send notification",
+		Destination: "telegram", Channel: "ops", DestinationKey: "telegram:safe-hash",
+		Error: "request timeout", Message: "Failed to send notification",
 		OccurredAt: time.Date(2026, time.October, 13, 9, 30, 0, 0, time.UTC)}
 }

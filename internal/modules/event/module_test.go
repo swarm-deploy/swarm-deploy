@@ -16,6 +16,7 @@ import (
 )
 
 func TestHistoryAndMetricsKeepIndependentPolicies(t *testing.T) {
+	assert.NotContains(t, projectionEventTypes(), events.TypeNameNotificationSent)
 	db, err := storage.Open(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })

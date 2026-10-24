@@ -63,7 +63,8 @@ func notificationPayload(envelope events.Envelope) (any, error) {
 			Username: event.Username, Message: event.Message(), OccurredAt: occurredAt}, nil
 	case *events.SendNotificationFailed:
 		return eventnotifications.Payload{ID: eventID, Type: event.Type().String(), EventType: event.EventType.String(),
-			Destination: event.Destination, Channel: event.Channel, Error: errorString(event.Error),
+			Destination: event.Destination, Channel: event.Channel, DestinationKey: event.DestinationKey,
+			Error:   errorString(event.Error),
 			Message: event.Message(), OccurredAt: occurredAt}, nil
 	default:
 		return nil, fmt.Errorf("notification payload is not defined for %T", envelope.Event)

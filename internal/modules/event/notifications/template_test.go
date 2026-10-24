@@ -15,7 +15,8 @@ func TestPayloadContract(t *testing.T) {
 	for name, expected := range map[string]reflect.Type{
 		"ID": reflect.TypeFor[string](), "Type": reflect.TypeFor[string](), "EventType": reflect.TypeFor[string](),
 		"Destination": reflect.TypeFor[string](), "Channel": reflect.TypeFor[string](),
-		"Error": reflect.TypeFor[string](), "Message": reflect.TypeFor[string](),
+		"DestinationKey": reflect.TypeFor[string](),
+		"Error":          reflect.TypeFor[string](), "Message": reflect.TypeFor[string](),
 		"OccurredAt": reflect.TypeFor[time.Time](),
 	} {
 		field, ok := typ.FieldByName(name)

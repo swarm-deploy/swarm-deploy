@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"html"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -89,9 +90,13 @@ func Register(
 	}
 	for recipient := range recipients {
 		id := SubscriptionID(recipient)
-		// SubscriptionID contains the physical chat identity; keep it out of persisted failure events.
+		destinationKey := outbox.NotificationDestinationKey(
+			"telegram", recipient.BotIdentity, recipient.ChatID, strconv.FormatInt(recipient.ThreadID, 10),
+		)
+		channel := notificationChannelName(spec, recipient, destinationKey)
 		handler := outbox.ExternalNotification(
-			&Subscriber{store: store, spec: spec, recipient: recipient, now: time.Now}, "telegram", "alerts",
+			&Subscriber{store: store, spec: spec, recipient: recipient, now: time.Now},
+			"telegram", channel, destinationKey,
 		)
 		if err = bus.Subscribe(events.TypeNameAlertOpened, id, handler); err != nil {
 			return err
@@ -101,6 +106,24 @@ func Register(
 		}
 	}
 	return nil
+}
+
+func notificationChannelName(
+	spec config.NotificationSpec, recipient events.AlertRecipient, destinationKey string,
+) string {
+	names := make([]string, 0, len(spec.Messengers.Telegram.Chats))
+	for name := range spec.Messengers.Telegram.Chats {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		chat := spec.Messengers.Telegram.Chats[name]
+		if spec.TelegramBotIdentity() == recipient.BotIdentity &&
+			chat.ID == recipient.ChatID && chat.ThreadID == recipient.ThreadID {
+			return name
+		}
+	}
+	return "recipient-" + destinationKey[len("telegram:"):len("telegram:")+12]
 }
 
 // Subscriber delivers both lifecycle phases for one physical Telegram recipient.
@@ -114,8 +137,14 @@ type Subscriber struct {
 
 // Handle applies an alert transition, with durable per-recipient progress.
 func (s *Subscriber) Handle(ctx context.Context, envelope events.Envelope) error {
+	_, err := s.HandleNotification(ctx, envelope)
+	return err
+}
+
+// HandleNotification applies an alert transition and reports whether an external send occurred.
+func (s *Subscriber) HandleNotification(ctx context.Context, envelope events.Envelope) (bool, error) {
 	if err := s.store.PruneCompleted(ctx); err != nil {
-		return err
+		return false, err
 	}
 	switch event := envelope.Event.(type) {
 	case *events.AlertOpened:
@@ -124,26 +153,26 @@ func (s *Subscriber) Handle(ctx context.Context, envelope events.Envelope) error
 				return s.opened(ctx, event.Alert)
 			}
 		}
-		return nil
+		return false, nil
 	case *events.AlertResolved:
 		return s.resolved(ctx, event)
 	default:
-		return nil
+		return false, nil
 	}
 }
 
-func (s *Subscriber) opened(ctx context.Context, alert events.AlertSnapshot) error {
+func (s *Subscriber) opened(ctx context.Context, alert events.AlertSnapshot) (bool, error) {
 	if err := s.store.Ensure(ctx, alert.ID, s.recipient); err != nil {
-		return err
+		return false, err
 	}
 	link, err := s.store.Get(ctx, alert.ID, s.recipient)
 	if err != nil {
-		return err
+		return false, err
 	}
 	// A terminal opening delivery can be replayed after resolution was sent.
 	// Never reopen a notification that has already completed its lifecycle.
 	if link.OpenedAt.Valid || link.ResolvedAt.Valid {
-		return nil
+		return false, nil
 	}
 	rule := s.rule(alert.Kind)
 	payload := alert
@@ -159,26 +188,29 @@ func (s *Subscriber) opened(ctx context.Context, alert events.AlertSnapshot) err
 	}
 	notifier, err := s.notifier(rule.AlertOpenedTemplate(alert.Kind), parseMode)
 	if err != nil {
-		return err
+		return false, err
 	}
 	receipt, err := notifier.Notify(ctx, notifiers.Message{Payload: payload, Action: notifiers.ActionSend})
 	if err != nil {
-		return err
+		return false, err
 	}
-	return s.store.MarkOpened(ctx, alert.ID, s.recipient, receipt, s.now())
+	if err = s.store.MarkOpened(ctx, alert.ID, s.recipient, receipt, s.now()); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
-func (s *Subscriber) resolved(ctx context.Context, event *events.AlertResolved) error {
+func (s *Subscriber) resolved(ctx context.Context, event *events.AlertResolved) (bool, error) {
 	alert := event.Alert
 	link, deliver, err := s.resolutionLink(ctx, event)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if !deliver {
-		return nil
+		return false, nil
 	}
 	if link.ResolvedAt.Valid {
-		return nil
+		return false, nil
 	}
 	rule := s.rule(alert.Kind)
 	payload := alert
@@ -190,7 +222,7 @@ func (s *Subscriber) resolved(ctx context.Context, event *events.AlertResolved) 
 	}
 	notifier, err := s.notifier(rule.AlertResolvedTemplate(alert.Kind), parseMode)
 	if err != nil {
-		return err
+		return false, err
 	}
 	action := notifiers.ActionSend
 	if link.OpenedMessageID.Valid {
@@ -200,9 +232,12 @@ func (s *Subscriber) resolved(ctx context.Context, event *events.AlertResolved) 
 		Payload: payload, Action: action, TargetMessageID: link.OpenedMessageID.Int64,
 	})
 	if err != nil {
-		return err
+		return false, err
 	}
-	return s.store.MarkResolved(ctx, alert.ID, s.recipient, receipt, s.now())
+	if err = s.store.MarkResolved(ctx, alert.ID, s.recipient, receipt, s.now()); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func (s *Subscriber) resolutionLink(

@@ -28,6 +28,9 @@ func Encode(event events.Event) ([]byte, error) {
 	if payload, internal, err := encodeInternal(event); internal {
 		return payload, err
 	}
+	if payload, delivery, err := encodeNotificationDelivery(event); delivery {
+		return payload, err
+	}
 	switch e := event.(type) {
 	case *events.ConfigurationChanged:
 		return encodeConfigurationChanged(e)
@@ -86,11 +89,6 @@ func Encode(event events.Event) ([]byte, error) {
 		return json.Marshal(webhookPayload{Queued: e.Queued})
 	case *events.AssistantPromptInjectionDetected:
 		return json.Marshal(userPayload{Username: e.Username, Detector: e.Detector})
-	case *events.SendNotificationFailed:
-		return json.Marshal(notificationPayload{
-			EventType: e.EventType, Destination: e.Destination, Channel: e.Channel,
-			Error: faults.SafeDiagnostic(e.Error),
-		})
 	default:
 		return nil, fmt.Errorf("unsupported persistent event %T", event)
 	}
@@ -103,6 +101,9 @@ func Decode(typ events.TypeName, version int, payload []byte) (events.Event, err
 	}
 	if isDeploymentFailureType(typ) {
 		return decodeDeploymentFailure(typ, payload)
+	}
+	if typ == events.TypeNameSendNotificationFailed || typ == events.TypeNameNotificationSent {
+		return decodeNotificationDelivery(typ, payload)
 	}
 	switch typ { //nolint:exhaustive // Failure events are decoded by decodeDeploymentFailure above.
 	case events.TypeNameConfigurationChanged:
@@ -180,16 +181,6 @@ func Decode(typ events.TypeName, version int, payload []byte) (events.Event, err
 	case events.TypeNameAssistantPromptInjectionDetected:
 		return decodeAs(payload, func(p userPayload) events.Event {
 			return &events.AssistantPromptInjectionDetected{Username: p.Username, Detector: p.Detector}
-		})
-	case events.TypeNameSendNotificationFailed:
-		return decodeAs(payload, func(p notificationPayload) events.Event {
-			var err error
-			if p.Error != "" {
-				err = errors.New(p.Error)
-			}
-			return &events.SendNotificationFailed{
-				EventType: p.EventType, Destination: p.Destination, Channel: p.Channel, Error: err,
-			}
 		})
 	default:
 		return nil, fmt.Errorf("unsupported persistent event type %q", typ)
@@ -414,6 +405,8 @@ type notificationPayload struct {
 	Destination string `json:"destination"`
 	// Channel is the configured channel name.
 	Channel string `json:"channel"`
+	// DestinationKey is a stable, non-reversible physical destination identity.
+	DestinationKey string `json:"destination_key,omitempty"`
 	// Error is a sanitized delivery failure classification.
 	Error string `json:"error,omitempty"`
 }

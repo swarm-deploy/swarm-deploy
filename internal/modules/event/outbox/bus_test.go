@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -182,7 +183,9 @@ func TestLeaseRecoveryAndFencing(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotEqual(t, first.token, second.token)
 	require.ErrorIs(t, bus.process(t.Context(), first), ErrLeaseLost)
-	require.ErrorIs(t, db.WithinTransaction(t.Context(), func(ctx context.Context) error { return bus.ack(ctx, first) }), ErrLeaseLost)
+	require.ErrorIs(t, db.WithinTransaction(t.Context(), func(ctx context.Context) error {
+		return bus.ack(ctx, first, false)
+	}), ErrLeaseLost)
 	require.NoError(t, restarted.process(t.Context(), second))
 	assert.Zero(t, rows(t, db, "outbox_events"))
 }
@@ -535,7 +538,7 @@ func TestNotificationDeliveryFailureSignal(t *testing.T) {
 				)
 			}
 			require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, "notification",
-				ExternalNotification(notification, "telegram", "ops")))
+				ExternalNotification(notification, "telegram", "ops", "telegram:test")))
 			require.NoError(t, bus.Subscribe(events.TypeNameSendNotificationFailed, "alert-management", signal))
 			require.NoError(t, bus.Publish(t.Context(), &events.NodeJoined{NodeID: "node"}))
 
@@ -560,7 +563,7 @@ func TestNotificationDeliveryFailureSignal(t *testing.T) {
 			restarted := New(db)
 			restarted.maxAttempts = testCase.maxAttempts
 			require.NoError(t, restarted.Subscribe(events.TypeNameNodeJoined, "notification",
-				ExternalNotification(notification, "telegram", "ops")))
+				ExternalNotification(notification, "telegram", "ops", "telegram:test")))
 			require.NoError(t, restarted.Subscribe(events.TypeNameSendNotificationFailed, "alert-management", signal))
 			handled, err = restarted.ProcessNext(t.Context())
 			require.NoError(t, err)
@@ -572,13 +575,50 @@ func TestNotificationDeliveryFailureSignal(t *testing.T) {
 	}
 }
 
+func TestNotificationDestinationIdentityIsNonReversible(t *testing.T) {
+	const endpoint = "https://user:secret@example.com/hook?token=private"
+	key := NotificationDestinationKey("custom", endpoint)
+	assert.True(t, strings.HasPrefix(key, "custom:"))
+	assert.NotContains(t, key, endpoint)
+	assert.NotContains(t, key, "secret")
+	assert.Equal(t, key, NotificationDestinationKey("custom", endpoint))
+}
+
+func TestNotificationFailureUsesPersistedMetadataAfterAliasRemoval(t *testing.T) {
+	db, bus := setup(t)
+	notification := NewMockSubscriber(gomock.NewController(t))
+	require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, "removed-route",
+		ExternalNotification(notification, "telegram", "infrastructure", "telegram:physical")))
+	require.NoError(t, bus.Publish(t.Context(), &events.NodeJoined{NodeID: "node"}))
+
+	restarted := New(db)
+	signal := NewMockSubscriber(gomock.NewController(t))
+	signal.EXPECT().Handle(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, envelope events.Envelope) error {
+			failure := envelope.Event.(*events.SendNotificationFailed)
+			assert.Equal(t, "telegram", failure.Destination)
+			assert.Equal(t, "infrastructure", failure.Channel)
+			assert.Equal(t, "telegram:physical", failure.DestinationKey)
+			assert.EqualError(t, failure.Error, "subscription_missing")
+			return nil
+		},
+	)
+	require.NoError(t, restarted.Subscribe(events.TypeNameSendNotificationFailed, "alert-management", signal))
+	handled, err := restarted.ProcessNext(t.Context())
+	require.NoError(t, err)
+	require.True(t, handled)
+	handled, err = restarted.ProcessNext(t.Context())
+	require.NoError(t, err)
+	require.True(t, handled)
+}
+
 func TestTerminalNotificationFailurePublicationIsAtomic(t *testing.T) {
 	db, bus := setup(t)
 	bus.maxAttempts = 1
 	notification := NewMockSubscriber(gomock.NewController(t))
 	notification.EXPECT().Handle(gomock.Any(), gomock.Any()).Return(assert.AnError)
 	require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, "notification",
-		ExternalNotification(notification, "custom", "audit")))
+		ExternalNotification(notification, "custom", "audit", "custom:test")))
 	require.NoError(t, bus.Subscribe(events.TypeNameSendNotificationFailed, "alert-management", notification))
 	_, err := db.Exec(t.Context(), `CREATE TRIGGER reject_failure_signal
 		BEFORE INSERT ON outbox_events WHEN NEW.event_type='SendNotificationFailed'
@@ -594,20 +634,110 @@ func TestTerminalNotificationFailurePublicationIsAtomic(t *testing.T) {
 	assert.Equal(t, "processing", status, "terminal transition must roll back with its event")
 }
 
-func TestSendNotificationFailedDeliveryDoesNotRecurse(t *testing.T) {
+func TestNotificationSentAfterSuccessfulDelivery(t *testing.T) {
 	db, bus := setup(t)
-	bus.maxAttempts = 1
-	notification := NewMockSubscriber(gomock.NewController(t))
-	notification.EXPECT().Handle(gomock.Any(), gomock.Any()).Return(assert.AnError)
-	require.NoError(t, bus.Subscribe(events.TypeNameSendNotificationFailed, "notification",
-		ExternalNotification(notification, "telegram", "ops")))
-	require.NoError(t, bus.Publish(t.Context(), &events.SendNotificationFailed{
-		EventType: events.TypeNodeJoined, Destination: "custom", Channel: "audit", Error: assert.AnError,
-	}))
+	controller := gomock.NewController(t)
+	notification := NewMockSubscriber(controller)
+	notification.EXPECT().Handle(gomock.Any(), gomock.Any()).Return(nil)
+	signal := NewMockSubscriber(controller)
+	signal.EXPECT().Handle(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, envelope events.Envelope) error {
+			sent := envelope.Event.(*events.NotificationSent)
+			assert.Equal(t, events.TypeNameNodeJoined, sent.EventType.Name())
+			assert.Equal(t, "telegram", sent.Destination)
+			assert.Equal(t, "ops", sent.Channel)
+			assert.Equal(t, "telegram:test", sent.DestinationKey)
+			return nil
+		},
+	)
+	require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, "notification",
+		ExternalNotification(notification, "telegram", "ops", "telegram:test")))
+	require.NoError(t, bus.Subscribe(events.TypeNameNotificationSent, "alert-management", signal))
+	require.NoError(t, bus.Publish(t.Context(), &events.NodeJoined{NodeID: "node"}))
 
 	handled, err := bus.ProcessNext(t.Context())
 	require.NoError(t, err)
 	require.True(t, handled)
-	assert.Equal(t, 1, rows(t, db, "outbox_events"))
-	assert.Equal(t, 1, rows(t, db, "outbox_deliveries"))
+	var successEvents int
+	require.NoError(t, db.Get(t.Context(), &successEvents,
+		"SELECT count(*) FROM outbox_events WHERE event_type=?", events.TypeNameNotificationSent))
+	assert.Equal(t, 1, successEvents)
+	handled, err = bus.ProcessNext(t.Context())
+	require.NoError(t, err)
+	require.True(t, handled)
+	assert.Zero(t, rows(t, db, "outbox_events"))
+}
+
+type noOpNotificationHandler struct{}
+
+func (noOpNotificationHandler) Handle(context.Context, events.Envelope) error { return nil }
+
+func (noOpNotificationHandler) HandleNotification(context.Context, events.Envelope) (bool, error) {
+	return false, nil
+}
+
+func TestNoOpNotificationDoesNotPublishSuccess(t *testing.T) {
+	db, bus := setup(t)
+	signal := NewMockSubscriber(gomock.NewController(t))
+	require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, "notification",
+		ExternalNotification(noOpNotificationHandler{}, "telegram", "ops", "telegram:test")))
+	require.NoError(t, bus.Subscribe(events.TypeNameNotificationSent, "alert-management", signal))
+	require.NoError(t, bus.Publish(t.Context(), &events.NodeJoined{NodeID: "node"}))
+
+	handled, err := bus.ProcessNext(t.Context())
+	require.NoError(t, err)
+	require.True(t, handled)
+	assert.Zero(t, rows(t, db, "outbox_events"))
+}
+
+func TestNotificationSuccessPublicationIsAtomic(t *testing.T) {
+	db, bus := setup(t)
+	notification := NewMockSubscriber(gomock.NewController(t))
+	notification.EXPECT().Handle(gomock.Any(), gomock.Any()).Return(nil)
+	require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, "notification",
+		ExternalNotification(notification, "custom", "audit", "custom:test")))
+	require.NoError(t, bus.Subscribe(events.TypeNameNotificationSent, "alert-management", notification))
+	_, err := db.Exec(t.Context(), `CREATE TRIGGER reject_success_signal
+		BEFORE INSERT ON outbox_events WHEN NEW.event_type='NotificationSent'
+		BEGIN SELECT RAISE(ABORT, 'success signal rejected'); END`)
+	require.NoError(t, err)
+	require.NoError(t, bus.Publish(t.Context(), &events.NodeJoined{}))
+
+	handled, err := bus.ProcessNext(t.Context())
+	require.NoError(t, err)
+	require.True(t, handled)
+	var status string
+	require.NoError(t, db.Get(t.Context(), &status, "SELECT status FROM outbox_deliveries"))
+	assert.Equal(t, "pending", status, "successful transition must roll back with its event")
+	var successEvents int
+	require.NoError(t, db.Get(t.Context(), &successEvents,
+		"SELECT count(*) FROM outbox_events WHERE event_type=?", events.TypeNameNotificationSent))
+	assert.Zero(t, successEvents)
+}
+
+func TestSendNotificationFailedDeliveryDoesNotRecurse(t *testing.T) {
+	for _, event := range []events.Event{
+		&events.SendNotificationFailed{
+			EventType: events.TypeNodeJoined, Destination: "custom", Channel: "audit", Error: assert.AnError,
+		},
+		&events.NotificationSent{
+			EventType: events.TypeNodeJoined, Destination: "custom", Channel: "audit",
+		},
+	} {
+		t.Run(event.Type().String(), func(t *testing.T) {
+			db, bus := setup(t)
+			bus.maxAttempts = 1
+			notification := NewMockSubscriber(gomock.NewController(t))
+			notification.EXPECT().Handle(gomock.Any(), gomock.Any()).Return(assert.AnError)
+			require.NoError(t, bus.Subscribe(event.Type().Name(), "notification",
+				ExternalNotification(notification, "telegram", "ops", "telegram:test")))
+			require.NoError(t, bus.Publish(t.Context(), event))
+
+			handled, err := bus.ProcessNext(t.Context())
+			require.NoError(t, err)
+			require.True(t, handled)
+			assert.Equal(t, 1, rows(t, db, "outbox_events"))
+			assert.Equal(t, 1, rows(t, db, "outbox_deliveries"))
+		})
+	}
 }
