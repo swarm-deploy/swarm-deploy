@@ -31,11 +31,35 @@ type Subscriber interface {
 
 type externalSubscriber struct{ Subscriber }
 
+// NotificationSubscriber sends a message and reports whether it performed an external delivery.
+type NotificationSubscriber interface {
+	HandleNotification(context.Context, events.Envelope) (bool, error)
+}
+
 type notificationSubscriber struct {
-	externalSubscriber
+	handler        NotificationSubscriber
 	destination    string
 	channel        string
 	destinationKey string
+}
+
+// Handle implements Subscriber for the Outbox registry.
+func (s notificationSubscriber) Handle(ctx context.Context, event events.Envelope) error {
+	_, err := s.HandleNotification(ctx, event)
+	return err
+}
+
+// HandleNotification isolates notification handler panics from the delivery worker.
+func (s notificationSubscriber) HandleNotification(
+	ctx context.Context, event events.Envelope,
+) (delivered bool, err error) {
+	defer func() {
+		if recover() != nil {
+			delivered = false
+			err = errors.New("outbox handler panicked")
+		}
+	}()
+	return s.handler.HandleNotification(ctx, event)
 }
 
 type publicationSubscription struct {
@@ -50,12 +74,9 @@ func External(handler Subscriber) Subscriber { return externalSubscriber{handler
 
 // ExternalNotification adapts a network notification consumer and records only
 // the safe destination metadata needed for terminal delivery-failure events.
-func ExternalNotification(handler Subscriber, destination, channel, destinationKey string) Subscriber {
+func ExternalNotification(handler NotificationSubscriber, destination, channel, destinationKey string) Subscriber {
 	return notificationSubscriber{
-		externalSubscriber: externalSubscriber{Subscriber: handler},
-		destination:        destination,
-		channel:            channel,
-		destinationKey:     destinationKey,
+		handler: handler, destination: destination, channel: channel, destinationKey: destinationKey,
 	}
 }
 
