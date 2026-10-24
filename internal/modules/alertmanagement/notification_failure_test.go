@@ -282,16 +282,15 @@ func TestAlertResolvedFailureDoesNotReopenSameIncident(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	bus := outbox.New(db)
 	subscriber, store := newNotificationSQLSubscriber(db, bus)
+	require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, "source-notification",
+		outbox.ExternalNotification(failingNotificationHandler{}, "telegram", "ops", telegramA)))
 	require.NoError(t, bus.Subscribe(events.TypeNameSendNotificationFailed, "alert-management", subscriber))
+	require.NoError(t, bus.Subscribe(events.TypeNameNotificationSent, "alert-management", subscriber))
+	require.NoError(t, bus.Subscribe(events.TypeNameAlertOpened, "recovery-notification",
+		outbox.ExternalNotification(successfulNotificationHandler{}, "telegram", "ops", telegramA)))
 	require.NoError(t, bus.Subscribe(events.TypeNameAlertResolved, "failed-resolution-delivery",
 		outbox.ExternalNotification(failingNotificationHandler{}, "telegram", "ops", telegramA)))
-	at := time.Now().UTC()
-	require.NoError(t, subscriber.Handle(t.Context(), failureEnvelope(
-		"failure", 1, at, telegramA, "ops", events.TypeNodeJoined,
-	)))
-	require.NoError(t, subscriber.Handle(t.Context(), successEnvelope(
-		"success", 2, at, telegramA, "ops", events.TypeNodeJoined,
-	)))
+	require.NoError(t, bus.Publish(t.Context(), &events.NodeJoined{NodeID: "node"}))
 
 	drainOutbox(t, db, bus)
 	_, err = store.FindOpenByFingerprint(t.Context(), model.NotificationDeliveryFailedFingerprint(telegramA))
@@ -301,6 +300,85 @@ func TestAlertResolvedFailureDoesNotReopenSameIncident(t *testing.T) {
 	require.Len(t, resolved, 1)
 	assert.Equal(t, model.ResolutionReasonRecovered, resolved[0].Resolution.Reason)
 	assert.Equal(t, 0, outboxEventCount(t, db, events.TypeNameSendNotificationFailed))
+}
+
+func TestAlertResolvedFailureToAnotherDestinationRemainsObservable(t *testing.T) {
+	db, err := storage.Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	bus := outbox.New(db)
+	subscriber, store := newNotificationSQLSubscriber(db, bus)
+	require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, "source-notification",
+		outbox.ExternalNotification(failingNotificationHandler{}, "telegram", "ops", telegramA)))
+	require.NoError(t, bus.Subscribe(events.TypeNameSendNotificationFailed, "alert-management", subscriber))
+	require.NoError(t, bus.Subscribe(events.TypeNameNotificationSent, "alert-management", subscriber))
+	require.NoError(t, bus.Subscribe(events.TypeNameAlertOpened, "recovery-notification",
+		outbox.ExternalNotification(successfulNotificationHandler{}, "telegram", "ops", telegramA)))
+	require.NoError(t, bus.Subscribe(events.TypeNameAlertResolved, "same-destination",
+		outbox.ExternalNotification(failingNotificationHandler{}, "telegram", "ops", telegramA)))
+	require.NoError(t, bus.Subscribe(events.TypeNameAlertResolved, "other-destination",
+		outbox.ExternalNotification(failingNotificationHandler{}, "telegram", "audit", telegramB)))
+	require.NoError(t, bus.Publish(t.Context(), &events.NodeJoined{NodeID: "node"}))
+
+	drainOutbox(t, db, bus)
+	_, err = store.FindOpenByFingerprint(t.Context(), model.NotificationDeliveryFailedFingerprint(telegramA))
+	assert.ErrorIs(t, err, modelstore.ErrAlertNotFound)
+	alert, err := store.FindOpenByFingerprint(
+		t.Context(), model.NotificationDeliveryFailedFingerprint(telegramB),
+	)
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, alert.Occurrences)
+	assert.Equal(t, "telegram:audit", alert.ResourceID)
+}
+
+func TestAlertResolvedFailureCorrelationSurvivesRestart(t *testing.T) {
+	directory := t.TempDir()
+	db, err := storage.Open(t.Context(), directory)
+	require.NoError(t, err)
+	bus := outbox.New(db)
+	subscriber, _ := newNotificationSQLSubscriber(db, bus)
+	require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, "source-notification",
+		outbox.ExternalNotification(failingNotificationHandler{}, "telegram", "ops", telegramA)))
+	require.NoError(t, bus.Subscribe(events.TypeNameSendNotificationFailed, "alert-management", subscriber))
+	require.NoError(t, bus.Subscribe(events.TypeNameNotificationSent, "alert-management", subscriber))
+	require.NoError(t, bus.Subscribe(events.TypeNameAlertOpened, "recovery-notification",
+		outbox.ExternalNotification(successfulNotificationHandler{}, "telegram", "ops", telegramA)))
+	require.NoError(t, bus.Subscribe(events.TypeNameAlertResolved, "failed-resolution-delivery",
+		outbox.ExternalNotification(failingNotificationHandler{}, "telegram", "ops", telegramA)))
+	require.NoError(t, bus.Publish(t.Context(), &events.NodeJoined{NodeID: "node"}))
+
+	for range 100 {
+		_, err = db.Exec(t.Context(), "UPDATE outbox_deliveries SET available_at=0 WHERE status='pending'")
+		require.NoError(t, err)
+		var correlated int
+		require.NoError(t, db.Get(t.Context(), &correlated, `SELECT count(*) FROM outbox_events
+			WHERE event_type=? AND payload LIKE '%source_causation_id%'`, events.TypeNameSendNotificationFailed))
+		if correlated > 0 {
+			break
+		}
+		handled, processErr := bus.ProcessNext(t.Context())
+		require.NoError(t, processErr)
+		require.True(t, handled)
+	}
+	var correlated int
+	require.NoError(t, db.Get(t.Context(), &correlated, `SELECT count(*) FROM outbox_events
+		WHERE event_type=? AND payload LIKE '%source_causation_id%'`, events.TypeNameSendNotificationFailed))
+	require.Equal(t, 1, correlated)
+	require.NoError(t, db.Close())
+
+	db, err = storage.Open(t.Context(), directory)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	restarted := outbox.New(db)
+	subscriber, store := newNotificationSQLSubscriber(db, restarted)
+	require.NoError(t, restarted.Subscribe(events.TypeNameSendNotificationFailed, "alert-management", subscriber))
+	drainOutbox(t, db, restarted)
+
+	_, err = store.FindOpenByFingerprint(t.Context(), model.NotificationDeliveryFailedFingerprint(telegramA))
+	assert.ErrorIs(t, err, modelstore.ErrAlertNotFound)
+	resolved, err := store.List(t.Context(), modelstore.ListFilter{Status: model.AlertStatusResolved})
+	require.NoError(t, err)
+	require.Len(t, resolved, 1)
 }
 
 func drainOutbox(t *testing.T, db *storage.Database, bus *outbox.Bus) {

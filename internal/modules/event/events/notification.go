@@ -16,6 +16,8 @@ type SendNotificationFailed struct {
 	Channel string
 	// DestinationKey is a stable, non-reversible physical destination identity.
 	DestinationKey string
+	// SourceCausationID is opaque correlation metadata inherited from the delivered event.
+	SourceCausationID string
 	// Error is a delivery failure reason.
 	Error error
 }

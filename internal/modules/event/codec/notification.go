@@ -14,7 +14,8 @@ func encodeNotificationDelivery(event events.Event) ([]byte, bool, error) {
 	case *events.SendNotificationFailed:
 		payload = notificationPayload{
 			EventType: delivery.EventType, Destination: delivery.Destination, Channel: delivery.Channel,
-			DestinationKey: delivery.DestinationKey, Error: faults.SafeDiagnostic(delivery.Error),
+			DestinationKey: delivery.DestinationKey, SourceCausationID: delivery.SourceCausationID,
+			Error: faults.SafeDiagnostic(delivery.Error),
 		}
 	case *events.NotificationSent:
 		payload = notificationPayload{
@@ -42,7 +43,7 @@ func decodeNotificationDelivery(typ events.TypeName, payload []byte) (events.Eve
 		}
 		return &events.SendNotificationFailed{
 			EventType: stored.EventType, Destination: stored.Destination, Channel: stored.Channel,
-			DestinationKey: stored.DestinationKey, Error: deliveryErr,
+			DestinationKey: stored.DestinationKey, SourceCausationID: stored.SourceCausationID, Error: deliveryErr,
 		}
 	})
 }

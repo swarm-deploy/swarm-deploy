@@ -38,6 +38,7 @@ type delivery struct {
 	occurredAt                 time.Time
 	publicationSequence        int64
 	traceparent                sql.NullString
+	causationID                sql.NullString
 	notificationDestination    sql.NullString
 	notificationChannel        sql.NullString
 	notificationDestinationKey sql.NullString
@@ -183,6 +184,7 @@ func (b *Bus) claim(ctx context.Context) (delivery, error) {
 			OccurredAt                 time.Time       `db:"occurred_at"`
 			PublicationSequence        int64           `db:"sequence"`
 			Traceparent                sql.NullString  `db:"traceparent"`
+			CausationID                sql.NullString  `db:"causation_id"`
 			NotificationDestination    sql.NullString  `db:"notification_destination"`
 			NotificationChannel        sql.NullString  `db:"notification_channel"`
 			NotificationDestinationKey sql.NullString  `db:"notification_destination_key"`
@@ -211,7 +213,7 @@ func (b *Bus) claim(ctx context.Context) (delivery, error) {
 				goqu.I("d.notification_destination"), goqu.I("d.notification_channel"),
 				goqu.I("d.notification_destination_key"), goqu.I("e.event_type"),
 				goqu.I("e.schema_version"), goqu.I("e.payload"), goqu.I("e.occurred_at"),
-				goqu.I("e.sequence"), goqu.I("e.traceparent"),
+				goqu.I("e.sequence"), goqu.I("e.traceparent"), goqu.I("e.causation_id"),
 			).
 			Where(goqu.Ex{"d.lease_token": d.token}).
 			ToSQL()
@@ -225,6 +227,7 @@ func (b *Bus) claim(ctx context.Context) (delivery, error) {
 			claimed.EventID, claimed.SubscriptionID, claimed.Attempts, claimed.EventType
 		d.schemaVersion, d.payload, d.occurredAt = claimed.SchemaVersion, claimed.Payload, claimed.OccurredAt
 		d.publicationSequence, d.traceparent = claimed.PublicationSequence, claimed.Traceparent
+		d.causationID = claimed.CausationID
 		d.notificationDestination = claimed.NotificationDestination
 		d.notificationChannel = claimed.NotificationChannel
 		d.notificationDestinationKey = claimed.NotificationDestinationKey
@@ -521,7 +524,7 @@ func (b *Bus) fail(ctx context.Context, d delivery, code string, terminal bool) 
 
 func (b *Bus) notificationFailure(d delivery, code string) *events.SendNotificationFailed {
 	if d.eventType == events.TypeNameSendNotificationFailed || d.eventType == events.TypeNameNotificationSent ||
-		b.suppressesResolvedAlertFailure(d) {
+		code == "subscription_missing" {
 		return nil
 	}
 	destination, channel, key, ok := b.notificationMetadata(d)
@@ -534,7 +537,7 @@ func (b *Bus) notificationFailure(d delivery, code string) *events.SendNotificat
 	}
 	return &events.SendNotificationFailed{
 		EventType: eventType, Destination: destination, Channel: channel,
-		DestinationKey: key, Error: errors.New(code),
+		DestinationKey: key, SourceCausationID: d.causationID.String, Error: errors.New(code),
 	}
 }
 
@@ -563,7 +566,15 @@ func (b *Bus) notificationMetadata(d delivery) (string, string, string, bool) {
 	handler := b.registry[d.eventType][d.subscriptionID]
 	b.mu.RUnlock()
 	if notification, ok := handler.(notificationSubscriber); ok {
-		destination, channel, key = notification.destination, notification.channel, notification.destinationKey
+		if destination == "" {
+			destination = notification.destination
+		}
+		if channel == "" {
+			channel = notification.channel
+		}
+		if key == "" {
+			key = notification.destinationKey
+		}
 	}
 	if destination == "" || key == "" {
 		legacyDestination, legacyKey, ok := legacyNotificationIdentity(d.subscriptionID)
@@ -592,9 +603,6 @@ func legacyNotificationIdentity(subscriptionID string) (string, string, bool) {
 		return notificationDestinationTelegram,
 			NotificationDestinationKey(notificationDestinationTelegram, bot, chat, thread), true
 	}
-	if len(parts) >= 4 && parts[0] == "notification" && parts[1] == "custom" {
-		return "custom", "custom:" + parts[len(parts)-1], true
-	}
 	if len(parts) == 5 && parts[0] == "alert" && parts[1] == notificationDestinationTelegram {
 		chat, err := base64.RawURLEncoding.DecodeString(parts[3])
 		if err != nil {
@@ -612,22 +620,6 @@ func fallbackNotificationChannel(destination, key string) string {
 		digest = digest[:notificationFallbackDigestLength]
 	}
 	return "recipient-" + digest
-}
-
-func (b *Bus) suppressesResolvedAlertFailure(d delivery) bool {
-	if d.eventType != events.TypeNameAlertResolved {
-		return false
-	}
-	event, err := codec.Decode(d.eventType, d.schemaVersion, []byte(d.payload))
-	if err != nil {
-		return false
-	}
-	resolved, ok := event.(*events.AlertResolved)
-	if !ok || resolved.Alert.Kind != "notification_delivery_failed" {
-		return false
-	}
-	_, _, key, ok := b.notificationMetadata(d)
-	return ok && resolved.Alert.DestinationKey == key
 }
 
 // Replay reschedules exactly one terminal failure, preserving delivered siblings.

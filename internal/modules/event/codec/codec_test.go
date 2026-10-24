@@ -52,7 +52,8 @@ func TestSensitiveFieldsAreNeverPersisted(t *testing.T) {
 func TestNotificationFailureCodecCompatibility(t *testing.T) {
 	event := &events.SendNotificationFailed{
 		EventType: events.TypeAlertOpened, Destination: "telegram", Channel: "alerts",
-		DestinationKey: "telegram:safe-hash", Error: errors.New("handler_failed"),
+		DestinationKey: "telegram:safe-hash", SourceCausationID: "recovery-event",
+		Error: errors.New("handler_failed"),
 	}
 	payload, err := Encode(event)
 	require.NoError(t, err)
@@ -61,6 +62,7 @@ func TestNotificationFailureCodecCompatibility(t *testing.T) {
 	failure := decoded.(*events.SendNotificationFailed)
 	assert.Equal(t, events.TypeNameAlertOpened, failure.EventType.Name())
 	assert.Equal(t, "telegram:safe-hash", failure.DestinationKey)
+	assert.Equal(t, "recovery-event", failure.SourceCausationID)
 	assert.EqualError(t, failure.Error, "handler_failed")
 
 	decoded, err = Decode(events.TypeNameSendNotificationFailed, Version,
@@ -68,6 +70,7 @@ func TestNotificationFailureCodecCompatibility(t *testing.T) {
 	require.NoError(t, err)
 	assert.NoError(t, decoded.(*events.SendNotificationFailed).Error)
 	assert.Empty(t, decoded.(*events.SendNotificationFailed).DestinationKey)
+	assert.Empty(t, decoded.(*events.SendNotificationFailed).SourceCausationID)
 }
 
 func TestNotificationSentCodec(t *testing.T) {

@@ -2,6 +2,7 @@ package outbox
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"strings"
@@ -584,7 +585,7 @@ func TestNotificationDestinationIdentityIsNonReversible(t *testing.T) {
 	assert.Equal(t, key, NotificationDestinationKey("custom", endpoint))
 }
 
-func TestNotificationFailureUsesPersistedMetadataAfterAliasRemoval(t *testing.T) {
+func TestMissingNotificationSubscriptionDoesNotPublishDeliveryFailure(t *testing.T) {
 	db, bus := setup(t)
 	notification := NewMockSubscriber(gomock.NewController(t))
 	require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, "removed-route",
@@ -593,17 +594,86 @@ func TestNotificationFailureUsesPersistedMetadataAfterAliasRemoval(t *testing.T)
 
 	restarted := New(db)
 	signal := NewMockSubscriber(gomock.NewController(t))
+	require.NoError(t, restarted.Subscribe(events.TypeNameSendNotificationFailed, "alert-management", signal))
+	handled, err := restarted.ProcessNext(t.Context())
+	require.NoError(t, err)
+	require.True(t, handled)
+	handled, err = restarted.ProcessNext(t.Context())
+	require.NoError(t, err)
+	assert.False(t, handled)
+	var failureEvents int
+	require.NoError(t, db.Get(t.Context(), &failureEvents,
+		"SELECT count(*) FROM outbox_events WHERE event_type=?", events.TypeNameSendNotificationFailed))
+	assert.Zero(t, failureEvents)
+	var delivery struct {
+		Status string `db:"status"`
+		Code   string `db:"last_error"`
+	}
+	require.NoError(t, db.Get(t.Context(), &delivery,
+		"SELECT status,last_error FROM outbox_deliveries"))
+	assert.Equal(t, "failed", delivery.Status)
+	assert.Equal(t, "subscription_missing", delivery.Code)
+}
+
+func TestLegacyCustomWebhookUsesRegisteredPhysicalDestination(t *testing.T) {
+	db, bus := setup(t)
+	bus.maxAttempts = 1
+	const endpoint = "https://example.test/hooks/notify"
+	physicalKey := NotificationDestinationKey("custom", endpoint)
+	historicalIdentity := fmt.Sprintf("%x", sha256.Sum256([]byte("POST "+endpoint)))
+	subscriptionID := "notification:custom:ops:" + historicalIdentity
+	notification := NewMockSubscriber(gomock.NewController(t))
+	notification.EXPECT().Handle(gomock.Any(), gomock.Any()).Return(assert.AnError)
+	signal := NewMockSubscriber(gomock.NewController(t))
 	signal.EXPECT().Handle(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, envelope events.Envelope) error {
 			failure := envelope.Event.(*events.SendNotificationFailed)
-			assert.Equal(t, "telegram", failure.Destination)
-			assert.Equal(t, "infrastructure", failure.Channel)
-			assert.Equal(t, "telegram:physical", failure.DestinationKey)
-			assert.EqualError(t, failure.Error, "subscription_missing")
+			assert.Equal(t, physicalKey, failure.DestinationKey)
+			assert.NotEqual(t, "custom:"+historicalIdentity, failure.DestinationKey)
 			return nil
 		},
 	)
+	require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, subscriptionID,
+		ExternalNotification(notification, "custom", "ops", physicalKey)))
+	require.NoError(t, bus.Subscribe(events.TypeNameSendNotificationFailed, "alert-management", signal))
+	require.NoError(t, bus.Publish(t.Context(), &events.NodeJoined{NodeID: "node"}))
+	_, err := db.Exec(t.Context(), `UPDATE outbox_deliveries SET
+		notification_destination=NULL,notification_channel=NULL,notification_destination_key=NULL
+		WHERE subscription_id=?`, subscriptionID)
+	require.NoError(t, err)
+
+	handled, err := bus.ProcessNext(t.Context())
+	require.NoError(t, err)
+	require.True(t, handled)
+	handled, err = bus.ProcessNext(t.Context())
+	require.NoError(t, err)
+	require.True(t, handled)
+}
+
+func TestPersistedNotificationMetadataTakesPrecedenceAfterRestart(t *testing.T) {
+	db, bus := setup(t)
+	const subscriptionID = "notification:custom:ops:stable-route"
+	require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, subscriptionID,
+		ExternalNotification(NewMockSubscriber(gomock.NewController(t)), "custom", "original", "custom:original")))
+	require.NoError(t, bus.Publish(t.Context(), &events.NodeJoined{NodeID: "node"}))
+
+	restarted := New(db)
+	restarted.maxAttempts = 1
+	notification := NewMockSubscriber(gomock.NewController(t))
+	notification.EXPECT().Handle(gomock.Any(), gomock.Any()).Return(assert.AnError)
+	signal := NewMockSubscriber(gomock.NewController(t))
+	signal.EXPECT().Handle(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, envelope events.Envelope) error {
+			failure := envelope.Event.(*events.SendNotificationFailed)
+			assert.Equal(t, "original", failure.Channel)
+			assert.Equal(t, "custom:original", failure.DestinationKey)
+			return nil
+		},
+	)
+	require.NoError(t, restarted.Subscribe(events.TypeNameNodeJoined, subscriptionID,
+		ExternalNotification(notification, "custom", "changed", "custom:changed")))
 	require.NoError(t, restarted.Subscribe(events.TypeNameSendNotificationFailed, "alert-management", signal))
+
 	handled, err := restarted.ProcessNext(t.Context())
 	require.NoError(t, err)
 	require.True(t, handled)

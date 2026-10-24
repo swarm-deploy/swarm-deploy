@@ -100,6 +100,15 @@ func (s *Subscriber) handleNotificationFailed(
 		event.DestinationKey, event.Destination, event.Channel,
 	)
 	fingerprint := model.NotificationDeliveryFailedFingerprint(destinationKey)
+	if event.EventType.Name() == events.TypeNameAlertResolved && event.SourceCausationID != "" {
+		suppressed, err := s.isOwnResolutionFailure(ctx, fingerprint, event.SourceCausationID)
+		if err != nil {
+			return err
+		}
+		if suppressed {
+			return nil
+		}
+	}
 	now := s.now()
 	eventID = eventReferenceID(eventID, s.newID)
 	message := event.Message()
@@ -142,6 +151,24 @@ func (s *Subscriber) handleNotificationFailed(
 		return fmt.Errorf("create notification delivery alert: %w", err)
 	}
 	return s.updateConcurrentFailure(ctx, fingerprint, eventID, now, alert, true, err)
+}
+
+func (s *Subscriber) isOwnResolutionFailure(
+	ctx context.Context, fingerprint, sourceCausationID string,
+) (bool, error) {
+	alerts, err := s.store.List(ctx, modelstore.ListFilter{
+		Status: model.AlertStatusResolved, Kind: model.AlertKindNotificationDeliveryFailed,
+	})
+	if err != nil {
+		return false, fmt.Errorf("list resolved notification delivery alerts: %w", err)
+	}
+	for _, alert := range alerts {
+		if alert.Fingerprint == fingerprint && alert.Resolution != nil &&
+			alert.Resolution.EventID == sourceCausationID {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (s *Subscriber) handleNotificationSent(
