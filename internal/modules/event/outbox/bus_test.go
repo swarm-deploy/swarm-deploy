@@ -1,9 +1,11 @@
 package outbox
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync"
 	"testing"
 	"time"
@@ -501,4 +503,164 @@ func TestRegistrationValidation(t *testing.T) {
 	_, err := bus.ProcessNext(t.Context())
 	require.NoError(t, err)
 	require.ErrorContains(t, bus.Subscribe(events.TypeNameNodeJoined, "late", handler), "before starting")
+}
+
+func TestMonitoredTerminalFailureIsPublishedAtomicallyWithSafeMetadata(t *testing.T) {
+	db, bus := setup(t)
+	bus.maxAttempts = 1
+	var logs bytes.Buffer
+	previousLogger := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previousLogger) })
+	ctrl := gomock.NewController(t)
+	failing := NewMockSubscriber(ctrl)
+	failing.EXPECT().Handle(gomock.Any(), gomock.Any()).Return(errors.New("token=private raw-response=secret"))
+	observer := NewMockSubscriber(ctrl)
+	require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, "notification:telegram:ops",
+		MonitorDelivery(External(failing), "telegram", "ops")))
+	require.NoError(t, bus.Subscribe(events.TypeNameOutboxDeliveryFailed, "alert-management", observer))
+	require.NoError(t, bus.Publish(t.Context(), &events.NodeJoined{NodeID: "node"}))
+
+	handled, err := bus.ProcessNext(t.Context())
+	require.NoError(t, err)
+	require.True(t, handled)
+
+	var source struct {
+		ID               string    `db:"event_id"`
+		Status           string    `db:"status"`
+		Monitor          bool      `db:"monitor_delivery"`
+		TerminalFailedAt time.Time `db:"terminal_failed_at"`
+	}
+	require.NoError(t, db.Get(t.Context(), &source, `SELECT event_id,status,monitor_delivery,terminal_failed_at
+		FROM outbox_deliveries WHERE subscription_id='notification:telegram:ops'`))
+	assert.Equal(t, "failed", source.Status)
+	assert.True(t, source.Monitor)
+	assert.False(t, source.TerminalFailedAt.IsZero())
+
+	var lifecycle struct {
+		CausationID string `db:"causation_id"`
+		Payload     string `db:"payload"`
+	}
+	require.NoError(t, db.Get(t.Context(), &lifecycle, `SELECT causation_id,payload FROM outbox_events
+		WHERE event_type='OutboxDeliveryFailed'`))
+	assert.Equal(t, source.ID, lifecycle.CausationID)
+	assert.JSONEq(t, fmt.Sprintf(`{
+		"event_id":%q,"subscription_id":"notification:telegram:ops","event_type":"NodeJoined",
+		"destination":"telegram","channel":"ops","error_code":"handler_failed"}`, source.ID), lifecycle.Payload)
+	assert.NotContains(t, lifecycle.Payload, "private")
+	assert.NotContains(t, lifecycle.Payload, "raw-response")
+	assert.NotContains(t, logs.String(), "private")
+	assert.NotContains(t, logs.String(), "raw-response")
+}
+
+func TestTerminalFailureRollsBackWhenLifecyclePublicationFails(t *testing.T) {
+	db, bus := setup(t)
+	bus.maxAttempts = 1
+	ctrl := gomock.NewController(t)
+	failing := NewMockSubscriber(ctrl)
+	failing.EXPECT().Handle(gomock.Any(), gomock.Any()).Return(assert.AnError)
+	require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, "notification:custom:audit",
+		MonitorDelivery(External(failing), "custom", "audit")))
+	require.NoError(t, bus.Subscribe(events.TypeNameOutboxDeliveryFailed, "alert-management", NewMockSubscriber(ctrl)))
+	_, err := db.Exec(t.Context(), `CREATE TRIGGER reject_delivery_failure
+		BEFORE INSERT ON outbox_events WHEN NEW.event_type='OutboxDeliveryFailed'
+		BEGIN SELECT RAISE(ABORT,'injected'); END`)
+	require.NoError(t, err)
+
+	require.NoError(t, bus.Publish(t.Context(), &events.NodeJoined{NodeID: "node"}))
+	handled, err := bus.ProcessNext(t.Context())
+	require.Error(t, err)
+	assert.True(t, handled)
+	var status string
+	require.NoError(t, db.Get(t.Context(), &status, `SELECT status FROM outbox_deliveries
+		WHERE subscription_id='notification:custom:audit'`))
+	assert.Equal(t, "processing", status)
+	assert.Equal(t, 1, rows(t, db, "outbox_events"))
+}
+
+func TestAlertAndOutboxLifecycleDeliveriesAreStructurallyExcludedFromMonitoring(t *testing.T) {
+	tests := []struct {
+		name  string
+		event events.Event
+	}{
+		{name: "alert opened", event: &events.AlertOpened{}},
+		{name: "alert resolved", event: &events.AlertResolved{}},
+		{name: "delivery failed", event: &events.OutboxDeliveryFailed{
+			OutboxDelivery: lifecycleFixture(), ErrorCode: "handler_failed",
+		}},
+		{name: "delivery recovered", event: &events.OutboxDeliveryRecovered{OutboxDelivery: lifecycleFixture()}},
+		{name: "delivery discarded", event: &events.OutboxDeliveryDiscarded{OutboxDelivery: lifecycleFixture()}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			db, bus := setup(t)
+			bus.maxAttempts = 1
+			ctrl := gomock.NewController(t)
+			failing := NewMockSubscriber(ctrl)
+			failing.EXPECT().Handle(gomock.Any(), gomock.Any()).Return(assert.AnError)
+			require.NoError(t, bus.Subscribe(test.event.Type().Name(), "notification:telegram:alerts",
+				MonitorDelivery(External(failing), "telegram", "alerts")))
+			require.NoError(t, bus.Publish(t.Context(), test.event))
+			var sourceID string
+			require.NoError(t, db.Get(t.Context(), &sourceID, "SELECT id FROM outbox_events"))
+			var monitored bool
+			require.NoError(t, db.Get(t.Context(), &monitored,
+				"SELECT monitor_delivery FROM outbox_deliveries WHERE event_id=?", sourceID))
+			assert.False(t, monitored)
+
+			_, err := bus.ProcessNext(t.Context())
+			require.NoError(t, err)
+			var recursive int
+			require.NoError(t, db.Get(t.Context(), &recursive, `SELECT count(*) FROM outbox_events
+				WHERE causation_id=? AND event_type='OutboxDeliveryFailed'`, sourceID))
+			assert.Zero(t, recursive)
+		})
+	}
+}
+
+func TestTerminalFailureRestartDoesNotRepublishOrRecurse(t *testing.T) {
+	dir := t.TempDir()
+	db, err := storage.Open(t.Context(), dir)
+	require.NoError(t, err)
+	bus := New(db)
+	bus.maxAttempts = 1
+	firstController := gomock.NewController(t)
+	failing := NewMockSubscriber(firstController)
+	failing.EXPECT().Handle(gomock.Any(), gomock.Any()).Return(assert.AnError)
+	require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, "notification:telegram:ops",
+		MonitorDelivery(External(failing), "telegram", "ops")))
+	require.NoError(t, bus.Subscribe(events.TypeNameOutboxDeliveryFailed, "alert-management",
+		NewMockSubscriber(firstController)))
+	require.NoError(t, bus.Publish(t.Context(), &events.NodeJoined{NodeID: "node"}))
+	_, err = bus.ProcessNext(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+
+	db, err = storage.Open(t.Context(), dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	restarted := New(db)
+	restarted.maxAttempts = 1
+	secondController := gomock.NewController(t)
+	require.NoError(t, restarted.Subscribe(events.TypeNameNodeJoined, "notification:telegram:ops",
+		MonitorDelivery(External(NewMockSubscriber(secondController)), "telegram", "ops")))
+	lifecycle := NewMockSubscriber(secondController)
+	lifecycle.EXPECT().Handle(gomock.Any(), gomock.Any()).Return(nil)
+	require.NoError(t, restarted.Subscribe(events.TypeNameOutboxDeliveryFailed, "alert-management", lifecycle))
+
+	handled, err := restarted.ProcessNext(t.Context())
+	require.NoError(t, err)
+	assert.True(t, handled)
+	handled, err = restarted.ProcessNext(t.Context())
+	require.NoError(t, err)
+	assert.False(t, handled)
+	assert.Equal(t, 1, rows(t, db, "outbox_events"), "only the original terminal source must remain")
+	assert.Equal(t, 1, rows(t, db, "outbox_deliveries"))
+}
+
+func lifecycleFixture() events.OutboxDelivery {
+	return events.OutboxDelivery{
+		EventID: "source", SubscriptionID: "notification:telegram:ops", EventType: events.TypeNameNodeJoined,
+		Destination: "telegram", Channel: "ops",
+	}
 }

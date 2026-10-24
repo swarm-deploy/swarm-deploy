@@ -86,8 +86,6 @@ func Encode(event events.Event) ([]byte, error) {
 		return json.Marshal(webhookPayload{Queued: e.Queued})
 	case *events.AssistantPromptInjectionDetected:
 		return json.Marshal(userPayload{Username: e.Username, Detector: e.Detector})
-	case *events.SendNotificationFailed:
-		return json.Marshal(notificationPayload{EventType: e.EventType, Destination: e.Destination, Channel: e.Channel})
 	default:
 		return nil, fmt.Errorf("unsupported persistent event %T", event)
 	}
@@ -101,7 +99,10 @@ func Decode(typ events.TypeName, version int, payload []byte) (events.Event, err
 	if isDeploymentFailureType(typ) {
 		return decodeDeploymentFailure(typ, payload)
 	}
-	switch typ { //nolint:exhaustive // Failure events are decoded by decodeDeploymentFailure above.
+	if isOutboxDeliveryLifecycleType(typ) {
+		return decodeOutboxDeliveryLifecycle(typ, payload)
+	}
+	switch typ { //nolint:exhaustive // Specialized internal events are decoded by the helpers above.
 	case events.TypeNameConfigurationChanged:
 		return decodeConfigurationChanged(payload)
 	case events.TypeNameGitPullFailed:
@@ -178,12 +179,33 @@ func Decode(typ events.TypeName, version int, payload []byte) (events.Event, err
 		return decodeAs(payload, func(p userPayload) events.Event {
 			return &events.AssistantPromptInjectionDetected{Username: p.Username, Detector: p.Detector}
 		})
-	case events.TypeNameSendNotificationFailed:
-		return decodeAs(payload, func(p notificationPayload) events.Event {
-			return &events.SendNotificationFailed{EventType: p.EventType, Destination: p.Destination, Channel: p.Channel}
-		})
 	default:
 		return nil, fmt.Errorf("unsupported persistent event type %q", typ)
+	}
+}
+
+func isOutboxDeliveryLifecycleType(typ events.TypeName) bool {
+	return typ == events.TypeNameOutboxDeliveryFailed ||
+		typ == events.TypeNameOutboxDeliveryRecovered ||
+		typ == events.TypeNameOutboxDeliveryDiscarded
+}
+
+func decodeOutboxDeliveryLifecycle(typ events.TypeName, payload []byte) (events.Event, error) {
+	var p outboxDeliveryPayload
+	if err := decode(payload, &p); err != nil {
+		return nil, err
+	}
+	requireFailureCode := typ == events.TypeNameOutboxDeliveryFailed
+	if err := validateOutboxDeliveryPayload(p, requireFailureCode); err != nil {
+		return nil, err
+	}
+	switch typ { //nolint:exhaustive // The caller restricts this helper to outbox lifecycle types.
+	case events.TypeNameOutboxDeliveryFailed:
+		return &events.OutboxDeliveryFailed{OutboxDelivery: p.delivery(), ErrorCode: p.ErrorCode}, nil
+	case events.TypeNameOutboxDeliveryRecovered:
+		return &events.OutboxDeliveryRecovered{OutboxDelivery: p.delivery()}, nil
+	default:
+		return &events.OutboxDeliveryDiscarded{OutboxDelivery: p.delivery()}, nil
 	}
 }
 
@@ -396,13 +418,4 @@ type userPayload struct {
 type webhookPayload struct {
 	// Queued records whether reconciliation was scheduled.
 	Queued bool `json:"queued"`
-}
-
-type notificationPayload struct {
-	// EventType identifies the source event.
-	EventType events.Type `json:"event_type"`
-	// Destination is the notifier kind.
-	Destination string `json:"destination"`
-	// Channel is the configured channel name.
-	Channel string `json:"channel"`
 }

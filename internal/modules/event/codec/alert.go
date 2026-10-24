@@ -2,6 +2,7 @@ package codec
 
 import (
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -15,6 +16,18 @@ func encodeInternal(event events.Event) ([]byte, bool, error) {
 	case *events.AlertResolved:
 		payload, err := json.Marshal(alertResolvedPayload{Alert: alertPayloadFrom(e.Alert), Recipients: e.Recipients})
 		return payload, true, err
+	case *events.OutboxDeliveryFailed:
+		if e.ErrorCode == "" {
+			return nil, true, errors.New("outbox delivery error code is required")
+		}
+		payload, err := encodeOutboxDelivery(e.OutboxDelivery, e.ErrorCode)
+		return payload, true, err
+	case *events.OutboxDeliveryRecovered:
+		payload, err := encodeOutboxDelivery(e.OutboxDelivery, "")
+		return payload, true, err
+	case *events.OutboxDeliveryDiscarded:
+		payload, err := encodeOutboxDelivery(e.OutboxDelivery, "")
+		return payload, true, err
 	case *events.GitPullFailed:
 		payload, err := encodeGitPullFailed(e)
 		return payload, true, err
@@ -26,6 +39,50 @@ func encodeInternal(event events.Event) ([]byte, bool, error) {
 		return payload, true, err
 	default:
 		return nil, false, nil
+	}
+}
+
+type outboxDeliveryPayload struct {
+	EventID        string          `json:"event_id"`
+	SubscriptionID string          `json:"subscription_id"`
+	EventType      events.TypeName `json:"event_type"`
+	Destination    string          `json:"destination"`
+	Channel        string          `json:"channel"`
+	ErrorCode      string          `json:"error_code,omitempty"`
+}
+
+func encodeOutboxDelivery(delivery events.OutboxDelivery, errorCode string) ([]byte, error) {
+	payload := outboxDeliveryPayload{
+		EventID: delivery.EventID, SubscriptionID: delivery.SubscriptionID, EventType: delivery.EventType,
+		Destination: delivery.Destination, Channel: delivery.Channel, ErrorCode: errorCode,
+	}
+	if err := validateOutboxDeliveryPayload(payload, errorCode != ""); err != nil {
+		return nil, err
+	}
+	return json.Marshal(payload)
+}
+
+func validateOutboxDeliveryPayload(payload outboxDeliveryPayload, requireError bool) error {
+	if payload.EventID == "" || payload.SubscriptionID == "" || payload.EventType == "" ||
+		payload.Destination == "" || payload.Channel == "" {
+		return errors.New("outbox delivery metadata is incomplete")
+	}
+	if requireError {
+		switch payload.ErrorCode {
+		case "handler_failed", "unsupported_or_invalid_payload", "subscription_missing":
+		default:
+			return errors.New("unsupported outbox delivery error code")
+		}
+	} else if payload.ErrorCode != "" {
+		return errors.New("unexpected outbox delivery error code")
+	}
+	return nil
+}
+
+func (p outboxDeliveryPayload) delivery() events.OutboxDelivery {
+	return events.OutboxDelivery{
+		EventID: p.EventID, SubscriptionID: p.SubscriptionID, EventType: p.EventType,
+		Destination: p.Destination, Channel: p.Channel,
 	}
 }
 

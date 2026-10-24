@@ -30,8 +30,13 @@ const (
 	// TypeNameDeployPreparationFailed is an internal durable lifecycle fact, not a configurable event name.
 	TypeNameDeployPreparationFailed TypeName = "DeployPreparationFailed"
 	// TypeNameDeployInterrupted is an internal durable lifecycle fact, not a configurable event name.
-	TypeNameDeployInterrupted                TypeName = "DeployInterrupted"
-	TypeNameSendNotificationFailed           TypeName = "SendNotificationFailed"
+	TypeNameDeployInterrupted TypeName = "DeployInterrupted"
+	// TypeNameOutboxDeliveryFailed is an internal terminal delivery signal.
+	TypeNameOutboxDeliveryFailed TypeName = "OutboxDeliveryFailed"
+	// TypeNameOutboxDeliveryRecovered is an internal replay recovery signal.
+	TypeNameOutboxDeliveryRecovered TypeName = "OutboxDeliveryRecovered"
+	// TypeNameOutboxDeliveryDiscarded is an internal operator action signal.
+	TypeNameOutboxDeliveryDiscarded          TypeName = "OutboxDeliveryDiscarded"
 	TypeNameSyncManualStarted                TypeName = "SyncManualStarted"
 	TypeNameWebhookReceived                  TypeName = "WebhookReceived"
 	TypeNameNodeJoined                       TypeName = "NodeJoined"
@@ -128,12 +133,14 @@ var (
 	TypeDeployInterrupted = Type{
 		name: TypeNameDeployInterrupted, severity: SeverityAlert, category: CategorySync,
 	}
-	TypeSendNotificationFailed = Type{
-		name:     TypeNameSendNotificationFailed,
-		isPublic: true,
-		severity: SeverityError,
-		category: CategorySync,
-		window:   1 * time.Hour,
+	TypeOutboxDeliveryFailed = Type{
+		name: TypeNameOutboxDeliveryFailed, severity: SeverityError, category: CategorySync,
+	}
+	TypeOutboxDeliveryRecovered = Type{
+		name: TypeNameOutboxDeliveryRecovered, severity: SeverityInfo, category: CategorySync,
+	}
+	TypeOutboxDeliveryDiscarded = Type{
+		name: TypeNameOutboxDeliveryDiscarded, severity: SeverityInfo, category: CategorySync,
 	}
 	TypeSyncManualStarted = Type{
 		name:     TypeNameSyncManualStarted,
@@ -235,10 +242,12 @@ var (
 		TypeDeployFailed,
 		TypeDeployPreparationFailed,
 		TypeDeployInterrupted,
+		TypeOutboxDeliveryFailed,
+		TypeOutboxDeliveryRecovered,
+		TypeOutboxDeliveryDiscarded,
 
 		TypeServiceCatalogUpdated,
 		TypeDeploySuccess,
-		TypeSendNotificationFailed,
 		TypeSyncManualStarted,
 		TypeWebhookReceived,
 		TypeNodeJoined,

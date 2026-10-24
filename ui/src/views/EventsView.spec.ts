@@ -47,9 +47,9 @@ const events: EventHistoryItem[] = [
   },
   {
     id: "error",
-    type: "SendNotificationFailed",
-    severity: "error",
-    category: "sync",
+    type: "NodeDisconnected",
+    severity: "alert",
+    category: "swarm",
     created_at: "2026-10-06T15:00:00Z",
     message: "Error",
     details: {
@@ -164,10 +164,9 @@ describe("EventsView", () => {
     const { wrapper } = await mountView();
     const options = wrapper.findAll(".events-type-filter-option");
 
-    expect(options).toHaveLength(15);
+    expect(options).toHaveLength(14);
     expect(options.map((option) => option.find(".events-type-filter-option-name").text())).toEqual([
       "DeploySuccess",
-      "SendNotificationFailed",
       "SyncManualStarted",
       "WebhookReceived",
       "NodeJoined",

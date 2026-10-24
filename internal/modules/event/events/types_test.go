@@ -32,7 +32,9 @@ func TestEventTypeIdentifiersUsePascalCase(t *testing.T) {
 		TypeNameDeployInterrupted:                true,
 		TypeNameGitPullFailed:                    true,
 		TypeNameGitPullSucceeded:                 true,
-		TypeNameSendNotificationFailed:           true,
+		TypeNameOutboxDeliveryFailed:             true,
+		TypeNameOutboxDeliveryRecovered:          true,
+		TypeNameOutboxDeliveryDiscarded:          true,
 		TypeNameSyncManualStarted:                true,
 		TypeNameWebhookReceived:                  true,
 		TypeNameNodeJoined:                       true,
@@ -52,7 +54,9 @@ func TestEventTypeIdentifiersUsePascalCase(t *testing.T) {
 func TestEventTypeClassification(t *testing.T) {
 	internal := map[TypeName]bool{
 		TypeNameAlertOpened: true, TypeNameAlertResolved: true,
-		TypeNameGitPullFailed: true, TypeNameGitPullSucceeded: true,
+		TypeNameOutboxDeliveryFailed: true, TypeNameOutboxDeliveryRecovered: true,
+		TypeNameOutboxDeliveryDiscarded: true,
+		TypeNameGitPullFailed:           true, TypeNameGitPullSucceeded: true,
 		TypeNameConfigurationChanged: true, TypeNameDeployFailed: true,
 		TypeNameDeployPreparationFailed: true, TypeNameDeployInterrupted: true,
 	}

@@ -49,8 +49,9 @@ func TestEventDetailsUseStandardAttributeNames(t *testing.T) {
 		{name: "authenticated", event: &UserAuthenticated{}, keys: []string{AttributeUsername}},
 		{name: "prompt injection", event: &AssistantPromptInjectionDetected{Username: "operator"},
 			keys: []string{"detector", AttributeUsername}},
-		{name: "notification failed", event: &SendNotificationFailed{},
-			keys: []string{"destination", "channel", "event_type"}},
+		{name: "outbox delivery failed", event: &OutboxDeliveryFailed{}, keys: nil},
+		{name: "outbox delivery recovered", event: &OutboxDeliveryRecovered{}, keys: nil},
+		{name: "outbox delivery discarded", event: &OutboxDeliveryDiscarded{}, keys: nil},
 		{name: "configuration", event: &ConfigurationChanged{}, keys: nil},
 		{name: "alert opened", event: &AlertOpened{}, keys: nil},
 		{name: "alert resolved", event: &AlertResolved{}, keys: nil},
@@ -81,7 +82,6 @@ func TestFailureDetailsMaskSensitiveDiagnostics(t *testing.T) {
 		{name: "deploy failed", event: &DeployFailed{Error: errors.New("token=" + secret)}},
 		{name: "preparation failed", event: &DeployPreparationFailed{Error: errors.New("token=" + secret)}},
 		{name: "interrupted", event: &DeployInterrupted{Error: errors.New("token=" + secret)}},
-		{name: "notification failed", event: &SendNotificationFailed{Error: errors.New("token=" + secret)}},
 	}
 
 	for _, test := range tests {
