@@ -35,6 +35,7 @@ type delivery struct {
 	eventType      events.TypeName
 	monitor        bool
 	destination    string
+	destinationKey string
 	channel        string
 	terminalFailed bool
 }
@@ -158,6 +159,7 @@ func (b *Bus) claim(ctx context.Context) (delivery, error) {
 			EventType      events.TypeName `db:"event_type"`
 			Monitor        bool            `db:"monitor_delivery"`
 			Destination    sql.NullString  `db:"destination"`
+			DestinationKey sql.NullString  `db:"destination_key"`
 			Channel        sql.NullString  `db:"channel"`
 			TerminalFailed sql.NullTime    `db:"terminal_failed_at"`
 		}
@@ -182,7 +184,7 @@ func (b *Bus) claim(ctx context.Context) (delivery, error) {
 			Join(goqu.T("outbox_events").As("e"), goqu.On(goqu.I("e.id").Eq(goqu.I("d.event_id")))).
 			Select(
 				goqu.I("d.event_id"), goqu.I("d.subscription_id"), goqu.I("d.attempts"), goqu.I("e.event_type"),
-				goqu.I("d.monitor_delivery"), goqu.I("d.destination"), goqu.I("d.channel"),
+				goqu.I("d.monitor_delivery"), goqu.I("d.destination"), goqu.I("d.destination_key"), goqu.I("d.channel"),
 				goqu.I("d.terminal_failed_at"),
 			).
 			Where(goqu.Ex{"d.lease_token": d.token}).
@@ -195,7 +197,8 @@ func (b *Bus) claim(ctx context.Context) (delivery, error) {
 		}
 		d.eventID, d.subscriptionID, d.attempts = claimed.EventID, claimed.SubscriptionID, claimed.Attempts
 		d.eventType, d.monitor = claimed.EventType, claimed.Monitor
-		d.destination, d.channel = claimed.Destination.String, claimed.Channel.String
+		d.destination, d.destinationKey = claimed.Destination.String, claimed.DestinationKey.String
+		d.channel = claimed.Channel.String
 		d.terminalFailed = claimed.TerminalFailed.Valid
 		return nil
 	})
@@ -397,7 +400,7 @@ func (b *Bus) ack(ctx context.Context, d delivery) error {
 		return err
 	}
 	if d.monitor && d.terminalFailed {
-		remaining, remainingErr := b.hasUnresolvedTerminalFailures(ctx, d.subscriptionID)
+		remaining, remainingErr := b.hasUnresolvedTerminalFailures(ctx, d.destinationKey)
 		if remainingErr != nil {
 			return remainingErr
 		}
@@ -481,15 +484,15 @@ func (b *Bus) fail(ctx context.Context, d delivery, code string, terminal bool) 
 func (d delivery) lifecycle() events.OutboxDelivery {
 	return events.OutboxDelivery{
 		EventID: d.eventID, SubscriptionID: d.subscriptionID, EventType: d.eventType,
-		Destination: d.destination, Channel: d.channel,
+		DestinationKey: d.destinationKey, Destination: d.destination, Channel: d.channel,
 	}
 }
 
-func (b *Bus) hasUnresolvedTerminalFailures(ctx context.Context, subscriptionID string) (bool, error) {
+func (b *Bus) hasUnresolvedTerminalFailures(ctx context.Context, destinationKey string) (bool, error) {
 	var count int
 	query, args, err := goqu.Dialect("sqlite3").From("outbox_deliveries").Prepared(true).
 		Select(goqu.COUNT("*")).Where(
-		goqu.Ex{"subscription_id": subscriptionID, "monitor_delivery": true},
+		goqu.Ex{"destination_key": destinationKey, "monitor_delivery": true},
 		goqu.C("terminal_failed_at").IsNotNull(),
 		goqu.C("status").Neq("delivered"),
 	).ToSQL()
@@ -551,7 +554,7 @@ func (b *Bus) markDiscarded(ctx context.Context, d delivery) error {
 	if err = requireChanged(result); err != nil || !d.monitor || !d.terminalFailed {
 		return err
 	}
-	remaining, err := b.hasUnresolvedTerminalFailures(ctx, d.subscriptionID)
+	remaining, err := b.hasUnresolvedTerminalFailures(ctx, d.destinationKey)
 	if err != nil || remaining {
 		return err
 	}
@@ -564,6 +567,7 @@ func (b *Bus) deliveryForOperatorAction(ctx context.Context, eventID, subscripti
 		EventType      events.TypeName `db:"event_type"`
 		Monitor        bool            `db:"monitor_delivery"`
 		Destination    sql.NullString  `db:"destination"`
+		DestinationKey sql.NullString  `db:"destination_key"`
 		Channel        sql.NullString  `db:"channel"`
 		TerminalFailed sql.NullTime    `db:"terminal_failed_at"`
 	}
@@ -571,7 +575,7 @@ func (b *Bus) deliveryForOperatorAction(ctx context.Context, eventID, subscripti
 		Join(goqu.T("outbox_events").As("e"), goqu.On(goqu.I("e.id").Eq(goqu.I("d.event_id")))).
 		Select(
 			goqu.I("e.event_type"), goqu.I("d.monitor_delivery"), goqu.I("d.destination"),
-			goqu.I("d.channel"), goqu.I("d.terminal_failed_at"),
+			goqu.I("d.destination_key"), goqu.I("d.channel"), goqu.I("d.terminal_failed_at"),
 		).
 		Where(goqu.Ex{
 			"d.event_id": eventID, "d.subscription_id": subscriptionID, "d.status": deliveryStatusFailed,
@@ -585,7 +589,8 @@ func (b *Bus) deliveryForOperatorAction(ctx context.Context, eventID, subscripti
 	}
 	return delivery{
 		eventID: eventID, subscriptionID: subscriptionID, eventType: row.EventType,
-		monitor: row.Monitor, destination: row.Destination.String, channel: row.Channel.String,
+		monitor: row.Monitor, destination: row.Destination.String, destinationKey: row.DestinationKey.String,
+		channel:        row.Channel.String,
 		terminalFailed: row.TerminalFailed.Valid,
 	}, nil
 }

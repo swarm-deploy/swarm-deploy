@@ -52,11 +52,11 @@ func (s *SQLSubscriber) Handle(ctx context.Context, event events.Envelope) error
 	case *events.GitPullSucceeded:
 		resource = "repository:" + e.Repository
 	case *events.OutboxDeliveryFailed:
-		resource = "notification:" + e.SubscriptionID
+		resource = "notification:" + e.DestinationKey
 	case *events.OutboxDeliveryRecovered:
-		resource = "notification:" + e.SubscriptionID
+		resource = "notification:" + e.DestinationKey
 	case *events.OutboxDeliveryDiscarded:
-		resource = "notification:" + e.SubscriptionID
+		resource = "notification:" + e.DestinationKey
 	default:
 		return nil
 	}

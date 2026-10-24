@@ -50,18 +50,24 @@ an invalid original message reference falls back to a regular resolution message
 Without an original message ID, resolution also sends a regular message.
 
 A terminal Event Notification delivery opens a `notification_delivery_failed` incident,
-fingerprinted by its stable Outbox subscription. Repeated terminal failures for that
-destination update the same incident. Replaying a failed delivery does not resolve the
+fingerprinted by a stable opaque key for the physical destination. Telegram keys represent
+the bot/chat/thread tuple; custom webhook keys represent the configured endpoint. Rule and
+subscription IDs remain delivery-specific, so different rules targeting the same destination
+update one incident. Replaying a failed delivery does not resolve the
 incident by itself: the final replayed delivery must be acknowledged successfully. Explicitly
-discarding the final failed delivery resolves it with `operator_discarded`.
+discarding the final failed delivery for that physical destination resolves it with
+`operator_discarded`.
 
 This monitoring is attached structurally only to Event Notification subscriptions when their
 Outbox rows are created. `AlertOpened`, `AlertResolved`, and internal Outbox lifecycle
 deliveries are never monitored, including after retries or restart. Failed alert-notification
 deliveries therefore remain visible in Outbox diagnostics and metrics without creating a
 recursive alert chain. Lifecycle payloads contain only the source event ID, subscription ID,
-event type, transport kind, configured channel alias, and stable error code; credentials,
-tokens, URLs, response bodies, and raw errors are excluded.
+opaque destination key, event type, transport kind, configured channel alias, and stable error
+code; credentials, tokens, URLs, response bodies, and raw errors are excluded. Outbox deliveries
+created before delivery monitoring was introduced remain explicitly unmonitored: migration
+preserves their pending, processing, and failed states but does not backfill lifecycle events or
+resolve incidents from their replay/discard.
 
 The initial SQLite schema has one `notification_messages`
 row per alert ID, messenger, bot identity, chat ID and thread ID. It stores the initial

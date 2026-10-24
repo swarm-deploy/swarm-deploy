@@ -52,6 +52,8 @@ const (
 	TypeNameAssistantPromptInjectionDetected TypeName = "AssistantPromptInjectionDetected"
 )
 
+const legacySendNotificationFailedTypeName TypeName = "SendNotificationFailed"
+
 const (
 	SeverityInfo  Severity = "info"
 	SeverityWarn  Severity = "warn"
@@ -322,8 +324,23 @@ func (n TypeName) Valid() bool {
 	return ok && typ.IsPublic()
 }
 
-// ParseType resolves metadata for any registered public or internal event type.
+// ParseType resolves metadata for current runtime types and retained historical types.
 func ParseType(name string) (Type, bool) {
+	if typ, ok := ParseRuntimeType(name); ok {
+		return typ, true
+	}
+	// Kept outside Types so historical Event History rows remain readable
+	// without restoring publication, subscriptions, or public configuration.
+	if name == string(legacySendNotificationFailedTypeName) {
+		return Type{
+			name: legacySendNotificationFailedTypeName, severity: SeverityError, category: CategorySync,
+		}, true
+	}
+	return Type{}, false
+}
+
+// ParseRuntimeType resolves only event types supported by current publishers and subscribers.
+func ParseRuntimeType(name string) (Type, bool) {
 	for _, typ := range Types {
 		if string(typ.Name()) == name {
 			return typ, true

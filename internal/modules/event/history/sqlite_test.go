@@ -215,6 +215,29 @@ func TestSQLiteQueriesExcludeLegacySyncFailedHistory(t *testing.T) {
 	assert.Equal(t, 1, legacyCount, "legacy rows must remain unchanged")
 }
 
+func TestSQLiteReadsHistoricalNotificationFailuresAfterMigration(t *testing.T) {
+	t.Parallel()
+	db, err := storage.Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	repo, err := NewSQLStore(db, 100)
+	require.NoError(t, err)
+	at := time.Date(2026, time.October, 1, 12, 0, 0, 0, time.UTC)
+	_, err = db.Exec(t.Context(), `INSERT INTO event_history
+		(publication_sequence,id,event_type,severity,severity_rank,category,created_at,message,details)
+		VALUES (?,?,?,?,?,?,?,?,?)`, 1, "legacy-notification", "SendNotificationFailed", events.SeverityError,
+		severityRank(events.SeverityError), events.CategorySync, at, "Failed to send notification",
+		`{"destination":"telegram","channel":"ops","event_type":"NodeJoined"}`)
+	require.NoError(t, err)
+
+	entries, err := repo.Read(t.Context())
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, events.TypeName("SendNotificationFailed"), entries[0].Type.Name())
+	assert.Equal(t, "telegram", entries[0].Details["destination"])
+	assert.Equal(t, "ops", entries[0].Details["channel"])
+}
+
 func entryIDs(entries []Entry) []string {
 	ids := make([]string, 0, len(entries))
 	for _, entry := range entries {
@@ -403,7 +426,7 @@ func TestServicePrunedAppearsInEventHistory(t *testing.T) {
 	}))
 
 	page, err := repo.QueryPage(ctx, QueryOptions{
-		Types: []events.TypeName{events.TypeNameServicePruned},
+		Types:      []events.TypeName{events.TypeNameServicePruned},
 		StackNames: []string{"app"}, ServiceNames: []string{"old"},
 		Limit: 10, Sort: SortTimeDesc,
 	})
@@ -415,8 +438,8 @@ func TestServicePrunedAppearsInEventHistory(t *testing.T) {
 	assert.Equal(t, events.SeverityInfo, page.Entries[0].Severity)
 	assert.Equal(t, events.CategorySync, page.Entries[0].Category)
 	assert.Equal(t, map[string]string{
-		events.AttributeStackName: "app",
+		events.AttributeStackName:   "app",
 		events.AttributeServiceName: "old",
-		events.AttributeCommit: "revision",
+		events.AttributeCommit:      "revision",
 	}, page.Entries[0].Details)
 }

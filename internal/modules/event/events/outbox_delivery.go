@@ -6,6 +6,8 @@ type OutboxDelivery struct {
 	EventID string
 	// SubscriptionID identifies the configured delivery route.
 	SubscriptionID string
+	// DestinationKey identifies the physical destination without exposing its address or credentials.
+	DestinationKey string
 	// EventType identifies the source event being delivered.
 	EventType TypeName
 	// Destination identifies the notification transport kind.

@@ -31,7 +31,7 @@ WAL permits committed-state readers. Do not share a transaction context between 
 consumers use the `outbox.External(handler)` worker adapter. This does not change
 publication or durability: every matching subscriber gets its own delivery record.
 Event Notification transports additionally use `outbox.MonitorDelivery` to persist a
-safe transport kind and channel alias on their delivery row. The adapter is never used
+safe transport kind, opaque physical `destination_key`, and channel alias on their delivery row. The adapter is never used
 for alert notifications or internal Outbox lifecycle events.
 `Run` stops on cancellation; unacknowledged work remains on disk. Missing subscriptions
 or incompatible payloads are parked as failed. `Replay` and `Discard` address a single
@@ -81,6 +81,7 @@ CREATE TABLE outbox_deliveries (
     updated_at      TIMESTAMP NOT NULL CHECK (typeof(updated_at) = 'integer'),
     monitor_delivery INTEGER NOT NULL DEFAULT 0 CHECK (monitor_delivery IN (0,1)),
     destination     TEXT,
+    destination_key TEXT,
     channel         TEXT,
     terminal_failed_at TIMESTAMP
                     CHECK (terminal_failed_at IS NULL OR typeof(terminal_failed_at) = 'integer'),
@@ -106,7 +107,7 @@ CREATE INDEX idx_outbox_delivery_expired_lease
 
 1. Resolve matching subscriptions against a stable registry. With zero matches, do not enqueue anything (optional unhandled-publication metric).
 2. Encode/validate the safe versioned payload, allocate a unique event ID and let SQLite assign its publication sequence.
-3. Insert into `outbox_events`, then insert **one** `outbox_deliveries` row for **every matching subscriber** with a stable `subscription_id`. Persist the structural monitoring decision and safe destination metadata for Event Notification transports; force monitoring off for `AlertOpened`, `AlertResolved`, and Outbox lifecycle types.
+3. Insert into `outbox_events`, then insert **one** `outbox_deliveries` row for **every matching subscriber** with a stable `subscription_id`. Persist the structural monitoring decision and safe destination metadata for Event Notification transports; public event types are eligible automatically, while `AlertOpened`, `AlertResolved`, and Outbox lifecycle types are explicitly forced off.
 4. Return without calling handlers. Event and delivery inserts share the publisher's transaction, selected from context.
 5. Commit T1 atomically with the publisher's own business state.
 
@@ -118,7 +119,13 @@ CREATE INDEX idx_outbox_delivery_expired_lease
 4. External subscriber: execute outside a DB transaction; then open a short **T3** solely to acknowledge/delete on success, or schedule retry on failure.
 5. Handler failure: rollback its T3 work; use a separate short transaction to release or reschedule the claimed delivery with backoff, or mark it terminal `failed`. A monitored terminal transition and its `OutboxDeliveryFailed` publication share this transaction. Never leave a half-applied projection with an acknowledged delivery.
 6. Recover expired leases on restart. A stale worker must not be allowed to acknowledge a lease held by a newer worker.
-7. Terminal failures remain until operator replay/discard. Replay retains `terminal_failed_at`; only a successful acknowledgement can publish recovery. Discard publishes a distinct operator action after the final outstanding terminal delivery for that subscription is waived. Once **all** deliveries are successful, clean the event immediately with no retention period.
+7. Terminal failures remain until operator replay/discard. Replay retains `terminal_failed_at`; only a successful acknowledgement can publish recovery. Recovery and discard consider every subscription with the same physical `destination_key`; the final outstanding terminal delivery determines resolution. Once **all** deliveries are successful, clean the event immediately with no retention period.
+
+Migration `0004` deliberately does not infer monitoring metadata for pre-existing deliveries.
+Their status, attempts, lease, and error fields are preserved, while `monitor_delivery` defaults
+to false and destination metadata remains null. Pending and expired-processing work continues
+with normal delivery semantics, and failed work remains available for diagnostics/replay/discard,
+but none of it can retroactively emit failure or recovery lifecycle events.
 
 Example T2 claim SQL:
 

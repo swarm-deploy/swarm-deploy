@@ -45,6 +45,7 @@ func encodeInternal(event events.Event) ([]byte, bool, error) {
 type outboxDeliveryPayload struct {
 	EventID        string          `json:"event_id"`
 	SubscriptionID string          `json:"subscription_id"`
+	DestinationKey string          `json:"destination_key"`
 	EventType      events.TypeName `json:"event_type"`
 	Destination    string          `json:"destination"`
 	Channel        string          `json:"channel"`
@@ -54,7 +55,8 @@ type outboxDeliveryPayload struct {
 func encodeOutboxDelivery(delivery events.OutboxDelivery, errorCode string) ([]byte, error) {
 	payload := outboxDeliveryPayload{
 		EventID: delivery.EventID, SubscriptionID: delivery.SubscriptionID, EventType: delivery.EventType,
-		Destination: delivery.Destination, Channel: delivery.Channel, ErrorCode: errorCode,
+		DestinationKey: delivery.DestinationKey, Destination: delivery.Destination,
+		Channel: delivery.Channel, ErrorCode: errorCode,
 	}
 	if err := validateOutboxDeliveryPayload(payload, errorCode != ""); err != nil {
 		return nil, err
@@ -63,7 +65,7 @@ func encodeOutboxDelivery(delivery events.OutboxDelivery, errorCode string) ([]b
 }
 
 func validateOutboxDeliveryPayload(payload outboxDeliveryPayload, requireError bool) error {
-	if payload.EventID == "" || payload.SubscriptionID == "" || payload.EventType == "" ||
+	if payload.EventID == "" || payload.SubscriptionID == "" || payload.DestinationKey == "" || payload.EventType == "" ||
 		payload.Destination == "" || payload.Channel == "" {
 		return errors.New("outbox delivery metadata is incomplete")
 	}
@@ -82,7 +84,7 @@ func validateOutboxDeliveryPayload(payload outboxDeliveryPayload, requireError b
 func (p outboxDeliveryPayload) delivery() events.OutboxDelivery {
 	return events.OutboxDelivery{
 		EventID: p.EventID, SubscriptionID: p.SubscriptionID, EventType: p.EventType,
-		Destination: p.Destination, Channel: p.Channel,
+		DestinationKey: p.DestinationKey, Destination: p.Destination, Channel: p.Channel,
 	}
 }
 

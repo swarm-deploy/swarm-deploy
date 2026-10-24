@@ -118,7 +118,8 @@ func TestAlertLifecycleCodecCarriesDeploymentID(t *testing.T) {
 func TestOutboxDeliveryLifecycleCodecContainsOnlySafeMetadata(t *testing.T) {
 	delivery := events.OutboxDelivery{
 		EventID: "source-event", SubscriptionID: "notification:custom:audit",
-		EventType: events.TypeNameDeploySuccess, Destination: "custom", Channel: "audit",
+		DestinationKey: "custom:opaque", EventType: events.TypeNameDeploySuccess,
+		Destination: "custom", Channel: "audit",
 	}
 	for _, event := range []events.Event{
 		&events.OutboxDeliveryFailed{OutboxDelivery: delivery, ErrorCode: "handler_failed"},
@@ -142,7 +143,8 @@ func TestOutboxDeliveryLifecycleCodecRejectsUnsafeOrIncompleteMetadata(t *testin
 	_, err := Encode(&events.OutboxDeliveryFailed{
 		OutboxDelivery: events.OutboxDelivery{
 			EventID: "source", SubscriptionID: "notification:custom:audit",
-			EventType: events.TypeNameDeploySuccess, Destination: "custom", Channel: "audit",
+			DestinationKey: "custom:opaque", EventType: events.TypeNameDeploySuccess,
+			Destination: "custom", Channel: "audit",
 		},
 		ErrorCode: "raw HTTP response with token=private",
 	})
@@ -150,7 +152,7 @@ func TestOutboxDeliveryLifecycleCodecRejectsUnsafeOrIncompleteMetadata(t *testin
 
 	_, err = Decode(events.TypeNameOutboxDeliveryFailed, Version, []byte(
 		`{"event_id":"source","subscription_id":"notification:custom:audit","event_type":"DeploySuccess",`+
-			`"destination":"custom","channel":"audit","error_code":"secret"}`,
+			`"destination_key":"custom:opaque","destination":"custom","channel":"audit","error_code":"secret"}`,
 	))
 	require.Error(t, err)
 }

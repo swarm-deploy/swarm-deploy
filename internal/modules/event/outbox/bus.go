@@ -31,16 +31,18 @@ type externalSubscriber struct{ Subscriber }
 
 type monitoredSubscriber struct {
 	Subscriber
-	destination string
-	channel     string
+	destination    string
+	destinationKey string
+	channel        string
 }
 
 type subscription struct {
-	handler     Subscriber
-	external    bool
-	monitor     bool
-	destination string
-	channel     string
+	handler        Subscriber
+	external       bool
+	monitor        bool
+	destination    string
+	destinationKey string
+	channel        string
 }
 
 // External adapts a network consumer at the worker boundary. Its Handle runs
@@ -48,9 +50,11 @@ type subscription struct {
 func External(handler Subscriber) Subscriber { return externalSubscriber{handler} }
 
 // MonitorDelivery marks a notification transport for terminal delivery monitoring.
-// Destination and channel must be stable, non-secret identifiers selected by the caller.
-func MonitorDelivery(handler Subscriber, destination, channel string) Subscriber {
-	return monitoredSubscriber{Subscriber: handler, destination: destination, channel: channel}
+// Destination, destinationKey and channel must be stable, non-secret identifiers selected by the caller.
+func MonitorDelivery(handler Subscriber, destination, destinationKey, channel string) Subscriber {
+	return monitoredSubscriber{
+		Subscriber: handler, destination: destination, destinationKey: destinationKey, channel: channel,
+	}
 }
 
 type causeKey struct{}
@@ -92,7 +96,7 @@ func (b *Bus) Subscribe(typ events.TypeName, id string, handler Subscriber) erro
 	if b.started {
 		return errors.New("subscriptions must be registered before starting workers")
 	}
-	if _, registered := events.ParseType(string(typ)); !registered {
+	if _, registered := events.ParseRuntimeType(string(typ)); !registered {
 		return fmt.Errorf("unknown event type %q", typ)
 	}
 	if id == "" || handler == nil {
@@ -123,11 +127,13 @@ func inspectSubscription(handler Subscriber) (subscription, error) {
 			if registered.monitor {
 				return subscription{}, errors.New("delivery monitoring can only be configured once")
 			}
-			if wrapped.destination == "" || wrapped.channel == "" {
-				return subscription{}, errors.New("delivery monitoring requires destination and channel")
+			if wrapped.destination == "" || wrapped.destinationKey == "" || wrapped.channel == "" {
+				return subscription{}, errors.New("delivery monitoring requires destination, destination key and channel")
 			}
 			registered.monitor = true
-			registered.destination, registered.channel = wrapped.destination, wrapped.channel
+			registered.destination = wrapped.destination
+			registered.destinationKey = wrapped.destinationKey
+			registered.channel = wrapped.channel
 			registered.handler = wrapped.Subscriber
 		default:
 			return registered, nil
@@ -143,16 +149,18 @@ func (b *Bus) Publish(ctx context.Context, event events.Event) error {
 	}
 	b.mu.RLock()
 	type target struct {
-		id          string
-		monitor     bool
-		destination string
-		channel     string
+		id             string
+		monitor        bool
+		destination    string
+		destinationKey string
+		channel        string
 	}
 	targets := make([]target, 0, len(b.registry[event.Type().Name()]))
 	for id, registered := range b.registry[event.Type().Name()] {
-		monitor := registered.monitor && monitorableEventType(event.Type().Name())
+		monitor := registered.monitor && monitorableEventType(event.Type())
 		targets = append(targets, target{
-			id: id, monitor: monitor, destination: registered.destination, channel: registered.channel,
+			id: id, monitor: monitor, destination: registered.destination,
+			destinationKey: registered.destinationKey, channel: registered.channel,
 		})
 	}
 	b.mu.RUnlock()
@@ -191,7 +199,8 @@ func (b *Bus) Publish(ctx context.Context, event events.Event) error {
 			query, args, buildErr = goqu.Dialect("sqlite3").Insert("outbox_deliveries").Prepared(true).
 				Rows(goqu.Record{
 					"event_id": id, "subscription_id": target.id,
-					"monitor_delivery": target.monitor, "destination": target.destination, "channel": target.channel,
+					"monitor_delivery": target.monitor, "destination": target.destination,
+					"destination_key": target.destinationKey, "channel": target.channel,
 					"available_at": now, "updated_at": now,
 				}).ToSQL()
 			if buildErr != nil {
@@ -207,25 +216,15 @@ func (b *Bus) Publish(ctx context.Context, event events.Event) error {
 	return b.db.WithinTransaction(ctx, insert)
 }
 
-func monitorableEventType(typ events.TypeName) bool {
-	switch typ {
+func monitorableEventType(typ events.Type) bool {
+	// Public eligibility intentionally handles current and future types by metadata.
+	switch typ.Name() { //nolint:exhaustive // Future public types use metadata.
 	case events.TypeNameAlertOpened, events.TypeNameAlertResolved,
 		events.TypeNameOutboxDeliveryFailed, events.TypeNameOutboxDeliveryRecovered,
 		events.TypeNameOutboxDeliveryDiscarded:
 		return false
-	case events.TypeNameServiceCatalogUpdated, events.TypeNameDeploySuccess,
-		events.TypeNameGitPullFailed, events.TypeNameGitPullSucceeded,
-		events.TypeNameDeployFailed, events.TypeNameConfigurationChanged,
-		events.TypeNameDeployPreparationFailed, events.TypeNameDeployInterrupted,
-		events.TypeNameSyncManualStarted, events.TypeNameWebhookReceived,
-		events.TypeNameNodeJoined, events.TypeNameNodeConnected, events.TypeNameNodeDisconnected,
-		events.TypeNameServiceMissed, events.TypeNameServiceReplicasIncreased,
-		events.TypeNameServiceReplicasDecreased, events.TypeNameServiceRestarted,
-		events.TypeNameServicePruned, events.TypeNameNetworkCreated,
-		events.TypeNameUserAuthenticated, events.TypeNameAssistantPromptInjectionDetected:
-		return true
 	default:
-		return false
+		return typ.IsPublic()
 	}
 }
 

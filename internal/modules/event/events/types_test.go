@@ -78,4 +78,15 @@ func TestEventTypeClassification(t *testing.T) {
 	assert.False(t, ok)
 	assert.False(t, TypeName("Unknown").Valid())
 	assert.False(t, Type{}.IsPublic())
+
+	legacy, ok := ParseType("SendNotificationFailed")
+	require.True(t, ok, "historical Event History types must remain readable")
+	assert.Equal(t, TypeName("SendNotificationFailed"), legacy.Name())
+	assert.Equal(t, SeverityError, legacy.Severity())
+	assert.Equal(t, CategorySync, legacy.Category())
+	assert.False(t, legacy.IsPublic())
+	assert.False(t, TypeName("SendNotificationFailed").Valid(), "legacy type must not be configurable")
+	assert.NotContains(t, Types, legacy, "legacy type must not return to runtime registrations")
+	_, ok = ParseRuntimeType("SendNotificationFailed")
+	assert.False(t, ok, "legacy type must not return to runtime dispatch")
 }

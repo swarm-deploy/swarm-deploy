@@ -101,3 +101,5 @@ omit raw Compose, environment, logs, arbitrary errors and assistant prompts.
 Terminal notification delivery failures are represented by the
 `notification_delivery_failed` Alert Management lifecycle. They remain absent from Event
 History; operational delivery rows and metrics retain the underlying Outbox diagnostics.
+Existing `SendNotificationFailed` history rows from older versions remain readable, but the
+deprecated type cannot be configured, published, or subscribed to by the current runtime.

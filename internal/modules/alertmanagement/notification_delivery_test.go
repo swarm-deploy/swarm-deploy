@@ -19,7 +19,10 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-const notificationTestSubscription = "notification:test:destination"
+const (
+	notificationTestSubscription = "notification:test:destination"
+	notificationTestDestination  = "telegram:physical-destination"
+)
 
 func TestTerminalNotificationFailureOpensAlert(t *testing.T) {
 	for _, destination := range []string{"telegram", "custom"} {
@@ -42,7 +45,7 @@ func TestTerminalNotificationFailureOpensAlert(t *testing.T) {
 			stored := onlyAlert(t, alerts)
 			assert.Equal(t, model.AlertKindNotificationDeliveryFailed, stored.Kind)
 			assert.Equal(t, model.ResourceTypeNotificationDestination, stored.ResourceType)
-			assert.Equal(t, notificationTestSubscription, stored.ResourceID)
+			assert.Equal(t, notificationTestDestination, stored.ResourceID)
 			assert.Equal(t, "handler_failed", stored.ErrorCode)
 			assert.EqualValues(t, 1, stored.Occurrences)
 			assert.NotContains(t, stored.Message, "private")
@@ -81,7 +84,32 @@ func TestMultipleNotificationFailuresAggregateByDestination(t *testing.T) {
 
 	stored := onlyAlert(t, alerts)
 	assert.EqualValues(t, 2, stored.Occurrences)
-	assert.Equal(t, model.NotificationDeliveryFailedFingerprint(notificationTestSubscription), stored.Fingerprint)
+	assert.Equal(t, model.NotificationDeliveryFailedFingerprint(notificationTestDestination), stored.Fingerprint)
+}
+
+func TestNotificationFailuresFromDifferentSubscriptionsAggregateByPhysicalDestination(t *testing.T) {
+	db, err := storage.Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	store := modelstore.NewSQLStore(db)
+	subscriber := newTestSQLSubscriber(store)
+	at := time.Now().UTC()
+	first := notificationFailureEvent("source-one")
+	second := notificationFailureEvent("source-two")
+	second.SubscriptionID = "notification:test:second-rule"
+	second.Channel = "same-destination-alias"
+
+	require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{
+		ID: "failure-one", OccurredAt: at, Event: first,
+	}))
+	require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{
+		ID: "failure-two", OccurredAt: at.Add(time.Millisecond), Event: second,
+	}))
+
+	stored := onlyAlert(t, store)
+	assert.EqualValues(t, 2, stored.Occurrences)
+	assert.Equal(t, notificationTestDestination, stored.ResourceID)
+	assert.Equal(t, model.NotificationDeliveryFailedFingerprint(notificationTestDestination), stored.Fingerprint)
 }
 
 func TestSuccessfulReplayResolvesNotificationDeliveryAlert(t *testing.T) {
@@ -175,7 +203,9 @@ func notificationDeliveryPipeline(
 	notifier := notifiers.NewMockNotifier(gomock.NewController(t))
 	notificationSubscriber := eventnotify.NewSubscriber(notifier)
 	require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, notificationTestSubscription,
-		outbox.MonitorDelivery(outbox.External(notificationSubscriber), destination, channel)))
+		outbox.MonitorDelivery(
+			outbox.External(notificationSubscriber), destination, notificationTestDestination, channel,
+		)))
 	return db, bus, store, notifier
 }
 
@@ -228,7 +258,8 @@ func notificationFailureEvent(sourceEventID string) *events.OutboxDeliveryFailed
 	return &events.OutboxDeliveryFailed{
 		OutboxDelivery: events.OutboxDelivery{
 			EventID: sourceEventID, SubscriptionID: notificationTestSubscription,
-			EventType: events.TypeNameNodeJoined, Destination: "telegram", Channel: "ops",
+			DestinationKey: notificationTestDestination, EventType: events.TypeNameNodeJoined,
+			Destination: "telegram", Channel: "ops",
 		},
 		ErrorCode: "handler_failed",
 	}

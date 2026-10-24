@@ -1,6 +1,7 @@
 package event
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -58,4 +59,38 @@ func TestHistoryAndMetricsKeepIndependentPolicies(t *testing.T) {
 		}
 	}
 	assert.Equal(t, map[string]float64{"NodeJoined": 1, "NodeDisconnected": 1, "ServicePruned": 1}, counts)
+}
+
+func TestNotificationDestinationKeyUsesPhysicalDestinationWithoutExposingIt(t *testing.T) {
+	testCases := []struct {
+		name        string
+		destination string
+		identity    []string
+		sensitive   []string
+	}{
+		{
+			name: "telegram bot chat and thread", destination: "telegram",
+			identity: []string{"123456", "-100123", "42"}, sensitive: []string{"123456", "-100123"},
+		},
+		{
+			name: "custom webhook endpoint", destination: "custom",
+			identity:  []string{"https://user:token@example.com/hooks/private?key=secret"},
+			sensitive: []string{"example.com", "token", "secret"},
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			key := notificationDestinationKey(testCase.destination, testCase.identity...)
+			assert.True(t, strings.HasPrefix(key, testCase.destination+":"))
+			assert.Len(t, key, len(testCase.destination)+1+64)
+			assert.Equal(t, key, notificationDestinationKey(testCase.destination, testCase.identity...))
+			for _, sensitive := range testCase.sensitive {
+				assert.NotContains(t, key, sensitive)
+			}
+		})
+	}
+	assert.NotEqual(t,
+		notificationDestinationKey("telegram", "bot", "chat", "1"),
+		notificationDestinationKey("telegram", "bot", "chat", "2"),
+	)
 }

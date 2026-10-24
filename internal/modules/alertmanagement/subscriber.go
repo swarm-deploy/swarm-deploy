@@ -97,7 +97,7 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 func (s *Subscriber) handleNotificationDeliveryFailed(
 	ctx context.Context, eventID string, event *events.OutboxDeliveryFailed,
 ) error {
-	fingerprint := model.NotificationDeliveryFailedFingerprint(event.SubscriptionID)
+	fingerprint := model.NotificationDeliveryFailedFingerprint(event.DestinationKey)
 	now := s.now()
 	alert, err := s.store.FindOpenByFingerprint(ctx, fingerprint)
 	if err != nil && !errors.Is(err, modelstore.ErrAlertNotFound) {
@@ -118,7 +118,7 @@ func (s *Subscriber) handleNotificationDeliveryFailed(
 	eventID = eventReferenceID(eventID, s.newID)
 	alert = model.Alert{
 		ID: s.newID(), Fingerprint: fingerprint, Kind: model.AlertKindNotificationDeliveryFailed,
-		ResourceType: model.ResourceTypeNotificationDestination, ResourceID: event.SubscriptionID,
+		ResourceType: model.ResourceTypeNotificationDestination, ResourceID: event.DestinationKey,
 		Status: model.AlertStatusOpen, Title: "Notification delivery failed", Message: message,
 		FailureStage: "notification_delivery", ErrorCode: event.ErrorCode, Occurrences: 1,
 		OpenedAt: now, UpdatedAt: now, OpenEventID: eventID, LatestEventID: eventID,
@@ -135,7 +135,7 @@ func (s *Subscriber) handleNotificationDeliveryFailed(
 func (s *Subscriber) handleNotificationDeliveryResolved(
 	ctx context.Context, eventID string, delivery events.OutboxDelivery, discarded bool,
 ) error {
-	fingerprint := model.NotificationDeliveryFailedFingerprint(delivery.SubscriptionID)
+	fingerprint := model.NotificationDeliveryFailedFingerprint(delivery.DestinationKey)
 	alert, err := s.store.FindOpenByFingerprint(ctx, fingerprint)
 	if err != nil {
 		if errors.Is(err, modelstore.ErrAlertNotFound) {

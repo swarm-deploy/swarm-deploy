@@ -17,6 +17,7 @@ import (
 	"github.com/pressly/goose/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	sqlitemigrations "github.com/swarm-deploy/swarm-deploy/migrations/sqlite"
 )
 
@@ -116,6 +117,99 @@ func TestOutboxTraceparentMigrationPreservesExistingEvents(t *testing.T) {
 		(id,event_type,schema_version,occurred_at,payload) VALUES (?,?,?,?,?)`,
 		"old-writer-event", "NodeJoined", 1, time.Now().UTC(), `{}`)
 	require.NoError(t, err, "the nullable column must remain compatible with old writers")
+}
+
+func TestOutboxDeliveryMonitoringMigrationPreservesAndExcludesExistingWork(t *testing.T) {
+	db, provider := openAtMigration1(t)
+	_, err := provider.UpTo(t.Context(), 3)
+	require.NoError(t, err)
+	now := time.Date(2026, time.October, 24, 12, 0, 0, 0, time.UTC)
+	_, err = db.Exec(t.Context(), `INSERT INTO event_history
+		(publication_sequence,id,event_type,severity,severity_rank,category,created_at,message,details)
+		VALUES (?,?,?,?,?,?,?,?,?)`, 1, "legacy-notification-history", "SendNotificationFailed", "error", 3,
+		"sync", now, "Failed to send notification", `{}`)
+	require.NoError(t, err)
+	for index, status := range []string{"pending", "processing", "failed"} {
+		eventID := fmt.Sprintf("legacy-%s", status)
+		_, err = db.Exec(t.Context(), `INSERT INTO outbox_events
+			(id,event_type,schema_version,occurred_at,payload) VALUES (?,?,?,?,?)`,
+			eventID, "NodeJoined", 1, now.Add(time.Duration(index)*time.Second), `{}`)
+		require.NoError(t, err)
+		leaseUntil, leaseToken := any(nil), any(nil)
+		if status == "processing" {
+			leaseUntil, leaseToken = now.Add(time.Minute), "legacy-lease"
+		}
+		_, err = db.Exec(t.Context(), `INSERT INTO outbox_deliveries
+			(event_id,subscription_id,status,attempts,available_at,lease_until,lease_token,last_error,updated_at)
+			VALUES (?,?,?,?,?,?,?,?,?)`, eventID, "legacy-"+status, status, index+1, now,
+			leaseUntil, leaseToken, "handler_failed", now)
+		require.NoError(t, err)
+	}
+
+	_, err = provider.Up(t.Context())
+	require.NoError(t, err)
+	var deliveries []struct {
+		SubscriptionID    string         `db:"subscription_id"`
+		Status           string         `db:"status"`
+		Attempts         int            `db:"attempts"`
+		LeaseUntil       sql.NullTime   `db:"lease_until"`
+		LeaseToken       sql.NullString `db:"lease_token"`
+		LastError        sql.NullString `db:"last_error"`
+		Monitor          bool           `db:"monitor_delivery"`
+		Destination      sql.NullString `db:"destination"`
+		DestinationKey   sql.NullString `db:"destination_key"`
+		Channel          sql.NullString `db:"channel"`
+		TerminalFailedAt sql.NullTime   `db:"terminal_failed_at"`
+	}
+	require.NoError(t, db.Select(t.Context(), &deliveries, `SELECT subscription_id,status,attempts,
+		lease_until,lease_token,last_error,monitor_delivery,
+		destination,destination_key,channel,terminal_failed_at FROM outbox_deliveries ORDER BY event_id`))
+	require.Len(t, deliveries, 3)
+	bySubscription := make(map[string]struct {
+		Status   string
+		Attempts int
+	}, len(deliveries))
+	for _, delivery := range deliveries {
+		bySubscription[delivery.SubscriptionID] = struct {
+			Status   string
+			Attempts int
+		}{Status: delivery.Status, Attempts: delivery.Attempts}
+		assert.Equal(t, "handler_failed", delivery.LastError.String)
+		assert.False(t, delivery.Monitor)
+		assert.False(t, delivery.Destination.Valid)
+		assert.False(t, delivery.DestinationKey.Valid)
+		assert.False(t, delivery.Channel.Valid)
+		assert.False(t, delivery.TerminalFailedAt.Valid)
+	}
+	assert.Equal(t, map[string]struct {
+		Status   string
+		Attempts int
+	}{
+		"legacy-pending":    {Status: "pending", Attempts: 1},
+		"legacy-processing": {Status: "processing", Attempts: 2},
+		"legacy-failed":     {Status: "failed", Attempts: 3},
+	}, bySubscription)
+	for _, delivery := range deliveries {
+		if delivery.SubscriptionID == "legacy-processing" {
+			assert.True(t, delivery.LeaseUntil.Valid)
+			assert.Equal(t, "legacy-lease", delivery.LeaseToken.String)
+		} else {
+			assert.False(t, delivery.LeaseUntil.Valid)
+			assert.False(t, delivery.LeaseToken.Valid)
+		}
+	}
+	var lifecycleEvents, alerts int
+	require.NoError(t, db.Get(t.Context(), &lifecycleEvents,
+		"SELECT count(*) FROM outbox_events WHERE event_type LIKE 'OutboxDelivery%'"))
+	require.NoError(t, db.Get(t.Context(), &alerts, "SELECT count(*) FROM alerts"))
+	assert.Zero(t, lifecycleEvents)
+	assert.Zero(t, alerts)
+	var historyType string
+	require.NoError(t, db.Get(t.Context(), &historyType,
+		"SELECT event_type FROM event_history WHERE id='legacy-notification-history'"))
+	legacyType, ok := events.ParseType(historyType)
+	require.True(t, ok)
+	assert.Equal(t, events.TypeName("SendNotificationFailed"), legacyType.Name())
 }
 
 func TestDeploymentAttemptMigrationAllowsOldBinaryWrites(t *testing.T) {

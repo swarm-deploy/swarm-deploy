@@ -5,18 +5,20 @@
 ALTER TABLE outbox_deliveries ADD COLUMN monitor_delivery INTEGER NOT NULL DEFAULT 0
     CHECK (monitor_delivery IN (0,1));
 ALTER TABLE outbox_deliveries ADD COLUMN destination TEXT;
+ALTER TABLE outbox_deliveries ADD COLUMN destination_key TEXT;
 ALTER TABLE outbox_deliveries ADD COLUMN channel TEXT;
 -- Retained across replay so recovery is emitted only after an actual ack.
 ALTER TABLE outbox_deliveries ADD COLUMN terminal_failed_at TIMESTAMP
     CHECK (terminal_failed_at IS NULL OR typeof(terminal_failed_at) = 'integer');
 
-CREATE INDEX idx_outbox_terminal_failure_subscription
-    ON outbox_deliveries(subscription_id,status)
+CREATE INDEX idx_outbox_terminal_failure_destination
+    ON outbox_deliveries(destination_key,status)
     WHERE monitor_delivery=1 AND terminal_failed_at IS NOT NULL AND status<>'delivered';
 
 -- +goose Down
-DROP INDEX idx_outbox_terminal_failure_subscription;
+DROP INDEX idx_outbox_terminal_failure_destination;
 ALTER TABLE outbox_deliveries DROP COLUMN terminal_failed_at;
 ALTER TABLE outbox_deliveries DROP COLUMN channel;
+ALTER TABLE outbox_deliveries DROP COLUMN destination_key;
 ALTER TABLE outbox_deliveries DROP COLUMN destination;
 ALTER TABLE outbox_deliveries DROP COLUMN monitor_delivery;

@@ -130,6 +130,9 @@ func (s *Module) registerTelegramNotifications(
 	for ruleIndex, channel := range channels {
 		for _, chatName := range channel.ChatNames() {
 			chat := telegram.Chats[chatName]
+			destinationKey := notificationDestinationKey(
+				"telegram", botID, chat.ID, fmt.Sprintf("%d", chat.ThreadID),
+			)
 			notifier, err := notifiers.NewTelegramNotifier(
 				chatName, string(telegram.BotToken.Content), chat.ID,
 				notifiers.TelegramOptions{
@@ -145,7 +148,9 @@ func (s *Module) registerTelegramNotifications(
 			id := fmt.Sprintf("notification:telegram:%x:%s:%d:%d",
 				sha256.Sum256([]byte(botID)), chat.ID, chat.ThreadID, ruleIndex)
 			for _, typ := range types {
-				handler := outbox.MonitorDelivery(outbox.External(notify2.NewSubscriber(notifier)), "telegram", chatName)
+				handler := outbox.MonitorDelivery(
+					outbox.External(notify2.NewSubscriber(notifier)), "telegram", destinationKey, chatName,
+				)
 				if err = s.Dispatcher.Subscribe(typ, id, handler); err != nil {
 					return 0, err
 				}
@@ -164,8 +169,11 @@ func (s *Module) registerCustomNotifications(types []events.TypeName, channels [
 		)
 		identity := sha256.Sum256([]byte(channel.Method + " " + channel.URL.Value.String()))
 		id := fmt.Sprintf("notification:custom:%s:%x", channel.Name, identity)
+		destinationKey := notificationDestinationKey("custom", channel.URL.Value.String())
 		for _, typ := range types {
-			handler := outbox.MonitorDelivery(outbox.External(notify2.NewSubscriber(notifier)), "custom", channel.Name)
+			handler := outbox.MonitorDelivery(
+				outbox.External(notify2.NewSubscriber(notifier)), "custom", destinationKey, channel.Name,
+			)
 			if err := s.Dispatcher.Subscribe(typ, id, handler); err != nil {
 				return 0, err
 			}
@@ -173,6 +181,11 @@ func (s *Module) registerCustomNotifications(types []events.TypeName, channels [
 		}
 	}
 	return count, nil
+}
+
+func notificationDestinationKey(destination string, identity ...string) string {
+	digest := sha256.Sum256([]byte(strings.Join(identity, "\x00")))
+	return fmt.Sprintf("%s:%x", destination, digest)
 }
 
 // Keep the original projection subscription set independent of IsPublic.

@@ -91,8 +91,8 @@ func GitRepositoryUnavailableFingerprint(repository string) string {
 	return string(AlertKindGitRepositoryUnavailable) + ":" + string(ResourceTypeRepository) + ":" + repository
 }
 
-// NotificationDeliveryFailedFingerprint returns the correlation key for one notification route.
-func NotificationDeliveryFailedFingerprint(subscriptionID string) string {
+// NotificationDeliveryFailedFingerprint returns the correlation key for one physical notification destination.
+func NotificationDeliveryFailedFingerprint(destinationKey string) string {
 	return string(AlertKindNotificationDeliveryFailed) + ":" +
-		string(ResourceTypeNotificationDestination) + ":" + subscriptionID
+		string(ResourceTypeNotificationDestination) + ":" + destinationKey
 }
