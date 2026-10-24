@@ -33,6 +33,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/buildinfo"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/logparser"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -118,6 +119,7 @@ func main() {
 	slog.SetDefault(slog.New(slogx.NewChain(
 		slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.Spec.Log.Level.Level()}),
 		slogm.RequestID(),
+		tracing.LogTraceID(),
 		logx.EventType(),
 		security.LogUser(),
 	)))

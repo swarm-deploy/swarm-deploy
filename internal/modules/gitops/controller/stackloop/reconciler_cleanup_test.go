@@ -36,7 +36,10 @@ func TestReconcileRemovesRenderedComposeAfterEarlyPipelineFailure(t *testing.T) 
 	renderedPath := filepath.Join(repoDir, ".data", "rendered", "app.yaml")
 	errAfterRender := errors.New("failed after render")
 	spanRecorder := tracetest.NewSpanRecorder()
-	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spanRecorder))
+	tracerProvider := sdktrace.NewTracerProvider(
+		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+		sdktrace.WithSpanProcessor(spanRecorder),
+	)
 	t.Cleanup(func() { require.NoError(t, tracerProvider.Shutdown(context.Background())) })
 	fileSystem := fs.NewTraceableFileSystem(tracerProvider, fs.NewLocalFileSystem())
 
