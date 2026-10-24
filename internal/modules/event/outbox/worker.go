@@ -3,7 +3,6 @@ package outbox
 import (
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -324,16 +323,27 @@ func (b *Bus) process(ctx context.Context, d delivery) (err error) {
 		ID: d.eventID, Event: event, OccurredAt: d.occurredAt.UTC(),
 		PublicationSequence: d.publicationSequence,
 	}
-	if external, notification, ok := externalHandler(handler); ok {
+	if notification, ok := handler.(notificationSubscriber); ok {
 		if err = b.checkLease(ctx, d); err != nil {
 			return err
 		}
-		delivered, invokeErr := invokeExternal(ctx, external, envelope, notification)
-		if invokeErr != nil {
-			return invokeErr
+		delivered, sendErr := notification.HandleNotification(ctx, envelope)
+		if sendErr != nil {
+			return sendErr
 		}
 		return b.db.WithinTransaction(ctx, func(ctx context.Context) error {
 			return b.ack(ctx, d, delivered)
+		})
+	}
+	if external, ok := handler.(externalSubscriber); ok {
+		if err = b.checkLease(ctx, d); err != nil {
+			return err
+		}
+		if err = invoke(ctx, external.Subscriber, envelope); err != nil {
+			return err
+		}
+		return b.db.WithinTransaction(ctx, func(ctx context.Context) error {
+			return b.ack(ctx, d, false)
 		})
 	}
 	return b.db.WithinTransaction(ctx, func(ctx context.Context) error {
@@ -345,42 +355,6 @@ func (b *Bus) process(ctx context.Context, d delivery) (err error) {
 		}
 		return b.ack(ctx, d, false)
 	})
-}
-
-func externalHandler(handler Subscriber) (Subscriber, bool, bool) {
-	switch subscriber := handler.(type) {
-	case externalSubscriber:
-		return subscriber.Subscriber, false, true
-	case notificationSubscriber:
-		return subscriber.Subscriber, true, true
-	default:
-		return nil, false, false
-	}
-}
-
-type notificationDeliveryHandler interface {
-	// HandleNotification reports whether the handler performed an external send.
-	HandleNotification(context.Context, events.Envelope) (bool, error)
-}
-
-func invokeExternal(
-	ctx context.Context, handler Subscriber, envelope events.Envelope, notification bool,
-) (delivered bool, err error) {
-	defer func() {
-		if recover() != nil {
-			delivered = false
-			err = errors.New("outbox handler panicked")
-		}
-	}()
-	if notification {
-		if reporting, ok := handler.(notificationDeliveryHandler); ok {
-			return reporting.HandleNotification(ctx, envelope)
-		}
-	}
-	if err = handler.Handle(ctx, envelope); err != nil {
-		return false, err
-	}
-	return notification, nil
 }
 
 func traceLink(traceparent sql.NullString) (trace.Link, bool) {
@@ -576,42 +550,15 @@ func (b *Bus) notificationMetadata(d delivery) (string, string, string, bool) {
 			key = notification.destinationKey
 		}
 	}
+	// Pre-migration deliveries use the registered handler metadata. If the
+	// subscriber was removed, no external send happened and no signal is emitted.
 	if destination == "" || key == "" {
-		legacyDestination, legacyKey, ok := legacyNotificationIdentity(d.subscriptionID)
-		if !ok {
-			return "", "", "", false
-		}
-		if destination == "" {
-			destination = legacyDestination
-		}
-		if key == "" {
-			key = legacyKey
-		}
+		return "", "", "", false
 	}
 	if channel == "" {
 		channel = fallbackNotificationChannel(destination, key)
 	}
 	return destination, channel, key, true
-}
-
-func legacyNotificationIdentity(subscriptionID string) (string, string, bool) {
-	parts := strings.Split(subscriptionID, ":")
-	if len(parts) >= 6 && parts[0] == "notification" && parts[1] == notificationDestinationTelegram {
-		thread := parts[len(parts)-2]
-		chat := parts[len(parts)-3]
-		bot := parts[len(parts)-4]
-		return notificationDestinationTelegram,
-			NotificationDestinationKey(notificationDestinationTelegram, bot, chat, thread), true
-	}
-	if len(parts) == 5 && parts[0] == "alert" && parts[1] == notificationDestinationTelegram {
-		chat, err := base64.RawURLEncoding.DecodeString(parts[3])
-		if err != nil {
-			return "", "", false
-		}
-		return notificationDestinationTelegram,
-			NotificationDestinationKey(notificationDestinationTelegram, parts[2], string(chat), parts[4]), true
-	}
-	return "", "", false
 }
 
 func fallbackNotificationChannel(destination, key string) string {
