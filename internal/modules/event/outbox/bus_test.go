@@ -811,3 +811,9 @@ func TestSendNotificationFailedDeliveryDoesNotRecurse(t *testing.T) {
 		})
 	}
 }
+
+// MockSubscriber acts as an actual notification sender in Outbox delivery tests.
+func (m *MockSubscriber) HandleNotification(ctx context.Context, event events.Envelope) (bool, error) {
+	err := m.Handle(ctx, event)
+	return err == nil, err
+}
