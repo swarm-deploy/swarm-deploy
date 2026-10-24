@@ -161,9 +161,17 @@ func (failingNotificationHandler) Handle(context.Context, events.Envelope) error
 	return errors.New("private notification failure")
 }
 
+func (f failingNotificationHandler) HandleNotification(ctx context.Context, event events.Envelope) (bool, error) {
+	return false, f.Handle(ctx, event)
+}
+
 type successfulNotificationHandler struct{}
 
 func (successfulNotificationHandler) Handle(context.Context, events.Envelope) error { return nil }
+
+func (s successfulNotificationHandler) HandleNotification(ctx context.Context, event events.Envelope) (bool, error) {
+	return true, s.Handle(ctx, event)
+}
 
 type countingAlertHandler struct {
 	mu       sync.Mutex
