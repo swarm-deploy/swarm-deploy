@@ -11,7 +11,7 @@ The removed `notifications.on` key is rejected; no compatibility alias is provid
 ## Alert lifecycle
 
 Notification configuration uses the exact PascalCase alert names `SyncFailed`,
-`NodeDisconnected`, and `GitRepositoryUnavailable`.
+`NodeDisconnected`, `GitRepositoryUnavailable`, and `NotificationDeliveryFailed`.
 The special `default` key remains the fallback rule. Internal alert kinds and
 fingerprints keep their existing snake_case identifiers.
 A kind rule replaces `alerts.default`, and an omitted `alerts.default` selects built-in
@@ -49,6 +49,20 @@ precedes resolved delivery for each recipient. A temporary Telegram error is ret
 an invalid original message reference falls back to a regular resolution message.
 Without an original message ID, resolution also sends a regular message.
 
+A terminal Event Notification delivery opens a `notification_delivery_failed` incident,
+fingerprinted by its stable Outbox subscription. Repeated terminal failures for that
+destination update the same incident. Replaying a failed delivery does not resolve the
+incident by itself: the final replayed delivery must be acknowledged successfully. Explicitly
+discarding the final failed delivery resolves it with `operator_discarded`.
+
+This monitoring is attached structurally only to Event Notification subscriptions when their
+Outbox rows are created. `AlertOpened`, `AlertResolved`, and internal Outbox lifecycle
+deliveries are never monitored, including after retries or restart. Failed alert-notification
+deliveries therefore remain visible in Outbox diagnostics and metrics without creating a
+recursive alert chain. Lifecycle payloads contain only the source event ID, subscription ID,
+event type, transport kind, configured channel alias, and stable error code; credentials,
+tokens, URLs, response bodies, and raw errors are excluded.
+
 The initial SQLite schema has one `notification_messages`
 row per alert ID, messenger, bot identity, chat ID and thread ID. It stores the initial
 message ID and send time, the processed resolution time and action, and a reply message
@@ -80,7 +94,6 @@ All payloads have `ID`, `Type`, and `OccurredAt` (`time.Time`, UTC). Most also p
 | `ServiceCatalogUpdated`, `SyncManualStarted`, `WebhookReceived`, `NetworkCreated` | `ID`, `Type`, `StackName`, `Username`, `Queued`, `NetworkName`, `NetworkID`, `Driver`, `Message`, `OccurredAt` |
 | `UserAuthenticated` | `ID`, `Type`, `Username`, `Message`, `OccurredAt` |
 | `AssistantPromptInjectionDetected` | `ID`, `Type`, `Detector`, `Username`, `Message`, `OccurredAt` |
-| `SendNotificationFailed` | `ID`, `Type`, `EventType`, `Destination`, `Channel`, `Error`, `Message`, `OccurredAt` |
 
 Shared template fields and serialized JSON names match Event History semantics:
 

@@ -25,11 +25,18 @@ import (
 // ErrLeaseLost fences a worker whose claim has expired or been replaced.
 var ErrLeaseLost = errors.New("outbox lease lost")
 
+const deliveryStatusFailed = "failed"
+
 type delivery struct {
 	eventID        string
 	subscriptionID string
 	token          string
 	attempts       int
+	eventType      events.TypeName
+	monitor        bool
+	destination    string
+	channel        string
+	terminalFailed bool
 }
 
 // Run processes committed work until cancellation. Unfinished leases survive
@@ -145,9 +152,14 @@ func (b *Bus) claim(ctx context.Context) (delivery, error) {
 	now := b.now()
 	err := b.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		var claimed struct {
-			EventID        string `db:"event_id"`
-			SubscriptionID string `db:"subscription_id"`
-			Attempts       int    `db:"attempts"`
+			EventID        string          `db:"event_id"`
+			SubscriptionID string          `db:"subscription_id"`
+			Attempts       int             `db:"attempts"`
+			EventType      events.TypeName `db:"event_type"`
+			Monitor        bool            `db:"monitor_delivery"`
+			Destination    sql.NullString  `db:"destination"`
+			Channel        sql.NullString  `db:"channel"`
+			TerminalFailed sql.NullTime    `db:"terminal_failed_at"`
 		}
 		query, args, buildErr := claimStatement(
 			now.UTC(), now.UTC(), d.token, now.Add(b.lease).UTC(), now.UTC(),
@@ -166,9 +178,14 @@ func (b *Bus) claim(ctx context.Context) (delivery, error) {
 		if count == 0 {
 			return sql.ErrNoRows
 		}
-		query, args, buildErr = goqu.Dialect("sqlite3").From("outbox_deliveries").Prepared(true).
-			Select("event_id", "subscription_id", "attempts").
-			Where(goqu.Ex{"lease_token": d.token}).
+		query, args, buildErr = goqu.Dialect("sqlite3").From(goqu.T("outbox_deliveries").As("d")).Prepared(true).
+			Join(goqu.T("outbox_events").As("e"), goqu.On(goqu.I("e.id").Eq(goqu.I("d.event_id")))).
+			Select(
+				goqu.I("d.event_id"), goqu.I("d.subscription_id"), goqu.I("d.attempts"), goqu.I("e.event_type"),
+				goqu.I("d.monitor_delivery"), goqu.I("d.destination"), goqu.I("d.channel"),
+				goqu.I("d.terminal_failed_at"),
+			).
+			Where(goqu.Ex{"d.lease_token": d.token}).
 			ToSQL()
 		if buildErr != nil {
 			return buildErr
@@ -177,6 +194,9 @@ func (b *Bus) claim(ctx context.Context) (delivery, error) {
 			return err
 		}
 		d.eventID, d.subscriptionID, d.attempts = claimed.EventID, claimed.SubscriptionID, claimed.Attempts
+		d.eventType, d.monitor = claimed.EventType, claimed.Monitor
+		d.destination, d.channel = claimed.Destination.String, claimed.Channel.String
+		d.terminalFailed = claimed.TerminalFailed.Valid
 		return nil
 	})
 	return d, err
@@ -278,9 +298,9 @@ func (b *Bus) process(ctx context.Context, d delivery) (err error) {
 		return &invalidDeliveryError{code: "unsupported_or_invalid_payload"}
 	}
 	b.mu.RLock()
-	handler := b.registry[typ][d.subscriptionID]
+	registered, found := b.registry[typ][d.subscriptionID]
 	b.mu.RUnlock()
-	if handler == nil {
+	if !found || registered.handler == nil {
 		return &invalidDeliveryError{code: "subscription_missing"}
 	}
 	ctx = context.WithValue(ctx, causeKey{}, d.eventID)
@@ -290,11 +310,11 @@ func (b *Bus) process(ctx context.Context, d delivery) (err error) {
 		ID: d.eventID, Event: event, OccurredAt: occurred.UTC(),
 		PublicationSequence: publicationSequence,
 	}
-	if external, ok := handler.(externalSubscriber); ok {
+	if registered.external {
 		if err = b.checkLease(ctx, d); err != nil {
 			return err
 		}
-		if err = invoke(ctx, external.Subscriber, envelope); err != nil {
+		if err = invoke(ctx, registered.handler, envelope); err != nil {
 			return err
 		}
 		return b.db.WithinTransaction(ctx, func(ctx context.Context) error { return b.ack(ctx, d) })
@@ -303,7 +323,7 @@ func (b *Bus) process(ctx context.Context, d delivery) (err error) {
 		if leaseErr := b.checkLease(ctx, d); leaseErr != nil {
 			return leaseErr
 		}
-		if handlerErr := invoke(ctx, handler, envelope); handlerErr != nil {
+		if handlerErr := invoke(ctx, registered.handler, envelope); handlerErr != nil {
 			return handlerErr
 		}
 		return b.ack(ctx, d)
@@ -376,6 +396,19 @@ func (b *Bus) ack(ctx context.Context, d delivery) error {
 	if err = requireChanged(result); err != nil {
 		return err
 	}
+	if d.monitor && d.terminalFailed {
+		remaining, remainingErr := b.hasUnresolvedTerminalFailures(ctx, d.subscriptionID)
+		if remainingErr != nil {
+			return remainingErr
+		}
+		if !remaining {
+			publicationCtx := context.WithValue(ctx, causeKey{}, d.eventID)
+			if err = b.Publish(publicationCtx,
+				&events.OutboxDeliveryRecovered{OutboxDelivery: d.lifecycle()}); err != nil {
+				return err
+			}
+		}
+	}
 	return b.deleteCompleted(ctx, d.eventID)
 }
 
@@ -408,15 +441,19 @@ func (b *Bus) deleteCompleted(ctx context.Context, eventID string) error {
 func (b *Bus) fail(ctx context.Context, d delivery, code string, terminal bool) error {
 	status := "pending"
 	if terminal || d.attempts >= b.maxAttempts {
-		status = "failed"
+		status = deliveryStatusFailed
 	}
 	backoff := min(time.Second*time.Duration(1<<min(d.attempts, maxBackoffExponent)), maxRetryBackoff)
 	return b.db.WithinTransaction(ctx, func(ctx context.Context) error {
+		values := goqu.Record{
+			"status": status, "lease_token": nil, "lease_until": nil, "last_error": code,
+			"available_at": b.now().Add(backoff).UTC(), "updated_at": b.now().UTC(),
+		}
+		if status == deliveryStatusFailed {
+			values["terminal_failed_at"] = b.now().UTC()
+		}
 		query, args, err := goqu.Dialect("sqlite3").Update("outbox_deliveries").Prepared(true).
-			Set(goqu.Record{
-				"status": status, "lease_token": nil, "lease_until": nil, "last_error": code,
-				"available_at": b.now().Add(backoff).UTC(), "updated_at": b.now().UTC(),
-			}).
+			Set(values).
 			Where(goqu.Ex{
 				"event_id": d.eventID, "subscription_id": d.subscriptionID,
 				"status": "processing", "lease_token": d.token,
@@ -428,8 +465,41 @@ func (b *Bus) fail(ctx context.Context, d delivery, code string, terminal bool) 
 		if err != nil {
 			return err
 		}
-		return requireChanged(result)
+		if err = requireChanged(result); err != nil {
+			return err
+		}
+		if status == deliveryStatusFailed && d.monitor {
+			publicationCtx := context.WithValue(ctx, causeKey{}, d.eventID)
+			return b.Publish(publicationCtx, &events.OutboxDeliveryFailed{
+				OutboxDelivery: d.lifecycle(), ErrorCode: code,
+			})
+		}
+		return nil
 	})
+}
+
+func (d delivery) lifecycle() events.OutboxDelivery {
+	return events.OutboxDelivery{
+		EventID: d.eventID, SubscriptionID: d.subscriptionID, EventType: d.eventType,
+		Destination: d.destination, Channel: d.channel,
+	}
+}
+
+func (b *Bus) hasUnresolvedTerminalFailures(ctx context.Context, subscriptionID string) (bool, error) {
+	var count int
+	query, args, err := goqu.Dialect("sqlite3").From("outbox_deliveries").Prepared(true).
+		Select(goqu.COUNT("*")).Where(
+		goqu.Ex{"subscription_id": subscriptionID, "monitor_delivery": true},
+		goqu.C("terminal_failed_at").IsNotNull(),
+		goqu.C("status").Neq("delivered"),
+	).ToSQL()
+	if err != nil {
+		return false, err
+	}
+	if err = b.db.Get(ctx, &count, query, args...); err != nil {
+		return false, err
+	}
+	return count > 0, nil
 }
 
 // Replay reschedules exactly one terminal failure, preserving delivered siblings.
@@ -439,7 +509,7 @@ func (b *Bus) Replay(ctx context.Context, eventID, subscriptionID string) error 
 			"status": "pending", "attempts": 0, "last_error": nil,
 			"available_at": b.now().UTC(), "updated_at": b.now().UTC(),
 		}).
-		Where(goqu.Ex{"event_id": eventID, "subscription_id": subscriptionID, "status": "failed"}).
+		Where(goqu.Ex{"event_id": eventID, "subscription_id": subscriptionID, "status": deliveryStatusFailed}).
 		ToSQL()
 	if err != nil {
 		return err
@@ -454,20 +524,68 @@ func (b *Bus) Replay(ctx context.Context, eventID, subscriptionID string) error 
 // Discard explicitly waives one terminal failure and deletes completed work.
 func (b *Bus) Discard(ctx context.Context, eventID, subscriptionID string) error {
 	return b.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		query, args, err := goqu.Dialect("sqlite3").Update("outbox_deliveries").Prepared(true).
-			Set(goqu.Record{"status": "delivered", "updated_at": b.now().UTC()}).
-			Where(goqu.Ex{"event_id": eventID, "subscription_id": subscriptionID, "status": "failed"}).
-			ToSQL()
+		d, err := b.deliveryForOperatorAction(ctx, eventID, subscriptionID)
 		if err != nil {
 			return err
 		}
-		result, err := b.db.Exec(ctx, query, args...)
-		if err != nil {
-			return err
-		}
-		if err = requireChanged(result); err != nil {
+		if err = b.markDiscarded(ctx, d); err != nil {
 			return err
 		}
 		return b.deleteCompleted(ctx, eventID)
 	})
+}
+
+func (b *Bus) markDiscarded(ctx context.Context, d delivery) error {
+	query, args, err := goqu.Dialect("sqlite3").Update("outbox_deliveries").Prepared(true).
+		Set(goqu.Record{"status": "delivered", "updated_at": b.now().UTC()}).
+		Where(goqu.Ex{
+			"event_id": d.eventID, "subscription_id": d.subscriptionID, "status": deliveryStatusFailed,
+		}).ToSQL()
+	if err != nil {
+		return err
+	}
+	result, err := b.db.Exec(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	if err = requireChanged(result); err != nil || !d.monitor || !d.terminalFailed {
+		return err
+	}
+	remaining, err := b.hasUnresolvedTerminalFailures(ctx, d.subscriptionID)
+	if err != nil || remaining {
+		return err
+	}
+	publicationCtx := context.WithValue(ctx, causeKey{}, d.eventID)
+	return b.Publish(publicationCtx, &events.OutboxDeliveryDiscarded{OutboxDelivery: d.lifecycle()})
+}
+
+func (b *Bus) deliveryForOperatorAction(ctx context.Context, eventID, subscriptionID string) (delivery, error) {
+	var row struct {
+		EventType      events.TypeName `db:"event_type"`
+		Monitor        bool            `db:"monitor_delivery"`
+		Destination    sql.NullString  `db:"destination"`
+		Channel        sql.NullString  `db:"channel"`
+		TerminalFailed sql.NullTime    `db:"terminal_failed_at"`
+	}
+	query, args, err := goqu.Dialect("sqlite3").From(goqu.T("outbox_deliveries").As("d")).Prepared(true).
+		Join(goqu.T("outbox_events").As("e"), goqu.On(goqu.I("e.id").Eq(goqu.I("d.event_id")))).
+		Select(
+			goqu.I("e.event_type"), goqu.I("d.monitor_delivery"), goqu.I("d.destination"),
+			goqu.I("d.channel"), goqu.I("d.terminal_failed_at"),
+		).
+		Where(goqu.Ex{
+			"d.event_id": eventID, "d.subscription_id": subscriptionID, "d.status": deliveryStatusFailed,
+		}).
+		ToSQL()
+	if err != nil {
+		return delivery{}, err
+	}
+	if err = b.db.Get(ctx, &row, query, args...); err != nil {
+		return delivery{}, err
+	}
+	return delivery{
+		eventID: eventID, subscriptionID: subscriptionID, eventType: row.EventType,
+		monitor: row.Monitor, destination: row.Destination.String, channel: row.Channel.String,
+		terminalFailed: row.TerminalFailed.Valid,
+	}, nil
 }

@@ -229,9 +229,10 @@ func (s *Alert) SetResolution(val OptAlertResolution) {
 type AlertKind string
 
 const (
-	AlertKindSyncFailed               AlertKind = "sync_failed"
-	AlertKindNodeDisconnected         AlertKind = "node_disconnected"
-	AlertKindGitRepositoryUnavailable AlertKind = "git_repository_unavailable"
+	AlertKindSyncFailed                 AlertKind = "sync_failed"
+	AlertKindNodeDisconnected           AlertKind = "node_disconnected"
+	AlertKindGitRepositoryUnavailable   AlertKind = "git_repository_unavailable"
+	AlertKindNotificationDeliveryFailed AlertKind = "notification_delivery_failed"
 )
 
 // AllValues returns all AlertKind values.
@@ -240,6 +241,7 @@ func (AlertKind) AllValues() []AlertKind {
 		AlertKindSyncFailed,
 		AlertKindNodeDisconnected,
 		AlertKindGitRepositoryUnavailable,
+		AlertKindNotificationDeliveryFailed,
 	}
 }
 
@@ -251,6 +253,8 @@ func (s AlertKind) MarshalText() ([]byte, error) {
 	case AlertKindNodeDisconnected:
 		return []byte(s), nil
 	case AlertKindGitRepositoryUnavailable:
+		return []byte(s), nil
+	case AlertKindNotificationDeliveryFailed:
 		return []byte(s), nil
 	default:
 		return nil, errors.Errorf("invalid value: %q", s)
@@ -268,6 +272,9 @@ func (s *AlertKind) UnmarshalText(data []byte) error {
 		return nil
 	case AlertKindGitRepositoryUnavailable:
 		*s = AlertKindGitRepositoryUnavailable
+		return nil
+	case AlertKindNotificationDeliveryFailed:
+		*s = AlertKindNotificationDeliveryFailed
 		return nil
 	default:
 		return errors.Errorf("invalid value: %q", data)
@@ -314,8 +321,9 @@ func (s *AlertResolution) SetEventId(val string) {
 type AlertResolutionReason string
 
 const (
-	AlertResolutionReasonRecovered       AlertResolutionReason = "recovered"
-	AlertResolutionReasonResourceRemoved AlertResolutionReason = "resource_removed"
+	AlertResolutionReasonRecovered         AlertResolutionReason = "recovered"
+	AlertResolutionReasonResourceRemoved   AlertResolutionReason = "resource_removed"
+	AlertResolutionReasonOperatorDiscarded AlertResolutionReason = "operator_discarded"
 )
 
 // AllValues returns all AlertResolutionReason values.
@@ -323,6 +331,7 @@ func (AlertResolutionReason) AllValues() []AlertResolutionReason {
 	return []AlertResolutionReason{
 		AlertResolutionReasonRecovered,
 		AlertResolutionReasonResourceRemoved,
+		AlertResolutionReasonOperatorDiscarded,
 	}
 }
 
@@ -332,6 +341,8 @@ func (s AlertResolutionReason) MarshalText() ([]byte, error) {
 	case AlertResolutionReasonRecovered:
 		return []byte(s), nil
 	case AlertResolutionReasonResourceRemoved:
+		return []byte(s), nil
+	case AlertResolutionReasonOperatorDiscarded:
 		return []byte(s), nil
 	default:
 		return nil, errors.Errorf("invalid value: %q", s)
@@ -347,6 +358,9 @@ func (s *AlertResolutionReason) UnmarshalText(data []byte) error {
 	case AlertResolutionReasonResourceRemoved:
 		*s = AlertResolutionReasonResourceRemoved
 		return nil
+	case AlertResolutionReasonOperatorDiscarded:
+		*s = AlertResolutionReasonOperatorDiscarded
+		return nil
 	default:
 		return errors.Errorf("invalid value: %q", data)
 	}
@@ -355,9 +369,10 @@ func (s *AlertResolutionReason) UnmarshalText(data []byte) error {
 type AlertResourceType string
 
 const (
-	AlertResourceTypeStack      AlertResourceType = "stack"
-	AlertResourceTypeNode       AlertResourceType = "node"
-	AlertResourceTypeRepository AlertResourceType = "repository"
+	AlertResourceTypeStack                   AlertResourceType = "stack"
+	AlertResourceTypeNode                    AlertResourceType = "node"
+	AlertResourceTypeRepository              AlertResourceType = "repository"
+	AlertResourceTypeNotificationDestination AlertResourceType = "notification_destination"
 )
 
 // AllValues returns all AlertResourceType values.
@@ -366,6 +381,7 @@ func (AlertResourceType) AllValues() []AlertResourceType {
 		AlertResourceTypeStack,
 		AlertResourceTypeNode,
 		AlertResourceTypeRepository,
+		AlertResourceTypeNotificationDestination,
 	}
 }
 
@@ -377,6 +393,8 @@ func (s AlertResourceType) MarshalText() ([]byte, error) {
 	case AlertResourceTypeNode:
 		return []byte(s), nil
 	case AlertResourceTypeRepository:
+		return []byte(s), nil
+	case AlertResourceTypeNotificationDestination:
 		return []byte(s), nil
 	default:
 		return nil, errors.Errorf("invalid value: %q", s)
@@ -394,6 +412,9 @@ func (s *AlertResourceType) UnmarshalText(data []byte) error {
 		return nil
 	case AlertResourceTypeRepository:
 		*s = AlertResourceTypeRepository
+		return nil
+	case AlertResourceTypeNotificationDestination:
+		*s = AlertResourceTypeNotificationDestination
 		return nil
 	default:
 		return errors.Errorf("invalid value: %q", data)

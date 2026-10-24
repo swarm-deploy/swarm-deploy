@@ -145,7 +145,8 @@ func (s *Module) registerTelegramNotifications(
 			id := fmt.Sprintf("notification:telegram:%x:%s:%d:%d",
 				sha256.Sum256([]byte(botID)), chat.ID, chat.ThreadID, ruleIndex)
 			for _, typ := range types {
-				if err = s.Dispatcher.Subscribe(typ, id, outbox.External(notify2.NewSubscriber(notifier))); err != nil {
+				handler := outbox.MonitorDelivery(outbox.External(notify2.NewSubscriber(notifier)), "telegram", chatName)
+				if err = s.Dispatcher.Subscribe(typ, id, handler); err != nil {
 					return 0, err
 				}
 				count++
@@ -164,7 +165,8 @@ func (s *Module) registerCustomNotifications(types []events.TypeName, channels [
 		identity := sha256.Sum256([]byte(channel.Method + " " + channel.URL.Value.String()))
 		id := fmt.Sprintf("notification:custom:%s:%x", channel.Name, identity)
 		for _, typ := range types {
-			if err := s.Dispatcher.Subscribe(typ, id, outbox.External(notify2.NewSubscriber(notifier))); err != nil {
+			handler := outbox.MonitorDelivery(outbox.External(notify2.NewSubscriber(notifier)), "custom", channel.Name)
+			if err := s.Dispatcher.Subscribe(typ, id, handler); err != nil {
 				return 0, err
 			}
 			count++
@@ -177,7 +179,7 @@ func (s *Module) registerCustomNotifications(types []events.TypeName, channels [
 // History.Handle retains its own persistence filters.
 func projectionEventTypes() []events.TypeName {
 	return []events.TypeName{
-		events.TypeNameServiceCatalogUpdated, events.TypeNameDeploySuccess, events.TypeNameSendNotificationFailed,
+		events.TypeNameServiceCatalogUpdated, events.TypeNameDeploySuccess,
 		events.TypeNameSyncManualStarted, events.TypeNameWebhookReceived, events.TypeNameNodeJoined,
 		events.TypeNameNodeConnected, events.TypeNameNodeDisconnected, events.TypeNameServiceMissed,
 		events.TypeNameServiceReplicasIncreased, events.TypeNameServiceReplicasDecreased,

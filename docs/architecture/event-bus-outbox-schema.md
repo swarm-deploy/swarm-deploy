@@ -30,6 +30,9 @@ WAL permits committed-state readers. Do not share a transaction context between 
 `outbox.Bus.Subscribe(typeName, stableID, handler)` registers a DB consumer. Network
 consumers use the `outbox.External(handler)` worker adapter. This does not change
 publication or durability: every matching subscriber gets its own delivery record.
+Event Notification transports additionally use `outbox.MonitorDelivery` to persist a
+safe transport kind and channel alias on their delivery row. The adapter is never used
+for alert notifications or internal Outbox lifecycle events.
 `Run` stops on cancellation; unacknowledged work remains on disk. Missing subscriptions
 or incompatible payloads are parked as failed. `Replay` and `Discard` address a single
 failed delivery. Prometheus collection reports queue depth by status and subscription.
@@ -76,6 +79,11 @@ CREATE TABLE outbox_deliveries (
     lease_token     TEXT,
     last_error      TEXT,
     updated_at      TIMESTAMP NOT NULL CHECK (typeof(updated_at) = 'integer'),
+    monitor_delivery INTEGER NOT NULL DEFAULT 0 CHECK (monitor_delivery IN (0,1)),
+    destination     TEXT,
+    channel         TEXT,
+    terminal_failed_at TIMESTAMP
+                    CHECK (terminal_failed_at IS NULL OR typeof(terminal_failed_at) = 'integer'),
     PRIMARY KEY (event_id, subscription_id),
     CHECK (
         (status = 'processing' AND lease_until IS NOT NULL AND lease_token IS NOT NULL)
@@ -98,7 +106,7 @@ CREATE INDEX idx_outbox_delivery_expired_lease
 
 1. Resolve matching subscriptions against a stable registry. With zero matches, do not enqueue anything (optional unhandled-publication metric).
 2. Encode/validate the safe versioned payload, allocate a unique event ID and let SQLite assign its publication sequence.
-3. Insert into `outbox_events`, then insert **one** `outbox_deliveries` row for **every matching subscriber** with a stable `subscription_id`; no special mode is required.
+3. Insert into `outbox_events`, then insert **one** `outbox_deliveries` row for **every matching subscriber** with a stable `subscription_id`. Persist the structural monitoring decision and safe destination metadata for Event Notification transports; force monitoring off for `AlertOpened`, `AlertResolved`, and Outbox lifecycle types.
 4. Return without calling handlers. Event and delivery inserts share the publisher's transaction, selected from context.
 5. Commit T1 atomically with the publisher's own business state.
 
@@ -108,9 +116,9 @@ CREATE INDEX idx_outbox_delivery_expired_lease
 2. Load event payload and the subscribed handler. Missing subscription/unsupported codec version is a visible delivery failure, **not** a silent acknowledgment.
 3. DB-only subscriber: in **T3**, apply the projection, enqueue follow-up events if needed, and acknowledge the claimed delivery using the lease token. If this is the final success, delete the parent event + all its deliveries before T3 commits.
 4. External subscriber: execute outside a DB transaction; then open a short **T3** solely to acknowledge/delete on success, or schedule retry on failure.
-5. Handler failure: rollback its T3 work; use a separate short transaction to release or reschedule the claimed delivery with backoff, or mark it terminal `failed`. Never leave a half-applied projection with an acknowledged delivery.
+5. Handler failure: rollback its T3 work; use a separate short transaction to release or reschedule the claimed delivery with backoff, or mark it terminal `failed`. A monitored terminal transition and its `OutboxDeliveryFailed` publication share this transaction. Never leave a half-applied projection with an acknowledged delivery.
 6. Recover expired leases on restart. A stale worker must not be allowed to acknowledge a lease held by a newer worker.
-7. Terminal failures remain until operator replay/discard. Once **all** deliveries are successful, clean the event immediately with no retention period.
+7. Terminal failures remain until operator replay/discard. Replay retains `terminal_failed_at`; only a successful acknowledgement can publish recovery. Discard publishes a distinct operator action after the final outstanding terminal delivery for that subscription is waived. Once **all** deliveries are successful, clean the event immediately with no retention period.
 
 Example T2 claim SQL:
 

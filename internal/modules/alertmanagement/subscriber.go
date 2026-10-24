@@ -83,9 +83,90 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 		return s.handleGitPullFailed(ctx, event.ID, deployment)
 	case *events.GitPullSucceeded:
 		return s.handleGitPullSucceeded(ctx, event.ID, deployment)
+	case *events.OutboxDeliveryFailed:
+		return s.handleNotificationDeliveryFailed(ctx, event.ID, deployment)
+	case *events.OutboxDeliveryRecovered:
+		return s.handleNotificationDeliveryResolved(ctx, event.ID, deployment.OutboxDelivery, false)
+	case *events.OutboxDeliveryDiscarded:
+		return s.handleNotificationDeliveryResolved(ctx, event.ID, deployment.OutboxDelivery, true)
 	default:
 		return nil
 	}
+}
+
+func (s *Subscriber) handleNotificationDeliveryFailed(
+	ctx context.Context, eventID string, event *events.OutboxDeliveryFailed,
+) error {
+	fingerprint := model.NotificationDeliveryFailedFingerprint(event.SubscriptionID)
+	now := s.now()
+	alert, err := s.store.FindOpenByFingerprint(ctx, fingerprint)
+	if err != nil && !errors.Is(err, modelstore.ErrAlertNotFound) {
+		return fmt.Errorf("find open notification delivery alert: %w", err)
+	}
+	message := notificationDeliveryFailureMessage(event.OutboxDelivery)
+	if err == nil {
+		alert.Occurrences++
+		alert.UpdatedAt = now
+		alert.LatestEventID = eventReferenceID(eventID, s.newID)
+		alert.Message = message
+		alert.ErrorCode = event.ErrorCode
+		if err = s.store.Update(ctx, alert); err != nil {
+			return fmt.Errorf("update notification delivery alert: %w", err)
+		}
+		return nil
+	}
+	eventID = eventReferenceID(eventID, s.newID)
+	alert = model.Alert{
+		ID: s.newID(), Fingerprint: fingerprint, Kind: model.AlertKindNotificationDeliveryFailed,
+		ResourceType: model.ResourceTypeNotificationDestination, ResourceID: event.SubscriptionID,
+		Status: model.AlertStatusOpen, Title: "Notification delivery failed", Message: message,
+		FailureStage: "notification_delivery", ErrorCode: event.ErrorCode, Occurrences: 1,
+		OpenedAt: now, UpdatedAt: now, OpenEventID: eventID, LatestEventID: eventID,
+	}
+	if err = s.store.Create(ctx, alert); err == nil {
+		return s.publishOpened(ctx, alert)
+	}
+	if !errors.Is(err, modelstore.ErrOpenAlertExists) {
+		return fmt.Errorf("create notification delivery alert: %w", err)
+	}
+	return s.updateConcurrentFailure(ctx, fingerprint, eventID, now, alert, true, err)
+}
+
+func (s *Subscriber) handleNotificationDeliveryResolved(
+	ctx context.Context, eventID string, delivery events.OutboxDelivery, discarded bool,
+) error {
+	fingerprint := model.NotificationDeliveryFailedFingerprint(delivery.SubscriptionID)
+	alert, err := s.store.FindOpenByFingerprint(ctx, fingerprint)
+	if err != nil {
+		if errors.Is(err, modelstore.ErrAlertNotFound) {
+			return nil
+		}
+		return fmt.Errorf("find open notification delivery alert: %w", err)
+	}
+	now := s.now()
+	reason := model.ResolutionReasonRecovered
+	message := "Notification destination recovered after a successful delivery"
+	if discarded {
+		reason = model.ResolutionReasonOperatorDiscarded
+		message = "Terminal notification deliveries were discarded by an operator"
+	}
+	alert.Status = model.AlertStatusResolved
+	alert.UpdatedAt = now
+	alert.ResolvedAt = &now
+	alert.Resolution = &model.AlertResolution{
+		Reason: reason, Message: message, EventID: eventReferenceID(eventID, s.newID),
+	}
+	if err = s.store.Update(ctx, alert); err != nil {
+		return fmt.Errorf("resolve notification delivery alert: %w", err)
+	}
+	return s.publishResolved(ctx, alert)
+}
+
+func notificationDeliveryFailureMessage(delivery events.OutboxDelivery) string {
+	return fmt.Sprintf(
+		"Permanent %s notification delivery failure for channel %s while handling %s",
+		delivery.Destination, delivery.Channel, delivery.EventType,
+	)
 }
 
 func (s *Subscriber) handleGitPullFailed(ctx context.Context, eventID string, event *events.GitPullFailed) error {

@@ -101,6 +101,8 @@ func (s AlertKind) Validate() error {
 		return nil
 	case "git_repository_unavailable":
 		return nil
+	case "notification_delivery_failed":
+		return nil
 	default:
 		return errors.Errorf("invalid value: %v", s)
 	}
@@ -135,6 +137,8 @@ func (s AlertResolutionReason) Validate() error {
 		return nil
 	case "resource_removed":
 		return nil
+	case "operator_discarded":
+		return nil
 	default:
 		return errors.Errorf("invalid value: %v", s)
 	}
@@ -147,6 +151,8 @@ func (s AlertResourceType) Validate() error {
 	case "node":
 		return nil
 	case "repository":
+		return nil
+	case "notification_destination":
 		return nil
 	default:
 		return errors.Errorf("invalid value: %v", s)

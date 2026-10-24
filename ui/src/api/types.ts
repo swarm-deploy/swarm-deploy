@@ -131,7 +131,7 @@ export interface EventFilterOptions {
 export type AlertStatus = "open" | "resolved";
 
 export interface AlertResolution {
-  reason: "recovered" | "resource_removed";
+  reason: "recovered" | "resource_removed" | "operator_discarded";
   message: string;
   eventId: string;
 }
@@ -139,8 +139,8 @@ export interface AlertResolution {
 export interface Alert {
   id: string;
   fingerprint: string;
-  kind: "sync_failed" | "node_disconnected" | "git_repository_unavailable";
-  resourceType: "stack" | "node" | "repository";
+  kind: "sync_failed" | "node_disconnected" | "git_repository_unavailable" | "notification_delivery_failed";
+  resourceType: "stack" | "node" | "repository" | "notification_destination";
   resourceId: string;
   status: AlertStatus;
   title: string;

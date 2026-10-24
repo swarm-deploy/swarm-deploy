@@ -5,7 +5,6 @@ export interface EventTypeMetadata {
 
 export const eventTypeMetadata: EventTypeMetadata[] = [
   { type: "DeploySuccess", description: "Deployment completed successfully" },
-  { type: "SendNotificationFailed", description: "Notification delivery failed" },
   { type: "SyncManualStarted", description: "Manual sync started" },
   { type: "WebhookReceived", description: "Webhook request accepted" },
   { type: "NodeJoined", description: "Node joined the cluster" },

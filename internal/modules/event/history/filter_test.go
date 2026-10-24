@@ -14,7 +14,7 @@ func TestFilterEntriesAndOrSemantics(t *testing.T) {
 
 	entries := []Entry{
 		{Type: events.TypeDeploySuccess, Severity: events.SeverityInfo, Category: events.CategorySync, Message: "1"},
-		{Type: events.TypeSendNotificationFailed, Severity: events.SeverityError, Category: events.CategorySync, Message: "2"},
+		{Type: events.TypeServiceMissed, Severity: events.SeverityAlert, Category: events.CategorySync, Message: "2"},
 		{Type: events.TypeUserAuthenticated, Severity: events.SeverityInfo, Category: events.CategorySecurity, Message: "3"},
 	}
 
@@ -35,7 +35,7 @@ func TestFilterEntriesFiltersByType(t *testing.T) {
 
 	entries := []Entry{
 		{Type: events.TypeDeploySuccess, Severity: events.SeverityInfo, Category: events.CategorySync, Message: "1"},
-		{Type: events.TypeSendNotificationFailed, Severity: events.SeverityError, Category: events.CategorySync, Message: "2"},
+		{Type: events.TypeServiceMissed, Severity: events.SeverityAlert, Category: events.CategorySync, Message: "2"},
 		{Type: events.TypeUserAuthenticated, Severity: events.SeverityInfo, Category: events.CategorySecurity, Message: "3"},
 	}
 
@@ -43,7 +43,7 @@ func TestFilterEntriesFiltersByType(t *testing.T) {
 		entries,
 		nil,
 		nil,
-		[]events.TypeName{events.TypeNameSendNotificationFailed, events.TypeNameUserAuthenticated},
+		[]events.TypeName{events.TypeNameServiceMissed, events.TypeNameUserAuthenticated},
 		nil,
 	)
 
@@ -58,7 +58,7 @@ func TestFilterEntriesFiltersBySince(t *testing.T) {
 	since := time.Date(2026, time.September, 16, 12, 0, 0, 0, time.UTC)
 	entries := []Entry{
 		{Type: events.TypeDeploySuccess, Severity: events.SeverityInfo, Category: events.CategorySync, CreatedAt: since.Add(-time.Second), Message: "old"},
-		{Type: events.TypeSendNotificationFailed, Severity: events.SeverityError, Category: events.CategorySync, CreatedAt: since, Message: "boundary"},
+		{Type: events.TypeServiceMissed, Severity: events.SeverityAlert, Category: events.CategorySync, CreatedAt: since, Message: "boundary"},
 		{Type: events.TypeUserAuthenticated, Severity: events.SeverityInfo, Category: events.CategorySecurity, CreatedAt: since.Add(time.Second), Message: "new"},
 	}
 

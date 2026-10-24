@@ -32,7 +32,6 @@ func TestSensitiveFieldsAreNeverPersisted(t *testing.T) {
 		&events.DeployPreparationFailed{StackName: "stack", Commit: "revision", ErrorCode: "preparation_failed"},
 		&events.DeployInterrupted{DeploymentID: "deployment", StackName: "stack", Commit: "revision", Reason: "process_interrupted"},
 		&events.AssistantPromptInjectionDetected{Prompt: secret},
-		&events.SendNotificationFailed{Error: errors.New(secret)},
 	} {
 		t.Run(event.Type().String(), func(t *testing.T) {
 			payload, err := Encode(event)
@@ -114,6 +113,46 @@ func TestAlertLifecycleCodecCarriesDeploymentID(t *testing.T) {
 	decoded, err := Decode(events.TypeNameAlertOpened, Version, payload)
 	require.NoError(t, err)
 	assert.Equal(t, "deployment-1", decoded.(*events.AlertOpened).Alert.DeploymentID)
+}
+
+func TestOutboxDeliveryLifecycleCodecContainsOnlySafeMetadata(t *testing.T) {
+	delivery := events.OutboxDelivery{
+		EventID: "source-event", SubscriptionID: "notification:custom:audit",
+		EventType: events.TypeNameDeploySuccess, Destination: "custom", Channel: "audit",
+	}
+	for _, event := range []events.Event{
+		&events.OutboxDeliveryFailed{OutboxDelivery: delivery, ErrorCode: "handler_failed"},
+		&events.OutboxDeliveryRecovered{OutboxDelivery: delivery},
+		&events.OutboxDeliveryDiscarded{OutboxDelivery: delivery},
+	} {
+		t.Run(event.Type().String(), func(t *testing.T) {
+			payload, err := Encode(event)
+			require.NoError(t, err)
+			assert.NotContains(t, string(payload), "url")
+			assert.NotContains(t, string(payload), "response")
+			assert.NotContains(t, string(payload), "token")
+			decoded, err := Decode(event.Type().Name(), Version, payload)
+			require.NoError(t, err)
+			assert.Equal(t, event, decoded)
+		})
+	}
+}
+
+func TestOutboxDeliveryLifecycleCodecRejectsUnsafeOrIncompleteMetadata(t *testing.T) {
+	_, err := Encode(&events.OutboxDeliveryFailed{
+		OutboxDelivery: events.OutboxDelivery{
+			EventID: "source", SubscriptionID: "notification:custom:audit",
+			EventType: events.TypeNameDeploySuccess, Destination: "custom", Channel: "audit",
+		},
+		ErrorCode: "raw HTTP response with token=private",
+	})
+	require.Error(t, err)
+
+	_, err = Decode(events.TypeNameOutboxDeliveryFailed, Version, []byte(
+		`{"event_id":"source","subscription_id":"notification:custom:audit","event_type":"DeploySuccess",`+
+			`"destination":"custom","channel":"audit","error_code":"secret"}`,
+	))
+	require.Error(t, err)
 }
 
 func TestGitPullLifecycleCodec(t *testing.T) {

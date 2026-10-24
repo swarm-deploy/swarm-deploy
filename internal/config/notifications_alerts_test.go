@@ -112,6 +112,9 @@ func TestAlertRouteValidation(t *testing.T) {
 		{"old git repository unavailable kind", func(s *NotificationSpec) {
 			s.Alerts["git_repository_unavailable"] = NotificationAlertRoutes{Telegram: []TelegramAlertChannel{{}}}
 		}, `unknown alert kind`},
+		{"old notification delivery failed kind", func(s *NotificationSpec) {
+			s.Alerts["notification_delivery_failed"] = NotificationAlertRoutes{Telegram: []TelegramAlertChannel{{}}}
+		}, `unknown alert kind`},
 		{"missing messenger", func(s *NotificationSpec) { s.Messengers.Telegram.BotToken.Content = nil }, `botTokenPath is required`},
 		{"missing fallback chat", func(s *NotificationSpec) { delete(s.Messengers.Telegram.Chats, "default") }, `required for alert fallback`},
 	}
@@ -128,9 +131,10 @@ func TestAlertRouteValidation(t *testing.T) {
 func TestAlertRouteValidationAllowsSamePhysicalDestinationForDifferentKinds(t *testing.T) {
 	spec := alertNotificationSpec()
 	spec.Alerts = map[string]NotificationAlertRoutes{
-		"SyncFailed":               {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default"}}}},
-		"NodeDisconnected":         {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default"}}}},
-		"GitRepositoryUnavailable": {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default"}}}},
+		"SyncFailed":                 {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default"}}}},
+		"NodeDisconnected":           {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default"}}}},
+		"GitRepositoryUnavailable":   {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default"}}}},
+		"NotificationDeliveryFailed": {Telegram: []TelegramAlertChannel{{Chats: NotificationChatNames{"default"}}}},
 	}
 
 	assert.Empty(t, spec.validate())

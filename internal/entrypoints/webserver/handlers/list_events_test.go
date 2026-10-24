@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync/atomic"
 	"testing"
@@ -25,18 +24,18 @@ func TestHandlerListEventsFiltersBySeverityAndCategory(t *testing.T) {
 		DeployEvent: events.DeployEvent{StackName: "api", Commit: "abc"},
 	}))
 	require.NoError(t, storeEvent(store, context.Background(), &events.UserAuthenticated{Username: "alice"}))
-	require.NoError(t, storeEvent(store, context.Background(), &events.SendNotificationFailed{
-		EventType: events.TypeDeploySuccess, Destination: "telegram", Channel: "ops", Error: errors.New("timeout"),
+	require.NoError(t, storeEvent(store, context.Background(), &events.ServiceMissed{
+		StackName: "api", ServiceName: "worker",
 	}))
 
 	resp, err := (&handler{history: store}).ListEvents(context.Background(), generated.ListEventsParams{
-		Severities: []generated.EventSeverity{generated.EventSeverityError},
+		Severities: []generated.EventSeverity{generated.EventSeverityAlert},
 		Categories: []generated.EventCategory{generated.EventCategorySync},
 	})
 	require.NoError(t, err)
 	require.Len(t, resp.Events, 1)
-	assert.Equal(t, "SendNotificationFailed", resp.Events[0].Type)
-	assert.Equal(t, generated.EventSeverityError, resp.Events[0].Severity)
+	assert.Equal(t, "ServiceMissed", resp.Events[0].Type)
+	assert.Equal(t, generated.EventSeverityAlert, resp.Events[0].Severity)
 	assert.Equal(t, generated.EventCategorySync, resp.Events[0].Category)
 }
 
@@ -62,18 +61,18 @@ func TestHandlerListEventsUsesOrWithinSeverityFilter(t *testing.T) {
 	t.Parallel()
 	store := newHistoryStore(t)
 	require.NoError(t, storeEvent(store, context.Background(), &events.SyncManualStarted{}))
-	require.NoError(t, storeEvent(store, context.Background(), &events.SendNotificationFailed{
-		EventType: events.TypeDeployFailed, Destination: "custom", Channel: "audit", Error: errors.New("down"),
+	require.NoError(t, storeEvent(store, context.Background(), &events.ServiceMissed{
+		StackName: "api", ServiceName: "worker",
 	}))
 	require.NoError(t, storeEvent(store, context.Background(), &events.AssistantPromptInjectionDetected{}))
 
 	resp, err := (&handler{history: store}).ListEvents(context.Background(), generated.ListEventsParams{
-		Severities: []generated.EventSeverity{generated.EventSeverityInfo, generated.EventSeverityError},
+		Severities: []generated.EventSeverity{generated.EventSeverityInfo, generated.EventSeverityAlert},
 	})
 	require.NoError(t, err)
 	require.Len(t, resp.Events, 2)
 	assert.Equal(t, "SyncManualStarted", resp.Events[0].Type)
-	assert.Equal(t, "SendNotificationFailed", resp.Events[1].Type)
+	assert.Equal(t, "ServiceMissed", resp.Events[1].Type)
 }
 
 func TestHandlerListEventsFiltersBySwarmCategory(t *testing.T) {
@@ -146,24 +145,24 @@ func TestHandlerListEventsFiltersBySince(t *testing.T) {
 		DeployEvent: events.DeployEvent{StackName: "old", Commit: "old"},
 	}, since.Add(-time.Second)))
 	for _, item := range []struct {
-		at          time.Time
-		destination string
+		at    time.Time
+		stack string
 	}{{since, "boundary"}, {since.Add(time.Second), "new"}} {
-		require.NoError(t, storeEventAt(store, context.Background(), &events.SendNotificationFailed{
-			EventType: events.TypeDeploySuccess, Destination: item.destination, Channel: "ops", Error: errors.New("down"),
+		require.NoError(t, storeEventAt(store, context.Background(), &events.ServiceMissed{
+			StackName: item.stack, ServiceName: "worker",
 		}, item.at))
 	}
 
 	var generatedSince generated.OptDateTime
 	generatedSince.SetTo(since)
 	resp, err := (&handler{history: store}).ListEvents(context.Background(), generated.ListEventsParams{
-		Severities: []generated.EventSeverity{generated.EventSeverityError},
+		Severities: []generated.EventSeverity{generated.EventSeverityAlert},
 		Since:      generatedSince,
 	})
 	require.NoError(t, err)
 	require.Len(t, resp.Events, 2)
-	assert.Equal(t, "SendNotificationFailed", resp.Events[0].Type)
-	assert.Equal(t, "SendNotificationFailed", resp.Events[1].Type)
+	assert.Equal(t, "ServiceMissed", resp.Events[0].Type)
+	assert.Equal(t, "ServiceMissed", resp.Events[1].Type)
 }
 
 func TestHandlerListEventsLimitsLatestFilteredEvents(t *testing.T) {

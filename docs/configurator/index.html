@@ -605,7 +605,6 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
               <li id="eventsItemNodeDisconnected"><code>NodeDisconnected</code>: swarm-нода вышла из статуса ready.</li>
               <li id="eventsItemServiceMissed"><code>ServiceMissed</code>: ожидаемый сервис отсутствует в live-состоянии swarm.</li>
               <li id="eventsItemUserAuthenticated"><code>UserAuthenticated</code>: пользователь успешно прошел web-аутентификацию.</li>
-              <li id="eventsItemSendNotificationFailed"><code>SendNotificationFailed</code>: не удалось отправить нотификацию.</li>
               <li id="eventsItemAssistantPromptInjectionDetected"><code>AssistantPromptInjectionDetected</code>: детектирована prompt injection атака.</li>
             </ul>
           </div>
@@ -734,14 +733,6 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
                   <input
                     type="checkbox"
                     name="events"
-                    value="SendNotificationFailed"
-                  />
-                  SendNotificationFailed
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    name="events"
                     value="AssistantPromptInjectionDetected"
                   />
                   AssistantPromptInjectionDetected
@@ -853,8 +844,6 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
             "<code>ServiceMissed</code>: ожидаемый сервис отсутствует в live-состоянии swarm.",
           eventsItemUserAuthenticated:
             "<code>UserAuthenticated</code>: пользователь успешно прошел web-аутентификацию.",
-          eventsItemSendNotificationFailed:
-            "<code>SendNotificationFailed</code>: не удалось отправить нотификацию.",
           eventsItemAssistantPromptInjectionDetected:
             "<code>AssistantPromptInjectionDetected</code>: детектирована prompt injection атака.",
           legendNotificationsEnabled: "Включить нотификации?",
@@ -931,13 +920,6 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
               "commit: {{ .Commit }}",
             ],
             UserAuthenticated: ["пользователь авторизован", "username: {{ .Username }}"],
-            SendNotificationFailed: [
-              "ошибка отправки нотификации",
-              "destination: {{ .Destination }}",
-              "channel: {{ .Channel }}",
-              "event_type: {{ .EventType }}",
-              "error: {{ .Error }}",
-            ],
             AssistantPromptInjectionDetected: [
               "обнаружена prompt injection атака",
               "detector: {{ .Detector }}",
@@ -1018,8 +1000,6 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
             "<code>ServiceMissed</code>: a desired service is absent from live swarm state.",
           eventsItemUserAuthenticated:
             "<code>UserAuthenticated</code>: a user successfully passed web authentication.",
-          eventsItemSendNotificationFailed:
-            "<code>SendNotificationFailed</code>: notification delivery failed.",
           eventsItemAssistantPromptInjectionDetected:
             "<code>AssistantPromptInjectionDetected</code>: a prompt injection attack was detected.",
           legendNotificationsEnabled: "Enable notifications?",
@@ -1096,13 +1076,6 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
               "commit: {{ .Commit }}",
             ],
             UserAuthenticated: ["user authenticated", "username: {{ .Username }}"],
-            SendNotificationFailed: [
-              "notification failed",
-              "destination: {{ .Destination }}",
-              "channel: {{ .Channel }}",
-              "event_type: {{ .EventType }}",
-              "error: {{ .Error }}",
-            ],
             AssistantPromptInjectionDetected: [
               "assistant prompt injection detected",
               "detector: {{ .Detector }}",
@@ -1233,7 +1206,6 @@ docker secret create git_ssh_passphrase ./id_ed25519.passphrase</pre>
         setHTML("eventsItemNodeDisconnected", "eventsItemNodeDisconnected");
         setHTML("eventsItemServiceMissed", "eventsItemServiceMissed");
         setHTML("eventsItemUserAuthenticated", "eventsItemUserAuthenticated");
-        setHTML("eventsItemSendNotificationFailed", "eventsItemSendNotificationFailed");
         setHTML(
           "eventsItemAssistantPromptInjectionDetected",
           "eventsItemAssistantPromptInjectionDetected",
