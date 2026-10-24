@@ -118,10 +118,7 @@ func main() {
 
 	slog.SetDefault(slog.New(slogx.NewChain(
 		slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.Spec.Log.Level.Level()}),
-		slogm.RequestID(),
-		tracing.LogTraceID(),
-		logx.EventType(),
-		security.LogUser(),
+		loggingMiddlewares(cfg.Spec.Tracing != nil)...,
 	)))
 
 	tracerProvider, err := sd.InitTracerProvider(ctx, cfg.Spec.Tracing, buildinfo.Info{
@@ -303,6 +300,15 @@ func main() {
 	}
 
 	shutdownTracing(tracerProvider)
+}
+
+func loggingMiddlewares(tracingEnabled bool) []slogx.Middleware {
+	middlewares := []slogx.Middleware{slogm.RequestID()}
+	if tracingEnabled {
+		middlewares = append(middlewares, tracing.LogTraceID())
+	}
+
+	return append(middlewares, logx.EventType(), security.LogUser())
 }
 
 func repositoryLogValue(repository string) string {
