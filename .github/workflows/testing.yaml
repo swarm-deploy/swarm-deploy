@@ -31,15 +31,6 @@ jobs:
             backend:
               - 'cmd/**'
               - 'internal/**'
-              - 'api/**'
-              - 'e2e/**'
-              - 'migrations/**'
-              - 'go.mod'
-              - 'go.sum'
-              - 'ogen.yml'
-              - 'Makefile'
-              - '.golangci.yml'
-              - '.github/workflows/testing.yaml'
 
   code-lint:
     name: code-lint
