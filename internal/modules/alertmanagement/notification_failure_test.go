@@ -68,10 +68,6 @@ func TestNotificationDeliveryLifecycleByPhysicalDestination(t *testing.T) {
 	require.NoError(t, subscriber.Handle(t.Context(), failureEnvelope(
 		"a-2", 2, at, telegramA, "renamed-infrastructure", events.TypeNodeConnected,
 	)))
-	// Duplicate source IDs are ignored atomically.
-	require.NoError(t, subscriber.Handle(t.Context(), failureEnvelope(
-		"a-2", 2, at.Add(-time.Hour), telegramA, "duplicate", events.TypeNodeConnected,
-	)))
 	require.NoError(t, subscriber.Handle(t.Context(), failureEnvelope(
 		"b-1", 3, at.Add(-time.Hour), telegramB, "audit", events.TypeNodeJoined,
 	)))
@@ -124,40 +120,6 @@ func TestNotificationDeliveryLifecycleByPhysicalDestination(t *testing.T) {
 	reopened, err = store.FindOpenByFingerprint(t.Context(), model.NotificationDeliveryFailedFingerprint(telegramA))
 	require.NoError(t, err)
 	assert.EqualValues(t, 1, reopened.Occurrences)
-}
-
-func TestNotificationDeliveryDeduplicationSurvivesRestart(t *testing.T) {
-	directory := t.TempDir()
-	db, err := storage.Open(t.Context(), directory)
-	require.NoError(t, err)
-	bus := outbox.New(db)
-	subscriber, _ := newNotificationSQLSubscriber(db, bus)
-	event := failureEnvelope("restart-failure", 1, time.Now().UTC(), telegramA, "ops", events.TypeNodeJoined)
-	require.NoError(t, subscriber.Handle(t.Context(), event))
-	require.NoError(t, db.Close())
-
-	db, err = storage.Open(t.Context(), directory)
-	require.NoError(t, err)
-	restarted, store := newNotificationSQLSubscriber(db, outbox.New(db))
-	require.NoError(t, restarted.Handle(t.Context(), event))
-	alert, err := store.FindOpenByFingerprint(t.Context(), model.NotificationDeliveryFailedFingerprint(telegramA))
-	require.NoError(t, err)
-	assert.EqualValues(t, 1, alert.Occurrences)
-	recovery := successEnvelope("restart-success", 2, time.Now().Add(-time.Hour), telegramA, "ops", events.TypeNodeJoined)
-	require.NoError(t, restarted.Handle(t.Context(), recovery))
-	require.NoError(t, db.Close())
-
-	db, err = storage.Open(t.Context(), directory)
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	restarted, store = newNotificationSQLSubscriber(db, outbox.New(db))
-	require.NoError(t, restarted.Handle(t.Context(), recovery))
-	_, err = store.FindOpenByFingerprint(t.Context(), model.NotificationDeliveryFailedFingerprint(telegramA))
-	assert.ErrorIs(t, err, modelstore.ErrAlertNotFound)
-	resolved, err := store.List(t.Context(), modelstore.ListFilter{Status: model.AlertStatusResolved})
-	require.NoError(t, err)
-	require.Len(t, resolved, 1)
-	assert.Equal(t, model.ResolutionReasonRecovered, resolved[0].Resolution.Reason)
 }
 
 func TestConcurrentNotificationFailuresCreateOneAlert(t *testing.T) {

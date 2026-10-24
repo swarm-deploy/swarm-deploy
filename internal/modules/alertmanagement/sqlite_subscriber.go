@@ -9,7 +9,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 )
 
-// SQLSubscriber joins source deduplication and the alert lifecycle in one transaction.
+// SQLSubscriber applies alert lifecycle transitions inside the Outbox subscriber transaction.
 type SQLSubscriber struct {
 	// Subscriber implements the alert lifecycle using the shared repository.
 	*Subscriber
@@ -26,7 +26,7 @@ func NewSQLSubscriber(store *modelstore.SQLStore, publisher interface {
 	return &SQLSubscriber{Subscriber: NewSubscriber(store, publisher, recipients, stacks), store: store}
 }
 
-// Handle applies each source publication once, even across retry and restart.
+// Handle applies an alert lifecycle transition with its ordering guard.
 func (s *SQLSubscriber) Handle(ctx context.Context, event events.Envelope) error {
 	var resource string
 	switch e := event.Event.(type) {
@@ -53,28 +53,21 @@ func (s *SQLSubscriber) Handle(ctx context.Context, event events.Envelope) error
 		resource = "repository:" + e.Repository
 	case *events.SendNotificationFailed:
 		key := notificationDestinationKey(e.DestinationKey, e.Destination, e.Channel)
-		return s.store.ConsumeOnce(ctx, event.ID, key, event.PublicationSequence, func(ctx context.Context) error {
-			recoveredAt, err := s.store.NotificationRecoverySequence(ctx, key)
-			if err != nil {
-				return err
-			}
-			if event.PublicationSequence <= recoveredAt {
-				return nil
-			}
-			return s.Subscriber.Handle(ctx, event)
-		})
+		recoveredAt, err := s.store.NotificationRecoverySequence(ctx, key)
+		if err != nil {
+			return err
+		}
+		if event.PublicationSequence <= recoveredAt {
+			return nil
+		}
+		return s.Subscriber.Handle(ctx, event)
 	case *events.NotificationSent:
 		key := notificationDestinationKey(e.DestinationKey, e.Destination, e.Channel)
-		return s.store.ConsumeOnce(ctx, event.ID, key, event.PublicationSequence, func(ctx context.Context) error {
-			advanced, err := s.store.AdvanceNotificationRecovery(ctx, key, event.PublicationSequence, event.ID)
-			if err != nil || !advanced {
-				return err
-			}
-			if err = s.Subscriber.Handle(ctx, event); err != nil {
-				return err
-			}
-			return s.store.PruneNotificationDeliveryReceipts(ctx, key, event.PublicationSequence)
-		})
+		advanced, err := s.store.AdvanceNotificationRecovery(ctx, key, event.PublicationSequence, event.ID)
+		if err != nil || !advanced {
+			return err
+		}
+		return s.Subscriber.Handle(ctx, event)
 	default:
 		return nil
 	}
