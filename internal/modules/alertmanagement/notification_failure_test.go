@@ -2,6 +2,7 @@ package alertmanagement
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -85,4 +86,59 @@ func notificationFailureEnvelope(
 	return events.Envelope{ID: id, OccurredAt: at, Event: &events.SendNotificationFailed{
 		EventType: eventType, Destination: destination, Channel: channel,
 	}}
+}
+
+type failingNotificationHandler struct{}
+
+func (failingNotificationHandler) Handle(context.Context, events.Envelope) error {
+	return errors.New("private notification failure")
+}
+
+type countingAlertHandler struct{ opened int }
+
+func (h *countingAlertHandler) Handle(_ context.Context, envelope events.Envelope) error {
+	if _, ok := envelope.Event.(*events.AlertOpened); ok {
+		h.opened++
+	}
+	return nil
+}
+
+// Exercise the actual Outbox -> SendNotificationFailed -> Alert Management -> AlertOpened flow.
+// A second terminal failure updates the same incident without another AlertOpened.
+func TestTerminalNotificationFailuresOpenOneAlertEndToEnd(t *testing.T) {
+	db, err := storage.Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	bus := outbox.New(db)
+	store := modelstore.NewSQLStore(db)
+	subscriber := NewSQLSubscriber(store, bus, func(model.AlertKind) []events.AlertRecipient { return nil },
+		&config.Config{})
+	capture := &countingAlertHandler{}
+	require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, "notification",
+		outbox.ExternalNotification(failingNotificationHandler{}, "telegram", "alerts")))
+	require.NoError(t, bus.Subscribe(events.TypeNameSendNotificationFailed, "alert-management", subscriber))
+	require.NoError(t, bus.Subscribe(events.TypeNameAlertOpened, "capture", capture))
+
+	for attempt := range 2 {
+		require.NoError(t, bus.Publish(t.Context(), &events.NodeJoined{NodeID: "node"}))
+		// Make this the last retry without waiting for the default retry schedule.
+		_, err = db.Exec(t.Context(), "UPDATE outbox_deliveries SET attempts=11 WHERE subscription_id='notification' AND status='pending'")
+		require.NoError(t, err)
+		for range 10 {
+			handled, processErr := bus.ProcessNext(t.Context())
+			require.NoError(t, processErr)
+			if !handled {
+				break
+			}
+		}
+		alerts, listErr := store.List(t.Context(), modelstore.ListFilter{})
+		require.NoError(t, listErr)
+		require.Len(t, alerts, 1)
+		assert.EqualValues(t, attempt+1, alerts[0].Occurrences)
+		assert.Equal(t, model.NotificationDeliveryFailedFingerprint(), alerts[0].Fingerprint)
+		assert.Contains(t, alerts[0].Message, "channel alerts")
+		assert.NotContains(t, alerts[0].Message, "private")
+		assert.Equal(t, 1, capture.opened, "only the initial failure opens an alert")
+	}
 }
