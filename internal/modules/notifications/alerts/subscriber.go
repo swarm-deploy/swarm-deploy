@@ -89,8 +89,9 @@ func Register(
 	}
 	for recipient := range recipients {
 		id := SubscriptionID(recipient)
+		// SubscriptionID contains the physical chat identity; keep it out of persisted failure events.
 		handler := outbox.ExternalNotification(
-			&Subscriber{store: store, spec: spec, recipient: recipient, now: time.Now}, "telegram", id,
+			&Subscriber{store: store, spec: spec, recipient: recipient, now: time.Now}, "telegram", "alerts",
 		)
 		if err = bus.Subscribe(events.TypeNameAlertOpened, id, handler); err != nil {
 			return err
