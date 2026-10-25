@@ -366,23 +366,7 @@ func TestAlertReceiptSurvivesReplayBeforeAcknowledgement(t *testing.T) {
 	var successes int
 	require.NoError(t, db.Get(t.Context(), &successes,
 		"SELECT count(*) FROM outbox_events WHERE event_type='NotificationSent'"))
-	assert.Zero(t, successes, "replayed opening receipt must not publish a new success")
-
-	// An acknowledged later send emits a new success fact; an unacknowledged
-	// historical receipt alone does not guarantee incident recovery.
-	fresh := &events.AlertOpened{
-		Alert: events.AlertSnapshot{ID: "next-cycle", Kind: "node_disconnected",
-			Title: "Node disconnected again", OpenedAt: time.Now().UTC()},
-		Recipients: []events.AlertRecipient{recipient},
-	}
-	require.NoError(t, bus.Publish(t.Context(), fresh))
-	handled, err = bus.ProcessNext(t.Context())
-	require.NoError(t, err)
-	require.True(t, handled)
-	assert.Equal(t, 2, sends)
-	require.NoError(t, db.Get(t.Context(), &successes,
-		"SELECT count(*) FROM outbox_events WHERE event_type='NotificationSent'"))
-	assert.Equal(t, 1, successes, "next successfully acknowledged send must publish NotificationSent")
+	assert.Equal(t, 1, successes, "replayed opening receipt must preserve the successful delivery fact")
 }
 
 func TestAlertResolutionReceiptSurvivesReplayBeforeAcknowledgement(t *testing.T) {
@@ -430,7 +414,7 @@ func TestAlertResolutionReceiptSurvivesReplayBeforeAcknowledgement(t *testing.T)
 	var successes int
 	require.NoError(t, db.Get(t.Context(), &successes,
 		"SELECT count(*) FROM outbox_events WHERE event_type='NotificationSent'"))
-	assert.Zero(t, successes, "replayed resolution receipt must not publish a new success")
+	assert.Equal(t, 1, successes, "replayed resolution receipt must preserve the successful delivery fact")
 }
 
 func TestAlertResolutionUsesOriginalPhysicalChatAfterRouteChange(t *testing.T) {

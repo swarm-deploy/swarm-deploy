@@ -78,6 +78,8 @@ type Alert struct {
 	LatestEventID string `json:"latestEventId"`
 	// LatestEventSequence is the durable publication order of the latest failure.
 	LatestEventSequence int64 `json:"latestEventSequence,omitempty"`
+	// LatestEventAt is the publication time of the latest notification delivery failure.
+	LatestEventAt time.Time `json:"latestEventAt,omitempty"`
 	// ResolvedAt is when the incident recovered.
 	ResolvedAt *time.Time `json:"resolvedAt,omitempty"`
 	// Resolution describes how the incident ended.

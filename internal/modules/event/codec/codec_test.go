@@ -74,9 +74,10 @@ func TestNotificationFailureCodecCompatibility(t *testing.T) {
 }
 
 func TestNotificationSentCodec(t *testing.T) {
+	deliveredAt := time.Date(2026, 10, 25, 8, 30, 0, 0, time.UTC)
 	event := &events.NotificationSent{
 		EventType: events.TypeAlertOpened, Destination: "telegram", Channel: "alerts",
-		DestinationKey: "telegram:safe-hash",
+		DestinationKey: "telegram:safe-hash", DeliveredAt: deliveredAt,
 	}
 	payload, err := Encode(event)
 	require.NoError(t, err)

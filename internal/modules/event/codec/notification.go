@@ -20,7 +20,7 @@ func encodeNotificationDelivery(event events.Event) ([]byte, bool, error) {
 	case *events.NotificationSent:
 		payload = notificationPayload{
 			EventType: delivery.EventType, Destination: delivery.Destination, Channel: delivery.Channel,
-			DestinationKey: delivery.DestinationKey,
+			DestinationKey: delivery.DestinationKey, DeliveredAt: delivery.DeliveredAt,
 		}
 	default:
 		return nil, false, nil
@@ -34,7 +34,7 @@ func decodeNotificationDelivery(typ events.TypeName, payload []byte) (events.Eve
 		if typ == events.TypeNameNotificationSent {
 			return &events.NotificationSent{
 				EventType: stored.EventType, Destination: stored.Destination, Channel: stored.Channel,
-				DestinationKey: stored.DestinationKey,
+				DestinationKey: stored.DestinationKey, DeliveredAt: stored.DeliveredAt,
 			}
 		}
 		var deliveryErr error

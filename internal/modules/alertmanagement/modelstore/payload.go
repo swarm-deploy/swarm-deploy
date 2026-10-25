@@ -19,6 +19,7 @@ type alertPayload struct {
 	OpenEventID         string                 `json:"openEventId"`
 	LatestEventID       string                 `json:"latestEventId"`
 	LatestEventSequence int64                  `json:"latestEventSequence,omitempty"`
+	LatestEventAt       time.Time              `json:"latestEventAt,omitempty"`
 	Resolution          *model.AlertResolution `json:"resolution,omitempty"`
 }
 
@@ -33,6 +34,7 @@ func payloadFromAlert(alert model.Alert) alertPayload {
 		OpenEventID:         alert.OpenEventID,
 		LatestEventID:       alert.LatestEventID,
 		LatestEventSequence: alert.LatestEventSequence,
+		LatestEventAt:       alert.LatestEventAt,
 		Resolution:          alert.Resolution,
 	}
 }
@@ -76,6 +78,7 @@ func (r alertRow) toAlert() (model.Alert, error) {
 		OpenEventID:         payload.OpenEventID,
 		LatestEventID:       payload.LatestEventID,
 		LatestEventSequence: payload.LatestEventSequence,
+		LatestEventAt:       payload.LatestEventAt,
 		Resolution:          payload.Resolution,
 	}
 	if r.ResolvedAt.Valid {

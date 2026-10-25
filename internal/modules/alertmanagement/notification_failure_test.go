@@ -51,6 +51,14 @@ func successEnvelope(
 		}}
 }
 
+func replayedSuccessEnvelope(
+	id string, sequence int64, publishedAt, deliveredAt time.Time, key, channel string, source events.Type,
+) events.Envelope {
+	envelope := successEnvelope(id, sequence, publishedAt, key, channel, source)
+	envelope.Event.(*events.NotificationSent).DeliveredAt = deliveredAt
+	return envelope
+}
+
 func TestNotificationDeliveryLifecycleByPhysicalDestination(t *testing.T) {
 	db, err := storage.Open(t.Context(), t.TempDir())
 	require.NoError(t, err)
@@ -153,6 +161,43 @@ func TestConcurrentNotificationFailuresCreateOneAlert(t *testing.T) {
 	require.NoError(t, err)
 	assert.EqualValues(t, 2, alert.Occurrences)
 	assert.Equal(t, 1, alertSignalCount(t, db, string(events.TypeNameAlertOpened)))
+}
+
+func TestPersistedNotificationReceiptRecoversOnlyOlderFailure(t *testing.T) {
+	db, err := storage.Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	bus := outbox.New(db)
+	subscriber, store := newNotificationSQLSubscriber(db, bus)
+	require.NoError(t, bus.Subscribe(events.TypeNameAlertOpened, "opened-capture", &countingAlertHandler{}))
+	require.NoError(t, bus.Subscribe(events.TypeNameAlertResolved, "resolved-capture", &countingAlertHandler{}))
+	failedAt := time.Date(2026, 10, 25, 8, 0, 0, 0, time.UTC)
+	deliveredAt := failedAt.Add(time.Minute)
+
+	require.NoError(t, subscriber.Handle(t.Context(), failureEnvelope(
+		"failure-before-receipt", 1, failedAt, telegramA, "ops", events.TypeNodeJoined,
+	)))
+	require.NoError(t, subscriber.Handle(t.Context(), replayedSuccessEnvelope(
+		"recovered-receipt", 2, deliveredAt.Add(time.Hour), deliveredAt,
+		telegramA, "ops", events.TypeAlertOpened,
+	)))
+	_, err = store.FindOpenByFingerprint(t.Context(), model.NotificationDeliveryFailedFingerprint(telegramA))
+	assert.ErrorIs(t, err, modelstore.ErrAlertNotFound)
+
+	newerFailureAt := deliveredAt.Add(time.Minute)
+	require.NoError(t, subscriber.Handle(t.Context(), failureEnvelope(
+		"failure-after-receipt", 3, newerFailureAt, telegramA, "ops", events.TypeNodeJoined,
+	)))
+	require.NoError(t, subscriber.Handle(t.Context(), replayedSuccessEnvelope(
+		"stale-receipt", 4, newerFailureAt.Add(time.Hour), deliveredAt,
+		telegramA, "ops", events.TypeAlertOpened,
+	)))
+	alert, err := store.FindOpenByFingerprint(
+		t.Context(), model.NotificationDeliveryFailedFingerprint(telegramA),
+	)
+	require.NoError(t, err)
+	assert.Equal(t, "failure-after-receipt", alert.LatestEventID)
+	assert.Equal(t, newerFailureAt, alert.LatestEventAt)
 }
 
 type failingNotificationHandler struct{}

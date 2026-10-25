@@ -143,8 +143,17 @@ func (s *Subscriber) Handle(ctx context.Context, envelope events.Envelope) error
 
 // HandleNotification applies an alert transition and reports whether an external send occurred.
 func (s *Subscriber) HandleNotification(ctx context.Context, envelope events.Envelope) (bool, error) {
+	outcome, err := s.HandleNotificationOutcome(ctx, envelope)
+	return outcome.Delivered, err
+}
+
+// HandleNotificationOutcome applies an alert transition and recovers the original
+// transport acceptance time when a persisted receipt is acknowledged after restart.
+func (s *Subscriber) HandleNotificationOutcome(
+	ctx context.Context, envelope events.Envelope,
+) (outbox.NotificationOutcome, error) {
 	if err := s.store.PruneCompleted(ctx); err != nil {
-		return false, err
+		return outbox.NotificationOutcome{}, err
 	}
 	switch event := envelope.Event.(type) {
 	case *events.AlertOpened:
@@ -153,30 +162,30 @@ func (s *Subscriber) HandleNotification(ctx context.Context, envelope events.Env
 				return s.opened(ctx, event.Alert)
 			}
 		}
-		return false, nil
+		return outbox.NotificationOutcome{}, nil
 	case *events.AlertResolved:
 		return s.resolved(ctx, event)
 	default:
-		return false, nil
+		return outbox.NotificationOutcome{}, nil
 	}
 }
 
-func (s *Subscriber) opened(ctx context.Context, alert events.AlertSnapshot) (bool, error) {
+func (s *Subscriber) opened(ctx context.Context, alert events.AlertSnapshot) (outbox.NotificationOutcome, error) {
 	if err := s.store.Ensure(ctx, alert.ID, s.recipient); err != nil {
-		return false, err
+		return outbox.NotificationOutcome{}, err
 	}
 	link, err := s.store.Get(ctx, alert.ID, s.recipient)
 	if err != nil {
-		return false, err
+		return outbox.NotificationOutcome{}, err
 	}
 	// Do not replay an opening after the alert was already resolved.
 	if link.ResolvedAt.Valid {
-		return false, nil
+		return outbox.NotificationOutcome{}, nil
 	}
 	if link.OpenedAt.Valid {
-		// The receipt predates this attempt. A replay must not publish a fresh
-		// NotificationSent and accidentally recover a more recent failure.
-		return false, nil
+		return outbox.NotificationOutcome{
+			Delivered: true, DeliveredAt: link.OpenedAt.Time.UTC(),
+		}, nil
 	}
 	rule := s.rule(alert.Kind)
 	payload := alert
@@ -192,31 +201,33 @@ func (s *Subscriber) opened(ctx context.Context, alert events.AlertSnapshot) (bo
 	}
 	notifier, err := s.notifier(rule.AlertOpenedTemplate(alert.Kind), parseMode)
 	if err != nil {
-		return false, err
+		return outbox.NotificationOutcome{}, err
 	}
 	receipt, err := notifier.Notify(ctx, notifiers.Message{Payload: payload, Action: notifiers.ActionSend})
 	if err != nil {
-		return false, err
+		return outbox.NotificationOutcome{}, err
 	}
 	if err = s.store.MarkOpened(ctx, alert.ID, s.recipient, receipt, s.now()); err != nil {
-		return false, err
+		return outbox.NotificationOutcome{}, err
 	}
-	return true, nil
+	return outbox.NotificationOutcome{Delivered: true}, nil
 }
 
-func (s *Subscriber) resolved(ctx context.Context, event *events.AlertResolved) (bool, error) {
+func (s *Subscriber) resolved(
+	ctx context.Context, event *events.AlertResolved,
+) (outbox.NotificationOutcome, error) {
 	alert := event.Alert
 	link, deliver, err := s.resolutionLink(ctx, event)
 	if err != nil {
-		return false, err
+		return outbox.NotificationOutcome{}, err
 	}
 	if !deliver {
-		return false, nil
+		return outbox.NotificationOutcome{}, nil
 	}
 	if link.ResolvedAt.Valid {
-		// A persisted receipt is not a new successful delivery. In particular,
-		// replaying an older resolution must not recover a newer incident.
-		return false, nil
+		return outbox.NotificationOutcome{
+			Delivered: true, DeliveredAt: link.ResolvedAt.Time.UTC(),
+		}, nil
 	}
 	rule := s.rule(alert.Kind)
 	payload := alert
@@ -228,7 +239,7 @@ func (s *Subscriber) resolved(ctx context.Context, event *events.AlertResolved) 
 	}
 	notifier, err := s.notifier(rule.AlertResolvedTemplate(alert.Kind), parseMode)
 	if err != nil {
-		return false, err
+		return outbox.NotificationOutcome{}, err
 	}
 	action := notifiers.ActionSend
 	if link.OpenedMessageID.Valid {
@@ -238,12 +249,12 @@ func (s *Subscriber) resolved(ctx context.Context, event *events.AlertResolved) 
 		Payload: payload, Action: action, TargetMessageID: link.OpenedMessageID.Int64,
 	})
 	if err != nil {
-		return false, err
+		return outbox.NotificationOutcome{}, err
 	}
 	if err = s.store.MarkResolved(ctx, alert.ID, s.recipient, receipt, s.now()); err != nil {
-		return false, err
+		return outbox.NotificationOutcome{}, err
 	}
-	return true, nil
+	return outbox.NotificationOutcome{Delivered: true}, nil
 }
 
 func (s *Subscriber) resolutionLink(

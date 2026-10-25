@@ -2,6 +2,7 @@ package alertmanagement
 
 import (
 	"context"
+	"errors"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
@@ -63,6 +64,20 @@ func (s *SQLSubscriber) Handle(ctx context.Context, event events.Envelope) error
 		return s.Subscriber.Handle(ctx, event)
 	case *events.NotificationSent:
 		key := notificationDestinationKey(e.DestinationKey, e.Destination, e.Channel)
+		if !e.DeliveredAt.IsZero() {
+			alert, findErr := s.store.FindOpenByFingerprint(
+				ctx, model.NotificationDeliveryFailedFingerprint(key),
+			)
+			if findErr != nil {
+				if errors.Is(findErr, modelstore.ErrAlertNotFound) {
+					return nil
+				}
+				return findErr
+			}
+			if !alert.LatestEventAt.IsZero() && !e.DeliveredAt.After(alert.LatestEventAt) {
+				return nil
+			}
+		}
 		advanced, err := s.store.AdvanceNotificationRecovery(ctx, key, event.PublicationSequence, event.ID)
 		if err != nil || !advanced {
 			return err

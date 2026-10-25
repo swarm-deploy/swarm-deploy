@@ -85,7 +85,7 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 	case *events.GitPullSucceeded:
 		return s.handleGitPullSucceeded(ctx, event.ID, deployment)
 	case *events.SendNotificationFailed:
-		return s.handleNotificationFailed(ctx, event.ID, event.PublicationSequence, deployment)
+		return s.handleNotificationFailed(ctx, event.ID, event.PublicationSequence, event.OccurredAt, deployment)
 	case *events.NotificationSent:
 		return s.handleNotificationSent(ctx, event.ID, event.PublicationSequence, deployment)
 	default:
@@ -94,7 +94,7 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 }
 
 func (s *Subscriber) handleNotificationFailed(
-	ctx context.Context, eventID string, eventSequence int64, event *events.SendNotificationFailed,
+	ctx context.Context, eventID string, eventSequence int64, eventAt time.Time, event *events.SendNotificationFailed,
 ) error {
 	destinationKey := notificationDestinationKey(
 		event.DestinationKey, event.Destination, event.Channel,
@@ -105,6 +105,9 @@ func (s *Subscriber) handleNotificationFailed(
 		return nil
 	}
 	now := s.now()
+	if eventAt.IsZero() {
+		eventAt = now
+	}
 	eventID = eventReferenceID(eventID, s.newID)
 	message := event.Message()
 	errorCode := faults.SafeDiagnostic(event.Error)
@@ -121,6 +124,7 @@ func (s *Subscriber) handleNotificationFailed(
 		if eventSequence == 0 || eventSequence > alert.LatestEventSequence {
 			alert.LatestEventID = eventID
 			alert.LatestEventSequence = eventSequence
+			alert.LatestEventAt = eventAt.UTC()
 			alert.Message = message
 			alert.ResourceID = notificationResourceID(event.Destination, event.Channel)
 			alert.ErrorCode = errorCode
@@ -138,6 +142,7 @@ func (s *Subscriber) handleNotificationFailed(
 		FailureStage: "notification_delivery", ErrorCode: errorCode, Occurrences: 1,
 		OpenedAt: now, UpdatedAt: now, OpenEventID: eventID, LatestEventID: eventID,
 		LatestEventSequence: eventSequence,
+		LatestEventAt:       eventAt.UTC(),
 	}
 	if err = s.store.Create(ctx, alert); err == nil {
 		return s.publishOpened(ctx, alert)
@@ -163,6 +168,10 @@ func (s *Subscriber) handleNotificationSent(
 		return fmt.Errorf("find open notification delivery alert: %w", err)
 	}
 	if eventSequence > 0 && eventSequence <= alert.LatestEventSequence {
+		return nil
+	}
+	if !event.DeliveredAt.IsZero() && !alert.LatestEventAt.IsZero() &&
+		!event.DeliveredAt.After(alert.LatestEventAt) {
 		return nil
 	}
 	now := s.now()
@@ -443,6 +452,7 @@ func (s *Subscriber) updateConcurrentFailure(
 	if incoming.LatestEventSequence == 0 || incoming.LatestEventSequence > existing.LatestEventSequence {
 		existing.LatestEventID = eventID
 		existing.LatestEventSequence = incoming.LatestEventSequence
+		existing.LatestEventAt = incoming.LatestEventAt
 		if hasDiagnostic || existing.Message == "" {
 			existing.Message = incoming.Message
 		}

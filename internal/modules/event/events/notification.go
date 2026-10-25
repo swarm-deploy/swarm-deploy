@@ -2,6 +2,7 @@ package events
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
@@ -40,6 +41,9 @@ type NotificationSent struct {
 	Channel string
 	// DestinationKey is a stable, non-reversible physical destination identity.
 	DestinationKey string
+	// DeliveredAt is the original transport acceptance time when recovered from a persisted receipt.
+	// A zero value means the success was observed immediately before this event was published.
+	DeliveredAt time.Time
 }
 
 // Type returns the internal delivery event type.

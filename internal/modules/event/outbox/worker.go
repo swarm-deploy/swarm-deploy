@@ -324,12 +324,12 @@ func (b *Bus) process(ctx context.Context, d delivery) (err error) {
 		if err = b.checkLease(ctx, d); err != nil {
 			return err
 		}
-		delivered, sendErr := notification.HandleNotification(ctx, envelope)
+		outcome, sendErr := notification.HandleNotificationOutcome(ctx, envelope)
 		if sendErr != nil {
 			return sendErr
 		}
 		return b.db.WithinTransaction(ctx, func(ctx context.Context) error {
-			return b.ack(ctx, d, delivered)
+			return b.ack(ctx, d, outcome)
 		})
 	}
 	if external, ok := handler.(externalSubscriber); ok {
@@ -340,7 +340,7 @@ func (b *Bus) process(ctx context.Context, d delivery) (err error) {
 			return err
 		}
 		return b.db.WithinTransaction(ctx, func(ctx context.Context) error {
-			return b.ack(ctx, d, false)
+			return b.ack(ctx, d, NotificationOutcome{})
 		})
 	}
 	return b.db.WithinTransaction(ctx, func(ctx context.Context) error {
@@ -350,7 +350,7 @@ func (b *Bus) process(ctx context.Context, d delivery) (err error) {
 		if handlerErr := invoke(ctx, handler, envelope); handlerErr != nil {
 			return handlerErr
 		}
-		return b.ack(ctx, d, false)
+		return b.ack(ctx, d, NotificationOutcome{})
 	})
 }
 
@@ -399,7 +399,7 @@ func (b *Bus) checkLease(ctx context.Context, d delivery) error {
 	return nil
 }
 
-func (b *Bus) ack(ctx context.Context, d delivery, delivered bool) error {
+func (b *Bus) ack(ctx context.Context, d delivery, outcome NotificationOutcome) error {
 	query, args, err := goqu.Dialect("sqlite3").Update("outbox_deliveries").Prepared(true).
 		Set(goqu.Record{
 			"status": "delivered", "lease_token": nil, "lease_until": nil,
@@ -420,8 +420,8 @@ func (b *Bus) ack(ctx context.Context, d delivery, delivered bool) error {
 	if err = requireChanged(result); err != nil {
 		return err
 	}
-	if delivered {
-		if success := b.notificationSuccess(d); success != nil {
+	if outcome.Delivered {
+		if success := b.notificationSuccess(d, outcome.DeliveredAt); success != nil {
 			if err = b.Publish(context.WithValue(ctx, causeKey{}, d.eventID), success); err != nil {
 				return err
 			}
@@ -520,7 +520,7 @@ func (b *Bus) notificationFailure(d delivery, code string) *events.SendNotificat
 	}
 }
 
-func (b *Bus) notificationSuccess(d delivery) *events.NotificationSent {
+func (b *Bus) notificationSuccess(d delivery, deliveredAt time.Time) *events.NotificationSent {
 	// Delivery failures must not recursively produce failure events, but a real
 	// successful delivery of SendNotificationFailed can recover its destination.
 	// NotificationSent itself must never generate another success event.
@@ -537,6 +537,7 @@ func (b *Bus) notificationSuccess(d delivery) *events.NotificationSent {
 	}
 	return &events.NotificationSent{
 		EventType: eventType, Destination: destination, Channel: channel, DestinationKey: key,
+		DeliveredAt: deliveredAt,
 	}
 }
 
