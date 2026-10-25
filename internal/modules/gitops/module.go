@@ -8,9 +8,9 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/configstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/differ"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
@@ -21,7 +21,7 @@ import (
 
 type Module struct {
 	// Deployments queries actual apply attempts, independently of event projections.
-	Deployments   *deployment.Store
+	Deployments   *deploymentstore.Store
 	Controller    *controller.Controller
 	Store         *modelstore.SQLStore
 	GitRepository git.Repository
@@ -56,7 +56,7 @@ func InitModule(
 	}
 
 	srv.Store = modelstore.NewSQLStore(cnt.GetStorage())
-	srv.Deployments = deployment.NewStore(cnt.GetStorage())
+	srv.Deployments = deploymentstore.NewStore(cnt.GetStorage())
 
 	srv.Controller = controller.New(
 		cfg,

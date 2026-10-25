@@ -16,6 +16,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/configstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
+	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -529,7 +530,7 @@ func TestDeploymentCompletionOutboxPreservesAlertThresholds(t *testing.T) {
 						err = service.FailCleanupWithError(ctx, attempt.ID, gitopsmodel.Stack{}, "prune_failed", time.Now(), cause)
 					}
 					require.NoError(t, err)
-					stored, readErr := deployment.NewStore(db).Get(ctx, attempt.DeploymentID)
+					stored, readErr := deploymentstore.NewStore(db).Get(ctx, attempt.DeploymentID)
 					require.NoError(t, readErr)
 					assert.NotContains(t, stored.ErrorDiagnostic, "private-value")
 					assert.Contains(t, stored.ErrorDiagnostic, "****")

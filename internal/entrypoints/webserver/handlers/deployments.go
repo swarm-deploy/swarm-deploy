@@ -10,7 +10,8 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
+	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 )
 
 // GetDeploymentFilters returns stack and service names with recorded desired-state deployments.
@@ -34,11 +35,11 @@ func (h *handler) GetDeploymentFilters(ctx context.Context) (*generated.Deployme
 func (h *handler) ListDeployments(
 	ctx context.Context, params generated.ListDeploymentsParams,
 ) (*generated.DeploymentsResponse, error) {
-	page, err := h.deployments.List(ctx, deployment.ListFilter{
+	page, err := h.deployments.List(ctx, deploymentmodel.ListFilter{
 		Stack: params.Stack.Or(""), Service: params.ServiceName.Or(""),
 		Limit: int(params.Limit.Or(0)), Cursor: params.Cursor.Or(""),
 	})
-	if errors.Is(err, deployment.ErrInvalidCursor) {
+	if errors.Is(err, deploymentstore.ErrInvalidCursor) {
 		return nil, withStatusError(http.StatusBadRequest, err)
 	}
 	if err != nil {
@@ -60,7 +61,7 @@ func (h *handler) GetDeployment(
 	ctx context.Context, params generated.GetDeploymentParams,
 ) (*generated.Deployment, error) {
 	item, err := h.deployments.Get(ctx, params.ID)
-	if errors.Is(err, deployment.ErrNotFound) {
+	if errors.Is(err, deploymentstore.ErrNotFound) {
 		return nil, withStatusError(http.StatusNotFound, err)
 	}
 	if err != nil {
@@ -133,7 +134,7 @@ func jobCount(value any) string {
 	return ""
 }
 
-func toGeneratedDeploymentSummary(item deployment.DeploymentSummary) generated.DeploymentSummary {
+func toGeneratedDeploymentSummary(item deploymentmodel.DeploymentSummary) generated.DeploymentSummary {
 	result := generated.DeploymentSummary{
 		ID: item.ID, Stack: item.Stack, Commit: item.Commit,
 		Status:             generated.DeploymentStatus(item.Status),
@@ -162,7 +163,7 @@ func toGeneratedDeploymentSummary(item deployment.DeploymentSummary) generated.D
 	return result
 }
 
-func toGeneratedDeployment(item deployment.Deployment) generated.Deployment {
+func toGeneratedDeployment(item deploymentmodel.Deployment) generated.Deployment {
 	result := generated.Deployment{
 		ID: item.ID, Stack: item.Stack, Commit: item.Commit,
 		Status:             generated.DeploymentStatus(item.Status),

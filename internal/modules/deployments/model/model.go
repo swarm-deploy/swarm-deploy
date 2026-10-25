@@ -1,5 +1,5 @@
-// Package deployment owns desired-state deployments, their attempts and successful baselines.
-package deployment
+// Package model owns desired-state deployments, their attempts and successful baselines.
+package model
 
 import (
 	"time"

@@ -1,4 +1,4 @@
-package deployment
+package model
 
 import (
 	"bytes"
@@ -337,7 +337,8 @@ func publicSegment(value string) string {
 	return result.String()
 }
 
-func summarize(changes []Change) (ChangeSummary, ResourceSummary) {
+// Summarize returns field transition and affected-resource totals for changes.
+func Summarize(changes []Change) (ChangeSummary, ResourceSummary) {
 	var summary ChangeSummary
 	resources := map[string]map[string]bool{
 		"service": {}, "config": {}, "secret": {}, "network": {}, "volume": {},

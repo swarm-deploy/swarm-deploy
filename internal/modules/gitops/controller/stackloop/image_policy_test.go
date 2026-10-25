@@ -16,10 +16,11 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement"
 	alertmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	alertstore "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
+	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	eventhistory "github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -209,7 +210,7 @@ func TestImagePolicyViolationLifecycle(t *testing.T) {
 	assert.Equal(t, uint64(1), stored[0].Occurrences)
 	assert.Contains(t, stored[0].Message, "must not use the latest tag")
 	firstAlertID := stored[0].ID
-	deployments, err := deployment.NewStore(db).List(ctx, deployment.ListFilter{})
+	deployments, err := deploymentstore.NewStore(db).List(ctx, deploymentmodel.ListFilter{})
 	require.NoError(t, err)
 	assert.Empty(t, deployments.Deployments, "policy rejection must happen before attempt creation")
 	historyEntries, err := history.Read(ctx)
@@ -242,10 +243,10 @@ func TestImagePolicyViolationLifecycle(t *testing.T) {
 	assert.Equal(t, firstAlertID, stored[0].ID)
 	assert.Equal(t, alertmodel.AlertStatusResolved, stored[0].Status)
 
-	deployments, err = deployment.NewStore(db).List(ctx, deployment.ListFilter{})
+	deployments, err = deploymentstore.NewStore(db).List(ctx, deploymentmodel.ListFilter{})
 	require.NoError(t, err)
 	require.Len(t, deployments.Deployments, 1)
-	assert.Equal(t, deployment.Succeeded, deployments.Deployments[0].Status)
+	assert.Equal(t, deploymentmodel.Succeeded, deployments.Deployments[0].Status)
 	historyEntries, err = history.Read(ctx)
 	require.NoError(t, err)
 	require.Len(t, historyEntries, 1)
@@ -279,10 +280,10 @@ func TestImagePolicyDisabledPreservesDeployment(t *testing.T) {
 	require.NoError(t, reconciler.Reconcile(t.Context(), ReconciliationRequest{
 		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "sha",
 	}))
-	deployments, err := deployment.NewStore(db).List(t.Context(), deployment.ListFilter{})
+	deployments, err := deploymentstore.NewStore(db).List(t.Context(), deploymentmodel.ListFilter{})
 	require.NoError(t, err)
 	require.Len(t, deployments.Deployments, 1)
-	assert.Equal(t, deployment.Succeeded, deployments.Deployments[0].Status)
+	assert.Equal(t, deploymentmodel.Succeeded, deployments.Deployments[0].Status)
 }
 
 func TestImagePolicyErrorsArePermanent(t *testing.T) {
