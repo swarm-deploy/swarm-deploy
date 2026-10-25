@@ -10,7 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 func TestLoader_Load(t *testing.T) {
@@ -115,7 +115,7 @@ func TestFileLoaderLoadsEnvFiles(t *testing.T) {
 	}
 }
 
-func TestFileLoaderDigestChangesWhenSharedObjectFileContentChanges(t *testing.T) {
+func TestFileLoaderDigestChangesWhenResourceFileContentChanges(t *testing.T) {
 	tests := []struct {
 		name           string
 		composePayload func(objectFile string) string
@@ -282,7 +282,7 @@ services:
 	}
 }
 
-func TestFileLoaderDigestStableWithMultipleSharedObjects(t *testing.T) {
+func TestFileLoaderDigestStableWithMultipleResources(t *testing.T) {
 	tests := []struct {
 		name           string
 		composePayload string

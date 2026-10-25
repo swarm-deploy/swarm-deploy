@@ -20,6 +20,12 @@ sync:
   policy:
     # Removes orphaned managed services that are no longer defined in compose.
     prune: true
+    # Optional service image reference rules. All are disabled by default.
+    image:
+      tag:
+        required: false
+        no_latest: false
+        only_sha: false
 
 # Stacks source settings.
 stacks:
@@ -36,51 +42,65 @@ eventHistory:
   # Maximum number of events stored on disk.
   capacity: 500
 
-# Notification channels grouped by event type.
+# Notification transport, automatic alert delivery and explicit event subscriptions.
 notifications:
-  on:
-    # Event type: deploySuccess | deployFailed | servicePruned | syncManualStarted | nodeConnected | nodeDisconnected | userAuthenticated
-    deploySuccess:
+  messengers:
+    telegram:
+      botTokenPath: /run/secrets/telegram_bot_token
+      chats:
+        default:
+          id: "-1001234567890"
+          threadId: 42
+        deployments:
+          id: "-1001234567890"
+          threadId: 155
+  events:
+    DeploySuccess:
       telegram:
-        - name: ops-success
-          botTokenPath: /run/secrets/telegram_bot_token
-          chatId: "-1001234567890"
+        - chats: deployments
+          message: |
+            💚 deploy {{ .Status }}
+            stack: {{ .StackName }}
       custom:
         - name: success-webhook
           url: https://hooks.example.com/deploy-success
           method: POST
           header:
             Content-Type: application/json
-
-    deployFailed:
+    SyncManualStarted:
       telegram:
-        - name: ops-failed
-          botTokenPath: /run/secrets/telegram_bot_token
-          chatId: "-1001234567890"
-          message: |
-            deploy {{.status}}
-            stack_name: {{.stack_name}}
-            service: {{.service}}
-            {{- if .error }}
-            error: {{.error}}
-            {{- end }}
-
-    syncManualStarted:
-      telegram:
-        - name: ops-manual-sync
-          botTokenPath: /run/secrets/telegram_bot_token
-          chatId: "-1001234567890"
-          message: |
+        - message: |
             sync started manually
+  alerts:
+    SyncFailed:
+      telegram:
+        - chats: deployments
+          opened:
+            message: "🔴 Synchronization failed: {{ .ResourceID }}"
+          resolved:
+            action: edit
+            message: "✅ Synchronization recovered: {{ .ResourceID }}"
 
 # Secret/config name rotation settings.
 secretRotation:
+  # Optional age identity file; works even when rotation is disabled.
+  # age:
+  #   identityFile: /run/secrets/swarm_deploy_age_identity
   # Enable rotation.
   enabled: true
   # Hash suffix length.
   hashLength: 10
   # Include source file path in hash.
   includePath: true
+  # Best-effort cleanup of old managed generations.
+  cleanup:
+    enabled: true
+    # Minimum interval between periodic cleanup attempts.
+    interval: 4h
+    # Keep at least this many newest generations per logical config/secret.
+    keepLast: 2
+    # Never remove generations younger than this age.
+    minAge: 1h
 
 # Container runtime settings.
 containers:
@@ -128,6 +148,8 @@ swarm:
 web:
   # Single web server listen address for UI and API.
   address: ":8080"
+  # URL prefix for UI and API routes. Use / for root deployment.
+  basePath: /
 
 # Dedicated health/metrics server.
 healthServer:

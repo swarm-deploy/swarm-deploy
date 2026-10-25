@@ -23,6 +23,10 @@ func (h *handler) GetSecretByName(
 
 		return nil, withStatusError(http.StatusInternalServerError, fmt.Errorf("get secret: %w", err))
 	}
+	usedBy, err := h.secretRelations.ServicesUsingSecret(ctx, secret)
+	if err != nil {
+		return nil, withStatusError(http.StatusInternalServerError, fmt.Errorf("resolve secret services: %w", err))
+	}
 
 	resp := &generated.SecretDetailsResponse{
 		ID:        secret.ID,
@@ -31,7 +35,7 @@ func (h *handler) GetSecretByName(
 		CreatedAt: secret.CreatedAt,
 		UpdatedAt: secret.UpdatedAt,
 		External:  toGeneratedSecretExternal(secret.ExternalPath, secret.ExternalVersionID),
-		UsedBy:    toGeneratedSecretServiceUsages(h.secretRelations.ServicesUsingSecret(secret)),
+		UsedBy:    toGeneratedSecretServiceUsages(usedBy),
 	}
 	if driver := strings.TrimSpace(secret.Driver); driver != "" {
 		resp.Driver = generated.NewOptString(driver)

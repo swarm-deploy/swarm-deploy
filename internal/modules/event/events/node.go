@@ -2,6 +2,33 @@ package events
 
 import "fmt"
 
+// NodeJoined is emitted when a new node is added to the swarm cluster.
+type NodeJoined struct {
+	// NodeID is a Docker Swarm node identifier.
+	NodeID string
+	// NodeName is a Docker Swarm node hostname.
+	NodeName string
+	// Role is a node role (manager or worker), when available.
+	Role string
+}
+
+func (n *NodeJoined) Type() Type {
+	return TypeNodeJoined
+}
+
+func (n *NodeJoined) Message() string {
+	return fmt.Sprintf("Node %s joined the swarm", nodeDisplayName(n.NodeName, n.NodeID))
+}
+
+func (n *NodeJoined) Details() map[string]string {
+	details := nodeDetails(n.NodeID, n.NodeName, "")
+	if n.Role != "" {
+		details["role"] = n.Role
+	}
+
+	return details
+}
+
 // NodeConnected is emitted when a swarm node becomes ready.
 type NodeConnected struct {
 	// NodeID is a Docker Swarm node identifier.
@@ -68,13 +95,13 @@ func nodeDisplayName(nodeName, nodeID string) string {
 func nodeDetails(nodeID, nodeName, status string) map[string]string {
 	details := map[string]string{}
 	if nodeID != "" {
-		details["node_id"] = nodeID
+		details[AttributeNodeID] = nodeID
 	}
 	if nodeName != "" {
-		details["node_name"] = nodeName
+		details[AttributeNodeName] = nodeName
 	}
 	if status != "" {
-		details["status"] = status
+		details[AttributeStatus] = status
 	}
 
 	return details

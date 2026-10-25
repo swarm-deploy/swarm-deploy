@@ -17,4 +17,7 @@ type FileSystem interface {
 
 	// Rename renames oldPath to newPath.
 	Rename(ctx context.Context, oldPath string, newPath string) error
+
+	// RemoveFile removes the file at path.
+	RemoveFile(ctx context.Context, path string) error
 }

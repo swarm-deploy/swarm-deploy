@@ -26,6 +26,23 @@ const loading = ref(false);
 const loadingError = ref("");
 const labelDialog = ref<LabelDialogState | null>(null);
 
+const possibleStaleNodeIDs = computed(() => {
+  const readyWorkers = new Map<string, Set<string>>();
+  for (const node of nodes.value) {
+    const hostname = normalize(node.hostname);
+    if (hostname && !isManager(node) && normalize(node.status) === "ready") {
+      const ids = readyWorkers.get(hostname) ?? new Set<string>();
+      ids.add(node.id);
+      readyWorkers.set(hostname, ids);
+    }
+  }
+  return new Set(nodes.value.filter((node) => {
+    const matching = readyWorkers.get(normalize(node.hostname));
+    return !isManager(node) && normalize(node.status) === "down" &&
+      matching !== undefined && [...matching].some((id) => id !== node.id);
+  }).map((node) => node.id));
+});
+
 const nodeSummary = computed(() => {
   const total = nodes.value.length;
   const ready = nodes.value.filter((node) => normalize(node.status) === "ready").length;
@@ -85,7 +102,7 @@ function nodeRAM(node: NodeInfo): string {
 }
 
 function nodeResources(node: NodeInfo): string {
-  return `${nodeCPU(node)} CPU · ${nodeRAM(node)} RAM`;
+  return `${nodeCPU(node)} · ${nodeRAM(node)} RAM`;
 }
 
 function nodeEngine(node: NodeInfo): string {
@@ -260,6 +277,12 @@ onMounted(() => {
           </div>
         </div>
 
+        <p v-if="possibleStaleNodeIDs.has(node.id)" class="node-stale-hint" role="note">
+          <strong>Possible stale worker entry.</strong>
+          Another Ready worker has the same hostname but a different Node ID. This can happen after rejoining a Swarm.
+          Verify with <code>docker node ls</code> on a manager before taking action.
+        </p>
+
         <div class="node-meta-list">
           <div class="node-meta-row">
             <span class="node-meta-key">Address</span>
@@ -305,11 +328,11 @@ onMounted(() => {
             {{ labelDialog.mode === "add" ? "Add label" : "Edit label" }}
           </h2>
           <button class="modal-close" type="button" aria-label="Close modal" :disabled="labelDialog.saving" @click="closeLabelDialog">
-            x
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
           </button>
         </div>
 
-        <form class="node-label-form" @submit.prevent="submitLabelDialog">
+        <form class="modal-body node-label-form" @submit.prevent="submitLabelDialog">
           <label>
             <span>Key</span>
             <input v-model="labelDialog.key" type="text" :readonly="labelDialog.mode === 'edit'" :disabled="labelDialog.saving" />

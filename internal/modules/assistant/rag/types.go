@@ -4,13 +4,13 @@ import (
 	"context"
 	"time"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 )
 
 // ServiceStore provides access to current service metadata.
 type ServiceStore interface {
 	// List returns service metadata rows.
-	List() []service.Info
+	ReadAll(context.Context) ([]model.Info, error)
 }
 
 // Embedder produces vector embeddings for text inputs.

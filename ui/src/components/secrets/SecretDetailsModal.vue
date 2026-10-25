@@ -10,13 +10,17 @@ import { formatDate } from "../../utils/format";
 const secretDetailsStore = useSecretDetailsStore();
 const router = useRouter();
 
+const secretDescription = computed(() => secretDetailsStore.secret?.labels?.description ?? "");
+
 const secretLabels = computed(() => {
   const labels = secretDetailsStore.secret?.labels;
   if (!labels || typeof labels !== "object") {
     return [];
   }
 
-  return Object.entries(labels).sort(([left], [right]) => left.localeCompare(right));
+  return Object.entries(labels)
+    .filter(([key]) => key !== "description")
+    .sort(([left], [right]) => left.localeCompare(right));
 });
 
 const usedByServices = computed(() => {
@@ -59,7 +63,9 @@ onUnmounted(() => {
         <h2 id="secret-details-title">
           {{ secretDetailsStore.secret ? secretDetailsStore.secret.name : secretDetailsStore.selectedName || "Secret details" }}
         </h2>
-        <button class="modal-close" type="button" aria-label="Close modal" @click="closeSecretDetailsModal">x</button>
+        <button class="modal-close" type="button" aria-label="Close modal" @click="closeSecretDetailsModal">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
+        </button>
       </div>
 
       <div class="modal-body">
@@ -76,6 +82,10 @@ onUnmounted(() => {
               <tr>
                 <th scope="row">Name</th>
                 <td>{{ secretDetailsStore.secret.name }}</td>
+              </tr>
+              <tr>
+                <th scope="row">Description</th>
+                <td>{{ secretDescription || "n/a" }}</td>
               </tr>
               <tr>
                 <th scope="row">Version ID</th>

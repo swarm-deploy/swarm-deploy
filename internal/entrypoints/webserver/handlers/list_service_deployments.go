@@ -2,13 +2,9 @@ package handlers
 
 import (
 	"context"
-	"errors"
-	"fmt"
-	"log/slog"
-	"net/http"
 
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
-	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/utils"
 )
 
 const serviceDeploymentsLimit = 5
@@ -17,42 +13,23 @@ func (h *handler) ListServiceDeployments(
 	ctx context.Context,
 	params generated.ListServiceDeploymentsParams,
 ) (*generated.ServiceDeploymentsResponse, error) {
-	status, err := h.serviceInspector.GetStatus(ctx, swarm.NewServiceReference(params.Stack, params.Service))
+	records, err := h.deployments.ListServiceDeployments(
+		ctx, params.Stack, params.Service, int(params.Limit.Or(serviceDeploymentsLimit)),
+	)
 	if err != nil {
-		if errors.Is(err, swarm.ErrServiceNotFound) {
-			return nil, withStatusError(
-				http.StatusNotFound,
-				fmt.Errorf("service %s/%s not found", params.Stack, params.Service),
-			)
-		}
-
-		slog.ErrorContext(
-			ctx,
-			"[webserver] failed to read service status for deployments",
-			slog.String("stack", params.Stack),
-			slog.String("service", params.Service),
-			slog.Any("err", err),
-		)
-		return nil, withStatusError(http.StatusInternalServerError, errors.New("unable to get service deployments"))
+		return nil, err
 	}
-
-	items := []generated.ServiceDeploymentResponse{}
-	if h.history != nil {
-		limit := serviceDeploymentsLimit
-		if value, ok := params.Limit.Get(); ok {
-			limit = int(value)
+	items := make([]generated.ServiceDeploymentResponse, 0, len(records))
+	for _, record := range records {
+		item := generated.ServiceDeploymentResponse{
+			ID:           record.ID,
+			CreatedAt:    record.StartedAt,
+			Status:       generated.ServiceDeploymentStatus(record.Status),
+			Image:        record.Image,
+			ImageVersion: utils.ImageVersion(record.Image),
+			Commit:       toOptString(record.Commit),
 		}
-
-		items = toGeneratedServiceDeployments(
-			h.history.List(),
-			params.Stack,
-			params.Service,
-			status.Spec.Image,
-			limit,
-		)
+		items = append(items, item)
 	}
-
-	return &generated.ServiceDeploymentsResponse{
-		Deployments: items,
-	}, nil
+	return &generated.ServiceDeploymentsResponse{Deployments: items}, nil
 }

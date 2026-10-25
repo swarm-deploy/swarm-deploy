@@ -17,6 +17,40 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
+func TestNetworkIDSetAdd(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    []string
+		expected []string
+	}{
+		{
+			name:     "keeps insertion order",
+			input:    []string{"network-b", "network-a"},
+			expected: []string{"network-b", "network-a"},
+		},
+		{
+			name:     "removes duplicates",
+			input:    []string{"network-a", "network-b", "network-a"},
+			expected: []string{"network-a", "network-b"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			set := newNetworkIDSet()
+			for _, id := range tt.input {
+				set.add(id)
+			}
+
+			assert.Equal(t, tt.expected, set.values)
+		})
+	}
+}
+
 func TestComputerComputeStackMapsRawServiceSpec(t *testing.T) {
 	t.Parallel()
 

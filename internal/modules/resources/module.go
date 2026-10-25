@@ -3,24 +3,28 @@ package resources
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/node"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretmanager"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 type Module struct {
-	NodeStore     *node.Store
+	NodeStore     node.Repository
 	NodeCollector *node.Collector
-	ServiceStore  *service.Store
+	// ServiceStore persists and queries service metadata snapshots.
+	ServiceStore modelstore.Store
 	// Secrets exposes persisted secret metadata and its collector.
 	Secrets *secrets.Domain
 	// SecretManagers discovers and controls Secret Manager services.
@@ -30,9 +34,10 @@ type Module struct {
 }
 
 type Container interface {
+	// GetStorage returns the shared database.
+	GetStorage() *storage.Database
 	GetSwarm() *swarm.Swarm
 	GetEventModule() *event.Module
-	GetFileSystem() fs.FileSystem
 }
 
 func InitModule(
@@ -44,16 +49,21 @@ func InitModule(
 		cfg: cfg,
 	}
 
-	if err := srv.initStores(ctx, cnt.GetFileSystem()); err != nil {
-		return nil, fmt.Errorf("init stores: %w", err)
-	}
+	nodeStore := node.NewSQLStore(cnt.GetStorage())
+	srv.NodeStore = nodeStore
+	srv.ServiceStore = modelstore.NewSQLStore(cnt.GetStorage())
 
-	srv.NodeCollector = node.NewNodeCollector(cnt.GetSwarm().Nodes, srv.NodeStore, cnt.GetEventModule().Dispatcher)
+	srv.NodeCollector = node.NewNodeCollector(
+		cnt.GetSwarm().Nodes,
+		nodeStore,
+		cnt.GetEventModule().Dispatcher,
+		cnt.GetStorage(),
+		cnt.GetSwarm().Events.SubscribeNodes(),
+	)
 	secretDomain, err := secrets.NewDomain(
-		ctx,
-		cfg.Spec.DataDir,
-		cnt.GetFileSystem(),
+		cnt.GetStorage(),
 		cnt.GetSwarm().Secrets,
+		cnt.GetSwarm().Events.SubscribeSecrets(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("init secrets domain: %w", err)
@@ -61,36 +71,16 @@ func InitModule(
 	srv.Secrets = secretDomain
 	srv.SecretManagers = secretmanager.NewDomain(srv.ServiceStore)
 
-	srv.registerEventSubscribers(cnt)
+	if err = srv.registerEventSubscribers(cnt); err != nil {
+		return nil, err
+	}
 
 	return srv, nil
 }
 
-func (s *Module) registerEventSubscribers(cnt Container) {
-	cnt.GetEventModule().Dispatcher.Subscribe(events.TypeDeploySuccess,
-		service.NewSubscriber(s.ServiceStore,
-			cnt.GetSwarm().Services,
-			cnt.GetSwarm().Images,
-			cnt.GetSwarm().Configs,
-			metadata.NewExtractor(),
-		),
-	)
-}
-
-func (s *Module) initStores(ctx context.Context, filesystem fs.FileSystem) error {
-	nodeStore, err := node.NewNodeStore(filepath.Join(s.cfg.Spec.DataDir, "nodes.json"))
-	if err != nil {
-		return fmt.Errorf("init node store: %w", err)
-	}
-
-	s.NodeStore = nodeStore
-
-	srvStore, err := service.NewStore(ctx, filepath.Join(s.cfg.Spec.DataDir, "services.json"), filesystem)
-	if err != nil {
-		return fmt.Errorf("init service store: %w", err)
-	}
-
-	s.ServiceStore = srvStore
-
-	return nil
+func (s *Module) registerEventSubscribers(cnt Container) error {
+	return cnt.GetEventModule().Dispatcher.Subscribe(events.TypeNameDeploySuccess, "service-metadata",
+		dispatcher.External(deployment.WithDesired(deploymentstore.NewStore(cnt.GetStorage()),
+			service.NewSubscriber(s.ServiceStore, cnt.GetSwarm(), metadata.NewExtractor(),
+				cnt.GetStorage(), cnt.GetEventModule().Dispatcher))))
 }

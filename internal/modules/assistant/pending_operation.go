@@ -14,7 +14,7 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 )
 
 const defaultPendingOperationTTL = 15 * time.Minute
@@ -161,7 +161,10 @@ func (g *graph) startPendingOperation(
 		Target:   strings.TrimSpace(intent.Target),
 		Replicas: intent.Replicas,
 	}
-	services := g.store.List()
+	services, err := g.store.ReadAll(ctx)
+	if err != nil {
+		return "Не удалось прочитать каталог сервисов. Повторите запрос.", conversation.TokenUsage{}
+	}
 	resolution, usage := g.resolveOperationTarget(ctx, services, op.Target)
 	if resolution.ok {
 		op.Stack, op.Service = resolution.stack, resolution.service
@@ -275,7 +278,13 @@ func (g *graph) resolvePendingTarget(
 	} else if op.Target == "" {
 		op.Target = target
 	}
-	return g.resolveOperationTarget(ctx, g.store.List(), target)
+	services, err := g.store.ReadAll(ctx)
+	if err != nil {
+		return serviceResolution{
+			message: "Не удалось прочитать каталог сервисов. Повторите запрос.",
+		}, conversation.TokenUsage{}
+	}
+	return g.resolveOperationTarget(ctx, services, target)
 }
 
 func (g *graph) executePendingOperation(
@@ -286,7 +295,11 @@ func (g *graph) executePendingOperation(
 	if !g.pending.claim(conversationID, op) {
 		return "Операция уже обрабатывается или больше не ожидает подтверждения.", nil
 	}
-	resolution := resolveServiceTarget(g.store.List(), op.Stack+"/"+op.Service)
+	services, err := g.store.ReadAll(ctx)
+	if err != nil {
+		return "", err
+	}
+	resolution := resolveServiceTarget(services, op.Stack+"/"+op.Service)
 	if !resolution.ok || !strings.EqualFold(resolution.stack, op.Stack) ||
 		!strings.EqualFold(resolution.service, op.Service) {
 		return "Сервис изменился или больше не существует. Операция отменена.", nil
@@ -327,7 +340,7 @@ type serviceResolution struct {
 	ok        bool
 }
 
-func resolveServiceTarget(services []service.Info, target string) serviceResolution {
+func resolveServiceTarget(services []model.Info, target string) serviceResolution {
 	target = strings.TrimSpace(target)
 	if target == "" {
 		return serviceResolution{message: "Уточните стек или имя сервиса."}
@@ -339,7 +352,7 @@ func resolveServiceTarget(services []service.Info, target string) serviceResolut
 		}
 	}
 
-	matches := matchingServices(services, func(item service.Info) bool {
+	matches := matchingServices(services, func(item model.Info) bool {
 		return strings.EqualFold(item.Name, target)
 	})
 	if len(matches) == 1 {
@@ -349,7 +362,7 @@ func resolveServiceTarget(services []service.Info, target string) serviceResolut
 		return ambiguousServiceResolution(matches)
 	}
 
-	matches = matchingServices(services, func(item service.Info) bool {
+	matches = matchingServices(services, func(item model.Info) bool {
 		return strings.EqualFold(item.Stack, target)
 	})
 	if len(matches) == 1 {
@@ -360,7 +373,7 @@ func resolveServiceTarget(services []service.Info, target string) serviceResolut
 	}
 
 	normalizedTarget := strings.ToLower(target)
-	matches = matchingServices(services, func(item service.Info) bool {
+	matches = matchingServices(services, func(item model.Info) bool {
 		return strings.Contains(strings.ToLower(serviceTarget(item)), normalizedTarget) ||
 			strings.Contains(strings.ToLower(item.Name), normalizedTarget) ||
 			strings.Contains(strings.ToLower(item.Stack), normalizedTarget)
@@ -377,8 +390,8 @@ func resolveServiceTarget(services []service.Info, target string) serviceResolut
 	}
 }
 
-func matchingServices(services []service.Info, matches func(service.Info) bool) []service.Info {
-	result := make([]service.Info, 0)
+func matchingServices(services []model.Info, matches func(model.Info) bool) []model.Info {
+	result := make([]model.Info, 0)
 	for _, item := range services {
 		if matches(item) {
 			result = append(result, item)
@@ -387,11 +400,11 @@ func matchingServices(services []service.Info, matches func(service.Info) bool) 
 	return result
 }
 
-func resolvedService(item service.Info) serviceResolution {
+func resolvedService(item model.Info) serviceResolution {
 	return serviceResolution{stack: item.Stack, service: item.Name, ok: true}
 }
 
-func ambiguousServiceResolution(services []service.Info) serviceResolution {
+func ambiguousServiceResolution(services []model.Info) serviceResolution {
 	targets := make([]string, 0, len(services))
 	seen := make(map[string]struct{}, len(services))
 	for _, item := range services {
@@ -413,7 +426,7 @@ func ambiguousServiceResolution(services []service.Info) serviceResolution {
 	}
 }
 
-func serviceTarget(item service.Info) string {
+func serviceTarget(item model.Info) string {
 	return strings.TrimSpace(item.Stack) + "/" + strings.TrimSpace(item.Name)
 }
 
@@ -425,7 +438,7 @@ type targetResolverDecision struct {
 
 func (g *graph) resolveOperationTarget(
 	ctx context.Context,
-	services []service.Info,
+	services []model.Info,
 	target string,
 ) (serviceResolution, conversation.TokenUsage) {
 	deterministic := resolveServiceTarget(services, target)
@@ -459,7 +472,7 @@ func (g *graph) resolveOperationTarget(
 	return deterministic, completion.Usage
 }
 
-func validateTargetResolverDecision(services []service.Info, content string) serviceResolution {
+func validateTargetResolverDecision(services []model.Info, content string) serviceResolution {
 	var decision targetResolverDecision
 	if err := json.Unmarshal([]byte(strings.TrimSpace(content)), &decision); err != nil {
 		return serviceResolution{}
@@ -482,8 +495,8 @@ func validateTargetResolverDecision(services []service.Info, content string) ser
 	return serviceResolution{}
 }
 
-func targetResolverMatches(services []service.Info, candidates []string) []service.Info {
-	matches := make([]service.Info, 0, len(candidates))
+func targetResolverMatches(services []model.Info, candidates []string) []model.Info {
+	matches := make([]model.Info, 0, len(candidates))
 	seen := make(map[string]struct{}, len(candidates))
 	for _, candidate := range candidates {
 		for _, item := range services {

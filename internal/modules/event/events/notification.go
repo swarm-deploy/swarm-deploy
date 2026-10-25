@@ -1,6 +1,10 @@
 package events
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
+)
 
 // SendNotificationFailed is emitted when sending notification fails.
 type SendNotificationFailed struct {
@@ -34,7 +38,7 @@ func (n *SendNotificationFailed) Details() map[string]string {
 		"event_type":  n.EventType.String(),
 	}
 	if n.Error != nil {
-		details["error"] = n.Error.Error()
+		details[AttributeError] = faults.SafeDiagnostic(n.Error)
 	}
 	return details
 }

@@ -5,14 +5,14 @@ import (
 	"strings"
 
 	"github.com/go-faster/errors"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 const envPairParts = 2
 
 type Environment struct {
-	Map  map[string]string
-	Keys []string
+	Map  map[string]string `json:"Map"`
+	Keys []string          `json:"Keys"`
 
 	isMap bool
 }

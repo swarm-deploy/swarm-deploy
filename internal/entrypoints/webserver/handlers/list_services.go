@@ -7,15 +7,23 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 )
 
-func (h *handler) ListServices(_ context.Context) (*generated.ServicesResponse, error) {
+func (h *handler) ListServices(ctx context.Context) (*generated.ServicesResponse, error) {
 	items := []generated.ServiceInfo{}
 	if h.services != nil {
 		snapshot := model.Runtime{}
 		if h.stateStore != nil {
-			snapshot = h.stateStore.Get()
+			var err error
+			snapshot, err = h.stateStore.Read(ctx)
+			if err != nil {
+				return nil, err
+			}
 		}
 
-		items = toGeneratedServiceInfos(h.services.List(), snapshot)
+		services, err := h.services.ReadAll(ctx)
+		if err != nil {
+			return nil, err
+		}
+		items = toGeneratedServiceInfos(services, snapshot)
 	}
 
 	return &generated.ServicesResponse{

@@ -1,10 +1,9 @@
-//go:generate mockgen -source=$GOFILE -destination=mocks.go -package=swarm
+//go:generate go run -mod=mod go.uber.org/mock/mockgen -source=$GOFILE -destination=mocks.go -package=swarm
 package swarm
 
 import (
 	"context"
 
-	dockerevents "github.com/docker/docker/api/types/events"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 )
 
@@ -46,11 +45,17 @@ type ImageManager interface {
 }
 
 type SecretManager interface {
-	// List returns current Docker secrets snapshot.
-	List(ctx context.Context) ([]Secret, error)
+	// List returns Docker secrets matching the provided filter.
+	List(ctx context.Context, filter ListSecretsFilter) ([]Secret, error)
 
-	// Watch subscribes to Docker secret events stream.
-	Watch(ctx context.Context) (<-chan dockerevents.Message, <-chan error, error)
+	// Create creates a Docker secret and returns its identifier.
+	Create(ctx context.Context, req CreateSecretRequest) (string, error)
+
+	// UpdateLabels updates only a secret's mutable labels, preserving its other metadata.
+	UpdateLabels(ctx context.Context, secretID string, labels map[string]string) error
+
+	// Remove deletes a Docker secret by identifier.
+	Remove(ctx context.Context, secretID string) error
 
 	// ResolveReference resolves a secret reference by source and target.
 	ResolveReference(ctx context.Context, source, target string) (*dockerswarm.SecretReference, error)
@@ -59,6 +64,15 @@ type SecretManager interface {
 type ConfigManager interface {
 	// Get returns Docker config metadata by name or ID.
 	Get(ctx context.Context, configName string) (Config, error)
+
+	// List returns Docker configs matching the provided filter.
+	List(ctx context.Context, filter ListConfigsFilter) ([]Config, error)
+
+	// Create creates a Docker config and returns its identifier.
+	Create(ctx context.Context, req CreateConfigRequest) (string, error)
+
+	// Remove deletes a Docker config by identifier.
+	Remove(ctx context.Context, configID string) error
 
 	// ResolveReference resolves Docker config reference by source and target.
 	ResolveReference(ctx context.Context, source, target string) (*dockerswarm.ConfigReference, error)
@@ -87,7 +101,4 @@ type NodeManager interface {
 
 	// DeleteLabel removes Docker node label while preserving the rest of the node spec.
 	DeleteLabel(ctx context.Context, nodeID string, key string) error
-
-	// Watch subscribes to Docker node events stream.
-	Watch(ctx context.Context) (<-chan dockerevents.Message, <-chan error, error)
 }

@@ -6,5 +6,14 @@ type StackProvider interface {
 }
 
 func (c *Config) Stacks() []StackSpec {
-	return c.Spec.Stacks
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return cloneStacks(c.stacks)
+}
+
+// Networks returns a copy of the current accepted network definitions.
+func (c *Config) Networks() []NetworkSpec {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return cloneNetworks(c.networks)
 }

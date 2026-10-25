@@ -1,76 +1,187 @@
 # Notifications
 
-## Telegram templates
+Event notifications are opt-in under `notifications.events`. Alert notifications are
+automatic when Telegram and its `default` chat are configured. Telegram bot credentials,
+proxy and named chat destinations are configured once in `notifications.messengers.telegram`.
+Each Telegram rule accepts `chats` as a single name or array of names; omitting it
+selects `default`. An unknown, empty or repeated destination is a configuration error.
+The `message` field uses Go `text/template`; omitting it selects the standard template.
+The removed `notifications.on` key is rejected; no compatibility alias is provided.
 
-In a Telegram channel you can set:
+## Alert lifecycle
 
-- `botTokenPath` to read bot token from a file.
-- `chatThreadId` to send to a specific thread/topic.
-- `message` with Go template syntax.
+Notification configuration uses the exact PascalCase alert names `SyncFailed`,
+`NodeDisconnected`, and `GitRepositoryUnavailable`.
+The special `default` key remains the fallback rule. Internal alert kinds and
+fingerprints keep their existing snake_case identifiers.
+A kind rule replaces `alerts.default`, and an omitted `alerts.default` selects built-in
+opened and resolved messages in Telegram chat `default`. Configuring Telegram requires
+that chat. Without Telegram, alerts continue to be stored and shown in the UI.
 
-Available template fields:
+An alert sends one new message when opened. Repeated detections update its alert record
+without sending another message. Resolution replies to or edits that initial message;
+`reply` is the default action. A new opening after resolution has a new alert ID and a
+new initial message.
 
-- `.event.stack_name`
-- `.event.services.*.name`
-- `.event.services.*.image`
-- `.event.commit`
-- `.event.error`
-- `.event.username` (for `userAuthenticated`)
-- `.event.node_id` (for `nodeConnected` / `nodeDisconnected`)
-- `.event.node_name` (for `nodeConnected` / `nodeDisconnected`)
-- `.event.status` (for `nodeConnected` / `nodeDisconnected`)
+Each alert rule may route to one chat (`chats: deployments`) or several
+(`chats: [default, infrastructure]`). An omitted `chats` selects `default`.
+Empty lists, unknown names and repeated names are errors. The initial physical chat ID
+and topic are persisted, so resolution uses the original destination even if an alias
+changes or is removed at the next restart. If the original bot credentials are no
+longer available, its Outbox delivery records an error for inspection and replay.
 
-Example:
+Alert templates use the shared Go template renderer. The typed fields at the root are
+`ID`, `Kind`, `Title`, `Message`, `ResourceType`, `ResourceID`, `OpenedAt`,
+`DeploymentID`, `ResolvedAt` (`*time.Time`), `Resolution` and `ResolutionReason`.
+For example, `{{ .ResourceID }}` is valid; `.alert.Title` and `.event.StackName` are not.
+`DeploymentID` is populated for synchronization failures created after a deployment
+Attempt starts. A notification can link directly to its UI modal with
+`/deployments?deployment_id={{ .DeploymentID }}`. Preparation failures may leave it empty.
+Custom opened and resolved templates are validated when configuration loads, with the
+exact path such as `notifications.alerts["SyncFailed"].telegram[0].resolved.message`
+in an error.
+
+The internal `AlertOpened` and `AlertResolved` transitions join the SQLite transaction
+that changes the alert, but are not written to Event History. Telegram calls run later
+through the existing Outbox, independently for each physical recipient. Retries,
+leases, replay and acknowledgement are shared with event notifications. Opened delivery
+precedes resolved delivery for each recipient. A temporary Telegram error is retried;
+an invalid original message reference falls back to a regular resolution message.
+Without an original message ID, resolution also sends a regular message.
+
+The initial SQLite schema has one `notification_messages`
+row per alert ID, messenger, bot identity, chat ID and thread ID. It stores the initial
+message ID and send time, the processed resolution time and action, and a reply message
+ID when applicable. Resolved links are removed only after their lifecycle events have
+left the Outbox; open links have no TTL. There is no second delivery queue. Successful
+database recording prevents repeat sends on replay, but a crash after Telegram accepts
+a call and before its receipt is stored can duplicate a message. Telegram delivery is
+therefore at least once, not exactly once.
+
+## Template API
+
+Payloads are typed contracts rather than internal event, alert, deployment, or Compose
+models. Public fields use Go names and are available at the template root:
+
+```gotemplate
+{{ .Status }}
+{{ .StackName }}
+{{ range .Services }}{{ .Name }}: {{ .Image }}{{ end }}
+```
+
+All payloads have `ID`, `Type`, and `OccurredAt` (`time.Time`, UTC). Most also provide
+`Message`. Source-specific fields are:
+
+| Event types | Payload fields |
+| --- | --- |
+| `DeploySuccess` | `ID`, `DeploymentID`, `AttemptID`, `Type`, `Status`, `StackName`, `Services` (`Name`, `Image`), `Commit`, `OccurredAt` |
+| `NodeJoined`, `NodeConnected`, `NodeDisconnected` | `ID`, `Type`, `NodeID`, `NodeName`, `Role`, `Status`, `Message`, `OccurredAt` |
+| `ServiceMissed`, `ServicePruned`, `ServiceReplicasIncreased`, `ServiceReplicasDecreased`, `ServiceRestarted` | `ID`, `Type`, `StackName`, `ServiceName`, `Commit`, `Username`, `PreviousReplicas`, `CurrentReplicas`, `Message`, `OccurredAt` |
+| `ServiceCatalogUpdated`, `SyncManualStarted`, `WebhookReceived`, `NetworkCreated` | `ID`, `Type`, `StackName`, `Username`, `Queued`, `NetworkName`, `NetworkID`, `Driver`, `Message`, `OccurredAt` |
+| `UserAuthenticated` | `ID`, `Type`, `Username`, `Message`, `OccurredAt` |
+| `AssistantPromptInjectionDetected` | `ID`, `Type`, `Detector`, `Username`, `Message`, `OccurredAt` |
+| `SendNotificationFailed` | `ID`, `Type`, `EventType`, `Destination`, `Channel`, `Error`, `Message`, `OccurredAt` |
+
+Shared template fields and serialized JSON names match Event History semantics:
+
+| Template field | JSON and Event History attribute |
+| --- | --- |
+| `.StackName` | `stack_name` |
+| `.ServiceName` | `service_name` |
+| `.DeploymentID` | `deployment_id` |
+| `.AttemptID` | `attempt_id` |
+| `.Commit` | `commit` |
+| `.Username` | `username` |
+| `.NodeID`, `.NodeName` | `node_id`, `node_name` |
+| `.NetworkID`, `.NetworkName` | `network_id`, `network_name` |
+| `.Status` | `status` |
+| `.Error` | `error` (bounded, secret-masked diagnostic) |
+| `.ErrorCode` | `error_code` (stable failure category) |
+| `.Stage` | `stage` |
+
+The former `.TriggeredBy` template field and `triggered_by` JSON field have been
+removed; manual synchronization templates must use `.Username`. The obsolete
+`stack` and `service` aliases are not available in notification JSON.
+
+`DeployFailed`, `DeployPreparationFailed`, and `DeployInterrupted` are internal lifecycle
+events. They cannot be configured under `notifications.events`; synchronization failures
+open or update the `sync_failed` alert and use Alert Notifications instead.
+
+## Date formatting
+
+The shared `date` function accepts a standard Go time layout and either `time.Time` or
+`*time.Time`:
+
+```gotemplate
+{{ date "2006-01-02 15:04" .OccurredAt }}
+```
+
+Dates are always converted to UTC before formatting, so output does not depend on the
+server timezone. If a future or source-specific contract exposes a nullable time, a nil
+`*time.Time` renders as an empty string.
+
+## Validation and runtime errors
+
+Every custom template is parsed and executed against a representative payload while the
+configuration is loaded.
+Unknown fields, invalid functions, syntax errors, and execution errors reject the entire
+configuration before modules are initialized. The error includes the event type and YAML
+path, for example:
+
+```text
+notifications.events["DeploySuccess"].telegram[0].message: invalid template: execute template: template: notification:1:3: executing "notification" at <.Stack>: can't evaluate field Stack in type notifications.DeploymentPayload
+```
+
+The current application loads configuration only at startup; there is no hot-reload path.
+If hot reload is added, callers must keep the active configuration until `config.Load`
+returns a fully validated replacement.
+
+Representative payload validation cannot prove every runtime branch safe. A runtime
+rendering error is returned as a normal delivery error: it does not panic and the Event
+Bus records/retries that destination independently according to the existing delivery
+semantics.
+
+## Example
 
 ```yaml
-# Notification settings.
 notifications:
-  on:
-    deploySuccess:
+  messengers:
+    telegram:
+      botTokenPath: /run/secrets/telegram_bot_token
+      retries: 3
+      chats:
+        default:
+          id: "-1001234567890"
+          threadId: 42
+        deployments:
+          id: "-1001234567890"
+          threadId: 155
+  events:
+    DeploySuccess:
       telegram:
-        - name: ops-success
-          # Path to file with bot token.
-          botTokenPath: /run/secrets/telegram_bot_token
-          chatId: "-1001234567890"
-          # Chat/channel ID.
-          chatThreadId: 42
-          # Message text template.
+        - chats: deployments
           message: |
-            💚 deploy successful
-            stack_name: {{.event.stack_name}}
-            {{ range .event.services }}
-            service: {{.name}}
-            image: {{.image}}
-            ---
-            {{ end }}
-
-    deployFailed:
+            💚 deploy {{ .Status }}
+            stack: {{ .StackName }}
+            at: {{ date "2006-01-02 15:04" .OccurredAt }} UTC
+    NodeJoined:
       telegram:
-        - name: ops-failed
-          # Path to file with bot token.
-          botTokenPath: /run/secrets/telegram_bot_token
-          # Chat/channel ID.
-          chatId: "-1001234567890"
-          # Message text template.
-          message: |
-            🔻deploy failed
-            stack_name: {{.event.stack_name}}
-            {{ range .event.services }}
-            service: {{.name}}
-            image: {{.image}}
-            ---
-            {{ end }}
-            error: {{.error}}
-
-    userAuthenticated:
+        - chats: [default, deployments]
+          message: "node joined: {{ .NodeName }}"
+  alerts:
+    default:
       telegram:
-        - name: ops-auth
-          # Path to file with bot token.
-          botTokenPath: /run/secrets/telegram_bot_token
-          # Chat/channel ID.
-          chatId: "-1001234567890"
-          # Message text template.
-          message: |
-            user authenticated
-            username: {{.event.username}}
+        - opened:
+            message: "🚨 {{ .Title }}: {{ .Message }}"
+          resolved:
+            action: reply
+            message: "✅ {{ .Title }}: {{ .Resolution }}"
+    SyncFailed:
+      telegram:
+        - chats: deployments
+          opened:
+            message: "🔴 Synchronization failed: {{ .ResourceID }}\nhttps://swarm-deploy.example/deployments?deployment_id={{ .DeploymentID }}"
+          resolved:
+            action: edit
+            message: "✅ Synchronization recovered: {{ .ResourceID }}"
 ```

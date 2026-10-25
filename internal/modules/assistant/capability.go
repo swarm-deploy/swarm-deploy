@@ -14,6 +14,8 @@ const (
 	CapabilityCluster Capability = "cluster"
 	// CapabilityDeploymentHistory enables deployment, event, recommendation, and git history tools.
 	CapabilityDeploymentHistory Capability = "deployment_history"
+	// CapabilityAlertManagement enables read-only Alert Management inspection.
+	CapabilityAlertManagement Capability = "alert_management"
 	// CapabilityDeploymentSync enables manual deployment synchronization.
 	CapabilityDeploymentSync Capability = "deployment_sync"
 	// CapabilityRegistry enables container registry image lookups.
@@ -39,6 +41,8 @@ var capabilityProfiles = map[Capability]CapabilityProfile{
 	CapabilityServiceRuntime: {
 		Tools: []string{
 			"service_logs_get",
+			"service_task_list",
+			"service_task_logs_get",
 			"service_spec_get",
 			"service_webroute_ping",
 			"dependency_graph_get",
@@ -61,9 +65,17 @@ var capabilityProfiles = map[Capability]CapabilityProfile{
 	CapabilityDeploymentHistory: {
 		Tools: []string{
 			"history_event_list",
+			"deployment_list",
+			"deployment_get",
 			"recommendation_list",
 			"git_commit_list",
 			"git_commit_diff",
+		},
+	},
+	CapabilityAlertManagement: {
+		Tools: []string{
+			"alert_list",
+			"alert_get",
 		},
 	},
 	CapabilityDeploymentSync: {
@@ -115,14 +127,15 @@ func defaultCapabilitiesForRoute(route Route) []Capability {
 			CapabilityExternalRelease,
 		}
 	case RouteCluster:
-		return []Capability{CapabilityCluster}
+		return []Capability{CapabilityCluster, CapabilityAlertManagement}
 	case RouteDeployments:
-		return []Capability{CapabilityDeploymentHistory, CapabilityDeploymentSync}
+		return []Capability{CapabilityDeploymentHistory, CapabilityAlertManagement, CapabilityDeploymentSync}
 	case RouteDiagnostics:
 		return []Capability{
 			CapabilityServiceContext,
 			CapabilityServiceRuntime,
 			CapabilityDeploymentHistory,
+			CapabilityAlertManagement,
 			CapabilityCluster,
 			CapabilityRegistry,
 			CapabilityExternalRelease,

@@ -13,10 +13,11 @@ import (
 	secretmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/model"
 	secretstore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretservice"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 	webroute "github.com/swarm-deploy/webroute/api"
 )
 
@@ -34,8 +35,8 @@ func TestHandlerGetSecretByName(t *testing.T) {
 			},
 		},
 	})
-	servicesStore := newServiceStore(t)
-	require.NoError(t, servicesStore.ReplaceStack(context.Background(), "payments", []service.Info{{
+	servicesStore := modelstore.NewSQLStore(testutil.OpenSQLite(t))
+	require.NoError(t, servicesStore.ReplaceStack(t.Context(), "payments", []model.Info{{
 		Name: "api",
 		Spec: swarm.ServiceSpec{Secrets: []swarm.ServiceSecret{{
 			SecretID: "secret-id", SecretName: "db-password", Target: "/run/secrets/db-password",
@@ -65,30 +66,12 @@ func TestHandlerGetSecretByName(t *testing.T) {
 	assert.Equal(t, "/run/secrets/db-password", resp.UsedBy[0].Target.Value)
 }
 
-func TestHandlerGetSecretByName_NotFound(t *testing.T) {
-	t.Parallel()
-
-	secretsReader := newSecretsStore(t, []secretmodel.Secret{{Name: "known-secret"}})
-	h := &handler{
-		secrets:         secretsReader,
-		secretRelations: secretservice.NewResolver(newServiceStore(t), secretsReader),
-	}
-
-	_, err := h.GetSecretByName(context.Background(), generated.GetSecretByNameParams{Name: "unknown-secret"})
-	require.Error(t, err)
-
-	var sErr *statusError
-	require.True(t, errors.As(err, &sErr))
-	assert.Equal(t, 404, sErr.code)
-}
-
 func TestHandlerListSecretsIncludesServiceUsage(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.Background()
 	secretsReader := newSecretsStore(t, []secretmodel.Secret{{ID: "secret-id", Name: "db-password"}})
-	servicesStore := newServiceStore(t)
-	require.NoError(t, servicesStore.ReplaceStack(ctx, "payments", []service.Info{{
+	servicesStore := modelstore.NewSQLStore(testutil.OpenSQLite(t))
+	require.NoError(t, servicesStore.ReplaceStack(t.Context(), "payments", []model.Info{{
 		Name: "api",
 		Spec: swarm.ServiceSpec{Secrets: []swarm.ServiceSecret{{
 			SecretID: "secret-id", SecretName: "db-password", Target: "/run/secrets/db-password",
@@ -99,7 +82,7 @@ func TestHandlerListSecretsIncludesServiceUsage(t *testing.T) {
 		secretRelations: secretservice.NewResolver(servicesStore, secretsReader),
 	}
 
-	resp, err := h.ListSecrets(ctx)
+	resp, err := h.ListSecrets(t.Context())
 	require.NoError(t, err)
 	require.Len(t, resp.Secrets, 1)
 	require.Len(t, resp.Secrets[0].UsedBy, 1)
@@ -108,13 +91,28 @@ func TestHandlerListSecretsIncludesServiceUsage(t *testing.T) {
 	assert.Equal(t, "/run/secrets/db-password", resp.Secrets[0].UsedBy[0].Target.Value)
 }
 
+func TestHandlerGetSecretByName_NotFound(t *testing.T) {
+	t.Parallel()
+
+	secretsReader := newSecretsStore(t, []secretmodel.Secret{{Name: "known-secret"}})
+	h := &handler{
+		secrets: secretsReader,
+	}
+
+	_, err := h.GetSecretByName(context.Background(), generated.GetSecretByNameParams{Name: "unknown-secret"})
+	require.Error(t, err)
+
+	var sErr *statusError
+	require.True(t, errors.As(err, &sErr))
+	assert.Equal(t, 404, sErr.code)
+}
+
 func TestHandlerSearch_PriorityAndDedupe(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	servicesStore, err := service.NewStore(ctx, t.TempDir()+"/services.json", fs.NewLocalFileSystem())
-	require.NoError(t, err)
-	require.NoError(t, servicesStore.ReplaceStack(ctx, "payments", []service.Info{
+	servicesStore := modelstore.NewSQLStore(testutil.OpenSQLite(t))
+	require.NoError(t, servicesStore.ReplaceStack(ctx, "payments", []model.Info{
 		{
 			Name:     "api-app",
 			Metadata: metadata.Metadata{Type: "application"},
@@ -133,7 +131,7 @@ func TestHandlerSearch_PriorityAndDedupe(t *testing.T) {
 
 	secretsReader := newSecretsStore(t, []secretmodel.Secret{{Name: "api-app-secret"}})
 	h := &handler{
-		stackProvider: newConfigWithStacks([]config.StackSpec{}),
+		stackProvider: newConfigWithStacks(t, []config.StackSpec{}),
 		services:      servicesStore,
 		secrets:       secretsReader,
 	}
@@ -151,19 +149,17 @@ func TestHandlerSearch_PriorityAndDedupe(t *testing.T) {
 	assert.Equal(t, "api-app-secret", resp.Results[1].Label)
 }
 
-func newSecretsStore(t *testing.T, secrets []secretmodel.Secret) *secretstore.FileStore {
+func newSecretsStore(t *testing.T, secrets []secretmodel.Secret) *secretstore.SQLStore {
 	t.Helper()
-	ctx := context.Background()
-	store, err := secretstore.NewFileStore(ctx, t.TempDir()+"/secrets.state.json", fs.NewLocalFileSystem())
-	require.NoError(t, err)
-	require.NoError(t, store.Replace(ctx, secrets))
-	return store
-}
-
-func newServiceStore(t *testing.T) *service.Store {
-	t.Helper()
-
-	store, err := service.NewStore(context.Background(), t.TempDir()+"/services.json", fs.NewLocalFileSystem())
-	require.NoError(t, err)
+	for i := range secrets {
+		if secrets[i].CreatedAt.IsZero() {
+			secrets[i].CreatedAt = time.Now().UTC()
+		}
+		if secrets[i].UpdatedAt.IsZero() {
+			secrets[i].UpdatedAt = secrets[i].CreatedAt
+		}
+	}
+	store := secretstore.NewSQLStore(testutil.OpenSQLite(t))
+	require.NoError(t, store.Replace(t.Context(), secrets))
 	return store
 }

@@ -5,25 +5,30 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"sort"
-	"strings"
+	"os"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/configstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/gitpull"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/networkloop"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackplan"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/security"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
@@ -41,6 +46,8 @@ const (
 	TriggerManual   TriggerReason = "manual"
 )
 
+const gracefulReconciliationShutdownTimeout = 25 * time.Second
+
 const (
 	syncRunResultError        = "error"
 	syncRunResultNoChange     = "no_change"
@@ -50,21 +57,29 @@ const (
 )
 
 type Controller struct {
-	cfg      *config.Config
-	git      gitx.Repository
-	deployer deployer.StackDeployer
-	metrics  *metrics.Group
-	event    dispatcher.Dispatcher
+	db          *storage.Database
+	cfg         *config.Config
+	configStore *configstore.ConfigStore
+	git         gitx.Repository
+	deployer    deployer.StackDeployer
+	metrics     *metrics.Group
+	event       dispatcher.Dispatcher
 
 	stateStore        modelstore.Store
 	networkReconciler *networkloop.Reconciler
 	stackReconciler   stackloop.StackReconciler
+	stackPlanner      *stackplan.Planner
+	puller            *gitpull.Puller
 
 	reconcileCh chan reconcileTask
 
 	shuttingDown atomic.Bool
+	active       atomic.Bool
 	tickerMu     sync.Mutex
 	tickers      []*time.Ticker
+	ownership    *controllerOwnership
+	recovery     *deployment.Service
+	shutdownWait time.Duration
 
 	tracer trace.Tracer
 }
@@ -77,6 +92,7 @@ type reconcileTask struct {
 
 func New(
 	cfg *config.Config,
+	configStore *configstore.ConfigStore,
 	git gitx.Repository,
 	swarmService *swarm.Swarm,
 	deployer deployer.StackDeployer,
@@ -84,17 +100,18 @@ func New(
 	eventDispatcher dispatcher.Dispatcher,
 	stateStore modelstore.Store,
 	filesystem fs.FileSystem,
+	db *storage.Database,
 ) *Controller {
-	return &Controller{
-		cfg:        cfg,
-		git:        git,
-		deployer:   deployer,
-		metrics:    metricGroup,
-		event:      eventDispatcher,
-		stateStore: stateStore,
+	return &Controller{db: db,
+		cfg:         cfg,
+		configStore: configStore,
+		git:         git,
+		deployer:    deployer,
+		metrics:     metricGroup,
+		event:       eventDispatcher,
+		stateStore:  stateStore,
 		networkReconciler: networkloop.New(
 			swarmService.Networks,
-			eventDispatcher,
 		),
 		stackReconciler: stackloop.NewStackReconciler(
 			cfg,
@@ -104,24 +121,105 @@ func New(
 			eventDispatcher,
 			metricGroup.Deploys,
 			stateStore,
-			filesystem,
+			filesystem, db,
 		),
-		reconcileCh: make(chan reconcileTask, 1),
-		tracer:      otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller"),
+		stackPlanner: stackplan.NewPlanner(git),
+		puller: gitpull.NewPuller(
+			git,
+			gitpull.NewMonitor(db, stateStore, eventDispatcher),
+			metricGroup.Git,
+			cfg.Spec.Git,
+		),
+		reconcileCh:  make(chan reconcileTask, 1),
+		ownership:    newControllerOwnership(cfg.Spec.DataDir),
+		recovery:     deployment.NewService(db, eventDispatcher),
+		shutdownWait: gracefulReconciliationShutdownTimeout,
+		tracer:       otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller"),
 	}
 }
 
 func (c *Controller) Run(ctx context.Context) error {
 	runDone := make(chan struct{})
 	defer close(runDone)
+	reconciliationCtx, cancelReconciliation := context.WithCancel(context.WithoutCancel(ctx))
+	defer cancelReconciliation()
+	shutdownWait := c.shutdownWait
+	if shutdownWait <= 0 {
+		shutdownWait = gracefulReconciliationShutdownTimeout
+	}
+	c.watchShutdown(ctx, runDone, cancelReconciliation, shutdownWait)
+
+	var handle *ownershipHandle
+	if c.ownership != nil {
+		var err error
+		handle, err = c.acquireOwnership(ctx)
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil
+			}
+			return fmt.Errorf("acquire controller ownership: %w", err)
+		}
+	}
+	if handle != nil {
+		defer c.releaseOwnership(ctx, handle)
+		c.cleanupRenderedComposeFiles(ctx)
+	}
+	if c.recovery != nil {
+		if err := c.recovery.InterruptRunning(ctx); err != nil {
+			return fmt.Errorf("recover orphaned deployments: %w", err)
+		}
+	}
+	c.active.Store(true)
+	defer c.active.Store(false)
+
+	return c.runActive(ctx, reconciliationCtx)
+}
+
+func (c *Controller) cleanupRenderedComposeFiles(ctx context.Context) {
+	renderedDir := filepath.Join(c.cfg.Spec.DataDir, "rendered")
+	if err := os.RemoveAll(renderedDir); err != nil {
+		slog.WarnContext(ctx, "failed to clean up rendered compose files", "path", renderedDir, "err", err)
+	}
+}
+
+func (c *Controller) watchShutdown(
+	ctx context.Context, runDone <-chan struct{}, cancelReconciliation context.CancelFunc, shutdownWait time.Duration,
+) {
 	go func() {
 		select {
 		case <-ctx.Done():
 			c.requestShutdown()
+			timer := time.NewTimer(shutdownWait)
+			defer timer.Stop()
+			select {
+			case <-timer.C:
+				cancelReconciliation()
+			case <-runDone:
+			}
 		case <-runDone:
 		}
 	}()
+}
 
+func (c *Controller) acquireOwnership(ctx context.Context) (*ownershipHandle, error) {
+	slog.InfoContext(ctx, "controller waiting for deployment ownership",
+		slog.String("lock_file", c.ownership.path))
+	handle, err := c.ownership.acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	slog.InfoContext(ctx, "controller acquired deployment ownership",
+		slog.String("lock_file", c.ownership.path))
+	return handle, nil
+}
+
+func (c *Controller) releaseOwnership(ctx context.Context, handle *ownershipHandle) {
+	if err := handle.release(); err != nil {
+		slog.ErrorContext(context.WithoutCancel(ctx), "release controller ownership", "err", err)
+	}
+}
+
+func (c *Controller) runActive(ctx, reconciliationCtx context.Context) error {
 	var pollTicker *time.Ticker
 	if c.cfg.Spec.Sync.Mode == config.SyncModePull || c.cfg.Spec.Sync.Mode == config.SyncModeHybrid {
 		pollTicker = time.NewTicker(c.cfg.Spec.Sync.PollInterval.Value)
@@ -133,13 +231,14 @@ func (c *Controller) Run(ctx context.Context) error {
 	c.addTicker(reconcileTicker)
 	defer c.removeTicker(reconcileTicker)
 
+	cleanupTicker, stopCleanupTicker := c.newCleanupTicker()
+	defer stopCleanupTicker()
+
 	slog.InfoContext(ctx, "[controller] trigger startup sync")
 
 	c.scheduleReconcile(ctx, reconcileTask{
 		reason: TriggerStartup,
 	})
-
-	reconciliationCtx := context.WithoutCancel(ctx)
 
 	for {
 		if c.shuttingDown.Load() {
@@ -167,6 +266,40 @@ func (c *Controller) Run(ctx context.Context) error {
 			c.scheduleReconcile(ctx, reconcileTask{
 				reason: TriggerInterval,
 			})
+		case <-tickerC(cleanupTicker):
+			c.handleCleanupTick(reconciliationCtx)
+		}
+	}
+}
+
+func (c *Controller) newCleanupTicker() (*time.Ticker, func()) {
+	if !c.cfg.Spec.SecretRotation.Cleanup.Enabled {
+		return nil, func() {}
+	}
+
+	ticker := time.NewTicker(c.cfg.Spec.SecretRotation.Cleanup.Interval.Value)
+	c.addTicker(ticker)
+
+	return ticker, func() {
+		c.removeTicker(ticker)
+	}
+}
+
+func (c *Controller) handleCleanupTick(ctx context.Context) {
+	if c.shuttingDown.Load() {
+		return
+	}
+
+	c.cleanupStacks(ctx)
+}
+
+func (c *Controller) cleanupStacks(ctx context.Context) {
+	for _, stack := range c.configStore.Stacks() {
+		if err := c.stackReconciler.Cleanup(ctx, stack); err != nil {
+			slog.WarnContext(ctx, "[controller] rotated resource cleanup failed",
+				slog.String("stack", stack.Name),
+				slog.Any("error", err),
+			)
 		}
 	}
 }
@@ -225,14 +358,18 @@ func (c *Controller) Manual(ctx context.Context) bool {
 	})
 }
 
-func (c *Controller) Webhook(ctx context.Context) bool {
-	return c.scheduleReconcile(ctx, reconcileTask{
+func (c *Controller) Webhook(ctx context.Context) (bool, error) {
+	queued := c.scheduleReconcile(ctx, reconcileTask{
 		reason: TriggerWebhook,
 	})
+
+	err := c.event.Publish(ctx, &events.WebhookReceived{Queued: queued})
+
+	return queued, err
 }
 
 func (c *Controller) scheduleReconcile(ctx context.Context, task reconcileTask) bool {
-	if c.shuttingDown.Load() {
+	if c.shuttingDown.Load() || (c.ownership != nil && !c.active.Load()) {
 		return false
 	}
 
@@ -254,7 +391,7 @@ func (c *Controller) pollGit(ctx context.Context) {
 	)
 	defer span.End()
 
-	gitResult, err := c.pullGit(ctx, TriggerPoll)
+	gitResult, err := c.puller.Pull(ctx, string(TriggerPoll))
 	if err != nil {
 		tracing.FailSpan(span, err)
 		c.updatePollState(ctx, syncRunResultError, err)
@@ -298,17 +435,18 @@ func (c *Controller) reconcile( //nolint:funlen // reconciliation pipeline
 
 	startedAt := time.Now()
 
-	if task.reason == TriggerManual {
-		c.event.Dispatch(ctx, &events.SyncManualStarted{
-			TriggeredBy: task.triggeredBy,
-		})
+	if err := c.publishManualSync(ctx, task); err != nil {
+		tracing.FailSpan(span, err)
+		slog.ErrorContext(ctx, "persist manual sync event", "err", err)
+		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
+		return
 	}
 
 	resolvedGitResult, err := c.resolveGitState(ctx, task.reason, gitResult)
 	if err != nil {
 		tracing.FailSpan(span, err)
 		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
-		c.updateState(ctx, func(s *model.Runtime) {
+		_ = c.updateState(ctx, func(s *model.Runtime) {
 			s.LastSyncAt = time.Now()
 			s.LastSyncReason = string(task.reason)
 			s.LastSyncResult = syncRunResultError
@@ -320,29 +458,26 @@ func (c *Controller) reconcile( //nolint:funlen // reconciliation pipeline
 
 	slog.InfoContext(ctx, "[controller] run sync", slog.String("reason", string(task.reason)))
 
-	reloadedNetworksFrom, reloadNetworksErr := c.reloadNetworks()
-	if reloadNetworksErr != nil {
-		slog.ErrorContext(ctx, "sync failed at networks reload stage",
+	reloadErr := c.configStore.Reload(ctx, c.git.WorkingDir())
+	if reloadErr != nil {
+		slog.ErrorContext(ctx, "sync failed at configuration reload stage",
 			slog.String("reason", string(task.reason)),
-			slog.String("networks.file", c.cfg.Spec.NetworksSource.File),
-			slog.Any("err", reloadNetworksErr),
+			slog.Any("err", reloadErr),
 		)
 		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
-		c.stateStore.Update(ctx, func(s *model.Runtime) {
+		_ = c.updateState(ctx, func(s *model.Runtime) {
 			s.LastSyncAt = time.Now()
 			s.LastSyncReason = string(task.reason)
 			s.LastSyncResult = syncRunResultError
-			s.LastSyncError = reloadNetworksErr.Error()
+			s.LastSyncError = reloadErr.Error()
 			s.GitRevision = gitResult.NewRevision
 		})
 		return
 	}
-	if reloadedNetworksFrom != "" {
-		slog.InfoContext(ctx, "[controller] networks reloaded",
-			slog.String("path", reloadedNetworksFrom),
-			slog.Int("count", len(c.cfg.Spec.Networks)),
-		)
-	}
+	slog.InfoContext(ctx, "[controller] configuration reloaded",
+		slog.Int("stacks", len(c.configStore.Stacks())),
+		slog.Int("networks", len(c.configStore.Networks())),
+	)
 
 	reconcileNetworksErr := c.syncNetworks(ctx, gitResult.NewRevision)
 	if reconcileNetworksErr != nil {
@@ -352,7 +487,7 @@ func (c *Controller) reconcile( //nolint:funlen // reconciliation pipeline
 			slog.Any("err", reconcileNetworksErr),
 		)
 		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
-		c.stateStore.Update(ctx, func(s *model.Runtime) {
+		_ = c.updateState(ctx, func(s *model.Runtime) {
 			s.LastSyncAt = time.Now()
 			s.LastSyncReason = string(task.reason)
 			s.LastSyncResult = syncRunResultError
@@ -362,61 +497,22 @@ func (c *Controller) reconcile( //nolint:funlen // reconciliation pipeline
 		return
 	}
 
-	reloadedFrom, reloadErr := c.reloadStacks()
-	if reloadErr != nil {
-		slog.ErrorContext(ctx, "sync failed at stacks reload stage",
+	plan := c.stackPlanner.Plan(ctx, c.configStore.Stacks(), *gitResult)
+	if plan.DiffErr != nil {
+		slog.ErrorContext(ctx, "git diff failed, continue with default stack order",
 			slog.String("reason", string(task.reason)),
-			slog.String("stacks.file", c.cfg.Spec.StacksSource.File),
-			slog.Any("err", reloadErr),
+			slog.String("old_revision", gitResult.OldRevision),
+			slog.String("new_revision", gitResult.NewRevision),
+			slog.Any("err", plan.DiffErr),
 		)
-		c.metrics.Sync.RecordSyncRun(string(task.reason), syncRunResultError, time.Since(startedAt))
-		c.updateState(ctx, func(s *model.Runtime) {
-			s.LastSyncAt = time.Now()
-			s.LastSyncReason = string(task.reason)
-			s.LastSyncResult = syncRunResultError
-			s.LastSyncError = reloadErr.Error()
-			s.GitRevision = gitResult.NewRevision
-		})
-		return
 	}
 
-	slog.InfoContext(ctx, "[controller] stacks reloaded",
-		slog.String("path", reloadedFrom),
-		slog.Int("count", len(c.cfg.Spec.Stacks)),
-	)
-
-	stacksToSync := c.cfg.Spec.Stacks
-	if gitResult.Updated {
-		fileDiffs, diffErr := c.git.Diff(ctx, gitResult.OldRevision, gitResult.NewRevision)
-		if diffErr != nil {
-			slog.ErrorContext(ctx, "git diff failed, continue with default stack order",
-				slog.String("reason", string(task.reason)),
-				slog.String("old_revision", gitResult.OldRevision),
-				slog.String("new_revision", gitResult.NewRevision),
-				slog.Any("err", diffErr),
-			)
-		} else {
-			stacksToSync = prioritizeStacksByFileDiffs(c.cfg.Spec.Stacks, fileDiffs)
-		}
-	}
-
-	var deployErrs []error
-
-	stackCtx, stackSpan := c.tracer.Start(ctx, "controller.syncStacks")
+	stackCtx, stackSpan := c.tracer.Start(ctx, "controller.syncStacks", trace.WithAttributes(
+		attribute.Int("stacks.total", len(plan.Stacks)),
+		attribute.Int("stacks.changed", len(plan.Changed)),
+	))
 	defer stackSpan.End()
-
-	for _, stackCfg := range stacksToSync {
-		err = c.syncStack(stackCtx, stackCfg, gitResult.NewRevision, task.reason == TriggerManual)
-		if err != nil {
-			deployErrs = append(deployErrs, err)
-			slog.ErrorContext(ctx, "sync failed for stack",
-				slog.String("reason", string(task.reason)),
-				slog.String("stack", stackCfg.Name),
-				slog.String("commit", gitResult.NewRevision),
-				slog.Any("err", err),
-			)
-		}
-	}
+	deployErrs := c.syncStacks(stackCtx, plan.Stacks, gitResult.NewRevision, task.reason)
 
 	result := syncRunResultSuccess
 	combinedErr := errors.Join(deployErrs...)
@@ -434,8 +530,7 @@ func (c *Controller) reconcile( //nolint:funlen // reconciliation pipeline
 		stackSpan.SetStatus(codes.Ok, "")
 	}
 
-	c.metrics.Sync.RecordSyncRun(string(task.reason), result, time.Since(startedAt))
-	c.updateState(ctx, func(s *model.Runtime) {
+	persistErr := c.updateState(ctx, func(s *model.Runtime) {
 		s.LastSyncAt = time.Now()
 		s.LastSyncReason = string(task.reason)
 		s.LastSyncResult = result
@@ -445,6 +540,31 @@ func (c *Controller) reconcile( //nolint:funlen // reconciliation pipeline
 		}
 		s.GitRevision = gitResult.NewRevision
 	})
+	if persistErr != nil {
+		result = syncRunResultError
+		tracing.FailSpan(stackSpan, persistErr)
+	}
+	c.metrics.Sync.RecordSyncRun(string(task.reason), result, time.Since(startedAt))
+}
+
+func (c *Controller) syncStacks(
+	ctx context.Context, stacks []config.StackSpec, commit string, reason TriggerReason,
+) []error {
+	var deployErrs []error
+	for _, stackCfg := range stacks {
+		err := c.syncStack(ctx, stackCfg, commit, reason == TriggerManual)
+		if err == nil {
+			continue
+		}
+		deployErrs = append(deployErrs, err)
+		slog.ErrorContext(ctx, "sync failed for stack",
+			slog.String("reason", string(reason)),
+			slog.String("stack", stackCfg.Name),
+			slog.String("commit", commit),
+			slog.Any("err", err),
+		)
+	}
+	return deployErrs
 }
 
 func (c *Controller) resolveGitState(
@@ -468,11 +588,11 @@ func (c *Controller) resolveGitState(
 		}, nil
 	}
 
-	return c.pullGit(ctx, reason)
+	return c.puller.Pull(ctx, string(reason))
 }
 
 func (c *Controller) updatePollState(ctx context.Context, result string, err error) {
-	c.updateState(ctx, func(s *model.Runtime) {
+	_ = c.updateState(ctx, func(s *model.Runtime) {
 		s.LastPollAt = time.Now()
 		s.LastPollResult = result
 		s.LastPollError = ""
@@ -480,34 +600,6 @@ func (c *Controller) updatePollState(ctx context.Context, result string, err err
 			s.LastPollError = err.Error()
 		}
 	})
-}
-
-func (c *Controller) pullGit(ctx context.Context, reason TriggerReason) (gitx.PullResult, error) {
-	gitResult, err := c.git.Pull(ctx)
-	if err != nil {
-		slog.ErrorContext(ctx, "git pull failed",
-			slog.String("reason", string(reason)),
-			slog.String("repository", c.cfg.Spec.Git.Repository),
-			slog.Any("err", err),
-		)
-		c.metrics.Git.RecordGitUpdate(c.cfg.Spec.Git.Repository, "error")
-
-		return gitx.PullResult{}, err
-	}
-
-	slog.InfoContext(ctx, "[controller] git synced", slog.Any("result", gitResult))
-
-	updateResult := syncRunResultNoChange
-	if gitResult.Updated {
-		updateResult = syncRunResultUpdated
-	}
-	c.metrics.Git.RecordGitUpdate(c.cfg.Spec.Git.Repository, updateResult)
-
-	return gitResult, nil
-}
-
-func (c *Controller) reloadStacks() (string, error) {
-	return c.cfg.ReloadStacks(c.git.WorkingDir())
 }
 
 func (c *Controller) syncStack(
@@ -527,66 +619,9 @@ func (c *Controller) syncStack(
 	return nil
 }
 
-func prioritizeStacksByFileDiffs(stacks []config.StackSpec, fileDiffs []gitx.CommitFileDiff) []config.StackSpec {
-	if len(stacks) == 0 {
+func (c *Controller) publishManualSync(ctx context.Context, task reconcileTask) error {
+	if task.reason != TriggerManual {
 		return nil
 	}
-
-	normalizePath := func(path string) string {
-		return strings.TrimPrefix(strings.TrimSpace(path), "./")
-	}
-
-	stackNameByComposePath := make(map[string]string, len(stacks))
-	for _, stack := range stacks {
-		composePath := normalizePath(stack.ComposeFile)
-		if composePath == "" {
-			continue
-		}
-
-		if _, exists := stackNameByComposePath[composePath]; !exists {
-			stackNameByComposePath[composePath] = stack.Name
-		}
-	}
-
-	changedStacksOrder := make(map[string]int, len(stacks))
-	for diffIndex, fileDiff := range fileDiffs {
-		changedPath := normalizePath(fileDiff.NewPath)
-		if changedPath == "" {
-			changedPath = normalizePath(fileDiff.OldPath)
-		}
-		if changedPath == "" {
-			continue
-		}
-
-		stackName, exists := stackNameByComposePath[changedPath]
-		if !exists {
-			continue
-		}
-		changedStacksOrder[stackName] = diffIndex
-	}
-
-	if len(changedStacksOrder) == 0 {
-		return stacks
-	}
-
-	orderedStacks := make([]config.StackSpec, len(stacks))
-	copy(orderedStacks, stacks)
-
-	sort.SliceStable(orderedStacks, func(i, j int) bool {
-		leftOrder, leftChanged := changedStacksOrder[orderedStacks[i].Name]
-		rightOrder, rightChanged := changedStacksOrder[orderedStacks[j].Name]
-
-		switch {
-		case leftChanged && rightChanged:
-			return leftOrder < rightOrder
-		case leftChanged:
-			return true
-		case rightChanged:
-			return false
-		default:
-			return false
-		}
-	})
-
-	return orderedStacks
+	return c.event.Publish(ctx, &events.SyncManualStarted{Username: task.triggeredBy})
 }

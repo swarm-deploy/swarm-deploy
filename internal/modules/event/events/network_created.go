@@ -25,8 +25,8 @@ func (n *NetworkCreated) Message() string {
 // Details returns network creation details.
 func (n *NetworkCreated) Details() map[string]string {
 	return map[string]string{
-		"network_name": n.NetworkName,
-		"network_id":   n.NetworkID,
-		"driver":       n.Driver,
+		AttributeNetworkName: n.NetworkName,
+		AttributeNetworkID:   n.NetworkID,
+		"driver":             n.Driver,
 	}
 }

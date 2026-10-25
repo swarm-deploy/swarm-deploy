@@ -10,7 +10,8 @@ import (
 
 	secretmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/model"
 	secretstore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
+	servicemodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
+	servicestore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
@@ -42,17 +43,17 @@ type SecretWithUsage struct {
 
 // Resolver joins persisted service and secret snapshots without querying Docker.
 type Resolver struct {
-	services *service.Store
+	services servicestore.Store
 	secrets  secretstore.Store
 }
 
 // NewResolver creates a service-secret relation resolver.
-func NewResolver(services *service.Store, secrets secretstore.Store) *Resolver {
+func NewResolver(services servicestore.Store, secrets secretstore.Store) *Resolver {
 	return &Resolver{services: services, secrets: secrets}
 }
 
 // ResolveServiceSecrets resolves persisted metadata for all secret references of a service.
-func (r *Resolver) ResolveServiceSecrets(ctx context.Context, info service.Info) ([]ResolvedSecret, error) {
+func (r *Resolver) ResolveServiceSecrets(ctx context.Context, info servicemodel.Info) ([]ResolvedSecret, error) {
 	resolved := make([]ResolvedSecret, 0, len(info.Spec.Secrets))
 	for _, reference := range info.Spec.Secrets {
 		secret, found, err := r.resolveReference(ctx, reference)
@@ -71,9 +72,14 @@ func (r *Resolver) ResolveServiceSecrets(ctx context.Context, info service.Info)
 }
 
 // ServicesUsingSecret returns services that reference the supplied secret.
-func (r *Resolver) ServicesUsingSecret(secret secretmodel.Secret) []ServiceUsage {
+func (r *Resolver) ServicesUsingSecret(ctx context.Context, secret secretmodel.Secret) ([]ServiceUsage, error) {
+	services, err := r.services.ReadAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list services: %w", err)
+	}
+
 	usedBy := make([]ServiceUsage, 0)
-	for _, info := range r.services.List() {
+	for _, info := range services {
 		for _, reference := range info.Spec.Secrets {
 			if !referencesSecret(reference, secret) {
 				continue
@@ -89,7 +95,7 @@ func (r *Resolver) ServicesUsingSecret(secret secretmodel.Secret) []ServiceUsage
 
 	sortServiceUsages(usedBy)
 
-	return usedBy
+	return usedBy, nil
 }
 
 // ListSecretsWithUsage returns all secrets enriched with locally derived service usage.
@@ -97,6 +103,10 @@ func (r *Resolver) ListSecretsWithUsage(ctx context.Context) ([]SecretWithUsage,
 	secrets, err := r.secrets.List(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list secrets: %w", err)
+	}
+	services, err := r.services.ReadAll(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list services: %w", err)
 	}
 
 	byID := make(map[string]int, len(secrets))
@@ -107,7 +117,7 @@ func (r *Resolver) ListSecretsWithUsage(ctx context.Context) ([]SecretWithUsage,
 	}
 
 	usages := make([][]ServiceUsage, len(secrets))
-	for _, info := range r.services.List() {
+	for _, info := range services {
 		for _, reference := range info.Spec.Secrets {
 			secretIndex, found := referencedSecretIndex(reference, byID, byName)
 			if !found {

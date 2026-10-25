@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 
 import { useUIStore, type ThemeMode } from "../../stores/ui";
@@ -35,10 +35,9 @@ const links = [
   { to: "/networks", label: "Networks", icon: "networks" },
   { to: "/secrets", label: "Secrets", icon: "secrets" },
   { to: "/recommendations", label: "Recommendations", icon: "recommendations" },
-  { to: "/alerts", label: "Alerts", icon: "alerts" },
 ];
 
-const secondaryLinks = [{ to: "/events", label: "Events", icon: "events" }];
+const secondaryLinks = [{ to: "/events", label: "Events & Alerts", icon: "events" }];
 
 function isActive(path: string): boolean {
   if (path === "/services") {
@@ -74,6 +73,26 @@ function selectTheme(theme: ThemeMode) {
     userMenuRef.value.open = false;
   }
 }
+
+function handleDocumentClick(event: MouseEvent) {
+  const userMenu = userMenuRef.value;
+  if (!userMenu || !userMenu.open) {
+    return;
+  }
+  if (event.target instanceof Node && userMenu.contains(event.target)) {
+    return;
+  }
+
+  userMenu.open = false;
+}
+
+onMounted(() => {
+  document.addEventListener("mousedown", handleDocumentClick);
+});
+
+onUnmounted(() => {
+  document.removeEventListener("mousedown", handleDocumentClick);
+});
 </script>
 
 <template>
@@ -101,63 +120,74 @@ function selectTheme(theme: ThemeMode) {
     </div>
 
     <div class="sidebar-navigation">
-      <nav class="sidebar-nav sidebar-nav-primary" aria-label="Primary navigation">
-        <RouterLink
-          v-for="link in links"
-          :key="link.to"
-          :to="link.to"
-          class="sidebar-link"
-          :class="{ active: isActive(link.to) }"
-          :aria-label="collapsed ? link.label : undefined"
-          :data-tooltip="link.label"
-        >
-          <SidebarIcon :name="link.icon" />
-          <span class="sidebar-label">{{ link.label }}</span>
-        </RouterLink>
-      </nav>
+      <RouterLink
+        to="/overview"
+        class="sidebar-link sidebar-overview-mobile"
+        :class="{ active: isActive('/overview') }"
+        aria-label="Overview"
+      >
+        <SidebarIcon name="overview" />
+      </RouterLink>
 
-      <nav class="sidebar-nav sidebar-nav-secondary" aria-label="Global navigation">
-        <RouterLink
-          v-for="link in secondaryLinks"
-          :key="link.to"
-          :to="link.to"
-          class="sidebar-link"
-          :class="{ active: isActive(link.to) }"
-          :aria-label="collapsed ? link.label : undefined"
-          :data-tooltip="link.label"
-        >
-          <SidebarIcon :name="link.icon" />
-          <span class="sidebar-label">{{ link.label }}</span>
-        </RouterLink>
-        <details ref="userMenuRef" class="sidebar-user-menu">
-          <summary class="sidebar-link sidebar-user" :data-tooltip="currentUserLabel">
-            <SidebarIcon name="user" />
-            <span class="sidebar-label">{{ currentUserLabel }}</span>
-          </summary>
-          <div class="sidebar-settings-menu" aria-label="User settings">
-            <div class="sidebar-settings-header">
-              <strong>{{ currentUserLabel }}</strong>
-              <span>Appearance</span>
+      <div class="sidebar-navigation-scroll">
+        <nav class="sidebar-nav sidebar-nav-primary" aria-label="Primary navigation">
+          <RouterLink
+            v-for="link in links"
+            :key="link.to"
+            :to="link.to"
+            class="sidebar-link"
+            :class="{ active: isActive(link.to), 'sidebar-link-overview': link.to === '/overview' }"
+            :aria-label="link.label"
+            :data-tooltip="link.label"
+          >
+            <SidebarIcon :name="link.icon" />
+            <span class="sidebar-label">{{ link.label }}</span>
+          </RouterLink>
+        </nav>
+
+        <nav class="sidebar-nav sidebar-nav-secondary" aria-label="Global navigation">
+          <RouterLink
+            v-for="link in secondaryLinks"
+            :key="link.to"
+            :to="link.to"
+            class="sidebar-link"
+            :class="{ active: isActive(link.to) }"
+            :aria-label="link.label"
+            :data-tooltip="link.label"
+          >
+            <SidebarIcon :name="link.icon" />
+            <span class="sidebar-label">{{ link.label }}</span>
+          </RouterLink>
+          <details ref="userMenuRef" class="sidebar-user-menu">
+            <summary class="sidebar-link sidebar-user" :data-tooltip="currentUserLabel" :aria-label="currentUserLabel">
+              <SidebarIcon name="user" />
+              <span class="sidebar-label">{{ currentUserLabel }}</span>
+            </summary>
+            <div class="sidebar-settings-menu" aria-label="User settings">
+              <div class="sidebar-settings-header">
+                <strong>{{ currentUserLabel }}</strong>
+                <span>Appearance</span>
+              </div>
+              <div class="theme-selector" role="radiogroup" aria-label="Theme">
+                <button
+                  v-for="option in themeOptions"
+                  :key="option.value"
+                  type="button"
+                  class="theme-option"
+                  :class="{ active: uiStore.themeMode === option.value }"
+                  role="radio"
+                  :aria-label="option.label"
+                  :aria-checked="uiStore.themeMode === option.value"
+                  @click="selectTheme(option.value)"
+                >
+                  <span>{{ option.label }}</span>
+                  <span v-if="uiStore.themeMode === option.value" aria-hidden="true">✓</span>
+                </button>
+              </div>
             </div>
-            <div class="theme-selector" role="radiogroup" aria-label="Theme">
-              <button
-                v-for="option in themeOptions"
-                :key="option.value"
-                type="button"
-                class="theme-option"
-                :class="{ active: uiStore.themeMode === option.value }"
-                role="radio"
-                :aria-label="option.label"
-                :aria-checked="uiStore.themeMode === option.value"
-                @click="selectTheme(option.value)"
-              >
-                <span>{{ option.label }}</span>
-                <span v-if="uiStore.themeMode === option.value" aria-hidden="true">✓</span>
-              </button>
-            </div>
-          </div>
-        </details>
-      </nav>
+          </details>
+        </nav>
+      </div>
     </div>
 
     <div class="sidebar-footer">

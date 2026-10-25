@@ -4,30 +4,26 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
 	secretmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretservice"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
-	"go.uber.org/mock/gomock"
+	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 )
 
 func TestHandlerGetService(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store, err := service.NewStore(ctx, filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
-	require.NoError(t, err)
-	require.NoError(t, store.ReplaceStack(ctx, "payments", []service.Info{
+	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
+	require.NoError(t, store.ReplaceStack(ctx, "payments", []model.Info{
 		{
 			Name:  "api",
 			Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
@@ -63,12 +59,13 @@ func TestHandlerGetService(t *testing.T) {
 			},
 		},
 	}))
+	secretsStore := newSecretsStore(t, []secretmodel.Secret{{
+		ID: "secret-id", Name: "payments_db_password", VersionID: 3,
+	}})
 
 	h := &handler{
-		services: store,
-		secretRelations: secretservice.NewResolver(store, newSecretsStore(t, []secretmodel.Secret{
-			{ID: "secret-id", Name: "payments_db_password", VersionID: 3},
-		})),
+		services:        store,
+		secretRelations: secretservice.NewResolver(store, secretsStore),
 	}
 
 	resp, err := h.GetService(context.Background(), generated.GetServiceParams{
@@ -110,10 +107,10 @@ func TestHandlerGetService(t *testing.T) {
 	require.Len(t, resp.Spec.Secrets, 1)
 	assert.Equal(t, "payments_db_password", resp.Spec.Secrets[0].SecretName)
 	assert.Equal(t, "/run/secrets/payments_db_password", resp.Spec.Secrets[0].Target.Value)
-	resolvedSecret, ok := resp.Spec.Secrets[0].Secret.Get()
+	secret, ok := resp.Spec.Secrets[0].Secret.Get()
 	require.True(t, ok)
-	assert.Equal(t, "secret-id", resolvedSecret.ID)
-	assert.Equal(t, int64(3), resolvedSecret.VersionID)
+	assert.Equal(t, "secret-id", secret.ID)
+	assert.Equal(t, int64(3), secret.VersionID)
 	require.Len(t, resp.Spec.Network, 1)
 	assert.Equal(t, "payments_default", resp.Spec.Network[0].Target)
 }
@@ -121,15 +118,13 @@ func TestHandlerGetService(t *testing.T) {
 func TestHandlerGetService_NotFound(t *testing.T) {
 	t.Parallel()
 
-	store, err := service.NewStore(context.Background(), filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
-	require.NoError(t, err)
+	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
 
 	h := &handler{
-		services:        store,
-		secretRelations: secretservice.NewResolver(store, newSecretsStore(t, nil)),
+		services: store,
 	}
 
-	_, err = h.GetService(context.Background(), generated.GetServiceParams{
+	_, err := h.GetService(context.Background(), generated.GetServiceParams{
 		Stack:   "payments",
 		Service: "api",
 	})
@@ -138,175 +133,4 @@ func TestHandlerGetService_NotFound(t *testing.T) {
 	var statusErr *statusError
 	require.True(t, errors.As(err, &statusErr))
 	assert.Equal(t, http.StatusNotFound, statusErr.code)
-}
-
-func TestHandlerListServiceDeployments_MapsFromHistory(t *testing.T) {
-	t.Parallel()
-
-	store, err := history.NewStore(filepath.Join(t.TempDir(), "history.json"), 50, fs.NewLocalFileSystem())
-	require.NoError(t, err)
-
-	ctx := context.Background()
-	require.NoError(t, storeEvent(store, ctx, &events.DeploySuccess{
-		DeployEvent: events.DeployEvent{
-			StackName: "payments",
-			Commit:    "commit-success",
-		},
-	}))
-	require.NoError(t, storeEvent(store, ctx, &events.SyncManualStarted{
-		TriggeredBy: "admin",
-	}))
-	require.NoError(t, storeEvent(store, ctx, &events.DeployFailed{
-		DeployEvent: events.DeployEvent{
-			StackName: "payments",
-			Commit:    "commit-failed",
-		},
-		Error: errors.New("boom"),
-	}))
-	require.NoError(t, storeEvent(store, ctx, &events.DeploySuccess{
-		DeployEvent: events.DeployEvent{
-			StackName: "infra",
-			Commit:    "other-stack",
-		},
-	}))
-
-	ctrl := gomock.NewController(t)
-	serviceInspector := swarm.NewMockServiceManager(ctrl)
-	h := &handler{
-		serviceInspector: serviceInspector,
-		history:          store,
-	}
-
-	serviceInspector.EXPECT().
-		GetStatus(gomock.Any(), swarm.NewServiceReference("payments", "api")).
-		Return(swarm.ServiceStatus{
-			Stack:   "payments",
-			Service: "api",
-			Spec: swarm.ServiceSpec{
-				Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
-				Mode:  "replicated",
-			},
-		}, nil)
-
-	resp, err := h.ListServiceDeployments(context.Background(), generated.ListServiceDeploymentsParams{
-		Stack:   "payments",
-		Service: "api",
-	})
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-
-	require.Len(t, resp.Deployments, 2)
-
-	assert.Equal(t, generated.ServiceDeploymentStatusFailed, resp.Deployments[0].Status)
-	assert.Equal(t, "ghcr.io/swarm-deploy/payments-api:v1.2.3", resp.Deployments[0].Image)
-	assert.Equal(t, "v1.2.3", resp.Deployments[0].ImageVersion)
-	assert.True(t, resp.Deployments[0].Commit.IsSet())
-	assert.Equal(t, "commit-failed", resp.Deployments[0].Commit.Value)
-
-	assert.Equal(t, generated.ServiceDeploymentStatusSuccess, resp.Deployments[1].Status)
-	assert.True(t, resp.Deployments[1].Commit.IsSet())
-	assert.Equal(t, "commit-success", resp.Deployments[1].Commit.Value)
-}
-
-func TestHandlerListServiceDeployments_NoHistoryReturnsEmpty(t *testing.T) {
-	t.Parallel()
-
-	ctrl := gomock.NewController(t)
-	serviceInspector := swarm.NewMockServiceManager(ctrl)
-	h := &handler{
-		serviceInspector: serviceInspector,
-	}
-
-	serviceInspector.EXPECT().
-		GetStatus(gomock.Any(), swarm.NewServiceReference("payments", "api")).
-		Return(swarm.ServiceStatus{
-			Stack:   "payments",
-			Service: "api",
-			Spec: swarm.ServiceSpec{
-				Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
-				Mode:  "replicated",
-			},
-		}, nil)
-
-	resp, err := h.ListServiceDeployments(context.Background(), generated.ListServiceDeploymentsParams{
-		Stack:   "payments",
-		Service: "api",
-	})
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-	require.Empty(t, resp.Deployments)
-}
-
-func TestHandlerListServiceDeployments_RespectsLimitParam(t *testing.T) {
-	t.Parallel()
-
-	store, err := history.NewStore(filepath.Join(t.TempDir(), "history.json"), 50, fs.NewLocalFileSystem())
-	require.NoError(t, err)
-
-	ctx := context.Background()
-	require.NoError(t, storeEvent(store, ctx, &events.DeploySuccess{
-		DeployEvent: events.DeployEvent{
-			StackName: "payments",
-			Commit:    "commit-1",
-		},
-	}))
-	require.NoError(t, storeEvent(store, ctx, &events.DeployFailed{
-		DeployEvent: events.DeployEvent{
-			StackName: "payments",
-			Commit:    "commit-2",
-		},
-		Error: errors.New("boom"),
-	}))
-
-	ctrl := gomock.NewController(t)
-	serviceInspector := swarm.NewMockServiceManager(ctrl)
-	h := &handler{
-		serviceInspector: serviceInspector,
-		history:          store,
-	}
-
-	serviceInspector.EXPECT().
-		GetStatus(gomock.Any(), swarm.NewServiceReference("payments", "api")).
-		Return(swarm.ServiceStatus{
-			Stack:   "payments",
-			Service: "api",
-			Spec: swarm.ServiceSpec{
-				Image: "ghcr.io/swarm-deploy/payments-api:v1.2.3",
-				Mode:  "replicated",
-			},
-		}, nil)
-
-	resp, err := h.ListServiceDeployments(context.Background(), generated.ListServiceDeploymentsParams{
-		Stack:   "payments",
-		Service: "api",
-		Limit:   generated.NewOptInt32(1),
-	})
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-	require.Len(t, resp.Deployments, 1)
-	assert.Equal(t, generated.ServiceDeploymentStatusFailed, resp.Deployments[0].Status)
-}
-
-func TestHandlerListServiceDeployments_NotFound(t *testing.T) {
-	t.Parallel()
-
-	ctrl := gomock.NewController(t)
-	serviceInspector := swarm.NewMockServiceManager(ctrl)
-	h := &handler{
-		serviceInspector: serviceInspector,
-	}
-
-	serviceInspector.EXPECT().
-		GetStatus(gomock.Any(), swarm.NewServiceReference("payments", "api")).
-		Return(swarm.ServiceStatus{}, swarm.ErrServiceNotFound)
-
-	_, err := h.ListServiceDeployments(context.Background(), generated.ListServiceDeploymentsParams{
-		Stack:   "payments",
-		Service: "api",
-	})
-	require.Error(t, err)
-
-	var statusErr *statusError
-	require.True(t, errors.As(err, &statusErr))
-	assert.Equal(t, 404, statusErr.code)
 }

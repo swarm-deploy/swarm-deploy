@@ -1,4 +1,4 @@
-//go:generate mockgen -source=$GOFILE -destination=mock.go -package=git
+//go:generate go run -mod=mod go.uber.org/mock/mockgen -source=$GOFILE -destination=mock.go -package=git
 package git
 
 import (

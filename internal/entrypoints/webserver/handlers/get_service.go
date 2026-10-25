@@ -12,13 +12,16 @@ func (h *handler) GetService(
 	ctx context.Context,
 	params generated.GetServiceParams,
 ) (*generated.ServiceStatusResponse, error) {
-	info, ok := h.services.Get(params.Stack, params.Service)
+	info, ok, err := h.services.Find(ctx, params.Stack, params.Service)
+	if err != nil {
+		return nil, err
+	}
 	if ok {
-		resolvedSecrets, err := h.secretRelations.ResolveServiceSecrets(ctx, info)
-		if err != nil {
+		resolvedSecrets, resolveErr := h.secretRelations.ResolveServiceSecrets(ctx, info)
+		if resolveErr != nil {
 			return nil, withStatusError(
 				http.StatusInternalServerError,
-				fmt.Errorf("resolve service secrets: %w", err),
+				fmt.Errorf("resolve service secrets: %w", resolveErr),
 			)
 		}
 

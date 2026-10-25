@@ -3,6 +3,8 @@ package handlers
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -23,7 +25,7 @@ func TestHandlerGetStackManifestos(t *testing.T) {
 	gitRepository := gitx.NewMockRepository(ctrl)
 	serviceInspector := swarm.NewMockServiceManager(ctrl)
 	networkManager := swarm.NewMockNetworkManager(ctrl)
-	cfg := newConfigWithStacks([]config.StackSpec{
+	cfg := newConfigWithStacks(t, []config.StackSpec{
 		{
 			Name:        "payments",
 			ComposeFile: "stacks/payments.yaml",
@@ -81,7 +83,7 @@ func TestHandlerGetStackManifestos_StackNotFound(t *testing.T) {
 	t.Parallel()
 
 	h := &handler{
-		stackProvider: newConfigWithStacks([]config.StackSpec{
+		stackProvider: newConfigWithStacks(t, []config.StackSpec{
 			{
 				Name:        "payments",
 				ComposeFile: "stacks/payments.yaml",
@@ -105,7 +107,7 @@ func TestHandlerGetStackManifestos_GitReadError(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	gitRepository := gitx.NewMockRepository(ctrl)
-	cfg := newConfigWithStacks([]config.StackSpec{
+	cfg := newConfigWithStacks(t, []config.StackSpec{
 		{
 			Name:        "payments",
 			ComposeFile: "stacks/payments.yaml",
@@ -137,7 +139,7 @@ func TestHandlerGetStackManifestos_DesiredComposeLoadError(t *testing.T) {
 
 	ctrl := gomock.NewController(t)
 	gitRepository := gitx.NewMockRepository(ctrl)
-	cfg := newConfigWithStacks([]config.StackSpec{
+	cfg := newConfigWithStacks(t, []config.StackSpec{
 		{
 			Name:        "payments",
 			ComposeFile: "stacks/payments.yaml",
@@ -172,7 +174,7 @@ func TestHandlerGetStackManifestos_ListStackServicesError(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	gitRepository := gitx.NewMockRepository(ctrl)
 	serviceInspector := swarm.NewMockServiceManager(ctrl)
-	cfg := newConfigWithStacks([]config.StackSpec{
+	cfg := newConfigWithStacks(t, []config.StackSpec{
 		{
 			Name:        "payments",
 			ComposeFile: "stacks/payments.yaml",
@@ -214,7 +216,7 @@ func TestHandlerGetStackManifestos_LiveManifestError(t *testing.T) {
 	gitRepository := gitx.NewMockRepository(ctrl)
 	serviceInspector := swarm.NewMockServiceManager(ctrl)
 	networkManager := swarm.NewMockNetworkManager(ctrl)
-	cfg := newConfigWithStacks([]config.StackSpec{
+	cfg := newConfigWithStacks(t, []config.StackSpec{
 		{
 			Name:        "payments",
 			ComposeFile: "stacks/payments.yaml",
@@ -264,10 +266,21 @@ func composeLoaderForTest(manifest []byte) compose.FileLoader {
 	})
 }
 
-func newConfigWithStacks(stacks []config.StackSpec) *config.Config {
-	return &config.Config{
-		Spec: config.Spec{
-			Stacks: stacks,
-		},
+func newConfigWithStacks(t *testing.T, stacks []config.StackSpec) *config.Config {
+	t.Helper()
+	cfg := &config.Config{}
+	if len(stacks) == 0 {
+		return cfg
 	}
+	dir := t.TempDir()
+	cfg.Spec.StacksSource.File = "stacks.yaml"
+	content := "stacks:\n"
+	for _, stack := range stacks {
+		content += "  - name: " + stack.Name + "\n"
+		content += "    composeFile: " + stack.ComposeFile + "\n"
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "stacks.yaml"), []byte(content), 0o600))
+	_, err := cfg.Reload(dir)
+	require.NoError(t, err)
+	return cfg
 }

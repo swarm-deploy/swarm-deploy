@@ -2,20 +2,22 @@ package secretservice
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	secretmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/model"
 	secretstore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	servicemodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
+	servicestore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 )
 
 func TestResolverResolveServiceSecrets(t *testing.T) {
 	t.Parallel()
+	timestamp := time.Date(2026, time.October, 1, 12, 0, 0, 0, time.UTC)
 
 	tests := []struct {
 		name       string
@@ -27,6 +29,7 @@ func TestResolverResolveServiceSecrets(t *testing.T) {
 			reference: swarm.ServiceSecret{SecretID: "secret-id", SecretName: "old-name", Target: "/run/secrets/db"},
 			wantSecret: &secretmodel.Secret{
 				ID: "secret-id", Name: "db-password", VersionID: 4,
+				CreatedAt: timestamp, UpdatedAt: timestamp,
 			},
 		},
 		{
@@ -34,6 +37,7 @@ func TestResolverResolveServiceSecrets(t *testing.T) {
 			reference: swarm.ServiceSecret{SecretID: "stale-id", SecretName: "db-password"},
 			wantSecret: &secretmodel.Secret{
 				ID: "secret-id", Name: "db-password", VersionID: 4,
+				CreatedAt: timestamp, UpdatedAt: timestamp,
 			},
 		},
 		{
@@ -47,11 +51,14 @@ func TestResolverResolveServiceSecrets(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			resolver := newTestResolver(t, []secretmodel.Secret{{ID: "secret-id", Name: "db-password", VersionID: 4}}, []service.Info{
+			resolver := newTestResolver(t, []secretmodel.Secret{{
+				ID: "secret-id", Name: "db-password", VersionID: 4,
+				CreatedAt: timestamp, UpdatedAt: timestamp,
+			}}, []servicemodel.Info{
 				{Name: "api", Spec: swarm.ServiceSpec{Secrets: []swarm.ServiceSecret{tt.reference}}},
 			})
 
-			resolved, err := resolver.ResolveServiceSecrets(context.Background(), service.Info{
+			resolved, err := resolver.ResolveServiceSecrets(context.Background(), servicemodel.Info{
 				Name: "api", Spec: swarm.ServiceSpec{Secrets: []swarm.ServiceSecret{tt.reference}},
 			})
 			require.NoError(t, err)
@@ -66,7 +73,7 @@ func TestResolverServicesUsingSecret(t *testing.T) {
 	t.Parallel()
 
 	secret := secretmodel.Secret{ID: "shared-id", Name: "shared-secret"}
-	resolver := newTestResolver(t, []secretmodel.Secret{secret}, []service.Info{
+	resolver := newTestResolver(t, []secretmodel.Secret{secret}, []servicemodel.Info{
 		{
 			Name: "worker",
 			Spec: swarm.ServiceSpec{Secrets: []swarm.ServiceSecret{
@@ -87,10 +94,12 @@ func TestResolverServicesUsingSecret(t *testing.T) {
 		},
 	})
 
+	usedBy, err := resolver.ServicesUsingSecret(t.Context(), secret)
+	require.NoError(t, err)
 	assert.Equal(t, []ServiceUsage{
 		{Stack: "payments", Service: "api", Target: "/run/secrets/api"},
 		{Stack: "payments", Service: "worker", Target: "/run/secrets/worker"},
-	}, resolver.ServicesUsingSecret(secret))
+	}, usedBy)
 }
 
 func TestResolverServicesUsingSecretUnused(t *testing.T) {
@@ -99,24 +108,32 @@ func TestResolverServicesUsingSecretUnused(t *testing.T) {
 	secret := secretmodel.Secret{ID: "unused-id", Name: "unused"}
 	resolver := newTestResolver(t, []secretmodel.Secret{secret}, nil)
 
-	assert.Empty(t, resolver.ServicesUsingSecret(secret))
+	usedBy, err := resolver.ServicesUsingSecret(t.Context(), secret)
+	require.NoError(t, err)
+	assert.Empty(t, usedBy)
 }
 
 func newTestResolver(
 	t *testing.T,
 	secrets []secretmodel.Secret,
-	services []service.Info,
+	services []servicemodel.Info,
 ) *Resolver {
 	t.Helper()
 
 	ctx := context.Background()
-	filesystem := fs.NewLocalFileSystem()
-	secretStore, err := secretstore.NewFileStore(ctx, filepath.Join(t.TempDir(), "secrets.json"), filesystem)
-	require.NoError(t, err)
+	db := testutil.OpenSQLite(t)
+	secretStore := secretstore.NewSQLStore(db)
+	for i := range secrets {
+		if secrets[i].CreatedAt.IsZero() {
+			secrets[i].CreatedAt = time.Now().UTC()
+		}
+		if secrets[i].UpdatedAt.IsZero() {
+			secrets[i].UpdatedAt = secrets[i].CreatedAt
+		}
+	}
 	require.NoError(t, secretStore.Replace(ctx, secrets))
 
-	serviceStore, err := service.NewStore(ctx, filepath.Join(t.TempDir(), "services.json"), filesystem)
-	require.NoError(t, err)
+	serviceStore := servicestore.NewSQLStore(db)
 	require.NoError(t, serviceStore.ReplaceStack(ctx, "payments", services))
 
 	return NewResolver(serviceStore, secretStore)

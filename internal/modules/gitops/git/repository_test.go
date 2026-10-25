@@ -5,13 +5,19 @@ import (
 	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
+	"errors"
+	"net"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/artarts36/specw"
 	gogit "github.com/go-git/go-git/v5"
+	gitconfig "github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/object"
 	githttp "github.com/go-git/go-git/v5/plumbing/transport/http"
@@ -19,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	cryptossh "golang.org/x/crypto/ssh"
 )
 
 func TestResolveAuthMethodAnonymous(t *testing.T) {
@@ -190,6 +197,251 @@ func TestNewGoGitRepositoryOpensExistingRepositoryWithoutClone(t *testing.T) {
 	head, err := repository.Head(t.Context())
 	require.NoError(t, err, "resolve head on existing repository")
 	assert.Equal(t, sourceHead.Hash().String(), head, "unexpected head for existing repository")
+}
+
+func TestNewGoGitRepositoryRejectsUnexpectedOrigin(t *testing.T) {
+	sourceRepositoryPath, _ := initSourceRepository(t)
+
+	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+		Repository: filepath.Join(t.TempDir(), "different"), Branch: "main",
+	}, sourceRepositoryPath)
+	require.Error(t, err)
+	assert.Nil(t, repository)
+	category, diagnostic := PullFailure(err)
+	assert.Equal(t, FailureOther, category)
+	assert.Contains(t, diagnostic, "origin does not match")
+}
+
+func TestNewGoGitRepositoryClassifiesHTTPFailures(t *testing.T) {
+	testCases := []struct {
+		name   string
+		status int
+		want   FailureCategory
+	}{
+		{name: "invalid credentials", status: http.StatusUnauthorized, want: FailureAuthentication},
+		{name: "access denied", status: http.StatusForbidden, want: FailureAccessDenied},
+		{name: "repository not found", status: http.StatusNotFound, want: FailureRepositoryNotFound},
+		{name: "bad gateway", status: http.StatusBadGateway, want: FailureNetwork},
+		{name: "service unavailable", status: http.StatusServiceUnavailable, want: FailureNetwork},
+		{name: "gateway timeout", status: http.StatusGatewayTimeout, want: FailureNetwork},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+				writer.WriteHeader(testCase.status)
+			}))
+			defer server.Close()
+
+			repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+				Repository: server.URL + "/team/app.git", Branch: "main",
+				Auth: config.GitAuthSpec{Type: config.GitAuthTypeHTTP, HTTP: config.GitHTTPAuth{
+					Username: "robot", Password: specw.File{Content: []byte("invalid-secret")},
+				}},
+			}, filepath.Join(t.TempDir(), "clone"))
+			require.Error(t, err)
+			assert.Nil(t, repository)
+			category, _ := PullFailure(err)
+			assert.Equal(t, testCase.want, category)
+			assert.NotContains(t, err.Error(), "invalid-secret")
+		})
+	}
+}
+
+func TestGoGitRepositoryPullUsesConfiguredRemoteURL(t *testing.T) {
+	staleRemote, _ := initSourceRepository(t)
+	configuredRemote, configuredHead := initSourceRepository(t)
+	target := filepath.Join(t.TempDir(), "target")
+	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+		Repository: configuredRemote, Branch: configuredHead.Name().Short(),
+	}, target)
+	require.NoError(t, err)
+
+	storedConfig, err := repository.repository.Config()
+	require.NoError(t, err)
+	storedConfig.Remotes["origin"].URLs = []string{staleRemote}
+	require.NoError(t, repository.repository.Storer.SetConfig(storedConfig))
+
+	configuredRepository, err := gogit.PlainOpen(configuredRemote)
+	require.NoError(t, err)
+	configuredWorktree, err := configuredRepository.Worktree()
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(filepath.Join(configuredRemote, "README.md"), []byte("configured"), 0o600))
+	_, err = configuredWorktree.Add("README.md")
+	require.NoError(t, err)
+	wantHead, err := configuredWorktree.Commit("configured remote update", &gogit.CommitOptions{
+		Author: &object.Signature{Name: "test", Email: "test@example.com", When: time.Now()},
+	})
+	require.NoError(t, err)
+
+	result, err := repository.Pull(t.Context())
+	require.NoError(t, err)
+	assert.True(t, result.Updated)
+	assert.Equal(t, wantHead.String(), result.NewRevision)
+}
+
+func TestGoGitRepositoryPullUsesConfiguredHTTPRemoteAndAuth(t *testing.T) {
+	source, head := initSourceRepository(t)
+	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+		Repository: source, Branch: head.Name().Short(),
+	}, source)
+	require.NoError(t, err)
+
+	authenticated := make(chan struct{}, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		username, password, ok := request.BasicAuth()
+		if ok && username == "fresh" && password == "secret" {
+			authenticated <- struct{}{}
+		}
+		writer.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+	repository.remote = server.URL + "/team/app.git"
+	repository.authType = config.GitAuthTypeHTTP
+	repository.auth = &githttp.BasicAuth{Username: "fresh", Password: "secret"}
+
+	_, err = repository.Pull(t.Context())
+	require.Error(t, err)
+	category, _ := PullFailure(err)
+	assert.Equal(t, FailureNetwork, category)
+	select {
+	case <-authenticated:
+	default:
+		t.Fatal("configured HTTP authentication was not sent to the configured remote")
+	}
+}
+
+func TestGoGitRepositoryPullUsesConfiguredSSHRemoteAndAuth(t *testing.T) {
+	source, head := initSourceRepository(t)
+	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+		Repository: source, Branch: head.Name().Short(),
+	}, source)
+	require.NoError(t, err)
+
+	remote, authenticated := startSSHAuthProbeServer(t)
+	auth, err := resolveAuthMethod(config.GitAuthSpec{
+		Type: config.GitAuthTypeSSH,
+		SSH: config.GitSSHAuthSpec{
+			PrivateKeyPath: writePrivateKeyFile(t, t.TempDir()), InsecureIgnoreHostKey: true,
+		},
+	})
+	require.NoError(t, err)
+	repository.remote = remote
+	repository.authType = config.GitAuthTypeSSH
+	repository.auth = auth
+
+	_, err = repository.Pull(t.Context())
+	require.Error(t, err)
+	select {
+	case <-authenticated:
+	case <-time.After(2 * time.Second):
+		t.Fatal("configured SSH authentication was not sent to the configured remote")
+	}
+}
+
+func TestNewGoGitRepositoryClassifiesNetworkFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	repositoryURL := server.URL + "/team/app.git"
+	server.Close()
+
+	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+		Repository: repositoryURL, Branch: "main",
+	}, filepath.Join(t.TempDir(), "clone"))
+	require.Error(t, err)
+	assert.Nil(t, repository)
+	category, _ := PullFailure(err)
+	assert.Equal(t, FailureNetwork, category)
+}
+
+func TestNewGoGitRepositoryClassifiesInvalidSSHCredentials(t *testing.T) {
+	remote := startSSHTestServer(t, false)
+	spec := config.GitSpec{
+		Repository: remote, Branch: "main", Auth: config.GitAuthSpec{
+			Type: config.GitAuthTypeSSH, SSH: config.GitSSHAuthSpec{
+				PrivateKeyPath: writePrivateKeyFile(t, t.TempDir()), InsecureIgnoreHostKey: true,
+			},
+		},
+	}
+	repository, err := NewGoGitRepository(t.Context(), spec, filepath.Join(t.TempDir(), "clone"))
+	require.Error(t, err)
+	assert.Nil(t, repository)
+	category, _ := PullFailure(err)
+	assert.Equal(t, FailureAuthentication, category)
+}
+
+func TestNewGoGitRepositoryClassifiesSSHHostVerificationFailure(t *testing.T) {
+	remote := startSSHTestServer(t, true)
+	knownHostsPath := filepath.Join(t.TempDir(), "known_hosts")
+	require.NoError(t, os.WriteFile(knownHostsPath, nil, 0o600))
+	repository, err := NewGoGitRepository(t.Context(), config.GitSpec{
+		Repository: remote, Branch: "main", Auth: config.GitAuthSpec{
+			Type: config.GitAuthTypeSSH, SSH: config.GitSSHAuthSpec{
+				PrivateKeyPath: writePrivateKeyFile(t, t.TempDir()), KnownHostsPath: knownHostsPath,
+			},
+		},
+	}, filepath.Join(t.TempDir(), "clone"))
+	require.Error(t, err)
+	assert.Nil(t, repository)
+	category, _ := PullFailure(err)
+	assert.Equal(t, FailureSSHHostVerification, category)
+}
+
+func startSSHTestServer(t *testing.T, acceptKey bool) string {
+	t.Helper()
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	signer, err := cryptossh.NewSignerFromKey(privateKey)
+	require.NoError(t, err)
+	serverConfig := &cryptossh.ServerConfig{
+		PublicKeyCallback: func(cryptossh.ConnMetadata, cryptossh.PublicKey) (*cryptossh.Permissions, error) {
+			if acceptKey {
+				return nil, nil
+			}
+			return nil, errors.New("credentials rejected")
+		},
+	}
+	serverConfig.AddHostKey(signer)
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() {
+		connection, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer connection.Close()
+		_, _, _, _ = cryptossh.NewServerConn(connection, serverConfig)
+	}()
+	return "ssh://git@" + listener.Addr().String() + "/team/app.git"
+}
+
+func startSSHAuthProbeServer(t *testing.T) (string, <-chan struct{}) {
+	t.Helper()
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	signer, err := cryptossh.NewSignerFromKey(privateKey)
+	require.NoError(t, err)
+	authenticated := make(chan struct{})
+	var once sync.Once
+	serverConfig := &cryptossh.ServerConfig{
+		PublicKeyCallback: func(cryptossh.ConnMetadata, cryptossh.PublicKey) (*cryptossh.Permissions, error) {
+			once.Do(func() { close(authenticated) })
+			return nil, nil
+		},
+	}
+	serverConfig.AddHostKey(signer)
+	listener, err := net.Listen("tcp4", "127.0.0.1:0")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() {
+		connection, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			return
+		}
+		defer connection.Close()
+		_, _, _, _ = cryptossh.NewServerConn(connection, serverConfig)
+	}()
+	return "ssh://git@" + listener.Addr().String() + "/team/app.git", authenticated
 }
 
 func TestLazyProxyInitializesRepositoryLazily(t *testing.T) {
@@ -438,6 +690,10 @@ func initSourceRepository(t *testing.T) (string, *plumbing.Reference) {
 	sourceRepositoryPath := filepath.Join(t.TempDir(), "source")
 	sourceRepository, err := gogit.PlainInit(sourceRepositoryPath, false)
 	require.NoError(t, err, "init source repository")
+	_, err = sourceRepository.CreateRemote(&gitconfig.RemoteConfig{
+		Name: "origin", URLs: []string{sourceRepositoryPath},
+	})
+	require.NoError(t, err, "create source origin")
 
 	filePath := filepath.Join(sourceRepositoryPath, "README.md")
 	err = os.WriteFile(filePath, []byte("hello"), 0o600)

@@ -6,20 +6,12 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
-
-func (c *Controller) reloadNetworks() (string, error) {
-	if c.cfg.Spec.NetworksSource.File == "" {
-		c.cfg.Spec.Networks = nil
-		return "", nil
-	}
-
-	return c.cfg.ReloadNetworks(c.git.WorkingDir())
-}
 
 func (c *Controller) syncNetworks(ctx context.Context, commit string) error {
 	ctx, span := c.tracer.Start(ctx, "controller.SyncNetworks", trace.WithAttributes(
@@ -27,18 +19,22 @@ func (c *Controller) syncNetworks(ctx context.Context, commit string) error {
 	))
 	defer span.End()
 
-	if len(c.cfg.Spec.Networks) == 0 {
-		c.stateStore.Update(ctx, func(s *model.Runtime) {
+	networks := c.configStore.Networks()
+	if len(networks) == 0 {
+		return c.stateStore.Update(ctx, func(s *model.Runtime) {
 			s.Networks = map[string]model.Network{}
 		})
-		return nil
 	}
 
-	currentState := c.snapshotState()
+	currentState, readErr := c.snapshotState(ctx)
+	if readErr != nil {
+		return readErr
+	}
 	syncedAt := time.Now()
-	nextState := make(map[string]model.Network, len(c.cfg.Spec.Networks))
+	nextState := make(map[string]model.Network, len(networks))
 	var reconcileErrs []error
-	for _, networkCfg := range c.cfg.Spec.Networks {
+	var createdEvents []*events.NetworkCreated
+	for _, networkCfg := range networks {
 		if previousState, exists := currentState.Networks[networkCfg.Name]; exists {
 			if previousState.LastCommit == commit &&
 				(previousState.LastStatus == "success" || previousState.LastStatus == "no_change") {
@@ -47,7 +43,10 @@ func (c *Controller) syncNetworks(ctx context.Context, commit string) error {
 			}
 		}
 
-		skipped, err := c.networkReconciler.Reconcile(ctx, networkCfg)
+		skipped, created, err := c.networkReconciler.Reconcile(ctx, networkCfg)
+		if created != nil {
+			createdEvents = append(createdEvents, created)
+		}
 
 		networkState := model.Network{
 			Driver:     networkCfg.Driver,
@@ -70,11 +69,9 @@ func (c *Controller) syncNetworks(ctx context.Context, commit string) error {
 		nextState[networkCfg.Name] = networkState
 	}
 
-	c.stateStore.Update(ctx, func(s *model.Runtime) {
-		s.Networks = nextState
-	})
+	persistErr := c.persistNetworkResults(ctx, nextState, createdEvents)
 
-	joinedErr := errors.Join(reconcileErrs...)
+	joinedErr := errors.Join(append(reconcileErrs, persistErr)...)
 
 	if joinedErr != nil {
 		span.RecordError(joinedErr)
@@ -84,4 +81,21 @@ func (c *Controller) syncNetworks(ctx context.Context, commit string) error {
 	}
 
 	return joinedErr
+}
+
+func (c *Controller) persistNetworkResults(
+	ctx context.Context, nextState map[string]model.Network, createdEvents []*events.NetworkCreated,
+) error {
+	return c.db.WithinTransaction(ctx, func(ctx context.Context) error {
+		if err := c.stateStore.Update(ctx, func(s *model.Runtime) { s.Networks = nextState }); err != nil {
+			return err
+		}
+		for _, event := range createdEvents {
+			if err := c.event.Publish(ctx, event); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+
 }

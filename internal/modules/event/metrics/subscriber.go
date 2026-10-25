@@ -22,10 +22,6 @@ func (*Subscriber) Name() string {
 	return "record-event-metrics"
 }
 
-func (*Subscriber) Slow() bool {
-	return false
-}
-
 func (s *Subscriber) Handle(_ context.Context, envelope events.Envelope) error {
 	s.recorder.IncTotal(envelope.Event.Type())
 

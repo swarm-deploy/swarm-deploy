@@ -45,6 +45,9 @@ type Network struct {
 }
 
 type Runtime struct {
+	// GitPullFailure records the repository whose latest pull attempt failed.
+	// It is cleared atomically with publication of the recovery event.
+	GitPullFailure *GitPullFailure `json:"git_pull_failure,omitempty"`
 	// LastPollAt is the timestamp of the latest Git poll attempt.
 	LastPollAt time.Time `json:"last_poll_at"`
 	// LastPollResult stores the outcome of the latest Git poll attempt.
@@ -68,8 +71,18 @@ type Runtime struct {
 	Networks map[string]Network `json:"networks"`
 }
 
+// GitPullFailure is the persisted transition state used to detect recovery after restart.
+type GitPullFailure struct {
+	// Repository is the credential-free repository identifier.
+	Repository string `json:"repository"`
+}
+
 func (r *Runtime) Clone() Runtime {
 	cloned := *r
+	if r.GitPullFailure != nil {
+		failure := *r.GitPullFailure
+		cloned.GitPullFailure = &failure
+	}
 	cloned.Stacks = map[string]Stack{}
 
 	for stackName, stack := range r.Stacks {

@@ -4,11 +4,15 @@ import "time"
 
 type AlertKind string
 
-const AlertKindDeployFailed AlertKind = "deploy_failed"
+const AlertKindSyncFailed AlertKind = "sync_failed"
+const AlertKindNodeDisconnected AlertKind = "node_disconnected"
+const AlertKindGitRepositoryUnavailable AlertKind = "git_repository_unavailable"
 
 type ResourceType string
 
 const ResourceTypeStack ResourceType = "stack"
+const ResourceTypeNode ResourceType = "node"
+const ResourceTypeRepository ResourceType = "repository"
 
 type AlertStatus string
 
@@ -20,6 +24,7 @@ const (
 type ResolutionReason string
 
 const ResolutionReasonRecovered ResolutionReason = "recovered"
+const ResolutionReasonResourceRemoved ResolutionReason = "resource_removed"
 
 // AlertResolution describes how an alert incident ended.
 type AlertResolution struct {
@@ -49,6 +54,14 @@ type Alert struct {
 	Title string `json:"title"`
 	// Message contains the latest useful problem detail.
 	Message string `json:"message"`
+	// FailureStage identifies the pipeline stage involved, when known.
+	FailureStage string `json:"failureStage,omitempty"`
+	// ErrorCode is stable technical metadata for the failure.
+	ErrorCode string `json:"errorCode,omitempty"`
+	// DeploymentID links to the related attempt when one was created.
+	DeploymentID string `json:"deploymentId,omitempty"`
+	// Commit identifies the source revision involved in the failure.
+	Commit string `json:"commit,omitempty"`
 	// Occurrences counts correlated failure events.
 	Occurrences uint64 `json:"occurrences"`
 	// OpenedAt is when this incident started.
@@ -65,7 +78,12 @@ type Alert struct {
 	Resolution *AlertResolution `json:"resolution,omitempty"`
 }
 
-// DeployFailedFingerprint returns the correlation key for a stack deployment failure.
-func DeployFailedFingerprint(stackID string) string {
-	return string(AlertKindDeployFailed) + ":" + string(ResourceTypeStack) + ":" + stackID
+// SyncFailedFingerprint returns the correlation key for a stack synchronization failure.
+func SyncFailedFingerprint(stackID string) string {
+	return string(AlertKindSyncFailed) + ":" + string(ResourceTypeStack) + ":" + stackID
+}
+
+// GitRepositoryUnavailableFingerprint returns the correlation key for repository access failures.
+func GitRepositoryUnavailableFingerprint(repository string) string {
+	return string(AlertKindGitRepositoryUnavailable) + ":" + string(ResourceTypeRepository) + ":" + repository
 }

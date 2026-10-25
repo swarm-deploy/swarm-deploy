@@ -22,8 +22,8 @@ func (s *ServiceMissed) Message() string {
 
 func (s *ServiceMissed) Details() map[string]string {
 	return map[string]string{
-		"stack_name":   s.StackName,
-		"service_name": s.ServiceName,
-		"commit":       s.Commit,
+		AttributeStackName:   s.StackName,
+		AttributeServiceName: s.ServiceName,
+		AttributeCommit:      s.Commit,
 	}
 }

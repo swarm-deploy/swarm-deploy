@@ -4,7 +4,12 @@ import type {
   AssistantChatRequest,
   AssistantChatResponse,
   AssistantChatsResponse,
+  AssistantSuggestionsResponse,
 } from "./types";
+
+export function getAssistantSuggestions(): Promise<AssistantSuggestionsResponse> {
+  return apiRequest<AssistantSuggestionsResponse>("/api/assistant/suggestions");
+}
 
 export function sendAssistantChat(payload: AssistantChatRequest): Promise<AssistantChatResponse> {
   return apiRequest<AssistantChatResponse>("/api/v1/assistant/chat", {

@@ -2,12 +2,16 @@ package events
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
 
 type DeployEvent struct {
+	// DeploymentID references the persisted desired state and its safe input.
+	DeploymentID string
+	// AttemptID references the execution which produced this event.
+	AttemptID       string
 	StackName       string
 	Commit          string
 	Services        []compose.Service
@@ -21,7 +25,12 @@ type DeploySuccess struct {
 type DeployFailed struct {
 	DeployEvent
 
+	// Error contains a secret-masked human-readable diagnostic after durable decoding.
 	Error error
+	// ErrorCode is the stable technical failure category.
+	ErrorCode string
+	// Stage identifies the pipeline stage that failed.
+	Stage string
 	Logs  []string
 }
 
@@ -35,8 +44,11 @@ func (d *DeploySuccess) Message() string {
 
 func (d *DeploySuccess) Details() map[string]string {
 	return map[string]string{
-		"stack":  d.StackName,
-		"commit": d.Commit,
+		AttributeStackName:    d.StackName,
+		AttributeCommit:       d.Commit,
+		AttributeDeploymentID: d.DeploymentID,
+		AttributeAttemptID:    d.AttemptID,
+		AttributeStatus:       "success",
 	}
 }
 
@@ -50,12 +62,16 @@ func (d *DeployFailed) Message() string {
 
 func (d *DeployFailed) Details() map[string]string {
 	details := map[string]string{
-		"stack":  d.StackName,
-		"commit": d.Commit,
-		"logs":   strings.Join(d.Logs, "\n"),
+		AttributeStackName:    d.StackName,
+		AttributeCommit:       d.Commit,
+		AttributeDeploymentID: d.DeploymentID,
+		AttributeAttemptID:    d.AttemptID,
+		AttributeStatus:       "failed",
+		AttributeErrorCode:    d.ErrorCode,
+		AttributeStage:        d.Stage,
 	}
 	if d.Error != nil {
-		details["error"] = d.Error.Error()
+		details[AttributeError] = faults.SafeDiagnostic(d.Error)
 	}
 	return details
 }

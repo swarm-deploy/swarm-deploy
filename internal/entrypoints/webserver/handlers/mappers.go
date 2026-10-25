@@ -13,8 +13,8 @@ import (
 	resourcegraph "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/graph"
 	secretmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretservice"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
+	servicemodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/stype"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/utils"
@@ -27,12 +27,7 @@ const (
 	swarmDeployLabelPrefix = "org.swarm-deploy"
 )
 
-func (h *handler) listStacks() []generated.StackView {
-	snapshot := model.Runtime{}
-	if h.stateStore != nil {
-		snapshot = h.stateStore.Get()
-	}
-
+func (h *handler) listStacks(snapshot model.Runtime) []generated.StackView {
 	stacks := h.stackProvider.Stacks()
 	mapped := make([]generated.StackView, 0, len(stacks))
 	for _, stackCfg := range stacks {
@@ -89,7 +84,7 @@ func toOptDateTime(value time.Time) generated.OptDateTime {
 }
 
 func toGeneratedServiceStatusFromInfo(
-	serviceInfo service.Info,
+	serviceInfo servicemodel.Info,
 	resolvedSecrets []secretservice.ResolvedSecret,
 ) *generated.ServiceStatusResponse {
 	spec := serviceInfo.Spec
@@ -144,69 +139,6 @@ func toGeneratedServiceRealtimeTasks(
 	}
 
 	return mapped
-}
-
-func toGeneratedServiceDeployments(
-	entries []history.Entry,
-	stackName string,
-	serviceName string,
-	image string,
-	limit int,
-) []generated.ServiceDeploymentResponse {
-	if len(entries) == 0 || stackName == "" {
-		return []generated.ServiceDeploymentResponse{}
-	}
-
-	imageVersion := utils.ImageVersion(image)
-	out := make([]generated.ServiceDeploymentResponse, 0, len(entries))
-
-	for idx := len(entries) - 1; idx >= 0; idx-- {
-		entry := entries[idx]
-
-		status, ok := toGeneratedServiceDeploymentStatus(entry.Type)
-		if !ok {
-			continue
-		}
-
-		if entry.Details["stack"] != stackName {
-			continue
-		}
-		if serviceInEvent := entry.Details["service"]; serviceInEvent != "" && serviceInEvent != serviceName {
-			continue
-		}
-
-		item := generated.ServiceDeploymentResponse{
-			CreatedAt:    entry.CreatedAt,
-			Status:       status,
-			Image:        image,
-			ImageVersion: imageVersion,
-		}
-
-		if entry.Message != "" {
-			item.Message = generated.NewOptString(entry.Message)
-		}
-		if commit := entry.Details["commit"]; commit != "" {
-			item.Commit = generated.NewOptString(commit)
-		}
-
-		out = append(out, item)
-		if limit > 0 && len(out) >= limit {
-			break
-		}
-	}
-
-	return out
-}
-
-func toGeneratedServiceDeploymentStatus(typ events.Type) (generated.ServiceDeploymentStatus, bool) {
-	switch typ {
-	case events.TypeDeploySuccess:
-		return generated.ServiceDeploymentStatusSuccess, true
-	case events.TypeDeployFailed:
-		return generated.ServiceDeploymentStatusFailed, true
-	default:
-		return "", false
-	}
 }
 
 func toGeneratedServiceSpec(
@@ -415,7 +347,7 @@ func toGeneratedGraphNodeKind(kind resourcegraph.Kind) generated.GraphNodeKind {
 	}
 }
 
-func toGeneratedServiceInfos(services []service.Info, runtime model.Runtime) []generated.ServiceInfo {
+func toGeneratedServiceInfos(services []servicemodel.Info, runtime model.Runtime) []generated.ServiceInfo {
 	mapped := make([]generated.ServiceInfo, 0, len(services))
 	for _, serviceInfo := range services {
 		mapped = append(mapped, toGeneratedServiceInfo(serviceInfo, runtime))
@@ -423,7 +355,7 @@ func toGeneratedServiceInfos(services []service.Info, runtime model.Runtime) []g
 	return mapped
 }
 
-func toGeneratedServiceInfo(serviceInfo service.Info, runtime model.Runtime) generated.ServiceInfo {
+func toGeneratedServiceInfo(serviceInfo servicemodel.Info, runtime model.Runtime) generated.ServiceInfo {
 	return generated.ServiceInfo{
 		Name:          serviceInfo.Name,
 		Stack:         serviceInfo.Stack,
@@ -439,7 +371,7 @@ func toGeneratedServiceInfo(serviceInfo service.Info, runtime model.Runtime) gen
 	}
 }
 
-func toGeneratedServiceSyncStatus(serviceInfo service.Info, runtime model.Runtime) generated.ServiceSyncStatus {
+func toGeneratedServiceSyncStatus(serviceInfo servicemodel.Info, runtime model.Runtime) generated.ServiceSyncStatus {
 	stackState, exists := runtime.Stacks[serviceInfo.Stack]
 	if !exists {
 		return generated.ServiceSyncStatusUnknown
@@ -460,7 +392,7 @@ func toGeneratedServiceSyncStatus(serviceInfo service.Info, runtime model.Runtim
 	}
 }
 
-func toGeneratedServiceSyncError(serviceInfo service.Info, runtime model.Runtime) generated.OptString {
+func toGeneratedServiceSyncError(serviceInfo servicemodel.Info, runtime model.Runtime) generated.OptString {
 	stackState, exists := runtime.Stacks[serviceInfo.Stack]
 	if !exists {
 		return generated.OptString{}
@@ -557,24 +489,22 @@ func toGeneratedNetworks(networks []swarm.Network) []generated.NetworkInfo {
 
 func toGeneratedSecrets(secrets []secretservice.SecretWithUsage) []generated.SecretInfo {
 	mapped := make([]generated.SecretInfo, 0, len(secrets))
-	for _, secret := range secrets {
-		mapped = append(mapped, toGeneratedSecret(secret.Secret, secret.UsedBy))
+	for _, item := range secrets {
+		mapped = append(mapped, toGeneratedSecret(item.Secret, item.UsedBy))
 	}
 
 	return mapped
 }
 
-func toGeneratedSecret(
-	secret secretmodel.Secret,
-	usedBy []secretservice.ServiceUsage,
-) generated.SecretInfo {
+func toGeneratedSecret(secret secretmodel.Secret, usedBy []secretservice.ServiceUsage) generated.SecretInfo {
 	return generated.SecretInfo{
-		ID:        secret.ID,
-		Name:      secret.Name,
-		VersionID: toInt64FromUint64(secret.VersionID),
-		CreatedAt: secret.CreatedAt,
-		External:  toGeneratedSecretExternal(secret.ExternalPath, secret.ExternalVersionID),
-		UsedBy:    toGeneratedSecretServiceUsages(usedBy),
+		ID:          secret.ID,
+		Name:        secret.Name,
+		Description: toOptString(secret.Description),
+		VersionID:   toInt64FromUint64(secret.VersionID),
+		CreatedAt:   secret.CreatedAt,
+		External:    toGeneratedSecretExternal(secret.ExternalPath, secret.ExternalVersionID),
+		UsedBy:      toGeneratedSecretServiceUsages(usedBy),
 	}
 }
 

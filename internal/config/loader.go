@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 
 	"github.com/artarts36/specw"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 func Unmarshal(path string) (*Config, error) {
@@ -35,11 +35,7 @@ func Load(path string) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	err = cfg.loadStacks(configDir)
-	if err != nil {
-		return nil, err
-	}
-	err = cfg.loadNetworks(configDir)
+	err = cfg.loadInitialDesired(configDir)
 	if err != nil {
 		return nil, err
 	}

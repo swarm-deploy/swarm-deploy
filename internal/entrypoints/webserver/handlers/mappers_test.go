@@ -7,8 +7,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
+	servicemodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/stype"
 )
 
@@ -80,7 +80,7 @@ func TestToGeneratedServiceInfo(t *testing.T) {
 
 	testCases := []struct {
 		name           string
-		serviceInfo    service.Info
+		serviceInfo    servicemodel.Info
 		runtime        model.Runtime
 		expectedStatus string
 		expectedError  string
@@ -89,7 +89,7 @@ func TestToGeneratedServiceInfo(t *testing.T) {
 	}{
 		{
 			name: "returns synced status from runtime state",
-			serviceInfo: service.Info{
+			serviceInfo: servicemodel.Info{
 				Name:     "api",
 				Stack:    "payments",
 				Metadata: metadata.Metadata{Type: serviceType.Application},
@@ -112,7 +112,7 @@ func TestToGeneratedServiceInfo(t *testing.T) {
 		},
 		{
 			name: "returns out-of-sync status from runtime state",
-			serviceInfo: service.Info{
+			serviceInfo: servicemodel.Info{
 				Name:     "api",
 				Stack:    "payments",
 				Metadata: metadata.Metadata{Type: serviceType.CronManager},
@@ -136,7 +136,7 @@ func TestToGeneratedServiceInfo(t *testing.T) {
 		},
 		{
 			name: "returns unknown when runtime state is missing",
-			serviceInfo: service.Info{
+			serviceInfo: servicemodel.Info{
 				Name:     "api",
 				Stack:    "payments",
 				Metadata: metadata.Metadata{Type: serviceType.SecretManager},
@@ -149,7 +149,7 @@ func TestToGeneratedServiceInfo(t *testing.T) {
 		},
 		{
 			name: "returns MCP type and title",
-			serviceInfo: service.Info{
+			serviceInfo: servicemodel.Info{
 				Name:     "postgres-mcp",
 				Stack:    "platform",
 				Metadata: metadata.Metadata{Type: serviceType.MCP},

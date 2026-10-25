@@ -29,10 +29,26 @@ type Handler interface {
 	//
 	// GET /api/v1/assistant/chats/{conversationID}
 	GetAssistantChat(ctx context.Context, params GetAssistantChatParams) (*AssistantChatHistory, error)
+	// GetAssistantSuggestions implements getAssistantSuggestions operation.
+	//
+	// GET /api/assistant/suggestions
+	GetAssistantSuggestions(ctx context.Context) (*AssistantSuggestionsResponse, error)
 	// GetCurrentUser implements getCurrentUser operation.
 	//
 	// GET /api/v1/users/me
 	GetCurrentUser(ctx context.Context) (*CurrentUserResponse, error)
+	// GetDeployment implements getDeployment operation.
+	//
+	// GET /api/v1/deployments/{id}
+	GetDeployment(ctx context.Context, params GetDeploymentParams) (*Deployment, error)
+	// GetDeploymentFilters implements getDeploymentFilters operation.
+	//
+	// GET /api/v1/deployments/filters
+	GetDeploymentFilters(ctx context.Context) (*DeploymentFilterOptions, error)
+	// GetEventFilters implements getEventFilters operation.
+	//
+	// GET /api/v1/events/filters
+	GetEventFilters(ctx context.Context) (*EventFilterOptions, error)
 	// GetGitCommit implements getGitCommit operation.
 	//
 	// GET /api/v1/git/commits/{commit}
@@ -65,6 +81,10 @@ type Handler interface {
 	//
 	// GET /api/v1/assistant/chats
 	ListAssistantChats(ctx context.Context) (*AssistantChatsResponse, error)
+	// ListDeployments implements listDeployments operation.
+	//
+	// GET /api/v1/deployments
+	ListDeployments(ctx context.Context, params ListDeploymentsParams) (*DeploymentsResponse, error)
 	// ListEvents implements listEvents operation.
 	//
 	// GET /api/v1/events
@@ -121,6 +141,10 @@ type Handler interface {
 
 // RawHandler handles raw response operations described by OpenAPI v3 specification.
 type RawHandler interface {
+	// GetDeploymentInitJobLogs implements getDeploymentInitJobLogs operation.
+	//
+	// GET /api/v1/deployments/{id}/attempts/{attemptID}/init-jobs/{ordinal}/logs
+	GetDeploymentInitJobLogs(ctx context.Context, params GetDeploymentInitJobLogsParams, w http.ResponseWriter) error
 	// GetTaskLogs implements getTaskLogs operation.
 	//
 	// GET /api/tasks/{taskID}/logs

@@ -7,12 +7,18 @@ type AssistantToolName string
 
 const (
 	AssistantToolNameHistoryEventList                   AssistantToolName = "history_event_list"
+	AssistantToolNameAlertList                          AssistantToolName = "alert_list"
+	AssistantToolNameAlertGet                           AssistantToolName = "alert_get"
+	AssistantToolNameDeploymentList                     AssistantToolName = "deployment_list"
+	AssistantToolNameDeploymentGet                      AssistantToolName = "deployment_get"
 	AssistantToolNameDeploySyncTrigger                  AssistantToolName = "deploy_sync_trigger"
 	AssistantToolNameSwarmNodeList                      AssistantToolName = "swarm_node_list"
 	AssistantToolNameDockerNetworkList                  AssistantToolName = "docker_network_list"
 	AssistantToolNameDockerPluginList                   AssistantToolName = "docker_plugin_list"
 	AssistantToolNameDockerSecretList                   AssistantToolName = "docker_secret_list"
 	AssistantToolNameServiceLogsGet                     AssistantToolName = "service_logs_get"
+	AssistantToolNameServiceTaskList                    AssistantToolName = "service_task_list"
+	AssistantToolNameServiceTaskLogsGet                 AssistantToolName = "service_task_logs_get"
 	AssistantToolNameServiceSpecGet                     AssistantToolName = "service_spec_get"
 	AssistantToolNameDNSNameResolve                     AssistantToolName = "dns_name_resolve"
 	AssistantToolNameServiceWebRoutePing                AssistantToolName = "service_webroute_ping"

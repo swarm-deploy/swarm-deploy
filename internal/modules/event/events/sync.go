@@ -2,7 +2,8 @@ package events
 
 // SyncManualStarted is emitted when a manual sync run starts.
 type SyncManualStarted struct {
-	TriggeredBy string
+	// Username identifies the user who started the manual sync.
+	Username string
 }
 
 func (m *SyncManualStarted) Type() Type {
@@ -16,8 +17,8 @@ func (m *SyncManualStarted) Message() string {
 func (m *SyncManualStarted) Details() map[string]string {
 	details := map[string]string{}
 
-	if m.TriggeredBy != "" {
-		details["triggered_by"] = m.TriggeredBy
+	if m.Username != "" {
+		details[AttributeUsername] = m.Username
 	}
 
 	return details
@@ -25,6 +26,6 @@ func (m *SyncManualStarted) Details() map[string]string {
 
 func (m *SyncManualStarted) WithUsername(username string) Event {
 	return &SyncManualStarted{
-		TriggeredBy: username,
+		Username: username,
 	}
 }

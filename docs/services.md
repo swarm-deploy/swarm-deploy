@@ -1,6 +1,6 @@
 # Services catalog
 
-After each `deploySuccess` event, swarm-deploy collects metadata for deployed services and stores it in:
+After each `DeploySuccess` event, swarm-deploy collects metadata for deployed services and stores it in:
 
 - `.swarm-deploy/services.json`
 

@@ -13,14 +13,16 @@ swarm-deploy is a Swarm-native GitOps controller inspired by Argo CD. It keeps s
 ### GitOps
 
 - **Git as the desired state** for stack definitions, Compose manifests, referenced configs/secrets, and managed Docker networks.
-- **Reconciliation can be triggered by polling, webhooks, or both**. See [reconciliation](./docs/reconciler.md).
+- **Reconciliation can be triggered by polling, webhooks, or both**. See [reconciliation](./docs/reconciler.md) and [webhooks](./docs/webhooks.md).
 - **Diff-based deployments**: a stack is deployed only when its effective desired-state digest changes, including referenced config, secret, and env files.
 - **Stack sync status** in the UI, including last sync result, Git revision, deployment status, and errors.
 - **Desired vs. live manifests** for each stack, so the Git definition can be compared with the current Swarm state.
 - **Drift detection** for desired services missing from the live cluster, with `OutOfSync` status and audit events.
 - **Pruning** of orphaned managed services removed from Compose, with policy overrides at global, stack, and service level. See [prune policy](./docs/prune.md).
+- Optional **image policy** for requiring tags or digests and rejecting `latest`. See [image policy](./docs/image-policy.md).
 - [**Managed Docker networks**](./docs/networks.md) kept in Git and reconciled before stack deployment.
 - **Secret/config rollout rotation** using content-based names, so services receive new Docker objects when source files change. See [secret rotation](./docs/secrets-rotation.md).
+- **age-encrypted Docker Secrets** decrypted in memory from Compose `.age` files, with optional name rotation. See [encrypted secrets](./docs/secrets-rotation.md#age-encrypted-secrets).
 
 ### Service Catalog
 
@@ -119,6 +121,8 @@ networks:
 
 web:
   address: ":8080"
+  # Optional URL prefix for both UI and API. Defaults to /.
+  basePath: /swarm-deploy
 
 healthServer:
   address: ":8082"
@@ -127,6 +131,8 @@ healthServer:
   healthz:
     path: /healthz
 ```
+
+`web.basePath` defaults to `/`. A trailing slash is normalized, so `/infrastructure/swarm/` serves the UI at `/infrastructure/swarm/` and the API below `/infrastructure/swarm/api/`. Path segments must use URL-unreserved ASCII characters (letters, digits, `-`, `_`, `.`, `~`); percent-encoding and ServeMux wildcard syntax are not accepted. The configured value is authoritative; `X-Forwarded-Prefix` is not used. Health, metrics, and webhook endpoints keep their independently configured paths.
 
 Stacks are declared separately:
 
@@ -140,6 +146,13 @@ For a fuller setup with notifications, secret rotation, Downward metadata, traci
 
 ### Recommended Swarm update configuration
 
+SQLite uses a local persistent volume. Pin the single swarm-deploy replica to one explicitly labelled manager so every
+old/new task in a `start-first` handoff opens the same database and controller lock:
+
+```shell
+docker node update --label-add swarm-deploy.data=true <manager-node>
+```
+
 Run the swarm-deploy service with `start-first` updates and a 30-second stop grace period:
 
 ```yaml
@@ -147,23 +160,38 @@ services:
   swarm-deploy:
     stop_grace_period: 30s
     deploy:
+      replicas: 1
       update_config:
         order: start-first
+      placement:
+        constraints:
+          - node.labels.swarm-deploy.data == true
 ```
 
 With `start-first`, Swarm starts the new task before stopping the current one. During graceful shutdown,
 the current swarm-deploy instance stops starting new reconciliations while an already running reconciliation
 gets time to finish status updates, event delivery, and post-deploy processing. This is especially important
-when swarm-deploy manages its own service, and it also makes ordinary swarm-deploy updates safer.
+when swarm-deploy manages its own service. An advisory controller lock in `dataDir` prevents the new task from
+reconciling or recovering deployments until the old task has completed its handoff. A crashed task releases the lock,
+and the next owner marks any orphaned `running` attempt `interrupted` before reconciling.
+
+Do not run replicas on different nodes with node-local volumes: they have different SQLite databases and cannot share
+the lock. A remote/network filesystem is not a supported substitute for local SQLite WAL. When upgrading from a build
+that predates the controller lock, first capture the deployment diagnostics and SQLite backup described in
+[`docs/operations/sqlite.md`](./docs/operations/sqlite.md), then use a one-time `stop-first` update (or otherwise prove the
+old task has stopped) before returning to `start-first` for later releases.
 
 ## Documentation
 
+- [SQLite operations and backup](./docs/operations/sqlite.md)
 - [Reconciliation](./docs/reconciler.md)
+- [Webhooks](./docs/webhooks.md)
 - [Authentication](./docs/authentication.md)
 - [Managed Docker Networks](./docs/networks.md)
 - [Downward Metadata](./docs/downward.md)
 - [OpenTelemetry Tracing](./docs/tracing.md)
 - [Prune policy](./docs/prune.md)
+- [Image policy](./docs/image-policy.md)
 - [Drift detection](./docs/drift.md)
 - [Service catalog](./docs/services.md)
 - [Event History & Audit](./docs/event-history.md)

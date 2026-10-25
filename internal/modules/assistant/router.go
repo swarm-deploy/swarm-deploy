@@ -163,7 +163,8 @@ Capabilities:
 - service_runtime: read-only service logs, specs, web-route ping, or dependencies
 - service_operations: mutating service restart or replica changes
 - cluster: nodes, Docker networks, plugins, and secrets
-- deployment_history: events, recommendations, git history, and commit diffs
+- deployment_history: desired-state deployments with nested attempts, user-facing event history, recommendations, git history, and commit diffs
+- alert_management: operational incidents and their open/resolved lifecycle
 - deployment_sync: trigger synchronization
 - registry: registry image version lookup
 - external_release: upstream repository release lookup
@@ -181,6 +182,9 @@ Examples:
 "Проверь DNS у публичных урлов сервиса web-gateway-http" -> {"route":"lookups","capabilities":["service_context","dns"],"operation":null}
 "Посмотри логи api и были ли перед этим деплои" -> {"route":"diagnostics","capabilities":["service_context","service_runtime","deployment_history"],"operation":null}
 "Какие деплои были вчера?" -> {"route":"deployments","capabilities":["deployment_history"],"operation":null}
+"Почему упал деплой infra-monitoring?" -> {"route":"diagnostics","capabilities":["service_context","service_runtime","deployment_history","alert_management"],"operation":null}
+"Какие сейчас активные алерты?" -> {"route":"diagnostics","capabilities":["alert_management"],"operation":null}
+"Какие проблемы сейчас есть в кластере?" -> {"route":"cluster","capabilities":["cluster","alert_management"],"operation":null}
 "Какой сегодня день?" -> {"route":"lookups","capabilities":[],"operation":null}
 Legacy route examples: "Где находится Юпитер?" -> out_of_scope; "Как приготовить борщ?" -> out_of_scope
 Use recent history only to resolve ordinary follow-up intent. Pending operation confirmation is handled by the backend.`

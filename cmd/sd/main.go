@@ -23,6 +23,7 @@ func main() {
 			{
 				Name:        "lint",
 				Description: "Validate swarm-deploy YAML config",
+
 				Arguments: []go_console.Argument{
 					{
 						Name:         "configPath",

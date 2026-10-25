@@ -9,10 +9,13 @@ import type {
   ServiceInfo,
   ServiceRealtimeTask,
   ServiceStatusResponse,
+  TaskLogCountsEvent,
   TaskLogEvent,
+  TaskLogLevel,
 } from "../api/types";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
+import DeploymentIcon from "../components/overview/DeploymentIcon.vue";
 import { useOverviewStore } from "../stores/overview";
 import { useSecretDetailsStore } from "../stores/secretDetails";
 import { formatBytes, formatDate, formatNanoCPU, shortCommitHash } from "../utils/format";
@@ -37,18 +40,36 @@ const logsError = ref("");
 const logsEnded = ref(false);
 const logsViewer = ref<HTMLElement | null>(null);
 const logsAutoScroll = ref(true);
-const showDockerLabels = ref(false);
-const showSwarmDeployLabels = ref(false);
+const parseLogs = ref(false);
+const logSearchQuery = ref("");
+const copiedLogKey = ref("");
+const taskLogLevels: TaskLogLevel[] = ["TRACE", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"];
+const taskLogLevelFilters: Array<{ id: string; label: string; levels: TaskLogLevel[] }> = [
+  { id: "all", label: "All", levels: [...taskLogLevels] },
+  { id: "error", label: "Error", levels: ["ERROR", "FATAL"] },
+  { id: "warn", label: "Warn", levels: ["WARN"] },
+  { id: "info", label: "Info", levels: ["INFO"] },
+  { id: "debug", label: "Debug", levels: ["DEBUG"] },
+  { id: "other", label: "Other", levels: ["TRACE"] },
+];
+const selectedLogLevels = ref<TaskLogLevel[]>([...taskLogLevels]);
+const logLevelCounts = ref<Record<TaskLogLevel, number>>(emptyLogLevelCounts());
+const labelsModalOpen = ref(false);
 const secretDetailsStore = useSecretDetailsStore();
 const overviewStore = useOverviewStore();
 
 let logsStream: EventSource | null = null;
+
+function emptyLogLevelCounts(): Record<TaskLogLevel, number> {
+  return { TRACE: 0, DEBUG: 0, INFO: 0, WARN: 0, ERROR: 0, FATAL: 0 };
+}
 
 const stackName = computed(() => String(route.params.stack ?? "").trim());
 const serviceName = computed(() => String(route.params.service ?? "").trim());
 
 const serviceTitle = computed(() => `${stackName.value}/${serviceName.value}`);
 const serviceSpec = computed(() => serviceStatus.value?.spec ?? null);
+const serviceImage = computed(() => serviceInfo.value?.image || serviceSpec.value?.image || "");
 function sortedLabelEntries(labels: Record<string, string> | undefined): Array<[string, string]> {
   if (!labels || typeof labels !== "object") {
     return [];
@@ -56,9 +77,36 @@ function sortedLabelEntries(labels: Record<string, string> | undefined): Array<[
 
   return Object.entries(labels).sort(([left], [right]) => left.localeCompare(right));
 }
+function mergeLabelEntries(...groups: Array<Array<[string, string]>>): Array<[string, string]> {
+  return Array.from(new Map(groups.flat()).entries())
+    .sort(([left], [right]) => left.localeCompare(right));
+}
 const customServiceLabels = computed(() => sortedLabelEntries(serviceSpec.value?.labels?.custom));
 const dockerServiceLabels = computed(() => sortedLabelEntries(serviceSpec.value?.labels?.docker));
 const swarmDeployServiceLabels = computed(() => sortedLabelEntries(serviceSpec.value?.labels?.swarm_deploy));
+const inlineServiceLabels = computed(() =>
+  customServiceLabels.value.filter(([key]) => !isDockerLabel(key) && !isSwarmDeployLabel(key) && !isOtherSystemLabel(key)),
+);
+const modalDockerServiceLabels = computed(() => mergeLabelEntries(
+  dockerServiceLabels.value,
+  customServiceLabels.value.filter(([key]) => isDockerLabel(key)),
+));
+const modalSwarmDeployServiceLabels = computed(() => mergeLabelEntries(
+  swarmDeployServiceLabels.value,
+  customServiceLabels.value.filter(([key]) => isSwarmDeployLabel(key)),
+));
+const otherServiceLabels = computed(() =>
+  customServiceLabels.value.filter(([key]) => isOtherSystemLabel(key)),
+);
+const serviceLabelGroups = computed(() => [
+  { name: "Custom", labels: inlineServiceLabels.value },
+  { name: "Docker", labels: modalDockerServiceLabels.value },
+  { name: "Swarm Deploy", labels: modalSwarmDeployServiceLabels.value },
+  { name: "Other", labels: otherServiceLabels.value },
+].filter((group) => group.labels.length > 0));
+const serviceLabelCount = computed(() =>
+  serviceLabelGroups.value.reduce((total, group) => total + group.labels.length, 0),
+);
 const serviceSecrets = computed(() => {
   const secrets = serviceSpec.value?.secrets;
   return Array.isArray(secrets) ? secrets : [];
@@ -105,12 +153,49 @@ const realtime = computed(() => {
   return Array.isArray(items) ? items : [];
 });
 
-function deploymentStatusClass(status: ServiceDeploymentResponse["status"]): string {
-  return status;
+const filteredLogs = computed(() => {
+  const query = logSearchQuery.value.trim().toLocaleLowerCase();
+  if (!query) {
+    return logs.value;
+  }
+
+  return logs.value.filter((entry) => logSearchText(entry).includes(query));
+});
+
+function isDockerLabel(key: string): boolean {
+  return key.startsWith("com.docker.");
 }
 
-function deploymentKey(item: ServiceDeploymentResponse, index: number): string {
-  return `${item.created_at}-${item.status}-${item.image_version}-${index}`;
+function isSwarmDeployLabel(key: string): boolean {
+  return key.startsWith("org.swarm-deploy.");
+}
+
+function isOtherSystemLabel(key: string): boolean {
+  return key === "prometheus.port";
+}
+
+function deploymentStatusClass(status: ServiceDeploymentResponse["status"]): string {
+  if (status === "succeeded") return "overview-deployment-result--success";
+  if (status === "running") return "overview-deployment-result--running";
+  if (status === "interrupted") return "overview-deployment-result--interrupted";
+  return "overview-deployment-result--failed";
+}
+
+function deploymentTime(raw: string): string {
+  const date = new Date(raw);
+  if (Number.isNaN(date.valueOf())) return raw;
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function realtimeStateClass(state: string): string {
+  const normalized = String(state || "").trim().toLowerCase();
+  if (normalized === "running" || normalized === "complete" || normalized === "completed") {
+    return "service-realtime-mobile-state--healthy";
+  }
+  if (normalized === "failed" || normalized === "rejected" || normalized === "shutdown") {
+    return "service-realtime-mobile-state--error";
+  }
+  return "service-realtime-mobile-state--unknown";
 }
 
 async function copyTaskID(taskID: string): Promise<void> {
@@ -119,9 +204,15 @@ async function copyTaskID(taskID: string): Promise<void> {
     return;
   }
 
+  await copyText(id);
+}
+
+async function copyText(value: string): Promise<void> {
+  const text = String(value ?? "");
+
   if (window.isSecureContext && navigator.clipboard?.writeText) {
     try {
-      await navigator.clipboard.writeText(id);
+      await navigator.clipboard.writeText(text);
       return;
     } catch {
       // Fall back to legacy clipboard API when browser blocks navigator.clipboard.
@@ -129,7 +220,7 @@ async function copyTaskID(taskID: string): Promise<void> {
   }
 
   const textarea = document.createElement("textarea");
-  textarea.value = id;
+  textarea.value = text;
   textarea.setAttribute("readonly", "true");
   textarea.style.position = "fixed";
   textarea.style.left = "-9999px";
@@ -153,12 +244,12 @@ function openSecretDetails(secretName: string): void {
   void secretDetailsStore.openSecretDetails(secretName);
 }
 
-function toggleDockerLabels(): void {
-  showDockerLabels.value = !showDockerLabels.value;
+function openLabelsModal(): void {
+  labelsModalOpen.value = true;
 }
 
-function toggleSwarmDeployLabels(): void {
-  showSwarmDeployLabels.value = !showSwarmDeployLabels.value;
+function closeLabelsModal(): void {
+  labelsModalOpen.value = false;
 }
 
 function closeTaskLogsStream(): void {
@@ -207,34 +298,44 @@ function appendTaskLog(entry: TaskLogEvent): void {
   }
 }
 
-function openTaskLogs(taskID: string): void {
-  const id = String(taskID || "").trim();
+function startTaskLogsStream(): void {
+  const id = logsTaskID.value;
   if (!id) {
     return;
   }
 
   closeTaskLogsStream();
-  logsModalOpen.value = true;
-  logsTaskID.value = id;
   logs.value = [];
   logsError.value = "";
   logsEnded.value = false;
   logsLoading.value = true;
   logsAutoScroll.value = true;
+  logLevelCounts.value = emptyLogLevelCounts();
 
   void nextTick(scrollLogsToBottom);
 
-  const stream = openTaskLogsStream(id, { follow: true, tail: 200 });
+  const stream = openTaskLogsStream(id, {
+    follow: true,
+    tail: 200,
+    parse: parseLogs.value,
+    levels: parseLogs.value ? selectedLogLevels.value : undefined,
+  });
   logsStream = stream;
 
   stream.addEventListener("log", (event) => {
+    if (logsStream !== stream) {
+      return;
+    }
     logsLoading.value = false;
     try {
       const payload = JSON.parse(event.data) as TaskLogEvent;
       appendTaskLog({
         timestamp: String(payload.timestamp || ""),
         stream: String(payload.stream || "stdout"),
+        level: payload.level,
         message: String(payload.message || ""),
+        attributes: payload.attributes,
+        raw_message: String(payload.raw_message || ""),
       });
     } catch {
       appendTaskLog({
@@ -245,13 +346,36 @@ function openTaskLogs(taskID: string): void {
     }
   });
 
+  stream.addEventListener("counts", (event) => {
+    if (logsStream !== stream) {
+      return;
+    }
+    logsLoading.value = false;
+    try {
+      const payload = JSON.parse(event.data) as TaskLogCountsEvent;
+      const counts = emptyLogLevelCounts();
+      for (const level of taskLogLevels) {
+        counts[level] = Number(payload.counts?.[level] ?? 0);
+      }
+      logLevelCounts.value = counts;
+    } catch {
+      // Ignore malformed count updates without interrupting the log stream.
+    }
+  });
+
   stream.addEventListener("eof", () => {
+    if (logsStream !== stream) {
+      return;
+    }
     logsLoading.value = false;
     logsEnded.value = true;
     closeTaskLogsStream();
   });
 
   stream.onerror = () => {
+    if (logsStream !== stream) {
+      return;
+    }
     logsLoading.value = false;
     if (!logsEnded.value) {
       logsError.value = "Log stream interrupted";
@@ -260,8 +384,119 @@ function openTaskLogs(taskID: string): void {
   };
 }
 
+function openTaskLogs(taskID: string): void {
+  const id = String(taskID || "").trim();
+  if (!id) {
+    return;
+  }
+
+  logsModalOpen.value = true;
+  logsTaskID.value = id;
+  parseLogs.value = false;
+  logSearchQuery.value = "";
+  copiedLogKey.value = "";
+  selectedLogLevels.value = [...taskLogLevels];
+  startTaskLogsStream();
+}
+
+function toggleLogParsing(): void {
+  parseLogs.value = !parseLogs.value;
+  if (parseLogs.value && selectedLogLevels.value.length === 0) {
+    selectedLogLevels.value = [...taskLogLevels];
+  }
+  startTaskLogsStream();
+}
+
+function areAllLogLevelsSelected(): boolean {
+  return taskLogLevels.every((level) => selectedLogLevels.value.includes(level));
+}
+
+function isLogLevelFilterSelected(filter: { id: string; levels: TaskLogLevel[] }): boolean {
+  if (filter.id === "all") {
+    return areAllLogLevelsSelected();
+  }
+
+  return !areAllLogLevelsSelected() && filter.levels.every((level) => selectedLogLevels.value.includes(level));
+}
+
+function logLevelFilterCount(filter: { levels: TaskLogLevel[] }): number {
+  return filter.levels.reduce((count, level) => count + logLevelCounts.value[level], 0);
+}
+
+function toggleLogLevelFilter(filter: { id: string; levels: TaskLogLevel[] }): void {
+  if (filter.id === "all") {
+    selectedLogLevels.value = [...taskLogLevels];
+    startTaskLogsStream();
+    return;
+  }
+
+  const filterSelected = filter.levels.every((level) => selectedLogLevels.value.includes(level));
+  const nextLevels = filterSelected
+    ? selectedLogLevels.value.filter((level) => !filter.levels.includes(level))
+    : taskLogLevels.filter((level) => filter.levels.includes(level) || selectedLogLevels.value.includes(level));
+  if (nextLevels.length === 0) {
+    return;
+  }
+
+  selectedLogLevels.value = nextLevels;
+  startTaskLogsStream();
+}
+
+function logSearchText(entry: TaskLogEvent): string {
+  let attributes = "";
+  try {
+    attributes = JSON.stringify(entry.attributes ?? {});
+  } catch {
+    attributes = String(entry.attributes ?? "");
+  }
+
+  return `${entry.message}\n${entry.raw_message ?? ""}\n${attributes}`.toLocaleLowerCase();
+}
+
+function formatLogTimestamp(rawTimestamp: string): string {
+  const timestamp = String(rawTimestamp || "").trim();
+  if (!timestamp) {
+    return "no timestamp";
+  }
+
+  return timestamp
+    .replace("T", " ")
+    .replace(/(\.\d{3})\d+/, "$1")
+    .replace(/Z$/, "");
+}
+
+function logAttributeEntries(attributes: Record<string, unknown> | undefined): Array<[string, unknown]> {
+  return Object.entries(attributes ?? {});
+}
+
+function formatLogAttributeValue(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value === undefined) {
+    return "undefined";
+  }
+
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
+async function copyRawLog(entry: TaskLogEvent, key: string): Promise<void> {
+  await copyText(entry.raw_message || entry.message);
+  copiedLogKey.value = key;
+}
+
 function handleEscape(event: KeyboardEvent): void {
-  if (event.key === "Escape" && logsModalOpen.value) {
+  if (event.key !== "Escape") {
+    return;
+  }
+
+  if (labelsModalOpen.value) {
+    closeLabelsModal();
+  } else if (logsModalOpen.value) {
     closeTaskLogsModal();
   }
 }
@@ -363,8 +598,7 @@ watch(
   [stackName, serviceName],
   () => {
     closeTaskLogsModal();
-    showDockerLabels.value = false;
-    showSwarmDeployLabels.value = false;
+    closeLabelsModal();
     void loadServiceDetails();
     void loadServiceDeployments();
     void loadServiceRealtime();
@@ -396,8 +630,16 @@ onUnmounted(() => {
 
     <div v-else class="service-details-layout">
       <div class="service-details-main">
-        <article class="stack-card service-details-card">
-          <h3 class="stack-title">Service</h3>
+        <article class="overview-summary-panel service-panel service-details-card">
+          <header class="overview-summary-panel-header">
+            <div class="service-panel-heading">
+              <span class="overview-summary-panel-icon" aria-hidden="true">
+                <DeploymentIcon name="service" />
+              </span>
+              <h3 class="overview-panel-title">Service</h3>
+            </div>
+          </header>
+          <div class="service-panel-content">
           <AppTable summary fixed aria-label="Service details">
               <tr>
                 <th scope="row">Name</th>
@@ -417,7 +659,28 @@ onUnmounted(() => {
               </tr>
               <tr>
                 <th scope="row">Image</th>
-                <td>{{ serviceInfo?.image || serviceSpec?.image || "n/a" }}</td>
+                <td>
+                  {{ serviceImage || "n/a" }}
+                  <button
+                    v-if="serviceImage"
+                    type="button"
+                    class="service-copy-task-id-button service-image-copy-button"
+                    aria-label="Copy image reference"
+                    title="Copy image reference"
+                    @click="copyText(serviceImage)"
+                  >
+                    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                      <path
+                        d="M5 1.5A1.5 1.5 0 0 0 3.5 3v7A1.5 1.5 0 0 0 5 11.5h7A1.5 1.5 0 0 0 13.5 10V3A1.5 1.5 0 0 0 12 1.5H5Zm0 1h7a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-.5.5H5a.5.5 0 0 1-.5-.5V3a.5.5 0 0 1 .5-.5Z"
+                        fill="currentColor"
+                      />
+                      <path
+                        d="M2 4.5a.5.5 0 0 1 .5.5V12A1.5 1.5 0 0 0 4 13.5h7a.5.5 0 0 1 0 1H4A2.5 2.5 0 0 1 1.5 12V5a.5.5 0 0 1 .5-.5Z"
+                        fill="currentColor"
+                      />
+                    </svg>
+                  </button>
+                </td>
               </tr>
               <tr v-if="serviceInfo && serviceInfo.repository_url">
                 <th scope="row">Repository</th>
@@ -446,65 +709,25 @@ onUnmounted(() => {
               <tr>
                 <th scope="row">Labels</th>
                 <td>
-                  <ul v-if="customServiceLabels.length > 0" class="event-details">
-                    <li v-for="[key, value] in customServiceLabels" :key="key" class="event-detail">
-                      <span class="event-detail-key">{{ key }}</span>
-                      <code class="event-detail-value">{{ value }}</code>
-                    </li>
-                  </ul>
-                  <span v-else class="meta">No labels.</span>
-                </td>
-              </tr>
-              <tr v-if="dockerServiceLabels.length > 0">
-                <th scope="row">Docker Labels</th>
-                <td>
-                  <ul class="event-details">
-                    <li class="event-detail">
-                      <button
-                        type="button"
-                        class="service-secret-badge status unknown"
-                        :aria-expanded="showDockerLabels ? 'true' : 'false'"
-                        @click="toggleDockerLabels"
-                      >
-                        {{ showDockerLabels ? "Hide" : "Show" }}
-                      </button>
-                    </li>
-                  </ul>
-                  <ul
-                    v-if="showDockerLabels"
-                    class="event-details service-details-hidden-tags"
-                  >
-                    <li v-for="[key, value] in dockerServiceLabels" :key="key" class="event-detail">
-                      <span class="event-detail-key">{{ key }}</span>
-                      <code class="event-detail-value">{{ value }}</code>
-                    </li>
-                  </ul>
-                </td>
-              </tr>
-              <tr v-if="swarmDeployServiceLabels.length > 0">
-                <th scope="row">SwarmDeploy Labels</th>
-                <td>
-                  <ul class="event-details">
-                    <li class="event-detail">
-                      <button
-                        type="button"
-                        class="service-secret-badge status unknown"
-                        :aria-expanded="showSwarmDeployLabels ? 'true' : 'false'"
-                        @click="toggleSwarmDeployLabels"
-                      >
-                        {{ showSwarmDeployLabels ? "Hide" : "Show" }}
-                      </button>
-                    </li>
-                  </ul>
-                  <ul
-                    v-if="showSwarmDeployLabels"
-                    class="event-details service-details-hidden-tags"
-                  >
-                    <li v-for="[key, value] in swarmDeployServiceLabels" :key="key" class="event-detail">
-                      <span class="event-detail-key">{{ key }}</span>
-                      <code class="event-detail-value">{{ value }}</code>
-                    </li>
-                  </ul>
+                  <div class="service-labels-row">
+                    <div class="service-labels-inline">
+                      <code
+                        v-for="[key, value] in inlineServiceLabels"
+                        :key="key"
+                        class="service-label-chip"
+                        :title="`${key}=${value}`"
+                      >{{ key }}={{ value }}</code>
+                      <span v-if="serviceLabelCount === 0" class="meta">No labels.</span>
+                    </div>
+                    <button
+                      v-if="serviceLabelCount > 0"
+                      type="button"
+                      class="service-labels-show-all"
+                      @click="openLabelsModal"
+                    >
+                      Show all ({{ serviceLabelCount }})
+                    </button>
+                  </div>
                 </td>
               </tr>
               <tr>
@@ -538,14 +761,30 @@ onUnmounted(() => {
               </tr>
           </AppTable>
           <p v-if="loadingError" class="meta">Warning: {{ loadingError }}</p>
+          </div>
         </article>
 
-        <article class="stack-card service-realtime-card">
-          <h3 class="stack-title">Realtime</h3>
+        <article class="overview-summary-panel service-panel service-realtime-card">
+          <header class="overview-summary-panel-header">
+            <div class="service-panel-heading">
+              <span class="overview-summary-panel-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M3 12h4l3-7 4 14 3-7h4" /></svg>
+              </span>
+              <h3 class="overview-panel-title">Realtime</h3>
+            </div>
+          </header>
+          <div class="service-panel-content">
           <AppTableEmpty v-if="realtimeLoading" message="Loading realtime..." />
           <AppTableEmpty v-else-if="realtimeError">Failed to load realtime: {{ realtimeError }}</AppTableEmpty>
           <AppTableEmpty v-else-if="realtime.length === 0" message="No tasks yet." />
-          <AppTable v-else fixed min-width="820px" table-class="service-realtime-table" aria-label="Service realtime">
+          <AppTable
+            v-else
+            fixed
+            min-width="820px"
+            table-class="service-realtime-table"
+            wrap-class="service-realtime-desktop"
+            aria-label="Service realtime"
+          >
             <template #head>
               <tr>
                 <th>ID</th>
@@ -603,12 +842,42 @@ onUnmounted(() => {
                 </td>
               </tr>
           </AppTable>
+          <ul v-if="!realtimeLoading && !realtimeError && realtime.length > 0" class="service-realtime-mobile">
+            <li v-for="task in realtime" :key="task.id" class="service-realtime-mobile-item">
+              <div class="service-realtime-mobile-head">
+                <span class="service-realtime-mobile-state" :class="realtimeStateClass(task.current_state)">
+                  <span class="service-realtime-mobile-state-dot" aria-hidden="true" />
+                  {{ task.current_state || "n/a" }}
+                </span>
+                <button
+                  type="button"
+                  class="service-realtime-mobile-logs"
+                  :disabled="!task.id"
+                  @click="openTaskLogs(task.id)"
+                >
+                  Logs
+                </button>
+              </div>
+              <code class="service-realtime-mobile-node">{{ task.node_name || task.node || "n/a" }}</code>
+              <span class="service-realtime-mobile-updated">Updated {{ formatDate(task.updated_at) }}</span>
+              <p v-if="task.error" class="service-realtime-mobile-error">{{ task.error }}</p>
+            </li>
+          </ul>
+          </div>
         </article>
       </div>
 
       <div class="service-details-side">
-        <article v-if="serviceLinks.length > 0" class="stack-card service-links-card">
-          <h3 class="stack-title">Links</h3>
+        <article v-if="serviceLinks.length > 0" class="overview-summary-panel service-panel service-links-card">
+          <header class="overview-summary-panel-header">
+            <div class="service-panel-heading">
+              <span class="overview-summary-panel-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.2 1.2M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.2-1.2" /></svg>
+              </span>
+              <h3 class="overview-panel-title">Links</h3>
+            </div>
+          </header>
+          <div class="service-panel-content">
           <ul class="service-links-list">
             <li v-for="link in serviceLinks" :key="`${link.type}-${link.url}`">
               <a
@@ -636,10 +905,19 @@ onUnmounted(() => {
               </a>
             </li>
           </ul>
+          </div>
         </article>
 
-        <article class="stack-card service-resources-card">
-          <h3 class="stack-title">Resources</h3>
+        <article class="overview-summary-panel service-panel service-resources-card">
+          <header class="overview-summary-panel-header">
+            <div class="service-panel-heading">
+              <span class="overview-summary-panel-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none"><rect x="4" y="7" width="16" height="10" rx="2" /><path d="M8 4v3m4-3v3m4-3v3M8 17v3m4-3v3m4-3v3" /></svg>
+              </span>
+              <h3 class="overview-panel-title">Resources</h3>
+            </div>
+          </header>
+          <div class="service-panel-content">
           <AppTable summary aria-label="Service resources">
               <tr>
                 <th scope="row">Deploy mode</th>
@@ -654,64 +932,181 @@ onUnmounted(() => {
                 <td>{{ serviceSpec?.requested_cpu_nano ? formatNanoCPU(serviceSpec?.requested_cpu_nano) : 0 }} / {{ serviceSpec?.limit_cpu_nano? formatNanoCPU(serviceSpec?.limit_cpu_nano) : '∞' }}</td>
               </tr>
           </AppTable>
+          </div>
         </article>
 
 
 
-        <article class="stack-card service-deployments-card">
-          <h3 class="stack-title">Latest deployments</h3>
+        <article class="overview-summary-panel service-panel service-deployments-card">
+          <header class="overview-summary-panel-header">
+            <RouterLink
+              :to="{ name: 'deployments', query: { stack_name: stackName, service_name: serviceName } }"
+              class="overview-summary-panel-header-link"
+            >
+              <span class="overview-summary-panel-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none"><path d="M12 3v11m0 0 4-4m-4 4-4-4M5 17v3h14v-3" /></svg>
+              </span>
+              <h3 class="overview-panel-title">Latest Deployments</h3>
+            </RouterLink>
+          </header>
+          <div class="service-panel-content">
           <p v-if="deploymentsLoading" class="meta">Loading deployments...</p>
           <p v-else-if="deploymentsError" class="meta">Failed to load deployments: {{ deploymentsError }}</p>
           <p v-else-if="deployments.length === 0" class="meta">No deployments yet.</p>
-          <ul v-else class="service-deployments-list">
-            <li v-for="(deployment, index) in deployments" :key="deploymentKey(deployment, index)" class="service-deployment-item">
-              <div class="service-deployment-head">
-                <span class="status" :class="deploymentStatusClass(deployment.status)">
-                  {{ deployment.status }}
-                </span>
-                <span class="meta">{{ formatDate(deployment.created_at) }}</span>
-              </div>
-              <p class="meta">image version: {{ deployment.image_version || "n/a" }}</p>
-              <p class="meta">
-                commit:
-                <button
-                  v-if="deployment.commit"
-                  type="button"
-                  class="stack-commit-badge status unknown"
-                  @click="openCommitDetails(deployment.commit)"
-                >
-                  {{ shortCommitHash(deployment.commit) }}
-                </button>
-                <span v-else> n/a</span>
-              </p>
+          <ul v-else class="service-deployments-list overview-deployment-list">
+            <li v-for="deployment in deployments" :key="deployment.id"
+              class="service-deployment-item service-deployment-item--interactive overview-summary-row overview-deployment-row">
+              <button type="button" class="overview-deployment-details"
+                :aria-label="`Open ${deployment.status} deployment details from ${formatDate(deployment.created_at)}`"
+                @click="overviewStore.openDeploymentDetailsModal(deployment.id)" />
+              <span class="overview-summary-severity overview-deployment-result"
+                :class="deploymentStatusClass(deployment.status)" :aria-label="`Deployment ${deployment.status}`"
+                :title="deployment.status" role="img"></span>
+              <span class="service-deployment-status">{{ deployment.status }}</span>
+              <time class="overview-deployment-time" :datetime="deployment.created_at" :title="formatDate(deployment.created_at)">
+                {{ deploymentTime(deployment.created_at) }}
+              </time>
+              <button v-if="deployment.commit" type="button" class="overview-commit-badge overview-summary-sha-badge"
+                :aria-label="`Open Git commit ${deployment.commit}`" @click.stop="openCommitDetails(deployment.commit)">
+                {{ shortCommitHash(deployment.commit) }}
+              </button>
+              <span v-else class="overview-summary-value-empty">n/a</span>
+              <span class="service-deployment-image" :title="deployment.image">
+                Image {{ deployment.image_version || "n/a" }}
+              </span>
             </li>
           </ul>
+          </div>
         </article>
       </div>
     </div>
 
-    <div class="modal" :class="{ hidden: !logsModalOpen }" aria-hidden="true">
+    <div class="modal" :class="{ hidden: !labelsModalOpen }" :aria-hidden="!labelsModalOpen">
+      <div class="modal-overlay" @click="closeLabelsModal" />
+      <div class="modal-card service-labels-modal-card" role="dialog" aria-modal="true" aria-labelledby="service-labels-title">
+        <div class="modal-header">
+          <h2 id="service-labels-title">Service labels</h2>
+          <button class="modal-close" type="button" aria-label="Close modal" @click="closeLabelsModal">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
+          </button>
+        </div>
+        <div class="modal-body service-labels-modal-body">
+          <section v-for="group in serviceLabelGroups" :key="group.name" class="service-labels-group">
+            <h3>{{ group.name }}</h3>
+            <dl class="service-labels-list">
+              <div v-for="[key, value] in group.labels" :key="key" class="service-labels-list-item">
+                <dt><code>{{ key }}</code></dt>
+                <dd><code>{{ value }}</code></dd>
+              </div>
+            </dl>
+          </section>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" :class="{ hidden: !logsModalOpen }" :aria-hidden="!logsModalOpen">
       <div class="modal-overlay" @click="closeTaskLogsModal" />
       <div class="modal-card task-logs-modal-card" role="dialog" aria-modal="true" aria-labelledby="task-logs-title">
-        <div class="modal-header">
-          <h2 id="task-logs-title">Task logs</h2>
-          <button class="modal-close" type="button" aria-label="Close modal" @click="closeTaskLogsModal">x</button>
+        <div class="modal-header task-logs-modal-header">
+          <div class="task-logs-title">
+            <h2 id="task-logs-title">Task logs</h2>
+            <p>task: <code>{{ logsTaskID || "n/a" }}</code></p>
+          </div>
+          <button class="modal-close" type="button" aria-label="Close modal" @click="closeTaskLogsModal">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
+          </button>
         </div>
-        <div class="modal-body">
-          <p class="meta">task: <code>{{ logsTaskID || "n/a" }}</code></p>
+        <div class="modal-body task-logs-modal-body">
+          <div class="task-logs-toolbar" aria-label="Log parsing and filters">
+            <button
+              class="task-logs-parse-toggle"
+              :class="{ 'task-logs-parse-toggle--active': parseLogs }"
+              type="button"
+              role="switch"
+              :aria-checked="parseLogs"
+              @click="toggleLogParsing"
+            >
+              <span class="task-logs-parse-switch" aria-hidden="true"><span /></span>
+              <span>Parse logs</span>
+            </button>
+            <div v-if="parseLogs" class="task-log-level-filters" aria-label="Log level filters">
+              <button
+                v-for="filter in taskLogLevelFilters"
+                :key="filter.id"
+                class="task-log-level-filter"
+                :class="[`task-log-level-filter--${filter.id}`, { 'task-log-level-filter--selected': isLogLevelFilterSelected(filter) }]"
+                type="button"
+                :aria-pressed="isLogLevelFilterSelected(filter)"
+                @click="toggleLogLevelFilter(filter)"
+              >
+                <svg v-if="filter.id === 'all'" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 3.5 5.5 6 8 3.5 10.5 6 13 3.5M3 12.5 5.5 10 8 12.5 10.5 10l2.5 2.5" /></svg>
+                <span v-else class="task-log-filter-dot" aria-hidden="true" />
+                <span class="task-log-filter-label">{{ filter.label }}</span>
+                <span class="task-log-filter-count">{{ logLevelFilterCount(filter) }}</span>
+              </button>
+            </div>
+            <label class="task-logs-search">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" /><path d="m12.5 12.5 4 4" /></svg>
+              <span class="sr-only">Search logs</span>
+              <input v-model="logSearchQuery" type="search" placeholder="Search in messages..." />
+            </label>
+          </div>
           <p v-if="logsLoading && logs.length === 0" class="meta">Loading logs...</p>
           <p v-if="logsError" class="meta task-logs-error">{{ logsError }}</p>
           <div ref="logsViewer" class="task-logs-viewer" aria-live="polite" @scroll="handleLogsScroll">
             <p v-if="logs.length === 0 && !logsLoading" class="meta">No log lines.</p>
+            <p v-else-if="filteredLogs.length === 0" class="meta">No logs match your search.</p>
             <ol v-else class="task-logs-list">
-              <li v-for="(entry, index) in logs" :key="`${entry.timestamp}-${index}`" class="task-log-line">
-                <time class="task-log-time">{{ entry.timestamp || "no timestamp" }}</time>
-                <span class="task-log-stream" :class="`task-log-stream-${entry.stream}`">{{ entry.stream }}</span>
-                <code class="task-log-message">{{ entry.message }}</code>
+              <li
+                v-for="(entry, index) in filteredLogs"
+                :key="`${entry.timestamp}-${index}`"
+                class="task-log-entry"
+                :class="{ 'task-log-entry--raw': !parseLogs }"
+              >
+                <details v-if="parseLogs" class="task-log-details">
+                  <summary class="task-log-line">
+                    <time class="task-log-time" :datetime="entry.timestamp">{{ formatLogTimestamp(entry.timestamp) }}</time>
+                    <span
+                      class="task-log-level"
+                      :class="`task-log-level-${String(entry.level || 'INFO').toLowerCase()}`"
+                    >{{ entry.level || "INFO" }}</span>
+                    <span class="task-log-message">{{ entry.message }}</span>
+                    <svg class="task-log-chevron" viewBox="0 0 20 20" aria-hidden="true"><path d="m7 5 5 5-5 5" /></svg>
+                  </summary>
+                  <div class="task-log-detail-panel">
+                    <section v-if="logAttributeEntries(entry.attributes).length > 0" class="task-log-detail-section">
+                      <h3>Attributes</h3>
+                      <dl class="task-log-attributes">
+                        <div v-for="[key, value] in logAttributeEntries(entry.attributes)" :key="key" class="task-log-attribute">
+                          <dt>{{ key }}</dt>
+                          <dd>{{ formatLogAttributeValue(value) }}</dd>
+                        </div>
+                      </dl>
+                    </section>
+                    <section class="task-log-detail-section">
+                      <div class="task-log-detail-heading">
+                        <h3>Raw</h3>
+                        <button
+                          type="button"
+                          class="task-log-copy"
+                          :aria-label="`Copy raw log ${index + 1}`"
+                          @click="copyRawLog(entry, `${entry.timestamp}-${index}`)"
+                        >
+                          <svg viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="5" width="8" height="8" rx="1" /><path d="M3 10H2.5A1.5 1.5 0 0 1 1 8.5v-6A1.5 1.5 0 0 1 2.5 1h6A1.5 1.5 0 0 1 10 2.5V3" /></svg>
+                          {{ copiedLogKey === `${entry.timestamp}-${index}` ? "Copied" : "Copy" }}
+                        </button>
+                      </div>
+                      <pre>{{ entry.raw_message || entry.message }}</pre>
+                    </section>
+                  </div>
+                </details>
+                <div v-else class="task-log-line task-log-line--raw">
+                  <time class="task-log-time" :datetime="entry.timestamp">{{ formatLogTimestamp(entry.timestamp) }}</time>
+                  <span class="task-log-message task-log-message--raw">{{ entry.message }}</span>
+                </div>
               </li>
             </ol>
           </div>
-          <p v-if="logsEnded" class="meta">End of logs.</p>
         </div>
       </div>
     </div>

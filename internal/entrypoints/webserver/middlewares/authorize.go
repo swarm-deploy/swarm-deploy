@@ -19,6 +19,7 @@ func Authorize(
 	next http.Handler,
 	auth authenticator.Authenticator,
 	eventDispatcher dispatcher.Dispatcher,
+	cookiePath string,
 ) http.Handler {
 	if auth == nil {
 		return next
@@ -33,8 +34,12 @@ func Authorize(
 
 			slog.InfoContext(req.Context(), "[security] request authorized")
 			if !hasActiveAuthSession(req) {
-				eventDispatcher.Dispatch(req.Context(), &events.UserAuthenticated{Username: user.Name})
-				setActiveAuthSession(w)
+				if err := eventDispatcher.Publish(req.Context(), &events.UserAuthenticated{Username: user.Name}); err != nil {
+					slog.ErrorContext(req.Context(), "persist authentication event", "err", err)
+					http.Error(w, "event persistence unavailable", http.StatusServiceUnavailable)
+					return
+				}
+				setActiveAuthSession(w, cookiePath)
 			}
 
 			next.ServeHTTP(w, req)
@@ -55,11 +60,11 @@ func hasActiveAuthSession(r *http.Request) bool {
 	return cookie.Value == authSessionCookieValue
 }
 
-func setActiveAuthSession(w http.ResponseWriter) {
+func setActiveAuthSession(w http.ResponseWriter, cookiePath string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     authSessionCookieName,
 		Value:    authSessionCookieValue,
-		Path:     "/",
+		Path:     cookiePath,
 		HttpOnly: true,
 		SameSite: http.SameSiteLaxMode,
 	})

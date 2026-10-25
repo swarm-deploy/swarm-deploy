@@ -3,24 +3,22 @@ package rag
 import (
 	"context"
 	"errors"
+	"go.uber.org/mock/gomock"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	webroute "github.com/swarm-deploy/webroute/api"
 )
 
-type fakeServiceStore struct {
-	services []service.Info
-}
-
-func (f *fakeServiceStore) List() []service.Info {
-	out := make([]service.Info, len(f.services))
-	copy(out, f.services)
-	return out
+func serviceStore(t *testing.T, services []model.Info) *MockServiceStore {
+	t.Helper()
+	store := NewMockServiceStore(gomock.NewController(t))
+	store.EXPECT().ReadAll(gomock.Any()).Return(services, nil).AnyTimes()
+	return store
 }
 
 type fakeEmbedder struct {
@@ -41,7 +39,7 @@ func (o *observerCapture) RecordRetrieveFallback(reason string) {
 	o.reasons = append(o.reasons, reason)
 }
 
-func runPlan(t *testing.T, retriever *Retriever, query string) []service.Info {
+func runPlan(t *testing.T, retriever *Retriever, query string) []model.Info {
 	t.Helper()
 
 	plan, err := retriever.Plan(context.Background(), query)
@@ -65,7 +63,7 @@ func runPlan(t *testing.T, retriever *Retriever, query string) []service.Info {
 }
 
 func TestRetrieverRanksByEmbeddingSimilarity(t *testing.T) {
-	services := []service.Info{
+	services := []model.Info{
 		{
 			Name:     "api",
 			Stack:    "app",
@@ -94,7 +92,7 @@ func TestRetrieverRanksByEmbeddingSimilarity(t *testing.T) {
 	)
 
 	retriever := NewRetriever(
-		&fakeServiceStore{services: services},
+		serviceStore(t, services),
 		&fakeEmbedder{
 			embedFn: func(_ context.Context, _ string, inputs []string) ([][]float64, error) {
 				require.Equal(t, []string{"database service"}, inputs, "expected query-only embedding call")
@@ -113,7 +111,7 @@ func TestRetrieverRanksByEmbeddingSimilarity(t *testing.T) {
 }
 
 func TestRetrieverFallsBackToLexicalSearchWhenQueryEmbeddingFails(t *testing.T) {
-	services := []service.Info{
+	services := []model.Info{
 		{
 			Name:     "api",
 			Stack:    "app",
@@ -131,7 +129,7 @@ func TestRetrieverFallsBackToLexicalSearchWhenQueryEmbeddingFails(t *testing.T) 
 
 	observer := &observerCapture{}
 	retriever := NewRetriever(
-		&fakeServiceStore{services: services},
+		serviceStore(t, services),
 		&fakeEmbedder{
 			embedFn: func(_ context.Context, _ string, _ []string) ([][]float64, error) {
 				return nil, errors.New("embeddings unavailable")
@@ -149,7 +147,7 @@ func TestRetrieverFallsBackToLexicalSearchWhenQueryEmbeddingFails(t *testing.T) 
 }
 
 func TestRetrieverLexicalMatchesWebRouteFields(t *testing.T) {
-	services := []service.Info{
+	services := []model.Info{
 		{
 			Name:  "api",
 			Stack: "app",
@@ -173,7 +171,7 @@ func TestRetrieverLexicalMatchesWebRouteFields(t *testing.T) {
 	require.NoError(t, index.Replace(services, [][]float64{{0.1, 0.2}, {0.2, 0.1}}), "seed index")
 
 	retriever := NewRetriever(
-		&fakeServiceStore{services: services},
+		serviceStore(t, services),
 		&fakeEmbedder{
 			embedFn: func(_ context.Context, _ string, _ []string) ([][]float64, error) {
 				return nil, errors.New("embeddings unavailable")
@@ -188,9 +186,8 @@ func TestRetrieverLexicalMatchesWebRouteFields(t *testing.T) {
 	assert.Equal(t, "api", selected[0].Name, "expected service match by web route domain")
 }
 
-
 func TestRetrieverLimitsSemanticResultsAndPrioritizesNamedService(t *testing.T) {
-	services := []service.Info{
+	services := []model.Info{
 		{Name: "svc-0", Stack: "app"},
 		{Name: "svc-1", Stack: "app"},
 		{Name: "svc-2", Stack: "app"},
@@ -206,7 +203,7 @@ func TestRetrieverLimitsSemanticResultsAndPrioritizesNamedService(t *testing.T) 
 	require.NoError(t, index.Replace(services, embeddings), "seed index")
 
 	retriever := NewRetriever(
-		&fakeServiceStore{services: services},
+		serviceStore(t, services),
 		&fakeEmbedder{embedFn: func(_ context.Context, _ string, _ []string) ([][]float64, error) {
 			return [][]float64{{1, 0}}, nil
 		}},
@@ -221,7 +218,7 @@ func TestRetrieverLimitsSemanticResultsAndPrioritizesNamedService(t *testing.T) 
 }
 
 func TestRetrieverLimitsLexicalFallbackResults(t *testing.T) {
-	services := []service.Info{
+	services := []model.Info{
 		{Name: "svc-0", Stack: "app"},
 		{Name: "svc-1", Stack: "app"},
 		{Name: "svc-2", Stack: "app"},
@@ -238,7 +235,7 @@ func TestRetrieverLimitsLexicalFallbackResults(t *testing.T) {
 	require.NoError(t, index.Replace(services, embeddings), "seed index")
 
 	retriever := NewRetriever(
-		&fakeServiceStore{services: services},
+		serviceStore(t, services),
 		&fakeEmbedder{embedFn: func(_ context.Context, _ string, _ []string) ([][]float64, error) {
 			return nil, errors.New("embeddings unavailable")
 		}},

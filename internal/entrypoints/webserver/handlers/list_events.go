@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"net/http"
 	"time"
 
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
@@ -9,8 +10,25 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
 )
 
+const defaultEventPageSize int32 = 50
+
+// GetEventFilters returns contextual stack and service options from retained event history.
+func (h *handler) GetEventFilters(ctx context.Context) (*generated.EventFilterOptions, error) {
+	options, err := h.history.FilterOptions(ctx)
+	if err != nil {
+		return nil, err
+	}
+	services := make([]generated.EventFilterService, 0, len(options.Services))
+	for _, service := range options.Services {
+		services = append(services, generated.EventFilterService{
+			StackName: service.StackName, ServiceName: service.ServiceName,
+		})
+	}
+	return &generated.EventFilterOptions{Stacks: options.Stacks, Services: services}, nil
+}
+
 func (h *handler) ListEvents(
-	_ context.Context,
+	ctx context.Context,
 	params generated.ListEventsParams,
 ) (*generated.EventHistoryResponse, error) {
 	severities := make([]events.Severity, 0, len(params.Severities))
@@ -41,22 +59,37 @@ func (h *handler) ListEvents(
 		since = &value
 	}
 
-	entries := h.history.List()
-	entries = history.FilterEntries(entries, severities, categories, types, since)
-	if value, ok := params.Limit.Get(); ok {
-		entries = limitLatestEntries(entries, int(value))
-	}
-	items := toGeneratedEvents(entries)
-
-	return &generated.EventHistoryResponse{
-		Events: items,
-	}, nil
-}
-
-func limitLatestEntries(entries []history.Entry, limit int) []history.Entry {
-	if limit <= 0 || len(entries) <= limit {
-		return entries
+	// Preserve the legacy response order for callers which do not opt into
+	// pagination (notably the Overview latest-deployments widget).
+	if !params.Sort.IsSet() && !params.Order.IsSet() && !params.Cursor.IsSet() {
+		entries, err := h.history.ReadRecent(ctx, history.QueryOptions{
+			Severities: severities, Categories: categories, Types: types, Since: since,
+			StackNames: params.StackName, ServiceNames: params.ServiceName,
+			Limit: int(params.Limit.Or(0)),
+		})
+		if err != nil {
+			return nil, err
+		}
+		return &generated.EventHistoryResponse{Events: toGeneratedEvents(entries)}, nil
 	}
 
-	return entries[len(entries)-limit:]
+	page, err := h.history.QueryPage(ctx, history.QueryOptions{
+		Severities:   severities,
+		Categories:   categories,
+		Types:        types,
+		StackNames:   params.StackName,
+		ServiceNames: params.ServiceName,
+		Since:        since,
+		Limit:        int(params.Limit.Or(defaultEventPageSize)),
+		Cursor:       params.Cursor.Or(""),
+		Sort:         history.SortOrder(params.Sort.Or("time") + "_" + params.Order.Or("desc")),
+	})
+	if err != nil {
+		return nil, withStatusError(http.StatusBadRequest, err)
+	}
+	response := &generated.EventHistoryResponse{Events: toGeneratedEvents(page.Entries)}
+	if page.NextCursor != "" {
+		response.NextCursor.SetTo(page.NextCursor)
+	}
+	return response, nil
 }

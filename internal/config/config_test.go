@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -41,9 +42,37 @@ stacks:
 
 	cfg, err := Load(configPath)
 	require.NoError(t, err, "load config")
-	require.Len(t, cfg.Spec.Stacks, 2, "expected 2 stacks")
-	assert.Equal(t, "app", cfg.Spec.Stacks[0].Name, "unexpected first stack")
-	assert.Equal(t, "worker", cfg.Spec.Stacks[1].Name, "unexpected second stack")
+	stacks := cfg.Stacks()
+	require.Len(t, stacks, 2, "expected 2 stacks")
+	assert.Equal(t, "app", stacks[0].Name, "unexpected first stack")
+	assert.Equal(t, "worker", stacks[1].Name, "unexpected second stack")
+}
+
+func TestLoadAgeIdentityIndependentlyOfRotation(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprint(enabled), func(t *testing.T) {
+			dir := t.TempDir()
+			identityPath := filepath.Join(dir, "identity")
+			require.NoError(t, os.WriteFile(identityPath, []byte("private-identity-marker"), 0o600))
+			path := filepath.Join(dir, "swarm-deploy.yaml")
+			require.NoError(t, os.WriteFile(path, fmt.Appendf(nil, `git:
+  repository: https://example.com/repo.git
+sync:
+  mode: pull
+stacks:
+  file: ./stacks.yaml
+secretRotation:
+  enabled: %t
+  age:
+    identityFile: %s
+`, enabled, identityPath), 0o600))
+			cfg, err := Load(path)
+			require.NoError(t, err)
+			assert.Equal(t, enabled, cfg.Spec.SecretRotation.Enabled)
+			assert.Equal(t, identityPath, cfg.Spec.SecretRotation.Age.IdentityFile.Path)
+			assert.Equal(t, []byte("private-identity-marker"), cfg.Spec.SecretRotation.Age.IdentityFile.Content)
+		})
+	}
 }
 
 func TestLoadAppliesDefaultSyncInterval(t *testing.T) {
@@ -101,6 +130,123 @@ stacks:
 	assert.Equal(t, 15*time.Second, cfg.Spec.Sync.Interval.Value, "expected configured sync interval")
 }
 
+func TestLoadImagePolicy(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "stacks.yaml"), []byte("stacks: []\n"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "swarm-deploy.yaml"), []byte(`
+git:
+  repository: https://example.com/repo.git
+sync:
+  mode: pull
+  policy:
+    image:
+      tag:
+        required: true
+        no_latest: true
+        only_sha: true
+stacks:
+  file: ./stacks.yaml
+`), 0o600))
+
+	cfg, err := Load(filepath.Join(dir, "swarm-deploy.yaml"))
+	require.NoError(t, err)
+	assert.True(t, cfg.Spec.Sync.Policy.Image.Enabled())
+	assert.Equal(t, ImageTagPolicySpec{Required: true, NoLatest: true, OnlySHA: true},
+		cfg.Spec.Sync.Policy.Image.Tag)
+}
+
+func TestLoadAppliesSecretRotationCleanupDefaults(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "stacks.yaml"), []byte(`
+stacks:
+  - name: app
+    composeFile: app.yaml
+`), 0o600), "write stacks file")
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "swarm-deploy.yaml"), []byte(`
+git:
+  repository: https://example.com/repo.git
+sync:
+  mode: pull
+stacks:
+  file: ./stacks.yaml
+secretRotation:
+  enabled: true
+  cleanup:
+    enabled: true
+`), 0o600), "write config file")
+
+	cfg, err := Load(filepath.Join(dir, "swarm-deploy.yaml"))
+	require.NoError(t, err, "load config")
+	assert.Equal(t, 4*time.Hour, cfg.Spec.SecretRotation.Cleanup.Interval.Value, "unexpected cleanup interval default")
+	assert.Equal(t, 2, cfg.Spec.SecretRotation.Cleanup.KeepLast, "unexpected cleanup keepLast default")
+	assert.Equal(t, time.Hour, cfg.Spec.SecretRotation.Cleanup.MinAge.Value, "unexpected cleanup minAge default")
+}
+
+func TestLoadValidatesSecretRotationCleanup(t *testing.T) {
+	tests := []struct {
+		name     string
+		rotation string
+		errText  string
+	}{
+		{
+			name: "requires rotation",
+			rotation: `cleanup:
+    enabled: true`,
+			errText: "secretRotation.cleanup.enabled requires secretRotation.enabled=true",
+		},
+		{
+			name: "rejects negative interval",
+			rotation: `enabled: true
+  cleanup:
+    enabled: true
+    interval: -1s`,
+			errText: "secretRotation.cleanup.interval must be > 0",
+		},
+		{
+			name: "rejects negative keepLast",
+			rotation: `enabled: true
+  cleanup:
+    enabled: true
+    keepLast: -1`,
+			errText: "secretRotation.cleanup.keepLast must be >= 1",
+		},
+		{
+			name: "rejects negative minAge",
+			rotation: `enabled: true
+  cleanup:
+    enabled: true
+    minAge: -1s`,
+			errText: "secretRotation.cleanup.minAge must be > 0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "stacks.yaml"), []byte(`
+stacks:
+  - name: app
+    composeFile: app.yaml
+`), 0o600), "write stacks file")
+			payload := fmt.Sprintf(`
+git:
+  repository: https://example.com/repo.git
+sync:
+  mode: pull
+stacks:
+  file: ./stacks.yaml
+secretRotation:
+  %s
+`, tt.rotation)
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "swarm-deploy.yaml"), []byte(payload), 0o600), "write config file")
+
+			_, err := Load(filepath.Join(dir, "swarm-deploy.yaml"))
+			require.Error(t, err, "expected validation error")
+			assert.Contains(t, err.Error(), tt.errText, "unexpected validation error")
+		})
+	}
+}
+
 func TestLoadFailsWithoutStacksFile(t *testing.T) {
 	dir := t.TempDir()
 
@@ -138,7 +284,7 @@ stacks:
 
 	cfg, err := Load(configPath)
 	require.NoError(t, err, "load config")
-	assert.Empty(t, cfg.Spec.Stacks, "stacks must be loaded later from git repository during sync")
+	assert.Empty(t, cfg.Stacks(), "stacks must be loaded later from git repository during sync")
 }
 
 func TestLoadWithNetworksFile(t *testing.T) {
@@ -176,9 +322,10 @@ networks:
 
 	cfg, err := Load(configPath)
 	require.NoError(t, err, "load config")
-	require.Len(t, cfg.Spec.Networks, 1, "expected one network")
-	assert.Equal(t, "app_backend", cfg.Spec.Networks[0].Name, "unexpected network name")
-	assert.Equal(t, "overlay", cfg.Spec.Networks[0].Driver, "unexpected default network driver")
+	networks := cfg.Networks()
+	require.Len(t, networks, 1, "expected one network")
+	assert.Equal(t, "app_backend", networks[0].Name, "unexpected network name")
+	assert.Equal(t, "overlay", networks[0].Driver, "unexpected default network driver")
 }
 
 func TestLoadAllowsMissingNetworksFileBeforeFirstSync(t *testing.T) {
@@ -207,7 +354,7 @@ networks:
 
 	cfg, err := Load(configPath)
 	require.NoError(t, err, "load config")
-	assert.Empty(t, cfg.Spec.Networks, "networks must be loaded later from git repository during sync")
+	assert.Empty(t, cfg.Networks(), "networks must be loaded later from git repository during sync")
 }
 
 func TestLoadWithContainersDownward(t *testing.T) {
@@ -260,6 +407,7 @@ stacks:
   file: ./stacks.yaml
 web:
   address: ":18080"
+  basePath: /infrastructure/swarm/
 `)
 	if err := os.WriteFile(configPath, configPayload, 0o600); err != nil {
 		require.NoError(t, err, "write config file")
@@ -268,6 +416,7 @@ web:
 	cfg, err := Load(configPath)
 	require.NoError(t, err, "load config")
 	assert.Equal(t, ":18080", cfg.Spec.Web.Address, "expected web.address")
+	assert.Equal(t, "/infrastructure/swarm", cfg.Spec.Web.BasePath, "expected normalized web.basePath")
 	assert.Equal(t, defaultWebhookAddress, cfg.Spec.Sync.Webhook.Address, "expected sync.webhook.address")
 }
 
@@ -298,10 +447,74 @@ stacks:
 	cfg, err := Load(configPath)
 	require.NoError(t, err, "load config")
 	assert.Equal(t, defaultWebAddress, cfg.Spec.Web.Address, "expected web.address")
+	assert.Equal(t, defaultWebBasePath, cfg.Spec.Web.BasePath, "expected web.basePath")
 	assert.Equal(t, defaultWebhookAddress, cfg.Spec.Sync.Webhook.Address, "expected sync.webhook.address")
 }
 
-func TestReloadStacksPrefersFirstAvailableBaseDir(t *testing.T) {
+func TestValidateWebBasePath(t *testing.T) {
+	testCases := []struct {
+		name     string
+		basePath string
+		wantErr  string
+	}{
+		{name: "root", basePath: "/"},
+		{name: "nested", basePath: "/infrastructure/swarm"},
+		{name: "unreserved characters", basePath: "/Swarm-Deploy_v1.2~/metrics"},
+		{name: "wildcard braces", basePath: "/swarm/{stack}", wantErr: "invalid character"},
+		{name: "unclosed wildcard", basePath: "/swarm/{stack", wantErr: "invalid character"},
+		{name: "encoded slash", basePath: "/swarm%2Fdeploy", wantErr: "percent-encoded"},
+		{name: "encoded dot segments", basePath: "/swarm/%2e%2e/admin", wantErr: "percent-encoded"},
+		{name: "encoded wildcard", basePath: "/swarm/%7Bstack%7D", wantErr: "percent-encoded"},
+		{name: "double encoded segment", basePath: "/swarm/%252f", wantErr: "percent-encoded"},
+		{name: "invalid escape", basePath: "/swarm/%GG", wantErr: "percent-encoded"},
+		{name: "space", basePath: "/swarm deploy", wantErr: "invalid character"},
+		{name: "control character", basePath: "/swarm\nadmin", wantErr: "invalid character"},
+		{name: "colon", basePath: "/swarm:admin", wantErr: "invalid character"},
+		{name: "relative", basePath: "infrastructure/swarm", wantErr: "must start with /"},
+		{name: "query", basePath: "/swarm?mode=all", wantErr: "without query"},
+		{name: "fragment", basePath: "/swarm#status", wantErr: "without query"},
+		{name: "backslash", basePath: `/swarm\\admin`, wantErr: "without query"},
+		{name: "empty segment", basePath: "/infrastructure//swarm", wantErr: "empty path segments"},
+		{name: "current segment", basePath: "/infrastructure/./swarm", wantErr: ". or .."},
+		{name: "parent segment", basePath: "/infrastructure/../swarm", wantErr: ". or .."},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			cfg := &Config{Spec: Spec{Web: WebSpec{BasePath: testCase.basePath}}}
+			err := errors.Join(cfg.validateWeb()...)
+			if testCase.wantErr == "" {
+				require.NoError(t, err, "validate web base path")
+				return
+			}
+
+			require.Error(t, err, "expected validation error")
+			assert.Contains(t, err.Error(), testCase.wantErr, "unexpected validation error")
+		})
+	}
+}
+
+func TestNormalizeWebBasePath(t *testing.T) {
+	testCases := []struct {
+		input string
+		want  string
+	}{
+		{input: "", want: "/"},
+		{input: "/", want: "/"},
+		{input: "/swarm/", want: "/swarm"},
+		{input: "/infrastructure/swarm/", want: "/infrastructure/swarm"},
+		{input: "/swarm//", want: "/swarm//"},
+		{input: "//", want: "//"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(fmt.Sprintf("%q", testCase.input), func(t *testing.T) {
+			assert.Equal(t, testCase.want, normalizeWebBasePath(testCase.input))
+		})
+	}
+}
+
+func TestReloadPrefersFirstAvailableBaseDir(t *testing.T) {
 	dir := t.TempDir()
 	configDir := filepath.Join(dir, "config")
 	repoDir := filepath.Join(dir, "repo")
@@ -334,14 +547,15 @@ stacks:
 		},
 	}
 
-	loadedFrom, err := cfg.ReloadStacks(repoDir, configDir)
+	changed, err := cfg.Reload(repoDir, configDir)
 	require.NoError(t, err, "reload stacks")
-	assert.Equal(t, repoStacksPath, loadedFrom, "expected repo stacks path")
-	require.Len(t, cfg.Spec.Stacks, 1, "expected one stack")
-	assert.Equal(t, "from-repo", cfg.Spec.Stacks[0].Name, "expected stack from repo")
+	assert.True(t, changed)
+	stacks := cfg.Stacks()
+	require.Len(t, stacks, 1, "expected one stack")
+	assert.Equal(t, "from-repo", stacks[0].Name, "expected stack from repo")
 }
 
-func TestReloadStacksFallsBackToNextBaseDir(t *testing.T) {
+func TestReloadFallsBackToNextBaseDir(t *testing.T) {
 	dir := t.TempDir()
 	missingRepoDir := filepath.Join(dir, "repo")
 	configDir := filepath.Join(dir, "config")
@@ -363,11 +577,12 @@ stacks:
 		},
 	}
 
-	loadedFrom, err := cfg.ReloadStacks(missingRepoDir, configDir)
+	changed, err := cfg.Reload(missingRepoDir, configDir)
 	require.NoError(t, err, "reload stacks")
-	assert.Equal(t, configStacksPath, loadedFrom, "expected fallback config stacks path")
-	require.Len(t, cfg.Spec.Stacks, 1, "expected one stack")
-	assert.Equal(t, "from-config", cfg.Spec.Stacks[0].Name, "expected stack from config")
+	assert.True(t, changed)
+	stacks := cfg.Stacks()
+	require.Len(t, stacks, 1, "expected one stack")
+	assert.Equal(t, "from-config", stacks[0].Name, "expected stack from config")
 }
 
 func TestReloadNetworksPrefersFirstAvailableBaseDir(t *testing.T) {
@@ -392,20 +607,29 @@ networks:
 
 	require.NoError(t, os.WriteFile(configNetworksPath, configNetworks, 0o600), "write config networks")
 	require.NoError(t, os.WriteFile(repoNetworksPath, repoNetworks, 0o600), "write repo networks")
+	for _, baseDir := range []string{configDir, repoDir} {
+		require.NoError(t, os.WriteFile(filepath.Join(baseDir, "stacks.yaml"), []byte(`
+stacks:
+  - name: app
+    composeFile: app.yaml
+`), 0o600), "write stacks")
+	}
 
 	cfg := &Config{
 		Spec: Spec{
+			StacksSource: StacksSourceSpec{File: "./stacks.yaml"},
 			NetworksSource: NetworksSourceSpec{
 				File: "./networks.yaml",
 			},
 		},
 	}
 
-	loadedFrom, err := cfg.ReloadNetworks(repoDir, configDir)
+	changed, err := cfg.Reload(repoDir, configDir)
 	require.NoError(t, err, "reload networks")
-	assert.Equal(t, repoNetworksPath, loadedFrom, "expected repo networks path")
-	require.Len(t, cfg.Spec.Networks, 1, "expected one network")
-	assert.Equal(t, "from-repo", cfg.Spec.Networks[0].Name, "expected network from repo")
+	assert.True(t, changed)
+	networks := cfg.Networks()
+	require.Len(t, networks, 1, "expected one network")
+	assert.Equal(t, "from-repo", networks[0].Name, "expected network from repo")
 }
 
 func TestLoadFailsOnManagedNetworkLabelNotTrue(t *testing.T) {
@@ -451,7 +675,7 @@ networks:
 	)
 }
 
-func TestLoadFailsOnCustomNotificationWithoutURLInNotificationsOn(t *testing.T) {
+func TestLoadFailsOnCustomNotificationWithoutURLInNotificationsEvents(t *testing.T) {
 	dir := t.TempDir()
 
 	stacksPath := filepath.Join(dir, "stacks.yaml")
@@ -469,8 +693,8 @@ git:
 stacks:
   file: ./stacks.yaml
 notifications:
-  on:
-    deploySuccess:
+  events:
+    DeploySuccess:
       custom:
         - name: audit
 `)
@@ -481,7 +705,7 @@ notifications:
 	assert.Contains(
 		t,
 		err.Error(),
-		`notifications.on["deploySuccess"].custom[0].url or urlEnv is required`,
+		`notifications.events["DeploySuccess"].custom[0].url or urlEnv is required`,
 		"unexpected error",
 	)
 }
@@ -504,7 +728,7 @@ git:
 stacks:
   file: ./stacks.yaml
 notifications:
-  on:
+  events:
     unknownEvent:
       custom:
         - name: audit
@@ -514,7 +738,62 @@ notifications:
 
 	_, err := Load(configPath)
 	require.Error(t, err, "expected error")
-	assert.Contains(t, err.Error(), `notifications.on["unknownEvent"] has unknown event type`, "unexpected error")
+	assert.Contains(t, err.Error(), `notifications.events["unknownEvent"] has unknown or non-public event type`, "unexpected error")
+}
+
+func TestLoadValidatesNotificationTemplates(t *testing.T) {
+	tests := []struct {
+		name      string
+		message   string
+		wantError string
+	}{
+		{name: "valid", message: `{{ .Status }} {{ .StackName }} {{ date "2006-01-02" .OccurredAt }}`},
+		{name: "condition and optional value", message: `{{ if .Commit }}{{ .Commit }}{{ else }}ok{{ end }}`},
+		{name: "syntax error", message: `{{ if }}`, wantError: "parse template"},
+		{name: "unknown field", message: `{{ .Stack }}`, wantError: `can't evaluate field Stack`},
+		{name: "unknown nested field", message: `{{ (index .Services 0).Digest }}`, wantError: "can't evaluate field Digest"},
+		{name: "unknown function", message: `{{ timestamp .OccurredAt }}`, wantError: `function "timestamp" not defined`},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "stacks.yaml"), []byte(`
+stacks:
+  - name: app
+    composeFile: app.yaml
+`), 0o600))
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "telegram-token"), []byte("12345:ABCDEF"), 0o600))
+			configPayload := fmt.Sprintf(`
+git:
+  repository: https://example.com/repo.git
+stacks:
+  file: ./stacks.yaml
+notifications:
+  messengers:
+    telegram:
+      botTokenPath: %s
+      chats:
+        default:
+          id: "-1001234567890"
+  events:
+    DeploySuccess:
+      telegram:
+        - message: %q
+`, filepath.Join(dir, "telegram-token"), test.message)
+			configPath := filepath.Join(dir, "swarm-deploy.yaml")
+			require.NoError(t, os.WriteFile(configPath, []byte(configPayload), 0o600))
+
+			_, err := Load(configPath)
+			if test.wantError == "" {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), `notifications.events["DeploySuccess"].telegram[0].message: invalid template`)
+			assert.Contains(t, err.Error(), test.wantError)
+		})
+	}
 }
 
 func TestLoadFailsWhenAssistantEnabledWithoutTokenPath(t *testing.T) {
