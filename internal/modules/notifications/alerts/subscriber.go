@@ -143,11 +143,15 @@ func (s *Subscriber) Handle(ctx context.Context, envelope events.Envelope) error
 
 // HandleNotification reports whether an external notification was sent.
 func (s *Subscriber) HandleNotification(ctx context.Context, envelope events.Envelope) (bool, error) {
-	if err := s.store.PruneCompleted(ctx); err != nil { return false, err }
+	if err := s.store.PruneCompleted(ctx); err != nil {
+		return false, err
+	}
 	switch event := envelope.Event.(type) {
 	case *events.AlertOpened:
 		for _, recipient := range event.Recipients {
-			if recipient == s.recipient { return s.opened(ctx, event.Alert) }
+			if recipient == s.recipient {
+				return s.opened(ctx, event.Alert)
+			}
 		}
 		return false, nil
 	case *events.AlertResolved:

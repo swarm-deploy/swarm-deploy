@@ -124,8 +124,8 @@ func (s *Subscriber) handleNotificationFailed(
 	alert = model.Alert{
 		ID: s.newID(), Fingerprint: fingerprint, Kind: model.AlertKindNotificationDeliveryFailed,
 		ResourceType: model.ResourceTypeNotification,
-		ResourceID: notificationResourceID(event.Destination, event.Channel),
-		Status: model.AlertStatusOpen, Title: "Notification delivery failed",
+		ResourceID:   notificationResourceID(event.Destination, event.Channel),
+		Status:       model.AlertStatusOpen, Title: "Notification delivery failed",
 		Message: event.Message(), FailureStage: "notification_delivery",
 		ErrorCode: errorCode, Occurrences: 1, OpenedAt: now, UpdatedAt: now,
 		OpenEventID: eventID, LatestEventID: eventID,

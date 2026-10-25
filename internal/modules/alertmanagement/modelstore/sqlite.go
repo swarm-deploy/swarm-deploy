@@ -288,4 +288,3 @@ func (s *SQLStore) ConsumeLatest(
 		return apply(ctx)
 	})
 }
-

@@ -50,7 +50,9 @@ func (s notificationSubscriber) Handle(ctx context.Context, event events.Envelop
 }
 
 // HandleNotification isolates notification handler panics from the delivery worker.
-func (s notificationSubscriber) HandleNotification(ctx context.Context, event events.Envelope) (delivered bool, err error) {
+func (s notificationSubscriber) HandleNotification(
+	ctx context.Context, event events.Envelope,
+) (delivered bool, err error) {
 	defer func() {
 		if recover() != nil {
 			delivered = false
