@@ -31,10 +31,6 @@ type Subscriber interface {
 
 type externalSubscriber struct{ Subscriber }
 
-// External adapts a network consumer at the worker boundary. Its Handle runs
-// without a database transaction; delivery still uses the same durable queue.
-func External(handler Subscriber) Subscriber { return externalSubscriber{handler} }
-
 // NotificationSubscriber sends a message and reports whether it performed an external delivery.
 type NotificationSubscriber interface {
 	HandleNotification(context.Context, events.Envelope) (bool, error)
