@@ -183,11 +183,11 @@ func TestLeaseRecoveryAndFencing(t *testing.T) {
 	second, err := restarted.claim(t.Context())
 	require.NoError(t, err)
 	assert.NotEqual(t, first.token, second.token)
-	require.ErrorIs(t, bus.process(t.Context(), first), ErrLeaseLost)
+	require.ErrorIs(t, bus.process(t.Context(), &first), ErrLeaseLost)
 	require.ErrorIs(t, db.WithinTransaction(t.Context(), func(ctx context.Context) error {
 		return bus.ack(ctx, first, false)
 	}), ErrLeaseLost)
-	require.NoError(t, restarted.process(t.Context(), second))
+	require.NoError(t, restarted.process(t.Context(), &second))
 	assert.Zero(t, rows(t, db, "outbox_events"))
 }
 
@@ -332,7 +332,7 @@ func TestExpiredLeaseRollsBackProjection(t *testing.T) {
 	require.NoError(t, bus.Publish(t.Context(), &events.NodeJoined{}))
 	d, err := bus.claim(t.Context())
 	require.NoError(t, err)
-	require.ErrorIs(t, bus.process(t.Context(), d), ErrLeaseLost)
+	require.ErrorIs(t, bus.process(t.Context(), &d), ErrLeaseLost)
 	assert.Zero(t, rows(t, db, "projection"))
 	assert.Equal(t, 1, rows(t, db, "outbox_events"))
 }
@@ -473,7 +473,7 @@ func TestLeaseSurvivesDatabaseRestart(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, first.eventID, second.eventID)
 	assert.Equal(t, 2, second.attempts)
-	require.NoError(t, bus.process(t.Context(), second))
+	require.NoError(t, bus.process(t.Context(), &second))
 	assert.Zero(t, rows(t, db, "outbox_events"))
 }
 
@@ -646,7 +646,7 @@ func TestLegacyCustomWebhookUsesRegisteredPhysicalDestination(t *testing.T) {
 	require.True(t, handled)
 }
 
-func TestActiveNotificationMetadataTakesPrecedenceAfterRestart(t *testing.T) {
+func TestActiveNotificationHandlerTakesPrecedenceAfterRestart(t *testing.T) {
 	db, bus := setup(t)
 	const subscriptionID = "notification:custom:ops:stable-route"
 	require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, subscriptionID,
@@ -680,7 +680,7 @@ func TestActiveNotificationMetadataTakesPrecedenceAfterRestart(t *testing.T) {
 
 // Pending work may be delivered through a newly configured webhook handler.
 // Its successful outcome must heal the active destination, not the old one.
-func TestActiveNotificationMetadataUsedForRecoveredSuccess(t *testing.T) {
+func TestActiveNotificationHandlerUsedForRecoveredSuccess(t *testing.T) {
 	db, bus := setup(t)
 	const subscriptionID = "notification:custom:ops:stable-route"
 	require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, subscriptionID,
