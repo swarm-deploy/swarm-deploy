@@ -664,7 +664,7 @@ onUnmounted(() => {
                   <button
                     v-if="serviceImage"
                     type="button"
-                    class="service-copy-task-id-button"
+                    class="service-copy-task-id-button service-image-copy-button"
                     aria-label="Copy image reference"
                     title="Copy image reference"
                     @click="copyText(serviceImage)"

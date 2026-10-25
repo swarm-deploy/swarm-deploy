@@ -137,6 +137,7 @@ describe("ServiceView", () => {
       const button = wrapper.get('button[aria-label="Copy image reference"]');
 
       expect(button.element.parentElement?.textContent).toContain(image);
+      expect(button.classes()).toContain("service-image-copy-button");
       await button.trigger("click");
 
       expect(writeText).toHaveBeenCalledExactlyOnceWith(image);
