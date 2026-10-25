@@ -33,9 +33,9 @@ func newNotificationSQLSubscriber(
 }
 
 func failureEnvelope(
-	id string, sequence int64, at time.Time, key, channel string, source events.Type,
+	id string, at time.Time, key, channel string, source events.Type,
 ) events.Envelope {
-	return events.Envelope{ID: id, PublicationSequence: sequence, OccurredAt: at,
+	return events.Envelope{ID: id, OccurredAt: at,
 		Event: &events.SendNotificationFailed{
 			EventType: source, Destination: "telegram", Channel: channel, DestinationKey: key,
 			Error: errors.New("handler_failed"),
@@ -43,20 +43,12 @@ func failureEnvelope(
 }
 
 func successEnvelope(
-	id string, sequence int64, at time.Time, key, channel string, source events.Type,
+	id string, at time.Time, key, channel string, source events.Type,
 ) events.Envelope {
-	return events.Envelope{ID: id, PublicationSequence: sequence, OccurredAt: at,
+	return events.Envelope{ID: id, OccurredAt: at,
 		Event: &events.NotificationSent{
 			EventType: source, Destination: "telegram", Channel: channel, DestinationKey: key,
 		}}
-}
-
-func replayedSuccessEnvelope(
-	id string, sequence int64, publishedAt, deliveredAt time.Time, key, channel string, source events.Type,
-) events.Envelope {
-	envelope := successEnvelope(id, sequence, publishedAt, key, channel, source)
-	envelope.Event.(*events.NotificationSent).DeliveredAt = deliveredAt
-	return envelope
 }
 
 func TestNotificationDeliveryLifecycleByPhysicalDestination(t *testing.T) {
@@ -69,15 +61,15 @@ func TestNotificationDeliveryLifecycleByPhysicalDestination(t *testing.T) {
 	require.NoError(t, bus.Subscribe(events.TypeNameAlertResolved, "resolved-capture", &countingAlertHandler{}))
 	at := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
 
-	// Equal timestamps are independent, and aliases of one physical destination correlate.
+	// Equal timestamps use event IDs as a tie-breaker; aliases correlate.
 	require.NoError(t, subscriber.Handle(t.Context(), failureEnvelope(
-		"a-1", 1, at, telegramA, "infrastructure", events.TypeNodeJoined,
+		"a-1", at, telegramA, "infrastructure", events.TypeNodeJoined,
 	)))
 	require.NoError(t, subscriber.Handle(t.Context(), failureEnvelope(
-		"a-2", 2, at, telegramA, "renamed-infrastructure", events.TypeNodeConnected,
+		"a-2", at, telegramA, "renamed-infrastructure", events.TypeNodeConnected,
 	)))
 	require.NoError(t, subscriber.Handle(t.Context(), failureEnvelope(
-		"b-1", 3, at.Add(-time.Hour), telegramB, "audit", events.TypeNodeJoined,
+		"b-1", at.Add(-time.Hour), telegramB, "audit", events.TypeNodeJoined,
 	)))
 
 	open, err := store.List(t.Context(), modelstore.ListFilter{Status: model.AlertStatusOpen})
@@ -92,7 +84,7 @@ func TestNotificationDeliveryLifecycleByPhysicalDestination(t *testing.T) {
 
 	// Success for B cannot recover A.
 	require.NoError(t, subscriber.Handle(t.Context(), successEnvelope(
-		"b-ok", 4, at.Add(-2*time.Hour), telegramB, "audit", events.TypeNodeJoined,
+		"b-ok", at.Add(2*time.Second), telegramB, "audit", events.TypeNodeJoined,
 	)))
 	a, err = store.FindOpenByFingerprint(t.Context(), model.NotificationDeliveryFailedFingerprint(telegramA))
 	require.NoError(t, err)
@@ -100,30 +92,30 @@ func TestNotificationDeliveryLifecycleByPhysicalDestination(t *testing.T) {
 
 	// Success for A resolves once. Repeated successes are no-ops for lifecycle publication.
 	require.NoError(t, subscriber.Handle(t.Context(), successEnvelope(
-		"a-ok", 5, at.Add(-3*time.Hour), telegramA, "renamed-infrastructure", events.TypeNodeJoined,
+		"a-ok", at.Add(3*time.Second), telegramA, "renamed-infrastructure", events.TypeNodeJoined,
 	)))
 	require.NoError(t, subscriber.Handle(t.Context(), successEnvelope(
-		"a-ok-again", 6, at.Add(-4*time.Hour), telegramA, "renamed-infrastructure", events.TypeNodeJoined,
+		"a-ok-again", at.Add(4*time.Second), telegramA, "renamed-infrastructure", events.TypeNodeJoined,
 	)))
 	assert.Equal(t, 2, alertSignalCount(t, db, string(events.TypeNameAlertResolved)))
 
 	// A later failure starts a new incident for A.
 	require.NoError(t, subscriber.Handle(t.Context(), failureEnvelope(
-		"a-3", 7, at.Add(-5*time.Hour), telegramA, "renamed-infrastructure", events.TypeNodeDisconnected,
+		"a-3", at.Add(5*time.Second), telegramA, "renamed-infrastructure", events.TypeNodeDisconnected,
 	)))
 	reopened, err := store.FindOpenByFingerprint(t.Context(), model.NotificationDeliveryFailedFingerprint(telegramA))
 	require.NoError(t, err)
 	assert.NotEqual(t, a.ID, reopened.ID)
 	assert.EqualValues(t, 1, reopened.Occurrences)
 
-	// Delayed success cannot resolve a newer failure, and a pre-recovery failure cannot reopen it later.
+	// Old events cannot override a more recently consumed notification event.
 	require.NoError(t, subscriber.Handle(t.Context(), successEnvelope(
-		"a-stale-success", 6, at.Add(10*time.Hour), telegramA, "renamed-infrastructure", events.TypeNodeJoined,
+		"a-stale-success", at.Add(2*time.Second), telegramA, "renamed-infrastructure", events.TypeNodeJoined,
 	)))
 	_, err = store.FindOpenByFingerprint(t.Context(), model.NotificationDeliveryFailedFingerprint(telegramA))
 	require.NoError(t, err)
 	require.NoError(t, subscriber.Handle(t.Context(), failureEnvelope(
-		"a-delayed-old-failure", 4, at.Add(20*time.Hour), telegramA, "old-alias", events.TypeNodeJoined,
+		"a-delayed-old-failure", at.Add(time.Second), telegramA, "old-alias", events.TypeNodeJoined,
 	)))
 	reopened, err = store.FindOpenByFingerprint(t.Context(), model.NotificationDeliveryFailedFingerprint(telegramA))
 	require.NoError(t, err)
@@ -141,8 +133,8 @@ func TestConcurrentNotificationFailuresCreateOneAlert(t *testing.T) {
 	require.NoError(t, bus.Subscribe(events.TypeNameAlertOpened, "capture", &countingAlertHandler{}))
 	at := time.Now().UTC()
 	envelopes := []events.Envelope{
-		failureEnvelope("failure-1", 1, at, telegramA, "ops", events.TypeNodeJoined),
-		failureEnvelope("failure-2", 2, at, telegramA, "renamed", events.TypeNodeConnected),
+		failureEnvelope("failure-1", at, telegramA, "ops", events.TypeNodeJoined),
+		failureEnvelope("failure-2", at, telegramA, "renamed", events.TypeNodeConnected),
 	}
 
 	var group sync.WaitGroup
@@ -163,41 +155,44 @@ func TestConcurrentNotificationFailuresCreateOneAlert(t *testing.T) {
 	assert.Equal(t, 1, alertSignalCount(t, db, string(events.TypeNameAlertOpened)))
 }
 
-func TestPersistedNotificationReceiptRecoversOnlyOlderFailure(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+func TestNotificationEventsConsumeLatestAfterRestart(t *testing.T) {
+	directory := t.TempDir()
+	db, err := storage.Open(t.Context(), directory)
 	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	bus := outbox.New(db)
 	subscriber, store := newNotificationSQLSubscriber(db, bus)
-	require.NoError(t, bus.Subscribe(events.TypeNameAlertOpened, "opened-capture", &countingAlertHandler{}))
-	require.NoError(t, bus.Subscribe(events.TypeNameAlertResolved, "resolved-capture", &countingAlertHandler{}))
-	failedAt := time.Date(2026, 10, 25, 8, 0, 0, 0, time.UTC)
-	deliveredAt := failedAt.Add(time.Minute)
-
+	at := time.Date(2026, 10, 25, 8, 0, 0, 0, time.UTC)
 	require.NoError(t, subscriber.Handle(t.Context(), failureEnvelope(
-		"failure-before-receipt", 1, failedAt, telegramA, "ops", events.TypeNodeJoined,
+		"failure-1", at, telegramA, "ops", events.TypeNodeJoined,
 	)))
-	require.NoError(t, subscriber.Handle(t.Context(), replayedSuccessEnvelope(
-		"recovered-receipt", 2, deliveredAt.Add(time.Hour), deliveredAt,
-		telegramA, "ops", events.TypeAlertOpened,
+	require.NoError(t, subscriber.Handle(t.Context(), successEnvelope(
+		"success-1", at.Add(time.Minute), telegramA, "ops", events.TypeNodeJoined,
 	)))
 	_, err = store.FindOpenByFingerprint(t.Context(), model.NotificationDeliveryFailedFingerprint(telegramA))
 	assert.ErrorIs(t, err, modelstore.ErrAlertNotFound)
-
-	newerFailureAt := deliveredAt.Add(time.Minute)
 	require.NoError(t, subscriber.Handle(t.Context(), failureEnvelope(
-		"failure-after-receipt", 3, newerFailureAt, telegramA, "ops", events.TypeNodeJoined,
+		"failure-2", at.Add(2*time.Minute), telegramA, "ops", events.TypeNodeJoined,
 	)))
-	require.NoError(t, subscriber.Handle(t.Context(), replayedSuccessEnvelope(
-		"stale-receipt", 4, newerFailureAt.Add(time.Hour), deliveredAt,
-		telegramA, "ops", events.TypeAlertOpened,
-	)))
-	alert, err := store.FindOpenByFingerprint(
-		t.Context(), model.NotificationDeliveryFailedFingerprint(telegramA),
-	)
+	require.NoError(t, db.Close())
+	db, err = storage.Open(t.Context(), directory)
 	require.NoError(t, err)
-	assert.Equal(t, "failure-after-receipt", alert.LatestEventID)
-	assert.Equal(t, newerFailureAt, alert.LatestEventAt)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	subscriber, store = newNotificationSQLSubscriber(db, outbox.New(db))
+	require.NoError(t, subscriber.Handle(t.Context(), successEnvelope(
+		"stale-success", at.Add(time.Minute), telegramA, "ops", events.TypeNodeJoined,
+	)))
+	require.NoError(t, subscriber.Handle(t.Context(), failureEnvelope(
+		"stale-failure", at, telegramA, "ops", events.TypeNodeJoined,
+	)))
+	alert, err := store.FindOpenByFingerprint(t.Context(), model.NotificationDeliveryFailedFingerprint(telegramA))
+	require.NoError(t, err)
+	assert.EqualValues(t, 1, alert.Occurrences)
+	assert.Equal(t, "failure-2", alert.LatestEventID)
+	require.NoError(t, subscriber.Handle(t.Context(), successEnvelope(
+		"success-2", at.Add(3*time.Minute), telegramA, "ops", events.TypeNodeJoined,
+	)))
+	_, err = store.FindOpenByFingerprint(t.Context(), model.NotificationDeliveryFailedFingerprint(telegramA))
+	assert.ErrorIs(t, err, modelstore.ErrAlertNotFound)
 }
 
 type failingNotificationHandler struct{}
@@ -280,7 +275,7 @@ func TestAlertOpenedFailureDoesNotCreateRecursiveAlert(t *testing.T) {
 	require.NoError(t, bus.Subscribe(events.TypeNameAlertOpened, "failed-alert-delivery",
 		outbox.ExternalNotification(failingNotificationHandler{}, "telegram", "ops", telegramA)))
 	require.NoError(t, bus.Publish(t.Context(), failureEnvelope(
-		"seed", 1, time.Now().UTC(), telegramA, "ops", events.TypeNodeJoined,
+		"seed", time.Now().UTC(), telegramA, "ops", events.TypeNodeJoined,
 	).Event))
 
 	drainOutbox(t, db, bus)
