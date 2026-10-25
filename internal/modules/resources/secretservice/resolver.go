@@ -54,18 +54,20 @@ func NewResolver(services servicestore.Store, secrets secretstore.Store) *Resolv
 
 // ResolveServiceSecrets resolves persisted metadata for all secret references of a service.
 func (r *Resolver) ResolveServiceSecrets(ctx context.Context, info servicemodel.Info) ([]ResolvedSecret, error) {
-	resolved := make([]ResolvedSecret, 0, len(info.Spec.Secrets))
-	for _, reference := range info.Spec.Secrets {
+	resolved := make([]ResolvedSecret, len(info.Spec.Secrets))
+	for index, reference := range info.Spec.Secrets {
+		resolved[index].Reference = reference
+	}
+
+	for index, reference := range info.Spec.Secrets {
 		secret, found, err := r.resolveReference(ctx, reference)
 		if err != nil {
-			return nil, err
+			return resolved, err
 		}
 
-		item := ResolvedSecret{Reference: reference}
 		if found {
-			item.Secret = &secret
+			resolved[index].Secret = &secret
 		}
-		resolved = append(resolved, item)
 	}
 
 	return resolved, nil
@@ -104,9 +106,14 @@ func (r *Resolver) ListSecretsWithUsage(ctx context.Context) ([]SecretWithUsage,
 	if err != nil {
 		return nil, fmt.Errorf("list secrets: %w", err)
 	}
+	result := make([]SecretWithUsage, 0, len(secrets))
+	for _, secret := range secrets {
+		result = append(result, SecretWithUsage{Secret: secret})
+	}
+
 	services, err := r.services.ReadAll(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list services: %w", err)
+		return result, fmt.Errorf("list services: %w", err)
 	}
 
 	byID := make(map[string]int, len(secrets))
@@ -132,13 +139,9 @@ func (r *Resolver) ListSecretsWithUsage(ctx context.Context) ([]SecretWithUsage,
 		}
 	}
 
-	result := make([]SecretWithUsage, 0, len(secrets))
-	for index, secret := range secrets {
+	for index := range result {
 		sortServiceUsages(usages[index])
-		result = append(result, SecretWithUsage{
-			Secret: secret,
-			UsedBy: usages[index],
-		})
+		result[index].UsedBy = usages[index]
 	}
 
 	return result, nil

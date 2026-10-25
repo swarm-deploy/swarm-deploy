@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
@@ -19,9 +20,12 @@ func (h *handler) GetService(
 	if ok {
 		resolvedSecrets, resolveErr := h.secretRelations.ResolveServiceSecrets(ctx, info)
 		if resolveErr != nil {
-			return nil, withStatusError(
-				http.StatusInternalServerError,
-				fmt.Errorf("resolve service secrets: %w", resolveErr),
+			slog.ErrorContext(
+				ctx,
+				"failed to resolve service secrets",
+				slog.String("stack", params.Stack),
+				slog.String("service", params.Service),
+				slog.Any("error", resolveErr),
 			)
 		}
 

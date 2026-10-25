@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -25,7 +26,12 @@ func (h *handler) GetSecretByName(
 	}
 	usedBy, err := h.secretRelations.ServicesUsingSecret(ctx, secret)
 	if err != nil {
-		return nil, withStatusError(http.StatusInternalServerError, fmt.Errorf("resolve secret services: %w", err))
+		slog.ErrorContext(
+			ctx,
+			"failed to resolve services using secret",
+			slog.String("secret", secret.Name),
+			slog.Any("error", err),
+		)
 	}
 
 	resp := &generated.SecretDetailsResponse{

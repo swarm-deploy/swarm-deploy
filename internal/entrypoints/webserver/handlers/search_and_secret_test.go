@@ -16,6 +16,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 	webroute "github.com/swarm-deploy/webroute/api"
@@ -89,6 +90,42 @@ func TestHandlerListSecretsIncludesServiceUsage(t *testing.T) {
 	assert.Equal(t, "payments", resp.Secrets[0].UsedBy[0].Stack)
 	assert.Equal(t, "api", resp.Secrets[0].UsedBy[0].Service)
 	assert.Equal(t, "/run/secrets/db-password", resp.Secrets[0].UsedBy[0].Target.Value)
+}
+
+func TestHandlerListSecretsReturnsSecretsWhenUsageResolutionFails(t *testing.T) {
+	t.Parallel()
+
+	secrets := newSecretsStore(t, []secretmodel.Secret{{ID: "secret-id", Name: "db-password"}})
+	serviceDB, err := storage.Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	services := modelstore.NewSQLStore(serviceDB)
+	require.NoError(t, serviceDB.Close())
+	h := &handler{secretRelations: secretservice.NewResolver(services, secrets)}
+
+	resp, err := h.ListSecrets(t.Context())
+	require.NoError(t, err)
+	require.Len(t, resp.Secrets, 1)
+	assert.Equal(t, "db-password", resp.Secrets[0].Name)
+	assert.Empty(t, resp.Secrets[0].UsedBy)
+}
+
+func TestHandlerGetSecretReturnsSecretWhenUsageResolutionFails(t *testing.T) {
+	t.Parallel()
+
+	secrets := newSecretsStore(t, []secretmodel.Secret{{ID: "secret-id", Name: "db-password"}})
+	serviceDB, err := storage.Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	services := modelstore.NewSQLStore(serviceDB)
+	require.NoError(t, serviceDB.Close())
+	h := &handler{
+		secrets:         secrets,
+		secretRelations: secretservice.NewResolver(services, secrets),
+	}
+
+	resp, err := h.GetSecretByName(t.Context(), generated.GetSecretByNameParams{Name: "db-password"})
+	require.NoError(t, err)
+	assert.Equal(t, "db-password", resp.Name)
+	assert.Empty(t, resp.UsedBy)
 }
 
 func TestHandlerGetSecretByName_NotFound(t *testing.T) {

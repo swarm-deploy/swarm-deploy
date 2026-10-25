@@ -11,6 +11,7 @@ import (
 	secretstore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/modelstore"
 	servicemodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	servicestore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 )
@@ -66,6 +67,31 @@ func TestResolverResolveServiceSecrets(t *testing.T) {
 			assert.Equal(t, tt.reference, resolved[0].Reference)
 			assert.Equal(t, tt.wantSecret, resolved[0].Secret)
 		})
+	}
+}
+
+func TestResolverResolveServiceSecretsReturnsAllReferencesOnStoreError(t *testing.T) {
+	t.Parallel()
+
+	secretDB, err := storage.Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	secrets := secretstore.NewSQLStore(secretDB)
+	require.NoError(t, secretDB.Close())
+	services := servicestore.NewSQLStore(testutil.OpenSQLite(t))
+	references := []swarm.ServiceSecret{
+		{SecretID: "first-id", SecretName: "first", Target: "/run/secrets/first"},
+		{SecretID: "second-id", SecretName: "second", Target: "/run/secrets/second"},
+	}
+	resolver := NewResolver(services, secrets)
+
+	resolved, err := resolver.ResolveServiceSecrets(t.Context(), servicemodel.Info{
+		Spec: swarm.ServiceSpec{Secrets: references},
+	})
+	require.Error(t, err)
+	require.Len(t, resolved, len(references))
+	for index, reference := range references {
+		assert.Equal(t, reference, resolved[index].Reference)
+		assert.Nil(t, resolved[index].Secret)
 	}
 }
 
