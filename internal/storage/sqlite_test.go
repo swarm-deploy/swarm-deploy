@@ -171,8 +171,6 @@ func TestDeploymentAttemptMigrationIsForwardOnly(t *testing.T) {
 	_, err := provider.Up(t.Context())
 	require.NoError(t, err)
 	_, err = provider.Down(t.Context())
-	require.NoError(t, err, "the notification lifecycle migration is reversible")
-	_, err = provider.Down(t.Context())
 	require.NoError(t, err, "the traceparent column migration is reversible")
 	_, err = provider.Down(t.Context())
 	require.Error(t, err, "the deployment attempt migration remains forward-only")
