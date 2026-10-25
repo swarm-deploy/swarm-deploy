@@ -18,6 +18,7 @@ import (
 	alertstore "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
+	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	eventhistory "github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
@@ -165,7 +166,7 @@ func TestCheckImagePolicyReturnsAllStructuredIssues(t *testing.T) {
 func TestImagePolicyViolationLifecycle(t *testing.T) {
 	ctx := context.Background()
 	db, state := newSQLState(t)
-	bus := outbox.New(db)
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 	alerts := alertstore.NewSQLStore(db)
 	history, err := eventhistory.NewSQLStore(db, 10)
 	require.NoError(t, err)
@@ -255,7 +256,7 @@ func TestImagePolicyViolationLifecycle(t *testing.T) {
 
 func TestImagePolicyDisabledPreservesDeployment(t *testing.T) {
 	db, state := newSQLState(t)
-	bus := outbox.New(db)
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 	ctrl := gomock.NewController(t)
 	repository := gitx.NewMockRepository(ctrl)
 	stackDeployer := deployer.NewMockStackDeployer(ctrl)
@@ -297,7 +298,7 @@ func TestImagePolicyErrorsArePermanent(t *testing.T) {
 	assert.False(t, errors.As(err, &temporary))
 }
 
-func drainOutbox(t *testing.T, ctx context.Context, bus *outbox.Bus) {
+func drainOutbox(t *testing.T, ctx context.Context, bus *eventbus.OutboxDispatcher) {
 	t.Helper()
 	for {
 		processed, err := bus.ProcessNext(ctx)

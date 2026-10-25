@@ -16,7 +16,6 @@ import (
 	alertmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/notifiers"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
@@ -88,7 +87,7 @@ func Register(
 		recipients[recipient] = true
 	}
 	for recipient := range recipients {
-		handler := outbox.External(&Subscriber{store: store, spec: spec, recipient: recipient, now: time.Now})
+		handler := dispatcher.External(&Subscriber{store: store, spec: spec, recipient: recipient, now: time.Now})
 		id := SubscriptionID(recipient)
 		if err = bus.Subscribe(events.TypeNameAlertOpened, id, handler); err != nil {
 			return err

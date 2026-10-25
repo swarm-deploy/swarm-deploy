@@ -18,6 +18,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
@@ -30,7 +31,7 @@ func TestStartupReloadResolvesOrphanedAlertWhenConfigurationIsUnchanged(t *testi
 	require.NoError(t, err)
 	db, repo := openAlertStore(t)
 	seedOpenStackAlert(t, repo, cfg, "removed")
-	bus := outbox.New(db)
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 	store := configstore.New(cfg, bus)
 	subscriber := NewSQLSubscriber(repo, bus, noAlertRecipients, store)
 	require.NoError(t, bus.Subscribe(events.TypeNameConfigurationChanged, "alert-management", subscriber))
@@ -56,7 +57,7 @@ func TestPendingConfigurationEventWaitsForInitialGitReload(t *testing.T) {
 	db, repo := openAlertStore(t)
 	seedOpenStackAlert(t, repo, cfg, "kept")
 	seedOpenStackAlert(t, repo, cfg, "removed")
-	bus := outbox.New(db)
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 	store := configstore.New(cfg, bus)
 	subscriber := NewSQLSubscriber(repo, bus, noAlertRecipients, store)
 	require.NoError(t, bus.Subscribe(events.TypeNameConfigurationChanged, "alert-management", subscriber))
@@ -101,7 +102,7 @@ func TestEmptyStacksReloadPublishesAndResolvesAllStackAlerts(t *testing.T) {
 	require.NoError(t, err)
 	db, repo := openAlertStore(t)
 	seedOpenStackAlert(t, repo, cfg, "app")
-	bus := outbox.New(db)
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 	store := configstore.New(cfg, bus)
 	subscriber := NewSQLSubscriber(repo, bus, noAlertRecipients, store)
 	require.NoError(t, bus.Subscribe(events.TypeNameConfigurationChanged, "alert-management", subscriber))
@@ -126,7 +127,7 @@ func TestRemovedStackResetsPartialFailureStreakAndIgnoresDelayedFailure(t *testi
 	emptyDir := writeStackConfiguration(t)
 	cfg := stackConfiguration()
 	db, repo := openAlertStore(t)
-	bus := outbox.New(db)
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 	store := configstore.New(cfg, bus)
 	require.NoError(t, store.Reload(t.Context(), dir))
 	subscriber := NewSQLSubscriber(repo, bus, noAlertRecipients, store)
@@ -178,7 +179,7 @@ func TestConcurrentReloadReadsAndOutboxConfigurationProcessing(t *testing.T) {
 	_, err := cfg.Reload(nonEmptyDir)
 	require.NoError(t, err)
 	db, repo := openAlertStore(t)
-	bus := outbox.New(db)
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 	store := configstore.New(cfg, bus)
 	subscriber := NewSQLSubscriber(repo, bus, noAlertRecipients, store)
 	require.NoError(t, bus.Subscribe(events.TypeNameConfigurationChanged, "alert-management", subscriber))

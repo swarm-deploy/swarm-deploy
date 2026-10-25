@@ -19,6 +19,7 @@ import (
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
@@ -496,7 +497,7 @@ func TestDeploymentCompletionOutboxPreservesAlertThresholds(t *testing.T) {
 				dir := t.TempDir()
 				db, err := storage.Open(ctx, dir)
 				require.NoError(t, err)
-				bus := outbox.New(db)
+				bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 				repo := modelstore.NewSQLStore(db)
 				subscriber := newTestSQLSubscriber(repo)
 				typ := events.TypeNameDeployFailed
@@ -542,7 +543,7 @@ func TestDeploymentCompletionOutboxPreservesAlertThresholds(t *testing.T) {
 					require.NoError(t, db.Close())
 					db, err = storage.Open(ctx, dir)
 					require.NoError(t, err)
-					bus = outbox.New(db)
+					bus = eventbus.NewOutboxDispatcher(outbox.New(db))
 					repo = modelstore.NewSQLStore(db)
 					subscriber = newTestSQLSubscriber(repo)
 					require.NoError(t, bus.Subscribe(typ, "alerts", subscriber))

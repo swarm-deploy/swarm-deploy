@@ -15,7 +15,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/rag"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
@@ -71,7 +70,7 @@ func NewService(
 	ragSubscriber := rag.NewIndexSubscriber(store, modelClient, embeddingModelName, ragIndex, metrics)
 	allowedTools := normalizeAllowedTools(config.AllowedTools)
 	err := eventDispatcher.Subscribe(
-		events.TypeNameServiceCatalogUpdated, "assistant-rag-index", outbox.External(ragSubscriber),
+		events.TypeNameServiceCatalogUpdated, "assistant-rag-index", dispatcher.External(ragSubscriber),
 	)
 	if err != nil {
 		return nil, err

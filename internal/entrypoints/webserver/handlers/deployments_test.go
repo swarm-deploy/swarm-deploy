@@ -15,6 +15,7 @@ import (
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
+	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	gitopsmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
@@ -26,7 +27,7 @@ func TestDeploymentAPIReadsAttemptsWithoutHistory(t *testing.T) {
 	db, err := storage.Open(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
-	svc := deployment.NewService(db, outbox.New(db))
+	svc := deployment.NewService(db, eventbus.NewOutboxDispatcher(outbox.New(db)))
 	replicas := uint64(3)
 	attempt, err := svc.StartIfChanged(ctx, "app", "sha", compose.File{Compose: compose.Compose{Services: compose.Services{{
 		Name: "api", Image: "image:1",
@@ -171,7 +172,7 @@ func TestDeploymentFiltersUsesAllRecordedStacks(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 	h := &handler{deployments: deploymentstore.NewStore(db)}
-	service := deployment.NewService(db, outbox.New(db))
+	service := deployment.NewService(db, eventbus.NewOutboxDispatcher(outbox.New(db)))
 	for _, tc := range []struct {
 		stack   string
 		commit  string

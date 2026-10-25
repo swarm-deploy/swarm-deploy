@@ -22,7 +22,7 @@ type FailedDelivery struct {
 }
 
 // ListFailed returns retained terminal failures for explicit operator action.
-func (b *Bus) ListFailed(ctx context.Context) ([]FailedDelivery, error) {
+func (r *Repository) ListFailed(ctx context.Context) ([]FailedDelivery, error) {
 	query, args, err := goqu.Dialect("sqlite3").
 		From(goqu.T("outbox_deliveries").As("d")).Prepared(true).
 		Join(goqu.T("outbox_events").As("e"), goqu.On(goqu.I("e.id").Eq(goqu.I("d.event_id")))).
@@ -37,6 +37,6 @@ func (b *Bus) ListFailed(ctx context.Context) ([]FailedDelivery, error) {
 		return nil, err
 	}
 	result := []FailedDelivery{}
-	err = b.db.Select(ctx, &result, query, args...)
+	err = r.db.Select(ctx, &result, query, args...)
 	return result, err
 }

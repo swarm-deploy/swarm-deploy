@@ -8,7 +8,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/analyzer"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/modelstore"
@@ -63,7 +62,10 @@ func InitModule(ctx context.Context, cfg *config.Config, cnt Container) (*Module
 	return m, nil
 }
 
-func (r *Module) registerEventSubscribers(eventDispatcher dispatcher.Dispatcher, subscriber outbox.Subscriber) error {
+func (r *Module) registerEventSubscribers(
+	eventDispatcher dispatcher.Dispatcher,
+	subscriber dispatcher.Subscriber,
+) error {
 	return dispatcher.SubscribeMany(eventDispatcher,
 		[]events.TypeName{events.TypeNameDeploySuccess, events.TypeNameDeployFailed}, "recommendations", subscriber)
 }
