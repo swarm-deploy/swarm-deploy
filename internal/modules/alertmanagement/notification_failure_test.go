@@ -301,7 +301,7 @@ func TestAlertResolvedFailureToAnotherDestinationRemainsObservable(t *testing.T)
 	assert.Equal(t, "telegram:audit", alert.ResourceID)
 }
 
-func TestAlertResolvedFailureCorrelationSurvivesRestart(t *testing.T) {
+func TestAlertResolvedFailureSuppressionSurvivesPruningAndRestart(t *testing.T) {
 	directory := t.TempDir()
 	db, err := storage.Open(t.Context(), directory)
 	require.NoError(t, err)
@@ -322,7 +322,7 @@ func TestAlertResolvedFailureCorrelationSurvivesRestart(t *testing.T) {
 		require.NoError(t, err)
 		var correlated int
 		require.NoError(t, db.Get(t.Context(), &correlated, `SELECT count(*) FROM outbox_events
-			WHERE event_type=? AND payload LIKE '%source_causation_id%'`, events.TypeNameSendNotificationFailed))
+			WHERE event_type=? AND payload LIKE '%source_destination_key%'`, events.TypeNameSendNotificationFailed))
 		if correlated > 0 {
 			break
 		}
@@ -332,8 +332,17 @@ func TestAlertResolvedFailureCorrelationSurvivesRestart(t *testing.T) {
 	}
 	var correlated int
 	require.NoError(t, db.Get(t.Context(), &correlated, `SELECT count(*) FROM outbox_events
-		WHERE event_type=? AND payload LIKE '%source_causation_id%'`, events.TypeNameSendNotificationFailed))
+		WHERE event_type=? AND payload LIKE '%source_destination_key%'`, events.TypeNameSendNotificationFailed))
 	require.Equal(t, 1, correlated)
+
+	// The originating incident can be pruned before the delayed resolution delivery
+	// failure is consumed. Suppression must not depend on retaining that incident.
+	var resolvedBeforePrune int
+	require.NoError(t, db.Get(t.Context(), &resolvedBeforePrune,
+		"SELECT count(*) FROM alerts WHERE status='resolved'"))
+	require.Equal(t, 1, resolvedBeforePrune)
+	_, err = db.Exec(t.Context(), "DELETE FROM alerts WHERE status='resolved'")
+	require.NoError(t, err)
 	require.NoError(t, db.Close())
 
 	db, err = storage.Open(t.Context(), directory)
@@ -348,7 +357,7 @@ func TestAlertResolvedFailureCorrelationSurvivesRestart(t *testing.T) {
 	assert.ErrorIs(t, err, modelstore.ErrAlertNotFound)
 	resolved, err := store.List(t.Context(), modelstore.ListFilter{Status: model.AlertStatusResolved})
 	require.NoError(t, err)
-	require.Len(t, resolved, 1)
+	require.Empty(t, resolved)
 }
 
 func drainOutbox(t *testing.T, db *storage.Database, bus *outbox.Bus) {

@@ -16,8 +16,9 @@ type SendNotificationFailed struct {
 	Channel string
 	// DestinationKey is a stable, non-reversible physical destination identity.
 	DestinationKey string
-	// SourceCausationID is opaque correlation metadata inherited from the delivered event.
-	SourceCausationID string
+	// SourceDestinationKey is the physical destination of a source resolved notification incident.
+	// It lets Alert Management suppress a self-reopening failure without querying alert history.
+	SourceDestinationKey string
 	// Error is a delivery failure reason.
 	Error error
 }

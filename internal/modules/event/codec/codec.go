@@ -407,8 +407,8 @@ type notificationPayload struct {
 	Channel string `json:"channel"`
 	// DestinationKey is a stable, non-reversible physical destination identity.
 	DestinationKey string `json:"destination_key,omitempty"`
-	// SourceCausationID is opaque correlation metadata inherited from the delivered event.
-	SourceCausationID string `json:"source_causation_id,omitempty"`
+	// SourceDestinationKey identifies the notification destination in a source AlertResolved event.
+	SourceDestinationKey string `json:"source_destination_key,omitempty"`
 	// Error is a sanitized delivery failure classification.
 	Error string `json:"error,omitempty"`
 }

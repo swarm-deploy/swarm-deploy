@@ -52,7 +52,7 @@ func TestSensitiveFieldsAreNeverPersisted(t *testing.T) {
 func TestNotificationFailureCodecCompatibility(t *testing.T) {
 	event := &events.SendNotificationFailed{
 		EventType: events.TypeAlertOpened, Destination: "telegram", Channel: "alerts",
-		DestinationKey: "telegram:safe-hash", SourceCausationID: "recovery-event",
+		DestinationKey: "telegram:safe-hash", SourceDestinationKey: "telegram:source-hash",
 		Error: errors.New("handler_failed"),
 	}
 	payload, err := Encode(event)
@@ -62,7 +62,7 @@ func TestNotificationFailureCodecCompatibility(t *testing.T) {
 	failure := decoded.(*events.SendNotificationFailed)
 	assert.Equal(t, events.TypeNameAlertOpened, failure.EventType.Name())
 	assert.Equal(t, "telegram:safe-hash", failure.DestinationKey)
-	assert.Equal(t, "recovery-event", failure.SourceCausationID)
+	assert.Equal(t, "telegram:source-hash", failure.SourceDestinationKey)
 	assert.EqualError(t, failure.Error, "handler_failed")
 
 	decoded, err = Decode(events.TypeNameSendNotificationFailed, Version,
@@ -70,7 +70,7 @@ func TestNotificationFailureCodecCompatibility(t *testing.T) {
 	require.NoError(t, err)
 	assert.NoError(t, decoded.(*events.SendNotificationFailed).Error)
 	assert.Empty(t, decoded.(*events.SendNotificationFailed).DestinationKey)
-	assert.Empty(t, decoded.(*events.SendNotificationFailed).SourceCausationID)
+	assert.Empty(t, decoded.(*events.SendNotificationFailed).SourceDestinationKey)
 }
 
 func TestNotificationSentCodec(t *testing.T) {

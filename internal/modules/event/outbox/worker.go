@@ -37,7 +37,6 @@ type delivery struct {
 	occurredAt                 time.Time
 	publicationSequence        int64
 	traceparent                sql.NullString
-	causationID                sql.NullString
 	notificationDestination    sql.NullString
 	notificationChannel        sql.NullString
 	notificationDestinationKey sql.NullString
@@ -183,7 +182,6 @@ func (b *Bus) claim(ctx context.Context) (delivery, error) {
 			OccurredAt                 time.Time       `db:"occurred_at"`
 			PublicationSequence        int64           `db:"sequence"`
 			Traceparent                sql.NullString  `db:"traceparent"`
-			CausationID                sql.NullString  `db:"causation_id"`
 			NotificationDestination    sql.NullString  `db:"notification_destination"`
 			NotificationChannel        sql.NullString  `db:"notification_channel"`
 			NotificationDestinationKey sql.NullString  `db:"notification_destination_key"`
@@ -212,7 +210,7 @@ func (b *Bus) claim(ctx context.Context) (delivery, error) {
 				goqu.I("d.notification_destination"), goqu.I("d.notification_channel"),
 				goqu.I("d.notification_destination_key"), goqu.I("e.event_type"),
 				goqu.I("e.schema_version"), goqu.I("e.payload"), goqu.I("e.occurred_at"),
-				goqu.I("e.sequence"), goqu.I("e.traceparent"), goqu.I("e.causation_id"),
+				goqu.I("e.sequence"), goqu.I("e.traceparent"),
 			).
 			Where(goqu.Ex{"d.lease_token": d.token}).
 			ToSQL()
@@ -226,7 +224,6 @@ func (b *Bus) claim(ctx context.Context) (delivery, error) {
 			claimed.EventID, claimed.SubscriptionID, claimed.Attempts, claimed.EventType
 		d.schemaVersion, d.payload, d.occurredAt = claimed.SchemaVersion, claimed.Payload, claimed.OccurredAt
 		d.publicationSequence, d.traceparent = claimed.PublicationSequence, claimed.Traceparent
-		d.causationID = claimed.CausationID
 		d.notificationDestination = claimed.NotificationDestination
 		d.notificationChannel = claimed.NotificationChannel
 		d.notificationDestinationKey = claimed.NotificationDestinationKey
@@ -509,9 +506,20 @@ func (b *Bus) notificationFailure(d delivery, code string) *events.SendNotificat
 	if !ok {
 		return nil
 	}
+	// Keep source context in the failure fact: the originating AlertResolved
+	// may outlive its Alert Management history record while delivery is retried.
+	sourceDestinationKey := ""
+	if d.eventType == events.TypeNameAlertResolved {
+		source, decodeErr := codec.Decode(d.eventType, d.schemaVersion, []byte(d.payload))
+		if decodeErr == nil {
+			if resolved, ok := source.(*events.AlertResolved); ok {
+				sourceDestinationKey = resolved.Alert.DestinationKey
+			}
+		}
+	}
 	return &events.SendNotificationFailed{
 		EventType: eventType, Destination: destination, Channel: channel,
-		DestinationKey: key, SourceCausationID: d.causationID.String, Error: errors.New(code),
+		DestinationKey: key, SourceDestinationKey: sourceDestinationKey, Error: errors.New(code),
 	}
 }
 
