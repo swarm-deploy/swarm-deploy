@@ -16,6 +16,8 @@ paths:
     $ref: './deployments.yaml#/paths/~1api~1v1~1deployments~1filters'
   /api/v1/deployments/{id}:
     $ref: './deployments.yaml#/paths/~1api~1v1~1deployments~1{id}'
+  /api/v1/deployments/{id}/attempts/{attemptID}/init-jobs/{ordinal}/logs:
+    $ref: './deployments.yaml#/paths/~1api~1v1~1deployments~1{id}~1attempts~1{attemptID}~1init-jobs~1{ordinal}~1logs'
   /api/v1/stacks:
     $ref: './gitops.yaml#/paths/~1api~1v1~1stacks'
   /api/v1/stacks/{stack}/manifestos:

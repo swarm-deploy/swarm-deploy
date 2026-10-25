@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -87,6 +88,29 @@ func (h *handler) GetDeployment(
 		result.Diagnostic = generated.NewOptString(item.ErrorDiagnostic)
 	}
 	return &result, nil
+}
+
+// GetDeploymentInitJobLogs writes exact stored Docker output for one validated execution relationship.
+func (h *handler) GetDeploymentInitJobLogs(
+	ctx context.Context,
+	params generated.GetDeploymentInitJobLogsParams,
+	w http.ResponseWriter,
+) error {
+	logs, err := h.deployments.InitJobLogs(ctx, params.ID, params.AttemptID, params.Ordinal)
+	if errors.Is(err, deploymentstore.ErrNotFound) || errors.Is(err, deploymentstore.ErrLogsUnavailable) {
+		return withStatusError(http.StatusNotFound, err)
+	}
+	if err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	if _, err = w.Write(logs); err != nil {
+		return fmt.Errorf("write init job logs: %w", err)
+	}
+	return nil
 }
 
 func deploymentServiceReplicas(deploy compose.ServiceDeploy) string {
@@ -219,6 +243,15 @@ func toGeneratedDeployment(item deploymentmodel.Deployment) generated.Deployment
 			CleanupStatus:      generated.DeploymentStageStatus(attempt.CleanupStatus),
 			ActualStateStatus:  generated.DeploymentActualStateStatus(attempt.ActualStateStatus),
 			StartedAt:          attempt.StartedAt,
+			InitJobs:           make([]generated.DeploymentInitJobExecution, 0, len(attempt.InitJobs)),
+		}
+		for _, execution := range attempt.InitJobs {
+			mapped.InitJobs = append(mapped.InitJobs, generated.DeploymentInitJobExecution{
+				Ordinal: execution.Ordinal, ServiceName: execution.ServiceName, JobName: execution.JobName,
+				Status:    generated.DeploymentInitJobExecutionStatus(execution.Status),
+				StartedAt: execution.StartedAt, FinishedAt: execution.FinishedAt,
+				LogsAvailable: execution.LogsAvailable, LogsTruncated: execution.LogsTruncated,
+			})
 		}
 		if attempt.ErrorCode != "" {
 			mapped.Reason = generated.NewOptString(attempt.ErrorCode)

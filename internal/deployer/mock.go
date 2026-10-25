@@ -42,11 +42,12 @@ func (m *MockStackDeployer) EXPECT() *MockStackDeployerMockRecorder {
 }
 
 // DeployStack mocks base method.
-func (m *MockStackDeployer) DeployStack(ctx context.Context, stackName, sourceComposePath, deployComposePath string, desired compose.Compose) error {
+func (m *MockStackDeployer) DeployStack(ctx context.Context, stackName, sourceComposePath, deployComposePath string, desired compose.Compose) (Result, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "DeployStack", ctx, stackName, sourceComposePath, deployComposePath, desired)
-	ret0, _ := ret[0].(error)
-	return ret0
+	ret0, _ := ret[0].(Result)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
 }
 
 // DeployStack indicates an expected call of DeployStack.

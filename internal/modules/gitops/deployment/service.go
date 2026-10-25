@@ -43,6 +43,14 @@ func NewService(db *storage.Database, publisher Publisher) *Service {
 	}
 }
 
+// SaveInitJobExecution stores observational Init Job history outside lifecycle completion transactions.
+func (s *Service) SaveInitJobExecution(
+	ctx context.Context,
+	execution deploymentmodel.InitJobExecution,
+) error {
+	return s.store.SaveInitJobExecution(ctx, execution)
+}
+
 // Inspect reads one attempt in a consistent transaction for lifecycle conflict resolution.
 func (s *Service) Inspect(ctx context.Context, id string) (deploymentmodel.Attempt, error) {
 	var result deploymentmodel.Attempt

@@ -78,6 +78,13 @@ func (UnimplementedHandler) GetDeploymentFilters(ctx context.Context) (r *Deploy
 	return r, ht.ErrNotImplemented
 }
 
+// GetDeploymentInitJobLogs implements getDeploymentInitJobLogs operation.
+//
+// GET /api/v1/deployments/{id}/attempts/{attemptID}/init-jobs/{ordinal}/logs
+func (UnimplementedHandler) GetDeploymentInitJobLogs(ctx context.Context, params GetDeploymentInitJobLogsParams, w http.ResponseWriter) error {
+	return ht.ErrNotImplemented
+}
+
 // GetEventFilters implements getEventFilters operation.
 //
 // GET /api/v1/events/filters

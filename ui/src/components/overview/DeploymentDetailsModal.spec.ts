@@ -7,6 +7,8 @@ import { useOverviewStore } from "../../stores/overview";
 import CommitDetailsModal from "./CommitDetailsModal.vue";
 import DeploymentDetailsModal from "./DeploymentDetailsModal.vue";
 
+const apiMocks = vi.hoisted(() => ({ fetchDeploymentInitJobLogs: vi.fn() }));
+
 const assistantStore = vi.hoisted(() => ({
   enabled: true,
   pending: false,
@@ -17,6 +19,7 @@ const uiStore = vi.hoisted(() => ({ openAssistantDrawer: vi.fn() }));
 
 vi.mock("../../stores/assistant", () => ({ useAssistantStore: () => assistantStore }));
 vi.mock("../../stores/ui", () => ({ useUIStore: () => uiStore }));
+vi.mock("../../api/overview", () => ({ fetchDeploymentInitJobLogs: apiMocks.fetchDeploymentInitJobLogs }));
 
 const ModalHost = defineComponent({
   components: { CommitDetailsModal, DeploymentDetailsModal },
@@ -50,6 +53,7 @@ function deployment(
       phase: "apply", reason: "apply_failed", diagnostic: "update service api: image not found",
       apply_status: "failed", verification_status: "skipped", cleanup_status: "skipped",
       actual_state_status: "unknown", started_at: "2026-10-10T10:00:00Z",
+      init_jobs: [],
     }],
   };
 }
@@ -62,6 +66,7 @@ describe("Deployment Details modal", () => {
     assistantStore.newChat.mockClear();
     assistantStore.sendMessage.mockClear();
     uiStore.openAssistantDrawer.mockClear();
+    apiMocks.fetchDeploymentInitJobLogs.mockReset();
   });
 
   it("puts attempts first with a compact total-count badge", () => {
@@ -155,6 +160,56 @@ describe("Deployment Details modal", () => {
     expect(detailButtons.map((button) => button.text())).toEqual(["Explain", "Copy"]);
     await detailButtons[1].trigger("click");
     expect(writeText).toHaveBeenCalledWith(longDiagnostic);
+    wrapper.unmount();
+  });
+
+  it("loads Init Job logs on demand and renders missing and truncated states safely", async () => {
+    const store = useOverviewStore();
+    const details = deployment("succeeded");
+    details.attempts[0].status = "succeeded";
+    details.attempts[0].init_jobs = [{
+      ordinal: 1, service_name: "api", job_name: "migrate", status: "succeeded",
+      started_at: "2026-10-10T10:00:00Z", finished_at: "2026-10-10T10:00:01Z",
+      logs_available: true, logs_truncated: true,
+    }, {
+      ordinal: 2, service_name: "api", job_name: "seed", status: "succeeded",
+      started_at: "2026-10-10T10:00:01Z", finished_at: "2026-10-10T10:00:02Z",
+      logs_available: false, logs_truncated: false,
+    }];
+    apiMocks.fetchDeploymentInitJobLogs.mockResolvedValue("done\n<script>alert(1)</script>\n");
+    store.deploymentDetailsModalOpen = true;
+    store.deploymentDetailsData = details;
+    const wrapper = mount(DeploymentDetailsModal);
+
+    expect(apiMocks.fetchDeploymentInitJobLogs).not.toHaveBeenCalled();
+    await wrapper.findAll('[role="tab"]')[0].trigger("click");
+    const attempt = wrapper.get(".deployment-attempt-row");
+    expect(attempt.element.tagName).toBe("DETAILS");
+    await attempt.get("summary").trigger("click");
+    expect(attempt.text()).toContain("migrate");
+    expect(attempt.text()).toContain("seed");
+    expect(attempt.text()).toContain("Last 64 KiB");
+    expect(attempt.text()).toContain("Logs unavailable");
+
+    const firstJob = attempt.findAll(".deployment-init-job")[0];
+    const title = firstJob.get(".deployment-init-job-title");
+    expect(title.text()).toContain("migrate");
+    expect(title.get(".deployment-attempt-status").attributes("aria-label")).toBe("succeeded Init Job");
+    expect(firstJob.find(".deployment-init-job-summary > .deployment-attempt-status").exists()).toBe(false);
+    const logsButton = firstJob.get(".deployment-init-job-logs-button");
+    expect(logsButton.text()).toBe("");
+    expect(logsButton.attributes("aria-label")).toBe("View logs for Init Job migrate");
+    expect(logsButton.attributes("aria-expanded")).toBe("false");
+    expect(logsButton.get("svg path").attributes("d")).toContain("M3 2.5");
+
+    await logsButton.trigger("click");
+    await flushPromises();
+    expect(apiMocks.fetchDeploymentInitJobLogs).toHaveBeenCalledWith("one", "attempt-one", 1);
+    expect(logsButton.attributes("aria-label")).toBe("Hide logs for Init Job migrate");
+    expect(logsButton.attributes("aria-expanded")).toBe("true");
+    expect(attempt.get(".deployment-init-job-logs code").text()).toContain("<script>alert(1)</script>");
+    expect(attempt.get(".deployment-init-job-logs").html()).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(attempt.findAll(".deployment-init-job button")).toHaveLength(1);
     wrapper.unmount();
   });
 

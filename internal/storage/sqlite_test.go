@@ -118,6 +118,35 @@ func TestOutboxTraceparentMigrationPreservesExistingEvents(t *testing.T) {
 	require.NoError(t, err, "the nullable column must remain compatible with old writers")
 }
 
+func TestInitJobMigrationPreservesPopulatedV3Database(t *testing.T) {
+	db, provider := openAtMigration1(t)
+	_, err := provider.UpTo(t.Context(), 3)
+	require.NoError(t, err)
+	started := time.Date(2026, 10, 25, 10, 0, 0, 0, time.UTC)
+	_, err = db.Exec(t.Context(), `INSERT INTO deployments
+		(id,stack,"commit",status,error_code,phase,started_at,finished_at,
+		 desired_payload,details_payload,changes_payload)
+		VALUES (?,?,?,?,?,?,?,NULL,'{}','{}','[]')`,
+		"deployment", "app", "commit", "running", "", "apply", started)
+	require.NoError(t, err)
+	_, err = db.Exec(t.Context(), `INSERT INTO deployment_attempts
+		(id,deployment_id,number,status,error_code,phase,started_at,finished_at,details_payload)
+		VALUES (?,?,?,?,?,?,?,NULL,'{}')`,
+		"attempt", "deployment", 1, "running", "", "apply", started)
+	require.NoError(t, err)
+	_, err = provider.Up(t.Context())
+	require.NoError(t, err)
+
+	var attempts, executions int
+	require.NoError(t, db.Get(t.Context(), &attempts,
+		"SELECT count(*) FROM deployment_attempts WHERE id='attempt' AND deployment_id='deployment'"))
+	require.NoError(t, db.Get(t.Context(), &executions, "SELECT count(*) FROM deployment_init_jobs"))
+	assert.Equal(t, 1, attempts)
+	assert.Zero(t, executions, "historical Attempts must remain readable without synthetic Init Job executions")
+	_, err = db.Exec(t.Context(), "UPDATE deployment_attempts SET error_code='' WHERE id='attempt'")
+	require.NoError(t, err, "the additive table must remain compatible with old writers")
+}
+
 func TestDeploymentAttemptMigrationAllowsOldBinaryWrites(t *testing.T) {
 	db, provider := openAtMigration1(t)
 	_, err := provider.Up(t.Context())
@@ -170,6 +199,8 @@ func TestDeploymentAttemptMigrationIsForwardOnly(t *testing.T) {
 	db, provider := openAtMigration1(t)
 	_, err := provider.Up(t.Context())
 	require.NoError(t, err)
+	_, err = provider.Down(t.Context())
+	require.NoError(t, err, "the Init Job table migration is reversible")
 	_, err = provider.Down(t.Context())
 	require.NoError(t, err, "the traceparent column migration is reversible")
 	_, err = provider.Down(t.Context())
@@ -313,7 +344,7 @@ func TestFreshDatabaseEnforcesForeignKeysAndChecks(t *testing.T) {
 	var appliedVersions int
 	require.NoError(t, db.Get(t.Context(), &appliedVersions,
 		"SELECT count(*) FROM goose_db_version WHERE version_id > 0 AND is_applied = 1"))
-	assert.Equal(t, 3, appliedVersions)
+	assert.Equal(t, 4, appliedVersions)
 }
 
 func TestRestartAndRollback(t *testing.T) {

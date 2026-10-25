@@ -84,7 +84,7 @@ func TestRepositoryIdentifierMalformedURLIsOpaqueAndStable(t *testing.T) {
 func TestSafePullDiagnostic(t *testing.T) {
 	tests := []struct {
 		name string
-		err error
+		err  error
 		want string
 	}{
 		{name: "DNS failure", err: &net.DNSError{Err: "secret token", Name: "secret.example", IsTemporary: true}, want: "Git repository DNS lookup failed"},
@@ -105,7 +105,7 @@ func TestSafePullDiagnostic(t *testing.T) {
 func TestClassifyWrappedGitNetworkErrors(t *testing.T) {
 	tests := []struct {
 		name string
-		err error
+		err  error
 		want string
 	}{
 		{name: "wrapped refusal", err: fmt.Errorf("transport: %w", &plumbing.UnexpectedError{Err: &net.OpError{Op: "dial", Err: syscall.ECONNREFUSED}}), want: "Git repository connection refused"},
