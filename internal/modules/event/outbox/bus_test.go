@@ -637,10 +637,6 @@ func TestLegacyCustomWebhookUsesRegisteredPhysicalDestination(t *testing.T) {
 		ExternalNotification(notification, "custom", "ops", physicalKey)))
 	require.NoError(t, bus.Subscribe(events.TypeNameSendNotificationFailed, "alert-management", signal))
 	require.NoError(t, bus.Publish(t.Context(), &events.NodeJoined{NodeID: "node"}))
-	_, err := db.Exec(t.Context(), `UPDATE outbox_deliveries SET
-		notification_destination=NULL,notification_channel=NULL,notification_destination_key=NULL
-		WHERE subscription_id=?`, subscriptionID)
-	require.NoError(t, err)
 
 	handled, err := bus.ProcessNext(t.Context())
 	require.NoError(t, err)
