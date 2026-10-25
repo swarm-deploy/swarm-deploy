@@ -7,6 +7,7 @@ import (
 
 	"github.com/docker/docker/client"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -29,7 +30,7 @@ type InitJobMetrics interface {
 
 type initJobExecutor interface {
 	// Run executes one init job based on deployment context and job spec.
-	Run(ctx context.Context, spec InitJobSpec) error
+	Run(ctx context.Context, spec InitJobSpec) (deploymentmodel.InitJobExecution, error)
 }
 
 type InitJobSpec struct {
@@ -97,6 +98,7 @@ func (d *Deployer) DeployStack(
 	sourceComposePath,
 	deployComposePath string,
 	desired compose.Compose,
+	options DeployOptions,
 ) error {
 	resolved := resolvedResources{}
 	if len(desired.Configs) > 0 || len(desired.Secrets) > 0 {
@@ -111,7 +113,7 @@ func (d *Deployer) DeployStack(
 		}
 	}
 
-	if err := d.runInitJobs(ctx, stackName, desired.Services, resolved); err != nil {
+	if err := d.runInitJobs(ctx, stackName, desired.Services, resolved, options.InitJobFinished); err != nil {
 		return err
 	}
 
@@ -134,11 +136,13 @@ func (d *Deployer) runInitJobs(
 	stackName string,
 	services []compose.Service,
 	resolved resolvedResources,
+	onFinished func(context.Context, deploymentmodel.InitJobExecution),
 ) error {
+	ordinal := 0
 	for _, service := range services {
 		// Jobs are run in declaration order per service to keep behavior deterministic.
 		for _, job := range service.InitJobs {
-			err := d.initJobRunner.Run(ctx, InitJobSpec{
+			execution, err := d.initJobRunner.Run(ctx, InitJobSpec{
 				StackName:       stackName,
 				ServiceName:     service.Name,
 				DefaultNetwork:  service.Networks.GetNames(),
@@ -148,6 +152,13 @@ func (d *Deployer) runInitJobs(
 				ResolvedConfigs: resolved.configs,
 				Job:             job,
 			})
+			if !execution.StartedAt.IsZero() {
+				ordinal++
+				execution.Ordinal = ordinal
+				if onFinished != nil {
+					onFinished(ctx, execution)
+				}
+			}
 			if err != nil {
 				return fmt.Errorf("service %s init job %s: %w", service.Name, job.Name, err)
 			}

@@ -30,7 +30,8 @@ Deployment lifecycle orchestration currently remains in GitOps.
 - Use the existing storage and transaction infrastructure.
 - Preserve atomic database operations.
 - Preserve compatibility with existing SQLite data.
-- Never persist plaintext secrets.
+- Never persist plaintext secrets, except for maintainer-approved original Docker Init Job logs stored only in
+  `deployment_init_jobs`. This narrow exception does not apply to snapshots, diagnostics, events, tracing, or other data.
 - Keep snapshot sanitization and deterministic comparison behavior.
 
 ## Development Rules

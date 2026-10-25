@@ -142,7 +142,7 @@ func deployFixture(t *testing.T, ctx context.Context, stackDeployer deployer.Sta
 	t.Helper()
 	file, err := compose.NewFileLoader().Load(ctx, composePath)
 	require.NoError(t, err)
-	require.NoError(t, stackDeployer.DeployStack(ctx, stack, composePath, composePath, file.Compose))
+	require.NoError(t, stackDeployer.DeployStack(ctx, stack, composePath, composePath, file.Compose, deployer.DeployOptions{}))
 }
 
 func inspectRealSwarmResources(t *testing.T, ctx context.Context, dockerClient *client.Client, dockerPath, stack, secretName, configName string) (string, string) {

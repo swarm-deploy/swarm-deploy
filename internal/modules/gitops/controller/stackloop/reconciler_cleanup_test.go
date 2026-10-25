@@ -102,8 +102,8 @@ func TestRenderedComposeCleanupFailureDoesNotFailReconciliation(t *testing.T) {
 
 	require.NoError(t, writeComposeFile(repoDir), "write compose")
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
-	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", composePath, renderedPath, gomock.Any()).
-		DoAndReturn(func(_ context.Context, _, _, deployComposePath string, _ compose.Compose) error {
+	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", composePath, renderedPath, gomock.Any(), gomock.Any()).
+		DoAndReturn(func(_ context.Context, _, _, deployComposePath string, _ compose.Compose, _ deployer.DeployOptions) error {
 			require.FileExists(t, deployComposePath, "rendered compose must exist during deployment")
 			require.NoError(t, os.Remove(deployComposePath), "remove rendered compose in deployer")
 			require.NoError(t, os.Mkdir(deployComposePath, 0o700), "replace rendered compose with directory")

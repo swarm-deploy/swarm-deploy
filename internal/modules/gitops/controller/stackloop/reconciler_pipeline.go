@@ -12,6 +12,7 @@ import (
 	pipe "github.com/artarts36/gopipe"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/drift"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/pruner"
@@ -23,6 +24,7 @@ import (
 const (
 	renderedComposeDirectoryMode = 0o755
 	renderedComposeFileMode      = 0o600
+	initJobPersistenceTimeout    = 2 * time.Second
 )
 
 type pipelinePayload struct {
@@ -223,7 +225,32 @@ func (r *Reconciler) deployStack(ctx context.Context, payload *pipelinePayload) 
 		payload.Desired.Path,
 		payload.DeployComposePath,
 		payload.Desired.Compose,
+		deployer.DeployOptions{InitJobFinished: func(
+			_ context.Context,
+			execution deploymentmodel.InitJobExecution,
+		) {
+			execution.AttemptID = payload.Attempt.ID
+			r.persistInitJobExecution(ctx, execution)
+		}},
 	)
+}
+
+func (r *Reconciler) persistInitJobExecution(
+	ctx context.Context,
+	execution deploymentmodel.InitJobExecution,
+) {
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), initJobPersistenceTimeout)
+	defer cancel()
+	if err := r.deployments.SaveInitJobExecution(persistCtx, execution); err != nil {
+		slog.WarnContext(
+			persistCtx,
+			"persist init job execution",
+			slog.String("attempt_id", execution.AttemptID),
+			slog.String("service_name", execution.ServiceName),
+			slog.String("job_name", execution.JobName),
+			slog.Any("err", err),
+		)
+	}
 }
 
 func needsRenderedCompose(payload *pipelinePayload) bool {

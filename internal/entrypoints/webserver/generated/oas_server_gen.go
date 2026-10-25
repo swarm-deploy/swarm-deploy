@@ -141,6 +141,10 @@ type Handler interface {
 
 // RawHandler handles raw response operations described by OpenAPI v3 specification.
 type RawHandler interface {
+	// GetDeploymentInitJobLogs implements getDeploymentInitJobLogs operation.
+	//
+	// GET /api/v1/deployments/{id}/attempts/{attemptID}/init-jobs/{ordinal}/logs
+	GetDeploymentInitJobLogs(ctx context.Context, params GetDeploymentInitJobLogsParams, w http.ResponseWriter) error
 	// GetTaskLogs implements getTaskLogs operation.
 	//
 	// GET /api/tasks/{taskID}/logs

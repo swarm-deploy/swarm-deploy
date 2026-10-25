@@ -372,6 +372,30 @@ func decodeGetDeploymentFiltersResponse(resp *http.Response) (res *DeploymentFil
 	return res, validate.UnexpectedStatusCodeWithResponse(resp)
 }
 
+func decodeGetDeploymentInitJobLogsResponse(resp *http.Response) (res GetDeploymentInitJobLogsRes, _ error) {
+	switch resp.StatusCode {
+	case 200:
+		// Code 200.
+		ct, _, err := mime.ParseMediaType(resp.Header.Get("Content-Type"))
+		if err != nil {
+			return res, errors.Wrap(err, "parse media type")
+		}
+		switch {
+		case ct == "application/octet-stream":
+			// Raw response - return the http.Response directly
+			return &GetDeploymentInitJobLogsOKRawApplicationOctetStream{
+				Response: resp,
+			}, nil
+		default:
+			return res, validate.InvalidContentType(ct)
+		}
+	case 404:
+		// Code 404.
+		return &GetDeploymentInitJobLogsNotFound{}, nil
+	}
+	return res, validate.UnexpectedStatusCodeWithResponse(resp)
+}
+
 func decodeGetEventFiltersResponse(resp *http.Response) (res *EventFilterOptions, _ error) {
 	switch resp.StatusCode {
 	case 200:

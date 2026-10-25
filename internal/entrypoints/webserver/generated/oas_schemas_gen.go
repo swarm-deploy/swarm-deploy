@@ -1335,20 +1335,21 @@ func (s *DeploymentActualStateStatus) UnmarshalText(data []byte) error {
 
 // Ref: #/components/schemas/DeploymentAttempt
 type DeploymentAttempt struct {
-	ID                 string                      `json:"id"`
-	Number             int                         `json:"number"`
-	Status             DeploymentAttemptStatus     `json:"status"`
-	Phase              DeploymentPhase             `json:"phase"`
-	Reason             OptString                   `json:"reason"`
-	Diagnostic         OptString                   `json:"diagnostic"`
-	ApplyStatus        DeploymentStageStatus       `json:"apply_status"`
-	VerificationStatus DeploymentStageStatus       `json:"verification_status"`
-	CleanupStatus      DeploymentStageStatus       `json:"cleanup_status"`
-	ActualStateStatus  DeploymentActualStateStatus `json:"actual_state_status"`
-	ObservedAt         OptDateTime                 `json:"observed_at"`
-	StartedAt          time.Time                   `json:"started_at"`
-	FinishedAt         OptDateTime                 `json:"finished_at"`
-	DurationMs         OptInt64                    `json:"duration_ms"`
+	ID                 string                       `json:"id"`
+	Number             int                          `json:"number"`
+	Status             DeploymentAttemptStatus      `json:"status"`
+	Phase              DeploymentPhase              `json:"phase"`
+	Reason             OptString                    `json:"reason"`
+	Diagnostic         OptString                    `json:"diagnostic"`
+	ApplyStatus        DeploymentStageStatus        `json:"apply_status"`
+	VerificationStatus DeploymentStageStatus        `json:"verification_status"`
+	CleanupStatus      DeploymentStageStatus        `json:"cleanup_status"`
+	ActualStateStatus  DeploymentActualStateStatus  `json:"actual_state_status"`
+	ObservedAt         OptDateTime                  `json:"observed_at"`
+	StartedAt          time.Time                    `json:"started_at"`
+	FinishedAt         OptDateTime                  `json:"finished_at"`
+	DurationMs         OptInt64                     `json:"duration_ms"`
+	InitJobs           []DeploymentInitJobExecution `json:"init_jobs"`
 }
 
 // GetID returns the value of ID.
@@ -1421,6 +1422,11 @@ func (s *DeploymentAttempt) GetDurationMs() OptInt64 {
 	return s.DurationMs
 }
 
+// GetInitJobs returns the value of InitJobs.
+func (s *DeploymentAttempt) GetInitJobs() []DeploymentInitJobExecution {
+	return s.InitJobs
+}
+
 // SetID sets the value of ID.
 func (s *DeploymentAttempt) SetID(val string) {
 	s.ID = val
@@ -1489,6 +1495,11 @@ func (s *DeploymentAttempt) SetFinishedAt(val OptDateTime) {
 // SetDurationMs sets the value of DurationMs.
 func (s *DeploymentAttempt) SetDurationMs(val OptInt64) {
 	s.DurationMs = val
+}
+
+// SetInitJobs sets the value of InitJobs.
+func (s *DeploymentAttempt) SetInitJobs(val []DeploymentInitJobExecution) {
+	s.InitJobs = val
 }
 
 // Ref: #/components/schemas/DeploymentAttemptStatus
@@ -1873,6 +1884,146 @@ func (s *DeploymentFilterService) SetStackName(val string) {
 // SetServiceName sets the value of ServiceName.
 func (s *DeploymentFilterService) SetServiceName(val string) {
 	s.ServiceName = val
+}
+
+// Ref: #/components/schemas/DeploymentInitJobExecution
+type DeploymentInitJobExecution struct {
+	Ordinal       int                              `json:"ordinal"`
+	ServiceName   string                           `json:"service_name"`
+	JobName       string                           `json:"job_name"`
+	Status        DeploymentInitJobExecutionStatus `json:"status"`
+	StartedAt     time.Time                        `json:"started_at"`
+	FinishedAt    time.Time                        `json:"finished_at"`
+	LogsAvailable bool                             `json:"logs_available"`
+	LogsTruncated bool                             `json:"logs_truncated"`
+}
+
+// GetOrdinal returns the value of Ordinal.
+func (s *DeploymentInitJobExecution) GetOrdinal() int {
+	return s.Ordinal
+}
+
+// GetServiceName returns the value of ServiceName.
+func (s *DeploymentInitJobExecution) GetServiceName() string {
+	return s.ServiceName
+}
+
+// GetJobName returns the value of JobName.
+func (s *DeploymentInitJobExecution) GetJobName() string {
+	return s.JobName
+}
+
+// GetStatus returns the value of Status.
+func (s *DeploymentInitJobExecution) GetStatus() DeploymentInitJobExecutionStatus {
+	return s.Status
+}
+
+// GetStartedAt returns the value of StartedAt.
+func (s *DeploymentInitJobExecution) GetStartedAt() time.Time {
+	return s.StartedAt
+}
+
+// GetFinishedAt returns the value of FinishedAt.
+func (s *DeploymentInitJobExecution) GetFinishedAt() time.Time {
+	return s.FinishedAt
+}
+
+// GetLogsAvailable returns the value of LogsAvailable.
+func (s *DeploymentInitJobExecution) GetLogsAvailable() bool {
+	return s.LogsAvailable
+}
+
+// GetLogsTruncated returns the value of LogsTruncated.
+func (s *DeploymentInitJobExecution) GetLogsTruncated() bool {
+	return s.LogsTruncated
+}
+
+// SetOrdinal sets the value of Ordinal.
+func (s *DeploymentInitJobExecution) SetOrdinal(val int) {
+	s.Ordinal = val
+}
+
+// SetServiceName sets the value of ServiceName.
+func (s *DeploymentInitJobExecution) SetServiceName(val string) {
+	s.ServiceName = val
+}
+
+// SetJobName sets the value of JobName.
+func (s *DeploymentInitJobExecution) SetJobName(val string) {
+	s.JobName = val
+}
+
+// SetStatus sets the value of Status.
+func (s *DeploymentInitJobExecution) SetStatus(val DeploymentInitJobExecutionStatus) {
+	s.Status = val
+}
+
+// SetStartedAt sets the value of StartedAt.
+func (s *DeploymentInitJobExecution) SetStartedAt(val time.Time) {
+	s.StartedAt = val
+}
+
+// SetFinishedAt sets the value of FinishedAt.
+func (s *DeploymentInitJobExecution) SetFinishedAt(val time.Time) {
+	s.FinishedAt = val
+}
+
+// SetLogsAvailable sets the value of LogsAvailable.
+func (s *DeploymentInitJobExecution) SetLogsAvailable(val bool) {
+	s.LogsAvailable = val
+}
+
+// SetLogsTruncated sets the value of LogsTruncated.
+func (s *DeploymentInitJobExecution) SetLogsTruncated(val bool) {
+	s.LogsTruncated = val
+}
+
+type DeploymentInitJobExecutionStatus string
+
+const (
+	DeploymentInitJobExecutionStatusSucceeded   DeploymentInitJobExecutionStatus = "succeeded"
+	DeploymentInitJobExecutionStatusFailed      DeploymentInitJobExecutionStatus = "failed"
+	DeploymentInitJobExecutionStatusInterrupted DeploymentInitJobExecutionStatus = "interrupted"
+)
+
+// AllValues returns all DeploymentInitJobExecutionStatus values.
+func (DeploymentInitJobExecutionStatus) AllValues() []DeploymentInitJobExecutionStatus {
+	return []DeploymentInitJobExecutionStatus{
+		DeploymentInitJobExecutionStatusSucceeded,
+		DeploymentInitJobExecutionStatusFailed,
+		DeploymentInitJobExecutionStatusInterrupted,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s DeploymentInitJobExecutionStatus) MarshalText() ([]byte, error) {
+	switch s {
+	case DeploymentInitJobExecutionStatusSucceeded:
+		return []byte(s), nil
+	case DeploymentInitJobExecutionStatusFailed:
+		return []byte(s), nil
+	case DeploymentInitJobExecutionStatusInterrupted:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *DeploymentInitJobExecutionStatus) UnmarshalText(data []byte) error {
+	switch DeploymentInitJobExecutionStatus(data) {
+	case DeploymentInitJobExecutionStatusSucceeded:
+		*s = DeploymentInitJobExecutionStatusSucceeded
+		return nil
+	case DeploymentInitJobExecutionStatusFailed:
+		*s = DeploymentInitJobExecutionStatusFailed
+		return nil
+	case DeploymentInitJobExecutionStatusInterrupted:
+		*s = DeploymentInitJobExecutionStatusInterrupted
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
 }
 
 // Ref: #/components/schemas/DeploymentPhase
@@ -2710,6 +2861,42 @@ func (s *EventSeverity) UnmarshalText(data []byte) error {
 		return errors.Errorf("invalid value: %q", data)
 	}
 }
+
+// GetDeploymentInitJobLogsNotFound is response for GetDeploymentInitJobLogs operation.
+type GetDeploymentInitJobLogsNotFound struct{}
+
+func (*GetDeploymentInitJobLogsNotFound) getDeploymentInitJobLogsRes() {}
+
+type GetDeploymentInitJobLogsOK struct {
+	Data io.Reader
+}
+
+// Read reads data from the Data reader.
+//
+// Kept to satisfy the io.Reader interface.
+func (s GetDeploymentInitJobLogsOK) Read(p []byte) (n int, err error) {
+	if s.Data == nil {
+		return 0, io.EOF
+	}
+	return s.Data.Read(p)
+}
+
+// GetDeploymentInitJobLogsOKRawApplicationOctetStream represents raw HTTP response for GetDeploymentInitJobLogs application/octet-stream.
+type GetDeploymentInitJobLogsOKRawApplicationOctetStream struct {
+	Response *http.Response `json:"-"`
+}
+
+// GetResponse returns the value of Response.
+func (s *GetDeploymentInitJobLogsOKRawApplicationOctetStream) GetResponse() *http.Response {
+	return s.Response
+}
+
+// SetResponse sets the value of Response.
+func (s *GetDeploymentInitJobLogsOKRawApplicationOctetStream) SetResponse(val *http.Response) {
+	s.Response = val
+}
+
+func (*GetDeploymentInitJobLogsOKRawApplicationOctetStream) getDeploymentInitJobLogsRes() {}
 
 type GetTaskLogsOK struct {
 	Data io.Reader

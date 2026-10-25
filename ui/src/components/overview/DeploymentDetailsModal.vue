@@ -2,7 +2,8 @@
 import yaml from "@speed-highlight/core/languages/yaml.js";
 import { tokenizeWith } from "@speed-highlight/core/tokenize";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
-import type { DeploymentAttempt, DeploymentChange } from "../../api/types";
+import { fetchDeploymentInitJobLogs } from "../../api/overview";
+import type { DeploymentAttempt, DeploymentChange, DeploymentInitJobExecution } from "../../api/types";
 import { useAssistantStore } from "../../stores/assistant";
 import { useOverviewStore } from "../../stores/overview";
 import { useUIStore } from "../../stores/ui";
@@ -38,6 +39,8 @@ const tabSelectionInitialized = ref(Boolean(store.deploymentDetailsData));
 const tabManuallySelected = ref(false);
 const copyLabel = ref("Copy YAML");
 const copiedAttemptID = ref("");
+type InitJobLogState = { open: boolean; loading: boolean; loaded: boolean; logs: string; error: string };
+const initJobLogs = ref<Record<string, InitJobLogState>>({});
 const infoOpen = ref<DetailsTab | null>(null);
 const infoPinned = ref(false);
 
@@ -212,6 +215,45 @@ function attemptDuration(attempt: DeploymentAttempt): string {
   if (milliseconds == null) return attempt.status === "running" ? "In progress" : "—";
   return milliseconds < 1000 ? `${milliseconds} ms` : `${(milliseconds / 1000).toFixed(1)} s`;
 }
+function initJobDuration(execution: DeploymentInitJobExecution): string {
+  const started = Date.parse(execution.started_at);
+  const finished = Date.parse(execution.finished_at);
+  if (Number.isNaN(started) || Number.isNaN(finished)) return "—";
+  const milliseconds = Math.max(0, finished - started);
+  return milliseconds < 1000 ? `${milliseconds} ms` : `${(milliseconds / 1000).toFixed(1)} s`;
+}
+function attemptExpandable(attempt: DeploymentAttempt): boolean {
+  return attempt.status !== "succeeded" || (attempt.init_jobs?.length ?? 0) > 0;
+}
+function initJobKey(attempt: DeploymentAttempt, execution: DeploymentInitJobExecution): string {
+  return `${attempt.id}:${execution.ordinal}`;
+}
+function initJobLogState(attempt: DeploymentAttempt, execution: DeploymentInitJobExecution): InitJobLogState | undefined {
+  return initJobLogs.value[initJobKey(attempt, execution)];
+}
+async function toggleInitJobLogs(attempt: DeploymentAttempt, execution: DeploymentInitJobExecution) {
+  if (!detail.value || !execution.logs_available) return;
+  const key = initJobKey(attempt, execution);
+  const current = initJobLogs.value[key];
+  if (current?.open) {
+    current.open = false;
+    return;
+  }
+  if (current?.loaded) {
+    current.open = true;
+    return;
+  }
+  initJobLogs.value[key] = { open: true, loading: true, loaded: false, logs: "", error: "" };
+  try {
+    const logs = await fetchDeploymentInitJobLogs(detail.value.id, attempt.id, execution.ordinal);
+    initJobLogs.value[key] = { open: true, loading: false, loaded: true, logs, error: "" };
+  } catch (error) {
+    initJobLogs.value[key] = {
+      open: true, loading: false, loaded: false, logs: "",
+      error: error instanceof Error ? error.message : "Failed to load Init Job logs",
+    };
+  }
+}
 function attemptDiagnostic(attempt: DeploymentAttempt): string {
   return attempt.diagnostic || reasonLabels[attempt.reason ?? ""] || "No diagnostics were recorded.";
 }
@@ -337,9 +379,11 @@ watch(() => store.deploymentDetailsModalOpen, async (open, wasOpen) => {
     tabSelectionInitialized.value = Boolean(detail.value);
     activeTab.value = defaultTab(detail.value?.status);
     copiedAttemptID.value = "";
+    initJobLogs.value = {};
     dismissInfo();
     await nextTick(); closeButton.value?.focus();
   } else if (!open && wasOpen) {
+    initJobLogs.value = {};
     dismissInfo();
     if (returnFocus?.isConnected) returnFocus.focus();
     returnFocus = null;
@@ -437,28 +481,49 @@ onUnmounted(() => {
               </div>
               <div class="deployment-attempt-list">
                 <component
-                  :is="attempt.status === 'succeeded' ? 'div' : 'details'"
+                  :is="attemptExpandable(attempt) ? 'details' : 'div'"
                   v-for="attempt in attempts"
                   :key="attempt.id"
                   class="deployment-attempt-row"
-                  :class="{ 'deployment-attempt-row--static': attempt.status === 'succeeded' }"
+                  :class="{ 'deployment-attempt-row--static': !attemptExpandable(attempt) }"
                 >
-                  <component :is="attempt.status === 'succeeded' ? 'div' : 'summary'" class="deployment-attempt-summary">
+                  <component :is="attemptExpandable(attempt) ? 'summary' : 'div'" class="deployment-attempt-summary">
                     <span class="deployment-attempt-status" :class="`deployment-attempt-status--${attempt.status}`" role="img" :aria-label="`${attempt.status} attempt`" />
                     <time :datetime="attempt.started_at">{{ formatDate(attempt.started_at) }}</time>
                     <span class="deployment-attempt-stage">{{ sectionLabel(attempt.phase) }}</span>
                     <span class="deployment-attempt-duration">{{ attemptDuration(attempt) }}</span>
-                    <svg v-if="attempt.status !== 'succeeded'" class="deployment-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg>
+                    <svg v-if="attemptExpandable(attempt)" class="deployment-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg>
                   </component>
-                  <div v-if="attempt.status !== 'succeeded'" class="deployment-attempt-details">
-                    <div class="deployment-attempt-details-heading">
+                  <div v-if="attemptExpandable(attempt)" class="deployment-attempt-details">
+                    <section v-if="attempt.init_jobs?.length" class="deployment-init-jobs" aria-label="Init Job executions">
+                      <h4>Init Jobs</h4>
+                      <div v-for="execution in attempt.init_jobs" :key="execution.ordinal" class="deployment-init-job">
+                        <div class="deployment-init-job-summary">
+                          <span class="deployment-attempt-status" :class="`deployment-attempt-status--${execution.status}`" role="img" :aria-label="`${execution.status} Init Job`" />
+                          <span><strong>{{ execution.job_name }}</strong><small>{{ execution.service_name }}</small></span>
+                          <span class="deployment-attempt-duration">{{ initJobDuration(execution) }}</span>
+                          <span v-if="execution.logs_truncated" class="deployment-init-job-badge">Last 64 KiB</span>
+                          <button v-if="execution.logs_available" type="button" class="button-ghost" @click.stop="toggleInitJobLogs(attempt, execution)">
+                            {{ initJobLogState(attempt, execution)?.open ? "Hide Logs" : "View Logs" }}
+                          </button>
+                          <span v-else class="deployment-init-job-unavailable">Logs unavailable</span>
+                        </div>
+                        <div v-if="initJobLogState(attempt, execution)?.open" class="deployment-init-job-logs">
+                          <p v-if="initJobLogState(attempt, execution)?.loading" class="meta">Loading logs...</p>
+                          <p v-else-if="initJobLogState(attempt, execution)?.error" role="alert">{{ initJobLogState(attempt, execution)?.error }}</p>
+                          <p v-else-if="!initJobLogState(attempt, execution)?.logs" class="meta">Log output is empty.</p>
+                          <pre v-else><code>{{ initJobLogState(attempt, execution)?.logs }}</code></pre>
+                        </div>
+                      </div>
+                    </section>
+                    <div v-if="attempt.status !== 'succeeded'" class="deployment-attempt-details-heading">
                       <strong>Diagnostics</strong>
                       <div class="deployment-attempt-details-actions">
                         <button type="button" class="button-ghost" :disabled="!assistantStore.enabled || assistantStore.pending" @click="explainAttempt(attempt)">Explain</button>
                         <button type="button" class="button-ghost" @click="copyAttemptDiagnostic(attempt)">{{ copiedAttemptID === attempt.id ? "Copied" : "Copy" }}</button>
                       </div>
                     </div>
-                    <pre><code>{{ attemptDiagnostic(attempt) }}</code></pre>
+                    <pre v-if="attempt.status !== 'succeeded'"><code>{{ attemptDiagnostic(attempt) }}</code></pre>
                   </div>
                 </component>
               </div>
@@ -736,6 +801,16 @@ onUnmounted(() => {
   user-select: text;
 }
 .deployment-attempt-details code { white-space: inherit; overflow-wrap: inherit; word-break: inherit; }
+.deployment-init-jobs { margin: 4px 0 14px; }
+.deployment-init-jobs h4 { margin: 0 0 6px; font-size: .78rem; }
+.deployment-init-job { border-top: 1px solid var(--line); }
+.deployment-init-job-summary { display: grid; grid-template-columns: 8px minmax(160px, 1fr) auto auto auto; gap: 10px; align-items: center; padding: 8px 0; }
+.deployment-init-job-summary > span:nth-child(2) { display: flex; min-width: 0; flex-direction: column; }
+.deployment-init-job-summary small { color: var(--muted); overflow-wrap: anywhere; }
+.deployment-init-job-badge { border-radius: 999px; padding: 2px 7px; background: var(--surface-muted-strong); color: var(--muted); font-size: .68rem; }
+.deployment-init-job-unavailable { color: var(--muted); font-size: .74rem; }
+.deployment-init-job-logs { margin: 0 0 8px 18px; border-left: 2px solid var(--line); padding: 4px 10px; }
+.deployment-init-job-logs pre { max-height: 320px; overflow: auto; white-space: pre; }
 .deployment-counts { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 14px; }
 .deployment-counts > span { display: inline-flex; align-items: center; gap: 10px; min-height: 46px; border: 1px solid var(--border-default); border-radius: 10px; padding: 8px 12px; background: var(--surface-card-soft); color: var(--muted); }
 .deployment-counts :deep(.deployment-icon) { width: 23px; height: 23px; color: var(--accent-strong); }

@@ -6,10 +6,12 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 )
 
 func TestBuildInitJobNameUsesJobNameAndTime(t *testing.T) {
@@ -68,8 +70,14 @@ func TestDeployStackRunsInitJobsBeforeDeploy(t *testing.T) {
 			},
 		},
 	}
-
-	err := deployer.DeployStack(context.Background(), "demo", "/tmp/source.yaml", "/tmp/demo.yaml", compose.Compose{Services: services})
+	observed := make([]deploymentmodel.InitJobExecution, 0, 3)
+	err := deployer.DeployStack(
+		context.Background(), "demo", "/tmp/source.yaml", "/tmp/demo.yaml", compose.Compose{Services: services},
+		DeployOptions{InitJobFinished: func(_ context.Context, execution deploymentmodel.InitJobExecution) {
+			observed = append(observed, execution)
+			_ = errors.New("simulated persistence failure")
+		}},
+	)
 	require.NoError(t, err, "deploy stack")
 
 	assert.Equal(
@@ -85,6 +93,8 @@ func TestDeployStackRunsInitJobsBeforeDeploy(t *testing.T) {
 	)
 
 	require.Len(t, initJobs.calls, 3, "unexpected init job calls count")
+	require.Len(t, observed, 3, "observer failures must not stop subsequent Init Jobs")
+	assert.Equal(t, []int{1, 2, 3}, []int{observed[0].Ordinal, observed[1].Ordinal, observed[2].Ordinal})
 	assert.Equal(t, "api", initJobs.calls[0].ServiceName, "first job must belong to first service")
 	assert.Equal(t, "migrate", initJobs.calls[0].Job.Name, "unexpected first init job")
 	assert.Equal(t, []string{"default"}, initJobs.calls[0].DefaultNetwork, "service networks must be passed to init job")
@@ -131,12 +141,20 @@ func TestDeployStackStopsWhenInitJobFails(t *testing.T) {
 		},
 	}
 
-	err := deployer.DeployStack(context.Background(), "demo", "/tmp/source.yaml", "/tmp/demo.yaml", compose.Compose{Services: services})
+	observed := make([]deploymentmodel.InitJobExecution, 0, 2)
+	err := deployer.DeployStack(
+		context.Background(), "demo", "/tmp/source.yaml", "/tmp/demo.yaml", compose.Compose{Services: services},
+		DeployOptions{InitJobFinished: func(_ context.Context, execution deploymentmodel.InitJobExecution) {
+			observed = append(observed, execution)
+		}},
+	)
 	require.Error(t, err, "deploy stack must fail when init job fails")
 	assert.ErrorContains(t, err, "service api init job seed", "error must include failed init job details")
 	assert.ErrorIs(t, err, initErr, "error must keep original init failure")
 
 	require.Len(t, initJobs.calls, 2, "execution must stop at first failed init job")
+	require.Len(t, observed, 2, "the failed execution must be observed before its error is returned")
+	assert.Equal(t, deploymentmodel.InitJobFailed, observed[1].Status)
 	require.Empty(t, runner.calls, "deploy command must not run after init job failure")
 }
 
@@ -154,7 +172,7 @@ func TestDeployStackDeploysWithoutInitJobs(t *testing.T) {
 		{Name: "worker"},
 	}
 
-	err := deployer.DeployStack(context.Background(), "demo", "/tmp/source.yaml", "/tmp/demo.yaml", compose.Compose{Services: services})
+	err := deployer.DeployStack(context.Background(), "demo", "/tmp/source.yaml", "/tmp/demo.yaml", compose.Compose{Services: services}, DeployOptions{})
 	require.NoError(t, err, "deploy stack")
 
 	require.Empty(t, initJobs.calls, "init jobs should not run when there are no definitions")
@@ -190,16 +208,24 @@ type fakeInitJobExecutor struct {
 	events *[]string
 }
 
-func (e *fakeInitJobExecutor) Run(_ context.Context, spec InitJobSpec) error {
+func (e *fakeInitJobExecutor) Run(
+	_ context.Context,
+	spec InitJobSpec,
+) (deploymentmodel.InitJobExecution, error) {
 	e.calls = append(e.calls, spec)
+	execution := deploymentmodel.InitJobExecution{
+		ServiceName: spec.ServiceName, JobName: spec.Job.Name,
+		Status: deploymentmodel.InitJobSucceeded, StartedAt: time.Now(), FinishedAt: time.Now(),
+	}
 
 	if e.events != nil {
 		*e.events = append(*e.events, "init:"+spec.ServiceName+":"+spec.Job.Name)
 	}
 
 	if e.errAt > 0 && len(e.calls) == e.errAt {
-		return e.err
+		execution.Status = deploymentmodel.InitJobFailed
+		return execution, e.err
 	}
 
-	return nil
+	return execution, nil
 }

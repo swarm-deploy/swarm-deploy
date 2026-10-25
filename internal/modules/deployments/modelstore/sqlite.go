@@ -28,6 +28,9 @@ var ErrNotRunning = errors.New("deployment is not running")
 // ErrInvalidCursor means a list cursor is malformed or unsupported.
 var ErrInvalidCursor = errors.New("invalid deployment cursor")
 
+// ErrLogsUnavailable means an Init Job execution exists but its Docker logs could not be collected.
+var ErrLogsUnavailable = errors.New("init job logs unavailable")
+
 var dialect = goqu.Dialect("sqlite3")
 
 // Store provides context-aware deployment and snapshot queries.
@@ -374,6 +377,43 @@ func (row attemptRow) attempt() (deploymentmodel.Attempt, error) {
 	return result, nil
 }
 
+type initJobExecutionRow struct {
+	AttemptID     string                        `db:"attempt_id"`
+	Ordinal       int                           `db:"ordinal"`
+	ServiceName   string                        `db:"service_name"`
+	JobName       string                        `db:"job_name"`
+	Status        deploymentmodel.InitJobStatus `db:"status"`
+	StartedAt     time.Time                     `db:"started_at"`
+	FinishedAt    time.Time                     `db:"finished_at"`
+	LogsAvailable bool                          `db:"logs_available"`
+	LogsTruncated bool                          `db:"logs_truncated"`
+}
+
+func (s *Store) initJobs(
+	ctx context.Context,
+	deploymentID string,
+) (map[string][]deploymentmodel.InitJobExecution, error) {
+	const query = `SELECT job.attempt_id,job.ordinal,job.service_name,job.job_name,job.status,
+		job.started_at,job.finished_at,job.logs IS NOT NULL AS logs_available,job.logs_truncated
+		FROM deployment_init_jobs AS job
+		JOIN deployment_attempts AS attempt ON attempt.id = job.attempt_id
+		WHERE attempt.deployment_id = ?
+		ORDER BY attempt.number DESC,job.ordinal ASC`
+	var rows []initJobExecutionRow
+	if err := s.db.Select(ctx, &rows, query, deploymentID); err != nil {
+		return nil, err
+	}
+	result := make(map[string][]deploymentmodel.InitJobExecution)
+	for _, row := range rows {
+		result[row.AttemptID] = append(result[row.AttemptID], deploymentmodel.InitJobExecution{
+			AttemptID: row.AttemptID, Ordinal: row.Ordinal, ServiceName: row.ServiceName, JobName: row.JobName,
+			Status: row.Status, StartedAt: row.StartedAt.UTC(), FinishedAt: row.FinishedAt.UTC(),
+			LogsAvailable: row.LogsAvailable, LogsTruncated: row.LogsTruncated,
+		})
+	}
+	return result, nil
+}
+
 func (s *Store) attempts(ctx context.Context, deploymentID string) ([]deploymentmodel.Attempt, error) {
 	query, args, err := dialect.From("deployment_attempts").Prepared(true).
 		Select("id", "deployment_id", "number", "status", "error_code", "phase",
@@ -484,7 +524,66 @@ func (s *Store) Get(ctx context.Context, id string) (deploymentmodel.Deployment,
 		return deploymentmodel.Deployment{}, err
 	}
 	result.Attempts, err = s.attempts(ctx, id)
-	return result, err
+	if err != nil {
+		return deploymentmodel.Deployment{}, err
+	}
+	initJobs, err := s.initJobs(ctx, id)
+	if err != nil {
+		return deploymentmodel.Deployment{}, err
+	}
+	for i := range result.Attempts {
+		result.Attempts[i].InitJobs = initJobs[result.Attempts[i].ID]
+	}
+	return result, nil
+}
+
+// SaveInitJobExecution persists one completed Init Job execution independently from Attempt completion.
+func (s *Store) SaveInitJobExecution(ctx context.Context, execution deploymentmodel.InitJobExecution) error {
+	if execution.StartedAt.IsZero() || execution.FinishedAt.IsZero() {
+		return fmt.Errorf("init job execution timestamps are required")
+	}
+	var logs any
+	if execution.LogsAvailable {
+		logs = execution.Logs
+	}
+	query, args, err := dialect.Insert("deployment_init_jobs").Prepared(true).Rows(goqu.Record{
+		"attempt_id": execution.AttemptID, "ordinal": execution.Ordinal,
+		"service_name": execution.ServiceName, "job_name": execution.JobName, "status": execution.Status,
+		"started_at": execution.StartedAt.UTC(), "finished_at": execution.FinishedAt.UTC(),
+		"logs": logs, "logs_truncated": execution.LogsTruncated,
+	}).ToSQL()
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(ctx, query, args...)
+	return err
+}
+
+// InitJobLogs returns exact stored bytes after validating Deployment, Attempt and execution relationships.
+func (s *Store) InitJobLogs(
+	ctx context.Context,
+	deploymentID string,
+	attemptID string,
+	ordinal int,
+) ([]byte, error) {
+	const query = `SELECT job.logs IS NOT NULL AS logs_available,job.logs
+		FROM deployment_init_jobs AS job
+		JOIN deployment_attempts AS attempt ON attempt.id = job.attempt_id
+		WHERE attempt.deployment_id = ? AND job.attempt_id = ? AND job.ordinal = ?`
+	var row struct {
+		LogsAvailable bool   `db:"logs_available"`
+		Logs          []byte `db:"logs"`
+	}
+	if err := s.db.Get(ctx, &row, query, deploymentID, attemptID, ordinal); err != nil {
+		return nil, notFound(err)
+	}
+	if !row.LogsAvailable {
+		return nil, ErrLogsUnavailable
+	}
+	if row.Logs == nil {
+		return []byte{}, nil
+	}
+	return row.Logs, nil
 }
 
 // Desired loads a deployment's safe desired definition for independent subscribers.

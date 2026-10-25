@@ -27,6 +27,7 @@ func (t TraceableDeployer) DeployStack(
 	sourceComposePath,
 	deployComposePath string,
 	desired compose.Compose,
+	options DeployOptions,
 ) error {
 	ctx, span := t.tracer.Start(ctx, "deployer.DeployStack", trace.WithAttributes(
 		tracing.ResourceStackName.String(stackName),
@@ -34,7 +35,7 @@ func (t TraceableDeployer) DeployStack(
 	))
 	defer span.End()
 
-	err := t.deployer.DeployStack(ctx, stackName, sourceComposePath, deployComposePath, desired)
+	err := t.deployer.DeployStack(ctx, stackName, sourceComposePath, deployComposePath, desired, options)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, err.Error())

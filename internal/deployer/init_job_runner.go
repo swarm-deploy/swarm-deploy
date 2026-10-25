@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"sort"
@@ -12,10 +13,13 @@ import (
 
 	"github.com/avast/retry-go/v5"
 	cerrdefs "github.com/containerd/errdefs"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -26,6 +30,8 @@ const (
 	initJobDeleteRetryDelay     = 1 * time.Second
 	initJobDeleteAttemptTimeout = 10 * time.Second
 	initJobObjectFileMode       = 0o444
+	initJobLogCollectionTimeout = 5 * time.Second
+	initJobLogLimit             = 64 * 1024
 )
 
 type initJobDeleteTask struct {
@@ -69,10 +75,13 @@ func NewInitJobRunner(
 	return runner
 }
 
-// Run executes a single init job and waits until completion.
-func (r *InitJobRunner) Run(ctx context.Context, spec InitJobSpec) error {
+// Run executes a single init job, waits until completion and collects bounded Docker output.
+func (r *InitJobRunner) Run(
+	ctx context.Context,
+	spec InitJobSpec,
+) (deploymentmodel.InitJobExecution, error) {
 	if spec.Job.Image == "" {
-		return errors.New("init job image is required")
+		return deploymentmodel.InitJobExecution{}, errors.New("init job image is required")
 	}
 
 	r.metrics.RecordInitJobRun(spec.StackName, spec.ServiceName)
@@ -90,12 +99,12 @@ func (r *InitJobRunner) Run(ctx context.Context, spec InitJobSpec) error {
 
 	serviceSpec, err := r.buildInitServiceSpec(jobCtx, spec, serviceRef.Name())
 	if err != nil {
-		return err
+		return deploymentmodel.InitJobExecution{}, err
 	}
 
 	serviceCreateOptions, err := r.buildInitServiceCreateOptions(spec.Job.Image)
 	if err != nil {
-		return fmt.Errorf("build init job service create options: %w", err)
+		return deploymentmodel.InitJobExecution{}, fmt.Errorf("build init job service create options: %w", err)
 	}
 
 	slog.InfoContext(ctx, "[initjob] running job",
@@ -107,9 +116,10 @@ func (r *InitJobRunner) Run(ctx context.Context, spec InitJobSpec) error {
 		slog.String("initjob.timeout", spec.Job.Timeout.Value.String()),
 	)
 
+	startedAt := time.Now().UTC()
 	serviceCreate, err := r.dockerClient.ServiceCreate(jobCtx, serviceSpec, serviceCreateOptions)
 	if err != nil {
-		return fmt.Errorf("create init job service %s: %w", serviceRef.Name(), err)
+		return deploymentmodel.InitJobExecution{}, fmt.Errorf("create init job service %s: %w", serviceRef.Name(), err)
 	}
 
 	defer r.enqueueDeleteTask(initJobDeleteTask{
@@ -117,13 +127,32 @@ func (r *InitJobRunner) Run(ctx context.Context, spec InitJobSpec) error {
 		serviceName: serviceRef.Name(),
 	})
 
-	return r.waitJob(jobCtx, serviceCreate.ID, serviceRef, serviceRef.Name())
+	waitErr := r.waitJob(jobCtx, serviceCreate.ID, serviceRef.Name())
+	finishedAt := time.Now().UTC()
+	logs, truncated, logsErr := r.loadServiceLogs(ctx, serviceCreate.ID, serviceRef.Name())
+	logsAvailable := logsErr == nil
+	if logsErr != nil {
+		slog.WarnContext(
+			ctx,
+			"[initjob] failed to fetch logs",
+			slog.String("service", serviceRef.Name()),
+			slog.Any("err", logsErr),
+		)
+	}
+	execution := deploymentmodel.InitJobExecution{
+		ServiceName: spec.ServiceName, JobName: spec.Job.Name, Status: initJobExecutionStatus(waitErr),
+		StartedAt: startedAt, FinishedAt: finishedAt, Logs: logs,
+		LogsAvailable: logsAvailable, LogsTruncated: truncated,
+	}
+	if failed, ok := errors.AsType[*JobFailedError](waitErr); ok && logsAvailable {
+		failed.logs = initJobDiagnosticLogLines(logs)
+	}
+	return execution, waitErr
 }
 
 func (r *InitJobRunner) waitJob(
 	ctx context.Context,
 	serviceID string,
-	serviceRef swarm.ServiceReference,
 	jobName string,
 ) error {
 	ticker := time.NewTicker(r.pollInterval)
@@ -180,7 +209,6 @@ func (r *InitJobRunner) waitJob(
 					ID:     task.ID,
 					Name:   jobName,
 					Reason: reason,
-					logs:   r.loadServiceLogs(ctx, serviceRef),
 				}
 			}
 		}
@@ -371,20 +399,90 @@ func (r *InitJobRunner) resolveNetworkTarget(ctx context.Context, stackName, net
 	return network
 }
 
-func (r *InitJobRunner) loadServiceLogs(ctx context.Context, serviceRef swarm.ServiceReference) []string {
-	logs, err := r.swarmService.Services.Logs(ctx, serviceRef, swarm.ServiceLogsOptions{})
+func (r *InitJobRunner) loadServiceLogs(
+	ctx context.Context,
+	serviceID string,
+	serviceName string,
+) ([]byte, bool, error) {
+	logsCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), initJobLogCollectionTimeout)
+	defer cancel()
+	reader, err := r.dockerClient.ServiceLogs(logsCtx, serviceID, container.LogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Tail:       "all",
+	})
 	if err != nil {
-		slog.WarnContext(
-			ctx,
-			"[initjob] failed to fetch logs",
-			slog.String("service", serviceRef.Name()),
-			slog.Any("err", err),
-		)
+		return nil, false, fmt.Errorf("read logs for service %s: %w", serviceName, err)
+	}
+	defer reader.Close()
 
+	tail := newTailBuffer(initJobLogLimit)
+	if _, err = stdcopy.StdCopy(tail, tail, reader); err != nil {
+		return nil, false, fmt.Errorf("read logs stream for service %s: %w", serviceName, err)
+	}
+	return tail.Bytes(), tail.Truncated(), nil
+}
+
+func initJobExecutionStatus(err error) deploymentmodel.InitJobStatus {
+	if err == nil {
+		return deploymentmodel.InitJobSucceeded
+	}
+	var failed *JobFailedError
+	if errors.As(err, &failed) {
+		return deploymentmodel.InitJobFailed
+	}
+	return deploymentmodel.InitJobInterrupted
+}
+
+func initJobDiagnosticLogLines(logs []byte) []string {
+	text := strings.TrimSpace(string(logs))
+	if text == "" {
 		return []string{}
 	}
-	return logs
+	return strings.Split(text, "\n")
 }
+
+type tailBuffer struct {
+	limit int
+	data  []byte
+	total int64
+}
+
+func newTailBuffer(limit int) *tailBuffer {
+	return &tailBuffer{limit: limit, data: make([]byte, 0, limit)}
+}
+
+func (b *tailBuffer) Write(p []byte) (int, error) {
+	written := len(p)
+	b.total += int64(written)
+	if b.limit <= 0 || written == 0 {
+		return written, nil
+	}
+	if written >= b.limit {
+		b.data = append(b.data[:0], p[written-b.limit:]...)
+		return written, nil
+	}
+	overflow := len(b.data) + written - b.limit
+	if overflow > 0 {
+		copy(b.data, b.data[overflow:])
+		b.data = b.data[:len(b.data)-overflow]
+	}
+	b.data = append(b.data, p...)
+	return written, nil
+}
+
+func (b *tailBuffer) Bytes() []byte {
+	if len(b.data) == 0 {
+		return []byte{}
+	}
+	return append([]byte(nil), b.data...)
+}
+
+func (b *tailBuffer) Truncated() bool {
+	return b.total > int64(b.limit)
+}
+
+var _ io.Writer = (*tailBuffer)(nil)
 
 func (r *InitJobRunner) enqueueDeleteTask(task initJobDeleteTask) {
 	select {
