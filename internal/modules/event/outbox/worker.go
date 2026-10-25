@@ -502,19 +502,16 @@ func (b *Bus) notificationFailure(d delivery, code string) *events.SendNotificat
 	if !ok {
 		return nil
 	}
-	eventType, ok := events.ParseType(string(d.eventType))
-	if !ok {
+	eventType, knownType := events.ParseType(string(d.eventType))
+	if !knownType {
 		return nil
 	}
-	// Keep source context in the failure fact: the originating AlertResolved
-	// may outlive its Alert Management history record while delivery is retried.
+	// Carry optional source-event correlation as opaque data. Outbox must not
+	// inspect alert lifecycle types or make incident recovery decisions.
 	sourceDestinationKey := ""
-	if d.eventType == events.TypeNameAlertResolved {
-		source, decodeErr := codec.Decode(d.eventType, d.schemaVersion, []byte(d.payload))
-		if decodeErr == nil {
-			if resolved, ok := source.(*events.AlertResolved); ok {
-				sourceDestinationKey = resolved.Alert.DestinationKey
-			}
+	if source, decodeErr := codec.Decode(d.eventType, d.schemaVersion, []byte(d.payload)); decodeErr == nil {
+		if origin, hasOrigin := source.(events.DeliveryOrigin); hasOrigin {
+			sourceDestinationKey = origin.DeliveryOriginKey()
 		}
 	}
 	return &events.SendNotificationFailed{

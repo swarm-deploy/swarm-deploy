@@ -69,3 +69,7 @@ type AlertResolved struct {
 func (*AlertResolved) Type() Type                 { return TypeAlertResolved }
 func (*AlertResolved) Message() string            { return "Alert resolved" }
 func (*AlertResolved) Details() map[string]string { return nil }
+
+// DeliveryOriginKey supplies opaque source correlation without making Outbox
+// aware of alert kinds, fingerprints or recovery semantics.
+func (e *AlertResolved) DeliveryOriginKey() string { return e.Alert.DestinationKey }

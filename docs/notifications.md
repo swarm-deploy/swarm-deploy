@@ -25,7 +25,8 @@ new initial message.
 
 Permanent notification delivery failures open one `notification_delivery_failed` alert
 per physical destination. Telegram identity consists of bot, chat and thread; custom
-webhooks use the physical endpoint. These identities are hashed before entering event or
+webhooks use the HTTP method, endpoint and configured headers (including authorization).
+These identities are hashed before entering event or
 alert metadata, while `ResourceID` uses the safe configuration alias for display. Two
 aliases for the same recipient share one incident, and renaming an alias does not create
 a new incident. Persisted deliveries whose alias is unavailable use a deterministic safe

@@ -15,6 +15,21 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
 
+func TestCustomNotificationDestinationKeyUsesHTTPRoutingIdentity(t *testing.T) {
+	const endpoint = "https://example.test/webhook?token=private"
+	headers := map[string]string{"Authorization": "Bearer alpha", "X-Tenant": "team-a"}
+	key := customNotificationDestinationKey("", endpoint, headers)
+	assert.Equal(t, key, customNotificationDestinationKey("POST", endpoint,
+		map[string]string{"X-Tenant": "team-a", "authorization": "Bearer alpha"}))
+	assert.NotEqual(t, key, customNotificationDestinationKey("GET", endpoint, headers))
+	assert.NotEqual(t, key, customNotificationDestinationKey("POST", endpoint,
+		map[string]string{"Authorization": "Bearer beta", "X-Tenant": "team-a"}))
+	assert.NotEqual(t, key, customNotificationDestinationKey("POST", endpoint,
+		map[string]string{"Authorization": "Bearer alpha", "X-Tenant": "team-b"}))
+	assert.NotContains(t, key, "private")
+	assert.NotContains(t, key, "Bearer")
+}
+
 func TestHistoryAndMetricsKeepIndependentPolicies(t *testing.T) {
 	assert.NotContains(t, projectionEventTypes(), events.TypeNameNotificationSent)
 	db, err := storage.Open(t.Context(), t.TempDir())

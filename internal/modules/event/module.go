@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"sort"
 	"strings"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
@@ -170,7 +172,9 @@ func (s *Module) registerCustomNotifications(types []events.TypeName, channels [
 		)
 		identity := sha256.Sum256([]byte(channel.Method + " " + channel.URL.Value.String()))
 		id := fmt.Sprintf("notification:custom:%s:%x", channel.Name, identity)
-		destinationKey := outbox.NotificationDestinationKey("custom", channel.URL.Value.String())
+		destinationKey := customNotificationDestinationKey(
+			channel.Method, channel.URL.Value.String(), channel.Header,
+		)
 		channelName := channel.Name
 		if strings.TrimSpace(channelName) == "" {
 			channelName = "custom-" + destinationKey[len("custom:"):len("custom:")+12]
@@ -186,6 +190,25 @@ func (s *Module) registerCustomNotifications(types []events.TypeName, channels [
 		}
 	}
 	return count, nil
+}
+
+// customNotificationDestinationKey identifies the actual HTTP request target,
+// including its method and headers. Different credentials or tenant routing on
+// the same URL must not recover each other's notification failure alerts.
+func customNotificationDestinationKey(method, endpoint string, headers map[string]string) string {
+	if method == "" {
+		method = http.MethodPost
+	}
+	parts := []string{strings.ToUpper(method), endpoint}
+	names := make([]string, 0, len(headers))
+	for name := range headers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		parts = append(parts, http.CanonicalHeaderKey(name), headers[name])
+	}
+	return outbox.NotificationDestinationKey("custom", parts...)
 }
 
 // Keep the original projection subscription set independent of IsPublic.

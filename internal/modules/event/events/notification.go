@@ -6,6 +6,12 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
 
+// DeliveryOrigin is an optional event contract for source-destination
+// correlation. Outbox only transfers this opaque key; subscribers interpret it.
+type DeliveryOrigin interface {
+	DeliveryOriginKey() string
+}
+
 // SendNotificationFailed is emitted when sending notification fails.
 type SendNotificationFailed struct {
 	// EventType is a source event type that triggered notification.
@@ -16,8 +22,8 @@ type SendNotificationFailed struct {
 	Channel string
 	// DestinationKey is a stable, non-reversible physical destination identity.
 	DestinationKey string
-	// SourceDestinationKey is the physical destination of a source resolved notification incident.
-	// It lets Alert Management suppress a self-reopening failure without querying alert history.
+	// SourceDestinationKey is an optional opaque destination key from the source event.
+	// Alert Management may use it to suppress a self-reopening incident.
 	SourceDestinationKey string
 	// Error is a delivery failure reason.
 	Error error
