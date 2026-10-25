@@ -499,12 +499,27 @@ onUnmounted(() => {
                       <h4>Init Jobs</h4>
                       <div v-for="execution in attempt.init_jobs" :key="execution.ordinal" class="deployment-init-job">
                         <div class="deployment-init-job-summary">
-                          <span class="deployment-attempt-status" :class="`deployment-attempt-status--${execution.status}`" role="img" :aria-label="`${execution.status} Init Job`" />
-                          <span><strong>{{ execution.job_name }}</strong><small>{{ execution.service_name }}</small></span>
+                          <span class="deployment-init-job-identity">
+                            <span class="deployment-init-job-title">
+                              <strong>{{ execution.job_name }}</strong>
+                              <span class="deployment-attempt-status" :class="`deployment-attempt-status--${execution.status}`" role="img" :aria-label="`${execution.status} Init Job`" />
+                            </span>
+                            <small>{{ execution.service_name }}</small>
+                          </span>
                           <span class="deployment-attempt-duration">{{ initJobDuration(execution) }}</span>
                           <span v-if="execution.logs_truncated" class="deployment-init-job-badge">Last 64 KiB</span>
-                          <button v-if="execution.logs_available" type="button" class="button-ghost" @click.stop="toggleInitJobLogs(attempt, execution)">
-                            {{ initJobLogState(attempt, execution)?.open ? "Hide Logs" : "View Logs" }}
+                          <button
+                            v-if="execution.logs_available"
+                            type="button"
+                            class="deployment-init-job-logs-button"
+                            :aria-label="`${initJobLogState(attempt, execution)?.open ? 'Hide' : 'View'} logs for Init Job ${execution.job_name}`"
+                            :aria-expanded="Boolean(initJobLogState(attempt, execution)?.open)"
+                            :title="initJobLogState(attempt, execution)?.open ? 'Hide logs' : 'View logs'"
+                            @click.stop="toggleInitJobLogs(attempt, execution)"
+                          >
+                            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                              <path d="M3 2.5A1.5 1.5 0 0 1 4.5 1h5.8c.4 0 .78.16 1.06.44l1.2 1.2c.28.28.44.66.44 1.06v9.8A1.5 1.5 0 0 1 11.5 15h-7A1.5 1.5 0 0 1 3 13.5v-11Zm1.5-.5a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5h7a.5.5 0 0 0 .5-.5V4H10.5A1.5 1.5 0 0 1 9 2.5V2H4.5ZM10 2.2v.3a.5.5 0 0 0 .5.5h1.3L10 2.2ZM5.5 6a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5Zm0 2.25a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5Zm0 2.25A.5.5 0 0 1 6 10h2.5a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5Z" fill="currentColor" />
+                            </svg>
                           </button>
                           <span v-else class="deployment-init-job-unavailable">Logs unavailable</span>
                         </div>
@@ -804,11 +819,31 @@ onUnmounted(() => {
 .deployment-init-jobs { margin: 4px 0 14px; }
 .deployment-init-jobs h4 { margin: 0 0 6px; font-size: .78rem; }
 .deployment-init-job { border-top: 1px solid var(--line); }
-.deployment-init-job-summary { display: grid; grid-template-columns: 8px minmax(160px, 1fr) auto auto auto; gap: 10px; align-items: center; padding: 8px 0; }
-.deployment-init-job-summary > span:nth-child(2) { display: flex; min-width: 0; flex-direction: column; }
+.deployment-init-job-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 10px; align-items: center; padding: 8px 0; }
+.deployment-init-job-identity { display: flex; min-width: 0; flex-direction: column; }
+.deployment-init-job-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.deployment-init-job-title strong { min-width: 0; overflow-wrap: anywhere; }
+.deployment-init-job-title .deployment-attempt-status { flex: 0 0 auto; }
 .deployment-init-job-summary small { color: var(--muted); overflow-wrap: anywhere; }
 .deployment-init-job-badge { border-radius: 999px; padding: 2px 7px; background: var(--surface-muted-strong); color: var(--muted); font-size: .68rem; }
 .deployment-init-job-unavailable { color: var(--muted); font-size: .74rem; }
+.deployment-init-job-logs-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent-strong);
+  cursor: pointer;
+}
+.deployment-init-job-logs-button:hover,
+.deployment-init-job-logs-button[aria-expanded="true"] { background: transparent; color: var(--text); filter: none; transform: none; }
+.deployment-init-job-logs-button:focus-visible { outline: 2px solid var(--control-primary); outline-offset: 2px; }
+.deployment-init-job-logs-button svg { width: 18px; height: 18px; }
 .deployment-init-job-logs { margin: 0 0 8px 18px; border-left: 2px solid var(--line); padding: 4px 10px; }
 .deployment-init-job-logs pre { max-height: 320px; overflow: auto; white-space: pre; }
 .deployment-counts { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 14px; }

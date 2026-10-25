@@ -191,9 +191,22 @@ describe("Deployment Details modal", () => {
     expect(attempt.text()).toContain("Last 64 KiB");
     expect(attempt.text()).toContain("Logs unavailable");
 
-    await attempt.get(".deployment-init-job button").trigger("click");
+    const firstJob = attempt.findAll(".deployment-init-job")[0];
+    const title = firstJob.get(".deployment-init-job-title");
+    expect(title.text()).toContain("migrate");
+    expect(title.get(".deployment-attempt-status").attributes("aria-label")).toBe("succeeded Init Job");
+    expect(firstJob.find(".deployment-init-job-summary > .deployment-attempt-status").exists()).toBe(false);
+    const logsButton = firstJob.get(".deployment-init-job-logs-button");
+    expect(logsButton.text()).toBe("");
+    expect(logsButton.attributes("aria-label")).toBe("View logs for Init Job migrate");
+    expect(logsButton.attributes("aria-expanded")).toBe("false");
+    expect(logsButton.get("svg path").attributes("d")).toContain("M3 2.5");
+
+    await logsButton.trigger("click");
     await flushPromises();
     expect(apiMocks.fetchDeploymentInitJobLogs).toHaveBeenCalledWith("one", "attempt-one", 1);
+    expect(logsButton.attributes("aria-label")).toBe("Hide logs for Init Job migrate");
+    expect(logsButton.attributes("aria-expanded")).toBe("true");
     expect(attempt.get(".deployment-init-job-logs code").text()).toContain("<script>alert(1)</script>");
     expect(attempt.get(".deployment-init-job-logs").html()).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
     expect(attempt.findAll(".deployment-init-job button")).toHaveLength(1);
