@@ -85,105 +85,82 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 	case *events.GitPullSucceeded:
 		return s.handleGitPullSucceeded(ctx, event.ID, deployment)
 	case *events.SendNotificationFailed:
-		return s.handleNotificationFailed(ctx, event.ID, event.PublicationSequence, event.OccurredAt, deployment)
+		return s.handleNotificationFailed(ctx, event.ID, deployment)
 	case *events.NotificationSent:
-		return s.handleNotificationSent(ctx, event.ID, event.PublicationSequence, deployment)
+		return s.handleNotificationSent(ctx, event.ID, deployment)
 	default:
 		return nil
 	}
 }
 
 func (s *Subscriber) handleNotificationFailed(
-	ctx context.Context, eventID string, eventSequence int64, eventAt time.Time, event *events.SendNotificationFailed,
+	ctx context.Context, eventID string, event *events.SendNotificationFailed,
 ) error {
-	destinationKey := notificationDestinationKey(
-		event.DestinationKey, event.Destination, event.Channel,
-	)
-	fingerprint := model.NotificationDeliveryFailedFingerprint(destinationKey)
+	key := notificationDestinationKey(event.DestinationKey, event.Destination, event.Channel)
+	fingerprint := model.NotificationDeliveryFailedFingerprint(key)
 	if event.EventType.Name() == events.TypeNameAlertResolved &&
-		event.SourceDestinationKey != "" && event.SourceDestinationKey == destinationKey {
+		event.SourceDestinationKey != "" && event.SourceDestinationKey == key {
 		return nil
 	}
 	now := s.now()
-	if eventAt.IsZero() {
-		eventAt = now
-	}
 	eventID = eventReferenceID(eventID, s.newID)
-	message := event.Message()
 	errorCode := faults.SafeDiagnostic(event.Error)
 	if errorCode == "" {
 		errorCode = "delivery_failed"
 	}
 	alert, err := s.store.FindOpenByFingerprint(ctx, fingerprint)
 	if err != nil && !errors.Is(err, modelstore.ErrAlertNotFound) {
-		return fmt.Errorf("find open notification delivery alert: %w", err)
+		return err
 	}
 	if err == nil {
 		alert.Occurrences++
 		alert.UpdatedAt = now
-		if eventSequence == 0 || eventSequence > alert.LatestEventSequence {
-			alert.LatestEventID = eventID
-			alert.LatestEventSequence = eventSequence
-			alert.LatestEventAt = eventAt.UTC()
-			alert.Message = message
-			alert.ResourceID = notificationResourceID(event.Destination, event.Channel)
-			alert.ErrorCode = errorCode
-		}
-		if err = s.store.Update(ctx, alert); err != nil {
-			return fmt.Errorf("update notification delivery alert: %w", err)
-		}
-		return nil
+		alert.LatestEventID = eventID
+		alert.ResourceID = notificationResourceID(event.Destination, event.Channel)
+		alert.Message = event.Message()
+		alert.ErrorCode = errorCode
+		return s.store.Update(ctx, alert)
 	}
 	alert = model.Alert{
 		ID: s.newID(), Fingerprint: fingerprint, Kind: model.AlertKindNotificationDeliveryFailed,
 		ResourceType: model.ResourceTypeNotification,
-		ResourceID:   notificationResourceID(event.Destination, event.Channel),
-		Status:       model.AlertStatusOpen, Title: "Notification delivery failed", Message: message,
-		FailureStage: "notification_delivery", ErrorCode: errorCode, Occurrences: 1,
-		OpenedAt: now, UpdatedAt: now, OpenEventID: eventID, LatestEventID: eventID,
-		LatestEventSequence: eventSequence,
-		LatestEventAt:       eventAt.UTC(),
+		ResourceID: notificationResourceID(event.Destination, event.Channel),
+		Status: model.AlertStatusOpen, Title: "Notification delivery failed",
+		Message: event.Message(), FailureStage: "notification_delivery",
+		ErrorCode: errorCode, Occurrences: 1, OpenedAt: now, UpdatedAt: now,
+		OpenEventID: eventID, LatestEventID: eventID,
 	}
 	if err = s.store.Create(ctx, alert); err == nil {
 		return s.publishOpened(ctx, alert)
 	}
 	if !errors.Is(err, modelstore.ErrOpenAlertExists) {
-		return fmt.Errorf("create notification delivery alert: %w", err)
+		return err
 	}
 	return s.updateConcurrentFailure(ctx, fingerprint, eventID, now, alert, true, err)
 }
 
 func (s *Subscriber) handleNotificationSent(
-	ctx context.Context, eventID string, eventSequence int64, event *events.NotificationSent,
+	ctx context.Context, eventID string, event *events.NotificationSent,
 ) error {
-	destinationKey := notificationDestinationKey(
-		event.DestinationKey, event.Destination, event.Channel,
-	)
-	fingerprint := model.NotificationDeliveryFailedFingerprint(destinationKey)
-	alert, err := s.store.FindOpenByFingerprint(ctx, fingerprint)
+	key := notificationDestinationKey(event.DestinationKey, event.Destination, event.Channel)
+	alert, err := s.store.FindOpenByFingerprint(ctx, model.NotificationDeliveryFailedFingerprint(key))
+	if errors.Is(err, modelstore.ErrAlertNotFound) {
+		return nil
+	}
 	if err != nil {
-		if errors.Is(err, modelstore.ErrAlertNotFound) {
-			return nil
-		}
-		return fmt.Errorf("find open notification delivery alert: %w", err)
-	}
-	if eventSequence > 0 && eventSequence <= alert.LatestEventSequence {
-		return nil
-	}
-	if !event.DeliveredAt.IsZero() && !alert.LatestEventAt.IsZero() &&
-		!event.DeliveredAt.After(alert.LatestEventAt) {
-		return nil
+		return err
 	}
 	now := s.now()
 	alert.Status = model.AlertStatusResolved
 	alert.UpdatedAt = now
 	alert.ResolvedAt = &now
 	alert.Resolution = &model.AlertResolution{
-		Reason: model.ResolutionReasonRecovered, Message: "Notification delivery recovered",
-		EventID: eventReferenceID(eventID, s.newID), EventSequence: eventSequence,
+		Reason: model.ResolutionReasonRecovered,
+		Message: "Notification delivery recovered",
+		EventID: eventReferenceID(eventID, s.newID),
 	}
 	if err = s.store.Update(ctx, alert); err != nil {
-		return fmt.Errorf("resolve notification delivery alert: %w", err)
+		return err
 	}
 	return s.publishResolved(ctx, alert)
 }
@@ -449,18 +426,14 @@ func (s *Subscriber) updateConcurrentFailure(
 	}
 	existing.Occurrences++
 	existing.UpdatedAt = now
-	if incoming.LatestEventSequence == 0 || incoming.LatestEventSequence > existing.LatestEventSequence {
-		existing.LatestEventID = eventID
-		existing.LatestEventSequence = incoming.LatestEventSequence
-		existing.LatestEventAt = incoming.LatestEventAt
-		if hasDiagnostic || existing.Message == "" {
-			existing.Message = incoming.Message
-		}
-		existing.ResourceID = incoming.ResourceID
-		existing.Title = incoming.Title
-		existing.FailureStage, existing.ErrorCode = incoming.FailureStage, incoming.ErrorCode
-		existing.DeploymentID, existing.Commit = incoming.DeploymentID, incoming.Commit
+	existing.LatestEventID = eventID
+	if hasDiagnostic || existing.Message == "" {
+		existing.Message = incoming.Message
 	}
+	existing.ResourceID = incoming.ResourceID
+	existing.Title = incoming.Title
+	existing.FailureStage, existing.ErrorCode = incoming.FailureStage, incoming.ErrorCode
+	existing.DeploymentID, existing.Commit = incoming.DeploymentID, incoming.Commit
 	return s.store.Update(ctx, existing)
 }
 

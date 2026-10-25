@@ -185,7 +185,7 @@ func TestLeaseRecoveryAndFencing(t *testing.T) {
 	assert.NotEqual(t, first.token, second.token)
 	require.ErrorIs(t, bus.process(t.Context(), first), ErrLeaseLost)
 	require.ErrorIs(t, db.WithinTransaction(t.Context(), func(ctx context.Context) error {
-		return bus.ack(ctx, first, NotificationOutcome{})
+		return bus.ack(ctx, first, false)
 	}), ErrLeaseLost)
 	require.NoError(t, restarted.process(t.Context(), second))
 	assert.Zero(t, rows(t, db, "outbox_events"))

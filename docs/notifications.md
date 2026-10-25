@@ -35,9 +35,8 @@ fallback name.
 Every unique terminal failure increments the matching open alert without publishing a
 second `AlertOpened`. A later successful delivery to that physical recipient publishes
 the internal `NotificationSent` fact and resolves the alert with `recovered`; another
-failure after recovery opens a new incident. Durable publication sequence, rather than
-wall-clock time, prevents a delayed success from resolving a newer failure or an older
-failure from reopening a recovered destination.
+failure after recovery opens a new incident. The existing `ConsumeLatest` projection uses event occurrence time and ID to
+ignore stale events; replay retains those ordering semantics.
 
 Failures while delivering `SendNotificationFailed` or `NotificationSent` do not emit
 another delivery event. A failure while delivering the opening notification is absorbed

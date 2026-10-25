@@ -36,21 +36,6 @@ type NotificationSubscriber interface {
 	HandleNotification(context.Context, events.Envelope) (bool, error)
 }
 
-// NotificationOutcome describes an external delivery observed by a notification subscriber.
-// DeliveredAt is set only when the delivery was recovered from a persisted transport receipt.
-type NotificationOutcome struct {
-	// Delivered reports that the transport accepted the notification.
-	Delivered bool
-	// DeliveredAt is the original acceptance time for a recovered durable receipt.
-	DeliveredAt time.Time
-}
-
-// NotificationOutcomeSubscriber can recover the original delivery time from durable transport state.
-type NotificationOutcomeSubscriber interface {
-	// HandleNotificationOutcome returns a durable transport outcome for this delivery.
-	HandleNotificationOutcome(context.Context, events.Envelope) (NotificationOutcome, error)
-}
-
 type notificationSubscriber struct {
 	handler        NotificationSubscriber
 	destination    string
@@ -65,28 +50,14 @@ func (s notificationSubscriber) Handle(ctx context.Context, event events.Envelop
 }
 
 // HandleNotification isolates notification handler panics from the delivery worker.
-func (s notificationSubscriber) HandleNotification(
-	ctx context.Context, event events.Envelope,
-) (delivered bool, err error) {
-	outcome, err := s.HandleNotificationOutcome(ctx, event)
-	return outcome.Delivered, err
-}
-
-// HandleNotificationOutcome isolates notification handler panics from the delivery worker.
-func (s notificationSubscriber) HandleNotificationOutcome(
-	ctx context.Context, event events.Envelope,
-) (outcome NotificationOutcome, err error) {
+func (s notificationSubscriber) HandleNotification(ctx context.Context, event events.Envelope) (delivered bool, err error) {
 	defer func() {
 		if recover() != nil {
-			outcome = NotificationOutcome{}
+			delivered = false
 			err = errors.New("outbox handler panicked")
 		}
 	}()
-	if handler, ok := s.handler.(NotificationOutcomeSubscriber); ok {
-		return handler.HandleNotificationOutcome(ctx, event)
-	}
-	delivered, err := s.handler.HandleNotification(ctx, event)
-	return NotificationOutcome{Delivered: delivered}, err
+	return s.handler.HandleNotification(ctx, event)
 }
 
 type publicationSubscription struct {

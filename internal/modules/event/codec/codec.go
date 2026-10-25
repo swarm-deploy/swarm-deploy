@@ -412,6 +412,4 @@ type notificationPayload struct {
 	SourceDestinationKey string `json:"source_destination_key,omitempty"`
 	// Error is a sanitized delivery failure classification.
 	Error string `json:"error,omitempty"`
-	// DeliveredAt preserves the original transport acceptance time across receipt replay.
-	DeliveredAt time.Time `json:"delivered_at,omitempty"`
 }
