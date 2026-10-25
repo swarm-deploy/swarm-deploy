@@ -175,7 +175,7 @@ func (s *Subscriber) opened(ctx context.Context, alert events.AlertSnapshot) (bo
 	}
 	if link.OpenedAt.Valid {
 		return true, nil
-}
+	}
 	rule := s.rule(alert.Kind)
 	payload := alert
 	parseMode := ""
