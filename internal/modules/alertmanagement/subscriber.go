@@ -155,7 +155,7 @@ func (s *Subscriber) handleNotificationSent(
 	alert.UpdatedAt = now
 	alert.ResolvedAt = &now
 	alert.Resolution = &model.AlertResolution{
-		Reason: model.ResolutionReasonRecovered,
+		Reason:  model.ResolutionReasonRecovered,
 		Message: "Notification delivery recovered",
 		EventID: eventReferenceID(eventID, s.newID),
 	}
