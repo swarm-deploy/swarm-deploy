@@ -348,7 +348,9 @@ func TestAlertReceiptSurvivesReplayBeforeAcknowledgement(t *testing.T) {
 	defer server.Close()
 	bus := outbox.New(db)
 	subscriber := &Subscriber{store: NewStore(db), spec: spec, recipient: recipient, now: time.Now, apiBaseURL: server.URL}
-	require.NoError(t, bus.Subscribe(events.TypeNameAlertOpened, SubscriptionID(recipient), outbox.External(subscriber)))
+	require.NoError(t, bus.Subscribe(events.TypeNameAlertOpened, SubscriptionID(recipient),
+		outbox.ExternalNotification(subscriber, "telegram", "default", "telegram:crash-recipient")))
+	require.NoError(t, bus.Subscribe(events.TypeNameNotificationSent, "success-capture", outbox.External(subscriber)))
 	alert := events.AlertSnapshot{ID: "crash-cycle", Kind: "node_disconnected", Title: "Node disconnected", OpenedAt: time.Now().UTC()}
 	event := &events.AlertOpened{Alert: alert, Recipients: []events.AlertRecipient{recipient}}
 	require.NoError(t, bus.Publish(t.Context(), event))
@@ -361,6 +363,58 @@ func TestAlertReceiptSurvivesReplayBeforeAcknowledgement(t *testing.T) {
 	link, err := NewStore(db).Get(t.Context(), alert.ID, recipient)
 	require.NoError(t, err)
 	assert.Equal(t, int64(42), link.OpenedMessageID.Int64)
+	var successes int
+	require.NoError(t, db.Get(t.Context(), &successes,
+		"SELECT count(*) FROM outbox_events WHERE event_type='NotificationSent'"))
+	assert.Equal(t, 1, successes, "ACK must publish a success for a persisted Telegram receipt")
+}
+
+func TestAlertResolutionReceiptSurvivesReplayBeforeAcknowledgement(t *testing.T) {
+	db, err := storage.Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+
+	spec := alertSpec()
+	recipient := spec.AlertRecipients("node_disconnected")[0]
+	sends := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		sends++
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":43}}`))
+	}))
+	defer server.Close()
+
+	store := NewStore(db)
+	require.NoError(t, store.Ensure(t.Context(), "resolved-crash", recipient))
+	require.NoError(t, store.MarkOpened(t.Context(), "resolved-crash", recipient,
+		notifiers.Receipt{MessageID: 42}, time.Now()))
+
+	subscriber := &Subscriber{store: store, spec: spec, recipient: recipient, now: time.Now, apiBaseURL: server.URL}
+	bus := outbox.New(db)
+	require.NoError(t, bus.Subscribe(events.TypeNameAlertResolved, SubscriptionID(recipient),
+		outbox.ExternalNotification(subscriber, "telegram", "default", "telegram:crash-recipient")))
+	require.NoError(t, bus.Subscribe(events.TypeNameNotificationSent, "success-capture", outbox.External(subscriber)))
+	at := time.Now().UTC()
+	event := &events.AlertResolved{Alert: events.AlertSnapshot{
+		ID: "resolved-crash", Kind: "node_disconnected", Title: "Node reconnected",
+		OpenedAt: at.Add(-time.Minute), ResolvedAt: &at, Resolution: "Recovered",
+	}, Recipients: []events.AlertRecipient{recipient}}
+	require.NoError(t, bus.Publish(t.Context(), event))
+
+	// A previous worker completed the Telegram request and persisted the
+	// receipt, but stopped before acknowledging the Outbox delivery.
+	sent, err := subscriber.HandleNotification(t.Context(), events.Envelope{Event: event})
+	require.NoError(t, err)
+	require.True(t, sent)
+	require.Equal(t, 1, sends)
+	handled, err := bus.ProcessNext(t.Context())
+	require.NoError(t, err)
+	require.True(t, handled)
+	assert.Equal(t, 1, sends, "retry must not send the resolution twice")
+
+	var successes int
+	require.NoError(t, db.Get(t.Context(), &successes,
+		"SELECT count(*) FROM outbox_events WHERE event_type='NotificationSent'"))
+	assert.Equal(t, 1, successes, "ACK must publish a success for a persisted resolution receipt")
 }
 
 func TestAlertResolutionUsesOriginalPhysicalChatAfterRouteChange(t *testing.T) {

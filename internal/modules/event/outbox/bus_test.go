@@ -650,7 +650,7 @@ func TestLegacyCustomWebhookUsesRegisteredPhysicalDestination(t *testing.T) {
 	require.True(t, handled)
 }
 
-func TestPersistedNotificationMetadataTakesPrecedenceAfterRestart(t *testing.T) {
+func TestActiveNotificationMetadataTakesPrecedenceAfterRestart(t *testing.T) {
 	db, bus := setup(t)
 	const subscriptionID = "notification:custom:ops:stable-route"
 	require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, subscriptionID,
@@ -665,8 +665,8 @@ func TestPersistedNotificationMetadataTakesPrecedenceAfterRestart(t *testing.T) 
 	signal.EXPECT().Handle(gomock.Any(), gomock.Any()).DoAndReturn(
 		func(_ context.Context, envelope events.Envelope) error {
 			failure := envelope.Event.(*events.SendNotificationFailed)
-			assert.Equal(t, "original", failure.Channel)
-			assert.Equal(t, "custom:original", failure.DestinationKey)
+			assert.Equal(t, "changed", failure.Channel)
+			assert.Equal(t, "custom:changed", failure.DestinationKey)
 			return nil
 		},
 	)
@@ -680,6 +680,38 @@ func TestPersistedNotificationMetadataTakesPrecedenceAfterRestart(t *testing.T) 
 	handled, err = restarted.ProcessNext(t.Context())
 	require.NoError(t, err)
 	require.True(t, handled)
+}
+
+// Pending work may be delivered through a newly configured webhook handler.
+// Its successful outcome must heal the active destination, not the old one.
+func TestActiveNotificationMetadataUsedForRecoveredSuccess(t *testing.T) {
+	db, bus := setup(t)
+	const subscriptionID = "notification:custom:ops:stable-route"
+	require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, subscriptionID,
+		ExternalNotification(NewMockSubscriber(gomock.NewController(t)), "custom", "original", "custom:original")))
+	require.NoError(t, bus.Publish(t.Context(), &events.NodeJoined{NodeID: "node"}))
+
+	restarted := New(db)
+	notification := NewMockSubscriber(gomock.NewController(t))
+	notification.EXPECT().Handle(gomock.Any(), gomock.Any()).Return(nil)
+	signal := NewMockSubscriber(gomock.NewController(t))
+	signal.EXPECT().Handle(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, envelope events.Envelope) error {
+			sent := envelope.Event.(*events.NotificationSent)
+			assert.Equal(t, "changed", sent.Channel)
+			assert.Equal(t, "custom:changed", sent.DestinationKey)
+			return nil
+		},
+	)
+	require.NoError(t, restarted.Subscribe(events.TypeNameNodeJoined, subscriptionID,
+		ExternalNotification(notification, "custom", "changed", "custom:changed")))
+	require.NoError(t, restarted.Subscribe(events.TypeNameNotificationSent, "alert-management", signal))
+
+	for range 2 {
+		handled, err := restarted.ProcessNext(t.Context())
+		require.NoError(t, err)
+		require.True(t, handled)
+	}
 }
 
 func TestTerminalNotificationFailurePublicationIsAtomic(t *testing.T) {

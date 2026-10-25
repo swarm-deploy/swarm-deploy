@@ -200,13 +200,21 @@ func customNotificationDestinationKey(method, endpoint string, headers map[strin
 		method = http.MethodPost
 	}
 	parts := []string{strings.ToUpper(method), endpoint}
-	names := make([]string, 0, len(headers))
-	for name := range headers {
-		names = append(names, name)
+	// HTTP header names are case-insensitive. Normalize before sorting so
+	// capitalization changes do not identify the same recipient differently.
+	type header struct{ name, value string }
+	normalized := make([]header, 0, len(headers))
+	for name, value := range headers {
+		normalized = append(normalized, header{http.CanonicalHeaderKey(name), value})
 	}
-	sort.Strings(names)
-	for _, name := range names {
-		parts = append(parts, http.CanonicalHeaderKey(name), headers[name])
+	sort.Slice(normalized, func(i, j int) bool {
+		if normalized[i].name == normalized[j].name {
+			return normalized[i].value < normalized[j].value
+		}
+		return normalized[i].name < normalized[j].name
+	})
+	for _, item := range normalized {
+		parts = append(parts, item.name, item.value)
 	}
 	return outbox.NotificationDestinationKey("custom", parts...)
 }

@@ -169,10 +169,15 @@ func (s *Subscriber) opened(ctx context.Context, alert events.AlertSnapshot) (bo
 	if err != nil {
 		return false, err
 	}
-	// A terminal opening delivery can be replayed after resolution was sent.
-	// Never reopen a notification that has already completed its lifecycle.
-	if link.OpenedAt.Valid || link.ResolvedAt.Valid {
+	// Do not replay an opening after the alert was already resolved.
+	if link.ResolvedAt.Valid {
 		return false, nil
+	}
+	if link.OpenedAt.Valid {
+		// Telegram accepted this opening before a crash/ACK rollback.
+		// Report the persisted successful delivery so Outbox can publish
+		// NotificationSent on its durable ACK without sending a duplicate.
+		return true, nil
 	}
 	rule := s.rule(alert.Kind)
 	payload := alert
@@ -210,7 +215,9 @@ func (s *Subscriber) resolved(ctx context.Context, event *events.AlertResolved) 
 		return false, nil
 	}
 	if link.ResolvedAt.Valid {
-		return false, nil
+		// The resolution was sent and persisted, but its Outbox ACK may have
+		// been interrupted. Complete the success signal without resending.
+		return true, nil
 	}
 	rule := s.rule(alert.Kind)
 	payload := alert

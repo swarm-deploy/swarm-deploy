@@ -538,25 +538,25 @@ func (b *Bus) notificationSuccess(d delivery) *events.NotificationSent {
 }
 
 func (b *Bus) notificationMetadata(d delivery) (string, string, string, bool) {
-	destination := d.notificationDestination.String
-	channel := d.notificationChannel.String
-	key := d.notificationDestinationKey.String
 	b.mu.RLock()
 	handler := b.registry[d.eventType][d.subscriptionID]
 	b.mu.RUnlock()
-	if notification, ok := handler.(notificationSubscriber); ok {
-		if destination == "" {
-			destination = notification.destination
-		}
+	if notification, ok := handler.(notificationSubscriber); ok &&
+		notification.destination != "" && notification.destinationKey != "" {
+		// A queued delivery may run after its subscription is reconfigured.
+		// Correlate the outcome with the recipient actually used by the handler,
+		// not the recipient recorded when the delivery was first enqueued.
+		channel := notification.channel
 		if channel == "" {
-			channel = notification.channel
+			channel = fallbackNotificationChannel(notification.destination, notification.destinationKey)
 		}
-		if key == "" {
-			key = notification.destinationKey
-		}
+		return notification.destination, channel, notification.destinationKey, true
 	}
-	// Pre-migration deliveries use the registered handler metadata. If the
-	// subscriber was removed, no external send happened and no signal is emitted.
+	destination := d.notificationDestination.String
+	channel := d.notificationChannel.String
+	key := d.notificationDestinationKey.String
+	// Persisted metadata remains a fallback for legacy or incomplete handlers.
+	// Missing subscriptions do not emit a signal because no send was attempted.
 	if destination == "" || key == "" {
 		return "", "", "", false
 	}
