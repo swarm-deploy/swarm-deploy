@@ -3,6 +3,7 @@ package alerts
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"net/http"
@@ -17,6 +18,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/notifiers"
@@ -366,7 +370,7 @@ func TestAlertReceiptSurvivesReplayBeforeAcknowledgement(t *testing.T) {
 	var successes int
 	require.NoError(t, db.Get(t.Context(), &successes,
 		"SELECT count(*) FROM outbox_events WHERE event_type='NotificationSent'"))
-	assert.Equal(t, 1, successes, "ACK must publish a success for a persisted Telegram receipt")
+	assert.Zero(t, successes, "replayed opening receipt must not publish a new success")
 }
 
 func TestAlertResolutionReceiptSurvivesReplayBeforeAcknowledgement(t *testing.T) {
@@ -414,7 +418,82 @@ func TestAlertResolutionReceiptSurvivesReplayBeforeAcknowledgement(t *testing.T)
 	var successes int
 	require.NoError(t, db.Get(t.Context(), &successes,
 		"SELECT count(*) FROM outbox_events WHERE event_type='NotificationSent'"))
-	assert.Equal(t, 1, successes, "ACK must publish a success for a persisted resolution receipt")
+	assert.Zero(t, successes, "replayed resolution receipt must not publish a new success")
+}
+
+
+func TestReplayedReceiptDoesNotResolveNewerNotificationFailure(t *testing.T) {
+	db, err := storage.Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+
+	spec := alertSpec()
+	recipient := spec.AlertRecipients("node_disconnected")[0]
+	key := outbox.NotificationDestinationKey(
+		"telegram", recipient.BotIdentity, recipient.ChatID, strconv.FormatInt(recipient.ThreadID, 10),
+	)
+	sends := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		sends++
+		_, _ = w.Write([]byte("{\"ok\":true,\"result\":{\"message_id\":42}}"))
+	}))
+	defer server.Close()
+
+	bus := outbox.New(db)
+	notifier := &Subscriber{
+		store: NewStore(db), spec: spec, recipient: recipient, now: time.Now, apiBaseURL: server.URL,
+	}
+	store := modelstore.NewSQLStore(db)
+	management := alertmanagement.NewSQLSubscriber(store, bus,
+		func(model.AlertKind) []events.AlertRecipient { return nil }, &config.Config{})
+	require.NoError(t, bus.Subscribe(events.TypeNameAlertOpened, SubscriptionID(recipient),
+		outbox.ExternalNotification(notifier, "telegram", "default", key)))
+	require.NoError(t, bus.Subscribe(events.TypeNameSendNotificationFailed, "alert-management", management))
+	require.NoError(t, bus.Subscribe(events.TypeNameNotificationSent, "alert-management", management))
+
+	// Telegram accepted an alert opening, but the worker crashed before ACK.
+	opened := &events.AlertOpened{
+		Alert: events.AlertSnapshot{
+			ID: "original-alert", Kind: "node_disconnected", Title: "Node disconnected",
+			OpenedAt: time.Now().UTC(),
+		},
+		Recipients: []events.AlertRecipient{recipient},
+	}
+	require.NoError(t, bus.Publish(t.Context(), opened))
+	delivered, err := notifier.HandleNotification(t.Context(), events.Envelope{Event: opened})
+	require.NoError(t, err)
+	require.True(t, delivered)
+	require.Equal(t, 1, sends)
+
+	// Hold the old delivery while a newer terminal failure opens an incident.
+	_, err = db.Exec(t.Context(), "UPDATE outbox_deliveries SET available_at=?",
+		time.Now().Add(time.Hour).UTC())
+	require.NoError(t, err)
+	require.NoError(t, bus.Publish(t.Context(), &events.SendNotificationFailed{
+		EventType: events.TypeNodeJoined, Destination: "telegram",
+		Channel: "default", DestinationKey: key, Error: errors.New("handler_failed"),
+	}))
+	handled, err := bus.ProcessNext(t.Context())
+	require.NoError(t, err)
+	require.True(t, handled)
+
+	fingerprint := model.NotificationDeliveryFailedFingerprint(key)
+	_, err = store.FindOpenByFingerprint(t.Context(), fingerprint)
+	require.NoError(t, err)
+
+	// After restarting, acknowledging the old receipt must not heal the new failure.
+	_, err = db.Exec(t.Context(), "UPDATE outbox_deliveries SET available_at=0 WHERE status='pending'")
+	require.NoError(t, err)
+	for range 10 {
+		handled, err = bus.ProcessNext(t.Context())
+		require.NoError(t, err)
+		if !handled {
+			break
+		}
+	}
+	require.Equal(t, 1, sends, "receipt replay must not resend the opening")
+	_, err = store.FindOpenByFingerprint(t.Context(), fingerprint)
+	require.NoError(t, err, "a previously sent message must not recover a newer delivery failure")
 }
 
 func TestAlertResolutionUsesOriginalPhysicalChatAfterRouteChange(t *testing.T) {
