@@ -36,8 +36,6 @@ type AlertResolution struct {
 	Message string `json:"message"`
 	// EventID identifies the event that resolved the alert.
 	EventID string `json:"eventId"`
-	// EventSequence is the durable publication order of the resolving event.
-	EventSequence int64 `json:"eventSequence,omitempty"`
 }
 
 // Alert is one persisted incident for a correlated problem.
@@ -76,10 +74,6 @@ type Alert struct {
 	OpenEventID string `json:"openEventId"`
 	// LatestEventID identifies the latest failure event.
 	LatestEventID string `json:"latestEventId"`
-	// LatestEventSequence is the durable publication order of the latest failure.
-	LatestEventSequence int64 `json:"latestEventSequence,omitempty"`
-	// LatestEventAt is the publication time of the latest notification delivery failure.
-	LatestEventAt time.Time `json:"latestEventAt,omitempty"`
 	// ResolvedAt is when the incident recovered.
 	ResolvedAt *time.Time `json:"resolvedAt,omitempty"`
 	// Resolution describes how the incident ended.

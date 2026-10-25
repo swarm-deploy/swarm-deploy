@@ -23,8 +23,6 @@ var alertColumns = []any{
 
 var dialect = goqu.Dialect("sqlite3")
 
-const notificationRecoveryProjection = "alert-notification-recovery"
-
 // SQLStore persists alert lifecycle independently of the delivery queue.
 type SQLStore struct{ db *storage.Database }
 
@@ -291,16 +289,3 @@ func (s *SQLStore) ConsumeLatest(
 	})
 }
 
-// NotificationRecoverySequence returns the latest successful delivery sequence for a destination.
-func (s *SQLStore) NotificationRecoverySequence(ctx context.Context, destinationKey string) (int64, error) {
-	return storage.ProjectionSequence(ctx, s.db, notificationRecoveryProjection, destinationKey)
-}
-
-// AdvanceNotificationRecovery records a newer successful delivery for a destination.
-func (s *SQLStore) AdvanceNotificationRecovery(
-	ctx context.Context, destinationKey string, sequence int64, eventID string,
-) (bool, error) {
-	return storage.AdvanceProjectionSequence(
-		ctx, s.db, notificationRecoveryProjection, destinationKey, sequence, eventID,
-	)
-}

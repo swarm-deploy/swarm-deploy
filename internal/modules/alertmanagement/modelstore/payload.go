@@ -10,37 +10,29 @@ import (
 
 // alertPayload contains only fields that are not stored in indexed SQL columns.
 type alertPayload struct {
-	Title               string                 `json:"title"`
-	Message             string                 `json:"message"`
-	FailureStage        string                 `json:"failureStage,omitempty"`
-	ErrorCode           string                 `json:"errorCode,omitempty"`
-	Commit              string                 `json:"commit,omitempty"`
-	Occurrences         uint64                 `json:"occurrences"`
-	OpenEventID         string                 `json:"openEventId"`
-	LatestEventID       string                 `json:"latestEventId"`
-	LatestEventSequence int64                  `json:"latestEventSequence,omitempty"`
-	LatestEventAt       *time.Time             `json:"latestEventAt,omitempty"`
-	Resolution          *model.AlertResolution `json:"resolution,omitempty"`
+	Title         string                 `json:"title"`
+	Message       string                 `json:"message"`
+	FailureStage  string                 `json:"failureStage,omitempty"`
+	ErrorCode     string                 `json:"errorCode,omitempty"`
+	Commit        string                 `json:"commit,omitempty"`
+	Occurrences   uint64                 `json:"occurrences"`
+	OpenEventID   string                 `json:"openEventId"`
+	LatestEventID string                 `json:"latestEventId"`
+	Resolution    *model.AlertResolution `json:"resolution,omitempty"`
 }
 
 func payloadFromAlert(alert model.Alert) alertPayload {
-	payload := alertPayload{
-		Title:               alert.Title,
-		Message:             alert.Message,
-		FailureStage:        alert.FailureStage,
-		ErrorCode:           alert.ErrorCode,
-		Commit:              alert.Commit,
-		Occurrences:         alert.Occurrences,
-		OpenEventID:         alert.OpenEventID,
-		LatestEventID:       alert.LatestEventID,
-		LatestEventSequence: alert.LatestEventSequence,
-		Resolution:          alert.Resolution,
+	return alertPayload{
+		Title:         alert.Title,
+		Message:       alert.Message,
+		FailureStage:  alert.FailureStage,
+		ErrorCode:     alert.ErrorCode,
+		Commit:        alert.Commit,
+		Occurrences:   alert.Occurrences,
+		OpenEventID:   alert.OpenEventID,
+		LatestEventID: alert.LatestEventID,
+		Resolution:    alert.Resolution,
 	}
-	if !alert.LatestEventAt.IsZero() {
-		at := alert.LatestEventAt.UTC()
-		payload.LatestEventAt = &at
-	}
-	return payload
 }
 
 // alertRow mirrors one row of the alerts table for sqlx struct scanning.
@@ -64,28 +56,24 @@ func (r alertRow) toAlert() (model.Alert, error) {
 		return model.Alert{}, err
 	}
 	alert := model.Alert{
-		ID:                  r.ID,
-		Fingerprint:         r.Fingerprint,
-		Kind:                r.Kind,
-		ResourceType:        r.ResourceType,
-		ResourceID:          r.ResourceID,
-		DeploymentID:        r.DeploymentID.String,
-		Status:              r.Status,
-		OpenedAt:            r.OpenedAt.UTC(),
-		UpdatedAt:           r.UpdatedAt.UTC(),
-		Title:               payload.Title,
-		Message:             payload.Message,
-		FailureStage:        payload.FailureStage,
-		ErrorCode:           payload.ErrorCode,
-		Commit:              payload.Commit,
-		Occurrences:         payload.Occurrences,
-		OpenEventID:         payload.OpenEventID,
-		LatestEventID:       payload.LatestEventID,
-		LatestEventSequence: payload.LatestEventSequence,
-		Resolution:          payload.Resolution,
-	}
-	if payload.LatestEventAt != nil {
-		alert.LatestEventAt = payload.LatestEventAt.UTC()
+		ID:            r.ID,
+		Fingerprint:   r.Fingerprint,
+		Kind:          r.Kind,
+		ResourceType:  r.ResourceType,
+		ResourceID:    r.ResourceID,
+		DeploymentID:  r.DeploymentID.String,
+		Status:        r.Status,
+		OpenedAt:      r.OpenedAt.UTC(),
+		UpdatedAt:     r.UpdatedAt.UTC(),
+		Title:         payload.Title,
+		Message:       payload.Message,
+		FailureStage:  payload.FailureStage,
+		ErrorCode:     payload.ErrorCode,
+		Commit:        payload.Commit,
+		Occurrences:   payload.Occurrences,
+		OpenEventID:   payload.OpenEventID,
+		LatestEventID: payload.LatestEventID,
+		Resolution:    payload.Resolution,
 	}
 	if r.ResolvedAt.Valid {
 		at := r.ResolvedAt.Time.UTC()
