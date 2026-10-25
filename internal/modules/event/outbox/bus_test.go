@@ -616,7 +616,7 @@ func TestMissingNotificationSubscriptionDoesNotPublishDeliveryFailure(t *testing
 }
 
 func TestLegacyCustomWebhookUsesRegisteredPhysicalDestination(t *testing.T) {
-	db, bus := setup(t)
+	_, bus := setup(t)
 	bus.maxAttempts = 1
 	const endpoint = "https://example.test/hooks/notify"
 	physicalKey := NotificationDestinationKey("custom", endpoint)
