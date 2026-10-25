@@ -465,6 +465,49 @@ func (b *Bus) fail(ctx context.Context, d delivery, code string, terminal bool) 
 	})
 }
 
+func (b *Bus) notificationFor(d delivery) (notificationSubscriber, bool) {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	n, ok := b.registry[d.eventType][d.subscriptionID].(notificationSubscriber)
+	return n, ok
+}
+
+func (b *Bus) deliveryFailed(d delivery, code string) *events.SendNotificationFailed {
+	if d.eventType == events.TypeNameSendNotificationFailed || d.eventType == events.TypeNameNotificationSent {
+		return nil
+	}
+	n, ok := b.notificationFor(d)
+	if !ok {
+		return nil
+	}
+	typ, ok := events.ParseType(string(d.eventType))
+	if !ok {
+		return nil
+	}
+	return &events.SendNotificationFailed{
+		EventType: typ, Destination: n.destination, Channel: n.channel,
+		DestinationKey: n.destinationKey, SourceDestinationKey: d.sourceKey,
+		Error: errors.New(code),
+	}
+}
+
+func (b *Bus) deliverySent(d delivery) *events.NotificationSent {
+	if d.eventType == events.TypeNameNotificationSent {
+		return nil
+	}
+	n, ok := b.notificationFor(d)
+	if !ok {
+		return nil
+	}
+	typ, ok := events.ParseType(string(d.eventType))
+	if !ok {
+		return nil
+	}
+	return &events.NotificationSent{
+		EventType: typ, Destination: n.destination, Channel: n.channel, DestinationKey: n.destinationKey,
+	}
+}
+
 // Replay reschedules exactly one terminal failure, preserving delivered siblings.
 func (b *Bus) Replay(ctx context.Context, eventID, subscriptionID string) error {
 	query, args, err := goqu.Dialect("sqlite3").Update("outbox_deliveries").Prepared(true).
