@@ -844,7 +844,7 @@ onUnmounted(() => {
 .deployment-init-job-logs-button[aria-expanded="true"] { background: transparent; color: var(--text); filter: none; transform: none; }
 .deployment-init-job-logs-button:focus-visible { outline: 2px solid var(--control-primary); outline-offset: 2px; }
 .deployment-init-job-logs-button svg { width: 18px; height: 18px; }
-.deployment-init-job-logs { margin: 0 0 8px 18px; border-left: 2px solid var(--line); padding: 4px 10px; }
+.deployment-init-job-logs { margin: 0 0 8px; border-left: 2px solid var(--line); padding: 4px 10px; }
 .deployment-init-job-logs pre { max-height: 320px; overflow: auto; white-space: pre; }
 .deployment-counts { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 14px; }
 .deployment-counts > span { display: inline-flex; align-items: center; gap: 10px; min-height: 46px; border: 1px solid var(--border-default); border-radius: 10px; padding: 8px 12px; background: var(--surface-card-soft); color: var(--muted); }
