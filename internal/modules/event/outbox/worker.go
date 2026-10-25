@@ -521,7 +521,10 @@ func (b *Bus) notificationFailure(d delivery, code string) *events.SendNotificat
 }
 
 func (b *Bus) notificationSuccess(d delivery) *events.NotificationSent {
-	if d.eventType == events.TypeNameSendNotificationFailed || d.eventType == events.TypeNameNotificationSent {
+	// Delivery failures must not recursively produce failure events, but a real
+	// successful delivery of SendNotificationFailed can recover its destination.
+	// NotificationSent itself must never generate another success event.
+	if d.eventType == events.TypeNameNotificationSent {
 		return nil
 	}
 	destination, channel, key, ok := b.notificationMetadata(d)
