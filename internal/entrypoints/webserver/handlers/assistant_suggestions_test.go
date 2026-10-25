@@ -17,6 +17,7 @@ import (
 	alertmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	alertstore "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
+	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	gitopsmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
@@ -239,7 +240,7 @@ func createSuccessfulDeployment(
 	commit string,
 ) {
 	t.Helper()
-	service := deployment.NewService(db, outbox.New(db))
+	service := deployment.NewService(db, eventbus.NewOutboxDispatcher(outbox.New(db)))
 	attempt, err := service.StartIfChanged(t.Context(), stack, commit, file, true)
 	require.NoError(t, err)
 	require.NotNil(t, attempt)

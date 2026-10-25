@@ -5,17 +5,17 @@ import (
 	"fmt"
 
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 )
 
 type desiredSubscriber struct {
 	store *deploymentstore.Store
-	next  outbox.Subscriber
+	next  dispatcher.Subscriber
 }
 
 // WithDesired loads redacted effective input by ID rather than embedding Compose in the outbox.
-func WithDesired(store *deploymentstore.Store, next outbox.Subscriber) outbox.Subscriber {
+func WithDesired(store *deploymentstore.Store, next dispatcher.Subscriber) dispatcher.Subscriber {
 	return &desiredSubscriber{store: store, next: next}
 }
 

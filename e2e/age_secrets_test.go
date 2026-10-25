@@ -25,6 +25,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
+	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
@@ -103,7 +104,7 @@ exec "$SWARM_AGE_DOCKER" "$@"
 			stackDeployer := deployer.NewDeployer(100*time.Millisecond, time.Minute, dockerClient, swarmService, &metrics.NopDeploys{},
 				deployer.NewSecretResolver(fileSystem, deployer.NewAgeDecoder(cfg.Spec.SecretRotation.Age.IdentityFile.Content), deployer.PlaintextDecoder{}))
 			r := stackloop.New(cfg, gitx.NewRepository(cfg.Spec.Git, dir), stackDeployer, swarmService,
-				outbox.New(db), &metrics.NopDeploys{}, modelstore.NewSQLStore(db), fileSystem, db)
+				eventbus.NewOutboxDispatcher(outbox.New(db)), &metrics.NopDeploys{}, modelstore.NewSQLStore(db), fileSystem, db)
 			req := stackloop.ReconciliationRequest{Stack: config.StackSpec{Name: stack, ComposeFile: "compose.yaml"}, Commit: "v1"}
 			composePath := filepath.Join(dir, "compose.yaml")
 			writeAgeSwarmFixture(t, dir, identity.Recipient(), "age-private-marker-v1", "mounted-age-v1")

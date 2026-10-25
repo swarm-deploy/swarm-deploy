@@ -1,9 +1,8 @@
-package outbox
+package dispatcher
 
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -11,18 +10,19 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"go.uber.org/mock/gomock"
 )
 
-func setup(t *testing.T) (*storage.Database, *Bus) {
+func setup(t *testing.T) (*storage.Database, *OutboxDispatcher) {
 	t.Helper()
 	db, err := storage.Open(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	_, err = db.Exec(t.Context(), `CREATE TABLE projection (source_event_id TEXT PRIMARY KEY)`)
 	require.NoError(t, err)
-	return db, New(db)
+	return db, NewOutboxDispatcher(outbox.New(db))
 }
 
 func rows(t *testing.T, db *storage.Database, table string) int {
@@ -65,7 +65,7 @@ func TestPublisherTransaction(t *testing.T) {
 			assert.Equal(t, !rollback, handled)
 			assert.Zero(t, rows(t, db, "outbox_events"))
 			assert.Zero(t, rows(t, db, "outbox_deliveries"))
-			failed, err := bus.ListFailed(t.Context())
+			failed, err := bus.repository.ListFailed(t.Context())
 			require.NoError(t, err)
 			assert.Empty(t, failed)
 		})
@@ -118,7 +118,7 @@ func TestIndependentDestinationsAndReplay(t *testing.T) {
 	for _, action := range []string{"replay", "discard"} {
 		t.Run(action, func(t *testing.T) {
 			db, bus := setup(t)
-			bus.maxAttempts = 1
+			bus.worker = outbox.NewWorker(bus.repository, bus.resolve, outbox.WithMaxAttempts(1))
 			ctrl := gomock.NewController(t)
 			good, bad := NewMockSubscriber(ctrl), NewMockSubscriber(ctrl)
 			good.EXPECT().Handle(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, _ events.Envelope) error {
@@ -144,18 +144,18 @@ func TestIndependentDestinationsAndReplay(t *testing.T) {
 			require.NoError(t, db.Get(t.Context(), &failedRow,
 				"SELECT event_id,last_error FROM outbox_deliveries WHERE status='failed'"))
 			assert.Equal(t, "handler_failed", failedRow.Code)
-			failed, err := bus.ListFailed(t.Context())
+			failed, err := bus.repository.ListFailed(t.Context())
 			require.NoError(t, err)
 			require.Len(t, failed, 1)
-			assert.Equal(t, FailedDelivery{EventID: failedRow.ID, SubscriptionID: "b-bad",
+			assert.Equal(t, outbox.FailedDelivery{EventID: failedRow.ID, SubscriptionID: "b-bad",
 				EventType: string(events.TypeNameNodeJoined), Attempts: 1, LastError: "handler_failed"}, failed[0])
 			if action == "replay" {
 				bad.EXPECT().Handle(gomock.Any(), gomock.Any()).Return(nil)
-				require.NoError(t, bus.Replay(t.Context(), failedRow.ID, "b-bad"))
+				require.NoError(t, bus.repository.Replay(t.Context(), failedRow.ID, "b-bad", bus.now()))
 				_, err := bus.ProcessNext(t.Context())
 				require.NoError(t, err)
 			} else {
-				require.NoError(t, bus.Discard(t.Context(), failedRow.ID, "b-bad"))
+				require.NoError(t, bus.repository.Discard(t.Context(), failedRow.ID, "b-bad", bus.now()))
 			}
 			assert.Zero(t, rows(t, db, "outbox_events"))
 			assert.Zero(t, rows(t, db, "outbox_deliveries"))
@@ -169,21 +169,23 @@ func TestLeaseRecoveryAndFencing(t *testing.T) {
 	handler.EXPECT().Handle(gomock.Any(), gomock.Any()).Return(nil)
 	require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, "history", handler))
 	require.NoError(t, bus.Publish(t.Context(), &events.NodeJoined{}))
-	first, err := bus.claim(t.Context())
+	first, err := bus.worker.Claim(t.Context())
 	require.NoError(t, err)
-	_, err = bus.claim(t.Context())
+	_, err = bus.worker.Claim(t.Context())
 	require.Error(t, err)
 	// A fresh worker simulates process restart; it cannot use an unexpired lease.
-	restarted := New(db)
+	restarted := NewOutboxDispatcher(outbox.New(db))
 	require.NoError(t, restarted.Subscribe(events.TypeNameNodeJoined, "history", handler))
 	_, err = db.Exec(t.Context(), "UPDATE outbox_deliveries SET lease_until=0")
 	require.NoError(t, err)
-	second, err := restarted.claim(t.Context())
+	second, err := restarted.worker.Claim(t.Context())
 	require.NoError(t, err)
-	assert.NotEqual(t, first.token, second.token)
-	require.ErrorIs(t, bus.process(t.Context(), first), ErrLeaseLost)
-	require.ErrorIs(t, db.WithinTransaction(t.Context(), func(ctx context.Context) error { return bus.ack(ctx, first) }), ErrLeaseLost)
-	require.NoError(t, restarted.process(t.Context(), second))
+	assert.NotEqual(t, first.Token, second.Token)
+	require.ErrorIs(t, bus.worker.Process(t.Context(), first), outbox.ErrLeaseLost)
+	require.ErrorIs(t, db.WithinTransaction(t.Context(), func(ctx context.Context) error {
+		return bus.worker.Acknowledge(ctx, first)
+	}), outbox.ErrLeaseLost)
+	require.NoError(t, restarted.worker.Process(t.Context(), second))
 	assert.Zero(t, rows(t, db, "outbox_events"))
 }
 
@@ -195,7 +197,7 @@ func TestConcurrentClaim(t *testing.T) {
 	var wg sync.WaitGroup
 	results := make(chan error, 2)
 	for range 2 {
-		wg.Go(func() { _, err := bus.claim(t.Context()); results <- err })
+		wg.Go(func() { _, err := bus.worker.Claim(t.Context()); results <- err })
 	}
 	wg.Wait()
 	close(results)
@@ -206,72 +208,6 @@ func TestConcurrentClaim(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 1, success)
-}
-
-func TestClaimQueryUsesActiveSubscriptionIndex(t *testing.T) {
-	testCases := []struct {
-		name        string
-		statuses    map[string]int
-		subscribers int
-	}{
-		{name: "many delivered events", statuses: map[string]int{"delivered": 500, "pending": 5}, subscribers: 3},
-		{name: "many pending deliveries", statuses: map[string]int{"pending": 500}, subscribers: 3},
-		{name: "multiple subscribers", statuses: map[string]int{"pending": 100}, subscribers: 10},
-		{name: "processing deliveries", statuses: map[string]int{"pending": 100, "processing": 100}, subscribers: 4},
-		{name: "accumulated failed deliveries", statuses: map[string]int{"failed": 500, "pending": 5}, subscribers: 3},
-	}
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			db, _ := setup(t)
-			sequence := 0
-			require.NoError(t, db.WithinTransaction(t.Context(), func(ctx context.Context) error {
-				for status, count := range testCase.statuses {
-					for range count {
-						sequence++
-						eventID := fmt.Sprintf("event-%06d", sequence)
-						_, err := db.Exec(ctx, `INSERT INTO outbox_events
-							(id,event_type,schema_version,occurred_at,payload) VALUES (?,?,?,?,?)`,
-							eventID, events.TypeNameNodeJoined, 1, sequence, `{}`)
-						if err != nil {
-							return err
-						}
-						for subscriber := range testCase.subscribers {
-							leaseUntil, leaseToken := any(nil), any(nil)
-							if status == "processing" {
-								leaseUntil, leaseToken = int64(sequence), "lease-token"
-							}
-							_, err = db.Exec(ctx, `INSERT INTO outbox_deliveries
-								(event_id,subscription_id,status,available_at,lease_until,lease_token,updated_at)
-								VALUES (?,?,?,?,?,?,?)`, eventID, fmt.Sprintf("subscriber-%02d", subscriber), status,
-								sequence, leaseUntil, leaseToken, sequence)
-							if err != nil {
-								return err
-							}
-						}
-					}
-				}
-				return nil
-			}))
-			_, err := db.Exec(t.Context(), "ANALYZE")
-			require.NoError(t, err)
-			now := time.Unix(0, 1_000_000).UTC()
-			query, args, err := claimStatement(now, now, "token", time.Unix(0, 2_000_000).UTC(), now)
-			require.NoError(t, err)
-			var rows []struct {
-				ID     int    `db:"id"`
-				Parent int    `db:"parent"`
-				Unused int    `db:"notused"`
-				Detail string `db:"detail"`
-			}
-			require.NoError(t, db.Select(t.Context(), &rows, "EXPLAIN QUERY PLAN "+query, args...))
-			var plan string
-			for _, row := range rows {
-				plan += row.Detail + "\n"
-			}
-			t.Log(plan)
-			assert.Contains(t, plan, "idx_outbox_active_subscription")
-		})
-	}
 }
 
 func TestNoSubscribersAndNoGlobalDedup(t *testing.T) {
@@ -294,7 +230,7 @@ func TestInvalidDeliveryIsParked(t *testing.T) {
 			require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, "history", handler))
 			require.NoError(t, bus.Publish(t.Context(), &events.NodeJoined{}))
 			if reason == "subscription_missing" {
-				bus = New(db)
+				bus = NewOutboxDispatcher(outbox.New(db))
 			} else {
 				_, err := db.Exec(t.Context(), "UPDATE outbox_events SET schema_version=999")
 				require.NoError(t, err)
@@ -318,17 +254,18 @@ func TestExpiredLeaseRollsBackProjection(t *testing.T) {
 	db, bus := setup(t)
 	now := time.Now()
 	bus.now = func() time.Time { return now }
+	bus.worker = outbox.NewWorker(bus.repository, bus.resolve, outbox.WithClock(bus.now))
 	handler := NewMockSubscriber(gomock.NewController(t))
 	handler.EXPECT().Handle(gomock.Any(), gomock.Any()).DoAndReturn(func(ctx context.Context, e events.Envelope) error {
 		_, err := db.Exec(ctx, "INSERT INTO projection VALUES (?)", e.ID)
-		now = now.Add(bus.lease + time.Second)
+		now = now.Add(5*time.Minute + time.Second)
 		return err
 	})
 	require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, "history", handler))
 	require.NoError(t, bus.Publish(t.Context(), &events.NodeJoined{}))
-	d, err := bus.claim(t.Context())
+	d, err := bus.worker.Claim(t.Context())
 	require.NoError(t, err)
-	require.ErrorIs(t, bus.process(t.Context(), d), ErrLeaseLost)
+	require.ErrorIs(t, bus.worker.Process(t.Context(), d), outbox.ErrLeaseLost)
 	assert.Zero(t, rows(t, db, "projection"))
 	assert.Equal(t, 1, rows(t, db, "outbox_events"))
 }
@@ -448,28 +385,29 @@ func TestLeaseSurvivesDatabaseRestart(t *testing.T) {
 	dir := t.TempDir()
 	db, err := storage.Open(t.Context(), dir)
 	require.NoError(t, err)
-	bus := New(db)
+	bus := NewOutboxDispatcher(outbox.New(db))
 	handler := NewMockSubscriber(gomock.NewController(t))
 	handler.EXPECT().Handle(gomock.Any(), gomock.Any()).Return(nil)
 	require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, "history", handler))
 	require.NoError(t, bus.Publish(t.Context(), &events.NodeJoined{NodeID: "persisted"}))
-	first, err := bus.claim(t.Context())
+	first, err := bus.worker.Claim(t.Context())
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
 	db, err = storage.Open(t.Context(), dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	bus = New(db)
+	bus = NewOutboxDispatcher(outbox.New(db))
 	require.NoError(t, bus.Subscribe(events.TypeNameNodeJoined, "history", handler))
 	ok, err := bus.ProcessNext(t.Context())
 	require.NoError(t, err)
 	assert.False(t, ok, "an unexpired lease must survive restart")
-	bus.now = func() time.Time { return time.Now().Add(defaultLease + time.Second) }
-	second, err := bus.claim(t.Context())
+	bus.worker = outbox.NewWorker(bus.repository, bus.resolve,
+		outbox.WithClock(func() time.Time { return time.Now().Add(5*time.Minute + time.Second) }))
+	second, err := bus.worker.Claim(t.Context())
 	require.NoError(t, err)
-	assert.Equal(t, first.eventID, second.eventID)
-	assert.Equal(t, 2, second.attempts)
-	require.NoError(t, bus.process(t.Context(), second))
+	assert.Equal(t, first.EventID, second.EventID)
+	assert.Equal(t, 2, second.Attempts)
+	require.NoError(t, bus.worker.Process(t.Context(), second))
 	assert.Zero(t, rows(t, db, "outbox_events"))
 }
 

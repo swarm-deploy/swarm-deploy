@@ -20,6 +20,7 @@ import (
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
+	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
@@ -37,7 +38,7 @@ func TestReconcileDeploymentBoundaries(t *testing.T) {
 		t.Run(scenario, func(t *testing.T) {
 			ctx := context.Background()
 			db, state := newSQLState(t)
-			bus := outbox.New(db)
+			bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 			hist, err := history.NewSQLStore(db, 50)
 			require.NoError(t, err)
 			require.NoError(t, bus.Subscribe(events.TypeNameDeploySuccess, "history", hist))
@@ -112,7 +113,7 @@ func TestReconcileDeploymentBoundaries(t *testing.T) {
 func TestReconcileRecoversFailedResultPersistenceInSameProcess(t *testing.T) {
 	ctx := context.Background()
 	db, state := newSQLState(t)
-	bus := outbox.New(db)
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 	hist, err := history.NewSQLStore(db, 10)
 	require.NoError(t, err)
 	require.NoError(t, bus.Subscribe(events.TypeNameDeployFailed, "history", hist))
@@ -164,7 +165,7 @@ func TestReconcileRecoversFailedResultPersistenceInSameProcess(t *testing.T) {
 func TestReconcileRecoversInterruptedCompletionConflictAndAppliesCorrectedDesiredState(t *testing.T) {
 	ctx := context.Background()
 	db, state := newSQLState(t)
-	bus := outbox.New(db)
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 	hist, err := history.NewSQLStore(db, 10)
 	require.NoError(t, err)
 	require.NoError(t, bus.Subscribe(events.TypeNameDeployFailed, "failed-history", hist))
@@ -225,7 +226,7 @@ func TestReconcileRecoversInterruptedCompletionConflictAndAppliesCorrectedDesire
 func TestReconcileRecoversSucceededCompletionConflictWithoutContradictoryOutcome(t *testing.T) {
 	ctx := context.Background()
 	db, state := newSQLState(t)
-	bus := outbox.New(db)
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 	hist, err := history.NewSQLStore(db, 10)
 	require.NoError(t, err)
 	require.NoError(t, bus.Subscribe(events.TypeNameDeployFailed, "failed-history", hist))
@@ -281,7 +282,7 @@ func TestReconcileRecoversSucceededCompletionConflictWithoutContradictoryOutcome
 func TestPreparationFailureStateAndPublicationAreAtomicAndSecretSafe(t *testing.T) {
 	ctx := context.Background()
 	db, state := newSQLState(t)
-	bus := outbox.New(db)
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 	hist, err := history.NewSQLStore(db, 10)
 	require.NoError(t, err)
 	require.NoError(t, bus.Subscribe(events.TypeNameDeployPreparationFailed, "history", hist))
@@ -318,7 +319,7 @@ func TestPendingFailureRecoveryPreservesTemporaryClassification(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/temporary=%t", step, temporary), func(t *testing.T) {
 				ctx := context.Background()
 				db, state := newSQLState(t)
-				bus := outbox.New(db)
+				bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 				hist, err := history.NewSQLStore(db, 10)
 				require.NoError(t, err)
 				typ := events.TypeNameDeployFailed
@@ -374,7 +375,7 @@ func TestPreparationFailurePreservesTemporaryClassification(t *testing.T) {
 		t.Run(fmt.Sprint(temporary), func(t *testing.T) {
 			ctx := context.Background()
 			db, state := newSQLState(t)
-			bus := outbox.New(db)
+			bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 			hist, err := history.NewSQLStore(db, 10)
 			require.NoError(t, err)
 			require.NoError(t, bus.Subscribe(events.TypeNameDeployPreparationFailed, "history", hist))

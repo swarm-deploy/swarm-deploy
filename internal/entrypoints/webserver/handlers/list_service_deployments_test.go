@@ -10,6 +10,7 @@ import (
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
+	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	gitopsmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
@@ -22,7 +23,7 @@ func TestListServiceDeploymentsReadsDeploymentStore(t *testing.T) {
 	db, err := storage.Open(ctx, t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	svc := deployment.NewService(db, outbox.New(db))
+	svc := deployment.NewService(db, eventbus.NewOutboxDispatcher(outbox.New(db)))
 	h := &handler{deployments: deploymentstore.NewStore(db)}
 
 	file := func(services ...compose.Service) compose.File {

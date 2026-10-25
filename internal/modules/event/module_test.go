@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
 	eventmetrics "github.com/swarm-deploy/swarm-deploy/internal/modules/event/metrics"
@@ -19,7 +20,7 @@ func TestHistoryAndMetricsKeepIndependentPolicies(t *testing.T) {
 	db, err := storage.Open(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	bus := outbox.New(db)
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 	hist, err := history.NewSQLStore(db, 100)
 	require.NoError(t, err)
 	group := metrics.NewGroup(metrics.CreateGroupParams{Namespace: "test"})

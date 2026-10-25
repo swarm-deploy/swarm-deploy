@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
@@ -293,7 +294,7 @@ func TestSubscriberHandle(t *testing.T) {
 				Services: inspector,
 				Images:   images,
 				Configs:  configs,
-			}, metadata.NewExtractor(), db, outbox.New(db))
+			}, metadata.NewExtractor(), db, eventbus.NewOutboxDispatcher(outbox.New(db)))
 			serviceRef := swarm.NewServiceReference("payments", "api")
 			testCase.setupMocks(inspector, images, serviceRef)
 
@@ -430,7 +431,7 @@ func TestSubscriberHandleLoadsWebRouteConfigs(t *testing.T) {
 				Services: inspector,
 				Images:   images,
 				Configs:  configs,
-			}, metadata.NewExtractor(), db, outbox.New(db))
+			}, metadata.NewExtractor(), db, eventbus.NewOutboxDispatcher(outbox.New(db)))
 
 			err = sub.Handle(context.Background(), events.Envelope{ID: "deploy", Event: &events.DeploySuccess{
 				DeployEvent: events.DeployEvent{
