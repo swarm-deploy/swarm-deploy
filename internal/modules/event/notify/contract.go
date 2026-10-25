@@ -22,11 +22,11 @@ func StandardTemplate(eventType events.TypeName) (string, bool) {
 		return eventnotifications.DefaultTemplate(), true
 	case events.TypeNameAssistantPromptInjectionDetected:
 		return eventnotifications.DefaultTemplate(), true
-	case events.TypeNameSendNotificationFailed:
-		return eventnotifications.DefaultTemplate(), true
 	case events.TypeNameDeployFailed, events.TypeNameDeployPreparationFailed, events.TypeNameDeployInterrupted,
 		events.TypeNameAlertOpened, events.TypeNameAlertResolved, events.TypeNameConfigurationChanged,
-		events.TypeNameGitPullFailed, events.TypeNameGitPullSucceeded:
+		events.TypeNameGitPullFailed, events.TypeNameGitPullSucceeded, events.TypeNameSendNotificationFailed,
+		events.TypeNameMessengerUnavailable, events.TypeNameMessengerAvailable,
+		events.TypeNameMessengerMisconfigured, events.TypeNameMessengerDeliverySucceeded:
 		return "", false
 	default:
 		return "", false
@@ -54,11 +54,11 @@ func ReferencePayloads(eventType events.TypeName) ([]any, bool) {
 		return []any{eventnotifications.SecurityReferencePayload()}, true
 	case events.TypeNameAssistantPromptInjectionDetected:
 		return []any{eventnotifications.AssistantReferencePayload()}, true
-	case events.TypeNameSendNotificationFailed:
-		return []any{eventnotifications.ReferencePayload()}, true
 	case events.TypeNameDeployFailed, events.TypeNameDeployPreparationFailed, events.TypeNameDeployInterrupted,
 		events.TypeNameAlertOpened, events.TypeNameAlertResolved, events.TypeNameConfigurationChanged,
-		events.TypeNameGitPullFailed, events.TypeNameGitPullSucceeded:
+		events.TypeNameGitPullFailed, events.TypeNameGitPullSucceeded, events.TypeNameSendNotificationFailed,
+		events.TypeNameMessengerUnavailable, events.TypeNameMessengerAvailable,
+		events.TypeNameMessengerMisconfigured, events.TypeNameMessengerDeliverySucceeded:
 		return nil, false
 	default:
 		return nil, false

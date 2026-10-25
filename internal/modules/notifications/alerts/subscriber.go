@@ -269,6 +269,8 @@ func (s *Subscriber) notifier(message, parseMode string) (notifiers.Notifier, er
 		return nil, fmt.Errorf("telegram credentials unavailable for alert recipient")
 	}
 	return notifiers.NewTelegramNotifier(s.recipient.ChatID, string(telegram.BotToken.Content), s.recipient.ChatID,
+		// Alert lifecycle delivery does not emit messenger health events, preventing recursive incidents.
+		&dispatcher.NopDispatcher{},
 		notifiers.TelegramOptions{ChatThreadID: s.recipient.ThreadID, Message: message,
 			ParseMode: parseMode, Retries: telegram.Retries,
 			SOCKS5Address: telegram.Proxy.SOCKS5.Address.Value, APIBaseURL: s.apiBaseURL})

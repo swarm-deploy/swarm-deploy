@@ -24,6 +24,18 @@ func encodeInternal(event events.Event) ([]byte, bool, error) {
 		}
 		payload, err := json.Marshal(gitPullSucceededPayload{Repository: e.Repository, TriggerReason: e.TriggerReason})
 		return payload, true, err
+	case *events.MessengerUnavailable:
+		payload, err := encodeMessengerObservation(e.ResourceID, e.ErrorCode, e.Description)
+		return payload, true, err
+	case *events.MessengerAvailable:
+		payload, err := encodeMessengerObservation(e.ResourceID, "", "")
+		return payload, true, err
+	case *events.MessengerMisconfigured:
+		payload, err := encodeMessengerObservation(e.ResourceID, e.ErrorCode, e.Description)
+		return payload, true, err
+	case *events.MessengerDeliverySucceeded:
+		payload, err := encodeMessengerObservation(e.ResourceID, "", "")
+		return payload, true, err
 	default:
 		return nil, false, nil
 	}

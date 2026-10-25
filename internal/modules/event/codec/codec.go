@@ -94,12 +94,17 @@ func Encode(event events.Event) ([]byte, error) {
 }
 
 // Decode rejects unsupported schema versions and types without losing the delivery.
+//
+//nolint:funlen // Keep the durable event type allowlist together so it remains auditable.
 func Decode(typ events.TypeName, version int, payload []byte) (events.Event, error) {
 	if version != Version {
 		return nil, fmt.Errorf("unsupported event schema version %d", version)
 	}
 	if isDeploymentFailureType(typ) {
 		return decodeDeploymentFailure(typ, payload)
+	}
+	if isMessengerObservationType(typ) {
+		return decodeMessengerEvent(typ, payload)
 	}
 	switch typ { //nolint:exhaustive // Failure events are decoded by decodeDeploymentFailure above.
 	case events.TypeNameConfigurationChanged:

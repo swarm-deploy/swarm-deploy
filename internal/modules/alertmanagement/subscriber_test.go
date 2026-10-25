@@ -98,6 +98,61 @@ func TestSubscriberDeploymentLifecycle(t *testing.T) {
 
 }
 
+func TestSubscriberMessengerAlertLifecycle(t *testing.T) {
+	ctx := t.Context()
+	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
+	subscriber := newTestSubscriber(store)
+
+	for _, event := range []events.Event{
+		&events.MessengerUnavailable{ResourceID: "telegram", ErrorCode: "dns_error",
+			Description: "Messenger DNS lookup failed"},
+		&events.MessengerUnavailable{ResourceID: "telegram", ErrorCode: "timeout",
+			Description: "Messenger connection timed out"},
+	} {
+		require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: event.Type().String(), Event: event}))
+	}
+	open, err := store.List(ctx, modelstore.ListFilter{Status: model.AlertStatusOpen})
+	require.NoError(t, err)
+	require.Len(t, open, 1)
+	assert.Equal(t, model.AlertKindMessengerUnavailable, open[0].Kind)
+	assert.Equal(t, model.ResourceTypeMessenger, open[0].ResourceType)
+	assert.Equal(t, "telegram", open[0].ResourceID)
+	assert.Equal(t, "messenger_unavailable:telegram", open[0].Fingerprint)
+	assert.EqualValues(t, 2, open[0].Occurrences)
+	assert.Equal(t, "timeout", open[0].ErrorCode)
+
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "available",
+		Event: &events.MessengerAvailable{ResourceID: "telegram"}}))
+	resolved, err := store.List(ctx, modelstore.ListFilter{Status: model.AlertStatusResolved})
+	require.NoError(t, err)
+	require.Len(t, resolved, 1)
+	require.NotNil(t, resolved[0].Resolution)
+	assert.Equal(t, model.ResolutionReasonRecovered, resolved[0].Resolution.Reason)
+}
+
+func TestSubscriberMessengerMisconfigurationIsChannelSpecific(t *testing.T) {
+	ctx := t.Context()
+	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
+	subscriber := newTestSubscriber(store)
+
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "failed",
+		Event: &events.MessengerMisconfigured{ResourceID: "telegram:production", ErrorCode: "chat_not_found",
+			Description: "Messenger chat was not found"}}))
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "other-success",
+		Event: &events.MessengerDeliverySucceeded{ResourceID: "telegram:staging"}}))
+	open, err := store.List(ctx, modelstore.ListFilter{Status: model.AlertStatusOpen})
+	require.NoError(t, err)
+	require.Len(t, open, 1)
+	assert.Equal(t, "messenger_misconfigured:telegram:production", open[0].Fingerprint)
+
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "production-success",
+		Event: &events.MessengerDeliverySucceeded{ResourceID: "telegram:production"}}))
+	alerts, err := store.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 1)
+	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
+}
+
 func TestSubscriberMasksDiagnosticsAndPreservesUsefulDetailOnGenericRepeat(t *testing.T) {
 	ctx := context.Background()
 	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))

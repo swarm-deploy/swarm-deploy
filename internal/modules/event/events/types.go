@@ -24,7 +24,15 @@ const (
 	TypeNameGitPullFailed TypeName = "GitPullFailed"
 	// TypeNameGitPullSucceeded is an internal durable Git accessibility recovery.
 	TypeNameGitPullSucceeded TypeName = "GitPullSucceeded"
-	TypeNameDeployFailed     TypeName = "DeployFailed"
+	// TypeNameMessengerUnavailable is an internal messenger connectivity observation.
+	TypeNameMessengerUnavailable TypeName = "MessengerUnavailable"
+	// TypeNameMessengerAvailable is an internal messenger connectivity recovery.
+	TypeNameMessengerAvailable TypeName = "MessengerAvailable"
+	// TypeNameMessengerMisconfigured is an internal messenger configuration observation.
+	TypeNameMessengerMisconfigured TypeName = "MessengerMisconfigured"
+	// TypeNameMessengerDeliverySucceeded is an internal messenger configuration recovery.
+	TypeNameMessengerDeliverySucceeded TypeName = "MessengerDeliverySucceeded"
+	TypeNameDeployFailed               TypeName = "DeployFailed"
 	// TypeNameConfigurationChanged is an internal accepted-configuration signal.
 	TypeNameConfigurationChanged TypeName = "ConfigurationChanged"
 	// TypeNameDeployPreparationFailed is an internal durable lifecycle fact, not a configurable event name.
@@ -113,6 +121,18 @@ var (
 	TypeAlertResolved        = Type{name: TypeNameAlertResolved, severity: SeverityInfo, category: CategorySync}
 	TypeGitPullFailed        = Type{name: TypeNameGitPullFailed, severity: SeverityAlert, category: CategorySync}
 	TypeGitPullSucceeded     = Type{name: TypeNameGitPullSucceeded, severity: SeverityInfo, category: CategorySync}
+	TypeMessengerUnavailable = Type{
+		name: TypeNameMessengerUnavailable, severity: SeverityError, category: CategorySync,
+	}
+	TypeMessengerAvailable = Type{
+		name: TypeNameMessengerAvailable, severity: SeverityInfo, category: CategorySync,
+	}
+	TypeMessengerMisconfigured = Type{
+		name: TypeNameMessengerMisconfigured, severity: SeverityError, category: CategorySync,
+	}
+	TypeMessengerDeliverySucceeded = Type{
+		name: TypeNameMessengerDeliverySucceeded, severity: SeverityInfo, category: CategorySync,
+	}
 	TypeConfigurationChanged = Type{
 		name: TypeNameConfigurationChanged, severity: SeverityInfo, category: CategorySync,
 	}
@@ -130,7 +150,6 @@ var (
 	}
 	TypeSendNotificationFailed = Type{
 		name:     TypeNameSendNotificationFailed,
-		isPublic: true,
 		severity: SeverityError,
 		category: CategorySync,
 		window:   1 * time.Hour,
@@ -231,6 +250,10 @@ var (
 		TypeAlertResolved,
 		TypeGitPullFailed,
 		TypeGitPullSucceeded,
+		TypeMessengerUnavailable,
+		TypeMessengerAvailable,
+		TypeMessengerMisconfigured,
+		TypeMessengerDeliverySucceeded,
 		TypeConfigurationChanged,
 		TypeDeployFailed,
 		TypeDeployPreparationFailed,

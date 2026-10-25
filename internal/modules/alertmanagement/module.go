@@ -36,9 +36,10 @@ type Container interface {
 func InitModule(ctx context.Context, cfg *config.Config, container Container) (*Module, error) {
 	store := modelstore.NewSQLStore(container.GetStorage())
 	dispatcher := container.GetEventModule().Dispatcher
-	subscriber := NewSQLSubscriber(store, dispatcher, func(kind model.AlertKind) []events.AlertRecipient {
-		return cfg.Spec.Notifications.AlertRecipients(string(kind))
-	}, container.GetConfigStore())
+	subscriber := NewSQLSubscriberWithResources(store, dispatcher,
+		func(kind model.AlertKind, resourceID string) []events.AlertRecipient {
+			return cfg.Spec.Notifications.AlertRecipientsFor(string(kind), resourceID)
+		}, container.GetConfigStore())
 	module := &Module{Store: store, Subscriber: subscriber}
 	if err := eventdispatcher.SubscribeMany(dispatcher, []events.TypeName{
 		events.TypeNameConfigurationChanged,
@@ -46,6 +47,8 @@ func InitModule(ctx context.Context, cfg *config.Config, container Container) (*
 		events.TypeNameDeployInterrupted, events.TypeNameDeploySuccess,
 		events.TypeNameNodeDisconnected, events.TypeNameNodeConnected,
 		events.TypeNameGitPullFailed, events.TypeNameGitPullSucceeded,
+		events.TypeNameMessengerUnavailable, events.TypeNameMessengerAvailable,
+		events.TypeNameMessengerMisconfigured, events.TypeNameMessengerDeliverySucceeded,
 	}, "alert-management", subscriber); err != nil {
 		return nil, err
 	}

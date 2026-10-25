@@ -90,6 +90,34 @@ func TestNodeAlertRecoveryIgnoresDelayedFailure(t *testing.T) {
 	assert.EqualValues(t, 1, alerts[0].Occurrences)
 }
 
+func TestMessengerRecoverySurvivesRestartAndIgnoresDelayedFailure(t *testing.T) {
+	ctx := t.Context()
+	dir := t.TempDir()
+	at := time.Now().UTC()
+	db, err := storage.Open(ctx, dir)
+	require.NoError(t, err)
+	subscriber := newTestSQLSubscriber(modelstore.NewSQLStore(db))
+	failure := events.Envelope{ID: "001", OccurredAt: at, Event: &events.MessengerUnavailable{
+		ResourceID: "telegram", ErrorCode: "dns_error", Description: "Messenger DNS lookup failed",
+	}}
+	require.NoError(t, subscriber.Handle(ctx, failure))
+	require.NoError(t, db.Close())
+
+	db, err = storage.Open(ctx, dir)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	repo := modelstore.NewSQLStore(db)
+	subscriber = newTestSQLSubscriber(repo)
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "003", OccurredAt: at.Add(time.Second),
+		Event: &events.MessengerAvailable{ResourceID: "telegram"}}))
+	require.NoError(t, subscriber.Handle(ctx, failure))
+	alerts, err := repo.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 1)
+	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
+	assert.EqualValues(t, 1, alerts[0].Occurrences)
+}
+
 func TestPreparationAndInterruptedFailuresShareDeploymentAlertLifecycle(t *testing.T) {
 	ctx := context.Background()
 	db, err := storage.Open(ctx, t.TempDir())
