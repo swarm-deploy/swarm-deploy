@@ -315,7 +315,7 @@ func TestFreshDatabaseEnforcesForeignKeysAndChecks(t *testing.T) {
 	var appliedVersions int
 	require.NoError(t, db.Get(t.Context(), &appliedVersions,
 		"SELECT count(*) FROM goose_db_version WHERE version_id > 0 AND is_applied = 1"))
-	assert.Equal(t, 4, appliedVersions)
+	assert.Equal(t, 3, appliedVersions)
 }
 
 func TestRestartAndRollback(t *testing.T) {
