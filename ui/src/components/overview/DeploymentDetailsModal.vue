@@ -794,7 +794,7 @@ onUnmounted(() => {
 .deployment-attempt-status--interrupted,
 .deployment-attempt-status--pending { background: var(--muted); }
 .deployment-attempt-row .deployment-chevron { justify-self: end; color: var(--muted); }
-.deployment-attempt-details { min-width: 0; padding: 2px 38px 14px 36px; }
+.deployment-attempt-details { min-width: 0; padding: 2px 38px 14px 0; }
 .deployment-attempt-details-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .deployment-attempt-details-heading strong { font-size: .78rem; }
 .deployment-attempt-details-actions { display: flex; align-items: center; gap: 4px; }
@@ -1022,7 +1022,7 @@ summary.deployment-resource-heading { cursor: pointer; }
   .deployment-attempt-stage { grid-column: 2; grid-row: 2; }
   .deployment-attempt-duration { grid-column: 3; grid-row: 1 / span 2; }
   .deployment-attempt-row .deployment-chevron { grid-column: 4; grid-row: 1 / span 2; }
-  .deployment-attempt-details { padding: 2px 8px 14px 28px; }
+  .deployment-attempt-details { padding: 2px 8px 14px 0; }
   .deployment-counts > span { flex: 1 1 calc(50% - 10px); min-width: 0; gap: 8px; padding: 9px 10px; }
   .deployment-service-table-wrap, .deployment-resource-list, .deployment-resource-empty, .deployment-change-section { margin-left: 0; }
   .deployment-change { grid-template-columns: minmax(0, 1fr); gap: 5px; }
