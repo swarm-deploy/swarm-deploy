@@ -817,6 +817,44 @@ func TestNotificationSuccessPublicationIsAtomic(t *testing.T) {
 	assert.Zero(t, successEvents)
 }
 
+
+func TestSuccessfulFailureNotificationSignalsRecoveryWithoutRecursion(t *testing.T) {
+	db, bus := setup(t)
+	controller := gomock.NewController(t)
+	notification := NewMockSubscriber(controller)
+	notification.EXPECT().Handle(gomock.Any(), gomock.Any()).Return(nil).Times(2)
+	recovery := NewMockSubscriber(controller)
+	recovery.EXPECT().Handle(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, envelope events.Envelope) error {
+			sent := envelope.Event.(*events.NotificationSent)
+			assert.Equal(t, events.TypeNameSendNotificationFailed, sent.EventType.Name())
+			assert.Equal(t, "telegram:recipient", sent.DestinationKey)
+			return nil
+		},
+	)
+	require.NoError(t, bus.Subscribe(events.TypeNameSendNotificationFailed, "notification",
+		ExternalNotification(notification, "telegram", "ops", "telegram:recipient")))
+	require.NoError(t, bus.Subscribe(events.TypeNameNotificationSent, "recovery", recovery))
+	// Explicitly deliver the internal success fact to a notification subscriber:
+	// even a successful delivery of that fact must not create another event.
+	require.NoError(t, bus.Subscribe(events.TypeNameNotificationSent, "notification",
+		ExternalNotification(notification, "telegram", "ops", "telegram:recipient")))
+	require.NoError(t, bus.Publish(t.Context(), &events.SendNotificationFailed{
+		EventType: events.TypeNodeJoined, Destination: "telegram",
+		Channel: "ops", DestinationKey: "telegram:recipient", Error: assert.AnError,
+	}))
+
+	for range 3 {
+		handled, err := bus.ProcessNext(t.Context())
+		require.NoError(t, err)
+		require.True(t, handled)
+	}
+	handled, err := bus.ProcessNext(t.Context())
+	require.NoError(t, err)
+	assert.False(t, handled, "NotificationSent must not recursively publish itself")
+	assert.Zero(t, rows(t, db, "outbox_events"))
+}
+
 func TestSendNotificationFailedDeliveryDoesNotRecurse(t *testing.T) {
 	for _, event := range []events.Event{
 		&events.SendNotificationFailed{
