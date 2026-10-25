@@ -8,7 +8,7 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 )
 
 const (
@@ -50,7 +50,7 @@ type deploymentSummaryResponse struct {
 	// Commit identifies the source revision.
 	Commit string `json:"commit"`
 	// Status follows the latest attempt unless the deployment was superseded.
-	Status deployment.Status `json:"status"`
+	Status deploymentmodel.Status `json:"status"`
 	// StartedAt is when the attempt started.
 	StartedAt time.Time `json:"started_at"`
 	// FinishedAt is when the attempt ended.
@@ -60,19 +60,19 @@ type deploymentSummaryResponse struct {
 	// ErrorCode is the safe failure category.
 	ErrorCode string `json:"error_code,omitempty"`
 	// Phase identifies the current or failing lifecycle phase.
-	Phase deployment.Phase `json:"phase"`
+	Phase deploymentmodel.Phase `json:"phase"`
 	// ApplyStatus reports the Docker apply result independently.
-	ApplyStatus deployment.StageStatus `json:"apply_status"`
+	ApplyStatus deploymentmodel.StageStatus `json:"apply_status"`
 	// VerificationStatus reports explicit convergence verification independently.
-	VerificationStatus deployment.StageStatus `json:"verification_status"`
+	VerificationStatus deploymentmodel.StageStatus `json:"verification_status"`
 	// CleanupStatus reports cleanup independently.
-	CleanupStatus deployment.StageStatus `json:"cleanup_status"`
+	CleanupStatus deploymentmodel.StageStatus `json:"cleanup_status"`
 	// ActualStateStatus reports whether live Swarm state was observed.
-	ActualStateStatus deployment.ActualStateStatus `json:"actual_state_status"`
+	ActualStateStatus deploymentmodel.ActualStateStatus `json:"actual_state_status"`
 	// ChangeSummary contains semantic change totals.
-	ChangeSummary deployment.ChangeSummary `json:"change_summary"`
+	ChangeSummary deploymentmodel.ChangeSummary `json:"change_summary"`
 	// ResourceSummary contains affected resource totals.
-	ResourceSummary deployment.ResourceSummary `json:"resource_summary"`
+	ResourceSummary deploymentmodel.ResourceSummary `json:"resource_summary"`
 	// DiffAvailable reports whether semantic diff data is available.
 	DiffAvailable bool `json:"diff_available"`
 	// AttemptCount is the number of pipeline executions for this desired state.
@@ -86,15 +86,15 @@ type deploymentDetailResponse struct {
 	// ObservedAt is when live Swarm state was successfully read.
 	ObservedAt *time.Time `json:"observed_at,omitempty"`
 	// ComparisonBasis identifies the snapshot used for semantic changes.
-	ComparisonBasis deployment.ComparisonBasis `json:"comparison_basis"`
+	ComparisonBasis deploymentmodel.ComparisonBasis `json:"comparison_basis"`
 	// ComparisonStatus reports whether desired/live convergence is known.
-	ComparisonStatus deployment.ComparisonStatus `json:"comparison_status"`
+	ComparisonStatus deploymentmodel.ComparisonStatus `json:"comparison_status"`
 	// BasisDeploymentID identifies the attempt supplying the comparison basis.
 	BasisDeploymentID string `json:"basis_deployment_id,omitempty"`
 	// SemanticChanges contains safe, redacted semantic changes.
-	SemanticChanges []deployment.Change `json:"semantic_changes"`
+	SemanticChanges []deploymentmodel.Change `json:"semantic_changes"`
 	// Attempts contains immutable execution history, newest first.
-	Attempts []deployment.Attempt `json:"attempts"`
+	Attempts []deploymentmodel.Attempt `json:"attempts"`
 }
 
 // NewDeploymentList creates the deployment_list tool.
@@ -193,34 +193,35 @@ func (g *DeploymentGet) Execute(ctx context.Context, request routing.Request) (r
 	}{Deployment: toDeploymentDetailResponse(item)}}, nil
 }
 
-func parseDeploymentListFilter(request deploymentListRequest) (deployment.ListFilter, error) {
+func parseDeploymentListFilter(request deploymentListRequest) (deploymentmodel.ListFilter, error) {
 	status, err := parseDeploymentStatus(request.Status)
 	if err != nil {
-		return deployment.ListFilter{}, err
+		return deploymentmodel.ListFilter{}, err
 	}
 	limit := defaultDeploymentLimit
 	if request.Limit != nil {
 		if *request.Limit < 1 || *request.Limit > maxDeploymentLimit {
-			return deployment.ListFilter{}, fmt.Errorf("limit must be between 1 and %d", maxDeploymentLimit)
+			return deploymentmodel.ListFilter{}, fmt.Errorf("limit must be between 1 and %d", maxDeploymentLimit)
 		}
 		limit = *request.Limit
 	}
-	return deployment.ListFilter{
+	return deploymentmodel.ListFilter{
 		Stack: strings.TrimSpace(request.Stack), Status: status, Limit: limit, Cursor: strings.TrimSpace(request.Cursor),
 	}, nil
 }
 
-func parseDeploymentStatus(value string) (deployment.Status, error) {
-	status := deployment.Status(strings.ToLower(strings.TrimSpace(value)))
+func parseDeploymentStatus(value string) (deploymentmodel.Status, error) {
+	status := deploymentmodel.Status(strings.ToLower(strings.TrimSpace(value)))
 	switch status {
-	case "", deployment.Running, deployment.Succeeded, deployment.Failed, deployment.Interrupted, deployment.Superseded:
+	case "", deploymentmodel.Running, deploymentmodel.Succeeded, deploymentmodel.Failed,
+		deploymentmodel.Interrupted, deploymentmodel.Superseded:
 		return status, nil
 	default:
 		return "", fmt.Errorf("unknown deployment status %q", value)
 	}
 }
 
-func toDeploymentSummaryResponse(item deployment.DeploymentSummary) deploymentSummaryResponse {
+func toDeploymentSummaryResponse(item deploymentmodel.DeploymentSummary) deploymentSummaryResponse {
 	return deploymentSummaryResponse{
 		ID: item.ID, Stack: item.Stack, Commit: item.Commit, Status: item.Status, StartedAt: item.StartedAt,
 		FinishedAt: item.FinishedAt, DurationMS: deploymentDuration(item.StartedAt, item.FinishedAt),
@@ -231,8 +232,8 @@ func toDeploymentSummaryResponse(item deployment.DeploymentSummary) deploymentSu
 	}
 }
 
-func toDeploymentDetailResponse(item deployment.Deployment) deploymentDetailResponse {
-	summary := deployment.DeploymentSummary{
+func toDeploymentDetailResponse(item deploymentmodel.Deployment) deploymentDetailResponse {
+	summary := deploymentmodel.DeploymentSummary{
 		ID: item.ID, Stack: item.Stack, Commit: item.Commit, Status: item.Status, StartedAt: item.StartedAt,
 		FinishedAt: item.FinishedAt, ErrorCode: item.ErrorCode, Phase: item.Phase, ApplyStatus: item.ApplyStatus,
 		VerificationStatus: item.VerificationStatus, CleanupStatus: item.CleanupStatus,

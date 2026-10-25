@@ -13,6 +13,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
@@ -100,7 +101,7 @@ func TestFailedInitJobLogsReachDurableDeploymentDiagnostics(t *testing.T) {
 		ReconciliationRequest{Stack: config.StackSpec{Name: "app"}, Commit: "commit"}, model.Stack{},
 		&pipelinePayload{Attempt: attempt, Desired: &file}, failure))
 
-	saved, err := deployment.NewStore(db).Get(ctx, attempt.DeploymentID)
+	saved, err := deploymentstore.NewStore(db).Get(ctx, attempt.DeploymentID)
 	require.NoError(t, err)
 	assert.Equal(t, "init_failed", saved.ErrorCode)
 	assert.Contains(t, saved.ErrorDiagnostic, "migration failed at revision 17")

@@ -23,9 +23,10 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
+	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
 	sharedfs "github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
@@ -173,19 +174,19 @@ exec "$SWARM_AGE_DOCKER" "$@"
 			// desired state, SQLite/WAL, captured CLI YAML and rendered files
 			// must contain neither age plaintext nor the private key.
 			assertAgeFilesSafe(t, dir, identityPath, identity.String())
-			store := deployment.NewStore(db)
-			deployments, err := store.List(ctx, deployment.ListFilter{})
+			store := deploymentstore.NewStore(db)
+			deployments, err := store.List(ctx, deploymentmodel.ListFilter{})
 			require.NoError(t, err)
 			require.NotEmpty(t, deployments.Deployments)
 			for _, item := range deployments.Deployments {
 				if item.Commit == "init-failure" {
-					assert.Equal(t, deployment.Superseded, item.Status)
+					assert.Equal(t, deploymentmodel.Superseded, item.Status)
 					failed, getErr := store.Get(ctx, item.ID)
 					require.NoError(t, getErr)
 					require.Len(t, failed.Attempts, 1)
-					assert.Equal(t, deployment.Failed, failed.Attempts[0].Status)
+					assert.Equal(t, deploymentmodel.Failed, failed.Attempts[0].Status)
 				} else {
-					assert.Equal(t, deployment.Succeeded, item.Status)
+					assert.Equal(t, deploymentmodel.Succeeded, item.Status)
 				}
 			}
 			original, err := os.ReadFile(composePath)

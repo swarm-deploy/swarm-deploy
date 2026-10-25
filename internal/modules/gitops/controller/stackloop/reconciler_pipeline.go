@@ -12,9 +12,9 @@ import (
 	pipe "github.com/artarts36/gopipe"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/drift"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/pruner"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -27,7 +27,7 @@ const (
 
 type pipelinePayload struct {
 	// Attempt is persisted before any external apply.
-	Attempt      *deployment.Attempt
+	Attempt      *deploymentmodel.Attempt
 	Stack        config.StackSpec
 	Commit       string
 	IsNewDigest  bool

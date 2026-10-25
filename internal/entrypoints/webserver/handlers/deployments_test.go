@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
+	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	gitopsmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
@@ -40,7 +41,7 @@ func TestDeploymentAPIReadsAttemptsWithoutHistory(t *testing.T) {
 		}},
 	}}}}, true)
 	require.NoError(t, err)
-	h := &handler{deployments: deployment.NewStore(db)}
+	h := &handler{deployments: deploymentstore.NewStore(db)}
 	response, err := h.ListDeployments(ctx, generated.ListDeploymentsParams{Stack: generated.NewOptString("app")})
 	require.NoError(t, err)
 	require.Len(t, response.Deployments, 1)
@@ -123,7 +124,7 @@ func TestDeploymentFiltersUsesAllRecordedStacks(t *testing.T) {
 	db, err := storage.Open(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
-	h := &handler{deployments: deployment.NewStore(db)}
+	h := &handler{deployments: deploymentstore.NewStore(db)}
 	service := deployment.NewService(db, outbox.New(db))
 	for _, tc := range []struct {
 		stack   string

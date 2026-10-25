@@ -27,7 +27,8 @@
 ## Project structure
 - `./ui` - Vue frontend
 - `./internal/config` - YAML runtime configuration
-- `./internal/modules/gitops` - GitOps, reconciliation, and deployment lifecycle
+- `./internal/modules/gitops` - GitOps orchestration, reconciliation, and deployment lifecycle execution
+- `./internal/modules/deployments` - Deployment domain models, desired-state snapshots, and persistence
 - `./internal/modules/event` - Event Bus, Outbox, and Event History
 - `./internal/modules/alertmanagement` - Alert Management
 - `./internal/modules/notifications` - Notification delivery

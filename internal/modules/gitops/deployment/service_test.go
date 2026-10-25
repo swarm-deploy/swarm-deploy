@@ -11,6 +11,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
+	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
@@ -25,6 +27,33 @@ func desired(image string) compose.File {
 	}}}}
 }
 
+func legacyDeploymentDetailsPayload(t *testing.T, deployment deploymentmodel.Deployment) string {
+	t.Helper()
+	payload, err := json.Marshal(struct {
+		ErrorDiagnostic    string                            `json:"error_diagnostic,omitempty"`
+		ApplyStatus        deploymentmodel.StageStatus       `json:"apply_status"`
+		VerificationStatus deploymentmodel.StageStatus       `json:"verification_status"`
+		CleanupStatus      deploymentmodel.StageStatus       `json:"cleanup_status"`
+		ActualStateStatus  deploymentmodel.ActualStateStatus `json:"actual_state_status"`
+		ObservedAt         *time.Time                        `json:"observed_at,omitempty"`
+		ComparisonBasis    deploymentmodel.ComparisonBasis   `json:"comparison_basis"`
+		ComparisonStatus   deploymentmodel.ComparisonStatus  `json:"comparison_status"`
+		BasisDeploymentID  string                            `json:"basis_deployment_id,omitempty"`
+		Summary            deploymentmodel.ChangeSummary     `json:"summary"`
+		Resources          deploymentmodel.ResourceSummary   `json:"resources"`
+		DiffAvailable      bool                              `json:"diff_available"`
+	}{
+		ErrorDiagnostic: deployment.ErrorDiagnostic, ApplyStatus: deployment.ApplyStatus,
+		VerificationStatus: deployment.VerificationStatus, CleanupStatus: deployment.CleanupStatus,
+		ActualStateStatus: deployment.ActualStateStatus, ObservedAt: deployment.ObservedAt,
+		ComparisonBasis: deployment.ComparisonBasis, ComparisonStatus: deployment.ComparisonStatus,
+		BasisDeploymentID: deployment.BasisDeploymentID, Summary: deployment.Summary,
+		Resources: deployment.Resources, DiffAvailable: deployment.DiffAvailable,
+	})
+	require.NoError(t, err)
+	return string(payload)
+}
+
 func TestSuccessfulDeploymentIsIndependentOfHistoryFailure(t *testing.T) {
 	ctx := context.Background()
 	db, err := storage.Open(ctx, t.TempDir())
@@ -35,13 +64,13 @@ func TestSuccessfulDeploymentIsIndependentOfHistoryFailure(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, bus.Subscribe(events.TypeNameDeploySuccess, "history", projection))
 	service := NewService(db, bus)
-	repo := NewStore(db)
+	repo := deploymentstore.NewStore(db)
 	attempt, err := service.StartIfChanged(ctx, "app", "commit", desired("api:1"), true)
 	require.NoError(t, err)
 	require.NotNil(t, attempt)
 	current, err := repo.Get(ctx, attempt.DeploymentID)
 	require.NoError(t, err)
-	assert.Equal(t, Running, current.Status)
+	assert.Equal(t, deploymentmodel.Running, current.Status)
 	require.NoError(t, service.Succeed(ctx, attempt.ID, model.Stack{SourceDigest: "source", LastCommit: "commit"}))
 	entries, err := projection.Read(ctx)
 	require.NoError(t, err)
@@ -52,7 +81,7 @@ func TestSuccessfulDeploymentIsIndependentOfHistoryFailure(t *testing.T) {
 	require.NoError(t, err)
 	current, err = repo.Get(ctx, attempt.DeploymentID)
 	require.NoError(t, err)
-	assert.Equal(t, Succeeded, current.Status)
+	assert.Equal(t, deploymentmodel.Succeeded, current.Status)
 	_, err = db.Exec(ctx, "DROP TRIGGER reject_history")
 	require.NoError(t, err)
 	_, err = db.Exec(ctx, "UPDATE outbox_deliveries SET available_at=0")
@@ -65,7 +94,7 @@ func TestSuccessfulDeploymentIsIndependentOfHistoryFailure(t *testing.T) {
 	var pending int
 	require.NoError(t, db.Get(ctx, &pending, "SELECT count(*) FROM outbox_events"))
 	assert.Zero(t, pending)
-	require.ErrorIs(t, service.Fail(ctx, attempt.ID, model.Stack{}, "apply_failed"), ErrNotRunning)
+	require.ErrorIs(t, service.Fail(ctx, attempt.ID, model.Stack{}, "apply_failed"), deploymentstore.ErrNotRunning)
 	same, err := service.StartIfChanged(ctx, "app", "next-commit", desired("api:1"), true)
 	require.NoError(t, err)
 	assert.Nil(t, same)
@@ -89,7 +118,7 @@ func TestFailedCommitAndCrashKeepSuccessfulBaseline(t *testing.T) {
 	_, err = db.Exec(ctx, "CREATE TRIGGER reject_publication BEFORE INSERT ON outbox_events BEGIN SELECT RAISE(ABORT, 'publish failed'); END")
 	require.NoError(t, err)
 	require.Error(t, service.Succeed(ctx, second.ID, model.Stack{LastCommit: "second", SourceDigest: "second"}))
-	baseline, err := NewStore(db).Baseline(ctx, "app")
+	baseline, err := deploymentstore.NewStore(db).Baseline(ctx, "app")
 	require.NoError(t, err)
 	assert.Equal(t, "api:1", baseline.Definition.Compose.Services[0].Image)
 	state, err := modelstore.NewSQLStore(db).Read(ctx)
@@ -108,14 +137,14 @@ func TestFailedCommitAndCrashKeepSuccessfulBaseline(t *testing.T) {
 	service = NewService(db, bus)
 	require.NoError(t, service.InterruptRunning(ctx))
 	require.NoError(t, service.InterruptRunning(ctx))
-	current, err := NewStore(db).Get(ctx, second.DeploymentID)
+	current, err := deploymentstore.NewStore(db).Get(ctx, second.DeploymentID)
 	require.NoError(t, err)
-	assert.Equal(t, Interrupted, current.Status)
+	assert.Equal(t, deploymentmodel.Interrupted, current.Status)
 	var interruptedEvents int
 	require.NoError(t, db.Get(ctx, &interruptedEvents,
 		"SELECT count(*) FROM outbox_events WHERE event_type=?", events.TypeNameDeployInterrupted))
 	assert.Equal(t, 1, interruptedEvents, "orphan recovery must publish exactly one interruption")
-	baseline, err = NewStore(db).Baseline(ctx, "app")
+	baseline, err = deploymentstore.NewStore(db).Baseline(ctx, "app")
 	require.NoError(t, err)
 	assert.Equal(t, "api:1", baseline.Definition.Compose.Services[0].Image)
 	retry, err := service.StartIfChanged(ctx, "app", "second", desired("api:2"), true)
@@ -124,7 +153,7 @@ func TestFailedCommitAndCrashKeepSuccessfulBaseline(t *testing.T) {
 	assert.Equal(t, second.DeploymentID, retry.DeploymentID)
 	assert.NotEqual(t, second.ID, retry.ID)
 	require.NoError(t, service.Succeed(ctx, retry.ID, model.Stack{LastCommit: "second", SourceDigest: "second"}))
-	baseline, err = NewStore(db).Baseline(ctx, "app")
+	baseline, err = deploymentstore.NewStore(db).Baseline(ctx, "app")
 	require.NoError(t, err)
 	assert.Equal(t, "api:2", baseline.Definition.Compose.Services[0].Image)
 }
@@ -135,7 +164,7 @@ func TestRetryReusesDeploymentAndPreservesAttemptHistoryAndDesiredChanges(t *tes
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	service := NewService(db, outbox.New(db))
-	store := NewStore(db)
+	store := deploymentstore.NewStore(db)
 
 	baselineAttempt, err := service.StartIfChanged(ctx, "app", "baseline", desired("api:1"), true)
 	require.NoError(t, err)
@@ -181,19 +210,18 @@ func TestRetryAdoptsLegacyDeploymentProjection(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	service := NewService(db, outbox.New(db))
-	store := NewStore(db)
+	store := deploymentstore.NewStore(db)
 
-	legacyDesired, err := Prepare(desired("api:2"))
+	legacyDesired, err := deploymentmodel.Prepare(desired("api:2"))
 	require.NoError(t, err)
 	desiredPayload, err := json.Marshal(legacyDesired)
 	require.NoError(t, err)
-	detailsPayload, err := json.Marshal(deploymentDetails{
-		ErrorDiagnostic: "legacy diagnostic", ApplyStatus: StageFailed,
-		VerificationStatus: StageSkipped, CleanupStatus: StageSkipped,
-		ActualStateStatus: ActualStateUnknown, ComparisonBasis: BasisNone,
-		ComparisonStatus: ComparisonUnknown, DiffAvailable: true,
+	detailsPayload := legacyDeploymentDetailsPayload(t, deploymentmodel.Deployment{
+		ErrorDiagnostic: "legacy diagnostic", ApplyStatus: deploymentmodel.StageFailed,
+		VerificationStatus: deploymentmodel.StageSkipped, CleanupStatus: deploymentmodel.StageSkipped,
+		ActualStateStatus: deploymentmodel.ActualStateUnknown, ComparisonBasis: deploymentmodel.BasisNone,
+		ComparisonStatus: deploymentmodel.ComparisonUnknown, DiffAvailable: true,
 	})
-	require.NoError(t, err)
 	started := time.Now().UTC().Add(-time.Minute)
 	finished := started.Add(time.Second)
 	const deploymentID = "legacy-deployment"
@@ -229,18 +257,17 @@ func TestLegacyRunningDeploymentIsRecoveredBeforeRetry(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	service := NewService(db, outbox.New(db))
-	store := NewStore(db)
+	store := deploymentstore.NewStore(db)
 
-	legacyDesired, err := Prepare(desired("api:2"))
+	legacyDesired, err := deploymentmodel.Prepare(desired("api:2"))
 	require.NoError(t, err)
 	desiredPayload, err := json.Marshal(legacyDesired)
 	require.NoError(t, err)
-	detailsPayload, err := json.Marshal(deploymentDetails{
-		ApplyStatus: StageRunning, VerificationStatus: StagePending,
-		CleanupStatus: StagePending, ActualStateStatus: ActualStateUnknown,
-		ComparisonBasis: BasisNone, ComparisonStatus: ComparisonUnknown, DiffAvailable: true,
+	detailsPayload := legacyDeploymentDetailsPayload(t, deploymentmodel.Deployment{
+		ApplyStatus: deploymentmodel.StageRunning, VerificationStatus: deploymentmodel.StagePending,
+		CleanupStatus: deploymentmodel.StagePending, ActualStateStatus: deploymentmodel.ActualStateUnknown,
+		ComparisonBasis: deploymentmodel.BasisNone, ComparisonStatus: deploymentmodel.ComparisonUnknown, DiffAvailable: true,
 	})
-	require.NoError(t, err)
 	started := time.Now().UTC().Add(-time.Minute)
 	const deploymentID = "legacy-running-deployment"
 	_, err = db.Exec(ctx, `INSERT INTO deployments
@@ -255,10 +282,10 @@ func TestLegacyRunningDeploymentIsRecoveredBeforeRetry(t *testing.T) {
 	require.NoError(t, service.InterruptRunning(ctx))
 	recovered, err := store.Get(ctx, deploymentID)
 	require.NoError(t, err)
-	assert.Equal(t, Interrupted, recovered.Status)
+	assert.Equal(t, deploymentmodel.Interrupted, recovered.Status)
 	assert.Equal(t, 1, recovered.AttemptCount)
 	require.Len(t, recovered.Attempts, 1)
-	assert.Equal(t, Interrupted, recovered.Attempts[0].Status)
+	assert.Equal(t, deploymentmodel.Interrupted, recovered.Attempts[0].Status)
 	assert.Equal(t, "process_interrupted", recovered.Attempts[0].ErrorCode)
 
 	retry, err := service.StartIfChanged(ctx, "app", "same-state", desired("api:2"), true)
@@ -273,7 +300,7 @@ func TestSupersessionPreservesStoredStatusAndDiagnostics(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	service := NewService(db, outbox.New(db))
-	store := NewStore(db)
+	store := deploymentstore.NewStore(db)
 
 	first, err := service.StartIfChanged(ctx, "app", "first", desired("api:1"), true)
 	require.NoError(t, err)
@@ -284,7 +311,7 @@ func TestSupersessionPreservesStoredStatusAndDiagnostics(t *testing.T) {
 
 	projected, err := store.Get(ctx, first.DeploymentID)
 	require.NoError(t, err)
-	assert.Equal(t, Superseded, projected.Status)
+	assert.Equal(t, deploymentmodel.Superseded, projected.Status)
 	assert.Equal(t, "preserved diagnostic", projected.ErrorDiagnostic)
 	var raw struct {
 		Status     string `db:"status"`
@@ -296,17 +323,17 @@ func TestSupersessionPreservesStoredStatusAndDiagnostics(t *testing.T) {
 	assert.Equal(t, "failed", raw.Status)
 	assert.Equal(t, "preserved diagnostic", raw.Diagnostic)
 
-	superseded, err := store.List(ctx, ListFilter{Status: Superseded})
+	superseded, err := store.List(ctx, deploymentmodel.ListFilter{Status: deploymentmodel.Superseded})
 	require.NoError(t, err)
 	require.Len(t, superseded.Deployments, 1)
 	assert.Equal(t, first.DeploymentID, superseded.Deployments[0].ID)
-	failed, err := store.List(ctx, ListFilter{Status: Failed})
+	failed, err := store.List(ctx, deploymentmodel.ListFilter{Status: deploymentmodel.Failed})
 	require.NoError(t, err)
 	assert.Empty(t, failed.Deployments)
 }
 
 func TestRollbackToBaselineRetriesAfterUnsuccessfulAttempt(t *testing.T) {
-	for _, status := range []Status{Failed, Interrupted} {
+	for _, status := range []deploymentmodel.Status{deploymentmodel.Failed, deploymentmodel.Interrupted} {
 		t.Run(string(status), func(t *testing.T) {
 			ctx := context.Background()
 			db, err := storage.Open(ctx, t.TempDir())
@@ -319,7 +346,7 @@ func TestRollbackToBaselineRetriesAfterUnsuccessfulAttempt(t *testing.T) {
 			second, err := service.StartIfChanged(ctx, "app", "b", desired("api:b"), true)
 			require.NoError(t, err)
 			require.NotNil(t, second)
-			if status == Failed {
+			if status == deploymentmodel.Failed {
 				require.NoError(t, service.Fail(ctx, second.ID, model.Stack{}, "prune_failed"))
 			} else {
 				require.NoError(t, service.InterruptStack(ctx, "app"))
@@ -328,10 +355,10 @@ func TestRollbackToBaselineRetriesAfterUnsuccessfulAttempt(t *testing.T) {
 			require.NoError(t, err)
 			require.NotNil(t, rollback)
 			assert.NotEqual(t, second.DeploymentID, rollback.DeploymentID)
-			stored, getErr := NewStore(db).Get(ctx, rollback.DeploymentID)
+			stored, getErr := deploymentstore.NewStore(db).Get(ctx, rollback.DeploymentID)
 			require.NoError(t, getErr)
-			assert.Equal(t, BasisSuccessfulBaseline, stored.ComparisonBasis)
-			assert.Equal(t, ComparisonUnknown, stored.ComparisonStatus)
+			assert.Equal(t, deploymentmodel.BasisSuccessfulBaseline, stored.ComparisonBasis)
+			assert.Equal(t, deploymentmodel.ComparisonUnknown, stored.ComparisonStatus)
 			assert.Equal(t, first.DeploymentID, stored.BasisDeploymentID)
 			assert.Empty(t, stored.Changes, "changes must stay relative to the successful baseline")
 		})
@@ -354,18 +381,18 @@ func TestListUsesLightweightCursorSummaries(t *testing.T) {
 		require.NoError(t, startErr)
 		require.NoError(t, service.Succeed(ctx, attempt.ID, model.Stack{}))
 	}
-	store := NewStore(db)
-	first, err := store.List(ctx, ListFilter{Limit: 2})
+	store := deploymentstore.NewStore(db)
+	first, err := store.List(ctx, deploymentmodel.ListFilter{Limit: 2})
 	require.NoError(t, err)
 	require.Len(t, first.Deployments, 2)
 	require.NotEmpty(t, first.NextCursor)
 	assert.Equal(t, "c", first.Deployments[0].Commit)
-	assert.Equal(t, StageSucceeded, first.Deployments[0].ApplyStatus)
-	assert.Equal(t, ActualStateUnknown, first.Deployments[0].ActualStateStatus)
-	assert.Equal(t, StageSkipped, first.Deployments[0].VerificationStatus)
-	assert.Equal(t, ComparisonUnknown, first.Deployments[0].ComparisonStatus)
+	assert.Equal(t, deploymentmodel.StageSucceeded, first.Deployments[0].ApplyStatus)
+	assert.Equal(t, deploymentmodel.ActualStateUnknown, first.Deployments[0].ActualStateStatus)
+	assert.Equal(t, deploymentmodel.StageSkipped, first.Deployments[0].VerificationStatus)
+	assert.Equal(t, deploymentmodel.ComparisonUnknown, first.Deployments[0].ComparisonStatus)
 	assert.NotZero(t, first.Deployments[0].Summary.Changed)
-	second, err := store.List(ctx, ListFilter{Limit: 2, Cursor: first.NextCursor})
+	second, err := store.List(ctx, deploymentmodel.ListFilter{Limit: 2, Cursor: first.NextCursor})
 	require.NoError(t, err)
 	require.Len(t, second.Deployments, 1)
 	assert.Empty(t, second.NextCursor)
@@ -373,12 +400,12 @@ func TestListUsesLightweightCursorSummaries(t *testing.T) {
 
 	_, err = db.Exec(ctx, "UPDATE deployments SET changes_payload=json_array('not-an-object')")
 	require.NoError(t, err)
-	_, err = store.List(ctx, ListFilter{})
+	_, err = store.List(ctx, deploymentmodel.ListFilter{})
 	require.NoError(t, err, "list must not decode full change payloads")
 	_, err = store.Get(ctx, first.Deployments[0].ID)
 	require.Error(t, err, "detail still validates and decodes its change payload")
-	_, err = store.List(ctx, ListFilter{Cursor: "malformed"})
-	require.ErrorIs(t, err, ErrInvalidCursor)
+	_, err = store.List(ctx, deploymentmodel.ListFilter{Cursor: "malformed"})
+	require.ErrorIs(t, err, deploymentstore.ErrInvalidCursor)
 }
 
 func TestListFiltersStatusBeforeCursorPagination(t *testing.T) {
@@ -403,13 +430,13 @@ func TestListFiltersStatusBeforeCursorPagination(t *testing.T) {
 		require.NoError(t, service.Fail(ctx, attempt.ID, model.Stack{}, "apply_failed"))
 	}
 
-	store := NewStore(db)
-	first, err := store.List(ctx, ListFilter{Status: Failed, Limit: 2})
+	store := deploymentstore.NewStore(db)
+	first, err := store.List(ctx, deploymentmodel.ListFilter{Status: deploymentmodel.Failed, Limit: 2})
 	require.NoError(t, err)
 	require.Len(t, first.Deployments, 2)
 	require.NotEmpty(t, first.NextCursor)
 	assert.Equal(t, []string{"commit-3", "commit-2"}, []string{first.Deployments[0].Commit, first.Deployments[1].Commit})
-	second, err := store.List(ctx, ListFilter{Status: Failed, Limit: 2, Cursor: first.NextCursor})
+	second, err := store.List(ctx, deploymentmodel.ListFilter{Status: deploymentmodel.Failed, Limit: 2, Cursor: first.NextCursor})
 	require.NoError(t, err)
 	require.Len(t, second.Deployments, 1)
 	assert.Equal(t, "commit-0", second.Deployments[0].Commit)
@@ -422,23 +449,23 @@ func TestDeploymentColumnsStaySynchronizedAndSupportFailureFilters(t *testing.T)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	service := NewService(db, outbox.New(db))
-	repo := NewStore(db)
+	repo := deploymentstore.NewStore(db)
 
 	type completionCase struct {
 		name     string
 		code     string
-		phase    Phase
-		status   Status
+		phase    deploymentmodel.Phase
+		status   deploymentmodel.Status
 		complete func(string) error
 	}
 	testCases := []completionCase{
-		{name: "successful", phase: PhaseCompleted, status: Succeeded,
+		{name: "successful", phase: deploymentmodel.PhaseCompleted, status: deploymentmodel.Succeeded,
 			complete: func(id string) error { return service.Succeed(ctx, id, model.Stack{}) }},
-		{name: "apply error", code: "apply_failed", phase: PhaseApply, status: Failed,
+		{name: "apply error", code: "apply_failed", phase: deploymentmodel.PhaseApply, status: deploymentmodel.Failed,
 			complete: func(id string) error { return service.FailApply(ctx, id, model.Stack{}, "apply_failed") }},
-		{name: "verification error", code: "verification_unknown", phase: PhaseVerification, status: Interrupted,
+		{name: "verification error", code: "verification_unknown", phase: deploymentmodel.PhaseVerification, status: deploymentmodel.Interrupted,
 			complete: func(id string) error { return service.InterruptVerification(ctx, id, model.Stack{}) }},
-		{name: "cleanup error", code: "prune_failed", phase: PhaseCleanup, status: Failed,
+		{name: "cleanup error", code: "prune_failed", phase: deploymentmodel.PhaseCleanup, status: deploymentmodel.Failed,
 			complete: func(id string) error {
 				return service.FailCleanup(ctx, id, model.Stack{}, "prune_failed", time.Now().UTC())
 			}},
@@ -450,7 +477,7 @@ func TestDeploymentColumnsStaySynchronizedAndSupportFailureFilters(t *testing.T)
 				desired(fmt.Sprintf("api:%d", index)), true)
 			require.NoError(t, startErr)
 			require.NotNil(t, attempt)
-			assertDeploymentColumns(t, db, attempt.DeploymentID, "", PhaseApply)
+			assertDeploymentColumns(t, db, attempt.DeploymentID, "", deploymentmodel.PhaseApply)
 			require.NoError(t, testCase.complete(attempt.ID))
 			assertDeploymentColumns(t, db, attempt.DeploymentID, testCase.code, testCase.phase)
 			stored, getErr := repo.Get(ctx, attempt.DeploymentID)
@@ -462,12 +489,12 @@ func TestDeploymentColumnsStaySynchronizedAndSupportFailureFilters(t *testing.T)
 
 	filterCases := []struct {
 		name   string
-		filter ListFilter
+		filter deploymentmodel.ListFilter
 		wantID string
 	}{
-		{name: "error code", filter: ListFilter{ErrorCode: "verification_unknown"}, wantID: ids["verification error"]},
-		{name: "phase", filter: ListFilter{Phase: PhaseApply}, wantID: ids["apply error"]},
-		{name: "combined", filter: ListFilter{ErrorCode: "prune_failed", Phase: PhaseCleanup},
+		{name: "error code", filter: deploymentmodel.ListFilter{ErrorCode: "verification_unknown"}, wantID: ids["verification error"]},
+		{name: "phase", filter: deploymentmodel.ListFilter{Phase: deploymentmodel.PhaseApply}, wantID: ids["apply error"]},
+		{name: "combined", filter: deploymentmodel.ListFilter{ErrorCode: "prune_failed", Phase: deploymentmodel.PhaseCleanup},
 			wantID: ids["cleanup error"]},
 	}
 	for _, filterCase := range filterCases {
@@ -512,12 +539,12 @@ func TestDeploymentIndexesSupportListQueries(t *testing.T) {
 	}
 }
 
-func assertDeploymentColumns(t *testing.T, db *storage.Database, id, errorCode string, phase Phase) {
+func assertDeploymentColumns(t *testing.T, db *storage.Database, id, errorCode string, phase deploymentmodel.Phase) {
 	t.Helper()
 	var row struct {
-		ErrorCode string `db:"error_code"`
-		Phase     Phase  `db:"phase"`
-		Details   []byte `db:"details_payload"`
+		ErrorCode string                `db:"error_code"`
+		Phase     deploymentmodel.Phase `db:"phase"`
+		Details   []byte                `db:"details_payload"`
 	}
 	require.NoError(t, db.Get(t.Context(), &row,
 		"SELECT error_code,phase,details_payload FROM deployments WHERE id=?", id))
@@ -544,9 +571,9 @@ func TestInterruptedTransitionIsAtomicDurableAndIdempotent(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, service.InterruptRunning(ctx))
 	require.NoError(t, service.InterruptRunning(ctx))
-	current, err := NewStore(db).Get(ctx, attempt.DeploymentID)
+	current, err := deploymentstore.NewStore(db).Get(ctx, attempt.DeploymentID)
 	require.NoError(t, err)
-	assert.Equal(t, Interrupted, current.Status)
+	assert.Equal(t, deploymentmodel.Interrupted, current.Status)
 	runtime, err := modelstore.NewSQLStore(db).Read(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, "process_interrupted", runtime.Stacks["app"].LastError)
@@ -554,36 +581,36 @@ func TestInterruptedTransitionIsAtomicDurableAndIdempotent(t *testing.T) {
 	require.NoError(t, db.Get(ctx, &eventsCount,
 		"SELECT count(*) FROM outbox_events WHERE event_type=?", events.TypeNameDeployInterrupted))
 	assert.Equal(t, 1, eventsCount)
-	_, err = NewStore(db).Baseline(ctx, "app")
-	assert.ErrorIs(t, err, ErrNotFound)
+	_, err = deploymentstore.NewStore(db).Baseline(ctx, "app")
+	assert.ErrorIs(t, err, deploymentstore.ErrNotFound)
 }
 
 func TestRollbackRecoverySynchronizesRunningAttemptWithTerminalDeployment(t *testing.T) {
 	tests := []struct {
 		name              string
-		status            Status
+		status            deploymentmodel.Status
 		errorCode         string
 		diagnostic        string
-		phase             Phase
-		apply             StageStatus
-		verification      StageStatus
-		cleanup           StageStatus
+		phase             deploymentmodel.Phase
+		apply             deploymentmodel.StageStatus
+		verification      deploymentmodel.StageStatus
+		cleanup           deploymentmodel.StageStatus
 		wantBaselineImage string
 	}{
 		{
-			name: "succeeded", status: Succeeded, phase: PhaseCompleted,
-			apply: StageSucceeded, verification: StageSkipped, cleanup: StageSucceeded,
+			name: "succeeded", status: deploymentmodel.Succeeded, phase: deploymentmodel.PhaseCompleted,
+			apply: deploymentmodel.StageSucceeded, verification: deploymentmodel.StageSkipped, cleanup: deploymentmodel.StageSucceeded,
 			wantBaselineImage: "api:2",
 		},
 		{
-			name: "failed", status: Failed, errorCode: "apply_failed", diagnostic: "rollback apply failed",
-			phase: PhaseApply, apply: StageFailed, verification: StageSkipped, cleanup: StageSkipped,
+			name: "failed", status: deploymentmodel.Failed, errorCode: "apply_failed", diagnostic: "rollback apply failed",
+			phase: deploymentmodel.PhaseApply, apply: deploymentmodel.StageFailed, verification: deploymentmodel.StageSkipped, cleanup: deploymentmodel.StageSkipped,
 			wantBaselineImage: "api:1",
 		},
 		{
-			name: "interrupted", status: Interrupted, errorCode: "verification_unknown",
-			diagnostic: "rollback verification interrupted", phase: PhaseVerification,
-			apply: StageSucceeded, verification: StageUnknown, cleanup: StageSkipped,
+			name: "interrupted", status: deploymentmodel.Interrupted, errorCode: "verification_unknown",
+			diagnostic: "rollback verification interrupted", phase: deploymentmodel.PhaseVerification,
+			apply: deploymentmodel.StageSucceeded, verification: deploymentmodel.StageUnknown, cleanup: deploymentmodel.StageSkipped,
 			wantBaselineImage: "api:1",
 		},
 	}
@@ -611,7 +638,7 @@ func TestRollbackRecoverySynchronizesRunningAttemptWithTerminalDeployment(t *tes
 			require.NoError(t, err)
 			require.NotNil(t, attempt)
 
-			store := NewStore(db)
+			store := deploymentstore.NewStore(db)
 			parent, err := store.Get(ctx, attempt.DeploymentID)
 			require.NoError(t, err)
 			finishedAt := time.Date(2026, time.October, 19, 12, 0, 0, 0, time.UTC)
@@ -619,15 +646,15 @@ func TestRollbackRecoverySynchronizesRunningAttemptWithTerminalDeployment(t *tes
 			parent.ErrorCode, parent.ErrorDiagnostic = testCase.errorCode, testCase.diagnostic
 			parent.Phase, parent.ApplyStatus = testCase.phase, testCase.apply
 			parent.VerificationStatus, parent.CleanupStatus = testCase.verification, testCase.cleanup
-			parent.ActualStateStatus, parent.ObservedAt = ActualStateUnknown, nil
-			details, _, err := marshalDeploymentPayloads(parent)
+			parent.ActualStateStatus, parent.ObservedAt = deploymentmodel.ActualStateUnknown, nil
+			details := legacyDeploymentDetailsPayload(t, parent)
 			require.NoError(t, err)
 			_, err = db.Exec(ctx, `UPDATE deployments
 				SET status=?, error_code=?, phase=?, finished_at=?, details_payload=? WHERE id=?`,
 				parent.Status, parent.ErrorCode, parent.Phase, finishedAt, details, parent.ID)
 			require.NoError(t, err)
-			if testCase.status == Succeeded {
-				require.NoError(t, store.saveBaseline(ctx, parent.ID))
+			if testCase.status == deploymentmodel.Succeeded {
+				require.NoError(t, store.SaveBaseline(ctx, parent.ID))
 			}
 
 			desiredState, err := store.Desired(ctx, parent.ID)
@@ -638,14 +665,14 @@ func TestRollbackRecoverySynchronizesRunningAttemptWithTerminalDeployment(t *tes
 			}
 			var oldCompletion events.Event
 			switch testCase.status {
-			case Succeeded:
+			case deploymentmodel.Succeeded:
 				oldCompletion = &events.DeploySuccess{DeployEvent: meta}
-			case Failed:
+			case deploymentmodel.Failed:
 				oldCompletion = &events.DeployFailed{
 					DeployEvent: meta, Error: fmt.Errorf("%s", testCase.diagnostic),
 					ErrorCode: testCase.errorCode, Stage: string(testCase.phase),
 				}
-			case Interrupted:
+			case deploymentmodel.Interrupted:
 				oldCompletion = &events.DeployInterrupted{
 					DeploymentID: parent.ID, StackName: parent.Stack, Commit: parent.Commit,
 					Services: desiredState.Compose.Services, Error: fmt.Errorf("%s", testCase.diagnostic),
@@ -657,11 +684,11 @@ func TestRollbackRecoverySynchronizesRunningAttemptWithTerminalDeployment(t *tes
 			require.NoError(t, bus.Publish(ctx, oldCompletion))
 
 			var before struct {
-				Status         Status    `db:"status"`
-				ErrorCode      string    `db:"error_code"`
-				Phase          Phase     `db:"phase"`
-				FinishedAt     time.Time `db:"finished_at"`
-				DetailsPayload []byte    `db:"details_payload"`
+				Status         deploymentmodel.Status `db:"status"`
+				ErrorCode      string                 `db:"error_code"`
+				Phase          deploymentmodel.Phase  `db:"phase"`
+				FinishedAt     time.Time              `db:"finished_at"`
+				DetailsPayload []byte                 `db:"details_payload"`
 			}
 			require.NoError(t, db.Get(ctx, &before, `SELECT status, error_code, phase, finished_at,
 				details_payload FROM deployments WHERE id=?`, parent.ID))
@@ -686,7 +713,7 @@ func TestRollbackRecoverySynchronizesRunningAttemptWithTerminalDeployment(t *tes
 				require.NoError(t, recoveredService.InterruptRunning(ctx))
 			}
 
-			recovered, err := NewStore(db).Get(ctx, parent.ID)
+			recovered, err := deploymentstore.NewStore(db).Get(ctx, parent.ID)
 			require.NoError(t, err)
 			assert.Equal(t, testCase.status, recovered.Status)
 			require.Len(t, recovered.Attempts, 1)
@@ -702,16 +729,16 @@ func TestRollbackRecoverySynchronizesRunningAttemptWithTerminalDeployment(t *tes
 			assert.Equal(t, finishedAt, *recoveredAttempt.FinishedAt)
 
 			var after struct {
-				Status         Status    `db:"status"`
-				ErrorCode      string    `db:"error_code"`
-				Phase          Phase     `db:"phase"`
-				FinishedAt     time.Time `db:"finished_at"`
-				DetailsPayload []byte    `db:"details_payload"`
+				Status         deploymentmodel.Status `db:"status"`
+				ErrorCode      string                 `db:"error_code"`
+				Phase          deploymentmodel.Phase  `db:"phase"`
+				FinishedAt     time.Time              `db:"finished_at"`
+				DetailsPayload []byte                 `db:"details_payload"`
 			}
 			require.NoError(t, db.Get(ctx, &after, `SELECT status, error_code, phase, finished_at,
 				details_payload FROM deployments WHERE id=?`, parent.ID))
 			assert.Equal(t, before, after, "recovery must preserve the old binary's deployment outcome")
-			baseline, err := NewStore(db).Baseline(ctx, "app")
+			baseline, err := deploymentstore.NewStore(db).Baseline(ctx, "app")
 			require.NoError(t, err)
 			assert.Equal(t, testCase.wantBaselineImage, baseline.Definition.Compose.Services[0].Image)
 			var eventsAfter int
@@ -729,14 +756,14 @@ func TestDeploymentPayloadsDoNotDuplicateSQLColumns(t *testing.T) {
 	service := NewService(db, outbox.New(db))
 	attempt, err := service.StartIfChanged(ctx, "app", "commit", desired("api:1"), true)
 	require.NoError(t, err)
-	store := NewStore(db)
+	store := deploymentstore.NewStore(db)
 	stored, err := store.Get(ctx, attempt.DeploymentID)
 	require.NoError(t, err)
 	assert.Equal(t, attempt.ID, stored.LatestAttemptID)
 	assert.Equal(t, 1, stored.AttemptCount)
 	require.Len(t, stored.Attempts, 1)
 	assert.Equal(t, *attempt, stored.Attempts[0])
-	assertDeploymentColumns(t, db, attempt.DeploymentID, "", PhaseApply)
+	assertDeploymentColumns(t, db, attempt.DeploymentID, "", deploymentmodel.PhaseApply)
 }
 
 func TestSnapshotMaskingAndSemanticChanges(t *testing.T) {
@@ -749,7 +776,7 @@ func TestSnapshotMaskingAndSemanticChanges(t *testing.T) {
 		Name: "migrate", Image: "api:1", Entrypoint: []string{"sh", "-c"}, Command: []string{"migrate --token init-secret"},
 	}}
 	beforeFile.Compose.Configs = compose.Configs{"cfg": {Data: []byte("raw-config-secret"), File: "app.cfg"}}
-	before, err := Prepare(beforeFile)
+	before, err := deploymentmodel.Prepare(beforeFile)
 	require.NoError(t, err)
 	payload, err := json.Marshal(before)
 	require.NoError(t, err)
@@ -762,10 +789,10 @@ func TestSnapshotMaskingAndSemanticChanges(t *testing.T) {
 	afterFile := desired("api:2")
 	afterFile.Compose.Services[0].Environment.Map["API_TOKEN"] = "new-secret"
 	afterFile.Compose.Services[0].Environment.Map["MODE"] = "staging"
-	after, err := Prepare(afterFile)
+	after, err := deploymentmodel.Prepare(afterFile)
 	require.NoError(t, err)
-	changes := Compare(before, after)
-	byField := map[string]Change{}
+	changes := deploymentmodel.Compare(before, after)
+	byField := map[string]deploymentmodel.Change{}
 	for _, change := range changes {
 		byField[change.ResourceType+"/"+change.ResourceName+"/"+change.Field] = change
 	}
@@ -784,28 +811,9 @@ func TestSnapshotMaskingAndSemanticChanges(t *testing.T) {
 	afterFile.Path = "/different/checkout/app.yaml"
 	afterFile.Digest = "different-source-format"
 	afterFile.Compose.Services[0].Environment.Keys = []string{"MODE", "API_TOKEN"}
-	same, err := Prepare(afterFile)
+	same, err := deploymentmodel.Prepare(afterFile)
 	require.NoError(t, err)
 	assert.Equal(t, after.Digest, same.Digest)
-}
-
-func TestPublicChangeFieldsHideGoModelRepresentation(t *testing.T) {
-	tests := []struct {
-		name     string
-		path     string
-		expected string
-	}{
-		{name: "environment map", path: "environment/Map/MODE", expected: "environment.MODE"},
-		{name: "command args", path: "command/Args/0", expected: "command[0]"},
-		{name: "inline extra", path: "Extra/entrypoint/Args/0", expected: "entrypoint[0]"},
-		{name: "volume wrappers", path: "volumes/Volumes/0/ReadOnly", expected: "volumes[0].read_only"},
-		{name: "network wrappers", path: "networks/List/0/IPV4Address", expected: "networks[0].ipv4_address"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.expected, publicField(strings.Split(tt.path, "/")))
-		})
-	}
 }
 
 func TestServiceNetworkFieldsDoNotCollide(t *testing.T) {
@@ -817,11 +825,11 @@ func TestServiceNetworkFieldsDoNotCollide(t *testing.T) {
 	afterFile.Compose.Services[0].Networks = compose.NewServiceNetworks(&compose.ServiceNetwork{
 		Alias: "infra", ResolvedName: "wmb-infra", IPV4Address: "10.0.0.3",
 	})
-	before, err := Prepare(beforeFile)
+	before, err := deploymentmodel.Prepare(beforeFile)
 	require.NoError(t, err)
-	after, err := Prepare(afterFile)
+	after, err := deploymentmodel.Prepare(afterFile)
 	require.NoError(t, err)
-	changes := Compare(before, after)
+	changes := deploymentmodel.Compare(before, after)
 	fields := map[string]bool{}
 	for _, change := range changes {
 		key := change.ResourceType + "/" + change.ResourceName + "/" + change.Field
@@ -855,17 +863,17 @@ func TestOpaqueCommandChangesRemainDetectable(t *testing.T) {
 			beforeFile, afterFile := desired("api:1"), desired("api:1")
 			tt.mutate(&beforeFile.Compose.Services[0], "old-secret")
 			tt.mutate(&afterFile.Compose.Services[0], "new-secret")
-			before, err := Prepare(beforeFile)
+			before, err := deploymentmodel.Prepare(beforeFile)
 			require.NoError(t, err)
-			after, err := Prepare(afterFile)
+			after, err := deploymentmodel.Prepare(afterFile)
 			require.NoError(t, err)
 			assert.NotEqual(t, before.Digest, after.Digest)
-			changes := Compare(before, after)
+			changes := deploymentmodel.Compare(before, after)
 			require.NotEmpty(t, changes)
 			encoded, err := json.Marshal(struct {
-				Before  Prepared
-				After   Prepared
-				Changes []Change
+				Before  deploymentmodel.Prepared
+				After   deploymentmodel.Prepared
+				Changes []deploymentmodel.Change
 			}{before, after, changes})
 			require.NoError(t, err)
 			assert.NotContains(t, string(encoded), "old-secret")
@@ -881,13 +889,13 @@ func TestCommandRepresentationAffectsEffectiveDigest(t *testing.T) {
 		require.NoError(t, err)
 		return compose.File{Compose: *parsed}
 	}
-	scalar, err := Prepare(parse(t, "echo hello"))
+	scalar, err := deploymentmodel.Prepare(parse(t, "echo hello"))
 	require.NoError(t, err)
-	list, err := Prepare(parse(t, "[\"echo hello\"]"))
+	list, err := deploymentmodel.Prepare(parse(t, "[\"echo hello\"]"))
 	require.NoError(t, err)
 	assert.NotEqual(t, scalar.Digest, list.Digest)
 
-	formatted, err := Prepare(parse(t, "'echo hello'"))
+	formatted, err := deploymentmodel.Prepare(parse(t, "'echo hello'"))
 	require.NoError(t, err)
 	assert.Equal(t, scalar.Digest, formatted.Digest)
 }
@@ -924,23 +932,23 @@ func TestNoBaselineNeverClaimsObservedState(t *testing.T) {
 	attempt, err := service.StartIfChanged(ctx, "app", "first", desired("api:1"), true)
 	require.NoError(t, err)
 	require.NotNil(t, attempt)
-	initial, err := NewStore(db).Get(ctx, attempt.DeploymentID)
+	initial, err := deploymentstore.NewStore(db).Get(ctx, attempt.DeploymentID)
 	require.NoError(t, err)
-	assert.Equal(t, BasisNone, initial.ComparisonBasis)
-	assert.Equal(t, ComparisonUnknown, initial.ComparisonStatus)
+	assert.Equal(t, deploymentmodel.BasisNone, initial.ComparisonBasis)
+	assert.Equal(t, deploymentmodel.ComparisonUnknown, initial.ComparisonStatus)
 	require.NoError(t, service.SucceedObserved(ctx, attempt.ID, model.Stack{}, time.Now()))
-	stored, err := NewStore(db).Get(ctx, attempt.DeploymentID)
+	stored, err := deploymentstore.NewStore(db).Get(ctx, attempt.DeploymentID)
 	require.NoError(t, err)
-	assert.Equal(t, StageSkipped, stored.VerificationStatus)
-	assert.Equal(t, ActualStateObserved, stored.ActualStateStatus)
-	assert.Equal(t, ComparisonUnknown, stored.ComparisonStatus)
+	assert.Equal(t, deploymentmodel.StageSkipped, stored.VerificationStatus)
+	assert.Equal(t, deploymentmodel.ActualStateObserved, stored.ActualStateStatus)
+	assert.Equal(t, deploymentmodel.ComparisonUnknown, stored.ComparisonStatus)
 }
 
 func TestIndependentCollectionChangesAndReorder(t *testing.T) {
-	parse := func(ports, volumes string) Prepared {
+	parse := func(ports, volumes string) deploymentmodel.Prepared {
 		parsed, err := compose.Parse([]byte("services:\n  api:\n    image: api:1\n    ports:\n" + ports + "    volumes:\n" + volumes))
 		require.NoError(t, err)
-		result, err := Prepare(compose.File{Compose: *parsed})
+		result, err := deploymentmodel.Prepare(compose.File{Compose: *parsed})
 		require.NoError(t, err)
 		return result
 	}
@@ -948,8 +956,8 @@ func TestIndependentCollectionChangesAndReorder(t *testing.T) {
 		"      - 'db:/data'\n      - 'cache:/cache'\n")
 	after := parse("      - '9091:81'\n      - '9090:80'\n",
 		"      - 'cache2:/cache'\n      - 'db2:/data'\n")
-	changes := Compare(before, after)
-	fields := map[string]Change{}
+	changes := deploymentmodel.Compare(before, after)
+	fields := map[string]deploymentmodel.Change{}
 	for _, c := range changes {
 		fields[c.Field] = c
 	}
@@ -965,20 +973,20 @@ func TestIndependentCollectionChangesAndReorder(t *testing.T) {
 		require.NotNil(t, change.After)
 		assert.Equal(t, values[0], *change.Before)
 		assert.Equal(t, values[1], *change.After)
-		assert.Equal(t, OperationChanged, change.Operation)
+		assert.Equal(t, deploymentmodel.OperationChanged, change.Operation)
 	}
 	assert.Equal(t, 4, len(changes), "independent transitions must not merge")
 	assert.Equal(t, before.Digest, parse("      - '8081:81'\n      - '8080:80'\n",
 		"      - 'cache:/cache'\n      - 'db:/data'\n").Digest)
 	added := parse("      - '8080:80'\n      - '8082:82'\n",
 		"      - 'db:/data'\n")
-	transitions := Compare(before, added)
+	transitions := deploymentmodel.Compare(before, added)
 	var sawAdded, sawRemoved bool
 	for _, c := range transitions {
-		if c.Operation == OperationAdded && strings.Contains(c.Field, "[82/tcp]") {
+		if c.Operation == deploymentmodel.OperationAdded && strings.Contains(c.Field, "[82/tcp]") {
 			sawAdded = true
 		}
-		if c.Operation == OperationRemoved && strings.Contains(c.Field, "[81/tcp]") {
+		if c.Operation == deploymentmodel.OperationRemoved && strings.Contains(c.Field, "[81/tcp]") {
 			sawRemoved = true
 		}
 	}

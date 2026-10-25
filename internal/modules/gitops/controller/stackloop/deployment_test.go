@@ -17,6 +17,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
+	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
@@ -39,7 +41,7 @@ func TestReconcileDeploymentBoundaries(t *testing.T) {
 			hist, err := history.NewSQLStore(db, 50)
 			require.NoError(t, err)
 			require.NoError(t, bus.Subscribe(events.TypeNameDeploySuccess, "history", hist))
-			repo := deployment.NewStore(db)
+			repo := deploymentstore.NewStore(db)
 			ctrl := gomock.NewController(t)
 			git := gitx.NewMockRepository(ctrl)
 			docker := deployer.NewMockStackDeployer(ctrl)
@@ -51,7 +53,7 @@ func TestReconcileDeploymentBoundaries(t *testing.T) {
 			req := ReconciliationRequest{Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "first"}
 			if scenario == "prepare failure" {
 				require.Error(t, r.Reconcile(ctx, req))
-				attempts, err := repo.List(ctx, deployment.ListFilter{})
+				attempts, err := repo.List(ctx, deploymentmodel.ListFilter{})
 				require.NoError(t, err)
 				assert.Empty(t, attempts.Deployments)
 				return
@@ -59,10 +61,10 @@ func TestReconcileDeploymentBoundaries(t *testing.T) {
 			require.NoError(t, writeComposeFile(dir))
 			docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 				func(ctx context.Context, _ string, _ string, _ string, _ compose.Compose) error {
-					attempts, err := repo.List(ctx, deployment.ListFilter{})
+					attempts, err := repo.List(ctx, deploymentmodel.ListFilter{})
 					require.NoError(t, err)
 					require.Len(t, attempts.Deployments, 1)
-					assert.Equal(t, deployment.Running, attempts.Deployments[0].Status, "running must be committed before apply")
+					assert.Equal(t, deploymentmodel.Running, attempts.Deployments[0].Status, "running must be committed before apply")
 					if scenario == "success commit failure" {
 						_, err = db.Exec(ctx, "CREATE TRIGGER fail_event BEFORE INSERT ON outbox_events BEGIN SELECT RAISE(ABORT,'injected'); END")
 						require.NoError(t, err)
@@ -73,19 +75,19 @@ func TestReconcileDeploymentBoundaries(t *testing.T) {
 			err = r.Reconcile(ctx, req)
 			if scenario == "success commit failure" {
 				require.Error(t, err)
-				attempts, err := repo.List(ctx, deployment.ListFilter{})
+				attempts, err := repo.List(ctx, deploymentmodel.ListFilter{})
 				require.NoError(t, err)
 				require.Len(t, attempts.Deployments, 1)
-				assert.Equal(t, deployment.Running, attempts.Deployments[0].Status)
+				assert.Equal(t, deploymentmodel.Running, attempts.Deployments[0].Status)
 				_, err = repo.Baseline(ctx, "app")
-				require.ErrorIs(t, err, deployment.ErrNotFound)
+				require.ErrorIs(t, err, deploymentstore.ErrNotFound)
 				_, err = db.Exec(ctx, "DROP TRIGGER fail_event")
 				require.NoError(t, err)
 				req.Commit = "second"
 				require.NoError(t, r.Reconcile(ctx, req))
 				recovered, err := repo.Get(ctx, attempts.Deployments[0].ID)
 				require.NoError(t, err)
-				assert.Equal(t, deployment.Succeeded, recovered.Status)
+				assert.Equal(t, deploymentmodel.Succeeded, recovered.Status)
 				baseline, err := repo.Baseline(ctx, "app")
 				require.NoError(t, err)
 				assert.Equal(t, "nginx:latest", baseline.Definition.Compose.Services[0].Image)
@@ -98,10 +100,10 @@ func TestReconcileDeploymentBoundaries(t *testing.T) {
 			require.NoError(t, os.WriteFile(filepath.Join(dir, "app.yaml"), []byte("# formatting change only\nservices:\n  api:\n    image: nginx:latest\n"), 0600))
 			req.Commit = "second"
 			require.NoError(t, r.Reconcile(ctx, req))
-			attempts, err := repo.List(ctx, deployment.ListFilter{})
+			attempts, err := repo.List(ctx, deploymentmodel.ListFilter{})
 			require.NoError(t, err)
 			require.Len(t, attempts.Deployments, 1)
-			assert.Equal(t, deployment.Succeeded, attempts.Deployments[0].Status)
+			assert.Equal(t, deploymentmodel.Succeeded, attempts.Deployments[0].Status)
 			assert.Equal(t, "first", attempts.Deployments[0].Commit)
 		})
 	}
@@ -115,7 +117,7 @@ func TestReconcileRecoversFailedResultPersistenceInSameProcess(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, bus.Subscribe(events.TypeNameDeployFailed, "history", hist))
 	require.NoError(t, bus.Subscribe(events.TypeNameDeploySuccess, "history", hist))
-	repo := deployment.NewStore(db)
+	repo := deploymentstore.NewStore(db)
 	ctrl := gomock.NewController(t)
 	git := gitx.NewMockRepository(ctrl)
 	docker := deployer.NewMockStackDeployer(ctrl)
@@ -137,26 +139,26 @@ func TestReconcileRecoversFailedResultPersistenceInSameProcess(t *testing.T) {
 	)
 	req := ReconciliationRequest{Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "first"}
 	require.Error(t, r.Reconcile(ctx, req))
-	attempts, err := repo.List(ctx, deployment.ListFilter{})
+	attempts, err := repo.List(ctx, deploymentmodel.ListFilter{})
 	require.NoError(t, err)
 	require.Len(t, attempts.Deployments, 1)
-	assert.Equal(t, deployment.Running, attempts.Deployments[0].Status)
+	assert.Equal(t, deploymentmodel.Running, attempts.Deployments[0].Status)
 	_, err = db.Exec(ctx, "DROP TRIGGER fail_event")
 	require.NoError(t, err)
 	docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
 	services.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{}, nil).AnyTimes()
 	req.Commit = "second"
 	require.NoError(t, r.Reconcile(ctx, req))
-	attempts, err = repo.List(ctx, deployment.ListFilter{})
+	attempts, err = repo.List(ctx, deploymentmodel.ListFilter{})
 	require.NoError(t, err)
 	require.Len(t, attempts.Deployments, 1)
-	assert.Equal(t, deployment.Succeeded, attempts.Deployments[0].Status)
+	assert.Equal(t, deploymentmodel.Succeeded, attempts.Deployments[0].Status)
 	assert.Equal(t, 2, attempts.Deployments[0].AttemptCount)
 	stored, err := repo.Get(ctx, attempts.Deployments[0].ID)
 	require.NoError(t, err)
 	require.Len(t, stored.Attempts, 2)
-	assert.Equal(t, deployment.Succeeded, stored.Attempts[0].Status)
-	assert.Equal(t, deployment.Failed, stored.Attempts[1].Status)
+	assert.Equal(t, deploymentmodel.Succeeded, stored.Attempts[0].Status)
+	assert.Equal(t, deploymentmodel.Failed, stored.Attempts[1].Status)
 }
 
 func TestReconcileRecoversInterruptedCompletionConflictAndAppliesCorrectedDesiredState(t *testing.T) {
@@ -168,7 +170,7 @@ func TestReconcileRecoversInterruptedCompletionConflictAndAppliesCorrectedDesire
 	require.NoError(t, bus.Subscribe(events.TypeNameDeployFailed, "failed-history", hist))
 	require.NoError(t, bus.Subscribe(events.TypeNameDeployInterrupted, "interrupted-history", hist))
 	require.NoError(t, bus.Subscribe(events.TypeNameDeploySuccess, "success-history", hist))
-	repo := deployment.NewStore(db)
+	repo := deploymentstore.NewStore(db)
 	ctrl := gomock.NewController(t)
 	git := gitx.NewMockRepository(ctrl)
 	docker := deployer.NewMockStackDeployer(ctrl)
@@ -190,11 +192,11 @@ func TestReconcileRecoversInterruptedCompletionConflictAndAppliesCorrectedDesire
 	)
 	req := ReconciliationRequest{Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "broken"}
 	require.Error(t, r.Reconcile(ctx, req))
-	page, err := repo.List(ctx, deployment.ListFilter{Stack: "app"})
+	page, err := repo.List(ctx, deploymentmodel.ListFilter{Stack: "app"})
 	require.NoError(t, err)
 	require.Len(t, page.Deployments, 1)
 	staleID := page.Deployments[0].ID
-	assert.Equal(t, deployment.Running, page.Deployments[0].Status)
+	assert.Equal(t, deploymentmodel.Running, page.Deployments[0].Status)
 	_, err = db.Exec(ctx, "DROP TRIGGER fail_event")
 	require.NoError(t, err)
 
@@ -202,7 +204,7 @@ func TestReconcileRecoversInterruptedCompletionConflictAndAppliesCorrectedDesire
 	require.NoError(t, secondInstance.InterruptRunning(ctx))
 	interrupted, err := repo.Get(ctx, staleID)
 	require.NoError(t, err)
-	assert.Equal(t, deployment.Interrupted, interrupted.Status)
+	assert.Equal(t, deploymentmodel.Interrupted, interrupted.Status)
 
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.yaml"),
 		[]byte("services:\n  api:\n    image: nginx@sha256:corrected\n"), 0o600))
@@ -211,13 +213,13 @@ func TestReconcileRecoversInterruptedCompletionConflictAndAppliesCorrectedDesire
 	req.Commit = "corrected"
 	require.NoError(t, r.Reconcile(ctx, req))
 
-	page, err = repo.List(ctx, deployment.ListFilter{Stack: "app"})
+	page, err = repo.List(ctx, deploymentmodel.ListFilter{Stack: "app"})
 	require.NoError(t, err)
 	require.Len(t, page.Deployments, 2)
-	assert.Equal(t, deployment.Succeeded, page.Deployments[0].Status)
+	assert.Equal(t, deploymentmodel.Succeeded, page.Deployments[0].Status)
 	assert.Equal(t, "corrected", page.Deployments[0].Commit)
 	assert.NotEqual(t, staleID, page.Deployments[0].ID)
-	assert.Equal(t, deployment.Superseded, page.Deployments[1].Status)
+	assert.Equal(t, deploymentmodel.Superseded, page.Deployments[1].Status)
 }
 
 func TestReconcileRecoversSucceededCompletionConflictWithoutContradictoryOutcome(t *testing.T) {
@@ -250,7 +252,7 @@ func TestReconcileRecoversSucceededCompletionConflictWithoutContradictoryOutcome
 	r.pending["app"] = pendingCompletion{
 		attemptID: first.ID,
 		state:     model.Stack{LastCommit: "contradictory"},
-		status:    deployment.Failed,
+		status:    deploymentmodel.Failed,
 		errorCode: "apply_failed",
 		cause:     errors.New("obsolete failure"),
 	}
@@ -260,10 +262,10 @@ func TestReconcileRecoversSucceededCompletionConflictWithoutContradictoryOutcome
 		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "second",
 	}))
 
-	storedFirst, err := deployment.NewStore(db).Get(ctx, first.DeploymentID)
+	storedFirst, err := deploymentstore.NewStore(db).Get(ctx, first.DeploymentID)
 	require.NoError(t, err)
-	assert.Equal(t, deployment.Succeeded, storedFirst.Status)
-	baseline, err := deployment.NewStore(db).Baseline(ctx, "app")
+	assert.Equal(t, deploymentmodel.Succeeded, storedFirst.Status)
+	baseline, err := deploymentstore.NewStore(db).Baseline(ctx, "app")
 	require.NoError(t, err)
 	assert.Equal(t, "nginx:2", baseline.Definition.Compose.Services[0].Image)
 	var failedEvents int

@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -53,7 +54,7 @@ func InitModule(ctx context.Context, cfg *config.Config, cnt Container) (*Module
 	}
 
 	subscriber := &orderedSubscriber{
-		db: cnt.GetStorage(), next: deployment.WithDesired(deployment.NewStore(cnt.GetStorage()), m.DeploySubscriber),
+		db: cnt.GetStorage(), next: deployment.WithDesired(deploymentstore.NewStore(cnt.GetStorage()), m.DeploySubscriber),
 	}
 	if err := m.registerEventSubscribers(cnt.GetEventModule().Dispatcher, subscriber); err != nil {
 		return nil, err
