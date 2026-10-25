@@ -174,10 +174,9 @@ func (s *Subscriber) opened(ctx context.Context, alert events.AlertSnapshot) (bo
 		return false, nil
 	}
 	if link.OpenedAt.Valid {
-		// Telegram accepted this opening before a crash/ACK rollback.
-		// Report the persisted successful delivery so Outbox can publish
-		// NotificationSent on its durable ACK without sending a duplicate.
-		return true, nil
+		// The receipt predates this attempt. A replay must not publish a fresh
+		// NotificationSent and accidentally recover a more recent failure.
+		return false, nil
 	}
 	rule := s.rule(alert.Kind)
 	payload := alert
@@ -215,9 +214,9 @@ func (s *Subscriber) resolved(ctx context.Context, event *events.AlertResolved) 
 		return false, nil
 	}
 	if link.ResolvedAt.Valid {
-		// The resolution was sent and persisted, but its Outbox ACK may have
-		// been interrupted. Complete the success signal without resending.
-		return true, nil
+		// A persisted receipt is not a new successful delivery. In particular,
+		// replaying an older resolution must not recover a newer incident.
+		return false, nil
 	}
 	rule := s.rule(alert.Kind)
 	payload := alert
