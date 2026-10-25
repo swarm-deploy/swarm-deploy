@@ -66,10 +66,6 @@ func (s notificationSubscriber) HandleNotification(
 	return s.handler.HandleNotification(ctx, event)
 }
 
-// External adapts a network consumer at the worker boundary. Its Handle runs
-// without a database transaction; delivery still uses the same durable queue.
-func External(handler Subscriber) Subscriber { return externalSubscriber{handler} }
-
 // ExternalNotification adapts a network notification consumer and records only
 // the safe destination metadata needed for terminal delivery-failure events.
 func ExternalNotification(handler NotificationSubscriber, destination, channel, destinationKey string) Subscriber {
