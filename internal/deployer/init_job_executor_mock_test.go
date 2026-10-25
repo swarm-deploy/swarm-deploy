@@ -13,7 +13,6 @@ import (
 	context "context"
 	reflect "reflect"
 
-	model "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	gomock "go.uber.org/mock/gomock"
 )
 
@@ -42,10 +41,10 @@ func (m *MockInitJobExecutor) EXPECT() *MockInitJobExecutorMockRecorder {
 }
 
 // Run mocks base method.
-func (m *MockInitJobExecutor) Run(ctx context.Context, spec InitJobSpec) (model.InitJobExecution, error) {
+func (m *MockInitJobExecutor) Run(ctx context.Context, spec InitJobSpec) (InitJobResult, error) {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "Run", ctx, spec)
-	ret0, _ := ret[0].(model.InitJobExecution)
+	ret0, _ := ret[0].(InitJobResult)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }

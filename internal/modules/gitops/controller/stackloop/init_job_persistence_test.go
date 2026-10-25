@@ -35,30 +35,26 @@ func TestDeployStackIgnoresInitJobPersistenceFailure(t *testing.T) {
 			}, true)
 			require.NoError(t, err)
 			require.NotNil(t, attempt)
-			_, err = db.Exec(t.Context(), `CREATE TRIGGER reject_init_job BEFORE INSERT ON deployment_init_jobs
-				BEGIN SELECT RAISE(ABORT,'injected persistence failure'); END`)
+			_, err = db.Exec(t.Context(), `CREATE TRIGGER reject_first_init_job BEFORE INSERT ON deployment_init_jobs
+				WHEN NEW.ordinal = 1 BEGIN SELECT RAISE(ABORT,'injected persistence failure'); END`)
 			require.NoError(t, err)
 
 			ctrl := gomock.NewController(t)
 			stackDeployer := deployer.NewMockStackDeployer(ctrl)
 			stackDeployer.EXPECT().DeployStack(
-				gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any(),
+				gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any(),
 			).DoAndReturn(func(
-				ctx context.Context,
+				_ context.Context,
 				_, _, _ string,
 				_ compose.Compose,
-				options deployer.DeployOptions,
-			) error {
+			) (deployer.Result, error) {
 				now := time.Now().UTC()
-				options.InitJobFinished(ctx, deploymentmodel.InitJobExecution{
-					Ordinal: 1, ServiceName: "api", JobName: "migrate", Status: deploymentmodel.InitJobSucceeded,
-					StartedAt: now, FinishedAt: now, Logs: []byte("first"), LogsAvailable: true,
-				})
-				options.InitJobFinished(ctx, deploymentmodel.InitJobExecution{
-					Ordinal: 2, ServiceName: "api", JobName: "seed", Status: testCase.lastStatus,
-					StartedAt: now, FinishedAt: now, Logs: []byte("second"), LogsAvailable: true,
-				})
-				return testCase.originalErr
+				return deployer.Result{InitJobs: []deployer.InitJobResult{
+					{ServiceName: "api", JobName: "migrate", Status: deployer.InitJobSucceeded,
+						StartedAt: now, FinishedAt: now, Logs: []byte("first"), LogsAvailable: true},
+					{ServiceName: "api", JobName: "seed", Status: deployer.InitJobStatus(testCase.lastStatus),
+						StartedAt: now, FinishedAt: now, Logs: []byte("second"), LogsAvailable: true},
+				}}, testCase.originalErr
 			})
 			reconciler := &Reconciler{deployer: stackDeployer, deployments: service}
 			payload := &pipelinePayload{
@@ -75,12 +71,15 @@ func TestDeployStackIgnoresInitJobPersistenceFailure(t *testing.T) {
 			}
 			var count int
 			require.NoError(t, db.Get(t.Context(), &count, "SELECT count(*) FROM deployment_init_jobs"))
-			assert.Zero(t, count)
+			assert.Equal(t, 1, count, "a failed INSERT must not prevent later results from being saved")
+			logs, err := deploymentstore.NewStore(db).InitJobLogs(t.Context(), attempt.DeploymentID, attempt.ID, 2)
+			require.NoError(t, err)
+			assert.Equal(t, []byte("second"), logs)
 		})
 	}
 }
 
-func TestPersistInitJobExecutionUsesDetachedBoundedContext(t *testing.T) {
+func TestPersistInitJobsUsesDetachedBoundedContextAndAssignsOrdinals(t *testing.T) {
 	db := testutil.OpenSQLite(t)
 	service := deployment.NewService(db, &dispatcher.NopDispatcher{})
 	attempt, err := service.StartIfChanged(t.Context(), "app", "commit", compose.File{
@@ -93,13 +92,25 @@ func TestPersistInitJobExecutionUsesDetachedBoundedContext(t *testing.T) {
 	cancel()
 	now := time.Now().UTC()
 
-	reconciler.persistInitJobExecution(ctx, deploymentmodel.InitJobExecution{
-		AttemptID: attempt.ID, Ordinal: 1, ServiceName: "api", JobName: "migrate",
-		Status: deploymentmodel.InitJobInterrupted, StartedAt: now, FinishedAt: now,
-		Logs: []byte("final output"), LogsAvailable: true,
+	reconciler.persistInitJobs(ctx, attempt.ID, []deployer.InitJobResult{
+		{ServiceName: "api", JobName: "migrate", Status: deployer.InitJobSucceeded,
+			StartedAt: now, FinishedAt: now, Logs: []byte("first output"), LogsAvailable: true},
+		{ServiceName: "worker", JobName: "warm-cache", Status: deployer.InitJobInterrupted,
+			StartedAt: now, FinishedAt: now, Logs: []byte("final output"), LogsAvailable: true},
 	})
 
-	logs, err := deploymentstore.NewStore(db).InitJobLogs(t.Context(), attempt.DeploymentID, attempt.ID, 1)
+	store := deploymentstore.NewStore(db)
+	logs, err := store.InitJobLogs(t.Context(), attempt.DeploymentID, attempt.ID, 2)
 	require.NoError(t, err)
 	assert.Equal(t, []byte("final output"), logs)
+	stored, err := store.Get(t.Context(), attempt.DeploymentID)
+	require.NoError(t, err)
+	require.Len(t, stored.Attempts, 1)
+	require.Len(t, stored.Attempts[0].InitJobs, 2)
+	assert.Equal(t, attempt.ID, stored.Attempts[0].InitJobs[0].AttemptID)
+	assert.Equal(t, []int{1, 2}, []int{
+		stored.Attempts[0].InitJobs[0].Ordinal,
+		stored.Attempts[0].InitJobs[1].Ordinal,
+	})
+	assert.Equal(t, deploymentmodel.InitJobInterrupted, stored.Attempts[0].InitJobs[1].Status)
 }

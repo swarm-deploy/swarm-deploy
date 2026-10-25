@@ -219,20 +219,32 @@ func (r *Reconciler) cleanupRenderedComposeFile(ctx context.Context, payload *pi
 }
 
 func (r *Reconciler) deployStack(ctx context.Context, payload *pipelinePayload) error {
-	return r.deployer.DeployStack(
+	result, deployErr := r.deployer.DeployStack(
 		ctx,
 		payload.Stack.Name,
 		payload.Desired.Path,
 		payload.DeployComposePath,
 		payload.Desired.Compose,
-		deployer.DeployOptions{InitJobFinished: func(
-			_ context.Context,
-			execution deploymentmodel.InitJobExecution,
-		) {
-			execution.AttemptID = payload.Attempt.ID
-			r.persistInitJobExecution(ctx, execution)
-		}},
 	)
+	r.persistInitJobs(ctx, payload.Attempt.ID, result.InitJobs)
+	return deployErr
+}
+
+func (r *Reconciler) persistInitJobs(ctx context.Context, attemptID string, results []deployer.InitJobResult) {
+	for index, result := range results {
+		r.persistInitJobExecution(ctx, deploymentmodel.InitJobExecution{
+			AttemptID:     attemptID,
+			Ordinal:       index + 1,
+			ServiceName:   result.ServiceName,
+			JobName:       result.JobName,
+			Status:        deploymentmodel.InitJobStatus(result.Status),
+			StartedAt:     result.StartedAt,
+			FinishedAt:    result.FinishedAt,
+			Logs:          result.Logs,
+			LogsAvailable: result.LogsAvailable,
+			LogsTruncated: result.LogsTruncated,
+		})
+	}
 }
 
 func (r *Reconciler) persistInitJobExecution(

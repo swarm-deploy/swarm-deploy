@@ -59,8 +59,8 @@ func TestReconcileDeploymentBoundaries(t *testing.T) {
 				return
 			}
 			require.NoError(t, writeComposeFile(dir))
-			docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-				func(ctx context.Context, _ string, _ string, _ string, _ compose.Compose, _ deployer.DeployOptions) error {
+			docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+				func(ctx context.Context, _ string, _ string, _ string, _ compose.Compose) (deployer.Result, error) {
 					attempts, err := repo.List(ctx, deploymentmodel.ListFilter{})
 					require.NoError(t, err)
 					require.Len(t, attempts.Deployments, 1)
@@ -69,7 +69,7 @@ func TestReconcileDeploymentBoundaries(t *testing.T) {
 						_, err = db.Exec(ctx, "CREATE TRIGGER fail_event BEFORE INSERT ON outbox_events BEGIN SELECT RAISE(ABORT,'injected'); END")
 						require.NoError(t, err)
 					}
-					return nil
+					return deployer.Result{}, nil
 				})
 			services.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{}, nil).AnyTimes()
 			err = r.Reconcile(ctx, req)
@@ -129,12 +129,12 @@ func TestReconcileRecoversFailedResultPersistenceInSameProcess(t *testing.T) {
 	r := New(cfg, git, docker, &swarm.Swarm{
 		Services: services, Configs: swarm.NewMockConfigManager(ctrl), Secrets: swarm.NewMockSecretManager(ctrl),
 	}, bus, &metrics.NopDeploys{}, state, fs.NewLocalFileSystem(), db)
-	docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, _ string, _ string, _ string, _ compose.Compose, _ deployer.DeployOptions) error {
+	docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, _ string, _ string, _ string, _ compose.Compose) (deployer.Result, error) {
 			_, err := db.Exec(ctx,
 				"CREATE TRIGGER fail_event BEFORE INSERT ON outbox_events BEGIN SELECT RAISE(ABORT,'injected'); END")
 			require.NoError(t, err)
-			return assert.AnError
+			return deployer.Result{}, assert.AnError
 		},
 	)
 	req := ReconciliationRequest{Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "first"}
@@ -145,7 +145,7 @@ func TestReconcileRecoversFailedResultPersistenceInSameProcess(t *testing.T) {
 	assert.Equal(t, deploymentmodel.Running, attempts.Deployments[0].Status)
 	_, err = db.Exec(ctx, "DROP TRIGGER fail_event")
 	require.NoError(t, err)
-	docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+	docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil)
 	services.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{}, nil).AnyTimes()
 	req.Commit = "second"
 	require.NoError(t, r.Reconcile(ctx, req))
@@ -182,12 +182,12 @@ func TestReconcileRecoversInterruptedCompletionConflictAndAppliesCorrectedDesire
 	r := New(cfg, git, docker, &swarm.Swarm{
 		Services: services, Configs: swarm.NewMockConfigManager(ctrl), Secrets: swarm.NewMockSecretManager(ctrl),
 	}, bus, &metrics.NopDeploys{}, state, fs.NewLocalFileSystem(), db)
-	docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
-		func(ctx context.Context, _ string, _ string, _ string, _ compose.Compose, _ deployer.DeployOptions) error {
+	docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, _ string, _ string, _ string, _ compose.Compose) (deployer.Result, error) {
 			_, triggerErr := db.Exec(ctx,
 				"CREATE TRIGGER fail_event BEFORE INSERT ON outbox_events BEGIN SELECT RAISE(ABORT,'injected'); END")
 			require.NoError(t, triggerErr)
-			return errors.New("invalid image digest")
+			return deployer.Result{}, errors.New("invalid image digest")
 		},
 	)
 	req := ReconciliationRequest{Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "broken"}
@@ -208,7 +208,7 @@ func TestReconcileRecoversInterruptedCompletionConflictAndAppliesCorrectedDesire
 
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.yaml"),
 		[]byte("services:\n  api:\n    image: nginx@sha256:corrected\n"), 0o600))
-	docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+	docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil)
 	services.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{}, nil)
 	req.Commit = "corrected"
 	require.NoError(t, r.Reconcile(ctx, req))
@@ -256,7 +256,7 @@ func TestReconcileRecoversSucceededCompletionConflictWithoutContradictoryOutcome
 		errorCode: "apply_failed",
 		cause:     errors.New("obsolete failure"),
 	}
-	docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+	docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil)
 	services.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{}, nil)
 	require.NoError(t, r.Reconcile(ctx, ReconciliationRequest{
 		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "second",

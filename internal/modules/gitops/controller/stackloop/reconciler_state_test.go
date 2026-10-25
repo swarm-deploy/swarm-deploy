@@ -54,8 +54,8 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 		"write another stack rendered compose")
 
 	stackDeployer.EXPECT().
-		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, "app.yaml"), filepath.Join(repoDir, ".data", "rendered", "app.yaml"), gomock.Any(), gomock.Any()).
-		Return(nil)
+		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, "app.yaml"), filepath.Join(repoDir, ".data", "rendered", "app.yaml"), gomock.Any()).
+		Return(deployer.Result{}, nil)
 	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
 
 	reconciler := &Reconciler{
@@ -118,8 +118,8 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 	require.NoError(t, writeComposeFile(repoDir), "write compose")
 
 	stackDeployer.EXPECT().
-		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, "app.yaml"), filepath.Join(repoDir, ".data", "rendered", "app.yaml"), gomock.Any(), gomock.Any()).
-		Return(errDeployFailed)
+		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, "app.yaml"), filepath.Join(repoDir, ".data", "rendered", "app.yaml"), gomock.Any()).
+		Return(deployer.Result{}, errDeployFailed)
 
 	reconciler := &Reconciler{
 		cfg: &config.Config{
@@ -219,7 +219,7 @@ func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
 			repoDir := t.TempDir()
 			require.NoError(t, writeComposeFile(repoDir))
 			repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
-			stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any(), gomock.Any()).Return(nil)
+			stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil)
 			tt.setupServices(serviceManager)
 			cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(repoDir, ".data"),
 				Sync: config.SyncSpec{Policy: config.SyncPolicySpec{Prune: true}}}}
@@ -288,7 +288,7 @@ secrets:
 	}
 
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
-	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", composePath, filepath.Join(repoDir, ".data", "rendered", "app.yaml"), gomock.Any(), gomock.Any()).Return(nil)
+	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", composePath, filepath.Join(repoDir, ".data", "rendered", "app.yaml"), gomock.Any()).Return(deployer.Result{}, nil)
 	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
 	configManager.EXPECT().List(gomock.Any(), swarm.ListConfigsFilter{
 		StackName: "app",
@@ -481,14 +481,14 @@ configs:
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
 	var renderedCompose *compose.Compose
 	stackDeployer.EXPECT().
-		DeployStack(gomock.Any(), "app", composePath, renderedPath, gomock.Any(), gomock.Any()).
-		Do(func(_ context.Context, _, _, deployComposePath string, _ compose.Compose, _ deployer.DeployOptions) {
+		DeployStack(gomock.Any(), "app", composePath, renderedPath, gomock.Any()).
+		Do(func(_ context.Context, _, _, deployComposePath string, _ compose.Compose) {
 			renderedRaw, readErr := os.ReadFile(deployComposePath)
 			require.NoError(t, readErr, "read rendered compose during deploy")
 			renderedCompose, readErr = compose.Parse(renderedRaw)
 			require.NoError(t, readErr, "parse rendered compose during deploy")
 		}).
-		Return(nil)
+		Return(deployer.Result{}, nil)
 	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
 
 	reconciler := &Reconciler{
@@ -586,14 +586,14 @@ secrets:
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
 	var renderedCompose *compose.Compose
 	stackDeployer.EXPECT().
-		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, "deploy", "docker-compose.yaml"), renderedPath, gomock.Any(), gomock.Any()).
-		Do(func(_ context.Context, _, _, deployComposePath string, _ compose.Compose, _ deployer.DeployOptions) {
+		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, "deploy", "docker-compose.yaml"), renderedPath, gomock.Any()).
+		Do(func(_ context.Context, _, _, deployComposePath string, _ compose.Compose) {
 			renderedRaw, readErr := os.ReadFile(deployComposePath)
 			require.NoError(t, readErr, "read rendered compose during deploy")
 			renderedCompose, readErr = compose.Parse(renderedRaw)
 			require.NoError(t, readErr, "parse rendered compose during deploy")
 		}).
-		Return(nil)
+		Return(deployer.Result{}, nil)
 	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
 
 	reconciler := &Reconciler{
@@ -672,14 +672,14 @@ services:
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
 	var renderedCompose *compose.Compose
 	stackDeployer.EXPECT().
-		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, "deploy", "compose.yaml"), renderedPath, gomock.Any(), gomock.Any()).
-		Do(func(_ context.Context, _, _, deployComposePath string, _ compose.Compose, _ deployer.DeployOptions) {
+		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, "deploy", "compose.yaml"), renderedPath, gomock.Any()).
+		Do(func(_ context.Context, _, _, deployComposePath string, _ compose.Compose) {
 			renderedRaw, readErr := os.ReadFile(deployComposePath)
 			require.NoError(t, readErr, "read rendered compose during deploy")
 			renderedCompose, readErr = compose.Parse(renderedRaw)
 			require.NoError(t, readErr, "parse rendered compose during deploy")
 		}).
-		Return(nil)
+		Return(deployer.Result{}, nil)
 	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
 
 	readFile := func(_ context.Context, path string) ([]byte, error) {
@@ -749,14 +749,14 @@ services:
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
 	var renderedCompose *compose.Compose
 	stackDeployer.EXPECT().
-		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, "app.yaml"), renderedPath, gomock.Any(), gomock.Any()).
-		Do(func(_ context.Context, _, _, deployComposePath string, _ compose.Compose, _ deployer.DeployOptions) {
+		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, "app.yaml"), renderedPath, gomock.Any()).
+		Do(func(_ context.Context, _, _, deployComposePath string, _ compose.Compose) {
 			renderedRaw, readErr := os.ReadFile(deployComposePath)
 			require.NoError(t, readErr, "read rendered compose during deploy")
 			renderedCompose, readErr = compose.Parse(renderedRaw)
 			require.NoError(t, readErr, "parse rendered compose during deploy")
 		}).
-		Return(nil)
+		Return(deployer.Result{}, nil)
 	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
 
 	reconciler := &Reconciler{
@@ -827,8 +827,8 @@ services:
 
 	repository.EXPECT().WorkingDir().Return(repoDir).Times(3)
 	stackDeployer.EXPECT().
-		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, "app.yaml"), renderedPath, gomock.Any(), gomock.Any()).
-		Return(nil).
+		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, "app.yaml"), renderedPath, gomock.Any()).
+		Return(deployer.Result{}, nil).
 		Times(1)
 	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
 	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{

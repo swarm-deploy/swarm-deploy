@@ -11,7 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
-	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -97,8 +96,8 @@ func TestDeployStackReconcilesResourcesWithAndWithoutInitJobs(t *testing.T) {
 							StackName: "demo", ServiceName: "api", Job: job,
 							ResolvedConfigs: map[string]ResolvedResource{"app": {ID: "config-id", Name: configName}},
 							ResolvedSecrets: map[string]ResolvedResource{"password": {ID: "secret-id", Name: secretName}},
-						}).Return(deploymentmodel.InitJobExecution{
-							StartedAt: time.Now(), FinishedAt: time.Now(), Status: deploymentmodel.InitJobSucceeded,
+						}).Return(InitJobResult{
+							StartedAt: time.Now(), FinishedAt: time.Now(), Status: InitJobSucceeded,
 						}, nil))
 					}
 				}
@@ -112,9 +111,9 @@ func TestDeployStackReconcilesResourcesWithAndWithoutInitJobs(t *testing.T) {
 					stackDeployArgs: []string{"stack", "deploy"}, runner: runner, initJobRunner: jobs,
 					resources: &resourceReconciler{configs: configs, secrets: secrets},
 				}
-				err := deployer.DeployStack(t.Context(), "demo", filepath.Join(dir, "compose.yaml"), deployPath, compose.Compose{
+				_, err := deployer.DeployStack(t.Context(), "demo", filepath.Join(dir, "compose.yaml"), deployPath, compose.Compose{
 					Services: []compose.Service{service}, Configs: compose.Configs{"app": config}, Secrets: compose.Secrets{"password": secret},
-				}, DeployOptions{})
+				})
 				require.NoError(t, err)
 			})
 		}
@@ -183,7 +182,7 @@ func TestDeployStackResourceFailuresStopDeployment(t *testing.T) {
 					stackDeployArgs: []string{"stack", "deploy"}, runner: runner, initJobRunner: jobs,
 					resources: &resourceReconciler{configs: configs, secrets: secrets},
 				}
-				err := deployer.DeployStack(context.Background(), "demo", filepath.Join(dir, "compose.yaml"), "rendered.yaml", desired, DeployOptions{})
+				_, err := deployer.DeployStack(context.Background(), "demo", filepath.Join(dir, "compose.yaml"), "rendered.yaml", desired)
 				require.ErrorContains(t, err, "")
 				assert.ErrorContains(t, err, tt.errorMatch)
 				if tt.stage == "list" || (tt.stage == "create" && tt.config) {
@@ -214,8 +213,8 @@ func TestDeployStackDeployFailureKeepsReconciledResources(t *testing.T) {
 			)
 			if withInitJobs {
 				desired.Services[0].InitJobs = []compose.InitJob{{Name: "migrate"}}
-				jobs.EXPECT().Run(gomock.Any(), gomock.Any()).Return(deploymentmodel.InitJobExecution{
-					StartedAt: time.Now(), FinishedAt: time.Now(), Status: deploymentmodel.InitJobSucceeded,
+				jobs.EXPECT().Run(gomock.Any(), gomock.Any()).Return(InitJobResult{
+					StartedAt: time.Now(), FinishedAt: time.Now(), Status: InitJobSucceeded,
 				}, nil)
 			}
 			runner.EXPECT().Run(gomock.Any(), "stack", "deploy", "-c", "rendered.yaml", "demo").Return("", deployErr)
@@ -223,9 +222,14 @@ func TestDeployStackDeployFailureKeepsReconciledResources(t *testing.T) {
 				stackDeployArgs: []string{"stack", "deploy"}, runner: runner, initJobRunner: jobs,
 				resources: &resourceReconciler{configs: configs, secrets: secrets},
 			}
-			err := deployer.DeployStack(t.Context(), "demo", "compose.yaml", "rendered.yaml", desired, DeployOptions{})
+			result, err := deployer.DeployStack(t.Context(), "demo", "compose.yaml", "rendered.yaml", desired)
 			require.ErrorIs(t, err, deployErr)
 			assert.ErrorContains(t, err, "deploy stack demo")
+			if withInitJobs {
+				require.Len(t, result.InitJobs, 1)
+			} else {
+				assert.Empty(t, result.InitJobs)
+			}
 			// No Remove calls are expected, matching existing failure/cleanup behavior.
 		})
 	}

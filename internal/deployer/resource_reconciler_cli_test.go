@@ -165,7 +165,8 @@ secrets:
 				resources:       newResourceReconciler(swarmService),
 			}
 			for range 2 {
-				require.NoError(t, deployer.DeployStack(t.Context(), "demo", path, path, desired.Compose, DeployOptions{}))
+				_, err = deployer.DeployStack(t.Context(), "demo", path, path, desired.Compose)
+				require.NoError(t, err)
 			}
 
 			mu.Lock()

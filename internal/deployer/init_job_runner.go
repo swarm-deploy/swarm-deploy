@@ -19,7 +19,6 @@ import (
 	"github.com/docker/docker/client"
 	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
-	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -79,9 +78,9 @@ func NewInitJobRunner(
 func (r *InitJobRunner) Run(
 	ctx context.Context,
 	spec InitJobSpec,
-) (deploymentmodel.InitJobExecution, error) {
+) (InitJobResult, error) {
 	if spec.Job.Image == "" {
-		return deploymentmodel.InitJobExecution{}, errors.New("init job image is required")
+		return InitJobResult{}, errors.New("init job image is required")
 	}
 
 	r.metrics.RecordInitJobRun(spec.StackName, spec.ServiceName)
@@ -99,12 +98,12 @@ func (r *InitJobRunner) Run(
 
 	serviceSpec, err := r.buildInitServiceSpec(jobCtx, spec, serviceRef.Name())
 	if err != nil {
-		return deploymentmodel.InitJobExecution{}, err
+		return InitJobResult{}, err
 	}
 
 	serviceCreateOptions, err := r.buildInitServiceCreateOptions(spec.Job.Image)
 	if err != nil {
-		return deploymentmodel.InitJobExecution{}, fmt.Errorf("build init job service create options: %w", err)
+		return InitJobResult{}, fmt.Errorf("build init job service create options: %w", err)
 	}
 
 	slog.InfoContext(ctx, "[initjob] running job",
@@ -119,7 +118,7 @@ func (r *InitJobRunner) Run(
 	startedAt := time.Now().UTC()
 	serviceCreate, err := r.dockerClient.ServiceCreate(jobCtx, serviceSpec, serviceCreateOptions)
 	if err != nil {
-		return deploymentmodel.InitJobExecution{}, fmt.Errorf("create init job service %s: %w", serviceRef.Name(), err)
+		return InitJobResult{}, fmt.Errorf("create init job service %s: %w", serviceRef.Name(), err)
 	}
 
 	defer r.enqueueDeleteTask(initJobDeleteTask{
@@ -139,7 +138,7 @@ func (r *InitJobRunner) Run(
 			slog.Any("err", logsErr),
 		)
 	}
-	execution := deploymentmodel.InitJobExecution{
+	execution := InitJobResult{
 		ServiceName: spec.ServiceName, JobName: spec.Job.Name, Status: initJobExecutionStatus(waitErr),
 		StartedAt: startedAt, FinishedAt: finishedAt, Logs: logs,
 		LogsAvailable: logsAvailable, LogsTruncated: truncated,
@@ -423,15 +422,15 @@ func (r *InitJobRunner) loadServiceLogs(
 	return tail.Bytes(), tail.Truncated(), nil
 }
 
-func initJobExecutionStatus(err error) deploymentmodel.InitJobStatus {
+func initJobExecutionStatus(err error) InitJobStatus {
 	if err == nil {
-		return deploymentmodel.InitJobSucceeded
+		return InitJobSucceeded
 	}
 	var failed *JobFailedError
 	if errors.As(err, &failed) {
-		return deploymentmodel.InitJobFailed
+		return InitJobFailed
 	}
-	return deploymentmodel.InitJobInterrupted
+	return InitJobInterrupted
 }
 
 func initJobDiagnosticLogLines(logs []byte) []string {

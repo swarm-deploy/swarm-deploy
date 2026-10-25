@@ -86,7 +86,8 @@ func TestSecretResolverValidatesReusedSecrets(t *testing.T) {
 			d := &Deployer{resources: newResourceReconciler(&swarm.Swarm{Secrets: secrets}),
 				secretResolver: newTestSecretResolverWithIdentity([]byte(identity.String())), runner: runner}
 			desired := compose.Compose{Secrets: compose.Secrets{"password": {Name: "existing-password", File: "password.age"}}}
-			require.NoError(t, d.DeployStack(t.Context(), "app", filepath.Join(dir, "compose.yaml"), "rendered.yaml", desired, DeployOptions{}))
+			_, err = d.DeployStack(t.Context(), "app", filepath.Join(dir, "compose.yaml"), "rendered.yaml", desired)
+			require.NoError(t, err)
 			switch scenario {
 			case "corrupt file":
 				require.NoError(t, os.WriteFile(path, []byte("private-corrupt-marker"), 0o600))
@@ -97,7 +98,7 @@ func TestSecretResolverValidatesReusedSecrets(t *testing.T) {
 			case "missing identity":
 				d.secretResolver = newTestSecretResolver()
 			}
-			err = d.DeployStack(t.Context(), "app", filepath.Join(dir, "compose.yaml"), "rendered.yaml", desired, DeployOptions{})
+			_, err = d.DeployStack(t.Context(), "app", filepath.Join(dir, "compose.yaml"), "rendered.yaml", desired)
 			require.Error(t, err)
 			assert.NotContains(t, err.Error(), "private-corrupt-marker")
 			assert.NotContains(t, err.Error(), identity.String())

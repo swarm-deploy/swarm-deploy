@@ -18,7 +18,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
-	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	swarmclient "github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -70,24 +69,24 @@ func TestInitJobRunnerCollectsLogsWithoutChangingOutcomeAndCleansUp(t *testing.T
 		taskError     string
 		logs          []byte
 		logsFailure   bool
-		wantStatus    deploymentmodel.InitJobStatus
+		wantStatus    InitJobStatus
 		wantError     bool
 		wantAvailable bool
 		wantTruncated bool
 		wantLogs      []byte
 	}{
 		{name: "successful execution", taskState: swarm.TaskStateComplete, logs: []byte("migration complete\n"),
-			wantStatus: deploymentmodel.InitJobSucceeded, wantAvailable: true, wantLogs: []byte("migration complete\n")},
+			wantStatus: InitJobSucceeded, wantAvailable: true, wantLogs: []byte("migration complete\n")},
 		{name: "successful empty output", taskState: swarm.TaskStateComplete, logs: []byte{},
-			wantStatus: deploymentmodel.InitJobSucceeded, wantAvailable: true, wantLogs: []byte{}},
+			wantStatus: InitJobSucceeded, wantAvailable: true, wantLogs: []byte{}},
 		{name: "failed execution", taskState: swarm.TaskStateFailed, taskError: "exit code 1", logs: []byte("failed\n"),
-			wantStatus: deploymentmodel.InitJobFailed, wantError: true, wantAvailable: true, wantLogs: []byte("failed\n")},
+			wantStatus: InitJobFailed, wantError: true, wantAvailable: true, wantLogs: []byte("failed\n")},
 		{name: "logs unavailable after success", taskState: swarm.TaskStateComplete, logsFailure: true,
-			wantStatus: deploymentmodel.InitJobSucceeded, wantAvailable: false},
+			wantStatus: InitJobSucceeded, wantAvailable: false},
 		{name: "logs unavailable after failure", taskState: swarm.TaskStateFailed, taskError: "exit code 2", logsFailure: true,
-			wantStatus: deploymentmodel.InitJobFailed, wantError: true, wantAvailable: false},
+			wantStatus: InitJobFailed, wantError: true, wantAvailable: false},
 		{name: "last 64 KiB retained", taskState: swarm.TaskStateComplete, logs: largeOutput,
-			wantStatus: deploymentmodel.InitJobSucceeded, wantAvailable: true, wantTruncated: true,
+			wantStatus: InitJobSucceeded, wantAvailable: true, wantTruncated: true,
 			wantLogs: largeOutput[len(largeOutput)-initJobLogLimit:]},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -138,7 +137,7 @@ func TestInitJobRunnerCollectsLogsAfterTimeoutWithDetachedBoundedContext(t *test
 		Job: compose.InitJob{Name: "migrate", Image: "example/migrate:1"},
 	})
 	require.ErrorIs(t, runErr, context.DeadlineExceeded)
-	assert.Equal(t, deploymentmodel.InitJobInterrupted, execution.Status)
+	assert.Equal(t, InitJobInterrupted, execution.Status)
 	assert.True(t, execution.LogsAvailable)
 	assert.Equal(t, []byte("still running\n"), execution.Logs)
 	select {

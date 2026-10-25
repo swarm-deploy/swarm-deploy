@@ -165,9 +165,9 @@ func TestReconcileAgeSecretFailuresDoNotReachCLI(t *testing.T) {
 			}
 			runner := NewMockRunner(ctrl)
 			d := &Deployer{secretResolver: newTestSecretResolverWithIdentity(tt.key), resources: newResourceReconciler(&swarm.Swarm{Secrets: secrets}), runner: runner}
-			err := d.DeployStack(t.Context(), "app", filepath.Join(dir, "compose.yaml"), "unused", compose.Compose{
+			_, err := d.DeployStack(t.Context(), "app", filepath.Join(dir, "compose.yaml"), "unused", compose.Compose{
 				Secrets: compose.Secrets{"password": {File: "password.age", Driver: tt.driver}},
-			}, DeployOptions{})
+			})
 			require.ErrorContains(t, err, tt.want)
 			assert.NotContains(t, err.Error(), "private-marker")
 			assert.NotContains(t, err.Error(), identity.String())
