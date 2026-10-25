@@ -527,6 +527,17 @@ export interface DeploymentAttempt {
   started_at: string;
   finished_at?: string;
   duration_ms?: number;
+  init_jobs: DeploymentInitJobExecution[];
+}
+export interface DeploymentInitJobExecution {
+  ordinal: number;
+  service_name: string;
+  job_name: string;
+  status: "succeeded" | "failed" | "interrupted";
+  started_at: string;
+  finished_at: string;
+  logs_available: boolean;
+  logs_truncated: boolean;
 }
 export interface Deployment extends DeploymentSummary {
   diagnostic?: string;

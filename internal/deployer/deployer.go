@@ -29,7 +29,7 @@ type InitJobMetrics interface {
 
 type initJobExecutor interface {
 	// Run executes one init job based on deployment context and job spec.
-	Run(ctx context.Context, spec InitJobSpec) error
+	Run(ctx context.Context, spec InitJobSpec) (InitJobResult, error)
 }
 
 type InitJobSpec struct {
@@ -97,22 +97,25 @@ func (d *Deployer) DeployStack(
 	sourceComposePath,
 	deployComposePath string,
 	desired compose.Compose,
-) error {
+) (Result, error) {
+	result := Result{}
 	resolved := resolvedResources{}
 	if len(desired.Configs) > 0 || len(desired.Secrets) > 0 {
 		data, err := d.secretResolver.Resolve(ctx, stackName, sourceComposePath, desired.Secrets)
 		if err != nil {
-			return fmt.Errorf("resolve secrets: %w", err)
+			return result, fmt.Errorf("resolve secrets: %w", err)
 		}
 		resolved, err = d.resources.Reconcile(ctx, stackName, desired.Configs, desired.Secrets, data)
 		clearSecretData(data)
 		if err != nil {
-			return fmt.Errorf("reconcile configs and secrets: %w", err)
+			return result, fmt.Errorf("reconcile configs and secrets: %w", err)
 		}
 	}
 
-	if err := d.runInitJobs(ctx, stackName, desired.Services, resolved); err != nil {
-		return err
+	var err error
+	result.InitJobs, err = d.runInitJobs(ctx, stackName, desired.Services, resolved)
+	if err != nil {
+		return result, err
 	}
 
 	args := make([]string, 0, len(d.stackDeployArgs)+deployArgsExtraCount)
@@ -122,11 +125,11 @@ func (d *Deployer) DeployStack(
 	ctx, cancel := context.WithTimeout(ctx, binaryTimeout)
 	defer cancel()
 
-	if _, err := d.runner.Run(ctx, args...); err != nil {
-		return fmt.Errorf("deploy stack %s: %w", stackName, err)
+	if _, err = d.runner.Run(ctx, args...); err != nil {
+		return result, fmt.Errorf("deploy stack %s: %w", stackName, err)
 	}
 
-	return nil
+	return result, nil
 }
 
 func (d *Deployer) runInitJobs(
@@ -134,11 +137,12 @@ func (d *Deployer) runInitJobs(
 	stackName string,
 	services []compose.Service,
 	resolved resolvedResources,
-) error {
+) ([]InitJobResult, error) {
+	result := make([]InitJobResult, 0)
 	for _, service := range services {
 		// Jobs are run in declaration order per service to keep behavior deterministic.
 		for _, job := range service.InitJobs {
-			err := d.initJobRunner.Run(ctx, InitJobSpec{
+			execution, err := d.initJobRunner.Run(ctx, InitJobSpec{
 				StackName:       stackName,
 				ServiceName:     service.Name,
 				DefaultNetwork:  service.Networks.GetNames(),
@@ -148,10 +152,13 @@ func (d *Deployer) runInitJobs(
 				ResolvedConfigs: resolved.configs,
 				Job:             job,
 			})
+			if !execution.StartedAt.IsZero() {
+				result = append(result, execution)
+			}
 			if err != nil {
-				return fmt.Errorf("service %s init job %s: %w", service.Name, job.Name, err)
+				return result, fmt.Errorf("service %s init job %s: %w", service.Name, job.Name, err)
 			}
 		}
 	}
-	return nil
+	return result, nil
 }

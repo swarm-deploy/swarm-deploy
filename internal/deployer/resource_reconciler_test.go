@@ -119,7 +119,7 @@ func TestDeployStackReconcilesResourcesBeforeInitJobs(t *testing.T) {
 				}},
 			}
 
-			err := deployer.DeployStack(
+			_, err := deployer.DeployStack(
 				context.Background(),
 				"demo",
 				filepath.Join(dir, "compose.yaml"),
@@ -251,7 +251,7 @@ func TestDeployStackInitJobFailureDoesNotDeleteResources(t *testing.T) {
 		}},
 	}
 
-	err := deployer.DeployStack(
+	_, err := deployer.DeployStack(
 		context.Background(),
 		"demo",
 		filepath.Join(dir, "compose.yaml"),

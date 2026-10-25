@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
@@ -79,7 +80,7 @@ func InitModule(
 
 func (s *Module) registerEventSubscribers(cnt Container) error {
 	return cnt.GetEventModule().Dispatcher.Subscribe(events.TypeNameDeploySuccess, "service-metadata",
-		outbox.External(deployment.WithDesired(deployment.NewStore(cnt.GetStorage()),
+		outbox.External(deployment.WithDesired(deploymentstore.NewStore(cnt.GetStorage()),
 			service.NewSubscriber(s.ServiceStore, cnt.GetSwarm(), metadata.NewExtractor(),
 				cnt.GetStorage(), cnt.GetEventModule().Dispatcher))))
 }

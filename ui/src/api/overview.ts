@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { apiRequest, apiTextRequest } from "./client";
 import { withWebBasePath } from "../runtimeConfig";
 import type {
   AlertsResponse,
@@ -16,7 +16,7 @@ import type {
   ServiceStatusResponse,
   StackManifestosResponse,
   StacksResponse,
-	TaskLogLevel,
+  TaskLogLevel,
 } from "./types";
 
 export function fetchAlerts(options: { status?: AlertStatus; limit?: number } = {}): Promise<AlertsResponse> {
@@ -175,6 +175,13 @@ export function fetchStackManifestos(stackName: string): Promise<StackManifestos
 }
 export function fetchDeployment(id: string): Promise<Deployment> {
   return apiRequest<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}`);
+}
+
+export function fetchDeploymentInitJobLogs(deploymentID: string, attemptID: string, ordinal: number): Promise<string> {
+  return apiTextRequest(
+    `/api/v1/deployments/${encodeURIComponent(deploymentID)}`
+    + `/attempts/${encodeURIComponent(attemptID)}/init-jobs/${encodeURIComponent(String(ordinal))}/logs`,
+  );
 }
 
 export function fetchDeployments(options: { stack?: string; serviceName?: string; limit?: number; cursor?: string } = {}): Promise<DeploymentsResponse> {

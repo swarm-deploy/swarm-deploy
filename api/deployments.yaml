@@ -57,6 +57,37 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Deployment'
+  /api/v1/deployments/{id}/attempts/{attemptID}/init-jobs/{ordinal}/logs:
+    get:
+      operationId: getDeploymentInitJobLogs
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: attemptID
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: ordinal
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Original bounded Docker output for one Init Job execution.
+          content:
+            application/octet-stream:
+              x-ogen-raw-response: true
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Deployment relationship, execution, or collected logs not found.
 components:
   schemas:
     DeploymentFilterOptions:
@@ -232,6 +263,7 @@ components:
         - cleanup_status
         - actual_state_status
         - started_at
+        - init_jobs
       properties:
         id:
           type: string
@@ -267,6 +299,42 @@ components:
           type: integer
           format: int64
           minimum: 0
+        init_jobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeploymentInitJobExecution'
+    DeploymentInitJobExecution:
+      type: object
+      required:
+        - ordinal
+        - service_name
+        - job_name
+        - status
+        - started_at
+        - finished_at
+        - logs_available
+        - logs_truncated
+      properties:
+        ordinal:
+          type: integer
+          minimum: 1
+        service_name:
+          type: string
+        job_name:
+          type: string
+        status:
+          type: string
+          enum: [succeeded, failed, interrupted]
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+        logs_available:
+          type: boolean
+        logs_truncated:
+          type: boolean
     Deployment:
       allOf:
         - $ref: '#/components/schemas/DeploymentSummary'

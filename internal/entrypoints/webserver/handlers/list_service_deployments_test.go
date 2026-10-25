@@ -8,6 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
+	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	gitopsmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
@@ -21,12 +23,12 @@ func TestListServiceDeploymentsReadsDeploymentStore(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	svc := deployment.NewService(db, outbox.New(db))
-	h := &handler{deployments: deployment.NewStore(db)}
+	h := &handler{deployments: deploymentstore.NewStore(db)}
 
 	file := func(services ...compose.Service) compose.File {
 		return compose.File{Compose: compose.Compose{Services: services}}
 	}
-	start := func(stack, commit string, services ...compose.Service) *deployment.Attempt {
+	start := func(stack, commit string, services ...compose.Service) *deploymentmodel.Attempt {
 		attempt, startErr := svc.StartIfChanged(ctx, stack, commit, file(services...), true)
 		require.NoError(t, startErr)
 		require.NotNil(t, attempt)
@@ -75,7 +77,7 @@ func TestListServiceDeploymentsWithoutAttemptsIsEmpty(t *testing.T) {
 	db, err := storage.Open(ctx, t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	h := &handler{deployments: deployment.NewStore(db)}
+	h := &handler{deployments: deploymentstore.NewStore(db)}
 	response, err := h.ListServiceDeployments(ctx, generated.ListServiceDeploymentsParams{
 		Stack: "payments", Service: "api",
 	})

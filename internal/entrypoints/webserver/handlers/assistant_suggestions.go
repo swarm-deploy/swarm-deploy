@@ -12,7 +12,7 @@ import (
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	alertmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 )
 
 const (
@@ -58,8 +58,8 @@ func (h *handler) GetAssistantSuggestions(ctx context.Context) (*generated.Assis
 func (h *handler) latestServiceSuggestion(
 	ctx context.Context,
 ) (generated.AssistantSuggestion, bool, error) {
-	page, err := h.deployments.List(ctx, deployment.ListFilter{
-		Status: deployment.Succeeded,
+	page, err := h.deployments.List(ctx, deploymentmodel.ListFilter{
+		Status: deploymentmodel.Succeeded,
 		Limit:  latestDeploymentSuggestionLimit,
 	})
 	if err != nil {
@@ -108,7 +108,7 @@ func (h *handler) latestServiceSuggestion(
 	return generated.AssistantSuggestion{}, false, nil
 }
 
-func changedServiceNames(changes []deployment.Change) []string {
+func changedServiceNames(changes []deploymentmodel.Change) []string {
 	names := make([]string, 0)
 	seen := make(map[string]struct{})
 	for _, change := range changes {

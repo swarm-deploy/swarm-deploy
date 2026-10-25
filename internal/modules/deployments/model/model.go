@@ -1,5 +1,5 @@
-// Package deployment owns desired-state deployments, their attempts and successful baselines.
-package deployment
+// Package model owns desired-state deployments, their attempts and successful baselines.
+package model
 
 import (
 	"time"
@@ -145,6 +145,42 @@ type ResourceSummary struct {
 	Volumes int `json:"volumes"`
 }
 
+// InitJobStatus describes the outcome of one Init Job execution.
+type InitJobStatus string
+
+const (
+	// InitJobSucceeded means the Docker task completed successfully.
+	InitJobSucceeded InitJobStatus = "succeeded"
+	// InitJobFailed means the Docker task completed with a known failure.
+	InitJobFailed InitJobStatus = "failed"
+	// InitJobInterrupted means execution ended before a complete outcome was observed.
+	InitJobInterrupted InitJobStatus = "interrupted"
+)
+
+// InitJobExecution is one completed Init Job execution within a Deployment Attempt.
+type InitJobExecution struct {
+	// AttemptID identifies the parent Deployment Attempt.
+	AttemptID string `json:"attempt_id"`
+	// Ordinal is the one-based execution order within the Attempt.
+	Ordinal int `json:"ordinal"`
+	// ServiceName identifies the service declaring the Init Job.
+	ServiceName string `json:"service_name"`
+	// JobName identifies the Init Job within the service.
+	JobName string `json:"job_name"`
+	// Status is the observed execution outcome.
+	Status InitJobStatus `json:"status"`
+	// StartedAt is recorded immediately before Docker service creation.
+	StartedAt time.Time `json:"started_at"`
+	// FinishedAt is recorded when execution stops, before log collection.
+	FinishedAt time.Time `json:"finished_at"`
+	// Logs contains original Docker output for persistence and is never serialized automatically.
+	Logs []byte `json:"-"`
+	// LogsAvailable distinguishes unavailable logs from successfully retrieved empty output.
+	LogsAvailable bool `json:"logs_available"`
+	// LogsTruncated reports that only the last bounded portion of output was retained.
+	LogsTruncated bool `json:"logs_truncated"`
+}
+
 // Attempt is one execution of the deployment pipeline for a Deployment.
 type Attempt struct {
 	// ID uniquely identifies this execution.
@@ -177,6 +213,8 @@ type Attempt struct {
 	ActualStateStatus ActualStateStatus `json:"actual_state_status"`
 	// ObservedAt is set when live Swarm state was read successfully.
 	ObservedAt *time.Time `json:"observed_at,omitempty"`
+	// InitJobs contains execution metadata in original execution order; raw logs are loaded separately.
+	InitJobs []InitJobExecution `json:"init_jobs,omitempty"`
 }
 
 // Deployment is one immutable effective desired state with zero or more persisted execution attempts.

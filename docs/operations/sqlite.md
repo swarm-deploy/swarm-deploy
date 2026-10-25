@@ -47,6 +47,14 @@ intentionally unsupported. Do not run Goose down or remove Attempt history. Rest
 a pre-upgrade backup only when a true database rollback is unavoidable, accepting
 that all data committed after that backup will be absent.
 
+Migration `0004_deployment_init_jobs.sql` adds `deployment_init_jobs`. Each row is
+owned by one Deployment Attempt and is removed automatically through the existing
+foreign-key cascades when that Attempt or its parent Deployment is deleted. Logs are
+nullable so an unavailable Docker stream remains distinct from successfully
+collected empty output. Existing databases and historical Attempts require no
+backfill; they simply have no Init Job execution rows. The migration is additive,
+and older application versions ignore the new table.
+
 ## Consistent backup and incident evidence
 
 Do not copy only `swarm-deploy.sqlite` while the application is running: committed data may still be in

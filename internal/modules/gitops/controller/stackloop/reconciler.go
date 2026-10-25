@@ -14,6 +14,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
+	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/drift"
@@ -56,7 +58,7 @@ type Reconciler struct {
 type pendingCompletion struct {
 	attemptID  string
 	state      model.Stack
-	status     deployment.Status
+	status     deploymentmodel.Status
 	errorCode  string
 	cause      error
 	observedAt time.Time
@@ -237,7 +239,7 @@ func (r *Reconciler) processResult(
 	if err != nil {
 		if payload.Attempt != nil {
 			r.pending[req.Stack.Name] = pendingCompletion{
-				attemptID: payload.Attempt.ID, state: result, status: deployment.Succeeded,
+				attemptID: payload.Attempt.ID, state: result, status: deploymentmodel.Succeeded,
 				observedAt: payload.ObservedAt,
 			}
 		}
@@ -289,7 +291,7 @@ func (r *Reconciler) recordPipelineFailure(
 	} else {
 		failed := prev
 		code := "apply_failed"
-		status := deployment.Failed
+		status := deploymentmodel.Failed
 		// Keep Docker job output out of returned errors and tracing; only the
 		// bounded, masked excerpt is passed to durable failure diagnostics.
 		var failureCause error = pipeErr
@@ -301,7 +303,7 @@ func (r *Reconciler) recordPipelineFailure(
 				code = "init_failed"
 			}
 		case "load live state":
-			code, status = "verification_unknown", deployment.Interrupted
+			code, status = "verification_unknown", deploymentmodel.Interrupted
 		case "prune orphaned services":
 			code = pruneFailureCode
 		}
@@ -343,9 +345,9 @@ func (r *Reconciler) recoverPending(ctx context.Context, stack string) error {
 	}
 	var err error
 	switch {
-	case pending.status == deployment.Succeeded:
+	case pending.status == deploymentmodel.Succeeded:
 		err = r.deployments.SucceedObserved(ctx, pending.attemptID, pending.state, pending.observedAt)
-	case pending.status == deployment.Interrupted:
+	case pending.status == deploymentmodel.Interrupted:
 		err = r.deployments.InterruptVerificationWithError(ctx, pending.attemptID, pending.state,
 			pending.cause)
 	case pending.errorCode == pruneFailureCode:
@@ -359,7 +361,7 @@ func (r *Reconciler) recoverPending(ctx context.Context, stack string) error {
 		delete(r.pending, stack)
 		return nil
 	}
-	if !errors.Is(err, deployment.ErrNotRunning) {
+	if !errors.Is(err, deploymentstore.ErrNotRunning) {
 		return err
 	}
 	return r.resolveCompletionConflict(ctx, stack, pending, err)
@@ -377,7 +379,7 @@ func (r *Reconciler) resolveCompletionConflict(
 			stack, actual.Stack)
 	}
 	switch actual.Status {
-	case deployment.Succeeded, deployment.Failed, deployment.Interrupted, deployment.Superseded:
+	case deploymentmodel.Succeeded, deploymentmodel.Failed, deploymentmodel.Interrupted, deploymentmodel.Superseded:
 		slog.WarnContext(ctx, "deployment completion lifecycle conflict",
 			slog.String("attempt_id", pending.attemptID),
 			slog.String("stack", stack),
@@ -386,7 +388,7 @@ func (r *Reconciler) resolveCompletionConflict(
 		)
 		delete(r.pending, stack)
 		return nil
-	case deployment.Running:
+	case deploymentmodel.Running:
 		return fmt.Errorf("completion returned not running but deployment %s is running: %w",
 			pending.attemptID, completionErr)
 	default:
