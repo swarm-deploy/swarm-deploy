@@ -297,16 +297,7 @@ func (b *Bus) process(ctx context.Context, d *delivery) (err error) {
 		PublicationSequence: publicationSequence,
 	}
 	if notification, ok := handler.(notificationSubscriber); ok {
-		if err = b.checkLease(ctx, *d); err != nil {
-			return err
-		}
-		delivered, sendErr := notification.HandleNotification(ctx, envelope)
-		if sendErr != nil {
-			return sendErr
-		}
-		return b.db.WithinTransaction(ctx, func(ctx context.Context) error {
-			return b.ack(ctx, *d, delivered)
-		})
+		return b.processNotification(ctx, *d, envelope, notification)
 	}
 	if external, ok := handler.(externalSubscriber); ok {
 		if err = b.checkLease(ctx, *d); err != nil {
@@ -325,6 +316,21 @@ func (b *Bus) process(ctx context.Context, d *delivery) (err error) {
 			return handlerErr
 		}
 		return b.ack(ctx, *d, false)
+	})
+}
+
+func (b *Bus) processNotification(
+	ctx context.Context, d delivery, envelope events.Envelope, notification notificationSubscriber,
+) error {
+	if err := b.checkLease(ctx, d); err != nil {
+		return err
+	}
+	delivered, err := notification.HandleNotification(ctx, envelope)
+	if err != nil {
+		return err
+	}
+	return b.db.WithinTransaction(ctx, func(ctx context.Context) error {
+		return b.ack(ctx, d, delivered)
 	})
 }
 
