@@ -25,7 +25,6 @@ type Module struct {
 type Container interface {
 	// GetStorage returns the shared database.
 	GetStorage() *storage.Database
-	// GetFileSystem returns the application filesystem abstraction.
 	// GetEventModule returns the event dispatcher module.
 	GetEventModule() *event.Module
 	// GetConfigStore returns the shared runtime configuration store.
