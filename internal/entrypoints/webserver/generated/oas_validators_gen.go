@@ -101,6 +101,8 @@ func (s AlertKind) Validate() error {
 		return nil
 	case "git_repository_unavailable":
 		return nil
+	case "service_drift":
+		return nil
 	default:
 		return errors.Errorf("invalid value: %v", s)
 	}
@@ -147,6 +149,8 @@ func (s AlertResourceType) Validate() error {
 	case "node":
 		return nil
 	case "repository":
+		return nil
+	case "service":
 		return nil
 	default:
 		return errors.Errorf("invalid value: %v", s)

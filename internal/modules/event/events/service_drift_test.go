@@ -12,17 +12,20 @@ func TestServiceDriftEventDetails(t *testing.T) {
 		event Event
 		type_ Type
 	}{
-		{name: "restored", event: &ServiceRestored{StackName: "app", ServiceName: "api", Commit: "abc"}, type_: TypeServiceRestored},
-		{name: "restore failed", event: &ServiceRestoreFailed{StackName: "app", ServiceName: "api", Commit: "abc"}, type_: TypeServiceRestoreFailed},
-		{name: "replicas diverged", event: &ServiceReplicasDiverged{StackName: "app", ServiceName: "api", Commit: "abc"}, type_: TypeServiceReplicasDiverged},
+		{name: "drifted", event: &ServiceDrifted{
+			StackName: "app", ServiceName: "api", Commit: "abc", Reason: "replicas differ",
+		}, type_: TypeServiceDrifted},
+		{name: "fixed", event: &ServiceDriftFixed{
+			StackName: "app", ServiceName: "api", Commit: "abc",
+		}, type_: TypeServiceDriftFixed},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assert.Equal(t, tt.type_, tt.event.Type())
-			assert.Equal(t, map[string]string{
-				AttributeStackName: "app", AttributeServiceName: "api", AttributeCommit: "abc",
-			}, tt.event.Details())
+			assert.Equal(t, "app", tt.event.Details()[AttributeStackName])
+			assert.Equal(t, "api", tt.event.Details()[AttributeServiceName])
+			assert.Equal(t, "abc", tt.event.Details()[AttributeCommit])
 			assert.NotEmpty(t, tt.event.Message())
 		})
 	}

@@ -91,6 +91,33 @@ func TestNodeAlertRecoveryIgnoresDelayedFailure(t *testing.T) {
 	assert.EqualValues(t, 1, alerts[0].Occurrences)
 }
 
+func TestServiceDriftAlertRecoveryIgnoresRetriesAndDelayedDetection(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.Open(ctx, t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+	repo := modelstore.NewSQLStore(db)
+	subscriber := newTestSQLSubscriber(repo)
+	at := time.Now().UTC()
+	drifted := events.Envelope{ID: "001", OccurredAt: at, Event: &events.ServiceDrifted{
+		StackName: "payments", ServiceName: "api", Commit: "one", Reason: "replicas differ",
+	}}
+	fixed := events.Envelope{ID: "003", OccurredAt: at.Add(time.Second), Event: &events.ServiceDriftFixed{
+		StackName: "payments", ServiceName: "api", Commit: "two",
+	}}
+	delayed := events.Envelope{ID: "002", OccurredAt: at.Add(time.Millisecond), Event: &events.ServiceMissed{
+		StackName: "payments", ServiceName: "api", Commit: "old",
+	}}
+	for _, event := range []events.Envelope{drifted, drifted, fixed, delayed} {
+		require.NoError(t, subscriber.Handle(ctx, event))
+	}
+	alerts, err := repo.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 1)
+	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
+	assert.Equal(t, uint64(1), alerts[0].Occurrences)
+}
+
 func TestPreparationAndInterruptedFailuresShareDeploymentAlertLifecycle(t *testing.T) {
 	ctx := context.Background()
 	db, err := storage.Open(ctx, t.TempDir())

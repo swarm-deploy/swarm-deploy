@@ -23,7 +23,7 @@ func TestAnalyzerAnalyze(t *testing.T) {
 			name:    "missing service",
 			desired: compose.Service{Name: "api"},
 			want: map[string]ServiceDrift{"api": {
-				ServiceName: "api", Reason: "Service Missed", ServiceMissed: true,
+				ServiceName: "api", Reason: "service is missing", ServiceMissed: true,
 			}},
 		},
 		{
@@ -31,7 +31,7 @@ func TestAnalyzerAnalyze(t *testing.T) {
 			desired: compose.Service{Name: "api", Deploy: compose.ServiceDeploy{Replicas: &three}},
 			live:    []swarm.StackService{{Name: "api", Replicas: &one}},
 			want: map[string]ServiceDrift{"api": {
-				ServiceName: "api", Reason: "Service Replicas Diverged",
+				ServiceName: "api", Reason: "replica count differs: desired=3 actual=1",
 				Replicas: ReplicasDrift{OutOfSync: true, Desired: 3, Live: 1},
 			}},
 		},

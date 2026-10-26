@@ -29,11 +29,12 @@ const (
 
 type pipelinePayload struct {
 	// Attempt is persisted before any external apply.
-	Attempt      *deploymentmodel.Attempt
-	Stack        config.StackSpec
-	Commit       string
-	IsNewDigest  bool
-	IsManualSync bool
+	Attempt          *deploymentmodel.Attempt
+	Stack            config.StackSpec
+	Commit           string
+	IsNewDigest      bool
+	IsManualSync     bool
+	HasPreviousDrift bool
 
 	Desired             *compose.File
 	DesiredMutated      bool
@@ -45,6 +46,7 @@ type pipelinePayload struct {
 	PrunedServices []string
 	CleanupResult  rotatedCleanupResult
 	Drift          map[string]drift.ServiceDrift
+	RemainingDrift map[string]drift.ServiceDrift
 	Remediations   map[string]serviceRemediation
 	RemediationErr []error
 }
@@ -130,7 +132,7 @@ func (r *Reconciler) attachPipeline() {
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "analyze drift",
 		When: pipe.When(func(payload *pipelinePayload) bool {
-			return payload.Attempt == nil || payload.IsManualSync
+			return payload.Attempt == nil || payload.IsManualSync || payload.HasPreviousDrift
 		}),
 		Run: r.analyzeDrift,
 	})
@@ -138,9 +140,17 @@ func (r *Reconciler) attachPipeline() {
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "self-heal drift",
 		When: pipe.When(func(payload *pipelinePayload) bool {
-			return len(payload.Drift) > 0
+			return payload.Attempt == nil && len(payload.Drift) > 0
 		}),
 		Run: r.selfHealDrift,
+	})
+
+	r.pipeline.Add(pipe.Step[*pipelinePayload]{
+		Name: "verify self-heal",
+		When: pipe.When(func(payload *pipelinePayload) bool {
+			return hasRemediationAttempt(payload.Remediations)
+		}),
+		Run: r.verifySelfHeal,
 	})
 }
 
@@ -515,6 +525,7 @@ func (r *Reconciler) analyzeDrift(_ context.Context, payload *pipelinePayload) e
 	})
 
 	payload.Drift = driftResp.Drifts
+	payload.RemainingDrift = driftResp.Drifts
 
 	return err
 }

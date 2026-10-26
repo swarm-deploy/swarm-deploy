@@ -2,23 +2,38 @@ package events
 
 import "fmt"
 
-type serviceDriftEvent struct {
-	stackName   string
-	serviceName string
-	commit      string
+// ServiceDrifted is emitted when an existing service differs from desired state.
+type ServiceDrifted struct {
+	// StackName is the stack containing the drifted service.
+	StackName string
+	// ServiceName is the service name without stack prefix.
+	ServiceName string
+	// Commit is the Git revision used for reconciliation.
+	Commit string
+	// Reason describes the detected difference.
+	Reason string
+	// Resolved reports that this drift was fixed during the same reconciliation.
+	Resolved bool
 }
 
-func (s serviceDriftEvent) details() map[string]string {
+func (s *ServiceDrifted) Type() Type { return TypeServiceDrifted }
+
+func (s *ServiceDrifted) Message() string {
+	return fmt.Sprintf("Service %s/%s drifted: %s", s.StackName, s.ServiceName, s.Reason)
+}
+
+func (s *ServiceDrifted) Details() map[string]string {
 	return map[string]string{
-		AttributeStackName:   s.stackName,
-		AttributeServiceName: s.serviceName,
-		AttributeCommit:      s.commit,
+		AttributeStackName:   s.StackName,
+		AttributeServiceName: s.ServiceName,
+		AttributeCommit:      s.Commit,
+		"reason":             s.Reason,
 	}
 }
 
-// ServiceRestored is emitted after self-heal restores a missing service.
-type ServiceRestored struct {
-	// StackName is the stack containing the restored service.
+// ServiceDriftFixed is emitted after actual Swarm state is confirmed converged.
+type ServiceDriftFixed struct {
+	// StackName is the stack containing the recovered service.
 	StackName string
 	// ServiceName is the service name without stack prefix.
 	ServiceName string
@@ -26,52 +41,16 @@ type ServiceRestored struct {
 	Commit string
 }
 
-func (s *ServiceRestored) Type() Type { return TypeServiceRestored }
+func (s *ServiceDriftFixed) Type() Type { return TypeServiceDriftFixed }
 
-func (s *ServiceRestored) Message() string {
-	return fmt.Sprintf("Service %s/%s restored", s.StackName, s.ServiceName)
+func (s *ServiceDriftFixed) Message() string {
+	return fmt.Sprintf("Service %s/%s drift fixed", s.StackName, s.ServiceName)
 }
 
-func (s *ServiceRestored) Details() map[string]string {
-	return serviceDriftEvent{s.StackName, s.ServiceName, s.Commit}.details()
-}
-
-// ServiceRestoreFailed is emitted when self-heal cannot restore a missing service.
-type ServiceRestoreFailed struct {
-	// StackName is the stack containing the missing service.
-	StackName string
-	// ServiceName is the service name without stack prefix.
-	ServiceName string
-	// Commit is the Git revision used for reconciliation.
-	Commit string
-}
-
-func (s *ServiceRestoreFailed) Type() Type { return TypeServiceRestoreFailed }
-
-func (s *ServiceRestoreFailed) Message() string {
-	return fmt.Sprintf("Failed to restore service %s/%s", s.StackName, s.ServiceName)
-}
-
-func (s *ServiceRestoreFailed) Details() map[string]string {
-	return serviceDriftEvent{s.StackName, s.ServiceName, s.Commit}.details()
-}
-
-// ServiceReplicasDiverged is emitted when live and desired replicas differ.
-type ServiceReplicasDiverged struct {
-	// StackName is the stack containing the service.
-	StackName string
-	// ServiceName is the service name without stack prefix.
-	ServiceName string
-	// Commit is the Git revision used for reconciliation.
-	Commit string
-}
-
-func (s *ServiceReplicasDiverged) Type() Type { return TypeServiceReplicasDiverged }
-
-func (s *ServiceReplicasDiverged) Message() string {
-	return fmt.Sprintf("Service %s/%s replicas diverged from desired state", s.StackName, s.ServiceName)
-}
-
-func (s *ServiceReplicasDiverged) Details() map[string]string {
-	return serviceDriftEvent{s.StackName, s.ServiceName, s.Commit}.details()
+func (s *ServiceDriftFixed) Details() map[string]string {
+	return map[string]string{
+		AttributeStackName:   s.StackName,
+		AttributeServiceName: s.ServiceName,
+		AttributeCommit:      s.Commit,
+	}
 }

@@ -101,25 +101,41 @@ func (d *Deployer) DeployStack(
 	desired compose.Compose,
 ) (Result, error) {
 	result := Result{}
-	resolved := resolvedResources{}
-	if len(desired.Configs) > 0 || len(desired.Secrets) > 0 {
-		data, err := d.secretResolver.Resolve(ctx, stackName, sourceComposePath, desired.Secrets)
-		if err != nil {
-			return result, fmt.Errorf("resolve secrets: %w", err)
-		}
-		resolved, err = d.resources.Reconcile(ctx, stackName, desired.Configs, desired.Secrets, data)
-		clearSecretData(data)
-		if err != nil {
-			return result, fmt.Errorf("reconcile configs and secrets: %w", err)
-		}
+	resolved, err := d.reconcileResources(ctx, stackName, sourceComposePath, desired)
+	if err != nil {
+		return result, err
 	}
 
-	var err error
 	result.InitJobs, err = d.runInitJobs(ctx, stackName, desired.Services, resolved)
 	if err != nil {
 		return result, err
 	}
 
+	return result, d.applyCompose(ctx, stackName, deployComposePath)
+}
+
+func (d *Deployer) reconcileResources(
+	ctx context.Context, stackName, sourceComposePath string, desired compose.Compose,
+) (resolvedResources, error) {
+	resolved := resolvedResources{}
+	if len(desired.Configs) == 0 && len(desired.Secrets) == 0 {
+		return resolved, nil
+	}
+
+	data, err := d.secretResolver.Resolve(ctx, stackName, sourceComposePath, desired.Secrets)
+	if err != nil {
+		return resolved, fmt.Errorf("resolve secrets: %w", err)
+	}
+	resolved, err = d.resources.Reconcile(ctx, stackName, desired.Configs, desired.Secrets, data)
+	clearSecretData(data)
+	if err != nil {
+		return resolved, fmt.Errorf("reconcile configs and secrets: %w", err)
+	}
+
+	return resolved, nil
+}
+
+func (d *Deployer) applyCompose(ctx context.Context, stackName, deployComposePath string) error {
 	args := make([]string, 0, len(d.stackDeployArgs)+deployArgsExtraCount)
 	args = append(args, d.stackDeployArgs...)
 	args = append(args, "-c", deployComposePath, stackName)
@@ -127,11 +143,11 @@ func (d *Deployer) DeployStack(
 	ctx, cancel := context.WithTimeout(ctx, binaryTimeout)
 	defer cancel()
 
-	if _, err = d.runner.Run(ctx, args...); err != nil {
-		return result, fmt.Errorf("deploy stack %s: %w", stackName, err)
+	if _, err := d.runner.Run(ctx, args...); err != nil {
+		return fmt.Errorf("deploy stack %s: %w", stackName, err)
 	}
 
-	return result, nil
+	return nil
 }
 
 // DeployService applies one service from the desired stack definition.
@@ -149,6 +165,9 @@ func (d *Deployer) DeployService(
 	}
 	serviceDeploy, err := singleServiceCompose(deploy, serviceName)
 	if err != nil {
+		return Result{}, err
+	}
+	if _, err = d.reconcileResources(ctx, stackName, sourceComposePath, serviceDesired); err != nil {
 		return Result{}, err
 	}
 
@@ -172,7 +191,7 @@ func (d *Deployer) DeployService(
 		return Result{}, fmt.Errorf("close temporary compose file: %w", err)
 	}
 
-	return d.DeployStack(ctx, stackName, sourceComposePath, targetPath, serviceDesired)
+	return Result{}, d.applyCompose(ctx, stackName, targetPath)
 }
 
 func singleServiceCompose(desired compose.Compose, serviceName string) (compose.Compose, error) {
@@ -182,10 +201,56 @@ func singleServiceCompose(desired compose.Compose, serviceName string) (compose.
 		}
 
 		desired.Services = compose.Services{service}
+		desired.Networks = selectNetworks(desired.Networks, service.Networks)
+		desired.Secrets = selectObjects(desired.Secrets, service.Secrets)
+		desired.Configs = selectObjects(desired.Configs, service.Configs)
+		desired.Volumes = selectVolumes(desired.Volumes, service.Volumes)
 		return desired, nil
 	}
 
 	return compose.Compose{}, fmt.Errorf("service %q not found in compose", serviceName)
+}
+
+func selectNetworks(networks map[string]compose.Network, refs *compose.ServiceNetworks) map[string]compose.Network {
+	if refs == nil || len(networks) == 0 {
+		return nil
+	}
+	selected := make(map[string]compose.Network)
+	for _, alias := range refs.GetAliases() {
+		if network, ok := networks[alias]; ok {
+			selected[alias] = network
+		}
+	}
+	return selected
+}
+
+func selectObjects[T any, Objects ~map[string]*T](objects Objects, refs []compose.ObjectRef) Objects {
+	if len(objects) == 0 || len(refs) == 0 {
+		return nil
+	}
+	selected := make(Objects)
+	for _, ref := range refs {
+		if object, ok := objects[ref.Source]; ok {
+			selected[ref.Source] = object
+		}
+	}
+	return selected
+}
+
+func selectVolumes(volumes compose.Volumes, refs compose.ServiceVolumes) compose.Volumes {
+	if len(volumes) == 0 || len(refs.Volumes) == 0 {
+		return nil
+	}
+	selected := make(compose.Volumes)
+	for _, ref := range refs.Volumes {
+		if ref.Type != compose.ServiceVolumeTypeVolume {
+			continue
+		}
+		if volume, ok := volumes[ref.Source]; ok {
+			selected[ref.Source] = volume
+		}
+	}
+	return selected
 }
 
 func (d *Deployer) runInitJobs(

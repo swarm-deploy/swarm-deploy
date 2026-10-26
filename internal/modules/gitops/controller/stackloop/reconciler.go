@@ -171,6 +171,7 @@ func (r *Reconciler) Reconcile(
 		Commit:            req.Commit,
 		IsNewDigest:       !hasPrev || prev.SourceDigest != desiredState.Digest,
 		IsManualSync:      req.IsManual,
+		HasPreviousDrift:  stackHasDrift(prev),
 		Desired:           desiredState,
 		DeployComposePath: desiredState.Path,
 	}
@@ -192,6 +193,15 @@ func (r *Reconciler) Reconcile(
 		}
 	}
 	return nil
+}
+
+func stackHasDrift(stack model.Stack) bool {
+	for _, service := range stack.Services {
+		if service.SyncStatus == model.SyncStatusOutOfSync || service.SyncStatus == model.SyncStatusSyncFailed {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Reconciler) currentStackState(ctx context.Context, stackName string) (model.Stack, bool, error) {
@@ -220,17 +230,17 @@ func (r *Reconciler) processResult(
 			SyncAt:     now,
 		}
 
-		if serviceDrift, serviceDrifted := payload.Drift[service.Name]; serviceDrifted {
+		if serviceDrift, serviceDrifted := payload.RemainingDrift[service.Name]; serviceDrifted {
 			state.SyncStatus = model.SyncStatusOutOfSync
 			state.SyncError = serviceDrift.Reason
 		}
 		if remediation, remediated := payload.Remediations[service.Name]; remediated && remediation.attempted {
-			if remediation.succeeded {
+			if remediation.converged {
 				state.SyncStatus = model.SyncStatusSynced
 				state.SyncError = ""
 			} else {
 				state.SyncStatus = model.SyncStatusSyncFailed
-				state.SyncError = "Self Heal Failed"
+				state.SyncError = remediation.failure
 			}
 		}
 
@@ -241,7 +251,7 @@ func (r *Reconciler) processResult(
 		SourceDigest: desired.Digest, LastCommit: req.Commit, Status: model.NewStackStatus(serviceStates),
 		LastDeployAt: prevState.LastDeployAt, Services: serviceStates,
 	}
-	if payload.Attempt != nil || hasRemediationAttempt(payload.Remediations) {
+	if payload.Attempt != nil {
 		result.LastDeployAt = now
 	}
 	err := r.persistResult(ctx, req, prevState, payload, result)
@@ -455,48 +465,35 @@ func (r *Reconciler) publishDriftEvents(
 	prevState model.Stack,
 	payload *pipelinePayload,
 ) error {
-	for _, serviceDrift := range payload.Drift {
-		previousStatus := prevState.ServiceSyncStatus(serviceDrift.ServiceName)
-		isNewDrift := previousStatus != model.SyncStatusOutOfSync && previousStatus != model.SyncStatusSyncFailed
-		if serviceDrift.ServiceMissed && isNewDrift {
-			if err := r.event.Publish(ctx, &events.ServiceMissed{
-				StackName: req.Stack.Name, ServiceName: serviceDrift.ServiceName, Commit: req.Commit,
+	for _, service := range payload.Desired.Compose.Services {
+		detected, isDrifted := payload.Drift[service.Name]
+		_, unresolved := payload.RemainingDrift[service.Name]
+		previousStatus := prevState.ServiceSyncStatus(service.Name)
+		wasDrifted := previousStatus == model.SyncStatusOutOfSync || previousStatus == model.SyncStatusSyncFailed
+
+		if isDrifted && !wasDrifted {
+			if detected.ServiceMissed {
+				if err := r.event.Publish(ctx, &events.ServiceMissed{
+					StackName: req.Stack.Name, ServiceName: service.Name, Commit: req.Commit, Resolved: !unresolved,
+				}); err != nil {
+					return err
+				}
+			} else if err := r.event.Publish(ctx, &events.ServiceDrifted{
+				StackName: req.Stack.Name, ServiceName: service.Name, Commit: req.Commit,
+				Reason: detected.Reason, Resolved: !unresolved,
 			}); err != nil {
 				return err
 			}
 		}
-		if serviceDrift.Replicas.OutOfSync && isNewDrift {
-			if err := r.event.Publish(ctx, &events.ServiceReplicasDiverged{
-				StackName: req.Stack.Name, ServiceName: serviceDrift.ServiceName, Commit: req.Commit,
+
+		if !unresolved && (wasDrifted || isDrifted) {
+			if err := r.event.Publish(ctx, &events.ServiceDriftFixed{
+				StackName: req.Stack.Name, ServiceName: service.Name, Commit: req.Commit,
 			}); err != nil {
 				return err
 			}
-		}
-		if err := r.publishRemediationEvent(ctx, req, serviceDrift, payload.Remediations); err != nil {
-			return err
 		}
 	}
 
 	return nil
-}
-
-func (r *Reconciler) publishRemediationEvent(
-	ctx context.Context,
-	req ReconciliationRequest,
-	serviceDrift drift.ServiceDrift,
-	remediations map[string]serviceRemediation,
-) error {
-	remediation, remediated := remediations[serviceDrift.ServiceName]
-	if !serviceDrift.ServiceMissed || !remediated || !remediation.attempted {
-		return nil
-	}
-	if remediation.succeeded {
-		return r.event.Publish(ctx, &events.ServiceRestored{
-			StackName: req.Stack.Name, ServiceName: serviceDrift.ServiceName, Commit: req.Commit,
-		})
-	}
-
-	return r.event.Publish(ctx, &events.ServiceRestoreFailed{
-		StackName: req.Stack.Name, ServiceName: serviceDrift.ServiceName, Commit: req.Commit,
-	})
 }

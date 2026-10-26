@@ -1,6 +1,8 @@
 package drift
 
 import (
+	"fmt"
+
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
@@ -25,7 +27,7 @@ func (a *Analyzer) Analyze(req AnalyzeRequest) (AnalyzeResponse, error) {
 		if !serviceExists {
 			resp.Drifts[desiredService.Name] = ServiceDrift{
 				ServiceName:   desiredService.Name,
-				Reason:        "Service Missed",
+				Reason:        "service is missing",
 				ServiceMissed: true,
 			}
 			continue
@@ -45,7 +47,9 @@ func (a *Analyzer) Analyze(req AnalyzeRequest) (AnalyzeResponse, error) {
 
 		resp.Drifts[desiredService.Name] = ServiceDrift{
 			ServiceName: desiredService.Name,
-			Reason:      "Service Replicas Diverged",
+			Reason: fmt.Sprintf(
+				"replica count differs: desired=%d actual=%d", *desiredService.Deploy.Replicas, liveReplicas,
+			),
 			Replicas: ReplicasDrift{
 				OutOfSync: true,
 				Desired:   *desiredService.Deploy.Replicas,

@@ -185,12 +185,12 @@ func encodeServiceReference(event events.Event) ([]byte, bool, error) {
 	var payload servicePayload
 	switch e := event.(type) {
 	case *events.ServiceMissed:
-		payload = servicePayload{Stack: e.StackName, Name: e.ServiceName, Commit: e.Commit}
-	case *events.ServiceRestored:
-		payload = servicePayload{Stack: e.StackName, Name: e.ServiceName, Commit: e.Commit}
-	case *events.ServiceRestoreFailed:
-		payload = servicePayload{Stack: e.StackName, Name: e.ServiceName, Commit: e.Commit}
-	case *events.ServiceReplicasDiverged:
+		payload = servicePayload{Stack: e.StackName, Name: e.ServiceName, Commit: e.Commit, Resolved: e.Resolved}
+	case *events.ServiceDrifted:
+		payload = servicePayload{
+			Stack: e.StackName, Name: e.ServiceName, Commit: e.Commit, Reason: e.Reason, Resolved: e.Resolved,
+		}
+	case *events.ServiceDriftFixed:
 		payload = servicePayload{Stack: e.StackName, Name: e.ServiceName, Commit: e.Commit}
 	case *events.ServicePruned:
 		payload = servicePayload{Stack: e.StackName, Name: e.ServiceName, Commit: e.Commit}
@@ -207,19 +207,19 @@ func decodeServiceReference(typ events.TypeName, payload []byte) (events.Event, 
 	switch typ { //nolint:exhaustive // This helper handles only simple service-reference payloads.
 	case events.TypeNameServiceMissed:
 		constructor = func(p servicePayload) events.Event {
-			return &events.ServiceMissed{StackName: p.Stack, ServiceName: p.Name, Commit: p.Commit}
+			return &events.ServiceMissed{
+				StackName: p.Stack, ServiceName: p.Name, Commit: p.Commit, Resolved: p.Resolved,
+			}
 		}
-	case events.TypeNameServiceRestored:
+	case events.TypeNameServiceDrifted:
 		constructor = func(p servicePayload) events.Event {
-			return &events.ServiceRestored{StackName: p.Stack, ServiceName: p.Name, Commit: p.Commit}
+			return &events.ServiceDrifted{
+				StackName: p.Stack, ServiceName: p.Name, Commit: p.Commit, Reason: p.Reason, Resolved: p.Resolved,
+			}
 		}
-	case events.TypeNameServiceRestoreFailed:
+	case events.TypeNameServiceDriftFixed:
 		constructor = func(p servicePayload) events.Event {
-			return &events.ServiceRestoreFailed{StackName: p.Stack, ServiceName: p.Name, Commit: p.Commit}
-		}
-	case events.TypeNameServiceReplicasDiverged:
-		constructor = func(p servicePayload) events.Event {
-			return &events.ServiceReplicasDiverged{StackName: p.Stack, ServiceName: p.Name, Commit: p.Commit}
+			return &events.ServiceDriftFixed{StackName: p.Stack, ServiceName: p.Name, Commit: p.Commit}
 		}
 	case events.TypeNameServicePruned:
 		constructor = func(p servicePayload) events.Event {
@@ -404,6 +404,10 @@ type servicePayload struct {
 	Image string `json:"image"`
 	// Commit identifies the revision.
 	Commit string `json:"commit"`
+	// Reason describes service drift when applicable.
+	Reason string `json:"reason,omitempty"`
+	// Resolved reports same-reconciliation recovery for drift detection events.
+	Resolved bool `json:"resolved,omitempty"`
 	// Username identifies the initiating user.
 	Username string `json:"username"`
 	// Previous is the former replica count.

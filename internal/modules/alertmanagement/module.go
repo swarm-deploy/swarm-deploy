@@ -46,6 +46,7 @@ func InitModule(ctx context.Context, cfg *config.Config, container Container) (*
 		events.TypeNameDeployInterrupted, events.TypeNameDeploySuccess,
 		events.TypeNameNodeDisconnected, events.TypeNameNodeConnected,
 		events.TypeNameGitPullFailed, events.TypeNameGitPullSucceeded,
+		events.TypeNameServiceMissed, events.TypeNameServiceDrifted, events.TypeNameServiceDriftFixed,
 	}, "alert-management", subscriber); err != nil {
 		return nil, err
 	}

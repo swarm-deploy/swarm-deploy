@@ -88,10 +88,11 @@ func TestConfigurationChangedCodecHasNoDomainPayload(t *testing.T) {
 
 func TestServiceDriftEventsRoundTrip(t *testing.T) {
 	for _, original := range []events.Event{
-		&events.ServiceMissed{StackName: "app", ServiceName: "api", Commit: "abc"},
-		&events.ServiceRestored{StackName: "app", ServiceName: "api", Commit: "abc"},
-		&events.ServiceRestoreFailed{StackName: "app", ServiceName: "api", Commit: "abc"},
-		&events.ServiceReplicasDiverged{StackName: "app", ServiceName: "api", Commit: "abc"},
+		&events.ServiceMissed{StackName: "app", ServiceName: "api", Commit: "abc", Resolved: true},
+		&events.ServiceDrifted{
+			StackName: "app", ServiceName: "api", Commit: "abc", Reason: "replicas differ", Resolved: true,
+		},
+		&events.ServiceDriftFixed{StackName: "app", ServiceName: "api", Commit: "abc"},
 	} {
 		t.Run(original.Type().String(), func(t *testing.T) {
 			payload, err := Encode(original)
@@ -101,6 +102,13 @@ func TestServiceDriftEventsRoundTrip(t *testing.T) {
 			assert.Equal(t, original, decoded)
 		})
 	}
+}
+
+func TestServiceMissedCodecDecodesLegacyPayloadAsUnresolved(t *testing.T) {
+	decoded, err := Decode(events.TypeNameServiceMissed, Version,
+		[]byte(`{"stack":"app","name":"api","commit":"abc"}`))
+	require.NoError(t, err)
+	assert.Equal(t, &events.ServiceMissed{StackName: "app", ServiceName: "api", Commit: "abc"}, decoded)
 }
 
 func TestConfigurationChangedCodecCarriesSafeRepositoryTransition(t *testing.T) {

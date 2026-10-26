@@ -7,12 +7,14 @@ type AlertKind string
 const AlertKindSyncFailed AlertKind = "sync_failed"
 const AlertKindNodeDisconnected AlertKind = "node_disconnected"
 const AlertKindGitRepositoryUnavailable AlertKind = "git_repository_unavailable"
+const AlertKindServiceDrift AlertKind = "service_drift"
 
 type ResourceType string
 
 const ResourceTypeStack ResourceType = "stack"
 const ResourceTypeNode ResourceType = "node"
 const ResourceTypeRepository ResourceType = "repository"
+const ResourceTypeService ResourceType = "service"
 
 type AlertStatus string
 
@@ -86,4 +88,9 @@ func SyncFailedFingerprint(stackID string) string {
 // GitRepositoryUnavailableFingerprint returns the correlation key for repository access failures.
 func GitRepositoryUnavailableFingerprint(repository string) string {
 	return string(AlertKindGitRepositoryUnavailable) + ":" + string(ResourceTypeRepository) + ":" + repository
+}
+
+// ServiceDriftFingerprint returns the correlation key for one drifted service.
+func ServiceDriftFingerprint(stackName, serviceName string) string {
+	return string(AlertKindServiceDrift) + ":" + string(ResourceTypeService) + ":" + stackName + "/" + serviceName
 }

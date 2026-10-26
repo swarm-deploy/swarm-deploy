@@ -83,9 +83,84 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 		return s.handleGitPullFailed(ctx, event.ID, deployment)
 	case *events.GitPullSucceeded:
 		return s.handleGitPullSucceeded(ctx, event.ID, deployment)
+	case *events.ServiceMissed:
+		return s.handleServiceDrift(ctx, event.ID, deployment.StackName, deployment.ServiceName,
+			deployment.Commit, "service is missing", deployment.Resolved)
+	case *events.ServiceDrifted:
+		return s.handleServiceDrift(ctx, event.ID, deployment.StackName, deployment.ServiceName,
+			deployment.Commit, deployment.Reason, deployment.Resolved)
+	case *events.ServiceDriftFixed:
+		return s.handleServiceDriftFixed(ctx, event.ID, deployment.StackName, deployment.ServiceName)
 	default:
 		return nil
 	}
+}
+
+func (s *Subscriber) handleServiceDrift(
+	ctx context.Context, eventID, stackName, serviceName, commit, reason string, resolved bool,
+) error {
+	if resolved {
+		return nil
+	}
+	resourceID := stackName + "/" + serviceName
+	fingerprint := model.ServiceDriftFingerprint(stackName, serviceName)
+	now := s.now()
+	eventID = eventReferenceID(eventID, s.newID)
+	alert, err := s.store.FindOpenByFingerprint(ctx, fingerprint)
+	if err != nil && !errors.Is(err, modelstore.ErrAlertNotFound) {
+		return fmt.Errorf("find open service drift alert: %w", err)
+	}
+	if err == nil {
+		alert.Occurrences++
+		alert.UpdatedAt = now
+		alert.LatestEventID = eventID
+		alert.Message = reason
+		alert.Commit = commit
+		if err = s.store.Update(ctx, alert); err != nil {
+			return fmt.Errorf("update service drift alert: %w", err)
+		}
+		return nil
+	}
+
+	alert = model.Alert{
+		ID: s.newID(), Fingerprint: fingerprint, Kind: model.AlertKindServiceDrift,
+		ResourceType: model.ResourceTypeService, ResourceID: resourceID,
+		Status: model.AlertStatusOpen, Title: "Service drift detected", Message: reason,
+		Commit: commit, Occurrences: 1, OpenedAt: now, UpdatedAt: now,
+		OpenEventID: eventID, LatestEventID: eventID,
+	}
+	if err = s.store.Create(ctx, alert); err == nil {
+		return s.publishOpened(ctx, alert)
+	}
+	if !errors.Is(err, modelstore.ErrOpenAlertExists) {
+		return fmt.Errorf("create service drift alert: %w", err)
+	}
+	return s.updateConcurrentFailure(ctx, fingerprint, eventID, now, alert, true, err)
+}
+
+func (s *Subscriber) handleServiceDriftFixed(
+	ctx context.Context, eventID, stackName, serviceName string,
+) error {
+	fingerprint := model.ServiceDriftFingerprint(stackName, serviceName)
+	alert, err := s.store.FindOpenByFingerprint(ctx, fingerprint)
+	if err != nil {
+		if errors.Is(err, modelstore.ErrAlertNotFound) {
+			return nil
+		}
+		return fmt.Errorf("find open service drift alert: %w", err)
+	}
+	now := s.now()
+	alert.Status = model.AlertStatusResolved
+	alert.UpdatedAt = now
+	alert.ResolvedAt = &now
+	alert.Resolution = &model.AlertResolution{
+		Reason: model.ResolutionReasonRecovered, Message: "Service drift resolved",
+		EventID: eventReferenceID(eventID, s.newID),
+	}
+	if err = s.store.Update(ctx, alert); err != nil {
+		return fmt.Errorf("resolve service drift alert: %w", err)
+	}
+	return s.publishResolved(ctx, alert)
 }
 
 func (s *Subscriber) handleGitPullFailed(ctx context.Context, eventID string, event *events.GitPullFailed) error {

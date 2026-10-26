@@ -226,7 +226,10 @@ func TestDeployServiceDeploysOnlyTargetService(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, string(payload), "api:")
 		assert.NotContains(t, string(payload), "worker:")
-		assert.Contains(t, string(payload), "networks:")
+		assert.Contains(t, string(payload), "backend:")
+		assert.NotContains(t, string(payload), "frontend:")
+		assert.Contains(t, string(payload), "api-data:")
+		assert.NotContains(t, string(payload), "worker-data:")
 		return nil
 	}}
 	initJobs := &fakeInitJobExecutor{}
@@ -235,24 +238,55 @@ func TestDeployServiceDeploysOnlyTargetService(t *testing.T) {
 
 	desired := compose.Compose{
 		Services: compose.Services{
-			{Name: "api", Image: "example/api:1", InitJobs: []compose.InitJob{{Name: "migrate"}}},
+			{
+				Name: "api", Image: "example/api:1", InitJobs: []compose.InitJob{{Name: "migrate"}},
+				Networks: compose.NewServiceNetworks(&compose.ServiceNetwork{Alias: "backend"}),
+				Volumes: compose.ServiceVolumes{Volumes: []*compose.ServiceVolume{{
+					Type: compose.ServiceVolumeTypeVolume, Source: "api-data", Target: "/data",
+				}}},
+			},
 			{Name: "worker", Image: "example/worker:1"},
 		},
-		Networks: map[string]compose.Network{"backend": {}},
+		Networks: map[string]compose.Network{"backend": {}, "frontend": {}},
+		Volumes: compose.Volumes{
+			"api-data": {}, "worker-data": {},
+		},
 	}
 	deploy := desired
-	deploy.Services = compose.Services{
-		{Name: "api", Image: "example/api:1"},
-		{Name: "worker", Image: "example/worker:1"},
-	}
+	deploy.Services = append(compose.Services(nil), desired.Services...)
+	deploy.Services[0].InitJobs = nil
 	result, err := d.DeployService(context.Background(), "demo", "/tmp/source.yaml", "api", desired, deploy)
 	require.NoError(t, err)
-	require.Len(t, result.InitJobs, 1)
-	assert.Equal(t, "api", result.InitJobs[0].ServiceName)
+	assert.Empty(t, result.InitJobs)
+	assert.Empty(t, initJobs.calls)
 	require.Len(t, runner.calls, 1)
 	assert.NotEmpty(t, renderedPath)
 	_, err = os.Stat(renderedPath)
 	assert.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestSingleServiceComposeKeepsOnlyReferencedObjects(t *testing.T) {
+	desired := compose.Compose{
+		Services: compose.Services{{
+			Name:     "api",
+			Secrets:  []compose.ObjectRef{{Source: "api-secret"}},
+			Configs:  []compose.ObjectRef{{Source: "api-config"}},
+			Networks: compose.NewServiceNetworks(&compose.ServiceNetwork{Alias: "backend"}),
+		}},
+		Networks: map[string]compose.Network{"backend": {}, "frontend": {}},
+		Secrets: compose.Secrets{
+			"api-secret": {Alias: "api-secret"}, "worker-secret": {Alias: "worker-secret"},
+		},
+		Configs: compose.Configs{
+			"api-config": {Alias: "api-config"}, "worker-config": {Alias: "worker-config"},
+		},
+	}
+
+	selected, err := singleServiceCompose(desired, "api")
+	require.NoError(t, err)
+	assert.Equal(t, map[string]compose.Network{"backend": {}}, selected.Networks)
+	assert.Equal(t, compose.Secrets{"api-secret": desired.Secrets["api-secret"]}, selected.Secrets)
+	assert.Equal(t, compose.Configs{"api-config": desired.Configs["api-config"]}, selected.Configs)
 }
 
 func TestDeployServiceFailsWhenServiceIsMissing(t *testing.T) {
