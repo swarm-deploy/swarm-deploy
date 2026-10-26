@@ -25,3 +25,7 @@ func GitRepositoryUnavailableFingerprint(repository string) string {
 	return string(AlertKindGitRepositoryUnavailable) + ":" + string(ResourceTypeRepository) + ":" + repository
 }
 
+func NodeDisconnectedFingerprint(nodeID string) string {
+	return string(AlertKindNodeDisconnected) + string(ResourceTypeNode) + ":" + nodeID
+}
+
