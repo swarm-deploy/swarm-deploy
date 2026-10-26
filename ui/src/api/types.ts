@@ -198,6 +198,7 @@ export interface ServiceSpecSecretResponse {
   secret_id?: string;
   secret_name: string;
   target?: string;
+  secret?: SecretInfo;
 }
 
 export interface ServiceSpecNetworkResponse {
@@ -337,6 +338,7 @@ export interface SecretInfo {
   version_id: number;
   created_at: string;
   external?: SecretExternalInfo;
+  used_by?: SecretServiceUsage[];
 }
 
 export interface SecretsResponse {
@@ -386,6 +388,13 @@ export interface SecretDetailsResponse {
   driver?: string;
   labels?: Record<string, string>;
   external?: SecretExternalInfo;
+  used_by?: SecretServiceUsage[];
+}
+
+export interface SecretServiceUsage {
+  stack: string;
+  service: string;
+  target?: string;
 }
 
 export type SearchResultKind = "service" | "secret" | "stack";

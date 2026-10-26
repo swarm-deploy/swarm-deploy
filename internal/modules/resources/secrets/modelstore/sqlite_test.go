@@ -39,8 +39,13 @@ func TestSecretsRoundTripAndPhysicalPayload(t *testing.T) {
 	got, err := store.GetByName(t.Context(), "b")
 	require.NoError(t, err)
 	assert.Equal(t, full, got)
+	got, err = store.GetByID(t.Context(), "id-b")
+	require.NoError(t, err)
+	assert.Equal(t, full, got)
 
 	_, err = store.GetByName(t.Context(), "missing")
+	assert.ErrorIs(t, err, ErrSecretNotFound)
+	_, err = store.GetByID(t.Context(), "missing")
 	assert.ErrorIs(t, err, ErrSecretNotFound)
 
 	var row struct {

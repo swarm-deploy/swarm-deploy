@@ -9,9 +9,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
+	secretmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/model"
+	secretstore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretservice"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 )
@@ -57,9 +61,13 @@ func TestHandlerGetService(t *testing.T) {
 			},
 		},
 	}))
+	secretsStore := newSecretsStore(t, []secretmodel.Secret{{
+		ID: "secret-id", Name: "payments_db_password", VersionID: 3,
+	}})
 
 	h := &handler{
-		services: store,
+		services:        store,
+		secretRelations: secretservice.NewResolver(store, secretsStore),
 	}
 
 	resp, err := h.GetService(context.Background(), generated.GetServiceParams{
@@ -100,6 +108,11 @@ func TestHandlerGetService(t *testing.T) {
 	}, customLabels)
 	require.Len(t, resp.Spec.Secrets, 1)
 	assert.Equal(t, "payments_db_password", resp.Spec.Secrets[0].SecretName)
+	assert.Equal(t, "/run/secrets/payments_db_password", resp.Spec.Secrets[0].Target.Value)
+	secret, ok := resp.Spec.Secrets[0].Secret.Get()
+	require.True(t, ok)
+	assert.Equal(t, "secret-id", secret.ID)
+	assert.Equal(t, int64(3), secret.VersionID)
 	require.Len(t, resp.Spec.Network, 1)
 	assert.Equal(t, "payments_default", resp.Spec.Network[0].Target)
 }
@@ -122,4 +135,37 @@ func TestHandlerGetService_NotFound(t *testing.T) {
 	var statusErr *statusError
 	require.True(t, errors.As(err, &statusErr))
 	assert.Equal(t, http.StatusNotFound, statusErr.code)
+}
+
+func TestHandlerGetServiceReturnsRawSecretReferencesWhenResolutionFails(t *testing.T) {
+	t.Parallel()
+
+	services := modelstore.NewSQLStore(testutil.OpenSQLite(t))
+	reference := swarm.ServiceSecret{
+		SecretID:   "secret-id",
+		SecretName: "database-password",
+		Target:     "/run/secrets/database-password",
+	}
+	require.NoError(t, services.ReplaceStack(t.Context(), "payments", []model.Info{{
+		Name: "api",
+		Spec: swarm.ServiceSpec{Secrets: []swarm.ServiceSecret{reference}},
+	}}))
+
+	secretDB, err := storage.Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	secrets := secretstore.NewSQLStore(secretDB)
+	require.NoError(t, secretDB.Close())
+
+	h := &handler{
+		services:        services,
+		secretRelations: secretservice.NewResolver(services, secrets),
+	}
+
+	resp, err := h.GetService(t.Context(), generated.GetServiceParams{Stack: "payments", Service: "api"})
+	require.NoError(t, err)
+	require.Len(t, resp.Spec.Secrets, 1)
+	assert.Equal(t, reference.SecretID, resp.Spec.Secrets[0].SecretID.Value)
+	assert.Equal(t, reference.SecretName, resp.Spec.Secrets[0].SecretName)
+	assert.Equal(t, reference.Target, resp.Spec.Secrets[0].Target.Value)
+	assert.False(t, resp.Spec.Secrets[0].Secret.IsSet())
 }

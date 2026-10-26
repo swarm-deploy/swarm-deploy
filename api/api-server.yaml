@@ -172,6 +172,8 @@ components:
       $ref: './resources/secrets.yaml#/components/schemas/SecretInfo'
     SecretDetailsResponse:
       $ref: './resources/secrets.yaml#/components/schemas/SecretDetailsResponse'
+    SecretServiceUsage:
+      $ref: './resources/secrets.yaml#/components/schemas/SecretServiceUsage'
     SecretExternalInfo:
       $ref: './resources/secrets.yaml#/components/schemas/SecretExternalInfo'
     SyncInfo:
