@@ -139,6 +139,59 @@ func TestResolverServicesUsingSecretUnused(t *testing.T) {
 	assert.Empty(t, usedBy)
 }
 
+func TestResolverServicesUsingSecretByLogicalPath(t *testing.T) {
+	t.Parallel()
+
+	logical := secretmodel.Secret{
+		ID: "logical-id", Name: "database-password",
+		Labels: map[string]string{secretmodel.LogicalPathLabel: "database-password"},
+	}
+	version := secretmodel.Secret{
+		ID: "version-id", Name: "database-password-v2",
+		Labels: map[string]string{secretmodel.LogicalPathLabel: "database-password"},
+	}
+	resolver := newTestResolver(t, []secretmodel.Secret{logical, version}, []servicemodel.Info{{
+		Name: "api",
+		Spec: swarm.ServiceSpec{Secrets: []swarm.ServiceSecret{{
+			SecretID: version.ID, SecretName: version.Name, Target: "/run/secrets/database-password",
+		}}},
+	}})
+
+	usedBy, err := resolver.ServicesUsingSecret(t.Context(), logical)
+	require.NoError(t, err)
+	assert.Equal(t, []ServiceUsage{{
+		Stack: "payments", Service: "api", Target: "/run/secrets/database-password",
+	}}, usedBy)
+}
+
+func TestResolverListSecretsWithUsageByLogicalPath(t *testing.T) {
+	t.Parallel()
+
+	logical := secretmodel.Secret{
+		ID: "logical-id", Name: "database-password",
+		Labels: map[string]string{secretmodel.LogicalPathLabel: "database-password"},
+	}
+	version := secretmodel.Secret{
+		ID: "version-id", Name: "database-password-v2",
+		Labels: map[string]string{secretmodel.LogicalPathLabel: "database-password"},
+	}
+	resolver := newTestResolver(t, []secretmodel.Secret{logical, version}, []servicemodel.Info{{
+		Name: "api",
+		Spec: swarm.ServiceSpec{Secrets: []swarm.ServiceSecret{{
+			SecretID: version.ID, SecretName: version.Name, Target: "/run/secrets/database-password",
+		}}},
+	}})
+
+	secrets, err := resolver.ListSecretsWithUsage(t.Context())
+	require.NoError(t, err)
+	require.Len(t, secrets, 2)
+	for _, secret := range secrets {
+		assert.Equal(t, []ServiceUsage{{
+			Stack: "payments", Service: "api", Target: "/run/secrets/database-password",
+		}}, secret.UsedBy)
+	}
+}
+
 func newTestResolver(
 	t *testing.T,
 	secrets []secretmodel.Secret,

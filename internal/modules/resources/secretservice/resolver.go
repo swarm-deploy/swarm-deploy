@@ -75,29 +75,16 @@ func (r *Resolver) ResolveServiceSecrets(ctx context.Context, info servicemodel.
 
 // ServicesUsingSecret returns services that reference the supplied secret.
 func (r *Resolver) ServicesUsingSecret(ctx context.Context, secret secretmodel.Secret) ([]ServiceUsage, error) {
-	services, err := r.services.ReadAll(ctx)
+	secrets, err := r.ListSecretsWithUsage(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("list services: %w", err)
+		return nil, err
 	}
-
-	usedBy := make([]ServiceUsage, 0)
-	for _, info := range services {
-		for _, reference := range info.Spec.Secrets {
-			if !referencesSecret(reference, secret) {
-				continue
-			}
-
-			usedBy = append(usedBy, ServiceUsage{
-				Stack:   info.Stack,
-				Service: info.Name,
-				Target:  reference.Target,
-			})
+	for _, candidate := range secrets {
+		if candidate.Secret.ID == secret.ID || candidate.Secret.Name == secret.Name {
+			return candidate.UsedBy, nil
 		}
 	}
-
-	sortServiceUsages(usedBy)
-
-	return usedBy, nil
+	return nil, nil
 }
 
 // ListSecretsWithUsage returns all secrets enriched with locally derived service usage.
@@ -116,26 +103,24 @@ func (r *Resolver) ListSecretsWithUsage(ctx context.Context) ([]SecretWithUsage,
 		return result, fmt.Errorf("list services: %w", err)
 	}
 
-	byID := make(map[string]int, len(secrets))
-	byName := make(map[string]int, len(secrets))
-	for index, secret := range secrets {
-		byID[secret.ID] = index
-		byName[secret.Name] = index
-	}
+	secretIndexes := indexSecrets(secrets)
 
 	usages := make([][]ServiceUsage, len(secrets))
 	for _, info := range services {
 		for _, reference := range info.Spec.Secrets {
-			secretIndex, found := referencedSecretIndex(reference, byID, byName)
+			secretIndex, found := referencedSecretIndex(reference, secretIndexes.byID, secretIndexes.byName)
 			if !found {
 				continue
 			}
 
-			usages[secretIndex] = append(usages[secretIndex], ServiceUsage{
+			usage := ServiceUsage{
 				Stack:   info.Stack,
 				Service: info.Name,
 				Target:  reference.Target,
-			})
+			}
+			for _, relatedIndex := range relatedSecretIndexes(secretIndex, secrets, secretIndexes.byLogicalPath) {
+				usages[relatedIndex] = append(usages[relatedIndex], usage)
+			}
 		}
 	}
 
@@ -174,14 +159,40 @@ func (r *Resolver) resolveReference(
 	return secretmodel.Secret{}, false, nil
 }
 
-func referencesSecret(reference swarm.ServiceSecret, secret secretmodel.Secret) bool {
-	referenceID := strings.TrimSpace(reference.SecretID)
-	secretID := strings.TrimSpace(secret.ID)
-	if referenceID != "" && secretID != "" && referenceID == secretID {
-		return true
+type secretIndex struct {
+	byID          map[string]int
+	byName        map[string]int
+	byLogicalPath map[string][]int
+}
+
+func indexSecrets(secrets []secretmodel.Secret) secretIndex {
+	indexed := secretIndex{
+		byID:          make(map[string]int, len(secrets)),
+		byName:        make(map[string]int, len(secrets)),
+		byLogicalPath: make(map[string][]int),
+	}
+	for index, secret := range secrets {
+		indexed.byID[secret.ID] = index
+		indexed.byName[secret.Name] = index
+		if logicalPath := strings.TrimSpace(secret.Labels[secretmodel.LogicalPathLabel]); logicalPath != "" {
+			indexed.byLogicalPath[logicalPath] = append(indexed.byLogicalPath[logicalPath], index)
+		}
 	}
 
-	return strings.TrimSpace(reference.SecretName) != "" && reference.SecretName == secret.Name
+	return indexed
+}
+
+func relatedSecretIndexes(
+	referencedIndex int,
+	secrets []secretmodel.Secret,
+	byLogicalPath map[string][]int,
+) []int {
+	logicalPath := strings.TrimSpace(secrets[referencedIndex].Labels[secretmodel.LogicalPathLabel])
+	if logicalPath == "" {
+		return []int{referencedIndex}
+	}
+
+	return byLogicalPath[logicalPath]
 }
 
 func referencedSecretIndex(
