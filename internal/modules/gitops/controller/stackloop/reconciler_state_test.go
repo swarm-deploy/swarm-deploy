@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 
 	"github.com/artarts36/specw"
@@ -1128,6 +1129,7 @@ func TestReconcileSelfHealsMissingService(t *testing.T) {
 		wantStatus      model.SyncStatus
 		wantSyncError   string
 		wantEventTypes  []events.TypeName
+		wantMetric      string
 	}{
 		{
 			name: "restores service", verifiedLive: []swarm.StackService{{Name: "api"}},
@@ -1135,22 +1137,34 @@ func TestReconcileSelfHealsMissingService(t *testing.T) {
 			wantEventTypes: []events.TypeName{
 				events.TypeNameServiceMissed, events.TypeNameServiceDriftFixed,
 			},
+			wantMetric: "success",
+		},
+		{
+			name: "CLI failure with verified convergence", deployErr: errors.New("docker CLI timeout"),
+			verifiedLive: []swarm.StackService{{Name: "api"}}, wantStatus: model.SyncStatusSynced,
+			wantEventTypes: []events.TypeName{
+				events.TypeNameServiceMissed, events.TypeNameServiceDriftFixed,
+			},
+			wantMetric: "success",
 		},
 		{
 			name: "records failed restore", deployErr: errors.New("deploy failed"), wantErr: true,
-			wantStatus: model.SyncStatusSyncFailed, wantSyncError: "Self Heal Failed",
+			wantStatus: model.SyncStatusSyncFailed, wantSyncError: "Self Heal Verification Failed: service is missing",
 			wantEventTypes: []events.TypeName{events.TypeNameServiceMissed},
+			wantMetric:     "failed",
 		},
 		{
 			name: "records failed verification", verificationErr: errors.New("swarm unavailable"), wantErr: true,
 			wantStatus: model.SyncStatusSyncFailed, wantSyncError: "Self Heal Verification Failed",
 			wantEventTypes: []events.TypeName{events.TypeNameServiceMissed},
+			wantMetric:     "failed",
 		},
 		{
 			name: "records persistent drift", wantErr: true,
 			wantStatus:     model.SyncStatusSyncFailed,
 			wantSyncError:  "Self Heal Verification Failed: service is missing",
 			wantEventTypes: []events.TypeName{events.TypeNameServiceMissed},
+			wantMetric:     "failed",
 		},
 	}
 
@@ -1186,13 +1200,16 @@ func TestReconcileSelfHealsMissingService(t *testing.T) {
 				gomock.Any(), "app", filepath.Join(repoDir, "app.yaml"), "api", gomock.Any(), gomock.Any(),
 			).Return(deployer.Result{}, tt.deployErr)
 
+			metricGroup := metrics.NewGroup(metrics.CreateGroupParams{Namespace: "test"})
+			registry := prometheus.NewRegistry()
+			registry.MustRegister(metricGroup)
 			reconciler := &Reconciler{
 				cfg: &config.Config{Spec: config.Spec{
 					DataDir: filepath.Join(repoDir, ".data"),
 					Sync:    config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: true}},
 				}},
 				git: repository, deployer: stackDeployer, event: eventDispatcher,
-				deployMetrics: &metrics.NopDeploys{}, stateStore: stateStore,
+				deployMetrics: metricGroup.Deploys, stateStore: stateStore,
 				fileSystem:    fs.NewLocalFileSystem(),
 				pruner:        pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
 				composeLoader: loader, composeRotator: NewRotator(fs.NewLocalFileSystem()),
@@ -1215,8 +1232,30 @@ func TestReconcileSelfHealsMissingService(t *testing.T) {
 			assert.Equal(t, tt.wantStatus, state.SyncStatus)
 			assert.Equal(t, tt.wantSyncError, state.SyncError)
 			assert.Equal(t, tt.wantEventTypes, captured)
+			assert.EqualValues(t, 1, deployMetricValue(t, registry, "app", "api", tt.wantMetric))
 		})
 	}
+}
+
+func deployMetricValue(t *testing.T, registry *prometheus.Registry, stack, service, status string) float64 {
+	t.Helper()
+	families, err := registry.Gather()
+	require.NoError(t, err)
+	for _, family := range families {
+		if family.GetName() != "test_deploys_total" {
+			continue
+		}
+		for _, metric := range family.Metric {
+			labels := map[string]string{}
+			for _, label := range metric.Label {
+				labels[label.GetName()] = label.GetValue()
+			}
+			if labels["stack"] == stack && labels["service"] == service && labels["status"] == status {
+				return metric.GetCounter().GetValue()
+			}
+		}
+	}
+	return 0
 }
 
 func TestReconcileSelfHealsReplicaDriftAfterVerification(t *testing.T) {
@@ -1341,6 +1380,104 @@ func TestPublishDriftEventsUsesEpisodesAndConfirmedResolution(t *testing.T) {
 			require.NoError(t, reconciler.publishDriftEvents(context.Background(), ReconciliationRequest{
 				Stack: config.StackSpec{Name: "app"}, Commit: "current",
 			}, previous, payload))
+			assert.Equal(t, tt.want, published)
+		})
+	}
+}
+
+func TestPublishDriftEventsUsesFinalVerifiedStatePerService(t *testing.T) {
+	tests := []struct {
+		name      string
+		previous  map[string]model.Service
+		initial   map[string]drift.ServiceDrift
+		remaining map[string]drift.ServiceDrift
+		want      []string
+	}{
+		{
+			name: "repaired service while another becomes drifted",
+			initial: map[string]drift.ServiceDrift{
+				"api": {ServiceName: "api", ServiceMissed: true, Reason: "service is missing"},
+			},
+			remaining: map[string]drift.ServiceDrift{
+				"worker": {ServiceName: "worker", Reason: "replicas differ"},
+			},
+			want: []string{"ServiceMissed:api:true", "ServiceDriftFixed:api", "ServiceDrifted:worker:false"},
+		},
+		{
+			name: "repaired service while another disappears",
+			initial: map[string]drift.ServiceDrift{
+				"api": {ServiceName: "api", ServiceMissed: true, Reason: "service is missing"},
+			},
+			remaining: map[string]drift.ServiceDrift{
+				"worker": {ServiceName: "worker", ServiceMissed: true, Reason: "service is missing"},
+			},
+			want: []string{"ServiceMissed:api:true", "ServiceDriftFixed:api", "ServiceMissed:worker:false"},
+		},
+		{
+			name: "multiple services repaired",
+			initial: map[string]drift.ServiceDrift{
+				"api":    {ServiceName: "api", Reason: "replicas differ"},
+				"worker": {ServiceName: "worker", ServiceMissed: true, Reason: "service is missing"},
+			},
+			want: []string{
+				"ServiceDrifted:api:true", "ServiceDriftFixed:api",
+				"ServiceMissed:worker:true", "ServiceDriftFixed:worker",
+			},
+		},
+		{
+			name: "one repaired while another remains drifted",
+			initial: map[string]drift.ServiceDrift{
+				"api":    {ServiceName: "api", Reason: "replicas differ"},
+				"worker": {ServiceName: "worker", Reason: "replicas differ"},
+			},
+			remaining: map[string]drift.ServiceDrift{
+				"worker": {ServiceName: "worker", Reason: "replicas differ"},
+			},
+			want: []string{
+				"ServiceDrifted:api:true", "ServiceDriftFixed:api", "ServiceDrifted:worker:false",
+			},
+		},
+		{
+			name: "unchanged unresolved drift is not duplicated",
+			previous: map[string]model.Service{
+				"worker": {SyncStatus: model.SyncStatusOutOfSync},
+			},
+			initial: map[string]drift.ServiceDrift{
+				"worker": {ServiceName: "worker", Reason: "replicas differ"},
+			},
+			remaining: map[string]drift.ServiceDrift{
+				"worker": {ServiceName: "worker", Reason: "replicas differ"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			publisher := dispatcher.NewMockDispatcher(gomock.NewController(t))
+			var published []string
+			publisher.EXPECT().Publish(gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, event events.Event) error {
+					switch typed := event.(type) {
+					case *events.ServiceMissed:
+						published = append(published, fmt.Sprintf("ServiceMissed:%s:%t", typed.ServiceName, typed.Resolved))
+					case *events.ServiceDrifted:
+						published = append(published, fmt.Sprintf("ServiceDrifted:%s:%t", typed.ServiceName, typed.Resolved))
+					case *events.ServiceDriftFixed:
+						published = append(published, "ServiceDriftFixed:"+typed.ServiceName)
+					}
+					return nil
+				},
+			).AnyTimes()
+			reconciler := &Reconciler{event: publisher}
+			payload := &pipelinePayload{
+				Desired: &compose.File{Compose: compose.Compose{Services: compose.Services{
+					{Name: "api"}, {Name: "worker"},
+				}}},
+				Drift: tt.initial, RemainingDrift: tt.remaining,
+			}
+			require.NoError(t, reconciler.publishDriftEvents(t.Context(), ReconciliationRequest{
+				Stack: config.StackSpec{Name: "app"}, Commit: "current",
+			}, model.Stack{Services: tt.previous}, payload))
 			assert.Equal(t, tt.want, published)
 		})
 	}

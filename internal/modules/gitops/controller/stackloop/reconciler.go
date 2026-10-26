@@ -466,34 +466,47 @@ func (r *Reconciler) publishDriftEvents(
 	payload *pipelinePayload,
 ) error {
 	for _, service := range payload.Desired.Compose.Services {
-		detected, isDrifted := payload.Drift[service.Name]
-		_, unresolved := payload.RemainingDrift[service.Name]
-		previousStatus := prevState.ServiceSyncStatus(service.Name)
-		wasDrifted := previousStatus == model.SyncStatusOutOfSync || previousStatus == model.SyncStatusSyncFailed
-
-		if isDrifted && !wasDrifted {
-			if detected.ServiceMissed {
-				if err := r.event.Publish(ctx, &events.ServiceMissed{
-					StackName: req.Stack.Name, ServiceName: service.Name, Commit: req.Commit, Resolved: !unresolved,
-				}); err != nil {
-					return err
-				}
-			} else if err := r.event.Publish(ctx, &events.ServiceDrifted{
-				StackName: req.Stack.Name, ServiceName: service.Name, Commit: req.Commit,
-				Reason: detected.Reason, Resolved: !unresolved,
-			}); err != nil {
-				return err
-			}
-		}
-
-		if !unresolved && (wasDrifted || isDrifted) {
-			if err := r.event.Publish(ctx, &events.ServiceDriftFixed{
-				StackName: req.Stack.Name, ServiceName: service.Name, Commit: req.Commit,
-			}); err != nil {
-				return err
-			}
+		if err := r.publishServiceDriftEvents(ctx, req, prevState, payload, service.Name); err != nil {
+			return err
 		}
 	}
 
+	return nil
+}
+
+func (r *Reconciler) publishServiceDriftEvents(
+	ctx context.Context,
+	req ReconciliationRequest,
+	prevState model.Stack,
+	payload *pipelinePayload,
+	serviceName string,
+) error {
+	initial, initiallyDrifted := payload.Drift[serviceName]
+	final, unresolved := payload.RemainingDrift[serviceName]
+	previousStatus := prevState.ServiceSyncStatus(serviceName)
+	wasDrifted := previousStatus == model.SyncStatusOutOfSync || previousStatus == model.SyncStatusSyncFailed
+	detected := final
+	if !unresolved {
+		detected = initial
+	}
+	if (initiallyDrifted || unresolved) && !wasDrifted {
+		if detected.ServiceMissed {
+			if err := r.event.Publish(ctx, &events.ServiceMissed{
+				StackName: req.Stack.Name, ServiceName: serviceName, Commit: req.Commit, Resolved: !unresolved,
+			}); err != nil {
+				return err
+			}
+		} else if err := r.event.Publish(ctx, &events.ServiceDrifted{
+			StackName: req.Stack.Name, ServiceName: serviceName, Commit: req.Commit,
+			Reason: detected.Reason, Resolved: !unresolved,
+		}); err != nil {
+			return err
+		}
+	}
+	if !unresolved && (wasDrifted || initiallyDrifted) {
+		return r.event.Publish(ctx, &events.ServiceDriftFixed{
+			StackName: req.Stack.Name, ServiceName: serviceName, Commit: req.Commit,
+		})
+	}
 	return nil
 }

@@ -7,6 +7,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	gitopsmodelstore "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
 )
 
 // SQLSubscriber joins source deduplication and the alert lifecycle in one transaction.
@@ -22,8 +23,9 @@ func NewSQLSubscriber(store *modelstore.SQLStore, publisher interface {
 },
 	recipients func(model.AlertKind) []events.AlertRecipient,
 	stacks config.StackProvider,
+	drift gitopsmodelstore.ReadStore,
 ) *SQLSubscriber {
-	return &SQLSubscriber{Subscriber: NewSubscriber(store, publisher, recipients, stacks), store: store}
+	return &SQLSubscriber{Subscriber: NewSubscriber(store, publisher, recipients, stacks, drift), store: store}
 }
 
 // Handle applies each source publication once, even across retry and restart.

@@ -41,12 +41,19 @@ The service label takes precedence over `sync.policy.selfHeal`. Accepted values 
 Self-heal reapplies only the drifted service. It does not execute Init Jobs, redeploy or
 prune unrelated services, or reconcile resources not referenced by that service. Referenced
 networks, configs, secrets and named volumes are retained. Existing external-resource,
-secret rotation, ownership and name-resolution behavior is reused.
+secret rotation, ownership and name-resolution behavior is reused. When a service omits
+`networks`, a configured Compose `default` network is retained, including its external
+name and options.
 
 After applying all eligible repairs, swarm-deploy reloads the stack services with one
-Docker API request and analyzes them again. A successful deploy command is not convergence:
-the service becomes `Synced` only after this verification. An apply failure, persistent
-drift, or an unavailable verification read produces `SyncFailed`.
+Docker API request and analyzes them again. The verified Swarm state is authoritative:
+the service becomes `Synced` whenever verification confirms convergence, even if the
+Docker CLI returned an error after applying the change. Persistent drift or an unavailable
+verification read produces `SyncFailed`; the CLI error remains in logs and tracing.
+
+Verification covers the complete desired stack. Drift first observed during that read is
+recorded and emits the normal transition event, but is not repaired until the next
+reconciliation.
 
 ## Events
 
@@ -67,4 +74,7 @@ Confirmed unresolved drift opens one `ServiceDrift` alert (`service_drift`) for 
 type `service` and resource ID `<stack>/<service>`. Repeated detections update the active
 alert. `ServiceDriftFixed` resolves it. A drift repaired and verified in the same
 reconciliation emits the detection and fixed history transitions but does not open a
-transient alert.
+transient alert. Removing a service from an accepted desired stack resolves its alert with
+`resource_removed`; removing a stack resolves all of its service-drift alerts. On startup,
+Alert Management idempotently projects unresolved drift already stored in GitOps runtime
+state so upgrades do not require a new detection episode.

@@ -24,12 +24,13 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	gitopsmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
+	gitopsmodelstore "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
 
 func newTestSQLSubscriber(store *modelstore.SQLStore) *SQLSubscriber {
 	return NewSQLSubscriber(store, &dispatcher.NopDispatcher{}, func(model.AlertKind) []events.AlertRecipient { return nil },
-		&config.Config{})
+		&config.Config{}, gitopsmodelstore.NewMemoryStore())
 }
 
 func TestSQLSubscriberIdempotenceAndRollback(t *testing.T) {
@@ -118,6 +119,96 @@ func TestServiceDriftAlertRecoveryIgnoresRetriesAndDelayedDetection(t *testing.T
 	assert.Equal(t, uint64(1), alerts[0].Occurrences)
 }
 
+func TestDeploySuccessResolvesOnlyRemovedServiceDriftAlerts(t *testing.T) {
+	ctx := t.Context()
+	db, err := storage.Open(ctx, t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+	repo := modelstore.NewSQLStore(db)
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
+	subscriber := NewSQLSubscriber(repo, bus, noAlertRecipients, &config.Config{},
+		gitopsmodelstore.NewSQLStore(db))
+	require.NoError(t, bus.Subscribe(events.TypeNameAlertResolved, "resolved-capture", subscriber))
+	at := time.Now().UTC()
+
+	for index, resource := range []struct{ stack, service string }{
+		{stack: "payments", service: "api"},
+		{stack: "payments", service: "worker"},
+		{stack: "catalog", service: "worker"},
+	} {
+		require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+			ID: fmt.Sprintf("drift-%d", index), OccurredAt: at.Add(time.Duration(index) * time.Second),
+			Event: &events.ServiceDrifted{
+				StackName: resource.stack, ServiceName: resource.service, Reason: "replicas differ",
+			},
+		}))
+	}
+
+	succeeded := events.Envelope{ID: "deployment", OccurredAt: at.Add(4 * time.Second), Event: &events.DeploySuccess{
+		DeployEvent: events.DeployEvent{
+			DeploymentID: "deployment-id", StackName: "payments",
+			Services: []compose.Service{{Name: "api"}},
+		},
+	}}
+	for range 2 {
+		require.NoError(t, subscriber.Handle(ctx, succeeded))
+	}
+
+	alerts, err := repo.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 3)
+	byResource := map[string]model.Alert{}
+	for _, alert := range alerts {
+		byResource[alert.ResourceID] = alert
+	}
+	assert.Equal(t, model.AlertStatusOpen, byResource["payments/api"].Status)
+	assert.Equal(t, model.AlertStatusResolved, byResource["payments/worker"].Status)
+	require.NotNil(t, byResource["payments/worker"].Resolution)
+	assert.Equal(t, model.ResolutionReasonResourceRemoved, byResource["payments/worker"].Resolution.Reason)
+	assert.Equal(t, model.AlertStatusOpen, byResource["catalog/worker"].Status)
+	assert.Equal(t, 1, alertSignalCount(t, db, string(events.TypeNameAlertResolved)))
+}
+
+func TestConfigurationChangedInitializesExistingDriftIdempotentlyAcrossRestart(t *testing.T) {
+	ctx := t.Context()
+	db, err := storage.Open(ctx, t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+	repo := modelstore.NewSQLStore(db)
+	driftState := gitopsmodelstore.NewSQLStore(db)
+	require.NoError(t, driftState.Update(ctx, func(runtime *gitopsmodel.Runtime) {
+		runtime.Stacks["payments"] = gitopsmodel.Stack{
+			LastCommit: "existing-commit",
+			Services: map[string]gitopsmodel.Service{
+				"api": {SyncStatus: gitopsmodel.SyncStatusOutOfSync, SyncError: "service is missing"},
+				"web": {SyncStatus: gitopsmodel.SyncStatusSynced},
+			},
+		}
+	}))
+	cfg := stackConfiguration()
+	_, err = cfg.Reload(writeStackConfiguration(t, "payments"))
+	require.NoError(t, err)
+	configuration := events.Envelope{
+		ID: "configuration-1", OccurredAt: time.Now().UTC(), Event: &events.ConfigurationChanged{},
+	}
+
+	subscriber := NewSQLSubscriber(repo, &dispatcher.NopDispatcher{}, noAlertRecipients, cfg, driftState)
+	require.NoError(t, subscriber.Handle(ctx, configuration))
+	configuration.ID = "configuration-2"
+	subscriber = NewSQLSubscriber(repo, &dispatcher.NopDispatcher{}, noAlertRecipients, cfg, driftState)
+	require.NoError(t, subscriber.Handle(ctx, configuration))
+
+	alerts, err := repo.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 1)
+	assert.Equal(t, model.AlertStatusOpen, alerts[0].Status)
+	assert.Equal(t, model.AlertKindServiceDrift, alerts[0].Kind)
+	assert.Equal(t, "payments/api", alerts[0].ResourceID)
+	assert.Equal(t, "service is missing", alerts[0].Message)
+	assert.Equal(t, "existing-commit", alerts[0].Commit)
+	assert.EqualValues(t, 1, alerts[0].Occurrences)
+}
+
 func TestPreparationAndInterruptedFailuresShareDeploymentAlertLifecycle(t *testing.T) {
 	ctx := context.Background()
 	db, err := storage.Open(ctx, t.TempDir())
@@ -165,13 +256,19 @@ stacks:
 	_, err = cfg.Reload(dir)
 	require.NoError(t, err)
 	subscriber := NewSQLSubscriber(repo, &dispatcher.NopDispatcher{},
-		func(model.AlertKind) []events.AlertRecipient { return nil }, cfg)
+		func(model.AlertKind) []events.AlertRecipient { return nil }, cfg, gitopsmodelstore.NewSQLStore(db))
 	at := time.Now().UTC()
 
 	for index, stack := range []string{"removed", "kept"} {
 		require.NoError(t, subscriber.Handle(ctx, events.Envelope{
 			ID: stack, OccurredAt: at.Add(time.Duration(index) * time.Second),
 			Event: &events.DeployFailed{DeployEvent: events.DeployEvent{StackName: stack}, Error: assert.AnError},
+		}))
+		require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+			ID: "service-" + stack, OccurredAt: at.Add(time.Duration(index) * time.Second),
+			Event: &events.ServiceDrifted{
+				StackName: stack, ServiceName: "api", Reason: "service is missing",
+			},
 		}))
 	}
 	configurationChanged := events.Envelope{
@@ -183,7 +280,7 @@ stacks:
 
 	alerts, err := repo.List(ctx, modelstore.ListFilter{})
 	require.NoError(t, err)
-	require.Len(t, alerts, 2)
+	require.Len(t, alerts, 4)
 	byResource := map[string]model.Alert{}
 	for _, alert := range alerts {
 		byResource[alert.ResourceID] = alert
@@ -193,6 +290,10 @@ stacks:
 	assert.Equal(t, model.ResolutionReasonResourceRemoved, byResource["removed"].Resolution.Reason)
 	assert.Equal(t, "configuration", byResource["removed"].Resolution.EventID)
 	assert.Equal(t, model.AlertStatusOpen, byResource["kept"].Status)
+	assert.Equal(t, model.AlertStatusResolved, byResource["removed/api"].Status)
+	require.NotNil(t, byResource["removed/api"].Resolution)
+	assert.Equal(t, model.ResolutionReasonResourceRemoved, byResource["removed/api"].Resolution.Reason)
+	assert.Equal(t, model.AlertStatusOpen, byResource["kept/api"].Status)
 }
 
 func TestTemporaryFailureCounterSurvivesRestartAndDuplicateDelivery(t *testing.T) {
@@ -338,7 +439,7 @@ func TestGitRepositoryChangeBypassesUnreadyStackConfiguration(t *testing.T) {
 	repo := modelstore.NewSQLStore(db)
 	configStore := configstore.New(&config.Config{}, &dispatcher.NopDispatcher{})
 	subscriber := NewSQLSubscriber(repo, &dispatcher.NopDispatcher{},
-		func(model.AlertKind) []events.AlertRecipient { return nil }, configStore)
+		func(model.AlertKind) []events.AlertRecipient { return nil }, configStore, gitopsmodelstore.NewSQLStore(db))
 	at := time.Now().UTC()
 	require.NoError(t, subscriber.Handle(ctx, events.Envelope{
 		ID: "old-failed", OccurredAt: at, Event: &events.GitPullFailed{

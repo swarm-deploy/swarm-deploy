@@ -289,6 +289,74 @@ func TestSingleServiceComposeKeepsOnlyReferencedObjects(t *testing.T) {
 	assert.Equal(t, compose.Configs{"api-config": desired.Configs["api-config"]}, selected.Configs)
 }
 
+func TestSingleServiceComposeSelectsServiceNetworks(t *testing.T) {
+	internal := true
+	tests := []struct {
+		name     string
+		service  compose.Service
+		networks map[string]compose.Network
+		want     map[string]compose.Network
+	}{
+		{
+			name:    "implicit external default network",
+			service: compose.Service{Name: "api"},
+			networks: map[string]compose.Network{
+				"default": {Name: "shared-network", External: true},
+			},
+			want: map[string]compose.Network{"default": {Name: "shared-network", External: true}},
+		},
+		{
+			name:    "implicit custom default network",
+			service: compose.Service{Name: "api"},
+			networks: map[string]compose.Network{
+				"default": {Internal: &internal, Extra: map[string]interface{}{"driver": "overlay"}},
+			},
+			want: map[string]compose.Network{
+				"default": {Internal: &internal, Extra: map[string]interface{}{"driver": "overlay"}},
+			},
+		},
+		{
+			name: "explicitly referenced network",
+			service: compose.Service{Name: "api", Networks: compose.NewServiceNetworks(
+				&compose.ServiceNetwork{Alias: "backend"},
+			)},
+			networks: map[string]compose.Network{
+				"backend": {Name: "shared-backend", External: true},
+			},
+			want: map[string]compose.Network{"backend": {Name: "shared-backend", External: true}},
+		},
+		{
+			name: "unrelated network definitions are omitted",
+			service: compose.Service{Name: "api", Networks: compose.NewServiceNetworks(
+				&compose.ServiceNetwork{Alias: "backend"},
+			)},
+			networks: map[string]compose.Network{
+				"backend": {}, "frontend": {}, "default": {Name: "unused-default"},
+			},
+			want: map[string]compose.Network{"backend": {}},
+		},
+		{
+			name:     "service without network declarations and no configured default",
+			service:  compose.Service{Name: "api"},
+			networks: map[string]compose.Network{"frontend": {}},
+		},
+		{
+			name:    "compose without network definitions",
+			service: compose.Service{Name: "api"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			selected, err := singleServiceCompose(compose.Compose{
+				Services: compose.Services{tt.service}, Networks: tt.networks,
+			}, "api")
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, selected.Networks)
+		})
+	}
+}
+
 func TestDeployServiceFailsWhenServiceIsMissing(t *testing.T) {
 	d := &Deployer{secretResolver: newTestSecretResolver(), stackDeployArgs: []string{"stack", "deploy"},
 		runner: &fakeRunner{}, initJobRunner: &fakeInitJobExecutor{}}

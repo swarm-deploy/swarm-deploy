@@ -13,6 +13,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	gitopsmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
+	gitopsmodelstore "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
 
@@ -21,6 +23,7 @@ type Subscriber struct {
 	mu        sync.Mutex
 	store     modelstore.Store
 	stacks    config.StackProvider
+	drift     gitopsmodelstore.ReadStore
 	publisher interface {
 		Publish(context.Context, events.Event) error
 	}
@@ -37,9 +40,11 @@ func NewSubscriber(store modelstore.Store, publisher interface {
 },
 	recipients func(model.AlertKind) []events.AlertRecipient,
 	stacks config.StackProvider,
+	drift gitopsmodelstore.ReadStore,
 ) *Subscriber {
 	return &Subscriber{
-		store: store, stacks: stacks, publisher: publisher, recipients: recipients, now: time.Now, newID: uuid.NewString,
+		store: store, stacks: stacks, drift: drift, publisher: publisher, recipients: recipients,
+		now: time.Now, newID: uuid.NewString,
 	}
 }
 
@@ -278,31 +283,121 @@ func (s *Subscriber) handleConfigurationChanged(ctx context.Context, eventID str
 	if err := s.store.ResetFailureStreaksExcept(ctx, desiredFingerprints); err != nil {
 		return fmt.Errorf("reset deployment failure streaks for removed stacks: %w", err)
 	}
+	runtimeState, err := s.drift.Read(ctx)
+	if err != nil {
+		return fmt.Errorf("read persisted service drift state: %w", err)
+	}
 	alerts, err := s.store.List(ctx, modelstore.ListFilter{
-		Status:       model.AlertStatusOpen,
-		ResourceType: model.ResourceTypeStack,
+		Status: model.AlertStatusOpen,
 	})
 	if err != nil {
-		return fmt.Errorf("list open stack alerts for configuration reconciliation: %w", err)
+		return fmt.Errorf("list open alerts for configuration reconciliation: %w", err)
 	}
 	now := s.now()
 	for _, alert := range alerts {
-		if _, exists := desired[alert.ResourceID]; exists {
+		stackName, relevant := alertStackName(alert)
+		if !relevant {
 			continue
 		}
-		alert.Status = model.AlertStatusResolved
-		alert.UpdatedAt = now
-		alert.ResolvedAt = &now
-		alert.Resolution = &model.AlertResolution{
-			Reason: model.ResolutionReasonResourceRemoved, Message: "Stack removed from desired configuration",
-			EventID: eventReferenceID(eventID, s.newID),
+		if _, exists := desired[stackName]; exists {
+			continue
 		}
-		if err = s.store.Update(ctx, alert); err != nil {
-			return fmt.Errorf("resolve alert for removed stack %q: %w", alert.ResourceID, err)
+		message := "Stack removed from desired configuration"
+		if alert.Kind == model.AlertKindServiceDrift {
+			message = "Service removed with stack from desired configuration"
 		}
-		if err = s.publishResolved(ctx, alert); err != nil {
-			return fmt.Errorf("publish resolved alert for removed stack %q: %w", alert.ResourceID, err)
+		if err = s.resolveRemovedAlert(ctx, alert, eventID, now, message); err != nil {
+			return err
 		}
+	}
+	return s.initializeServiceDriftAlerts(ctx, eventID, desired, runtimeState)
+}
+
+func alertStackName(alert model.Alert) (string, bool) {
+	switch {
+	case alert.ResourceType == model.ResourceTypeStack:
+		return alert.ResourceID, true
+	case alert.Kind == model.AlertKindServiceDrift && alert.ResourceType == model.ResourceTypeService:
+		stackName, _, ok := strings.Cut(alert.ResourceID, "/")
+		return stackName, ok
+	default:
+		return "", false
+	}
+}
+
+func (s *Subscriber) initializeServiceDriftAlerts(
+	ctx context.Context, eventID string, desired map[string]struct{}, runtime gitopsmodel.Runtime,
+) error {
+	for stackName, stack := range runtime.Stacks {
+		if _, exists := desired[stackName]; !exists {
+			continue
+		}
+		for serviceName, service := range stack.Services {
+			if err := s.initializeServiceDriftAlert(
+				ctx, eventID, stackName, serviceName, stack.LastCommit, service,
+			); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Subscriber) initializeServiceDriftAlert(
+	ctx context.Context, eventID, stackName, serviceName, commit string, service gitopsmodel.Service,
+) error {
+	if service.SyncStatus != gitopsmodel.SyncStatusOutOfSync &&
+		service.SyncStatus != gitopsmodel.SyncStatusSyncFailed {
+		return nil
+	}
+	fingerprint := model.ServiceDriftFingerprint(stackName, serviceName)
+	_, err := s.store.FindOpenByFingerprint(ctx, fingerprint)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, modelstore.ErrAlertNotFound) {
+		return fmt.Errorf("find initialized service drift alert: %w", err)
+	}
+	now := s.now()
+	referenceID := eventReferenceID(eventID, s.newID)
+	message := service.SyncError
+	if message == "" {
+		message = "service remains out of sync"
+	}
+	alert := model.Alert{
+		ID: s.newID(), Fingerprint: fingerprint, Kind: model.AlertKindServiceDrift,
+		ResourceType: model.ResourceTypeService, ResourceID: stackName + "/" + serviceName,
+		Status: model.AlertStatusOpen, Title: "Service drift detected", Message: message,
+		Commit: commit, Occurrences: 1, OpenedAt: now, UpdatedAt: now,
+		OpenEventID: referenceID, LatestEventID: referenceID,
+	}
+	if err = s.store.Create(ctx, alert); err != nil {
+		if errors.Is(err, modelstore.ErrOpenAlertExists) {
+			return nil
+		}
+		return fmt.Errorf("initialize service drift alert: %w", err)
+	}
+	if err = s.publishOpened(ctx, alert); err != nil {
+		return fmt.Errorf("publish initialized service drift alert: %w", err)
+	}
+	return nil
+}
+
+func (s *Subscriber) resolveRemovedAlert(
+	ctx context.Context, alert model.Alert, eventID string, now time.Time, message string,
+) error {
+	alert.Status = model.AlertStatusResolved
+	alert.UpdatedAt = now
+	alert.ResolvedAt = &now
+	alert.Resolution = &model.AlertResolution{
+		Reason: model.ResolutionReasonResourceRemoved, Message: message,
+		EventID: eventReferenceID(eventID, s.newID),
+	}
+	if err := s.store.Update(ctx, alert); err != nil {
+		return fmt.Errorf("resolve alert for removed resource %q: %w", alert.ResourceID, err)
+	}
+	if err := s.publishResolved(ctx, alert); err != nil {
+		return fmt.Errorf("publish resolved alert for removed resource %q: %w", alert.ResourceID, err)
 	}
 	return nil
 }
@@ -423,24 +518,62 @@ func (s *Subscriber) handleSucceeded(ctx context.Context, eventID string, event 
 	}
 	alert, err := s.store.FindOpenByFingerprint(ctx, fingerprint)
 	if err != nil {
-		if errors.Is(err, modelstore.ErrAlertNotFound) {
-			return nil
+		if !errors.Is(err, modelstore.ErrAlertNotFound) {
+			return fmt.Errorf("find open deployment alert: %w", err)
 		}
-		return fmt.Errorf("find open deployment alert: %w", err)
+	} else {
+		now := s.now()
+		alert.Status = model.AlertStatusResolved
+		alert.UpdatedAt = now
+		alert.ResolvedAt = &now
+		alert.Resolution = &model.AlertResolution{
+			Reason:  model.ResolutionReasonRecovered,
+			Message: "Synchronization completed successfully",
+			EventID: eventReferenceID(eventID, s.newID),
+		}
+		if err = s.store.Update(ctx, alert); err != nil {
+			return fmt.Errorf("resolve deployment alert: %w", err)
+		}
+		if err = s.publishResolved(ctx, alert); err != nil {
+			return err
+		}
+	}
+	if event.DeploymentID == "" {
+		return nil
+	}
+	return s.resolveRemovedServiceDriftAlerts(ctx, eventID, event)
+}
+
+func (s *Subscriber) resolveRemovedServiceDriftAlerts(
+	ctx context.Context, eventID string, event *events.DeploySuccess,
+) error {
+	desired := make(map[string]struct{}, len(event.Services))
+	for _, service := range event.Services {
+		desired[service.Name] = struct{}{}
+	}
+	alerts, err := s.store.List(ctx, modelstore.ListFilter{
+		Status: model.AlertStatusOpen, Kind: model.AlertKindServiceDrift,
+		ResourceType: model.ResourceTypeService,
+	})
+	if err != nil {
+		return fmt.Errorf("list service drift alerts after deployment: %w", err)
 	}
 	now := s.now()
-	alert.Status = model.AlertStatusResolved
-	alert.UpdatedAt = now
-	alert.ResolvedAt = &now
-	alert.Resolution = &model.AlertResolution{
-		Reason:  model.ResolutionReasonRecovered,
-		Message: "Synchronization completed successfully",
-		EventID: eventReferenceID(eventID, s.newID),
+	for _, alert := range alerts {
+		stackName, serviceName, ok := strings.Cut(alert.ResourceID, "/")
+		if !ok || stackName != event.StackName {
+			continue
+		}
+		if _, exists := desired[serviceName]; exists {
+			continue
+		}
+		if err = s.resolveRemovedAlert(
+			ctx, alert, eventID, now, "Service removed from desired configuration",
+		); err != nil {
+			return err
+		}
 	}
-	if err = s.store.Update(ctx, alert); err != nil {
-		return fmt.Errorf("resolve deployment alert: %w", err)
-	}
-	return s.publishResolved(ctx, alert)
+	return nil
 }
 
 func (s *Subscriber) publishOpened(ctx context.Context, alert model.Alert) error {

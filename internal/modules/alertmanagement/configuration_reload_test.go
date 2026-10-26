@@ -21,6 +21,7 @@ import (
 	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
+	gitopsmodelstore "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
 
@@ -33,7 +34,7 @@ func TestStartupReloadResolvesOrphanedAlertWhenConfigurationIsUnchanged(t *testi
 	seedOpenStackAlert(t, repo, cfg, "removed")
 	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 	store := configstore.New(cfg, bus)
-	subscriber := NewSQLSubscriber(repo, bus, noAlertRecipients, store)
+	subscriber := NewSQLSubscriber(repo, bus, noAlertRecipients, store, gitopsmodelstore.NewMemoryStore())
 	require.NoError(t, bus.Subscribe(events.TypeNameConfigurationChanged, "alert-management", subscriber))
 
 	require.NoError(t, store.Reload(t.Context(), dir))
@@ -57,9 +58,11 @@ func TestPendingConfigurationEventWaitsForInitialGitReload(t *testing.T) {
 	db, repo := openAlertStore(t)
 	seedOpenStackAlert(t, repo, cfg, "kept")
 	seedOpenStackAlert(t, repo, cfg, "removed")
+	seedOpenServiceDriftAlert(t, repo, cfg, "kept", "api")
+	seedOpenServiceDriftAlert(t, repo, cfg, "removed", "api")
 	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 	store := configstore.New(cfg, bus)
-	subscriber := NewSQLSubscriber(repo, bus, noAlertRecipients, store)
+	subscriber := NewSQLSubscriber(repo, bus, noAlertRecipients, store, gitopsmodelstore.NewMemoryStore())
 	require.NoError(t, bus.Subscribe(events.TypeNameConfigurationChanged, "alert-management", subscriber))
 
 	// Simulate an Outbox event persisted by the previous process.
@@ -72,6 +75,8 @@ func TestPendingConfigurationEventWaitsForInitialGitReload(t *testing.T) {
 	require.True(t, handled)
 	assertAlertStatus(t, repo, "kept", model.AlertStatusOpen)
 	assertAlertStatus(t, repo, "removed", model.AlertStatusOpen)
+	assertAlertStatus(t, repo, "kept/api", model.AlertStatusOpen)
+	assertAlertStatus(t, repo, "removed/api", model.AlertStatusOpen)
 
 	var deliveryStatus string
 	require.NoError(t, db.Get(t.Context(), &deliveryStatus,
@@ -92,6 +97,10 @@ func TestPendingConfigurationEventWaitsForInitialGitReload(t *testing.T) {
 	resolved := assertAlertStatus(t, repo, "removed", model.AlertStatusResolved)
 	require.NotNil(t, resolved.Resolution)
 	assert.Equal(t, model.ResolutionReasonResourceRemoved, resolved.Resolution.Reason)
+	assertAlertStatus(t, repo, "kept/api", model.AlertStatusOpen)
+	removedService := assertAlertStatus(t, repo, "removed/api", model.AlertStatusResolved)
+	require.NotNil(t, removedService.Resolution)
+	assert.Equal(t, model.ResolutionReasonResourceRemoved, removedService.Resolution.Reason)
 }
 
 func TestEmptyStacksReloadPublishesAndResolvesAllStackAlerts(t *testing.T) {
@@ -104,7 +113,7 @@ func TestEmptyStacksReloadPublishesAndResolvesAllStackAlerts(t *testing.T) {
 	seedOpenStackAlert(t, repo, cfg, "app")
 	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 	store := configstore.New(cfg, bus)
-	subscriber := NewSQLSubscriber(repo, bus, noAlertRecipients, store)
+	subscriber := NewSQLSubscriber(repo, bus, noAlertRecipients, store, gitopsmodelstore.NewMemoryStore())
 	require.NoError(t, bus.Subscribe(events.TypeNameConfigurationChanged, "alert-management", subscriber))
 
 	require.NoError(t, store.Reload(t.Context(), nonEmptyDir))
@@ -130,7 +139,7 @@ func TestRemovedStackResetsPartialFailureStreakAndIgnoresDelayedFailure(t *testi
 	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 	store := configstore.New(cfg, bus)
 	require.NoError(t, store.Reload(t.Context(), dir))
-	subscriber := NewSQLSubscriber(repo, bus, noAlertRecipients, store)
+	subscriber := NewSQLSubscriber(repo, bus, noAlertRecipients, store, gitopsmodelstore.NewMemoryStore())
 	at := time.Now().UTC()
 
 	for index := range 2 {
@@ -181,7 +190,7 @@ func TestConcurrentReloadReadsAndOutboxConfigurationProcessing(t *testing.T) {
 	db, repo := openAlertStore(t)
 	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 	store := configstore.New(cfg, bus)
-	subscriber := NewSQLSubscriber(repo, bus, noAlertRecipients, store)
+	subscriber := NewSQLSubscriber(repo, bus, noAlertRecipients, store, gitopsmodelstore.NewMemoryStore())
 	require.NoError(t, bus.Subscribe(events.TypeNameConfigurationChanged, "alert-management", subscriber))
 
 	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
@@ -289,10 +298,23 @@ func openAlertStore(t *testing.T) (*storage.Database, *modelstore.SQLStore) {
 
 func seedOpenStackAlert(t *testing.T, repo *modelstore.SQLStore, stacks config.StackProvider, stack string) {
 	t.Helper()
-	subscriber := NewSQLSubscriber(repo, &dispatcher.NopDispatcher{}, noAlertRecipients, stacks)
+	subscriber := NewSQLSubscriber(repo, &dispatcher.NopDispatcher{}, noAlertRecipients, stacks,
+		gitopsmodelstore.NewMemoryStore())
 	require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{
 		ID: "seed-" + stack, OccurredAt: time.Now().UTC(),
 		Event: &events.DeployFailed{DeployEvent: events.DeployEvent{StackName: stack}, Error: assert.AnError},
+	}))
+}
+
+func seedOpenServiceDriftAlert(
+	t *testing.T, repo *modelstore.SQLStore, stacks config.StackProvider, stack, service string,
+) {
+	t.Helper()
+	subscriber := NewSQLSubscriber(repo, &dispatcher.NopDispatcher{}, noAlertRecipients, stacks,
+		gitopsmodelstore.NewMemoryStore())
+	require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{
+		ID: "seed-" + stack + "-" + service, OccurredAt: time.Now().UTC(),
+		Event: &events.ServiceDrifted{StackName: stack, ServiceName: service, Reason: "service is missing"},
 	}))
 }
 

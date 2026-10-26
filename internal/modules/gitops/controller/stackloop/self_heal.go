@@ -3,17 +3,19 @@ package stackloop
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/drift"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 )
 
 type serviceRemediation struct {
-	attempted      bool
-	applySucceeded bool
-	converged      bool
-	failure        string
+	attempted bool
+	applyErr  error
+	converged bool
+	failure   string
 }
 
 func (r *Reconciler) selfHealDrift(ctx context.Context, payload *pipelinePayload) error {
@@ -46,12 +48,9 @@ func (r *Reconciler) selfHealDrift(ctx context.Context, payload *pipelinePayload
 			payload.Desired.Compose, deployCompose,
 		)
 		if err != nil {
-			r.deployMetrics.RecordDeploy(payload.Stack.Name, service.Name, "failed")
-			remediation.failure = "Self Heal Failed"
-			payload.RemediationErr = append(payload.RemediationErr,
-				fmt.Errorf("restore service %s: %w", service.Name, err))
-		} else {
-			remediation.applySucceeded = true
+			remediation.applyErr = err
+			slog.ErrorContext(ctx, "self-heal apply command failed; awaiting state verification",
+				"stack", payload.Stack.Name, "service", service.Name, "err", faults.SafeError(err))
 		}
 		payload.Remediations[service.Name] = remediation
 	}
@@ -62,7 +61,7 @@ func (r *Reconciler) selfHealDrift(ctx context.Context, payload *pipelinePayload
 func (r *Reconciler) verifySelfHeal(ctx context.Context, payload *pipelinePayload) error {
 	live, err := r.serviceManager.ListStackServices(ctx, payload.Stack.Name)
 	if err != nil {
-		markVerificationFailed(payload, fmt.Errorf("verify self-heal state: %w", err))
+		r.markVerificationFailed(payload, fmt.Errorf("verify self-heal state: %w", err))
 		return nil
 	}
 
@@ -70,7 +69,7 @@ func (r *Reconciler) verifySelfHeal(ctx context.Context, payload *pipelinePayloa
 		Stack: payload.Stack, Desired: *payload.Desired, Live: live,
 	})
 	if err != nil {
-		markVerificationFailed(payload, fmt.Errorf("analyze self-heal result: %w", err))
+		r.markVerificationFailed(payload, fmt.Errorf("analyze self-heal result: %w", err))
 		return nil
 	}
 
@@ -82,12 +81,13 @@ func (r *Reconciler) verifySelfHeal(ctx context.Context, payload *pipelinePayloa
 	return nil
 }
 
-func markVerificationFailed(payload *pipelinePayload, err error) {
+func (r *Reconciler) markVerificationFailed(payload *pipelinePayload, err error) {
 	payload.RemediationErr = append(payload.RemediationErr, err)
 	for name, remediation := range payload.Remediations {
-		if remediation.attempted && remediation.applySucceeded {
+		if remediation.attempted {
 			remediation.failure = "Self Heal Verification Failed"
 			payload.Remediations[name] = remediation
+			r.deployMetrics.RecordDeploy(payload.Stack.Name, name, "failed")
 		}
 	}
 }
@@ -99,14 +99,16 @@ func (r *Reconciler) applyVerifiedDrift(
 		if !remediation.attempted {
 			continue
 		}
-		if !remediation.applySucceeded {
-			payload.RemainingDrift[name] = payload.Drift[name]
-			continue
-		}
 		if remaining, drifted := verified[name]; drifted {
 			remediation.failure = "Self Heal Verification Failed: " + remaining.Reason
-			payload.RemediationErr = append(payload.RemediationErr,
-				fmt.Errorf("verify service %s: %s", name, remaining.Reason))
+			if remediation.applyErr != nil {
+				payload.RemediationErr = append(payload.RemediationErr,
+					fmt.Errorf("restore service %s: %w", name, remediation.applyErr))
+			} else {
+				payload.RemediationErr = append(payload.RemediationErr,
+					fmt.Errorf("verify service %s: %s", name, remaining.Reason))
+			}
+			r.deployMetrics.RecordDeploy(payload.Stack.Name, name, "failed")
 		} else {
 			remediation.converged = true
 			r.deployMetrics.RecordDeploy(payload.Stack.Name, name, "success")

@@ -212,8 +212,15 @@ func singleServiceCompose(desired compose.Compose, serviceName string) (compose.
 }
 
 func selectNetworks(networks map[string]compose.Network, refs *compose.ServiceNetworks) map[string]compose.Network {
-	if refs == nil || len(networks) == 0 {
+	if len(networks) == 0 {
 		return nil
+	}
+	if refs == nil {
+		defaultNetwork, ok := networks["default"]
+		if !ok {
+			return nil
+		}
+		return map[string]compose.Network{"default": defaultNetwork}
 	}
 	selected := make(map[string]compose.Network)
 	for _, alias := range refs.GetAliases() {
