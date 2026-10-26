@@ -93,6 +93,7 @@ func TestServiceDriftEventsRoundTrip(t *testing.T) {
 			StackName: "app", ServiceName: "api", Commit: "abc", Reason: "replicas differ", Resolved: true,
 		},
 		&events.ServiceDriftFixed{StackName: "app", ServiceName: "api", Commit: "abc"},
+		&events.ServiceRemovedFromDesired{StackName: "app", ServiceName: "worker", Commit: "abc"},
 	} {
 		t.Run(original.Type().String(), func(t *testing.T) {
 			payload, err := Encode(original)

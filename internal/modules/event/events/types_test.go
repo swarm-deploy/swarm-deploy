@@ -41,6 +41,7 @@ func TestEventTypeIdentifiersUsePascalCase(t *testing.T) {
 		TypeNameServiceMissed:                    true,
 		TypeNameServiceDrifted:                   true,
 		TypeNameServiceDriftFixed:                true,
+		TypeNameServiceRemovedFromDesired:        true,
 		TypeNameServiceReplicasIncreased:         true,
 		TypeNameServiceReplicasDecreased:         true,
 		TypeNameServiceRestarted:                 true,
@@ -57,6 +58,7 @@ func TestEventTypeClassification(t *testing.T) {
 		TypeNameGitPullFailed: true, TypeNameGitPullSucceeded: true,
 		TypeNameConfigurationChanged: true, TypeNameDeployFailed: true,
 		TypeNameDeployPreparationFailed: true, TypeNameDeployInterrupted: true,
+		TypeNameServiceRemovedFromDesired: true,
 	}
 	for _, typ := range Types {
 		t.Run(typ.String(), func(t *testing.T) {

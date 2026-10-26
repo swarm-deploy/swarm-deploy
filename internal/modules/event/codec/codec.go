@@ -192,6 +192,8 @@ func encodeServiceReference(event events.Event) ([]byte, bool, error) {
 		}
 	case *events.ServiceDriftFixed:
 		payload = servicePayload{Stack: e.StackName, Name: e.ServiceName, Commit: e.Commit}
+	case *events.ServiceRemovedFromDesired:
+		payload = servicePayload{Stack: e.StackName, Name: e.ServiceName, Commit: e.Commit}
 	case *events.ServicePruned:
 		payload = servicePayload{Stack: e.StackName, Name: e.ServiceName, Commit: e.Commit}
 	default:
@@ -220,6 +222,10 @@ func decodeServiceReference(typ events.TypeName, payload []byte) (events.Event, 
 	case events.TypeNameServiceDriftFixed:
 		constructor = func(p servicePayload) events.Event {
 			return &events.ServiceDriftFixed{StackName: p.Stack, ServiceName: p.Name, Commit: p.Commit}
+		}
+	case events.TypeNameServiceRemovedFromDesired:
+		constructor = func(p servicePayload) events.Event {
+			return &events.ServiceRemovedFromDesired{StackName: p.Stack, ServiceName: p.Name, Commit: p.Commit}
 		}
 	case events.TypeNameServicePruned:
 		constructor = func(p servicePayload) events.Event {

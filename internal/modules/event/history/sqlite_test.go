@@ -242,6 +242,9 @@ func TestSQLiteProjectionSelectionIdempotenceAndRollback(t *testing.T) {
 	for _, envelope := range []events.Envelope{
 		e, e,
 		{ID: "configuration", OccurredAt: now, Event: &events.ConfigurationChanged{}},
+		{ID: "removed-desired", OccurredAt: now, Event: &events.ServiceRemovedFromDesired{
+			StackName: "app", ServiceName: "worker", Commit: "sha",
+		}},
 		{ID: "failure", OccurredAt: now, PublicationSequence: 2, Event: &events.DeployFailed{
 			DeployEvent: events.DeployEvent{StackName: "app", Commit: "sha"},
 			Error:       assert.AnError, ErrorCode: "apply_failed", Stage: "apply",
@@ -403,7 +406,7 @@ func TestServicePrunedAppearsInEventHistory(t *testing.T) {
 	}))
 
 	page, err := repo.QueryPage(ctx, QueryOptions{
-		Types: []events.TypeName{events.TypeNameServicePruned},
+		Types:      []events.TypeName{events.TypeNameServicePruned},
 		StackNames: []string{"app"}, ServiceNames: []string{"old"},
 		Limit: 10, Sort: SortTimeDesc,
 	})
@@ -415,8 +418,8 @@ func TestServicePrunedAppearsInEventHistory(t *testing.T) {
 	assert.Equal(t, events.SeverityInfo, page.Entries[0].Severity)
 	assert.Equal(t, events.CategorySync, page.Entries[0].Category)
 	assert.Equal(t, map[string]string{
-		events.AttributeStackName: "app",
+		events.AttributeStackName:   "app",
 		events.AttributeServiceName: "old",
-		events.AttributeCommit: "revision",
+		events.AttributeCommit:      "revision",
 	}, page.Entries[0].Details)
 }

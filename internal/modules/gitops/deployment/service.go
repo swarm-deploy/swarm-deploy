@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/google/uuid"
@@ -107,10 +108,37 @@ func (s *Service) startPrepared(
 	if latestDesired.Digest == desired.Digest {
 		return s.startExisting(ctx, latest)
 	}
+	removedServices := desiredServiceRemovals(latestDesired.Definition, desired.Definition)
 	if err = s.supersedePrevious(ctx, latest); err != nil {
 		return nil, err
 	}
-	return s.createDeployment(ctx, stack, commit, desired)
+	attempt, err := s.createDeployment(ctx, stack, commit, desired)
+	if err != nil {
+		return nil, err
+	}
+	for _, serviceName := range removedServices {
+		if err = s.events.Publish(ctx, &events.ServiceRemovedFromDesired{
+			StackName: stack, ServiceName: serviceName, Commit: commit,
+		}); err != nil {
+			return nil, err
+		}
+	}
+	return attempt, nil
+}
+
+func desiredServiceRemovals(previous, current compose.File) []string {
+	currentNames := make(map[string]struct{}, len(current.Compose.Services))
+	for _, service := range current.Compose.Services {
+		currentNames[service.Name] = struct{}{}
+	}
+	removed := make([]string, 0)
+	for _, service := range previous.Compose.Services {
+		if _, exists := currentNames[service.Name]; !exists {
+			removed = append(removed, service.Name)
+		}
+	}
+	sort.Strings(removed)
+	return removed
 }
 
 func (s *Service) startExisting(

@@ -205,6 +205,61 @@ stacks:
 	assert.Equal(t, model.AlertStatusOpen, byResource["kept/api"].Status)
 }
 
+func TestServiceRemovedFromDesiredResolvesOnlyMatchingDriftAndOrdersDelayedEvents(t *testing.T) {
+	db, err := storage.Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
+	repo := modelstore.NewSQLStore(db)
+	subscriber := NewSQLSubscriber(repo, bus, noAlertRecipients, &config.Config{})
+	require.NoError(t, bus.Subscribe(events.TypeNameAlertResolved, "resolved-signal", subscriber))
+	at := time.Now().UTC()
+
+	for index, serviceName := range []string{"removed", "kept"} {
+		require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{
+			ID: "drift-" + serviceName, OccurredAt: at.Add(time.Duration(index) * time.Millisecond),
+			Event: &events.ServiceDrifted{
+				StackName: "app", ServiceName: serviceName, Commit: "old", Reason: "replicas differ",
+			},
+		}))
+	}
+	require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{
+		ID: "sync-failed", OccurredAt: at,
+		Event: &events.DeployFailed{DeployEvent: events.DeployEvent{StackName: "app"}, Error: assert.AnError},
+	}))
+
+	removed := events.Envelope{
+		ID: "removed", OccurredAt: at.Add(2 * time.Second),
+		Event: &events.ServiceRemovedFromDesired{StackName: "app", ServiceName: "removed", Commit: "new"},
+	}
+	require.NoError(t, subscriber.Handle(t.Context(), removed))
+	require.NoError(t, subscriber.Handle(t.Context(), removed), "repeated delivery must be idempotent")
+	require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{
+		ID: "delayed-missed", OccurredAt: at.Add(time.Second),
+		Event: &events.ServiceMissed{StackName: "app", ServiceName: "removed", Commit: "old"},
+	}), "an older delayed event must be acknowledged without reopening the alert")
+	require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{
+		ID: "missing-alert", OccurredAt: at.Add(3 * time.Second),
+		Event: &events.ServiceRemovedFromDesired{StackName: "app", ServiceName: "unknown", Commit: "new"},
+	}))
+
+	alerts, err := repo.List(t.Context(), modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 3)
+	byResource := make(map[string]model.Alert, len(alerts))
+	for _, alert := range alerts {
+		byResource[alert.ResourceID] = alert
+	}
+	resolved := byResource["app/removed"]
+	assert.Equal(t, model.AlertStatusResolved, resolved.Status)
+	require.NotNil(t, resolved.Resolution)
+	assert.Equal(t, model.ResolutionReasonResourceRemoved, resolved.Resolution.Reason)
+	assert.Equal(t, "removed", resolved.Resolution.EventID)
+	assert.Equal(t, model.AlertStatusOpen, byResource["app/kept"].Status)
+	assert.Equal(t, model.AlertStatusOpen, byResource["app"].Status, "SyncFailed must remain unaffected")
+	assert.Equal(t, 1, alertSignalCount(t, db, "AlertResolved"))
+}
+
 func TestTemporaryFailureCounterSurvivesRestartAndDuplicateDelivery(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

@@ -13,6 +13,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
 	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
@@ -26,6 +27,133 @@ func desired(image string) compose.File {
 	return compose.File{Path: "app.yaml", Digest: "source", Compose: compose.Compose{Services: compose.Services{{
 		Name: "api", Image: image, Environment: compose.Environment{Map: map[string]string{"API_TOKEN": "plaintext-secret", "MODE": "production"}},
 	}}}}
+}
+
+func desiredServices(names ...string) compose.File {
+	services := make(compose.Services, 0, len(names))
+	for _, name := range names {
+		services = append(services, compose.Service{Name: name, Image: "example/" + name + ":1"})
+	}
+	return compose.File{Path: "app.yaml", Digest: "source", Compose: compose.Compose{Services: services}}
+}
+
+func serviceRemovedEvents(t *testing.T, db *storage.Database) []*events.ServiceRemovedFromDesired {
+	t.Helper()
+	var payloads [][]byte
+	require.NoError(t, db.Select(t.Context(), &payloads,
+		"SELECT payload FROM outbox_events WHERE event_type=? ORDER BY sequence",
+		events.TypeNameServiceRemovedFromDesired))
+	result := make([]*events.ServiceRemovedFromDesired, 0, len(payloads))
+	for _, payload := range payloads {
+		decoded, err := codec.Decode(events.TypeNameServiceRemovedFromDesired, codec.Version, payload)
+		require.NoError(t, err)
+		result = append(result, decoded.(*events.ServiceRemovedFromDesired))
+	}
+	return result
+}
+
+func subscribeServiceRemoved(t *testing.T, db *storage.Database, bus *eventbus.OutboxDispatcher) {
+	t.Helper()
+	projection, err := history.NewSQLStore(db, 10)
+	require.NoError(t, err)
+	require.NoError(t, bus.Subscribe(events.TypeNameServiceRemovedFromDesired, "alert-management", projection))
+}
+
+func TestAcceptedDesiredStatePublishesServiceRemovals(t *testing.T) {
+	tests := []struct {
+		name     string
+		previous compose.File
+		current  compose.File
+		want     []string
+	}{
+		{name: "one removed", previous: desiredServices("api", "worker"), current: desiredServices("api"), want: []string{"worker"}},
+		{name: "multiple removed", previous: desiredServices("worker", "api", "cron"), current: desiredServices("api"), want: []string{"cron", "worker"}},
+		{name: "service added", previous: desiredServices("api"), current: desiredServices("api", "worker"), want: []string{}},
+		{name: "service updated", previous: desiredServices("api"), current: desiredServices("api"), want: []string{}},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			db, err := storage.Open(t.Context(), t.TempDir())
+			require.NoError(t, err)
+			t.Cleanup(func() { require.NoError(t, db.Close()) })
+			bus := eventbus.NewOutboxDispatcher(outbox.New(db))
+			subscribeServiceRemoved(t, db, bus)
+			service := NewService(db, bus)
+
+			first, err := service.StartIfChanged(t.Context(), "app", "previous", testCase.previous, true)
+			require.NoError(t, err)
+			require.NotNil(t, first)
+			current := testCase.current
+			if testCase.name == "service updated" {
+				current.Compose.Services[0].Image = "example/api:2"
+			}
+			second, err := service.StartIfChanged(t.Context(), "app", "current", current, true)
+			require.NoError(t, err)
+			require.NotNil(t, second)
+
+			published := serviceRemovedEvents(t, db)
+			names := make([]string, 0, len(published))
+			for _, event := range published {
+				assert.Equal(t, "app", event.StackName)
+				assert.Equal(t, "current", event.Commit)
+				names = append(names, event.ServiceName)
+			}
+			assert.Equal(t, testCase.want, names)
+		})
+	}
+}
+
+func TestServiceRemovalIsDurableBeforeDockerAndNotDuplicatedOnRetry(t *testing.T) {
+	db, err := storage.Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
+	subscribeServiceRemoved(t, db, bus)
+	service := NewService(db, bus)
+
+	first, err := service.StartIfChanged(t.Context(), "app", "previous", desiredServices("api", "worker"), true)
+	require.NoError(t, err)
+	require.NoError(t, service.Succeed(t.Context(), first.ID, model.Stack{}))
+	removed, err := service.StartIfChanged(t.Context(), "app", "removed", desiredServices("api"), true)
+	require.NoError(t, err)
+	require.Len(t, serviceRemovedEvents(t, db), 1, "acceptance must persist the event before Docker runs")
+
+	require.NoError(t, service.FailApply(t.Context(), removed.ID, model.Stack{}, "apply_failed"))
+	retry, err := service.StartIfChanged(t.Context(), "app", "retry", desiredServices("api"), true)
+	require.NoError(t, err)
+	require.NotNil(t, retry)
+	assert.Equal(t, removed.DeploymentID, retry.DeploymentID)
+	require.Len(t, serviceRemovedEvents(t, db), 1, "an unchanged accepted state must not republish removal")
+}
+
+func TestServiceRemovalOutboxFailureRollsBackAcceptance(t *testing.T) {
+	db, err := storage.Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
+	subscribeServiceRemoved(t, db, bus)
+	service := NewService(db, bus)
+	first, err := service.StartIfChanged(t.Context(), "app", "previous", desiredServices("api", "worker"), true)
+	require.NoError(t, err)
+
+	_, err = db.Exec(t.Context(), "CREATE TRIGGER reject_service_removal BEFORE INSERT ON outbox_events WHEN NEW.event_type='ServiceRemovedFromDesired' BEGIN SELECT RAISE(ABORT, 'outbox unavailable'); END")
+	require.NoError(t, err)
+	_, err = service.StartIfChanged(t.Context(), "app", "removed", desiredServices("api"), true)
+	require.Error(t, err)
+
+	latest, _, err := deploymentstore.NewStore(db).Latest(t.Context(), "app")
+	require.NoError(t, err)
+	assert.Equal(t, first.DeploymentID, latest.ID, "desired-state acceptance must roll back with publication")
+	assert.Equal(t, deploymentmodel.Running, latest.Status, "superseding the previous accepted state must roll back")
+	assert.Empty(t, serviceRemovedEvents(t, db))
+
+	_, err = db.Exec(t.Context(), "DROP TRIGGER reject_service_removal")
+	require.NoError(t, err)
+	accepted, err := service.StartIfChanged(t.Context(), "app", "removed", desiredServices("api"), true)
+	require.NoError(t, err)
+	require.NotNil(t, accepted)
+	require.Len(t, serviceRemovedEvents(t, db), 1)
 }
 
 func legacyDeploymentDetailsPayload(t *testing.T, deployment deploymentmodel.Deployment) string {

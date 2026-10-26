@@ -30,6 +30,8 @@ func TestEventDetailsUseStandardAttributeNames(t *testing.T) {
 			keys: []string{AttributeStackName, AttributeServiceName, AttributeCommit, "reason"}},
 		{name: "service drift fixed", event: &ServiceDriftFixed{},
 			keys: []string{AttributeStackName, AttributeServiceName, AttributeCommit}},
+		{name: "service removed from desired", event: &ServiceRemovedFromDesired{},
+			keys: []string{AttributeStackName, AttributeServiceName, AttributeCommit}},
 		{name: "service pruned", event: &ServicePruned{},
 			keys: []string{AttributeStackName, AttributeServiceName, AttributeCommit}},
 		{name: "replicas increased", event: &ServiceReplicasIncreased{Username: "operator"},

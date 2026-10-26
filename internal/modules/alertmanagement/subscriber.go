@@ -92,6 +92,8 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 			deployment.Commit, deployment.Reason, deployment.Resolved)
 	case *events.ServiceDriftFixed:
 		return s.handleServiceDriftFixed(ctx, event.ID, deployment.StackName, deployment.ServiceName)
+	case *events.ServiceRemovedFromDesired:
+		return s.handleServiceRemovedFromDesired(ctx, event.ID, deployment.StackName, deployment.ServiceName)
 	default:
 		return nil
 	}
@@ -162,6 +164,20 @@ func (s *Subscriber) handleServiceDriftFixed(
 		return fmt.Errorf("resolve service drift alert: %w", err)
 	}
 	return s.publishResolved(ctx, alert)
+}
+
+func (s *Subscriber) handleServiceRemovedFromDesired(
+	ctx context.Context, eventID, stackName, serviceName string,
+) error {
+	fingerprint := model.ServiceDriftFingerprint(stackName, serviceName)
+	alert, err := s.store.FindOpenByFingerprint(ctx, fingerprint)
+	if err != nil {
+		if errors.Is(err, modelstore.ErrAlertNotFound) {
+			return nil
+		}
+		return fmt.Errorf("find removed desired service alert: %w", err)
+	}
+	return s.resolveRemovedAlert(ctx, alert, eventID, s.now(), "Service removed from desired configuration")
 }
 
 func (s *Subscriber) handleGitPullFailed(ctx context.Context, eventID string, event *events.GitPullFailed) error {

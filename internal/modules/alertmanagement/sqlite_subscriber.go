@@ -57,6 +57,8 @@ func (s *SQLSubscriber) Handle(ctx context.Context, event events.Envelope) error
 		resource = "service:" + e.StackName + "/" + e.ServiceName
 	case *events.ServiceDriftFixed:
 		resource = "service:" + e.StackName + "/" + e.ServiceName
+	case *events.ServiceRemovedFromDesired:
+		resource = "service:" + e.StackName + "/" + e.ServiceName
 	default:
 		return nil
 	}

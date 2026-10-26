@@ -47,6 +47,8 @@ const (
 	TypeNameNetworkCreated                   TypeName = "NetworkCreated"
 	TypeNameUserAuthenticated                TypeName = "UserAuthenticated"
 	TypeNameAssistantPromptInjectionDetected TypeName = "AssistantPromptInjectionDetected"
+	// TypeNameServiceRemovedFromDesired is an internal accepted desired-state transition.
+	TypeNameServiceRemovedFromDesired TypeName = "ServiceRemovedFromDesired"
 )
 
 const (
@@ -186,6 +188,9 @@ var (
 		name: TypeNameServiceDriftFixed, isPublic: true, severity: SeverityInfo, category: CategorySync,
 		window: serviceDedupWindow,
 	}
+	TypeServiceRemovedFromDesired = Type{
+		name: TypeNameServiceRemovedFromDesired, severity: SeverityInfo, category: CategorySync,
+	}
 	TypeServiceReplicasIncreased = Type{
 		name:     TypeNameServiceReplicasIncreased,
 		isPublic: true,
@@ -257,6 +262,7 @@ var (
 		TypeServiceMissed,
 		TypeServiceDrifted,
 		TypeServiceDriftFixed,
+		TypeServiceRemovedFromDesired,
 		TypeServiceReplicasIncreased,
 		TypeServiceReplicasDecreased,
 		TypeServiceRestarted,

@@ -63,6 +63,7 @@ func TestServiceDriftEventsDriveAlertLifecycleThroughOutbox(t *testing.T) {
 		&config.Config{})
 	for _, typ := range []events.TypeName{
 		events.TypeNameServiceMissed, events.TypeNameServiceDrifted, events.TypeNameServiceDriftFixed,
+		events.TypeNameServiceRemovedFromDesired,
 	} {
 		require.NoError(t, bus.Subscribe(typ, "alert-management", subscriber))
 	}
