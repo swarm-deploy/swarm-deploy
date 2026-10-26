@@ -45,6 +45,8 @@ type pipelinePayload struct {
 	PrunedServices []string
 	CleanupResult  rotatedCleanupResult
 	Drift          map[string]drift.ServiceDrift
+	Remediations   map[string]serviceRemediation
+	RemediationErr []error
 }
 
 func (r *Reconciler) attachPipeline() {
@@ -131,6 +133,14 @@ func (r *Reconciler) attachPipeline() {
 			return payload.Attempt == nil || payload.IsManualSync
 		}),
 		Run: r.analyzeDrift,
+	})
+
+	r.pipeline.Add(pipe.Step[*pipelinePayload]{
+		Name: "self-heal drift",
+		When: pipe.When(func(payload *pipelinePayload) bool {
+			return len(payload.Drift) > 0
+		}),
+		Run: r.selfHealDrift,
 	})
 }
 

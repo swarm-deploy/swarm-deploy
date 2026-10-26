@@ -175,6 +175,12 @@ func ServiceReferencePayload(eventType string) ServicePayload {
 	switch eventType {
 	case "ServiceMissed":
 		payload.Message = "Service payments/api missed"
+	case "ServiceRestored":
+		payload.Message = "Service payments/api restored"
+	case "ServiceRestoreFailed":
+		payload.Message = "Failed to restore service payments/api"
+	case "ServiceReplicasDiverged":
+		payload.Message = "Service payments/api replicas diverged from desired state"
 	case "ServicePruned":
 		payload.Message = "Service payments/api pruned"
 	case "ServiceReplicasIncreased":

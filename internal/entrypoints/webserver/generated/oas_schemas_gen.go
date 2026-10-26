@@ -6011,9 +6011,10 @@ func (s *ServiceStatusResponse) SetLinks(val []ServiceLink) {
 type ServiceSyncStatus string
 
 const (
-	ServiceSyncStatusSynced    ServiceSyncStatus = "Synced"
-	ServiceSyncStatusOutOfSync ServiceSyncStatus = "OutOfSync"
-	ServiceSyncStatusUnknown   ServiceSyncStatus = "unknown"
+	ServiceSyncStatusSynced     ServiceSyncStatus = "Synced"
+	ServiceSyncStatusOutOfSync  ServiceSyncStatus = "OutOfSync"
+	ServiceSyncStatusSyncFailed ServiceSyncStatus = "SyncFailed"
+	ServiceSyncStatusUnknown    ServiceSyncStatus = "unknown"
 )
 
 // AllValues returns all ServiceSyncStatus values.
@@ -6021,6 +6022,7 @@ func (ServiceSyncStatus) AllValues() []ServiceSyncStatus {
 	return []ServiceSyncStatus{
 		ServiceSyncStatusSynced,
 		ServiceSyncStatusOutOfSync,
+		ServiceSyncStatusSyncFailed,
 		ServiceSyncStatusUnknown,
 	}
 }
@@ -6031,6 +6033,8 @@ func (s ServiceSyncStatus) MarshalText() ([]byte, error) {
 	case ServiceSyncStatusSynced:
 		return []byte(s), nil
 	case ServiceSyncStatusOutOfSync:
+		return []byte(s), nil
+	case ServiceSyncStatusSyncFailed:
 		return []byte(s), nil
 	case ServiceSyncStatusUnknown:
 		return []byte(s), nil
@@ -6047,6 +6051,9 @@ func (s *ServiceSyncStatus) UnmarshalText(data []byte) error {
 		return nil
 	case ServiceSyncStatusOutOfSync:
 		*s = ServiceSyncStatusOutOfSync
+		return nil
+	case ServiceSyncStatusSyncFailed:
+		*s = ServiceSyncStatusSyncFailed
 		return nil
 	case ServiceSyncStatusUnknown:
 		*s = ServiceSyncStatusUnknown

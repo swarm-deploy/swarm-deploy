@@ -3,12 +3,14 @@ package deployer
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/docker/docker/client"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.yaml.in/yaml/v3"
 )
 
 const deployArgsExtraCount = 3
@@ -130,6 +132,60 @@ func (d *Deployer) DeployStack(
 	}
 
 	return result, nil
+}
+
+// DeployService applies one service from the desired stack definition.
+func (d *Deployer) DeployService(
+	ctx context.Context,
+	stackName,
+	sourceComposePath,
+	serviceName string,
+	desired,
+	deploy compose.Compose,
+) (Result, error) {
+	serviceDesired, err := singleServiceCompose(desired, serviceName)
+	if err != nil {
+		return Result{}, err
+	}
+	serviceDeploy, err := singleServiceCompose(deploy, serviceName)
+	if err != nil {
+		return Result{}, err
+	}
+
+	payload, err := yaml.Marshal(serviceDeploy)
+	if err != nil {
+		return Result{}, fmt.Errorf("marshal single service compose: %w", err)
+	}
+
+	file, err := os.CreateTemp("", "swarm-deploy-single-service-*.yaml")
+	if err != nil {
+		return Result{}, fmt.Errorf("create temporary compose file: %w", err)
+	}
+	targetPath := file.Name()
+	defer func() { _ = os.Remove(targetPath) }()
+
+	if _, err = file.Write(payload); err != nil {
+		_ = file.Close()
+		return Result{}, fmt.Errorf("write temporary compose file: %w", err)
+	}
+	if err = file.Close(); err != nil {
+		return Result{}, fmt.Errorf("close temporary compose file: %w", err)
+	}
+
+	return d.DeployStack(ctx, stackName, sourceComposePath, targetPath, serviceDesired)
+}
+
+func singleServiceCompose(desired compose.Compose, serviceName string) (compose.Compose, error) {
+	for _, service := range desired.Services {
+		if service.Name != serviceName {
+			continue
+		}
+
+		desired.Services = compose.Services{service}
+		return desired, nil
+	}
+
+	return compose.Compose{}, fmt.Errorf("service %q not found in compose", serviceName)
 }
 
 func (d *Deployer) runInitJobs(

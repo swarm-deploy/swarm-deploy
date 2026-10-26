@@ -5,6 +5,7 @@ type SyncStatus string
 const (
 	SyncStatusSynced      = "Synced"
 	SyncStatusOutOfSync   = "OutOfSync"
+	SyncStatusSyncFailed  = "SyncFailed"
 	SyncStatusUnspecified = ""
 )
 
@@ -24,7 +25,7 @@ func NewStackStatus(services map[string]Service) StackStatus {
 		switch service.SyncStatus {
 		case SyncStatusSynced:
 			status.Synced++
-		case SyncStatusOutOfSync:
+		case SyncStatusOutOfSync, SyncStatusSyncFailed:
 			status.OutOfSynced++
 		}
 	}

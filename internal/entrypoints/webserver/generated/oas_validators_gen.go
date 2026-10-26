@@ -2484,6 +2484,8 @@ func (s ServiceSyncStatus) Validate() error {
 		return nil
 	case "OutOfSync":
 		return nil
+	case "SyncFailed":
+		return nil
 	case "unknown":
 		return nil
 	default:

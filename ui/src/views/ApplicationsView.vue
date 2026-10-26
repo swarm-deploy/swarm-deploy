@@ -56,7 +56,7 @@ function syncStatusClass(status: ServiceSyncStatus | string | undefined): string
   if (normalizedStatus === "synced") {
     return "success";
   }
-  if (normalizedStatus === "outofsync") {
+  if (normalizedStatus === "outofsync" || normalizedStatus === "syncfailed") {
     return "failed";
   }
 
@@ -70,6 +70,9 @@ function syncStatusLabel(status: ServiceSyncStatus | string | undefined): string
   }
   if (normalizedStatus === "outofsync") {
     return "OutOfSync";
+  }
+  if (normalizedStatus === "syncfailed") {
+    return "SyncFailed";
   }
 
   return "unknown";

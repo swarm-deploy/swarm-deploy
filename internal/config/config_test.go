@@ -139,6 +139,7 @@ git:
 sync:
   mode: pull
   policy:
+    selfHeal: true
     image:
       tag:
         required: true
@@ -150,6 +151,7 @@ stacks:
 
 	cfg, err := Load(filepath.Join(dir, "swarm-deploy.yaml"))
 	require.NoError(t, err)
+	assert.True(t, cfg.Spec.Sync.Policy.SelfHeal)
 	assert.True(t, cfg.Spec.Sync.Policy.Image.Enabled())
 	assert.Equal(t, ImageTagPolicySpec{Required: true, NoLatest: true, OnlySHA: true},
 		cfg.Spec.Sync.Policy.Image.Tag)

@@ -387,6 +387,8 @@ func toGeneratedServiceSyncStatus(serviceInfo servicemodel.Info, runtime model.R
 		return generated.ServiceSyncStatusSynced
 	case model.SyncStatusOutOfSync:
 		return generated.ServiceSyncStatusOutOfSync
+	case model.SyncStatusSyncFailed:
+		return generated.ServiceSyncStatusSyncFailed
 	default:
 		return generated.ServiceSyncStatusUnknown
 	}

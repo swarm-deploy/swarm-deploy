@@ -38,6 +38,9 @@ const (
 	TypeNameNodeConnected                    TypeName = "NodeConnected"
 	TypeNameNodeDisconnected                 TypeName = "NodeDisconnected"
 	TypeNameServiceMissed                    TypeName = "ServiceMissed"
+	TypeNameServiceRestored                  TypeName = "ServiceRestored"
+	TypeNameServiceRestoreFailed             TypeName = "ServiceRestoreFailed"
+	TypeNameServiceReplicasDiverged          TypeName = "ServiceReplicasDiverged"
 	TypeNameServiceReplicasIncreased         TypeName = "ServiceReplicasIncreased"
 	TypeNameServiceReplicasDecreased         TypeName = "ServiceReplicasDecreased"
 	TypeNameServiceRestarted                 TypeName = "ServiceRestarted"
@@ -176,6 +179,18 @@ var (
 		category: CategorySync,
 		window:   serviceDedupWindow,
 	}
+	TypeServiceRestored = Type{
+		name: TypeNameServiceRestored, isPublic: true, severity: SeverityInfo, category: CategorySync,
+		window: serviceDedupWindow,
+	}
+	TypeServiceRestoreFailed = Type{
+		name: TypeNameServiceRestoreFailed, isPublic: true, severity: SeverityAlert, category: CategorySync,
+		window: serviceDedupWindow,
+	}
+	TypeServiceReplicasDiverged = Type{
+		name: TypeNameServiceReplicasDiverged, isPublic: true, severity: SeverityWarn, category: CategorySync,
+		window: serviceDedupWindow,
+	}
 	TypeServiceReplicasIncreased = Type{
 		name:     TypeNameServiceReplicasIncreased,
 		isPublic: true,
@@ -245,6 +260,9 @@ var (
 		TypeNodeConnected,
 		TypeNodeDisconnected,
 		TypeServiceMissed,
+		TypeServiceRestored,
+		TypeServiceRestoreFailed,
+		TypeServiceReplicasDiverged,
 		TypeServiceReplicasIncreased,
 		TypeServiceReplicasDecreased,
 		TypeServiceRestarted,

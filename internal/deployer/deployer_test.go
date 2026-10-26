@@ -3,6 +3,7 @@ package deployer
 import (
 	"context"
 	"errors"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -217,10 +218,58 @@ func TestDeployStackOmitsInitJobResultWhenExecutionNeverStarted(t *testing.T) {
 	assert.Empty(t, result.InitJobs)
 }
 
+func TestDeployServiceDeploysOnlyTargetService(t *testing.T) {
+	var renderedPath string
+	runner := &fakeRunner{onRun: func(args []string) error {
+		renderedPath = composePathFromDeployArgs(args)
+		payload, err := os.ReadFile(renderedPath)
+		require.NoError(t, err)
+		assert.Contains(t, string(payload), "api:")
+		assert.NotContains(t, string(payload), "worker:")
+		assert.Contains(t, string(payload), "networks:")
+		return nil
+	}}
+	initJobs := &fakeInitJobExecutor{}
+	d := &Deployer{secretResolver: newTestSecretResolver(), stackDeployArgs: []string{"stack", "deploy"},
+		runner: runner, initJobRunner: initJobs}
+
+	desired := compose.Compose{
+		Services: compose.Services{
+			{Name: "api", Image: "example/api:1", InitJobs: []compose.InitJob{{Name: "migrate"}}},
+			{Name: "worker", Image: "example/worker:1"},
+		},
+		Networks: map[string]compose.Network{"backend": {}},
+	}
+	deploy := desired
+	deploy.Services = compose.Services{
+		{Name: "api", Image: "example/api:1"},
+		{Name: "worker", Image: "example/worker:1"},
+	}
+	result, err := d.DeployService(context.Background(), "demo", "/tmp/source.yaml", "api", desired, deploy)
+	require.NoError(t, err)
+	require.Len(t, result.InitJobs, 1)
+	assert.Equal(t, "api", result.InitJobs[0].ServiceName)
+	require.Len(t, runner.calls, 1)
+	assert.NotEmpty(t, renderedPath)
+	_, err = os.Stat(renderedPath)
+	assert.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestDeployServiceFailsWhenServiceIsMissing(t *testing.T) {
+	d := &Deployer{secretResolver: newTestSecretResolver(), stackDeployArgs: []string{"stack", "deploy"},
+		runner: &fakeRunner{}, initJobRunner: &fakeInitJobExecutor{}}
+
+	desired := compose.Compose{Services: compose.Services{{Name: "api"}}}
+	_, err := d.DeployService(context.Background(), "demo", "/tmp/source.yaml", "worker", desired, desired)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "service \"worker\" not found")
+}
+
 type fakeRunner struct {
 	calls  [][]string
 	events *[]string
 	err    error
+	onRun  func([]string) error
 }
 
 func (r *fakeRunner) Run(_ context.Context, args ...string) (string, error) {
@@ -230,8 +279,22 @@ func (r *fakeRunner) Run(_ context.Context, args ...string) (string, error) {
 	if r.events != nil {
 		*r.events = append(*r.events, "deploy")
 	}
+	if r.onRun != nil {
+		if err := r.onRun(copiedArgs); err != nil {
+			return "", err
+		}
+	}
 
 	return "", r.err
+}
+
+func composePathFromDeployArgs(args []string) string {
+	for index := 0; index < len(args)-1; index++ {
+		if args[index] == "-c" {
+			return args[index+1]
+		}
+	}
+	return ""
 }
 
 type fakeInitJobExecutor struct {

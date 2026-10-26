@@ -28,6 +28,9 @@ func Encode(event events.Event) ([]byte, error) {
 	if payload, internal, err := encodeInternal(event); internal {
 		return payload, err
 	}
+	if payload, serviceReference, err := encodeServiceReference(event); serviceReference {
+		return payload, err
+	}
 	switch e := event.(type) {
 	case *events.ConfigurationChanged:
 		return encodeConfigurationChanged(e)
@@ -60,10 +63,6 @@ func Encode(event events.Event) ([]byte, error) {
 		return json.Marshal(nodePayload{ID: e.NodeID, Name: e.NodeName, Status: e.Status})
 	case *events.NodeDisconnected:
 		return json.Marshal(nodePayload{ID: e.NodeID, Name: e.NodeName, Status: e.Status})
-	case *events.ServiceMissed:
-		return json.Marshal(servicePayload{Stack: e.StackName, Name: e.ServiceName, Commit: e.Commit})
-	case *events.ServicePruned:
-		return json.Marshal(servicePayload{Stack: e.StackName, Name: e.ServiceName, Commit: e.Commit})
 	case *events.ServiceReplicasIncreased:
 		return json.Marshal(servicePayload{
 			Stack: e.StackName, Name: e.ServiceName, Username: e.Username,
@@ -101,6 +100,9 @@ func Decode(typ events.TypeName, version int, payload []byte) (events.Event, err
 	if isDeploymentFailureType(typ) {
 		return decodeDeploymentFailure(typ, payload)
 	}
+	if event, serviceReference, err := decodeServiceReference(typ, payload); serviceReference {
+		return event, err
+	}
 	switch typ { //nolint:exhaustive // Failure events are decoded by decodeDeploymentFailure above.
 	case events.TypeNameConfigurationChanged:
 		return decodeConfigurationChanged(payload)
@@ -135,14 +137,6 @@ func Decode(typ events.TypeName, version int, payload []byte) (events.Event, err
 	case events.TypeNameNodeDisconnected:
 		return decodeAs(payload, func(p nodePayload) events.Event {
 			return &events.NodeDisconnected{NodeID: p.ID, NodeName: p.Name, Status: p.Status}
-		})
-	case events.TypeNameServiceMissed:
-		return decodeAs(payload, func(p servicePayload) events.Event {
-			return &events.ServiceMissed{StackName: p.Stack, ServiceName: p.Name, Commit: p.Commit}
-		})
-	case events.TypeNameServicePruned:
-		return decodeAs(payload, func(p servicePayload) events.Event {
-			return &events.ServicePruned{StackName: p.Stack, ServiceName: p.Name, Commit: p.Commit}
 		})
 	case events.TypeNameServiceReplicasIncreased:
 		return decodeAs(payload, func(p servicePayload) events.Event {
@@ -185,6 +179,58 @@ func Decode(typ events.TypeName, version int, payload []byte) (events.Event, err
 	default:
 		return nil, fmt.Errorf("unsupported persistent event type %q", typ)
 	}
+}
+
+func encodeServiceReference(event events.Event) ([]byte, bool, error) {
+	var payload servicePayload
+	switch e := event.(type) {
+	case *events.ServiceMissed:
+		payload = servicePayload{Stack: e.StackName, Name: e.ServiceName, Commit: e.Commit}
+	case *events.ServiceRestored:
+		payload = servicePayload{Stack: e.StackName, Name: e.ServiceName, Commit: e.Commit}
+	case *events.ServiceRestoreFailed:
+		payload = servicePayload{Stack: e.StackName, Name: e.ServiceName, Commit: e.Commit}
+	case *events.ServiceReplicasDiverged:
+		payload = servicePayload{Stack: e.StackName, Name: e.ServiceName, Commit: e.Commit}
+	case *events.ServicePruned:
+		payload = servicePayload{Stack: e.StackName, Name: e.ServiceName, Commit: e.Commit}
+	default:
+		return nil, false, nil
+	}
+
+	encoded, err := json.Marshal(payload)
+	return encoded, true, err
+}
+
+func decodeServiceReference(typ events.TypeName, payload []byte) (events.Event, bool, error) {
+	var constructor func(servicePayload) events.Event
+	switch typ { //nolint:exhaustive // This helper handles only simple service-reference payloads.
+	case events.TypeNameServiceMissed:
+		constructor = func(p servicePayload) events.Event {
+			return &events.ServiceMissed{StackName: p.Stack, ServiceName: p.Name, Commit: p.Commit}
+		}
+	case events.TypeNameServiceRestored:
+		constructor = func(p servicePayload) events.Event {
+			return &events.ServiceRestored{StackName: p.Stack, ServiceName: p.Name, Commit: p.Commit}
+		}
+	case events.TypeNameServiceRestoreFailed:
+		constructor = func(p servicePayload) events.Event {
+			return &events.ServiceRestoreFailed{StackName: p.Stack, ServiceName: p.Name, Commit: p.Commit}
+		}
+	case events.TypeNameServiceReplicasDiverged:
+		constructor = func(p servicePayload) events.Event {
+			return &events.ServiceReplicasDiverged{StackName: p.Stack, ServiceName: p.Name, Commit: p.Commit}
+		}
+	case events.TypeNameServicePruned:
+		constructor = func(p servicePayload) events.Event {
+			return &events.ServicePruned{StackName: p.Stack, ServiceName: p.Name, Commit: p.Commit}
+		}
+	default:
+		return nil, false, nil
+	}
+
+	event, err := decodeAs(payload, constructor)
+	return event, true, err
 }
 
 func isDeploymentFailureType(typ events.TypeName) bool {

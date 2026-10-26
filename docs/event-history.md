@@ -35,6 +35,9 @@ newly persisted events.
 | `NodeConnected`                    | `info`   | `swarm`    | Swarm node became ready             | `node_id`, `node_name` (if present), `status`                 |
 | `NodeDisconnected`                 | `alert`  | `swarm`    | Swarm node left ready state         | `node_id`, `node_name` (if present), `status`                 |
 | `ServiceMissed`                    | `alert`  | `sync`     | Desired service is absent in swarm state | `stack_name`, `service_name`, `commit`                  |
+| `ServiceRestored`                  | `info`   | `sync`     | Missing service was restored by self-heal | `stack_name`, `service_name`, `commit`                 |
+| `ServiceRestoreFailed`             | `alert`  | `sync`     | Missing service could not be restored | `stack_name`, `service_name`, `commit`                     |
+| `ServiceReplicasDiverged`          | `warn`   | `sync`     | Live replicas differ from desired state | `stack_name`, `service_name`, `commit`                    |
 | `ServiceReplicasIncreased`         | `info`   | `sync`     | Service replicas count increased    | `stack_name`, `service_name`, `previous_replicas`, `current_replicas`, `username` (if present) |
 | `ServiceReplicasDecreased`         | `info`   | `sync`     | Service replicas count decreased    | `stack_name`, `service_name`, `previous_replicas`, `current_replicas`, `username` (if present) |
 | `ServiceRestarted`                 | `info`   | `sync`     | Service restarted                   | `stack_name`, `service_name`, `username` (if present)        |
