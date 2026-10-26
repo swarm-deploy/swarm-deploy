@@ -24,10 +24,10 @@ var alertColumns = []any{
 var dialect = goqu.Dialect("sqlite3")
 
 // SQLStore persists alert lifecycle independently of the delivery queue.
-type SQLStore struct{ db *storage.Database }
+type SQLStore struct{ db storage.Database }
 
 // NewSQLStore creates an alert repository.
-func NewSQLStore(db *storage.Database) *SQLStore { return &SQLStore{db: db} }
+func NewSQLStore(db storage.Database) *SQLStore { return &SQLStore{db: db} }
 
 // Create inserts an incident with database-enforced open-fingerprint uniqueness.
 func (s *SQLStore) Create(ctx context.Context, alert model.Alert) error {

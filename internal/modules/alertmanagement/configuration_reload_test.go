@@ -279,7 +279,7 @@ func writeStackConfiguration(t *testing.T, stacks ...string) string {
 	return dir
 }
 
-func openAlertStore(t *testing.T) (*storage.Database, *modelstore.SQLStore) {
+func openAlertStore(t *testing.T) (storage.Database, *modelstore.SQLStore) {
 	t.Helper()
 	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)

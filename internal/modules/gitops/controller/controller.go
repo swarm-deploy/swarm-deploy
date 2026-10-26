@@ -57,7 +57,7 @@ const (
 )
 
 type Controller struct {
-	db          *storage.Database
+	db          storage.Database
 	cfg         *config.Config
 	configStore *configstore.ConfigStore
 	git         gitx.Repository
@@ -100,7 +100,7 @@ func New(
 	eventDispatcher dispatcher.Dispatcher,
 	stateStore modelstore.Store,
 	filesystem fs.FileSystem,
-	db *storage.Database,
+	db storage.Database,
 ) *Controller {
 	return &Controller{db: db,
 		cfg:         cfg,

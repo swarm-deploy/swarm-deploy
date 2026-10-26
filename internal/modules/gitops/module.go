@@ -33,7 +33,7 @@ type Module struct {
 
 type Container interface {
 	// GetStorage returns the shared database and transactor.
-	GetStorage() *storage.Database
+	GetStorage() storage.Database
 	GetFileSystem() fs.FileSystem
 	GetSwarm() *swarm.Swarm
 	GetDeployer() deployer.StackDeployer

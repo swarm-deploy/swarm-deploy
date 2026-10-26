@@ -9,7 +9,7 @@ import (
 )
 
 // OpenSQLite opens an isolated database and registers cleanup.
-func OpenSQLite(t *testing.T) *storage.Database {
+func OpenSQLite(t *testing.T) storage.Database {
 	t.Helper()
 	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)

@@ -24,7 +24,7 @@ type Module struct {
 // Container supplies dependencies required by Alert Management.
 type Container interface {
 	// GetStorage returns the shared database.
-	GetStorage() *storage.Database
+	GetStorage() storage.Database
 	// GetEventModule returns the event dispatcher module.
 	GetEventModule() *event.Module
 	// GetConfigStore returns the shared runtime configuration store.

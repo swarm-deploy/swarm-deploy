@@ -20,7 +20,7 @@ import (
 	sqlitemigrations "github.com/swarm-deploy/swarm-deploy/migrations/sqlite"
 )
 
-func openAtMigration1(t *testing.T) (*Database, *goose.Provider) {
+func openAtMigration1(t *testing.T) (*SQLXDatabase, *goose.Provider) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "swarm-deploy.sqlite")
 	u := url.URL{Scheme: "file", Path: path}
@@ -31,7 +31,7 @@ func openAtMigration1(t *testing.T) (*Database, *goose.Provider) {
 	driver.SetMaxOpenConns(maxConnections)
 	driver.SetMaxIdleConns(maxConnections)
 	transactor, get := txsqlx.NewTransactor(driver, txsqlx.NestedTransactionsSavepoints)
-	db := &Database{db: driver, get: get, transactor: transactor}
+	db := &SQLXDatabase{db: driver, get: get, transactor: transactor}
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	provider, err := goose.NewProvider(goose.DialectSQLite3, driver.DB, sqlitemigrations.Files)
 	require.NoError(t, err)

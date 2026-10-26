@@ -160,7 +160,7 @@ func TestSyncFailedDefaultAlertTruncatesLongError(t *testing.T) {
 	assert.Equal(t, "HTML", request.ParseMode)
 }
 
-func subscribeTestRecipients(t *testing.T, bus *eventbus.OutboxDispatcher, db *storage.Database, spec config.NotificationSpec, url string) []events.AlertRecipient {
+func subscribeTestRecipients(t *testing.T, bus *eventbus.OutboxDispatcher, db storage.Database, spec config.NotificationSpec, url string) []events.AlertRecipient {
 	t.Helper()
 	recipients := spec.AlertRecipients("node_disconnected")
 	for _, recipient := range recipients {

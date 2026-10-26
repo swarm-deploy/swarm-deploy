@@ -1118,7 +1118,7 @@ func TestReconcileServiceMissedEventOnDrift(t *testing.T) {
 	}
 }
 
-func newSQLState(t *testing.T) (*storage.Database, *modelstore.SQLStore) {
+func newSQLState(t *testing.T) (storage.Database, *modelstore.SQLStore) {
 	t.Helper()
 	db, err := storage.OpenSQLite(context.Background(), t.TempDir())
 	require.NoError(t, err)

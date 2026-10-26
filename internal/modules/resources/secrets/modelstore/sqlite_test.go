@@ -10,7 +10,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
 
-func newStore(t *testing.T) (*SQLStore, *storage.Database) {
+func newStore(t *testing.T) (*SQLStore, storage.Database) {
 	t.Helper()
 	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)

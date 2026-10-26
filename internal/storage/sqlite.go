@@ -18,7 +18,7 @@ import (
 const maxConnections = 4
 
 // OpenSQLite initializes the database on a local persistent volume.
-func OpenSQLite(ctx context.Context, dataDir string) (*Database, error) {
+func OpenSQLite(ctx context.Context, dataDir string) (*SQLXDatabase, error) {
 	if err := os.MkdirAll(dataDir, 0o700); err != nil {
 		return nil, fmt.Errorf("create database directory: %w", err)
 	}
@@ -46,7 +46,7 @@ func OpenSQLite(ctx context.Context, dataDir string) (*Database, error) {
 	db.SetMaxOpenConns(maxConnections)
 	db.SetMaxIdleConns(maxConnections)
 	tr, get := txsqlx.NewTransactor(db, txsqlx.NestedTransactionsSavepoints)
-	s := &Database{db: db, get: get, transactor: tr}
+	s := &SQLXDatabase{db: db, get: get, transactor: tr}
 	migrations, err := goose.NewProvider(
 		goose.DialectSQLite3,
 		db.DB,

@@ -17,7 +17,7 @@ import (
 var dialect = goqu.Dialect("sqlite3")
 
 // SQLStore stores Docker secret metadata, never secret contents.
-type SQLStore struct{ db *storage.Database }
+type SQLStore struct{ db storage.Database }
 
 // secretPayload is the JSON part of a secret_metadata row. It never repeats id, name
 // or attributes derived from labels (description, managed, external_path, external_version_id).
@@ -37,7 +37,7 @@ type secretRow struct {
 }
 
 // NewSQLStore creates a metadata repository.
-func NewSQLStore(db *storage.Database) *SQLStore { return &SQLStore{db: db} }
+func NewSQLStore(db storage.Database) *SQLStore { return &SQLStore{db: db} }
 
 // List returns metadata in stable name/ID order.
 func (s *SQLStore) List(ctx context.Context) ([]model.Secret, error) {

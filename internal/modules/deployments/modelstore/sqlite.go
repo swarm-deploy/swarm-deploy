@@ -34,10 +34,10 @@ var ErrLogsUnavailable = errors.New("init job logs unavailable")
 var dialect = goqu.Dialect("sqlite3")
 
 // Store provides context-aware deployment and snapshot queries.
-type Store struct{ db *storage.Database }
+type Store struct{ db storage.Database }
 
 // NewStore creates a deployment repository on the application database.
-func NewStore(db *storage.Database) *Store { return &Store{db: db} }
+func NewStore(db storage.Database) *Store { return &Store{db: db} }
 
 // FilterOptions returns stack and service names represented by desired-state deployments.
 func (s *Store) FilterOptions(ctx context.Context) ([]string, []FilterService, error) {

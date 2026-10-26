@@ -540,7 +540,7 @@ func TestDeploymentIndexesSupportListQueries(t *testing.T) {
 	}
 }
 
-func assertDeploymentColumns(t *testing.T, db *storage.Database, id, errorCode string, phase deploymentmodel.Phase) {
+func assertDeploymentColumns(t *testing.T, db storage.Database, id, errorCode string, phase deploymentmodel.Phase) {
 	t.Helper()
 	var row struct {
 		ErrorCode string                `db:"error_code"`

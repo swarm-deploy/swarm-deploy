@@ -830,7 +830,7 @@ func writeNetworksFile(path string, networkName string) error {
 	return os.WriteFile(path, content, 0o600)
 }
 
-func newSQLState(t *testing.T) (*storage.Database, *modelstore.SQLStore) {
+func newSQLState(t *testing.T) (storage.Database, *modelstore.SQLStore) {
 	t.Helper()
 	db, err := storage.OpenSQLite(context.Background(), t.TempDir())
 	require.NoError(t, err)

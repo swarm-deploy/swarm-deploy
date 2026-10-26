@@ -15,7 +15,7 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func setup(t *testing.T) (*storage.Database, *OutboxDispatcher) {
+func setup(t *testing.T) (storage.Database, *OutboxDispatcher) {
 	t.Helper()
 	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
@@ -25,7 +25,7 @@ func setup(t *testing.T) (*storage.Database, *OutboxDispatcher) {
 	return db, NewOutboxDispatcher(outbox.New(db))
 }
 
-func rows(t *testing.T, db *storage.Database, table string) int {
+func rows(t *testing.T, db storage.Database, table string) int {
 	t.Helper()
 	var count int
 	require.NoError(t, db.Get(t.Context(), &count, "SELECT count(*) FROM "+table))

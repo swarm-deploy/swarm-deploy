@@ -334,7 +334,7 @@ type module struct {
 
 type container struct {
 	// Storage owns the shared database and transactor.
-	Storage         *storage.Database
+	Storage         storage.Database
 	FileSystem      fs.FileSystem
 	Metrics         *metrics.Group
 	Swarm           *swarm.Swarm
@@ -352,7 +352,7 @@ type container struct {
 }
 
 // GetStorage returns the shared application database.
-func (c *container) GetStorage() *storage.Database { return c.Storage }
+func (c *container) GetStorage() storage.Database { return c.Storage }
 
 func (c *container) GetFileSystem() fs.FileSystem {
 	return c.FileSystem
