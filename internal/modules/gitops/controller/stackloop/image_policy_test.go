@@ -177,7 +177,7 @@ func TestImagePolicyViolationLifecycle(t *testing.T) {
 		}},
 	}}
 	subscriber := alertmanagement.NewSQLSubscriber(alerts, bus,
-		func(alertmodel.AlertKind) []events.AlertRecipient { return nil }, cfg, state)
+		func(alertmodel.AlertKind) []events.AlertRecipient { return nil }, cfg)
 	require.NoError(t, bus.Subscribe(events.TypeNameDeployPreparationFailed, "alert-management", subscriber))
 	require.NoError(t, bus.Subscribe(events.TypeNameDeployPreparationFailed, "event-history", history))
 	require.NoError(t, bus.Subscribe(events.TypeNameDeploySuccess, "alert-management", subscriber))

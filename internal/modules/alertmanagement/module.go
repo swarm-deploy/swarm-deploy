@@ -7,12 +7,9 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/configstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
-	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	eventdispatcher "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
-	gitopsmodelstore "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
 
@@ -41,20 +38,16 @@ func InitModule(ctx context.Context, cfg *config.Config, container Container) (*
 	dispatcher := container.GetEventModule().Dispatcher
 	subscriber := NewSQLSubscriber(store, dispatcher, func(kind model.AlertKind) []events.AlertRecipient {
 		return cfg.Spec.Notifications.AlertRecipients(string(kind))
-	}, container.GetConfigStore(), gitopsmodelstore.NewSQLStore(container.GetStorage()))
+	}, container.GetConfigStore())
 	module := &Module{Store: store, Subscriber: subscriber}
 	if err := eventdispatcher.SubscribeMany(dispatcher, []events.TypeName{
 		events.TypeNameConfigurationChanged,
 		events.TypeNameDeployFailed, events.TypeNameDeployPreparationFailed,
-		events.TypeNameDeployInterrupted,
+		events.TypeNameDeployInterrupted, events.TypeNameDeploySuccess,
 		events.TypeNameNodeDisconnected, events.TypeNameNodeConnected,
 		events.TypeNameGitPullFailed, events.TypeNameGitPullSucceeded,
 		events.TypeNameServiceMissed, events.TypeNameServiceDrifted, events.TypeNameServiceDriftFixed,
 	}, "alert-management", subscriber); err != nil {
-		return nil, err
-	}
-	if err := dispatcher.Subscribe(events.TypeNameDeploySuccess, "alert-management",
-		deployment.WithDesired(deploymentstore.NewStore(container.GetStorage()), subscriber)); err != nil {
 		return nil, err
 	}
 	return module, nil

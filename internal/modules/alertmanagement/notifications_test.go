@@ -15,7 +15,6 @@ import (
 	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
-	gitopsmodelstore "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"go.uber.org/mock/gomock"
 )
@@ -27,7 +26,7 @@ func TestAlertLifecyclePublishesOnlyTransitions(t *testing.T) {
 	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 	repo := modelstore.NewSQLStore(db)
 	subscriber := NewSQLSubscriber(repo, bus, func(model.AlertKind) []events.AlertRecipient { return nil },
-		&config.Config{}, gitopsmodelstore.NewSQLStore(db))
+		&config.Config{})
 	require.NoError(t, bus.Subscribe(events.TypeNameAlertOpened, "test-open", subscriber))
 	require.NoError(t, bus.Subscribe(events.TypeNameAlertResolved, "test-resolve", subscriber))
 	at := time.Now().UTC()
@@ -61,7 +60,7 @@ func TestServiceDriftEventsDriveAlertLifecycleThroughOutbox(t *testing.T) {
 	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 	repo := modelstore.NewSQLStore(db)
 	subscriber := NewSQLSubscriber(repo, bus, func(model.AlertKind) []events.AlertRecipient { return nil },
-		&config.Config{}, gitopsmodelstore.NewSQLStore(db))
+		&config.Config{})
 	for _, typ := range []events.TypeName{
 		events.TypeNameServiceMissed, events.TypeNameServiceDrifted, events.TypeNameServiceDriftFixed,
 	} {
@@ -106,7 +105,7 @@ func TestAlertLifecyclePublicationRollback(t *testing.T) {
 	publisher := dispatcher.NewMockDispatcher(gomock.NewController(t))
 	publisher.EXPECT().Publish(gomock.Any(), gomock.Any()).Return(assert.AnError)
 	subscriber := NewSQLSubscriber(repo, publisher, func(model.AlertKind) []events.AlertRecipient { return nil },
-		&config.Config{}, gitopsmodelstore.NewSQLStore(db))
+		&config.Config{})
 	err = subscriber.Handle(t.Context(), events.Envelope{ID: "failed", OccurredAt: time.Now().UTC(),
 		Event: &events.DeployFailed{DeployEvent: events.DeployEvent{StackName: "app"}}})
 	require.ErrorIs(t, err, assert.AnError)
@@ -127,7 +126,7 @@ func TestAlertResolutionPublicationRollback(t *testing.T) {
 	publisher.EXPECT().Publish(gomock.Any(), gomock.Any()).Return(nil)
 	publisher.EXPECT().Publish(gomock.Any(), gomock.Any()).Return(assert.AnError)
 	subscriber := NewSQLSubscriber(repo, publisher, func(model.AlertKind) []events.AlertRecipient { return nil },
-		&config.Config{}, gitopsmodelstore.NewSQLStore(db))
+		&config.Config{})
 	at := time.Now().UTC()
 	require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{
 		ID: "failed", OccurredAt: at,

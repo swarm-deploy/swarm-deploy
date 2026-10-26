@@ -15,13 +15,12 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	gitopsmodelstore "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 )
 
 func newTestSubscriber(store modelstore.Store) *Subscriber {
 	return NewSubscriber(store, &dispatcher.NopDispatcher{}, func(model.AlertKind) []events.AlertRecipient { return nil },
-		&config.Config{}, gitopsmodelstore.NewMemoryStore())
+		&config.Config{})
 }
 
 func TestSubscriberDeploymentLifecycle(t *testing.T) {

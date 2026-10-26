@@ -74,7 +74,11 @@ Confirmed unresolved drift opens one `ServiceDrift` alert (`service_drift`) for 
 type `service` and resource ID `<stack>/<service>`. Repeated detections update the active
 alert. `ServiceDriftFixed` resolves it. A drift repaired and verified in the same
 reconciliation emits the detection and fixed history transitions but does not open a
-transient alert. Removing a service from an accepted desired stack resolves its alert with
-`resource_removed`; removing a stack resolves all of its service-drift alerts. On startup,
-Alert Management idempotently projects unresolved drift already stored in GitOps runtime
-state so upgrades do not require a new detection episode.
+transient alert. Removing a stack resolves all of its service-drift alerts with
+`resource_removed`.
+
+Alert Management derives service drift only from events processed after this feature is
+enabled; it does not backfill alerts from persisted GitOps synchronization status. The
+current event contract also cannot safely identify an individual service removed from a
+retained stack, so such alerts are not resolved automatically. Both cases require a future
+event-contract discussion rather than cross-module state reads.
