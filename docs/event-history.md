@@ -28,7 +28,6 @@ newly persisted events.
 | `DeploySuccess`                    | `info`   | `sync`     | Successful stack deployment         | `stack_name`, `commit`, `deployment_id`, `attempt_id`, `status` |
 | `ServicePruned`                    | `info`   | `sync`     | Orphaned managed service was removed | `stack_name`, `service_name`, `commit`                       |
 | `NetworkCreated`                   | `info`   | `sync`     | Managed network was created          | `network_name`, `network_id`, `driver`                       |
-| `SendNotificationFailed`           | `error`  | `sync`     | Notification delivery failure       | `destination`, `channel`, `event_type`, `error` (if present) |
 | `WebhookReceived`                  | `info`   | `sync`     | Authenticated webhook received and reconciliation scheduling attempted | `queued` (`true` or `false`)                     |
 | `SyncManualStarted`                | `info`   | `sync`     | Manual sync run started             | `username` (if present)                                      |
 | `NodeJoined`                       | `info`   | `swarm`    | New node joined the swarm           | `node_id`, `node_name` (if present), `role` (if present)      |
@@ -99,5 +98,6 @@ eventHistory:
 Event notifications use PascalCase event type identifiers. Synchronization failures are delivered
 through the `sync_failed` alert lifecycle instead of Event Notifications. Durable payloads intentionally
 omit raw Compose, environment, logs, arbitrary errors and assistant prompts.
-`SendNotificationFailed` has no runtime publisher;
-delivery diagnostics live in outbox status/metrics rather than recursive notifications.
+Messenger health events and the legacy internal `SendNotificationFailed` type are not
+subscribed by Event History. Messenger health is represented by the current alert state;
+delivery diagnostics remain in Outbox status and metrics.

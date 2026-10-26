@@ -60,3 +60,16 @@ func TestHistoryAndMetricsKeepIndependentPolicies(t *testing.T) {
 	}
 	assert.Equal(t, map[string]float64{"NodeJoined": 1, "NodeDisconnected": 1, "ServicePruned": 1}, counts)
 }
+
+func TestMessengerHealthAndLegacyNotificationFailureAreNotProjected(t *testing.T) {
+	for _, eventType := range []events.TypeName{
+		events.TypeNameMessengerUnavailable,
+		events.TypeNameMessengerAvailable,
+		events.TypeNameMessengerMisconfigured,
+		events.TypeNameMessengerDeliverySucceeded,
+		events.TypeNameSendNotificationFailed,
+	} {
+		assert.NotContains(t, projectionEventTypes(), eventType)
+		assert.False(t, eventType.Valid())
+	}
+}

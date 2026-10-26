@@ -8,11 +8,17 @@ const AlertKindSyncFailed AlertKind = "sync_failed"
 const AlertKindNodeDisconnected AlertKind = "node_disconnected"
 const AlertKindGitRepositoryUnavailable AlertKind = "git_repository_unavailable"
 
+var (
+	AlertKindMessengerUnavailable   AlertKind = "messenger_unavailable"
+	AlertKindMessengerMisconfigured AlertKind = "messenger_misconfigured"
+)
+
 type ResourceType string
 
 const ResourceTypeStack ResourceType = "stack"
 const ResourceTypeNode ResourceType = "node"
 const ResourceTypeRepository ResourceType = "repository"
+const ResourceTypeMessenger ResourceType = "messenger"
 
 type AlertStatus string
 
@@ -86,4 +92,9 @@ func SyncFailedFingerprint(stackID string) string {
 // GitRepositoryUnavailableFingerprint returns the correlation key for repository access failures.
 func GitRepositoryUnavailableFingerprint(repository string) string {
 	return string(AlertKindGitRepositoryUnavailable) + ":" + string(ResourceTypeRepository) + ":" + repository
+}
+
+// MessengerFingerprint returns the notification-owned messenger correlation key.
+func MessengerFingerprint(kind AlertKind, resourceID string) string {
+	return string(kind) + ":" + resourceID
 }

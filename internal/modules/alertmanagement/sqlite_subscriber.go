@@ -26,6 +26,16 @@ func NewSQLSubscriber(store *modelstore.SQLStore, publisher interface {
 	return &SQLSubscriber{Subscriber: NewSubscriber(store, publisher, recipients, stacks), store: store}
 }
 
+// NewSQLSubscriberWithResources constructs a durable projection with resource-aware notification routing.
+func NewSQLSubscriberWithResources(store *modelstore.SQLStore, publisher interface {
+	Publish(context.Context, events.Event) error
+},
+	recipients func(model.AlertKind, string) []events.AlertRecipient,
+	stacks config.StackProvider,
+) *SQLSubscriber {
+	return &SQLSubscriber{Subscriber: NewSubscriberWithResources(store, publisher, recipients, stacks), store: store}
+}
+
 // Handle applies each source publication once, even across retry and restart.
 func (s *SQLSubscriber) Handle(ctx context.Context, event events.Envelope) error {
 	var resource string
@@ -51,6 +61,14 @@ func (s *SQLSubscriber) Handle(ctx context.Context, event events.Envelope) error
 		resource = "repository:" + e.Repository
 	case *events.GitPullSucceeded:
 		resource = "repository:" + e.Repository
+	case *events.MessengerUnavailable:
+		resource = model.MessengerFingerprint(model.AlertKindMessengerUnavailable, e.ResourceID)
+	case *events.MessengerAvailable:
+		resource = model.MessengerFingerprint(model.AlertKindMessengerUnavailable, e.ResourceID)
+	case *events.MessengerMisconfigured:
+		resource = model.MessengerFingerprint(model.AlertKindMessengerMisconfigured, e.ResourceID)
+	case *events.MessengerDeliverySucceeded:
+		resource = model.MessengerFingerprint(model.AlertKindMessengerMisconfigured, e.ResourceID)
 	default:
 		return nil
 	}

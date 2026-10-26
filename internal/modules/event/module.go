@@ -132,6 +132,7 @@ func (s *Module) registerTelegramNotifications(
 			chat := telegram.Chats[chatName]
 			notifier, err := notifiers.NewTelegramNotifier(
 				chatName, string(telegram.BotToken.Content), chat.ID,
+				s.Dispatcher,
 				notifiers.TelegramOptions{
 					ChatThreadID: chat.ThreadID, Message: channel.Message, DefaultMessage: defaultTemplate,
 					Retries: telegram.Retries, SOCKS5Address: telegram.Proxy.SOCKS5.Address.Value,
@@ -177,7 +178,7 @@ func (s *Module) registerCustomNotifications(types []events.TypeName, channels [
 // History.Handle retains its own persistence filters.
 func projectionEventTypes() []events.TypeName {
 	return []events.TypeName{
-		events.TypeNameServiceCatalogUpdated, events.TypeNameDeploySuccess, events.TypeNameSendNotificationFailed,
+		events.TypeNameServiceCatalogUpdated, events.TypeNameDeploySuccess,
 		events.TypeNameSyncManualStarted, events.TypeNameWebhookReceived, events.TypeNameNodeJoined,
 		events.TypeNameNodeConnected, events.TypeNameNodeDisconnected, events.TypeNameServiceMissed,
 		events.TypeNameServiceReplicasIncreased, events.TypeNameServiceReplicasDecreased,

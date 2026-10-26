@@ -18,6 +18,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"golang.org/x/net/proxy"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	notificationtemplate "github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/template"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
@@ -56,6 +57,9 @@ type TelegramNotifier struct {
 	retries      uint
 	retryOptions []retry.Option
 	client       *http.Client
+	publisher    interface {
+		Publish(context.Context, events.Event) error
+	}
 }
 
 const defaultTelegramRetries = 3
@@ -66,8 +70,10 @@ const (
 	telegramResponseLimit = 64 * 1024
 )
 
-func NewTelegramNotifier(name, token, chatID string, options TelegramOptions) (Notifier, error) {
-	tgNotifier, err := newTelegramNotifier(name, token, chatID, options)
+func NewTelegramNotifier(name, token, chatID string, publisher interface {
+	Publish(context.Context, events.Event) error
+}, options TelegramOptions) (Notifier, error) {
+	tgNotifier, err := newTelegramNotifier(name, token, chatID, publisher, options)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +91,9 @@ func NewTelegramNotifier(name, token, chatID string, options TelegramOptions) (N
 	}), nil
 }
 
-func newTelegramNotifier(name, token, chatID string, options TelegramOptions) (*TelegramNotifier, error) {
+func newTelegramNotifier(name, token, chatID string, publisher interface {
+	Publish(context.Context, events.Event) error
+}, options TelegramOptions) (*TelegramNotifier, error) {
 	templateText := strings.TrimSpace(options.Message)
 	if templateText == "" {
 		templateText = strings.TrimSpace(options.DefaultMessage)
@@ -124,6 +132,7 @@ func newTelegramNotifier(name, token, chatID string, options TelegramOptions) (*
 		parseMode:    options.ParseMode,
 		retries:      retries,
 		client:       client,
+		publisher:    publisher,
 	}, nil
 }
 
@@ -263,12 +272,19 @@ func (n *TelegramNotifier) sendRequest(
 	// #nosec G704 -- Telegram API base URL is explicitly configured by the operator.
 	resp, err := n.client.Do(req)
 	if err != nil {
+		if !errors.Is(err, context.Canceled) {
+			n.publishHealthEvent(ctx, &events.MessengerUnavailable{
+				ResourceID: telegramMessengerResourceID(), ErrorCode: faults.TransportErrorKind(err),
+				Description: telegramTransportDescription(err),
+			})
+		}
 		return Receipt{}, fmt.Errorf("send request: %w", errors.Join(
 			&telegramTransportError{kind: faults.TransportErrorKind(err)},
 			errors.New(maskTelegramSendError(err, n.token)),
 		))
 	}
 	defer resp.Body.Close()
+	n.publishReachability(ctx, resp.StatusCode)
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, telegramResponseLimit))
 	if err != nil {
 		return Receipt{}, fmt.Errorf("read response body: %w", err)
@@ -288,21 +304,31 @@ func (n *TelegramNotifier) sendRequest(
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices || !answer.OK {
 		if endpoint == telegramEditEndpoint && resp.StatusCode == http.StatusBadRequest &&
 			strings.Contains(strings.ToLower(answer.Description), "message is not modified") {
-			return Receipt{MessageID: targetID, Action: ActionEdit}, nil
+			receipt := Receipt{MessageID: targetID, Action: ActionEdit}
+			n.publishHealthEvent(ctx, &events.MessengerDeliverySucceeded{
+				ResourceID: telegramChannelResourceID(n.name),
+			})
+			return receipt, nil
 		}
 		if targetID != 0 && resp.StatusCode == http.StatusBadRequest &&
 			invalidTelegramReference(endpoint, answer.Description) {
 			return Receipt{}, ErrMessageReferenceInvalid
 		}
-		return Receipt{}, &telegramAPIError{
+		apiErr := &telegramAPIError{
 			status:     resp.StatusCode,
 			code:       answer.ErrorCode,
 			kind:       faults.HTTPCodeKind(resp.StatusCode),
 			retryAfter: answer.Parameters.RetryAfter,
 		}
+		n.publishMisconfiguration(ctx, resp.StatusCode, answer.Description)
+		return Receipt{}, apiErr
 	}
 	if endpoint == telegramEditEndpoint && string(answer.Result) == "true" {
-		return Receipt{MessageID: targetID, Action: ActionEdit}, nil
+		receipt := Receipt{MessageID: targetID, Action: ActionEdit}
+		n.publishHealthEvent(ctx, &events.MessengerDeliverySucceeded{
+			ResourceID: telegramChannelResourceID(n.name),
+		})
+		return receipt, nil
 	}
 	var result struct {
 		MessageID int64 `json:"message_id"`
@@ -319,7 +345,78 @@ func (n *TelegramNotifier) sendRequest(
 	} else if targetID != 0 {
 		action = ActionReply
 	}
-	return Receipt{MessageID: result.MessageID, Action: action}, nil
+	receipt := Receipt{MessageID: result.MessageID, Action: action}
+	n.publishHealthEvent(ctx, &events.MessengerDeliverySucceeded{
+		ResourceID: telegramChannelResourceID(n.name),
+	})
+	return receipt, nil
+}
+
+func (n *TelegramNotifier) publishReachability(ctx context.Context, status int) {
+	if status >= http.StatusInternalServerError {
+		n.publishHealthEvent(ctx, &events.MessengerUnavailable{
+			ResourceID: telegramMessengerResourceID(), ErrorCode: faults.HTTPCodeKind(status),
+			Description: "Messenger API is temporarily unavailable",
+		})
+		return
+	}
+	n.publishHealthEvent(ctx, &events.MessengerAvailable{ResourceID: telegramMessengerResourceID()})
+}
+
+func (n *TelegramNotifier) publishMisconfiguration(ctx context.Context, status int, apiDescription string) {
+	code, description, misconfigured := classifyTelegramConfigurationError(status, apiDescription)
+	if !misconfigured {
+		return
+	}
+	n.publishHealthEvent(ctx, &events.MessengerMisconfigured{
+		ResourceID: telegramChannelResourceID(n.name), ErrorCode: code, Description: description,
+	})
+}
+
+func (n *TelegramNotifier) publishHealthEvent(ctx context.Context, event events.Event) {
+	if err := n.publisher.Publish(ctx, event); err != nil {
+		slog.ErrorContext(ctx, "publish messenger health event failed",
+			"event_type", event.Type().String(), "messenger", "telegram", "channel", n.name,
+			"error_type", fmt.Sprintf("%T", err),
+		)
+	}
+}
+
+func telegramMessengerResourceID() string { return "telegram" }
+
+func telegramChannelResourceID(channelName string) string { return "telegram:" + channelName }
+
+func telegramTransportDescription(err error) string {
+	switch faults.TransportErrorKind(err) {
+	case "dns_error":
+		return "Messenger DNS lookup failed"
+	case "timeout":
+		return "Messenger connection timed out"
+	default:
+		return "Messenger connection failed"
+	}
+}
+
+func classifyTelegramConfigurationError(status int, description string) (string, string, bool) {
+	if status == http.StatusUnauthorized {
+		return "invalid_credentials", "Messenger credentials were rejected", true
+	}
+	description = strings.ToLower(description)
+	switch {
+	case status == http.StatusBadRequest && strings.Contains(description, "message thread not found"):
+		return "thread_not_found", "Messenger message thread was not found", true
+	case status == http.StatusBadRequest && strings.Contains(description, "chat not found"):
+		return "chat_not_found", "Messenger chat was not found", true
+	case status == http.StatusForbidden && (strings.Contains(description, "kicked") ||
+		strings.Contains(description, "not a member") || strings.Contains(description, "blocked")):
+		return "bot_removed", "Messenger bot is no longer available in the chat", true
+	case status == http.StatusForbidden,
+		status == http.StatusBadRequest && (strings.Contains(description, "not enough rights") ||
+			strings.Contains(description, "have no rights") || strings.Contains(description, "not permitted")):
+		return "permission_denied", "Messenger bot cannot send messages to the chat", true
+	default:
+		return "", "", false
+	}
 }
 
 func invalidTelegramReference(endpoint, description string) bool {

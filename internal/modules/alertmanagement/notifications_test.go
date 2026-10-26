@@ -52,6 +52,30 @@ func TestAlertLifecyclePublishesOnlyTransitions(t *testing.T) {
 	assert.False(t, events.TypeNameAlertResolved.Valid())
 }
 
+func TestMessengerHealthLifecycleRunsThroughEventBus(t *testing.T) {
+	db, err := storage.Open(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	bus := outbox.New(db)
+	repo := modelstore.NewSQLStore(db)
+	subscriber := NewSQLSubscriber(repo, bus, func(model.AlertKind) []events.AlertRecipient { return nil },
+		&config.Config{})
+	require.NoError(t, dispatcher.SubscribeMany(bus, []events.TypeName{
+		events.TypeNameMessengerUnavailable, events.TypeNameMessengerAvailable,
+		events.TypeNameMessengerMisconfigured, events.TypeNameMessengerDeliverySucceeded,
+	}, "alert-management", subscriber))
+	require.NoError(t, bus.Publish(t.Context(), &events.MessengerUnavailable{
+		ResourceID: "telegram", ErrorCode: "connection_failed", Description: "Messenger connection failed",
+	}))
+	handled, err := bus.ProcessNext(t.Context())
+	require.NoError(t, err)
+	assert.True(t, handled)
+	alerts, err := repo.List(t.Context(), modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 1)
+	assert.Equal(t, model.AlertStatusOpen, alerts[0].Status)
+}
+
 func TestAlertLifecyclePublicationRollback(t *testing.T) {
 	db, err := storage.Open(t.Context(), t.TempDir())
 	require.NoError(t, err)

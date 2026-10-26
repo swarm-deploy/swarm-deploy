@@ -24,7 +24,7 @@ type Subscriber struct {
 	publisher interface {
 		Publish(context.Context, events.Event) error
 	}
-	recipients func(model.AlertKind) []events.AlertRecipient
+	recipients func(model.AlertKind, string) []events.AlertRecipient
 	now        func() time.Time
 	newID      func() string
 }
@@ -36,6 +36,17 @@ func NewSubscriber(store modelstore.Store, publisher interface {
 	Publish(context.Context, events.Event) error
 },
 	recipients func(model.AlertKind) []events.AlertRecipient,
+	stacks config.StackProvider,
+) *Subscriber {
+	return NewSubscriberWithResources(store, publisher,
+		func(kind model.AlertKind, _ string) []events.AlertRecipient { return recipients(kind) }, stacks)
+}
+
+// NewSubscriberWithResources creates an alert subscriber with resource-aware notification routing.
+func NewSubscriberWithResources(store modelstore.Store, publisher interface {
+	Publish(context.Context, events.Event) error
+},
+	recipients func(model.AlertKind, string) []events.AlertRecipient,
 	stacks config.StackProvider,
 ) *Subscriber {
 	return &Subscriber{
@@ -83,9 +94,79 @@ func (s *Subscriber) Handle(ctx context.Context, event events.Envelope) error {
 		return s.handleGitPullFailed(ctx, event.ID, deployment)
 	case *events.GitPullSucceeded:
 		return s.handleGitPullSucceeded(ctx, event.ID, deployment)
+	case *events.MessengerUnavailable:
+		return s.handleMessengerFailure(ctx, event.ID, model.AlertKindMessengerUnavailable,
+			deployment.ResourceID, "Messenger unavailable", deployment.Description, deployment.ErrorCode)
+	case *events.MessengerAvailable:
+		return s.handleMessengerRecovery(ctx, event.ID, model.AlertKindMessengerUnavailable,
+			deployment.ResourceID, "Messenger connectivity recovered")
+	case *events.MessengerMisconfigured:
+		return s.handleMessengerFailure(ctx, event.ID, model.AlertKindMessengerMisconfigured,
+			deployment.ResourceID, "Messenger misconfigured", deployment.Description, deployment.ErrorCode)
+	case *events.MessengerDeliverySucceeded:
+		return s.handleMessengerRecovery(ctx, event.ID, model.AlertKindMessengerMisconfigured,
+			deployment.ResourceID, "Messenger configuration recovered")
 	default:
 		return nil
 	}
+}
+
+func (s *Subscriber) handleMessengerFailure(
+	ctx context.Context, eventID string, kind model.AlertKind, resourceID, title, message, errorCode string,
+) error {
+	fingerprint := model.MessengerFingerprint(kind, resourceID)
+	now := s.now()
+	eventID = eventReferenceID(eventID, s.newID)
+	alert, err := s.store.FindOpenByFingerprint(ctx, fingerprint)
+	if err != nil && !errors.Is(err, modelstore.ErrAlertNotFound) {
+		return fmt.Errorf("find open messenger alert: %w", err)
+	}
+	if err == nil {
+		alert.Occurrences++
+		alert.UpdatedAt = now
+		alert.LatestEventID = eventID
+		alert.Title = title
+		alert.Message = message
+		alert.ErrorCode = errorCode
+		if err = s.store.Update(ctx, alert); err != nil {
+			return fmt.Errorf("update messenger alert: %w", err)
+		}
+		return nil
+	}
+	alert = model.Alert{
+		ID: s.newID(), Fingerprint: fingerprint, Kind: kind,
+		ResourceType: model.ResourceTypeMessenger, ResourceID: resourceID,
+		Status: model.AlertStatusOpen, Title: title, Message: message, ErrorCode: errorCode,
+		Occurrences: 1, OpenedAt: now, UpdatedAt: now, OpenEventID: eventID, LatestEventID: eventID,
+	}
+	if err = s.store.Create(ctx, alert); err != nil {
+		return fmt.Errorf("create messenger alert: %w", err)
+	}
+	return s.publishOpened(ctx, alert)
+}
+
+func (s *Subscriber) handleMessengerRecovery(
+	ctx context.Context, eventID string, kind model.AlertKind, resourceID, message string,
+) error {
+	alert, err := s.store.FindOpenByFingerprint(ctx, model.MessengerFingerprint(kind, resourceID))
+	if err != nil {
+		if errors.Is(err, modelstore.ErrAlertNotFound) {
+			return nil
+		}
+		return fmt.Errorf("find open messenger alert: %w", err)
+	}
+	now := s.now()
+	alert.Status = model.AlertStatusResolved
+	alert.UpdatedAt = now
+	alert.ResolvedAt = &now
+	alert.Resolution = &model.AlertResolution{
+		Reason: model.ResolutionReasonRecovered, Message: message,
+		EventID: eventReferenceID(eventID, s.newID),
+	}
+	if err = s.store.Update(ctx, alert); err != nil {
+		return fmt.Errorf("resolve messenger alert: %w", err)
+	}
+	return s.publishResolved(ctx, alert)
 }
 
 func (s *Subscriber) handleGitPullFailed(ctx context.Context, eventID string, event *events.GitPullFailed) error {
@@ -369,12 +450,14 @@ func (s *Subscriber) handleSucceeded(ctx context.Context, eventID string, event 
 }
 
 func (s *Subscriber) publishOpened(ctx context.Context, alert model.Alert) error {
-	return s.publisher.Publish(ctx, &events.AlertOpened{Alert: alertSnapshot(alert), Recipients: s.recipients(alert.Kind)})
+	return s.publisher.Publish(ctx, &events.AlertOpened{
+		Alert: alertSnapshot(alert), Recipients: s.recipients(alert.Kind, alert.ResourceID),
+	})
 }
 
 func (s *Subscriber) publishResolved(ctx context.Context, alert model.Alert) error {
 	return s.publisher.Publish(ctx, &events.AlertResolved{
-		Alert: alertSnapshot(alert), Recipients: s.recipients(alert.Kind),
+		Alert: alertSnapshot(alert), Recipients: s.recipients(alert.Kind, alert.ResourceID),
 	})
 }
 
