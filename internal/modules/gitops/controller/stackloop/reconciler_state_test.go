@@ -1149,19 +1149,19 @@ func TestReconcileSelfHealsMissingService(t *testing.T) {
 		},
 		{
 			name: "records failed restore", deployErr: errors.New("deploy failed"), wantErr: true,
-			wantStatus: model.SyncStatusSyncFailed, wantSyncError: "Self Heal Verification Failed: service is missing",
+			wantStatus: model.SyncStatusOutOfSync, wantSyncError: "Self Heal Verification Failed: service is missing",
 			wantEventTypes: []events.TypeName{events.TypeNameServiceMissed},
 			wantMetric:     "failed",
 		},
 		{
 			name: "records failed verification", verificationErr: errors.New("swarm unavailable"), wantErr: true,
-			wantStatus: model.SyncStatusSyncFailed, wantSyncError: "Self Heal Verification Failed",
+			wantStatus: model.SyncStatusOutOfSync, wantSyncError: "Self Heal Verification Failed",
 			wantEventTypes: []events.TypeName{events.TypeNameServiceMissed},
 			wantMetric:     "failed",
 		},
 		{
 			name: "records persistent drift", wantErr: true,
-			wantStatus:     model.SyncStatusSyncFailed,
+			wantStatus:     model.SyncStatusOutOfSync,
 			wantSyncError:  "Self Heal Verification Failed: service is missing",
 			wantEventTypes: []events.TypeName{events.TypeNameServiceMissed},
 			wantMetric:     "failed",

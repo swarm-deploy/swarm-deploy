@@ -12609,8 +12609,6 @@ func (s *ServiceSyncStatus) Decode(d *jx.Decoder) error {
 		*s = ServiceSyncStatusSynced
 	case ServiceSyncStatusOutOfSync:
 		*s = ServiceSyncStatusOutOfSync
-	case ServiceSyncStatusSyncFailed:
-		*s = ServiceSyncStatusSyncFailed
 	case ServiceSyncStatusUnknown:
 		*s = ServiceSyncStatusUnknown
 	default:

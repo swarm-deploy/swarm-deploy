@@ -148,7 +148,7 @@ func TestToGeneratedServiceInfo(t *testing.T) {
 			expectedTitle:  "Secret Manager",
 		},
 		{
-			name: "returns self-heal failure from runtime state",
+			name: "returns self-heal failure details as out of sync",
 			serviceInfo: servicemodel.Info{
 				Name:     "api",
 				Stack:    "payments",
@@ -156,10 +156,10 @@ func TestToGeneratedServiceInfo(t *testing.T) {
 			},
 			runtime: model.Runtime{Stacks: map[string]model.Stack{
 				"payments": {Services: map[string]model.Service{
-					"api": {SyncStatus: model.SyncStatusSyncFailed, SyncError: "Self Heal Failed"},
+					"api": {SyncStatus: model.SyncStatusOutOfSync, SyncError: "Self Heal Failed"},
 				}},
 			}},
-			expectedStatus: "SyncFailed",
+			expectedStatus: "OutOfSync",
 			expectedError:  "Self Heal Failed",
 			expectedType:   generated.ServiceInfoTypeApplication,
 			expectedTitle:  "Application",

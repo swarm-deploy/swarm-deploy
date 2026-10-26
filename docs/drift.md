@@ -10,8 +10,7 @@ It detects:
 Service sync statuses are:
 
 - `Synced` — live state matches the checked desired fields;
-- `OutOfSync` — drift was detected and self-heal is disabled;
-- `SyncFailed` — self-heal was attempted but application or verification did not restore confirmed convergence.
+- `OutOfSync` — drift is present, self-healing failed, or convergence could not be verified.
 
 ## Self-heal policy
 
@@ -49,7 +48,8 @@ After applying all eligible repairs, swarm-deploy reloads the stack services wit
 Docker API request and analyzes them again. The verified Swarm state is authoritative:
 the service becomes `Synced` whenever verification confirms convergence, even if the
 Docker CLI returned an error after applying the change. Persistent drift or an unavailable
-verification read produces `SyncFailed`; the CLI error remains in logs and tracing.
+verification read leaves the service `OutOfSync`, with details in `SyncError`;
+the CLI error remains in logs and tracing.
 
 Verification covers the complete desired stack. Drift first observed during that read is
 recorded and emits the normal transition event, but is not repaired until the next

@@ -53,7 +53,7 @@ export type ServiceType =
   | "cronManager"
   | "deploymentManagementSystem"
   | "mcp";
-export type ServiceSyncStatus = "Synced" | "OutOfSync" | "SyncFailed" | "unknown";
+export type ServiceSyncStatus = "Synced" | "OutOfSync" | "unknown";
 
 export interface WebRoute {
   domain: string;

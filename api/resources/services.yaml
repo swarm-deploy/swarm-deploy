@@ -189,7 +189,7 @@ components:
             $ref: '#/components/schemas/WebRoute'
     ServiceSyncStatus:
       type: string
-      enum: [Synced, OutOfSync, SyncFailed, unknown]
+      enum: [Synced, OutOfSync, unknown]
     WebRoute:
       type: object
       required: [domain, address, port]

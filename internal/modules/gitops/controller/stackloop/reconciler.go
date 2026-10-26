@@ -197,7 +197,7 @@ func (r *Reconciler) Reconcile(
 
 func stackHasDrift(stack model.Stack) bool {
 	for _, service := range stack.Services {
-		if service.SyncStatus == model.SyncStatusOutOfSync || service.SyncStatus == model.SyncStatusSyncFailed {
+		if service.SyncStatus == model.SyncStatusOutOfSync {
 			return true
 		}
 	}
@@ -239,7 +239,7 @@ func (r *Reconciler) processResult(
 				state.SyncStatus = model.SyncStatusSynced
 				state.SyncError = ""
 			} else {
-				state.SyncStatus = model.SyncStatusSyncFailed
+				state.SyncStatus = model.SyncStatusOutOfSync
 				state.SyncError = remediation.failure
 			}
 		}
@@ -484,7 +484,7 @@ func (r *Reconciler) publishServiceDriftEvents(
 	initial, initiallyDrifted := payload.Drift[serviceName]
 	final, unresolved := payload.RemainingDrift[serviceName]
 	previousStatus := prevState.ServiceSyncStatus(serviceName)
-	wasDrifted := previousStatus == model.SyncStatusOutOfSync || previousStatus == model.SyncStatusSyncFailed
+	wasDrifted := previousStatus == model.SyncStatusOutOfSync
 	detected := final
 	if !unresolved {
 		detected = initial
