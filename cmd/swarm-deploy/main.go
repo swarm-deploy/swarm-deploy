@@ -152,7 +152,7 @@ func main() {
 
 	metricsGroup.BuildInfo.Set(Version, BuildDate)
 
-	db, err := storage.Open(ctx, cfg.Spec.DataDir)
+	db, err := storage.OpenSQLite(ctx, cfg.Spec.DataDir)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to open database", slog.Any("err", err))
 		os.Exit(1)

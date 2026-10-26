@@ -96,7 +96,7 @@ func TestHandlerListSecretsReturnsSecretsWhenUsageResolutionFails(t *testing.T) 
 	t.Parallel()
 
 	secrets := newSecretsStore(t, []secretmodel.Secret{{ID: "secret-id", Name: "db-password"}})
-	serviceDB, err := storage.Open(t.Context(), t.TempDir())
+	serviceDB, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	services := modelstore.NewSQLStore(serviceDB)
 	require.NoError(t, serviceDB.Close())
@@ -113,7 +113,7 @@ func TestHandlerGetSecretReturnsSecretWhenUsageResolutionFails(t *testing.T) {
 	t.Parallel()
 
 	secrets := newSecretsStore(t, []secretmodel.Secret{{ID: "secret-id", Name: "db-password"}})
-	serviceDB, err := storage.Open(t.Context(), t.TempDir())
+	serviceDB, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	services := modelstore.NewSQLStore(serviceDB)
 	require.NoError(t, serviceDB.Close())

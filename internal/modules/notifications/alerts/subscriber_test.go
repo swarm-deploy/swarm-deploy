@@ -91,7 +91,7 @@ func TestSyncFailedAlertRendering(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			db, err := storage.Open(t.Context(), t.TempDir())
+			db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 			require.NoError(t, err)
 			defer db.Close()
 			spec := alertSpec()
@@ -127,7 +127,7 @@ func TestSyncFailedAlertRendering(t *testing.T) {
 }
 
 func TestSyncFailedDefaultAlertTruncatesLongError(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	spec := alertSpec()
@@ -183,7 +183,7 @@ func drain(t *testing.T, bus *eventbus.OutboxDispatcher) {
 }
 
 func TestRegisterIncludesFallbackAndCustomRecipientsForFutureAlertKinds(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	spec := alertSpec()
@@ -221,7 +221,7 @@ func TestRegisterIncludesFallbackAndCustomRecipientsForFutureAlertKinds(t *testi
 
 func TestAlertIndependentDeliveryOrderingAndRestart(t *testing.T) {
 	directory := t.TempDir()
-	db, err := storage.Open(t.Context(), directory)
+	db, err := storage.OpenSQLite(t.Context(), directory)
 	require.NoError(t, err)
 	spec := alertSpec()
 	var failInfra atomic.Bool
@@ -276,7 +276,7 @@ func TestAlertIndependentDeliveryOrderingAndRestart(t *testing.T) {
 	assert.False(t, infraLink.OpenedAt.Valid)
 	assert.False(t, infraLink.ResolvedAt.Valid)
 	require.NoError(t, db.Close())
-	db, err = storage.Open(t.Context(), directory)
+	db, err = storage.OpenSQLite(t.Context(), directory)
 	require.NoError(t, err)
 	defer db.Close()
 	repository := outbox.New(db)
@@ -302,7 +302,7 @@ func TestAlertIndependentDeliveryOrderingAndRestart(t *testing.T) {
 }
 
 func TestAlertMessageStoreRetentionAndReplay(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	spec := alertSpec()
@@ -327,7 +327,7 @@ func TestAlertMessageStoreRetentionAndReplay(t *testing.T) {
 }
 
 func TestAlertReceiptSurvivesReplayBeforeAcknowledgement(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	spec := alertSpec()
@@ -356,7 +356,7 @@ func TestAlertReceiptSurvivesReplayBeforeAcknowledgement(t *testing.T) {
 }
 
 func TestAlertResolutionUsesOriginalPhysicalChatAfterRouteChange(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	oldSpec := alertSpec()
@@ -425,7 +425,7 @@ func TestAlertResolutionUsesOriginalPhysicalChatAfterRouteChange(t *testing.T) {
 }
 
 func TestResolvedAlertDoesNotSendOpeningOnManualReplay(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 
@@ -499,7 +499,7 @@ func TestResolvedAlertDoesNotSendOpeningOnManualReplay(t *testing.T) {
 func TestGitAlertDefaultTelegramHTMLAndCustomTemplates(t *testing.T) {
 	for _, custom := range []bool{false, true} {
 		t.Run(fmt.Sprintf("custom=%t", custom), func(t *testing.T) {
-			db, err := storage.Open(t.Context(), t.TempDir())
+			db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 			require.NoError(t, err)
 			defer db.Close()
 			spec := alertSpec()

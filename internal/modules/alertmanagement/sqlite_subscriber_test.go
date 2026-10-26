@@ -34,7 +34,7 @@ func newTestSQLSubscriber(store *modelstore.SQLStore) *SQLSubscriber {
 
 func TestSQLSubscriberIdempotenceAndRollback(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -71,7 +71,7 @@ func TestSQLSubscriberIdempotenceAndRollback(t *testing.T) {
 }
 func TestNodeAlertRecoveryIgnoresDelayedFailure(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -93,7 +93,7 @@ func TestNodeAlertRecoveryIgnoresDelayedFailure(t *testing.T) {
 
 func TestPreparationAndInterruptedFailuresShareDeploymentAlertLifecycle(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -124,7 +124,7 @@ func TestPreparationAndInterruptedFailuresShareDeploymentAlertLifecycle(t *testi
 
 func TestConfigurationChangedResolvesRemovedStackIdempotently(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -181,7 +181,7 @@ func TestTemporaryFailureCounterSurvivesRestartAndDuplicateDelivery(t *testing.T
 		}},
 	}
 
-	db, err := storage.Open(ctx, dir)
+	db, err := storage.OpenSQLite(ctx, dir)
 	require.NoError(t, err)
 	subscriber := newTestSQLSubscriber(modelstore.NewSQLStore(db))
 	for _, event := range eventsBeforeRestart {
@@ -190,7 +190,7 @@ func TestTemporaryFailureCounterSurvivesRestartAndDuplicateDelivery(t *testing.T
 	}
 	require.NoError(t, db.Close())
 
-	db, err = storage.Open(ctx, dir)
+	db, err = storage.OpenSQLite(ctx, dir)
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -210,7 +210,7 @@ func TestTemporaryFailureCounterSurvivesRestartAndDuplicateDelivery(t *testing.T
 
 func TestGitRepositoryAuthenticationFailureOpensAndRecoveryResolvesAlert(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -247,7 +247,7 @@ func TestGitRepositoryAuthenticationFailureOpensAndRecoveryResolvesAlert(t *test
 
 func TestGitRepositoryChangeResolvesPreviousAsRemovedAndOrdersDelayedRecovery(t *testing.T) {
 	ctx := t.Context()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -305,7 +305,7 @@ func TestGitRepositoryChangeResolvesPreviousAsRemovedAndOrdersDelayedRecovery(t 
 
 func TestGitRepositoryChangeBypassesUnreadyStackConfiguration(t *testing.T) {
 	ctx := t.Context()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -350,7 +350,7 @@ func TestGitRepositoryNetworkThresholdSurvivesRestartAndDeduplicatesDelivery(t *
 	ctx := context.Background()
 	dir := t.TempDir()
 	at := time.Now().UTC()
-	db, err := storage.Open(ctx, dir)
+	db, err := storage.OpenSQLite(ctx, dir)
 	require.NoError(t, err)
 	subscriber := newTestSQLSubscriber(modelstore.NewSQLStore(db))
 	for index := range 2 {
@@ -369,7 +369,7 @@ func TestGitRepositoryNetworkThresholdSurvivesRestartAndDeduplicatesDelivery(t *
 	}), "configuration changes must not reset repository failure streaks")
 	require.NoError(t, db.Close())
 
-	db, err = storage.Open(ctx, dir)
+	db, err = storage.OpenSQLite(ctx, dir)
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -428,7 +428,7 @@ func TestGitRepositoryNetworkThresholdSurvivesRestartAndDeduplicatesDelivery(t *
 
 func TestGitRepositoryRecoveryIgnoresDelayedFailureAndResetsCounter(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -461,7 +461,7 @@ func TestGitRepositoryRecoveryIgnoresDelayedFailureAndResetsCounter(t *testing.T
 
 func TestGitNetworkDiagnosticReachesAlertAfterDurableCodec(t *testing.T) {
 	ctx := t.Context()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	store := modelstore.NewSQLStore(db)
@@ -495,7 +495,7 @@ func TestDeploymentCompletionOutboxPreservesAlertThresholds(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/temporary=%t", phase, temporary), func(t *testing.T) {
 				ctx := context.Background()
 				dir := t.TempDir()
-				db, err := storage.Open(ctx, dir)
+				db, err := storage.OpenSQLite(ctx, dir)
 				require.NoError(t, err)
 				bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 				repo := modelstore.NewSQLStore(db)
@@ -541,7 +541,7 @@ func TestDeploymentCompletionOutboxPreservesAlertThresholds(t *testing.T) {
 					assert.Contains(t, payload, fmt.Sprintf(`"temporary":%t`, temporary))
 					// Reopen before delivery: the subscriber must consume the persisted classification.
 					require.NoError(t, db.Close())
-					db, err = storage.Open(ctx, dir)
+					db, err = storage.OpenSQLite(ctx, dir)
 					require.NoError(t, err)
 					bus = eventbus.NewOutboxDispatcher(outbox.New(db))
 					repo = modelstore.NewSQLStore(db)

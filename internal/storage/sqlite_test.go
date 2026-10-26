@@ -216,7 +216,7 @@ func TestDeploymentAttemptMigrationIsForwardOnly(t *testing.T) {
 }
 
 func TestTimestampRoundTrip(t *testing.T) {
-	db, err := Open(t.Context(), t.TempDir())
+	db, err := OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	_, err = db.Exec(t.Context(), `CREATE TABLE timestamp_round_trip (
@@ -295,7 +295,7 @@ func TestTimestampRoundTrip(t *testing.T) {
 }
 
 func TestFreshDatabaseEnforcesForeignKeysAndChecks(t *testing.T) {
-	db, err := Open(t.Context(), t.TempDir())
+	db, err := OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	now := time.Date(2026, 4, 5, 6, 7, 8, 9, time.UTC)
@@ -349,7 +349,7 @@ func TestFreshDatabaseEnforcesForeignKeysAndChecks(t *testing.T) {
 
 func TestRestartAndRollback(t *testing.T) {
 	dir := t.TempDir()
-	db, err := Open(t.Context(), dir)
+	db, err := OpenSQLite(t.Context(), dir)
 	require.NoError(t, err)
 	for _, tc := range []struct {
 		id       string
@@ -375,7 +375,7 @@ func TestRestartAndRollback(t *testing.T) {
 		})
 	}
 	require.NoError(t, db.Close())
-	db, err = Open(t.Context(), dir)
+	db, err = OpenSQLite(t.Context(), dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	var id string
@@ -391,7 +391,7 @@ func TestRestartAndRollback(t *testing.T) {
 }
 
 func TestFreshDatabaseHasAlertIndexedSchema(t *testing.T) {
-	db, err := Open(t.Context(), t.TempDir())
+	db, err := OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
@@ -429,7 +429,7 @@ func TestNestedTransactions(t *testing.T) {
 		{name: "both roll back", innerErr: sentinel, outerErr: sentinel, wantCount: 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			db, err := Open(t.Context(), t.TempDir())
+			db, err := OpenSQLite(t.Context(), t.TempDir())
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, db.Close()) })
 			_, err = db.Exec(t.Context(), "CREATE TABLE entries (id TEXT PRIMARY KEY)")
@@ -465,7 +465,7 @@ func TestNestedTransactions(t *testing.T) {
 }
 
 func TestConcurrentTransactions(t *testing.T) {
-	db, err := Open(t.Context(), t.TempDir())
+	db, err := OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	_, err = db.Exec(t.Context(), "CREATE TABLE entries (id TEXT PRIMARY KEY)")
@@ -491,7 +491,7 @@ func TestConcurrentTransactions(t *testing.T) {
 }
 
 func TestDatabaseSQLMethodsUseActiveTransaction(t *testing.T) {
-	db, err := Open(t.Context(), t.TempDir())
+	db, err := OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	_, err = db.Exec(t.Context(), "CREATE TABLE method_entries (id TEXT PRIMARY KEY)")
@@ -523,7 +523,7 @@ func TestDatabaseSQLMethodsUseActiveTransaction(t *testing.T) {
 }
 
 func TestDatabaseMethodsPropagateErrorsAndCancellation(t *testing.T) {
-	db, err := Open(t.Context(), t.TempDir())
+	db, err := OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
@@ -558,7 +558,7 @@ func TestDatabaseMethodsPropagateErrorsAndCancellation(t *testing.T) {
 }
 
 func TestGetAndSelect(t *testing.T) {
-	db, err := Open(t.Context(), t.TempDir())
+	db, err := OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	_, err = db.Exec(t.Context(), "CREATE TABLE widgets (id TEXT PRIMARY KEY, label TEXT NOT NULL)")
@@ -637,7 +637,7 @@ func TestGetAndSelect(t *testing.T) {
 }
 
 func TestPragmasOnEveryPooledConnection(t *testing.T) {
-	db, err := Open(t.Context(), t.TempDir())
+	db, err := OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	for range maxConnections {
@@ -659,7 +659,7 @@ func TestPragmasOnEveryPooledConnection(t *testing.T) {
 
 func TestMigrationIsNotAppliedTwice(t *testing.T) {
 	dir := t.TempDir()
-	db, err := Open(t.Context(), dir)
+	db, err := OpenSQLite(t.Context(), dir)
 	require.NoError(t, err)
 	_, err = db.Exec(
 		t.Context(),
@@ -667,7 +667,7 @@ func TestMigrationIsNotAppliedTwice(t *testing.T) {
 	)
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
-	db, err = Open(t.Context(), dir)
+	db, err = OpenSQLite(t.Context(), dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	var count int
@@ -692,7 +692,7 @@ func TestOpenIgnoresLegacyJSONFiles(t *testing.T) {
 		require.NoError(t, os.WriteFile(path, []byte("{invalid legacy json"), 0o600))
 	}
 
-	db, err := Open(t.Context(), dir)
+	db, err := OpenSQLite(t.Context(), dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 

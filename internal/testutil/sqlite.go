@@ -11,7 +11,7 @@ import (
 // OpenSQLite opens an isolated database and registers cleanup.
 func OpenSQLite(t *testing.T) *storage.Database {
 	t.Helper()
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	return db

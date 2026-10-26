@@ -57,7 +57,7 @@ func legacyDeploymentDetailsPayload(t *testing.T, deployment deploymentmodel.Dep
 
 func TestSuccessfulDeploymentIsIndependentOfHistoryFailure(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
@@ -104,7 +104,7 @@ func TestSuccessfulDeploymentIsIndependentOfHistoryFailure(t *testing.T) {
 func TestFailedCommitAndCrashKeepSuccessfulBaseline(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	db, err := storage.Open(ctx, dir)
+	db, err := storage.OpenSQLite(ctx, dir)
 	require.NoError(t, err)
 	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 	h, err := history.NewSQLStore(db, 50)
@@ -126,7 +126,7 @@ func TestFailedCommitAndCrashKeepSuccessfulBaseline(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "first", state.Stacks["app"].LastCommit)
 	require.NoError(t, db.Close())
-	db, err = storage.Open(ctx, dir)
+	db, err = storage.OpenSQLite(ctx, dir)
 	require.NoError(t, err)
 	defer db.Close()
 	_, err = db.Exec(ctx, "DROP TRIGGER reject_publication")
@@ -161,7 +161,7 @@ func TestFailedCommitAndCrashKeepSuccessfulBaseline(t *testing.T) {
 
 func TestRetryReusesDeploymentAndPreservesAttemptHistoryAndDesiredChanges(t *testing.T) {
 	ctx := t.Context()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	service := NewService(db, eventbus.NewOutboxDispatcher(outbox.New(db)))
@@ -207,7 +207,7 @@ func TestRetryReusesDeploymentAndPreservesAttemptHistoryAndDesiredChanges(t *tes
 
 func TestRetryAdoptsLegacyDeploymentProjection(t *testing.T) {
 	ctx := t.Context()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	service := NewService(db, eventbus.NewOutboxDispatcher(outbox.New(db)))
@@ -254,7 +254,7 @@ func TestRetryAdoptsLegacyDeploymentProjection(t *testing.T) {
 
 func TestLegacyRunningDeploymentIsRecoveredBeforeRetry(t *testing.T) {
 	ctx := t.Context()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	service := NewService(db, eventbus.NewOutboxDispatcher(outbox.New(db)))
@@ -297,7 +297,7 @@ func TestLegacyRunningDeploymentIsRecoveredBeforeRetry(t *testing.T) {
 
 func TestSupersessionPreservesStoredStatusAndDiagnostics(t *testing.T) {
 	ctx := t.Context()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	service := NewService(db, eventbus.NewOutboxDispatcher(outbox.New(db)))
@@ -337,7 +337,7 @@ func TestRollbackToBaselineRetriesAfterUnsuccessfulAttempt(t *testing.T) {
 	for _, status := range []deploymentmodel.Status{deploymentmodel.Failed, deploymentmodel.Interrupted} {
 		t.Run(string(status), func(t *testing.T) {
 			ctx := context.Background()
-			db, err := storage.Open(ctx, t.TempDir())
+			db, err := storage.OpenSQLite(ctx, t.TempDir())
 			require.NoError(t, err)
 			defer db.Close()
 			service := NewService(db, eventbus.NewOutboxDispatcher(outbox.New(db)))
@@ -368,7 +368,7 @@ func TestRollbackToBaselineRetriesAfterUnsuccessfulAttempt(t *testing.T) {
 
 func TestListUsesLightweightCursorSummaries(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	service := NewService(db, eventbus.NewOutboxDispatcher(outbox.New(db)))
@@ -411,7 +411,7 @@ func TestListUsesLightweightCursorSummaries(t *testing.T) {
 
 func TestListFiltersStatusBeforeCursorPagination(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	service := NewService(db, eventbus.NewOutboxDispatcher(outbox.New(db)))
@@ -446,7 +446,7 @@ func TestListFiltersStatusBeforeCursorPagination(t *testing.T) {
 
 func TestDeploymentColumnsStaySynchronizedAndSupportFailureFilters(t *testing.T) {
 	ctx := t.Context()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	service := NewService(db, eventbus.NewOutboxDispatcher(outbox.New(db)))
@@ -509,7 +509,7 @@ func TestDeploymentColumnsStaySynchronizedAndSupportFailureFilters(t *testing.T)
 }
 
 func TestDeploymentIndexesSupportListQueries(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	testCases := []struct {
@@ -560,7 +560,7 @@ func assertDeploymentColumns(t *testing.T, db *storage.Database, id, errorCode s
 
 func TestInterruptedTransitionIsAtomicDurableAndIdempotent(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
@@ -620,7 +620,7 @@ func TestRollbackRecoverySynchronizesRunningAttemptWithTerminalDeployment(t *tes
 		t.Run(testCase.name, func(t *testing.T) {
 			ctx := t.Context()
 			dir := t.TempDir()
-			db, err := storage.Open(ctx, dir)
+			db, err := storage.OpenSQLite(ctx, dir)
 			require.NoError(t, err)
 			bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 			handler, err := history.NewSQLStore(db, 10)
@@ -697,7 +697,7 @@ func TestRollbackRecoverySynchronizesRunningAttemptWithTerminalDeployment(t *tes
 			require.NoError(t, db.Get(ctx, &eventsBefore, "SELECT count(*) FROM outbox_events"))
 			require.NoError(t, db.Close())
 
-			db, err = storage.Open(ctx, dir)
+			db, err = storage.OpenSQLite(ctx, dir)
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, db.Close()) })
 			bus = eventbus.NewOutboxDispatcher(outbox.New(db))
@@ -751,7 +751,7 @@ func TestRollbackRecoverySynchronizesRunningAttemptWithTerminalDeployment(t *tes
 
 func TestDeploymentPayloadsDoNotDuplicateSQLColumns(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	service := NewService(db, eventbus.NewOutboxDispatcher(outbox.New(db)))
@@ -903,7 +903,7 @@ func TestCommandRepresentationAffectsEffectiveDigest(t *testing.T) {
 
 func TestCommandSemanticsDriveDeploymentAttempts(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	service := NewService(db, eventbus.NewOutboxDispatcher(outbox.New(db)))
@@ -926,7 +926,7 @@ func TestCommandSemanticsDriveDeploymentAttempts(t *testing.T) {
 
 func TestNoBaselineNeverClaimsObservedState(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	service := NewService(db, eventbus.NewOutboxDispatcher(outbox.New(db)))

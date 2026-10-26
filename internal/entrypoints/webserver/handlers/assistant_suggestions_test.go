@@ -249,7 +249,7 @@ func createSuccessfulDeployment(
 
 func openSuggestionDatabase(t *testing.T) *storage.Database {
 	t.Helper()
-	db, err := storage.Open(context.Background(), t.TempDir())
+	db, err := storage.OpenSQLite(context.Background(), t.TempDir())
 	require.NoError(t, err)
 	return db
 }

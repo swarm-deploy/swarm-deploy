@@ -20,7 +20,7 @@ import (
 )
 
 func TestAlertLifecyclePublishesOnlyTransitions(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
@@ -53,7 +53,7 @@ func TestAlertLifecyclePublishesOnlyTransitions(t *testing.T) {
 }
 
 func TestAlertLifecyclePublicationRollback(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -73,7 +73,7 @@ func TestAlertLifecyclePublicationRollback(t *testing.T) {
 }
 
 func TestAlertResolutionPublicationRollback(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
