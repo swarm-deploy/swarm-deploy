@@ -235,6 +235,24 @@ describe("ServiceView", () => {
     expect(wrapper.find(".service-realtime-desktop .service-copy-task-id-button").exists()).toBe(true);
   });
 
+  it("uses the stack services table presentation for realtime tasks", async () => {
+    const wrapper = await mountServiceView();
+    const realtimeCard = wrapper.get(".service-realtime-card");
+
+    expect(realtimeCard.get(".service-panel-content").classes()).toContain("service-realtime-table-content");
+    expect(realtimeCard.findAll(".service-realtime-table th").map((item) => item.text())).toEqual([
+      "ID",
+      "Node Name",
+      "Current State",
+      "Created At",
+      "Updated At",
+      "Error",
+      "Logs",
+    ]);
+    expect(realtimeCard.get(".service-realtime-table .status").classes()).toContain("success");
+    expect(realtimeCard.get(".service-realtime-table .status").text()).toBe("running");
+  });
+
   it("parses and filters task logs through backend streams", async () => {
     const rawStream = new FakeEventSource();
     const parsedStream = new FakeEventSource();

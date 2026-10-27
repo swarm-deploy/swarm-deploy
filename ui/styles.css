@@ -1256,6 +1256,14 @@ a.overview-summary-row:focus-visible {
   min-width: 0;
 }
 
+.service-realtime-card .service-realtime-table-content {
+  padding: 0;
+}
+
+.service-realtime-card .service-realtime-state {
+  margin: 0 16px 15px;
+}
+
 .service-panel {
   min-height: 0;
 }
@@ -3241,7 +3249,15 @@ a.overview-summary-row:focus-visible {
 }
 
 .service-realtime-table th {
+  height: 44px;
   width: auto;
+  padding-inline: 16px;
+  background: transparent;
+}
+
+.service-realtime-table td {
+  height: 52px;
+  padding-inline: 16px;
 }
 
 .service-realtime-table th:nth-child(1),
@@ -3297,6 +3313,7 @@ a.overview-summary-row:focus-visible {
 
   .service-realtime-mobile {
     display: grid;
+    padding: 0 16px 15px;
   }
 }
 
