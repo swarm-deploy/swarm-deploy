@@ -24,16 +24,36 @@ var ErrLeaseLost = errors.New("outbox lease lost")
 // ErrInvalidPayload indicates an unsupported or malformed persisted event.
 var ErrInvalidPayload = errors.New("unsupported or invalid outbox payload")
 
-// Delivery identifies one claimed subscriber delivery.
+// DeliveryStatus identifies the persisted processing state of a delivery.
+type DeliveryStatus string
+
+const (
+	// DeliveryStatusPending is ready or waiting for another delivery attempt.
+	DeliveryStatusPending DeliveryStatus = "pending"
+	// DeliveryStatusProcessing is currently leased by a worker.
+	DeliveryStatusProcessing DeliveryStatus = "processing"
+	// DeliveryStatusDelivered was acknowledged successfully.
+	DeliveryStatusDelivered DeliveryStatus = "delivered"
+	// DeliveryStatusFailed requires explicit replay or discard.
+	DeliveryStatusFailed DeliveryStatus = "failed"
+)
+
+// Delivery identifies one subscriber delivery and its safe operational metadata.
 type Delivery struct {
 	// EventID identifies the persisted publication.
-	EventID string
+	EventID string `db:"event_id"`
 	// SubscriptionID identifies the destination.
-	SubscriptionID string
-	// Token fences concurrent or expired claims.
-	Token string
+	SubscriptionID string `db:"subscription_id"`
+	// EventType identifies the safe domain event type.
+	EventType events.TypeName `db:"event_type"`
+	// Status identifies the persisted processing state.
+	Status DeliveryStatus `db:"status"`
+	// Token fences concurrent or expired claims; inspection results leave it empty.
+	Token string `db:"lease_token"`
 	// Attempts is the number of times this delivery has been claimed.
-	Attempts int
+	Attempts int `db:"attempts"`
+	// LastError contains a stable error category.
+	LastError string `db:"last_error"`
 }
 
 // Publication is a decoded event loaded from the outbox.

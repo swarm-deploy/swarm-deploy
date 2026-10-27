@@ -72,3 +72,56 @@ func TestListRejectsInvalidPayload(t *testing.T) {
 	_, err = repository.ListPublications(t.Context(), ListFilter{})
 	require.ErrorIs(t, err, ErrInvalidPayload)
 }
+
+func TestListDeliveries(t *testing.T) {
+	db := testutil.OpenSQLite(t)
+	repository := New(db)
+	now := time.Date(2026, time.October, 27, 10, 0, 0, 0, time.UTC)
+	require.NoError(t, repository.Publish(t.Context(), &events.NodeJoined{
+		NodeID: "node-1", NodeName: "first", Role: "worker",
+	}, []string{"alert:telegram:first", "alert:telegram:second", "other"}, now))
+	_, err := db.Exec(t.Context(), `UPDATE outbox_deliveries SET status='failed'
+		WHERE subscription_id='alert:telegram:second'`)
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name   string
+		filter ListDeliveriesFilter
+		want   []string
+	}{
+		{name: "all", want: []string{"alert:telegram:first", "alert:telegram:second", "other"}},
+		{
+			name:   "subscription prefix",
+			filter: ListDeliveriesFilter{SubscriptionIDPrefix: "alert:telegram:"},
+			want:   []string{"alert:telegram:first", "alert:telegram:second"},
+		},
+		{
+			name: "status",
+			filter: ListDeliveriesFilter{
+				Statuses: []DeliveryStatus{DeliveryStatusFailed},
+			},
+			want: []string{"alert:telegram:second"},
+		},
+		{
+			name: "combined",
+			filter: ListDeliveriesFilter{
+				SubscriptionIDPrefix: "alert:telegram:",
+				Statuses:             []DeliveryStatus{DeliveryStatusPending},
+			},
+			want: []string{"alert:telegram:first"},
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			deliveries, listErr := repository.ListDeliveries(t.Context(), testCase.filter)
+			require.NoError(t, listErr)
+			subscriptions := make([]string, 0, len(deliveries))
+			for _, delivery := range deliveries {
+				subscriptions = append(subscriptions, delivery.SubscriptionID)
+				assert.NotEmpty(t, delivery.EventID)
+				assert.NotEmpty(t, delivery.Status)
+			}
+			assert.ElementsMatch(t, testCase.want, subscriptions)
+		})
+	}
+}

@@ -16,6 +16,7 @@ import (
 	alertmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/notifiers"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
@@ -75,12 +76,19 @@ func Register(
 	for _, recipient := range known {
 		recipients[recipient] = true
 	}
-	pending, err := store.PendingSubscriptions(ctx)
+	pending, err := outbox.New(db).ListDeliveries(ctx, outbox.ListDeliveriesFilter{
+		SubscriptionIDPrefix: "alert:telegram:",
+		Statuses: []outbox.DeliveryStatus{
+			outbox.DeliveryStatusPending,
+			outbox.DeliveryStatusProcessing,
+			outbox.DeliveryStatusFailed,
+		},
+	})
 	if err != nil {
 		return err
 	}
-	for _, id := range pending {
-		recipient, parseErr := parseSubscriptionID(id)
+	for _, delivery := range pending {
+		recipient, parseErr := parseSubscriptionID(delivery.SubscriptionID)
 		if parseErr != nil {
 			return fmt.Errorf("recover alert notification subscription: %w", parseErr)
 		}

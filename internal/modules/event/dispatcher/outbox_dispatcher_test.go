@@ -65,7 +65,9 @@ func TestPublisherTransaction(t *testing.T) {
 			assert.Equal(t, !rollback, handled)
 			assert.Zero(t, rows(t, db, "outbox_events"))
 			assert.Zero(t, rows(t, db, "outbox_deliveries"))
-			failed, err := bus.repository.ListFailedDeliveries(t.Context())
+			failed, err := bus.repository.ListDeliveries(t.Context(), outbox.ListDeliveriesFilter{
+				Statuses: []outbox.DeliveryStatus{outbox.DeliveryStatusFailed},
+			})
 			require.NoError(t, err)
 			assert.Empty(t, failed)
 		})
@@ -144,11 +146,14 @@ func TestIndependentDestinationsAndReplay(t *testing.T) {
 			require.NoError(t, db.Get(t.Context(), &failedRow,
 				"SELECT event_id,last_error FROM outbox_deliveries WHERE status='failed'"))
 			assert.Equal(t, "handler_failed", failedRow.Code)
-			failed, err := bus.repository.ListFailedDeliveries(t.Context())
+			failed, err := bus.repository.ListDeliveries(t.Context(), outbox.ListDeliveriesFilter{
+				Statuses: []outbox.DeliveryStatus{outbox.DeliveryStatusFailed},
+			})
 			require.NoError(t, err)
 			require.Len(t, failed, 1)
-			assert.Equal(t, outbox.FailedDelivery{EventID: failedRow.ID, SubscriptionID: "b-bad",
-				EventType: string(events.TypeNameNodeJoined), Attempts: 1, LastError: "handler_failed"}, failed[0])
+			assert.Equal(t, outbox.Delivery{EventID: failedRow.ID, SubscriptionID: "b-bad",
+				EventType: events.TypeNameNodeJoined, Status: outbox.DeliveryStatusFailed,
+				Attempts: 1, LastError: "handler_failed"}, failed[0])
 			if action == "replay" {
 				bad.EXPECT().Handle(gomock.Any(), gomock.Any()).Return(nil)
 				require.NoError(t, bus.repository.Replay(t.Context(), failedRow.ID, "b-bad", bus.now()))
