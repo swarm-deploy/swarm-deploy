@@ -11,7 +11,10 @@ import (
 	txsqlx "github.com/Thiht/transactor/sqlx"
 	"github.com/jmoiron/sqlx"
 	"github.com/pressly/goose/v3"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	sqlitemigrations "github.com/swarm-deploy/swarm-deploy/migrations/sqlite"
+	"github.com/uptrace/opentelemetry-go-extra/otelsql"
+	"github.com/uptrace/opentelemetry-go-extra/otelsqlx"
 	_ "modernc.org/sqlite"
 )
 
@@ -39,7 +42,7 @@ func OpenSQLite(ctx context.Context, dataDir string) (*SQLXDatabase, error) {
 	// DSN pragmas run on EVERY connection, including replacements in the pool.
 	u.RawQuery = "_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)" +
 		"&_pragma=synchronous(FULL)&_txlock=immediate&_time_integer_format=unix_nano&_inttotime=1"
-	db, err := sqlx.Open("sqlite", u.String())
+	db, err := connectDB("sqlite", u.String())
 	if err != nil {
 		return nil, fmt.Errorf("open SQLite: %w", err)
 	}
@@ -63,4 +66,13 @@ func OpenSQLite(ctx context.Context, dataDir string) (*SQLXDatabase, error) {
 	}
 
 	return s, nil
+}
+
+func connectDB(driver, dsn string) (*sqlx.DB, error) {
+	tp, enabled := tracing.GetTracerProvider()
+	if !enabled {
+		return sqlx.Open(driver, dsn)
+	}
+
+	return otelsqlx.Connect(driver, dsn, otelsql.WithTracerProvider(tp))
 }
