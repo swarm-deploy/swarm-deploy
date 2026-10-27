@@ -9,6 +9,12 @@ apply: by file patterns
 - Each interface method must have a comment.
 - Each structure exported field must have a comment.
 
+# Database and SQL
+- Build SQL queries in Go using `github.com/doug-martin/goqu/v9` (goqu). Use the appropriate dialect, `Prepared(true)`, and bound arguments for dynamic values. Do not build queries by concatenating or formatting SQL strings.
+- Follow the **Model Repository** pattern: keep domain models separate from persistence, and encapsulate database reads and writes in repositories. Follow existing module conventions (`model` for models, `modelstore` for repositories where applicable).
+- Application services, controllers, and HTTP handlers must access persistence through repository methods rather than constructing or executing SQL directly.
+- Reuse existing repository contracts and `internal/storage` transaction abstractions. Use `goqu.L` only for SQL expressions the builder cannot express, without interpolating dynamic values. Raw SQL migration files are exempt.
+
 # Go Logging Rules
 
 - **Primary Library**: Always use the `log/slog` standard library for all logging needs.
