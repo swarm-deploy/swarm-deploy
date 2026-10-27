@@ -25,7 +25,8 @@ func TestAlertLifecyclePublishesOnlyTransitions(t *testing.T) {
 	defer db.Close()
 	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 	repo := modelstore.NewSQLStore(db)
-	subscriber := NewSQLSubscriber(repo, bus, func(model.AlertKind) []events.AlertRecipient { return nil }, &config.Config{})
+	subscriber := NewSQLSubscriber(repo, bus, func(model.AlertKind) []events.AlertRecipient { return nil },
+		&config.Config{})
 	require.NoError(t, bus.Subscribe(events.TypeNameAlertOpened, "test-open", subscriber))
 	require.NoError(t, bus.Subscribe(events.TypeNameAlertResolved, "test-resolve", subscriber))
 	at := time.Now().UTC()
@@ -50,6 +51,51 @@ func TestAlertLifecyclePublishesOnlyTransitions(t *testing.T) {
 	assert.NotEqual(t, alerts[0].ID, alerts[1].ID, "reopening must create a new lifecycle")
 	assert.False(t, events.TypeNameAlertOpened.Valid())
 	assert.False(t, events.TypeNameAlertResolved.Valid())
+}
+
+func TestServiceDriftEventsDriveAlertLifecycleThroughOutbox(t *testing.T) {
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
+	repo := modelstore.NewSQLStore(db)
+	subscriber := NewSQLSubscriber(repo, bus, func(model.AlertKind) []events.AlertRecipient { return nil },
+		&config.Config{})
+	for _, typ := range []events.TypeName{
+		events.TypeNameServiceMissed, events.TypeNameServiceDrifted, events.TypeNameServiceDriftFixed,
+		events.TypeNameServiceRemovedFromDesired,
+	} {
+		require.NoError(t, bus.Subscribe(typ, "alert-management", subscriber))
+	}
+
+	require.NoError(t, bus.Publish(t.Context(), &events.ServiceDrifted{
+		StackName: "payments", ServiceName: "api", Commit: "one", Reason: "replicas differ",
+	}))
+	processOutboxUntilIdle(t, bus)
+	open, err := repo.List(t.Context(), modelstore.ListFilter{Status: model.AlertStatusOpen})
+	require.NoError(t, err)
+	require.Len(t, open, 1)
+
+	require.NoError(t, bus.Publish(t.Context(), &events.ServiceDriftFixed{
+		StackName: "payments", ServiceName: "api", Commit: "two",
+	}))
+	processOutboxUntilIdle(t, bus)
+
+	alerts, err := repo.List(t.Context(), modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 1)
+	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
+}
+
+func processOutboxUntilIdle(t *testing.T, bus *eventbus.OutboxDispatcher) {
+	t.Helper()
+	for {
+		processed, err := bus.ProcessNext(t.Context())
+		require.NoError(t, err)
+		if !processed {
+			return
+		}
+	}
 }
 
 func TestAlertLifecyclePublicationRollback(t *testing.T) {

@@ -180,6 +180,7 @@ func projectionEventTypes() []events.TypeName {
 		events.TypeNameServiceCatalogUpdated, events.TypeNameDeploySuccess, events.TypeNameSendNotificationFailed,
 		events.TypeNameSyncManualStarted, events.TypeNameWebhookReceived, events.TypeNameNodeJoined,
 		events.TypeNameNodeConnected, events.TypeNameNodeDisconnected, events.TypeNameServiceMissed,
+		events.TypeNameServiceDrifted, events.TypeNameServiceDriftFixed,
 		events.TypeNameServiceReplicasIncreased, events.TypeNameServiceReplicasDecreased,
 		events.TypeNameServiceRestarted, events.TypeNameServicePruned, events.TypeNameNetworkCreated,
 		events.TypeNameUserAuthenticated, events.TypeNameAssistantPromptInjectionDetected,

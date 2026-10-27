@@ -41,6 +41,21 @@ func (m *MockStackDeployer) EXPECT() *MockStackDeployerMockRecorder {
 	return m.recorder
 }
 
+// DeployService mocks base method.
+func (m *MockStackDeployer) DeployService(ctx context.Context, stackName, sourceComposePath, serviceName string, desired, deploy compose.Compose) (Result, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeployService", ctx, stackName, sourceComposePath, serviceName, desired, deploy)
+	ret0, _ := ret[0].(Result)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// DeployService indicates an expected call of DeployService.
+func (mr *MockStackDeployerMockRecorder) DeployService(ctx, stackName, sourceComposePath, serviceName, desired, deploy any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeployService", reflect.TypeOf((*MockStackDeployer)(nil).DeployService), ctx, stackName, sourceComposePath, serviceName, desired, deploy)
+}
+
 // DeployStack mocks base method.
 func (m *MockStackDeployer) DeployStack(ctx context.Context, stackName, sourceComposePath, deployComposePath string, desired compose.Compose) (Result, error) {
 	m.ctrl.T.Helper()

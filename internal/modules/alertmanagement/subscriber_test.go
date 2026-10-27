@@ -98,6 +98,44 @@ func TestSubscriberDeploymentLifecycle(t *testing.T) {
 
 }
 
+func TestSubscriberServiceDriftLifecycle(t *testing.T) {
+	ctx := context.Background()
+	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
+	subscriber := newTestSubscriber(store)
+
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "repaired", Event: &events.ServiceMissed{
+		StackName: "payments", ServiceName: "api", Commit: "one", Resolved: true,
+	}}))
+	alerts, err := store.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	assert.Empty(t, alerts, "same-reconciliation repair must not create a transient alert")
+
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "missing", Event: &events.ServiceMissed{
+		StackName: "payments", ServiceName: "api", Commit: "two",
+	}}))
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "drifted-again", Event: &events.ServiceDrifted{
+		StackName: "payments", ServiceName: "api", Commit: "three", Reason: "replica count differs",
+	}}))
+	alerts, err = store.List(ctx, modelstore.ListFilter{Status: model.AlertStatusOpen})
+	require.NoError(t, err)
+	require.Len(t, alerts, 1)
+	assert.Equal(t, model.AlertKindServiceDrift, alerts[0].Kind)
+	assert.Equal(t, model.ResourceTypeService, alerts[0].ResourceType)
+	assert.Equal(t, "payments/api", alerts[0].ResourceID)
+	assert.Equal(t, "service_drift:service:payments/api", alerts[0].Fingerprint)
+	assert.Equal(t, uint64(2), alerts[0].Occurrences)
+	assert.Equal(t, "replica count differs", alerts[0].Message)
+
+	require.NoError(t, subscriber.Handle(ctx, events.Envelope{ID: "fixed", Event: &events.ServiceDriftFixed{
+		StackName: "payments", ServiceName: "api", Commit: "four",
+	}}))
+	alerts, err = store.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 1)
+	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
+	assert.Equal(t, model.ResolutionReasonRecovered, alerts[0].Resolution.Reason)
+}
+
 func TestSubscriberMasksDiagnosticsAndPreservesUsefulDetailOnGenericRepeat(t *testing.T) {
 	ctx := context.Background()
 	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))

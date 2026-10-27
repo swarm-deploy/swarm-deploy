@@ -21,6 +21,7 @@ const (
 	notificationAlertNameSyncFailed               = "SyncFailed"
 	notificationAlertNameNodeDisconnected         = "NodeDisconnected"
 	notificationAlertNameGitRepositoryUnavailable = "GitRepositoryUnavailable"
+	notificationAlertNameServiceDrift             = "ServiceDrift"
 )
 
 // NotificationSpec defines event subscriptions, alert routes and messenger destinations.
@@ -296,6 +297,8 @@ func notificationAlertConfigKey(kind alertmodel.AlertKind) string {
 		return notificationAlertNameNodeDisconnected
 	case alertmodel.AlertKindGitRepositoryUnavailable:
 		return notificationAlertNameGitRepositoryUnavailable
+	case alertmodel.AlertKindServiceDrift:
+		return notificationAlertNameServiceDrift
 	default:
 		return string(kind)
 	}
@@ -309,6 +312,8 @@ func notificationAlertKind(configKey string) alertmodel.AlertKind {
 		return alertmodel.AlertKindNodeDisconnected
 	case notificationAlertNameGitRepositoryUnavailable:
 		return alertmodel.AlertKindGitRepositoryUnavailable
+	case notificationAlertNameServiceDrift:
+		return alertmodel.AlertKindServiceDrift
 	default:
 		return alertmodel.AlertKind(configKey)
 	}
@@ -317,7 +322,8 @@ func notificationAlertKind(configKey string) alertmodel.AlertKind {
 func validNotificationAlertConfigKey(kind string) bool {
 	switch kind {
 	case notificationAlertNameDefault, notificationAlertNameSyncFailed,
-		notificationAlertNameNodeDisconnected, notificationAlertNameGitRepositoryUnavailable:
+		notificationAlertNameNodeDisconnected, notificationAlertNameGitRepositoryUnavailable,
+		notificationAlertNameServiceDrift:
 		return true
 	default:
 		return false

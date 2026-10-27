@@ -64,7 +64,7 @@ func (s *SQLStore) Name() string { return "event-history" }
 // Handle materializes selected user facts; failure signals remain alert inputs.
 func (s *SQLStore) Handle(ctx context.Context, e events.Envelope) error {
 	switch e.Event.Type() {
-	case events.TypeConfigurationChanged, events.TypeServiceCatalogUpdated,
+	case events.TypeConfigurationChanged, events.TypeServiceRemovedFromDesired, events.TypeServiceCatalogUpdated,
 		events.TypeNodeDisconnected, events.TypeDeployFailed,
 		events.TypeDeployPreparationFailed, events.TypeDeployInterrupted:
 		return nil

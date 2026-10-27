@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 
 	"github.com/artarts36/specw"
@@ -1028,7 +1029,7 @@ func TestReconcileServiceMissedEventOnDrift(t *testing.T) {
 				Commit:      "commit-5",
 			},
 			expectedSyncStatus: model.SyncStatusOutOfSync,
-			expectedSyncError:  "Service Missed",
+			expectedSyncError:  "service is missing",
 		},
 		{
 			name: "skips event when live state contains service",
@@ -1114,6 +1115,370 @@ func TestReconcileServiceMissedEventOnDrift(t *testing.T) {
 			require.True(t, exists, "expected service state")
 			assert.Equal(t, tt.expectedSyncStatus, serviceState.SyncStatus, "unexpected sync status")
 			assert.Equal(t, tt.expectedSyncError, serviceState.SyncError, "unexpected sync error")
+		})
+	}
+}
+
+func TestReconcileSelfHealsMissingService(t *testing.T) {
+	tests := []struct {
+		name            string
+		deployErr       error
+		verificationErr error
+		verifiedLive    []swarm.StackService
+		wantErr         bool
+		wantStatus      model.SyncStatus
+		wantSyncError   string
+		wantEventTypes  []events.TypeName
+		wantMetric      string
+	}{
+		{
+			name: "restores service", verifiedLive: []swarm.StackService{{Name: "api"}},
+			wantStatus: model.SyncStatusSynced,
+			wantEventTypes: []events.TypeName{
+				events.TypeNameServiceMissed, events.TypeNameServiceDriftFixed,
+			},
+			wantMetric: "success",
+		},
+		{
+			name: "CLI failure with verified convergence", deployErr: errors.New("docker CLI timeout"),
+			verifiedLive: []swarm.StackService{{Name: "api"}}, wantStatus: model.SyncStatusSynced,
+			wantEventTypes: []events.TypeName{
+				events.TypeNameServiceMissed, events.TypeNameServiceDriftFixed,
+			},
+			wantMetric: "success",
+		},
+		{
+			name: "records failed restore", deployErr: errors.New("deploy failed"), wantErr: true,
+			wantStatus: model.SyncStatusOutOfSync, wantSyncError: "Self Heal Verification Failed: service is missing",
+			wantEventTypes: []events.TypeName{events.TypeNameServiceMissed},
+			wantMetric:     "failed",
+		},
+		{
+			name: "records failed verification", verificationErr: errors.New("swarm unavailable"), wantErr: true,
+			wantStatus: model.SyncStatusOutOfSync, wantSyncError: "Self Heal Verification Failed",
+			wantEventTypes: []events.TypeName{events.TypeNameServiceMissed},
+			wantMetric:     "failed",
+		},
+		{
+			name: "records persistent drift", wantErr: true,
+			wantStatus:     model.SyncStatusOutOfSync,
+			wantSyncError:  "Self Heal Verification Failed: service is missing",
+			wantEventTypes: []events.TypeName{events.TypeNameServiceMissed},
+			wantMetric:     "failed",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctrl := gomock.NewController(t)
+			repository := gitx.NewMockRepository(ctrl)
+			serviceManager := swarm.NewMockServiceManager(ctrl)
+			stackDeployer := deployer.NewMockStackDeployer(ctrl)
+			db, stateStore := newSQLState(t)
+			repoDir := t.TempDir()
+			eventDispatcher := dispatcher.NewMockDispatcher(ctrl)
+			var captured []events.TypeName
+			eventDispatcher.EXPECT().Publish(gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, event events.Event) error {
+					captured = append(captured, event.Type().Name())
+					return nil
+				},
+			).AnyTimes()
+
+			require.NoError(t, writeComposeFile(repoDir))
+			loader := compose.NewFileLoader()
+			stackFile, err := loader.Load(context.Background(), filepath.Join(repoDir, "app.yaml"))
+			require.NoError(t, err)
+			require.NoError(t, stateStore.Update(context.Background(), func(state *model.Runtime) {
+				state.Stacks["app"] = model.Stack{SourceDigest: stackFile.Digest, LastCommit: "previous"}
+			}))
+
+			repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+			serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
+			serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(tt.verifiedLive, tt.verificationErr)
+			stackDeployer.EXPECT().DeployService(
+				gomock.Any(), "app", filepath.Join(repoDir, "app.yaml"), "api", gomock.Any(), gomock.Any(),
+			).Return(deployer.Result{}, tt.deployErr)
+
+			metricGroup := metrics.NewGroup(metrics.CreateGroupParams{Namespace: "test"})
+			registry := prometheus.NewRegistry()
+			registry.MustRegister(metricGroup)
+			reconciler := &Reconciler{
+				cfg: &config.Config{Spec: config.Spec{
+					DataDir: filepath.Join(repoDir, ".data"),
+					Sync:    config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: true}},
+				}},
+				git: repository, deployer: stackDeployer, event: eventDispatcher,
+				deployMetrics: metricGroup.Deploys, stateStore: stateStore,
+				fileSystem:    fs.NewLocalFileSystem(),
+				pruner:        pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
+				composeLoader: loader, composeRotator: NewRotator(fs.NewLocalFileSystem()),
+				driftAnalyzer: drift.NewAnalyzer(), serviceManager: serviceManager,
+			}
+			reconciler.db = db
+			reconciler.deployments = deployment.NewService(db, reconciler.event)
+			reconciler.attachPipeline()
+
+			err = reconciler.Reconcile(context.Background(), ReconciliationRequest{
+				Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "current",
+			})
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+
+			state := readSQLState(t, stateStore).Stacks["app"].Services["api"]
+			assert.Equal(t, tt.wantStatus, state.SyncStatus)
+			assert.Equal(t, tt.wantSyncError, state.SyncError)
+			assert.Equal(t, tt.wantEventTypes, captured)
+			assert.EqualValues(t, 1, deployMetricValue(t, registry, "app", "api", tt.wantMetric))
+		})
+	}
+}
+
+func deployMetricValue(t *testing.T, registry *prometheus.Registry, stack, service, status string) float64 {
+	t.Helper()
+	families, err := registry.Gather()
+	require.NoError(t, err)
+	for _, family := range families {
+		if family.GetName() != "test_deploys_total" {
+			continue
+		}
+		for _, metric := range family.Metric {
+			labels := map[string]string{}
+			for _, label := range metric.Label {
+				labels[label.GetName()] = label.GetValue()
+			}
+			if labels["stack"] == stack && labels["service"] == service && labels["status"] == status {
+				return metric.GetCounter().GetValue()
+			}
+		}
+	}
+	return 0
+}
+
+func TestReconcileSelfHealsReplicaDriftAfterVerification(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	repository := gitx.NewMockRepository(ctrl)
+	serviceManager := swarm.NewMockServiceManager(ctrl)
+	stackDeployer := deployer.NewMockStackDeployer(ctrl)
+	db, stateStore := newSQLState(t)
+	repoDir := t.TempDir()
+	eventDispatcher := dispatcher.NewMockDispatcher(ctrl)
+	var captured []events.Event
+	eventDispatcher.EXPECT().Publish(gomock.Any(), gomock.Any()).DoAndReturn(
+		func(_ context.Context, event events.Event) error {
+			captured = append(captured, event)
+			return nil
+		},
+	).AnyTimes()
+
+	require.NoError(t, os.WriteFile(filepath.Join(repoDir, "app.yaml"), []byte(`services:
+  api:
+    image: nginx:latest
+    deploy:
+      replicas: 3
+`), 0o600))
+	loader := compose.NewFileLoader()
+	stackFile, err := loader.Load(context.Background(), filepath.Join(repoDir, "app.yaml"))
+	require.NoError(t, err)
+	require.NoError(t, stateStore.Update(context.Background(), func(state *model.Runtime) {
+		state.Stacks["app"] = model.Stack{SourceDigest: stackFile.Digest, LastCommit: "previous"}
+	}))
+
+	one, three := uint64(1), uint64(3)
+	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
+	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{{
+		Name: "api", Replicas: &one,
+	}}, nil)
+	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{{
+		Name: "api", Replicas: &three,
+	}}, nil)
+	stackDeployer.EXPECT().DeployService(
+		gomock.Any(), "app", filepath.Join(repoDir, "app.yaml"), "api", gomock.Any(), gomock.Any(),
+	).Return(deployer.Result{}, nil)
+
+	reconciler := &Reconciler{
+		cfg: &config.Config{Spec: config.Spec{
+			DataDir: filepath.Join(repoDir, ".data"),
+			Sync:    config.SyncSpec{Policy: config.SyncPolicySpec{SelfHeal: true}},
+		}},
+		git: repository, deployer: stackDeployer, event: eventDispatcher,
+		deployMetrics: &metrics.NopDeploys{}, stateStore: stateStore,
+		fileSystem:    fs.NewLocalFileSystem(),
+		pruner:        pruner.NewServicePruner(serviceManager, eventDispatcher, config.SyncPolicySpec{}),
+		composeLoader: loader, composeRotator: NewRotator(fs.NewLocalFileSystem()),
+		driftAnalyzer: drift.NewAnalyzer(), serviceManager: serviceManager,
+	}
+	reconciler.db = db
+	reconciler.deployments = deployment.NewService(db, reconciler.event)
+	reconciler.attachPipeline()
+
+	require.NoError(t, reconciler.Reconcile(context.Background(), ReconciliationRequest{
+		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "current",
+	}))
+	state := readSQLState(t, stateStore).Stacks["app"].Services["api"]
+	assert.Equal(t, model.SyncStatus(model.SyncStatusSynced), state.SyncStatus)
+	require.Len(t, captured, 2)
+	drifted, ok := captured[0].(*events.ServiceDrifted)
+	require.True(t, ok)
+	assert.Equal(t, "replica count differs: desired=3 actual=1", drifted.Reason)
+	assert.True(t, drifted.Resolved)
+	assert.IsType(t, &events.ServiceDriftFixed{}, captured[1])
+}
+
+func TestPublishDriftEventsUsesEpisodesAndConfirmedResolution(t *testing.T) {
+	tests := []struct {
+		name      string
+		previous  model.SyncStatus
+		detected  map[string]drift.ServiceDrift
+		remaining map[string]drift.ServiceDrift
+		want      []events.TypeName
+	}{
+		{
+			name: "unchanged unresolved drift is not duplicated", previous: model.SyncStatusOutOfSync,
+			detected: map[string]drift.ServiceDrift{"api": {
+				ServiceName: "api", ServiceMissed: true, Reason: "service is missing",
+			}},
+			remaining: map[string]drift.ServiceDrift{"api": {
+				ServiceName: "api", ServiceMissed: true, Reason: "service is missing",
+			}},
+		},
+		{
+			name: "external or deployment recovery is fixed", previous: model.SyncStatusOutOfSync,
+			want: []events.TypeName{events.TypeNameServiceDriftFixed},
+		},
+		{
+			name: "new replica drift is detected", detected: map[string]drift.ServiceDrift{"api": {
+				ServiceName: "api", Reason: "replicas differ", Replicas: drift.ReplicasDrift{OutOfSync: true},
+			}}, remaining: map[string]drift.ServiceDrift{"api": {
+				ServiceName: "api", Reason: "replicas differ", Replicas: drift.ReplicasDrift{OutOfSync: true},
+			}}, want: []events.TypeName{events.TypeNameServiceDrifted},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			publisher := dispatcher.NewMockDispatcher(gomock.NewController(t))
+			var published []events.TypeName
+			publisher.EXPECT().Publish(gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, event events.Event) error {
+					published = append(published, event.Type().Name())
+					return nil
+				},
+			).AnyTimes()
+			reconciler := &Reconciler{event: publisher}
+			previous := model.Stack{Services: map[string]model.Service{
+				"api": {SyncStatus: tt.previous},
+			}}
+			payload := &pipelinePayload{
+				Desired: &compose.File{Compose: compose.Compose{Services: compose.Services{{Name: "api"}}}},
+				Drift:   tt.detected, RemainingDrift: tt.remaining,
+			}
+
+			require.NoError(t, reconciler.publishDriftEvents(context.Background(), ReconciliationRequest{
+				Stack: config.StackSpec{Name: "app"}, Commit: "current",
+			}, previous, payload))
+			assert.Equal(t, tt.want, published)
+		})
+	}
+}
+
+func TestPublishDriftEventsUsesFinalVerifiedStatePerService(t *testing.T) {
+	tests := []struct {
+		name      string
+		previous  map[string]model.Service
+		initial   map[string]drift.ServiceDrift
+		remaining map[string]drift.ServiceDrift
+		want      []string
+	}{
+		{
+			name: "repaired service while another becomes drifted",
+			initial: map[string]drift.ServiceDrift{
+				"api": {ServiceName: "api", ServiceMissed: true, Reason: "service is missing"},
+			},
+			remaining: map[string]drift.ServiceDrift{
+				"worker": {ServiceName: "worker", Reason: "replicas differ"},
+			},
+			want: []string{"ServiceMissed:api:true", "ServiceDriftFixed:api", "ServiceDrifted:worker:false"},
+		},
+		{
+			name: "repaired service while another disappears",
+			initial: map[string]drift.ServiceDrift{
+				"api": {ServiceName: "api", ServiceMissed: true, Reason: "service is missing"},
+			},
+			remaining: map[string]drift.ServiceDrift{
+				"worker": {ServiceName: "worker", ServiceMissed: true, Reason: "service is missing"},
+			},
+			want: []string{"ServiceMissed:api:true", "ServiceDriftFixed:api", "ServiceMissed:worker:false"},
+		},
+		{
+			name: "multiple services repaired",
+			initial: map[string]drift.ServiceDrift{
+				"api":    {ServiceName: "api", Reason: "replicas differ"},
+				"worker": {ServiceName: "worker", ServiceMissed: true, Reason: "service is missing"},
+			},
+			want: []string{
+				"ServiceDrifted:api:true", "ServiceDriftFixed:api",
+				"ServiceMissed:worker:true", "ServiceDriftFixed:worker",
+			},
+		},
+		{
+			name: "one repaired while another remains drifted",
+			initial: map[string]drift.ServiceDrift{
+				"api":    {ServiceName: "api", Reason: "replicas differ"},
+				"worker": {ServiceName: "worker", Reason: "replicas differ"},
+			},
+			remaining: map[string]drift.ServiceDrift{
+				"worker": {ServiceName: "worker", Reason: "replicas differ"},
+			},
+			want: []string{
+				"ServiceDrifted:api:true", "ServiceDriftFixed:api", "ServiceDrifted:worker:false",
+			},
+		},
+		{
+			name: "unchanged unresolved drift is not duplicated",
+			previous: map[string]model.Service{
+				"worker": {SyncStatus: model.SyncStatusOutOfSync},
+			},
+			initial: map[string]drift.ServiceDrift{
+				"worker": {ServiceName: "worker", Reason: "replicas differ"},
+			},
+			remaining: map[string]drift.ServiceDrift{
+				"worker": {ServiceName: "worker", Reason: "replicas differ"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			publisher := dispatcher.NewMockDispatcher(gomock.NewController(t))
+			var published []string
+			publisher.EXPECT().Publish(gomock.Any(), gomock.Any()).DoAndReturn(
+				func(_ context.Context, event events.Event) error {
+					switch typed := event.(type) {
+					case *events.ServiceMissed:
+						published = append(published, fmt.Sprintf("ServiceMissed:%s:%t", typed.ServiceName, typed.Resolved))
+					case *events.ServiceDrifted:
+						published = append(published, fmt.Sprintf("ServiceDrifted:%s:%t", typed.ServiceName, typed.Resolved))
+					case *events.ServiceDriftFixed:
+						published = append(published, "ServiceDriftFixed:"+typed.ServiceName)
+					}
+					return nil
+				},
+			).AnyTimes()
+			reconciler := &Reconciler{event: publisher}
+			payload := &pipelinePayload{
+				Desired: &compose.File{Compose: compose.Compose{Services: compose.Services{
+					{Name: "api"}, {Name: "worker"},
+				}}},
+				Drift: tt.initial, RemainingDrift: tt.remaining,
+			}
+			require.NoError(t, reconciler.publishDriftEvents(t.Context(), ReconciliationRequest{
+				Stack: config.StackSpec{Name: "app"}, Commit: "current",
+			}, model.Stack{Services: tt.previous}, payload))
+			assert.Equal(t, tt.want, published)
 		})
 	}
 }

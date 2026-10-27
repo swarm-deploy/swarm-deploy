@@ -122,6 +122,8 @@ type SyncSpec struct {
 type SyncPolicySpec struct {
 	// Prune enables deletion of orphaned managed services.
 	Prune bool `yaml:"prune"`
+	// SelfHeal enables automatic remediation of detected service drift.
+	SelfHeal bool `yaml:"selfHeal"`
 	// Image contains image reference restrictions.
 	Image ImagePolicySpec `yaml:"image"`
 }
@@ -189,6 +191,8 @@ type StackSyncSpec struct {
 type StackSyncPolicySpec struct {
 	// Prune overrides global prune policy for this stack when specified.
 	Prune *bool `yaml:"prune"`
+	// SelfHeal overrides global self-heal policy for this stack when specified.
+	SelfHeal *bool `yaml:"selfHeal"`
 }
 
 type NetworkSpec struct {

@@ -20,6 +20,8 @@ sync:
   policy:
     # Removes orphaned managed services that are no longer defined in compose.
     prune: true
+    # Reapplies services whose live state differs from the desired state.
+    selfHeal: true
     # Optional service image reference rules. All are disabled by default.
     image:
       tag:

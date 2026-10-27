@@ -31,6 +31,7 @@ func TestHistoryAndMetricsKeepIndependentPolicies(t *testing.T) {
 	for _, event := range []events.Event{
 		&events.NodeJoined{NodeID: "n1"}, &events.NodeDisconnected{NodeID: "n2"},
 		&events.ServicePruned{StackName: "stack", ServiceName: "old"}, &events.ConfigurationChanged{},
+		&events.ServiceRemovedFromDesired{StackName: "stack", ServiceName: "desired-old"},
 	} {
 		require.NoError(t, bus.Publish(t.Context(), event))
 	}

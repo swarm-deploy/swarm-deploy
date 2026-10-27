@@ -17,7 +17,7 @@ swarm-deploy is a Swarm-native GitOps controller inspired by Argo CD. It keeps s
 - **Diff-based deployments**: a stack is deployed only when its effective desired-state digest changes, including referenced config, secret, and env files.
 - **Stack sync status** in the UI, including last sync result, Git revision, deployment status, and errors.
 - **Desired vs. live manifests** for each stack, so the Git definition can be compared with the current Swarm state.
-- **Drift detection** for desired services missing from the live cluster, with `OutOfSync` status and audit events.
+- **Drift detection and optional self-heal** for missing services and replica-count divergence, with sync status and audit events. See [drift detection](./docs/drift.md).
 - **Pruning** of orphaned managed services removed from Compose, with policy overrides at global, stack, and service level. See [prune policy](./docs/prune.md).
 - Optional **image policy** for requiring tags or digests and rejecting `latest`. See [image policy](./docs/image-policy.md).
 - [**Managed Docker networks**](./docs/networks.md) kept in Git and reconciled before stack deployment.
@@ -112,6 +112,7 @@ sync:
   interval: 1m
   policy:
     prune: true
+    selfHeal: true
 
 stacks:
   file: ./stacks.yaml

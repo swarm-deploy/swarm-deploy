@@ -198,6 +198,11 @@ func alertQuestion(alert alertmodel.Alert) string {
 			return fmt.Sprintf("Why is node %s unavailable?", resourceID)
 		}
 		return "Why is the node unavailable?"
+	case alertmodel.AlertKindServiceDrift:
+		if resourceID != "" {
+			return fmt.Sprintf("Why is service %s out of sync?", resourceID)
+		}
+		return "Why is the service out of sync?"
 	default:
 		resourceType := singleLine(string(alert.ResourceType))
 		if resourceType != "" && resourceID != "" {

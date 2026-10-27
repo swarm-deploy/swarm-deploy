@@ -12,7 +12,8 @@ func StandardTemplate(eventType events.TypeName) (string, bool) {
 		return eventnotifications.SuccessTemplate(), true
 	case events.TypeNameNodeJoined, events.TypeNameNodeConnected, events.TypeNameNodeDisconnected:
 		return eventnotifications.DefaultTemplate(), true
-	case events.TypeNameServiceMissed, events.TypeNameServicePruned, events.TypeNameServiceReplicasIncreased,
+	case events.TypeNameServiceMissed, events.TypeNameServiceDrifted, events.TypeNameServiceDriftFixed,
+		events.TypeNameServicePruned, events.TypeNameServiceReplicasIncreased,
 		events.TypeNameServiceReplicasDecreased, events.TypeNameServiceRestarted:
 		return eventnotifications.DefaultTemplate(), true
 	case events.TypeNameServiceCatalogUpdated, events.TypeNameSyncManualStarted, events.TypeNameWebhookReceived,
@@ -26,7 +27,7 @@ func StandardTemplate(eventType events.TypeName) (string, bool) {
 		return eventnotifications.DefaultTemplate(), true
 	case events.TypeNameDeployFailed, events.TypeNameDeployPreparationFailed, events.TypeNameDeployInterrupted,
 		events.TypeNameAlertOpened, events.TypeNameAlertResolved, events.TypeNameConfigurationChanged,
-		events.TypeNameGitPullFailed, events.TypeNameGitPullSucceeded:
+		events.TypeNameGitPullFailed, events.TypeNameGitPullSucceeded, events.TypeNameServiceRemovedFromDesired:
 		return "", false
 	default:
 		return "", false
@@ -44,7 +45,8 @@ func ReferencePayloads(eventType events.TypeName) ([]any, bool) {
 		return []any{eventnotifications.NodeConnectedReferencePayload()}, true
 	case events.TypeNameNodeDisconnected:
 		return []any{eventnotifications.NodeDisconnectedReferencePayload()}, true
-	case events.TypeNameServiceMissed, events.TypeNameServicePruned, events.TypeNameServiceReplicasIncreased,
+	case events.TypeNameServiceMissed, events.TypeNameServiceDrifted, events.TypeNameServiceDriftFixed,
+		events.TypeNameServicePruned, events.TypeNameServiceReplicasIncreased,
 		events.TypeNameServiceReplicasDecreased, events.TypeNameServiceRestarted:
 		return []any{eventnotifications.ServiceReferencePayload(string(eventType))}, true
 	case events.TypeNameServiceCatalogUpdated, events.TypeNameSyncManualStarted, events.TypeNameWebhookReceived,
@@ -58,7 +60,7 @@ func ReferencePayloads(eventType events.TypeName) ([]any, bool) {
 		return []any{eventnotifications.ReferencePayload()}, true
 	case events.TypeNameDeployFailed, events.TypeNameDeployPreparationFailed, events.TypeNameDeployInterrupted,
 		events.TypeNameAlertOpened, events.TypeNameAlertResolved, events.TypeNameConfigurationChanged,
-		events.TypeNameGitPullFailed, events.TypeNameGitPullSucceeded:
+		events.TypeNameGitPullFailed, events.TypeNameGitPullSucceeded, events.TypeNameServiceRemovedFromDesired:
 		return nil, false
 	default:
 		return nil, false

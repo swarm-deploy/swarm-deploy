@@ -86,6 +86,32 @@ func TestConfigurationChangedCodecHasNoDomainPayload(t *testing.T) {
 	assert.Empty(t, decoded.Details())
 }
 
+func TestServiceDriftEventsRoundTrip(t *testing.T) {
+	for _, original := range []events.Event{
+		&events.ServiceMissed{StackName: "app", ServiceName: "api", Commit: "abc", Resolved: true},
+		&events.ServiceDrifted{
+			StackName: "app", ServiceName: "api", Commit: "abc", Reason: "replicas differ", Resolved: true,
+		},
+		&events.ServiceDriftFixed{StackName: "app", ServiceName: "api", Commit: "abc"},
+		&events.ServiceRemovedFromDesired{StackName: "app", ServiceName: "worker", Commit: "abc"},
+	} {
+		t.Run(original.Type().String(), func(t *testing.T) {
+			payload, err := Encode(original)
+			require.NoError(t, err)
+			decoded, err := Decode(original.Type().Name(), Version, payload)
+			require.NoError(t, err)
+			assert.Equal(t, original, decoded)
+		})
+	}
+}
+
+func TestServiceMissedCodecDecodesLegacyPayloadAsUnresolved(t *testing.T) {
+	decoded, err := Decode(events.TypeNameServiceMissed, Version,
+		[]byte(`{"stack":"app","name":"api","commit":"abc"}`))
+	require.NoError(t, err)
+	assert.Equal(t, &events.ServiceMissed{StackName: "app", ServiceName: "api", Commit: "abc"}, decoded)
+}
+
 func TestConfigurationChangedCodecCarriesSafeRepositoryTransition(t *testing.T) {
 	event := &events.ConfigurationChanged{
 		PreviousRepository: "git.example.com/team/old", Repository: "git.example.com/team/new",

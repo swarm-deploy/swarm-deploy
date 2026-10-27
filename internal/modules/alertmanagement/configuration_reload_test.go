@@ -57,6 +57,8 @@ func TestPendingConfigurationEventWaitsForInitialGitReload(t *testing.T) {
 	db, repo := openAlertStore(t)
 	seedOpenStackAlert(t, repo, cfg, "kept")
 	seedOpenStackAlert(t, repo, cfg, "removed")
+	seedOpenServiceDriftAlert(t, repo, cfg, "kept", "api")
+	seedOpenServiceDriftAlert(t, repo, cfg, "removed", "api")
 	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 	store := configstore.New(cfg, bus)
 	subscriber := NewSQLSubscriber(repo, bus, noAlertRecipients, store)
@@ -72,6 +74,8 @@ func TestPendingConfigurationEventWaitsForInitialGitReload(t *testing.T) {
 	require.True(t, handled)
 	assertAlertStatus(t, repo, "kept", model.AlertStatusOpen)
 	assertAlertStatus(t, repo, "removed", model.AlertStatusOpen)
+	assertAlertStatus(t, repo, "kept/api", model.AlertStatusOpen)
+	assertAlertStatus(t, repo, "removed/api", model.AlertStatusOpen)
 
 	var deliveryStatus string
 	require.NoError(t, db.Get(t.Context(), &deliveryStatus,
@@ -92,6 +96,10 @@ func TestPendingConfigurationEventWaitsForInitialGitReload(t *testing.T) {
 	resolved := assertAlertStatus(t, repo, "removed", model.AlertStatusResolved)
 	require.NotNil(t, resolved.Resolution)
 	assert.Equal(t, model.ResolutionReasonResourceRemoved, resolved.Resolution.Reason)
+	assertAlertStatus(t, repo, "kept/api", model.AlertStatusOpen)
+	removedService := assertAlertStatus(t, repo, "removed/api", model.AlertStatusResolved)
+	require.NotNil(t, removedService.Resolution)
+	assert.Equal(t, model.ResolutionReasonResourceRemoved, removedService.Resolution.Reason)
 }
 
 func TestEmptyStacksReloadPublishesAndResolvesAllStackAlerts(t *testing.T) {
@@ -293,6 +301,17 @@ func seedOpenStackAlert(t *testing.T, repo *modelstore.SQLStore, stacks config.S
 	require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{
 		ID: "seed-" + stack, OccurredAt: time.Now().UTC(),
 		Event: &events.DeployFailed{DeployEvent: events.DeployEvent{StackName: stack}, Error: assert.AnError},
+	}))
+}
+
+func seedOpenServiceDriftAlert(
+	t *testing.T, repo *modelstore.SQLStore, stacks config.StackProvider, stack, service string,
+) {
+	t.Helper()
+	subscriber := NewSQLSubscriber(repo, &dispatcher.NopDispatcher{}, noAlertRecipients, stacks)
+	require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{
+		ID: "seed-" + stack + "-" + service, OccurredAt: time.Now().UTC(),
+		Event: &events.ServiceDrifted{StackName: stack, ServiceName: service, Reason: "service is missing"},
 	}))
 }
 

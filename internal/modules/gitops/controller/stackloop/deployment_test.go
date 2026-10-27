@@ -110,6 +110,100 @@ func TestReconcileDeploymentBoundaries(t *testing.T) {
 	}
 }
 
+func TestAcceptedServiceRemovalPrecedesDockerFailureWithPruneDisabled(t *testing.T) {
+	db, state := newSQLState(t)
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
+	hist, err := history.NewSQLStore(db, 10)
+	require.NoError(t, err)
+	require.NoError(t, bus.Subscribe(events.TypeNameServiceRemovedFromDesired, "alert-management", hist))
+	service := deployment.NewService(db, bus)
+	previous, err := service.StartIfChanged(t.Context(), "app", "previous", compose.File{
+		Compose: compose.Compose{Services: compose.Services{
+			{Name: "api", Image: "example/api:1"}, {Name: "worker", Image: "example/worker:1"},
+		}},
+	}, true)
+	require.NoError(t, err)
+	require.NoError(t, service.Succeed(t.Context(), previous.ID, model.Stack{}))
+
+	ctrl := gomock.NewController(t)
+	git := gitx.NewMockRepository(ctrl)
+	docker := deployer.NewMockStackDeployer(ctrl)
+	dir := t.TempDir()
+	git.EXPECT().WorkingDir().Return(dir).AnyTimes()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.yaml"),
+		[]byte("services:\n  api:\n    image: example/api:1\n"), 0o600))
+	docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
+		func(ctx context.Context, _ string, _ string, _ string, _ compose.Compose) (deployer.Result, error) {
+			var removals int
+			require.NoError(t, db.Get(ctx, &removals,
+				"SELECT count(*) FROM outbox_events WHERE event_type=?", events.TypeNameServiceRemovedFromDesired))
+			assert.Equal(t, 1, removals, "accepted removal must be durable before Docker apply")
+			return deployer.Result{}, assert.AnError
+		})
+	cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(dir, "data")}}
+	reconciler := New(cfg, git, docker, &swarm.Swarm{
+		Services: swarm.NewMockServiceManager(ctrl), Configs: swarm.NewMockConfigManager(ctrl),
+		Secrets: swarm.NewMockSecretManager(ctrl),
+	}, bus, &metrics.NopDeploys{}, state, fs.NewLocalFileSystem(), db)
+
+	require.Error(t, reconciler.Reconcile(t.Context(), ReconciliationRequest{
+		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "removed",
+	}))
+	var removals int
+	require.NoError(t, db.Get(t.Context(), &removals,
+		"SELECT count(*) FROM outbox_events WHERE event_type=?", events.TypeNameServiceRemovedFromDesired))
+	assert.Equal(t, 1, removals, "prune=false and Docker failure must not suppress the accepted transition")
+}
+
+func TestRejectedDesiredStateDoesNotPublishServiceRemoval(t *testing.T) {
+	for _, testCase := range []struct {
+		name    string
+		content string
+		policy  config.SyncPolicySpec
+	}{
+		{name: "compose loading failure", content: "services:\n  api: ["},
+		{name: "policy rejection", content: "services:\n  api:\n    image: example/api:latest\n",
+			policy: config.SyncPolicySpec{Image: imagePolicy(false, true, false)}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			db, state := newSQLState(t)
+			bus := eventbus.NewOutboxDispatcher(outbox.New(db))
+			hist, err := history.NewSQLStore(db, 10)
+			require.NoError(t, err)
+			require.NoError(t, bus.Subscribe(events.TypeNameServiceRemovedFromDesired, "alert-management", hist))
+			service := deployment.NewService(db, bus)
+			previous, err := service.StartIfChanged(t.Context(), "app", "previous", compose.File{
+				Compose: compose.Compose{Services: compose.Services{
+					{Name: "api", Image: "example/api:1"}, {Name: "worker", Image: "example/worker:1"},
+				}},
+			}, true)
+			require.NoError(t, err)
+			require.NoError(t, service.Succeed(t.Context(), previous.ID, model.Stack{}))
+
+			ctrl := gomock.NewController(t)
+			git := gitx.NewMockRepository(ctrl)
+			dir := t.TempDir()
+			git.EXPECT().WorkingDir().Return(dir).AnyTimes()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "app.yaml"), []byte(testCase.content), 0o600))
+			cfg := &config.Config{Spec: config.Spec{
+				DataDir: filepath.Join(dir, "data"), Sync: config.SyncSpec{Policy: testCase.policy},
+			}}
+			reconciler := New(cfg, git, deployer.NewMockStackDeployer(ctrl), &swarm.Swarm{
+				Services: swarm.NewMockServiceManager(ctrl), Configs: swarm.NewMockConfigManager(ctrl),
+				Secrets: swarm.NewMockSecretManager(ctrl),
+			}, bus, &metrics.NopDeploys{}, state, fs.NewLocalFileSystem(), db)
+
+			require.Error(t, reconciler.Reconcile(t.Context(), ReconciliationRequest{
+				Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "rejected",
+			}))
+			var removals int
+			require.NoError(t, db.Get(t.Context(), &removals,
+				"SELECT count(*) FROM outbox_events WHERE event_type=?", events.TypeNameServiceRemovedFromDesired))
+			assert.Zero(t, removals)
+		})
+	}
+}
+
 func TestReconcileRecoversFailedResultPersistenceInSameProcess(t *testing.T) {
 	ctx := context.Background()
 	db, state := newSQLState(t)

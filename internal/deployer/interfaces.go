@@ -57,4 +57,13 @@ type StackDeployer interface {
 		deployComposePath string,
 		desired compose.Compose,
 	) (Result, error)
+	// DeployService reconciles resources and applies one service without pruning the rest of the stack.
+	DeployService(
+		ctx context.Context,
+		stackName,
+		sourceComposePath,
+		serviceName string,
+		desired,
+		deploy compose.Compose,
+	) (Result, error)
 }

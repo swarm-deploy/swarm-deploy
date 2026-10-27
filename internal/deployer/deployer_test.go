@@ -3,6 +3,7 @@ package deployer
 import (
 	"context"
 	"errors"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -217,10 +218,160 @@ func TestDeployStackOmitsInitJobResultWhenExecutionNeverStarted(t *testing.T) {
 	assert.Empty(t, result.InitJobs)
 }
 
+func TestDeployServiceDeploysOnlyTargetService(t *testing.T) {
+	var renderedPath string
+	runner := &fakeRunner{onRun: func(args []string) error {
+		renderedPath = composePathFromDeployArgs(args)
+		payload, err := os.ReadFile(renderedPath)
+		require.NoError(t, err)
+		assert.Contains(t, string(payload), "api:")
+		assert.NotContains(t, string(payload), "worker:")
+		assert.Contains(t, string(payload), "backend:")
+		assert.NotContains(t, string(payload), "frontend:")
+		assert.Contains(t, string(payload), "api-data:")
+		assert.NotContains(t, string(payload), "worker-data:")
+		return nil
+	}}
+	initJobs := &fakeInitJobExecutor{}
+	d := &Deployer{secretResolver: newTestSecretResolver(), stackDeployArgs: []string{"stack", "deploy"},
+		runner: runner, initJobRunner: initJobs}
+
+	desired := compose.Compose{
+		Services: compose.Services{
+			{
+				Name: "api", Image: "example/api:1", InitJobs: []compose.InitJob{{Name: "migrate"}},
+				Networks: compose.NewServiceNetworks(&compose.ServiceNetwork{Alias: "backend"}),
+				Volumes: compose.ServiceVolumes{Volumes: []*compose.ServiceVolume{{
+					Type: compose.ServiceVolumeTypeVolume, Source: "api-data", Target: "/data",
+				}}},
+			},
+			{Name: "worker", Image: "example/worker:1"},
+		},
+		Networks: map[string]compose.Network{"backend": {}, "frontend": {}},
+		Volumes: compose.Volumes{
+			"api-data": {}, "worker-data": {},
+		},
+	}
+	deploy := desired
+	deploy.Services = append(compose.Services(nil), desired.Services...)
+	deploy.Services[0].InitJobs = nil
+	result, err := d.DeployService(context.Background(), "demo", "/tmp/source.yaml", "api", desired, deploy)
+	require.NoError(t, err)
+	assert.Empty(t, result.InitJobs)
+	assert.Empty(t, initJobs.calls)
+	require.Len(t, runner.calls, 1)
+	assert.NotEmpty(t, renderedPath)
+	_, err = os.Stat(renderedPath)
+	assert.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestSingleServiceComposeKeepsOnlyReferencedObjects(t *testing.T) {
+	desired := compose.Compose{
+		Services: compose.Services{{
+			Name:     "api",
+			Secrets:  []compose.ObjectRef{{Source: "api-secret"}},
+			Configs:  []compose.ObjectRef{{Source: "api-config"}},
+			Networks: compose.NewServiceNetworks(&compose.ServiceNetwork{Alias: "backend"}),
+		}},
+		Networks: map[string]compose.Network{"backend": {}, "frontend": {}},
+		Secrets: compose.Secrets{
+			"api-secret": {Alias: "api-secret"}, "worker-secret": {Alias: "worker-secret"},
+		},
+		Configs: compose.Configs{
+			"api-config": {Alias: "api-config"}, "worker-config": {Alias: "worker-config"},
+		},
+	}
+
+	selected, err := singleServiceCompose(desired, "api")
+	require.NoError(t, err)
+	assert.Equal(t, map[string]compose.Network{"backend": {}}, selected.Networks)
+	assert.Equal(t, compose.Secrets{"api-secret": desired.Secrets["api-secret"]}, selected.Secrets)
+	assert.Equal(t, compose.Configs{"api-config": desired.Configs["api-config"]}, selected.Configs)
+}
+
+func TestSingleServiceComposeSelectsServiceNetworks(t *testing.T) {
+	internal := true
+	tests := []struct {
+		name     string
+		service  compose.Service
+		networks map[string]compose.Network
+		want     map[string]compose.Network
+	}{
+		{
+			name:    "implicit external default network",
+			service: compose.Service{Name: "api"},
+			networks: map[string]compose.Network{
+				"default": {Name: "shared-network", External: true},
+			},
+			want: map[string]compose.Network{"default": {Name: "shared-network", External: true}},
+		},
+		{
+			name:    "implicit custom default network",
+			service: compose.Service{Name: "api"},
+			networks: map[string]compose.Network{
+				"default": {Internal: &internal, Extra: map[string]interface{}{"driver": "overlay"}},
+			},
+			want: map[string]compose.Network{
+				"default": {Internal: &internal, Extra: map[string]interface{}{"driver": "overlay"}},
+			},
+		},
+		{
+			name: "explicitly referenced network",
+			service: compose.Service{Name: "api", Networks: compose.NewServiceNetworks(
+				&compose.ServiceNetwork{Alias: "backend"},
+			)},
+			networks: map[string]compose.Network{
+				"backend": {Name: "shared-backend", External: true},
+			},
+			want: map[string]compose.Network{"backend": {Name: "shared-backend", External: true}},
+		},
+		{
+			name: "unrelated network definitions are omitted",
+			service: compose.Service{Name: "api", Networks: compose.NewServiceNetworks(
+				&compose.ServiceNetwork{Alias: "backend"},
+			)},
+			networks: map[string]compose.Network{
+				"backend": {}, "frontend": {}, "default": {Name: "unused-default"},
+			},
+			want: map[string]compose.Network{"backend": {}},
+		},
+		{
+			name:     "service without network declarations and no configured default",
+			service:  compose.Service{Name: "api"},
+			networks: map[string]compose.Network{"frontend": {}},
+		},
+		{
+			name:    "compose without network definitions",
+			service: compose.Service{Name: "api"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			selected, err := singleServiceCompose(compose.Compose{
+				Services: compose.Services{tt.service}, Networks: tt.networks,
+			}, "api")
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, selected.Networks)
+		})
+	}
+}
+
+func TestDeployServiceFailsWhenServiceIsMissing(t *testing.T) {
+	d := &Deployer{secretResolver: newTestSecretResolver(), stackDeployArgs: []string{"stack", "deploy"},
+		runner: &fakeRunner{}, initJobRunner: &fakeInitJobExecutor{}}
+
+	desired := compose.Compose{Services: compose.Services{{Name: "api"}}}
+	_, err := d.DeployService(context.Background(), "demo", "/tmp/source.yaml", "worker", desired, desired)
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "service \"worker\" not found")
+}
+
 type fakeRunner struct {
 	calls  [][]string
 	events *[]string
 	err    error
+	onRun  func([]string) error
 }
 
 func (r *fakeRunner) Run(_ context.Context, args ...string) (string, error) {
@@ -230,8 +381,22 @@ func (r *fakeRunner) Run(_ context.Context, args ...string) (string, error) {
 	if r.events != nil {
 		*r.events = append(*r.events, "deploy")
 	}
+	if r.onRun != nil {
+		if err := r.onRun(copiedArgs); err != nil {
+			return "", err
+		}
+	}
 
 	return "", r.err
+}
+
+func composePathFromDeployArgs(args []string) string {
+	for index := 0; index < len(args)-1; index++ {
+		if args[index] == "-c" {
+			return args[index+1]
+		}
+	}
+	return ""
 }
 
 type fakeInitJobExecutor struct {

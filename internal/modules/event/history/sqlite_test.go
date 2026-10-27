@@ -242,6 +242,9 @@ func TestSQLiteProjectionSelectionIdempotenceAndRollback(t *testing.T) {
 	for _, envelope := range []events.Envelope{
 		e, e,
 		{ID: "configuration", OccurredAt: now, Event: &events.ConfigurationChanged{}},
+		{ID: "removed-desired", OccurredAt: now, Event: &events.ServiceRemovedFromDesired{
+			StackName: "app", ServiceName: "worker", Commit: "sha",
+		}},
 		{ID: "failure", OccurredAt: now, PublicationSequence: 2, Event: &events.DeployFailed{
 			DeployEvent: events.DeployEvent{StackName: "app", Commit: "sha"},
 			Error:       assert.AnError, ErrorCode: "apply_failed", Stage: "apply",

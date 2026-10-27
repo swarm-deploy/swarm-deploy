@@ -29,6 +29,14 @@ func notificationPayload(envelope events.Envelope) (any, error) {
 	case *events.ServiceMissed:
 		return servicePayload(eventID, occurredAt, event.Type().String(), event.StackName, event.ServiceName,
 			event.Commit, "", 0, 0, event.Message()), nil
+	case *events.ServiceDrifted:
+		payload := servicePayload(eventID, occurredAt, event.Type().String(), event.StackName, event.ServiceName,
+			event.Commit, "", 0, 0, event.Message())
+		payload.Reason = event.Reason
+		return payload, nil
+	case *events.ServiceDriftFixed:
+		return servicePayload(eventID, occurredAt, event.Type().String(), event.StackName, event.ServiceName,
+			event.Commit, "", 0, 0, event.Message()), nil
 	case *events.ServicePruned:
 		return servicePayload(eventID, occurredAt, event.Type().String(), event.StackName, event.ServiceName,
 			event.Commit, "", 0, 0, event.Message()), nil
