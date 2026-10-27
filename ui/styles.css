@@ -612,6 +612,28 @@ button:hover,
   outline-offset: -2px;
 }
 
+:root[data-theme="light"] .overview-summary-panel,
+:root[data-theme="light"] .stack-details-page .stack-content-grid > .stack-panel {
+  border-color: var(--border-default);
+}
+
+:root[data-theme="light"] .overview-summary-panel-header-link,
+:root[data-theme="light"] .stack-details-page .stack-services-panel .service-panel-heading {
+  position: relative;
+}
+
+:root[data-theme="light"] .overview-summary-panel-header-link::after,
+:root[data-theme="light"] .stack-details-page .stack-services-panel .service-panel-heading::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 1px;
+  background: var(--border-subtle);
+  pointer-events: none;
+}
+
 .overview-summary-panel-icon {
   width: 28px;
   height: 28px;
