@@ -320,7 +320,7 @@ onUnmounted(() => { request++; });
 @media (max-width: 720px) {
   .stack-details-page { gap: 14px; }
   .stack-hero { grid-template-columns: 52px minmax(0, 1fr); }
-  .stack-hero-icon { width: 52px; height: 52px; }
+  .stack-hero-icon { align-self: start; width: 52px; height: 52px; }
   .stack-hero-icon :deep(svg) { width: 29px; height: 29px; }
   .stack-compare-button { grid-column: 1 / -1; justify-self: start; }
   .stack-hero-metadata { display: grid; }
