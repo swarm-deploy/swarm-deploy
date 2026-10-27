@@ -103,23 +103,28 @@ func TestAuthorizeChallengesWhenAuthenticationFailed(t *testing.T) {
 	assert.Len(t, captured, 0, "expected no dispatched events")
 }
 
-func TestAuthorizeDoesNotExposeDeploymentInitJobLogsWithoutAuthentication(t *testing.T) {
-	auth := &fakeAuthenticator{authenticateResult: false}
-	eventsCapture := dispatcher.NewMockDispatcher(gomock.NewController(t))
-	eventsCapture.EXPECT().Publish(gomock.Any(), gomock.Any()).AnyTimes()
-	nextCalled := false
-	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		nextCalled = true
-		_, _ = w.Write([]byte("sensitive init job output"))
-	})
+func TestAuthorizeDoesNotExposeDeploymentEndpointsWithoutAuthentication(t *testing.T) {
+	for _, path := range []string{
+		"/api/v1/deployments/deployment/attempts/attempt/init-jobs/1/logs",
+		"/api/v1/stacks/app/deployments/activity",
+	} {
+		t.Run(path, func(t *testing.T) {
+			auth := &fakeAuthenticator{authenticateResult: false}
+			eventsCapture := dispatcher.NewMockDispatcher(gomock.NewController(t))
+			eventsCapture.EXPECT().Publish(gomock.Any(), gomock.Any()).AnyTimes()
+			nextCalled := false
+			next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				nextCalled = true
+				_, _ = w.Write([]byte("protected deployment data"))
+			})
 
-	handler := Authorize(next, auth, eventsCapture, "/")
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet,
-		"/api/v1/deployments/deployment/attempts/attempt/init-jobs/1/logs", nil)
-	handler.ServeHTTP(recorder, request)
+			handler := Authorize(next, auth, eventsCapture, "/")
+			recorder := httptest.NewRecorder()
+			handler.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
 
-	assert.False(t, nextCalled)
-	assert.True(t, auth.challenged)
-	assert.Empty(t, recorder.Body.String())
+			assert.False(t, nextCalled)
+			assert.True(t, auth.challenged)
+			assert.Empty(t, recorder.Body.String())
+		})
+	}
 }

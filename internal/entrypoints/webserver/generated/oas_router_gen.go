@@ -1111,6 +1111,33 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 									break
 								}
 								switch elem[0] {
+								case 'd': // Prefix: "deployments/activity"
+
+									if l := len("deployments/activity"); len(elem) >= l && elem[0:l] == "deployments/activity" {
+										elem = elem[l:]
+									} else {
+										break
+									}
+
+									if len(elem) == 0 {
+										// Leaf node.
+										switch r.Method {
+										case "GET":
+											s.handleGetStackDeploymentActivityRequest([1]string{
+												args[0],
+											}, elemIsEscaped, w, r)
+										default:
+											s.notAllowed(w, r, notAllowedParams{
+												allowedMethods: "GET",
+												allowedHeaders: nil,
+												acceptPost:     "",
+												acceptPatch:    "",
+											})
+										}
+
+										return
+									}
+
 								case 'm': // Prefix: "manifestos"
 
 									if l := len("manifestos"); len(elem) >= l && elem[0:l] == "manifestos" {
@@ -2451,6 +2478,31 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 									break
 								}
 								switch elem[0] {
+								case 'd': // Prefix: "deployments/activity"
+
+									if l := len("deployments/activity"); len(elem) >= l && elem[0:l] == "deployments/activity" {
+										elem = elem[l:]
+									} else {
+										break
+									}
+
+									if len(elem) == 0 {
+										// Leaf node.
+										switch method {
+										case "GET":
+											r.name = GetStackDeploymentActivityOperation
+											r.summary = ""
+											r.operationID = "getStackDeploymentActivity"
+											r.operationGroup = ""
+											r.pathPattern = "/api/v1/stacks/{stack}/deployments/activity"
+											r.args = args
+											r.count = 1
+											return r, true
+										default:
+											return
+										}
+									}
+
 								case 'm': // Prefix: "manifestos"
 
 									if l := len("manifestos"); len(elem) >= l && elem[0:l] == "manifestos" {

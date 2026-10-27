@@ -69,6 +69,12 @@ type Handler interface {
 	//
 	// GET /api/v1/stacks/{stack}/services/{service}/realtime
 	GetServiceRealtime(ctx context.Context, params GetServiceRealtimeParams) (*ServiceRealtimeResponse, error)
+	// GetStackDeploymentActivity implements getStackDeploymentActivity operation.
+	//
+	// Aggregated deployment operations for a configured stack, grouped by UTC start time.
+	//
+	// GET /api/v1/stacks/{stack}/deployments/activity
+	GetStackDeploymentActivity(ctx context.Context, params GetStackDeploymentActivityParams) (*DeploymentActivityResponse, error)
 	// GetStackManifestos implements getStackManifestos operation.
 	//
 	// GET /api/v1/stacks/{stack}/manifestos

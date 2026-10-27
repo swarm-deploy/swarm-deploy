@@ -66,12 +66,33 @@ function recentDeployments(stack) {
   ];
 }
 
+function deploymentActivity(interval) {
+  const weekly = interval !== "daily";
+  const count = weekly ? 8 : 30;
+  const start = new Date(weekly ? "2026-09-07T00:00:00Z" : "2026-09-29T00:00:00Z");
+  const step = (weekly ? 7 : 1) * 24 * 60 * 60 * 1000;
+  return Array.from({ length: count }, (_, index) => ({
+    start: new Date(start.getTime() + index * step).toISOString(),
+    succeeded: index % (weekly ? 2 : 5) === 0 ? (weekly ? 3 + (index % 3) : 1) : 0,
+    failed: index === count - 1 || index === Math.max(0, count - 4) ? 1 : 0,
+    running: index === count - 1 ? 1 : 0,
+    interrupted: index === Math.max(0, count - 3) ? 1 : 0,
+    superseded: index === Math.max(0, count - 6) ? 1 : 0,
+  }));
+}
+
 app.get("/api/v1/deployments", (context) => {
   const stack = context.req.query("stack")?.trim() || "web";
   const limit = Number.parseInt(context.req.query("limit") || "4", 10);
   const deployments = recentDeployments(stack).slice(0, Number.isFinite(limit) ? Math.max(0, limit) : 4);
   console.log(`[mock-api] GET ${context.req.path} (recent deployment fixtures)`);
   return context.json({ deployments });
+});
+
+app.get("/api/v1/stacks/:stack/deployments/activity", (context) => {
+  const interval = context.req.query("interval") === "daily" ? "daily" : "weekly";
+  console.log(`[mock-api] GET ${context.req.path} (${interval} activity fixtures)`);
+  return context.json({ buckets: deploymentActivity(interval) });
 });
 
 app.route("/", openApiApp);

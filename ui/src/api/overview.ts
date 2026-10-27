@@ -3,6 +3,8 @@ import { withWebBasePath } from "../runtimeConfig";
 import type {
   AlertsResponse,
   DeploymentsResponse,
+  DeploymentActivityInterval,
+  DeploymentActivityResponse,
   DeploymentFilterOptions,
   Deployment,
   AlertStatus,
@@ -53,6 +55,16 @@ export function fetchStacks(): Promise<StacksResponse> {
 
 export function fetchStackResources(stack: string): Promise<StackResourcesResponse> {
   return apiRequest<StackResourcesResponse>(`/api/v1/stacks/${encodeURIComponent(stack)}/resources`);
+}
+
+export function fetchStackDeploymentActivity(
+  stack: string,
+  interval: DeploymentActivityInterval = "weekly",
+): Promise<DeploymentActivityResponse> {
+  const encodedStack = encodeURIComponent(stack);
+  return apiRequest<DeploymentActivityResponse>(
+    `/api/v1/stacks/${encodedStack}/deployments/activity?interval=${encodeURIComponent(interval)}`,
+  );
 }
 
 export function fetchGitCommit(commitHash: string): Promise<GitCommitDetailsResponse> {

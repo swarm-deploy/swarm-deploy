@@ -127,6 +127,15 @@ func (UnimplementedHandler) GetServiceRealtime(ctx context.Context, params GetSe
 	return r, ht.ErrNotImplemented
 }
 
+// GetStackDeploymentActivity implements getStackDeploymentActivity operation.
+//
+// Aggregated deployment operations for a configured stack, grouped by UTC start time.
+//
+// GET /api/v1/stacks/{stack}/deployments/activity
+func (UnimplementedHandler) GetStackDeploymentActivity(ctx context.Context, params GetStackDeploymentActivityParams) (r *DeploymentActivityResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetStackManifestos implements getStackManifestos operation.
 //
 // GET /api/v1/stacks/{stack}/manifestos

@@ -22,6 +22,8 @@ paths:
     $ref: './gitops.yaml#/paths/~1api~1v1~1stacks'
   /api/v1/stacks/{stack}/resources:
     $ref: './gitops.yaml#/paths/~1api~1v1~1stacks~1{stack}~1resources'
+  /api/v1/stacks/{stack}/deployments/activity:
+    $ref: './deployments.yaml#/paths/~1api~1v1~1stacks~1{stack}~1deployments~1activity'
   /api/v1/stacks/{stack}/manifestos:
     $ref: './gitops.yaml#/paths/~1api~1v1~1stacks~1{stack}~1manifestos'
   /api/v1/git/commits/{commit}:

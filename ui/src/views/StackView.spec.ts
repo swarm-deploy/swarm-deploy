@@ -14,6 +14,7 @@ vi.mock("../api/overview", () => ({
   fetchDeployments: vi.fn(),
   fetchAlerts: vi.fn(),
   fetchStackResources: vi.fn(),
+  fetchStackDeploymentActivity: vi.fn(),
 }));
 vi.mock("../api/services", () => ({ fetchServices: vi.fn() }));
 
@@ -84,7 +85,17 @@ async function render(path = "/stacks/app") {
   for (const action of ["openDeploymentDetailsModal", "openAlertDetailsModal", "openCommitDetailsModal", "openStackManifestModal"] as const) {
     vi.spyOn(store, action).mockImplementation(vi.fn());
   }
-  const wrapper = mount(StackView, { global: { plugins: [pinia, router] } });
+  const wrapper = mount(StackView, {
+    global: {
+      plugins: [pinia, router],
+      stubs: {
+        DeploymentActivityChart: {
+          props: ["stack"],
+          template: '<div class="deployment-activity-stub" :data-stack="stack" />',
+        },
+      },
+    },
+  });
   return { wrapper, router, store };
 }
 
@@ -120,6 +131,7 @@ describe("Stack Details", () => {
     expect(wrapper.findAll(".services-stack-table th").map((item) => item.text())).toEqual(["Name", "Image", "Type", "Status"]);
     expect(wrapper.findAll(".services-cell-sync-status .status").map((item) => item.text())).toEqual(["Synced", "unknown", "OutOfSync"]);
     expect(wrapper.get(".stack-services-panel .service-panel-heading").text()).toBe("Services");
+    expect(wrapper.get(".deployment-activity-stub").attributes("data-stack")).toBe("app");
     expect(wrapper.get(".stack-deployments-panel .overview-summary-panel-header-link").attributes("href")).toBe("/deployments?stack=app");
     expect(wrapper.text()).not.toContain("foreign");
 

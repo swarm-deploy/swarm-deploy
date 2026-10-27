@@ -8,6 +8,7 @@ import type { Alert, DeploymentSummary, NetworkInfo, ServiceInfo, StackResourceI
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import DeploymentIcon from "../components/overview/DeploymentIcon.vue";
 import ServicesTable from "../components/overview/ServicesTable.vue";
+import DeploymentActivityChart from "../components/stack/DeploymentActivityChart.vue";
 import { useOverviewStore } from "../stores/overview";
 import { formatDate, shortCommitHash } from "../utils/format";
 import { stackSyncStatus } from "../utils/stackStatus";
@@ -172,6 +173,8 @@ onUnmounted(() => { request++; });
         <div data-summary="secrets"><DeploymentIcon name="secret" /><div class="stack-metric-copy"><dt>Secrets</dt><dd>{{ resourcesError ? "n/a" : secrets.length }}</dd></div></div>
         <div data-summary="configs"><DeploymentIcon name="config" /><div class="stack-metric-copy"><dt>Configs</dt><dd>{{ resourcesError ? "n/a" : configs.length }}</dd></div></div>
       </dl>
+
+      <DeploymentActivityChart :stack="stack.name" />
 
       <div class="stack-content-grid">
         <section class="stack-panel stack-services-panel" aria-labelledby="stack-services-title">
