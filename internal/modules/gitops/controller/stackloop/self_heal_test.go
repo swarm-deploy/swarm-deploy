@@ -14,14 +14,15 @@ func TestResolveSelfHeal(t *testing.T) {
 		name      string
 		global    bool
 		label     string
+		wantName  string
 		want      bool
 		wantError bool
 	}{
-		{name: "global enabled", global: true, want: true},
-		{name: "global disabled", want: false},
-		{name: "service disables global", global: true, label: "false", want: false},
-		{name: "service enables global", label: "true", want: true},
-		{name: "invalid service override", label: "sometimes", wantError: true},
+		{name: "global enabled", global: true, wantName: "global", want: true},
+		{name: "global disabled", wantName: "global", want: false},
+		{name: "service disables global", global: true, label: "false", wantName: "service", want: false},
+		{name: "service enables global", label: "true", wantName: "service", want: true},
+		{name: "invalid service override", label: "sometimes", wantName: "service", wantError: true},
 	}
 
 	for _, tt := range tests {
@@ -30,9 +31,10 @@ func TestResolveSelfHeal(t *testing.T) {
 			if tt.label != "" {
 				labels[labelsdict.ServiceSyncPolicySelfHealLabelKey] = tt.label
 			}
-			actual, err := resolveSelfHeal(compose.Service{
+			actualName, actual, err := resolveSelfHeal(compose.Service{
 				Deploy: compose.ServiceDeploy{Labels: compose.Labels{Map: labels}},
 			}, tt.global)
+			assert.Equal(t, tt.wantName, actualName)
 			if tt.wantError {
 				require.Error(t, err)
 				return

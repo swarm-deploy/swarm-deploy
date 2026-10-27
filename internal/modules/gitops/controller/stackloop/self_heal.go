@@ -9,7 +9,12 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/drift"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 )
+
+var selfHealTracer = otel.Tracer("github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop")
 
 type serviceRemediation struct {
 	attempted bool
@@ -20,40 +25,73 @@ type serviceRemediation struct {
 
 func (r *Reconciler) selfHealDrift(ctx context.Context, payload *pipelinePayload) error {
 	payload.Remediations = make(map[string]serviceRemediation)
-	var deployCompose compose.Compose
-	deployComposeReady := false
+	deployFile := stackDeployCompose(payload.Desired, payload.Stack.Name)
+	r.normalizeRenderedObjectFilePaths(deployFile)
+	deployCompose := deployFile.Compose
+
+	span := trace.SpanFromContext(ctx)
 
 	for _, service := range payload.Desired.Compose.Services {
 		if _, drifted := payload.Drift[service.Name]; !drifted {
+			span.AddEvent("Service skipped: no drift detected", trace.WithAttributes(
+				tracing.ResourceServiceName.String(service.Name),
+			))
+
 			continue
 		}
 
-		enabled, err := resolveSelfHeal(service, r.cfg.Spec.Sync.Policy.SelfHeal)
-		if err != nil {
-			return fmt.Errorf("resolve service %s self-heal policy: %w", service.Name, err)
+		if err := r.healService(ctx, payload, service, deployCompose); err != nil {
+			return err
 		}
-		if !enabled {
-			continue
-		}
-		if !deployComposeReady {
-			deployFile := stackDeployCompose(payload.Desired, payload.Stack.Name)
-			r.normalizeRenderedObjectFilePaths(deployFile)
-			deployCompose = deployFile.Compose
-			deployComposeReady = true
-		}
-
-		remediation := serviceRemediation{attempted: true}
-		_, err = r.deployer.DeployService(
-			ctx, payload.Stack.Name, payload.Desired.Path, service.Name,
-			payload.Desired.Compose, deployCompose,
-		)
-		if err != nil {
-			remediation.applyErr = err
-			slog.ErrorContext(ctx, "self-heal apply command failed; awaiting state verification",
-				"stack", payload.Stack.Name, "service", service.Name, "err", faults.SafeError(err))
-		}
-		payload.Remediations[service.Name] = remediation
 	}
+
+	return nil
+}
+
+func (r *Reconciler) healService(
+	ctx context.Context,
+	payload *pipelinePayload,
+	service compose.Service,
+	deployCompose compose.Compose,
+) error {
+	ctx, span := selfHealTracer.Start(ctx, "stackReconciler.HealService", trace.WithAttributes(
+		tracing.ResourceServiceName.String(service.Name),
+	))
+	defer span.End()
+
+	policyName, enabled, err := resolveSelfHeal(service, r.cfg.Spec.Sync.Policy.SelfHeal)
+	if err != nil {
+		resolveErr := fmt.Errorf("resolve service %s self-heal policy: %w", service.Name, err)
+		tracing.FailSpan(span, resolveErr)
+
+		return resolveErr
+	}
+	if !enabled {
+		span.AddEvent("Service skipped by sync policy", trace.WithAttributes(
+			tracing.ResourceSelfHealPolicyName(policyName),
+			tracing.ResourceSelfHealPolicyEnabled(enabled),
+		))
+
+		return nil
+	}
+
+	span.SetAttributes(
+		tracing.ResourceSelfHealPolicyName(policyName),
+		tracing.ResourceSelfHealPolicyEnabled(enabled),
+	)
+
+	remediation := serviceRemediation{attempted: true}
+	_, err = r.deployer.DeployService(
+		ctx, payload.Stack.Name, payload.Desired.Path, service.Name,
+		payload.Desired.Compose, deployCompose,
+	)
+	if err != nil {
+		remediation.applyErr = err
+		slog.ErrorContext(ctx, "self-heal apply command failed; awaiting state verification",
+			"stack", payload.Stack.Name, "service", service.Name, "err", faults.SafeError(err))
+		tracing.FailSpan(span, err)
+	}
+	payload.Remediations[service.Name] = remediation
 
 	return nil
 }
@@ -117,14 +155,14 @@ func (r *Reconciler) applyVerifiedDrift(
 	}
 }
 
-func resolveSelfHeal(service compose.Service, global bool) (bool, error) {
+func resolveSelfHeal(service compose.Service, global bool) (string, bool, error) {
 	policy, specified, err := service.SelfHealPolicy()
 	if err != nil {
-		return false, err
+		return "service", false, err
 	}
 	if specified {
-		return policy, nil
+		return "service", policy, nil
 	}
 
-	return global, nil
+	return "global", global, nil
 }
