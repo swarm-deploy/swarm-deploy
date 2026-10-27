@@ -2,41 +2,12 @@ package model
 
 import "time"
 
-type AlertKind string
-
-const AlertKindSyncFailed AlertKind = "sync_failed"
-const AlertKindNodeDisconnected AlertKind = "node_disconnected"
-const AlertKindGitRepositoryUnavailable AlertKind = "git_repository_unavailable"
-const AlertKindServiceDrift AlertKind = "service_drift"
-
-type ResourceType string
-
-const ResourceTypeStack ResourceType = "stack"
-const ResourceTypeNode ResourceType = "node"
-const ResourceTypeRepository ResourceType = "repository"
-const ResourceTypeService ResourceType = "service"
-
 type AlertStatus string
 
 const (
 	AlertStatusOpen     AlertStatus = "open"
 	AlertStatusResolved AlertStatus = "resolved"
 )
-
-type ResolutionReason string
-
-const ResolutionReasonRecovered ResolutionReason = "recovered"
-const ResolutionReasonResourceRemoved ResolutionReason = "resource_removed"
-
-// AlertResolution describes how an alert incident ended.
-type AlertResolution struct {
-	// Reason is the machine-readable resolution reason.
-	Reason ResolutionReason `json:"reason"`
-	// Message is a human-readable resolution summary.
-	Message string `json:"message"`
-	// EventID identifies the event that resolved the alert.
-	EventID string `json:"eventId"`
-}
 
 // Alert is one persisted incident for a correlated problem.
 type Alert struct {
@@ -78,19 +49,4 @@ type Alert struct {
 	ResolvedAt *time.Time `json:"resolvedAt,omitempty"`
 	// Resolution describes how the incident ended.
 	Resolution *AlertResolution `json:"resolution,omitempty"`
-}
-
-// SyncFailedFingerprint returns the correlation key for a stack synchronization failure.
-func SyncFailedFingerprint(stackID string) string {
-	return string(AlertKindSyncFailed) + ":" + string(ResourceTypeStack) + ":" + stackID
-}
-
-// GitRepositoryUnavailableFingerprint returns the correlation key for repository access failures.
-func GitRepositoryUnavailableFingerprint(repository string) string {
-	return string(AlertKindGitRepositoryUnavailable) + ":" + string(ResourceTypeRepository) + ":" + repository
-}
-
-// ServiceDriftFingerprint returns the correlation key for one drifted service.
-func ServiceDriftFingerprint(stackName, serviceName string) string {
-	return string(AlertKindServiceDrift) + ":" + string(ResourceTypeService) + ":" + stackName + "/" + serviceName
 }

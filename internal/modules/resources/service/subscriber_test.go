@@ -23,7 +23,7 @@ import (
 
 func TestSubscriberRepeatedDeliveryIsIdempotent(t *testing.T) {
 	ctrl := gomock.NewController(t)
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	store := modelstore.NewSQLStore(db)
@@ -76,7 +76,7 @@ func TestSubscriberRepeatedDeliveryIsIdempotent(t *testing.T) {
 
 func TestSubscriberProjectionAndChildEventAreAtomic(t *testing.T) {
 	ctrl := gomock.NewController(t)
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	store := modelstore.NewSQLStore(db)
@@ -111,7 +111,7 @@ func TestSubscriberProjectionAndChildEventAreAtomic(t *testing.T) {
 
 func TestSubscriberStaleDeploymentDoesNotPersistReceiptOrCatalog(t *testing.T) {
 	ctrl := gomock.NewController(t)
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	store := modelstore.NewSQLStore(db)
@@ -284,7 +284,7 @@ func TestSubscriberHandle(t *testing.T) {
 			inspector := swarm.NewMockServiceManager(ctrl)
 			images := swarm.NewMockImageManager(ctrl)
 			configs := swarm.NewMockConfigManager(ctrl)
-			db, err := storage.Open(context.Background(), t.TempDir())
+			db, err := storage.OpenSQLite(context.Background(), t.TempDir())
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, db.Close()) })
 			store := modelstore.NewSQLStore(db)
@@ -379,7 +379,7 @@ func TestSubscriberHandleLoadsWebRouteConfigs(t *testing.T) {
 			inspector := swarm.NewMockServiceManager(ctrl)
 			images := swarm.NewMockImageManager(ctrl)
 			configs := swarm.NewMockConfigManager(ctrl)
-			db, err := storage.Open(context.Background(), t.TempDir())
+			db, err := storage.OpenSQLite(context.Background(), t.TempDir())
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, db.Close()) })
 			store := modelstore.NewSQLStore(db)

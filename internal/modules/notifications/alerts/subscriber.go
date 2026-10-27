@@ -50,7 +50,7 @@ func parseSubscriptionID(id string) (events.AlertRecipient, error) {
 
 // Register subscribes all configured and persisted physical destinations to both transitions.
 func Register(
-	ctx context.Context, bus dispatcher.Dispatcher, db *storage.Database, spec config.NotificationSpec,
+	ctx context.Context, bus dispatcher.Dispatcher, db storage.Database, spec config.NotificationSpec,
 ) error {
 	store := NewStore(db)
 	if err := store.PruneCompleted(ctx); err != nil {

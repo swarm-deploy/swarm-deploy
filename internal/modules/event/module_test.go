@@ -17,7 +17,7 @@ import (
 )
 
 func TestHistoryAndMetricsKeepIndependentPolicies(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	bus := eventbus.NewOutboxDispatcher(outbox.New(db))

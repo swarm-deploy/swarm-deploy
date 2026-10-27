@@ -13,7 +13,7 @@ import (
 var dialect = goqu.Dialect("sqlite3")
 
 // SQLStore stores the last observed node snapshot.
-type SQLStore struct{ db *storage.Database }
+type SQLStore struct{ db storage.Database }
 
 // Repository provides context-aware node snapshot operations.
 type Repository interface {
@@ -45,7 +45,7 @@ type nodeRow struct {
 }
 
 // NewSQLStore creates a node repository.
-func NewSQLStore(db *storage.Database) *SQLStore { return &SQLStore{db: db} }
+func NewSQLStore(db storage.Database) *SQLStore { return &SQLStore{db: db} }
 
 // List returns the snapshot in hostname/ID order.
 func (s *SQLStore) ReadAll(ctx context.Context) ([]swarm.Node, error) {

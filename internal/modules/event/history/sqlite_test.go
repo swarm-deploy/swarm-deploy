@@ -15,7 +15,7 @@ import (
 
 func TestSQLiteQueryPagination(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	repo, err := NewSQLStore(db, 100)
@@ -65,7 +65,7 @@ func TestSQLiteQueryPagination(t *testing.T) {
 
 func TestSQLiteQueryFiltersAttributesBeforePagination(t *testing.T) {
 	t.Parallel()
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	repo, err := NewSQLStore(db, 100)
@@ -119,7 +119,7 @@ func TestSQLiteQueryFiltersAttributesBeforePagination(t *testing.T) {
 
 func TestSQLiteFilterOptionsUsesRetainedHistory(t *testing.T) {
 	t.Parallel()
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	repo, err := NewSQLStore(db, 100)
@@ -156,7 +156,7 @@ func TestSQLiteFilterOptionsUsesRetainedHistory(t *testing.T) {
 
 func TestSQLiteQueriesExcludeLegacySyncFailedHistory(t *testing.T) {
 	t.Parallel()
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	repo, err := NewSQLStore(db, 100)
@@ -225,7 +225,7 @@ func entryIDs(entries []Entry) []string {
 
 func TestSQLiteProjectionSelectionIdempotenceAndRollback(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo, err := NewSQLStore(db, 2)
@@ -269,7 +269,7 @@ func TestSQLiteProjectionSelectionIdempotenceAndRollback(t *testing.T) {
 }
 
 func TestDeploymentFailuresAreExcludedFromEventHistory(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	repo, err := NewSQLStore(db, 10)
@@ -308,7 +308,7 @@ func TestDeploymentFailuresAreExcludedFromEventHistory(t *testing.T) {
 
 func TestSQLiteRetentionUsesPublicationOrderAcrossDelayedDeliveries(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo, err := NewSQLStore(db, 1)
@@ -337,7 +337,7 @@ func TestSQLiteRetentionUsesPublicationOrderAcrossDelayedDeliveries(t *testing.T
 }
 
 func TestSQLiteStoresNormalizedHistoryAndTargetsIDConflict(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	repo, err := NewSQLStore(db, 10)
@@ -373,7 +373,7 @@ func TestSQLiteStoresNormalizedHistoryAndTargetsIDConflict(t *testing.T) {
 }
 
 func TestSQLiteQueryPageUsesHistoryIndex(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
@@ -393,7 +393,7 @@ func TestSQLiteQueryPageUsesHistoryIndex(t *testing.T) {
 
 func TestServicePrunedAppearsInEventHistory(t *testing.T) {
 	ctx := t.Context()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	repo, err := NewSQLStore(db, 100)

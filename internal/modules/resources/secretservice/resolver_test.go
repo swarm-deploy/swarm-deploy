@@ -73,7 +73,7 @@ func TestResolverResolveServiceSecrets(t *testing.T) {
 func TestResolverResolveServiceSecretsReturnsAllReferencesOnStoreError(t *testing.T) {
 	t.Parallel()
 
-	secretDB, err := storage.Open(t.Context(), t.TempDir())
+	secretDB, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	secrets := secretstore.NewSQLStore(secretDB)
 	require.NoError(t, secretDB.Close())

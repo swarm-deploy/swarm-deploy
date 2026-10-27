@@ -225,7 +225,7 @@ func TestControllersSharingSQLiteDoNotReconcileConcurrently(t *testing.T) {
 	staleRenderedPath := filepath.Join(dataDir, "rendered", "removed-stack.yaml")
 	require.NoError(t, os.MkdirAll(filepath.Dir(staleRenderedPath), 0o755), "create rendered dir")
 	require.NoError(t, os.WriteFile(staleRenderedPath, []byte("sensitive"), 0o600), "write stale rendered compose")
-	db, err := storage.Open(ctx, dataDir)
+	db, err := storage.OpenSQLite(ctx, dataDir)
 	require.NoError(t, err)
 	defer db.Close()
 	ctrl := gomock.NewController(t)
@@ -830,9 +830,9 @@ func writeNetworksFile(path string, networkName string) error {
 	return os.WriteFile(path, content, 0o600)
 }
 
-func newSQLState(t *testing.T) (*storage.Database, *modelstore.SQLStore) {
+func newSQLState(t *testing.T) (storage.Database, *modelstore.SQLStore) {
 	t.Helper()
-	db, err := storage.Open(context.Background(), t.TempDir())
+	db, err := storage.OpenSQLite(context.Background(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	return db, modelstore.NewSQLStore(db)

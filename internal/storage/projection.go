@@ -12,7 +12,7 @@ import (
 // AdvanceProjection accepts a strictly newer source in the caller's projection transaction.
 // Source IDs use UUIDv7 to preserve publication order within a millisecond.
 func AdvanceProjection(
-	ctx context.Context, db *Database, projection, resource string, at time.Time, id string,
+	ctx context.Context, db Database, projection, resource string, at time.Time, id string,
 ) (bool, error) {
 	if at.IsZero() {
 		return false, fmt.Errorf("projection occurrence time is required")

@@ -9,7 +9,7 @@ import (
 )
 
 type orderedSubscriber struct {
-	db   *storage.Database
+	db   storage.Database
 	next dispatcher.Subscriber
 }
 

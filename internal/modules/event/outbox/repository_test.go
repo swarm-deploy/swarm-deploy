@@ -26,7 +26,7 @@ func TestClaimQueryUsesActiveSubscriptionIndex(t *testing.T) {
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			db, err := storage.Open(t.Context(), t.TempDir())
+			db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, db.Close()) })
 			sequence := 0

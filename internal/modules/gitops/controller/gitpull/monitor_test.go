@@ -205,7 +205,7 @@ func TestMonitorRecoveryStateSurvivesRestart(t *testing.T) {
 	assert.Nil(t, readState(t, store).GitPullFailure, "recovery must clear persisted failure")
 }
 
-func newSQLState(t *testing.T) (*storage.Database, *modelstore.SQLStore) {
+func newSQLState(t *testing.T) (storage.Database, *modelstore.SQLStore) {
 	t.Helper()
 	db := testutil.OpenSQLite(t)
 	return db, modelstore.NewSQLStore(db)

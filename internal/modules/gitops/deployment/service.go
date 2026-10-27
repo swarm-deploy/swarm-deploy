@@ -30,7 +30,7 @@ type Publisher interface {
 // Service commits deployment facts, attempts, runtime state and publication atomically.
 // It never invokes Docker or another module's business service.
 type Service struct {
-	db      *storage.Database
+	db      storage.Database
 	store   *deploymentstore.Store
 	runtime *modelstore.SQLStore
 	events  Publisher
@@ -38,7 +38,7 @@ type Service struct {
 }
 
 // NewService creates the deployment boundary using the shared context transactor.
-func NewService(db *storage.Database, publisher Publisher) *Service {
+func NewService(db storage.Database, publisher Publisher) *Service {
 	return &Service{
 		db: db, store: deploymentstore.NewStore(db), runtime: modelstore.NewSQLStore(db), events: publisher, now: time.Now,
 	}

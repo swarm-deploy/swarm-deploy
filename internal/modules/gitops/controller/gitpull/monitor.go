@@ -34,13 +34,13 @@ type Failure struct {
 // Monitor persists the latest Git pull failure and publishes failure, recovery
 // and repository change events. The persisted failure lets recovery be detected after restart.
 type Monitor struct {
-	db    *storage.Database
+	db    storage.Database
 	store modelstore.Store
 	event dispatcher.Dispatcher
 }
 
 // NewMonitor creates a Monitor.
-func NewMonitor(db *storage.Database, store modelstore.Store, event dispatcher.Dispatcher) *Monitor {
+func NewMonitor(db storage.Database, store modelstore.Store, event dispatcher.Dispatcher) *Monitor {
 	return &Monitor{db: db, store: store, event: event}
 }
 

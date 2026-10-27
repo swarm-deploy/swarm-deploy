@@ -407,7 +407,7 @@ func TestServiceChatFailsOnUnknownPollRequestID(t *testing.T) {
 
 func newSQLHistory(t *testing.T) *conversation.SQLHistoryStorage {
 	t.Helper()
-	db, err := storage.Open(context.Background(), t.TempDir())
+	db, err := storage.OpenSQLite(context.Background(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	return conversation.NewSQLHistoryStorage(db)

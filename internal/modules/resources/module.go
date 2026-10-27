@@ -35,7 +35,7 @@ type Module struct {
 
 type Container interface {
 	// GetStorage returns the shared database.
-	GetStorage() *storage.Database
+	GetStorage() storage.Database
 	GetSwarm() *swarm.Swarm
 	GetEventModule() *event.Module
 }

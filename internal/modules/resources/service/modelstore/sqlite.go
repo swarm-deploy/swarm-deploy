@@ -16,7 +16,7 @@ import (
 var dialect = goqu.Dialect("sqlite3")
 
 // SQLStore persists service metadata by an unambiguous stack/name key.
-type SQLStore struct{ db *storage.Database }
+type SQLStore struct{ db storage.Database }
 
 // serviceRow is the raw columns of a services row for sqlx scanning.
 type serviceRow struct {
@@ -26,7 +26,7 @@ type serviceRow struct {
 }
 
 // NewSQLStore creates a service repository.
-func NewSQLStore(db *storage.Database) *SQLStore { return &SQLStore{db: db} }
+func NewSQLStore(db storage.Database) *SQLStore { return &SQLStore{db: db} }
 
 // List returns the service catalog in stack/name order.
 func (s *SQLStore) ReadAll(ctx context.Context) ([]model.Info, error) {

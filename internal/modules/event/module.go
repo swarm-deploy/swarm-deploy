@@ -29,12 +29,12 @@ type Module struct {
 	// Bus is the only durable delivery worker.
 	Bus *dispatcher.OutboxDispatcher
 	cfg *config.Config
-	db  *storage.Database
+	db  storage.Database
 }
 
 type Container interface {
 	// GetStorage returns the shared database.
-	GetStorage() *storage.Database
+	GetStorage() storage.Database
 	GetFileSystem() fs.FileSystem
 	GetMetrics() *metrics.Group
 }

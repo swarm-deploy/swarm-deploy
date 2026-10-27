@@ -15,10 +15,10 @@ import (
 var dialect = goqu.Dialect("sqlite3")
 
 // SQLStore persists runtime state synchronously in the caller's transaction.
-type SQLStore struct{ db *storage.Database }
+type SQLStore struct{ db storage.Database }
 
 // NewSQLStore creates a runtime repository.
-func NewSQLStore(db *storage.Database) *SQLStore { return &SQLStore{db: db} }
+func NewSQLStore(db storage.Database) *SQLStore { return &SQLStore{db: db} }
 
 // Get returns the current state or an explicitly empty initial state.
 func (s *SQLStore) Read(ctx context.Context) (model.Runtime, error) {
