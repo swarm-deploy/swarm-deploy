@@ -2,7 +2,9 @@ package modelstore
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -175,6 +177,136 @@ func TestSaveInitJobExecutionRejectsMissingParentAndTimestamps(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestSupersededProjectionPreservesStoredOutcome(t *testing.T) {
+	ctx := t.Context()
+	db := testutil.OpenSQLite(t)
+	store := NewStore(db)
+	desired, err := deploymentmodel.Prepare(compose.File{Compose: compose.Compose{Services: compose.Services{{
+		Name: "api", Image: "api:1",
+	}}}})
+	require.NoError(t, err)
+	startedAt := time.Date(2026, time.October, 27, 10, 0, 0, 0, time.UTC)
+	first, firstAttempt := runningDeploymentFixture("deployment-1", "attempt-1", "app", startedAt)
+	require.NoError(t, store.CreateDeployment(ctx, first, desired, firstAttempt))
+	finishedAt := startedAt.Add(time.Minute)
+	firstAttempt.Status, firstAttempt.FinishedAt = deploymentmodel.Failed, &finishedAt
+	firstAttempt.ErrorCode, firstAttempt.ErrorDiagnostic = "apply_failed", "preserved diagnostic"
+	firstAttempt.Phase, firstAttempt.ApplyStatus = deploymentmodel.PhaseApply, deploymentmodel.StageFailed
+	firstAttempt.VerificationStatus, firstAttempt.CleanupStatus = deploymentmodel.StageSkipped, deploymentmodel.StageSkipped
+	require.NoError(t, store.FinishAttempt(ctx, first, firstAttempt))
+
+	second, secondAttempt := runningDeploymentFixture("deployment-2", "attempt-2", "app", startedAt.Add(2*time.Minute))
+	second.Commit = "commit-2"
+	require.NoError(t, store.CreateDeployment(ctx, second, desired, secondAttempt))
+
+	projected, err := store.Get(ctx, first.ID)
+	require.NoError(t, err)
+	assert.Equal(t, deploymentmodel.Superseded, projected.Status)
+	assert.Equal(t, "preserved diagnostic", projected.ErrorDiagnostic)
+	var raw struct {
+		Status     string `db:"status"`
+		Diagnostic string `db:"diagnostic"`
+	}
+	require.NoError(t, db.Get(ctx, &raw, `SELECT status,
+		json_extract(details_payload,'$.error_diagnostic') AS diagnostic
+		FROM deployments WHERE id=?`, first.ID))
+	assert.Equal(t, "failed", raw.Status)
+	assert.Equal(t, "preserved diagnostic", raw.Diagnostic)
+}
+
+func TestListDoesNotDecodeFullChangePayloads(t *testing.T) {
+	ctx := t.Context()
+	db := testutil.OpenSQLite(t)
+	store := NewStore(db)
+	desired, err := deploymentmodel.Prepare(compose.File{Compose: compose.Compose{Services: compose.Services{{
+		Name: "api", Image: "api:1",
+	}}}})
+	require.NoError(t, err)
+	deployment, attempt := runningDeploymentFixture(
+		"deployment-1", "attempt-1", "app", time.Date(2026, time.October, 27, 10, 0, 0, 0, time.UTC),
+	)
+	require.NoError(t, store.CreateDeployment(ctx, deployment, desired, attempt))
+	_, err = db.Exec(ctx, "UPDATE deployments SET changes_payload=json_array('not-an-object') WHERE id=?", deployment.ID)
+	require.NoError(t, err)
+
+	_, err = store.List(ctx, deploymentmodel.ListFilter{})
+	require.NoError(t, err, "list must not decode full change payloads")
+	_, err = store.Get(ctx, deployment.ID)
+	require.Error(t, err, "detail still validates and decodes its change payload")
+}
+
+func TestDeploymentPayloadDoesNotDuplicateColumns(t *testing.T) {
+	ctx := t.Context()
+	db := testutil.OpenSQLite(t)
+	store := NewStore(db)
+	desired, err := deploymentmodel.Prepare(compose.File{Compose: compose.Compose{Services: compose.Services{{
+		Name: "api", Image: "api:1",
+	}}}})
+	require.NoError(t, err)
+	deployment, attempt := runningDeploymentFixture(
+		"deployment-1", "attempt-1", "app", time.Date(2026, time.October, 27, 10, 0, 0, 0, time.UTC),
+	)
+	require.NoError(t, store.CreateDeployment(ctx, deployment, desired, attempt))
+
+	var row struct {
+		ErrorCode string                `db:"error_code"`
+		Phase     deploymentmodel.Phase `db:"phase"`
+		Details   []byte                `db:"details_payload"`
+	}
+	require.NoError(t, db.Get(ctx, &row,
+		"SELECT error_code,phase,details_payload FROM deployments WHERE id=?", deployment.ID))
+	assert.Empty(t, row.ErrorCode)
+	assert.Equal(t, deploymentmodel.PhaseApply, row.Phase)
+	var details map[string]any
+	require.NoError(t, json.Unmarshal(row.Details, &details))
+	for _, key := range []string{"id", "stack", "commit", "status", "error_code", "phase", "started_at", "finished_at"} {
+		assert.NotContains(t, details, key)
+	}
+}
+
+func TestDeploymentIndexesSupportListQueries(t *testing.T) {
+	db := testutil.OpenSQLite(t)
+	query := `SELECT id FROM deployments WHERE status='failed'
+		ORDER BY started_at DESC,id LIMIT 21`
+	var rows []struct {
+		ID     int    `db:"id"`
+		Parent int    `db:"parent"`
+		Unused int    `db:"notused"`
+		Detail string `db:"detail"`
+	}
+	require.NoError(t, db.Select(t.Context(), &rows, "EXPLAIN QUERY PLAN "+query))
+	var plan strings.Builder
+	for _, row := range rows {
+		plan.WriteString(row.Detail)
+	}
+	t.Log(plan.String())
+	assert.Contains(t, plan.String(), "idx_deployments_status_time")
+	assert.NotContains(t, plan.String(), "USE TEMP B-TREE FOR ORDER BY")
+}
+
+func runningDeploymentFixture(
+	deploymentID string,
+	attemptID string,
+	stack string,
+	startedAt time.Time,
+) (deploymentmodel.Deployment, deploymentmodel.Attempt) {
+	attempt := deploymentmodel.Attempt{
+		ID: attemptID, DeploymentID: deploymentID, Number: 1, Status: deploymentmodel.Running,
+		StartedAt: startedAt, Phase: deploymentmodel.PhaseApply, ApplyStatus: deploymentmodel.StageRunning,
+		VerificationStatus: deploymentmodel.StagePending, CleanupStatus: deploymentmodel.StagePending,
+		ActualStateStatus: deploymentmodel.ActualStateUnknown,
+	}
+	deployment := deploymentmodel.Deployment{
+		ID: deploymentID, Stack: stack, Commit: "commit-1", Status: deploymentmodel.Running,
+		StartedAt: startedAt, Phase: deploymentmodel.PhaseApply, ApplyStatus: deploymentmodel.StageRunning,
+		VerificationStatus: deploymentmodel.StagePending, CleanupStatus: deploymentmodel.StagePending,
+		ActualStateStatus: deploymentmodel.ActualStateUnknown, ComparisonBasis: deploymentmodel.BasisNone,
+		ComparisonStatus: deploymentmodel.ComparisonUnknown, DiffAvailable: true,
+		LatestAttemptID: attemptID, AttemptCount: 1,
+	}
+	return deployment, attempt
 }
 
 func ptrTime(value time.Time) *time.Time { return &value }

@@ -19,7 +19,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
 	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
@@ -29,9 +28,21 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
+
+func outboxPublications(
+	t *testing.T,
+	db storage.Database,
+	eventType events.TypeName,
+) []outbox.Publication {
+	t.Helper()
+	publications, err := outbox.New(db).ListPublications(t.Context(), outbox.ListFilter{EventType: eventType})
+	require.NoError(t, err)
+	return publications
+}
 
 func TestReconcileDeploymentBoundaries(t *testing.T) {
 	for _, scenario := range []string{"success and effective no-op", "prepare failure", "success commit failure"} {
@@ -134,10 +145,8 @@ func TestAcceptedServiceRemovalPrecedesDockerFailureWithPruneDisabled(t *testing
 		[]byte("services:\n  api:\n    image: example/api:1\n"), 0o600))
 	docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
 		func(ctx context.Context, _ string, _ string, _ string, _ compose.Compose) (deployer.Result, error) {
-			var removals int
-			require.NoError(t, db.Get(ctx, &removals,
-				"SELECT count(*) FROM outbox_events WHERE event_type=?", events.TypeNameServiceRemovedFromDesired))
-			assert.Equal(t, 1, removals, "accepted removal must be durable before Docker apply")
+			removals := outboxPublications(t, db, events.TypeNameServiceRemovedFromDesired)
+			assert.Len(t, removals, 1, "accepted removal must be durable before Docker apply")
 			return deployer.Result{}, assert.AnError
 		})
 	cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(dir, "data")}}
@@ -149,10 +158,8 @@ func TestAcceptedServiceRemovalPrecedesDockerFailureWithPruneDisabled(t *testing
 	require.Error(t, reconciler.Reconcile(t.Context(), ReconciliationRequest{
 		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "removed",
 	}))
-	var removals int
-	require.NoError(t, db.Get(t.Context(), &removals,
-		"SELECT count(*) FROM outbox_events WHERE event_type=?", events.TypeNameServiceRemovedFromDesired))
-	assert.Equal(t, 1, removals, "prune=false and Docker failure must not suppress the accepted transition")
+	removals := outboxPublications(t, db, events.TypeNameServiceRemovedFromDesired)
+	assert.Len(t, removals, 1, "prune=false and Docker failure must not suppress the accepted transition")
 }
 
 func TestRejectedDesiredStateDoesNotPublishServiceRemoval(t *testing.T) {
@@ -196,10 +203,7 @@ func TestRejectedDesiredStateDoesNotPublishServiceRemoval(t *testing.T) {
 			require.Error(t, reconciler.Reconcile(t.Context(), ReconciliationRequest{
 				Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "rejected",
 			}))
-			var removals int
-			require.NoError(t, db.Get(t.Context(), &removals,
-				"SELECT count(*) FROM outbox_events WHERE event_type=?", events.TypeNameServiceRemovedFromDesired))
-			assert.Zero(t, removals)
+			assert.Empty(t, outboxPublications(t, db, events.TypeNameServiceRemovedFromDesired))
 		})
 	}
 }
@@ -363,14 +367,10 @@ func TestReconcileRecoversSucceededCompletionConflictWithoutContradictoryOutcome
 	baseline, err := deploymentstore.NewStore(db).Baseline(ctx, "app")
 	require.NoError(t, err)
 	assert.Equal(t, "nginx:2", baseline.Definition.Compose.Services[0].Image)
-	var failedEvents int
-	require.NoError(t, db.Get(ctx, &failedEvents,
-		"SELECT count(*) FROM outbox_events WHERE event_type=?", events.TypeNameDeployFailed))
-	assert.Zero(t, failedEvents, "obsolete recovery must not publish a contradictory failure")
-	var successEvents int
-	require.NoError(t, db.Get(ctx, &successEvents,
-		"SELECT count(*) FROM outbox_events WHERE event_type=?", events.TypeNameDeploySuccess))
-	assert.Equal(t, 2, successEvents, "each real successful attempt must publish exactly once")
+	failedEvents := outboxPublications(t, db, events.TypeNameDeployFailed)
+	assert.Empty(t, failedEvents, "obsolete recovery must not publish a contradictory failure")
+	successEvents := outboxPublications(t, db, events.TypeNameDeploySuccess)
+	assert.Len(t, successEvents, 2, "each real successful attempt must publish exactly once")
 }
 
 func TestPreparationFailureStateAndPublicationAreAtomicAndSecretSafe(t *testing.T) {
@@ -389,9 +389,9 @@ func TestPreparationFailureStateAndPublicationAreAtomicAndSecretSafe(t *testing.
 	require.NoError(t, err)
 	_, exists := runtime.Stacks["app"]
 	assert.False(t, exists)
-	var count int
-	require.NoError(t, db.Get(ctx, &count, "SELECT count(*) FROM outbox_events"))
-	assert.Zero(t, count)
+	publications, listErr := outbox.New(db).ListPublications(ctx, outbox.ListFilter{})
+	require.NoError(t, listErr)
+	assert.Empty(t, publications)
 	_, err = db.Exec(ctx, "DROP TRIGGER fail_preparation_event")
 	require.NoError(t, err)
 	for range 2 {
@@ -400,11 +400,13 @@ func TestPreparationFailureStateAndPublicationAreAtomicAndSecretSafe(t *testing.
 	runtime, err = state.Read(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, "preparation_failed", runtime.Stacks["app"].LastError)
-	var payloads string
-	require.NoError(t, db.Get(ctx, &payloads, "SELECT group_concat(payload) FROM outbox_events"))
-	assert.NotContains(t, payloads, "raw-secret-value")
-	require.NoError(t, db.Get(ctx, &count, "SELECT count(*) FROM outbox_events"))
-	assert.Equal(t, 2, count, "repeated failures are distinct domain facts")
+	publications = outboxPublications(t, db, events.TypeNameDeployPreparationFailed)
+	require.Len(t, publications, 2, "repeated failures are distinct domain facts")
+	for _, publication := range publications {
+		event, ok := publication.Envelope.Event.(*events.DeployPreparationFailed)
+		require.True(t, ok)
+		assert.NotContains(t, event.Error.Error(), "raw-secret-value")
+	}
 }
 
 func TestPendingFailureRecoveryPreservesTemporaryClassification(t *testing.T) {
@@ -440,11 +442,9 @@ func TestPendingFailureRecoveryPreservesTemporaryClassification(t *testing.T) {
 				require.NoError(t, err)
 				require.NoError(t, r.recoverPending(ctx, "app"))
 				assert.Empty(t, r.pending)
-				var payload string
-				require.NoError(t, db.Get(ctx, &payload, "SELECT payload FROM outbox_events WHERE event_type=?", typ))
-				assert.NotContains(t, payload, "private-value")
-				decoded, err := codec.Decode(typ, codec.Version, []byte(payload))
-				require.NoError(t, err)
+				publications := outboxPublications(t, db, typ)
+				require.Len(t, publications, 1)
+				decoded := publications[0].Envelope.Event
 				var decodedCause error
 				switch event := decoded.(type) {
 				case *events.DeployFailed:
@@ -454,11 +454,11 @@ func TestPendingFailureRecoveryPreservesTemporaryClassification(t *testing.T) {
 				}
 				var classified faults.Error
 				require.ErrorAs(t, decodedCause, &classified)
+				assert.NotContains(t, decodedCause.Error(), "private-value")
 				assert.Equal(t, temporary, classified.Temporary())
 				require.NoError(t, r.recoverPending(ctx, "app"))
-				var count int
-				require.NoError(t, db.Get(ctx, &count, "SELECT count(*) FROM outbox_events"))
-				assert.Equal(t, 1, count, "recovery must publish the outcome exactly once")
+				assert.Len(t, outboxPublications(t, db, typ), 1,
+					"recovery must publish the outcome exactly once")
 			})
 		}
 	}
@@ -476,12 +476,9 @@ func TestPreparationFailurePreservesTemporaryClassification(t *testing.T) {
 			r := &Reconciler{db: db, stateStore: state, event: bus}
 			cause := fmt.Errorf("fetch: %w", &net.DNSError{Err: "token=private-value", IsTemporary: temporary})
 			require.NoError(t, r.recordFailure(ctx, "app", "commit", nil, cause))
-			var payload string
-			require.NoError(t, db.Get(ctx, &payload, "SELECT payload FROM outbox_events"))
-			assert.NotContains(t, payload, "private-value")
-			decoded, err := codec.Decode(events.TypeNameDeployPreparationFailed, codec.Version, []byte(payload))
-			require.NoError(t, err)
-			event, ok := decoded.(*events.DeployPreparationFailed)
+			publications := outboxPublications(t, db, events.TypeNameDeployPreparationFailed)
+			require.Len(t, publications, 1)
+			event, ok := publications[0].Envelope.Event.(*events.DeployPreparationFailed)
 			require.True(t, ok)
 			var classified faults.Error
 			require.ErrorAs(t, event.Error, &classified)

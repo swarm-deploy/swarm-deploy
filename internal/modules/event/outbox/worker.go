@@ -46,6 +46,33 @@ type Publication struct {
 	Traceparent string
 }
 
+type publicationRow struct {
+	ID                  string          `db:"id"`
+	EventType           events.TypeName `db:"event_type"`
+	SchemaVersion       int             `db:"schema_version"`
+	Payload             string          `db:"payload"`
+	OccurredAt          time.Time       `db:"occurred_at"`
+	PublicationSequence int64           `db:"sequence"`
+	Traceparent         sql.NullString  `db:"traceparent"`
+}
+
+func (row publicationRow) publication() (Publication, error) {
+	publication := Publication{
+		Type: row.EventType,
+		Envelope: events.Envelope{
+			ID: row.ID, OccurredAt: row.OccurredAt.UTC(),
+			PublicationSequence: row.PublicationSequence,
+		},
+		Traceparent: row.Traceparent.String,
+	}
+	event, err := codec.Decode(row.EventType, row.SchemaVersion, []byte(row.Payload))
+	if err != nil {
+		return publication, errors.Join(ErrInvalidPayload, err)
+	}
+	publication.Envelope.Event = event
+	return publication, nil
+}
+
 // Claim atomically leases at most one due delivery.
 func (r *Repository) Claim(ctx context.Context, now time.Time, lease time.Duration) (Delivery, error) {
 	d := Delivery{Token: uuid.NewString()}
@@ -135,16 +162,9 @@ func claimStatement(
 
 // Load decodes the publication associated with a claimed delivery.
 func (r *Repository) Load(ctx context.Context, d Delivery) (Publication, error) {
-	var row struct {
-		EventType           events.TypeName `db:"event_type"`
-		SchemaVersion       int             `db:"schema_version"`
-		Payload             string          `db:"payload"`
-		OccurredAt          time.Time       `db:"occurred_at"`
-		PublicationSequence int64           `db:"sequence"`
-		Traceparent         sql.NullString  `db:"traceparent"`
-	}
+	var row publicationRow
 	query, args, err := goqu.Dialect("sqlite3").From("outbox_events").Prepared(true).
-		Select("event_type", "schema_version", "payload", "occurred_at", "sequence", "traceparent").
+		Select("id", "event_type", "schema_version", "payload", "occurred_at", "sequence", "traceparent").
 		Where(goqu.Ex{"id": d.EventID}).ToSQL()
 	if err != nil {
 		return Publication{}, err
@@ -152,20 +172,7 @@ func (r *Repository) Load(ctx context.Context, d Delivery) (Publication, error) 
 	if err = r.db.Get(ctx, &row, query, args...); err != nil {
 		return Publication{}, err
 	}
-	publication := Publication{
-		Type: row.EventType,
-		Envelope: events.Envelope{
-			ID: d.EventID, OccurredAt: row.OccurredAt.UTC(),
-			PublicationSequence: row.PublicationSequence,
-		},
-		Traceparent: row.Traceparent.String,
-	}
-	event, err := codec.Decode(row.EventType, row.SchemaVersion, []byte(row.Payload))
-	if err != nil {
-		return publication, errors.Join(ErrInvalidPayload, err)
-	}
-	publication.Envelope.Event = event
-	return publication, nil
+	return row.publication()
 }
 
 // WithinTransaction executes fn in the repository transaction context.

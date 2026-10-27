@@ -69,10 +69,13 @@ func TestDeployStackIgnoresInitJobPersistenceFailure(t *testing.T) {
 			} else {
 				require.ErrorIs(t, err, testCase.originalErr)
 			}
-			var count int
-			require.NoError(t, db.Get(t.Context(), &count, "SELECT count(*) FROM deployment_init_jobs"))
-			assert.Equal(t, 1, count, "a failed INSERT must not prevent later results from being saved")
-			logs, err := deploymentstore.NewStore(db).InitJobLogs(t.Context(), attempt.DeploymentID, attempt.ID, 2)
+			store := deploymentstore.NewStore(db)
+			stored, err := store.Get(t.Context(), attempt.DeploymentID)
+			require.NoError(t, err)
+			require.Len(t, stored.Attempts, 1)
+			assert.Len(t, stored.Attempts[0].InitJobs, 1,
+				"a failed INSERT must not prevent later results from being saved")
+			logs, err := store.InitJobLogs(t.Context(), attempt.DeploymentID, attempt.ID, 2)
 			require.NoError(t, err)
 			assert.Equal(t, []byte("second"), logs)
 		})

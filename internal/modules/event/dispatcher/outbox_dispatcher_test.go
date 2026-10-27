@@ -65,7 +65,7 @@ func TestPublisherTransaction(t *testing.T) {
 			assert.Equal(t, !rollback, handled)
 			assert.Zero(t, rows(t, db, "outbox_events"))
 			assert.Zero(t, rows(t, db, "outbox_deliveries"))
-			failed, err := bus.repository.ListFailed(t.Context())
+			failed, err := bus.repository.ListFailedDeliveries(t.Context())
 			require.NoError(t, err)
 			assert.Empty(t, failed)
 		})
@@ -144,7 +144,7 @@ func TestIndependentDestinationsAndReplay(t *testing.T) {
 			require.NoError(t, db.Get(t.Context(), &failedRow,
 				"SELECT event_id,last_error FROM outbox_deliveries WHERE status='failed'"))
 			assert.Equal(t, "handler_failed", failedRow.Code)
-			failed, err := bus.repository.ListFailed(t.Context())
+			failed, err := bus.repository.ListFailedDeliveries(t.Context())
 			require.NoError(t, err)
 			require.Len(t, failed, 1)
 			assert.Equal(t, outbox.FailedDelivery{EventID: failedRow.ID, SubscriptionID: "b-bad",

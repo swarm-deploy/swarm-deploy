@@ -14,7 +14,6 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
 	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
@@ -108,13 +107,11 @@ func TestFailedInitJobLogsReachDurableDeploymentDiagnostics(t *testing.T) {
 	assert.Contains(t, saved.ErrorDiagnostic, "migration failed at revision 17")
 	assert.NotContains(t, saved.ErrorDiagnostic, "my-credential")
 
-	var payload string
-	require.NoError(t, db.Get(ctx, &payload, "SELECT payload FROM outbox_events WHERE event_type=?", events.TypeNameDeployFailed))
-	assert.NotContains(t, payload, "my-credential")
-	event, err := codec.Decode(events.TypeNameDeployFailed, codec.Version, []byte(payload))
-	require.NoError(t, err)
-	failed, ok := event.(*events.DeployFailed)
+	publications := outboxPublications(t, db, events.TypeNameDeployFailed)
+	require.Len(t, publications, 1)
+	failed, ok := publications[0].Envelope.Event.(*events.DeployFailed)
 	require.True(t, ok)
+	assert.NotContains(t, failed.Error.Error(), "my-credential")
 	assert.Equal(t, "init_failed", failed.ErrorCode)
 	assert.Contains(t, failed.Error.Error(), "migration failed at revision 17")
 }
