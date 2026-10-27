@@ -15,9 +15,9 @@ import (
 	"go.uber.org/mock/gomock"
 )
 
-func setup(t *testing.T) (*storage.Database, *OutboxDispatcher) {
+func setup(t *testing.T) (storage.Database, *OutboxDispatcher) {
 	t.Helper()
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	_, err = db.Exec(t.Context(), `CREATE TABLE projection (source_event_id TEXT PRIMARY KEY)`)
@@ -25,7 +25,7 @@ func setup(t *testing.T) (*storage.Database, *OutboxDispatcher) {
 	return db, NewOutboxDispatcher(outbox.New(db))
 }
 
-func rows(t *testing.T, db *storage.Database, table string) int {
+func rows(t *testing.T, db storage.Database, table string) int {
 	t.Helper()
 	var count int
 	require.NoError(t, db.Get(t.Context(), &count, "SELECT count(*) FROM "+table))
@@ -383,7 +383,7 @@ func TestWorkerPoolPreservesSubscriptionOrder(t *testing.T) {
 
 func TestLeaseSurvivesDatabaseRestart(t *testing.T) {
 	dir := t.TempDir()
-	db, err := storage.Open(t.Context(), dir)
+	db, err := storage.OpenSQLite(t.Context(), dir)
 	require.NoError(t, err)
 	bus := NewOutboxDispatcher(outbox.New(db))
 	handler := NewMockSubscriber(gomock.NewController(t))
@@ -393,7 +393,7 @@ func TestLeaseSurvivesDatabaseRestart(t *testing.T) {
 	first, err := bus.worker.Claim(t.Context())
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
-	db, err = storage.Open(t.Context(), dir)
+	db, err = storage.OpenSQLite(t.Context(), dir)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	bus = NewOutboxDispatcher(outbox.New(db))

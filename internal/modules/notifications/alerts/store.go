@@ -43,10 +43,10 @@ type MessageLink struct {
 }
 
 // Store persists Telegram message identities in the application SQLite database.
-type Store struct{ db *storage.Database }
+type Store struct{ db storage.Database }
 
 // NewStore creates a message-link repository.
-func NewStore(db *storage.Database) *Store { return &Store{db: db} }
+func NewStore(db storage.Database) *Store { return &Store{db: db} }
 
 // Ensure records a physical destination before an external send is attempted.
 func (s *Store) Ensure(ctx context.Context, alertID string, recipient events.AlertRecipient) error {

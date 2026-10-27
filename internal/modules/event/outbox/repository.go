@@ -25,11 +25,11 @@ const (
 
 // Repository persists publications and delivery state in SQLite.
 type Repository struct {
-	db *storage.Database
+	db storage.Database
 }
 
 // New constructs an outbox repository.
-func New(db *storage.Database) *Repository {
+func New(db storage.Database) *Repository {
 	return &Repository{db: db}
 }
 

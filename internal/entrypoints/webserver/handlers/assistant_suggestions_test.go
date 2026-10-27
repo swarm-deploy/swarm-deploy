@@ -234,7 +234,7 @@ func assistantCompose(serviceName string) compose.File {
 
 func createSuccessfulDeployment(
 	t *testing.T,
-	db *storage.Database,
+	db storage.Database,
 	stack string,
 	file compose.File,
 	commit string,
@@ -247,9 +247,9 @@ func createSuccessfulDeployment(
 	require.NoError(t, service.Succeed(t.Context(), attempt.ID, gitopsmodel.Stack{}))
 }
 
-func openSuggestionDatabase(t *testing.T) *storage.Database {
+func openSuggestionDatabase(t *testing.T) storage.Database {
 	t.Helper()
-	db, err := storage.Open(context.Background(), t.TempDir())
+	db, err := storage.OpenSQLite(context.Background(), t.TempDir())
 	require.NoError(t, err)
 	return db
 }

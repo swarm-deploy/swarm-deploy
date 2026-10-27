@@ -20,7 +20,7 @@ import (
 func TestListServiceDeploymentsReadsDeploymentStore(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	svc := deployment.NewService(db, eventbus.NewOutboxDispatcher(outbox.New(db)))
@@ -75,7 +75,7 @@ func TestListServiceDeploymentsReadsDeploymentStore(t *testing.T) {
 func TestListServiceDeploymentsWithoutAttemptsIsEmpty(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	h := &handler{deployments: deploymentstore.NewStore(db)}

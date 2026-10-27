@@ -152,7 +152,7 @@ func main() {
 
 	metricsGroup.BuildInfo.Set(Version, BuildDate)
 
-	db, err := storage.Open(ctx, cfg.Spec.DataDir)
+	db, err := storage.OpenSQLite(ctx, cfg.Spec.DataDir)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to open database", slog.Any("err", err))
 		os.Exit(1)
@@ -334,7 +334,7 @@ type module struct {
 
 type container struct {
 	// Storage owns the shared database and transactor.
-	Storage         *storage.Database
+	Storage         storage.Database
 	FileSystem      fs.FileSystem
 	Metrics         *metrics.Group
 	Swarm           *swarm.Swarm
@@ -352,7 +352,7 @@ type container struct {
 }
 
 // GetStorage returns the shared application database.
-func (c *container) GetStorage() *storage.Database { return c.Storage }
+func (c *container) GetStorage() storage.Database { return c.Storage }
 
 func (c *container) GetFileSystem() fs.FileSystem {
 	return c.FileSystem

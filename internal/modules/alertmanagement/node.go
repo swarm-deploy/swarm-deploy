@@ -9,7 +9,7 @@ import (
 )
 
 func (s *Subscriber) handleNode(ctx context.Context, eventID, nodeID string, disconnected bool) error {
-	fingerprint := "node_disconnected:node:" + nodeID
+	fingerprint := model.NodeDisconnectedFingerprint(nodeID)
 	alert, err := s.store.FindOpenByFingerprint(ctx, fingerprint)
 	if err != nil && !errors.Is(err, modelstore.ErrAlertNotFound) {
 		return err

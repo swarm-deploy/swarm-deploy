@@ -38,7 +38,7 @@ func NewStackReconciler(
 	deployMetrics metrics.Deploys,
 	stateStore modelstore.Store,
 	filesystem fs.FileSystem,
-	db *storage.Database,
+	db storage.Database,
 ) StackReconciler {
 	reconciler := New(
 		cfg,

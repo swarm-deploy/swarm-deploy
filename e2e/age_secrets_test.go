@@ -81,7 +81,7 @@ secretRotation:
 `, rotation, identityPath, rotation), 0o600))
 			cfg, err := config.Load(cfgPath)
 			require.NoError(t, err)
-			db, err := storage.Open(ctx, cfg.Spec.DataDir)
+			db, err := storage.OpenSQLite(ctx, cfg.Spec.DataDir)
 			require.NoError(t, err)
 			t.Cleanup(func() { assert.NoError(t, db.Close()) })
 

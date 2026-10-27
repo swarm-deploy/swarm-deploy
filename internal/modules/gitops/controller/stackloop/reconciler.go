@@ -32,7 +32,7 @@ import (
 
 // Reconciler applies a desired stack state to swarm.
 type Reconciler struct {
-	db               *storage.Database
+	db               storage.Database
 	deployments      *deployment.Service
 	cfg              *config.Config
 	git              gitx.Repository
@@ -76,7 +76,7 @@ func New(
 	deployMetrics metrics.Deploys,
 	stateStore modelstore.Store,
 	fileSystem fs.FileSystem,
-	db *storage.Database,
+	db storage.Database,
 ) *Reconciler {
 	reconciler := &Reconciler{db: db, deployments: deployment.NewService(db, eventDispatcher),
 		cfg:              cfg,

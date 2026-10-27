@@ -22,7 +22,7 @@ import (
 
 // Subscriber persists service metadata on DeploySuccess events.
 type Subscriber struct {
-	db               *storage.Database
+	db               storage.Database
 	events           dispatcher.Dispatcher
 	store            modelstore.Store
 	inspector        swarm.ServiceManager
@@ -37,7 +37,7 @@ func NewSubscriber(
 	store modelstore.Store,
 	swarmService *swarm.Swarm,
 	extractor *metadata.Extractor,
-	db *storage.Database,
+	db storage.Database,
 	publisher dispatcher.Dispatcher,
 ) *Subscriber {
 	return &Subscriber{db: db, events: publisher,

@@ -23,7 +23,7 @@ func rec(stack, service, typ string, at time.Time) model.Recommendation {
 }
 
 func TestRecommendationsRelationalStorage(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	store := NewSQLStore(db)
@@ -106,7 +106,7 @@ func TestRecommendationsRelationalStorage(t *testing.T) {
 }
 
 func TestRecommendationsUpdateStackRollsBack(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	store := NewSQLStore(db)
@@ -126,7 +126,7 @@ func TestRecommendationsUpdateStackRollsBack(t *testing.T) {
 }
 
 func TestRecommendationsUpdateStackCompositeKeyCollision(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	store := NewSQLStore(db)
@@ -153,7 +153,7 @@ func TestRecommendationsUpdateStackCompositeKeyCollision(t *testing.T) {
 }
 
 func TestRecommendationsListUsesStackIndex(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 

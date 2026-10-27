@@ -24,7 +24,7 @@ import (
 
 func TestDeploymentAPIReadsAttemptsWithoutHistory(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	svc := deployment.NewService(db, eventbus.NewOutboxDispatcher(outbox.New(db)))
@@ -168,7 +168,7 @@ func TestDeploymentServiceReplicas(t *testing.T) {
 
 func TestDeploymentFiltersUsesAllRecordedStacks(t *testing.T) {
 	ctx := t.Context()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	h := &handler{deployments: deploymentstore.NewStore(db)}

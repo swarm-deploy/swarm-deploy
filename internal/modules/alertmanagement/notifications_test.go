@@ -20,7 +20,7 @@ import (
 )
 
 func TestAlertLifecyclePublishesOnlyTransitions(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
@@ -53,7 +53,7 @@ func TestAlertLifecyclePublishesOnlyTransitions(t *testing.T) {
 }
 
 func TestAlertLifecyclePublicationRollback(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -73,7 +73,7 @@ func TestAlertLifecyclePublicationRollback(t *testing.T) {
 }
 
 func TestAlertResolutionPublicationRollback(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -97,7 +97,7 @@ func TestAlertResolutionPublicationRollback(t *testing.T) {
 	assert.Equal(t, model.AlertStatusOpen, alert.Status)
 }
 
-func alertSignalCount(t *testing.T, db *storage.Database, kind string) int {
+func alertSignalCount(t *testing.T, db storage.Database, kind string) int {
 	t.Helper()
 	var count int
 	require.NoError(t, db.Get(context.Background(), &count, "SELECT count(*) FROM outbox_events WHERE event_type=?", kind))

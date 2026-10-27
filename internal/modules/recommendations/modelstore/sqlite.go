@@ -11,7 +11,7 @@ import (
 )
 
 // SQLStore persists recommendations while preserving existing occurrence timestamps.
-type SQLStore struct{ db *storage.Database }
+type SQLStore struct{ db storage.Database }
 
 // recommendationKey mirrors UNIQUE(stack, service, source_file, type) of the recommendations table.
 type recommendationKey struct {
@@ -24,7 +24,7 @@ func keyOf(r model.Recommendation) recommendationKey {
 }
 
 // NewSQLStore creates a recommendation repository.
-func NewSQLStore(db *storage.Database) *SQLStore { return &SQLStore{db: db} }
+func NewSQLStore(db storage.Database) *SQLStore { return &SQLStore{db: db} }
 
 // List filters recommendations in their persisted sequence.
 func (s *SQLStore) List(ctx context.Context, filter ListFilter) ([]model.Recommendation, error) {
