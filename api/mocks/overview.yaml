@@ -1,0 +1,270 @@
+components:
+  examples:
+    StacksResponse:
+      summary: Ten representative Docker Swarm stacks.
+      value:
+        stacks:
+          - name: edge
+            compose_file: stacks/edge/compose.yaml
+            status:
+              synced: 2
+              out_of_synced: 0
+            last_commit: 4a82f313ef3d457e55370cc2864fc4b81600102e
+            last_deploy_at: '2026-10-27T19:42:16Z'
+            source_digest: sha256:8d49b9d0f59ea14894bacf8e956c8f831fbc4f76b98505ebc27b401ba9d2f563
+          - name: storefront
+            compose_file: stacks/storefront/compose.yaml
+            status:
+              synced: 3
+              out_of_synced: 0
+            last_commit: a5e011b14f3cb2deba4a70b982b2c9e4f847bbed
+            last_deploy_at: '2026-10-27T19:18:03Z'
+            source_digest: sha256:442d52adcfb3ad6728be79d68a4aaf64fbcf80348df3b3c51d1a57ced661e36a
+          - name: payments
+            compose_file: stacks/payments/compose.yaml
+            status:
+              synced: 1
+              out_of_synced: 1
+            last_error: payments-worker is running image v2.7.3 instead of desired v2.8.0
+            last_commit: 9c527b71a180dd63c75a0614d901c4e75b2054d0
+            last_deploy_at: '2026-10-27T18:54:31Z'
+            source_digest: sha256:7f72a1956129a312cb0ddefc0c267e790d770e6312ec815db4e2fa4feccbdade
+          - name: observability
+            compose_file: stacks/observability/compose.yaml
+            status:
+              synced: 3
+              out_of_synced: 0
+            last_commit: 29ad053e2d8f27cf8aaf4af63e27936388072381
+            last_deploy_at: '2026-10-27T17:36:48Z'
+            source_digest: sha256:2fe4140da715b3ab57b22bda3a0dd61f08a55733a6a1058790550dcfa95d8058
+          - name: databases
+            compose_file: stacks/databases/compose.yaml
+            status:
+              synced: 1
+              out_of_synced: 0
+            last_commit: f68ef426589c02b25a15c7cbeca862d678fe21b0
+            last_deploy_at: '2026-10-27T16:11:09Z'
+            source_digest: sha256:e7eb505cb1fcc0e812ec348eed12582688dfb2c8f07570ca2ff27bd2d65b4ce1
+          - name: messaging
+            compose_file: stacks/messaging/compose.yaml
+            status:
+              synced: 1
+              out_of_synced: 0
+            last_commit: d155a293598942ade9e274adb0f4219b1854ed88
+            last_deploy_at: '2026-10-27T15:27:40Z'
+            source_digest: sha256:8137e477586c158cb8323d372c0d371f11d94da87dd5208ce95a20242c0c07b1
+          - name: secrets
+            compose_file: stacks/secrets/compose.yaml
+            status:
+              synced: 1
+              out_of_synced: 0
+            last_commit: 1fb0a03aa31d8e487f776631ba4ab1c656ad856a
+            last_deploy_at: '2026-10-27T14:50:22Z'
+            source_digest: sha256:cb52a22fdcc112d9b2717c6a2e4644fabf63f15f26271da03900fda06b9b4293
+          - name: delivery
+            compose_file: stacks/delivery/compose.yaml
+            status:
+              synced: 1
+              out_of_synced: 0
+            last_commit: c18bc72b351d17842bb3ef87368ecee24cfa6138
+            last_deploy_at: '2026-10-27T13:43:17Z'
+            source_digest: sha256:5f1190e182eb0819fb10f10fb79ed27890185f9bf1303e829c21768ce18afd67
+          - name: automation
+            compose_file: stacks/automation/compose.yaml
+            status:
+              synced: 1
+              out_of_synced: 0
+            last_commit: 64c749850959654f63df8ff92e344b1078346707
+            last_deploy_at: '2026-10-27T12:20:44Z'
+            source_digest: sha256:2fe00f985793d1b114d8b95dac014eb84d4b83ac25ea1234f798b0a2b6be0d62
+          - name: sandbox
+            compose_file: stacks/sandbox/compose.yaml
+            status:
+              synced: 0
+              out_of_synced: 1
+            last_error: demo-api has 0 of 1 desired replicas running
+            last_commit: e7784a90a992fbc69382ce22302f8f0608df3432
+            last_deploy_at: '2026-10-27T10:05:51Z'
+            source_digest: sha256:7a58bbb3575d5fe734743bda0a1ee795e4bb1c4f87627d8b1e7664033c7551a2
+        sync:
+          last_poll_at: '2026-10-27T20:18:00Z'
+          last_poll_result: success
+          last_sync_at: '2026-10-27T20:18:03Z'
+          last_sync_reason: scheduled poll
+          last_sync_result: partial_success
+          git_revision: 4a82f313ef3d457e55370cc2864fc4b81600102e
+          last_sync_error: 2 services remain out of sync across payments and sandbox
+    ServicesResponse:
+      summary: Services belonging to the ten representative stacks.
+      value:
+        services:
+          - name: traefik
+            stack: edge
+            sync_status: Synced
+            description: Public ingress and TLS termination.
+            type: reverseProxy
+            type_title: Reverse proxy
+            image: traefik:v3.6.2
+            image_version: v3.6.2
+            repository_url: https://github.com/traefik/traefik
+            web_routes:
+              - domain: traefik.localhost
+                address: http://traefik:8080
+                port: '8080'
+          - name: cloudflared
+            stack: edge
+            sync_status: Synced
+            description: Secure tunnel from the edge network.
+            type: delivery
+            type_title: Delivery
+            image: cloudflare/cloudflared:2026.10.0
+            image_version: 2026.10.0
+            repository_url: https://github.com/cloudflare/cloudflared
+          - name: web
+            stack: storefront
+            sync_status: Synced
+            description: Customer-facing storefront.
+            type: application
+            type_title: Application
+            image: ghcr.io/swarm-deploy/storefront-web:1.14.2
+            image_version: 1.14.2
+            repository_url: https://github.com/swarm-deploy/storefront
+            web_routes:
+              - domain: shop.localhost
+                address: http://web:8080
+                port: '8080'
+          - name: api
+            stack: storefront
+            sync_status: Synced
+            description: Storefront catalog and checkout API.
+            type: application
+            type_title: Application
+            image: ghcr.io/swarm-deploy/storefront-api:2.9.1
+            image_version: 2.9.1
+            repository_url: https://github.com/swarm-deploy/storefront
+            web_routes:
+              - domain: api.shop.localhost
+                address: http://api:8080
+                port: '8080'
+          - name: checkout-worker
+            stack: storefront
+            sync_status: Synced
+            description: Processes checkout events asynchronously.
+            type: application
+            type_title: Application
+            image: ghcr.io/swarm-deploy/checkout-worker:2.9.1
+            image_version: 2.9.1
+            repository_url: https://github.com/swarm-deploy/storefront
+          - name: payments-api
+            stack: payments
+            sync_status: Synced
+            description: Payment authorization API.
+            type: application
+            type_title: Application
+            image: ghcr.io/swarm-deploy/payments-api:2.8.0
+            image_version: 2.8.0
+            repository_url: https://github.com/swarm-deploy/payments
+            web_routes:
+              - domain: payments.localhost
+                address: http://payments-api:8080
+                port: '8080'
+          - name: payments-worker
+            stack: payments
+            sync_status: OutOfSync
+            sync_error: Running image v2.7.3; desired image is v2.8.0.
+            description: Captures authorized payments and handles retries.
+            type: application
+            type_title: Application
+            image: ghcr.io/swarm-deploy/payments-worker:2.8.0
+            image_version: 2.8.0
+            repository_url: https://github.com/swarm-deploy/payments
+          - name: prometheus
+            stack: observability
+            sync_status: Synced
+            description: Metrics collection and alert evaluation.
+            type: monitoring
+            type_title: Monitoring
+            image: prom/prometheus:v3.7.1
+            image_version: v3.7.1
+            repository_url: https://github.com/prometheus/prometheus
+          - name: grafana
+            stack: observability
+            sync_status: Synced
+            description: Metrics and logs dashboards.
+            type: monitoring
+            type_title: Monitoring
+            image: grafana/grafana:12.2.1
+            image_version: 12.2.1
+            repository_url: https://github.com/grafana/grafana
+            web_routes:
+              - domain: grafana.localhost
+                address: http://grafana:3000
+                port: '3000'
+          - name: loki
+            stack: observability
+            sync_status: Synced
+            description: Central log aggregation.
+            type: monitoring
+            type_title: Monitoring
+            image: grafana/loki:3.6.1
+            image_version: 3.6.1
+            repository_url: https://github.com/grafana/loki
+          - name: postgres
+            stack: databases
+            sync_status: Synced
+            description: Primary PostgreSQL database.
+            type: database
+            type_title: Database
+            image: postgres:18.0-alpine
+            image_version: 18.0-alpine
+            repository_url: https://github.com/docker-library/postgres
+          - name: nats
+            stack: messaging
+            sync_status: Synced
+            description: Event and command message bus.
+            type: application
+            type_title: Application
+            image: nats:2.12.1-alpine
+            image_version: 2.12.1-alpine
+            repository_url: https://github.com/nats-io/nats-server
+          - name: cloud-secrets
+            stack: secrets
+            sync_status: Synced
+            description: Synchronizes external secrets into Docker Swarm.
+            type: secretManager
+            type_title: Secret manager
+            image: ghcr.io/swarm-deploy/cloud-secrets:0.18.0
+            image_version: 0.18.0
+            repository_url: https://github.com/swarm-deploy/cloud-secrets
+          - name: registry
+            stack: delivery
+            sync_status: Synced
+            description: Private container image registry.
+            type: delivery
+            type_title: Delivery
+            image: registry:3.0.0
+            image_version: 3.0.0
+            repository_url: https://github.com/distribution/distribution
+            web_routes:
+              - domain: registry.localhost
+                address: http://registry:5000
+                port: '5000'
+          - name: cron-manager
+            stack: automation
+            sync_status: Synced
+            description: Scheduled jobs controller for Docker Swarm.
+            type: cronManager
+            type_title: Cron manager
+            image: ghcr.io/swarm-deploy/cron-manager:1.7.0
+            image_version: 1.7.0
+            repository_url: https://github.com/swarm-deploy/cron-manager
+          - name: demo-api
+            stack: sandbox
+            sync_status: OutOfSync
+            sync_error: No running tasks; the latest task exited with code 1.
+            description: Sandbox API used for deployment experiments.
+            type: application
+            type_title: Application
+            image: ghcr.io/swarm-deploy/demo-api:0.4.0
+            image_version: 0.4.0
+            repository_url: https://github.com/swarm-deploy/examples

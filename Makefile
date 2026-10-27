@@ -1,6 +1,10 @@
 run:
 	docker compose -f docker-compose.local.yaml up
 
+.PHONY: ui-mock
+ui-mock:
+	npm --prefix ui run dev:mock
+
 .PHONY: lint
 lint:
 	golangci-lint run
@@ -20,4 +24,3 @@ check: lint test
 .PHONY: test-cli
 cli:
 	go run ./cmd/sd/main.go lint ./example/04-assistant/swarm-deploy.yaml
-
