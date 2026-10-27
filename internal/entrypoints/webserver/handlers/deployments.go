@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -10,10 +11,11 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
+	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 )
 
-// GetDeploymentFilters returns stack and service names with recorded deployment attempts.
+// GetDeploymentFilters returns stack and service names with recorded desired-state deployments.
 func (h *handler) GetDeploymentFilters(ctx context.Context) (*generated.DeploymentFilterOptions, error) {
 	stacks, services, err := h.deployments.FilterOptions(ctx)
 	if err != nil {
@@ -34,11 +36,11 @@ func (h *handler) GetDeploymentFilters(ctx context.Context) (*generated.Deployme
 func (h *handler) ListDeployments(
 	ctx context.Context, params generated.ListDeploymentsParams,
 ) (*generated.DeploymentsResponse, error) {
-	page, err := h.deployments.List(ctx, deployment.ListFilter{
+	page, err := h.deployments.List(ctx, deploymentmodel.ListFilter{
 		Stack: params.Stack.Or(""), Service: params.ServiceName.Or(""),
 		Limit: int(params.Limit.Or(0)), Cursor: params.Cursor.Or(""),
 	})
-	if errors.Is(err, deployment.ErrInvalidCursor) {
+	if errors.Is(err, deploymentstore.ErrInvalidCursor) {
 		return nil, withStatusError(http.StatusBadRequest, err)
 	}
 	if err != nil {
@@ -60,7 +62,7 @@ func (h *handler) GetDeployment(
 	ctx context.Context, params generated.GetDeploymentParams,
 ) (*generated.Deployment, error) {
 	item, err := h.deployments.Get(ctx, params.ID)
-	if errors.Is(err, deployment.ErrNotFound) {
+	if errors.Is(err, deploymentstore.ErrNotFound) {
 		return nil, withStatusError(http.StatusNotFound, err)
 	}
 	if err != nil {
@@ -86,6 +88,29 @@ func (h *handler) GetDeployment(
 		result.Diagnostic = generated.NewOptString(item.ErrorDiagnostic)
 	}
 	return &result, nil
+}
+
+// GetDeploymentInitJobLogs writes exact stored Docker output for one validated execution relationship.
+func (h *handler) GetDeploymentInitJobLogs(
+	ctx context.Context,
+	params generated.GetDeploymentInitJobLogsParams,
+	w http.ResponseWriter,
+) error {
+	logs, err := h.deployments.InitJobLogs(ctx, params.ID, params.AttemptID, params.Ordinal)
+	if errors.Is(err, deploymentstore.ErrNotFound) || errors.Is(err, deploymentstore.ErrLogsUnavailable) {
+		return withStatusError(http.StatusNotFound, err)
+	}
+	if err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Cache-Control", "private, no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	if _, err = w.Write(logs); err != nil {
+		return fmt.Errorf("write init job logs: %w", err)
+	}
+	return nil
 }
 
 func deploymentServiceReplicas(deploy compose.ServiceDeploy) string {
@@ -133,7 +158,7 @@ func jobCount(value any) string {
 	return ""
 }
 
-func toGeneratedDeploymentSummary(item deployment.DeploymentSummary) generated.DeploymentSummary {
+func toGeneratedDeploymentSummary(item deploymentmodel.DeploymentSummary) generated.DeploymentSummary {
 	result := generated.DeploymentSummary{
 		ID: item.ID, Stack: item.Stack, Commit: item.Commit,
 		Status:             generated.DeploymentStatus(item.Status),
@@ -153,14 +178,16 @@ func toGeneratedDeploymentSummary(item deployment.DeploymentSummary) generated.D
 			Services: item.Resources.Services, Configs: item.Resources.Configs, Secrets: item.Resources.Secrets,
 			Networks: item.Resources.Networks, Volumes: item.Resources.Volumes,
 		},
-		DiffAvailable: item.DiffAvailable,
+		DiffAvailable:   item.DiffAvailable,
+		LatestAttemptID: item.LatestAttemptID,
+		AttemptCount:    item.AttemptCount,
 	}
 	setGeneratedDeploymentSummaryOptional(&result, item.ErrorCode, item.BasisDeploymentID,
 		item.StartedAt, item.FinishedAt, item.ObservedAt)
 	return result
 }
 
-func toGeneratedDeployment(item deployment.Deployment) generated.Deployment {
+func toGeneratedDeployment(item deploymentmodel.Deployment) generated.Deployment {
 	result := generated.Deployment{
 		ID: item.ID, Stack: item.Stack, Commit: item.Commit,
 		Status:             generated.DeploymentStatus(item.Status),
@@ -180,8 +207,11 @@ func toGeneratedDeployment(item deployment.Deployment) generated.Deployment {
 			Services: item.Resources.Services, Configs: item.Resources.Configs, Secrets: item.Resources.Secrets,
 			Networks: item.Resources.Networks, Volumes: item.Resources.Volumes,
 		},
-		DiffAvailable: item.DiffAvailable,
-		Changes:       make([]generated.DeploymentChange, 0, len(item.Changes)),
+		DiffAvailable:   item.DiffAvailable,
+		LatestAttemptID: item.LatestAttemptID,
+		AttemptCount:    item.AttemptCount,
+		Changes:         make([]generated.DeploymentChange, 0, len(item.Changes)),
+		Attempts:        make([]generated.DeploymentAttempt, 0, len(item.Attempts)),
 	}
 	if item.ErrorCode != "" {
 		result.Reason = generated.NewOptString(item.ErrorCode)
@@ -203,6 +233,35 @@ func toGeneratedDeployment(item deployment.Deployment) generated.Deployment {
 			mapped.After = generated.NewOptString(*change.After)
 		}
 		result.Changes = append(result.Changes, mapped)
+	}
+	for _, attempt := range item.Attempts {
+		mapped := generated.DeploymentAttempt{
+			ID: attempt.ID, Number: attempt.Number, Status: generated.DeploymentAttemptStatus(attempt.Status),
+			Phase:              generated.DeploymentPhase(attempt.Phase),
+			ApplyStatus:        generated.DeploymentStageStatus(attempt.ApplyStatus),
+			VerificationStatus: generated.DeploymentStageStatus(attempt.VerificationStatus),
+			CleanupStatus:      generated.DeploymentStageStatus(attempt.CleanupStatus),
+			ActualStateStatus:  generated.DeploymentActualStateStatus(attempt.ActualStateStatus),
+			StartedAt:          attempt.StartedAt,
+			InitJobs:           make([]generated.DeploymentInitJobExecution, 0, len(attempt.InitJobs)),
+		}
+		for _, execution := range attempt.InitJobs {
+			mapped.InitJobs = append(mapped.InitJobs, generated.DeploymentInitJobExecution{
+				Ordinal: execution.Ordinal, ServiceName: execution.ServiceName, JobName: execution.JobName,
+				Status:    generated.DeploymentInitJobExecutionStatus(execution.Status),
+				StartedAt: execution.StartedAt, FinishedAt: execution.FinishedAt,
+				LogsAvailable: execution.LogsAvailable, LogsTruncated: execution.LogsTruncated,
+			})
+		}
+		if attempt.ErrorCode != "" {
+			mapped.Reason = generated.NewOptString(attempt.ErrorCode)
+		}
+		if attempt.ErrorDiagnostic != "" {
+			mapped.Diagnostic = generated.NewOptString(attempt.ErrorDiagnostic)
+		}
+		setGeneratedTimes(attempt.StartedAt, attempt.FinishedAt, attempt.ObservedAt,
+			&mapped.FinishedAt, &mapped.ObservedAt, &mapped.DurationMs)
+		result.Attempts = append(result.Attempts, mapped)
 	}
 	return result
 }

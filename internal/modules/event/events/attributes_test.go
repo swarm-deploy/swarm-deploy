@@ -8,22 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestSharedAttributeNames(t *testing.T) {
-	assert.Equal(t, "stack_name", AttributeStackName)
-	assert.Equal(t, "service_name", AttributeServiceName)
-	assert.Equal(t, "deployment_id", AttributeDeploymentID)
-	assert.Equal(t, "commit", AttributeCommit)
-	assert.Equal(t, "username", AttributeUsername)
-	assert.Equal(t, "node_id", AttributeNodeID)
-	assert.Equal(t, "node_name", AttributeNodeName)
-	assert.Equal(t, "network_id", AttributeNetworkID)
-	assert.Equal(t, "network_name", AttributeNetworkName)
-	assert.Equal(t, "status", AttributeStatus)
-	assert.Equal(t, "error", AttributeError)
-	assert.Equal(t, "error_code", AttributeErrorCode)
-	assert.Equal(t, "stage", AttributeStage)
-}
-
 func TestEventDetailsUseStandardAttributeNames(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -31,14 +15,22 @@ func TestEventDetailsUseStandardAttributeNames(t *testing.T) {
 		keys  []string
 	}{
 		{name: "deploy success", event: &DeploySuccess{DeployEvent: DeployEvent{}},
-			keys: []string{AttributeStackName, AttributeCommit, AttributeDeploymentID, AttributeStatus}},
+			keys: []string{AttributeStackName, AttributeCommit, AttributeDeploymentID, AttributeAttemptID, AttributeStatus}},
 		{name: "deploy failed", event: &DeployFailed{},
-			keys: []string{AttributeStackName, AttributeCommit, AttributeDeploymentID, AttributeStatus, AttributeErrorCode, AttributeStage}},
+			keys: []string{AttributeStackName, AttributeCommit, AttributeDeploymentID, AttributeAttemptID,
+				AttributeStatus, AttributeErrorCode, AttributeStage}},
 		{name: "preparation failed", event: &DeployPreparationFailed{},
 			keys: []string{AttributeStackName, AttributeCommit, AttributeStatus, AttributeErrorCode, AttributeStage}},
 		{name: "deploy interrupted", event: &DeployInterrupted{},
-			keys: []string{AttributeStackName, AttributeCommit, AttributeDeploymentID, AttributeStatus, AttributeErrorCode, AttributeStage}},
+			keys: []string{AttributeStackName, AttributeCommit, AttributeDeploymentID, AttributeAttemptID,
+				AttributeStatus, AttributeErrorCode, AttributeStage}},
 		{name: "service missed", event: &ServiceMissed{},
+			keys: []string{AttributeStackName, AttributeServiceName, AttributeCommit}},
+		{name: "service drifted", event: &ServiceDrifted{},
+			keys: []string{AttributeStackName, AttributeServiceName, AttributeCommit, "reason"}},
+		{name: "service drift fixed", event: &ServiceDriftFixed{},
+			keys: []string{AttributeStackName, AttributeServiceName, AttributeCommit}},
+		{name: "service removed from desired", event: &ServiceRemovedFromDesired{},
 			keys: []string{AttributeStackName, AttributeServiceName, AttributeCommit}},
 		{name: "service pruned", event: &ServicePruned{},
 			keys: []string{AttributeStackName, AttributeServiceName, AttributeCommit}},

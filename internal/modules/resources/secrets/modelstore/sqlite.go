@@ -17,7 +17,7 @@ import (
 var dialect = goqu.Dialect("sqlite3")
 
 // SQLStore stores Docker secret metadata, never secret contents.
-type SQLStore struct{ db *storage.Database }
+type SQLStore struct{ db storage.Database }
 
 // secretPayload is the JSON part of a secret_metadata row. It never repeats id, name
 // or attributes derived from labels (description, managed, external_path, external_version_id).
@@ -37,7 +37,7 @@ type secretRow struct {
 }
 
 // NewSQLStore creates a metadata repository.
-func NewSQLStore(db *storage.Database) *SQLStore { return &SQLStore{db: db} }
+func NewSQLStore(db storage.Database) *SQLStore { return &SQLStore{db: db} }
 
 // List returns metadata in stable name/ID order.
 func (s *SQLStore) List(ctx context.Context) ([]model.Secret, error) {
@@ -62,10 +62,19 @@ func (s *SQLStore) List(ctx context.Context) ([]model.Secret, error) {
 	return result, nil
 }
 
-// GetByName returns metadata for one Docker secret.
+// GetByID returns metadata for one Docker secret by ID.
+func (s *SQLStore) GetByID(ctx context.Context, id string) (model.Secret, error) {
+	return s.getBy(ctx, goqu.Ex{"id": id})
+}
+
+// GetByName returns metadata for one Docker secret by name.
 func (s *SQLStore) GetByName(ctx context.Context, name string) (model.Secret, error) {
+	return s.getBy(ctx, goqu.Ex{"name": name})
+}
+
+func (s *SQLStore) getBy(ctx context.Context, where goqu.Ex) (model.Secret, error) {
 	query, args, err := dialect.From("secret_metadata").Prepared(true).
-		Select("id", "name", "created_at", "updated_at", "payload").Where(goqu.Ex{"name": name}).ToSQL()
+		Select("id", "name", "created_at", "updated_at", "payload").Where(where).ToSQL()
 	if err != nil {
 		return model.Secret{}, err
 	}

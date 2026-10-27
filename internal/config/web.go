@@ -5,6 +5,8 @@ import "github.com/artarts36/specw"
 type WebSpec struct {
 	// Address is an HTTP listen address for UI and API server.
 	Address string `yaml:"address"`
+	// BasePath is the URL path prefix for UI and API routes.
+	BasePath string `yaml:"basePath"`
 	// Security contains UI and API access settings.
 	Security SecuritySpec `yaml:"security"`
 }

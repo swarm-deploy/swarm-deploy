@@ -17,10 +17,10 @@ import (
 var dialect = goqu.Dialect("sqlite3")
 
 // SQLHistoryStorage stores chat metadata and ordered turns in a shared database.
-type SQLHistoryStorage struct{ db *storage.Database }
+type SQLHistoryStorage struct{ db storage.Database }
 
 // NewSQLHistoryStorage creates a conversation repository.
-func NewSQLHistoryStorage(db *storage.Database) *SQLHistoryStorage { return &SQLHistoryStorage{db: db} }
+func NewSQLHistoryStorage(db storage.Database) *SQLHistoryStorage { return &SQLHistoryStorage{db: db} }
 
 // List returns metadata without loading conversation turns.
 func (s *SQLHistoryStorage) ReadChats(ctx context.Context) ([]ChatSummary, error) {

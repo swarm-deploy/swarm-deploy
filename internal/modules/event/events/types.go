@@ -38,6 +38,8 @@ const (
 	TypeNameNodeConnected                    TypeName = "NodeConnected"
 	TypeNameNodeDisconnected                 TypeName = "NodeDisconnected"
 	TypeNameServiceMissed                    TypeName = "ServiceMissed"
+	TypeNameServiceDrifted                   TypeName = "ServiceDrifted"
+	TypeNameServiceDriftFixed                TypeName = "ServiceDriftFixed"
 	TypeNameServiceReplicasIncreased         TypeName = "ServiceReplicasIncreased"
 	TypeNameServiceReplicasDecreased         TypeName = "ServiceReplicasDecreased"
 	TypeNameServiceRestarted                 TypeName = "ServiceRestarted"
@@ -45,6 +47,8 @@ const (
 	TypeNameNetworkCreated                   TypeName = "NetworkCreated"
 	TypeNameUserAuthenticated                TypeName = "UserAuthenticated"
 	TypeNameAssistantPromptInjectionDetected TypeName = "AssistantPromptInjectionDetected"
+	// TypeNameServiceRemovedFromDesired is an internal accepted desired-state transition.
+	TypeNameServiceRemovedFromDesired TypeName = "ServiceRemovedFromDesired"
 )
 
 const (
@@ -73,6 +77,7 @@ type Type struct {
 	severity Severity
 	category Category
 	window   time.Duration
+	isPublic bool
 }
 
 // Event is domain data published through the event dispatcher.
@@ -98,9 +103,12 @@ type Envelope struct {
 }
 
 var (
-	TypeServiceCatalogUpdated = Type{name: TypeNameServiceCatalogUpdated, severity: SeverityInfo, category: CategorySync}
-	TypeDeploySuccess         = Type{
+	TypeServiceCatalogUpdated = Type{
+		name: TypeNameServiceCatalogUpdated, isPublic: true, severity: SeverityInfo, category: CategorySync,
+	}
+	TypeDeploySuccess = Type{
 		name:     TypeNameDeploySuccess,
+		isPublic: true,
 		severity: SeverityInfo,
 		category: CategorySync,
 		window:   1 * time.Minute,
@@ -126,89 +134,123 @@ var (
 	}
 	TypeSendNotificationFailed = Type{
 		name:     TypeNameSendNotificationFailed,
+		isPublic: true,
 		severity: SeverityError,
 		category: CategorySync,
 		window:   1 * time.Hour,
 	}
 	TypeSyncManualStarted = Type{
 		name:     TypeNameSyncManualStarted,
+		isPublic: true,
 		severity: SeverityInfo,
 		category: CategorySync,
 		window:   defaultSyncDedupWindow,
 	}
 	TypeWebhookReceived = Type{
 		name:     TypeNameWebhookReceived,
+		isPublic: true,
 		severity: SeverityInfo,
 		category: CategorySync,
 		// Every authenticated webhook must be recorded without deduplication.
 	}
 	TypeNodeJoined = Type{
 		name:     TypeNameNodeJoined,
+		isPublic: true,
 		severity: SeverityInfo,
 		category: CategorySwarm,
 	}
 	TypeNodeConnected = Type{
 		name:     TypeNameNodeConnected,
+		isPublic: true,
 		severity: SeverityInfo,
 		category: CategorySwarm,
 		window:   nodeDedupWindow,
 	}
 	TypeNodeDisconnected = Type{
 		name:     TypeNameNodeDisconnected,
+		isPublic: true,
 		severity: SeverityAlert,
 		category: CategorySwarm,
 		window:   nodeDedupWindow,
 	}
 	TypeServiceMissed = Type{
 		name:     TypeNameServiceMissed,
+		isPublic: true,
 		severity: SeverityAlert,
 		category: CategorySync,
 		window:   serviceDedupWindow,
 	}
+	TypeServiceDrifted = Type{
+		name: TypeNameServiceDrifted, isPublic: true, severity: SeverityWarn, category: CategorySync,
+		window: serviceDedupWindow,
+	}
+	TypeServiceDriftFixed = Type{
+		name: TypeNameServiceDriftFixed, isPublic: true, severity: SeverityInfo, category: CategorySync,
+		window: serviceDedupWindow,
+	}
+	TypeServiceRemovedFromDesired = Type{
+		name: TypeNameServiceRemovedFromDesired, severity: SeverityInfo, category: CategorySync,
+	}
 	TypeServiceReplicasIncreased = Type{
 		name:     TypeNameServiceReplicasIncreased,
+		isPublic: true,
 		severity: SeverityInfo,
 		category: CategorySync,
 		window:   serviceDedupWindow,
 	}
 	TypeServiceReplicasDecreased = Type{
 		name:     TypeNameServiceReplicasDecreased,
+		isPublic: true,
 		severity: SeverityInfo,
 		category: CategorySync,
 		window:   serviceDedupWindow,
 	}
 	TypeServiceRestarted = Type{
 		name:     TypeNameServiceRestarted,
+		isPublic: true,
 		severity: SeverityInfo,
 		category: CategorySync,
 		window:   serviceDedupWindow,
 	}
 	TypeServicePruned = Type{
 		name:     TypeNameServicePruned,
+		isPublic: true,
 		severity: SeverityInfo,
 		category: CategorySync,
 		window:   serviceDedupWindow,
 	}
 	TypeNetworkCreated = Type{
 		name:     TypeNameNetworkCreated,
+		isPublic: true,
 		severity: SeverityInfo,
 		category: CategorySync,
 		window:   defaultSyncDedupWindow,
 	}
 	TypeUserAuthenticated = Type{
 		name:     TypeNameUserAuthenticated,
+		isPublic: true,
 		severity: SeverityInfo,
 		category: CategorySecurity,
 		window:   1 * time.Minute,
 	}
 	TypeAssistantPromptInjectionDetected = Type{
 		name:     TypeNameAssistantPromptInjectionDetected,
+		isPublic: true,
 		severity: SeverityWarn,
 		category: CategorySecurity,
 		window:   securityAlertDedupWindow,
 	}
 
 	Types = []Type{
+		TypeAlertOpened,
+		TypeAlertResolved,
+		TypeGitPullFailed,
+		TypeGitPullSucceeded,
+		TypeConfigurationChanged,
+		TypeDeployFailed,
+		TypeDeployPreparationFailed,
+		TypeDeployInterrupted,
+
 		TypeServiceCatalogUpdated,
 		TypeDeploySuccess,
 		TypeSendNotificationFailed,
@@ -218,6 +260,9 @@ var (
 		TypeNodeConnected,
 		TypeNodeDisconnected,
 		TypeServiceMissed,
+		TypeServiceDrifted,
+		TypeServiceDriftFixed,
+		TypeServiceRemovedFromDesired,
 		TypeServiceReplicasIncreased,
 		TypeServiceReplicasDecreased,
 		TypeServiceRestarted,
@@ -264,7 +309,7 @@ func (t *Type) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	parsed, ok := parseStoredType(strings.TrimSpace(raw))
+	parsed, ok := ParseType(strings.TrimSpace(raw))
 	if !ok {
 		*t = Type{name: TypeName(strings.TrimSpace(raw))}
 		return nil
@@ -274,118 +319,26 @@ func (t *Type) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func parseStoredType(name string) (Type, bool) {
-	typ := TypeName(name)
-	switch typ { //nolint:exhaustive // Other event types are resolved by ParseType below.
-	case TypeNameAlertOpened:
-		return TypeAlertOpened, true
-	case TypeNameAlertResolved:
-		return TypeAlertResolved, true
-	case TypeNameGitPullFailed:
-		return TypeGitPullFailed, true
-	case TypeNameGitPullSucceeded:
-		return TypeGitPullSucceeded, true
-	case TypeNameConfigurationChanged:
-		return TypeConfigurationChanged, true
-	}
-	if typ == TypeNameDeployFailed {
-		return TypeDeployFailed, true
-	}
-	if typ == TypeNameDeployPreparationFailed {
-		return TypeDeployPreparationFailed, true
-	}
-	if typ == TypeNameDeployInterrupted {
-		return TypeDeployInterrupted, true
-	}
-	return ParseType(name)
+// IsPublic reports whether this event is available in user-configurable notifications.
+// Event History has an independent subscription and filtering policy.
+func (t Type) IsPublic() bool {
+	return t.isPublic
 }
 
+// Valid reports whether the name is allowed in user-configurable notifications.
 func (n TypeName) Valid() bool {
-	switch n {
-	case TypeNameServiceCatalogUpdated:
-		return true
-	case TypeNameDeploySuccess:
-		return true
-	case TypeNameDeployFailed, TypeNameDeployPreparationFailed, TypeNameDeployInterrupted,
-		TypeNameAlertOpened, TypeNameAlertResolved, TypeNameConfigurationChanged,
-		TypeNameGitPullFailed, TypeNameGitPullSucceeded:
-		return false
-	case TypeNameSendNotificationFailed:
-		return true
-	case TypeNameSyncManualStarted:
-		return true
-	case TypeNameWebhookReceived:
-		return true
-	case TypeNameNodeJoined:
-		return true
-	case TypeNameNodeConnected:
-		return true
-	case TypeNameNodeDisconnected:
-		return true
-	case TypeNameServiceMissed:
-		return true
-	case TypeNameServiceReplicasIncreased:
-		return true
-	case TypeNameServiceReplicasDecreased:
-		return true
-	case TypeNameServiceRestarted:
-		return true
-	case TypeNameServicePruned:
-		return true
-	case TypeNameNetworkCreated:
-		return true
-	case TypeNameUserAuthenticated:
-		return true
-	case TypeNameAssistantPromptInjectionDetected:
-		return true
-	default:
-		return false
-	}
+	typ, ok := ParseType(string(n))
+	return ok && typ.IsPublic()
 }
 
-// ParseType resolves event type metadata by event name.
+// ParseType resolves metadata for any registered public or internal event type.
 func ParseType(name string) (Type, bool) {
-	switch TypeName(name) {
-	case TypeNameAlertOpened, TypeNameAlertResolved, TypeNameConfigurationChanged,
-		TypeNameGitPullFailed, TypeNameGitPullSucceeded:
-		return Type{}, false
-	case TypeNameServiceCatalogUpdated:
-		return TypeServiceCatalogUpdated, true
-	case TypeNameDeploySuccess:
-		return TypeDeploySuccess, true
-	case TypeNameDeployFailed, TypeNameDeployPreparationFailed, TypeNameDeployInterrupted:
-		return Type{}, false
-	case TypeNameSendNotificationFailed:
-		return TypeSendNotificationFailed, true
-	case TypeNameSyncManualStarted:
-		return TypeSyncManualStarted, true
-	case TypeNameWebhookReceived:
-		return TypeWebhookReceived, true
-	case TypeNameNodeJoined:
-		return TypeNodeJoined, true
-	case TypeNameNodeConnected:
-		return TypeNodeConnected, true
-	case TypeNameNodeDisconnected:
-		return TypeNodeDisconnected, true
-	case TypeNameServiceMissed:
-		return TypeServiceMissed, true
-	case TypeNameServiceReplicasIncreased:
-		return TypeServiceReplicasIncreased, true
-	case TypeNameServiceReplicasDecreased:
-		return TypeServiceReplicasDecreased, true
-	case TypeNameServiceRestarted:
-		return TypeServiceRestarted, true
-	case TypeNameServicePruned:
-		return TypeServicePruned, true
-	case TypeNameNetworkCreated:
-		return TypeNetworkCreated, true
-	case TypeNameUserAuthenticated:
-		return TypeUserAuthenticated, true
-	case TypeNameAssistantPromptInjectionDetected:
-		return TypeAssistantPromptInjectionDetected, true
-	default:
-		return Type{}, false
+	for _, typ := range Types {
+		if string(typ.Name()) == name {
+			return typ, true
+		}
 	}
+	return Type{}, false
 }
 
 // ParseSeverity decodes severity from text.

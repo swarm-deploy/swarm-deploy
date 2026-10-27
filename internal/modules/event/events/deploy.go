@@ -8,8 +8,10 @@ import (
 )
 
 type DeployEvent struct {
-	// DeploymentID references a persisted apply attempt and its safe desired input.
-	DeploymentID    string
+	// DeploymentID references the persisted desired state and its safe input.
+	DeploymentID string
+	// AttemptID references the execution which produced this event.
+	AttemptID       string
 	StackName       string
 	Commit          string
 	Services        []compose.Service
@@ -45,6 +47,7 @@ func (d *DeploySuccess) Details() map[string]string {
 		AttributeStackName:    d.StackName,
 		AttributeCommit:       d.Commit,
 		AttributeDeploymentID: d.DeploymentID,
+		AttributeAttemptID:    d.AttemptID,
 		AttributeStatus:       "success",
 	}
 }
@@ -62,6 +65,7 @@ func (d *DeployFailed) Details() map[string]string {
 		AttributeStackName:    d.StackName,
 		AttributeCommit:       d.Commit,
 		AttributeDeploymentID: d.DeploymentID,
+		AttributeAttemptID:    d.AttemptID,
 		AttributeStatus:       "failed",
 		AttributeErrorCode:    d.ErrorCode,
 		AttributeStage:        d.Stage,

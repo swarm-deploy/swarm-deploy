@@ -28,7 +28,7 @@ type ListFilter struct {
 	ResourceType model.ResourceType
 	// ResourceID selects alerts for one resource identifier; empty returns every resource.
 	ResourceID string
-	// DeploymentID selects alerts correlated with one deployment attempt; empty returns every deployment.
+	// DeploymentID selects alerts correlated with one desired-state deployment; empty returns every deployment.
 	DeploymentID string
 	// Limit limits the number of returned alerts; zero means unlimited.
 	Limit int

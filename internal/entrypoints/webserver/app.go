@@ -2,7 +2,9 @@ package webserver
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"html"
 	"io/fs"
 	"net/http"
 	"path"
@@ -21,6 +23,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
 	recommendationstore "github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/logparser"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"github.com/swarm-deploy/swarm-deploy/ui"
@@ -34,12 +37,13 @@ type Application struct {
 
 const indexHtml = "index.html"
 
-func buildSPAFallbackHandler(uiFS fs.FS) http.Handler {
+func buildSPAFallbackHandler(uiFS fs.FS, basePath string) http.Handler {
 	fileServer := http.FileServer(http.FS(uiFS))
 	indexBytes, indexErr := fs.ReadFile(uiFS, indexHtml)
 	if indexErr != nil {
 		panic(fmt.Errorf("read embedded index.html: %w", indexErr))
 	}
+	indexBytes = injectRuntimeConfig(indexBytes, basePath)
 
 	serveIndex := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -79,8 +83,88 @@ func buildSPAFallbackHandler(uiFS fs.FS) http.Handler {
 	})
 }
 
+func injectRuntimeConfig(indexBytes []byte, basePath string) []byte {
+	baseHref := basePath
+	if baseHref != "/" {
+		baseHref += "/"
+	}
+
+	runtimeConfig, err := json.Marshal(struct {
+		BasePath string `json:"basePath"`
+	}{BasePath: basePath})
+	if err != nil {
+		panic(fmt.Errorf("encode UI runtime config: %w", err))
+	}
+
+	injection := fmt.Sprintf(
+		`<base href="%s"><script id="swarm-deploy-runtime-config" type="application/json">%s</script>`,
+		html.EscapeString(baseHref),
+		runtimeConfig,
+	)
+
+	return bytes.Replace(indexBytes, []byte("<head>"), []byte("<head>"+injection), 1)
+}
+
+func buildRouter(basePath string, apiHandler http.Handler, uiFS fs.FS) http.Handler {
+	mux := http.NewServeMux()
+
+	mountedAPIHandler := apiHandler
+	mountedUIHandler := buildSPAFallbackHandler(uiFS, basePath)
+	if basePath != "/" {
+		mountedAPIHandler = http.StripPrefix(basePath, mountedAPIHandler)
+		mountedUIHandler = http.StripPrefix(basePath, mountedUIHandler)
+	}
+
+	mux.Handle(joinBasePath(basePath, "/api/"), mountedAPIHandler)
+	mux.HandleFunc(joinBasePath(basePath, "/ui"), func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, joinBasePath(basePath, "/overview"), http.StatusMovedPermanently)
+	})
+	mux.HandleFunc(joinBasePath(basePath, "/ui/"), func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, joinBasePath(basePath, "/overview"), http.StatusMovedPermanently)
+	})
+	mux.Handle(basePathWithTrailingSlash(basePath), mountedUIHandler)
+
+	return mux
+}
+
+func joinBasePath(basePath, route string) string {
+	if basePath == "/" {
+		return route
+	}
+
+	return basePath + route
+}
+
+func basePathWithTrailingSlash(basePath string) string {
+	if basePath == "/" {
+		return basePath
+	}
+
+	return basePath + "/"
+}
+
+func routeFinderWithBasePath(basePath string, findRoute middlewares.RouteFinder) middlewares.RouteFinder {
+	if basePath == "/" {
+		return findRoute
+	}
+
+	return func(method, requestPath string) (generated.Route, bool) {
+		if requestPath != basePath && !strings.HasPrefix(requestPath, basePath+"/") {
+			return generated.Route{}, false
+		}
+
+		requestPath = strings.TrimPrefix(requestPath, basePath)
+		if requestPath == "" {
+			requestPath = "/"
+		}
+
+		return findRoute(method, requestPath)
+	}
+}
+
 func NewApplication(
 	address string,
+	basePath string,
 	stackProvider config.StackProvider,
 	gitopsModule *gitops.Module,
 	swarmService *swarm.Swarm,
@@ -89,6 +173,7 @@ func NewApplication(
 	recommendations recommendationstore.Store,
 	alerts alertstore.Store,
 	assistantService assistant.Assistant,
+	taskLogs *logparser.Service,
 	authCfg config.AuthenticationSpec,
 ) (*Application, error) {
 	h := handlers.New(
@@ -104,7 +189,9 @@ func NewApplication(
 		resourcesModule.SecretManagers,
 		recommendations,
 		alerts,
-		assistantService, gitopsModule.Deployments,
+		assistantService,
+		gitopsModule.Deployments,
+		taskLogs,
 	)
 
 	apiHandler, err := generated.NewServer(h, h, generated.WithErrorHandler(handlers.HandleHTTPError))
@@ -112,27 +199,15 @@ func NewApplication(
 		return nil, fmt.Errorf("build ogen api server: %w", err)
 	}
 
-	mux := http.NewServeMux()
-	mux.Handle("/api/", apiHandler)
-
-	uiHandler := buildSPAFallbackHandler(ui.FS)
-	mux.HandleFunc("/ui", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/overview", http.StatusMovedPermanently)
-	})
-	mux.HandleFunc("/ui/", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/overview", http.StatusMovedPermanently)
-	})
-	mux.Handle("/", uiHandler)
-
-	handler := http.Handler(mux)
+	handler := buildRouter(basePath, apiHandler, ui.FS)
 	auth, err := authenticator.Create(authCfg)
 	if err != nil {
 		return nil, fmt.Errorf("build authenticator: %w", err)
 	}
 
 	handler = middlewares.NewLog(
-		middlewares.Authorize(handler, auth, eventModule.Dispatcher),
-		apiHandler.FindRoute,
+		middlewares.Authorize(handler, auth, eventModule.Dispatcher, basePath),
+		routeFinderWithBasePath(basePath, apiHandler.FindRoute),
 	)
 
 	if tracing.Enabled() {

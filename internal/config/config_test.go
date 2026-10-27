@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -19,6 +20,9 @@ func TestLoadWithStacksFile(t *testing.T) {
 stacks:
   - name: app
     composeFile: app/docker-compose.yml
+    sync:
+      policy:
+        selfHeal: false
   - name: worker
     composeFile: worker/docker-compose.yml
 `)
@@ -44,7 +48,36 @@ stacks:
 	stacks := cfg.Stacks()
 	require.Len(t, stacks, 2, "expected 2 stacks")
 	assert.Equal(t, "app", stacks[0].Name, "unexpected first stack")
+	require.NotNil(t, stacks[0].Sync.Policy.SelfHeal, "expected stack self-heal override")
+	assert.False(t, *stacks[0].Sync.Policy.SelfHeal, "unexpected stack self-heal override")
 	assert.Equal(t, "worker", stacks[1].Name, "unexpected second stack")
+}
+
+func TestLoadAgeIdentityIndependentlyOfRotation(t *testing.T) {
+	for _, enabled := range []bool{false, true} {
+		t.Run(fmt.Sprint(enabled), func(t *testing.T) {
+			dir := t.TempDir()
+			identityPath := filepath.Join(dir, "identity")
+			require.NoError(t, os.WriteFile(identityPath, []byte("private-identity-marker"), 0o600))
+			path := filepath.Join(dir, "swarm-deploy.yaml")
+			require.NoError(t, os.WriteFile(path, fmt.Appendf(nil, `git:
+  repository: https://example.com/repo.git
+sync:
+  mode: pull
+stacks:
+  file: ./stacks.yaml
+secretRotation:
+  enabled: %t
+  age:
+    identityFile: %s
+`, enabled, identityPath), 0o600))
+			cfg, err := Load(path)
+			require.NoError(t, err)
+			assert.Equal(t, enabled, cfg.Spec.SecretRotation.Enabled)
+			assert.Equal(t, identityPath, cfg.Spec.SecretRotation.Age.IdentityFile.Path)
+			assert.Equal(t, []byte("private-identity-marker"), cfg.Spec.SecretRotation.Age.IdentityFile.Content)
+		})
+	}
 }
 
 func TestLoadAppliesDefaultSyncInterval(t *testing.T) {
@@ -111,6 +144,7 @@ git:
 sync:
   mode: pull
   policy:
+    selfHeal: true
     image:
       tag:
         required: true
@@ -122,6 +156,7 @@ stacks:
 
 	cfg, err := Load(filepath.Join(dir, "swarm-deploy.yaml"))
 	require.NoError(t, err)
+	assert.True(t, cfg.Spec.Sync.Policy.SelfHeal)
 	assert.True(t, cfg.Spec.Sync.Policy.Image.Enabled())
 	assert.Equal(t, ImageTagPolicySpec{Required: true, NoLatest: true, OnlySHA: true},
 		cfg.Spec.Sync.Policy.Image.Tag)
@@ -379,6 +414,7 @@ stacks:
   file: ./stacks.yaml
 web:
   address: ":18080"
+  basePath: /infrastructure/swarm/
 `)
 	if err := os.WriteFile(configPath, configPayload, 0o600); err != nil {
 		require.NoError(t, err, "write config file")
@@ -387,6 +423,7 @@ web:
 	cfg, err := Load(configPath)
 	require.NoError(t, err, "load config")
 	assert.Equal(t, ":18080", cfg.Spec.Web.Address, "expected web.address")
+	assert.Equal(t, "/infrastructure/swarm", cfg.Spec.Web.BasePath, "expected normalized web.basePath")
 	assert.Equal(t, defaultWebhookAddress, cfg.Spec.Sync.Webhook.Address, "expected sync.webhook.address")
 }
 
@@ -417,7 +454,71 @@ stacks:
 	cfg, err := Load(configPath)
 	require.NoError(t, err, "load config")
 	assert.Equal(t, defaultWebAddress, cfg.Spec.Web.Address, "expected web.address")
+	assert.Equal(t, defaultWebBasePath, cfg.Spec.Web.BasePath, "expected web.basePath")
 	assert.Equal(t, defaultWebhookAddress, cfg.Spec.Sync.Webhook.Address, "expected sync.webhook.address")
+}
+
+func TestValidateWebBasePath(t *testing.T) {
+	testCases := []struct {
+		name     string
+		basePath string
+		wantErr  string
+	}{
+		{name: "root", basePath: "/"},
+		{name: "nested", basePath: "/infrastructure/swarm"},
+		{name: "unreserved characters", basePath: "/Swarm-Deploy_v1.2~/metrics"},
+		{name: "wildcard braces", basePath: "/swarm/{stack}", wantErr: "invalid character"},
+		{name: "unclosed wildcard", basePath: "/swarm/{stack", wantErr: "invalid character"},
+		{name: "encoded slash", basePath: "/swarm%2Fdeploy", wantErr: "percent-encoded"},
+		{name: "encoded dot segments", basePath: "/swarm/%2e%2e/admin", wantErr: "percent-encoded"},
+		{name: "encoded wildcard", basePath: "/swarm/%7Bstack%7D", wantErr: "percent-encoded"},
+		{name: "double encoded segment", basePath: "/swarm/%252f", wantErr: "percent-encoded"},
+		{name: "invalid escape", basePath: "/swarm/%GG", wantErr: "percent-encoded"},
+		{name: "space", basePath: "/swarm deploy", wantErr: "invalid character"},
+		{name: "control character", basePath: "/swarm\nadmin", wantErr: "invalid character"},
+		{name: "colon", basePath: "/swarm:admin", wantErr: "invalid character"},
+		{name: "relative", basePath: "infrastructure/swarm", wantErr: "must start with /"},
+		{name: "query", basePath: "/swarm?mode=all", wantErr: "without query"},
+		{name: "fragment", basePath: "/swarm#status", wantErr: "without query"},
+		{name: "backslash", basePath: `/swarm\\admin`, wantErr: "without query"},
+		{name: "empty segment", basePath: "/infrastructure//swarm", wantErr: "empty path segments"},
+		{name: "current segment", basePath: "/infrastructure/./swarm", wantErr: ". or .."},
+		{name: "parent segment", basePath: "/infrastructure/../swarm", wantErr: ". or .."},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			cfg := &Config{Spec: Spec{Web: WebSpec{BasePath: testCase.basePath}}}
+			err := errors.Join(cfg.validateWeb()...)
+			if testCase.wantErr == "" {
+				require.NoError(t, err, "validate web base path")
+				return
+			}
+
+			require.Error(t, err, "expected validation error")
+			assert.Contains(t, err.Error(), testCase.wantErr, "unexpected validation error")
+		})
+	}
+}
+
+func TestNormalizeWebBasePath(t *testing.T) {
+	testCases := []struct {
+		input string
+		want  string
+	}{
+		{input: "", want: "/"},
+		{input: "/", want: "/"},
+		{input: "/swarm/", want: "/swarm"},
+		{input: "/infrastructure/swarm/", want: "/infrastructure/swarm"},
+		{input: "/swarm//", want: "/swarm//"},
+		{input: "//", want: "//"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(fmt.Sprintf("%q", testCase.input), func(t *testing.T) {
+			assert.Equal(t, testCase.want, normalizeWebBasePath(testCase.input))
+		})
+	}
 }
 
 func TestReloadPrefersFirstAvailableBaseDir(t *testing.T) {

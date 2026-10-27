@@ -12,21 +12,29 @@ import (
 	pipe "github.com/artarts36/gopipe"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/drift"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/pruner"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
+const (
+	renderedComposeDirectoryMode = 0o755
+	renderedComposeFileMode      = 0o600
+	initJobPersistenceTimeout    = 2 * time.Second
+)
+
 type pipelinePayload struct {
 	// Attempt is persisted before any external apply.
-	Attempt      *deployment.Deployment
-	Stack        config.StackSpec
-	Commit       string
-	IsNewDigest  bool
-	IsManualSync bool
+	Attempt          *deploymentmodel.Attempt
+	Stack            config.StackSpec
+	Commit           string
+	IsNewDigest      bool
+	IsManualSync     bool
+	HasPreviousDrift bool
 
 	Desired             *compose.File
 	DesiredMutated      bool
@@ -38,6 +46,9 @@ type pipelinePayload struct {
 	PrunedServices []string
 	CleanupResult  rotatedCleanupResult
 	Drift          map[string]drift.ServiceDrift
+	RemainingDrift map[string]drift.ServiceDrift
+	Remediations   map[string]serviceRemediation
+	RemediationErr []error
 }
 
 func (r *Reconciler) attachPipeline() {
@@ -115,18 +126,31 @@ func (r *Reconciler) attachPipeline() {
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "prune orphaned services",
-		When: pipe.When(func(payload *pipelinePayload) bool {
-			return payload.Attempt != nil || payload.IsManualSync
-		}),
-		Run: r.pruneOrphanedServices,
+		Run:  r.pruneOrphanedServices,
 	})
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "analyze drift",
 		When: pipe.When(func(payload *pipelinePayload) bool {
-			return payload.Attempt == nil || payload.IsManualSync
+			return payload.Attempt == nil || payload.IsManualSync || payload.HasPreviousDrift
 		}),
 		Run: r.analyzeDrift,
+	})
+
+	r.pipeline.Add(pipe.Step[*pipelinePayload]{
+		Name: "self-heal drift",
+		When: pipe.When(func(payload *pipelinePayload) bool {
+			return payload.Attempt == nil && len(payload.Drift) > 0
+		}),
+		Run: r.selfHealDrift,
+	})
+
+	r.pipeline.Add(pipe.Step[*pipelinePayload]{
+		Name: "verify self-heal",
+		When: pipe.When(func(payload *pipelinePayload) bool {
+			return hasRemediationAttempt(payload.Remediations)
+		}),
+		Run: r.verifySelfHeal,
 	})
 }
 
@@ -143,9 +167,11 @@ func (r *Reconciler) populateEnvironment(_ context.Context, payload *pipelinePay
 func (r *Reconciler) addManagedLabel(_ context.Context, payload *pipelinePayload) error {
 	changed := false
 
-	for _, service := range payload.Desired.Compose.Services {
-		present := service.Deploy.Labels.Add(labelsdict.ServiceManagedLabelKey, labelsdict.ServiceManagedLabelValue)
-		if !present {
+	for i, service := range payload.Desired.Compose.Services {
+		serviceChanged := service.Deploy.Labels.Add(labelsdict.ServiceManagedLabelKey, labelsdict.ServiceManagedLabelValue)
+
+		if serviceChanged {
+			payload.Desired.Compose.Services[i] = service
 			changed = true
 		}
 	}
@@ -156,11 +182,11 @@ func (r *Reconciler) addManagedLabel(_ context.Context, payload *pipelinePayload
 	return nil
 }
 
-func (r *Reconciler) rotateSecrets(_ context.Context, payload *pipelinePayload) error {
+func (r *Reconciler) rotateSecrets(ctx context.Context, payload *pipelinePayload) error {
 	// Rotation mutates secret/config object names in the in-memory compose model.
 	// We keep digest based on original source, but deploy a rendered, rotated file.
 	changed, err := r.composeRotator.Rotate(
-		payload.Desired,
+		ctx, payload.Desired,
 		payload.Stack.Name,
 		r.cfg.Spec.SecretRotation.HashLength,
 		r.cfg.Spec.SecretRotation.IncludePath,
@@ -176,14 +202,14 @@ func (r *Reconciler) rotateSecrets(_ context.Context, payload *pipelinePayload) 
 	return nil
 }
 
-func (r *Reconciler) writeRenderedCompose(_ context.Context, payload *pipelinePayload) error {
+func (r *Reconciler) writeRenderedCompose(ctx context.Context, payload *pipelinePayload) error {
 	renderedDir := filepath.Join(r.cfg.Spec.DataDir, "rendered")
 	// Persist rendered files under data dir so deploy step can use a stable path.
-	if err := os.MkdirAll(renderedDir, 0o755); err != nil {
+	if err := r.fileSystem.CreateDirectory(ctx, renderedDir, renderedComposeDirectoryMode); err != nil {
 		return fmt.Errorf("create rendered dir: %w", err)
 	}
 
-	rendered := stackDeployCompose(payload.Desired)
+	rendered := stackDeployCompose(payload.Desired, payload.Stack.Name)
 	r.normalizeRenderedObjectFilePaths(rendered)
 
 	content, err := rendered.MarshalYAML()
@@ -193,7 +219,7 @@ func (r *Reconciler) writeRenderedCompose(_ context.Context, payload *pipelinePa
 
 	target := filepath.Join(renderedDir, payload.Stack.Name+".yaml")
 	payload.RenderedComposePath = target
-	err = os.WriteFile(target, content, 0o600)
+	err = r.fileSystem.WriteFile(ctx, target, content, renderedComposeFileMode)
 	if err != nil {
 		return fmt.Errorf("write rendered compose %s: %w", target, err)
 	}
@@ -207,24 +233,66 @@ func (r *Reconciler) cleanupRenderedComposeFile(ctx context.Context, payload *pi
 	if payload.RenderedComposePath == "" {
 		return
 	}
-	if err := os.Remove(payload.RenderedComposePath); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := r.fileSystem.RemoveFile(ctx, payload.RenderedComposePath); err != nil && !errors.Is(err, os.ErrNotExist) {
 		slog.WarnContext(ctx, "failed to clean up rendered compose file", "path", payload.RenderedComposePath, "err", err)
 	}
 }
 
 func (r *Reconciler) deployStack(ctx context.Context, payload *pipelinePayload) error {
-	return r.deployer.DeployStack(
+	result, deployErr := r.deployer.DeployStack(
 		ctx,
 		payload.Stack.Name,
 		payload.Desired.Path,
 		payload.DeployComposePath,
 		payload.Desired.Compose,
 	)
+	r.persistInitJobs(ctx, payload.Attempt.ID, result.InitJobs)
+	return deployErr
+}
+
+func (r *Reconciler) persistInitJobs(ctx context.Context, attemptID string, results []deployer.InitJobResult) {
+	for index, result := range results {
+		r.persistInitJobExecution(ctx, deploymentmodel.InitJobExecution{
+			AttemptID:     attemptID,
+			Ordinal:       index + 1,
+			ServiceName:   result.ServiceName,
+			JobName:       result.JobName,
+			Status:        deploymentmodel.InitJobStatus(result.Status),
+			StartedAt:     result.StartedAt,
+			FinishedAt:    result.FinishedAt,
+			Logs:          result.Logs,
+			LogsAvailable: result.LogsAvailable,
+			LogsTruncated: result.LogsTruncated,
+		})
+	}
+}
+
+func (r *Reconciler) persistInitJobExecution(
+	ctx context.Context,
+	execution deploymentmodel.InitJobExecution,
+) {
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), initJobPersistenceTimeout)
+	defer cancel()
+	if err := r.deployments.SaveInitJobExecution(persistCtx, execution); err != nil {
+		slog.WarnContext(
+			persistCtx,
+			"persist init job execution",
+			slog.String("attempt_id", execution.AttemptID),
+			slog.String("service_name", execution.ServiceName),
+			slog.String("job_name", execution.JobName),
+			slog.Any("err", err),
+		)
+	}
 }
 
 func needsRenderedCompose(payload *pipelinePayload) bool {
 	if payload.DesiredMutated {
 		return true
+	}
+	for _, secret := range payload.Desired.Compose.Secrets {
+		if !secret.External {
+			return true
+		}
 	}
 
 	for _, service := range payload.Desired.Compose.Services {
@@ -236,12 +304,25 @@ func needsRenderedCompose(payload *pipelinePayload) bool {
 	return false
 }
 
-func stackDeployCompose(desired *compose.File) *compose.File {
+func stackDeployCompose(desired *compose.File, stackName string) *compose.File {
 	rendered := *desired
 	rendered.Compose = desired.Compose
 	rendered.Compose.Services = append(compose.Services(nil), desired.Compose.Services...)
 	rendered.Compose.Configs = cloneObjects(desired.Compose.Configs)
 	rendered.Compose.Secrets = cloneObjects(desired.Compose.Secrets)
+
+	// The API reconciler owns secret creation. Docker CLI receives references
+	// for all API-managed secrets, independently of their source format.
+	for alias, secret := range rendered.Compose.Secrets {
+		if secret.External {
+			continue
+		}
+		name := secret.Name
+		if name == "" {
+			name = stackName + "_" + alias
+		}
+		rendered.Compose.Secrets[alias] = &compose.Secret{Name: name, External: true}
+	}
 
 	for i := range rendered.Compose.Services {
 		rendered.Compose.Services[i].InitJobs = nil
@@ -282,8 +363,8 @@ func (r *Reconciler) normalizeRenderedObjectFilePaths(file *compose.File) {
 	}
 }
 
-func normalizeEnvFiles(repoDir, baseDir string, envFiles []compose.EnvFile) []compose.EnvFile {
-	result := make([]compose.EnvFile, len(envFiles))
+func normalizeEnvFiles(repoDir, baseDir string, envFiles compose.EnvFiles) compose.EnvFiles {
+	result := make(compose.EnvFiles, len(envFiles))
 
 	for i, file := range envFiles {
 		result[i] = file
@@ -350,7 +431,7 @@ func (r *Reconciler) pruneOrphanedServices(ctx context.Context, payload *pipelin
 
 func (r *Reconciler) cleanRotatedResources(ctx context.Context, payload *pipelinePayload) error {
 	desiredConfigs, desiredSecrets, err := r.composeRotator.DesiredResourceNames(
-		payload.Desired,
+		ctx, payload.Desired,
 		payload.Stack.Name,
 		r.cfg.Spec.SecretRotation.HashLength,
 		r.cfg.Spec.SecretRotation.IncludePath,
@@ -444,6 +525,7 @@ func (r *Reconciler) analyzeDrift(_ context.Context, payload *pipelinePayload) e
 	})
 
 	payload.Drift = driftResp.Drifts
+	payload.RemainingDrift = driftResp.Drifts
 
 	return err
 }

@@ -21,7 +21,10 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 	"go.uber.org/mock/gomock"
 )
 
@@ -32,6 +35,13 @@ func TestReconcileRemovesRenderedComposeAfterEarlyPipelineFailure(t *testing.T) 
 	repoDir := t.TempDir()
 	renderedPath := filepath.Join(repoDir, ".data", "rendered", "app.yaml")
 	errAfterRender := errors.New("failed after render")
+	spanRecorder := tracetest.NewSpanRecorder()
+	tracerProvider := sdktrace.NewTracerProvider(
+		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+		sdktrace.WithSpanProcessor(spanRecorder),
+	)
+	t.Cleanup(func() { require.NoError(t, tracerProvider.Shutdown(context.Background())) })
+	fileSystem := fs.NewTraceableFileSystem(tracerProvider, fs.NewLocalFileSystem())
 
 	require.NoError(t, writeComposeFile(repoDir), "write compose")
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
@@ -42,8 +52,9 @@ func TestReconcileRemovesRenderedComposeAfterEarlyPipelineFailure(t *testing.T) 
 		event:            &dispatcher.NopDispatcher{},
 		deployMetrics:    &metrics.NopDeploys{},
 		stateStore:       stateStore,
+		fileSystem:       fileSystem,
 		composeLoader:    compose.NewFileLoader(),
-		composeRotator:   NewRotator(),
+		composeRotator:   NewRotator(fileSystem),
 		envFilePopulator: compose.NewEnvFilePopulator(),
 		pending:          map[string]pendingCompletion{},
 	}
@@ -71,6 +82,11 @@ func TestReconcileRemovesRenderedComposeAfterEarlyPipelineFailure(t *testing.T) 
 	require.Error(t, err, "expected reconciliation failure")
 	assert.ErrorIs(t, err, errAfterRender, "unexpected reconciliation error")
 	assert.NoFileExists(t, renderedPath, "rendered compose must be removed after early failure")
+	spanNames := make([]string, 0, len(spanRecorder.Ended()))
+	for _, span := range spanRecorder.Ended() {
+		spanNames = append(spanNames, span.Name())
+	}
+	assert.ElementsMatch(t, []string{"fs.CreateDirectory", "fs.WriteFile", "fs.RemoveFile"}, spanNames)
 }
 
 func TestRenderedComposeCleanupFailureDoesNotFailReconciliation(t *testing.T) {
@@ -87,13 +103,13 @@ func TestRenderedComposeCleanupFailureDoesNotFailReconciliation(t *testing.T) {
 	require.NoError(t, writeComposeFile(repoDir), "write compose")
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
 	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", composePath, renderedPath, gomock.Any()).
-		DoAndReturn(func(_ context.Context, _, _, deployComposePath string, _ compose.Compose) error {
+		DoAndReturn(func(_ context.Context, _, _, deployComposePath string, _ compose.Compose) (deployer.Result, error) {
 			require.FileExists(t, deployComposePath, "rendered compose must exist during deployment")
 			require.NoError(t, os.Remove(deployComposePath), "remove rendered compose in deployer")
 			require.NoError(t, os.Mkdir(deployComposePath, 0o700), "replace rendered compose with directory")
 			require.NoError(t, os.WriteFile(filepath.Join(deployComposePath, "block"), []byte("block"), 0o600),
 				"prevent directory removal")
-			return nil
+			return deployer.Result{}, nil
 		})
 	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
 
@@ -109,9 +125,10 @@ func TestRenderedComposeCleanupFailureDoesNotFailReconciliation(t *testing.T) {
 		event:          &dispatcher.NopDispatcher{},
 		deployMetrics:  &metrics.NopDeploys{},
 		stateStore:     stateStore,
+		fileSystem:     fs.NewLocalFileSystem(),
 		pruner:         pruner.NewServicePruner(serviceManager, &dispatcher.NopDispatcher{}, config.SyncPolicySpec{}),
 		composeLoader:  compose.NewFileLoader(),
-		composeRotator: NewRotator(),
+		composeRotator: NewRotator(fs.NewLocalFileSystem()),
 		driftAnalyzer:  nil,
 		serviceManager: serviceManager,
 		pending:        map[string]pendingCompletion{},

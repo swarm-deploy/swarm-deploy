@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/format/pktline"
@@ -59,7 +60,7 @@ func ClassifyPullError(err error, repository string, authType config.GitAuthType
 	}
 
 	category := classifyFailure(err, repository, authType)
-	return &PullError{category: category, diagnostic: failureDiagnostic(category)}
+	return &PullError{category: category, diagnostic: safePullDiagnostic(err, category)}
 }
 
 // PullFailure returns the classification and sanitized diagnostic for a pull failure.
@@ -100,7 +101,9 @@ func classifyFailure(err error, repository string, authType config.GitAuthType) 
 		return FailureSSHHostVerification
 	}
 	var networkError net.Error
-	if errors.As(err, &networkError) || errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
+	if gitErrorAs(err, &networkError) || gitErrorIs(err, syscall.ECONNREFUSED) ||
+		gitErrorIs(err, syscall.EHOSTUNREACH) || gitErrorIs(err, syscall.ENETUNREACH) ||
+		gitErrorIs(err, context.DeadlineExceeded) || gitErrorIs(err, context.Canceled) {
 		return FailureNetwork
 	}
 
@@ -141,6 +144,77 @@ func gitHTTPStatus(err error) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+// gitErrorIs and gitErrorAs also inspect go-git's UnexpectedError.Err.
+// This wrapper is not guaranteed to implement Unwrap on all go-git versions.
+func gitErrorIs(err, target error) bool {
+	for err != nil {
+		if errors.Is(err, target) {
+			return true
+		}
+		unexpected, ok := err.(*plumbing.UnexpectedError)
+		if ok {
+			err = unexpected.Err
+		} else {
+			err = errors.Unwrap(err)
+		}
+	}
+	return false
+}
+
+func gitErrorAs(err error, target any) bool {
+	for err != nil {
+		if errors.As(err, target) {
+			return true
+		}
+		unexpected, ok := err.(*plumbing.UnexpectedError)
+		if ok {
+			err = unexpected.Err
+		} else {
+			err = errors.Unwrap(err)
+		}
+	}
+	return false
+}
+
+// safePullDiagnostic adds actionable detail from typed errors without persisting
+// transport error strings, which may contain Git credentials.
+func safePullDiagnostic(err error, category FailureCategory) string {
+	if category != FailureNetwork {
+		return failureDiagnostic(category)
+	}
+	var dnsError *net.DNSError
+	if gitErrorAs(err, &dnsError) {
+		return "Git repository DNS lookup failed"
+	}
+	if gitErrorIs(err, context.DeadlineExceeded) {
+		return "Git repository connection timed out"
+	}
+	var networkError net.Error
+	if gitErrorAs(err, &networkError) && networkError.Timeout() {
+		return "Git repository connection timed out"
+	}
+	if gitErrorIs(err, syscall.ECONNREFUSED) {
+		return "Git repository connection refused"
+	}
+	if gitErrorIs(err, syscall.EHOSTUNREACH) {
+		return "Git repository host unreachable"
+	}
+	if gitErrorIs(err, syscall.ENETUNREACH) {
+		return "Git repository network unreachable"
+	}
+	if status, ok := gitHTTPStatus(err); ok {
+		switch status {
+		case http.StatusBadGateway:
+			return "Git remote returned HTTP 502 (Bad Gateway)"
+		case http.StatusServiceUnavailable:
+			return "Git remote returned HTTP 503 (Service Unavailable)"
+		case http.StatusGatewayTimeout:
+			return "Git remote returned HTTP 504 (Gateway Timeout)"
+		}
+	}
+	return failureDiagnostic(category)
 }
 
 func failureDiagnostic(category FailureCategory) string {

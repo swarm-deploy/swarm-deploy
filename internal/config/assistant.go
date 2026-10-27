@@ -17,6 +17,8 @@ const (
 	AssistantToolNameDockerPluginList                   AssistantToolName = "docker_plugin_list"
 	AssistantToolNameDockerSecretList                   AssistantToolName = "docker_secret_list"
 	AssistantToolNameServiceLogsGet                     AssistantToolName = "service_logs_get"
+	AssistantToolNameServiceTaskList                    AssistantToolName = "service_task_list"
+	AssistantToolNameServiceTaskLogsGet                 AssistantToolName = "service_task_logs_get"
 	AssistantToolNameServiceSpecGet                     AssistantToolName = "service_spec_get"
 	AssistantToolNameDNSNameResolve                     AssistantToolName = "dns_name_resolve"
 	AssistantToolNameServiceWebRoutePing                AssistantToolName = "service_webroute_ping"

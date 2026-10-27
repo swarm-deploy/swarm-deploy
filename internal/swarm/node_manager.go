@@ -6,8 +6,6 @@ import (
 	"sort"
 
 	cerrdefs "github.com/containerd/errdefs"
-	dockerevents "github.com/docker/docker/api/types/events"
-	"github.com/docker/docker/api/types/filters"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
 )
@@ -51,18 +49,6 @@ func (m *nodeManager) DeleteLabel(ctx context.Context, nodeID string, key string
 	return m.updateLabels(ctx, nodeID, func(labels map[string]string) {
 		delete(labels, key)
 	})
-}
-
-// Watch subscribes to Docker node events stream.
-func (m *nodeManager) Watch(
-	ctx context.Context,
-) (<-chan dockerevents.Message, <-chan error, error) {
-	eventsFilter := filters.NewArgs(filters.Arg("type", string(dockerevents.NodeEventType)))
-	messages, errs := m.dockerClient.Events(ctx, dockerevents.ListOptions{
-		Filters: eventsFilter,
-	})
-
-	return messages, errs, nil
 }
 
 func (m *nodeManager) updateLabels(ctx context.Context, nodeID string, mutate func(labels map[string]string)) error {

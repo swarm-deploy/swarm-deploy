@@ -20,6 +20,8 @@ sync:
   policy:
     # Removes orphaned managed services that are no longer defined in compose.
     prune: true
+    # Reapplies services whose live state differs from the desired state.
+    selfHeal: true
     # Optional service image reference rules. All are disabled by default.
     image:
       tag:
@@ -83,6 +85,9 @@ notifications:
 
 # Secret/config name rotation settings.
 secretRotation:
+  # Optional age identity file; works even when rotation is disabled.
+  # age:
+  #   identityFile: /run/secrets/swarm_deploy_age_identity
   # Enable rotation.
   enabled: true
   # Hash suffix length.
@@ -145,6 +150,8 @@ swarm:
 web:
   # Single web server listen address for UI and API.
   address: ":8080"
+  # URL prefix for UI and API routes. Use / for root deployment.
+  basePath: /
 
 # Dedicated health/metrics server.
 healthServer:

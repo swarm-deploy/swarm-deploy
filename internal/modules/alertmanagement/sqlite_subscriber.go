@@ -51,6 +51,14 @@ func (s *SQLSubscriber) Handle(ctx context.Context, event events.Envelope) error
 		resource = "repository:" + e.Repository
 	case *events.GitPullSucceeded:
 		resource = "repository:" + e.Repository
+	case *events.ServiceMissed:
+		resource = "service:" + e.StackName + "/" + e.ServiceName
+	case *events.ServiceDrifted:
+		resource = "service:" + e.StackName + "/" + e.ServiceName
+	case *events.ServiceDriftFixed:
+		resource = "service:" + e.StackName + "/" + e.ServiceName
+	case *events.ServiceRemovedFromDesired:
+		resource = "service:" + e.StackName + "/" + e.ServiceName
 	default:
 		return nil
 	}

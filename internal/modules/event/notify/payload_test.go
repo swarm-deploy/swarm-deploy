@@ -30,6 +30,9 @@ func TestAssistantNotificationPayloadOmitsPrompt(t *testing.T) {
 
 func TestEveryConfigurableEventHasTemplateContract(t *testing.T) {
 	for _, eventType := range events.Types {
+		if !eventType.IsPublic() {
+			continue
+		}
 		eventType := eventType.Name()
 		t.Run(string(eventType), func(t *testing.T) {
 			source, ok := StandardTemplate(eventType)
@@ -42,4 +45,12 @@ func TestEveryConfigurableEventHasTemplateContract(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestServiceRemovedFromDesiredHasNoDirectNotificationContract(t *testing.T) {
+	assert.False(t, events.TypeNameServiceRemovedFromDesired.Valid())
+	_, standard := StandardTemplate(events.TypeNameServiceRemovedFromDesired)
+	assert.False(t, standard)
+	_, reference := ReferencePayloads(events.TypeNameServiceRemovedFromDesired)
+	assert.False(t, reference)
 }

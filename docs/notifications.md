@@ -11,7 +11,7 @@ The removed `notifications.on` key is rejected; no compatibility alias is provid
 ## Alert lifecycle
 
 Notification configuration uses the exact PascalCase alert names `SyncFailed`,
-`NodeDisconnected`, and `GitRepositoryUnavailable`.
+`NodeDisconnected`, `GitRepositoryUnavailable`, and `ServiceDrift`.
 The special `default` key remains the fallback rule. Internal alert kinds and
 fingerprints keep their existing snake_case identifiers.
 A kind rule replaces `alerts.default`, and an omitted `alerts.default` selects built-in
@@ -35,7 +35,7 @@ Alert templates use the shared Go template renderer. The typed fields at the roo
 `DeploymentID`, `ResolvedAt` (`*time.Time`), `Resolution` and `ResolutionReason`.
 For example, `{{ .ResourceID }}` is valid; `.alert.Title` and `.event.StackName` are not.
 `DeploymentID` is populated for synchronization failures created after a deployment
-attempt starts. A notification can link directly to its UI modal with
+Attempt starts. A notification can link directly to its UI modal with
 `/deployments?deployment_id={{ .DeploymentID }}`. Preparation failures may leave it empty.
 Custom opened and resolved templates are validated when configuration loads, with the
 exact path such as `notifications.alerts["SyncFailed"].telegram[0].resolved.message`
@@ -74,9 +74,9 @@ All payloads have `ID`, `Type`, and `OccurredAt` (`time.Time`, UTC). Most also p
 
 | Event types | Payload fields |
 | --- | --- |
-| `DeploySuccess` | `ID`, `DeploymentID`, `Type`, `Status`, `StackName`, `Services` (`Name`, `Image`), `Commit`, `OccurredAt` |
+| `DeploySuccess` | `ID`, `DeploymentID`, `AttemptID`, `Type`, `Status`, `StackName`, `Services` (`Name`, `Image`), `Commit`, `OccurredAt` |
 | `NodeJoined`, `NodeConnected`, `NodeDisconnected` | `ID`, `Type`, `NodeID`, `NodeName`, `Role`, `Status`, `Message`, `OccurredAt` |
-| `ServiceMissed`, `ServicePruned`, `ServiceReplicasIncreased`, `ServiceReplicasDecreased`, `ServiceRestarted` | `ID`, `Type`, `StackName`, `ServiceName`, `Commit`, `Username`, `PreviousReplicas`, `CurrentReplicas`, `Message`, `OccurredAt` |
+| `ServiceMissed`, `ServiceDrifted`, `ServiceDriftFixed`, `ServicePruned`, `ServiceReplicasIncreased`, `ServiceReplicasDecreased`, `ServiceRestarted` | `ID`, `Type`, `StackName`, `ServiceName`, `Commit`, `Reason`, `Username`, `PreviousReplicas`, `CurrentReplicas`, `Message`, `OccurredAt` |
 | `ServiceCatalogUpdated`, `SyncManualStarted`, `WebhookReceived`, `NetworkCreated` | `ID`, `Type`, `StackName`, `Username`, `Queued`, `NetworkName`, `NetworkID`, `Driver`, `Message`, `OccurredAt` |
 | `UserAuthenticated` | `ID`, `Type`, `Username`, `Message`, `OccurredAt` |
 | `AssistantPromptInjectionDetected` | `ID`, `Type`, `Detector`, `Username`, `Message`, `OccurredAt` |
@@ -89,7 +89,9 @@ Shared template fields and serialized JSON names match Event History semantics:
 | `.StackName` | `stack_name` |
 | `.ServiceName` | `service_name` |
 | `.DeploymentID` | `deployment_id` |
+| `.AttemptID` | `attempt_id` |
 | `.Commit` | `commit` |
+| `.Reason` | `reason` |
 | `.Username` | `username` |
 | `.NodeID`, `.NodeName` | `node_id`, `node_name` |
 | `.NetworkID`, `.NetworkName` | `network_id`, `network_name` |

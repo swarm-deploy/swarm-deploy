@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
@@ -22,7 +23,7 @@ import (
 
 func TestSubscriberRepeatedDeliveryIsIdempotent(t *testing.T) {
 	ctrl := gomock.NewController(t)
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	store := modelstore.NewSQLStore(db)
@@ -75,7 +76,7 @@ func TestSubscriberRepeatedDeliveryIsIdempotent(t *testing.T) {
 
 func TestSubscriberProjectionAndChildEventAreAtomic(t *testing.T) {
 	ctrl := gomock.NewController(t)
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	store := modelstore.NewSQLStore(db)
@@ -110,7 +111,7 @@ func TestSubscriberProjectionAndChildEventAreAtomic(t *testing.T) {
 
 func TestSubscriberStaleDeploymentDoesNotPersistReceiptOrCatalog(t *testing.T) {
 	ctrl := gomock.NewController(t)
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	store := modelstore.NewSQLStore(db)
@@ -120,7 +121,8 @@ func TestSubscriberStaleDeploymentDoesNotPersistReceiptOrCatalog(t *testing.T) {
 		(id,stack,"commit",status,error_code,phase,started_at,finished_at,
 		 desired_payload,details_payload,changes_payload)
 		VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-		"current-deployment", "app", "commit", "succeeded", "", "completed", now, now, `{}`, `{}`, `[]`)
+		"current-deployment", "app", "commit", "succeeded", "", "completed", now, now,
+		`{}`, `{}`, `[]`)
 	require.NoError(t, err)
 	_, err = db.Exec(t.Context(),
 		"INSERT INTO desired_snapshots(stack,deployment_id) VALUES (?,?)", "app", "current-deployment")
@@ -282,7 +284,7 @@ func TestSubscriberHandle(t *testing.T) {
 			inspector := swarm.NewMockServiceManager(ctrl)
 			images := swarm.NewMockImageManager(ctrl)
 			configs := swarm.NewMockConfigManager(ctrl)
-			db, err := storage.Open(context.Background(), t.TempDir())
+			db, err := storage.OpenSQLite(context.Background(), t.TempDir())
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, db.Close()) })
 			store := modelstore.NewSQLStore(db)
@@ -292,7 +294,7 @@ func TestSubscriberHandle(t *testing.T) {
 				Services: inspector,
 				Images:   images,
 				Configs:  configs,
-			}, metadata.NewExtractor(), db, outbox.New(db))
+			}, metadata.NewExtractor(), db, eventbus.NewOutboxDispatcher(outbox.New(db)))
 			serviceRef := swarm.NewServiceReference("payments", "api")
 			testCase.setupMocks(inspector, images, serviceRef)
 
@@ -377,7 +379,7 @@ func TestSubscriberHandleLoadsWebRouteConfigs(t *testing.T) {
 			inspector := swarm.NewMockServiceManager(ctrl)
 			images := swarm.NewMockImageManager(ctrl)
 			configs := swarm.NewMockConfigManager(ctrl)
-			db, err := storage.Open(context.Background(), t.TempDir())
+			db, err := storage.OpenSQLite(context.Background(), t.TempDir())
 			require.NoError(t, err)
 			t.Cleanup(func() { require.NoError(t, db.Close()) })
 			store := modelstore.NewSQLStore(db)
@@ -429,7 +431,7 @@ func TestSubscriberHandleLoadsWebRouteConfigs(t *testing.T) {
 				Services: inspector,
 				Images:   images,
 				Configs:  configs,
-			}, metadata.NewExtractor(), db, outbox.New(db))
+			}, metadata.NewExtractor(), db, eventbus.NewOutboxDispatcher(outbox.New(db)))
 
 			err = sub.Handle(context.Background(), events.Envelope{ID: "deploy", Event: &events.DeploySuccess{
 				DeployEvent: events.DeployEvent{

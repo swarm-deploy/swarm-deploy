@@ -26,6 +26,23 @@ const loading = ref(false);
 const loadingError = ref("");
 const labelDialog = ref<LabelDialogState | null>(null);
 
+const possibleStaleNodeIDs = computed(() => {
+  const readyWorkers = new Map<string, Set<string>>();
+  for (const node of nodes.value) {
+    const hostname = normalize(node.hostname);
+    if (hostname && !isManager(node) && normalize(node.status) === "ready") {
+      const ids = readyWorkers.get(hostname) ?? new Set<string>();
+      ids.add(node.id);
+      readyWorkers.set(hostname, ids);
+    }
+  }
+  return new Set(nodes.value.filter((node) => {
+    const matching = readyWorkers.get(normalize(node.hostname));
+    return !isManager(node) && normalize(node.status) === "down" &&
+      matching !== undefined && [...matching].some((id) => id !== node.id);
+  }).map((node) => node.id));
+});
+
 const nodeSummary = computed(() => {
   const total = nodes.value.length;
   const ready = nodes.value.filter((node) => normalize(node.status) === "ready").length;
@@ -259,6 +276,12 @@ onMounted(() => {
             </span>
           </div>
         </div>
+
+        <p v-if="possibleStaleNodeIDs.has(node.id)" class="node-stale-hint" role="note">
+          <strong>Possible stale worker entry.</strong>
+          Another Ready worker has the same hostname but a different Node ID. This can happen after rejoining a Swarm.
+          Verify with <code>docker node ls</code> on a manager before taking action.
+        </p>
 
         <div class="node-meta-list">
           <div class="node-meta-row">

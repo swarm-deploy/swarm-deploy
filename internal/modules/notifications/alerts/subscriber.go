@@ -23,6 +23,7 @@ import (
 
 const (
 	telegramMessageLimit     = 4096
+	telegramHTMLParseMode    = "HTML"
 	syncFailedErrorTruncated = "\n\n[error truncated]"
 )
 
@@ -50,7 +51,7 @@ func parseSubscriptionID(id string) (events.AlertRecipient, error) {
 
 // Register subscribes all configured and persisted physical destinations to both transitions.
 func Register(
-	ctx context.Context, bus dispatcher.Dispatcher, db *storage.Database, spec config.NotificationSpec,
+	ctx context.Context, bus dispatcher.Dispatcher, db storage.Database, spec config.NotificationSpec,
 ) error {
 	store := NewStore(db)
 	if err := store.PruneCompleted(ctx); err != nil {
@@ -75,19 +76,26 @@ func Register(
 	for _, recipient := range known {
 		recipients[recipient] = true
 	}
-	pending, err := store.PendingSubscriptions(ctx)
+	pending, err := outbox.New(db).ListDeliveries(ctx, outbox.ListDeliveriesFilter{
+		SubscriptionIDPrefix: "alert:telegram:",
+		Statuses: []outbox.DeliveryStatus{
+			outbox.DeliveryStatusPending,
+			outbox.DeliveryStatusProcessing,
+			outbox.DeliveryStatusFailed,
+		},
+	})
 	if err != nil {
 		return err
 	}
-	for _, id := range pending {
-		recipient, parseErr := parseSubscriptionID(id)
+	for _, delivery := range pending {
+		recipient, parseErr := parseSubscriptionID(delivery.SubscriptionID)
 		if parseErr != nil {
 			return fmt.Errorf("recover alert notification subscription: %w", parseErr)
 		}
 		recipients[recipient] = true
 	}
 	for recipient := range recipients {
-		handler := outbox.External(&Subscriber{store: store, spec: spec, recipient: recipient, now: time.Now})
+		handler := dispatcher.External(&Subscriber{store: store, spec: spec, recipient: recipient, now: time.Now})
 		id := SubscriptionID(recipient)
 		if err = bus.Subscribe(events.TypeNameAlertOpened, id, handler); err != nil {
 			return err
@@ -144,9 +152,14 @@ func (s *Subscriber) opened(ctx context.Context, alert events.AlertSnapshot) err
 	rule := s.rule(alert.Kind)
 	payload := alert
 	parseMode := ""
-	if alert.Kind == string(alertmodel.AlertKindSyncFailed) && strings.TrimSpace(rule.Opened.Message) == "" {
+	if alert.Kind == string(alertmodel.AlertKindGitRepositoryUnavailable) && strings.TrimSpace(rule.Opened.Message) == "" {
+		payload.ResourceID = html.EscapeString(alert.ResourceID)
+		payload.Title = html.EscapeString(alert.Title)
+		payload.Message = html.EscapeString(alert.Message)
+		parseMode = telegramHTMLParseMode
+	} else if alert.Kind == string(alertmodel.AlertKindSyncFailed) && strings.TrimSpace(rule.Opened.Message) == "" {
 		payload = defaultSyncFailedPayload(alert)
-		parseMode = "HTML"
+		parseMode = telegramHTMLParseMode
 	}
 	notifier, err := s.notifier(rule.AlertOpenedTemplate(alert.Kind), parseMode)
 	if err != nil {
@@ -172,7 +185,14 @@ func (s *Subscriber) resolved(ctx context.Context, event *events.AlertResolved) 
 		return nil
 	}
 	rule := s.rule(alert.Kind)
-	notifier, err := s.notifier(rule.AlertResolvedTemplate(), "")
+	payload := alert
+	parseMode := ""
+	if alert.Kind == string(alertmodel.AlertKindGitRepositoryUnavailable) &&
+		strings.TrimSpace(rule.Resolved.Message) == "" {
+		payload.ResourceID = html.EscapeString(alert.ResourceID)
+		parseMode = telegramHTMLParseMode
+	}
+	notifier, err := s.notifier(rule.AlertResolvedTemplate(alert.Kind), parseMode)
 	if err != nil {
 		return err
 	}
@@ -181,7 +201,7 @@ func (s *Subscriber) resolved(ctx context.Context, event *events.AlertResolved) 
 		action = notifiers.Action(rule.AlertResolvedAction())
 	}
 	receipt, err := notifier.Notify(ctx, notifiers.Message{
-		Payload: alert, Action: action, TargetMessageID: link.OpenedMessageID.Int64,
+		Payload: payload, Action: action, TargetMessageID: link.OpenedMessageID.Int64,
 	})
 	if err != nil {
 		return err

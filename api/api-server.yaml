@@ -8,12 +8,16 @@ info:
 servers:
   - url: http://localhost:8080
 paths:
+  /api/assistant/suggestions:
+    $ref: './assistant.yaml#/paths/~1api~1assistant~1suggestions'
   /api/v1/deployments:
     $ref: './deployments.yaml#/paths/~1api~1v1~1deployments'
   /api/v1/deployments/filters:
     $ref: './deployments.yaml#/paths/~1api~1v1~1deployments~1filters'
   /api/v1/deployments/{id}:
     $ref: './deployments.yaml#/paths/~1api~1v1~1deployments~1{id}'
+  /api/v1/deployments/{id}/attempts/{attemptID}/init-jobs/{ordinal}/logs:
+    $ref: './deployments.yaml#/paths/~1api~1v1~1deployments~1{id}~1attempts~1{attemptID}~1init-jobs~1{ordinal}~1logs'
   /api/v1/stacks:
     $ref: './gitops.yaml#/paths/~1api~1v1~1stacks'
   /api/v1/stacks/{stack}/resources:
@@ -74,6 +78,10 @@ paths:
     $ref: './users.yaml#/paths/~1api~1v1~1users~1me'
 components:
   schemas:
+    AssistantSuggestion:
+      $ref: './assistant.yaml#/components/schemas/AssistantSuggestion'
+    AssistantSuggestionsResponse:
+      $ref: './assistant.yaml#/components/schemas/AssistantSuggestionsResponse'
     DeploymentFilterOptions:
       $ref: './deployments.yaml#/components/schemas/DeploymentFilterOptions'
     DeploymentFilterService:
@@ -166,6 +174,8 @@ components:
       $ref: './resources/secrets.yaml#/components/schemas/SecretInfo'
     SecretDetailsResponse:
       $ref: './resources/secrets.yaml#/components/schemas/SecretDetailsResponse'
+    SecretServiceUsage:
+      $ref: './resources/secrets.yaml#/components/schemas/SecretServiceUsage'
     SecretExternalInfo:
       $ref: './resources/secrets.yaml#/components/schemas/SecretExternalInfo'
     SyncInfo:

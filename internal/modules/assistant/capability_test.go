@@ -8,6 +8,10 @@ import (
 )
 
 func TestOperationalToolCapabilitiesAndDefaultRoutes(t *testing.T) {
+	serviceRuntimeProfile, ok := capabilityProfile(CapabilityServiceRuntime)
+	require.True(t, ok)
+	assert.Contains(t, serviceRuntimeProfile.Tools, "service_task_list")
+
 	deploymentProfile, ok := capabilityProfile(CapabilityDeploymentHistory)
 	require.True(t, ok)
 	assert.Contains(t, deploymentProfile.Tools, "deployment_list")

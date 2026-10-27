@@ -9,6 +9,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StacksResponse'
+              examples:
+                development:
+                  $ref: './mocks/overview.yaml#/components/examples/StacksResponse'
   /api/v1/stacks/{stack}/resources:
     get:
       operationId: getStackResources

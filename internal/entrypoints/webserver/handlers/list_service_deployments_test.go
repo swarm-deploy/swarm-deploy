@@ -8,6 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
+	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
+	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	gitopsmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
@@ -17,16 +20,16 @@ import (
 func TestListServiceDeploymentsReadsDeploymentStore(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	svc := deployment.NewService(db, outbox.New(db))
-	h := &handler{deployments: deployment.NewStore(db)}
+	svc := deployment.NewService(db, eventbus.NewOutboxDispatcher(outbox.New(db)))
+	h := &handler{deployments: deploymentstore.NewStore(db)}
 
 	file := func(services ...compose.Service) compose.File {
 		return compose.File{Compose: compose.Compose{Services: services}}
 	}
-	start := func(stack, commit string, services ...compose.Service) *deployment.Deployment {
+	start := func(stack, commit string, services ...compose.Service) *deploymentmodel.Attempt {
 		attempt, startErr := svc.StartIfChanged(ctx, stack, commit, file(services...), true)
 		require.NoError(t, startErr)
 		require.NotNil(t, attempt)
@@ -50,14 +53,14 @@ func TestListServiceDeploymentsReadsDeploymentStore(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, response.Deployments, 2)
-	assert.Equal(t, unchanged.ID, response.Deployments[0].ID)
+	assert.Equal(t, unchanged.DeploymentID, response.Deployments[0].ID)
 	assert.Equal(t, generated.ServiceDeploymentStatusRunning, response.Deployments[0].Status)
 	assert.Equal(t, unchanged.StartedAt, response.Deployments[0].CreatedAt)
 	assert.Equal(t, "sha-3", response.Deployments[0].Commit.Value)
 	assert.Equal(t, "registry.example.com/api:v2", response.Deployments[0].Image)
 	assert.Equal(t, "v2", response.Deployments[0].ImageVersion)
-	assert.Equal(t, changed.ID, response.Deployments[1].ID)
-	assert.Equal(t, generated.ServiceDeploymentStatusFailed, response.Deployments[1].Status)
+	assert.Equal(t, changed.DeploymentID, response.Deployments[1].ID)
+	assert.Equal(t, generated.ServiceDeploymentStatusSuperseded, response.Deployments[1].Status)
 	assert.Equal(t, "v2", response.Deployments[1].ImageVersion)
 
 	response, err = h.ListServiceDeployments(ctx, generated.ListServiceDeploymentsParams{
@@ -65,17 +68,17 @@ func TestListServiceDeploymentsReadsDeploymentStore(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Len(t, response.Deployments, 3)
-	assert.Equal(t, first.ID, response.Deployments[2].ID)
+	assert.Equal(t, first.DeploymentID, response.Deployments[2].ID)
 	assert.Equal(t, "v1", response.Deployments[2].ImageVersion)
 }
 
 func TestListServiceDeploymentsWithoutAttemptsIsEmpty(t *testing.T) {
 	t.Parallel()
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	h := &handler{deployments: deployment.NewStore(db)}
+	h := &handler{deployments: deploymentstore.NewStore(db)}
 	response, err := h.ListServiceDeployments(ctx, generated.ListServiceDeploymentsParams{
 		Stack: "payments", Service: "api",
 	})

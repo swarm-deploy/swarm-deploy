@@ -28,6 +28,9 @@ func Encode(event events.Event) ([]byte, error) {
 	if payload, internal, err := encodeInternal(event); internal {
 		return payload, err
 	}
+	if payload, serviceReference, err := encodeServiceReference(event); serviceReference {
+		return payload, err
+	}
 	switch e := event.(type) {
 	case *events.ConfigurationChanged:
 		return encodeConfigurationChanged(e)
@@ -40,19 +43,19 @@ func Encode(event events.Event) ([]byte, error) {
 		if code == "" {
 			code = safeFailureCode(e.Error)
 		}
-		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, code, e.Stage,
+		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.AttemptID, code, e.Stage,
 			faults.SafeDiagnostic(e.Error), temporaryClassification(e.Error), e.Services)
 	case *events.DeployPreparationFailed:
 		if e.ErrorCode != "preparation_failed" {
 			return nil, errors.New("unsupported deployment preparation failure code")
 		}
-		return encodeDeploymentFailure(e.StackName, e.Commit, "", e.ErrorCode, e.Stage,
+		return encodeDeploymentFailure(e.StackName, e.Commit, "", "", e.ErrorCode, e.Stage,
 			faults.SafeDiagnostic(e.Error), temporaryClassification(e.Error), e.Services)
 	case *events.DeployInterrupted:
 		if e.Reason != "process_interrupted" && e.Reason != "verification_unknown" {
 			return nil, errors.New("unsupported deployment interruption reason")
 		}
-		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.Reason, e.Stage,
+		return encodeDeploymentFailure(e.StackName, e.Commit, e.DeploymentID, e.AttemptID, e.Reason, e.Stage,
 			faults.SafeDiagnostic(e.Error), temporaryClassification(e.Error), e.Services)
 	case *events.NodeJoined:
 		return json.Marshal(nodePayload{ID: e.NodeID, Name: e.NodeName, Role: e.Role})
@@ -60,10 +63,6 @@ func Encode(event events.Event) ([]byte, error) {
 		return json.Marshal(nodePayload{ID: e.NodeID, Name: e.NodeName, Status: e.Status})
 	case *events.NodeDisconnected:
 		return json.Marshal(nodePayload{ID: e.NodeID, Name: e.NodeName, Status: e.Status})
-	case *events.ServiceMissed:
-		return json.Marshal(servicePayload{Stack: e.StackName, Name: e.ServiceName, Commit: e.Commit})
-	case *events.ServicePruned:
-		return json.Marshal(servicePayload{Stack: e.StackName, Name: e.ServiceName, Commit: e.Commit})
 	case *events.ServiceReplicasIncreased:
 		return json.Marshal(servicePayload{
 			Stack: e.StackName, Name: e.ServiceName, Username: e.Username,
@@ -101,6 +100,9 @@ func Decode(typ events.TypeName, version int, payload []byte) (events.Event, err
 	if isDeploymentFailureType(typ) {
 		return decodeDeploymentFailure(typ, payload)
 	}
+	if event, serviceReference, err := decodeServiceReference(typ, payload); serviceReference {
+		return event, err
+	}
 	switch typ { //nolint:exhaustive // Failure events are decoded by decodeDeploymentFailure above.
 	case events.TypeNameConfigurationChanged:
 		return decodeConfigurationChanged(payload)
@@ -135,14 +137,6 @@ func Decode(typ events.TypeName, version int, payload []byte) (events.Event, err
 	case events.TypeNameNodeDisconnected:
 		return decodeAs(payload, func(p nodePayload) events.Event {
 			return &events.NodeDisconnected{NodeID: p.ID, NodeName: p.Name, Status: p.Status}
-		})
-	case events.TypeNameServiceMissed:
-		return decodeAs(payload, func(p servicePayload) events.Event {
-			return &events.ServiceMissed{StackName: p.Stack, ServiceName: p.Name, Commit: p.Commit}
-		})
-	case events.TypeNameServicePruned:
-		return decodeAs(payload, func(p servicePayload) events.Event {
-			return &events.ServicePruned{StackName: p.Stack, ServiceName: p.Name, Commit: p.Commit}
 		})
 	case events.TypeNameServiceReplicasIncreased:
 		return decodeAs(payload, func(p servicePayload) events.Event {
@@ -187,6 +181,64 @@ func Decode(typ events.TypeName, version int, payload []byte) (events.Event, err
 	}
 }
 
+func encodeServiceReference(event events.Event) ([]byte, bool, error) {
+	var payload servicePayload
+	switch e := event.(type) {
+	case *events.ServiceMissed:
+		payload = servicePayload{Stack: e.StackName, Name: e.ServiceName, Commit: e.Commit, Resolved: e.Resolved}
+	case *events.ServiceDrifted:
+		payload = servicePayload{
+			Stack: e.StackName, Name: e.ServiceName, Commit: e.Commit, Reason: e.Reason, Resolved: e.Resolved,
+		}
+	case *events.ServiceDriftFixed:
+		payload = servicePayload{Stack: e.StackName, Name: e.ServiceName, Commit: e.Commit}
+	case *events.ServiceRemovedFromDesired:
+		payload = servicePayload{Stack: e.StackName, Name: e.ServiceName, Commit: e.Commit}
+	case *events.ServicePruned:
+		payload = servicePayload{Stack: e.StackName, Name: e.ServiceName, Commit: e.Commit}
+	default:
+		return nil, false, nil
+	}
+
+	encoded, err := json.Marshal(payload)
+	return encoded, true, err
+}
+
+func decodeServiceReference(typ events.TypeName, payload []byte) (events.Event, bool, error) {
+	var constructor func(servicePayload) events.Event
+	switch typ { //nolint:exhaustive // This helper handles only simple service-reference payloads.
+	case events.TypeNameServiceMissed:
+		constructor = func(p servicePayload) events.Event {
+			return &events.ServiceMissed{
+				StackName: p.Stack, ServiceName: p.Name, Commit: p.Commit, Resolved: p.Resolved,
+			}
+		}
+	case events.TypeNameServiceDrifted:
+		constructor = func(p servicePayload) events.Event {
+			return &events.ServiceDrifted{
+				StackName: p.Stack, ServiceName: p.Name, Commit: p.Commit, Reason: p.Reason, Resolved: p.Resolved,
+			}
+		}
+	case events.TypeNameServiceDriftFixed:
+		constructor = func(p servicePayload) events.Event {
+			return &events.ServiceDriftFixed{StackName: p.Stack, ServiceName: p.Name, Commit: p.Commit}
+		}
+	case events.TypeNameServiceRemovedFromDesired:
+		constructor = func(p servicePayload) events.Event {
+			return &events.ServiceRemovedFromDesired{StackName: p.Stack, ServiceName: p.Name, Commit: p.Commit}
+		}
+	case events.TypeNameServicePruned:
+		constructor = func(p servicePayload) events.Event {
+			return &events.ServicePruned{StackName: p.Stack, ServiceName: p.Name, Commit: p.Commit}
+		}
+	default:
+		return nil, false, nil
+	}
+
+	event, err := decodeAs(payload, constructor)
+	return event, true, err
+}
+
 func isDeploymentFailureType(typ events.TypeName) bool {
 	return typ == events.TypeNameDeployFailed ||
 		typ == events.TypeNameDeployPreparationFailed ||
@@ -200,7 +252,8 @@ func decodeDeploymentFailure(typ events.TypeName, payload []byte) (events.Event,
 		case events.TypeNameDeployFailed:
 			return &events.DeployFailed{
 				DeployEvent: events.DeployEvent{
-					DeploymentID: p.DeploymentID, StackName: p.Stack, Commit: p.Commit, Services: p.services(),
+					DeploymentID: p.DeploymentID, AttemptID: p.AttemptID,
+					StackName: p.Stack, Commit: p.Commit, Services: p.services(),
 				},
 				Error: diagnostic, ErrorCode: safeFailureCode(errors.New(p.Code)), Stage: p.Stage,
 			}
@@ -211,7 +264,7 @@ func decodeDeploymentFailure(typ events.TypeName, payload []byte) (events.Event,
 			}
 		default:
 			return &events.DeployInterrupted{
-				DeploymentID: p.DeploymentID, StackName: p.Stack, Commit: p.Commit,
+				DeploymentID: p.DeploymentID, AttemptID: p.AttemptID, StackName: p.Stack, Commit: p.Commit,
 				Services: p.services(), Reason: p.Code, Error: diagnostic, Stage: p.Stage,
 			}
 		}
@@ -266,6 +319,8 @@ func decode(payload []byte, target any) error {
 type deployPayload struct {
 	// DeploymentID references safe input in the deployment repository.
 	DeploymentID string `json:"deployment_id,omitempty"`
+	// AttemptID identifies the execution that produced the event.
+	AttemptID string `json:"attempt_id,omitempty"`
 	// Stack identifies the stack.
 	Stack string `json:"stack"`
 	// Commit identifies the source revision.
@@ -277,6 +332,8 @@ type deployPayload struct {
 type deploymentFailurePayload struct {
 	// DeploymentID is absent for preparation failures before an attempt exists.
 	DeploymentID string `json:"deployment_id,omitempty"`
+	// AttemptID is absent only for failures before an execution exists.
+	AttemptID string `json:"attempt_id,omitempty"`
 	// Stack identifies the affected stack.
 	Stack string `json:"stack"`
 	// Commit identifies the source revision.
@@ -312,11 +369,11 @@ func safeFailureCode(err error) string {
 }
 
 func encodeDeploymentFailure(
-	stack, commit, deploymentID, code, stage, diagnostic string, temporary bool,
+	stack, commit, deploymentID, attemptID, code, stage, diagnostic string, temporary bool,
 	services []compose.Service,
 ) ([]byte, error) {
 	payload := deploymentFailurePayload{
-		DeploymentID: deploymentID, Stack: stack, Commit: commit, Code: code, Stage: stage,
+		DeploymentID: deploymentID, AttemptID: attemptID, Stack: stack, Commit: commit, Code: code, Stage: stage,
 		Diagnostic: diagnostic, Temporary: temporary,
 		Services: make([]servicePayload, 0, len(services)),
 	}
@@ -327,7 +384,8 @@ func encodeDeploymentFailure(
 }
 
 func (p deployPayload) deployment() events.DeployEvent {
-	event := events.DeployEvent{DeploymentID: p.DeploymentID, StackName: p.Stack, Commit: p.Commit}
+	event := events.DeployEvent{DeploymentID: p.DeploymentID, AttemptID: p.AttemptID,
+		StackName: p.Stack, Commit: p.Commit}
 	for _, service := range p.Services {
 		event.Services = append(event.Services, compose.Service{Name: service.Name, Image: service.Image})
 	}
@@ -335,7 +393,8 @@ func (p deployPayload) deployment() events.DeployEvent {
 }
 
 func encodeDeployment(event events.DeployEvent) ([]byte, error) {
-	p := deployPayload{DeploymentID: event.DeploymentID, Stack: event.StackName, Commit: event.Commit}
+	p := deployPayload{DeploymentID: event.DeploymentID, AttemptID: event.AttemptID,
+		Stack: event.StackName, Commit: event.Commit}
 	for _, service := range event.Services {
 		p.Services = append(p.Services, servicePayload{Name: service.Name, Image: service.Image})
 	}
@@ -351,6 +410,10 @@ type servicePayload struct {
 	Image string `json:"image"`
 	// Commit identifies the revision.
 	Commit string `json:"commit"`
+	// Reason describes service drift when applicable.
+	Reason string `json:"reason,omitempty"`
+	// Resolved reports same-reconciliation recovery for drift detection events.
+	Resolved bool `json:"resolved,omitempty"`
 	// Username identifies the initiating user.
 	Username string `json:"username"`
 	// Previous is the former replica count.

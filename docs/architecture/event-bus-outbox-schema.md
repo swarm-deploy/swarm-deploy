@@ -27,19 +27,21 @@ Its DB getter selects the active transaction from context; callers do not pass `
 One `storage.Database` owns the transactor/getter. `BEGIN IMMEDIATE` serializes writers;
 WAL permits committed-state readers. Do not share a transaction context between concurrent goroutines.
 
-`outbox.Bus.Subscribe(typeName, stableID, handler)` registers a DB consumer. Network
-consumers use the `outbox.External(handler)` worker adapter. This does not change
+`dispatcher.OutboxDispatcher.Subscribe(typeName, stableID, handler)` registers a DB consumer. Network
+consumers use the `dispatcher.External(handler)` adapter. The dispatcher coordinates subscriptions,
+while `outbox.Repository` owns SQLite persistence and payload encoding and `outbox.Worker` owns durable delivery. This does not change
 publication or durability: every matching subscriber gets its own delivery record.
 `Run` stops on cancellation; unacknowledged work remains on disk. Missing subscriptions
-or incompatible payloads are parked as failed. `Replay` and `Discard` address a single
-failed delivery. Prometheus collection reports queue depth by status and subscription.
+or incompatible payloads are parked as failed. `outbox.Repository.Replay` and
+`outbox.Repository.Discard` address a single failed delivery. Prometheus collection
+reports queue depth by status and subscription.
 IDs and schema versions are preserved across restarts. SQLite assigns each publication a monotonic
 sequence independent of delivery time; per-resource projection high-water marks prevent delayed alert or
 recommendation retries from regressing newer state.
 Raw handler errors are not persisted or logged because they can contain credentials;
 diagnostics expose event/subscription IDs, attempt, error type and a stable failure code.
 
-- The repository and Bus use a common `DBGetter(ctx)` to select `*sql.Tx` when the context carries a transaction or `*sql.DB` otherwise.
+- The Outbox repository uses the shared context-aware database to select `*sql.Tx` when the context carries a transaction or `*sql.DB` otherwise; the Bus delegates durable state changes to it.
 - A root `Bus.Publish(ctx, event)` outside a transaction starts a **short** transaction to insert envelope + deliveries. It **never invokes a handler inline**.
 - Subscriber handlers are invoked only by the worker after T1 committed. DB-only subscribers receive a worker-created transaction-bearing context; their repositories, and any `Publish` calls that emit follow-up events, join **T3**.
 - Nested events are new outbox publications committed with the handler's database work; their subscribers process them in subsequent worker transactions. No synchronous recursive dispatch or in-transaction FIFO is needed.

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sort"
 
-	dockerevents "github.com/docker/docker/api/types/events"
 	"github.com/docker/docker/api/types/filters"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
@@ -73,19 +72,29 @@ func (r *secretManager) Create(ctx context.Context, req CreateSecretRequest) (st
 	return created.ID, nil
 }
 
+func (r *secretManager) UpdateLabels(ctx context.Context, secretID string, labels map[string]string) error {
+	secret, _, err := r.dockerClient.SecretInspectWithRaw(ctx, secretID)
+	if err != nil {
+		return fmt.Errorf("inspect secret for label update: %w", err)
+	}
+	// Recheck the freshly inspected owner: labels may have changed since List.
+	owner := labels[stackNamespaceLabelKey]
+	if owner == "" || secret.Spec.Labels[stackNamespaceLabelKey] != owner {
+		return fmt.Errorf("secret %s ownership conflict", secretID)
+	}
+	secret.Spec.Labels = labels
+	if err = r.dockerClient.SecretUpdate(ctx, secret.ID, secret.Version, secret.Spec); err != nil {
+		return fmt.Errorf("update secret labels: %w", err)
+	}
+	return nil
+}
+
 func (r *secretManager) Remove(ctx context.Context, secretID string) error {
 	if err := r.dockerClient.SecretRemove(ctx, secretID); err != nil {
 		return fmt.Errorf("remove docker secret %s: %w", secretID, err)
 	}
 
 	return nil
-}
-
-func (r *secretManager) Watch(ctx context.Context) (<-chan dockerevents.Message, <-chan error, error) {
-	eventsFilter := filters.NewArgs(filters.Arg("type", string(dockerevents.SecretEventType)))
-	messages, errs := r.dockerClient.Events(ctx, dockerevents.ListOptions{Filters: eventsFilter})
-
-	return messages, errs, nil
 }
 
 func (r *secretManager) ResolveReference(

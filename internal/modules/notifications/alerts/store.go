@@ -43,10 +43,10 @@ type MessageLink struct {
 }
 
 // Store persists Telegram message identities in the application SQLite database.
-type Store struct{ db *storage.Database }
+type Store struct{ db storage.Database }
 
 // NewStore creates a message-link repository.
-func NewStore(db *storage.Database) *Store { return &Store{db: db} }
+func NewStore(db storage.Database) *Store { return &Store{db: db} }
 
 // Ensure records a physical destination before an external send is attempted.
 func (s *Store) Ensure(ctx context.Context, alertID string, recipient events.AlertRecipient) error {
@@ -182,21 +182,6 @@ func (s *Store) KnownRecipients(ctx context.Context) ([]events.AlertRecipient, e
 		})
 	}
 	return result, nil
-}
-
-// PendingSubscriptions finds destinations whose original config may have changed.
-func (s *Store) PendingSubscriptions(ctx context.Context) ([]string, error) {
-	var ids []string
-	query, args, err := dialect.From("outbox_deliveries").Prepared(true).Select("subscription_id").Distinct().
-		Where(
-			goqu.C("subscription_id").Like("alert:telegram:%"),
-			goqu.C("status").In("pending", "processing", "failed"),
-		).ToSQL()
-	if err != nil {
-		return nil, err
-	}
-	err = s.db.Select(ctx, &ids, query, args...)
-	return ids, err
 }
 
 // PruneCompleted removes resolved links only after no lifecycle delivery can replay them.

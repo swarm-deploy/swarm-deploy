@@ -4,18 +4,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
-	"github.com/doug-martin/goqu/v9"
-	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	"github.com/google/uuid"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
+	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
+	gitopsmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
+
+// ErrInconsistentDeployment means controller state disagrees with the persisted deployment.
+var ErrInconsistentDeployment = errors.New("deployment row and payload are inconsistent")
 
 // Publisher only persists domain facts; subscribers run after commit.
 type Publisher interface {
@@ -23,140 +27,244 @@ type Publisher interface {
 	Publish(context.Context, events.Event) error
 }
 
-// Service commits deployment facts, runtime state and publication atomically.
+// Service commits deployment facts, attempts, runtime state and publication atomically.
 // It never invokes Docker or another module's business service.
 type Service struct {
-	db      *storage.Database
-	store   *Store
+	db      storage.Database
+	store   *deploymentstore.Store
 	runtime *modelstore.SQLStore
 	events  Publisher
 	now     func() time.Time
 }
 
 // NewService creates the deployment boundary using the shared context transactor.
-func NewService(db *storage.Database, publisher Publisher) *Service {
-	return &Service{db: db, store: NewStore(db), runtime: modelstore.NewSQLStore(db), events: publisher, now: time.Now}
+func NewService(db storage.Database, publisher Publisher) *Service {
+	return &Service{
+		db: db, store: deploymentstore.NewStore(db), runtime: modelstore.NewSQLStore(db), events: publisher, now: time.Now,
+	}
 }
 
-// Inspect reads one deployment in a consistent transaction for lifecycle conflict resolution.
-func (s *Service) Inspect(ctx context.Context, id string) (Deployment, error) {
-	var result Deployment
+// SaveInitJobExecution stores observational Init Job history outside lifecycle completion transactions.
+func (s *Service) SaveInitJobExecution(
+	ctx context.Context,
+	execution deploymentmodel.InitJobExecution,
+) error {
+	return s.store.SaveInitJobExecution(ctx, execution)
+}
+
+// Inspect reads one attempt in a consistent transaction for lifecycle conflict resolution.
+func (s *Service) Inspect(ctx context.Context, id string) (deploymentmodel.Attempt, error) {
+	var result deploymentmodel.Attempt
 	err := s.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		var err error
-		result, err = s.store.Get(ctx, id)
+		result, err = s.store.GetAttempt(ctx, id)
+		if err != nil {
+			return err
+		}
+		deployment, err := s.store.Get(ctx, result.DeploymentID)
+		if err == nil {
+			result.Stack = deployment.Stack
+		}
 		return err
 	})
 	return result, err
 }
 
-// StartIfChanged commits running before the caller begins external apply.
-// sourceChanged is used only when no verifiable successful baseline exists.
-// A nil attempt means no effective change and therefore no deployment was created.
+// StartIfChanged creates an attempt before the caller begins external apply.
+// Unchanged successful or currently running desired state returns nil. Failed and
+// interrupted state receives a new attempt on the existing Deployment.
 func (s *Service) StartIfChanged(
 	ctx context.Context, stack, commit string, file compose.File, sourceChanged bool,
-) (*Deployment, error) {
-	desired, err := Prepare(file)
+) (*deploymentmodel.Attempt, error) {
+	desired, err := deploymentmodel.Prepare(file)
 	if err != nil {
 		return nil, err
 	}
-	var attempt *Deployment
+	var result *deploymentmodel.Attempt
 	err = s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		previous, readErr := s.store.Baseline(ctx, stack)
-		start, decisionErr := s.shouldStart(ctx, stack, previous, desired, readErr, sourceChanged)
-		if decisionErr != nil || !start {
-			return decisionErr
-		}
-		basis, basisKind, comparisonStatus, basisID, basisErr := s.comparisonBasis(ctx, stack, previous, readErr)
-		if basisErr != nil {
-			return basisErr
-		}
-		changes := Compare(basis, desired)
-		summary, resources := summarize(changes)
-		d := Deployment{ID: uuid.NewString(), Stack: stack, Commit: commit, Status: Running,
-			StartedAt: s.now().UTC(), Phase: PhaseApply, ApplyStatus: StageRunning,
-			VerificationStatus: StagePending, CleanupStatus: StagePending, ActualStateStatus: ActualStateUnknown,
-			ComparisonBasis: basisKind, ComparisonStatus: comparisonStatus, BasisDeploymentID: basisID,
-			Summary: summary, Resources: resources, Changes: changes, DiffAvailable: true}
-		if insertErr := s.store.insert(ctx, d, desired); insertErr != nil {
-			return insertErr
-		}
-		attempt = &d
-		return nil
+		var startErr error
+		result, startErr = s.startPrepared(ctx, stack, commit, desired, sourceChanged)
+		return startErr
 	})
 	if err != nil {
 		return nil, err
 	}
+	return result, nil
+}
+
+func (s *Service) startPrepared(
+	ctx context.Context, stack, commit string, desired deploymentmodel.Prepared, sourceChanged bool,
+) (*deploymentmodel.Attempt, error) {
+	latest, latestDesired, err := s.store.Latest(ctx, stack)
+	if errors.Is(err, deploymentstore.ErrNotFound) {
+		if !sourceChanged {
+			return nil, nil //nolint:nilnil // Nil attempt explicitly means no deployment execution.
+		}
+		return s.createDeployment(ctx, stack, commit, desired)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if latestDesired.Digest == desired.Digest {
+		return s.startExisting(ctx, latest)
+	}
+	removedServices := desiredServiceRemovals(latestDesired.Definition, desired.Definition)
+	if err = s.supersedePrevious(ctx, latest); err != nil {
+		return nil, err
+	}
+	attempt, err := s.createDeployment(ctx, stack, commit, desired)
+	if err != nil {
+		return nil, err
+	}
+	for _, serviceName := range removedServices {
+		if err = s.events.Publish(ctx, &events.ServiceRemovedFromDesired{
+			StackName: stack, ServiceName: serviceName, Commit: commit,
+		}); err != nil {
+			return nil, err
+		}
+	}
 	return attempt, nil
 }
 
-func (s *Service) comparisonBasis(
-	ctx context.Context, stack string, baseline Prepared, baselineErr error,
-) (Prepared, ComparisonBasis, ComparisonStatus, string, error) {
-	last, id, found, err := s.store.latestUnsuccessfulBasis(ctx, stack)
-	if err != nil {
-		return Prepared{}, "", "", "", err
+func desiredServiceRemovals(previous, current compose.File) []string {
+	currentNames := make(map[string]struct{}, len(current.Compose.Services))
+	for _, service := range current.Compose.Services {
+		currentNames[service.Name] = struct{}{}
 	}
-	if found {
-		return last, BasisLastAttempt, ComparisonUnknown, id, nil
+	removed := make([]string, 0)
+	for _, service := range previous.Compose.Services {
+		if _, exists := currentNames[service.Name]; !exists {
+			removed = append(removed, service.Name)
+		}
 	}
-	if baselineErr == nil {
-		id, err = s.store.baselineDeploymentID(ctx, stack)
-		return baseline, BasisSuccessfulBaseline, ComparisonUnknown, id, err
-	}
-	if errors.Is(baselineErr, ErrNotFound) {
-		return Prepared{}, BasisNone, ComparisonUnknown, "", nil
-	}
-	return Prepared{}, "", "", "", baselineErr
+	sort.Strings(removed)
+	return removed
 }
 
-func (s *Service) shouldStart(
+func (s *Service) startExisting(
+	ctx context.Context,
+	latest deploymentmodel.Deployment,
+) (*deploymentmodel.Attempt, error) {
+	switch latest.Status {
+	case deploymentmodel.Succeeded, deploymentmodel.Running:
+		return nil, nil //nolint:nilnil // Nil attempt explicitly means no deployment execution.
+	case deploymentmodel.Failed, deploymentmodel.Interrupted:
+		attempt := newAttempt(latest.ID, latest.AttemptCount+1, s.now())
+		if err := s.store.StartAttempt(ctx, latest, attempt); err != nil {
+			return nil, err
+		}
+		return &attempt, nil
+	case deploymentmodel.Superseded:
+		return nil, ErrInconsistentDeployment
+	default:
+		return nil, fmt.Errorf("unsupported deployment status %q", latest.Status)
+	}
+}
+
+func (s *Service) supersedePrevious(ctx context.Context, latest deploymentmodel.Deployment) error {
+	if latest.Status != deploymentmodel.Running {
+		return nil
+	}
+	attempt, err := s.runningAttempt(ctx, latest)
+	if err != nil {
+		return err
+	}
+	return s.interruptOne(ctx, attempt, s.now().UTC())
+}
+
+func (s *Service) runningAttempt(
+	ctx context.Context,
+	deployment deploymentmodel.Deployment,
+) (deploymentmodel.Attempt, error) {
+	if len(deployment.Attempts) > 0 {
+		return deployment.Attempts[0], nil
+	}
+	return s.materializeLegacyRunning(ctx, deployment)
+}
+
+func (s *Service) createDeployment(
+	ctx context.Context, stack, commit string, desired deploymentmodel.Prepared,
+) (*deploymentmodel.Attempt, error) {
+	d, attempt, err := s.newDeployment(ctx, stack, commit, desired)
+	if err != nil {
+		return nil, err
+	}
+	if err = s.store.CreateDeployment(ctx, d, desired, attempt); err != nil {
+		return nil, err
+	}
+	return &attempt, nil
+}
+
+func (s *Service) newDeployment(
+	ctx context.Context, stack, commit string, desired deploymentmodel.Prepared,
+) (deploymentmodel.Deployment, deploymentmodel.Attempt, error) {
+	basis, basisKind, basisID, err := s.comparisonBasis(ctx, stack)
+	if err != nil {
+		return deploymentmodel.Deployment{}, deploymentmodel.Attempt{}, err
+	}
+	changes := deploymentmodel.Compare(basis, desired)
+	summary, resources := deploymentmodel.Summarize(changes)
+	id := uuid.NewString()
+	attempt := newAttempt(id, 1, s.now())
+	d := deploymentmodel.Deployment{
+		ID: id, Stack: stack, Commit: commit, Status: deploymentmodel.Running, StartedAt: attempt.StartedAt,
+		Phase:              deploymentmodel.PhaseApply,
+		ApplyStatus:        deploymentmodel.StageRunning,
+		VerificationStatus: deploymentmodel.StagePending,
+		CleanupStatus:      deploymentmodel.StagePending, ActualStateStatus: deploymentmodel.ActualStateUnknown,
+		ComparisonBasis: basisKind, ComparisonStatus: deploymentmodel.ComparisonUnknown, BasisDeploymentID: basisID,
+		Summary: summary, Resources: resources, Changes: changes, DiffAvailable: true,
+		LatestAttemptID: attempt.ID, AttemptCount: 1,
+	}
+	return d, attempt, nil
+}
+
+func newAttempt(deploymentID string, number int, now time.Time) deploymentmodel.Attempt {
+	return deploymentmodel.Attempt{
+		ID: uuid.NewString(), DeploymentID: deploymentID, Number: number, Status: deploymentmodel.Running,
+		StartedAt: now.UTC(), Phase: deploymentmodel.PhaseApply, ApplyStatus: deploymentmodel.StageRunning,
+		VerificationStatus: deploymentmodel.StagePending,
+		CleanupStatus:      deploymentmodel.StagePending,
+		ActualStateStatus:  deploymentmodel.ActualStateUnknown,
+	}
+}
+
+func (s *Service) comparisonBasis(
 	ctx context.Context,
 	stack string,
-	baseline, desired Prepared,
-	baselineErr error,
-	sourceChanged bool,
-) (bool, error) {
-	if baselineErr != nil && !errors.Is(baselineErr, ErrNotFound) {
-		return false, baselineErr
+) (deploymentmodel.Prepared, deploymentmodel.ComparisonBasis, string, error) {
+	baseline, err := s.store.Baseline(ctx, stack)
+	if errors.Is(err, deploymentstore.ErrNotFound) {
+		return deploymentmodel.Prepared{}, deploymentmodel.BasisNone, "", nil
 	}
-	if baselineErr == nil {
-		if baseline.Digest != desired.Digest {
-			return true, nil
-		}
-		return s.store.hasUnsuccessfulAfterBaseline(ctx, stack)
-	}
-	if sourceChanged {
-		return true, nil
-	}
-	var retry bool
-	exists := goqu.Dialect("sqlite3").From("deployments").Prepared(true).Select(goqu.L("1")).
-		Where(goqu.Ex{"stack": stack}, goqu.C("status").In("failed", "interrupted"))
-	query, args, err := goqu.Dialect("sqlite3").From().Prepared(true).
-		Select(goqu.L("EXISTS ?", exists)).ToSQL()
 	if err != nil {
-		return false, err
+		return deploymentmodel.Prepared{}, "", "", err
 	}
-	err = s.db.Get(ctx, &retry, query, args...)
-	return retry, err
+	id, err := s.store.BaselineDeploymentID(ctx, stack)
+	return baseline, deploymentmodel.BasisSuccessfulBaseline, id, err
 }
 
-// Succeed commits success, the successful baseline, runtime state and source event in T1.
-// A commit failure leaves running; callers must not reinterpret it as an apply failure.
-func (s *Service) Succeed(ctx context.Context, id string, state model.Stack) error {
-	return s.complete(ctx, id, state, completion{status: Succeeded, phase: PhaseCompleted,
-		apply: StageSucceeded, verification: StageSkipped, cleanup: StageSucceeded, actual: ActualStateUnknown})
+// Succeed commits success, the successful baseline, runtime state and source event atomically.
+func (s *Service) Succeed(ctx context.Context, id string, state gitopsmodel.Stack) error {
+	return s.complete(ctx, id, state, completion{
+		status: deploymentmodel.Succeeded, phase: deploymentmodel.PhaseCompleted,
+		apply: deploymentmodel.StageSucceeded, verification: deploymentmodel.StageSkipped,
+		cleanup: deploymentmodel.StageSucceeded, actual: deploymentmodel.ActualStateUnknown,
+	})
 }
 
 // SucceedObserved records a successful apply and a read of live services, not convergence.
-func (s *Service) SucceedObserved(ctx context.Context, id string, state model.Stack, observedAt time.Time) error {
-	return s.complete(ctx, id, state, completion{status: Succeeded, phase: PhaseCompleted,
-		apply: StageSucceeded, verification: StageSkipped, cleanup: StageSucceeded,
-		actual: ActualStateObserved, observedAt: &observedAt})
+func (s *Service) SucceedObserved(ctx context.Context, id string, state gitopsmodel.Stack, observedAt time.Time) error {
+	return s.complete(ctx, id, state, completion{
+		status: deploymentmodel.Succeeded, phase: deploymentmodel.PhaseCompleted,
+		apply: deploymentmodel.StageSucceeded, verification: deploymentmodel.StageSkipped,
+		cleanup: deploymentmodel.StageSucceeded, actual: deploymentmodel.ActualStateObserved,
+		observedAt: &observedAt,
+	})
 }
 
 // Fail records an apply failure without changing the successful desired baseline.
-// code must be a stable category selected by the caller, not raw error text.
-func (s *Service) Fail(ctx context.Context, id string, state model.Stack, code string) error {
+func (s *Service) Fail(ctx context.Context, id string, state gitopsmodel.Stack, code string) error {
 	switch code {
 	case "policy_rejected", "init_failed", "apply_failed":
 		return s.FailApply(ctx, id, state, code)
@@ -168,127 +276,153 @@ func (s *Service) Fail(ctx context.Context, id string, state model.Stack, code s
 }
 
 // FailApply records a known Docker apply failure with unknown actual state.
-func (s *Service) FailApply(ctx context.Context, id string, state model.Stack, code string) error {
+func (s *Service) FailApply(ctx context.Context, id string, state gitopsmodel.Stack, code string) error {
 	return s.FailApplyWithError(ctx, id, state, code, nil)
 }
 
 // FailApplyWithError records a known Docker apply failure and a safe diagnostic.
 func (s *Service) FailApplyWithError(
-	ctx context.Context, id string, state model.Stack, code string, cause error,
+	ctx context.Context, id string, state gitopsmodel.Stack, code string, cause error,
 ) error {
 	switch code {
 	case "policy_rejected", "init_failed", "apply_failed":
 	default:
 		return fmt.Errorf("unsupported apply failure code")
 	}
-	return s.complete(ctx, id, state, completion{status: Failed, code: code,
-		diagnostic: faults.SafeDiagnostic(cause), phase: PhaseApply,
-		apply: StageFailed, verification: StageSkipped, cleanup: StageSkipped, actual: ActualStateUnknown})
+	return s.complete(ctx, id, state, completion{
+		status: deploymentmodel.Failed, code: code,
+		cause: faults.SafeError(cause), phase: deploymentmodel.PhaseApply, apply: deploymentmodel.StageFailed,
+		verification: deploymentmodel.StageSkipped, cleanup: deploymentmodel.StageSkipped,
+		actual: deploymentmodel.ActualStateUnknown,
+	})
 }
 
 // InterruptVerification records that apply returned but live state could not be observed.
-func (s *Service) InterruptVerification(ctx context.Context, id string, state model.Stack) error {
+func (s *Service) InterruptVerification(ctx context.Context, id string, state gitopsmodel.Stack) error {
 	return s.InterruptVerificationWithError(ctx, id, state, nil)
 }
 
 // InterruptVerificationWithError records an unknown live-state outcome and safe diagnostic.
-func (s *Service) InterruptVerificationWithError(ctx context.Context, id string, state model.Stack, cause error) error {
-	return s.complete(ctx, id, state, completion{status: Interrupted, code: "verification_unknown",
-		diagnostic: faults.SafeDiagnostic(cause),
-		phase:      PhaseVerification, apply: StageSucceeded, verification: StageUnknown,
-		cleanup: StageSkipped, actual: ActualStateUnknown})
+func (s *Service) InterruptVerificationWithError(
+	ctx context.Context, id string, state gitopsmodel.Stack, cause error,
+) error {
+	return s.complete(ctx, id, state, completion{
+		status: deploymentmodel.Interrupted, code: "verification_unknown",
+		cause: faults.SafeError(cause), phase: deploymentmodel.PhaseVerification, apply: deploymentmodel.StageSucceeded,
+		verification: deploymentmodel.StageUnknown, cleanup: deploymentmodel.StageSkipped,
+		actual: deploymentmodel.ActualStateUnknown,
+	})
 }
 
 // FailCleanup records a cleanup failure after successful apply and live-state observation.
 func (s *Service) FailCleanup(
-	ctx context.Context, id string, state model.Stack, code string, observedAt time.Time,
+	ctx context.Context, id string, state gitopsmodel.Stack, code string, observedAt time.Time,
 ) error {
 	return s.FailCleanupWithError(ctx, id, state, code, observedAt, nil)
 }
 
 // FailCleanupWithError records cleanup failure and safe diagnostic context.
 func (s *Service) FailCleanupWithError(
-	ctx context.Context, id string, state model.Stack, code string, observedAt time.Time, cause error,
+	ctx context.Context, id string, state gitopsmodel.Stack, code string, observedAt time.Time, cause error,
 ) error {
 	if code != "prune_failed" {
 		return fmt.Errorf("unsupported cleanup failure code")
 	}
-	return s.complete(ctx, id, state, completion{status: Failed, code: code,
-		diagnostic: faults.SafeDiagnostic(cause), phase: PhaseCleanup,
-		apply: StageSucceeded, verification: StageSkipped, cleanup: StageFailed,
-		actual: ActualStateObserved, observedAt: &observedAt})
-}
-
-type completion struct {
-	status       Status
-	code         string
-	diagnostic   string
-	phase        Phase
-	apply        StageStatus
-	verification StageStatus
-	cleanup      StageStatus
-	actual       ActualStateStatus
-	observedAt   *time.Time
-}
-
-func (s *Service) complete(ctx context.Context, id string, state model.Stack, outcome completion) error {
-	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		state.LastError = outcome.code
-		d, err := s.store.Get(ctx, id)
-		if err != nil {
-			return err
-		}
-		if d.Status != Running {
-			return ErrNotRunning
-		}
-		desired, err := s.store.Desired(ctx, id)
-		if err != nil {
-			return err
-		}
-		now := s.now().UTC()
-		d.Status, d.FinishedAt, d.ErrorCode = outcome.status, &now, outcome.code
-		d.ErrorDiagnostic = outcome.diagnostic
-		d.Phase, d.ApplyStatus = outcome.phase, outcome.apply
-		d.VerificationStatus, d.CleanupStatus = outcome.verification, outcome.cleanup
-		d.ActualStateStatus, d.ObservedAt = outcome.actual, outcome.observedAt
-		if err = s.store.finish(ctx, d); err != nil {
-			return err
-		}
-		if outcome.status == Succeeded {
-			if err = s.store.saveBaseline(ctx, id); err != nil {
-				return err
-			}
-		}
-		if err = s.runtime.Update(ctx, func(runtime *model.Runtime) { runtime.Stacks[d.Stack] = state }); err != nil {
-			return err
-		}
-		meta := events.DeployEvent{DeploymentID: d.ID, StackName: d.Stack, Commit: d.Commit,
-			Services: desired.Compose.Services, StackDefinition: desired}
-		if outcome.status == Succeeded {
-			return s.events.Publish(ctx, &events.DeploySuccess{DeployEvent: meta})
-		}
-		if outcome.status == Interrupted {
-			return s.events.Publish(ctx, &events.DeployInterrupted{DeploymentID: d.ID, StackName: d.Stack,
-				Commit: d.Commit, Services: desired.Compose.Services, Reason: outcome.code,
-				Stage: string(outcome.phase), Error: diagnosticError(outcome.diagnostic)})
-		}
-		return s.events.Publish(ctx, &events.DeployFailed{DeployEvent: meta, Error: diagnosticError(outcome.diagnostic),
-			ErrorCode: outcome.code, Stage: string(outcome.phase)})
+	return s.complete(ctx, id, state, completion{
+		status: deploymentmodel.Failed, code: code,
+		cause: faults.SafeError(cause), phase: deploymentmodel.PhaseCleanup, apply: deploymentmodel.StageSucceeded,
+		verification: deploymentmodel.StageSkipped, cleanup: deploymentmodel.StageFailed,
+		actual: deploymentmodel.ActualStateObserved, observedAt: &observedAt,
 	})
 }
 
-func diagnosticError(diagnostic string) error {
-	if diagnostic == "" {
-		return nil
+type completion struct {
+	status       deploymentmodel.Status
+	code         string
+	cause        error
+	phase        deploymentmodel.Phase
+	apply        deploymentmodel.StageStatus
+	verification deploymentmodel.StageStatus
+	cleanup      deploymentmodel.StageStatus
+	actual       deploymentmodel.ActualStateStatus
+	observedAt   *time.Time
+}
+
+func (s *Service) complete(ctx context.Context, id string, state gitopsmodel.Stack, outcome completion) error {
+	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
+		return s.completeTransaction(ctx, id, state, outcome)
+	})
+}
+
+func (s *Service) completeTransaction(
+	ctx context.Context, id string, state gitopsmodel.Stack, outcome completion,
+) error {
+	state.LastError = outcome.code
+	attempt, err := s.store.GetAttempt(ctx, id)
+	if err != nil {
+		return err
 	}
-	return errors.New(diagnostic)
+	d, err := s.store.Get(ctx, attempt.DeploymentID)
+	if err != nil {
+		return err
+	}
+	if attempt.Status != deploymentmodel.Running ||
+		d.Status != deploymentmodel.Running ||
+		d.LatestAttemptID != attempt.ID {
+		return deploymentstore.ErrNotRunning
+	}
+	desired, err := s.store.Desired(ctx, d.ID)
+	if err != nil {
+		return err
+	}
+	now := s.now().UTC()
+	attempt.Status, attempt.FinishedAt, attempt.ErrorCode = outcome.status, &now, outcome.code
+	attempt.ErrorDiagnostic = faults.SafeDiagnostic(outcome.cause)
+	attempt.Phase, attempt.ApplyStatus = outcome.phase, outcome.apply
+	attempt.VerificationStatus, attempt.CleanupStatus = outcome.verification, outcome.cleanup
+	attempt.ActualStateStatus, attempt.ObservedAt = outcome.actual, outcome.observedAt
+	if err = s.store.FinishAttempt(ctx, d, attempt); err != nil {
+		return err
+	}
+	if outcome.status == deploymentmodel.Succeeded {
+		if err = s.store.SaveBaseline(ctx, d.ID); err != nil {
+			return err
+		}
+	}
+	if err = s.runtime.Update(ctx, func(runtime *gitopsmodel.Runtime) { runtime.Stacks[d.Stack] = state }); err != nil {
+		return err
+	}
+	return s.publishCompletion(ctx, d, attempt, desired, outcome)
+}
+
+func (s *Service) publishCompletion(
+	ctx context.Context,
+	d deploymentmodel.Deployment,
+	attempt deploymentmodel.Attempt,
+	desired compose.File,
+	outcome completion,
+) error {
+	meta := events.DeployEvent{DeploymentID: d.ID, AttemptID: attempt.ID, StackName: d.Stack, Commit: d.Commit,
+		Services: desired.Compose.Services, StackDefinition: desired}
+	switch outcome.status {
+	case deploymentmodel.Succeeded:
+		return s.events.Publish(ctx, &events.DeploySuccess{DeployEvent: meta})
+	case deploymentmodel.Interrupted:
+		return s.events.Publish(ctx, &events.DeployInterrupted{DeploymentID: d.ID, AttemptID: attempt.ID,
+			StackName: d.Stack, Commit: d.Commit, Services: desired.Compose.Services, Reason: outcome.code,
+			Stage: string(outcome.phase), Error: outcome.cause})
+	case deploymentmodel.Failed:
+		return s.events.Publish(ctx, &events.DeployFailed{DeployEvent: meta, Error: outcome.cause,
+			ErrorCode: outcome.code, Stage: string(outcome.phase)})
+	case deploymentmodel.Running, deploymentmodel.Superseded:
+		return fmt.Errorf("unsupported completion status %q", outcome.status)
+	default:
+		return fmt.Errorf("unsupported completion status %q", outcome.status)
+	}
 }
 
 // InterruptRunning recovers incomplete attempts at startup without inventing success.
-// It must run before the controller starts, on a database with a single active instance.
-func (s *Service) InterruptRunning(ctx context.Context) error {
-	return s.interrupt(ctx, "")
-}
+func (s *Service) InterruptRunning(ctx context.Context) error { return s.interrupt(ctx, "") }
 
 // InterruptStack recovers an unknown running attempt before the next serialized reconcile.
 func (s *Service) InterruptStack(ctx context.Context, stack string) error {
@@ -297,13 +431,31 @@ func (s *Service) InterruptStack(ctx context.Context, stack string) error {
 
 func (s *Service) interrupt(ctx context.Context, stack string) error {
 	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		running, err := s.running(ctx, stack)
+		running, err := s.store.RunningAttempts(ctx, stack)
 		if err != nil {
 			return err
 		}
+		legacy, err := s.store.LegacyRunning(ctx, stack)
+		if err != nil {
+			return err
+		}
+		for _, deployment := range legacy {
+			attempt, materializeErr := s.materializeLegacyRunning(ctx, deployment)
+			if materializeErr != nil {
+				return materializeErr
+			}
+			running = append(running, attempt)
+		}
 		now := s.now().UTC()
-		for _, d := range running {
-			if err = s.interruptOne(ctx, d, now); err != nil {
+		for _, attempt := range running {
+			synchronized, syncErr := s.store.SynchronizeRunningAttempt(ctx, attempt)
+			if syncErr != nil {
+				return syncErr
+			}
+			if synchronized {
+				continue
+			}
+			if err = s.interruptOne(ctx, attempt, now); err != nil {
 				return err
 			}
 		}
@@ -311,57 +463,45 @@ func (s *Service) interrupt(ctx context.Context, stack string) error {
 	})
 }
 
-func (s *Service) running(ctx context.Context, stack string) ([]Deployment, error) {
-	columns := append([]any{}, summaryColumns...)
-	columns = append(columns, "changes_payload")
-	dataset := goqu.Dialect("sqlite3").From("deployments").Prepared(true).
-		Select(columns...).Where(goqu.Ex{"status": Running})
-	if stack != "" {
-		dataset = dataset.Where(goqu.Ex{"stack": stack})
+func (s *Service) materializeLegacyRunning(
+	ctx context.Context,
+	deployment deploymentmodel.Deployment,
+) (deploymentmodel.Attempt, error) {
+	attempt := newAttempt(deployment.ID, 1, deployment.StartedAt)
+	if err := s.store.InsertLegacyAttempt(ctx, attempt); err != nil {
+		return deploymentmodel.Attempt{}, err
 	}
-	query, args, err := dataset.ToSQL()
-	if err != nil {
-		return nil, err
-	}
-	var rows []deploymentRow
-	if err = s.db.Select(ctx, &rows, query, args...); err != nil {
-		return nil, err
-	}
-	running := make([]Deployment, 0, len(rows))
-	for _, row := range rows {
-		deployment, convertErr := row.deployment()
-		if convertErr != nil {
-			return nil, convertErr
-		}
-		running = append(running, deployment)
-	}
-	return running, nil
+	return attempt, nil
 }
 
-func (s *Service) interruptOne(ctx context.Context, d Deployment, now time.Time) error {
+func (s *Service) interruptOne(ctx context.Context, attempt deploymentmodel.Attempt, now time.Time) error {
+	d, err := s.store.Get(ctx, attempt.DeploymentID)
+	if err != nil {
+		return err
+	}
 	desired, err := s.store.Desired(ctx, d.ID)
 	if err != nil {
 		return err
 	}
-	d.Status, d.FinishedAt, d.ErrorCode = Interrupted, &now, "process_interrupted"
-	d.Phase, d.ApplyStatus = PhaseApply, StageUnknown
-	d.VerificationStatus, d.CleanupStatus = StageSkipped, StageSkipped
-	d.ActualStateStatus, d.ObservedAt = ActualStateUnknown, nil
-	if err = s.store.finish(ctx, d); err != nil {
+	attempt.Status, attempt.FinishedAt, attempt.ErrorCode = deploymentmodel.Interrupted, &now, "process_interrupted"
+	attempt.Phase, attempt.ApplyStatus = deploymentmodel.PhaseApply, deploymentmodel.StageUnknown
+	attempt.VerificationStatus, attempt.CleanupStatus = deploymentmodel.StageSkipped, deploymentmodel.StageSkipped
+	attempt.ActualStateStatus, attempt.ObservedAt = deploymentmodel.ActualStateUnknown, nil
+	if err = s.store.FinishAttempt(ctx, d, attempt); err != nil {
 		return err
 	}
-	if err = s.runtime.Update(ctx, func(runtime *model.Runtime) {
+	if err = s.runtime.Update(ctx, func(runtime *gitopsmodel.Runtime) {
 		state := runtime.Stacks[d.Stack]
 		state.LastCommit, state.LastError = d.Commit, "process_interrupted"
 		if state.Services == nil {
-			state.Services = map[string]model.Service{}
+			state.Services = map[string]gitopsmodel.Service{}
 		}
 		runtime.Stacks[d.Stack] = state
 	}); err != nil {
 		return err
 	}
 	return s.events.Publish(ctx, &events.DeployInterrupted{
-		DeploymentID: d.ID, StackName: d.Stack, Commit: d.Commit,
+		DeploymentID: d.ID, AttemptID: attempt.ID, StackName: d.Stack, Commit: d.Commit,
 		Services: desired.Compose.Services, Reason: "process_interrupted",
 	})
 }

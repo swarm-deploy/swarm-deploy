@@ -50,6 +50,13 @@ func (UnimplementedHandler) GetAssistantChat(ctx context.Context, params GetAssi
 	return r, ht.ErrNotImplemented
 }
 
+// GetAssistantSuggestions implements getAssistantSuggestions operation.
+//
+// GET /api/assistant/suggestions
+func (UnimplementedHandler) GetAssistantSuggestions(ctx context.Context) (r *AssistantSuggestionsResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetCurrentUser implements getCurrentUser operation.
 //
 // GET /api/v1/users/me
@@ -69,6 +76,13 @@ func (UnimplementedHandler) GetDeployment(ctx context.Context, params GetDeploym
 // GET /api/v1/deployments/filters
 func (UnimplementedHandler) GetDeploymentFilters(ctx context.Context) (r *DeploymentFilterOptions, _ error) {
 	return r, ht.ErrNotImplemented
+}
+
+// GetDeploymentInitJobLogs implements getDeploymentInitJobLogs operation.
+//
+// GET /api/v1/deployments/{id}/attempts/{attemptID}/init-jobs/{ordinal}/logs
+func (UnimplementedHandler) GetDeploymentInitJobLogs(ctx context.Context, params GetDeploymentInitJobLogsParams, w http.ResponseWriter) error {
+	return ht.ErrNotImplemented
 }
 
 // GetEventFilters implements getEventFilters operation.

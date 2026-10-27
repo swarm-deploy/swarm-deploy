@@ -21,6 +21,7 @@ const (
 	notificationAlertNameSyncFailed               = "SyncFailed"
 	notificationAlertNameNodeDisconnected         = "NodeDisconnected"
 	notificationAlertNameGitRepositoryUnavailable = "GitRepositoryUnavailable"
+	notificationAlertNameServiceDrift             = "ServiceDrift"
 )
 
 // NotificationSpec defines event subscriptions, alert routes and messenger destinations.
@@ -63,6 +64,10 @@ const (
 <b>Error:</b>
 <pre>{{ .Message }}</pre>`
 	defaultAlertResolvedTemplate = "✅ Resolved: {{ .Title }}\n{{ .Resolution }}"
+	defaultGitOpenedTemplate     = "🚨 {{ .Title }}\nRepository: <code>{{ .ResourceID }}</code>\nError: {{ .Message }}" +
+		"\nCategory: {{ .ErrorCode }}\nFailed attempts: {{ .Occurrences }}"
+	defaultGitResolvedTemplate = "✅ Git repository recovered\nRepository: <code>{{ .ResourceID }}</code>" +
+		"\nFailed attempts: {{ .Occurrences }}\nIncident duration: {{ .Duration }}"
 )
 
 // AlertTelegramRoutes returns the replacing kind route, configured default or built-in route.
@@ -74,7 +79,7 @@ func (c NotificationSpec) AlertTelegramRoutes(kind string) []TelegramAlertChanne
 		return route.Telegram
 	}
 	return []TelegramAlertChannel{{
-		Resolved: AlertMessageSpec{Action: "reply", Message: defaultAlertResolvedTemplate},
+		Resolved: AlertMessageSpec{Action: "reply"},
 	}}
 }
 
@@ -117,13 +122,19 @@ func (c TelegramAlertChannel) AlertOpenedTemplate(kind string) string {
 	if kind == string(alertmodel.AlertKindSyncFailed) {
 		return defaultSyncFailedAlertOpenedTemplate
 	}
+	if kind == string(alertmodel.AlertKindGitRepositoryUnavailable) {
+		return defaultGitOpenedTemplate
+	}
 	return defaultAlertOpenedTemplate
 }
 
 // AlertResolvedTemplate returns the effective resolution message template.
-func (c TelegramAlertChannel) AlertResolvedTemplate() string {
+func (c TelegramAlertChannel) AlertResolvedTemplate(kind ...string) string {
 	if strings.TrimSpace(c.Resolved.Message) != "" {
 		return c.Resolved.Message
+	}
+	if len(kind) > 0 && kind[0] == string(alertmodel.AlertKindGitRepositoryUnavailable) {
+		return defaultGitResolvedTemplate
 	}
 	return defaultAlertResolvedTemplate
 }
@@ -286,6 +297,8 @@ func notificationAlertConfigKey(kind alertmodel.AlertKind) string {
 		return notificationAlertNameNodeDisconnected
 	case alertmodel.AlertKindGitRepositoryUnavailable:
 		return notificationAlertNameGitRepositoryUnavailable
+	case alertmodel.AlertKindServiceDrift:
+		return notificationAlertNameServiceDrift
 	default:
 		return string(kind)
 	}
@@ -299,6 +312,8 @@ func notificationAlertKind(configKey string) alertmodel.AlertKind {
 		return alertmodel.AlertKindNodeDisconnected
 	case notificationAlertNameGitRepositoryUnavailable:
 		return alertmodel.AlertKindGitRepositoryUnavailable
+	case notificationAlertNameServiceDrift:
+		return alertmodel.AlertKindServiceDrift
 	default:
 		return alertmodel.AlertKind(configKey)
 	}
@@ -307,7 +322,8 @@ func notificationAlertKind(configKey string) alertmodel.AlertKind {
 func validNotificationAlertConfigKey(kind string) bool {
 	switch kind {
 	case notificationAlertNameDefault, notificationAlertNameSyncFailed,
-		notificationAlertNameNodeDisconnected, notificationAlertNameGitRepositoryUnavailable:
+		notificationAlertNameNodeDisconnected, notificationAlertNameGitRepositoryUnavailable,
+		notificationAlertNameServiceDrift:
 		return true
 	default:
 		return false

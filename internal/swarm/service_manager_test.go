@@ -76,9 +76,13 @@ func TestBuildDockerTaskLogsOptionsDefaults(t *testing.T) {
 }
 
 func TestBuildDockerTaskLogsOptionsWithFollowAndTail(t *testing.T) {
+	since := time.Date(2026, time.April, 18, 9, 0, 0, 123000000, time.FixedZone("MSK", 3*60*60))
+	until := since.Add(5 * time.Minute)
 	options := buildDockerTaskLogsOptions(TaskLogsOptions{
 		Follow: true,
 		Limit:  25,
+		Since:  &since,
+		Until:  &until,
 	})
 
 	assert.Equal(t, "25", options.Tail, "unexpected tail")
@@ -86,6 +90,8 @@ func TestBuildDockerTaskLogsOptionsWithFollowAndTail(t *testing.T) {
 	assert.True(t, options.ShowStdout, "stdout must be enabled")
 	assert.True(t, options.ShowStderr, "stderr must be enabled")
 	assert.True(t, options.Timestamps, "timestamps must be enabled")
+	assert.Equal(t, "2026-04-18T06:00:00.123Z", options.Since, "unexpected since")
+	assert.Equal(t, "2026-04-18T06:05:00.123Z", options.Until, "unexpected until")
 }
 
 func TestReadDockerLogEntriesDemultiplexesStreamAndTimestamp(t *testing.T) {

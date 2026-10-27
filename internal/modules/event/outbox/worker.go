@@ -4,9 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
-	"log/slog"
-	"sync"
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
@@ -16,101 +13,102 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 )
 
+const (
+	maxRetryBackoff    = 5 * time.Minute
+	maxBackoffExponent = 9
+)
+
 // ErrLeaseLost fences a worker whose claim has expired or been replaced.
 var ErrLeaseLost = errors.New("outbox lease lost")
 
-type delivery struct {
-	eventID        string
-	subscriptionID string
-	token          string
-	attempts       int
+// ErrInvalidPayload indicates an unsupported or malformed persisted event.
+var ErrInvalidPayload = errors.New("unsupported or invalid outbox payload")
+
+// DeliveryStatus identifies the persisted processing state of a delivery.
+type DeliveryStatus string
+
+const (
+	// DeliveryStatusPending is ready or waiting for another delivery attempt.
+	DeliveryStatusPending DeliveryStatus = "pending"
+	// DeliveryStatusProcessing is currently leased by a worker.
+	DeliveryStatusProcessing DeliveryStatus = "processing"
+	// DeliveryStatusDelivered was acknowledged successfully.
+	DeliveryStatusDelivered DeliveryStatus = "delivered"
+	// DeliveryStatusFailed requires explicit replay or discard.
+	DeliveryStatusFailed DeliveryStatus = "failed"
+)
+
+// Delivery identifies one subscriber delivery and its safe operational metadata.
+type Delivery struct {
+	// EventID identifies the persisted publication.
+	EventID string `db:"event_id"`
+	// SubscriptionID identifies the destination.
+	SubscriptionID string `db:"subscription_id"`
+	// EventType identifies the safe domain event type.
+	EventType events.TypeName `db:"event_type"`
+	// Status identifies the persisted processing state.
+	Status DeliveryStatus `db:"status"`
+	// Token fences concurrent or expired claims; inspection results leave it empty.
+	Token string `db:"lease_token"`
+	// Attempts is the number of times this delivery has been claimed.
+	Attempts int `db:"attempts"`
+	// LastError contains a stable error category.
+	LastError string `db:"last_error"`
 }
 
-// Run processes committed work until cancellation. Unfinished leases survive
-// shutdown and can be reclaimed after expiry by the next process.
-func (b *Bus) Run(ctx context.Context) error {
-	var workers sync.WaitGroup
-	for range b.workers {
-		workers.Go(func() { b.runWorker(ctx) })
-	}
-	workers.Wait()
-	return nil
+// Publication is a decoded event loaded from the outbox.
+type Publication struct {
+	// Type identifies the event kind.
+	Type events.TypeName
+	// Envelope contains the decoded event and durable metadata.
+	Envelope events.Envelope
+	// Traceparent links delivery tracing to the publishing span when present.
+	Traceparent string
 }
 
-func (b *Bus) runWorker(ctx context.Context) {
-	ticker := time.NewTicker(workerPollInterval)
-	defer ticker.Stop()
-	for {
-		if ctx.Err() != nil {
-			return
-		}
-		handled, err := b.ProcessNext(ctx)
-		if err != nil && ctx.Err() == nil {
-			slog.ErrorContext(ctx, "outbox worker operation failed", "error_type", fmt.Sprintf("%T", err))
-		}
-		if handled && err == nil {
-			continue
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-		}
-	}
+type publicationRow struct {
+	ID                  string          `db:"id"`
+	EventType           events.TypeName `db:"event_type"`
+	SchemaVersion       int             `db:"schema_version"`
+	Payload             string          `db:"payload"`
+	OccurredAt          time.Time       `db:"occurred_at"`
+	PublicationSequence int64           `db:"sequence"`
+	Traceparent         sql.NullString  `db:"traceparent"`
 }
 
-// ProcessNext claims and processes at most one delivery using distinct T2/T3.
-// It must be called outside any publishing or subscriber transaction.
-func (b *Bus) ProcessNext(ctx context.Context) (bool, error) {
-	b.mu.Lock()
-	b.started = true
-	b.mu.Unlock()
-	d, err := b.claim(ctx)
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
+func (row publicationRow) publication() (Publication, error) {
+	publication := Publication{
+		Type: row.EventType,
+		Envelope: events.Envelope{
+			ID: row.ID, OccurredAt: row.OccurredAt.UTC(),
+			PublicationSequence: row.PublicationSequence,
+		},
+		Traceparent: row.Traceparent.String,
 	}
+	event, err := codec.Decode(row.EventType, row.SchemaVersion, []byte(row.Payload))
 	if err != nil {
-		return false, err
+		return publication, errors.Join(ErrInvalidPayload, err)
 	}
-	err = b.process(ctx, d)
-	if err == nil {
-		return true, nil
-	}
-	// Do not persist arbitrary handler errors: they may contain HTTP credentials,
-	// command output or secret values. Stable codes and delivery IDs enable diagnosis.
-	code := "handler_failed"
-	var invalid *invalidDeliveryError
-	terminal := errors.As(err, &invalid)
-	if terminal {
-		code = invalid.code
-	}
-	slog.ErrorContext(ctx, "outbox delivery failed", "event_id", d.eventID,
-		"subscription_id", d.subscriptionID, "attempt", d.attempts, "reason", code,
-		"error_type", fmt.Sprintf("%T", err))
-	retryCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), databaseOperationTimeout)
-	defer cancel()
-	if retryErr := b.fail(retryCtx, d, code, terminal); retryErr != nil {
-		return true, errors.Join(err, retryErr)
-	}
-	return true, nil
+	publication.Envelope.Event = event
+	return publication, nil
 }
 
-func (b *Bus) claim(ctx context.Context) (delivery, error) {
-	d := delivery{token: uuid.NewString()}
-	now := b.now()
-	err := b.db.WithinTransaction(ctx, func(ctx context.Context) error {
+// Claim atomically leases at most one due delivery.
+func (r *Repository) Claim(ctx context.Context, now time.Time, lease time.Duration) (Delivery, error) {
+	d := Delivery{Token: uuid.NewString()}
+	err := r.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		var claimed struct {
 			EventID        string `db:"event_id"`
 			SubscriptionID string `db:"subscription_id"`
 			Attempts       int    `db:"attempts"`
 		}
 		query, args, buildErr := claimStatement(
-			now.UTC(), now.UTC(), d.token, now.Add(b.lease).UTC(), now.UTC(),
+			now.UTC(), now.UTC(), d.Token, now.Add(lease).UTC(), now.UTC(),
 		)
 		if buildErr != nil {
 			return buildErr
 		}
-		result, err := b.db.Exec(ctx, query, args...)
+		result, err := r.db.Exec(ctx, query, args...)
 		if err != nil {
 			return err
 		}
@@ -123,15 +121,15 @@ func (b *Bus) claim(ctx context.Context) (delivery, error) {
 		}
 		query, args, buildErr = goqu.Dialect("sqlite3").From("outbox_deliveries").Prepared(true).
 			Select("event_id", "subscription_id", "attempts").
-			Where(goqu.Ex{"lease_token": d.token}).
+			Where(goqu.Ex{"lease_token": d.Token}).
 			ToSQL()
 		if buildErr != nil {
 			return buildErr
 		}
-		if err = b.db.Get(ctx, &claimed, query, args...); err != nil {
+		if err = r.db.Get(ctx, &claimed, query, args...); err != nil {
 			return err
 		}
-		d.eventID, d.subscriptionID, d.attempts = claimed.EventID, claimed.SubscriptionID, claimed.Attempts
+		d.EventID, d.SubscriptionID, d.Attempts = claimed.EventID, claimed.SubscriptionID, claimed.Attempts
 		return nil
 	})
 	return d, err
@@ -182,90 +180,45 @@ func claimStatement(
 		ToSQL()
 }
 
-type invalidDeliveryError struct{ code string }
-
-func (e *invalidDeliveryError) Error() string { return e.code }
-
-func (b *Bus) process(ctx context.Context, d delivery) error {
-	var row struct {
-		EventType           events.TypeName `db:"event_type"`
-		SchemaVersion       int             `db:"schema_version"`
-		Payload             string          `db:"payload"`
-		OccurredAt          time.Time       `db:"occurred_at"`
-		PublicationSequence int64           `db:"sequence"`
-	}
+// Load decodes the publication associated with a claimed delivery.
+func (r *Repository) Load(ctx context.Context, d Delivery) (Publication, error) {
+	var row publicationRow
 	query, args, err := goqu.Dialect("sqlite3").From("outbox_events").Prepared(true).
-		Select("event_type", "schema_version", "payload", "occurred_at", "sequence").
-		Where(goqu.Ex{"id": d.eventID}).ToSQL()
+		Select("id", "event_type", "schema_version", "payload", "occurred_at", "sequence", "traceparent").
+		Where(goqu.Ex{"id": d.EventID}).ToSQL()
 	if err != nil {
-		return err
+		return Publication{}, err
 	}
-	err = b.db.Get(ctx, &row, query, args...)
-	if err != nil {
-		return err
+	if err = r.db.Get(ctx, &row, query, args...); err != nil {
+		return Publication{}, err
 	}
-	typ, version, payload, occurred, publicationSequence := row.EventType, row.SchemaVersion, row.Payload,
-		row.OccurredAt, row.PublicationSequence
-	event, err := codec.Decode(typ, version, []byte(payload))
-	if err != nil {
-		return &invalidDeliveryError{code: "unsupported_or_invalid_payload"}
-	}
-	b.mu.RLock()
-	handler := b.registry[typ][d.subscriptionID]
-	b.mu.RUnlock()
-	if handler == nil {
-		return &invalidDeliveryError{code: "subscription_missing"}
-	}
-	ctx = context.WithValue(ctx, causeKey{}, d.eventID)
-	ctx, cancel := context.WithTimeout(ctx, b.lease)
-	defer cancel()
-	envelope := events.Envelope{
-		ID: d.eventID, Event: event, OccurredAt: occurred.UTC(),
-		PublicationSequence: publicationSequence,
-	}
-	if external, ok := handler.(externalSubscriber); ok {
-		if err = b.checkLease(ctx, d); err != nil {
-			return err
-		}
-		if err = invoke(ctx, external.Subscriber, envelope); err != nil {
-			return err
-		}
-		return b.db.WithinTransaction(ctx, func(ctx context.Context) error { return b.ack(ctx, d) })
-	}
-	return b.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		if leaseErr := b.checkLease(ctx, d); leaseErr != nil {
-			return leaseErr
-		}
-		if handlerErr := invoke(ctx, handler, envelope); handlerErr != nil {
-			return handlerErr
-		}
-		return b.ack(ctx, d)
-	})
+	return row.publication()
 }
 
-func invoke(ctx context.Context, handler Subscriber, envelope events.Envelope) (err error) {
-	defer func() {
-		if recover() != nil {
-			err = errors.New("outbox handler panicked")
-		}
-	}()
-	return handler.Handle(ctx, envelope)
+// WithinTransaction executes fn in the repository transaction context.
+func (r *Repository) WithinTransaction(ctx context.Context, fn func(context.Context) error) error {
+	return r.db.WithinTransaction(ctx, fn)
 }
 
-func (b *Bus) checkLease(ctx context.Context, d delivery) error {
+// WithCause associates child publications with their source event.
+func WithCause(ctx context.Context, eventID string) context.Context {
+	return context.WithValue(ctx, causeKey{}, eventID)
+}
+
+// CheckLease verifies that the delivery claim is still current.
+func (r *Repository) CheckLease(ctx context.Context, d Delivery, now time.Time) error {
 	var count int
 	query, args, err := goqu.Dialect("sqlite3").From("outbox_deliveries").Prepared(true).
 		Select(goqu.COUNT("*")).
 		Where(goqu.Ex{
-			"event_id": d.eventID, "subscription_id": d.subscriptionID,
-			"status": "processing", "lease_token": d.token,
-		}, goqu.C("lease_until").Gt(b.now().UTC())).
+			"event_id": d.EventID, "subscription_id": d.SubscriptionID,
+			"status": "processing", "lease_token": d.Token,
+		}, goqu.C("lease_until").Gt(now.UTC())).
 		ToSQL()
 	if err != nil {
 		return err
 	}
-	err = b.db.Get(ctx, &count, query, args...)
-	if err != nil {
+	if err = r.db.Get(ctx, &count, query, args...); err != nil {
 		return err
 	}
 	if count != 1 {
@@ -274,28 +227,29 @@ func (b *Bus) checkLease(ctx context.Context, d delivery) error {
 	return nil
 }
 
-func (b *Bus) ack(ctx context.Context, d delivery) error {
+// Acknowledge marks one claimed delivery complete and removes fully delivered publications.
+func (r *Repository) Acknowledge(ctx context.Context, d Delivery, now time.Time) error {
 	query, args, err := goqu.Dialect("sqlite3").Update("outbox_deliveries").Prepared(true).
 		Set(goqu.Record{
 			"status": "delivered", "lease_token": nil, "lease_until": nil,
-			"last_error": nil, "updated_at": b.now().UTC(),
+			"last_error": nil, "updated_at": now.UTC(),
 		}).
 		Where(goqu.Ex{
-			"event_id": d.eventID, "subscription_id": d.subscriptionID,
-			"status": "processing", "lease_token": d.token,
-		}, goqu.C("lease_until").Gt(b.now().UTC())).
+			"event_id": d.EventID, "subscription_id": d.SubscriptionID,
+			"status": "processing", "lease_token": d.Token,
+		}, goqu.C("lease_until").Gt(now.UTC())).
 		ToSQL()
 	if err != nil {
 		return err
 	}
-	result, err := b.db.Exec(ctx, query, args...)
+	result, err := r.db.Exec(ctx, query, args...)
 	if err != nil {
 		return err
 	}
 	if err = requireChanged(result); err != nil {
 		return err
 	}
-	return b.deleteCompleted(ctx, d.eventID)
+	return r.deleteCompleted(ctx, d.EventID)
 }
 
 func requireChanged(result sql.Result) error {
@@ -309,7 +263,7 @@ func requireChanged(result sql.Result) error {
 	return nil
 }
 
-func (b *Bus) deleteCompleted(ctx context.Context, eventID string) error {
+func (r *Repository) deleteCompleted(ctx context.Context, eventID string) error {
 	pending := goqu.Dialect("sqlite3").From("outbox_deliveries").Prepared(true).Select(goqu.L("1")).
 		Where(
 			goqu.I("outbox_deliveries.event_id").Eq(goqu.I("outbox_events.id")),
@@ -320,30 +274,38 @@ func (b *Bus) deleteCompleted(ctx context.Context, eventID string) error {
 	if err != nil {
 		return err
 	}
-	_, err = b.db.Exec(ctx, query, args...)
+	_, err = r.db.Exec(ctx, query, args...)
 	return err
 }
 
-func (b *Bus) fail(ctx context.Context, d delivery, code string, terminal bool) error {
+// Fail releases a claimed delivery for retry or parks it as a terminal failure.
+func (r *Repository) Fail(
+	ctx context.Context,
+	d Delivery,
+	code string,
+	terminal bool,
+	maxAttempts int,
+	now time.Time,
+) error {
 	status := "pending"
-	if terminal || d.attempts >= b.maxAttempts {
+	if terminal || d.Attempts >= maxAttempts {
 		status = "failed"
 	}
-	backoff := min(time.Second*time.Duration(1<<min(d.attempts, maxBackoffExponent)), maxRetryBackoff)
-	return b.db.WithinTransaction(ctx, func(ctx context.Context) error {
+	backoff := min(time.Second*time.Duration(1<<min(d.Attempts, maxBackoffExponent)), maxRetryBackoff)
+	return r.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		query, args, err := goqu.Dialect("sqlite3").Update("outbox_deliveries").Prepared(true).
 			Set(goqu.Record{
 				"status": status, "lease_token": nil, "lease_until": nil, "last_error": code,
-				"available_at": b.now().Add(backoff).UTC(), "updated_at": b.now().UTC(),
+				"available_at": now.Add(backoff).UTC(), "updated_at": now.UTC(),
 			}).
 			Where(goqu.Ex{
-				"event_id": d.eventID, "subscription_id": d.subscriptionID,
-				"status": "processing", "lease_token": d.token,
+				"event_id": d.EventID, "subscription_id": d.SubscriptionID,
+				"status": "processing", "lease_token": d.Token,
 			}).ToSQL()
 		if err != nil {
 			return err
 		}
-		result, err := b.db.Exec(ctx, query, args...)
+		result, err := r.db.Exec(ctx, query, args...)
 		if err != nil {
 			return err
 		}
@@ -352,18 +314,18 @@ func (b *Bus) fail(ctx context.Context, d delivery, code string, terminal bool) 
 }
 
 // Replay reschedules exactly one terminal failure, preserving delivered siblings.
-func (b *Bus) Replay(ctx context.Context, eventID, subscriptionID string) error {
+func (r *Repository) Replay(ctx context.Context, eventID, subscriptionID string, now time.Time) error {
 	query, args, err := goqu.Dialect("sqlite3").Update("outbox_deliveries").Prepared(true).
 		Set(goqu.Record{
 			"status": "pending", "attempts": 0, "last_error": nil,
-			"available_at": b.now().UTC(), "updated_at": b.now().UTC(),
+			"available_at": now.UTC(), "updated_at": now.UTC(),
 		}).
 		Where(goqu.Ex{"event_id": eventID, "subscription_id": subscriptionID, "status": "failed"}).
 		ToSQL()
 	if err != nil {
 		return err
 	}
-	result, err := b.db.Exec(ctx, query, args...)
+	result, err := r.db.Exec(ctx, query, args...)
 	if err != nil {
 		return err
 	}
@@ -371,22 +333,22 @@ func (b *Bus) Replay(ctx context.Context, eventID, subscriptionID string) error 
 }
 
 // Discard explicitly waives one terminal failure and deletes completed work.
-func (b *Bus) Discard(ctx context.Context, eventID, subscriptionID string) error {
-	return b.db.WithinTransaction(ctx, func(ctx context.Context) error {
+func (r *Repository) Discard(ctx context.Context, eventID, subscriptionID string, now time.Time) error {
+	return r.db.WithinTransaction(ctx, func(ctx context.Context) error {
 		query, args, err := goqu.Dialect("sqlite3").Update("outbox_deliveries").Prepared(true).
-			Set(goqu.Record{"status": "delivered", "updated_at": b.now().UTC()}).
+			Set(goqu.Record{"status": "delivered", "updated_at": now.UTC()}).
 			Where(goqu.Ex{"event_id": eventID, "subscription_id": subscriptionID, "status": "failed"}).
 			ToSQL()
 		if err != nil {
 			return err
 		}
-		result, err := b.db.Exec(ctx, query, args...)
+		result, err := r.db.Exec(ctx, query, args...)
 		if err != nil {
 			return err
 		}
 		if err = requireChanged(result); err != nil {
 			return err
 		}
-		return b.deleteCompleted(ctx, eventID)
+		return r.deleteCompleted(ctx, eventID)
 	})
 }

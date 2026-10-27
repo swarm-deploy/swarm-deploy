@@ -13,7 +13,6 @@ import (
 	context "context"
 	reflect "reflect"
 
-	events "github.com/docker/docker/api/types/events"
 	swarm "github.com/docker/docker/api/types/swarm"
 	gomock "go.uber.org/mock/gomock"
 )
@@ -313,20 +312,18 @@ func (mr *MockSecretManagerMockRecorder) ResolveReference(ctx, source, target an
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ResolveReference", reflect.TypeOf((*MockSecretManager)(nil).ResolveReference), ctx, source, target)
 }
 
-// Watch mocks base method.
-func (m *MockSecretManager) Watch(ctx context.Context) (<-chan events.Message, <-chan error, error) {
+// UpdateLabels mocks base method.
+func (m *MockSecretManager) UpdateLabels(ctx context.Context, secretID string, labels map[string]string) error {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Watch", ctx)
-	ret0, _ := ret[0].(<-chan events.Message)
-	ret1, _ := ret[1].(<-chan error)
-	ret2, _ := ret[2].(error)
-	return ret0, ret1, ret2
+	ret := m.ctrl.Call(m, "UpdateLabels", ctx, secretID, labels)
+	ret0, _ := ret[0].(error)
+	return ret0
 }
 
-// Watch indicates an expected call of Watch.
-func (mr *MockSecretManagerMockRecorder) Watch(ctx any) *gomock.Call {
+// UpdateLabels indicates an expected call of UpdateLabels.
+func (mr *MockSecretManagerMockRecorder) UpdateLabels(ctx, secretID, labels any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Watch", reflect.TypeOf((*MockSecretManager)(nil).Watch), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "UpdateLabels", reflect.TypeOf((*MockSecretManager)(nil).UpdateLabels), ctx, secretID, labels)
 }
 
 // MockConfigManager is a mock of ConfigManager interface.
@@ -576,20 +573,4 @@ func (m *MockNodeManager) SetLabel(ctx context.Context, req NodeLabelUpdateReque
 func (mr *MockNodeManagerMockRecorder) SetLabel(ctx, req any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "SetLabel", reflect.TypeOf((*MockNodeManager)(nil).SetLabel), ctx, req)
-}
-
-// Watch mocks base method.
-func (m *MockNodeManager) Watch(ctx context.Context) (<-chan events.Message, <-chan error, error) {
-	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "Watch", ctx)
-	ret0, _ := ret[0].(<-chan events.Message)
-	ret1, _ := ret[1].(<-chan error)
-	ret2, _ := ret[2].(error)
-	return ret0, ret1, ret2
-}
-
-// Watch indicates an expected call of Watch.
-func (mr *MockNodeManagerMockRecorder) Watch(ctx any) *gomock.Call {
-	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Watch", reflect.TypeOf((*MockNodeManager)(nil).Watch), ctx)
 }

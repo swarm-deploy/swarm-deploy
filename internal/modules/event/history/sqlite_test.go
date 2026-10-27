@@ -15,7 +15,7 @@ import (
 
 func TestSQLiteQueryPagination(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	repo, err := NewSQLStore(db, 100)
@@ -65,7 +65,7 @@ func TestSQLiteQueryPagination(t *testing.T) {
 
 func TestSQLiteQueryFiltersAttributesBeforePagination(t *testing.T) {
 	t.Parallel()
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	repo, err := NewSQLStore(db, 100)
@@ -119,7 +119,7 @@ func TestSQLiteQueryFiltersAttributesBeforePagination(t *testing.T) {
 
 func TestSQLiteFilterOptionsUsesRetainedHistory(t *testing.T) {
 	t.Parallel()
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	repo, err := NewSQLStore(db, 100)
@@ -156,7 +156,7 @@ func TestSQLiteFilterOptionsUsesRetainedHistory(t *testing.T) {
 
 func TestSQLiteQueriesExcludeLegacySyncFailedHistory(t *testing.T) {
 	t.Parallel()
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	repo, err := NewSQLStore(db, 100)
@@ -225,7 +225,7 @@ func entryIDs(entries []Entry) []string {
 
 func TestSQLiteProjectionSelectionIdempotenceAndRollback(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo, err := NewSQLStore(db, 2)
@@ -242,6 +242,9 @@ func TestSQLiteProjectionSelectionIdempotenceAndRollback(t *testing.T) {
 	for _, envelope := range []events.Envelope{
 		e, e,
 		{ID: "configuration", OccurredAt: now, Event: &events.ConfigurationChanged{}},
+		{ID: "removed-desired", OccurredAt: now, Event: &events.ServiceRemovedFromDesired{
+			StackName: "app", ServiceName: "worker", Commit: "sha",
+		}},
 		{ID: "failure", OccurredAt: now, PublicationSequence: 2, Event: &events.DeployFailed{
 			DeployEvent: events.DeployEvent{StackName: "app", Commit: "sha"},
 			Error:       assert.AnError, ErrorCode: "apply_failed", Stage: "apply",
@@ -266,7 +269,7 @@ func TestSQLiteProjectionSelectionIdempotenceAndRollback(t *testing.T) {
 }
 
 func TestDeploymentFailuresAreExcludedFromEventHistory(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	repo, err := NewSQLStore(db, 10)
@@ -305,7 +308,7 @@ func TestDeploymentFailuresAreExcludedFromEventHistory(t *testing.T) {
 
 func TestSQLiteRetentionUsesPublicationOrderAcrossDelayedDeliveries(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo, err := NewSQLStore(db, 1)
@@ -334,7 +337,7 @@ func TestSQLiteRetentionUsesPublicationOrderAcrossDelayedDeliveries(t *testing.T
 }
 
 func TestSQLiteStoresNormalizedHistoryAndTargetsIDConflict(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	repo, err := NewSQLStore(db, 10)
@@ -370,7 +373,7 @@ func TestSQLiteStoresNormalizedHistoryAndTargetsIDConflict(t *testing.T) {
 }
 
 func TestSQLiteQueryPageUsesHistoryIndex(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 
@@ -386,4 +389,37 @@ func TestSQLiteQueryPageUsesHistoryIndex(t *testing.T) {
 		events.TypeNodeJoined.Name()))
 	require.NotEmpty(t, plan)
 	assert.Contains(t, plan[0].Detail, "idx_history_type_time")
+}
+
+func TestServicePrunedAppearsInEventHistory(t *testing.T) {
+	ctx := t.Context()
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	repo, err := NewSQLStore(db, 100)
+	require.NoError(t, err)
+
+	at := time.Date(2026, time.October, 22, 12, 0, 0, 0, time.UTC)
+	event := &events.ServicePruned{StackName: "app", ServiceName: "old", Commit: "revision"}
+	require.NoError(t, repo.Handle(ctx, events.Envelope{
+		ID: "pruned-1", OccurredAt: at, PublicationSequence: 1, Event: event,
+	}))
+
+	page, err := repo.QueryPage(ctx, QueryOptions{
+		Types:      []events.TypeName{events.TypeNameServicePruned},
+		StackNames: []string{"app"}, ServiceNames: []string{"old"},
+		Limit: 10, Sort: SortTimeDesc,
+	})
+	require.NoError(t, err)
+	require.Len(t, page.Entries, 1)
+	assert.Equal(t, "pruned-1", page.Entries[0].ID)
+	assert.Equal(t, events.TypeServicePruned, page.Entries[0].Type)
+	assert.Equal(t, "Service app/old pruned", page.Entries[0].Message)
+	assert.Equal(t, events.SeverityInfo, page.Entries[0].Severity)
+	assert.Equal(t, events.CategorySync, page.Entries[0].Category)
+	assert.Equal(t, map[string]string{
+		events.AttributeStackName:   "app",
+		events.AttributeServiceName: "old",
+		events.AttributeCommit:      "revision",
+	}, page.Entries[0].Details)
 }

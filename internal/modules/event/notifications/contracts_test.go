@@ -22,7 +22,7 @@ func TestMovedPayloadContracts(t *testing.T) {
 		fields map[string]reflect.Type
 	}{
 		{name: "deployment", typ: reflect.TypeFor[DeploymentPayload](), fields: map[string]reflect.Type{
-			"ID": reflect.TypeFor[string](), "DeploymentID": reflect.TypeFor[string](),
+			"ID": reflect.TypeFor[string](), "DeploymentID": reflect.TypeFor[string](), "AttemptID": reflect.TypeFor[string](),
 			"Type": reflect.TypeFor[string](), "Status": reflect.TypeFor[string](),
 			"StackName": reflect.TypeFor[string](), "Services": reflect.TypeFor[[]DeploymentService](),
 			"Commit": reflect.TypeFor[string](), "OccurredAt": reflect.TypeFor[time.Time](),

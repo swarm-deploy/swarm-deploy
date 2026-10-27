@@ -15,7 +15,7 @@ export const eventTypeMetadata: EventTypeMetadata[] = [
   { type: "ServiceReplicasIncreased", description: "Service replica count increased" },
   { type: "ServiceReplicasDecreased", description: "Service replica count decreased" },
   { type: "ServiceRestarted", description: "Service restart requested" },
-  { type: "ServicePruned", description: "Unmanaged service was removed" },
+  { type: "ServicePruned", description: "Managed orphan service was removed" },
   { type: "NetworkCreated", description: "Network was created" },
   { type: "UserAuthenticated", description: "User signed in" },
   { type: "AssistantPromptInjectionDetected", description: "Prompt injection was detected" },

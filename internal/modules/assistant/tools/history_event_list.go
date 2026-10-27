@@ -36,7 +36,7 @@ func (l *ListHistoryEvents) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
 		Name: config.AssistantToolNameHistoryEventList,
 		Description: "Returns the latest user-facing Event History timeline. Use alert_list for operational " +
-			"incident lifecycle and deployment_list for persisted deployment attempts, failures, and outcomes.",
+			"incident lifecycle and deployment_list for persisted desired-state deployments, attempts, failures, and outcomes.",
 		ParametersJSONSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{

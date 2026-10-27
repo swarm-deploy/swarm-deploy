@@ -12,7 +12,7 @@ import (
 )
 
 func TestServiceStorePhysicalContentAndRoundTrip(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	store := NewSQLStore(db)
@@ -68,7 +68,7 @@ func TestServiceStorePhysicalContentAndRoundTrip(t *testing.T) {
 }
 
 func TestServiceStoreReplaceStackRollsBack(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	store := NewSQLStore(db)

@@ -19,9 +19,11 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/logparser"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	semconv "go.opentelemetry.io/otel/semconv/v1.41.0"
 	"go.opentelemetry.io/otel/trace"
@@ -45,6 +47,7 @@ func NewExecutor(
 	alertModule *alertmanagement.Module,
 	eventModule *event.Module,
 	swarmService *swarm.Swarm,
+	taskLogs *logparser.Service,
 	recommendations RecommendationsReader,
 	imageVersionResolver ImageVersionResolver,
 	hostingProviders *githosting.ProviderManager,
@@ -63,6 +66,8 @@ func NewExecutor(
 		NewDockerPluginList(swarmService.Plugins),
 		NewDockerSecretList(swarmService.Secrets),
 		NewGetServiceLogs(swarmService.Services),
+		NewListServiceTasks(swarmService.Services),
+		NewGetTaskLogs(taskLogs),
 		NewGetServiceSpec(swarmService.Services),
 		NewDNSNameResolve(),
 		NewPingWebRoutes(resourcesModule.ServiceStore),
@@ -158,11 +163,20 @@ func (e *Executor) Execute(ctx context.Context, req routing.Request) (string, er
 		return "", fmt.Errorf("encode %q tool response: %w", req.ToolName, err)
 	}
 
-	span.SetAttributes(tracing.GenAIToolCallResult.String(string(encoded)))
+	if toolResultCanBeTraced(req.ToolName) {
+		span.SetAttributes(tracing.GenAIToolCallResult.String(string(encoded)))
+	} else {
+		span.SetAttributes(attribute.Int("swarm-deploy.assistant.tool.result_chars", len(encoded)))
+	}
 	span.SetStatus(codes.Ok, "success")
 
 	success = true
 	return string(encoded), nil
+}
+
+func toolResultCanBeTraced(toolName string) bool {
+	return toolName != string(config.AssistantToolNameServiceLogsGet) &&
+		toolName != string(config.AssistantToolNameServiceTaskLogsGet)
 }
 
 func decodeToolRequestPayload(payload any, requestShape any) (any, error) {

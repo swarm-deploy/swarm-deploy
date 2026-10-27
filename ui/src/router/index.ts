@@ -1,5 +1,7 @@
 import { createRouter, createWebHistory } from "vue-router";
 
+import { getWebBasePath } from "../runtimeConfig";
+
 import ServicesView from "../views/ApplicationsView.vue";
 import DeploymentsView from "../views/DeploymentsView.vue";
 import ClusterView from "../views/ClusterView.vue";
@@ -13,7 +15,7 @@ import StackView from "../views/StackView.vue";
 import ServiceView from "../views/ServiceView.vue";
 
 export const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHistory(getWebBasePath()),
   routes: [
     { path: "/stacks/:stack", name: "stack-details", component: StackView },
     { path: "/deployments", name: "deployments", component: DeploymentsView },

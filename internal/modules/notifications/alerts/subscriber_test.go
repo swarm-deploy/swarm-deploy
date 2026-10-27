@@ -3,6 +3,7 @@ package alerts
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"html"
 	"net/http"
 	"net/http/httptest"
@@ -16,6 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/notifiers"
@@ -89,7 +91,7 @@ func TestSyncFailedAlertRendering(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			db, err := storage.Open(t.Context(), t.TempDir())
+			db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 			require.NoError(t, err)
 			defer db.Close()
 			spec := alertSpec()
@@ -125,7 +127,7 @@ func TestSyncFailedAlertRendering(t *testing.T) {
 }
 
 func TestSyncFailedDefaultAlertTruncatesLongError(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	spec := alertSpec()
@@ -158,18 +160,18 @@ func TestSyncFailedDefaultAlertTruncatesLongError(t *testing.T) {
 	assert.Equal(t, "HTML", request.ParseMode)
 }
 
-func subscribeTestRecipients(t *testing.T, bus *outbox.Bus, db *storage.Database, spec config.NotificationSpec, url string) []events.AlertRecipient {
+func subscribeTestRecipients(t *testing.T, bus *eventbus.OutboxDispatcher, db storage.Database, spec config.NotificationSpec, url string) []events.AlertRecipient {
 	t.Helper()
 	recipients := spec.AlertRecipients("node_disconnected")
 	for _, recipient := range recipients {
-		subscriber := outbox.External(&Subscriber{store: NewStore(db), spec: spec, recipient: recipient, now: time.Now, apiBaseURL: url})
+		subscriber := eventbus.External(&Subscriber{store: NewStore(db), spec: spec, recipient: recipient, now: time.Now, apiBaseURL: url})
 		require.NoError(t, bus.Subscribe(events.TypeNameAlertOpened, SubscriptionID(recipient), subscriber))
 		require.NoError(t, bus.Subscribe(events.TypeNameAlertResolved, SubscriptionID(recipient), subscriber))
 	}
 	return recipients
 }
 
-func drain(t *testing.T, bus *outbox.Bus) {
+func drain(t *testing.T, bus *eventbus.OutboxDispatcher) {
 	t.Helper()
 	for range 12 {
 		handled, err := bus.ProcessNext(t.Context())
@@ -181,7 +183,7 @@ func drain(t *testing.T, bus *outbox.Bus) {
 }
 
 func TestRegisterIncludesFallbackAndCustomRecipientsForFutureAlertKinds(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	spec := alertSpec()
@@ -195,7 +197,7 @@ func TestRegisterIncludesFallbackAndCustomRecipientsForFutureAlertKinds(t *testi
 			Chats: config.NotificationChatNames{"infra"},
 		}}},
 	}
-	bus := outbox.New(db)
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 	require.NoError(t, Register(t.Context(), bus, db, spec))
 	futureRecipients := spec.AlertRecipients("future_alert_kind")
 	require.Len(t, futureRecipients, 1)
@@ -219,7 +221,7 @@ func TestRegisterIncludesFallbackAndCustomRecipientsForFutureAlertKinds(t *testi
 
 func TestAlertIndependentDeliveryOrderingAndRestart(t *testing.T) {
 	directory := t.TempDir()
-	db, err := storage.Open(t.Context(), directory)
+	db, err := storage.OpenSQLite(t.Context(), directory)
 	require.NoError(t, err)
 	spec := alertSpec()
 	var failInfra atomic.Bool
@@ -253,7 +255,7 @@ func TestAlertIndependentDeliveryOrderingAndRestart(t *testing.T) {
 		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":` + strconv.Itoa(id) + `}}`))
 	}))
 	defer server.Close()
-	bus := outbox.New(db)
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 	recipients := subscribeTestRecipients(t, bus, db, spec, server.URL)
 	alert := events.AlertSnapshot{ID: "cycle-1", Kind: "node_disconnected", Title: "Node disconnected", ResourceID: "node-1", OpenedAt: time.Now().UTC()}
 	require.NoError(t, bus.Publish(t.Context(), &events.AlertOpened{Alert: alert, Recipients: recipients}))
@@ -274,10 +276,11 @@ func TestAlertIndependentDeliveryOrderingAndRestart(t *testing.T) {
 	assert.False(t, infraLink.OpenedAt.Valid)
 	assert.False(t, infraLink.ResolvedAt.Valid)
 	require.NoError(t, db.Close())
-	db, err = storage.Open(t.Context(), directory)
+	db, err = storage.OpenSQLite(t.Context(), directory)
 	require.NoError(t, err)
 	defer db.Close()
-	bus = outbox.New(db)
+	repository := outbox.New(db)
+	bus = eventbus.NewOutboxDispatcher(repository)
 	subscribeTestRecipients(t, bus, db, spec, server.URL)
 	failInfra.Store(false)
 	var infraOpenEventID string
@@ -287,7 +290,7 @@ func TestAlertIndependentDeliveryOrderingAndRestart(t *testing.T) {
 	_, err = db.Exec(t.Context(), `UPDATE outbox_deliveries SET status='failed' WHERE event_id=? AND subscription_id=?`,
 		infraOpenEventID, SubscriptionID(recipients[1]))
 	require.NoError(t, err)
-	require.NoError(t, bus.Replay(t.Context(), infraOpenEventID, SubscriptionID(recipients[1])))
+	require.NoError(t, repository.Replay(t.Context(), infraOpenEventID, SubscriptionID(recipients[1]), time.Now()))
 	drain(t, bus)
 	infraLink, err = NewStore(db).Get(t.Context(), alert.ID, recipients[1])
 	require.NoError(t, err)
@@ -299,7 +302,7 @@ func TestAlertIndependentDeliveryOrderingAndRestart(t *testing.T) {
 }
 
 func TestAlertMessageStoreRetentionAndReplay(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	spec := alertSpec()
@@ -324,7 +327,7 @@ func TestAlertMessageStoreRetentionAndReplay(t *testing.T) {
 }
 
 func TestAlertReceiptSurvivesReplayBeforeAcknowledgement(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	spec := alertSpec()
@@ -335,9 +338,9 @@ func TestAlertReceiptSurvivesReplayBeforeAcknowledgement(t *testing.T) {
 		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":42}}`))
 	}))
 	defer server.Close()
-	bus := outbox.New(db)
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 	subscriber := &Subscriber{store: NewStore(db), spec: spec, recipient: recipient, now: time.Now, apiBaseURL: server.URL}
-	require.NoError(t, bus.Subscribe(events.TypeNameAlertOpened, SubscriptionID(recipient), outbox.External(subscriber)))
+	require.NoError(t, bus.Subscribe(events.TypeNameAlertOpened, SubscriptionID(recipient), eventbus.External(subscriber)))
 	alert := events.AlertSnapshot{ID: "crash-cycle", Kind: "node_disconnected", Title: "Node disconnected", OpenedAt: time.Now().UTC()}
 	event := &events.AlertOpened{Alert: alert, Recipients: []events.AlertRecipient{recipient}}
 	require.NoError(t, bus.Publish(t.Context(), event))
@@ -353,7 +356,7 @@ func TestAlertReceiptSurvivesReplayBeforeAcknowledgement(t *testing.T) {
 }
 
 func TestAlertResolutionUsesOriginalPhysicalChatAfterRouteChange(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	oldSpec := alertSpec()
@@ -422,7 +425,7 @@ func TestAlertResolutionUsesOriginalPhysicalChatAfterRouteChange(t *testing.T) {
 }
 
 func TestResolvedAlertDoesNotSendOpeningOnManualReplay(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 
@@ -435,13 +438,14 @@ func TestResolvedAlertDoesNotSendOpeningOnManualReplay(t *testing.T) {
 	}))
 	defer server.Close()
 
-	bus := outbox.New(db)
+	repository := outbox.New(db)
+	bus := eventbus.NewOutboxDispatcher(repository)
 	subscriber := &Subscriber{
 		store: NewStore(db), spec: spec, recipient: recipient, now: time.Now, apiBaseURL: server.URL,
 	}
 	id := SubscriptionID(recipient)
-	require.NoError(t, bus.Subscribe(events.TypeNameAlertOpened, id, outbox.External(subscriber)))
-	require.NoError(t, bus.Subscribe(events.TypeNameAlertResolved, id, outbox.External(subscriber)))
+	require.NoError(t, bus.Subscribe(events.TypeNameAlertOpened, id, eventbus.External(subscriber)))
+	require.NoError(t, bus.Subscribe(events.TypeNameAlertResolved, id, eventbus.External(subscriber)))
 
 	alert := events.AlertSnapshot{
 		ID: "resolved-before-replay", Kind: "node_disconnected",
@@ -476,7 +480,7 @@ func TestResolvedAlertDoesNotSendOpeningOnManualReplay(t *testing.T) {
 	require.False(t, link.OpenedAt.Valid)
 	require.Equal(t, "send", link.ResolvedAction.String)
 
-	require.NoError(t, bus.Replay(t.Context(), openingID, id))
+	require.NoError(t, repository.Replay(t.Context(), openingID, id, time.Now()))
 	drain(t, bus)
 	assert.Equal(t, 1, sends, "replayed opening must not send after resolved notification")
 	link, err = store.Get(t.Context(), alert.ID, recipient)
@@ -490,4 +494,61 @@ func TestResolvedAlertDoesNotSendOpeningOnManualReplay(t *testing.T) {
 	link, err = store.Get(t.Context(), alert.ID, recipient)
 	require.NoError(t, err)
 	assert.False(t, link.OpenedAt.Valid)
+}
+
+func TestGitAlertDefaultTelegramHTMLAndCustomTemplates(t *testing.T) {
+	for _, custom := range []bool{false, true} {
+		t.Run(fmt.Sprintf("custom=%t", custom), func(t *testing.T) {
+			db, err := storage.OpenSQLite(t.Context(), t.TempDir())
+			require.NoError(t, err)
+			defer db.Close()
+			spec := alertSpec()
+			if custom {
+				spec.Alerts["GitRepositoryUnavailable"] = config.NotificationAlertRoutes{Telegram: []config.TelegramAlertChannel{{
+					Opened:   config.AlertMessageSpec{Message: "repo={{ .ResourceID }}"},
+					Resolved: config.AlertMessageSpec{Message: "recovered={{ .ResourceID }}"},
+				}}}
+			}
+			type request struct {
+				Text      string `json:"text"`
+				ParseMode string `json:"parse_mode"`
+			}
+			var received []request
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var req request
+				require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+				received = append(received, req)
+				_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":42}}`))
+			}))
+			defer server.Close()
+			recipient := spec.AlertRecipients("git_repository_unavailable")[0]
+			subscriber := &Subscriber{store: NewStore(db), spec: spec, recipient: recipient, now: time.Now, apiBaseURL: server.URL}
+			alert := events.AlertSnapshot{
+				ID: "git-html", Kind: "git_repository_unavailable", Title: "Git repository unavailable",
+				ResourceID: "example.com/org/<repo>&test", Message: "Git <network> & unavailable",
+				ErrorCode: "network", Occurrences: 3, Duration: "1m19s", OpenedAt: time.Now().UTC(),
+			}
+			require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{Event: &events.AlertOpened{
+				Alert: alert, Recipients: []events.AlertRecipient{recipient},
+			}}))
+			resolved := time.Now().UTC()
+			alert.ResolvedAt = &resolved
+			require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{Event: &events.AlertResolved{
+				Alert: alert, Recipients: []events.AlertRecipient{recipient},
+			}}))
+			require.Len(t, received, 2)
+			if custom {
+				assert.Empty(t, received[0].ParseMode)
+				assert.Empty(t, received[1].ParseMode)
+				assert.Contains(t, received[0].Text, "<repo>&test")
+				assert.Contains(t, received[1].Text, "<repo>&test")
+			} else {
+				for _, req := range received {
+					assert.Equal(t, "HTML", req.ParseMode)
+					assert.Contains(t, req.Text, "<code>example.com/org/&lt;repo&gt;&amp;test</code>")
+				}
+				assert.Contains(t, received[0].Text, "Git &lt;network&gt; &amp; unavailable")
+			}
+		})
+	}
 }

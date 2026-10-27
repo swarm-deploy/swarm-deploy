@@ -1,10 +1,14 @@
 package git
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net"
+	"syscall"
 	"testing"
 
+	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/format/pktline"
 	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/stretchr/testify/assert"
@@ -74,5 +78,48 @@ func TestRepositoryIdentifierMalformedURLIsOpaqueAndStable(t *testing.T) {
 		assert.Regexp(t, `^repository-[0-9a-f]{16}$`, identifier)
 		assert.NotContains(t, identifier, secret)
 		assert.NotContains(t, identifier, "robot")
+	}
+}
+
+func TestSafePullDiagnostic(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{name: "DNS failure", err: &net.DNSError{Err: "secret token", Name: "secret.example", IsTemporary: true}, want: "Git repository DNS lookup failed"},
+		{name: "timeout", err: context.DeadlineExceeded, want: "Git repository connection timed out"},
+		{name: "connection refused", err: syscall.ECONNREFUSED, want: "Git repository connection refused"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			classified := ClassifyPullError(tc.err, "https://git.example/team/repo", config.GitAuthTypeHTTP)
+			category, detail := PullFailure(classified)
+			assert.Equal(t, FailureNetwork, category)
+			assert.Equal(t, tc.want, detail)
+			assert.NotContains(t, detail, "secret")
+		})
+	}
+}
+
+func TestClassifyWrappedGitNetworkErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{name: "wrapped refusal", err: fmt.Errorf("transport: %w", &plumbing.UnexpectedError{Err: &net.OpError{Op: "dial", Err: syscall.ECONNREFUSED}}), want: "Git repository connection refused"},
+		{name: "wrapped timeout", err: &plumbing.UnexpectedError{Err: &net.OpError{Op: "dial", Err: context.DeadlineExceeded}}, want: "Git repository connection timed out"},
+		{name: "host unreachable", err: &plumbing.UnexpectedError{Err: syscall.EHOSTUNREACH}, want: "Git repository host unreachable"},
+		{name: "network unreachable", err: &plumbing.UnexpectedError{Err: syscall.ENETUNREACH}, want: "Git repository network unreachable"},
+		{name: "wrapped DNS", err: &plumbing.UnexpectedError{Err: &net.DNSError{Err: "token=private", Name: "private.example", IsTemporary: true}}, want: "Git repository DNS lookup failed"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			category, diagnostic := PullFailure(ClassifyPullError(tc.err, "https://git.example/repo", config.GitAuthTypeHTTP))
+			assert.Equal(t, FailureNetwork, category)
+			assert.Equal(t, tc.want, diagnostic)
+			assert.NotContains(t, diagnostic, "private")
+		})
 	}
 }

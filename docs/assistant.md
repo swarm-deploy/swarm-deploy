@@ -9,7 +9,7 @@ Assistant is available only when `assistant.enabled: true`.
 
 ## Request routing
 
-Each non-greeting message is classified by a small tool-free LLM request into one of these capability routes: `general`, `platform`, `services`, `cluster`, `deployments`, `diagnostics`, or `lookups`. The router composes narrow capabilities, including `deployment_history` for deployment attempts and `alert_management` for operational incidents. The router uses the configured assistant model and a few recent conversation turns so short follow-ups retain their original intent. Greetings use a local fast-path and do not call the router.
+Each non-greeting message is classified by a small tool-free LLM request into one of these capability routes: `general`, `platform`, `services`, `cluster`, `deployments`, `diagnostics`, or `lookups`. The router composes narrow capabilities, including `deployment_history` for desired-state deployments and their attempts, and `alert_management` for operational incidents. The router uses the configured assistant model and a few recent conversation turns so short follow-ups retain their original intent. Greetings use a local fast-path and do not call the router.
 
 The selected route controls the additional prompt fragment, available tools, and whether service metadata retrieval runs. Service RAG is enabled only for `services` and `diagnostics`. If routing fails or returns an invalid route, the assistant logs and counts the fallback reason, then continues with the broad compatibility profile.
 
@@ -17,7 +17,7 @@ The selected route controls the additional prompt fragment, available tools, and
 
 Successful single calls to `service_restart_trigger` and `service_replicas_set` are terminal assistant actions. After the existing tool-result injection guard passes, the assistant formats their typed result directly instead of issuing a second model completion. Tool errors, malformed results, non-terminal tools, and iterations containing multiple calls continue through the regular model tool loop.
 
-The assistant chat span records request-size diagnostics without recording prompt or user content: `swarm-deploy.assistant.request.system_prompt_chars`, `swarm-deploy.assistant.request.history_chars`, `swarm-deploy.assistant.request.context_chars`, `swarm-deploy.assistant.request.user_message_chars`, `swarm-deploy.assistant.request.tools_chars`, `swarm-deploy.assistant.request.message_count`, and `swarm-deploy.assistant.request.tool_count`. It also records `swarm-deploy.assistant.route` and, for a completed terminal action, `swarm-deploy.assistant.terminal_tool`. MCP tool execution spans use the OpenTelemetry GenAI attribute `gen_ai.operation.name=execute_tool`.
+The assistant chat span records request-size diagnostics without recording prompt or user content: `swarm-deploy.assistant.request.system_prompt_chars`, `swarm-deploy.assistant.request.history_chars`, `swarm-deploy.assistant.request.context_chars`, `swarm-deploy.assistant.request.user_message_chars`, `swarm-deploy.assistant.request.tools_chars`, `swarm-deploy.assistant.request.message_count`, and `swarm-deploy.assistant.request.tool_count`. It also records `swarm-deploy.assistant.route` and, for a completed terminal action, `swarm-deploy.assistant.terminal_tool`. MCP tool execution spans use the OpenTelemetry GenAI attribute `gen_ai.operation.name=execute_tool`. Log tool results are excluded from span attributes; only their encoded character count is recorded.
 
 ## API
 
@@ -77,16 +77,22 @@ Completed user/assistant turns are persisted under `.swarm-deploy/assistant/chat
   - `limit`: default `20`, maximum `100`
   - each compact summary contains only selection/correlation fields: `id`, `status`, `kind`, `resource_type`, `resource_id`, `title`, `updated_at`, and optional `deployment_id`/`error_code`
 - `alert_get` - returns one complete safe alert representation by required `id`, including message, failure metadata, deployment correlation, occurrences, lifecycle timestamps, and resolution details
-- `deployment_list` - returns lightweight deployment attempts in newest-first order without Compose snapshots or semantic change arrays
-  - optional `stack` and `status` (`running`, `succeeded`, `failed`, or `interrupted`) filters
+- `deployment_list` - returns lightweight desired-state deployments in newest-first order without Compose snapshots or semantic change arrays
+  - optional `stack` and `status` (`running`, `succeeded`, `failed`, `interrupted`, or `superseded`) filters
   - `limit`: default `20`, maximum `100`
   - optional `cursor`; the response contains `next_cursor` when another filtered page exists
-- `deployment_get` - returns one deployment attempt by required `id`, including safe diagnostics, lifecycle stages, observation/comparison state, summaries, and redacted semantic changes
+- `deployment_get` - returns one desired-state deployment by required `id`, including immutable redacted changes and nested execution Attempts with safe diagnostics and lifecycle stages
 - `deploy_sync_trigger` - triggers manual sync (same as `POST /api/v1/sync`)
 - `swarm_node_list` - returns current Docker Swarm nodes snapshot
 - `docker_network_list` - returns current Docker networks snapshot (`name`, `scope`, `driver`, `internal`, `attachable`, `ingress`, `labels`)
 - `docker_plugin_list` - returns current Docker plugins snapshot (`id`, `name`, `description`, `enabled`, `plugin_reference`, `capabilities`)
 - `docker_secret_list` - returns current Docker secrets snapshot (`id`, `name`, `created_at`, `updated_at`, `driver`, `labels`)
+- `service_logs_get` - returns bounded recent logs for a stack service
+- `service_task_list` - returns all Docker Swarm task states for a stack service, newest first
+  - requires `stack_name` and `service_name`; `limit` defaults to `20` and is capped at `100`; use `next_offset` as `offset` to access older tasks
+  - each task contains `id`, `node`, `state`, `error`, `created_at`, and `updated_at`; terminal states such as `failed`, `rejected`, and `shutdown` are retained
+  - use the returned task `id` with `service_task_logs_get`
+- `service_task_logs_get` - returns bounded logs for a Docker task, with optional shared JSON/logfmt parsing, normalized level filters, and time bounds
 - `service_replicas_set` - updates desired replicas count for a specific stack service
 - `service_restart_trigger` - restarts service by scaling replicas to `0` and restoring previous count
 - `service_webroute_ping` - checks web routes for a specific service from `service.store` and returns HTTP results for each route
@@ -96,9 +102,9 @@ Completed user/assistant turns are persisted under `.swarm-deploy/assistant/chat
 - `git_commit_list` - returns latest git commits from repository history (`limit` optional, default 10)
 - `self_metrics_list` - returns structured snapshot of internal Prometheus metrics (`swarm_deploy_*`)
 
-`history_event_list` is the user-facing event timeline and is not the source of truth for every deployment failure. `alert_list`/`alert_get` expose operational incident lifecycle, while `deployment_list`/`deployment_get` expose actual persisted deployment attempts and outcomes. A `succeeded` deployment means the Docker apply attempt succeeded; it does not guarantee healthy services or verified desired/live convergence.
+`history_event_list` is the user-facing event timeline and is not the source of truth for every deployment failure. `alert_list`/`alert_get` expose operational incident lifecycle, while `deployment_list`/`deployment_get` expose desired states and their persisted execution Attempts. A `succeeded` deployment means its latest Attempt completed; it does not guarantee healthy services or verified desired/live convergence.
 
-Alerts correlate to attempts through `deployment_id`. The preferred minimal lookup is `alert_list` -> `deployment_get` -> final answer because the compact list result already includes `deployment_id`. Use `alert_get` only when its additional incident details are needed. Follow the correlation only when `deployment_id` is non-empty. A preparation failure can create an alert without creating a deployment attempt; the assistant reports that condition instead of inventing an attempt.
+Alerts correlate to the desired state through `deployment_id`; lifecycle events additionally carry `attempt_id`. The preferred minimal lookup is `alert_list` -> `deployment_get` -> final answer because the compact list result already includes `deployment_id`. Use `alert_get` only when its additional incident details are needed. Follow the correlation only when `deployment_id` is non-empty. A preparation failure can create an alert without creating a Deployment or Attempt; the assistant reports that condition instead of inventing one.
 
 The default route capabilities expose deployments and alerts to `deployments` and `diagnostics`; `cluster` receives Alert Management plus cluster inspection. Service-specific deployment-failure questions are routed with service context/runtime plus deployment and alert capabilities.
 

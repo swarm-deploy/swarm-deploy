@@ -17,11 +17,12 @@ swarm-deploy is a Swarm-native GitOps controller inspired by Argo CD. It keeps s
 - **Diff-based deployments**: a stack is deployed only when its effective desired-state digest changes, including referenced config, secret, and env files.
 - **Stack sync status** in the UI, including last sync result, Git revision, deployment status, and errors.
 - **Desired vs. live manifests** for each stack, so the Git definition can be compared with the current Swarm state.
-- **Drift detection** for desired services missing from the live cluster, with `OutOfSync` status and audit events.
+- **Drift detection and optional self-heal** for missing services and replica-count divergence, with sync status and audit events. See [drift detection](./docs/drift.md).
 - **Pruning** of orphaned managed services removed from Compose, with policy overrides at global, stack, and service level. See [prune policy](./docs/prune.md).
 - Optional **image policy** for requiring tags or digests and rejecting `latest`. See [image policy](./docs/image-policy.md).
 - [**Managed Docker networks**](./docs/networks.md) kept in Git and reconciled before stack deployment.
 - **Secret/config rollout rotation** using content-based names, so services receive new Docker objects when source files change. See [secret rotation](./docs/secrets-rotation.md).
+- **age-encrypted Docker Secrets** decrypted in memory from Compose `.age` files, with optional name rotation. See [encrypted secrets](./docs/secrets-rotation.md#age-encrypted-secrets).
 
 ### Service Catalog
 
@@ -92,6 +93,9 @@ The UI and REST API are served by the same web server. The UI includes:
 - event and deployment information,
 - optional AI assistant.
 
+For frontend development without a running backend, use the
+[OpenAPI mock workflow](./ui/README.md#development-with-the-mock-api).
+
 ## Quick start
 
 Start with the [basic example](./example/01-basic) or generate a configuration with the [configuration wizard](https://swarm-deploy.github.io/swarm-deploy/docs/configurator/).
@@ -111,6 +115,7 @@ sync:
   interval: 1m
   policy:
     prune: true
+    selfHeal: true
 
 stacks:
   file: ./stacks.yaml
@@ -120,6 +125,8 @@ networks:
 
 web:
   address: ":8080"
+  # Optional URL prefix for both UI and API. Defaults to /.
+  basePath: /swarm-deploy
 
 healthServer:
   address: ":8082"
@@ -128,6 +135,8 @@ healthServer:
   healthz:
     path: /healthz
 ```
+
+`web.basePath` defaults to `/`. A trailing slash is normalized, so `/infrastructure/swarm/` serves the UI at `/infrastructure/swarm/` and the API below `/infrastructure/swarm/api/`. Path segments must use URL-unreserved ASCII characters (letters, digits, `-`, `_`, `.`, `~`); percent-encoding and ServeMux wildcard syntax are not accepted. The configured value is authoritative; `X-Forwarded-Prefix` is not used. Health, metrics, and webhook endpoints keep their independently configured paths.
 
 Stacks are declared separately:
 

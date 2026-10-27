@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:mock": "concurrently --kill-others --names api,ui --prefix-colors cyan,magenta \"npm:mock:api\" \"vite --mode mock\"",
+    "mock:api": "node scripts/mock-api.mjs",
     "build": "vue-tsc --noEmit && vite build",
     "test": "vitest run",
     "preview": "vite preview"
@@ -16,9 +18,12 @@
     "vue-router": "^5.0.6"
   },
   "devDependencies": {
+    "@hono/node-server": "2.1.5",
+    "@scalar/mock-server": "0.20.0",
     "@types/node": "^25.6.0",
     "@vitejs/plugin-vue": "^6.0.6",
     "@vue/test-utils": "^2.5.1",
+    "concurrently": "10.0.6",
     "jsdom": "^30.1.1",
     "typescript": "^6.0.3",
     "vite": "^8.0.10",

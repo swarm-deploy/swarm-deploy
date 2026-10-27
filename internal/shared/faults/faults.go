@@ -3,6 +3,7 @@ package faults
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"regexp"
 	"strings"
@@ -42,6 +43,25 @@ func SafeDiagnostic(err error) string {
 	}
 	return diagnostic
 }
+
+// SafeError copies only the safe diagnostic and retry classification, without
+// retaining or unwrapping the original error, which may contain secrets.
+func SafeError(err error) error {
+	if err == nil {
+		return nil
+	}
+	var classified Error
+	temporary := errors.As(err, &classified) && classified.Temporary()
+	return safeError{diagnostic: SafeDiagnostic(err), temporary: temporary}
+}
+
+type safeError struct {
+	diagnostic string
+	temporary  bool
+}
+
+func (e safeError) Error() string   { return e.diagnostic }
+func (e safeError) Temporary() bool { return e.temporary }
 
 // NewSafeLogger wraps a logger so error-valued attributes are masked before
 // they reach any output handler.

@@ -18,7 +18,8 @@ const alert = (id: string, resourceType: Alert["resourceType"] = "stack", resour
   openedAt: "2026-10-10T10:00:00Z", updatedAt: "2026-10-10T10:00:00Z", openEventId: "event", latestEventId: "event",
 });
 const deployment: DeploymentSummary = {
-  id: "d1", stack: "app", commit: "abcdef", status: "failed", phase: "apply", apply_status: "failed", verification_status: "skipped", cleanup_status: "skipped",
+  id: "d1", stack: "app", commit: "abcdef", status: "failed", phase: "apply", latest_attempt_id: "attempt-d1", attempt_count: 1,
+  apply_status: "failed", verification_status: "skipped", cleanup_status: "skipped",
   actual_state_status: "unknown", comparison_basis: "none", comparison_status: "unknown", started_at: "2026-10-10T10:00:00Z", diff_available: true,
   summary: { added: 0, changed: 0, removed: 0, redacted: 0 }, resources: { services: 0, configs: 0, secrets: 0, networks: 0, volumes: 0 },
 };

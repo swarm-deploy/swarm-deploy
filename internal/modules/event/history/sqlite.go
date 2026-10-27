@@ -46,12 +46,12 @@ type FilterService struct {
 
 // SQLStore persists the user-visible projection, independently of the outbox.
 type SQLStore struct {
-	db       *storage.Database
+	db       storage.Database
 	capacity int
 }
 
 // NewSQLStore creates a history repository sharing the application's transactor.
-func NewSQLStore(db *storage.Database, capacity int) (*SQLStore, error) {
+func NewSQLStore(db storage.Database, capacity int) (*SQLStore, error) {
 	if capacity <= 0 {
 		return nil, fmt.Errorf("event history capacity must be positive")
 	}
@@ -64,7 +64,7 @@ func (s *SQLStore) Name() string { return "event-history" }
 // Handle materializes selected user facts; failure signals remain alert inputs.
 func (s *SQLStore) Handle(ctx context.Context, e events.Envelope) error {
 	switch e.Event.Type() {
-	case events.TypeConfigurationChanged, events.TypeServiceCatalogUpdated,
+	case events.TypeConfigurationChanged, events.TypeServiceRemovedFromDesired, events.TypeServiceCatalogUpdated,
 		events.TypeNodeDisconnected, events.TypeDeployFailed,
 		events.TypeDeployPreparationFailed, events.TypeDeployInterrupted:
 		return nil

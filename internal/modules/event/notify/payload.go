@@ -16,7 +16,7 @@ func notificationPayload(envelope events.Envelope) (any, error) {
 	switch event := envelope.Event.(type) {
 	case *events.DeploySuccess:
 		return deploymentPayload(eventID, occurredAt, events.TypeNameDeploySuccess, eventnotifications.StatusSuccess,
-			event.DeploymentID, event.StackName, event.Commit, event.Services), nil
+			event.DeploymentID, event.AttemptID, event.StackName, event.Commit, event.Services), nil
 	case *events.NodeJoined:
 		return eventnotifications.NodePayload{ID: eventID, Type: event.Type().String(), NodeID: event.NodeID,
 			NodeName: event.NodeName, Role: event.Role, Message: event.Message(), OccurredAt: occurredAt}, nil
@@ -27,6 +27,14 @@ func notificationPayload(envelope events.Envelope) (any, error) {
 		return eventnotifications.NodePayload{ID: eventID, Type: event.Type().String(), NodeID: event.NodeID,
 			NodeName: event.NodeName, Status: event.Status, Message: event.Message(), OccurredAt: occurredAt}, nil
 	case *events.ServiceMissed:
+		return servicePayload(eventID, occurredAt, event.Type().String(), event.StackName, event.ServiceName,
+			event.Commit, "", 0, 0, event.Message()), nil
+	case *events.ServiceDrifted:
+		payload := servicePayload(eventID, occurredAt, event.Type().String(), event.StackName, event.ServiceName,
+			event.Commit, "", 0, 0, event.Message())
+		payload.Reason = event.Reason
+		return payload, nil
+	case *events.ServiceDriftFixed:
 		return servicePayload(eventID, occurredAt, event.Type().String(), event.StackName, event.ServiceName,
 			event.Commit, "", 0, 0, event.Message()), nil
 	case *events.ServicePruned:
@@ -74,11 +82,12 @@ func deploymentPayload(
 	id string,
 	occurredAt time.Time,
 	eventType events.TypeName,
-	status, deploymentID, stackName, commit string,
+	status, deploymentID, attemptID, stackName, commit string,
 	services []compose.Service,
 ) eventnotifications.DeploymentPayload {
 	payload := eventnotifications.DeploymentPayload{
-		ID: id, DeploymentID: deploymentID, Type: string(eventType), Status: status, StackName: stackName,
+		ID: id, DeploymentID: deploymentID, AttemptID: attemptID,
+		Type: string(eventType), Status: status, StackName: stackName,
 		Commit: commit, OccurredAt: occurredAt,
 	}
 	if len(services) > 0 {

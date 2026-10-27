@@ -16,6 +16,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/logparser"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -28,9 +29,11 @@ type Module struct {
 // Container supplies dependencies required by the assistant module.
 type Container interface {
 	// GetStorage returns the shared database.
-	GetStorage() *storage.Database
+	GetStorage() storage.Database
 	GetMetrics() *metrics.Group
 	GetSwarm() *swarm.Swarm
+	// GetTaskLogs returns the shared task log parsing and filtering service.
+	GetTaskLogs() *logparser.Service
 	GetEventModule() *event.Module
 	// GetConfigStore returns the shared runtime configuration store.
 	GetConfigStore() *configstore.ConfigStore
@@ -72,6 +75,7 @@ func InitModule(_ context.Context, cfg *config.Config, cnt Container) (*Module, 
 		cnt.GetAlertManagementModule(),
 		eventModule,
 		cnt.GetSwarm(),
+		cnt.GetTaskLogs(),
 		cnt.GetRecommendationsModule().Store,
 		imageVersionResolver,
 		hostingProviders,

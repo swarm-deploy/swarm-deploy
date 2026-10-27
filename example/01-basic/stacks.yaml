@@ -8,3 +8,5 @@ stacks:
       policy:
         # Optional per-stack override for prune policy.
         prune: true
+        # Optional per-stack override for self-heal policy.
+        selfHeal: true

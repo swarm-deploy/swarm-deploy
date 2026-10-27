@@ -3,12 +3,15 @@ import yaml from "@speed-highlight/core/languages/yaml.js";
 import { tokenizeWith } from "@speed-highlight/core/tokenize";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRouter } from "vue-router";
-import type { DeploymentChange } from "../../api/types";
+import { fetchDeploymentInitJobLogs } from "../../api/overview";
+import type { DeploymentAttempt, DeploymentChange, DeploymentInitJobExecution } from "../../api/types";
+import { useAssistantStore } from "../../stores/assistant";
 import { useOverviewStore } from "../../stores/overview";
+import { useUIStore } from "../../stores/ui";
 import { formatDate, shortCommitHash } from "../../utils/format";
 import DeploymentIcon from "./DeploymentIcon.vue";
 
-type DetailsTab = "changes" | "configuration";
+type DetailsTab = "attempts" | "changes" | "configuration";
 type ChangeGroup = {
   type: string;
   name: string;
@@ -25,16 +28,56 @@ type ResourceSection = {
 
 const store = useOverviewStore();
 const router = useRouter();
+const assistantStore = useAssistantStore();
+const uiStore = useUIStore();
 const dialog = ref<HTMLElement | null>(null);
 const closeButton = ref<HTMLButtonElement | null>(null);
-const activeTab = ref<DetailsTab>("changes");
+function defaultTab(status?: string): DetailsTab {
+  return status === "succeeded" ? "changes" : "attempts";
+}
+
+const activeTab = ref<DetailsTab>(defaultTab(store.deploymentDetailsData?.status));
+const tabSelectionInitialized = ref(Boolean(store.deploymentDetailsData));
+const tabManuallySelected = ref(false);
 const copyLabel = ref("Copy YAML");
+const copiedAttemptID = ref("");
+type InitJobLogState = { open: boolean; loading: boolean; loaded: boolean; logs: string; error: string };
+const initJobLogs = ref<Record<string, InitJobLogState>>({});
+const infoOpen = ref<DetailsTab | null>(null);
+const infoPinned = ref(false);
+
+function dismissInfo() {
+  infoOpen.value = null;
+  infoPinned.value = false;
+}
+function showInfo(tab: DetailsTab, event: PointerEvent) {
+  if (event.pointerType === "mouse" && !infoPinned.value) infoOpen.value = tab;
+}
+function hideInfo(tab: DetailsTab, event: PointerEvent) {
+  if (event.pointerType === "mouse" && !infoPinned.value && infoOpen.value === tab) infoOpen.value = null;
+}
+function toggleInfo(tab: DetailsTab) {
+  if (infoOpen.value === tab && infoPinned.value) {
+    dismissInfo();
+  } else {
+    infoOpen.value = tab;
+    infoPinned.value = true;
+  }
+}
+function onPointerDown(event: PointerEvent) {
+  if (infoOpen.value && !(event.target as Element | null)?.closest(".deployment-info")) dismissInfo();
+}
+
 let returnFocus: HTMLElement | null = null;
 const focusableSelector = [
   "a[href]", "button:not([disabled])", "input:not([disabled])", "select:not([disabled])",
   "textarea:not([disabled])", "summary", "[tabindex]:not([tabindex=\"-1\"])",
 ].join(", ");
 const detail = computed(() => store.deploymentDetailsData);
+const attempts = computed(() => [...(detail.value?.attempts ?? [])].sort((left, right) =>
+  right.number - left.number || Date.parse(right.started_at) - Date.parse(left.started_at),
+));
+const attemptCount = computed(() => detail.value?.attempt_count ?? attempts.value.length);
 const initialSnapshot = computed(() => detail.value?.comparison_basis === "none");
 const changeState = computed<"initial" | "unavailable" | "none" | "changes">(() => {
   if (initialSnapshot.value) return "initial";
@@ -123,6 +166,7 @@ const statusTitle = computed(() => {
   switch (detail.value?.status) {
     case "failed": return "Apply pipeline failed.";
     case "interrupted": return "Apply pipeline was interrupted.";
+    case "superseded": return "Desired state was superseded.";
     default: return "";
   }
 });
@@ -130,6 +174,7 @@ const statusDescription = computed(() => {
   switch (detail.value?.status) {
     case "failed": return "Apply attempt failed. The actual Swarm state may differ from this desired configuration.";
     case "interrupted": return "Apply outcome is unknown. The actual Swarm state may differ from this desired configuration.";
+    case "superseded": return "A newer desired state replaced this deployment. Its attempt history is preserved below.";
     default: return "";
   }
 });
@@ -158,9 +203,66 @@ const statusLabel = computed(() => {
     case "succeeded": return "Succeeded";
     case "failed": return "Failed";
     case "interrupted": return "Interrupted";
+    case "superseded": return "Superseded";
     default: return "Unknown";
   }
 });
+function attemptDuration(attempt: DeploymentAttempt): string {
+  let milliseconds = attempt.duration_ms;
+  if (milliseconds == null && attempt.finished_at) {
+    const started = Date.parse(attempt.started_at);
+    const finished = Date.parse(attempt.finished_at);
+    if (!Number.isNaN(started) && !Number.isNaN(finished)) milliseconds = Math.max(0, finished - started);
+  }
+  if (milliseconds == null) return attempt.status === "running" ? "In progress" : "—";
+  return milliseconds < 1000 ? `${milliseconds} ms` : `${(milliseconds / 1000).toFixed(1)} s`;
+}
+function initJobDuration(execution: DeploymentInitJobExecution): string {
+  const started = Date.parse(execution.started_at);
+  const finished = Date.parse(execution.finished_at);
+  if (Number.isNaN(started) || Number.isNaN(finished)) return "—";
+  const milliseconds = Math.max(0, finished - started);
+  return milliseconds < 1000 ? `${milliseconds} ms` : `${(milliseconds / 1000).toFixed(1)} s`;
+}
+function attemptExpandable(attempt: DeploymentAttempt): boolean {
+  return attempt.status !== "succeeded" || (attempt.init_jobs?.length ?? 0) > 0;
+}
+function initJobKey(attempt: DeploymentAttempt, execution: DeploymentInitJobExecution): string {
+  return `${attempt.id}:${execution.ordinal}`;
+}
+function initJobLogState(attempt: DeploymentAttempt, execution: DeploymentInitJobExecution): InitJobLogState | undefined {
+  return initJobLogs.value[initJobKey(attempt, execution)];
+}
+async function toggleInitJobLogs(attempt: DeploymentAttempt, execution: DeploymentInitJobExecution) {
+  if (!detail.value || !execution.logs_available) return;
+  const key = initJobKey(attempt, execution);
+  const current = initJobLogs.value[key];
+  if (current?.open) {
+    current.open = false;
+    return;
+  }
+  if (current?.loaded) {
+    current.open = true;
+    return;
+  }
+  initJobLogs.value[key] = { open: true, loading: true, loaded: false, logs: "", error: "" };
+  try {
+    const logs = await fetchDeploymentInitJobLogs(detail.value.id, attempt.id, execution.ordinal);
+    initJobLogs.value[key] = { open: true, loading: false, loaded: true, logs, error: "" };
+  } catch (error) {
+    initJobLogs.value[key] = {
+      open: true, loading: false, loaded: false, logs: "",
+      error: error instanceof Error ? error.message : "Failed to load Init Job logs",
+    };
+  }
+}
+function attemptDiagnostic(attempt: DeploymentAttempt): string {
+  return attempt.diagnostic || reasonLabels[attempt.reason ?? ""] || "No diagnostics were recorded.";
+}
+function selectTab(tab: DetailsTab) {
+  activeTab.value = tab;
+  tabManuallySelected.value = true;
+}
 function pluralize(count: number, singular: string, plural = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }
@@ -232,9 +334,46 @@ async function copyConfiguration() {
   copyLabel.value = "Copied";
   window.setTimeout(() => { copyLabel.value = "Copy YAML"; }, 1200);
 }
+async function copyAttemptDiagnostic(attempt: DeploymentAttempt) {
+  await navigator.clipboard?.writeText(attemptDiagnostic(attempt));
+  copiedAttemptID.value = attempt.id;
+  window.setTimeout(() => {
+    if (copiedAttemptID.value === attempt.id) copiedAttemptID.value = "";
+  }, 1200);
+}
+async function explainAttempt(attempt: DeploymentAttempt) {
+  if (!detail.value || !assistantStore.enabled || assistantStore.pending) return;
+
+  const changedServiceNames = detail.value.changes
+    .filter((change) => change.resourceType.replace(/s$/, "") === "service")
+    .map((change) => change.resourceName)
+    .filter(Boolean);
+  const snapshotServiceNames = (detail.value.services ?? []).map((service) => service.name).filter(Boolean);
+  const serviceNames = [...new Set(changedServiceNames.length > 0 ? changedServiceNames : snapshotServiceNames)];
+  const message = [
+    "Explain this deployment error.",
+    "",
+    `deployment_id: ${detail.value.id}`,
+    `stack_name: ${detail.value.stack}`,
+    `service_name: ${serviceNames.join(", ") || "unknown"}`,
+    "error:",
+    attemptDiagnostic(attempt),
+  ].join("\n");
+
+  returnFocus = null;
+  close();
+  assistantStore.newChat();
+  uiStore.openAssistantDrawer();
+  await assistantStore.sendMessage(message);
+}
 function onKeydown(event: KeyboardEvent) {
   if (!store.deploymentDetailsModalOpen || store.commitDetailsModalOpen) return;
-  if (event.key === "Escape") { event.preventDefault(); close(); return; }
+  if (event.key === "Escape") {
+    event.preventDefault();
+    if (infoOpen.value) { dismissInfo(); return; }
+    close();
+    return;
+  }
   if (event.key !== "Tab") return;
   const focusable = focusableElements();
   if (focusable.length === 0) { event.preventDefault(); dialog.value?.focus(); return; }
@@ -248,15 +387,34 @@ function onKeydown(event: KeyboardEvent) {
 watch(() => store.deploymentDetailsModalOpen, async (open, wasOpen) => {
   if (open && !wasOpen) {
     returnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    activeTab.value = "changes";
+    tabManuallySelected.value = false;
+    tabSelectionInitialized.value = Boolean(detail.value);
+    activeTab.value = defaultTab(detail.value?.status);
+    copiedAttemptID.value = "";
+    initJobLogs.value = {};
+    dismissInfo();
     await nextTick(); closeButton.value?.focus();
   } else if (!open && wasOpen) {
+    initJobLogs.value = {};
+    dismissInfo();
     if (returnFocus?.isConnected) returnFocus.focus();
     returnFocus = null;
   }
 });
-onMounted(() => document.addEventListener("keydown", onKeydown));
-onUnmounted(() => document.removeEventListener("keydown", onKeydown));
+watch(detail, (current) => {
+  if (!store.deploymentDetailsModalOpen || !current || tabSelectionInitialized.value || tabManuallySelected.value) return;
+  activeTab.value = defaultTab(current.status);
+  tabSelectionInitialized.value = true;
+});
+watch(activeTab, dismissInfo);
+onMounted(() => {
+  document.addEventListener("keydown", onKeydown);
+  document.addEventListener("pointerdown", onPointerDown);
+});
+onUnmounted(() => {
+  document.removeEventListener("keydown", onKeydown);
+  document.removeEventListener("pointerdown", onPointerDown);
+});
 </script>
 
 <template>
@@ -303,7 +461,7 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
           <p v-else-if="!detail" class="meta">Deployment details are unavailable.</p>
           <template v-else>
           <section
-            v-if="detail.status === 'failed' || detail.status === 'interrupted'"
+            v-if="detail.status === 'failed' || detail.status === 'interrupted' || detail.status === 'superseded'"
             class="deployment-outcome"
             :class="`deployment-outcome--${detail.status}`"
             aria-labelledby="deployment-outcome-title"
@@ -318,11 +476,88 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
           </section>
 
           <div class="deployment-tabs" role="tablist" aria-label="Deployment detail views">
-            <button type="button" role="tab" :aria-selected="activeTab === 'changes'" :class="{ active: activeTab === 'changes' }" @click="activeTab = 'changes'">Changes</button>
-            <button type="button" role="tab" :aria-selected="activeTab === 'configuration'" :class="{ active: activeTab === 'configuration' }" @click="activeTab = 'configuration'">Configuration</button>
+            <button type="button" role="tab" :aria-selected="activeTab === 'attempts'" :class="{ active: activeTab === 'attempts' }" @click="selectTab('attempts')">Attempts <span class="deployment-tab-count">{{ attemptCount }}</span></button>
+            <button type="button" role="tab" :aria-selected="activeTab === 'changes'" :class="{ active: activeTab === 'changes' }" @click="selectTab('changes')">Changes</button>
+            <button type="button" role="tab" :aria-selected="activeTab === 'configuration'" :class="{ active: activeTab === 'configuration' }" @click="selectTab('configuration')">Configuration</button>
           </div>
 
-          <section v-if="activeTab === 'changes'" class="deployment-tab-panel" role="tabpanel">
+          <section v-if="activeTab === 'attempts'" class="deployment-tab-panel deployment-attempts-panel" role="tabpanel">
+            <p v-if="attempts.length === 0" class="meta">No deployment attempts were recorded.</p>
+            <template v-else>
+              <div class="deployment-attempt-columns" aria-hidden="true">
+                <span />
+                <span>Started</span>
+                <span>Stage</span>
+                <span>Duration</span>
+                <span />
+              </div>
+              <div class="deployment-attempt-list">
+                <component
+                  :is="attemptExpandable(attempt) ? 'details' : 'div'"
+                  v-for="attempt in attempts"
+                  :key="attempt.id"
+                  class="deployment-attempt-row"
+                  :class="{ 'deployment-attempt-row--static': !attemptExpandable(attempt) }"
+                >
+                  <component :is="attemptExpandable(attempt) ? 'summary' : 'div'" class="deployment-attempt-summary">
+                    <span class="deployment-attempt-status" :class="`deployment-attempt-status--${attempt.status}`" role="img" :aria-label="`${attempt.status} attempt`" />
+                    <time :datetime="attempt.started_at">{{ formatDate(attempt.started_at) }}</time>
+                    <span class="deployment-attempt-stage">{{ sectionLabel(attempt.phase) }}</span>
+                    <span class="deployment-attempt-duration">{{ attemptDuration(attempt) }}</span>
+                    <svg v-if="attemptExpandable(attempt)" class="deployment-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg>
+                  </component>
+                  <div v-if="attemptExpandable(attempt)" class="deployment-attempt-details">
+                    <section v-if="attempt.init_jobs?.length" class="deployment-init-jobs" aria-label="Init Job executions">
+                      <h4>Init Jobs</h4>
+                      <div v-for="execution in attempt.init_jobs" :key="execution.ordinal" class="deployment-init-job">
+                        <div class="deployment-init-job-summary">
+                          <span class="deployment-init-job-identity">
+                            <span class="deployment-init-job-title">
+                              <strong>{{ execution.job_name }}</strong>
+                              <span class="deployment-attempt-status" :class="`deployment-attempt-status--${execution.status}`" role="img" :aria-label="`${execution.status} Init Job`" />
+                            </span>
+                            <small>{{ execution.service_name }}</small>
+                          </span>
+                          <span class="deployment-attempt-duration">{{ initJobDuration(execution) }}</span>
+                          <span v-if="execution.logs_truncated" class="deployment-init-job-badge">Last 64 KiB</span>
+                          <button
+                            v-if="execution.logs_available"
+                            type="button"
+                            class="deployment-init-job-logs-button"
+                            :aria-label="`${initJobLogState(attempt, execution)?.open ? 'Hide' : 'View'} logs for Init Job ${execution.job_name}`"
+                            :aria-expanded="Boolean(initJobLogState(attempt, execution)?.open)"
+                            :title="initJobLogState(attempt, execution)?.open ? 'Hide logs' : 'View logs'"
+                            @click.stop="toggleInitJobLogs(attempt, execution)"
+                          >
+                            <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                              <path d="M3 2.5A1.5 1.5 0 0 1 4.5 1h5.8c.4 0 .78.16 1.06.44l1.2 1.2c.28.28.44.66.44 1.06v9.8A1.5 1.5 0 0 1 11.5 15h-7A1.5 1.5 0 0 1 3 13.5v-11Zm1.5-.5a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5h7a.5.5 0 0 0 .5-.5V4H10.5A1.5 1.5 0 0 1 9 2.5V2H4.5ZM10 2.2v.3a.5.5 0 0 0 .5.5h1.3L10 2.2ZM5.5 6a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5Zm0 2.25a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5Zm0 2.25A.5.5 0 0 1 6 10h2.5a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5Z" fill="currentColor" />
+                            </svg>
+                          </button>
+                          <span v-else class="deployment-init-job-unavailable">Logs unavailable</span>
+                        </div>
+                        <div v-if="initJobLogState(attempt, execution)?.open" class="deployment-init-job-logs">
+                          <p v-if="initJobLogState(attempt, execution)?.loading" class="meta">Loading logs...</p>
+                          <p v-else-if="initJobLogState(attempt, execution)?.error" role="alert">{{ initJobLogState(attempt, execution)?.error }}</p>
+                          <p v-else-if="!initJobLogState(attempt, execution)?.logs" class="meta">Log output is empty.</p>
+                          <pre v-else><code>{{ initJobLogState(attempt, execution)?.logs }}</code></pre>
+                        </div>
+                      </div>
+                    </section>
+                    <div v-if="attempt.status !== 'succeeded'" class="deployment-attempt-details-heading">
+                      <strong>Diagnostics</strong>
+                      <div class="deployment-attempt-details-actions">
+                        <button type="button" class="button-ghost" :disabled="!assistantStore.enabled || assistantStore.pending" @click="explainAttempt(attempt)">Explain</button>
+                        <button type="button" class="button-ghost" @click="copyAttemptDiagnostic(attempt)">{{ copiedAttemptID === attempt.id ? "Copied" : "Copy" }}</button>
+                      </div>
+                    </div>
+                    <pre v-if="attempt.status !== 'succeeded'"><code>{{ attemptDiagnostic(attempt) }}</code></pre>
+                  </div>
+                </component>
+              </div>
+            </template>
+          </section>
+
+          <section v-else-if="activeTab === 'changes'" class="deployment-tab-panel" role="tabpanel">
             <template v-if="changeState === 'initial'">
               <h3>Initial snapshot</h3>
               <p class="deployment-note">First recorded desired-state snapshot. No previous snapshot is available for comparison.</p>
@@ -364,31 +599,60 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
               <p class="meta">{{ comparison }}</p>
             </template>
             <template v-else>
-              <div class="deployment-changes-heading"><div><h3>Desired-state changes</h3><p class="deployment-note">{{ comparison }} These entries do not confirm runtime convergence.</p></div></div>
-              <p class="meta">{{ detail.summary.added }} added · {{ detail.summary.changed }} changed · {{ detail.summary.removed }} removed<template v-if="detail.summary.redacted"> · {{ detail.summary.redacted }} masked</template></p>
-              <details v-for="group in groups" :key="`${group.type}/${group.name}`" class="deployment-resource" open>
-                <summary><span><svg class="deployment-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg><DeploymentIcon :name="resourceIcon(group.type)" /><span><span class="deployment-resource-type">{{ group.type }}</span><strong>{{ group.name }}</strong></span></span><span class="deployment-resource-operation" :class="`deployment-resource-operation--${group.operation}`">{{ group.operation }}</span></summary>
-                <section v-for="section in group.sections" :key="section.name" class="deployment-change-section">
-                  <h4>{{ sectionLabel(section.name) }}</h4>
-                  <div
-                    v-for="(change, index) in section.changes"
-                    :key="`${change.field}-${index}`"
-                    class="deployment-change"
-                    :class="{ 'deployment-change--long': hasLongValue(change) }"
-                  >
-                    <strong class="deployment-field">{{ fieldLabel(change, section.name) }}</strong>
-                    <div class="deployment-diff-values">
-                      <div v-if="change.operation !== 'added'" class="deployment-diff-line deployment-diff-line--before"><span aria-hidden="true">−</span><code>{{ value(change.before, change.redacted) }}</code></div>
-                      <div v-if="change.operation !== 'removed'" class="deployment-diff-line deployment-diff-line--after"><span aria-hidden="true">+</span><code>{{ value(change.after, change.redacted) }}</code></div>
-                    </div>
+              <div class="deployment-changes-heading">
+                <div class="deployment-info-heading">
+                  <h3>Desired Changes</h3>
+                  <div class="deployment-info" @pointerenter="showInfo('changes', $event)" @pointerleave="hideInfo('changes', $event)">
+                    <button type="button" class="deployment-info-button" aria-label="About desired changes" :aria-expanded="infoOpen === 'changes'" :aria-describedby="infoOpen === 'changes' ? 'deployment-changes-tooltip' : undefined" @click.stop="toggleInfo('changes')">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" stroke-linecap="round" /></svg>
+                    </button>
+                    <div v-if="infoOpen === 'changes'" id="deployment-changes-tooltip" class="deployment-info-tooltip" role="tooltip">{{ comparison }} These entries do not confirm runtime convergence.</div>
                   </div>
-                </section>
-              </details>
+                </div>
+              </div>
+              <p class="meta">{{ detail.summary.added }} added · {{ detail.summary.changed }} changed · {{ detail.summary.removed }} removed<template v-if="detail.summary.redacted"> · {{ detail.summary.redacted }} masked</template></p>
+              <template v-for="group in groups" :key="`${group.type}/${group.name}`">
+                <div v-if="group.operation === 'removed'" class="deployment-resource deployment-resource--removed">
+                  <div class="deployment-resource-heading">
+                    <span><DeploymentIcon :name="resourceIcon(group.type)" /><span><span class="deployment-resource-type">{{ group.type }}</span><strong>{{ group.name }}</strong></span></span>
+                    <span class="deployment-resource-operation deployment-resource-operation--removed">Removed</span>
+                  </div>
+                </div>
+                <details v-else class="deployment-resource" open>
+                  <summary class="deployment-resource-heading"><span><svg class="deployment-chevron" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="m7 4 6 6-6 6" /></svg><DeploymentIcon :name="resourceIcon(group.type)" /><span><span class="deployment-resource-type">{{ group.type }}</span><strong>{{ group.name }}</strong></span></span><span class="deployment-resource-operation" :class="`deployment-resource-operation--${group.operation}`">{{ group.operation }}</span></summary>
+                  <section v-for="section in group.sections" :key="section.name" class="deployment-change-section">
+                    <h4>{{ sectionLabel(section.name) }}</h4>
+                    <div
+                      v-for="(change, index) in section.changes"
+                      :key="`${change.field}-${index}`"
+                      class="deployment-change"
+                      :class="{ 'deployment-change--long': hasLongValue(change) }"
+                    >
+                      <strong class="deployment-field">{{ fieldLabel(change, section.name) }}</strong>
+                      <div class="deployment-diff-values">
+                        <div v-if="change.operation !== 'added'" class="deployment-diff-line deployment-diff-line--before"><span aria-hidden="true">−</span><code>{{ value(change.before, change.redacted) }}</code></div>
+                        <div v-if="change.operation !== 'removed'" class="deployment-diff-line deployment-diff-line--after"><span aria-hidden="true">+</span><code>{{ value(change.after, change.redacted) }}</code></div>
+                      </div>
+                    </div>
+                  </section>
+                </details>
+              </template>
             </template>
           </section>
 
           <section v-else class="deployment-tab-panel" role="tabpanel">
-            <div class="deployment-configuration-heading"><div><h3>Recorded desired configuration</h3><p class="deployment-note">Sensitive values are masked before storage.</p></div><button v-if="configuration" type="button" class="button-ghost" @click="copyConfiguration">{{ copyLabel }}</button></div>
+            <div class="deployment-configuration-heading">
+              <div class="deployment-info-heading">
+                <h3>Configuration Snapshot</h3>
+                <div class="deployment-info" @pointerenter="showInfo('configuration', $event)" @pointerleave="hideInfo('configuration', $event)">
+                  <button type="button" class="deployment-info-button" aria-label="About configuration snapshot" :aria-expanded="infoOpen === 'configuration'" :aria-describedby="infoOpen === 'configuration' ? 'deployment-configuration-tooltip' : undefined" @click.stop="toggleInfo('configuration')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v5M12 8h.01" stroke-linecap="round" /></svg>
+                  </button>
+                  <div v-if="infoOpen === 'configuration'" id="deployment-configuration-tooltip" class="deployment-info-tooltip" role="tooltip">Sensitive values are masked before storage.</div>
+                </div>
+              </div>
+              <button v-if="configuration" type="button" class="button-ghost" @click="copyConfiguration">{{ copyLabel }}</button>
+            </div>
             <p v-if="!configuration" class="meta">Recorded configuration is unavailable.</p>
             <div v-else class="deployment-yaml manifest-code shj-lang-yaml shj-block" aria-label="Recorded desired configuration YAML" v-html="configurationHtml" />
           </section>
@@ -443,6 +707,7 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
 .deployment-status--running { color: var(--info); }
 .deployment-status--failed { color: var(--error); }
 .deployment-status--interrupted { color: var(--warning); }
+.deployment-status--superseded { color: var(--muted); }
 .deployment-metadata {
   display: grid;
   grid-template-columns: minmax(140px, 1fr) minmax(130px, .9fr) minmax(190px, 1.35fr) minmax(190px, 1.35fr) minmax(120px, .75fr) minmax(130px, .8fr);
@@ -491,9 +756,110 @@ onUnmounted(() => document.removeEventListener("keydown", onKeydown));
 .deployment-tabs button:hover { color: var(--text); transform: none; filter: none; }
 .deployment-tabs button.active { border-bottom-color: var(--control-primary); color: var(--control-primary); }
 :global(:root[data-theme="dark"] .deployment-tabs button.active) { color: var(--text); }
+.deployment-tab-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  margin-left: 4px;
+  border: 0;
+  border-radius: 999px;
+  padding: 1px 5px;
+  background: var(--surface-muted-strong);
+  color: var(--muted);
+  font-size: .68rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+.deployment-tabs button.active .deployment-tab-count { color: var(--text); }
 .deployment-tab-panel { min-width: 0; padding: 14px 0 4px; }
 .deployment-tab-panel > h3 { margin: 0 0 4px; font-size: 1.35rem; }
 .deployment-tab-panel > .deployment-note { margin: 0; }
+.deployment-attempts-panel { padding-top: 8px; }
+.deployment-attempt-columns,
+.deployment-attempt-summary {
+  display: grid;
+  grid-template-columns: 16px minmax(220px, 1.4fr) minmax(100px, .7fr) minmax(100px, .5fr) 18px;
+  gap: 12px;
+  align-items: center;
+}
+.deployment-attempt-columns { padding: 4px 8px 7px; color: var(--muted); font-size: .72rem; font-weight: 600; }
+.deployment-attempt-list { border-top: 1px solid var(--line); }
+.deployment-attempt-row { min-width: 0; border-bottom: 1px solid var(--line); }
+.deployment-attempt-summary {
+  min-width: 0;
+  min-height: 44px;
+  padding: 8px;
+  cursor: pointer;
+  list-style: none;
+  font-size: .84rem;
+}
+.deployment-attempt-row summary.deployment-attempt-summary::-webkit-details-marker { display: none; }
+.deployment-attempt-summary:hover { background: var(--surface-hover-soft); }
+.deployment-attempt-row--static .deployment-attempt-summary { cursor: default; }
+.deployment-attempt-summary > * { min-width: 0; }
+.deployment-attempt-row time { overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
+.deployment-attempt-stage { color: var(--muted); }
+.deployment-attempt-duration { color: var(--muted); font-variant-numeric: tabular-nums; }
+.deployment-attempt-status { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.deployment-attempt-status--succeeded { background: var(--success); }
+.deployment-attempt-status--failed { background: var(--error); }
+.deployment-attempt-status--running { background: var(--info); }
+.deployment-attempt-status--interrupted,
+.deployment-attempt-status--pending { background: var(--muted); }
+.deployment-attempt-row .deployment-chevron { justify-self: end; color: var(--muted); }
+.deployment-attempt-details { min-width: 0; padding: 2px 38px 14px 0; }
+.deployment-attempt-details-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.deployment-attempt-details-heading strong { font-size: .78rem; }
+.deployment-attempt-details-actions { display: flex; align-items: center; gap: 4px; }
+.deployment-attempt-details-heading .button-ghost { flex: 0 0 auto; padding: 4px 7px; font-size: .74rem; }
+.deployment-attempt-details pre {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin: 5px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  color: var(--text);
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: .78rem;
+  line-height: 1.5;
+  user-select: text;
+}
+.deployment-attempt-details code { white-space: inherit; overflow-wrap: inherit; word-break: inherit; }
+.deployment-init-jobs { margin: 4px 0 14px; }
+.deployment-init-jobs h4 { margin: 0 0 6px; font-size: .78rem; }
+.deployment-init-job { border-top: 1px solid var(--line); }
+.deployment-init-job-summary { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 10px; align-items: center; padding: 8px 0; }
+.deployment-init-job-identity { display: flex; min-width: 0; flex-direction: column; }
+.deployment-init-job-title { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.deployment-init-job-title strong { min-width: 0; overflow-wrap: anywhere; }
+.deployment-init-job-title .deployment-attempt-status { flex: 0 0 auto; }
+.deployment-init-job-summary small { color: var(--muted); overflow-wrap: anywhere; }
+.deployment-init-job-badge { border-radius: 999px; padding: 2px 7px; background: var(--surface-muted-strong); color: var(--muted); font-size: .68rem; }
+.deployment-init-job-unavailable { color: var(--muted); font-size: .74rem; }
+.deployment-init-job-logs-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--accent-strong);
+  cursor: pointer;
+}
+.deployment-init-job-logs-button:hover,
+.deployment-init-job-logs-button[aria-expanded="true"] { background: transparent; color: var(--text); filter: none; transform: none; }
+.deployment-init-job-logs-button:focus-visible { outline: 2px solid var(--control-primary); outline-offset: 2px; }
+.deployment-init-job-logs-button svg { width: 18px; height: 18px; }
+.deployment-init-job-logs { margin: 0 0 8px; border-left: 2px solid var(--line); padding: 4px 10px; }
+.deployment-init-job-logs pre { max-height: 320px; overflow: auto; white-space: pre; }
 .deployment-counts { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 14px; }
 .deployment-counts > span { display: inline-flex; align-items: center; gap: 10px; min-height: 46px; border: 1px solid var(--border-default); border-radius: 10px; padding: 8px 12px; background: var(--surface-card-soft); color: var(--muted); }
 .deployment-counts :deep(.deployment-icon) { width: 23px; height: 23px; color: var(--accent-strong); }
@@ -533,11 +899,60 @@ details[open] > summary .deployment-chevron { transform: rotate(90deg); }
 .deployment-resource-empty { margin: 0 0 12px 33px; color: var(--muted); font-size: .82rem; }
 .deployment-changes-heading, .deployment-configuration-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
 .deployment-changes-heading h3, .deployment-configuration-heading h3 { margin: 0; }
+.deployment-info-heading { position: relative; display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.deployment-info { flex: 0 0 auto; }
+.deployment-info-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 25px;
+  height: 25px;
+  padding: 2px;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--muted);
+  cursor: help;
+}
+.deployment-info-button svg { width: 20px; height: 20px; }
+.deployment-info-button:hover, .deployment-info-button[aria-expanded="true"] { color: var(--text); transform: none; filter: none; }
+.deployment-info-button:focus-visible { outline: 2px solid var(--control-primary); outline-offset: 2px; }
+.deployment-info-tooltip {
+  position: absolute;
+  z-index: 10;
+  top: -8px;
+  left: calc(100% + 12px);
+  box-sizing: border-box;
+  width: min(325px, calc(100vw - 52px));
+  padding: 11px 13px;
+  border: 1px solid var(--border-default);
+  border-radius: 8px;
+  background: var(--surface-elevated);
+  box-shadow: var(--shadow-popover);
+  color: var(--text);
+  font-size: .82rem;
+  font-weight: 400;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.deployment-info-tooltip::before {
+  content: "";
+  position: absolute;
+  left: -6px;
+  top: 15px;
+  width: 9px;
+  height: 9px;
+  border-bottom: 1px solid var(--border-default);
+  border-left: 1px solid var(--border-default);
+  background: var(--surface-elevated);
+  transform: rotate(45deg);
+}
 .deployment-resource { border-bottom: 1px solid var(--line); margin: 10px 0; overflow: hidden; }
-.deployment-resource summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; list-style: none; padding: 8px 4px; }
-.deployment-resource summary > span:first-child { display: flex; align-items: center; gap: 10px; min-width: 0; overflow-wrap: anywhere; }
-.deployment-resource summary > span:first-child > :deep(.deployment-icon) { width: 22px; height: 22px; color: var(--muted); }
-.deployment-resource summary > span:first-child > span { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.deployment-resource-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; list-style: none; padding: 8px 4px; }
+summary.deployment-resource-heading { cursor: pointer; }
+.deployment-resource-heading > span:first-child { display: flex; align-items: center; gap: 10px; min-width: 0; overflow-wrap: anywhere; }
+.deployment-resource-heading > span:first-child > :deep(.deployment-icon) { width: 22px; height: 22px; color: var(--muted); }
+.deployment-resource-heading > span:first-child > span { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .deployment-resource-type { color: var(--muted); text-transform: capitalize; }
 .deployment-resource-operation { border-radius: 999px; padding: 3px 8px; font-size: .72rem; text-transform: capitalize; }
 .deployment-resource-operation--added { color: var(--success); background: var(--success-muted); }
@@ -611,9 +1026,22 @@ details[open] > summary .deployment-chevron { transform: rotate(90deg); }
   .deployment-outcome-icon { width: 32px; height: 32px; }
   .deployment-tabs { margin-top: 12px; }
   .deployment-tab-panel { padding-top: 12px; }
+  .deployment-attempt-columns { display: none; }
+  .deployment-attempt-list { border-top: 0; }
+  .deployment-attempt-summary {
+    grid-template-columns: 12px minmax(0, 1fr) auto 16px;
+    gap: 8px;
+  }
+  .deployment-attempt-row time { grid-column: 2; }
+  .deployment-attempt-stage { grid-column: 2; grid-row: 2; }
+  .deployment-attempt-duration { grid-column: 3; grid-row: 1 / span 2; }
+  .deployment-attempt-row .deployment-chevron { grid-column: 4; grid-row: 1 / span 2; }
+  .deployment-attempt-details { padding: 2px 8px 14px 0; }
   .deployment-counts > span { flex: 1 1 calc(50% - 10px); min-width: 0; gap: 8px; padding: 9px 10px; }
   .deployment-service-table-wrap, .deployment-resource-list, .deployment-resource-empty, .deployment-change-section { margin-left: 0; }
   .deployment-change { grid-template-columns: minmax(0, 1fr); gap: 5px; }
   .deployment-changes-heading, .deployment-configuration-heading { align-items: flex-start; flex-wrap: wrap; }
+  .deployment-info-tooltip { top: calc(100% + 8px); left: 0; width: min(315px, calc(100vw - 44px)); }
+  .deployment-info-tooltip::before { display: none; }
 }
 </style>

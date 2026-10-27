@@ -16,13 +16,14 @@ type Domain struct {
 
 // NewDomain initializes the secret metadata domain.
 func NewDomain(
-	db *storage.Database,
+	db storage.Database,
 	secretManager swarm.SecretManager,
+	subscription swarm.EventSubscription[swarm.SecretEvent],
 ) (*Domain, error) {
 	store := modelstore.NewSQLStore(db)
 
 	return &Domain{
 		Store:     store,
-		Collector: NewCollector(secretManager, store),
+		Collector: NewCollector(secretManager, store, subscription),
 	}, nil
 }
