@@ -1,7 +1,8 @@
-import { flushPromises, mount } from "@vue/test-utils";
+import { config, flushPromises, mount } from "@vue/test-utils";
 import { createPinia, setActivePinia } from "pinia";
 import { defineComponent } from "vue";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createMemoryHistory, createRouter } from "vue-router";
 import type { Deployment } from "../../api/types";
 import { useOverviewStore } from "../../stores/overview";
 import CommitDetailsModal from "./CommitDetailsModal.vue";
@@ -59,14 +60,58 @@ function deployment(
 }
 
 describe("Deployment Details modal", () => {
-  beforeEach(() => {
+  let router: ReturnType<typeof createRouter>;
+  beforeEach(async () => {
     setActivePinia(createPinia());
+    router = createRouter({ history: createMemoryHistory(), routes: [
+      { path: "/deployments", component: { template: "<div />" } },
+      { path: "/stacks/:stack", name: "stack-details", component: { template: "<div />" } },
+    ] });
+    await router.push("/deployments");
+    config.global.plugins = [router];
     assistantStore.enabled = true;
     assistantStore.pending = false;
     assistantStore.newChat.mockClear();
     assistantStore.sendMessage.mockClear();
     uiStore.openAssistantDrawer.mockClear();
     apiMocks.fetchDeploymentInitJobLogs.mockReset();
+  });
+  afterEach(() => { config.global.plugins = []; });
+
+  it("closes the modal and restores focus before navigating to the stack", async () => {
+    const store = useOverviewStore();
+    const opener = document.createElement("button");
+    document.body.append(opener);
+    opener.focus();
+    const wrapper = mount(DeploymentDetailsModal, { attachTo: document.body });
+    store.deploymentDetailsData = deployment();
+    store.deploymentDetailsModalOpen = true;
+    await flushPromises();
+    expect(document.activeElement).toBe(wrapper.get('[aria-label="Close deployment details"]').element);
+    const push = vi.spyOn(router, "push");
+    push.mockImplementation(async (target) => {
+      expect(store.deploymentDetailsModalOpen).toBe(false);
+      expect(document.activeElement).toBe(opener);
+      expect(target).toEqual({ name: "stack-details", params: { stack: "app" } });
+    });
+    const link = wrapper.get(".deployment-stack-link");
+    expect(link.attributes("href")).toBe("/stacks/app");
+    await link.trigger("click");
+    await flushPromises();
+    expect(push).toHaveBeenCalledOnce();
+    expect(wrapper.find('[role="dialog"]').exists()).toBe(false);
+    wrapper.unmount();
+    opener.remove();
+  });
+
+  it("renders missing stack metadata without a broken link", () => {
+    const store = useOverviewStore();
+    store.deploymentDetailsData = { ...deployment(), stack: "" };
+    store.deploymentDetailsModalOpen = true;
+    const wrapper = mount(DeploymentDetailsModal);
+    expect(wrapper.find(".deployment-stack-link").exists()).toBe(false);
+    expect(wrapper.get(".deployment-metadata-item dd").text()).toBe("—");
+    wrapper.unmount();
   });
 
   it("puts attempts first with a compact total-count badge", () => {

@@ -559,7 +559,30 @@ export interface DeploymentsResponse {
   deployments: DeploymentSummary[];
   next_cursor?: string;
 }
+export type DeploymentActivityInterval = "daily" | "weekly";
+export interface DeploymentActivityBucket {
+  start: string;
+  succeeded: number;
+  failed: number;
+  running: number;
+  interrupted: number;
+  superseded: number;
+}
+export interface DeploymentActivityResponse {
+  buckets: DeploymentActivityBucket[];
+}
 export interface DeploymentFilterOptions {
   stacks: string[];
   services: Array<{ stack_name: string; service_name: string }>;
+}
+
+export interface StackResourceInfo {
+  id: string;
+  name: string;
+}
+
+export interface StackResourcesResponse {
+  networks: NetworkInfo[];
+  secrets: StackResourceInfo[];
+  configs: StackResourceInfo[];
 }

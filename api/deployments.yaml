@@ -88,8 +88,65 @@ paths:
                 format: binary
         '404':
           description: Deployment relationship, execution, or collected logs not found.
+  /api/v1/stacks/{stack}/deployments/activity:
+    get:
+      operationId: getStackDeploymentActivity
+      description: Aggregated deployment operations for a configured stack, grouped by UTC start time.
+      parameters:
+        - in: path
+          name: stack
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - in: query
+          name: interval
+          description: Bucket size. Defaults to weekly when omitted.
+          required: false
+          schema:
+            $ref: '#/components/schemas/DeploymentActivityInterval'
+      responses:
+        '200':
+          description: Chronological, zero-filled deployment activity buckets.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeploymentActivityResponse'
 components:
   schemas:
+    DeploymentActivityInterval:
+      type: string
+      enum: [daily, weekly]
+    DeploymentActivityBucket:
+      type: object
+      required: [start, succeeded, failed, running, interrupted, superseded]
+      properties:
+        start:
+          type: string
+          format: date-time
+        succeeded:
+          type: integer
+          minimum: 0
+        failed:
+          type: integer
+          minimum: 0
+        running:
+          type: integer
+          minimum: 0
+        interrupted:
+          type: integer
+          minimum: 0
+        superseded:
+          type: integer
+          minimum: 0
+    DeploymentActivityResponse:
+      type: object
+      required: [buckets]
+      properties:
+        buckets:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeploymentActivityBucket'
     DeploymentFilterOptions:
       type: object
       required: [stacks, services]

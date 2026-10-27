@@ -74,6 +74,111 @@ type FilterService struct {
 	ServiceName string `db:"service_name"`
 }
 
+// ActivityInterval identifies the UTC bucket size used for deployment activity.
+type ActivityInterval string
+
+const (
+	activityDaysPerWeek = 7
+	// ActivityIntervalDaily groups deployment starts by UTC calendar day.
+	ActivityIntervalDaily ActivityInterval = "daily"
+	// ActivityIntervalWeekly groups deployment starts by Monday-based UTC calendar week.
+	ActivityIntervalWeekly ActivityInterval = "weekly"
+)
+
+// ActivityBucket contains final deployment status counts for one UTC period.
+type ActivityBucket struct {
+	// Start is the inclusive UTC bucket boundary.
+	Start time.Time
+	// Succeeded is the number of successful deployments.
+	Succeeded int
+	// Failed is the number of failed deployments that have not been superseded.
+	Failed int
+	// Running is the number of currently running deployments.
+	Running int
+	// Interrupted is the number of interrupted deployments that have not been superseded.
+	Interrupted int
+	// Superseded is the number of failed or interrupted deployments replaced by newer desired state.
+	Superseded int
+}
+
+// Activity returns chronological, zero-filled deployment status counts for [start, end).
+func (s *Store) Activity(
+	ctx context.Context,
+	stack string,
+	interval ActivityInterval,
+	start time.Time,
+	end time.Time,
+) ([]ActivityBucket, error) {
+	if interval != ActivityIntervalDaily && interval != ActivityIntervalWeekly {
+		return nil, fmt.Errorf("unsupported deployment activity interval %q", interval)
+	}
+	start, end = start.UTC(), end.UTC()
+	if !start.Before(end) {
+		return nil, fmt.Errorf("deployment activity start must be before end")
+	}
+
+	dayExpression := `date(deployments.started_at / 1000000000, 'unixepoch')`
+	if interval == ActivityIntervalWeekly {
+		dayExpression = `date(deployments.started_at / 1000000000, 'unixepoch', printf('-%d days',
+			(CAST(strftime('%w', deployments.started_at / 1000000000, 'unixepoch') AS INTEGER) + 6) % 7))`
+	}
+	query := `SELECT ` + dayExpression + ` AS bucket_date,
+		CASE WHEN ` + supersededPredicate + ` THEN 'superseded' ELSE deployments.status END AS status,
+		COUNT(*) AS count
+		FROM deployments
+		WHERE deployments.stack = ? AND deployments.started_at >= ? AND deployments.started_at < ?
+		GROUP BY bucket_date, status
+		ORDER BY bucket_date, status`
+	var rows []struct {
+		BucketDate string                 `db:"bucket_date"`
+		Status     deploymentmodel.Status `db:"status"`
+		Count      int                    `db:"count"`
+	}
+	if err := s.db.Select(ctx, &rows, query, stack, start.UnixNano(), end.UnixNano()); err != nil {
+		return nil, err
+	}
+
+	buckets := make([]ActivityBucket, 0)
+	byStart := map[time.Time]int{}
+	for bucketStart := start; bucketStart.Before(end); bucketStart = nextActivityBucket(bucketStart, interval) {
+		byStart[bucketStart] = len(buckets)
+		buckets = append(buckets, ActivityBucket{Start: bucketStart})
+	}
+	for _, row := range rows {
+		bucketStart, err := time.Parse("2006-01-02", row.BucketDate)
+		if err != nil {
+			return nil, fmt.Errorf("parse deployment activity bucket %q: %w", row.BucketDate, err)
+		}
+		index, found := byStart[bucketStart]
+		if !found {
+			return nil, fmt.Errorf("deployment activity bucket %s outside requested range", bucketStart)
+		}
+		bucket := &buckets[index]
+		switch row.Status {
+		case deploymentmodel.Succeeded:
+			bucket.Succeeded = row.Count
+		case deploymentmodel.Failed:
+			bucket.Failed = row.Count
+		case deploymentmodel.Running:
+			bucket.Running = row.Count
+		case deploymentmodel.Interrupted:
+			bucket.Interrupted = row.Count
+		case deploymentmodel.Superseded:
+			bucket.Superseded = row.Count
+		default:
+			return nil, fmt.Errorf("unsupported deployment activity status %q", row.Status)
+		}
+	}
+	return buckets, nil
+}
+
+func nextActivityBucket(start time.Time, interval ActivityInterval) time.Time {
+	if interval == ActivityIntervalWeekly {
+		return start.AddDate(0, 0, activityDaysPerWeek)
+	}
+	return start.AddDate(0, 0, 1)
+}
+
 var summaryColumns = []any{
 	"id", "stack", "commit", "status", "error_code", "phase", "started_at", "finished_at", "details_payload",
 	goqu.L(`(SELECT attempt.id FROM deployment_attempts AS attempt

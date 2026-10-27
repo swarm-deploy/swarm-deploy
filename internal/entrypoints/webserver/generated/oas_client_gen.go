@@ -91,10 +91,24 @@ type Invoker interface {
 	//
 	// GET /api/v1/stacks/{stack}/services/{service}/realtime
 	GetServiceRealtime(ctx context.Context, params GetServiceRealtimeParams) (*ServiceRealtimeResponse, error)
+	// GetStackDeploymentActivity invokes getStackDeploymentActivity operation.
+	//
+	// Aggregated deployment operations for a configured stack, grouped by UTC start time.
+	//
+	// GET /api/v1/stacks/{stack}/deployments/activity
+	GetStackDeploymentActivity(ctx context.Context, params GetStackDeploymentActivityParams) (*DeploymentActivityResponse, error)
 	// GetStackManifestos invokes getStackManifestos operation.
 	//
 	// GET /api/v1/stacks/{stack}/manifestos
 	GetStackManifestos(ctx context.Context, params GetStackManifestosParams) (*StackManifestosResponse, error)
+	// GetStackResources invokes getStackResources operation.
+	//
+	// Current Docker resources owned by a configured stack, selected by the exact
+	// com.docker.stack.namespace label. Unlabelled external resources are excluded.
+	// Returns metadata only, never secret values or config payloads.
+	//
+	// GET /api/v1/stacks/{stack}/resources
+	GetStackResources(ctx context.Context, params GetStackResourcesParams) (*StackResourcesResponse, error)
 	// GetTaskLogs invokes getTaskLogs operation.
 	//
 	// GET /api/tasks/{taskID}/logs
@@ -1638,6 +1652,120 @@ func (c *Client) sendGetServiceRealtime(ctx context.Context, params GetServiceRe
 	return result, nil
 }
 
+// GetStackDeploymentActivity invokes getStackDeploymentActivity operation.
+//
+// Aggregated deployment operations for a configured stack, grouped by UTC start time.
+//
+// GET /api/v1/stacks/{stack}/deployments/activity
+func (c *Client) GetStackDeploymentActivity(ctx context.Context, params GetStackDeploymentActivityParams) (*DeploymentActivityResponse, error) {
+	res, err := c.sendGetStackDeploymentActivity(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetStackDeploymentActivity(ctx context.Context, params GetStackDeploymentActivityParams) (res *DeploymentActivityResponse, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getStackDeploymentActivity"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/api/v1/stacks/{stack}/deployments/activity"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetStackDeploymentActivityOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/api/v1/stacks/"
+	{
+		// Encode "stack" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "stack",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.Stack))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/deployments/activity"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "interval" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "interval",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Interval.Get(); ok {
+				return e.EncodeValue(conv.StringToString(string(val)))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer body.Close()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetStackDeploymentActivityResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
 // GetStackManifestos invokes getStackManifestos operation.
 //
 // GET /api/v1/stacks/{stack}/manifestos
@@ -1722,6 +1850,101 @@ func (c *Client) sendGetStackManifestos(ctx context.Context, params GetStackMani
 
 	stage = "DecodeResponse"
 	result, err := decodeGetStackManifestosResponse(resp)
+	if err != nil {
+		return res, errors.Wrap(err, "decode response")
+	}
+
+	return result, nil
+}
+
+// GetStackResources invokes getStackResources operation.
+//
+// Current Docker resources owned by a configured stack, selected by the exact
+// com.docker.stack.namespace label. Unlabelled external resources are excluded.
+// Returns metadata only, never secret values or config payloads.
+//
+// GET /api/v1/stacks/{stack}/resources
+func (c *Client) GetStackResources(ctx context.Context, params GetStackResourcesParams) (*StackResourcesResponse, error) {
+	res, err := c.sendGetStackResources(ctx, params)
+	return res, err
+}
+
+func (c *Client) sendGetStackResources(ctx context.Context, params GetStackResourcesParams) (res *StackResourcesResponse, err error) {
+	otelAttrs := []attribute.KeyValue{
+		otelogen.OperationID("getStackResources"),
+		semconv.HTTPRequestMethodKey.String("GET"),
+		semconv.URLTemplateKey.String("/api/v1/stacks/{stack}/resources"),
+	}
+	otelAttrs = append(otelAttrs, c.cfg.Attributes...)
+
+	// Run stopwatch.
+	startTime := time.Now()
+	defer func() {
+		// Use floating point division here for higher precision (instead of Millisecond method).
+		elapsedDuration := time.Since(startTime)
+		c.duration.Record(ctx, float64(elapsedDuration)/float64(time.Millisecond), metric.WithAttributes(otelAttrs...))
+	}()
+
+	// Increment request counter.
+	c.requests.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+
+	// Start a span for this request.
+	ctx, span := c.cfg.Tracer.Start(ctx, GetStackResourcesOperation,
+		trace.WithAttributes(otelAttrs...),
+		clientSpanKind,
+	)
+	// Track stage for error reporting.
+	var stage string
+	defer func() {
+		if err != nil {
+			span.RecordError(err)
+			span.SetStatus(codes.Error, stage)
+			c.errors.Add(ctx, 1, metric.WithAttributes(otelAttrs...))
+		}
+		span.End()
+	}()
+
+	stage = "BuildURL"
+	u := uri.Clone(c.requestURL(ctx))
+	var pathParts [3]string
+	pathParts[0] = "/api/v1/stacks/"
+	{
+		// Encode "stack" parameter.
+		e := uri.NewPathEncoder(uri.PathEncoderConfig{
+			Param:   "stack",
+			Style:   uri.PathStyleSimple,
+			Explode: false,
+		})
+		if err := func() error {
+			return e.EncodeValue(conv.StringToString(params.Stack))
+		}(); err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		encoded, err := e.Result()
+		if err != nil {
+			return res, errors.Wrap(err, "encode path")
+		}
+		pathParts[1] = encoded
+	}
+	pathParts[2] = "/resources"
+	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeRequest"
+	r, err := ht.NewRequest(ctx, "GET", u)
+	if err != nil {
+		return res, errors.Wrap(err, "create request")
+	}
+
+	stage = "SendRequest"
+	resp, err := c.cfg.Client.Do(r)
+	if err != nil {
+		return res, errors.Wrap(err, "do request")
+	}
+	body := resp.Body
+	defer body.Close()
+
+	stage = "DecodeResponse"
+	result, err := decodeGetStackResourcesResponse(resp)
 	if err != nil {
 		return res, errors.Wrap(err, "decode response")
 	}
@@ -2012,6 +2235,23 @@ func (c *Client) sendListAlerts(ctx context.Context, params ListAlertsParams) (r
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
 			if val, ok := params.Limit.Get(); ok {
 				return e.EncodeValue(conv.Int32ToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "stack" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "stack",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.Stack.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
 			}
 			return nil
 		}); err != nil {

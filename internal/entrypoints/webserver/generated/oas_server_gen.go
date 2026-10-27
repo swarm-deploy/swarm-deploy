@@ -69,10 +69,24 @@ type Handler interface {
 	//
 	// GET /api/v1/stacks/{stack}/services/{service}/realtime
 	GetServiceRealtime(ctx context.Context, params GetServiceRealtimeParams) (*ServiceRealtimeResponse, error)
+	// GetStackDeploymentActivity implements getStackDeploymentActivity operation.
+	//
+	// Aggregated deployment operations for a configured stack, grouped by UTC start time.
+	//
+	// GET /api/v1/stacks/{stack}/deployments/activity
+	GetStackDeploymentActivity(ctx context.Context, params GetStackDeploymentActivityParams) (*DeploymentActivityResponse, error)
 	// GetStackManifestos implements getStackManifestos operation.
 	//
 	// GET /api/v1/stacks/{stack}/manifestos
 	GetStackManifestos(ctx context.Context, params GetStackManifestosParams) (*StackManifestosResponse, error)
+	// GetStackResources implements getStackResources operation.
+	//
+	// Current Docker resources owned by a configured stack, selected by the exact
+	// com.docker.stack.namespace label. Unlabelled external resources are excluded.
+	// Returns metadata only, never secret values or config payloads.
+	//
+	// GET /api/v1/stacks/{stack}/resources
+	GetStackResources(ctx context.Context, params GetStackResourcesParams) (*StackResourcesResponse, error)
 	// ListAlerts implements listAlerts operation.
 	//
 	// GET /api/v1/alerts

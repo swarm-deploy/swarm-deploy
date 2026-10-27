@@ -127,10 +127,30 @@ func (UnimplementedHandler) GetServiceRealtime(ctx context.Context, params GetSe
 	return r, ht.ErrNotImplemented
 }
 
+// GetStackDeploymentActivity implements getStackDeploymentActivity operation.
+//
+// Aggregated deployment operations for a configured stack, grouped by UTC start time.
+//
+// GET /api/v1/stacks/{stack}/deployments/activity
+func (UnimplementedHandler) GetStackDeploymentActivity(ctx context.Context, params GetStackDeploymentActivityParams) (r *DeploymentActivityResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetStackManifestos implements getStackManifestos operation.
 //
 // GET /api/v1/stacks/{stack}/manifestos
 func (UnimplementedHandler) GetStackManifestos(ctx context.Context, params GetStackManifestosParams) (r *StackManifestosResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetStackResources implements getStackResources operation.
+//
+// Current Docker resources owned by a configured stack, selected by the exact
+// com.docker.stack.namespace label. Unlabelled external resources are excluded.
+// Returns metadata only, never secret values or config payloads.
+//
+// GET /api/v1/stacks/{stack}/resources
+func (UnimplementedHandler) GetStackResources(ctx context.Context, params GetStackResourcesParams) (r *StackResourcesResponse, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

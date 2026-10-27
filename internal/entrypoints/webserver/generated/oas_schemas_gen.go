@@ -1305,6 +1305,133 @@ func (s *Deployment) SetAttempts(val []DeploymentAttempt) {
 	s.Attempts = val
 }
 
+// Ref: #/components/schemas/DeploymentActivityBucket
+type DeploymentActivityBucket struct {
+	Start       time.Time `json:"start"`
+	Succeeded   int       `json:"succeeded"`
+	Failed      int       `json:"failed"`
+	Running     int       `json:"running"`
+	Interrupted int       `json:"interrupted"`
+	Superseded  int       `json:"superseded"`
+}
+
+// GetStart returns the value of Start.
+func (s *DeploymentActivityBucket) GetStart() time.Time {
+	return s.Start
+}
+
+// GetSucceeded returns the value of Succeeded.
+func (s *DeploymentActivityBucket) GetSucceeded() int {
+	return s.Succeeded
+}
+
+// GetFailed returns the value of Failed.
+func (s *DeploymentActivityBucket) GetFailed() int {
+	return s.Failed
+}
+
+// GetRunning returns the value of Running.
+func (s *DeploymentActivityBucket) GetRunning() int {
+	return s.Running
+}
+
+// GetInterrupted returns the value of Interrupted.
+func (s *DeploymentActivityBucket) GetInterrupted() int {
+	return s.Interrupted
+}
+
+// GetSuperseded returns the value of Superseded.
+func (s *DeploymentActivityBucket) GetSuperseded() int {
+	return s.Superseded
+}
+
+// SetStart sets the value of Start.
+func (s *DeploymentActivityBucket) SetStart(val time.Time) {
+	s.Start = val
+}
+
+// SetSucceeded sets the value of Succeeded.
+func (s *DeploymentActivityBucket) SetSucceeded(val int) {
+	s.Succeeded = val
+}
+
+// SetFailed sets the value of Failed.
+func (s *DeploymentActivityBucket) SetFailed(val int) {
+	s.Failed = val
+}
+
+// SetRunning sets the value of Running.
+func (s *DeploymentActivityBucket) SetRunning(val int) {
+	s.Running = val
+}
+
+// SetInterrupted sets the value of Interrupted.
+func (s *DeploymentActivityBucket) SetInterrupted(val int) {
+	s.Interrupted = val
+}
+
+// SetSuperseded sets the value of Superseded.
+func (s *DeploymentActivityBucket) SetSuperseded(val int) {
+	s.Superseded = val
+}
+
+// Ref: #/components/schemas/DeploymentActivityInterval
+type DeploymentActivityInterval string
+
+const (
+	DeploymentActivityIntervalDaily  DeploymentActivityInterval = "daily"
+	DeploymentActivityIntervalWeekly DeploymentActivityInterval = "weekly"
+)
+
+// AllValues returns all DeploymentActivityInterval values.
+func (DeploymentActivityInterval) AllValues() []DeploymentActivityInterval {
+	return []DeploymentActivityInterval{
+		DeploymentActivityIntervalDaily,
+		DeploymentActivityIntervalWeekly,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s DeploymentActivityInterval) MarshalText() ([]byte, error) {
+	switch s {
+	case DeploymentActivityIntervalDaily:
+		return []byte(s), nil
+	case DeploymentActivityIntervalWeekly:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *DeploymentActivityInterval) UnmarshalText(data []byte) error {
+	switch DeploymentActivityInterval(data) {
+	case DeploymentActivityIntervalDaily:
+		*s = DeploymentActivityIntervalDaily
+		return nil
+	case DeploymentActivityIntervalWeekly:
+		*s = DeploymentActivityIntervalWeekly
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/DeploymentActivityResponse
+type DeploymentActivityResponse struct {
+	Buckets []DeploymentActivityBucket `json:"buckets"`
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *DeploymentActivityResponse) GetBuckets() []DeploymentActivityBucket {
+	return s.Buckets
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *DeploymentActivityResponse) SetBuckets(val []DeploymentActivityBucket) {
+	s.Buckets = val
+}
+
 // Ref: #/components/schemas/DeploymentActualStateStatus
 type DeploymentActualStateStatus string
 
@@ -3729,6 +3856,52 @@ func (o OptDateTime) Or(d time.Time) time.Time {
 	return d
 }
 
+// NewOptDeploymentActivityInterval returns new OptDeploymentActivityInterval with value set to v.
+func NewOptDeploymentActivityInterval(v DeploymentActivityInterval) OptDeploymentActivityInterval {
+	return OptDeploymentActivityInterval{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptDeploymentActivityInterval is optional DeploymentActivityInterval.
+type OptDeploymentActivityInterval struct {
+	Value DeploymentActivityInterval
+	Set   bool
+}
+
+// IsSet returns true if OptDeploymentActivityInterval was set.
+func (o OptDeploymentActivityInterval) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptDeploymentActivityInterval) Reset() {
+	var v DeploymentActivityInterval
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptDeploymentActivityInterval) SetTo(v DeploymentActivityInterval) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptDeploymentActivityInterval) Get() (v DeploymentActivityInterval, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptDeploymentActivityInterval) Or(d DeploymentActivityInterval) DeploymentActivityInterval {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptEventHistoryItemDetails returns new OptEventHistoryItemDetails with value set to v.
 func NewOptEventHistoryItemDetails(v EventHistoryItemDetails) OptEventHistoryItemDetails {
 	return OptEventHistoryItemDetails{
@@ -6109,6 +6282,70 @@ func (s *StackManifestosResponse) SetDesired(val string) {
 // SetLive sets the value of Live.
 func (s *StackManifestosResponse) SetLive(val string) {
 	s.Live = val
+}
+
+// Resource identity without values, configuration data or labels.
+// Ref: #/components/schemas/StackResourceInfo
+type StackResourceInfo struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// GetID returns the value of ID.
+func (s *StackResourceInfo) GetID() string {
+	return s.ID
+}
+
+// GetName returns the value of Name.
+func (s *StackResourceInfo) GetName() string {
+	return s.Name
+}
+
+// SetID sets the value of ID.
+func (s *StackResourceInfo) SetID(val string) {
+	s.ID = val
+}
+
+// SetName sets the value of Name.
+func (s *StackResourceInfo) SetName(val string) {
+	s.Name = val
+}
+
+// Ref: #/components/schemas/StackResourcesResponse
+type StackResourcesResponse struct {
+	Networks []NetworkInfo       `json:"networks"`
+	Secrets  []StackResourceInfo `json:"secrets"`
+	Configs  []StackResourceInfo `json:"configs"`
+}
+
+// GetNetworks returns the value of Networks.
+func (s *StackResourcesResponse) GetNetworks() []NetworkInfo {
+	return s.Networks
+}
+
+// GetSecrets returns the value of Secrets.
+func (s *StackResourcesResponse) GetSecrets() []StackResourceInfo {
+	return s.Secrets
+}
+
+// GetConfigs returns the value of Configs.
+func (s *StackResourcesResponse) GetConfigs() []StackResourceInfo {
+	return s.Configs
+}
+
+// SetNetworks sets the value of Networks.
+func (s *StackResourcesResponse) SetNetworks(val []NetworkInfo) {
+	s.Networks = val
+}
+
+// SetSecrets sets the value of Secrets.
+func (s *StackResourcesResponse) SetSecrets(val []StackResourceInfo) {
+	s.Secrets = val
+}
+
+// SetConfigs sets the value of Configs.
+func (s *StackResourcesResponse) SetConfigs(val []StackResourceInfo) {
+	s.Configs = val
 }
 
 // Ref: #/components/schemas/StackStatus

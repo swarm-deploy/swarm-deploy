@@ -2,6 +2,7 @@
 import yaml from "@speed-highlight/core/languages/yaml.js";
 import { tokenizeWith } from "@speed-highlight/core/tokenize";
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
+import { useRouter } from "vue-router";
 import { fetchDeploymentInitJobLogs } from "../../api/overview";
 import type { DeploymentAttempt, DeploymentChange, DeploymentInitJobExecution } from "../../api/types";
 import { useAssistantStore } from "../../stores/assistant";
@@ -26,6 +27,7 @@ type ResourceSection = {
 };
 
 const store = useOverviewStore();
+const router = useRouter();
 const assistantStore = useAssistantStore();
 const uiStore = useUIStore();
 const dialog = ref<HTMLElement | null>(null);
@@ -312,6 +314,16 @@ function focusableElements(): HTMLElement[] {
   return dialog.value ? [...dialog.value.querySelectorAll<HTMLElement>(focusableSelector)] : [];
 }
 function close() { store.closeDeploymentDetailsModal(); }
+async function openStack(event: MouseEvent) {
+  if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+  event.preventDefault();
+  const stack = detail.value?.stack;
+  if (!stack?.trim()) return;
+  close();
+  // Allow modal focus restoration and deep-link cleanup before changing the route.
+  await nextTick();
+  await router.push({ name: "stack-details", params: { stack } });
+}
 function openCommit() {
   const commit = detail.value?.commit;
   if (commit) void store.openCommitDetailsModal(commit);
@@ -432,7 +444,7 @@ onUnmounted(() => {
             </div>
           </div>
           <dl v-if="detail && !store.deploymentDetailsLoading && !store.deploymentDetailsError" class="deployment-metadata">
-            <div class="deployment-metadata-item"><dt><DeploymentIcon name="stack" />Stack</dt><dd>{{ detail.stack }}</dd></div>
+            <div class="deployment-metadata-item"><dt><DeploymentIcon name="stack" />Stack</dt><dd><RouterLink v-if="detail.stack?.trim()" v-slot="{ href }" custom :to="{ name: 'stack-details', params: { stack: detail.stack } }"><a class="deployment-stack-link" :href="href" @click="openStack">{{ detail.stack }}</a></RouterLink><span v-else>—</span></dd></div>
             <div class="deployment-metadata-item"><dt><DeploymentIcon name="commit" />Commit</dt><dd><button v-if="detail.commit" type="button" class="deployment-commit-link" @click="openCommit">{{ shortCommitHash(detail.commit) }}<span aria-hidden="true">↗</span></button><span v-else>—</span></dd></div>
             <div class="deployment-metadata-item"><dt><DeploymentIcon name="calendar" />Started</dt><dd><span class="deployment-date-desktop">{{ formatDate(detail.started_at) }}</span><span class="deployment-date-mobile">{{ formatCompactDate(detail.started_at) }}</span></dd></div>
             <div class="deployment-metadata-item"><dt><DeploymentIcon name="calendar" />Finished</dt><dd><span class="deployment-date-desktop">{{ detail.finished_at ? formatDate(detail.finished_at) : detail.status === "running" ? "In progress" : "—" }}</span><span class="deployment-date-mobile">{{ detail.finished_at ? formatCompactDate(detail.finished_at) : detail.status === "running" ? "In progress" : "—" }}</span></dd></div>
@@ -709,6 +721,8 @@ onUnmounted(() => {
 .deployment-metadata dt > :deep(.deployment-icon) { position: absolute; left: 18px; top: 50%; width: 22px; height: 22px; color: var(--muted); transform: translateY(-50%); }
 .deployment-metadata-item:first-child dt > :deep(.deployment-icon) { left: 0; }
 .deployment-metadata dd { margin: 4px 0 0; overflow-wrap: anywhere; line-height: 1.25; }
+.deployment-stack-link { color: var(--accent-strong); text-decoration: none; }
+.deployment-stack-link:hover { text-decoration: underline; }
 .deployment-date-mobile { display: none; }
 .deployment-commit-link { display: inline-flex; align-items: center; gap: 7px; border: 0; background: transparent; color: var(--control-primary); padding: 0; font: inherit; font-family: ui-monospace, monospace; }
 .deployment-commit-link:hover { transform: none; filter: none; text-decoration: underline; }
