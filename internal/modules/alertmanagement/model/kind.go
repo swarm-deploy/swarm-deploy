@@ -33,5 +33,5 @@ func ServiceDriftFingerprint(stackName, serviceName string) string {
 }
 
 func NodeDisconnectedFingerprint(nodeID string) string {
-	return string(AlertKindNodeDisconnected) + string(ResourceTypeNode) + ":" + nodeID
+	return string(AlertKindNodeDisconnected) + ":" + string(ResourceTypeNode) + ":" + nodeID
 }
