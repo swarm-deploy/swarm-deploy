@@ -2,8 +2,18 @@
 import { useRouter } from "vue-router";
 import type { ServiceInfo, ServiceSyncStatus } from "../../api/types";
 import AppTable from "../common/AppTable.vue";
+import DeploymentIcon from "./DeploymentIcon.vue";
 
-withDefaults(defineProps<{ services: ServiceInfo[]; minWidth?: string }>(), { minWidth: "720px" });
+const props = withDefaults(defineProps<{
+  services: ServiceInfo[];
+  minWidth?: string;
+  variant?: "default" | "stack-detail";
+  emptyMessage?: string;
+}>(), {
+  minWidth: "720px",
+  variant: "default",
+  emptyMessage: "No services captured yet.",
+});
 const router = useRouter();
 async function openServiceDetails(stack: string, service: string) {
   if (stack && service) await router.push({ name: "service-details", params: { stack, service } });
@@ -39,7 +49,7 @@ function syncErrorText(syncError: string | undefined): string {
 </script>
 
 <template>
-  <AppTable fixed table-class="services-stack-table" :min-width="minWidth" wrap-class="stack-services-table-wrap">
+  <AppTable fixed :table-class="props.variant === 'stack-detail' ? 'services-stack-table services-stack-table--detail' : 'services-stack-table'" :min-width="minWidth" wrap-class="stack-services-table-wrap">
     <template #colgroup>
       <colgroup>
         <col class="services-col-name" />
@@ -51,13 +61,13 @@ function syncErrorText(syncError: string | undefined): string {
     <template #head>
       <tr>
         <th>Name</th>
-        <th>Sync Status</th>
+        <th>{{ variant === "stack-detail" ? "Image" : "Sync Status" }}</th>
         <th>Type</th>
-        <th>Version</th>
+        <th>{{ variant === "stack-detail" ? "Status" : "Version" }}</th>
       </tr>
     </template>
     <tr v-if="services.length === 0">
-      <td colspan="4" class="app-table-empty-cell">No services captured yet.</td>
+      <td colspan="4" class="app-table-empty-cell">{{ emptyMessage }}</td>
     </tr>
     <tr
       v-for="service in services"
@@ -71,9 +81,13 @@ function syncErrorText(syncError: string | undefined): string {
       @keydown.space.prevent="openServiceDetails(service.stack, service.name)"
     >
       <td class="services-cell-name" :title="service.name || undefined">
-        <strong class="stack-service-name">{{ service.name || "unknown" }}</strong>
+        <span class="stack-service-name-wrap">
+          <DeploymentIcon v-if="variant === 'stack-detail'" name="service" />
+          <strong class="stack-service-name">{{ service.name || "unknown" }}</strong>
+        </span>
       </td>
-      <td class="services-cell-sync-status">
+      <td v-if="variant === 'stack-detail'" class="services-cell-image" :title="service.image">{{ service.image || "—" }}</td>
+      <td v-else class="services-cell-sync-status">
         <div class="stack-service-sync-status">
           <span class="status" :class="syncStatusClass(service.sync_status)">
             {{ syncStatusLabel(service.sync_status) }}
@@ -88,7 +102,21 @@ function syncErrorText(syncError: string | undefined): string {
         </div>
       </td>
       <td class="services-cell-type">{{ service.type_title || service.type }}</td>
-      <td class="services-cell-version" :title="service.image">{{ service.image_version || "—" }}</td>
+      <td v-if="variant === 'stack-detail'" class="services-cell-sync-status">
+        <div class="stack-service-sync-status">
+          <span class="status" :class="syncStatusClass(service.sync_status)">
+            {{ syncStatusLabel(service.sync_status) }}
+          </span>
+          <p
+            v-if="syncErrorText(service.sync_error)"
+            class="stack-service-sync-error"
+            :title="syncErrorText(service.sync_error)"
+          >
+            {{ syncErrorText(service.sync_error) }}
+          </p>
+        </div>
+      </td>
+      <td v-else class="services-cell-version" :title="service.image">{{ service.image_version || "—" }}</td>
     </tr>
   </AppTable>
 </template>
