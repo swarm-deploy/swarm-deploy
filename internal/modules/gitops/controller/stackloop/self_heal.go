@@ -59,7 +59,11 @@ func (r *Reconciler) healService(
 	))
 	defer span.End()
 
-	policyName, enabled, err := resolveSelfHeal(service, r.cfg.Spec.Sync.Policy.SelfHeal)
+	policyName, enabled, err := resolveSelfHeal(
+		service,
+		payload.Stack.Sync.Policy.SelfHeal,
+		r.cfg.Spec.Sync.Policy.SelfHeal,
+	)
 	if err != nil {
 		resolveErr := fmt.Errorf("resolve service %s self-heal policy: %w", service.Name, err)
 		tracing.FailSpan(span, resolveErr)
@@ -155,13 +159,16 @@ func (r *Reconciler) applyVerifiedDrift(
 	}
 }
 
-func resolveSelfHeal(service compose.Service, global bool) (string, bool, error) {
+func resolveSelfHeal(service compose.Service, stack *bool, global bool) (string, bool, error) {
 	policy, specified, err := service.SelfHealPolicy()
 	if err != nil {
 		return "service", false, err
 	}
 	if specified {
 		return "service", policy, nil
+	}
+	if stack != nil {
+		return "stack", *stack, nil
 	}
 
 	return "global", global, nil

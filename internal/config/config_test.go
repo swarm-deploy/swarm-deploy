@@ -20,6 +20,9 @@ func TestLoadWithStacksFile(t *testing.T) {
 stacks:
   - name: app
     composeFile: app/docker-compose.yml
+    sync:
+      policy:
+        selfHeal: false
   - name: worker
     composeFile: worker/docker-compose.yml
 `)
@@ -45,6 +48,8 @@ stacks:
 	stacks := cfg.Stacks()
 	require.Len(t, stacks, 2, "expected 2 stacks")
 	assert.Equal(t, "app", stacks[0].Name, "unexpected first stack")
+	require.NotNil(t, stacks[0].Sync.Policy.SelfHeal, "expected stack self-heal override")
+	assert.False(t, *stacks[0].Sync.Policy.SelfHeal, "unexpected stack self-heal override")
 	assert.Equal(t, "worker", stacks[1].Name, "unexpected second stack")
 }
 

@@ -191,6 +191,8 @@ type StackSyncSpec struct {
 type StackSyncPolicySpec struct {
 	// Prune overrides global prune policy for this stack when specified.
 	Prune *bool `yaml:"prune"`
+	// SelfHeal overrides global self-heal policy for this stack when specified.
+	SelfHeal *bool `yaml:"selfHeal"`
 }
 
 type NetworkSpec struct {

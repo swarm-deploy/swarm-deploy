@@ -22,6 +22,17 @@ sync:
     selfHeal: true
 ```
 
+Override the global policy for one stack in `stacks.yaml`:
+
+```yaml
+stacks:
+  - name: app
+    composeFile: app.yaml
+    sync:
+      policy:
+        selfHeal: false
+```
+
 Override the policy for one service with a Compose deploy label:
 
 ```yaml
@@ -34,7 +45,8 @@ services:
         org.swarm-deploy.service.sync.policy.selfHeal: "false"
 ```
 
-The service label takes precedence over `sync.policy.selfHeal`. Accepted values are
+The service label takes precedence over `stacks[].sync.policy.selfHeal`, which takes
+precedence over the global `sync.policy.selfHeal`. Accepted service-label values are
 `true`, `1`, `yes`, `y`, `on`, `false`, `0`, `no`, `n`, and `off` (case-insensitive).
 
 Self-heal reapplies only the drifted service. It does not execute Init Jobs, redeploy or
