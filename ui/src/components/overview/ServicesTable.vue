@@ -61,7 +61,7 @@ function syncErrorText(syncError: string | undefined): string {
     <template #head>
       <tr>
         <th>Name</th>
-        <th>{{ variant === "stack-detail" ? "Image" : "Sync Status" }}</th>
+        <th>{{ variant === "stack-detail" ? "Version" : "Sync Status" }}</th>
         <th>Type</th>
         <th>{{ variant === "stack-detail" ? "Status" : "Version" }}</th>
       </tr>
@@ -86,7 +86,7 @@ function syncErrorText(syncError: string | undefined): string {
           <strong class="stack-service-name">{{ service.name || "unknown" }}</strong>
         </span>
       </td>
-      <td v-if="variant === 'stack-detail'" class="services-cell-image" :title="service.image">{{ service.image || "—" }}</td>
+      <td v-if="variant === 'stack-detail'" class="services-cell-image" :title="service.image">{{ service.image_version || "—" }}</td>
       <td v-else class="services-cell-sync-status">
         <div class="stack-service-sync-status">
           <span class="status" :class="syncStatusClass(service.sync_status)">

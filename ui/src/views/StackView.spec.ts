@@ -128,7 +128,9 @@ describe("Stack Details", () => {
     expect(wrapper.get(".stack-state").text()).toContain("Out of sync 1");
     expect(wrapper.find('[aria-label="Breadcrumb"]').exists()).toBe(false);
     expect(wrapper.findAll(".stack-metrics dd").map((item) => item.text())).toEqual(["3", "2", "1", "1", "1", "1"]);
-    expect(wrapper.findAll(".services-stack-table th").map((item) => item.text())).toEqual(["Name", "Image", "Type", "Status"]);
+    expect(wrapper.findAll(".services-stack-table th").map((item) => item.text())).toEqual(["Name", "Version", "Type", "Status"]);
+    expect(wrapper.get(".services-cell-image").text()).toBe("2");
+    expect(wrapper.get(".services-cell-image").attributes("title")).toBe("registry.example/api:2");
     expect(wrapper.findAll(".services-cell-sync-status .status").map((item) => item.text())).toEqual(["Synced", "unknown", "OutOfSync"]);
     expect(wrapper.get(".stack-services-panel .service-panel-heading").text()).toBe("Services");
     expect(wrapper.get(".deployment-activity-stub").attributes("data-stack")).toBe("app");
