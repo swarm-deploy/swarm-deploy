@@ -9,6 +9,9 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ServicesResponse'
+              examples:
+                development:
+                  $ref: '../mocks/overview.yaml#/components/examples/ServicesResponse'
   /api/v1/stacks/{stack}/services/{service}:
     get:
       operationId: getService

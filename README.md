@@ -93,6 +93,9 @@ The UI and REST API are served by the same web server. The UI includes:
 - event and deployment information,
 - optional AI assistant.
 
+For frontend development without a running backend, use the
+[OpenAPI mock workflow](./ui/README.md#development-with-the-mock-api).
+
 ## Quick start
 
 Start with the [basic example](./example/01-basic) or generate a configuration with the [configuration wizard](https://swarm-deploy.github.io/swarm-deploy/docs/configurator/).
