@@ -3,8 +3,9 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { fetchDeploymentFilters, fetchDeployments } from "../api/overview";
 import type { DeploymentFilterOptions, DeploymentSummary } from "../api/types";
-import AppTable from "../components/common/AppTable.vue";
 import AppPagination from "../components/common/AppPagination.vue";
+import AppStatusBadge from "../components/common/AppStatusBadge.vue";
+import AppTable from "../components/common/AppTable.vue";
 import { useOverviewStore } from "../stores/overview";
 import { formatDate, shortCommitHash } from "../utils/format";
 
@@ -124,6 +125,15 @@ function statusClass(status: unknown): string {
   }
 }
 
+function statusVariant(status: unknown): "success" | "error" | "info" | "neutral" {
+  switch (status) {
+    case "succeeded": return "success";
+    case "failed": return "error";
+    case "running": return "info";
+    default: return "neutral";
+  }
+}
+
 function statusLabel(status: unknown): string {
   const value = typeof status === "string" ? status.trim() : "";
   if (!value) return "Unknown";
@@ -196,9 +206,14 @@ onMounted(() => {
       >
         <td class="deployment-stack" :title="deployment.stack">{{ deployment.stack }}</td>
         <td>
-          <span class="status deployment-status-badge" :class="statusClass(deployment.status)">
+          <AppStatusBadge
+            class="status deployment-status-badge"
+            :class="statusClass(deployment.status)"
+            :variant="statusVariant(deployment.status)"
+            filled
+          >
             {{ statusLabel(deployment.status) }}<small v-if="deployment.attempt_count > 1">{{ deployment.attempt_count }} attempts</small>
-          </span>
+          </AppStatusBadge>
         </td>
         <td class="deployment-started"><time :datetime="deployment.started_at">{{ formatDate(deployment.started_at) }}</time></td>
         <td>
@@ -255,18 +270,9 @@ onMounted(() => {
 .deployment-status-badge {
   display: inline-flex;
   align-items: center;
-  background: var(--surface-muted);
   line-height: 1.2;
 }
 .deployment-status-badge small { margin-left: 6px; color: var(--muted); font-size: .72rem; font-weight: 500; }
-
-.deployment-status-badge.success { background: var(--success-muted); }
-.deployment-status-badge.failed { background: var(--error-muted); }
-.deployment-status-badge--running {
-  color: var(--info);
-  border-color: var(--accent-border);
-  background: var(--info-muted);
-}
 
 .deployment-commit-link {
   display: inline-block;

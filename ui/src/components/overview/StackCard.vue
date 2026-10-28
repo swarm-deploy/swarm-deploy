@@ -4,6 +4,8 @@ import { computed } from "vue";
 import type { StackView } from "../../api/types";
 import { stackSyncStatus } from "../../utils/stackStatus";
 import { formatDate, shortCommitHash } from "../../utils/format";
+import AppCard from "../common/AppCard.vue";
+import AppStatusBadge from "../common/AppStatusBadge.vue";
 
 const props = defineProps<{
   stack: StackView;
@@ -18,19 +20,29 @@ const emit = defineEmits<{
 const status = computed(() => stackSyncStatus(props.stack.status));
 const statusKind = computed(() => status.value.kind);
 const statusLabel = computed(() => status.value.label);
+const statusVariant = computed(() => ({
+  synced: "success",
+  "out-of-sync": "warning",
+  unknown: "neutral",
+} as const)[statusKind.value]);
 
 const serviceLabel = computed(() => `${props.serviceCount} ${props.serviceCount === 1 ? "service" : "services"}`);
 const stackAnchor = computed(() => `stack-${encodeURIComponent(props.stack.name)}`);
 </script>
 
 <template>
-  <article :id="stackAnchor" class="stack-card overview-stack-card" :class="`overview-stack-card--${statusKind}`">
+  <AppCard :id="stackAnchor" class="stack-card overview-stack-card" :class="`overview-stack-card--${statusKind}`">
     <header class="overview-stack-card-header">
       <h3 class="overview-stack-card-title" :title="stack.name"><RouterLink class="stack-card-link" :to="{ name: 'stack-details', params: { stack: stack.name } }">{{ stack.name }}</RouterLink></h3>
       <div class="overview-stack-card-badges">
-        <span class="overview-stack-status-badge" :class="`overview-stack-status-badge--${statusKind}`">
+        <AppStatusBadge
+          class="overview-stack-status-badge"
+          :class="`overview-stack-status-badge--${statusKind}`"
+          :variant="statusVariant"
+          filled
+        >
           {{ statusLabel }}
-        </span>
+        </AppStatusBadge>
         <span class="overview-stack-services-badge">{{ serviceLabel }}</span>
       </div>
     </header>
@@ -63,7 +75,7 @@ const stackAnchor = computed(() => `stack-${encodeURIComponent(props.stack.name)
         Compare state
       </button>
     </footer>
-  </article>
+  </AppCard>
 </template>
 
 <style scoped>

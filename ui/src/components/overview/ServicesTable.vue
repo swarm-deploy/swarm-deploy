@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useRouter } from "vue-router";
 import type { ServiceInfo, ServiceSyncStatus } from "../../api/types";
+import AppStatusBadge from "../common/AppStatusBadge.vue";
 import AppTable from "../common/AppTable.vue";
 
 const props = withDefaults(defineProps<{
@@ -28,6 +29,18 @@ function syncStatusClass(status: ServiceSyncStatus | string | undefined): string
   }
 
   return "unknown";
+}
+
+function syncStatusVariant(status: ServiceSyncStatus | string | undefined): "success" | "error" | "neutral" {
+  const normalizedStatus = String(status || "").trim().toLowerCase();
+  if (normalizedStatus === "synced") {
+    return "success";
+  }
+  if (normalizedStatus === "outofsync") {
+    return "error";
+  }
+
+  return "neutral";
 }
 
 function syncStatusLabel(status: ServiceSyncStatus | string | undefined): string {
@@ -87,9 +100,13 @@ function syncErrorText(syncError: string | undefined): string {
       <td v-if="variant === 'stack-detail'" class="services-cell-image" :title="service.image">{{ service.image_version || "—" }}</td>
       <td v-else class="services-cell-sync-status">
         <div class="stack-service-sync-status">
-          <span class="status" :class="syncStatusClass(service.sync_status)">
+          <AppStatusBadge
+            class="status"
+            :class="syncStatusClass(service.sync_status)"
+            :variant="syncStatusVariant(service.sync_status)"
+          >
             {{ syncStatusLabel(service.sync_status) }}
-          </span>
+          </AppStatusBadge>
           <p
             v-if="syncErrorText(service.sync_error)"
             class="stack-service-sync-error"
@@ -102,9 +119,13 @@ function syncErrorText(syncError: string | undefined): string {
       <td class="services-cell-type">{{ service.type_title || service.type }}</td>
       <td v-if="variant === 'stack-detail'" class="services-cell-sync-status">
         <div class="stack-service-sync-status">
-          <span class="status" :class="syncStatusClass(service.sync_status)">
+          <AppStatusBadge
+            class="status"
+            :class="syncStatusClass(service.sync_status)"
+            :variant="syncStatusVariant(service.sync_status)"
+          >
             {{ syncStatusLabel(service.sync_status) }}
-          </span>
+          </AppStatusBadge>
           <p
             v-if="syncErrorText(service.sync_error)"
             class="stack-service-sync-error"

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { RouteLocationRaw } from "vue-router";
+import AppPanel from "../common/AppPanel.vue";
 
 defineProps<{
   title: string;
@@ -9,8 +10,12 @@ defineProps<{
 </script>
 
 <template>
-  <article class="overview-summary-panel">
-    <header class="overview-summary-panel-header">
+  <AppPanel
+    class="overview-summary-panel"
+    header-class="overview-summary-panel-header"
+    content-class="overview-summary-panel-content"
+  >
+    <template #header>
       <RouterLink :to="to" class="overview-summary-panel-header-link">
         <span class="overview-summary-panel-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none">
@@ -30,10 +35,8 @@ defineProps<{
         </span>
         <h2 class="overview-panel-title">{{ title }}</h2>
       </RouterLink>
-    </header>
+    </template>
 
-    <div class="overview-summary-panel-content">
-      <slot />
-    </div>
-  </article>
+    <slot />
+  </AppPanel>
 </template>
