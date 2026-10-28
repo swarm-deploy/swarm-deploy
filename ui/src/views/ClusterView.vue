@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from "vue";
 
 import { addNodeLabel, deleteNodeLabel, fetchNodes, updateNodeLabel } from "../api/cluster";
 import type { NodeInfo } from "../api/types";
+import AppCard from "../components/common/AppCard.vue";
 import { formatBytes, formatNanoCPU } from "../utils/format";
 
 interface LabelEntry {
@@ -257,7 +258,7 @@ onMounted(() => {
     </div>
 
     <div v-else class="node-list">
-      <article v-for="node in nodes" :key="node.id" class="node-card">
+      <AppCard v-for="node in nodes" :key="node.id" class="node-card">
         <div class="node-main-row">
           <div class="node-title-group">
             <span class="node-status-dot" :class="statusClass(node.status || '')" aria-hidden="true"></span>
@@ -317,7 +318,7 @@ onMounted(() => {
             </div>
           </div>
         </div>
-      </article>
+      </AppCard>
     </div>
 
     <div v-if="labelDialog" class="modal">

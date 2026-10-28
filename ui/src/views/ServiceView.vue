@@ -15,6 +15,8 @@ import type {
 } from "../api/types";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
+import AppPanel from "../components/common/AppPanel.vue";
+import AppStatusBadge from "../components/common/AppStatusBadge.vue";
 import DeploymentIcon from "../components/overview/DeploymentIcon.vue";
 import { useOverviewStore } from "../stores/overview";
 import { useSecretDetailsStore } from "../stores/secretDetails";
@@ -208,6 +210,17 @@ function realtimeTableStateClass(state: string): string {
     return "failed";
   }
   return "unknown";
+}
+
+function realtimeTableStateVariant(state: string): "success" | "error" | "neutral" {
+  const normalized = String(state || "").trim().toLowerCase();
+  if (normalized === "running" || normalized === "complete" || normalized === "completed") {
+    return "success";
+  }
+  if (normalized === "failed" || normalized === "rejected" || normalized === "shutdown") {
+    return "error";
+  }
+  return "neutral";
 }
 
 async function copyTaskID(taskID: string): Promise<void> {
@@ -642,16 +655,19 @@ onUnmounted(() => {
 
     <div v-else class="service-details-layout">
       <div class="service-details-main">
-        <article class="overview-summary-panel service-panel service-details-card">
-          <header class="overview-summary-panel-header">
+        <AppPanel
+          class="overview-summary-panel service-panel service-details-card"
+          header-class="overview-summary-panel-header"
+          content-class="service-panel-content"
+        >
+          <template #header>
             <div class="service-panel-heading">
               <span class="overview-summary-panel-icon" aria-hidden="true">
                 <DeploymentIcon name="service" />
               </span>
               <h3 class="overview-panel-title">Service</h3>
             </div>
-          </header>
-          <div class="service-panel-content">
+          </template>
           <AppTable summary fixed aria-label="Service details">
               <tr>
                 <th scope="row">Name</th>
@@ -773,19 +789,21 @@ onUnmounted(() => {
               </tr>
           </AppTable>
           <p v-if="loadingError" class="meta">Warning: {{ loadingError }}</p>
-          </div>
-        </article>
+        </AppPanel>
 
-        <article class="overview-summary-panel service-panel service-realtime-card">
-          <header class="overview-summary-panel-header">
+        <AppPanel
+          class="overview-summary-panel service-panel service-realtime-card"
+          header-class="overview-summary-panel-header"
+          content-class="service-panel-content service-realtime-table-content"
+        >
+          <template #header>
             <div class="service-panel-heading">
               <span class="overview-summary-panel-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" fill="none"><path d="M3 12h4l3-7 4 14 3-7h4" /></svg>
               </span>
               <h3 class="overview-panel-title">Realtime</h3>
             </div>
-          </header>
-          <div class="service-panel-content service-realtime-table-content">
+          </template>
           <AppTableEmpty v-if="realtimeLoading" class="service-realtime-state" message="Loading realtime..." />
           <AppTableEmpty v-else-if="realtimeError" class="service-realtime-state">Failed to load realtime: {{ realtimeError }}</AppTableEmpty>
           <AppTableEmpty v-else-if="realtime.length === 0" class="service-realtime-state" message="No tasks yet." />
@@ -832,9 +850,13 @@ onUnmounted(() => {
                 </td>
                 <td><code>{{ task.node_name || task.node || 'n/a' }}</code></td>
                 <td>
-                  <span class="status" :class="realtimeTableStateClass(task.current_state)">
+                  <AppStatusBadge
+                    class="status"
+                    :class="realtimeTableStateClass(task.current_state)"
+                    :variant="realtimeTableStateVariant(task.current_state)"
+                  >
                     {{ task.current_state || 'n/a' }}
-                  </span>
+                  </AppStatusBadge>
                 </td>
                 <td>{{ formatDate(task.created_at) }}</td>
                 <td>{{ formatDate(task.updated_at) }}</td>
@@ -879,21 +901,24 @@ onUnmounted(() => {
               <p v-if="task.error" class="service-realtime-mobile-error">{{ task.error }}</p>
             </li>
           </ul>
-          </div>
-        </article>
+        </AppPanel>
       </div>
 
       <div class="service-details-side">
-        <article v-if="serviceLinks.length > 0" class="overview-summary-panel service-panel service-links-card">
-          <header class="overview-summary-panel-header">
+        <AppPanel
+          v-if="serviceLinks.length > 0"
+          class="overview-summary-panel service-panel service-links-card"
+          header-class="overview-summary-panel-header"
+          content-class="service-panel-content"
+        >
+          <template #header>
             <div class="service-panel-heading">
               <span class="overview-summary-panel-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" fill="none"><path d="M10 13a5 5 0 0 0 7.5.5l2-2a5 5 0 0 0-7-7l-1.2 1.2M14 11a5 5 0 0 0-7.5-.5l-2 2a5 5 0 0 0 7 7l1.2-1.2" /></svg>
               </span>
               <h3 class="overview-panel-title">Links</h3>
             </div>
-          </header>
-          <div class="service-panel-content">
+          </template>
           <ul class="service-links-list">
             <li v-for="link in serviceLinks" :key="`${link.type}-${link.url}`">
               <a
@@ -921,19 +946,21 @@ onUnmounted(() => {
               </a>
             </li>
           </ul>
-          </div>
-        </article>
+        </AppPanel>
 
-        <article class="overview-summary-panel service-panel service-resources-card">
-          <header class="overview-summary-panel-header">
+        <AppPanel
+          class="overview-summary-panel service-panel service-resources-card"
+          header-class="overview-summary-panel-header"
+          content-class="service-panel-content"
+        >
+          <template #header>
             <div class="service-panel-heading">
               <span class="overview-summary-panel-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" fill="none"><rect x="4" y="7" width="16" height="10" rx="2" /><path d="M8 4v3m4-3v3m4-3v3M8 17v3m4-3v3m4-3v3" /></svg>
               </span>
               <h3 class="overview-panel-title">Resources</h3>
             </div>
-          </header>
-          <div class="service-panel-content">
+          </template>
           <AppTable summary aria-label="Service resources">
               <tr>
                 <th scope="row">Deploy mode</th>
@@ -948,13 +975,16 @@ onUnmounted(() => {
                 <td>{{ serviceSpec?.requested_cpu_nano ? formatNanoCPU(serviceSpec?.requested_cpu_nano) : 0 }} / {{ serviceSpec?.limit_cpu_nano? formatNanoCPU(serviceSpec?.limit_cpu_nano) : '∞' }}</td>
               </tr>
           </AppTable>
-          </div>
-        </article>
+        </AppPanel>
 
 
 
-        <article class="overview-summary-panel service-panel service-deployments-card">
-          <header class="overview-summary-panel-header">
+        <AppPanel
+          class="overview-summary-panel service-panel service-deployments-card"
+          header-class="overview-summary-panel-header"
+          content-class="service-panel-content"
+        >
+          <template #header>
             <RouterLink
               :to="{ name: 'deployments', query: { stack_name: stackName, service_name: serviceName } }"
               class="overview-summary-panel-header-link"
@@ -964,8 +994,7 @@ onUnmounted(() => {
               </span>
               <h3 class="overview-panel-title">Latest Deployments</h3>
             </RouterLink>
-          </header>
-          <div class="service-panel-content">
+          </template>
           <p v-if="deploymentsLoading" class="meta">Loading deployments...</p>
           <p v-else-if="deploymentsError" class="meta">Failed to load deployments: {{ deploymentsError }}</p>
           <p v-else-if="deployments.length === 0" class="meta">No deployments yet.</p>
@@ -992,8 +1021,7 @@ onUnmounted(() => {
               </span>
             </li>
           </ul>
-          </div>
-        </article>
+        </AppPanel>
       </div>
     </div>
 

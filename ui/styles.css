@@ -222,6 +222,97 @@ button:hover,
   justify-content: center;
 }
 
+.app-card {
+  min-width: 0;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: var(--card);
+}
+
+.app-panel {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-card-soft);
+}
+
+.app-panel-header {
+  flex: 0 0 auto;
+}
+
+.app-panel-content {
+  min-width: 0;
+}
+
+.app-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 0.8rem;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.app-status-badge--success {
+  color: var(--success);
+  border-color: var(--success-border);
+}
+
+.app-status-badge--warning {
+  color: var(--warning);
+  border-color: var(--warning-border);
+}
+
+.app-status-badge--error {
+  color: var(--error);
+  border-color: var(--error-border);
+}
+
+.app-status-badge--info {
+  color: var(--info);
+  border-color: var(--accent-border);
+}
+
+.app-status-badge--neutral {
+  color: var(--muted);
+  border-color: var(--border-strong);
+}
+
+.app-status-badge--filled.app-status-badge--success {
+  background: var(--success-muted);
+}
+
+.app-status-badge--filled.app-status-badge--warning {
+  background: var(--warning-muted);
+}
+
+.app-status-badge--filled.app-status-badge--error {
+  background: var(--error-muted);
+}
+
+.app-status-badge--filled.app-status-badge--info {
+  background: var(--info-muted);
+}
+
+.app-status-badge--filled.app-status-badge--neutral {
+  background: var(--surface-muted);
+}
+
+.app-status-badge-dot {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: currentColor;
+}
+
 .status-panel {
   border-left: 3px solid var(--accent);
   border-radius: 8px;
@@ -311,9 +402,6 @@ button:hover,
 }
 
 .stack-card {
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: var(--card);
   padding: 14px;
   position: relative;
   display: flex;
@@ -418,27 +506,13 @@ button:hover,
   gap: 5px;
 }
 
+.overview-stack-status-badge--unknown {
+  border-color: var(--border-default);
+}
+
 .overview-stack-status-icon {
   font-size: 0.72rem;
   font-weight: 800;
-}
-
-.overview-stack-status-badge--synced {
-  color: var(--success);
-  border-color: var(--success-border);
-  background: var(--success-muted);
-}
-
-.overview-stack-status-badge--out-of-sync {
-  color: var(--warning);
-  border-color: var(--warning-border);
-  background: var(--warning-muted);
-}
-
-.overview-stack-status-badge--unknown {
-  color: var(--muted);
-  border-color: var(--border-default);
-  background: var(--surface-muted);
 }
 
 .overview-stack-services-badge {
@@ -573,19 +647,12 @@ button:hover,
 }
 
 .overview-summary-panel {
-  min-width: 0;
   min-height: 284px;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  border: 1px solid var(--border-subtle);
-  border-radius: 8px;
-  background: var(--surface-card-soft);
   animation: reveal 260ms ease both;
 }
 
 .overview-summary-panel-header {
-  flex: 0 0 auto;
+  min-width: 0;
 }
 
 .overview-summary-panel-header-link {
@@ -972,10 +1039,7 @@ a.overview-summary-row:focus-visible {
 }
 
 .node-card {
-  min-width: 0;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--card);
+  border-color: var(--line);
   padding: 12px 14px;
   display: grid;
   gap: 10px;
@@ -1956,10 +2020,8 @@ a.overview-summary-row:focus-visible {
 .secret-manager-card {
   width: 100%;
   max-width: 100%;
-  min-width: 0;
-  border: 1px solid var(--border-default);
+  border-color: var(--border-default);
   border-radius: 10px;
-  background: var(--card);
   padding: 13px 14px 11px;
   display: grid;
   gap: 10px;
@@ -2038,40 +2100,18 @@ a.overview-summary-row:focus-visible {
 
 .secret-manager-badge {
   min-height: 23px;
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  border: 1px solid var(--border-default);
-  border-radius: 999px;
   padding: 3px 8px;
   font-size: 0.72rem;
   font-weight: 650;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.secret-manager-badge--healthy {
-  color: var(--success);
-  border-color: var(--success-border);
-  background: var(--success-muted);
 }
 
 .secret-manager-badge--syncing {
   color: var(--accent-strong);
-  border-color: var(--accent-border);
   background: var(--accent-muted);
 }
 
-.secret-manager-badge--error {
-  color: var(--error);
-  border-color: var(--error-border);
-  background: var(--error-muted);
-}
-
 .secret-manager-badge--unavailable {
-  color: var(--muted);
   border-color: var(--border-default);
-  background: var(--surface-muted);
 }
 
 .secret-manager-card-footer {

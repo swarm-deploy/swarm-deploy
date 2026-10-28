@@ -2,6 +2,8 @@
 import { computed } from "vue";
 
 import type { SecretManagerInfo } from "../../api/types";
+import AppCard from "../common/AppCard.vue";
+import AppStatusBadge from "../common/AppStatusBadge.vue";
 
 type ManagerStatus = "healthy" | "syncing" | "error" | "unavailable";
 
@@ -63,6 +65,13 @@ const statusLabel = computed(() => ({
   error: "Error",
   unavailable: "Unavailable",
 })[status.value]);
+
+const statusVariant = computed(() => ({
+  healthy: "success",
+  syncing: "info",
+  error: "error",
+  unavailable: "neutral",
+} as const)[status.value]);
 
 const statusMessage = computed(() => props.syncError.trim() || props.manager.error?.trim() || "");
 
@@ -134,7 +143,7 @@ const syncDisabled = computed(() => (
 </script>
 
 <template>
-  <article class="secret-manager-card">
+  <AppCard class="secret-manager-card">
     <header class="secret-manager-card-header">
       <span class="secret-manager-card-icon" aria-hidden="true">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
@@ -161,10 +170,16 @@ const syncDisabled = computed(() => (
         </h3>
         <p>Provides externally managed secrets</p>
       </div>
-      <span class="secret-manager-badge" :class="`secret-manager-badge--${status}`" role="status">
+      <AppStatusBadge
+        class="secret-manager-badge"
+        :class="`secret-manager-badge--${status}`"
+        :variant="statusVariant"
+        filled
+        role="status"
+      >
         <span v-if="syncing" class="secret-manager-spinner" aria-hidden="true" />
         {{ statusLabel }}
-      </span>
+      </AppStatusBadge>
     </header>
 
     <footer class="secret-manager-card-footer">
@@ -232,5 +247,5 @@ const syncDisabled = computed(() => (
 
     <p v-if="statusMessage" class="secret-manager-message secret-manager-message--error">{{ statusMessage }}</p>
     <p v-else-if="feedback" class="secret-manager-message">{{ feedback }}</p>
-  </article>
+  </AppCard>
 </template>
