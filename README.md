@@ -185,12 +185,22 @@ that predates the controller lock, first capture the deployment diagnostics and 
 [`docs/operations/sqlite.md`](./docs/operations/sqlite.md), then use a one-time `stop-first` update (or otherwise prove the
 old task has stopped) before returning to `start-first` for later releases.
 
+### Docker registry authentication
+
+If managed stacks use images from private registries, make Docker registry credentials available inside the
+swarm-deploy container. The recommended setup is to expose Docker `config.json` as a Docker Secret and set
+`DOCKER_CONFIG=/run/secrets`.
+
+See [Docker registry authentication](./docs/registry-authentication.md) for the recommended Compose configuration,
+supported alternatives, and security considerations.
+
 ## Documentation
 
 - [SQLite operations and backup](./docs/operations/sqlite.md)
 - [Reconciliation](./docs/reconciler.md)
 - [Webhooks](./docs/webhooks.md)
 - [Authentication](./docs/authentication.md)
+- [Docker Registry Authentication](./docs/registry-authentication.md)
 - [Managed Docker Networks](./docs/networks.md)
 - [Downward Metadata](./docs/downward.md)
 - [OpenTelemetry Tracing](./docs/tracing.md)

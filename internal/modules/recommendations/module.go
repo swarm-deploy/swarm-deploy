@@ -40,6 +40,7 @@ func InitModule(ctx context.Context, cfg *config.Config, cnt Container) (*Module
 			analyzer.NewImageAnalyzer(),
 			analyzer.NewRestartPolicyUnspecifiedAnalyzer(),
 			analyzer.NewHostPortStartFirstAnalyzer(),
+			analyzer.NewSwarmDeployDockerConfigAnalyzer(),
 			analyzer.NewDockerSocketMountAnalyzer(),
 			analyzer.NewServiceCapabilitiesAnalyzer(),
 		),
