@@ -50,10 +50,45 @@ func (UnimplementedHandler) GetAssistantChat(ctx context.Context, params GetAssi
 	return r, ht.ErrNotImplemented
 }
 
+// GetAssistantSuggestions implements getAssistantSuggestions operation.
+//
+// GET /api/assistant/suggestions
+func (UnimplementedHandler) GetAssistantSuggestions(ctx context.Context) (r *AssistantSuggestionsResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetCurrentUser implements getCurrentUser operation.
 //
 // GET /api/v1/users/me
 func (UnimplementedHandler) GetCurrentUser(ctx context.Context) (r *CurrentUserResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetDeployment implements getDeployment operation.
+//
+// GET /api/v1/deployments/{id}
+func (UnimplementedHandler) GetDeployment(ctx context.Context, params GetDeploymentParams) (r *Deployment, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetDeploymentFilters implements getDeploymentFilters operation.
+//
+// GET /api/v1/deployments/filters
+func (UnimplementedHandler) GetDeploymentFilters(ctx context.Context) (r *DeploymentFilterOptions, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetDeploymentInitJobLogs implements getDeploymentInitJobLogs operation.
+//
+// GET /api/v1/deployments/{id}/attempts/{attemptID}/init-jobs/{ordinal}/logs
+func (UnimplementedHandler) GetDeploymentInitJobLogs(ctx context.Context, params GetDeploymentInitJobLogsParams, w http.ResponseWriter) error {
+	return ht.ErrNotImplemented
+}
+
+// GetEventFilters implements getEventFilters operation.
+//
+// GET /api/v1/events/filters
+func (UnimplementedHandler) GetEventFilters(ctx context.Context) (r *EventFilterOptions, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -92,10 +127,30 @@ func (UnimplementedHandler) GetServiceRealtime(ctx context.Context, params GetSe
 	return r, ht.ErrNotImplemented
 }
 
+// GetStackDeploymentActivity implements getStackDeploymentActivity operation.
+//
+// Aggregated deployment operations for a configured stack, grouped by UTC start time.
+//
+// GET /api/v1/stacks/{stack}/deployments/activity
+func (UnimplementedHandler) GetStackDeploymentActivity(ctx context.Context, params GetStackDeploymentActivityParams) (r *DeploymentActivityResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // GetStackManifestos implements getStackManifestos operation.
 //
 // GET /api/v1/stacks/{stack}/manifestos
 func (UnimplementedHandler) GetStackManifestos(ctx context.Context, params GetStackManifestosParams) (r *StackManifestosResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetStackResources implements getStackResources operation.
+//
+// Current Docker resources owned by a configured stack, selected by the exact
+// com.docker.stack.namespace label. Unlabelled external resources are excluded.
+// Returns metadata only, never secret values or config payloads.
+//
+// GET /api/v1/stacks/{stack}/resources
+func (UnimplementedHandler) GetStackResources(ctx context.Context, params GetStackResourcesParams) (r *StackResourcesResponse, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -117,6 +172,13 @@ func (UnimplementedHandler) ListAlerts(ctx context.Context, params ListAlertsPar
 //
 // GET /api/v1/assistant/chats
 func (UnimplementedHandler) ListAssistantChats(ctx context.Context) (r *AssistantChatsResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListDeployments implements listDeployments operation.
+//
+// GET /api/v1/deployments
+func (UnimplementedHandler) ListDeployments(ctx context.Context, params ListDeploymentsParams) (r *DeploymentsResponse, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

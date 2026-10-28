@@ -91,7 +91,9 @@ onUnmounted(() => {
     <div class="modal-card manifest-modal-card" role="dialog" aria-modal="true" aria-labelledby="stack-manifest-title">
       <div class="modal-header">
         <h2 id="stack-manifest-title">{{ modalTitle }}</h2>
-        <button class="modal-close" type="button" aria-label="Close modal" @click="closeStackManifestModal">x</button>
+        <button class="modal-close" type="button" aria-label="Close modal" @click="closeStackManifestModal">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
+        </button>
       </div>
 
       <div class="modal-body">

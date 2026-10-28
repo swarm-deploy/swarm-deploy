@@ -1,0 +1,5 @@
+deploy success
+stack_name: payments
+service: api
+image: registry.example.com/payments/api:v2.4.1
+commit: a1b2c3d4

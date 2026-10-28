@@ -107,3 +107,21 @@ func (s *TraceableFileSystem) Rename(ctx context.Context, oldPath string, newPat
 
 	return nil
 }
+
+func (s *TraceableFileSystem) RemoveFile(ctx context.Context, path string) error {
+	ctx, span := s.tracer.Start(ctx, "fs.RemoveFile", trace.WithAttributes(
+		attribute.String("file.path", path),
+	))
+	defer span.End()
+
+	err := s.fs.RemoveFile(ctx, path)
+	if err != nil {
+		tracing.FailSpan(span, err)
+
+		return err
+	}
+
+	span.SetStatus(codes.Ok, "")
+
+	return nil
+}

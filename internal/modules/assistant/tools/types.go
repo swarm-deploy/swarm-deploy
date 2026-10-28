@@ -5,13 +5,16 @@ import (
 	"net"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
+	alertmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
+	alertstore "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/differ"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/differ/diff"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
+	servicemodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
@@ -24,12 +27,30 @@ type ServiceActionResult struct {
 	Service string `json:"service"`
 	// Replicas is the resulting replicas count.
 	Replicas uint64 `json:"replicas"`
+	// Warning reports a non-fatal failure after the Docker mutation completed.
+	Warning string `json:"warning,omitempty"`
 }
 
 // HistoryReader reads current event history snapshot.
 type HistoryReader interface {
 	// List returns current event history snapshot.
-	List() []history.Entry
+	ReadRecent(ctx context.Context, options history.QueryOptions) ([]history.Entry, error)
+}
+
+// AlertReader reads persisted user-facing alert incidents.
+type AlertReader interface {
+	// List returns alerts matching the repository-level filter.
+	List(ctx context.Context, filter alertstore.ListFilter) ([]alertmodel.Alert, error)
+	// Get returns one alert incident by ID.
+	Get(ctx context.Context, id string) (alertmodel.Alert, error)
+}
+
+// DeploymentReader reads persisted desired-state deployments, attempts and safe diagnostics.
+type DeploymentReader interface {
+	// List returns a lightweight cursor page matching the repository-level filter.
+	List(ctx context.Context, filter deploymentmodel.ListFilter) (deploymentmodel.Page, error)
+	// Get returns one desired-state deployment by ID, including its attempts.
+	Get(ctx context.Context, id string) (deploymentmodel.Deployment, error)
 }
 
 // SyncTrigger triggers synchronization run.
@@ -41,7 +62,7 @@ type SyncTrigger interface {
 // NodesReader reads current Swarm nodes snapshot.
 type NodesReader interface {
 	// List returns current nodes snapshot.
-	List() []swarm.Node
+	ReadAll(ctx context.Context) ([]swarm.Node, error)
 }
 
 // PluginReader reads current Docker plugins snapshot.
@@ -53,7 +74,7 @@ type PluginReader interface {
 // ServicesReader reads current service metadata snapshot.
 type ServicesReader interface {
 	// List returns current services metadata snapshot.
-	List() []service.Info
+	ReadAll(ctx context.Context) ([]servicemodel.Info, error)
 }
 
 // RecommendationsReader reads stored recommendations.

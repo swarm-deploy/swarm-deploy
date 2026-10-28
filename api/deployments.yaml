@@ -1,0 +1,440 @@
+paths:
+  /api/v1/deployments/filters:
+    get:
+      operationId: getDeploymentFilters
+      responses:
+        '200':
+          description: Stack and service names with recorded desired-state deployments.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeploymentFilterOptions'
+  /api/v1/deployments:
+    get:
+      operationId: listDeployments
+      parameters:
+        - in: query
+          name: stack
+          schema:
+            type: string
+        - in: query
+          name: service_name
+          description: Exact service name from the recorded desired configuration.
+          schema:
+            type: string
+        - in: query
+          name: limit
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 100
+        - in: query
+          name: cursor
+          description: Opaque cursor returned by the previous page.
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Lightweight desired-state deployments in newest-first order.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeploymentsResponse'
+  /api/v1/deployments/{id}:
+    get:
+      operationId: getDeployment
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: One desired-state deployment, its attempts and secret-safe structured changes.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Deployment'
+  /api/v1/deployments/{id}/attempts/{attemptID}/init-jobs/{ordinal}/logs:
+    get:
+      operationId: getDeploymentInitJobLogs
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: attemptID
+          required: true
+          schema:
+            type: string
+        - in: path
+          name: ordinal
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        '200':
+          description: Original bounded Docker output for one Init Job execution.
+          content:
+            application/octet-stream:
+              x-ogen-raw-response: true
+              schema:
+                type: string
+                format: binary
+        '404':
+          description: Deployment relationship, execution, or collected logs not found.
+  /api/v1/stacks/{stack}/deployments/activity:
+    get:
+      operationId: getStackDeploymentActivity
+      description: Aggregated deployment operations for a configured stack, grouped by UTC start time.
+      parameters:
+        - in: path
+          name: stack
+          required: true
+          schema:
+            type: string
+            minLength: 1
+        - in: query
+          name: interval
+          description: Bucket size. Defaults to weekly when omitted.
+          required: false
+          schema:
+            $ref: '#/components/schemas/DeploymentActivityInterval'
+      responses:
+        '200':
+          description: Chronological, zero-filled deployment activity buckets.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeploymentActivityResponse'
+components:
+  schemas:
+    DeploymentActivityInterval:
+      type: string
+      enum: [daily, weekly]
+    DeploymentActivityBucket:
+      type: object
+      required: [start, succeeded, failed, running, interrupted, superseded]
+      properties:
+        start:
+          type: string
+          format: date-time
+        succeeded:
+          type: integer
+          minimum: 0
+        failed:
+          type: integer
+          minimum: 0
+        running:
+          type: integer
+          minimum: 0
+        interrupted:
+          type: integer
+          minimum: 0
+        superseded:
+          type: integer
+          minimum: 0
+    DeploymentActivityResponse:
+      type: object
+      required: [buckets]
+      properties:
+        buckets:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeploymentActivityBucket'
+    DeploymentFilterOptions:
+      type: object
+      required: [stacks, services]
+      properties:
+        stacks:
+          type: array
+          items:
+            type: string
+        services:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeploymentFilterService'
+    DeploymentFilterService:
+      type: object
+      required: [stack_name, service_name]
+      properties:
+        stack_name:
+          type: string
+        service_name:
+          type: string
+    DeploymentStatus:
+      type: string
+      enum: [running, succeeded, failed, interrupted, superseded]
+    DeploymentAttemptStatus:
+      type: string
+      enum: [running, succeeded, failed, interrupted]
+    DeploymentPhase:
+      type: string
+      enum: [apply, verification, cleanup, completed]
+    DeploymentStageStatus:
+      type: string
+      enum: [pending, running, succeeded, failed, unknown, skipped]
+    DeploymentActualStateStatus:
+      type: string
+      enum: [observed, unknown]
+    DeploymentComparisonStatus:
+      type: string
+      enum: [known, unknown]
+    DeploymentComparisonBasis:
+      type: string
+      enum: [none, successful_baseline, last_attempt, observed_state]
+    DeploymentChangeOperation:
+      type: string
+      enum: [added, changed, removed]
+    DeploymentChange:
+      type: object
+      required: [resourceType, resourceName, field, operation, redacted]
+      properties:
+        resourceType:
+          type: string
+        resourceName:
+          type: string
+        field:
+          type: string
+        operation:
+          $ref: '#/components/schemas/DeploymentChangeOperation'
+        before:
+          type: string
+        after:
+          type: string
+        redacted:
+          type: boolean
+    DeploymentChangeSummary:
+      type: object
+      required: [added, changed, removed, redacted]
+      properties:
+        added:
+          type: integer
+        changed:
+          type: integer
+        removed:
+          type: integer
+        redacted:
+          type: integer
+    DeploymentResourceSummary:
+      type: object
+      required: [services, configs, secrets, networks, volumes]
+      properties:
+        services:
+          type: integer
+        configs:
+          type: integer
+        secrets:
+          type: integer
+        networks:
+          type: integer
+        volumes:
+          type: integer
+    DeploymentSummary:
+      type: object
+      required:
+        - id
+        - stack
+        - commit
+        - status
+        - phase
+        - apply_status
+        - verification_status
+        - cleanup_status
+        - actual_state_status
+        - comparison_basis
+        - comparison_status
+        - started_at
+        - summary
+        - resources
+        - diff_available
+        - latest_attempt_id
+        - attempt_count
+      properties:
+        id:
+          type: string
+        stack:
+          type: string
+        commit:
+          type: string
+        status:
+          $ref: '#/components/schemas/DeploymentStatus'
+        phase:
+          $ref: '#/components/schemas/DeploymentPhase'
+        reason:
+          type: string
+        apply_status:
+          $ref: '#/components/schemas/DeploymentStageStatus'
+        verification_status:
+          $ref: '#/components/schemas/DeploymentStageStatus'
+        cleanup_status:
+          $ref: '#/components/schemas/DeploymentStageStatus'
+        actual_state_status:
+          $ref: '#/components/schemas/DeploymentActualStateStatus'
+        observed_at:
+          type: string
+          format: date-time
+        comparison_basis:
+          $ref: '#/components/schemas/DeploymentComparisonBasis'
+        comparison_status:
+          $ref: '#/components/schemas/DeploymentComparisonStatus'
+        basis_deployment_id:
+          type: string
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+        duration_ms:
+          type: integer
+          format: int64
+          minimum: 0
+        summary:
+          $ref: '#/components/schemas/DeploymentChangeSummary'
+        resources:
+          $ref: '#/components/schemas/DeploymentResourceSummary'
+        diff_available:
+          type: boolean
+        latest_attempt_id:
+          type: string
+          description: Empty when a legacy Deployment has no persisted Attempts.
+        attempt_count:
+          type: integer
+          minimum: 0
+          description: Number of persisted Attempts; legacy Deployments may have zero.
+    DeploymentAttempt:
+      type: object
+      required:
+        - id
+        - number
+        - status
+        - phase
+        - apply_status
+        - verification_status
+        - cleanup_status
+        - actual_state_status
+        - started_at
+        - init_jobs
+      properties:
+        id:
+          type: string
+        number:
+          type: integer
+          minimum: 1
+        status:
+          $ref: '#/components/schemas/DeploymentAttemptStatus'
+        phase:
+          $ref: '#/components/schemas/DeploymentPhase'
+        reason:
+          type: string
+        diagnostic:
+          type: string
+        apply_status:
+          $ref: '#/components/schemas/DeploymentStageStatus'
+        verification_status:
+          $ref: '#/components/schemas/DeploymentStageStatus'
+        cleanup_status:
+          $ref: '#/components/schemas/DeploymentStageStatus'
+        actual_state_status:
+          $ref: '#/components/schemas/DeploymentActualStateStatus'
+        observed_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+        duration_ms:
+          type: integer
+          format: int64
+          minimum: 0
+        init_jobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeploymentInitJobExecution'
+    DeploymentInitJobExecution:
+      type: object
+      required:
+        - ordinal
+        - service_name
+        - job_name
+        - status
+        - started_at
+        - finished_at
+        - logs_available
+        - logs_truncated
+      properties:
+        ordinal:
+          type: integer
+          minimum: 1
+        service_name:
+          type: string
+        job_name:
+          type: string
+        status:
+          type: string
+          enum: [succeeded, failed, interrupted]
+        started_at:
+          type: string
+          format: date-time
+        finished_at:
+          type: string
+          format: date-time
+        logs_available:
+          type: boolean
+        logs_truncated:
+          type: boolean
+    Deployment:
+      allOf:
+        - $ref: '#/components/schemas/DeploymentSummary'
+        - type: object
+          required: [changes, attempts]
+          properties:
+            services:
+              type: array
+              description: Services from this deployment's recorded desired configuration.
+              items:
+                $ref: '#/components/schemas/DeploymentService'
+            diagnostic:
+              type: string
+              description: Bounded secret-masked failure detail, when recorded.
+            configuration_yaml:
+              type: string
+              description: Secret-masked recorded desired configuration rendered as YAML.
+            changes:
+              type: array
+              items:
+                $ref: '#/components/schemas/DeploymentChange'
+            attempts:
+              type: array
+              items:
+                $ref: '#/components/schemas/DeploymentAttempt'
+    DeploymentService:
+      type: object
+      required: [name, image, replicas]
+      properties:
+        name:
+          type: string
+        image:
+          type: string
+        replicas:
+          type: string
+          description: Desired replica count or service mode from the recorded specification.
+    DeploymentsResponse:
+      type: object
+      required: [deployments]
+      properties:
+        deployments:
+          type: array
+          items:
+            $ref: '#/components/schemas/DeploymentSummary'
+        next_cursor:
+          type: string

@@ -2,15 +2,15 @@ package secretmanager
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	resourceservice "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
+	servicestore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/stype"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 )
 
 func TestControllerAddress(t *testing.T) {
@@ -51,9 +51,8 @@ func TestResolverUsesPersistedServiceResources(t *testing.T) {
 	t.Parallel()
 
 	ctx := context.Background()
-	store, err := resourceservice.NewStore(ctx, filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
-	require.NoError(t, err)
-	require.NoError(t, store.ReplaceStack(ctx, "infra", []resourceservice.Info{
+	store := servicestore.NewSQLStore(testutil.OpenSQLite(t))
+	require.NoError(t, store.ReplaceStack(ctx, "infra", []model.Info{
 		{
 			Metadata: metadata.Metadata{Type: stype.SecretManager},
 			Name:     "cloud-secrets",
@@ -69,7 +68,8 @@ func TestResolverUsesPersistedServiceResources(t *testing.T) {
 		},
 	}))
 
-	resolved := NewResolver(store).resolve()
+	resolved, err := NewResolver(store).resolve(context.Background())
+	require.NoError(t, err)
 
 	require.Len(t, resolved, 1)
 	assert.Equal(t, "infra", resolved[0].stack)
@@ -84,9 +84,8 @@ func TestResolverKeepsClassificationSeparateFromControlCapability(t *testing.T) 
 	t.Parallel()
 
 	ctx := context.Background()
-	store, err := resourceservice.NewStore(ctx, filepath.Join(t.TempDir(), "services.json"), fs.NewLocalFileSystem())
-	require.NoError(t, err)
-	require.NoError(t, store.ReplaceStack(ctx, "infra", []resourceservice.Info{
+	store := servicestore.NewSQLStore(testutil.OpenSQLite(t))
+	require.NoError(t, store.ReplaceStack(ctx, "infra", []model.Info{
 		{
 			Metadata: metadata.Metadata{Type: stype.SecretManager},
 			Name:     "cloud-secrets",
@@ -94,7 +93,8 @@ func TestResolverKeepsClassificationSeparateFromControlCapability(t *testing.T) 
 		},
 	}))
 
-	resolved := NewResolver(store).resolve()
+	resolved, err := NewResolver(store).resolve(context.Background())
+	require.NoError(t, err)
 
 	require.Len(t, resolved, 1)
 	assert.False(t, resolved[0].controllable)

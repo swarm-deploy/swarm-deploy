@@ -10,6 +10,9 @@ type ServiceMissed struct {
 	ServiceName string
 	// Commit is a git revision used for current sync run.
 	Commit string
+	// Resolved reports that this drift was fixed during the same reconciliation.
+	// Older persisted events omit the field and remain unresolved by default.
+	Resolved bool
 }
 
 func (s *ServiceMissed) Type() Type {
@@ -22,8 +25,8 @@ func (s *ServiceMissed) Message() string {
 
 func (s *ServiceMissed) Details() map[string]string {
 	return map[string]string{
-		"stack_name":   s.StackName,
-		"service_name": s.ServiceName,
-		"commit":       s.Commit,
+		AttributeStackName:   s.StackName,
+		AttributeServiceName: s.ServiceName,
+		AttributeCommit:      s.Commit,
 	}
 }

@@ -19,10 +19,6 @@ func (r *RecommenderEventSubscriber) Name() string {
 	return "Recommender"
 }
 
-func (r *RecommenderEventSubscriber) Slow() bool {
-	return false
-}
-
 func (r *RecommenderEventSubscriber) Handle(ctx context.Context, event events.Envelope) error {
 	stack, stackValid := r.stack(event)
 	if !stackValid {

@@ -24,6 +24,9 @@ jobs:
             module:recommendations
             module:alertmanagement
             module:assistant
+            module:notifications
+            module:deployments
+            dockerapi
             UI
 
       - name: Require change type label

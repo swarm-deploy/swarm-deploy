@@ -6,7 +6,7 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/conversation"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 )
 
 // Status is an assistant chat run state.
@@ -134,14 +134,14 @@ type Config struct {
 	AllowedTools []string
 	// ConversationInMemoryTTL is a retention time for the in-memory conversation context cache.
 	ConversationInMemoryTTL time.Duration
-	// ConversationHistoryDir is a directory for persisted assistant chat history.
-	ConversationHistoryDir string
+	// ConversationHistory optionally supplies persistent chat storage; production uses SQLite.
+	ConversationHistory conversation.HistoryStorage
 }
 
 // ServiceStore reads current service metadata used by RAG retrieval.
 type ServiceStore interface {
 	// List returns collected service metadata records.
-	List() []service.Info
+	ReadAll(ctx context.Context) ([]model.Info, error)
 }
 
 // ToolExecutor executes assistant tools.

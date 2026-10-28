@@ -17,8 +17,12 @@ services:
       - "8083:8083"
     stop_grace_period: 30s
     deploy:
+      replicas: 1
       update_config:
         order: start-first
+      placement:
+        constraints:
+          - node.labels.swarm-deploy.data == true
     secrets:
       - source: deploy_key
         target: deploy_key

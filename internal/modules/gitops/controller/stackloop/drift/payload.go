@@ -22,4 +22,12 @@ type ServiceDrift struct {
 	Reason string
 
 	ServiceMissed bool
+
+	Replicas ReplicasDrift
+}
+
+type ReplicasDrift struct {
+	OutOfSync bool
+	Desired   uint64
+	Live      uint64
 }

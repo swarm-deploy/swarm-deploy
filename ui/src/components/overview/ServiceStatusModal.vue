@@ -65,7 +65,9 @@ onUnmounted(() => {
                 : "Service status"
           }}
         </h2>
-        <button class="modal-close" type="button" aria-label="Close modal" @click="closeServiceStatusModal">x</button>
+        <button class="modal-close" type="button" aria-label="Close modal" @click="closeServiceStatusModal">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
+        </button>
       </div>
 
       <div class="modal-body">

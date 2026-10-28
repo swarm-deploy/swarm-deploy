@@ -40,3 +40,52 @@ func TestConfigManagerMapConfigMapsFields(t *testing.T) {
 
 	config.Spec.Data[0] = 'R'
 }
+
+func TestBuildConfigListFilters(t *testing.T) {
+	tests := []struct {
+		name           string
+		filter         ListConfigsFilter
+		expectedNames  []string
+		expectedLabels []string
+	}{
+		{
+			name: "names and labels",
+			filter: ListConfigsFilter{
+				Names: []string{"app-config", "worker-config"},
+				Labels: map[string]string{
+					"environment": "production",
+					"managed":     "true",
+				},
+			},
+			expectedNames:  []string{"app-config", "worker-config"},
+			expectedLabels: []string{"environment=production", "managed=true"},
+		},
+		{
+			name: "stack ownership",
+			filter: ListConfigsFilter{
+				StackName: "payments",
+			},
+			expectedLabels: []string{stackNamespaceLabelKey + "=payments"},
+		},
+		{
+			name: "stack ownership and explicit label",
+			filter: ListConfigsFilter{
+				StackName: "payments",
+				Labels:    map[string]string{"rotation.managed": "true"},
+			},
+			expectedLabels: []string{
+				"rotation.managed=true",
+				stackNamespaceLabelKey + "=payments",
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			filterArgs := buildConfigListFilters(tt.filter)
+
+			assert.ElementsMatch(t, tt.expectedNames, filterArgs.Get("name"), "unexpected name filters")
+			assert.ElementsMatch(t, tt.expectedLabels, filterArgs.Get("label"), "unexpected label filters")
+		})
+	}
+}

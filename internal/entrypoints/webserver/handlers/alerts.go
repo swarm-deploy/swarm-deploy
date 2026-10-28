@@ -16,10 +16,15 @@ func (h *handler) ListAlerts(
 	ctx context.Context,
 	params generated.ListAlertsParams,
 ) (*generated.AlertsResponse, error) {
-	alerts, err := h.alerts.List(ctx, modelstore.ListFilter{
+	filter := modelstore.ListFilter{
 		Status: alertmodel.AlertStatus(params.Status.Or("")),
 		Limit:  int(params.Limit.Or(0)),
-	})
+	}
+	if stack, set := params.Stack.Get(); set {
+		filter.ResourceType = alertmodel.ResourceTypeStack
+		filter.ResourceID = stack
+	}
+	alerts, err := h.alerts.List(ctx, filter)
 	if err != nil {
 		return nil, fmt.Errorf("list alerts: %w", err)
 	}
@@ -53,6 +58,18 @@ func toGeneratedAlert(alert alertmodel.Alert) generated.Alert {
 		Status: generated.AlertStatus(alert.Status), Title: alert.Title, Message: alert.Message,
 		Occurrences: generatedOccurrences(alert.Occurrences), OpenedAt: alert.OpenedAt, UpdatedAt: alert.UpdatedAt,
 		OpenEventId: alert.OpenEventID, LatestEventId: alert.LatestEventID,
+	}
+	if alert.FailureStage != "" {
+		result.FailureStage = generated.NewOptString(alert.FailureStage)
+	}
+	if alert.ErrorCode != "" {
+		result.ErrorCode = generated.NewOptString(alert.ErrorCode)
+	}
+	if alert.DeploymentID != "" {
+		result.DeploymentId = generated.NewOptString(alert.DeploymentID)
+	}
+	if alert.Commit != "" {
+		result.Commit = generated.NewOptString(alert.Commit)
 	}
 	if alert.ResolvedAt != nil {
 		result.ResolvedAt = generated.NewOptDateTime(*alert.ResolvedAt)

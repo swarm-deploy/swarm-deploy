@@ -1,6 +1,7 @@
 package compose
 
 import (
+	"fmt"
 	"sort"
 
 	"go.yaml.in/yaml/v3"
@@ -12,6 +13,38 @@ type EnvFile struct {
 	Path string `json:"path"`
 	// Variables contains variables loaded from Path.
 	Variables map[string]string `json:"-" yaml:"-"`
+}
+
+// EnvFiles is a list of environment files, accepting a single path in Compose YAML.
+type EnvFiles []EnvFile
+
+// UnmarshalYAML accepts an env_file path or a list of paths.
+func (f *EnvFiles) UnmarshalYAML(node *yaml.Node) error {
+	switch node.Kind {
+	case yaml.ScalarNode:
+		if node.Tag == "!!null" {
+			*f = nil
+			return nil
+		}
+
+		var path string
+		if err := node.Decode(&path); err != nil {
+			return err
+		}
+		*f = EnvFiles{{Path: path}}
+		return nil
+	case yaml.SequenceNode:
+		var files []EnvFile
+		if err := node.Decode(&files); err != nil {
+			return err
+		}
+		*f = files
+		return nil
+	case yaml.DocumentNode, yaml.MappingNode, yaml.AliasNode:
+		return fmt.Errorf("env_file must be a path or a list of paths")
+	default:
+		return fmt.Errorf("env_file has invalid YAML node kind %d", node.Kind)
+	}
 }
 
 // UnmarshalYAML decodes an environment file path.

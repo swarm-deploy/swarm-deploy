@@ -18,7 +18,7 @@ type Volume struct {
 	Driver     string            `yaml:"driver,omitempty" json:"driver,omitempty"`
 	DriverOpts map[string]string `yaml:"driver_opts,omitempty" json:"driver_opts,omitempty"`
 
-	Extra map[string]interface{} `yaml:",inline"`
+	Extra map[string]interface{} `yaml:",inline" json:"Extra"`
 }
 
 func (s *Volumes) UnmarshalYAML(n *yaml.Node) error {

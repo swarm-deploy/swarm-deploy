@@ -21,6 +21,6 @@ func (u *UserAuthenticated) Message() string {
 
 func (u *UserAuthenticated) Details() map[string]string {
 	return map[string]string{
-		"username": u.Username,
+		AttributeUsername: u.Username,
 	}
 }

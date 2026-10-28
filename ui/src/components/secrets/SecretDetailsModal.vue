@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted } from "vue";
+import { useRouter } from "vue-router";
 
 import AppTable from "../common/AppTable.vue";
+import type { SecretServiceUsage } from "../../api/types";
 import { useSecretDetailsStore } from "../../stores/secretDetails";
 import { formatDate } from "../../utils/format";
 
 const secretDetailsStore = useSecretDetailsStore();
+const router = useRouter();
+
+const secretDescription = computed(() => secretDetailsStore.secret?.labels?.description ?? "");
 
 const secretLabels = computed(() => {
   const labels = secretDetailsStore.secret?.labels;
@@ -13,11 +18,26 @@ const secretLabels = computed(() => {
     return [];
   }
 
-  return Object.entries(labels).sort(([left], [right]) => left.localeCompare(right));
+  return Object.entries(labels)
+    .filter(([key]) => key !== "description")
+    .sort(([left], [right]) => left.localeCompare(right));
+});
+
+const usedByServices = computed(() => {
+  const usedBy = secretDetailsStore.secret?.used_by;
+  return Array.isArray(usedBy) ? usedBy : [];
 });
 
 function closeSecretDetailsModal() {
   secretDetailsStore.closeSecretDetails();
+}
+
+async function openService(usage: SecretServiceUsage) {
+  closeSecretDetailsModal();
+  await router.push({
+    name: "service-details",
+    params: { stack: usage.stack, service: usage.service },
+  });
 }
 
 function handleEscape(event: KeyboardEvent) {
@@ -43,7 +63,9 @@ onUnmounted(() => {
         <h2 id="secret-details-title">
           {{ secretDetailsStore.secret ? secretDetailsStore.secret.name : secretDetailsStore.selectedName || "Secret details" }}
         </h2>
-        <button class="modal-close" type="button" aria-label="Close modal" @click="closeSecretDetailsModal">x</button>
+        <button class="modal-close" type="button" aria-label="Close modal" @click="closeSecretDetailsModal">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17" /></svg>
+        </button>
       </div>
 
       <div class="modal-body">
@@ -60,6 +82,10 @@ onUnmounted(() => {
               <tr>
                 <th scope="row">Name</th>
                 <td>{{ secretDetailsStore.secret.name }}</td>
+              </tr>
+              <tr>
+                <th scope="row">Description</th>
+                <td>{{ secretDescription || "n/a" }}</td>
               </tr>
               <tr>
                 <th scope="row">Version ID</th>
@@ -98,6 +124,19 @@ onUnmounted(() => {
                 </td>
               </tr>
           </AppTable>
+
+          <section class="secret-used-by" aria-labelledby="secret-used-by-title">
+            <h3 id="secret-used-by-title">Used by services</h3>
+            <ul v-if="usedByServices.length > 0" class="secret-used-by-list">
+              <li v-for="usage in usedByServices" :key="`${usage.stack}/${usage.service}/${usage.target || ''}`">
+                <button type="button" class="secret-used-by-service" @click="openService(usage)">
+                  <span>{{ usage.stack }} / {{ usage.service }}</span>
+                  <code v-if="usage.target">{{ usage.target }}</code>
+                </button>
+              </li>
+            </ul>
+            <p v-else class="meta">Not used by any service</p>
+          </section>
         </div>
       </div>
     </div>

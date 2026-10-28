@@ -3,8 +3,8 @@ package assistant
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -22,23 +22,30 @@ import (
 )
 
 const (
-	defaultPollAfterMS   = 1000
-	defaultWaitTimeoutMS = 12000
-	maxWaitTimeoutMS     = 30000
-	maxConversationTurns = 24
-	runRetention         = 30 * time.Minute
-	runExecutionTimeout  = 2 * time.Minute
+	defaultPollAfterMS             = 1000
+	defaultWaitTimeoutMS           = 12000
+	maxWaitTimeoutMS               = 30000
+	maxConversationTurns           = 24
+	maxAssistantMessageBytes       = 16 * 1024
+	maxConcurrentRuns              = 8
+	maxRetainedRuns                = 1024
+	runRetention                   = 30 * time.Minute
+	runExecutionTimeout            = 2 * time.Minute
+	conversationPersistenceTimeout = 5 * time.Second
 )
 
 const maxRunActivity = 32
+
+var errRequestIDConflict = errors.New("request_id is already bound to another assistant request")
 
 // Service provides assistant chat workflow with start/poll semantics.
 type Service struct {
 	config Config
 	graph  *graph
 
-	runsMu sync.RWMutex
-	runs   map[string]*chatRun
+	runsMu   sync.RWMutex
+	runs     map[string]*chatRun
+	runSlots chan struct{}
 
 	conversationStorage conversation.Storage
 	conversationHistory conversation.HistoryStorage
@@ -70,16 +77,14 @@ func NewService(
 	retriever := rag.NewRetriever(store, modelClient, embeddingModelName, ragIndex, metrics)
 	ragSubscriber := rag.NewIndexSubscriber(store, modelClient, embeddingModelName, ragIndex, metrics)
 	allowedTools := normalizeAllowedTools(config.AllowedTools)
-	eventDispatcher.Subscribe(events.TypeDeploySuccess, ragSubscriber)
-
-	var conversationHistory conversation.HistoryStorage
-	if strings.TrimSpace(config.ConversationHistoryDir) != "" {
-		history, err := conversation.NewFileHistoryStorage(config.ConversationHistoryDir)
-		if err != nil {
-			return nil, fmt.Errorf("create assistant conversation history: %w", err)
-		}
-		conversationHistory = history
+	err := eventDispatcher.Subscribe(
+		events.TypeNameServiceCatalogUpdated, "assistant-rag-index", dispatcher.External(ragSubscriber),
+	)
+	if err != nil {
+		return nil, err
 	}
+
+	conversationHistory := config.ConversationHistory
 
 	return &Service{
 		config: config,
@@ -94,7 +99,8 @@ func NewService(
 			metrics,
 			store,
 		),
-		runs: map[string]*chatRun{},
+		runs:     map[string]*chatRun{},
+		runSlots: make(chan struct{}, maxConcurrentRuns),
 		conversationStorage: conversation.NewInMemoryStorage(
 			config.ConversationInMemoryTTL,
 			maxConversationTurns,
@@ -131,6 +137,14 @@ func (s *Service) Chat(ctx context.Context, request ChatRequest) ChatResponse {
 				ErrorMessage:   "unknown request_id",
 			}
 		}
+		if conversationID != "" && conversationID != run.conversationID {
+			return ChatResponse{
+				Status:         StatusFailed,
+				ConversationID: conversationID,
+				RequestID:      requestID,
+				ErrorMessage:   "request_id does not belong to conversation_id",
+			}
+		}
 
 		return s.awaitRun(ctx, run, waitTimeout)
 	}
@@ -143,21 +157,43 @@ func (s *Service) Chat(ctx context.Context, request ChatRequest) ChatResponse {
 			ErrorMessage:   "message is required for new assistant request",
 		}
 	}
-
-	if conversationID == "" {
-		conversationID = uuid.NewString()
-		span.SetAttributes(tracing.GenAIConversationID.String(conversationID))
+	if len(message) > maxAssistantMessageBytes {
+		return ChatResponse{
+			Status:         StatusFailed,
+			ConversationID: conversationID,
+			RequestID:      requestID,
+			ErrorMessage:   "message is too large",
+		}
 	}
+
 	if requestID == "" {
 		requestID = uuid.NewString()
 	}
 
-	run, created, conversationCreated := s.getOrCreateRun(requestID, conversationID)
+	run, created, conversationCreated, readErr := s.getOrCreateRun(ctx, requestID, conversationID, message)
+	if readErr != nil {
+		if errors.Is(readErr, errRequestIDConflict) {
+			return ChatResponse{Status: StatusFailed, ConversationID: conversationID, RequestID: requestID,
+				ErrorMessage: readErr.Error()}
+		}
+		return ChatResponse{Status: StatusFailed, ConversationID: conversationID, RequestID: requestID,
+			ErrorMessage: "Failed to read conversation history"}
+	}
+	conversationID = run.conversationID
+	span.SetAttributes(tracing.GenAIConversationID.String(conversationID))
 	if created {
 		if conversationCreated {
 			s.chatObserver.RecordChatCreated()
 		}
-		go s.runAssistant(context.WithoutCancel(ctx), conversationID, message, run)
+		select {
+		case s.runSlots <- struct{}{}:
+			go func() {
+				defer func() { <-s.runSlots }()
+				s.runAssistant(context.WithoutCancel(ctx), conversationID, message, run)
+			}()
+		default:
+			run.finish(StatusFailed, "", "Assistant is busy. Try again later.")
+		}
 	}
 
 	return s.awaitRun(ctx, run, waitTimeout)
@@ -173,7 +209,11 @@ func (s *Service) runAssistant(
 	defer cancel()
 
 	run.addActivity("Analyzing request")
-	history := s.getConversation(conversationID)
+	history, err := s.getConversation(runCtx, conversationID)
+	if err != nil {
+		run.finish(StatusFailed, "", "Failed to read conversation history")
+		return
+	}
 	answer, usage, err := s.graph.run(runCtx, conversationID, history, message, run.addActivity)
 	if err != nil {
 		if errors.Is(err, errPromptInjection) {
@@ -183,17 +223,13 @@ func (s *Service) runAssistant(
 				rejectedPrompt = promptErr.prompt
 			}
 
+			s.publishPromptRejection(runCtx, rejectedPrompt)
+
 			run.finish(
 				StatusRejected,
 				"",
 				"Request was rejected by prompt injection protection. Rephrase your debugging question.",
 			)
-
-			s.event.Dispatch(runCtx, &events.AssistantPromptInjectionDetected{
-				Prompt:   strings.TrimSpace(rejectedPrompt),
-				Detector: events.AssistantPromptInjectionDetectorRegexp,
-			})
-
 			return
 		}
 
@@ -219,9 +255,12 @@ func (s *Service) runAssistant(
 	}
 
 	if s.conversationHistory != nil {
-		if err = s.conversationHistory.AppendWithUsage(conversationID, usage, turns...); err != nil {
+		persistCtx, persistCancel := context.WithTimeout(context.WithoutCancel(ctx), conversationPersistenceTimeout)
+		err = s.conversationHistory.SaveTurns(persistCtx, conversationID, usage, turns...)
+		persistCancel()
+		if err != nil {
 			slog.ErrorContext(
-				runCtx,
+				ctx,
 				"[assistant] failed to persist conversation history",
 				slog.String("conversation_id", conversationID),
 				slog.Any("err", err),
@@ -264,40 +303,59 @@ func (s *Service) getRun(requestID string) *chatRun {
 	return s.runs[requestID]
 }
 
-func (s *Service) getOrCreateRun(requestID, conversationID string) (*chatRun, bool, bool) {
+func (s *Service) getOrCreateRun(
+	ctx context.Context,
+	requestID,
+	conversationID,
+	message string,
+) (*chatRun, bool, bool, error) {
 	s.runsMu.Lock()
 	defer s.runsMu.Unlock()
 
 	s.pruneRunsLocked()
 
 	if existing := s.runs[requestID]; existing != nil {
-		return existing, false, false
+		if (conversationID != "" && existing.conversationID != conversationID) || existing.message != message {
+			return nil, false, false, errRequestIDConflict
+		}
+		return existing, false, false, nil
+	}
+	if conversationID == "" {
+		conversationID = uuid.NewString()
 	}
 
-	conversationCreated := s.isConversationNewLocked(conversationID)
+	conversationCreated, err := s.isConversationNewLocked(ctx, conversationID)
+	if err != nil {
+		return nil, false, false, err
+	}
 
-	run := newChatRun(requestID, conversationID)
+	s.makeRoomForRunLocked()
+	run := newChatRun(requestID, conversationID, message)
 	s.runs[requestID] = run
-	return run, true, conversationCreated
+	return run, true, conversationCreated, nil
 }
 
-func (s *Service) isConversationNewLocked(conversationID string) bool {
+func (s *Service) isConversationNewLocked(ctx context.Context, conversationID string) (bool, error) {
 	if _, ok := s.conversationStorage.Get(conversationID); ok {
-		return false
+		return false, nil
 	}
 	if s.conversationHistory != nil {
-		if _, ok, err := s.conversationHistory.Get(conversationID); err == nil && ok {
-			return false
+		_, ok, err := s.conversationHistory.ReadChat(ctx, conversationID)
+		if err != nil {
+			return false, err
+		}
+		if ok {
+			return false, nil
 		}
 	}
 
 	for _, run := range s.runs {
 		if run.conversationID == conversationID {
-			return false
+			return false, nil
 		}
 	}
 
-	return true
+	return true, nil
 }
 
 func (s *Service) pruneRunsLocked() {
@@ -312,36 +370,65 @@ func (s *Service) pruneRunsLocked() {
 	}
 }
 
-func (s *Service) getConversation(conversationID string) []conversation.Turn {
-	conversationData, ok := s.conversationStorage.Get(conversationID)
-	if ok {
-		return conversationData.Turns
-	}
-	if s.conversationHistory == nil {
-		return nil
+func (s *Service) makeRoomForRunLocked() {
+	if len(s.runs) < maxRetainedRuns {
+		return
 	}
 
-	persisted, ok, err := s.conversationHistory.Get(conversationID)
+	type finishedRun struct {
+		requestID  string
+		finishedAt time.Time
+	}
+	finished := make([]finishedRun, 0, len(s.runs))
+	for requestID, run := range s.runs {
+		if run.isFinished() {
+			finished = append(finished, finishedRun{requestID: requestID, finishedAt: run.finishedAt})
+		}
+	}
+	sort.Slice(finished, func(left, right int) bool {
+		return finished[left].finishedAt.Before(finished[right].finishedAt)
+	})
+	for _, candidate := range finished {
+		if len(s.runs) < maxRetainedRuns {
+			break
+		}
+		delete(s.runs, candidate.requestID)
+	}
+}
+
+func (s *Service) getConversation(ctx context.Context, conversationID string) ([]conversation.Turn, error) {
+	conversationData, ok := s.conversationStorage.Get(conversationID)
+	if ok {
+		return conversationData.Turns, nil
+	}
+	if s.conversationHistory == nil {
+		return nil, nil
+	}
+
+	persisted, ok, err := s.conversationHistory.ReadChat(ctx, conversationID)
 	if err != nil || !ok {
-		return nil
+		return nil, err
 	}
 
 	s.conversationStorage.Append(conversationID, persisted.Turns...)
 	conversationData, ok = s.conversationStorage.Get(conversationID)
 	if !ok {
-		return nil
+		return nil, nil
 	}
 
-	return conversationData.Turns
+	return conversationData.Turns, nil
 }
 
 // ListChats returns persisted chats ordered by latest activity.
-func (s *Service) ListChats(_ context.Context) ([]ChatSummary, error) {
+func (s *Service) ListChats(ctx context.Context) ([]ChatSummary, error) {
 	if s.conversationHistory == nil {
 		return []ChatSummary{}, nil
 	}
 
-	chats := s.conversationHistory.List()
+	chats, err := s.conversationHistory.ReadChats(ctx)
+	if err != nil {
+		return nil, err
+	}
 
 	result := make([]ChatSummary, 0, len(chats))
 	for _, chat := range chats {
@@ -353,12 +440,12 @@ func (s *Service) ListChats(_ context.Context) ([]ChatSummary, error) {
 }
 
 // GetChat returns one persisted chat with messages.
-func (s *Service) GetChat(_ context.Context, id string) (ChatHistory, bool, error) {
+func (s *Service) GetChat(ctx context.Context, id string) (ChatHistory, bool, error) {
 	if s.conversationHistory == nil {
 		return ChatHistory{}, false, nil
 	}
 
-	chat, ok, err := s.conversationHistory.Get(id)
+	chat, ok, err := s.conversationHistory.ReadChat(ctx, id)
 	if err != nil || !ok {
 		return ChatHistory{}, ok, err
 	}
@@ -403,6 +490,7 @@ func normalizeAllowedTools(allowedTools []string) map[string]struct{} {
 type chatRun struct {
 	requestID      string
 	conversationID string
+	message        string
 
 	done chan struct{}
 
@@ -414,10 +502,11 @@ type chatRun struct {
 	activity   []string
 }
 
-func newChatRun(requestID, conversationID string) *chatRun {
+func newChatRun(requestID, conversationID, message string) *chatRun {
 	return &chatRun{
 		requestID:      requestID,
 		conversationID: conversationID,
+		message:        message,
 		done:           make(chan struct{}),
 		status:         StatusInProgress,
 	}
@@ -484,5 +573,13 @@ func (r *chatRun) snapshot() ChatResponse {
 		Answer:         r.answer,
 		ErrorMessage:   r.error,
 		Activity:       append([]string(nil), r.activity...),
+	}
+}
+func (s *Service) publishPromptRejection(ctx context.Context, prompt string) {
+	err := s.event.Publish(ctx, &events.AssistantPromptInjectionDetected{
+		Prompt: strings.TrimSpace(prompt), Detector: events.AssistantPromptInjectionDetectorRegexp,
+	})
+	if err != nil {
+		slog.ErrorContext(ctx, "persist prompt rejection event", "err", err)
 	}
 }

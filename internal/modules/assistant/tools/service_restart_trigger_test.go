@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
@@ -17,7 +18,7 @@ import (
 func TestRestartServiceExecute(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	manager := swarm.NewMockServiceManager(ctrl)
-	dispatcher := &fakeEventDispatcher{}
+	dispatcher, captured := capturePublishedEvents(t)
 	tool := NewRestartService(manager, dispatcher)
 
 	serviceRef := swarm.NewServiceReference("core", "api")
@@ -45,17 +46,37 @@ func TestRestartServiceExecute(t *testing.T) {
 	assert.Equal(t, "api", payload.Service, "unexpected service")
 	assert.Equal(t, uint64(3), payload.Replicas, "unexpected replicas")
 
-	require.Len(t, dispatcher.events, 1, "expected single dispatched event")
-	restartEvent, ok := dispatcher.events[0].(*events.ServiceRestarted)
+	require.Len(t, *captured, 1, "expected single dispatched event")
+	restartEvent, ok := (*captured)[0].(*events.ServiceRestarted)
 	require.True(t, ok, "expected service restarted event")
 	assert.Equal(t, "core", restartEvent.StackName, "unexpected event stack")
 	assert.Equal(t, "api", restartEvent.ServiceName, "unexpected event service")
 }
 
+func TestRestartServiceReturnsSuccessWhenEventPublishFails(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	manager := swarm.NewMockServiceManager(ctrl)
+	eventDispatcher := dispatcher.NewMockDispatcher(ctrl)
+	tool := NewRestartService(manager, eventDispatcher)
+
+	serviceRef := swarm.NewServiceReference("core", "api")
+	manager.EXPECT().Restart(gomock.Any(), serviceRef).Return(uint64(3), nil)
+	eventDispatcher.EXPECT().Publish(gomock.Any(), gomock.Any()).Return(errors.New("storage unavailable"))
+
+	response, err := tool.Execute(context.Background(), routing.Request{Payload: restartServiceRequest{
+		Stack: "core", Service: "api",
+	}})
+	require.NoError(t, err, "completed mutation must not be reported as failed")
+	payload, ok := response.Payload.(ServiceActionResult)
+	require.True(t, ok)
+	assert.Equal(t, uint64(3), payload.Replicas)
+	assert.Contains(t, payload.Warning, "audit event")
+}
+
 func TestRestartServiceExecuteFailsOnInspect(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	manager := swarm.NewMockServiceManager(ctrl)
-	dispatcher := &fakeEventDispatcher{}
+	dispatcher, captured := capturePublishedEvents(t)
 	tool := NewRestartService(manager, dispatcher)
 
 	serviceRef := swarm.NewServiceReference("core", "api")
@@ -71,13 +92,13 @@ func TestRestartServiceExecuteFailsOnInspect(t *testing.T) {
 	})
 	require.Error(t, err, "expected execute error")
 	assert.Contains(t, err.Error(), "inspect service replicas", "unexpected error")
-	assert.Empty(t, dispatcher.events, "failed inspect must not dispatch events")
+	assert.Empty(t, *captured, "failed inspect must not dispatch events")
 }
 
 func TestRestartServiceExecuteFailsOnRestore(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	manager := swarm.NewMockServiceManager(ctrl)
-	dispatcher := &fakeEventDispatcher{}
+	dispatcher, captured := capturePublishedEvents(t)
 	tool := NewRestartService(manager, dispatcher)
 
 	serviceRef := swarm.NewServiceReference("core", "api")
@@ -93,5 +114,5 @@ func TestRestartServiceExecuteFailsOnRestore(t *testing.T) {
 	})
 	require.Error(t, err, "expected execute error")
 	assert.Contains(t, err.Error(), "restore service replicas", "unexpected error")
-	assert.Empty(t, dispatcher.events, "failed restore must not dispatch events")
+	assert.Empty(t, *captured, "failed restore must not dispatch events")
 }

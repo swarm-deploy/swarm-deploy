@@ -23,30 +23,31 @@ const (
 	TypeServiceCapabilitiesAll                Type = "service.capabilities.all"
 	TypeServiceCapabilitiesPrivileged         Type = "service.capabilities.privileged"
 	TypeServiceCapabilitiesSensitive          Type = "service.capabilities.sensitive"
+	TypeServiceHostPortStartFirst             Type = "service.host-port.start-first"
 	TypeServiceSwarmDeployDockerConfigMissing Type = "service.swarm-deploy.docker-config.missing"
 )
 
 type Recommendation struct {
-	Severity Severity `json:"severity"`
-	Type     Type     `json:"type"`
-	Source   Source   `json:"source"`
-	Subject  Subject  `json:"subject"`
+	Severity Severity `json:"severity" db:"severity"`
+	Type     Type     `json:"type" db:"type"`
+	Source   Source   `json:"source" db:"source"`
+	Subject  Subject  `json:"subject" db:"subject"`
 
-	Title          string `json:"title"`
-	Recommendation string `json:"recommendation"`
+	Title          string `json:"title" db:"title"`
+	Recommendation string `json:"recommendation" db:"recommendation"`
 
-	CreatedAt time.Time `json:"created_at"`
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
 }
 
 type Subject struct {
-	Stack   string `json:"stack"`
-	Service string `json:"service"`
+	Stack   string `json:"stack" db:"stack"`
+	Service string `json:"service" db:"service"`
 }
 
 type Source struct {
-	File   string `json:"file"`
-	Digest string `json:"digest"`
-	Commit string `json:"commit"`
+	File   string `json:"file" db:"file"`
+	Digest string `json:"digest" db:"digest"`
+	Commit string `json:"commit" db:"commit"`
 }
 
 func SourceFromStack(stack Stack) Source {

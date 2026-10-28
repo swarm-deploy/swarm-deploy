@@ -12,8 +12,9 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	resourcegraph "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/graph"
 	secretmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/model"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/metadata"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretservice"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
+	servicemodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	serviceType "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/stype"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/utils"
@@ -26,12 +27,7 @@ const (
 	swarmDeployLabelPrefix = "org.swarm-deploy"
 )
 
-func (h *handler) listStacks() []generated.StackView {
-	snapshot := model.Runtime{}
-	if h.stateStore != nil {
-		snapshot = h.stateStore.Get()
-	}
-
+func (h *handler) listStacks(snapshot model.Runtime) []generated.StackView {
 	stacks := h.stackProvider.Stacks()
 	mapped := make([]generated.StackView, 0, len(stacks))
 	for _, stackCfg := range stacks {
@@ -87,7 +83,10 @@ func toOptDateTime(value time.Time) generated.OptDateTime {
 	return generated.NewOptDateTime(value)
 }
 
-func toGeneratedServiceStatusFromInfo(serviceInfo service.Info) *generated.ServiceStatusResponse {
+func toGeneratedServiceStatusFromInfo(
+	serviceInfo servicemodel.Info,
+	resolvedSecrets []secretservice.ResolvedSecret,
+) *generated.ServiceStatusResponse {
 	spec := serviceInfo.Spec
 	if spec.Image == "" {
 		spec.Image = serviceInfo.Image
@@ -96,7 +95,7 @@ func toGeneratedServiceStatusFromInfo(serviceInfo service.Info) *generated.Servi
 	return &generated.ServiceStatusResponse{
 		Stack:   serviceInfo.Stack,
 		Service: serviceInfo.Name,
-		Spec:    toGeneratedServiceSpec(spec),
+		Spec:    toGeneratedServiceSpec(spec, resolvedSecrets),
 		Links:   toGeneratedServiceLinks(serviceInfo.Links),
 	}
 }
@@ -142,70 +141,10 @@ func toGeneratedServiceRealtimeTasks(
 	return mapped
 }
 
-func toGeneratedServiceDeployments(
-	entries []history.Entry,
-	stackName string,
-	serviceName string,
-	image string,
-	limit int,
-) []generated.ServiceDeploymentResponse {
-	if len(entries) == 0 || stackName == "" {
-		return []generated.ServiceDeploymentResponse{}
-	}
-
-	imageVersion := utils.ImageVersion(image)
-	out := make([]generated.ServiceDeploymentResponse, 0, len(entries))
-
-	for idx := len(entries) - 1; idx >= 0; idx-- {
-		entry := entries[idx]
-
-		status, ok := toGeneratedServiceDeploymentStatus(entry.Type)
-		if !ok {
-			continue
-		}
-
-		if entry.Details["stack"] != stackName {
-			continue
-		}
-		if serviceInEvent := entry.Details["service"]; serviceInEvent != "" && serviceInEvent != serviceName {
-			continue
-		}
-
-		item := generated.ServiceDeploymentResponse{
-			CreatedAt:    entry.CreatedAt,
-			Status:       status,
-			Image:        image,
-			ImageVersion: imageVersion,
-		}
-
-		if entry.Message != "" {
-			item.Message = generated.NewOptString(entry.Message)
-		}
-		if commit := entry.Details["commit"]; commit != "" {
-			item.Commit = generated.NewOptString(commit)
-		}
-
-		out = append(out, item)
-		if limit > 0 && len(out) >= limit {
-			break
-		}
-	}
-
-	return out
-}
-
-func toGeneratedServiceDeploymentStatus(typ events.Type) (generated.ServiceDeploymentStatus, bool) {
-	switch typ {
-	case events.TypeDeploySuccess:
-		return generated.ServiceDeploymentStatusSuccess, true
-	case events.TypeDeployFailed:
-		return generated.ServiceDeploymentStatusFailed, true
-	default:
-		return "", false
-	}
-}
-
-func toGeneratedServiceSpec(spec swarm.ServiceSpec) generated.ServiceSpecResponse {
+func toGeneratedServiceSpec(
+	spec swarm.ServiceSpec,
+	resolvedSecrets []secretservice.ResolvedSecret,
+) generated.ServiceSpecResponse {
 	mapped := generated.ServiceSpecResponse{
 		Image:             spec.Image,
 		Mode:              spec.Mode,
@@ -214,7 +153,7 @@ func toGeneratedServiceSpec(spec swarm.ServiceSpec) generated.ServiceSpecRespons
 		RequestedCPUNano:  spec.RequestedCPUNano,
 		LimitRAMBytes:     spec.LimitRAMBytes,
 		LimitCPUNano:      spec.LimitCPUNano,
-		Secrets:           toGeneratedServiceSpecSecrets(spec.Secrets),
+		Secrets:           toGeneratedServiceSpecSecrets(resolvedSecrets),
 		Network:           toGeneratedServiceSpecNetworks(spec.Network),
 	}
 
@@ -254,13 +193,14 @@ func toGeneratedServiceSpec(spec swarm.ServiceSpec) generated.ServiceSpecRespons
 	return mapped
 }
 
-func toGeneratedServiceSpecSecrets(secrets []swarm.ServiceSecret) []generated.ServiceSpecSecretResponse {
+func toGeneratedServiceSpecSecrets(secrets []secretservice.ResolvedSecret) []generated.ServiceSpecSecretResponse {
 	if len(secrets) == 0 {
 		return nil
 	}
 
 	mapped := make([]generated.ServiceSpecSecretResponse, 0, len(secrets))
-	for _, secret := range secrets {
+	for _, resolved := range secrets {
+		secret := resolved.Reference
 		item := generated.ServiceSpecSecretResponse{
 			SecretName: secret.SecretName,
 		}
@@ -269,6 +209,9 @@ func toGeneratedServiceSpecSecrets(secrets []swarm.ServiceSecret) []generated.Se
 		}
 		if secret.Target != "" {
 			item.Target = generated.NewOptString(secret.Target)
+		}
+		if resolved.Secret != nil {
+			item.Secret = generated.NewOptSecretInfo(toGeneratedSecret(*resolved.Secret, nil))
 		}
 		mapped = append(mapped, item)
 	}
@@ -404,7 +347,7 @@ func toGeneratedGraphNodeKind(kind resourcegraph.Kind) generated.GraphNodeKind {
 	}
 }
 
-func toGeneratedServiceInfos(services []service.Info, runtime model.Runtime) []generated.ServiceInfo {
+func toGeneratedServiceInfos(services []servicemodel.Info, runtime model.Runtime) []generated.ServiceInfo {
 	mapped := make([]generated.ServiceInfo, 0, len(services))
 	for _, serviceInfo := range services {
 		mapped = append(mapped, toGeneratedServiceInfo(serviceInfo, runtime))
@@ -412,7 +355,7 @@ func toGeneratedServiceInfos(services []service.Info, runtime model.Runtime) []g
 	return mapped
 }
 
-func toGeneratedServiceInfo(serviceInfo service.Info, runtime model.Runtime) generated.ServiceInfo {
+func toGeneratedServiceInfo(serviceInfo servicemodel.Info, runtime model.Runtime) generated.ServiceInfo {
 	return generated.ServiceInfo{
 		Name:          serviceInfo.Name,
 		Stack:         serviceInfo.Stack,
@@ -428,7 +371,7 @@ func toGeneratedServiceInfo(serviceInfo service.Info, runtime model.Runtime) gen
 	}
 }
 
-func toGeneratedServiceSyncStatus(serviceInfo service.Info, runtime model.Runtime) generated.ServiceSyncStatus {
+func toGeneratedServiceSyncStatus(serviceInfo servicemodel.Info, runtime model.Runtime) generated.ServiceSyncStatus {
 	stackState, exists := runtime.Stacks[serviceInfo.Stack]
 	if !exists {
 		return generated.ServiceSyncStatusUnknown
@@ -449,7 +392,7 @@ func toGeneratedServiceSyncStatus(serviceInfo service.Info, runtime model.Runtim
 	}
 }
 
-func toGeneratedServiceSyncError(serviceInfo service.Info, runtime model.Runtime) generated.OptString {
+func toGeneratedServiceSyncError(serviceInfo servicemodel.Info, runtime model.Runtime) generated.OptString {
 	stackState, exists := runtime.Stacks[serviceInfo.Stack]
 	if !exists {
 		return generated.OptString{}
@@ -544,17 +487,37 @@ func toGeneratedNetworks(networks []swarm.Network) []generated.NetworkInfo {
 	return mapped
 }
 
-func toGeneratedSecrets(secrets []secretmodel.Secret) []generated.SecretInfo {
+func toGeneratedSecrets(secrets []secretservice.SecretWithUsage) []generated.SecretInfo {
 	mapped := make([]generated.SecretInfo, 0, len(secrets))
-	for _, secret := range secrets {
-		item := generated.SecretInfo{
-			ID:        secret.ID,
-			Name:      secret.Name,
-			VersionID: toInt64FromUint64(secret.VersionID),
-			CreatedAt: secret.CreatedAt,
-			External:  toGeneratedSecretExternal(secret.ExternalPath, secret.ExternalVersionID),
-		}
+	for _, item := range secrets {
+		mapped = append(mapped, toGeneratedSecret(item.Secret, item.UsedBy))
+	}
 
+	return mapped
+}
+
+func toGeneratedSecret(secret secretmodel.Secret, usedBy []secretservice.ServiceUsage) generated.SecretInfo {
+	return generated.SecretInfo{
+		ID:          secret.ID,
+		Name:        secret.Name,
+		Description: toOptString(secret.Description),
+		VersionID:   toInt64FromUint64(secret.VersionID),
+		CreatedAt:   secret.CreatedAt,
+		External:    toGeneratedSecretExternal(secret.ExternalPath, secret.ExternalVersionID),
+		UsedBy:      toGeneratedSecretServiceUsages(usedBy),
+	}
+}
+
+func toGeneratedSecretServiceUsages(usages []secretservice.ServiceUsage) []generated.SecretServiceUsage {
+	mapped := make([]generated.SecretServiceUsage, 0, len(usages))
+	for _, usage := range usages {
+		item := generated.SecretServiceUsage{
+			Stack:   usage.Stack,
+			Service: usage.Service,
+		}
+		if usage.Target != "" {
+			item.Target = generated.NewOptString(usage.Target)
+		}
 		mapped = append(mapped, item)
 	}
 

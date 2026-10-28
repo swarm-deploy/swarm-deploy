@@ -23,6 +23,10 @@ type Alert struct {
 	Status        AlertStatus        `json:"status"`
 	Title         string             `json:"title"`
 	Message       string             `json:"message"`
+	FailureStage  OptString          `json:"failureStage"`
+	ErrorCode     OptString          `json:"errorCode"`
+	DeploymentId  OptString          `json:"deploymentId"`
+	Commit        OptString          `json:"commit"`
 	Occurrences   int64              `json:"occurrences"`
 	OpenedAt      time.Time          `json:"openedAt"`
 	UpdatedAt     time.Time          `json:"updatedAt"`
@@ -70,6 +74,26 @@ func (s *Alert) GetTitle() string {
 // GetMessage returns the value of Message.
 func (s *Alert) GetMessage() string {
 	return s.Message
+}
+
+// GetFailureStage returns the value of FailureStage.
+func (s *Alert) GetFailureStage() OptString {
+	return s.FailureStage
+}
+
+// GetErrorCode returns the value of ErrorCode.
+func (s *Alert) GetErrorCode() OptString {
+	return s.ErrorCode
+}
+
+// GetDeploymentId returns the value of DeploymentId.
+func (s *Alert) GetDeploymentId() OptString {
+	return s.DeploymentId
+}
+
+// GetCommit returns the value of Commit.
+func (s *Alert) GetCommit() OptString {
+	return s.Commit
 }
 
 // GetOccurrences returns the value of Occurrences.
@@ -147,6 +171,26 @@ func (s *Alert) SetMessage(val string) {
 	s.Message = val
 }
 
+// SetFailureStage sets the value of FailureStage.
+func (s *Alert) SetFailureStage(val OptString) {
+	s.FailureStage = val
+}
+
+// SetErrorCode sets the value of ErrorCode.
+func (s *Alert) SetErrorCode(val OptString) {
+	s.ErrorCode = val
+}
+
+// SetDeploymentId sets the value of DeploymentId.
+func (s *Alert) SetDeploymentId(val OptString) {
+	s.DeploymentId = val
+}
+
+// SetCommit sets the value of Commit.
+func (s *Alert) SetCommit(val OptString) {
+	s.Commit = val
+}
+
 // SetOccurrences sets the value of Occurrences.
 func (s *Alert) SetOccurrences(val int64) {
 	s.Occurrences = val
@@ -185,20 +229,32 @@ func (s *Alert) SetResolution(val OptAlertResolution) {
 type AlertKind string
 
 const (
-	AlertKindDeployFailed AlertKind = "deploy_failed"
+	AlertKindSyncFailed               AlertKind = "sync_failed"
+	AlertKindNodeDisconnected         AlertKind = "node_disconnected"
+	AlertKindGitRepositoryUnavailable AlertKind = "git_repository_unavailable"
+	AlertKindServiceDrift             AlertKind = "service_drift"
 )
 
 // AllValues returns all AlertKind values.
 func (AlertKind) AllValues() []AlertKind {
 	return []AlertKind{
-		AlertKindDeployFailed,
+		AlertKindSyncFailed,
+		AlertKindNodeDisconnected,
+		AlertKindGitRepositoryUnavailable,
+		AlertKindServiceDrift,
 	}
 }
 
 // MarshalText implements encoding.TextMarshaler.
 func (s AlertKind) MarshalText() ([]byte, error) {
 	switch s {
-	case AlertKindDeployFailed:
+	case AlertKindSyncFailed:
+		return []byte(s), nil
+	case AlertKindNodeDisconnected:
+		return []byte(s), nil
+	case AlertKindGitRepositoryUnavailable:
+		return []byte(s), nil
+	case AlertKindServiceDrift:
 		return []byte(s), nil
 	default:
 		return nil, errors.Errorf("invalid value: %q", s)
@@ -208,8 +264,17 @@ func (s AlertKind) MarshalText() ([]byte, error) {
 // UnmarshalText implements encoding.TextUnmarshaler.
 func (s *AlertKind) UnmarshalText(data []byte) error {
 	switch AlertKind(data) {
-	case AlertKindDeployFailed:
-		*s = AlertKindDeployFailed
+	case AlertKindSyncFailed:
+		*s = AlertKindSyncFailed
+		return nil
+	case AlertKindNodeDisconnected:
+		*s = AlertKindNodeDisconnected
+		return nil
+	case AlertKindGitRepositoryUnavailable:
+		*s = AlertKindGitRepositoryUnavailable
+		return nil
+	case AlertKindServiceDrift:
+		*s = AlertKindServiceDrift
 		return nil
 	default:
 		return errors.Errorf("invalid value: %q", data)
@@ -256,13 +321,15 @@ func (s *AlertResolution) SetEventId(val string) {
 type AlertResolutionReason string
 
 const (
-	AlertResolutionReasonRecovered AlertResolutionReason = "recovered"
+	AlertResolutionReasonRecovered       AlertResolutionReason = "recovered"
+	AlertResolutionReasonResourceRemoved AlertResolutionReason = "resource_removed"
 )
 
 // AllValues returns all AlertResolutionReason values.
 func (AlertResolutionReason) AllValues() []AlertResolutionReason {
 	return []AlertResolutionReason{
 		AlertResolutionReasonRecovered,
+		AlertResolutionReasonResourceRemoved,
 	}
 }
 
@@ -270,6 +337,8 @@ func (AlertResolutionReason) AllValues() []AlertResolutionReason {
 func (s AlertResolutionReason) MarshalText() ([]byte, error) {
 	switch s {
 	case AlertResolutionReasonRecovered:
+		return []byte(s), nil
+	case AlertResolutionReasonResourceRemoved:
 		return []byte(s), nil
 	default:
 		return nil, errors.Errorf("invalid value: %q", s)
@@ -282,6 +351,9 @@ func (s *AlertResolutionReason) UnmarshalText(data []byte) error {
 	case AlertResolutionReasonRecovered:
 		*s = AlertResolutionReasonRecovered
 		return nil
+	case AlertResolutionReasonResourceRemoved:
+		*s = AlertResolutionReasonResourceRemoved
+		return nil
 	default:
 		return errors.Errorf("invalid value: %q", data)
 	}
@@ -290,13 +362,19 @@ func (s *AlertResolutionReason) UnmarshalText(data []byte) error {
 type AlertResourceType string
 
 const (
-	AlertResourceTypeStack AlertResourceType = "stack"
+	AlertResourceTypeStack      AlertResourceType = "stack"
+	AlertResourceTypeNode       AlertResourceType = "node"
+	AlertResourceTypeRepository AlertResourceType = "repository"
+	AlertResourceTypeService    AlertResourceType = "service"
 )
 
 // AllValues returns all AlertResourceType values.
 func (AlertResourceType) AllValues() []AlertResourceType {
 	return []AlertResourceType{
 		AlertResourceTypeStack,
+		AlertResourceTypeNode,
+		AlertResourceTypeRepository,
+		AlertResourceTypeService,
 	}
 }
 
@@ -304,6 +382,12 @@ func (AlertResourceType) AllValues() []AlertResourceType {
 func (s AlertResourceType) MarshalText() ([]byte, error) {
 	switch s {
 	case AlertResourceTypeStack:
+		return []byte(s), nil
+	case AlertResourceTypeNode:
+		return []byte(s), nil
+	case AlertResourceTypeRepository:
+		return []byte(s), nil
+	case AlertResourceTypeService:
 		return []byte(s), nil
 	default:
 		return nil, errors.Errorf("invalid value: %q", s)
@@ -315,6 +399,15 @@ func (s *AlertResourceType) UnmarshalText(data []byte) error {
 	switch AlertResourceType(data) {
 	case AlertResourceTypeStack:
 		*s = AlertResourceTypeStack
+		return nil
+	case AlertResourceTypeNode:
+		*s = AlertResourceTypeNode
+		return nil
+	case AlertResourceTypeRepository:
+		*s = AlertResourceTypeRepository
+		return nil
+	case AlertResourceTypeService:
+		*s = AlertResourceTypeService
 		return nil
 	default:
 		return errors.Errorf("invalid value: %q", data)
@@ -798,6 +891,58 @@ func (s *AssistantChatsResponse) SetChats(val []AssistantChatSummary) {
 	s.Chats = val
 }
 
+// Ref: #/components/schemas/AssistantSuggestion
+type AssistantSuggestion struct {
+	ID     string `json:"id"`
+	Title  string `json:"title"`
+	Prompt string `json:"prompt"`
+}
+
+// GetID returns the value of ID.
+func (s *AssistantSuggestion) GetID() string {
+	return s.ID
+}
+
+// GetTitle returns the value of Title.
+func (s *AssistantSuggestion) GetTitle() string {
+	return s.Title
+}
+
+// GetPrompt returns the value of Prompt.
+func (s *AssistantSuggestion) GetPrompt() string {
+	return s.Prompt
+}
+
+// SetID sets the value of ID.
+func (s *AssistantSuggestion) SetID(val string) {
+	s.ID = val
+}
+
+// SetTitle sets the value of Title.
+func (s *AssistantSuggestion) SetTitle(val string) {
+	s.Title = val
+}
+
+// SetPrompt sets the value of Prompt.
+func (s *AssistantSuggestion) SetPrompt(val string) {
+	s.Prompt = val
+}
+
+// Ref: #/components/schemas/AssistantSuggestionsResponse
+type AssistantSuggestionsResponse struct {
+	Suggestions []AssistantSuggestion `json:"suggestions"`
+}
+
+// GetSuggestions returns the value of Suggestions.
+func (s *AssistantSuggestionsResponse) GetSuggestions() []AssistantSuggestion {
+	return s.Suggestions
+}
+
+// SetSuggestions sets the value of Suggestions.
+func (s *AssistantSuggestionsResponse) SetSuggestions(val []AssistantSuggestion) {
+	s.Suggestions = val
+}
+
 // Ref: #/components/schemas/AssistantTokenUsage
 type AssistantTokenUsage struct {
 	InputTokens  int64 `json:"input_tokens"`
@@ -853,6 +998,1735 @@ func (s *CurrentUserResponse) SetName(val string) {
 // DeleteNodeLabelNoContent is response for DeleteNodeLabel operation.
 type DeleteNodeLabelNoContent struct{}
 
+// Merged schema.
+// Ref: #/components/schemas/Deployment
+type Deployment struct {
+	ID                 string                      `json:"id"`
+	Stack              string                      `json:"stack"`
+	Commit             string                      `json:"commit"`
+	Status             DeploymentStatus            `json:"status"`
+	Phase              DeploymentPhase             `json:"phase"`
+	Reason             OptString                   `json:"reason"`
+	ApplyStatus        DeploymentStageStatus       `json:"apply_status"`
+	VerificationStatus DeploymentStageStatus       `json:"verification_status"`
+	CleanupStatus      DeploymentStageStatus       `json:"cleanup_status"`
+	ActualStateStatus  DeploymentActualStateStatus `json:"actual_state_status"`
+	ObservedAt         OptDateTime                 `json:"observed_at"`
+	ComparisonBasis    DeploymentComparisonBasis   `json:"comparison_basis"`
+	ComparisonStatus   DeploymentComparisonStatus  `json:"comparison_status"`
+	BasisDeploymentID  OptString                   `json:"basis_deployment_id"`
+	StartedAt          time.Time                   `json:"started_at"`
+	FinishedAt         OptDateTime                 `json:"finished_at"`
+	DurationMs         OptInt64                    `json:"duration_ms"`
+	Summary            DeploymentChangeSummary     `json:"summary"`
+	Resources          DeploymentResourceSummary   `json:"resources"`
+	DiffAvailable      bool                        `json:"diff_available"`
+	// Empty when a legacy Deployment has no persisted Attempts.
+	LatestAttemptID string `json:"latest_attempt_id"`
+	// Number of persisted Attempts; legacy Deployments may have zero.
+	AttemptCount int `json:"attempt_count"`
+	// Services from this deployment's recorded desired configuration.
+	Services []DeploymentService `json:"services"`
+	// Bounded secret-masked failure detail, when recorded.
+	Diagnostic OptString `json:"diagnostic"`
+	// Secret-masked recorded desired configuration rendered as YAML.
+	ConfigurationYaml OptString           `json:"configuration_yaml"`
+	Changes           []DeploymentChange  `json:"changes"`
+	Attempts          []DeploymentAttempt `json:"attempts"`
+}
+
+// GetID returns the value of ID.
+func (s *Deployment) GetID() string {
+	return s.ID
+}
+
+// GetStack returns the value of Stack.
+func (s *Deployment) GetStack() string {
+	return s.Stack
+}
+
+// GetCommit returns the value of Commit.
+func (s *Deployment) GetCommit() string {
+	return s.Commit
+}
+
+// GetStatus returns the value of Status.
+func (s *Deployment) GetStatus() DeploymentStatus {
+	return s.Status
+}
+
+// GetPhase returns the value of Phase.
+func (s *Deployment) GetPhase() DeploymentPhase {
+	return s.Phase
+}
+
+// GetReason returns the value of Reason.
+func (s *Deployment) GetReason() OptString {
+	return s.Reason
+}
+
+// GetApplyStatus returns the value of ApplyStatus.
+func (s *Deployment) GetApplyStatus() DeploymentStageStatus {
+	return s.ApplyStatus
+}
+
+// GetVerificationStatus returns the value of VerificationStatus.
+func (s *Deployment) GetVerificationStatus() DeploymentStageStatus {
+	return s.VerificationStatus
+}
+
+// GetCleanupStatus returns the value of CleanupStatus.
+func (s *Deployment) GetCleanupStatus() DeploymentStageStatus {
+	return s.CleanupStatus
+}
+
+// GetActualStateStatus returns the value of ActualStateStatus.
+func (s *Deployment) GetActualStateStatus() DeploymentActualStateStatus {
+	return s.ActualStateStatus
+}
+
+// GetObservedAt returns the value of ObservedAt.
+func (s *Deployment) GetObservedAt() OptDateTime {
+	return s.ObservedAt
+}
+
+// GetComparisonBasis returns the value of ComparisonBasis.
+func (s *Deployment) GetComparisonBasis() DeploymentComparisonBasis {
+	return s.ComparisonBasis
+}
+
+// GetComparisonStatus returns the value of ComparisonStatus.
+func (s *Deployment) GetComparisonStatus() DeploymentComparisonStatus {
+	return s.ComparisonStatus
+}
+
+// GetBasisDeploymentID returns the value of BasisDeploymentID.
+func (s *Deployment) GetBasisDeploymentID() OptString {
+	return s.BasisDeploymentID
+}
+
+// GetStartedAt returns the value of StartedAt.
+func (s *Deployment) GetStartedAt() time.Time {
+	return s.StartedAt
+}
+
+// GetFinishedAt returns the value of FinishedAt.
+func (s *Deployment) GetFinishedAt() OptDateTime {
+	return s.FinishedAt
+}
+
+// GetDurationMs returns the value of DurationMs.
+func (s *Deployment) GetDurationMs() OptInt64 {
+	return s.DurationMs
+}
+
+// GetSummary returns the value of Summary.
+func (s *Deployment) GetSummary() DeploymentChangeSummary {
+	return s.Summary
+}
+
+// GetResources returns the value of Resources.
+func (s *Deployment) GetResources() DeploymentResourceSummary {
+	return s.Resources
+}
+
+// GetDiffAvailable returns the value of DiffAvailable.
+func (s *Deployment) GetDiffAvailable() bool {
+	return s.DiffAvailable
+}
+
+// GetLatestAttemptID returns the value of LatestAttemptID.
+func (s *Deployment) GetLatestAttemptID() string {
+	return s.LatestAttemptID
+}
+
+// GetAttemptCount returns the value of AttemptCount.
+func (s *Deployment) GetAttemptCount() int {
+	return s.AttemptCount
+}
+
+// GetServices returns the value of Services.
+func (s *Deployment) GetServices() []DeploymentService {
+	return s.Services
+}
+
+// GetDiagnostic returns the value of Diagnostic.
+func (s *Deployment) GetDiagnostic() OptString {
+	return s.Diagnostic
+}
+
+// GetConfigurationYaml returns the value of ConfigurationYaml.
+func (s *Deployment) GetConfigurationYaml() OptString {
+	return s.ConfigurationYaml
+}
+
+// GetChanges returns the value of Changes.
+func (s *Deployment) GetChanges() []DeploymentChange {
+	return s.Changes
+}
+
+// GetAttempts returns the value of Attempts.
+func (s *Deployment) GetAttempts() []DeploymentAttempt {
+	return s.Attempts
+}
+
+// SetID sets the value of ID.
+func (s *Deployment) SetID(val string) {
+	s.ID = val
+}
+
+// SetStack sets the value of Stack.
+func (s *Deployment) SetStack(val string) {
+	s.Stack = val
+}
+
+// SetCommit sets the value of Commit.
+func (s *Deployment) SetCommit(val string) {
+	s.Commit = val
+}
+
+// SetStatus sets the value of Status.
+func (s *Deployment) SetStatus(val DeploymentStatus) {
+	s.Status = val
+}
+
+// SetPhase sets the value of Phase.
+func (s *Deployment) SetPhase(val DeploymentPhase) {
+	s.Phase = val
+}
+
+// SetReason sets the value of Reason.
+func (s *Deployment) SetReason(val OptString) {
+	s.Reason = val
+}
+
+// SetApplyStatus sets the value of ApplyStatus.
+func (s *Deployment) SetApplyStatus(val DeploymentStageStatus) {
+	s.ApplyStatus = val
+}
+
+// SetVerificationStatus sets the value of VerificationStatus.
+func (s *Deployment) SetVerificationStatus(val DeploymentStageStatus) {
+	s.VerificationStatus = val
+}
+
+// SetCleanupStatus sets the value of CleanupStatus.
+func (s *Deployment) SetCleanupStatus(val DeploymentStageStatus) {
+	s.CleanupStatus = val
+}
+
+// SetActualStateStatus sets the value of ActualStateStatus.
+func (s *Deployment) SetActualStateStatus(val DeploymentActualStateStatus) {
+	s.ActualStateStatus = val
+}
+
+// SetObservedAt sets the value of ObservedAt.
+func (s *Deployment) SetObservedAt(val OptDateTime) {
+	s.ObservedAt = val
+}
+
+// SetComparisonBasis sets the value of ComparisonBasis.
+func (s *Deployment) SetComparisonBasis(val DeploymentComparisonBasis) {
+	s.ComparisonBasis = val
+}
+
+// SetComparisonStatus sets the value of ComparisonStatus.
+func (s *Deployment) SetComparisonStatus(val DeploymentComparisonStatus) {
+	s.ComparisonStatus = val
+}
+
+// SetBasisDeploymentID sets the value of BasisDeploymentID.
+func (s *Deployment) SetBasisDeploymentID(val OptString) {
+	s.BasisDeploymentID = val
+}
+
+// SetStartedAt sets the value of StartedAt.
+func (s *Deployment) SetStartedAt(val time.Time) {
+	s.StartedAt = val
+}
+
+// SetFinishedAt sets the value of FinishedAt.
+func (s *Deployment) SetFinishedAt(val OptDateTime) {
+	s.FinishedAt = val
+}
+
+// SetDurationMs sets the value of DurationMs.
+func (s *Deployment) SetDurationMs(val OptInt64) {
+	s.DurationMs = val
+}
+
+// SetSummary sets the value of Summary.
+func (s *Deployment) SetSummary(val DeploymentChangeSummary) {
+	s.Summary = val
+}
+
+// SetResources sets the value of Resources.
+func (s *Deployment) SetResources(val DeploymentResourceSummary) {
+	s.Resources = val
+}
+
+// SetDiffAvailable sets the value of DiffAvailable.
+func (s *Deployment) SetDiffAvailable(val bool) {
+	s.DiffAvailable = val
+}
+
+// SetLatestAttemptID sets the value of LatestAttemptID.
+func (s *Deployment) SetLatestAttemptID(val string) {
+	s.LatestAttemptID = val
+}
+
+// SetAttemptCount sets the value of AttemptCount.
+func (s *Deployment) SetAttemptCount(val int) {
+	s.AttemptCount = val
+}
+
+// SetServices sets the value of Services.
+func (s *Deployment) SetServices(val []DeploymentService) {
+	s.Services = val
+}
+
+// SetDiagnostic sets the value of Diagnostic.
+func (s *Deployment) SetDiagnostic(val OptString) {
+	s.Diagnostic = val
+}
+
+// SetConfigurationYaml sets the value of ConfigurationYaml.
+func (s *Deployment) SetConfigurationYaml(val OptString) {
+	s.ConfigurationYaml = val
+}
+
+// SetChanges sets the value of Changes.
+func (s *Deployment) SetChanges(val []DeploymentChange) {
+	s.Changes = val
+}
+
+// SetAttempts sets the value of Attempts.
+func (s *Deployment) SetAttempts(val []DeploymentAttempt) {
+	s.Attempts = val
+}
+
+// Ref: #/components/schemas/DeploymentActivityBucket
+type DeploymentActivityBucket struct {
+	Start       time.Time `json:"start"`
+	Succeeded   int       `json:"succeeded"`
+	Failed      int       `json:"failed"`
+	Running     int       `json:"running"`
+	Interrupted int       `json:"interrupted"`
+	Superseded  int       `json:"superseded"`
+}
+
+// GetStart returns the value of Start.
+func (s *DeploymentActivityBucket) GetStart() time.Time {
+	return s.Start
+}
+
+// GetSucceeded returns the value of Succeeded.
+func (s *DeploymentActivityBucket) GetSucceeded() int {
+	return s.Succeeded
+}
+
+// GetFailed returns the value of Failed.
+func (s *DeploymentActivityBucket) GetFailed() int {
+	return s.Failed
+}
+
+// GetRunning returns the value of Running.
+func (s *DeploymentActivityBucket) GetRunning() int {
+	return s.Running
+}
+
+// GetInterrupted returns the value of Interrupted.
+func (s *DeploymentActivityBucket) GetInterrupted() int {
+	return s.Interrupted
+}
+
+// GetSuperseded returns the value of Superseded.
+func (s *DeploymentActivityBucket) GetSuperseded() int {
+	return s.Superseded
+}
+
+// SetStart sets the value of Start.
+func (s *DeploymentActivityBucket) SetStart(val time.Time) {
+	s.Start = val
+}
+
+// SetSucceeded sets the value of Succeeded.
+func (s *DeploymentActivityBucket) SetSucceeded(val int) {
+	s.Succeeded = val
+}
+
+// SetFailed sets the value of Failed.
+func (s *DeploymentActivityBucket) SetFailed(val int) {
+	s.Failed = val
+}
+
+// SetRunning sets the value of Running.
+func (s *DeploymentActivityBucket) SetRunning(val int) {
+	s.Running = val
+}
+
+// SetInterrupted sets the value of Interrupted.
+func (s *DeploymentActivityBucket) SetInterrupted(val int) {
+	s.Interrupted = val
+}
+
+// SetSuperseded sets the value of Superseded.
+func (s *DeploymentActivityBucket) SetSuperseded(val int) {
+	s.Superseded = val
+}
+
+// Ref: #/components/schemas/DeploymentActivityInterval
+type DeploymentActivityInterval string
+
+const (
+	DeploymentActivityIntervalDaily  DeploymentActivityInterval = "daily"
+	DeploymentActivityIntervalWeekly DeploymentActivityInterval = "weekly"
+)
+
+// AllValues returns all DeploymentActivityInterval values.
+func (DeploymentActivityInterval) AllValues() []DeploymentActivityInterval {
+	return []DeploymentActivityInterval{
+		DeploymentActivityIntervalDaily,
+		DeploymentActivityIntervalWeekly,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s DeploymentActivityInterval) MarshalText() ([]byte, error) {
+	switch s {
+	case DeploymentActivityIntervalDaily:
+		return []byte(s), nil
+	case DeploymentActivityIntervalWeekly:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *DeploymentActivityInterval) UnmarshalText(data []byte) error {
+	switch DeploymentActivityInterval(data) {
+	case DeploymentActivityIntervalDaily:
+		*s = DeploymentActivityIntervalDaily
+		return nil
+	case DeploymentActivityIntervalWeekly:
+		*s = DeploymentActivityIntervalWeekly
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/DeploymentActivityResponse
+type DeploymentActivityResponse struct {
+	Buckets []DeploymentActivityBucket `json:"buckets"`
+}
+
+// GetBuckets returns the value of Buckets.
+func (s *DeploymentActivityResponse) GetBuckets() []DeploymentActivityBucket {
+	return s.Buckets
+}
+
+// SetBuckets sets the value of Buckets.
+func (s *DeploymentActivityResponse) SetBuckets(val []DeploymentActivityBucket) {
+	s.Buckets = val
+}
+
+// Ref: #/components/schemas/DeploymentActualStateStatus
+type DeploymentActualStateStatus string
+
+const (
+	DeploymentActualStateStatusObserved DeploymentActualStateStatus = "observed"
+	DeploymentActualStateStatusUnknown  DeploymentActualStateStatus = "unknown"
+)
+
+// AllValues returns all DeploymentActualStateStatus values.
+func (DeploymentActualStateStatus) AllValues() []DeploymentActualStateStatus {
+	return []DeploymentActualStateStatus{
+		DeploymentActualStateStatusObserved,
+		DeploymentActualStateStatusUnknown,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s DeploymentActualStateStatus) MarshalText() ([]byte, error) {
+	switch s {
+	case DeploymentActualStateStatusObserved:
+		return []byte(s), nil
+	case DeploymentActualStateStatusUnknown:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *DeploymentActualStateStatus) UnmarshalText(data []byte) error {
+	switch DeploymentActualStateStatus(data) {
+	case DeploymentActualStateStatusObserved:
+		*s = DeploymentActualStateStatusObserved
+		return nil
+	case DeploymentActualStateStatusUnknown:
+		*s = DeploymentActualStateStatusUnknown
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/DeploymentAttempt
+type DeploymentAttempt struct {
+	ID                 string                       `json:"id"`
+	Number             int                          `json:"number"`
+	Status             DeploymentAttemptStatus      `json:"status"`
+	Phase              DeploymentPhase              `json:"phase"`
+	Reason             OptString                    `json:"reason"`
+	Diagnostic         OptString                    `json:"diagnostic"`
+	ApplyStatus        DeploymentStageStatus        `json:"apply_status"`
+	VerificationStatus DeploymentStageStatus        `json:"verification_status"`
+	CleanupStatus      DeploymentStageStatus        `json:"cleanup_status"`
+	ActualStateStatus  DeploymentActualStateStatus  `json:"actual_state_status"`
+	ObservedAt         OptDateTime                  `json:"observed_at"`
+	StartedAt          time.Time                    `json:"started_at"`
+	FinishedAt         OptDateTime                  `json:"finished_at"`
+	DurationMs         OptInt64                     `json:"duration_ms"`
+	InitJobs           []DeploymentInitJobExecution `json:"init_jobs"`
+}
+
+// GetID returns the value of ID.
+func (s *DeploymentAttempt) GetID() string {
+	return s.ID
+}
+
+// GetNumber returns the value of Number.
+func (s *DeploymentAttempt) GetNumber() int {
+	return s.Number
+}
+
+// GetStatus returns the value of Status.
+func (s *DeploymentAttempt) GetStatus() DeploymentAttemptStatus {
+	return s.Status
+}
+
+// GetPhase returns the value of Phase.
+func (s *DeploymentAttempt) GetPhase() DeploymentPhase {
+	return s.Phase
+}
+
+// GetReason returns the value of Reason.
+func (s *DeploymentAttempt) GetReason() OptString {
+	return s.Reason
+}
+
+// GetDiagnostic returns the value of Diagnostic.
+func (s *DeploymentAttempt) GetDiagnostic() OptString {
+	return s.Diagnostic
+}
+
+// GetApplyStatus returns the value of ApplyStatus.
+func (s *DeploymentAttempt) GetApplyStatus() DeploymentStageStatus {
+	return s.ApplyStatus
+}
+
+// GetVerificationStatus returns the value of VerificationStatus.
+func (s *DeploymentAttempt) GetVerificationStatus() DeploymentStageStatus {
+	return s.VerificationStatus
+}
+
+// GetCleanupStatus returns the value of CleanupStatus.
+func (s *DeploymentAttempt) GetCleanupStatus() DeploymentStageStatus {
+	return s.CleanupStatus
+}
+
+// GetActualStateStatus returns the value of ActualStateStatus.
+func (s *DeploymentAttempt) GetActualStateStatus() DeploymentActualStateStatus {
+	return s.ActualStateStatus
+}
+
+// GetObservedAt returns the value of ObservedAt.
+func (s *DeploymentAttempt) GetObservedAt() OptDateTime {
+	return s.ObservedAt
+}
+
+// GetStartedAt returns the value of StartedAt.
+func (s *DeploymentAttempt) GetStartedAt() time.Time {
+	return s.StartedAt
+}
+
+// GetFinishedAt returns the value of FinishedAt.
+func (s *DeploymentAttempt) GetFinishedAt() OptDateTime {
+	return s.FinishedAt
+}
+
+// GetDurationMs returns the value of DurationMs.
+func (s *DeploymentAttempt) GetDurationMs() OptInt64 {
+	return s.DurationMs
+}
+
+// GetInitJobs returns the value of InitJobs.
+func (s *DeploymentAttempt) GetInitJobs() []DeploymentInitJobExecution {
+	return s.InitJobs
+}
+
+// SetID sets the value of ID.
+func (s *DeploymentAttempt) SetID(val string) {
+	s.ID = val
+}
+
+// SetNumber sets the value of Number.
+func (s *DeploymentAttempt) SetNumber(val int) {
+	s.Number = val
+}
+
+// SetStatus sets the value of Status.
+func (s *DeploymentAttempt) SetStatus(val DeploymentAttemptStatus) {
+	s.Status = val
+}
+
+// SetPhase sets the value of Phase.
+func (s *DeploymentAttempt) SetPhase(val DeploymentPhase) {
+	s.Phase = val
+}
+
+// SetReason sets the value of Reason.
+func (s *DeploymentAttempt) SetReason(val OptString) {
+	s.Reason = val
+}
+
+// SetDiagnostic sets the value of Diagnostic.
+func (s *DeploymentAttempt) SetDiagnostic(val OptString) {
+	s.Diagnostic = val
+}
+
+// SetApplyStatus sets the value of ApplyStatus.
+func (s *DeploymentAttempt) SetApplyStatus(val DeploymentStageStatus) {
+	s.ApplyStatus = val
+}
+
+// SetVerificationStatus sets the value of VerificationStatus.
+func (s *DeploymentAttempt) SetVerificationStatus(val DeploymentStageStatus) {
+	s.VerificationStatus = val
+}
+
+// SetCleanupStatus sets the value of CleanupStatus.
+func (s *DeploymentAttempt) SetCleanupStatus(val DeploymentStageStatus) {
+	s.CleanupStatus = val
+}
+
+// SetActualStateStatus sets the value of ActualStateStatus.
+func (s *DeploymentAttempt) SetActualStateStatus(val DeploymentActualStateStatus) {
+	s.ActualStateStatus = val
+}
+
+// SetObservedAt sets the value of ObservedAt.
+func (s *DeploymentAttempt) SetObservedAt(val OptDateTime) {
+	s.ObservedAt = val
+}
+
+// SetStartedAt sets the value of StartedAt.
+func (s *DeploymentAttempt) SetStartedAt(val time.Time) {
+	s.StartedAt = val
+}
+
+// SetFinishedAt sets the value of FinishedAt.
+func (s *DeploymentAttempt) SetFinishedAt(val OptDateTime) {
+	s.FinishedAt = val
+}
+
+// SetDurationMs sets the value of DurationMs.
+func (s *DeploymentAttempt) SetDurationMs(val OptInt64) {
+	s.DurationMs = val
+}
+
+// SetInitJobs sets the value of InitJobs.
+func (s *DeploymentAttempt) SetInitJobs(val []DeploymentInitJobExecution) {
+	s.InitJobs = val
+}
+
+// Ref: #/components/schemas/DeploymentAttemptStatus
+type DeploymentAttemptStatus string
+
+const (
+	DeploymentAttemptStatusRunning     DeploymentAttemptStatus = "running"
+	DeploymentAttemptStatusSucceeded   DeploymentAttemptStatus = "succeeded"
+	DeploymentAttemptStatusFailed      DeploymentAttemptStatus = "failed"
+	DeploymentAttemptStatusInterrupted DeploymentAttemptStatus = "interrupted"
+)
+
+// AllValues returns all DeploymentAttemptStatus values.
+func (DeploymentAttemptStatus) AllValues() []DeploymentAttemptStatus {
+	return []DeploymentAttemptStatus{
+		DeploymentAttemptStatusRunning,
+		DeploymentAttemptStatusSucceeded,
+		DeploymentAttemptStatusFailed,
+		DeploymentAttemptStatusInterrupted,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s DeploymentAttemptStatus) MarshalText() ([]byte, error) {
+	switch s {
+	case DeploymentAttemptStatusRunning:
+		return []byte(s), nil
+	case DeploymentAttemptStatusSucceeded:
+		return []byte(s), nil
+	case DeploymentAttemptStatusFailed:
+		return []byte(s), nil
+	case DeploymentAttemptStatusInterrupted:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *DeploymentAttemptStatus) UnmarshalText(data []byte) error {
+	switch DeploymentAttemptStatus(data) {
+	case DeploymentAttemptStatusRunning:
+		*s = DeploymentAttemptStatusRunning
+		return nil
+	case DeploymentAttemptStatusSucceeded:
+		*s = DeploymentAttemptStatusSucceeded
+		return nil
+	case DeploymentAttemptStatusFailed:
+		*s = DeploymentAttemptStatusFailed
+		return nil
+	case DeploymentAttemptStatusInterrupted:
+		*s = DeploymentAttemptStatusInterrupted
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/DeploymentChange
+type DeploymentChange struct {
+	ResourceType string                    `json:"resourceType"`
+	ResourceName string                    `json:"resourceName"`
+	Field        string                    `json:"field"`
+	Operation    DeploymentChangeOperation `json:"operation"`
+	Before       OptString                 `json:"before"`
+	After        OptString                 `json:"after"`
+	Redacted     bool                      `json:"redacted"`
+}
+
+// GetResourceType returns the value of ResourceType.
+func (s *DeploymentChange) GetResourceType() string {
+	return s.ResourceType
+}
+
+// GetResourceName returns the value of ResourceName.
+func (s *DeploymentChange) GetResourceName() string {
+	return s.ResourceName
+}
+
+// GetField returns the value of Field.
+func (s *DeploymentChange) GetField() string {
+	return s.Field
+}
+
+// GetOperation returns the value of Operation.
+func (s *DeploymentChange) GetOperation() DeploymentChangeOperation {
+	return s.Operation
+}
+
+// GetBefore returns the value of Before.
+func (s *DeploymentChange) GetBefore() OptString {
+	return s.Before
+}
+
+// GetAfter returns the value of After.
+func (s *DeploymentChange) GetAfter() OptString {
+	return s.After
+}
+
+// GetRedacted returns the value of Redacted.
+func (s *DeploymentChange) GetRedacted() bool {
+	return s.Redacted
+}
+
+// SetResourceType sets the value of ResourceType.
+func (s *DeploymentChange) SetResourceType(val string) {
+	s.ResourceType = val
+}
+
+// SetResourceName sets the value of ResourceName.
+func (s *DeploymentChange) SetResourceName(val string) {
+	s.ResourceName = val
+}
+
+// SetField sets the value of Field.
+func (s *DeploymentChange) SetField(val string) {
+	s.Field = val
+}
+
+// SetOperation sets the value of Operation.
+func (s *DeploymentChange) SetOperation(val DeploymentChangeOperation) {
+	s.Operation = val
+}
+
+// SetBefore sets the value of Before.
+func (s *DeploymentChange) SetBefore(val OptString) {
+	s.Before = val
+}
+
+// SetAfter sets the value of After.
+func (s *DeploymentChange) SetAfter(val OptString) {
+	s.After = val
+}
+
+// SetRedacted sets the value of Redacted.
+func (s *DeploymentChange) SetRedacted(val bool) {
+	s.Redacted = val
+}
+
+// Ref: #/components/schemas/DeploymentChangeOperation
+type DeploymentChangeOperation string
+
+const (
+	DeploymentChangeOperationAdded   DeploymentChangeOperation = "added"
+	DeploymentChangeOperationChanged DeploymentChangeOperation = "changed"
+	DeploymentChangeOperationRemoved DeploymentChangeOperation = "removed"
+)
+
+// AllValues returns all DeploymentChangeOperation values.
+func (DeploymentChangeOperation) AllValues() []DeploymentChangeOperation {
+	return []DeploymentChangeOperation{
+		DeploymentChangeOperationAdded,
+		DeploymentChangeOperationChanged,
+		DeploymentChangeOperationRemoved,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s DeploymentChangeOperation) MarshalText() ([]byte, error) {
+	switch s {
+	case DeploymentChangeOperationAdded:
+		return []byte(s), nil
+	case DeploymentChangeOperationChanged:
+		return []byte(s), nil
+	case DeploymentChangeOperationRemoved:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *DeploymentChangeOperation) UnmarshalText(data []byte) error {
+	switch DeploymentChangeOperation(data) {
+	case DeploymentChangeOperationAdded:
+		*s = DeploymentChangeOperationAdded
+		return nil
+	case DeploymentChangeOperationChanged:
+		*s = DeploymentChangeOperationChanged
+		return nil
+	case DeploymentChangeOperationRemoved:
+		*s = DeploymentChangeOperationRemoved
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/DeploymentChangeSummary
+type DeploymentChangeSummary struct {
+	Added    int `json:"added"`
+	Changed  int `json:"changed"`
+	Removed  int `json:"removed"`
+	Redacted int `json:"redacted"`
+}
+
+// GetAdded returns the value of Added.
+func (s *DeploymentChangeSummary) GetAdded() int {
+	return s.Added
+}
+
+// GetChanged returns the value of Changed.
+func (s *DeploymentChangeSummary) GetChanged() int {
+	return s.Changed
+}
+
+// GetRemoved returns the value of Removed.
+func (s *DeploymentChangeSummary) GetRemoved() int {
+	return s.Removed
+}
+
+// GetRedacted returns the value of Redacted.
+func (s *DeploymentChangeSummary) GetRedacted() int {
+	return s.Redacted
+}
+
+// SetAdded sets the value of Added.
+func (s *DeploymentChangeSummary) SetAdded(val int) {
+	s.Added = val
+}
+
+// SetChanged sets the value of Changed.
+func (s *DeploymentChangeSummary) SetChanged(val int) {
+	s.Changed = val
+}
+
+// SetRemoved sets the value of Removed.
+func (s *DeploymentChangeSummary) SetRemoved(val int) {
+	s.Removed = val
+}
+
+// SetRedacted sets the value of Redacted.
+func (s *DeploymentChangeSummary) SetRedacted(val int) {
+	s.Redacted = val
+}
+
+// Ref: #/components/schemas/DeploymentComparisonBasis
+type DeploymentComparisonBasis string
+
+const (
+	DeploymentComparisonBasisNone               DeploymentComparisonBasis = "none"
+	DeploymentComparisonBasisSuccessfulBaseline DeploymentComparisonBasis = "successful_baseline"
+	DeploymentComparisonBasisLastAttempt        DeploymentComparisonBasis = "last_attempt"
+	DeploymentComparisonBasisObservedState      DeploymentComparisonBasis = "observed_state"
+)
+
+// AllValues returns all DeploymentComparisonBasis values.
+func (DeploymentComparisonBasis) AllValues() []DeploymentComparisonBasis {
+	return []DeploymentComparisonBasis{
+		DeploymentComparisonBasisNone,
+		DeploymentComparisonBasisSuccessfulBaseline,
+		DeploymentComparisonBasisLastAttempt,
+		DeploymentComparisonBasisObservedState,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s DeploymentComparisonBasis) MarshalText() ([]byte, error) {
+	switch s {
+	case DeploymentComparisonBasisNone:
+		return []byte(s), nil
+	case DeploymentComparisonBasisSuccessfulBaseline:
+		return []byte(s), nil
+	case DeploymentComparisonBasisLastAttempt:
+		return []byte(s), nil
+	case DeploymentComparisonBasisObservedState:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *DeploymentComparisonBasis) UnmarshalText(data []byte) error {
+	switch DeploymentComparisonBasis(data) {
+	case DeploymentComparisonBasisNone:
+		*s = DeploymentComparisonBasisNone
+		return nil
+	case DeploymentComparisonBasisSuccessfulBaseline:
+		*s = DeploymentComparisonBasisSuccessfulBaseline
+		return nil
+	case DeploymentComparisonBasisLastAttempt:
+		*s = DeploymentComparisonBasisLastAttempt
+		return nil
+	case DeploymentComparisonBasisObservedState:
+		*s = DeploymentComparisonBasisObservedState
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/DeploymentComparisonStatus
+type DeploymentComparisonStatus string
+
+const (
+	DeploymentComparisonStatusKnown   DeploymentComparisonStatus = "known"
+	DeploymentComparisonStatusUnknown DeploymentComparisonStatus = "unknown"
+)
+
+// AllValues returns all DeploymentComparisonStatus values.
+func (DeploymentComparisonStatus) AllValues() []DeploymentComparisonStatus {
+	return []DeploymentComparisonStatus{
+		DeploymentComparisonStatusKnown,
+		DeploymentComparisonStatusUnknown,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s DeploymentComparisonStatus) MarshalText() ([]byte, error) {
+	switch s {
+	case DeploymentComparisonStatusKnown:
+		return []byte(s), nil
+	case DeploymentComparisonStatusUnknown:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *DeploymentComparisonStatus) UnmarshalText(data []byte) error {
+	switch DeploymentComparisonStatus(data) {
+	case DeploymentComparisonStatusKnown:
+		*s = DeploymentComparisonStatusKnown
+		return nil
+	case DeploymentComparisonStatusUnknown:
+		*s = DeploymentComparisonStatusUnknown
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/DeploymentFilterOptions
+type DeploymentFilterOptions struct {
+	Stacks   []string                  `json:"stacks"`
+	Services []DeploymentFilterService `json:"services"`
+}
+
+// GetStacks returns the value of Stacks.
+func (s *DeploymentFilterOptions) GetStacks() []string {
+	return s.Stacks
+}
+
+// GetServices returns the value of Services.
+func (s *DeploymentFilterOptions) GetServices() []DeploymentFilterService {
+	return s.Services
+}
+
+// SetStacks sets the value of Stacks.
+func (s *DeploymentFilterOptions) SetStacks(val []string) {
+	s.Stacks = val
+}
+
+// SetServices sets the value of Services.
+func (s *DeploymentFilterOptions) SetServices(val []DeploymentFilterService) {
+	s.Services = val
+}
+
+// Ref: #/components/schemas/DeploymentFilterService
+type DeploymentFilterService struct {
+	StackName   string `json:"stack_name"`
+	ServiceName string `json:"service_name"`
+}
+
+// GetStackName returns the value of StackName.
+func (s *DeploymentFilterService) GetStackName() string {
+	return s.StackName
+}
+
+// GetServiceName returns the value of ServiceName.
+func (s *DeploymentFilterService) GetServiceName() string {
+	return s.ServiceName
+}
+
+// SetStackName sets the value of StackName.
+func (s *DeploymentFilterService) SetStackName(val string) {
+	s.StackName = val
+}
+
+// SetServiceName sets the value of ServiceName.
+func (s *DeploymentFilterService) SetServiceName(val string) {
+	s.ServiceName = val
+}
+
+// Ref: #/components/schemas/DeploymentInitJobExecution
+type DeploymentInitJobExecution struct {
+	Ordinal       int                              `json:"ordinal"`
+	ServiceName   string                           `json:"service_name"`
+	JobName       string                           `json:"job_name"`
+	Status        DeploymentInitJobExecutionStatus `json:"status"`
+	StartedAt     time.Time                        `json:"started_at"`
+	FinishedAt    time.Time                        `json:"finished_at"`
+	LogsAvailable bool                             `json:"logs_available"`
+	LogsTruncated bool                             `json:"logs_truncated"`
+}
+
+// GetOrdinal returns the value of Ordinal.
+func (s *DeploymentInitJobExecution) GetOrdinal() int {
+	return s.Ordinal
+}
+
+// GetServiceName returns the value of ServiceName.
+func (s *DeploymentInitJobExecution) GetServiceName() string {
+	return s.ServiceName
+}
+
+// GetJobName returns the value of JobName.
+func (s *DeploymentInitJobExecution) GetJobName() string {
+	return s.JobName
+}
+
+// GetStatus returns the value of Status.
+func (s *DeploymentInitJobExecution) GetStatus() DeploymentInitJobExecutionStatus {
+	return s.Status
+}
+
+// GetStartedAt returns the value of StartedAt.
+func (s *DeploymentInitJobExecution) GetStartedAt() time.Time {
+	return s.StartedAt
+}
+
+// GetFinishedAt returns the value of FinishedAt.
+func (s *DeploymentInitJobExecution) GetFinishedAt() time.Time {
+	return s.FinishedAt
+}
+
+// GetLogsAvailable returns the value of LogsAvailable.
+func (s *DeploymentInitJobExecution) GetLogsAvailable() bool {
+	return s.LogsAvailable
+}
+
+// GetLogsTruncated returns the value of LogsTruncated.
+func (s *DeploymentInitJobExecution) GetLogsTruncated() bool {
+	return s.LogsTruncated
+}
+
+// SetOrdinal sets the value of Ordinal.
+func (s *DeploymentInitJobExecution) SetOrdinal(val int) {
+	s.Ordinal = val
+}
+
+// SetServiceName sets the value of ServiceName.
+func (s *DeploymentInitJobExecution) SetServiceName(val string) {
+	s.ServiceName = val
+}
+
+// SetJobName sets the value of JobName.
+func (s *DeploymentInitJobExecution) SetJobName(val string) {
+	s.JobName = val
+}
+
+// SetStatus sets the value of Status.
+func (s *DeploymentInitJobExecution) SetStatus(val DeploymentInitJobExecutionStatus) {
+	s.Status = val
+}
+
+// SetStartedAt sets the value of StartedAt.
+func (s *DeploymentInitJobExecution) SetStartedAt(val time.Time) {
+	s.StartedAt = val
+}
+
+// SetFinishedAt sets the value of FinishedAt.
+func (s *DeploymentInitJobExecution) SetFinishedAt(val time.Time) {
+	s.FinishedAt = val
+}
+
+// SetLogsAvailable sets the value of LogsAvailable.
+func (s *DeploymentInitJobExecution) SetLogsAvailable(val bool) {
+	s.LogsAvailable = val
+}
+
+// SetLogsTruncated sets the value of LogsTruncated.
+func (s *DeploymentInitJobExecution) SetLogsTruncated(val bool) {
+	s.LogsTruncated = val
+}
+
+type DeploymentInitJobExecutionStatus string
+
+const (
+	DeploymentInitJobExecutionStatusSucceeded   DeploymentInitJobExecutionStatus = "succeeded"
+	DeploymentInitJobExecutionStatusFailed      DeploymentInitJobExecutionStatus = "failed"
+	DeploymentInitJobExecutionStatusInterrupted DeploymentInitJobExecutionStatus = "interrupted"
+)
+
+// AllValues returns all DeploymentInitJobExecutionStatus values.
+func (DeploymentInitJobExecutionStatus) AllValues() []DeploymentInitJobExecutionStatus {
+	return []DeploymentInitJobExecutionStatus{
+		DeploymentInitJobExecutionStatusSucceeded,
+		DeploymentInitJobExecutionStatusFailed,
+		DeploymentInitJobExecutionStatusInterrupted,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s DeploymentInitJobExecutionStatus) MarshalText() ([]byte, error) {
+	switch s {
+	case DeploymentInitJobExecutionStatusSucceeded:
+		return []byte(s), nil
+	case DeploymentInitJobExecutionStatusFailed:
+		return []byte(s), nil
+	case DeploymentInitJobExecutionStatusInterrupted:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *DeploymentInitJobExecutionStatus) UnmarshalText(data []byte) error {
+	switch DeploymentInitJobExecutionStatus(data) {
+	case DeploymentInitJobExecutionStatusSucceeded:
+		*s = DeploymentInitJobExecutionStatusSucceeded
+		return nil
+	case DeploymentInitJobExecutionStatusFailed:
+		*s = DeploymentInitJobExecutionStatusFailed
+		return nil
+	case DeploymentInitJobExecutionStatusInterrupted:
+		*s = DeploymentInitJobExecutionStatusInterrupted
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/DeploymentPhase
+type DeploymentPhase string
+
+const (
+	DeploymentPhaseApply        DeploymentPhase = "apply"
+	DeploymentPhaseVerification DeploymentPhase = "verification"
+	DeploymentPhaseCleanup      DeploymentPhase = "cleanup"
+	DeploymentPhaseCompleted    DeploymentPhase = "completed"
+)
+
+// AllValues returns all DeploymentPhase values.
+func (DeploymentPhase) AllValues() []DeploymentPhase {
+	return []DeploymentPhase{
+		DeploymentPhaseApply,
+		DeploymentPhaseVerification,
+		DeploymentPhaseCleanup,
+		DeploymentPhaseCompleted,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s DeploymentPhase) MarshalText() ([]byte, error) {
+	switch s {
+	case DeploymentPhaseApply:
+		return []byte(s), nil
+	case DeploymentPhaseVerification:
+		return []byte(s), nil
+	case DeploymentPhaseCleanup:
+		return []byte(s), nil
+	case DeploymentPhaseCompleted:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *DeploymentPhase) UnmarshalText(data []byte) error {
+	switch DeploymentPhase(data) {
+	case DeploymentPhaseApply:
+		*s = DeploymentPhaseApply
+		return nil
+	case DeploymentPhaseVerification:
+		*s = DeploymentPhaseVerification
+		return nil
+	case DeploymentPhaseCleanup:
+		*s = DeploymentPhaseCleanup
+		return nil
+	case DeploymentPhaseCompleted:
+		*s = DeploymentPhaseCompleted
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/DeploymentResourceSummary
+type DeploymentResourceSummary struct {
+	Services int `json:"services"`
+	Configs  int `json:"configs"`
+	Secrets  int `json:"secrets"`
+	Networks int `json:"networks"`
+	Volumes  int `json:"volumes"`
+}
+
+// GetServices returns the value of Services.
+func (s *DeploymentResourceSummary) GetServices() int {
+	return s.Services
+}
+
+// GetConfigs returns the value of Configs.
+func (s *DeploymentResourceSummary) GetConfigs() int {
+	return s.Configs
+}
+
+// GetSecrets returns the value of Secrets.
+func (s *DeploymentResourceSummary) GetSecrets() int {
+	return s.Secrets
+}
+
+// GetNetworks returns the value of Networks.
+func (s *DeploymentResourceSummary) GetNetworks() int {
+	return s.Networks
+}
+
+// GetVolumes returns the value of Volumes.
+func (s *DeploymentResourceSummary) GetVolumes() int {
+	return s.Volumes
+}
+
+// SetServices sets the value of Services.
+func (s *DeploymentResourceSummary) SetServices(val int) {
+	s.Services = val
+}
+
+// SetConfigs sets the value of Configs.
+func (s *DeploymentResourceSummary) SetConfigs(val int) {
+	s.Configs = val
+}
+
+// SetSecrets sets the value of Secrets.
+func (s *DeploymentResourceSummary) SetSecrets(val int) {
+	s.Secrets = val
+}
+
+// SetNetworks sets the value of Networks.
+func (s *DeploymentResourceSummary) SetNetworks(val int) {
+	s.Networks = val
+}
+
+// SetVolumes sets the value of Volumes.
+func (s *DeploymentResourceSummary) SetVolumes(val int) {
+	s.Volumes = val
+}
+
+// Ref: #/components/schemas/DeploymentService
+type DeploymentService struct {
+	Name  string `json:"name"`
+	Image string `json:"image"`
+	// Desired replica count or service mode from the recorded specification.
+	Replicas string `json:"replicas"`
+}
+
+// GetName returns the value of Name.
+func (s *DeploymentService) GetName() string {
+	return s.Name
+}
+
+// GetImage returns the value of Image.
+func (s *DeploymentService) GetImage() string {
+	return s.Image
+}
+
+// GetReplicas returns the value of Replicas.
+func (s *DeploymentService) GetReplicas() string {
+	return s.Replicas
+}
+
+// SetName sets the value of Name.
+func (s *DeploymentService) SetName(val string) {
+	s.Name = val
+}
+
+// SetImage sets the value of Image.
+func (s *DeploymentService) SetImage(val string) {
+	s.Image = val
+}
+
+// SetReplicas sets the value of Replicas.
+func (s *DeploymentService) SetReplicas(val string) {
+	s.Replicas = val
+}
+
+// Ref: #/components/schemas/DeploymentStageStatus
+type DeploymentStageStatus string
+
+const (
+	DeploymentStageStatusPending   DeploymentStageStatus = "pending"
+	DeploymentStageStatusRunning   DeploymentStageStatus = "running"
+	DeploymentStageStatusSucceeded DeploymentStageStatus = "succeeded"
+	DeploymentStageStatusFailed    DeploymentStageStatus = "failed"
+	DeploymentStageStatusUnknown   DeploymentStageStatus = "unknown"
+	DeploymentStageStatusSkipped   DeploymentStageStatus = "skipped"
+)
+
+// AllValues returns all DeploymentStageStatus values.
+func (DeploymentStageStatus) AllValues() []DeploymentStageStatus {
+	return []DeploymentStageStatus{
+		DeploymentStageStatusPending,
+		DeploymentStageStatusRunning,
+		DeploymentStageStatusSucceeded,
+		DeploymentStageStatusFailed,
+		DeploymentStageStatusUnknown,
+		DeploymentStageStatusSkipped,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s DeploymentStageStatus) MarshalText() ([]byte, error) {
+	switch s {
+	case DeploymentStageStatusPending:
+		return []byte(s), nil
+	case DeploymentStageStatusRunning:
+		return []byte(s), nil
+	case DeploymentStageStatusSucceeded:
+		return []byte(s), nil
+	case DeploymentStageStatusFailed:
+		return []byte(s), nil
+	case DeploymentStageStatusUnknown:
+		return []byte(s), nil
+	case DeploymentStageStatusSkipped:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *DeploymentStageStatus) UnmarshalText(data []byte) error {
+	switch DeploymentStageStatus(data) {
+	case DeploymentStageStatusPending:
+		*s = DeploymentStageStatusPending
+		return nil
+	case DeploymentStageStatusRunning:
+		*s = DeploymentStageStatusRunning
+		return nil
+	case DeploymentStageStatusSucceeded:
+		*s = DeploymentStageStatusSucceeded
+		return nil
+	case DeploymentStageStatusFailed:
+		*s = DeploymentStageStatusFailed
+		return nil
+	case DeploymentStageStatusUnknown:
+		*s = DeploymentStageStatusUnknown
+		return nil
+	case DeploymentStageStatusSkipped:
+		*s = DeploymentStageStatusSkipped
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/DeploymentStatus
+type DeploymentStatus string
+
+const (
+	DeploymentStatusRunning     DeploymentStatus = "running"
+	DeploymentStatusSucceeded   DeploymentStatus = "succeeded"
+	DeploymentStatusFailed      DeploymentStatus = "failed"
+	DeploymentStatusInterrupted DeploymentStatus = "interrupted"
+	DeploymentStatusSuperseded  DeploymentStatus = "superseded"
+)
+
+// AllValues returns all DeploymentStatus values.
+func (DeploymentStatus) AllValues() []DeploymentStatus {
+	return []DeploymentStatus{
+		DeploymentStatusRunning,
+		DeploymentStatusSucceeded,
+		DeploymentStatusFailed,
+		DeploymentStatusInterrupted,
+		DeploymentStatusSuperseded,
+	}
+}
+
+// MarshalText implements encoding.TextMarshaler.
+func (s DeploymentStatus) MarshalText() ([]byte, error) {
+	switch s {
+	case DeploymentStatusRunning:
+		return []byte(s), nil
+	case DeploymentStatusSucceeded:
+		return []byte(s), nil
+	case DeploymentStatusFailed:
+		return []byte(s), nil
+	case DeploymentStatusInterrupted:
+		return []byte(s), nil
+	case DeploymentStatusSuperseded:
+		return []byte(s), nil
+	default:
+		return nil, errors.Errorf("invalid value: %q", s)
+	}
+}
+
+// UnmarshalText implements encoding.TextUnmarshaler.
+func (s *DeploymentStatus) UnmarshalText(data []byte) error {
+	switch DeploymentStatus(data) {
+	case DeploymentStatusRunning:
+		*s = DeploymentStatusRunning
+		return nil
+	case DeploymentStatusSucceeded:
+		*s = DeploymentStatusSucceeded
+		return nil
+	case DeploymentStatusFailed:
+		*s = DeploymentStatusFailed
+		return nil
+	case DeploymentStatusInterrupted:
+		*s = DeploymentStatusInterrupted
+		return nil
+	case DeploymentStatusSuperseded:
+		*s = DeploymentStatusSuperseded
+		return nil
+	default:
+		return errors.Errorf("invalid value: %q", data)
+	}
+}
+
+// Ref: #/components/schemas/DeploymentSummary
+type DeploymentSummary struct {
+	ID                 string                      `json:"id"`
+	Stack              string                      `json:"stack"`
+	Commit             string                      `json:"commit"`
+	Status             DeploymentStatus            `json:"status"`
+	Phase              DeploymentPhase             `json:"phase"`
+	Reason             OptString                   `json:"reason"`
+	ApplyStatus        DeploymentStageStatus       `json:"apply_status"`
+	VerificationStatus DeploymentStageStatus       `json:"verification_status"`
+	CleanupStatus      DeploymentStageStatus       `json:"cleanup_status"`
+	ActualStateStatus  DeploymentActualStateStatus `json:"actual_state_status"`
+	ObservedAt         OptDateTime                 `json:"observed_at"`
+	ComparisonBasis    DeploymentComparisonBasis   `json:"comparison_basis"`
+	ComparisonStatus   DeploymentComparisonStatus  `json:"comparison_status"`
+	BasisDeploymentID  OptString                   `json:"basis_deployment_id"`
+	StartedAt          time.Time                   `json:"started_at"`
+	FinishedAt         OptDateTime                 `json:"finished_at"`
+	DurationMs         OptInt64                    `json:"duration_ms"`
+	Summary            DeploymentChangeSummary     `json:"summary"`
+	Resources          DeploymentResourceSummary   `json:"resources"`
+	DiffAvailable      bool                        `json:"diff_available"`
+	// Empty when a legacy Deployment has no persisted Attempts.
+	LatestAttemptID string `json:"latest_attempt_id"`
+	// Number of persisted Attempts; legacy Deployments may have zero.
+	AttemptCount int `json:"attempt_count"`
+}
+
+// GetID returns the value of ID.
+func (s *DeploymentSummary) GetID() string {
+	return s.ID
+}
+
+// GetStack returns the value of Stack.
+func (s *DeploymentSummary) GetStack() string {
+	return s.Stack
+}
+
+// GetCommit returns the value of Commit.
+func (s *DeploymentSummary) GetCommit() string {
+	return s.Commit
+}
+
+// GetStatus returns the value of Status.
+func (s *DeploymentSummary) GetStatus() DeploymentStatus {
+	return s.Status
+}
+
+// GetPhase returns the value of Phase.
+func (s *DeploymentSummary) GetPhase() DeploymentPhase {
+	return s.Phase
+}
+
+// GetReason returns the value of Reason.
+func (s *DeploymentSummary) GetReason() OptString {
+	return s.Reason
+}
+
+// GetApplyStatus returns the value of ApplyStatus.
+func (s *DeploymentSummary) GetApplyStatus() DeploymentStageStatus {
+	return s.ApplyStatus
+}
+
+// GetVerificationStatus returns the value of VerificationStatus.
+func (s *DeploymentSummary) GetVerificationStatus() DeploymentStageStatus {
+	return s.VerificationStatus
+}
+
+// GetCleanupStatus returns the value of CleanupStatus.
+func (s *DeploymentSummary) GetCleanupStatus() DeploymentStageStatus {
+	return s.CleanupStatus
+}
+
+// GetActualStateStatus returns the value of ActualStateStatus.
+func (s *DeploymentSummary) GetActualStateStatus() DeploymentActualStateStatus {
+	return s.ActualStateStatus
+}
+
+// GetObservedAt returns the value of ObservedAt.
+func (s *DeploymentSummary) GetObservedAt() OptDateTime {
+	return s.ObservedAt
+}
+
+// GetComparisonBasis returns the value of ComparisonBasis.
+func (s *DeploymentSummary) GetComparisonBasis() DeploymentComparisonBasis {
+	return s.ComparisonBasis
+}
+
+// GetComparisonStatus returns the value of ComparisonStatus.
+func (s *DeploymentSummary) GetComparisonStatus() DeploymentComparisonStatus {
+	return s.ComparisonStatus
+}
+
+// GetBasisDeploymentID returns the value of BasisDeploymentID.
+func (s *DeploymentSummary) GetBasisDeploymentID() OptString {
+	return s.BasisDeploymentID
+}
+
+// GetStartedAt returns the value of StartedAt.
+func (s *DeploymentSummary) GetStartedAt() time.Time {
+	return s.StartedAt
+}
+
+// GetFinishedAt returns the value of FinishedAt.
+func (s *DeploymentSummary) GetFinishedAt() OptDateTime {
+	return s.FinishedAt
+}
+
+// GetDurationMs returns the value of DurationMs.
+func (s *DeploymentSummary) GetDurationMs() OptInt64 {
+	return s.DurationMs
+}
+
+// GetSummary returns the value of Summary.
+func (s *DeploymentSummary) GetSummary() DeploymentChangeSummary {
+	return s.Summary
+}
+
+// GetResources returns the value of Resources.
+func (s *DeploymentSummary) GetResources() DeploymentResourceSummary {
+	return s.Resources
+}
+
+// GetDiffAvailable returns the value of DiffAvailable.
+func (s *DeploymentSummary) GetDiffAvailable() bool {
+	return s.DiffAvailable
+}
+
+// GetLatestAttemptID returns the value of LatestAttemptID.
+func (s *DeploymentSummary) GetLatestAttemptID() string {
+	return s.LatestAttemptID
+}
+
+// GetAttemptCount returns the value of AttemptCount.
+func (s *DeploymentSummary) GetAttemptCount() int {
+	return s.AttemptCount
+}
+
+// SetID sets the value of ID.
+func (s *DeploymentSummary) SetID(val string) {
+	s.ID = val
+}
+
+// SetStack sets the value of Stack.
+func (s *DeploymentSummary) SetStack(val string) {
+	s.Stack = val
+}
+
+// SetCommit sets the value of Commit.
+func (s *DeploymentSummary) SetCommit(val string) {
+	s.Commit = val
+}
+
+// SetStatus sets the value of Status.
+func (s *DeploymentSummary) SetStatus(val DeploymentStatus) {
+	s.Status = val
+}
+
+// SetPhase sets the value of Phase.
+func (s *DeploymentSummary) SetPhase(val DeploymentPhase) {
+	s.Phase = val
+}
+
+// SetReason sets the value of Reason.
+func (s *DeploymentSummary) SetReason(val OptString) {
+	s.Reason = val
+}
+
+// SetApplyStatus sets the value of ApplyStatus.
+func (s *DeploymentSummary) SetApplyStatus(val DeploymentStageStatus) {
+	s.ApplyStatus = val
+}
+
+// SetVerificationStatus sets the value of VerificationStatus.
+func (s *DeploymentSummary) SetVerificationStatus(val DeploymentStageStatus) {
+	s.VerificationStatus = val
+}
+
+// SetCleanupStatus sets the value of CleanupStatus.
+func (s *DeploymentSummary) SetCleanupStatus(val DeploymentStageStatus) {
+	s.CleanupStatus = val
+}
+
+// SetActualStateStatus sets the value of ActualStateStatus.
+func (s *DeploymentSummary) SetActualStateStatus(val DeploymentActualStateStatus) {
+	s.ActualStateStatus = val
+}
+
+// SetObservedAt sets the value of ObservedAt.
+func (s *DeploymentSummary) SetObservedAt(val OptDateTime) {
+	s.ObservedAt = val
+}
+
+// SetComparisonBasis sets the value of ComparisonBasis.
+func (s *DeploymentSummary) SetComparisonBasis(val DeploymentComparisonBasis) {
+	s.ComparisonBasis = val
+}
+
+// SetComparisonStatus sets the value of ComparisonStatus.
+func (s *DeploymentSummary) SetComparisonStatus(val DeploymentComparisonStatus) {
+	s.ComparisonStatus = val
+}
+
+// SetBasisDeploymentID sets the value of BasisDeploymentID.
+func (s *DeploymentSummary) SetBasisDeploymentID(val OptString) {
+	s.BasisDeploymentID = val
+}
+
+// SetStartedAt sets the value of StartedAt.
+func (s *DeploymentSummary) SetStartedAt(val time.Time) {
+	s.StartedAt = val
+}
+
+// SetFinishedAt sets the value of FinishedAt.
+func (s *DeploymentSummary) SetFinishedAt(val OptDateTime) {
+	s.FinishedAt = val
+}
+
+// SetDurationMs sets the value of DurationMs.
+func (s *DeploymentSummary) SetDurationMs(val OptInt64) {
+	s.DurationMs = val
+}
+
+// SetSummary sets the value of Summary.
+func (s *DeploymentSummary) SetSummary(val DeploymentChangeSummary) {
+	s.Summary = val
+}
+
+// SetResources sets the value of Resources.
+func (s *DeploymentSummary) SetResources(val DeploymentResourceSummary) {
+	s.Resources = val
+}
+
+// SetDiffAvailable sets the value of DiffAvailable.
+func (s *DeploymentSummary) SetDiffAvailable(val bool) {
+	s.DiffAvailable = val
+}
+
+// SetLatestAttemptID sets the value of LatestAttemptID.
+func (s *DeploymentSummary) SetLatestAttemptID(val string) {
+	s.LatestAttemptID = val
+}
+
+// SetAttemptCount sets the value of AttemptCount.
+func (s *DeploymentSummary) SetAttemptCount(val int) {
+	s.AttemptCount = val
+}
+
+// Ref: #/components/schemas/DeploymentsResponse
+type DeploymentsResponse struct {
+	Deployments []DeploymentSummary `json:"deployments"`
+	NextCursor  OptString           `json:"next_cursor"`
+}
+
+// GetDeployments returns the value of Deployments.
+func (s *DeploymentsResponse) GetDeployments() []DeploymentSummary {
+	return s.Deployments
+}
+
+// GetNextCursor returns the value of NextCursor.
+func (s *DeploymentsResponse) GetNextCursor() OptString {
+	return s.NextCursor
+}
+
+// SetDeployments sets the value of Deployments.
+func (s *DeploymentsResponse) SetDeployments(val []DeploymentSummary) {
+	s.Deployments = val
+}
+
+// SetNextCursor sets the value of NextCursor.
+func (s *DeploymentsResponse) SetNextCursor(val OptString) {
+	s.NextCursor = val
+}
+
 // Ref: #/components/schemas/EventCategory
 type EventCategory string
 
@@ -900,6 +2774,58 @@ func (s *EventCategory) UnmarshalText(data []byte) error {
 	default:
 		return errors.Errorf("invalid value: %q", data)
 	}
+}
+
+// Ref: #/components/schemas/EventFilterOptions
+type EventFilterOptions struct {
+	Stacks   []string             `json:"stacks"`
+	Services []EventFilterService `json:"services"`
+}
+
+// GetStacks returns the value of Stacks.
+func (s *EventFilterOptions) GetStacks() []string {
+	return s.Stacks
+}
+
+// GetServices returns the value of Services.
+func (s *EventFilterOptions) GetServices() []EventFilterService {
+	return s.Services
+}
+
+// SetStacks sets the value of Stacks.
+func (s *EventFilterOptions) SetStacks(val []string) {
+	s.Stacks = val
+}
+
+// SetServices sets the value of Services.
+func (s *EventFilterOptions) SetServices(val []EventFilterService) {
+	s.Services = val
+}
+
+// Ref: #/components/schemas/EventFilterService
+type EventFilterService struct {
+	StackName   string `json:"stack_name"`
+	ServiceName string `json:"service_name"`
+}
+
+// GetStackName returns the value of StackName.
+func (s *EventFilterService) GetStackName() string {
+	return s.StackName
+}
+
+// GetServiceName returns the value of ServiceName.
+func (s *EventFilterService) GetServiceName() string {
+	return s.ServiceName
+}
+
+// SetStackName sets the value of StackName.
+func (s *EventFilterService) SetStackName(val string) {
+	s.StackName = val
+}
+
+// SetServiceName sets the value of ServiceName.
+func (s *EventFilterService) SetServiceName(val string) {
+	s.ServiceName = val
 }
 
 // Ref: #/components/schemas/EventHistoryItem
@@ -997,6 +2923,8 @@ func (s *EventHistoryItemDetails) init() EventHistoryItemDetails {
 // Ref: #/components/schemas/EventHistoryResponse
 type EventHistoryResponse struct {
 	Events []EventHistoryItem `json:"events"`
+	// Opaque cursor for the following page, omitted when no more events are available.
+	NextCursor OptString `json:"nextCursor"`
 }
 
 // GetEvents returns the value of Events.
@@ -1004,9 +2932,19 @@ func (s *EventHistoryResponse) GetEvents() []EventHistoryItem {
 	return s.Events
 }
 
+// GetNextCursor returns the value of NextCursor.
+func (s *EventHistoryResponse) GetNextCursor() OptString {
+	return s.NextCursor
+}
+
 // SetEvents sets the value of Events.
 func (s *EventHistoryResponse) SetEvents(val []EventHistoryItem) {
 	s.Events = val
+}
+
+// SetNextCursor sets the value of NextCursor.
+func (s *EventHistoryResponse) SetNextCursor(val OptString) {
+	s.NextCursor = val
 }
 
 // Ref: #/components/schemas/EventSeverity
@@ -1064,6 +3002,42 @@ func (s *EventSeverity) UnmarshalText(data []byte) error {
 		return errors.Errorf("invalid value: %q", data)
 	}
 }
+
+// GetDeploymentInitJobLogsNotFound is response for GetDeploymentInitJobLogs operation.
+type GetDeploymentInitJobLogsNotFound struct{}
+
+func (*GetDeploymentInitJobLogsNotFound) getDeploymentInitJobLogsRes() {}
+
+type GetDeploymentInitJobLogsOK struct {
+	Data io.Reader
+}
+
+// Read reads data from the Data reader.
+//
+// Kept to satisfy the io.Reader interface.
+func (s GetDeploymentInitJobLogsOK) Read(p []byte) (n int, err error) {
+	if s.Data == nil {
+		return 0, io.EOF
+	}
+	return s.Data.Read(p)
+}
+
+// GetDeploymentInitJobLogsOKRawApplicationOctetStream represents raw HTTP response for GetDeploymentInitJobLogs application/octet-stream.
+type GetDeploymentInitJobLogsOKRawApplicationOctetStream struct {
+	Response *http.Response `json:"-"`
+}
+
+// GetResponse returns the value of Response.
+func (s *GetDeploymentInitJobLogsOKRawApplicationOctetStream) GetResponse() *http.Response {
+	return s.Response
+}
+
+// SetResponse sets the value of Response.
+func (s *GetDeploymentInitJobLogsOKRawApplicationOctetStream) SetResponse(val *http.Response) {
+	s.Response = val
+}
+
+func (*GetDeploymentInitJobLogsOKRawApplicationOctetStream) getDeploymentInitJobLogsRes() {}
 
 type GetTaskLogsOK struct {
 	Data io.Reader
@@ -1882,6 +3856,52 @@ func (o OptDateTime) Or(d time.Time) time.Time {
 	return d
 }
 
+// NewOptDeploymentActivityInterval returns new OptDeploymentActivityInterval with value set to v.
+func NewOptDeploymentActivityInterval(v DeploymentActivityInterval) OptDeploymentActivityInterval {
+	return OptDeploymentActivityInterval{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptDeploymentActivityInterval is optional DeploymentActivityInterval.
+type OptDeploymentActivityInterval struct {
+	Value DeploymentActivityInterval
+	Set   bool
+}
+
+// IsSet returns true if OptDeploymentActivityInterval was set.
+func (o OptDeploymentActivityInterval) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptDeploymentActivityInterval) Reset() {
+	var v DeploymentActivityInterval
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptDeploymentActivityInterval) SetTo(v DeploymentActivityInterval) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptDeploymentActivityInterval) Get() (v DeploymentActivityInterval, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptDeploymentActivityInterval) Or(d DeploymentActivityInterval) DeploymentActivityInterval {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // NewOptEventHistoryItemDetails returns new OptEventHistoryItemDetails with value set to v.
 func NewOptEventHistoryItemDetails(v EventHistoryItemDetails) OptEventHistoryItemDetails {
 	return OptEventHistoryItemDetails{
@@ -1968,6 +3988,52 @@ func (o OptInt32) Get() (v int32, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptInt32) Or(d int32) int32 {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptInt64 returns new OptInt64 with value set to v.
+func NewOptInt64(v int64) OptInt64 {
+	return OptInt64{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptInt64 is optional int64.
+type OptInt64 struct {
+	Value int64
+	Set   bool
+}
+
+// IsSet returns true if OptInt64 was set.
+func (o OptInt64) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptInt64) Reset() {
+	var v int64
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptInt64) SetTo(v int64) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptInt64) Get() (v int64, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptInt64) Or(d int64) int64 {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -2198,6 +4264,52 @@ func (o OptSecretExternalInfo) Get() (v SecretExternalInfo, ok bool) {
 
 // Or returns value if set, or given parameter if does not.
 func (o OptSecretExternalInfo) Or(d SecretExternalInfo) SecretExternalInfo {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
+// NewOptSecretInfo returns new OptSecretInfo with value set to v.
+func NewOptSecretInfo(v SecretInfo) OptSecretInfo {
+	return OptSecretInfo{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptSecretInfo is optional SecretInfo.
+type OptSecretInfo struct {
+	Value SecretInfo
+	Set   bool
+}
+
+// IsSet returns true if OptSecretInfo was set.
+func (o OptSecretInfo) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptSecretInfo) Reset() {
+	var v SecretInfo
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptSecretInfo) SetTo(v SecretInfo) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptSecretInfo) Get() (v SecretInfo, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptSecretInfo) Or(d SecretInfo) SecretInfo {
 	if v, ok := o.Get(); ok {
 		return v
 	}
@@ -2806,6 +4918,7 @@ type SecretDetailsResponse struct {
 	Driver    OptString                      `json:"driver"`
 	Labels    OptSecretDetailsResponseLabels `json:"labels"`
 	External  OptSecretExternalInfo          `json:"external"`
+	UsedBy    []SecretServiceUsage           `json:"used_by"`
 }
 
 // GetID returns the value of ID.
@@ -2848,6 +4961,11 @@ func (s *SecretDetailsResponse) GetExternal() OptSecretExternalInfo {
 	return s.External
 }
 
+// GetUsedBy returns the value of UsedBy.
+func (s *SecretDetailsResponse) GetUsedBy() []SecretServiceUsage {
+	return s.UsedBy
+}
+
 // SetID sets the value of ID.
 func (s *SecretDetailsResponse) SetID(val string) {
 	s.ID = val
@@ -2886,6 +5004,11 @@ func (s *SecretDetailsResponse) SetLabels(val OptSecretDetailsResponseLabels) {
 // SetExternal sets the value of External.
 func (s *SecretDetailsResponse) SetExternal(val OptSecretExternalInfo) {
 	s.External = val
+}
+
+// SetUsedBy sets the value of UsedBy.
+func (s *SecretDetailsResponse) SetUsedBy(val []SecretServiceUsage) {
+	s.UsedBy = val
 }
 
 type SecretDetailsResponseLabels map[string]string
@@ -2927,11 +5050,13 @@ func (s *SecretExternalInfo) SetVersionID(val OptString) {
 
 // Ref: #/components/schemas/SecretInfo
 type SecretInfo struct {
-	ID        string                `json:"id"`
-	Name      string                `json:"name"`
-	VersionID int64                 `json:"version_id"`
-	CreatedAt time.Time             `json:"created_at"`
-	External  OptSecretExternalInfo `json:"external"`
+	ID          string                `json:"id"`
+	Name        string                `json:"name"`
+	Description OptString             `json:"description"`
+	VersionID   int64                 `json:"version_id"`
+	CreatedAt   time.Time             `json:"created_at"`
+	External    OptSecretExternalInfo `json:"external"`
+	UsedBy      []SecretServiceUsage  `json:"used_by"`
 }
 
 // GetID returns the value of ID.
@@ -2942,6 +5067,11 @@ func (s *SecretInfo) GetID() string {
 // GetName returns the value of Name.
 func (s *SecretInfo) GetName() string {
 	return s.Name
+}
+
+// GetDescription returns the value of Description.
+func (s *SecretInfo) GetDescription() OptString {
+	return s.Description
 }
 
 // GetVersionID returns the value of VersionID.
@@ -2959,6 +5089,11 @@ func (s *SecretInfo) GetExternal() OptSecretExternalInfo {
 	return s.External
 }
 
+// GetUsedBy returns the value of UsedBy.
+func (s *SecretInfo) GetUsedBy() []SecretServiceUsage {
+	return s.UsedBy
+}
+
 // SetID sets the value of ID.
 func (s *SecretInfo) SetID(val string) {
 	s.ID = val
@@ -2967,6 +5102,11 @@ func (s *SecretInfo) SetID(val string) {
 // SetName sets the value of Name.
 func (s *SecretInfo) SetName(val string) {
 	s.Name = val
+}
+
+// SetDescription sets the value of Description.
+func (s *SecretInfo) SetDescription(val OptString) {
+	s.Description = val
 }
 
 // SetVersionID sets the value of VersionID.
@@ -2982,6 +5122,11 @@ func (s *SecretInfo) SetCreatedAt(val time.Time) {
 // SetExternal sets the value of External.
 func (s *SecretInfo) SetExternal(val OptSecretExternalInfo) {
 	s.External = val
+}
+
+// SetUsedBy sets the value of UsedBy.
+func (s *SecretInfo) SetUsedBy(val []SecretServiceUsage) {
+	s.UsedBy = val
 }
 
 // Ref: #/components/schemas/SecretManagerInfo
@@ -3213,6 +5358,43 @@ func (s *SecretManagersResponse) SetSecretManagers(val []SecretManagerInfo) {
 	s.SecretManagers = val
 }
 
+// Ref: #/components/schemas/SecretServiceUsage
+type SecretServiceUsage struct {
+	Stack   string    `json:"stack"`
+	Service string    `json:"service"`
+	Target  OptString `json:"target"`
+}
+
+// GetStack returns the value of Stack.
+func (s *SecretServiceUsage) GetStack() string {
+	return s.Stack
+}
+
+// GetService returns the value of Service.
+func (s *SecretServiceUsage) GetService() string {
+	return s.Service
+}
+
+// GetTarget returns the value of Target.
+func (s *SecretServiceUsage) GetTarget() OptString {
+	return s.Target
+}
+
+// SetStack sets the value of Stack.
+func (s *SecretServiceUsage) SetStack(val string) {
+	s.Stack = val
+}
+
+// SetService sets the value of Service.
+func (s *SecretServiceUsage) SetService(val string) {
+	s.Service = val
+}
+
+// SetTarget sets the value of Target.
+func (s *SecretServiceUsage) SetTarget(val OptString) {
+	s.Target = val
+}
+
 // Ref: #/components/schemas/SecretsResponse
 type SecretsResponse struct {
 	Secrets []SecretInfo `json:"secrets"`
@@ -3230,12 +5412,19 @@ func (s *SecretsResponse) SetSecrets(val []SecretInfo) {
 
 // Ref: #/components/schemas/ServiceDeploymentResponse
 type ServiceDeploymentResponse struct {
+	// Desired-state deployment ID.
+	ID           string                  `json:"id"`
 	CreatedAt    time.Time               `json:"created_at"`
 	Status       ServiceDeploymentStatus `json:"status"`
 	Image        string                  `json:"image"`
 	ImageVersion string                  `json:"image_version"`
 	Message      OptString               `json:"message"`
 	Commit       OptString               `json:"commit"`
+}
+
+// GetID returns the value of ID.
+func (s *ServiceDeploymentResponse) GetID() string {
+	return s.ID
 }
 
 // GetCreatedAt returns the value of CreatedAt.
@@ -3266,6 +5455,11 @@ func (s *ServiceDeploymentResponse) GetMessage() OptString {
 // GetCommit returns the value of Commit.
 func (s *ServiceDeploymentResponse) GetCommit() OptString {
 	return s.Commit
+}
+
+// SetID sets the value of ID.
+func (s *ServiceDeploymentResponse) SetID(val string) {
+	s.ID = val
 }
 
 // SetCreatedAt sets the value of CreatedAt.
@@ -3302,24 +5496,36 @@ func (s *ServiceDeploymentResponse) SetCommit(val OptString) {
 type ServiceDeploymentStatus string
 
 const (
-	ServiceDeploymentStatusSuccess ServiceDeploymentStatus = "success"
-	ServiceDeploymentStatusFailed  ServiceDeploymentStatus = "failed"
+	ServiceDeploymentStatusRunning     ServiceDeploymentStatus = "running"
+	ServiceDeploymentStatusSucceeded   ServiceDeploymentStatus = "succeeded"
+	ServiceDeploymentStatusFailed      ServiceDeploymentStatus = "failed"
+	ServiceDeploymentStatusInterrupted ServiceDeploymentStatus = "interrupted"
+	ServiceDeploymentStatusSuperseded  ServiceDeploymentStatus = "superseded"
 )
 
 // AllValues returns all ServiceDeploymentStatus values.
 func (ServiceDeploymentStatus) AllValues() []ServiceDeploymentStatus {
 	return []ServiceDeploymentStatus{
-		ServiceDeploymentStatusSuccess,
+		ServiceDeploymentStatusRunning,
+		ServiceDeploymentStatusSucceeded,
 		ServiceDeploymentStatusFailed,
+		ServiceDeploymentStatusInterrupted,
+		ServiceDeploymentStatusSuperseded,
 	}
 }
 
 // MarshalText implements encoding.TextMarshaler.
 func (s ServiceDeploymentStatus) MarshalText() ([]byte, error) {
 	switch s {
-	case ServiceDeploymentStatusSuccess:
+	case ServiceDeploymentStatusRunning:
+		return []byte(s), nil
+	case ServiceDeploymentStatusSucceeded:
 		return []byte(s), nil
 	case ServiceDeploymentStatusFailed:
+		return []byte(s), nil
+	case ServiceDeploymentStatusInterrupted:
+		return []byte(s), nil
+	case ServiceDeploymentStatusSuperseded:
 		return []byte(s), nil
 	default:
 		return nil, errors.Errorf("invalid value: %q", s)
@@ -3329,11 +5535,20 @@ func (s ServiceDeploymentStatus) MarshalText() ([]byte, error) {
 // UnmarshalText implements encoding.TextUnmarshaler.
 func (s *ServiceDeploymentStatus) UnmarshalText(data []byte) error {
 	switch ServiceDeploymentStatus(data) {
-	case ServiceDeploymentStatusSuccess:
-		*s = ServiceDeploymentStatusSuccess
+	case ServiceDeploymentStatusRunning:
+		*s = ServiceDeploymentStatusRunning
+		return nil
+	case ServiceDeploymentStatusSucceeded:
+		*s = ServiceDeploymentStatusSucceeded
 		return nil
 	case ServiceDeploymentStatusFailed:
 		*s = ServiceDeploymentStatusFailed
+		return nil
+	case ServiceDeploymentStatusInterrupted:
+		*s = ServiceDeploymentStatusInterrupted
+		return nil
+	case ServiceDeploymentStatusSuperseded:
+		*s = ServiceDeploymentStatusSuperseded
 		return nil
 	default:
 		return errors.Errorf("invalid value: %q", data)
@@ -3885,9 +6100,10 @@ func (s *ServiceSpecResponse) SetNetwork(val []ServiceSpecNetworkResponse) {
 
 // Ref: #/components/schemas/ServiceSpecSecretResponse
 type ServiceSpecSecretResponse struct {
-	SecretID   OptString `json:"secret_id"`
-	SecretName string    `json:"secret_name"`
-	Target     OptString `json:"target"`
+	SecretID   OptString     `json:"secret_id"`
+	SecretName string        `json:"secret_name"`
+	Target     OptString     `json:"target"`
+	Secret     OptSecretInfo `json:"secret"`
 }
 
 // GetSecretID returns the value of SecretID.
@@ -3905,6 +6121,11 @@ func (s *ServiceSpecSecretResponse) GetTarget() OptString {
 	return s.Target
 }
 
+// GetSecret returns the value of Secret.
+func (s *ServiceSpecSecretResponse) GetSecret() OptSecretInfo {
+	return s.Secret
+}
+
 // SetSecretID sets the value of SecretID.
 func (s *ServiceSpecSecretResponse) SetSecretID(val OptString) {
 	s.SecretID = val
@@ -3918,6 +6139,11 @@ func (s *ServiceSpecSecretResponse) SetSecretName(val string) {
 // SetTarget sets the value of Target.
 func (s *ServiceSpecSecretResponse) SetTarget(val OptString) {
 	s.Target = val
+}
+
+// SetSecret sets the value of Secret.
+func (s *ServiceSpecSecretResponse) SetSecret(val OptSecretInfo) {
+	s.Secret = val
 }
 
 // Ref: #/components/schemas/ServiceStatusResponse
@@ -4056,6 +6282,70 @@ func (s *StackManifestosResponse) SetDesired(val string) {
 // SetLive sets the value of Live.
 func (s *StackManifestosResponse) SetLive(val string) {
 	s.Live = val
+}
+
+// Resource identity without values, configuration data or labels.
+// Ref: #/components/schemas/StackResourceInfo
+type StackResourceInfo struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// GetID returns the value of ID.
+func (s *StackResourceInfo) GetID() string {
+	return s.ID
+}
+
+// GetName returns the value of Name.
+func (s *StackResourceInfo) GetName() string {
+	return s.Name
+}
+
+// SetID sets the value of ID.
+func (s *StackResourceInfo) SetID(val string) {
+	s.ID = val
+}
+
+// SetName sets the value of Name.
+func (s *StackResourceInfo) SetName(val string) {
+	s.Name = val
+}
+
+// Ref: #/components/schemas/StackResourcesResponse
+type StackResourcesResponse struct {
+	Networks []NetworkInfo       `json:"networks"`
+	Secrets  []StackResourceInfo `json:"secrets"`
+	Configs  []StackResourceInfo `json:"configs"`
+}
+
+// GetNetworks returns the value of Networks.
+func (s *StackResourcesResponse) GetNetworks() []NetworkInfo {
+	return s.Networks
+}
+
+// GetSecrets returns the value of Secrets.
+func (s *StackResourcesResponse) GetSecrets() []StackResourceInfo {
+	return s.Secrets
+}
+
+// GetConfigs returns the value of Configs.
+func (s *StackResourcesResponse) GetConfigs() []StackResourceInfo {
+	return s.Configs
+}
+
+// SetNetworks sets the value of Networks.
+func (s *StackResourcesResponse) SetNetworks(val []NetworkInfo) {
+	s.Networks = val
+}
+
+// SetSecrets sets the value of Secrets.
+func (s *StackResourcesResponse) SetSecrets(val []StackResourceInfo) {
+	s.Secrets = val
+}
+
+// SetConfigs sets the value of Configs.
+func (s *StackResourcesResponse) SetConfigs(val []StackResourceInfo) {
+	s.Configs = val
 }
 
 // Ref: #/components/schemas/StackStatus

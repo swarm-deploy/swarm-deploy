@@ -3,7 +3,6 @@ package tools
 import (
 	"context"
 	"encoding/json"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -12,7 +11,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 )
 
 func TestRecommendationListExecute(t *testing.T) {
@@ -75,11 +74,7 @@ func TestRecommendationListExecuteFailsOnInvalidLimit(t *testing.T) {
 	assert.Contains(t, err.Error(), "limit must be <=", "unexpected error")
 }
 
-func newRecommendationStore(t *testing.T, ctx context.Context) *modelstore.FileStore {
+func newRecommendationStore(t *testing.T, _ context.Context) *modelstore.SQLStore {
 	t.Helper()
-
-	store, err := modelstore.NewFileStore(ctx, filepath.Join(t.TempDir(), "recommendations.json"), fs.NewLocalFileSystem())
-	require.NoError(t, err, "new recommendations store")
-
-	return store
+	return modelstore.NewSQLStore(testutil.OpenSQLite(t))
 }

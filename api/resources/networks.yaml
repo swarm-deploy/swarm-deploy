@@ -1,0 +1,51 @@
+paths:
+  /api/v1/networks:
+    get:
+      operationId: listNetworks
+      responses:
+        '200':
+          description: Current Docker networks snapshot.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NetworksResponse'
+components:
+  schemas:
+    NetworksResponse:
+      type: object
+      required: [networks]
+      properties:
+        networks:
+          type: array
+          items:
+            $ref: '#/components/schemas/NetworkInfo'
+    NetworkInfo:
+      type: object
+      required: [id, name, scope, driver, internal, attachable, ingress, managed]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        scope:
+          type: string
+        driver:
+          type: string
+        internal:
+          type: boolean
+        attachable:
+          type: boolean
+        ingress:
+          type: boolean
+        labels:
+          type: object
+          additionalProperties:
+            type: string
+        options:
+          type: object
+          additionalProperties:
+            type: string
+        stack_name:
+          type: string
+        managed:
+          type: boolean

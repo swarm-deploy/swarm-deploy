@@ -2,6 +2,8 @@
 import { computed, nextTick, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
+import { getAssistantSuggestions } from "../../api/assistant";
+import type { AssistantSuggestion } from "../../api/types";
 import { useAssistantStore } from "../../stores/assistant";
 import { useUIStore } from "../../stores/ui";
 import { renderAssistantMarkdown } from "../../utils/assistantMarkdown";
@@ -15,6 +17,8 @@ const router = useRouter();
 const messageInput = ref("");
 const inputRef = ref<HTMLTextAreaElement | null>(null);
 const bodyRef = ref<HTMLElement | null>(null);
+const suggestions = ref<AssistantSuggestion[]>([]);
+let suggestionsGeneration = 0;
 
 const isOpen = computed(() => uiStore.assistantDrawerOpen && assistantStore.enabled);
 const messages = computed(() => assistantStore.messages);
@@ -24,6 +28,15 @@ const chats = computed(() => assistantStore.chats);
 const historyOpen = computed(() => assistantStore.historyOpen);
 const historyLoading = computed(() => assistantStore.historyLoading);
 const usageOpenChatID = ref("");
+
+const existingChatLoading = computed(() => {
+  const assistant = typeof route.query.assistant === "string" ? route.query.assistant : "";
+  return assistant !== "" && assistant !== "new" && assistant !== "chats" && assistantStore.conversationID !== assistant;
+});
+
+const emptyChatVisible = computed(
+  () => isOpen.value && !historyOpen.value && messages.value.length === 0 && !existingChatLoading.value,
+);
 
 const currentChatTitle = computed(() => {
   const persisted = chats.value.find((chat) => chat.id === assistantStore.conversationID);
@@ -121,6 +134,27 @@ watch(
   },
 );
 
+watch(
+  emptyChatVisible,
+  async (visible) => {
+    const generation = ++suggestionsGeneration;
+    suggestions.value = [];
+    if (!visible) {
+      return;
+    }
+
+    try {
+      const response = await getAssistantSuggestions();
+      if (generation === suggestionsGeneration && emptyChatVisible.value) {
+        suggestions.value = response.suggestions || [];
+      }
+    } catch {
+      // Suggested prompts are optional; the composer remains fully functional.
+    }
+  },
+  { immediate: true },
+);
+
 function scrollToBottom() {
   bodyRef.value?.scrollTo({
     top: bodyRef.value.scrollHeight,
@@ -151,10 +185,6 @@ function assistantQuery(value: string | undefined) {
 }
 
 async function openHistory() {
-  if (pending.value) {
-    return;
-  }
-
   await router.push({ query: assistantQuery("chats") });
 }
 
@@ -176,6 +206,7 @@ async function newChat() {
 
 async function closeDrawer() {
   usageOpenChatID.value = "";
+  uiStore.closeAssistantDrawer();
   await router.push({ query: assistantQuery(undefined) });
 }
 
@@ -218,6 +249,16 @@ async function submitMessage() {
 
   messageInput.value = "";
   await assistantStore.sendMessage(text);
+  await nextTick();
+  inputRef.value?.focus();
+}
+
+async function submitSuggestion(suggestion: AssistantSuggestion) {
+  if (pending.value) {
+    return;
+  }
+
+  await assistantStore.sendMessage(suggestion.prompt);
   await nextTick();
   inputRef.value?.focus();
 }
@@ -266,7 +307,6 @@ function renderMessageText(role: string, text: string): string {
               class="assistant-icon-button"
               aria-label="Back to chats"
               title="Back to chats"
-              :disabled="pending"
               @click="openHistory"
             >
               <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -389,10 +429,25 @@ function renderMessageText(role: string, text: string): string {
         ref="bodyRef"
         class="assistant-drawer-body"
       >
-        <div v-if="messages.length === 0" class="assistant-empty-state">
+        <div v-if="messages.length === 0 && !existingChatLoading" class="assistant-empty-state">
           <span class="assistant-avatar" aria-hidden="true">AI</span>
           <strong>How can I help?</strong>
           <span>Ask about services, deployments, events, or the Swarm cluster.</span>
+          <div v-if="suggestions.length > 0" class="assistant-suggestions" aria-label="Suggested prompts">
+            <button
+              v-for="suggestion in suggestions"
+              :key="suggestion.id"
+              type="button"
+              class="assistant-suggestion"
+              :disabled="pending"
+              @click="submitSuggestion(suggestion)"
+            >
+              <span>{{ suggestion.title }}</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="m9 18 6-6-6-6" />
+              </svg>
+            </button>
+          </div>
         </div>
 
         <div v-else class="assistant-chat-list">

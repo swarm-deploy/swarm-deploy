@@ -27,3 +27,7 @@ func (OSFileSystem) CreateDirectory(_ context.Context, path string, perm os.File
 func (OSFileSystem) Rename(_ context.Context, oldPath string, newPath string) error {
 	return os.Rename(oldPath, newPath)
 }
+
+func (OSFileSystem) RemoveFile(_ context.Context, path string) error {
+	return os.Remove(path)
+}

@@ -1,0 +1,100 @@
+package enrichment
+
+import (
+	"bytes"
+	"context"
+	"io"
+	"log/slog"
+
+	webroutecore "github.com/swarm-deploy/webroute"
+	webroute "github.com/swarm-deploy/webroute/api"
+)
+
+// WebRouteResolver resolves public routes exposed by a service.
+type WebRouteResolver struct {
+	providers []webroute.Provider
+}
+
+type webroutableService struct {
+	environment map[string]string
+	configs     []webroute.ServiceConfig
+}
+
+// NewWebRouteResolver creates a resolver with all registered web route providers.
+func NewWebRouteResolver() *WebRouteResolver {
+	return &WebRouteResolver{
+		providers: webroutecore.Providers(),
+	}
+}
+
+func (s *webroutableService) Environment() (map[string]string, error) {
+	return s.environment, nil
+}
+
+func (s *webroutableService) Configs() []webroute.ServiceConfig {
+	configs := make([]webroute.ServiceConfig, 0, len(s.configs))
+	configs = append(configs, s.configs...)
+
+	return configs
+}
+
+// Resolve resolves all routes from container environment and configs.
+func (r *WebRouteResolver) Resolve(
+	ctx context.Context,
+	environment map[string]string,
+	configs []webroute.ServiceConfig,
+) []webroute.WebRoute {
+	if len(environment) == 0 && len(configs) == 0 {
+		return nil
+	}
+
+	out := make([]webroute.WebRoute, 0)
+	seen := map[string]struct{}{}
+	service := &webroutableService{
+		environment: environment,
+		configs:     configs,
+	}
+
+	for _, provider := range r.providers {
+		prRoutes, rerr := provider.Resolve(ctx, service)
+		if rerr != nil {
+			slog.InfoContext(ctx, "[service] failed to resolve web routes", slog.Any("err", rerr))
+		}
+
+		for _, route := range prRoutes {
+			key := string(route.Provider) + "-" + route.From.Domain + "-" + route.From.Address + "-" + route.From.Port
+			if route.To != nil {
+				key += "-" + route.To.Domain + "-" + route.To.Address + "-" + route.To.Port
+			}
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			out = append(out, route)
+		}
+	}
+
+	return out
+}
+
+type webrouteConfig struct {
+	path string
+	data []byte
+}
+
+// NewWebRouteConfig creates an in-memory service config used for route resolution.
+func NewWebRouteConfig(path string, data []byte) webroute.ServiceConfig {
+	return webrouteConfig{
+		path: path,
+		data: data,
+	}
+}
+
+func (c webrouteConfig) Path() string {
+	return c.path
+}
+
+func (c webrouteConfig) Read(_ context.Context, out io.Writer) error {
+	_, err := io.Copy(out, bytes.NewReader(c.data))
+	return err
+}

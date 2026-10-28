@@ -18,6 +18,10 @@ const (
 	NodeManagerStatusLeader NodeManagerStatus = "leader"
 	// NodeManagerStatusManager is used for manager without explicit reachability.
 	NodeManagerStatusManager NodeManagerStatus = "manager"
+	// NodeManagerStatusReachable is used for reachable manager node.
+	NodeManagerStatusReachable NodeManagerStatus = "reachable"
+	// NodeManagerStatusUnreachable is used for unreachable manager node.
+	NodeManagerStatusUnreachable NodeManagerStatus = "unreachable"
 )
 
 // Node is a persisted/read model of Docker Swarm node.

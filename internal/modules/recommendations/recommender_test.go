@@ -2,7 +2,6 @@ package recommendations
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -10,17 +9,12 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/analyzer"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/recommendations/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 )
 
 func TestRecommenderClearsStackRecommendationsWhenAnalyzerReturnsEmptyList(t *testing.T) {
 	ctx := context.Background()
-	store, err := modelstore.NewFileStore(
-		ctx,
-		filepath.Join(t.TempDir(), "recommendations.json"),
-		fs.NewLocalFileSystem(),
-	)
-	require.NoError(t, err, "new recommendation store")
+	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
 
 	recommender := NewRecommender(analyzer.NewResourcesUnspecifiedAnalyzer(), store)
 

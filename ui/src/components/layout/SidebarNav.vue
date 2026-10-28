@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 
 import { useUIStore, type ThemeMode } from "../../stores/ui";
@@ -35,10 +35,9 @@ const links = [
   { to: "/networks", label: "Networks", icon: "networks" },
   { to: "/secrets", label: "Secrets", icon: "secrets" },
   { to: "/recommendations", label: "Recommendations", icon: "recommendations" },
-  { to: "/alerts", label: "Alerts", icon: "alerts" },
 ];
 
-const secondaryLinks = [{ to: "/events", label: "Events", icon: "events" }];
+const secondaryLinks = [{ to: "/events", label: "Events & Alerts", icon: "events" }];
 
 function isActive(path: string): boolean {
   if (path === "/services") {
@@ -74,6 +73,26 @@ function selectTheme(theme: ThemeMode) {
     userMenuRef.value.open = false;
   }
 }
+
+function handleDocumentClick(event: MouseEvent) {
+  const userMenu = userMenuRef.value;
+  if (!userMenu || !userMenu.open) {
+    return;
+  }
+  if (event.target instanceof Node && userMenu.contains(event.target)) {
+    return;
+  }
+
+  userMenu.open = false;
+}
+
+onMounted(() => {
+  document.addEventListener("mousedown", handleDocumentClick);
+});
+
+onUnmounted(() => {
+  document.removeEventListener("mousedown", handleDocumentClick);
+});
 </script>
 
 <template>
@@ -118,7 +137,7 @@ function selectTheme(theme: ThemeMode) {
             :to="link.to"
             class="sidebar-link"
             :class="{ active: isActive(link.to), 'sidebar-link-overview': link.to === '/overview' }"
-            :aria-label="collapsed ? link.label : undefined"
+            :aria-label="link.label"
             :data-tooltip="link.label"
           >
             <SidebarIcon :name="link.icon" />
@@ -133,14 +152,14 @@ function selectTheme(theme: ThemeMode) {
             :to="link.to"
             class="sidebar-link"
             :class="{ active: isActive(link.to) }"
-            :aria-label="collapsed ? link.label : undefined"
+            :aria-label="link.label"
             :data-tooltip="link.label"
           >
             <SidebarIcon :name="link.icon" />
             <span class="sidebar-label">{{ link.label }}</span>
           </RouterLink>
           <details ref="userMenuRef" class="sidebar-user-menu">
-            <summary class="sidebar-link sidebar-user" :data-tooltip="currentUserLabel">
+            <summary class="sidebar-link sidebar-user" :data-tooltip="currentUserLabel" :aria-label="currentUserLabel">
               <SidebarIcon name="user" />
               <span class="sidebar-label">{{ currentUserLabel }}</span>
             </summary>

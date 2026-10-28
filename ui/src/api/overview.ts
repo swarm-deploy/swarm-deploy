@@ -1,8 +1,15 @@
-import { apiRequest } from "./client";
+import { apiRequest, apiTextRequest } from "./client";
+import { withWebBasePath } from "../runtimeConfig";
 import type {
   AlertsResponse,
+  DeploymentsResponse,
+  DeploymentActivityInterval,
+  DeploymentActivityResponse,
+  DeploymentFilterOptions,
+  Deployment,
   AlertStatus,
   EventHistoryResponse,
+  EventFilterOptions,
   GitCommitDetailsResponse,
   QueueResponse,
   RecommendationsResponse,
@@ -11,10 +18,13 @@ import type {
   ServiceStatusResponse,
   StackManifestosResponse,
   StacksResponse,
+  StackResourcesResponse,
+  TaskLogLevel,
 } from "./types";
 
-export function fetchAlerts(options: { status?: AlertStatus; limit?: number } = {}): Promise<AlertsResponse> {
+export function fetchAlerts(options: { status?: AlertStatus; limit?: number; stack?: string } = {}): Promise<AlertsResponse> {
   const params = new URLSearchParams();
+  if (options.stack) params.set("stack", options.stack);
   if (options.status) {
     params.set("status", options.status);
   }
@@ -30,12 +40,31 @@ export interface FetchEventsOptions {
   severities?: string[];
   categories?: string[];
   types?: string[];
+  stackNames?: string[];
+  serviceNames?: string[];
   since?: string;
   limit?: number;
+  cursor?: string;
+  sort?: "time" | "severity";
+  order?: "asc" | "desc";
 }
 
 export function fetchStacks(): Promise<StacksResponse> {
   return apiRequest<StacksResponse>("/api/v1/stacks");
+}
+
+export function fetchStackResources(stack: string): Promise<StackResourcesResponse> {
+  return apiRequest<StackResourcesResponse>(`/api/v1/stacks/${encodeURIComponent(stack)}/resources`);
+}
+
+export function fetchStackDeploymentActivity(
+  stack: string,
+  interval: DeploymentActivityInterval = "weekly",
+): Promise<DeploymentActivityResponse> {
+  const encodedStack = encodeURIComponent(stack);
+  return apiRequest<DeploymentActivityResponse>(
+    `/api/v1/stacks/${encodedStack}/deployments/activity?interval=${encodeURIComponent(interval)}`,
+  );
 }
 
 export function fetchGitCommit(commitHash: string): Promise<GitCommitDetailsResponse> {
@@ -60,15 +89,34 @@ export function fetchEvents(options: FetchEventsOptions = {}): Promise<EventHist
   for (const type of options.types ?? []) {
     params.append("types", type);
   }
+  for (const stackName of options.stackNames ?? []) {
+    params.append("stack_name", stackName);
+  }
+  for (const serviceName of options.serviceNames ?? []) {
+    params.append("service_name", serviceName);
+  }
   if (options.since) {
     params.set("since", options.since);
   }
   if (typeof options.limit === "number") {
     params.set("limit", String(options.limit));
   }
+  if (options.cursor) {
+    params.set("cursor", options.cursor);
+  }
+  if (options.sort) {
+    params.set("sort", options.sort);
+  }
+  if (options.order) {
+    params.set("order", options.order);
+  }
 
   const query = params.toString();
   return apiRequest<EventHistoryResponse>(`/api/v1/events${query ? `?${query}` : ""}`);
+}
+
+export function fetchEventFilters(): Promise<EventFilterOptions> {
+  return apiRequest<EventFilterOptions>("/api/v1/events/filters");
 }
 
 export function fetchRecommendations(options: { stack?: string; limit?: number } = {}): Promise<RecommendationsResponse> {
@@ -109,16 +157,60 @@ export function fetchServiceRealtime(stackName: string, serviceName: string): Pr
   return apiRequest<ServiceRealtimeResponse>(`/api/v1/stacks/${encodedStack}/services/${encodedService}/realtime`);
 }
 
-export function openTaskLogsStream(taskID: string, options?: { follow?: boolean; tail?: number }): EventSource {
+export interface OpenTaskLogsOptions {
+  follow?: boolean;
+  tail?: number;
+  parse?: boolean;
+  levels?: TaskLogLevel[];
+  since?: string;
+  until?: string;
+}
+
+export function openTaskLogsStream(taskID: string, options: OpenTaskLogsOptions = {}): EventSource {
   const encodedTaskID = encodeURIComponent(taskID);
   const params = new URLSearchParams();
-  params.set("follow", String(options?.follow ?? true));
-  params.set("tail", String(options?.tail ?? 200));
+  params.set("follow", String(options.follow ?? true));
+  params.set("tail", String(options.tail ?? 200));
+  if (options.parse) {
+    params.set("parse", "true");
+    for (const level of options.levels ?? []) {
+      params.append("levels", level);
+    }
+  }
+  if (options.since) {
+    params.set("since", options.since);
+  }
+  if (options.until) {
+    params.set("until", options.until);
+  }
 
-  return new EventSource(`/api/tasks/${encodedTaskID}/logs?${params.toString()}`);
+  return new EventSource(withWebBasePath(`/api/tasks/${encodedTaskID}/logs?${params.toString()}`));
 }
 
 export function fetchStackManifestos(stackName: string): Promise<StackManifestosResponse> {
   const encodedStack = encodeURIComponent(stackName);
   return apiRequest<StackManifestosResponse>(`/api/v1/stacks/${encodedStack}/manifestos`);
+}
+export function fetchDeployment(id: string): Promise<Deployment> {
+  return apiRequest<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}`);
+}
+
+export function fetchDeploymentInitJobLogs(deploymentID: string, attemptID: string, ordinal: number): Promise<string> {
+  return apiTextRequest(
+    `/api/v1/deployments/${encodeURIComponent(deploymentID)}`
+    + `/attempts/${encodeURIComponent(attemptID)}/init-jobs/${encodeURIComponent(String(ordinal))}/logs`,
+  );
+}
+
+export function fetchDeployments(options: { stack?: string; serviceName?: string; limit?: number; cursor?: string } = {}): Promise<DeploymentsResponse> {
+  const params = new URLSearchParams();
+  if (options.stack) params.set("stack", options.stack);
+  if (options.serviceName) params.set("service_name", options.serviceName);
+  if (options.limit) params.set("limit", String(options.limit));
+  if (options.cursor) params.set("cursor", options.cursor);
+  return apiRequest<DeploymentsResponse>(`/api/v1/deployments?${params}`);
+}
+
+export function fetchDeploymentFilters(): Promise<DeploymentFilterOptions> {
+  return apiRequest<DeploymentFilterOptions>("/api/v1/deployments/filters");
 }

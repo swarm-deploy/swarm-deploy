@@ -1,13 +1,17 @@
 run:
 	docker compose -f docker-compose.local.yaml up
 
+.PHONY: ui-mock
+ui-mock:
+	npm --prefix ui run dev:mock
+
 .PHONY: lint
 lint:
 	golangci-lint run
 
 .PHONY: gen
 gen:
-	go run -mod=mod github.com/ogen-go/ogen/cmd/ogen@v1.20.1 --target ./internal/entrypoints/webserver/generated --clean ./api/api-server.yaml
+	go run -mod=mod github.com/ogen-go/ogen/cmd/ogen@v1.20.1 --config ./ogen.yml --target ./internal/entrypoints/webserver/generated --clean ./api/api-server.yaml
 	go generate ./...
 
 .PHONY: test
@@ -20,4 +24,3 @@ check: lint test
 .PHONY: test-cli
 cli:
 	go run ./cmd/sd/main.go lint ./example/04-assistant/swarm-deploy.yaml
-

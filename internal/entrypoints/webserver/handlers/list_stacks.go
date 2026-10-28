@@ -6,19 +6,23 @@ import (
 	"time"
 
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 )
 
-func (h *handler) ListStacks(_ context.Context) (*generated.StacksResponse, error) {
-	syncInfo := h.lastSyncInfo()
+func (h *handler) ListStacks(ctx context.Context) (*generated.StacksResponse, error) {
+	state, err := h.stateStore.Read(ctx)
+	if err != nil {
+		return nil, err
+	}
+	syncInfo := lastSyncInfo(state)
 
 	return &generated.StacksResponse{
-		Stacks: h.listStacks(),
+		Stacks: h.listStacks(state),
 		Sync:   syncInfo,
 	}, nil
 }
 
-func (h *handler) lastSyncInfo() map[string]string {
-	state := h.stateStore.Get()
+func lastSyncInfo(state model.Runtime) map[string]string {
 	info := map[string]string{
 		"last_poll_result": state.LastPollResult,
 		"last_poll_error":  strings.TrimSpace(state.LastPollError),

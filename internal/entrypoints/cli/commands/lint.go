@@ -24,18 +24,20 @@ func Lint(script *go_console.Script) go_console.ExitCode {
 		return go_console.ExitError
 	}
 
-	stackNames := make([]string, len(cfg.Spec.Stacks))
-	networkNames := make([]string, len(cfg.Spec.Networks))
-	composeFiles := make([]string, len(cfg.Spec.Stacks))
+	stacks := cfg.Stacks()
+	networks := cfg.Networks()
+	stackNames := make([]string, len(stacks))
+	networkNames := make([]string, len(networks))
+	composeFiles := make([]string, len(stacks))
 	serviceNames := make([]string, 0)
 	baseDir := filepath.Dir(configPath)
 
-	for i, stack := range cfg.Spec.Stacks {
+	for i, stack := range stacks {
 		stackNames[i] = stack.Name
 		composeFiles[i] = fmt.Sprintf("%s/%s", baseDir, stack.ComposeFile)
 	}
 
-	for i, network := range cfg.Spec.Networks {
+	for i, network := range networks {
 		networkNames[i] = network.Name
 	}
 
@@ -58,8 +60,8 @@ func Lint(script *go_console.Script) go_console.ExitCode {
 
 	script.PrintText(fmt.Sprintf(
 		"Found %d stacks, %d networks, %d services",
-		len(cfg.Spec.Stacks),
-		len(cfg.Spec.Networks),
+		len(stacks),
+		len(networks),
 		len(serviceNames),
 	))
 	script.PrintNewLine(1)

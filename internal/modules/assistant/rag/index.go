@@ -5,11 +5,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 )
 
 type snapshot struct {
-	services   []service.Info
+	services   []model.Info
 	embeddings [][]float64
 	updatedAt  time.Time
 }
@@ -26,12 +26,12 @@ func NewIndex() *Index {
 }
 
 // Replace atomically replaces index data.
-func (i *Index) Replace(services []service.Info, embeddings [][]float64) error {
+func (i *Index) Replace(services []model.Info, embeddings [][]float64) error {
 	if len(services) != len(embeddings) {
 		return fmt.Errorf("invalid embeddings size: got %d, expected %d", len(embeddings), len(services))
 	}
 
-	nextServices := make([]service.Info, len(services))
+	nextServices := make([]model.Info, len(services))
 	copy(nextServices, services)
 
 	nextEmbeddings := make([][]float64, len(embeddings))
@@ -67,7 +67,7 @@ func (i *Index) get() snapshot {
 	defer i.mu.RUnlock()
 
 	copied := snapshot{
-		services:   make([]service.Info, len(i.snapshot.services)),
+		services:   make([]model.Info, len(i.snapshot.services)),
 		embeddings: make([][]float64, len(i.snapshot.embeddings)),
 		updatedAt:  i.snapshot.updatedAt,
 	}

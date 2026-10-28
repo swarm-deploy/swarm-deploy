@@ -115,12 +115,23 @@ export interface EventHistoryItem {
 
 export interface EventHistoryResponse {
   events: EventHistoryItem[];
+  nextCursor?: string;
+}
+
+export interface EventFilterService {
+  stack_name: string;
+  service_name: string;
+}
+
+export interface EventFilterOptions {
+  stacks: string[];
+  services: EventFilterService[];
 }
 
 export type AlertStatus = "open" | "resolved";
 
 export interface AlertResolution {
-  reason: "recovered";
+  reason: "recovered" | "resource_removed";
   message: string;
   eventId: string;
 }
@@ -128,12 +139,16 @@ export interface AlertResolution {
 export interface Alert {
   id: string;
   fingerprint: string;
-  kind: "deploy_failed";
-  resourceType: "stack";
+  kind: "sync_failed" | "node_disconnected" | "git_repository_unavailable" | "service_drift";
+  resourceType: "stack" | "node" | "repository" | "service";
   resourceId: string;
   status: AlertStatus;
   title: string;
   message: string;
+  failureStage?: string;
+  errorCode?: string;
+  deploymentId?: string;
+  commit?: string;
   occurrences: number;
   openedAt: string;
   updatedAt: string;
@@ -183,6 +198,7 @@ export interface ServiceSpecSecretResponse {
   secret_id?: string;
   secret_name: string;
   target?: string;
+  secret?: SecretInfo;
 }
 
 export interface ServiceSpecNetworkResponse {
@@ -235,15 +251,25 @@ export interface ServiceRealtimeResponse {
   tasks: ServiceRealtimeTask[];
 }
 
+export type TaskLogLevel = "TRACE" | "DEBUG" | "INFO" | "WARN" | "ERROR" | "FATAL";
+
 export interface TaskLogEvent {
   timestamp: string;
   stream: "stdout" | "stderr" | string;
+  level?: TaskLogLevel;
   message: string;
+  attributes?: Record<string, unknown>;
+  raw_message?: string;
 }
 
-export type ServiceDeploymentStatus = "Synced" | "OutOfSync";
+export interface TaskLogCountsEvent {
+  counts: Partial<Record<TaskLogLevel, number>>;
+}
+
+export type ServiceDeploymentStatus = "running" | "succeeded" | "failed" | "interrupted";
 
 export interface ServiceDeploymentResponse {
+  id: string;
   created_at: string;
   status: ServiceDeploymentStatus;
   image: string;
@@ -308,9 +334,11 @@ export interface SecretExternalInfo {
 export interface SecretInfo {
   id: string;
   name: string;
+  description?: string;
   version_id: number;
   created_at: string;
   external?: SecretExternalInfo;
+  used_by?: SecretServiceUsage[];
 }
 
 export interface SecretsResponse {
@@ -360,6 +388,13 @@ export interface SecretDetailsResponse {
   driver?: string;
   labels?: Record<string, string>;
   external?: SecretExternalInfo;
+  used_by?: SecretServiceUsage[];
+}
+
+export interface SecretServiceUsage {
+  stack: string;
+  service: string;
+  target?: string;
 }
 
 export type SearchResultKind = "service" | "secret" | "stack";
@@ -415,6 +450,16 @@ export interface AssistantChatsResponse {
   chats: AssistantChatSummary[];
 }
 
+export interface AssistantSuggestion {
+  id: string;
+  title: string;
+  prompt: string;
+}
+
+export interface AssistantSuggestionsResponse {
+  suggestions: AssistantSuggestion[];
+}
+
 export interface AssistantChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
@@ -423,4 +468,121 @@ export interface AssistantChatMessage {
 
 export interface AssistantChatHistory extends AssistantChatSummary {
   messages: AssistantChatMessage[];
+}
+export type DeploymentStatus = "running" | "succeeded" | "failed" | "interrupted" | "superseded";
+export type DeploymentPhase = "apply" | "verification" | "cleanup" | "completed";
+export type DeploymentStageStatus = "pending" | "running" | "succeeded" | "failed" | "unknown" | "skipped";
+export type DeploymentActualStateStatus = "observed" | "unknown";
+export type DeploymentComparisonStatus = "known" | "unknown";
+export type DeploymentComparisonBasis = "none" | "successful_baseline" | "last_attempt" | "observed_state";
+export interface DeploymentChange {
+  resourceType: string;
+  resourceName: string;
+  field: string;
+  operation: "added" | "changed" | "removed";
+  before?: string;
+  after?: string;
+  redacted: boolean;
+}
+export interface DeploymentChangeSummary {
+  added: number;
+  changed: number;
+  removed: number;
+  redacted: number;
+}
+export interface DeploymentResourceSummary {
+  services: number;
+  configs: number;
+  secrets: number;
+  networks: number;
+  volumes: number;
+}
+export interface DeploymentSummary {
+  id: string;
+  stack: string;
+  commit: string;
+  status: DeploymentStatus;
+  phase: DeploymentPhase;
+  reason?: string;
+  apply_status: DeploymentStageStatus;
+  verification_status: DeploymentStageStatus;
+  cleanup_status: DeploymentStageStatus;
+  actual_state_status: DeploymentActualStateStatus;
+  observed_at?: string;
+  comparison_basis: DeploymentComparisonBasis;
+  comparison_status: DeploymentComparisonStatus;
+  basis_deployment_id?: string;
+  started_at: string;
+  finished_at?: string;
+  duration_ms?: number;
+  summary: DeploymentChangeSummary;
+  resources: DeploymentResourceSummary;
+  diff_available: boolean;
+  latest_attempt_id: string;
+  attempt_count: number;
+}
+export interface DeploymentAttempt {
+  id: string;
+  number: number;
+  status: Exclude<DeploymentStatus, "superseded">;
+  phase: DeploymentPhase;
+  reason?: string;
+  diagnostic?: string;
+  apply_status: DeploymentStageStatus;
+  verification_status: DeploymentStageStatus;
+  cleanup_status: DeploymentStageStatus;
+  actual_state_status: DeploymentActualStateStatus;
+  observed_at?: string;
+  started_at: string;
+  finished_at?: string;
+  duration_ms?: number;
+  init_jobs: DeploymentInitJobExecution[];
+}
+export interface DeploymentInitJobExecution {
+  ordinal: number;
+  service_name: string;
+  job_name: string;
+  status: "succeeded" | "failed" | "interrupted";
+  started_at: string;
+  finished_at: string;
+  logs_available: boolean;
+  logs_truncated: boolean;
+}
+export interface Deployment extends DeploymentSummary {
+  diagnostic?: string;
+  configuration_yaml?: string;
+  services?: Array<{ name: string; image: string; replicas: string }>;
+  changes: DeploymentChange[];
+  attempts: DeploymentAttempt[];
+}
+export interface DeploymentsResponse {
+  deployments: DeploymentSummary[];
+  next_cursor?: string;
+}
+export type DeploymentActivityInterval = "daily" | "weekly";
+export interface DeploymentActivityBucket {
+  start: string;
+  succeeded: number;
+  failed: number;
+  running: number;
+  interrupted: number;
+  superseded: number;
+}
+export interface DeploymentActivityResponse {
+  buckets: DeploymentActivityBucket[];
+}
+export interface DeploymentFilterOptions {
+  stacks: string[];
+  services: Array<{ stack_name: string; service_name: string }>;
+}
+
+export interface StackResourceInfo {
+  id: string;
+  name: string;
+}
+
+export interface StackResourcesResponse {
+  networks: NetworkInfo[];
+  secrets: StackResourceInfo[];
+  configs: StackResourceInfo[];
 }

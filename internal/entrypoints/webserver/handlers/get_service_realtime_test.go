@@ -3,7 +3,6 @@ package handlers
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -13,15 +12,15 @@ import (
 
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/node"
+	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 func TestHandlerGetServiceRealtime_MapsNodeHostnameAndSortsTasksByCreatedAt(t *testing.T) {
 	t.Parallel()
 
-	nodeStore, err := swarmnode.NewNodeStore(filepath.Join(t.TempDir(), "nodes.json"))
-	require.NoError(t, err)
-	require.NoError(t, nodeStore.Replace([]swarm.Node{
+	nodeStore := swarmnode.NewSQLStore(testutil.OpenSQLite(t))
+	require.NoError(t, nodeStore.ReplaceSnapshot(t.Context(), []swarm.Node{
 		{
 			ID:       "node-1",
 			Hostname: "worker-1",
@@ -100,9 +99,8 @@ func TestHandlerGetServiceRealtime_MapsNodeHostnameAndSortsTasksByCreatedAt(t *t
 func TestHandlerGetServiceRealtime_LeavesNodeNameEmptyIfNodeIsUnknown(t *testing.T) {
 	t.Parallel()
 
-	nodeStore, err := swarmnode.NewNodeStore(filepath.Join(t.TempDir(), "nodes.json"))
-	require.NoError(t, err)
-	require.NoError(t, nodeStore.Replace([]swarm.Node{
+	nodeStore := swarmnode.NewSQLStore(testutil.OpenSQLite(t))
+	require.NoError(t, nodeStore.ReplaceSnapshot(t.Context(), []swarm.Node{
 		{
 			ID:       "node-2",
 			Hostname: "worker-2",

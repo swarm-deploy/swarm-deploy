@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
@@ -91,14 +92,14 @@ func (s *SetServiceReplicas) Execute(ctx context.Context, request routing.Reques
 	}
 
 	if replicas > currentReplicas {
-		s.eventDispatcher.Dispatch(ctx, &events.ServiceReplicasIncreased{
+		err = s.eventDispatcher.Publish(ctx, &events.ServiceReplicasIncreased{
 			StackName:        target.StackName(),
 			ServiceName:      target.ServiceName(),
 			PreviousReplicas: currentReplicas,
 			CurrentReplicas:  replicas,
 		})
 	} else if replicas < currentReplicas {
-		s.eventDispatcher.Dispatch(ctx, &events.ServiceReplicasDecreased{
+		err = s.eventDispatcher.Publish(ctx, &events.ServiceReplicasDecreased{
 			StackName:        target.StackName(),
 			ServiceName:      target.ServiceName(),
 			PreviousReplicas: currentReplicas,
@@ -110,6 +111,14 @@ func (s *SetServiceReplicas) Execute(ctx context.Context, request routing.Reques
 		Stack:    target.StackName(),
 		Service:  target.ServiceName(),
 		Replicas: replicas,
+	}
+	if err != nil {
+		slog.ErrorContext(ctx, "persist service replicas event after successful mutation",
+			slog.String("stack", target.StackName()),
+			slog.String("service", target.ServiceName()),
+			slog.Any("err", err),
+		)
+		payload.Warning = "replicas were updated, but the audit event could not be persisted"
 	}
 
 	return routing.Response{

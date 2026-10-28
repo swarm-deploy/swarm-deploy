@@ -11,7 +11,7 @@ import (
 const labelPairParts = 2
 
 type Labels struct {
-	Map map[string]string
+	Map map[string]string `json:"Map"`
 
 	isMap bool
 }
@@ -28,11 +28,11 @@ func (e *Labels) Add(key, value string) bool {
 		e.Map = make(map[string]string)
 	}
 
-	_, present := e.Map[key]
+	oldValue, present := e.Map[key]
 
 	e.Map[key] = value
 
-	return present
+	return !present || oldValue != value
 }
 
 func (e *Labels) UnmarshalYAML(node *yaml.Node) error {

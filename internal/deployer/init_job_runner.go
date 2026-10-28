@@ -4,16 +4,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"os"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/avast/retry-go/v5"
 	cerrdefs "github.com/containerd/errdefs"
+	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/filters"
 	dockerswarm "github.com/docker/docker/api/types/swarm"
 	"github.com/docker/docker/client"
+	"github.com/docker/docker/pkg/stdcopy"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/registry"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -24,6 +28,9 @@ const (
 	initJobDeleteRetryAttempts  = uint(5)
 	initJobDeleteRetryDelay     = 1 * time.Second
 	initJobDeleteAttemptTimeout = 10 * time.Second
+	initJobObjectFileMode       = 0o444
+	initJobLogCollectionTimeout = 5 * time.Second
+	initJobLogLimit             = 64 * 1024
 )
 
 type initJobDeleteTask struct {
@@ -67,10 +74,13 @@ func NewInitJobRunner(
 	return runner
 }
 
-// Run executes a single init job and waits until completion.
-func (r *InitJobRunner) Run(ctx context.Context, spec InitJobSpec) error {
+// Run executes a single init job, waits until completion and collects bounded Docker output.
+func (r *InitJobRunner) Run(
+	ctx context.Context,
+	spec InitJobSpec,
+) (InitJobResult, error) {
 	if spec.Job.Image == "" {
-		return errors.New("init job image is required")
+		return InitJobResult{}, errors.New("init job image is required")
 	}
 
 	r.metrics.RecordInitJobRun(spec.StackName, spec.ServiceName)
@@ -88,12 +98,12 @@ func (r *InitJobRunner) Run(ctx context.Context, spec InitJobSpec) error {
 
 	serviceSpec, err := r.buildInitServiceSpec(jobCtx, spec, serviceRef.Name())
 	if err != nil {
-		return err
+		return InitJobResult{}, err
 	}
 
 	serviceCreateOptions, err := r.buildInitServiceCreateOptions(spec.Job.Image)
 	if err != nil {
-		return fmt.Errorf("build init job service create options: %w", err)
+		return InitJobResult{}, fmt.Errorf("build init job service create options: %w", err)
 	}
 
 	slog.InfoContext(ctx, "[initjob] running job",
@@ -105,9 +115,10 @@ func (r *InitJobRunner) Run(ctx context.Context, spec InitJobSpec) error {
 		slog.String("initjob.timeout", spec.Job.Timeout.Value.String()),
 	)
 
+	startedAt := time.Now().UTC()
 	serviceCreate, err := r.dockerClient.ServiceCreate(jobCtx, serviceSpec, serviceCreateOptions)
 	if err != nil {
-		return fmt.Errorf("create init job service %s: %w", serviceRef.Name(), err)
+		return InitJobResult{}, fmt.Errorf("create init job service %s: %w", serviceRef.Name(), err)
 	}
 
 	defer r.enqueueDeleteTask(initJobDeleteTask{
@@ -115,13 +126,32 @@ func (r *InitJobRunner) Run(ctx context.Context, spec InitJobSpec) error {
 		serviceName: serviceRef.Name(),
 	})
 
-	return r.waitJob(jobCtx, serviceCreate.ID, serviceRef, serviceRef.Name())
+	waitErr := r.waitJob(jobCtx, serviceCreate.ID, serviceRef.Name())
+	finishedAt := time.Now().UTC()
+	logs, truncated, logsErr := r.loadServiceLogs(ctx, serviceCreate.ID, serviceRef.Name())
+	logsAvailable := logsErr == nil
+	if logsErr != nil {
+		slog.WarnContext(
+			ctx,
+			"[initjob] failed to fetch logs",
+			slog.String("service", serviceRef.Name()),
+			slog.Any("err", logsErr),
+		)
+	}
+	execution := InitJobResult{
+		ServiceName: spec.ServiceName, JobName: spec.Job.Name, Status: initJobExecutionStatus(waitErr),
+		StartedAt: startedAt, FinishedAt: finishedAt, Logs: logs,
+		LogsAvailable: logsAvailable, LogsTruncated: truncated,
+	}
+	if failed, ok := errors.AsType[*JobFailedError](waitErr); ok && logsAvailable {
+		failed.logs = initJobDiagnosticLogLines(logs)
+	}
+	return execution, waitErr
 }
 
 func (r *InitJobRunner) waitJob(
 	ctx context.Context,
 	serviceID string,
-	serviceRef swarm.ServiceReference,
 	jobName string,
 ) error {
 	ticker := time.NewTicker(r.pollInterval)
@@ -178,7 +208,6 @@ func (r *InitJobRunner) waitJob(
 					ID:     task.ID,
 					Name:   jobName,
 					Reason: reason,
-					logs:   r.loadServiceLogs(ctx, serviceRef),
 				}
 			}
 		}
@@ -192,7 +221,8 @@ func (r *InitJobRunner) buildInitServiceSpec(
 ) (dockerswarm.ServiceSpec, error) {
 	containerSpec := &dockerswarm.ContainerSpec{
 		Image:   spec.Job.Image,
-		Command: spec.Job.Command,
+		Command: spec.Job.Entrypoint,
+		Args:    spec.Job.Command,
 	}
 
 	if len(spec.Job.Environment.Map) > 0 {
@@ -220,9 +250,13 @@ func (r *InitJobRunner) buildInitServiceSpec(
 	secrets := mergeObjectRefs(spec.ServiceSecrets, spec.Job.Secrets)
 	containerSpec.Secrets = make([]*dockerswarm.SecretReference, 0, len(secrets))
 	for _, secret := range secrets {
-		ref, err := r.swarmService.Secrets.ResolveReference(ctx, secret.Source, secret.Target)
-		if err != nil {
-			return dockerswarm.ServiceSpec{}, err
+		ref := resolvedSecretReference(secret, spec.ResolvedSecrets)
+		if ref == nil {
+			var err error
+			ref, err = r.swarmService.Secrets.ResolveReference(ctx, secret.Source, secret.Target)
+			if err != nil {
+				return dockerswarm.ServiceSpec{}, err
+			}
 		}
 		containerSpec.Secrets = append(containerSpec.Secrets, ref)
 	}
@@ -230,9 +264,13 @@ func (r *InitJobRunner) buildInitServiceSpec(
 	configs := mergeObjectRefs(spec.ServiceConfigs, spec.Job.Configs)
 	containerSpec.Configs = make([]*dockerswarm.ConfigReference, 0, len(configs))
 	for _, cfg := range configs {
-		ref, err := r.swarmService.Configs.ResolveReference(ctx, cfg.Source, cfg.Target)
-		if err != nil {
-			return dockerswarm.ServiceSpec{}, err
+		ref := resolvedConfigReference(cfg, spec.ResolvedConfigs)
+		if ref == nil {
+			var err error
+			ref, err = r.swarmService.Configs.ResolveReference(ctx, cfg.Source, cfg.Target)
+			if err != nil {
+				return dockerswarm.ServiceSpec{}, err
+			}
 		}
 		containerSpec.Configs = append(containerSpec.Configs, ref)
 	}
@@ -263,6 +301,80 @@ func (r *InitJobRunner) buildInitServiceSpec(
 	}, nil
 }
 
+func resolvedSecretReference(
+	object compose.ObjectRef,
+	resolved map[string]ResolvedResource,
+) *dockerswarm.SecretReference {
+	resource, ok := resolved[object.Source]
+	if !ok {
+		return nil
+	}
+
+	target := object.Target
+	if target == "" {
+		target = "/run/secrets/" + object.Source
+	}
+	uid, gid := objectOwner(object)
+
+	return &dockerswarm.SecretReference{
+		SecretID:   resource.ID,
+		SecretName: resource.Name,
+		File: &dockerswarm.SecretReferenceFileTarget{
+			Name: target,
+			UID:  uid,
+			GID:  gid,
+			Mode: objectMode(object.Mode),
+		},
+	}
+}
+
+func resolvedConfigReference(
+	object compose.ObjectRef,
+	resolved map[string]ResolvedResource,
+) *dockerswarm.ConfigReference {
+	resource, ok := resolved[object.Source]
+	if !ok {
+		return nil
+	}
+
+	ref := &dockerswarm.ConfigReference{
+		ConfigID:   resource.ID,
+		ConfigName: resource.Name,
+	}
+	if object.Target != "" {
+		uid, gid := objectOwner(object)
+		ref.File = &dockerswarm.ConfigReferenceFileTarget{
+			Name: object.Target,
+			UID:  uid,
+			GID:  gid,
+			Mode: objectMode(object.Mode),
+		}
+	}
+
+	return ref
+}
+
+func objectMode(mode *os.FileMode) os.FileMode {
+	if mode == nil {
+		return initJobObjectFileMode
+	}
+
+	return *mode
+}
+
+func objectOwner(object compose.ObjectRef) (string, string) {
+	uid := object.Uid
+	if uid == "" {
+		uid = "0"
+	}
+	gid := object.Gid
+	if gid == "" {
+		gid = "0"
+	}
+
+	return uid, gid
+}
+
 func (r *InitJobRunner) resolveNetworkTarget(ctx context.Context, stackName, network string) string {
 	candidates := []string{network}
 	if !strings.HasPrefix(network, stackName+"_") {
@@ -286,20 +398,90 @@ func (r *InitJobRunner) resolveNetworkTarget(ctx context.Context, stackName, net
 	return network
 }
 
-func (r *InitJobRunner) loadServiceLogs(ctx context.Context, serviceRef swarm.ServiceReference) []string {
-	logs, err := r.swarmService.Services.Logs(ctx, serviceRef, swarm.ServiceLogsOptions{})
+func (r *InitJobRunner) loadServiceLogs(
+	ctx context.Context,
+	serviceID string,
+	serviceName string,
+) ([]byte, bool, error) {
+	logsCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), initJobLogCollectionTimeout)
+	defer cancel()
+	reader, err := r.dockerClient.ServiceLogs(logsCtx, serviceID, container.LogsOptions{
+		ShowStdout: true,
+		ShowStderr: true,
+		Tail:       "all",
+	})
 	if err != nil {
-		slog.WarnContext(
-			ctx,
-			"[initjob] failed to fetch logs",
-			slog.String("service", serviceRef.Name()),
-			slog.Any("err", err),
-		)
+		return nil, false, fmt.Errorf("read logs for service %s: %w", serviceName, err)
+	}
+	defer reader.Close()
 
+	tail := newTailBuffer(initJobLogLimit)
+	if _, err = stdcopy.StdCopy(tail, tail, reader); err != nil {
+		return nil, false, fmt.Errorf("read logs stream for service %s: %w", serviceName, err)
+	}
+	return tail.Bytes(), tail.Truncated(), nil
+}
+
+func initJobExecutionStatus(err error) InitJobStatus {
+	if err == nil {
+		return InitJobSucceeded
+	}
+	var failed *JobFailedError
+	if errors.As(err, &failed) {
+		return InitJobFailed
+	}
+	return InitJobInterrupted
+}
+
+func initJobDiagnosticLogLines(logs []byte) []string {
+	text := strings.TrimSpace(string(logs))
+	if text == "" {
 		return []string{}
 	}
-	return logs
+	return strings.Split(text, "\n")
 }
+
+type tailBuffer struct {
+	limit int
+	data  []byte
+	total int64
+}
+
+func newTailBuffer(limit int) *tailBuffer {
+	return &tailBuffer{limit: limit, data: make([]byte, 0, limit)}
+}
+
+func (b *tailBuffer) Write(p []byte) (int, error) {
+	written := len(p)
+	b.total += int64(written)
+	if b.limit <= 0 || written == 0 {
+		return written, nil
+	}
+	if written >= b.limit {
+		b.data = append(b.data[:0], p[written-b.limit:]...)
+		return written, nil
+	}
+	overflow := len(b.data) + written - b.limit
+	if overflow > 0 {
+		copy(b.data, b.data[overflow:])
+		b.data = b.data[:len(b.data)-overflow]
+	}
+	b.data = append(b.data, p...)
+	return written, nil
+}
+
+func (b *tailBuffer) Bytes() []byte {
+	if len(b.data) == 0 {
+		return []byte{}
+	}
+	return append([]byte(nil), b.data...)
+}
+
+func (b *tailBuffer) Truncated() bool {
+	return b.total > int64(b.limit)
+}
+
+var _ io.Writer = (*tailBuffer)(nil)
 
 func (r *InitJobRunner) enqueueDeleteTask(task initJobDeleteTask) {
 	select {

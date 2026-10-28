@@ -33,3 +33,15 @@
 - name: "module:assistant"
   color: "#5319e7"
   description: Assistant module
+
+- name: "module:notifications"
+  color: "#5319e7"
+  description: Notifications module
+
+- name: "module:deployments"
+  color: "#5319e7"
+  description: Deployments module
+
+- name: "dockerapi"
+  color: "#5319e7"
+  description: Changes in Docker API

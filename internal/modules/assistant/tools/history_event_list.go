@@ -34,8 +34,9 @@ func NewListHistoryEvents(historyStore HistoryReader) *ListHistoryEvents {
 // Definition returns tool metadata visible to the model.
 func (l *ListHistoryEvents) Definition() routing.ToolDefinition {
 	return routing.ToolDefinition{
-		Name:        config.AssistantToolNameHistoryEventList,
-		Description: "Returns latest events from local event history.",
+		Name: config.AssistantToolNameHistoryEventList,
+		Description: "Returns the latest user-facing Event History timeline. Use alert_list for operational " +
+			"incident lifecycle and deployment_list for persisted desired-state deployments, attempts, failures, and outcomes.",
 		ParametersJSONSchema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -76,7 +77,7 @@ func (l *ListHistoryEvents) Definition() routing.ToolDefinition {
 }
 
 // Execute runs history_event_list tool.
-func (l *ListHistoryEvents) Execute(_ context.Context, request routing.Request) (routing.Response, error) {
+func (l *ListHistoryEvents) Execute(ctx context.Context, request routing.Request) (routing.Response, error) {
 	parsedRequest, err := convertRequestPayload[listHistoryEventsRequest](request.Payload)
 	if err != nil {
 		return routing.Response{}, err
@@ -95,9 +96,11 @@ func (l *ListHistoryEvents) Execute(_ context.Context, request routing.Request) 
 		return routing.Response{}, err
 	}
 
-	entries := history.FilterEntries(l.history.List(), severities, categories, nil, nil)
-	if len(entries) > limit {
-		entries = entries[len(entries)-limit:]
+	entries, err := l.history.ReadRecent(ctx, history.QueryOptions{
+		Severities: severities, Categories: categories, Limit: limit,
+	})
+	if err != nil {
+		return routing.Response{}, err
 	}
 
 	payload := struct {

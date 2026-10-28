@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
@@ -73,15 +74,22 @@ func (s *RestartService) Execute(ctx context.Context, request routing.Request) (
 		return routing.Response{}, fmt.Errorf("restart service: %w", err)
 	}
 
-	s.eventDispatcher.Dispatch(ctx, &events.ServiceRestarted{
+	publishErr := s.eventDispatcher.Publish(ctx, &events.ServiceRestarted{
 		StackName:   target.StackName(),
 		ServiceName: target.ServiceName(),
 	})
-
 	payload := ServiceActionResult{
 		Stack:    target.StackName(),
 		Service:  target.ServiceName(),
 		Replicas: replicas,
+	}
+	if publishErr != nil {
+		slog.ErrorContext(ctx, "persist service restart event after successful mutation",
+			slog.String("stack", target.StackName()),
+			slog.String("service", target.ServiceName()),
+			slog.Any("err", publishErr),
+		)
+		payload.Warning = "the service was restarted, but its audit event could not be persisted"
 	}
 
 	return routing.Response{

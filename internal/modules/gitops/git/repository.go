@@ -25,8 +25,10 @@ import (
 type GoGitRepository struct {
 	path string
 
-	branch string
-	auth   transport.AuthMethod
+	branch   string
+	auth     transport.AuthMethod
+	remote   string
+	authType config.GitAuthType
 
 	repository *gogit.Repository
 }
@@ -45,18 +47,20 @@ func NewRepository(spec config.GitSpec, path string) Repository {
 func NewGoGitRepository(ctx context.Context, spec config.GitSpec, path string) (*GoGitRepository, error) {
 	authMethod, err := resolveAuthMethod(spec.Auth)
 	if err != nil {
-		return nil, err
+		return nil, ClassifyPullError(err, spec.Repository, spec.Auth.Type)
 	}
 
 	repo, err := openRepository(ctx, path, spec.Repository, spec.Branch, authMethod)
 	if err != nil {
-		return nil, err
+		return nil, ClassifyPullError(err, spec.Repository, spec.Auth.Type)
 	}
 
 	return &GoGitRepository{
 		path:       path,
 		branch:     spec.Branch,
 		auth:       authMethod,
+		remote:     spec.Repository,
+		authType:   spec.Auth.Type,
 		repository: repo,
 	}, nil
 }
@@ -66,8 +70,12 @@ func (r *GoGitRepository) WorkingDir() string {
 }
 
 func (r *GoGitRepository) ReadFile(_ context.Context, path string) ([]byte, error) {
-	fullPath := filepath.Join(r.path, path)
-	return os.ReadFile(fullPath)
+	content, err := os.ReadFile(filepath.Join(r.path, path))
+	if err != nil {
+		return nil, fmt.Errorf("read repository file %q: %w", path, err)
+	}
+
+	return content, nil
 }
 
 func (r *GoGitRepository) Pull(ctx context.Context) (PullResult, error) {
@@ -83,13 +91,14 @@ func (r *GoGitRepository) Pull(ctx context.Context) (PullResult, error) {
 
 	err = worktree.PullContext(ctx, &gogit.PullOptions{
 		RemoteName:    "origin",
+		RemoteURL:     r.remote,
 		SingleBranch:  true,
 		ReferenceName: plumbing.NewBranchReferenceName(r.branch),
 		Auth:          r.auth,
 		Force:         true,
 	})
 	if err != nil && !errors.Is(err, gogit.NoErrAlreadyUpToDate) {
-		return PullResult{}, fmt.Errorf("git pull: %w", err)
+		return PullResult{}, ClassifyPullError(fmt.Errorf("git pull: %w", err), r.remote, r.authType)
 	}
 
 	newHash, err := r.Head(ctx)
@@ -338,6 +347,9 @@ func openRepository(
 ) (*gogit.Repository, error) {
 	repo, err := gogit.PlainOpen(path)
 	if err == nil {
+		if validateErr := validateOrigin(repo, url); validateErr != nil {
+			return nil, validateErr
+		}
 		return repo, nil
 	}
 	if !errors.Is(err, gogit.ErrRepositoryNotExists) {
@@ -361,6 +373,21 @@ func openRepository(
 	return repo, nil
 }
 
+func validateOrigin(repository *gogit.Repository, configured string) error {
+	remote, err := repository.Remote("origin")
+	if err != nil {
+		return &PullError{category: FailureOther, diagnostic: "Local Git repository has no origin remote"}
+	}
+	urls := remote.Config().URLs
+	if len(urls) == 0 || RepositoryIdentifier(urls[0]) != RepositoryIdentifier(configured) {
+		return &PullError{
+			category:   FailureOther,
+			diagnostic: "Local Git repository origin does not match the configured repository",
+		}
+	}
+	return nil
+}
+
 func resolveAuthMethod(auth config.GitAuthSpec) (transport.AuthMethod, error) {
 	switch auth.Type {
 	case "", config.GitAuthTypeNone:
@@ -370,7 +397,8 @@ func resolveAuthMethod(auth config.GitAuthSpec) (transport.AuthMethod, error) {
 		password := auth.HTTP.ResolvePassword()
 		username := auth.HTTP.ResolveUsername()
 		if username == "" || password == "" {
-			return nil, errors.New("http auth requires username+passwordPath or tokenPath")
+			return nil, fmt.Errorf("%w: http auth requires username+passwordPath or tokenPath",
+				errAuthenticationConfiguration)
 		}
 		return &githttp.BasicAuth{
 			Username: username,
@@ -397,10 +425,10 @@ func buildSSHAuthMethod(auth config.GitSSHAuthSpec) (transport.AuthMethod, error
 	if auth.PrivateKeyPath != "" {
 		pk, keyErr = gitssh.NewPublicKeysFromFile(user, auth.PrivateKeyPath, string(auth.Passphrase.Content))
 		if keyErr != nil {
-			return nil, fmt.Errorf("read ssh private key from file: %w", keyErr)
+			return nil, fmt.Errorf("%w: read ssh private key from file", errAuthenticationConfiguration)
 		}
 	} else {
-		return nil, errors.New("ssh auth requires privateKeyPath")
+		return nil, fmt.Errorf("%w: ssh auth requires privateKeyPath", errAuthenticationConfiguration)
 	}
 
 	if auth.InsecureIgnoreHostKey {
@@ -414,7 +442,7 @@ func buildSSHAuthMethod(auth config.GitSSHAuthSpec) (transport.AuthMethod, error
 	if auth.KnownHostsPath != "" {
 		callback, callbackErr := knownhosts.New(auth.KnownHostsPath)
 		if callbackErr != nil {
-			return nil, fmt.Errorf("build known_hosts callback: %w", callbackErr)
+			return nil, fmt.Errorf("%w: build known_hosts callback", errSSHHostVerification)
 		}
 		pk.HostKeyCallbackHelper = gitssh.HostKeyCallbackHelper{
 			HostKeyCallback: callback,

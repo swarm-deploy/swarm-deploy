@@ -11,11 +11,13 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
 type StackReconciler interface {
 	Reconcile(ctx context.Context, req ReconciliationRequest) error
+	Cleanup(ctx context.Context, stack config.StackSpec) error
 }
 
 type ReconciliationRequest struct {
@@ -36,6 +38,7 @@ func NewStackReconciler(
 	deployMetrics metrics.Deploys,
 	stateStore modelstore.Store,
 	filesystem fs.FileSystem,
+	db storage.Database,
 ) StackReconciler {
 	reconciler := New(
 		cfg,
@@ -45,7 +48,7 @@ func NewStackReconciler(
 		eventDispatcher,
 		deployMetrics,
 		stateStore,
-		filesystem,
+		filesystem, db,
 	)
 
 	tp, tracingEnabled := tracing.GetTracerProvider()
