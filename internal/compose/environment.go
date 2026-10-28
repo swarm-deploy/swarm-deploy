@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/go-faster/errors"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 const envPairParts = 2

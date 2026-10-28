@@ -5,7 +5,7 @@ import (
 	"strconv"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 type ServicePorts struct {

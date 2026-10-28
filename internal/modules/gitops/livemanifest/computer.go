@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/artarts36/gds"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/livemanifest/srvmappers"
 
 	dockerswarm "github.com/docker/docker/api/types/swarm"
@@ -41,10 +40,30 @@ type Stack struct {
 	Services []swarm.StackService
 }
 
+type networkIDSet struct {
+	values []string
+	seen   map[string]struct{}
+}
+
+func newNetworkIDSet() *networkIDSet {
+	return &networkIDSet{
+		seen: make(map[string]struct{}),
+	}
+}
+
+func (s *networkIDSet) add(id string) {
+	if _, exists := s.seen[id]; exists {
+		return
+	}
+
+	s.seen[id] = struct{}{}
+	s.values = append(s.values, id)
+}
+
 // ComputeStack computes current stack live manifest.
 func (c *Computer) ComputeStack(ctx context.Context, stack Stack) (*compose.Compose, error) {
 	services := make(compose.Services, 0, len(stack.Services))
-	networkIDs := gds.NewSet[string]()
+	networkIDs := newNetworkIDSet()
 	for _, stackService := range stack.Services {
 		mappedService, mapErr := c.mapStackServiceToCompose(stackService, networkIDs)
 		if mapErr != nil {
@@ -54,7 +73,7 @@ func (c *Computer) ComputeStack(ctx context.Context, stack Stack) (*compose.Comp
 		services = append(services, mappedService)
 	}
 
-	networks, err := c.networkManager.Map(ctx, networkIDs.List())
+	networks, err := c.networkManager.Map(ctx, networkIDs.values)
 	if err != nil {
 		return nil, fmt.Errorf("list networks %w", err)
 	}
@@ -101,7 +120,7 @@ func (c *Computer) ComputeStack(ctx context.Context, stack Stack) (*compose.Comp
 
 func (c *Computer) mapStackServiceToCompose(
 	stackService swarm.StackService,
-	networkIDs *gds.Set[string],
+	networkIDs *networkIDSet,
 ) (compose.Service, error) {
 	service, err := c.mapRawServiceSpec(stackService.Name, stackService, networkIDs)
 	if err != nil {
@@ -131,7 +150,7 @@ func (c *Computer) mapStackServiceToCompose(
 func (c *Computer) mapRawServiceSpec(
 	serviceName string,
 	live swarm.StackService,
-	networkIDs *gds.Set[string],
+	networkIDs *networkIDSet,
 ) (compose.Service, error) {
 	service := compose.Service{
 		Name: serviceName,
@@ -187,7 +206,7 @@ func ptr[t any](v t) *t {
 
 func toComposeServiceNetworks(
 	rawNetworks []dockerswarm.NetworkAttachmentConfig,
-	networkIDs *gds.Set[string],
+	networkIDs *networkIDSet,
 ) *compose.ServiceNetworks {
 	if len(rawNetworks) == 0 {
 		return nil
@@ -202,7 +221,7 @@ func toComposeServiceNetworks(
 			DriverOpts:   rawNetwork.DriverOpts,
 		})
 
-		networkIDs.Add(rawNetwork.Target)
+		networkIDs.add(rawNetwork.Target)
 	}
 
 	if len(networks) == 0 {

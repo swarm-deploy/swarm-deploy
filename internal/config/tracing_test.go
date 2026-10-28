@@ -7,7 +7,7 @@ import (
 	"github.com/artarts36/specw"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v3"
 )
 
 func TestTracingExporterSpecEndpointFromEnv(t *testing.T) {
