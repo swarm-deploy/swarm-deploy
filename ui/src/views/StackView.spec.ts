@@ -127,7 +127,9 @@ describe("Stack Details", () => {
     expect(wrapper.get("h2").text()).toBe("app");
     expect(wrapper.get(".stack-state").text()).toContain("Out of sync 1");
     expect(wrapper.find('[aria-label="Breadcrumb"]').exists()).toBe(false);
-    expect(wrapper.findAll(".stack-metrics dd").map((item) => item.text())).toEqual(["3", "2", "1", "1", "1", "1"]);
+    expect(wrapper.get('[data-summary="health"] strong').text()).toBe("2 / 3");
+    expect(wrapper.get('[data-summary="out-of-sync"] dd').text()).toBe("1");
+    expect(["networks", "secrets", "configs"].map((key) => wrapper.get(`[data-summary="${key}"] strong`).text())).toEqual(["1", "1", "1"]);
     expect(wrapper.findAll(".services-stack-table th").map((item) => item.text())).toEqual(["Name", "Version", "Type", "Status"]);
     expect(wrapper.find(".services-stack-table .deployment-icon").exists()).toBe(false);
     expect(wrapper.get(".services-cell-image").text()).toBe("2");
@@ -135,6 +137,7 @@ describe("Stack Details", () => {
     expect(wrapper.findAll(".services-cell-sync-status .status").map((item) => item.text())).toEqual(["Synced", "unknown", "OutOfSync"]);
     expect(wrapper.get(".stack-services-panel .service-panel-heading").text()).toBe("Services");
     expect(wrapper.get(".deployment-activity-stub").attributes("data-stack")).toBe("app");
+    expect(wrapper.get(".stack-content-grid").element.compareDocumentPosition(wrapper.get(".deployment-activity-stub").element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(wrapper.get(".stack-deployments-panel .overview-summary-panel-header-link").attributes("href")).toBe("/deployments?stack=app");
     expect(wrapper.text()).not.toContain("foreign");
 
@@ -178,7 +181,7 @@ describe("Stack Details", () => {
     const { wrapper } = await render(path);
     await flushPromises();
     expect(wrapper.text()).toContain("Stack not found.");
-    expect(wrapper.find(".stack-metrics").exists()).toBe(false);
+    expect(wrapper.find(".stack-summary").exists()).toBe(false);
     wrapper.unmount();
   });
 
@@ -193,7 +196,7 @@ describe("Stack Details", () => {
     expect(wrapper.text()).toContain("No deployments yet.");
     expect(wrapper.text()).toContain("alerts offline");
     for (const key of ["networks", "secrets", "configs"]) {
-      expect(wrapper.get(`[data-summary="${key}"] dd`).text()).toBe("n/a");
+      expect(wrapper.get(`[data-summary="${key}"] strong`).text()).toBe("n/a");
     }
     wrapper.unmount();
   });
@@ -229,6 +232,9 @@ describe("Stack Details", () => {
       "Open deployment commit commit3",
       "Open deployment commit commit2",
     ]);
+    expect(rows[0].get(".stack-deployment-meta").text()).toContain("Commit commit");
+    expect(rows[0].get(".stack-deployment-meta").text()).toContain("Phase apply");
+    expect(rows[0].get(".stack-deployment-meta").text()).not.toContain("→");
     await rows[0].get("button").trigger("click");
     expect(store.openCommitDetailsModal).toHaveBeenCalledWith("commit5");
     expect(store.openDeploymentDetailsModal).not.toHaveBeenCalled();

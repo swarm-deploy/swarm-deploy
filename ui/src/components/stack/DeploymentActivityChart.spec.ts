@@ -64,50 +64,46 @@ describe("DeploymentActivityChart", () => {
     const wrapper = await render();
 
     expect(fetchStackDeploymentActivity).toHaveBeenCalledWith("app", "weekly");
+    expect(wrapper.get(".overview-summary-panel-header .overview-panel-title").text()).toBe("Deployment Activity");
+    expect(wrapper.find(".overview-summary-panel-icon .deployment-icon").exists()).toBe(true);
     expect(wrapper.get('[aria-label="Deployment activity interval"] [aria-pressed="true"]').text()).toBe("Weekly");
     expect(wrapper.findAll(".deployment-activity-legend li").map((item) => item.text())).toEqual([
       "Succeeded", "Failed", "Running", "Interrupted", "Superseded",
     ]);
     expect(wrapper.findAll(".deployment-activity-summary dd").map((item) => item.text())).toEqual([
-      "9", "1.1", "4", "2", "1", "1", "1",
+      "9", "4", "2",
     ]);
     const option = chartMocks.setOption.mock.calls.at(-1)?.[0] as {
       series: Array<{ name: string; data: number[]; itemStyle: { color: string } }>;
     };
     expect(option.series.map((series) => [series.name, series.itemStyle.color])).toEqual([
-      ["Succeeded", "#3fb950"],
-      ["Failed", "#f85149"],
-      ["Running", "#d29922"],
-      ["Interrupted", "#8b949e"],
-      ["Superseded", "#58a6ff"],
+      ["Succeeded", "var(--success)"],
+      ["Failed", "var(--error)"],
+      ["Running", "var(--warning)"],
+      ["Interrupted", "var(--muted)"],
+      ["Superseded", "var(--info)"],
     ]);
     expect(option.series.map((series) => series.data.at(-1))).toEqual([4, 2, 1, 1, 1]);
     wrapper.unmount();
   });
 
-  it("switches intervals and preserves the selection without refetching when collapsed", async () => {
+  it("switches intervals and preserves the selection without refetching", async () => {
     const wrapper = await render();
     await wrapper.get('.deployment-activity-interval button[aria-pressed="false"]').trigger("click");
     await flushPromises();
     expect(fetchStackDeploymentActivity).toHaveBeenLastCalledWith("app", "daily");
-
-    await wrapper.get(".deployment-activity-toggle").trigger("click");
-    expect(wrapper.get(".deployment-activity-toggle").attributes("aria-expanded")).toBe("false");
-    expect(wrapper.get(".deployment-activity-compact").text()).toBe("9 deployments in 30 days");
-    await wrapper.get(".deployment-activity-toggle").trigger("click");
     expect(wrapper.get('[aria-label="Deployment activity interval"] [aria-pressed="true"]').text()).toBe("Daily");
     expect(fetchStackDeploymentActivity).toHaveBeenCalledTimes(2);
     wrapper.unmount();
   });
 
-  it("supports collapsing and expanding while the request is loading", async () => {
+  it("keeps the activity content visible while the request is loading", async () => {
     let resolve!: (response: DeploymentActivityResponse) => void;
     vi.mocked(fetchStackDeploymentActivity).mockReturnValueOnce(new Promise((done) => { resolve = done; }));
     const wrapper = mount(DeploymentActivityChart, { props: { stack: "app" } });
     expect(wrapper.get('[role="status"]').text()).toContain("Loading deployment activity");
-    await wrapper.get(".deployment-activity-toggle").trigger("click");
-    expect(wrapper.get(".deployment-activity-compact").text()).toBe("Loading activity…");
-    await wrapper.get(".deployment-activity-toggle").trigger("click");
+    expect(wrapper.find(".deployment-activity-toggle").exists()).toBe(false);
+    expect(wrapper.find(".deployment-activity-content").isVisible()).toBe(true);
     resolve(activity("weekly"));
     await flushPromises();
     expect(wrapper.find('[role="status"]').exists()).toBe(false);

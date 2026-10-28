@@ -11,20 +11,20 @@ import type {
   DeploymentActivityInterval,
   DeploymentActivityResponse,
 } from "../../api/types";
+import DeploymentIcon from "../overview/DeploymentIcon.vue";
 
 use([BarChart, GridComponent, TooltipComponent, SVGRenderer]);
 
 const props = defineProps<{ stack: string }>();
 
 const statuses = [
-  { key: "succeeded", label: "Succeeded", color: "#3fb950" },
-  { key: "failed", label: "Failed", color: "#f85149" },
-  { key: "running", label: "Running", color: "#d29922" },
-  { key: "interrupted", label: "Interrupted", color: "#8b949e" },
-  { key: "superseded", label: "Superseded", color: "#58a6ff" },
+  { key: "succeeded", label: "Succeeded", color: "var(--success)" },
+  { key: "failed", label: "Failed", color: "var(--error)" },
+  { key: "running", label: "Running", color: "var(--warning)" },
+  { key: "interrupted", label: "Interrupted", color: "var(--muted)" },
+  { key: "superseded", label: "Superseded", color: "var(--info)" },
 ] as const;
 
-const expanded = ref(true);
 const interval = ref<DeploymentActivityInterval>("weekly");
 const responses = ref<Partial<Record<DeploymentActivityInterval, DeploymentActivityResponse>>>({});
 const loading = ref<Partial<Record<DeploymentActivityInterval, boolean>>>({});
@@ -47,7 +47,6 @@ const totals = computed(() => {
 });
 const total = computed(() => Object.values(totals.value).reduce((sum, value) => sum + value, 0));
 const periodLabel = computed(() => interval.value === "daily" ? "30 days" : "8 weeks");
-const average = computed(() => buckets.value.length ? total.value / buckets.value.length : 0);
 const compactSummary = computed(() => {
   if (isLoading.value && !response.value) return "Loading activity…";
   if (error.value && !response.value) return "Activity unavailable";
@@ -75,9 +74,9 @@ const chartOption = computed<EChartsCoreOption>(() => ({
   tooltip: {
     trigger: "axis",
     axisPointer: { type: "shadow" },
-    backgroundColor: "#161b22",
-    borderColor: "#30363d",
-    textStyle: { color: "#f0f6fc", fontSize: 12 },
+    backgroundColor: "var(--surface-elevated)",
+    borderColor: "var(--border-default)",
+    textStyle: { color: "var(--text)", fontSize: 12 },
     formatter: (items: Array<{ dataIndex: number }>) => {
       const bucket = buckets.value[items[0]?.dataIndex ?? 0];
       if (!bucket) return "";
@@ -88,15 +87,15 @@ const chartOption = computed<EChartsCoreOption>(() => ({
   xAxis: {
     type: "category",
     data: buckets.value.map((bucket) => formatBucket(bucket.start)),
-    axisLine: { lineStyle: { color: "rgba(128, 143, 163, .35)" } },
+    axisLine: { lineStyle: { color: "var(--border-default)" } },
     axisTick: { show: false },
-    axisLabel: { color: "#8b949e", fontSize: 11, hideOverlap: true },
+    axisLabel: { color: "var(--muted)", fontSize: 11, hideOverlap: true },
   },
   yAxis: {
     type: "value",
     minInterval: 1,
-    axisLabel: { color: "#8b949e", fontSize: 11 },
-    splitLine: { lineStyle: { color: "rgba(128, 143, 163, .18)" } },
+    axisLabel: { color: "var(--muted)", fontSize: 11 },
+    splitLine: { lineStyle: { color: "var(--border-subtle)" } },
   },
   series: statuses.map((status) => ({
     name: status.label,
@@ -138,13 +137,13 @@ function retry() {
 }
 
 function renderChart() {
-  if (!expanded.value || !chartElement.value || !response.value || total.value === 0) return;
+  if (!chartElement.value || !response.value || total.value === 0) return;
   chart ??= init(chartElement.value, undefined, { renderer: "svg" });
   chart.setOption(chartOption.value, true);
   chart.resize();
 }
 
-watch([chartOption, expanded], async () => {
+watch(chartOption, async () => {
   await nextTick();
   renderChart();
 });
@@ -176,21 +175,16 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="deployment-activity" aria-labelledby="deployment-activity-title">
-    <button
-      type="button"
-      class="deployment-activity-toggle"
-      :aria-expanded="expanded"
-      aria-controls="deployment-activity-content"
-      @click="expanded = !expanded"
-    >
-      <span id="deployment-activity-title">Deployment Activity</span>
-      <span v-if="!expanded" class="deployment-activity-compact">{{ compactSummary }}</span>
-      <svg class="deployment-activity-chevron" :class="{ 'is-expanded': expanded }" viewBox="0 0 20 20" aria-hidden="true">
-        <path d="m6 8 4 4 4-4" />
-      </svg>
-    </button>
+    <header class="overview-summary-panel-header">
+      <div class="deployment-activity-heading">
+        <span class="overview-summary-panel-icon" aria-hidden="true">
+          <DeploymentIcon name="calendar" />
+        </span>
+        <h3 id="deployment-activity-title" class="overview-panel-title">Deployment Activity</h3>
+      </div>
+    </header>
 
-    <div v-show="expanded" id="deployment-activity-content" class="deployment-activity-content">
+    <div class="deployment-activity-content">
       <div class="deployment-activity-toolbar">
         <div class="deployment-activity-interval" aria-label="Deployment activity interval">
           <button type="button" :class="{ active: interval === 'daily' }" :aria-pressed="interval === 'daily'" @click="selectInterval('daily')">Daily</button>
@@ -212,55 +206,51 @@ onBeforeUnmount(() => {
       <div v-show="response && total > 0" ref="chartElement" class="deployment-activity-chart" role="img" :aria-label="compactSummary" />
       <dl v-if="response && total > 0" class="deployment-activity-summary">
         <div><dt>Total</dt><dd>{{ total }}</dd></div>
-        <div><dt>Average / {{ interval === "daily" ? "day" : "week" }}</dt><dd>{{ average.toFixed(1) }}</dd></div>
-        <div v-for="status in statuses" :key="status.key"><dt>{{ status.label }}</dt><dd>{{ totals[status.key] }}</dd></div>
+        <div><dt>Succeeded</dt><dd>{{ totals.succeeded }}</dd></div>
+        <div><dt>Failed</dt><dd>{{ totals.failed }}</dd></div>
       </dl>
     </div>
   </section>
 </template>
 
 <style scoped>
+/* Hallmark · full redesign · genre: modern-minimal · shape: app component · role: secondary activity · built: the project · v2.0.0 */
+/* Hallmark · pre-emit critique: P4 H4 E4 S5 R5 V4 · weakest: E, dense chart labels are enlarged and redundant totals removed */
 .deployment-activity { min-width: 0; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface-card-soft); overflow: hidden; }
-.deployment-activity-toggle { width: 100%; min-height: 50px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 14px; border: 0; border-radius: 0; background: transparent; color: var(--text); box-shadow: none; text-align: left; }
-.deployment-activity-toggle:hover { transform: none; background: var(--surface-hover); filter: none; }
-.deployment-activity-toggle:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: -2px; }
-#deployment-activity-title { font-size: .94rem; font-weight: 650; }
-.deployment-activity-compact { color: var(--muted); font-size: .78rem; }
-.deployment-activity-chevron { grid-column: 3; justify-self: end; width: 18px; height: 18px; color: var(--muted); transition: none; }
-.deployment-activity-chevron path { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
-.deployment-activity-chevron.is-expanded { transform: rotate(180deg); }
-.deployment-activity-content { display: grid; gap: 12px; padding: 0 14px 13px; border-top: 1px solid var(--border-subtle); }
-.deployment-activity-toolbar { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 14px; padding-top: 12px; }
-.deployment-activity-interval { display: inline-flex; padding: 2px; border: 1px solid var(--border-default); border-radius: 7px; background: var(--surface-muted); }
-.deployment-activity-interval button { min-height: 28px; padding: 4px 10px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); box-shadow: none; font-size: .74rem; }
-.deployment-activity-interval button:hover { transform: none; filter: none; color: var(--text); }
-.deployment-activity-interval button.active { background: var(--surface-control); color: var(--text); }
-.deployment-activity-legend { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 7px 13px; margin: 0; padding: 0; list-style: none; color: var(--muted); font-size: .72rem; }
-.deployment-activity-legend li { display: inline-flex; align-items: center; gap: 5px; }
+.deployment-activity-heading { display: flex; align-items: center; min-width: 0; gap: 9px; padding: 17px 16px 13px; background: var(--surface-panel-header); }
+.deployment-activity-content { display: grid; gap: 12px; padding: 0 16px 16px; border-top: 1px solid var(--border-subtle); }
+.deployment-activity-toolbar { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 12px; }
+.deployment-activity-interval { display: inline-flex; gap: 4px; border-bottom: 1px solid var(--border-default); }
+.deployment-activity-interval button { position: relative; min-height: 32px; padding: 4px 10px; border: 0; border-radius: 4px 4px 0 0; background: transparent; color: var(--muted); box-shadow: none; font-size: .78rem; font-weight: 500; }
+.deployment-activity-interval button::after { content: ""; position: absolute; right: 8px; bottom: -1px; left: 8px; height: 2px; border-radius: 2px 2px 0 0; background: transparent; }
+.deployment-activity-interval button:hover { transform: none; filter: none; color: var(--text); background: var(--surface-hover); }
+.deployment-activity-interval button.active { color: var(--text); font-weight: 650; }
+.deployment-activity-interval button.active::after { background: var(--text); }
+.deployment-activity-interval button:active, .deployment-activity-error .button-ghost:active { transform: translateY(1px); }
+.deployment-activity-interval button:disabled, .deployment-activity-error .button-ghost:disabled { color: var(--muted); background: var(--surface-muted); opacity: .65; cursor: not-allowed; }
+.deployment-activity-interval button:focus-visible, .deployment-activity-error .button-ghost:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
+.deployment-activity-heading .overview-panel-title { white-space: nowrap; }
+.deployment-activity-legend { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px 16px; margin: 0; padding: 0; list-style: none; color: var(--muted); font-size: .76rem; }
+.deployment-activity-legend li { display: inline-flex; align-items: center; gap: 4px; }
 .deployment-activity-dot { width: 7px; height: 7px; border-radius: 50%; }
 .deployment-activity-chart { width: 100%; height: 190px; min-width: 0; }
-.deployment-activity-state { min-height: 118px; display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0; color: var(--muted); font-size: .82rem; }
+.deployment-activity-state { min-height: 118px; display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0; color: var(--muted); font-size: .82rem; font-variant-numeric: tabular-nums; }
 .deployment-activity-error { color: var(--error); }
-.deployment-activity-summary { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); margin: 0; border-top: 1px solid var(--border-subtle); }
-.deployment-activity-summary > div { min-width: 0; display: grid; gap: 2px; padding: 10px 12px 0; }
+.deployment-activity-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; border-top: 1px solid var(--border-subtle); }
+.deployment-activity-summary > div { min-width: 0; display: grid; gap: 4px; padding: 12px 12px 0; }
 .deployment-activity-summary > div + div { border-left: 1px solid var(--border-subtle); }
-.deployment-activity-summary dt { color: var(--muted); font-size: .68rem; white-space: nowrap; }
-.deployment-activity-summary dd { grid-row: 1; margin: 0; color: var(--text); font-size: .9rem; font-weight: 650; }
+.deployment-activity-summary dt { color: var(--muted); font-size: .75rem; white-space: nowrap; }
+.deployment-activity-summary dd { grid-row: 1; margin: 0; color: var(--text); font-size: .95rem; font-weight: 650; font-variant-numeric: tabular-nums; }
 @media (max-width: 900px) {
   .deployment-activity-toolbar { align-items: flex-start; flex-direction: column; }
   .deployment-activity-legend { justify-content: flex-start; }
-  .deployment-activity-summary { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-  .deployment-activity-summary > div:nth-child(5) { border-left: 0; }
-  .deployment-activity-summary > div:nth-child(n + 5) { padding-top: 10px; border-top: 1px solid var(--border-subtle); }
 }
 @media (max-width: 560px) {
-  .deployment-activity-toggle { grid-template-columns: minmax(0, 1fr) auto; }
-  .deployment-activity-compact { grid-column: 1 / -1; grid-row: 2; }
-  .deployment-activity-chevron { grid-column: 2; }
+  .deployment-activity-heading { padding: 15px 13px 13px; }
   .deployment-activity-chart { height: 170px; }
-  .deployment-activity-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .deployment-activity-summary > div:nth-child(n) { border-left: 0; border-top: 0; }
-  .deployment-activity-summary > div:nth-child(even) { border-left: 1px solid var(--border-subtle); }
-  .deployment-activity-summary > div:nth-child(n + 3) { padding-top: 10px; border-top: 1px solid var(--border-subtle); }
+  .deployment-activity-summary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .deployment-activity button { transition-duration: 0s; }
 }
 </style>
