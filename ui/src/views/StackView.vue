@@ -165,16 +165,30 @@ onUnmounted(() => { request++; });
 
       <p v-if="stack.last_error" class="stack-error" role="alert">{{ stack.last_error }}</p>
 
-      <dl class="stack-metrics" aria-label="Stack summary">
-        <div data-summary="services"><DeploymentIcon name="service" /><div class="stack-metric-copy"><dt>Services</dt><dd>{{ services.length }}</dd></div></div>
-        <div data-summary="synced"><DeploymentIcon name="check" class="metric-icon--success" /><div class="stack-metric-copy"><dt>Synced</dt><dd>{{ stack.status?.synced ?? 0 }}</dd></div></div>
-        <div data-summary="out-of-sync"><DeploymentIcon name="warning" :class="stack.status?.out_of_synced > 0 ? 'metric-icon--warning' : ''" /><div class="stack-metric-copy"><dt>Out of sync</dt><dd>{{ stack.status?.out_of_synced ?? 0 }}</dd></div></div>
-        <div data-summary="networks"><DeploymentIcon name="network" /><div class="stack-metric-copy"><dt>Networks</dt><dd>{{ resourcesError ? "n/a" : networks.length }}</dd></div></div>
-        <div data-summary="secrets"><DeploymentIcon name="secret" /><div class="stack-metric-copy"><dt>Secrets</dt><dd>{{ resourcesError ? "n/a" : secrets.length }}</dd></div></div>
-        <div data-summary="configs"><DeploymentIcon name="config" /><div class="stack-metric-copy"><dt>Configs</dt><dd>{{ resourcesError ? "n/a" : configs.length }}</dd></div></div>
+      <dl class="stack-summary" aria-label="Stack summary">
+        <div class="stack-summary-health" data-summary="health">
+          <DeploymentIcon name="check" class="metric-icon--success" />
+          <div>
+            <dt>Service health</dt>
+            <dd><strong>{{ stack.status?.synced ?? 0 }} / {{ services.length }}</strong><span>synced</span></dd>
+          </div>
+        </div>
+        <div class="stack-summary-drift" :class="{ 'stack-summary-drift--warning': (stack.status?.out_of_synced ?? 0) > 0 }" data-summary="out-of-sync">
+          <DeploymentIcon name="warning" />
+          <div>
+            <dt>Out of sync</dt>
+            <dd>{{ stack.status?.out_of_synced ?? 0 }}</dd>
+          </div>
+        </div>
+        <div class="stack-summary-resources">
+          <dt>Resources</dt>
+          <dd>
+            <span data-summary="networks"><DeploymentIcon name="network" /><strong>{{ resourcesError ? "n/a" : networks.length }}</strong> networks</span>
+            <span data-summary="secrets"><DeploymentIcon name="secret" /><strong>{{ resourcesError ? "n/a" : secrets.length }}</strong> secrets</span>
+            <span data-summary="configs"><DeploymentIcon name="config" /><strong>{{ resourcesError ? "n/a" : configs.length }}</strong> configs</span>
+          </dd>
+        </div>
       </dl>
-
-      <DeploymentActivityChart :stack="stack.name" />
 
       <div class="stack-content-grid">
         <section class="stack-panel stack-services-panel" aria-labelledby="stack-services-title">
@@ -213,12 +227,15 @@ onUnmounted(() => { request++; });
                   <time :datetime="deployment.started_at">{{ formatDate(deployment.started_at) }}</time>
                 </div>
                 <p class="stack-deployment-meta">
-                  <button v-if="deployment.commit" type="button" class="stack-commit-button"
-                    :aria-label="`Open deployment commit ${deployment.commit}`"
-                    @click.stop="store.openCommitDetailsModal(deployment.commit)" @keydown.stop>
-                    {{ shortCommitHash(deployment.commit) }}
-                  </button>
-                  <span v-else>no commit</span><span aria-hidden="true">→</span><span>{{ deployment.phase }}</span>
+                  <span>Commit
+                    <button v-if="deployment.commit" type="button" class="stack-commit-button"
+                      :aria-label="`Open deployment commit ${deployment.commit}`"
+                      @click.stop="store.openCommitDetailsModal(deployment.commit)" @keydown.stop>
+                      {{ shortCommitHash(deployment.commit) }}
+                    </button>
+                    <span v-else>not available</span>
+                  </span>
+                  <span>Phase <strong>{{ deployment.phase }}</strong></span>
                 </p>
                 <p class="stack-deployment-summary">{{ deploymentSummary(deployment) }}</p>
               </div>
@@ -226,6 +243,8 @@ onUnmounted(() => { request++; });
           </ol>
         </section>
       </div>
+
+      <DeploymentActivityChart :stack="stack.name" />
 
       <p v-if="alertsError" class="stack-inline-error" role="alert">Failed to load alerts: {{ alertsError }}</p>
       <section v-else-if="alerts.length" class="stack-panel stack-alert-panel" aria-labelledby="stack-alerts-title">
@@ -240,39 +259,56 @@ onUnmounted(() => { request++; });
 </template>
 
 <style scoped>
-.stack-details-page { display: grid; gap: 18px; min-width: 0; }
-.stack-hero { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; align-items: center; gap: 16px; min-width: 0; }
-.stack-hero-icon { width: 64px; height: 64px; display: grid; place-items: center; border: 1px solid var(--border-default); border-radius: 10px; color: var(--muted); background: linear-gradient(145deg, var(--surface-muted-strong), var(--surface-card-soft)); }
-.stack-hero-icon :deep(svg) { width: 36px; height: 36px; }
-.stack-hero-copy { min-width: 0; display: grid; gap: 9px; }
+/* Hallmark · full redesign · genre: modern-minimal · shape: app screen · screen: services and deployments first · built: the project · v2.0.0 */
+/* Hallmark · pre-emit critique: P4 H4 E4 S5 R4 V4 · weakest: E, responsive table and focus states receive explicit treatment */
+/* Hallmark · answered F5 · status icon coins anchor the real deployment timeline and distinguish its live states */
+.stack-details-page { display: grid; gap: 16px; min-width: 0; }
+.stack-hero { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; align-items: center; gap: 16px; min-width: 0; }
+.stack-hero-icon { width: 48px; height: 48px; display: grid; place-items: center; border: 1px solid var(--border-default); border-radius: 10px; color: var(--muted); background: var(--surface-muted); }
+.stack-hero-icon :deep(svg) { width: 28px; height: 28px; }
+.stack-hero-copy { min-width: 0; display: grid; gap: 8px; }
 .stack-hero-title { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
-.stack-hero-title h2 { margin: 0; font-size: 1.55rem; line-height: 1.15; overflow-wrap: anywhere; }
-.stack-state { display: inline-flex; align-items: center; gap: 7px; min-height: 25px; padding: 3px 9px; border: 0; border-radius: 999px; color: var(--muted); background: var(--surface-muted); font-size: .76rem; font-weight: 500; }
+.stack-hero-title h2 { min-width: 0; margin: 0; font-size: 1.45rem; line-height: 1.15; overflow-wrap: break-word; text-wrap: balance; }
+.stack-state { display: inline-flex; align-items: center; gap: 8px; min-height: 28px; padding: 4px 8px; border: 0; border-radius: 999px; color: var(--muted); background: var(--surface-muted); font-size: .78rem; font-weight: 500; font-variant-numeric: tabular-nums; }
 .stack-state-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); }
 .stack-state--synced .stack-state-dot { background: var(--success); }
 .stack-state--out-of-sync .stack-state-dot { background: var(--warning); }
 .stack-hero-metadata { display: flex; flex-wrap: wrap; gap: 8px 0; margin: 0; color: var(--muted); font-size: .8rem; }
 .stack-hero-metadata > div { display: flex; align-items: center; gap: 4px; }
-.stack-hero-metadata > div + div::before { content: ""; width: 1px; height: 14px; margin: 0 14px; background: var(--border-subtle); }
+.stack-hero-metadata > div + div::before { content: ""; width: 1px; height: 14px; margin: 0 16px; background: var(--border-subtle); }
 .stack-hero-metadata dt, .stack-hero-metadata dd { margin: 0; }
 .stack-hero-metadata dd { color: var(--text); }
 .stack-compare-button { border: 1px solid var(--border-default); background: var(--surface-control); color: var(--text); box-shadow: none; }
 .stack-compare-button:hover { border-color: var(--accent-border); background: var(--surface-hover-strong); filter: none; }
-.stack-commit-button { border: 0; background: transparent; color: var(--accent-strong); padding: 0; border-radius: 3px; font: inherit; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-weight: 500; box-shadow: none; }
+.stack-compare-button:focus-visible, .stack-commit-button:focus-visible, .stack-alert-row:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
+.stack-compare-button:active, .stack-commit-button:active { transform: translateY(1px); }
+.stack-compare-button:disabled, .stack-commit-button:disabled, .stack-alert-row:disabled { color: var(--muted); background: var(--surface-muted); opacity: .65; cursor: not-allowed; }
+.stack-commit-button { border: 0; background: transparent; color: var(--accent-strong); padding: 0; border-radius: 3px; font: inherit; font-weight: 650; box-shadow: none; }
 .stack-commit-button:hover { transform: none; filter: brightness(1.15); }
-.stack-error, .stack-inline-error { margin: 0; padding: 10px 13px; border: 1px solid var(--error-border); border-radius: 8px; color: var(--error); background: var(--error-muted); font-size: .84rem; }
-.stack-metrics { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); margin: 0; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface-card-soft); overflow: hidden; }
-.stack-metrics > div { min-width: 0; min-height: 92px; display: flex; align-items: center; gap: 17px; padding: 18px 22px; }
-.stack-metrics > div + div { border-left: 1px solid var(--border-subtle); }
-.stack-metrics :deep(.deployment-icon) { width: 27px; height: 27px; color: #b9c7dc; }
-.stack-metrics .metric-icon--success { color: var(--success); }
-.stack-metrics .metric-icon--warning { color: var(--warning); }
-.stack-metric-copy { min-width: 0; display: grid; gap: 3px; }
-.stack-metrics dt { color: var(--muted); font-size: .76rem; white-space: nowrap; }
-.stack-metrics dd { grid-row: 1; margin: 0; color: var(--text); font-size: 1.15rem; font-weight: 700; }
-.stack-content-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(330px, 1fr); align-items: stretch; gap: 18px; min-width: 0; }
+.stack-commit-button { white-space: nowrap; }
+.stack-error, .stack-inline-error { margin: 0; padding: 12px 16px; border: 1px solid var(--error-border); border-radius: 8px; color: var(--error); background: var(--error-muted); font-size: .84rem; }
+.stack-summary { display: grid; grid-template-columns: minmax(220px, 1.2fr) minmax(160px, .8fr) minmax(0, 2fr); margin: 0; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface-card-soft); overflow: hidden; }
+.stack-summary > div { min-width: 0; min-height: 72px; padding: 12px 16px; }
+.stack-summary > div + div { border-left: 1px solid var(--border-subtle); }
+.stack-summary-health, .stack-summary-drift { display: flex; align-items: center; gap: 12px; }
+.stack-summary :deep(.deployment-icon) { width: 24px; height: 24px; flex: 0 0 auto; color: var(--muted); }
+.stack-summary .metric-icon--success { color: var(--success); }
+.stack-summary-drift--warning { color: var(--warning); background: var(--warning-muted); }
+.stack-summary-drift--warning :deep(.deployment-icon) { color: var(--warning); }
+.stack-summary dt { color: var(--muted); font-size: .76rem; }
+.stack-summary dd { margin: 0; color: var(--text); font-variant-numeric: tabular-nums; }
+.stack-summary-health dd { display: flex; align-items: baseline; gap: 8px; }
+.stack-summary-health dd strong { font-size: 1.1rem; }
+.stack-summary-health dd span { color: var(--muted); font-size: .78rem; }
+.stack-summary-drift dd { font-size: 1.1rem; font-weight: 700; }
+.stack-summary-resources { display: grid; align-content: center; gap: 8px; }
+.stack-summary-resources dd { display: flex; flex-wrap: wrap; gap: 8px 20px; }
+.stack-summary-resources dd > span { display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: .78rem; white-space: nowrap; }
+.stack-summary-resources dd :deep(.deployment-icon) { width: 17px; height: 17px; }
+.stack-summary-resources strong { color: var(--text); font-size: .9rem; }
+.stack-content-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(330px, 1fr); align-items: stretch; gap: 16px; min-width: 0; }
 .stack-panel { min-width: 0; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface-card-soft); overflow: hidden; }
-.stack-panel-header { min-height: 64px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 13px 16px; border-bottom: 1px solid var(--border-subtle); }
+.stack-panel-header { min-height: 56px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 12px 16px; border-bottom: 1px solid var(--border-subtle); }
 .stack-panel-header h3 { margin: 0; font-size: 1rem; }
 .stack-services-panel :deep(.app-table th) { height: 44px; background: transparent; }
 .stack-services-panel :deep(.app-table td) { height: 52px; }
@@ -282,10 +318,10 @@ onUnmounted(() => { request++; });
 .stack-services-panel :deep(.services-stack-table--detail .services-col-type) { width: 20%; }
 .stack-services-panel :deep(.services-stack-table--detail .services-col-version) { width: 30%; }
 .stack-services-panel :deep(.services-cell-image) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.stack-services-panel :deep(.stack-service-name-wrap) { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.stack-panel-state { margin: 0; padding: 22px 18px; color: var(--muted); font-size: .86rem; }
-.stack-deployment-list { list-style: none; margin: 0; padding: 0 16px 6px; }
-.stack-deployment { position: relative; display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 11px; padding: 16px 0; cursor: pointer; }
+.stack-services-panel :deep(.stack-service-name-wrap) { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.stack-panel-state { margin: 0; padding: 20px 16px; color: var(--muted); font-size: .86rem; font-variant-numeric: tabular-nums; }
+.stack-deployment-list { list-style: none; margin: 0; padding: 0 16px 8px; }
+.stack-deployment { position: relative; display: grid; grid-template-columns: 32px minmax(0, 1fr); gap: 12px; padding: 16px 0; cursor: pointer; }
 .stack-deployment + .stack-deployment { border-top: 1px solid var(--border-subtle); }
 .stack-deployment::before { content: ""; position: absolute; left: 16px; top: 50px; bottom: -16px; width: 1px; background: var(--border-subtle); }
 .stack-deployment:last-child::before { display: none; }
@@ -296,43 +332,65 @@ onUnmounted(() => { request++; });
 .stack-deployment--success .stack-deployment-icon { color: var(--success); border-color: var(--success-border); background: var(--success-muted); }
 .stack-deployment--failed .stack-deployment-icon { color: var(--error); border-color: var(--error-border); background: var(--error-muted); }
 .stack-deployment--running .stack-deployment-icon { color: var(--info); border-color: var(--accent-border); background: var(--info-muted); }
-.stack-deployment-copy { min-width: 0; display: grid; gap: 5px; }
+.stack-deployment-copy { min-width: 0; display: grid; gap: 4px; }
 .stack-deployment-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 .stack-deployment-heading strong { font-size: .86rem; transition: color 120ms ease; }
-.stack-deployment-heading time { color: var(--muted); font-size: .72rem; white-space: nowrap; }
+.stack-deployment-heading time { color: var(--muted); font-size: .75rem; white-space: nowrap; }
 .stack-deployment-meta, .stack-deployment-summary { margin: 0; }
-.stack-deployment-meta { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: .74rem; }
-.stack-deployment-summary { color: var(--muted); font-size: .76rem; line-height: 1.4; }
+.stack-deployment-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; color: var(--muted); font-size: .76rem; }
+.stack-deployment-meta > span { display: inline-flex; gap: 4px; }
+.stack-deployment-meta strong { color: var(--text); font-weight: 500; }
+.stack-deployment-summary { color: var(--muted); font-size: .78rem; line-height: 1.4; }
 .stack-deployment--failed .stack-deployment-summary { color: var(--error); }
 .stack-alert-panel { display: grid; }
-.stack-alert-row { width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; border: 0; border-bottom: 1px solid var(--border-subtle); border-radius: 0; background: transparent; color: var(--text); padding: 12px 16px; text-align: left; box-shadow: none; }
+.stack-alert-row { width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; border: 0; border-bottom: 1px solid var(--border-subtle); border-radius: 0; background: transparent; color: var(--text); padding: 12px 16px; text-align: left; box-shadow: none; }
 .stack-alert-row:last-child { border-bottom: 0; }
 .stack-alert-row:hover { transform: none; background: var(--surface-hover); filter: none; }
+.stack-alert-row:active { background: var(--surface-hover-strong); }
 .stack-alert-row :deep(svg) { color: var(--error); }
 .stack-alert-row time { color: var(--muted); font-size: .74rem; white-space: nowrap; }
 @media (max-width: 1180px) {
-  .stack-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .stack-metrics > div:nth-child(4) { border-left: 0; }
-  .stack-metrics > div:nth-child(n + 4) { border-top: 1px solid var(--border-subtle); }
+  .stack-summary { grid-template-columns: minmax(200px, 1fr) minmax(150px, .75fr) minmax(0, 1.5fr); }
   .stack-content-grid { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 720px) {
-  .stack-details-page { gap: 14px; }
-  .stack-hero { grid-template-columns: 26px minmax(0, 1fr); align-items: start; column-gap: 8px; row-gap: 6px; }
-  .stack-hero-icon { grid-column: 1; grid-row: 1; width: 26px; height: 26px; border: 0; border-radius: 0; background: transparent; }
-  .stack-hero-icon :deep(svg) { width: 26px; height: 26px; }
+  .stack-details-page { gap: 12px; }
+  .stack-hero { grid-template-columns: 28px minmax(0, 1fr) auto; align-items: center; column-gap: 8px; row-gap: 8px; }
+  .stack-hero-icon { grid-column: 1; grid-row: 1; width: 28px; height: 28px; border: 0; border-radius: 0; background: transparent; }
+  .stack-hero-icon :deep(svg) { width: 28px; height: 28px; }
   .stack-hero-copy, .stack-hero-title { display: contents; }
   .stack-hero-title h2 { grid-column: 2; grid-row: 1; min-width: 0; }
-  .stack-state { grid-column: 1 / -1; grid-row: 2; justify-self: start; }
-  .stack-hero-metadata { grid-column: 1 / -1; grid-row: 3; display: grid; gap: 4px; min-width: 0; }
+  .stack-state { grid-column: 3; grid-row: 1; min-height: 24px; justify-self: end; padding: 2px 8px; font-size: .75rem; }
+  .stack-state-dot { width: 6px; height: 6px; }
+  .stack-hero-metadata { grid-column: 1 / -1; grid-row: 2; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 16px; min-width: 0; padding-top: 2px; }
   .stack-hero-metadata > div { min-width: 0; }
+  .stack-hero-metadata > div:first-child { grid-column: 1 / -1; }
+  .stack-hero-metadata > div:nth-child(2) { grid-column: 1; }
+  .stack-hero-metadata > div:nth-child(3) { grid-column: 2; justify-self: end; }
   .stack-hero-metadata > div + div::before { display: none; }
-  .stack-hero-metadata dd { min-width: 0; overflow-wrap: anywhere; }
-  .stack-compare-button { grid-column: 1 / -1; grid-row: 4; justify-self: start; }
-  .stack-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .stack-metrics > div { min-height: 78px; padding: 14px; }
-  .stack-metrics > div:nth-child(n) { border-top: 0; border-left: 0; }
-  .stack-metrics > div:nth-child(even) { border-left: 1px solid var(--border-subtle); }
-  .stack-metrics > div:nth-child(n + 3) { border-top: 1px solid var(--border-subtle); }
+  .stack-hero-metadata dd { min-width: 0; overflow-wrap: break-word; }
+  .stack-compare-button { grid-column: 1 / -1; grid-row: 3; justify-self: end; }
+  .stack-summary { grid-template-columns: minmax(0, 1fr); }
+  .stack-summary > div { min-height: 64px; }
+  .stack-summary > div + div { border-top: 1px solid var(--border-subtle); border-left: 0; }
+  .stack-summary-resources dd { gap: 8px 16px; }
+  .stack-services-panel :deep(.services-stack-table--detail) { display: block; width: 100%; min-width: 0 !important; table-layout: auto; }
+  .stack-services-panel :deep(.services-stack-table--detail colgroup) { display: none; }
+  .stack-services-panel :deep(.services-stack-table--detail thead) { display: none; }
+  .stack-services-panel :deep(.services-stack-table--detail tbody) { display: block; width: 100%; }
+  .stack-services-panel :deep(.services-stack-table--detail tr) { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 12px 16px; }
+  .stack-services-panel :deep(.services-stack-table--detail tr + tr) { border-top: 1px solid var(--border-subtle); }
+  .stack-services-panel :deep(.services-stack-table--detail td) { max-width: none; height: auto; padding: 0; border: 0; overflow: visible; text-overflow: clip; }
+  .stack-services-panel :deep(.services-cell-name) { grid-column: 1; grid-row: 1; }
+  .stack-services-panel :deep(.services-cell-sync-status) { grid-column: 2; grid-row: 1; text-align: right; }
+  .stack-services-panel :deep(.services-cell-type) { grid-column: 1; grid-row: 2; color: var(--muted); font-size: .78rem; }
+  .stack-services-panel :deep(.services-cell-image) { grid-column: 2; grid-row: 2; color: var(--muted); font-size: .78rem; text-align: right; }
+  .stack-services-panel :deep(.app-table-empty-cell) { grid-column: 1 / -1; text-align: left; }
+  .stack-deployment-heading { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .stack-deployment-meta { align-items: flex-start; flex-direction: column; gap: 4px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stack-details-page button { transition-duration: 0s; }
+  .stack-deployment-heading strong { transition-duration: 0s; }
 }
 </style>

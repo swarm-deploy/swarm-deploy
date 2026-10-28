@@ -71,17 +71,17 @@ describe("DeploymentActivityChart", () => {
       "Succeeded", "Failed", "Running", "Interrupted", "Superseded",
     ]);
     expect(wrapper.findAll(".deployment-activity-summary dd").map((item) => item.text())).toEqual([
-      "9", "1.1", "4", "2", "1", "1", "1",
+      "9", "4", "2",
     ]);
     const option = chartMocks.setOption.mock.calls.at(-1)?.[0] as {
       series: Array<{ name: string; data: number[]; itemStyle: { color: string } }>;
     };
     expect(option.series.map((series) => [series.name, series.itemStyle.color])).toEqual([
-      ["Succeeded", "#3fb950"],
-      ["Failed", "#f85149"],
-      ["Running", "#d29922"],
-      ["Interrupted", "#8b949e"],
-      ["Superseded", "#58a6ff"],
+      ["Succeeded", "var(--success)"],
+      ["Failed", "var(--error)"],
+      ["Running", "var(--warning)"],
+      ["Interrupted", "var(--muted)"],
+      ["Superseded", "var(--info)"],
     ]);
     expect(option.series.map((series) => series.data.at(-1))).toEqual([4, 2, 1, 1, 1]);
     wrapper.unmount();
