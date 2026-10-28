@@ -100,7 +100,7 @@ func (l *ListServiceTasks) Execute(ctx context.Context, request routing.Request)
 
 	tasks, err := l.services.ListTasks(
 		ctx,
-		swarm.NewServiceReference(params.StackName, params.ServiceName),
+		swarm.NewServiceReference(params.StackName, params.ServiceName).Name(),
 	)
 	if err != nil {
 		return routing.Response{}, err

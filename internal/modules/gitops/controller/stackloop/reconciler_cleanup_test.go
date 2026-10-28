@@ -111,7 +111,7 @@ func TestRenderedComposeCleanupFailureDoesNotFailReconciliation(t *testing.T) {
 				"prevent directory removal")
 			return deployer.Result{}, nil
 		})
-	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
+	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
 
 	var logs bytes.Buffer
 	previousLogger := slog.Default()

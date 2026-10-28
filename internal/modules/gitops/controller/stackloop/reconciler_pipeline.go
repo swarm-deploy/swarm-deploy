@@ -403,7 +403,7 @@ func normalizeSecretFilePaths(baseDir string, objects compose.Secrets) {
 }
 
 func (r *Reconciler) loadLiveState(ctx context.Context, payload *pipelinePayload) error {
-	liveServices, err := r.serviceManager.ListStackServices(ctx, payload.Stack.Name)
+	liveServices, err := r.serviceManager.ListServices(ctx, swarm.ListServicesFilter{Stack: payload.Stack.Name})
 	if err != nil {
 		return err
 	}

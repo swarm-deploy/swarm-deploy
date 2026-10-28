@@ -86,34 +86,49 @@ func (mr *MockServiceManagerMockRecorder) GetStatus(ctx, serviceRef any) *gomock
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetStatus", reflect.TypeOf((*MockServiceManager)(nil).GetStatus), ctx, serviceRef)
 }
 
-// ListStackServices mocks base method.
-func (m *MockServiceManager) ListStackServices(ctx context.Context, stackName string) ([]StackService, error) {
+// GetTask mocks base method.
+func (m *MockServiceManager) GetTask(ctx context.Context, taskID string) (ServiceTaskDetails, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListStackServices", ctx, stackName)
+	ret := m.ctrl.Call(m, "GetTask", ctx, taskID)
+	ret0, _ := ret[0].(ServiceTaskDetails)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetTask indicates an expected call of GetTask.
+func (mr *MockServiceManagerMockRecorder) GetTask(ctx, taskID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetTask", reflect.TypeOf((*MockServiceManager)(nil).GetTask), ctx, taskID)
+}
+
+// ListServices mocks base method.
+func (m *MockServiceManager) ListServices(ctx context.Context, filter ListServicesFilter) ([]StackService, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListServices", ctx, filter)
 	ret0, _ := ret[0].([]StackService)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
-// ListStackServices indicates an expected call of ListStackServices.
-func (mr *MockServiceManagerMockRecorder) ListStackServices(ctx, stackName any) *gomock.Call {
+// ListServices indicates an expected call of ListServices.
+func (mr *MockServiceManagerMockRecorder) ListServices(ctx, filter any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListStackServices", reflect.TypeOf((*MockServiceManager)(nil).ListStackServices), ctx, stackName)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListServices", reflect.TypeOf((*MockServiceManager)(nil).ListServices), ctx, filter)
 }
 
 // ListTasks mocks base method.
-func (m *MockServiceManager) ListTasks(ctx context.Context, serviceRef ServiceReference) ([]ServiceTask, error) {
+func (m *MockServiceManager) ListTasks(ctx context.Context, serviceIDOrName string) ([]ServiceTask, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "ListTasks", ctx, serviceRef)
+	ret := m.ctrl.Call(m, "ListTasks", ctx, serviceIDOrName)
 	ret0, _ := ret[0].([]ServiceTask)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // ListTasks indicates an expected call of ListTasks.
-func (mr *MockServiceManagerMockRecorder) ListTasks(ctx, serviceRef any) *gomock.Call {
+func (mr *MockServiceManagerMockRecorder) ListTasks(ctx, serviceIDOrName any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTasks", reflect.TypeOf((*MockServiceManager)(nil).ListTasks), ctx, serviceRef)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListTasks", reflect.TypeOf((*MockServiceManager)(nil).ListTasks), ctx, serviceIDOrName)
 }
 
 // Logs mocks base method.

@@ -66,7 +66,7 @@ func TestListServiceTasksReturnsAllStatesNewestFirstWithPagination(t *testing.T)
 			ctrl := gomock.NewController(t)
 			services := swarm.NewMockServiceManager(ctrl)
 			services.EXPECT().
-				ListTasks(gomock.Any(), swarm.NewServiceReference("payments", "api")).
+				ListTasks(gomock.Any(), swarm.NewServiceReference("payments", "api").Name()).
 				Return(tasks, nil)
 			tool := NewListServiceTasks(services)
 
@@ -111,7 +111,7 @@ func TestListServiceTasksIncludesTaskDetails(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	services := swarm.NewMockServiceManager(ctrl)
 	services.EXPECT().
-		ListTasks(gomock.Any(), swarm.NewServiceReference("payments", "api")).
+		ListTasks(gomock.Any(), swarm.NewServiceReference("payments", "api").Name()).
 		Return([]swarm.ServiceTask{{
 			ID:           "task-1",
 			Node:         "node-1",

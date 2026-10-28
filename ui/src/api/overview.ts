@@ -151,10 +151,9 @@ export function fetchServiceDeployments(
   );
 }
 
-export function fetchServiceRealtime(stackName: string, serviceName: string): Promise<ServiceRealtimeResponse> {
-  const encodedStack = encodeURIComponent(stackName);
-  const encodedService = encodeURIComponent(serviceName);
-  return apiRequest<ServiceRealtimeResponse>(`/api/v1/stacks/${encodedStack}/services/${encodedService}/realtime`);
+export function fetchServiceRealtime(serviceIDOrName: string): Promise<ServiceRealtimeResponse> {
+  const encodedService = encodeURIComponent(serviceIDOrName);
+  return apiRequest<ServiceRealtimeResponse>(`/api/v1/swarm/services/${encodedService}/tasks`);
 }
 
 export interface OpenTaskLogsOptions {

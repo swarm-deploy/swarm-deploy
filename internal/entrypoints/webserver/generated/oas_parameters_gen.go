@@ -851,124 +851,6 @@ func decodeGetServiceParams(args [2]string, argsEscaped bool, r *http.Request) (
 	return params, nil
 }
 
-// GetServiceRealtimeParams is parameters of getServiceRealtime operation.
-type GetServiceRealtimeParams struct {
-	Stack   string
-	Service string
-}
-
-func unpackGetServiceRealtimeParams(packed middleware.Parameters) (params GetServiceRealtimeParams) {
-	{
-		key := middleware.ParameterKey{
-			Name: "stack",
-			In:   "path",
-		}
-		params.Stack = packed[key].(string)
-	}
-	{
-		key := middleware.ParameterKey{
-			Name: "service",
-			In:   "path",
-		}
-		params.Service = packed[key].(string)
-	}
-	return params
-}
-
-func decodeGetServiceRealtimeParams(args [2]string, argsEscaped bool, r *http.Request) (params GetServiceRealtimeParams, _ error) {
-	// Decode path: stack.
-	if err := func() error {
-		param := args[0]
-		if argsEscaped {
-			unescaped, err := url.PathUnescape(args[0])
-			if err != nil {
-				return errors.Wrap(err, "unescape path")
-			}
-			param = unescaped
-		}
-		if len(param) > 0 {
-			d := uri.NewPathDecoder(uri.PathDecoderConfig{
-				Param:   "stack",
-				Value:   param,
-				Style:   uri.PathStyleSimple,
-				Explode: false,
-			})
-
-			if err := func() error {
-				val, err := d.DecodeValue()
-				if err != nil {
-					return err
-				}
-
-				c, err := conv.ToString(val)
-				if err != nil {
-					return err
-				}
-
-				params.Stack = c
-				return nil
-			}(); err != nil {
-				return err
-			}
-		} else {
-			return validate.ErrFieldRequired
-		}
-		return nil
-	}(); err != nil {
-		return params, &ogenerrors.DecodeParamError{
-			Name: "stack",
-			In:   "path",
-			Err:  err,
-		}
-	}
-	// Decode path: service.
-	if err := func() error {
-		param := args[1]
-		if argsEscaped {
-			unescaped, err := url.PathUnescape(args[1])
-			if err != nil {
-				return errors.Wrap(err, "unescape path")
-			}
-			param = unescaped
-		}
-		if len(param) > 0 {
-			d := uri.NewPathDecoder(uri.PathDecoderConfig{
-				Param:   "service",
-				Value:   param,
-				Style:   uri.PathStyleSimple,
-				Explode: false,
-			})
-
-			if err := func() error {
-				val, err := d.DecodeValue()
-				if err != nil {
-					return err
-				}
-
-				c, err := conv.ToString(val)
-				if err != nil {
-					return err
-				}
-
-				params.Service = c
-				return nil
-			}(); err != nil {
-				return err
-			}
-		} else {
-			return validate.ErrFieldRequired
-		}
-		return nil
-	}(); err != nil {
-		return params, &ogenerrors.DecodeParamError{
-			Name: "service",
-			In:   "path",
-			Err:  err,
-		}
-	}
-	return params, nil
-}
-
 // GetStackDeploymentActivityParams is parameters of getStackDeploymentActivity operation.
 type GetStackDeploymentActivityParams struct {
 	Stack string
@@ -1265,6 +1147,91 @@ func decodeGetStackResourcesParams(args [1]string, argsEscaped bool, r *http.Req
 	}(); err != nil {
 		return params, &ogenerrors.DecodeParamError{
 			Name: "stack",
+			In:   "path",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
+// GetSwarmTaskParams is parameters of getSwarmTask operation.
+type GetSwarmTaskParams struct {
+	TaskID string
+}
+
+func unpackGetSwarmTaskParams(packed middleware.Parameters) (params GetSwarmTaskParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "taskID",
+			In:   "path",
+		}
+		params.TaskID = packed[key].(string)
+	}
+	return params
+}
+
+func decodeGetSwarmTaskParams(args [1]string, argsEscaped bool, r *http.Request) (params GetSwarmTaskParams, _ error) {
+	// Decode path: taskID.
+	if err := func() error {
+		param := args[0]
+		if argsEscaped {
+			unescaped, err := url.PathUnescape(args[0])
+			if err != nil {
+				return errors.Wrap(err, "unescape path")
+			}
+			param = unescaped
+		}
+		if len(param) > 0 {
+			d := uri.NewPathDecoder(uri.PathDecoderConfig{
+				Param:   "taskID",
+				Value:   param,
+				Style:   uri.PathStyleSimple,
+				Explode: false,
+			})
+
+			if err := func() error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToString(val)
+				if err != nil {
+					return err
+				}
+
+				params.TaskID = c
+				return nil
+			}(); err != nil {
+				return err
+			}
+			if err := func() error {
+				if err := (validate.String{
+					MinLength:     1,
+					MinLengthSet:  true,
+					MaxLength:     0,
+					MaxLengthSet:  false,
+					Email:         false,
+					Hostname:      false,
+					Regex:         nil,
+					MinNumeric:    0,
+					MinNumericSet: false,
+					MaxNumeric:    0,
+					MaxNumericSet: false,
+				}).Validate(string(params.TaskID)); err != nil {
+					return errors.Wrap(err, "string")
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		} else {
+			return validate.ErrFieldRequired
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "taskID",
 			In:   "path",
 			Err:  err,
 		}
@@ -3197,6 +3164,91 @@ func decodeListServiceDeploymentsParams(args [2]string, argsEscaped bool, r *htt
 		return params, &ogenerrors.DecodeParamError{
 			Name: "limit",
 			In:   "query",
+			Err:  err,
+		}
+	}
+	return params, nil
+}
+
+// ListSwarmServiceTasksParams is parameters of listSwarmServiceTasks operation.
+type ListSwarmServiceTasksParams struct {
+	ServiceIDOrName string
+}
+
+func unpackListSwarmServiceTasksParams(packed middleware.Parameters) (params ListSwarmServiceTasksParams) {
+	{
+		key := middleware.ParameterKey{
+			Name: "serviceIDOrName",
+			In:   "path",
+		}
+		params.ServiceIDOrName = packed[key].(string)
+	}
+	return params
+}
+
+func decodeListSwarmServiceTasksParams(args [1]string, argsEscaped bool, r *http.Request) (params ListSwarmServiceTasksParams, _ error) {
+	// Decode path: serviceIDOrName.
+	if err := func() error {
+		param := args[0]
+		if argsEscaped {
+			unescaped, err := url.PathUnescape(args[0])
+			if err != nil {
+				return errors.Wrap(err, "unescape path")
+			}
+			param = unescaped
+		}
+		if len(param) > 0 {
+			d := uri.NewPathDecoder(uri.PathDecoderConfig{
+				Param:   "serviceIDOrName",
+				Value:   param,
+				Style:   uri.PathStyleSimple,
+				Explode: false,
+			})
+
+			if err := func() error {
+				val, err := d.DecodeValue()
+				if err != nil {
+					return err
+				}
+
+				c, err := conv.ToString(val)
+				if err != nil {
+					return err
+				}
+
+				params.ServiceIDOrName = c
+				return nil
+			}(); err != nil {
+				return err
+			}
+			if err := func() error {
+				if err := (validate.String{
+					MinLength:     1,
+					MinLengthSet:  true,
+					MaxLength:     0,
+					MaxLengthSet:  false,
+					Email:         false,
+					Hostname:      false,
+					Regex:         nil,
+					MinNumeric:    0,
+					MinNumericSet: false,
+					MaxNumeric:    0,
+					MaxNumericSet: false,
+				}).Validate(string(params.ServiceIDOrName)); err != nil {
+					return errors.Wrap(err, "string")
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		} else {
+			return validate.ErrFieldRequired
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "serviceIDOrName",
+			In:   "path",
 			Err:  err,
 		}
 	}

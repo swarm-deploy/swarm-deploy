@@ -65,10 +65,6 @@ type Handler interface {
 	//
 	// GET /api/v1/stacks/{stack}/services/{service}
 	GetService(ctx context.Context, params GetServiceParams) (*ServiceStatusResponse, error)
-	// GetServiceRealtime implements getServiceRealtime operation.
-	//
-	// GET /api/v1/stacks/{stack}/services/{service}/realtime
-	GetServiceRealtime(ctx context.Context, params GetServiceRealtimeParams) (*ServiceRealtimeResponse, error)
 	// GetStackDeploymentActivity implements getStackDeploymentActivity operation.
 	//
 	// Aggregated deployment operations for a configured stack, grouped by UTC start time.
@@ -87,6 +83,10 @@ type Handler interface {
 	//
 	// GET /api/v1/stacks/{stack}/resources
 	GetStackResources(ctx context.Context, params GetStackResourcesParams) (*StackResourcesResponse, error)
+	// GetSwarmTask implements getSwarmTask operation.
+	//
+	// GET /api/v1/swarm/tasks/{taskID}
+	GetSwarmTask(ctx context.Context, params GetSwarmTaskParams) (*SwarmTaskDetailsHeaders, error)
 	// ListAlerts implements listAlerts operation.
 	//
 	// GET /api/v1/alerts
@@ -135,6 +135,14 @@ type Handler interface {
 	//
 	// GET /api/v1/stacks
 	ListStacks(ctx context.Context) (*StacksResponse, error)
+	// ListSwarmServiceTasks implements listSwarmServiceTasks operation.
+	//
+	// GET /api/v1/swarm/services/{serviceIDOrName}/tasks
+	ListSwarmServiceTasks(ctx context.Context, params ListSwarmServiceTasksParams) (*ServiceRealtimeResponse, error)
+	// ListSwarmServices implements listSwarmServices operation.
+	//
+	// GET /api/v1/swarm/services
+	ListSwarmServices(ctx context.Context) (*SwarmServicesResponse, error)
 	// Search implements search operation.
 	//
 	// GET /api/v1/search

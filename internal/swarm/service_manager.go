@@ -61,18 +61,29 @@ func (m *serviceManager) GetReplicas(
 	return *service.Spec.Mode.Replicated.Replicas, nil
 }
 
-// ListStackServices returns services currently attached to provided stack.
-func (m *serviceManager) ListStackServices(ctx context.Context, stackName string) ([]StackService, error) {
+// ListServices returns Docker Swarm services matching the provided filter.
+func (m *serviceManager) ListServices(ctx context.Context, filter ListServicesFilter) ([]StackService, error) {
+	dockerFilters := filters.NewArgs()
+	if filter.Stack != "" {
+		dockerFilters.Add("label", stackNamespaceLabelKey+"="+filter.Stack)
+	}
+
 	services, err := m.dockerClient.ServiceList(ctx, dockerswarm.ServiceListOptions{
-		Filters: filters.NewArgs(filters.Arg("label", stackNamespaceLabelKey+"="+stackName)),
+		Filters: dockerFilters,
+		Status:  true,
 	})
 	if err != nil {
-		return nil, fmt.Errorf("list services for stack %s: %w", stackName, err)
+		if filter.Stack != "" {
+			return nil, fmt.Errorf("list services for stack %s: %w", filter.Stack, err)
+		}
+
+		return nil, fmt.Errorf("list services: %w", err)
 	}
 
 	mapped := make([]StackService, 0, len(services))
 	for _, service := range services {
 		fullName := service.Spec.Name
+		stackName := service.Spec.Labels[stackNamespaceLabelKey]
 
 		mode, replicas := resolveServiceDeployMode(service.Spec.Mode)
 		replicasPtr := (*uint64)(nil)
@@ -86,13 +97,26 @@ func (m *serviceManager) ListStackServices(ctx context.Context, stackName string
 			image = service.Spec.TaskTemplate.ContainerSpec.Image
 		}
 
+		runningTasks := uint64(0)
+		desiredTasks := uint64(0)
+		if service.ServiceStatus != nil {
+			runningTasks = service.ServiceStatus.RunningTasks
+			desiredTasks = service.ServiceStatus.DesiredTasks
+		}
+
 		mapped = append(mapped, StackService{
 			ID:           service.ID,
 			Name:         stackServiceNameFromFullName(stackName, fullName),
+			Stack:        stackName,
 			FullName:     fullName,
 			Image:        image,
 			Mode:         mode,
 			Replicas:     replicasPtr,
+			RunningTasks: runningTasks,
+			DesiredTasks: desiredTasks,
+			CreatedAt:    service.CreatedAt,
+			UpdatedAt:    service.UpdatedAt,
+			UpdateStatus: toServiceUpdateStatus(service.UpdateStatus),
 			ServiceSpec:  service.Spec,
 			PreviousSpec: service.PreviousSpec,
 			Labels:       cloneStringMap(service.Spec.Labels),
@@ -198,34 +222,101 @@ func (m *serviceManager) GetStatus(ctx context.Context, serviceRef ServiceRefere
 	return status, nil
 }
 
-// ListTasks returns service tasks for realtime container status rendering.
-func (m *serviceManager) ListTasks(ctx context.Context, serviceRef ServiceReference) ([]ServiceTask, error) {
-	fullServiceName := serviceRef.Name()
-
+// ListTasks returns tasks for a Docker service identifier or full service name.
+func (m *serviceManager) ListTasks(ctx context.Context, serviceIDOrName string) ([]ServiceTask, error) {
 	tasks, err := m.dockerClient.TaskList(ctx, dockerswarm.TaskListOptions{
-		Filters: filters.NewArgs(filters.Arg("service", fullServiceName)),
+		Filters: filters.NewArgs(filters.Arg("service", serviceIDOrName)),
 	})
 	if err != nil {
 		if isNotFoundErr(err) {
 			return nil, ErrServiceNotFound
 		}
 
-		return nil, fmt.Errorf("list tasks for service %s: %w", fullServiceName, err)
+		return nil, fmt.Errorf("list tasks for service %s: %w", serviceIDOrName, err)
 	}
 
 	out := make([]ServiceTask, 0, len(tasks))
 	for _, task := range tasks {
-		out = append(out, ServiceTask{
+		mapped := ServiceTask{
 			ID:           task.ID,
 			Node:         task.NodeID,
+			Slot:         task.Slot,
+			DesiredState: TaskState(task.DesiredState),
 			CreatedAt:    task.CreatedAt,
 			UpdatedAt:    task.UpdatedAt,
 			CurrentState: TaskState(task.Status.State),
 			Error:        task.Status.Err,
-		})
+		}
+		if task.Status.ContainerStatus != nil {
+			exitCode := task.Status.ContainerStatus.ExitCode
+			mapped.ContainerID = task.Status.ContainerStatus.ContainerID
+			mapped.ExitCode = &exitCode
+		}
+		out = append(out, mapped)
 	}
 
 	return out, nil
+}
+
+// GetTask returns compact runtime details for a Docker task identifier.
+func (m *serviceManager) GetTask(ctx context.Context, taskID string) (ServiceTaskDetails, error) {
+	task, _, err := m.dockerClient.TaskInspectWithRaw(ctx, taskID)
+	if err != nil {
+		if isNotFoundErr(err) {
+			return ServiceTaskDetails{}, ErrTaskNotFound
+		}
+
+		return ServiceTaskDetails{}, fmt.Errorf("inspect task %s: %w", taskID, err)
+	}
+
+	details := ServiceTaskDetails{
+		ID:           task.ID,
+		ServiceID:    task.ServiceID,
+		NodeID:       task.NodeID,
+		Slot:         task.Slot,
+		DesiredState: TaskState(task.DesiredState),
+		CurrentState: TaskState(task.Status.State),
+		Error:        task.Status.Err,
+		CreatedAt:    task.CreatedAt,
+		UpdatedAt:    task.UpdatedAt,
+	}
+	if task.Status.ContainerStatus != nil {
+		exitCode := task.Status.ContainerStatus.ExitCode
+		details.ContainerID = task.Status.ContainerStatus.ContainerID
+		details.ExitCode = &exitCode
+	}
+	if task.Spec.ContainerSpec != nil {
+		details.Image = task.Spec.ContainerSpec.Image
+		details.Environment = append([]string(nil), task.Spec.ContainerSpec.Env...)
+	}
+	if task.Spec.Resources != nil {
+		details.Reservations = toTaskReservations(task.Spec.Resources.Reservations)
+		details.Limits = toTaskLimits(task.Spec.Resources.Limits)
+	}
+
+	return details, nil
+}
+
+func toTaskReservations(resources *dockerswarm.Resources) *TaskResources {
+	if resources == nil {
+		return nil
+	}
+
+	return &TaskResources{
+		NanoCPUs:    resources.NanoCPUs,
+		MemoryBytes: resources.MemoryBytes,
+	}
+}
+
+func toTaskLimits(resources *dockerswarm.Limit) *TaskResources {
+	if resources == nil {
+		return nil
+	}
+
+	return &TaskResources{
+		NanoCPUs:    resources.NanoCPUs,
+		MemoryBytes: resources.MemoryBytes,
+	}
 }
 
 // Get returns full compact service projection for a stack service.

@@ -34,20 +34,26 @@ paths:
               schema:
                 $ref: '#/components/schemas/ServiceStatusResponse'
 
-  /api/v1/stacks/{stack}/services/{service}/realtime:
+  /api/v1/swarm/services:
     get:
-      operationId: getServiceRealtime
+      operationId: listSwarmServices
+      responses:
+        '200':
+          description: Live services read directly from Docker Swarm
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SwarmServicesResponse'
+  /api/v1/swarm/services/{serviceIDOrName}/tasks:
+    get:
+      operationId: listSwarmServiceTasks
       parameters:
         - in: path
-          name: stack
+          name: serviceIDOrName
           required: true
           schema:
             type: string
-        - in: path
-          name: service
-          required: true
-          schema:
-            type: string
+            minLength: 1
       responses:
         '200':
           description: Service realtime tasks status
@@ -55,6 +61,29 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ServiceRealtimeResponse'
+  /api/v1/swarm/tasks/{taskID}:
+    get:
+      operationId: getSwarmTask
+      parameters:
+        - in: path
+          name: taskID
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        '200':
+          description: Inspected Docker Swarm task runtime details
+          headers:
+            Cache-Control:
+              required: true
+              description: Prevents caching recoverable environment values.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SwarmTaskDetails'
   /api/tasks/{taskID}/logs:
     get:
       operationId: getTaskLogs
@@ -316,13 +345,19 @@ components:
 
     ServiceRealtimeTask:
       type: object
-      required: [id, node, current_state]
+      required: [id, slot, node, desired_state, current_state, container_id]
       properties:
         id:
           type: string
+        slot:
+          type: integer
+          format: int64
+          minimum: 0
         node:
           type: string
         node_name:
+          type: string
+        desired_state:
           type: string
         created_at:
           type: string
@@ -332,6 +367,11 @@ components:
           format: date-time
         current_state:
           type: string
+        container_id:
+          type: string
+        exit_code:
+          type: integer
+          format: int64
         error:
           type: string
     ServiceRealtimeResponse:
@@ -342,6 +382,132 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ServiceRealtimeTask'
+    SwarmServiceReplicas:
+      type: object
+      required: [running, desired]
+      properties:
+        running:
+          type: integer
+          format: int64
+          minimum: 0
+        desired:
+          type: integer
+          format: int64
+          minimum: 0
+    SwarmService:
+      type: object
+      required: [id, name, full_name, stack, image, mode, replicas, updated_at]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        full_name:
+          type: string
+        stack:
+          type: string
+          description: Docker stack namespace, or an empty string for standalone services.
+        image:
+          type: string
+        mode:
+          type: string
+        replicas:
+          $ref: '#/components/schemas/SwarmServiceReplicas'
+        updated_at:
+          type: string
+          format: date-time
+    SwarmServicesResponse:
+      type: object
+      required: [services]
+      properties:
+        services:
+          type: array
+          items:
+            $ref: '#/components/schemas/SwarmService'
+    EnvironmentVariable:
+      type: object
+      required:
+        - name
+        - value
+        - encoded
+      properties:
+        name:
+          type: string
+        value:
+          type: string
+        encoded:
+          type: boolean
+          description: >
+            True when value contains the original environment value encoded
+            using standard Base64. The value is encoded, not encrypted or
+            irreversibly masked.
+    SwarmTaskResources:
+      type: object
+      required: [nano_cpus, memory_bytes]
+      properties:
+        nano_cpus:
+          type: integer
+          format: int64
+          minimum: 0
+        memory_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+    SwarmTaskDetails:
+      type: object
+      required:
+        - id
+        - service_id
+        - node_id
+        - slot
+        - desired_state
+        - current_state
+        - created_at
+        - updated_at
+        - container_id
+        - image
+        - environment
+      properties:
+        id:
+          type: string
+        service_id:
+          type: string
+        node_id:
+          type: string
+        slot:
+          type: integer
+          format: int64
+          minimum: 0
+        desired_state:
+          type: string
+        current_state:
+          type: string
+        error:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        container_id:
+          type: string
+        exit_code:
+          type: integer
+          format: int64
+        image:
+          type: string
+        environment:
+          type: array
+          description: >
+            Environment from the inspected task. Sensitive values remain
+            recoverable through standard Base64 encoding.
+          items:
+            $ref: '#/components/schemas/EnvironmentVariable'
+        reservations:
+          $ref: '#/components/schemas/SwarmTaskResources'
+        limits:
+          $ref: '#/components/schemas/SwarmTaskResources'
     ServiceDeploymentStatus:
       type: string
       enum: [running, succeeded, failed, interrupted, superseded]

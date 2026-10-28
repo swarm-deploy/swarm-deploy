@@ -239,6 +239,8 @@ describe("ServiceView", () => {
     const wrapper = await mountServiceView();
     const realtimeCard = wrapper.get(".service-realtime-card");
 
+    expect(apiMocks.fetchServiceRealtime).toHaveBeenCalledWith("infra_api");
+
     expect(realtimeCard.get(".service-panel-content").classes()).toContain("service-realtime-table-content");
     expect(realtimeCard.findAll(".service-realtime-table th").map((item) => item.text())).toEqual([
       "ID",
