@@ -87,29 +87,23 @@ describe("DeploymentActivityChart", () => {
     wrapper.unmount();
   });
 
-  it("switches intervals and preserves the selection without refetching when collapsed", async () => {
+  it("switches intervals and preserves the selection without refetching", async () => {
     const wrapper = await render();
     await wrapper.get('.deployment-activity-interval button[aria-pressed="false"]').trigger("click");
     await flushPromises();
     expect(fetchStackDeploymentActivity).toHaveBeenLastCalledWith("app", "daily");
-
-    await wrapper.get(".deployment-activity-toggle").trigger("click");
-    expect(wrapper.get(".deployment-activity-toggle").attributes("aria-expanded")).toBe("false");
-    expect(wrapper.get(".deployment-activity-compact").text()).toBe("9 deployments in 30 days");
-    await wrapper.get(".deployment-activity-toggle").trigger("click");
     expect(wrapper.get('[aria-label="Deployment activity interval"] [aria-pressed="true"]').text()).toBe("Daily");
     expect(fetchStackDeploymentActivity).toHaveBeenCalledTimes(2);
     wrapper.unmount();
   });
 
-  it("supports collapsing and expanding while the request is loading", async () => {
+  it("keeps the activity content visible while the request is loading", async () => {
     let resolve!: (response: DeploymentActivityResponse) => void;
     vi.mocked(fetchStackDeploymentActivity).mockReturnValueOnce(new Promise((done) => { resolve = done; }));
     const wrapper = mount(DeploymentActivityChart, { props: { stack: "app" } });
     expect(wrapper.get('[role="status"]').text()).toContain("Loading deployment activity");
-    await wrapper.get(".deployment-activity-toggle").trigger("click");
-    expect(wrapper.get(".deployment-activity-compact").text()).toBe("Loading activity…");
-    await wrapper.get(".deployment-activity-toggle").trigger("click");
+    expect(wrapper.find(".deployment-activity-toggle").exists()).toBe(false);
+    expect(wrapper.find(".deployment-activity-content").isVisible()).toBe(true);
     resolve(activity("weekly"));
     await flushPromises();
     expect(wrapper.find('[role="status"]').exists()).toBe(false);
