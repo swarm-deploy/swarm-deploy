@@ -7,7 +7,6 @@ import (
 	"log/slog"
 
 	"github.com/doug-martin/goqu/v9"
-	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -153,7 +152,7 @@ func (s *Subscriber) persistProjection(
 		if !current {
 			return nil
 		}
-		query, args, err := goqu.Dialect("sqlite3").Insert("service_catalog_receipts").Prepared(true).
+		query, args, err := s.db.Dialect().Insert("service_catalog_receipts").Prepared(true).
 			Rows(goqu.Record{"source_event_id": sourceID}).
 			OnConflict(goqu.DoNothing()).
 			ToSQL()
@@ -183,9 +182,9 @@ func (s *Subscriber) currentDeployment(ctx context.Context, deploySuccess *event
 		return true, nil
 	}
 	var current bool
-	exists := goqu.Dialect("sqlite3").From("desired_snapshots").Prepared(true).Select(goqu.L("1")).
+	exists := s.db.Dialect().From("desired_snapshots").Prepared(true).Select(goqu.L("1")).
 		Where(goqu.Ex{"stack": deploySuccess.StackName, "deployment_id": deploySuccess.DeploymentID})
-	query, args, err := goqu.Dialect("sqlite3").From().Prepared(true).
+	query, args, err := s.db.Dialect().From().Prepared(true).
 		Select(goqu.L("EXISTS ?", exists)).ToSQL()
 	if err != nil {
 		return false, err

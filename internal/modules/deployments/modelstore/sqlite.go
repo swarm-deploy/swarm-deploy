@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
-	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
@@ -30,8 +29,6 @@ var ErrInvalidCursor = errors.New("invalid deployment cursor")
 
 // ErrLogsUnavailable means an Init Job execution exists but its Docker logs could not be collected.
 var ErrLogsUnavailable = errors.New("init job logs unavailable")
-
-var dialect = goqu.Dialect("sqlite3")
 
 // Store provides context-aware deployment and snapshot queries.
 type Store struct{ db storage.Database }
@@ -198,7 +195,7 @@ const supersededPredicate = `deployments.status IN ('failed','interrupted') AND 
 
 // List returns a lightweight page without loading desired snapshots or change arrays.
 func (s *Store) List(ctx context.Context, filter deploymentmodel.ListFilter) (deploymentmodel.Page, error) {
-	dataset := dialect.From("deployments").Prepared(true).Select(summaryColumns...)
+	dataset := s.db.Dialect().From("deployments").Prepared(true).Select(summaryColumns...)
 	if filter.Stack != "" {
 		dataset = dataset.Where(goqu.Ex{"stack": filter.Stack})
 	}
@@ -520,7 +517,7 @@ func (s *Store) initJobs(
 }
 
 func (s *Store) attempts(ctx context.Context, deploymentID string) ([]deploymentmodel.Attempt, error) {
-	query, args, err := dialect.From("deployment_attempts").Prepared(true).
+	query, args, err := s.db.Dialect().From("deployment_attempts").Prepared(true).
 		Select("id", "deployment_id", "number", "status", "error_code", "phase",
 			"started_at", "finished_at", "details_payload").
 		Where(goqu.Ex{"deployment_id": deploymentID}).Order(goqu.I("number").Desc()).ToSQL()
@@ -544,7 +541,7 @@ func (s *Store) attempts(ctx context.Context, deploymentID string) ([]deployment
 
 // GetAttempt loads one persisted deployment attempt.
 func (s *Store) GetAttempt(ctx context.Context, id string) (deploymentmodel.Attempt, error) {
-	query, args, err := dialect.From("deployment_attempts").Prepared(true).
+	query, args, err := s.db.Dialect().From("deployment_attempts").Prepared(true).
 		Select("id", "deployment_id", "number", "status", "error_code", "phase",
 			"started_at", "finished_at", "details_payload").
 		Where(goqu.Ex{"id": id}).ToSQL()
@@ -560,7 +557,7 @@ func (s *Store) GetAttempt(ctx context.Context, id string) (deploymentmodel.Atte
 
 // RunningAttempts returns persisted running attempts, optionally restricted to one stack.
 func (s *Store) RunningAttempts(ctx context.Context, stack string) ([]deploymentmodel.Attempt, error) {
-	dataset := dialect.From(goqu.T("deployment_attempts").As("attempt")).Prepared(true).
+	dataset := s.db.Dialect().From(goqu.T("deployment_attempts").As("attempt")).Prepared(true).
 		Join(goqu.T("deployments").As("deployment"),
 			goqu.On(goqu.I("deployment.id").Eq(goqu.I("attempt.deployment_id")))).
 		Select(
@@ -615,7 +612,7 @@ func (s *Store) Get(ctx context.Context, id string) (deploymentmodel.Deployment,
 	var row deploymentRow
 	columns := append([]any{}, summaryColumns...)
 	columns = append(columns, "changes_payload")
-	query, args, err := dialect.From("deployments").Prepared(true).
+	query, args, err := s.db.Dialect().From("deployments").Prepared(true).
 		Select(columns...).
 		Where(goqu.Ex{"id": id}).ToSQL()
 	if err != nil {
@@ -651,7 +648,7 @@ func (s *Store) SaveInitJobExecution(ctx context.Context, execution deploymentmo
 	if execution.LogsAvailable {
 		logs = execution.Logs
 	}
-	query, args, err := dialect.Insert("deployment_init_jobs").Prepared(true).Rows(goqu.Record{
+	query, args, err := s.db.Dialect().Insert("deployment_init_jobs").Prepared(true).Rows(goqu.Record{
 		"attempt_id": execution.AttemptID, "ordinal": execution.Ordinal,
 		"service_name": execution.ServiceName, "job_name": execution.JobName, "status": execution.Status,
 		"started_at": execution.StartedAt.UTC(), "finished_at": execution.FinishedAt.UTC(),
@@ -693,7 +690,7 @@ func (s *Store) InitJobLogs(
 
 // Desired loads a deployment's safe desired definition for independent subscribers.
 func (s *Store) Desired(ctx context.Context, id string) (compose.File, error) {
-	query, args, err := dialect.From("deployments").Prepared(true).
+	query, args, err := s.db.Dialect().From("deployments").Prepared(true).
 		Select("desired_payload").Where(goqu.Ex{"id": id}).ToSQL()
 	if err != nil {
 		return compose.File{}, err
@@ -704,7 +701,7 @@ func (s *Store) Desired(ctx context.Context, id string) (compose.File, error) {
 
 // Baseline returns only the last successfully committed effective desired state.
 func (s *Store) Baseline(ctx context.Context, stack string) (deploymentmodel.Prepared, error) {
-	query, args, err := dialect.From(goqu.T("desired_snapshots").As("snapshot")).Prepared(true).
+	query, args, err := s.db.Dialect().From(goqu.T("desired_snapshots").As("snapshot")).Prepared(true).
 		Join(goqu.T("deployments").As("deployment"),
 			goqu.On(goqu.I("deployment.id").Eq(goqu.I("snapshot.deployment_id")))).
 		Select(goqu.I("deployment.desired_payload")).
@@ -729,7 +726,7 @@ func (s *Store) getPrepared(ctx context.Context, query string, args ...any) (dep
 // BaselineDeploymentID returns the deployment backing a stack's successful baseline.
 func (s *Store) BaselineDeploymentID(ctx context.Context, stack string) (string, error) {
 	var id string
-	query, args, err := dialect.From("desired_snapshots").Prepared(true).
+	query, args, err := s.db.Dialect().From("desired_snapshots").Prepared(true).
 		Select("deployment_id").Where(goqu.Ex{"stack": stack}).ToSQL()
 	if err != nil {
 		return "", err
@@ -744,7 +741,7 @@ func (s *Store) Latest(
 	stack string,
 ) (deploymentmodel.Deployment, deploymentmodel.Prepared, error) {
 	var id string
-	query, args, err := dialect.From("deployments").Prepared(true).Select("id").
+	query, args, err := s.db.Dialect().From("deployments").Prepared(true).Select("id").
 		Where(goqu.Ex{"stack": stack}).Order(goqu.I("rowid").Desc()).Limit(1).ToSQL()
 	if err != nil {
 		return deploymentmodel.Deployment{}, deploymentmodel.Prepared{}, err
@@ -762,7 +759,7 @@ func (s *Store) Latest(
 
 // LegacyRunning returns running deployments that predate persisted attempts.
 func (s *Store) LegacyRunning(ctx context.Context, stack string) ([]deploymentmodel.Deployment, error) {
-	dataset := dialect.From("deployments").Prepared(true).Select("id").
+	dataset := s.db.Dialect().From("deployments").Prepared(true).Select("id").
 		Where(
 			goqu.Ex{"status": deploymentmodel.Running},
 			goqu.L(`NOT EXISTS (SELECT 1 FROM deployment_attempts AS attempt
@@ -791,7 +788,7 @@ func (s *Store) LegacyRunning(ctx context.Context, stack string) ([]deploymentmo
 }
 
 func (s *Store) prepared(ctx context.Context, id string) (deploymentmodel.Prepared, error) {
-	query, args, err := dialect.From("deployments").Prepared(true).
+	query, args, err := s.db.Dialect().From("deployments").Prepared(true).
 		Select("desired_payload").Where(goqu.Ex{"id": id}).ToSQL()
 	if err != nil {
 		return deploymentmodel.Prepared{}, err
@@ -825,7 +822,7 @@ func (s *Store) CreateDeployment(
 	if err != nil {
 		return err
 	}
-	query, args, err := dialect.Insert("deployments").Prepared(true).Rows(goqu.Record{
+	query, args, err := s.db.Dialect().Insert("deployments").Prepared(true).Rows(goqu.Record{
 		"id": d.ID, "stack": d.Stack, "commit": d.Commit, "status": d.Status,
 		"error_code": d.ErrorCode, "phase": d.Phase, "started_at": d.StartedAt.UTC(),
 		"desired_payload": string(safe), "details_payload": details, "changes_payload": changes,
@@ -851,7 +848,7 @@ func (s *Store) StartAttempt(ctx context.Context, d deploymentmodel.Deployment, 
 	if err != nil {
 		return err
 	}
-	query, args, err := dialect.Update("deployments").Prepared(true).Set(goqu.Record{
+	query, args, err := s.db.Dialect().Update("deployments").Prepared(true).Set(goqu.Record{
 		"status": deploymentmodel.Running, "error_code": "", "phase": deploymentmodel.PhaseApply,
 		"finished_at": nil, "details_payload": details,
 	}).Where(
@@ -883,7 +880,7 @@ func (s *Store) insertAttemptRow(ctx context.Context, attempt deploymentmodel.At
 	if err != nil {
 		return err
 	}
-	query, args, err := dialect.Insert("deployment_attempts").Prepared(true).Rows(goqu.Record{
+	query, args, err := s.db.Dialect().Insert("deployment_attempts").Prepared(true).Rows(goqu.Record{
 		"id": attempt.ID, "deployment_id": attempt.DeploymentID, "number": attempt.Number,
 		"status": attempt.Status, "error_code": attempt.ErrorCode, "phase": attempt.Phase,
 		"started_at": attempt.StartedAt.UTC(), "details_payload": string(details),
@@ -912,7 +909,7 @@ func (s *Store) FinishAttempt(
 	if err != nil {
 		return err
 	}
-	query, args, err := dialect.Update("deployment_attempts").Prepared(true).Set(goqu.Record{
+	query, args, err := s.db.Dialect().Update("deployment_attempts").Prepared(true).Set(goqu.Record{
 		"status": attempt.Status, "error_code": attempt.ErrorCode, "phase": attempt.Phase,
 		"finished_at": attempt.FinishedAt.UTC(), "details_payload": string(attemptDetails),
 	}).Where(goqu.Ex{"id": attempt.ID, "deployment_id": d.ID, "status": deploymentmodel.Running}).ToSQL()
@@ -933,7 +930,7 @@ func (s *Store) FinishAttempt(
 	if err != nil {
 		return err
 	}
-	query, args, err = dialect.Update("deployments").Prepared(true).Set(goqu.Record{
+	query, args, err = s.db.Dialect().Update("deployments").Prepared(true).Set(goqu.Record{
 		"status": attempt.Status, "error_code": attempt.ErrorCode, "phase": attempt.Phase,
 		"finished_at": attempt.FinishedAt.UTC(), "details_payload": details,
 	}).Where(
@@ -992,10 +989,10 @@ func requireOneRunning(result sql.Result) error {
 
 // SaveBaseline records a successful deployment as the stack's current baseline.
 func (s *Store) SaveBaseline(ctx context.Context, id string) error {
-	source := dialect.From("deployments").Prepared(true).
+	source := s.db.Dialect().From("deployments").Prepared(true).
 		Select("stack", goqu.I("id").As("deployment_id")).
 		Where(goqu.Ex{"id": id, "status": "succeeded"})
-	query, args, err := dialect.Insert("desired_snapshots").Prepared(true).
+	query, args, err := s.db.Dialect().Insert("desired_snapshots").Prepared(true).
 		Cols("stack", "deployment_id").
 		FromQuery(source).
 		OnConflict(goqu.DoUpdate("stack", goqu.Record{

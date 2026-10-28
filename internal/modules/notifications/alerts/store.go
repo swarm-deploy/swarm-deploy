@@ -10,13 +10,10 @@ import (
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
-	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/notifications/notifiers"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
-
-var dialect = goqu.Dialect("sqlite3")
 
 // MessageLink persists the transport state for one alert and physical recipient.
 type MessageLink struct {
@@ -50,7 +47,7 @@ func NewStore(db storage.Database) *Store { return &Store{db: db} }
 
 // Ensure records a physical destination before an external send is attempted.
 func (s *Store) Ensure(ctx context.Context, alertID string, recipient events.AlertRecipient) error {
-	query, args, err := dialect.Insert("notification_messages").Prepared(true).Rows(goqu.Record{
+	query, args, err := s.db.Dialect().Insert("notification_messages").Prepared(true).Rows(goqu.Record{
 		"alert_id": alertID, "messenger": "telegram", "bot_identity": recipient.BotIdentity,
 		"chat_id": recipient.ChatID, "thread_id": recipient.ThreadID,
 	}).OnConflict(goqu.DoNothing()).ToSQL()
@@ -64,7 +61,7 @@ func (s *Store) Ensure(ctx context.Context, alertID string, recipient events.Ale
 // Get returns the persisted transport state for one physical destination.
 func (s *Store) Get(ctx context.Context, alertID string, recipient events.AlertRecipient) (MessageLink, error) {
 	var row MessageLink
-	query, args, err := dialect.From("notification_messages").Prepared(true).Select(
+	query, args, err := s.db.Dialect().From("notification_messages").Prepared(true).Select(
 		"alert_id", "messenger", "bot_identity", "chat_id", "thread_id", "opened_message_id", "opened_at",
 		"resolved_at", "resolved_action", "reply_message_id",
 	).Where(goqu.Ex{"alert_id": alertID, "messenger": "telegram", "bot_identity": recipient.BotIdentity,
@@ -79,7 +76,7 @@ func (s *Store) Get(ctx context.Context, alertID string, recipient events.AlertR
 // HasAny reports whether any physical opening route was already persisted.
 func (s *Store) HasAny(ctx context.Context, alertID string) (bool, error) {
 	var count int
-	query, args, err := dialect.From("notification_messages").Prepared(true).Select(goqu.COUNT("*")).
+	query, args, err := s.db.Dialect().From("notification_messages").Prepared(true).Select(goqu.COUNT("*")).
 		Where(goqu.Ex{"alert_id": alertID}).ToSQL()
 	if err != nil {
 		return false, err
@@ -93,7 +90,7 @@ func (s *Store) HasAny(ctx context.Context, alertID string) (bool, error) {
 // OpeningRecipients reads the still-pending opening route when no link exists yet.
 func (s *Store) OpeningRecipients(ctx context.Context, alertID string) ([]events.AlertRecipient, bool, error) {
 	var payload string
-	query, args, err := dialect.From("outbox_events").Prepared(true).Select("payload").
+	query, args, err := s.db.Dialect().From("outbox_events").Prepared(true).Select("payload").
 		Where(goqu.Ex{"event_type": "AlertOpened"},
 			goqu.L("json_extract(payload, '$.alert.id') = ?", alertID)).Limit(1).ToSQL()
 	if err != nil {
@@ -122,7 +119,7 @@ func (s *Store) MarkOpened(
 	if receipt.MessageID <= 0 {
 		return fmt.Errorf("telegram returned no opening message ID")
 	}
-	query, args, err := dialect.Update("notification_messages").Prepared(true).Set(goqu.Record{
+	query, args, err := s.db.Dialect().Update("notification_messages").Prepared(true).Set(goqu.Record{
 		"opened_message_id": receipt.MessageID, "opened_at": at.UTC(),
 	}).Where(goqu.Ex{"alert_id": alertID, "messenger": "telegram", "bot_identity": recipient.BotIdentity,
 		"chat_id": recipient.ChatID, "thread_id": recipient.ThreadID,
@@ -149,7 +146,7 @@ func (s *Store) MarkResolved(
 		}
 		reply = sql.NullInt64{Int64: receipt.MessageID, Valid: true}
 	}
-	query, args, err := dialect.Update("notification_messages").Prepared(true).Set(goqu.Record{
+	query, args, err := s.db.Dialect().Update("notification_messages").Prepared(true).Set(goqu.Record{
 		"resolved_at": at.UTC(), "resolved_action": string(action), "reply_message_id": reply,
 	}).Where(goqu.Ex{"alert_id": alertID, "messenger": "telegram", "bot_identity": recipient.BotIdentity,
 		"chat_id": recipient.ChatID, "thread_id": recipient.ThreadID, "resolved_at": nil}).ToSQL()
@@ -167,7 +164,7 @@ func (s *Store) KnownRecipients(ctx context.Context) ([]events.AlertRecipient, e
 		ChatID      string `db:"chat_id"`
 		ThreadID    int64  `db:"thread_id"`
 	}
-	query, args, err := dialect.From("notification_messages").Prepared(true).
+	query, args, err := s.db.Dialect().From("notification_messages").Prepared(true).
 		Select("bot_identity", "chat_id", "thread_id").Distinct().ToSQL()
 	if err != nil {
 		return nil, err

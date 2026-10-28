@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
-	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	"github.com/doug-martin/goqu/v9/exp"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -86,11 +85,11 @@ func (s *SQLStore) Handle(ctx context.Context, e events.Envelope) error {
 			return insertErr
 		}
 		limit := uint(s.capacity) // #nosec G115 -- NewSQLStore accepts only positive int capacities.
-		retained := goqu.Dialect("sqlite3").From("event_history").Prepared(true).
+		retained := s.db.Dialect().From("event_history").Prepared(true).
 			Select("publication_sequence").
 			Order(goqu.I("publication_sequence").Desc()).
 			Limit(limit)
-		query, args, buildErr := goqu.Dialect("sqlite3").Delete("event_history").Prepared(true).
+		query, args, buildErr := s.db.Dialect().Delete("event_history").Prepared(true).
 			Where(goqu.C("publication_sequence").NotIn(retained)).
 			ToSQL()
 		if buildErr != nil {
@@ -120,7 +119,7 @@ func (s *SQLStore) insert(ctx context.Context, entry Entry, publicationSequence 
 
 // List returns the retained publication sequence, in publication order.
 func (s *SQLStore) Read(ctx context.Context) ([]Entry, error) {
-	dataset := goqu.Dialect("sqlite3").From("event_history").Prepared(true).Select(historyColumns...).
+	dataset := s.db.Dialect().From("event_history").Prepared(true).Select(historyColumns...).
 		Where(publicHistoryFilter()).
 		Order(goqu.I("publication_sequence").Asc())
 	return s.queryEntriesDataset(ctx, dataset)
@@ -168,7 +167,7 @@ func (s *SQLStore) QueryPage(ctx context.Context, options QueryOptions) (Page, e
 	if err != nil {
 		return Page{}, err
 	}
-	dataset := goqu.Dialect("sqlite3").From("event_history").Prepared(true).Select(historyColumns...).
+	dataset := s.db.Dialect().From("event_history").Prepared(true).Select(historyColumns...).
 		Where(historyFilters(options)...)
 	if options.Cursor != "" {
 		dataset = dataset.Where(historyCursorExpression(cursor))
@@ -188,7 +187,7 @@ func (s *SQLStore) QueryPage(ctx context.Context, options QueryOptions) (Page, e
 
 // ReadRecent preserves publication order while performing filters in SQLite.
 func (s *SQLStore) ReadRecent(ctx context.Context, options QueryOptions) ([]Entry, error) {
-	dialect := goqu.Dialect("sqlite3")
+	dialect := s.db.Dialect()
 	recentColumns := append([]any{"publication_sequence"}, historyColumns...)
 	recent := dialect.From("event_history").Prepared(true).Select(recentColumns...).
 		Where(historyFilters(options)...)

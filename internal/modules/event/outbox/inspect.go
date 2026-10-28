@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/doug-martin/goqu/v9"
-	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 )
 
@@ -25,7 +24,7 @@ type ListDeliveriesFilter struct {
 
 // ListPublications returns retained publications in durable publication order.
 func (r *Repository) ListPublications(ctx context.Context, filter ListFilter) ([]Publication, error) {
-	dataset := goqu.Dialect("sqlite3").From("outbox_events").Prepared(true).
+	dataset := r.db.Dialect().From("outbox_events").Prepared(true).
 		Select("id", "event_type", "schema_version", "payload", "occurred_at", "sequence", "traceparent").
 		Order(goqu.I("sequence").Asc())
 	if filter.EventType != "" {
@@ -56,7 +55,7 @@ func (r *Repository) ListPublications(ctx context.Context, filter ListFilter) ([
 
 // ListDeliveries returns retained deliveries matching filter.
 func (r *Repository) ListDeliveries(ctx context.Context, filter ListDeliveriesFilter) ([]Delivery, error) {
-	dataset := goqu.Dialect("sqlite3").From(goqu.T("outbox_deliveries").As("d")).Prepared(true).
+	dataset := r.db.Dialect().From(goqu.T("outbox_deliveries").As("d")).Prepared(true).
 		Join(goqu.T("outbox_events").As("e"), goqu.On(goqu.I("e.id").Eq(goqu.I("d.event_id")))).
 		Select(
 			goqu.I("d.event_id"), goqu.I("d.subscription_id"), goqu.I("e.event_type"),

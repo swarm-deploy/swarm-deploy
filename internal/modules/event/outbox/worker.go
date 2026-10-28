@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
-	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	"github.com/google/uuid"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -103,6 +102,7 @@ func (r *Repository) Claim(ctx context.Context, now time.Time, lease time.Durati
 			Attempts       int    `db:"attempts"`
 		}
 		query, args, buildErr := claimStatement(
+			r.db.Dialect(),
 			now.UTC(), now.UTC(), d.Token, now.Add(lease).UTC(), now.UTC(),
 		)
 		if buildErr != nil {
@@ -119,7 +119,7 @@ func (r *Repository) Claim(ctx context.Context, now time.Time, lease time.Durati
 		if count == 0 {
 			return sql.ErrNoRows
 		}
-		query, args, buildErr = goqu.Dialect("sqlite3").From("outbox_deliveries").Prepared(true).
+		query, args, buildErr = r.db.Dialect().From("outbox_deliveries").Prepared(true).
 			Select("event_id", "subscription_id", "attempts").
 			Where(goqu.Ex{"lease_token": d.Token}).
 			ToSQL()
@@ -136,9 +136,9 @@ func (r *Repository) Claim(ctx context.Context, now time.Time, lease time.Durati
 }
 
 func claimStatement(
+	dialect goqu.DialectWrapper,
 	now, expired time.Time, token string, leaseUntil, updatedAt time.Time,
 ) (string, []any, error) {
-	dialect := goqu.Dialect("sqlite3")
 	candidate := goqu.T("outbox_deliveries").As("candidate")
 	candidateEvent := goqu.T("outbox_events").As("candidate_event")
 	earlierEvent := goqu.T("outbox_events").As("earlier_event")
@@ -183,7 +183,7 @@ func claimStatement(
 // Load decodes the publication associated with a claimed delivery.
 func (r *Repository) Load(ctx context.Context, d Delivery) (Publication, error) {
 	var row publicationRow
-	query, args, err := goqu.Dialect("sqlite3").From("outbox_events").Prepared(true).
+	query, args, err := r.db.Dialect().From("outbox_events").Prepared(true).
 		Select("id", "event_type", "schema_version", "payload", "occurred_at", "sequence", "traceparent").
 		Where(goqu.Ex{"id": d.EventID}).ToSQL()
 	if err != nil {
@@ -208,7 +208,7 @@ func WithCause(ctx context.Context, eventID string) context.Context {
 // CheckLease verifies that the delivery claim is still current.
 func (r *Repository) CheckLease(ctx context.Context, d Delivery, now time.Time) error {
 	var count int
-	query, args, err := goqu.Dialect("sqlite3").From("outbox_deliveries").Prepared(true).
+	query, args, err := r.db.Dialect().From("outbox_deliveries").Prepared(true).
 		Select(goqu.COUNT("*")).
 		Where(goqu.Ex{
 			"event_id": d.EventID, "subscription_id": d.SubscriptionID,
@@ -229,7 +229,7 @@ func (r *Repository) CheckLease(ctx context.Context, d Delivery, now time.Time) 
 
 // Acknowledge marks one claimed delivery complete and removes fully delivered publications.
 func (r *Repository) Acknowledge(ctx context.Context, d Delivery, now time.Time) error {
-	query, args, err := goqu.Dialect("sqlite3").Update("outbox_deliveries").Prepared(true).
+	query, args, err := r.db.Dialect().Update("outbox_deliveries").Prepared(true).
 		Set(goqu.Record{
 			"status": "delivered", "lease_token": nil, "lease_until": nil,
 			"last_error": nil, "updated_at": now.UTC(),
@@ -264,12 +264,12 @@ func requireChanged(result sql.Result) error {
 }
 
 func (r *Repository) deleteCompleted(ctx context.Context, eventID string) error {
-	pending := goqu.Dialect("sqlite3").From("outbox_deliveries").Prepared(true).Select(goqu.L("1")).
+	pending := r.db.Dialect().From("outbox_deliveries").Prepared(true).Select(goqu.L("1")).
 		Where(
 			goqu.I("outbox_deliveries.event_id").Eq(goqu.I("outbox_events.id")),
 			goqu.I("outbox_deliveries.status").Neq("delivered"),
 		)
-	query, args, err := goqu.Dialect("sqlite3").Delete("outbox_events").Prepared(true).
+	query, args, err := r.db.Dialect().Delete("outbox_events").Prepared(true).
 		Where(goqu.Ex{"id": eventID}, goqu.L("NOT EXISTS ?", pending)).ToSQL()
 	if err != nil {
 		return err
@@ -293,7 +293,7 @@ func (r *Repository) Fail(
 	}
 	backoff := min(time.Second*time.Duration(1<<min(d.Attempts, maxBackoffExponent)), maxRetryBackoff)
 	return r.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		query, args, err := goqu.Dialect("sqlite3").Update("outbox_deliveries").Prepared(true).
+		query, args, err := r.db.Dialect().Update("outbox_deliveries").Prepared(true).
 			Set(goqu.Record{
 				"status": status, "lease_token": nil, "lease_until": nil, "last_error": code,
 				"available_at": now.Add(backoff).UTC(), "updated_at": now.UTC(),
@@ -315,7 +315,7 @@ func (r *Repository) Fail(
 
 // Replay reschedules exactly one terminal failure, preserving delivered siblings.
 func (r *Repository) Replay(ctx context.Context, eventID, subscriptionID string, now time.Time) error {
-	query, args, err := goqu.Dialect("sqlite3").Update("outbox_deliveries").Prepared(true).
+	query, args, err := r.db.Dialect().Update("outbox_deliveries").Prepared(true).
 		Set(goqu.Record{
 			"status": "pending", "attempts": 0, "last_error": nil,
 			"available_at": now.UTC(), "updated_at": now.UTC(),
@@ -335,7 +335,7 @@ func (r *Repository) Replay(ctx context.Context, eventID, subscriptionID string,
 // Discard explicitly waives one terminal failure and deletes completed work.
 func (r *Repository) Discard(ctx context.Context, eventID, subscriptionID string, now time.Time) error {
 	return r.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		query, args, err := goqu.Dialect("sqlite3").Update("outbox_deliveries").Prepared(true).
+		query, args, err := r.db.Dialect().Update("outbox_deliveries").Prepared(true).
 			Set(goqu.Record{"status": "delivered", "updated_at": now.UTC()}).
 			Where(goqu.Ex{"event_id": eventID, "subscription_id": subscriptionID, "status": "failed"}).
 			ToSQL()

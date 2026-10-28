@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
-	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"modernc.org/sqlite"
@@ -20,8 +19,6 @@ var alertColumns = []any{
 	"id", "fingerprint", "kind", "resource_type", "resource_id", "deployment_id", "status",
 	"opened_at", "updated_at", "resolved_at", "payload",
 }
-
-var dialect = goqu.Dialect("sqlite3")
 
 // SQLStore persists alert lifecycle independently of the delivery queue.
 type SQLStore struct{ db storage.Database }
@@ -53,7 +50,7 @@ func (s *SQLStore) write(ctx context.Context, alert model.Alert, update bool) er
 		deploymentID = sql.NullString{String: alert.DeploymentID, Valid: true}
 	}
 	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		query, args, buildErr := alertWriteStatement(alert, deploymentID, resolved, string(payload), update)
+		query, args, buildErr := s.alertWriteStatement(alert, deploymentID, resolved, string(payload), update)
 		if buildErr != nil {
 			return buildErr
 		}
@@ -72,17 +69,17 @@ func (s *SQLStore) write(ctx context.Context, alert model.Alert, update bool) er
 		if count != 1 {
 			return s.alertWriteMiss(ctx, alert.ID, update)
 		}
-		alertsCount := dialect.From("alerts").Prepared(true).Select(goqu.COUNT("*"))
-		rankedResolved := dialect.From("alerts").Prepared(true).Select(
+		alertsCount := s.db.Dialect().From("alerts").Prepared(true).Select(goqu.COUNT("*"))
+		rankedResolved := s.db.Dialect().From("alerts").Prepared(true).Select(
 			"id",
 			goqu.L("row_number() OVER (ORDER BY resolved_at,id)").As("prune_rank"),
 		).
 			Where(goqu.Ex{"status": "resolved"}).
 			Order(goqu.I("resolved_at").Asc(), goqu.I("id").Asc())
-		pruned := dialect.From(rankedResolved.As("resolved")).Prepared(true).
+		pruned := s.db.Dialect().From(rankedResolved.As("resolved")).Prepared(true).
 			Select("id").
 			Where(goqu.C("prune_rank").Lte(goqu.L("max((?)-?,0)", alertsCount, MaxStoredAlerts)))
-		query, args, buildErr = dialect.Delete("alerts").Prepared(true).
+		query, args, buildErr = s.db.Dialect().Delete("alerts").Prepared(true).
 			Where(goqu.C("id").In(pruned)).
 			ToSQL()
 		if buildErr != nil {
@@ -106,7 +103,7 @@ func alertResolvedAt(alert model.Alert) (sql.NullTime, error) {
 	return sql.NullTime{Time: alert.ResolvedAt.UTC(), Valid: true}, nil
 }
 
-func alertWriteStatement(
+func (s *SQLStore) alertWriteStatement(
 	alert model.Alert, deploymentID sql.NullString, resolved sql.NullTime, payload string, update bool,
 ) (string, []any, error) {
 	if update {
@@ -115,7 +112,7 @@ func alertWriteStatement(
 			"resource_id": alert.ResourceID, "deployment_id": deploymentID, "status": alert.Status,
 			"updated_at": alert.UpdatedAt.UTC(), "resolved_at": resolved, "payload": payload,
 		}
-		return dialect.Update("alerts").Prepared(true).Set(record).
+		return s.db.Dialect().Update("alerts").Prepared(true).Set(record).
 			Where(goqu.Ex{"id": alert.ID, "opened_at": alert.OpenedAt.UTC()}).ToSQL()
 	}
 	record := goqu.Record{
@@ -124,7 +121,7 @@ func alertWriteStatement(
 		"opened_at": alert.OpenedAt.UTC(), "updated_at": alert.UpdatedAt.UTC(),
 		"resolved_at": resolved, "payload": payload,
 	}
-	return dialect.Insert("alerts").Prepared(true).Rows(record).ToSQL()
+	return s.db.Dialect().Insert("alerts").Prepared(true).Rows(record).ToSQL()
 }
 
 func (s *SQLStore) alertWriteMiss(ctx context.Context, id string, update bool) error {
@@ -132,7 +129,7 @@ func (s *SQLStore) alertWriteMiss(ctx context.Context, id string, update bool) e
 		return ErrAlertNotFound
 	}
 	var openedAt time.Time
-	query, args, err := dialect.From("alerts").Prepared(true).
+	query, args, err := s.db.Dialect().From("alerts").Prepared(true).
 		Select("opened_at").Where(goqu.Ex{"id": id}).ToSQL()
 	if err != nil {
 		return err
@@ -149,7 +146,7 @@ func (s *SQLStore) alertWriteMiss(ctx context.Context, id string, update bool) e
 
 // Get returns an incident by ID.
 func (s *SQLStore) Get(ctx context.Context, id string) (model.Alert, error) {
-	query, args, err := dialect.From("alerts").Prepared(true).Select(alertColumns...).
+	query, args, err := s.db.Dialect().From("alerts").Prepared(true).Select(alertColumns...).
 		Where(goqu.Ex{"id": id}).ToSQL()
 	if err != nil {
 		return model.Alert{}, err
@@ -159,7 +156,7 @@ func (s *SQLStore) Get(ctx context.Context, id string) (model.Alert, error) {
 
 // FindOpenByFingerprint resolves the active incident for a resource.
 func (s *SQLStore) FindOpenByFingerprint(ctx context.Context, fingerprint string) (model.Alert, error) {
-	query, args, err := dialect.From("alerts").Prepared(true).Select(alertColumns...).
+	query, args, err := s.db.Dialect().From("alerts").Prepared(true).Select(alertColumns...).
 		Where(goqu.Ex{"fingerprint": fingerprint, "status": "open"}).ToSQL()
 	if err != nil {
 		return model.Alert{}, err
@@ -181,7 +178,7 @@ func (s *SQLStore) get(ctx context.Context, query string, args ...any) (model.Al
 
 // List returns incidents ordered by most recent lifecycle update.
 func (s *SQLStore) List(ctx context.Context, filter ListFilter) ([]model.Alert, error) {
-	dataset := dialect.From("alerts").Prepared(true).Select(alertColumns...)
+	dataset := s.db.Dialect().From("alerts").Prepared(true).Select(alertColumns...)
 	if filter.Status != "" {
 		dataset = dataset.Where(goqu.Ex{"status": filter.Status})
 	}
@@ -224,7 +221,7 @@ func (s *SQLStore) List(ctx context.Context, filter ListFilter) ([]model.Alert, 
 func (s *SQLStore) IncrementFailureStreak(ctx context.Context, fingerprint string) (uint64, error) {
 	var failures uint64
 	err := s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		query, args, buildErr := dialect.Insert("alert_failure_streaks").Prepared(true).
+		query, args, buildErr := s.db.Dialect().Insert("alert_failure_streaks").Prepared(true).
 			Rows(goqu.Record{"fingerprint": fingerprint, "failures": 1}).
 			OnConflict(goqu.DoUpdate("fingerprint", goqu.Record{"failures": goqu.L("failures+1")})).ToSQL()
 		if buildErr != nil {
@@ -233,7 +230,7 @@ func (s *SQLStore) IncrementFailureStreak(ctx context.Context, fingerprint strin
 		if _, execErr := s.db.Exec(ctx, query, args...); execErr != nil {
 			return execErr
 		}
-		query, args, buildErr = dialect.From("alert_failure_streaks").Prepared(true).
+		query, args, buildErr = s.db.Dialect().From("alert_failure_streaks").Prepared(true).
 			Select("failures").Where(goqu.Ex{"fingerprint": fingerprint}).ToSQL()
 		if buildErr != nil {
 			return buildErr
@@ -245,7 +242,7 @@ func (s *SQLStore) IncrementFailureStreak(ctx context.Context, fingerprint strin
 
 // ResetFailureStreak clears consecutive failures after recovery.
 func (s *SQLStore) ResetFailureStreak(ctx context.Context, fingerprint string) error {
-	query, args, err := dialect.Delete("alert_failure_streaks").Prepared(true).
+	query, args, err := s.db.Dialect().Delete("alert_failure_streaks").Prepared(true).
 		Where(goqu.Ex{"fingerprint": fingerprint}).ToSQL()
 	if err != nil {
 		return err
@@ -256,7 +253,7 @@ func (s *SQLStore) ResetFailureStreak(ctx context.Context, fingerprint string) e
 
 // ResetFailureStreaksExcept clears stack counters for resources absent from the desired configuration.
 func (s *SQLStore) ResetFailureStreaksExcept(ctx context.Context, fingerprints []string) error {
-	dataset := dialect.Delete("alert_failure_streaks").Prepared(true).
+	dataset := s.db.Dialect().Delete("alert_failure_streaks").Prepared(true).
 		Where(goqu.C("fingerprint").Like(string(model.AlertKindSyncFailed) + ":" +
 			string(model.ResourceTypeStack) + ":%"))
 	if len(fingerprints) > 0 {

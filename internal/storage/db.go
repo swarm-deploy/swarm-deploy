@@ -5,11 +5,15 @@ import (
 	"database/sql"
 
 	txsqlx "github.com/Thiht/transactor/sqlx"
+	"github.com/doug-martin/goqu/v9"
+	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	"github.com/jmoiron/sqlx"
 )
 
 // Database provides context-aware database operations.
 type Database interface {
+	// Dialect returns the SQL builder dialect used by the database.
+	Dialect() goqu.DialectWrapper
 	// WithinTransaction runs fn inside the active transaction carried by ctx, or
 	// opens a new transaction when ctx is not transactional.
 	WithinTransaction(ctx context.Context, fn func(context.Context) error) error
@@ -31,6 +35,11 @@ type SQLXDatabase struct {
 }
 
 var _ Database = (*SQLXDatabase)(nil)
+
+// Dialect returns the SQLite SQL builder dialect.
+func (s *SQLXDatabase) Dialect() goqu.DialectWrapper {
+	return goqu.Dialect("sqlite3")
+}
 
 // WithinTransaction runs fn inside the active transaction carried by ctx, or
 // opens a new transaction when ctx is not transactional.

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
-	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	"github.com/google/uuid"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -57,7 +56,7 @@ func (r *Repository) Publish(ctx context.Context, event events.Event, subscripti
 	traceparent := traceparentFromContext(ctx)
 	insert := func(ctx context.Context) error {
 		cause, _ := ctx.Value(causeKey{}).(string)
-		query, args, buildErr := goqu.Dialect("sqlite3").Insert("outbox_events").Prepared(true).
+		query, args, buildErr := r.db.Dialect().Insert("outbox_events").Prepared(true).
 			Rows(goqu.Record{
 				"id": id, "event_type": event.Type().Name(), "schema_version": codec.Version,
 				"occurred_at": now, "causation_id": cause, "payload": string(payload),
@@ -71,7 +70,7 @@ func (r *Repository) Publish(ctx context.Context, event events.Event, subscripti
 			return fmt.Errorf("insert outbox event: %w", insertErr)
 		}
 		for _, subscriber := range subscriptionIDs {
-			query, args, buildErr = goqu.Dialect("sqlite3").Insert("outbox_deliveries").Prepared(true).
+			query, args, buildErr = r.db.Dialect().Insert("outbox_deliveries").Prepared(true).
 				Rows(goqu.Record{
 					"event_id": id, "subscription_id": subscriber,
 					"available_at": now, "updated_at": now,

@@ -8,12 +8,9 @@ import (
 	"fmt"
 
 	"github.com/doug-martin/goqu/v9"
-	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
-
-var dialect = goqu.Dialect("sqlite3")
 
 // SQLStore persists service metadata by an unambiguous stack/name key.
 type SQLStore struct{ db storage.Database }
@@ -30,7 +27,7 @@ func NewSQLStore(db storage.Database) *SQLStore { return &SQLStore{db: db} }
 
 // List returns the service catalog in stack/name order.
 func (s *SQLStore) ReadAll(ctx context.Context) ([]model.Info, error) {
-	query, _, err := dialect.From("services").Prepared(true).
+	query, _, err := s.db.Dialect().From("services").Prepared(true).
 		Select("stack", "name", "payload").
 		Order(goqu.I("stack").Asc(), goqu.I("name").Asc()).ToSQL()
 	if err != nil {
@@ -53,7 +50,7 @@ func (s *SQLStore) ReadAll(ctx context.Context) ([]model.Info, error) {
 
 // Get returns one catalog entry without hiding SQL errors.
 func (s *SQLStore) Find(ctx context.Context, stack, name string) (model.Info, bool, error) {
-	query, args, err := dialect.From("services").Prepared(true).
+	query, args, err := s.db.Dialect().From("services").Prepared(true).
 		Select("payload").Where(goqu.Ex{"stack": stack, "name": name}).ToSQL()
 	if err != nil {
 		return model.Info{}, false, err
@@ -76,7 +73,7 @@ func (s *SQLStore) Find(ctx context.Context, stack, name string) (model.Info, bo
 // ReplaceStack atomically replaces one stack's service metadata.
 func (s *SQLStore) ReplaceStack(ctx context.Context, stack string, services []model.Info) error {
 	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		deleteQuery, deleteArgs, err := dialect.Delete("services").Prepared(true).
+		deleteQuery, deleteArgs, err := s.db.Dialect().Delete("services").Prepared(true).
 			Where(goqu.Ex{"stack": stack}).ToSQL()
 		if err != nil {
 			return err
@@ -92,7 +89,7 @@ func (s *SQLStore) ReplaceStack(ctx context.Context, stack string, services []mo
 			if marshalErr != nil {
 				return marshalErr
 			}
-			insertQuery, insertArgs, insertErr := dialect.Insert("services").Prepared(true).
+			insertQuery, insertArgs, insertErr := s.db.Dialect().Insert("services").Prepared(true).
 				Rows(goqu.Record{"stack": stack, "name": info.Name, "payload": string(payload)}).ToSQL()
 			if insertErr != nil {
 				return insertErr

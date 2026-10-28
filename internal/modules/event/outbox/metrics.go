@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/doug-martin/goqu/v9"
-	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -26,7 +25,7 @@ type deliveryCount struct {
 func (r *Repository) Collect(ch chan<- prometheus.Metric) {
 	ctx, cancel := context.WithTimeout(context.Background(), databaseOperationTimeout)
 	defer cancel()
-	query, args, err := goqu.Dialect("sqlite3").From("outbox_deliveries").Prepared(true).
+	query, args, err := r.db.Dialect().From("outbox_deliveries").Prepared(true).
 		Select("status", "subscription_id", goqu.COUNT("*").As("count")).
 		GroupBy("status", "subscription_id").
 		ToSQL()

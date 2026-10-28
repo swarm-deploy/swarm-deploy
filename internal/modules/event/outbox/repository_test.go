@@ -61,7 +61,9 @@ func TestClaimQueryUsesActiveSubscriptionIndex(t *testing.T) {
 			_, err = db.Exec(t.Context(), "ANALYZE")
 			require.NoError(t, err)
 			now := time.Unix(0, 1_000_000).UTC()
-			query, args, err := claimStatement(now, now, "token", time.Unix(0, 2_000_000).UTC(), now)
+			query, args, err := claimStatement(
+				db.Dialect(), now, now, "token", time.Unix(0, 2_000_000).UTC(), now,
+			)
 			require.NoError(t, err)
 			var rows []struct {
 				ID     int    `db:"id"`
