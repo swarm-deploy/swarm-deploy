@@ -613,7 +613,8 @@ button:hover,
 }
 
 :root[data-theme="light"] .overview-summary-panel,
-:root[data-theme="light"] .stack-details-page .stack-content-grid > .stack-panel {
+:root[data-theme="light"] .stack-details-page .stack-content-grid > .stack-panel,
+:root[data-theme="light"] .stack-details-page .deployment-activity {
   border-color: var(--border-default);
 }
 

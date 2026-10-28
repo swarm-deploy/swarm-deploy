@@ -11,6 +11,7 @@ import type {
   DeploymentActivityInterval,
   DeploymentActivityResponse,
 } from "../../api/types";
+import DeploymentIcon from "../overview/DeploymentIcon.vue";
 
 use([BarChart, GridComponent, TooltipComponent, SVGRenderer]);
 
@@ -176,19 +177,24 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="deployment-activity" aria-labelledby="deployment-activity-title">
-    <button
-      type="button"
-      class="deployment-activity-toggle"
-      :aria-expanded="expanded"
-      aria-controls="deployment-activity-content"
-      @click="expanded = !expanded"
-    >
-      <span id="deployment-activity-title">Deployment Activity</span>
-      <span v-if="!expanded" class="deployment-activity-compact">{{ compactSummary }}</span>
-      <svg class="deployment-activity-chevron" :class="{ 'is-expanded': expanded }" viewBox="0 0 20 20" aria-hidden="true">
-        <path d="m6 8 4 4 4-4" />
-      </svg>
-    </button>
+    <header class="overview-summary-panel-header">
+      <button
+        type="button"
+        class="deployment-activity-toggle overview-summary-panel-header-link"
+        :aria-expanded="expanded"
+        aria-controls="deployment-activity-content"
+        @click="expanded = !expanded"
+      >
+        <span class="overview-summary-panel-icon" aria-hidden="true">
+          <DeploymentIcon name="calendar" />
+        </span>
+        <h3 id="deployment-activity-title" class="overview-panel-title">Deployment Activity</h3>
+        <span v-if="!expanded" class="deployment-activity-compact">{{ compactSummary }}</span>
+        <svg class="deployment-activity-chevron" :class="{ 'is-expanded': expanded }" viewBox="0 0 20 20" aria-hidden="true">
+          <path d="m6 8 4 4 4-4" />
+        </svg>
+      </button>
+    </header>
 
     <div v-show="expanded" id="deployment-activity-content" class="deployment-activity-content">
       <div class="deployment-activity-toolbar">
@@ -221,12 +227,11 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .deployment-activity { min-width: 0; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface-card-soft); overflow: hidden; }
-.deployment-activity-toggle { width: 100%; min-height: 50px; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 14px; border: 0; border-radius: 0; background: transparent; color: var(--text); box-shadow: none; text-align: left; }
-.deployment-activity-toggle:hover { transform: none; background: var(--surface-hover); filter: none; }
+.deployment-activity-toggle { width: 100%; display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto; align-items: center; gap: 9px; border: 0; border-radius: 8px 8px 0 0; background: var(--surface-panel-header); color: var(--text); box-shadow: none; text-align: left; }
+.deployment-activity-toggle:hover { transform: none; background: var(--surface-panel-header-hover); filter: none; }
 .deployment-activity-toggle:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: -2px; }
-#deployment-activity-title { font-size: .94rem; font-weight: 650; }
 .deployment-activity-compact { color: var(--muted); font-size: .78rem; }
-.deployment-activity-chevron { grid-column: 3; justify-self: end; width: 18px; height: 18px; color: var(--muted); transition: none; }
+.deployment-activity-chevron { grid-column: 4; justify-self: end; width: 18px; height: 18px; color: var(--muted); transition: none; }
 .deployment-activity-chevron path { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .deployment-activity-chevron.is-expanded { transform: rotate(180deg); }
 .deployment-activity-content { display: grid; gap: 12px; padding: 0 14px 13px; border-top: 1px solid var(--border-subtle); }
@@ -254,9 +259,9 @@ onBeforeUnmount(() => {
   .deployment-activity-summary > div:nth-child(n + 5) { padding-top: 10px; border-top: 1px solid var(--border-subtle); }
 }
 @media (max-width: 560px) {
-  .deployment-activity-toggle { grid-template-columns: minmax(0, 1fr) auto; }
-  .deployment-activity-compact { grid-column: 1 / -1; grid-row: 2; }
-  .deployment-activity-chevron { grid-column: 2; }
+  .deployment-activity-toggle { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .deployment-activity-compact { grid-column: 2 / -1; grid-row: 2; }
+  .deployment-activity-chevron { grid-column: 3; }
   .deployment-activity-chart { height: 170px; }
   .deployment-activity-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .deployment-activity-summary > div:nth-child(n) { border-left: 0; border-top: 0; }

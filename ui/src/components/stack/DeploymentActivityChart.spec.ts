@@ -64,6 +64,8 @@ describe("DeploymentActivityChart", () => {
     const wrapper = await render();
 
     expect(fetchStackDeploymentActivity).toHaveBeenCalledWith("app", "weekly");
+    expect(wrapper.get(".overview-summary-panel-header .overview-panel-title").text()).toBe("Deployment Activity");
+    expect(wrapper.find(".overview-summary-panel-icon .deployment-icon").exists()).toBe(true);
     expect(wrapper.get('[aria-label="Deployment activity interval"] [aria-pressed="true"]').text()).toBe("Weekly");
     expect(wrapper.findAll(".deployment-activity-legend li").map((item) => item.text())).toEqual([
       "Succeeded", "Failed", "Running", "Interrupted", "Superseded",
