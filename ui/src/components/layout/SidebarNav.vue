@@ -29,6 +29,7 @@ const buildTimeTitle = computed(() => formatBuildTime(__SWARM_DEPLOY_BUILD_TIME_
 
 const links = [
   { to: "/overview", label: "Overview", icon: "overview" },
+  { to: "/realtime", label: "Realtime", icon: "realtime" },
   { to: "/services", label: "Services", icon: "services" },
   { to: "/graph", label: "Graph", icon: "graph" },
   { to: "/cluster", label: "Cluster", icon: "cluster" },

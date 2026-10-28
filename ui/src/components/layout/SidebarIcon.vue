@@ -16,6 +16,9 @@ defineProps<{
       <path d="m12 3 8 4.5-8 4.5-8-4.5L12 3Z" />
       <path d="m4 12 8 4.5 8-4.5M4 16.5l8 4.5 8-4.5" />
     </template>
+    <template v-else-if="name === 'realtime'">
+      <path d="M3 12h4l2.5-6 4.5 12 2.5-6H21" />
+    </template>
     <template v-else-if="name === 'graph'">
       <circle cx="6" cy="6" r="2.5" />
       <circle cx="18" cy="8" r="2.5" />
