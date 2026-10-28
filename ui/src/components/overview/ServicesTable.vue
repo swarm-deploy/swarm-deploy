@@ -2,7 +2,6 @@
 import { useRouter } from "vue-router";
 import type { ServiceInfo, ServiceSyncStatus } from "../../api/types";
 import AppTable from "../common/AppTable.vue";
-import DeploymentIcon from "./DeploymentIcon.vue";
 
 const props = withDefaults(defineProps<{
   services: ServiceInfo[];
@@ -82,7 +81,6 @@ function syncErrorText(syncError: string | undefined): string {
     >
       <td class="services-cell-name" :title="service.name || undefined">
         <span class="stack-service-name-wrap">
-          <DeploymentIcon v-if="variant === 'stack-detail'" name="service" />
           <strong class="stack-service-name">{{ service.name || "unknown" }}</strong>
         </span>
       </td>
