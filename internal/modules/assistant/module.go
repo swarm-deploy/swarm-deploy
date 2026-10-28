@@ -29,7 +29,7 @@ type Module struct {
 // Container supplies dependencies required by the assistant module.
 type Container interface {
 	// GetStorage returns the shared database.
-	GetStorage() *storage.Database
+	GetStorage() storage.Database
 	GetMetrics() *metrics.Group
 	GetSwarm() *swarm.Swarm
 	// GetTaskLogs returns the shared task log parsing and filtering service.

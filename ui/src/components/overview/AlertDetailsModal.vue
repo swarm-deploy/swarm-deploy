@@ -8,6 +8,18 @@ import { formatDate, shortCommitHash } from "../../utils/format";
 const overviewStore = useOverviewStore();
 
 const alert = computed(() => overviewStore.alertDetailsAlert);
+const serviceTarget = computed(() => {
+  if (alert.value?.resourceType !== "service") return null;
+  const separator = alert.value.resourceId.indexOf("/");
+  if (separator <= 0 || separator === alert.value.resourceId.length - 1) return null;
+  return {
+    name: "service-details",
+    params: {
+      stack: alert.value.resourceId.slice(0, separator),
+      service: alert.value.resourceId.slice(separator + 1),
+    },
+  };
+});
 
 function closeAlertDetailsModal() {
   overviewStore.closeAlertDetailsModal();
@@ -84,6 +96,7 @@ onUnmounted(() => {
         <nav v-if="alert" class="alert-details-actions" aria-label="Related resources">
           <button v-if="alert.deploymentId" type="button" @click="openDeployment">View deployment</button>
           <RouterLink v-if="alert.resourceType === 'stack' && alert.resourceId" :to="stackTarget(alert.resourceId)" @click="closeAlertDetailsModal">View stack</RouterLink>
+          <RouterLink v-if="serviceTarget" :to="serviceTarget" @click="closeAlertDetailsModal">View service</RouterLink>
           <button v-if="alert.commit" type="button" class="button-ghost" @click="openCommit">Commit {{ shortCommitHash(alert.commit) }}</button>
         </nav>
       </div>

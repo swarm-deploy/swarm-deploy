@@ -16,6 +16,8 @@ import (
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	alertmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	alertstore "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
+	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
+	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	gitopsmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
@@ -38,7 +40,7 @@ func TestAssistantSuggestionsReturnsAllSourcesInDeterministicOrder(t *testing.T)
 	}))
 
 	response, body := requestAssistantSuggestions(t, &handler{
-		deployments: deployment.NewStore(deploymentDB),
+		deployments: deploymentstore.NewStore(deploymentDB),
 		alerts:      alerts,
 	})
 
@@ -71,7 +73,7 @@ func TestAssistantSuggestionsUsesLatestActuallyChangedService(t *testing.T) {
 	createSuccessfulDeployment(t, db, "app", withNetwork, "network-only")
 
 	response, _ := requestAssistantSuggestions(t, &handler{
-		deployments: deployment.NewStore(db),
+		deployments: deploymentstore.NewStore(db),
 		alerts:      alertstore.NewSQLStore(testutil.OpenSQLite(t)),
 	})
 
@@ -97,7 +99,7 @@ func TestAssistantSuggestionsSelectsLatestAlertByCreationTime(t *testing.T) {
 	}))
 
 	response, _ := requestAssistantSuggestions(t, &handler{
-		deployments: deployment.NewStore(testutil.OpenSQLite(t)),
+		deployments: deploymentstore.NewStore(testutil.OpenSQLite(t)),
 		alerts:      alerts,
 	})
 
@@ -210,7 +212,7 @@ func TestAssistantSuggestionsDynamicFailuresRemainHTTP200(t *testing.T) {
 			slog.SetDefault(slog.New(slog.NewJSONHandler(&logs, nil)))
 			t.Cleanup(func() { slog.SetDefault(previousLogger) })
 			response, body := requestAssistantSuggestions(t, &handler{
-				deployments: deployment.NewStore(deploymentDB),
+				deployments: deploymentstore.NewStore(deploymentDB),
 				alerts:      alerts,
 			})
 
@@ -232,22 +234,22 @@ func assistantCompose(serviceName string) compose.File {
 
 func createSuccessfulDeployment(
 	t *testing.T,
-	db *storage.Database,
+	db storage.Database,
 	stack string,
 	file compose.File,
 	commit string,
 ) {
 	t.Helper()
-	service := deployment.NewService(db, outbox.New(db))
+	service := deployment.NewService(db, eventbus.NewOutboxDispatcher(outbox.New(db)))
 	attempt, err := service.StartIfChanged(t.Context(), stack, commit, file, true)
 	require.NoError(t, err)
 	require.NotNil(t, attempt)
 	require.NoError(t, service.Succeed(t.Context(), attempt.ID, gitopsmodel.Stack{}))
 }
 
-func openSuggestionDatabase(t *testing.T) *storage.Database {
+func openSuggestionDatabase(t *testing.T) storage.Database {
 	t.Helper()
-	db, err := storage.Open(context.Background(), t.TempDir())
+	db, err := storage.OpenSQLite(context.Background(), t.TempDir())
 	require.NoError(t, err)
 	return db
 }

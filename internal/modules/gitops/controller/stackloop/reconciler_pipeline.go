@@ -12,9 +12,10 @@ import (
 	pipe "github.com/artarts36/gopipe"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/drift"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/pruner"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
@@ -23,15 +24,17 @@ import (
 const (
 	renderedComposeDirectoryMode = 0o755
 	renderedComposeFileMode      = 0o600
+	initJobPersistenceTimeout    = 2 * time.Second
 )
 
 type pipelinePayload struct {
 	// Attempt is persisted before any external apply.
-	Attempt      *deployment.Attempt
-	Stack        config.StackSpec
-	Commit       string
-	IsNewDigest  bool
-	IsManualSync bool
+	Attempt          *deploymentmodel.Attempt
+	Stack            config.StackSpec
+	Commit           string
+	IsNewDigest      bool
+	IsManualSync     bool
+	HasPreviousDrift bool
 
 	Desired             *compose.File
 	DesiredMutated      bool
@@ -43,6 +46,9 @@ type pipelinePayload struct {
 	PrunedServices []string
 	CleanupResult  rotatedCleanupResult
 	Drift          map[string]drift.ServiceDrift
+	RemainingDrift map[string]drift.ServiceDrift
+	Remediations   map[string]serviceRemediation
+	RemediationErr []error
 }
 
 func (r *Reconciler) attachPipeline() {
@@ -126,9 +132,25 @@ func (r *Reconciler) attachPipeline() {
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "analyze drift",
 		When: pipe.When(func(payload *pipelinePayload) bool {
-			return payload.Attempt == nil || payload.IsManualSync
+			return payload.Attempt == nil || payload.IsManualSync || payload.HasPreviousDrift
 		}),
 		Run: r.analyzeDrift,
+	})
+
+	r.pipeline.Add(pipe.Step[*pipelinePayload]{
+		Name: "self-heal drift",
+		When: pipe.When(func(payload *pipelinePayload) bool {
+			return payload.Attempt == nil && len(payload.Drift) > 0
+		}),
+		Run: r.selfHealDrift,
+	})
+
+	r.pipeline.Add(pipe.Step[*pipelinePayload]{
+		Name: "verify self-heal",
+		When: pipe.When(func(payload *pipelinePayload) bool {
+			return hasRemediationAttempt(payload.Remediations)
+		}),
+		Run: r.verifySelfHeal,
 	})
 }
 
@@ -217,13 +239,50 @@ func (r *Reconciler) cleanupRenderedComposeFile(ctx context.Context, payload *pi
 }
 
 func (r *Reconciler) deployStack(ctx context.Context, payload *pipelinePayload) error {
-	return r.deployer.DeployStack(
+	result, deployErr := r.deployer.DeployStack(
 		ctx,
 		payload.Stack.Name,
 		payload.Desired.Path,
 		payload.DeployComposePath,
 		payload.Desired.Compose,
 	)
+	r.persistInitJobs(ctx, payload.Attempt.ID, result.InitJobs)
+	return deployErr
+}
+
+func (r *Reconciler) persistInitJobs(ctx context.Context, attemptID string, results []deployer.InitJobResult) {
+	for index, result := range results {
+		r.persistInitJobExecution(ctx, deploymentmodel.InitJobExecution{
+			AttemptID:     attemptID,
+			Ordinal:       index + 1,
+			ServiceName:   result.ServiceName,
+			JobName:       result.JobName,
+			Status:        deploymentmodel.InitJobStatus(result.Status),
+			StartedAt:     result.StartedAt,
+			FinishedAt:    result.FinishedAt,
+			Logs:          result.Logs,
+			LogsAvailable: result.LogsAvailable,
+			LogsTruncated: result.LogsTruncated,
+		})
+	}
+}
+
+func (r *Reconciler) persistInitJobExecution(
+	ctx context.Context,
+	execution deploymentmodel.InitJobExecution,
+) {
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), initJobPersistenceTimeout)
+	defer cancel()
+	if err := r.deployments.SaveInitJobExecution(persistCtx, execution); err != nil {
+		slog.WarnContext(
+			persistCtx,
+			"persist init job execution",
+			slog.String("attempt_id", execution.AttemptID),
+			slog.String("service_name", execution.ServiceName),
+			slog.String("job_name", execution.JobName),
+			slog.Any("err", err),
+		)
+	}
 }
 
 func needsRenderedCompose(payload *pipelinePayload) bool {
@@ -466,6 +525,7 @@ func (r *Reconciler) analyzeDrift(_ context.Context, payload *pipelinePayload) e
 	})
 
 	payload.Drift = driftResp.Drifts
+	payload.RemainingDrift = driftResp.Drifts
 
 	return err
 }

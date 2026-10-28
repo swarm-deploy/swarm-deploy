@@ -198,6 +198,17 @@ function realtimeStateClass(state: string): string {
   return "service-realtime-mobile-state--unknown";
 }
 
+function realtimeTableStateClass(state: string): string {
+  const normalized = String(state || "").trim().toLowerCase();
+  if (normalized === "running" || normalized === "complete" || normalized === "completed") {
+    return "success";
+  }
+  if (normalized === "failed" || normalized === "rejected" || normalized === "shutdown") {
+    return "failed";
+  }
+  return "unknown";
+}
+
 async function copyTaskID(taskID: string): Promise<void> {
   const id = String(taskID || "").trim();
   if (!id) {
@@ -664,7 +675,7 @@ onUnmounted(() => {
                   <button
                     v-if="serviceImage"
                     type="button"
-                    class="service-copy-task-id-button"
+                    class="service-copy-task-id-button service-image-copy-button"
                     aria-label="Copy image reference"
                     title="Copy image reference"
                     @click="copyText(serviceImage)"
@@ -773,10 +784,10 @@ onUnmounted(() => {
               <h3 class="overview-panel-title">Realtime</h3>
             </div>
           </header>
-          <div class="service-panel-content">
-          <AppTableEmpty v-if="realtimeLoading" message="Loading realtime..." />
-          <AppTableEmpty v-else-if="realtimeError">Failed to load realtime: {{ realtimeError }}</AppTableEmpty>
-          <AppTableEmpty v-else-if="realtime.length === 0" message="No tasks yet." />
+          <div class="service-panel-content service-realtime-table-content">
+          <AppTableEmpty v-if="realtimeLoading" class="service-realtime-state" message="Loading realtime..." />
+          <AppTableEmpty v-else-if="realtimeError" class="service-realtime-state">Failed to load realtime: {{ realtimeError }}</AppTableEmpty>
+          <AppTableEmpty v-else-if="realtime.length === 0" class="service-realtime-state" message="No tasks yet." />
           <AppTable
             v-else
             fixed
@@ -819,7 +830,11 @@ onUnmounted(() => {
                   </button>
                 </td>
                 <td><code>{{ task.node_name || task.node || 'n/a' }}</code></td>
-                <td>{{ task.current_state || 'n/a' }}</td>
+                <td>
+                  <span class="status" :class="realtimeTableStateClass(task.current_state)">
+                    {{ task.current_state || 'n/a' }}
+                  </span>
+                </td>
                 <td>{{ formatDate(task.created_at) }}</td>
                 <td>{{ formatDate(task.updated_at) }}</td>
                 <td>{{ task.error || 'n/a' }}</td>

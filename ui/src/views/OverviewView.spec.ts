@@ -1,10 +1,12 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createMemoryHistory, createRouter } from "vue-router";
+import type { StackView } from "../api/types";
 import OverviewView from "./OverviewView.vue";
 import { fetchDeployments, fetchEvents } from "../api/overview";
 
 const store = vi.hoisted(() => ({
-  syncInfo: null, services: [], stacks: [], loading: false, loadingError: "",
+  syncInfo: null, services: [], stacks: [] as StackView[], loading: false, loadingError: "",
   loadOverview: vi.fn().mockResolvedValue(undefined),
   openCommitDetailsModal: vi.fn(), openDeploymentDetailsModal: vi.fn(), openStackManifestModal: vi.fn(), openAlertDetailsModal: vi.fn(),
 }));
@@ -60,5 +62,37 @@ describe("Latest deployments", () => {
     expect(store.openCommitDetailsModal).toHaveBeenCalledWith("abc123");
     expect(store.openDeploymentDetailsModal).toHaveBeenCalledTimes(1);
     wrapper.unmount();
+  });
+});
+
+describe("Overview stack navigation", () => {
+  it("uses a full-card native link and keeps Compare and Commit independent", async () => {
+    store.stacks = [{ name: "app", compose_file: "app.yaml", status: { synced: 1, out_of_synced: 0 }, last_commit: "abcdef123" }];
+    vi.mocked(fetchDeployments).mockResolvedValue({ deployments: [] });
+    const router = createRouter({ history: createMemoryHistory(), routes: [
+      { path: "/overview", component: OverviewView },
+      { path: "/stacks/:stack", name: "stack-details", component: { template: "<div />" } },
+      { path: "/deployments", component: { template: "<div />" } },
+      { path: "/events", component: { template: "<div />" } },
+      { path: "/recommendations", component: { template: "<div />" } },
+    ] });
+    await router.push("/overview");
+    const wrapper = mount(OverviewView, { global: { plugins: [router] } });
+    await flushPromises();
+    const card = wrapper.get(".overview-stack-card");
+    const link = card.get("a.stack-card-link");
+    expect(link.attributes("href")).toBe("/stacks/app");
+    expect(link.attributes("tabindex")).not.toBe("-1");
+    await card.get(".overview-stack-card-action").trigger("click");
+    await card.get(".overview-stack-commit-badge").trigger("click");
+    await flushPromises();
+    expect(store.openStackManifestModal).toHaveBeenCalledWith("app");
+    expect(store.openCommitDetailsModal).toHaveBeenCalledWith("abcdef123");
+    expect(router.currentRoute.value.path).toBe("/overview");
+    await link.trigger("click");
+    await flushPromises();
+    expect(router.currentRoute.value.path).toBe("/stacks/app");
+    wrapper.unmount();
+    store.stacks = [];
   });
 });

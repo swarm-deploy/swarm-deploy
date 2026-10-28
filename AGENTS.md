@@ -9,29 +9,46 @@
 - `apply: by file patterns` + `globs` means apply only to matching files.
 - `alwaysApply: true` means apply regardless of globs.
 - In the first progress update, briefly state which `.cursor` rules were loaded.
-- After every change, always run `make check` to execute tests and linters before finishing the task.
+- For Go changes, run `make check` before finishing. For UI changes, run `npm test` and `npm run build` in `ui/`. If a check cannot run, report why.
 - If instructed to create a pull request, always assign appropriate repository labels to the PR before finishing the task. Use only the allowed labels from the file `.github/workflows/pr-labels.yaml`
 
+## Architecture Decisions
+
+**Agents MUST NOT make architectural decisions without explicit maintainer approval.**
+
+- Preserve existing architecture, component boundaries, and established patterns.
+- Prefer reusing existing components over introducing new abstractions.
+- Local refactoring and implementation decisions are allowed if they do not change architectural responsibilities.
+- Before making architectural changes, explain the motivation, alternatives, and trade-offs, then wait for approval.
+- Approval of a task does not imply approval of architectural changes.
+
+**When in doubt, ask before implementing.**
+
 ## Project structure
-- `./ui` - Frontend
-- `./internal` - Backend on Golang
-- - `./internal/modules/assistant` - Core logic for AI Assistant
-- - `./internal/modules/event` - Event module
-- - `./internal/modules/notifications` - Notifications module
-- - `./internal/entrypoints/health` - Entrypoint for metrics and healthchecks
-- - `./internal/entrypoints/webserver` - Entrypoint for UI and API Server
-- - `./internal/entrypoints/webhookserver` - Entrypoint for Webhook Server, receive webhooks from another systems, like GitHub, GitLab, etc.
-- `./internal/swarm` - Package with working Swarm API
-- `./internal/metrics` - Metrics for Swarm Deploy
-- `./api/api-server.yaml` - OpenAPI contracts for API Server of `webserver`
+- `./ui` - Vue frontend
+- `./internal/config` - YAML runtime configuration
+- `./internal/modules/gitops` - GitOps orchestration, reconciliation, and deployment lifecycle execution
+- `./internal/modules/deployments` - Deployment domain models, desired-state snapshots, and persistence
+- `./internal/modules/event` - Event Bus, Outbox, and Event History
+- `./internal/modules/alertmanagement` - Alert Management
+- `./internal/modules/notifications` - Notification delivery
+- `./internal/modules/assistant` - AI assistant, routing, and tools
+- `./internal/modules/resources` - Resource catalog
+- `./internal/entrypoints/health` - Health and metrics server
+- `./internal/entrypoints/webserver` - Web UI and REST API server
+- `./internal/entrypoints/webhookserver` - Webhook server
+- `./internal/swarm` - Docker Swarm API integration
+- `./internal/deployer` - Stack deployment and resource reconciliation
+- `./internal/storage` - SQLite persistence
+- `./internal/metrics` - Application metrics
+- `./api/api-server.yaml` - OpenAPI contract for the web API
 
-## MCP Tools
+## Assistant Tools
 
-Tools written on Go. 
-Location: `./internal/entrypoints/mcpserver/tools/{tool_name}.go`
+Built-in assistant tools are implemented in Go under
+`./internal/modules/assistant/tools/`.
 
-### Naming convention
-Each Tool naming with pattern: `{module}_{entity}_{action}`.
-
-For example "Tool for list docker networks" named as `docker_network_list`.
+Tool names generally follow `{module}_{entity}_{action}`.
+For example, the tool for listing Docker networks is `docker_network_list`.
+Consult the existing tool definitions and registration for actual names.
 

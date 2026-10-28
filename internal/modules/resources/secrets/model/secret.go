@@ -12,6 +12,8 @@ const (
 	ExternalVersionIDLabel = "external_version_id"
 	// ManagedLabel is the label marking secrets managed by cloud-secrets.
 	ManagedLabel = "cloud-secrets.secret.managed"
+	// LogicalPathLabel groups a cloud-secrets logical secret and its physical versions.
+	LogicalPathLabel = "logical_path"
 )
 
 // Secret contains persisted Docker secret metadata without its payload.

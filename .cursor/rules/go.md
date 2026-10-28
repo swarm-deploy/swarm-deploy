@@ -9,12 +9,18 @@ apply: by file patterns
 - Each interface method must have a comment.
 - Each structure exported field must have a comment.
 
+# Database and SQL
+- Build SQL queries in Go using `github.com/doug-martin/goqu/v9` (goqu). Use the appropriate dialect, `Prepared(true)`, and bound arguments for dynamic values. Do not build queries by concatenating or formatting SQL strings.
+- Follow the **Model Repository** pattern: keep domain models separate from persistence, and encapsulate database reads and writes in repositories. Follow existing module conventions (`model` for models, `modelstore` for repositories where applicable).
+- Application services, controllers, and HTTP handlers must access persistence through repository methods rather than constructing or executing SQL directly.
+- Reuse existing repository contracts and `internal/storage` transaction abstractions. Use `goqu.L` only for SQL expressions the builder cannot express, without interpolating dynamic values. Raw SQL migration files are exempt.
+
 # Go Logging Rules
 
 - **Primary Library**: Always use the `log/slog` standard library for all logging needs.
 - **Format**: Ensure all logs are structured (JSON format where possible) using key-value pairs.
 - **Error Handling**: When logging an error, use `slog.ErrorContext`.
-- **Avoid**: Never log raw error strings without context or PII.
+- **Avoid**: Never log secrets, credentials, or personally identifiable information (PII).
 - Always log with Go context. Use `slog.InfoContext` instead of `slog.Info`
 
 # Go Testing
@@ -28,42 +34,16 @@ apply: by file patterns
 - Place generated mocks next to the package that owns the mocked interface.
 - Do not introduce ad-hoc test helper types that imitate production interfaces unless explicitly requested.
 
-# Configuration / Environment
-- Environment variables are described in the `Config` structure
-- To configure the gRPC, an additional GrpcConfig structure with the `PORT` and `USE_REFLECTION` variables is required
-- Database config actually have `DSN` variable which secret and loaded from mounted file. Library automatically loaded file and set value into `Config` structure
-- Secret values like API key or DSN must be loaded from mounted file.
-- Every time you change configs update the documentation in the `example/**` folder
-- When working with secrets (API token, password), always use files. Don't manually write file reads in your code; use the `specw.File` from the library https://github.com/ArtARTs36/specw
+# Configuration
+- Runtime configuration is loaded from YAML; its types and validation live in `internal/config/` (see `Config.Spec` in `internal/config/config.go`).
+- When changing configuration, update the relevant documentation and examples under `example/`.
+- Load supported sensitive configuration values from mounted files (for example, `specw.File` for the age identity file); never log secret values.
 
-Example of a valid configuration file:
-
-```go
-type Config struct {
-	DB         DBConfig         `envPrefix:"DB_"`
-
-	Log        struct {
-		Level slog.Level `env:"LEVEL"`
-	} `envPrefix:"LOG_"`
-
-	GRPC GRPCConfig `envPrefix:"GRPC_"`
-}
-
-type DBConfig struct {
-	DSN string `env:"DSN,file,unset,notEmpty,required"`
-}
-
-type GRPCConfig struct {
-	Port          int  `env:"PORT,required"`
-	UseReflection bool `env:"USE_REFLECTION"`
-}
-```
-
-# Event Dispatcher
-- Project use Event Dispatching for notifications and save events to history
-- Events declared in ./internal/event/events
-- Notification subscribers config located in ./internal/config NotificationSpec
-- Each event is described in docs/event-history.md
+# Events and Notifications
+- Event types and payloads are defined in `internal/modules/event/events/`.
+- Durable event delivery is implemented in `internal/modules/event/outbox/`.
+- Notification configuration types live in `internal/config/`.
+- Keep `docs/event-history.md` and `docs/notifications.md` consistent with relevant public contract changes.
 
 ## Structure initialization
 - For DTO use default initialization.

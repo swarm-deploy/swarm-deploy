@@ -16,8 +16,10 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/configstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
+	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
@@ -32,7 +34,7 @@ func newTestSQLSubscriber(store *modelstore.SQLStore) *SQLSubscriber {
 
 func TestSQLSubscriberIdempotenceAndRollback(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -69,7 +71,7 @@ func TestSQLSubscriberIdempotenceAndRollback(t *testing.T) {
 }
 func TestNodeAlertRecoveryIgnoresDelayedFailure(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -89,9 +91,36 @@ func TestNodeAlertRecoveryIgnoresDelayedFailure(t *testing.T) {
 	assert.EqualValues(t, 1, alerts[0].Occurrences)
 }
 
+func TestServiceDriftAlertRecoveryIgnoresRetriesAndDelayedDetection(t *testing.T) {
+	ctx := context.Background()
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+	repo := modelstore.NewSQLStore(db)
+	subscriber := newTestSQLSubscriber(repo)
+	at := time.Now().UTC()
+	drifted := events.Envelope{ID: "001", OccurredAt: at, Event: &events.ServiceDrifted{
+		StackName: "payments", ServiceName: "api", Commit: "one", Reason: "replicas differ",
+	}}
+	fixed := events.Envelope{ID: "003", OccurredAt: at.Add(time.Second), Event: &events.ServiceDriftFixed{
+		StackName: "payments", ServiceName: "api", Commit: "two",
+	}}
+	delayed := events.Envelope{ID: "002", OccurredAt: at.Add(time.Millisecond), Event: &events.ServiceMissed{
+		StackName: "payments", ServiceName: "api", Commit: "old",
+	}}
+	for _, event := range []events.Envelope{drifted, drifted, fixed, delayed} {
+		require.NoError(t, subscriber.Handle(ctx, event))
+	}
+	alerts, err := repo.List(ctx, modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 1)
+	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
+	assert.Equal(t, uint64(1), alerts[0].Occurrences)
+}
+
 func TestPreparationAndInterruptedFailuresShareDeploymentAlertLifecycle(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -122,7 +151,7 @@ func TestPreparationAndInterruptedFailuresShareDeploymentAlertLifecycle(t *testi
 
 func TestConfigurationChangedResolvesRemovedStackIdempotently(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -144,6 +173,12 @@ stacks:
 			ID: stack, OccurredAt: at.Add(time.Duration(index) * time.Second),
 			Event: &events.DeployFailed{DeployEvent: events.DeployEvent{StackName: stack}, Error: assert.AnError},
 		}))
+		require.NoError(t, subscriber.Handle(ctx, events.Envelope{
+			ID: "service-" + stack, OccurredAt: at.Add(time.Duration(index) * time.Second),
+			Event: &events.ServiceDrifted{
+				StackName: stack, ServiceName: "api", Reason: "service is missing",
+			},
+		}))
 	}
 	configurationChanged := events.Envelope{
 		ID: "configuration", OccurredAt: at.Add(2 * time.Second), Event: &events.ConfigurationChanged{},
@@ -154,7 +189,7 @@ stacks:
 
 	alerts, err := repo.List(ctx, modelstore.ListFilter{})
 	require.NoError(t, err)
-	require.Len(t, alerts, 2)
+	require.Len(t, alerts, 4)
 	byResource := map[string]model.Alert{}
 	for _, alert := range alerts {
 		byResource[alert.ResourceID] = alert
@@ -164,6 +199,65 @@ stacks:
 	assert.Equal(t, model.ResolutionReasonResourceRemoved, byResource["removed"].Resolution.Reason)
 	assert.Equal(t, "configuration", byResource["removed"].Resolution.EventID)
 	assert.Equal(t, model.AlertStatusOpen, byResource["kept"].Status)
+	assert.Equal(t, model.AlertStatusResolved, byResource["removed/api"].Status)
+	require.NotNil(t, byResource["removed/api"].Resolution)
+	assert.Equal(t, model.ResolutionReasonResourceRemoved, byResource["removed/api"].Resolution.Reason)
+	assert.Equal(t, model.AlertStatusOpen, byResource["kept/api"].Status)
+}
+
+func TestServiceRemovedFromDesiredResolvesOnlyMatchingDriftAndOrdersDelayedEvents(t *testing.T) {
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
+	repo := modelstore.NewSQLStore(db)
+	subscriber := NewSQLSubscriber(repo, bus, noAlertRecipients, &config.Config{})
+	require.NoError(t, bus.Subscribe(events.TypeNameAlertResolved, "resolved-signal", subscriber))
+	at := time.Now().UTC()
+
+	for index, serviceName := range []string{"removed", "kept"} {
+		require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{
+			ID: "drift-" + serviceName, OccurredAt: at.Add(time.Duration(index) * time.Millisecond),
+			Event: &events.ServiceDrifted{
+				StackName: "app", ServiceName: serviceName, Commit: "old", Reason: "replicas differ",
+			},
+		}))
+	}
+	require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{
+		ID: "sync-failed", OccurredAt: at,
+		Event: &events.DeployFailed{DeployEvent: events.DeployEvent{StackName: "app"}, Error: assert.AnError},
+	}))
+
+	removed := events.Envelope{
+		ID: "removed", OccurredAt: at.Add(2 * time.Second),
+		Event: &events.ServiceRemovedFromDesired{StackName: "app", ServiceName: "removed", Commit: "new"},
+	}
+	require.NoError(t, subscriber.Handle(t.Context(), removed))
+	require.NoError(t, subscriber.Handle(t.Context(), removed), "repeated delivery must be idempotent")
+	require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{
+		ID: "delayed-missed", OccurredAt: at.Add(time.Second),
+		Event: &events.ServiceMissed{StackName: "app", ServiceName: "removed", Commit: "old"},
+	}), "an older delayed event must be acknowledged without reopening the alert")
+	require.NoError(t, subscriber.Handle(t.Context(), events.Envelope{
+		ID: "missing-alert", OccurredAt: at.Add(3 * time.Second),
+		Event: &events.ServiceRemovedFromDesired{StackName: "app", ServiceName: "unknown", Commit: "new"},
+	}))
+
+	alerts, err := repo.List(t.Context(), modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 3)
+	byResource := make(map[string]model.Alert, len(alerts))
+	for _, alert := range alerts {
+		byResource[alert.ResourceID] = alert
+	}
+	resolved := byResource["app/removed"]
+	assert.Equal(t, model.AlertStatusResolved, resolved.Status)
+	require.NotNil(t, resolved.Resolution)
+	assert.Equal(t, model.ResolutionReasonResourceRemoved, resolved.Resolution.Reason)
+	assert.Equal(t, "removed", resolved.Resolution.EventID)
+	assert.Equal(t, model.AlertStatusOpen, byResource["app/kept"].Status)
+	assert.Equal(t, model.AlertStatusOpen, byResource["app"].Status, "SyncFailed must remain unaffected")
+	assert.Equal(t, 1, alertSignalCount(t, db, "AlertResolved"))
 }
 
 func TestTemporaryFailureCounterSurvivesRestartAndDuplicateDelivery(t *testing.T) {
@@ -179,7 +273,7 @@ func TestTemporaryFailureCounterSurvivesRestartAndDuplicateDelivery(t *testing.T
 		}},
 	}
 
-	db, err := storage.Open(ctx, dir)
+	db, err := storage.OpenSQLite(ctx, dir)
 	require.NoError(t, err)
 	subscriber := newTestSQLSubscriber(modelstore.NewSQLStore(db))
 	for _, event := range eventsBeforeRestart {
@@ -188,7 +282,7 @@ func TestTemporaryFailureCounterSurvivesRestartAndDuplicateDelivery(t *testing.T
 	}
 	require.NoError(t, db.Close())
 
-	db, err = storage.Open(ctx, dir)
+	db, err = storage.OpenSQLite(ctx, dir)
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -208,7 +302,7 @@ func TestTemporaryFailureCounterSurvivesRestartAndDuplicateDelivery(t *testing.T
 
 func TestGitRepositoryAuthenticationFailureOpensAndRecoveryResolvesAlert(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -245,7 +339,7 @@ func TestGitRepositoryAuthenticationFailureOpensAndRecoveryResolvesAlert(t *test
 
 func TestGitRepositoryChangeResolvesPreviousAsRemovedAndOrdersDelayedRecovery(t *testing.T) {
 	ctx := t.Context()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -303,7 +397,7 @@ func TestGitRepositoryChangeResolvesPreviousAsRemovedAndOrdersDelayedRecovery(t 
 
 func TestGitRepositoryChangeBypassesUnreadyStackConfiguration(t *testing.T) {
 	ctx := t.Context()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -348,7 +442,7 @@ func TestGitRepositoryNetworkThresholdSurvivesRestartAndDeduplicatesDelivery(t *
 	ctx := context.Background()
 	dir := t.TempDir()
 	at := time.Now().UTC()
-	db, err := storage.Open(ctx, dir)
+	db, err := storage.OpenSQLite(ctx, dir)
 	require.NoError(t, err)
 	subscriber := newTestSQLSubscriber(modelstore.NewSQLStore(db))
 	for index := range 2 {
@@ -367,7 +461,7 @@ func TestGitRepositoryNetworkThresholdSurvivesRestartAndDeduplicatesDelivery(t *
 	}), "configuration changes must not reset repository failure streaks")
 	require.NoError(t, db.Close())
 
-	db, err = storage.Open(ctx, dir)
+	db, err = storage.OpenSQLite(ctx, dir)
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -426,7 +520,7 @@ func TestGitRepositoryNetworkThresholdSurvivesRestartAndDeduplicatesDelivery(t *
 
 func TestGitRepositoryRecoveryIgnoresDelayedFailureAndResetsCounter(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -459,7 +553,7 @@ func TestGitRepositoryRecoveryIgnoresDelayedFailureAndResetsCounter(t *testing.T
 
 func TestGitNetworkDiagnosticReachesAlertAfterDurableCodec(t *testing.T) {
 	ctx := t.Context()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	store := modelstore.NewSQLStore(db)
@@ -493,9 +587,9 @@ func TestDeploymentCompletionOutboxPreservesAlertThresholds(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/temporary=%t", phase, temporary), func(t *testing.T) {
 				ctx := context.Background()
 				dir := t.TempDir()
-				db, err := storage.Open(ctx, dir)
+				db, err := storage.OpenSQLite(ctx, dir)
 				require.NoError(t, err)
-				bus := outbox.New(db)
+				bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 				repo := modelstore.NewSQLStore(db)
 				subscriber := newTestSQLSubscriber(repo)
 				typ := events.TypeNameDeployFailed
@@ -529,7 +623,7 @@ func TestDeploymentCompletionOutboxPreservesAlertThresholds(t *testing.T) {
 						err = service.FailCleanupWithError(ctx, attempt.ID, gitopsmodel.Stack{}, "prune_failed", time.Now(), cause)
 					}
 					require.NoError(t, err)
-					stored, readErr := deployment.NewStore(db).Get(ctx, attempt.DeploymentID)
+					stored, readErr := deploymentstore.NewStore(db).Get(ctx, attempt.DeploymentID)
 					require.NoError(t, readErr)
 					assert.NotContains(t, stored.ErrorDiagnostic, "private-value")
 					assert.Contains(t, stored.ErrorDiagnostic, "****")
@@ -539,9 +633,9 @@ func TestDeploymentCompletionOutboxPreservesAlertThresholds(t *testing.T) {
 					assert.Contains(t, payload, fmt.Sprintf(`"temporary":%t`, temporary))
 					// Reopen before delivery: the subscriber must consume the persisted classification.
 					require.NoError(t, db.Close())
-					db, err = storage.Open(ctx, dir)
+					db, err = storage.OpenSQLite(ctx, dir)
 					require.NoError(t, err)
-					bus = outbox.New(db)
+					bus = eventbus.NewOutboxDispatcher(outbox.New(db))
 					repo = modelstore.NewSQLStore(db)
 					subscriber = newTestSQLSubscriber(repo)
 					require.NoError(t, bus.Subscribe(typ, "alerts", subscriber))

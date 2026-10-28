@@ -9,15 +9,12 @@ import (
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
-	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
 
-var dialect = goqu.Dialect("sqlite3")
-
 // SQLStore stores Docker secret metadata, never secret contents.
-type SQLStore struct{ db *storage.Database }
+type SQLStore struct{ db storage.Database }
 
 // secretPayload is the JSON part of a secret_metadata row. It never repeats id, name
 // or attributes derived from labels (description, managed, external_path, external_version_id).
@@ -37,11 +34,11 @@ type secretRow struct {
 }
 
 // NewSQLStore creates a metadata repository.
-func NewSQLStore(db *storage.Database) *SQLStore { return &SQLStore{db: db} }
+func NewSQLStore(db storage.Database) *SQLStore { return &SQLStore{db: db} }
 
 // List returns metadata in stable name/ID order.
 func (s *SQLStore) List(ctx context.Context) ([]model.Secret, error) {
-	query, _, err := dialect.From("secret_metadata").Prepared(true).
+	query, _, err := s.db.Dialect().From("secret_metadata").Prepared(true).
 		Select("id", "name", "created_at", "updated_at", "payload").
 		Order(goqu.I("name").Asc(), goqu.I("id").Asc()).ToSQL()
 	if err != nil {
@@ -62,10 +59,19 @@ func (s *SQLStore) List(ctx context.Context) ([]model.Secret, error) {
 	return result, nil
 }
 
-// GetByName returns metadata for one Docker secret.
+// GetByID returns metadata for one Docker secret by ID.
+func (s *SQLStore) GetByID(ctx context.Context, id string) (model.Secret, error) {
+	return s.getBy(ctx, goqu.Ex{"id": id})
+}
+
+// GetByName returns metadata for one Docker secret by name.
 func (s *SQLStore) GetByName(ctx context.Context, name string) (model.Secret, error) {
-	query, args, err := dialect.From("secret_metadata").Prepared(true).
-		Select("id", "name", "created_at", "updated_at", "payload").Where(goqu.Ex{"name": name}).ToSQL()
+	return s.getBy(ctx, goqu.Ex{"name": name})
+}
+
+func (s *SQLStore) getBy(ctx context.Context, where goqu.Ex) (model.Secret, error) {
+	query, args, err := s.db.Dialect().From("secret_metadata").Prepared(true).
+		Select("id", "name", "created_at", "updated_at", "payload").Where(where).ToSQL()
 	if err != nil {
 		return model.Secret{}, err
 	}
@@ -83,7 +89,7 @@ func (s *SQLStore) GetByName(ctx context.Context, name string) (model.Secret, er
 // Replace atomically replaces the observed snapshot.
 func (s *SQLStore) Replace(ctx context.Context, secrets []model.Secret) error {
 	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		deleteQuery, _, err := dialect.Delete("secret_metadata").Prepared(true).ToSQL()
+		deleteQuery, _, err := s.db.Dialect().Delete("secret_metadata").Prepared(true).ToSQL()
 		if err != nil {
 			return err
 		}
@@ -95,7 +101,7 @@ func (s *SQLStore) Replace(ctx context.Context, secrets []model.Secret) error {
 			if payloadErr != nil {
 				return payloadErr
 			}
-			insertQuery, insertArgs, insertErr := dialect.Insert("secret_metadata").Prepared(true).
+			insertQuery, insertArgs, insertErr := s.db.Dialect().Insert("secret_metadata").Prepared(true).
 				Rows(goqu.Record{
 					"id": secret.ID, "name": secret.Name, "created_at": secret.CreatedAt.UTC(),
 					"updated_at": secret.UpdatedAt.UTC(), "payload": string(payload),

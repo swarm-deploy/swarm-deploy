@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -23,6 +24,15 @@ func (h *handler) GetSecretByName(
 
 		return nil, withStatusError(http.StatusInternalServerError, fmt.Errorf("get secret: %w", err))
 	}
+	usedBy, err := h.secretRelations.ServicesUsingSecret(ctx, secret)
+	if err != nil {
+		slog.ErrorContext(
+			ctx,
+			"failed to resolve services using secret",
+			slog.String("secret", secret.Name),
+			slog.Any("error", err),
+		)
+	}
 
 	resp := &generated.SecretDetailsResponse{
 		ID:        secret.ID,
@@ -31,6 +41,7 @@ func (h *handler) GetSecretByName(
 		CreatedAt: secret.CreatedAt,
 		UpdatedAt: secret.UpdatedAt,
 		External:  toGeneratedSecretExternal(secret.ExternalPath, secret.ExternalVersionID),
+		UsedBy:    toGeneratedSecretServiceUsages(usedBy),
 	}
 	if driver := strings.TrimSpace(secret.Driver); driver != "" {
 		resp.Driver = generated.NewOptString(driver)

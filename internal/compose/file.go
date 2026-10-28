@@ -12,6 +12,7 @@ import (
 	"sort"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/dotenv"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"go.yaml.in/yaml/v3"
 )
@@ -197,6 +198,16 @@ func (*fileLoader) linkServices(compose *Compose, baseDir string) []ValidationIs
 
 	for ind, service := range compose.Services {
 		resolveNetworkAliases(service.Networks, compose.Networks)
+
+		if _, _, err := service.SelfHealPolicy(); err != nil {
+			issues = append(issues, ValidationIssue{
+				ResourceType: "service",
+				ResourceName: service.Name,
+				Field:        "deploy.labels." + labelsdict.ServiceSyncPolicySelfHealLabelKey,
+				Code:         IssueCodeInvalidValue,
+				Message:      err.Error(),
+			})
+		}
 
 		for configIndex := range service.Configs {
 			ref := &service.Configs[configIndex]

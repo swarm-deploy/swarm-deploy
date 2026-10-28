@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/doug-martin/goqu/v9"
-	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
@@ -14,7 +13,7 @@ var deliveriesDesc = prometheus.NewDesc(
 )
 
 // Describe implements prometheus.Collector.
-func (b *Bus) Describe(ch chan<- *prometheus.Desc) { ch <- deliveriesDesc }
+func (r *Repository) Describe(ch chan<- *prometheus.Desc) { ch <- deliveriesDesc }
 
 type deliveryCount struct {
 	Status         string  `db:"status"`
@@ -23,10 +22,10 @@ type deliveryCount struct {
 }
 
 // Collect reports persisted queue state, including terminal failures after restart.
-func (b *Bus) Collect(ch chan<- prometheus.Metric) {
+func (r *Repository) Collect(ch chan<- prometheus.Metric) {
 	ctx, cancel := context.WithTimeout(context.Background(), databaseOperationTimeout)
 	defer cancel()
-	query, args, err := goqu.Dialect("sqlite3").From("outbox_deliveries").Prepared(true).
+	query, args, err := r.db.Dialect().From("outbox_deliveries").Prepared(true).
 		Select("status", "subscription_id", goqu.COUNT("*").As("count")).
 		GroupBy("status", "subscription_id").
 		ToSQL()
@@ -35,7 +34,7 @@ func (b *Bus) Collect(ch chan<- prometheus.Metric) {
 		return
 	}
 	var counts []deliveryCount
-	if err = b.db.Select(ctx, &counts, query, args...); err != nil {
+	if err = r.db.Select(ctx, &counts, query, args...); err != nil {
 		ch <- prometheus.NewInvalidMetric(deliveriesDesc, err)
 		return
 	}

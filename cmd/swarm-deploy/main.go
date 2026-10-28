@@ -33,6 +33,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/buildinfo"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/logparser"
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -115,12 +116,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	slog.SetDefault(slog.New(slogx.NewChain(
-		slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.Spec.Log.Level.Level()}),
-		slogm.RequestID(),
-		logx.EventType(),
-		security.LogUser(),
-	)))
+	logHandler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: cfg.Spec.Log.Level.Level()})
+	slog.SetDefault(slog.New(slogx.NewChain(logHandler, loggingMiddlewares()...)))
 
 	tracerProvider, err := sd.InitTracerProvider(ctx, cfg.Spec.Tracing, buildinfo.Info{
 		Version: Version,
@@ -130,6 +127,7 @@ func main() {
 		slog.ErrorContext(ctx, "failed to init tracing", slog.Any("err", err))
 		os.Exit(1)
 	}
+	slog.SetDefault(slog.New(slogx.NewChain(logHandler, loggingMiddlewares()...)))
 
 	err = os.MkdirAll(cfg.Spec.DataDir, 0o755)
 	if err != nil {
@@ -154,7 +152,7 @@ func main() {
 
 	metricsGroup.BuildInfo.Set(Version, BuildDate)
 
-	db, err := storage.Open(ctx, cfg.Spec.DataDir)
+	db, err := storage.OpenSQLite(ctx, cfg.Spec.DataDir)
 	if err != nil {
 		slog.ErrorContext(ctx, "failed to open database", slog.Any("err", err))
 		os.Exit(1)
@@ -303,6 +301,15 @@ func main() {
 	shutdownTracing(tracerProvider)
 }
 
+func loggingMiddlewares() []slogx.Middleware {
+	middlewares := []slogx.Middleware{slogm.RequestID()}
+	if tracing.Enabled() {
+		middlewares = append(middlewares, tracing.LogTraceID())
+	}
+
+	return append(middlewares, logx.EventType(), security.LogUser())
+}
+
 func repositoryLogValue(repository string) string {
 	return gitx.RepositoryIdentifier(repository)
 }
@@ -327,7 +334,7 @@ type module struct {
 
 type container struct {
 	// Storage owns the shared database and transactor.
-	Storage         *storage.Database
+	Storage         storage.Database
 	FileSystem      fs.FileSystem
 	Metrics         *metrics.Group
 	Swarm           *swarm.Swarm
@@ -345,7 +352,7 @@ type container struct {
 }
 
 // GetStorage returns the shared application database.
-func (c *container) GetStorage() *storage.Database { return c.Storage }
+func (c *container) GetStorage() storage.Database { return c.Storage }
 
 func (c *container) GetFileSystem() fs.FileSystem {
 	return c.FileSystem

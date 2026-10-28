@@ -11,10 +11,10 @@ import (
 )
 
 func TestSubscribeMany(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	bus := outbox.New(db)
+	bus := NewOutboxDispatcher(outbox.New(db))
 	types := []events.TypeName{events.TypeNameNodeJoined, events.TypeNameDeployFailed}
 	handler, err := history.NewSQLStore(db, 10)
 	require.NoError(t, err)

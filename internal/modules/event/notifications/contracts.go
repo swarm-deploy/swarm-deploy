@@ -69,6 +69,8 @@ type ServicePayload struct {
 	ServiceName string `json:"service_name"`
 	// Commit identifies the source revision when available.
 	Commit string `json:"commit"`
+	// Reason describes detected service drift when available.
+	Reason string `json:"reason"`
 	// Username identifies the user who initiated the action when available.
 	Username string `json:"username"`
 	// PreviousReplicas is the former desired replica count.
@@ -175,6 +177,11 @@ func ServiceReferencePayload(eventType string) ServicePayload {
 	switch eventType {
 	case "ServiceMissed":
 		payload.Message = "Service payments/api missed"
+	case "ServiceDrifted":
+		payload.Reason = "replica count differs: desired=3 actual=2"
+		payload.Message = "Service payments/api drifted: " + payload.Reason
+	case "ServiceDriftFixed":
+		payload.Message = "Service payments/api drift fixed"
 	case "ServicePruned":
 		payload.Message = "Service payments/api pruned"
 	case "ServiceReplicasIncreased":

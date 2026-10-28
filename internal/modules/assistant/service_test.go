@@ -561,7 +561,7 @@ func TestServiceChatLimitsConcurrentRuns(t *testing.T) {
 }
 
 func TestServiceChatCompletesWhenHistoryPersistenceFails(t *testing.T) {
-	db, err := storage.Open(context.Background(), t.TempDir())
+	db, err := storage.OpenSQLite(context.Background(), t.TempDir())
 	require.NoError(t, err)
 	history := conversation.NewSQLHistoryStorage(db)
 	serviceInstance, err := NewService(

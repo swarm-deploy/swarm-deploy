@@ -12,9 +12,12 @@ import (
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	secretmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/model"
 	secretstore "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretservice"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/enrichment/metadata"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/service/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 	webroute "github.com/swarm-deploy/webroute/api"
 )
@@ -33,8 +36,16 @@ func TestHandlerGetSecretByName(t *testing.T) {
 			},
 		},
 	})
+	servicesStore := modelstore.NewSQLStore(testutil.OpenSQLite(t))
+	require.NoError(t, servicesStore.ReplaceStack(t.Context(), "payments", []model.Info{{
+		Name: "api",
+		Spec: swarm.ServiceSpec{Secrets: []swarm.ServiceSecret{{
+			SecretID: "secret-id", SecretName: "db-password", Target: "/run/secrets/db-password",
+		}}},
+	}}))
 	h := &handler{
-		secrets: secretsReader,
+		secrets:         secretsReader,
+		secretRelations: secretservice.NewResolver(servicesStore, secretsReader),
 	}
 
 	resp, err := h.GetSecretByName(context.Background(), generated.GetSecretByNameParams{Name: "db-password"})
@@ -50,6 +61,71 @@ func TestHandlerGetSecretByName(t *testing.T) {
 	assert.Equal(t, "v12", resp.External.Value.VersionID.Value)
 	assert.True(t, resp.Labels.IsSet())
 	assert.Equal(t, "production", resp.Labels.Value["scope"])
+	require.Len(t, resp.UsedBy, 1)
+	assert.Equal(t, "payments", resp.UsedBy[0].Stack)
+	assert.Equal(t, "api", resp.UsedBy[0].Service)
+	assert.Equal(t, "/run/secrets/db-password", resp.UsedBy[0].Target.Value)
+}
+
+func TestHandlerListSecretsIncludesServiceUsage(t *testing.T) {
+	t.Parallel()
+
+	secretsReader := newSecretsStore(t, []secretmodel.Secret{{ID: "secret-id", Name: "db-password"}})
+	servicesStore := modelstore.NewSQLStore(testutil.OpenSQLite(t))
+	require.NoError(t, servicesStore.ReplaceStack(t.Context(), "payments", []model.Info{{
+		Name: "api",
+		Spec: swarm.ServiceSpec{Secrets: []swarm.ServiceSecret{{
+			SecretID: "secret-id", SecretName: "db-password", Target: "/run/secrets/db-password",
+		}}},
+	}}))
+	h := &handler{
+		secrets:         secretsReader,
+		secretRelations: secretservice.NewResolver(servicesStore, secretsReader),
+	}
+
+	resp, err := h.ListSecrets(t.Context())
+	require.NoError(t, err)
+	require.Len(t, resp.Secrets, 1)
+	require.Len(t, resp.Secrets[0].UsedBy, 1)
+	assert.Equal(t, "payments", resp.Secrets[0].UsedBy[0].Stack)
+	assert.Equal(t, "api", resp.Secrets[0].UsedBy[0].Service)
+	assert.Equal(t, "/run/secrets/db-password", resp.Secrets[0].UsedBy[0].Target.Value)
+}
+
+func TestHandlerListSecretsReturnsSecretsWhenUsageResolutionFails(t *testing.T) {
+	t.Parallel()
+
+	secrets := newSecretsStore(t, []secretmodel.Secret{{ID: "secret-id", Name: "db-password"}})
+	serviceDB, err := storage.OpenSQLite(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	services := modelstore.NewSQLStore(serviceDB)
+	require.NoError(t, serviceDB.Close())
+	h := &handler{secretRelations: secretservice.NewResolver(services, secrets)}
+
+	resp, err := h.ListSecrets(t.Context())
+	require.NoError(t, err)
+	require.Len(t, resp.Secrets, 1)
+	assert.Equal(t, "db-password", resp.Secrets[0].Name)
+	assert.Empty(t, resp.Secrets[0].UsedBy)
+}
+
+func TestHandlerGetSecretReturnsSecretWhenUsageResolutionFails(t *testing.T) {
+	t.Parallel()
+
+	secrets := newSecretsStore(t, []secretmodel.Secret{{ID: "secret-id", Name: "db-password"}})
+	serviceDB, err := storage.OpenSQLite(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	services := modelstore.NewSQLStore(serviceDB)
+	require.NoError(t, serviceDB.Close())
+	h := &handler{
+		secrets:         secrets,
+		secretRelations: secretservice.NewResolver(services, secrets),
+	}
+
+	resp, err := h.GetSecretByName(t.Context(), generated.GetSecretByNameParams{Name: "db-password"})
+	require.NoError(t, err)
+	assert.Equal(t, "db-password", resp.Name)
+	assert.Empty(t, resp.UsedBy)
 }
 
 func TestHandlerGetSecretByName_NotFound(t *testing.T) {

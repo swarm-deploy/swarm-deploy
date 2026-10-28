@@ -14,6 +14,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
+	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/drift"
@@ -30,7 +32,7 @@ import (
 
 // Reconciler applies a desired stack state to swarm.
 type Reconciler struct {
-	db               *storage.Database
+	db               storage.Database
 	deployments      *deployment.Service
 	cfg              *config.Config
 	git              gitx.Repository
@@ -56,7 +58,7 @@ type Reconciler struct {
 type pendingCompletion struct {
 	attemptID  string
 	state      model.Stack
-	status     deployment.Status
+	status     deploymentmodel.Status
 	errorCode  string
 	cause      error
 	observedAt time.Time
@@ -74,7 +76,7 @@ func New(
 	deployMetrics metrics.Deploys,
 	stateStore modelstore.Store,
 	fileSystem fs.FileSystem,
-	db *storage.Database,
+	db storage.Database,
 ) *Reconciler {
 	reconciler := &Reconciler{db: db, deployments: deployment.NewService(db, eventDispatcher),
 		cfg:              cfg,
@@ -169,6 +171,7 @@ func (r *Reconciler) Reconcile(
 		Commit:            req.Commit,
 		IsNewDigest:       !hasPrev || prev.SourceDigest != desiredState.Digest,
 		IsManualSync:      req.IsManual,
+		HasPreviousDrift:  stackHasDrift(prev),
 		Desired:           desiredState,
 		DeployComposePath: desiredState.Path,
 	}
@@ -190,6 +193,15 @@ func (r *Reconciler) Reconcile(
 		}
 	}
 	return nil
+}
+
+func stackHasDrift(stack model.Stack) bool {
+	for _, service := range stack.Services {
+		if service.SyncStatus == model.SyncStatusOutOfSync {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Reconciler) currentStackState(ctx context.Context, stackName string) (model.Stack, bool, error) {
@@ -218,9 +230,18 @@ func (r *Reconciler) processResult(
 			SyncAt:     now,
 		}
 
-		if serviceDrift, serviceDrifted := payload.Drift[service.Name]; serviceDrifted {
+		if serviceDrift, serviceDrifted := payload.RemainingDrift[service.Name]; serviceDrifted {
 			state.SyncStatus = model.SyncStatusOutOfSync
 			state.SyncError = serviceDrift.Reason
+		}
+		if remediation, remediated := payload.Remediations[service.Name]; remediated && remediation.attempted {
+			if remediation.converged {
+				state.SyncStatus = model.SyncStatusSynced
+				state.SyncError = ""
+			} else {
+				state.SyncStatus = model.SyncStatusOutOfSync
+				state.SyncError = remediation.failure
+			}
 		}
 
 		serviceStates[service.Name] = state
@@ -237,7 +258,7 @@ func (r *Reconciler) processResult(
 	if err != nil {
 		if payload.Attempt != nil {
 			r.pending[req.Stack.Name] = pendingCompletion{
-				attemptID: payload.Attempt.ID, state: result, status: deployment.Succeeded,
+				attemptID: payload.Attempt.ID, state: result, status: deploymentmodel.Succeeded,
 				observedAt: payload.ObservedAt,
 			}
 		}
@@ -248,7 +269,20 @@ func (r *Reconciler) processResult(
 			r.deployMetrics.RecordDeploy(req.Stack.Name, name, "success")
 		}
 	}
+	if len(payload.RemediationErr) > 0 {
+		return fmt.Errorf("self-heal drift: %w", errors.Join(payload.RemediationErr...))
+	}
 	return nil
+}
+
+func hasRemediationAttempt(remediations map[string]serviceRemediation) bool {
+	for _, remediation := range remediations {
+		if remediation.attempted {
+			return true
+		}
+	}
+
+	return false
 }
 
 func (r *Reconciler) recordFailure(
@@ -289,7 +323,7 @@ func (r *Reconciler) recordPipelineFailure(
 	} else {
 		failed := prev
 		code := "apply_failed"
-		status := deployment.Failed
+		status := deploymentmodel.Failed
 		// Keep Docker job output out of returned errors and tracing; only the
 		// bounded, masked excerpt is passed to durable failure diagnostics.
 		var failureCause error = pipeErr
@@ -301,7 +335,7 @@ func (r *Reconciler) recordPipelineFailure(
 				code = "init_failed"
 			}
 		case "load live state":
-			code, status = "verification_unknown", deployment.Interrupted
+			code, status = "verification_unknown", deploymentmodel.Interrupted
 		case "prune orphaned services":
 			code = pruneFailureCode
 		}
@@ -343,9 +377,9 @@ func (r *Reconciler) recoverPending(ctx context.Context, stack string) error {
 	}
 	var err error
 	switch {
-	case pending.status == deployment.Succeeded:
+	case pending.status == deploymentmodel.Succeeded:
 		err = r.deployments.SucceedObserved(ctx, pending.attemptID, pending.state, pending.observedAt)
-	case pending.status == deployment.Interrupted:
+	case pending.status == deploymentmodel.Interrupted:
 		err = r.deployments.InterruptVerificationWithError(ctx, pending.attemptID, pending.state,
 			pending.cause)
 	case pending.errorCode == pruneFailureCode:
@@ -359,7 +393,7 @@ func (r *Reconciler) recoverPending(ctx context.Context, stack string) error {
 		delete(r.pending, stack)
 		return nil
 	}
-	if !errors.Is(err, deployment.ErrNotRunning) {
+	if !errors.Is(err, deploymentstore.ErrNotRunning) {
 		return err
 	}
 	return r.resolveCompletionConflict(ctx, stack, pending, err)
@@ -377,7 +411,7 @@ func (r *Reconciler) resolveCompletionConflict(
 			stack, actual.Stack)
 	}
 	switch actual.Status {
-	case deployment.Succeeded, deployment.Failed, deployment.Interrupted, deployment.Superseded:
+	case deploymentmodel.Succeeded, deploymentmodel.Failed, deploymentmodel.Interrupted, deploymentmodel.Superseded:
 		slog.WarnContext(ctx, "deployment completion lifecycle conflict",
 			slog.String("attempt_id", pending.attemptID),
 			slog.String("stack", stack),
@@ -386,7 +420,7 @@ func (r *Reconciler) resolveCompletionConflict(
 		)
 		delete(r.pending, stack)
 		return nil
-	case deployment.Running:
+	case deploymentmodel.Running:
 		return fmt.Errorf("completion returned not running but deployment %s is running: %w",
 			pending.attemptID, completionErr)
 	default:
@@ -421,15 +455,58 @@ func (r *Reconciler) persistResult(
 		}); err != nil {
 			return err
 		}
-		for _, d := range payload.Drift {
-			if !d.ServiceMissed || prevState.ServiceSyncStatus(d.ServiceName) == model.SyncStatusOutOfSync {
-				continue
-			}
-			event := &events.ServiceMissed{StackName: req.Stack.Name, ServiceName: d.ServiceName, Commit: req.Commit}
-			if err := r.event.Publish(ctx, event); err != nil {
+		return r.publishDriftEvents(ctx, req, prevState, payload)
+	})
+}
+
+func (r *Reconciler) publishDriftEvents(
+	ctx context.Context,
+	req ReconciliationRequest,
+	prevState model.Stack,
+	payload *pipelinePayload,
+) error {
+	for _, service := range payload.Desired.Compose.Services {
+		if err := r.publishServiceDriftEvents(ctx, req, prevState, payload, service.Name); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (r *Reconciler) publishServiceDriftEvents(
+	ctx context.Context,
+	req ReconciliationRequest,
+	prevState model.Stack,
+	payload *pipelinePayload,
+	serviceName string,
+) error {
+	initial, initiallyDrifted := payload.Drift[serviceName]
+	final, unresolved := payload.RemainingDrift[serviceName]
+	previousStatus := prevState.ServiceSyncStatus(serviceName)
+	wasDrifted := previousStatus == model.SyncStatusOutOfSync
+	detected := final
+	if !unresolved {
+		detected = initial
+	}
+	if (initiallyDrifted || unresolved) && !wasDrifted {
+		if detected.ServiceMissed {
+			if err := r.event.Publish(ctx, &events.ServiceMissed{
+				StackName: req.Stack.Name, ServiceName: serviceName, Commit: req.Commit, Resolved: !unresolved,
+			}); err != nil {
 				return err
 			}
+		} else if err := r.event.Publish(ctx, &events.ServiceDrifted{
+			StackName: req.Stack.Name, ServiceName: serviceName, Commit: req.Commit,
+			Reason: detected.Reason, Resolved: !unresolved,
+		}); err != nil {
+			return err
 		}
-		return nil
-	})
+	}
+	if !unresolved && (wasDrifted || initiallyDrifted) {
+		return r.event.Publish(ctx, &events.ServiceDriftFixed{
+			StackName: req.Stack.Name, ServiceName: serviceName, Commit: req.Commit,
+		})
+	}
+	return nil
 }

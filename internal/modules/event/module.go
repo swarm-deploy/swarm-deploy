@@ -27,14 +27,14 @@ type Module struct {
 	History    *history.SQLStore
 
 	// Bus is the only durable delivery worker.
-	Bus *outbox.Bus
+	Bus *dispatcher.OutboxDispatcher
 	cfg *config.Config
-	db  *storage.Database
+	db  storage.Database
 }
 
 type Container interface {
 	// GetStorage returns the shared database.
-	GetStorage() *storage.Database
+	GetStorage() storage.Database
 	GetFileSystem() fs.FileSystem
 	GetMetrics() *metrics.Group
 }
@@ -51,7 +51,7 @@ func InitModule(ctx context.Context, cfg *config.Config, cnt Container) (*Module
 	}
 
 	srv.History = historyStore
-	srv.Bus = outbox.New(cnt.GetStorage())
+	srv.Bus = dispatcher.NewOutboxDispatcher(outbox.New(cnt.GetStorage()))
 	srv.Dispatcher = srv.Bus
 
 	if cfg.Spec.Web.Security.Authentication.Strategy() != config.AuthenticationStrategyNone {
@@ -145,7 +145,7 @@ func (s *Module) registerTelegramNotifications(
 			id := fmt.Sprintf("notification:telegram:%x:%s:%d:%d",
 				sha256.Sum256([]byte(botID)), chat.ID, chat.ThreadID, ruleIndex)
 			for _, typ := range types {
-				if err = s.Dispatcher.Subscribe(typ, id, outbox.External(notify2.NewSubscriber(notifier))); err != nil {
+				if err = s.Dispatcher.Subscribe(typ, id, dispatcher.External(notify2.NewSubscriber(notifier))); err != nil {
 					return 0, err
 				}
 				count++
@@ -164,7 +164,7 @@ func (s *Module) registerCustomNotifications(types []events.TypeName, channels [
 		identity := sha256.Sum256([]byte(channel.Method + " " + channel.URL.Value.String()))
 		id := fmt.Sprintf("notification:custom:%s:%x", channel.Name, identity)
 		for _, typ := range types {
-			if err := s.Dispatcher.Subscribe(typ, id, outbox.External(notify2.NewSubscriber(notifier))); err != nil {
+			if err := s.Dispatcher.Subscribe(typ, id, dispatcher.External(notify2.NewSubscriber(notifier))); err != nil {
 				return 0, err
 			}
 			count++
@@ -180,6 +180,7 @@ func projectionEventTypes() []events.TypeName {
 		events.TypeNameServiceCatalogUpdated, events.TypeNameDeploySuccess, events.TypeNameSendNotificationFailed,
 		events.TypeNameSyncManualStarted, events.TypeNameWebhookReceived, events.TypeNameNodeJoined,
 		events.TypeNameNodeConnected, events.TypeNameNodeDisconnected, events.TypeNameServiceMissed,
+		events.TypeNameServiceDrifted, events.TypeNameServiceDriftFixed,
 		events.TypeNameServiceReplicasIncreased, events.TypeNameServiceReplicasDecreased,
 		events.TypeNameServiceRestarted, events.TypeNameServicePruned, events.TypeNameNetworkCreated,
 		events.TypeNameUserAuthenticated, events.TypeNameAssistantPromptInjectionDetected,

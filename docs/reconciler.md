@@ -19,6 +19,8 @@ The current pipeline is:
 9. Load live Swarm state.
 10. [Prune managed orphaned services when applicable](./prune.md).
 11. [Analyze drift](./drift.md).
+12. Reapply drifted services when their [self-heal policy](./drift.md#self-heal-policy) is enabled, without Init Jobs.
+13. Reload stack services once and verify every attempted repair against actual Swarm state.
 
 Some steps are conditional. For example, the image policy step is absent when every image rule is disabled, and environment population runs only when at least one desired service declares `env_file`.
 

@@ -2,6 +2,10 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
@@ -42,4 +46,52 @@ func TestAlertsAPIReadsPersistedAlerts(t *testing.T) {
 	assert.Equal(t, "resolved-id", details.ID, "requested alert")
 	assert.True(t, details.Resolution.IsSet(), "resolution should be mapped")
 	assert.Equal(t, generated.AlertResolutionReasonResourceRemoved, details.Resolution.Value.Reason)
+}
+
+func TestAlertsAPIStackFilter(t *testing.T) {
+	ctx := context.Background()
+	store := modelstore.NewSQLStore(testutil.OpenSQLite(t))
+	now := time.Date(2026, 10, 16, 10, 0, 0, 0, time.UTC)
+	for index, resource := range []struct {
+		name string
+		kind alertmodel.ResourceType
+	}{
+		{name: "app", kind: alertmodel.ResourceTypeStack},
+		{name: "other", kind: alertmodel.ResourceTypeStack},
+		{name: "app", kind: alertmodel.ResourceTypeNode},
+	} {
+		id := fmt.Sprint(index)
+		require.NoError(t, store.Create(ctx, alertmodel.Alert{
+			ID: id, Fingerprint: id, Kind: alertmodel.AlertKindSyncFailed,
+			ResourceType: resource.kind, ResourceID: resource.name, Status: alertmodel.AlertStatusOpen,
+			Title: "Failure", Message: "Unavailable", Occurrences: 1,
+			OpenedAt: now, UpdatedAt: now.Add(time.Duration(index) * time.Minute), OpenEventID: id, LatestEventID: id,
+		}))
+	}
+	h := &handler{alerts: store}
+	server, err := generated.NewServer(h, h, generated.WithErrorHandler(HandleHTTPError))
+	require.NoError(t, err)
+	for _, testCase := range []struct {
+		query string
+		ids   []string
+	}{
+		{query: "?stack=app&status=open&limit=1", ids: []string{"0"}},
+		{query: "?stack=other&status=open", ids: []string{"1"}},
+		{query: "?stack=unknown", ids: []string{}},
+		{query: "?stack=app&status=resolved", ids: []string{}},
+		{query: "?status=open", ids: []string{"2", "1", "0"}},
+	} {
+		t.Run(testCase.query, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			server.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/alerts"+testCase.query, nil))
+			require.Equal(t, http.StatusOK, recorder.Code)
+			var response generated.AlertsResponse
+			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+			ids := make([]string, 0, len(response.Alerts))
+			for _, alert := range response.Alerts {
+				ids = append(ids, alert.ID)
+			}
+			assert.Equal(t, testCase.ids, ids)
+		})
+	}
 }

@@ -3,7 +3,6 @@ package controller
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -18,8 +17,10 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/gitpull"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/networkloop"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackplan"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	git "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
@@ -180,12 +181,14 @@ func TestControllerGracefulShutdown(t *testing.T) {
 						Interval:     specw.Duration{Value: time.Hour},
 					},
 				}},
-				git:         repository,
-				metrics:     metricGroup,
-				event:       eventDispatcher,
-				stateStore:  store,
-				reconcileCh: make(chan reconcileTask, 1),
-				tracer:      otel.Tracer("test"),
+				git:          repository,
+				stackPlanner: stackplan.NewPlanner(repository),
+				puller:       gitpull.NewPuller(repository, gitpull.NewMonitor(db, store, eventDispatcher), metricGroup.Git, config.GitSpec{Repository: "repo"}),
+				metrics:      metricGroup,
+				event:        eventDispatcher,
+				stateStore:   store,
+				reconcileCh:  make(chan reconcileTask, 1),
+				tracer:       otel.Tracer("test"),
 			}
 
 			runCtx, cancelRun := context.WithCancel(context.Background())
@@ -222,7 +225,7 @@ func TestControllersSharingSQLiteDoNotReconcileConcurrently(t *testing.T) {
 	staleRenderedPath := filepath.Join(dataDir, "rendered", "removed-stack.yaml")
 	require.NoError(t, os.MkdirAll(filepath.Dir(staleRenderedPath), 0o755), "create rendered dir")
 	require.NoError(t, os.WriteFile(staleRenderedPath, []byte("sensitive"), 0o600), "write stale rendered compose")
-	db, err := storage.Open(ctx, dataDir)
+	db, err := storage.OpenSQLite(ctx, dataDir)
 	require.NoError(t, err)
 	defer db.Close()
 	ctrl := gomock.NewController(t)
@@ -242,6 +245,8 @@ func TestControllersSharingSQLiteDoNotReconcileConcurrently(t *testing.T) {
 	})
 	events := &dispatcher.NopDispatcher{}
 	newController := func(repository git.Repository) *Controller {
+		store := modelstore.NewSQLStore(db)
+		metricGroup := metrics.NewGroup(metrics.CreateGroupParams{Namespace: "test_controller_ownership"})
 		return &Controller{
 			db: db,
 			cfg: &config.Config{Spec: config.Spec{
@@ -249,9 +254,11 @@ func TestControllersSharingSQLiteDoNotReconcileConcurrently(t *testing.T) {
 				Sync:    config.SyncSpec{Interval: specw.Duration{Value: time.Hour}},
 			}},
 			git:          repository,
-			metrics:      metrics.NewGroup(metrics.CreateGroupParams{Namespace: "test_controller_ownership"}),
+			stackPlanner: stackplan.NewPlanner(repository),
+			puller:       gitpull.NewPuller(repository, gitpull.NewMonitor(db, store, events), metricGroup.Git, config.GitSpec{}),
+			metrics:      metricGroup,
 			event:        events,
-			stateStore:   modelstore.NewSQLStore(db),
+			stateStore:   store,
 			reconcileCh:  make(chan reconcileTask, 1),
 			ownership:    newControllerOwnership(dataDir),
 			recovery:     deployment.NewService(db, events),
@@ -337,6 +344,7 @@ func TestControllerCancelsReconciliationAfterShutdownGracePeriod(t *testing.T) {
 		return git.PullResult{}, ctx.Err()
 	})
 	db, store := newSQLState(t)
+	metricGroup := metrics.NewGroup(metrics.CreateGroupParams{Namespace: "test_controller_shutdown_timeout"})
 	controller := &Controller{
 		db: db,
 		cfg: &config.Config{Spec: config.Spec{
@@ -344,7 +352,9 @@ func TestControllerCancelsReconciliationAfterShutdownGracePeriod(t *testing.T) {
 			Sync: config.SyncSpec{Interval: specw.Duration{Value: time.Hour}},
 		}},
 		git:          repository,
-		metrics:      metrics.NewGroup(metrics.CreateGroupParams{Namespace: "test_controller_shutdown_timeout"}),
+		stackPlanner: stackplan.NewPlanner(repository),
+		puller:       gitpull.NewPuller(repository, gitpull.NewMonitor(db, store, &dispatcher.NopDispatcher{}), metricGroup.Git, config.GitSpec{Repository: "repo"}),
+		metrics:      metricGroup,
 		event:        &dispatcher.NopDispatcher{},
 		stateStore:   store,
 		reconcileCh:  make(chan reconcileTask, 1),
@@ -395,10 +405,11 @@ func TestConfigStoreReloadUsesRepositoryDirFirst(t *testing.T) {
 	repository := git.NewRepository(config.GitSpec{}, filepath.Join(dataDir, "repo"))
 
 	c := &Controller{
-		cfg:         cfg,
-		configStore: configstore.New(cfg, &dispatcher.NopDispatcher{}),
-		git:         repository,
-		tracer:      otel.Tracer("test"),
+		cfg:          cfg,
+		configStore:  configstore.New(cfg, &dispatcher.NopDispatcher{}),
+		git:          repository,
+		stackPlanner: stackplan.NewPlanner(repository),
+		tracer:       otel.Tracer("test"),
 	}
 
 	err := c.configStore.Reload(t.Context(), c.git.WorkingDir())
@@ -440,10 +451,11 @@ func TestReloadNetworksUsesRepositoryDirFirst(t *testing.T) {
 	repository := git.NewRepository(config.GitSpec{}, filepath.Join(dataDir, "repo"))
 
 	c := &Controller{
-		cfg:         cfg,
-		configStore: configstore.New(cfg, &dispatcher.NopDispatcher{}),
-		git:         repository,
-		tracer:      otel.Tracer("test"),
+		cfg:          cfg,
+		configStore:  configstore.New(cfg, &dispatcher.NopDispatcher{}),
+		git:          repository,
+		stackPlanner: stackplan.NewPlanner(repository),
+		tracer:       otel.Tracer("test"),
 	}
 
 	err := c.configStore.Reload(t.Context(), c.git.WorkingDir())
@@ -478,7 +490,7 @@ func TestControllerSyncContinuesWhenConfigurationEventPublicationFails(t *testin
 	serviceManager := swarm.NewMockServiceManager(ctrl)
 	stackDeployer := deployer.NewMockStackDeployer(ctrl)
 	gomock.InOrder(
-		stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil),
+		stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil),
 		serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil),
 	)
 
@@ -511,6 +523,7 @@ func TestControllerSyncContinuesWhenConfigurationEventPublicationFails(t *testin
 		cfg:               cfg,
 		configStore:       configstore.New(cfg, eventDispatcher),
 		git:               repository,
+		stackPlanner:      stackplan.NewPlanner(repository),
 		metrics:           metricGroup,
 		event:             eventDispatcher,
 		stateStore:        store,
@@ -561,11 +574,13 @@ func TestControllerPollGitSkipsReconcileWhenGitHasNoChanges(t *testing.T) {
 		cfg: &config.Config{Spec: config.Spec{
 			Git: config.GitSpec{Repository: "repo"},
 		}},
-		git:        repository,
-		metrics:    metricGroup,
-		event:      &dispatcher.NopDispatcher{},
-		stateStore: store,
-		tracer:     otel.Tracer("test"),
+		git:          repository,
+		stackPlanner: stackplan.NewPlanner(repository),
+		puller:       gitpull.NewPuller(repository, gitpull.NewMonitor(db, store, &dispatcher.NopDispatcher{}), metricGroup.Git, config.GitSpec{Repository: "repo"}),
+		metrics:      metricGroup,
+		event:        &dispatcher.NopDispatcher{},
+		stateStore:   store,
+		tracer:       otel.Tracer("test"),
 	}
 
 	controller.pollGit(context.Background())
@@ -591,11 +606,13 @@ func TestControllerPollGitRecordsErrorState(t *testing.T) {
 		cfg: &config.Config{Spec: config.Spec{
 			Git: config.GitSpec{Repository: "repo"},
 		}},
-		git:        repository,
-		metrics:    metricGroup,
-		event:      &dispatcher.NopDispatcher{},
-		stateStore: store,
-		tracer:     otel.Tracer("test"),
+		git:          repository,
+		stackPlanner: stackplan.NewPlanner(repository),
+		puller:       gitpull.NewPuller(repository, gitpull.NewMonitor(db, store, &dispatcher.NopDispatcher{}), metricGroup.Git, config.GitSpec{Repository: "repo"}),
+		metrics:      metricGroup,
+		event:        &dispatcher.NopDispatcher{},
+		stateStore:   store,
+		tracer:       otel.Tracer("test"),
 	}
 
 	controller.pollGit(context.Background())
@@ -604,257 +621,6 @@ func TestControllerPollGitRecordsErrorState(t *testing.T) {
 	assert.Equal(t, syncRunResultError, state.LastPollResult, "unexpected poll result")
 	assert.Equal(t, "Git pull failed", state.LastPollError, "unexpected poll error")
 	assert.Empty(t, state.LastSyncResult, "poll error must not overwrite sync state")
-}
-
-func TestGitPullRecoveryStateSurvivesControllerRestart(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	db, store := newSQLState(t)
-	publisher := dispatcher.NewMockDispatcher(ctrl)
-	publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.GitPullFailed{})).Return(nil)
-	publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.GitPullSucceeded{})).Return(nil)
-
-	first := &Controller{db: db, stateStore: store, event: publisher}
-	require.NoError(t, first.recordGitPullFailure(t.Context(), "git.example.com/team/app",
-		git.FailureAuthentication, "Git repository authentication failed", TriggerPoll))
-	state := readSQLState(t, store)
-	require.NotNil(t, state.GitPullFailure)
-
-	second := &Controller{db: db, stateStore: modelstore.NewSQLStore(db), event: publisher}
-	require.NoError(t, second.recordGitPullSuccess(t.Context(), "git.example.com/team/app", TriggerStartup))
-	state = readSQLState(t, store)
-	assert.Nil(t, state.GitPullFailure)
-}
-
-func TestSuccessfulPullFromChangedRepositoryRemovesPreviousFailureWithoutRecovery(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	db, store := newSQLState(t)
-	repository := git.NewMockRepository(ctrl)
-	repository.EXPECT().Pull(gomock.Any()).Return(git.PullResult{NewRevision: "new"}, nil)
-	publisher := dispatcher.NewMockDispatcher(ctrl)
-	gomock.InOrder(
-		publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.GitPullFailed{})).Return(nil),
-		publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.ConfigurationChanged{})).DoAndReturn(
-			func(_ context.Context, event events.Event) error {
-				changed := event.(*events.ConfigurationChanged)
-				assert.Equal(t, "git.example.com/team/old", changed.PreviousRepository)
-				assert.Equal(t, "git.example.com/team/new", changed.Repository)
-				return nil
-			},
-		),
-	)
-	controller := &Controller{
-		db: db, stateStore: store, git: repository, event: publisher,
-		cfg:     &config.Config{Spec: config.Spec{Git: config.GitSpec{Repository: "https://git.example.com/team/new.git"}}},
-		metrics: metrics.NewGroup(metrics.CreateGroupParams{Namespace: "test_git_changed_repository_success"}),
-	}
-	require.NoError(t, controller.recordGitPullFailure(t.Context(), "git.example.com/team/old",
-		git.FailureAuthentication, "Git repository authentication failed", TriggerPoll))
-
-	_, err := controller.pullGit(t.Context(), TriggerStartup)
-	require.NoError(t, err)
-	assert.Nil(t, readSQLState(t, store).GitPullFailure)
-}
-
-func TestFailedPullFromChangedRepositoryRemovesPreviousAndRecordsCurrentFailure(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	db, store := newSQLState(t)
-	repository := git.NewMockRepository(ctrl)
-	repository.EXPECT().Pull(gomock.Any()).Return(git.PullResult{}, errors.New("unavailable"))
-	publisher := dispatcher.NewMockDispatcher(ctrl)
-	gomock.InOrder(
-		publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.GitPullFailed{})).Return(nil),
-		publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.ConfigurationChanged{})).DoAndReturn(
-			func(_ context.Context, event events.Event) error {
-				changed := event.(*events.ConfigurationChanged)
-				assert.Equal(t, "git.example.com/team/old", changed.PreviousRepository)
-				assert.Equal(t, "git.example.com/team/new", changed.Repository)
-				return nil
-			},
-		),
-		publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.GitPullFailed{})).DoAndReturn(
-			func(_ context.Context, event events.Event) error {
-				assert.Equal(t, "git.example.com/team/new", event.(*events.GitPullFailed).Repository)
-				return nil
-			},
-		),
-	)
-	controller := &Controller{
-		db: db, stateStore: store, git: repository, event: publisher,
-		cfg:     &config.Config{Spec: config.Spec{Git: config.GitSpec{Repository: "https://git.example.com/team/new.git"}}},
-		metrics: metrics.NewGroup(metrics.CreateGroupParams{Namespace: "test_git_changed_repository_failure"}),
-	}
-	require.NoError(t, controller.recordGitPullFailure(t.Context(), "git.example.com/team/old",
-		git.FailureAuthentication, "Git repository authentication failed", TriggerPoll))
-
-	_, err := controller.pullGit(t.Context(), TriggerStartup)
-	require.Error(t, err)
-	state := readSQLState(t, store)
-	require.NotNil(t, state.GitPullFailure)
-	assert.Equal(t, "git.example.com/team/new", state.GitPullFailure.Repository)
-}
-
-func TestRepositoryChangePublicationFailureRetainsPreviousFailureState(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	db, store := newSQLState(t)
-	publisher := dispatcher.NewMockDispatcher(ctrl)
-	gomock.InOrder(
-		publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.GitPullFailed{})).Return(nil),
-		publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.ConfigurationChanged{})).
-			Return(errors.New("outbox unavailable")),
-	)
-	controller := &Controller{db: db, stateStore: store, event: publisher}
-	require.NoError(t, controller.recordGitPullFailure(t.Context(), "git.example.com/team/old",
-		git.FailureAuthentication, "Git repository authentication failed", TriggerPoll))
-
-	err := controller.recordGitPullSuccess(t.Context(), "git.example.com/team/new", TriggerStartup)
-	require.ErrorContains(t, err, "outbox unavailable")
-	state := readSQLState(t, store)
-	require.NotNil(t, state.GitPullFailure)
-	assert.Equal(t, "git.example.com/team/old", state.GitPullFailure.Repository)
-}
-
-func TestGitPullStateAndEventPublicationRollBackTogether(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	db, store := newSQLState(t)
-	publisher := dispatcher.NewMockDispatcher(ctrl)
-	publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.GitPullFailed{})).
-		Return(errors.New("outbox unavailable"))
-	controller := &Controller{db: db, stateStore: store, event: publisher}
-
-	err := controller.recordGitPullFailure(t.Context(), "git.example.com/team/app",
-		git.FailureAuthentication, "Git repository authentication failed", TriggerManual)
-	require.ErrorContains(t, err, "outbox unavailable")
-	state := readSQLState(t, store)
-	assert.Nil(t, state.GitPullFailure, "failure state must roll back when its event cannot be published")
-}
-
-func TestGitPullRecoveryPublicationFailureRetainsFailedState(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	db, store := newSQLState(t)
-	publisher := dispatcher.NewMockDispatcher(ctrl)
-	gomock.InOrder(
-		publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.GitPullFailed{})).Return(nil),
-		publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.GitPullSucceeded{})).
-			Return(errors.New("outbox unavailable")),
-	)
-	controller := &Controller{db: db, stateStore: store, event: publisher}
-	require.NoError(t, controller.recordGitPullFailure(t.Context(), "git.example.com/team/app",
-		git.FailureAuthentication, "Git repository authentication failed", TriggerPoll))
-
-	err := controller.recordGitPullSuccess(t.Context(), "git.example.com/team/app", TriggerWebhook)
-	require.ErrorContains(t, err, "outbox unavailable")
-	state := readSQLState(t, store)
-	require.NotNil(t, state.GitPullFailure, "recovery state must roll back when its event cannot be published")
-}
-
-func TestGitPullRecoveryPublicationFailureDoesNotChangeSuccessfulPull(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	db, store := newSQLState(t)
-	repository := git.NewMockRepository(ctrl)
-	repository.EXPECT().Pull(gomock.Any()).Return(git.PullResult{OldRevision: "one", NewRevision: "two", Updated: true}, nil)
-	publisher := dispatcher.NewMockDispatcher(ctrl)
-	gomock.InOrder(
-		publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.GitPullFailed{})).Return(nil),
-		publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.GitPullSucceeded{})).
-			Return(errors.New("outbox unavailable")),
-	)
-	controller := &Controller{
-		db: db, stateStore: store, git: repository, event: publisher,
-		cfg:     &config.Config{Spec: config.Spec{Git: config.GitSpec{Repository: "https://git.example.com/team/app.git"}}},
-		metrics: metrics.NewGroup(metrics.CreateGroupParams{Namespace: "test_git_pull_recovery_publication"}),
-	}
-	require.NoError(t, controller.recordGitPullFailure(t.Context(), "git.example.com/team/app",
-		git.FailureNetwork, "Git repository is temporarily unreachable", TriggerPoll))
-
-	result, err := controller.pullGit(t.Context(), TriggerPoll)
-	require.NoError(t, err)
-	assert.True(t, result.Updated)
-	assert.Equal(t, "two", result.NewRevision)
-	assert.NotNil(t, readSQLState(t, store).GitPullFailure,
-		"failed recovery publication must remain retryable after a successful pull")
-}
-
-func TestNormalGitPullSuccessDoesNotPublishRecovery(t *testing.T) {
-	ctrl := gomock.NewController(t)
-	db, store := newSQLState(t)
-	publisher := dispatcher.NewMockDispatcher(ctrl)
-	controller := &Controller{db: db, stateStore: store, event: publisher}
-
-	require.NoError(t, controller.recordGitPullSuccess(t.Context(), "git.example.com/team/app", TriggerPoll))
-}
-
-func TestGitPullFailureMonitoringCoversEveryPullTrigger(t *testing.T) {
-	for _, reason := range []TriggerReason{TriggerStartup, TriggerPoll, TriggerManual, TriggerWebhook} {
-		t.Run(string(reason), func(t *testing.T) {
-			ctrl := gomock.NewController(t)
-			db, store := newSQLState(t)
-			repository := git.NewMockRepository(ctrl)
-			repository.EXPECT().Pull(gomock.Any()).Return(git.PullResult{},
-				errors.New("https://robot:private-token@git.example.com failed"))
-			publisher := dispatcher.NewMockDispatcher(ctrl)
-			publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.GitPullFailed{})).DoAndReturn(
-				func(_ context.Context, event events.Event) error {
-					failed := event.(*events.GitPullFailed)
-					assert.Equal(t, string(reason), failed.TriggerReason)
-					assert.Equal(t, "git.example.com/team/app", failed.Repository)
-					assert.NotContains(t, failed.Description, "private-token")
-					return nil
-				},
-			)
-			controller := &Controller{
-				db: db, cfg: &config.Config{Spec: config.Spec{Git: config.GitSpec{
-					Repository: "https://robot:private-token@git.example.com/team/app.git",
-				}}},
-				git: repository, event: publisher, stateStore: store,
-				metrics: metrics.NewGroup(metrics.CreateGroupParams{Namespace: "test_git_pull_trigger_" + string(reason)}),
-			}
-
-			_, err := controller.pullGit(t.Context(), reason)
-			require.Error(t, err)
-			assert.NotContains(t, err.Error(), "private-token")
-		})
-	}
-}
-
-func TestGitPullFailureWithMalformedCredentialURLPublishesSafeIdentifier(t *testing.T) {
-	const secret = "private-token"
-	for index, remote := range []string{
-		"https://robot:" + secret + "%zz@git.example.com/team/app.git",
-		"https:robot:" + secret + "@git.example.com/team/app.git",
-		"https:robot:" + secret + "%zz@git.example.com/team/app.git",
-		"https:/",
-	} {
-		t.Run(remote, func(t *testing.T) {
-			ctrl := gomock.NewController(t)
-			db, store := newSQLState(t)
-			repository := git.NewMockRepository(ctrl)
-			repository.EXPECT().Pull(gomock.Any()).Return(git.PullResult{}, errors.New("remote unavailable"))
-			publisher := dispatcher.NewMockDispatcher(ctrl)
-			publisher.EXPECT().Publish(gomock.Any(), gomock.AssignableToTypeOf(&events.GitPullFailed{})).DoAndReturn(
-				func(_ context.Context, event events.Event) error {
-					failed := event.(*events.GitPullFailed)
-					assert.Regexp(t, `^repository-[0-9a-f]{16}$`, failed.Repository)
-					assert.NotContains(t, failed.Repository, secret)
-					return nil
-				},
-			)
-			controller := &Controller{
-				db: db, stateStore: store, git: repository, event: publisher,
-				cfg: &config.Config{Spec: config.Spec{Git: config.GitSpec{Repository: remote}}},
-				metrics: metrics.NewGroup(metrics.CreateGroupParams{
-					Namespace: fmt.Sprintf("test_git_pull_malformed_remote_%d", index),
-				}),
-			}
-
-			_, err := controller.pullGit(t.Context(), TriggerStartup)
-			require.Error(t, err)
-			assert.NotContains(t, err.Error(), secret)
-			state := readSQLState(t, store)
-			require.NotNil(t, state.GitPullFailure)
-			assert.Regexp(t, `^repository-[0-9a-f]{16}$`, state.GitPullFailure.Repository)
-			assert.NotContains(t, state.GitPullFailure.Repository, secret)
-		})
-	}
 }
 
 func TestControllerSyncOncePrioritizesChangedStacks(t *testing.T) {
@@ -887,9 +653,9 @@ func TestControllerSyncOncePrioritizesChangedStacks(t *testing.T) {
 	serviceManager := swarm.NewMockServiceManager(ctrl)
 	stackDeployer := deployer.NewMockStackDeployer(ctrl)
 	gomock.InOrder(
-		stackDeployer.EXPECT().DeployStack(gomock.Any(), "stack-b", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil),
+		stackDeployer.EXPECT().DeployStack(gomock.Any(), "stack-b", gomock.Any(), gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil),
 		serviceManager.EXPECT().ListStackServices(gomock.Any(), "stack-b").Return(nil, nil),
-		stackDeployer.EXPECT().DeployStack(gomock.Any(), "stack-a", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil),
+		stackDeployer.EXPECT().DeployStack(gomock.Any(), "stack-a", gomock.Any(), gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil),
 		serviceManager.EXPECT().ListStackServices(gomock.Any(), "stack-a").Return(nil, nil),
 	)
 
@@ -914,6 +680,8 @@ func TestControllerSyncOncePrioritizesChangedStacks(t *testing.T) {
 		cfg:               cfg,
 		configStore:       configstore.New(cfg, eventDispatcher),
 		git:               repository,
+		stackPlanner:      stackplan.NewPlanner(repository),
+		puller:            gitpull.NewPuller(repository, gitpull.NewMonitor(db, store, eventDispatcher), metricGroup.Git, cfg.Spec.Git),
 		metrics:           metricGroup,
 		event:             eventDispatcher,
 		stateStore:        store,
@@ -968,9 +736,9 @@ func TestControllerSyncOnceContinuesWhenGitDiffFails(t *testing.T) {
 	serviceManager := swarm.NewMockServiceManager(ctrl)
 	stackDeployer := deployer.NewMockStackDeployer(ctrl)
 	gomock.InOrder(
-		stackDeployer.EXPECT().DeployStack(gomock.Any(), "stack-a", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil),
+		stackDeployer.EXPECT().DeployStack(gomock.Any(), "stack-a", gomock.Any(), gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil),
 		serviceManager.EXPECT().ListStackServices(gomock.Any(), "stack-a").Return(nil, nil),
-		stackDeployer.EXPECT().DeployStack(gomock.Any(), "stack-b", gomock.Any(), gomock.Any(), gomock.Any()).Return(nil),
+		stackDeployer.EXPECT().DeployStack(gomock.Any(), "stack-b", gomock.Any(), gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil),
 		serviceManager.EXPECT().ListStackServices(gomock.Any(), "stack-b").Return(nil, nil),
 	)
 
@@ -995,6 +763,8 @@ func TestControllerSyncOnceContinuesWhenGitDiffFails(t *testing.T) {
 		cfg:               cfg,
 		configStore:       configstore.New(cfg, eventDispatcher),
 		git:               repository,
+		stackPlanner:      stackplan.NewPlanner(repository),
+		puller:            gitpull.NewPuller(repository, gitpull.NewMonitor(db, store, eventDispatcher), metricGroup.Git, cfg.Spec.Git),
 		metrics:           metricGroup,
 		event:             eventDispatcher,
 		stateStore:        store,
@@ -1060,9 +830,9 @@ func writeNetworksFile(path string, networkName string) error {
 	return os.WriteFile(path, content, 0o600)
 }
 
-func newSQLState(t *testing.T) (*storage.Database, *modelstore.SQLStore) {
+func newSQLState(t *testing.T) (storage.Database, *modelstore.SQLStore) {
 	t.Helper()
-	db, err := storage.Open(context.Background(), t.TempDir())
+	db, err := storage.OpenSQLite(context.Background(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	return db, modelstore.NewSQLStore(db)

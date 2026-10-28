@@ -1,8 +1,10 @@
-import { apiRequest } from "./client";
+import { apiRequest, apiTextRequest } from "./client";
 import { withWebBasePath } from "../runtimeConfig";
 import type {
   AlertsResponse,
   DeploymentsResponse,
+  DeploymentActivityInterval,
+  DeploymentActivityResponse,
   DeploymentFilterOptions,
   Deployment,
   AlertStatus,
@@ -16,11 +18,13 @@ import type {
   ServiceStatusResponse,
   StackManifestosResponse,
   StacksResponse,
-	TaskLogLevel,
+  StackResourcesResponse,
+  TaskLogLevel,
 } from "./types";
 
-export function fetchAlerts(options: { status?: AlertStatus; limit?: number } = {}): Promise<AlertsResponse> {
+export function fetchAlerts(options: { status?: AlertStatus; limit?: number; stack?: string } = {}): Promise<AlertsResponse> {
   const params = new URLSearchParams();
+  if (options.stack) params.set("stack", options.stack);
   if (options.status) {
     params.set("status", options.status);
   }
@@ -47,6 +51,20 @@ export interface FetchEventsOptions {
 
 export function fetchStacks(): Promise<StacksResponse> {
   return apiRequest<StacksResponse>("/api/v1/stacks");
+}
+
+export function fetchStackResources(stack: string): Promise<StackResourcesResponse> {
+  return apiRequest<StackResourcesResponse>(`/api/v1/stacks/${encodeURIComponent(stack)}/resources`);
+}
+
+export function fetchStackDeploymentActivity(
+  stack: string,
+  interval: DeploymentActivityInterval = "weekly",
+): Promise<DeploymentActivityResponse> {
+  const encodedStack = encodeURIComponent(stack);
+  return apiRequest<DeploymentActivityResponse>(
+    `/api/v1/stacks/${encodedStack}/deployments/activity?interval=${encodeURIComponent(interval)}`,
+  );
 }
 
 export function fetchGitCommit(commitHash: string): Promise<GitCommitDetailsResponse> {
@@ -175,6 +193,13 @@ export function fetchStackManifestos(stackName: string): Promise<StackManifestos
 }
 export function fetchDeployment(id: string): Promise<Deployment> {
   return apiRequest<Deployment>(`/api/v1/deployments/${encodeURIComponent(id)}`);
+}
+
+export function fetchDeploymentInitJobLogs(deploymentID: string, attemptID: string, ordinal: number): Promise<string> {
+  return apiTextRequest(
+    `/api/v1/deployments/${encodeURIComponent(deploymentID)}`
+    + `/attempts/${encodeURIComponent(attemptID)}/init-jobs/${encodeURIComponent(String(ordinal))}/logs`,
+  );
 }
 
 export function fetchDeployments(options: { stack?: string; serviceName?: string; limit?: number; cursor?: string } = {}): Promise<DeploymentsResponse> {

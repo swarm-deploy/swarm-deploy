@@ -5,15 +5,12 @@ import (
 	"encoding/json"
 
 	"github.com/doug-martin/goqu/v9"
-	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
-var dialect = goqu.Dialect("sqlite3")
-
 // SQLStore stores the last observed node snapshot.
-type SQLStore struct{ db *storage.Database }
+type SQLStore struct{ db storage.Database }
 
 // Repository provides context-aware node snapshot operations.
 type Repository interface {
@@ -45,11 +42,11 @@ type nodeRow struct {
 }
 
 // NewSQLStore creates a node repository.
-func NewSQLStore(db *storage.Database) *SQLStore { return &SQLStore{db: db} }
+func NewSQLStore(db storage.Database) *SQLStore { return &SQLStore{db: db} }
 
 // List returns the snapshot in hostname/ID order.
 func (s *SQLStore) ReadAll(ctx context.Context) ([]swarm.Node, error) {
-	query, _, err := dialect.From("nodes").Prepared(true).
+	query, _, err := s.db.Dialect().From("nodes").Prepared(true).
 		Select("id", "hostname", "payload").
 		Order(goqu.I("hostname").Asc(), goqu.I("id").Asc()).ToSQL()
 	if err != nil {
@@ -97,7 +94,7 @@ func (s *SQLStore) Lookup(ctx context.Context) (map[string]swarm.Node, error) {
 // Replace atomically replaces the observed snapshot.
 func (s *SQLStore) ReplaceSnapshot(ctx context.Context, nodes []swarm.Node) error {
 	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		deleteQuery, _, err := dialect.Delete("nodes").Prepared(true).ToSQL()
+		deleteQuery, _, err := s.db.Dialect().Delete("nodes").Prepared(true).ToSQL()
 		if err != nil {
 			return err
 		}
@@ -121,7 +118,7 @@ func (s *SQLStore) ReplaceSnapshot(ctx context.Context, nodes []swarm.Node) erro
 			if marshalErr != nil {
 				return marshalErr
 			}
-			insertQuery, insertArgs, insertErr := dialect.Insert("nodes").Prepared(true).
+			insertQuery, insertArgs, insertErr := s.db.Dialect().Insert("nodes").Prepared(true).
 				Rows(goqu.Record{"id": node.ID, "hostname": node.Hostname, "payload": string(payload)}).ToSQL()
 			if insertErr != nil {
 				return insertErr
@@ -137,7 +134,7 @@ func (s *SQLStore) ReplaceSnapshot(ctx context.Context, nodes []swarm.Node) erro
 // ObserveIdentity remembers IDs across snapshot disappearance and process restarts.
 // It returns true only on the first observation, and joins the snapshot transaction.
 func (s *SQLStore) ObserveIdentity(ctx context.Context, id string) (bool, error) {
-	query, args, err := dialect.Insert("node_identities").Prepared(true).
+	query, args, err := s.db.Dialect().Insert("node_identities").Prepared(true).
 		Rows(goqu.Record{"id": id}).OnConflict(goqu.DoNothing()).ToSQL()
 	if err != nil {
 		return false, err

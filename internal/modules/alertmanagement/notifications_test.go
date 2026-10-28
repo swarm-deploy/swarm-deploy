@@ -12,6 +12,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
@@ -19,12 +20,13 @@ import (
 )
 
 func TestAlertLifecyclePublishesOnlyTransitions(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
-	bus := outbox.New(db)
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 	repo := modelstore.NewSQLStore(db)
-	subscriber := NewSQLSubscriber(repo, bus, func(model.AlertKind) []events.AlertRecipient { return nil }, &config.Config{})
+	subscriber := NewSQLSubscriber(repo, bus, func(model.AlertKind) []events.AlertRecipient { return nil },
+		&config.Config{})
 	require.NoError(t, bus.Subscribe(events.TypeNameAlertOpened, "test-open", subscriber))
 	require.NoError(t, bus.Subscribe(events.TypeNameAlertResolved, "test-resolve", subscriber))
 	at := time.Now().UTC()
@@ -51,8 +53,53 @@ func TestAlertLifecyclePublishesOnlyTransitions(t *testing.T) {
 	assert.False(t, events.TypeNameAlertResolved.Valid())
 }
 
+func TestServiceDriftEventsDriveAlertLifecycleThroughOutbox(t *testing.T) {
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	defer db.Close()
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
+	repo := modelstore.NewSQLStore(db)
+	subscriber := NewSQLSubscriber(repo, bus, func(model.AlertKind) []events.AlertRecipient { return nil },
+		&config.Config{})
+	for _, typ := range []events.TypeName{
+		events.TypeNameServiceMissed, events.TypeNameServiceDrifted, events.TypeNameServiceDriftFixed,
+		events.TypeNameServiceRemovedFromDesired,
+	} {
+		require.NoError(t, bus.Subscribe(typ, "alert-management", subscriber))
+	}
+
+	require.NoError(t, bus.Publish(t.Context(), &events.ServiceDrifted{
+		StackName: "payments", ServiceName: "api", Commit: "one", Reason: "replicas differ",
+	}))
+	processOutboxUntilIdle(t, bus)
+	open, err := repo.List(t.Context(), modelstore.ListFilter{Status: model.AlertStatusOpen})
+	require.NoError(t, err)
+	require.Len(t, open, 1)
+
+	require.NoError(t, bus.Publish(t.Context(), &events.ServiceDriftFixed{
+		StackName: "payments", ServiceName: "api", Commit: "two",
+	}))
+	processOutboxUntilIdle(t, bus)
+
+	alerts, err := repo.List(t.Context(), modelstore.ListFilter{})
+	require.NoError(t, err)
+	require.Len(t, alerts, 1)
+	assert.Equal(t, model.AlertStatusResolved, alerts[0].Status)
+}
+
+func processOutboxUntilIdle(t *testing.T, bus *eventbus.OutboxDispatcher) {
+	t.Helper()
+	for {
+		processed, err := bus.ProcessNext(t.Context())
+		require.NoError(t, err)
+		if !processed {
+			return
+		}
+	}
+}
+
 func TestAlertLifecyclePublicationRollback(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -72,7 +119,7 @@ func TestAlertLifecyclePublicationRollback(t *testing.T) {
 }
 
 func TestAlertResolutionPublicationRollback(t *testing.T) {
-	db, err := storage.Open(t.Context(), t.TempDir())
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := modelstore.NewSQLStore(db)
@@ -96,7 +143,7 @@ func TestAlertResolutionPublicationRollback(t *testing.T) {
 	assert.Equal(t, model.AlertStatusOpen, alert.Status)
 }
 
-func alertSignalCount(t *testing.T, db *storage.Database, kind string) int {
+func alertSignalCount(t *testing.T, db storage.Database, kind string) int {
 	t.Helper()
 	var count int
 	require.NoError(t, db.Get(context.Background(), &count, "SELECT count(*) FROM outbox_events WHERE event_type=?", kind))

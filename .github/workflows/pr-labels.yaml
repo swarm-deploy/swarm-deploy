@@ -25,6 +25,7 @@ jobs:
             module:alertmanagement
             module:assistant
             module:notifications
+            module:deployments
             dockerapi
             UI
 

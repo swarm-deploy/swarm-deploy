@@ -2,7 +2,9 @@ package compose
 
 import (
 	"fmt"
+	"strings"
 
+	"github.com/swarm-deploy/swarm-deploy/internal/shared/labelsdict"
 	"go.yaml.in/yaml/v3"
 )
 
@@ -47,6 +49,23 @@ type ServiceHealth struct {
 type ServiceLogging struct {
 	Driver  string            `yaml:"driver,omitempty" json:"driver,omitempty"`
 	Options map[string]string `yaml:"options,omitempty" json:"options,omitempty"`
+}
+
+// SelfHealPolicy returns the service-level self-heal policy and whether it was specified.
+func (s Service) SelfHealPolicy() (bool, bool, error) {
+	raw, exists := s.Deploy.Labels.Map[labelsdict.ServiceSyncPolicySelfHealLabelKey]
+	if !exists {
+		return false, false, nil
+	}
+
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case "true", "1", "yes", "y", "on":
+		return true, true, nil
+	case "false", "0", "no", "n", "off":
+		return false, true, nil
+	default:
+		return false, true, fmt.Errorf("must be boolean, got %q", raw)
+	}
 }
 
 func (s *Services) UnmarshalYAML(n *yaml.Node) error {

@@ -10,21 +10,18 @@ import (
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
-	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
 
-var dialect = goqu.Dialect("sqlite3")
-
 // SQLHistoryStorage stores chat metadata and ordered turns in a shared database.
-type SQLHistoryStorage struct{ db *storage.Database }
+type SQLHistoryStorage struct{ db storage.Database }
 
 // NewSQLHistoryStorage creates a conversation repository.
-func NewSQLHistoryStorage(db *storage.Database) *SQLHistoryStorage { return &SQLHistoryStorage{db: db} }
+func NewSQLHistoryStorage(db storage.Database) *SQLHistoryStorage { return &SQLHistoryStorage{db: db} }
 
 // List returns metadata without loading conversation turns.
 func (s *SQLHistoryStorage) ReadChats(ctx context.Context) ([]ChatSummary, error) {
-	query, _, err := dialect.From("assistant_chats").Prepared(true).
+	query, _, err := s.db.Dialect().From("assistant_chats").Prepared(true).
 		Select(chatColumns...).Order(goqu.I("updated_at").Desc(), goqu.I("id").Asc()).ToSQL()
 	if err != nil {
 		return nil, err
@@ -45,7 +42,7 @@ func (s *SQLHistoryStorage) ReadChat(ctx context.Context, id string) (Chat, bool
 	var chat Chat
 	found := false
 	err := s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		query, args, buildErr := dialect.From("assistant_chats").Prepared(true).
+		query, args, buildErr := s.db.Dialect().From("assistant_chats").Prepared(true).
 			Select(chatColumns...).Where(goqu.Ex{"id": id}).ToSQL()
 		if buildErr != nil {
 			return buildErr
@@ -59,7 +56,7 @@ func (s *SQLHistoryStorage) ReadChat(ctx context.Context, id string) (Chat, bool
 			return err
 		}
 		meta := row.summary()
-		turnsQuery, turnsArgs, buildErr := dialect.From("assistant_turns").Prepared(true).
+		turnsQuery, turnsArgs, buildErr := s.db.Dialect().From("assistant_turns").Prepared(true).
 			Select("payload").Where(goqu.Ex{"chat_id": id}).Order(goqu.I("sequence").Asc()).ToSQL()
 		if buildErr != nil {
 			return buildErr
@@ -117,7 +114,7 @@ func (s *SQLHistoryStorage) Save(ctx context.Context, chat Chat) error {
 		if err := s.saveChatSummary(ctx, chat); err != nil {
 			return err
 		}
-		deleteQuery, deleteArgs, err := dialect.Delete("assistant_turns").Prepared(true).
+		deleteQuery, deleteArgs, err := s.db.Dialect().Delete("assistant_turns").Prepared(true).
 			Where(goqu.Ex{"chat_id": chat.ID}).ToSQL()
 		if err != nil {
 			return err
@@ -139,7 +136,7 @@ func (s *SQLHistoryStorage) saveChatSummary(ctx context.Context, chat Chat) erro
 		return fmt.Errorf("assistant chat timestamps are required")
 	}
 	input, output, total := usageColumns(chat.Usage)
-	query, args, err := dialect.Insert("assistant_chats").Prepared(true).
+	query, args, err := s.db.Dialect().Insert("assistant_chats").Prepared(true).
 		Rows(goqu.Record{
 			"id": chat.ID, "title": chat.Title, "created_at": chat.CreatedAt.UTC(),
 			"updated_at": chat.UpdatedAt.UTC(), "input_tokens": input,
@@ -162,7 +159,7 @@ func (s *SQLHistoryStorage) saveTurn(ctx context.Context, chatID string, sequenc
 	if err != nil {
 		return err
 	}
-	query, args, err := dialect.Insert("assistant_turns").Prepared(true).
+	query, args, err := s.db.Dialect().Insert("assistant_turns").Prepared(true).
 		Rows(goqu.Record{"chat_id": chatID, "sequence": sequence, "payload": string(payload)}).ToSQL()
 	if err != nil {
 		return err

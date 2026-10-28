@@ -24,8 +24,7 @@ type Module struct {
 // Container supplies dependencies required by Alert Management.
 type Container interface {
 	// GetStorage returns the shared database.
-	GetStorage() *storage.Database
-	// GetFileSystem returns the application filesystem abstraction.
+	GetStorage() storage.Database
 	// GetEventModule returns the event dispatcher module.
 	GetEventModule() *event.Module
 	// GetConfigStore returns the shared runtime configuration store.
@@ -46,6 +45,8 @@ func InitModule(ctx context.Context, cfg *config.Config, container Container) (*
 		events.TypeNameDeployInterrupted, events.TypeNameDeploySuccess,
 		events.TypeNameNodeDisconnected, events.TypeNameNodeConnected,
 		events.TypeNameGitPullFailed, events.TypeNameGitPullSucceeded,
+		events.TypeNameServiceMissed, events.TypeNameServiceDrifted, events.TypeNameServiceDriftFixed,
+		events.TypeNameServiceRemovedFromDesired,
 	}, "alert-management", subscriber); err != nil {
 		return nil, err
 	}

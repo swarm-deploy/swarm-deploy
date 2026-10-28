@@ -52,6 +52,24 @@ function tab(wrapper: ReturnType<typeof mount>, label: string) {
 }
 
 describe("Events & Alerts", () => {
+  it("loads alerts for the linked stack and retains the filter when including resolved alerts", async () => {
+    vi.mocked(fetchAlerts).mockImplementation(async (options = {}) => ({ alerts: options.stack === "app" ? [{ ...activeAlert, resourceType: "stack", resourceId: "app" }] : [activeAlert] }));
+    const { wrapper, router } = await mountView("/events?tab=alerts&stack_name=app&keep=value");
+    expect(fetchAlerts).toHaveBeenLastCalledWith({ status: "open", stack: "app" });
+    expect(wrapper.get(".alerts-page header").text()).toContain("Stack: app");
+    await wrapper.get(".alerts-resolved-filter input").setValue(true);
+    await flushPromises();
+    expect(fetchAlerts).toHaveBeenLastCalledWith({ stack: "app" });
+    await router.push("/events?tab=alerts&stack_name=other&keep=value");
+    await flushPromises();
+    expect(fetchAlerts).toHaveBeenLastCalledWith({ stack: "other" });
+    await wrapper.get(".alerts-page header button").trigger("click");
+    await flushPromises();
+    expect(router.currentRoute.value.query).toEqual({ tab: "alerts", keep: "value" });
+    expect(fetchAlerts).toHaveBeenLastCalledWith({});
+    wrapper.unmount();
+  });
+
   beforeEach(() => {
     vi.mocked(fetchEvents).mockReset();
     vi.mocked(fetchEvents).mockResolvedValue({ events: [{

@@ -13,7 +13,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
+	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
+	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
@@ -81,7 +82,7 @@ func TestInitJobDiagnosticLines(t *testing.T) {
 func TestFailedInitJobLogsReachDurableDeploymentDiagnostics(t *testing.T) {
 	ctx := context.Background()
 	db, state := newSQLState(t)
-	bus := outbox.New(db)
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
 	hist, err := history.NewSQLStore(db, 10)
 	require.NoError(t, err)
 	require.NoError(t, bus.Subscribe(events.TypeNameDeployFailed, "history", hist))
@@ -100,19 +101,17 @@ func TestFailedInitJobLogsReachDurableDeploymentDiagnostics(t *testing.T) {
 		ReconciliationRequest{Stack: config.StackSpec{Name: "app"}, Commit: "commit"}, model.Stack{},
 		&pipelinePayload{Attempt: attempt, Desired: &file}, failure))
 
-	saved, err := deployment.NewStore(db).Get(ctx, attempt.DeploymentID)
+	saved, err := deploymentstore.NewStore(db).Get(ctx, attempt.DeploymentID)
 	require.NoError(t, err)
 	assert.Equal(t, "init_failed", saved.ErrorCode)
 	assert.Contains(t, saved.ErrorDiagnostic, "migration failed at revision 17")
 	assert.NotContains(t, saved.ErrorDiagnostic, "my-credential")
 
-	var payload string
-	require.NoError(t, db.Get(ctx, &payload, "SELECT payload FROM outbox_events WHERE event_type=?", events.TypeNameDeployFailed))
-	assert.NotContains(t, payload, "my-credential")
-	event, err := codec.Decode(events.TypeNameDeployFailed, codec.Version, []byte(payload))
-	require.NoError(t, err)
-	failed, ok := event.(*events.DeployFailed)
+	publications := outboxPublications(t, db, events.TypeNameDeployFailed)
+	require.Len(t, publications, 1)
+	failed, ok := publications[0].Envelope.Event.(*events.DeployFailed)
 	require.True(t, ok)
+	assert.NotContains(t, failed.Error.Error(), "my-credential")
 	assert.Equal(t, "init_failed", failed.ErrorCode)
 	assert.Contains(t, failed.Error.Error(), "migration failed at revision 17")
 }

@@ -14,7 +14,7 @@ import (
 func TestSQLRuntimeRollbackAndRestart(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	db, err := storage.Open(ctx, dir)
+	db, err := storage.OpenSQLite(ctx, dir)
 	require.NoError(t, err)
 	repo := NewSQLStore(db)
 	require.NoError(t, repo.Update(ctx, func(s *model.Runtime) { s.GitRevision = "baseline" }))
@@ -23,7 +23,7 @@ func TestSQLRuntimeRollbackAndRestart(t *testing.T) {
 		return assert.AnError
 	}), assert.AnError)
 	require.NoError(t, db.Close())
-	db, err = storage.Open(ctx, dir)
+	db, err = storage.OpenSQLite(ctx, dir)
 	require.NoError(t, err)
 	defer db.Close()
 	state, err := NewSQLStore(db).Read(ctx)
@@ -33,7 +33,7 @@ func TestSQLRuntimeRollbackAndRestart(t *testing.T) {
 
 func TestSQLRuntimeConcurrentUpdatesAndWriteErrors(t *testing.T) {
 	ctx := context.Background()
-	db, err := storage.Open(ctx, t.TempDir())
+	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
 	repo := NewSQLStore(db)

@@ -9,6 +9,30 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/StacksResponse'
+              examples:
+                development:
+                  $ref: './mocks/overview.yaml#/components/examples/StacksResponse'
+  /api/v1/stacks/{stack}/resources:
+    get:
+      operationId: getStackResources
+      description: |
+        Current Docker resources owned by a configured stack, selected by the exact
+        com.docker.stack.namespace label. Unlabelled external resources are excluded.
+        Returns metadata only, never secret values or config payloads.
+      parameters:
+        - in: path
+          name: stack
+          required: true
+          schema:
+            type: string
+            minLength: 1
+      responses:
+        '200':
+          description: Complete metadata lists of stack-owned resources; empty arrays mean zero resources.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StackResourcesResponse'
   /api/v1/stacks/{stack}/manifestos:
     get:
       operationId: getStackManifestos
@@ -53,6 +77,31 @@ paths:
                 $ref: '#/components/schemas/QueueResponse'
 components:
   schemas:
+    StackResourceInfo:
+      type: object
+      description: Resource identity without values, configuration data or labels.
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+    StackResourcesResponse:
+      type: object
+      required: [networks, secrets, configs]
+      properties:
+        networks:
+          type: array
+          items:
+            $ref: './resources/networks.yaml#/components/schemas/NetworkInfo'
+        secrets:
+          type: array
+          items:
+            $ref: '#/components/schemas/StackResourceInfo'
+        configs:
+          type: array
+          items:
+            $ref: '#/components/schemas/StackResourceInfo'
     QueueResponse:
       type: object
       required: [queued]

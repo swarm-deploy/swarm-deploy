@@ -7,8 +7,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/githosting"
 	alertmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	alertstore "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
-	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/differ"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/differ/diff"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
@@ -48,9 +48,9 @@ type AlertReader interface {
 // DeploymentReader reads persisted desired-state deployments, attempts and safe diagnostics.
 type DeploymentReader interface {
 	// List returns a lightweight cursor page matching the repository-level filter.
-	List(ctx context.Context, filter deployment.ListFilter) (deployment.Page, error)
+	List(ctx context.Context, filter deploymentmodel.ListFilter) (deploymentmodel.Page, error)
 	// Get returns one desired-state deployment by ID, including its attempts.
-	Get(ctx context.Context, id string) (deployment.Deployment, error)
+	Get(ctx context.Context, id string) (deploymentmodel.Deployment, error)
 }
 
 // SyncTrigger triggers synchronization run.

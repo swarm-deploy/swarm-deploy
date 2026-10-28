@@ -51,7 +51,7 @@ func parseSubscriptionID(id string) (events.AlertRecipient, error) {
 
 // Register subscribes all configured and persisted physical destinations to both transitions.
 func Register(
-	ctx context.Context, bus dispatcher.Dispatcher, db *storage.Database, spec config.NotificationSpec,
+	ctx context.Context, bus dispatcher.Dispatcher, db storage.Database, spec config.NotificationSpec,
 ) error {
 	store := NewStore(db)
 	if err := store.PruneCompleted(ctx); err != nil {
@@ -76,19 +76,26 @@ func Register(
 	for _, recipient := range known {
 		recipients[recipient] = true
 	}
-	pending, err := store.PendingSubscriptions(ctx)
+	pending, err := outbox.New(db).ListDeliveries(ctx, outbox.ListDeliveriesFilter{
+		SubscriptionIDPrefix: "alert:telegram:",
+		Statuses: []outbox.DeliveryStatus{
+			outbox.DeliveryStatusPending,
+			outbox.DeliveryStatusProcessing,
+			outbox.DeliveryStatusFailed,
+		},
+	})
 	if err != nil {
 		return err
 	}
-	for _, id := range pending {
-		recipient, parseErr := parseSubscriptionID(id)
+	for _, delivery := range pending {
+		recipient, parseErr := parseSubscriptionID(delivery.SubscriptionID)
 		if parseErr != nil {
 			return fmt.Errorf("recover alert notification subscription: %w", parseErr)
 		}
 		recipients[recipient] = true
 	}
 	for recipient := range recipients {
-		handler := outbox.External(&Subscriber{store: store, spec: spec, recipient: recipient, now: time.Now})
+		handler := dispatcher.External(&Subscriber{store: store, spec: spec, recipient: recipient, now: time.Now})
 		id := SubscriptionID(recipient)
 		if err = bus.Subscribe(events.TypeNameAlertOpened, id, handler); err != nil {
 			return err

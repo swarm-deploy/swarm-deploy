@@ -7,8 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"sort"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -19,8 +17,10 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/gitpull"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/networkloop"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackplan"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
@@ -57,7 +57,7 @@ const (
 )
 
 type Controller struct {
-	db          *storage.Database
+	db          storage.Database
 	cfg         *config.Config
 	configStore *configstore.ConfigStore
 	git         gitx.Repository
@@ -68,6 +68,8 @@ type Controller struct {
 	stateStore        modelstore.Store
 	networkReconciler *networkloop.Reconciler
 	stackReconciler   stackloop.StackReconciler
+	stackPlanner      *stackplan.Planner
+	puller            *gitpull.Puller
 
 	reconcileCh chan reconcileTask
 
@@ -98,7 +100,7 @@ func New(
 	eventDispatcher dispatcher.Dispatcher,
 	stateStore modelstore.Store,
 	filesystem fs.FileSystem,
-	db *storage.Database,
+	db storage.Database,
 ) *Controller {
 	return &Controller{db: db,
 		cfg:         cfg,
@@ -120,6 +122,13 @@ func New(
 			metricGroup.Deploys,
 			stateStore,
 			filesystem, db,
+		),
+		stackPlanner: stackplan.NewPlanner(git),
+		puller: gitpull.NewPuller(
+			git,
+			gitpull.NewMonitor(db, stateStore, eventDispatcher),
+			metricGroup.Git,
+			cfg.Spec.Git,
 		),
 		reconcileCh:  make(chan reconcileTask, 1),
 		ownership:    newControllerOwnership(cfg.Spec.DataDir),
@@ -382,7 +391,7 @@ func (c *Controller) pollGit(ctx context.Context) {
 	)
 	defer span.End()
 
-	gitResult, err := c.pullGit(ctx, TriggerPoll)
+	gitResult, err := c.puller.Pull(ctx, string(TriggerPoll))
 	if err != nil {
 		tracing.FailSpan(span, err)
 		c.updatePollState(ctx, syncRunResultError, err)
@@ -488,24 +497,22 @@ func (c *Controller) reconcile( //nolint:funlen // reconciliation pipeline
 		return
 	}
 
-	stacksToSync := c.configStore.Stacks()
-	if gitResult.Updated {
-		fileDiffs, diffErr := c.git.Diff(ctx, gitResult.OldRevision, gitResult.NewRevision)
-		if diffErr != nil {
-			slog.ErrorContext(ctx, "git diff failed, continue with default stack order",
-				slog.String("reason", string(task.reason)),
-				slog.String("old_revision", gitResult.OldRevision),
-				slog.String("new_revision", gitResult.NewRevision),
-				slog.Any("err", diffErr),
-			)
-		} else {
-			stacksToSync = prioritizeStacksByFileDiffs(stacksToSync, fileDiffs)
-		}
+	plan := c.stackPlanner.Plan(ctx, c.configStore.Stacks(), *gitResult)
+	if plan.DiffErr != nil {
+		slog.ErrorContext(ctx, "git diff failed, continue with default stack order",
+			slog.String("reason", string(task.reason)),
+			slog.String("old_revision", gitResult.OldRevision),
+			slog.String("new_revision", gitResult.NewRevision),
+			slog.Any("err", plan.DiffErr),
+		)
 	}
 
-	stackCtx, stackSpan := c.tracer.Start(ctx, "controller.syncStacks")
+	stackCtx, stackSpan := c.tracer.Start(ctx, "controller.syncStacks", trace.WithAttributes(
+		attribute.Int("stacks.total", len(plan.Stacks)),
+		attribute.Int("stacks.changed", len(plan.Changed)),
+	))
 	defer stackSpan.End()
-	deployErrs := c.syncStacks(stackCtx, stacksToSync, gitResult.NewRevision, task.reason)
+	deployErrs := c.syncStacks(stackCtx, plan.Stacks, gitResult.NewRevision, task.reason)
 
 	result := syncRunResultSuccess
 	combinedErr := errors.Join(deployErrs...)
@@ -581,7 +588,7 @@ func (c *Controller) resolveGitState(
 		}, nil
 	}
 
-	return c.pullGit(ctx, reason)
+	return c.puller.Pull(ctx, string(reason))
 }
 
 func (c *Controller) updatePollState(ctx context.Context, result string, err error) {
@@ -592,108 +599,6 @@ func (c *Controller) updatePollState(ctx context.Context, result string, err err
 		if err != nil {
 			s.LastPollError = err.Error()
 		}
-	})
-}
-
-func (c *Controller) pullGit(ctx context.Context, reason TriggerReason) (gitx.PullResult, error) {
-	repository := gitx.RepositoryIdentifier(c.cfg.Spec.Git.Repository)
-	gitResult, err := c.git.Pull(ctx)
-	if err != nil {
-		err = gitx.ClassifyPullError(err, c.cfg.Spec.Git.Repository, c.cfg.Spec.Git.Auth.Type)
-		category, diagnostic := gitx.PullFailure(err)
-		slog.ErrorContext(ctx, "git pull failed",
-			slog.String("reason", string(reason)),
-			slog.String("repository", repository),
-			slog.String("category", string(category)),
-			slog.String("diagnostic", diagnostic),
-		)
-		c.metrics.Git.RecordGitUpdate(repository, "error")
-		if monitorErr := c.recordGitPullFailure(ctx, repository, category, diagnostic, reason); monitorErr != nil {
-			slog.ErrorContext(ctx, "persist Git pull failure observation",
-				slog.String("repository", repository), slog.Any("err", monitorErr))
-		}
-
-		return gitx.PullResult{}, err
-	}
-	if monitorErr := c.recordGitPullSuccess(ctx, repository, reason); monitorErr != nil {
-		slog.ErrorContext(ctx, "persist Git pull recovery",
-			slog.String("repository", repository), slog.Any("err", monitorErr))
-	}
-
-	slog.InfoContext(ctx, "[controller] git synced", slog.Any("result", gitResult))
-
-	updateResult := syncRunResultNoChange
-	if gitResult.Updated {
-		updateResult = syncRunResultUpdated
-	}
-	c.metrics.Git.RecordGitUpdate(repository, updateResult)
-
-	return gitResult, nil
-}
-
-func (c *Controller) recordGitPullFailure(
-	ctx context.Context,
-	repository string,
-	category gitx.FailureCategory,
-	diagnostic string,
-	reason TriggerReason,
-) error {
-	return c.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		state, err := c.stateStore.Read(ctx)
-		if err != nil {
-			return fmt.Errorf("read Git pull failure state: %w", err)
-		}
-		previousRepository := ""
-		if state.GitPullFailure != nil && state.GitPullFailure.Repository != repository {
-			previousRepository = state.GitPullFailure.Repository
-		}
-		if updateErr := c.stateStore.Update(ctx, func(state *model.Runtime) {
-			state.GitPullFailure = &model.GitPullFailure{Repository: repository}
-		}); updateErr != nil {
-			return fmt.Errorf("persist Git pull failure state: %w", updateErr)
-		}
-		if previousRepository != "" {
-			if err = c.event.Publish(ctx, &events.ConfigurationChanged{
-				PreviousRepository: previousRepository, Repository: repository,
-			}); err != nil {
-				return err
-			}
-		}
-		return c.event.Publish(ctx, &events.GitPullFailed{
-			Repository: repository, Category: events.GitFailureCategory(category),
-			Description: diagnostic, TriggerReason: string(reason),
-		})
-	})
-}
-
-func (c *Controller) recordGitPullSuccess(ctx context.Context, repository string, reason TriggerReason) error {
-	return c.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		state, err := c.stateStore.Read(ctx)
-		if err != nil {
-			return fmt.Errorf("read Git pull recovery state: %w", err)
-		}
-		if state.GitPullFailure == nil || state.GitPullFailure.Repository != repository {
-			if state.GitPullFailure == nil {
-				return nil
-			}
-			previousRepository := state.GitPullFailure.Repository
-			if updateErr := c.stateStore.Update(ctx, func(state *model.Runtime) {
-				state.GitPullFailure = nil
-			}); updateErr != nil {
-				return fmt.Errorf("persist Git repository change state: %w", updateErr)
-			}
-			return c.event.Publish(ctx, &events.ConfigurationChanged{
-				PreviousRepository: previousRepository, Repository: repository,
-			})
-		}
-		if updateErr := c.stateStore.Update(ctx, func(state *model.Runtime) {
-			state.GitPullFailure = nil
-		}); updateErr != nil {
-			return fmt.Errorf("persist Git pull recovery state: %w", updateErr)
-		}
-		return c.event.Publish(ctx, &events.GitPullSucceeded{
-			Repository: repository, TriggerReason: string(reason),
-		})
 	})
 }
 
@@ -712,70 +617,6 @@ func (c *Controller) syncStack(
 		return fmt.Errorf("stack %s %w", stackCfg.Name, err)
 	}
 	return nil
-}
-
-func prioritizeStacksByFileDiffs(stacks []config.StackSpec, fileDiffs []gitx.CommitFileDiff) []config.StackSpec {
-	if len(stacks) == 0 {
-		return nil
-	}
-
-	normalizePath := func(path string) string {
-		return strings.TrimPrefix(strings.TrimSpace(path), "./")
-	}
-
-	stackNameByComposePath := make(map[string]string, len(stacks))
-	for _, stack := range stacks {
-		composePath := normalizePath(stack.ComposeFile)
-		if composePath == "" {
-			continue
-		}
-
-		if _, exists := stackNameByComposePath[composePath]; !exists {
-			stackNameByComposePath[composePath] = stack.Name
-		}
-	}
-
-	changedStacksOrder := make(map[string]int, len(stacks))
-	for diffIndex, fileDiff := range fileDiffs {
-		changedPath := normalizePath(fileDiff.NewPath)
-		if changedPath == "" {
-			changedPath = normalizePath(fileDiff.OldPath)
-		}
-		if changedPath == "" {
-			continue
-		}
-
-		stackName, exists := stackNameByComposePath[changedPath]
-		if !exists {
-			continue
-		}
-		changedStacksOrder[stackName] = diffIndex
-	}
-
-	if len(changedStacksOrder) == 0 {
-		return stacks
-	}
-
-	orderedStacks := make([]config.StackSpec, len(stacks))
-	copy(orderedStacks, stacks)
-
-	sort.SliceStable(orderedStacks, func(i, j int) bool {
-		leftOrder, leftChanged := changedStacksOrder[orderedStacks[i].Name]
-		rightOrder, rightChanged := changedStacksOrder[orderedStacks[j].Name]
-
-		switch {
-		case leftChanged && rightChanged:
-			return leftOrder < rightOrder
-		case leftChanged:
-			return true
-		case rightChanged:
-			return false
-		default:
-			return false
-		}
-	})
-
-	return orderedStacks
 }
 
 func (c *Controller) publishManualSync(ctx context.Context, task reconcileTask) error {

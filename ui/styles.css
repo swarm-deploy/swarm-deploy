@@ -612,6 +612,29 @@ button:hover,
   outline-offset: -2px;
 }
 
+:root[data-theme="light"] .overview-summary-panel,
+:root[data-theme="light"] .stack-details-page .stack-content-grid > .stack-panel,
+:root[data-theme="light"] .stack-details-page .deployment-activity {
+  border-color: var(--border-default);
+}
+
+:root[data-theme="light"] .overview-summary-panel-header-link,
+:root[data-theme="light"] .stack-details-page .stack-services-panel .service-panel-heading {
+  position: relative;
+}
+
+:root[data-theme="light"] .overview-summary-panel-header-link::after,
+:root[data-theme="light"] .stack-details-page .stack-services-panel .service-panel-heading::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 1px;
+  background: var(--border-subtle);
+  pointer-events: none;
+}
+
 .overview-summary-panel-icon {
   width: 28px;
   height: 28px;
@@ -1234,6 +1257,14 @@ a.overview-summary-row:focus-visible {
   min-width: 0;
 }
 
+.service-realtime-card .service-realtime-table-content {
+  padding: 0;
+}
+
+.service-realtime-card .service-realtime-state {
+  margin: 0 16px 15px;
+}
+
 .service-panel {
   min-height: 0;
 }
@@ -1503,6 +1534,45 @@ a.overview-summary-row:focus-visible {
 .service-secrets-list {
   list-style: none;
   padding-left: 0;
+}
+
+.secret-used-by h3 {
+  margin: 18px 0 10px;
+  font-size: 0.95rem;
+}
+
+.secret-used-by-list {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.secret-used-by-service {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-card-muted);
+  color: var(--text);
+  text-align: left;
+}
+
+.secret-used-by-service:hover,
+.secret-used-by-service:focus-visible {
+  border-color: var(--accent-border);
+  background: var(--info-muted);
+  color: var(--accent-strong);
+}
+
+.secret-used-by-service code {
+  color: var(--muted);
+  overflow-wrap: anywhere;
 }
 
 .service-details-hidden-tags {
@@ -3180,7 +3250,15 @@ a.overview-summary-row:focus-visible {
 }
 
 .service-realtime-table th {
+  height: 44px;
   width: auto;
+  padding-inline: 16px;
+  background: transparent;
+}
+
+.service-realtime-table td {
+  height: 52px;
+  padding-inline: 16px;
 }
 
 .service-realtime-table th:nth-child(1),
@@ -3236,6 +3314,7 @@ a.overview-summary-row:focus-visible {
 
   .service-realtime-mobile {
     display: grid;
+    padding: 0 16px 15px;
   }
 }
 
@@ -3265,6 +3344,14 @@ a.overview-summary-row:focus-visible {
 .service-copy-task-id-button svg {
   width: 14px;
   height: 14px;
+}
+
+.service-image-copy-button,
+.service-image-copy-button:hover {
+  background: transparent;
+  border-color: transparent;
+  filter: none;
+  transform: none;
 }
 
 .service-task-logs-button {

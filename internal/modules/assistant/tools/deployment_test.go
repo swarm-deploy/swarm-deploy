@@ -9,6 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
+	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/deployment"
 	gitopsmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
@@ -18,7 +20,7 @@ import (
 func TestDeploymentToolsListFilterPaginationAndSafeDetail(t *testing.T) {
 	db := testutil.OpenSQLite(t)
 	service := deployment.NewService(db, &dispatcher.NopDispatcher{})
-	store := deployment.NewStore(db)
+	store := deploymentstore.NewStore(db)
 	failedIDs := make([]string, 0, 3)
 	for index, stack := range []string{"api", "other", "api", "api"} {
 		file := deploymentToolCompose(index)
@@ -67,7 +69,7 @@ func TestDeploymentToolsListFilterPaginationAndSafeDetail(t *testing.T) {
 	require.Len(t, secondPayload.Deployments, 1)
 	assert.Empty(t, secondPayload.NextCursor)
 
-	statuses := []deployment.Status{deployment.Running, deployment.Succeeded, deployment.Interrupted, deployment.Superseded}
+	statuses := []deploymentmodel.Status{deploymentmodel.Running, deploymentmodel.Succeeded, deploymentmodel.Interrupted, deploymentmodel.Superseded}
 	for _, status := range statuses {
 		t.Run(string(status), func(t *testing.T) {
 			response, listErr := list.Execute(t.Context(), routing.Request{Payload: deploymentListRequest{Status: string(status)}})
@@ -98,7 +100,7 @@ func TestDeploymentToolsListFilterPaginationAndSafeDetail(t *testing.T) {
 }
 
 func TestDeploymentToolsValidateLimitsStatusAndNotFound(t *testing.T) {
-	store := deployment.NewStore(testutil.OpenSQLite(t))
+	store := deploymentstore.NewStore(testutil.OpenSQLite(t))
 	list := NewDeploymentList(store)
 	for _, request := range []deploymentListRequest{
 		{Status: "unknown"},
@@ -109,7 +111,7 @@ func TestDeploymentToolsValidateLimitsStatusAndNotFound(t *testing.T) {
 		require.Error(t, err)
 	}
 	_, err := NewDeploymentGet(store).Execute(t.Context(), routing.Request{Payload: deploymentGetRequest{ID: "missing"}})
-	require.ErrorIs(t, err, deployment.ErrNotFound)
+	require.ErrorIs(t, err, deploymentstore.ErrNotFound)
 }
 
 func deploymentToolCompose(index int) compose.File {
