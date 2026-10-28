@@ -283,8 +283,8 @@ onUnmounted(() => { request++; });
 .stack-compare-button:focus-visible, .stack-commit-button:focus-visible, .stack-alert-row:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
 .stack-compare-button:active, .stack-commit-button:active { transform: translateY(1px); }
 .stack-compare-button:disabled, .stack-commit-button:disabled, .stack-alert-row:disabled { color: var(--muted); background: var(--surface-muted); opacity: .65; cursor: not-allowed; }
-.stack-commit-button { border: 0; background: transparent; color: var(--accent-strong); padding: 0; border-radius: 3px; font: inherit; font-weight: 650; box-shadow: none; }
-.stack-commit-button:hover { transform: none; filter: brightness(1.15); }
+.stack-commit-button { border: 0; background: transparent; color: var(--control-primary); padding: 0; border-radius: 3px; font: inherit; font-weight: 650; box-shadow: none; }
+.stack-commit-button:hover { color: var(--control-primary-hover); transform: none; filter: none; }
 .stack-commit-button { white-space: nowrap; }
 .stack-error, .stack-inline-error { margin: 0; padding: 12px 16px; border: 1px solid var(--error-border); border-radius: 8px; color: var(--error); background: var(--error-muted); font-size: .84rem; }
 .stack-summary { display: grid; grid-template-columns: minmax(220px, 1.2fr) minmax(160px, .8fr) minmax(0, 2fr); margin: 0; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface-card-soft); overflow: hidden; }
