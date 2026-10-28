@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -21,23 +22,30 @@ import (
 )
 
 const (
-	defaultPollAfterMS   = 1000
-	defaultWaitTimeoutMS = 12000
-	maxWaitTimeoutMS     = 30000
-	maxConversationTurns = 24
-	runRetention         = 30 * time.Minute
-	runExecutionTimeout  = 2 * time.Minute
+	defaultPollAfterMS             = 1000
+	defaultWaitTimeoutMS           = 12000
+	maxWaitTimeoutMS               = 30000
+	maxConversationTurns           = 24
+	maxAssistantMessageBytes       = 16 * 1024
+	maxConcurrentRuns              = 8
+	maxRetainedRuns                = 1024
+	runRetention                   = 30 * time.Minute
+	runExecutionTimeout            = 2 * time.Minute
+	conversationPersistenceTimeout = 5 * time.Second
 )
 
 const maxRunActivity = 32
+
+var errRequestIDConflict = errors.New("request_id is already bound to another assistant request")
 
 // Service provides assistant chat workflow with start/poll semantics.
 type Service struct {
 	config Config
 	graph  *graph
 
-	runsMu sync.RWMutex
-	runs   map[string]*chatRun
+	runsMu   sync.RWMutex
+	runs     map[string]*chatRun
+	runSlots chan struct{}
 
 	conversationStorage conversation.Storage
 	conversationHistory conversation.HistoryStorage
@@ -91,7 +99,8 @@ func NewService(
 			metrics,
 			store,
 		),
-		runs: map[string]*chatRun{},
+		runs:     map[string]*chatRun{},
+		runSlots: make(chan struct{}, maxConcurrentRuns),
 		conversationStorage: conversation.NewInMemoryStorage(
 			config.ConversationInMemoryTTL,
 			maxConversationTurns,
@@ -128,6 +137,14 @@ func (s *Service) Chat(ctx context.Context, request ChatRequest) ChatResponse {
 				ErrorMessage:   "unknown request_id",
 			}
 		}
+		if conversationID != "" && conversationID != run.conversationID {
+			return ChatResponse{
+				Status:         StatusFailed,
+				ConversationID: conversationID,
+				RequestID:      requestID,
+				ErrorMessage:   "request_id does not belong to conversation_id",
+			}
+		}
 
 		return s.awaitRun(ctx, run, waitTimeout)
 	}
@@ -140,25 +157,43 @@ func (s *Service) Chat(ctx context.Context, request ChatRequest) ChatResponse {
 			ErrorMessage:   "message is required for new assistant request",
 		}
 	}
-
-	if conversationID == "" {
-		conversationID = uuid.NewString()
-		span.SetAttributes(tracing.GenAIConversationID.String(conversationID))
+	if len(message) > maxAssistantMessageBytes {
+		return ChatResponse{
+			Status:         StatusFailed,
+			ConversationID: conversationID,
+			RequestID:      requestID,
+			ErrorMessage:   "message is too large",
+		}
 	}
+
 	if requestID == "" {
 		requestID = uuid.NewString()
 	}
 
-	run, created, conversationCreated, readErr := s.getOrCreateRun(ctx, requestID, conversationID)
+	run, created, conversationCreated, readErr := s.getOrCreateRun(ctx, requestID, conversationID, message)
 	if readErr != nil {
+		if errors.Is(readErr, errRequestIDConflict) {
+			return ChatResponse{Status: StatusFailed, ConversationID: conversationID, RequestID: requestID,
+				ErrorMessage: readErr.Error()}
+		}
 		return ChatResponse{Status: StatusFailed, ConversationID: conversationID, RequestID: requestID,
 			ErrorMessage: "Failed to read conversation history"}
 	}
+	conversationID = run.conversationID
+	span.SetAttributes(tracing.GenAIConversationID.String(conversationID))
 	if created {
 		if conversationCreated {
 			s.chatObserver.RecordChatCreated()
 		}
-		go s.runAssistant(context.WithoutCancel(ctx), conversationID, message, run)
+		select {
+		case s.runSlots <- struct{}{}:
+			go func() {
+				defer func() { <-s.runSlots }()
+				s.runAssistant(context.WithoutCancel(ctx), conversationID, message, run)
+			}()
+		default:
+			run.finish(StatusFailed, "", "Assistant is busy. Try again later.")
+		}
 	}
 
 	return s.awaitRun(ctx, run, waitTimeout)
@@ -220,15 +255,16 @@ func (s *Service) runAssistant(
 	}
 
 	if s.conversationHistory != nil {
-		if err = s.conversationHistory.SaveTurns(runCtx, conversationID, usage, turns...); err != nil {
+		persistCtx, persistCancel := context.WithTimeout(context.WithoutCancel(ctx), conversationPersistenceTimeout)
+		err = s.conversationHistory.SaveTurns(persistCtx, conversationID, usage, turns...)
+		persistCancel()
+		if err != nil {
 			slog.ErrorContext(
-				runCtx,
+				ctx,
 				"[assistant] failed to persist conversation history",
 				slog.String("conversation_id", conversationID),
 				slog.Any("err", err),
 			)
-			run.finish(StatusFailed, "", "Failed to persist conversation history")
-			return
 		}
 	}
 	s.conversationStorage.Append(conversationID, turns...)
@@ -267,14 +303,25 @@ func (s *Service) getRun(requestID string) *chatRun {
 	return s.runs[requestID]
 }
 
-func (s *Service) getOrCreateRun(ctx context.Context, requestID, conversationID string) (*chatRun, bool, bool, error) {
+func (s *Service) getOrCreateRun(
+	ctx context.Context,
+	requestID,
+	conversationID,
+	message string,
+) (*chatRun, bool, bool, error) {
 	s.runsMu.Lock()
 	defer s.runsMu.Unlock()
 
 	s.pruneRunsLocked()
 
 	if existing := s.runs[requestID]; existing != nil {
+		if (conversationID != "" && existing.conversationID != conversationID) || existing.message != message {
+			return nil, false, false, errRequestIDConflict
+		}
 		return existing, false, false, nil
+	}
+	if conversationID == "" {
+		conversationID = uuid.NewString()
 	}
 
 	conversationCreated, err := s.isConversationNewLocked(ctx, conversationID)
@@ -282,7 +329,8 @@ func (s *Service) getOrCreateRun(ctx context.Context, requestID, conversationID 
 		return nil, false, false, err
 	}
 
-	run := newChatRun(requestID, conversationID)
+	s.makeRoomForRunLocked()
+	run := newChatRun(requestID, conversationID, message)
 	s.runs[requestID] = run
 	return run, true, conversationCreated, nil
 }
@@ -319,6 +367,32 @@ func (s *Service) pruneRunsLocked() {
 		if run.finishedAt.Before(cutoff) {
 			delete(s.runs, requestID)
 		}
+	}
+}
+
+func (s *Service) makeRoomForRunLocked() {
+	if len(s.runs) < maxRetainedRuns {
+		return
+	}
+
+	type finishedRun struct {
+		requestID  string
+		finishedAt time.Time
+	}
+	finished := make([]finishedRun, 0, len(s.runs))
+	for requestID, run := range s.runs {
+		if run.isFinished() {
+			finished = append(finished, finishedRun{requestID: requestID, finishedAt: run.finishedAt})
+		}
+	}
+	sort.Slice(finished, func(left, right int) bool {
+		return finished[left].finishedAt.Before(finished[right].finishedAt)
+	})
+	for _, candidate := range finished {
+		if len(s.runs) < maxRetainedRuns {
+			break
+		}
+		delete(s.runs, candidate.requestID)
 	}
 }
 
@@ -416,6 +490,7 @@ func normalizeAllowedTools(allowedTools []string) map[string]struct{} {
 type chatRun struct {
 	requestID      string
 	conversationID string
+	message        string
 
 	done chan struct{}
 
@@ -427,10 +502,11 @@ type chatRun struct {
 	activity   []string
 }
 
-func newChatRun(requestID, conversationID string) *chatRun {
+func newChatRun(requestID, conversationID, message string) *chatRun {
 	return &chatRun{
 		requestID:      requestID,
 		conversationID: conversationID,
+		message:        message,
 		done:           make(chan struct{}),
 		status:         StatusInProgress,
 	}

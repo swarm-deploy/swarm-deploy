@@ -221,6 +221,24 @@ func TestPendingOperationSetsReplicas(t *testing.T) {
 	assert.Equal(t, []string{serviceReplicasSetTool}, tools.calls)
 }
 
+func TestPendingOperationConfirmsDeploySync(t *testing.T) {
+	tools := &fakeTools{definitions: assistantTestToolDefinitions(), executeResult: `{"queued":true}`}
+	g := newPendingTestGraph(serviceStore(t, nil), tools)
+
+	answer, usage := g.startPendingOperation(context.Background(), "conversation", OperationIntent{
+		Type: OperationDeploySync,
+	})
+	assert.Equal(t, "Запустить синхронизацию GitOps?", answer)
+	assert.True(t, usage.IsZero())
+
+	handled, answer, usage, err := g.handlePendingOperation(context.Background(), "conversation", "да")
+	require.NoError(t, err)
+	assert.True(t, handled)
+	assert.True(t, usage.IsZero())
+	assert.Equal(t, "Synchronization request queued successfully.", answer)
+	assert.Equal(t, []string{deploySyncTriggerTool}, tools.calls)
+}
+
 func TestPendingOperationCollectsMissingServiceWithoutModels(t *testing.T) {
 	store := serviceStore(t, []model.Info{{Stack: "core", Name: "api"}, {Stack: "core", Name: "worker"}})
 	g := newPendingTestGraph(store, &fakeTools{})

@@ -89,7 +89,6 @@ func (s *IndexSubscriber) Handle(ctx context.Context, event events.Envelope) err
 		"[assistant-rag] rebuilt embeddings index",
 		slog.Int("services", len(services)),
 		slog.Duration("duration", time.Since(startedAt)),
-		slog.Any("documents", documents),
 	)
 	s.recordRebuild("success", len(services), startedAt, updatedAt)
 

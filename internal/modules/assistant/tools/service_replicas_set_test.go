@@ -57,6 +57,27 @@ func TestSetServiceReplicasExecute(t *testing.T) {
 	assert.Equal(t, uint64(5), replicasEvent.CurrentReplicas, "unexpected current replicas")
 }
 
+func TestSetServiceReplicasReturnsSuccessWhenEventPublishFails(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	manager := swarm.NewMockServiceManager(ctrl)
+	eventDispatcher := dispatcher.NewMockDispatcher(ctrl)
+	tool := NewSetServiceReplicas(manager, eventDispatcher)
+
+	serviceRef := swarm.NewServiceReference("core", "api")
+	manager.EXPECT().GetReplicas(gomock.Any(), serviceRef).Return(uint64(3), nil)
+	manager.EXPECT().Scale(gomock.Any(), serviceRef, uint64(5)).Return(nil)
+	eventDispatcher.EXPECT().Publish(gomock.Any(), gomock.Any()).Return(errors.New("storage unavailable"))
+
+	response, err := tool.Execute(context.Background(), routing.Request{Payload: setServiceReplicasRequest{
+		Stack: "core", Service: "api", Replicas: uint64Pointer(5),
+	}})
+	require.NoError(t, err, "completed mutation must not be reported as failed")
+	payload, ok := response.Payload.(ServiceActionResult)
+	require.True(t, ok)
+	assert.Equal(t, uint64(5), payload.Replicas)
+	assert.Contains(t, payload.Warning, "audit event")
+}
+
 func TestSetServiceReplicasExecuteFailsOnValidation(t *testing.T) {
 	ctrl := gomock.NewController(t)
 	dispatcher, captured := capturePublishedEvents(t)

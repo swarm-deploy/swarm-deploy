@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant/tools/routing"
@@ -106,13 +107,18 @@ func (s *SetServiceReplicas) Execute(ctx context.Context, request routing.Reques
 		})
 	}
 
-	if err != nil {
-		return routing.Response{}, fmt.Errorf("replicas changed but event persistence failed: %w", err)
-	}
 	payload := ServiceActionResult{
 		Stack:    target.StackName(),
 		Service:  target.ServiceName(),
 		Replicas: replicas,
+	}
+	if err != nil {
+		slog.ErrorContext(ctx, "persist service replicas event after successful mutation",
+			slog.String("stack", target.StackName()),
+			slog.String("service", target.ServiceName()),
+			slog.Any("err", err),
+		)
+		payload.Warning = "replicas were updated, but the audit event could not be persisted"
 	}
 
 	return routing.Response{
