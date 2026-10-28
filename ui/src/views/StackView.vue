@@ -283,7 +283,6 @@ onUnmounted(() => { request++; });
 .stack-services-panel :deep(.services-stack-table--detail .services-col-version) { width: 30%; }
 .stack-services-panel :deep(.services-cell-image) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stack-services-panel :deep(.stack-service-name-wrap) { display: flex; align-items: center; gap: 10px; min-width: 0; }
-.stack-services-panel :deep(.stack-service-name-wrap .deployment-icon) { width: 18px; height: 18px; color: #b9c7dc; }
 .stack-panel-state { margin: 0; padding: 22px 18px; color: var(--muted); font-size: .86rem; }
 .stack-deployment-list { list-style: none; margin: 0; padding: 0 16px 6px; }
 .stack-deployment { position: relative; display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 11px; padding: 16px 0; cursor: pointer; }
@@ -319,12 +318,17 @@ onUnmounted(() => { request++; });
 }
 @media (max-width: 720px) {
   .stack-details-page { gap: 14px; }
-  .stack-hero { grid-template-columns: 52px minmax(0, 1fr); }
-  .stack-hero-icon { align-self: start; width: 52px; height: 52px; }
-  .stack-hero-icon :deep(svg) { width: 29px; height: 29px; }
-  .stack-compare-button { grid-column: 1 / -1; justify-self: start; }
-  .stack-hero-metadata { display: grid; }
+  .stack-hero { grid-template-columns: 26px minmax(0, 1fr); align-items: start; column-gap: 8px; row-gap: 6px; }
+  .stack-hero-icon { grid-column: 1; grid-row: 1; width: 26px; height: 26px; border: 0; border-radius: 0; background: transparent; }
+  .stack-hero-icon :deep(svg) { width: 26px; height: 26px; }
+  .stack-hero-copy, .stack-hero-title { display: contents; }
+  .stack-hero-title h2 { grid-column: 2; grid-row: 1; min-width: 0; }
+  .stack-state { grid-column: 1 / -1; grid-row: 2; justify-self: start; }
+  .stack-hero-metadata { grid-column: 1 / -1; grid-row: 3; display: grid; gap: 4px; min-width: 0; }
+  .stack-hero-metadata > div { min-width: 0; }
   .stack-hero-metadata > div + div::before { display: none; }
+  .stack-hero-metadata dd { min-width: 0; overflow-wrap: anywhere; }
+  .stack-compare-button { grid-column: 1 / -1; grid-row: 4; justify-self: start; }
   .stack-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .stack-metrics > div { min-height: 78px; padding: 14px; }
   .stack-metrics > div:nth-child(n) { border-top: 0; border-left: 0; }
