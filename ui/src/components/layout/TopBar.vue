@@ -36,19 +36,17 @@ let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 let searchRequestID = 0;
 
 const normalizedQuery = computed(() => searchQuery.value.trim());
-const visibleResults = computed(() => {
-  if (!searchOpen.value) {
-    return [];
-  }
-  return searchResults.value.filter(
-    (item) => item.kind === "service" || item.kind === "secret" || item.kind === "stack",
-  );
-});
-const serviceResults = computed(() => visibleResults.value.filter((item) => item.kind === "service"));
-const secretResults = computed(() => visibleResults.value.filter((item) => item.kind === "secret"));
-const stackResults = computed(() => visibleResults.value.filter((item) => item.kind === "stack"));
+const serviceResults = computed(() => searchResults.value.filter((item) => item.kind === "service"));
+const secretResults = computed(() => searchResults.value.filter((item) => item.kind === "secret"));
+const stackResults = computed(() => searchResults.value.filter((item) => item.kind === "stack"));
 const showNoResults = computed(
-  () => searchOpen.value && !searchLoading.value && !searchError.value && visibleResults.value.length === 0,
+  () =>
+    searchOpen.value &&
+    !searchLoading.value &&
+    !searchError.value &&
+    serviceResults.value.length === 0 &&
+    secretResults.value.length === 0 &&
+    stackResults.value.length === 0,
 );
 function resetSearchState() {
   searchResults.value = [];
