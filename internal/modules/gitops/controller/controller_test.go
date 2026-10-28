@@ -491,7 +491,7 @@ func TestControllerSyncContinuesWhenConfigurationEventPublicationFails(t *testin
 	stackDeployer := deployer.NewMockStackDeployer(ctrl)
 	gomock.InOrder(
 		stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil),
-		serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil),
+		serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil),
 	)
 
 	db, store := newSQLState(t)
@@ -654,9 +654,9 @@ func TestControllerSyncOncePrioritizesChangedStacks(t *testing.T) {
 	stackDeployer := deployer.NewMockStackDeployer(ctrl)
 	gomock.InOrder(
 		stackDeployer.EXPECT().DeployStack(gomock.Any(), "stack-b", gomock.Any(), gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil),
-		serviceManager.EXPECT().ListStackServices(gomock.Any(), "stack-b").Return(nil, nil),
+		serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "stack-b"}).Return(nil, nil),
 		stackDeployer.EXPECT().DeployStack(gomock.Any(), "stack-a", gomock.Any(), gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil),
-		serviceManager.EXPECT().ListStackServices(gomock.Any(), "stack-a").Return(nil, nil),
+		serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "stack-a"}).Return(nil, nil),
 	)
 
 	db, store := newSQLState(t)
@@ -737,9 +737,9 @@ func TestControllerSyncOnceContinuesWhenGitDiffFails(t *testing.T) {
 	stackDeployer := deployer.NewMockStackDeployer(ctrl)
 	gomock.InOrder(
 		stackDeployer.EXPECT().DeployStack(gomock.Any(), "stack-a", gomock.Any(), gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil),
-		serviceManager.EXPECT().ListStackServices(gomock.Any(), "stack-a").Return(nil, nil),
+		serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "stack-a"}).Return(nil, nil),
 		stackDeployer.EXPECT().DeployStack(gomock.Any(), "stack-b", gomock.Any(), gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil),
-		serviceManager.EXPECT().ListStackServices(gomock.Any(), "stack-b").Return(nil, nil),
+		serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "stack-b"}).Return(nil, nil),
 	)
 
 	db, store := newSQLState(t)

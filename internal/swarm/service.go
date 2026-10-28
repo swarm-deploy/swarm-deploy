@@ -11,6 +11,15 @@ import (
 // ErrServiceNotFound means that service does not exist in swarm.
 var ErrServiceNotFound = errors.New("service not found")
 
+// ErrTaskNotFound means that task does not exist in swarm.
+var ErrTaskNotFound = errors.New("task not found")
+
+// ListServicesFilter contains Docker Swarm service filters.
+type ListServicesFilter struct {
+	// Stack limits services to the Docker stack namespace when specified.
+	Stack string
+}
+
 // ServiceStatus contains compact status snapshot of a stack service.
 type ServiceStatus struct {
 	// Stack is a stack name.
@@ -33,14 +42,64 @@ type ServiceTask struct {
 	ID string
 	// Node is a task node identifier.
 	Node string
+	// Slot is the task slot within a replicated service.
+	Slot int
+	// DesiredState is the desired task state.
+	DesiredState TaskState
 	// CreatedAt is task creation timestamp from Docker Swarm.
 	CreatedAt time.Time
 	// UpdatedAt is task last update timestamp from Docker Swarm.
 	UpdatedAt time.Time
 	// CurrentState is the current task state.
 	CurrentState TaskState
+	// ContainerID is the task container identifier when assigned.
+	ContainerID string
+	// ExitCode is the task container exit code when container status is available.
+	ExitCode *int
 	// Error is a task runtime error.
 	Error string
+}
+
+// TaskResources contains compact CPU and memory resource settings.
+type TaskResources struct {
+	// NanoCPUs is the configured CPU amount in nano-CPUs.
+	NanoCPUs int64
+	// MemoryBytes is the configured memory amount in bytes.
+	MemoryBytes int64
+}
+
+// ServiceTaskDetails contains compact runtime details from an inspected Docker task.
+type ServiceTaskDetails struct {
+	// ID is a Docker task identifier.
+	ID string
+	// ServiceID is the Docker service identifier owning the task.
+	ServiceID string
+	// NodeID is the Docker node identifier assigned to the task.
+	NodeID string
+	// Slot is the task slot within a replicated service.
+	Slot int
+	// DesiredState is the desired task state.
+	DesiredState TaskState
+	// CurrentState is the current task state.
+	CurrentState TaskState
+	// Error is a task runtime error.
+	Error string
+	// CreatedAt is task creation timestamp from Docker Swarm.
+	CreatedAt time.Time
+	// UpdatedAt is task last update timestamp from Docker Swarm.
+	UpdatedAt time.Time
+	// ContainerID is the task container identifier when assigned.
+	ContainerID string
+	// ExitCode is the task container exit code when container status is available.
+	ExitCode *int
+	// Image is the container image captured in the inspected task specification.
+	Image string
+	// Environment contains original container environment entries from the inspected task.
+	Environment []string
+	// Reservations contains requested task resources when configured.
+	Reservations *TaskResources
+	// Limits contains task resource limits when configured.
+	Limits *TaskResources
 }
 
 // ServiceSpec is a compact service spec projection.
@@ -155,6 +214,8 @@ type StackService struct {
 	ID string
 	// Name is a service name without stack prefix.
 	Name string
+	// Stack is the Docker stack namespace when the service belongs to a stack.
+	Stack string
 	// FullName is a Docker service name formatted as "<stack>_<service>".
 	FullName string
 	// Image is a container image reference configured for the service.
@@ -163,6 +224,16 @@ type StackService struct {
 	Mode string
 	// Replicas is desired replicas count for replicated mode.
 	Replicas *uint64
+	// RunningTasks is the number of tasks currently running according to Docker.
+	RunningTasks uint64
+	// DesiredTasks is the number of tasks desired according to Docker.
+	DesiredTasks uint64
+	// CreatedAt is service creation timestamp.
+	CreatedAt time.Time
+	// UpdatedAt is service update timestamp.
+	UpdatedAt time.Time
+	// UpdateStatus contains current rolling update status when available.
+	UpdateStatus *ServiceUpdateStatus
 	// ServiceSpec is raw Docker service specification snapshot.
 	ServiceSpec dockerswarm.ServiceSpec
 	// PreviousSpec is the previous raw Docker service specification used by Swarm rollback.

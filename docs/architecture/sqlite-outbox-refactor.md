@@ -152,7 +152,7 @@ distinct. Sensitive executable fields and secret content remain masked.
 
 `comparison_basis=none` means the first desired snapshot has no trustworthy
 previous baseline. `successful_baseline` compares desired snapshots, not measured
-live state. ListStackServices records a technical read
+live state. A stack-filtered `ListServices` call records a technical read
 (`actual_state_status=observed`), while `verification_status=skipped` and
 `comparison_status=unknown` remain until real convergence verification is built.
 `succeeded` still means the latest apply pipeline completed. Failed and interrupted

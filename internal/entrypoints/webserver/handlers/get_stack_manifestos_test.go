@@ -39,7 +39,7 @@ func TestHandlerGetStackManifestos(t *testing.T) {
 
 	replicas := uint64(3)
 	serviceInspector.EXPECT().
-		ListStackServices(gomock.Any(), "payments").
+		ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "payments"}).
 		Return([]swarm.StackService{
 			{
 				Name:     "api",
@@ -168,7 +168,7 @@ func TestHandlerGetStackManifestos_DesiredComposeLoadError(t *testing.T) {
 	assert.Equal(t, "unable to get stack desired manifest", statusErr.Error())
 }
 
-func TestHandlerGetStackManifestos_ListStackServicesError(t *testing.T) {
+func TestHandlerGetStackManifestos_ListServicesError(t *testing.T) {
 	t.Parallel()
 
 	ctrl := gomock.NewController(t)
@@ -186,7 +186,7 @@ func TestHandlerGetStackManifestos_ListStackServicesError(t *testing.T) {
 		Return([]byte("services:\n  api:\n    image: ghcr.io/swarm-deploy/payments-api:v1.2.3\n"), nil)
 
 	serviceInspector.EXPECT().
-		ListStackServices(gomock.Any(), "payments").
+		ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "payments"}).
 		Return(nil, errors.New("swarm unavailable"))
 
 	h := &handler{
@@ -228,7 +228,7 @@ func TestHandlerGetStackManifestos_LiveManifestError(t *testing.T) {
 		Return([]byte("services:\n  api:\n    image: ghcr.io/swarm-deploy/payments-api:v1.2.3\n"), nil)
 
 	serviceInspector.EXPECT().
-		ListStackServices(gomock.Any(), "payments").
+		ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "payments"}).
 		Return([]swarm.StackService{
 			{
 				Name:  "api",

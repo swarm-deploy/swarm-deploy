@@ -66,6 +66,7 @@ function emptyLogLevelCounts(): Record<TaskLogLevel, number> {
 
 const stackName = computed(() => String(route.params.stack ?? "").trim());
 const serviceName = computed(() => String(route.params.service ?? "").trim());
+const swarmServiceName = computed(() => `${stackName.value}_${serviceName.value}`);
 
 const serviceTitle = computed(() => `${stackName.value}/${serviceName.value}`);
 const serviceSpec = computed(() => serviceStatus.value?.spec ?? null);
@@ -575,7 +576,7 @@ async function loadServiceRealtime() {
   realtimeLoading.value = true;
   realtimeError.value = "";
   try {
-    const response = await fetchServiceRealtime(stackName.value, serviceName.value);
+    const response = await fetchServiceRealtime(swarmServiceName.value);
     realtimeTasks.value = Array.isArray(response.tasks) ? response.tasks : [];
   } catch (error) {
     realtimeTasks.value = [];

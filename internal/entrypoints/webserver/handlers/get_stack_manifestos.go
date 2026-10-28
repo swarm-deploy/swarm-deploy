@@ -51,7 +51,7 @@ func (h *handler) GetStackManifestos(
 		return nil, withStatusError(http.StatusInternalServerError, errors.New("unable to get stack desired manifest"))
 	}
 
-	services, err := h.serviceInspector.ListStackServices(ctx, params.Stack)
+	services, err := h.serviceInspector.ListServices(ctx, swarm.ListServicesFilter{Stack: params.Stack})
 	if err != nil {
 		slog.ErrorContext(
 			ctx,

@@ -120,8 +120,11 @@ func toGeneratedServiceRealtimeTasks(
 	for _, task := range tasks {
 		item := generated.ServiceRealtimeTask{
 			ID:           task.ID,
+			Slot:         int64(task.Slot),
 			Node:         task.Node,
+			DesiredState: string(task.DesiredState),
 			CurrentState: string(task.CurrentState),
+			ContainerID:  task.ContainerID,
 		}
 		if !task.CreatedAt.IsZero() {
 			item.CreatedAt = generated.NewOptDateTime(task.CreatedAt)
@@ -134,6 +137,9 @@ func toGeneratedServiceRealtimeTasks(
 		}
 		if task.Error != "" {
 			item.Error = generated.NewOptString(task.Error)
+		}
+		if task.ExitCode != nil {
+			item.ExitCode = generated.NewOptInt64(int64(*task.ExitCode))
 		}
 		mapped = append(mapped, item)
 	}

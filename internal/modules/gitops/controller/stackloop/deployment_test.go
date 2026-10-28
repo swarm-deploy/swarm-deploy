@@ -83,7 +83,7 @@ func TestReconcileDeploymentBoundaries(t *testing.T) {
 					}
 					return deployer.Result{}, nil
 				})
-			services.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{}, nil).AnyTimes()
+			services.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{}, nil).AnyTimes()
 			err = r.Reconcile(ctx, req)
 			if scenario == "success commit failure" {
 				require.Error(t, err)
@@ -245,7 +245,7 @@ func TestReconcileRecoversFailedResultPersistenceInSameProcess(t *testing.T) {
 	_, err = db.Exec(ctx, "DROP TRIGGER fail_event")
 	require.NoError(t, err)
 	docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil)
-	services.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{}, nil).AnyTimes()
+	services.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{}, nil).AnyTimes()
 	req.Commit = "second"
 	require.NoError(t, r.Reconcile(ctx, req))
 	attempts, err = repo.List(ctx, deploymentmodel.ListFilter{})
@@ -308,7 +308,7 @@ func TestReconcileRecoversInterruptedCompletionConflictAndAppliesCorrectedDesire
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.yaml"),
 		[]byte("services:\n  api:\n    image: nginx@sha256:corrected\n"), 0o600))
 	docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil)
-	services.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{}, nil)
+	services.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{}, nil)
 	req.Commit = "corrected"
 	require.NoError(t, r.Reconcile(ctx, req))
 
@@ -356,7 +356,7 @@ func TestReconcileRecoversSucceededCompletionConflictWithoutContradictoryOutcome
 		cause:     errors.New("obsolete failure"),
 	}
 	docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).Return(deployer.Result{}, nil)
-	services.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{}, nil)
+	services.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{}, nil)
 	require.NoError(t, r.Reconcile(ctx, ReconciliationRequest{
 		Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "second",
 	}))

@@ -120,13 +120,6 @@ func (UnimplementedHandler) GetService(ctx context.Context, params GetServicePar
 	return r, ht.ErrNotImplemented
 }
 
-// GetServiceRealtime implements getServiceRealtime operation.
-//
-// GET /api/v1/stacks/{stack}/services/{service}/realtime
-func (UnimplementedHandler) GetServiceRealtime(ctx context.Context, params GetServiceRealtimeParams) (r *ServiceRealtimeResponse, _ error) {
-	return r, ht.ErrNotImplemented
-}
-
 // GetStackDeploymentActivity implements getStackDeploymentActivity operation.
 //
 // Aggregated deployment operations for a configured stack, grouped by UTC start time.
@@ -151,6 +144,13 @@ func (UnimplementedHandler) GetStackManifestos(ctx context.Context, params GetSt
 //
 // GET /api/v1/stacks/{stack}/resources
 func (UnimplementedHandler) GetStackResources(ctx context.Context, params GetStackResourcesParams) (r *StackResourcesResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// GetSwarmTask implements getSwarmTask operation.
+//
+// GET /api/v1/swarm/tasks/{taskID}
+func (UnimplementedHandler) GetSwarmTask(ctx context.Context, params GetSwarmTaskParams) (r *SwarmTaskDetailsHeaders, _ error) {
 	return r, ht.ErrNotImplemented
 }
 
@@ -242,6 +242,20 @@ func (UnimplementedHandler) ListServices(ctx context.Context) (r *ServicesRespon
 //
 // GET /api/v1/stacks
 func (UnimplementedHandler) ListStacks(ctx context.Context) (r *StacksResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListSwarmServiceTasks implements listSwarmServiceTasks operation.
+//
+// GET /api/v1/swarm/services/{serviceIDOrName}/tasks
+func (UnimplementedHandler) ListSwarmServiceTasks(ctx context.Context, params ListSwarmServiceTasksParams) (r *ServiceRealtimeResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// ListSwarmServices implements listSwarmServices operation.
+//
+// GET /api/v1/swarm/services
+func (UnimplementedHandler) ListSwarmServices(ctx context.Context) (r *SwarmServicesResponse, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

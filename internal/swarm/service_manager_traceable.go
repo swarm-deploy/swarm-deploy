@@ -38,13 +38,19 @@ func (t traceableServiceManager) GetReplicas(ctx context.Context, serviceRef Ser
 	return replicas, nil
 }
 
-func (t traceableServiceManager) ListStackServices(ctx context.Context, stackName string) ([]StackService, error) {
-	ctx, span := t.tracer.Start(ctx, "swarm.ListStackServices", trace.WithAttributes(
-		tracing.ResourceStackName.String(stackName),
-	))
+func (t traceableServiceManager) ListServices(
+	ctx context.Context,
+	filter ListServicesFilter,
+) ([]StackService, error) {
+	attributes := make([]attribute.KeyValue, 0, 1)
+	if filter.Stack != "" {
+		attributes = append(attributes, tracing.ResourceStackName.String(filter.Stack))
+	}
+
+	ctx, span := t.tracer.Start(ctx, "swarm.ListServices", trace.WithAttributes(attributes...))
 	defer span.End()
 
-	services, err := t.serviceManager.ListStackServices(ctx, stackName)
+	services, err := t.serviceManager.ListServices(ctx, filter)
 	if err != nil {
 		tracing.FailSpan(span, err)
 		return nil, err
@@ -121,11 +127,13 @@ func (t traceableServiceManager) GetStatus(ctx context.Context, serviceRef Servi
 	return status, nil
 }
 
-func (t traceableServiceManager) ListTasks(ctx context.Context, serviceRef ServiceReference) ([]ServiceTask, error) {
-	ctx, span := t.startServiceSpan(ctx, "swarm.ListTasks", serviceRef)
+func (t traceableServiceManager) ListTasks(ctx context.Context, serviceIDOrName string) ([]ServiceTask, error) {
+	ctx, span := t.tracer.Start(ctx, "swarm.ListTasks", trace.WithAttributes(
+		tracing.ResourceServiceID.String(serviceIDOrName),
+	))
 	defer span.End()
 
-	tasks, err := t.serviceManager.ListTasks(ctx, serviceRef)
+	tasks, err := t.serviceManager.ListTasks(ctx, serviceIDOrName)
 	if err != nil {
 		tracing.FailSpan(span, err)
 		return nil, err
@@ -135,6 +143,24 @@ func (t traceableServiceManager) ListTasks(ctx context.Context, serviceRef Servi
 	span.SetStatus(codes.Ok, "")
 
 	return tasks, nil
+}
+
+func (t traceableServiceManager) GetTask(ctx context.Context, taskID string) (ServiceTaskDetails, error) {
+	ctx, span := t.tracer.Start(ctx, "swarm.GetTask", trace.WithAttributes(
+		attribute.String("task.id", taskID),
+	))
+	defer span.End()
+
+	task, err := t.serviceManager.GetTask(ctx, taskID)
+	if err != nil {
+		tracing.FailSpan(span, err)
+		return ServiceTaskDetails{}, err
+	}
+
+	span.SetAttributes(tracing.ResourceServiceID.String(task.ServiceID))
+	span.SetStatus(codes.Ok, "")
+
+	return task, nil
 }
 
 func (t traceableServiceManager) Get(ctx context.Context, serviceRef ServiceReference) (Service, error) {

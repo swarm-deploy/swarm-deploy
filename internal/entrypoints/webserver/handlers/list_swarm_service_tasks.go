@@ -15,11 +15,12 @@ import (
 
 const staleTerminalTaskAge = 12 * time.Hour
 
-func (h *handler) GetServiceRealtime(
+// ListSwarmServiceTasks returns current and recent tasks for a Docker service.
+func (h *handler) ListSwarmServiceTasks(
 	ctx context.Context,
-	params generated.GetServiceRealtimeParams,
+	params generated.ListSwarmServiceTasksParams,
 ) (*generated.ServiceRealtimeResponse, error) {
-	tasks, err := h.serviceInspector.ListTasks(ctx, swarm.NewServiceReference(params.Stack, params.Service))
+	tasks, err := h.serviceInspector.ListTasks(ctx, params.ServiceIDOrName)
 	if err == nil {
 		nodes, nodeErr := h.nodes.Lookup(ctx)
 		if nodeErr != nil {
@@ -38,15 +39,14 @@ func (h *handler) GetServiceRealtime(
 	if errors.Is(err, swarm.ErrServiceNotFound) {
 		return nil, withStatusError(
 			http.StatusNotFound,
-			fmt.Errorf("service %s/%s not found", params.Stack, params.Service),
+			fmt.Errorf("service %s not found", params.ServiceIDOrName),
 		)
 	}
 
 	slog.ErrorContext(
 		ctx,
 		"[webserver] failed to read service realtime",
-		slog.String("stack", params.Stack),
-		slog.String("service", params.Service),
+		slog.String("service", params.ServiceIDOrName),
 		slog.Any("err", err),
 	)
 	return nil, withStatusError(http.StatusInternalServerError, errors.New("unable to get service realtime"))

@@ -115,7 +115,7 @@ func (r *Reconciler) Cleanup(ctx context.Context, stack config.StackSpec) error 
 		return fmt.Errorf("load compose for cleanup: %w", err)
 	}
 
-	liveServices, err := r.serviceManager.ListStackServices(ctx, stack.Name)
+	liveServices, err := r.serviceManager.ListServices(ctx, swarm.ListServicesFilter{Stack: stack.Name})
 	if err != nil {
 		return fmt.Errorf("list stack services for cleanup: %w", err)
 	}

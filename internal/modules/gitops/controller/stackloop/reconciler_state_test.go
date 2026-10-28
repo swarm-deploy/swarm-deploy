@@ -57,7 +57,7 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 	stackDeployer.EXPECT().
 		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, "app.yaml"), filepath.Join(repoDir, ".data", "rendered", "app.yaml"), gomock.Any()).
 		Return(deployer.Result{}, nil)
-	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
+	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
 
 	reconciler := &Reconciler{
 		cfg: &config.Config{
@@ -189,7 +189,7 @@ func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
 		{
 			name: "verification unknown",
 			setupServices: func(manager *swarm.MockServiceManager) {
-				manager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, assert.AnError)
+				manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, assert.AnError)
 			},
 			status: deploymentmodel.Interrupted, phase: deploymentmodel.PhaseVerification,
 			verification: deploymentmodel.StageUnknown, cleanup: deploymentmodel.StageSkipped,
@@ -198,7 +198,7 @@ func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
 		{
 			name: "prune failure is best effort",
 			setupServices: func(manager *swarm.MockServiceManager) {
-				manager.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{{
+				manager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{{
 					ID: "old-id", Name: "old", Labels: map[string]string{
 						labelsdict.ServiceManagedLabelKey: labelsdict.ServiceManagedLabelValue,
 					},
@@ -290,7 +290,7 @@ secrets:
 
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
 	stackDeployer.EXPECT().DeployStack(gomock.Any(), "app", composePath, filepath.Join(repoDir, ".data", "rendered", "app.yaml"), gomock.Any()).Return(deployer.Result{}, nil)
-	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
+	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
 	configManager.EXPECT().List(gomock.Any(), swarm.ListConfigsFilter{
 		StackName: "app",
 		Labels: map[string]string{
@@ -378,7 +378,7 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 		}
 	})
 
-	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
+	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
 
 	reconciler := &Reconciler{
 		cfg: &config.Config{
@@ -490,7 +490,7 @@ configs:
 			require.NoError(t, readErr, "parse rendered compose during deploy")
 		}).
 		Return(deployer.Result{}, nil)
-	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
+	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
 
 	reconciler := &Reconciler{
 		cfg: &config.Config{
@@ -595,7 +595,7 @@ secrets:
 			require.NoError(t, readErr, "parse rendered compose during deploy")
 		}).
 		Return(deployer.Result{}, nil)
-	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
+	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
 
 	reconciler := &Reconciler{
 		cfg: &config.Config{
@@ -681,7 +681,7 @@ services:
 			require.NoError(t, readErr, "parse rendered compose during deploy")
 		}).
 		Return(deployer.Result{}, nil)
-	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
+	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
 
 	readFile := func(_ context.Context, path string) ([]byte, error) {
 		return os.ReadFile(path)
@@ -758,7 +758,7 @@ services:
 			require.NoError(t, readErr, "parse rendered compose during deploy")
 		}).
 		Return(deployer.Result{}, nil)
-	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
+	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
 
 	reconciler := &Reconciler{
 		cfg: &config.Config{
@@ -831,8 +831,8 @@ services:
 		DeployStack(gomock.Any(), "app", filepath.Join(repoDir, "app.yaml"), renderedPath, gomock.Any()).
 		Return(deployer.Result{}, nil).
 		Times(1)
-	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
-	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{
+	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
+	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{
 		{Name: "api"},
 	}, nil)
 
@@ -951,7 +951,7 @@ func TestReconcilePrunesServicesWithoutNewDeployment(t *testing.T) {
 			})
 
 			repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
-			serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{
+			serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{
 				{
 					ID:   "service-api",
 					Name: "api",
@@ -1067,7 +1067,7 @@ func TestReconcileServiceMissedEventOnDrift(t *testing.T) {
 			})
 
 			repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
-			serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(tt.liveServices, nil)
+			serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(tt.liveServices, nil)
 
 			reconciler := &Reconciler{
 				cfg: &config.Config{
@@ -1194,8 +1194,8 @@ func TestReconcileSelfHealsMissingService(t *testing.T) {
 			}))
 
 			repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
-			serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(nil, nil)
-			serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return(tt.verifiedLive, tt.verificationErr)
+			serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(nil, nil)
+			serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return(tt.verifiedLive, tt.verificationErr)
 			stackDeployer.EXPECT().DeployService(
 				gomock.Any(), "app", filepath.Join(repoDir, "app.yaml"), "api", gomock.Any(), gomock.Any(),
 			).Return(deployer.Result{}, tt.deployErr)
@@ -1289,10 +1289,10 @@ func TestReconcileSelfHealsReplicaDriftAfterVerification(t *testing.T) {
 
 	one, three := uint64(1), uint64(3)
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
-	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{{
+	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{{
 		Name: "api", Replicas: &one,
 	}}, nil)
-	serviceManager.EXPECT().ListStackServices(gomock.Any(), "app").Return([]swarm.StackService{{
+	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{{
 		Name: "api", Replicas: &three,
 	}}, nil)
 	stackDeployer.EXPECT().DeployService(

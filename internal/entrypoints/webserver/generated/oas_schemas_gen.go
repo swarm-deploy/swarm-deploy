@@ -2727,6 +2727,45 @@ func (s *DeploymentsResponse) SetNextCursor(val OptString) {
 	s.NextCursor = val
 }
 
+// Ref: #/components/schemas/EnvironmentVariable
+type EnvironmentVariable struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+	// True when value contains the original environment value encoded using standard Base64. The value
+	// is encoded, not encrypted or irreversibly masked.
+	Encoded bool `json:"encoded"`
+}
+
+// GetName returns the value of Name.
+func (s *EnvironmentVariable) GetName() string {
+	return s.Name
+}
+
+// GetValue returns the value of Value.
+func (s *EnvironmentVariable) GetValue() string {
+	return s.Value
+}
+
+// GetEncoded returns the value of Encoded.
+func (s *EnvironmentVariable) GetEncoded() bool {
+	return s.Encoded
+}
+
+// SetName sets the value of Name.
+func (s *EnvironmentVariable) SetName(val string) {
+	s.Name = val
+}
+
+// SetValue sets the value of Value.
+func (s *EnvironmentVariable) SetValue(val string) {
+	s.Value = val
+}
+
+// SetEncoded sets the value of Encoded.
+func (s *EnvironmentVariable) SetEncoded(val bool) {
+	s.Encoded = val
+}
+
 // Ref: #/components/schemas/EventCategory
 type EventCategory string
 
@@ -4546,6 +4585,52 @@ func (o OptString) Or(d string) string {
 	return d
 }
 
+// NewOptSwarmTaskResources returns new OptSwarmTaskResources with value set to v.
+func NewOptSwarmTaskResources(v SwarmTaskResources) OptSwarmTaskResources {
+	return OptSwarmTaskResources{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptSwarmTaskResources is optional SwarmTaskResources.
+type OptSwarmTaskResources struct {
+	Value SwarmTaskResources
+	Set   bool
+}
+
+// IsSet returns true if OptSwarmTaskResources was set.
+func (o OptSwarmTaskResources) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptSwarmTaskResources) Reset() {
+	var v SwarmTaskResources
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptSwarmTaskResources) SetTo(v SwarmTaskResources) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptSwarmTaskResources) Get() (v SwarmTaskResources, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptSwarmTaskResources) Or(d SwarmTaskResources) SwarmTaskResources {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // Ref: #/components/schemas/QueueResponse
 type QueueResponse struct {
 	Queued bool `json:"queued"`
@@ -5831,17 +5916,26 @@ func (s *ServiceRealtimeResponse) SetTasks(val []ServiceRealtimeTask) {
 // Ref: #/components/schemas/ServiceRealtimeTask
 type ServiceRealtimeTask struct {
 	ID           string      `json:"id"`
+	Slot         int64       `json:"slot"`
 	Node         string      `json:"node"`
 	NodeName     OptString   `json:"node_name"`
+	DesiredState string      `json:"desired_state"`
 	CreatedAt    OptDateTime `json:"created_at"`
 	UpdatedAt    OptDateTime `json:"updated_at"`
 	CurrentState string      `json:"current_state"`
+	ContainerID  string      `json:"container_id"`
+	ExitCode     OptInt64    `json:"exit_code"`
 	Error        OptString   `json:"error"`
 }
 
 // GetID returns the value of ID.
 func (s *ServiceRealtimeTask) GetID() string {
 	return s.ID
+}
+
+// GetSlot returns the value of Slot.
+func (s *ServiceRealtimeTask) GetSlot() int64 {
+	return s.Slot
 }
 
 // GetNode returns the value of Node.
@@ -5852,6 +5946,11 @@ func (s *ServiceRealtimeTask) GetNode() string {
 // GetNodeName returns the value of NodeName.
 func (s *ServiceRealtimeTask) GetNodeName() OptString {
 	return s.NodeName
+}
+
+// GetDesiredState returns the value of DesiredState.
+func (s *ServiceRealtimeTask) GetDesiredState() string {
+	return s.DesiredState
 }
 
 // GetCreatedAt returns the value of CreatedAt.
@@ -5869,6 +5968,16 @@ func (s *ServiceRealtimeTask) GetCurrentState() string {
 	return s.CurrentState
 }
 
+// GetContainerID returns the value of ContainerID.
+func (s *ServiceRealtimeTask) GetContainerID() string {
+	return s.ContainerID
+}
+
+// GetExitCode returns the value of ExitCode.
+func (s *ServiceRealtimeTask) GetExitCode() OptInt64 {
+	return s.ExitCode
+}
+
 // GetError returns the value of Error.
 func (s *ServiceRealtimeTask) GetError() OptString {
 	return s.Error
@@ -5879,6 +5988,11 @@ func (s *ServiceRealtimeTask) SetID(val string) {
 	s.ID = val
 }
 
+// SetSlot sets the value of Slot.
+func (s *ServiceRealtimeTask) SetSlot(val int64) {
+	s.Slot = val
+}
+
 // SetNode sets the value of Node.
 func (s *ServiceRealtimeTask) SetNode(val string) {
 	s.Node = val
@@ -5887,6 +6001,11 @@ func (s *ServiceRealtimeTask) SetNode(val string) {
 // SetNodeName sets the value of NodeName.
 func (s *ServiceRealtimeTask) SetNodeName(val OptString) {
 	s.NodeName = val
+}
+
+// SetDesiredState sets the value of DesiredState.
+func (s *ServiceRealtimeTask) SetDesiredState(val string) {
+	s.DesiredState = val
 }
 
 // SetCreatedAt sets the value of CreatedAt.
@@ -5902,6 +6021,16 @@ func (s *ServiceRealtimeTask) SetUpdatedAt(val OptDateTime) {
 // SetCurrentState sets the value of CurrentState.
 func (s *ServiceRealtimeTask) SetCurrentState(val string) {
 	s.CurrentState = val
+}
+
+// SetContainerID sets the value of ContainerID.
+func (s *ServiceRealtimeTask) SetContainerID(val string) {
+	s.ContainerID = val
+}
+
+// SetExitCode sets the value of ExitCode.
+func (s *ServiceRealtimeTask) SetExitCode(val OptInt64) {
+	s.ExitCode = val
 }
 
 // SetError sets the value of Error.
@@ -6479,6 +6608,363 @@ func (s *StacksResponse) SetStacks(val []StackView) {
 // SetSync sets the value of Sync.
 func (s *StacksResponse) SetSync(val SyncInfo) {
 	s.Sync = val
+}
+
+// Ref: #/components/schemas/SwarmService
+type SwarmService struct {
+	ID       string `json:"id"`
+	Name     string `json:"name"`
+	FullName string `json:"full_name"`
+	// Docker stack namespace, or an empty string for standalone services.
+	Stack     string               `json:"stack"`
+	Image     string               `json:"image"`
+	Mode      string               `json:"mode"`
+	Replicas  SwarmServiceReplicas `json:"replicas"`
+	UpdatedAt time.Time            `json:"updated_at"`
+}
+
+// GetID returns the value of ID.
+func (s *SwarmService) GetID() string {
+	return s.ID
+}
+
+// GetName returns the value of Name.
+func (s *SwarmService) GetName() string {
+	return s.Name
+}
+
+// GetFullName returns the value of FullName.
+func (s *SwarmService) GetFullName() string {
+	return s.FullName
+}
+
+// GetStack returns the value of Stack.
+func (s *SwarmService) GetStack() string {
+	return s.Stack
+}
+
+// GetImage returns the value of Image.
+func (s *SwarmService) GetImage() string {
+	return s.Image
+}
+
+// GetMode returns the value of Mode.
+func (s *SwarmService) GetMode() string {
+	return s.Mode
+}
+
+// GetReplicas returns the value of Replicas.
+func (s *SwarmService) GetReplicas() SwarmServiceReplicas {
+	return s.Replicas
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *SwarmService) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// SetID sets the value of ID.
+func (s *SwarmService) SetID(val string) {
+	s.ID = val
+}
+
+// SetName sets the value of Name.
+func (s *SwarmService) SetName(val string) {
+	s.Name = val
+}
+
+// SetFullName sets the value of FullName.
+func (s *SwarmService) SetFullName(val string) {
+	s.FullName = val
+}
+
+// SetStack sets the value of Stack.
+func (s *SwarmService) SetStack(val string) {
+	s.Stack = val
+}
+
+// SetImage sets the value of Image.
+func (s *SwarmService) SetImage(val string) {
+	s.Image = val
+}
+
+// SetMode sets the value of Mode.
+func (s *SwarmService) SetMode(val string) {
+	s.Mode = val
+}
+
+// SetReplicas sets the value of Replicas.
+func (s *SwarmService) SetReplicas(val SwarmServiceReplicas) {
+	s.Replicas = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *SwarmService) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// Ref: #/components/schemas/SwarmServiceReplicas
+type SwarmServiceReplicas struct {
+	Running int64 `json:"running"`
+	Desired int64 `json:"desired"`
+}
+
+// GetRunning returns the value of Running.
+func (s *SwarmServiceReplicas) GetRunning() int64 {
+	return s.Running
+}
+
+// GetDesired returns the value of Desired.
+func (s *SwarmServiceReplicas) GetDesired() int64 {
+	return s.Desired
+}
+
+// SetRunning sets the value of Running.
+func (s *SwarmServiceReplicas) SetRunning(val int64) {
+	s.Running = val
+}
+
+// SetDesired sets the value of Desired.
+func (s *SwarmServiceReplicas) SetDesired(val int64) {
+	s.Desired = val
+}
+
+// Ref: #/components/schemas/SwarmServicesResponse
+type SwarmServicesResponse struct {
+	Services []SwarmService `json:"services"`
+}
+
+// GetServices returns the value of Services.
+func (s *SwarmServicesResponse) GetServices() []SwarmService {
+	return s.Services
+}
+
+// SetServices sets the value of Services.
+func (s *SwarmServicesResponse) SetServices(val []SwarmService) {
+	s.Services = val
+}
+
+// Ref: #/components/schemas/SwarmTaskDetails
+type SwarmTaskDetails struct {
+	ID           string    `json:"id"`
+	ServiceID    string    `json:"service_id"`
+	NodeID       string    `json:"node_id"`
+	Slot         int64     `json:"slot"`
+	DesiredState string    `json:"desired_state"`
+	CurrentState string    `json:"current_state"`
+	Error        OptString `json:"error"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+	ContainerID  string    `json:"container_id"`
+	ExitCode     OptInt64  `json:"exit_code"`
+	Image        string    `json:"image"`
+	// Environment from the inspected task. Sensitive values remain recoverable through standard Base64
+	// encoding.
+	Environment  []EnvironmentVariable `json:"environment"`
+	Reservations OptSwarmTaskResources `json:"reservations"`
+	Limits       OptSwarmTaskResources `json:"limits"`
+}
+
+// GetID returns the value of ID.
+func (s *SwarmTaskDetails) GetID() string {
+	return s.ID
+}
+
+// GetServiceID returns the value of ServiceID.
+func (s *SwarmTaskDetails) GetServiceID() string {
+	return s.ServiceID
+}
+
+// GetNodeID returns the value of NodeID.
+func (s *SwarmTaskDetails) GetNodeID() string {
+	return s.NodeID
+}
+
+// GetSlot returns the value of Slot.
+func (s *SwarmTaskDetails) GetSlot() int64 {
+	return s.Slot
+}
+
+// GetDesiredState returns the value of DesiredState.
+func (s *SwarmTaskDetails) GetDesiredState() string {
+	return s.DesiredState
+}
+
+// GetCurrentState returns the value of CurrentState.
+func (s *SwarmTaskDetails) GetCurrentState() string {
+	return s.CurrentState
+}
+
+// GetError returns the value of Error.
+func (s *SwarmTaskDetails) GetError() OptString {
+	return s.Error
+}
+
+// GetCreatedAt returns the value of CreatedAt.
+func (s *SwarmTaskDetails) GetCreatedAt() time.Time {
+	return s.CreatedAt
+}
+
+// GetUpdatedAt returns the value of UpdatedAt.
+func (s *SwarmTaskDetails) GetUpdatedAt() time.Time {
+	return s.UpdatedAt
+}
+
+// GetContainerID returns the value of ContainerID.
+func (s *SwarmTaskDetails) GetContainerID() string {
+	return s.ContainerID
+}
+
+// GetExitCode returns the value of ExitCode.
+func (s *SwarmTaskDetails) GetExitCode() OptInt64 {
+	return s.ExitCode
+}
+
+// GetImage returns the value of Image.
+func (s *SwarmTaskDetails) GetImage() string {
+	return s.Image
+}
+
+// GetEnvironment returns the value of Environment.
+func (s *SwarmTaskDetails) GetEnvironment() []EnvironmentVariable {
+	return s.Environment
+}
+
+// GetReservations returns the value of Reservations.
+func (s *SwarmTaskDetails) GetReservations() OptSwarmTaskResources {
+	return s.Reservations
+}
+
+// GetLimits returns the value of Limits.
+func (s *SwarmTaskDetails) GetLimits() OptSwarmTaskResources {
+	return s.Limits
+}
+
+// SetID sets the value of ID.
+func (s *SwarmTaskDetails) SetID(val string) {
+	s.ID = val
+}
+
+// SetServiceID sets the value of ServiceID.
+func (s *SwarmTaskDetails) SetServiceID(val string) {
+	s.ServiceID = val
+}
+
+// SetNodeID sets the value of NodeID.
+func (s *SwarmTaskDetails) SetNodeID(val string) {
+	s.NodeID = val
+}
+
+// SetSlot sets the value of Slot.
+func (s *SwarmTaskDetails) SetSlot(val int64) {
+	s.Slot = val
+}
+
+// SetDesiredState sets the value of DesiredState.
+func (s *SwarmTaskDetails) SetDesiredState(val string) {
+	s.DesiredState = val
+}
+
+// SetCurrentState sets the value of CurrentState.
+func (s *SwarmTaskDetails) SetCurrentState(val string) {
+	s.CurrentState = val
+}
+
+// SetError sets the value of Error.
+func (s *SwarmTaskDetails) SetError(val OptString) {
+	s.Error = val
+}
+
+// SetCreatedAt sets the value of CreatedAt.
+func (s *SwarmTaskDetails) SetCreatedAt(val time.Time) {
+	s.CreatedAt = val
+}
+
+// SetUpdatedAt sets the value of UpdatedAt.
+func (s *SwarmTaskDetails) SetUpdatedAt(val time.Time) {
+	s.UpdatedAt = val
+}
+
+// SetContainerID sets the value of ContainerID.
+func (s *SwarmTaskDetails) SetContainerID(val string) {
+	s.ContainerID = val
+}
+
+// SetExitCode sets the value of ExitCode.
+func (s *SwarmTaskDetails) SetExitCode(val OptInt64) {
+	s.ExitCode = val
+}
+
+// SetImage sets the value of Image.
+func (s *SwarmTaskDetails) SetImage(val string) {
+	s.Image = val
+}
+
+// SetEnvironment sets the value of Environment.
+func (s *SwarmTaskDetails) SetEnvironment(val []EnvironmentVariable) {
+	s.Environment = val
+}
+
+// SetReservations sets the value of Reservations.
+func (s *SwarmTaskDetails) SetReservations(val OptSwarmTaskResources) {
+	s.Reservations = val
+}
+
+// SetLimits sets the value of Limits.
+func (s *SwarmTaskDetails) SetLimits(val OptSwarmTaskResources) {
+	s.Limits = val
+}
+
+// SwarmTaskDetailsHeaders wraps SwarmTaskDetails with response headers.
+type SwarmTaskDetailsHeaders struct {
+	CacheControl string
+	Response     SwarmTaskDetails
+}
+
+// GetCacheControl returns the value of CacheControl.
+func (s *SwarmTaskDetailsHeaders) GetCacheControl() string {
+	return s.CacheControl
+}
+
+// GetResponse returns the value of Response.
+func (s *SwarmTaskDetailsHeaders) GetResponse() SwarmTaskDetails {
+	return s.Response
+}
+
+// SetCacheControl sets the value of CacheControl.
+func (s *SwarmTaskDetailsHeaders) SetCacheControl(val string) {
+	s.CacheControl = val
+}
+
+// SetResponse sets the value of Response.
+func (s *SwarmTaskDetailsHeaders) SetResponse(val SwarmTaskDetails) {
+	s.Response = val
+}
+
+// Ref: #/components/schemas/SwarmTaskResources
+type SwarmTaskResources struct {
+	NanoCpus    int64 `json:"nano_cpus"`
+	MemoryBytes int64 `json:"memory_bytes"`
+}
+
+// GetNanoCpus returns the value of NanoCpus.
+func (s *SwarmTaskResources) GetNanoCpus() int64 {
+	return s.NanoCpus
+}
+
+// GetMemoryBytes returns the value of MemoryBytes.
+func (s *SwarmTaskResources) GetMemoryBytes() int64 {
+	return s.MemoryBytes
+}
+
+// SetNanoCpus sets the value of NanoCpus.
+func (s *SwarmTaskResources) SetNanoCpus(val int64) {
+	s.NanoCpus = val
+}
+
+// SetMemoryBytes sets the value of MemoryBytes.
+func (s *SwarmTaskResources) SetMemoryBytes(val int64) {
+	s.MemoryBytes = val
 }
 
 // Ref: #/components/schemas/SyncInfo

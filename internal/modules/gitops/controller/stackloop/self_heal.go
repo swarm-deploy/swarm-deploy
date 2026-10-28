@@ -10,6 +10,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/drift"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/tracing"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -101,7 +102,7 @@ func (r *Reconciler) healService(
 }
 
 func (r *Reconciler) verifySelfHeal(ctx context.Context, payload *pipelinePayload) error {
-	live, err := r.serviceManager.ListStackServices(ctx, payload.Stack.Name)
+	live, err := r.serviceManager.ListServices(ctx, swarm.ListServicesFilter{Stack: payload.Stack.Name})
 	if err != nil {
 		r.markVerificationFailed(payload, fmt.Errorf("verify self-heal state: %w", err))
 		return nil

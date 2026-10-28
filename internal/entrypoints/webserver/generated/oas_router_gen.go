@@ -1228,80 +1228,164 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 										return
 									}
 									switch elem[0] {
-									case '/': // Prefix: "/"
+									case '/': // Prefix: "/deployments"
 
-										if l := len("/"); len(elem) >= l && elem[0:l] == "/" {
+										if l := len("/deployments"); len(elem) >= l && elem[0:l] == "/deployments" {
 											elem = elem[l:]
 										} else {
 											break
 										}
 
 										if len(elem) == 0 {
-											break
-										}
-										switch elem[0] {
-										case 'd': // Prefix: "deployments"
-
-											if l := len("deployments"); len(elem) >= l && elem[0:l] == "deployments" {
-												elem = elem[l:]
-											} else {
-												break
+											// Leaf node.
+											switch r.Method {
+											case "GET":
+												s.handleListServiceDeploymentsRequest([2]string{
+													args[0],
+													args[1],
+												}, elemIsEscaped, w, r)
+											default:
+												s.notAllowed(w, r, notAllowedParams{
+													allowedMethods: "GET",
+													allowedHeaders: nil,
+													acceptPost:     "",
+													acceptPatch:    "",
+												})
 											}
 
-											if len(elem) == 0 {
-												// Leaf node.
-												switch r.Method {
-												case "GET":
-													s.handleListServiceDeploymentsRequest([2]string{
-														args[0],
-														args[1],
-													}, elemIsEscaped, w, r)
-												default:
-													s.notAllowed(w, r, notAllowedParams{
-														allowedMethods: "GET",
-														allowedHeaders: nil,
-														acceptPost:     "",
-														acceptPatch:    "",
-													})
-												}
-
-												return
-											}
-
-										case 'r': // Prefix: "realtime"
-
-											if l := len("realtime"); len(elem) >= l && elem[0:l] == "realtime" {
-												elem = elem[l:]
-											} else {
-												break
-											}
-
-											if len(elem) == 0 {
-												// Leaf node.
-												switch r.Method {
-												case "GET":
-													s.handleGetServiceRealtimeRequest([2]string{
-														args[0],
-														args[1],
-													}, elemIsEscaped, w, r)
-												default:
-													s.notAllowed(w, r, notAllowedParams{
-														allowedMethods: "GET",
-														allowedHeaders: nil,
-														acceptPost:     "",
-														acceptPatch:    "",
-													})
-												}
-
-												return
-											}
-
+											return
 										}
 
 									}
 
 								}
 
+							}
+
+						}
+
+					case 'w': // Prefix: "warm/"
+
+						if l := len("warm/"); len(elem) >= l && elem[0:l] == "warm/" {
+							elem = elem[l:]
+						} else {
+							break
+						}
+
+						if len(elem) == 0 {
+							break
+						}
+						switch elem[0] {
+						case 's': // Prefix: "services"
+
+							if l := len("services"); len(elem) >= l && elem[0:l] == "services" {
+								elem = elem[l:]
+							} else {
+								break
+							}
+
+							if len(elem) == 0 {
+								switch r.Method {
+								case "GET":
+									s.handleListSwarmServicesRequest([0]string{}, elemIsEscaped, w, r)
+								default:
+									s.notAllowed(w, r, notAllowedParams{
+										allowedMethods: "GET",
+										allowedHeaders: nil,
+										acceptPost:     "",
+										acceptPatch:    "",
+									})
+								}
+
+								return
+							}
+							switch elem[0] {
+							case '/': // Prefix: "/"
+
+								if l := len("/"); len(elem) >= l && elem[0:l] == "/" {
+									elem = elem[l:]
+								} else {
+									break
+								}
+
+								// Param: "serviceIDOrName"
+								// Match until "/"
+								idx := strings.IndexByte(elem, '/')
+								if idx < 0 {
+									idx = len(elem)
+								}
+								args[0] = elem[:idx]
+								elem = elem[idx:]
+
+								if len(elem) == 0 {
+									break
+								}
+								switch elem[0] {
+								case '/': // Prefix: "/tasks"
+
+									if l := len("/tasks"); len(elem) >= l && elem[0:l] == "/tasks" {
+										elem = elem[l:]
+									} else {
+										break
+									}
+
+									if len(elem) == 0 {
+										// Leaf node.
+										switch r.Method {
+										case "GET":
+											s.handleListSwarmServiceTasksRequest([1]string{
+												args[0],
+											}, elemIsEscaped, w, r)
+										default:
+											s.notAllowed(w, r, notAllowedParams{
+												allowedMethods: "GET",
+												allowedHeaders: nil,
+												acceptPost:     "",
+												acceptPatch:    "",
+											})
+										}
+
+										return
+									}
+
+								}
+
+							}
+
+						case 't': // Prefix: "tasks/"
+
+							if l := len("tasks/"); len(elem) >= l && elem[0:l] == "tasks/" {
+								elem = elem[l:]
+							} else {
+								break
+							}
+
+							// Param: "taskID"
+							// Leaf parameter, slashes are prohibited
+							idx := strings.IndexByte(elem, '/')
+							if idx >= 0 {
+								break
+							}
+							args[0] = elem
+							elem = ""
+
+							if len(elem) == 0 {
+								// Leaf node.
+								switch r.Method {
+								case "GET":
+									s.handleGetSwarmTaskRequest([1]string{
+										args[0],
+									}, elemIsEscaped, w, r)
+								default:
+									s.notAllowed(w, r, notAllowedParams{
+										allowedMethods: "GET",
+										allowedHeaders: nil,
+										acceptPost:     "",
+										acceptPatch:    "",
+									})
+								}
+
+								return
 							}
 
 						}
@@ -2586,74 +2670,157 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 										}
 									}
 									switch elem[0] {
-									case '/': // Prefix: "/"
+									case '/': // Prefix: "/deployments"
 
-										if l := len("/"); len(elem) >= l && elem[0:l] == "/" {
+										if l := len("/deployments"); len(elem) >= l && elem[0:l] == "/deployments" {
 											elem = elem[l:]
 										} else {
 											break
 										}
 
 										if len(elem) == 0 {
-											break
-										}
-										switch elem[0] {
-										case 'd': // Prefix: "deployments"
-
-											if l := len("deployments"); len(elem) >= l && elem[0:l] == "deployments" {
-												elem = elem[l:]
-											} else {
-												break
+											// Leaf node.
+											switch method {
+											case "GET":
+												r.name = ListServiceDeploymentsOperation
+												r.summary = ""
+												r.operationID = "listServiceDeployments"
+												r.operationGroup = ""
+												r.pathPattern = "/api/v1/stacks/{stack}/services/{service}/deployments"
+												r.args = args
+												r.count = 2
+												return r, true
+											default:
+												return
 											}
-
-											if len(elem) == 0 {
-												// Leaf node.
-												switch method {
-												case "GET":
-													r.name = ListServiceDeploymentsOperation
-													r.summary = ""
-													r.operationID = "listServiceDeployments"
-													r.operationGroup = ""
-													r.pathPattern = "/api/v1/stacks/{stack}/services/{service}/deployments"
-													r.args = args
-													r.count = 2
-													return r, true
-												default:
-													return
-												}
-											}
-
-										case 'r': // Prefix: "realtime"
-
-											if l := len("realtime"); len(elem) >= l && elem[0:l] == "realtime" {
-												elem = elem[l:]
-											} else {
-												break
-											}
-
-											if len(elem) == 0 {
-												// Leaf node.
-												switch method {
-												case "GET":
-													r.name = GetServiceRealtimeOperation
-													r.summary = ""
-													r.operationID = "getServiceRealtime"
-													r.operationGroup = ""
-													r.pathPattern = "/api/v1/stacks/{stack}/services/{service}/realtime"
-													r.args = args
-													r.count = 2
-													return r, true
-												default:
-													return
-												}
-											}
-
 										}
 
 									}
 
 								}
 
+							}
+
+						}
+
+					case 'w': // Prefix: "warm/"
+
+						if l := len("warm/"); len(elem) >= l && elem[0:l] == "warm/" {
+							elem = elem[l:]
+						} else {
+							break
+						}
+
+						if len(elem) == 0 {
+							break
+						}
+						switch elem[0] {
+						case 's': // Prefix: "services"
+
+							if l := len("services"); len(elem) >= l && elem[0:l] == "services" {
+								elem = elem[l:]
+							} else {
+								break
+							}
+
+							if len(elem) == 0 {
+								switch method {
+								case "GET":
+									r.name = ListSwarmServicesOperation
+									r.summary = ""
+									r.operationID = "listSwarmServices"
+									r.operationGroup = ""
+									r.pathPattern = "/api/v1/swarm/services"
+									r.args = args
+									r.count = 0
+									return r, true
+								default:
+									return
+								}
+							}
+							switch elem[0] {
+							case '/': // Prefix: "/"
+
+								if l := len("/"); len(elem) >= l && elem[0:l] == "/" {
+									elem = elem[l:]
+								} else {
+									break
+								}
+
+								// Param: "serviceIDOrName"
+								// Match until "/"
+								idx := strings.IndexByte(elem, '/')
+								if idx < 0 {
+									idx = len(elem)
+								}
+								args[0] = elem[:idx]
+								elem = elem[idx:]
+
+								if len(elem) == 0 {
+									break
+								}
+								switch elem[0] {
+								case '/': // Prefix: "/tasks"
+
+									if l := len("/tasks"); len(elem) >= l && elem[0:l] == "/tasks" {
+										elem = elem[l:]
+									} else {
+										break
+									}
+
+									if len(elem) == 0 {
+										// Leaf node.
+										switch method {
+										case "GET":
+											r.name = ListSwarmServiceTasksOperation
+											r.summary = ""
+											r.operationID = "listSwarmServiceTasks"
+											r.operationGroup = ""
+											r.pathPattern = "/api/v1/swarm/services/{serviceIDOrName}/tasks"
+											r.args = args
+											r.count = 1
+											return r, true
+										default:
+											return
+										}
+									}
+
+								}
+
+							}
+
+						case 't': // Prefix: "tasks/"
+
+							if l := len("tasks/"); len(elem) >= l && elem[0:l] == "tasks/" {
+								elem = elem[l:]
+							} else {
+								break
+							}
+
+							// Param: "taskID"
+							// Leaf parameter, slashes are prohibited
+							idx := strings.IndexByte(elem, '/')
+							if idx >= 0 {
+								break
+							}
+							args[0] = elem
+							elem = ""
+
+							if len(elem) == 0 {
+								// Leaf node.
+								switch method {
+								case "GET":
+									r.name = GetSwarmTaskOperation
+									r.summary = ""
+									r.operationID = "getSwarmTask"
+									r.operationGroup = ""
+									r.pathPattern = "/api/v1/swarm/tasks/{taskID}"
+									r.args = args
+									r.count = 1
+									return r, true
+								default:
+									return
+								}
 							}
 
 						}

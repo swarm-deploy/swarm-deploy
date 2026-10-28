@@ -68,8 +68,12 @@ paths:
     $ref: './resources/secret-managers.yaml#/paths/~1api~1v1~1secret-managers~1{stack}~1{service}~1sync'
   /api/v1/stacks/{stack}/services/{service}:
     $ref: './resources/services.yaml#/paths/~1api~1v1~1stacks~1{stack}~1services~1{service}'
-  /api/v1/stacks/{stack}/services/{service}/realtime:
-    $ref: './resources/services.yaml#/paths/~1api~1v1~1stacks~1{stack}~1services~1{service}~1realtime'
+  /api/v1/swarm/services:
+    $ref: './resources/services.yaml#/paths/~1api~1v1~1swarm~1services'
+  /api/v1/swarm/services/{serviceIDOrName}/tasks:
+    $ref: './resources/services.yaml#/paths/~1api~1v1~1swarm~1services~1{serviceIDOrName}~1tasks'
+  /api/v1/swarm/tasks/{taskID}:
+    $ref: './resources/services.yaml#/paths/~1api~1v1~1swarm~1tasks~1{taskID}'
   /api/tasks/{taskID}/logs:
     $ref: './resources/services.yaml#/paths/~1api~1tasks~1{taskID}~1logs'
   /api/v1/stacks/{stack}/services/{service}/deployments:
@@ -202,6 +206,18 @@ components:
       $ref: './resources/services.yaml#/components/schemas/ServiceRealtimeTask'
     ServiceRealtimeResponse:
       $ref: './resources/services.yaml#/components/schemas/ServiceRealtimeResponse'
+    SwarmServiceReplicas:
+      $ref: './resources/services.yaml#/components/schemas/SwarmServiceReplicas'
+    SwarmService:
+      $ref: './resources/services.yaml#/components/schemas/SwarmService'
+    SwarmServicesResponse:
+      $ref: './resources/services.yaml#/components/schemas/SwarmServicesResponse'
+    EnvironmentVariable:
+      $ref: './resources/services.yaml#/components/schemas/EnvironmentVariable'
+    SwarmTaskResources:
+      $ref: './resources/services.yaml#/components/schemas/SwarmTaskResources'
+    SwarmTaskDetails:
+      $ref: './resources/services.yaml#/components/schemas/SwarmTaskDetails'
     ServiceDeploymentStatus:
       $ref: './resources/services.yaml#/components/schemas/ServiceDeploymentStatus'
     ServiceDeploymentResponse:

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 	"time"
@@ -12,11 +13,11 @@ import (
 
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	swarmnode "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/node"
-	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"github.com/swarm-deploy/swarm-deploy/internal/testutil"
 )
 
-func TestHandlerGetServiceRealtime_MapsNodeHostnameAndSortsTasksByCreatedAt(t *testing.T) {
+func TestHandlerListSwarmServiceTasks_MapsNodeHostnameAndSortsTasksByCreatedAt(t *testing.T) {
 	t.Parallel()
 
 	nodeStore := swarmnode.NewSQLStore(testutil.OpenSQLite(t))
@@ -35,11 +36,14 @@ func TestHandlerGetServiceRealtime_MapsNodeHostnameAndSortsTasksByCreatedAt(t *t
 	}
 
 	serviceInspector.EXPECT().
-		ListTasks(gomock.Any(), swarm.NewServiceReference("payments", "api")).
+		ListTasks(gomock.Any(), swarm.NewServiceReference("payments", "api").Name()).
 		Return([]swarm.ServiceTask{
 			{
 				ID:           "task-oldest",
 				Node:         "node-1",
+				Slot:         2,
+				DesiredState: swarm.TaskStateRunning,
+				ContainerID:  "container-oldest",
 				CreatedAt:    time.Date(2026, time.May, 29, 9, 0, 0, 0, time.UTC),
 				UpdatedAt:    time.Date(2026, time.May, 29, 9, 1, 0, 0, time.UTC),
 				CurrentState: swarm.TaskStateRunning,
@@ -72,9 +76,8 @@ func TestHandlerGetServiceRealtime_MapsNodeHostnameAndSortsTasksByCreatedAt(t *t
 			},
 		}, nil)
 
-	resp, err := h.GetServiceRealtime(context.Background(), generated.GetServiceRealtimeParams{
-		Stack:   "payments",
-		Service: "api",
+	resp, err := h.ListSwarmServiceTasks(context.Background(), generated.ListSwarmServiceTasksParams{
+		ServiceIDOrName: "payments_api",
 	})
 	require.NoError(t, err)
 	require.Len(t, resp.Tasks, 3)
@@ -88,15 +91,21 @@ func TestHandlerGetServiceRealtime_MapsNodeHostnameAndSortsTasksByCreatedAt(t *t
 	require.True(t, ok)
 	assert.Equal(t, "worker-1", nodeName)
 	assert.Equal(t, "node-1", resp.Tasks[0].Node)
+	assert.Equal(t, int64(2), resp.Tasks[2].Slot)
+	assert.Equal(t, "running", resp.Tasks[2].DesiredState)
+	assert.Equal(t, "container-oldest", resp.Tasks[2].ContainerID)
 	createdAt, ok := resp.Tasks[0].CreatedAt.Get()
 	require.True(t, ok)
 	assert.Equal(t, time.Date(2026, time.May, 29, 11, 0, 0, 0, time.UTC), createdAt)
 	updatedAt, ok := resp.Tasks[2].UpdatedAt.Get()
 	require.True(t, ok)
 	assert.Equal(t, time.Date(2026, time.May, 29, 9, 1, 0, 0, time.UTC), updatedAt)
+	payload, err := json.Marshal(resp)
+	require.NoError(t, err)
+	assert.NotContains(t, string(payload), "environment")
 }
 
-func TestHandlerGetServiceRealtime_LeavesNodeNameEmptyIfNodeIsUnknown(t *testing.T) {
+func TestHandlerListSwarmServiceTasks_LeavesNodeNameEmptyIfNodeIsUnknown(t *testing.T) {
 	t.Parallel()
 
 	nodeStore := swarmnode.NewSQLStore(testutil.OpenSQLite(t))
@@ -115,7 +124,7 @@ func TestHandlerGetServiceRealtime_LeavesNodeNameEmptyIfNodeIsUnknown(t *testing
 	}
 
 	serviceInspector.EXPECT().
-		ListTasks(gomock.Any(), swarm.NewServiceReference("payments", "api")).
+		ListTasks(gomock.Any(), swarm.NewServiceReference("payments", "api").Name()).
 		Return([]swarm.ServiceTask{
 			{
 				ID:           "task-1",
@@ -124,9 +133,8 @@ func TestHandlerGetServiceRealtime_LeavesNodeNameEmptyIfNodeIsUnknown(t *testing
 			},
 		}, nil)
 
-	resp, err := h.GetServiceRealtime(context.Background(), generated.GetServiceRealtimeParams{
-		Stack:   "payments",
-		Service: "api",
+	resp, err := h.ListSwarmServiceTasks(context.Background(), generated.ListSwarmServiceTasksParams{
+		ServiceIDOrName: "payments_api",
 	})
 	require.NoError(t, err)
 	require.Len(t, resp.Tasks, 1)
@@ -196,7 +204,7 @@ func TestFilterServiceRealtimeTasks(t *testing.T) {
 	}
 }
 
-func TestHandlerGetServiceRealtime_NotFound(t *testing.T) {
+func TestHandlerListSwarmServiceTasks_NotFound(t *testing.T) {
 	t.Parallel()
 
 	ctrl := gomock.NewController(t)
@@ -206,16 +214,33 @@ func TestHandlerGetServiceRealtime_NotFound(t *testing.T) {
 	}
 
 	serviceInspector.EXPECT().
-		ListTasks(gomock.Any(), swarm.NewServiceReference("payments", "api")).
+		ListTasks(gomock.Any(), swarm.NewServiceReference("payments", "api").Name()).
 		Return(nil, swarm.ErrServiceNotFound)
 
-	_, err := h.GetServiceRealtime(context.Background(), generated.GetServiceRealtimeParams{
-		Stack:   "payments",
-		Service: "api",
+	_, err := h.ListSwarmServiceTasks(context.Background(), generated.ListSwarmServiceTasksParams{
+		ServiceIDOrName: "payments_api",
 	})
 	require.Error(t, err)
 
 	var statusErr *statusError
 	require.True(t, errors.As(err, &statusErr))
 	assert.Equal(t, 404, statusErr.code)
+}
+
+func TestHandlerListSwarmServiceTasks_DockerError(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	serviceInspector := swarm.NewMockServiceManager(ctrl)
+	h := &handler{serviceInspector: serviceInspector}
+	serviceInspector.EXPECT().ListTasks(gomock.Any(), "payments_api").Return(nil, assert.AnError)
+
+	_, err := h.ListSwarmServiceTasks(context.Background(), generated.ListSwarmServiceTasksParams{
+		ServiceIDOrName: "payments_api",
+	})
+	require.Error(t, err)
+
+	var statusErr *statusError
+	require.ErrorAs(t, err, &statusErr)
+	assert.Equal(t, 500, statusErr.code)
 }

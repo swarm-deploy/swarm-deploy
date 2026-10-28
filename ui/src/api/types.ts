@@ -239,11 +239,15 @@ export interface ServiceStatusResponse {
 
 export interface ServiceRealtimeTask {
   id: string;
+  slot: number;
   node: string;
   node_name?: string;
+  desired_state: string;
   created_at?: string;
   updated_at?: string;
   current_state: string;
+  container_id: string;
+  exit_code?: number;
   error?: string;
 }
 
