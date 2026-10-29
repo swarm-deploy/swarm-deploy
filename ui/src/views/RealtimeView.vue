@@ -559,11 +559,12 @@ onUnmounted(() => {
   .realtime-tasks-row { display: block; }
   .realtime-tasks-row > td { display: block; }
   .realtime-tasks-container { padding: 10px 12px 14px; }
-  .realtime-tasks-container :deep(.app-table-wrap) { overflow: visible; }
+  .realtime-tasks-container :deep(.app-table-wrap) { overflow: visible; border: 0; border-radius: 0; background: transparent; }
   .realtime-tasks-container :deep(.realtime-tasks-table) { display: block; min-width: 0 !important; }
   .realtime-tasks-container :deep(.realtime-tasks-table thead) { display: none; }
   .realtime-tasks-container :deep(.realtime-tasks-table tbody) { display: grid; gap: 8px; padding: 0; }
-  .realtime-tasks-container :deep(.realtime-task-row) { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 12px; border: 1px solid var(--border-subtle); border-radius: 7px; padding: 10px; }
+  .realtime-tasks-container :deep(.realtime-task-row) { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 12px; border: 1px solid var(--border-subtle); border-radius: 7px; background: var(--surface-card-soft); padding: 10px; }
+  .realtime-tasks-container :deep(.realtime-task-row--selected) { background: var(--surface-selected); }
   .realtime-tasks-container :deep(.realtime-task-row > td) { display: flex; min-width: 0; height: auto; padding: 0; border: 0; }
   .realtime-tasks-container :deep(.realtime-task-row > td:nth-child(1)) { grid-column: 1; grid-row: 1; }
   .realtime-tasks-container :deep(.realtime-task-row > td:nth-child(2)) { grid-column: 1; grid-row: 2; color: var(--muted); }
