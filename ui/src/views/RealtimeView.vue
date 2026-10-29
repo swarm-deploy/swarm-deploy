@@ -476,7 +476,7 @@ onUnmounted(() => {
 .realtime-search input:focus-visible, .realtime-filter-field select:focus-visible, .realtime-stack-filter > summary:focus-visible, .realtime-page button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
 .realtime-workspace { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
 .realtime-workspace--details { grid-template-columns: minmax(0, 1fr) minmax(360px, 410px); }
-.realtime-services-panel { min-width: 0; overflow: hidden; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface-card-soft); }
+.realtime-services-panel { min-width: 0; }
 .realtime-services-panel :deep(.app-table-wrap) { min-width: 0; }
 .realtime-services-panel :deep(.app-table th) { height: 44px; padding-inline: 14px; }
 .realtime-services-panel :deep(.app-table td) { height: 52px; padding-inline: 14px; }
@@ -542,7 +542,6 @@ onUnmounted(() => {
   .realtime-page { gap: 12px; }
   .realtime-filters { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding: 10px; }
   .realtime-search, .realtime-result-count { grid-column: 1 / -1; }
-  .realtime-services-panel { border-radius: 8px; }
   .realtime-services-panel :deep(.app-table-wrap) { overflow: visible; }
   .realtime-services-panel :deep(.realtime-services-table) { display: block; min-width: 0 !important; }
   .realtime-services-panel :deep(.realtime-services-table colgroup), .realtime-services-panel :deep(.realtime-services-table > thead) { display: none; }
