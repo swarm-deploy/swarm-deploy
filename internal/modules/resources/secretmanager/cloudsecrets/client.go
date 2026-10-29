@@ -13,6 +13,7 @@ import (
 
 const (
 	getInfoTimeout = 3 * time.Second
+	createTimeout  = 30 * time.Second
 	syncTimeout    = 5 * time.Minute
 )
 
@@ -50,10 +51,30 @@ type SyncResult struct {
 	Unchanged uint32
 }
 
+// CreateRequest describes one secret payload to create in the configured provider.
+type CreateRequest struct {
+	// Path is the provider-specific logical secret path.
+	Path string
+	// Value is the literal UTF-8 secret payload.
+	Value []byte
+	// Key is the Vault KV v2 document key and is empty for Cloud.ru.
+	Key string
+	// Description is optional for Cloud.ru and empty for Vault KV v2.
+	Description string
+}
+
+// CreateResult describes the normalized path returned by cloud-secrets.
+type CreateResult struct {
+	// Path is the normalized provider path.
+	Path string
+}
+
 // Controller controls one cloud-secrets instance.
 type Controller interface {
 	// GetInfo reads version, provider, and last synchronization information.
 	GetInfo(ctx context.Context) (Info, error)
+	// Create creates one secret in the configured external provider without synchronizing.
+	Create(ctx context.Context, req CreateRequest) (CreateResult, error)
 	// Sync triggers the normal cloud-secrets synchronization flow.
 	Sync(ctx context.Context) (SyncResult, error)
 	// Close releases client resources.
@@ -75,9 +96,19 @@ type controllerAPI interface {
 	) (*cloudsecretspb.SyncResponse, error)
 }
 
+type secretsAPI interface {
+	// Create invokes the cloud-secrets Secrets Create RPC.
+	Create(
+		ctx context.Context,
+		in *cloudsecretspb.CreateSecretRequest,
+		opts ...grpc.CallOption,
+	) (*cloudsecretspb.CreateSecretResponse, error)
+}
+
 // Client is a gRPC cloud-secrets controller client.
 type Client struct {
-	api        controllerAPI
+	controller controllerAPI
+	secrets    secretsAPI
 	connection *grpc.ClientConn
 }
 
@@ -89,7 +120,8 @@ func NewClient(address string) (Controller, error) {
 	}
 
 	return &Client{
-		api:        cloudsecretspb.NewControllerClient(connection),
+		controller: cloudsecretspb.NewControllerClient(connection),
+		secrets:    cloudsecretspb.NewSecretsClient(connection),
 		connection: connection,
 	}, nil
 }
@@ -99,7 +131,7 @@ func (c *Client) GetInfo(ctx context.Context) (Info, error) {
 	requestContext, cancel := context.WithTimeout(ctx, getInfoTimeout)
 	defer cancel()
 
-	response, err := c.api.GetInfo(requestContext, &cloudsecretspb.GetInfoRequest{})
+	response, err := c.controller.GetInfo(requestContext, &cloudsecretspb.GetInfoRequest{})
 	if err != nil {
 		return Info{}, err
 	}
@@ -123,12 +155,30 @@ func (c *Client) GetInfo(ctx context.Context) (Info, error) {
 	return info, nil
 }
 
+// Create creates a secret in the external provider without triggering synchronization.
+func (c *Client) Create(ctx context.Context, req CreateRequest) (CreateResult, error) {
+	requestContext, cancel := context.WithTimeout(ctx, createTimeout)
+	defer cancel()
+
+	response, err := c.secrets.Create(requestContext, &cloudsecretspb.CreateSecretRequest{
+		Path:        req.Path,
+		Value:       req.Value,
+		Key:         req.Key,
+		Description: req.Description,
+	})
+	if err != nil {
+		return CreateResult{}, err
+	}
+
+	return CreateResult{Path: response.GetPath()}, nil
+}
+
 // Sync triggers cloud-secrets synchronization.
 func (c *Client) Sync(ctx context.Context) (SyncResult, error) {
 	requestContext, cancel := context.WithTimeout(ctx, syncTimeout)
 	defer cancel()
 
-	response, err := c.api.Sync(requestContext, &cloudsecretspb.SyncRequest{})
+	response, err := c.controller.Sync(requestContext, &cloudsecretspb.SyncRequest{})
 	if err != nil {
 		return SyncResult{}, err
 	}

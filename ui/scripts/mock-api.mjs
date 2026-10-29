@@ -179,7 +179,110 @@ function taskDetails(task) {
 const allTasks = Object.values(tasksByService).flat();
 const uniqueTasks = new Map(allTasks.map((task) => [task.id, task]));
 
+const mockSecrets = [
+  {
+    id: "secret-mock-database-password",
+    name: "platform-database-password",
+    description: "Database credential managed by the platform team",
+    version_id: 7,
+    created_at: "2026-10-27T16:20:00Z",
+    external: { path: "production/platform/database/password", version_id: "42" },
+    used_by: [{ stack: "platform", service: "web-api", target: "db_password" }],
+  },
+  {
+    id: "secret-mock-signing-certificate",
+    name: "edge-signing-certificate",
+    description: "Synthetic certificate fixture",
+    version_id: 3,
+    created_at: "2026-10-25T11:45:00Z",
+    used_by: [{ stack: "edge", service: "gateway", target: "signing_certificate" }],
+  },
+  {
+    id: "secret-mock-worker-token",
+    name: "events-worker-token",
+    description: "External worker token",
+    version_id: 11,
+    created_at: "2026-10-23T09:10:00Z",
+    external: { path: "production/workers/events/token", version_id: "8" },
+    used_by: [{ stack: "platform", service: "events-worker", target: "worker_token" }],
+  },
+];
+
+const mockSecretManagers = [
+  {
+    stack: "security-vault",
+    service: "vault-cloud-secrets",
+    kind: "cloud-secrets",
+    controllable: true,
+    available: true,
+    version: "v0.5.2-pr18",
+    provider: {
+      name: "HashiCorp Vault",
+      links: { doc: "https://developer.hashicorp.com/vault/docs" },
+    },
+    last_sync_at: "2026-10-29T21:45:00Z",
+    next_sync_at: "2026-10-29T22:00:00Z",
+  },
+  {
+    stack: "security-cloudru",
+    service: "cloudru-cloud-secrets",
+    kind: "cloud-secrets",
+    controllable: true,
+    available: true,
+    version: "v0.5.2-pr18",
+    provider: {
+      name: "Cloud.ru Secret Manager",
+      links: {
+        doc: "https://cloud.ru/docs/scsm/ug/index",
+        manager: "https://console.cloud.ru/spa/secret-manager/list?projectId=fictional-project",
+      },
+    },
+    last_sync_at: "2026-10-29T21:40:00Z",
+    next_sync_at: "2026-10-29T21:55:00Z",
+  },
+];
+
+const failNextSecretManagerSync = new Set();
+
 app.get("/api/v1/swarm/services", (context) => context.json({ services: swarmServices }));
+
+app.get("/api/v1/secrets", (context) => context.json({ secrets: mockSecrets }));
+
+app.post("/api/v1/secrets", async (context) => {
+  const request = await context.req.json();
+  if (request.name === "duplicate-secret") {
+    return context.json({ error_message: "a Docker secret with this name already exists" }, 409);
+  }
+  if (request.name === "creation-error") {
+    return context.json({ error_message: "unable to create Docker secret" }, 500);
+  }
+  return context.json({ id: `secret-created-${request.name}`, name: request.name });
+});
+
+app.get("/api/v1/secret-managers", (context) => context.json({ secret_managers: mockSecretManagers }));
+
+app.post("/api/v1/secret-managers/:stack/:service/secrets", async (context) => {
+  const request = await context.req.json();
+  if (request.path === "duplicate/secret") {
+    return context.json({ error_message: "secret already exists" }, 409);
+  }
+  if (request.path === "creation/error") {
+    return context.json({ error_message: "external secret creation failed" }, 502);
+  }
+  const managerKey = `${context.req.param("stack")}/${context.req.param("service")}`;
+  if (request.path === "sync/failure/demo") {
+    failNextSecretManagerSync.add(managerKey);
+  }
+  return context.json({ path: String(request.path).trim().replace(/^\/+|\/+$/g, "") });
+});
+
+app.post("/api/v1/secret-managers/:stack/:service/sync", (context) => {
+  const managerKey = `${context.req.param("stack")}/${context.req.param("service")}`;
+  if (failNextSecretManagerSync.delete(managerKey)) {
+    return context.json({ error_message: "synchronization failed in deterministic mock scenario" }, 503);
+  }
+  return context.json({ created: 1, updated: 0, removed: 0, unchanged: 2 });
+});
 
 app.get("/api/v1/swarm/services/:service/tasks", (context) => {
   const tasks = tasksByService[context.req.param("service")] || [];

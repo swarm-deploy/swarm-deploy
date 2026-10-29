@@ -17,6 +17,14 @@ type Handler interface {
 	//
 	// POST /api/v1/assistant/chat
 	AssistantChat(ctx context.Context, req *AssistantChatRequest) (*AssistantChatResponse, error)
+	// CreateExternalSecret implements createExternalSecret operation.
+	//
+	// POST /api/v1/secret-managers/{stack}/{service}/secrets
+	CreateExternalSecret(ctx context.Context, req *CreateExternalSecretRequest, params CreateExternalSecretParams) (*CreateExternalSecretResponse, error)
+	// CreateSecret implements createSecret operation.
+	//
+	// POST /api/v1/secrets
+	CreateSecret(ctx context.Context, req *CreateSecretRequest) (*CreateSecretResponse, error)
 	// DeleteNodeLabel implements deleteNodeLabel operation.
 	//
 	// DELETE /api/v1/nodes/{id}/labels/{key}

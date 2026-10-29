@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretmanager/cloudsecrets"
 )
@@ -13,6 +14,12 @@ var (
 	ErrNotFound = errors.New("secret manager not found")
 	// ErrNotControllable means that the requested Secret Manager has no supported controller endpoint.
 	ErrNotControllable = errors.New("secret manager is not controllable")
+	// ErrUnavailable means that the selected Secret Manager controller cannot be reached.
+	ErrUnavailable = errors.New("secret manager is unavailable")
+	// ErrUnsupportedProvider means that the selected cloud-secrets provider cannot create secrets through this API.
+	ErrUnsupportedProvider = errors.New("secret manager provider is unsupported")
+	// ErrInvalidCreateRequest means that the request does not match the selected provider contract.
+	ErrInvalidCreateRequest = errors.New("invalid external secret creation request")
 )
 
 type cloudSecretsClientFactory func(address string) (cloudsecrets.Controller, error)
@@ -124,4 +131,70 @@ func (s *Service) Sync(ctx context.Context, stack string, service string) (SyncR
 		Removed:   result.Removed,
 		Unchanged: result.Unchanged,
 	}, nil
+}
+
+// Create creates one secret in a discovered cloud-secrets provider without synchronizing it.
+func (s *Service) Create(
+	ctx context.Context,
+	stack string,
+	service string,
+	req CreateRequest,
+) (CreateResult, error) {
+	resolvedTarget, ok, resolveErr := s.resolver.find(ctx, stack, service)
+	if resolveErr != nil {
+		return CreateResult{}, resolveErr
+	}
+	if !ok {
+		return CreateResult{}, ErrNotFound
+	}
+	if !resolvedTarget.controllable || resolvedTarget.kind != cloudSecretsKind {
+		return CreateResult{}, ErrNotControllable
+	}
+	if resolvedTarget.discoveryError != nil {
+		return CreateResult{}, fmt.Errorf("%w: discover controller: %v", ErrUnavailable, resolvedTarget.discoveryError)
+	}
+	if strings.TrimSpace(req.Path) == "" {
+		return CreateResult{}, fmt.Errorf("%w: path is required", ErrInvalidCreateRequest)
+	}
+	if len(req.Value) == 0 {
+		return CreateResult{}, fmt.Errorf("%w: value is required", ErrInvalidCreateRequest)
+	}
+
+	controller, err := s.newCloudSecretsController(resolvedTarget.address)
+	if err != nil {
+		return CreateResult{}, fmt.Errorf("%w: create controller client: %v", ErrUnavailable, err)
+	}
+	defer controller.Close()
+
+	info, err := controller.GetInfo(ctx)
+	if err != nil {
+		return CreateResult{}, fmt.Errorf("%w: get controller info: %v", ErrUnavailable, err)
+	}
+	switch info.ProviderName {
+	case providerHashiCorpVault:
+		if strings.TrimSpace(req.Key) == "" {
+			return CreateResult{}, fmt.Errorf("%w: key is required for Vault KV v2", ErrInvalidCreateRequest)
+		}
+		if req.Description != "" {
+			return CreateResult{}, fmt.Errorf("%w: description is not supported by Vault KV v2", ErrInvalidCreateRequest)
+		}
+	case providerCloudRu:
+		if strings.TrimSpace(req.Key) != "" {
+			return CreateResult{}, fmt.Errorf("%w: key must be empty for Cloud.ru", ErrInvalidCreateRequest)
+		}
+	default:
+		return CreateResult{}, fmt.Errorf("%w: %q", ErrUnsupportedProvider, info.ProviderName)
+	}
+
+	result, err := controller.Create(ctx, cloudsecrets.CreateRequest{
+		Path:        req.Path,
+		Value:       req.Value,
+		Key:         req.Key,
+		Description: req.Description,
+	})
+	if err != nil {
+		return CreateResult{}, fmt.Errorf("create cloud-secrets secret: %w", err)
+	}
+
+	return CreateResult{Path: result.Path}, nil
 }

@@ -8,6 +8,8 @@ type OperationName = string
 const (
 	AddNodeLabelOperation               OperationName = "AddNodeLabel"
 	AssistantChatOperation              OperationName = "AssistantChat"
+	CreateExternalSecretOperation       OperationName = "CreateExternalSecret"
+	CreateSecretOperation               OperationName = "CreateSecret"
 	DeleteNodeLabelOperation            OperationName = "DeleteNodeLabel"
 	GetAlertOperation                   OperationName = "GetAlert"
 	GetAssistantChatOperation           OperationName = "GetAssistantChat"

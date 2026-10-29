@@ -980,6 +980,132 @@ func (s *AssistantTokenUsage) SetTotalTokens(val int64) {
 	s.TotalTokens = val
 }
 
+// Ref: #/components/schemas/CreateExternalSecretRequest
+type CreateExternalSecretRequest struct {
+	Path        string    `json:"path"`
+	Key         OptString `json:"key"`
+	Value       string    `json:"value"`
+	Description OptString `json:"description"`
+}
+
+// GetPath returns the value of Path.
+func (s *CreateExternalSecretRequest) GetPath() string {
+	return s.Path
+}
+
+// GetKey returns the value of Key.
+func (s *CreateExternalSecretRequest) GetKey() OptString {
+	return s.Key
+}
+
+// GetValue returns the value of Value.
+func (s *CreateExternalSecretRequest) GetValue() string {
+	return s.Value
+}
+
+// GetDescription returns the value of Description.
+func (s *CreateExternalSecretRequest) GetDescription() OptString {
+	return s.Description
+}
+
+// SetPath sets the value of Path.
+func (s *CreateExternalSecretRequest) SetPath(val string) {
+	s.Path = val
+}
+
+// SetKey sets the value of Key.
+func (s *CreateExternalSecretRequest) SetKey(val OptString) {
+	s.Key = val
+}
+
+// SetValue sets the value of Value.
+func (s *CreateExternalSecretRequest) SetValue(val string) {
+	s.Value = val
+}
+
+// SetDescription sets the value of Description.
+func (s *CreateExternalSecretRequest) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// Ref: #/components/schemas/CreateExternalSecretResponse
+type CreateExternalSecretResponse struct {
+	Path string `json:"path"`
+}
+
+// GetPath returns the value of Path.
+func (s *CreateExternalSecretResponse) GetPath() string {
+	return s.Path
+}
+
+// SetPath sets the value of Path.
+func (s *CreateExternalSecretResponse) SetPath(val string) {
+	s.Path = val
+}
+
+// Ref: #/components/schemas/CreateSecretRequest
+type CreateSecretRequest struct {
+	Name        string    `json:"name"`
+	Value       string    `json:"value"`
+	Description OptString `json:"description"`
+}
+
+// GetName returns the value of Name.
+func (s *CreateSecretRequest) GetName() string {
+	return s.Name
+}
+
+// GetValue returns the value of Value.
+func (s *CreateSecretRequest) GetValue() string {
+	return s.Value
+}
+
+// GetDescription returns the value of Description.
+func (s *CreateSecretRequest) GetDescription() OptString {
+	return s.Description
+}
+
+// SetName sets the value of Name.
+func (s *CreateSecretRequest) SetName(val string) {
+	s.Name = val
+}
+
+// SetValue sets the value of Value.
+func (s *CreateSecretRequest) SetValue(val string) {
+	s.Value = val
+}
+
+// SetDescription sets the value of Description.
+func (s *CreateSecretRequest) SetDescription(val OptString) {
+	s.Description = val
+}
+
+// Ref: #/components/schemas/CreateSecretResponse
+type CreateSecretResponse struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// GetID returns the value of ID.
+func (s *CreateSecretResponse) GetID() string {
+	return s.ID
+}
+
+// GetName returns the value of Name.
+func (s *CreateSecretResponse) GetName() string {
+	return s.Name
+}
+
+// SetID sets the value of ID.
+func (s *CreateSecretResponse) SetID(val string) {
+	s.ID = val
+}
+
+// SetName sets the value of Name.
+func (s *CreateSecretResponse) SetName(val string) {
+	s.Name = val
+}
+
 // Ref: #/components/schemas/CurrentUserResponse
 type CurrentUserResponse struct {
 	Name string `json:"name"`

@@ -1,5 +1,9 @@
 import { apiRequest } from "./client";
 import type {
+  CreateExternalSecretRequest,
+  CreateExternalSecretResponse,
+  CreateSecretRequest,
+  CreateSecretResponse,
   SecretDetailsResponse,
   SecretManagerSyncResponse,
   SecretManagersResponse,
@@ -8,6 +12,14 @@ import type {
 
 export function fetchSecrets(): Promise<SecretsResponse> {
   return apiRequest<SecretsResponse>("/api/v1/secrets");
+}
+
+export function createSecret(request: CreateSecretRequest): Promise<CreateSecretResponse> {
+  return apiRequest<CreateSecretResponse>("/api/v1/secrets", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(request),
+  });
 }
 
 export function fetchSecretByName(name: string): Promise<SecretDetailsResponse> {
@@ -25,5 +37,22 @@ export function syncSecretManager(stack: string, service: string): Promise<Secre
   return apiRequest<SecretManagerSyncResponse>(
     `/api/v1/secret-managers/${encodedStack}/${encodedService}/sync`,
     { method: "POST" },
+  );
+}
+
+export function createExternalSecret(
+  stack: string,
+  service: string,
+  request: CreateExternalSecretRequest,
+): Promise<CreateExternalSecretResponse> {
+  const encodedStack = encodeURIComponent(stack);
+  const encodedService = encodeURIComponent(service);
+  return apiRequest<CreateExternalSecretResponse>(
+    `/api/v1/secret-managers/${encodedStack}/${encodedService}/secrets`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(request),
+    },
   );
 }

@@ -2,7 +2,11 @@ package secretmanager
 
 import "time"
 
-const cloudSecretsKind = "cloud-secrets"
+const (
+	cloudSecretsKind       = "cloud-secrets"
+	providerHashiCorpVault = "HashiCorp Vault"
+	providerCloudRu        = "Cloud.ru Secret Manager"
+)
 
 // Provider describes the external secret provider used by a Secret Manager.
 type Provider struct {
@@ -54,4 +58,22 @@ type SyncResult struct {
 	Removed uint32
 	// Unchanged is the number of unchanged logical secrets.
 	Unchanged uint32
+}
+
+// CreateRequest describes a secret to create in a discovered external provider.
+type CreateRequest struct {
+	// Path is the provider-specific logical secret path.
+	Path string
+	// Key is required for Vault KV v2 and empty for Cloud.ru.
+	Key string
+	// Value is the literal UTF-8 secret payload.
+	Value []byte
+	// Description is optional for Cloud.ru and empty for Vault KV v2.
+	Description string
+}
+
+// CreateResult contains the normalized provider path returned by cloud-secrets.
+type CreateResult struct {
+	// Path is the normalized provider path.
+	Path string
 }

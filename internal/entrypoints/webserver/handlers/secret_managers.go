@@ -7,6 +7,8 @@ import (
 
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretmanager"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // ListSecretManagers returns discovered Secret Managers and controller availability.
@@ -49,6 +51,49 @@ func (h *handler) ListSecretManagers(ctx context.Context) (*generated.SecretMana
 	return &generated.SecretManagersResponse{SecretManagers: mapped}, nil
 }
 
+// CreateExternalSecret creates a secret in the selected external provider without synchronizing it.
+func (h *handler) CreateExternalSecret(
+	ctx context.Context,
+	req *generated.CreateExternalSecretRequest,
+	params generated.CreateExternalSecretParams,
+) (*generated.CreateExternalSecretResponse, error) {
+	key, _ := req.Key.Get()
+	description, _ := req.Description.Get()
+	result, err := h.secretManagers.Create(ctx, params.Stack, params.Service, secretmanager.CreateRequest{
+		Path:        req.Path,
+		Key:         key,
+		Value:       []byte(req.Value),
+		Description: description,
+	})
+	if err != nil {
+		return nil, externalSecretCreateError(err)
+	}
+
+	return &generated.CreateExternalSecretResponse{Path: result.Path}, nil
+}
+
+func externalSecretCreateError(err error) error {
+	switch {
+	case errors.Is(err, secretmanager.ErrNotFound):
+		return withStatusError(http.StatusNotFound, err)
+	case errors.Is(err, secretmanager.ErrNotControllable):
+		return withStatusError(http.StatusConflict, err)
+	case errors.Is(err, secretmanager.ErrInvalidCreateRequest),
+		errors.Is(err, secretmanager.ErrUnsupportedProvider),
+		status.Code(err) == codes.InvalidArgument,
+		status.Code(err) == codes.FailedPrecondition:
+		return withStatusError(http.StatusBadRequest, err)
+	case status.Code(err) == codes.AlreadyExists, status.Code(err) == codes.Aborted:
+		return withStatusError(http.StatusConflict, err)
+	case status.Code(err) == codes.DeadlineExceeded:
+		return withStatusError(http.StatusGatewayTimeout, err)
+	case errors.Is(err, secretmanager.ErrUnavailable), status.Code(err) == codes.Unavailable:
+		return withStatusError(http.StatusServiceUnavailable, err)
+	default:
+		return withStatusError(http.StatusBadGateway, err)
+	}
+}
+
 // SyncSecretManager triggers a manual Secret Manager synchronization.
 func (h *handler) SyncSecretManager(
 	ctx context.Context,
@@ -56,14 +101,7 @@ func (h *handler) SyncSecretManager(
 ) (*generated.SecretManagerSyncResponse, error) {
 	result, err := h.secretManagers.Sync(ctx, params.Stack, params.Service)
 	if err != nil {
-		switch {
-		case errors.Is(err, secretmanager.ErrNotFound):
-			return nil, withStatusError(http.StatusNotFound, err)
-		case errors.Is(err, secretmanager.ErrNotControllable):
-			return nil, withStatusError(http.StatusConflict, err)
-		default:
-			return nil, withStatusError(http.StatusServiceUnavailable, err)
-		}
+		return nil, secretManagerSyncError(err)
 	}
 
 	return &generated.SecretManagerSyncResponse{
@@ -72,4 +110,17 @@ func (h *handler) SyncSecretManager(
 		Removed:   int64(result.Removed),
 		Unchanged: int64(result.Unchanged),
 	}, nil
+}
+
+func secretManagerSyncError(err error) error {
+	switch {
+	case errors.Is(err, secretmanager.ErrNotFound):
+		return withStatusError(http.StatusNotFound, err)
+	case errors.Is(err, secretmanager.ErrNotControllable), status.Code(err) == codes.Aborted:
+		return withStatusError(http.StatusConflict, err)
+	case status.Code(err) == codes.DeadlineExceeded:
+		return withStatusError(http.StatusGatewayTimeout, err)
+	default:
+		return withStatusError(http.StatusServiceUnavailable, err)
+	}
 }

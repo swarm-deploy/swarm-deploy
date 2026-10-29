@@ -17,8 +17,14 @@ var (
 	rn3AllowedHeaders = map[string]string{
 		"POST": "Content-Type",
 	}
-	rn7AllowedHeaders = map[string]string{
+	rn14AllowedHeaders = map[string]string{
 		"PUT": "Content-Type",
+	}
+	rn10AllowedHeaders = map[string]string{
+		"POST": "Content-Type",
+	}
+	rn12AllowedHeaders = map[string]string{
+		"POST": "Content-Type",
 	}
 )
 
@@ -760,7 +766,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 										default:
 											s.notAllowed(w, r, notAllowedParams{
 												allowedMethods: "DELETE,PUT",
-												allowedHeaders: rn7AllowedHeaders,
+												allowedHeaders: rn14AllowedHeaders,
 												acceptPost:     "",
 												acceptPatch:    "",
 											})
@@ -929,32 +935,74 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 											break
 										}
 										switch elem[0] {
-										case '/': // Prefix: "/sync"
+										case '/': // Prefix: "/s"
 
-											if l := len("/sync"); len(elem) >= l && elem[0:l] == "/sync" {
+											if l := len("/s"); len(elem) >= l && elem[0:l] == "/s" {
 												elem = elem[l:]
 											} else {
 												break
 											}
 
 											if len(elem) == 0 {
-												// Leaf node.
-												switch r.Method {
-												case "POST":
-													s.handleSyncSecretManagerRequest([2]string{
-														args[0],
-														args[1],
-													}, elemIsEscaped, w, r)
-												default:
-													s.notAllowed(w, r, notAllowedParams{
-														allowedMethods: "POST",
-														allowedHeaders: nil,
-														acceptPost:     "",
-														acceptPatch:    "",
-													})
+												break
+											}
+											switch elem[0] {
+											case 'e': // Prefix: "ecrets"
+
+												if l := len("ecrets"); len(elem) >= l && elem[0:l] == "ecrets" {
+													elem = elem[l:]
+												} else {
+													break
 												}
 
-												return
+												if len(elem) == 0 {
+													// Leaf node.
+													switch r.Method {
+													case "POST":
+														s.handleCreateExternalSecretRequest([2]string{
+															args[0],
+															args[1],
+														}, elemIsEscaped, w, r)
+													default:
+														s.notAllowed(w, r, notAllowedParams{
+															allowedMethods: "POST",
+															allowedHeaders: rn10AllowedHeaders,
+															acceptPost:     "application/json",
+															acceptPatch:    "",
+														})
+													}
+
+													return
+												}
+
+											case 'y': // Prefix: "ync"
+
+												if l := len("ync"); len(elem) >= l && elem[0:l] == "ync" {
+													elem = elem[l:]
+												} else {
+													break
+												}
+
+												if len(elem) == 0 {
+													// Leaf node.
+													switch r.Method {
+													case "POST":
+														s.handleSyncSecretManagerRequest([2]string{
+															args[0],
+															args[1],
+														}, elemIsEscaped, w, r)
+													default:
+														s.notAllowed(w, r, notAllowedParams{
+															allowedMethods: "POST",
+															allowedHeaders: nil,
+															acceptPost:     "",
+															acceptPatch:    "",
+														})
+													}
+
+													return
+												}
+
 											}
 
 										}
@@ -975,11 +1023,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 									switch r.Method {
 									case "GET":
 										s.handleListSecretsRequest([0]string{}, elemIsEscaped, w, r)
+									case "POST":
+										s.handleCreateSecretRequest([0]string{}, elemIsEscaped, w, r)
 									default:
 										s.notAllowed(w, r, notAllowedParams{
-											allowedMethods: "GET",
-											allowedHeaders: nil,
-											acceptPost:     "",
+											allowedMethods: "GET,POST",
+											allowedHeaders: rn12AllowedHeaders,
+											acceptPost:     "application/json",
 											acceptPatch:    "",
 										})
 									}
@@ -2385,29 +2435,68 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 											break
 										}
 										switch elem[0] {
-										case '/': // Prefix: "/sync"
+										case '/': // Prefix: "/s"
 
-											if l := len("/sync"); len(elem) >= l && elem[0:l] == "/sync" {
+											if l := len("/s"); len(elem) >= l && elem[0:l] == "/s" {
 												elem = elem[l:]
 											} else {
 												break
 											}
 
 											if len(elem) == 0 {
-												// Leaf node.
-												switch method {
-												case "POST":
-													r.name = SyncSecretManagerOperation
-													r.summary = ""
-													r.operationID = "syncSecretManager"
-													r.operationGroup = ""
-													r.pathPattern = "/api/v1/secret-managers/{stack}/{service}/sync"
-													r.args = args
-													r.count = 2
-													return r, true
-												default:
-													return
+												break
+											}
+											switch elem[0] {
+											case 'e': // Prefix: "ecrets"
+
+												if l := len("ecrets"); len(elem) >= l && elem[0:l] == "ecrets" {
+													elem = elem[l:]
+												} else {
+													break
 												}
+
+												if len(elem) == 0 {
+													// Leaf node.
+													switch method {
+													case "POST":
+														r.name = CreateExternalSecretOperation
+														r.summary = ""
+														r.operationID = "createExternalSecret"
+														r.operationGroup = ""
+														r.pathPattern = "/api/v1/secret-managers/{stack}/{service}/secrets"
+														r.args = args
+														r.count = 2
+														return r, true
+													default:
+														return
+													}
+												}
+
+											case 'y': // Prefix: "ync"
+
+												if l := len("ync"); len(elem) >= l && elem[0:l] == "ync" {
+													elem = elem[l:]
+												} else {
+													break
+												}
+
+												if len(elem) == 0 {
+													// Leaf node.
+													switch method {
+													case "POST":
+														r.name = SyncSecretManagerOperation
+														r.summary = ""
+														r.operationID = "syncSecretManager"
+														r.operationGroup = ""
+														r.pathPattern = "/api/v1/secret-managers/{stack}/{service}/sync"
+														r.args = args
+														r.count = 2
+														return r, true
+													default:
+														return
+													}
+												}
+
 											}
 
 										}
@@ -2430,6 +2519,15 @@ func (s *Server) FindPath(method string, u *url.URL) (r Route, _ bool) {
 										r.name = ListSecretsOperation
 										r.summary = ""
 										r.operationID = "listSecrets"
+										r.operationGroup = ""
+										r.pathPattern = "/api/v1/secrets"
+										r.args = args
+										r.count = 0
+										return r, true
+									case "POST":
+										r.name = CreateSecretOperation
+										r.summary = ""
+										r.operationID = "createSecret"
 										r.operationGroup = ""
 										r.pathPattern = "/api/v1/secrets"
 										r.args = args

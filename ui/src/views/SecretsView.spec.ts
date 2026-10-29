@@ -9,6 +9,8 @@ import SecretsView from "./SecretsView.vue";
 vi.mock("../api/secrets", () => ({
   fetchSecrets: vi.fn(),
   fetchSecretManagers: vi.fn(),
+  createSecret: vi.fn(),
+  createExternalSecret: vi.fn(),
   syncSecretManager: vi.fn(),
 }));
 
