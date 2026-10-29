@@ -7,6 +7,7 @@ import type { EventCategory, EventFilterOptions, EventFilterService, EventHistor
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import AppPagination from "../components/common/AppPagination.vue";
+import SidebarIcon from "../components/layout/SidebarIcon.vue";
 import { eventTypeDescriptions, eventTypeMetadata, type EventTypeMetadata } from "../utils/eventMetadata";
 import { formatDate } from "../utils/format";
 
@@ -451,9 +452,11 @@ onBeforeUnmount(() => {
         :class="{ 'events-filter-bar--open': mobileFiltersOpen }"
       >
         <div class="events-filter-field">
-          <span>Type</span>
           <details class="events-type-filter events-filter-dropdown">
             <summary aria-label="Filter events by type">
+              <svg class="events-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
+                <path d="M3.5 5h13l-5 5.7v4.1l-3 1.5v-5.6L3.5 5Z" />
+              </svg>
               <span class="events-type-filter-selection">
                 <span
                   v-for="label in selectedTypeSummary"
@@ -489,16 +492,21 @@ onBeforeUnmount(() => {
           </details>
         </div>
 
-        <label class="events-filter-field">
-          <span>Severity</span>
+        <label class="events-filter-field events-filter-field--select">
+          <svg class="events-filter-icon events-severity-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M5 12.5v2.5M10 9v6M15 5v10" />
+          </svg>
           <select v-model="selectedSeverity" aria-label="Filter events by severity">
             <option value="">All severities</option>
             <option v-for="severity in severityOptions" :key="severity" :value="severity">{{ severityLabels[severity] }}</option>
           </select>
         </label>
 
-        <label class="events-filter-field">
-          <span>Category</span>
+        <label class="events-filter-field events-filter-field--select">
+          <svg class="events-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M3.5 4.5v5.3l6.7 6.7 6.3-6.3-6.7-6.7H4.5a1 1 0 0 0-1 1Z" />
+            <circle cx="7" cy="7" r="1" />
+          </svg>
           <select v-model="selectedCategory" aria-label="Filter events by category">
             <option value="">All categories</option>
             <option v-for="category in categoryOptions" :key="category" :value="category">
@@ -508,11 +516,11 @@ onBeforeUnmount(() => {
         </label>
 
         <div class="events-filter-field">
-          <span>Stack</span>
           <details ref="stackFilter" class="events-search-filter events-filter-dropdown">
             <summary aria-label="Filter events by stack">
-              <span :class="{ 'events-filter-placeholder': !selectedStack }">{{ selectedStack || "All stacks" }}</span>
-              <span aria-hidden="true">⌄</span>
+              <SidebarIcon class="events-filter-icon" name="services" />
+              <span class="events-filter-selection" :class="{ 'events-filter-placeholder': !selectedStack }">{{ selectedStack || "All stacks" }}</span>
+              <span class="events-filter-chevron" aria-hidden="true">⌄</span>
             </summary>
             <div class="events-search-filter-menu">
               <input v-model="stackSearch" type="search" placeholder="Search stacks" aria-label="Search stacks" />
@@ -532,11 +540,14 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="events-filter-field">
-          <span>Service</span>
           <details ref="serviceFilter" class="events-search-filter events-filter-dropdown">
             <summary aria-label="Filter events by service">
-              <span :class="{ 'events-filter-placeholder': !selectedService }">{{ selectedServiceLabel }}</span>
-              <span aria-hidden="true">⌄</span>
+              <svg class="events-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
+                <path d="m10 2.8 6.5 3.6v7.2L10 17.2l-6.5-3.6V6.4L10 2.8Z" />
+                <path d="m3.8 6.5 6.2 3.4 6.2-3.4M10 9.9v7" />
+              </svg>
+              <span class="events-filter-selection" :class="{ 'events-filter-placeholder': !selectedService }">{{ selectedServiceLabel }}</span>
+              <span class="events-filter-chevron" aria-hidden="true">⌄</span>
             </summary>
             <div class="events-search-filter-menu">
               <input v-model="serviceSearch" type="search" placeholder="Search services" aria-label="Search services" />
@@ -639,34 +650,57 @@ onBeforeUnmount(() => {
 }
 .events-filter-bar {
   display: grid;
-  grid-template-columns: minmax(190px, 1.35fr) repeat(4, minmax(130px, 1fr));
-  gap: 0.65rem;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  align-items: center;
+  box-sizing: border-box;
   width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--surface-card-soft);
+  padding: 12px;
 }
 .events-filter-field {
+  position: relative;
   min-width: 0;
-}
-.events-filter-field > span {
-  display: block;
-  margin-bottom: 0.3rem;
-  color: var(--muted);
-  font-size: 0.75rem;
-  font-weight: 600;
 }
 .events-filter-field select,
 .events-filter-dropdown > summary {
   box-sizing: border-box;
   width: 100%;
-  height: 2.35rem;
+  height: 38px;
   border: 1px solid var(--border-default);
-  border-radius: 0.45rem;
-  background: var(--surface-elevated);
+  border-radius: 7px;
+  background: var(--surface-input);
   color: var(--text);
   font: inherit;
-  font-size: 0.84rem;
+  font-size: 0.83rem;
 }
 .events-filter-field select {
-  padding: 0 0.65rem;
+  padding: 7px 10px 7px 36px;
+}
+.events-filter-icon {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 17px;
+  color: var(--muted);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+.events-filter-field--select > .events-filter-icon {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 11px;
+  transform: translateY(-50%);
+}
+.events-severity-filter-icon {
+  stroke-width: 1.35;
 }
 .events-filter-dropdown {
   position: relative;
@@ -676,22 +710,38 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 0.5rem;
-  padding: 0 0.7rem;
+  gap: 8px;
+  padding: 7px 10px;
   cursor: pointer;
   list-style: none;
 }
 .events-filter-dropdown > summary::-webkit-details-marker {
   display: none;
 }
+.events-filter-selection {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .events-filter-placeholder {
-  color: var(--muted);
+  color: var(--text);
 }
 .events-type-filter-selection {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.events-type-chip {
+  font-size: inherit;
+}
+.events-filter-chevron {
+  flex: 0 0 auto;
+  color: var(--muted);
 }
 .events-type-chip + .events-type-chip::before {
   content: ", ";
@@ -803,6 +853,16 @@ onBeforeUnmount(() => {
   color: var(--muted);
   font-size: 0.78rem;
 }
+.events-filter-field select:focus-visible,
+.events-filter-dropdown > summary:focus-visible {
+  outline: 2px solid var(--accent-focus);
+  outline-offset: 2px;
+}
+@media (max-width: 980px) {
+  .events-filter-bar {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
 @media (max-width: 720px) {
   .events-mobile-filter-toggle {
     display: inline-flex;
@@ -820,6 +880,7 @@ onBeforeUnmount(() => {
   .events-filter-bar {
     display: none;
     grid-template-columns: 1fr;
+    padding: 10px;
   }
   .events-filter-bar--open {
     display: grid;
@@ -828,6 +889,9 @@ onBeforeUnmount(() => {
   .events-search-filter-menu {
     width: 100%;
     max-width: 100%;
+  }
+  .events-filter-field select {
+    font-size: 16px;
   }
 }
 </style>

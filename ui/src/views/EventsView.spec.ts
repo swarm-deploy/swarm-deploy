@@ -209,6 +209,21 @@ describe("EventsView", () => {
     expect(wrapper.find(".event-severity").text()).toBe("Alert");
   });
 
+  it("renders the five icon-led filters in the expected order", async () => {
+    const { wrapper } = await mountView();
+    const controls = wrapper.findAll(".events-filter-bar summary, .events-filter-bar select");
+
+    expect(controls.map((control) => control.attributes("aria-label"))).toEqual([
+      "Filter events by type",
+      "Filter events by severity",
+      "Filter events by category",
+      "Filter events by stack",
+      "Filter events by service",
+    ]);
+    expect(wrapper.findAll(".events-filter-bar .events-filter-icon")).toHaveLength(5);
+    expect(wrapper.findAll(".events-filter-field > span")).toHaveLength(0);
+  });
+
   it("closes the type filter when clicking outside", async () => {
     const { wrapper } = await mountView();
 
