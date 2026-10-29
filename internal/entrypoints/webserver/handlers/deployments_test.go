@@ -47,7 +47,7 @@ func TestDeploymentAPIReadsAttemptsWithoutHistory(t *testing.T) {
 	}}}}, true)
 	require.NoError(t, err)
 	h := &handler{deployments: deploymentstore.NewStore(db)}
-	response, err := h.ListDeployments(ctx, generated.ListDeploymentsParams{Stack: generated.NewOptString("app")})
+	response, err := h.ListDeployments(ctx, generated.ListDeploymentsParams{Stack: []string{"app"}})
 	require.NoError(t, err)
 	require.Len(t, response.Deployments, 1)
 	assert.Equal(t, generated.DeploymentStatusRunning, response.Deployments[0].Status)
@@ -134,7 +134,7 @@ func TestDeploymentAPIReadsAttemptsWithoutHistory(t *testing.T) {
 	require.NoError(t, legacyDetail.Validate())
 	_, err = h.GetDeployment(ctx, generated.GetDeploymentParams{ID: "unknown"})
 	require.Error(t, err)
-	listed, err := h.ListDeployments(ctx, generated.ListDeploymentsParams{Stack: generated.NewOptString("app")})
+	listed, err := h.ListDeployments(ctx, generated.ListDeploymentsParams{Stack: []string{"app"}})
 	require.NoError(t, err)
 	require.Len(t, listed.Deployments, 1)
 	require.NoError(t, listed.Deployments[0].Validate())
@@ -193,8 +193,16 @@ func TestDeploymentFiltersUsesAllRecordedStacks(t *testing.T) {
 		{StackName: "alpha", ServiceName: "worker"},
 		{StackName: "zeta", ServiceName: "api"},
 	}, filters.Services)
-	listed, err := h.ListDeployments(ctx, generated.ListDeploymentsParams{ServiceName: generated.NewOptString("worker")})
+	listed, err := h.ListDeployments(ctx, generated.ListDeploymentsParams{ServiceName: []string{"worker"}})
 	require.NoError(t, err)
 	require.Len(t, listed.Deployments, 1)
 	assert.Equal(t, "alpha", listed.Deployments[0].Stack)
+	listed, err = h.ListDeployments(ctx, generated.ListDeploymentsParams{
+		Stack: []string{"alpha", "zeta"}, ServiceName: []string{"worker", "api"},
+	})
+	require.NoError(t, err)
+	require.Len(t, listed.Deployments, 2)
+	assert.ElementsMatch(t, []string{"alpha", "zeta"}, []string{
+		listed.Deployments[0].Stack, listed.Deployments[1].Stack,
+	})
 }

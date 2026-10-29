@@ -1913,10 +1913,11 @@ func decodeListAlertsParams(args [0]string, argsEscaped bool, r *http.Request) (
 
 // ListDeploymentsParams is parameters of listDeployments operation.
 type ListDeploymentsParams struct {
-	Stack OptString `json:",omitempty,omitzero"`
-	// Exact service name from the recorded desired configuration.
-	ServiceName OptString `json:",omitempty,omitzero"`
-	Limit       OptInt32  `json:",omitempty,omitzero"`
+	// Exact stack names. Multiple values are combined with OR.
+	Stack []string `json:",omitempty"`
+	// Exact service names from the recorded desired configuration. Multiple values are combined with OR.
+	ServiceName []string `json:",omitempty"`
+	Limit       OptInt32 `json:",omitempty,omitzero"`
 	// Opaque cursor returned by the previous page.
 	Cursor OptString `json:",omitempty,omitzero"`
 }
@@ -1928,7 +1929,7 @@ func unpackListDeploymentsParams(packed middleware.Parameters) (params ListDeplo
 			In:   "query",
 		}
 		if v, ok := packed[key]; ok {
-			params.Stack = v.(OptString)
+			params.Stack = v.([]string)
 		}
 	}
 	{
@@ -1937,7 +1938,7 @@ func unpackListDeploymentsParams(packed middleware.Parameters) (params ListDeplo
 			In:   "query",
 		}
 		if v, ok := packed[key]; ok {
-			params.ServiceName = v.(OptString)
+			params.ServiceName = v.([]string)
 		}
 	}
 	{
@@ -1973,26 +1974,62 @@ func decodeListDeploymentsParams(args [0]string, argsEscaped bool, r *http.Reque
 
 		if err := q.HasParam(cfg); err == nil {
 			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
-				var paramsDotStackVal string
-				if err := func() error {
-					val, err := d.DecodeValue()
-					if err != nil {
+				return d.DecodeArray(func(d uri.Decoder) error {
+					var paramsDotStackVal string
+					if err := func() error {
+						val, err := d.DecodeValue()
+						if err != nil {
+							return err
+						}
+
+						c, err := conv.ToString(val)
+						if err != nil {
+							return err
+						}
+
+						paramsDotStackVal = c
+						return nil
+					}(); err != nil {
 						return err
 					}
-
-					c, err := conv.ToString(val)
-					if err != nil {
-						return err
-					}
-
-					paramsDotStackVal = c
+					params.Stack = append(params.Stack, paramsDotStackVal)
 					return nil
-				}(); err != nil {
-					return err
-				}
-				params.Stack.SetTo(paramsDotStackVal)
-				return nil
+				})
 			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				var failures []validate.FieldError
+				for i, elem := range params.Stack {
+					if err := func() error {
+						if err := (validate.String{
+							MinLength:     1,
+							MinLengthSet:  true,
+							MaxLength:     0,
+							MaxLengthSet:  false,
+							Email:         false,
+							Hostname:      false,
+							Regex:         nil,
+							MinNumeric:    0,
+							MinNumericSet: false,
+							MaxNumeric:    0,
+							MaxNumericSet: false,
+						}).Validate(string(elem)); err != nil {
+							return errors.Wrap(err, "string")
+						}
+						return nil
+					}(); err != nil {
+						failures = append(failures, validate.FieldError{
+							Name:  fmt.Sprintf("[%d]", i),
+							Error: err,
+						})
+					}
+				}
+				if len(failures) > 0 {
+					return &validate.Error{Fields: failures}
+				}
+				return nil
+			}(); err != nil {
 				return err
 			}
 		}
@@ -2014,26 +2051,62 @@ func decodeListDeploymentsParams(args [0]string, argsEscaped bool, r *http.Reque
 
 		if err := q.HasParam(cfg); err == nil {
 			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
-				var paramsDotServiceNameVal string
-				if err := func() error {
-					val, err := d.DecodeValue()
-					if err != nil {
+				return d.DecodeArray(func(d uri.Decoder) error {
+					var paramsDotServiceNameVal string
+					if err := func() error {
+						val, err := d.DecodeValue()
+						if err != nil {
+							return err
+						}
+
+						c, err := conv.ToString(val)
+						if err != nil {
+							return err
+						}
+
+						paramsDotServiceNameVal = c
+						return nil
+					}(); err != nil {
 						return err
 					}
-
-					c, err := conv.ToString(val)
-					if err != nil {
-						return err
-					}
-
-					paramsDotServiceNameVal = c
+					params.ServiceName = append(params.ServiceName, paramsDotServiceNameVal)
 					return nil
-				}(); err != nil {
-					return err
-				}
-				params.ServiceName.SetTo(paramsDotServiceNameVal)
-				return nil
+				})
 			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				var failures []validate.FieldError
+				for i, elem := range params.ServiceName {
+					if err := func() error {
+						if err := (validate.String{
+							MinLength:     1,
+							MinLengthSet:  true,
+							MaxLength:     0,
+							MaxLengthSet:  false,
+							Email:         false,
+							Hostname:      false,
+							Regex:         nil,
+							MinNumeric:    0,
+							MinNumericSet: false,
+							MaxNumeric:    0,
+							MaxNumericSet: false,
+						}).Validate(string(elem)); err != nil {
+							return errors.Wrap(err, "string")
+						}
+						return nil
+					}(); err != nil {
+						failures = append(failures, validate.FieldError{
+							Name:  fmt.Sprintf("[%d]", i),
+							Error: err,
+						})
+					}
+				}
+				if len(failures) > 0 {
+					return &validate.Error{Fields: failures}
+				}
+				return nil
+			}(); err != nil {
 				return err
 			}
 		}

@@ -164,8 +164,8 @@ describe("Events & Alerts", () => {
     await wrapper.find(".events-filter-field select").setValue("error");
     await flushPromises();
     const typeOption = wrapper
-      .findAll(".events-type-filter-option")
-      .find((item) => item.find(".events-type-filter-option-name").text() === "NodeJoined")!;
+      .findAll(".events-type-filter .app-multi-select-option")
+      .find((item) => item.find(".app-multi-select-option-label").text() === "NodeJoined")!;
     await typeOption.find("input").setValue(true);
     await flushPromises();
 

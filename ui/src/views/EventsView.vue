@@ -4,11 +4,12 @@ import { useRoute, useRouter } from "vue-router";
 
 import { fetchEventFilters, fetchEvents } from "../api/overview";
 import type { EventCategory, EventFilterOptions, EventFilterService, EventHistoryItem, EventSeverity } from "../api/types";
+import AppMultiSelect from "../components/common/AppMultiSelect.vue";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import AppPagination from "../components/common/AppPagination.vue";
 import SidebarIcon from "../components/layout/SidebarIcon.vue";
-import { eventTypeDescriptions, eventTypeMetadata, type EventTypeMetadata } from "../utils/eventMetadata";
+import { eventTypeDescriptions, eventTypeMetadata } from "../utils/eventMetadata";
 import { formatDate } from "../utils/format";
 
 const severityOptions: EventSeverity[] = ["info", "warn", "error"];
@@ -50,24 +51,20 @@ const mobileFiltersOpen = ref(false);
 
 let requestID = 0;
 
-const typeFilterOptions = computed<EventTypeMetadata[]>(() => {
+const typeFilterOptions = computed(() => {
   const options = eventTypeMetadata.map((metadata) => ({ ...metadata }));
   for (const type of selectedTypes.value) {
     if (!options.some((option) => option.type === type)) {
       options.push({ type, description: eventTypeDescriptions.get(type) ?? "Custom event type" });
     }
   }
-  return options;
+  return options.map((option) => ({ value: option.type, label: option.type, description: option.description }));
 });
 
 const selectedTypeSummary = computed(() => {
-  if (selectedTypes.value.length === 0) {
-    return ["All types"];
-  }
-  if (selectedTypes.value.length <= 2) {
-    return selectedTypes.value;
-  }
-  return [`${selectedTypes.value.length} types selected`];
+  if (selectedTypes.value.length === 0) return "All types";
+  if (selectedTypes.value.length <= 2) return selectedTypes.value.join(", ");
+  return `${selectedTypes.value.length} types selected`;
 });
 
 const activeFilterCount = computed(() => [
@@ -173,14 +170,8 @@ function toggleDetails(event: EventHistoryItem): void {
   expandedKey.value = expandedKey.value === key ? "" : key;
 }
 
-function toggleType(type: string): void {
-  selectedTypes.value = selectedTypes.value.includes(type)
-    ? selectedTypes.value.filter((selectedType) => selectedType !== type)
-    : [...selectedTypes.value, type];
-}
-
-function clearTypes(): void {
-  selectedTypes.value = [];
+function selectTypes(types: string[]): void {
+  selectedTypes.value = types;
 }
 
 function applyDetailFilter(key: string, value: string, event: EventHistoryItem): void {
@@ -452,44 +443,23 @@ onBeforeUnmount(() => {
         :class="{ 'events-filter-bar--open': mobileFiltersOpen }"
       >
         <div class="events-filter-field">
-          <details class="events-type-filter events-filter-dropdown">
-            <summary aria-label="Filter events by type">
+          <AppMultiSelect
+            class="events-type-filter"
+            :model-value="selectedTypes"
+            :options="typeFilterOptions"
+            label="Filter events by type"
+            placeholder="All types"
+            heading="Event types"
+            :selection-label="selectedTypeSummary"
+            descriptive
+            @update:model-value="selectTypes"
+          >
+            <template #icon>
               <svg class="events-filter-icon" viewBox="0 0 20 20" aria-hidden="true">
                 <path d="M3.5 5h13l-5 5.7v4.1l-3 1.5v-5.6L3.5 5Z" />
               </svg>
-              <span class="events-type-filter-selection">
-                <span
-                  v-for="label in selectedTypeSummary"
-                  :key="label"
-                  class="events-type-chip"
-                  :class="{ 'events-type-chip--placeholder': selectedTypes.length === 0 }"
-                >
-                  {{ label }}
-                </span>
-              </span>
-              <span class="events-type-filter-chevron" aria-hidden="true">⌄</span>
-            </summary>
-            <div class="events-type-filter-menu">
-              <div class="events-type-filter-menu-header">
-                <strong>Event types</strong>
-                <button type="button" class="events-type-filter-clear" :disabled="selectedTypes.length === 0" @click="clearTypes">
-                  Clear
-                </button>
-              </div>
-              <label v-for="metadata in typeFilterOptions" :key="metadata.type" class="events-type-filter-option">
-                <input
-                  type="checkbox"
-                  :value="metadata.type"
-                  :checked="selectedTypes.includes(metadata.type)"
-                  @change="toggleType(metadata.type)"
-                />
-                <span class="events-type-filter-option-text">
-                  <span class="events-type-filter-option-name" :title="metadata.type">{{ metadata.type }}</span>
-                  <span class="events-type-filter-option-description">{{ metadata.description }}</span>
-                </span>
-              </label>
-            </div>
-          </details>
+            </template>
+          </AppMultiSelect>
         </div>
 
         <label class="events-filter-field events-filter-field--select">
@@ -729,24 +699,10 @@ onBeforeUnmount(() => {
 .events-filter-placeholder {
   color: var(--text);
 }
-.events-type-filter-selection {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.events-type-chip {
-  font-size: inherit;
-}
 .events-filter-chevron {
   flex: 0 0 auto;
   color: var(--muted);
 }
-.events-type-chip + .events-type-chip::before {
-  content: ", ";
-}
-.events-type-filter-menu,
 .events-search-filter-menu {
   position: absolute;
   z-index: 30;
@@ -764,63 +720,17 @@ onBeforeUnmount(() => {
   box-shadow: var(--shadow-popover);
   padding: 0.45rem;
 }
-.events-type-filter-menu-header,
-.events-type-filter-option,
 .events-search-filter-menu button {
   display: flex;
   align-items: center;
 }
-.events-type-filter-menu-header {
-  justify-content: space-between;
-  padding: 0.35rem 0.4rem 0.55rem;
-}
-.events-type-filter-clear {
-  border: 0;
-  background: transparent;
-  color: var(--accent-strong);
-}
-.events-type-filter-option {
-  align-items: flex-start;
-  gap: 0.55rem;
-  padding: 0.4rem;
-  border-radius: 0.35rem;
-}
-.events-type-filter-menu {
-  width: max(100%, 380px);
-}
-.events-type-filter-option input {
-  flex: 0 0 1rem;
-  width: 1rem;
-  min-width: 1rem;
-  height: 1rem;
-  margin: 0.15rem 0 0;
-  padding: 0;
-}
-.events-type-filter-option:hover,
 .events-search-filter-menu button:hover,
 .events-search-filter-menu button.selected {
   background: var(--surface-hover-soft);
 }
-.events-type-filter-option-text {
-  display: grid;
-  gap: 0.15rem;
-  min-width: 0;
-}
-.events-type-filter-option-name {
-  overflow: hidden;
-  font-size: 0.82rem;
-  font-weight: 600;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.events-type-filter-option-description,
 .events-search-filter-menu small {
   color: var(--muted);
   font-size: 0.7rem;
-}
-.events-type-filter-option-description {
-  line-height: 1.3;
-  overflow-wrap: anywhere;
 }
 .events-search-filter-menu input {
   box-sizing: border-box;
@@ -885,7 +795,6 @@ onBeforeUnmount(() => {
   .events-filter-bar--open {
     display: grid;
   }
-  .events-type-filter-menu,
   .events-search-filter-menu {
     width: 100%;
     max-width: 100%;

@@ -3,6 +3,7 @@ import { computed, onMounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { fetchDeploymentFilters, fetchDeployments } from "../api/overview";
 import type { DeploymentFilterOptions, DeploymentSummary } from "../api/types";
+import AppMultiSelect from "../components/common/AppMultiSelect.vue";
 import AppPagination from "../components/common/AppPagination.vue";
 import AppStatusBadge from "../components/common/AppStatusBadge.vue";
 import AppTable from "../components/common/AppTable.vue";
@@ -12,36 +13,45 @@ import { formatDate, shortCommitHash } from "../utils/format";
 const store = useOverviewStore();
 const route = useRoute();
 const router = useRouter();
-const selectedStack = ref(typeof route.query.stack_name === "string" ? route.query.stack_name.trim() : "");
-const selectedService = ref(typeof route.query.service_name === "string" ? route.query.service_name.trim() : "");
+const selectedStacks = ref(normalizeQueryValues(route.query.stack_name));
+const selectedServices = ref(normalizeQueryValues(route.query.service_name));
 const stackOptions = ref<string[]>([]);
 const serviceOptions = ref<DeploymentFilterOptions["services"]>([]);
-const stackSearch = ref("");
-const serviceSearch = ref("");
-const stackFilter = ref<HTMLDetailsElement | null>(null);
-const serviceFilter = ref<HTMLDetailsElement | null>(null);
-const filteredStacks = computed(() => {
+const stackSelectOptions = computed(() => {
   const options = [...stackOptions.value];
-  if (selectedStack.value && !options.includes(selectedStack.value)) options.push(selectedStack.value);
-  const search = stackSearch.value.trim().toLocaleLowerCase();
-  return options.sort((left, right) => left.localeCompare(right))
-    .filter((stack) => !search || stack.toLocaleLowerCase().includes(search));
-});
-const filteredServices = computed(() => {
-  const options = serviceOptions.value.filter((service) => !selectedStack.value || service.stack_name === selectedStack.value);
-  if (selectedService.value && !options.some((service) => service.service_name === selectedService.value)) {
-    options.push({ stack_name: selectedStack.value, service_name: selectedService.value });
+  for (const stack of selectedStacks.value) {
+    if (!options.includes(stack)) options.push(stack);
   }
-  const search = serviceSearch.value.trim().toLocaleLowerCase();
-  return options.sort((left, right) => left.stack_name.localeCompare(right.stack_name) || left.service_name.localeCompare(right.service_name))
-    .filter((service) => !search || `${service.stack_name} ${service.service_name}`.toLocaleLowerCase().includes(search));
+  return options.sort((left, right) => left.localeCompare(right))
+    .map((stack) => ({ value: stack, label: stack }));
 });
-const selectedServiceLabel = computed(() => {
-  if (!selectedService.value) return "All services";
-  if (selectedStack.value) return selectedService.value;
-  const matches = serviceOptions.value.filter((service) => service.service_name === selectedService.value);
-  return matches.length === 1 ? `${selectedService.value} — ${matches[0].stack_name}` : selectedService.value;
+const serviceSelectOptions = computed(() => {
+  const services = serviceOptions.value.filter((service) => (
+    selectedStacks.value.length === 0 || selectedStacks.value.includes(service.stack_name)
+  ));
+  const stacksByService = new Map<string, Set<string>>();
+  for (const service of services) {
+    const stacks = stacksByService.get(service.service_name) ?? new Set<string>();
+    stacks.add(service.stack_name);
+    stacksByService.set(service.service_name, stacks);
+  }
+  for (const service of selectedServices.value) {
+    if (!stacksByService.has(service)) stacksByService.set(service, new Set());
+  }
+  return [...stacksByService.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([service, stacks]) => {
+      const stackNames = [...stacks].sort((left, right) => left.localeCompare(right));
+      return {
+        value: service,
+        label: service,
+        description: selectedStacks.value.length === 1 ? undefined : stackNames.join(", "),
+        searchText: `${service} ${stackNames.join(" ")}`,
+      };
+    });
 });
+const stackSelectionLabel = computed(() => selectionLabel(selectedStacks.value, "All stacks", "stacks"));
+const serviceSelectionLabel = computed(() => selectionLabel(selectedServices.value, "All services", "services"));
 const deployments = ref<DeploymentSummary[]>([]);
 const error = ref("");
 const loading = ref(false);
@@ -49,6 +59,22 @@ const nextCursor = ref("");
 const cursors = ref<string[]>([""]);
 const page = ref(0);
 let request = 0;
+
+function normalizeQueryValues(value: unknown): string[] {
+  const values = Array.isArray(value) ? value : [value];
+  return [...new Set(values.filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim()).filter(Boolean))];
+}
+
+function selectionLabel(values: string[], placeholder: string, noun: string): string {
+  if (values.length === 0) return placeholder;
+  if (values.length <= 2) return values.join(", ");
+  return `${values.length} ${noun} selected`;
+}
+
+function sameValues(left: string[], right: string[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
 
 function startedAtTimestamp(deployment: DeploymentSummary): number {
   const timestamp = Date.parse(deployment.started_at);
@@ -60,7 +86,12 @@ async function load(index: number, cursor: string) {
   loading.value = true;
   error.value = "";
   try {
-    const result = await fetchDeployments({ stack: selectedStack.value || undefined, serviceName: selectedService.value || undefined, limit: 20, cursor: cursor || undefined });
+    const result = await fetchDeployments({
+      stack: selectedStacks.value,
+      serviceName: selectedServices.value,
+      limit: 20,
+      cursor: cursor || undefined,
+    });
     if (current !== request) return;
     deployments.value = Array.isArray(result.deployments)
       ? [...result.deployments].sort((left, right) => startedAtTimestamp(right) - startedAtTimestamp(left))
@@ -77,40 +108,36 @@ async function load(index: number, cursor: string) {
 function next() { if (nextCursor.value) void load(page.value + 1, nextCursor.value); }
 function previous() { if (page.value > 0) void load(page.value - 1, cursors.value[page.value - 1] ?? ""); }
 
-function selectStack(stack: string): void {
-  if (stack !== selectedStack.value && selectedService.value && !serviceOptions.value.some(
-    (service) => service.stack_name === stack && service.service_name === selectedService.value,
-  )) selectedService.value = "";
-  selectedStack.value = stack;
-  stackSearch.value = "";
-  if (stackFilter.value) stackFilter.value.open = false;
+function selectStacks(stacks: string[]): void {
+  const availableServices = new Set(serviceOptions.value
+    .filter((service) => stacks.length === 0 || stacks.includes(service.stack_name))
+    .map((service) => service.service_name));
+  selectedStacks.value = stacks;
+  selectedServices.value = selectedServices.value.filter((service) => availableServices.has(service));
   persistFilters();
 }
 
-function selectService(service?: DeploymentFilterOptions["services"][number]): void {
-  selectedService.value = service?.service_name ?? "";
-  if (service && !selectedStack.value) selectedStack.value = service.stack_name;
-  serviceSearch.value = "";
-  if (serviceFilter.value) serviceFilter.value.open = false;
+function selectServices(services: string[]): void {
+  selectedServices.value = services;
   persistFilters();
 }
 
 function persistFilters(): void {
   const query = { ...route.query };
-  if (selectedStack.value) query.stack_name = selectedStack.value;
+  if (selectedStacks.value.length > 0) query.stack_name = [...selectedStacks.value];
   else delete query.stack_name;
-  if (selectedService.value) query.service_name = selectedService.value;
+  if (selectedServices.value.length > 0) query.service_name = [...selectedServices.value];
   else delete query.service_name;
   void router.replace({ query });
 }
 
 watch(() => [route.query.stack_name, route.query.service_name], ([stackValue, serviceValue]) => {
-  const stack = typeof stackValue === "string" ? stackValue.trim() : "";
-  const service = typeof serviceValue === "string" ? serviceValue.trim() : "";
-  if (stack !== selectedStack.value) selectedStack.value = stack;
-  if (service !== selectedService.value) selectedService.value = service;
+  const stacks = normalizeQueryValues(stackValue);
+  const services = normalizeQueryValues(serviceValue);
+  if (!sameValues(selectedStacks.value, stacks)) selectedStacks.value = stacks;
+  if (!sameValues(selectedServices.value, services)) selectedServices.value = services;
 });
-watch([selectedStack, selectedService], () => {
+watch([selectedStacks, selectedServices], () => {
   cursors.value = [""];
   nextCursor.value = "";
   void load(0, "");
@@ -168,27 +195,35 @@ onMounted(() => {
     <p class="meta">Desired-state deployments and their execution attempts. Service convergence is not verified.</p>
     <div class="deployments-filter-bar"><div class="deployments-filter-field">
       <span>Stack</span>
-      <details ref="stackFilter" class="deployments-stack-filter">
-        <summary aria-label="Filter deployments by stack">{{ selectedStack || "All stacks" }} <span aria-hidden="true">⌄</span></summary>
-        <div class="deployments-stack-menu">
-          <input v-model="stackSearch" type="search" placeholder="Search stacks" aria-label="Search stacks" />
-          <button type="button" :class="{ selected: !selectedStack }" @click="selectStack('')">All stacks</button>
-          <button v-for="stack in filteredStacks" :key="stack" type="button" :class="{ selected: selectedStack === stack }" @click="selectStack(stack)">{{ stack }}</button>
-          <p v-if="filteredStacks.length === 0">No matching stacks</p>
-        </div>
-      </details>
+      <AppMultiSelect
+        :model-value="selectedStacks"
+        :options="stackSelectOptions"
+        label="Filter deployments by stack"
+        placeholder="All stacks"
+        heading="Stacks"
+        :selection-label="stackSelectionLabel"
+        searchable
+        search-label="Search stacks"
+        search-placeholder="Search stacks"
+        empty-message="No matching stacks"
+        @update:model-value="selectStacks"
+      />
     </div>
     <div class="deployments-filter-field">
       <span>Service</span>
-      <details ref="serviceFilter" class="deployments-stack-filter">
-        <summary aria-label="Filter deployments by service">{{ selectedServiceLabel }} <span aria-hidden="true">⌄</span></summary>
-        <div class="deployments-stack-menu">
-          <input v-model="serviceSearch" type="search" placeholder="Search services" aria-label="Search services" />
-          <button type="button" :class="{ selected: !selectedService }" @click="selectService()">All services</button>
-          <button v-for="service in filteredServices" :key="`${service.stack_name}/${service.service_name}`" type="button" :class="{ selected: selectedService === service.service_name }" @click="selectService(service)">{{ service.service_name }}<small v-if="!selectedStack && service.stack_name">{{ service.stack_name }}</small></button>
-          <p v-if="filteredServices.length === 0">No matching services</p>
-        </div>
-      </details>
+      <AppMultiSelect
+        :model-value="selectedServices"
+        :options="serviceSelectOptions"
+        label="Filter deployments by service"
+        placeholder="All services"
+        heading="Services"
+        :selection-label="serviceSelectionLabel"
+        searchable
+        search-label="Search services"
+        search-placeholder="Search services"
+        empty-message="No matching services"
+        @update:model-value="selectServices"
+      />
     </div></div>
     <p v-if="loading" role="status">Loading deployments...</p>
     <p v-else-if="error" role="alert">{{ error }} <button type="button" @click="load(page, cursors[page] ?? '')">Retry</button></p>
@@ -239,15 +274,6 @@ onMounted(() => {
 .deployments-filter-bar { display: flex; flex-wrap: wrap; column-gap: 12px; row-gap: 16px; margin: 8px 0 12px; }
 .deployments-filter-field { display: flex; flex-direction: column; gap: 6px; width: min(100%, 260px); }
 .deployments-filter-field > span { font-size: 0.8rem; color: var(--muted); }
-.deployments-stack-filter { position: relative; }
-.deployments-stack-filter > summary { display: flex; justify-content: space-between; gap: 12px; padding: 8px 10px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-elevated); cursor: pointer; list-style: none; }
-.deployments-stack-filter > summary::-webkit-details-marker { display: none; }
-.deployments-stack-menu { box-sizing: border-box; position: absolute; z-index: 30; width: max(100%, 260px); max-width: calc(100vw - 2rem); max-height: 260px; overflow: auto; padding: 6px; background: var(--surface-elevated); border: 1px solid var(--border-default); border-radius: 6px; box-shadow: var(--shadow-popover); }
-.deployments-stack-menu input { box-sizing: border-box; width: 100%; margin-bottom: 4px; padding: 7px; }
-.deployments-stack-menu button { display: block; width: 100%; padding: 8px; border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; }
-.deployments-stack-menu small { display: block; color: var(--muted); }
-.deployments-stack-menu button:hover, .deployments-stack-menu button.selected { background: var(--surface-muted); }
-.deployments-stack-menu p { margin: 8px; color: var(--muted); }
 :deep(.deployments-table th:nth-child(1)),
 :deep(.deployments-table td:nth-child(1)) { width: 42%; }
 :deep(.deployments-table th:nth-child(2)),

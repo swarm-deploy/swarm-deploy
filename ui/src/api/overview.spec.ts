@@ -1,5 +1,5 @@
 import { afterEach, expect, it, vi } from "vitest";
-import { fetchAlerts, fetchServiceRealtime, fetchStackDeploymentActivity, fetchStackResources } from "./overview";
+import { fetchAlerts, fetchDeployments, fetchServiceRealtime, fetchStackDeploymentActivity, fetchStackResources } from "./overview";
 
 afterEach(() => vi.unstubAllGlobals());
 it("encodes stack resource paths and passes the alert stack filter", async () => {
@@ -23,4 +23,16 @@ it("uses the runtime task endpoint with the full Docker service name", async () 
   await fetchServiceRealtime("payments_api");
 
   expect(fetch).toHaveBeenLastCalledWith("/api/v1/swarm/services/payments_api/tasks", undefined);
+});
+
+it("encodes repeated deployment filters", async () => {
+  const fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => ({ deployments: [] }) });
+  vi.stubGlobal("fetch", fetch);
+
+  await fetchDeployments({ stack: ["app", "infra"], serviceName: ["api", "worker"], limit: 20 });
+
+  expect(fetch).toHaveBeenLastCalledWith(
+    "/api/v1/deployments?stack=app&stack=infra&service_name=api&service_name=worker&limit=20",
+    undefined,
+  );
 });

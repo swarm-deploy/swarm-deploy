@@ -201,10 +201,17 @@ export function fetchDeploymentInitJobLogs(deploymentID: string, attemptID: stri
   );
 }
 
-export function fetchDeployments(options: { stack?: string; serviceName?: string; limit?: number; cursor?: string } = {}): Promise<DeploymentsResponse> {
+export function fetchDeployments(options: {
+  stack?: string | string[];
+  serviceName?: string | string[];
+  limit?: number;
+  cursor?: string;
+} = {}): Promise<DeploymentsResponse> {
   const params = new URLSearchParams();
-  if (options.stack) params.set("stack", options.stack);
-  if (options.serviceName) params.set("service_name", options.serviceName);
+  const stacks = Array.isArray(options.stack) ? options.stack : options.stack ? [options.stack] : [];
+  const services = Array.isArray(options.serviceName) ? options.serviceName : options.serviceName ? [options.serviceName] : [];
+  for (const stack of stacks) params.append("stack", stack);
+  for (const service of services) params.append("service_name", service);
   if (options.limit) params.set("limit", String(options.limit));
   if (options.cursor) params.set("cursor", options.cursor);
   return apiRequest<DeploymentsResponse>(`/api/v1/deployments?${params}`);

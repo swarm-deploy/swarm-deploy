@@ -97,7 +97,7 @@ describe("RealtimeView", () => {
     expect(wrapper.text()).toContain("infra_worker");
 
     await wrapper.get<HTMLInputElement>('.realtime-search input').setValue("");
-    const stackOptions = wrapper.findAll<HTMLInputElement>('.realtime-stack-filter-option input');
+    const stackOptions = wrapper.findAll<HTMLInputElement>('.realtime-stack-filter .app-multi-select-option input');
     await stackOptions.find((option) => option.element.value === "")!.setValue(true);
     expect(wrapper.findAll(".realtime-service-row")).toHaveLength(1);
     expect(wrapper.text()).toContain("proxy");
@@ -107,7 +107,7 @@ describe("RealtimeView", () => {
     expect(wrapper.text()).toContain("proxy");
     expect(wrapper.text()).toContain("reports");
 
-    await wrapper.get(".realtime-stack-filter-clear").trigger("click");
+    await wrapper.get(".realtime-stack-filter .app-multi-select-header button").trigger("click");
     await wrapper.get("select").setValue("scaled-down");
     expect(wrapper.findAll(".realtime-service-row")).toHaveLength(1);
     expect(wrapper.text()).toContain("reports");

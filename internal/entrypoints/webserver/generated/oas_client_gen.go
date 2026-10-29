@@ -2403,8 +2403,17 @@ func (c *Client) sendListDeployments(ctx context.Context, params ListDeployments
 		}
 
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
-			if val, ok := params.Stack.Get(); ok {
-				return e.EncodeValue(conv.StringToString(val))
+			if params.Stack != nil {
+				return e.EncodeArray(func(e uri.Encoder) error {
+					for i, item := range params.Stack {
+						if err := func() error {
+							return e.EncodeValue(conv.StringToString(item))
+						}(); err != nil {
+							return errors.Wrapf(err, "[%d]", i)
+						}
+					}
+					return nil
+				})
 			}
 			return nil
 		}); err != nil {
@@ -2420,8 +2429,17 @@ func (c *Client) sendListDeployments(ctx context.Context, params ListDeployments
 		}
 
 		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
-			if val, ok := params.ServiceName.Get(); ok {
-				return e.EncodeValue(conv.StringToString(val))
+			if params.ServiceName != nil {
+				return e.EncodeArray(func(e uri.Encoder) error {
+					for i, item := range params.ServiceName {
+						if err := func() error {
+							return e.EncodeValue(conv.StringToString(item))
+						}(); err != nil {
+							return errors.Wrapf(err, "[%d]", i)
+						}
+					}
+					return nil
+				})
 			}
 			return nil
 		}); err != nil {

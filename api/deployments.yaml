@@ -15,13 +15,20 @@ paths:
       parameters:
         - in: query
           name: stack
+          description: Exact stack names. Multiple values are combined with OR.
           schema:
-            type: string
+            type: array
+            items:
+              type: string
+              minLength: 1
         - in: query
           name: service_name
-          description: Exact service name from the recorded desired configuration.
+          description: Exact service names from the recorded desired configuration. Multiple values are combined with OR.
           schema:
-            type: string
+            type: array
+            items:
+              type: string
+              minLength: 1
         - in: query
           name: limit
           schema:

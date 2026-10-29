@@ -210,10 +210,30 @@ app.get("/api/tasks/:task/logs", (context) => streamSSE(context, async (stream) 
   await stream.writeSSE({ event: "eof", data: "{}" });
 }));
 
+app.get("/api/v1/deployments/filters", (context) => {
+  console.log(`[mock-api] GET ${context.req.path} (deployment filter fixtures)`);
+  return context.json({
+    stacks: ["web", "worker", "infra"],
+    services: [
+      { stack_name: "web", service_name: "api" },
+      { stack_name: "web", service_name: "frontend" },
+      { stack_name: "worker", service_name: "queue" },
+      { stack_name: "infra", service_name: "proxy" },
+    ],
+  });
+});
+
 app.get("/api/v1/deployments", (context) => {
-  const stack = context.req.query("stack")?.trim() || "web";
+  const stacks = context.req.queries("stack")?.map((stack) => stack.trim()).filter(Boolean) ?? [];
+  const services = context.req.queries("service_name")?.map((service) => service.trim()).filter(Boolean) ?? [];
+  const stackServices = { web: ["api", "frontend"], worker: ["queue"], infra: ["proxy"] };
+  const candidateStacks = stacks.length > 0 ? stacks : services.length > 0 ? Object.keys(stackServices) : ["web"];
+  const selectedStacks = candidateStacks.filter((stack) => (
+    services.length === 0 || services.some((service) => stackServices[stack]?.includes(service))
+  ));
   const limit = Number.parseInt(context.req.query("limit") || "4", 10);
-  const deployments = recentDeployments(stack).slice(0, Number.isFinite(limit) ? Math.max(0, limit) : 4);
+  const deployments = selectedStacks.flatMap(recentDeployments)
+    .slice(0, Number.isFinite(limit) ? Math.max(0, limit) : 4);
   console.log(`[mock-api] GET ${context.req.path} (recent deployment fixtures)`);
   return context.json({ deployments });
 });

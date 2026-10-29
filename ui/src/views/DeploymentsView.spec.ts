@@ -31,7 +31,7 @@ describe("Deployments page", () => {
     const wrapper = mount(DeploymentsView);
     await flushPromises();
 
-    expect(fetchDeployments).toHaveBeenCalledWith({ stack: undefined, serviceName: undefined, limit: 20, cursor: undefined });
+    expect(fetchDeployments).toHaveBeenCalledWith({ stack: [], serviceName: [], limit: 20, cursor: undefined });
     expect(wrapper.findAll("thead th").map((header) => header.text())).toEqual(["Stack", "Status", "Started", "Commit"]);
     expect(wrapper.text()).not.toContain("Desired changes");
     expect(wrapper.text()).not.toContain("No configuration changes");
@@ -53,7 +53,7 @@ describe("Deployments page", () => {
 
     await wrapper.findAll(".deployment-pages button")[1].trigger("click");
     await flushPromises();
-    expect(fetchDeployments).toHaveBeenCalledWith({ stack: undefined, serviceName: undefined, limit: 20, cursor: "cursor" });
+    expect(fetchDeployments).toHaveBeenCalledWith({ stack: [], serviceName: [], limit: 20, cursor: "cursor" });
     wrapper.unmount();
   });
 
@@ -80,33 +80,39 @@ describe("Deployments page", () => {
     expect(wrapper.findAll(".deployment-status-badge").every((badge) => badge.element.tagName === "SPAN")).toBe(true);
   });
 
-  it("uses stack_name from the URL and resets pagination when the stack changes", async () => {
+  it("restores URL filters and selects multiple stacks", async () => {
     route.query = { stack_name: "app", service_name: "api", unrelated: "kept" };
     vi.mocked(fetchDeployments).mockResolvedValue({ deployments: [], next_cursor: "next" });
     const wrapper = mount(DeploymentsView);
     await flushPromises();
 
     expect(fetchDeploymentFilters).toHaveBeenCalledOnce();
-    expect(fetchDeployments).toHaveBeenCalledWith({ stack: "app", serviceName: "api", limit: 20, cursor: undefined });
-    await wrapper.find('.deployments-stack-filter summary').trigger('click');
-    await wrapper.findAll('.deployments-stack-menu button').find((button) => button.text() === "infra")!.trigger("click");
+    expect(fetchDeployments).toHaveBeenCalledWith({ stack: ["app"], serviceName: ["api"], limit: 20, cursor: undefined });
+    const stackOptions = wrapper.findAll('.deployments-filter-field:nth-child(1) .app-multi-select-option');
+    await stackOptions.find((option) => option.text() === "infra")!.find("input").setValue(true);
     await flushPromises();
-    expect(router.replace).toHaveBeenCalledWith({ query: { stack_name: "infra", unrelated: "kept" } });
-    expect(fetchDeployments).toHaveBeenLastCalledWith({ stack: "infra", serviceName: undefined, limit: 20, cursor: undefined });
+    expect(router.replace).toHaveBeenCalledWith({
+      query: { stack_name: ["app", "infra"], service_name: ["api"], unrelated: "kept" },
+    });
+    expect(fetchDeployments).toHaveBeenLastCalledWith({
+      stack: ["app", "infra"], serviceName: ["api"], limit: 20, cursor: undefined,
+    });
     expect(wrapper.find('.deployment-pages').text()).toContain('1');
     wrapper.unmount();
   });
 
-  it("filters by a service and selects its stack", async () => {
+  it("filters by multiple services", async () => {
     vi.mocked(fetchDeployments).mockResolvedValue({ deployments: [] });
     const wrapper = mount(DeploymentsView);
     await flushPromises();
-    await wrapper.find('[aria-label="Filter deployments by service"]').trigger("click");
-    await wrapper.findAll('.deployments-filter-field:nth-child(2) .deployments-stack-menu button')
-      .find((button) => button.text().includes("proxy"))!.trigger("click");
+    const serviceOptions = wrapper.findAll('.deployments-filter-field:nth-child(2) .app-multi-select-option');
+    await serviceOptions.find((option) => option.text().includes("api"))!.find("input").setValue(true);
+    await serviceOptions.find((option) => option.text().includes("proxy"))!.find("input").setValue(true);
     await flushPromises();
-    expect(router.replace).toHaveBeenCalledWith({ query: { stack_name: "infra", service_name: "proxy" } });
-    expect(fetchDeployments).toHaveBeenLastCalledWith({ stack: "infra", serviceName: "proxy", limit: 20, cursor: undefined });
+    expect(router.replace).toHaveBeenLastCalledWith({ query: { service_name: ["api", "proxy"] } });
+    expect(fetchDeployments).toHaveBeenLastCalledWith({
+      stack: [], serviceName: ["api", "proxy"], limit: 20, cursor: undefined,
+    });
     wrapper.unmount();
   });
 });

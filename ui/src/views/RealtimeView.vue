@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 
 import { fetchSwarmServices, fetchSwarmServiceTasks, fetchSwarmTask } from "../api/services";
 import type { ServiceRealtimeTask, SwarmService, SwarmTaskDetails } from "../api/types";
+import AppMultiSelect from "../components/common/AppMultiSelect.vue";
 import AppStatusBadge from "../components/common/AppStatusBadge.vue";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
@@ -28,7 +29,6 @@ const selectedStacks = ref<string[]>([]);
 const stateFilter = ref<RuntimeState | "all">("all");
 const searchQuery = ref("");
 const automaticRefresh = ref(true);
-const stackFilter = ref<HTMLDetailsElement | null>(null);
 const expandedServiceIDs = ref(new Set<string>());
 const tasksByService = ref<Record<string, TaskListState>>({});
 const selectedTaskID = ref("");
@@ -52,13 +52,13 @@ const stackOptions = computed(() => {
     if (left === "") return 1;
     if (right === "") return -1;
     return left.localeCompare(right);
-  });
+  }).map((stack) => ({ value: stack, label: stackLabel(stack) }));
 });
 
 const selectedStackSummary = computed(() => {
-  if (selectedStacks.value.length === 0) return ["All stacks"];
-  if (selectedStacks.value.length <= 2) return selectedStacks.value.map(stackLabel);
-  return [`${selectedStacks.value.length} stacks selected`];
+  if (selectedStacks.value.length === 0) return "All stacks";
+  if (selectedStacks.value.length <= 2) return selectedStacks.value.map(stackLabel).join(", ");
+  return `${selectedStacks.value.length} stacks selected`;
 });
 
 const filteredServices = computed(() => {
@@ -90,14 +90,8 @@ function stackLabel(stack: string): string {
   return stack || "Standalone";
 }
 
-function toggleStack(stack: string): void {
-  selectedStacks.value = selectedStacks.value.includes(stack)
-    ? selectedStacks.value.filter((selectedStack) => selectedStack !== stack)
-    : [...selectedStacks.value, stack];
-}
-
-function clearStacks(): void {
-  selectedStacks.value = [];
+function selectStacks(stacks: string[]): void {
+  selectedStacks.value = stacks;
 }
 
 function stateVariant(state: RuntimeState): "success" | "warning" | "neutral" {
@@ -277,15 +271,9 @@ function handleVisibilityChange(): void {
   }
 }
 
-function handleDocumentClick(event: MouseEvent): void {
-  if (!(event.target instanceof Node) || stackFilter.value?.contains(event.target)) return;
-  if (stackFilter.value) stackFilter.value.open = false;
-}
-
 watch(automaticRefresh, startPolling);
 
 onMounted(() => {
-  document.addEventListener("click", handleDocumentClick);
   document.addEventListener("visibilitychange", handleVisibilityChange);
   void loadServices();
   startPolling();
@@ -297,7 +285,6 @@ onUnmounted(() => {
   detailRequest++;
   stopPolling();
   if (copiedErrorResetTimer !== undefined) window.clearTimeout(copiedErrorResetTimer);
-  document.removeEventListener("click", handleDocumentClick);
   document.removeEventListener("visibilitychange", handleVisibilityChange);
 });
 </script>
@@ -344,32 +331,20 @@ onUnmounted(() => {
         <input v-model="searchQuery" type="search" placeholder="Search services, stacks, or images" />
       </label>
       <div class="realtime-filter-field">
-        <details ref="stackFilter" class="realtime-stack-filter">
-          <summary aria-label="Filter services by stack">
+        <AppMultiSelect
+          class="realtime-stack-filter"
+          :model-value="selectedStacks"
+          :options="stackOptions"
+          label="Filter services by stack"
+          placeholder="All stacks"
+          heading="Stacks"
+          :selection-label="selectedStackSummary"
+          @update:model-value="selectStacks"
+        >
+          <template #icon>
             <SidebarIcon class="realtime-filter-icon" name="services" />
-            <span class="realtime-stack-filter-selection">
-              <span v-for="summary in selectedStackSummary" :key="summary" class="realtime-stack-chip">{{ summary }}</span>
-            </span>
-            <span class="realtime-filter-chevron" aria-hidden="true">⌄</span>
-          </summary>
-          <div class="realtime-stack-filter-menu">
-            <div class="realtime-stack-filter-menu-header">
-              <strong>Stacks</strong>
-              <button type="button" class="realtime-stack-filter-clear" :disabled="selectedStacks.length === 0" @click="clearStacks">
-                Clear
-              </button>
-            </div>
-            <label v-for="stack in stackOptions" :key="stack || 'standalone'" class="realtime-stack-filter-option">
-              <input
-                type="checkbox"
-                :value="stack"
-                :checked="selectedStacks.includes(stack)"
-                @change="toggleStack(stack)"
-              />
-              <span>{{ stackLabel(stack) }}</span>
-            </label>
-          </div>
-        </details>
+          </template>
+        </AppMultiSelect>
       </div>
       <label class="realtime-filter-field">
         <SidebarIcon class="realtime-filter-icon" name="realtime" />
@@ -518,23 +493,11 @@ onUnmounted(() => {
 .realtime-search { position: relative; min-width: 0; }
 .realtime-filter-icon { width: 17px; height: 17px; flex: 0 0 17px; color: var(--muted); fill: none; stroke: currentColor; stroke-width: 1.6; pointer-events: none; }
 .realtime-search .realtime-filter-icon, .realtime-filter-field > .realtime-filter-icon { position: absolute; z-index: 1; left: 11px; top: 50%; transform: translateY(-50%); }
-.realtime-search input, .realtime-filter-field select, .realtime-stack-filter > summary { box-sizing: border-box; width: 100%; height: 38px; border: 1px solid var(--border-default); border-radius: 7px; background: var(--surface-input); color: var(--text); font: inherit; font-size: .83rem; }
+.realtime-search input, .realtime-filter-field select { box-sizing: border-box; width: 100%; height: 38px; border: 1px solid var(--border-default); border-radius: 7px; background: var(--surface-input); color: var(--text); font: inherit; font-size: .83rem; }
 .realtime-search input { padding: 7px 10px 7px 36px; }
 .realtime-filter-field { position: relative; min-width: 0; color: var(--muted); }
 .realtime-filter-field select { padding: 7px 10px 7px 36px; }
-.realtime-stack-filter { position: relative; min-width: 0; }
-.realtime-stack-filter > summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; cursor: pointer; list-style: none; }
-.realtime-stack-filter > summary::-webkit-details-marker { display: none; }
-.realtime-stack-filter-selection { min-width: 0; overflow: hidden; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
-.realtime-filter-chevron { flex: 0 0 auto; color: var(--muted); }
-.realtime-stack-chip + .realtime-stack-chip::before { content: ", "; }
-.realtime-stack-filter-menu { position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; box-sizing: border-box; width: max(100%, 260px); max-width: calc(100vw - 32px); max-height: min(320px, calc(100dvh - 128px)); overflow-y: auto; border: 1px solid var(--border-default); border-radius: 8px; background: var(--surface-elevated); box-shadow: var(--shadow-popover); padding: 7px; }
-.realtime-stack-filter-menu-header { display: flex; align-items: center; justify-content: space-between; padding: 5px 6px 8px; color: var(--text); }
-.realtime-stack-filter-clear { border: 0; background: transparent; color: var(--control-primary); padding: 0; font: inherit; }
-.realtime-stack-filter-option { display: flex; align-items: center; gap: 9px; border-radius: 6px; padding: 7px 6px; color: var(--text); font-size: .82rem; }
-.realtime-stack-filter-option:hover { background: var(--surface-hover-soft); }
-.realtime-stack-filter-option input { flex: 0 0 16px; width: 16px; min-width: 16px; height: 16px; margin: 0; padding: 0; accent-color: var(--control-primary); }
-.realtime-search input:focus-visible, .realtime-filter-field select:focus-visible, .realtime-stack-filter > summary:focus-visible, .realtime-page button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
+.realtime-search input:focus-visible, .realtime-filter-field select:focus-visible, .realtime-page button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
 .realtime-workspace { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
 .realtime-workspace--details { grid-template-columns: minmax(0, 1fr) minmax(360px, 410px); }
 .realtime-services-panel { min-width: 0; }
@@ -636,6 +599,6 @@ onUnmounted(() => {
 
 @media (max-width: 460px) {
   .realtime-refresh-status > span { flex-basis: 100%; }
-  .realtime-filter-field select, .realtime-stack-filter > summary, .realtime-search input { font-size: 16px; }
+  .realtime-filter-field select, .realtime-search input { font-size: 16px; }
 }
 </style>

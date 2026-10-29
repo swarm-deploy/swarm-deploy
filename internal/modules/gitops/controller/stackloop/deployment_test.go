@@ -291,7 +291,7 @@ func TestReconcileRecoversInterruptedCompletionConflictAndAppliesCorrectedDesire
 	)
 	req := ReconciliationRequest{Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "broken"}
 	require.Error(t, r.Reconcile(ctx, req))
-	page, err := repo.List(ctx, deploymentmodel.ListFilter{Stack: "app"})
+	page, err := repo.List(ctx, deploymentmodel.ListFilter{Stacks: []string{"app"}})
 	require.NoError(t, err)
 	require.Len(t, page.Deployments, 1)
 	staleID := page.Deployments[0].ID
@@ -312,7 +312,7 @@ func TestReconcileRecoversInterruptedCompletionConflictAndAppliesCorrectedDesire
 	req.Commit = "corrected"
 	require.NoError(t, r.Reconcile(ctx, req))
 
-	page, err = repo.List(ctx, deploymentmodel.ListFilter{Stack: "app"})
+	page, err = repo.List(ctx, deploymentmodel.ListFilter{Stacks: []string{"app"}})
 	require.NoError(t, err)
 	require.Len(t, page.Deployments, 2)
 	assert.Equal(t, deploymentmodel.Succeeded, page.Deployments[0].Status)

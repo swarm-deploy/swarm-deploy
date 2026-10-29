@@ -37,7 +37,7 @@ func (h *handler) ListDeployments(
 	ctx context.Context, params generated.ListDeploymentsParams,
 ) (*generated.DeploymentsResponse, error) {
 	page, err := h.deployments.List(ctx, deploymentmodel.ListFilter{
-		Stack: params.Stack.Or(""), Service: params.ServiceName.Or(""),
+		Stacks: params.Stack, Services: params.ServiceName,
 		Limit: int(params.Limit.Or(0)), Cursor: params.Cursor.Or(""),
 	})
 	if errors.Is(err, deploymentstore.ErrInvalidCursor) {

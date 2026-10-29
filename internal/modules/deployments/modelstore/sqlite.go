@@ -196,14 +196,7 @@ const supersededPredicate = `deployments.status IN ('failed','interrupted') AND 
 // List returns a lightweight page without loading desired snapshots or change arrays.
 func (s *Store) List(ctx context.Context, filter deploymentmodel.ListFilter) (deploymentmodel.Page, error) {
 	dataset := s.db.Dialect().From("deployments").Prepared(true).Select(summaryColumns...)
-	if filter.Stack != "" {
-		dataset = dataset.Where(goqu.Ex{"stack": filter.Stack})
-	}
-	if filter.Service != "" {
-		const serviceQuery = `EXISTS (SELECT 1 FROM json_each(deployments.desired_payload,
-			'$.definition.compose.services') AS svc WHERE json_extract(svc.value, '$.name') = ?)`
-		dataset = dataset.Where(goqu.L(serviceQuery, filter.Service))
-	}
+	dataset = filterDeploymentIdentities(dataset, filter)
 	if filter.Status != "" {
 		if filter.Status == deploymentmodel.Superseded {
 			dataset = dataset.Where(goqu.L(supersededPredicate))
@@ -259,6 +252,21 @@ func (s *Store) List(ctx context.Context, filter deploymentmodel.ListFilter) (de
 		page.Deployments = items[:limit]
 	}
 	return page, nil
+}
+
+func filterDeploymentIdentities(
+	dataset *goqu.SelectDataset,
+	filter deploymentmodel.ListFilter,
+) *goqu.SelectDataset {
+	if len(filter.Stacks) > 0 {
+		dataset = dataset.Where(goqu.Ex{"stack": filter.Stacks})
+	}
+	if len(filter.Services) > 0 {
+		serviceNames := goqu.L("json_extract(svc.value, '$.name')").In(filter.Services)
+		dataset = dataset.Where(goqu.L(`EXISTS (SELECT 1 FROM json_each(deployments.desired_payload,
+			'$.definition.compose.services') AS svc WHERE ?)`, serviceNames))
+	}
+	return dataset
 }
 
 // ListServiceDeployments returns only recent attempts and display fields for one service.

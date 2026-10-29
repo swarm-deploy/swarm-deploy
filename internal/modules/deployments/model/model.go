@@ -354,10 +354,10 @@ type Prepared struct {
 
 // ListFilter selects recent desired-state deployments.
 type ListFilter struct {
-	// Stack restricts results to a stack; empty means all stacks.
-	Stack string
-	// Service restricts results to deployments containing a service in their desired configuration.
-	Service string
+	// Stacks restricts results to any of the listed stacks; empty means all stacks.
+	Stacks []string
+	// Services restricts results to deployments containing any listed service in their desired configuration.
+	Services []string
 	// Status restricts results to one deployment outcome; empty means all statuses.
 	Status Status
 	// ErrorCode restricts results to one stable failure category; empty means all categories.
