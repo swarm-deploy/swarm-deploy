@@ -8,6 +8,7 @@ import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import TaskDetailsPanel from "../components/services/TaskDetailsPanel.vue";
 import TaskLogsModal from "../components/services/TaskLogsModal.vue";
+import { copyText } from "../utils/clipboard";
 import { formatDate } from "../utils/format";
 import { serviceRuntimeState, type RuntimeState } from "../utils/realtime";
 
@@ -35,8 +36,10 @@ const taskDetailsLoading = ref(false);
 const taskDetailsError = ref("");
 const logsTaskID = ref("");
 const logsOpen = ref(false);
+const copiedErrorTaskID = ref("");
 
 let pollingTimer: number | undefined;
+let copiedErrorResetTimer: number | undefined;
 let serviceRequest = 0;
 let detailRequest = 0;
 let disposed = false;
@@ -109,10 +112,43 @@ function taskStateVariant(state: string): "success" | "error" | "neutral" {
   return "neutral";
 }
 
+function taskStateLabel(state: string): string {
+  const value = state.trim();
+  if (!value) return "Unknown";
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
 function shortID(id: string): string {
   if (!id) return "n/a";
   if (id.length <= 18) return id;
   return `${id.slice(0, 10)}…${id.slice(-6)}`;
+}
+
+function formatRelativeTime(raw: string | undefined): string {
+  if (!raw) return "n/a";
+  const timestamp = new Date(raw).valueOf();
+  if (Number.isNaN(timestamp)) return raw;
+
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - timestamp) / 1_000));
+  if (elapsedSeconds < 60) return "now";
+  if (elapsedSeconds < 3_600) return `${Math.floor(elapsedSeconds / 60)}m ago`;
+  if (elapsedSeconds < 86_400) return `${Math.floor(elapsedSeconds / 3_600)}h ago`;
+  return `${Math.floor(elapsedSeconds / 86_400)}d ago`;
+}
+
+function isFailedTask(state: string): boolean {
+  return ["failed", "rejected", "shutdown"].includes(state.trim().toLowerCase());
+}
+
+async function copyTaskError(task: ServiceRealtimeTask): Promise<void> {
+  if (!task.error) return;
+  await copyText(task.error);
+  if (copiedErrorResetTimer !== undefined) window.clearTimeout(copiedErrorResetTimer);
+  copiedErrorTaskID.value = task.id;
+  copiedErrorResetTimer = window.setTimeout(() => {
+    copiedErrorTaskID.value = "";
+    copiedErrorResetTimer = undefined;
+  }, 1_600);
 }
 
 function tasksFor(serviceID: string): TaskListState {
@@ -259,6 +295,7 @@ onUnmounted(() => {
   serviceRequest++;
   detailRequest++;
   stopPolling();
+  if (copiedErrorResetTimer !== undefined) window.clearTimeout(copiedErrorResetTimer);
   document.removeEventListener("click", handleDocumentClick);
   document.removeEventListener("visibilitychange", handleVisibilityChange);
 });
@@ -356,7 +393,7 @@ onUnmounted(() => {
         <AppTableEmpty v-else-if="services.length === 0" message="No Swarm services found." />
         <AppTableEmpty v-else-if="filteredServices.length === 0" message="No services match the current filters." />
 
-        <AppTable v-else fixed min-width="680px" table-class="realtime-services-table" aria-label="Swarm services">
+        <AppTable v-else fixed min-width="900px" table-class="realtime-services-table" aria-label="Swarm services">
           <template #colgroup>
             <col class="realtime-col-service" />
             <col class="realtime-col-stack" />
@@ -381,42 +418,63 @@ onUnmounted(() => {
                 </div>
               </td>
               <td data-label="Stack"><span :class="{ 'realtime-standalone': !service.stack }">{{ service.stack || "Standalone" }}</span></td>
-              <td class="realtime-replicas" data-label="Replicas"><strong>{{ service.replicas.running }}</strong><span>/</span>{{ service.replicas.desired }}</td>
+              <td class="realtime-replicas" data-label="Replicas"><strong :class="{ 'realtime-replicas-running--degraded': serviceRuntimeState(service) === 'degraded' }">{{ service.replicas.running }}</strong><span>/</span>{{ service.replicas.desired }}</td>
               <td data-label="State"><AppStatusBadge class="realtime-state" :variant="stateVariant(serviceRuntimeState(service))" dot>{{ stateLabel(serviceRuntimeState(service)) }}</AppStatusBadge></td>
-              <td data-label="Updated"><time :datetime="service.updated_at">{{ formatDate(service.updated_at) }}</time></td>
+              <td data-label="Updated"><time :datetime="service.updated_at" :title="formatDate(service.updated_at)">{{ formatRelativeTime(service.updated_at) }}</time></td>
             </tr>
-            <tr v-if="expandedServiceIDs.has(service.id)" class="realtime-tasks-row">
-              <td colspan="5">
-                <div class="realtime-tasks-container">
-                  <div class="realtime-tasks-heading"><span>Tasks</span><small>{{ tasksFor(service.id).tasks.length }} entries</small></div>
-                  <AppTableEmpty v-if="tasksFor(service.id).loading && tasksFor(service.id).tasks.length === 0" message="Loading tasks..." />
-                  <AppTableEmpty v-else-if="tasksFor(service.id).error && tasksFor(service.id).tasks.length === 0" role="alert">Failed to load tasks: {{ tasksFor(service.id).error }}</AppTableEmpty>
-                  <AppTableEmpty v-else-if="tasksFor(service.id).tasks.length === 0" message="No tasks for this service." />
-                  <template v-else>
-                    <p v-if="tasksFor(service.id).error" class="realtime-inline-error" role="status">Task data may be stale: {{ tasksFor(service.id).error }}</p>
-                    <AppTable fixed min-width="690px" table-class="realtime-tasks-table" :aria-label="`Tasks for ${service.name}`">
-                      <template #head><tr><th>Task</th><th>Node</th><th>State</th><th>Updated</th><th>Error</th><th>Actions</th></tr></template>
-                      <tr
-                        v-for="task in tasksFor(service.id).tasks"
-                        :key="task.id"
-                        class="realtime-task-row"
-                        :class="{ 'realtime-task-row--selected': selectedTaskID === task.id }"
-                      >
-                        <td data-label="Task"><button type="button" class="realtime-task-select" @click="selectTask(task)"><strong>Slot {{ task.slot }}</strong><code>{{ shortID(task.id) }}</code></button></td>
-                        <td data-label="Node"><span>{{ task.node_name || task.node || "Unavailable" }}</span></td>
-                        <td data-label="State"><AppStatusBadge class="realtime-state" :variant="taskStateVariant(task.current_state)" dot>{{ task.current_state || "Unknown" }}</AppStatusBadge></td>
-                        <td data-label="Updated">{{ formatDate(task.updated_at) }}</td>
-                        <td class="realtime-task-error-cell" data-label="Error">{{ task.error || "—" }}</td>
-                        <td class="realtime-task-actions" data-label="Actions">
-                          <button type="button" class="realtime-text-button" @click="selectTask(task)">Details</button>
-                          <button type="button" class="realtime-text-button" @click="openLogs(task.id)">Logs</button>
-                        </td>
-                      </tr>
-                    </AppTable>
-                  </template>
-                </div>
-              </td>
-            </tr>
+            <template v-if="expandedServiceIDs.has(service.id)">
+              <tr v-if="tasksFor(service.id).loading && tasksFor(service.id).tasks.length === 0" class="realtime-task-message-row">
+                <td colspan="5"><span>Loading tasks...</span></td>
+              </tr>
+              <tr v-else-if="tasksFor(service.id).error && tasksFor(service.id).tasks.length === 0" class="realtime-task-message-row realtime-task-message-row--error">
+                <td colspan="5"><span role="alert">Failed to load tasks: {{ tasksFor(service.id).error }}</span></td>
+              </tr>
+              <tr v-else-if="tasksFor(service.id).tasks.length === 0" class="realtime-task-message-row">
+                <td colspan="5"><span>No tasks for this service.</span></td>
+              </tr>
+              <template v-else>
+                <tr v-if="tasksFor(service.id).error" class="realtime-task-message-row realtime-task-message-row--warning">
+                  <td colspan="5"><span role="status">Task data may be stale: {{ tasksFor(service.id).error }}</span></td>
+                </tr>
+                <tr
+                  v-for="task in tasksFor(service.id).tasks"
+                  :key="task.id"
+                  class="realtime-task-row"
+                  :class="{ 'realtime-task-row--selected': selectedTaskID === task.id }"
+                >
+                  <td colspan="5">
+                    <div class="realtime-task-grid">
+                      <button type="button" class="realtime-task-select" @click="selectTask(task)"><strong>Slot {{ task.slot }}</strong><code>{{ shortID(task.id) }}</code></button>
+                      <span class="realtime-task-node">{{ task.node_name || task.node || "Unavailable" }}</span>
+                      <AppStatusBadge class="realtime-state" :variant="taskStateVariant(task.current_state)" dot>{{ taskStateLabel(task.current_state) }}</AppStatusBadge>
+                      <time :datetime="task.updated_at" :title="formatDate(task.updated_at)">{{ formatRelativeTime(task.updated_at) }}</time>
+                      <span class="realtime-task-error-cell" :class="{ 'realtime-task-error-cell--failed': task.error && isFailedTask(task.current_state) }">
+                        <span :title="task.error || undefined">{{ task.error || "—" }}</span>
+                        <button
+                          v-if="task.error"
+                          type="button"
+                          class="realtime-task-error-copy"
+                          :aria-label="copiedErrorTaskID === task.id ? 'Task error copied' : 'Copy full task error'"
+                          :title="copiedErrorTaskID === task.id ? 'Copied' : 'Copy full error'"
+                          @click="copyTaskError(task)"
+                        >
+                          <svg v-if="copiedErrorTaskID === task.id" class="realtime-task-error-copy-check" viewBox="0 0 16 16" aria-hidden="true"><path d="m3 8.5 3 3L13 4.8" /></svg>
+                          <svg v-else viewBox="0 0 16 16" aria-hidden="true"><rect x="5" y="2" width="8" height="9" rx="1.5" /><path d="M3 5v7.5A1.5 1.5 0 0 0 4.5 14H11" /></svg>
+                        </button>
+                      </span>
+                      <span class="realtime-task-actions">
+                        <button type="button" class="realtime-task-action-button" :aria-label="`Open details for task ${task.id}`" title="Task details" @click="selectTask(task)">
+                          <svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="3" cy="4" r=".7" /><circle cx="3" cy="8" r=".7" /><circle cx="3" cy="12" r=".7" /><path d="M6 4h7M6 8h7M6 12h7" /></svg>
+                        </button>
+                        <button type="button" class="realtime-task-action-button" :aria-label="`Open logs for task ${task.id}`" title="Task logs" @click="openLogs(task.id)">
+                          <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2h5l3 3v9H4zM9 2v3h3M6 8h4M6 10.5h4" /></svg>
+                        </button>
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              </template>
+            </template>
           </template>
         </AppTable>
       </div>
@@ -480,8 +538,8 @@ onUnmounted(() => {
 .realtime-workspace--details { grid-template-columns: minmax(0, 1fr) minmax(360px, 410px); }
 .realtime-services-panel { min-width: 0; }
 .realtime-services-panel :deep(.app-table-wrap) { min-width: 0; }
-.realtime-services-panel :deep(.app-table th) { height: 44px; padding-inline: 14px; }
-.realtime-services-panel :deep(.app-table td) { height: 52px; padding-inline: 14px; }
+.realtime-services-panel :deep(.app-table th) { height: 40px; padding: 7px 14px; }
+.realtime-services-panel :deep(.app-table td) { height: 46px; padding: 9px 14px; }
 .realtime-col-service { width: 34%; }
 .realtime-col-stack { width: 17%; }
 .realtime-col-replicas { width: 12%; }
@@ -502,25 +560,32 @@ onUnmounted(() => {
 .realtime-standalone { color: var(--muted); font-style: italic; }
 .realtime-replicas { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .realtime-replicas strong { color: var(--text); }
+.realtime-replicas .realtime-replicas-running--degraded { color: var(--warning); }
 .realtime-replicas span { margin-inline: 3px; color: var(--muted); }
 .realtime-state { border: 0; padding: 0; }
 .realtime-service-row time { color: var(--muted); font-size: .76rem; white-space: nowrap; }
-.realtime-tasks-row > td { height: auto !important; padding: 0 !important; background: var(--surface-input-strong); }
-.realtime-tasks-container { min-width: 0; padding: 12px 14px 14px 46px; border-bottom: 1px solid var(--border-default); }
-.realtime-tasks-heading { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
-.realtime-tasks-heading span { font-size: .78rem; font-weight: 700; }
-.realtime-tasks-heading small { color: var(--muted); font-size: .7rem; }
-.realtime-tasks-container :deep(.app-table-wrap) { border: 1px solid var(--border-subtle); border-radius: 8px; background: var(--surface-card-soft); }
-.realtime-tasks-container :deep(.app-table th) { height: 36px; padding: 7px 10px; font-size: .7rem; }
-.realtime-tasks-container :deep(.app-table td) { height: 46px; padding: 8px 10px; font-size: .78rem; }
-.realtime-task-row--selected { background: var(--surface-selected); }
+.realtime-task-row > td { height: auto !important; padding: 0 !important; background: transparent; }
+.realtime-task-grid { position: relative; box-sizing: border-box; width: calc(100% - 44px); min-width: 0; min-height: 46px; display: grid; grid-template-columns: minmax(150px, 1.05fr) minmax(90px, .7fr) minmax(95px, .7fr) minmax(76px, .6fr) minmax(120px, 1.15fr); align-items: center; gap: 12px; margin-left: 44px; border-left: 1px solid var(--border-subtle); padding: 6px calc(20% + 118px) 6px 16px; font-size: .78rem; }
+.realtime-task-row--selected .realtime-task-grid { background: var(--surface-selected); }
 .realtime-task-select { width: 100%; min-width: 0; display: grid; gap: 2px; border: 0; background: transparent; color: var(--text); padding: 0; text-align: left; font: inherit; transform: none; filter: none; }
 .realtime-task-select strong { font-size: .78rem; }
-.realtime-task-select code { color: var(--muted); font-size: .68rem; }
-.realtime-task-error-cell { max-width: 210px; color: var(--error); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.realtime-task-actions { white-space: nowrap; }
-.realtime-text-button { border: 0; background: transparent; color: var(--control-primary); padding: 4px 5px; font: inherit; font-size: .76rem; font-weight: 600; transform: none; filter: none; }
-.realtime-text-button:hover { text-decoration: underline; }
+.realtime-task-select code { min-width: 0; overflow: hidden; color: var(--muted); font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
+.realtime-task-node { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.realtime-task-grid time { color: var(--muted); font-size: .76rem; white-space: nowrap; }
+.realtime-task-error-cell { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) 24px; align-items: center; gap: 4px; color: var(--muted); }
+.realtime-task-error-cell > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.realtime-task-error-cell--failed { color: var(--error); }
+.realtime-task-error-copy { display: inline-grid; place-items: center; width: 24px; height: 24px; border: 0; border-radius: 4px; background: transparent; color: currentColor; padding: 0; opacity: .75; transform: none; filter: none; }
+.realtime-task-error-copy:hover { background: var(--surface-hover); opacity: 1; transform: none; filter: none; }
+.realtime-task-error-copy svg { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+.realtime-task-error-copy .realtime-task-error-copy-check { color: var(--success); stroke-width: 2; }
+.realtime-task-actions { position: absolute; top: 50%; right: calc(20% + 8px); display: flex; align-items: center; justify-content: flex-end; gap: 2px; white-space: nowrap; transform: translateY(-50%); }
+.realtime-task-message-row > td { height: auto !important; padding: 9px 14px 9px 60px !important; color: var(--muted); font-size: .78rem; }
+.realtime-task-message-row--error > td { color: var(--error); }
+.realtime-task-message-row--warning > td { color: var(--warning); }
+.realtime-task-action-button { display: inline-grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 4px; background: transparent; color: var(--control-primary); padding: 0; transform: none; filter: none; }
+.realtime-task-action-button:hover { background: var(--surface-hover); transform: none; filter: none; }
+.realtime-task-action-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .realtime-mobile-panel-backdrop { display: none; }
 :deep(.realtime-task-panel) { position: sticky; top: calc(var(--shell-header-height) + 16px); max-height: calc(100vh - var(--shell-header-height) - 44px); }
 
@@ -557,22 +622,16 @@ onUnmounted(() => {
   .realtime-service-row > td:nth-child(3) { grid-column: 2; grid-row: 2; justify-content: flex-end; }
   .realtime-service-row > td:nth-child(4) { grid-column: 2; grid-row: 1; justify-content: flex-end; }
   .realtime-service-row > td:nth-child(5) { display: none !important; }
-  .realtime-tasks-row { display: block; }
-  .realtime-tasks-row > td { display: block; }
-  .realtime-tasks-container { padding: 10px 12px 14px; }
-  .realtime-tasks-container :deep(.app-table-wrap) { overflow: visible; border: 0; border-radius: 0; background: transparent; }
-  .realtime-tasks-container :deep(.realtime-tasks-table) { display: block; min-width: 0 !important; }
-  .realtime-tasks-container :deep(.realtime-tasks-table thead) { display: none; }
-  .realtime-tasks-container :deep(.realtime-tasks-table tbody) { display: grid; gap: 8px; padding: 0; }
-  .realtime-tasks-container :deep(.realtime-task-row) { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 5px 12px; border: 1px solid var(--border-subtle); border-radius: 7px; background: var(--surface-card-soft); padding: 10px; }
-  .realtime-tasks-container :deep(.realtime-task-row--selected) { background: var(--surface-selected); }
-  .realtime-tasks-container :deep(.realtime-task-row > td) { display: flex; min-width: 0; height: auto; padding: 0; border: 0; }
-  .realtime-tasks-container :deep(.realtime-task-row > td:nth-child(1)) { grid-column: 1; grid-row: 1; }
-  .realtime-tasks-container :deep(.realtime-task-row > td:nth-child(2)) { grid-column: 1; grid-row: 2; color: var(--muted); }
-  .realtime-tasks-container :deep(.realtime-task-row > td:nth-child(3)) { grid-column: 2; grid-row: 1; justify-content: flex-end; }
-  .realtime-tasks-container :deep(.realtime-task-row > td:nth-child(4)) { display: none; }
-  .realtime-tasks-container :deep(.realtime-task-row > td:nth-child(5)) { grid-column: 1 / -1; grid-row: 3; max-width: none; white-space: normal; }
-  .realtime-tasks-container :deep(.realtime-task-row > td:nth-child(6)) { grid-column: 2; grid-row: 2; justify-content: flex-end; }
+  .realtime-task-row, .realtime-task-message-row { display: block; }
+  .realtime-task-row > td, .realtime-task-message-row > td { display: block; }
+  .realtime-task-grid { width: calc(100% - 28px); grid-template-columns: minmax(0, 1fr) auto; gap: 5px 12px; min-height: 0; margin-left: 28px; padding: 9px 12px; }
+  .realtime-task-select { grid-column: 1; grid-row: 1; }
+  .realtime-task-node { grid-column: 1; grid-row: 2; color: var(--muted); }
+  .realtime-task-grid > .realtime-state { grid-column: 2; grid-row: 1; justify-self: end; }
+  .realtime-task-grid time { grid-column: 2; grid-row: 2; justify-self: end; }
+  .realtime-task-error-cell { grid-column: 1 / -1; grid-row: 3; }
+  .realtime-task-actions { position: static; grid-column: 1 / -1; grid-row: 4; justify-content: flex-start; transform: none; }
+  .realtime-task-message-row > td { padding-left: 42px !important; }
 }
 
 @media (max-width: 460px) {

@@ -19,9 +19,10 @@ const services = [
   { id: "four", name: "proxy", full_name: "proxy", stack: "", image: "example/proxy:v1", mode: "replicated", replicas: { running: 3, desired: 2 }, updated_at: "2026-10-28T20:00:00Z" },
 ];
 
+const taskError = "connection refused while opening docker socket on worker-1";
 const tasks = [
   { id: "task-current", slot: 1, node: "node-1", node_name: "worker-1", desired_state: "running", current_state: "running", container_id: "container-1", updated_at: "2026-10-28T20:01:00Z" },
-  { id: "task-history", slot: 1, node: "node-1", node_name: "worker-1", desired_state: "shutdown", current_state: "failed", container_id: "container-old", exit_code: 1, error: "failed", updated_at: "2026-10-28T19:55:00Z" },
+  { id: "task-history", slot: 1, node: "node-1", node_name: "worker-1", desired_state: "shutdown", current_state: "failed", container_id: "container-old", exit_code: 1, error: taskError, updated_at: "2026-10-28T19:55:00Z" },
 ];
 
 function taskDetails(id: string) {
@@ -68,6 +69,7 @@ describe("RealtimeView", () => {
     expect(wrapper.text()).toContain("Degraded");
     expect(wrapper.text()).toContain("Scaled down");
     expect(wrapper.text()).toContain("Unknown");
+    expect(wrapper.get(".realtime-replicas-running--degraded").text()).toBe("1");
     expect(wrapper.findAll(".realtime-services-table > thead th").map((header) => header.text())).toEqual([
       "Service",
       "Stack",
@@ -125,8 +127,47 @@ describe("RealtimeView", () => {
     await flushPromises();
 
     expect(apiMocks.fetchSwarmServiceTasks).toHaveBeenCalledExactlyOnceWith("one");
-    expect(wrapper.findAll(".realtime-task-row")).toHaveLength(2);
+    expect(wrapper.findAll(".realtime-services-table > tbody > .realtime-task-row")).toHaveLength(2);
     expect(wrapper.findAll(".realtime-task-select code").map((item) => item.text())).toEqual(["task-current", "task-history"]);
+    expect(wrapper.find(".realtime-tasks-heading").exists()).toBe(false);
+    expect(wrapper.find(".realtime-tasks-container").exists()).toBe(false);
+    expect(wrapper.find(".realtime-tasks-table").exists()).toBe(false);
+    expect(wrapper.find(".realtime-task-row .realtime-expand-button").exists()).toBe(false);
+    expect(wrapper.findAll(".realtime-task-action-button")).toHaveLength(4);
+    expect(wrapper.findAll(".realtime-task-action-button").every((button) => button.text() === "")).toBe(true);
+    expect(wrapper.findAll(".realtime-task-action-button")[0].attributes("aria-label")).toContain("Open details for task");
+    expect(wrapper.findAll(".realtime-task-action-button")[1].attributes("aria-label")).toContain("Open logs for task");
+    expect(wrapper.get(".realtime-task-error-cell--failed > span").attributes("title")).toBe(taskError);
+    wrapper.unmount();
+  });
+
+  it("renders relative service and task timestamps with exact timestamp tooltips", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-10-28T20:03:00Z"));
+    const wrapper = await mountView();
+
+    expect(wrapper.findAll(".realtime-service-row time")[0].text()).toBe("3m ago");
+    expect(wrapper.findAll(".realtime-service-row time")[0].attributes("title")).toBeTruthy();
+
+    await wrapper.findAll(".realtime-expand-button")[0].trigger("click");
+    await flushPromises();
+    expect(wrapper.findAll(".realtime-task-grid time").map((item) => item.text())).toEqual(["2m ago", "8m ago"]);
+    expect(wrapper.findAll(".realtime-task-grid time").every((item) => Boolean(item.attributes("title")))).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("copies the full task error from the compact task row", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(window, "isSecureContext", { configurable: true, value: true });
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+    const wrapper = await mountView();
+
+    await wrapper.findAll(".realtime-expand-button")[0].trigger("click");
+    await flushPromises();
+    await wrapper.get(".realtime-task-error-copy").trigger("click");
+
+    expect(writeText).toHaveBeenCalledExactlyOnceWith(taskError);
+    expect(wrapper.get(".realtime-task-error-copy").attributes("aria-label")).toBe("Task error copied");
     wrapper.unmount();
   });
 
