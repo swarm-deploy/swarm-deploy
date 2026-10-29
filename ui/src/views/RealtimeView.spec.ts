@@ -85,6 +85,13 @@ describe("RealtimeView", () => {
   it("filters locally by search, multiple stacks, and state without refetching", async () => {
     const wrapper = await mountView();
 
+    const filters = wrapper.get(".realtime-filters");
+    expect(filters.findAll(".realtime-filter-icon")).toHaveLength(3);
+    expect(filters.get(".realtime-stack-filter summary").text()).toContain("All stacks");
+    expect(filters.get("select").element.value).toBe("all");
+    expect(filters.find(".realtime-result-count").exists()).toBe(false);
+    expect(filters.find(".realtime-filter-field > span").exists()).toBe(false);
+
     await wrapper.get<HTMLInputElement>('.realtime-search input').setValue("worker");
     expect(wrapper.findAll(".realtime-service-row")).toHaveLength(1);
     expect(wrapper.text()).toContain("infra_worker");

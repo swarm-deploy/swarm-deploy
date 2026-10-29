@@ -1442,9 +1442,45 @@ a.overview-summary-row:focus-visible {
   min-width: 0;
 }
 
+.service-details-side--task-details {
+  align-self: stretch;
+}
+
+.service-details-side > .realtime-task-panel {
+  position: sticky;
+  top: calc(var(--shell-header-height) + 16px);
+  height: calc(100vh - var(--shell-header-height) - 44px);
+  max-height: calc(100vh - var(--shell-header-height) - 44px);
+}
+
+.service-task-details-backdrop {
+  display: none;
+}
+
 @container service-details-page (max-width: 1200px) {
   .service-details-layout {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .service-details-side > .realtime-task-panel {
+    position: fixed;
+    z-index: 61;
+    inset: 8px;
+    height: auto;
+    max-height: none;
+  }
+
+  .service-task-details-backdrop {
+    position: fixed;
+    z-index: 60;
+    inset: 0;
+    display: block;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    border-radius: 0;
+    background: var(--backdrop);
+    padding: 0;
   }
 }
 
@@ -1552,22 +1588,6 @@ a.overview-summary-row:focus-visible {
     line-height: 1.35;
   }
 
-  .service-realtime-mobile-logs,
-  .service-realtime-mobile-logs:hover {
-    flex: 0 0 auto;
-    border: 0;
-    background: transparent;
-    color: var(--accent-strong);
-    padding: 2px 0;
-    font-size: 0.78rem;
-    font-weight: 600;
-    filter: none;
-    transform: none;
-  }
-
-  .service-realtime-mobile-logs:hover {
-    text-decoration: underline;
-  }
 }
 
 .service-details-list {
@@ -3318,7 +3338,8 @@ a.overview-summary-row:focus-visible {
 
 .service-realtime-table th:nth-child(1),
 .service-realtime-table td:nth-child(1) {
-  width: 56px;
+  width: 44px;
+  padding-inline: 8px;
   text-align: center;
 }
 
@@ -3344,17 +3365,20 @@ a.overview-summary-row:focus-visible {
 
 .service-realtime-table th:nth-child(6),
 .service-realtime-table td:nth-child(6) {
-  width: 34%;
+  width: auto;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .service-realtime-table th:nth-child(7),
 .service-realtime-table td:nth-child(7) {
-  width: 56px;
+  width: 74px;
+  padding-inline: 8px;
   text-align: center;
 }
 
 .service-realtime-copy-cell,
-.service-realtime-logs-cell {
+.service-realtime-actions-cell {
   white-space: nowrap;
 }
 
@@ -3401,6 +3425,20 @@ a.overview-summary-row:focus-visible {
   height: 14px;
 }
 
+.service-realtime-copy-button,
+.service-realtime-copy-button:hover:not(:disabled) {
+  border-color: transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--control-primary);
+  transform: none;
+  filter: none;
+}
+
+.service-realtime-copy-button:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
 .service-image-copy-button,
 .service-image-copy-button:hover {
   background: transparent;
@@ -3409,8 +3447,47 @@ a.overview-summary-row:focus-visible {
   transform: none;
 }
 
-.service-task-logs-button {
-  color: var(--accent-strong);
+.service-realtime-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  white-space: nowrap;
+}
+
+.service-realtime-action-button {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--control-primary);
+  padding: 0;
+  transform: none;
+  filter: none;
+}
+
+.service-realtime-action-button:hover:not(:disabled) {
+  background: var(--surface-hover);
+  transform: none;
+  filter: none;
+}
+
+.service-realtime-action-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.service-realtime-action-button svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: #606060;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .task-logs-modal-card {

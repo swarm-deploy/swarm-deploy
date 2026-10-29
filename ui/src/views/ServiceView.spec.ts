@@ -11,6 +11,7 @@ const apiMocks = vi.hoisted(() => ({
   fetchServiceRealtime: vi.fn(),
   fetchServiceStatus: vi.fn(),
   fetchServices: vi.fn(),
+  fetchSwarmTask: vi.fn(),
   openTaskLogsStream: vi.fn(),
 }));
 
@@ -27,6 +28,7 @@ vi.mock("../api/overview", () => ({
 
 vi.mock("../api/services", () => ({
   fetchServices: apiMocks.fetchServices,
+  fetchSwarmTask: apiMocks.fetchSwarmTask,
 }));
 
 async function mountServiceView() {
@@ -112,6 +114,19 @@ describe("ServiceView", () => {
         updated_at: "2026-10-04T18:01:00Z",
         error: "",
       }],
+    });
+    apiMocks.fetchSwarmTask.mockResolvedValue({
+      id: "task-id",
+      service_id: "service-id",
+      node_id: "node-id",
+      slot: 1,
+      desired_state: "running",
+      current_state: "running",
+      created_at: "2026-10-04T18:00:00Z",
+      updated_at: "2026-10-04T18:01:00Z",
+      container_id: "container-id",
+      image: "registry.example.com/infra/api:latest",
+      environment: [],
     });
   });
 
@@ -230,9 +245,15 @@ describe("ServiceView", () => {
     expect(mobileTask.text()).toContain("Updated");
     expect(mobileTask.text()).not.toContain("Created");
     expect(mobileTask.find("dl").exists()).toBe(false);
-    expect(mobileTask.get(".service-realtime-mobile-logs").text()).toBe("Logs");
+    const actions = mobileTask.findAll(".service-realtime-action-button");
+    expect(actions).toHaveLength(2);
+    expect(actions.every((button) => button.text() === "")).toBe(true);
+    expect(actions[0].attributes("aria-label")).toBe("Open details for task task-id");
+    expect(actions[1].attributes("aria-label")).toBe("Open logs for task task-id");
     expect(mobileTask.find(".service-copy-task-id-button").exists()).toBe(false);
-    expect(wrapper.find(".service-realtime-desktop .service-copy-task-id-button").exists()).toBe(true);
+    const copyButton = wrapper.get(".service-realtime-desktop .service-realtime-copy-button");
+    expect(copyButton.text()).toBe("");
+    expect(copyButton.attributes("title")).toBe("Copy task ID");
   });
 
   it("uses the stack services table presentation for realtime tasks", async () => {
@@ -242,6 +263,8 @@ describe("ServiceView", () => {
     expect(apiMocks.fetchServiceRealtime).toHaveBeenCalledWith("infra_api");
 
     expect(realtimeCard.get(".service-panel-content").classes()).toContain("service-realtime-table-content");
+    expect(realtimeCard.get(".service-realtime-table").classes()).toContain("app-table--fixed");
+    expect(realtimeCard.get(".service-realtime-table").attributes("style")).toBeUndefined();
     expect(realtimeCard.findAll(".service-realtime-table th").map((item) => item.text())).toEqual([
       "ID",
       "Node Name",
@@ -249,10 +272,36 @@ describe("ServiceView", () => {
       "Created At",
       "Updated At",
       "Error",
-      "Logs",
+      "Actions",
     ]);
+    expect(realtimeCard.findAll(".service-realtime-desktop .service-realtime-action-button")).toHaveLength(2);
     expect(realtimeCard.get(".service-realtime-table .status").classes()).toContain("success");
     expect(realtimeCard.get(".service-realtime-table .status").text()).toBe("running");
+  });
+
+  it("opens task details from the icon action", async () => {
+    const wrapper = await mountServiceView();
+    const detailsButton = wrapper.get(".service-realtime-desktop .service-task-details-button");
+
+    expect(wrapper.find(".service-resources-card").exists()).toBe(true);
+    expect(wrapper.find(".service-deployments-card").exists()).toBe(true);
+    expect(detailsButton.text()).toBe("");
+    expect(detailsButton.attributes("title")).toBe("Task details");
+    await detailsButton.trigger("click");
+    await flushPromises();
+
+    expect(apiMocks.fetchSwarmTask).toHaveBeenCalledWith("task-id");
+    expect(wrapper.get(".realtime-task-panel").text()).toContain("Task details");
+    expect(wrapper.get(".realtime-task-panel").text()).toContain("Slot 1");
+    expect(wrapper.get(".service-details-side").classes()).toContain("service-details-side--task-details");
+    expect(wrapper.find(".service-resources-card").exists()).toBe(false);
+    expect(wrapper.find(".service-deployments-card").exists()).toBe(false);
+
+    await wrapper.get('.realtime-task-panel button[aria-label="Close task details"]').trigger("click");
+    expect(wrapper.find(".realtime-task-panel").exists()).toBe(false);
+    expect(wrapper.get(".service-details-side").classes()).not.toContain("service-details-side--task-details");
+    expect(wrapper.find(".service-resources-card").exists()).toBe(true);
+    expect(wrapper.find(".service-deployments-card").exists()).toBe(true);
   });
 
   it("parses and filters task logs through backend streams", async () => {

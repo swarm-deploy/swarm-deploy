@@ -3,18 +3,20 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute } from "vue-router";
 
 import { fetchServiceDeployments, fetchServiceRealtime, fetchServiceStatus } from "../api/overview";
-import { fetchServices } from "../api/services";
+import { fetchServices, fetchSwarmTask } from "../api/services";
 import type {
   ServiceDeploymentResponse,
   ServiceInfo,
   ServiceRealtimeTask,
   ServiceStatusResponse,
+  SwarmTaskDetails,
 } from "../api/types";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
 import AppPanel from "../components/common/AppPanel.vue";
 import AppStatusBadge from "../components/common/AppStatusBadge.vue";
 import DeploymentIcon from "../components/overview/DeploymentIcon.vue";
+import TaskDetailsPanel from "../components/services/TaskDetailsPanel.vue";
 import TaskLogsModal from "../components/services/TaskLogsModal.vue";
 import { useOverviewStore } from "../stores/overview";
 import { useSecretDetailsStore } from "../stores/secretDetails";
@@ -33,11 +35,16 @@ const deploymentsError = ref("");
 const realtimeTasks = ref<ServiceRealtimeTask[]>([]);
 const realtimeLoading = ref(false);
 const realtimeError = ref("");
+const selectedTaskID = ref("");
+const selectedTask = ref<SwarmTaskDetails | null>(null);
+const taskDetailsLoading = ref(false);
+const taskDetailsError = ref("");
 const logsModalOpen = ref(false);
 const logsTaskID = ref("");
 const labelsModalOpen = ref(false);
 const secretDetailsStore = useSecretDetailsStore();
 const overviewStore = useOverviewStore();
+let taskDetailsRequest = 0;
 
 const stackName = computed(() => String(route.params.stack ?? "").trim());
 const serviceName = computed(() => String(route.params.service ?? "").trim());
@@ -221,6 +228,44 @@ function closeTaskLogsModal(): void {
   logsModalOpen.value = false;
 }
 
+function closeTaskDetails(): void {
+  taskDetailsRequest++;
+  selectedTaskID.value = "";
+  selectedTask.value = null;
+  taskDetailsLoading.value = false;
+  taskDetailsError.value = "";
+}
+
+async function openTaskDetails(taskID: string): Promise<void> {
+  const id = String(taskID || "").trim();
+  if (!id) {
+    return;
+  }
+
+  const current = ++taskDetailsRequest;
+  selectedTaskID.value = id;
+  selectedTask.value = null;
+  taskDetailsLoading.value = true;
+  taskDetailsError.value = "";
+
+  try {
+    const response = await fetchSwarmTask(id);
+    if (current !== taskDetailsRequest || selectedTaskID.value !== id) {
+      return;
+    }
+    selectedTask.value = response;
+  } catch (error) {
+    if (current !== taskDetailsRequest || selectedTaskID.value !== id) {
+      return;
+    }
+    taskDetailsError.value = error instanceof Error ? error.message : "Failed to load task details";
+  } finally {
+    if (current === taskDetailsRequest) {
+      taskDetailsLoading.value = false;
+    }
+  }
+}
+
 function openTaskLogs(taskID: string): void {
   const id = String(taskID || "").trim();
   if (!id) {
@@ -238,6 +283,11 @@ function handleEscape(event: KeyboardEvent): void {
 
   if (labelsModalOpen.value) {
     closeLabelsModal();
+    return;
+  }
+
+  if (selectedTaskID.value) {
+    closeTaskDetails();
   }
 }
 
@@ -338,6 +388,7 @@ watch(
   [stackName, serviceName],
   () => {
     closeTaskLogsModal();
+    closeTaskDetails();
     closeLabelsModal();
     void loadServiceDetails();
     void loadServiceDeployments();
@@ -351,6 +402,7 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  taskDetailsRequest++;
   document.removeEventListener("keydown", handleEscape);
 });
 </script>
@@ -524,7 +576,6 @@ onUnmounted(() => {
           <AppTable
             v-else
             fixed
-            min-width="820px"
             table-class="service-realtime-table"
             wrap-class="service-realtime-desktop"
             aria-label="Service realtime"
@@ -537,14 +588,14 @@ onUnmounted(() => {
                 <th>Created At</th>
                 <th>Updated At</th>
                 <th>Error</th>
-                <th>Logs</th>
+                <th>Actions</th>
               </tr>
             </template>
               <tr v-for="task in realtime" :key="task.id">
                 <td class="app-table-cell--center app-table-cell--narrow service-realtime-copy-cell">
                   <button
                     type="button"
-                    class="service-copy-task-id-button"
+                    class="service-copy-task-id-button service-realtime-copy-button"
                     :disabled="!task.id"
                     :aria-label="`Copy task ID ${task.id}`"
                     title="Copy task ID"
@@ -575,22 +626,36 @@ onUnmounted(() => {
                 <td>{{ formatDate(task.created_at) }}</td>
                 <td>{{ formatDate(task.updated_at) }}</td>
                 <td>{{ task.error || 'n/a' }}</td>
-                <td class="app-table-cell--center app-table-cell--narrow service-realtime-logs-cell">
-                  <button
-                    type="button"
-                    class="service-copy-task-id-button service-task-logs-button"
-                    :disabled="!task.id"
-                    :aria-label="`Open logs for task ${task.id}`"
-                    title="Open task logs"
-                    @click="openTaskLogs(task.id)"
-                  >
-                    <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-                      <path
-                        d="M3 2.5A1.5 1.5 0 0 1 4.5 1h5.8c.4 0 .78.16 1.06.44l1.2 1.2c.28.28.44.66.44 1.06v9.8A1.5 1.5 0 0 1 11.5 15h-7A1.5 1.5 0 0 1 3 13.5v-11Zm1.5-.5a.5.5 0 0 0-.5.5v11a.5.5 0 0 0 .5.5h7a.5.5 0 0 0 .5-.5V4H10.5A1.5 1.5 0 0 1 9 2.5V2H4.5ZM10 2.2v.3a.5.5 0 0 0 .5.5h1.3L10 2.2ZM5.5 6a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5Zm0 2.25a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5Zm0 2.25A.5.5 0 0 1 6 10h2.5a.5.5 0 0 1 0 1H6a.5.5 0 0 1-.5-.5Z"
-                        fill="currentColor"
-                      />
-                    </svg>
-                  </button>
+                <td class="app-table-cell--center app-table-cell--narrow service-realtime-actions-cell">
+                  <span class="service-realtime-actions">
+                    <button
+                      type="button"
+                      class="service-realtime-action-button service-task-details-button"
+                      :disabled="!task.id"
+                      :aria-label="`Open details for task ${task.id}`"
+                      title="Task details"
+                      @click="openTaskDetails(task.id)"
+                    >
+                      <svg viewBox="0 0 16 16" aria-hidden="true">
+                        <circle cx="3" cy="4" r=".7" />
+                        <circle cx="3" cy="8" r=".7" />
+                        <circle cx="3" cy="12" r=".7" />
+                        <path d="M6 4h7M6 8h7M6 12h7" />
+                      </svg>
+                    </button>
+                    <button
+                      type="button"
+                      class="service-realtime-action-button service-task-logs-button"
+                      :disabled="!task.id"
+                      :aria-label="`Open logs for task ${task.id}`"
+                      title="Task logs"
+                      @click="openTaskLogs(task.id)"
+                    >
+                      <svg viewBox="0 0 16 16" aria-hidden="true">
+                        <path d="M4 2h5l3 3v9H4zM9 2v3h3M6 8h4M6 10.5h4" />
+                      </svg>
+                    </button>
+                  </span>
                 </td>
               </tr>
           </AppTable>
@@ -601,14 +666,35 @@ onUnmounted(() => {
                   <span class="service-realtime-mobile-state-dot" aria-hidden="true" />
                   {{ task.current_state || "n/a" }}
                 </span>
-                <button
-                  type="button"
-                  class="service-realtime-mobile-logs"
-                  :disabled="!task.id"
-                  @click="openTaskLogs(task.id)"
-                >
-                  Logs
-                </button>
+                <span class="service-realtime-actions">
+                  <button
+                    type="button"
+                    class="service-realtime-action-button service-task-details-button"
+                    :disabled="!task.id"
+                    :aria-label="`Open details for task ${task.id}`"
+                    title="Task details"
+                    @click="openTaskDetails(task.id)"
+                  >
+                    <svg viewBox="0 0 16 16" aria-hidden="true">
+                      <circle cx="3" cy="4" r=".7" />
+                      <circle cx="3" cy="8" r=".7" />
+                      <circle cx="3" cy="12" r=".7" />
+                      <path d="M6 4h7M6 8h7M6 12h7" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    class="service-realtime-action-button service-task-logs-button"
+                    :disabled="!task.id"
+                    :aria-label="`Open logs for task ${task.id}`"
+                    title="Task logs"
+                    @click="openTaskLogs(task.id)"
+                  >
+                    <svg viewBox="0 0 16 16" aria-hidden="true">
+                      <path d="M4 2h5l3 3v9H4zM9 2v3h3M6 8h4M6 10.5h4" />
+                    </svg>
+                  </button>
+                </span>
               </div>
               <code class="service-realtime-mobile-node">{{ task.node_name || task.node || "n/a" }}</code>
               <span class="service-realtime-mobile-updated">Updated {{ formatDate(task.updated_at) }}</span>
@@ -618,13 +704,28 @@ onUnmounted(() => {
         </AppPanel>
       </div>
 
-      <div class="service-details-side">
-        <AppPanel
-          v-if="serviceLinks.length > 0"
-          class="overview-summary-panel service-panel service-links-card"
-          header-class="overview-summary-panel-header"
-          content-class="service-panel-content"
-        >
+      <div class="service-details-side" :class="{ 'service-details-side--task-details': selectedTaskID }">
+        <button
+          v-if="selectedTaskID"
+          type="button"
+          class="service-task-details-backdrop"
+          aria-label="Close task details"
+          @click="closeTaskDetails"
+        />
+        <TaskDetailsPanel
+          v-if="selectedTaskID"
+          :task="selectedTask"
+          :loading="taskDetailsLoading"
+          :error="taskDetailsError"
+          @close="closeTaskDetails"
+        />
+        <template v-else>
+          <AppPanel
+            v-if="serviceLinks.length > 0"
+            class="overview-summary-panel service-panel service-links-card"
+            header-class="overview-summary-panel-header"
+            content-class="service-panel-content"
+          >
           <template #header>
             <div class="service-panel-heading">
               <span class="overview-summary-panel-icon" aria-hidden="true">
@@ -660,13 +761,13 @@ onUnmounted(() => {
               </a>
             </li>
           </ul>
-        </AppPanel>
+          </AppPanel>
 
-        <AppPanel
-          class="overview-summary-panel service-panel service-resources-card"
-          header-class="overview-summary-panel-header"
-          content-class="service-panel-content"
-        >
+          <AppPanel
+            class="overview-summary-panel service-panel service-resources-card"
+            header-class="overview-summary-panel-header"
+            content-class="service-panel-content"
+          >
           <template #header>
             <div class="service-panel-heading">
               <span class="overview-summary-panel-icon" aria-hidden="true">
@@ -689,15 +790,15 @@ onUnmounted(() => {
                 <td>{{ serviceSpec?.requested_cpu_nano ? formatNanoCPU(serviceSpec?.requested_cpu_nano) : 0 }} / {{ serviceSpec?.limit_cpu_nano? formatNanoCPU(serviceSpec?.limit_cpu_nano) : '∞' }}</td>
               </tr>
           </AppTable>
-        </AppPanel>
+          </AppPanel>
 
 
 
-        <AppPanel
-          class="overview-summary-panel service-panel service-deployments-card"
-          header-class="overview-summary-panel-header"
-          content-class="service-panel-content"
-        >
+          <AppPanel
+            class="overview-summary-panel service-panel service-deployments-card"
+            header-class="overview-summary-panel-header"
+            content-class="service-panel-content"
+          >
           <template #header>
             <RouterLink
               :to="{ name: 'deployments', query: { stack_name: stackName, service_name: serviceName } }"
@@ -735,7 +836,8 @@ onUnmounted(() => {
               </span>
             </li>
           </ul>
-        </AppPanel>
+          </AppPanel>
+        </template>
       </div>
     </div>
 

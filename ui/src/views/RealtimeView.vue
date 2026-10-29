@@ -6,6 +6,7 @@ import type { ServiceRealtimeTask, SwarmService, SwarmTaskDetails } from "../api
 import AppStatusBadge from "../components/common/AppStatusBadge.vue";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
+import SidebarIcon from "../components/layout/SidebarIcon.vue";
 import TaskDetailsPanel from "../components/services/TaskDetailsPanel.vue";
 import TaskLogsModal from "../components/services/TaskLogsModal.vue";
 import { copyText } from "../utils/clipboard";
@@ -338,18 +339,18 @@ onUnmounted(() => {
 
     <div class="realtime-filters" aria-label="Service filters">
       <label class="realtime-search">
-        <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" /><path d="m12.5 12.5 4 4" /></svg>
+        <svg class="realtime-filter-icon" viewBox="0 0 20 20" aria-hidden="true"><circle cx="8.5" cy="8.5" r="5.5" /><path d="m12.5 12.5 4 4" /></svg>
         <span class="sr-only">Search services</span>
         <input v-model="searchQuery" type="search" placeholder="Search services, stacks, or images" />
       </label>
       <div class="realtime-filter-field">
-        <span>Stack</span>
         <details ref="stackFilter" class="realtime-stack-filter">
           <summary aria-label="Filter services by stack">
+            <SidebarIcon class="realtime-filter-icon" name="services" />
             <span class="realtime-stack-filter-selection">
               <span v-for="summary in selectedStackSummary" :key="summary" class="realtime-stack-chip">{{ summary }}</span>
             </span>
-            <span aria-hidden="true">⌄</span>
+            <span class="realtime-filter-chevron" aria-hidden="true">⌄</span>
           </summary>
           <div class="realtime-stack-filter-menu">
             <div class="realtime-stack-filter-menu-header">
@@ -371,8 +372,8 @@ onUnmounted(() => {
         </details>
       </div>
       <label class="realtime-filter-field">
-        <span>State</span>
-        <select v-model="stateFilter">
+        <SidebarIcon class="realtime-filter-icon" name="realtime" />
+        <select v-model="stateFilter" aria-label="Filter services by state">
           <option value="all">All states</option>
           <option value="running">Running</option>
           <option value="degraded">Degraded</option>
@@ -380,7 +381,6 @@ onUnmounted(() => {
           <option value="unknown">Unknown</option>
         </select>
       </label>
-      <span class="realtime-result-count">{{ filteredServices.length }} of {{ services.length }} services</span>
     </div>
 
     <div class="realtime-workspace" :class="{ 'realtime-workspace--details': selectedTaskID }">
@@ -514,25 +514,26 @@ onUnmounted(() => {
 .realtime-switch--active { border-color: var(--success-border); background: var(--success-muted); }
 .realtime-switch--active span { background: var(--success); transform: translateX(10px); }
 .realtime-stale-warning, .realtime-inline-error { margin: 0; border: 1px solid var(--warning-border); border-radius: 7px; background: var(--warning-muted); color: var(--warning); padding: 9px 12px; font-size: .8rem; }
-.realtime-filters { min-width: 0; display: grid; grid-template-columns: minmax(240px, 1fr) 180px 170px auto; gap: 10px; align-items: end; padding: 12px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface-card-soft); }
+.realtime-filters { min-width: 0; display: grid; grid-template-columns: minmax(240px, 1fr) 180px 170px; gap: 10px; align-items: center; padding: 12px; border: 1px solid var(--border-subtle); border-radius: 10px; background: var(--surface-card-soft); }
 .realtime-search { position: relative; min-width: 0; }
-.realtime-search svg { position: absolute; left: 11px; top: 50%; width: 17px; height: 17px; color: var(--muted); fill: none; stroke: currentColor; stroke-width: 1.6; transform: translateY(-50%); pointer-events: none; }
+.realtime-filter-icon { width: 17px; height: 17px; flex: 0 0 17px; color: var(--muted); fill: none; stroke: currentColor; stroke-width: 1.6; pointer-events: none; }
+.realtime-search .realtime-filter-icon, .realtime-filter-field > .realtime-filter-icon { position: absolute; z-index: 1; left: 11px; top: 50%; transform: translateY(-50%); }
 .realtime-search input, .realtime-filter-field select, .realtime-stack-filter > summary { box-sizing: border-box; width: 100%; height: 38px; border: 1px solid var(--border-default); border-radius: 7px; background: var(--surface-input); color: var(--text); font: inherit; font-size: .83rem; }
 .realtime-search input { padding: 7px 10px 7px 36px; }
-.realtime-filter-field { display: grid; gap: 4px; color: var(--muted); font-size: .7rem; }
-.realtime-filter-field select { padding: 7px 10px; }
+.realtime-filter-field { position: relative; min-width: 0; color: var(--muted); }
+.realtime-filter-field select { padding: 7px 10px 7px 36px; }
 .realtime-stack-filter { position: relative; min-width: 0; }
 .realtime-stack-filter > summary { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 7px 10px; cursor: pointer; list-style: none; }
 .realtime-stack-filter > summary::-webkit-details-marker { display: none; }
 .realtime-stack-filter-selection { min-width: 0; overflow: hidden; color: var(--text); text-overflow: ellipsis; white-space: nowrap; }
+.realtime-filter-chevron { flex: 0 0 auto; color: var(--muted); }
 .realtime-stack-chip + .realtime-stack-chip::before { content: ", "; }
 .realtime-stack-filter-menu { position: absolute; z-index: 30; top: calc(100% + 6px); left: 0; box-sizing: border-box; width: max(100%, 260px); max-width: calc(100vw - 32px); max-height: min(320px, calc(100dvh - 128px)); overflow-y: auto; border: 1px solid var(--border-default); border-radius: 8px; background: var(--surface-elevated); box-shadow: var(--shadow-popover); padding: 7px; }
 .realtime-stack-filter-menu-header { display: flex; align-items: center; justify-content: space-between; padding: 5px 6px 8px; color: var(--text); }
-.realtime-stack-filter-clear { border: 0; background: transparent; color: var(--accent-strong); padding: 0; font: inherit; }
+.realtime-stack-filter-clear { border: 0; background: transparent; color: var(--control-primary); padding: 0; font: inherit; }
 .realtime-stack-filter-option { display: flex; align-items: center; gap: 9px; border-radius: 6px; padding: 7px 6px; color: var(--text); font-size: .82rem; }
 .realtime-stack-filter-option:hover { background: var(--surface-hover-soft); }
-.realtime-stack-filter-option input { flex: 0 0 16px; width: 16px; min-width: 16px; height: 16px; margin: 0; padding: 0; }
-.realtime-result-count { align-self: center; color: var(--muted); font-size: .76rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.realtime-stack-filter-option input { flex: 0 0 16px; width: 16px; min-width: 16px; height: 16px; margin: 0; padding: 0; accent-color: var(--control-primary); }
 .realtime-search input:focus-visible, .realtime-filter-field select:focus-visible, .realtime-stack-filter > summary:focus-visible, .realtime-page button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
 .realtime-workspace { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
 .realtime-workspace--details { grid-template-columns: minmax(0, 1fr) minmax(360px, 410px); }
@@ -592,7 +593,6 @@ onUnmounted(() => {
 @media (max-width: 1180px) {
   .realtime-workspace--details { grid-template-columns: minmax(0, 1fr) minmax(340px, 380px); }
   .realtime-filters { grid-template-columns: minmax(220px, 1fr) 160px 150px; }
-  .realtime-result-count { grid-column: 1 / -1; }
 }
 
 @media (max-width: 900px) {
@@ -608,7 +608,7 @@ onUnmounted(() => {
 @media (max-width: 700px) {
   .realtime-page { gap: 12px; }
   .realtime-filters { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding: 10px; }
-  .realtime-search, .realtime-result-count { grid-column: 1 / -1; }
+  .realtime-search { grid-column: 1 / -1; }
   .realtime-services-panel :deep(.app-table-wrap) { overflow: visible; }
   .realtime-services-panel :deep(.realtime-services-table) { display: block; min-width: 0 !important; }
   .realtime-services-panel :deep(.realtime-services-table colgroup), .realtime-services-panel :deep(.realtime-services-table > thead) { display: none; }
