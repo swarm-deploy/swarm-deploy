@@ -94,7 +94,7 @@ const submitLabel = computed(() => {
 });
 
 function resetForm(): void {
-  destination.value = "docker";
+  destination.value = "cloud";
   valueMode.value = "text";
   revealValue.value = false;
   name.value = "";
@@ -338,7 +338,7 @@ onUnmounted(() => document.removeEventListener("keydown", handleEscape));
 
         <div class="create-secret-actions">
           <button type="button" class="button-ghost" :disabled="pending" @click="close">Cancel</button>
-          <button type="submit" :disabled="!formValid || pending">{{ submitLabel }}</button>
+          <button type="submit" class="create-secret-submit" :disabled="!formValid || pending">{{ submitLabel }}</button>
         </div>
       </form>
     </div>
@@ -380,6 +380,9 @@ onUnmounted(() => document.removeEventListener("keydown", handleEscape));
 .create-secret-notice code { overflow-wrap: anywhere; }
 .create-secret-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 3px; }
 .create-secret-actions button { padding: 8px 13px; }
+.create-secret-submit { border-color: var(--accent-border); border-radius: 6px; background: var(--control-primary); font-weight: 600; box-shadow: none; }
+.create-secret-submit:hover:not(:disabled) { background: var(--control-primary-hover); filter: none; }
+.create-secret-submit:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; box-shadow: none; }
 button:disabled, input:disabled, select:disabled, textarea:disabled { cursor: not-allowed; opacity: .58; }
 @media (max-width: 520px) {
   .create-secret-value-heading { align-items: flex-start; flex-direction: column; gap: 5px; }

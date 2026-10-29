@@ -206,7 +206,6 @@ function formatDate(value: string): string {
   <section class="services-page">
     <header class="services-header">
       <h2>Secrets</h2>
-      <button type="button" class="secrets-create-button" @click="createModalOpen = true">Create Secret</button>
     </header>
 
     <p v-if="createFeedback" class="secrets-create-feedback" role="status">{{ createFeedback }}</p>
@@ -224,7 +223,7 @@ function formatDate(value: string): string {
       />
     </div>
 
-    <div class="services-header-actions">
+    <div class="services-header-actions secrets-toolbar-actions">
       <input
         v-model="searchQuery"
         type="search"
@@ -232,6 +231,7 @@ function formatDate(value: string): string {
         placeholder="Search by name, service, description, version, external path..."
         aria-label="Search secrets"
       />
+      <button type="button" class="secrets-create-button" @click="createModalOpen = true">Create Secret</button>
     </div>
 
     <AppTableEmpty v-if="loading && secrets.length === 0" message="Loading..." />
@@ -301,7 +301,11 @@ function formatDate(value: string): string {
 </template>
 
 <style scoped>
-.secrets-create-button { padding: 8px 13px; }
+.secrets-toolbar-actions { width: 100%; max-width: none; align-items: center; justify-content: space-between; gap: 10px; }
+.secrets-toolbar-actions .secrets-search-input { flex: 1 1 360px; max-width: 520px; min-width: 0; }
+.secrets-create-button { flex: 0 0 auto; border-color: var(--accent-border); border-radius: 6px; background: var(--control-primary); padding: 8px 13px; font-weight: 600; box-shadow: none; }
+.secrets-create-button:hover { background: var(--control-primary-hover); filter: none; }
+.secrets-create-button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; box-shadow: none; }
 .secrets-create-feedback { margin: 0; border: 1px solid var(--success-border); border-radius: 8px; background: var(--success-muted); color: var(--success); padding: 8px 10px; font-size: .82rem; }
 .secrets-table :deep(td) { overflow-wrap: anywhere; }
 </style>

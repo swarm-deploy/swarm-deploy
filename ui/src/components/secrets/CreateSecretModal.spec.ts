@@ -46,6 +46,7 @@ describe("CreateSecretModal", () => {
 
   it("creates a Docker Swarm secret with the exact multiline payload", async () => {
     const wrapper = mountModal();
+    await wrapper.findAll('[role="tab"]')[0].trigger("click");
     await wrapper.get('input[type="text"]').setValue("app-token");
     await wrapper.get('textarea[aria-label="Secret value"]').setValue("line one\nline two");
     const description = wrapper.findAll(".create-secret-field").find((field) => field.text().includes("Description"));
@@ -63,7 +64,8 @@ describe("CreateSecretModal", () => {
 
   it("shows provider-specific Vault and Cloud.ru fields", async () => {
     const wrapper = mountModal();
-    await selectCloudMode(wrapper);
+
+    expect(wrapper.get('[role="tab"][aria-selected="true"]').text()).toBe("Cloud Secrets");
 
     expect(wrapper.text()).toContain("Key");
     expect(wrapper.text()).not.toContain("Description optional");
