@@ -8,6 +8,7 @@ import AppPagination from "../components/common/AppPagination.vue";
 import AppStatusBadge from "../components/common/AppStatusBadge.vue";
 import AppTable from "../components/common/AppTable.vue";
 import SidebarIcon from "../components/layout/SidebarIcon.vue";
+import DeploymentIcon from "../components/overview/DeploymentIcon.vue";
 import { useOverviewStore } from "../stores/overview";
 import { formatDate, shortCommitHash } from "../utils/format";
 
@@ -226,7 +227,7 @@ onMounted(() => {
           empty-message="No matching services"
           @update:model-value="selectServices"
         >
-          <template #icon><SidebarIcon class="deployments-filter-icon" name="realtime" /></template>
+          <template #icon><DeploymentIcon class="deployments-filter-icon" name="service" /></template>
         </AppMultiSelect>
       </div>
     </div>

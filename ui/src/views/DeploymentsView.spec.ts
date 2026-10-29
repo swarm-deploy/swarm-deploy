@@ -1,6 +1,8 @@
 import { flushPromises, mount } from "@vue/test-utils";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fetchDeploymentFilters, fetchDeployments } from "../api/overview";
+import SidebarIcon from "../components/layout/SidebarIcon.vue";
+import DeploymentIcon from "../components/overview/DeploymentIcon.vue";
 import DeploymentsView from "./DeploymentsView.vue";
 
 const store = vi.hoisted(() => ({ openDeploymentDetailsModal: vi.fn(), openCommitDetailsModal: vi.fn() }));
@@ -90,6 +92,8 @@ describe("Deployments page", () => {
     expect(fetchDeployments).toHaveBeenCalledWith({ stack: ["app"], serviceName: ["api"], limit: 20, cursor: undefined });
     expect(wrapper.get(".deployments-filter-bar").attributes("aria-label")).toBe("Deployment filters");
     expect(wrapper.findAll(".deployments-filter-icon")).toHaveLength(2);
+    expect(wrapper.getComponent(SidebarIcon).props("name")).toBe("services");
+    expect(wrapper.getComponent(DeploymentIcon).props("name")).toBe("service");
     const stackOptions = wrapper.findAll('.deployments-filter-field:nth-child(1) .app-multi-select-option');
     await stackOptions.find((option) => option.text() === "infra")!.find("input").setValue(true);
     await flushPromises();
