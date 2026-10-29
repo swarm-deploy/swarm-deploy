@@ -17,13 +17,26 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   close: [];
-  logs: [taskID: string];
 }>();
 
 const environmentSearch = ref("");
 const revealed = ref(new Set<string>());
 const copiedKey = ref("");
 let copiedResetTimer: ReturnType<typeof setTimeout> | undefined;
+
+interface ImageReferenceParts {
+  name: string;
+  tag: string;
+  digest: string;
+}
+
+const imageReference = computed(() => parseImageReference(props.task?.image ?? ""));
+const identifiers = computed(() => [
+  { key: "task-id", label: "Task ID", value: props.task?.id ?? "" },
+  { key: "service-id", label: "Service ID", value: props.task?.service_id ?? "" },
+  { key: "node-id", label: "Node ID", value: props.task?.node_id ?? "" },
+  { key: "container-id", label: "Container ID", value: props.task?.container_id ?? "" },
+]);
 
 const filteredEnvironment = computed(() => {
   const query = environmentSearch.value.trim().toLocaleLowerCase();
@@ -48,6 +61,39 @@ function stateVariant(state: string): "success" | "error" | "neutral" {
   if (["running", "complete", "completed"].includes(value)) return "success";
   if (["failed", "rejected", "shutdown"].includes(value)) return "error";
   return "neutral";
+}
+
+function parseImageReference(reference: string): ImageReferenceParts {
+  const value = reference.trim();
+  if (!value) return { name: "", tag: "", digest: "" };
+
+  const digestSeparator = value.indexOf("@");
+  const nameAndTag = digestSeparator === -1 ? value : value.slice(0, digestSeparator);
+  const digest = digestSeparator === -1 ? "" : value.slice(digestSeparator + 1);
+  const lastSlash = nameAndTag.lastIndexOf("/");
+  const lastColon = nameAndTag.lastIndexOf(":");
+  const hasTag = lastColon > lastSlash;
+
+  return {
+    name: hasTag ? nameAndTag.slice(0, lastColon) : nameAndTag,
+    tag: hasTag ? nameAndTag.slice(lastColon + 1) : "",
+    digest,
+  };
+}
+
+function shortenedDigest(digest: string): string {
+  const separator = digest.indexOf(":");
+  if (separator === -1) return digest.length > 18 ? `${digest.slice(0, 8)}...${digest.slice(-7)}` : digest;
+
+  const algorithm = digest.slice(0, separator);
+  const value = digest.slice(separator + 1);
+  return value.length > 18 ? `${algorithm}:${value.slice(0, 8)}...${value.slice(-7)}` : digest;
+}
+
+function displayedExitCode(task: SwarmTaskDetails): number | string {
+  const state = task.current_state.trim().toLowerCase();
+  const finished = ["complete", "completed", "failed", "rejected", "shutdown"].includes(state);
+  return finished && task.exit_code !== undefined && task.exit_code !== null ? task.exit_code : "—";
 }
 
 function toggleReveal(variable: EnvironmentVariable): void {
@@ -75,10 +121,10 @@ async function copyVariableValue(variable: EnvironmentVariable): Promise<void> {
   showCopiedState(`value:${variable.name}`);
 }
 
-async function copyIdentifier(value: string, key: string): Promise<void> {
+async function copyDetailValue(value: string, key: string): Promise<void> {
   if (!value) return;
   await copyText(value);
-  copiedKey.value = key;
+  showCopiedState(key);
 }
 
 function showCopiedState(key: string): void {
@@ -122,39 +168,74 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
       <template v-if="task">
         <p v-if="error" class="realtime-inline-error" role="alert">Refresh failed: {{ error }}</p>
 
-        <section class="realtime-task-section" aria-labelledby="task-overview-title">
-          <div class="realtime-task-section-title">
-            <h4 id="task-overview-title">Overview</h4>
-            <button type="button" class="button-ghost realtime-logs-button" @click="emit('logs', task.id)">Logs</button>
-          </div>
-          <dl class="realtime-task-overview">
+        <section class="realtime-task-section" aria-labelledby="task-runtime-title">
+          <h4 id="task-runtime-title">Runtime</h4>
+          <dl class="realtime-task-runtime">
             <div>
               <dt>State</dt>
-              <dd><AppStatusBadge :variant="stateVariant(task.current_state)" filled dot>{{ task.current_state || "Unknown" }}</AppStatusBadge></dd>
+              <dd><AppStatusBadge class="realtime-task-runtime-state" :variant="stateVariant(task.current_state)" dot>{{ task.current_state || "Unknown" }}</AppStatusBadge></dd>
             </div>
-            <div><dt>Desired</dt><dd>{{ task.desired_state || "n/a" }}</dd></div>
-            <div><dt>Slot</dt><dd>{{ task.slot }}</dd></div>
-            <div><dt>Exit code</dt><dd>{{ task.exit_code ?? "n/a" }}</dd></div>
-            <div class="realtime-task-overview-wide">
-              <dt>Task ID</dt>
-              <dd><code>{{ task.id }}</code><button type="button" class="realtime-copy-button" aria-label="Copy task ID" @click="copyIdentifier(task.id, 'task-id')">{{ copiedKey === "task-id" ? "Copied" : "Copy" }}</button></dd>
+            <div><dt>Desired</dt><dd>{{ task.desired_state || "—" }}</dd></div>
+            <div><dt>Exit code</dt><dd>{{ displayedExitCode(task) }}</dd></div>
+          </dl>
+          <dl v-if="task.error" class="realtime-task-runtime-error">
+            <div><dt>Runtime error</dt><dd>{{ task.error }}</dd></div>
+          </dl>
+        </section>
+
+        <section class="realtime-task-section" aria-labelledby="task-image-title">
+          <h4 id="task-image-title">Image</h4>
+          <div v-if="task.image" class="realtime-task-image">
+            <div class="realtime-task-image-primary">
+              <code :title="imageReference.name">{{ imageReference.name }}</code>
+              <button
+                type="button"
+                class="realtime-detail-copy-button"
+                :aria-label="copiedKey === 'image' ? 'Image reference copied' : 'Copy full image reference'"
+                :title="copiedKey === 'image' ? 'Copied' : 'Copy full image reference'"
+                @click="copyDetailValue(task.image, 'image')"
+              >
+                <svg v-if="copiedKey === 'image'" class="realtime-detail-copy-check" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.2 4.2L19 7" /></svg>
+                <svg v-else viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></svg>
+              </button>
             </div>
-            <div class="realtime-task-overview-wide">
-              <dt>Service ID</dt>
-              <dd><code>{{ task.service_id || "n/a" }}</code><button v-if="task.service_id" type="button" class="realtime-copy-button" aria-label="Copy service ID" @click="copyIdentifier(task.service_id, 'service-id')">{{ copiedKey === "service-id" ? "Copied" : "Copy" }}</button></dd>
+            <div v-if="imageReference.tag || imageReference.digest" class="realtime-task-image-meta">
+              <span v-if="imageReference.tag" class="realtime-task-image-tag" :title="imageReference.tag">{{ imageReference.tag }}</span>
+              <code v-if="imageReference.digest" class="realtime-task-image-digest" :title="imageReference.digest">{{ shortenedDigest(imageReference.digest) }}</code>
             </div>
-            <div class="realtime-task-overview-wide">
-              <dt>Node ID</dt>
-              <dd><code>{{ task.node_id || "n/a" }}</code><button v-if="task.node_id" type="button" class="realtime-copy-button" aria-label="Copy node ID" @click="copyIdentifier(task.node_id, 'node-id')">{{ copiedKey === "node-id" ? "Copied" : "Copy" }}</button></dd>
+          </div>
+          <span v-else class="realtime-task-missing">—</span>
+        </section>
+
+        <section class="realtime-task-section" aria-labelledby="task-identifiers-title">
+          <h4 id="task-identifiers-title">Identifiers</h4>
+          <dl class="realtime-task-identifiers">
+            <div v-for="identifier in identifiers" :key="identifier.key">
+              <dt>{{ identifier.label }}</dt>
+              <dd>
+                <code v-if="identifier.value" :title="identifier.value">{{ identifier.value }}</code>
+                <span v-else class="realtime-task-missing">—</span>
+              </dd>
+              <button
+                v-if="identifier.value"
+                type="button"
+                class="realtime-detail-copy-button"
+                :aria-label="copiedKey === identifier.key ? `${identifier.label} copied` : `Copy ${identifier.label.toLowerCase()}`"
+                :title="copiedKey === identifier.key ? 'Copied' : `Copy ${identifier.label}`"
+                @click="copyDetailValue(identifier.value, identifier.key)"
+              >
+                <svg v-if="copiedKey === identifier.key" class="realtime-detail-copy-check" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.2 4.2L19 7" /></svg>
+                <svg v-else viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></svg>
+              </button>
             </div>
-            <div class="realtime-task-overview-wide">
-              <dt>Container ID</dt>
-              <dd><code>{{ task.container_id || "n/a" }}</code><button v-if="task.container_id" type="button" class="realtime-copy-button" aria-label="Copy container ID" @click="copyIdentifier(task.container_id, 'container-id')">{{ copiedKey === "container-id" ? "Copied" : "Copy" }}</button></dd>
-            </div>
-            <div class="realtime-task-overview-wide"><dt>Image</dt><dd class="realtime-break-value">{{ task.image || "n/a" }}</dd></div>
-            <div><dt>Created</dt><dd>{{ formatDate(task.created_at) }}</dd></div>
-            <div><dt>Updated</dt><dd>{{ formatDate(task.updated_at) }}</dd></div>
-            <div v-if="task.error" class="realtime-task-overview-wide realtime-task-error"><dt>Runtime error</dt><dd>{{ task.error }}</dd></div>
+          </dl>
+        </section>
+
+        <section class="realtime-task-section" aria-labelledby="task-timestamps-title">
+          <h4 id="task-timestamps-title">Timestamps</h4>
+          <dl class="realtime-task-timestamps">
+            <div><dt>Created</dt><dd><time :datetime="task.created_at">{{ formatDate(task.created_at) }}</time></dd></div>
+            <div><dt>Updated</dt><dd><time :datetime="task.updated_at">{{ formatDate(task.updated_at) }}</time></dd></div>
           </dl>
         </section>
 
@@ -240,18 +321,33 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
 .realtime-task-section:last-child { border-bottom: 0; }
 .realtime-task-section h4 { margin: 0; font-size: .84rem; }
 .realtime-task-section-title { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.realtime-logs-button { min-height: 30px; padding: 5px 10px; border-radius: 6px; font-size: .74rem; transform: none; filter: none; }
-.realtime-task-overview { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px 14px; margin: 0; }
-.realtime-task-overview > div, .realtime-task-resources > div { min-width: 0; display: grid; gap: 4px; }
-.realtime-task-overview dt, .realtime-task-resources dt { color: var(--muted); font-size: .68rem; }
-.realtime-task-overview dd, .realtime-task-resources dd { min-width: 0; margin: 0; font-size: .78rem; overflow-wrap: anywhere; }
-.realtime-task-overview dd { display: flex; align-items: center; gap: 7px; }
-.realtime-task-overview code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: .72rem; }
-.realtime-task-overview-wide { grid-column: 1 / -1; }
-.realtime-break-value { display: block !important; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-word; }
-.realtime-task-error dd { color: var(--error); line-height: 1.4; }
-.realtime-copy-button { flex: 0 0 auto; border: 0; background: transparent; color: var(--control-primary); padding: 2px; font: inherit; font-size: .68rem; font-weight: 600; transform: none; filter: none; }
-.realtime-copy-button:hover { text-decoration: underline; }
+.realtime-task-runtime, .realtime-task-timestamps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 0; }
+.realtime-task-runtime > div, .realtime-task-timestamps > div, .realtime-task-resources > div { min-width: 0; display: grid; align-content: start; gap: 4px; }
+.realtime-task-runtime dt, .realtime-task-timestamps dt, .realtime-task-resources dt, .realtime-task-runtime-error dt { color: var(--muted); font-size: .68rem; }
+.realtime-task-runtime dd, .realtime-task-timestamps dd, .realtime-task-resources dd, .realtime-task-runtime-error dd { min-width: 0; margin: 0; font-size: .78rem; overflow-wrap: anywhere; }
+.realtime-task-runtime-state { border: 0; padding: 0; font-size: .78rem; }
+.realtime-task-runtime-error { margin: 0; border-top: 1px solid var(--border-subtle); padding-top: 10px; }
+.realtime-task-runtime-error > div { display: grid; gap: 4px; }
+.realtime-task-runtime-error dd { color: var(--error); line-height: 1.4; }
+.realtime-task-image { min-width: 0; display: grid; gap: 8px; }
+.realtime-task-image-primary { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) 28px; align-items: center; gap: 8px; }
+.realtime-task-image-primary code { min-width: 0; overflow: hidden; color: var(--text); font-size: .75rem; font-weight: 400; text-overflow: ellipsis; white-space: nowrap; }
+.realtime-task-image-meta { min-width: 0; display: flex; align-items: center; gap: 10px; }
+.realtime-task-image-tag { flex: 0 1 auto; max-width: 42%; overflow: hidden; border: 0; border-radius: 999px; background: var(--surface-muted-strong); color: var(--text); padding: 3px 9px; font: 400 .68rem/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.realtime-task-image-digest { min-width: 0; overflow: hidden; color: var(--muted); font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
+.realtime-detail-copy-button { display: inline-grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); padding: 0; transform: none; filter: none; }
+.realtime-detail-copy-button:hover { background: var(--surface-hover); color: var(--text); transform: none; filter: none; }
+.realtime-detail-copy-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.realtime-detail-copy-button .realtime-detail-copy-check { color: var(--success); stroke-width: 2; }
+.realtime-task-identifiers { margin: 0; }
+.realtime-task-identifiers > div { min-width: 0; display: grid; grid-template-columns: 80px minmax(0, 1fr) 28px; align-items: center; gap: 8px; min-height: 36px; border-bottom: 1px solid var(--border-subtle); }
+.realtime-task-identifiers > div:last-child { border-bottom: 0; }
+.realtime-task-identifiers dt { color: var(--muted); font-size: .68rem; }
+.realtime-task-identifiers dd { min-width: 0; margin: 0; }
+.realtime-task-identifiers code { display: block; min-width: 0; overflow: hidden; color: var(--text); font-size: .7rem; text-overflow: ellipsis; white-space: nowrap; }
+.realtime-task-missing { color: var(--muted); font-size: .78rem; }
+.realtime-task-timestamps { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.realtime-task-timestamps time { color: var(--text); font-variant-numeric: tabular-nums; }
 .realtime-task-resources { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 0; }
 .realtime-task-resources dd { display: flex; flex-wrap: wrap; gap: 6px 12px; font-variant-numeric: tabular-nums; }
 .realtime-environment-title { margin: -14px -14px 0; border-bottom: 1px solid var(--border-subtle); background: var(--surface-card-muted); padding: 12px 14px; }
@@ -285,8 +381,7 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
 }
 
 @media (max-width: 460px) {
-  .realtime-task-overview, .realtime-task-resources { grid-template-columns: minmax(0, 1fr); }
-  .realtime-task-overview-wide { grid-column: auto; }
+  .realtime-task-timestamps, .realtime-task-resources { grid-template-columns: minmax(0, 1fr); }
   .realtime-environment-title { align-items: stretch; flex-direction: column; }
   .realtime-env-search { width: 100%; }
   .realtime-env-search input { font-size: 16px; }

@@ -430,7 +430,6 @@ onUnmounted(() => {
         :loading="taskDetailsLoading"
         :error="taskDetailsError"
         @close="closeTaskDetails"
-        @logs="openLogs"
       />
     </div>
 
