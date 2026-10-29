@@ -98,6 +98,17 @@ describe("RealtimeView", () => {
     wrapper.unmount();
   });
 
+  it("closes the stack filter when clicking outside it", async () => {
+    const wrapper = await mountView();
+    const stackFilter = wrapper.get<HTMLDetailsElement>(".realtime-stack-filter");
+    stackFilter.element.open = true;
+
+    document.body.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(stackFilter.element.open).toBe(false);
+    wrapper.unmount();
+  });
+
   it("fetches tasks only when expanded and keeps historical tasks with the same slot distinct", async () => {
     const wrapper = await mountView();
     expect(apiMocks.fetchSwarmServiceTasks).not.toHaveBeenCalled();

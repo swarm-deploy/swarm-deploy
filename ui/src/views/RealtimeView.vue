@@ -26,6 +26,7 @@ const selectedStacks = ref<string[]>([]);
 const stateFilter = ref<RuntimeState | "all">("all");
 const searchQuery = ref("");
 const automaticRefresh = ref(true);
+const stackFilter = ref<HTMLDetailsElement | null>(null);
 const expandedServiceIDs = ref(new Set<string>());
 const tasksByService = ref<Record<string, TaskListState>>({});
 const selectedTaskID = ref("");
@@ -239,9 +240,15 @@ function handleVisibilityChange(): void {
   }
 }
 
+function handleDocumentClick(event: MouseEvent): void {
+  if (!(event.target instanceof Node) || stackFilter.value?.contains(event.target)) return;
+  if (stackFilter.value) stackFilter.value.open = false;
+}
+
 watch(automaticRefresh, startPolling);
 
 onMounted(() => {
+  document.addEventListener("click", handleDocumentClick);
   document.addEventListener("visibilitychange", handleVisibilityChange);
   void loadServices();
   startPolling();
@@ -252,6 +259,7 @@ onUnmounted(() => {
   serviceRequest++;
   detailRequest++;
   stopPolling();
+  document.removeEventListener("click", handleDocumentClick);
   document.removeEventListener("visibilitychange", handleVisibilityChange);
 });
 </script>
@@ -272,7 +280,7 @@ onUnmounted(() => {
         <span>Updated {{ lastRefreshLabel }}</span>
         <button
           type="button"
-          class="button-ghost realtime-auto-refresh"
+          class="realtime-auto-refresh"
           role="switch"
           :aria-checked="automaticRefresh"
           @click="automaticRefresh = !automaticRefresh"
@@ -299,7 +307,7 @@ onUnmounted(() => {
       </label>
       <div class="realtime-filter-field">
         <span>Stack</span>
-        <details class="realtime-stack-filter">
+        <details ref="stackFilter" class="realtime-stack-filter">
           <summary aria-label="Filter services by stack">
             <span class="realtime-stack-filter-selection">
               <span v-for="summary in selectedStackSummary" :key="summary" class="realtime-stack-chip">{{ summary }}</span>
@@ -436,8 +444,10 @@ onUnmounted(() => {
 .realtime-live-indicator > span { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
 .realtime-live-indicator--paused { color: var(--muted); }
 .realtime-refresh-status { display: flex; align-items: center; justify-content: flex-end; gap: 8px; color: var(--muted); font-size: .76rem; }
-.realtime-refresh-status button { min-height: 36px; padding: 7px 10px; border-radius: 7px; font-size: .78rem; font-weight: 600; transform: none; filter: none; }
+.realtime-refresh-status button { font-size: .78rem; font-weight: 600; transform: none; filter: none; }
 .realtime-auto-refresh, .realtime-refresh-button { display: inline-flex; align-items: center; gap: 7px; white-space: nowrap; }
+.realtime-auto-refresh { border: 0; background: transparent; color: inherit; padding: 0; }
+.realtime-refresh-button { min-height: 36px; padding: 7px 10px; border-radius: 7px; }
 .realtime-refresh-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 .realtime-switch { position: relative; width: 26px; height: 16px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface-muted-strong); }
 .realtime-switch span { position: absolute; top: 2px; left: 2px; width: 10px; height: 10px; border-radius: 50%; background: var(--muted); transition: transform 120ms ease; }
