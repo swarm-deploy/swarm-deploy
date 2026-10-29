@@ -79,6 +79,55 @@ export interface ServicesResponse {
   services: ServiceInfo[];
 }
 
+export interface SwarmServiceReplicas {
+  running: number;
+  desired: number;
+}
+
+export interface SwarmService {
+  id: string;
+  name: string;
+  full_name: string;
+  stack: string;
+  image: string;
+  mode: string;
+  replicas: SwarmServiceReplicas;
+  updated_at: string;
+}
+
+export interface SwarmServicesResponse {
+  services: SwarmService[];
+}
+
+export interface EnvironmentVariable {
+  name: string;
+  value: string;
+  encoded: boolean;
+}
+
+export interface SwarmTaskResources {
+  nano_cpus: number;
+  memory_bytes: number;
+}
+
+export interface SwarmTaskDetails {
+  id: string;
+  service_id: string;
+  node_id: string;
+  slot: number;
+  desired_state: string;
+  current_state: string;
+  error?: string;
+  created_at: string;
+  updated_at: string;
+  container_id: string;
+  exit_code?: number;
+  image: string;
+  environment: EnvironmentVariable[];
+  reservations?: SwarmTaskResources;
+  limits?: SwarmTaskResources;
+}
+
 export type GraphNodeKind = ServiceType;
 
 export interface GraphNode {
