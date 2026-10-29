@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUnmount, ref, watch } from "vue";
 
 import type { EnvironmentVariable, SwarmTaskDetails, SwarmTaskResources } from "../../api/types";
 import { copyText } from "../../utils/clipboard";
@@ -23,6 +23,7 @@ const emit = defineEmits<{
 const environmentSearch = ref("");
 const revealed = ref(new Set<string>());
 const copiedKey = ref("");
+let copiedResetTimer: ReturnType<typeof setTimeout> | undefined;
 
 const filteredEnvironment = computed(() => {
   const query = environmentSearch.value.trim().toLocaleLowerCase();
@@ -34,10 +35,13 @@ const filteredEnvironment = computed(() => {
 watch(
   () => props.task?.id,
   () => {
+    environmentSearch.value = "";
     revealed.value = new Set();
-    copiedKey.value = "";
+    clearCopiedState();
   },
 );
+
+onBeforeUnmount(clearCopiedState);
 
 function stateVariant(state: string): "success" | "error" | "neutral" {
   const value = state.trim().toLowerCase();
@@ -64,22 +68,32 @@ function displayedValue(variable: EnvironmentVariable): string {
   return decoded === "" ? "(empty)" : decoded;
 }
 
-async function copyVariableName(variable: EnvironmentVariable): Promise<void> {
-  await copyText(variable.name);
-  copiedKey.value = `name:${variable.name}`;
-}
-
 async function copyVariableValue(variable: EnvironmentVariable): Promise<void> {
   const value = decodedValue(variable);
   if (value === null) return;
   await copyText(value);
-  copiedKey.value = `value:${variable.name}`;
+  showCopiedState(`value:${variable.name}`);
 }
 
 async function copyIdentifier(value: string, key: string): Promise<void> {
   if (!value) return;
   await copyText(value);
   copiedKey.value = key;
+}
+
+function showCopiedState(key: string): void {
+  if (copiedResetTimer !== undefined) clearTimeout(copiedResetTimer);
+  copiedKey.value = key;
+  copiedResetTimer = setTimeout(() => {
+    copiedKey.value = "";
+    copiedResetTimer = undefined;
+  }, 1600);
+}
+
+function clearCopiedState(): void {
+  if (copiedResetTimer !== undefined) clearTimeout(copiedResetTimer);
+  copiedResetTimer = undefined;
+  copiedKey.value = "";
 }
 
 function hasResources(resources: SwarmTaskResources | undefined): boolean {
@@ -160,13 +174,14 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
 
         <section class="realtime-task-section" aria-labelledby="task-environment-title">
           <div class="realtime-task-section-title realtime-environment-title">
-            <div>
-              <h4 id="task-environment-title">Environment</h4>
-              <span>{{ task.environment.length }} variables</span>
+            <div class="realtime-environment-heading">
+              <h4 id="task-environment-title">Environment variables</h4>
+              <span class="realtime-environment-count" :aria-label="`${task.environment.length} variables`">{{ task.environment.length }}</span>
             </div>
             <label class="realtime-env-search">
               <span class="sr-only">Search environment variables</span>
-              <input v-model="environmentSearch" type="search" placeholder="Search variables" />
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4 4" /></svg>
+              <input v-model="environmentSearch" type="search" placeholder="Search variables..." />
             </label>
           </div>
 
@@ -174,14 +189,33 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
           <AppTableEmpty v-else-if="filteredEnvironment.length === 0" message="No variables match the search." />
           <ul v-else class="realtime-environment-list">
             <li v-for="variable in filteredEnvironment" :key="variable.name" class="realtime-environment-row">
-              <div class="realtime-environment-name">
-                <code>{{ variable.name }}</code>
-                <button type="button" class="realtime-copy-button" :aria-label="`Copy variable name ${variable.name}`" @click="copyVariableName(variable)">{{ copiedKey === `name:${variable.name}` ? "Copied" : "Copy name" }}</button>
+              <div class="realtime-environment-content">
+                <code class="realtime-environment-name">{{ variable.name }}</code>
+                <span class="realtime-environment-value" :class="{ 'realtime-environment-value--masked': variable.encoded && !revealed.has(variable.name), 'realtime-environment-value--error': variable.encoded && revealed.has(variable.name) && decodedValue(variable) === null }">{{ displayedValue(variable) }}</span>
               </div>
-              <pre class="realtime-environment-value" :class="{ 'realtime-environment-value--masked': variable.encoded && !revealed.has(variable.name), 'realtime-environment-value--error': variable.encoded && revealed.has(variable.name) && decodedValue(variable) === null }">{{ displayedValue(variable) }}</pre>
               <div class="realtime-environment-actions">
-                <button v-if="variable.encoded" type="button" class="button-ghost" :aria-label="`${revealed.has(variable.name) ? 'Hide' : 'Show'} value for ${variable.name}`" @click="toggleReveal(variable)">{{ revealed.has(variable.name) ? "Hide" : "Show" }}</button>
-                <button type="button" class="button-ghost" :disabled="variable.encoded && decodedValue(variable) === null" :aria-label="`Copy value for ${variable.name}`" @click="copyVariableValue(variable)">{{ copiedKey === `value:${variable.name}` ? "Copied" : "Copy" }}</button>
+                <button
+                  v-if="variable.encoded"
+                  type="button"
+                  class="realtime-environment-action"
+                  :aria-label="`${revealed.has(variable.name) ? 'Hide' : 'Show'} value for ${variable.name}`"
+                  :title="revealed.has(variable.name) ? 'Hide value' : 'Show value'"
+                  @click="toggleReveal(variable)"
+                >
+                  <svg v-if="revealed.has(variable.name)" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3 21 21M10.6 10.7a2 2 0 0 0 2.7 2.7M9.9 4.2A10.4 10.4 0 0 1 12 4c5.2 0 8.5 4.2 9.5 5.8a4 4 0 0 1 .5 1.2M6.6 6.6A14 14 0 0 0 2.5 11.8C3.5 13.4 6.8 17.6 12 17.6a10 10 0 0 0 4.1-.9" /></svg>
+                  <svg v-else viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12Z" /><circle cx="12" cy="12" r="2.5" /></svg>
+                </button>
+                <button
+                  type="button"
+                  class="realtime-environment-action"
+                  :disabled="variable.encoded && decodedValue(variable) === null"
+                  :aria-label="copiedKey === `value:${variable.name}` ? `Value copied for ${variable.name}` : `Copy value for ${variable.name}`"
+                  :title="copiedKey === `value:${variable.name}` ? 'Value copied' : 'Copy value'"
+                  @click="copyVariableValue(variable)"
+                >
+                  <svg v-if="copiedKey === `value:${variable.name}`" class="realtime-environment-copy-check" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.2 4.2L19 7" /></svg>
+                  <svg v-else viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></svg>
+                </button>
               </div>
             </li>
           </ul>
@@ -220,20 +254,29 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
 .realtime-copy-button:hover { text-decoration: underline; }
 .realtime-task-resources { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 0; }
 .realtime-task-resources dd { display: flex; flex-wrap: wrap; gap: 6px 12px; font-variant-numeric: tabular-nums; }
-.realtime-environment-title > div { display: flex; align-items: baseline; gap: 7px; }
-.realtime-environment-title > div span { color: var(--muted); font-size: .68rem; }
-.realtime-env-search { width: min(170px, 55%); }
-.realtime-env-search input { width: 100%; height: 32px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-input); color: var(--text); padding: 5px 8px; font: inherit; font-size: .74rem; }
+.realtime-environment-title { margin: -14px -14px 0; border-bottom: 1px solid var(--border-subtle); background: var(--surface-card-muted); padding: 12px 14px; }
+.realtime-environment-heading { min-width: 0; display: flex; align-items: center; gap: 8px; }
+.realtime-environment-count { flex: 0 0 auto; min-width: 30px; height: 24px; display: inline-grid; place-items: center; border: 0; border-radius: 999px; background: var(--surface-muted-strong); color: var(--muted); padding: 0 8px; font-size: .72rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.realtime-env-search { position: relative; width: min(180px, 52%); }
+.realtime-env-search svg { position: absolute; top: 50%; left: 9px; width: 14px; height: 14px; color: var(--muted); fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; transform: translateY(-50%); pointer-events: none; }
+.realtime-env-search input { width: 100%; height: 32px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-input); color: var(--text); padding: 5px 9px 5px 29px; font: inherit; font-size: .72rem; }
+.realtime-env-search input::placeholder { color: var(--muted); }
 .realtime-env-search input:focus-visible, .realtime-task-panel button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
-.realtime-environment-list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
-.realtime-environment-row { min-width: 0; display: grid; gap: 6px; padding: 9px; border: 1px solid var(--border-subtle); border-radius: 7px; background: var(--surface-muted); }
-.realtime-environment-name { min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.realtime-environment-name code { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); font-size: .74rem; font-weight: 600; }
-.realtime-environment-value { min-width: 0; max-height: 180px; overflow: auto; margin: 0; border: 1px solid var(--border-subtle); border-radius: 5px; background: var(--surface-code); color: var(--text); padding: 7px 8px; font: .7rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
+.realtime-environment-list { margin: 0; padding: 0; list-style: none; }
+.realtime-environment-row { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px; padding: 10px 2px; border-bottom: 1px solid var(--border-subtle); }
+.realtime-environment-row:first-child { padding-top: 4px; }
+.realtime-environment-row:last-child { padding-bottom: 4px; border-bottom: 0; }
+.realtime-environment-content { min-width: 0; display: grid; gap: 3px; }
+.realtime-environment-name { min-width: 0; color: var(--text); font: 600 .73rem/1.35 ui-monospace, SFMono-Regular, Menlo, monospace; overflow-wrap: anywhere; }
+.realtime-environment-value { min-width: 0; color: var(--muted); font: .69rem/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; }
 .realtime-environment-value--masked { color: var(--muted); letter-spacing: .08em; user-select: none; }
 .realtime-environment-value--error { color: var(--error); }
-.realtime-environment-actions { display: flex; justify-content: flex-end; gap: 6px; }
-.realtime-environment-actions button { min-height: 28px; padding: 4px 8px; border-radius: 5px; font-size: .7rem; transform: none; filter: none; }
+.realtime-environment-actions { display: flex; align-items: center; justify-content: flex-end; gap: 2px; }
+.realtime-environment-action { display: inline-grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); padding: 0; transform: none; filter: none; }
+.realtime-environment-action:hover:not(:disabled) { background: var(--surface-hover); color: var(--text); transform: none; filter: none; }
+.realtime-environment-action:disabled { cursor: not-allowed; opacity: .45; }
+.realtime-environment-action svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.realtime-environment-action .realtime-environment-copy-check { color: var(--success); stroke-width: 2; }
 .realtime-inline-error { margin: 10px 14px 0; border: 1px solid var(--warning-border); border-radius: 7px; background: var(--warning-muted); color: var(--warning); padding: 8px 10px; font-size: .76rem; }
 
 @media (max-width: 900px) {

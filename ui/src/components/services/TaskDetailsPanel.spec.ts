@@ -45,7 +45,8 @@ describe("TaskDetailsPanel", () => {
     expect(wrapper.text()).toContain("left=right");
     expect(wrapper.text()).toContain("(empty)");
     expect(wrapper.html()).not.toContain(secret);
-    expect(wrapper.get('[aria-label="Show value for SECRET"]').text()).toBe("Show");
+    expect(wrapper.find('[aria-label="Show value for SECRET"]').exists()).toBe(true);
+    expect(wrapper.get(".realtime-environment-count").text()).toBe("3");
   });
 
   it("decodes UTF-8 Base64 for reveal and copies the original decoded value", async () => {
@@ -53,10 +54,15 @@ describe("TaskDetailsPanel", () => {
 
     await wrapper.get('[aria-label="Show value for SECRET"]').trigger("click");
     expect(wrapper.text()).toContain(secret);
-    expect(wrapper.get('[aria-label="Hide value for SECRET"]').text()).toBe("Hide");
+    expect(wrapper.find('[aria-label="Hide value for SECRET"]').exists()).toBe(true);
 
     await wrapper.get('[aria-label="Copy value for SECRET"]').trigger("click");
     expect(writeText).toHaveBeenCalledWith(secret);
+    expect(wrapper.find('[aria-label="Value copied for SECRET"] .realtime-environment-copy-check').exists()).toBe(true);
+
+    await wrapper.get('[aria-label="Hide value for SECRET"]').trigger("click");
+    expect(wrapper.html()).not.toContain(secret);
+    expect(wrapper.find('[aria-label="Show value for SECRET"]').exists()).toBe(true);
   });
 
   it("hides revealed sensitive values when switching tasks", async () => {
@@ -70,10 +76,30 @@ describe("TaskDetailsPanel", () => {
     expect(wrapper.find('[aria-label="Show value for SECRET"]').exists()).toBe(true);
   });
 
-  it("searches variables by name", async () => {
+  it("filters variables by name case-insensitively while keeping the total count", async () => {
     const wrapper = mount(TaskDetailsPanel, { props: { task: task(), loading: false, error: "" } });
     await wrapper.get<HTMLInputElement>('.realtime-env-search input').setValue("plain");
     expect(wrapper.findAll(".realtime-environment-row")).toHaveLength(1);
     expect(wrapper.text()).toContain("PLAIN");
+    expect(wrapper.get(".realtime-environment-count").text()).toBe("3");
+  });
+
+  it("copies the variable value and does not offer a copy-name action", async () => {
+    const wrapper = mount(TaskDetailsPanel, { props: { task: task(), loading: false, error: "" } });
+
+    await wrapper.get('[aria-label="Copy value for PLAIN"]').trigger("click");
+
+    expect(writeText).toHaveBeenCalledWith("left=right");
+    expect(wrapper.find('[aria-label="Value copied for PLAIN"] .realtime-environment-copy-check').exists()).toBe(true);
+    expect(wrapper.find('[aria-label^="Copy variable name"]').exists()).toBe(false);
+  });
+
+  it("shows an empty state when no variable names match", async () => {
+    const wrapper = mount(TaskDetailsPanel, { props: { task: task(), loading: false, error: "" } });
+
+    await wrapper.get<HTMLInputElement>('.realtime-env-search input').setValue("missing-variable");
+
+    expect(wrapper.findAll(".realtime-environment-row")).toHaveLength(0);
+    expect(wrapper.text()).toContain("No variables match the search.");
   });
 });
