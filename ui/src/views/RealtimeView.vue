@@ -371,10 +371,15 @@ onUnmounted(() => {
           <template v-for="service in filteredServices" :key="service.id">
             <tr class="realtime-service-row" :class="{ 'realtime-service-row--expanded': expandedServiceIDs.has(service.id) }" @click="toggleService(service)">
               <td class="realtime-service-name-cell" data-label="Service">
-                <button type="button" class="realtime-expand-button" :aria-expanded="expandedServiceIDs.has(service.id)" :aria-label="`${expandedServiceIDs.has(service.id) ? 'Collapse' : 'Expand'} ${service.name}`" @click.stop="toggleService(service)">
-                  <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg>
-                </button>
-                <div><strong>{{ service.name || service.full_name }}</strong><small v-if="service.full_name !== service.name">{{ service.full_name }}</small></div>
+                <div>
+                  <span class="realtime-service-title">
+                    <button type="button" class="realtime-expand-button" :aria-expanded="expandedServiceIDs.has(service.id)" :aria-label="`${expandedServiceIDs.has(service.id) ? 'Collapse' : 'Expand'} ${service.name}`" @click.stop="toggleService(service)">
+                      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m6 3 5 5-5 5" /></svg>
+                    </button>
+                    <strong>{{ service.name || service.full_name }}</strong>
+                  </span>
+                  <small v-if="service.full_name !== service.name">{{ service.full_name }}</small>
+                </div>
               </td>
               <td data-label="Stack"><span :class="{ 'realtime-standalone': !service.stack }">{{ service.stack || "Standalone" }}</span></td>
               <td class="realtime-replicas" data-label="Replicas"><strong>{{ service.replicas.running }}</strong><span>/</span>{{ service.replicas.desired }}</td>
@@ -488,10 +493,11 @@ onUnmounted(() => {
 .realtime-col-updated { width: 16%; }
 .realtime-service-row { cursor: pointer; transition: background-color 120ms ease; }
 .realtime-service-row:hover, .realtime-service-row--expanded { background: var(--surface-hover-soft); }
-.realtime-service-name-cell { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.realtime-service-name-cell { min-width: 0; }
 .realtime-service-name-cell > div { min-width: 0; display: grid; gap: 2px; }
+.realtime-service-title { min-width: 0; display: flex; align-items: center; gap: 8px; }
 .realtime-service-name-cell strong, .realtime-service-name-cell small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.realtime-service-name-cell strong { font-size: .86rem; }
+.realtime-service-name-cell strong { min-width: 0; font-size: .86rem; }
 .realtime-service-name-cell small { color: var(--muted); font-size: .7rem; }
 .realtime-expand-button, .realtime-icon-button { display: inline-grid; place-items: center; flex: 0 0 auto; border: 0; background: transparent; color: var(--muted); padding: 0; transform: none; filter: none; }
 .realtime-expand-button { width: 24px; height: 24px; }
@@ -517,7 +523,7 @@ onUnmounted(() => {
 .realtime-task-select code { color: var(--muted); font-size: .68rem; }
 .realtime-task-error-cell { max-width: 210px; color: var(--error); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .realtime-task-actions { white-space: nowrap; }
-.realtime-text-button { border: 0; background: transparent; color: var(--accent-strong); padding: 4px 5px; font: inherit; font-size: .76rem; font-weight: 600; transform: none; filter: none; }
+.realtime-text-button { border: 0; background: transparent; color: var(--control-primary); padding: 4px 5px; font: inherit; font-size: .76rem; font-weight: 600; transform: none; filter: none; }
 .realtime-text-button:hover { text-decoration: underline; }
 .realtime-mobile-panel-backdrop { display: none; }
 :deep(.realtime-task-panel) { position: sticky; top: calc(var(--shell-header-height) + 16px); max-height: calc(100vh - var(--shell-header-height) - 44px); }
@@ -549,9 +555,11 @@ onUnmounted(() => {
   .realtime-service-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px 12px; padding: 12px; border-bottom: 1px solid var(--border-subtle); }
   .realtime-services-panel :deep(.realtime-service-row > td) { display: flex; min-width: 0; height: auto; padding: 0; border: 0; }
   .realtime-service-name-cell { grid-column: 1; grid-row: 1; }
-  .realtime-service-row > td:nth-child(2) { grid-column: 1; grid-row: 2; padding-left: 32px !important; font-size: .76rem; }
+  .realtime-service-title strong { order: 1; }
+  .realtime-service-title .realtime-expand-button { order: 2; }
+  .realtime-service-row > td:nth-child(2) { grid-column: 1; grid-row: 2; font-size: .76rem; }
   .realtime-service-row > td:nth-child(3) { grid-column: 2; grid-row: 2; justify-content: flex-end; }
-  .realtime-service-row > td:nth-child(4) { grid-column: 1 / -1; grid-row: 3; padding-left: 32px !important; }
+  .realtime-service-row > td:nth-child(4) { grid-column: 1 / -1; grid-row: 3; }
   .realtime-service-row > td:nth-child(5) { grid-column: 2; grid-row: 1; justify-content: flex-end; }
   .realtime-service-row > td:nth-child(6) { display: none !important; }
   .realtime-image span { max-width: 100%; }

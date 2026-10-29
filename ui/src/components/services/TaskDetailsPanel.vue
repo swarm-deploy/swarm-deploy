@@ -216,7 +216,7 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
 .realtime-task-overview-wide { grid-column: 1 / -1; }
 .realtime-break-value { display: block !important; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-word; }
 .realtime-task-error dd { color: var(--error); line-height: 1.4; }
-.realtime-copy-button { flex: 0 0 auto; border: 0; background: transparent; color: var(--accent-strong); padding: 2px; font: inherit; font-size: .68rem; font-weight: 600; transform: none; filter: none; }
+.realtime-copy-button { flex: 0 0 auto; border: 0; background: transparent; color: var(--control-primary); padding: 2px; font: inherit; font-size: .68rem; font-weight: 600; transform: none; filter: none; }
 .realtime-copy-button:hover { text-decoration: underline; }
 .realtime-task-resources { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 0; }
 .realtime-task-resources dd { display: flex; flex-wrap: wrap; gap: 6px 12px; font-variant-numeric: tabular-nums; }
