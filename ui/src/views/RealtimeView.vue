@@ -384,7 +384,7 @@ onUnmounted(() => {
               <td data-label="Stack"><span :class="{ 'realtime-standalone': !service.stack }">{{ service.stack || "Standalone" }}</span></td>
               <td class="realtime-replicas" data-label="Replicas"><strong>{{ service.replicas.running }}</strong><span>/</span>{{ service.replicas.desired }}</td>
               <td class="realtime-image" data-label="Image"><span>{{ service.image }}</span></td>
-              <td data-label="State"><AppStatusBadge :variant="stateVariant(serviceRuntimeState(service))" filled dot>{{ stateLabel(serviceRuntimeState(service)) }}</AppStatusBadge></td>
+              <td data-label="State"><AppStatusBadge class="realtime-state" :variant="stateVariant(serviceRuntimeState(service))" dot>{{ stateLabel(serviceRuntimeState(service)) }}</AppStatusBadge></td>
               <td data-label="Updated"><time :datetime="service.updated_at">{{ formatDate(service.updated_at) }}</time></td>
             </tr>
             <tr v-if="expandedServiceIDs.has(service.id)" class="realtime-tasks-row">
@@ -406,7 +406,7 @@ onUnmounted(() => {
                       >
                         <td data-label="Task"><button type="button" class="realtime-task-select" @click="selectTask(task)"><strong>Slot {{ task.slot }}</strong><code>{{ shortID(task.id) }}</code></button></td>
                         <td data-label="Node"><span>{{ task.node_name || task.node || "Unavailable" }}</span></td>
-                        <td data-label="State"><AppStatusBadge :variant="taskStateVariant(task.current_state)" filled dot>{{ task.current_state || "Unknown" }}</AppStatusBadge></td>
+                        <td data-label="State"><AppStatusBadge class="realtime-state" :variant="taskStateVariant(task.current_state)" dot>{{ task.current_state || "Unknown" }}</AppStatusBadge></td>
                         <td data-label="Updated">{{ formatDate(task.updated_at) }}</td>
                         <td class="realtime-task-error-cell" data-label="Error">{{ task.error || "—" }}</td>
                         <td class="realtime-task-actions" data-label="Actions">
@@ -507,6 +507,7 @@ onUnmounted(() => {
 .realtime-replicas { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .realtime-replicas strong { color: var(--text); }
 .realtime-replicas span { margin-inline: 3px; color: var(--muted); }
+.realtime-state { border: 0; padding: 0; }
 .realtime-image span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .76rem; }
 .realtime-service-row time { color: var(--muted); font-size: .76rem; white-space: nowrap; }
 .realtime-tasks-row > td { height: auto !important; padding: 0 !important; background: var(--surface-input-strong); }
