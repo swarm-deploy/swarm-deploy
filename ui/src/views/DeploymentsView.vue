@@ -7,6 +7,7 @@ import AppMultiSelect from "../components/common/AppMultiSelect.vue";
 import AppPagination from "../components/common/AppPagination.vue";
 import AppStatusBadge from "../components/common/AppStatusBadge.vue";
 import AppTable from "../components/common/AppTable.vue";
+import SidebarIcon from "../components/layout/SidebarIcon.vue";
 import { useOverviewStore } from "../stores/overview";
 import { formatDate, shortCommitHash } from "../utils/format";
 
@@ -190,41 +191,45 @@ onMounted(() => {
 </script>
 
 <template>
-  <section class="services-page">
+  <section class="services-page deployments-page">
     <header class="services-header"><h2>Deployments</h2></header>
-    <p class="meta">Desired-state deployments and their execution attempts. Service convergence is not verified.</p>
-    <div class="deployments-filter-bar"><div class="deployments-filter-field">
-      <span>Stack</span>
-      <AppMultiSelect
-        :model-value="selectedStacks"
-        :options="stackSelectOptions"
-        label="Filter deployments by stack"
-        placeholder="All stacks"
-        heading="Stacks"
-        :selection-label="stackSelectionLabel"
-        searchable
-        search-label="Search stacks"
-        search-placeholder="Search stacks"
-        empty-message="No matching stacks"
-        @update:model-value="selectStacks"
-      />
+    <p class="meta deployments-description">Desired-state deployments and their execution attempts. Service convergence is not verified.</p>
+    <div class="deployments-filter-bar" aria-label="Deployment filters">
+      <div class="deployments-filter-field">
+        <AppMultiSelect
+          :model-value="selectedStacks"
+          :options="stackSelectOptions"
+          label="Filter deployments by stack"
+          placeholder="All stacks"
+          heading="Stacks"
+          :selection-label="stackSelectionLabel"
+          searchable
+          search-label="Search stacks"
+          search-placeholder="Search stacks"
+          empty-message="No matching stacks"
+          @update:model-value="selectStacks"
+        >
+          <template #icon><SidebarIcon class="deployments-filter-icon" name="services" /></template>
+        </AppMultiSelect>
+      </div>
+      <div class="deployments-filter-field">
+        <AppMultiSelect
+          :model-value="selectedServices"
+          :options="serviceSelectOptions"
+          label="Filter deployments by service"
+          placeholder="All services"
+          heading="Services"
+          :selection-label="serviceSelectionLabel"
+          searchable
+          search-label="Search services"
+          search-placeholder="Search services"
+          empty-message="No matching services"
+          @update:model-value="selectServices"
+        >
+          <template #icon><SidebarIcon class="deployments-filter-icon" name="realtime" /></template>
+        </AppMultiSelect>
+      </div>
     </div>
-    <div class="deployments-filter-field">
-      <span>Service</span>
-      <AppMultiSelect
-        :model-value="selectedServices"
-        :options="serviceSelectOptions"
-        label="Filter deployments by service"
-        placeholder="All services"
-        heading="Services"
-        :selection-label="serviceSelectionLabel"
-        searchable
-        search-label="Search services"
-        search-placeholder="Search services"
-        empty-message="No matching services"
-        @update:model-value="selectServices"
-      />
-    </div></div>
     <p v-if="loading" role="status">Loading deployments...</p>
     <p v-else-if="error" role="alert">{{ error }} <button type="button" @click="load(page, cursors[page] ?? '')">Retry</button></p>
     <p v-else-if="!deployments.length">No deployments on this page.</p>
@@ -271,9 +276,30 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.deployments-filter-bar { display: flex; flex-wrap: wrap; column-gap: 12px; row-gap: 16px; margin: 8px 0 12px; }
-.deployments-filter-field { display: flex; flex-direction: column; gap: 6px; width: min(100%, 260px); }
-.deployments-filter-field > span { font-size: 0.8rem; color: var(--muted); }
+.deployments-page { gap: 16px; min-width: 0; }
+.deployments-description { margin: 0; }
+.deployments-filter-bar {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(180px, 260px));
+  gap: 10px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 10px;
+  background: var(--surface-card-soft);
+}
+.deployments-filter-field { min-width: 0; color: var(--muted); }
+.deployments-filter-icon {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 17px;
+  color: var(--muted);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  pointer-events: none;
+}
 :deep(.deployments-table th:nth-child(1)),
 :deep(.deployments-table td:nth-child(1)) { width: 42%; }
 :deep(.deployments-table th:nth-child(2)),
@@ -314,5 +340,14 @@ onMounted(() => {
 .deployment-commit-link:focus-visible {
   outline: 2px solid var(--accent-focus);
   outline-offset: 2px;
+}
+
+@media (max-width: 700px) {
+  .deployments-page { gap: 12px; }
+  .deployments-filter-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); padding: 10px; }
+}
+
+@media (max-width: 460px) {
+  .deployments-filter-bar { grid-template-columns: minmax(0, 1fr); }
 }
 </style>

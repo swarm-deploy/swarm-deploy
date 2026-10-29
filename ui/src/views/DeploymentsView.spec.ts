@@ -88,6 +88,8 @@ describe("Deployments page", () => {
 
     expect(fetchDeploymentFilters).toHaveBeenCalledOnce();
     expect(fetchDeployments).toHaveBeenCalledWith({ stack: ["app"], serviceName: ["api"], limit: 20, cursor: undefined });
+    expect(wrapper.get(".deployments-filter-bar").attributes("aria-label")).toBe("Deployment filters");
+    expect(wrapper.findAll(".deployments-filter-icon")).toHaveLength(2);
     const stackOptions = wrapper.findAll('.deployments-filter-field:nth-child(1) .app-multi-select-option');
     await stackOptions.find((option) => option.text() === "infra")!.find("input").setValue(true);
     await flushPromises();
