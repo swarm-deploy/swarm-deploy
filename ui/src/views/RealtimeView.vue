@@ -356,17 +356,16 @@ onUnmounted(() => {
         <AppTableEmpty v-else-if="services.length === 0" message="No Swarm services found." />
         <AppTableEmpty v-else-if="filteredServices.length === 0" message="No services match the current filters." />
 
-        <AppTable v-else fixed min-width="860px" table-class="realtime-services-table" aria-label="Swarm services">
+        <AppTable v-else fixed min-width="680px" table-class="realtime-services-table" aria-label="Swarm services">
           <template #colgroup>
             <col class="realtime-col-service" />
             <col class="realtime-col-stack" />
             <col class="realtime-col-replicas" />
-            <col class="realtime-col-image" />
             <col class="realtime-col-state" />
             <col class="realtime-col-updated" />
           </template>
           <template #head>
-            <tr><th>Service</th><th>Stack</th><th>Replicas</th><th>Image</th><th>State</th><th>Updated</th></tr>
+            <tr><th>Service</th><th>Stack</th><th>Replicas</th><th>State</th><th>Updated</th></tr>
           </template>
           <template v-for="service in filteredServices" :key="service.id">
             <tr class="realtime-service-row" :class="{ 'realtime-service-row--expanded': expandedServiceIDs.has(service.id) }" @click="toggleService(service)">
@@ -383,12 +382,11 @@ onUnmounted(() => {
               </td>
               <td data-label="Stack"><span :class="{ 'realtime-standalone': !service.stack }">{{ service.stack || "Standalone" }}</span></td>
               <td class="realtime-replicas" data-label="Replicas"><strong>{{ service.replicas.running }}</strong><span>/</span>{{ service.replicas.desired }}</td>
-              <td class="realtime-image" data-label="Image"><span>{{ service.image }}</span></td>
               <td data-label="State"><AppStatusBadge class="realtime-state" :variant="stateVariant(serviceRuntimeState(service))" dot>{{ stateLabel(serviceRuntimeState(service)) }}</AppStatusBadge></td>
               <td data-label="Updated"><time :datetime="service.updated_at">{{ formatDate(service.updated_at) }}</time></td>
             </tr>
             <tr v-if="expandedServiceIDs.has(service.id)" class="realtime-tasks-row">
-              <td colspan="6">
+              <td colspan="5">
                 <div class="realtime-tasks-container">
                   <div class="realtime-tasks-heading"><span>Tasks</span><small>{{ tasksFor(service.id).tasks.length }} entries</small></div>
                   <AppTableEmpty v-if="tasksFor(service.id).loading && tasksFor(service.id).tasks.length === 0" message="Loading tasks..." />
@@ -484,12 +482,11 @@ onUnmounted(() => {
 .realtime-services-panel :deep(.app-table-wrap) { min-width: 0; }
 .realtime-services-panel :deep(.app-table th) { height: 44px; padding-inline: 14px; }
 .realtime-services-panel :deep(.app-table td) { height: 52px; padding-inline: 14px; }
-.realtime-col-service { width: 25%; }
-.realtime-col-stack { width: 12%; }
-.realtime-col-replicas { width: 9%; }
-.realtime-col-image { width: 25%; }
-.realtime-col-state { width: 13%; }
-.realtime-col-updated { width: 16%; }
+.realtime-col-service { width: 34%; }
+.realtime-col-stack { width: 17%; }
+.realtime-col-replicas { width: 12%; }
+.realtime-col-state { width: 17%; }
+.realtime-col-updated { width: 20%; }
 .realtime-service-row { cursor: pointer; transition: background-color 120ms ease; }
 .realtime-service-row:hover, .realtime-service-row--expanded { background: var(--surface-hover-soft); }
 .realtime-service-name-cell { min-width: 0; }
@@ -507,7 +504,6 @@ onUnmounted(() => {
 .realtime-replicas strong { color: var(--text); }
 .realtime-replicas span { margin-inline: 3px; color: var(--muted); }
 .realtime-state { border: 0; padding: 0; }
-.realtime-image span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .76rem; }
 .realtime-service-row time { color: var(--muted); font-size: .76rem; white-space: nowrap; }
 .realtime-tasks-row > td { height: auto !important; padding: 0 !important; background: var(--surface-input-strong); }
 .realtime-tasks-container { min-width: 0; padding: 12px 14px 14px 46px; border-bottom: 1px solid var(--border-default); }
@@ -559,10 +555,8 @@ onUnmounted(() => {
   .realtime-service-title .realtime-expand-button { order: 2; }
   .realtime-service-row > td:nth-child(2) { grid-column: 1; grid-row: 2; font-size: .76rem; }
   .realtime-service-row > td:nth-child(3) { grid-column: 2; grid-row: 2; justify-content: flex-end; }
-  .realtime-service-row > td:nth-child(4) { grid-column: 1 / -1; grid-row: 3; }
-  .realtime-service-row > td:nth-child(5) { grid-column: 2; grid-row: 1; justify-content: flex-end; }
-  .realtime-service-row > td:nth-child(6) { display: none !important; }
-  .realtime-image span { max-width: 100%; }
+  .realtime-service-row > td:nth-child(4) { grid-column: 2; grid-row: 1; justify-content: flex-end; }
+  .realtime-service-row > td:nth-child(5) { display: none !important; }
   .realtime-tasks-row { display: block; }
   .realtime-tasks-row > td { display: block; }
   .realtime-tasks-container { padding: 10px 12px 14px; }

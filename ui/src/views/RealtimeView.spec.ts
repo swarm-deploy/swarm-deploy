@@ -68,6 +68,14 @@ describe("RealtimeView", () => {
     expect(wrapper.text()).toContain("Degraded");
     expect(wrapper.text()).toContain("Scaled down");
     expect(wrapper.text()).toContain("Unknown");
+    expect(wrapper.findAll(".realtime-services-table > thead th").map((header) => header.text())).toEqual([
+      "Service",
+      "Stack",
+      "Replicas",
+      "State",
+      "Updated",
+    ]);
+    expect(wrapper.text()).not.toContain("example/api:v1");
     expect(apiMocks.fetchSwarmServices).toHaveBeenCalledTimes(1);
     wrapper.unmount();
   });
