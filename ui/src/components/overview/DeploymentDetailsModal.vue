@@ -9,6 +9,7 @@ import { useAssistantStore } from "../../stores/assistant";
 import { useOverviewStore } from "../../stores/overview";
 import { useUIStore } from "../../stores/ui";
 import { formatDate, shortCommitHash } from "../../utils/format";
+import AppTabs from "../common/AppTabs.vue";
 import DeploymentIcon from "./DeploymentIcon.vue";
 
 type DetailsTab = "attempts" | "changes" | "configuration";
@@ -45,6 +46,11 @@ type InitJobLogState = { open: boolean; loading: boolean; loaded: boolean; logs:
 const initJobLogs = ref<Record<string, InitJobLogState>>({});
 const infoOpen = ref<DetailsTab | null>(null);
 const infoPinned = ref(false);
+const tabs = [
+  { value: "attempts", label: "Attempts", id: "deployment-attempts-tab", panelId: "deployment-attempts-panel" },
+  { value: "changes", label: "Changes", id: "deployment-changes-tab", panelId: "deployment-changes-panel" },
+  { value: "configuration", label: "Configuration", id: "deployment-configuration-tab", panelId: "deployment-configuration-panel" },
+] as const;
 
 function dismissInfo() {
   infoOpen.value = null;
@@ -259,7 +265,8 @@ async function toggleInitJobLogs(attempt: DeploymentAttempt, execution: Deployme
 function attemptDiagnostic(attempt: DeploymentAttempt): string {
   return attempt.diagnostic || reasonLabels[attempt.reason ?? ""] || "No diagnostics were recorded.";
 }
-function selectTab(tab: DetailsTab) {
+function selectTab(tab: string) {
+  if (tab !== "attempts" && tab !== "changes" && tab !== "configuration") return;
   activeTab.value = tab;
   tabManuallySelected.value = true;
 }
@@ -475,13 +482,31 @@ onUnmounted(() => {
             </div>
           </section>
 
-          <div class="deployment-tabs" role="tablist" aria-label="Deployment detail views">
-            <button type="button" role="tab" :aria-selected="activeTab === 'attempts'" :class="{ active: activeTab === 'attempts' }" @click="selectTab('attempts')">Attempts <span class="deployment-tab-count">{{ attemptCount }}</span></button>
-            <button type="button" role="tab" :aria-selected="activeTab === 'changes'" :class="{ active: activeTab === 'changes' }" @click="selectTab('changes')">Changes</button>
-            <button type="button" role="tab" :aria-selected="activeTab === 'configuration'" :class="{ active: activeTab === 'configuration' }" @click="selectTab('configuration')">Configuration</button>
-          </div>
+          <AppTabs
+            class="deployment-tabs"
+            :model-value="activeTab"
+            :tabs="tabs"
+            label="Deployment detail views"
+            density="compact"
+            @update:model-value="selectTab"
+          >
+            <template #tab="{ tab, active }">
+              {{ tab.label }}
+              <span
+                v-if="tab.value === 'attempts'"
+                class="deployment-tab-count"
+                :class="{ 'deployment-tab-count--active': active }"
+              >{{ attemptCount }}</span>
+            </template>
+          </AppTabs>
 
-          <section v-if="activeTab === 'attempts'" class="deployment-tab-panel deployment-attempts-panel" role="tabpanel">
+          <section
+            v-if="activeTab === 'attempts'"
+            id="deployment-attempts-panel"
+            class="deployment-tab-panel deployment-attempts-panel"
+            role="tabpanel"
+            aria-labelledby="deployment-attempts-tab"
+          >
             <p v-if="attempts.length === 0" class="meta">No deployment attempts were recorded.</p>
             <template v-else>
               <div class="deployment-attempt-columns" aria-hidden="true">
@@ -557,7 +582,13 @@ onUnmounted(() => {
             </template>
           </section>
 
-          <section v-else-if="activeTab === 'changes'" class="deployment-tab-panel" role="tabpanel">
+          <section
+            v-else-if="activeTab === 'changes'"
+            id="deployment-changes-panel"
+            class="deployment-tab-panel"
+            role="tabpanel"
+            aria-labelledby="deployment-changes-tab"
+          >
             <template v-if="changeState === 'initial'">
               <h3>Initial snapshot</h3>
               <p class="deployment-note">First recorded desired-state snapshot. No previous snapshot is available for comparison.</p>
@@ -640,7 +671,13 @@ onUnmounted(() => {
             </template>
           </section>
 
-          <section v-else class="deployment-tab-panel" role="tabpanel">
+          <section
+            v-else
+            id="deployment-configuration-panel"
+            class="deployment-tab-panel"
+            role="tabpanel"
+            aria-labelledby="deployment-configuration-tab"
+          >
             <div class="deployment-configuration-heading">
               <div class="deployment-info-heading">
                 <h3>Configuration Snapshot</h3>
@@ -751,11 +788,7 @@ onUnmounted(() => {
 .deployment-outcome .deployment-diagnostic { color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; }
 .deployment-code { display: inline-block; margin-top: 7px; color: var(--muted); font-family: ui-monospace, monospace; font-size: .75rem; }
 .deployment-note { color: var(--muted); line-height: 1.45; }
-.deployment-tabs { display: flex; gap: 6px; margin-top: 14px; border-bottom: 1px solid var(--line); }
-.deployment-tabs button { border: 0; border-bottom: 3px solid transparent; border-radius: 0; background: transparent; color: var(--muted); padding: 8px 8px 9px; }
-.deployment-tabs button:hover { color: var(--text); transform: none; filter: none; }
-.deployment-tabs button.active { border-bottom-color: var(--control-primary); color: var(--control-primary); }
-:global(:root[data-theme="dark"] .deployment-tabs button.active) { color: var(--text); }
+.deployment-tabs { margin-top: 14px; }
 .deployment-tab-count {
   display: inline-flex;
   align-items: center;
@@ -771,7 +804,7 @@ onUnmounted(() => {
   font-weight: 600;
   line-height: 1.25;
 }
-.deployment-tabs button.active .deployment-tab-count { color: var(--text); }
+.deployment-tab-count--active { color: var(--text); }
 .deployment-tab-panel { min-width: 0; padding: 14px 0 4px; }
 .deployment-tab-panel > h3 { margin: 0 0 4px; font-size: 1.35rem; }
 .deployment-tab-panel > .deployment-note { margin: 0; }

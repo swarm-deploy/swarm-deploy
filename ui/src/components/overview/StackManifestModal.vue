@@ -4,11 +4,16 @@ import { tokenizeWith } from "@speed-highlight/core/tokenize";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 
 import { useOverviewStore } from "../../stores/overview";
+import AppTabs from "../common/AppTabs.vue";
 
 type ManifestTab = "desired" | "live";
 
 const overviewStore = useOverviewStore();
 const activeTab = ref<ManifestTab>("desired");
+const tabs = [
+  { value: "desired", label: "Desired", id: "desired-manifest-tab", panelId: "stack-manifest-panel" },
+  { value: "live", label: "Live", id: "live-manifest-tab", panelId: "stack-manifest-panel" },
+] as const;
 
 const modalTitle = computed(() => {
   const stackName = String(overviewStore.stackManifestStack || "").trim();
@@ -53,7 +58,8 @@ function highlightManifest(manifest: string) {
   return `<div><div class="shj-numbers" aria-hidden="true">${lineNumbers}</div><div>${highlighted}</div></div>`;
 }
 
-function setActiveTab(tab: ManifestTab) {
+function setActiveTab(tab: string) {
+  if (tab !== "desired" && tab !== "live") return;
   activeTab.value = tab;
 }
 
@@ -102,30 +108,20 @@ onUnmounted(() => {
           Failed to load manifest: {{ overviewStore.stackManifestError }}
         </p>
         <template v-else>
-          <div class="manifest-tabs" role="tablist" aria-label="Stack manifest tabs">
-            <button
-              type="button"
-              role="tab"
-              class="manifest-tab-btn"
-              :class="{ active: activeTab === 'desired' }"
-              :aria-selected="activeTab === 'desired'"
-              @click="setActiveTab('desired')"
-            >
-              Desired
-            </button>
-            <button
-              type="button"
-              role="tab"
-              class="manifest-tab-btn"
-              :class="{ active: activeTab === 'live' }"
-              :aria-selected="activeTab === 'live'"
-              @click="setActiveTab('live')"
-            >
-              Live
-            </button>
-          </div>
+          <AppTabs
+            class="manifest-tabs"
+            :model-value="activeTab"
+            :tabs="tabs"
+            label="Stack manifest tabs"
+            @update:model-value="setActiveTab"
+          />
 
-          <div class="manifest-viewer">
+          <div
+            id="stack-manifest-panel"
+            class="manifest-viewer"
+            role="tabpanel"
+            :aria-labelledby="`${activeTab}-manifest-tab`"
+          >
             <p v-if="activeManifest.trim().length === 0" class="meta">{{ activeManifestEmptyMessage }}</p>
             <div
               v-else

@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { useRoute, useRouter } from "vue-router";
 
+import AppTabs from "../components/common/AppTabs.vue";
 import EventsView from "./EventsView.vue";
 import AlertsView from "./AlertsView.vue";
 
@@ -9,9 +10,14 @@ type EventsAlertsTab = "alerts" | "events";
 
 const route = useRoute();
 const router = useRouter();
+const tabs = [
+  { value: "alerts", label: "Alerts", id: "alerts-tab", panelId: "alerts-panel" },
+  { value: "events", label: "Events", id: "events-tab", panelId: "events-panel" },
+] as const;
 const activeTab = computed<EventsAlertsTab>(() => route.query.tab === "events" ? "events" : "alerts");
 
-function selectTab(tab: EventsAlertsTab): void {
+function selectTab(tab: string): void {
+  if (tab !== "alerts" && tab !== "events") return;
   if (activeTab.value === tab && route.query.tab === tab) {
     return;
   }
@@ -23,30 +29,13 @@ function selectTab(tab: EventsAlertsTab): void {
 <template>
   <div class="events-alerts-page">
     <h1>Events &amp; Alerts</h1>
-    <div class="events-alerts-tabs" role="tablist" aria-label="Events and alerts views">
-      <button
-        id="alerts-tab"
-        type="button"
-        role="tab"
-        :aria-selected="activeTab === 'alerts'"
-        aria-controls="alerts-panel"
-        :class="{ active: activeTab === 'alerts' }"
-        @click="selectTab('alerts')"
-      >
-        Alerts
-      </button>
-      <button
-        id="events-tab"
-        type="button"
-        role="tab"
-        :aria-selected="activeTab === 'events'"
-        aria-controls="events-panel"
-        :class="{ active: activeTab === 'events' }"
-        @click="selectTab('events')"
-      >
-        Events
-      </button>
-    </div>
+    <AppTabs
+      class="events-alerts-tabs"
+      :model-value="activeTab"
+      :tabs="tabs"
+      label="Events and alerts views"
+      @update:model-value="selectTab"
+    />
 
     <section
       v-show="activeTab === 'alerts'"
@@ -77,33 +66,4 @@ function selectTab(tab: EventsAlertsTab): void {
   margin-bottom: 0;
 }
 
-.events-alerts-tabs {
-  display: flex;
-  gap: 8px;
-  border-bottom: 1px solid var(--line);
-}
-
-.events-alerts-tabs button {
-  border: 0;
-  border-bottom: 3px solid transparent;
-  border-radius: 0;
-  background: transparent;
-  color: var(--muted);
-  padding: 10px 10px 12px;
-}
-
-.events-alerts-tabs button:hover {
-  color: var(--text);
-  transform: none;
-  filter: none;
-}
-
-.events-alerts-tabs button.active {
-  border-bottom-color: var(--control-primary);
-  color: var(--control-primary);
-}
-
-:global(:root[data-theme="dark"] .events-alerts-tabs button.active) {
-  color: var(--text);
-}
 </style>
