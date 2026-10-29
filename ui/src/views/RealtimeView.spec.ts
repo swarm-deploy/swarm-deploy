@@ -72,7 +72,7 @@ describe("RealtimeView", () => {
     wrapper.unmount();
   });
 
-  it("filters locally by search, stack, and state without refetching", async () => {
+  it("filters locally by search, multiple stacks, and state without refetching", async () => {
     const wrapper = await mountView();
 
     await wrapper.get<HTMLInputElement>('.realtime-search input').setValue("worker");
@@ -80,13 +80,18 @@ describe("RealtimeView", () => {
     expect(wrapper.text()).toContain("infra_worker");
 
     await wrapper.get<HTMLInputElement>('.realtime-search input').setValue("");
-    const selects = wrapper.findAll("select");
-    await selects[0].setValue("standalone");
+    const stackOptions = wrapper.findAll<HTMLInputElement>('.realtime-stack-filter-option input');
+    await stackOptions.find((option) => option.element.value === "")!.setValue(true);
     expect(wrapper.findAll(".realtime-service-row")).toHaveLength(1);
     expect(wrapper.text()).toContain("proxy");
 
-    await selects[0].setValue("all");
-    await selects[1].setValue("scaled-down");
+    await stackOptions.find((option) => option.element.value === "ops")!.setValue(true);
+    expect(wrapper.findAll(".realtime-service-row")).toHaveLength(2);
+    expect(wrapper.text()).toContain("proxy");
+    expect(wrapper.text()).toContain("reports");
+
+    await wrapper.get(".realtime-stack-filter-clear").trigger("click");
+    await wrapper.get("select").setValue("scaled-down");
     expect(wrapper.findAll(".realtime-service-row")).toHaveLength(1);
     expect(wrapper.text()).toContain("reports");
     expect(apiMocks.fetchSwarmServices).toHaveBeenCalledTimes(1);
@@ -103,6 +108,19 @@ describe("RealtimeView", () => {
     expect(apiMocks.fetchSwarmServiceTasks).toHaveBeenCalledExactlyOnceWith("one");
     expect(wrapper.findAll(".realtime-task-row")).toHaveLength(2);
     expect(wrapper.findAll(".realtime-task-select code").map((item) => item.text())).toEqual(["task-current", "task-history"]);
+    wrapper.unmount();
+  });
+
+  it("toggles tasks when the service row or its chevron is clicked", async () => {
+    const wrapper = await mountView();
+
+    await wrapper.findAll(".realtime-service-row")[0].trigger("click");
+    await flushPromises();
+    expect(wrapper.findAll(".realtime-task-row")).toHaveLength(2);
+    expect(apiMocks.fetchSwarmServiceTasks).toHaveBeenCalledExactlyOnceWith("one");
+
+    await wrapper.findAll(".realtime-expand-button")[0].trigger("click");
+    expect(wrapper.findAll(".realtime-task-row")).toHaveLength(0);
     wrapper.unmount();
   });
 
