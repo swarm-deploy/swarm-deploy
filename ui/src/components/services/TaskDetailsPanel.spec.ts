@@ -1,4 +1,4 @@
-import { mount } from "@vue/test-utils";
+import { mount, type VueWrapper } from "@vue/test-utils";
 import { nextTick } from "vue";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -28,6 +28,10 @@ function task(id = "task-one"): SwarmTaskDetails {
   };
 }
 
+async function selectEnvironment(wrapper: VueWrapper): Promise<void> {
+  await wrapper.get("#task-environment-tab").trigger("click");
+}
+
 describe("TaskDetailsPanel", () => {
   const writeText = vi.fn().mockResolvedValue(undefined);
 
@@ -39,15 +43,45 @@ describe("TaskDetailsPanel", () => {
 
   afterEach(() => vi.unstubAllGlobals());
 
-  it("renders the compact sections without a Task Details logs action or repeated slot field", () => {
+  it("renders the compact overview by default without a Task Details logs action or repeated slot field", () => {
     const wrapper = mount(TaskDetailsPanel, { props: { task: task(), loading: false, error: "" } });
 
     expect(wrapper.get(".realtime-task-panel-header").text()).toContain("Slot 1");
+    expect(wrapper.get(".realtime-task-tabs").attributes("role")).toBe("tablist");
+    expect(wrapper.get("#task-overview-tab").attributes("aria-selected")).toBe("true");
+    expect(wrapper.get("#task-overview-panel").attributes("role")).toBe("tabpanel");
+    expect(wrapper.find("#task-environment-panel").exists()).toBe(false);
     expect(wrapper.find("#task-overview-title").exists()).toBe(false);
     expect(wrapper.find(".realtime-logs-button").exists()).toBe(false);
     expect(wrapper.get(".realtime-task-runtime").findAll(":scope > div")).toHaveLength(3);
     expect(wrapper.get(".realtime-task-runtime-state").classes()).not.toContain("app-status-badge--filled");
     expect(wrapper.get(".realtime-task-identifiers").text()).not.toContain("Slot");
+  });
+
+  it("switches between Overview and Environment tabs", async () => {
+    const wrapper = mount(TaskDetailsPanel, { props: { task: task(), loading: false, error: "" } });
+
+    await selectEnvironment(wrapper);
+
+    expect(wrapper.get("#task-environment-tab").attributes("aria-selected")).toBe("true");
+    expect(wrapper.get("#task-environment-panel").attributes("aria-labelledby")).toBe("task-environment-tab");
+    expect(wrapper.find("#task-overview-panel").exists()).toBe(false);
+    expect(wrapper.find("#task-environment-panel h4").exists()).toBe(false);
+    expect(wrapper.text()).not.toContain("Runtime");
+  });
+
+  it("keeps the active tab for same-task refreshes and resets it when the task changes", async () => {
+    const initialTask = task();
+    const wrapper = mount(TaskDetailsPanel, { props: { task: initialTask, loading: false, error: "" } });
+    await selectEnvironment(wrapper);
+
+    await wrapper.setProps({ task: { ...initialTask, updated_at: "2026-10-28T20:02:00Z" } });
+    expect(wrapper.get("#task-environment-tab").attributes("aria-selected")).toBe("true");
+
+    await wrapper.setProps({ task: task("task-two") });
+    expect(wrapper.get("#task-overview-tab").attributes("aria-selected")).toBe("true");
+    expect(wrapper.find("#task-environment-panel").exists()).toBe(false);
+    expect(wrapper.get("#task-overview-panel").text()).toContain("Runtime");
   });
 
   it("does not present a running task's absent or default exit code as zero", async () => {
@@ -140,18 +174,20 @@ describe("TaskDetailsPanel", () => {
     expect(wrapper.findAll(".realtime-task-missing").length).toBeGreaterThanOrEqual(4);
   });
 
-  it("shows plain and empty values while keeping encoded values out of the DOM by default", () => {
+  it("shows plain and empty values while keeping encoded values out of the DOM by default", async () => {
     const wrapper = mount(TaskDetailsPanel, { props: { task: task(), loading: false, error: "" } });
+    await selectEnvironment(wrapper);
 
     expect(wrapper.text()).toContain("left=right");
     expect(wrapper.text()).toContain("(empty)");
     expect(wrapper.html()).not.toContain(secret);
     expect(wrapper.find('[aria-label="Show value for SECRET"]').exists()).toBe(true);
-    expect(wrapper.get(".realtime-environment-count").text()).toBe("3");
+    expect(wrapper.get(".realtime-task-tab-count").text()).toBe("3");
   });
 
   it("decodes UTF-8 Base64 for reveal and copies the original decoded value", async () => {
     const wrapper = mount(TaskDetailsPanel, { props: { task: task(), loading: false, error: "" } });
+    await selectEnvironment(wrapper);
 
     await wrapper.get('[aria-label="Show value for SECRET"]').trigger("click");
     expect(wrapper.text()).toContain(secret);
@@ -168,25 +204,29 @@ describe("TaskDetailsPanel", () => {
 
   it("hides revealed sensitive values when switching tasks", async () => {
     const wrapper = mount(TaskDetailsPanel, { props: { task: task(), loading: false, error: "" } });
+    await selectEnvironment(wrapper);
     await wrapper.get('[aria-label="Show value for SECRET"]').trigger("click");
     expect(wrapper.text()).toContain(secret);
 
     await wrapper.setProps({ task: task("task-two") });
     await nextTick();
+    await selectEnvironment(wrapper);
     expect(wrapper.html()).not.toContain(secret);
     expect(wrapper.find('[aria-label="Show value for SECRET"]').exists()).toBe(true);
   });
 
   it("filters variables by name case-insensitively while keeping the total count", async () => {
     const wrapper = mount(TaskDetailsPanel, { props: { task: task(), loading: false, error: "" } });
+    await selectEnvironment(wrapper);
     await wrapper.get<HTMLInputElement>('.realtime-env-search input').setValue("plain");
     expect(wrapper.findAll(".realtime-environment-row")).toHaveLength(1);
     expect(wrapper.text()).toContain("PLAIN");
-    expect(wrapper.get(".realtime-environment-count").text()).toBe("3");
+    expect(wrapper.get(".realtime-task-tab-count").text()).toBe("3");
   });
 
   it("copies the variable value and does not offer a copy-name action", async () => {
     const wrapper = mount(TaskDetailsPanel, { props: { task: task(), loading: false, error: "" } });
+    await selectEnvironment(wrapper);
 
     await wrapper.get('[aria-label="Copy value for PLAIN"]').trigger("click");
 
@@ -197,6 +237,7 @@ describe("TaskDetailsPanel", () => {
 
   it("shows an empty state when no variable names match", async () => {
     const wrapper = mount(TaskDetailsPanel, { props: { task: task(), loading: false, error: "" } });
+    await selectEnvironment(wrapper);
 
     await wrapper.get<HTMLInputElement>('.realtime-env-search input').setValue("missing-variable");
 

@@ -7,6 +7,7 @@ import { formatBytes, formatDate, formatNanoCPU } from "../../utils/format";
 import { decodeBase64Utf8 } from "../../utils/realtime";
 import AppPanel from "../common/AppPanel.vue";
 import AppStatusBadge from "../common/AppStatusBadge.vue";
+import AppTabs from "../common/AppTabs.vue";
 import AppTableEmpty from "../common/AppTableEmpty.vue";
 
 const props = defineProps<{
@@ -22,7 +23,13 @@ const emit = defineEmits<{
 const environmentSearch = ref("");
 const revealed = ref(new Set<string>());
 const copiedKey = ref("");
+const activeTab = ref("overview");
 let copiedResetTimer: ReturnType<typeof setTimeout> | undefined;
+
+const tabs = [
+  { value: "overview", label: "Overview", id: "task-overview-tab", panelId: "task-overview-panel" },
+  { value: "environment", label: "Environment", id: "task-environment-tab", panelId: "task-environment-panel" },
+] as const;
 
 interface ImageReferenceParts {
   name: string;
@@ -48,6 +55,7 @@ const filteredEnvironment = computed(() => {
 watch(
   () => props.task?.id,
   () => {
+    activeTab.value = "overview";
     environmentSearch.value = "";
     revealed.value = new Set();
     clearCopiedState();
@@ -161,6 +169,15 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
       </div>
     </template>
 
+    <AppTabs v-model="activeTab" class="realtime-task-tabs" :tabs="tabs" label="Task details sections" density="compact">
+      <template #tab="{ tab }">
+        <span>{{ tab.label }}</span>
+        <span v-if="tab.value === 'environment'" class="realtime-task-tab-count" :aria-label="`${task?.environment.length ?? 0} variables`">
+          {{ task?.environment.length ?? 0 }}
+        </span>
+      </template>
+    </AppTabs>
+
     <div class="realtime-task-panel-scroll">
       <AppTableEmpty v-if="loading && !task" message="Loading task details..." />
       <AppTableEmpty v-else-if="error && !task" role="alert">Failed to load task: {{ error }}</AppTableEmpty>
@@ -168,6 +185,13 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
       <template v-if="task">
         <p v-if="error" class="realtime-inline-error" role="alert">Refresh failed: {{ error }}</p>
 
+        <div
+          v-if="activeTab === 'overview'"
+          id="task-overview-panel"
+          class="realtime-task-tab-panel"
+          role="tabpanel"
+          aria-labelledby="task-overview-tab"
+        >
         <section class="realtime-task-section" aria-labelledby="task-runtime-title">
           <h4 id="task-runtime-title">Runtime</h4>
           <dl class="realtime-task-runtime">
@@ -252,13 +276,16 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
             </div>
           </dl>
         </section>
+        </div>
 
-        <section class="realtime-task-section" aria-labelledby="task-environment-title">
+        <section
+          v-else
+          id="task-environment-panel"
+          class="realtime-task-section"
+          role="tabpanel"
+          aria-labelledby="task-environment-tab"
+        >
           <div class="realtime-task-section-title realtime-environment-title">
-            <div class="realtime-environment-heading">
-              <h4 id="task-environment-title">Environment variables</h4>
-              <span class="realtime-environment-count" :aria-label="`${task.environment.length} variables`">{{ task.environment.length }}</span>
-            </div>
             <label class="realtime-env-search">
               <span class="sr-only">Search environment variables</span>
               <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4 4" /></svg>
@@ -308,7 +335,7 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
 
 <style scoped>
 .realtime-task-panel { min-width: 0; }
-.realtime-task-panel :deep(.app-panel-content) { min-height: 0; flex: 1 1 auto; display: flex; }
+.realtime-task-panel :deep(.app-panel-content) { min-height: 0; flex: 1 1 auto; display: flex; flex-direction: column; }
 .realtime-task-panel-header { min-height: 58px; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 14px; border-bottom: 1px solid var(--border-subtle); background: var(--surface-card-soft); }
 .realtime-task-panel-header > div { min-width: 0; }
 .realtime-task-panel-header h3 { margin: 2px 0 0; font-size: 1rem; }
@@ -317,7 +344,12 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
 .realtime-icon-button:hover { background: var(--surface-hover-strong); color: var(--text); transform: none; filter: none; }
 .realtime-icon-button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
 .realtime-icon-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; }
+.realtime-task-tabs { flex: 0 0 auto; padding: 0 6px; background: var(--surface-card-soft); }
+.realtime-task-tabs :deep(.app-tabs-tab) { display: inline-flex; align-items: center; gap: 6px; font-size: .76rem; font-weight: 600; }
+.realtime-task-tab-count { min-width: 20px; height: 18px; display: inline-grid; place-items: center; border-radius: 999px; background: var(--surface-muted-strong); color: var(--muted); padding: 0 5px; font-size: .65rem; font-variant-numeric: tabular-nums; }
+.realtime-task-tabs :deep(.app-tabs-tab--active) .realtime-task-tab-count { color: inherit; }
 .realtime-task-panel-scroll { min-height: 0; flex: 1 1 auto; overflow: auto; }
+.realtime-task-tab-panel { min-width: 0; }
 .realtime-task-section { min-width: 0; display: grid; gap: 10px; padding: 14px; border-bottom: 1px solid var(--border-subtle); }
 .realtime-task-section:last-child { border-bottom: 0; }
 .realtime-task-section h4 { margin: 0; font-size: .84rem; }
@@ -351,10 +383,8 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
 .realtime-task-timestamps time { color: var(--text); font-variant-numeric: tabular-nums; }
 .realtime-task-resources { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 0; }
 .realtime-task-resources dd { display: flex; flex-wrap: wrap; gap: 6px 12px; font-variant-numeric: tabular-nums; }
-.realtime-environment-title { margin: -14px -14px 0; border-bottom: 1px solid var(--border-subtle); background: var(--surface-card-muted); padding: 12px 14px; }
-.realtime-environment-heading { min-width: 0; display: flex; align-items: center; gap: 8px; }
-.realtime-environment-count { flex: 0 0 auto; min-width: 30px; height: 24px; display: inline-grid; place-items: center; border: 0; border-radius: 999px; background: var(--surface-muted-strong); color: var(--muted); padding: 0 8px; font-size: .72rem; font-weight: 600; font-variant-numeric: tabular-nums; }
-.realtime-env-search { position: relative; width: min(180px, 52%); }
+.realtime-environment-title { justify-content: flex-end; margin: -14px -14px 0; border-bottom: 1px solid var(--border-subtle); background: var(--surface-card-muted); padding: 12px 14px; }
+.realtime-env-search { position: relative; width: 100%; }
 .realtime-env-search svg { position: absolute; top: 50%; left: 9px; width: 14px; height: 14px; color: var(--muted); fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; transform: translateY(-50%); pointer-events: none; }
 .realtime-env-search input { width: 100%; height: 32px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-input); color: var(--text); padding: 5px 9px 5px 29px; font: inherit; font-size: .72rem; }
 .realtime-env-search input::placeholder { color: var(--muted); }
