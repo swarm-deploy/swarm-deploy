@@ -313,8 +313,9 @@ function hasResources(resources: SwarmTaskResources | undefined): boolean {
 .realtime-task-panel-header > div { min-width: 0; }
 .realtime-task-panel-header h3 { margin: 2px 0 0; font-size: 1rem; }
 .realtime-task-panel-eyebrow { color: var(--muted); font-size: .68rem; text-transform: uppercase; letter-spacing: .05em; }
-.realtime-icon-button { display: inline-grid; place-items: center; width: 30px; height: 30px; border: 0; background: transparent; color: var(--muted); padding: 0; transform: none; filter: none; }
-.realtime-icon-button:hover { color: var(--text); }
+.realtime-icon-button { display: inline-grid; place-items: center; width: 30px; height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); padding: 0; transform: none; filter: none; transition: background-color 150ms ease, color 150ms ease, opacity 150ms ease; }
+.realtime-icon-button:hover { background: var(--surface-hover-strong); color: var(--text); transform: none; filter: none; }
+.realtime-icon-button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
 .realtime-icon-button svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; }
 .realtime-task-panel-scroll { min-height: 0; flex: 1 1 auto; overflow: auto; }
 .realtime-task-section { min-width: 0; display: grid; gap: 10px; padding: 14px; border-bottom: 1px solid var(--border-subtle); }

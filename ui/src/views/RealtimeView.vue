@@ -585,7 +585,7 @@ onUnmounted(() => {
 .realtime-task-message-row--warning > td { color: var(--warning); }
 .realtime-task-action-button { display: inline-grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 4px; background: transparent; color: var(--control-primary); padding: 0; transform: none; filter: none; }
 .realtime-task-action-button:hover { background: var(--surface-hover); transform: none; filter: none; }
-.realtime-task-action-button svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.realtime-task-action-button svg { width: 16px; height: 16px; fill: none; stroke: #606060; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .realtime-mobile-panel-backdrop { display: none; }
 :deep(.realtime-task-panel) { position: sticky; top: calc(var(--shell-header-height) + 16px); max-height: calc(100vh - var(--shell-header-height) - 44px); }
 

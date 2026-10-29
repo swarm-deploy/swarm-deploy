@@ -262,26 +262,41 @@ button:hover,
 
 .app-status-badge--success {
   color: var(--success);
+}
+
+.app-status-badge.app-status-badge--success {
   border-color: var(--success-border);
 }
 
 .app-status-badge--warning {
   color: var(--warning);
+}
+
+.app-status-badge.app-status-badge--warning {
   border-color: var(--warning-border);
 }
 
 .app-status-badge--error {
   color: var(--error);
+}
+
+.app-status-badge.app-status-badge--error {
   border-color: var(--error-border);
 }
 
 .app-status-badge--info {
   color: var(--info);
+}
+
+.app-status-badge.app-status-badge--info {
   border-color: var(--accent-border);
 }
 
 .app-status-badge--neutral {
   color: var(--muted);
+}
+
+.app-status-badge.app-status-badge--neutral {
   border-color: var(--border-strong);
 }
 
@@ -506,7 +521,7 @@ button:hover,
   gap: 5px;
 }
 
-.overview-stack-status-badge--unknown {
+.app-status-badge.overview-stack-status-badge--unknown {
   border-color: var(--border-default);
 }
 
@@ -2110,7 +2125,7 @@ a.overview-summary-row:focus-visible {
   background: var(--accent-muted);
 }
 
-.secret-manager-badge--unavailable {
+.app-status-badge.secret-manager-badge--unavailable {
   border-color: var(--border-default);
 }
 
