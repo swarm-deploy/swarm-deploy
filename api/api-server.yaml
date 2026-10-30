@@ -186,6 +186,8 @@ components:
       $ref: './resources/secret-managers.yaml#/components/schemas/SecretManagerProviderLinks'
     SecretManagerSyncResponse:
       $ref: './resources/secret-managers.yaml#/components/schemas/SecretManagerSyncResponse'
+    SynchronizedSecretIdentity:
+      $ref: './resources/secret-managers.yaml#/components/schemas/SynchronizedSecretIdentity'
     SecretInfo:
       $ref: './resources/secrets.yaml#/components/schemas/SecretInfo'
     SecretDetailsResponse:

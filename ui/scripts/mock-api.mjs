@@ -289,7 +289,22 @@ app.post("/api/v1/secret-managers/:stack/:service/sync", (context) => {
   if (failNextSecretManagerSync.delete(managerKey)) {
     return context.json({ error_message: "synchronization failed in deterministic mock scenario" }, 503);
   }
-  return context.json({ created: 1, updated: 0, removed: 0, unchanged: 2 });
+  const createdPath = context.req.query("created_path");
+  const createdKey = context.req.query("created_key");
+  const logicalPath = [createdPath, createdKey].filter(Boolean).join("/");
+  const secret = createdPath && createdPath !== "unresolved/demo"
+    ? {
+        id: `mock-swarm-secret-${logicalPath}`,
+        name: `synced-${logicalPath.replaceAll("/", "-")}`,
+      }
+    : undefined;
+  return context.json({
+    created: 1,
+    updated: 0,
+    removed: 0,
+    unchanged: 2,
+    ...(secret ? { secret } : {}),
+  });
 });
 
 app.get("/api/v1/swarm/services/:service/tasks", (context) => {

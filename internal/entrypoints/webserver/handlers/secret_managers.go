@@ -3,10 +3,14 @@ package handlers
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
+	"strings"
 
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secretmanager"
+	secretmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/resources/secrets/model"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -113,12 +117,74 @@ func (h *handler) SyncSecretManager(
 		return nil, secretManagerSyncError(err)
 	}
 
-	return &generated.SecretManagerSyncResponse{
+	response := &generated.SecretManagerSyncResponse{
 		Created:   int64(result.Created),
 		Updated:   int64(result.Updated),
 		Removed:   int64(result.Removed),
 		Unchanged: int64(result.Unchanged),
-	}, nil
+	}
+	if createdPath, ok := params.CreatedPath.Get(); ok {
+		createdKey, _ := params.CreatedKey.Get()
+		secret, found, resolveErr := resolveSynchronizedSecret(ctx, h.dockerSecrets, createdPath, createdKey)
+		if resolveErr != nil {
+			slog.WarnContext(ctx, "failed to resolve synchronized Docker secret", slog.Any("error", resolveErr))
+		} else if found {
+			response.Secret = generated.NewOptSynchronizedSecretIdentity(generated.SynchronizedSecretIdentity{
+				ID:   secret.ID,
+				Name: secret.Name,
+			})
+		}
+	}
+
+	return response, nil
+}
+
+func resolveSynchronizedSecret(
+	ctx context.Context,
+	manager swarm.SecretManager,
+	createdPath string,
+	createdKey string,
+) (swarm.Secret, bool, error) {
+	createdPath = strings.Trim(strings.TrimSpace(createdPath), "/")
+	createdKey = strings.TrimSpace(createdKey)
+	if createdPath == "" {
+		return swarm.Secret{}, false, nil
+	}
+
+	secrets, err := manager.List(ctx, swarm.ListSecretsFilter{
+		Labels: map[string]string{secretmodel.ManagedLabel: "true"},
+	})
+	if err != nil {
+		return swarm.Secret{}, false, err
+	}
+
+	externalPath := createdPath
+	if createdKey != "" {
+		externalPath += "/" + createdKey
+	}
+
+	matches := make([]swarm.Secret, 0, 1)
+	for _, secret := range secrets {
+		labels := secret.Labels
+		if labels[secretmodel.ManagedLabel] != "true" || labels[secretmodel.LogicalPathLabel] != secret.Name {
+			continue
+		}
+
+		candidatePath := strings.Trim(labels[secretmodel.ExternalPathLabel], "/")
+		pathMatches := candidatePath == externalPath
+		if createdKey == "" {
+			pathMatches = pathMatches || strings.HasSuffix(candidatePath, "/"+externalPath)
+		}
+		if pathMatches {
+			matches = append(matches, secret)
+		}
+	}
+
+	if len(matches) != 1 {
+		return swarm.Secret{}, false, nil
+	}
+
+	return matches[0], true, nil
 }
 
 func secretManagerSyncError(err error) error {

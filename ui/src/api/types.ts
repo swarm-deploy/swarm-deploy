@@ -441,6 +441,12 @@ export interface SecretManagerSyncResponse {
   updated: number;
   removed: number;
   unchanged: number;
+  secret?: SynchronizedSecretIdentity;
+}
+
+export interface SynchronizedSecretIdentity {
+  id: string;
+  name: string;
 }
 
 export interface CreateExternalSecretRequest {

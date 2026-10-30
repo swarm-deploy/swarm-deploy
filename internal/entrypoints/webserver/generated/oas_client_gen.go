@@ -4005,6 +4005,44 @@ func (c *Client) sendSyncSecretManager(ctx context.Context, params SyncSecretMan
 	pathParts[4] = "/sync"
 	uri.AddPathParts(u, pathParts[:]...)
 
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "created_path" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "created_path",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CreatedPath.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	{
+		// Encode "created_key" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "created_key",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if val, ok := params.CreatedKey.Get(); ok {
+				return e.EncodeValue(conv.StringToString(val))
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
+
 	stage = "EncodeRequest"
 	r, err := ht.NewRequest(ctx, "POST", u)
 	if err != nil {

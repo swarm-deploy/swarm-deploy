@@ -5240,6 +5240,14 @@ func (s *Server) handleSyncSecretManagerRequest(args [2]string, argsEscaped bool
 					Name: "service",
 					In:   "path",
 				}: params.Service,
+				{
+					Name: "created_path",
+					In:   "query",
+				}: params.CreatedPath,
+				{
+					Name: "created_key",
+					In:   "query",
+				}: params.CreatedKey,
 			},
 			Raw: r,
 		}

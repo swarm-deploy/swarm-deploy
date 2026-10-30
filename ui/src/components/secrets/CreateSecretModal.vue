@@ -4,7 +4,8 @@ import { tokenizeWith } from "@speed-highlight/core/tokenize";
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 
 import { createExternalSecret, createSecret, syncSecretManager } from "../../api/secrets";
-import type { SecretManagerInfo } from "../../api/types";
+import type { SecretManagerInfo, SynchronizedSecretIdentity } from "../../api/types";
+import { copyText } from "../../utils/clipboard";
 import { safeExternalLink } from "../../utils/externalLink";
 import AppTabs from "../common/AppTabs.vue";
 import PathInput from "./PathInput.vue";
@@ -44,7 +45,10 @@ const resultManager = ref<SecretManagerInfo>();
 const normalizedPath = ref("");
 const createdKey = ref("");
 const managerURL = ref("");
+const synchronizedSecret = ref<SynchronizedSecretIdentity>();
+const secretNameCopied = ref(false);
 const jsonHighlight = ref<HTMLElement>();
+let copiedResetTimer: ReturnType<typeof setTimeout> | undefined;
 
 const pending = computed(() => submissionStage.value !== "");
 const resultVisible = computed(() => resultState.value !== "");
@@ -74,14 +78,13 @@ const destinationTabs = computed(() => [
   { value: "docker", label: "Docker Swarm" },
   { value: "cloud", label: "Cloud Secrets" },
 ]);
-const resultProviderKind = computed(() => providerKind(resultManager.value));
 const resultProviderName = computed(() => resultManager.value?.provider?.name || "the external provider");
 const resultManagerIdentity = computed(() => (
   resultManager.value ? managerIdentity(resultManager.value) : ""
 ));
 const resultManagerLink = computed(() => safeExternalLink(managerURL.value));
-const resultPathLabel = computed(() => (
-  resultProviderKind.value === "vault" ? "Secret document" : "Secret"
+const resultExternalPath = computed(() => (
+  createdKey.value ? `${normalizedPath.value}/${createdKey.value}` : normalizedPath.value
 ));
 const resultHeading = computed(() => {
   if (submissionStage.value === "syncing" || submissionStage.value === "retrying") return "Secret created";
@@ -155,6 +158,8 @@ function resetForm(): void {
   normalizedPath.value = "";
   createdKey.value = "";
   managerURL.value = "";
+  synchronizedSecret.value = undefined;
+  clearCopiedState();
 }
 
 watch(() => props.open, (open) => {
@@ -218,14 +223,36 @@ async function synchronizeCreatedSecret(retry: boolean): Promise<void> {
   }
   errorMessage.value = "";
   try {
-    await syncSecretManager(manager.stack, manager.service);
+    const response = await syncSecretManager(manager.stack, manager.service, {
+      path: normalizedPath.value,
+      ...(createdKey.value ? { key: createdKey.value } : {}),
+    });
+    synchronizedSecret.value = response.secret;
     resultState.value = "success";
   } catch {
+    synchronizedSecret.value = undefined;
     resultState.value = "partial";
     errorMessage.value = "Failed to synchronize the secret to Docker Swarm. You can retry synchronization without creating the secret again.";
   } finally {
     submissionStage.value = "";
   }
+}
+
+async function copySynchronizedSecretName(): Promise<void> {
+  if (!synchronizedSecret.value) return;
+  await copyText(synchronizedSecret.value.name);
+  if (copiedResetTimer !== undefined) clearTimeout(copiedResetTimer);
+  secretNameCopied.value = true;
+  copiedResetTimer = setTimeout(() => {
+    secretNameCopied.value = false;
+    copiedResetTimer = undefined;
+  }, 1600);
+}
+
+function clearCopiedState(): void {
+  if (copiedResetTimer !== undefined) clearTimeout(copiedResetTimer);
+  copiedResetTimer = undefined;
+  secretNameCopied.value = false;
 }
 
 async function retrySync(): Promise<void> {
@@ -260,7 +287,7 @@ async function submit(): Promise<void> {
         : {}),
     });
     normalizedPath.value = response.path;
-    createdKey.value = selectedProviderKind.value === "vault" ? key.value : "";
+    createdKey.value = selectedProviderKind.value === "vault" ? key.value.trim() : "";
     managerURL.value = response.manager_url || "";
     resultManager.value = manager;
     value.value = "";
@@ -279,7 +306,10 @@ function handleEscape(event: KeyboardEvent): void {
 }
 
 onMounted(() => document.addEventListener("keydown", handleEscape));
-onUnmounted(() => document.removeEventListener("keydown", handleEscape));
+onUnmounted(() => {
+  document.removeEventListener("keydown", handleEscape);
+  clearCopiedState();
+});
 </script>
 
 <template>
@@ -450,10 +480,21 @@ onUnmounted(() => document.removeEventListener("keydown", handleEscape));
         <div class="create-secret-result-secret">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="8.5" cy="15.5" r="4" /><path d="m11.5 12.5 8-8m-2 2 2 2m-5 1 2 2" /></svg>
           <div>
-            <span>{{ resultPathLabel }}</span>
-            <code>{{ normalizedPath }}</code>
-            <small v-if="createdKey">Key: <code>{{ createdKey }}</code></small>
+            <span>{{ synchronizedSecret ? "Docker Swarm secret" : "External secret path" }}</span>
+            <code>{{ synchronizedSecret?.name || resultExternalPath }}</code>
+            <small v-if="resultState === 'success' && !synchronizedSecret">Docker Swarm resource could not be identified.</small>
           </div>
+          <button
+            v-if="synchronizedSecret"
+            type="button"
+            class="create-secret-result-copy"
+            :aria-label="secretNameCopied ? 'Docker Swarm secret name copied' : 'Copy Docker Swarm secret name'"
+            :title="secretNameCopied ? 'Copied' : 'Copy Docker Swarm secret name'"
+            @click="copySynchronizedSecretName"
+          >
+            <svg v-if="secretNameCopied" class="create-secret-result-copy-check" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.2 4.2L19 7" /></svg>
+            <svg v-else viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="11" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></svg>
+          </button>
         </div>
 
         <dl class="create-secret-result-details">
@@ -589,12 +630,17 @@ onUnmounted(() => document.removeEventListener("keydown", handleEscape));
 .create-secret-result-icon--success { border-color: var(--success-border); background: var(--success-muted); color: var(--success); }
 .create-secret-result-icon--partial { border-color: var(--warning-border); background: var(--warning-muted); color: var(--warning); }
 .create-secret-result-icon .create-secret-spinner { width: 23px; height: 23px; }
-.create-secret-result-secret { min-width: 0; display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 9px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-input); padding: 11px 13px; }
+.create-secret-result-secret { min-width: 0; display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; align-items: center; gap: 9px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-input); padding: 11px 13px; }
 .create-secret-result-secret > svg { width: 23px; height: 23px; color: var(--muted); }
 .create-secret-result-secret > div { min-width: 0; display: grid; gap: 2px; }
 .create-secret-result-secret span, .create-secret-result-secret small { color: var(--muted); font-size: .72rem; }
 .create-secret-result-secret > div > code { color: var(--text); font-size: .88rem; font-weight: 600; white-space: normal; overflow-wrap: anywhere; }
 .create-secret-result-secret small code { color: var(--text); font-size: inherit; }
+.create-secret-result-copy { display: inline-grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 5px; background: transparent; color: var(--muted); padding: 0; transform: none; filter: none; }
+.create-secret-result-copy:hover { background: var(--surface-hover); color: var(--text); transform: none; filter: none; }
+.create-secret-result-copy:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 1px; }
+.create-secret-result-copy svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.create-secret-result-copy .create-secret-result-copy-check { color: var(--success); stroke-width: 2; }
 .create-secret-result-details { margin: 0; border-bottom: 1px solid var(--border-default); }
 .create-secret-result-details > div { display: grid; grid-template-columns: minmax(190px, 1fr) minmax(0, 1.2fr); align-items: center; gap: 16px; min-height: 52px; border-top: 1px solid var(--border-default); padding: 9px 2px; }
 .create-secret-result-details > div + div { border-top: 1px solid var(--border-default); }

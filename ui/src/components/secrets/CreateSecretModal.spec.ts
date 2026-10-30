@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createExternalSecret, createSecret, syncSecretManager } from "../../api/secrets";
 import type { SecretManagerInfo } from "../../api/types";
+import { copyText } from "../../utils/clipboard";
 import CreateSecretModal from "./CreateSecretModal.vue";
 
 vi.mock("../../api/secrets", () => ({
@@ -10,6 +11,7 @@ vi.mock("../../api/secrets", () => ({
   createExternalSecret: vi.fn(),
   syncSecretManager: vi.fn(),
 }));
+vi.mock("../../utils/clipboard", () => ({ copyText: vi.fn() }));
 
 const vault: SecretManagerInfo = {
   stack: "security",
@@ -52,7 +54,13 @@ describe("CreateSecretModal", () => {
       path: "normalized/path",
       manager_url: "https://vault.example.com/ui/vault/secrets/kv/show/normalized/path",
     });
-    vi.mocked(syncSecretManager).mockResolvedValue({ created: 1, updated: 0, removed: 0, unchanged: 0 });
+    vi.mocked(syncSecretManager).mockResolvedValue({
+      created: 1,
+      updated: 0,
+      removed: 0,
+      unchanged: 0,
+      secret: { id: "swarm-secret-id", name: "actual-swarm-secret-name" },
+    });
   });
 
   it("creates a Docker Swarm secret with the exact multiline payload", async () => {
@@ -128,13 +136,15 @@ describe("CreateSecretModal", () => {
       key: "password",
       value: "literal-value",
     });
-    expect(syncSecretManager).toHaveBeenCalledWith("security", "vault-secrets");
+    expect(syncSecretManager).toHaveBeenCalledWith("security", "vault-secrets", {
+      path: "normalized/path",
+      key: "password",
+    });
     expect(wrapper.emitted("created")).toBeUndefined();
     expect(wrapper.text()).toContain("Secret created successfully");
     expect(wrapper.text()).toContain("The secret was created in HashiCorp Vault and synchronized to Docker Swarm.");
-    expect(wrapper.text()).toContain("Secret document");
-    expect(wrapper.text()).toContain("normalized/path");
-    expect(wrapper.text()).toContain("password");
+    expect(wrapper.text()).toContain("Docker Swarm secret");
+    expect(wrapper.text()).toContain("actual-swarm-secret-name");
     expect(wrapper.text()).toContain("Completed");
     expect(wrapper.text()).not.toContain("literal-value");
     expect(wrapper.get(".create-secret-result-link").attributes()).toMatchObject({
@@ -143,6 +153,14 @@ describe("CreateSecretModal", () => {
       rel: "noopener noreferrer",
     });
 
+    const copyButton = wrapper.get(".create-secret-result-copy");
+    expect(copyButton.attributes("type")).toBe("button");
+    expect(copyButton.attributes("aria-label")).toBe("Copy Docker Swarm secret name");
+    await copyButton.trigger("click");
+    await flushPromises();
+    expect(copyText).toHaveBeenCalledWith("actual-swarm-secret-name");
+    expect(copyButton.attributes("title")).toBe("Copied");
+
     await wrapper.get(".create-secret-result-actions button").trigger("click");
     expect(wrapper.emitted("created")?.[0]).toEqual([]);
   });
@@ -150,7 +168,13 @@ describe("CreateSecretModal", () => {
   it("retries only Sync after partial success", async () => {
     vi.mocked(syncSecretManager)
       .mockRejectedValueOnce(new Error("sync already in progress"))
-      .mockResolvedValueOnce({ created: 1, updated: 0, removed: 0, unchanged: 0 });
+      .mockResolvedValueOnce({
+        created: 1,
+        updated: 0,
+        removed: 0,
+        unchanged: 0,
+        secret: { id: "retried-id", name: "retried-swarm-secret" },
+      });
     const wrapper = mountModal();
     await selectCloudMode(wrapper);
     await wrapper.get('input[aria-label="Path"]').setValue("production/database");
@@ -161,9 +185,13 @@ describe("CreateSecretModal", () => {
 
     expect(wrapper.text()).toContain("Secret created, but synchronization failed");
     expect(wrapper.text()).toContain("The secret was created in HashiCorp Vault, but could not be synchronized to Docker Swarm.");
-    expect(wrapper.text()).toContain("normalized/path");
+    expect(wrapper.text()).toContain("External secret path");
+    expect(wrapper.text()).toContain("normalized/path/password");
     expect(wrapper.text()).toContain("Failed to synchronize the secret to Docker Swarm.");
     expect(wrapper.text()).not.toContain("sync already in progress");
+    expect(wrapper.get(".create-secret-result-link").attributes("href")).toBe(
+      "https://vault.example.com/ui/vault/secrets/kv/show/normalized/path",
+    );
     const retryButton = wrapper.findAll("button").find((button) => button.text() === "Retry Sync");
     expect(retryButton).toBeDefined();
 
@@ -172,12 +200,21 @@ describe("CreateSecretModal", () => {
     expect(createExternalSecret).toHaveBeenCalledOnce();
     expect(syncSecretManager).toHaveBeenCalledTimes(2);
     expect(wrapper.text()).toContain("Secret created successfully");
+    expect(wrapper.text()).toContain("Docker Swarm secret");
+    expect(wrapper.text()).toContain("retried-swarm-secret");
+    expect(wrapper.text()).not.toContain("External secret path");
     expect(wrapper.text()).toContain("Completed");
   });
 
   it("shows the real create and synchronization stages without duplicate submission", async () => {
     const create = deferred<{ path: string; manager_url: string }>();
-    const sync = deferred<{ created: number; updated: number; removed: number; unchanged: number }>();
+    const sync = deferred<{
+      created: number;
+      updated: number;
+      removed: number;
+      unchanged: number;
+      secret: { id: string; name: string };
+    }>();
     vi.mocked(createExternalSecret).mockReturnValue(create.promise);
     vi.mocked(syncSecretManager).mockReturnValue(sync.promise);
     const wrapper = mountModal();
@@ -199,7 +236,13 @@ describe("CreateSecretModal", () => {
     expect(wrapper.text()).toContain("Synchronizing to Docker Swarm…");
     expect(wrapper.find("form").exists()).toBe(false);
 
-    sync.resolve({ created: 1, updated: 0, removed: 0, unchanged: 0 });
+    sync.resolve({
+      created: 1,
+      updated: 0,
+      removed: 0,
+      unchanged: 0,
+      secret: { id: "staged-id", name: "staged-secret" },
+    });
     await flushPromises();
     expect(wrapper.text()).toContain("Completed");
   });
@@ -221,6 +264,21 @@ describe("CreateSecretModal", () => {
 
     expect(wrapper.text()).toContain("Secret created successfully");
     expect(wrapper.find(".create-secret-result-link").exists()).toBe(false);
+  });
+
+  it("does not guess a Docker Swarm name when synchronization cannot identify one", async () => {
+    vi.mocked(syncSecretManager).mockResolvedValue({ created: 1, updated: 0, removed: 0, unchanged: 0 });
+    const wrapper = mountModal();
+    await wrapper.get('input[aria-label="Path"]').setValue("production/database");
+    await wrapper.get('input[aria-label="Key"]').setValue("password");
+    await wrapper.get("textarea").setValue("literal-value");
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("External secret path");
+    expect(wrapper.text()).toContain("normalized/path/password");
+    expect(wrapper.text()).toContain("Docker Swarm resource could not be identified.");
+    expect(wrapper.find(".create-secret-result-copy").exists()).toBe(false);
   });
 
   it("preserves content across Text and JSON modes, validates, and formats only on request", async () => {

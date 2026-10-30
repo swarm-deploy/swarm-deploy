@@ -3527,6 +3527,10 @@ func decodeSearchParams(args [0]string, argsEscaped bool, r *http.Request) (para
 type SyncSecretManagerParams struct {
 	Stack   string
 	Service string
+	// Provider-normalized path returned when the external secret was created.
+	CreatedPath OptString `json:",omitempty,omitzero"`
+	// Vault KV v2 key returned as part of the created logical secret identity.
+	CreatedKey OptString `json:",omitempty,omitzero"`
 }
 
 func unpackSyncSecretManagerParams(packed middleware.Parameters) (params SyncSecretManagerParams) {
@@ -3544,10 +3548,29 @@ func unpackSyncSecretManagerParams(packed middleware.Parameters) (params SyncSec
 		}
 		params.Service = packed[key].(string)
 	}
+	{
+		key := middleware.ParameterKey{
+			Name: "created_path",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.CreatedPath = v.(OptString)
+		}
+	}
+	{
+		key := middleware.ParameterKey{
+			Name: "created_key",
+			In:   "query",
+		}
+		if v, ok := packed[key]; ok {
+			params.CreatedKey = v.(OptString)
+		}
+	}
 	return params
 }
 
 func decodeSyncSecretManagerParams(args [2]string, argsEscaped bool, r *http.Request) (params SyncSecretManagerParams, _ error) {
+	q := uri.NewQueryDecoder(r.URL.Query())
 	// Decode path: stack.
 	if err := func() error {
 		param := args[0]
@@ -3635,6 +3658,142 @@ func decodeSyncSecretManagerParams(args [2]string, argsEscaped bool, r *http.Req
 		return params, &ogenerrors.DecodeParamError{
 			Name: "service",
 			In:   "path",
+			Err:  err,
+		}
+	}
+	// Decode query: created_path.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "created_path",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotCreatedPathVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotCreatedPathVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.CreatedPath.SetTo(paramsDotCreatedPathVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if value, ok := params.CreatedPath.Get(); ok {
+					if err := func() error {
+						if err := (validate.String{
+							MinLength:     1,
+							MinLengthSet:  true,
+							MaxLength:     0,
+							MaxLengthSet:  false,
+							Email:         false,
+							Hostname:      false,
+							Regex:         nil,
+							MinNumeric:    0,
+							MinNumericSet: false,
+							MaxNumeric:    0,
+							MaxNumericSet: false,
+						}).Validate(string(value)); err != nil {
+							return errors.Wrap(err, "string")
+						}
+						return nil
+					}(); err != nil {
+						return err
+					}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "created_path",
+			In:   "query",
+			Err:  err,
+		}
+	}
+	// Decode query: created_key.
+	if err := func() error {
+		cfg := uri.QueryParameterDecodingConfig{
+			Name:    "created_key",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.HasParam(cfg); err == nil {
+			if err := q.DecodeParam(cfg, func(d uri.Decoder) error {
+				var paramsDotCreatedKeyVal string
+				if err := func() error {
+					val, err := d.DecodeValue()
+					if err != nil {
+						return err
+					}
+
+					c, err := conv.ToString(val)
+					if err != nil {
+						return err
+					}
+
+					paramsDotCreatedKeyVal = c
+					return nil
+				}(); err != nil {
+					return err
+				}
+				params.CreatedKey.SetTo(paramsDotCreatedKeyVal)
+				return nil
+			}); err != nil {
+				return err
+			}
+			if err := func() error {
+				if value, ok := params.CreatedKey.Get(); ok {
+					if err := func() error {
+						if err := (validate.String{
+							MinLength:     1,
+							MinLengthSet:  true,
+							MaxLength:     0,
+							MaxLengthSet:  false,
+							Email:         false,
+							Hostname:      false,
+							Regex:         nil,
+							MinNumeric:    0,
+							MinNumericSet: false,
+							MaxNumeric:    0,
+							MaxNumericSet: false,
+						}).Validate(string(value)); err != nil {
+							return errors.Wrap(err, "string")
+						}
+						return nil
+					}(); err != nil {
+						return err
+					}
+				}
+				return nil
+			}(); err != nil {
+				return err
+			}
+		}
+		return nil
+	}(); err != nil {
+		return params, &ogenerrors.DecodeParamError{
+			Name: "created_key",
+			In:   "query",
 			Err:  err,
 		}
 	}

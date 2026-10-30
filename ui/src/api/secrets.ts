@@ -31,11 +31,19 @@ export function fetchSecretManagers(): Promise<SecretManagersResponse> {
   return apiRequest<SecretManagersResponse>("/api/v1/secret-managers");
 }
 
-export function syncSecretManager(stack: string, service: string): Promise<SecretManagerSyncResponse> {
+export function syncSecretManager(
+  stack: string,
+  service: string,
+  created?: { path: string; key?: string },
+): Promise<SecretManagerSyncResponse> {
   const encodedStack = encodeURIComponent(stack);
   const encodedService = encodeURIComponent(service);
+  const query = new URLSearchParams();
+  if (created?.path) query.set("created_path", created.path);
+  if (created?.key) query.set("created_key", created.key);
+  const suffix = query.size > 0 ? `?${query}` : "";
   return apiRequest<SecretManagerSyncResponse>(
-    `/api/v1/secret-managers/${encodedStack}/${encodedService}/sync`,
+    `/api/v1/secret-managers/${encodedStack}/${encodedService}/sync${suffix}`,
     { method: "POST" },
   );
 }

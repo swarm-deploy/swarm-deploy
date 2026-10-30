@@ -4769,6 +4769,52 @@ func (o OptSwarmTaskResources) Or(d SwarmTaskResources) SwarmTaskResources {
 	return d
 }
 
+// NewOptSynchronizedSecretIdentity returns new OptSynchronizedSecretIdentity with value set to v.
+func NewOptSynchronizedSecretIdentity(v SynchronizedSecretIdentity) OptSynchronizedSecretIdentity {
+	return OptSynchronizedSecretIdentity{
+		Value: v,
+		Set:   true,
+	}
+}
+
+// OptSynchronizedSecretIdentity is optional SynchronizedSecretIdentity.
+type OptSynchronizedSecretIdentity struct {
+	Value SynchronizedSecretIdentity
+	Set   bool
+}
+
+// IsSet returns true if OptSynchronizedSecretIdentity was set.
+func (o OptSynchronizedSecretIdentity) IsSet() bool { return o.Set }
+
+// Reset unsets value.
+func (o *OptSynchronizedSecretIdentity) Reset() {
+	var v SynchronizedSecretIdentity
+	o.Value = v
+	o.Set = false
+}
+
+// SetTo sets value to v.
+func (o *OptSynchronizedSecretIdentity) SetTo(v SynchronizedSecretIdentity) {
+	o.Set = true
+	o.Value = v
+}
+
+// Get returns value and boolean that denotes whether value was set.
+func (o OptSynchronizedSecretIdentity) Get() (v SynchronizedSecretIdentity, ok bool) {
+	if !o.Set {
+		return v, false
+	}
+	return o.Value, true
+}
+
+// Or returns value if set, or given parameter if does not.
+func (o OptSynchronizedSecretIdentity) Or(d SynchronizedSecretIdentity) SynchronizedSecretIdentity {
+	if v, ok := o.Get(); ok {
+		return v
+	}
+	return d
+}
+
 // Ref: #/components/schemas/QueueResponse
 type QueueResponse struct {
 	Queued bool `json:"queued"`
@@ -5520,10 +5566,11 @@ func (s *SecretManagerProviderLinks) SetManager(val OptString) {
 
 // Ref: #/components/schemas/SecretManagerSyncResponse
 type SecretManagerSyncResponse struct {
-	Created   int64 `json:"created"`
-	Updated   int64 `json:"updated"`
-	Removed   int64 `json:"removed"`
-	Unchanged int64 `json:"unchanged"`
+	Created   int64                         `json:"created"`
+	Updated   int64                         `json:"updated"`
+	Removed   int64                         `json:"removed"`
+	Unchanged int64                         `json:"unchanged"`
+	Secret    OptSynchronizedSecretIdentity `json:"secret"`
 }
 
 // GetCreated returns the value of Created.
@@ -5546,6 +5593,11 @@ func (s *SecretManagerSyncResponse) GetUnchanged() int64 {
 	return s.Unchanged
 }
 
+// GetSecret returns the value of Secret.
+func (s *SecretManagerSyncResponse) GetSecret() OptSynchronizedSecretIdentity {
+	return s.Secret
+}
+
 // SetCreated sets the value of Created.
 func (s *SecretManagerSyncResponse) SetCreated(val int64) {
 	s.Created = val
@@ -5564,6 +5616,11 @@ func (s *SecretManagerSyncResponse) SetRemoved(val int64) {
 // SetUnchanged sets the value of Unchanged.
 func (s *SecretManagerSyncResponse) SetUnchanged(val int64) {
 	s.Unchanged = val
+}
+
+// SetSecret sets the value of Secret.
+func (s *SecretManagerSyncResponse) SetSecret(val OptSynchronizedSecretIdentity) {
+	s.Secret = val
 }
 
 // Ref: #/components/schemas/SecretManagersResponse
@@ -7115,6 +7172,32 @@ func (s *SyncInfo) init() SyncInfo {
 		*s = m
 	}
 	return m
+}
+
+// Ref: #/components/schemas/SynchronizedSecretIdentity
+type SynchronizedSecretIdentity struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// GetID returns the value of ID.
+func (s *SynchronizedSecretIdentity) GetID() string {
+	return s.ID
+}
+
+// GetName returns the value of Name.
+func (s *SynchronizedSecretIdentity) GetName() string {
+	return s.Name
+}
+
+// SetID sets the value of ID.
+func (s *SynchronizedSecretIdentity) SetID(val string) {
+	s.ID = val
+}
+
+// SetName sets the value of Name.
+func (s *SynchronizedSecretIdentity) SetName(val string) {
+	s.Name = val
 }
 
 // UpdateNodeLabelNoContent is response for UpdateNodeLabel operation.
