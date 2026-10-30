@@ -15,7 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
-	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )

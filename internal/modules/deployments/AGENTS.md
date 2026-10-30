@@ -11,6 +11,9 @@ The Deployments module owns:
 - SQLite persistence for deployments and attempts.
 - Successful deployment baselines.
 - Deployment history queries.
+- Stack and service deployment execution.
+- Docker CLI invocation, Init Jobs, and resource reconciliation.
+- Deployment secret resolution and execution tracing.
 
 ## Boundaries
 
@@ -18,12 +21,11 @@ The module MUST NOT:
 
 - Depend on GitOps.
 - Perform Git synchronization.
-- Execute Docker operations.
-- Implement reconciliation or drift detection.
+- Implement GitOps reconciliation or drift detection.
 - Orchestrate deployment lifecycle transitions.
 - Introduce its own transaction infrastructure.
 
-Deployment lifecycle orchestration currently remains in GitOps.
+Deployment lifecycle orchestration, including attempt and status transitions, currently remains in GitOps.
 
 ## Persistence Rules
 

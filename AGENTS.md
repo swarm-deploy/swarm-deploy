@@ -27,8 +27,8 @@
 ## Project structure
 - `./ui` - Vue frontend
 - `./internal/config` - YAML runtime configuration
-- `./internal/modules/gitops` - GitOps orchestration, reconciliation, and deployment lifecycle execution
-- `./internal/modules/deployments` - Deployment domain models, desired-state snapshots, and persistence
+- `./internal/modules/gitops` - GitOps orchestration, reconciliation, and deployment lifecycle management
+- `./internal/modules/deployments` - Deployment execution, domain models, desired-state snapshots, and persistence
 - `./internal/modules/event` - Event Bus, Outbox, and Event History
 - `./internal/modules/alertmanagement` - Alert Management
 - `./internal/modules/notifications` - Notification delivery
@@ -38,7 +38,6 @@
 - `./internal/entrypoints/webserver` - Web UI and REST API server
 - `./internal/entrypoints/webhookserver` - Webhook server
 - `./internal/swarm` - Docker Swarm API integration
-- `./internal/deployer` - Stack deployment and resource reconciliation
 - `./internal/storage` - SQLite persistence
 - `./internal/metrics` - Application metrics
 - `./api/api-server.yaml` - OpenAPI contract for the web API

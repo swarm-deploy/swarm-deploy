@@ -23,6 +23,14 @@ from those files or from live Docker resources.
 
 - `internal/storage` owns connection setup, pragmas, Goose migrations, context
   transactions, and shutdown. Module repositories own their business queries.
+- `internal/modules/deployments` owns deployment execution infrastructure: Docker
+  CLI stack and service apply, Init Jobs, secret resolution, and config/secret
+  reconciliation. It has no dependency on GitOps.
+- `internal/modules/gitops` owns Git synchronization, desired-state planning and
+  reconciliation, Deployment/Attempt lifecycle transitions, completion persistence,
+  and drift self-heal orchestration. It consumes the Deployer exposed by the
+  Deployments module and retains responsibility for deciding when to call
+  `DeployStack` or `DeployService`.
 - The pure-Go SQLite driver supports the `CGO_ENABLED=0` build. WAL, foreign keys,
   busy timeout, and full synchronization are configured on pooled connections.
 - The database uses a local persistent volume. One replica is pinned to one manager;
