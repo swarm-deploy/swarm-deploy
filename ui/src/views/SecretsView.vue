@@ -183,13 +183,15 @@ async function openSecretDetails(secretName: string) {
   await secretDetailsStore.openSecretDetails(secretName);
 }
 
-async function handleSecretCreated(message: string) {
+async function handleSecretCreated(message?: string) {
   createModalOpen.value = false;
-  createFeedback.value = message;
+  createFeedback.value = message || "";
   await Promise.all([loadSecrets(), loadSecretManagers()]);
-  window.setTimeout(() => {
-    createFeedback.value = "";
-  }, 5000);
+  if (message) {
+    window.setTimeout(() => {
+      createFeedback.value = "";
+    }, 5000);
+  }
 }
 
 function formatDate(value: string): string {

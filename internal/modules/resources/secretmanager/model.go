@@ -72,8 +72,10 @@ type CreateRequest struct {
 	Description string
 }
 
-// CreateResult contains the normalized provider path returned by cloud-secrets.
+// CreateResult contains the created secret returned by cloud-secrets.
 type CreateResult struct {
 	// Path is the normalized provider path.
 	Path string
+	// ManagerURL is the optional provider URL for the created secret.
+	ManagerURL string
 }

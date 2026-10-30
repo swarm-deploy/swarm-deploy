@@ -63,10 +63,12 @@ type CreateRequest struct {
 	Description string
 }
 
-// CreateResult describes the normalized path returned by cloud-secrets.
+// CreateResult describes the created secret returned by cloud-secrets.
 type CreateResult struct {
 	// Path is the normalized provider path.
 	Path string
+	// ManagerURL is the optional provider URL for the created secret.
+	ManagerURL string
 }
 
 // Controller controls one cloud-secrets instance.
@@ -170,7 +172,10 @@ func (c *Client) Create(ctx context.Context, req CreateRequest) (CreateResult, e
 		return CreateResult{}, err
 	}
 
-	return CreateResult{Path: response.GetPath()}, nil
+	return CreateResult{
+		Path:       response.GetPath(),
+		ManagerURL: response.GetManagerUrl(),
+	}, nil
 }
 
 // Sync triggers cloud-secrets synchronization.

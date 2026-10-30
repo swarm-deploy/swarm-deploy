@@ -2352,10 +2352,17 @@ func (s *CreateExternalSecretResponse) encodeFields(e *jx.Encoder) {
 		e.FieldStart("path")
 		e.Str(s.Path)
 	}
+	{
+		if s.ManagerURL.Set {
+			e.FieldStart("manager_url")
+			s.ManagerURL.Encode(e)
+		}
+	}
 }
 
-var jsonFieldsNameOfCreateExternalSecretResponse = [1]string{
+var jsonFieldsNameOfCreateExternalSecretResponse = [2]string{
 	0: "path",
+	1: "manager_url",
 }
 
 // Decode decodes CreateExternalSecretResponse from json.
@@ -2378,6 +2385,16 @@ func (s *CreateExternalSecretResponse) Decode(d *jx.Decoder) error {
 				return nil
 			}(); err != nil {
 				return errors.Wrap(err, "decode field \"path\"")
+			}
+		case "manager_url":
+			if err := func() error {
+				s.ManagerURL.Reset()
+				if err := s.ManagerURL.Decode(d); err != nil {
+					return err
+				}
+				return nil
+			}(); err != nil {
+				return errors.Wrap(err, "decode field \"manager_url\"")
 			}
 		default:
 			return d.Skip()

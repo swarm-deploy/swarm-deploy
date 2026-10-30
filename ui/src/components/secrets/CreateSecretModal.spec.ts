@@ -32,6 +32,14 @@ function mountModal(managers: SecretManagerInfo[] = [vault, cloudru]) {
   return mount(CreateSecretModal, { props: { open: true, managers } });
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((promiseResolve) => {
+    resolve = promiseResolve;
+  });
+  return { promise, resolve };
+}
+
 async function selectCloudMode(wrapper: ReturnType<typeof mountModal>) {
   await wrapper.findAll('[role="tab"]')[1].trigger("click");
 }
@@ -40,7 +48,10 @@ describe("CreateSecretModal", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     vi.mocked(createSecret).mockResolvedValue({ id: "secret-id", name: "app-token" });
-    vi.mocked(createExternalSecret).mockResolvedValue({ path: "normalized/path" });
+    vi.mocked(createExternalSecret).mockResolvedValue({
+      path: "normalized/path",
+      manager_url: "https://vault.example.com/ui/vault/secrets/kv/show/normalized/path",
+    });
     vi.mocked(syncSecretManager).mockResolvedValue({ created: 1, updated: 0, removed: 0, unchanged: 0 });
   });
 
@@ -97,9 +108,11 @@ describe("CreateSecretModal", () => {
     expect(createExternalSecret).toHaveBeenCalledOnce();
     expect(syncSecretManager).not.toHaveBeenCalled();
     expect(wrapper.text()).toContain("duplicate secret");
+    expect(wrapper.find("form").exists()).toBe(true);
+    expect(wrapper.find(".create-secret-result").exists()).toBe(false);
   });
 
-  it("creates externally and then synchronizes", async () => {
+  it("shows the provider result after external creation and synchronization", async () => {
     const wrapper = mountModal();
     await selectCloudMode(wrapper);
     await wrapper.get('input[aria-label="Path"]').setValue("production/demo/database");
@@ -114,9 +127,22 @@ describe("CreateSecretModal", () => {
       value: "literal-value",
     });
     expect(syncSecretManager).toHaveBeenCalledWith("security", "vault-secrets");
-    expect(wrapper.emitted("created")?.[0]).toEqual([
-      "Secret created in the external provider and synchronization completed.",
-    ]);
+    expect(wrapper.emitted("created")).toBeUndefined();
+    expect(wrapper.text()).toContain("Secret created successfully");
+    expect(wrapper.text()).toContain("The secret was created in HashiCorp Vault and synchronized to Docker Swarm.");
+    expect(wrapper.text()).toContain("Secret document");
+    expect(wrapper.text()).toContain("normalized/path");
+    expect(wrapper.text()).toContain("password");
+    expect(wrapper.text()).toContain("Completed");
+    expect(wrapper.text()).not.toContain("literal-value");
+    expect(wrapper.get(".create-secret-result-link").attributes()).toMatchObject({
+      href: "https://vault.example.com/ui/vault/secrets/kv/show/normalized/path",
+      target: "_blank",
+      rel: "noopener noreferrer",
+    });
+
+    await wrapper.get(".create-secret-result-actions button").trigger("click");
+    expect(wrapper.emitted("created")?.[0]).toEqual([]);
   });
 
   it("retries only Sync after partial success", async () => {
@@ -131,14 +157,68 @@ describe("CreateSecretModal", () => {
     await wrapper.get("form").trigger("submit");
     await flushPromises();
 
-    expect(wrapper.text()).toContain("Secret created in the external provider, but synchronization with Docker Swarm failed.");
+    expect(wrapper.text()).toContain("Secret created, but synchronization failed");
+    expect(wrapper.text()).toContain("The secret was created in HashiCorp Vault, but could not be synchronized to Docker Swarm.");
     expect(wrapper.text()).toContain("normalized/path");
-    expect(wrapper.get('button[type="submit"]').text()).toBe("Retry Sync");
+    expect(wrapper.text()).toContain("Failed to synchronize the secret to Docker Swarm.");
+    expect(wrapper.text()).not.toContain("sync already in progress");
+    const retryButton = wrapper.findAll("button").find((button) => button.text() === "Retry Sync");
+    expect(retryButton).toBeDefined();
 
-    await wrapper.get("form").trigger("submit");
+    await retryButton!.trigger("click");
     await flushPromises();
     expect(createExternalSecret).toHaveBeenCalledOnce();
     expect(syncSecretManager).toHaveBeenCalledTimes(2);
+    expect(wrapper.text()).toContain("Secret created successfully");
+    expect(wrapper.text()).toContain("Completed");
+  });
+
+  it("shows the real create and synchronization stages without duplicate submission", async () => {
+    const create = deferred<{ path: string; manager_url: string }>();
+    const sync = deferred<{ created: number; updated: number; removed: number; unchanged: number }>();
+    vi.mocked(createExternalSecret).mockReturnValue(create.promise);
+    vi.mocked(syncSecretManager).mockReturnValue(sync.promise);
+    const wrapper = mountModal();
+    await wrapper.get('input[aria-label="Path"]').setValue("production/database");
+    await wrapper.get('input[aria-label="Key"]').setValue("password");
+    await wrapper.get("textarea").setValue("literal-value");
+    await wrapper.get("form").trigger("submit");
+
+    expect(wrapper.text()).toContain("Creating secret…");
+    expect(wrapper.get<HTMLButtonElement>('button[type="submit"]').element.disabled).toBe(true);
+    await wrapper.get("form").trigger("submit");
+    expect(createExternalSecret).toHaveBeenCalledOnce();
+
+    create.resolve({
+      path: "production/database",
+      manager_url: "https://vault.example.com/ui/vault/secrets/kv/show/production/database",
+    });
+    await flushPromises();
+    expect(wrapper.text()).toContain("Synchronizing to Docker Swarm…");
+    expect(wrapper.find("form").exists()).toBe(false);
+
+    sync.resolve({ created: 1, updated: 0, removed: 0, unchanged: 0 });
+    await flushPromises();
+    expect(wrapper.text()).toContain("Completed");
+  });
+
+  it.each([
+    { name: "missing", managerUrl: undefined },
+    { name: "unsafe", managerUrl: "javascript:alert(1)" },
+  ])("omits a $name manager URL without fabricating a fallback link", async ({ managerUrl }) => {
+    vi.mocked(createExternalSecret).mockResolvedValue({
+      path: "normalized/path",
+      ...(managerUrl ? { manager_url: managerUrl } : {}),
+    });
+    const wrapper = mountModal();
+    await wrapper.get('input[aria-label="Path"]').setValue("production/database");
+    await wrapper.get('input[aria-label="Key"]').setValue("password");
+    await wrapper.get("textarea").setValue("literal-value");
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("Secret created successfully");
+    expect(wrapper.find(".create-secret-result-link").exists()).toBe(false);
   });
 
   it("preserves content across Text and JSON modes, validates, and formats only on request", async () => {

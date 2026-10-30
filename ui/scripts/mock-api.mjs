@@ -273,7 +273,15 @@ app.post("/api/v1/secret-managers/:stack/:service/secrets", async (context) => {
   if (request.path === "sync/failure/demo") {
     failNextSecretManagerSync.add(managerKey);
   }
-  return context.json({ path: String(request.path).trim().replace(/^\/+|\/+$/g, "") });
+  const normalizedPath = String(request.path).trim().replace(/^\/+|\/+$/g, "");
+  if (normalizedPath === "no-link/demo") {
+    return context.json({ path: normalizedPath });
+  }
+  const isVault = context.req.param("service").includes("vault");
+  const managerUrl = isVault
+    ? `https://vault.example.test/ui/vault/secrets/kv/show/${normalizedPath.split("/").map(encodeURIComponent).join("/")}`
+    : `https://console.cloud.ru/spa/secret-manager/secret?path=${encodeURIComponent(normalizedPath)}`;
+  return context.json({ path: normalizedPath, manager_url: managerUrl });
 });
 
 app.post("/api/v1/secret-managers/:stack/:service/sync", (context) => {

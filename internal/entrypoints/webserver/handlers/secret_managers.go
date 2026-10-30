@@ -69,7 +69,16 @@ func (h *handler) CreateExternalSecret(
 		return nil, externalSecretCreateError(err)
 	}
 
-	return &generated.CreateExternalSecretResponse{Path: result.Path}, nil
+	return externalSecretCreateResponse(result), nil
+}
+
+func externalSecretCreateResponse(result secretmanager.CreateResult) *generated.CreateExternalSecretResponse {
+	response := &generated.CreateExternalSecretResponse{Path: result.Path}
+	if result.ManagerURL != "" {
+		response.ManagerURL = generated.NewOptString(result.ManagerURL)
+	}
+
+	return response
 }
 
 func externalSecretCreateError(err error) error {

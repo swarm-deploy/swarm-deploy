@@ -5,12 +5,15 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 
 import { createExternalSecret, createSecret, syncSecretManager } from "../../api/secrets";
 import type { SecretManagerInfo } from "../../api/types";
+import { safeExternalLink } from "../../utils/externalLink";
 import AppTabs from "../common/AppTabs.vue";
 import PathInput from "./PathInput.vue";
 
 type Destination = "docker" | "cloud";
 type ValueMode = "text" | "json";
 type ProviderKind = "vault" | "cloudru" | "unknown";
+type SubmissionStage = "" | "creating" | "syncing" | "retrying";
+type ResultState = "" | "syncing" | "success" | "partial";
 
 const props = defineProps<{
   open: boolean;
@@ -19,7 +22,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   close: [];
-  created: [message: string];
+  created: [message?: string];
 }>();
 
 const vaultProviderName = "HashiCorp Vault";
@@ -34,11 +37,17 @@ const key = ref("");
 const value = ref("");
 const description = ref("");
 const selectedManagerKey = ref("");
-const pending = ref(false);
+const submissionStage = ref<SubmissionStage>("");
 const errorMessage = ref("");
-const partialSuccess = ref(false);
+const resultState = ref<ResultState>("");
+const resultManager = ref<SecretManagerInfo>();
 const normalizedPath = ref("");
+const createdKey = ref("");
+const managerURL = ref("");
 const jsonHighlight = ref<HTMLElement>();
+
+const pending = computed(() => submissionStage.value !== "");
+const resultVisible = computed(() => resultState.value !== "");
 
 function providerKind(manager?: SecretManagerInfo): ProviderKind {
   if (manager?.provider?.name === vaultProviderName) return "vault";
@@ -62,10 +71,42 @@ const selectedManager = computed(() => availableManagers.value.find((manager) =>
 )));
 const selectedProviderKind = computed(() => providerKind(selectedManager.value));
 const destinationTabs = computed(() => [
-  { value: "docker", label: "Docker Swarm", disabled: partialSuccess.value },
-  { value: "cloud", label: "Cloud Secrets", disabled: partialSuccess.value },
+  { value: "docker", label: "Docker Swarm" },
+  { value: "cloud", label: "Cloud Secrets" },
 ]);
-
+const resultProviderKind = computed(() => providerKind(resultManager.value));
+const resultProviderName = computed(() => resultManager.value?.provider?.name || "the external provider");
+const resultManagerIdentity = computed(() => (
+  resultManager.value ? managerIdentity(resultManager.value) : ""
+));
+const resultManagerLink = computed(() => safeExternalLink(managerURL.value));
+const resultPathLabel = computed(() => (
+  resultProviderKind.value === "vault" ? "Secret document" : "Secret"
+));
+const resultHeading = computed(() => {
+  if (submissionStage.value === "syncing" || submissionStage.value === "retrying") return "Secret created";
+  if (resultState.value === "success") return "Secret created successfully";
+  if (resultState.value === "partial") return "Secret created, but synchronization failed";
+  return "Secret created";
+});
+const resultSupportingText = computed(() => {
+  if (submissionStage.value === "syncing" || submissionStage.value === "retrying") {
+    return `The secret was created in ${resultProviderName.value} and is being synchronized to Docker Swarm.`;
+  }
+  if (resultState.value === "success") {
+    return `The secret was created in ${resultProviderName.value} and synchronized to Docker Swarm.`;
+  }
+  if (resultState.value === "partial") {
+    return `The secret was created in ${resultProviderName.value}, but could not be synchronized to Docker Swarm.`;
+  }
+  return `The secret was created in ${resultProviderName.value}.`;
+});
+const syncStatusLabel = computed(() => {
+  if (submissionStage.value === "syncing" || submissionStage.value === "retrying") {
+    return "Synchronizing to Docker Swarm…";
+  }
+  return resultState.value === "success" ? "Completed" : "Failed";
+});
 const jsonError = computed(() => {
   if (valueMode.value !== "json" || value.value === "") return "";
   try {
@@ -86,7 +127,6 @@ const highlightedJSON = computed(() => {
 });
 
 const formValid = computed(() => {
-  if (partialSuccess.value) return Boolean(selectedManager.value);
   if (value.value === "" || jsonError.value) return false;
   if (destination.value === "docker") return name.value.trim() !== "";
   if (!selectedManager.value || path.value.trim() === "") return false;
@@ -94,8 +134,7 @@ const formValid = computed(() => {
 });
 
 const submitLabel = computed(() => {
-  if (pending.value) return partialSuccess.value ? "Retrying Sync…" : "Creating…";
-  if (partialSuccess.value) return "Retry Sync";
+  if (submissionStage.value === "creating") return "Creating secret…";
   return destination.value === "docker" ? "Create Secret" : "Create & Sync";
 });
 
@@ -109,10 +148,13 @@ function resetForm(): void {
   value.value = "";
   description.value = "";
   selectedManagerKey.value = availableManagers.value[0] ? managerIdentity(availableManagers.value[0]) : "";
-  pending.value = false;
+  submissionStage.value = "";
   errorMessage.value = "";
-  partialSuccess.value = false;
+  resultState.value = "";
+  resultManager.value = undefined;
   normalizedPath.value = "";
+  createdKey.value = "";
+  managerURL.value = "";
 }
 
 watch(() => props.open, (open) => {
@@ -126,7 +168,7 @@ watch(availableManagers, (managers) => {
 });
 
 watch(selectedManagerKey, () => {
-  if (!partialSuccess.value) {
+  if (!resultVisible.value) {
     key.value = "";
     description.value = "";
     errorMessage.value = "";
@@ -135,7 +177,7 @@ watch(selectedManagerKey, () => {
 
 function setDestination(next: string): void {
   if (next !== "docker" && next !== "cloud") return;
-  if (pending.value || partialSuccess.value) return;
+  if (pending.value || resultVisible.value) return;
   destination.value = next;
   errorMessage.value = "";
 }
@@ -158,32 +200,45 @@ function syncJSONScroll(event: Event): void {
 }
 
 function close(): void {
-  if (!pending.value) emit("close");
+  if (pending.value) return;
+  if (resultVisible.value) {
+    emit("created");
+    return;
+  }
+  emit("close");
 }
 
-async function synchronizeSelectedManager(): Promise<void> {
-  const manager = selectedManager.value;
+async function synchronizeCreatedSecret(retry: boolean): Promise<void> {
+  const manager = resultManager.value;
   if (!manager) return;
 
+  submissionStage.value = retry ? "retrying" : "syncing";
+  if (!retry) {
+    resultState.value = "syncing";
+  }
+  errorMessage.value = "";
   try {
     await syncSecretManager(manager.stack, manager.service);
-    emit("created", "Secret created in the external provider and synchronization completed.");
-  } catch (error) {
-    partialSuccess.value = true;
-    errorMessage.value = error instanceof Error ? error.message : "Synchronization failed";
+    resultState.value = "success";
+  } catch {
+    resultState.value = "partial";
+    errorMessage.value = "Failed to synchronize the secret to Docker Swarm. You can retry synchronization without creating the secret again.";
+  } finally {
+    submissionStage.value = "";
   }
+}
+
+async function retrySync(): Promise<void> {
+  if (pending.value || resultState.value !== "partial") return;
+  await synchronizeCreatedSecret(true);
 }
 
 async function submit(): Promise<void> {
   if (!formValid.value || pending.value) return;
-  pending.value = true;
+  submissionStage.value = "creating";
   errorMessage.value = "";
 
   try {
-    if (partialSuccess.value) {
-      await synchronizeSelectedManager();
-      return;
-    }
     if (destination.value === "docker") {
       await createSecret({
         name: name.value.trim(),
@@ -205,13 +260,17 @@ async function submit(): Promise<void> {
         : {}),
     });
     normalizedPath.value = response.path;
-    partialSuccess.value = true;
+    createdKey.value = selectedProviderKind.value === "vault" ? key.value : "";
+    managerURL.value = response.manager_url || "";
+    resultManager.value = manager;
     value.value = "";
-    await synchronizeSelectedManager();
+    await synchronizeCreatedSecret(false);
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : "Secret creation failed";
   } finally {
-    pending.value = false;
+    if (submissionStage.value === "creating") {
+      submissionStage.value = "";
+    }
   }
 }
 
@@ -226,7 +285,13 @@ onUnmounted(() => document.removeEventListener("keydown", handleEscape));
 <template>
   <div v-if="open" class="modal create-secret-modal">
     <div class="modal-overlay" @click="close" />
-    <div class="modal-card create-secret-dialog" role="dialog" aria-modal="true" aria-labelledby="create-secret-title">
+    <div
+      class="modal-card create-secret-dialog"
+      :class="{ 'create-secret-dialog--result': resultVisible }"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="create-secret-title"
+    >
       <div class="modal-header">
         <h2 id="create-secret-title">Create Secret</h2>
         <button class="modal-close" type="button" aria-label="Close modal" :disabled="pending" @click="close">
@@ -234,7 +299,7 @@ onUnmounted(() => document.removeEventListener("keydown", handleEscape));
         </button>
       </div>
 
-      <form class="modal-body create-secret-form" @submit.prevent="submit">
+      <form v-if="!resultVisible" class="modal-body create-secret-form" @submit.prevent="submit">
         <AppTabs
           class="create-secret-tabs"
           :model-value="destination"
@@ -248,7 +313,7 @@ onUnmounted(() => document.removeEventListener("keydown", handleEscape));
           <span class="create-secret-control-icon" title="Name" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 5.5h9.2L20 12l-6.8 6.5H4z" /><circle cx="8" cy="9.5" r="1" /></svg>
           </span>
-          <input v-model="name" type="text" autocomplete="off" aria-label="Name" placeholder="Secret name" :disabled="pending || partialSuccess" required />
+          <input v-model="name" type="text" autocomplete="off" aria-label="Name" placeholder="Secret name" :disabled="pending" required />
         </label>
 
         <template v-else>
@@ -256,7 +321,7 @@ onUnmounted(() => document.removeEventListener("keydown", handleEscape));
             <span class="create-secret-control-icon" title="Secret Manager" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m12 3 8 5-8 5-8-5z" /><path d="m4 12 8 5 8-5M4 16l8 5 8-5" /></svg>
             </span>
-            <select v-model="selectedManagerKey" aria-label="Secret Manager" :disabled="pending || partialSuccess || availableManagers.length === 0" required>
+            <select v-model="selectedManagerKey" aria-label="Secret Manager" :disabled="pending || availableManagers.length === 0" required>
               <option v-for="manager in availableManagers" :key="managerIdentity(manager)" :value="managerIdentity(manager)">
                 {{ manager.stack }}/{{ manager.service }} — {{ manager.provider?.name }}
               </option>
@@ -274,13 +339,13 @@ onUnmounted(() => document.removeEventListener("keydown", handleEscape));
             No available, controllable Vault or Cloud.ru Secret Manager was discovered. Docker Swarm creation remains available.
           </p>
 
-          <PathInput v-model="path" :disabled="pending || partialSuccess || !selectedManager" required />
+          <PathInput v-model="path" :disabled="pending || !selectedManager" required />
 
           <label v-if="selectedProviderKind === 'vault'" class="create-secret-control">
             <span class="create-secret-control-icon" title="Key" aria-hidden="true">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="8.5" cy="15.5" r="4" /><path d="m11.5 12.5 8-8m-2 2 2 2m-5 1 2 2" /></svg>
             </span>
-            <input v-model="key" type="text" autocomplete="off" aria-label="Key" placeholder="Secret key" :disabled="pending || partialSuccess" required />
+            <input v-model="key" type="text" autocomplete="off" aria-label="Key" placeholder="Secret key" :disabled="pending" required />
           </label>
         </template>
 
@@ -288,7 +353,7 @@ onUnmounted(() => document.removeEventListener("keydown", handleEscape));
           <span class="create-secret-control-icon" title="Description" aria-hidden="true">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 4h14v16H5zM8 8h8m-8 4h8m-8 4h5" /></svg>
           </span>
-          <input v-model="description" type="text" autocomplete="off" aria-label="Description" placeholder="Description (optional)" :disabled="pending || partialSuccess" />
+          <input v-model="description" type="text" autocomplete="off" aria-label="Description" placeholder="Description (optional)" :disabled="pending" />
         </label>
 
         <div class="create-secret-editor" :class="{ 'create-secret-editor--error': Boolean(jsonError) }">
@@ -320,7 +385,7 @@ onUnmounted(() => document.removeEventListener("keydown", handleEscape));
             rows="5"
             spellcheck="false"
             autocomplete="new-password"
-            :disabled="pending || partialSuccess"
+            :disabled="pending"
             aria-label="Value"
             required
           />
@@ -332,7 +397,7 @@ onUnmounted(() => document.removeEventListener("keydown", handleEscape));
               rows="5"
               spellcheck="false"
               autocomplete="off"
-              :disabled="pending || partialSuccess"
+              :disabled="pending"
               aria-label="Value"
               :aria-invalid="Boolean(jsonError)"
               :aria-describedby="jsonError ? 'create-secret-json-error' : undefined"
@@ -348,24 +413,110 @@ onUnmounted(() => document.removeEventListener("keydown", handleEscape));
           <span>The secret is created in the external provider first, then synchronized into Docker Swarm.</span>
         </p>
 
-        <div v-if="partialSuccess && errorMessage" class="create-secret-notice create-secret-notice--partial" role="alert">
-          <strong>Secret created in the external provider, but synchronization with Docker Swarm failed.</strong>
-          <span v-if="normalizedPath">Provider path: <code>{{ normalizedPath }}</code></span>
-          <span>{{ errorMessage }}</span>
-        </div>
-        <p v-else-if="errorMessage" class="create-secret-inline-error" role="alert">{{ errorMessage }}</p>
+        <p v-if="submissionStage === 'creating'" class="create-secret-stage" role="status">
+          <span class="create-secret-spinner" aria-hidden="true" />
+          Creating secret…
+        </p>
+        <p v-if="errorMessage" class="create-secret-inline-error" role="alert">{{ errorMessage }}</p>
 
         <div class="create-secret-actions">
           <button type="button" class="button-ghost" :disabled="pending" @click="close">Cancel</button>
           <button type="submit" class="create-secret-submit" :disabled="!formValid || pending">{{ submitLabel }}</button>
         </div>
       </form>
+
+      <section v-else class="modal-body create-secret-result" aria-live="polite">
+        <div class="create-secret-result-summary">
+          <span
+            class="create-secret-result-icon"
+            :class="`create-secret-result-icon--${resultState}`"
+            aria-hidden="true"
+          >
+            <svg v-if="resultState === 'success'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m5 12 4 4 10-10" /></svg>
+            <svg v-else-if="resultState === 'partial'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M12 4 3.5 19h17Z" /><path d="M12 9v4m0 3h.01" /></svg>
+            <span v-else class="create-secret-spinner" />
+          </span>
+          <div>
+            <h3>{{ resultHeading }}</h3>
+            <p>{{ resultSupportingText }}</p>
+          </div>
+        </div>
+
+        <div class="create-secret-result-secret">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="8.5" cy="15.5" r="4" /><path d="m11.5 12.5 8-8m-2 2 2 2m-5 1 2 2" /></svg>
+          <div>
+            <span>{{ resultPathLabel }}</span>
+            <code>{{ normalizedPath }}</code>
+            <small v-if="createdKey">Key: <code>{{ createdKey }}</code></small>
+          </div>
+        </div>
+
+        <dl class="create-secret-result-details">
+          <div>
+            <dt>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="m12 3 8 5-8 5-8-5z" /><path d="m4 12 8 5 8-5M4 16l8 5 8-5" /></svg>
+              Secret manager
+            </dt>
+            <dd>
+              <strong>{{ resultProviderName }}</strong>
+              <small>{{ resultManagerIdentity }}</small>
+            </dd>
+          </div>
+          <div>
+            <dt>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M20 7v5h-5" /><path d="M4 17v-5h5" /><path d="M6.1 9a7 7 0 0 1 11.5-2L20 9M4 15l2.4 2a7 7 0 0 0 11.5-2" /></svg>
+              Docker Swarm synchronization
+            </dt>
+            <dd>
+              <span
+                class="create-secret-sync-status"
+                :class="`create-secret-sync-status--${resultState}`"
+                role="status"
+              >
+                <span v-if="submissionStage === 'syncing' || submissionStage === 'retrying'" class="create-secret-spinner" aria-hidden="true" />
+                <svg v-else-if="resultState === 'success'" viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="12" cy="12" r="10" />
+                  <path d="m7.5 12 3 3 6-6" />
+                </svg>
+                <svg v-else viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M12 3 2.8 20h18.4Z" />
+                  <path d="M12 9v5m0 3h.01" />
+                </svg>
+                {{ syncStatusLabel }}
+              </span>
+            </dd>
+          </div>
+        </dl>
+
+        <p v-if="resultState === 'partial' && errorMessage" class="create-secret-result-error" role="alert">
+          {{ errorMessage }}
+        </p>
+
+        <a
+          v-if="resultManagerLink"
+          class="create-secret-result-link"
+          :href="resultManagerLink"
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 5h5v5" /><path d="m19 5-9 9" /><path d="M19 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h5" /></svg>
+          Open secret in {{ resultProviderName }}
+        </a>
+
+        <div class="create-secret-result-actions">
+          <button type="button" :class="resultState === 'success' ? 'create-secret-submit' : 'button-ghost'" :disabled="pending" @click="close">Done</button>
+          <button v-if="resultState === 'partial'" type="button" class="create-secret-submit" :disabled="pending" @click="retrySync">
+            {{ submissionStage === "retrying" ? "Retrying Sync…" : "Retry Sync" }}
+          </button>
+        </div>
+      </section>
     </div>
   </div>
 </template>
 
 <style scoped>
 .create-secret-dialog { width: min(560px, 94vw); display: flex; flex-direction: column; overflow: hidden; }
+.create-secret-dialog--result { width: min(640px, 94vw); }
 .create-secret-form { gap: 11px; overflow-y: auto; padding: 0 20px 18px; }
 .create-secret-tabs { flex: 0 0 auto; gap: 0; margin: 0; }
 .create-secret-tabs :deep(.app-tabs-tab) { flex: 1; justify-content: center; border-bottom-width: 2px; border-radius: 0; padding: 12px 8px 10px; font-size: .82rem; }
@@ -413,22 +564,67 @@ onUnmounted(() => document.removeEventListener("keydown", handleEscape));
 .create-secret-json-highlight :deep(.shj-syn-var) { color: var(--syntax-variable); }
 .create-secret-helper { display: flex; align-items: flex-start; gap: 8px; margin: 1px 2px 0; color: var(--muted); font-size: .76rem; line-height: 1.4; }
 .create-secret-helper svg { flex: 0 0 auto; width: 17px; height: 17px; color: var(--muted); }
+.create-secret-stage { display: flex; align-items: center; gap: 7px; margin: 0 2px; color: var(--muted); font-size: .78rem; }
+.create-secret-spinner { display: inline-block; width: 14px; height: 14px; flex: 0 0 auto; border: 2px solid var(--border-strong); border-top-color: var(--info); border-radius: 50%; animation: create-secret-spin .75s linear infinite; }
 .create-secret-inline-error { margin: -2px 0 0; color: var(--error); font-size: .78rem; overflow-wrap: anywhere; }
 .create-secret-notice { display: grid; gap: 3px; margin: -2px 2px 0; padding: 0; font-size: .76rem; line-height: 1.4; }
 .create-secret-notice--warning { color: var(--warning); }
-.create-secret-notice--partial { border-left: 2px solid var(--warning-border); color: var(--text); padding-left: 8px; }
-.create-secret-notice--partial span { color: var(--muted); }
-.create-secret-notice code { overflow-wrap: anywhere; }
 .create-secret-actions { display: flex; justify-content: flex-end; gap: 9px; padding-top: 1px; }
 .create-secret-actions button { min-width: 104px; min-height: 38px; padding: 8px 14px; }
 .create-secret-submit { border-color: var(--accent-border); border-radius: 6px; background: var(--control-primary); font-weight: 600; box-shadow: none; }
 .create-secret-submit:hover:not(:disabled) { background: var(--control-primary-hover); filter: none; }
 .create-secret-submit:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; box-shadow: none; }
+.create-secret-result { gap: 14px; overflow-y: auto; padding: 22px 28px 16px; }
+.create-secret-result-summary { display: grid; justify-items: center; gap: 10px; text-align: center; }
+.create-secret-result-summary > div { min-width: 0; }
+.create-secret-result-summary h3 { margin: 0; font-size: 1.14rem; line-height: 1.3; }
+.create-secret-result-summary p { max-width: 520px; margin: 4px 0 0; color: var(--muted); font-size: .84rem; line-height: 1.45; }
+.create-secret-result-icon { width: 58px; height: 58px; flex: 0 0 auto; display: grid; place-items: center; border: 1px solid var(--accent-border); border-radius: 50%; background: var(--info-muted); color: var(--info); }
+.create-secret-result-icon svg { width: 30px; height: 30px; }
+.create-secret-result-icon--success { border-color: var(--success-border); background: var(--success-muted); color: var(--success); }
+.create-secret-result-icon--partial { border-color: var(--warning-border); background: var(--warning-muted); color: var(--warning); }
+.create-secret-result-icon .create-secret-spinner { width: 23px; height: 23px; }
+.create-secret-result-secret { min-width: 0; display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 9px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-input); padding: 11px 13px; }
+.create-secret-result-secret > svg { width: 23px; height: 23px; color: var(--muted); }
+.create-secret-result-secret > div { min-width: 0; display: grid; gap: 2px; }
+.create-secret-result-secret span, .create-secret-result-secret small { color: var(--muted); font-size: .72rem; }
+.create-secret-result-secret > div > code { color: var(--text); font-size: .88rem; font-weight: 600; white-space: normal; overflow-wrap: anywhere; }
+.create-secret-result-secret small code { color: var(--text); font-size: inherit; }
+.create-secret-result-details { margin: 0; border-bottom: 1px solid var(--border-default); }
+.create-secret-result-details > div { display: grid; grid-template-columns: minmax(190px, 1fr) minmax(0, 1.2fr); align-items: center; gap: 16px; min-height: 52px; border-top: 1px solid var(--border-default); padding: 9px 2px; }
+.create-secret-result-details > div + div { border-top: 1px solid var(--border-default); }
+.create-secret-result-details dt { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: .79rem; }
+.create-secret-result-details dt svg { width: 19px; height: 19px; flex: 0 0 auto; }
+.create-secret-result-details dd { min-width: 0; display: grid; justify-items: end; gap: 2px; margin: 0; text-align: right; font-size: .81rem; overflow-wrap: anywhere; }
+.create-secret-result-details dd strong { font-weight: 600; }
+.create-secret-result-details dd small { color: var(--muted); font-size: .7rem; }
+.create-secret-sync-status { display: inline-flex; align-items: center; gap: 7px; color: var(--muted); font-size: .81rem; font-weight: 600; white-space: nowrap; }
+.create-secret-sync-status svg { width: 18px; height: 18px; flex: 0 0 auto; overflow: visible; }
+.create-secret-sync-status--success { color: var(--success); }
+.create-secret-sync-status--success svg circle { fill: currentColor; stroke: none; }
+.create-secret-sync-status--success svg path { fill: none; stroke: var(--surface-modal); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.create-secret-sync-status--partial { color: var(--warning); }
+.create-secret-sync-status--partial svg path:first-child { fill: currentColor; stroke: none; }
+.create-secret-sync-status--partial svg path:last-child { fill: none; stroke: var(--surface-modal); stroke-width: 2; stroke-linecap: round; }
+.create-secret-sync-status .create-secret-spinner { width: 14px; height: 14px; border-width: 1.5px; }
+.create-secret-result-error { margin: -2px 0 0; border: 1px solid var(--error-border); border-radius: 6px; background: var(--error-muted); color: var(--error); padding: 9px 11px; font-size: .77rem; line-height: 1.45; }
+.create-secret-result-link { width: 100%; display: inline-flex; align-items: center; gap: 7px; color: var(--control-primary); padding: 0 2px; font-size: .82rem; font-weight: 600; text-decoration: none; }
+.create-secret-result-link:hover { text-decoration: underline; }
+.create-secret-result-link:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 3px; }
+.create-secret-result-link svg { width: 17px; height: 17px; }
+.create-secret-result-actions { display: flex; justify-content: flex-end; gap: 9px; border-top: 1px solid var(--border-default); margin: 0 -28px -16px; padding: 12px 28px; }
+.create-secret-result-actions button { min-width: 104px; min-height: 38px; padding: 8px 14px; }
 button:disabled, input:disabled, select:disabled, textarea:disabled { cursor: not-allowed; opacity: .58; }
+@keyframes create-secret-spin { to { transform: rotate(360deg); } }
 @media (max-width: 520px) {
   .create-secret-form { padding-inline: 12px; }
   .create-secret-editor-toolbar { padding-left: 9px; }
   .create-secret-mode-toggle button, .create-secret-small-action { padding-inline: 7px; }
   .create-secret-actions button { min-width: 0; flex: 1; }
+  .create-secret-result { padding-inline: 12px; }
+  .create-secret-result-details > div { grid-template-columns: 1fr; gap: 4px; }
+  .create-secret-result-details dd { justify-items: start; text-align: left; }
+  .create-secret-result-actions { margin-inline: -12px; padding-inline: 12px; }
+  .create-secret-result-actions button { min-width: 0; flex: 1; }
 }
 </style>

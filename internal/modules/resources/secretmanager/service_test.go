@@ -136,7 +136,10 @@ func TestServiceCreate(t *testing.T) {
 				Key:         testCase.request.Key,
 				Value:       testCase.request.Value,
 				Description: testCase.request.Description,
-			}).Return(cloudsecrets.CreateResult{Path: "normalized/path"}, nil)
+			}).Return(cloudsecrets.CreateResult{
+				Path:       "normalized/path",
+				ManagerURL: "https://provider.example.com/secrets/normalized/path",
+			}, nil)
 			controller.EXPECT().Close().Return(nil)
 			service.newCloudSecretsController = func(address string) (cloudsecrets.Controller, error) {
 				assert.Equal(t, "cloud-secrets:8001", address)
@@ -146,7 +149,10 @@ func TestServiceCreate(t *testing.T) {
 			result, err := service.Create(context.Background(), "infra", "cloud-secrets", testCase.request)
 
 			require.NoError(t, err)
-			assert.Equal(t, CreateResult{Path: "normalized/path"}, result)
+			assert.Equal(t, CreateResult{
+				Path:       "normalized/path",
+				ManagerURL: "https://provider.example.com/secrets/normalized/path",
+			}, result)
 		})
 	}
 }

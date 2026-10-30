@@ -1031,6 +1031,8 @@ func (s *CreateExternalSecretRequest) SetDescription(val OptString) {
 // Ref: #/components/schemas/CreateExternalSecretResponse
 type CreateExternalSecretResponse struct {
 	Path string `json:"path"`
+	// Optional direct HTTP(S) URL to the created provider secret.
+	ManagerURL OptString `json:"manager_url"`
 }
 
 // GetPath returns the value of Path.
@@ -1038,9 +1040,19 @@ func (s *CreateExternalSecretResponse) GetPath() string {
 	return s.Path
 }
 
+// GetManagerURL returns the value of ManagerURL.
+func (s *CreateExternalSecretResponse) GetManagerURL() OptString {
+	return s.ManagerURL
+}
+
 // SetPath sets the value of Path.
 func (s *CreateExternalSecretResponse) SetPath(val string) {
 	s.Path = val
+}
+
+// SetManagerURL sets the value of ManagerURL.
+func (s *CreateExternalSecretResponse) SetManagerURL(val OptString) {
+	s.ManagerURL = val
 }
 
 // Ref: #/components/schemas/CreateSecretRequest

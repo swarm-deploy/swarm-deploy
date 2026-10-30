@@ -68,23 +68,52 @@ func TestClientSync(t *testing.T) {
 func TestClientCreate(t *testing.T) {
 	t.Parallel()
 
-	ctrl := gomock.NewController(t)
-	api := NewMocksecretsAPI(ctrl)
-	request := CreateRequest{
-		Path:        "production/database",
-		Value:       []byte("literal-secret-value"),
-		Key:         "password",
-		Description: "",
+	managerURL := "https://vault.example.com/ui/vault/secrets/kv/show/production/database"
+	tests := []struct {
+		name       string
+		managerURL *string
+		expected   CreateResult
+	}{
+		{
+			name:       "manager URL present",
+			managerURL: &managerURL,
+			expected: CreateResult{
+				Path:       "production/database",
+				ManagerURL: managerURL,
+			},
+		},
+		{
+			name:     "manager URL absent",
+			expected: CreateResult{Path: "production/database"},
+		},
 	}
-	api.EXPECT().Create(gomock.Any(), &cloudsecretspb.CreateSecretRequest{
-		Path:        request.Path,
-		Value:       request.Value,
-		Key:         request.Key,
-		Description: request.Description,
-	}).Return(&cloudsecretspb.CreateSecretResponse{Path: "production/database"}, nil)
 
-	result, err := (&Client{secrets: api}).Create(context.Background(), request)
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-	require.NoError(t, err)
-	assert.Equal(t, CreateResult{Path: "production/database"}, result)
+			ctrl := gomock.NewController(t)
+			api := NewMocksecretsAPI(ctrl)
+			request := CreateRequest{
+				Path:        "production/database",
+				Value:       []byte("literal-secret-value"),
+				Key:         "password",
+				Description: "",
+			}
+			api.EXPECT().Create(gomock.Any(), &cloudsecretspb.CreateSecretRequest{
+				Path:        request.Path,
+				Value:       request.Value,
+				Key:         request.Key,
+				Description: request.Description,
+			}).Return(&cloudsecretspb.CreateSecretResponse{
+				Path:       "production/database",
+				ManagerUrl: testCase.managerURL,
+			}, nil)
+
+			result, err := (&Client{secrets: api}).Create(context.Background(), request)
+
+			require.NoError(t, err)
+			assert.Equal(t, testCase.expected, result)
+		})
+	}
 }

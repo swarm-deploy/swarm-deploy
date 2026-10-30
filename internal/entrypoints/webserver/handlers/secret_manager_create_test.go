@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -10,6 +11,45 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
+
+func TestExternalSecretCreateResponse(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		result     secretmanager.CreateResult
+		managerURL string
+	}{
+		{
+			name: "manager URL present",
+			result: secretmanager.CreateResult{
+				Path:       "normalized/path",
+				ManagerURL: "https://provider.example.com/secrets/normalized/path",
+			},
+			managerURL: "https://provider.example.com/secrets/normalized/path",
+		},
+		{
+			name:   "manager URL absent",
+			result: secretmanager.CreateResult{Path: "normalized/path"},
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			response := externalSecretCreateResponse(testCase.result)
+			payload, err := response.MarshalJSON()
+
+			require.NoError(t, err)
+			assert.Equal(t, "normalized/path", response.Path)
+			managerURL, present := response.ManagerURL.Get()
+			assert.Equal(t, testCase.managerURL != "", present)
+			assert.Equal(t, testCase.managerURL, managerURL)
+			assert.Equal(t, testCase.managerURL != "", strings.Contains(string(payload), "manager_url"))
+		})
+	}
+}
 
 func TestExternalSecretCreateError(t *testing.T) {
 	t.Parallel()

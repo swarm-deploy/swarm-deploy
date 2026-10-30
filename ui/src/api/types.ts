@@ -452,6 +452,7 @@ export interface CreateExternalSecretRequest {
 
 export interface CreateExternalSecretResponse {
   path: string;
+  manager_url?: string;
 }
 
 export interface SecretDetailsResponse {

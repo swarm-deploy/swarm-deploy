@@ -196,5 +196,8 @@ func (s *Service) Create(
 		return CreateResult{}, fmt.Errorf("create cloud-secrets secret: %w", err)
 	}
 
-	return CreateResult{Path: result.Path}, nil
+	return CreateResult{
+		Path:       result.Path,
+		ManagerURL: result.ManagerURL,
+	}, nil
 }

@@ -2,7 +2,7 @@ import { createPinia } from "pinia";
 import { flushPromises, mount } from "@vue/test-utils";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { fetchSecretManagers, fetchSecrets } from "../api/secrets";
+import { createExternalSecret, fetchSecretManagers, fetchSecrets, syncSecretManager } from "../api/secrets";
 import type { SecretInfo } from "../api/types";
 import SecretsView from "./SecretsView.vue";
 
@@ -47,6 +47,7 @@ function renderedNames(wrapper: ReturnType<typeof mount>): string[] {
 
 describe("SecretsView sorting", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.mocked(fetchSecrets).mockResolvedValue({ secrets });
     vi.mocked(fetchSecretManagers).mockResolvedValue({ secret_managers: [] });
   });
@@ -79,5 +80,35 @@ describe("SecretsView sorting", () => {
     await button!.trigger("click");
     expect(renderedNames(wrapper)).toEqual(descending);
     expect(button!.element.closest("th")?.getAttribute("aria-sort")).toBe("descending");
+  });
+
+  it("refreshes after acknowledging a Cloud Secrets result without a page-wide success alert", async () => {
+    vi.mocked(fetchSecretManagers).mockResolvedValue({
+      secret_managers: [{
+        stack: "security",
+        service: "vault-secrets",
+        kind: "cloud-secrets",
+        controllable: true,
+        available: true,
+        provider: { name: "HashiCorp Vault" },
+      }],
+    });
+    vi.mocked(createExternalSecret).mockResolvedValue({ path: "normalized/path" });
+    vi.mocked(syncSecretManager).mockResolvedValue({ created: 1, updated: 0, removed: 0, unchanged: 0 });
+    const wrapper = mount(SecretsView, { global: { plugins: [createPinia()] } });
+    await flushPromises();
+
+    await wrapper.get(".secrets-create-button").trigger("click");
+    await wrapper.get('input[aria-label="Path"]').setValue("production/database");
+    await wrapper.get('input[aria-label="Key"]').setValue("password");
+    await wrapper.get('textarea[aria-label="Value"]').setValue("literal-value");
+    await wrapper.get(".create-secret-form").trigger("submit");
+    await flushPromises();
+    await wrapper.get(".create-secret-result-actions button").trigger("click");
+    await flushPromises();
+
+    expect(wrapper.find(".create-secret-modal").exists()).toBe(false);
+    expect(wrapper.find(".secrets-create-feedback").exists()).toBe(false);
+    expect(fetchSecrets).toHaveBeenCalledTimes(2);
   });
 });

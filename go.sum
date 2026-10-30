@@ -236,8 +236,8 @@ github.com/stretchr/testify v1.4.0/go.mod h1:j7eGeouHqKxXV5pUuKE4zz7dFj8WfuZ+81P
 github.com/stretchr/testify v1.7.0/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
 github.com/stretchr/testify v1.12.1 h1:EuwCh5fleGS7H32xRwO3wRGT7DxrDhLAT6FF8MpWDWE=
 github.com/stretchr/testify v1.12.1/go.mod h1:MDEgiDPPsNp5cuIrHPPCyornHKgEVbtFUmoNlxoYthg=
-github.com/swarm-deploy/cloud-secrets/pkg/grpc-api v0.1.1-0.20261029095018-90b8d5898bca h1:2VBc5VdBZnTj5sAKHtwg8W2TJcr204zVc72R57H2vhY=
-github.com/swarm-deploy/cloud-secrets/pkg/grpc-api v0.1.1-0.20261029095018-90b8d5898bca/go.mod h1:iDdXGDQY/PLa62LhoSZKp8luOJ3DZt7mBFqnq7ocKWY=
+github.com/swarm-deploy/cloud-secrets/pkg/grpc-api v0.1.1-0.20261030165616-8365ec26115e h1:5efd0q1NLFsXt+m5RJKRVmDTNw/wsCNVXU9NmIVtV+c=
+github.com/swarm-deploy/cloud-secrets/pkg/grpc-api v0.1.1-0.20261030165616-8365ec26115e/go.mod h1:iDdXGDQY/PLa62LhoSZKp8luOJ3DZt7mBFqnq7ocKWY=
 github.com/swarm-deploy/downward-otel/go v0.1.0 h1:BJovrDJ+QKj3wPSp9YODcCjtGhVh7yyiBrQzx6yNiA8=
 github.com/swarm-deploy/downward-otel/go v0.1.0/go.mod h1:1Sv6iK4ZSY3zEd3L72LYBHzWRRHyFCDJubxVAmS0Giw=
 github.com/swarm-deploy/downward/go v0.1.1 h1:ye4yAN39VPBvhgi88W+s758CEVIk3fpytAvwLDalRu0=

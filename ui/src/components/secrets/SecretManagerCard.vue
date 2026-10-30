@@ -2,6 +2,7 @@
 import { computed } from "vue";
 
 import type { SecretManagerInfo } from "../../api/types";
+import { safeExternalLink } from "../../utils/externalLink";
 import AppCard from "../common/AppCard.vue";
 import AppStatusBadge from "../common/AppStatusBadge.vue";
 
@@ -24,20 +25,6 @@ const emit = defineEmits<{
 }>();
 
 const title = computed(() => props.manager.provider?.name?.trim() || "cloud-secrets Secret Manager");
-
-function safeExternalLink(raw?: string): string {
-  const value = raw?.trim();
-  if (!value) {
-    return "";
-  }
-
-  try {
-    const parsed = new URL(value);
-    return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.toString() : "";
-  } catch {
-    return "";
-  }
-}
 
 const docLink = computed(() => safeExternalLink(props.manager.provider?.links?.doc));
 const managerLink = computed(() => safeExternalLink(props.manager.provider?.links?.manager));
