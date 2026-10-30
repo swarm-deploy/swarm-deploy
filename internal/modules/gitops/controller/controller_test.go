@@ -14,6 +14,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/configstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -321,6 +322,7 @@ func TestNewControllerDoesNotRemoveRenderedComposeOwnedByActiveController(t *tes
 		nil,
 		&swarm.Swarm{},
 		nil,
+		nil,
 		metricGroup,
 		&dispatcher.NopDispatcher{},
 		stateStore,
@@ -531,6 +533,7 @@ func TestControllerSyncContinuesWhenConfigurationEventPublicationFails(t *testin
 		stackReconciler: stackloop.New(
 			cfg,
 			repository,
+			deployments.NewService(db, eventDispatcher),
 			stackDeployer,
 			&swarm.Swarm{
 				Services: serviceManager,
@@ -689,6 +692,7 @@ func TestControllerSyncOncePrioritizesChangedStacks(t *testing.T) {
 		stackReconciler: stackloop.New(
 			cfg,
 			repository,
+			deployments.NewService(db, eventDispatcher),
 			stackDeployer,
 			&swarm.Swarm{
 				Services: serviceManager,
@@ -772,6 +776,7 @@ func TestControllerSyncOnceContinuesWhenGitDiffFails(t *testing.T) {
 		stackReconciler: stackloop.New(
 			cfg,
 			repository,
+			deployments.NewService(db, eventDispatcher),
 			stackDeployer,
 			&swarm.Swarm{
 				Services: serviceManager,

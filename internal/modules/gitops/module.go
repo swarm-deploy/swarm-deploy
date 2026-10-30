@@ -64,6 +64,7 @@ func InitModule(
 		cnt.GetConfigStore(),
 		srv.GitRepository,
 		cnt.GetSwarm(),
+		cnt.GetDeploymentsModule().Creation,
 		cnt.GetDeploymentsModule().Deployer,
 		cnt.GetMetrics(),
 		cnt.GetEventModule().Dispatcher,

@@ -15,6 +15,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/controller/stackloop/pruner"
@@ -60,6 +61,7 @@ func TestReconcileRemovesRenderedComposeAfterEarlyPipelineFailure(t *testing.T) 
 	}
 	reconciler.db = db
 	reconciler.deployments = deployment.NewService(db, reconciler.event)
+	reconciler.creation = deployments.NewService(db, reconciler.event)
 	reconciler.pipeline = pipe.NewPipelineWithConfig[*pipelinePayload](pipe.Config{
 		PipelineName: "test early failure",
 		Logger:       faults.NewSafeLogger(slog.Default()),
@@ -135,6 +137,7 @@ func TestRenderedComposeCleanupFailureDoesNotFailReconciliation(t *testing.T) {
 	}
 	reconciler.db = db
 	reconciler.deployments = deployment.NewService(db, reconciler.event)
+	reconciler.creation = deployments.NewService(db, reconciler.event)
 	reconciler.attachPipeline()
 
 	err := reconciler.Reconcile(context.Background(), ReconciliationRequest{

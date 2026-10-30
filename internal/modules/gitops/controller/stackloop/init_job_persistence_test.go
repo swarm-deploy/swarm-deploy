@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
@@ -29,10 +30,11 @@ func TestDeployStackIgnoresInitJobPersistenceFailure(t *testing.T) {
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			db := testutil.OpenSQLite(t)
-			service := deployment.NewService(db, &dispatcher.NopDispatcher{})
-			attempt, err := service.StartIfChanged(t.Context(), "app", "commit", compose.File{
+			publisher := &dispatcher.NopDispatcher{}
+			service := deployment.NewService(db, publisher)
+			attempt, err := deployments.NewService(db, publisher).StartIfChanged(t.Context(), "app", "commit", compose.File{
 				Compose: compose.Compose{Services: compose.Services{{Name: "api", Image: "api:1"}}},
-			}, true)
+			}, true, service.ProjectInterruption)
 			require.NoError(t, err)
 			require.NotNil(t, attempt)
 			_, err = db.Exec(t.Context(), `CREATE TRIGGER reject_first_init_job BEFORE INSERT ON deployment_init_jobs
@@ -84,10 +86,11 @@ func TestDeployStackIgnoresInitJobPersistenceFailure(t *testing.T) {
 
 func TestPersistInitJobsUsesDetachedBoundedContextAndAssignsOrdinals(t *testing.T) {
 	db := testutil.OpenSQLite(t)
-	service := deployment.NewService(db, &dispatcher.NopDispatcher{})
-	attempt, err := service.StartIfChanged(t.Context(), "app", "commit", compose.File{
+	publisher := &dispatcher.NopDispatcher{}
+	service := deployment.NewService(db, publisher)
+	attempt, err := deployments.NewService(db, publisher).StartIfChanged(t.Context(), "app", "commit", compose.File{
 		Compose: compose.Compose{Services: compose.Services{{Name: "api", Image: "api:1"}}},
-	}, true)
+	}, true, service.ProjectInterruption)
 	require.NoError(t, err)
 	require.NotNil(t, attempt)
 	reconciler := &Reconciler{deployments: service}

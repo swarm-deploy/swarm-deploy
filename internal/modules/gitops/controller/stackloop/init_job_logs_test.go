@@ -13,6 +13,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -88,7 +89,9 @@ func TestFailedInitJobLogsReachDurableDeploymentDiagnostics(t *testing.T) {
 	require.NoError(t, bus.Subscribe(events.TypeNameDeployFailed, "history", hist))
 	service := deployment.NewService(db, bus)
 	file := compose.File{Compose: compose.Compose{Services: compose.Services{{Name: "api", Image: "api:1"}}}}
-	attempt, err := service.StartIfChanged(ctx, "app", "commit", file, true)
+	attempt, err := deployments.NewService(db, bus).StartIfChanged(
+		ctx, "app", "commit", file, true, service.ProjectInterruption,
+	)
 	require.NoError(t, err)
 
 	r := &Reconciler{db: db, stateStore: state, event: bus, deployments: service,

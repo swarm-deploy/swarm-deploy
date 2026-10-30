@@ -16,6 +16,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/configstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/codec"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
@@ -600,9 +601,9 @@ func TestDeploymentCompletionOutboxPreservesAlertThresholds(t *testing.T) {
 				var deploymentID string
 				for i := range 3 {
 					service := deployment.NewService(db, bus)
-					attempt, startErr := service.StartIfChanged(ctx, "app", fmt.Sprint(i), compose.File{
+					attempt, startErr := deployments.NewService(db, bus).StartIfChanged(ctx, "app", fmt.Sprint(i), compose.File{
 						Compose: compose.Compose{Services: compose.Services{{Name: "api", Image: "api:1"}}},
-					}, true)
+					}, true, service.ProjectInterruption)
 					require.NoError(t, startErr)
 					if i == 0 {
 						deploymentID = attempt.DeploymentID

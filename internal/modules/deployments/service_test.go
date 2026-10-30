@@ -1,0 +1,226 @@
+package deployments
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
+	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
+	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/history"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
+)
+
+func desiredServices(names ...string) compose.File {
+	services := make(compose.Services, 0, len(names))
+	for _, name := range names {
+		services = append(services, compose.Service{Name: name, Image: "example/" + name + ":1"})
+	}
+	return compose.File{Path: "app.yaml", Digest: "source", Compose: compose.Compose{Services: services}}
+}
+
+func openService(t *testing.T) (storage.Database, *Service, *eventbus.OutboxDispatcher) {
+	t.Helper()
+	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
+	return db, NewService(db, bus), bus
+}
+
+func subscribe(t *testing.T, db storage.Database, bus *eventbus.OutboxDispatcher, types ...events.TypeName) {
+	t.Helper()
+	projection, err := history.NewSQLStore(db, 20)
+	require.NoError(t, err)
+	for _, eventType := range types {
+		require.NoError(t, bus.Subscribe(eventType, "deployments-service-test", projection))
+	}
+}
+
+func TestStartIfChangedCreatesNoopsAndRetries(t *testing.T) {
+	db, service, _ := openService(t)
+	store := deploymentstore.NewStore(db)
+
+	for _, testCase := range []struct {
+		name          string
+		sourceChanged bool
+		wantAttempt   bool
+	}{
+		{name: "initial unchanged source", sourceChanged: false, wantAttempt: false},
+		{name: "initial changed source", sourceChanged: true, wantAttempt: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			attempt, err := service.StartIfChanged(
+				t.Context(), testCase.name, "commit", desiredServices("api"), testCase.sourceChanged, nil,
+			)
+			require.NoError(t, err)
+			assert.Equal(t, testCase.wantAttempt, attempt != nil)
+		})
+	}
+
+	first, err := service.StartIfChanged(t.Context(), "retry", "first", desiredServices("api"), true, nil)
+	require.NoError(t, err)
+	require.NotNil(t, first)
+	unchanged, err := service.StartIfChanged(t.Context(), "retry", "second", desiredServices("api"), true, nil)
+	require.NoError(t, err)
+	assert.Nil(t, unchanged)
+
+	require.NoError(t, db.WithinTransaction(t.Context(), func(ctx context.Context) error {
+		return service.InterruptAttempt(ctx, *first, service.now().UTC(), nil)
+	}))
+	retry, err := service.StartIfChanged(t.Context(), "retry", "third", desiredServices("api"), true, nil)
+	require.NoError(t, err)
+	require.NotNil(t, retry)
+	assert.Equal(t, first.DeploymentID, retry.DeploymentID)
+	assert.Equal(t, 2, retry.Number)
+
+	stored, err := store.Get(t.Context(), first.DeploymentID)
+	require.NoError(t, err)
+	assert.Equal(t, deploymentmodel.Running, stored.Status)
+	assert.Equal(t, 2, stored.AttemptCount)
+}
+
+func TestStartIfChangedSupersedesAndPublishesAtomically(t *testing.T) {
+	db, service, bus := openService(t)
+	subscribe(t, db, bus, events.TypeNameDeployInterrupted, events.TypeNameServiceRemovedFromDesired)
+	store := deploymentstore.NewStore(db)
+
+	first, err := service.StartIfChanged(
+		t.Context(), "app", "first", desiredServices("api", "worker"), true, nil,
+	)
+	require.NoError(t, err)
+	projected := false
+	second, err := service.StartIfChanged(
+		t.Context(), "app", "second", desiredServices("api"), true,
+		func(_ context.Context, deployment deploymentmodel.Deployment) error {
+			projected = true
+			assert.Equal(t, first.DeploymentID, deployment.ID)
+			return nil
+		},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, second)
+	assert.True(t, projected)
+
+	previous, err := store.Get(t.Context(), first.DeploymentID)
+	require.NoError(t, err)
+	assert.Equal(t, deploymentmodel.Superseded, previous.Status)
+	require.Len(t, previous.Attempts, 1)
+	assert.Equal(t, deploymentmodel.Interrupted, previous.Attempts[0].Status)
+	assert.Len(t, publications(t, db, events.TypeNameDeployInterrupted), 1)
+	assert.Len(t, publications(t, db, events.TypeNameServiceRemovedFromDesired), 1)
+}
+
+func TestStartIfChangedUsesSuccessfulBaselineForSemanticChanges(t *testing.T) {
+	db, service, _ := openService(t)
+	store := deploymentstore.NewStore(db)
+
+	baselineAttempt, err := service.StartIfChanged(
+		t.Context(), "app", "baseline", desiredServices("api"), true, nil,
+	)
+	require.NoError(t, err)
+	require.NoError(t, succeedAttempt(t.Context(), db, store, *baselineAttempt, service.now().UTC()))
+
+	target, err := service.StartIfChanged(
+		t.Context(), "app", "target", desiredServices("api", "worker"), true, nil,
+	)
+	require.NoError(t, err)
+	stored, err := store.Get(t.Context(), target.DeploymentID)
+	require.NoError(t, err)
+	assert.Equal(t, deploymentmodel.BasisSuccessfulBaseline, stored.ComparisonBasis)
+	assert.Equal(t, baselineAttempt.DeploymentID, stored.BasisDeploymentID)
+	assert.NotEmpty(t, stored.Changes)
+	assert.NotZero(t, stored.Summary.Added)
+
+	require.NoError(t, db.WithinTransaction(t.Context(), func(ctx context.Context) error {
+		return service.InterruptAttempt(ctx, *target, service.now().UTC(), nil)
+	}))
+	retry, err := service.StartIfChanged(
+		t.Context(), "app", "retry", desiredServices("api", "worker"), true, nil,
+	)
+	require.NoError(t, err)
+	assert.Equal(t, target.DeploymentID, retry.DeploymentID)
+	retried, err := store.Get(t.Context(), target.DeploymentID)
+	require.NoError(t, err)
+	assert.Equal(t, baselineAttempt.DeploymentID, retried.BasisDeploymentID)
+	assert.Equal(t, stored.Changes, retried.Changes)
+}
+
+func TestStartIfChangedRollsBackSupersessionWhenPublicationFails(t *testing.T) {
+	db, service, bus := openService(t)
+	subscribe(t, db, bus, events.TypeNameServiceRemovedFromDesired)
+	store := deploymentstore.NewStore(db)
+
+	first, err := service.StartIfChanged(
+		t.Context(), "app", "first", desiredServices("api", "worker"), true, nil,
+	)
+	require.NoError(t, err)
+	_, err = db.Exec(t.Context(), "CREATE TRIGGER reject_service_removal BEFORE INSERT ON outbox_events WHEN NEW.event_type='ServiceRemovedFromDesired' BEGIN SELECT RAISE(ABORT, 'outbox unavailable'); END")
+	require.NoError(t, err)
+
+	_, err = service.StartIfChanged(t.Context(), "app", "second", desiredServices("api"), true, nil)
+	require.Error(t, err)
+	latest, _, err := store.Latest(t.Context(), "app")
+	require.NoError(t, err)
+	assert.Equal(t, first.DeploymentID, latest.ID)
+	assert.Equal(t, deploymentmodel.Running, latest.Status)
+	assert.Empty(t, publications(t, db, events.TypeNameServiceRemovedFromDesired))
+}
+
+func TestStartIfChangedRollsBackInterruptionWhenDeploymentPersistenceFails(t *testing.T) {
+	db, service, bus := openService(t)
+	subscribe(t, db, bus, events.TypeNameDeployInterrupted)
+	store := deploymentstore.NewStore(db)
+
+	first, err := service.StartIfChanged(t.Context(), "app", "first", desiredServices("api"), true, nil)
+	require.NoError(t, err)
+	_, err = db.Exec(t.Context(), `CREATE TRIGGER reject_deployment BEFORE INSERT ON deployments
+		WHEN NEW."commit"='second' BEGIN SELECT RAISE(ABORT, 'deployment unavailable'); END`)
+	require.NoError(t, err)
+
+	_, err = service.StartIfChanged(t.Context(), "app", "second", desiredServices("worker"), true, nil)
+	require.Error(t, err)
+	latest, _, err := store.Latest(t.Context(), "app")
+	require.NoError(t, err)
+	assert.Equal(t, first.DeploymentID, latest.ID)
+	assert.Equal(t, deploymentmodel.Running, latest.Status)
+	assert.Empty(t, publications(t, db, events.TypeNameDeployInterrupted))
+}
+
+func publications(t *testing.T, db storage.Database, eventType events.TypeName) []outbox.Publication {
+	t.Helper()
+	result, err := outbox.New(db).ListPublications(t.Context(), outbox.ListFilter{EventType: eventType})
+	require.NoError(t, err)
+	return result
+}
+
+func succeedAttempt(
+	ctx context.Context,
+	db storage.Database,
+	store *deploymentstore.Store,
+	attempt deploymentmodel.Attempt,
+	finishedAt time.Time,
+) error {
+	return db.WithinTransaction(ctx, func(ctx context.Context) error {
+		deployment, err := store.Get(ctx, attempt.DeploymentID)
+		if err != nil {
+			return err
+		}
+		attempt.Status = deploymentmodel.Succeeded
+		attempt.FinishedAt = &finishedAt
+		attempt.Phase = deploymentmodel.PhaseCompleted
+		attempt.ApplyStatus = deploymentmodel.StageSucceeded
+		attempt.VerificationStatus = deploymentmodel.StageSkipped
+		attempt.CleanupStatus = deploymentmodel.StageSucceeded
+		if err = store.FinishAttempt(ctx, deployment, attempt); err != nil {
+			return err
+		}
+		return store.SaveBaseline(ctx, deployment.ID)
+	})
+}

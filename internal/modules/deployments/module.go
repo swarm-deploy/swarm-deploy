@@ -8,18 +8,26 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/shared/fs"
+	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 )
 
-// Module contains deployment execution infrastructure exposed to consumers.
+// Module contains deployment creation and execution services exposed to consumers.
 type Module struct {
+	// Creation owns deployment and attempt creation.
+	Creation *Service
 	// Deployer executes stack and service deployments.
 	Deployer deployer.StackDeployer
 }
 
 // Container supplies dependencies required by the Deployments module.
 type Container interface {
+	// GetStorage returns the shared database and transactor.
+	GetStorage() storage.Database
+	// GetEventModule returns transactional event publication infrastructure.
+	GetEventModule() *event.Module
 	// GetDockerClient returns the shared Docker API client.
 	GetDockerClient() *client.Client
 	// GetFileSystem returns the shared filesystem.
@@ -45,5 +53,8 @@ func InitModule(_ context.Context, cfg *config.Config, cnt Container) (*Module, 
 		),
 	)
 
-	return &Module{Deployer: stackDeployer}, nil
+	return &Module{
+		Creation: NewService(cnt.GetStorage(), cnt.GetEventModule().Dispatcher),
+		Deployer: stackDeployer,
+	}, nil
 }
