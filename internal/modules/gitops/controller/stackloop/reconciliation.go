@@ -5,6 +5,7 @@ import (
 
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	gitx "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/git"
@@ -32,6 +33,7 @@ type ReconciliationRequest struct {
 func NewStackReconciler(
 	cfg *config.Config,
 	gitSync gitx.Repository,
+	creation *deployments.Service,
 	stackDeployer deployer.StackDeployer,
 	swarmService *swarm.Swarm,
 	eventDispatcher dispatcher.Dispatcher,
@@ -43,6 +45,7 @@ func NewStackReconciler(
 	reconciler := New(
 		cfg,
 		gitSync,
+		creation,
 		stackDeployer,
 		swarmService,
 		eventDispatcher,

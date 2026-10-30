@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
@@ -23,14 +24,16 @@ func TestListServiceDeploymentsReadsDeploymentStore(t *testing.T) {
 	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	svc := deployment.NewService(db, eventbus.NewOutboxDispatcher(outbox.New(db)))
+	publisher := eventbus.NewOutboxDispatcher(outbox.New(db))
+	svc := deployment.NewService(db, publisher)
+	creation := deployments.NewService(db, publisher)
 	h := &handler{deployments: deploymentstore.NewStore(db)}
 
 	file := func(services ...compose.Service) compose.File {
 		return compose.File{Compose: compose.Compose{Services: services}}
 	}
 	start := func(stack, commit string, services ...compose.Service) *deploymentmodel.Attempt {
-		attempt, startErr := svc.StartIfChanged(ctx, stack, commit, file(services...), true)
+		attempt, startErr := creation.StartIfChanged(ctx, stack, commit, file(services...), true, svc.ProjectInterruption)
 		require.NoError(t, startErr)
 		require.NotNil(t, attempt)
 		return attempt

@@ -16,6 +16,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
@@ -61,7 +62,7 @@ func TestReconcileDeploymentBoundaries(t *testing.T) {
 			dir := t.TempDir()
 			git.EXPECT().WorkingDir().Return(dir).AnyTimes()
 			cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(dir, "data")}}
-			r := New(cfg, git, docker, &swarm.Swarm{Services: services, Configs: swarm.NewMockConfigManager(ctrl), Secrets: swarm.NewMockSecretManager(ctrl)}, bus, &metrics.NopDeploys{}, state, fs.NewLocalFileSystem(), db)
+			r := New(cfg, git, deployments.NewService(db, bus), docker, &swarm.Swarm{Services: services, Configs: swarm.NewMockConfigManager(ctrl), Secrets: swarm.NewMockSecretManager(ctrl)}, bus, &metrics.NopDeploys{}, state, fs.NewLocalFileSystem(), db)
 			req := ReconciliationRequest{Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "first"}
 			if scenario == "prepare failure" {
 				require.Error(t, r.Reconcile(ctx, req))
@@ -128,11 +129,11 @@ func TestAcceptedServiceRemovalPrecedesDockerFailureWithPruneDisabled(t *testing
 	require.NoError(t, err)
 	require.NoError(t, bus.Subscribe(events.TypeNameServiceRemovedFromDesired, "alert-management", hist))
 	service := deployment.NewService(db, bus)
-	previous, err := service.StartIfChanged(t.Context(), "app", "previous", compose.File{
+	previous, err := deployments.NewService(db, bus).StartIfChanged(t.Context(), "app", "previous", compose.File{
 		Compose: compose.Compose{Services: compose.Services{
 			{Name: "api", Image: "example/api:1"}, {Name: "worker", Image: "example/worker:1"},
 		}},
-	}, true)
+	}, true, service.ProjectInterruption)
 	require.NoError(t, err)
 	require.NoError(t, service.Succeed(t.Context(), previous.ID, model.Stack{}))
 
@@ -150,7 +151,7 @@ func TestAcceptedServiceRemovalPrecedesDockerFailureWithPruneDisabled(t *testing
 			return deployer.Result{}, assert.AnError
 		})
 	cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(dir, "data")}}
-	reconciler := New(cfg, git, docker, &swarm.Swarm{
+	reconciler := New(cfg, git, deployments.NewService(db, bus), docker, &swarm.Swarm{
 		Services: swarm.NewMockServiceManager(ctrl), Configs: swarm.NewMockConfigManager(ctrl),
 		Secrets: swarm.NewMockSecretManager(ctrl),
 	}, bus, &metrics.NopDeploys{}, state, fs.NewLocalFileSystem(), db)
@@ -179,11 +180,11 @@ func TestRejectedDesiredStateDoesNotPublishServiceRemoval(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, bus.Subscribe(events.TypeNameServiceRemovedFromDesired, "alert-management", hist))
 			service := deployment.NewService(db, bus)
-			previous, err := service.StartIfChanged(t.Context(), "app", "previous", compose.File{
+			previous, err := deployments.NewService(db, bus).StartIfChanged(t.Context(), "app", "previous", compose.File{
 				Compose: compose.Compose{Services: compose.Services{
 					{Name: "api", Image: "example/api:1"}, {Name: "worker", Image: "example/worker:1"},
 				}},
-			}, true)
+			}, true, service.ProjectInterruption)
 			require.NoError(t, err)
 			require.NoError(t, service.Succeed(t.Context(), previous.ID, model.Stack{}))
 
@@ -195,7 +196,7 @@ func TestRejectedDesiredStateDoesNotPublishServiceRemoval(t *testing.T) {
 			cfg := &config.Config{Spec: config.Spec{
 				DataDir: filepath.Join(dir, "data"), Sync: config.SyncSpec{Policy: testCase.policy},
 			}}
-			reconciler := New(cfg, git, deployer.NewMockStackDeployer(ctrl), &swarm.Swarm{
+			reconciler := New(cfg, git, deployments.NewService(db, bus), deployer.NewMockStackDeployer(ctrl), &swarm.Swarm{
 				Services: swarm.NewMockServiceManager(ctrl), Configs: swarm.NewMockConfigManager(ctrl),
 				Secrets: swarm.NewMockSecretManager(ctrl),
 			}, bus, &metrics.NopDeploys{}, state, fs.NewLocalFileSystem(), db)
@@ -225,7 +226,7 @@ func TestReconcileRecoversFailedResultPersistenceInSameProcess(t *testing.T) {
 	git.EXPECT().WorkingDir().Return(dir).AnyTimes()
 	require.NoError(t, writeComposeFile(dir))
 	cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(dir, "data")}}
-	r := New(cfg, git, docker, &swarm.Swarm{
+	r := New(cfg, git, deployments.NewService(db, bus), docker, &swarm.Swarm{
 		Services: services, Configs: swarm.NewMockConfigManager(ctrl), Secrets: swarm.NewMockSecretManager(ctrl),
 	}, bus, &metrics.NopDeploys{}, state, fs.NewLocalFileSystem(), db)
 	docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
@@ -278,7 +279,7 @@ func TestReconcileRecoversInterruptedCompletionConflictAndAppliesCorrectedDesire
 	git.EXPECT().WorkingDir().Return(dir).AnyTimes()
 	require.NoError(t, writeComposeFile(dir))
 	cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(dir, "data")}}
-	r := New(cfg, git, docker, &swarm.Swarm{
+	r := New(cfg, git, deployments.NewService(db, bus), docker, &swarm.Swarm{
 		Services: services, Configs: swarm.NewMockConfigManager(ctrl), Secrets: swarm.NewMockSecretManager(ctrl),
 	}, bus, &metrics.NopDeploys{}, state, fs.NewLocalFileSystem(), db)
 	docker.EXPECT().DeployStack(gomock.Any(), "app", gomock.Any(), gomock.Any(), gomock.Any()).DoAndReturn(
@@ -330,9 +331,9 @@ func TestReconcileRecoversSucceededCompletionConflictWithoutContradictoryOutcome
 	require.NoError(t, bus.Subscribe(events.TypeNameDeployFailed, "failed-history", hist))
 	require.NoError(t, bus.Subscribe(events.TypeNameDeploySuccess, "success-history", hist))
 	service := deployment.NewService(db, bus)
-	first, err := service.StartIfChanged(ctx, "app", "first", compose.File{
+	first, err := deployments.NewService(db, bus).StartIfChanged(ctx, "app", "first", compose.File{
 		Compose: compose.Compose{Services: compose.Services{{Name: "api", Image: "nginx:1"}}},
-	}, true)
+	}, true, service.ProjectInterruption)
 	require.NoError(t, err)
 	require.NoError(t, service.Succeed(ctx, first.ID, model.Stack{LastCommit: "first"}))
 
@@ -345,7 +346,7 @@ func TestReconcileRecoversSucceededCompletionConflictWithoutContradictoryOutcome
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "app.yaml"),
 		[]byte("services:\n  api:\n    image: nginx:2\n"), 0o600))
 	cfg := &config.Config{Spec: config.Spec{DataDir: filepath.Join(dir, "data")}}
-	r := New(cfg, git, docker, &swarm.Swarm{
+	r := New(cfg, git, deployments.NewService(db, bus), docker, &swarm.Swarm{
 		Services: services, Configs: swarm.NewMockConfigManager(ctrl), Secrets: swarm.NewMockSecretManager(ctrl),
 	}, bus, &metrics.NopDeploys{}, state, fs.NewLocalFileSystem(), db)
 	r.pending["app"] = pendingCompletion{
@@ -425,7 +426,9 @@ func TestPendingFailureRecoveryPreservesTemporaryClassification(t *testing.T) {
 				require.NoError(t, bus.Subscribe(typ, "history", hist))
 				service := deployment.NewService(db, bus)
 				file := compose.File{Compose: compose.Compose{Services: compose.Services{{Name: "api", Image: "api:1"}}}}
-				attempt, err := service.StartIfChanged(ctx, "app", "commit", file, true)
+				attempt, err := deployments.NewService(db, bus).StartIfChanged(
+					ctx, "app", "commit", file, true, service.ProjectInterruption,
+				)
 				require.NoError(t, err)
 				r := &Reconciler{db: db, stateStore: state, event: bus, deployments: service,
 					deployMetrics: &metrics.NopDeploys{}, pending: map[string]pendingCompletion{}}

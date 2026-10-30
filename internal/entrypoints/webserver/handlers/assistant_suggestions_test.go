@@ -16,6 +16,7 @@ import (
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	alertmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	alertstore "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/outbox"
@@ -240,8 +241,11 @@ func createSuccessfulDeployment(
 	commit string,
 ) {
 	t.Helper()
-	service := deployment.NewService(db, eventbus.NewOutboxDispatcher(outbox.New(db)))
-	attempt, err := service.StartIfChanged(t.Context(), stack, commit, file, true)
+	publisher := eventbus.NewOutboxDispatcher(outbox.New(db))
+	service := deployment.NewService(db, publisher)
+	attempt, err := deployments.NewService(db, publisher).StartIfChanged(
+		t.Context(), stack, commit, file, true, service.ProjectInterruption,
+	)
 	require.NoError(t, err)
 	require.NotNil(t, attempt)
 	require.NoError(t, service.Succeed(t.Context(), attempt.ID, gitopsmodel.Stack{}))

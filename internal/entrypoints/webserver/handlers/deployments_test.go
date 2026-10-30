@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	eventbus "github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
@@ -27,9 +28,11 @@ func TestDeploymentAPIReadsAttemptsWithoutHistory(t *testing.T) {
 	db, err := storage.OpenSQLite(ctx, t.TempDir())
 	require.NoError(t, err)
 	defer db.Close()
-	svc := deployment.NewService(db, eventbus.NewOutboxDispatcher(outbox.New(db)))
+	publisher := eventbus.NewOutboxDispatcher(outbox.New(db))
+	svc := deployment.NewService(db, publisher)
+	creation := deployments.NewService(db, publisher)
 	replicas := uint64(3)
-	attempt, err := svc.StartIfChanged(ctx, "app", "sha", compose.File{Compose: compose.Compose{Services: compose.Services{{
+	attempt, err := creation.StartIfChanged(ctx, "app", "sha", compose.File{Compose: compose.Compose{Services: compose.Services{{
 		Name: "api", Image: "image:1",
 		Command:     compose.NewCommand([]string{"sh", "-c", "app --password api-command-secret"}),
 		Healthcheck: &compose.ServiceHealth{Test: compose.NewCommand([]string{"CMD-SHELL", "check health-secret"})},
@@ -44,7 +47,7 @@ func TestDeploymentAPIReadsAttemptsWithoutHistory(t *testing.T) {
 		Name: "batch", Image: "batch:1", Deploy: compose.ServiceDeploy{Mode: "replicated-job", Extra: map[string]interface{}{
 			"max_concurrent": 2, "total_completions": 5,
 		}},
-	}}}}, true)
+	}}}}, true, svc.ProjectInterruption)
 	require.NoError(t, err)
 	h := &handler{deployments: deploymentstore.NewStore(db)}
 	response, err := h.ListDeployments(ctx, generated.ListDeploymentsParams{Stack: []string{"app"}})
@@ -172,7 +175,7 @@ func TestDeploymentFiltersUsesAllRecordedStacks(t *testing.T) {
 	require.NoError(t, err)
 	defer db.Close()
 	h := &handler{deployments: deploymentstore.NewStore(db)}
-	service := deployment.NewService(db, eventbus.NewOutboxDispatcher(outbox.New(db)))
+	creation := deployments.NewService(db, eventbus.NewOutboxDispatcher(outbox.New(db)))
 	for _, tc := range []struct {
 		stack   string
 		commit  string
@@ -181,9 +184,9 @@ func TestDeploymentFiltersUsesAllRecordedStacks(t *testing.T) {
 		{stack: "zeta", commit: "one", service: "api"},
 		{stack: "alpha", commit: "two", service: "worker"},
 	} {
-		_, err := service.StartIfChanged(ctx, tc.stack, tc.commit, compose.File{Compose: compose.Compose{
+		_, err := creation.StartIfChanged(ctx, tc.stack, tc.commit, compose.File{Compose: compose.Compose{
 			Services: compose.Services{{Name: tc.service, Image: "image:1"}},
-		}}, true)
+		}}, true, nil)
 		require.NoError(t, err)
 	}
 	filters, err := h.GetDeploymentFilters(ctx)

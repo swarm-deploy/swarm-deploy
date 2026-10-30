@@ -105,11 +105,7 @@ func (r *Reconciler) attachPipeline() {
 
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "start deployment",
-		Run: func(ctx context.Context, p *pipelinePayload) error {
-			attempt, err := r.deployments.StartIfChanged(ctx, p.Stack.Name, p.Commit, *p.Desired, p.IsNewDigest)
-			p.Attempt = attempt
-			return err
-		},
+		Run:  r.startDeployment,
 	})
 	r.pipeline.Add(pipe.Step[*pipelinePayload]{
 		Name: "deploy stack",
@@ -152,6 +148,15 @@ func (r *Reconciler) attachPipeline() {
 		}),
 		Run: r.verifySelfHeal,
 	})
+}
+
+func (r *Reconciler) startDeployment(ctx context.Context, payload *pipelinePayload) error {
+	attempt, err := r.creation.StartIfChanged(
+		ctx, payload.Stack.Name, payload.Commit, *payload.Desired, payload.IsNewDigest,
+		r.deployments.ProjectInterruption,
+	)
+	payload.Attempt = attempt
+	return err
 }
 
 func (r *Reconciler) populateEnvironment(_ context.Context, payload *pipelinePayload) error {

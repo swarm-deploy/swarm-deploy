@@ -19,6 +19,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
@@ -78,6 +79,7 @@ func TestReconcileUpdatesStateOnSuccess(t *testing.T) {
 	}
 	reconciler.db = db
 	reconciler.deployments = deployment.NewService(db, reconciler.event)
+	reconciler.creation = deployments.NewService(db, reconciler.event)
 	reconciler.attachPipeline()
 
 	err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -140,6 +142,7 @@ func TestReconcileUpdatesStateOnFailure(t *testing.T) {
 	}
 	reconciler.db = db
 	reconciler.deployments = deployment.NewService(db, reconciler.event)
+	reconciler.creation = deployments.NewService(db, reconciler.event)
 	reconciler.attachPipeline()
 
 	err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -233,6 +236,7 @@ func TestReconcileSeparatesPostApplyOutcomes(t *testing.T) {
 			}
 			reconciler.db = db
 			reconciler.deployments = deployment.NewService(db, eventDispatcher)
+			reconciler.creation = deployments.NewService(db, eventDispatcher)
 			reconciler.attachPipeline()
 			err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
 				Stack: config.StackSpec{Name: "app", ComposeFile: "app.yaml"}, Commit: "commit",
@@ -338,6 +342,7 @@ secrets:
 	}
 	reconciler.db = db
 	reconciler.deployments = deployment.NewService(db, reconciler.event)
+	reconciler.creation = deployments.NewService(db, reconciler.event)
 	reconciler.attachPipeline()
 
 	err := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -407,6 +412,7 @@ func TestReconcileReadsPreviousDigestFromStateStore(t *testing.T) {
 	}
 	reconciler.db = db
 	reconciler.deployments = deployment.NewService(db, reconciler.event)
+	reconciler.creation = deployments.NewService(db, reconciler.event)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -515,6 +521,7 @@ configs:
 	}
 	reconciler.db = db
 	reconciler.deployments = deployment.NewService(db, reconciler.event)
+	reconciler.creation = deployments.NewService(db, reconciler.event)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -616,6 +623,7 @@ secrets:
 	}
 	reconciler.db = db
 	reconciler.deployments = deployment.NewService(db, reconciler.event)
+	reconciler.creation = deployments.NewService(db, reconciler.event)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -706,6 +714,7 @@ services:
 	}
 	reconciler.db = db
 	reconciler.deployments = deployment.NewService(db, reconciler.event)
+	reconciler.creation = deployments.NewService(db, reconciler.event)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -782,6 +791,7 @@ services:
 	}
 	reconciler.db = db
 	reconciler.deployments = deployment.NewService(db, reconciler.event)
+	reconciler.creation = deployments.NewService(db, reconciler.event)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -859,6 +869,7 @@ services:
 	}
 	reconciler.db = db
 	reconciler.deployments = deployment.NewService(db, reconciler.event)
+	reconciler.creation = deployments.NewService(db, reconciler.event)
 	reconciler.attachPipeline()
 
 	reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -990,6 +1001,7 @@ func TestReconcilePrunesServicesWithoutNewDeployment(t *testing.T) {
 			}
 			reconciler.db = db
 			reconciler.deployments = deployment.NewService(db, reconciler.event)
+			reconciler.creation = deployments.NewService(db, reconciler.event)
 			reconciler.attachPipeline()
 
 			reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -1088,6 +1100,7 @@ func TestReconcileServiceMissedEventOnDrift(t *testing.T) {
 			}
 			reconciler.db = db
 			reconciler.deployments = deployment.NewService(db, reconciler.event)
+			reconciler.creation = deployments.NewService(db, reconciler.event)
 			reconciler.attachPipeline()
 
 			reconcileErr := reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -1217,6 +1230,7 @@ func TestReconcileSelfHealsMissingService(t *testing.T) {
 			}
 			reconciler.db = db
 			reconciler.deployments = deployment.NewService(db, reconciler.event)
+			reconciler.creation = deployments.NewService(db, reconciler.event)
 			reconciler.attachPipeline()
 
 			err = reconciler.Reconcile(context.Background(), ReconciliationRequest{
@@ -1313,6 +1327,7 @@ func TestReconcileSelfHealsReplicaDriftAfterVerification(t *testing.T) {
 	}
 	reconciler.db = db
 	reconciler.deployments = deployment.NewService(db, reconciler.event)
+	reconciler.creation = deployments.NewService(db, reconciler.event)
 	reconciler.attachPipeline()
 
 	require.NoError(t, reconciler.Reconcile(context.Background(), ReconciliationRequest{

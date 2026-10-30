@@ -14,6 +14,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/configstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
@@ -95,6 +96,7 @@ func New(
 	configStore *configstore.ConfigStore,
 	git gitx.Repository,
 	swarmService *swarm.Swarm,
+	creation *deployments.Service,
 	deployer deployer.StackDeployer,
 	metricGroup *metrics.Group,
 	eventDispatcher dispatcher.Dispatcher,
@@ -116,6 +118,7 @@ func New(
 		stackReconciler: stackloop.NewStackReconciler(
 			cfg,
 			git,
+			creation,
 			deployer,
 			swarmService,
 			eventDispatcher,

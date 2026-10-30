@@ -15,6 +15,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement"
 	alertmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/model"
 	alertstore "github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement/modelstore"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
@@ -190,7 +191,7 @@ func TestImagePolicyViolationLifecycle(t *testing.T) {
 	repoDir := t.TempDir()
 	repository.EXPECT().WorkingDir().Return(repoDir).AnyTimes()
 	require.NoError(t, writeComposeFile(repoDir))
-	reconciler := New(cfg, repository, stackDeployer, &swarm.Swarm{
+	reconciler := New(cfg, repository, deployments.NewService(db, bus), stackDeployer, &swarm.Swarm{
 		Services: serviceManager, Configs: swarm.NewMockConfigManager(ctrl), Secrets: swarm.NewMockSecretManager(ctrl),
 	}, bus, &metrics.NopDeploys{}, state, fs.NewLocalFileSystem(), db)
 
@@ -274,7 +275,7 @@ func TestImagePolicyDisabledPreservesDeployment(t *testing.T) {
 	serviceManager.EXPECT().ListServices(gomock.Any(), swarm.ListServicesFilter{Stack: "app"}).Return([]swarm.StackService{}, nil)
 
 	reconciler := New(&config.Config{Spec: config.Spec{DataDir: filepath.Join(t.TempDir(), "data")}}, repository,
-		stackDeployer, &swarm.Swarm{
+		deployments.NewService(db, bus), stackDeployer, &swarm.Swarm{
 			Services: serviceManager, Configs: swarm.NewMockConfigManager(ctrl), Secrets: swarm.NewMockSecretManager(ctrl),
 		}, bus, &metrics.NopDeploys{}, state, fs.NewLocalFileSystem(), db)
 

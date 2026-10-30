@@ -13,6 +13,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/deployer"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
@@ -33,6 +34,7 @@ import (
 // Reconciler applies a desired stack state to swarm.
 type Reconciler struct {
 	db               storage.Database
+	creation         *deployments.Service
 	deployments      *deployment.Service
 	cfg              *config.Config
 	git              gitx.Repository
@@ -70,6 +72,7 @@ const pruneFailureCode = "prune_failed"
 func New(
 	cfg *config.Config,
 	gitSync gitx.Repository,
+	creation *deployments.Service,
 	stackDeployer deployer.StackDeployer,
 	swarmService *swarm.Swarm,
 	eventDispatcher dispatcher.Dispatcher,
@@ -78,7 +81,7 @@ func New(
 	fileSystem fs.FileSystem,
 	db storage.Database,
 ) *Reconciler {
-	reconciler := &Reconciler{db: db, deployments: deployment.NewService(db, eventDispatcher),
+	reconciler := &Reconciler{db: db, creation: creation, deployments: deployment.NewService(db, eventDispatcher),
 		cfg:              cfg,
 		git:              gitSync,
 		deployer:         stackDeployer,
