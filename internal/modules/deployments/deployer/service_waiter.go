@@ -290,13 +290,14 @@ func (w *ServiceWaiter) observeService(
 
 	requireCurrentGeneration := baseline.ID == "" || baseline.ID != service.ID ||
 		!reflect.DeepEqual(baseline.ServiceSpec.TaskTemplate, service.ServiceSpec.TaskTemplate)
-	cutoff := service.UpdatedAt
-	if baseline.ID == "" || baseline.ID != service.ID {
-		cutoff = service.CreatedAt
+	cutoff, generationPending := taskGenerationCutoff(baseline, service, requireCurrentGeneration)
+	if generationPending {
+		progress.Message = "waiting for current rolling update status"
+		return progress, nil
 	}
 
 	progress.Running = countCurrentRunningTasks(tasks, requireCurrentGeneration, cutoff)
-	if updatePending(service.UpdateStatus, requireCurrentGeneration, service.UpdatedAt) {
+	if updatePending(service.UpdateStatus) {
 		progress.Message = updateProgressMessage(service.UpdateStatus)
 		return progress, nil
 	}
@@ -392,6 +393,24 @@ func countCurrentRunningTasks(tasks []swarm.ServiceTask, requireCurrentGeneratio
 	return count
 }
 
+func taskGenerationCutoff(
+	baseline swarm.StackService,
+	service swarm.StackService,
+	requireCurrentGeneration bool,
+) (time.Time, bool) {
+	if !requireCurrentGeneration {
+		return time.Time{}, false
+	}
+	if baseline.ID == "" || baseline.ID != service.ID {
+		return service.CreatedAt, false
+	}
+	if service.UpdateStatus == nil || service.UpdateStatus.StartedAt.IsZero() ||
+		!service.UpdateStatus.StartedAt.After(baseline.UpdatedAt) {
+		return time.Time{}, true
+	}
+	return service.UpdateStatus.StartedAt, false
+}
+
 func terminalUpdateFailure(status *swarm.ServiceUpdateStatus) (string, bool) {
 	if status == nil {
 		return "", false
@@ -408,7 +427,7 @@ func terminalUpdateFailure(status *swarm.ServiceUpdateStatus) (string, bool) {
 	}
 }
 
-func updatePending(status *swarm.ServiceUpdateStatus, requireCurrentGeneration bool, updatedAt time.Time) bool {
+func updatePending(status *swarm.ServiceUpdateStatus) bool {
 	if status == nil {
 		return false
 	}
@@ -418,7 +437,7 @@ func updatePending(status *swarm.ServiceUpdateStatus, requireCurrentGeneration b
 	case "updating":
 		return true
 	case "completed":
-		return requireCurrentGeneration && !status.CompletedAt.IsZero() && status.CompletedAt.Before(updatedAt)
+		return false
 	default:
 		return true
 	}

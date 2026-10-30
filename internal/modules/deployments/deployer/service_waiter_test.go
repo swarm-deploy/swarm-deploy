@@ -72,9 +72,14 @@ func TestServiceWaiterWaitsForUpdateStatusCompletion(t *testing.T) {
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{service}, nil)
 	manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(testRunningTasks(1, serviceWaitTestTime), nil)
 	completed := service
-	completed.UpdateStatus = &swarm.ServiceUpdateStatus{State: "completed", CompletedAt: serviceWaitTestTime.Add(time.Second)}
+	completed.UpdatedAt = serviceWaitTestTime.Add(2 * time.Second)
+	completed.UpdateStatus = &swarm.ServiceUpdateStatus{
+		State: "completed", StartedAt: serviceWaitTestTime, CompletedAt: serviceWaitTestTime.Add(time.Second),
+	}
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{completed}, nil)
-	manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(testRunningTasks(1, serviceWaitTestTime), nil)
+	manager.EXPECT().ListTasks(gomock.Any(), "api-id").Return(
+		testRunningTasks(1, serviceWaitTestTime.Add(500*time.Millisecond)), nil,
+	)
 
 	err := newTestServiceWaiter(manager).Wait(t.Context(), ServiceWaitRequest{
 		StackName: "app", ServiceNames: []string{"api"}, Baseline: []swarm.StackService{baseline}, OnlyAffected: true,
@@ -229,6 +234,9 @@ func TestServiceWaiterUnchangedUnhealthyServiceDoesNotBlock(t *testing.T) {
 	manager := swarm.NewMockServiceManager(gomock.NewController(t))
 	previousAPI := testReplicatedService("api", "api-id", 1, serviceWaitTestTime.Add(-time.Minute), "api:1")
 	updatedAPI := testReplicatedService("api", "api-id", 1, serviceWaitTestTime, "api:2")
+	updatedAPI.UpdateStatus = &swarm.ServiceUpdateStatus{
+		State: "completed", StartedAt: serviceWaitTestTime, CompletedAt: serviceWaitTestTime.Add(time.Second),
+	}
 	unhealthy := testReplicatedService("worker", "worker-id", 3, serviceWaitTestTime, "worker:1")
 	unhealthy.RunningTasks = 1
 	manager.EXPECT().ListServices(gomock.Any(), gomock.Any()).Return([]swarm.StackService{updatedAPI, unhealthy}, nil)
