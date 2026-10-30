@@ -14,7 +14,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/swarm-deploy/swarm-deploy/internal/config"
 	"github.com/swarm-deploy/swarm-deploy/internal/configstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/deployer"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/healthserver"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/sd"
 	"github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webhookserver"
@@ -22,6 +21,7 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/metrics"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/alertmanagement"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/assistant"
+	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/dispatcher"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/logx"
@@ -80,6 +80,14 @@ var modules = []module{
 		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
 			mod, err := recommendations.InitModule(ctx, cfg, cnt)
 			cnt.Recommendations = mod
+			return err
+		},
+	},
+	{
+		Name: "deployments",
+		Initialize: func(ctx context.Context, cfg *config.Config, cnt *container) error {
+			mod, err := deployments.InitModule(ctx, cfg, cnt)
+			cnt.Deployments = mod
 			return err
 		},
 	},
@@ -170,16 +178,8 @@ func main() {
 	}
 
 	cnt.Swarm = swarm.NewSwarm(dockerClient, cfg.Spec.Swarm.Command)
+	cnt.DockerClient = dockerClient
 	cnt.TaskLogs = logparser.NewService(cnt.Swarm.Services)
-	cnt.Deployer = deployer.NewDeployer(
-		cfg.Spec.Swarm.InitJobPollEvery.Value,
-		cfg.Spec.Swarm.InitJobMaxDuration.Value,
-		dockerClient,
-		cnt.GetSwarm(),
-		metricsGroup.Deploys,
-		deployer.NewSecretResolver(cnt.GetFileSystem(),
-			deployer.NewAgeDecoder(cfg.Spec.SecretRotation.Age.IdentityFile.Content), deployer.PlaintextDecoder{}),
-	)
 
 	for _, mod := range modules {
 		slog.InfoContext(ctx, "[main] initializing module", slog.Any("module", mod.Name))
@@ -334,16 +334,20 @@ type module struct {
 
 type container struct {
 	// Storage owns the shared database and transactor.
-	Storage         storage.Database
+	Storage storage.Database
+	// DockerClient is the shared Docker API client.
+	DockerClient *client.Client
+
 	FileSystem      fs.FileSystem
 	Metrics         *metrics.Group
 	Swarm           *swarm.Swarm
 	TaskLogs        *logparser.Service
 	EventDispatcher dispatcher.Dispatcher
-	Deployer        deployer.StackDeployer
 	ConfigStore     *configstore.ConfigStore
 
-	Event           *event.Module
+	Event *event.Module
+	// Deployments owns deployment execution infrastructure.
+	Deployments     *deployments.Module
 	Resources       *resources.Module
 	GitOps          *gitops.Module
 	Recommendations *recommendations.Module
@@ -353,6 +357,9 @@ type container struct {
 
 // GetStorage returns the shared application database.
 func (c *container) GetStorage() storage.Database { return c.Storage }
+
+// GetDockerClient returns the shared Docker API client.
+func (c *container) GetDockerClient() *client.Client { return c.DockerClient }
 
 func (c *container) GetFileSystem() fs.FileSystem {
 	return c.FileSystem
@@ -382,6 +389,11 @@ func (c *container) GetResourcesModule() *resources.Module {
 	return c.Resources
 }
 
+// GetDeploymentsModule returns the initialized Deployments module.
+func (c *container) GetDeploymentsModule() *deployments.Module {
+	return c.Deployments
+}
+
 func (c *container) GetGitOpsModule() *gitops.Module {
 	return c.GitOps
 }
@@ -393,8 +405,4 @@ func (c *container) GetRecommendationsModule() *recommendations.Module {
 // GetAlertManagementModule returns the initialized Alert Management module.
 func (c *container) GetAlertManagementModule() *alertmanagement.Module {
 	return c.AlertManagement
-}
-
-func (c *container) GetDeployer() deployer.StackDeployer {
-	return c.Deployer
 }
