@@ -35,9 +35,21 @@ type Service struct {
 	now    func() time.Time
 }
 
+// ServiceOption configures a deployment service.
+type ServiceOption func(*Service)
+
+// WithClock overrides the deployment service clock.
+func WithClock(now func() time.Time) ServiceOption {
+	return func(service *Service) { service.now = now }
+}
+
 // NewService creates a deployment creation service using the shared transaction infrastructure.
-func NewService(db storage.Database, publisher Publisher) *Service {
-	return &Service{db: db, store: deploymentstore.NewStore(db), events: publisher, now: time.Now}
+func NewService(db storage.Database, publisher Publisher, options ...ServiceOption) *Service {
+	service := &Service{db: db, store: deploymentstore.NewStore(db), events: publisher, now: time.Now}
+	for _, option := range options {
+		option(service)
+	}
+	return service
 }
 
 // StartIfChanged creates an attempt before the caller begins external apply.
@@ -245,8 +257,10 @@ func (s *Service) comparisonBasis(
 	return baseline, deploymentmodel.BasisSuccessfulBaseline, id, err
 }
 
-// InterruptAttempt persists an interruption and publishes it in the caller's transaction.
-// The projection callback, when present, runs after lifecycle persistence and before publication.
+// InterruptAttempt persists an interruption and publishes it in the caller's existing transaction.
+// The caller must provide a context carrying that transaction; this method does not open one.
+// The projection callback, when present, runs after lifecycle persistence and before publication,
+// so persistence, projection, and publication remain atomic.
 func (s *Service) InterruptAttempt(
 	ctx context.Context,
 	attempt deploymentmodel.Attempt,

@@ -29,9 +29,12 @@ type testServices struct {
 }
 
 func newTestServices(db storage.Database, publisher Publisher) *testServices {
+	service := NewService(db, publisher)
 	return &testServices{
-		Service:  NewService(db, publisher),
-		creation: deployments.NewService(db, publisher),
+		Service: service,
+		creation: deployments.NewService(db, publisher, deployments.WithClock(func() time.Time {
+			return service.now()
+		})),
 	}
 }
 
@@ -43,6 +46,10 @@ func (s *testServices) StartIfChanged(
 	sourceChanged bool,
 ) (*deploymentmodel.Attempt, error) {
 	return s.creation.StartIfChanged(ctx, stack, commit, file, sourceChanged, s.ProjectInterruption)
+}
+
+func TestErrInconsistentDeploymentUsesCanonicalError(t *testing.T) {
+	assert.ErrorIs(t, ErrInconsistentDeployment, deployments.ErrInconsistentDeployment)
 }
 
 func desired(image string) compose.File {
@@ -527,6 +534,10 @@ func TestListUsesCursorSummaries(t *testing.T) {
 		attempt, startErr := service.StartIfChanged(ctx, "app", string(rune('a'+i)), desired(image), true)
 		require.NoError(t, startErr)
 		require.NoError(t, service.Succeed(ctx, attempt.ID, model.Stack{}))
+		completed, getErr := deploymentstore.NewStore(db).Get(ctx, attempt.DeploymentID)
+		require.NoError(t, getErr)
+		require.NotNil(t, completed.FinishedAt)
+		assert.False(t, completed.FinishedAt.Before(completed.StartedAt))
 	}
 	store := deploymentstore.NewStore(db)
 	first, err := store.List(ctx, deploymentmodel.ListFilter{Limit: 2})
@@ -566,9 +577,13 @@ func TestListFiltersStatusBeforeCursorPagination(t *testing.T) {
 		require.NoError(t, startErr)
 		if index == 1 {
 			require.NoError(t, service.Succeed(ctx, attempt.ID, model.Stack{}))
-			continue
+		} else {
+			require.NoError(t, service.Fail(ctx, attempt.ID, model.Stack{}, "apply_failed"))
 		}
-		require.NoError(t, service.Fail(ctx, attempt.ID, model.Stack{}, "apply_failed"))
+		completed, getErr := deploymentstore.NewStore(db).Get(ctx, attempt.DeploymentID)
+		require.NoError(t, getErr)
+		require.NotNil(t, completed.FinishedAt)
+		assert.False(t, completed.FinishedAt.Before(completed.StartedAt))
 	}
 
 	store := deploymentstore.NewStore(db)

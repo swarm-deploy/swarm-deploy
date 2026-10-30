@@ -2,7 +2,6 @@ package deployment
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -18,8 +17,8 @@ import (
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
 
-// ErrInconsistentDeployment means controller state disagrees with the persisted deployment.
-var ErrInconsistentDeployment = errors.New("deployment row and payload are inconsistent")
+// ErrInconsistentDeployment aliases the canonical Deployments module error for compatibility.
+var ErrInconsistentDeployment = deployments.ErrInconsistentDeployment
 
 // Publisher only persists domain facts; subscribers run after commit.
 type Publisher interface {
