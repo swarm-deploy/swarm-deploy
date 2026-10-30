@@ -6,10 +6,12 @@ const props = withDefaults(defineProps<{
   disabled?: boolean;
   required?: boolean;
   placeholder?: string;
+  icon?: "path" | "key";
 }>(), {
   disabled: false,
   required: false,
   placeholder: "Path to secret",
+  icon: "path",
 });
 
 const emit = defineEmits<{
@@ -83,8 +85,9 @@ watch(() => props.modelValue, (value) => {
 
 <template>
   <div ref="root" class="create-secret-control path-input" :class="{ 'path-input--disabled': disabled }" @click.self="focusInput()">
-    <span class="path-input-icon" title="Path" aria-hidden="true">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3.5 6.5h6l2 2h9v10h-17z" /></svg>
+    <span class="path-input-icon" :title="icon === 'key' ? 'Key' : 'Path'" aria-hidden="true">
+      <svg v-if="icon === 'key'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="8.5" cy="15.5" r="4" /><path d="m11.5 12.5 8-8m-2 2 2 2m-5 1 2 2" /></svg>
+      <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3.5 6.5h6l2 2h9v10h-17z" /></svg>
     </span>
     <span class="path-input-content">
       <template v-for="(part, index) in parts" :key="index">

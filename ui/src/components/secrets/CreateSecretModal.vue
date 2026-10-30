@@ -339,7 +339,12 @@ onUnmounted(() => document.removeEventListener("keydown", handleEscape));
             No available, controllable Vault or Cloud.ru Secret Manager was discovered. Docker Swarm creation remains available.
           </p>
 
-          <PathInput v-model="path" :disabled="pending || !selectedManager" required />
+          <PathInput
+            v-model="path"
+            :disabled="pending || !selectedManager"
+            :icon="selectedProviderKind === 'cloudru' ? 'key' : 'path'"
+            required
+          />
 
           <label v-if="selectedProviderKind === 'vault'" class="create-secret-control">
             <span class="create-secret-control-icon" title="Key" aria-hidden="true">

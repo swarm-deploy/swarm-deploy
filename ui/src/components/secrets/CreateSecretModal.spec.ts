@@ -79,10 +79,12 @@ describe("CreateSecretModal", () => {
 
     expect(wrapper.find('input[aria-label="Key"]').exists()).toBe(true);
     expect(wrapper.find('input[aria-label="Description"]').exists()).toBe(false);
+    expect(wrapper.get(".path-input-icon").attributes("title")).toBe("Path");
 
     await wrapper.get("select").setValue("platform/cloudru-secrets");
     expect(wrapper.find('input[aria-label="Key"]').exists()).toBe(false);
     expect(wrapper.find('input[aria-label="Description"]').exists()).toBe(true);
+    expect(wrapper.get(".path-input-icon").attributes("title")).toBe("Key");
   });
 
   it("shows an unavailable state without disabling Docker Swarm mode", async () => {
