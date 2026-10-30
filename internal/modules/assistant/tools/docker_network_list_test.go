@@ -19,7 +19,7 @@ func TestDockerNetworkListExecute(t *testing.T) {
 	tool := NewDockerNetworkList(networkReader)
 
 	networkReader.EXPECT().
-		List(gomock.Any()).
+		List(gomock.Any(), swarm.ListNetworksFilter{}).
 		Return([]swarm.Network{
 			{
 				Name:       "backend",
@@ -55,7 +55,7 @@ func TestDockerNetworkListExecuteFailsOnInspectError(t *testing.T) {
 	tool := NewDockerNetworkList(networkReader)
 
 	networkReader.EXPECT().
-		List(gomock.Any()).
+		List(gomock.Any(), swarm.ListNetworksFilter{}).
 		Return(nil, errors.New("docker unavailable"))
 
 	_, err := tool.Execute(context.Background(), routing.Request{})

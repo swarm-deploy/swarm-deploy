@@ -22,22 +22,48 @@ func newNetworkManager(dockerClient *client.Client) NetworkManager {
 	}
 }
 
-// List returns current Docker networks snapshot.
-func (m *networkManager) List(ctx context.Context) ([]Network, error) {
+// List returns Docker networks matching the provided filter.
+func (m *networkManager) List(ctx context.Context, filter ListNetworksFilter) ([]Network, error) {
 	networks, err := m.dockerClient.NetworkList(ctx, dockernetwork.ListOptions{
-		Filters: filters.NewArgs(filters.Arg("scope", "swarm")),
+		Filters: buildNetworkListFilters(filter),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("list docker networks: %w", err)
 	}
 
-	mapped := make([]Network, len(networks))
-	for i, network := range networks {
-		mapped[i] = m.mapNetwork(network)
+	mapped := make([]Network, 0, len(networks))
+	for _, network := range networks {
+		mappedNetwork := m.mapNetwork(network)
+		if matchesNetworkListFilter(mappedNetwork, filter) {
+			mapped = append(mapped, mappedNetwork)
+		}
 	}
 	m.sortNetworks(mapped)
 
 	return mapped, nil
+}
+
+func buildNetworkListFilters(filter ListNetworksFilter) filters.Args {
+	filterArgs := make([]filters.KeyValuePair, 0, len(filter.Stacks)+1)
+	filterArgs = append(filterArgs, filters.Arg("scope", "swarm"))
+	if len(filter.Stacks) == 1 {
+		filterArgs = append(filterArgs, filters.Arg("label", stackNamespaceLabelKey+"="+filter.Stacks[0]))
+	}
+
+	return filters.NewArgs(filterArgs...)
+}
+
+func matchesNetworkListFilter(network Network, filter ListNetworksFilter) bool {
+	if len(filter.Stacks) == 0 {
+		return true
+	}
+	for _, stack := range filter.Stacks {
+		if network.Stack == stack {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Map returns current Docker networks snapshot.

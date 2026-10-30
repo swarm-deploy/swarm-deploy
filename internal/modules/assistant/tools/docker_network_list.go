@@ -36,7 +36,7 @@ func (l *DockerNetworkList) Definition() routing.ToolDefinition {
 
 // Execute runs docker_network_list tool.
 func (l *DockerNetworkList) Execute(ctx context.Context, _ routing.Request) (routing.Response, error) {
-	networks, err := l.reader.List(ctx)
+	networks, err := l.reader.List(ctx, swarm.ListNetworksFilter{})
 	if err != nil {
 		return routing.Response{}, fmt.Errorf("list networks: %w", err)
 	}

@@ -114,7 +114,7 @@ type Handler interface {
 	// ListNetworks implements listNetworks operation.
 	//
 	// GET /api/v1/networks
-	ListNetworks(ctx context.Context) (*NetworksResponse, error)
+	ListNetworks(ctx context.Context, params ListNetworksParams) (*NetworksResponse, error)
 	// ListNodes implements listNodes operation.
 	//
 	// GET /api/v1/nodes

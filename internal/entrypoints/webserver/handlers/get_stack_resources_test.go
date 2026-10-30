@@ -36,7 +36,7 @@ func TestGetStackResourcesMetadata(t *testing.T) {
 				secretItems = append(secretItems, swarm.Secret{ID: "sec", Name: "app_password", Labels: owned})
 				configItems = append(configItems, swarm.Config{ID: "cfg-z", Name: "z-config", Labels: owned, Data: []byte("DO_NOT_LEAK")}, swarm.Config{ID: "cfg-a", Name: "a-config", Labels: owned})
 			}
-			networks.EXPECT().List(gomock.Any()).Return(netItems, nil)
+			networks.EXPECT().List(gomock.Any(), swarm.ListNetworksFilter{Stacks: []string{"app"}}).Return(netItems, nil)
 			secrets.EXPECT().List(gomock.Any(), swarm.ListSecretsFilter{StackName: "app"}).Return(secretItems, nil)
 			configs.EXPECT().List(gomock.Any(), swarm.ListConfigsFilter{StackName: "app"}).Return(configItems, nil)
 			h := &handler{
@@ -83,9 +83,9 @@ func TestGetStackResourcesErrors(t *testing.T) {
 			if stage == "unknown stack" {
 				name = "unknown"
 			} else if stage == "networks" {
-				networks.EXPECT().List(gomock.Any()).Return(nil, unavailable)
+				networks.EXPECT().List(gomock.Any(), swarm.ListNetworksFilter{Stacks: []string{name}}).Return(nil, unavailable)
 			} else {
-				networks.EXPECT().List(gomock.Any()).Return(nil, nil)
+				networks.EXPECT().List(gomock.Any(), swarm.ListNetworksFilter{Stacks: []string{name}}).Return(nil, nil)
 				if stage == "secrets" {
 					secrets.EXPECT().List(gomock.Any(), swarm.ListSecretsFilter{StackName: name}).Return(nil, unavailable)
 				} else {

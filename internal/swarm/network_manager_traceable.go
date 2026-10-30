@@ -38,11 +38,13 @@ func (t traceableNetworkManager) Get(ctx context.Context, name string) (Network,
 	return network, nil
 }
 
-func (t traceableNetworkManager) List(ctx context.Context) ([]Network, error) {
-	ctx, span := t.tracer.Start(ctx, "swarm.ListNetworks")
+func (t traceableNetworkManager) List(ctx context.Context, filter ListNetworksFilter) ([]Network, error) {
+	ctx, span := t.tracer.Start(ctx, "swarm.ListNetworks", trace.WithAttributes(
+		tracing.ResourceStackName.StringSlice(filter.Stacks),
+	))
 	defer span.End()
 
-	networks, err := t.networkManager.List(ctx)
+	networks, err := t.networkManager.List(ctx, filter)
 	if err != nil {
 		tracing.FailSpan(span, err)
 		return nil, err

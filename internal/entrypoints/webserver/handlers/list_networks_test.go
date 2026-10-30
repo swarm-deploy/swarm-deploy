@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	generated "github.com/swarm-deploy/swarm-deploy/internal/entrypoints/webserver/generated"
 	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
 	"go.uber.org/mock/gomock"
 )
@@ -21,7 +22,7 @@ func TestHandlerListNetworks(t *testing.T) {
 	}
 
 	networksReader.EXPECT().
-		List(gomock.Any()).
+		List(gomock.Any(), swarm.ListNetworksFilter{Stacks: []string{"app", "infra"}}).
 		Return([]swarm.Network{
 			{
 				ID:         "net-1",
@@ -38,7 +39,9 @@ func TestHandlerListNetworks(t *testing.T) {
 			},
 		}, nil)
 
-	resp, err := h.ListNetworks(context.Background())
+	resp, err := h.ListNetworks(context.Background(), generated.ListNetworksParams{
+		Stack: []string{"app", "infra"},
+	})
 	require.NoError(t, err, "list networks")
 	require.NotNil(t, resp, "response must be set")
 	require.Len(t, resp.Networks, 1, "expected one network")
@@ -57,10 +60,10 @@ func TestHandlerListNetworksReturnsReaderError(t *testing.T) {
 	}
 
 	networksReader.EXPECT().
-		List(gomock.Any()).
+		List(gomock.Any(), swarm.ListNetworksFilter{}).
 		Return(nil, errors.New("unreachable"))
 
-	_, err := h.ListNetworks(context.Background())
+	_, err := h.ListNetworks(context.Background(), generated.ListNetworksParams{})
 	require.Error(t, err, "expected error")
 	assert.Contains(t, err.Error(), "list docker networks", "unexpected error")
 }

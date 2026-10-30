@@ -140,7 +140,7 @@ type Invoker interface {
 	// ListNetworks invokes listNetworks operation.
 	//
 	// GET /api/v1/networks
-	ListNetworks(ctx context.Context) (*NetworksResponse, error)
+	ListNetworks(ctx context.Context, params ListNetworksParams) (*NetworksResponse, error)
 	// ListNodes invokes listNodes operation.
 	//
 	// GET /api/v1/nodes
@@ -2995,12 +2995,12 @@ func (c *Client) sendListEvents(ctx context.Context, params ListEventsParams) (r
 // ListNetworks invokes listNetworks operation.
 //
 // GET /api/v1/networks
-func (c *Client) ListNetworks(ctx context.Context) (*NetworksResponse, error) {
-	res, err := c.sendListNetworks(ctx)
+func (c *Client) ListNetworks(ctx context.Context, params ListNetworksParams) (*NetworksResponse, error) {
+	res, err := c.sendListNetworks(ctx, params)
 	return res, err
 }
 
-func (c *Client) sendListNetworks(ctx context.Context) (res *NetworksResponse, err error) {
+func (c *Client) sendListNetworks(ctx context.Context, params ListNetworksParams) (res *NetworksResponse, err error) {
 	otelAttrs := []attribute.KeyValue{
 		otelogen.OperationID("listNetworks"),
 		semconv.HTTPRequestMethodKey.String("GET"),
@@ -3040,6 +3040,36 @@ func (c *Client) sendListNetworks(ctx context.Context) (res *NetworksResponse, e
 	var pathParts [1]string
 	pathParts[0] = "/api/v1/networks"
 	uri.AddPathParts(u, pathParts[:]...)
+
+	stage = "EncodeQueryParams"
+	q := uri.NewQueryEncoder()
+	{
+		// Encode "stack" parameter.
+		cfg := uri.QueryParameterEncodingConfig{
+			Name:    "stack",
+			Style:   uri.QueryStyleForm,
+			Explode: true,
+		}
+
+		if err := q.EncodeParam(cfg, func(e uri.Encoder) error {
+			if params.Stack != nil {
+				return e.EncodeArray(func(e uri.Encoder) error {
+					for i, item := range params.Stack {
+						if err := func() error {
+							return e.EncodeValue(conv.StringToString(item))
+						}(); err != nil {
+							return errors.Wrapf(err, "[%d]", i)
+						}
+					}
+					return nil
+				})
+			}
+			return nil
+		}); err != nil {
+			return res, errors.Wrap(err, "encode query")
+		}
+	}
+	u.RawQuery = q.Values().Encode()
 
 	stage = "EncodeRequest"
 	r, err := ht.NewRequest(ctx, "GET", u)

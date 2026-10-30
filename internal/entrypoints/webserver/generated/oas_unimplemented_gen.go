@@ -206,7 +206,7 @@ func (UnimplementedHandler) ListEvents(ctx context.Context, params ListEventsPar
 // ListNetworks implements listNetworks operation.
 //
 // GET /api/v1/networks
-func (UnimplementedHandler) ListNetworks(ctx context.Context) (r *NetworksResponse, _ error) {
+func (UnimplementedHandler) ListNetworks(ctx context.Context, params ListNetworksParams) (r *NetworksResponse, _ error) {
 	return r, ht.ErrNotImplemented
 }
 

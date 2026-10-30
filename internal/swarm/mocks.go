@@ -494,18 +494,18 @@ func (mr *MockNetworkManagerMockRecorder) Get(ctx, name any) *gomock.Call {
 }
 
 // List mocks base method.
-func (m *MockNetworkManager) List(ctx context.Context) ([]Network, error) {
+func (m *MockNetworkManager) List(ctx context.Context, filter ListNetworksFilter) ([]Network, error) {
 	m.ctrl.T.Helper()
-	ret := m.ctrl.Call(m, "List", ctx)
+	ret := m.ctrl.Call(m, "List", ctx, filter)
 	ret0, _ := ret[0].([]Network)
 	ret1, _ := ret[1].(error)
 	return ret0, ret1
 }
 
 // List indicates an expected call of List.
-func (mr *MockNetworkManagerMockRecorder) List(ctx any) *gomock.Call {
+func (mr *MockNetworkManagerMockRecorder) List(ctx, filter any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
-	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockNetworkManager)(nil).List), ctx)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "List", reflect.TypeOf((*MockNetworkManager)(nil).List), ctx, filter)
 }
 
 // Map mocks base method.

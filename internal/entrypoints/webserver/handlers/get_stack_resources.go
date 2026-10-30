@@ -19,7 +19,7 @@ func (h *handler) GetStackResources(
 		return nil, withStatusError(http.StatusNotFound, fmt.Errorf("stack %s not found", params.Stack))
 	}
 
-	networks, err := h.networks.List(ctx)
+	networks, err := h.networks.List(ctx, swarm.ListNetworksFilter{Stacks: []string{params.Stack}})
 	if err != nil {
 		return nil, fmt.Errorf("list stack networks: %w", err)
 	}

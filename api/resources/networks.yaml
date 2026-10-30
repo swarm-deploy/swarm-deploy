@@ -2,6 +2,15 @@ paths:
   /api/v1/networks:
     get:
       operationId: listNetworks
+      parameters:
+        - in: query
+          name: stack
+          description: Exact stack names. Multiple values are combined with OR.
+          schema:
+            type: array
+            items:
+              type: string
+              minLength: 1
       responses:
         '200':
           description: Current Docker networks snapshot.

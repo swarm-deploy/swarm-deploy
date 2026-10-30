@@ -5,6 +5,12 @@ import "errors"
 // ErrNetworkNotFound means that network does not exist in docker.
 var ErrNetworkNotFound = errors.New("network not found")
 
+// ListNetworksFilter selects Docker networks by stack ownership.
+type ListNetworksFilter struct {
+	// Stacks contains exact stack names combined with OR.
+	Stacks []string
+}
+
 // Network is a runtime snapshot of Docker network metadata.
 type Network struct {
 	ID string `json:"id"`

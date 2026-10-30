@@ -3773,8 +3773,22 @@ func (s *Server) handleListNetworksRequest(args [0]string, argsEscaped bool, w h
 
 			s.errors.Add(ctx, 1, metric.WithAttributes(attrs...))
 		}
-		err error
+		err          error
+		opErrContext = ogenerrors.OperationContext{
+			Name: ListNetworksOperation,
+			ID:   "listNetworks",
+		}
 	)
+	params, err := decodeListNetworksParams(args, argsEscaped, r)
+	if err != nil {
+		err = &ogenerrors.DecodeParamsError{
+			OperationContext: opErrContext,
+			Err:              err,
+		}
+		defer recordError("DecodeParams", err)
+		s.cfg.ErrorHandler(ctx, w, r, err)
+		return
+	}
 
 	var rawBody []byte
 
@@ -3787,13 +3801,18 @@ func (s *Server) handleListNetworksRequest(args [0]string, argsEscaped bool, w h
 			OperationID:      "listNetworks",
 			Body:             nil,
 			RawBody:          rawBody,
-			Params:           middleware.Parameters{},
-			Raw:              r,
+			Params: middleware.Parameters{
+				{
+					Name: "stack",
+					In:   "query",
+				}: params.Stack,
+			},
+			Raw: r,
 		}
 
 		type (
 			Request  = struct{}
-			Params   = struct{}
+			Params   = ListNetworksParams
 			Response = *NetworksResponse
 		)
 		response, err = middleware.HookMiddleware[
@@ -3803,14 +3822,14 @@ func (s *Server) handleListNetworksRequest(args [0]string, argsEscaped bool, w h
 		](
 			m,
 			mreq,
-			nil,
+			unpackListNetworksParams,
 			func(ctx context.Context, request Request, params Params) (response Response, err error) {
-				response, err = s.h.ListNetworks(ctx)
+				response, err = s.h.ListNetworks(ctx, params)
 				return response, err
 			},
 		)
 	} else {
-		response, err = s.h.ListNetworks(ctx)
+		response, err = s.h.ListNetworks(ctx, params)
 	}
 	if err != nil {
 		defer recordError("Internal", err)
