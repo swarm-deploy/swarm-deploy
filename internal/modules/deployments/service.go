@@ -23,11 +23,10 @@ type Publisher interface {
 	Publish(context.Context, events.Event) error
 }
 
-// InterruptProjector updates a consumer-owned projection for an interrupted deployment.
-// It is called synchronously in the deployment creation transaction.
-type InterruptProjector func(context.Context, deploymentmodel.Deployment) error
+// ProjectionUpdater updates a consumer-owned projection in the active lifecycle transaction.
+type ProjectionUpdater func(context.Context, deploymentmodel.Deployment) error
 
-// Service owns deployment and attempt creation.
+// Service owns deployment and attempt lifecycle persistence.
 type Service struct {
 	db     storage.Database
 	store  *deploymentstore.Store
@@ -61,7 +60,7 @@ func (s *Service) StartIfChanged(
 	commit string,
 	file compose.File,
 	sourceChanged bool,
-	projectInterruption InterruptProjector,
+	projectInterruption ProjectionUpdater,
 ) (*deploymentmodel.Attempt, error) {
 	desired, err := deploymentmodel.Prepare(file)
 	if err != nil {
@@ -85,7 +84,7 @@ func (s *Service) startPrepared(
 	commit string,
 	desired deploymentmodel.Prepared,
 	sourceChanged bool,
-	projectInterruption InterruptProjector,
+	projectInterruption ProjectionUpdater,
 ) (*deploymentmodel.Attempt, error) {
 	latest, latestDesired, err := s.store.Latest(ctx, stack)
 	if errors.Is(err, deploymentstore.ErrNotFound) {
@@ -156,7 +155,7 @@ func (s *Service) startExisting(
 func (s *Service) supersedePrevious(
 	ctx context.Context,
 	latest deploymentmodel.Deployment,
-	projectInterruption InterruptProjector,
+	projectInterruption ProjectionUpdater,
 ) error {
 	if latest.Status != deploymentmodel.Running {
 		return nil
@@ -165,7 +164,7 @@ func (s *Service) supersedePrevious(
 	if err != nil {
 		return err
 	}
-	return s.InterruptAttempt(ctx, attempt, s.now().UTC(), projectInterruption)
+	return s.Complete(ctx, attempt.ID, Completion{Outcome: CompletionProcessInterrupted}, projectInterruption)
 }
 
 func (s *Service) runningAttempt(
@@ -255,41 +254,4 @@ func (s *Service) comparisonBasis(
 	}
 	id, err := s.store.BaselineDeploymentID(ctx, stack)
 	return baseline, deploymentmodel.BasisSuccessfulBaseline, id, err
-}
-
-// InterruptAttempt persists an interruption and publishes it in the caller's existing transaction.
-// The caller must provide a context carrying that transaction; this method does not open one.
-// The projection callback, when present, runs after lifecycle persistence and before publication,
-// so persistence, projection, and publication remain atomic.
-func (s *Service) InterruptAttempt(
-	ctx context.Context,
-	attempt deploymentmodel.Attempt,
-	finishedAt time.Time,
-	projectInterruption InterruptProjector,
-) error {
-	finishedAt = finishedAt.UTC()
-	d, err := s.store.Get(ctx, attempt.DeploymentID)
-	if err != nil {
-		return err
-	}
-	desired, err := s.store.Desired(ctx, d.ID)
-	if err != nil {
-		return err
-	}
-	attempt.Status, attempt.FinishedAt, attempt.ErrorCode = deploymentmodel.Interrupted, &finishedAt, "process_interrupted"
-	attempt.Phase, attempt.ApplyStatus = deploymentmodel.PhaseApply, deploymentmodel.StageUnknown
-	attempt.VerificationStatus, attempt.CleanupStatus = deploymentmodel.StageSkipped, deploymentmodel.StageSkipped
-	attempt.ActualStateStatus, attempt.ObservedAt = deploymentmodel.ActualStateUnknown, nil
-	if err = s.store.FinishAttempt(ctx, d, attempt); err != nil {
-		return err
-	}
-	if projectInterruption != nil {
-		if err = projectInterruption(ctx, d); err != nil {
-			return err
-		}
-	}
-	return s.events.Publish(ctx, &events.DeployInterrupted{
-		DeploymentID: d.ID, AttemptID: attempt.ID, StackName: d.Stack, Commit: d.Commit,
-		Services: desired.Compose.Services, Reason: "process_interrupted",
-	})
 }

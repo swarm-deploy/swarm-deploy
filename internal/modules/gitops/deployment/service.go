@@ -6,14 +6,12 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/swarm-deploy/swarm-deploy/internal/compose"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/deployments"
 	deploymentmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/model"
 	deploymentstore "github.com/swarm-deploy/swarm-deploy/internal/modules/deployments/modelstore"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/event/events"
 	gitopsmodel "github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/model"
 	"github.com/swarm-deploy/swarm-deploy/internal/modules/gitops/modelstore"
-	"github.com/swarm-deploy/swarm-deploy/internal/shared/faults"
 	"github.com/swarm-deploy/swarm-deploy/internal/storage"
 )
 
@@ -26,23 +24,24 @@ type Publisher interface {
 	Publish(context.Context, events.Event) error
 }
 
-// Service commits deployment completion, recovery, runtime state and publication atomically.
-// It never invokes Docker or another module's business service.
+// Service selects deployment outcomes, orchestrates recovery, and projects GitOps runtime state.
 type Service struct {
 	db          storage.Database
 	store       *deploymentstore.Store
 	persistence *deployments.Service
 	runtime     *modelstore.SQLStore
-	events      Publisher
 	now         func() time.Time
 }
 
 // NewService creates the deployment boundary using the shared context transactor.
 func NewService(db storage.Database, publisher Publisher) *Service {
-	return &Service{
-		db: db, store: deploymentstore.NewStore(db), persistence: deployments.NewService(db, publisher),
-		runtime: modelstore.NewSQLStore(db), events: publisher, now: time.Now,
+	service := &Service{
+		db: db, store: deploymentstore.NewStore(db), runtime: modelstore.NewSQLStore(db), now: time.Now,
 	}
+	service.persistence = deployments.NewService(db, publisher, deployments.WithClock(func() time.Time {
+		return service.now()
+	}))
+	return service
 }
 
 // SaveInitJobExecution stores observational Init Job history outside lifecycle completion transactions.
@@ -83,20 +82,15 @@ func newAttempt(deploymentID string, number int, now time.Time) deploymentmodel.
 
 // Succeed commits success, the successful baseline, runtime state and source event atomically.
 func (s *Service) Succeed(ctx context.Context, id string, state gitopsmodel.Stack) error {
-	return s.complete(ctx, id, state, completion{
-		status: deploymentmodel.Succeeded, phase: deploymentmodel.PhaseCompleted,
-		apply: deploymentmodel.StageSucceeded, verification: deploymentmodel.StageSkipped,
-		cleanup: deploymentmodel.StageSucceeded, actual: deploymentmodel.ActualStateUnknown,
+	return s.complete(ctx, id, state, deployments.Completion{
+		Outcome: deployments.CompletionSucceeded,
 	})
 }
 
 // SucceedObserved records a successful apply and a read of live services, not convergence.
 func (s *Service) SucceedObserved(ctx context.Context, id string, state gitopsmodel.Stack, observedAt time.Time) error {
-	return s.complete(ctx, id, state, completion{
-		status: deploymentmodel.Succeeded, phase: deploymentmodel.PhaseCompleted,
-		apply: deploymentmodel.StageSucceeded, verification: deploymentmodel.StageSkipped,
-		cleanup: deploymentmodel.StageSucceeded, actual: deploymentmodel.ActualStateObserved,
-		observedAt: &observedAt,
+	return s.complete(ctx, id, state, deployments.Completion{
+		Outcome: deployments.CompletionSucceeded, ObservedAt: &observedAt,
 	})
 }
 
@@ -121,16 +115,19 @@ func (s *Service) FailApply(ctx context.Context, id string, state gitopsmodel.St
 func (s *Service) FailApplyWithError(
 	ctx context.Context, id string, state gitopsmodel.Stack, code string, cause error,
 ) error {
+	var outcome deployments.CompletionOutcome
 	switch code {
-	case "policy_rejected", "init_failed", "apply_failed":
+	case "policy_rejected":
+		outcome = deployments.CompletionPolicyRejected
+	case "init_failed":
+		outcome = deployments.CompletionInitJobFailed
+	case "apply_failed":
+		outcome = deployments.CompletionApplyFailed
 	default:
 		return fmt.Errorf("unsupported apply failure code")
 	}
-	return s.complete(ctx, id, state, completion{
-		status: deploymentmodel.Failed, code: code,
-		cause: faults.SafeError(cause), phase: deploymentmodel.PhaseApply, apply: deploymentmodel.StageFailed,
-		verification: deploymentmodel.StageSkipped, cleanup: deploymentmodel.StageSkipped,
-		actual: deploymentmodel.ActualStateUnknown,
+	return s.complete(ctx, id, state, deployments.Completion{
+		Outcome: outcome, Diagnostic: cause,
 	})
 }
 
@@ -143,11 +140,8 @@ func (s *Service) InterruptVerification(ctx context.Context, id string, state gi
 func (s *Service) InterruptVerificationWithError(
 	ctx context.Context, id string, state gitopsmodel.Stack, cause error,
 ) error {
-	return s.complete(ctx, id, state, completion{
-		status: deploymentmodel.Interrupted, code: "verification_unknown",
-		cause: faults.SafeError(cause), phase: deploymentmodel.PhaseVerification, apply: deploymentmodel.StageSucceeded,
-		verification: deploymentmodel.StageUnknown, cleanup: deploymentmodel.StageSkipped,
-		actual: deploymentmodel.ActualStateUnknown,
+	return s.complete(ctx, id, state, deployments.Completion{
+		Outcome: deployments.CompletionVerificationInterrupted, Diagnostic: cause,
 	})
 }
 
@@ -165,97 +159,24 @@ func (s *Service) FailCleanupWithError(
 	if code != "prune_failed" {
 		return fmt.Errorf("unsupported cleanup failure code")
 	}
-	return s.complete(ctx, id, state, completion{
-		status: deploymentmodel.Failed, code: code,
-		cause: faults.SafeError(cause), phase: deploymentmodel.PhaseCleanup, apply: deploymentmodel.StageSucceeded,
-		verification: deploymentmodel.StageSkipped, cleanup: deploymentmodel.StageFailed,
-		actual: deploymentmodel.ActualStateObserved, observedAt: &observedAt,
+	return s.complete(ctx, id, state, deployments.Completion{
+		Outcome: deployments.CompletionCleanupFailed, Diagnostic: cause, ObservedAt: &observedAt,
 	})
 }
 
-type completion struct {
-	status       deploymentmodel.Status
-	code         string
-	cause        error
-	phase        deploymentmodel.Phase
-	apply        deploymentmodel.StageStatus
-	verification deploymentmodel.StageStatus
-	cleanup      deploymentmodel.StageStatus
-	actual       deploymentmodel.ActualStateStatus
-	observedAt   *time.Time
-}
-
-func (s *Service) complete(ctx context.Context, id string, state gitopsmodel.Stack, outcome completion) error {
-	return s.db.WithinTransaction(ctx, func(ctx context.Context) error {
-		return s.completeTransaction(ctx, id, state, outcome)
-	})
-}
-
-func (s *Service) completeTransaction(
-	ctx context.Context, id string, state gitopsmodel.Stack, outcome completion,
-) error {
-	state.LastError = outcome.code
-	attempt, err := s.store.GetAttempt(ctx, id)
-	if err != nil {
-		return err
-	}
-	d, err := s.store.Get(ctx, attempt.DeploymentID)
-	if err != nil {
-		return err
-	}
-	if attempt.Status != deploymentmodel.Running ||
-		d.Status != deploymentmodel.Running ||
-		d.LatestAttemptID != attempt.ID {
-		return deploymentstore.ErrNotRunning
-	}
-	desired, err := s.store.Desired(ctx, d.ID)
-	if err != nil {
-		return err
-	}
-	now := s.now().UTC()
-	attempt.Status, attempt.FinishedAt, attempt.ErrorCode = outcome.status, &now, outcome.code
-	attempt.ErrorDiagnostic = faults.SafeDiagnostic(outcome.cause)
-	attempt.Phase, attempt.ApplyStatus = outcome.phase, outcome.apply
-	attempt.VerificationStatus, attempt.CleanupStatus = outcome.verification, outcome.cleanup
-	attempt.ActualStateStatus, attempt.ObservedAt = outcome.actual, outcome.observedAt
-	if err = s.store.FinishAttempt(ctx, d, attempt); err != nil {
-		return err
-	}
-	if outcome.status == deploymentmodel.Succeeded {
-		if err = s.store.SaveBaseline(ctx, d.ID); err != nil {
-			return err
-		}
-	}
-	if err = s.runtime.Update(ctx, func(runtime *gitopsmodel.Runtime) { runtime.Stacks[d.Stack] = state }); err != nil {
-		return err
-	}
-	return s.publishCompletion(ctx, d, attempt, desired, outcome)
-}
-
-func (s *Service) publishCompletion(
+func (s *Service) complete(
 	ctx context.Context,
-	d deploymentmodel.Deployment,
-	attempt deploymentmodel.Attempt,
-	desired compose.File,
-	outcome completion,
+	id string,
+	state gitopsmodel.Stack,
+	completion deployments.Completion,
 ) error {
-	meta := events.DeployEvent{DeploymentID: d.ID, AttemptID: attempt.ID, StackName: d.Stack, Commit: d.Commit,
-		Services: desired.Compose.Services, StackDefinition: desired}
-	switch outcome.status {
-	case deploymentmodel.Succeeded:
-		return s.events.Publish(ctx, &events.DeploySuccess{DeployEvent: meta})
-	case deploymentmodel.Interrupted:
-		return s.events.Publish(ctx, &events.DeployInterrupted{DeploymentID: d.ID, AttemptID: attempt.ID,
-			StackName: d.Stack, Commit: d.Commit, Services: desired.Compose.Services, Reason: outcome.code,
-			Stage: string(outcome.phase), Error: outcome.cause})
-	case deploymentmodel.Failed:
-		return s.events.Publish(ctx, &events.DeployFailed{DeployEvent: meta, Error: outcome.cause,
-			ErrorCode: outcome.code, Stage: string(outcome.phase)})
-	case deploymentmodel.Running, deploymentmodel.Superseded:
-		return fmt.Errorf("unsupported completion status %q", outcome.status)
-	default:
-		return fmt.Errorf("unsupported completion status %q", outcome.status)
+	state.LastError = completion.ErrorCode()
+	project := func(ctx context.Context, deployment deploymentmodel.Deployment) error {
+		return s.runtime.Update(ctx, func(runtime *gitopsmodel.Runtime) {
+			runtime.Stacks[deployment.Stack] = state
+		})
 	}
+	return s.persistence.Complete(ctx, id, completion, project)
 }
 
 // InterruptRunning recovers incomplete attempts at startup without inventing success.
@@ -283,7 +204,6 @@ func (s *Service) interrupt(ctx context.Context, stack string) error {
 			}
 			running = append(running, attempt)
 		}
-		now := s.now().UTC()
 		for _, attempt := range running {
 			synchronized, syncErr := s.store.SynchronizeRunningAttempt(ctx, attempt)
 			if syncErr != nil {
@@ -292,7 +212,7 @@ func (s *Service) interrupt(ctx context.Context, stack string) error {
 			if synchronized {
 				continue
 			}
-			if err = s.interruptOne(ctx, attempt, now); err != nil {
+			if err = s.interruptOne(ctx, attempt); err != nil {
 				return err
 			}
 		}
@@ -311,8 +231,10 @@ func (s *Service) materializeLegacyRunning(
 	return attempt, nil
 }
 
-func (s *Service) interruptOne(ctx context.Context, attempt deploymentmodel.Attempt, now time.Time) error {
-	return s.persistence.InterruptAttempt(ctx, attempt, now, s.ProjectInterruption)
+func (s *Service) interruptOne(ctx context.Context, attempt deploymentmodel.Attempt) error {
+	return s.persistence.Complete(ctx, attempt.ID, deployments.Completion{
+		Outcome: deployments.CompletionProcessInterrupted,
+	}, s.ProjectInterruption)
 }
 
 // ProjectInterruption updates GitOps runtime state for an interrupted deployment.
