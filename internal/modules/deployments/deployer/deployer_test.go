@@ -12,6 +12,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/swarm-deploy/swarm-deploy/internal/compose"
+	"github.com/swarm-deploy/swarm-deploy/internal/swarm"
+	"go.uber.org/mock/gomock"
 )
 
 func TestBuildInitJobNameUsesJobNameAndTime(t *testing.T) {
@@ -32,6 +34,101 @@ func TestBuildInitJobNameUsesFallbackForEmptyJobName(t *testing.T) {
 	assert.True(t, strings.HasPrefix(name, "job-"), "empty job name must fallback to job prefix")
 }
 
+func TestDefaultStackDeployArgsUseDetachedMode(t *testing.T) {
+	args := defaultStackDeployArgs()
+	assert.Contains(t, args, "--detach=true")
+	assert.NotContains(t, args, "--detach=false")
+}
+
+func TestDeployStackWaitsAfterSuccessfulApply(t *testing.T) {
+	waiter := NewMockServiceWaitExecutor(gomock.NewController(t))
+	baseline := []swarm.StackService{{ID: "old-api", Name: "api"}}
+	waiter.EXPECT().Snapshot(gomock.Any(), "demo").Return(baseline, nil)
+	applied := false
+	runner := &fakeRunner{onRun: func([]string) error {
+		applied = true
+		return nil
+	}}
+	waiter.EXPECT().Wait(gomock.Any(), ServiceWaitRequest{
+		StackName: "demo", ServiceNames: []string{"api"}, Baseline: baseline, OnlyAffected: true,
+	}).DoAndReturn(func(context.Context, ServiceWaitRequest) error {
+		assert.True(t, applied, "waiter must run after the detached apply succeeds")
+		return nil
+	})
+	d := &Deployer{
+		secretResolver: newTestSecretResolver(), stackDeployArgs: []string{"stack", "deploy", "--detach=true"},
+		runner: runner, initJobRunner: &fakeInitJobExecutor{}, serviceWaiter: waiter,
+	}
+
+	_, err := d.DeployStack(t.Context(), "demo", "source.yaml", "rendered.yaml", compose.Compose{
+		Services: compose.Services{{Name: "api"}},
+	})
+	require.NoError(t, err)
+}
+
+func TestDeployStackDoesNotReturnBeforeServiceConvergence(t *testing.T) {
+	waiter := NewMockServiceWaitExecutor(gomock.NewController(t))
+	waiter.EXPECT().Snapshot(gomock.Any(), "demo").Return(nil, nil)
+	release := make(chan struct{})
+	waiter.EXPECT().Wait(gomock.Any(), gomock.Any()).DoAndReturn(func(context.Context, ServiceWaitRequest) error {
+		<-release
+		return nil
+	})
+	d := &Deployer{
+		secretResolver: newTestSecretResolver(), stackDeployArgs: []string{"stack", "deploy", "--detach=true"},
+		runner: &fakeRunner{}, initJobRunner: &fakeInitJobExecutor{}, serviceWaiter: waiter,
+	}
+
+	result := make(chan error, 1)
+	go func() {
+		_, err := d.DeployStack(t.Context(), "demo", "source.yaml", "rendered.yaml", compose.Compose{
+			Services: compose.Services{{Name: "api"}},
+		})
+		result <- err
+	}()
+	select {
+	case err := <-result:
+		t.Fatalf("deployment returned before convergence: %v", err)
+	case <-time.After(20 * time.Millisecond):
+	}
+	close(release)
+	require.NoError(t, <-result)
+}
+
+func TestDeployStackPropagatesServiceWaitFailure(t *testing.T) {
+	waitErr := errors.New("service api did not converge")
+	waiter := NewMockServiceWaitExecutor(gomock.NewController(t))
+	waiter.EXPECT().Snapshot(gomock.Any(), "demo").Return(nil, nil)
+	waiter.EXPECT().Wait(gomock.Any(), gomock.Any()).Return(waitErr)
+	d := &Deployer{
+		secretResolver: newTestSecretResolver(), stackDeployArgs: []string{"stack", "deploy", "--detach=true"},
+		runner: &fakeRunner{}, initJobRunner: &fakeInitJobExecutor{}, serviceWaiter: waiter,
+	}
+
+	_, err := d.DeployStack(t.Context(), "demo", "source.yaml", "rendered.yaml", compose.Compose{
+		Services: compose.Services{{Name: "api"}},
+	})
+	require.ErrorIs(t, err, waitErr)
+	assert.ErrorContains(t, err, "wait for stack demo service convergence")
+}
+
+func TestDeployServiceWaitsOnlyForTarget(t *testing.T) {
+	waiter := NewMockServiceWaitExecutor(gomock.NewController(t))
+	baseline := []swarm.StackService{{ID: "api-id", Name: "api"}, {ID: "worker-id", Name: "worker"}}
+	waiter.EXPECT().Snapshot(gomock.Any(), "demo").Return(baseline, nil)
+	waiter.EXPECT().Wait(gomock.Any(), ServiceWaitRequest{
+		StackName: "demo", ServiceNames: []string{"api"}, Baseline: baseline, OnlyAffected: false,
+	}).Return(nil)
+	d := &Deployer{
+		secretResolver: newTestSecretResolver(), stackDeployArgs: []string{"stack", "deploy", "--detach=true"},
+		runner: &fakeRunner{}, initJobRunner: &fakeInitJobExecutor{}, serviceWaiter: waiter,
+	}
+	desired := compose.Compose{Services: compose.Services{{Name: "api"}, {Name: "worker"}}}
+
+	_, err := d.DeployService(t.Context(), "demo", "source.yaml", "api", desired, desired)
+	require.NoError(t, err)
+}
+
 func TestDeployStackRunsInitJobsBeforeDeploy(t *testing.T) {
 	events := make([]string, 0, 4)
 	initJobs := &fakeInitJobExecutor{
@@ -44,6 +141,7 @@ func TestDeployStackRunsInitJobsBeforeDeploy(t *testing.T) {
 		stackDeployArgs: []string{"stack", "deploy", "--prune"},
 		runner:          runner,
 		initJobRunner:   initJobs,
+		serviceWaiter:   newSuccessfulServiceWaiter(t),
 	}
 
 	services := []compose.Service{
@@ -120,6 +218,7 @@ func TestDeployStackStopsWhenInitJobFails(t *testing.T) {
 		stackDeployArgs: []string{"stack", "deploy"},
 		runner:          runner,
 		initJobRunner:   initJobs,
+		serviceWaiter:   newSuccessfulServiceWaiter(t),
 	}
 
 	services := []compose.Service{
@@ -158,6 +257,7 @@ func TestDeployStackDeploysWithoutInitJobs(t *testing.T) {
 		stackDeployArgs: []string{"stack", "deploy"},
 		runner:          runner,
 		initJobRunner:   initJobs,
+		serviceWaiter:   newSuccessfulServiceWaiter(t),
 	}
 
 	services := []compose.Service{
@@ -185,6 +285,7 @@ func TestDeployStackReturnsInitJobResultsWhenDeployCommandFails(t *testing.T) {
 		stackDeployArgs: []string{"stack", "deploy"},
 		runner:          &fakeRunner{err: deployErr},
 		initJobRunner:   &fakeInitJobExecutor{},
+		serviceWaiter:   newSuccessfulServiceWaiter(t),
 	}
 
 	result, err := deployer.DeployStack(context.Background(), "demo", "/tmp/source.yaml", "/tmp/demo.yaml", compose.Compose{
@@ -205,6 +306,7 @@ func TestDeployStackOmitsInitJobResultWhenExecutionNeverStarted(t *testing.T) {
 		stackDeployArgs: []string{"stack", "deploy"},
 		runner:          &fakeRunner{},
 		initJobRunner:   &fakeInitJobExecutor{emptyAt: 1, err: createErr},
+		serviceWaiter:   newSuccessfulServiceWaiter(t),
 	}
 
 	result, err := deployer.DeployStack(context.Background(), "demo", "/tmp/source.yaml", "/tmp/demo.yaml", compose.Compose{
@@ -234,7 +336,7 @@ func TestDeployServiceDeploysOnlyTargetService(t *testing.T) {
 	}}
 	initJobs := &fakeInitJobExecutor{}
 	d := &Deployer{secretResolver: newTestSecretResolver(), stackDeployArgs: []string{"stack", "deploy"},
-		runner: runner, initJobRunner: initJobs}
+		runner: runner, initJobRunner: initJobs, serviceWaiter: newSuccessfulServiceWaiter(t)}
 
 	desired := compose.Compose{
 		Services: compose.Services{
@@ -359,7 +461,7 @@ func TestSingleServiceComposeSelectsServiceNetworks(t *testing.T) {
 
 func TestDeployServiceFailsWhenServiceIsMissing(t *testing.T) {
 	d := &Deployer{secretResolver: newTestSecretResolver(), stackDeployArgs: []string{"stack", "deploy"},
-		runner: &fakeRunner{}, initJobRunner: &fakeInitJobExecutor{}}
+		runner: &fakeRunner{}, initJobRunner: &fakeInitJobExecutor{}, serviceWaiter: newSuccessfulServiceWaiter(t)}
 
 	desired := compose.Compose{Services: compose.Services{{Name: "api"}}}
 	_, err := d.DeployService(context.Background(), "demo", "/tmp/source.yaml", "worker", desired, desired)
@@ -430,4 +532,12 @@ func (e *fakeInitJobExecutor) Run(
 	}
 
 	return execution, nil
+}
+
+func newSuccessfulServiceWaiter(t *testing.T) *MockServiceWaitExecutor {
+	t.Helper()
+	waiter := NewMockServiceWaitExecutor(gomock.NewController(t))
+	waiter.EXPECT().Snapshot(gomock.Any(), gomock.Any()).Return([]swarm.StackService{}, nil).AnyTimes()
+	waiter.EXPECT().Wait(gomock.Any(), gomock.Any()).Return(nil).AnyTimes()
+	return waiter
 }

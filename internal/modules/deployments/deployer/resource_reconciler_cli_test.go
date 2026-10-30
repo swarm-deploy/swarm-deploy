@@ -163,6 +163,7 @@ secrets:
 				stackDeployArgs: []string{"stack", "deploy", "--detach=true", "--resolve-image=never"},
 				runner:          swarmService.BinaryRunner,
 				resources:       newResourceReconciler(swarmService),
+				serviceWaiter:   newSuccessfulServiceWaiter(t),
 			}
 			for range 2 {
 				_, err = deployer.DeployStack(t.Context(), "demo", path, path, desired.Compose)

@@ -22,6 +22,7 @@ type Deployer struct {
 	secretResolver  *SecretResolver
 
 	initJobRunner initJobExecutor
+	serviceWaiter serviceWaitExecutor
 }
 
 type InitJobMetrics interface {
@@ -32,6 +33,13 @@ type InitJobMetrics interface {
 type initJobExecutor interface {
 	// Run executes one init job based on deployment context and job spec.
 	Run(ctx context.Context, spec InitJobSpec) (InitJobResult, error)
+}
+
+type serviceWaitExecutor interface {
+	// Snapshot returns the current services belonging to a stack.
+	Snapshot(ctx context.Context, stackName string) ([]swarm.StackService, error)
+	// Wait blocks until services affected by the apply converge.
+	Wait(ctx context.Context, request ServiceWaitRequest) error
 }
 
 type InitJobSpec struct {
@@ -70,7 +78,7 @@ func NewDeployer(
 	secretResolver *SecretResolver,
 ) StackDeployer {
 	deployer := &Deployer{
-		stackDeployArgs: []string{"stack", "deploy", "--with-registry-auth", "--detach=false", "--quiet"},
+		stackDeployArgs: defaultStackDeployArgs(),
 		runner:          swarmService.BinaryRunner,
 		secretResolver:  secretResolver,
 		resources:       newResourceReconciler(swarmService),
@@ -81,6 +89,11 @@ func NewDeployer(
 			initJobTimeout,
 			initJobMetrics,
 		),
+		serviceWaiter: NewServiceWaiter(
+			swarmService.Services,
+			initJobPoll,
+			defaultServiceWaitTimeout,
+		),
 	}
 
 	tp, tracingEnabled := tracing.GetTracerProvider()
@@ -89,6 +102,10 @@ func NewDeployer(
 	}
 
 	return newTraceableDeployer(tp, deployer)
+}
+
+func defaultStackDeployArgs() []string {
+	return []string{"stack", "deploy", "--with-registry-auth", "--detach=true", "--quiet"}
 }
 
 const binaryTimeout = 2 * time.Minute
@@ -111,7 +128,12 @@ func (d *Deployer) DeployStack(
 		return result, err
 	}
 
-	return result, d.applyCompose(ctx, stackName, deployComposePath)
+	serviceNames := make([]string, 0, len(desired.Services))
+	for _, service := range desired.Services {
+		serviceNames = append(serviceNames, service.Name)
+	}
+
+	return result, d.applyCompose(ctx, stackName, deployComposePath, serviceNames, true)
 }
 
 func (d *Deployer) reconcileResources(
@@ -135,16 +157,33 @@ func (d *Deployer) reconcileResources(
 	return resolved, nil
 }
 
-func (d *Deployer) applyCompose(ctx context.Context, stackName, deployComposePath string) error {
+func (d *Deployer) applyCompose(
+	ctx context.Context,
+	stackName,
+	deployComposePath string,
+	serviceNames []string,
+	onlyAffected bool,
+) error {
+	baseline, err := d.serviceWaiter.Snapshot(ctx, stackName)
+	if err != nil {
+		return err
+	}
+
 	args := make([]string, 0, len(d.stackDeployArgs)+deployArgsExtraCount)
 	args = append(args, d.stackDeployArgs...)
 	args = append(args, "-c", deployComposePath, stackName)
 
-	ctx, cancel := context.WithTimeout(ctx, binaryTimeout)
+	commandCtx, cancel := context.WithTimeout(ctx, binaryTimeout)
 	defer cancel()
 
-	if _, err := d.runner.Run(ctx, args...); err != nil {
+	if _, err = d.runner.Run(commandCtx, args...); err != nil {
 		return fmt.Errorf("deploy stack %s: %w", stackName, err)
+	}
+
+	if err = d.serviceWaiter.Wait(ctx, ServiceWaitRequest{
+		StackName: stackName, ServiceNames: serviceNames, Baseline: baseline, OnlyAffected: onlyAffected,
+	}); err != nil {
+		return fmt.Errorf("wait for stack %s service convergence: %w", stackName, err)
 	}
 
 	return nil
@@ -191,7 +230,7 @@ func (d *Deployer) DeployService(
 		return Result{}, fmt.Errorf("close temporary compose file: %w", err)
 	}
 
-	return Result{}, d.applyCompose(ctx, stackName, targetPath)
+	return Result{}, d.applyCompose(ctx, stackName, targetPath, []string{serviceName}, false)
 }
 
 func singleServiceCompose(desired compose.Compose, serviceName string) (compose.Compose, error) {

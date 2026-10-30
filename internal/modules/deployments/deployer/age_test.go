@@ -164,7 +164,8 @@ func TestReconcileAgeSecretFailuresDoNotReachCLI(t *testing.T) {
 				secrets.EXPECT().Create(gomock.Any(), gomock.Any()).Return("", errors.New("private-marker "+identity.String()))
 			}
 			runner := NewMockRunner(ctrl)
-			d := &Deployer{secretResolver: newTestSecretResolverWithIdentity(tt.key), resources: newResourceReconciler(&swarm.Swarm{Secrets: secrets}), runner: runner}
+			d := &Deployer{secretResolver: newTestSecretResolverWithIdentity(tt.key), resources: newResourceReconciler(&swarm.Swarm{Secrets: secrets}), runner: runner,
+				serviceWaiter: newSuccessfulServiceWaiter(t)}
 			_, err := d.DeployStack(t.Context(), "app", filepath.Join(dir, "compose.yaml"), "unused", compose.Compose{
 				Secrets: compose.Secrets{"password": {File: "password.age", Driver: tt.driver}},
 			})
