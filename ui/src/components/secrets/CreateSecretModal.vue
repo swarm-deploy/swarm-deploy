@@ -566,7 +566,6 @@ onUnmounted(() => {
 .create-secret-form { gap: 11px; overflow-y: auto; padding: 0 20px 18px; }
 .create-secret-tabs { flex: 0 0 auto; gap: 0; margin: 0; }
 .create-secret-tabs :deep(.app-tabs-tab) { flex: 1; justify-content: center; border-bottom-width: 2px; border-radius: 0; padding: 12px 8px 10px; font-size: .82rem; }
-.create-secret-tabs :deep(.app-tabs-tab--active) { color: var(--control-primary); }
 .create-secret-control { position: relative; display: flex; align-items: center; min-width: 0; height: 40px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-input); color: var(--text); }
 .create-secret-control:focus-within { border-color: var(--accent-border); outline: 2px solid var(--accent-focus); outline-offset: 1px; }
 .create-secret-control:has(:user-invalid) { border-color: var(--error); outline-color: var(--error-border); }

@@ -119,7 +119,7 @@ function handleKeydown(event: KeyboardEvent, index: number): void {
   color: var(--control-primary);
 }
 
-:global(:root[data-theme="dark"]) .app-tabs-tab--active {
+:global(:root[data-theme="dark"] .app-tabs-tab--active) {
   color: var(--text);
 }
 </style>
