@@ -5,6 +5,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 
 import { createExternalSecret, createSecret, syncSecretManager } from "../../api/secrets";
 import type { SecretManagerInfo } from "../../api/types";
+import AppTabs from "../common/AppTabs.vue";
 
 type Destination = "docker" | "cloud";
 type ValueMode = "text" | "json";
@@ -59,6 +60,10 @@ const selectedManager = computed(() => availableManagers.value.find((manager) =>
   managerIdentity(manager) === selectedManagerKey.value
 )));
 const selectedProviderKind = computed(() => providerKind(selectedManager.value));
+const destinationTabs = computed(() => [
+  { value: "docker", label: "Docker Swarm", disabled: partialSuccess.value },
+  { value: "cloud", label: "Cloud Secrets", disabled: partialSuccess.value },
+]);
 
 const jsonError = computed(() => {
   if (valueMode.value !== "json" || value.value === "") return "";
@@ -127,7 +132,8 @@ watch(selectedManagerKey, () => {
   }
 });
 
-function setDestination(next: Destination): void {
+function setDestination(next: string): void {
+  if (next !== "docker" && next !== "cloud") return;
   if (pending.value || partialSuccess.value) return;
   destination.value = next;
   errorMessage.value = "";
@@ -228,105 +234,122 @@ onUnmounted(() => document.removeEventListener("keydown", handleEscape));
       </div>
 
       <form class="modal-body create-secret-form" @submit.prevent="submit">
-        <div class="create-secret-segments" role="tablist" aria-label="Secret destination">
-          <button
-            type="button"
-            role="tab"
-            :aria-selected="destination === 'docker'"
-            :class="{ active: destination === 'docker' }"
-            :disabled="partialSuccess"
-            @click="setDestination('docker')"
-          >Docker Swarm</button>
-          <button
-            type="button"
-            role="tab"
-            :aria-selected="destination === 'cloud'"
-            :class="{ active: destination === 'cloud' }"
-            :disabled="partialSuccess"
-            @click="setDestination('cloud')"
-          >Cloud Secrets</button>
-        </div>
+        <AppTabs
+          class="create-secret-tabs"
+          :model-value="destination"
+          :tabs="destinationTabs"
+          label="Secret destination"
+          density="compact"
+          @update:model-value="setDestination"
+        />
 
-        <label v-if="destination === 'docker'" class="create-secret-field">
-          <span>Name <b aria-hidden="true">*</b></span>
-          <input v-model="name" type="text" autocomplete="off" :disabled="pending || partialSuccess" required />
+        <label v-if="destination === 'docker'" class="create-secret-control">
+          <span class="create-secret-control-icon" title="Name" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M4 5.5h9.2L20 12l-6.8 6.5H4z" /><circle cx="8" cy="9.5" r="1" /></svg>
+          </span>
+          <input v-model="name" type="text" autocomplete="off" aria-label="Name" placeholder="Secret name" :disabled="pending || partialSuccess" required />
         </label>
 
         <template v-else>
-          <label class="create-secret-field">
-            <span>Secret Manager <b aria-hidden="true">*</b></span>
-            <select v-model="selectedManagerKey" :disabled="pending || partialSuccess || availableManagers.length === 0" required>
+          <label class="create-secret-control create-secret-manager-control">
+            <span class="create-secret-control-icon" title="Secret Manager" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m12 3 8 5-8 5-8-5z" /><path d="m4 12 8 5 8-5M4 16l8 5 8-5" /></svg>
+            </span>
+            <select v-model="selectedManagerKey" aria-label="Secret Manager" :disabled="pending || partialSuccess || availableManagers.length === 0" required>
               <option v-for="manager in availableManagers" :key="managerIdentity(manager)" :value="managerIdentity(manager)">
                 {{ manager.stack }}/{{ manager.service }} — {{ manager.provider?.name }}
               </option>
             </select>
+            <span class="create-secret-manager-copy" aria-hidden="true">
+              <strong>{{ selectedManager ? managerIdentity(selectedManager) : "Select Secret Manager" }}</strong>
+              <small v-if="selectedManager?.provider?.name">{{ selectedManager.provider.name }}</small>
+            </span>
+            <span class="create-secret-chevron" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="m7 9 5 5 5-5" /></svg>
+            </span>
           </label>
 
           <p v-if="availableManagers.length === 0" class="create-secret-notice create-secret-notice--warning">
             No available, controllable Vault or Cloud.ru Secret Manager was discovered. Docker Swarm creation remains available.
           </p>
 
-          <label class="create-secret-field">
-            <span>Path <b aria-hidden="true">*</b></span>
-            <input v-model="path" type="text" autocomplete="off" :disabled="pending || partialSuccess || !selectedManager" required />
+          <label class="create-secret-control">
+            <span class="create-secret-control-icon" title="Path" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3.5 6.5h6l2 2h9v10h-17z" /></svg>
+            </span>
+            <input v-model="path" type="text" autocomplete="off" aria-label="Path" placeholder="Path to secret" :disabled="pending || partialSuccess || !selectedManager" required />
           </label>
 
-          <label v-if="selectedProviderKind === 'vault'" class="create-secret-field">
-            <span>Key <b aria-hidden="true">*</b></span>
-            <input v-model="key" type="text" autocomplete="off" :disabled="pending || partialSuccess" required />
+          <label v-if="selectedProviderKind === 'vault'" class="create-secret-control">
+            <span class="create-secret-control-icon" title="Key" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="8.5" cy="15.5" r="4" /><path d="m11.5 12.5 8-8m-2 2 2 2m-5 1 2 2" /></svg>
+            </span>
+            <input v-model="key" type="text" autocomplete="off" aria-label="Key" placeholder="Secret key" :disabled="pending || partialSuccess" required />
           </label>
         </template>
 
-        <div class="create-secret-value-heading">
-          <span>Value <b aria-hidden="true">*</b></span>
-          <div class="create-secret-value-tools">
-            <div class="create-secret-mode-toggle" aria-label="Value format">
-              <button type="button" :class="{ active: valueMode === 'text' }" @click="setValueMode('text')">Text</button>
-              <button type="button" :class="{ active: valueMode === 'json' }" @click="setValueMode('json')">JSON</button>
-            </div>
-            <button v-if="valueMode === 'text'" type="button" class="button-ghost create-secret-small-action" @click="revealValue = !revealValue">
-              {{ revealValue ? "Hide" : "Reveal" }}
-            </button>
-            <button v-else type="button" class="button-ghost create-secret-small-action" :disabled="Boolean(jsonError) || value === ''" @click="formatJSON">
-              Format JSON
-            </button>
-          </div>
-        </div>
-        <textarea
-          v-if="valueMode === 'text'"
-          v-model="value"
-          class="create-secret-value"
-          :class="{ 'create-secret-value--masked': !revealValue }"
-          rows="5"
-          spellcheck="false"
-          autocomplete="new-password"
-          :disabled="pending || partialSuccess"
-          aria-label="Secret value"
-          required
-        />
-        <div v-else class="create-secret-json-editor">
-          <pre ref="jsonHighlight" class="create-secret-json-highlight" aria-hidden="true" v-html="highlightedJSON" />
-          <textarea
-            v-model="value"
-            class="create-secret-value create-secret-value--json"
-            rows="5"
-            spellcheck="false"
-            autocomplete="off"
-            :disabled="pending || partialSuccess"
-            aria-label="Secret value"
-            required
-            @scroll="syncJSONScroll"
-          />
-        </div>
-        <p v-if="jsonError" class="create-secret-inline-error">Invalid JSON: {{ jsonError }}</p>
-
-        <label v-if="destination === 'docker' || selectedProviderKind === 'cloudru'" class="create-secret-field">
-          <span>Description <small>optional</small></span>
-          <input v-model="description" type="text" autocomplete="off" :disabled="pending || partialSuccess" />
+        <label v-if="destination === 'docker' || selectedProviderKind === 'cloudru'" class="create-secret-control">
+          <span class="create-secret-control-icon" title="Description" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M5 4h14v16H5zM8 8h8m-8 4h8m-8 4h5" /></svg>
+          </span>
+          <input v-model="description" type="text" autocomplete="off" aria-label="Description" placeholder="Description (optional)" :disabled="pending || partialSuccess" />
         </label>
 
+        <div class="create-secret-editor" :class="{ 'create-secret-editor--error': Boolean(jsonError) }">
+          <div class="create-secret-editor-toolbar">
+            <span class="create-secret-editor-icon" title="Value" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="m8 7-5 5 5 5m8-10 5 5-5 5m-2-13-4 16" /></svg>
+            </span>
+            <div class="create-secret-value-tools">
+              <div class="create-secret-mode-toggle" aria-label="Value format">
+                <button type="button" :class="{ active: valueMode === 'text' }" :aria-pressed="valueMode === 'text'" @click="setValueMode('text')">Text</button>
+                <button type="button" :class="{ active: valueMode === 'json' }" :aria-pressed="valueMode === 'json'" @click="setValueMode('json')">JSON</button>
+              </div>
+              <span class="create-secret-tool-divider" aria-hidden="true" />
+              <button v-if="valueMode === 'text'" type="button" class="create-secret-small-action" @click="revealValue = !revealValue">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" /><circle cx="12" cy="12" r="2.5" /></svg>
+                {{ revealValue ? "Hide" : "Reveal" }}
+              </button>
+              <button v-else type="button" class="create-secret-small-action" :disabled="Boolean(jsonError) || value === ''" @click="formatJSON">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 4h6v2H6v4H4zm16 0h-6v2h4v4h2zM4 20h6v-2H6v-4H4zm16 0h-6v-2h4v-4h2z" /></svg>
+                Format
+              </button>
+            </div>
+          </div>
+          <textarea
+            v-if="valueMode === 'text'"
+            v-model="value"
+            class="create-secret-value"
+            :class="{ 'create-secret-value--masked': !revealValue }"
+            rows="5"
+            spellcheck="false"
+            autocomplete="new-password"
+            :disabled="pending || partialSuccess"
+            aria-label="Value"
+            required
+          />
+          <div v-else class="create-secret-json-editor">
+            <pre ref="jsonHighlight" class="create-secret-json-highlight" aria-hidden="true" v-html="highlightedJSON" />
+            <textarea
+              v-model="value"
+              class="create-secret-value create-secret-value--json"
+              rows="5"
+              spellcheck="false"
+              autocomplete="off"
+              :disabled="pending || partialSuccess"
+              aria-label="Value"
+              :aria-invalid="Boolean(jsonError)"
+              :aria-describedby="jsonError ? 'create-secret-json-error' : undefined"
+              required
+              @scroll="syncJSONScroll"
+            />
+          </div>
+        </div>
+        <p v-if="jsonError" id="create-secret-json-error" class="create-secret-inline-error">Invalid JSON: {{ jsonError }}</p>
+
         <p v-if="destination === 'cloud'" class="create-secret-helper">
-          The secret is created in the external provider first, then synchronized into Docker Swarm.
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 11v6m0-10h.01" /></svg>
+          <span>The secret is created in the external provider first, then synchronized into Docker Swarm.</span>
         </p>
 
         <div v-if="partialSuccess && errorMessage" class="create-secret-notice create-secret-notice--partial" role="alert">
@@ -346,46 +369,70 @@ onUnmounted(() => document.removeEventListener("keydown", handleEscape));
 </template>
 
 <style scoped>
-.create-secret-dialog { width: min(560px, 94vw); }
-.create-secret-form { gap: 9px; }
-.create-secret-segments { display: grid; grid-template-columns: 1fr 1fr; padding: 3px; border: 1px solid var(--border-default); border-radius: 8px; background: var(--surface-muted); }
-.create-secret-segments button, .create-secret-mode-toggle button { border: 0; border-radius: 6px; background: transparent; color: var(--muted); padding: 7px 10px; font-size: .8rem; transform: none; filter: none; }
-.create-secret-segments button.active, .create-secret-mode-toggle button.active { background: var(--surface-selected-strong); color: var(--text); }
-.create-secret-field { display: grid; gap: 5px; color: var(--muted); font-size: .82rem; }
-.create-secret-field > span, .create-secret-value-heading > span { font-weight: 600; }
-.create-secret-field b, .create-secret-value-heading b { color: var(--error); }
-.create-secret-field small { color: var(--muted); font-weight: 400; }
-.create-secret-field input, .create-secret-field select, .create-secret-value { width: 100%; border: 1px solid var(--border-default); border-radius: 8px; background: var(--surface-input); color: var(--text); padding: 9px 11px; font: inherit; }
-.create-secret-field input:focus, .create-secret-field select:focus, .create-secret-value:focus { outline: 2px solid var(--accent-focus); outline-offset: 1px; }
-.create-secret-value-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--muted); font-size: .82rem; }
-.create-secret-value-tools { display: flex; align-items: center; gap: 5px; }
-.create-secret-mode-toggle { display: flex; padding: 2px; border: 1px solid var(--border-default); border-radius: 7px; background: var(--surface-muted); }
-.create-secret-mode-toggle button { padding: 4px 8px; font-size: .74rem; }
-.create-secret-small-action { padding: 5px 8px; border-radius: 7px; font-size: .74rem; }
-.create-secret-value { min-height: 104px; resize: vertical; font-size: .82rem; line-height: 1.4; font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+.create-secret-dialog { width: min(560px, 94vw); display: flex; flex-direction: column; overflow: hidden; }
+.create-secret-form { gap: 11px; overflow-y: auto; padding: 0 20px 18px; }
+.create-secret-tabs { flex: 0 0 auto; gap: 0; margin: 0; }
+.create-secret-tabs :deep(.app-tabs-tab) { flex: 1; justify-content: center; border-bottom-width: 2px; border-radius: 0; padding: 12px 8px 10px; font-size: .82rem; }
+.create-secret-tabs :deep(.app-tabs-tab--active) { color: var(--accent); }
+.create-secret-control { position: relative; display: flex; align-items: center; min-width: 0; height: 40px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-input); color: var(--text); }
+.create-secret-control:focus-within { border-color: var(--accent-border); outline: 2px solid var(--accent-focus); outline-offset: 1px; }
+.create-secret-control:has(:user-invalid) { border-color: var(--error); outline-color: var(--error-border); }
+.create-secret-control-icon { flex: 0 0 auto; width: 42px; display: grid; place-items: center; color: var(--muted); }
+.create-secret-control-icon svg, .create-secret-chevron svg, .create-secret-editor-icon svg { width: 19px; height: 19px; }
+.create-secret-control input { min-width: 0; width: 100%; height: 100%; border: 0; outline: 0; background: transparent; color: var(--text); padding: 0 11px 0 0; font: inherit; font-size: .84rem; }
+.create-secret-control input::placeholder { color: var(--muted); opacity: .88; }
+.create-secret-manager-control { height: 46px; }
+.create-secret-manager-control select { position: absolute; z-index: 2; inset: 0; width: 100%; height: 100%; border: 0; opacity: 0; cursor: pointer; }
+.create-secret-manager-control select:disabled { cursor: not-allowed; }
+.create-secret-manager-copy { min-width: 0; display: grid; flex: 1; gap: 1px; padding-right: 8px; line-height: 1.15; }
+.create-secret-manager-copy strong, .create-secret-manager-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.create-secret-manager-copy strong { font-size: .82rem; font-weight: 500; }
+.create-secret-manager-copy small { color: var(--muted); font-size: .68rem; }
+.create-secret-chevron { width: 36px; display: grid; place-items: center; color: var(--muted); }
+.create-secret-chevron svg { width: 17px; height: 17px; }
+.create-secret-manager-control:has(select:disabled), .create-secret-control:has(input:disabled) { opacity: .58; }
+.create-secret-editor { overflow: hidden; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-input); }
+.create-secret-editor:focus-within { border-color: var(--accent-border); outline: 2px solid var(--accent-focus); outline-offset: 1px; }
+.create-secret-editor--error { border-color: var(--error); }
+.create-secret-editor--error:focus-within { border-color: var(--error); outline-color: var(--error-border); }
+.create-secret-editor-toolbar { min-height: 38px; display: flex; align-items: center; justify-content: space-between; gap: 10px; border-bottom: 1px solid var(--border-default); padding: 0 7px 0 12px; }
+.create-secret-editor-icon { display: grid; place-items: center; color: var(--muted); }
+.create-secret-value-tools { display: flex; align-items: stretch; align-self: stretch; margin-left: auto; }
+.create-secret-mode-toggle { display: flex; align-items: stretch; }
+.create-secret-mode-toggle button, .create-secret-small-action { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--muted); padding: 0 9px; font: inherit; font-size: .74rem; transform: none; filter: none; }
+.create-secret-mode-toggle button:hover:not(:disabled), .create-secret-small-action:hover:not(:disabled) { color: var(--text); background: var(--surface-hover); transform: none; filter: none; }
+.create-secret-mode-toggle button:focus-visible, .create-secret-small-action:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: -2px; }
+.create-secret-mode-toggle button.active { border-bottom-color: var(--accent); color: var(--accent); }
+.create-secret-tool-divider { width: 1px; align-self: center; height: 17px; margin: 0 2px; background: var(--border-default); }
+.create-secret-small-action { display: inline-flex; align-items: center; gap: 5px; }
+.create-secret-small-action svg { width: 15px; height: 15px; }
+.create-secret-value { display: block; width: 100%; min-height: 132px; resize: vertical; border: 0; border-radius: 0; outline: 0; background: transparent; color: var(--text); padding: 11px 13px; font-size: .82rem; line-height: 1.45; font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
 .create-secret-value--masked { -webkit-text-security: disc; }
-.create-secret-json-editor { position: relative; min-height: 104px; }
-.create-secret-json-highlight { position: absolute; z-index: 0; inset: 0; margin: 0; overflow: hidden; border: 1px solid transparent; padding: 9px 11px; color: var(--text); font: inherit; font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: .82rem; line-height: 1.4; tab-size: 2; white-space: pre-wrap; overflow-wrap: anywhere; pointer-events: none; }
+.create-secret-json-editor { position: relative; min-height: 132px; }
+.create-secret-json-highlight { position: absolute; z-index: 0; inset: 0; margin: 0; overflow: hidden; padding: 11px 13px; color: var(--text); font: inherit; font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: .82rem; line-height: 1.45; tab-size: 2; white-space: pre-wrap; overflow-wrap: anywhere; pointer-events: none; }
 .create-secret-value--json { position: relative; z-index: 1; min-height: 132px; background: transparent; color: transparent; caret-color: var(--text); tab-size: 2; overflow-wrap: anywhere; }
 .create-secret-value--json::selection { background: var(--surface-selected-strong); color: transparent; }
 .create-secret-json-highlight :deep(.shj-syn-str) { color: var(--syntax-string); }
 .create-secret-json-highlight :deep(.shj-syn-num), .create-secret-json-highlight :deep(.shj-syn-bool), .create-secret-json-highlight :deep(.shj-syn-type) { color: var(--syntax-number); }
 .create-secret-json-highlight :deep(.shj-syn-var) { color: var(--syntax-variable); }
-.create-secret-helper { margin: 0; color: var(--muted); font-size: .78rem; line-height: 1.4; }
+.create-secret-helper { display: flex; align-items: flex-start; gap: 8px; margin: 1px 2px 0; color: var(--muted); font-size: .76rem; line-height: 1.4; }
+.create-secret-helper svg { flex: 0 0 auto; width: 17px; height: 17px; color: var(--muted); }
 .create-secret-inline-error { margin: -2px 0 0; color: var(--error); font-size: .78rem; overflow-wrap: anywhere; }
-.create-secret-notice { display: grid; gap: 4px; margin: 0; border: 1px solid var(--border-default); border-radius: 8px; padding: 9px 10px; font-size: .78rem; line-height: 1.4; }
-.create-secret-notice--warning { border-color: var(--warning-border); background: var(--warning-muted); color: var(--warning); }
-.create-secret-notice--partial { border-color: var(--warning-border); background: var(--warning-muted); color: var(--text); }
+.create-secret-notice { display: grid; gap: 3px; margin: -2px 2px 0; padding: 0; font-size: .76rem; line-height: 1.4; }
+.create-secret-notice--warning { color: var(--warning); }
+.create-secret-notice--partial { border-left: 2px solid var(--warning-border); color: var(--text); padding-left: 8px; }
 .create-secret-notice--partial span { color: var(--muted); }
 .create-secret-notice code { overflow-wrap: anywhere; }
-.create-secret-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 3px; }
-.create-secret-actions button { padding: 8px 13px; }
+.create-secret-actions { display: flex; justify-content: flex-end; gap: 9px; padding-top: 1px; }
+.create-secret-actions button { min-width: 104px; min-height: 38px; padding: 8px 14px; }
 .create-secret-submit { border-color: var(--accent-border); border-radius: 6px; background: var(--control-primary); font-weight: 600; box-shadow: none; }
 .create-secret-submit:hover:not(:disabled) { background: var(--control-primary-hover); filter: none; }
 .create-secret-submit:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; box-shadow: none; }
 button:disabled, input:disabled, select:disabled, textarea:disabled { cursor: not-allowed; opacity: .58; }
 @media (max-width: 520px) {
-  .create-secret-value-heading { align-items: flex-start; flex-direction: column; gap: 5px; }
-  .create-secret-value-tools { width: 100%; justify-content: space-between; }
+  .create-secret-form { padding-inline: 12px; }
+  .create-secret-editor-toolbar { padding-left: 9px; }
+  .create-secret-mode-toggle button, .create-secret-small-action { padding-inline: 7px; }
+  .create-secret-actions button { min-width: 0; flex: 1; }
 }
 </style>

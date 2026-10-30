@@ -47,10 +47,9 @@ describe("CreateSecretModal", () => {
   it("creates a Docker Swarm secret with the exact multiline payload", async () => {
     const wrapper = mountModal();
     await wrapper.findAll('[role="tab"]')[0].trigger("click");
-    await wrapper.get('input[type="text"]').setValue("app-token");
-    await wrapper.get('textarea[aria-label="Secret value"]').setValue("line one\nline two");
-    const description = wrapper.findAll(".create-secret-field").find((field) => field.text().includes("Description"));
-    await description!.get("input").setValue("Application token");
+    await wrapper.get('input[aria-label="Name"]').setValue("app-token");
+    await wrapper.get('textarea[aria-label="Value"]').setValue("line one\nline two");
+    await wrapper.get('input[aria-label="Description"]').setValue("Application token");
     await wrapper.get("form").trigger("submit");
     await flushPromises();
 
@@ -67,12 +66,12 @@ describe("CreateSecretModal", () => {
 
     expect(wrapper.get('[role="tab"][aria-selected="true"]').text()).toBe("Cloud Secrets");
 
-    expect(wrapper.text()).toContain("Key");
-    expect(wrapper.text()).not.toContain("Description optional");
+    expect(wrapper.find('input[aria-label="Key"]').exists()).toBe(true);
+    expect(wrapper.find('input[aria-label="Description"]').exists()).toBe(false);
 
     await wrapper.get("select").setValue("platform/cloudru-secrets");
-    expect(wrapper.text()).not.toContain("Key *");
-    expect(wrapper.text()).toContain("Description optional");
+    expect(wrapper.find('input[aria-label="Key"]').exists()).toBe(false);
+    expect(wrapper.find('input[aria-label="Description"]').exists()).toBe(true);
   });
 
   it("shows an unavailable state without disabling Docker Swarm mode", async () => {
@@ -82,15 +81,15 @@ describe("CreateSecretModal", () => {
     expect(wrapper.get<HTMLButtonElement>('button[type="submit"]').element.disabled).toBe(true);
 
     await wrapper.findAll('[role="tab"]')[0].trigger("click");
-    expect(wrapper.text()).toContain("Name");
+    expect(wrapper.find('input[aria-label="Name"]').exists()).toBe(true);
   });
 
   it("does not synchronize when external creation fails", async () => {
     vi.mocked(createExternalSecret).mockRejectedValue(new Error("duplicate secret"));
     const wrapper = mountModal();
     await selectCloudMode(wrapper);
-    await wrapper.findAll('input[type="text"]')[0].setValue("production/database");
-    await wrapper.findAll('input[type="text"]')[1].setValue("password");
+    await wrapper.get('input[aria-label="Path"]').setValue("production/database");
+    await wrapper.get('input[aria-label="Key"]').setValue("password");
     await wrapper.get("textarea").setValue("value");
     await wrapper.get("form").trigger("submit");
     await flushPromises();
@@ -103,8 +102,8 @@ describe("CreateSecretModal", () => {
   it("creates externally and then synchronizes", async () => {
     const wrapper = mountModal();
     await selectCloudMode(wrapper);
-    await wrapper.findAll('input[type="text"]')[0].setValue("production/database");
-    await wrapper.findAll('input[type="text"]')[1].setValue("password");
+    await wrapper.get('input[aria-label="Path"]').setValue("production/database");
+    await wrapper.get('input[aria-label="Key"]').setValue("password");
     await wrapper.get("textarea").setValue("literal-value");
     await wrapper.get("form").trigger("submit");
     await flushPromises();
@@ -126,8 +125,8 @@ describe("CreateSecretModal", () => {
       .mockResolvedValueOnce({ created: 1, updated: 0, removed: 0, unchanged: 0 });
     const wrapper = mountModal();
     await selectCloudMode(wrapper);
-    await wrapper.findAll('input[type="text"]')[0].setValue("production/database");
-    await wrapper.findAll('input[type="text"]')[1].setValue("password");
+    await wrapper.get('input[aria-label="Path"]').setValue("production/database");
+    await wrapper.get('input[aria-label="Key"]').setValue("password");
     await wrapper.get("textarea").setValue("literal-value");
     await wrapper.get("form").trigger("submit");
     await flushPromises();
@@ -159,5 +158,26 @@ describe("CreateSecretModal", () => {
     expect(textarea.element.value).toBe(original);
     await wrapper.findAll(".create-secret-small-action")[0].trigger("click");
     expect(textarea.element.value).toBe('{\n  "nested": {\n    "enabled": true\n  }\n}');
+  });
+
+  it("uses accessible names and empty-state placeholders without visible field labels", () => {
+    const wrapper = mountModal();
+
+    expect(wrapper.get('select[aria-label="Secret Manager"]').attributes("required")).toBeDefined();
+    expect(wrapper.get('input[aria-label="Path"]').attributes("placeholder")).toBe("Path to secret");
+    expect(wrapper.get('input[aria-label="Key"]').attributes("placeholder")).toBe("Secret key");
+    expect(wrapper.get('textarea[aria-label="Value"]').attributes("required")).toBeDefined();
+    expect(wrapper.find(".create-secret-field").exists()).toBe(false);
+  });
+
+  it("places the optional Description control before Value", async () => {
+    const wrapper = mountModal();
+    await wrapper.get("select").setValue("platform/cloudru-secrets");
+
+    const description = wrapper.get('input[aria-label="Description"]');
+    const valueEditor = wrapper.get('textarea[aria-label="Value"]');
+    expect(description.attributes("placeholder")).toBe("Description (optional)");
+    expect(description.attributes("required")).toBeUndefined();
+    expect(description.element.compareDocumentPosition(valueEditor.element) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });
