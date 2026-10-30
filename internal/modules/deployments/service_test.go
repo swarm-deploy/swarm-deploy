@@ -3,7 +3,6 @@ package deployments
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,13 +24,13 @@ func desiredServices(names ...string) compose.File {
 	return compose.File{Path: "app.yaml", Digest: "source", Compose: compose.Compose{Services: services}}
 }
 
-func openService(t *testing.T) (storage.Database, *Service, *eventbus.OutboxDispatcher) {
+func openService(t *testing.T, options ...ServiceOption) (storage.Database, *Service, *eventbus.OutboxDispatcher) {
 	t.Helper()
 	db, err := storage.OpenSQLite(t.Context(), t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	bus := eventbus.NewOutboxDispatcher(outbox.New(db))
-	return db, NewService(db, bus), bus
+	return db, NewService(db, bus, options...), bus
 }
 
 func subscribe(t *testing.T, db storage.Database, bus *eventbus.OutboxDispatcher, types ...events.TypeName) {
@@ -72,7 +71,7 @@ func TestStartIfChangedCreatesNoopsAndRetries(t *testing.T) {
 	assert.Nil(t, unchanged)
 
 	require.NoError(t, db.WithinTransaction(t.Context(), func(ctx context.Context) error {
-		return service.InterruptAttempt(ctx, *first, service.now().UTC(), nil)
+		return service.Complete(ctx, first.ID, Completion{Outcome: CompletionProcessInterrupted}, nil)
 	}))
 	retry, err := service.StartIfChanged(t.Context(), "retry", "third", desiredServices("api"), true, nil)
 	require.NoError(t, err)
@@ -125,7 +124,9 @@ func TestStartIfChangedUsesSuccessfulBaselineForSemanticChanges(t *testing.T) {
 		t.Context(), "app", "baseline", desiredServices("api"), true, nil,
 	)
 	require.NoError(t, err)
-	require.NoError(t, succeedAttempt(t.Context(), db, store, *baselineAttempt, service.now().UTC()))
+	require.NoError(t, service.Complete(t.Context(), baselineAttempt.ID, Completion{
+		Outcome: CompletionSucceeded,
+	}, nil))
 
 	target, err := service.StartIfChanged(
 		t.Context(), "app", "target", desiredServices("api", "worker"), true, nil,
@@ -139,7 +140,7 @@ func TestStartIfChangedUsesSuccessfulBaselineForSemanticChanges(t *testing.T) {
 	assert.NotZero(t, stored.Summary.Added)
 
 	require.NoError(t, db.WithinTransaction(t.Context(), func(ctx context.Context) error {
-		return service.InterruptAttempt(ctx, *target, service.now().UTC(), nil)
+		return service.Complete(ctx, target.ID, Completion{Outcome: CompletionProcessInterrupted}, nil)
 	}))
 	retry, err := service.StartIfChanged(
 		t.Context(), "app", "retry", desiredServices("api", "worker"), true, nil,
@@ -198,29 +199,4 @@ func publications(t *testing.T, db storage.Database, eventType events.TypeName) 
 	result, err := outbox.New(db).ListPublications(t.Context(), outbox.ListFilter{EventType: eventType})
 	require.NoError(t, err)
 	return result
-}
-
-func succeedAttempt(
-	ctx context.Context,
-	db storage.Database,
-	store *deploymentstore.Store,
-	attempt deploymentmodel.Attempt,
-	finishedAt time.Time,
-) error {
-	return db.WithinTransaction(ctx, func(ctx context.Context) error {
-		deployment, err := store.Get(ctx, attempt.DeploymentID)
-		if err != nil {
-			return err
-		}
-		attempt.Status = deploymentmodel.Succeeded
-		attempt.FinishedAt = &finishedAt
-		attempt.Phase = deploymentmodel.PhaseCompleted
-		attempt.ApplyStatus = deploymentmodel.StageSucceeded
-		attempt.VerificationStatus = deploymentmodel.StageSkipped
-		attempt.CleanupStatus = deploymentmodel.StageSucceeded
-		if err = store.FinishAttempt(ctx, deployment, attempt); err != nil {
-			return err
-		}
-		return store.SaveBaseline(ctx, deployment.ID)
-	})
 }

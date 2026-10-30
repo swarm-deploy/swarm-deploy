@@ -7,7 +7,8 @@ This file supplements the repository-level `AGENTS.md`.
 The Deployments module owns:
 
 - Deployment and Attempt domain models.
-- Deployment and Attempt creation, retries, and supersession.
+- Deployment and Attempt creation, completion, retries, and supersession.
+- Terminal transition validation, completion diagnostics, and completion domain events.
 - Desired-state snapshots and change comparison.
 - SQLite persistence for deployments and attempts.
 - Successful deployment baselines.
@@ -23,10 +24,12 @@ The module MUST NOT:
 - Depend on GitOps.
 - Perform Git synchronization.
 - Implement GitOps reconciliation or drift detection.
-- Orchestrate deployment completion or reconciliation.
+- Decide deployment completion outcomes or orchestrate reconciliation.
 - Introduce its own transaction infrastructure.
 
-Deployment completion, startup recovery orchestration, and the broader reconciliation lifecycle remain in GitOps.
+GitOps decides when and how a deployment completes. Startup recovery orchestration and the broader reconciliation
+lifecycle remain in GitOps; Deployments persists the selected outcome atomically with consumer-owned projections and
+completion event publication.
 
 ## Persistence Rules
 

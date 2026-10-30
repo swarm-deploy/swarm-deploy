@@ -31,10 +31,8 @@ type testServices struct {
 func newTestServices(db storage.Database, publisher Publisher) *testServices {
 	service := NewService(db, publisher)
 	return &testServices{
-		Service: service,
-		creation: deployments.NewService(db, publisher, deployments.WithClock(func() time.Time {
-			return service.now()
-		})),
+		Service:  service,
+		creation: service.persistence,
 	}
 }
 
