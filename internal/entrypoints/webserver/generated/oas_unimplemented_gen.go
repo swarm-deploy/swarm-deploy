@@ -29,6 +29,20 @@ func (UnimplementedHandler) AssistantChat(ctx context.Context, req *AssistantCha
 	return r, ht.ErrNotImplemented
 }
 
+// CreateExternalSecret implements createExternalSecret operation.
+//
+// POST /api/v1/secret-managers/{stack}/{service}/secrets
+func (UnimplementedHandler) CreateExternalSecret(ctx context.Context, req *CreateExternalSecretRequest, params CreateExternalSecretParams) (r *CreateExternalSecretResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
+// CreateSecret implements createSecret operation.
+//
+// POST /api/v1/secrets
+func (UnimplementedHandler) CreateSecret(ctx context.Context, req *CreateSecretRequest) (r *CreateSecretResponse, _ error) {
+	return r, ht.ErrNotImplemented
+}
+
 // DeleteNodeLabel implements deleteNodeLabel operation.
 //
 // DELETE /api/v1/nodes/{id}/labels/{key}

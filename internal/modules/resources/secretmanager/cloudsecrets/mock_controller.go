@@ -56,6 +56,21 @@ func (mr *MockControllerMockRecorder) Close() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Close", reflect.TypeOf((*MockController)(nil).Close))
 }
 
+// Create mocks base method.
+func (m *MockController) Create(ctx context.Context, req CreateRequest) (CreateResult, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "Create", ctx, req)
+	ret0, _ := ret[0].(CreateResult)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Create indicates an expected call of Create.
+func (mr *MockControllerMockRecorder) Create(ctx, req any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MockController)(nil).Create), ctx, req)
+}
+
 // GetInfo mocks base method.
 func (m *MockController) GetInfo(ctx context.Context) (Info, error) {
 	m.ctrl.T.Helper()
@@ -148,4 +163,48 @@ func (mr *MockcontrollerAPIMockRecorder) Sync(ctx, in any, opts ...any) *gomock.
 	mr.mock.ctrl.T.Helper()
 	varargs := append([]any{ctx, in}, opts...)
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Sync", reflect.TypeOf((*MockcontrollerAPI)(nil).Sync), varargs...)
+}
+
+// MocksecretsAPI is a mock of secretsAPI interface.
+type MocksecretsAPI struct {
+	ctrl     *gomock.Controller
+	recorder *MocksecretsAPIMockRecorder
+	isgomock struct{}
+}
+
+// MocksecretsAPIMockRecorder is the mock recorder for MocksecretsAPI.
+type MocksecretsAPIMockRecorder struct {
+	mock *MocksecretsAPI
+}
+
+// NewMocksecretsAPI creates a new mock instance.
+func NewMocksecretsAPI(ctrl *gomock.Controller) *MocksecretsAPI {
+	mock := &MocksecretsAPI{ctrl: ctrl}
+	mock.recorder = &MocksecretsAPIMockRecorder{mock}
+	return mock
+}
+
+// EXPECT returns an object that allows the caller to indicate expected use.
+func (m *MocksecretsAPI) EXPECT() *MocksecretsAPIMockRecorder {
+	return m.recorder
+}
+
+// Create mocks base method.
+func (m *MocksecretsAPI) Create(ctx context.Context, in *grpcapi.CreateSecretRequest, opts ...grpc.CallOption) (*grpcapi.CreateSecretResponse, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "Create", varargs...)
+	ret0, _ := ret[0].(*grpcapi.CreateSecretResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// Create indicates an expected call of Create.
+func (mr *MocksecretsAPIMockRecorder) Create(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "Create", reflect.TypeOf((*MocksecretsAPI)(nil).Create), varargs...)
 }

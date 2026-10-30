@@ -66,6 +66,8 @@ paths:
     $ref: './resources/secret-managers.yaml#/paths/~1api~1v1~1secret-managers'
   /api/v1/secret-managers/{stack}/{service}/sync:
     $ref: './resources/secret-managers.yaml#/paths/~1api~1v1~1secret-managers~1{stack}~1{service}~1sync'
+  /api/v1/secret-managers/{stack}/{service}/secrets:
+    $ref: './resources/secret-managers.yaml#/paths/~1api~1v1~1secret-managers~1{stack}~1{service}~1secrets'
   /api/v1/stacks/{stack}/services/{service}:
     $ref: './resources/services.yaml#/paths/~1api~1v1~1stacks~1{stack}~1services~1{service}'
   /api/v1/swarm/services:
@@ -168,6 +170,14 @@ components:
       $ref: './resources/secrets.yaml#/components/schemas/SecretsResponse'
     SecretManagersResponse:
       $ref: './resources/secret-managers.yaml#/components/schemas/SecretManagersResponse'
+    CreateSecretRequest:
+      $ref: './resources/secrets.yaml#/components/schemas/CreateSecretRequest'
+    CreateSecretResponse:
+      $ref: './resources/secrets.yaml#/components/schemas/CreateSecretResponse'
+    CreateExternalSecretRequest:
+      $ref: './resources/secret-managers.yaml#/components/schemas/CreateExternalSecretRequest'
+    CreateExternalSecretResponse:
+      $ref: './resources/secret-managers.yaml#/components/schemas/CreateExternalSecretResponse'
     SecretManagerInfo:
       $ref: './resources/secret-managers.yaml#/components/schemas/SecretManagerInfo'
     SecretManagerProvider:
@@ -176,6 +186,8 @@ components:
       $ref: './resources/secret-managers.yaml#/components/schemas/SecretManagerProviderLinks'
     SecretManagerSyncResponse:
       $ref: './resources/secret-managers.yaml#/components/schemas/SecretManagerSyncResponse'
+    SynchronizedSecretIdentity:
+      $ref: './resources/secret-managers.yaml#/components/schemas/SynchronizedSecretIdentity'
     SecretInfo:
       $ref: './resources/secrets.yaml#/components/schemas/SecretInfo'
     SecretDetailsResponse:

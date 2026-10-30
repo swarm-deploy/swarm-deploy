@@ -27,3 +27,13 @@ func (d *Domain) List(ctx context.Context) ([]Info, error) {
 func (d *Domain) Sync(ctx context.Context, stack string, service string) (SyncResult, error) {
 	return d.service.Sync(ctx, stack, service)
 }
+
+// Create creates a secret in a discovered external provider without synchronizing it.
+func (d *Domain) Create(
+	ctx context.Context,
+	stack string,
+	service string,
+	req CreateRequest,
+) (CreateResult, error) {
+	return d.service.Create(ctx, stack, service, req)
+}

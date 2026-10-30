@@ -398,6 +398,17 @@ export interface SecretsResponse {
   secrets: SecretInfo[];
 }
 
+export interface CreateSecretRequest {
+  name: string;
+  value: string;
+  description?: string;
+}
+
+export interface CreateSecretResponse {
+  id: string;
+  name: string;
+}
+
 export interface SecretManagerProvider {
   name: string;
   links?: SecretManagerProviderLinks;
@@ -430,6 +441,24 @@ export interface SecretManagerSyncResponse {
   updated: number;
   removed: number;
   unchanged: number;
+  secret?: SynchronizedSecretIdentity;
+}
+
+export interface SynchronizedSecretIdentity {
+  id: string;
+  name: string;
+}
+
+export interface CreateExternalSecretRequest {
+  path: string;
+  value: string;
+  key?: string;
+  description?: string;
+}
+
+export interface CreateExternalSecretResponse {
+  path: string;
+  manager_url?: string;
 }
 
 export interface SecretDetailsResponse {

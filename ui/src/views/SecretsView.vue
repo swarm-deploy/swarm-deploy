@@ -5,6 +5,7 @@ import { fetchSecretManagers, fetchSecrets, syncSecretManager } from "../api/sec
 import type { SecretInfo, SecretManagerInfo, SecretManagerSyncResponse } from "../api/types";
 import AppTable from "../components/common/AppTable.vue";
 import AppTableEmpty from "../components/common/AppTableEmpty.vue";
+import CreateSecretModal from "../components/secrets/CreateSecretModal.vue";
 import SecretManagerCard from "../components/secrets/SecretManagerCard.vue";
 import { useSecretDetailsStore } from "../stores/secretDetails";
 
@@ -15,6 +16,8 @@ const secretManagers = ref<SecretManagerInfo[]>([]);
 const syncingManager = ref("");
 const managerFeedback = ref<Record<string, { kind: "success" | "error"; message: string }>>({});
 const searchQuery = ref("");
+const createModalOpen = ref(false);
+const createFeedback = ref("");
 const secretDetailsStore = useSecretDetailsStore();
 
 type SortKey = "name" | "description" | "createdAt" | "externalPath" | "externalVersionID";
@@ -180,6 +183,17 @@ async function openSecretDetails(secretName: string) {
   await secretDetailsStore.openSecretDetails(secretName);
 }
 
+async function handleSecretCreated(message?: string) {
+  createModalOpen.value = false;
+  createFeedback.value = message || "";
+  await Promise.all([loadSecrets(), loadSecretManagers()]);
+  if (message) {
+    window.setTimeout(() => {
+      createFeedback.value = "";
+    }, 5000);
+  }
+}
+
 function formatDate(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) {
@@ -196,6 +210,8 @@ function formatDate(value: string): string {
       <h2>Secrets</h2>
     </header>
 
+    <p v-if="createFeedback" class="secrets-create-feedback" role="status">{{ createFeedback }}</p>
+
     <div v-if="cloudSecretManagers.length > 0" class="secret-manager-list">
       <SecretManagerCard
         v-for="manager in cloudSecretManagers"
@@ -209,7 +225,7 @@ function formatDate(value: string): string {
       />
     </div>
 
-    <div class="services-header-actions">
+    <div class="services-header-actions secrets-toolbar-actions">
       <input
         v-model="searchQuery"
         type="search"
@@ -217,6 +233,7 @@ function formatDate(value: string): string {
         placeholder="Search by name, service, description, version, external path..."
         aria-label="Search secrets"
       />
+      <button type="button" class="secrets-create-button" @click="createModalOpen = true">Create Secret</button>
     </div>
 
     <AppTableEmpty v-if="loading && secrets.length === 0" message="Loading..." />
@@ -227,7 +244,7 @@ function formatDate(value: string): string {
 
     <AppTableEmpty v-else-if="filteredSecrets.length === 0" message="No secrets match your search." />
 
-    <AppTable v-else fixed :min-width="showDescriptionColumn ? '900px' : '720px'">
+    <AppTable v-else class="secrets-table" fixed :min-width="showDescriptionColumn ? '900px' : '720px'">
       <template #head>
           <tr>
             <th :aria-sort="ariaSort('name')">
@@ -275,5 +292,22 @@ function formatDate(value: string): string {
             <td>{{ secret.external?.version_id || "n/a" }}</td>
           </tr>
     </AppTable>
+
+    <CreateSecretModal
+      :open="createModalOpen"
+      :managers="secretManagers"
+      @close="createModalOpen = false"
+      @created="handleSecretCreated"
+    />
   </section>
 </template>
+
+<style scoped>
+.secrets-toolbar-actions { width: 100%; max-width: none; align-items: center; justify-content: space-between; gap: 10px; }
+.secrets-toolbar-actions .secrets-search-input { flex: 1 1 360px; max-width: 520px; min-width: 0; }
+.secrets-create-button { flex: 0 0 auto; border-color: var(--accent-border); border-radius: 6px; background: var(--control-primary); padding: 8px 13px; font-weight: 600; box-shadow: none; }
+.secrets-create-button:hover { background: var(--control-primary-hover); filter: none; }
+.secrets-create-button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; box-shadow: none; }
+.secrets-create-feedback { margin: 0; border: 1px solid var(--success-border); border-radius: 8px; background: var(--success-muted); color: var(--success); padding: 8px 10px; font-size: .82rem; }
+.secrets-table :deep(td) { overflow-wrap: anywhere; }
+</style>

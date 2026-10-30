@@ -32,7 +32,7 @@ func TestClientGetInfo(t *testing.T) {
 		NextSyncAt: timestamppb.New(nextSyncAt),
 	}, nil)
 
-	info, err := (&Client{api: api}).GetInfo(context.Background())
+	info, err := (&Client{controller: api}).GetInfo(context.Background())
 
 	require.NoError(t, err)
 	assert.Equal(t, "v0.4.1", info.Version)
@@ -59,8 +59,61 @@ func TestClientSync(t *testing.T) {
 		Unchanged: 4,
 	}, nil)
 
-	result, err := (&Client{api: api}).Sync(context.Background())
+	result, err := (&Client{controller: api}).Sync(context.Background())
 
 	require.NoError(t, err)
 	assert.Equal(t, SyncResult{Created: 1, Updated: 2, Removed: 3, Unchanged: 4}, result)
+}
+
+func TestClientCreate(t *testing.T) {
+	t.Parallel()
+
+	managerURL := "https://vault.example.com/ui/vault/secrets/kv/show/production/database"
+	tests := []struct {
+		name       string
+		managerURL *string
+		expected   CreateResult
+	}{
+		{
+			name:       "manager URL present",
+			managerURL: &managerURL,
+			expected: CreateResult{
+				Path:       "production/database",
+				ManagerURL: managerURL,
+			},
+		},
+		{
+			name:     "manager URL absent",
+			expected: CreateResult{Path: "production/database"},
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctrl := gomock.NewController(t)
+			api := NewMocksecretsAPI(ctrl)
+			request := CreateRequest{
+				Path:        "production/database",
+				Value:       []byte("literal-secret-value"),
+				Key:         "password",
+				Description: "",
+			}
+			api.EXPECT().Create(gomock.Any(), &cloudsecretspb.CreateSecretRequest{
+				Path:        request.Path,
+				Value:       request.Value,
+				Key:         request.Key,
+				Description: request.Description,
+			}).Return(&cloudsecretspb.CreateSecretResponse{
+				Path:       "production/database",
+				ManagerUrl: testCase.managerURL,
+			}, nil)
+
+			result, err := (&Client{secrets: api}).Create(context.Background(), request)
+
+			require.NoError(t, err)
+			assert.Equal(t, testCase.expected, result)
+		})
+	}
 }

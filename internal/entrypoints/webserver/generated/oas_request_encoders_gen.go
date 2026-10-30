@@ -38,6 +38,34 @@ func encodeAssistantChatRequest(
 	return nil
 }
 
+func encodeCreateExternalSecretRequest(
+	req *CreateExternalSecretRequest,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
+func encodeCreateSecretRequest(
+	req *CreateSecretRequest,
+	r *http.Request,
+) error {
+	const contentType = "application/json"
+	e := new(jx.Encoder)
+	{
+		req.Encode(e)
+	}
+	encoded := e.Bytes()
+	ht.SetBody(r, bytes.NewReader(encoded), contentType)
+	return nil
+}
+
 func encodeUpdateNodeLabelRequest(
 	req *NodeLabelUpdateRequest,
 	r *http.Request,
