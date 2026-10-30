@@ -369,7 +369,7 @@ onUnmounted(() => document.removeEventListener("keydown", handleEscape));
 .create-secret-form { gap: 11px; overflow-y: auto; padding: 0 20px 18px; }
 .create-secret-tabs { flex: 0 0 auto; gap: 0; margin: 0; }
 .create-secret-tabs :deep(.app-tabs-tab) { flex: 1; justify-content: center; border-bottom-width: 2px; border-radius: 0; padding: 12px 8px 10px; font-size: .82rem; }
-.create-secret-tabs :deep(.app-tabs-tab--active) { color: var(--accent); }
+.create-secret-tabs :deep(.app-tabs-tab--active) { color: var(--control-primary); }
 .create-secret-control { position: relative; display: flex; align-items: center; min-width: 0; height: 40px; border: 1px solid var(--border-default); border-radius: 6px; background: var(--surface-input); color: var(--text); }
 .create-secret-control:focus-within { border-color: var(--accent-border); outline: 2px solid var(--accent-focus); outline-offset: 1px; }
 .create-secret-control:has(:user-invalid) { border-color: var(--error); outline-color: var(--error-border); }
@@ -398,7 +398,7 @@ onUnmounted(() => document.removeEventListener("keydown", handleEscape));
 .create-secret-mode-toggle button, .create-secret-small-action { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: transparent; color: var(--muted); padding: 0 9px; font: inherit; font-size: .74rem; transform: none; filter: none; }
 .create-secret-mode-toggle button:hover:not(:disabled), .create-secret-small-action:hover:not(:disabled) { color: var(--text); background: var(--surface-hover); transform: none; filter: none; }
 .create-secret-mode-toggle button:focus-visible, .create-secret-small-action:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: -2px; }
-.create-secret-mode-toggle button.active { border-bottom-color: var(--accent); color: var(--accent); }
+.create-secret-mode-toggle button.active { border-bottom-color: var(--control-primary); color: var(--control-primary); }
 .create-secret-tool-divider { width: 1px; align-self: center; height: 17px; margin: 0 2px; background: var(--border-default); }
 .create-secret-small-action { display: inline-flex; align-items: center; gap: 5px; }
 .create-secret-small-action svg { width: 15px; height: 15px; }

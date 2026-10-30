@@ -127,8 +127,8 @@ watch(() => props.modelValue, (value) => {
 .path-input-editor { min-width: 56px; max-width: 100%; height: 100%; flex: 0 0 auto; border: 0; outline: 0; background: transparent; color: var(--text); padding: 0; font: inherit; font-size: .84rem; }
 .path-input-editor--tail { flex-grow: 1; }
 .path-input-editor::placeholder { color: var(--muted); opacity: .88; }
-.path-input-segment { flex: 0 0 auto; border: 0; border-radius: 2px; background: transparent; color: var(--accent-strong); padding: 0; font: inherit; font-size: .84rem; transform: none; filter: none; }
-.path-input-segment:hover:not(:disabled) { color: var(--accent); text-decoration: underline; background: transparent; transform: none; filter: none; }
+.path-input-segment { flex: 0 0 auto; border: 0; border-radius: 2px; background: transparent; color: var(--control-primary); padding: 0; font: inherit; font-size: .84rem; transform: none; filter: none; }
+.path-input-segment:hover:not(:disabled) { color: var(--control-primary-hover); text-decoration: underline; background: transparent; transform: none; filter: none; }
 .path-input-segment:focus-visible { outline: 0; text-decoration: underline; }
 .path-input-segment:disabled { cursor: not-allowed; }
 .path-input-separator { flex: 0 0 auto; margin: 0 7px; color: var(--muted); font-size: .84rem; }
