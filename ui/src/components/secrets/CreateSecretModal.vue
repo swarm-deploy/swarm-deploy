@@ -6,6 +6,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { createExternalSecret, createSecret, syncSecretManager } from "../../api/secrets";
 import type { SecretManagerInfo } from "../../api/types";
 import AppTabs from "../common/AppTabs.vue";
+import PathInput from "./PathInput.vue";
 
 type Destination = "docker" | "cloud";
 type ValueMode = "text" | "json";
@@ -273,12 +274,7 @@ onUnmounted(() => document.removeEventListener("keydown", handleEscape));
             No available, controllable Vault or Cloud.ru Secret Manager was discovered. Docker Swarm creation remains available.
           </p>
 
-          <label class="create-secret-control">
-            <span class="create-secret-control-icon" title="Path" aria-hidden="true">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3.5 6.5h6l2 2h9v10h-17z" /></svg>
-            </span>
-            <input v-model="path" type="text" autocomplete="off" aria-label="Path" placeholder="Path to secret" :disabled="pending || partialSuccess || !selectedManager" required />
-          </label>
+          <PathInput v-model="path" :disabled="pending || partialSuccess || !selectedManager" required />
 
           <label v-if="selectedProviderKind === 'vault'" class="create-secret-control">
             <span class="create-secret-control-icon" title="Key" aria-hidden="true">

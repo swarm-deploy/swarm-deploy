@@ -102,14 +102,14 @@ describe("CreateSecretModal", () => {
   it("creates externally and then synchronizes", async () => {
     const wrapper = mountModal();
     await selectCloudMode(wrapper);
-    await wrapper.get('input[aria-label="Path"]').setValue("production/database");
+    await wrapper.get('input[aria-label="Path"]').setValue("production/demo/database");
     await wrapper.get('input[aria-label="Key"]').setValue("password");
     await wrapper.get("textarea").setValue("literal-value");
     await wrapper.get("form").trigger("submit");
     await flushPromises();
 
     expect(createExternalSecret).toHaveBeenCalledWith("security", "vault-secrets", {
-      path: "production/database",
+      path: "production/demo/database",
       key: "password",
       value: "literal-value",
     });
