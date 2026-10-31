@@ -6,7 +6,6 @@ import (
  "io"
  "os"
  "path/filepath"
- "strings"
 
  "github.com/google/uuid"
 )
@@ -42,12 +41,3 @@ func snapshotCheckout(ctx context.Context, source, root string) (string, error) 
  return target, nil
 }
 
-// snapshotPath rewrites an absolute path under the original checkout into the immutable snapshot.
-func snapshotPath(path, original, snapshot string) (string, error) {
- if path == "" || !filepath.IsAbs(path) { return path, nil }
- rel, err := filepath.Rel(original, path)
- if err != nil || rel == ".." || filepath.IsAbs(rel) || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-  return "", fmt.Errorf("deployment input references file outside checkout: %s", filepath.Base(path))
- }
- return filepath.Join(snapshot, rel), nil
-}
